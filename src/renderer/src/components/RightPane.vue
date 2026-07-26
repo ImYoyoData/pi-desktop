@@ -30,7 +30,7 @@ const tabs: { id: RightTab; label: string }[] = [
         </button>
       </div>
       <button type="button" class="collapse" title="Collapse panel" @click="layout.toggleRightCollapsed()">
-        ›
+        &rsaquo;
       </button>
     </header>
     <div class="body">
