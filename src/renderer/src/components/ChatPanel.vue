@@ -1,32 +1,85 @@
 <script setup lang="ts">
 import { computed, onMounted } from "vue";
+import { NButton, NEmpty, NIcon, NTag, NText } from "naive-ui";
+import { AddOutline, SparklesOutline } from "@vicons/ionicons5";
 import Composer from "@renderer/components/Composer.vue";
 import MessageList from "@renderer/components/MessageList.vue";
 import { useChatStore } from "@renderer/stores/chat";
 import { useSessionsStore } from "@renderer/stores/sessions";
+import { useWorkspaceStore } from "@renderer/stores/workspace";
+import { t } from "@renderer/i18n";
 
 const chat = useChatStore();
 const sessions = useSessionsStore();
+const workspace = useWorkspaceStore();
 
 onMounted(() => {
   chat.bindEvents();
 });
 
+const hasSession = computed(() => Boolean(sessions.activeId));
+
 const running = computed(() => {
   const id = sessions.activeId;
-  if (!id) {
-    return false;
-  }
+  if (!id) return false;
   const row = sessions.sessions.find((s) => s.id === id);
   return chat.activeRunning || row?.status === "running";
 });
+
+const title = computed(() => {
+  if (!sessions.activeId) return "";
+  const row = sessions.sessions.find((s) => s.id === sessions.activeId);
+  if (row?.name?.trim()) return row.name.trim();
+  if (row?.firstMessage?.trim() && row.firstMessage !== "(no messages)") {
+    const t = row.firstMessage.trim();
+    return t.length > 56 ? `${t.slice(0, 53)}…` : t;
+  }
+  return "新会话";
+});
+
+async function onNewAgent(): Promise<void> {
+  let root = workspace.root;
+  if (!root) root = await workspace.openWorkspace();
+  if (!root) return;
+  const created = await sessions.createSession(root);
+  if (created) {
+    chat.hydrateFromHistory(created.id, []);
+  }
+}
 </script>
 
 <template>
   <section class="chat-panel">
-    <header class="head">Chat</header>
-    <MessageList :messages="chat.activeMessages" :running="running" />
-    <Composer />
+    <template v-if="!hasSession">
+      <div class="empty-agent">
+        <NEmpty description="在左侧选择会话，或新建一个来开始。">
+          <template #icon>
+            <NIcon :component="SparklesOutline" :size="28" />
+          </template>
+          <template #extra>
+            <NButton type="primary" @click="onNewAgent">
+              <template #icon>
+                <NIcon :component="AddOutline" />
+              </template>
+              {{ t.newAgent }}
+            </NButton>
+          </template>
+        </NEmpty>
+      </div>
+    </template>
+
+    <template v-else>
+      <header class="head">
+        <NText strong style="flex: 1; min-width: 0" class="title">{{ title }}</NText>
+        <NTag v-if="running" type="success" size="small" round :bordered="false">Pi 运行中</NTag>
+      </header>
+      <MessageList
+        :messages="chat.activeMessages"
+        :streaming="chat.activeStreaming"
+        :running="running"
+      />
+      <Composer />
+    </template>
   </section>
 </template>
 
@@ -36,13 +89,29 @@ const running = computed(() => {
   flex-direction: column;
   height: 100%;
   min-width: 0;
-  background: #fff;
+  background: var(--bg);
 }
 
 .head {
-  padding: 0.5rem 0.75rem;
-  border-bottom: 1px solid #e5e7eb;
-  font-size: 0.8125rem;
-  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 36px;
+  padding: 0 var(--chat-pad-x, 10px);
+  flex-shrink: 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.empty-agent {
+  flex: 1;
+  display: grid;
+  place-items: center;
+  padding: 24px;
 }
 </style>

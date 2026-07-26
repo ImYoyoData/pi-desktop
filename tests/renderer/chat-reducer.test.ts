@@ -13,7 +13,7 @@ describe("reduceChatEvent", () => {
     expect(state.messages[0]).toMatchObject({ role: "user", text: "hello" });
   });
 
-  it("upserts assistant stream text on message_update", () => {
+  it("keeps a single streaming bubble replaced on message_update (pi-web style)", () => {
     let state = createChatState();
     const sessionId = "sess-1";
     state = reduceChatEvent(state, {
@@ -28,6 +28,13 @@ describe("reduceChatEvent", () => {
         },
       },
     });
+    expect(state.messages).toHaveLength(0);
+    expect(state.streamingMessage).toMatchObject({
+      role: "assistant",
+      id: "asst-1",
+      streaming: true,
+    });
+
     state = reduceChatEvent(state, {
       type: "agent_event",
       sessionId,
@@ -38,7 +45,6 @@ describe("reduceChatEvent", () => {
           id: "asst-1",
           content: [{ type: "text", text: "Hel" }],
         },
-        assistantMessageEvent: { type: "text_delta", delta: "Hel" },
       },
     });
     state = reduceChatEvent(state, {
@@ -48,19 +54,17 @@ describe("reduceChatEvent", () => {
         type: "message_update",
         message: {
           role: "assistant",
-          id: "asst-1",
           content: [{ type: "text", text: "Hello" }],
         },
-        assistantMessageEvent: { type: "text_delta", delta: "lo" },
       },
     });
-    expect(state.messages).toHaveLength(1);
-    expect(state.messages[0]).toMatchObject({
+    expect(state.messages).toHaveLength(0);
+    expect(state.streamingMessage).toMatchObject({
       role: "assistant",
-      id: "asst-1",
       text: "Hello",
       streaming: true,
     });
+
     state = reduceChatEvent(state, {
       type: "agent_event",
       sessionId,
@@ -73,7 +77,45 @@ describe("reduceChatEvent", () => {
         },
       },
     });
-    expect(state.messages[0]).toMatchObject({ streaming: false });
+    expect(state.streamingMessage).toBeNull();
+    expect(state.messages).toHaveLength(1);
+    expect(state.messages[0]).toMatchObject({
+      role: "assistant",
+      text: "Hello",
+      streaming: false,
+    });
+  });
+
+  it("appends via text_delta when snapshot empty", () => {
+    let state = createChatState();
+    state = reduceChatEvent(state, {
+      type: "agent_event",
+      sessionId: "s",
+      event: {
+        type: "message_start",
+        message: { role: "assistant", content: [{ type: "text", text: "" }] },
+      },
+    });
+    state = reduceChatEvent(state, {
+      type: "agent_event",
+      sessionId: "s",
+      event: {
+        type: "message_update",
+        message: { role: "assistant", content: [{ type: "text", text: "" }] },
+        assistantMessageEvent: { type: "text_delta", delta: "你" },
+      },
+    });
+    state = reduceChatEvent(state, {
+      type: "agent_event",
+      sessionId: "s",
+      event: {
+        type: "message_update",
+        message: { role: "assistant", content: [{ type: "text", text: "" }] },
+        assistantMessageEvent: { type: "text_delta", delta: "好" },
+      },
+    });
+    expect(state.messages).toHaveLength(0);
+    expect(state.streamingMessage).toMatchObject({ text: "你好" });
   });
 
   it("upserts tool call rows", () => {
@@ -89,8 +131,7 @@ describe("reduceChatEvent", () => {
         args: { path: "foo.txt" },
       },
     });
-    expect(state.messages).toHaveLength(1);
-    expect(state.messages[0]).toMatchObject({
+    expect(state.streamingMessage).toMatchObject({
       role: "tool",
       toolCallId: "tc-1",
       toolName: "read",
@@ -107,6 +148,7 @@ describe("reduceChatEvent", () => {
         isError: false,
       },
     });
+    expect(state.streamingMessage).toBeNull();
     expect(state.messages[0]).toMatchObject({
       streaming: false,
       result: { ok: true },
@@ -133,6 +175,46 @@ describe("reduceChatEvent", () => {
     expect(state.messages.at(-1)).toMatchObject({
       role: "error",
       text: "auth failed",
+    });
+  });
+
+  it("surfaces assistant stopReason error as chat error", () => {
+    let state = createChatState();
+    state = reduceChatEvent(state, {
+      type: "agent_event",
+      sessionId: "s",
+      event: {
+        type: "message_end",
+        message: {
+          role: "assistant",
+          content: [],
+          stopReason: "error",
+          errorMessage: "Invalid API key",
+        },
+      },
+    });
+    expect(state.running).toBe(false);
+    expect(state.messages.at(-1)).toMatchObject({
+      role: "error",
+      text: "Invalid API key",
+    });
+  });
+
+  it("surfaces auto_retry_end failure", () => {
+    let state = createChatState();
+    state = reduceChatEvent(state, {
+      type: "agent_event",
+      sessionId: "s",
+      event: {
+        type: "auto_retry_end",
+        success: false,
+        attempt: 3,
+        finalError: "rate limited",
+      },
+    });
+    expect(state.messages.at(-1)).toMatchObject({
+      role: "error",
+      text: "rate limited",
     });
   });
 });

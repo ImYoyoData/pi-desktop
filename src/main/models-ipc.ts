@@ -1,52 +1,114 @@
 import { ipcMain } from "electron";
 import { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { IpcChannels } from "../shared/protocol";
-import {
-  COMMON_API_KEY_PROVIDERS,
-  type ModelsGetResult,
-  type ModelsSetPayload,
-} from "../shared/models-settings";
+import type { ModelsGetResult, ModelsProviderAuth, ModelsSetPayload } from "../shared/models-settings";
 import type { SessionBroker } from "./session-broker";
 import { getModelsConfigService } from "./models-config";
 
-async function listAvailableModels(): Promise<ModelsGetResult["available"]> {
+/** Providers that use OAuth — handled separately (pi-web /api/auth/all-providers) */
+const OAUTH_PROVIDER_IDS = new Set(["anthropic", "github-copilot", "openai-codex"]);
+
+async function createRuntime(): Promise<ModelRuntime> {
   const { paths } = getModelsConfigService();
-  const runtime = await ModelRuntime.create({
+  return ModelRuntime.create({
     modelsPath: paths.modelsPath,
     authPath: paths.authPath,
   });
+}
+
+async function listAvailableModels(runtime: ModelRuntime): Promise<ModelsGetResult["available"]> {
   const models = await runtime.getAvailable();
-  return models.map((m) => ({
-    provider: m.provider,
-    id: m.id,
-    name: m.name ?? m.id,
-  }));
+  return models
+    .map((m) => ({
+      provider: m.provider,
+      id: m.id,
+      name: m.name ?? m.id,
+    }))
+    .sort((a, b) => {
+      const byProvider = a.provider.localeCompare(b.provider);
+      if (byProvider !== 0) return byProvider;
+      return (a.name || a.id).localeCompare(b.name || b.id, undefined, { numeric: true });
+    });
+}
+
+/**
+ * Built-in API-key providers from Pi SDK (`getProviders`), with real auth status.
+ * `modelCount` is the number of **usable** models (`getAvailable`), not the catalog size.
+ */
+function listApiKeyProviders(
+  runtime: ModelRuntime,
+  available: ModelsGetResult["available"],
+): ModelsProviderAuth[] {
+  const availableCountByProvider = new Map<string, number>();
+  for (const model of available) {
+    availableCountByProvider.set(
+      model.provider,
+      (availableCountByProvider.get(model.provider) ?? 0) + 1,
+    );
+  }
+
+  const seen = new Set<string>();
+  const result: ModelsProviderAuth[] = [];
+
+  for (const provider of runtime.getProviders()) {
+    if (seen.has(provider.id)) continue;
+    seen.add(provider.id);
+    if (OAUTH_PROVIDER_IDS.has(provider.id) || !provider.auth?.apiKey?.login) continue;
+    const status = runtime.getProviderAuthStatus(provider.id);
+    if (status.source === "models_json_key") continue;
+    result.push({
+      id: provider.id,
+      displayName: provider.name || provider.id,
+      configured: status.configured,
+      source: status.source,
+      modelCount: availableCountByProvider.get(provider.id) ?? 0,
+      supportsApiKey: true,
+    });
+  }
+
+  result.sort((a, b) => {
+    if (a.configured !== b.configured) return a.configured ? -1 : 1;
+    return a.displayName.localeCompare(b.displayName);
+  });
+  return result;
 }
 
 export function registerModelsIpc(broker: SessionBroker): void {
   ipcMain.handle(IpcChannels.models.get, async (): Promise<ModelsGetResult> => {
     const service = getModelsConfigService();
-    const [modelsText, apiKeyConfigured, available] = await Promise.all([
+    const runtime = await createRuntime();
+    // getAvailable() refreshes auth-gated availability; modelCount uses this, not catalog size
+    const [modelsText, available] = await Promise.all([
       service.readModelsConfigText(),
-      service.getProviderKeyStatus(),
-      listAvailableModels(),
+      listAvailableModels(runtime),
     ]);
-    return { modelsText, apiKeyConfigured, available };
+    const providers = listApiKeyProviders(runtime, available);
+    const apiKeyConfigured = Object.fromEntries(providers.map((p) => [p.id, p.configured]));
+    return { modelsText, apiKeyConfigured, providers, available };
   });
 
   ipcMain.handle(IpcChannels.models.set, async (_event, payload: ModelsSetPayload) => {
     const service = getModelsConfigService();
     await service.writeModelsConfigText(payload.modelsText);
     if (payload.apiKeys) {
-      for (const provider of COMMON_API_KEY_PROVIDERS) {
-        const key = payload.apiKeys[provider];
-        if (key !== undefined) {
-          await service.setProviderApiKey(provider, key || null);
+      for (const [provider, key] of Object.entries(payload.apiKeys)) {
+        // Only write when user provided a non-empty key (empty = keep existing)
+        if (key?.trim()) {
+          await service.setProviderApiKey(provider, key.trim());
         }
       }
     }
     await broker.notifyWorkersReloadModels();
   });
 
-  ipcMain.handle(IpcChannels.models.test, async () => listAvailableModels());
+  ipcMain.handle(IpcChannels.models.clearKey, async (_event, provider: string) => {
+    const service = getModelsConfigService();
+    await service.setProviderApiKey(provider, null);
+    await broker.notifyWorkersReloadModels();
+  });
+
+  ipcMain.handle(IpcChannels.models.test, async () => {
+    const runtime = await createRuntime();
+    return listAvailableModels(runtime);
+  });
 }

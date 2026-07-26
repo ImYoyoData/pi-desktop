@@ -2,6 +2,11 @@ import type { WebContents } from "electron";
 
 export const SELECT_ELEMENT_CONSOLE_PREFIX = "__PI_ELEMENT__:";
 
+/**
+ * Injected into guest pages. Stores a compact selection on window and only
+ * console.logs a tiny trigger — full outerHTML via console was truncating JSON
+ * and dropping screenshots.
+ */
 export function buildSelectElementScript(): string {
   const prefix = SELECT_ELEMENT_CONSOLE_PREFIX;
   return `(function () {
@@ -60,13 +65,27 @@ export function buildSelectElementScript(): string {
       e.stopPropagation();
       var t = e.target;
       if (!(t instanceof Element)) return;
-      var payload = {
+      t.classList.remove("pi-select-hover-outline");
+      if (hovered === t) hovered = null;
+      var rect = t.getBoundingClientRect();
+      var html = t.outerHTML || "";
+      if (html.length > 4000) html = html.slice(0, 4000) + "<!-- truncated -->";
+      window.__piPendingSelection = {
         url: location.href,
         selector: cssPath(t),
         text: visibleText(t),
-        html: t.outerHTML,
+        html: html,
+        bounds: {
+          x: Math.max(0, Math.floor(rect.left)),
+          y: Math.max(0, Math.floor(rect.top)),
+          width: Math.max(1, Math.ceil(rect.width)),
+          height: Math.max(1, Math.ceil(rect.height)),
+        },
+        dpr: window.devicePixelRatio || 1,
+        vw: window.innerWidth || 0,
+        vh: window.innerHeight || 0,
       };
-      console.log(${JSON.stringify(prefix)} + JSON.stringify(payload));
+      console.log(${JSON.stringify(prefix)} + "ready");
     }
     document.addEventListener("mouseover", onOver, true);
     document.addEventListener("click", onClick, true);
@@ -90,6 +109,14 @@ export function buildRemoveSelectScript(): string {
   })();`;
 }
 
+export function buildReadPendingSelectionScript(): string {
+  return `(function () {
+    var p = window.__piPendingSelection;
+    window.__piPendingSelection = null;
+    return p || null;
+  })();`;
+}
+
 export async function injectSelectMode(webContents: WebContents): Promise<void> {
   await webContents.executeJavaScript(buildSelectElementScript(), true);
 }
@@ -99,5 +126,33 @@ export async function removeSelectMode(webContents: WebContents): Promise<void> 
     await webContents.executeJavaScript(buildRemoveSelectScript(), true);
   } catch {
     // Page may have navigated away.
+  }
+}
+
+export async function readPendingSelection(webContents: WebContents): Promise<{
+  url: string;
+  selector: string;
+  text: string;
+  html: string;
+  bounds?: { x: number; y: number; width: number; height: number };
+  dpr?: number;
+  vw?: number;
+  vh?: number;
+} | null> {
+  try {
+    const result = await webContents.executeJavaScript(buildReadPendingSelectionScript(), true);
+    if (!result || typeof result !== "object") return null;
+    return result as {
+      url: string;
+      selector: string;
+      text: string;
+      html: string;
+      bounds?: { x: number; y: number; width: number; height: number };
+      dpr?: number;
+      vw?: number;
+      vh?: number;
+    };
+  } catch {
+    return null;
   }
 }

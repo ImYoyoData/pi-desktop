@@ -1,4 +1,5 @@
 import path from "node:path";
+import fs from "node:fs";
 import { dialog, ipcMain } from "electron";
 import { IpcChannels } from "../shared/protocol";
 import { resolveWorkspacePath } from "../shared/path-sandbox";
@@ -12,6 +13,14 @@ export function registerPreviewIpc(): void {
       return { kind: "error", message: "Open a workspace folder first" } as const;
     }
     return readPreview(root, filePath);
+  });
+
+  ipcMain.handle(IpcChannels.preview.write, (_event, filePath: string, content: string) => {
+    const root = getWorkspace();
+    if (!root) throw new Error("未打开工作区");
+    const absolute = resolveWorkspacePath(root, filePath);
+    fs.mkdirSync(path.dirname(absolute), { recursive: true });
+    fs.writeFileSync(absolute, content, "utf8");
   });
 
   ipcMain.handle(IpcChannels.preview.pickFile, async () => {
