@@ -138,9 +138,21 @@ function onInnerResized(payload: SplitpanesResizedPayload): void {
   height: 100%;
 }
 
+:deep(.splitpanes) {
+  height: 100%;
+}
+
 :deep(.splitpanes__pane) {
   overflow: hidden;
   background: var(--bg);
+  display: flex;
+  flex-direction: column;
+}
+
+:deep(.splitpanes__pane > *) {
+  flex: 1;
+  min-height: 0;
+  height: 100%;
 }
 
 .rail {

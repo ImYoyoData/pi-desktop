@@ -84,6 +84,7 @@ export const IpcChannels = {
     startSelect: "browser:startSelect",
     stopSelect: "browser:stopSelect",
     elementSelected: "browser:elementSelected",
+    elementScreenshot: "browser:elementScreenshot",
     openDevTools: "browser:openDevTools",
     attachDevTools: "browser:attachDevTools",
     registerGuest: "browser:registerGuest",
@@ -94,8 +95,27 @@ export const IpcChannels = {
 
 export type SessionStatus = "idle" | "running" | "error" | "stuck";
 
+/** Mirrors Pi SDK `ContextUsage` from `AgentSession.getContextUsage()`. */
+export type SessionContextUsage = {
+  tokens: number | null;
+  contextWindow: number;
+  percent: number | null;
+};
+
+/** Pi SDK ImageContent — base64 payload without data: URL prefix. */
+export type PromptImageContent = {
+  type: "image";
+  data: string;
+  mimeType: string;
+};
+
 export type AgentCommand =
-  | { type: "prompt"; message: string; images?: unknown[]; citations?: ElementCitation[] }
+  | {
+      type: "prompt";
+      message: string;
+      images?: PromptImageContent[];
+      citations?: ElementCitation[];
+    }
   | { type: "steer"; message: string }
   | { type: "follow_up"; message: string }
   | { type: "abort" }
@@ -111,13 +131,57 @@ export type ElementCitation = {
   selector: string;
   text: string;
   htmlSnippet: string;
-  /** data:image/png;base64,... screenshot of selected element bounds */
+  /** data:image/...;base64,... screenshot of selected element bounds (UI only; strip before IPC) */
   screenshotDataUrl?: string;
+  /** CSS-pixel bounds in the guest page viewport (UI only; strip before IPC) */
+  bounds?: { x: number; y: number; width: number; height: number };
 };
+
+/** Deep plain clone for Electron IPC (Vue proxies cannot be structured-cloned). */
+export function toIpcPlain<T>(value: T): T {
+  return JSON.parse(JSON.stringify(value)) as T;
+}
+
+/** Build Pi ImageContent list from composer/chat image payloads. */
+export function toPromptImages(images: unknown[] | undefined): PromptImageContent[] | undefined {
+  if (!images?.length) return undefined;
+  const out: PromptImageContent[] = [];
+  for (const img of images) {
+    if (!img || typeof img !== "object") continue;
+    const o = img as { type?: unknown; data?: unknown; mimeType?: unknown };
+    let data = typeof o.data === "string" ? o.data : "";
+    let mimeType =
+      typeof o.mimeType === "string" && o.mimeType.trim() ? o.mimeType.trim() : "image/png";
+    if (!data) continue;
+    // Accept accidental data-URL form and normalize to raw base64.
+    const dataUrl = /^data:([^;,]+)(?:;charset=[^;,]+)?;base64,(.+)$/i.exec(data.trim());
+    if (dataUrl?.[1] && dataUrl[2]) {
+      mimeType = dataUrl[1];
+      data = dataUrl[2];
+    }
+    if (!data) continue;
+    out.push({ type: "image", data, mimeType });
+  }
+  return out.length ? out : undefined;
+}
+
+/** Citations for the worker — text context only (screenshots travel as images). */
+export function toPromptCitations(
+  citations: ElementCitation[] | undefined,
+): ElementCitation[] | undefined {
+  if (!citations?.length) return undefined;
+  return citations.map((c) => ({
+    url: String(c.url ?? ""),
+    selector: String(c.selector ?? ""),
+    text: String(c.text ?? ""),
+    htmlSnippet: String(c.htmlSnippet ?? ""),
+  }));
+}
 
 export type AgentEvent =
   | { type: "connected"; sessionId: string }
   | { type: "agent_event"; sessionId: string; event: Record<string, unknown> }
+  | { type: "context_usage"; sessionId: string; usage: SessionContextUsage }
   | { type: "prompt_done"; sessionId: string }
   | { type: "prompt_error"; sessionId: string; errorMessage: string }
   | { type: "worker_stuck"; sessionId: string }

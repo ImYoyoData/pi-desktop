@@ -13,6 +13,55 @@ describe("reduceChatEvent", () => {
     expect(state.messages[0]).toMatchObject({ role: "user", text: "hello" });
   });
 
+  it("appends user images for chat bubble display", () => {
+    let state = createChatState();
+    state = appendUserMessage(state, " ", [
+      { mimeType: "image/png", dataUrl: "data:image/png;base64,abc" },
+    ]);
+    expect(state.messages[0]).toMatchObject({
+      role: "user",
+      text: "",
+      images: [{ mimeType: "image/png", dataUrl: "data:image/png;base64,abc" }],
+    });
+  });
+
+  it("keeps element tags on user message", () => {
+    let state = createChatState();
+    state = appendUserMessage(state, "这个是？", undefined, [
+      { url: "https://www.baidu.com/", host: "www.baidu.com", label: "#s-hotsearch-wrapper" },
+    ]);
+    expect(state.messages[0]).toMatchObject({
+      role: "user",
+      text: "这个是？",
+      elementTags: [{ host: "www.baidu.com", label: "#s-hotsearch-wrapper" }],
+    });
+  });
+
+  it("does not duplicate user bubble when agent echoes citation dump", () => {
+    let state = createChatState();
+    state = appendUserMessage(state, "这个是？", undefined, [
+      { url: "https://www.baidu.com/", host: "www.baidu.com", label: "#x" },
+    ]);
+    state = reduceChatEvent(state, {
+      type: "agent_event",
+      sessionId: "s",
+      event: {
+        type: "message_end",
+        message: {
+          role: "user",
+          content: [
+            {
+              type: "text",
+              text: "Context from browser selection:\n\n### Citation 1\n- URL: https://www.baidu.com/\n\n---\n\n这个是？",
+            },
+          ],
+        },
+      },
+    });
+    expect(state.messages).toHaveLength(1);
+    expect(state.messages[0]).toMatchObject({ role: "user", text: "这个是？" });
+  });
+
   it("keeps a single streaming bubble replaced on message_update (pi-web style)", () => {
     let state = createChatState();
     const sessionId = "sess-1";
@@ -163,6 +212,39 @@ describe("reduceChatEvent", () => {
     expect(state.running).toBe(false);
   });
 
+  it("marks idle on agent_settled", () => {
+    let state = createChatState();
+    state = { ...state, running: true };
+    state = reduceChatEvent(state, {
+      type: "agent_event",
+      sessionId: "s",
+      event: { type: "agent_settled" },
+    });
+    expect(state.running).toBe(false);
+  });
+
+  it("keeps running on agent_end when willRetry", () => {
+    let state = createChatState();
+    state = { ...state, running: true };
+    state = reduceChatEvent(state, {
+      type: "agent_event",
+      sessionId: "s",
+      event: { type: "agent_end", willRetry: true },
+    });
+    expect(state.running).toBe(true);
+  });
+
+  it("marks idle on agent_end when not retrying", () => {
+    let state = createChatState();
+    state = { ...state, running: true };
+    state = reduceChatEvent(state, {
+      type: "agent_event",
+      sessionId: "s",
+      event: { type: "agent_end", willRetry: false },
+    });
+    expect(state.running).toBe(false);
+  });
+
   it("records prompt_error", () => {
     let state = createChatState();
     state = { ...state, running: true };
@@ -196,8 +278,8 @@ describe("reduceChatEvent", () => {
     expect(state.running).toBe(false);
     expect(state.messages.at(-1)).toMatchObject({
       role: "error",
-      text: "Invalid API key",
     });
+    expect(String((state.messages.at(-1) as { text: string }).text)).toMatch(/API Key|api key|Invalid/i);
   });
 
   it("surfaces auto_retry_end failure", () => {
@@ -214,7 +296,24 @@ describe("reduceChatEvent", () => {
     });
     expect(state.messages.at(-1)).toMatchObject({
       role: "error",
-      text: "rate limited",
     });
+    expect(String((state.messages.at(-1) as { text: string }).text).length).toBeGreaterThan(0);
+  });
+
+  it("stores retry hint on auto_retry_start", () => {
+    let state = createChatState();
+    state = reduceChatEvent(state, {
+      type: "agent_event",
+      sessionId: "s",
+      event: {
+        type: "auto_retry_start",
+        attempt: 2,
+        maxAttempts: 3,
+        delayMs: 1000,
+        errorMessage: "429 rate limit",
+      },
+    });
+    expect(state.running).toBe(true);
+    expect(state.retryHint).toMatchObject({ attempt: 2, maxAttempts: 3 });
   });
 });

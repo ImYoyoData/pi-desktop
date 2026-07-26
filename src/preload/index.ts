@@ -38,7 +38,7 @@ const api = {
       ipcRenderer.invoke(IpcChannels.sessions.open, sessionId, cwd) as Promise<SessionSummary | null>,
     close: (sessionId: string) => ipcRenderer.invoke(IpcChannels.sessions.close, sessionId) as Promise<void>,
     command: (sessionId: string, command: AgentCommand) =>
-      ipcRenderer.invoke(IpcChannels.sessions.command, sessionId, command) as Promise<void>,
+      ipcRenderer.invoke(IpcChannels.sessions.command, sessionId, command) as Promise<unknown>,
     killWorker: (sessionId: string) =>
       ipcRenderer.invoke(IpcChannels.sessions.killWorker, sessionId) as Promise<void>,
     restartWorker: (sessionId: string) =>
@@ -253,6 +253,15 @@ const api = {
       ipcRenderer.on(IpcChannels.browser.elementSelected, listener);
       return () => {
         ipcRenderer.removeListener(IpcChannels.browser.elementSelected, listener);
+      };
+    },
+    onElementScreenshot: (callback: (dataUrl: string) => void) => {
+      const listener = (_event: Electron.IpcRendererEvent, dataUrl: string) => {
+        if (typeof dataUrl === "string" && dataUrl.startsWith("data:")) callback(dataUrl);
+      };
+      ipcRenderer.on(IpcChannels.browser.elementScreenshot, listener);
+      return () => {
+        ipcRenderer.removeListener(IpcChannels.browser.elementScreenshot, listener);
       };
     },
     onToggleEmbeddedDevTools: (callback: () => void) => {

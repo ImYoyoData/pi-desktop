@@ -14,7 +14,6 @@ import type { DropdownOption } from "naive-ui";
 import {
   AddOutline,
   FlashOutline,
-  LayersOutline,
   SendOutline,
   StopOutline,
 } from "@vicons/ionicons5";
@@ -26,13 +25,6 @@ import { t } from "@renderer/i18n";
 
 type ThinkingLevel = "off" | "minimal" | "low" | "medium" | "high" | "xhigh";
 
-type AttachedImage = {
-  id: string;
-  data: string;
-  mimeType: string;
-  previewUrl: string;
-};
-
 const chat = useChatStore();
 const composer = useComposerStore();
 const sessions = useSessionsStore();
@@ -42,13 +34,86 @@ type ModelSelectOption =
   | { type: "group"; label: string; key: string; children: { label: string; value: string }[] }
   | { label: string; value: string };
 
+const SESSION_PREFS_KEY = "pi-desktop:session-model-prefs";
+
+type SessionPrefs = {
+  models: Record<string, string>;
+  thinking: Record<string, ThinkingLevel>;
+};
+
+function loadSessionPrefs(): SessionPrefs {
+  try {
+    const raw = localStorage.getItem(SESSION_PREFS_KEY);
+    if (!raw) return { models: {}, thinking: {} };
+    const parsed = JSON.parse(raw) as Partial<SessionPrefs>;
+    return {
+      models: parsed.models && typeof parsed.models === "object" ? parsed.models : {},
+      thinking:
+        parsed.thinking && typeof parsed.thinking === "object"
+          ? (parsed.thinking as Record<string, ThinkingLevel>)
+          : {},
+    };
+  } catch {
+    return { models: {}, thinking: {} };
+  }
+}
+
 const availableModels = ref<ModelSelectOption[]>([]);
 const selectedModelKey = ref<string | null>(null);
 /** Last applied model key for the active session (`sessionId::provider/id`). */
 const appliedModelForSession = ref<string | null>(null);
+/** Per-session remembered model (`provider/id`) and thinking level. */
+const modelBySession = ref<Record<string, string>>(loadSessionPrefs().models);
+const thinkingBySession = ref<Record<string, ThinkingLevel>>(loadSessionPrefs().thinking);
 const thinkingLevel = ref<ThinkingLevel>("medium");
-const attachedImages = ref<AttachedImage[]>([]);
 const fileInput = ref<HTMLInputElement | null>(null);
+const draftInput = ref<{ focus?: () => void } | null>(null);
+
+function focusDraft(): void {
+  draftInput.value?.focus?.();
+}
+
+function persistSessionPrefs(): void {
+  localStorage.setItem(
+    SESSION_PREFS_KEY,
+    JSON.stringify({
+      models: modelBySession.value,
+      thinking: thinkingBySession.value,
+    }),
+  );
+}
+
+function flatModelOptions(groups: ModelSelectOption[]): { label: string; value: string }[] {
+  return groups.flatMap((g) => ("children" in g ? g.children : [g]));
+}
+
+function modelKeyFromState(data: unknown): string | null {
+  if (!data || typeof data !== "object") return null;
+  const model = (data as { model?: unknown }).model;
+  if (!model || typeof model !== "object") return null;
+  const m = model as { provider?: unknown; id?: unknown };
+  if (typeof m.provider !== "string" || typeof m.id !== "string") return null;
+  if (!m.provider || !m.id) return null;
+  return `${m.provider}/${m.id}`;
+}
+
+function thinkingFromState(data: unknown): ThinkingLevel | null {
+  if (!data || typeof data !== "object") return null;
+  const level = (data as { thinkingLevel?: unknown }).thinkingLevel;
+  if (typeof level !== "string") return null;
+  const allowed: ThinkingLevel[] = ["off", "minimal", "low", "medium", "high", "xhigh"];
+  return (allowed as string[]).includes(level) ? (level as ThinkingLevel) : null;
+}
+
+function rememberModel(sessionId: string, key: string): void {
+  modelBySession.value = { ...modelBySession.value, [sessionId]: key };
+  persistSessionPrefs();
+}
+
+function rememberThinking(sessionId: string, level: ThinkingLevel): void {
+  thinkingBySession.value = { ...thinkingBySession.value, [sessionId]: level };
+  persistSessionPrefs();
+}
 
 const thinkingOptions = [
   { label: "Off", value: "off" },
@@ -87,18 +152,15 @@ const canSend = computed(
   () =>
     Boolean(
       sessionId.value &&
-        (composer.draft.trim() || attachedImages.value.length || composer.chips.length),
-    ),
+        (composer.draft.trim() || composer.images.length || composer.chips.length),
+    ) && !running.value,
 );
 
-function revokeAllImages(): void {
-  for (const img of attachedImages.value) {
-    if (img.previewUrl.startsWith("blob:")) URL.revokeObjectURL(img.previewUrl);
-  }
-  attachedImages.value = [];
-}
-
-async function readImageFile(file: File): Promise<AttachedImage | null> {
+async function readImageFile(file: File): Promise<{
+  data: string;
+  mimeType: string;
+  previewUrl: string;
+} | null> {
   if (!file.type.startsWith("image/")) return null;
   if (file.size > 8 * 1024 * 1024) {
     messageApi.warning(t.imageTooLarge);
@@ -112,7 +174,6 @@ async function readImageFile(file: File): Promise<AttachedImage | null> {
   });
   const base64 = dataUrl.split(",")[1] ?? "";
   return {
-    id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
     data: base64,
     mimeType: file.type || "image/png",
     previewUrl: URL.createObjectURL(file),
@@ -151,7 +212,7 @@ async function addFiles(files: FileList | File[]): Promise<void> {
   for (const file of list) {
     if (file.type.startsWith("image/")) {
       const img = await readImageFile(file);
-      if (img) attachedImages.value.push(img);
+      if (img) composer.addImageFile(img);
       continue;
     }
     const filePath = electronFilePath(file);
@@ -159,43 +220,55 @@ async function addFiles(files: FileList | File[]): Promise<void> {
   }
 }
 
-function removeImage(id: string): void {
-  const idx = attachedImages.value.findIndex((i) => i.id === id);
-  if (idx < 0) return;
-  const [img] = attachedImages.value.splice(idx, 1);
-  if (img?.previewUrl.startsWith("blob:")) URL.revokeObjectURL(img.previewUrl);
-}
-
 async function submit(mode: "prompt" | "steer" | "follow_up"): Promise<void> {
   const id = sessionId.value;
   const chipText = composer.formatChipsForMessage();
   const text = [composer.draft.trim(), chipText].filter(Boolean).join("\n\n");
-  if (!id || (!text && !attachedImages.value.length && !composer.chips.length)) return;
+  if (!id || (!text && !composer.images.length && !composer.chips.length)) return;
   const citations = composer.elementCitations();
   const citationList = citations.length ? citations : undefined;
-  const images = [
-    ...attachedImages.value.map((i) => ({
+  const elementTags = composer.elementTagSnapshot();
+  // Screenshots are already in composer.images (as normal attachments). Deduplicate by data.
+  const seen = new Set<string>();
+  const imagesToSend = composer.images
+    .filter((i) => {
+      if (seen.has(i.data)) return false;
+      seen.add(i.data);
+      return true;
+    })
+    .map((i) => ({
       type: "image" as const,
       data: i.data,
-      mimeType: i.mimeType,
-    })),
-    ...(citationList ?? [])
-      .filter((c) => c.screenshotDataUrl?.startsWith("data:"))
-      .map((c) => {
-        const match = /^data:([^;]+);base64,(.+)$/.exec(c.screenshotDataUrl!);
-        return {
-          type: "image" as const,
-          data: match?.[2] ?? "",
-          mimeType: match?.[1] ?? "image/png",
-        };
-      })
-      .filter((i) => i.data),
-  ];
-  composer.draft = "";
+      mimeType: i.mimeType || "image/png",
+    }));
+  const citationsToSend = citationList
+    ? citationList.map((c) => ({
+        url: c.url,
+        selector: c.selector,
+        text: c.text,
+        htmlSnippet: c.htmlSnippet,
+      }))
+    : undefined;
+  const tagsToSend = elementTags.length
+    ? elementTags.map((t) => ({
+        url: t.url,
+        host: t.host,
+        label: t.label,
+        content: t.content,
+      }))
+    : undefined;
+  // User-visible text: draft only (tags/images shown as chips). Agent still gets citations.
+  const displayText = composer.draft.trim();
   composer.clear();
-  revokeAllImages();
-  if (mode === "prompt") await chat.sendPrompt(id, text || " ", citationList, images);
-  else if (mode === "steer") await chat.steer(id, text || " ");
+  if (mode === "prompt") {
+    await chat.sendPrompt(
+      id,
+      displayText || (imagesToSend.length || tagsToSend?.length ? " " : text || " "),
+      citationsToSend,
+      imagesToSend,
+      tagsToSend,
+    );
+  } else if (mode === "steer") await chat.steer(id, text || " ");
   else await chat.followUp(id, text || " ");
 }
 
@@ -216,15 +289,67 @@ async function onAbort(): Promise<void> {
 async function onCompact(): Promise<void> {
   const id = sessionId.value;
   if (!id) return;
-  await sessions.sendCommand(id, { type: "compact" });
-  messageApi.success("????????");
+  try {
+    await sessions.sendCommand(id, { type: "compact" });
+    messageApi.success(t.compactDone);
+  } catch (err) {
+    messageApi.error(err instanceof Error ? err.message : String(err));
+  }
 }
+
+function formatTokens(count: number): string {
+  if (count < 1000) return String(count);
+  if (count < 10_000) return `${(count / 1000).toFixed(1)}k`;
+  if (count < 1_000_000) return `${Math.round(count / 1000)}k`;
+  if (count < 10_000_000) return `${(count / 1_000_000).toFixed(1)}M`;
+  return `${Math.round(count / 1_000_000)}M`;
+}
+
+const contextUsage = computed(() => sessions.activeContextUsage);
+
+const contextLabel = computed(() => {
+  const usage = contextUsage.value;
+  if (!usage) return null;
+  const windowLabel = formatTokens(usage.contextWindow);
+  const pct =
+    usage.percent !== null && Number.isFinite(usage.percent)
+      ? `${usage.percent.toFixed(1)}%`
+      : "?";
+  return `${pct}/${windowLabel}`;
+});
+
+const contextDetail = computed(() => {
+  const usage = contextUsage.value;
+  if (!usage) return t.contextUsageEmpty;
+  const windowLabel = formatTokens(usage.contextWindow);
+  if (usage.tokens !== null) {
+    return `${formatTokens(usage.tokens)} / ${windowLabel} ? ${
+      usage.percent !== null ? `${usage.percent.toFixed(1)}%` : "?"
+    }`;
+  }
+  return `? / ${windowLabel} ? ${t.contextUsageUnknown}`;
+});
+
+const contextTone = computed(() => {
+  const pct = contextUsage.value?.percent;
+  if (pct == null) return "muted";
+  if (pct > 90) return "danger";
+  if (pct > 70) return "warn";
+  return "ok";
+});
+
+const contextBarWidth = computed(() => {
+  const pct = contextUsage.value?.percent;
+  if (pct == null) return 0;
+  return Math.max(0, Math.min(100, pct));
+});
 
 async function onThinkingChange(value: string | number): Promise<void> {
   const id = sessionId.value;
   const level = String(value) as ThinkingLevel;
   thinkingLevel.value = level;
   if (!id) return;
+  rememberThinking(id, level);
   await sessions.sendCommand(id, { type: "set_thinking_level", level });
 }
 
@@ -245,16 +370,80 @@ async function refreshModels(): Promise<void> {
       children,
     }));
     availableModels.value = groups;
-
-    const flat = groups.flatMap((g) => ("children" in g ? g.children : [g]));
-    const stillValid =
-      selectedModelKey.value && flat.some((o) => o.value === selectedModelKey.value);
-    if (!stillValid) {
-      selectedModelKey.value = flat[0]?.value ?? null;
-    }
-    await applySelectedModel();
+    await syncSessionModelAndThinking();
   } catch {
     availableModels.value = [];
+  }
+}
+
+async function syncSessionModelAndThinking(): Promise<void> {
+  const id = sessionId.value;
+  const flat = flatModelOptions(availableModels.value);
+  if (!id) {
+    selectedModelKey.value = flat[0]?.value ?? null;
+    return;
+  }
+
+  // Instant UI from per-session memory
+  const remembered = modelBySession.value[id];
+  if (remembered && flat.some((o) => o.value === remembered)) {
+    selectedModelKey.value = remembered;
+  }
+  const rememberedThinking = thinkingBySession.value[id];
+  if (rememberedThinking) {
+    thinkingLevel.value = rememberedThinking;
+  }
+
+  // Prefer live worker state (source of truth for existing sessions)
+  let workerKey: string | null = null;
+  let workerThinking: ThinkingLevel | null = null;
+  try {
+    const state = await sessions.sendCommand(id, { type: "get_state" });
+    workerKey = modelKeyFromState(state);
+    workerThinking = thinkingFromState(state);
+    sessions.applyContextFromState(id, state);
+  } catch {
+    // Worker may still be starting; fall back to remembered / default below.
+  }
+
+  if (workerKey && flat.some((o) => o.value === workerKey)) {
+    selectedModelKey.value = workerKey;
+    rememberModel(id, workerKey);
+  } else if (remembered && flat.some((o) => o.value === remembered)) {
+    selectedModelKey.value = remembered;
+  } else if (!selectedModelKey.value || !flat.some((o) => o.value === selectedModelKey.value)) {
+    selectedModelKey.value = flat[0]?.value ?? null;
+  }
+
+  if (workerThinking) {
+    thinkingLevel.value = workerThinking;
+    rememberThinking(id, workerThinking);
+  } else if (rememberedThinking) {
+    thinkingLevel.value = rememberedThinking;
+  }
+
+  // Ensure worker uses this session's remembered model (new sessions / cold workers)
+  if (selectedModelKey.value) {
+    const token = `${id}::${selectedModelKey.value}`;
+    if (workerKey !== selectedModelKey.value || appliedModelForSession.value !== token) {
+      appliedModelForSession.value = null;
+      await applySelectedModel();
+    } else {
+      appliedModelForSession.value = token;
+      rememberModel(id, selectedModelKey.value);
+    }
+  }
+
+  if (rememberedThinking || thinkingLevel.value) {
+    const level = thinkingLevel.value;
+    if (workerThinking !== level) {
+      try {
+        await sessions.sendCommand(id, { type: "set_thinking_level", level });
+        rememberThinking(id, level);
+      } catch {
+        // ignore thinking sync failures
+      }
+    }
   }
 }
 
@@ -262,6 +451,8 @@ async function applySelectedModel(): Promise<void> {
   const id = sessionId.value;
   const value = selectedModelKey.value;
   if (!id || !value) return;
+  // Session must be registered in the broker (present in live sessions list).
+  if (!sessions.sessions.some((s) => s.id === id)) return;
   const slash = value.indexOf("/");
   if (slash <= 0) return;
   const token = `${id}::${value}`;
@@ -273,15 +464,21 @@ async function applySelectedModel(): Promise<void> {
       modelId: value.slice(slash + 1),
     });
     appliedModelForSession.value = token;
+    rememberModel(id, value);
   } catch (err) {
     appliedModelForSession.value = null;
-    messageApi.error(err instanceof Error ? err.message : String(err));
+    const text = err instanceof Error ? err.message : String(err);
+    // Startup race / cold worker: don't toast unknown-session noise.
+    if (/unknown session/i.test(text)) return;
+    messageApi.error(text);
   }
 }
 
 async function onModelChange(value: string | null): Promise<void> {
   selectedModelKey.value = value;
   appliedModelForSession.value = null;
+  const id = sessionId.value;
+  if (id && value) rememberModel(id, value);
   await applySelectedModel();
 }
 
@@ -385,36 +582,64 @@ function onModelsChanged(): void {
   void refreshModels();
 }
 
-watch(sessionId, () => {
+watch(sessionId, (id, prev) => {
+  if (prev && selectedModelKey.value) {
+    rememberModel(prev, selectedModelKey.value);
+  }
+  if (prev) {
+    rememberThinking(prev, thinkingLevel.value);
+  }
   appliedModelForSession.value = null;
+  // Restore remembered UI immediately before async sync
+  if (id && modelBySession.value[id]) {
+    selectedModelKey.value = modelBySession.value[id];
+  }
+  if (id && thinkingBySession.value[id]) {
+    thinkingLevel.value = thinkingBySession.value[id];
+  }
   void refreshModels();
 });
 </script>
 
 <template>
   <div class="composer-wrap">
-    <div class="composer-card" @paste="onPaste">
-      <div v-if="composer.chips.length || attachedImages.length" class="chips">
-        <CitationCard
-          v-for="chip in composer.chips"
-          :key="chip.id"
-          :chip="chip"
-          @remove="composer.removeChip(chip.id)"
-        />
-        <div v-for="img in attachedImages" :key="img.id" class="img-chip">
-          <NImage :src="img.previewUrl" width="40" height="40" object-fit="cover" />
-          <button type="button" class="img-x" @click="removeImage(img.id)">?</button>
+    <div class="composer-card">
+      <!-- Images are separate attachments (sent as model images), not part of the rich text surface -->
+      <div v-if="composer.images.length" class="image-attachments">
+        <div v-for="img in composer.images" :key="img.id" class="img-chip">
+          <NImage
+            class="img-preview"
+            :src="img.previewUrl"
+            object-fit="cover"
+            :preview-src="img.previewUrl"
+          />
+          <button type="button" class="img-x" title="remove" @click.stop="composer.removeImage(img.id)">
+            x
+          </button>
         </div>
       </div>
 
-      <NInput
-        v-model:value="composer.draft"
-        type="textarea"
-        :placeholder="t.composerPlaceholder"
-        :autosize="{ minRows: 1, maxRows: 8 }"
-        :bordered="false"
-        @keydown="onKeydown"
-      />
+      <!-- Rich composer: only tags + textarea share one editor surface -->
+      <div class="rich-editor" @paste="onPaste" @click="focusDraft">
+        <div v-if="composer.chips.length" class="inline-chips">
+          <CitationCard
+            v-for="chip in composer.chips"
+            :key="chip.id"
+            :chip="chip"
+            @remove="composer.removeChip(chip.id)"
+          />
+        </div>
+        <NInput
+          ref="draftInput"
+          v-model:value="composer.draft"
+          class="draft-input"
+          type="textarea"
+          :placeholder="t.composerPlaceholder"
+          :autosize="{ minRows: 1, maxRows: 8 }"
+          :bordered="false"
+          @keydown="onKeydown"
+        />
+      </div>
 
       <div class="toolbar">
         <div class="toolbar-left">
@@ -472,13 +697,23 @@ watch(sessionId, () => {
 
           <NTooltip>
             <template #trigger>
-              <NButton quaternary circle size="tiny" @click="onCompact">
-                <template #icon>
-                  <NIcon :component="LayersOutline" />
-                </template>
-              </NButton>
+              <button
+                type="button"
+                class="ctx-meter"
+                :class="`ctx-${contextTone}`"
+                :disabled="!sessionId"
+                @click="onCompact"
+              >
+                <span class="ctx-bar" aria-hidden="true">
+                  <span class="ctx-fill" :style="{ width: `${contextBarWidth}%` }" />
+                </span>
+                <span class="ctx-label">{{ contextLabel ?? "?/?" }}</span>
+              </button>
             </template>
-            {{ t.compactContext }}
+            <div class="ctx-tip">
+              <div>{{ contextDetail }}</div>
+              <div class="ctx-tip-action">{{ t.compactContext }}</div>
+            </div>
           </NTooltip>
         </div>
 
@@ -528,35 +763,73 @@ watch(sessionId, () => {
   box-sizing: border-box;
 }
 
-.chips {
+.image-attachments {
   display: flex;
-  gap: 4px;
+  gap: 8px;
   flex-wrap: wrap;
-  padding: 2px 2px 6px;
+  padding: 6px 6px 0;
+  align-items: flex-start;
+}
+
+.rich-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+  padding: 4px 2px 2px;
+  cursor: text;
+}
+
+.inline-chips {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  align-items: center;
+  padding: 0 2px;
+}
+
+.draft-input {
+  width: 100%;
 }
 
 .img-chip {
   position: relative;
-  width: 32px;
-  height: 32px;
-  border-radius: 6px;
+  width: 56px;
+  height: 56px;
+  border-radius: 8px;
   overflow: hidden;
-  border: 1px solid var(--border);
+  border: 1px solid var(--border-strong, var(--border));
+  background: #f3f3f3;
+  flex-shrink: 0;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06);
+}
+
+.img-preview {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.img-preview :deep(img) {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
 }
 
 .img-x {
   position: absolute;
-  top: 0;
-  right: 0;
-  width: 14px;
-  height: 14px;
+  top: 2px;
+  right: 2px;
+  width: 18px;
+  height: 18px;
   border: none;
   border-radius: 50%;
-  background: rgba(0, 0, 0, 0.55);
+  background: rgba(0, 0, 0, 0.6);
   color: #fff;
   cursor: pointer;
   line-height: 1;
-  font-size: 10px;
+  font-size: 12px;
+  padding: 0;
 }
 
 .toolbar {
@@ -607,6 +880,91 @@ watch(sessionId, () => {
   white-space: nowrap;
   font-size: 11px;
   margin-left: 1px;
+}
+
+.ctx-meter {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 22px;
+  padding: 0 6px;
+  border: 1px solid var(--border, #e5e5e5);
+  border-radius: 6px;
+  background: transparent;
+  cursor: pointer;
+  flex-shrink: 0;
+  color: #5c5c5c;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+.ctx-meter:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.ctx-meter:not(:disabled):hover {
+  background: rgba(0, 0, 0, 0.04);
+}
+
+.ctx-bar {
+  width: 28px;
+  height: 4px;
+  border-radius: 2px;
+  background: rgba(0, 0, 0, 0.08);
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+.ctx-fill {
+  display: block;
+  height: 100%;
+  border-radius: 2px;
+  background: #5c5c5c;
+  transition: width 0.2s ease;
+}
+
+.ctx-ok .ctx-fill {
+  background: #5c5c5c;
+}
+
+.ctx-warn {
+  color: #b45309;
+  border-color: rgba(180, 83, 9, 0.35);
+}
+
+.ctx-warn .ctx-fill {
+  background: #d97706;
+}
+
+.ctx-danger {
+  color: #b91c1c;
+  border-color: rgba(185, 28, 28, 0.35);
+}
+
+.ctx-danger .ctx-fill {
+  background: #dc2626;
+}
+
+.ctx-muted .ctx-label {
+  color: #8a8a8a;
+}
+
+.ctx-label {
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.ctx-tip {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.ctx-tip-action {
+  opacity: 0.7;
+  font-size: 11px;
 }
 
 /* Compact when chat column is narrow */

@@ -4,6 +4,7 @@ import { NButton, NEmpty, NIcon, NList, NListItem, NThing, NText } from "naive-u
 import { FolderOpenOutline, FolderOutline } from "@vicons/ionicons5";
 import { useWorkspaceStore } from "@renderer/stores/workspace";
 import { t } from "@renderer/i18n";
+import logoUrl from "@renderer/assets/logo.svg";
 
 const workspace = useWorkspaceStore();
 
@@ -28,7 +29,7 @@ function workspaceName(path: string): string {
 <template>
   <section class="welcome">
     <div class="hero">
-      <div class="logo">π</div>
+      <img class="logo" :src="logoUrl" alt="Pi Desktop" width="56" height="56" />
       <h1>{{ t.appName }}</h1>
       <NText depth="3">{{ t.openFolderHint }}</NText>
       <NButton type="primary" size="medium" style="margin-top: 12px" @click="openFolder">
@@ -82,16 +83,12 @@ function workspaceName(path: string): string {
 }
 
 .logo {
-  width: 52px;
-  height: 52px;
-  display: grid;
-  place-items: center;
+  width: 56px;
+  height: 56px;
   border-radius: 14px;
-  background: #f2f2f2;
-  border: 1px solid var(--border);
-  font-size: 24px;
-  font-weight: 700;
+  display: block;
   margin-bottom: 4px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.08);
 }
 
 h1 {

@@ -75,19 +75,22 @@ function extractConsoleMessage(...args: unknown[]): string | undefined {
 async function captureElementScreenshot(
   wc: Electron.WebContents,
   bounds: { x: number; y: number; width: number; height: number },
-  viewport?: { vw?: number; vh?: number },
+  viewport?: { vw?: number; vh?: number; dpr?: number },
 ): Promise<string | undefined> {
   try {
-    // Wait for outline removal + paint before capture (avoids wrong/blank crops)
     await wc.executeJavaScript(
       `new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))`,
       true,
     );
-    await new Promise((r) => setTimeout(r, 48));
+    await new Promise((r) => setTimeout(r, 80));
 
+    const full = await wc.capturePage();
+    if (full.isEmpty()) return undefined;
+
+    const fullSize = full.getSize();
     const [viewW, viewH] = wc.getSize();
-    const cssW = viewport?.vw && viewport.vw > 0 ? viewport.vw : viewW;
-    const cssH = viewport?.vh && viewport.vh > 0 ? viewport.vh : viewH;
+    const cssW = viewport?.vw && viewport.vw > 0 ? viewport.vw : viewW || fullSize.width;
+    const cssH = viewport?.vh && viewport.vh > 0 ? viewport.vh : viewH || fullSize.height;
 
     let x = Math.max(0, Math.floor(bounds.x));
     let y = Math.max(0, Math.floor(bounds.y));
@@ -99,33 +102,28 @@ async function captureElementScreenshot(
       width = Math.min(width, cssW - x);
       height = Math.min(height, cssH - y);
     }
-    if (width < 1 || height < 1) return undefined;
 
-    let image = await wc.capturePage({ x, y, width, height });
+    const scaleX = cssW > 0 ? fullSize.width / cssW : 1;
+    const scaleY = cssH > 0 ? fullSize.height / cssH : 1;
+    const crop = {
+      x: Math.max(0, Math.round(x * scaleX)),
+      y: Math.max(0, Math.round(y * scaleY)),
+      width: Math.max(1, Math.round(width * scaleX)),
+      height: Math.max(1, Math.round(height * scaleY)),
+    };
+    crop.width = Math.min(crop.width, Math.max(1, fullSize.width - crop.x));
+    crop.height = Math.min(crop.height, Math.max(1, fullSize.height - crop.y));
 
-    // Fallback: full capture + crop (handles DPI / guest webview quirks)
-    if (image.isEmpty()) {
-      const full = await wc.capturePage();
-      if (full.isEmpty()) return undefined;
-      const fullSize = full.getSize();
-      const scaleX = cssW > 0 ? fullSize.width / cssW : 1;
-      const scaleY = cssH > 0 ? fullSize.height / cssH : 1;
-      const crop = {
-        x: Math.max(0, Math.round(x * scaleX)),
-        y: Math.max(0, Math.round(y * scaleY)),
-        width: Math.max(1, Math.round(width * scaleX)),
-        height: Math.max(1, Math.round(height * scaleY)),
-      };
-      crop.width = Math.min(crop.width, fullSize.width - crop.x);
-      crop.height = Math.min(crop.height, fullSize.height - crop.y);
-      if (crop.width < 1 || crop.height < 1) return undefined;
-      image = full.crop(crop);
-      if (image.isEmpty()) return undefined;
+    let image = full;
+    try {
+      const cropped = full.crop(crop);
+      if (!cropped.isEmpty()) image = cropped;
+    } catch {
+      // keep full page as fallback so UI still gets an image
     }
 
-    // Shrink for IPC / composer preview reliability
     const size = image.getSize();
-    const maxEdge = 640;
+    const maxEdge = 512;
     if (size.width > maxEdge || size.height > maxEdge) {
       const scale = maxEdge / Math.max(size.width, size.height);
       image = image.resize({
@@ -133,8 +131,13 @@ async function captureElementScreenshot(
         height: Math.max(1, Math.round(size.height * scale)),
       });
     }
-    return `data:image/png;base64,${image.toPNG().toString("base64")}`;
-  } catch {
+
+    const jpeg = image.toJPEG(85);
+    if (jpeg.length) return `data:image/jpeg;base64,${jpeg.toString("base64")}`;
+    const dataUrl = image.toDataURL();
+    return dataUrl?.startsWith("data:") ? dataUrl : undefined;
+  } catch (err) {
+    console.warn("[browser-host] captureElementScreenshot failed", err);
     return undefined;
   }
 }
@@ -165,23 +168,36 @@ export function registerBrowserIpc(): void {
 
           // Read selection from the page (avoids console truncation of large HTML)
           const payload = await readPendingSelection(wc);
-          await removeSelectMode(wc);
-          if (!payload) return;
+          if (!payload) {
+            await removeSelectMode(wc);
+            return;
+          }
 
+          // Capture BEFORE tearing down select UI — more reliable paint/bounds.
           let screenshotDataUrl: string | undefined;
           if (payload.bounds && payload.bounds.width > 0 && payload.bounds.height > 0) {
             screenshotDataUrl = await captureElementScreenshot(wc, payload.bounds, {
               vw: payload.vw,
               vh: payload.vh,
+              dpr: payload.dpr,
             });
           }
-          broadcastElementSelected({
+          await removeSelectMode(wc);
+
+          const citation = {
             url: payload.url || wc.getURL(),
             selector: payload.selector,
             text: payload.text,
             htmlSnippet: truncateHtmlSnippet(payload.html ?? ""),
+            bounds: payload.bounds,
             screenshotDataUrl,
-          });
+          };
+          broadcastElementSelected(citation);
+          if (screenshotDataUrl) {
+            for (const win of BrowserWindow.getAllWindows()) {
+              win.webContents.send(IpcChannels.browser.elementScreenshot, screenshotDataUrl);
+            }
+          }
         } catch {
           // Ignore malformed selection payloads / unexpected console shapes.
         }

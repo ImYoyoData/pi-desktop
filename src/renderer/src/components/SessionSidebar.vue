@@ -181,9 +181,11 @@ async function loadSessions(root: string): Promise<void> {
 }
 
 async function ensureActiveSession(root: string): Promise<void> {
-  if (sessionsStore.activeId) {
-    const still = (sessionsByRoot[root] ?? []).some((s) => s.id === sessionsStore.activeId);
-    if (still) return;
+  const list = sessionsByRoot[root] ?? [];
+  if (sessionsStore.activeId && list.some((s) => s.id === sessionsStore.activeId)) {
+    // Re-open so main-process broker always has the session (cold start / HMR).
+    await onSelectSession(root, sessionsStore.activeId);
+    return;
   }
   const first = sessionsFor(root)[0];
   if (first) await onSelectSession(root, first.id);
@@ -238,7 +240,7 @@ async function onSelectSession(root: string, sessionId: string): Promise<void> {
     }
   } catch (err) {
     console.error("select session failed", err);
-    sessionsStore.activeId = sessionId;
+    message.error(err instanceof Error ? err.message : String(err));
   }
 }
 

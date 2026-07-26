@@ -1,63 +1,75 @@
 # Pi Desktop
 
-Electron + Vue 3 Agent Workspace for the [Pi](https://pi.dev/) coding agent. v1 targets **Windows and macOS** only (Linux packages out of scope).
+[中文说明](./README.zh-CN.md)
 
-## Requirements
+**Pi Desktop** is an Electron + Vue 3 desktop workspace for the [Pi](https://github.com/badlogic/pi-mono) coding agent. Chat with agents, manage sessions, browse the web, run terminals, preview files, and configure models — in one window.
 
-- **Node.js** 22.x (LTS recommended)
-- **npm** 10+
-- **Electron** 39.x (installed via devDependencies)
-- Pi agent data under **`~/.pi/agent`** (sessions, `models.json`, auth). Override with `PI_CODING_AGENT_DIR` if needed.
+> Current release: **v0.0.1** (prerelease / test build)
 
-## Install
+## Features
 
-The repo includes `.npmrc` with **npmmirror** (China) for Electron binaries and the npm registry. After clone:
+- Multi-session Pi agent workspace (sidebar + streaming chat)
+- Model / API key settings synced with `~/.pi/agent`
+- Right pane: Changes, Files, Browser (element select → chat tags + screenshots), Terminal, Preview
+- Auto-initializes Pi agent config on first launch if missing
+- Single-instance packaged app (second launch focuses the existing window)
+
+## Supported platforms
+
+| Platform | Architectures | Installer |
+|----------|---------------|-----------|
+| Windows  | **x64**, **arm64** | NSIS setup + portable (x64) |
+| macOS    | **x64**, **arm64** | DMG + ZIP |
+
+> **Note:** Modern Electron (39+) no longer ships **Windows 32-bit (ia32)**. Use the x64 build on 64-bit Windows.
+
+## Requirements (development)
+
+- Node.js 22.x
+- npm 10+
+- Windows or macOS
+
+Pi data lives under `~/.pi/agent` (override with `PI_CODING_AGENT_DIR`).
+
+## Install & develop
 
 ```sh
+git clone https://github.com/ImYoyoData/pi-desktop.git
+cd pi-desktop
 npm install
-```
-
-If Electron still reports `Electron uninstall` / missing `dist`, download the binary explicitly:
-
-```sh
-node node_modules/electron/install.js
-```
-
-Native modules (`node-pty`) must match the Electron ABI. After install or Electron upgrades:
-
-```sh
-npx electron-rebuild -f -w node-pty
-```
-
-If `postinstall` (`electron-builder install-app-deps`) fails, run `electron-rebuild` manually once `node_modules` is healthy.
-
-## Develop
-
-```sh
+npm run icons
 npm run dev
 ```
 
-Other scripts: `npm test`, `npm run typecheck`, `npm run build`, `npm start` (preview build).
+Useful scripts:
 
-## Worker lifecycle
+| Script | Description |
+|--------|-------------|
+| `npm run dev` | Start Electron + Vite |
+| `npm test` | Unit tests |
+| `npm run typecheck` | TypeScript check |
+| `npm run build` | Compile main/preload/renderer |
+| `npm run dist:win` | Package Windows x64 + arm64 |
+| `npm run dist:mac` | Package macOS x64 + arm64 |
 
-- One `utilityProcess` worker per open session.
-- **Idle:** workers are destroyed after **10 minutes** with no activity; session rows stay in the sidebar (jsonl on disk). The next command **cold-starts** a worker.
-- **Stuck:** missed heartbeats mark a session stuck; use **Terminate** or **Restart** in the session sidebar (other sessions keep running).
+## Branches & releases
 
-## v1 acceptance criteria
+- **`dev`** — active development
+- **`main` / `master`** — push triggers GitHub Actions to build and publish a GitHub Release (prerelease) for the version in `package.json`
+- Tags `v*` also trigger the release workflow
 
-| # | Criterion | Verified here |
-|---|-----------|---------------|
-| 1 | electron-vite app on Windows/macOS | **Partial** — build/typecheck/unit tests; full app launch not verified in this environment (see below). |
-| 2 | Cursor-style workspace + three-column layout | **Code complete** — manual UI pass deferred without Electron dev. |
-| 3 | Multi-session concurrency; stuck session isolated | **Unit** — broker routing + idle/stuck/terminate tests; manual multi-session smoke deferred. |
-| 4 | Streaming chat, steer/follow-up | **Code complete** — manual chat E2E deferred. |
-| 5 | Model settings ↔ `~/.pi/agent` | **Unit + IPC** — manual settings panel E2E deferred. |
-| 6 | Terminal, file preview, browser element-select | **Code complete** — manual right-pane E2E deferred (terminal needs rebuilt `node-pty`). |
+Artifacts appear under the repository **Releases** page.
 
-## Known environment issues
+## First-run setup
 
-- **Electron EBUSY / file locks on Windows** can block `npm install`, `npm run dev`, and launching the app in some CI or agent sandboxes. Unit tests (`npm test`) and `npm run typecheck` remain the reliable automated checks here.
-- **`node-pty` native rebuild** is required before terminal tabs work; without `npx electron-rebuild`, pty creation fails at runtime even when the rest of the app builds.
-- **Manual E2E** (Open Folder, concurrent sessions, Hang→stuck→Terminate, idle 10m destroy, browser on example.com) was **not run** in the Task 11 implementation environment because Electron could not be started reliably. Perform these on a local Win/mac machine after install + rebuild.
+On launch, Pi Desktop ensures:
+
+- `~/.pi/agent/`
+- `models.json`, `auth.json`, `settings.json`
+- `sessions/`, `skills/`, …
+
+Then open **Settings → Models / API Keys** to add providers.
+
+## License
+
+MIT
