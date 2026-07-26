@@ -64,6 +64,10 @@ Artifacts appear under the repository **Releases** page.
 
 Theme defaults to **follow system**. Toggle from the title bar (sun/moon/palette) or **Settings → Appearance**. Language can be set to System / 中文 / English.
 
+## Voice input (optional ASR)
+
+Local **Qwen3-ASR 0.6B Q4_K** (GGUF) via CrispASR. Not installed by default — clicking the mic prompts to download (~640 MB disk, ~900 MB RAM while running). Disable under **Settings → Appearance** to hide the mic and skip loading.
+
 On launch, Pi Desktop ensures:
 
 - `~/.pi/agent/`
