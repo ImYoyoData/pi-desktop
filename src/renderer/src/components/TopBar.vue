@@ -34,7 +34,7 @@ function openSettings(): void {
   gap: 1rem;
   padding: 0.5rem 1rem;
   border-bottom: 1px solid #e5e7eb;
-  background: #fafafa;
+  background: var(--bg-title);
   font-size: 0.875rem;
 }
 
@@ -54,11 +54,11 @@ function openSettings(): void {
   padding: 0.35rem 0.75rem;
   border: 1px solid #d1d5db;
   border-radius: 6px;
-  background: #fff;
+  background: var(--bg-elevated);
   cursor: pointer;
 }
 
 .open:hover {
-  background: #f3f4f6;
+  background: var(--bg-hover);
 }
 </style>

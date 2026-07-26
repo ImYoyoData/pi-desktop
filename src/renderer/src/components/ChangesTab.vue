@@ -496,7 +496,7 @@ watch(
 .diff-pane {
   overflow: auto;
   min-height: 0;
-  background: #fafafa;
+  background: var(--bg-panel);
 }
 
 .diff {

@@ -1,9 +1,10 @@
 <script setup lang="ts">
-import { onMounted } from "vue";
+import { computed, onMounted, onUnmounted } from "vue";
 import {
   NConfigProvider,
   NMessageProvider,
   NDialogProvider,
+  darkTheme,
   zhCN,
   dateZhCN,
   enUS,
@@ -13,16 +14,32 @@ import TitleBar from "@renderer/components/TitleBar.vue";
 import WelcomeView from "@renderer/components/WelcomeView.vue";
 import SplitRoot from "@renderer/components/SplitRoot.vue";
 import { useWorkspaceStore } from "@renderer/stores/workspace";
-import { themeOverrides } from "@renderer/theme/naive";
+import { useAppearanceStore } from "@renderer/stores/appearance";
+import { darkThemeOverrides, lightThemeOverrides } from "@renderer/theme/naive";
 import { locale } from "@renderer/i18n";
 
 const workspace = useWorkspaceStore();
+const appearance = useAppearanceStore();
 const naiveLocale = locale === "zh-CN" ? zhCN : enUS;
 const naiveDateLocale = locale === "zh-CN" ? dateZhCN : dateEnUS;
 
+const naiveTheme = computed(() =>
+  appearance.resolvedTheme === "dark" ? darkTheme : null,
+);
+const themeOverrides = computed(() =>
+  appearance.resolvedTheme === "dark" ? darkThemeOverrides : lightThemeOverrides,
+);
+
+let stopAppearance: (() => void) | undefined;
+
 onMounted(() => {
+  stopAppearance = appearance.init();
   void workspace.getWorkspace();
   void workspace.listRecent();
+});
+
+onUnmounted(() => {
+  stopAppearance?.();
 });
 </script>
 
@@ -30,12 +47,13 @@ onMounted(() => {
   <NConfigProvider
     :locale="naiveLocale"
     :date-locale="naiveDateLocale"
+    :theme="naiveTheme"
     :theme-overrides="themeOverrides"
     abstract
   >
     <NMessageProvider>
       <NDialogProvider>
-        <div class="app-shell">
+        <div class="app-shell" :data-theme="appearance.resolvedTheme">
           <TitleBar />
           <main class="app-main">
             <WelcomeView v-if="!workspace.root" />
@@ -47,10 +65,6 @@ onMounted(() => {
   </NConfigProvider>
 </template>
 
-<style>
-/* global styles imported from main.ts */
-</style>
-
 <style scoped>
 .app-shell {
   display: flex;
@@ -59,6 +73,7 @@ onMounted(() => {
   height: 100%;
   background: var(--bg);
   color: var(--fg);
+  transition: background-color 0.18s ease, color 0.18s ease;
 }
 
 .app-main {

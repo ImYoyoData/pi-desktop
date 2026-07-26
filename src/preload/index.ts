@@ -14,6 +14,10 @@ const api = {
     maximize: () => ipcRenderer.invoke(IpcChannels.window.maximize) as Promise<void>,
     close: () => ipcRenderer.invoke(IpcChannels.window.close) as Promise<void>,
     isMaximized: () => ipcRenderer.invoke(IpcChannels.window.isMaximized) as Promise<boolean>,
+    setThemeSource: (source: "system" | "light" | "dark") =>
+      ipcRenderer.invoke(IpcChannels.window.setThemeSource, source) as Promise<void>,
+    setChromeTheme: (mode: "light" | "dark") =>
+      ipcRenderer.invoke(IpcChannels.window.setChromeTheme, mode) as Promise<void>,
   },
   workspace: {
     get: () => ipcRenderer.invoke(IpcChannels.workspace.get) as Promise<string | null>,

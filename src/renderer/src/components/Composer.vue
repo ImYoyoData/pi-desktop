@@ -21,6 +21,8 @@ import CitationCard from "@renderer/components/CitationCard.vue";
 import { useChatStore } from "@renderer/stores/chat";
 import { isHttpUrl, useComposerStore } from "@renderer/stores/composer";
 import { useSessionsStore } from "@renderer/stores/sessions";
+import { useWorkspaceStore } from "@renderer/stores/workspace";
+import { heuristicSessionTitle } from "@renderer/utils/session-title";
 import { t } from "@renderer/i18n";
 
 type ThinkingLevel = "off" | "minimal" | "low" | "medium" | "high" | "xhigh";
@@ -28,6 +30,7 @@ type ThinkingLevel = "off" | "minimal" | "low" | "medium" | "high" | "xhigh";
 const chat = useChatStore();
 const composer = useComposerStore();
 const sessions = useSessionsStore();
+const workspace = useWorkspaceStore();
 const messageApi = useMessage();
 
 type ModelSelectOption =
@@ -259,8 +262,16 @@ async function submit(mode: "prompt" | "steer" | "follow_up"): Promise<void> {
     : undefined;
   // User-visible text: draft only (tags/images shown as chips). Agent still gets citations.
   const displayText = composer.draft.trim();
+  const titleSeed = displayText || tagsToSend?.[0]?.content || tagsToSend?.[0]?.label || "";
   composer.clear();
   if (mode === "prompt") {
+    // pi-web-style heuristic auto-title on first message when session has no custom name
+    const root = workspace.root;
+    const summary = sessions.sessions.find((s) => s.id === id);
+    if (root && titleSeed && !summary?.name?.trim()) {
+      const title = heuristicSessionTitle(titleSeed);
+      if (title) void sessions.renameSession(id, root, title);
+    }
     await chat.sendPrompt(
       id,
       displayText || (imagesToSend.length || tagsToSend?.length ? " " : text || " "),
@@ -755,9 +766,9 @@ watch(sessionId, (id, prev) => {
   width: 100%;
   max-width: none;
   border: 1px solid var(--border-strong);
-  border-radius: 10px;
-  background: #fff;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+  border-radius: 12px;
+  background: var(--bg-elevated);
+  box-shadow: var(--shadow-sm);
   padding: 4px 6px 4px;
   min-width: 0;
   box-sizing: border-box;
@@ -799,7 +810,7 @@ watch(sessionId, (id, prev) => {
   border-radius: 8px;
   overflow: hidden;
   border: 1px solid var(--border-strong, var(--border));
-  background: #f3f3f3;
+  background: var(--bg-panel);
   flex-shrink: 0;
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06);
 }
