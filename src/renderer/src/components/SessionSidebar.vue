@@ -9,7 +9,7 @@ const layout = useLayoutStore();
     <header class="head">
       <span class="title">Sessions</span>
       <button type="button" class="collapse" title="Collapse sidebar" @click="layout.toggleLeftCollapsed()">
-        ‹
+        &lsaquo;
       </button>
     </header>
     <p class="stub">Session list (stub)</p>

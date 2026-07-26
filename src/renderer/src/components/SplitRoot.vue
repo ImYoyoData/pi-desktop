@@ -85,7 +85,7 @@ function onResized(payload: SplitpanesResizedPayload): void {
       title="Expand sessions"
       @click="layout.toggleLeftCollapsed()"
     >
-      ›
+      &rsaquo;
     </button>
     <button
       v-if="layout.rightCollapsed"
@@ -94,7 +94,7 @@ function onResized(payload: SplitpanesResizedPayload): void {
       title="Expand right panel"
       @click="layout.toggleRightCollapsed()"
     >
-      ‹
+      &lsaquo;
     </button>
   </div>
 </template>
