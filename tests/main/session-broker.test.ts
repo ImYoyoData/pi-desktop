@@ -130,4 +130,50 @@ describe("session-broker", () => {
     await broker.killWorker(session.id);
     await expect(pending).rejects.toThrow("worker terminated");
   });
+
+  it("emits session_status when heartbeat recovers from stuck to idle", async () => {
+    vi.useFakeTimers();
+    const events: Array<{ type: string; status?: string; sessionId?: string }> = [];
+    let messageCb: ((msg: { kind: string }) => void) | null = null;
+    let pingCount = 0;
+    const broker = createSessionBroker({
+      spawnWorker: async (cwd) => ({
+        id: "session-a",
+        cwd,
+        filePath: "/tmp/session-a.jsonl",
+        worker: {
+          send: async (msg) => {
+            if (msg.kind === "ping") {
+              pingCount += 1;
+              if (pingCount >= 4) {
+                messageCb?.({ kind: "pong" });
+              }
+            }
+            return null;
+          },
+          kill: () => {},
+          onMessage: (cb) => {
+            messageCb = cb;
+            return () => {
+              messageCb = null;
+            };
+          },
+        },
+      }),
+    });
+    broker.onEvent((event) => events.push(event));
+    const session = await broker.createSession("/tmp/a");
+    await vi.advanceTimersByTimeAsync(5_000 * 3);
+    expect(events.some((e) => e.type === "worker_stuck")).toBe(true);
+
+    const beforeRecovery = events.length;
+    await vi.advanceTimersByTimeAsync(5_000);
+    const recovery = events.slice(beforeRecovery);
+    expect(recovery).toContainEqual({
+      type: "session_status",
+      sessionId: session.id,
+      status: "idle",
+    });
+    vi.useRealTimers();
+  });
 });

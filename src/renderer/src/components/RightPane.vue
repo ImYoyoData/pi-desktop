@@ -51,9 +51,9 @@ const tabs: { id: RightTab; label: string }[] = [
       </button>
     </header>
     <div class="body">
-      <TerminalTab v-if="activeTab === 'terminal'" />
-      <PreviewTab v-else-if="activeTab === 'preview'" />
-      <BrowserTab v-else-if="activeTab === 'browser'" />
+      <TerminalTab v-show="activeTab === 'terminal'" class="tab-panel" />
+      <PreviewTab v-show="activeTab === 'preview'" class="tab-panel" />
+      <BrowserTab v-show="activeTab === 'browser'" class="tab-panel" :visible="activeTab === 'browser'" />
     </div>
   </aside>
 </template>
@@ -109,6 +109,14 @@ const tabs: { id: RightTab; label: string }[] = [
 }
 
 .body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+}
+
+.tab-panel {
   flex: 1;
   min-height: 0;
   display: flex;
