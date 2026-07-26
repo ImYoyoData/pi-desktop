@@ -1,6 +1,8 @@
 import { randomUUID } from "node:crypto";
+import path from "node:path";
 import type { WorkerInbound, WorkerOutbound } from "../shared/agent-worker-messages";
 import type { AgentCommand, AgentEvent, SessionStatus, SessionSummary } from "../shared/protocol";
+import { listSessionsForCwd } from "./session-list";
 
 const HEARTBEAT_INTERVAL_MS = 5_000;
 const HEARTBEAT_MISS_LIMIT = 3;
@@ -11,11 +13,15 @@ export type WorkerHandle = {
   onMessage: (cb: (msg: WorkerOutbound) => void) => () => void;
 };
 
-export type SpawnWorker = (sessionId: string, cwd: string) => Promise<WorkerHandle>;
+export type SpawnWorker = (
+  cwd: string,
+  filePath?: string,
+) => Promise<{ worker: WorkerHandle; id: string; filePath: string; cwd: string }>;
 
 export type SessionBroker = {
   createSession: (cwd: string) => Promise<SessionSummary>;
-  listSessions: () => SessionSummary[];
+  listSessions: (cwd: string) => Promise<SessionSummary[]>;
+  openSession: (sessionId: string, cwd: string) => Promise<SessionSummary | null>;
   closeSession: (sessionId: string) => Promise<void>;
   send: (sessionId: string, command: AgentCommand) => Promise<void>;
   killWorker: (sessionId: string) => Promise<void>;
@@ -134,16 +140,19 @@ export function createSessionBroker(deps: { spawnWorker: SpawnWorker }): Session
     });
   }
 
-  async function createSession(cwd: string): Promise<SessionSummary> {
-    const id = randomUUID();
+  function registerWorkerSession(
+    id: string,
+    cwd: string,
+    filePath: string,
+    worker: WorkerHandle,
+  ): SessionSummary {
     const summary: SessionSummary = {
       id,
       cwd,
-      filePath: "",
+      filePath,
       modified: new Date().toISOString(),
       status: "idle",
     };
-    const worker = await deps.spawnWorker(id, cwd);
     sessions.set(id, {
       cwd,
       summary,
@@ -158,8 +167,47 @@ export function createSessionBroker(deps: { spawnWorker: SpawnWorker }): Session
     return { ...summary };
   }
 
-  function listSessions(): SessionSummary[] {
-    return [...sessions.values()].map((rec) => ({ ...rec.summary }));
+  async function createSession(cwd: string): Promise<SessionSummary> {
+    const spawned = await deps.spawnWorker(cwd);
+    return registerWorkerSession(spawned.id, spawned.cwd, spawned.filePath, spawned.worker);
+  }
+
+  async function listSessions(cwd: string): Promise<SessionSummary[]> {
+    const disk = await listSessionsForCwd(cwd);
+    const merged = new Map<string, SessionSummary>();
+    for (const row of disk) {
+      merged.set(row.id, { ...row });
+    }
+    for (const rec of sessions.values()) {
+      if (path.resolve(rec.cwd) !== path.resolve(cwd)) {
+        continue;
+      }
+      const existing = merged.get(rec.summary.id);
+      merged.set(rec.summary.id, {
+        ...(existing ?? rec.summary),
+        ...rec.summary,
+        status: rec.summary.status,
+      });
+    }
+    return [...merged.values()].sort((a, b) => b.modified.localeCompare(a.modified));
+  }
+
+  async function openSession(sessionId: string, cwd: string): Promise<SessionSummary | null> {
+    const live = sessions.get(sessionId);
+    if (live) {
+      return { ...live.summary };
+    }
+    const disk = await listSessionsForCwd(cwd);
+    const target = disk.find((s) => s.id === sessionId);
+    if (!target?.filePath) {
+      return null;
+    }
+    const spawned = await deps.spawnWorker(cwd, target.filePath);
+    if (spawned.id !== sessionId) {
+      spawned.worker.kill();
+      throw new Error(`session id mismatch: expected ${sessionId}, got ${spawned.id}`);
+    }
+    return registerWorkerSession(spawned.id, spawned.cwd, spawned.filePath, spawned.worker);
   }
 
   async function teardownWorker(sessionId: string, code: number | null): Promise<void> {
@@ -234,14 +282,16 @@ export function createSessionBroker(deps: { spawnWorker: SpawnWorker }): Session
     if (!rec) {
       return;
     }
-    const { cwd } = rec;
+    const { cwd, summary } = rec;
+    const filePath = summary.filePath || undefined;
     stopHeartbeat(rec);
     rec.worker.kill();
     rec.pendingCommands.forEach(({ reject }) => reject(new Error("worker restarted")));
     rec.pendingCommands.clear();
-    const worker = await deps.spawnWorker(sessionId, cwd);
-    rec.worker = worker;
-    attachWorker(sessionId, worker);
+    const spawned = await deps.spawnWorker(cwd, filePath);
+    rec.worker = spawned.worker;
+    rec.summary.filePath = spawned.filePath;
+    attachWorker(sessionId, spawned.worker);
     startHeartbeat(sessionId);
     setStatus(sessionId, "idle");
   }
@@ -254,6 +304,7 @@ export function createSessionBroker(deps: { spawnWorker: SpawnWorker }): Session
   return {
     createSession,
     listSessions,
+    openSession,
     closeSession,
     send,
     killWorker,

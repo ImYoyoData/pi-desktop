@@ -14,9 +14,14 @@ export function registerSessionsIpc(broker: SessionBroker): void {
     broadcastEvent(event);
   });
 
-  ipcMain.handle(IpcChannels.sessions.list, () => broker.listSessions());
+  ipcMain.handle(IpcChannels.sessions.list, (_event, cwd: string) => broker.listSessions(cwd));
 
-  ipcMain.handle(IpcChannels.sessions.create, (_event, cwd: string) => broker.createSession(cwd));
+  ipcMain.handle(IpcChannels.sessions.create, (_event, cwd: string) => {
+    if (!cwd?.trim()) {
+      throw new Error("workspace required to create a session");
+    }
+    return broker.createSession(cwd);
+  });
 
   ipcMain.handle(IpcChannels.sessions.close, (_event, sessionId: string) =>
     broker.closeSession(sessionId),
@@ -34,13 +39,12 @@ export function registerSessionsIpc(broker: SessionBroker): void {
     broker.restartWorker(sessionId),
   );
 
-  ipcMain.handle(IpcChannels.sessions.status, (_event, sessionId: string) => {
-    const list = broker.listSessions();
+  ipcMain.handle(IpcChannels.sessions.status, async (_event, sessionId: string, cwd: string) => {
+    const list = await broker.listSessions(cwd);
     return list.find((s) => s.id === sessionId)?.status ?? null;
   });
 
-  ipcMain.handle(IpcChannels.sessions.open, (_event, sessionId: string) => {
-    const list = broker.listSessions();
-    return list.find((s) => s.id === sessionId) ?? null;
-  });
+  ipcMain.handle(IpcChannels.sessions.open, (_event, sessionId: string, cwd: string) =>
+    broker.openSession(sessionId, cwd),
+  );
 }
