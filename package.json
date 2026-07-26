@@ -1,6 +1,6 @@
 {
   "name": "pi-desktop",
-  "version": "0.0.2",
+  "version": "0.0.3",
   "description": "Pi Desktop — Electron + Vue3 Agent Workspace",
   "main": "./out/main/index.js",
   "author": "ImYoyoData",
@@ -11,8 +11,8 @@
   },
   "license": "MIT",
   "scripts": {
-    "dev": "electron-vite dev",
-    "build": "electron-vite build",
+    "dev": "node scripts/patch-highlightjs-exports.mjs && electron-vite dev",
+    "build": "node scripts/patch-highlightjs-exports.mjs && electron-vite build",
     "test": "vitest run",
     "typecheck": "vue-tsc --noEmit -p tsconfig.json",
     "start": "electron-vite preview",
@@ -21,7 +21,7 @@
     "dist:win": "npm run icons && npm run build && electron-builder --win --x64 --arm64",
     "dist:mac": "npm run icons && npm run build && electron-builder --mac --x64 --arm64",
     "dist:dir": "npm run icons && npm run build && electron-builder --dir",
-    "postinstall": "node scripts/patch-highlightjs-exports.mjs && electron-builder install-app-deps"
+    "postinstall": "electron-builder install-app-deps && node scripts/patch-highlightjs-exports.mjs"
   },
   "dependencies": {
     "@earendil-works/pi-agent-core": "0.82.1",
