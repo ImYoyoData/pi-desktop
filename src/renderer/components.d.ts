@@ -11,6 +11,7 @@ export {}
 /* prettier-ignore */
 declare module 'vue' {
   export interface GlobalComponents {
+    AppearanceSettings: typeof import('./src/components/AppearanceSettings.vue')['default']
     BrowserLibraryPanel: typeof import('./src/components/BrowserLibraryPanel.vue')['default']
     BrowserTab: typeof import('./src/components/BrowserTab.vue')['default']
     ChangesTab: typeof import('./src/components/ChangesTab.vue')['default']

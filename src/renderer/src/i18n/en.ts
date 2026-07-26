@@ -118,6 +118,22 @@ export const en = {
   themeDark: "Dark",
   language: "Language",
   languageHint: "Changing language reloads the UI.",
+  voiceInput: "Voice input",
+  voiceListening: "Listening… click again to stop",
+  voiceTranscribing: "Transcribing…",
+  asrTitle: "Speech recognition (ASR)",
+  asrHint: "Local Qwen3-ASR 0.6B Q4_K GGUF. Not downloaded by default. Disable to skip loading.",
+  asrEnable: "Enable voice input",
+  asrInstalled: "Installed",
+  asrNotInstalled: "Not installed",
+  asrInstall: "Install model",
+  asrUninstall: "Uninstall model",
+  asrInstallConfirm: (disk: number, ram: number) =>
+    `First use downloads the ASR runtime and Qwen3-ASR Q4_K model (~${disk} MB disk, ~${ram} MB RAM while running). Continue?`,
+  asrUnsupported: "Local ASR is not supported on this platform",
+  asrDisabled: "Voice input is disabled in settings",
+  asrInstallOk: "ASR model is ready",
+  asrFail: "Speech recognition failed",
 } as const;
 
 export type EnKeys = typeof en;

@@ -117,6 +117,22 @@ export const zh = {
   themeDark: "暗色",
   language: "语言",
   languageHint: "更改语言后将刷新界面。",
+  voiceInput: "语音输入",
+  voiceListening: "正在聆听… 再次点击结束",
+  voiceTranscribing: "正在识别…",
+  asrTitle: "语音识别 (ASR)",
+  asrHint: "本地 Qwen3-ASR 0.6B Q4_K GGUF，默认不下载。关闭后不会加载模型。",
+  asrEnable: "启用语音输入",
+  asrInstalled: "已安装",
+  asrNotInstalled: "未安装",
+  asrInstall: "安装模型",
+  asrUninstall: "卸载模型",
+  asrInstallConfirm: (disk: number, ram: number) =>
+    `首次使用需下载本地 ASR 运行时与 Qwen3-ASR Q4_K 模型（约 ${disk} MB 磁盘，推理约 ${ram} MB 内存）。是否继续？`,
+  asrUnsupported: "当前系统暂不支持本地 ASR",
+  asrDisabled: "语音输入已在设置中关闭",
+  asrInstallOk: "ASR 模型已就绪",
+  asrFail: "语音识别失败",
 } as const;
 
 export type ZhKeys = typeof zh;

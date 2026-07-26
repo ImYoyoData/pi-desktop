@@ -93,6 +93,14 @@ export const IpcChannels = {
     openExternal: "browser:openExternal",
     toggleEmbeddedDevTools: "browser:toggleEmbeddedDevTools",
   },
+  asr: {
+    status: "asr:status",
+    setEnabled: "asr:setEnabled",
+    install: "asr:install",
+    uninstall: "asr:uninstall",
+    transcribe: "asr:transcribe",
+    progress: "asr:progress",
+  },
 } as const;
 
 export type SessionStatus = "idle" | "running" | "error" | "stuck";
