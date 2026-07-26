@@ -14,6 +14,7 @@ import type { DropdownOption } from "naive-ui";
 import {
   AddOutline,
   FlashOutline,
+  MicOutline,
   SendOutline,
   StopOutline,
 } from "@vicons/ionicons5";
@@ -22,7 +23,9 @@ import { useChatStore } from "@renderer/stores/chat";
 import { isHttpUrl, useComposerStore } from "@renderer/stores/composer";
 import { useSessionsStore } from "@renderer/stores/sessions";
 import { useWorkspaceStore } from "@renderer/stores/workspace";
+import { useAsrStore } from "@renderer/stores/asr";
 import { heuristicSessionTitle } from "@renderer/utils/session-title";
+import { startPcmCapture, type PcmCapture } from "@renderer/utils/pcm-capture";
 import { t } from "@renderer/i18n";
 
 type ThinkingLevel = "off" | "minimal" | "low" | "medium" | "high" | "xhigh";
@@ -31,7 +34,10 @@ const chat = useChatStore();
 const composer = useComposerStore();
 const sessions = useSessionsStore();
 const workspace = useWorkspaceStore();
+const asr = useAsrStore();
 const messageApi = useMessage();
+let capture: PcmCapture | null = null;
+let offAsrProgress: (() => void) | undefined;
 
 type ModelSelectOption =
   | { type: "group"; label: string; key: string; children: { label: string; value: string }[] }
@@ -572,6 +578,71 @@ function onPaste(event: ClipboardEvent): void {
   }
 }
 
+async function ensureAsrReady(): Promise<boolean> {
+  await asr.refresh();
+  if (!asr.status.supported) {
+    messageApi.warning(t.asrUnsupported);
+    return false;
+  }
+  if (!asr.status.enabled) {
+    messageApi.warning(t.asrDisabled);
+    return false;
+  }
+  if (asr.status.installed) return true;
+
+  const ok = window.confirm(t.asrInstallConfirm(asr.status.diskMb, asr.status.ramMb));
+  if (!ok) return false;
+  try {
+    await asr.install();
+    messageApi.success(t.asrInstallOk);
+    return true;
+  } catch (err) {
+    messageApi.error(err instanceof Error ? err.message : String(err));
+    return false;
+  }
+}
+
+async function onMicClick(): Promise<void> {
+  if (asr.transcribing) return;
+
+  if (asr.recording && capture) {
+    asr.recording = false;
+    asr.transcribing = true;
+    try {
+      const { pcmBase64, sampleRate } = await capture.stop();
+      capture = null;
+      if (pcmBase64.length < 100) {
+        messageApi.warning(t.asrFail);
+        return;
+      }
+      const text = await window.api.asr.transcribe(pcmBase64, sampleRate);
+      const trimmed = text.trim();
+      if (!trimmed) {
+        messageApi.warning(t.asrFail);
+        return;
+      }
+      composer.draft = composer.draft ? `${composer.draft.trimEnd()} ${trimmed}` : trimmed;
+    } catch (err) {
+      messageApi.error(err instanceof Error ? err.message : t.asrFail);
+    } finally {
+      asr.transcribing = false;
+    }
+    return;
+  }
+
+  const ready = await ensureAsrReady();
+  if (!ready) return;
+
+  try {
+    capture = await startPcmCapture();
+    asr.recording = true;
+  } catch (err) {
+    messageApi.error(err instanceof Error ? err.message : String(err));
+    asr.recording = false;
+    capture = null;
+  }
+}
+
 function onPrimaryAction(): void {
   if (running.value) {
     void onAbort();
@@ -582,11 +653,18 @@ function onPrimaryAction(): void {
 
 onMounted(() => {
   void refreshModels();
+  void asr.refresh();
+  offAsrProgress = asr.bindProgress();
   window.addEventListener("pi-models-changed", onModelsChanged);
 });
 
 onUnmounted(() => {
   window.removeEventListener("pi-models-changed", onModelsChanged);
+  offAsrProgress?.();
+  capture?.abort();
+  capture = null;
+  asr.recording = false;
+  asr.transcribing = false;
 });
 
 function onModelsChanged(): void {
@@ -729,6 +807,27 @@ watch(sessionId, (id, prev) => {
         </div>
 
         <div class="toolbar-right">
+          <NTooltip v-if="asr.micVisible">
+            <template #trigger>
+              <button
+                type="button"
+                class="mic-btn"
+                :class="{ recording: asr.recording, busy: asr.transcribing }"
+                :disabled="asr.transcribing || asr.status.busy"
+                :aria-label="t.voiceInput"
+                @click="onMicClick"
+              >
+                <NIcon :component="MicOutline" :size="18" />
+              </button>
+            </template>
+            {{
+              asr.transcribing
+                ? t.voiceTranscribing
+                : asr.recording
+                  ? t.voiceListening
+                  : t.voiceInput
+            }}
+          </NTooltip>
           <NTooltip>
             <template #trigger>
               <NButton
@@ -864,7 +963,49 @@ watch(sessionId, (id, prev) => {
 .toolbar-right {
   display: flex;
   align-items: center;
+  gap: 6px;
   flex-shrink: 0;
+}
+
+.mic-btn {
+  width: 28px;
+  height: 28px;
+  border: none;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--fg-muted);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.mic-btn:hover:not(:disabled) {
+  background: var(--bg-hover);
+  color: var(--fg-strong);
+}
+
+.mic-btn.recording {
+  color: #ef4444;
+  background: rgba(239, 68, 68, 0.12);
+  animation: mic-pulse 1.2s ease-in-out infinite;
+}
+
+.mic-btn.busy,
+.mic-btn:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+@keyframes mic-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.35);
+  }
+  50% {
+    box-shadow: 0 0 0 6px rgba(239, 68, 68, 0);
+  }
 }
 
 .model-select {

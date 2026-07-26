@@ -4,6 +4,7 @@ import type { AgentCommand, AgentEvent, ElementCitation, SessionHistoryMessage, 
 import { IpcChannels } from "../shared/protocol";
 import type { ModelsGetResult, ModelsSetPayload } from "../shared/models-settings";
 import type { PreviewResult } from "../shared/preview-types";
+import type { AsrInstallProgress, AsrStatus } from "../shared/asr";
 
 export type { AgentCommand, AgentEvent, ElementCitation, SessionHistoryMessage, SessionStatus, SessionSummary };
 
@@ -273,6 +274,23 @@ const api = {
       ipcRenderer.on(IpcChannels.browser.toggleEmbeddedDevTools, listener);
       return () => {
         ipcRenderer.removeListener(IpcChannels.browser.toggleEmbeddedDevTools, listener);
+      };
+    },
+  },
+  asr: {
+    status: () => ipcRenderer.invoke(IpcChannels.asr.status) as Promise<AsrStatus>,
+    setEnabled: (enabled: boolean) =>
+      ipcRenderer.invoke(IpcChannels.asr.setEnabled, enabled) as Promise<AsrStatus>,
+    install: () => ipcRenderer.invoke(IpcChannels.asr.install) as Promise<AsrStatus>,
+    uninstall: () => ipcRenderer.invoke(IpcChannels.asr.uninstall) as Promise<AsrStatus>,
+    transcribe: (pcmBase64: string, sampleRate: number) =>
+      ipcRenderer.invoke(IpcChannels.asr.transcribe, { pcmBase64, sampleRate }) as Promise<string>,
+    onProgress: (callback: (progress: AsrInstallProgress) => void) => {
+      const listener = (_event: Electron.IpcRendererEvent, progress: AsrInstallProgress) =>
+        callback(progress);
+      ipcRenderer.on(IpcChannels.asr.progress, listener);
+      return () => {
+        ipcRenderer.removeListener(IpcChannels.asr.progress, listener);
       };
     },
   },

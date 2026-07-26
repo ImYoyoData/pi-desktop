@@ -17,6 +17,7 @@ import { registerSkillsIpc } from "./skills-ipc";
 import { registerGitIpc } from "./git-ipc";
 import { registerFsWatchIpc } from "./fs-watch-host";
 import { registerWindowIpc } from "./window-ipc";
+import { registerAsrIpc } from "./asr-host";
 import { ensurePiAgentEnvironment } from "./pi-env";
 import { installApplicationMenu } from "./app-menu";
 
@@ -89,6 +90,7 @@ function boot(): void {
 
     installApplicationMenu();
     registerWindowIpc();
+    registerAsrIpc();
     registerWorkspaceIpc();
     registerPreviewIpc();
     registerFilesIpc();
