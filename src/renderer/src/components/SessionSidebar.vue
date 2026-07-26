@@ -3,10 +3,12 @@ import { computed, onMounted, watch } from "vue";
 import type { SessionStatus } from "../../../shared/protocol";
 import { useLayoutStore } from "@renderer/stores/layout";
 import { useSessionsStore } from "@renderer/stores/sessions";
+import { useChatStore } from "@renderer/stores/chat";
 import { useWorkspaceStore } from "@renderer/stores/workspace";
 
 const layout = useLayoutStore();
 const sessionsStore = useSessionsStore();
+const chatStore = useChatStore();
 const workspace = useWorkspaceStore();
 
 const hasWorkspace = computed(() => Boolean(workspace.root));
@@ -62,18 +64,29 @@ async function onPing(): Promise<void> {
   await sessionsStore.sendCommand(sessionsStore.activeId, { type: "ping" });
 }
 
-async function onHang(): Promise<void> {
-  if (!sessionsStore.activeId) {
-    return;
-  }
-  void sessionsStore.sendCommand(sessionsStore.activeId, { type: "hang" });
-}
-
 async function onSelectSession(sessionId: string): Promise<void> {
   if (!workspace.root) {
     return;
   }
   await sessionsStore.selectSession(sessionId, workspace.root);
+  const opened = sessionsStore.sessions.find((s) => s.id === sessionId);
+  if (opened?.filePath) {
+    const history = await window.api.sessions.history(opened.filePath);
+    chatStore.hydrateFromHistory(sessionId, history);
+  }
+}
+
+async function onDeleteSession(sessionId: string, event: MouseEvent): Promise<void> {
+  event.stopPropagation();
+  if (!workspace.root) {
+    return;
+  }
+  const label = sessionLabel(sessionsStore.sessions.find((s) => s.id === sessionId) ?? { id: sessionId });
+  if (!window.confirm(`Delete session "${label}"? This removes the session file permanently.`)) {
+    return;
+  }
+  await sessionsStore.deleteSession(sessionId, workspace.root);
+  chatStore.clearSession(sessionId);
 }
 
 function sessionLabel(session: { name?: string; firstMessage?: string; id: string }): string {
@@ -118,7 +131,6 @@ function statusClass(status: SessionStatus): string {
         Restart
       </button>
       <button type="button" class="btn" :disabled="!sessionsStore.activeId" @click="onPing">Ping</button>
-      <button type="button" class="btn warn" :disabled="!sessionsStore.activeId" @click="onHang">Hang</button>
     </div>
 
     <p v-if="!hasWorkspace" class="hint">Open a workspace folder to list or create sessions.</p>
@@ -134,6 +146,14 @@ function statusClass(status: SessionStatus): string {
         <span :class="statusClass(session.status)" :title="session.status" />
         <span class="label">{{ sessionLabel(session) }}</span>
         <span class="meta">{{ session.status }}</span>
+        <button
+          type="button"
+          class="btn-delete"
+          title="Delete session"
+          @click="onDeleteSession(session.id, $event)"
+        >
+          ×
+        </button>
       </li>
     </ul>
   </aside>
@@ -233,7 +253,7 @@ function statusClass(status: SessionStatus): string {
 
 .row {
   display: grid;
-  grid-template-columns: auto 1fr auto;
+  grid-template-columns: auto 1fr auto auto;
   gap: 0.5rem;
   align-items: center;
   padding: 0.35rem 0.75rem;
@@ -282,5 +302,19 @@ function statusClass(status: SessionStatus): string {
   font-size: 0.6875rem;
   color: #6b7280;
   text-transform: capitalize;
+}
+
+.btn-delete {
+  padding: 0 0.35rem;
+  border: none;
+  background: transparent;
+  color: #9ca3af;
+  font-size: 1rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.btn-delete:hover {
+  color: #b91c1c;
 }
 </style>

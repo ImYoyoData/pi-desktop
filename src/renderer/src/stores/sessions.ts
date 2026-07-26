@@ -38,6 +38,9 @@ export const useSessionsStore = defineStore("sessions", () => {
       case "worker_stuck":
         patchStatus(event.sessionId, "stuck");
         break;
+      case "session_status":
+        patchStatus(event.sessionId, event.status);
+        break;
       case "worker_exit":
         patchStatus(event.sessionId, "error");
         break;
@@ -88,6 +91,14 @@ export const useSessionsStore = defineStore("sessions", () => {
     await refresh(cwd);
   }
 
+  async function deleteSession(sessionId: string, cwd: string): Promise<void> {
+    await window.api.sessions.delete(sessionId, cwd);
+    if (activeId.value === sessionId) {
+      activeId.value = null;
+    }
+    sessions.value = sessions.value.filter((s) => s.id !== sessionId);
+  }
+
   function bindEvents(): void {
     const off = window.api.sessions.onEvent((event) => {
       applyEvent(event);
@@ -104,6 +115,7 @@ export const useSessionsStore = defineStore("sessions", () => {
     sendCommand,
     killWorker,
     restartWorker,
+    deleteSession,
     bindEvents,
   };
 });

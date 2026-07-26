@@ -15,6 +15,8 @@ export const IpcChannels = {
     status: "sessions:status",
     killWorker: "sessions:killWorker",
     restartWorker: "sessions:restartWorker",
+    delete: "sessions:delete",
+    history: "sessions:history",
   },
   models: {
     get: "models:get",
@@ -73,7 +75,14 @@ export type AgentEvent =
   | { type: "prompt_done"; sessionId: string }
   | { type: "prompt_error"; sessionId: string; errorMessage: string }
   | { type: "worker_stuck"; sessionId: string }
-  | { type: "worker_exit"; sessionId: string; code: number | null };
+  | { type: "worker_exit"; sessionId: string; code: number | null }
+  | { type: "session_status"; sessionId: string; status: SessionStatus };
+
+export type SessionHistoryMessage = {
+  id: string;
+  role: "user" | "assistant";
+  text: string;
+};
 
 export type SessionSummary = {
   id: string;

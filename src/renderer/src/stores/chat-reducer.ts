@@ -194,6 +194,7 @@ export function reduceChatEvent(state: ChatState, event: AgentEvent): ChatState 
       };
     case "worker_stuck":
     case "worker_exit":
+    case "session_status":
       return { ...state, running: false };
     default: {
       const _never: never = event;
