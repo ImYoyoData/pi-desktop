@@ -8,6 +8,7 @@ import {
   type AgentSession,
 } from "@earendil-works/pi-coding-agent";
 import type { AgentCommand, ElementCitation } from "../shared/protocol";
+import { truncateHtmlSnippet } from "../shared/html-snippet";
 import type { WorkerInbound, WorkerOutbound } from "../shared/agent-worker-messages";
 
 function post(msg: WorkerOutbound): void {
@@ -28,7 +29,7 @@ function formatCitationsBlock(citations: ElementCitation[]): string {
   const body = citations
     .map(
       (c, index) =>
-        `### Citation ${index + 1}\n- URL: ${c.url}\n- Selector: ${c.selector}\n- Text: ${c.text}\n\n\`\`\`html\n${c.htmlSnippet}\n\`\`\``,
+        `### Citation ${index + 1}\n- URL: ${c.url}\n- Selector: ${c.selector}\n- Text: ${c.text}\n\n\`\`\`html\n${truncateHtmlSnippet(c.htmlSnippet)}\n\`\`\``,
     )
     .join("\n\n");
   return `Context from browser selection:\n\n${body}\n\n---\n\n`;

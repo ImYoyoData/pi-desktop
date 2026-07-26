@@ -51,6 +51,37 @@ const api = {
     pickFile: () =>
       ipcRenderer.invoke(IpcChannels.preview.pickFile) as Promise<string | null>,
   },
+  browser: {
+    create: () => ipcRenderer.invoke(IpcChannels.browser.create) as Promise<string>,
+    navigate: (id: string, url: string) =>
+      ipcRenderer.invoke(IpcChannels.browser.navigate, id, url) as Promise<void>,
+    back: (id: string) => ipcRenderer.invoke(IpcChannels.browser.back, id) as Promise<void>,
+    forward: (id: string) =>
+      ipcRenderer.invoke(IpcChannels.browser.forward, id) as Promise<void>,
+    reload: (id: string) => ipcRenderer.invoke(IpcChannels.browser.reload, id) as Promise<void>,
+    startSelect: (id: string) =>
+      ipcRenderer.invoke(IpcChannels.browser.startSelect, id) as Promise<
+        { ok: true } | { ok: false; reason: "csp" | "missing" }
+      >,
+    stopSelect: (id: string) =>
+      ipcRenderer.invoke(IpcChannels.browser.stopSelect, id) as Promise<void>,
+    setBounds: (
+      id: string,
+      bounds: { x: number; y: number; width: number; height: number },
+    ) => ipcRenderer.invoke(IpcChannels.browser.setBounds, id, bounds) as Promise<void>,
+    destroy: (id: string) =>
+      ipcRenderer.invoke(IpcChannels.browser.destroy, id) as Promise<void>,
+    onElementSelected: (callback: (citation: ElementCitation) => void) => {
+      const listener = (
+        _event: Electron.IpcRendererEvent,
+        payload: ElementCitation,
+      ) => callback(payload);
+      ipcRenderer.on(IpcChannels.browser.elementSelected, listener);
+      return () => {
+        ipcRenderer.removeListener(IpcChannels.browser.elementSelected, listener);
+      };
+    },
+  },
   terminal: {
     create: (cwd?: string) =>
       ipcRenderer.invoke(IpcChannels.terminal.create, cwd) as Promise<string>,
