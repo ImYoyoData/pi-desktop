@@ -1,8 +1,10 @@
 import { app, BrowserWindow } from "electron";
 import { electronApp, optimizer } from "@electron-toolkit/utils";
 import { createMainWindow } from "./window";
+import { registerWorkspaceIpc } from "./workspace-ipc";
 
 app.whenReady().then(() => {
+  registerWorkspaceIpc();
   electronApp.setAppUserModelId("com.pi.desktop");
 
   app.on("browser-window-created", (_, window) => {

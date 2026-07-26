@@ -1,8 +1,11 @@
-import { ElectronAPI } from '@electron-toolkit/preload'
+import { ElectronAPI } from "@electron-toolkit/preload";
+import type { PiDesktopApi } from "./index";
 
 declare global {
   interface Window {
-    electron: ElectronAPI
-    api: unknown
+    electron: ElectronAPI;
+    api: PiDesktopApi;
   }
 }
+
+export {};
