@@ -1,6 +1,7 @@
 import path from "node:path";
 import type { WorkerInbound, WorkerOutbound } from "../shared/agent-worker-messages";
 import type { AgentCommand, AgentEvent, SessionStatus, SessionSummary } from "../shared/protocol";
+import { IDLE_WORKER_DESTROY_MS } from "./worker-lifecycle";
 import { listSessionsForCwd } from "./session-list";
 
 const HEARTBEAT_INTERVAL_MS = 5_000;
@@ -32,16 +33,21 @@ export type SessionBroker = {
 type SessionRecord = {
   cwd: string;
   summary: SessionSummary;
-  worker: WorkerHandle;
+  worker: WorkerHandle | null;
   heartbeatMisses: number;
   heartbeatTimer: ReturnType<typeof setInterval> | null;
+  idleDestroyTimer: ReturnType<typeof setTimeout> | null;
   pendingCommands: Map<
     string,
     { command: AgentCommand; resolve: () => void; reject: (err: Error) => void }
   >;
 };
 
-export function createSessionBroker(deps: { spawnWorker: SpawnWorker }): SessionBroker {
+export function createSessionBroker(deps: {
+  spawnWorker: SpawnWorker;
+  idleDestroyMs?: number;
+}): SessionBroker {
+  const idleDestroyMs = deps.idleDestroyMs ?? IDLE_WORKER_DESTROY_MS;
   const sessions = new Map<string, SessionRecord>();
   const listeners = new Set<(event: AgentEvent) => void>();
 
@@ -57,6 +63,43 @@ export function createSessionBroker(deps: { spawnWorker: SpawnWorker }): Session
       return;
     }
     rec.summary.status = status;
+    if (status === "running" || status === "stuck") {
+      clearIdleDestroyTimer(rec);
+    }
+  }
+
+  function rejectPendingCommands(rec: SessionRecord, message: string): void {
+    rec.pendingCommands.forEach(({ reject }) => reject(new Error(message)));
+    rec.pendingCommands.clear();
+  }
+
+  function clearIdleDestroyTimer(rec: SessionRecord): void {
+    if (rec.idleDestroyTimer) {
+      clearTimeout(rec.idleDestroyTimer);
+      rec.idleDestroyTimer = null;
+    }
+  }
+
+  function scheduleIdleDestroy(sessionId: string): void {
+    const rec = sessions.get(sessionId);
+    if (!rec || !rec.worker || rec.summary.status !== "idle") {
+      return;
+    }
+    clearIdleDestroyTimer(rec);
+    rec.idleDestroyTimer = setTimeout(() => {
+      destroyIdleWorker(sessionId);
+    }, idleDestroyMs);
+  }
+
+  function destroyIdleWorker(sessionId: string): void {
+    const rec = sessions.get(sessionId);
+    if (!rec || !rec.worker || rec.summary.status !== "idle") {
+      return;
+    }
+    stopHeartbeat(rec);
+    clearIdleDestroyTimer(rec);
+    rec.worker.kill();
+    rec.worker = null;
   }
 
   function stopHeartbeat(rec: SessionRecord): void {
@@ -68,14 +111,14 @@ export function createSessionBroker(deps: { spawnWorker: SpawnWorker }): Session
 
   function startHeartbeat(sessionId: string): void {
     const rec = sessions.get(sessionId);
-    if (!rec) {
+    if (!rec?.worker) {
       return;
     }
     stopHeartbeat(rec);
     rec.heartbeatMisses = 0;
     rec.heartbeatTimer = setInterval(() => {
       const current = sessions.get(sessionId);
-      if (!current) {
+      if (!current?.worker) {
         return;
       }
       current.heartbeatMisses += 1;
@@ -85,6 +128,36 @@ export function createSessionBroker(deps: { spawnWorker: SpawnWorker }): Session
       }
       void current.worker.send({ kind: "ping" });
     }, HEARTBEAT_INTERVAL_MS);
+  }
+
+  async function spawnWorkerForRecord(
+    sessionId: string,
+    rec: SessionRecord,
+  ): Promise<void> {
+    const filePath = rec.summary.filePath || undefined;
+    const spawned = await deps.spawnWorker(rec.cwd, filePath);
+    if (spawned.id !== sessionId) {
+      spawned.worker.kill();
+      throw new Error(`session id mismatch: expected ${sessionId}, got ${spawned.id}`);
+    }
+    rec.worker = spawned.worker;
+    rec.summary.filePath = spawned.filePath;
+    attachWorker(sessionId, spawned.worker);
+    startHeartbeat(sessionId);
+    scheduleIdleDestroy(sessionId);
+    emit({ type: "connected", sessionId });
+  }
+
+  async function ensureWorker(sessionId: string): Promise<SessionRecord> {
+    const rec = sessions.get(sessionId);
+    if (!rec) {
+      throw new Error(`unknown session: ${sessionId}`);
+    }
+    if (rec.worker) {
+      return rec;
+    }
+    await spawnWorkerForRecord(sessionId, rec);
+    return rec;
   }
 
   function attachWorker(sessionId: string, worker: WorkerHandle): void {
@@ -98,6 +171,7 @@ export function createSessionBroker(deps: { spawnWorker: SpawnWorker }): Session
         rec.heartbeatMisses = 0;
         if (rec.summary.status === "stuck") {
           setStatus(sessionId, "idle");
+          scheduleIdleDestroy(sessionId);
         }
         return;
       }
@@ -108,6 +182,7 @@ export function createSessionBroker(deps: { spawnWorker: SpawnWorker }): Session
       }
 
       if (msg.kind === "fatal") {
+        rejectPendingCommands(rec, msg.error ?? "worker fatal");
         setStatus(sessionId, "error");
         emit({
           type: "prompt_error",
@@ -133,8 +208,10 @@ export function createSessionBroker(deps: { spawnWorker: SpawnWorker }): Session
         if (pending.command.type === "prompt") {
           setStatus(sessionId, "idle");
           emit({ type: "prompt_done", sessionId });
+          scheduleIdleDestroy(sessionId);
         } else if (pending.command.type === "hang") {
           setStatus(sessionId, "idle");
+          scheduleIdleDestroy(sessionId);
         }
       }
     });
@@ -159,10 +236,12 @@ export function createSessionBroker(deps: { spawnWorker: SpawnWorker }): Session
       worker,
       heartbeatMisses: 0,
       heartbeatTimer: null,
+      idleDestroyTimer: null,
       pendingCommands: new Map(),
     });
     attachWorker(id, worker);
     startHeartbeat(id);
+    scheduleIdleDestroy(id);
     emit({ type: "connected", sessionId: id });
     return { ...summary };
   }
@@ -194,7 +273,11 @@ export function createSessionBroker(deps: { spawnWorker: SpawnWorker }): Session
 
   async function openSession(sessionId: string, cwd: string): Promise<SessionSummary | null> {
     const live = sessions.get(sessionId);
-    if (live) {
+    if (live?.worker) {
+      return { ...live.summary };
+    }
+    if (live && !live.worker) {
+      await spawnWorkerForRecord(sessionId, live);
       return { ...live.summary };
     }
     const disk = await listSessionsForCwd(cwd);
@@ -215,8 +298,11 @@ export function createSessionBroker(deps: { spawnWorker: SpawnWorker }): Session
     if (!rec) {
       return;
     }
+    clearIdleDestroyTimer(rec);
     stopHeartbeat(rec);
-    rec.worker.kill();
+    if (rec.worker) {
+      rec.worker.kill();
+    }
     emit({ type: "worker_exit", sessionId, code });
   }
 
@@ -225,15 +311,18 @@ export function createSessionBroker(deps: { spawnWorker: SpawnWorker }): Session
     if (!rec) {
       return;
     }
-    await rec.worker.send({ kind: "shutdown" });
+    if (rec.worker) {
+      await rec.worker.send({ kind: "shutdown" });
+    }
     await teardownWorker(sessionId, 0);
     sessions.delete(sessionId);
   }
 
   async function send(sessionId: string, command: AgentCommand): Promise<void> {
-    const rec = sessions.get(sessionId);
-    if (!rec) {
-      throw new Error(`unknown session: ${sessionId}`);
+    const rec = await ensureWorker(sessionId);
+    const worker = rec.worker;
+    if (!worker) {
+      throw new Error(`session worker unavailable: ${sessionId}`);
     }
     if (command.type === "prompt" || command.type === "hang") {
       setStatus(sessionId, "running");
@@ -243,13 +332,13 @@ export function createSessionBroker(deps: { spawnWorker: SpawnWorker }): Session
     const outbound = { kind: "command" as const, id: cmdId, command };
 
     if (!awaitsResult) {
-      await rec.worker.send(outbound);
+      await worker.send(outbound);
       return;
     }
 
     await new Promise<void>((resolve, reject) => {
       rec.pendingCommands.set(cmdId, { command, resolve, reject });
-      void rec.worker.send(outbound).then((direct) => {
+      void worker.send(outbound).then((direct) => {
         if (direct?.kind === "result") {
           const pending = rec.pendingCommands.get(cmdId);
           if (!pending) {
@@ -271,8 +360,13 @@ export function createSessionBroker(deps: { spawnWorker: SpawnWorker }): Session
     if (!rec) {
       return;
     }
+    clearIdleDestroyTimer(rec);
     stopHeartbeat(rec);
-    rec.worker.kill();
+    rejectPendingCommands(rec, "worker terminated");
+    if (rec.worker) {
+      rec.worker.kill();
+      rec.worker = null;
+    }
     setStatus(sessionId, "error");
     emit({ type: "worker_exit", sessionId, code: null });
   }
@@ -282,17 +376,14 @@ export function createSessionBroker(deps: { spawnWorker: SpawnWorker }): Session
     if (!rec) {
       return;
     }
-    const { cwd, summary } = rec;
-    const filePath = summary.filePath || undefined;
+    clearIdleDestroyTimer(rec);
     stopHeartbeat(rec);
-    rec.worker.kill();
-    rec.pendingCommands.forEach(({ reject }) => reject(new Error("worker restarted")));
-    rec.pendingCommands.clear();
-    const spawned = await deps.spawnWorker(cwd, filePath);
-    rec.worker = spawned.worker;
-    rec.summary.filePath = spawned.filePath;
-    attachWorker(sessionId, spawned.worker);
-    startHeartbeat(sessionId);
+    rejectPendingCommands(rec, "worker restarted");
+    if (rec.worker) {
+      rec.worker.kill();
+      rec.worker = null;
+    }
+    await spawnWorkerForRecord(sessionId, rec);
     setStatus(sessionId, "idle");
   }
 
@@ -303,7 +394,9 @@ export function createSessionBroker(deps: { spawnWorker: SpawnWorker }): Session
 
   async function notifyWorkersReloadModels(): Promise<void> {
     await Promise.all(
-      [...sessions.values()].map((rec) => rec.worker.send({ kind: "reload_models" })),
+      [...sessions.values()]
+        .filter((rec): rec is SessionRecord & { worker: WorkerHandle } => rec.worker !== null)
+        .map((rec) => rec.worker.send({ kind: "reload_models" })),
     );
   }
 

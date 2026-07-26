@@ -3,6 +3,8 @@ import path from "node:path";
 import type { WorkerInbound, WorkerOutbound } from "../shared/agent-worker-messages";
 import type { SpawnWorker, WorkerHandle } from "./session-broker";
 
+export { IDLE_WORKER_DESTROY_MS } from "./worker-lifecycle";
+
 function workerScriptPath(): string {
   return path.join(__dirname, "agent-worker/index.js");
 }
