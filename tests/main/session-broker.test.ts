@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { createSessionBroker } from "../../src/main/session-broker";
 
 describe("session-broker", () => {
@@ -29,5 +29,105 @@ describe("session-broker", () => {
     await broker.send(a.id, { type: "ping" });
     expect(hits).toEqual([a.id]);
     expect(b.id).not.toEqual(a.id);
+  });
+
+  it("destroys idle worker after timeout and cold-starts on next send", async () => {
+    vi.useFakeTimers();
+    let spawnCount = 0;
+    let killed = false;
+    let messageCb: ((msg: { kind: string }) => void) | null = null;
+    const broker = createSessionBroker({
+      idleDestroyMs: 60_000,
+      spawnWorker: async (cwd) => {
+        spawnCount += 1;
+        return {
+          id: "session-a",
+          cwd,
+          filePath: "/tmp/session-a.jsonl",
+          worker: {
+            send: async (msg) => {
+              if (msg.kind === "ping") {
+                messageCb?.({ kind: "pong" });
+              }
+              return null;
+            },
+            kill: () => {
+              killed = true;
+            },
+            onMessage: (cb) => {
+              messageCb = cb;
+              return () => {
+                messageCb = null;
+              };
+            },
+          },
+        };
+      },
+    });
+    const session = await broker.createSession("/tmp/a");
+    expect(spawnCount).toBe(1);
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(killed).toBe(true);
+    killed = false;
+    await broker.send(session.id, { type: "ping" });
+    expect(spawnCount).toBe(2);
+    vi.useRealTimers();
+  });
+
+  it("rejects pending prompt commands on worker fatal", async () => {
+    let messageCb: ((msg: { kind: string; id?: string; error?: string }) => void) | null = null;
+    const broker = createSessionBroker({
+      spawnWorker: async (cwd) => ({
+        id: "session-a",
+        cwd,
+        filePath: "/tmp/session-a.jsonl",
+        worker: {
+          send: async (msg) => {
+            if (msg.kind === "command" && msg.id) {
+              messageCb?.({ kind: "fatal", error: "boom" });
+            }
+            return null;
+          },
+          kill: () => {},
+          onMessage: (cb) => {
+            messageCb = cb;
+            return () => {
+              messageCb = null;
+            };
+          },
+        },
+      }),
+    });
+    const session = await broker.createSession("/tmp/a");
+    const pending = broker.send(session.id, {
+      type: "prompt",
+      message: "hi",
+    });
+    await expect(pending).rejects.toThrow("boom");
+  });
+
+  it("rejects pending commands when worker is terminated", async () => {
+    const broker = createSessionBroker({
+      spawnWorker: async (cwd) => ({
+        id: "session-a",
+        cwd,
+        filePath: "/tmp/session-a.jsonl",
+        worker: {
+          send: async (msg) => {
+            if (msg.kind === "command" && msg.command.type === "hang") {
+              return new Promise(() => {});
+            }
+            return null;
+          },
+          kill: () => {},
+          onMessage: () => () => {},
+        },
+      }),
+    });
+    const session = await broker.createSession("/tmp/a");
+    const pending = broker.send(session.id, { type: "hang" });
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    await broker.killWorker(session.id);
+    await expect(pending).rejects.toThrow("worker terminated");
   });
 });
