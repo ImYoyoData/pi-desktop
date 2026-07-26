@@ -5,12 +5,14 @@ import { createSessionBroker } from "./session-broker";
 import { registerModelsIpc } from "./models-ipc";
 import { registerSessionsIpc } from "./sessions-ipc";
 import { createMainWindow } from "./window";
+import { registerTerminalIpc } from "./terminal-host";
 import { registerWorkspaceIpc } from "./workspace-ipc";
 
 const broker = createSessionBroker({ spawnWorker: createUtilityProcessSpawnWorker() });
 
 app.whenReady().then(() => {
   registerWorkspaceIpc();
+  registerTerminalIpc();
   registerSessionsIpc(broker);
   registerModelsIpc(broker);
   electronApp.setAppUserModelId("com.pi.desktop");

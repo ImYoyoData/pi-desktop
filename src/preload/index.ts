@@ -44,6 +44,26 @@ const api = {
       ipcRenderer.invoke(IpcChannels.models.set, payload) as Promise<void>,
     test: () => ipcRenderer.invoke(IpcChannels.models.test) as Promise<ModelsGetResult["available"]>,
   },
+  terminal: {
+    create: (cwd?: string) =>
+      ipcRenderer.invoke(IpcChannels.terminal.create, cwd) as Promise<string>,
+    write: (id: string, data: string) =>
+      ipcRenderer.invoke(IpcChannels.terminal.write, id, data) as Promise<void>,
+    resize: (id: string, cols: number, rows: number) =>
+      ipcRenderer.invoke(IpcChannels.terminal.resize, id, cols, rows) as Promise<void>,
+    dispose: (id: string) =>
+      ipcRenderer.invoke(IpcChannels.terminal.dispose, id) as Promise<void>,
+    onData: (callback: (payload: { id: string; data: string }) => void) => {
+      const listener = (
+        _event: Electron.IpcRendererEvent,
+        payload: { id: string; data: string },
+      ) => callback(payload);
+      ipcRenderer.on(IpcChannels.terminal.data, listener);
+      return () => {
+        ipcRenderer.removeListener(IpcChannels.terminal.data, listener);
+      };
+    },
+  },
 };
 
 export type PiDesktopApi = typeof api;
