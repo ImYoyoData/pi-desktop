@@ -1,22 +1,29 @@
-import { contextBridge } from 'electron'
-import { electronAPI } from '@electron-toolkit/preload'
+import { contextBridge, ipcRenderer } from "electron";
+import { electronAPI } from "@electron-toolkit/preload";
+import { IpcChannels } from "../shared/protocol";
 
-// Custom APIs for renderer
-const api = {}
+const api = {
+  workspace: {
+    get: () => ipcRenderer.invoke(IpcChannels.workspace.get) as Promise<string | null>,
+    open: () => ipcRenderer.invoke(IpcChannels.workspace.open) as Promise<string | null>,
+    listRecent: () => ipcRenderer.invoke(IpcChannels.workspace.listRecent) as Promise<string[]>,
+    openPath: (root: string) =>
+      ipcRenderer.invoke(IpcChannels.workspace.openPath, root) as Promise<string | null>,
+  },
+};
 
-// Use `contextBridge` APIs to expose Electron APIs to
-// renderer only if context isolation is enabled, otherwise
-// just add to the DOM global.
+export type PiDesktopApi = typeof api;
+
 if (process.contextIsolated) {
   try {
-    contextBridge.exposeInMainWorld('electron', electronAPI)
-    contextBridge.exposeInMainWorld('api', api)
+    contextBridge.exposeInMainWorld("electron", electronAPI);
+    contextBridge.exposeInMainWorld("api", api);
   } catch (error) {
-    console.error(error)
+    console.error(error);
   }
 } else {
-  // @ts-ignore (define in dts)
-  window.electron = electronAPI
-  // @ts-ignore (define in dts)
-  window.api = api
+  // @ts-expect-error define in dts
+  window.electron = electronAPI;
+  // @ts-expect-error define in dts
+  window.api = api;
 }
