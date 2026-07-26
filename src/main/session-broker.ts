@@ -1,4 +1,3 @@
-import { randomUUID } from "node:crypto";
 import path from "node:path";
 import type { WorkerInbound, WorkerOutbound } from "../shared/agent-worker-messages";
 import type { AgentCommand, AgentEvent, SessionStatus, SessionSummary } from "../shared/protocol";
@@ -238,7 +237,7 @@ export function createSessionBroker(deps: { spawnWorker: SpawnWorker }): Session
     if (command.type === "prompt" || command.type === "hang") {
       setStatus(sessionId, "running");
     }
-    const cmdId = randomUUID();
+    const cmdId = crypto.randomUUID();
     const awaitsResult = command.type === "prompt" || command.type === "hang";
     const outbound = { kind: "command" as const, id: cmdId, command };
 

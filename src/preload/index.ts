@@ -25,8 +25,8 @@ const api = {
       ipcRenderer.invoke(IpcChannels.sessions.killWorker, sessionId) as Promise<void>,
     restartWorker: (sessionId: string) =>
       ipcRenderer.invoke(IpcChannels.sessions.restartWorker, sessionId) as Promise<void>,
-    status: (sessionId: string) =>
-      ipcRenderer.invoke(IpcChannels.sessions.status, sessionId) as Promise<SessionStatus | null>,
+    status: (sessionId: string, cwd: string) =>
+      ipcRenderer.invoke(IpcChannels.sessions.status, sessionId, cwd) as Promise<SessionStatus | null>,
     onEvent: (callback: (event: AgentEvent) => void) => {
       const listener = (_event: Electron.IpcRendererEvent, payload: AgentEvent) => callback(payload);
       ipcRenderer.on(IpcChannels.sessions.event, listener);
