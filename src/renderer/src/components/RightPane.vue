@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref } from "vue";
+import TerminalTab from "@renderer/components/TerminalTab.vue";
 import { useLayoutStore } from "@renderer/stores/layout";
 
 type RightTab = "terminal" | "preview" | "browser";
@@ -34,7 +35,8 @@ const tabs: { id: RightTab; label: string }[] = [
       </button>
     </header>
     <div class="body">
-      <p class="stub">{{ activeTab }} panel (stub)</p>
+      <TerminalTab v-if="activeTab === 'terminal'" />
+      <p v-else class="stub">{{ activeTab }} panel (stub)</p>
     </div>
   </aside>
 </template>
@@ -90,6 +92,13 @@ const tabs: { id: RightTab; label: string }[] = [
 }
 
 .body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.body .stub {
   flex: 1;
   display: flex;
   align-items: center;
