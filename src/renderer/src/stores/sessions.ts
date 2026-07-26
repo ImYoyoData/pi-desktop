@@ -48,8 +48,12 @@ export const useSessionsStore = defineStore("sessions", () => {
     }
   }
 
-  async function refresh(): Promise<void> {
-    sessions.value = await window.api.sessions.list();
+  async function refresh(cwd: string | null): Promise<void> {
+    if (!cwd) {
+      sessions.value = [];
+      return;
+    }
+    sessions.value = await window.api.sessions.list(cwd);
   }
 
   async function createSession(cwd: string): Promise<SessionSummary | null> {
@@ -59,9 +63,9 @@ export const useSessionsStore = defineStore("sessions", () => {
     return created;
   }
 
-  async function selectSession(sessionId: string): Promise<void> {
+  async function selectSession(sessionId: string, cwd: string): Promise<void> {
     activeId.value = sessionId;
-    const opened = await window.api.sessions.open(sessionId);
+    const opened = await window.api.sessions.open(sessionId, cwd);
     if (opened) {
       upsert(opened);
     }
@@ -72,17 +76,16 @@ export const useSessionsStore = defineStore("sessions", () => {
       patchStatus(sessionId, "running");
     }
     await window.api.sessions.command(sessionId, command);
-    await refresh();
   }
 
-  async function killWorker(sessionId: string): Promise<void> {
+  async function killWorker(sessionId: string, cwd: string | null): Promise<void> {
     await window.api.sessions.killWorker(sessionId);
-    await refresh();
+    await refresh(cwd);
   }
 
-  async function restartWorker(sessionId: string): Promise<void> {
+  async function restartWorker(sessionId: string, cwd: string | null): Promise<void> {
     await window.api.sessions.restartWorker(sessionId);
-    await refresh();
+    await refresh(cwd);
   }
 
   function bindEvents(): void {

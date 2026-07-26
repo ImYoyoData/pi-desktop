@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted } from "vue";
+import { computed, onMounted, watch } from "vue";
 import type { SessionStatus } from "../../../shared/protocol";
 import { useLayoutStore } from "@renderer/stores/layout";
 import { useSessionsStore } from "@renderer/stores/sessions";
@@ -9,29 +9,42 @@ const layout = useLayoutStore();
 const sessionsStore = useSessionsStore();
 const workspace = useWorkspaceStore();
 
+const hasWorkspace = computed(() => Boolean(workspace.root));
+
 onMounted(async () => {
   sessionsStore.bindEvents();
   await workspace.getWorkspace();
-  await sessionsStore.refresh();
+  await sessionsStore.refresh(workspace.root);
 });
 
+watch(
+  () => workspace.root,
+  async (root) => {
+    sessionsStore.activeId = null;
+    await sessionsStore.refresh(root);
+  },
+);
+
 async function onNewSession(): Promise<void> {
-  const cwd = workspace.root ?? ".";
-  await sessionsStore.createSession(cwd);
+  if (!workspace.root) {
+    return;
+  }
+  await sessionsStore.createSession(workspace.root);
+  await sessionsStore.refresh(workspace.root);
 }
 
 async function onKill(): Promise<void> {
   if (!sessionsStore.activeId) {
     return;
   }
-  await sessionsStore.killWorker(sessionsStore.activeId);
+  await sessionsStore.killWorker(sessionsStore.activeId, workspace.root);
 }
 
 async function onRestart(): Promise<void> {
   if (!sessionsStore.activeId) {
     return;
   }
-  await sessionsStore.restartWorker(sessionsStore.activeId);
+  await sessionsStore.restartWorker(sessionsStore.activeId, workspace.root);
 }
 
 async function onPing(): Promise<void> {
@@ -46,6 +59,24 @@ async function onHang(): Promise<void> {
     return;
   }
   void sessionsStore.sendCommand(sessionsStore.activeId, { type: "hang" });
+}
+
+async function onSelectSession(sessionId: string): Promise<void> {
+  if (!workspace.root) {
+    return;
+  }
+  await sessionsStore.selectSession(sessionId, workspace.root);
+}
+
+function sessionLabel(session: { name?: string; firstMessage?: string; id: string }): string {
+  if (session.name?.trim()) {
+    return session.name.trim();
+  }
+  if (session.firstMessage?.trim() && session.firstMessage !== "(no messages)") {
+    const text = session.firstMessage.trim();
+    return text.length > 48 ? `${text.slice(0, 45)}…` : text;
+  }
+  return session.id.slice(0, 8);
 }
 
 function statusClass(status: SessionStatus): string {
@@ -63,12 +94,14 @@ function statusClass(status: SessionStatus): string {
     </header>
 
     <div class="toolbar">
-      <button type="button" class="btn" @click="onNewSession">New</button>
+      <button type="button" class="btn" :disabled="!hasWorkspace" @click="onNewSession">New</button>
       <button type="button" class="btn" :disabled="!sessionsStore.activeId" @click="onKill">Kill</button>
       <button type="button" class="btn" :disabled="!sessionsStore.activeId" @click="onRestart">Restart</button>
       <button type="button" class="btn" :disabled="!sessionsStore.activeId" @click="onPing">Ping</button>
       <button type="button" class="btn warn" :disabled="!sessionsStore.activeId" @click="onHang">Hang</button>
     </div>
+
+    <p v-if="!hasWorkspace" class="hint">Open a workspace folder to list or create sessions.</p>
 
     <ul class="list">
       <li
@@ -76,10 +109,10 @@ function statusClass(status: SessionStatus): string {
         :key="session.id"
         class="row"
         :class="{ active: session.id === sessionsStore.activeId }"
-        @click="sessionsStore.selectSession(session.id)"
+        @click="onSelectSession(session.id)"
       >
         <span :class="statusClass(session.status)" :title="session.status" />
-        <span class="label">{{ session.id.slice(0, 8) }}</span>
+        <span class="label">{{ sessionLabel(session) }}</span>
         <span class="meta">{{ session.status }}</span>
       </li>
     </ul>
@@ -121,6 +154,13 @@ function statusClass(status: SessionStatus): string {
   gap: 0.35rem;
   padding: 0.5rem 0.75rem;
   border-bottom: 1px solid #e5e7eb;
+}
+
+.hint {
+  margin: 0;
+  padding: 0.5rem 0.75rem;
+  font-size: 0.75rem;
+  color: #6b7280;
 }
 
 .btn {
