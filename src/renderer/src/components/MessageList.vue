@@ -1,11 +1,30 @@
 <script setup lang="ts">
 import { nextTick, ref, watch } from "vue";
 import type { ChatMessage } from "@renderer/stores/chat";
+import { extractWorkspacePaths } from "@renderer/utils/preview-paths";
+import { useLayoutStore } from "@renderer/stores/layout";
+import { usePreviewStore } from "@renderer/stores/preview";
 
 const props = defineProps<{
   messages: ChatMessage[];
   running: boolean;
 }>();
+
+const layout = useLayoutStore();
+const previewStore = usePreviewStore();
+
+function toolPaths(msg: Extract<ChatMessage, { role: "tool" }>): string[] {
+  const fromArgs = extractWorkspacePaths(msg.args);
+  const fromResult = extractWorkspacePaths(msg.result);
+  return [...new Set([...fromArgs, ...fromResult])];
+}
+
+function openPreview(filePath: string): void {
+  previewStore.openPreview(filePath);
+  if (layout.rightCollapsed) {
+    layout.toggleRightCollapsed();
+  }
+}
 
 const scroller = ref<HTMLElement | null>(null);
 const expandedTools = ref<Set<string>>(new Set());
@@ -78,6 +97,17 @@ watch(
             <span v-else class="tool-status ok">done</span>
           </button>
           <pre v-if="toolExpanded(msg.id)" class="tool-body">{{ formatArgs(msg.args ?? msg.result) }}</pre>
+          <div v-if="toolExpanded(msg.id) && toolPaths(msg).length" class="tool-preview">
+            <button
+              v-for="filePath in toolPaths(msg)"
+              :key="filePath"
+              type="button"
+              class="preview-btn"
+              @click.stop="openPreview(filePath)"
+            >
+              Preview {{ filePath }}
+            </button>
+          </div>
         </div>
       </template>
 
@@ -224,6 +254,28 @@ watch(
   overflow: auto;
   max-height: 12rem;
   background: #fff;
+}
+
+.tool-preview {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  padding: 0.35rem 0.55rem 0.5rem;
+  border-top: 1px solid #f3f4f6;
+}
+
+.preview-btn {
+  padding: 0.2rem 0.45rem;
+  border: 1px solid #d1d5db;
+  border-radius: 4px;
+  background: #fff;
+  font-size: 0.6875rem;
+  font-family: ui-monospace, monospace;
+  cursor: pointer;
+}
+
+.preview-btn:hover {
+  background: #f3f4f6;
 }
 
 .running-indicator {
