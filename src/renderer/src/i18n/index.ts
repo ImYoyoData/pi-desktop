@@ -1,12 +1,28 @@
 import { en } from "./en";
 import { zh } from "./zh-CN";
-import { resolveUiLocale, type UiLocale } from "./locale";
+import { detectSystemLanguage, resolveUiLocale, type UiLocale } from "./locale";
 
 export type Messages = typeof zh;
 
-const locale: UiLocale = resolveUiLocale();
+function readStoredLocalePreference(): "system" | "zh-CN" | "en" {
+  try {
+    const raw = localStorage.getItem("pi-desktop:locale-preference");
+    if (raw === "zh-CN" || raw === "en" || raw === "system") return raw;
+  } catch {
+    // ignore
+  }
+  return "system";
+}
 
-/** Active UI strings — Chinese when system language is zh*, otherwise English. */
+function resolveActiveLocale(): UiLocale {
+  const pref = readStoredLocalePreference();
+  if (pref === "zh-CN" || pref === "en") return pref;
+  return resolveUiLocale(detectSystemLanguage());
+}
+
+const locale: UiLocale = resolveActiveLocale();
+
+/** Active UI strings — Chinese when zh*, otherwise English (or user override). */
 export const t: Messages = (locale === "zh-CN" ? zh : en) as Messages;
 
 export { zh, en, locale, resolveUiLocale };

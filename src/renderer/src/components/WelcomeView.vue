@@ -71,7 +71,9 @@ function workspaceName(path: string): string {
   justify-content: center;
   gap: 36px;
   padding: 32px;
-  background: var(--bg);
+  background:
+    radial-gradient(1200px 480px at 50% -10%, var(--accent-soft), transparent 60%),
+    var(--bg);
 }
 
 .hero {

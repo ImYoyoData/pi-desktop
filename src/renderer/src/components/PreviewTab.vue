@@ -9,6 +9,7 @@ import { breadcrumbs, languageFromPath } from "@renderer/utils/editor-lang";
 import { loadMonaco } from "@renderer/utils/monaco-loader";
 import { useRightTabsStore } from "@renderer/stores/right-tabs";
 import { useWorkspaceStore } from "@renderer/stores/workspace";
+import { useAppearanceStore } from "@renderer/stores/appearance";
 import { t } from "@renderer/i18n";
 
 if (!document.getElementById("monaco-editor-css")) {
@@ -34,6 +35,7 @@ const props = defineProps<{
 const message = useMessage();
 const dialog = useDialog();
 const rightTabs = useRightTabsStore();
+const appearance = useAppearanceStore();
 const currentPath = ref<string | null>(props.filePath ?? null);
 const result = ref<PreviewResult | null>(null);
 const loading = ref(false);
@@ -73,7 +75,7 @@ async function ensureEditor(content: string, language: string): Promise<void> {
     editor = monaco.editor.create(editorHost.value, {
       value: content,
       language,
-      theme: "vs",
+      theme: appearance.resolvedTheme === "dark" ? "vs-dark" : "vs",
       automaticLayout: true,
       fontSize: 12.5,
       fontFamily: 'var(--font-mono), "Cascadia Code", Consolas, monospace',
@@ -112,6 +114,14 @@ async function ensureEditor(content: string, language: string): Promise<void> {
   syncTabMeta({ dirty: false, missing: false });
   applyingExternal = false;
 }
+
+watch(
+  () => appearance.resolvedTheme,
+  (mode) => {
+    if (!monacoApi || !editor) return;
+    monacoApi.editor.setTheme(mode === "dark" ? "vs-dark" : "vs");
+  },
+);
 
 async function refreshGitForFile(path: string): Promise<void> {
   try {

@@ -166,7 +166,7 @@ function onInnerResized(payload: SplitpanesResizedPayload): void {
   padding: 0 !important;
   border: 1px solid var(--border) !important;
   border-radius: 6px !important;
-  background: #fff !important;
+  background: var(--bg-elevated) !important;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
   color: var(--fg-muted) !important;
 }

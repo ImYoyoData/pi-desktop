@@ -1,24 +1,31 @@
 <script setup lang="ts">
-import { h, onMounted, ref } from "vue";
+import { computed, h, onMounted, ref } from "vue";
 import type { DropdownOption } from "naive-ui";
 import { NButton, NDropdown, NIcon, NSpace, NTag, NTooltip } from "naive-ui";
 import {
+  ColorPaletteOutline,
   ExtensionPuzzleOutline,
   FolderOpenOutline,
+  MoonOutline,
   SettingsOutline,
   SparklesOutline,
+  SunnyOutline,
 } from "@vicons/ionicons5";
 import ModelsSettings from "@renderer/components/ModelsSettings.vue";
 import SkillsSettings from "@renderer/components/SkillsSettings.vue";
 import ExtensionsSettings from "@renderer/components/ExtensionsSettings.vue";
+import AppearanceSettings from "@renderer/components/AppearanceSettings.vue";
 import { useWorkspaceStore } from "@renderer/stores/workspace";
+import { useAppearanceStore } from "@renderer/stores/appearance";
 import { t } from "@renderer/i18n";
 import logoUrl from "@renderer/assets/logo.svg";
 
 const workspace = useWorkspaceStore();
+const appearance = useAppearanceStore();
 const modelsOpen = ref(false);
 const skillsOpen = ref(false);
 const extensionsOpen = ref(false);
+const appearanceOpen = ref(false);
 const platform = ref<NodeJS.Platform>("win32");
 
 onMounted(async () => {
@@ -36,6 +43,11 @@ function basename(p: string | null): string {
 }
 
 const settingsOptions: DropdownOption[] = [
+  {
+    label: t.appearance,
+    key: "appearance",
+    icon: () => h(NIcon, null, { default: () => h(ColorPaletteOutline) }),
+  },
   {
     label: "模型 / API Keys",
     key: "models",
@@ -55,6 +67,9 @@ const settingsOptions: DropdownOption[] = [
 
 function onSettingsSelect(key: string | number): void {
   switch (String(key)) {
+    case "appearance":
+      appearanceOpen.value = true;
+      break;
     case "models":
       modelsOpen.value = true;
       break;
@@ -68,6 +83,24 @@ function onSettingsSelect(key: string | number): void {
       break;
   }
 }
+
+function cycleTheme(): void {
+  const order = ["system", "light", "dark"] as const;
+  const idx = order.indexOf(appearance.themePreference);
+  appearance.setThemePreference(order[(idx + 1) % order.length]);
+}
+
+const themeIcon = computed(() => {
+  if (appearance.themePreference === "light") return SunnyOutline;
+  if (appearance.themePreference === "dark") return MoonOutline;
+  return ColorPaletteOutline;
+});
+
+const themeTip = computed(() => {
+  if (appearance.themePreference === "light") return t.themeLight;
+  if (appearance.themePreference === "dark") return t.themeDark;
+  return t.themeSystem;
+});
 </script>
 
 <template>
@@ -101,6 +134,16 @@ function onSettingsSelect(key: string | number): void {
       <NSpace :size="4">
         <NTooltip trigger="hover">
           <template #trigger>
+            <NButton quaternary circle size="small" @click="cycleTheme">
+              <template #icon>
+                <NIcon :component="themeIcon" />
+              </template>
+            </NButton>
+          </template>
+          {{ t.theme }} · {{ themeTip }}
+        </NTooltip>
+        <NTooltip trigger="hover">
+          <template #trigger>
             <NButton quaternary circle size="small" @click="openFolder">
               <template #icon>
                 <NIcon :component="FolderOpenOutline" />
@@ -110,7 +153,7 @@ function onSettingsSelect(key: string | number): void {
           {{ t.openFolder }}
         </NTooltip>
         <NDropdown trigger="click" :options="settingsOptions" @select="onSettingsSelect">
-          <NButton quaternary circle size="small" title="设置">
+          <NButton quaternary circle size="small" :title="t.settingsTitle">
             <template #icon>
               <NIcon :component="SettingsOutline" />
             </template>
@@ -120,6 +163,7 @@ function onSettingsSelect(key: string | number): void {
     </div>
     <div v-if="platform !== 'darwin'" class="overlay-space" aria-hidden="true" />
   </header>
+  <AppearanceSettings :open="appearanceOpen" @close="appearanceOpen = false" />
   <ModelsSettings :open="modelsOpen" @close="modelsOpen = false" />
   <SkillsSettings :open="skillsOpen" @close="skillsOpen = false" />
   <ExtensionsSettings :open="extensionsOpen" @close="extensionsOpen = false" />

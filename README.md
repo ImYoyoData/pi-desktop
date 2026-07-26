@@ -60,7 +60,9 @@ Useful scripts:
 
 Artifacts appear under the repository **Releases** page.
 
-## First-run setup
+## Appearance
+
+Theme defaults to **follow system**. Toggle from the title bar (sun/moon/palette) or **Settings → Appearance**. Language can be set to System / 中文 / English.
 
 On launch, Pi Desktop ensures:
 

@@ -109,6 +109,14 @@ export const zh = {
   changesCheckoutOk: "已切换分支",
   changesBranchCreated: "已创建分支",
   changesMerged: "已合并",
+  appearance: "外观",
+  theme: "主题",
+  themeHint: "默认跟随系统，也可手动固定亮色或暗色。",
+  themeSystem: "跟随系统",
+  themeLight: "亮色",
+  themeDark: "暗色",
+  language: "语言",
+  languageHint: "更改语言后将刷新界面。",
 } as const;
 
 export type ZhKeys = typeof zh;

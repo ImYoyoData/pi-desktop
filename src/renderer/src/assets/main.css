@@ -49,6 +49,48 @@
   --git-d: #dc2626;
   --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.04);
   --shadow-md: 0 4px 16px rgba(0, 0, 0, 0.06);
+  --code-bg: #f4f4f5;
+  --pre-bg: #f4f4f5;
+  --md-inline-code-bg: #f0f0f0;
+}
+
+html[data-theme="dark"] {
+  --bg: #09090b;
+  --bg-title: #18181b;
+  --bg-sidebar: #18181b;
+  --bg-panel: #18181b;
+  --bg-elevated: #27272a;
+  --bg-input: #27272a;
+  --bg-hover: #27272a;
+  --bg-active: #3f3f46;
+  --bg-selected: #3f3f46;
+  --bg-user-bubble: rgba(37, 99, 235, 0.18);
+  --user-bg: rgba(37, 99, 235, 0.18);
+  --assistant-bg: transparent;
+  --tool-bg: #18181b;
+  --border: #3f3f46;
+  --border-strong: #52525b;
+  --fg: #e4e4e7;
+  --fg-strong: #fafafa;
+  --fg-muted: #a1a1aa;
+  --fg-faint: #71717a;
+  --text: #e4e4e7;
+  --text-muted: #a1a1aa;
+  --text-dim: #71717a;
+  --accent: #3b82f6;
+  --accent-hover: #60a5fa;
+  --accent-fg: #ffffff;
+  --accent-soft: rgba(59, 130, 246, 0.14);
+  --accent-soft-hover: rgba(59, 130, 246, 0.22);
+  --accent-border: rgba(59, 130, 246, 0.4);
+  --blue: #3b82f6;
+  --green: #22c55e;
+  --red: #f87171;
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.35);
+  --shadow-md: 0 8px 24px rgba(0, 0, 0, 0.45);
+  --code-bg: #27272a;
+  --pre-bg: #18181b;
+  --md-inline-code-bg: #27272a;
 }
 
 * {
@@ -108,7 +150,8 @@ button {
 
 .splitpanes__splitter:hover,
 .splitpanes__splitter:active {
-  background: #cfcfcf !important;
+  background: var(--accent) !important;
+  opacity: 0.45;
 }
 
 .splitpanes__splitter::before {
@@ -150,7 +193,7 @@ button {
 .md code {
   font-family: var(--font-mono);
   font-size: 0.88em;
-  background: #f0f0f0;
+  background: var(--md-inline-code-bg);
   border: 1px solid var(--border);
   border-radius: 4px;
   padding: 0.1em 0.35em;
@@ -159,7 +202,7 @@ button {
 .md pre {
   margin: 0.6em 0 0.9em;
   padding: 12px 14px;
-  background: #f7f7f7;
+  background: var(--pre-bg);
   border: 1px solid var(--border);
   border-radius: 10px;
   overflow: auto;
