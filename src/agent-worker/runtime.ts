@@ -76,6 +76,12 @@ export async function handleWorkerMessage(msg: WorkerInbound): Promise<void> {
     process.exit(0);
     return;
   }
+  if (msg.kind === "reload_models") {
+    if (session) {
+      await session.modelRuntime.refresh();
+    }
+    return;
+  }
   if (msg.kind === "init") {
     await initSession(msg.cwd, msg.filePath);
     return;

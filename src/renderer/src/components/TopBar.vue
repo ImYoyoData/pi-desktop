@@ -1,10 +1,17 @@
 <script setup lang="ts">
+import { ref } from "vue";
+import ModelsSettings from "@renderer/components/ModelsSettings.vue";
 import { useWorkspaceStore } from "@renderer/stores/workspace";
 
 const workspace = useWorkspaceStore();
+const settingsOpen = ref(false);
 
 function openFolder(): void {
   void workspace.openWorkspace();
+}
+
+function openSettings(): void {
+  settingsOpen.value = true;
 }
 </script>
 
@@ -14,8 +21,10 @@ function openFolder(): void {
     <span class="root" :title="workspace.root ?? undefined">
       {{ workspace.root ?? "No folder" }}
     </span>
+    <button type="button" class="open" @click="openSettings">Models</button>
     <button type="button" class="open" @click="openFolder">Open Folder</button>
   </header>
+  <ModelsSettings :open="settingsOpen" @close="settingsOpen = false" />
 </template>
 
 <style scoped>
