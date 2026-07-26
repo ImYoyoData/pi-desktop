@@ -9,7 +9,6 @@ import {
   NButton,
   NDivider,
   NSwitch,
-  NProgress,
   useMessage,
 } from "naive-ui";
 import {
@@ -18,6 +17,7 @@ import {
   type ThemePreference,
 } from "@renderer/stores/appearance";
 import { useAsrStore } from "@renderer/stores/asr";
+import AsrInstallProgress from "@renderer/components/AsrInstallProgress.vue";
 import { t } from "@renderer/i18n";
 
 const props = defineProps<{ open: boolean }>();
@@ -38,12 +38,6 @@ const asrEnabled = computed({
   set: (v: boolean) => {
     void asr.setEnabled(v);
   },
-});
-
-const progressPercent = computed(() => {
-  const p = asr.progress;
-  if (!p?.totalBytes || p.totalBytes <= 0) return null;
-  return Math.min(100, Math.round((p.receivedBytes / p.totalBytes) * 100));
 });
 
 function onLocaleUpdate(v: string | number | null): void {
@@ -149,29 +143,21 @@ onUnmounted(() => {
         <NButton
           size="small"
           type="primary"
-          :disabled="!asr.status.supported || asr.status.busy || asr.status.installed"
-          :loading="asr.status.busy"
+          :disabled="!asr.status.supported || asr.installing || asr.status.installed"
+          :loading="asr.installing"
           @click="onInstall"
         >
           {{ t.asrInstall }}
         </NButton>
         <NButton
           size="small"
-          :disabled="!asr.status.installed || asr.status.busy"
+          :disabled="!asr.status.installed || asr.installing"
           @click="onUninstall"
         >
           {{ t.asrUninstall }}
         </NButton>
       </NSpace>
-      <NProgress
-        v-if="asr.status.busy && progressPercent !== null"
-        type="line"
-        :percentage="progressPercent"
-        style="margin-top: 10px"
-      />
-      <NText v-else-if="asr.status.busy && asr.progress" depth="3" style="font-size: 12px; margin-top: 8px">
-        {{ asr.progress.message }}
-      </NText>
+      <AsrInstallProgress v-if="asr.installing || asr.progress?.phase === 'error'" style="margin-top: 12px" />
     </div>
 
     <template #footer>

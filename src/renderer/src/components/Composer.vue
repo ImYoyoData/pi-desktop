@@ -5,6 +5,7 @@ import {
   NDropdown,
   NIcon,
   NImage,
+  NModal,
   NSelect,
   NTooltip,
   NInput,
@@ -19,6 +20,7 @@ import {
   StopOutline,
 } from "@vicons/ionicons5";
 import CitationCard from "@renderer/components/CitationCard.vue";
+import AsrInstallProgress from "@renderer/components/AsrInstallProgress.vue";
 import { useChatStore } from "@renderer/stores/chat";
 import { isHttpUrl, useComposerStore } from "@renderer/stores/composer";
 import { useSessionsStore } from "@renderer/stores/sessions";
@@ -813,7 +815,7 @@ watch(sessionId, (id, prev) => {
                 type="button"
                 class="mic-btn"
                 :class="{ recording: asr.recording, busy: asr.transcribing }"
-                :disabled="asr.transcribing || asr.status.busy"
+                :disabled="asr.transcribing || asr.installing"
                 :aria-label="t.voiceInput"
                 @click="onMicClick"
               >
@@ -847,6 +849,18 @@ watch(sessionId, (id, prev) => {
         </div>
       </div>
     </div>
+
+    <NModal
+      :show="asr.installing"
+      preset="card"
+      :title="t.asrInstalling"
+      :bordered="false"
+      :mask-closable="false"
+      :closable="false"
+      style="width: min(420px, 92vw)"
+    >
+      <AsrInstallProgress />
+    </NModal>
   </div>
 </template>
 
