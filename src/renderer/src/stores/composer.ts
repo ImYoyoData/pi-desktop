@@ -1,13 +1,20 @@
 import { defineStore } from "pinia";
 import { ref } from "vue";
 import type { ElementCitation } from "../../../shared/protocol";
+import { truncateHtmlSnippet } from "../../../shared/html-snippet";
 
 export const useComposerStore = defineStore("composer", () => {
   const draft = ref("");
   const citations = ref<ElementCitation[]>([]);
 
   function addCitation(citation: ElementCitation): void {
-    citations.value = [...citations.value, citation];
+    citations.value = [
+      ...citations.value,
+      {
+        ...citation,
+        htmlSnippet: truncateHtmlSnippet(citation.htmlSnippet),
+      },
+    ];
   }
 
   function removeCitation(index: number): void {

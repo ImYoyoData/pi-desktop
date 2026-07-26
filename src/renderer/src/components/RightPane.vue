@@ -2,6 +2,7 @@
 import { ref, watch } from "vue";
 import TerminalTab from "@renderer/components/TerminalTab.vue";
 import PreviewTab from "@renderer/components/PreviewTab.vue";
+import BrowserTab from "@renderer/components/BrowserTab.vue";
 import { useLayoutStore } from "@renderer/stores/layout";
 import { usePreviewStore } from "@renderer/stores/preview";
 
@@ -52,7 +53,7 @@ const tabs: { id: RightTab; label: string }[] = [
     <div class="body">
       <TerminalTab v-if="activeTab === 'terminal'" />
       <PreviewTab v-else-if="activeTab === 'preview'" />
-      <p v-else class="stub">{{ activeTab }} panel (stub)</p>
+      <BrowserTab v-else-if="activeTab === 'browser'" />
     </div>
   </aside>
 </template>

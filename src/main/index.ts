@@ -5,6 +5,7 @@ import { createSessionBroker } from "./session-broker";
 import { registerModelsIpc } from "./models-ipc";
 import { registerSessionsIpc } from "./sessions-ipc";
 import { createMainWindow } from "./window";
+import { registerBrowserIpc } from "./browser-host";
 import { registerPreviewIpc } from "./preview-ipc";
 import { registerTerminalIpc } from "./terminal-host";
 import { registerWorkspaceIpc } from "./workspace-ipc";
@@ -14,6 +15,7 @@ const broker = createSessionBroker({ spawnWorker: createUtilityProcessSpawnWorke
 app.whenReady().then(() => {
   registerWorkspaceIpc();
   registerPreviewIpc();
+  registerBrowserIpc();
   registerTerminalIpc();
   registerSessionsIpc(broker);
   registerModelsIpc(broker);
