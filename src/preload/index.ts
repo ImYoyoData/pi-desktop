@@ -12,11 +12,12 @@ const api = {
       ipcRenderer.invoke(IpcChannels.workspace.openPath, root) as Promise<string | null>,
   },
   sessions: {
-    list: () => ipcRenderer.invoke(IpcChannels.sessions.list) as Promise<SessionSummary[]>,
+    list: (cwd: string) =>
+      ipcRenderer.invoke(IpcChannels.sessions.list, cwd) as Promise<SessionSummary[]>,
     create: (cwd: string) =>
       ipcRenderer.invoke(IpcChannels.sessions.create, cwd) as Promise<SessionSummary>,
-    open: (sessionId: string) =>
-      ipcRenderer.invoke(IpcChannels.sessions.open, sessionId) as Promise<SessionSummary | null>,
+    open: (sessionId: string, cwd: string) =>
+      ipcRenderer.invoke(IpcChannels.sessions.open, sessionId, cwd) as Promise<SessionSummary | null>,
     close: (sessionId: string) => ipcRenderer.invoke(IpcChannels.sessions.close, sessionId) as Promise<void>,
     command: (sessionId: string, command: AgentCommand) =>
       ipcRenderer.invoke(IpcChannels.sessions.command, sessionId, command) as Promise<void>,

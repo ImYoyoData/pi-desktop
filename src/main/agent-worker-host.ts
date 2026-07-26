@@ -7,11 +7,30 @@ function workerScriptPath(): string {
   return path.join(__dirname, "agent-worker/index.js");
 }
 
+function waitForReady(
+  child: Electron.UtilityProcess,
+): Promise<{ id: string; filePath: string; cwd: string }> {
+  return new Promise((resolve, reject) => {
+    const onMessage = (raw: WorkerOutbound) => {
+      if (raw.kind === "ready") {
+        child.off("message", onMessage);
+        resolve({ id: raw.id, filePath: raw.filePath, cwd: raw.cwd });
+        return;
+      }
+      if (raw.kind === "fatal") {
+        child.off("message", onMessage);
+        reject(new Error(raw.error ?? "worker fatal during init"));
+      }
+    };
+    child.on("message", onMessage);
+  });
+}
+
 export function createUtilityProcessSpawnWorker(): SpawnWorker {
-  return async (sessionId, cwd) => {
+  return async (cwd, filePath) => {
     const child = utilityProcess.fork(workerScriptPath(), [], {
       cwd,
-      serviceName: `pi-agent-${sessionId.slice(0, 8)}`,
+      serviceName: `pi-agent-${path.basename(cwd).slice(0, 8) || "ws"}`,
       stdio: "pipe",
     });
 
@@ -43,6 +62,10 @@ export function createUtilityProcessSpawnWorker(): SpawnWorker {
       },
     };
 
-    return handle;
+    const readyPromise = waitForReady(child);
+    child.postMessage({ kind: "init", cwd, filePath } satisfies WorkerInbound);
+    const ready = await readyPromise;
+
+    return { worker: handle, ...ready };
   };
 }
