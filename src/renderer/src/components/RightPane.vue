@@ -1,12 +1,27 @@
 <script setup lang="ts">
-import { ref } from "vue";
+import { ref, watch } from "vue";
 import TerminalTab from "@renderer/components/TerminalTab.vue";
+import PreviewTab from "@renderer/components/PreviewTab.vue";
 import { useLayoutStore } from "@renderer/stores/layout";
+import { usePreviewStore } from "@renderer/stores/preview";
 
 type RightTab = "terminal" | "preview" | "browser";
 
 const layout = useLayoutStore();
+const previewStore = usePreviewStore();
 const activeTab = ref<RightTab>("terminal");
+
+watch(
+  () => previewStore.openSignal,
+  () => {
+    if (previewStore.filePath) {
+      activeTab.value = "preview";
+      if (layout.rightCollapsed) {
+        layout.toggleRightCollapsed();
+      }
+    }
+  },
+);
 
 const tabs: { id: RightTab; label: string }[] = [
   { id: "terminal", label: "Terminal" },
@@ -36,6 +51,7 @@ const tabs: { id: RightTab; label: string }[] = [
     </header>
     <div class="body">
       <TerminalTab v-if="activeTab === 'terminal'" />
+      <PreviewTab v-else-if="activeTab === 'preview'" />
       <p v-else class="stub">{{ activeTab }} panel (stub)</p>
     </div>
   </aside>

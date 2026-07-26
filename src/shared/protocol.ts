@@ -30,6 +30,7 @@ export const IpcChannels = {
   },
   preview: {
     read: "preview:read",
+    pickFile: "preview:pickFile",
   },
   browser: {
     create: "browser:create",
