@@ -1,0 +1,33 @@
+{
+  "name": "pi-desktop",
+  "version": "1.0.0",
+  "description": "Pi Desktop — Electron + Vue3 Agent Workspace",
+  "main": "./out/main/index.js",
+  "author": "",
+  "homepage": "https://electron-vite.org",
+  "scripts": {
+    "dev": "electron-vite dev",
+    "build": "electron-vite build",
+    "test": "vitest run",
+    "typecheck": "vue-tsc --noEmit -p tsconfig.json",
+    "start": "electron-vite preview",
+    "postinstall": "electron-builder install-app-deps"
+  },
+  "dependencies": {
+    "@electron-toolkit/preload": "^3.0.2",
+    "@electron-toolkit/utils": "^4.0.0"
+  },
+  "devDependencies": {
+    "@electron-toolkit/tsconfig": "^2.0.0",
+    "@types/node": "^22.19.1",
+    "@vitejs/plugin-vue": "^6.0.2",
+    "electron": "^39.2.6",
+    "electron-builder": "^26.0.12",
+    "electron-vite": "^5.0.0",
+    "typescript": "^5.9.3",
+    "vite": "^7.2.6",
+    "vitest": "^3.2.4",
+    "vue": "^3.5.25",
+    "vue-tsc": "^3.1.6"
+  }
+}
