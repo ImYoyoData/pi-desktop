@@ -11,6 +11,14 @@ const workspace = useWorkspaceStore();
 
 const hasWorkspace = computed(() => Boolean(workspace.root));
 
+const activeSession = computed(() =>
+  sessionsStore.activeId
+    ? sessionsStore.sessions.find((s) => s.id === sessionsStore.activeId) ?? null
+    : null,
+);
+
+const showStuckRecovery = computed(() => activeSession.value?.status === "stuck");
+
 onMounted(async () => {
   sessionsStore.bindEvents();
   await workspace.getWorkspace();
@@ -93,10 +101,22 @@ function statusClass(status: SessionStatus): string {
       </button>
     </header>
 
+    <div v-if="showStuckRecovery" class="stuck-banner">
+      <p class="stuck-text">Worker not responding. Terminate or restart this session only.</p>
+      <div class="stuck-actions">
+        <button type="button" class="btn danger" @click="onKill">Terminate</button>
+        <button type="button" class="btn" @click="onRestart">Restart</button>
+      </div>
+    </div>
+
     <div class="toolbar">
       <button type="button" class="btn" :disabled="!hasWorkspace" @click="onNewSession">New</button>
-      <button type="button" class="btn" :disabled="!sessionsStore.activeId" @click="onKill">Kill</button>
-      <button type="button" class="btn" :disabled="!sessionsStore.activeId" @click="onRestart">Restart</button>
+      <button type="button" class="btn" :disabled="!sessionsStore.activeId" @click="onKill">
+        Terminate
+      </button>
+      <button type="button" class="btn" :disabled="!sessionsStore.activeId" @click="onRestart">
+        Restart
+      </button>
       <button type="button" class="btn" :disabled="!sessionsStore.activeId" @click="onPing">Ping</button>
       <button type="button" class="btn warn" :disabled="!sessionsStore.activeId" @click="onHang">Hang</button>
     </div>
@@ -179,6 +199,28 @@ function statusClass(status: SessionStatus): string {
 
 .btn.warn {
   border-color: #fbbf24;
+}
+
+.stuck-banner {
+  padding: 0.5rem 0.75rem;
+  border-bottom: 1px solid #fcd34d;
+  background: #fffbeb;
+}
+
+.stuck-text {
+  margin: 0 0 0.4rem;
+  font-size: 0.75rem;
+  color: #92400e;
+}
+
+.stuck-actions {
+  display: flex;
+  gap: 0.35rem;
+}
+
+.btn.danger {
+  border-color: #f87171;
+  color: #b91c1c;
 }
 
 .list {
