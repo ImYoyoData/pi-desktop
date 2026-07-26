@@ -24,7 +24,7 @@ export type SessionBroker = {
   listSessions: (cwd: string) => Promise<SessionSummary[]>;
   openSession: (sessionId: string, cwd: string) => Promise<SessionSummary | null>;
   closeSession: (sessionId: string) => Promise<void>;
-  send: (sessionId: string, command: AgentCommand) => Promise<void>;
+  send: (sessionId: string, command: AgentCommand) => Promise<unknown>;
   killWorker: (sessionId: string) => Promise<void>;
   restartWorker: (sessionId: string) => Promise<void>;
   deleteSession: (sessionId: string, cwd: string) => Promise<void>;
@@ -41,7 +41,11 @@ type SessionRecord = {
   idleDestroyTimer: ReturnType<typeof setTimeout> | null;
   pendingCommands: Map<
     string,
-    { command: AgentCommand; resolve: () => void; reject: (err: Error) => void }
+    {
+      command: AgentCommand;
+      resolve: (data?: unknown) => void;
+      reject: (err: Error) => void;
+    }
   >;
 };
 
@@ -180,7 +184,36 @@ export function createSessionBroker(deps: {
       }
 
       if (msg.kind === "event" && msg.event) {
+        const ev = msg.event as {
+          type?: unknown;
+          tokens?: unknown;
+          contextWindow?: unknown;
+          percent?: unknown;
+          willRetry?: unknown;
+        };
+        if (ev.type === "context_usage" && typeof ev.contextWindow === "number") {
+          emit({
+            type: "context_usage",
+            sessionId,
+            usage: {
+              tokens: typeof ev.tokens === "number" ? ev.tokens : null,
+              contextWindow: ev.contextWindow,
+              percent: typeof ev.percent === "number" ? ev.percent : null,
+            },
+          });
+          return;
+        }
         emit({ type: "agent_event", sessionId, event: msg.event });
+        // Keep broker status aligned with agent lifecycle (not only prompt IPC result).
+        if (ev.type === "agent_start" || ev.type === "turn_start") {
+          setStatus(sessionId, "running");
+        } else if (ev.type === "agent_end" && !ev.willRetry) {
+          // May still auto-compact / continue before agent_settled — don't destroy worker yet.
+          setStatus(sessionId, "idle");
+        } else if (ev.type === "agent_settled") {
+          setStatus(sessionId, "idle");
+          scheduleIdleDestroy(sessionId);
+        }
         return;
       }
 
@@ -202,12 +235,13 @@ export function createSessionBroker(deps: {
         }
         rec.pendingCommands.delete(msg.id);
         if (msg.error) {
-          setStatus(sessionId, "error");
+          // Prompt/command failure ends the turn — UI should not stay "running".
+          setStatus(sessionId, pending.command.type === "prompt" ? "idle" : "error");
           emit({ type: "prompt_error", sessionId, errorMessage: msg.error });
           pending.reject(new Error(msg.error));
           return;
         }
-        pending.resolve();
+        pending.resolve(msg.data);
         if (pending.command.type === "prompt") {
           setStatus(sessionId, "idle");
           emit({ type: "prompt_done", sessionId });
@@ -337,7 +371,7 @@ export function createSessionBroker(deps: {
     sessions.delete(sessionId);
   }
 
-  async function send(sessionId: string, command: AgentCommand): Promise<void> {
+  async function send(sessionId: string, command: AgentCommand): Promise<unknown> {
     const rec = await ensureWorker(sessionId);
     const worker = rec.worker;
     if (!worker) {
@@ -362,10 +396,10 @@ export function createSessionBroker(deps: {
 
     if (!awaitsResult) {
       await worker.send(outbound);
-      return;
+      return undefined;
     }
 
-    await new Promise<void>((resolve, reject) => {
+    return await new Promise<unknown>((resolve, reject) => {
       rec.pendingCommands.set(cmdId, { command, resolve, reject });
       void worker.send(outbound).then((direct) => {
         if (direct?.kind === "result") {
@@ -377,7 +411,7 @@ export function createSessionBroker(deps: {
           if (direct.error) {
             reject(new Error(direct.error));
           } else {
-            resolve();
+            resolve(direct.data);
           }
         }
       });

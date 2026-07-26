@@ -289,6 +289,7 @@ function onTabChange(name: string | number): void {
           v-show="active?.id === tab.id"
           class="tab-panel"
           :instance-id="tab.id"
+          :visible="active?.id === tab.id && !layout.rightCollapsed"
         />
         <PreviewTab
           v-if="tab.kind === 'preview'"
@@ -389,13 +390,17 @@ function onTabChange(name: string | number): void {
   display: flex;
   flex-direction: column;
   position: relative;
+  overflow: hidden;
 }
 
 .tab-panel {
-  flex: 1;
+  flex: 1 1 auto;
   min-height: 0;
+  min-width: 0;
+  height: 100%;
   display: flex;
   flex-direction: column;
+  overflow: hidden;
 }
 
 .empty {

@@ -13,6 +13,7 @@ import SkillsSettings from "@renderer/components/SkillsSettings.vue";
 import ExtensionsSettings from "@renderer/components/ExtensionsSettings.vue";
 import { useWorkspaceStore } from "@renderer/stores/workspace";
 import { t } from "@renderer/i18n";
+import logoUrl from "@renderer/assets/logo.svg";
 
 const workspace = useWorkspaceStore();
 const modelsOpen = ref(false);
@@ -76,7 +77,7 @@ function onSettingsSelect(key: string | number): void {
   >
     <div class="drag traffic-space" aria-hidden="true" />
     <div class="brand no-drag">
-      <span class="logo">π</span>
+      <img class="logo-img" :src="logoUrl" alt="" width="18" height="18" />
       <span class="name">{{ t.appName }}</span>
     </div>
     <div class="center drag">
@@ -152,7 +153,7 @@ function onSettingsSelect(key: string | number): void {
 }
 
 .title-bar.mac .traffic-space {
-  width: 72px;
+  width: 78px;
 }
 
 .brand {
@@ -163,21 +164,18 @@ function onSettingsSelect(key: string | number): void {
   color: var(--fg-strong);
 }
 
-.logo {
+.logo-img {
   width: 18px;
   height: 18px;
-  display: grid;
-  place-items: center;
   border-radius: 5px;
-  background: #fff;
-  border: 1px solid var(--border);
-  font-size: 11px;
-  font-weight: 700;
+  display: block;
+  flex-shrink: 0;
 }
 
 .name {
-  font-weight: 550;
-  font-size: 12px;
+  font-weight: 600;
+  font-size: 12.5px;
+  letter-spacing: -0.01em;
 }
 
 .center {

@@ -8,6 +8,7 @@ import {
   type AgentSession,
 } from "@earendil-works/pi-coding-agent";
 import type { AgentCommand, ElementCitation } from "../shared/protocol";
+import { toPromptImages } from "../shared/protocol";
 import { truncateHtmlSnippet } from "../shared/html-snippet";
 import type { WorkerInbound, WorkerOutbound } from "../shared/agent-worker-messages";
 
@@ -17,6 +18,47 @@ function post(msg: WorkerOutbound): void {
 
 let session: AgentSession | null = null;
 let initStarted = false;
+
+function normalizePromptImages(images: unknown[] | undefined): ImageContent[] | undefined {
+  const normalized = toPromptImages(images);
+  return normalized as ImageContent[] | undefined;
+}
+
+/** Strip bulky / non-essential fields so IPC stays reliable and agent_end always reaches UI. */
+function sanitizeAgentEvent(event: Record<string, unknown>): Record<string, unknown> {
+  const type = event.type;
+  if (type === "agent_end") {
+    const messages = Array.isArray(event.messages) ? event.messages : [];
+    const last = messages.length > 0 ? messages[messages.length - 1] : undefined;
+    let lastError: string | undefined;
+    if (last && typeof last === "object") {
+      const msg = last as { stopReason?: unknown; errorMessage?: unknown };
+      if (msg.stopReason === "error" && typeof msg.errorMessage === "string") {
+        lastError = msg.errorMessage;
+      }
+    }
+    return {
+      type: "agent_end",
+      willRetry: Boolean(event.willRetry),
+      ...(lastError ? { lastError } : {}),
+    };
+  }
+  if (type === "agent_settled") {
+    return { type: "agent_settled" };
+  }
+  if (type === "turn_end") {
+    return { type: "turn_end" };
+  }
+  return event;
+}
+
+const CONTEXT_USAGE_EVENT_TYPES = new Set([
+  "agent_end",
+  "agent_settled",
+  "message_end",
+  "compaction_end",
+  "turn_end",
+]);
 
 function busyLoopMs(ms: number): void {
   const end = Date.now() + ms;
@@ -50,7 +92,22 @@ async function initSession(cwd: string, filePath?: string): Promise<void> {
     sessionManager,
   });
   created.subscribe((event) => {
-    post({ kind: "event", event: event as Record<string, unknown> });
+    const raw = event as Record<string, unknown>;
+    try {
+      post({ kind: "event", event: sanitizeAgentEvent(raw) });
+    } catch {
+      // Last-resort: always deliver a lightweight lifecycle signal so UI can leave "running".
+      const type = typeof raw.type === "string" ? raw.type : "unknown";
+      post({ kind: "event", event: { type } });
+    }
+    const t = raw.type;
+    if (typeof t === "string" && CONTEXT_USAGE_EVENT_TYPES.has(t)) {
+      try {
+        emitContextUsage(created);
+      } catch {
+        // context meter is best-effort
+      }
+    }
   });
   session = created;
   post({
@@ -59,6 +116,7 @@ async function initSession(cwd: string, filePath?: string): Promise<void> {
     filePath: sessionManager.getSessionFile() ?? "",
     cwd: sessionManager.getCwd(),
   });
+  // contextUsage is pulled via get_state after attach; emitting here races ready handshake.
 }
 
 function requireSession(): AgentSession {
@@ -66,6 +124,40 @@ function requireSession(): AgentSession {
     throw new Error("worker session not initialized");
   }
   return session;
+}
+
+function readContextUsage(active: AgentSession): {
+  tokens: number | null;
+  contextWindow: number;
+  percent: number | null;
+} | null {
+  const usage = active.getContextUsage();
+  if (usage) {
+    return {
+      tokens: usage.tokens,
+      contextWindow: usage.contextWindow,
+      percent: usage.percent,
+    };
+  }
+  const contextWindow = active.model?.contextWindow;
+  if (typeof contextWindow === "number" && contextWindow > 0) {
+    return { tokens: null, contextWindow, percent: null };
+  }
+  return null;
+}
+
+function emitContextUsage(active: AgentSession): void {
+  const usage = readContextUsage(active);
+  if (!usage) return;
+  post({
+    kind: "event",
+    event: {
+      type: "context_usage",
+      tokens: usage.tokens,
+      contextWindow: usage.contextWindow,
+      percent: usage.percent,
+    },
+  });
 }
 
 export async function handleWorkerMessage(msg: WorkerInbound): Promise<void> {
@@ -110,12 +202,8 @@ async function runCommand(id: string, command: AgentCommand): Promise<void> {
       if (command.citations?.length) {
         message = formatCitationsBlock(command.citations) + message;
       }
-      await active.prompt(
-        message,
-        command.images?.length
-          ? { images: command.images as ImageContent[] }
-          : undefined,
-      );
+      const images = normalizePromptImages(command.images);
+      await active.prompt(message, images?.length ? { images } : undefined);
       post({ kind: "result", id, data: { promptDone: true } });
       return;
     }
@@ -146,6 +234,7 @@ async function runCommand(id: string, command: AgentCommand): Promise<void> {
         return;
       }
       await active.setModel(model);
+      emitContextUsage(active);
       post({ kind: "result", id, data: { ok: true } });
       return;
     }
@@ -153,10 +242,13 @@ async function runCommand(id: string, command: AgentCommand): Promise<void> {
       requireSession().setThinkingLevel(command.level as ThinkingLevel);
       post({ kind: "result", id, data: { ok: true } });
       return;
-    case "compact":
-      await requireSession().compact(command.customInstructions);
+    case "compact": {
+      const active = requireSession();
+      await active.compact(command.customInstructions);
+      emitContextUsage(active);
       post({ kind: "result", id, data: { ok: true } });
       return;
+    }
     case "get_state": {
       const active = requireSession();
       post({
@@ -170,6 +262,7 @@ async function runCommand(id: string, command: AgentCommand): Promise<void> {
           sessionId: active.sessionId,
           sessionName: active.sessionName,
           messageCount: active.messages.length,
+          contextUsage: readContextUsage(active),
         },
       });
       return;

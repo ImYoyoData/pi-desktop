@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { DocumentTextOutline, LinkOutline } from "@vicons/ionicons5";
-import { NIcon } from "naive-ui";
+import { NTag } from "naive-ui";
 import type { ComposerChip } from "@renderer/stores/composer";
+import { truncateElementContent } from "@renderer/stores/composer";
 import { t } from "@renderer/i18n";
 
 defineProps<{
@@ -22,136 +22,80 @@ function urlLabel(url: string): string {
   try {
     const u = new URL(url);
     const hostPath = `${u.host}${u.pathname === "/" ? "" : u.pathname}`;
-    return hostPath.length > 32 ? `${hostPath.slice(0, 32)}…` : hostPath;
+    return hostPath.length > 40 ? `${hostPath.slice(0, 40)}…` : hostPath;
   } catch {
-    return url.length > 32 ? `${url.slice(0, 32)}…` : url;
+    return url.length > 40 ? `${url.slice(0, 40)}…` : url;
   }
 }
 
+/** Content-only label for element tags (max 100 chars). */
 function elementLabel(chip: Extract<ComposerChip, { kind: "element" }>): string {
-  const text = chip.citation.text?.trim();
-  if (text) return text.length > 28 ? `${text.slice(0, 28)}…` : text;
+  const content = truncateElementContent(chip.citation.text ?? "", 100);
+  if (content) return content;
   const sel = chip.citation.selector?.trim();
-  if (sel) return sel.length > 28 ? `${sel.slice(0, 28)}…` : sel;
+  if (sel) {
+    const last = sel.split(">").pop()?.trim() || sel;
+    return last.length > 36 ? `${last.slice(0, 36)}…` : last;
+  }
   return t.chipElement;
+}
+
+function elementTitle(chip: Extract<ComposerChip, { kind: "element" }>): string {
+  return [chip.citation.url, chip.citation.selector, chip.citation.text].filter(Boolean).join("\n");
 }
 </script>
 
 <template>
-  <div
+  <!-- Naive default blue (info) tag — no thumbnail; screenshot is a separate image chip -->
+  <NTag
     v-if="chip.kind === 'element'"
-    class="cite-tag"
-    :title="`${chip.citation.url}\n${chip.citation.selector}`"
+    type="info"
+    size="small"
+    closable
+    round
+    class="chip-tag"
+    :title="elementTitle(chip)"
+    @close="emit('remove')"
   >
-    <img
-      v-if="chip.citation.screenshotDataUrl"
-      class="thumb"
-      :src="chip.citation.screenshotDataUrl"
-      alt=""
-    />
-    <div class="meta">
-      <span class="badge">{{ t.chipElement }}</span>
-      <span class="text">{{ elementLabel(chip) }}</span>
-    </div>
-    <button type="button" class="x" title="移除" @click.stop="emit('remove')">×</button>
-  </div>
+    {{ elementLabel(chip) }}
+  </NTag>
 
-  <div v-else-if="chip.kind === 'file'" class="cite-tag" :title="chip.path">
-    <div class="icon-wrap">
-      <NIcon :component="DocumentTextOutline" :size="14" />
-    </div>
-    <div class="meta">
-      <span class="badge">{{ t.chipFile }}</span>
-      <span class="text">{{ fileLabel(chip.path) }}</span>
-    </div>
-    <button type="button" class="x" title="移除" @click.stop="emit('remove')">×</button>
-  </div>
+  <NTag
+    v-else-if="chip.kind === 'file'"
+    type="info"
+    size="small"
+    closable
+    round
+    class="chip-tag"
+    :title="chip.path"
+    @close="emit('remove')"
+  >
+    {{ fileLabel(chip.path) }}
+  </NTag>
 
-  <div v-else class="cite-tag" :title="chip.url">
-    <div class="icon-wrap">
-      <NIcon :component="LinkOutline" :size="14" />
-    </div>
-    <div class="meta">
-      <span class="badge">{{ t.chipUrl }}</span>
-      <span class="text">{{ urlLabel(chip.url) }}</span>
-    </div>
-    <button type="button" class="x" title="移除" @click.stop="emit('remove')">×</button>
-  </div>
+  <NTag
+    v-else
+    type="info"
+    size="small"
+    closable
+    round
+    class="chip-tag"
+    :title="chip.url"
+    @close="emit('remove')"
+  >
+    {{ urlLabel(chip.url) }}
+  </NTag>
 </template>
 
 <style scoped>
-.cite-tag {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  max-width: 260px;
-  padding: 3px 6px 3px 3px;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: var(--bg-panel);
-  font-size: 11.5px;
-  line-height: 1.2;
-}
-
-.thumb {
-  width: 48px;
-  height: 48px;
-  object-fit: contain;
-  border-radius: 5px;
-  background: #fff;
-  flex-shrink: 0;
-  border: 1px solid var(--border);
-}
-
-.icon-wrap {
-  width: 28px;
-  height: 28px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 5px;
-  background: var(--bg-hover);
-  color: var(--fg-muted);
+.chip-tag {
+  max-width: 240px;
   flex-shrink: 0;
 }
 
-.meta {
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-}
-
-.badge {
-  font-size: 10px;
-  font-weight: 600;
-  color: var(--fg-faint);
-  letter-spacing: 0.02em;
-}
-
-.text {
+.chip-tag :deep(.n-tag__content) {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  color: var(--fg-strong);
-}
-
-.x {
-  flex-shrink: 0;
-  width: 18px;
-  height: 18px;
-  border: none;
-  border-radius: 50%;
-  background: transparent;
-  color: var(--fg-faint);
-  cursor: pointer;
-  font-size: 14px;
-  line-height: 1;
-  padding: 0;
-}
-
-.x:hover {
-  background: var(--bg-hover);
-  color: var(--fg-strong);
 }
 </style>

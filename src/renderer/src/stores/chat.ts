@@ -1,17 +1,30 @@
 import { defineStore } from "pinia";
 import { computed, onScopeDispose, reactive } from "vue";
-import type { AgentEvent, ElementCitation, SessionHistoryMessage } from "../../../shared/protocol";
+import type { AgentEvent, ElementCitation, PromptImageContent, SessionHistoryMessage } from "../../../shared/protocol";
+import { toPromptCitations, toPromptImages } from "../../../shared/protocol";
 import {
   appendUserMessage,
   createChatState,
   reduceChatEvent,
   type ChatMessage,
   type ChatState,
+  type ChatUserImage,
 } from "./chat-reducer";
 import { useSessionsStore } from "./sessions";
 
-export type { ChatMessage, ChatState } from "./chat-reducer";
+export type { ChatMessage, ChatState, ChatUserImage, ChatRetryHint } from "./chat-reducer";
 export { appendUserMessage, createChatState, reduceChatEvent } from "./chat-reducer";
+
+function toChatImages(images?: PromptImageContent[]): ChatUserImage[] | undefined {
+  if (!images?.length) return undefined;
+  const out: ChatUserImage[] = [];
+  for (const img of images) {
+    if (!img?.data) continue;
+    const mimeType = img.mimeType || "image/png";
+    out.push({ mimeType, dataUrl: `data:${mimeType};base64,${img.data}` });
+  }
+  return out.length ? out : undefined;
+}
 
 export const useChatStore = defineStore("chat", () => {
   const bySession = reactive<Record<string, ChatState>>({});
@@ -42,6 +55,12 @@ export const useChatStore = defineStore("chat", () => {
     return stateFor(id).running;
   });
 
+  const activeRetryHint = computed(() => {
+    const id = sessionsStore.activeId;
+    if (!id) return null;
+    return stateFor(id).retryHint;
+  });
+
   function applyEvent(event: AgentEvent): void {
     const sessionId = event.sessionId;
     bySession[sessionId] = reduceChatEvent(stateFor(sessionId), event);
@@ -56,6 +75,7 @@ export const useChatStore = defineStore("chat", () => {
       ),
       streamingMessage: null,
       running: false,
+      retryHint: null,
     };
   }
 
@@ -80,15 +100,23 @@ export const useChatStore = defineStore("chat", () => {
     sessionId: string,
     message: string,
     citations?: ElementCitation[],
-    images?: unknown[],
+    images?: PromptImageContent[],
+    elementTags?: { url: string; host: string; label: string; content?: string }[],
   ): Promise<void> {
-    bySession[sessionId] = appendUserMessage(stateFor(sessionId), message);
+    const promptImages = toPromptImages(images);
+    const promptCitations = toPromptCitations(citations);
+    bySession[sessionId] = appendUserMessage(
+      stateFor(sessionId),
+      message,
+      toChatImages(promptImages),
+      elementTags?.length ? elementTags : undefined,
+    );
     try {
       await sessionsStore.sendCommand(sessionId, {
         type: "prompt",
         message,
-        citations,
-        images,
+        citations: promptCitations,
+        images: promptImages,
       });
     } catch (err) {
       const text = err instanceof Error ? err.message : String(err);
@@ -99,13 +127,19 @@ export const useChatStore = defineStore("chat", () => {
           ...state,
           running: false,
           streamingMessage: null,
+          retryHint: null,
           messages: [
             ...state.messages,
             { id: `error-local-${Date.now()}`, role: "error", text },
           ],
         };
       } else {
-        bySession[sessionId] = { ...state, running: false, streamingMessage: null };
+        bySession[sessionId] = {
+          ...state,
+          running: false,
+          streamingMessage: null,
+          retryHint: null,
+        };
       }
     }
   }
@@ -131,6 +165,7 @@ export const useChatStore = defineStore("chat", () => {
       messages: state.messages.slice(0, idx),
       streamingMessage: null,
       running: false,
+      retryHint: null,
     };
   }
 
@@ -146,6 +181,7 @@ export const useChatStore = defineStore("chat", () => {
       messages: state.messages.slice(0, idx),
       streamingMessage: null,
       running: false,
+      retryHint: null,
     };
     return msg.text;
   }
@@ -170,8 +206,54 @@ export const useChatStore = defineStore("chat", () => {
       messages: state.messages.slice(0, userIdx),
       streamingMessage: null,
       running: false,
+      retryHint: null,
     };
-    await sendPrompt(sessionId, userMsg.text);
+    const images = userMsg.images?.map((img) => {
+      const raw = img.dataUrl.replace(/^data:[^;]+;base64,/, "");
+      return { type: "image" as const, data: raw, mimeType: img.mimeType };
+    });
+    await sendPrompt(
+      sessionId,
+      userMsg.text,
+      undefined,
+      images,
+      userMsg.elementTags,
+    );
+  }
+
+  /** Retry after an error bubble: re-send the last user turn before the error. */
+  async function retryFromError(sessionId: string, errorMessageId: string): Promise<void> {
+    const state = stateFor(sessionId);
+    const errIdx = state.messages.findIndex((m) => m.id === errorMessageId && m.role === "error");
+    if (errIdx < 0) return;
+    let userIdx = -1;
+    for (let i = errIdx - 1; i >= 0; i--) {
+      if (state.messages[i].role === "user") {
+        userIdx = i;
+        break;
+      }
+    }
+    if (userIdx < 0) return;
+    const userMsg = state.messages[userIdx];
+    if (userMsg.role !== "user") return;
+    bySession[sessionId] = {
+      ...state,
+      messages: state.messages.slice(0, userIdx),
+      streamingMessage: null,
+      running: false,
+      retryHint: null,
+    };
+    const images = userMsg.images?.map((img) => {
+      const raw = img.dataUrl.replace(/^data:[^;]+;base64,/, "");
+      return { type: "image" as const, data: raw, mimeType: img.mimeType };
+    });
+    await sendPrompt(
+      sessionId,
+      userMsg.text,
+      undefined,
+      images,
+      userMsg.elementTags,
+    );
   }
 
   return {
@@ -179,6 +261,7 @@ export const useChatStore = defineStore("chat", () => {
     activeMessages,
     activeStreaming,
     activeRunning,
+    activeRetryHint,
     bindEvents,
     hydrateFromHistory,
     clearSession,
@@ -189,5 +272,6 @@ export const useChatStore = defineStore("chat", () => {
     truncateFrom,
     beginEditUser,
     regenerate,
+    retryFromError,
   };
 });

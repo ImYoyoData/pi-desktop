@@ -2,28 +2,28 @@
 
 /* Align tokens with pi-web globals.css (light) */
 :root {
-  --bg: #ffffff;
-  --bg-title: #f5f5f5;
-  --bg-sidebar: #f5f5f5;
-  --bg-panel: #f5f5f5;
+  --bg: #fafafa;
+  --bg-title: #f4f4f5;
+  --bg-sidebar: #f4f4f5;
+  --bg-panel: #f4f4f5;
   --bg-elevated: #ffffff;
   --bg-input: #ffffff;
-  --bg-hover: #eeeeee;
-  --bg-active: #e8e8e8;
-  --bg-selected: #e8e8e8;
+  --bg-hover: #ececef;
+  --bg-active: #e4e4e7;
+  --bg-selected: #e4e4e7;
   --bg-user-bubble: #eff6ff;
   --user-bg: #eff6ff;
   --assistant-bg: #ffffff;
   --tool-bg: #f9fafb;
-  --border: #e0e0e0;
-  --border-strong: #d0d0d0;
-  --fg: #1a1a1a;
-  --fg-strong: #1a1a1a;
-  --fg-muted: #6b7280;
-  --fg-faint: #9ca3af;
-  --text: #1a1a1a;
-  --text-muted: #6b7280;
-  --text-dim: #9ca3af;
+  --border: #e4e4e7;
+  --border-strong: #d4d4d8;
+  --fg: #18181b;
+  --fg-strong: #09090b;
+  --fg-muted: #71717a;
+  --fg-faint: #a1a1aa;
+  --text: #18181b;
+  --text-muted: #71717a;
+  --text-dim: #a1a1aa;
   --accent: #2563eb;
   --accent-hover: #1d4ed8;
   --accent-fg: #ffffff;
@@ -34,19 +34,21 @@
   --green: #16a34a;
   --red: #dc2626;
   --font-ui: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
-    "Microsoft YaHei UI", "Noto Sans SC", system-ui, sans-serif;
+    "Hiragino Sans GB", "Microsoft YaHei UI", "Noto Sans SC", system-ui, sans-serif;
   --font-mono: "SF Mono", "Cascadia Code", Consolas, ui-monospace, monospace;
-  --radius-sm: 4px;
-  --radius-md: 8px;
-  --radius-lg: 12px;
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
   --composer-max: 100%;
-  --chat-pad-x: 10px;
+  --chat-pad-x: 12px;
   --space-1: 4px;
   --space-2: 8px;
   --space-3: 12px;
   --git-m: #ca8a04;
   --git-u: #16a34a;
   --git-d: #dc2626;
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.04);
+  --shadow-md: 0 4px 16px rgba(0, 0, 0, 0.06);
 }
 
 * {
