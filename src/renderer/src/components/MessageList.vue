@@ -2,7 +2,6 @@
 import { nextTick, ref, watch } from "vue";
 import type { ChatMessage } from "@renderer/stores/chat";
 import { extractWorkspacePaths } from "@renderer/utils/preview-paths";
-import { useLayoutStore } from "@renderer/stores/layout";
 import { usePreviewStore } from "@renderer/stores/preview";
 
 const props = defineProps<{
@@ -10,7 +9,6 @@ const props = defineProps<{
   running: boolean;
 }>();
 
-const layout = useLayoutStore();
 const previewStore = usePreviewStore();
 
 function toolPaths(msg: Extract<ChatMessage, { role: "tool" }>): string[] {
@@ -21,9 +19,6 @@ function toolPaths(msg: Extract<ChatMessage, { role: "tool" }>): string[] {
 
 function openPreview(filePath: string): void {
   previewStore.openPreview(filePath);
-  if (layout.rightCollapsed) {
-    layout.toggleRightCollapsed();
-  }
 }
 
 const scroller = ref<HTMLElement | null>(null);
