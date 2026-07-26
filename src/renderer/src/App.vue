@@ -2,6 +2,7 @@
 import { onMounted } from "vue";
 import TopBar from "@renderer/components/TopBar.vue";
 import WelcomeView from "@renderer/components/WelcomeView.vue";
+import SplitRoot from "@renderer/components/SplitRoot.vue";
 import { useWorkspaceStore } from "@renderer/stores/workspace";
 
 const workspace = useWorkspaceStore();
@@ -15,9 +16,7 @@ onMounted(() => {
   <div class="app-shell">
     <TopBar />
     <WelcomeView v-if="!workspace.root" />
-    <main v-else class="shell-placeholder">
-      <p>Agent workspace shell (placeholder)</p>
-    </main>
+    <SplitRoot v-else />
   </div>
 </template>
 
@@ -28,13 +27,5 @@ onMounted(() => {
   min-height: 100vh;
   margin: 0;
   font-family: system-ui, sans-serif;
-}
-
-.shell-placeholder {
-  display: flex;
-  flex: 1;
-  align-items: center;
-  justify-content: center;
-  color: #6b7280;
 }
 </style>
