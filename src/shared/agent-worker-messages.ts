@@ -3,6 +3,7 @@ import type { AgentCommand } from "./protocol";
 export type WorkerInbound =
   | { kind: "init"; cwd: string; filePath?: string }
   | { kind: "command"; id: string; command: AgentCommand }
+  | { kind: "reload_models" }
   | { kind: "shutdown" }
   | { kind: "ping" };
 

@@ -2,6 +2,7 @@ import { app, BrowserWindow } from "electron";
 import { electronApp, optimizer } from "@electron-toolkit/utils";
 import { createUtilityProcessSpawnWorker } from "./agent-worker-host";
 import { createSessionBroker } from "./session-broker";
+import { registerModelsIpc } from "./models-ipc";
 import { registerSessionsIpc } from "./sessions-ipc";
 import { createMainWindow } from "./window";
 import { registerWorkspaceIpc } from "./workspace-ipc";
@@ -11,6 +12,7 @@ const broker = createSessionBroker({ spawnWorker: createUtilityProcessSpawnWorke
 app.whenReady().then(() => {
   registerWorkspaceIpc();
   registerSessionsIpc(broker);
+  registerModelsIpc(broker);
   electronApp.setAppUserModelId("com.pi.desktop");
 
   app.on("browser-window-created", (_, window) => {

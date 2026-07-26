@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from "vue";
+import { computed, onMounted, ref, watch } from "vue";
 import CitationCard from "@renderer/components/CitationCard.vue";
 import { useChatStore } from "@renderer/stores/chat";
 import { useComposerStore } from "@renderer/stores/composer";
@@ -10,6 +10,8 @@ const composer = useComposerStore();
 const sessions = useSessionsStore();
 
 const textarea = ref<HTMLTextAreaElement | null>(null);
+const availableModels = ref<{ provider: string; id: string; name: string }[]>([]);
+const selectedModelKey = ref("");
 
 const sessionId = computed(() => sessions.activeId);
 const running = computed(() => chat.activeRunning || activeSessionRunning());
@@ -80,6 +82,46 @@ async function onAbort(): Promise<void> {
   }
   await chat.abort(id);
 }
+
+function modelKey(provider: string, id: string): string {
+  return `${provider}/${id}`;
+}
+
+async function refreshModels(): Promise<void> {
+  try {
+    const data = await window.api.models.get();
+    availableModels.value = data.available;
+    if (!selectedModelKey.value && data.available.length > 0) {
+      const first = data.available[0];
+      selectedModelKey.value = modelKey(first.provider, first.id);
+    }
+  } catch {
+    availableModels.value = [];
+  }
+}
+
+async function onModelChange(): Promise<void> {
+  const id = sessionId.value;
+  const key = selectedModelKey.value;
+  if (!id || !key) {
+    return;
+  }
+  const slash = key.indexOf("/");
+  if (slash <= 0) {
+    return;
+  }
+  const provider = key.slice(0, slash);
+  const modelId = key.slice(slash + 1);
+  await sessions.sendCommand(id, { type: "set_model", provider, modelId });
+}
+
+onMounted(() => {
+  void refreshModels();
+});
+
+watch(sessionId, () => {
+  void refreshModels();
+});
 </script>
 
 <template>
@@ -95,6 +137,25 @@ async function onAbort(): Promise<void> {
     </div>
 
     <div class="input-row">
+      <div class="model-row">
+        <label class="model-label" for="composer-model">Model</label>
+        <select
+          id="composer-model"
+          v-model="selectedModelKey"
+          class="model-select"
+          :disabled="!sessionId || !availableModels.length"
+          @change="onModelChange"
+        >
+          <option v-if="!availableModels.length" value="">No models available</option>
+          <option
+            v-for="m in availableModels"
+            :key="modelKey(m.provider, m.id)"
+            :value="modelKey(m.provider, m.id)"
+          >
+            {{ m.name }} ({{ m.provider }})
+          </option>
+        </select>
+      </div>
       <textarea
         ref="textarea"
         v-model="composer.draft"
@@ -146,6 +207,27 @@ async function onAbort(): Promise<void> {
   display: flex;
   flex-direction: column;
   gap: 0.45rem;
+}
+
+.model-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.model-label {
+  font-size: 0.75rem;
+  color: #6b7280;
+}
+
+.model-select {
+  flex: 1;
+  max-width: 20rem;
+  font-size: 0.8125rem;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  padding: 0.3rem 0.45rem;
+  background: #fff;
 }
 
 .input {
