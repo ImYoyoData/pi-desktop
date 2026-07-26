@@ -4,6 +4,7 @@ import { Terminal } from "xterm";
 import "xterm/css/xterm.css";
 import { nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useWorkspaceStore } from "@renderer/stores/workspace";
+import { useAppearanceStore } from "@renderer/stores/appearance";
 import { t } from "@renderer/i18n";
 
 const props = defineProps<{
@@ -14,6 +15,7 @@ const props = defineProps<{
 }>();
 
 const workspace = useWorkspaceStore();
+const appearance = useAppearanceStore();
 const hostRef = ref<HTMLDivElement | null>(null);
 const ready = ref(false);
 
@@ -23,6 +25,23 @@ let ptyId: string | null = null;
 let resizeObserver: ResizeObserver | null = null;
 let offData: (() => void) | null = null;
 let fitRaf = 0;
+
+function terminalTheme() {
+  const dark = appearance.resolvedTheme === "dark";
+  return dark
+    ? {
+        background: "#18181b",
+        foreground: "#e4e4e7",
+        cursor: "#fafafa",
+        selectionBackground: "rgba(59, 130, 246, 0.35)",
+      }
+    : {
+        background: "#ffffff",
+        foreground: "#18181b",
+        cursor: "#18181b",
+        selectionBackground: "rgba(37, 99, 235, 0.25)",
+      };
+}
 
 function fitTerm(): void {
   if (!term || !fit || !ptyId || !hostRef.value) return;
@@ -56,12 +75,7 @@ async function start(): Promise<void> {
     cursorBlink: true,
     fontSize: 13,
     fontFamily: "Cascadia Code, Consolas, Menlo, monospace",
-    theme: {
-      background: "#ffffff",
-      foreground: "#1a1a1a",
-      cursor: "#1a1a1a",
-      selectionBackground: "rgba(37, 99, 235, 0.25)",
-    },
+    theme: terminalTheme(),
   });
   fit = new FitAddon();
   term.loadAddon(fit);
@@ -103,6 +117,13 @@ watch(
   },
 );
 
+watch(
+  () => appearance.resolvedTheme,
+  () => {
+    if (term) term.options.theme = terminalTheme();
+  },
+);
+
 onMounted(async () => {
   offData = window.api.terminal.onData(({ id, data }) => {
     if (id === ptyId) term?.write(data);
@@ -140,7 +161,7 @@ void props.instanceId;
   min-height: 0;
   min-width: 0;
   overflow: hidden;
-  background: #fff;
+  background: var(--bg-elevated);
 }
 
 .term-host {

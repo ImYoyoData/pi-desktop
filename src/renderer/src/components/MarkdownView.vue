@@ -175,7 +175,7 @@ onUnmounted(() => {
   border: 1px solid var(--border);
   border-radius: 8px;
   overflow: hidden;
-  background: #f6f8fa;
+  background: var(--pre-bg);
 }
 
 .md :deep(.code-head) {
@@ -184,14 +184,14 @@ onUnmounted(() => {
   justify-content: space-between;
   padding: 4px 10px;
   border-bottom: 1px solid var(--border);
-  background: #eef1f4;
+  background: var(--code-bg);
   font-size: 11px;
   color: var(--fg-muted);
 }
 
 .md :deep(.copy-btn) {
   border: 1px solid var(--border);
-  background: #fff;
+  background: var(--bg-elevated);
   border-radius: 4px;
   padding: 1px 8px;
   font-size: 11px;
@@ -212,7 +212,7 @@ onUnmounted(() => {
 
 .md :deep(.line-nos) {
   padding: 10px 0;
-  background: #eef1f4;
+  background: var(--code-bg);
   border-right: 1px solid var(--border);
   text-align: right;
   user-select: none;

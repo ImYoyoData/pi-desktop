@@ -110,6 +110,14 @@ export const en = {
   changesCheckoutOk: "Checked out branch",
   changesBranchCreated: "Branch created",
   changesMerged: "Merged",
+  appearance: "Appearance",
+  theme: "Theme",
+  themeHint: "Follow system by default, or lock light / dark.",
+  themeSystem: "System",
+  themeLight: "Light",
+  themeDark: "Dark",
+  language: "Language",
+  languageHint: "Changing language reloads the UI.",
 } as const;
 
 export type EnKeys = typeof en;

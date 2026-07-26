@@ -5,6 +5,8 @@ export const IpcChannels = {
     close: "window:close",
     isMaximized: "window:isMaximized",
     platform: "window:platform",
+    setThemeSource: "window:setThemeSource",
+    setChromeTheme: "window:setChromeTheme",
   },
   workspace: {
     get: "workspace:get",
