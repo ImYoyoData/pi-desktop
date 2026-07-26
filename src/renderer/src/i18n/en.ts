@@ -134,6 +134,11 @@ export const en = {
   asrDisabled: "Voice input is disabled in settings",
   asrInstallOk: "ASR model is ready",
   asrFail: "Speech recognition failed",
+  asrInstalling: "Installing speech model",
+  asrProgressStarting: "Preparing download…",
+  asrProgressBinary: "Downloading runtime…",
+  asrProgressModel: "Downloading model…",
+  asrProgressExtract: "Extracting runtime…",
 } as const;
 
 export type EnKeys = typeof en;

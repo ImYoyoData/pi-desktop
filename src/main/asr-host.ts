@@ -156,32 +156,53 @@ function broadcastProgress(progress: AsrInstallProgress): void {
   }
 }
 
+function estimatePhaseBytes(phase: "binary" | "model"): number {
+  if (phase === "binary") return ASR_BINARY_MB * 1024 * 1024;
+  return Math.max(ASR_DISK_MB - ASR_BINARY_MB, 500) * 1024 * 1024;
+}
+
 async function downloadFile(
   url: string,
   dest: string,
-  phase: AsrInstallProgress["phase"],
+  phase: "binary" | "model",
   signal: AbortSignal,
 ): Promise<void> {
   mkdirSync(dirname(dest), { recursive: true });
   const tmp = `${dest}.part`;
+  broadcastProgress({
+    phase,
+    receivedBytes: 0,
+    totalBytes: estimatePhaseBytes(phase),
+    message: phase === "model" ? "Downloading ASR model…" : "Downloading ASR runtime…",
+  });
   const res = await fetch(url, { signal, redirect: "follow" });
   if (!res.ok || !res.body) {
     throw new Error(`Download failed (${res.status}): ${url}`);
   }
-  const total = Number(res.headers.get("content-length") || 0) || null;
+  const headerTotal = Number(res.headers.get("content-length") || 0);
+  let totalBytes = headerTotal > 0 ? headerTotal : estimatePhaseBytes(phase);
   let received = 0;
+  let lastEmit = 0;
   const reader = Readable.fromWeb(res.body as import("stream/web").ReadableStream);
   const out = createWriteStream(tmp);
-  reader.on("data", (chunk: Buffer) => {
-    received += chunk.length;
+  const emit = (force = false): void => {
+    const now = Date.now();
+    if (!force && now - lastEmit < 100) return;
+    lastEmit = now;
+    if (received > totalBytes) totalBytes = Math.ceil(received * 1.05);
     broadcastProgress({
       phase,
       receivedBytes: received,
-      totalBytes: total,
+      totalBytes,
       message: phase === "model" ? "Downloading ASR model…" : "Downloading ASR runtime…",
     });
+  };
+  reader.on("data", (chunk: Buffer) => {
+    received += chunk.length;
+    emit();
   });
   await pipeline(reader, out);
+  emit(true);
   rmSync(dest, { force: true });
   renameSync(tmp, dest);
 }
@@ -227,6 +248,12 @@ async function installAsr(): Promise<AsrStatus> {
   installAbort = new AbortController();
   const signal = installAbort.signal;
   ensureDirs();
+  broadcastProgress({
+    phase: "binary",
+    receivedBytes: 0,
+    totalBytes: estimatePhaseBytes("binary"),
+    message: "Starting ASR install…",
+  });
 
   try {
     // Runtime binary

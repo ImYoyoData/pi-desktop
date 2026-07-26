@@ -23,6 +23,13 @@ export const useAsrStore = defineStore("asr", () => {
   const transcribing = ref(false);
 
   const micVisible = computed(() => status.value.enabled && status.value.supported);
+  const installing = computed(
+    () =>
+      status.value.busy ||
+      (progress.value !== null &&
+        progress.value.phase !== "done" &&
+        progress.value.phase !== "error"),
+  );
 
   async function refresh(): Promise<void> {
     status.value = await window.api.asr.status();
@@ -33,6 +40,7 @@ export const useAsrStore = defineStore("asr", () => {
   }
 
   async function install(): Promise<void> {
+    status.value = { ...status.value, busy: true, lastError: null };
     progress.value = {
       phase: "binary",
       receivedBytes: 0,
@@ -47,6 +55,15 @@ export const useAsrStore = defineStore("asr", () => {
         totalBytes: null,
         message: "Ready",
       };
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      progress.value = {
+        phase: "error",
+        receivedBytes: 0,
+        totalBytes: null,
+        message,
+      };
+      throw err;
     } finally {
       await refresh();
     }
@@ -60,6 +77,9 @@ export const useAsrStore = defineStore("asr", () => {
   function bindProgress(): () => void {
     return window.api.asr.onProgress((p) => {
       progress.value = p;
+      if (p.phase !== "done" && p.phase !== "error") {
+        status.value = { ...status.value, busy: true };
+      }
     });
   }
 
@@ -69,6 +89,7 @@ export const useAsrStore = defineStore("asr", () => {
     recording,
     transcribing,
     micVisible,
+    installing,
     refresh,
     setEnabled,
     install,

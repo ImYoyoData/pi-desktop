@@ -133,6 +133,11 @@ export const zh = {
   asrDisabled: "语音输入已在设置中关闭",
   asrInstallOk: "ASR 模型已就绪",
   asrFail: "语音识别失败",
+  asrInstalling: "正在安装语音模型",
+  asrProgressStarting: "准备下载…",
+  asrProgressBinary: "正在下载运行时…",
+  asrProgressModel: "正在下载模型…",
+  asrProgressExtract: "正在解压运行时…",
 } as const;
 
 export type ZhKeys = typeof zh;
