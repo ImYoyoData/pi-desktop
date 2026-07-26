@@ -3,6 +3,7 @@ import { electronAPI } from "@electron-toolkit/preload";
 import type { AgentCommand, AgentEvent, ElementCitation, SessionStatus, SessionSummary } from "../shared/protocol";
 import { IpcChannels } from "../shared/protocol";
 import type { ModelsGetResult, ModelsSetPayload } from "../shared/models-settings";
+import type { PreviewResult } from "../shared/preview-types";
 
 export type { AgentCommand, AgentEvent, ElementCitation, SessionStatus, SessionSummary };
 
@@ -43,6 +44,12 @@ const api = {
     set: (payload: ModelsSetPayload) =>
       ipcRenderer.invoke(IpcChannels.models.set, payload) as Promise<void>,
     test: () => ipcRenderer.invoke(IpcChannels.models.test) as Promise<ModelsGetResult["available"]>,
+  },
+  preview: {
+    read: (filePath: string) =>
+      ipcRenderer.invoke(IpcChannels.preview.read, filePath) as Promise<PreviewResult>,
+    pickFile: () =>
+      ipcRenderer.invoke(IpcChannels.preview.pickFile) as Promise<string | null>,
   },
   terminal: {
     create: (cwd?: string) =>
