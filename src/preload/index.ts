@@ -2,6 +2,7 @@ import { contextBridge, ipcRenderer } from "electron";
 import { electronAPI } from "@electron-toolkit/preload";
 import type { AgentCommand, AgentEvent, ElementCitation, SessionStatus, SessionSummary } from "../shared/protocol";
 import { IpcChannels } from "../shared/protocol";
+import type { ModelsGetResult, ModelsSetPayload } from "../shared/models-settings";
 
 export type { AgentCommand, AgentEvent, ElementCitation, SessionStatus, SessionSummary };
 
@@ -36,6 +37,12 @@ const api = {
         ipcRenderer.removeListener(IpcChannels.sessions.event, listener);
       };
     },
+  },
+  models: {
+    get: () => ipcRenderer.invoke(IpcChannels.models.get) as Promise<ModelsGetResult>,
+    set: (payload: ModelsSetPayload) =>
+      ipcRenderer.invoke(IpcChannels.models.set, payload) as Promise<void>,
+    test: () => ipcRenderer.invoke(IpcChannels.models.test) as Promise<ModelsGetResult["available"]>,
   },
 };
 

@@ -25,6 +25,7 @@ export type SessionBroker = {
   send: (sessionId: string, command: AgentCommand) => Promise<void>;
   killWorker: (sessionId: string) => Promise<void>;
   restartWorker: (sessionId: string) => Promise<void>;
+  notifyWorkersReloadModels: () => Promise<void>;
   onEvent: (cb: (event: AgentEvent) => void) => () => void;
 };
 
@@ -300,6 +301,12 @@ export function createSessionBroker(deps: { spawnWorker: SpawnWorker }): Session
     return () => listeners.delete(cb);
   }
 
+  async function notifyWorkersReloadModels(): Promise<void> {
+    await Promise.all(
+      [...sessions.values()].map((rec) => rec.worker.send({ kind: "reload_models" })),
+    );
+  }
+
   return {
     createSession,
     listSessions,
@@ -308,6 +315,7 @@ export function createSessionBroker(deps: { spawnWorker: SpawnWorker }): Session
     send,
     killWorker,
     restartWorker,
+    notifyWorkersReloadModels,
     onEvent,
   };
 }
