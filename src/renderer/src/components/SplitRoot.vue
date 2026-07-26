@@ -1,101 +1,128 @@
 <script setup lang="ts">
-import { computed, ref, watch } from "vue";
+import { computed, watch } from "vue";
 import { Splitpanes, Pane } from "splitpanes";
 import "splitpanes/dist/splitpanes.css";
+import { NButton, NIcon, NTooltip } from "naive-ui";
+import { ChevronBackOutline, ChevronForwardOutline } from "@vicons/ionicons5";
 import SessionSidebar from "@renderer/components/SessionSidebar.vue";
 import ChatPanel from "@renderer/components/ChatPanel.vue";
 import RightPane from "@renderer/components/RightPane.vue";
-import { clampPanelWidth, useLayoutStore } from "@renderer/stores/layout";
+import { useLayoutStore } from "@renderer/stores/layout";
 import { useWorkspaceStore } from "@renderer/stores/workspace";
 import type { SplitpanesResizedPayload } from "splitpanes";
+import { t } from "@renderer/i18n";
+
+/** Nested splits: outer left↔main, inner chat↔right — sides never fight each other. */
+const PANE_MIN = 15;
+const CHAT_MIN = 12;
+const PANE_MAX = 70;
 
 const workspace = useWorkspaceStore();
 const layout = useLayoutStore();
-const rootEl = ref<HTMLElement | null>(null);
 
 watch(
   () => workspace.root,
   (root) => {
-    if (root) {
-      layout.loadForWorkspace(root);
-    }
+    if (root) layout.loadForWorkspace(root);
   },
   { immediate: true },
 );
 
-function containerWidth(): number {
-  return rootEl.value?.clientWidth ?? 0;
+const splitKey = computed(
+  () => `${layout.leftCollapsed ? "L0" : "L1"}-${layout.rightCollapsed ? "R0" : "R1"}`,
+);
+
+/** Outer: left % of window (rest is main). */
+const outerLeftSize = computed(() => layout.leftSize);
+const outerMainSize = computed(() => 100 - layout.leftSize);
+
+/** Inner sizes as % of main (chat + right). */
+const innerPair = computed(() => {
+  const c = layout.centerSize;
+  const r = layout.rightSize;
+  const sum = c + r;
+  if (sum <= 0) return { chat: 37.5, right: 62.5 };
+  return { chat: (c / sum) * 100, right: (r / sum) * 100 };
+});
+
+function onOuterResized(payload: SplitpanesResizedPayload): void {
+  if (layout.leftCollapsed || payload.panes.length < 2) return;
+  const leftPct = payload.panes[0].size;
+  const mainPct = 100 - leftPct;
+  const ratio =
+    layout.centerSize + layout.rightSize > 0
+      ? layout.centerSize / (layout.centerSize + layout.rightSize)
+      : 0.375;
+  const center = mainPct * ratio;
+  const right = mainPct - center;
+  layout.setPaneSizes(leftPct, center, right);
 }
 
-function pxToSize(px: number): number {
-  const total = containerWidth();
-  if (total <= 0 || px <= 0) {
-    return 0;
-  }
-  return (px / total) * 100;
-}
-
-function minSizePercent(): number {
-  return pxToSize(180) || 0;
-}
-
-const leftPaneSize = computed(() => (layout.leftCollapsed ? 0 : pxToSize(layout.leftWidth)));
-const rightPaneSize = computed(() => (layout.rightCollapsed ? 0 : pxToSize(layout.rightWidth)));
-
-function onResized(payload: SplitpanesResizedPayload): void {
-  const total = containerWidth();
-  if (total <= 0 || payload.panes.length < 3) {
-    return;
-  }
-  const [left, , right] = payload.panes;
-  if (!layout.leftCollapsed && left.size > 0) {
-    layout.setLeftWidth(clampPanelWidth((left.size / 100) * total));
-  }
-  if (!layout.rightCollapsed && right.size > 0) {
-    layout.setRightWidth(clampPanelWidth((right.size / 100) * total));
-  }
+function onInnerResized(payload: SplitpanesResizedPayload): void {
+  if (layout.rightCollapsed || payload.panes.length < 2) return;
+  const chatOfMain = payload.panes[0].size;
+  const rightOfMain = payload.panes[1].size;
+  const mainPct = layout.leftCollapsed ? 100 : 100 - layout.leftSize;
+  const center = (chatOfMain / 100) * mainPct;
+  const right = (rightOfMain / 100) * mainPct;
+  layout.setPaneSizes(layout.leftSize, center, right);
 }
 </script>
 
 <template>
-  <div ref="rootEl" class="split-root">
-    <Splitpanes class="panes" @resized="onResized">
+  <div class="split-root">
+    <Splitpanes :key="splitKey" class="panes" @resized="onOuterResized">
       <Pane
-        :size="leftPaneSize"
-        :min-size="layout.leftCollapsed ? 0 : minSizePercent()"
-        :max-size="pxToSize(560)"
+        v-if="!layout.leftCollapsed"
+        :size="outerLeftSize"
+        :min-size="PANE_MIN"
+        :max-size="PANE_MAX"
       >
         <SessionSidebar />
       </Pane>
-      <Pane :min-size="20">
-        <ChatPanel />
-      </Pane>
-      <Pane
-        :size="rightPaneSize"
-        :min-size="layout.rightCollapsed ? 0 : minSizePercent()"
-        :max-size="pxToSize(560)"
-      >
-        <RightPane />
+
+      <Pane :size="layout.leftCollapsed ? 100 : outerMainSize" :min-size="100 - PANE_MAX">
+        <Splitpanes class="panes inner" @resized="onInnerResized">
+          <Pane
+            :size="layout.rightCollapsed ? 100 : innerPair.chat"
+            :min-size="CHAT_MIN"
+            :max-size="layout.rightCollapsed ? 100 : PANE_MAX"
+          >
+            <ChatPanel />
+          </Pane>
+          <Pane
+            v-if="!layout.rightCollapsed"
+            :size="innerPair.right"
+            :min-size="PANE_MIN"
+            :max-size="PANE_MAX"
+          >
+            <RightPane />
+          </Pane>
+        </Splitpanes>
       </Pane>
     </Splitpanes>
-    <button
-      v-if="layout.leftCollapsed"
-      type="button"
-      class="expand left"
-      title="Expand sessions"
-      @click="layout.toggleLeftCollapsed()"
-    >
-      &rsaquo;
-    </button>
-    <button
-      v-if="layout.rightCollapsed"
-      type="button"
-      class="expand right"
-      title="Expand right panel"
-      @click="layout.toggleRightCollapsed()"
-    >
-      &lsaquo;
-    </button>
+
+    <NTooltip v-if="layout.leftCollapsed" placement="right">
+      <template #trigger>
+        <NButton class="rail left" quaternary size="tiny" @click="layout.toggleLeftCollapsed()">
+          <template #icon>
+            <NIcon :component="ChevronForwardOutline" :size="16" />
+          </template>
+        </NButton>
+      </template>
+      {{ t.expandLeft }}
+    </NTooltip>
+
+    <NTooltip v-if="layout.rightCollapsed" placement="left">
+      <template #trigger>
+        <NButton class="rail right" quaternary size="tiny" @click="layout.toggleRightCollapsed()">
+          <template #icon>
+            <NIcon :component="ChevronBackOutline" :size="16" />
+          </template>
+        </NButton>
+      </template>
+      {{ t.expandRight }}
+    </NTooltip>
   </div>
 </template>
 
@@ -113,26 +140,35 @@ function onResized(payload: SplitpanesResizedPayload): void {
 
 :deep(.splitpanes__pane) {
   overflow: hidden;
+  background: var(--bg);
 }
 
-.expand {
-  position: absolute;
+.rail {
+  position: absolute !important;
   top: 50%;
-  z-index: 2;
+  z-index: 5;
   transform: translateY(-50%);
-  padding: 0.35rem 0.4rem;
-  border: 1px solid #d1d5db;
-  border-radius: 4px;
-  background: #fff;
-  cursor: pointer;
-  box-shadow: 0 1px 2px rgb(0 0 0 / 0.06);
+  width: 22px !important;
+  min-width: 22px !important;
+  height: 56px !important;
+  padding: 0 !important;
+  border: 1px solid var(--border) !important;
+  border-radius: 6px !important;
+  background: #fff !important;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+  color: var(--fg-muted) !important;
 }
 
-.expand.left {
-  left: 4px;
+.rail:hover {
+  color: var(--fg-strong) !important;
+  border-color: var(--border-strong) !important;
 }
 
-.expand.right {
-  right: 4px;
+.rail.left {
+  left: 6px;
+}
+
+.rail.right {
+  right: 6px;
 }
 </style>

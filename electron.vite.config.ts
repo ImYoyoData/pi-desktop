@@ -1,6 +1,8 @@
 import { resolve } from "path";
 import { defineConfig } from "electron-vite";
 import vue from "@vitejs/plugin-vue";
+import Components from "unplugin-vue-components/vite";
+import { NaiveUiResolver } from "unplugin-vue-components/resolvers";
 
 /** Pi packages are ESM-only (`exports.import` without `require`); Electron main is CJS. */
 const piEsmPackages = [
@@ -13,7 +15,6 @@ const piEsmPackages = [
 export default defineConfig({
   main: {
     build: {
-      // Bundle ESM-only Pi SDK into main/worker so CJS require() is not used at runtime.
       externalizeDeps: {
         exclude: piEsmPackages,
       },
@@ -32,6 +33,17 @@ export default defineConfig({
         "@renderer": resolve("src/renderer/src"),
       },
     },
-    plugins: [vue()],
+    plugins: [
+      vue({
+        template: {
+          compilerOptions: {
+            isCustomElement: (tag) => tag === "webview",
+          },
+        },
+      }),
+      Components({
+        resolvers: [NaiveUiResolver()],
+      }),
+    ],
   },
 });

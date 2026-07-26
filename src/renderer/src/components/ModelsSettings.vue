@@ -1,9 +1,20 @@
 <script setup lang="ts">
-import { ref, watch } from "vue";
+import { computed, onMounted, ref, watch } from "vue";
 import {
-  COMMON_API_KEY_PROVIDERS,
-  type CommonApiKeyProvider,
-} from "../../../shared/models-settings";
+  NButton,
+  NInput,
+  NModal,
+  NScrollbar,
+  NSpace,
+  NSpin,
+  NTabPane,
+  NTabs,
+  NText,
+  NTag,
+  useMessage,
+} from "naive-ui";
+import type { ModelsProviderAuth } from "../../../shared/models-settings";
+import ProviderIcon from "@renderer/components/ProviderIcon.vue";
 
 const props = defineProps<{
   open: boolean;
@@ -14,23 +25,87 @@ const emit = defineEmits<{
   saved: [];
 }>();
 
+const message = useMessage();
 const modelsText = ref("");
-const apiKeys = ref<Partial<Record<CommonApiKeyProvider, string>>>({});
-const configured = ref<Record<string, boolean>>({});
+const apiKeys = ref<Record<string, string>>({});
+const providers = ref<ModelsProviderAuth[]>([]);
+const available = ref<{ provider: string; id: string; name: string }[]>([]);
 const loading = ref(false);
 const saving = ref(false);
-const error = ref<string | null>(null);
+const selectedProvider = ref<string | null>(null);
+const mainTab = ref<"auth" | "json">("auth");
+const pickerOpen = ref(false);
+const pickerQuery = ref("");
+
+const configuredProviders = computed(() => providers.value.filter((p) => p.configured));
+
+const leftList = computed(() => {
+  const list = [...configuredProviders.value];
+  if (
+    selectedProvider.value &&
+    !list.some((p) => p.id === selectedProvider.value)
+  ) {
+    const pending = providers.value.find((p) => p.id === selectedProvider.value);
+    if (pending) list.push(pending);
+  }
+  return list;
+});
+
+const availableToAdd = computed(() => {
+  const q = pickerQuery.value.trim().toLowerCase();
+  return providers.value.filter((p) => {
+    if (p.configured) return false;
+    if (!q) return true;
+    return (
+      p.displayName.toLowerCase().includes(q) ||
+      p.id.toLowerCase().includes(q)
+    );
+  });
+});
+
+const selectedMeta = computed(() =>
+  providers.value.find((p) => p.id === selectedProvider.value) ?? null,
+);
+
+const selectedModels = computed(() => {
+  if (!selectedProvider.value) return [];
+  return available.value.filter((m) => m.provider === selectedProvider.value);
+});
+
+function sourceLabel(source?: string): string {
+  switch (source) {
+    case "stored":
+      return "auth.json";
+    case "environment":
+      return "环境变量";
+    case "runtime":
+      return "运行时";
+    case "fallback":
+      return "默认";
+    case "models_json_command":
+      return "models.json 命令";
+    default:
+      return source || "未知";
+  }
+}
 
 async function load(): Promise<void> {
   loading.value = true;
-  error.value = null;
   try {
     const data = await window.api.models.get();
     modelsText.value = data.modelsText;
-    configured.value = data.apiKeyConfigured;
+    providers.value = data.providers ?? [];
+    available.value = data.available;
     apiKeys.value = {};
+    const configured = providers.value.filter((p) => p.configured);
+    if (
+      !selectedProvider.value ||
+      !providers.value.some((p) => p.id === selectedProvider.value)
+    ) {
+      selectedProvider.value = configured[0]?.id ?? providers.value[0]?.id ?? null;
+    }
   } catch (err) {
-    error.value = err instanceof Error ? err.message : String(err);
+    message.error(err instanceof Error ? err.message : String(err));
   } finally {
     loading.value = false;
   }
@@ -40,208 +115,517 @@ watch(
   () => props.open,
   (isOpen) => {
     if (isOpen) {
+      pickerOpen.value = false;
       void load();
     }
   },
-  { immediate: true },
 );
+
+onMounted(() => {
+  if (props.open) void load();
+});
+
+function openPicker(): void {
+  pickerQuery.value = "";
+  pickerOpen.value = true;
+}
+
+function selectProvider(id: string): void {
+  selectedProvider.value = id;
+  pickerOpen.value = false;
+  pickerQuery.value = "";
+}
 
 async function save(): Promise<void> {
   saving.value = true;
-  error.value = null;
   try {
+    const keysToWrite = Object.fromEntries(
+      Object.entries(apiKeys.value).filter(([, v]) => Boolean(v?.trim())),
+    );
     await window.api.models.set({
       modelsText: modelsText.value,
-      apiKeys: { ...apiKeys.value },
+      apiKeys: keysToWrite,
     });
+    message.success("已保存");
     emit("saved");
-    emit("close");
+    window.dispatchEvent(new CustomEvent("pi-models-changed"));
+    await load();
   } catch (err) {
-    error.value = err instanceof Error ? err.message : String(err);
+    message.error(err instanceof Error ? err.message : String(err));
   } finally {
     saving.value = false;
   }
 }
 
-function labelFor(provider: CommonApiKeyProvider): string {
-  switch (provider) {
-    case "anthropic":
-      return "Anthropic";
-    case "openai":
-      return "OpenAI";
-    case "google":
-      return "Google";
-    case "deepseek":
-      return "DeepSeek";
-    default: {
-      const _never: never = provider;
-      return _never;
-    }
+async function clearKey(): Promise<void> {
+  if (!selectedProvider.value) return;
+  try {
+    await window.api.models.clearKey(selectedProvider.value);
+    delete apiKeys.value[selectedProvider.value];
+    message.success("已清除 API Key");
+    await load();
+    window.dispatchEvent(new CustomEvent("pi-models-changed"));
+  } catch (err) {
+    message.error(err instanceof Error ? err.message : String(err));
   }
+}
+
+function goCustomJson(): void {
+  pickerOpen.value = false;
+  mainTab.value = "json";
 }
 </script>
 
 <template>
-  <div v-if="open" class="backdrop" @click.self="emit('close')">
-    <div class="panel" role="dialog" aria-labelledby="models-settings-title">
-      <header class="header">
-        <h2 id="models-settings-title">Model settings</h2>
-        <button type="button" class="icon-btn" aria-label="Close" @click="emit('close')">×</button>
-      </header>
+  <NModal
+    :show="open"
+    preset="card"
+    title="模型"
+    class="models-modal pi-settings-modal"
+    style="width: min(880px, 94vw)"
+    :bordered="false"
+    :mask-closable="!pickerOpen"
+    role="dialog"
+    aria-modal="true"
+    @update:show="(v) => !v && emit('close')"
+  >
+    <template #header-extra>
+      <NText depth="3" style="font-size: 11px; font-family: var(--font-mono)">
+        ~/.pi/agent
+      </NText>
+    </template>
 
-      <p class="hint">Reads and writes <code>~/.pi/agent/models.json</code> and API keys in <code>auth.json</code>.</p>
+    <div class="modal-body">
+      <NSpin :show="loading" class="spin-fill">
+        <NTabs v-model:value="mainTab" type="line" size="small" animated>
+          <NTabPane name="auth" tab="Providers">
+            <div class="layout">
+              <div class="left">
+                <div class="left-head">
+                  <NText class="section-label">已配置</NText>
+                  <NButton size="tiny" type="primary" secondary @click="openPicker">
+                    + 添加
+                  </NButton>
+                </div>
+                <NScrollbar class="left-scroll">
+                  <button
+                    v-for="p in leftList"
+                    :key="p.id"
+                    type="button"
+                    class="provider-row"
+                    :class="{ active: selectedProvider === p.id }"
+                    @click="selectProvider(p.id)"
+                  >
+                    <ProviderIcon :provider="p.id" :size="20" />
+                    <div class="meta">
+                      <div class="name">{{ p.displayName }}</div>
+                      <NText depth="3" style="font-size: 11px">
+                        {{ p.configured ? "已配置" : "待配置" }}
+                        <template v-if="p.configured"> · {{ p.modelCount }} 个可用</template>
+                      </NText>
+                    </div>
+                  </button>
+                  <div v-if="!leftList.length" class="empty-left">
+                    尚未配置 Provider。<br />点击「+ 添加」选择。
+                  </div>
+                </NScrollbar>
+              </div>
 
-      <p v-if="error" class="error">{{ error }}</p>
-      <p v-if="loading" class="muted">Loading…</p>
+              <div class="right">
+                <NScrollbar class="right-scroll">
+                  <template v-if="selectedMeta">
+                    <div class="detail-head">
+                      <ProviderIcon :provider="selectedMeta.id" :size="26" />
+                      <div style="min-width: 0; flex: 1">
+                        <div class="detail-title">{{ selectedMeta.displayName }}</div>
+                        <NText depth="3" style="font-size: 11px; font-family: var(--font-mono)">
+                          {{ selectedMeta.id }}
+                        </NText>
+                      </div>
+                      <NTag
+                        size="small"
+                        :type="selectedMeta.configured ? 'success' : 'warning'"
+                        :bordered="false"
+                      >
+                        {{ selectedMeta.configured ? "已配置" : "未配置" }}
+                      </NTag>
+                    </div>
 
-      <section v-else class="section">
-        <h3>API keys</h3>
-        <div v-for="provider in COMMON_API_KEY_PROVIDERS" :key="provider" class="field">
-          <label :for="`key-${provider}`">{{ labelFor(provider) }}</label>
-          <input
-            :id="`key-${provider}`"
-            v-model="apiKeys[provider]"
-            type="password"
-            autocomplete="off"
-            :placeholder="configured[provider] ? 'Leave blank to keep existing key' : 'sk-…'"
+                    <div class="field">
+                      <div class="field-label">
+                        <NText style="font-size: 12px; font-weight: 600">API Key</NText>
+                        <NButton
+                          v-if="selectedMeta.configured && selectedMeta.source === 'stored'"
+                          size="tiny"
+                          quaternary
+                          type="error"
+                          @click="clearKey"
+                        >
+                          清除
+                        </NButton>
+                      </div>
+                      <NInput
+                        v-model:value="apiKeys[selectedMeta.id]"
+                        type="password"
+                        size="small"
+                        show-password-on="click"
+                        :placeholder="
+                          selectedMeta.configured
+                            ? selectedMeta.source === 'environment'
+                              ? '已从环境变量读取（可覆盖写入 auth.json）'
+                              : '••••••••（留空保留）'
+                            : '粘贴 API Key…'
+                        "
+                      />
+                      <NText depth="3" style="font-size: 11px">
+                        写入 ~/.pi/agent/auth.json，与 pi CLI / pi-web 共用。
+                      </NText>
+                    </div>
+
+                    <div class="models-block">
+                      <NText style="font-size: 12px; font-weight: 600">
+                        可用模型（{{ selectedModels.length }}）
+                      </NText>
+                      <div v-if="!selectedModels.length" class="empty-models">
+                        暂无可用模型
+                      </div>
+                      <div
+                        v-for="m in selectedModels"
+                        :key="`${m.provider}/${m.id}`"
+                        class="model-row"
+                      >
+                        <span class="model-name">{{ m.name }}</span>
+                        <NText depth="3" style="font-size: 11px; font-family: var(--font-mono)">
+                          {{ m.id }}
+                        </NText>
+                      </div>
+                    </div>
+                  </template>
+                  <div v-else class="empty-right">
+                    <NText depth="3">从左侧选择 Provider，或点击「+ 添加」</NText>
+                  </div>
+                </NScrollbar>
+              </div>
+            </div>
+          </NTabPane>
+
+          <NTabPane name="json" tab="models.json">
+            <div class="json-pane">
+              <NText depth="3" style="font-size: 12px; display: block; margin-bottom: 8px">
+                编辑 ~/.pi/agent/models.json（自定义 Provider / baseUrl / 模型）
+              </NText>
+              <NInput
+                v-model:value="modelsText"
+                type="textarea"
+                class="json-editor"
+                :autosize="false"
+                placeholder="{}"
+                style="font-family: var(--font-mono); font-size: 12px"
+              />
+            </div>
+          </NTabPane>
+        </NTabs>
+      </NSpin>
+
+      <!-- Inline picker overlay (avoid nested NModal which often fails to show) -->
+      <div v-if="pickerOpen" class="picker-overlay" @click.self="pickerOpen = false">
+        <div class="picker-panel" role="dialog" aria-label="添加 Provider">
+          <div class="picker-head">
+            <NText strong style="font-size: 13px">添加 Provider</NText>
+            <NButton size="tiny" quaternary @click="pickerOpen = false">关闭</NButton>
+          </div>
+          <NInput
+            v-model:value="pickerQuery"
+            size="small"
+            placeholder="搜索 Provider…"
+            clearable
+            autofocus
+            style="margin-bottom: 8px"
           />
+          <NScrollbar style="max-height: 320px">
+            <button type="button" class="picker-card" @click="goCustomJson">
+              <div class="picker-meta">
+                <div class="name">自定义（OpenAI / Anthropic 兼容）</div>
+                <NText depth="3" style="font-size: 11px">在 models.json 中配置</NText>
+              </div>
+            </button>
+            <button
+              v-for="p in availableToAdd"
+              :key="p.id"
+              type="button"
+              class="picker-card"
+              @click="selectProvider(p.id)"
+            >
+              <ProviderIcon :provider="p.id" :size="22" />
+              <div class="picker-meta">
+                <div class="name">{{ p.displayName }}</div>
+                <NText depth="3" style="font-size: 11px">
+                  {{ p.id }} · 需配置 API Key
+                </NText>
+              </div>
+              <NText depth="3" style="font-size: 11px">API Key</NText>
+            </button>
+            <div v-if="!availableToAdd.length" class="empty-models">
+              没有可添加的 Provider（可能均已配置）
+            </div>
+          </NScrollbar>
         </div>
-      </section>
-
-      <section class="section">
-        <h3>models.json</h3>
-        <textarea v-model="modelsText" class="json" rows="12" spellcheck="false" :disabled="loading" />
-      </section>
-
-      <footer class="footer">
-        <button type="button" class="btn" :disabled="saving" @click="emit('close')">Cancel</button>
-        <button type="button" class="btn primary" :disabled="saving || loading" @click="save">
-          {{ saving ? "Saving…" : "Save" }}
-        </button>
-      </footer>
+      </div>
     </div>
-  </div>
+
+    <template #footer>
+      <NSpace justify="end">
+        <NButton size="small" @click="emit('close')">关闭</NButton>
+        <NButton size="small" type="primary" :loading="saving" @click="save">保存</NButton>
+      </NSpace>
+    </template>
+  </NModal>
 </template>
 
 <style scoped>
-.backdrop {
-  position: fixed;
-  inset: 0;
-  background: rgba(15, 23, 42, 0.45);
+.modal-body {
+  position: relative;
+  height: min(560px, 70vh);
+  overflow: hidden;
+}
+
+.spin-fill {
+  height: 100%;
+}
+
+.spin-fill :deep(.n-spin-content) {
+  height: 100%;
   display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 100;
-  padding: 1rem;
+  flex-direction: column;
 }
 
-.panel {
-  width: min(640px, 100%);
-  max-height: 90vh;
-  overflow: auto;
-  background: #fff;
-  border-radius: 10px;
-  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.15);
-  padding: 1rem 1.25rem 1.25rem;
+.spin-fill :deep(.n-tabs) {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
 }
 
-.header {
+.spin-fill :deep(.n-tabs-pane-wrapper),
+.spin-fill :deep(.n-tab-pane) {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.layout {
+  display: grid;
+  grid-template-columns: 220px 1fr;
+  gap: 0;
+  flex: 1;
+  min-height: 0;
+  height: 100%;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.left {
+  border-right: 1px solid var(--border);
+  background: var(--bg-panel);
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+
+.left-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 0.5rem;
+  padding: 8px 10px;
+  flex-shrink: 0;
 }
 
-.header h2 {
-  margin: 0;
-  font-size: 1.125rem;
+.section-label {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: var(--fg-faint);
 }
 
-.icon-btn {
+.left-scroll {
+  flex: 1;
+  min-height: 0;
+}
+
+.provider-row {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
   border: none;
   background: transparent;
-  font-size: 1.5rem;
-  line-height: 1;
+  text-align: left;
   cursor: pointer;
-  color: #6b7280;
 }
 
-.hint {
-  font-size: 0.8125rem;
-  color: #6b7280;
-  margin: 0.35rem 0 0.75rem;
+.provider-row:hover {
+  background: var(--bg-hover);
 }
 
-.section {
-  margin-bottom: 1rem;
+.provider-row.active {
+  background: var(--bg-selected);
 }
 
-.section h3 {
-  margin: 0 0 0.5rem;
-  font-size: 0.875rem;
+.meta {
+  min-width: 0;
+}
+
+.name {
+  font-size: 12.5px;
+  font-weight: 550;
+  color: var(--fg-strong);
+}
+
+.right {
+  min-width: 0;
+  min-height: 0;
+  background: var(--bg);
+  display: flex;
+  flex-direction: column;
+}
+
+.right-scroll {
+  flex: 1;
+  min-height: 0;
+  padding: 20px 24px 24px;
+}
+
+.detail-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.detail-title {
+  font-size: 14px;
   font-weight: 600;
 }
 
 .field {
   display: flex;
   flex-direction: column;
-  gap: 0.25rem;
-  margin-bottom: 0.5rem;
+  gap: 6px;
+  margin-bottom: 14px;
 }
 
-.field label {
-  font-size: 0.8125rem;
-  color: #374151;
-}
-
-.field input,
-.json {
-  border: 1px solid #d1d5db;
-  border-radius: 6px;
-  padding: 0.45rem 0.55rem;
-  font: inherit;
-}
-
-.json {
-  width: 100%;
-  font-family: ui-monospace, monospace;
-  font-size: 0.8125rem;
-  line-height: 1.4;
-}
-
-.error {
-  color: #b91c1c;
-  font-size: 0.8125rem;
-}
-
-.muted {
-  color: #6b7280;
-  font-size: 0.8125rem;
-}
-
-.footer {
+.field-label {
   display: flex;
-  justify-content: flex-end;
-  gap: 0.5rem;
+  align-items: center;
+  justify-content: space-between;
 }
 
-.btn {
-  font-size: 0.8125rem;
-  padding: 0.35rem 0.75rem;
-  border-radius: 6px;
-  border: 1px solid #d1d5db;
-  background: #fff;
+.models-block {
+  margin-top: 4px;
+}
+
+.model-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 6px 2px;
+  border-bottom: 1px solid var(--border);
+  font-size: 12.5px;
+}
+
+.model-name {
+  font-weight: 500;
+}
+
+.empty-models,
+.empty-left,
+.empty-right {
+  padding: 14px 10px;
+  color: var(--fg-faint);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.empty-right {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 200px;
+}
+
+.json-pane {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+
+.json-editor {
+  flex: 1;
+  min-height: 0;
+}
+
+.json-editor :deep(textarea) {
+  height: 100% !important;
+  min-height: 360px;
+}
+
+.picker-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 20;
+  background: rgba(0, 0, 0, 0.28);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+}
+
+.picker-panel {
+  width: min(440px, 100%);
+  max-height: 90%;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.18);
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.picker-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.picker-card {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  margin-bottom: 6px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-panel);
   cursor: pointer;
+  text-align: left;
 }
 
-.btn.primary {
-  background: #111827;
-  color: #fff;
-  border-color: #111827;
+.picker-card:hover {
+  border-color: var(--accent, #2563eb);
+  background: var(--bg-hover);
 }
 
-.btn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
+.picker-meta {
+  flex: 1;
+  min-width: 0;
 }
 </style>

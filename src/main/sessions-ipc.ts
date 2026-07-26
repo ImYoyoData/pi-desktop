@@ -3,6 +3,7 @@ import type { AgentCommand } from "../shared/protocol";
 import { IpcChannels } from "../shared/protocol";
 import type { SessionBroker } from "./session-broker";
 import { readSessionHistoryMessages } from "./session-history";
+import { renameSessionFile } from "./session-rename";
 
 function broadcastEvent(event: unknown): void {
   for (const win of BrowserWindow.getAllWindows()) {
@@ -55,5 +56,18 @@ export function registerSessionsIpc(broker: SessionBroker): void {
 
   ipcMain.handle(IpcChannels.sessions.history, (_event, filePath: string) =>
     readSessionHistoryMessages(filePath),
+  );
+
+  ipcMain.handle(
+    IpcChannels.sessions.rename,
+    async (_event, sessionId: string, cwd: string, name: string) => {
+      const list = await broker.listSessions(cwd);
+      const target = list.find((s) => s.id === sessionId);
+      if (!target?.filePath) {
+        throw new Error("session not found");
+      }
+      renameSessionFile(target.filePath, name);
+      return (await broker.listSessions(cwd)).find((s) => s.id === sessionId) ?? null;
+    },
   );
 }

@@ -1,93 +1,255 @@
 <script setup lang="ts">
-import { onMounted, onUnmounted, ref, watch } from "vue";
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
+import {
+  NButton,
+  NIcon,
+  NInput,
+  NSpace,
+  NTooltip,
+  useMessage,
+} from "naive-ui";
+import {
+  ArrowBackOutline,
+  ArrowForwardOutline,
+  ColorWandOutline,
+  CodeSlashOutline,
+  LibraryOutline,
+  OpenOutline,
+  RefreshOutline,
+  Star,
+  StarOutline,
+} from "@vicons/ionicons5";
 import type { ElementCitation } from "../../../shared/protocol";
 import { useComposerStore } from "@renderer/stores/composer";
+import {
+  isBookmarked,
+  listBookmarks,
+  listHistory,
+  recordHistory,
+  removeBookmark,
+  removeHistory,
+  toggleBookmark,
+  type BookmarkEntry,
+  type BrowserLibraryEntry,
+} from "@renderer/stores/browser-library";
+import BrowserLibraryPanel from "@renderer/components/BrowserLibraryPanel.vue";
+import { t } from "@renderer/i18n";
+
+const DEFAULT_URL = "https://www.baidu.com";
+const DEVTOOLS_WIDTH_KEY = "browser:devtoolsWidth";
 
 const composer = useComposerStore();
+const message = useMessage();
 
 const props = defineProps<{
   visible?: boolean;
 }>();
 
-const browserId = ref<string | null>(null);
-const urlInput = ref("https://example.com");
+const webviewRef = ref<Electron.WebviewTag | null>(null);
+const devtoolsRef = ref<Electron.WebviewTag | null>(null);
+/** Remount DevTools host after close — setDevToolsWebContents requires a unused WebContents. */
+const devtoolsMountKey = ref(0);
+const splitEl = ref<HTMLElement | null>(null);
+const ghostEl = ref<HTMLElement | null>(null);
+const urlInput = ref(DEFAULT_URL);
+const pageTitle = ref("");
 const selectMode = ref(false);
-const toast = ref<string | null>(null);
-
-const viewport = ref<HTMLElement | null>(null);
-let resizeObserver: ResizeObserver | null = null;
-let toastTimer: ReturnType<typeof setTimeout> | null = null;
+const loading = ref(false);
+const devtoolsOpen = ref(false);
+const devtoolsReady = ref(false);
+const bookmarked = ref(false);
+const libraryOpen = ref(false);
+const libraryTab = ref<"history" | "bookmarks">("history");
+const historyRows = ref<BrowserLibraryEntry[]>([]);
+const bookmarkRows = ref<BookmarkEntry[]>([]);
+/** DevTools width as % of the browser viewport when open. */
+const devtoolsPercent = ref(40);
+const isDraggingDevtools = ref(false);
 let offElementSelected: (() => void) | null = null;
+let offToggleHotkey: (() => void) | null = null;
+let dragging = false;
+let rafDrag = 0;
+let pendingClientX = 0;
 
-function showToast(message: string): void {
-  toast.value = message;
-  if (toastTimer) {
-    clearTimeout(toastTimer);
+const pageStyle = computed(() =>
+  devtoolsOpen.value ? { width: `${100 - devtoolsPercent.value}%` } : { width: "100%" },
+);
+
+const devtoolsStyle = computed(() => ({
+  width: `${devtoolsPercent.value}%`,
+}));
+
+function loadDevtoolsWidth(): void {
+  try {
+    const raw = localStorage.getItem(DEVTOOLS_WIDTH_KEY);
+    if (!raw) return;
+    const pct = Number(raw);
+    if (!Number.isFinite(pct) || pct < 20 || pct > 70) return;
+    devtoolsPercent.value = pct;
+  } catch {
+    // ignore
   }
-  toastTimer = setTimeout(() => {
-    toast.value = null;
-    toastTimer = null;
-  }, 3500);
 }
 
-async function syncBounds(): Promise<void> {
-  const id = browserId.value;
-  const el = viewport.value;
-  if (!id || !el) {
+function refreshLibrary(): void {
+  historyRows.value = listHistory();
+  bookmarkRows.value = listBookmarks();
+  bookmarked.value = isBookmarked(urlInput.value);
+}
+
+function normalizeUrl(raw: string): string {
+  const trimmed = raw.trim();
+  if (!trimmed) return "about:blank";
+  if (/^https?:\/\//i.test(trimmed)) return trimmed;
+  return `https://${trimmed}`;
+}
+
+function guestId(): number | null {
+  const wv = webviewRef.value;
+  if (!wv) return null;
+  try {
+    return wv.getWebContentsId();
+  } catch {
+    return null;
+  }
+}
+
+function devtoolsId(): number | null {
+  const wv = devtoolsRef.value;
+  if (!wv) return null;
+  try {
+    return wv.getWebContentsId();
+  } catch {
+    return null;
+  }
+}
+
+function navigate(): void {
+  const wv = webviewRef.value;
+  if (!wv) return;
+  void wv.loadURL(normalizeUrl(urlInput.value));
+}
+
+function navigateTo(url: string): void {
+  urlInput.value = url;
+  libraryOpen.value = false;
+  navigate();
+}
+
+function goBack(): void {
+  const wv = webviewRef.value;
+  if (wv?.canGoBack()) wv.goBack();
+}
+
+function goForward(): void {
+  const wv = webviewRef.value;
+  if (wv?.canGoForward()) wv.goForward();
+}
+
+function reload(): void {
+  webviewRef.value?.reload();
+}
+
+function onToggleBookmark(): void {
+  const url = normalizeUrl(urlInput.value);
+  if (!url || url === "about:blank") {
+    message.warning("当前页面无法收藏");
     return;
   }
-  if (props.visible === false) {
-    await window.api.browser.setBounds(id, { x: 0, y: 0, width: 0, height: 0 });
-    return;
-  }
-  const rect = el.getBoundingClientRect();
-  await window.api.browser.setBounds(id, {
-    x: rect.x,
-    y: rect.y,
-    width: rect.width,
-    height: rect.height,
+  const title = pageTitle.value || webviewRef.value?.getTitle?.() || url;
+  const result = toggleBookmark({ url, title });
+  bookmarked.value = result.bookmarked;
+  refreshLibrary();
+  message.success(result.bookmarked ? "已加入收藏" : "已取消收藏");
+}
+
+function toggleLibrary(): void {
+  libraryOpen.value = !libraryOpen.value;
+  if (libraryOpen.value) refreshLibrary();
+}
+
+function setLibraryTab(tab: "history" | "bookmarks"): void {
+  libraryTab.value = tab;
+  refreshLibrary();
+}
+
+function waitDevtoolsReady(timeoutMs = 3000): Promise<boolean> {
+  if (devtoolsReady.value && devtoolsId() !== null) return Promise.resolve(true);
+  return new Promise((resolve) => {
+    const started = Date.now();
+    const tick = (): void => {
+      if (devtoolsReady.value && devtoolsId() !== null) {
+        resolve(true);
+        return;
+      }
+      if (Date.now() - started >= timeoutMs) {
+        resolve(false);
+        return;
+      }
+      window.setTimeout(tick, 40);
+    };
+    tick();
   });
 }
 
-async function navigate(): Promise<void> {
-  const id = browserId.value;
-  if (!id) {
+async function remountDevtoolsHost(): Promise<void> {
+  devtoolsReady.value = false;
+  devtoolsMountKey.value += 1;
+  await nextTick();
+  await waitDevtoolsReady();
+}
+
+async function toggleDevTools(): Promise<void> {
+  const pageId = guestId();
+  if (pageId === null) {
+    message.warning("浏览器尚未就绪");
     return;
   }
-  await window.api.browser.navigate(id, urlInput.value);
+
+  const wantOpen = !devtoolsOpen.value;
+  if (wantOpen) {
+    // Layout pane first so DevTools webview has real size before attach
+    if (!devtoolsReady.value || devtoolsId() === null) {
+      await remountDevtoolsHost();
+    }
+    const dtId = devtoolsId();
+    if (dtId === null || !devtoolsReady.value) {
+      message.warning("浏览器尚未就绪");
+      return;
+    }
+    devtoolsOpen.value = true;
+    await nextTick();
+    await new Promise((r) => setTimeout(r, 80));
+    const result = await window.api.browser.attachDevTools(pageId, dtId, true);
+    if (!result.ok) {
+      devtoolsOpen.value = false;
+      message.warning("无法打开开发者工具");
+    }
+    return;
+  }
+
+  const dtId = devtoolsId();
+  if (dtId !== null) {
+    await window.api.browser.attachDevTools(pageId, dtId, false);
+  }
+  devtoolsOpen.value = false;
+  // Fresh host for next open (cannot reuse a WebContents that already showed DevTools)
+  await remountDevtoolsHost();
 }
 
-async function goBack(): Promise<void> {
-  const id = browserId.value;
-  if (id) {
-    await window.api.browser.back(id);
-  }
-}
-
-async function goForward(): Promise<void> {
-  const id = browserId.value;
-  if (id) {
-    await window.api.browser.forward(id);
-  }
-}
-
-async function reload(): Promise<void> {
-  const id = browserId.value;
-  if (id) {
-    await window.api.browser.reload(id);
-  }
+async function openExternal(): Promise<void> {
+  const url = webviewRef.value?.getURL?.() || urlInput.value;
+  await window.api.browser.openExternal(normalizeUrl(url));
 }
 
 async function setSelectMode(next: boolean): Promise<void> {
-  const id = browserId.value;
-  if (!id) {
-    return;
-  }
+  const id = guestId();
+  if (id === null) return;
   if (next) {
     const result = await window.api.browser.startSelect(id);
     if (!result.ok) {
       selectMode.value = false;
-      showToast("此页不支持选元素");
+      message.warning("此页不支持选元素");
       return;
     }
     selectMode.value = true;
@@ -100,54 +262,206 @@ async function setSelectMode(next: boolean): Promise<void> {
 function onCitation(citation: ElementCitation): void {
   composer.addCitation(citation);
   selectMode.value = false;
-  const id = browserId.value;
-  if (id) {
-    void window.api.browser.stopSelect(id);
+  const id = guestId();
+  if (id !== null) void window.api.browser.stopSelect(id);
+  message.success("已添加到输入框");
+}
+
+function rememberNavigation(url: string): void {
+  if (!url || url === "about:blank") return;
+  urlInput.value = url;
+  const title = webviewRef.value?.getTitle?.() || pageTitle.value || url;
+  pageTitle.value = title;
+  recordHistory({ url, title });
+  bookmarked.value = isBookmarked(url);
+  if (libraryOpen.value && libraryTab.value === "history") refreshLibrary();
+}
+
+function onDidNavigate(event: Event): void {
+  const url = (event as Event & { url?: string }).url;
+  if (url) rememberNavigation(url);
+}
+
+function onPageTitleUpdated(event: Event): void {
+  const title = (event as Event & { title?: string }).title;
+  if (title) pageTitle.value = title;
+}
+
+function onStartLoading(): void {
+  loading.value = true;
+}
+
+function onStopLoading(): void {
+  loading.value = false;
+  const url = webviewRef.value?.getURL?.();
+  if (url) rememberNavigation(url);
+}
+
+function flushDragGhost(): void {
+  rafDrag = 0;
+  if (!dragging || !splitEl.value || !ghostEl.value) return;
+  const rect = splitEl.value.getBoundingClientRect();
+  if (rect.width <= 0) return;
+  const fromRight = rect.right - pendingClientX;
+  const minPx = rect.width * 0.2;
+  const maxPx = rect.width * 0.7;
+  const px = Math.min(maxPx, Math.max(minPx, fromRight));
+  // Direct DOM write — avoid Vue reactive updates while dragging (webview thrash)
+  ghostEl.value.style.right = `${px}px`;
+  ghostEl.value.style.display = "block";
+}
+
+function onDragMove(event: MouseEvent): void {
+  if (!dragging) return;
+  pendingClientX = event.clientX;
+  if (!rafDrag) rafDrag = requestAnimationFrame(flushDragGhost);
+}
+
+function onDragEnd(): void {
+  if (!dragging) return;
+  dragging = false;
+  isDraggingDevtools.value = false;
+  document.removeEventListener("mousemove", onDragMove);
+  document.removeEventListener("mouseup", onDragEnd);
+  if (rafDrag) {
+    cancelAnimationFrame(rafDrag);
+    rafDrag = 0;
   }
-  showToast("已添加到引用");
+  const rect = splitEl.value?.getBoundingClientRect();
+  const ghost = ghostEl.value;
+  if (rect && rect.width > 0 && ghost) {
+    const rightPx = Number.parseFloat(ghost.style.right || "0");
+    if (Number.isFinite(rightPx) && rightPx > 0) {
+      const pct = (rightPx / rect.width) * 100;
+      devtoolsPercent.value = Math.min(70, Math.max(20, pct));
+      localStorage.setItem(DEVTOOLS_WIDTH_KEY, String(devtoolsPercent.value));
+    }
+    ghost.style.display = "none";
+  }
+}
+
+function startDevtoolsDrag(event: MouseEvent): void {
+  event.preventDefault();
+  dragging = true;
+  isDraggingDevtools.value = true;
+  pendingClientX = event.clientX;
+  flushDragGhost();
+  document.addEventListener("mousemove", onDragMove);
+  document.addEventListener("mouseup", onDragEnd);
+}
+
+function bindWebview(wv: Electron.WebviewTag): void {
+  wv.addEventListener("did-navigate", onDidNavigate);
+  wv.addEventListener("did-navigate-in-page", onDidNavigate);
+  wv.addEventListener("did-start-loading", onStartLoading);
+  wv.addEventListener("did-stop-loading", onStopLoading);
+  wv.addEventListener("page-title-updated", onPageTitleUpdated);
+}
+
+function unbindWebview(wv: Electron.WebviewTag): void {
+  wv.removeEventListener("did-navigate", onDidNavigate);
+  wv.removeEventListener("did-navigate-in-page", onDidNavigate);
+  wv.removeEventListener("did-start-loading", onStartLoading);
+  wv.removeEventListener("did-stop-loading", onStopLoading);
+  wv.removeEventListener("page-title-updated", onPageTitleUpdated);
+}
+
+function onKeydown(event: KeyboardEvent): void {
+  if (props.visible === false) return;
+  if (event.key === "F12") {
+    event.preventDefault();
+    event.stopPropagation();
+    void toggleDevTools();
+  }
+}
+
+async function registerPageGuest(): Promise<void> {
+  const id = guestId();
+  if (id === null) return;
+  await window.api.browser.registerGuest(id);
 }
 
 onMounted(async () => {
-  browserId.value = await window.api.browser.create();
+  loadDevtoolsWidth();
+  refreshLibrary();
   offElementSelected = window.api.browser.onElementSelected(onCitation);
-  await navigate();
-
-  resizeObserver = new ResizeObserver(() => {
-    void syncBounds();
+  offToggleHotkey = window.api.browser.onToggleEmbeddedDevTools(() => {
+    if (props.visible === false) return;
+    void toggleDevTools();
   });
-  if (viewport.value) {
-    resizeObserver.observe(viewport.value);
-    void syncBounds();
+  window.addEventListener("keydown", onKeydown, true);
+  const onNavigate = (event: Event) => {
+    const url = (event as CustomEvent<{ url?: string }>).detail?.url;
+    if (!url) return;
+    urlInput.value = url;
+    navigate();
+  };
+  window.addEventListener("pi-browser-navigate", onNavigate);
+  (window as unknown as { __piBrowserNavOff?: () => void }).__piBrowserNavOff = () => {
+    window.removeEventListener("pi-browser-navigate", onNavigate);
+  };
+  await nextTick();
+  const wv = webviewRef.value;
+  if (wv) {
+    bindWebview(wv);
+    wv.addEventListener("dom-ready", () => {
+      void registerPageGuest();
+    });
+    try {
+      if (wv.getWebContentsId()) void registerPageGuest();
+    } catch {
+      // wait for dom-ready
+    }
   }
+  bindDevtoolsHost();
 });
+
+watch(devtoolsMountKey, async () => {
+  await nextTick();
+  bindDevtoolsHost();
+});
+
+function bindDevtoolsHost(): void {
+  const dt = devtoolsRef.value;
+  if (!dt) return;
+  const markReady = () => {
+    devtoolsReady.value = true;
+  };
+  dt.addEventListener("dom-ready", markReady, { once: true });
+  try {
+    if (dt.getWebContentsId()) markReady();
+  } catch {
+    // wait for dom-ready
+  }
+}
 
 onUnmounted(() => {
   offElementSelected?.();
-  resizeObserver?.disconnect();
-  if (toastTimer) {
-    clearTimeout(toastTimer);
+  offToggleHotkey?.();
+  window.removeEventListener("keydown", onKeydown, true);
+  document.removeEventListener("mousemove", onDragMove);
+  document.removeEventListener("mouseup", onDragEnd);
+  (window as unknown as { __piBrowserNavOff?: () => void }).__piBrowserNavOff?.();
+  const id = guestId();
+  if (id !== null) {
+    void window.api.browser.stopSelect(id);
+    if (devtoolsOpen.value) {
+      const dtId = devtoolsId();
+      if (dtId !== null) void window.api.browser.attachDevTools(id, dtId, false);
+    }
   }
-  const id = browserId.value;
-  if (id) {
-    void window.api.browser.destroy(id);
-  }
-  browserId.value = null;
-});
-
-watch(viewport, (el, prev) => {
-  if (prev && resizeObserver) {
-    resizeObserver.unobserve(prev);
-  }
-  if (el && resizeObserver) {
-    resizeObserver.observe(el);
-    void syncBounds();
-  }
+  const wv = webviewRef.value;
+  if (wv) unbindWebview(wv);
 });
 
 watch(
   () => props.visible,
-  () => {
-    void syncBounds();
+  (visible) => {
+    if (!visible && selectMode.value) {
+      selectMode.value = false;
+      const id = guestId();
+      if (id !== null) void window.api.browser.stopSelect(id);
+    }
   },
 );
 </script>
@@ -155,28 +469,207 @@ watch(
 <template>
   <div class="browser-tab">
     <div class="toolbar">
-      <button type="button" class="btn" title="Back" @click="goBack">←</button>
-      <button type="button" class="btn" title="Forward" @click="goForward">→</button>
-      <button type="button" class="btn" title="Reload" @click="reload">↻</button>
-      <input
-        v-model="urlInput"
-        class="url"
-        type="text"
-        spellcheck="false"
-        @keydown.enter.prevent="navigate"
-      />
-      <button type="button" class="btn primary" @click="navigate">Go</button>
-      <button
-        type="button"
-        class="btn"
-        :class="{ active: selectMode }"
-        @click="setSelectMode(!selectMode)"
-      >
-        {{ selectMode ? "Cancel select" : "Select element" }}
-      </button>
+      <NSpace :size="4" align="center" style="flex: 1; min-width: 0" :wrap="false">
+        <NTooltip>
+          <template #trigger>
+            <NButton quaternary circle size="tiny" @click="goBack">
+              <template #icon>
+                <NIcon :component="ArrowBackOutline" />
+              </template>
+            </NButton>
+          </template>
+          {{ t.back }}
+        </NTooltip>
+        <NTooltip>
+          <template #trigger>
+            <NButton quaternary circle size="tiny" @click="goForward">
+              <template #icon>
+                <NIcon :component="ArrowForwardOutline" />
+              </template>
+            </NButton>
+          </template>
+          {{ t.forward }}
+        </NTooltip>
+        <NTooltip>
+          <template #trigger>
+            <NButton quaternary circle size="tiny" :loading="loading" @click="reload">
+              <template #icon>
+                <NIcon :component="RefreshOutline" />
+              </template>
+            </NButton>
+          </template>
+          {{ t.reload }}
+        </NTooltip>
+        <NTooltip>
+          <template #trigger>
+            <NButton
+              quaternary
+              circle
+              size="tiny"
+              :type="bookmarked ? 'warning' : 'default'"
+              @click="onToggleBookmark"
+            >
+              <template #icon>
+                <NIcon :component="bookmarked ? Star : StarOutline" />
+              </template>
+            </NButton>
+          </template>
+          {{ bookmarked ? "取消收藏" : "收藏此页" }}
+        </NTooltip>
+
+        <NInput
+          v-model:value="urlInput"
+          size="tiny"
+          class="url"
+          placeholder="输入网址"
+          @keydown.enter.prevent="navigate"
+        />
+
+        <NTooltip>
+          <template #trigger>
+            <NButton
+              size="tiny"
+              :type="selectMode ? 'primary' : 'default'"
+              secondary
+              @click="setSelectMode(!selectMode)"
+            >
+              <template #icon>
+                <NIcon :component="ColorWandOutline" />
+              </template>
+            </NButton>
+          </template>
+          {{ selectMode ? "取消选取" : t.selectElement }}
+        </NTooltip>
+
+        <NTooltip>
+          <template #trigger>
+            <NButton
+              quaternary
+              circle
+              size="tiny"
+              :type="libraryOpen ? 'primary' : 'default'"
+              @click="toggleLibrary"
+            >
+              <template #icon>
+                <NIcon :component="LibraryOutline" />
+              </template>
+            </NButton>
+          </template>
+          历史与收藏
+        </NTooltip>
+
+        <NTooltip>
+          <template #trigger>
+            <NButton
+              quaternary
+              circle
+              size="tiny"
+              :type="devtoolsOpen ? 'primary' : 'default'"
+              @click="toggleDevTools"
+            >
+              <template #icon>
+                <NIcon :component="CodeSlashOutline" />
+              </template>
+            </NButton>
+          </template>
+          开发者工具 (F12)
+        </NTooltip>
+
+        <NTooltip>
+          <template #trigger>
+            <NButton quaternary circle size="tiny" @click="openExternal">
+              <template #icon>
+                <NIcon :component="OpenOutline" />
+              </template>
+            </NButton>
+          </template>
+          在系统浏览器打开
+        </NTooltip>
+      </NSpace>
     </div>
-    <div ref="viewport" class="viewport" />
-    <div v-if="toast" class="toast">{{ toast }}</div>
+
+    <div
+      ref="splitEl"
+      class="viewport-area"
+      :class="{ 'is-dragging': isDraggingDevtools }"
+    >
+      <div class="page-pane" :style="pageStyle">
+        <webview
+          v-show="visible !== false"
+          ref="webviewRef"
+          class="viewport"
+          :src="DEFAULT_URL"
+          allowpopups
+          webpreferences="contextIsolation=yes, nodeIntegration=no"
+        />
+        <div v-show="visible === false" class="viewport placeholder" />
+      </div>
+
+      <div
+        v-show="devtoolsOpen"
+        class="devtools-handle"
+        title="拖动调整宽度"
+        @mousedown="startDevtoolsDrag"
+      />
+
+      <div
+        class="devtools-pane"
+        :class="{ closed: !devtoolsOpen }"
+        :style="devtoolsOpen ? devtoolsStyle : undefined"
+      >
+        <webview
+          :key="devtoolsMountKey"
+          ref="devtoolsRef"
+          class="viewport"
+          src="about:blank"
+          webpreferences="contextIsolation=yes, nodeIntegration=no"
+        />
+      </div>
+
+      <div ref="ghostEl" class="devtools-ghost" />
+
+      <aside v-if="libraryOpen" class="library-drawer">
+        <div class="drawer-head">
+          <button
+            type="button"
+            class="tab"
+            :class="{ active: libraryTab === 'history' }"
+            @click="setLibraryTab('history')"
+          >
+            历史
+          </button>
+          <button
+            type="button"
+            class="tab"
+            :class="{ active: libraryTab === 'bookmarks' }"
+            @click="setLibraryTab('bookmarks')"
+          >
+            收藏
+          </button>
+          <button type="button" class="drawer-close" title="关闭" @click="libraryOpen = false">
+            ×
+          </button>
+        </div>
+        <BrowserLibraryPanel
+          :mode="libraryTab"
+          :history="historyRows"
+          :bookmarks="bookmarkRows"
+          @navigate="navigateTo"
+          @remove-history="
+            (id) => {
+              removeHistory(id);
+              refreshLibrary();
+            }
+          "
+          @remove-bookmark="
+            (id) => {
+              removeBookmark(id);
+              refreshLibrary();
+            }
+          "
+        />
+      </aside>
+    </div>
   </div>
 </template>
 
@@ -186,65 +679,163 @@ watch(
   flex-direction: column;
   height: 100%;
   min-height: 0;
-  position: relative;
+  background: var(--bg);
 }
 
 .toolbar {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.35rem;
-  padding: 0.35rem 0.5rem;
-  border-bottom: 1px solid #e5e7eb;
-}
-
-.btn {
-  padding: 0.25rem 0.45rem;
-  border: 1px solid #d1d5db;
-  border-radius: 4px;
-  background: #fff;
-  font-size: 0.75rem;
-  cursor: pointer;
-}
-
-.btn.primary {
-  background: #111827;
-  color: #fff;
-  border-color: #111827;
-}
-
-.btn.active {
-  border-color: #2563eb;
-  color: #1d4ed8;
+  padding: 4px 6px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-panel);
+  flex-shrink: 0;
+  z-index: 2;
 }
 
 .url {
   flex: 1;
   min-width: 8rem;
-  font-size: 0.75rem;
-  border: 1px solid #d1d5db;
-  border-radius: 4px;
-  padding: 0.25rem 0.45rem;
+}
+
+.viewport-area {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: row;
+  align-items: stretch;
+}
+
+.viewport-area.is-dragging .viewport {
+  pointer-events: none;
+}
+
+.page-pane,
+.devtools-pane {
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+  background: #fff;
+  flex-shrink: 0;
+}
+
+.devtools-pane {
+  background: #202124;
+}
+
+.devtools-pane.closed {
+  position: absolute;
+  width: 1px !important;
+  height: 1px !important;
+  opacity: 0;
+  pointer-events: none;
+  overflow: hidden;
+}
+
+.devtools-handle {
+  width: 4px;
+  flex-shrink: 0;
+  cursor: col-resize;
+  background: var(--border);
+  position: relative;
+  z-index: 1;
+}
+
+.devtools-handle:hover,
+.devtools-handle:active {
+  background: #cfcfcf;
+}
+
+.devtools-handle::before {
+  content: "";
+  position: absolute;
+  inset: 0 -3px;
+}
+
+.devtools-ghost {
+  display: none;
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  margin-right: -1px;
+  background: var(--accent);
+  z-index: 4;
+  pointer-events: none;
+  box-shadow: 0 0 0 1px rgba(37, 99, 235, 0.25);
 }
 
 .viewport {
-  flex: 1;
-  min-height: 12rem;
-  background: #fff;
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  border: none;
+  display: flex;
 }
 
-.toast {
+.placeholder {
+  background: var(--bg-panel);
+}
+
+.library-drawer {
   position: absolute;
-  left: 50%;
-  bottom: 1rem;
-  transform: translateX(-50%);
-  background: #111827;
-  color: #fff;
-  font-size: 0.75rem;
-  padding: 0.45rem 0.75rem;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: min(320px, 85%);
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+  border-left: 1px solid var(--border);
+  box-shadow: -8px 0 24px rgba(0, 0, 0, 0.08);
+}
+
+.drawer-head {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 8px 8px 0;
+  flex-shrink: 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.drawer-head .tab {
+  border: none;
+  background: transparent;
+  padding: 6px 12px;
+  font-size: 12.5px;
+  color: var(--fg-muted);
+  cursor: pointer;
+  border-radius: 6px 6px 0 0;
+}
+
+.drawer-head .tab.active {
+  color: var(--fg-strong);
+  font-weight: 600;
+  background: var(--bg-hover);
+}
+
+.drawer-close {
+  margin-left: auto;
+  width: 28px;
+  height: 28px;
+  border: none;
   border-radius: 6px;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-  pointer-events: none;
-  z-index: 10;
+  background: transparent;
+  color: var(--fg-muted);
+  cursor: pointer;
+  font-size: 18px;
+  line-height: 1;
+}
+
+.drawer-close:hover {
+  background: var(--bg-hover);
+  color: var(--fg-strong);
+}
+
+.library-drawer :deep(.library-panel) {
+  flex: 1;
+  min-height: 0;
 }
 </style>

@@ -26,9 +26,16 @@ export const useSessionsStore = defineStore("sessions", () => {
     switch (event.type) {
       case "connected":
         break;
-      case "agent_event":
-        patchStatus(event.sessionId, "running");
+      case "agent_event": {
+        // Only start/end should drive sidebar status — not every stream chunk
+        const t = (event.event as { type?: unknown } | undefined)?.type;
+        if (t === "agent_start" || t === "turn_start") {
+          patchStatus(event.sessionId, "running");
+        } else if (t === "agent_end") {
+          patchStatus(event.sessionId, "idle");
+        }
         break;
+      }
       case "prompt_done":
         patchStatus(event.sessionId, "idle");
         break;
@@ -99,11 +106,23 @@ export const useSessionsStore = defineStore("sessions", () => {
     sessions.value = sessions.value.filter((s) => s.id !== sessionId);
   }
 
+  async function renameSession(sessionId: string, cwd: string, name: string): Promise<SessionSummary | null> {
+    const updated = await window.api.sessions.rename(sessionId, cwd, name);
+    if (updated) upsert(updated);
+    return updated;
+  }
+
+  let eventsBound = false;
   function bindEvents(): void {
+    if (eventsBound) return;
+    eventsBound = true;
     const off = window.api.sessions.onEvent((event) => {
       applyEvent(event);
     });
-    onScopeDispose(off);
+    onScopeDispose(() => {
+      eventsBound = false;
+      off();
+    });
   }
 
   return {
@@ -116,6 +135,7 @@ export const useSessionsStore = defineStore("sessions", () => {
     killWorker,
     restartWorker,
     deleteSession,
+    renameSession,
     bindEvents,
   };
 });

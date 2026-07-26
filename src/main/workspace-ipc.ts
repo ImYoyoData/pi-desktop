@@ -1,7 +1,8 @@
-import { app, dialog, ipcMain } from "electron";
+import { app, dialog, ipcMain, shell } from "electron";
 import path from "node:path";
 import { IpcChannels } from "../shared/protocol";
 import { createWorkspaceStore, type WorkspaceStore } from "./workspace-store";
+import { startWorkspaceWatch, stopWorkspaceWatch } from "./fs-watch-host";
 
 let store: WorkspaceStore | null = null;
 
@@ -21,10 +22,18 @@ export function listRecent(): string[] {
   return getStore().listRecent();
 }
 
+/** Keep exactly one watcher bound to the active workspace root. */
+function syncWorkspaceWatch(root: string | null): void {
+  if (root) startWorkspaceWatch(root);
+  else stopWorkspaceWatch();
+}
+
 export async function openWorkspacePath(root: string): Promise<string | null> {
   getStore().setRoot(root);
   getStore().addRecent(root);
-  return getStore().getRoot();
+  const next = getStore().getRoot();
+  syncWorkspaceWatch(next);
+  return next;
 }
 
 export async function openWorkspace(): Promise<string | null> {
@@ -39,7 +48,12 @@ export async function openWorkspace(): Promise<string | null> {
 }
 
 export function registerWorkspaceIpc(): void {
-  ipcMain.handle(IpcChannels.workspace.get, () => getWorkspace());
+  ipcMain.handle(IpcChannels.workspace.get, () => {
+    const root = getWorkspace();
+    // App start / reload: attach the single watcher for the restored workspace
+    syncWorkspaceWatch(root);
+    return root;
+  });
 
   ipcMain.handle(IpcChannels.workspace.listRecent, () => listRecent());
 
@@ -48,4 +62,16 @@ export function registerWorkspaceIpc(): void {
   );
 
   ipcMain.handle(IpcChannels.workspace.open, () => openWorkspace());
+
+  ipcMain.handle(IpcChannels.workspace.removeRecent, (_event, root: string) => {
+    getStore().removeRecent(root);
+    const next = getStore().getRoot();
+    syncWorkspaceWatch(next);
+    return { root: next, recent: getStore().listRecent() };
+  });
+
+  ipcMain.handle(IpcChannels.workspace.revealInFolder, async (_event, root: string) => {
+    if (!root?.trim()) return;
+    await shell.openPath(root);
+  });
 }

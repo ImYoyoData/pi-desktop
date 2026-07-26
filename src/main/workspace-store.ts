@@ -54,6 +54,13 @@ export function createWorkspaceStore(statePath: string) {
     listRecent(): string[] {
       return [...state.recent];
     },
+
+    removeRecent(root: string): void {
+      const recent = state.recent.filter((entry) => entry !== root);
+      const nextRoot = state.root === root ? (recent[0] ?? null) : state.root;
+      state = { ...state, recent, root: nextRoot };
+      persist();
+    },
   };
 }
 
