@@ -11,14 +11,22 @@ Electron + Vue 3 Agent Workspace for the [Pi](https://pi.dev/) coding agent. v1 
 
 ## Install
 
+The repo includes `.npmrc` with **npmmirror** (China) for Electron binaries and the npm registry. After clone:
+
 ```sh
 npm install
+```
+
+If Electron still reports `Electron uninstall` / missing `dist`, download the binary explicitly:
+
+```sh
+node node_modules/electron/install.js
 ```
 
 Native modules (`node-pty`) must match the Electron ABI. After install or Electron upgrades:
 
 ```sh
-npx electron-rebuild
+npx electron-rebuild -f -w node-pty
 ```
 
 If `postinstall` (`electron-builder install-app-deps`) fails, run `electron-rebuild` manually once `node_modules` is healthy.
