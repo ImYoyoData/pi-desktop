@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { clampPanelWidth } from "../../src/renderer/src/stores/layout";
+import { clampPanelWidth } from "../../src/renderer/src/stores/layout-utils";
 
 describe("clampPanelWidth", () => {
   it("returns px when within bounds", () => {
