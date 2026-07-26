@@ -1,11 +1,32 @@
-<script setup lang="ts"></script>
+<script setup lang="ts">
+import { computed, onMounted } from "vue";
+import Composer from "@renderer/components/Composer.vue";
+import MessageList from "@renderer/components/MessageList.vue";
+import { useChatStore } from "@renderer/stores/chat";
+import { useSessionsStore } from "@renderer/stores/sessions";
+
+const chat = useChatStore();
+const sessions = useSessionsStore();
+
+onMounted(() => {
+  chat.bindEvents();
+});
+
+const running = computed(() => {
+  const id = sessions.activeId;
+  if (!id) {
+    return false;
+  }
+  const row = sessions.sessions.find((s) => s.id === id);
+  return chat.activeRunning || row?.status === "running";
+});
+</script>
 
 <template>
   <section class="chat-panel">
     <header class="head">Chat</header>
-    <div class="body">
-      <p class="stub">Agent conversation (stub)</p>
-    </div>
+    <MessageList :messages="chat.activeMessages" :running="running" />
+    <Composer />
   </section>
 </template>
 
@@ -23,18 +44,5 @@
   border-bottom: 1px solid #e5e7eb;
   font-size: 0.8125rem;
   font-weight: 600;
-}
-
-.body {
-  flex: 1;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.stub {
-  margin: 0;
-  font-size: 0.875rem;
-  color: #6b7280;
 }
 </style>

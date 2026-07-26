@@ -1,7 +1,9 @@
 import { contextBridge, ipcRenderer } from "electron";
 import { electronAPI } from "@electron-toolkit/preload";
-import type { AgentCommand, AgentEvent, SessionStatus, SessionSummary } from "../shared/protocol";
+import type { AgentCommand, AgentEvent, ElementCitation, SessionStatus, SessionSummary } from "../shared/protocol";
 import { IpcChannels } from "../shared/protocol";
+
+export type { AgentCommand, AgentEvent, ElementCitation, SessionStatus, SessionSummary };
 
 const api = {
   workspace: {
