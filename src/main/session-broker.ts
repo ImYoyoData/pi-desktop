@@ -3,6 +3,7 @@ import type { WorkerInbound, WorkerOutbound } from "../shared/agent-worker-messa
 import type { AgentCommand, AgentEvent, SessionStatus, SessionSummary } from "../shared/protocol";
 import { IDLE_WORKER_DESTROY_MS } from "./worker-lifecycle";
 import { listSessionsForCwd } from "./session-list";
+import { deleteSessionFile } from "./session-history";
 
 const HEARTBEAT_INTERVAL_MS = 5_000;
 const HEARTBEAT_MISS_LIMIT = 3;
@@ -26,6 +27,7 @@ export type SessionBroker = {
   send: (sessionId: string, command: AgentCommand) => Promise<void>;
   killWorker: (sessionId: string) => Promise<void>;
   restartWorker: (sessionId: string) => Promise<void>;
+  deleteSession: (sessionId: string, cwd: string) => Promise<void>;
   notifyWorkersReloadModels: () => Promise<void>;
   onEvent: (cb: (event: AgentEvent) => void) => () => void;
 };
@@ -66,6 +68,7 @@ export function createSessionBroker(deps: {
     if (status === "running" || status === "stuck") {
       clearIdleDestroyTimer(rec);
     }
+    emit({ type: "session_status", sessionId, status });
   }
 
   function rejectPendingCommands(rec: SessionRecord, message: string): void {
@@ -387,6 +390,30 @@ export function createSessionBroker(deps: {
     setStatus(sessionId, "idle");
   }
 
+  async function deleteSession(sessionId: string, cwd: string): Promise<void> {
+    const rec = sessions.get(sessionId);
+    let filePath = rec?.summary.filePath;
+    if (!filePath) {
+      const disk = await listSessionsForCwd(cwd);
+      filePath = disk.find((s) => s.id === sessionId)?.filePath;
+    }
+    if (rec?.worker) {
+      clearIdleDestroyTimer(rec);
+      stopHeartbeat(rec);
+      rejectPendingCommands(rec, "session deleted");
+      rec.worker.kill();
+      rec.worker = null;
+    }
+    sessions.delete(sessionId);
+    if (filePath) {
+      try {
+        await deleteSessionFile(filePath);
+      } catch {
+        // file may already be gone
+      }
+    }
+  }
+
   function onEvent(cb: (event: AgentEvent) => void): () => void {
     listeners.add(cb);
     return () => listeners.delete(cb);
@@ -408,6 +435,7 @@ export function createSessionBroker(deps: {
     send,
     killWorker,
     restartWorker,
+    deleteSession,
     notifyWorkersReloadModels,
     onEvent,
   };

@@ -5,6 +5,10 @@ import { useComposerStore } from "@renderer/stores/composer";
 
 const composer = useComposerStore();
 
+const props = defineProps<{
+  visible?: boolean;
+}>();
+
 const browserId = ref<string | null>(null);
 const urlInput = ref("https://example.com");
 const selectMode = ref(false);
@@ -30,6 +34,10 @@ async function syncBounds(): Promise<void> {
   const id = browserId.value;
   const el = viewport.value;
   if (!id || !el) {
+    return;
+  }
+  if (props.visible === false) {
+    await window.api.browser.setBounds(id, { x: 0, y: 0, width: 0, height: 0 });
     return;
   }
   const rect = el.getBoundingClientRect();
@@ -135,6 +143,13 @@ watch(viewport, (el, prev) => {
     void syncBounds();
   }
 });
+
+watch(
+  () => props.visible,
+  () => {
+    void syncBounds();
+  },
+);
 </script>
 
 <template>

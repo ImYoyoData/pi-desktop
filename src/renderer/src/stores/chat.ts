@@ -1,6 +1,6 @@
 import { defineStore } from "pinia";
 import { computed, onScopeDispose, reactive } from "vue";
-import type { AgentEvent, ElementCitation } from "../../../shared/protocol";
+import type { AgentEvent, ElementCitation, SessionHistoryMessage } from "../../../shared/protocol";
 import {
   appendUserMessage,
   createChatState,
@@ -45,6 +45,21 @@ export const useChatStore = defineStore("chat", () => {
     bySession[sessionId] = reduceChatEvent(stateFor(sessionId), event);
   }
 
+  function hydrateFromHistory(sessionId: string, history: SessionHistoryMessage[]): void {
+    bySession[sessionId] = {
+      messages: history.map((row) =>
+        row.role === "user"
+          ? { id: row.id, role: "user" as const, text: row.text }
+          : { id: row.id, role: "assistant" as const, text: row.text },
+      ),
+      running: false,
+    };
+  }
+
+  function clearSession(sessionId: string): void {
+    delete bySession[sessionId];
+  }
+
   function bindEvents(): void {
     const off = window.api.sessions.onEvent((event) => {
       applyEvent(event);
@@ -82,6 +97,8 @@ export const useChatStore = defineStore("chat", () => {
     activeMessages,
     activeRunning,
     bindEvents,
+    hydrateFromHistory,
+    clearSession,
     sendPrompt,
     steer,
     followUp,

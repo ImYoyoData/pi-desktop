@@ -2,6 +2,7 @@ import { BrowserWindow, ipcMain } from "electron";
 import type { AgentCommand } from "../shared/protocol";
 import { IpcChannels } from "../shared/protocol";
 import type { SessionBroker } from "./session-broker";
+import { readSessionHistoryMessages } from "./session-history";
 
 function broadcastEvent(event: unknown): void {
   for (const win of BrowserWindow.getAllWindows()) {
@@ -46,5 +47,13 @@ export function registerSessionsIpc(broker: SessionBroker): void {
 
   ipcMain.handle(IpcChannels.sessions.open, (_event, sessionId: string, cwd: string) =>
     broker.openSession(sessionId, cwd),
+  );
+
+  ipcMain.handle(IpcChannels.sessions.delete, (_event, sessionId: string, cwd: string) =>
+    broker.deleteSession(sessionId, cwd),
+  );
+
+  ipcMain.handle(IpcChannels.sessions.history, (_event, filePath: string) =>
+    readSessionHistoryMessages(filePath),
   );
 }

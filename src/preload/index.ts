@@ -1,11 +1,11 @@
 import { contextBridge, ipcRenderer } from "electron";
 import { electronAPI } from "@electron-toolkit/preload";
-import type { AgentCommand, AgentEvent, ElementCitation, SessionStatus, SessionSummary } from "../shared/protocol";
+import type { AgentCommand, AgentEvent, ElementCitation, SessionHistoryMessage, SessionStatus, SessionSummary } from "../shared/protocol";
 import { IpcChannels } from "../shared/protocol";
 import type { ModelsGetResult, ModelsSetPayload } from "../shared/models-settings";
 import type { PreviewResult } from "../shared/preview-types";
 
-export type { AgentCommand, AgentEvent, ElementCitation, SessionStatus, SessionSummary };
+export type { AgentCommand, AgentEvent, ElementCitation, SessionHistoryMessage, SessionStatus, SessionSummary };
 
 const api = {
   workspace: {
@@ -29,6 +29,10 @@ const api = {
       ipcRenderer.invoke(IpcChannels.sessions.killWorker, sessionId) as Promise<void>,
     restartWorker: (sessionId: string) =>
       ipcRenderer.invoke(IpcChannels.sessions.restartWorker, sessionId) as Promise<void>,
+    delete: (sessionId: string, cwd: string) =>
+      ipcRenderer.invoke(IpcChannels.sessions.delete, sessionId, cwd) as Promise<void>,
+    history: (filePath: string) =>
+      ipcRenderer.invoke(IpcChannels.sessions.history, filePath) as Promise<SessionHistoryMessage[]>,
     status: (sessionId: string, cwd: string) =>
       ipcRenderer.invoke(IpcChannels.sessions.status, sessionId, cwd) as Promise<SessionStatus | null>,
     onEvent: (callback: (event: AgentEvent) => void) => {
