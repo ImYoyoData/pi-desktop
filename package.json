@@ -1,16 +1,26 @@
 {
   "name": "pi-desktop",
-  "version": "1.0.0",
+  "version": "0.0.1",
   "description": "Pi Desktop — Electron + Vue3 Agent Workspace",
   "main": "./out/main/index.js",
-  "author": "",
-  "homepage": "https://electron-vite.org",
+  "author": "ImYoyoData",
+  "homepage": "https://github.com/ImYoyoData/pi-desktop",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ImYoyoData/pi-desktop.git"
+  },
+  "license": "MIT",
   "scripts": {
     "dev": "electron-vite dev",
     "build": "electron-vite build",
     "test": "vitest run",
     "typecheck": "vue-tsc --noEmit -p tsconfig.json",
     "start": "electron-vite preview",
+    "icons": "node scripts/generate-icons.mjs",
+    "dist": "npm run icons && npm run build && electron-builder",
+    "dist:win": "npm run icons && npm run build && electron-builder --win --x64 --arm64",
+    "dist:mac": "npm run icons && npm run build && electron-builder --mac --x64 --arm64",
+    "dist:dir": "npm run icons && npm run build && electron-builder --dir",
     "postinstall": "node scripts/patch-highlightjs-exports.mjs && electron-builder install-app-deps"
   },
   "dependencies": {
@@ -33,6 +43,7 @@
   },
   "devDependencies": {
     "@electron-toolkit/tsconfig": "^2.0.0",
+    "@resvg/resvg-js": "^2.6.2",
     "@types/dompurify": "^3.0.5",
     "@types/node": "^22.19.1",
     "@vitejs/plugin-vue": "^6.0.2",

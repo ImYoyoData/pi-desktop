@@ -71,12 +71,23 @@ async function onNewAgent(): Promise<void> {
     <template v-else>
       <header class="head">
         <NText strong style="flex: 1; min-width: 0" class="title">{{ title }}</NText>
-        <NTag v-if="running" type="success" size="small" round :bordered="false">Pi 运行中</NTag>
+        <NTag v-if="chat.activeRetryHint" type="warning" size="small" round :bordered="false">
+          {{
+            t.retrying(
+              chat.activeRetryHint.attempt,
+              chat.activeRetryHint.maxAttempts,
+            )
+          }}
+        </NTag>
+        <NTag v-else-if="running" type="success" size="small" round :bordered="false">
+          {{ t.agentRunning }}
+        </NTag>
       </header>
       <MessageList
         :messages="chat.activeMessages"
         :streaming="chat.activeStreaming"
         :running="running"
+        :retry-hint="chat.activeRetryHint"
       />
       <Composer />
     </template>

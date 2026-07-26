@@ -66,7 +66,10 @@ const bookmarkRows = ref<BookmarkEntry[]>([]);
 const devtoolsPercent = ref(40);
 const isDraggingDevtools = ref(false);
 let offElementSelected: (() => void) | null = null;
+let offElementScreenshot: (() => void) | null = null;
 let offToggleHotkey: (() => void) | null = null;
+/** True while this tab expects a late screenshot IPC after local capture failed. */
+let awaitingScreenshotIpc = false;
 let dragging = false;
 let rafDrag = 0;
 let pendingClientX = 0;
@@ -259,12 +262,113 @@ async function setSelectMode(next: boolean): Promise<void> {
   await window.api.browser.stopSelect(id);
 }
 
-function onCitation(citation: ElementCitation): void {
-  composer.addCitation(citation);
+async function captureWebviewRegion(
+  bounds: { x: number; y: number; width: number; height: number },
+): Promise<string | undefined> {
+  const wv = webviewRef.value as (Electron.WebviewTag & {
+    capturePage?: (rect?: Electron.Rectangle) => Promise<Electron.NativeImage>;
+  }) | null;
+  if (!wv || typeof wv.capturePage !== "function") return undefined;
+  try {
+    const full = await wv.capturePage();
+    if (!full || full.isEmpty()) return undefined;
+    const fullSize = full.getSize();
+    const cssW = Math.max(1, wv.clientWidth || fullSize.width);
+    const cssH = Math.max(1, wv.clientHeight || fullSize.height);
+    const scaleX = fullSize.width / cssW;
+    const scaleY = fullSize.height / cssH;
+    const crop = {
+      x: Math.max(0, Math.round(bounds.x * scaleX)),
+      y: Math.max(0, Math.round(bounds.y * scaleY)),
+      width: Math.max(1, Math.round(bounds.width * scaleX)),
+      height: Math.max(1, Math.round(bounds.height * scaleY)),
+    };
+    crop.width = Math.min(crop.width, Math.max(1, fullSize.width - crop.x));
+    crop.height = Math.min(crop.height, Math.max(1, fullSize.height - crop.y));
+
+    let image = full;
+    try {
+      const cropped = full.crop(crop);
+      if (!cropped.isEmpty()) image = cropped;
+    } catch {
+      // keep full page
+    }
+
+    const size = image.getSize();
+    const maxEdge = 512;
+    if (size.width > maxEdge || size.height > maxEdge) {
+      const scale = maxEdge / Math.max(size.width, size.height);
+      image = image.resize({
+        width: Math.max(1, Math.round(size.width * scale)),
+        height: Math.max(1, Math.round(size.height * scale)),
+      });
+    }
+
+    if (typeof image.toDataURL === "function") {
+      const url = image.toDataURL();
+      if (url?.startsWith("data:")) return url;
+    }
+    const jpeg = image.toJPEG(85);
+    if (jpeg?.length) return `data:image/jpeg;base64,${jpeg.toString("base64")}`;
+    return undefined;
+  } catch (err) {
+    console.warn("[browser] webview capture failed", err);
+    return undefined;
+  }
+}
+
+async function onCitation(citation: ElementCitation): Promise<void> {
+  // Prefer the tab that started select mode; fall back to the visible tab.
+  if (!selectMode.value && props.visible === false) return;
+  if (!selectMode.value && props.visible !== true) return;
+
+  const wasSelecting = selectMode.value;
   selectMode.value = false;
-  const id = guestId();
-  if (id !== null) void window.api.browser.stopSelect(id);
-  message.success("已添加到输入框");
+  awaitingScreenshotIpc = false;
+
+  if (wasSelecting) {
+    const id = guestId();
+    if (id !== null) void window.api.browser.stopSelect(id);
+  } else {
+    // Another tab may own select mode — still accept citation once for the visible tab.
+  }
+
+  composer.addCitation(citation);
+
+  let shot = citation.screenshotDataUrl?.startsWith("data:")
+    ? citation.screenshotDataUrl
+    : undefined;
+
+  if (!shot && citation.bounds && citation.bounds.width > 0 && citation.bounds.height > 0) {
+    shot = await captureWebviewRegion(citation.bounds);
+  }
+
+  if (shot) {
+    composer.addImageFromDataUrl(shot);
+    composer.attachScreenshotToLatestElement(shot);
+    message.success("已添加元素标签和截图");
+    return;
+  }
+
+  awaitingScreenshotIpc = true;
+  message.success("已添加元素标签");
+  window.setTimeout(() => {
+    if (!awaitingScreenshotIpc) return;
+    awaitingScreenshotIpc = false;
+    message.warning("元素截图失败，仅添加了标签");
+  }, 1800);
+}
+
+function onElementScreenshot(dataUrl: string): void {
+  if (!awaitingScreenshotIpc && !selectMode.value) {
+    // If we already attached a local shot, still accept as no-op dedupe in store
+  }
+  composer.addImageFromDataUrl(dataUrl);
+  composer.attachScreenshotToLatestElement(dataUrl);
+  if (awaitingScreenshotIpc) {
+    awaitingScreenshotIpc = false;
+    message.success("已添加元素截图");
+  }
 }
 
 function rememberNavigation(url: string): void {
@@ -385,6 +489,7 @@ onMounted(async () => {
   loadDevtoolsWidth();
   refreshLibrary();
   offElementSelected = window.api.browser.onElementSelected(onCitation);
+  offElementScreenshot = window.api.browser.onElementScreenshot(onElementScreenshot);
   offToggleHotkey = window.api.browser.onToggleEmbeddedDevTools(() => {
     if (props.visible === false) return;
     void toggleDevTools();
@@ -437,6 +542,7 @@ function bindDevtoolsHost(): void {
 
 onUnmounted(() => {
   offElementSelected?.();
+  offElementScreenshot?.();
   offToggleHotkey?.();
   window.removeEventListener("keydown", onKeydown, true);
   document.removeEventListener("mousemove", onDragMove);

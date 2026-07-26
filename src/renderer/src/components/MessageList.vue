@@ -6,6 +6,7 @@ import {
   NCollapseItem,
   NEmpty,
   NIcon,
+  NImage,
   NSpace,
   NTag,
   NText,
@@ -18,7 +19,7 @@ import {
   DocumentTextOutline,
   RefreshOutline,
 } from "@vicons/ionicons5";
-import type { ChatMessage } from "@renderer/stores/chat";
+import type { ChatMessage, ChatRetryHint } from "@renderer/stores/chat";
 import { useChatStore } from "@renderer/stores/chat";
 import { useComposerStore } from "@renderer/stores/composer";
 import { useSessionsStore } from "@renderer/stores/sessions";
@@ -32,6 +33,7 @@ const props = defineProps<{
   messages: ChatMessage[];
   streaming: ChatMessage | null;
   running: boolean;
+  retryHint?: ChatRetryHint | null;
 }>();
 
 const chat = useChatStore();
@@ -103,6 +105,12 @@ async function onRegenerate(msg: Extract<ChatMessage, { role: "assistant" }>): P
   await chat.regenerate(id, msg.id);
 }
 
+async function onRetryError(msg: Extract<ChatMessage, { role: "error" }>): Promise<void> {
+  const id = sessionId.value;
+  if (!id || props.running) return;
+  await chat.retryFromError(id, msg.id);
+}
+
 watch(
   () => [props.messages.length, props.streaming, props.running],
   async () => {
@@ -131,7 +139,29 @@ watch(
         <template v-if="msg.role === 'user'">
           <div class="bubble-wrap user">
             <div class="bubble user">
-              <MarkdownView :content="msg.text" />
+              <div v-if="msg.elementTags?.length" class="user-tags">
+                <NTag
+                  v-for="(tag, idx) in msg.elementTags"
+                  :key="`${msg.id}-tag-${idx}`"
+                  type="info"
+                  size="small"
+                  round
+                  :title="tag.url"
+                >
+                  {{ tag.content || tag.label }}
+                </NTag>
+              </div>
+              <div v-if="msg.images?.length" class="user-images">
+                <NImage
+                  v-for="(img, idx) in msg.images"
+                  :key="`${msg.id}-img-${idx}`"
+                  class="user-image"
+                  :src="img.dataUrl"
+                  :preview-src="img.dataUrl"
+                  object-fit="cover"
+                />
+              </div>
+              <MarkdownView v-if="msg.text" :content="msg.text" />
             </div>
             <div v-if="!running" class="actions">
               <NTooltip>
@@ -222,11 +252,32 @@ watch(
         </template>
 
         <template v-else-if="msg.role === 'error'">
-          <div class="bubble error">{{ msg.text }}</div>
+          <div class="bubble-wrap error-wrap">
+            <div class="bubble error">{{ msg.text }}</div>
+            <NButton
+              size="tiny"
+              type="primary"
+              secondary
+              :disabled="running"
+              @click="onRetryError(msg)"
+            >
+              <template #icon>
+                <NIcon :component="RefreshOutline" />
+              </template>
+              {{ t.retryRequest }}
+            </NButton>
+          </div>
         </template>
       </article>
 
-      <div v-if="running && !streaming" class="running-indicator">
+      <div v-if="retryHint" class="running-indicator retry">
+        <span class="dot warn" />
+        <NText depth="3" style="font-size: 12px">
+          {{ t.retrying(retryHint.attempt, retryHint.maxAttempts) }}
+          <span v-if="retryHint.message" class="retry-detail"> · {{ retryHint.message }}</span>
+        </NText>
+      </div>
+      <div v-else-if="running && !streaming" class="running-indicator">
         <span class="dot" />
         <NText depth="3" style="font-size: 12px">{{ t.agentRunning }}</NText>
       </div>
@@ -310,6 +361,45 @@ watch(
   color: var(--fg-strong);
 }
 
+.user-images {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+
+.user-images:last-child {
+  margin-bottom: 0;
+}
+
+.user-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.user-tags:last-child {
+  margin-bottom: 0;
+}
+
+.user-image {
+  display: block;
+  max-width: min(240px, 100%);
+  max-height: 180px;
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  cursor: zoom-in;
+}
+
+.user-image :deep(img) {
+  max-width: min(240px, 100%);
+  max-height: 180px;
+  object-fit: cover;
+}
+
 .bubble.assistant {
   width: 100%;
   color: var(--fg);
@@ -319,9 +409,38 @@ watch(
 .bubble.error {
   padding: 8px 10px;
   border-radius: 8px;
-  background: #fef2f2;
-  color: var(--red);
-  border: 1px solid #fecaca;
+  background: rgba(220, 38, 38, 0.08);
+  border: 1px solid rgba(220, 38, 38, 0.25);
+  color: #b91c1c;
+  font-size: 13px;
+  max-width: 92%;
+}
+
+.error-wrap {
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.running-indicator {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.running-indicator.retry .retry-detail {
+  opacity: 0.75;
+}
+
+.dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--accent);
+  animation: pulse 1.2s ease-in-out infinite;
+}
+
+.dot.warn {
+  background: #d97706;
 }
 
 .cursor {
@@ -360,20 +479,6 @@ watch(
   font-family: var(--font-mono);
   border-radius: 6px;
   user-select: text;
-}
-
-.running-indicator {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 999px;
-  background: var(--accent);
-  animation: pulse 1.2s ease-in-out infinite;
 }
 
 @keyframes pulse {

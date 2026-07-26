@@ -1,10 +1,37 @@
 import { defineStore } from "pinia";
-import { onScopeDispose, ref } from "vue";
-import type { AgentCommand, AgentEvent, SessionSummary } from "../../../shared/protocol";
+import { computed, onScopeDispose, ref } from "vue";
+import type {
+  AgentCommand,
+  AgentEvent,
+  SessionContextUsage,
+  SessionSummary,
+} from "../../../shared/protocol";
+import { toIpcPlain } from "../../../shared/protocol";
+
+function parseContextUsage(data: unknown): SessionContextUsage | null {
+  if (!data || typeof data !== "object") return null;
+  const raw = data as { contextUsage?: unknown };
+  const usage = raw.contextUsage ?? data;
+  if (!usage || typeof usage !== "object") return null;
+  const u = usage as { tokens?: unknown; contextWindow?: unknown; percent?: unknown };
+  if (typeof u.contextWindow !== "number" || u.contextWindow <= 0) return null;
+  return {
+    tokens: typeof u.tokens === "number" ? u.tokens : null,
+    contextWindow: u.contextWindow,
+    percent: typeof u.percent === "number" ? u.percent : null,
+  };
+}
 
 export const useSessionsStore = defineStore("sessions", () => {
   const sessions = ref<SessionSummary[]>([]);
   const activeId = ref<string | null>(null);
+  const contextBySession = ref<Record<string, SessionContextUsage>>({});
+
+  const activeContextUsage = computed(() => {
+    const id = activeId.value;
+    if (!id) return null;
+    return contextBySession.value[id] ?? null;
+  });
 
   function upsert(summary: SessionSummary): void {
     const idx = sessions.value.findIndex((s) => s.id === summary.id);
@@ -16,10 +43,21 @@ export const useSessionsStore = defineStore("sessions", () => {
   }
 
   function patchStatus(sessionId: string, status: SessionSummary["status"]): void {
-    const row = sessions.value.find((s) => s.id === sessionId);
-    if (row) {
-      row.status = status;
-    }
+    const idx = sessions.value.findIndex((s) => s.id === sessionId);
+    if (idx < 0) return;
+    const row = sessions.value[idx];
+    if (row.status === status) return;
+    // Replace row so list watchers / computed status update reliably.
+    sessions.value = sessions.value.map((s, i) => (i === idx ? { ...s, status } : s));
+  }
+
+  function setContextUsage(sessionId: string, usage: SessionContextUsage): void {
+    contextBySession.value = { ...contextBySession.value, [sessionId]: usage };
+  }
+
+  function applyContextFromState(sessionId: string, data: unknown): void {
+    const usage = parseContextUsage(data);
+    if (usage) setContextUsage(sessionId, usage);
   }
 
   function applyEvent(event: AgentEvent): void {
@@ -28,19 +66,39 @@ export const useSessionsStore = defineStore("sessions", () => {
         break;
       case "agent_event": {
         // Only start/end should drive sidebar status — not every stream chunk
-        const t = (event.event as { type?: unknown } | undefined)?.type;
+        const payload = event.event as {
+          type?: unknown;
+          willRetry?: unknown;
+          success?: unknown;
+          message?: { stopReason?: unknown };
+        };
+        const t = payload?.type;
+        const willRetry = Boolean(payload?.willRetry);
         if (t === "agent_start" || t === "turn_start") {
           patchStatus(event.sessionId, "running");
-        } else if (t === "agent_end") {
+        } else if (t === "agent_end" && !willRetry) {
+          patchStatus(event.sessionId, "idle");
+        } else if (t === "agent_settled") {
+          patchStatus(event.sessionId, "idle");
+        } else if (t === "message_end") {
+          const stop = payload?.message?.stopReason;
+          if (stop === "error" || stop === "aborted") {
+            patchStatus(event.sessionId, "idle");
+          }
+        } else if (t === "auto_retry_end" && payload?.success === false) {
           patchStatus(event.sessionId, "idle");
         }
         break;
       }
+      case "context_usage":
+        setContextUsage(event.sessionId, event.usage);
+        break;
       case "prompt_done":
         patchStatus(event.sessionId, "idle");
         break;
       case "prompt_error":
-        patchStatus(event.sessionId, "error");
+        // SDK / prompt failures stop the turn — leave idle, not stuck "running".
+        patchStatus(event.sessionId, "idle");
         break;
       case "worker_stuck":
         patchStatus(event.sessionId, "stuck");
@@ -74,18 +132,30 @@ export const useSessionsStore = defineStore("sessions", () => {
   }
 
   async function selectSession(sessionId: string, cwd: string): Promise<void> {
-    activeId.value = sessionId;
+    // Open/register in the broker BEFORE flipping activeId.
+    // Otherwise Composer watches activeId and races sessions:command → unknown session.
     const opened = await window.api.sessions.open(sessionId, cwd);
-    if (opened) {
-      upsert(opened);
+    if (!opened) {
+      throw new Error(`failed to open session: ${sessionId}`);
     }
+    upsert(opened);
+    activeId.value = sessionId;
   }
 
-  async function sendCommand(sessionId: string, command: AgentCommand): Promise<void> {
-    if (command.type === "prompt" || command.type === "hang") {
+  async function sendCommand(sessionId: string, command: AgentCommand): Promise<unknown> {
+    // Vue/Pinia proxies are not structured-cloneable → "An object could not be cloned".
+    const plain = toIpcPlain(command);
+    if (plain.type === "prompt" || plain.type === "hang") {
       patchStatus(sessionId, "running");
     }
-    await window.api.sessions.command(sessionId, command);
+    try {
+      return await window.api.sessions.command(sessionId, plain);
+    } catch (err) {
+      if (plain.type === "prompt" || plain.type === "hang") {
+        patchStatus(sessionId, "idle");
+      }
+      throw err;
+    }
   }
 
   async function killWorker(sessionId: string, cwd: string | null): Promise<void> {
@@ -104,6 +174,9 @@ export const useSessionsStore = defineStore("sessions", () => {
       activeId.value = null;
     }
     sessions.value = sessions.value.filter((s) => s.id !== sessionId);
+    const next = { ...contextBySession.value };
+    delete next[sessionId];
+    contextBySession.value = next;
   }
 
   async function renameSession(sessionId: string, cwd: string, name: string): Promise<SessionSummary | null> {
@@ -128,6 +201,9 @@ export const useSessionsStore = defineStore("sessions", () => {
   return {
     sessions,
     activeId,
+    contextBySession,
+    activeContextUsage,
+    applyContextFromState,
     refresh,
     createSession,
     selectSession,

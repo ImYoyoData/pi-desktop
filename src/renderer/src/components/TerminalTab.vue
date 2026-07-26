@@ -9,6 +9,8 @@ import { t } from "@renderer/i18n";
 const props = defineProps<{
   /** Unique id for this terminal pane (dynamic right tab) */
   instanceId?: string;
+  /** Tab is visible — refit when shown so height matches the pane */
+  visible?: boolean;
 }>();
 
 const workspace = useWorkspaceStore();
@@ -20,12 +22,29 @@ let fit: FitAddon | null = null;
 let ptyId: string | null = null;
 let resizeObserver: ResizeObserver | null = null;
 let offData: (() => void) | null = null;
+let fitRaf = 0;
 
 function fitTerm(): void {
-  if (!term || !fit || !ptyId) return;
-  fit.fit();
-  const { cols, rows } = term;
-  void window.api.terminal.resize(ptyId, cols, rows);
+  if (!term || !fit || !ptyId || !hostRef.value) return;
+  if (props.visible === false) return;
+  const rect = hostRef.value.getBoundingClientRect();
+  if (rect.width < 8 || rect.height < 8) return;
+  try {
+    fit.fit();
+    const { cols, rows } = term;
+    void window.api.terminal.resize(ptyId, cols, rows);
+  } catch {
+    // container may not be laid out yet
+  }
+}
+
+function scheduleFit(): void {
+  if (fitRaf) cancelAnimationFrame(fitRaf);
+  fitRaf = requestAnimationFrame(() => {
+    fitRaf = requestAnimationFrame(() => {
+      fitTerm();
+    });
+  });
 }
 
 async function start(): Promise<void> {
@@ -52,7 +71,7 @@ async function start(): Promise<void> {
   });
 
   await nextTick();
-  fitTerm();
+  scheduleFit();
   term.focus();
   ready.value = true;
 }
@@ -77,17 +96,25 @@ watch(
   },
 );
 
+watch(
+  () => props.visible,
+  (v) => {
+    if (v) scheduleFit();
+  },
+);
+
 onMounted(async () => {
   offData = window.api.terminal.onData(({ id, data }) => {
     if (id === ptyId) term?.write(data);
   });
-  resizeObserver = new ResizeObserver(() => fitTerm());
+  resizeObserver = new ResizeObserver(() => scheduleFit());
   if (hostRef.value) resizeObserver.observe(hostRef.value);
   await workspace.getWorkspace();
   if (workspace.root) await start();
 });
 
 onBeforeUnmount(async () => {
+  if (fitRaf) cancelAnimationFrame(fitRaf);
   offData?.();
   resizeObserver?.disconnect();
   await stop();
@@ -107,19 +134,35 @@ void props.instanceId;
 .terminal-tab {
   display: flex;
   flex-direction: column;
+  flex: 1;
+  width: 100%;
   height: 100%;
   min-height: 0;
+  min-width: 0;
+  overflow: hidden;
   background: #fff;
 }
 
 .term-host {
-  flex: 1;
+  flex: 1 1 auto;
+  width: 100%;
+  height: 100%;
   min-height: 0;
-  padding: 4px;
+  min-width: 0;
+  overflow: hidden;
+  padding: 0;
+  box-sizing: border-box;
 }
 
 .term-host :deep(.xterm) {
+  width: 100%;
   height: 100%;
+  padding: 4px;
+  box-sizing: border-box;
+}
+
+.term-host :deep(.xterm-viewport) {
+  overflow-y: auto !important;
 }
 
 .empty {
