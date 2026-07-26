@@ -11,6 +11,7 @@ describe("resolveTerminalShell", () => {
   });
 
   it("defaults to zsh on macOS when SHELL unset", () => {
-    expect(resolveTerminalShell("darwin", undefined)).toBe("/bin/zsh");
+    // Pass "" — explicit `undefined` still triggers the default param (= process.env.SHELL).
+    expect(resolveTerminalShell("darwin", "")).toBe("/bin/zsh");
   });
 });
