@@ -1,9 +1,18 @@
 export const IpcChannels = {
+  window: {
+    minimize: "window:minimize",
+    maximize: "window:maximize",
+    close: "window:close",
+    isMaximized: "window:isMaximized",
+    platform: "window:platform",
+  },
   workspace: {
     get: "workspace:get",
     open: "workspace:open",
     openPath: "workspace:openPath",
     listRecent: "workspace:listRecent",
+    removeRecent: "workspace:removeRecent",
+    revealInFolder: "workspace:revealInFolder",
   },
   sessions: {
     list: "sessions:list",
@@ -17,10 +26,46 @@ export const IpcChannels = {
     restartWorker: "sessions:restartWorker",
     delete: "sessions:delete",
     history: "sessions:history",
+    rename: "sessions:rename",
+  },
+  files: {
+    list: "files:list",
+    createFile: "files:createFile",
+    createDir: "files:createDir",
+    rename: "files:rename",
+    delete: "files:delete",
+    reveal: "files:reveal",
+  },
+  fs: {
+    watch: "fs:watch",
+    unwatch: "fs:unwatch",
+    changed: "fs:changed",
+  },
+  git: {
+    status: "git:status",
+    diff: "git:diff",
+    branches: "git:branches",
+    checkout: "git:checkout",
+    createBranch: "git:createBranch",
+    merge: "git:merge",
+    commit: "git:commit",
+    pull: "git:pull",
+    push: "git:push",
+  },
+  skills: {
+    list: "skills:list",
+    setDisabled: "skills:setDisabled",
+    uninstall: "skills:uninstall",
+  },
+  plugins: {
+    list: "plugins:list",
+    setEnabled: "plugins:setEnabled",
+    remove: "plugins:remove",
   },
   models: {
     get: "models:get",
     set: "models:set",
+    clearKey: "models:clearKey",
     test: "models:test",
   },
   terminal: {
@@ -32,19 +77,18 @@ export const IpcChannels = {
   },
   preview: {
     read: "preview:read",
+    write: "preview:write",
     pickFile: "preview:pickFile",
   },
   browser: {
-    create: "browser:create",
-    navigate: "browser:navigate",
-    back: "browser:back",
-    forward: "browser:forward",
-    reload: "browser:reload",
     startSelect: "browser:startSelect",
     stopSelect: "browser:stopSelect",
     elementSelected: "browser:elementSelected",
-    setBounds: "browser:setBounds",
-    destroy: "browser:destroy",
+    openDevTools: "browser:openDevTools",
+    attachDevTools: "browser:attachDevTools",
+    registerGuest: "browser:registerGuest",
+    openExternal: "browser:openExternal",
+    toggleEmbeddedDevTools: "browser:toggleEmbeddedDevTools",
   },
 } as const;
 
@@ -67,6 +111,8 @@ export type ElementCitation = {
   selector: string;
   text: string;
   htmlSnippet: string;
+  /** data:image/png;base64,... screenshot of selected element bounds */
+  screenshotDataUrl?: string;
 };
 
 export type AgentEvent =

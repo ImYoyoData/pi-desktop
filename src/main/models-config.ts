@@ -2,17 +2,18 @@ import fs from "node:fs";
 import path from "node:path";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import type { ApiKeyCredential } from "@earendil-works/pi-ai";
-import {
-  COMMON_API_KEY_PROVIDERS,
-  type CommonApiKeyProvider,
-} from "../shared/models-settings";
+import { COMMON_API_KEY_PROVIDERS } from "../shared/models-settings";
 
 export type ModelsConfig = {
   providers?: Record<string, unknown>;
   modelOverrides?: Record<string, unknown>;
 };
 
-export type AuthConfig = Record<string, ApiKeyCredential>;
+/** auth.json may contain api_key or oauth credentials */
+export type AuthConfig = Record<
+  string,
+  ApiKeyCredential | { type: string; key?: string; access?: string; refresh?: string; [k: string]: unknown }
+>;
 
 export type ModelsConfigPaths = {
   modelsPath: string;
@@ -107,11 +108,26 @@ export function createModelsConfig(paths: ModelsConfigPaths) {
     await writeAuthConfig(next);
   }
 
-  async function getProviderKeyStatus(): Promise<Record<CommonApiKeyProvider, boolean>> {
+  async function getProviderKeyStatus(): Promise<Record<string, boolean>> {
     const auth = await readAuthConfig();
-    return Object.fromEntries(
-      COMMON_API_KEY_PROVIDERS.map((provider) => [provider, Boolean(auth[provider]?.key)]),
-    ) as Record<CommonApiKeyProvider, boolean>;
+    const status: Record<string, boolean> = {};
+    for (const [provider, cred] of Object.entries(auth)) {
+      if (!cred) {
+        status[provider] = false;
+        continue;
+      }
+      if (cred.type === "api_key") {
+        status[provider] = Boolean(cred.key?.trim());
+      } else if (cred.type === "oauth") {
+        status[provider] = Boolean(cred.access || cred.refresh);
+      } else {
+        status[provider] = true;
+      }
+    }
+    for (const provider of COMMON_API_KEY_PROVIDERS) {
+      if (status[provider] === undefined) status[provider] = false;
+    }
+    return status;
   }
 
   return {

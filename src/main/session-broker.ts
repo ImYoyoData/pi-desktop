@@ -225,12 +225,15 @@ export function createSessionBroker(deps: {
     cwd: string,
     filePath: string,
     worker: WorkerHandle,
+    meta?: Partial<Pick<SessionSummary, "name" | "firstMessage" | "modified">>,
   ): SessionSummary {
     const summary: SessionSummary = {
       id,
       cwd,
       filePath,
-      modified: new Date().toISOString(),
+      name: meta?.name,
+      firstMessage: meta?.firstMessage,
+      modified: meta?.modified ?? new Date().toISOString(),
       status: "idle",
     };
     sessions.set(id, {
@@ -277,6 +280,15 @@ export function createSessionBroker(deps: {
   async function openSession(sessionId: string, cwd: string): Promise<SessionSummary | null> {
     const live = sessions.get(sessionId);
     if (live?.worker) {
+      if (!live.summary.name && !live.summary.firstMessage) {
+        const disk = await listSessionsForCwd(cwd);
+        const target = disk.find((s) => s.id === sessionId);
+        if (target) {
+          live.summary.name = target.name ?? live.summary.name;
+          live.summary.firstMessage = target.firstMessage ?? live.summary.firstMessage;
+          live.summary.modified = target.modified;
+        }
+      }
       return { ...live.summary };
     }
     if (live && !live.worker) {
@@ -293,7 +305,11 @@ export function createSessionBroker(deps: {
       spawned.worker.kill();
       throw new Error(`session id mismatch: expected ${sessionId}, got ${spawned.id}`);
     }
-    return registerWorkerSession(spawned.id, spawned.cwd, spawned.filePath, spawned.worker);
+    return registerWorkerSession(spawned.id, spawned.cwd, spawned.filePath, spawned.worker, {
+      name: target.name,
+      firstMessage: target.firstMessage,
+      modified: target.modified,
+    });
   }
 
   async function teardownWorker(sessionId: string, code: number | null): Promise<void> {
@@ -331,7 +347,17 @@ export function createSessionBroker(deps: {
       setStatus(sessionId, "running");
     }
     const cmdId = crypto.randomUUID();
-    const awaitsResult = command.type === "prompt" || command.type === "hang";
+    // Wait for worker result for mutating commands so errors (e.g. set_model) surface to UI.
+    const awaitsResult =
+      command.type === "prompt" ||
+      command.type === "hang" ||
+      command.type === "set_model" ||
+      command.type === "set_thinking_level" ||
+      command.type === "compact" ||
+      command.type === "steer" ||
+      command.type === "follow_up" ||
+      command.type === "abort" ||
+      command.type === "get_state";
     const outbound = { kind: "command" as const, id: cmdId, command };
 
     if (!awaitsResult) {

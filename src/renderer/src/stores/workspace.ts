@@ -1,9 +1,28 @@
 import { defineStore } from "pinia";
-import { ref } from "vue";
+import { ref, watch } from "vue";
+import { useRightTabsStore } from "@renderer/stores/right-tabs";
 
 export const useWorkspaceStore = defineStore("workspace", () => {
   const root = ref<string | null>(null);
   const recent = ref<string[]>([]);
+
+  /**
+   * Watcher lifecycle is owned by main (workspace-ipc).
+   * On switch we still ask main to re-sync, and drop old-workspace preview tabs
+   * so we only care about files under the current root.
+   */
+  function onRootChanged(next: string | null, prev: string | null): void {
+    if (next === prev) return;
+    if (prev && next !== prev) {
+      useRightTabsStore().closeAllPreviewTabs();
+    }
+    if (next) void window.api.fs.watch(next);
+    else void window.api.fs.unwatch();
+  }
+
+  watch(root, (next, prev) => {
+    onRootChanged(next, prev ?? null);
+  });
 
   async function getWorkspace(): Promise<string | null> {
     root.value = await window.api.workspace.get();
@@ -27,6 +46,16 @@ export const useWorkspaceStore = defineStore("workspace", () => {
     return recent.value;
   }
 
+  async function removeRecent(workspaceRoot: string): Promise<void> {
+    const next = await window.api.workspace.removeRecent(workspaceRoot);
+    root.value = next.root;
+    recent.value = next.recent;
+  }
+
+  async function revealInFolder(workspaceRoot: string): Promise<void> {
+    await window.api.workspace.revealInFolder(workspaceRoot);
+  }
+
   return {
     root,
     recent,
@@ -34,5 +63,7 @@ export const useWorkspaceStore = defineStore("workspace", () => {
     openWorkspace,
     openWorkspacePath,
     listRecent,
+    removeRecent,
+    revealInFolder,
   };
 });

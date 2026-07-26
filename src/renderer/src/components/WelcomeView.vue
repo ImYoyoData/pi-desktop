@@ -1,6 +1,9 @@
 <script setup lang="ts">
 import { onMounted } from "vue";
+import { NButton, NEmpty, NIcon, NList, NListItem, NThing, NText } from "naive-ui";
+import { FolderOpenOutline, FolderOutline } from "@vicons/ionicons5";
 import { useWorkspaceStore } from "@renderer/stores/workspace";
+import { t } from "@renderer/i18n";
 
 const workspace = useWorkspaceStore();
 
@@ -15,95 +18,89 @@ function openFolder(): void {
 function openRecent(path: string): void {
   void workspace.openWorkspacePath(path);
 }
+
+function workspaceName(path: string): string {
+  const parts = path.replace(/\\/g, "/").split("/");
+  return parts.filter(Boolean).pop() ?? path;
+}
 </script>
 
 <template>
   <section class="welcome">
-    <h2>Open a folder</h2>
-    <p class="subtitle">Choose a project directory to start the agent workspace.</p>
-    <button type="button" class="primary" @click="openFolder">Open Folder</button>
+    <div class="hero">
+      <div class="logo">π</div>
+      <h1>{{ t.appName }}</h1>
+      <NText depth="3">{{ t.openFolderHint }}</NText>
+      <NButton type="primary" size="medium" style="margin-top: 12px" @click="openFolder">
+        <template #icon>
+          <NIcon :component="FolderOpenOutline" />
+        </template>
+        {{ t.openFolder }}
+      </NButton>
+    </div>
 
     <div v-if="workspace.recent.length" class="recent">
-      <h3>Recent</h3>
-      <ul>
-        <li v-for="item in workspace.recent" :key="item">
-          <button type="button" class="recent-item" @click="openRecent(item)">
-            {{ item }}
-          </button>
-        </li>
-      </ul>
+      <NText depth="3" style="font-size: 11px; font-weight: 600; letter-spacing: 0.04em">
+        {{ t.recent }}
+      </NText>
+      <NList hoverable clickable style="margin-top: 8px; border: 1px solid var(--border); border-radius: 12px">
+        <NListItem v-for="item in workspace.recent" :key="item" @click="openRecent(item)">
+          <NThing>
+            <template #avatar>
+              <NIcon :component="FolderOutline" :size="18" depth="3" />
+            </template>
+            <template #header>{{ workspaceName(item) }}</template>
+            <template #description>
+              <NText depth="3" style="font-size: 11px">{{ item }}</NText>
+            </template>
+          </NThing>
+        </NListItem>
+      </NList>
     </div>
+    <NEmpty v-else description="暂无最近项目" style="margin-top: 24px" />
   </section>
 </template>
 
 <style scoped>
 .welcome {
-  display: flex;
   flex: 1;
+  display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 1rem;
-  padding: 2rem;
+  gap: 36px;
+  padding: 32px;
+  background: var(--bg);
 }
 
-.subtitle {
+.hero {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  text-align: center;
+}
+
+.logo {
+  width: 52px;
+  height: 52px;
+  display: grid;
+  place-items: center;
+  border-radius: 14px;
+  background: #f2f2f2;
+  border: 1px solid var(--border);
+  font-size: 24px;
+  font-weight: 700;
+  margin-bottom: 4px;
+}
+
+h1 {
   margin: 0;
-  color: #666;
-}
-
-.primary {
-  padding: 0.5rem 1.25rem;
-  border: none;
-  border-radius: 6px;
-  background: #2563eb;
-  color: #fff;
-  font-size: 0.95rem;
-  cursor: pointer;
-}
-
-.primary:hover {
-  background: #1d4ed8;
+  font-size: 22px;
+  font-weight: 650;
 }
 
 .recent {
-  width: min(520px, 100%);
-  margin-top: 1.5rem;
-}
-
-.recent h3 {
-  margin: 0 0 0.5rem;
-  font-size: 0.85rem;
-  font-weight: 600;
-  color: #444;
-}
-
-.recent ul {
-  margin: 0;
-  padding: 0;
-  list-style: none;
-  border: 1px solid #e5e7eb;
-  border-radius: 8px;
-  overflow: hidden;
-}
-
-.recent-item {
-  display: block;
-  width: 100%;
-  padding: 0.65rem 1rem;
-  border: none;
-  border-bottom: 1px solid #e5e7eb;
-  background: #fff;
-  text-align: left;
-  font-size: 0.9rem;
-  cursor: pointer;
-}
-
-.recent-item:last-child {
-  border-bottom: none;
-}
-
-.recent-item:hover {
-  background: #f3f4f6;
+  width: min(420px, 100%);
 }
 </style>

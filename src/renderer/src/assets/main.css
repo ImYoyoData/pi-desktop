@@ -1,171 +1,212 @@
 @import './base.css';
 
+/* Align tokens with pi-web globals.css (light) */
+:root {
+  --bg: #ffffff;
+  --bg-title: #f5f5f5;
+  --bg-sidebar: #f5f5f5;
+  --bg-panel: #f5f5f5;
+  --bg-elevated: #ffffff;
+  --bg-input: #ffffff;
+  --bg-hover: #eeeeee;
+  --bg-active: #e8e8e8;
+  --bg-selected: #e8e8e8;
+  --bg-user-bubble: #eff6ff;
+  --user-bg: #eff6ff;
+  --assistant-bg: #ffffff;
+  --tool-bg: #f9fafb;
+  --border: #e0e0e0;
+  --border-strong: #d0d0d0;
+  --fg: #1a1a1a;
+  --fg-strong: #1a1a1a;
+  --fg-muted: #6b7280;
+  --fg-faint: #9ca3af;
+  --text: #1a1a1a;
+  --text-muted: #6b7280;
+  --text-dim: #9ca3af;
+  --accent: #2563eb;
+  --accent-hover: #1d4ed8;
+  --accent-fg: #ffffff;
+  --accent-soft: rgba(37, 99, 235, 0.08);
+  --accent-soft-hover: rgba(37, 99, 235, 0.14);
+  --accent-border: rgba(37, 99, 235, 0.35);
+  --blue: #2563eb;
+  --green: #16a34a;
+  --red: #dc2626;
+  --font-ui: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+    "Microsoft YaHei UI", "Noto Sans SC", system-ui, sans-serif;
+  --font-mono: "SF Mono", "Cascadia Code", Consolas, ui-monospace, monospace;
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --composer-max: 100%;
+  --chat-pad-x: 10px;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --git-m: #ca8a04;
+  --git-u: #16a34a;
+  --git-d: #dc2626;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#app {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+}
+
 body {
-  display: flex;
-  align-items: center;
-  justify-content: center;
   overflow: hidden;
-  background-image: url('./wavy-lines.svg');
-  background-size: cover;
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--font-ui);
+  font-size: 12.5px;
+  letter-spacing: -0.01em;
   user-select: none;
 }
 
-code {
-  font-weight: 600;
-  padding: 3px 5px;
-  border-radius: 2px;
-  background-color: var(--color-background-mute);
-  font-family:
-    ui-monospace,
-    SFMono-Regular,
-    SF Mono,
-    Menlo,
-    Consolas,
-    Liberation Mono,
-    monospace;
-  font-size: 85%;
+button,
+input,
+textarea,
+select {
+  font-family: inherit;
+}
+
+button {
+  color: inherit;
 }
 
 #app {
   display: flex;
-  align-items: center;
-  justify-content: center;
   flex-direction: column;
-  margin-bottom: 80px;
 }
 
-.logo {
-  margin-bottom: 20px;
-  -webkit-user-drag: none;
-  height: 128px;
-  width: 128px;
-  will-change: filter;
-  transition: filter 300ms;
+.splitpanes {
+  background: var(--bg) !important;
 }
 
-.logo:hover {
-  filter: drop-shadow(0 0 1.2em #6988e6aa);
+.splitpanes__splitter {
+  background: transparent !important;
+  position: relative;
 }
 
-.creator {
-  font-size: 14px;
-  line-height: 16px;
-  color: var(--ev-c-text-2);
-  font-weight: 600;
-  margin-bottom: 10px;
+.splitpanes--vertical > .splitpanes__splitter {
+  width: 1px !important;
+  min-width: 1px !important;
+  margin: 0 !important;
+  background: var(--border) !important;
 }
 
-.text {
-  font-size: 28px;
-  color: var(--ev-c-text-1);
-  font-weight: 700;
-  line-height: 32px;
-  text-align: center;
-  margin: 0 10px;
-  padding: 16px 0;
+.splitpanes__splitter:hover,
+.splitpanes__splitter:active {
+  background: #cfcfcf !important;
 }
 
-.tip {
-  font-size: 16px;
-  line-height: 24px;
-  color: var(--ev-c-text-2);
-  font-weight: 600;
-}
-
-.vue {
-  background: -webkit-linear-gradient(315deg, #42d392 25%, #647eff);
-  background-clip: text;
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  font-weight: 700;
-}
-
-.ts {
-  background: -webkit-linear-gradient(315deg, #3178c6 45%, #f0dc4e);
-  background-clip: text;
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  font-weight: 700;
-}
-
-.actions {
-  display: flex;
-  padding-top: 32px;
-  margin: -6px;
-  flex-wrap: wrap;
-  justify-content: flex-start;
-}
-
-.action {
-  flex-shrink: 0;
-  padding: 6px;
-}
-
-.action a {
-  cursor: pointer;
-  text-decoration: none;
-  display: inline-block;
-  border: 1px solid transparent;
-  text-align: center;
-  font-weight: 600;
-  white-space: nowrap;
-  border-radius: 20px;
-  padding: 0 20px;
-  line-height: 38px;
-  font-size: 14px;
-  border-color: var(--ev-button-alt-border);
-  color: var(--ev-button-alt-text);
-  background-color: var(--ev-button-alt-bg);
-}
-
-.action a:hover {
-  border-color: var(--ev-button-alt-hover-border);
-  color: var(--ev-button-alt-hover-text);
-  background-color: var(--ev-button-alt-hover-bg);
-}
-
-.versions {
+.splitpanes__splitter::before {
+  content: "";
   position: absolute;
-  bottom: 30px;
-  margin: 0 auto;
-  padding: 15px 0;
-  font-family: 'Menlo', 'Lucida Console', monospace;
-  display: inline-flex;
-  overflow: hidden;
-  align-items: center;
-  border-radius: 22px;
-  background-color: #202127;
-  backdrop-filter: blur(24px);
+  inset: -3px;
 }
 
-.versions li {
-  display: block;
-  float: left;
-  border-right: 1px solid var(--ev-c-gray-1);
-  padding: 0 20px;
+.md {
   font-size: 14px;
-  line-height: 14px;
-  opacity: 0.8;
-  &:last-child {
-    border: none;
-  }
+  line-height: 1.6;
+  color: var(--fg);
+  word-break: break-word;
 }
 
-@media (max-width: 720px) {
-  .text {
-    font-size: 20px;
-  }
+.md > *:first-child { margin-top: 0; }
+.md > *:last-child { margin-bottom: 0; }
+
+.md p { margin: 0 0 0.75em; }
+
+.md h1, .md h2, .md h3, .md h4 {
+  margin: 1em 0 0.5em;
+  font-weight: 650;
+  color: var(--fg-strong);
+  line-height: 1.3;
 }
 
-@media (max-width: 620px) {
-  .versions {
-    display: none;
-  }
+.md h1 { font-size: 1.35em; }
+.md h2 { font-size: 1.2em; }
+.md h3 { font-size: 1.08em; }
+
+.md ul, .md ol {
+  margin: 0 0 0.75em;
+  padding-left: 1.4em;
 }
 
-@media (max-width: 350px) {
-  .tip,
-  .actions {
-    display: none;
-  }
+.md li { margin: 0.2em 0; }
+
+.md code {
+  font-family: var(--font-mono);
+  font-size: 0.88em;
+  background: #f0f0f0;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 0.1em 0.35em;
+}
+
+.md pre {
+  margin: 0.6em 0 0.9em;
+  padding: 12px 14px;
+  background: #f7f7f7;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow: auto;
+}
+
+.md pre code {
+  background: transparent;
+  border: none;
+  padding: 0;
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+
+.md a {
+  color: var(--accent);
+  text-decoration: none;
+}
+
+.md a:hover { text-decoration: underline; }
+
+.md blockquote {
+  margin: 0.6em 0;
+  padding: 0.2em 0 0.2em 0.9em;
+  border-left: 3px solid var(--border-strong);
+  color: var(--fg-muted);
+}
+
+/* Settings modals: comfortable card padding */
+.pi-settings-modal.n-modal,
+.pi-settings-modal.n-card {
+  border-radius: 12px;
+}
+
+.pi-settings-modal .n-card-header {
+  padding: 16px 20px 8px !important;
+}
+
+.pi-settings-modal .n-card__content {
+  padding: 8px 16px 16px !important;
+}
+
+.pi-settings-modal .n-card__footer {
+  padding: 12px 20px 16px !important;
+  border-top: 1px solid var(--border);
+}
+
+/* Nested settings split: give the right detail pane breathing room */
+.pi-settings-modal .right,
+.pi-settings-modal .right-scroll {
+  padding: 20px 24px 24px !important;
+  box-sizing: border-box;
 }
