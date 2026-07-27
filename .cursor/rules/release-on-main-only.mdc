@@ -1,12 +1,13 @@
 ---
-description: Single main branch; GitHub Release builds only on main push
+description: GitHub Actions release builds only on main branch push
 alwaysApply: true
 ---
 
-# Branch & release policy
+# Release policy
 
-- Keep **one** long-lived branch: `main`. Do not use `master`, `dev`, or parallel permanent branches.
-- **Build and Release** runs on push to `main` (or manual `workflow_dispatch`).
-- Day-to-day work and releases both happen on `main`. Bump `package.json` version when you want a packaged GitHub Release, then push `main`.
-- Do not rely on `git tag` / `git push origin v*` to start the release workflow.
-- Short-lived feature branches are optional; merge/delete them promptly after landing on `main`.
+- Long-lived branches: **`dev`** (day-to-day) and **`main`** (releases only).
+- **Build and Release** Actions run **only** when pushing to `main` (or manual `workflow_dispatch`).
+- Do **not** trigger packaging/release on `dev`, feature branches, or version tags (`v*`).
+- Day-to-day work stays on `dev` with CI-only checks; merge/push to `main` when you want a packaged GitHub Release.
+- When releasing: bump `package.json` version on `dev`, merge to `main`, push `main`. Do not rely on `git tag` / `git push origin v*` to start the release workflow.
+- Do not keep a parallel `master` branch; default branch on GitHub is `main`.
