@@ -68,14 +68,11 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: pi-desktop-${{ matrix.name }}
+          # One installer per OS/arch — no portable/zip/blockmap/yml clutter
           path: |
-            release/*.exe
+            release/*-setup.exe
             release/*.dmg
-            release/*.zip
             release/*.AppImage
-            release/*.yml
-            release/*.yaml
-            release/*.blockmap
           if-no-files-found: warn
           retention-days: 14
 
@@ -99,7 +96,8 @@ jobs:
         shell: bash
         run: |
           mkdir -p upload
-          find dist-artifacts -type f \( -name '*.exe' -o -name '*.dmg' -o -name '*.zip' -o -name '*.AppImage' -o -name '*.blockmap' -o -name '*.yml' -o -name '*.yaml' \) -print -exec cp {} upload/ \;
+          find dist-artifacts -type f \( -name '*-setup.exe' -o -name '*.dmg' -o -name '*.AppImage' \) -print -exec cp {} upload/ \;
+          echo "=== release assets ==="
           ls -lah upload || true
 
       - name: Read version
@@ -119,24 +117,28 @@ jobs:
           prerelease: true
           generate_release_notes: true
           body: |
+            ## Downloads (one installer per OS / arch)
+            - **Windows x64**: `Pi Desktop-*-win-x64-setup.exe`
+            - **Windows ARM64**: `Pi Desktop-*-win-arm64-setup.exe`
+            - **macOS Intel**: `Pi Desktop-*-mac-x64.dmg`
+            - **macOS Apple Silicon**: `Pi Desktop-*-mac-arm64.dmg`
+
+            No portable EXE, ZIP, or blockmap extras.
+
             ## Fixes
-            - **#4** NVIDIA CUDA ASR crash (`3221225477` / `0xC0000005`): auto-fallback to Vulkan and retry; friendlier errors
-            - **#3** Session title now updates immediately after the first prompt (already on `dev`; shipping in this release)
-            - **#2** API key save reloads workers without restart (already closed; included if not on previous mac builds)
-            - Queued chat messages no longer look “lost”: idle-race drain so follow-ups send without waiting for the next turn
-            - Preview / file tree path compare respects case-sensitive volumes (macOS APFS)
-            - Pi CLI installer on macOS opens via `.command` + `open` (avoids silent AppleScript Automation failures)
+            - **#4** NVIDIA CUDA ASR crash (`3221225477`): auto-fallback to Vulkan + retry
+            - **#3** Session title updates immediately after the first prompt
+            - **#2** API key save reloads workers without restart
+            - Queued messages drain correctly when a turn already ended
+            - macOS path case-sensitivity + Pi CLI `.command` installer open
 
             ## Features
-            - Send queue: edit pulls content into the main composer; Enter/Send saves back to the queue
-            - Terminal: right-click copy (with selection) / paste (empty area)
-            - Chat tool cards for `edit` / `write`: path, `+N/-M` stats, expandable diff (Pi SDK `EditToolDetails`)
-            - Compact send-queue toolbar layout
+            - Send queue: edit in main composer; Enter/Send saves back to queue
+            - Terminal right-click copy / paste
+            - Chat `edit`/`write` tool cards with `+N/-M` and expandable diff
 
-            ## macOS
-            - Builds: Intel (x64) + Apple Silicon (arm64) DMG/ZIP
-            - Mic entitlement + usage description; Metal ASR path
-            - Note: `notarize` is still off — first open may need right-click → Open (Gatekeeper)
+            ## macOS note
+            - Notarization is off — first open may need right-click → Open (Gatekeeper)
           files: upload/*
           fail_on_unmatched_files: false
         env:
