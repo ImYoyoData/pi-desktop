@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, shell } from "electron";
+import { app, BrowserWindow, ipcMain, net, shell } from "electron";
 import { createWriteStream, existsSync, mkdirSync, renameSync, rmSync } from "fs";
 import { join } from "path";
 import { pipeline } from "stream/promises";
@@ -13,14 +13,17 @@ import {
   APP_RELEASES_URL,
 } from "../shared/app-meta";
 import {
+  emptyUpdateResult,
   isNewerVersion,
   pickReleaseAsset,
   type GhRelease,
   type UpdateCheckResult,
+  type UpdateProgress,
 } from "../shared/update";
 
 let checking = false;
 let downloading = false;
+let cachedRelease: GhRelease | null = null;
 
 function currentVersion(): string {
   return app.getVersion();
@@ -32,10 +35,39 @@ function downloadDir(): string {
   return dir;
 }
 
+function releaseMeta(release: GhRelease): Pick<
+  UpdateCheckResult,
+  "latestVersion" | "releaseUrl" | "releaseName" | "releaseNotes"
+> {
+  return {
+    latestVersion: release.tag_name.replace(/^v/i, ""),
+    releaseUrl: release.html_url,
+    releaseName: release.name?.trim() || release.tag_name,
+    releaseNotes: (release.body ?? "").trim() || null,
+  };
+}
+
+/** Prefer Chromium network stack — better proxy/TLS than Node fetch in Electron. */
+async function electronFetch(
+  url: string,
+  init?: RequestInit,
+): Promise<Response> {
+  try {
+    return await net.fetch(url, init);
+  } catch (err) {
+    // Fall back to global fetch if net.fetch is unavailable / blocked.
+    try {
+      return await fetch(url, init);
+    } catch {
+      throw err;
+    }
+  }
+}
+
 async function fetchLatestRelease(): Promise<GhRelease> {
   // Prefer releases list: GitHub `/releases/latest` excludes prereleases and
   // returns 404 when the newest (or only) release is marked prerelease.
-  const res = await fetch(APP_GITHUB_API_RELEASES, {
+  const res = await electronFetch(APP_GITHUB_API_RELEASES, {
     headers: {
       Accept: "application/vnd.github+json",
       "User-Agent": `pi-desktop/${currentVersion()}`,
@@ -43,16 +75,17 @@ async function fetchLatestRelease(): Promise<GhRelease> {
     },
   });
   if (!res.ok) {
-    throw new Error(`GitHub Releases 请求失败 (${res.status})`);
+    throw new Error(`GitHub Releases request failed (HTTP ${res.status})`);
   }
   const list = (await res.json()) as GhRelease[];
   if (!Array.isArray(list) || list.length === 0) {
-    throw new Error("暂无可用的 GitHub Release");
+    throw new Error("No GitHub releases found");
   }
   const release = list.find((r) => !r.draft);
   if (!release) {
-    throw new Error("暂无可用的 GitHub Release");
+    throw new Error("No publishable GitHub release found");
   }
+  cachedRelease = release;
   return release;
 }
 
@@ -63,12 +96,16 @@ async function downloadAsset(
 ): Promise<void> {
   const tmp = `${dest}.part`;
   rmSync(tmp, { force: true });
-  const res = await fetch(url, {
+
+  const res = await electronFetch(url, {
     redirect: "follow",
-    headers: { "User-Agent": `pi-desktop/${currentVersion()}`, Accept: "*/*" },
+    headers: {
+      "User-Agent": `pi-desktop/${currentVersion()}`,
+      Accept: "application/octet-stream",
+    },
   });
   if (!res.ok || !res.body) {
-    throw new Error(`下载失败 (HTTP ${res.status})`);
+    throw new Error(`Download failed (HTTP ${res.status})`);
   }
   const total = Number(res.headers.get("content-length") || 0) || null;
   let received = 0;
@@ -83,12 +120,7 @@ async function downloadAsset(
   renameSync(tmp, dest);
 }
 
-function broadcastUpdateProgress(payload: {
-  phase: "download" | "done" | "error";
-  receivedBytes: number;
-  totalBytes: number | null;
-  message: string;
-}): void {
+function broadcastUpdateProgress(payload: UpdateProgress): void {
   for (const win of BrowserWindow.getAllWindows()) {
     win.webContents.send(IpcChannels.update.progress, payload);
   }
@@ -98,166 +130,175 @@ async function openReleaseInBrowser(url?: string | null): Promise<void> {
   await shell.openExternal(url || APP_RELEASES_URL);
 }
 
-/**
- * Check latest GitHub Release. When `download` is true and a matching asset
- * exists, download it and open the installer; otherwise open the release page.
- */
-export async function checkForAppUpdate(options?: {
-  download?: boolean;
-  silent?: boolean;
-}): Promise<UpdateCheckResult> {
-  const download = options?.download !== false;
+/** Check only — never downloads, never opens a browser. */
+export async function checkForAppUpdate(): Promise<UpdateCheckResult> {
   const cur = currentVersion();
 
   if (checking || downloading) {
-    return {
-      status: "error",
-      currentVersion: cur,
-      latestVersion: null,
-      releaseUrl: null,
-      assetName: null,
-      message: "更新检查已在进行中",
-    };
+    return emptyUpdateResult("error", cur, "Update check already in progress");
   }
 
   checking = true;
   try {
     const release = await fetchLatestRelease();
     if (release.draft) {
-      return {
-        status: "upToDate",
-        currentVersion: cur,
-        latestVersion: null,
+      return emptyUpdateResult("upToDate", cur, `Already on latest v${cur}`, {
         releaseUrl: APP_RELEASES_URL,
-        assetName: null,
-        message: "暂无正式发布版本",
-      };
+      });
     }
 
-    const latest = release.tag_name.replace(/^v/i, "");
+    const meta = releaseMeta(release);
+    const latest = meta.latestVersion!;
     if (!isNewerVersion(latest, cur)) {
-      return {
-        status: "upToDate",
-        currentVersion: cur,
-        latestVersion: latest,
-        releaseUrl: release.html_url,
-        assetName: null,
-        message: `已是最新版本 v${cur}`,
-      };
+      return emptyUpdateResult("upToDate", cur, `Already on latest v${cur}`, {
+        ...meta,
+      });
     }
 
     const asset = pickReleaseAsset(release.assets ?? [], process.platform, process.arch);
-    if (!download || !asset) {
-      await openReleaseInBrowser(release.html_url);
-      return {
-        status: "openedBrowser",
-        currentVersion: cur,
-        latestVersion: latest,
-        releaseUrl: release.html_url,
+    return emptyUpdateResult(
+      "available",
+      cur,
+      asset
+        ? `Update available: v${latest}`
+        : `Update available: v${latest} (no installer for this OS)`,
+      {
+        ...meta,
         assetName: asset?.name ?? null,
-        message: asset
-          ? `发现 v${latest}，已打开发布页`
-          : `发现 v${latest}，当前系统暂无匹配安装包，已打开发布页`,
-      };
-    }
-
-    downloading = true;
-    broadcastUpdateProgress({
-      phase: "download",
-      receivedBytes: 0,
-      totalBytes: asset.size || null,
-      message: `正在下载 ${asset.name}…`,
-    });
-
-    const dest = join(downloadDir(), asset.name);
-    try {
-      await downloadAsset(asset.browser_download_url, dest, (received, total) => {
-        broadcastUpdateProgress({
-          phase: "download",
-          receivedBytes: received,
-          totalBytes: total ?? asset.size ?? null,
-          message: `正在下载 ${asset.name}…`,
-        });
-      });
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      broadcastUpdateProgress({
-        phase: "error",
-        receivedBytes: 0,
-        totalBytes: null,
-        message: msg,
-      });
-      await openReleaseInBrowser(release.html_url);
-      return {
-        status: "openedBrowser",
-        currentVersion: cur,
-        latestVersion: latest,
-        releaseUrl: release.html_url,
-        assetName: asset.name,
-        message: `自动下载失败，已打开浏览器：${msg}`,
-      };
-    } finally {
-      downloading = false;
-    }
-
-    if (!existsSync(dest)) {
-      await openReleaseInBrowser(release.html_url);
-      return {
-        status: "openedBrowser",
-        currentVersion: cur,
-        latestVersion: latest,
-        releaseUrl: release.html_url,
-        assetName: asset.name,
-        message: "下载文件丢失，已打开发布页",
-      };
-    }
-
-    const openErr = await shell.openPath(dest);
-    if (openErr) {
-      await openReleaseInBrowser(release.html_url);
-      return {
-        status: "openedBrowser",
-        currentVersion: cur,
-        latestVersion: latest,
-        releaseUrl: release.html_url,
-        assetName: asset.name,
-        message: `无法打开安装包（${openErr}），已打开发布页`,
-      };
-    }
-
-    broadcastUpdateProgress({
-      phase: "done",
-      receivedBytes: asset.size || 0,
-      totalBytes: asset.size || null,
-      message: "已启动安装程序",
-    });
-
-    return {
-      status: "downloaded",
-      currentVersion: cur,
-      latestVersion: latest,
-      releaseUrl: release.html_url,
-      assetName: asset.name,
-      message: `已下载并打开 v${latest} 安装包，请按提示完成更新`,
-    };
+      },
+    );
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    try {
-      await openReleaseInBrowser(APP_RELEASES_URL);
-    } catch {
-      // ignore
-    }
-    return {
-      status: "error",
-      currentVersion: cur,
-      latestVersion: null,
+    return emptyUpdateResult("error", cur, `Update check failed: ${msg}`, {
       releaseUrl: APP_RELEASES_URL,
-      assetName: null,
-      message: `检查更新失败：${msg}`,
-    };
+    });
   } finally {
     checking = false;
   }
+}
+
+/** Download + open installer for the latest matching asset. */
+export async function downloadAppUpdate(): Promise<UpdateCheckResult> {
+  const cur = currentVersion();
+
+  if (checking || downloading) {
+    return emptyUpdateResult("error", cur, "Update already in progress");
+  }
+
+  checking = true;
+  let release: GhRelease;
+  try {
+    release = cachedRelease ?? (await fetchLatestRelease());
+  } catch (err) {
+    checking = false;
+    const msg = err instanceof Error ? err.message : String(err);
+    return emptyUpdateResult("error", cur, `Update check failed: ${msg}`, {
+      releaseUrl: APP_RELEASES_URL,
+    });
+  }
+  checking = false;
+
+  const meta = releaseMeta(release);
+  const latest = meta.latestVersion!;
+  if (!isNewerVersion(latest, cur)) {
+    return emptyUpdateResult("upToDate", cur, `Already on latest v${cur}`, meta);
+  }
+
+  const asset = pickReleaseAsset(release.assets ?? [], process.platform, process.arch);
+  if (!asset) {
+    await openReleaseInBrowser(release.html_url);
+    return emptyUpdateResult(
+      "openedBrowser",
+      cur,
+      `No installer for this OS — opened release page for v${latest}`,
+      { ...meta, assetName: null },
+    );
+  }
+
+  downloading = true;
+  broadcastUpdateProgress({
+    phase: "download",
+    receivedBytes: 0,
+    totalBytes: asset.size || null,
+    message: `Downloading ${asset.name}…`,
+  });
+
+  const dest = join(downloadDir(), asset.name);
+  try {
+    await downloadAsset(asset.browser_download_url, dest, (received, total) => {
+      broadcastUpdateProgress({
+        phase: "download",
+        receivedBytes: received,
+        totalBytes: total ?? asset.size ?? null,
+        message: `Downloading ${asset.name}…`,
+      });
+    });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    broadcastUpdateProgress({
+      phase: "error",
+      receivedBytes: 0,
+      totalBytes: null,
+      message: msg,
+    });
+    await openReleaseInBrowser(release.html_url);
+    downloading = false;
+    return emptyUpdateResult(
+      "openedBrowser",
+      cur,
+      `Auto-download failed — opened browser (${msg})`,
+      { ...meta, assetName: asset.name },
+    );
+  } finally {
+    downloading = false;
+  }
+
+  if (!existsSync(dest)) {
+    await openReleaseInBrowser(release.html_url);
+    return emptyUpdateResult(
+      "openedBrowser",
+      cur,
+      "Download missing — opened release page",
+      { ...meta, assetName: asset.name },
+    );
+  }
+
+  const openErr = await shell.openPath(dest);
+  if (openErr) {
+    await openReleaseInBrowser(release.html_url);
+    return emptyUpdateResult(
+      "openedBrowser",
+      cur,
+      `Could not open installer (${openErr}) — opened release page`,
+      { ...meta, assetName: asset.name },
+    );
+  }
+
+  broadcastUpdateProgress({
+    phase: "done",
+    receivedBytes: asset.size || 0,
+    totalBytes: asset.size || null,
+    message: "Installer launched",
+  });
+
+  return emptyUpdateResult(
+    "downloaded",
+    cur,
+    `Downloaded and opened v${latest} installer`,
+    { ...meta, assetName: asset.name },
+  );
+}
+
+/** @deprecated Prefer checkForAppUpdate + downloadAppUpdate. */
+export async function checkForAppUpdateLegacy(options?: {
+  download?: boolean;
+}): Promise<UpdateCheckResult> {
+  if (options?.download) {
+    const check = await checkForAppUpdate();
+    if (check.status !== "available") return check;
+    return downloadAppUpdate();
+  }
+  return checkForAppUpdate();
 }
 
 export function registerUpdateIpc(): void {
@@ -283,6 +324,14 @@ export function registerUpdateIpc(): void {
   });
 
   ipcMain.handle(IpcChannels.update.check, async (_e, opts?: { download?: boolean }) => {
-    return checkForAppUpdate({ download: opts?.download !== false });
+    // Backward compatible: download:true → check then download.
+    if (opts?.download) {
+      return checkForAppUpdateLegacy({ download: true });
+    }
+    return checkForAppUpdate();
+  });
+
+  ipcMain.handle(IpcChannels.update.download, async () => {
+    return downloadAppUpdate();
   });
 }

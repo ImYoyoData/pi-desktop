@@ -12,7 +12,16 @@ export type UpdateCheckResult = {
   currentVersion: string;
   latestVersion: string | null;
   releaseUrl: string | null;
+  releaseName: string | null;
+  releaseNotes: string | null;
   assetName: string | null;
+  message: string;
+};
+
+export type UpdateProgress = {
+  phase: "download" | "done" | "error";
+  receivedBytes: number;
+  totalBytes: number | null;
   message: string;
 };
 
@@ -24,6 +33,8 @@ export type GhReleaseAsset = {
 
 export type GhRelease = {
   tag_name: string;
+  name?: string | null;
+  body?: string | null;
   html_url: string;
   prerelease: boolean;
   draft: boolean;
@@ -111,4 +122,23 @@ export function pickReleaseAsset(
   }
 
   return null;
+}
+
+export function emptyUpdateResult(
+  status: UpdateCheckStatus,
+  currentVersion: string,
+  message: string,
+  extra?: Partial<UpdateCheckResult>,
+): UpdateCheckResult {
+  return {
+    status,
+    currentVersion,
+    latestVersion: null,
+    releaseUrl: null,
+    releaseName: null,
+    releaseNotes: null,
+    assetName: null,
+    message,
+    ...extra,
+  };
 }
