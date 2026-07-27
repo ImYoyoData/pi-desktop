@@ -7,6 +7,7 @@ import type {
   SessionSummary,
 } from "../../../shared/protocol";
 import { toIpcPlain } from "../../../shared/protocol";
+import { useComposerStore } from "./composer";
 
 function parseContextUsage(data: unknown): SessionContextUsage | null {
   if (!data || typeof data !== "object") return null;
@@ -177,6 +178,7 @@ export const useSessionsStore = defineStore("sessions", () => {
     const next = { ...contextBySession.value };
     delete next[sessionId];
     contextBySession.value = next;
+    useComposerStore().dropSession(sessionId);
   }
 
   async function renameSession(sessionId: string, cwd: string, name: string): Promise<SessionSummary | null> {

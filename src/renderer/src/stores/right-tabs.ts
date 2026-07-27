@@ -14,6 +14,11 @@ export type RightTab = {
   gitCode?: string;
   /** File missing on disk */
   missing?: boolean;
+  /**
+   * Preview tabs start transient: opening another file reuses this tab
+   * until the user edits (then it becomes permanent).
+   */
+  transient?: boolean;
 };
 
 let tabSeq = 0;
@@ -27,10 +32,8 @@ type SaveHandler = () => Promise<boolean>;
 export const useRightTabsStore = defineStore("rightTabs", () => {
   const tabs = ref<RightTab[]>([
     { id: "changes-0", kind: "changes", label: "更改" },
-    { id: "browser-0", kind: "browser", label: "浏览器" },
-    { id: "terminal-0", kind: "terminal", label: "终端" },
   ]);
-  const activeId = ref("browser-0");
+  const activeId = ref("changes-0");
   const saveHandlers = new Map<string, SaveHandler>();
 
   const activeTab = computed(() => tabs.value.find((t) => t.id === activeId.value) ?? null);
@@ -54,6 +57,10 @@ export const useRightTabsStore = defineStore("rightTabs", () => {
     const tab = tabs.value.find((t) => t.id === id);
     if (!tab) return;
     Object.assign(tab, patch);
+    // Editing pins the tab so the next open creates / reuses another transient slot
+    if (tab.kind === "preview" && patch.dirty === true) {
+      tab.transient = false;
+    }
   }
 
   function registerSaveHandler(id: string, handler: SaveHandler): void {
@@ -105,6 +112,7 @@ export const useRightTabsStore = defineStore("rightTabs", () => {
     }
     if (kind === "preview" && opts?.filePath) {
       const normalized = opts.filePath.replace(/\\/g, "/");
+      const fileLabel = opts.label ?? normalized.split(/[/\\]/).pop() ?? "预览";
       const existing = tabs.value.find(
         (t) => t.kind === "preview" && t.filePath === normalized,
       );
@@ -112,7 +120,34 @@ export const useRightTabsStore = defineStore("rightTabs", () => {
         activeId.value = existing.id;
         return existing;
       }
+
+      // Only one unedited (transient) preview tab — reuse it for the next open
+      const reusable =
+        tabs.value.find(
+          (t) =>
+            t.id === activeId.value &&
+            t.kind === "preview" &&
+            t.transient !== false &&
+            !t.dirty,
+        ) ??
+        tabs.value.find(
+          (t) => t.kind === "preview" && t.transient !== false && !t.dirty,
+        );
+      if (reusable) {
+        Object.assign(reusable, {
+          filePath: normalized,
+          label: fileLabel,
+          dirty: false,
+          missing: false,
+          gitCode: undefined,
+          transient: true,
+        });
+        activeId.value = reusable.id;
+        return reusable;
+      }
+
       opts = { ...opts, filePath: normalized };
+      label = fileLabel;
     }
     const tab: RightTab = {
       id: nextTabId(kind),
@@ -121,6 +156,7 @@ export const useRightTabsStore = defineStore("rightTabs", () => {
       filePath: opts?.filePath,
       dirty: false,
       missing: false,
+      transient: kind === "preview",
     };
     tabs.value.push(tab);
     activeId.value = tab.id;

@@ -35,7 +35,7 @@ import {
 import BrowserLibraryPanel from "@renderer/components/BrowserLibraryPanel.vue";
 import { t } from "@renderer/i18n";
 
-const DEFAULT_URL = "https://www.baidu.com";
+const DEFAULT_URL = "about:blank";
 const DEVTOOLS_WIDTH_KEY = "browser:devtoolsWidth";
 
 const composer = useComposerStore();
@@ -51,7 +51,7 @@ const devtoolsRef = ref<Electron.WebviewTag | null>(null);
 const devtoolsMountKey = ref(0);
 const splitEl = ref<HTMLElement | null>(null);
 const ghostEl = ref<HTMLElement | null>(null);
-const urlInput = ref(DEFAULT_URL);
+const urlInput = ref("");
 const pageTitle = ref("");
 const selectMode = ref(false);
 const loading = ref(false);
