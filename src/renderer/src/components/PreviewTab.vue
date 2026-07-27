@@ -5,12 +5,15 @@ import { NAlert, NButton, NEmpty, NIcon, NSpin, NText, useDialog, useMessage } f
 import { FolderOpenOutline, SaveOutline } from "@vicons/ionicons5";
 import type * as Monaco from "monaco-editor";
 import monacoCssUrl from "../../../../node_modules/monaco-editor/min/vs/editor/editor.main.css?url";
+import MarkdownView from "@renderer/components/MarkdownView.vue";
 import { breadcrumbs, languageFromPath } from "@renderer/utils/editor-lang";
 import { loadMonaco } from "@renderer/utils/monaco-loader";
 import { useRightTabsStore } from "@renderer/stores/right-tabs";
 import { useWorkspaceStore } from "@renderer/stores/workspace";
 import { useAppearanceStore } from "@renderer/stores/appearance";
 import { t } from "@renderer/i18n";
+
+type MdViewMode = "edit" | "preview" | "split";
 
 if (!document.getElementById("monaco-editor-css")) {
   const link = document.createElement("link");
@@ -43,6 +46,8 @@ const dirty = ref(false);
 const saving = ref(false);
 const missing = ref(false);
 const editorHost = ref<HTMLElement | null>(null);
+const liveContent = ref("");
+const mdViewMode = ref<MdViewMode>("preview");
 let monacoApi: typeof Monaco | null = null;
 let editor: Monaco.editor.IStandaloneCodeEditor | null = null;
 /** Content fingerprint last loaded from disk (for external-change detection). */
@@ -51,6 +56,13 @@ let reloadPromptOpen = false;
 let applyingExternal = false;
 
 const crumbs = computed(() => (currentPath.value ? breadcrumbs(currentPath.value) : []));
+const isMarkdown = computed(() => result.value?.kind === "markdown");
+const showEditor = computed(
+  () =>
+    (result.value?.kind === "text" || result.value?.kind === "markdown") &&
+    (!isMarkdown.value || mdViewMode.value !== "preview"),
+);
+const showMdPreview = computed(() => isMarkdown.value && mdViewMode.value !== "edit");
 
 function syncTabMeta(patch: { dirty?: boolean; missing?: boolean; gitCode?: string }): void {
   if (!props.tabId) return;
@@ -67,7 +79,17 @@ function disposeEditor(): void {
 }
 
 async function ensureEditor(content: string, language: string): Promise<void> {
-  if (!editorHost.value) return;
+  if (!editorHost.value) {
+    await nextTick();
+  }
+  if (!editorHost.value) {
+    liveContent.value = content;
+    diskFingerprint = fingerprint(content);
+    dirty.value = false;
+    missing.value = false;
+    syncTabMeta({ dirty: false, missing: false });
+    return;
+  }
   if (!monacoApi) monacoApi = await loadMonaco();
   const monaco = monacoApi;
   applyingExternal = true;
@@ -93,6 +115,7 @@ async function ensureEditor(content: string, language: string): Promise<void> {
       hover: { enabled: false },
     });
     editor.onDidChangeModelContent(() => {
+      liveContent.value = editor?.getValue() ?? "";
       if (applyingExternal) return;
       dirty.value = true;
       syncTabMeta({ dirty: true });
@@ -108,11 +131,14 @@ async function ensureEditor(content: string, language: string): Promise<void> {
       }
     }
   }
+  liveContent.value = content;
   diskFingerprint = fingerprint(content);
   dirty.value = false;
   missing.value = false;
   syncTabMeta({ dirty: false, missing: false });
   applyingExternal = false;
+  await nextTick();
+  editor?.layout();
 }
 
 watch(
@@ -138,6 +164,7 @@ async function loadPath(path: string | null): Promise<void> {
   result.value = null;
   dirty.value = false;
   missing.value = false;
+  liveContent.value = "";
   diskFingerprint = "";
   if (!path) {
     disposeEditor();
@@ -157,6 +184,10 @@ async function loadPath(path: string | null): Promise<void> {
     missing.value = false;
     syncTabMeta({ missing: false });
     if (result.value?.kind === "text" || result.value?.kind === "markdown") {
+      if (result.value.kind === "markdown") {
+        mdViewMode.value = "preview";
+      }
+      await nextTick();
       await ensureEditor(result.value.content, languageFromPath(path));
     } else {
       disposeEditor();
@@ -167,6 +198,26 @@ async function loadPath(path: string | null): Promise<void> {
     loading.value = false;
   }
 }
+
+watch(mdViewMode, async () => {
+  if (!isMarkdown.value || !currentPath.value) return;
+  await nextTick();
+  if (!editor && showEditor.value) {
+    await ensureEditor(liveContent.value, languageFromPath(currentPath.value));
+  } else {
+    editor?.layout();
+  }
+});
+
+watch(
+  () => props.active,
+  (active) => {
+    if (active && currentPath.value) {
+      void refreshGitForFile(currentPath.value);
+      void nextTick(() => editor?.layout());
+    }
+  },
+);
 
 function promptReloadFromDisk(): void {
   if (reloadPromptOpen || !currentPath.value) return;
@@ -228,7 +279,7 @@ function onFsChanged(event: Event): void {
       const nextFp = fingerprint(res.content);
       if (nextFp === diskFingerprint) return;
       // Our own save also triggers fs watch — skip if editor matches disk
-      const editorValue = editor?.getValue() ?? "";
+      const editorValue = editor?.getValue() ?? liveContent.value;
       if (editorValue === res.content) {
         diskFingerprint = nextFp;
         dirty.value = false;
@@ -248,15 +299,6 @@ watch(
   { immediate: true },
 );
 
-watch(
-  () => props.active,
-  (active) => {
-    if (active && currentPath.value) {
-      void refreshGitForFile(currentPath.value);
-    }
-  },
-);
-
 async function pickFile(): Promise<void> {
   const picked = await window.api.preview.pickFile();
   if (picked) await loadPath(picked);
@@ -267,9 +309,10 @@ async function save(): Promise<boolean> {
   const wasMissing = missing.value;
   const content =
     editor?.getValue() ??
-    (result.value?.kind === "text" || result.value?.kind === "markdown"
-      ? result.value.content
-      : "");
+    (liveContent.value ||
+      (result.value?.kind === "text" || result.value?.kind === "markdown"
+        ? result.value.content
+        : ""));
   if (!editor && content === "" && !wasMissing) return false;
 
   saving.value = true;
@@ -323,6 +366,32 @@ onBeforeUnmount(() => {
         <NText v-else depth="3" style="font-size: 11px">{{ t.noFileOpen }}</NText>
       </div>
       <div class="actions">
+        <div v-if="isMarkdown" class="md-modes" role="group" :aria-label="t.mdPreview">
+          <button
+            type="button"
+            class="md-mode"
+            :class="{ active: mdViewMode === 'edit' }"
+            @click="mdViewMode = 'edit'"
+          >
+            {{ t.mdEdit }}
+          </button>
+          <button
+            type="button"
+            class="md-mode"
+            :class="{ active: mdViewMode === 'split' }"
+            @click="mdViewMode = 'split'"
+          >
+            {{ t.mdSplit }}
+          </button>
+          <button
+            type="button"
+            class="md-mode"
+            :class="{ active: mdViewMode === 'preview' }"
+            @click="mdViewMode = 'preview'"
+          >
+            {{ t.mdPreview }}
+          </button>
+        </div>
         <NButton
           v-if="result?.kind === 'text' || result?.kind === 'markdown' || missing"
           size="tiny"
@@ -363,7 +432,18 @@ onBeforeUnmount(() => {
             >
               {{ t.previewTruncated }}
             </NAlert>
-            <div ref="editorHost" class="editor" />
+            <div
+              class="doc-body"
+              :class="{
+                'md-split': isMarkdown && mdViewMode === 'split',
+                'md-preview-only': isMarkdown && mdViewMode === 'preview',
+              }"
+            >
+              <div v-show="showEditor" ref="editorHost" class="editor" />
+              <div v-if="showMdPreview" class="md-preview">
+                <MarkdownView :content="liveContent" />
+              </div>
+            </div>
           </template>
           <img v-else-if="result.kind === 'image'" class="img" :src="result.dataUrl" :alt="result.path" />
         </template>
@@ -431,8 +511,38 @@ onBeforeUnmount(() => {
 
 .actions {
   display: flex;
-  gap: 2px;
+  gap: 6px;
+  align-items: center;
   flex-shrink: 0;
+}
+
+.md-modes {
+  display: inline-flex;
+  padding: 1px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+}
+
+.md-mode {
+  border: none;
+  background: transparent;
+  color: var(--fg-muted);
+  font-size: 11px;
+  line-height: 1;
+  padding: 4px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.md-mode.active {
+  background: var(--bg-elevated, var(--bg-panel));
+  color: var(--fg-strong);
+  font-weight: 550;
+}
+
+.md-mode:hover:not(.active) {
+  color: var(--fg-strong);
 }
 
 .viewport {
@@ -457,10 +567,39 @@ onBeforeUnmount(() => {
   flex-direction: column;
 }
 
+.doc-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  width: 100%;
+  overflow: hidden;
+}
+
+.doc-body.md-split .editor {
+  flex: 1;
+  min-width: 0;
+  border-right: 1px solid var(--border);
+}
+
+.doc-body.md-split .md-preview {
+  flex: 1;
+  min-width: 0;
+}
+
+.doc-body.md-preview-only .md-preview {
+  flex: 1;
+}
+
 .editor {
   flex: 1;
   min-height: 0;
   width: 100%;
+}
+
+.md-preview {
+  overflow: auto;
+  padding: 16px 20px 24px;
+  background: var(--bg);
 }
 
 .img {

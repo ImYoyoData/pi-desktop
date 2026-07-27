@@ -1,4 +1,4 @@
-import { app, BrowserWindow, nativeImage } from "electron";
+import { app, BrowserWindow, nativeImage, session } from "electron";
 import { electronApp, is } from "@electron-toolkit/utils";
 import { join } from "path";
 import { existsSync } from "fs";
@@ -18,6 +18,8 @@ import { registerGitIpc } from "./git-ipc";
 import { registerFsWatchIpc } from "./fs-watch-host";
 import { registerWindowIpc } from "./window-ipc";
 import { registerAsrIpc } from "./asr-host";
+import { registerUpdateIpc } from "./update-host";
+import { registerPiCliIpc } from "./pi-cli-host";
 import { ensurePiAgentEnvironment } from "./pi-env";
 import { installApplicationMenu } from "./app-menu";
 
@@ -57,10 +59,9 @@ function boot(): void {
       if (
         is.dev &&
         input.code === "KeyI" &&
-        input.control &&
         input.shift &&
         !input.alt &&
-        !input.meta
+        ((input.control && !input.meta) || (input.meta && !input.control))
       ) {
         event.preventDefault();
         if (window.webContents.isDevToolsOpened()) window.webContents.closeDevTools();
@@ -91,6 +92,8 @@ function boot(): void {
     installApplicationMenu();
     registerWindowIpc();
     registerAsrIpc();
+    registerUpdateIpc();
+    registerPiCliIpc();
     registerWorkspaceIpc();
     registerPreviewIpc();
     registerFilesIpc();
@@ -102,6 +105,25 @@ function boot(): void {
     registerSessionsIpc(broker);
     registerModelsIpc(broker);
     electronApp.setAppUserModelId("com.pi.desktop");
+
+    // Allow mic/camera for ASR + embedded browser (macOS TCC still gates via askForMediaAccess).
+    const allowPermissions = new Set([
+      "media",
+      "mediaKeySystem",
+      "display-capture",
+      "notifications",
+      "clipboard-sanitized-write",
+      "clipboard-read",
+      "fullscreen",
+      "pointerLock",
+      "openExternal",
+    ]);
+    session.defaultSession.setPermissionRequestHandler((_wc, permission, callback) => {
+      callback(allowPermissions.has(permission));
+    });
+    session.defaultSession.setPermissionCheckHandler((_wc, permission) => {
+      return allowPermissions.has(permission);
+    });
 
     const icon = resolveAppIcon();
     if (icon && process.platform === "darwin" && app.dock) {

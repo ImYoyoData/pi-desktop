@@ -13,6 +13,7 @@ import {
 import TitleBar from "@renderer/components/TitleBar.vue";
 import WelcomeView from "@renderer/components/WelcomeView.vue";
 import SplitRoot from "@renderer/components/SplitRoot.vue";
+import PiCliSetup from "@renderer/components/PiCliSetup.vue";
 import { useWorkspaceStore } from "@renderer/stores/workspace";
 import { useAppearanceStore } from "@renderer/stores/appearance";
 import { darkThemeOverrides, lightThemeOverrides } from "@renderer/theme/naive";
@@ -59,6 +60,7 @@ onUnmounted(() => {
             <WelcomeView v-if="!workspace.root" />
             <SplitRoot v-else />
           </main>
+          <PiCliSetup />
         </div>
       </NDialogProvider>
     </NMessageProvider>

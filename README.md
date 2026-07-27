@@ -4,7 +4,7 @@
 
 **Pi Desktop** is an Electron + Vue 3 desktop workspace for the [Pi](https://github.com/badlogic/pi-mono) coding agent. Chat with agents, manage sessions, browse the web, run terminals, preview files, and configure models — in one window.
 
-> Current release: **v0.0.3** (prerelease / test build)
+> Current release: **v0.0.4** (prerelease / test build)
 
 ## Features
 

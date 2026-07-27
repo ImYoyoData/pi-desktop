@@ -238,7 +238,11 @@ function onTabChange(name: string | number): void {
             <template #tab>
               <NSpace :size="4" align="center" :wrap="false">
                 <NIcon :component="iconFor(tab.kind)" :size="12" :style="tabLabelStyle(tab)" />
-                <span class="tab-label" :style="tabLabelStyle(tab)">{{ tabDisplayLabel(tab) }}</span>
+                <span
+                  class="tab-label"
+                  :class="{ transient: tab.kind === 'preview' && tab.transient !== false && !tab.dirty }"
+                  :style="tabLabelStyle(tab)"
+                >{{ tabDisplayLabel(tab) }}</span>
               </NSpace>
             </template>
             <div class="pane-placeholder" />
@@ -378,6 +382,11 @@ function onTabChange(name: string | number): void {
   text-overflow: ellipsis;
   white-space: nowrap;
   font-weight: 550;
+}
+
+.tab-label.transient {
+  font-style: italic;
+  font-weight: 450;
 }
 
 .pane-placeholder {

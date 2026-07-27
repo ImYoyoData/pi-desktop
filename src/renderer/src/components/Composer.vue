@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref, watch } from "vue";
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 import {
   NButton,
   NDropdown,
@@ -7,6 +7,7 @@ import {
   NImage,
   NModal,
   NSelect,
+  NText,
   NTooltip,
   NInput,
   useMessage,
@@ -21,25 +22,37 @@ import {
 } from "@vicons/ionicons5";
 import CitationCard from "@renderer/components/CitationCard.vue";
 import AsrInstallProgress from "@renderer/components/AsrInstallProgress.vue";
+import VoiceRecordBar from "@renderer/components/VoiceRecordBar.vue";
+import SendQueueBar from "@renderer/components/SendQueueBar.vue";
 import { useChatStore } from "@renderer/stores/chat";
 import { isHttpUrl, useComposerStore } from "@renderer/stores/composer";
+import { useSendQueueStore } from "@renderer/stores/send-queue";
 import { useSessionsStore } from "@renderer/stores/sessions";
 import { useWorkspaceStore } from "@renderer/stores/workspace";
-import { useAsrStore } from "@renderer/stores/asr";
+import { formatAsrInstallError, useAsrStore } from "@renderer/stores/asr";
 import { heuristicSessionTitle } from "@renderer/utils/session-title";
-import { startPcmCapture, type PcmCapture } from "@renderer/utils/pcm-capture";
+import { startVoiceRecord, type VoiceRecordSession } from "@renderer/utils/pcm-capture";
+import { scrubAsrHallucination } from "../../../shared/asr";
 import { t } from "@renderer/i18n";
 
 type ThinkingLevel = "off" | "minimal" | "low" | "medium" | "high" | "xhigh";
 
 const chat = useChatStore();
 const composer = useComposerStore();
+const sendQueue = useSendQueueStore();
 const sessions = useSessionsStore();
 const workspace = useWorkspaceStore();
 const asr = useAsrStore();
 const messageApi = useMessage();
-let capture: PcmCapture | null = null;
+let voiceSession: VoiceRecordSession | null = null;
+let voiceConfirming = false;
+/** Bumped to ignore late transcription results after cancel/switch. */
+let voiceGen = 0;
 let offAsrProgress: (() => void) | undefined;
+const voiceActive = ref(false);
+const voiceLevel = ref(0);
+/** True from confirm until transcription finishes ? send button loading. */
+const voicePending = ref(false);
 
 type ModelSelectOption =
   | { type: "group"; label: string; key: string; children: { label: string; value: string }[] }
@@ -78,10 +91,79 @@ const modelBySession = ref<Record<string, string>>(loadSessionPrefs().models);
 const thinkingBySession = ref<Record<string, ThinkingLevel>>(loadSessionPrefs().thinking);
 const thinkingLevel = ref<ThinkingLevel>("medium");
 const fileInput = ref<HTMLInputElement | null>(null);
-const draftInput = ref<{ focus?: () => void } | null>(null);
+const draftInput = ref<{
+  focus?: () => void;
+  textareaElRef?: HTMLTextAreaElement | null;
+} | null>(null);
+/** True while we programmatically move the caret during ASR updates. */
+let asrCaretGuardUntil = 0;
+
+function armAsrCaretGuard(ms = 120): void {
+  asrCaretGuardUntil = Date.now() + ms;
+}
+
+function getDraftTextarea(): HTMLTextAreaElement | null {
+  const inst = draftInput.value;
+  if (!inst) return null;
+  if (inst.textareaElRef) return inst.textareaElRef;
+  const root = (inst as { $el?: HTMLElement }).$el;
+  return root?.querySelector?.("textarea") ?? null;
+}
 
 function focusDraft(): void {
   draftInput.value?.focus?.();
+}
+
+/** Keep focus + caret at end of the draft while dictating. */
+function focusDraftAtEnd(): void {
+  armAsrCaretGuard();
+  focusDraft();
+  const el = getDraftTextarea();
+  if (el) {
+    const len = el.value.length;
+    try {
+      el.focus();
+      el.setSelectionRange(len, len);
+    } catch {
+      // ignore selection errors on detached nodes
+    }
+  }
+}
+
+/**
+ * Stop recording only when the user intentionally moves the caret
+ * (mouse reposition or navigation keys) ? typing must NOT cancel.
+ * Only applies once the draft already has text.
+ */
+function shouldStopForCaretMove(): boolean {
+  if (!voiceActive.value || asr.transcribing) return false;
+  if (Date.now() < asrCaretGuardUntil) return false;
+  return Boolean(composer.draft.trim());
+}
+
+function onDraftCaretClick(): void {
+  if (!shouldStopForCaretMove()) return;
+  const el = getDraftTextarea();
+  if (!el) return;
+  const atEnd = el.selectionStart === el.value.length && el.selectionEnd === el.value.length;
+  if (atEnd) return;
+  cancelVoice();
+}
+
+function onDraftKeyup(e: KeyboardEvent): void {
+  const nav = new Set([
+    "ArrowLeft",
+    "ArrowRight",
+    "ArrowUp",
+    "ArrowDown",
+    "Home",
+    "End",
+    "PageUp",
+    "PageDown",
+  ]);
+  if (!nav.has(e.key)) return;
+  if (!shouldStopForCaretMove()) return;
+  cancelVoice();
 }
 
 function persistSessionPrefs(): void {
@@ -159,13 +241,17 @@ function activeSessionRunning(): boolean {
   return sessions.sessions.find((s) => s.id === id)?.status === "running";
 }
 
-const canSend = computed(
-  () =>
-    Boolean(
-      sessionId.value &&
-        (composer.draft.trim() || composer.images.length || composer.chips.length),
-    ) && !running.value,
+const hasSendContent = computed(() =>
+  Boolean(composer.draft.trim() || composer.images.length || composer.chips.length),
 );
+
+const canSend = computed(() => Boolean(sessionId.value && hasSendContent.value) && !running.value);
+/** While running, draft can be queued instead of sent immediately. */
+const canQueue = computed(() => Boolean(sessionId.value && hasSendContent.value) && running.value);
+
+/** Show send when idle with content, or queue button while running with content; always show stop while running. */
+const showPrimaryAction = computed(() => running.value || canSend.value);
+const showQueueSend = computed(() => canQueue.value);
 
 async function readImageFile(file: File): Promise<{
   data: string;
@@ -231,15 +317,21 @@ async function addFiles(files: FileList | File[]): Promise<void> {
   }
 }
 
-async function submit(mode: "prompt" | "steer" | "follow_up"): Promise<void> {
-  const id = sessionId.value;
+function snapshotComposerPayload(): {
+  text: string;
+  displayText: string;
+  imagesToSend: { type: "image"; data: string; mimeType: string }[];
+  citationsToSend:
+    | { url: string; selector?: string; text?: string; htmlSnippet?: string }[]
+    | undefined;
+  tagsToSend: { url: string; host: string; label: string; content?: string }[] | undefined;
+} | null {
   const chipText = composer.formatChipsForMessage();
   const text = [composer.draft.trim(), chipText].filter(Boolean).join("\n\n");
-  if (!id || (!text && !composer.images.length && !composer.chips.length)) return;
+  if (!text && !composer.images.length && !composer.chips.length) return null;
   const citations = composer.elementCitations();
   const citationList = citations.length ? citations : undefined;
   const elementTags = composer.elementTagSnapshot();
-  // Screenshots are already in composer.images (as normal attachments). Deduplicate by data.
   const seen = new Set<string>();
   const imagesToSend = composer.images
     .filter((i) => {
@@ -261,19 +353,133 @@ async function submit(mode: "prompt" | "steer" | "follow_up"): Promise<void> {
       }))
     : undefined;
   const tagsToSend = elementTags.length
-    ? elementTags.map((t) => ({
-        url: t.url,
-        host: t.host,
-        label: t.label,
-        content: t.content,
+    ? elementTags.map((row) => ({
+        url: row.url,
+        host: row.host,
+        label: row.label,
+        content: row.content,
       }))
     : undefined;
-  // User-visible text: draft only (tags/images shown as chips). Agent still gets citations.
   const displayText = composer.draft.trim();
-  const titleSeed = displayText || tagsToSend?.[0]?.content || tagsToSend?.[0]?.label || "";
+  return { text, displayText, imagesToSend, citationsToSend, tagsToSend };
+}
+
+function enqueueFromComposer(): boolean {
+  const id = sessionId.value;
+  if (!id) return false;
+  const snap = snapshotComposerPayload();
+  if (!snap) return false;
+  const message =
+    snap.displayText ||
+    (snap.imagesToSend.length || snap.tagsToSend?.length ? " " : snap.text || " ");
+  sendQueue.enqueue(id, {
+    text: message,
+    images: snap.imagesToSend.length ? snap.imagesToSend : undefined,
+    citations: snap.citationsToSend,
+    elementTags: snap.tagsToSend,
+  });
+  composer.clear();
+  messageApi.success(t.queueAdded, { duration: 1400 });
+  return true;
+}
+
+async function dispatchQueuedItem(
+  id: string,
+  item: {
+    text: string;
+    images?: { type: "image"; data: string; mimeType: string }[];
+    citations?: { url: string; selector?: string; text?: string; htmlSnippet?: string }[];
+    elementTags?: { url: string; host: string; label: string; content?: string }[];
+  },
+  mode: "follow_up" | "prompt",
+): Promise<void> {
+  if (mode === "prompt" || item.images?.length) {
+    await chat.sendPrompt(
+      id,
+      item.text || " ",
+      item.citations,
+      item.images,
+      item.elementTags,
+    );
+    return;
+  }
+  await chat.followUp(id, item.text || " ");
+}
+
+function waitUntilIdle(sessionId: string, timeoutMs = 15_000): Promise<void> {
+  return new Promise((resolve) => {
+    const started = Date.now();
+    const tick = () => {
+      const stateRunning = chat.bySession[sessionId]?.running;
+      const statusRunning =
+        sessions.sessions.find((s) => s.id === sessionId)?.status === "running";
+      if (!stateRunning && !statusRunning) {
+        resolve();
+        return;
+      }
+      if (Date.now() - started >= timeoutMs) {
+        resolve();
+        return;
+      }
+      window.setTimeout(tick, 80);
+    };
+    tick();
+  });
+}
+
+async function drainQueueIfIdle(sessionId: string): Promise<void> {
+  if (sendQueue.isDrainSuppressed(sessionId)) return;
+  const stateRunning = chat.bySession[sessionId]?.running;
+  const statusRunning =
+    sessions.sessions.find((s) => s.id === sessionId)?.status === "running";
+  if (stateRunning || statusRunning) return;
+  const next = sendQueue.takeNext(sessionId);
+  if (!next) return;
+  if (!next.text.trim() && !next.images?.length) {
+    void drainQueueIfIdle(sessionId);
+    return;
+  }
+  await dispatchQueuedItem(sessionId, next, "follow_up");
+}
+
+async function sendQueuedNow(itemId: string): Promise<void> {
+  const id = sessionId.value;
+  if (!id) return;
+  const item = sendQueue.remove(id, itemId);
+  if (!item) return;
+  if (voiceActive.value) cancelVoice();
+  sendQueue.setSuppressDrain(id, true);
+  try {
+    if (running.value) {
+      await chat.abort(id);
+      await waitUntilIdle(id);
+    }
+    await dispatchQueuedItem(id, item, "prompt");
+  } finally {
+    sendQueue.setSuppressDrain(id, false);
+  }
+}
+
+async function submit(mode: "prompt" | "steer" | "follow_up"): Promise<void> {
+  // Sending cancels an in-progress voice take / waits out pending ASR
+  if (voiceActive.value) cancelVoice();
+  if (voicePending.value) return;
+
+  const id = sessionId.value;
+  if (!id) return;
+
+  // While agent is running, new sends go to the queue (Cursor-style)
+  if (running.value && mode === "prompt") {
+    enqueueFromComposer();
+    return;
+  }
+
+  const snap = snapshotComposerPayload();
+  if (!snap) return;
+  const displayText = snap.displayText;
+  const titleSeed = displayText || snap.tagsToSend?.[0]?.content || snap.tagsToSend?.[0]?.label || "";
   composer.clear();
   if (mode === "prompt") {
-    // pi-web-style heuristic auto-title on first message when session has no custom name
     const root = workspace.root;
     const summary = sessions.sessions.find((s) => s.id === id);
     if (root && titleSeed && !summary?.name?.trim()) {
@@ -282,20 +488,21 @@ async function submit(mode: "prompt" | "steer" | "follow_up"): Promise<void> {
     }
     await chat.sendPrompt(
       id,
-      displayText || (imagesToSend.length || tagsToSend?.length ? " " : text || " "),
-      citationsToSend,
-      imagesToSend,
-      tagsToSend,
+      displayText ||
+        (snap.imagesToSend.length || snap.tagsToSend?.length ? " " : snap.text || " "),
+      snap.citationsToSend,
+      snap.imagesToSend,
+      snap.tagsToSend,
     );
-  } else if (mode === "steer") await chat.steer(id, text || " ");
-  else await chat.followUp(id, text || " ");
+  } else if (mode === "steer") await chat.steer(id, snap.text || " ");
+  else await chat.followUp(id, snap.text || " ");
 }
 
 function onKeydown(event: KeyboardEvent): void {
   if (event.key !== "Enter" || event.isComposing || event.shiftKey) return;
   event.preventDefault();
   if (running.value) {
-    void submit(event.altKey ? "follow_up" : "steer");
+    enqueueFromComposer();
     return;
   }
   void submit("prompt");
@@ -303,6 +510,18 @@ function onKeydown(event: KeyboardEvent): void {
 
 async function onAbort(): Promise<void> {
   if (sessionId.value) await chat.abort(sessionId.value);
+}
+
+function onPrimaryAction(): void {
+  if (running.value) {
+    void onAbort();
+    return;
+  }
+  void submit("prompt");
+}
+
+function onQueueSendClick(): void {
+  enqueueFromComposer();
 }
 
 async function onCompact(): Promise<void> {
@@ -592,68 +811,137 @@ async function ensureAsrReady(): Promise<boolean> {
   }
   if (asr.status.installed) return true;
 
-  const ok = window.confirm(t.asrInstallConfirm(asr.status.diskMb, asr.status.ramMb));
+  // Model already on disk ? only (re)fetch GPU-matched runtime (install modal shows progress)
+  if (asr.status.modelPath) {
+    try {
+      await asr.install();
+      return true;
+    } catch (err) {
+      messageApi.error(formatAsrInstallError(err, t.asrDownloadFailed), { duration: 6000 });
+      return false;
+    }
+  }
+
+  const ok = window.confirm(
+    t.asrInstallConfirm(
+      asr.status.diskMb,
+      asr.status.ramMb,
+      asr.status.gpuDeviceLabel,
+      asr.status.gpuBackend.toUpperCase(),
+      asr.status.gpuKind === "cpu",
+    ),
+  );
   if (!ok) return false;
   try {
     await asr.install();
-    messageApi.success(t.asrInstallOk);
     return true;
   } catch (err) {
-    messageApi.error(err instanceof Error ? err.message : String(err));
+    messageApi.error(formatAsrInstallError(err, t.asrDownloadFailed), { duration: 6000 });
     return false;
   }
 }
 
-async function onMicClick(): Promise<void> {
-  if (asr.transcribing) return;
+function joinAsr(base: string, next: string): string {
+  const a = base.replace(/\s+$/u, "");
+  const b = next.replace(/^\s+/u, "").trim();
+  if (!b) return a;
+  if (!a) return b;
+  if (b.startsWith(a)) return b;
+  if (a.endsWith(b)) return a;
+  const needSpace =
+    !/[\s\u3000]$/u.test(a) && !/^[,.!?;:\uFF0C\u3002\uFF01\uFF1F\u3001\uFF1B\uFF1A]/.test(b);
+  return needSpace ? `${a} ${b}` : `${a}${b}`;
+}
 
-  if (asr.recording && capture) {
-    asr.recording = false;
-    asr.transcribing = true;
-    try {
-      const { pcmBase64, sampleRate } = await capture.stop();
-      capture = null;
-      if (pcmBase64.length < 100) {
-        messageApi.warning(t.asrFail);
-        return;
-      }
-      const text = await window.api.asr.transcribe(pcmBase64, sampleRate);
-      const trimmed = text.trim();
-      if (!trimmed) {
-        messageApi.warning(t.asrFail);
-        return;
-      }
-      composer.draft = composer.draft ? `${composer.draft.trimEnd()} ${trimmed}` : trimmed;
-    } catch (err) {
-      messageApi.error(err instanceof Error ? err.message : t.asrFail);
-    } finally {
-      asr.transcribing = false;
+function cancelVoice(): void {
+  voiceGen += 1;
+  voiceSession?.abort();
+  voiceSession = null;
+  voiceActive.value = false;
+  voiceLevel.value = 0;
+  voicePending.value = false;
+  voiceConfirming = false;
+  asr.recording = false;
+}
+
+async function confirmVoice(): Promise<void> {
+  if (!voiceSession || voiceConfirming) return;
+  voiceConfirming = true;
+  const gen = voiceGen;
+
+  // Stop mic + close record UI immediately; send button shows loading until ASR finishes
+  const session = voiceSession;
+  voiceSession = null;
+  voiceActive.value = false;
+  voiceLevel.value = 0;
+  asr.recording = false;
+  voicePending.value = true;
+
+  try {
+    const { pcmBase64, sampleRate } = await session.stop();
+    if (gen !== voiceGen) return;
+    if (!pcmBase64) {
+      messageApi.warning(t.voiceEmpty);
+      return;
     }
-    return;
+    const raw = await asr.transcribe(pcmBase64, sampleRate);
+    if (gen !== voiceGen) return;
+    const text = scrubAsrHallucination(raw);
+    if (!text) {
+      messageApi.warning(t.voiceEmpty);
+      return;
+    }
+    // Append after existing draft content
+    armAsrCaretGuard();
+    composer.draft = joinAsr(composer.draft, text);
+    void nextTick(() => focusDraftAtEnd());
+  } catch (err) {
+    if (gen !== voiceGen) return;
+    const raw = err instanceof Error ? err.message : String(err);
+    messageApi.error(raw || t.asrFail, { duration: 4500 });
+  } finally {
+    if (gen === voiceGen) {
+      voiceConfirming = false;
+      voicePending.value = false;
+    }
   }
+}
+
+async function onMicClick(): Promise<void> {
+  if (asr.installing || voiceConfirming || voicePending.value) return;
+  if (voiceActive.value) return;
 
   const ready = await ensureAsrReady();
   if (!ready) return;
 
   try {
-    capture = await startPcmCapture();
+    voiceSession = await startVoiceRecord({
+      onLevel: (level) => {
+        if (!voiceActive.value) return;
+        voiceLevel.value = level;
+      },
+      onMaxDuration: () => {
+        void confirmVoice();
+      },
+    });
+    voiceActive.value = true;
     asr.recording = true;
+    void nextTick(() => focusDraftAtEnd());
   } catch (err) {
-    messageApi.error(err instanceof Error ? err.message : String(err));
-    asr.recording = false;
-    capture = null;
+    const raw = err instanceof Error ? err.message : String(err);
+    let msg = raw;
+    if (/permission denied|NotAllowed|PermissionDenied/i.test(raw) || raw.includes("\u9ea6\u514b\u98ce")) {
+      msg = t.asrMicDenied;
+    } else if (/No microphone|NotFound|DevicesNotFound/i.test(raw) || raw.includes("\u672a\u68c0\u6d4b")) {
+      msg = t.asrMicMissing;
+    }
+    messageApi.error(msg);
+    cancelVoice();
   }
-}
-
-function onPrimaryAction(): void {
-  if (running.value) {
-    void onAbort();
-    return;
-  }
-  void submit("prompt");
 }
 
 onMounted(() => {
+  composer.bindSession(sessionId.value);
   void refreshModels();
   void asr.refresh();
   offAsrProgress = asr.bindProgress();
@@ -663,10 +951,7 @@ onMounted(() => {
 onUnmounted(() => {
   window.removeEventListener("pi-models-changed", onModelsChanged);
   offAsrProgress?.();
-  capture?.abort();
-  capture = null;
-  asr.recording = false;
-  asr.transcribing = false;
+  cancelVoice();
 });
 
 function onModelsChanged(): void {
@@ -674,6 +959,10 @@ function onModelsChanged(): void {
 }
 
 watch(sessionId, (id, prev) => {
+  // Switching session cancels an in-progress voice take / pending ASR
+  if (voiceActive.value || voicePending.value) cancelVoice();
+  composer.bindSession(id);
+
   if (prev && selectedModelKey.value) {
     rememberModel(prev, selectedModelKey.value);
   }
@@ -690,11 +979,45 @@ watch(sessionId, (id, prev) => {
   }
   void refreshModels();
 });
+
+watch(
+  () => workspace.root,
+  (next, prev) => {
+    if (next === prev) return;
+    if (voiceActive.value || voicePending.value) cancelVoice();
+  },
+);
+
+/** After a turn finishes, auto-send the next queued follow-up. */
+watch(running, (now, was) => {
+  if (was && !now && sessionId.value) {
+    void drainQueueIfIdle(sessionId.value);
+  }
+});
 </script>
 
 <template>
   <div class="composer-wrap">
-    <div class="composer-card">
+    <SendQueueBar
+      :items="sendQueue.activeItems"
+      @update-text="(qid, text) => sessionId && sendQueue.updateText(sessionId, qid, text)"
+      @remove="(qid) => sessionId && sendQueue.remove(sessionId, qid)"
+      @send-now="(qid) => void sendQueuedNow(qid)"
+    />
+    <div class="composer-card" :class="{ 'is-voice-recording': voiceActive }">
+      <div
+        v-if="voiceActive"
+        class="voice-overlay"
+        @mousedown.prevent
+        @click.prevent
+      >
+        <VoiceRecordBar
+          :level="voiceLevel"
+          @cancel="cancelVoice"
+          @confirm="confirmVoice"
+        />
+      </div>
+
       <!-- Images are separate attachments (sent as model images), not part of the rich text surface -->
       <div v-if="composer.images.length" class="image-attachments">
         <div v-for="img in composer.images" :key="img.id" class="img-chip">
@@ -728,7 +1051,10 @@ watch(sessionId, (id, prev) => {
           :placeholder="t.composerPlaceholder"
           :autosize="{ minRows: 1, maxRows: 8 }"
           :bordered="false"
+          :disabled="voiceActive || voicePending"
           @keydown="onKeydown"
+          @click="onDraftCaretClick"
+          @keyup="onDraftKeyup"
         />
       </div>
 
@@ -746,16 +1072,11 @@ watch(sessionId, (id, prev) => {
               input.value = '';
             }"
           />
-          <NTooltip>
-            <template #trigger>
-              <NButton quaternary circle size="tiny" @click="fileInput?.click()">
-                <template #icon>
-                  <NIcon :component="AddOutline" />
-                </template>
-              </NButton>
+          <NButton quaternary circle size="tiny" :disabled="voiceActive || voicePending" @click="fileInput?.click()">
+            <template #icon>
+              <NIcon :component="AddOutline" />
             </template>
-            {{ t.addImage }}
-          </NTooltip>
+          </NButton>
 
           <NSelect
             v-model:value="selectedModelKey"
@@ -765,25 +1086,22 @@ watch(sessionId, (id, prev) => {
             :consistent-menu-width="false"
             filterable
             :placeholder="t.modelPlaceholder"
+            :disabled="voiceActive || voicePending"
             @update:value="onModelChange"
           />
 
           <NDropdown
             trigger="click"
             :options="thinkingMenu"
+            :disabled="voiceActive || voicePending"
             @select="onThinkingChange"
           >
-            <NTooltip>
-              <template #trigger>
-                <NButton quaternary size="tiny" class="think-btn">
-                  <template #icon>
-                    <NIcon :component="FlashOutline" :size="14" />
-                  </template>
-                  <span class="think-label">{{ thinkingLabel }}</span>
-                </NButton>
+            <NButton quaternary size="tiny" class="think-btn" :disabled="voiceActive || voicePending">
+              <template #icon>
+                <NIcon :component="FlashOutline" :size="14" />
               </template>
-              {{ t.thinkingLevel }}
-            </NTooltip>
+              <span class="think-label">{{ thinkingLabel }}</span>
+            </NButton>
           </NDropdown>
 
           <NTooltip>
@@ -792,7 +1110,7 @@ watch(sessionId, (id, prev) => {
                 type="button"
                 class="ctx-meter"
                 :class="`ctx-${contextTone}`"
-                :disabled="!sessionId"
+                :disabled="!sessionId || voiceActive || voicePending"
                 @click="onCompact"
               >
                 <span class="ctx-bar" aria-hidden="true">
@@ -809,43 +1127,43 @@ watch(sessionId, (id, prev) => {
         </div>
 
         <div class="toolbar-right">
-          <NTooltip v-if="asr.micVisible">
-            <template #trigger>
-              <button
-                type="button"
-                class="mic-btn"
-                :class="{ recording: asr.recording, busy: asr.transcribing }"
-                :disabled="asr.transcribing || asr.installing"
-                :aria-label="t.voiceInput"
-                @click="onMicClick"
-              >
-                <NIcon :component="MicOutline" :size="18" />
-              </button>
+          <button
+            v-if="asr.micVisible && !voiceActive && !voicePending"
+            type="button"
+            class="mic-btn"
+            :disabled="asr.installing"
+            :aria-label="t.voiceInput"
+            @click="onMicClick"
+          >
+            <NIcon :component="MicOutline" :size="18" />
+          </button>
+          <NButton
+            v-if="showQueueSend && !voicePending"
+            size="tiny"
+            circle
+            type="primary"
+            :aria-label="t.queueAdded"
+            :title="t.runningHint"
+            @click="onQueueSendClick"
+          >
+            <template #icon>
+              <NIcon :component="SendOutline" />
             </template>
-            {{
-              asr.transcribing
-                ? t.voiceTranscribing
-                : asr.recording
-                  ? t.voiceListening
-                  : t.voiceInput
-            }}
-          </NTooltip>
-          <NTooltip>
-            <template #trigger>
-              <NButton
-                size="tiny"
-                circle
-                :type="running ? 'error' : 'primary'"
-                :disabled="!running && !canSend"
-                @click="onPrimaryAction"
-              >
-                <template #icon>
-                  <NIcon :component="running ? StopOutline : SendOutline" />
-                </template>
-              </NButton>
+          </NButton>
+          <NButton
+            v-if="showPrimaryAction || voicePending"
+            size="tiny"
+            circle
+            :type="running ? 'error' : 'primary'"
+            :loading="voicePending"
+            :disabled="voicePending || (!running && !canSend)"
+            :aria-label="voicePending ? t.voiceTranscribing : running ? t.stop : t.enterToSend"
+            @click="onPrimaryAction"
+          >
+            <template #icon>
+              <NIcon :component="running ? StopOutline : SendOutline" />
             </template>
-            {{ running ? `${t.stop}?${t.runningHint}?` : t.enterToSend }}
-          </NTooltip>
+          </NButton>
         </div>
       </div>
     </div>
@@ -859,12 +1177,37 @@ watch(sessionId, (id, prev) => {
       :closable="false"
       style="width: min(420px, 92vw)"
     >
+      <div class="asr-install-device">
+        {{ t.asrDevice }}: {{ asr.status.gpuDeviceLabel }} ({{ asr.status.gpuBackend.toUpperCase() }} /
+        {{
+          asr.status.gpuKind === "cpu"
+            ? t.asrDeviceCpu
+            : asr.status.gpuKind === "metal"
+              ? t.asrDeviceMetal
+              : asr.status.gpuKind === "discrete"
+                ? t.asrDeviceDiscrete
+                : t.asrDeviceIntegrated
+        }})
+      </div>
+      <NText
+        :depth="asr.status.gpuKind === 'cpu' ? 1 : 3"
+        style="font-size: 12px; display: block; margin: 6px 0 10px"
+        :type="asr.status.gpuKind === 'cpu' ? 'warning' : 'default'"
+      >
+        {{ asr.status.gpuKind === "cpu" ? t.asrCpuSlowHint : t.asrGpuFastHint }}
+      </NText>
       <AsrInstallProgress />
     </NModal>
   </div>
 </template>
 
 <style scoped>
+.asr-install-device {
+  font-size: 13px;
+  color: var(--fg-strong);
+  margin-bottom: 2px;
+}
+
 .composer-wrap {
   flex-shrink: 0;
   padding: 0 var(--chat-pad-x, 10px) 8px;
@@ -876,6 +1219,7 @@ watch(sessionId, (id, prev) => {
 }
 
 .composer-card {
+  position: relative;
   width: 100%;
   max-width: none;
   border: 1px solid var(--border-strong);
@@ -885,6 +1229,29 @@ watch(sessionId, (id, prev) => {
   padding: 4px 6px 4px;
   min-width: 0;
   box-sizing: border-box;
+}
+
+.voice-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--bg-elevated, #fff) 92%, transparent);
+  backdrop-filter: blur(6px);
+}
+
+.voice-overlay :deep(.voice-bar) {
+  width: min(100%, 440px);
+}
+
+.composer-card.is-voice-recording .rich-editor,
+.composer-card.is-voice-recording .image-attachments {
+  pointer-events: none;
+  user-select: none;
 }
 
 .image-attachments {

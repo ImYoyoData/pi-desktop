@@ -1,4 +1,5 @@
 import { app, BrowserWindow, Menu, shell } from "electron";
+import { APP_GITHUB_URL } from "../shared/app-meta";
 
 /** Native app menu — especially important on macOS for Edit/Copy/Paste shortcuts. */
 export function installApplicationMenu(): void {
@@ -83,7 +84,7 @@ export function installApplicationMenu(): void {
         {
           label: "Pi Desktop on GitHub",
           click: () => {
-            void shell.openExternal("https://github.com/ImYoyoData/pi-desktop");
+            void shell.openExternal(APP_GITHUB_URL);
           },
         },
       ],

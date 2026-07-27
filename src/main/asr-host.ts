@@ -1,9 +1,21 @@
-import { app, BrowserWindow, ipcMain } from "electron";
-import { createWriteStream, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync, chmodSync, statSync } from "fs";
-import { join, dirname } from "path";
+import { app, BrowserWindow, dialog, ipcMain } from "electron";
+import {
+  copyFileSync,
+  createWriteStream,
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  renameSync,
+  rmSync,
+  writeFileSync,
+  chmodSync,
+  statSync,
+} from "fs";
+import { join, dirname, basename } from "path";
 import { cpus } from "os";
 import { pipeline } from "stream/promises";
-import { spawn, execFile } from "child_process";
+import { spawn, execFile, execFileSync, type ChildProcessWithoutNullStreams } from "child_process";
 import { promisify } from "util";
 import { Readable } from "stream";
 import { IpcChannels } from "../shared/protocol";
@@ -12,21 +24,38 @@ import {
   ASR_DISK_MB,
   ASR_MODEL_FILENAME,
   ASR_MODEL_LABEL,
-  ASR_MODEL_URL,
+  ASR_MODEL_URLS,
   ASR_RAM_MB,
+  assertAsrGgufPath,
+  assertAsrRuntimeArchivePath,
+  asrRuntimeArchiveName,
+  normalizeAsrModelUrl,
   resolveAsrBinaryAsset,
+  scrubAsrHallucination,
+  type AsrGpuBackend,
   type AsrInstallProgress,
   type AsrStatus,
+  type AsrStreamEvent,
 } from "../shared/asr";
+import { detectAsrGpuInfo, type AsrGpuInfo } from "./asr-gpu";
 
 const execFileAsync = promisify(execFile);
 const PREFS_FILE = "asr-prefs.json";
+const BACKEND_MARKER = ".backend";
 
 type Prefs = { enabled: boolean };
 
-let busy = false;
+/** Install/import only — must NOT gate the install UI via transcription. */
+let installBusy = false;
+/** Transcription job lock. */
+let inferBusy = false;
+/** Long-lived CrispASR `--stream` session. */
+let streamChild: ChildProcessWithoutNullStreams | null = null;
+let streamStdoutBuf = "";
+let streamReady = false;
 let lastError: string | null = null;
 let installAbort: AbortController | null = null;
+let cachedGpuInfo: AsrGpuInfo | null = null;
 
 function asrRoot(): string {
   return join(app.getPath("userData"), "asr");
@@ -122,19 +151,56 @@ function findBinary(dir: string, names: string[]): string | null {
   return null;
 }
 
+function gpuInfo(): AsrGpuInfo {
+  if (!cachedGpuInfo) cachedGpuInfo = detectAsrGpuInfo();
+  return cachedGpuInfo;
+}
+
+function preferredGpuBackend(): AsrGpuBackend {
+  return gpuInfo().backend;
+}
+
+function backendMarkerPath(): string {
+  return join(runtimeDir(), BACKEND_MARKER);
+}
+
+function installedBackend(): AsrGpuBackend | null {
+  try {
+    const raw = readFileSync(backendMarkerPath(), "utf8").trim().toLowerCase();
+    if (raw === "cuda" || raw === "vulkan" || raw === "metal" || raw === "cpu") return raw;
+  } catch {
+    // legacy installs without marker
+  }
+  return null;
+}
+
 function resolvedBinary(): string | null {
-  const asset = resolveAsrBinaryAsset(process.platform, process.arch);
+  const backend = preferredGpuBackend();
+  const asset = resolveAsrBinaryAsset(process.platform, process.arch, backend);
   if (!asset) return null;
   if (!existsSync(runtimeDir())) return null;
   return findBinary(runtimeDir(), asset.binaryNames);
 }
 
+function runtimeMatchesBackend(backend: AsrGpuBackend): boolean {
+  if (!resolvedBinary()) return false;
+  const marker = installedBackend();
+  // Legacy installs without marker count as CPU-only
+  if (!marker) return backend === "cpu";
+  return marker === backend;
+}
+
+function runtimeMatchesPreferred(): boolean {
+  return runtimeMatchesBackend(preferredGpuBackend());
+}
+
 function getStatus(): AsrStatus {
   const prefs = readPrefs();
-  const asset = resolveAsrBinaryAsset(process.platform, process.arch);
+  const backend = preferredGpuBackend();
+  const asset = resolveAsrBinaryAsset(process.platform, process.arch, backend);
   const bin = resolvedBinary();
   const model = modelPath();
-  const installed = Boolean(bin && existsSync(model));
+  const installed = Boolean(bin && existsSync(model) && runtimeMatchesPreferred());
   return {
     enabled: prefs.enabled,
     supported: Boolean(asset),
@@ -145,7 +211,12 @@ function getStatus(): AsrStatus {
     ramMb: ASR_RAM_MB,
     binaryMb: ASR_BINARY_MB,
     modelLabel: ASR_MODEL_LABEL,
-    busy,
+    installing: installBusy,
+    busy: inferBusy || Boolean(streamChild),
+    gpuBackend: backend,
+    gpuDeviceLabel: gpuInfo().deviceLabel,
+    gpuKind: gpuInfo().kind,
+    runtimeArchiveHint: asrRuntimeArchiveName(process.platform, process.arch, backend),
     lastError,
   };
 }
@@ -161,7 +232,45 @@ function estimatePhaseBytes(phase: "binary" | "model"): number {
   return Math.max(ASR_DISK_MB - ASR_BINARY_MB, 500) * 1024 * 1024;
 }
 
-async function downloadFile(
+/** ASCII error token — localized in renderer (avoids Windows console mojibake). */
+function downloadErrorMessage(err: unknown, url: string): string {
+  const cause =
+    err && typeof err === "object" && "cause" in err
+      ? (err as { cause?: { code?: string; message?: string } }).cause
+      : undefined;
+  const code = cause?.code ?? "";
+  const detail = cause?.message || (err instanceof Error ? err.message : String(err));
+  const kind =
+    code === "UND_ERR_CONNECT_TIMEOUT" ||
+    code === "ETIMEDOUT" ||
+    code === "ENOTFOUND" ||
+    /fetch failed|timed? ?out|ECONNREFUSED|ENOTFOUND/i.test(detail)
+      ? "timeout"
+      : "failed";
+  return `ASR_DOWNLOAD_${kind.toUpperCase()}|${url}|${code || detail}`;
+}
+
+/** GitHub release URLs often need mirrors from CN networks. */
+function expandDownloadUrls(urls: readonly string[]): string[] {
+  const out: string[] = [];
+  const seen = new Set<string>();
+  const push = (u: string): void => {
+    if (!u || seen.has(u)) return;
+    seen.add(u);
+    out.push(u);
+  };
+  for (const url of urls) {
+    if (/^https?:\/\/(github\.com|objects\.githubusercontent\.com)\//i.test(url)) {
+      push(`https://gh-proxy.com/${url}`);
+      push(`https://mirror.ghproxy.com/${url}`);
+      push(`https://ghfast.top/${url}`);
+    }
+    push(url);
+  }
+  return out;
+}
+
+async function downloadOnce(
   url: string,
   dest: string,
   phase: "binary" | "model",
@@ -169,15 +278,24 @@ async function downloadFile(
 ): Promise<void> {
   mkdirSync(dirname(dest), { recursive: true });
   const tmp = `${dest}.part`;
+  rmSync(tmp, { force: true });
   broadcastProgress({
     phase,
     receivedBytes: 0,
     totalBytes: estimatePhaseBytes(phase),
     message: phase === "model" ? "Downloading ASR model…" : "Downloading ASR runtime…",
   });
-  const res = await fetch(url, { signal, redirect: "follow" });
+  const res = await fetch(url, {
+    signal,
+    redirect: "follow",
+    headers: {
+      // Some CDNs reject empty / electron default agents
+      "User-Agent": `pi-desktop-asr/${app.getVersion()}`,
+      Accept: "*/*",
+    },
+  });
   if (!res.ok || !res.body) {
-    throw new Error(`Download failed (${res.status}): ${url}`);
+    throw new Error(`HTTP ${res.status}`);
   }
   const headerTotal = Number(res.headers.get("content-length") || 0);
   let totalBytes = headerTotal > 0 ? headerTotal : estimatePhaseBytes(phase);
@@ -201,10 +319,47 @@ async function downloadFile(
     received += chunk.length;
     emit();
   });
-  await pipeline(reader, out);
+  try {
+    await pipeline(reader, out);
+  } catch (err) {
+    rmSync(tmp, { force: true });
+    throw err;
+  }
   emit(true);
+  if (received <= 0) {
+    rmSync(tmp, { force: true });
+    throw new Error("empty download");
+  }
   rmSync(dest, { force: true });
   renameSync(tmp, dest);
+}
+
+/** Try each URL (with a short retry) until one succeeds. */
+async function downloadFile(
+  urls: string | readonly string[],
+  dest: string,
+  phase: "binary" | "model",
+  signal: AbortSignal,
+): Promise<void> {
+  const list = expandDownloadUrls(Array.isArray(urls) ? [...urls] : [urls]);
+  let lastErr: unknown;
+  let lastUrl = list[list.length - 1] ?? "";
+  for (const url of list) {
+    lastUrl = url;
+    for (let attempt = 1; attempt <= 2; attempt++) {
+      if (signal.aborted) throw new Error("Download aborted");
+      try {
+        await downloadOnce(url, dest, phase, signal);
+        return;
+      } catch (err) {
+        lastErr = err;
+        if (signal.aborted) throw err;
+        // brief backoff before retry / next mirror
+        await new Promise((r) => setTimeout(r, 400 * attempt));
+      }
+    }
+  }
+  throw new Error(downloadErrorMessage(lastErr, lastUrl));
 }
 
 async function extractArchive(archivePath: string, destDir: string, kind: "zip" | "tar.gz"): Promise<void> {
@@ -238,12 +393,88 @@ async function extractArchive(archivePath: string, destDir: string, kind: "zip" 
   throw new Error(`Unsupported archive: ${kind}`);
 }
 
-async function installAsr(): Promise<AsrStatus> {
-  if (busy) throw new Error("ASR install already in progress");
-  const asset = resolveAsrBinaryAsset(process.platform, process.arch);
-  if (!asset) throw new Error("ASR is not supported on this platform");
+async function installRuntimeBackend(backend: AsrGpuBackend, signal: AbortSignal): Promise<void> {
+  const asset = resolveAsrBinaryAsset(process.platform, process.arch, backend);
+  if (!asset) throw new Error(`ASR runtime not available for ${backend}`);
 
-  busy = true;
+  broadcastProgress({
+    phase: "binary",
+    receivedBytes: 0,
+    totalBytes: estimatePhaseBytes("binary"),
+    message: `Downloading ASR runtime (${backend})…`,
+  });
+  const archivePath = join(asrRoot(), `runtime-download.${asset.archive === "zip" ? "zip" : "tar.gz"}`);
+  await downloadFile(asset.url, archivePath, "binary", signal);
+  rmSync(runtimeDir(), { recursive: true, force: true });
+  mkdirSync(runtimeDir(), { recursive: true });
+  await extractArchive(archivePath, runtimeDir(), asset.archive);
+  rmSync(archivePath, { force: true });
+  writeFileSync(backendMarkerPath(), `${asset.backend}\n`, "utf8");
+  ensureRuntimeExecutables();
+  const bin = resolvedBinary();
+  if (!bin) throw new Error("ASR binary not found after extract");
+  try {
+    chmodSync(bin, 0o755);
+  } catch {
+    // windows
+  }
+}
+
+async function ensureRuntime(signal: AbortSignal): Promise<void> {
+  const preferred = preferredGpuBackend();
+  if (!resolveAsrBinaryAsset(process.platform, process.arch, preferred)) {
+    throw new Error("ASR is not supported on this platform");
+  }
+  if (runtimeMatchesPreferred()) return;
+
+  // Prefer GPU build; if GitHub/mirrors fail, fall back so voice still works (slower).
+  const candidates: AsrGpuBackend[] = [];
+  const add = (b: AsrGpuBackend): void => {
+    if (!candidates.includes(b) && resolveAsrBinaryAsset(process.platform, process.arch, b)) {
+      candidates.push(b);
+    }
+  };
+  add(preferred);
+  if (preferred === "cuda") add("vulkan");
+  if (preferred !== "cpu") add("cpu");
+
+  let lastErr: unknown;
+  for (const backend of candidates) {
+    if (runtimeMatchesBackend(backend)) {
+      if (backend !== preferred) {
+        cachedGpuInfo = {
+          backend,
+          deviceLabel: backend === "cpu" ? "CPU (fallback)" : gpuInfo().deviceLabel,
+          kind: backend === "cpu" ? "cpu" : gpuInfo().kind,
+        };
+      }
+      return;
+    }
+    try {
+      await installRuntimeBackend(backend, signal);
+      if (backend !== preferred) {
+        cachedGpuInfo = {
+          backend,
+          deviceLabel: backend === "cpu" ? "CPU (fallback)" : gpuInfo().deviceLabel,
+          kind: backend === "cpu" ? "cpu" : gpuInfo().kind,
+        };
+      }
+      return;
+    } catch (err) {
+      lastErr = err;
+    }
+  }
+  throw lastErr instanceof Error ? lastErr : new Error(String(lastErr ?? "ASR runtime install failed"));
+}
+
+async function withInstallLock(run: (signal: AbortSignal) => Promise<AsrStatus>): Promise<AsrStatus> {
+  if (installBusy) throw new Error("ASR install already in progress");
+  const backend = preferredGpuBackend();
+  if (!resolveAsrBinaryAsset(process.platform, process.arch, backend)) {
+    throw new Error("ASR is not supported on this platform");
+  }
+
+  installBusy = true;
   lastError = null;
   installAbort = new AbortController();
   const signal = installAbort.signal;
@@ -252,40 +483,18 @@ async function installAsr(): Promise<AsrStatus> {
     phase: "binary",
     receivedBytes: 0,
     totalBytes: estimatePhaseBytes("binary"),
-    message: "Starting ASR install…",
+    message: `Starting ASR install (${backend})…`,
   });
 
   try {
-    // Runtime binary
-    if (!resolvedBinary()) {
-      const archivePath = join(asrRoot(), `runtime-download.${asset.archive === "zip" ? "zip" : "tar.gz"}`);
-      await downloadFile(asset.url, archivePath, "binary", signal);
-      // clean previous extract
-      rmSync(runtimeDir(), { recursive: true, force: true });
-      mkdirSync(runtimeDir(), { recursive: true });
-      await extractArchive(archivePath, runtimeDir(), asset.archive);
-      rmSync(archivePath, { force: true });
-      const bin = resolvedBinary();
-      if (!bin) throw new Error("ASR binary not found after extract");
-      try {
-        chmodSync(bin, 0o755);
-      } catch {
-        // windows
-      }
-    }
-
-    // Model
-    if (!existsSync(modelPath())) {
-      await downloadFile(ASR_MODEL_URL, modelPath(), "model", signal);
-    }
-
+    const status = await run(signal);
     broadcastProgress({
       phase: "done",
       receivedBytes: 0,
       totalBytes: null,
       message: "ASR ready",
     });
-    return getStatus();
+    return status;
   } catch (err) {
     lastError = err instanceof Error ? err.message : String(err);
     broadcastProgress({
@@ -296,9 +505,145 @@ async function installAsr(): Promise<AsrStatus> {
     });
     throw err;
   } finally {
-    busy = false;
+    installBusy = false;
     installAbort = null;
   }
+}
+
+async function installAsr(): Promise<AsrStatus> {
+  return withInstallLock(async (signal) => {
+    await ensureRuntime(signal);
+    // Model (mirror-first; huggingface.co often times out via Node fetch)
+    if (!existsSync(modelPath())) {
+      await downloadFile(ASR_MODEL_URLS, modelPath(), "model", signal);
+    }
+    return getStatus();
+  });
+}
+
+async function installAsrFromUrl(url: string): Promise<AsrStatus> {
+  const normalized = normalizeAsrModelUrl(url);
+  return withInstallLock(async (signal) => {
+    await ensureRuntime(signal);
+    await downloadFile([normalized], modelPath(), "model", signal);
+    return getStatus();
+  });
+}
+
+async function importAsrModel(sourcePath: string): Promise<AsrStatus> {
+  assertAsrGgufPath(sourcePath);
+  if (!existsSync(sourcePath)) {
+    throw new Error(`Model file not found: ${sourcePath}`);
+  }
+  const st = statSync(sourcePath);
+  if (!st.isFile() || st.size <= 0) {
+    throw new Error("Invalid model file");
+  }
+
+  return withInstallLock(async (signal) => {
+    await ensureRuntime(signal);
+    broadcastProgress({
+      phase: "model",
+      receivedBytes: 0,
+      totalBytes: st.size,
+      message: `Importing ${basename(sourcePath)}…`,
+    });
+    const dest = modelPath();
+    const tmp = `${dest}.part`;
+    rmSync(tmp, { force: true });
+    copyFileSync(sourcePath, tmp);
+    rmSync(dest, { force: true });
+    renameSync(tmp, dest);
+    broadcastProgress({
+      phase: "model",
+      receivedBytes: st.size,
+      totalBytes: st.size,
+      message: "Local model imported",
+    });
+    return getStatus();
+  });
+}
+
+async function pickAsrModelFile(): Promise<string | null> {
+  const win = BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0];
+  const opts = {
+    title: "Select Qwen3-ASR GGUF model",
+    properties: ["openFile" as const],
+    filters: [{ name: "GGUF model", extensions: ["gguf"] }],
+  };
+  const result = win
+    ? await dialog.showOpenDialog(win, opts)
+    : await dialog.showOpenDialog(opts);
+  if (result.canceled || !result.filePaths[0]) return null;
+  return result.filePaths[0]!;
+}
+
+async function reinstallAsrRuntime(): Promise<AsrStatus> {
+  return withInstallLock(async (signal) => {
+    const backend = preferredGpuBackend();
+    rmSync(runtimeDir(), { recursive: true, force: true });
+    mkdirSync(runtimeDir(), { recursive: true });
+    await installRuntimeBackend(backend, signal);
+    return getStatus();
+  });
+}
+
+async function pickAsrRuntimeArchive(): Promise<string | null> {
+  const win = BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0];
+  const opts = {
+    title: "Select CrispASR runtime archive",
+    properties: ["openFile" as const],
+    filters: [
+      { name: "Runtime archive", extensions: ["zip", "gz", "tgz"] },
+      { name: "ZIP", extensions: ["zip"] },
+      { name: "tar.gz", extensions: ["gz", "tgz"] },
+    ],
+  };
+  const result = win
+    ? await dialog.showOpenDialog(win, opts)
+    : await dialog.showOpenDialog(opts);
+  if (result.canceled || !result.filePaths[0]) return null;
+  return result.filePaths[0]!;
+}
+
+async function importAsrRuntime(sourcePath: string): Promise<AsrStatus> {
+  const kind = assertAsrRuntimeArchivePath(sourcePath);
+  if (!existsSync(sourcePath)) {
+    throw new Error(`Runtime archive not found: ${sourcePath}`);
+  }
+  const st = statSync(sourcePath);
+  if (!st.isFile() || st.size <= 0) {
+    throw new Error("Invalid runtime archive");
+  }
+
+  return withInstallLock(async () => {
+    const backend = preferredGpuBackend();
+    broadcastProgress({
+      phase: "extract",
+      receivedBytes: 0,
+      totalBytes: st.size,
+      message: `Importing runtime ${basename(sourcePath)}…`,
+    });
+    rmSync(runtimeDir(), { recursive: true, force: true });
+    mkdirSync(runtimeDir(), { recursive: true });
+    try {
+      await extractArchive(sourcePath, runtimeDir(), kind);
+      writeFileSync(backendMarkerPath(), `${backend}\n`, "utf8");
+      ensureRuntimeExecutables();
+      const bin = resolvedBinary();
+      if (!bin) throw new Error("ASR binary not found in archive");
+      try {
+        chmodSync(bin, 0o755);
+      } catch {
+        // windows
+      }
+    } catch (err) {
+      rmSync(runtimeDir(), { recursive: true, force: true });
+      mkdirSync(runtimeDir(), { recursive: true });
+      throw err;
+    }
+    return getStatus();
+  });
 }
 
 async function uninstallAsr(): Promise<AsrStatus> {
@@ -331,85 +676,489 @@ function writeWavPcm16(filePath: string, pcm: Int16Array, sampleRate: number): v
   writeFileSync(filePath, buffer);
 }
 
+async function waitForInferSlot(maxMs = 60_000): Promise<void> {
+  const start = Date.now();
+  while (inferBusy) {
+    if (Date.now() - start > maxMs) throw new Error("ASR is busy");
+    await new Promise((r) => setTimeout(r, 40));
+  }
+}
+
 async function transcribePcm(pcmBase64: string, sampleRate: number): Promise<string> {
   const prefs = readPrefs();
   if (!prefs.enabled) throw new Error("ASR is disabled in settings");
-  const status = getStatus();
-  if (!status.installed || !status.binaryPath || !status.modelPath) {
+  if (installBusy) throw new Error("ASR install in progress");
+
+  // Model may exist while GPU runtime is still the old CPU build — require match.
+  let status = getStatus();
+  if (!status.modelPath || !existsSync(status.modelPath)) {
     throw new Error("ASR model is not installed");
   }
-  if (busy) throw new Error("ASR is busy");
+  if (!status.binaryPath || !runtimeMatchesPreferred()) {
+    throw new Error("ASR runtime is not ready for this GPU — open Settings to install/update");
+  }
 
-  busy = true;
+  await waitForInferSlot();
+  inferBusy = true;
   lastError = null;
-  const wavPath = join(asrRoot(), "tmp", `utt-${Date.now()}.wav`);
+  const stamp = Date.now();
+  const wavPath = join(asrRoot(), "tmp", `utt-${stamp}.wav`);
+  // CrispASR writes FNAME.txt when using -otxt / -of (path without extension)
+  const outBase = join(asrRoot(), "tmp", `utt-${stamp}-out`);
+  const outTxtPath = `${outBase}.txt`;
+  const backend = preferredGpuBackend();
   try {
     const raw = Buffer.from(pcmBase64, "base64");
     const pcm = new Int16Array(raw.buffer, raw.byteOffset, Math.floor(raw.byteLength / 2));
     writeWavPcm16(wavPath, pcm, sampleRate || 16000);
 
+    status = getStatus();
+    ensureRuntimeExecutables();
     const args = [
       "--backend",
       "qwen3",
       "-m",
-      status.modelPath,
+      status.modelPath!,
       "-f",
       wavPath,
       "-t",
-      String(Math.max(2, Math.min(8, cpus().length || 4))),
+      String(streamThreadCount()),
+      "--gpu-backend",
+      backend,
+      "-np",
+      "-l",
+      "zh",
+      "-otxt",
+      "-of",
+      outBase,
     ];
 
     const { stdout, stderr } = await new Promise<{ stdout: string; stderr: string }>((resolve, reject) => {
       const child = spawn(status.binaryPath!, args, {
         windowsHide: true,
-        env: { ...process.env },
+        cwd: dirname(status.binaryPath!),
+        env: streamChildEnv(status.binaryPath!),
       });
       let out = "";
       let err = "";
+      const timer = setTimeout(() => {
+        try {
+          child.kill();
+        } catch {
+          // ignore
+        }
+        reject(new Error("ASR timed out (90s) — first run loads the model, please retry"));
+      }, 90_000);
       child.stdout.on("data", (d) => {
         out += String(d);
       });
       child.stderr.on("data", (d) => {
         err += String(d);
       });
-      child.on("error", reject);
+      child.on("error", (e) => {
+        clearTimeout(timer);
+        reject(e);
+      });
       child.on("close", (code) => {
+        clearTimeout(timer);
         if (code === 0) resolve({ stdout: out, stderr: err });
         else reject(new Error(err.trim() || out.trim() || `ASR exited with code ${code}`));
       });
     });
 
-    const text = pickTranscript(stdout, stderr);
+    const text = readTranscriptFile(outTxtPath) || pickTranscript(stdout, stderr);
     if (!text) throw new Error("ASR returned empty transcript");
     return text;
   } catch (err) {
     lastError = err instanceof Error ? err.message : String(err);
     throw err;
   } finally {
-    busy = false;
-    try {
-      rmSync(wavPath, { force: true });
-    } catch {
-      // ignore
+    inferBusy = false;
+    for (const p of [wavPath, outTxtPath]) {
+      try {
+        rmSync(p, { force: true });
+      } catch {
+        // ignore
+      }
     }
   }
 }
 
-function pickTranscript(stdout: string, stderr: string): string {
-  const combined = `${stdout}\n${stderr}`.replace(/\r/g, "");
-  const lines = combined
+function isAsrLogLine(line: string): boolean {
+  return (
+    /^(\[|INFO|WARN|ERROR|DEBUG|TRACE|loading|ggml|llama|whisper|mel|encode|decode|tokens|system|main:|clip:|asr:)/i.test(
+      line,
+    ) ||
+    /crispasr[_-]|gpu[_ -]?backend|preferred\s+gpu|using\s+preferred|Vulkan\d*|CUDA|Metal|ggml_|llama_/i.test(
+      line,
+    ) ||
+    /^\d+(\.\d+)?(ms|s|%|MB|MiB|GB)\b/i.test(line) ||
+    /^[=*-]{3,}/.test(line)
+  );
+}
+
+function sanitizeTranscript(text: string): string {
+  const lines = text
+    .replace(/\r/g, "")
     .split("\n")
     .map((l) => l.trim())
-    .filter(Boolean);
-  // Prefer lines that look like speech text (not logs)
-  const candidates = lines.filter(
-    (l) =>
-      !/^(\[|INFO|WARN|ERROR|loading|ggml|llama|whisper|mel|encode|decode|tokens|system)/i.test(l) &&
-      !/^\d+(\.\d+)?(ms|s|%|MB)/i.test(l) &&
-      l.length > 1,
-  );
-  if (candidates.length) return candidates[candidates.length - 1]!;
-  return stdout.trim();
+    .filter((l) => l && !isAsrLogLine(l));
+  return scrubAsrHallucination(lines.join(" ").replace(/\s+/g, " ").trim());
+}
+
+function readTranscriptFile(path: string): string {
+  try {
+    if (!existsSync(path)) return "";
+    return sanitizeTranscript(readFileSync(path, "utf8"));
+  } catch {
+    return "";
+  }
+}
+
+function pickTranscript(stdout: string, stderr: string): string {
+  // Prefer stdout; never fall back to raw logs (stderr often has GPU init spam).
+  const fromOut = sanitizeTranscript(stdout);
+  if (fromOut) return fromOut;
+  const fromErr = sanitizeTranscript(stderr);
+  if (fromErr) return fromErr;
+  return "";
+}
+
+function broadcastStreamEvent(event: AsrStreamEvent): void {
+  for (const win of BrowserWindow.getAllWindows()) {
+    win.webContents.send(IpcChannels.asr.streamEvent, event);
+  }
+}
+
+/** chmod +x extracted binaries on macOS/Linux (zip/tar often drops execute bit). */
+function ensureRuntimeExecutables(): void {
+  if (process.platform === "win32") return;
+  const root = runtimeDir();
+  if (!existsSync(root)) return;
+  const stack = [root];
+  while (stack.length) {
+    const cur = stack.pop()!;
+    let entries: string[] = [];
+    try {
+      entries = readdirSync(cur);
+    } catch {
+      continue;
+    }
+    for (const name of entries) {
+      const full = join(cur, name);
+      let st;
+      try {
+        st = statSync(full);
+      } catch {
+        continue;
+      }
+      if (st.isDirectory()) {
+        stack.push(full);
+        continue;
+      }
+      const lower = name.toLowerCase();
+      if (
+        lower === "crispasr" ||
+        lower.startsWith("crispasr") ||
+        lower.includes("qwen3-asr") ||
+        (!lower.includes(".") && st.isFile())
+      ) {
+        try {
+          chmodSync(full, 0o755);
+        } catch {
+          // ignore
+        }
+      }
+    }
+  }
+}
+
+function streamThreadCount(): number {
+  const n = cpus().length || 4;
+  // Apple Silicon: leave headroom for UI; Windows GPU builds can use a bit more.
+  if (process.platform === "darwin") return Math.max(2, Math.min(6, n));
+  return Math.max(2, Math.min(8, n));
+}
+
+function streamChildEnv(binaryPath: string): NodeJS.ProcessEnv {
+  const binDir = dirname(binaryPath);
+  const env: NodeJS.ProcessEnv = { ...process.env };
+  if (process.platform === "win32") {
+    env.PATH = `${binDir};${env.PATH ?? ""}`;
+  } else if (process.platform === "darwin") {
+    // CrispASR macos tarball may ship dylibs next to the binary
+    const prev = env.DYLD_LIBRARY_PATH ?? "";
+    env.DYLD_LIBRARY_PATH = prev ? `${binDir}:${prev}` : binDir;
+    // Avoid Homebrew/path surprises when spawning from Electron.app
+    env.PATH = `/usr/bin:/bin:/usr/sbin:/sbin:${env.PATH ?? ""}`;
+  } else {
+    const prev = env.LD_LIBRARY_PATH ?? "";
+    env.LD_LIBRARY_PATH = prev ? `${binDir}:${prev}` : binDir;
+  }
+  return env;
+}
+
+function killStreamChild(): void {
+  const child = streamChild;
+  streamChild = null;
+  streamStdoutBuf = "";
+  streamReady = false;
+  if (!child) return;
+
+  try {
+    child.stdin.end();
+  } catch {
+    // ignore
+  }
+
+  const pid = child.pid;
+  if (process.platform === "win32" && pid) {
+    try {
+      execFileSync("taskkill", ["/pid", String(pid), "/T", "/F"], {
+        windowsHide: true,
+        stdio: "ignore",
+      });
+      return;
+    } catch {
+      // fall through
+    }
+  }
+
+  try {
+    child.kill(process.platform === "win32" ? undefined : "SIGTERM");
+  } catch {
+    // ignore
+  }
+  if (process.platform !== "win32") {
+    setTimeout(() => {
+      try {
+        child.kill("SIGKILL");
+      } catch {
+        // ignore
+      }
+    }, 600);
+  }
+}
+
+function handleStreamStdout(chunk: string): void {
+  streamStdoutBuf += chunk.replace(/\r/g, "");
+  let nl = streamStdoutBuf.indexOf("\n");
+  while (nl >= 0) {
+    const line = streamStdoutBuf.slice(0, nl).trim();
+    streamStdoutBuf = streamStdoutBuf.slice(nl + 1);
+    nl = streamStdoutBuf.indexOf("\n");
+    if (!line || !line.startsWith("{")) continue;
+    try {
+      const obj = JSON.parse(line) as {
+        type?: string;
+        utterance_id?: number;
+        text?: string;
+      };
+      if (obj.type === "partial" && typeof obj.text === "string") {
+        const text = sanitizeTranscript(obj.text);
+        if (!text) continue;
+        if (!streamReady) {
+          streamReady = true;
+          broadcastStreamEvent({ type: "ready" });
+        }
+        broadcastStreamEvent({
+          type: "partial",
+          utteranceId: Number(obj.utterance_id ?? 0),
+          text,
+        });
+      } else if (obj.type === "final" && typeof obj.text === "string") {
+        const text = sanitizeTranscript(obj.text);
+        if (!streamReady) {
+          streamReady = true;
+          broadcastStreamEvent({ type: "ready" });
+        }
+        if (!text) continue;
+        broadcastStreamEvent({
+          type: "final",
+          utteranceId: Number(obj.utterance_id ?? 0),
+          text,
+        });
+      } else if (obj.type === "silence") {
+        if (!streamReady) {
+          streamReady = true;
+          broadcastStreamEvent({ type: "ready" });
+        }
+        broadcastStreamEvent({ type: "silence" });
+      }
+    } catch {
+      // ignore malformed lines
+    }
+  }
+}
+
+async function startAsrStream(): Promise<AsrStatus> {
+  const prefs = readPrefs();
+  if (!prefs.enabled) throw new Error("ASR is disabled in settings");
+  if (installBusy) throw new Error("ASR install in progress");
+
+  const status = getStatus();
+  if (!status.modelPath || !existsSync(status.modelPath)) {
+    throw new Error("ASR model is not installed");
+  }
+  if (!status.binaryPath || !runtimeMatchesPreferred()) {
+    throw new Error("ASR runtime is not ready for this GPU — open Settings to install/update");
+  }
+
+  if (streamChild && !streamChild.killed) {
+    return getStatus();
+  }
+
+  await waitForInferSlot();
+  inferBusy = true;
+  lastError = null;
+  killStreamChild();
+  ensureRuntimeExecutables();
+
+  const backend = preferredGpuBackend();
+  // First streaming profile: short windows + prefix finals (simple & snappy).
+  // Keep VAD so silent windows are not decoded into junk/loops.
+  const streamStepMs = process.platform === "darwin" ? "700" : "800";
+  const streamLengthMs = process.platform === "darwin" ? "3500" : "4000";
+  const finalSilenceMs = process.platform === "darwin" ? "350" : "380";
+
+  const args = [
+    "--backend",
+    "qwen3",
+    "-m",
+    status.modelPath!,
+    "--stream",
+    "--stream-json",
+    "--gpu-backend",
+    backend,
+    "-t",
+    String(streamThreadCount()),
+    "-np",
+    "-l",
+    "zh",
+    "--vad",
+    "--vad-model",
+    "auto",
+    "--vad-threshold",
+    "0.6",
+    "--vad-min-speech-duration-ms",
+    "280",
+    "--vad-min-silence-duration-ms",
+    "220",
+    "--vad-speech-pad-ms",
+    "60",
+    "--stream-step",
+    streamStepMs,
+    "--stream-length",
+    streamLengthMs,
+    "--stream-keep",
+    "200",
+    "--stream-final-on-silence-ms",
+    finalSilenceMs,
+    "--stream-final-mode",
+    "prefix",
+  ];
+
+  const child = spawn(status.binaryPath!, args, {
+    windowsHide: true,
+    cwd: dirname(status.binaryPath!),
+    env: streamChildEnv(status.binaryPath!),
+    stdio: ["pipe", "pipe", "pipe"],
+  });
+  streamChild = child;
+  streamStdoutBuf = "";
+  streamReady = false;
+
+  // Keep stdin binary (PCM s16le) — do not setEncoding on stdin
+  child.stdout.setEncoding("utf8");
+  child.stderr.setEncoding("utf8");
+  child.stdout.on("data", (d: string) => handleStreamStdout(String(d)));
+  child.stderr.on("data", (d: string) => {
+    const msg = String(d);
+    // First useful log after model load — mark ready so UI can keep pushing
+    if (
+      !streamReady &&
+      /stream|listening|ready|vad|ggml_vulkan|ggml_metal|metal|cuda|load/i.test(msg)
+    ) {
+      streamReady = true;
+      broadcastStreamEvent({ type: "ready" });
+    }
+  });
+  child.on("error", (err) => {
+    lastError = err.message;
+    broadcastStreamEvent({ type: "error", message: err.message });
+    inferBusy = false;
+    streamChild = null;
+    streamReady = false;
+  });
+  child.on("close", (code) => {
+    if (streamChild === child) {
+      streamChild = null;
+      streamReady = false;
+      inferBusy = false;
+      if (code && code !== 0) {
+        const msg = `ASR stream exited with code ${code}`;
+        lastError = msg;
+        broadcastStreamEvent({ type: "error", message: msg });
+      }
+      broadcastStreamEvent({ type: "ended" });
+    }
+  });
+
+  // Soft ready after spawn so mic can start pushing while the model warms up
+  // Mac Metal first load is often slower — wait a bit longer before soft-ready.
+  const softReadyMs = process.platform === "darwin" ? 2500 : 1500;
+  setTimeout(() => {
+    if (streamChild === child && !streamReady) {
+      streamReady = true;
+      broadcastStreamEvent({ type: "ready" });
+    }
+  }, softReadyMs);
+
+  return getStatus();
+}
+
+function pushAsrStreamPcm(pcmBase64: string): void {
+  const child = streamChild;
+  if (!child || !child.stdin.writable) return;
+  try {
+    const buf = Buffer.from(pcmBase64, "base64");
+    if (buf.length === 0) return;
+    child.stdin.write(buf);
+  } catch (err) {
+    lastError = err instanceof Error ? err.message : String(err);
+  }
+}
+
+async function stopAsrStream(): Promise<AsrStatus> {
+  const child = streamChild;
+  if (!child) {
+    inferBusy = false;
+    return getStatus();
+  }
+  try {
+    child.stdin.end();
+  } catch {
+    // ignore
+  }
+  // Give process a moment to flush finals, then force-kill
+  await new Promise<void>((resolve) => {
+    const t = setTimeout(() => {
+      killStreamChild();
+      inferBusy = false;
+      broadcastStreamEvent({ type: "ended" });
+      resolve();
+    }, 800);
+    child.once("close", () => {
+      clearTimeout(t);
+      if (streamChild === child) {
+        streamChild = null;
+        streamReady = false;
+      }
+      inferBusy = false;
+      resolve();
+    });
+  });
+  return getStatus();
 }
 
 export function registerAsrIpc(): void {
@@ -421,11 +1170,25 @@ export function registerAsrIpc(): void {
     return getStatus();
   });
   ipcMain.handle(IpcChannels.asr.install, async () => installAsr());
-  ipcMain.handle(IpcChannels.asr.uninstall, async () => uninstallAsr());
+  ipcMain.handle(IpcChannels.asr.installFromUrl, async (_e, url: string) => installAsrFromUrl(url));
+  ipcMain.handle(IpcChannels.asr.pickModel, async () => pickAsrModelFile());
+  ipcMain.handle(IpcChannels.asr.importModel, async (_e, filePath: string) => importAsrModel(filePath));
+  ipcMain.handle(IpcChannels.asr.reinstallRuntime, async () => reinstallAsrRuntime());
+  ipcMain.handle(IpcChannels.asr.pickRuntimeArchive, async () => pickAsrRuntimeArchive());
+  ipcMain.handle(IpcChannels.asr.importRuntime, async (_e, filePath: string) => importAsrRuntime(filePath));
+  ipcMain.handle(IpcChannels.asr.uninstall, async () => {
+    await stopAsrStream();
+    return uninstallAsr();
+  });
   ipcMain.handle(
     IpcChannels.asr.transcribe,
     async (_e, payload: { pcmBase64: string; sampleRate: number }) => {
       return transcribePcm(payload.pcmBase64, payload.sampleRate);
     },
   );
+  ipcMain.handle(IpcChannels.asr.streamStart, async () => startAsrStream());
+  ipcMain.handle(IpcChannels.asr.streamPush, (_e, payload: { pcmBase64: string }) => {
+    pushAsrStreamPcm(payload.pcmBase64);
+  });
+  ipcMain.handle(IpcChannels.asr.streamStop, async () => stopAsrStream());
 }
