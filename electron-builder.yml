@@ -65,7 +65,7 @@ mac:
         - arm64
   extendInfo:
     NSCameraUsageDescription: Pi Desktop may use the camera for browser previews.
-    NSMicrophoneUsageDescription: Pi Desktop may use the microphone for browser previews.
+    NSMicrophoneUsageDescription: Pi Desktop uses the microphone for local speech recognition and browser previews.
     NSDocumentsFolderUsageDescription: Pi Desktop needs access to your Documents folder for workspaces.
     NSDownloadsFolderUsageDescription: Pi Desktop needs access to your Downloads folder for workspaces.
   notarize: false

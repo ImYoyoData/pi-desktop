@@ -1,11 +1,15 @@
 <script setup lang="ts">
-import { computed, h, onMounted, ref } from "vue";
+import { computed, h, onMounted, onUnmounted, ref } from "vue";
 import type { DropdownOption } from "naive-ui";
-import { NButton, NDropdown, NIcon, NSpace, NTag, NTooltip } from "naive-ui";
+import { NButton, NDropdown, NIcon, NSpace, NTag, useMessage } from "naive-ui";
 import {
+  ArrowUpCircleOutline,
   ColorPaletteOutline,
   ExtensionPuzzleOutline,
   FolderOpenOutline,
+  InformationCircleOutline,
+  LogoGithub,
+  MicOutline,
   MoonOutline,
   SettingsOutline,
   SparklesOutline,
@@ -15,21 +19,42 @@ import ModelsSettings from "@renderer/components/ModelsSettings.vue";
 import SkillsSettings from "@renderer/components/SkillsSettings.vue";
 import ExtensionsSettings from "@renderer/components/ExtensionsSettings.vue";
 import AppearanceSettings from "@renderer/components/AppearanceSettings.vue";
+import AsrSettings from "@renderer/components/AsrSettings.vue";
+import AboutSettings from "@renderer/components/AboutSettings.vue";
 import { useWorkspaceStore } from "@renderer/stores/workspace";
 import { useAppearanceStore } from "@renderer/stores/appearance";
 import { t } from "@renderer/i18n";
 import logoUrl from "@renderer/assets/logo.svg";
 
+const AUTO_CHECK_KEY = "pi-desktop:last-update-check";
+const AUTO_CHECK_MS = 24 * 60 * 60 * 1000;
+
 const workspace = useWorkspaceStore();
 const appearance = useAppearanceStore();
+const messageApi = useMessage();
 const modelsOpen = ref(false);
 const skillsOpen = ref(false);
 const extensionsOpen = ref(false);
 const appearanceOpen = ref(false);
+const asrOpen = ref(false);
+const aboutOpen = ref(false);
 const platform = ref<NodeJS.Platform>("win32");
+const updateBusy = ref(false);
+let offUpdateProgress: (() => void) | undefined;
 
 onMounted(async () => {
   platform.value = await window.api.window.platform();
+  // No loading toasts for update progress — button :loading is enough; sticky duration:0 toasts never clear reliably.
+  offUpdateProgress = window.api.update.onProgress((p) => {
+    if (p.phase === "error") {
+      messageApi.error(p.message, { duration: 5000 });
+    }
+  });
+  void maybeAutoCheckUpdate();
+});
+
+onUnmounted(() => {
+  offUpdateProgress?.();
 });
 
 function openFolder(): void {
@@ -49,6 +74,11 @@ const settingsOptions: DropdownOption[] = [
     icon: () => h(NIcon, null, { default: () => h(ColorPaletteOutline) }),
   },
   {
+    label: t.asrTitle,
+    key: "asr",
+    icon: () => h(NIcon, null, { default: () => h(MicOutline) }),
+  },
+  {
     label: "模型 / API Keys",
     key: "models",
     icon: () => h(NIcon, null, { default: () => h(SettingsOutline) }),
@@ -63,12 +93,24 @@ const settingsOptions: DropdownOption[] = [
     key: "extensions",
     icon: () => h(NIcon, null, { default: () => h(ExtensionPuzzleOutline) }),
   },
+  {
+    type: "divider",
+    key: "d-about",
+  },
+  {
+    label: t.aboutTitle,
+    key: "about",
+    icon: () => h(NIcon, null, { default: () => h(InformationCircleOutline) }),
+  },
 ];
 
 function onSettingsSelect(key: string | number): void {
   switch (String(key)) {
     case "appearance":
       appearanceOpen.value = true;
+      break;
+    case "asr":
+      asrOpen.value = true;
       break;
     case "models":
       modelsOpen.value = true;
@@ -78,6 +120,9 @@ function onSettingsSelect(key: string | number): void {
       break;
     case "extensions":
       extensionsOpen.value = true;
+      break;
+    case "about":
+      aboutOpen.value = true;
       break;
     default:
       break;
@@ -96,11 +141,61 @@ const themeIcon = computed(() => {
   return ColorPaletteOutline;
 });
 
-const themeTip = computed(() => {
-  if (appearance.themePreference === "light") return t.themeLight;
-  if (appearance.themePreference === "dark") return t.themeDark;
-  return t.themeSystem;
-});
+async function openGithub(): Promise<void> {
+  await window.api.update.openGithub();
+}
+
+async function runUpdateCheck(opts: { download: boolean; silent: boolean }): Promise<void> {
+  if (updateBusy.value) return;
+  updateBusy.value = true;
+  try {
+    const result = await window.api.update.check({ download: opts.download });
+    try {
+      localStorage.setItem(AUTO_CHECK_KEY, String(Date.now()));
+    } catch {
+      // ignore
+    }
+    if (result.status === "upToDate") {
+      if (!opts.silent) {
+        messageApi.success(result.message, { duration: 3000 });
+      }
+      return;
+    }
+    if (result.status === "downloaded") {
+      messageApi.success(result.message, { duration: 6000 });
+      return;
+    }
+    if (result.status === "openedBrowser" || result.status === "available") {
+      messageApi.info(result.message, { duration: 5000 });
+      return;
+    }
+    if (!opts.silent) {
+      messageApi.error(result.message, { duration: 5000 });
+    }
+  } catch (err) {
+    if (!opts.silent) {
+      messageApi.error(err instanceof Error ? err.message : String(err), { duration: 5000 });
+    }
+  } finally {
+    updateBusy.value = false;
+  }
+}
+
+async function onCheckUpdate(): Promise<void> {
+  await runUpdateCheck({ download: true, silent: false });
+}
+
+async function maybeAutoCheckUpdate(): Promise<void> {
+  try {
+    const raw = localStorage.getItem(AUTO_CHECK_KEY);
+    const last = raw ? Number(raw) : 0;
+    if (Number.isFinite(last) && Date.now() - last < AUTO_CHECK_MS) return;
+  } catch {
+    // ignore
+  }
+  // Silent: only notify when an update / browser open / error with useful message
+  await runUpdateCheck({ download: true, silent: true });
+}
 </script>
 
 <template>
@@ -132,28 +227,35 @@ const themeTip = computed(() => {
     </div>
     <div class="actions no-drag">
       <NSpace :size="4">
-        <NTooltip trigger="hover">
-          <template #trigger>
-            <NButton quaternary circle size="small" @click="cycleTheme">
-              <template #icon>
-                <NIcon :component="themeIcon" />
-              </template>
-            </NButton>
+        <NButton quaternary circle size="small" @click="cycleTheme">
+          <template #icon>
+            <NIcon :component="themeIcon" />
           </template>
-          {{ t.theme }} · {{ themeTip }}
-        </NTooltip>
-        <NTooltip trigger="hover">
-          <template #trigger>
-            <NButton quaternary circle size="small" @click="openFolder">
-              <template #icon>
-                <NIcon :component="FolderOpenOutline" />
-              </template>
-            </NButton>
+        </NButton>
+        <NButton quaternary circle size="small" @click="openFolder">
+          <template #icon>
+            <NIcon :component="FolderOpenOutline" />
           </template>
-          {{ t.openFolder }}
-        </NTooltip>
+        </NButton>
+        <NButton
+          quaternary
+          circle
+          size="small"
+          :loading="updateBusy"
+          :disabled="updateBusy"
+          @click="onCheckUpdate"
+        >
+          <template #icon>
+            <NIcon :component="ArrowUpCircleOutline" />
+          </template>
+        </NButton>
+        <NButton quaternary circle size="small" @click="openGithub">
+          <template #icon>
+            <NIcon :component="LogoGithub" />
+          </template>
+        </NButton>
         <NDropdown trigger="click" :options="settingsOptions" @select="onSettingsSelect">
-          <NButton quaternary circle size="small" :title="t.settingsTitle">
+          <NButton quaternary circle size="small">
             <template #icon>
               <NIcon :component="SettingsOutline" />
             </template>
@@ -164,9 +266,11 @@ const themeTip = computed(() => {
     <div v-if="platform !== 'darwin'" class="overlay-space" aria-hidden="true" />
   </header>
   <AppearanceSettings :open="appearanceOpen" @close="appearanceOpen = false" />
+  <AsrSettings :open="asrOpen" @close="asrOpen = false" />
   <ModelsSettings :open="modelsOpen" @close="modelsOpen = false" />
   <SkillsSettings :open="skillsOpen" @close="skillsOpen = false" />
   <ExtensionsSettings :open="extensionsOpen" @close="extensionsOpen = false" />
+  <AboutSettings :open="aboutOpen" @close="aboutOpen = false" />
 </template>
 
 <style scoped>

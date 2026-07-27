@@ -1,5 +1,5 @@
 import { defineStore } from "pinia";
-import { ref } from "vue";
+import { computed, reactive, ref } from "vue";
 import type { ElementCitation } from "../../../shared/protocol";
 import { truncateHtmlSnippet } from "../../../shared/html-snippet";
 
@@ -15,6 +15,14 @@ export type ComposerImage = {
   /** data: URL or blob: URL for preview */
   previewUrl: string;
 };
+
+type ComposerBucket = {
+  draft: string;
+  chips: ComposerChip[];
+  images: ComposerImage[];
+};
+
+const NONE_KEY = "__none__";
 
 function chipId(): string {
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
@@ -53,14 +61,77 @@ function parseDataUrl(dataUrl: string): { mimeType: string; data: string } | nul
   return { mimeType: match[1], data: match[2] };
 }
 
+function emptyBucket(): ComposerBucket {
+  return { draft: "", chips: [], images: [] };
+}
+
 export const useComposerStore = defineStore("composer", () => {
-  const draft = ref("");
-  const chips = ref<ComposerChip[]>([]);
-  const images = ref<ComposerImage[]>([]);
+  /** Per-session composer state (draft / chips / images). */
+  const bySession = reactive<Record<string, ComposerBucket>>({});
+  const activeSessionId = ref<string | null>(null);
+
+  function keyFor(sessionId: string | null | undefined): string {
+    return sessionId?.trim() ? sessionId : NONE_KEY;
+  }
+
+  function ensureBucket(sessionId: string | null | undefined): ComposerBucket {
+    const key = keyFor(sessionId);
+    if (!bySession[key]) bySession[key] = emptyBucket();
+    return bySession[key]!;
+  }
+
+  function bucket(): ComposerBucket {
+    return ensureBucket(activeSessionId.value);
+  }
+
+  /** Bind UI to a session's private editor buffer. */
+  function bindSession(sessionId: string | null): void {
+    activeSessionId.value = sessionId;
+    ensureBucket(sessionId);
+  }
+
+  function dropSession(sessionId: string): void {
+    const key = keyFor(sessionId);
+    const b = bySession[key];
+    if (b) {
+      for (const img of b.images) {
+        if (img.previewUrl.startsWith("blob:")) URL.revokeObjectURL(img.previewUrl);
+      }
+      delete bySession[key];
+    }
+    if (activeSessionId.value === sessionId) {
+      activeSessionId.value = null;
+      ensureBucket(null);
+    }
+  }
+
+  /** Clear all session buffers (e.g. workspace switch). */
+  function resetAll(): void {
+    for (const key of Object.keys(bySession)) {
+      const b = bySession[key];
+      if (!b) continue;
+      for (const img of b.images) {
+        if (img.previewUrl.startsWith("blob:")) URL.revokeObjectURL(img.previewUrl);
+      }
+      delete bySession[key];
+    }
+    activeSessionId.value = null;
+    ensureBucket(null);
+  }
+
+  const draft = computed({
+    get: () => bucket().draft,
+    set: (v: string) => {
+      bucket().draft = v;
+    },
+  });
+
+  const chips = computed(() => bucket().chips);
+  const images = computed(() => bucket().images);
 
   function elementCitations(): ElementCitation[] {
-    return chips.value
-      .filter((c): c is Extract<ComposerChip, { kind: "element" }> => c.kind === "element")
+    return bucket()
+      .chips.filter((c): c is Extract<ComposerChip, { kind: "element" }> => c.kind === "element")
       .map((c) => c.citation);
   }
 
@@ -70,10 +141,10 @@ export const useComposerStore = defineStore("composer", () => {
       console.warn("[composer] failed to parse image data URL");
       return;
     }
-    // Deduplicate identical screenshots
-    if (images.value.some((i) => i.data === parsed.data)) return;
-    images.value = [
-      ...images.value,
+    const b = bucket();
+    if (b.images.some((i) => i.data === parsed.data)) return;
+    b.images = [
+      ...b.images,
       {
         id: chipId(),
         data: parsed.data,
@@ -84,8 +155,9 @@ export const useComposerStore = defineStore("composer", () => {
   }
 
   function addImageFile(image: Omit<ComposerImage, "id"> & { id?: string }): void {
-    images.value = [
-      ...images.value,
+    const b = bucket();
+    b.images = [
+      ...b.images,
       {
         id: image.id ?? chipId(),
         data: image.data,
@@ -96,27 +168,30 @@ export const useComposerStore = defineStore("composer", () => {
   }
 
   function removeImage(id: string): void {
-    const idx = images.value.findIndex((i) => i.id === id);
+    const b = bucket();
+    const idx = b.images.findIndex((i) => i.id === id);
     if (idx < 0) return;
-    const next = [...images.value];
+    const next = [...b.images];
     const [img] = next.splice(idx, 1);
     if (img?.previewUrl.startsWith("blob:")) URL.revokeObjectURL(img.previewUrl);
-    images.value = next;
+    b.images = next;
   }
 
   function clearImages(): void {
-    for (const img of images.value) {
+    const b = bucket();
+    for (const img of b.images) {
       if (img.previewUrl.startsWith("blob:")) URL.revokeObjectURL(img.previewUrl);
     }
-    images.value = [];
+    b.images = [];
   }
 
   /**
    * Element tag (content only in UI). Screenshot arrives via separate IPC → addImageFromDataUrl.
    */
   function addCitation(citation: ElementCitation): void {
-    chips.value = [
-      ...chips.value,
+    const b = bucket();
+    b.chips = [
+      ...b.chips,
       {
         id: chipId(),
         kind: "element",
@@ -134,10 +209,11 @@ export const useComposerStore = defineStore("composer", () => {
   }
 
   function attachScreenshotToLatestElement(dataUrl: string): void {
-    for (let i = chips.value.length - 1; i >= 0; i--) {
-      const chip = chips.value[i];
+    const b = bucket();
+    for (let i = b.chips.length - 1; i >= 0; i--) {
+      const chip = b.chips[i];
       if (chip?.kind === "element" && !chip.citation.screenshotDataUrl) {
-        chips.value = chips.value.map((c, idx) =>
+        b.chips = b.chips.map((c, idx) =>
           idx === i && c.kind === "element"
             ? { ...c, citation: { ...c.citation, screenshotDataUrl: dataUrl } }
             : c,
@@ -150,32 +226,36 @@ export const useComposerStore = defineStore("composer", () => {
   function addFileTag(filePath: string): void {
     const path = filePath.trim();
     if (!path) return;
-    if (chips.value.some((c) => c.kind === "file" && c.path === path)) return;
-    chips.value = [...chips.value, { id: chipId(), kind: "file", path }];
+    const b = bucket();
+    if (b.chips.some((c) => c.kind === "file" && c.path === path)) return;
+    b.chips = [...b.chips, { id: chipId(), kind: "file", path }];
   }
 
   function addUrlTag(url: string): void {
     const normalized = url.trim();
     if (!isHttpUrl(normalized)) return;
-    if (chips.value.some((c) => c.kind === "url" && c.url === normalized)) return;
-    chips.value = [...chips.value, { id: chipId(), kind: "url", url: normalized }];
+    const b = bucket();
+    if (b.chips.some((c) => c.kind === "url" && c.url === normalized)) return;
+    b.chips = [...b.chips, { id: chipId(), kind: "url", url: normalized }];
   }
 
   function removeChip(id: string): void {
-    const chip = chips.value.find((c) => c.id === id);
+    const b = bucket();
+    const chip = b.chips.find((c) => c.id === id);
     if (chip?.kind === "element" && chip.citation.screenshotDataUrl) {
       const parsed = parseDataUrl(chip.citation.screenshotDataUrl);
       if (parsed) {
-        const img = images.value.find((i) => i.data === parsed.data);
+        const img = b.images.find((i) => i.data === parsed.data);
         if (img) removeImage(img.id);
       }
     }
-    chips.value = chips.value.filter((c) => c.id !== id);
+    b.chips = b.chips.filter((c) => c.id !== id);
   }
 
   function clear(): void {
-    draft.value = "";
-    chips.value = [];
+    const b = bucket();
+    b.draft = "";
+    b.chips = [];
     clearImages();
   }
 
@@ -187,7 +267,7 @@ export const useComposerStore = defineStore("composer", () => {
   /** Short @-style tags for the user-visible message (not the agent citation dump). */
   function formatChipsForMessage(): string {
     const parts: string[] = [];
-    for (const chip of chips.value) {
+    for (const chip of bucket().chips) {
       if (chip.kind === "file") {
         const ref = chip.path.includes(" ") ? `"${chip.path}"` : chip.path;
         parts.push(`@${ref}`);
@@ -220,9 +300,13 @@ export const useComposerStore = defineStore("composer", () => {
   }
 
   return {
+    activeSessionId,
     draft,
     chips,
     images,
+    bindSession,
+    dropSession,
+    resetAll,
     elementCitations,
     elementTagSnapshot,
     addCitation,

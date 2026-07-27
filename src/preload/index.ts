@@ -4,7 +4,29 @@ import type { AgentCommand, AgentEvent, ElementCitation, SessionHistoryMessage, 
 import { IpcChannels } from "../shared/protocol";
 import type { ModelsGetResult, ModelsSetPayload } from "../shared/models-settings";
 import type { PreviewResult } from "../shared/preview-types";
-import type { AsrInstallProgress, AsrStatus } from "../shared/asr";
+import type { AsrInstallProgress, AsrStatus, AsrStreamEvent } from "../shared/asr";
+import type { UpdateCheckResult } from "../shared/update";
+import type {
+  PiCliInstallProgress,
+  PiCliInstallResult,
+  PiCliStatus,
+} from "../shared/pi-cli";
+
+export type AppInfo = {
+  version: string;
+  githubUrl: string;
+  releasesUrl: string;
+  author: string;
+  qq: string;
+  email: string;
+};
+
+export type UpdateProgress = {
+  phase: "download" | "done" | "error";
+  receivedBytes: number;
+  totalBytes: number | null;
+  message: string;
+};
 
 export type { AgentCommand, AgentEvent, ElementCitation, SessionHistoryMessage, SessionStatus, SessionSummary };
 
@@ -19,6 +41,8 @@ const api = {
       ipcRenderer.invoke(IpcChannels.window.setThemeSource, source) as Promise<void>,
     setChromeTheme: (mode: "light" | "dark") =>
       ipcRenderer.invoke(IpcChannels.window.setChromeTheme, mode) as Promise<void>,
+    requestMediaAccess: (kind: "microphone" | "camera") =>
+      ipcRenderer.invoke(IpcChannels.window.requestMediaAccess, kind) as Promise<boolean>,
   },
   workspace: {
     get: () => ipcRenderer.invoke(IpcChannels.workspace.get) as Promise<string | null>,
@@ -282,15 +306,74 @@ const api = {
     setEnabled: (enabled: boolean) =>
       ipcRenderer.invoke(IpcChannels.asr.setEnabled, enabled) as Promise<AsrStatus>,
     install: () => ipcRenderer.invoke(IpcChannels.asr.install) as Promise<AsrStatus>,
+    installFromUrl: (url: string) =>
+      ipcRenderer.invoke(IpcChannels.asr.installFromUrl, url) as Promise<AsrStatus>,
+    pickModel: () => ipcRenderer.invoke(IpcChannels.asr.pickModel) as Promise<string | null>,
+    importModel: (filePath: string) =>
+      ipcRenderer.invoke(IpcChannels.asr.importModel, filePath) as Promise<AsrStatus>,
+    reinstallRuntime: () => ipcRenderer.invoke(IpcChannels.asr.reinstallRuntime) as Promise<AsrStatus>,
+    pickRuntimeArchive: () =>
+      ipcRenderer.invoke(IpcChannels.asr.pickRuntimeArchive) as Promise<string | null>,
+    importRuntime: (filePath: string) =>
+      ipcRenderer.invoke(IpcChannels.asr.importRuntime, filePath) as Promise<AsrStatus>,
     uninstall: () => ipcRenderer.invoke(IpcChannels.asr.uninstall) as Promise<AsrStatus>,
     transcribe: (pcmBase64: string, sampleRate: number) =>
       ipcRenderer.invoke(IpcChannels.asr.transcribe, { pcmBase64, sampleRate }) as Promise<string>,
+    streamStart: () => ipcRenderer.invoke(IpcChannels.asr.streamStart) as Promise<AsrStatus>,
+    streamPush: (pcmBase64: string) =>
+      ipcRenderer.invoke(IpcChannels.asr.streamPush, { pcmBase64 }) as Promise<void>,
+    streamStop: () => ipcRenderer.invoke(IpcChannels.asr.streamStop) as Promise<AsrStatus>,
+    onStreamEvent: (callback: (event: AsrStreamEvent) => void) => {
+      const listener = (_event: Electron.IpcRendererEvent, payload: AsrStreamEvent) =>
+        callback(payload);
+      ipcRenderer.on(IpcChannels.asr.streamEvent, listener);
+      return () => {
+        ipcRenderer.removeListener(IpcChannels.asr.streamEvent, listener);
+      };
+    },
     onProgress: (callback: (progress: AsrInstallProgress) => void) => {
       const listener = (_event: Electron.IpcRendererEvent, progress: AsrInstallProgress) =>
         callback(progress);
       ipcRenderer.on(IpcChannels.asr.progress, listener);
       return () => {
         ipcRenderer.removeListener(IpcChannels.asr.progress, listener);
+      };
+    },
+  },
+  update: {
+    getAppInfo: () => ipcRenderer.invoke(IpcChannels.update.getAppInfo) as Promise<AppInfo>,
+    openGithub: () => ipcRenderer.invoke(IpcChannels.update.openGithub) as Promise<void>,
+    openReleases: () => ipcRenderer.invoke(IpcChannels.update.openReleases) as Promise<void>,
+    openAuthorEmail: () => ipcRenderer.invoke(IpcChannels.update.openAuthorEmail) as Promise<void>,
+    check: (opts?: { download?: boolean }) =>
+      ipcRenderer.invoke(IpcChannels.update.check, opts) as Promise<UpdateCheckResult>,
+    onProgress: (callback: (progress: UpdateProgress) => void) => {
+      const listener = (_event: Electron.IpcRendererEvent, progress: UpdateProgress) =>
+        callback(progress);
+      ipcRenderer.on(IpcChannels.update.progress, listener);
+      return () => {
+        ipcRenderer.removeListener(IpcChannels.update.progress, listener);
+      };
+    },
+  },
+  piCli: {
+    status: () => ipcRenderer.invoke(IpcChannels.piCli.status) as Promise<PiCliStatus>,
+    shouldPrompt: () =>
+      ipcRenderer.invoke(IpcChannels.piCli.shouldPrompt) as Promise<{
+        prompt: boolean;
+        status: PiCliStatus;
+        skipped: boolean;
+      }>,
+    install: () => ipcRenderer.invoke(IpcChannels.piCli.install) as Promise<PiCliInstallResult>,
+    skip: () => ipcRenderer.invoke(IpcChannels.piCli.skip) as Promise<{ skipped: boolean }>,
+    openDocs: () => ipcRenderer.invoke(IpcChannels.piCli.openDocs) as Promise<void>,
+    openSite: () => ipcRenderer.invoke(IpcChannels.piCli.openSite) as Promise<void>,
+    onProgress: (callback: (progress: PiCliInstallProgress) => void) => {
+      const listener = (_event: Electron.IpcRendererEvent, progress: PiCliInstallProgress) =>
+        callback(progress);
+      ipcRenderer.on(IpcChannels.piCli.progress, listener);
+      return () => {
+        ipcRenderer.removeListener(IpcChannels.piCli.progress, listener);
       };
     },
   },

@@ -11,7 +11,10 @@ export {}
 /* prettier-ignore */
 declare module 'vue' {
   export interface GlobalComponents {
+    AboutSettings: typeof import('./src/components/AboutSettings.vue')['default']
     AppearanceSettings: typeof import('./src/components/AppearanceSettings.vue')['default']
+    AsrInstallProgress: typeof import('./src/components/AsrInstallProgress.vue')['default']
+    AsrSettings: typeof import('./src/components/AsrSettings.vue')['default']
     BrowserLibraryPanel: typeof import('./src/components/BrowserLibraryPanel.vue')['default']
     BrowserTab: typeof import('./src/components/BrowserTab.vue')['default']
     ChangesTab: typeof import('./src/components/ChangesTab.vue')['default']
@@ -24,9 +27,11 @@ declare module 'vue' {
     MarkdownView: typeof import('./src/components/MarkdownView.vue')['default']
     MessageList: typeof import('./src/components/MessageList.vue')['default']
     ModelsSettings: typeof import('./src/components/ModelsSettings.vue')['default']
+    PiCliSetup: typeof import('./src/components/PiCliSetup.vue')['default']
     PreviewTab: typeof import('./src/components/PreviewTab.vue')['default']
     ProviderIcon: typeof import('./src/components/ProviderIcon.vue')['default']
     RightPane: typeof import('./src/components/RightPane.vue')['default']
+    SendQueueBar: typeof import('./src/components/SendQueueBar.vue')['default']
     SessionSidebar: typeof import('./src/components/SessionSidebar.vue')['default']
     SkillsSettings: typeof import('./src/components/SkillsSettings.vue')['default']
     SplitRoot: typeof import('./src/components/SplitRoot.vue')['default']
@@ -34,6 +39,7 @@ declare module 'vue' {
     TitleBar: typeof import('./src/components/TitleBar.vue')['default']
     TopBar: typeof import('./src/components/TopBar.vue')['default']
     Versions: typeof import('./src/components/Versions.vue')['default']
+    VoiceRecordBar: typeof import('./src/components/VoiceRecordBar.vue')['default']
     WelcomeView: typeof import('./src/components/WelcomeView.vue')['default']
   }
 }

@@ -1,4 +1,4 @@
-import { BrowserWindow, ipcMain, nativeTheme } from "electron";
+import { BrowserWindow, ipcMain, nativeTheme, systemPreferences } from "electron";
 import { IpcChannels } from "../shared/protocol";
 
 type ThemeSource = "system" | "light" | "dark";
@@ -57,5 +57,18 @@ export function registerWindowIpc(): void {
     const win = BrowserWindow.fromWebContents(event.sender);
     if (!win) return;
     if (mode === "light" || mode === "dark") applyChrome(win, mode);
+  });
+
+  /** macOS requires TCC prompt via askForMediaAccess before getUserMedia works reliably. */
+  ipcMain.handle(IpcChannels.window.requestMediaAccess, async (_event, kind: "microphone" | "camera") => {
+    if (kind !== "microphone" && kind !== "camera") return false;
+    if (process.platform !== "darwin") return true;
+    try {
+      const status = systemPreferences.getMediaAccessStatus(kind);
+      if (status === "granted") return true;
+      return await systemPreferences.askForMediaAccess(kind);
+    } catch {
+      return false;
+    }
   });
 }
