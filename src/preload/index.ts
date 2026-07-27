@@ -5,7 +5,7 @@ import { IpcChannels } from "../shared/protocol";
 import type { ModelsGetResult, ModelsSetPayload } from "../shared/models-settings";
 import type { PreviewResult } from "../shared/preview-types";
 import type { AsrInstallProgress, AsrStatus, AsrStreamEvent } from "../shared/asr";
-import type { UpdateCheckResult } from "../shared/update";
+import type { UpdateCheckResult, UpdateProgress } from "../shared/update";
 import type {
   PiCliInstallProgress,
   PiCliInstallResult,
@@ -21,12 +21,7 @@ export type AppInfo = {
   email: string;
 };
 
-export type UpdateProgress = {
-  phase: "download" | "done" | "error";
-  receivedBytes: number;
-  totalBytes: number | null;
-  message: string;
-};
+export type { UpdateProgress };
 
 export type { AgentCommand, AgentEvent, ElementCitation, SessionHistoryMessage, SessionStatus, SessionSummary };
 
@@ -347,6 +342,8 @@ const api = {
     openAuthorEmail: () => ipcRenderer.invoke(IpcChannels.update.openAuthorEmail) as Promise<void>,
     check: (opts?: { download?: boolean }) =>
       ipcRenderer.invoke(IpcChannels.update.check, opts) as Promise<UpdateCheckResult>,
+    download: () =>
+      ipcRenderer.invoke(IpcChannels.update.download) as Promise<UpdateCheckResult>,
     onProgress: (callback: (progress: UpdateProgress) => void) => {
       const listener = (_event: Electron.IpcRendererEvent, progress: UpdateProgress) =>
         callback(progress);

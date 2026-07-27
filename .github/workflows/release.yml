@@ -126,17 +126,16 @@ jobs:
             No portable EXE, ZIP, or blockmap extras.
 
             ## Highlights
-            - Tool cards: read shows file + lines read/total; bash/tools show execution order `#N` and success/failure
-            - Settings → Extension market (browse npm `pi-package`, install `pi-marketplace`)
-            - Full UI i18n pass — English locale no longer shows leftover Chinese chrome
-            - Built-in browser: first link open no longer races a blank tab
-            - Idle worker exit `(0)` is silent (not a chat error)
+            - **Update UX**: startup silent check → red badge only; click opens version card with release notes; download shows progress bar
+            - Download uses Electron `net.fetch` (fixes common `fetch failed` via Chromium network stack)
+            - Tool cards: read lines read/total; execution order `#N`; success/failure
+            - Settings → Extension market
+            - Full UI i18n; built-in browser first-open race fixed; idle worker exit silent
 
             ## macOS
             - DMG for Intel + Apple Silicon; hardened runtime + entitlements (mic / JIT)
             - Notarization still off — first open may need right-click → Open (Gatekeeper)
             - Path compare stays case-sensitive; Pi CLI installer uses `.command` + `open`
-            - Metal ASR path unchanged
 
             ## Fixes (carry-forward)
             - **#4** NVIDIA CUDA ASR crash → Vulkan fallback
