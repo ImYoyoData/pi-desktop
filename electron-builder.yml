@@ -26,18 +26,16 @@ extraResources:
       - '**/*'
 icon: build/icon.png
 
-# Electron 39+ does not ship Windows ia32 (32-bit). Targets: win x64 + arm64, mac x64 + arm64.
+# Electron 39+ has no Windows ia32. Ship one installer per arch only:
+# Windows NSIS: x64 + arm64 | macOS DMG: x64 + arm64 (no portable/zip extras).
 win:
   executableName: PiDesktop
-  artifactName: ${productName}-${version}-win-${arch}.${ext}
+  artifactName: ${productName}-${version}-win-${arch}-setup.${ext}
   target:
     - target: nsis
       arch:
         - x64
         - arm64
-    - target: portable
-      arch:
-        - x64
 nsis:
   oneClick: false
   allowToChangeInstallationDirectory: true
@@ -56,10 +54,6 @@ mac:
   artifactName: ${productName}-${version}-mac-${arch}.${ext}
   target:
     - target: dmg
-      arch:
-        - x64
-        - arm64
-    - target: zip
       arch:
         - x64
         - arm64
