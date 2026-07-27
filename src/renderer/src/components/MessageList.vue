@@ -306,8 +306,8 @@ watch(
 }
 
 .bubble {
-  padding: 8px 12px;
-  border-radius: 12px;
+  padding: 9px 13px;
+  border-radius: var(--radius-md, 11px);
   font-size: 14px;
   line-height: 1.55;
   word-break: break-word;
@@ -316,7 +316,8 @@ watch(
 .bubble.user {
   background: var(--user-bg);
   color: var(--fg-strong);
-  border: 1px solid var(--border);
+  border: 1px solid color-mix(in srgb, var(--accent) 14%, var(--border));
+  box-shadow: var(--shadow-sm);
 }
 
 .bubble.assistant {

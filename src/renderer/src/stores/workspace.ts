@@ -13,9 +13,9 @@ export const useWorkspaceStore = defineStore("workspace", () => {
    */
   function onRootChanged(next: string | null, prev: string | null): void {
     if (next === prev) return;
-    if (prev && next !== prev) {
-      useRightTabsStore().closeAllPreviewTabs();
-    }
+    const tabs = useRightTabsStore();
+    if (prev) tabs.persistTabs(prev);
+    tabs.restoreTabs(next);
     if (next) void window.api.fs.watch(next);
     else void window.api.fs.unwatch();
   }
@@ -23,6 +23,17 @@ export const useWorkspaceStore = defineStore("workspace", () => {
   watch(root, (next, prev) => {
     onRootChanged(next, prev ?? null);
   });
+
+  watch(
+    () => {
+      const tabs = useRightTabsStore();
+      return [tabs.tabs, tabs.activeId] as const;
+    },
+    () => {
+      useRightTabsStore().persistTabs(root.value);
+    },
+    { deep: true },
+  );
 
   async function getWorkspace(): Promise<string | null> {
     root.value = await window.api.workspace.get();

@@ -100,6 +100,33 @@ export function renameWorkspaceEntry(root: string, relativePath: string, newName
   return toRel(parentKey, safe);
 }
 
+/** Move a file/folder into another directory (same basename). */
+export function moveWorkspaceEntry(
+  root: string,
+  relativePath: string,
+  destRelativeDir: string,
+): string {
+  const abs = resolveWorkspacePath(root, relativePath);
+  const base = path.basename(abs);
+  const fromNorm = relativePath.replace(/\\/g, "/");
+  const destNorm = (destRelativeDir || "").replace(/\\/g, "/").replace(/\/+$/, "");
+  if (destNorm === fromNorm || destNorm.startsWith(`${fromNorm}/`)) {
+    throw new Error("不能移动到自身或其子目录");
+  }
+  const destDirAbs = destNorm
+    ? resolveWorkspacePath(root, destNorm)
+    : path.resolve(root);
+  if (!fs.existsSync(destDirAbs) || !fs.statSync(destDirAbs).isDirectory()) {
+    throw new Error("目标目录不存在");
+  }
+  const nextAbs = path.join(destDirAbs, base);
+  resolveWorkspacePath(root, path.relative(root, nextAbs));
+  if (path.resolve(abs) === path.resolve(nextAbs)) return fromNorm;
+  if (fs.existsSync(nextAbs)) throw new Error("目标位置已存在同名项");
+  fs.renameSync(abs, nextAbs);
+  return toRel(destNorm, base);
+}
+
 export function deleteWorkspaceEntry(root: string, relativePath: string): void {
   const abs = resolveWorkspacePath(root, relativePath);
   fs.rmSync(abs, { recursive: true, force: false });

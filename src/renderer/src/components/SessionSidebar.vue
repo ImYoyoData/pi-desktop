@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, h, onMounted, reactive, ref, watch } from "vue";
+import { computed, h, nextTick, onMounted, onUnmounted, reactive, ref, watch } from "vue";
 import type { DropdownOption } from "naive-ui";
 import {
   NAlert,
@@ -27,6 +27,7 @@ import {
   RefreshOutline,
   TrashOutline,
 } from "@vicons/ionicons5";
+import Sortable from "sortablejs";
 import { Splitpanes, Pane } from "splitpanes";
 import type { SplitpanesResizedPayload } from "splitpanes";
 import type { SessionStatus, SessionSummary } from "../../../shared/protocol";
@@ -39,6 +40,7 @@ import FilesTab from "@renderer/components/FilesTab.vue";
 import { t } from "@renderer/i18n";
 
 const PIN_KEY = "session-pins:v1";
+const SESSION_ORDER_KEY = "pi-desktop:session-order:v1";
 
 const layout = useLayoutStore();
 const sessionsStore = useSessionsStore();
@@ -51,6 +53,9 @@ const message = useMessage();
 const sessionsByRoot = reactive<Record<string, SessionSummary[]>>({});
 const expanded = reactive<Record<string, boolean>>({});
 const pins = reactive<Record<string, string[]>>({});
+const sessionOrders = reactive<Record<string, string[]>>({});
+const sessionListEls = new Map<string, HTMLElement>();
+const sessionSortables = new Map<string, Sortable>();
 
 const renameOpen = ref(false);
 const renameDraft = ref("");
@@ -89,6 +94,66 @@ function persistPins(): void {
   localStorage.setItem(PIN_KEY, JSON.stringify({ ...pins }));
 }
 
+function loadSessionOrders(): void {
+  try {
+    const raw = localStorage.getItem(SESSION_ORDER_KEY);
+    if (!raw) return;
+    const parsed = JSON.parse(raw) as Record<string, string[]>;
+    for (const [k, v] of Object.entries(parsed)) {
+      sessionOrders[k] = Array.isArray(v) ? v : [];
+    }
+  } catch {
+    // ignore
+  }
+}
+
+function persistSessionOrders(): void {
+  localStorage.setItem(SESSION_ORDER_KEY, JSON.stringify({ ...sessionOrders }));
+}
+
+function setSessionListRef(root: string, el: unknown): void {
+  if (el instanceof HTMLElement) {
+    sessionListEls.set(root, el);
+    void nextTick(() => bindSessionSortable(root));
+    return;
+  }
+  sessionSortables.get(root)?.destroy();
+  sessionSortables.delete(root);
+  sessionListEls.delete(root);
+}
+
+function bindSessionSortable(root: string): void {
+  const el = sessionListEls.get(root);
+  if (!el) return;
+  sessionSortables.get(root)?.destroy();
+  const sortable = Sortable.create(el, {
+    animation: 150,
+    draggable: ".session-row",
+    filter: ".empty-inline",
+    onEnd: () => {
+      const ids = [...el.querySelectorAll<HTMLElement>(".session-row[data-id]")]
+        .map((n) => n.dataset.id)
+        .filter((id): id is string => Boolean(id));
+      if (!ids.length) return;
+      sessionOrders[root] = ids;
+      // Keep pinned ids order in sync with visual order
+      const pinned = new Set(pins[root] ?? []);
+      if (pinned.size) {
+        pins[root] = ids.filter((id) => pinned.has(id));
+        persistPins();
+      }
+      persistSessionOrders();
+    },
+  });
+  sessionSortables.set(root, sortable);
+}
+
+function destroySessionSortables(): void {
+  for (const s of sessionSortables.values()) s.destroy();
+  sessionSortables.clear();
+  sessionListEls.clear();
+}
+
 function isPinned(root: string, id: string): boolean {
   return (pins[root] ?? []).includes(id);
 }
@@ -104,6 +169,7 @@ function togglePin(root: string, id: string): void {
 
 onMounted(async () => {
   loadPins();
+  loadSessionOrders();
   sessionsStore.bindEvents();
   await workspace.getWorkspace();
   await workspace.listRecent();
@@ -112,6 +178,10 @@ onMounted(async () => {
     await loadSessions(workspace.root);
     await ensureActiveSession(workspace.root);
   }
+});
+
+onUnmounted(() => {
+  destroySessionSortables();
 });
 
 watch(
@@ -166,6 +236,17 @@ function sessionsFor(root: string): SessionSummary[] {
       ? sessionsStore.sessions
       : (sessionsByRoot[root] ?? []);
   const list = [...source];
+  const order = sessionOrders[root];
+  if (order?.length) {
+    const orderMap = new Map(order.map((id, i) => [id, i]));
+    list.sort((a, b) => {
+      const ai = orderMap.has(a.id) ? (orderMap.get(a.id) as number) : Number.MAX_SAFE_INTEGER;
+      const bi = orderMap.has(b.id) ? (orderMap.get(b.id) as number) : Number.MAX_SAFE_INTEGER;
+      if (ai !== bi) return ai - bi;
+      return b.modified.localeCompare(a.modified);
+    });
+    return list;
+  }
   const pinned = new Set(pins[root] ?? []);
   list.sort((a, b) => {
     const ap = pinned.has(a.id) ? 0 : 1;
@@ -569,67 +650,61 @@ function onLeftSplitResized(payload: SplitpanesResizedPayload): void {
 
           <NScrollbar v-if="workspacePaths.length" class="tree">
             <div v-for="root in workspacePaths" :key="root" class="ws-block">
-              <NDropdown
-                trigger="contextmenu"
-                :options="workspaceMenuOptions()"
-                @select="(key) => onWorkspaceMenu(root, key)"
+              <button
+                type="button"
+                class="ws-row"
+                :class="{ active: workspace.root === root && !sessionsStore.activeId }"
+                :title="root"
+                @click="onWorkspaceClick(root)"
+                @contextmenu="(e) => openWorkspaceCtx(e, root)"
               >
-                <button
-                  type="button"
-                  class="ws-row"
-                  :class="{ active: workspace.root === root && !sessionsStore.activeId }"
-                  :title="root"
-                  @click="onWorkspaceClick(root)"
-                >
-                  <span class="chevron" :class="{ open: expanded[root] }">
-                    <NIcon :component="ChevronForwardOutline" :size="14" />
-                  </span>
-                  <NEllipsis style="font-weight: 600">{{ workspaceName(root) }}</NEllipsis>
-                </button>
-              </NDropdown>
+                <span class="chevron" :class="{ open: expanded[root] }">
+                  <NIcon :component="ChevronForwardOutline" :size="14" />
+                </span>
+                <NEllipsis style="font-weight: 600">{{ workspaceName(root) }}</NEllipsis>
+              </button>
 
-              <ul v-show="expanded[root]" class="session-list">
+              <ul
+                v-show="expanded[root]"
+                class="session-list"
+                :ref="(el) => setSessionListRef(root, el)"
+              >
                 <li v-if="!sessionsFor(root).length" class="empty-inline">{{ t.emptySessions }}</li>
                 <li
                   v-for="session in sessionsFor(root)"
                   :key="session.id"
                   class="session-row"
+                  :data-id="session.id"
                   :class="{ active: sessionsStore.activeId === session.id }"
                   @click="onSelectSession(root, session.id)"
-                  @contextmenu.prevent
+                  @contextmenu="(e) => openSessionCtx(e, root, session)"
                 >
-                  <NDropdown
-                    trigger="contextmenu"
-                    :options="sessionMenu(root, session)"
-                    @select="(key) => onSessionMenu(root, session, key)"
-                  >
-                    <div class="session-inner">
-                      <span class="active-bar" />
-                      <span v-if="isRunning(session.status)" class="status-spin">
-                        <NSpin :size="12" />
-                      </span>
-                      <span v-else :class="`dot dot-${session.status}`" />
-                      <NIcon
-                        v-if="isPinned(root, session.id)"
-                        class="pin"
-                        :component="PinOutline"
-                        :size="12"
-                      />
-                      <span class="session-label">{{ sessionLabel(session) }}</span>
-                      <span class="time">{{ relativeTime(session.modified) }}</span>
-                      <NButton
-                        class="trash"
-                        quaternary
-                        circle
-                        size="tiny"
-                        @click.stop="confirmDeleteSession(root, session.id)"
-                      >
-                        <template #icon>
-                          <NIcon :component="TrashOutline" :size="14" />
-                        </template>
-                      </NButton>
-                    </div>
-                  </NDropdown>
+                  <div class="session-inner">
+                    <span class="active-bar" />
+                    <span v-if="isRunning(session.status)" class="status-spin">
+                      <NSpin :size="12" />
+                    </span>
+                    <span v-else :class="`dot dot-${session.status}`" />
+                    <NIcon
+                      v-if="isPinned(root, session.id)"
+                      class="pin"
+                      :component="PinOutline"
+                      :size="12"
+                    />
+                    <span class="session-label">{{ sessionLabel(session) }}</span>
+                    <span class="time">{{ relativeTime(session.modified) }}</span>
+                    <NButton
+                      class="trash"
+                      quaternary
+                      circle
+                      size="tiny"
+                      @click.stop="confirmDeleteSession(root, session.id)"
+                    >
+                      <template #icon>
+                        <NIcon :component="TrashOutline" :size="14" />
+                      </template>
+                    </NButton>
+                  </div>
                 </li>
               </ul>
             </div>
@@ -655,6 +730,17 @@ function onLeftSplitResized(payload: SplitpanesResizedPayload): void {
     >
       <NInput v-model:value="renameDraft" :placeholder="t.sessionNamePlaceholder" @keydown.enter.prevent="submitRename" />
     </NModal>
+
+    <NDropdown
+      placement="bottom-start"
+      trigger="manual"
+      :x="ctx.x"
+      :y="ctx.y"
+      :show="ctx.show"
+      :options="ctxOptions"
+      @clickoutside="closeCtx"
+      @select="onCtxSelect"
+    />
   </aside>
 </template>
 
@@ -727,12 +813,13 @@ function onLeftSplitResized(payload: SplitpanesResizedPayload): void {
   height: 30px;
   padding: 0 8px;
   border: none;
-  border-radius: 6px;
+  border-radius: var(--radius-sm, 7px);
   background: transparent;
   color: var(--fg-strong);
   font-size: 13px;
   text-align: left;
   cursor: pointer;
+  transition: background var(--duration-fast, 140ms) var(--ease-out, ease);
 }
 
 .ws-row:hover,
@@ -743,7 +830,7 @@ function onLeftSplitResized(payload: SplitpanesResizedPayload): void {
 .chevron {
   display: inline-flex;
   color: var(--fg-faint);
-  transition: transform 0.12s ease;
+  transition: transform var(--duration-fast, 140ms) var(--ease-out, ease);
 }
 
 .chevron.open {
@@ -761,7 +848,7 @@ function onLeftSplitResized(payload: SplitpanesResizedPayload): void {
   list-style: none;
   margin: 0;
   padding: 0;
-  border-radius: 6px;
+  border-radius: var(--radius-sm, 7px);
   font-size: 13px;
   color: var(--fg-muted);
   cursor: pointer;
@@ -774,7 +861,8 @@ function onLeftSplitResized(payload: SplitpanesResizedPayload): void {
   gap: 8px;
   min-height: 32px;
   padding: 4px 8px 4px 22px;
-  border-radius: 6px;
+  border-radius: var(--radius-sm, 7px);
+  transition: background var(--duration-fast, 140ms) var(--ease-out, ease), color var(--duration-fast, 140ms) var(--ease-out, ease);
 }
 
 .session-row:hover .session-inner {

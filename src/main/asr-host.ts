@@ -33,11 +33,20 @@ import {
   resolveAsrBinaryAsset,
   scrubAsrHallucination,
   type AsrGpuBackend,
+  type AsrGpuOption,
   type AsrInstallProgress,
   type AsrStatus,
   type AsrStreamEvent,
 } from "../shared/asr";
-import { detectAsrGpuInfo, isAsrNativeCrashExitCode, parseAsrExitCode, type AsrGpuInfo } from "./asr-gpu";
+import {
+  detectAsrGpuInfo,
+  enumerateAsrGpuOptions,
+  isAsrDiagnosticOnlyMessage,
+  isAsrNativeCrashExitCode,
+  parseAsrExitCode,
+  resolveAsrGpuPreference,
+  type AsrGpuInfo,
+} from "./asr-gpu";
 
 const execFileAsync = promisify(execFile);
 const PREFS_FILE = "asr-prefs.json";
@@ -47,9 +56,11 @@ type Prefs = {
   enabled: boolean;
   /**
    * After a CUDA native crash (AV / missing DLL), stick to Vulkan until the user
-   * re-downloads runtime (clears this flag).
+   * re-downloads runtime or explicitly selects CUDA again.
    */
   disableCuda?: boolean;
+  /** "auto" | "cuda" | "cpu" | "metal" | "vulkan:<id>" */
+  gpuPreference?: string;
 };
 
 /** Install/import only — must NOT gate the install UI via transcription. */
@@ -60,6 +71,7 @@ let inferBusy = false;
 let streamChild: ChildProcessWithoutNullStreams | null = null;
 let streamStdoutBuf = "";
 let streamReady = false;
+let streamStderrTail = "";
 let lastError: string | null = null;
 let installAbort: AbortController | null = null;
 let cachedGpuInfo: AsrGpuInfo | null = null;
@@ -89,42 +101,78 @@ function ensureDirs(): void {
 function readPrefs(): Prefs {
   try {
     const raw = JSON.parse(readFileSync(prefsPath(), "utf8")) as Prefs;
+    const pref =
+      typeof raw.gpuPreference === "string" && raw.gpuPreference.trim()
+        ? raw.gpuPreference.trim()
+        : "auto";
     return {
       enabled: raw.enabled !== false,
       disableCuda: Boolean(raw.disableCuda),
+      gpuPreference: pref,
     };
   } catch {
-    return { enabled: true };
+    return { enabled: true, gpuPreference: "auto" };
   }
 }
 
 function writePrefs(prefs: Prefs): void {
   ensureDirs();
-  writeFileSync(prefsPath(), `${JSON.stringify(prefs, null, 2)}\n`, "utf8");
+  writeFileSync(
+    prefsPath(),
+    `${JSON.stringify(
+      {
+        enabled: prefs.enabled,
+        disableCuda: Boolean(prefs.disableCuda),
+        gpuPreference: prefs.gpuPreference || "auto",
+      },
+      null,
+      2,
+    )}\n`,
+    "utf8",
+  );
 }
 
 function clearCudaDisable(): void {
   const prefs = readPrefs();
   if (!prefs.disableCuda) return;
-  writePrefs({ enabled: prefs.enabled, disableCuda: false });
+  writePrefs({
+    enabled: prefs.enabled,
+    disableCuda: false,
+    gpuPreference: prefs.gpuPreference,
+  });
   cachedGpuInfo = null;
 }
 
-/** When CUDA was blacklisted, expose Vulkan as the effective preference. */
-function applyCudaPolicy(info: AsrGpuInfo): AsrGpuInfo {
+/** When CUDA was blacklisted, expose Vulkan as the effective preference (auto/cuda only). */
+function applyCudaPolicy(info: AsrGpuInfo, preference: string): AsrGpuInfo {
   if (info.backend !== "cuda" || !readPrefs().disableCuda) return info;
+  // Explicit user pick of CUDA overrides the crash blacklist.
+  if (preference === "cuda") return info;
   return {
     backend: "vulkan",
     deviceLabel: /vulkan/i.test(info.deviceLabel)
       ? info.deviceLabel
       : `${info.deviceLabel} · Vulkan`,
     kind: info.kind === "cpu" ? "discrete" : info.kind,
+    vulkanDeviceId: info.vulkanDeviceId,
   };
 }
 
 function gpuInfo(): AsrGpuInfo {
-  if (!cachedGpuInfo) cachedGpuInfo = applyCudaPolicy(detectAsrGpuInfo());
+  if (!cachedGpuInfo) {
+    const prefs = readPrefs();
+    const pref = prefs.gpuPreference || "auto";
+    cachedGpuInfo = applyCudaPolicy(resolveAsrGpuPreference(pref), pref);
+  }
   return cachedGpuInfo;
+}
+
+function localizedGpuOptions(): AsrGpuOption[] {
+  return enumerateAsrGpuOptions().map((opt) => {
+    if (opt.id === "auto") return { ...opt, label: "Auto" };
+    if (opt.id === "cpu") return { ...opt, label: "CPU" };
+    return opt;
+  });
 }
 
 function findBinary(dir: string, names: string[]): string | null {
@@ -229,7 +277,8 @@ function getStatus(): AsrStatus {
   const asset = resolveAsrBinaryAsset(process.platform, process.arch, backend);
   const bin = resolvedBinary();
   const model = modelPath();
-  const installed = Boolean(bin && existsSync(model) && runtimeMatchesPreferred());
+  const matches = runtimeMatchesPreferred();
+  const installed = Boolean(bin && existsSync(model) && matches);
   return {
     enabled: prefs.enabled,
     supported: Boolean(asset),
@@ -245,9 +294,31 @@ function getStatus(): AsrStatus {
     gpuBackend: backend,
     gpuDeviceLabel: gpuInfo().deviceLabel,
     gpuKind: gpuInfo().kind,
+    gpuPreference: prefs.gpuPreference || "auto",
+    gpuOptions: localizedGpuOptions(),
+    runtimeMatchesPreference: matches,
     runtimeArchiveHint: asrRuntimeArchiveName(process.platform, process.arch, backend),
     lastError,
   };
+}
+
+function setGpuPreference(preference: string): AsrStatus {
+  const prefs = readPrefs();
+  const next = typeof preference === "string" && preference.trim() ? preference.trim() : "auto";
+  const options = enumerateAsrGpuOptions();
+  const allowed = new Set(options.map((o) => o.id));
+  if (!allowed.has(next)) {
+    throw new Error(`Unknown GPU preference: ${next}`);
+  }
+  // Explicit CUDA selection clears crash blacklist.
+  const disableCuda = next === "cuda" ? false : prefs.disableCuda;
+  writePrefs({
+    enabled: prefs.enabled,
+    disableCuda,
+    gpuPreference: next,
+  });
+  cachedGpuInfo = null;
+  return getStatus();
 }
 
 function broadcastProgress(progress: AsrInstallProgress): void {
@@ -717,7 +788,12 @@ async function waitForInferSlot(maxMs = 60_000): Promise<void> {
 /** Blacklist CUDA and swap runtime to Vulkan after a native crash. */
 async function recoverFromCudaCrash(detail: string): Promise<void> {
   const prefs = readPrefs();
-  writePrefs({ enabled: prefs.enabled, disableCuda: true });
+  writePrefs({
+    enabled: prefs.enabled,
+    disableCuda: true,
+    // Keep explicit vulkan/cpu picks; bump auto/cuda toward vulkan via disableCuda.
+    gpuPreference: prefs.gpuPreference === "cuda" ? "auto" : prefs.gpuPreference || "auto",
+  });
   const detected = detectAsrGpuInfo();
   cachedGpuInfo = {
     backend: "vulkan",
@@ -725,6 +801,7 @@ async function recoverFromCudaCrash(detail: string): Promise<void> {
       ? detected.deviceLabel
       : `${detected.deviceLabel} · Vulkan`,
     kind: detected.kind === "cpu" ? "discrete" : detected.kind,
+    vulkanDeviceId: detected.vulkanDeviceId,
   };
 
   if (runtimeMatchesBackend("vulkan")) return;
@@ -770,18 +847,19 @@ function shouldFallbackCuda(err: unknown): boolean {
   return isAsrNativeCrashExitCode(code) || /ASR exited with code\s+3221225477/i.test(msg);
 }
 
-async function spawnTranscribeOnce(
+async function spawnTranscribeAttempt(
   modelFile: string,
   wavPath: string,
   outBase: string,
   outTxtPath: string,
+  backend: AsrGpuBackend,
+  deviceId?: number,
 ): Promise<string> {
   const status = getStatus();
   if (!status.binaryPath) {
     throw new Error("ASR runtime is not ready for this GPU — open Settings to install/update");
   }
   ensureRuntimeExecutables();
-  const backend = preferredGpuBackend();
   const args = [
     "--backend",
     "qwen3",
@@ -800,8 +878,15 @@ async function spawnTranscribeOnce(
     "-of",
     outBase,
   ];
+  if (backend === "vulkan" && deviceId != null && Number.isFinite(deviceId)) {
+    args.push("-dev", String(deviceId));
+  }
 
-  const { stdout, stderr } = await new Promise<{ stdout: string; stderr: string }>((resolve, reject) => {
+  const { stdout, stderr, code } = await new Promise<{
+    stdout: string;
+    stderr: string;
+    code: number | null;
+  }>((resolve, reject) => {
     const child = spawn(status.binaryPath!, args, {
       windowsHide: true,
       cwd: dirname(status.binaryPath!),
@@ -827,16 +912,76 @@ async function spawnTranscribeOnce(
       clearTimeout(timer);
       reject(e);
     });
-    child.on("close", (code) => {
+    child.on("close", (exitCode) => {
       clearTimeout(timer);
-      if (code === 0) resolve({ stdout: out, stderr: err });
-      else reject(new Error(err.trim() || out.trim() || `ASR exited with code ${code}`));
+      resolve({ stdout: out, stderr: err, code: exitCode });
     });
   });
 
   const text = readTranscriptFile(outTxtPath) || pickTranscript(stdout, stderr);
-  if (!text) throw new Error("ASR returned empty transcript");
-  return text;
+  if (text) return text;
+
+  if (code === 0) throw new Error("ASR returned empty transcript");
+
+  const raw = (stderr.trim() || stdout.trim() || `ASR exited with code ${code}`);
+  if (isAsrDiagnosticOnlyMessage(raw) || /^ggml_vulkan:/im.test(raw)) {
+    throw new Error(
+      `ASR_GPU_INIT_FAILED|${backend}|device=${deviceId ?? "auto"}|ASR exited with code ${code}`,
+    );
+  }
+  throw new Error(raw.includes("exited with code") ? raw : `${raw}\nASR exited with code ${code}`);
+}
+
+async function spawnTranscribeOnce(
+  modelFile: string,
+  wavPath: string,
+  outBase: string,
+  outTxtPath: string,
+): Promise<string> {
+  const preferred = preferredGpuBackend();
+  const attempts: Array<{ backend: AsrGpuBackend; deviceId?: number }> = [];
+
+  if (preferred === "vulkan") {
+    const primary = gpuInfo().vulkanDeviceId;
+    if (primary != null) attempts.push({ backend: "vulkan", deviceId: primary });
+    // Also try default device 0 if different — some drivers remap indices.
+    if (primary !== 0) attempts.push({ backend: "vulkan", deviceId: 0 });
+    attempts.push({ backend: "cpu" });
+  } else {
+    attempts.push({ backend: preferred });
+    // Metal/CUDA can fail at runtime; same binary often still works on CPU.
+    if (preferred === "metal" || preferred === "cuda") {
+      attempts.push({ backend: "cpu" });
+    }
+  }
+
+  let lastErr: unknown = null;
+  for (const attempt of attempts) {
+    try {
+      // Unique -of base per attempt so a failed run cannot leave a stale txt.
+      const stamp = `${outBase}-${attempt.backend}${attempt.deviceId ?? "x"}`;
+      const txt = `${stamp}.txt`;
+      try {
+        return await spawnTranscribeAttempt(
+          modelFile,
+          wavPath,
+          stamp,
+          txt,
+          attempt.backend,
+          attempt.deviceId,
+        );
+      } finally {
+        try {
+          rmSync(txt, { force: true });
+        } catch {
+          // ignore
+        }
+      }
+    } catch (err) {
+      lastErr = err;
+    }
+  }
+  throw lastErr instanceof Error ? lastErr : new Error(String(lastErr ?? "ASR failed"));
 }
 
 async function transcribePcm(pcmBase64: string, sampleRate: number): Promise<string> {
@@ -1016,6 +1161,7 @@ function killStreamChild(): void {
   streamChild = null;
   streamStdoutBuf = "";
   streamReady = false;
+  streamStderrTail = "";
   if (!child) return;
 
   try {
@@ -1170,6 +1316,10 @@ async function startAsrStream(): Promise<AsrStatus> {
     "--stream-final-mode",
     "prefix",
   ];
+  const vulkanDeviceId = gpuInfo().vulkanDeviceId;
+  if (backend === "vulkan" && vulkanDeviceId != null) {
+    args.push("-dev", String(vulkanDeviceId));
+  }
 
   const child = spawn(status.binaryPath!, args, {
     windowsHide: true,
@@ -1180,6 +1330,7 @@ async function startAsrStream(): Promise<AsrStatus> {
   streamChild = child;
   streamStdoutBuf = "";
   streamReady = false;
+  streamStderrTail = "";
 
   // Keep stdin binary (PCM s16le) — do not setEncoding on stdin
   child.stdout.setEncoding("utf8");
@@ -1187,6 +1338,7 @@ async function startAsrStream(): Promise<AsrStatus> {
   child.stdout.on("data", (d: string) => handleStreamStdout(String(d)));
   child.stderr.on("data", (d: string) => {
     const msg = String(d);
+    streamStderrTail = `${streamStderrTail}${msg}`.slice(-4000);
     // First useful log after model load — mark ready so UI can keep pushing
     if (
       !streamReady &&
@@ -1227,9 +1379,13 @@ async function startAsrStream(): Promise<AsrStatus> {
             });
           return;
         }
-        const msg = `ASR stream exited with code ${code}`;
-        lastError = msg;
-        broadcastStreamEvent({ type: "error", message: msg });
+        const detail = `ASR stream exited with code ${code}`;
+        const failMsg =
+          isAsrDiagnosticOnlyMessage(streamStderrTail) || /ggml_vulkan:/i.test(streamStderrTail)
+            ? `ASR_GPU_INIT_FAILED|${backend}|stream|${detail}`
+            : detail;
+        lastError = failMsg;
+        broadcastStreamEvent({ type: "error", message: failMsg });
       }
       broadcastStreamEvent({ type: "ended" });
     }
@@ -1298,8 +1454,15 @@ export function registerAsrIpc(): void {
   ipcMain.handle(IpcChannels.asr.status, () => getStatus());
   ipcMain.handle(IpcChannels.asr.setEnabled, (_e, enabled: boolean) => {
     const prefs = readPrefs();
-    writePrefs({ enabled: Boolean(enabled), disableCuda: prefs.disableCuda });
+    writePrefs({
+      enabled: Boolean(enabled),
+      disableCuda: prefs.disableCuda,
+      gpuPreference: prefs.gpuPreference,
+    });
     return getStatus();
+  });
+  ipcMain.handle(IpcChannels.asr.setGpuPreference, (_e, preference: string) => {
+    return setGpuPreference(String(preference ?? "auto"));
   });
   ipcMain.handle(IpcChannels.asr.install, async () => installAsr());
   ipcMain.handle(IpcChannels.asr.installFromUrl, async (_e, url: string) => installAsrFromUrl(url));

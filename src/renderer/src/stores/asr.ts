@@ -32,8 +32,15 @@ export function formatAsrRuntimeError(err: unknown, fallback = ""): string {
     }
     return t.asrCudaCrashRetry;
   }
+  if (/^ASR_GPU_INIT_FAILED\|/i.test(raw) || /ggml_vulkan:/i.test(raw)) {
+    return t.asrGpuInitFailed;
+  }
   if (/exited with code\s+3221225477/i.test(raw) || /0xC0000005/i.test(raw)) {
     return t.asrCudaCrashHint;
+  }
+  // Never surface raw ggml device enumeration spam in toasts.
+  if (/^ggml[_-]/im.test(raw) && raw.split(/\n/).every((l) => !l.trim() || /^ggml|_init_gpu|Vulkan\d*/i.test(l))) {
+    return t.asrGpuInitFailed;
   }
   return raw || fallback;
 }
@@ -53,6 +60,9 @@ const emptyStatus = (): AsrStatus => ({
   gpuBackend: "cpu",
   gpuDeviceLabel: "CPU",
   gpuKind: "cpu",
+  gpuPreference: "auto",
+  gpuOptions: [{ id: "auto", label: "Auto", backend: "cpu", kind: "cpu" }],
+  runtimeMatchesPreference: true,
   runtimeArchiveHint: null,
   lastError: null,
 });
@@ -83,6 +93,11 @@ export const useAsrStore = defineStore("asr", () => {
 
   async function setEnabled(enabled: boolean): Promise<void> {
     status.value = await window.api.asr.setEnabled(enabled);
+  }
+
+  async function setGpuPreference(preference: string): Promise<AsrStatus> {
+    status.value = await window.api.asr.setGpuPreference(preference);
+    return status.value;
   }
 
   async function runInstall(action: () => Promise<AsrStatus>): Promise<void> {
@@ -197,6 +212,7 @@ export const useAsrStore = defineStore("asr", () => {
     installing,
     refresh,
     setEnabled,
+    setGpuPreference,
     install,
     installFromUrl,
     importLocal,

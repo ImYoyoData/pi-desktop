@@ -165,6 +165,16 @@ export function resolveAsrBinaryAsset(
 
 export type AsrGpuKind = "discrete" | "integrated" | "metal" | "cpu";
 
+/** User-selectable ASR compute target. */
+export type AsrGpuOption = {
+  /** "auto" | "cuda" | "cpu" | "metal" | "vulkan:<id>" */
+  id: string;
+  label: string;
+  backend: AsrGpuBackend;
+  kind: AsrGpuKind;
+  vulkanDeviceId?: number;
+};
+
 export type AsrStatus = {
   enabled: boolean;
   supported: boolean;
@@ -183,6 +193,12 @@ export type AsrStatus = {
   /** e.g. "AMD Radeon 780M Graphics" or "CPU" */
   gpuDeviceLabel: string;
   gpuKind: AsrGpuKind;
+  /** Selected preference id ("auto" or a concrete device). */
+  gpuPreference: string;
+  /** Devices available for the settings picker. */
+  gpuOptions: AsrGpuOption[];
+  /** False when installed runtime backend ≠ preferred backend. */
+  runtimeMatchesPreference: boolean;
   /** Official archive filename for the preferred backend (manual download hint). */
   runtimeArchiveHint: string | null;
   lastError: string | null;

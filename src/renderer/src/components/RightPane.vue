@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, h, onMounted, watch } from "vue";
+import { computed, h, nextTick, onMounted, onUnmounted, watch } from "vue";
 import type { DropdownOption } from "naive-ui";
 import {
   NButton,
@@ -20,6 +20,7 @@ import {
   TerminalOutline,
   ChevronForwardOutline,
 } from "@vicons/ionicons5";
+import Sortable from "sortablejs";
 import ChangesTab from "@renderer/components/ChangesTab.vue";
 import BrowserTab from "@renderer/components/BrowserTab.vue";
 import TerminalTab from "@renderer/components/TerminalTab.vue";
@@ -34,6 +35,39 @@ const layout = useLayoutStore();
 const previewStore = usePreviewStore();
 const rightTabs = useRightTabsStore();
 const dialog = useDialog();
+
+let tabsSortable: Sortable | null = null;
+const tabsRowRef = { el: null as HTMLElement | null };
+
+function setTabsRowRef(el: unknown): void {
+  tabsRowRef.el = el instanceof HTMLElement ? el : null;
+}
+
+function destroyTabsSortable(): void {
+  tabsSortable?.destroy();
+  tabsSortable = null;
+}
+
+function bindTabsSortable(): void {
+  destroyTabsSortable();
+  const root = tabsRowRef.el;
+  if (!root || rightTabs.tabs.length < 2) return;
+  const container =
+    root.querySelector<HTMLElement>(".n-tabs-nav-scroll-content")
+    ?? root.querySelector<HTMLElement>(".n-tabs-wrapper")
+    ?? root.querySelector<HTMLElement>(".n-tabs-nav");
+  if (!container) return;
+  tabsSortable = Sortable.create(container, {
+    animation: 150,
+    draggable: ".n-tabs-tab-wrapper, .n-tabs-tab",
+    onEnd: (evt) => {
+      const oldIndex = evt.oldIndex;
+      const newIndex = evt.newIndex;
+      if (oldIndex == null || newIndex == null || oldIndex === newIndex) return;
+      rightTabs.reorderTabs(oldIndex, newIndex);
+    },
+  });
+}
 
 watch(
   () => previewStore.openSignal,
@@ -55,7 +89,19 @@ onMounted(() => {
     if (tab.kind === "files") rightTabs.closeTab(tab.id);
   }
   void rightTabs.refreshPreviewGitMeta();
+  void nextTick(() => bindTabsSortable());
 });
+
+onUnmounted(() => {
+  destroyTabsSortable();
+});
+
+watch(
+  () => rightTabs.tabs.map((t) => t.id).join("|"),
+  () => {
+    void nextTick(() => bindTabsSortable());
+  },
+);
 
 function iconFor(kind: RightTabKind) {
   switch (kind) {
@@ -218,7 +264,7 @@ function onTabChange(name: string | number): void {
 <template>
   <aside class="right-pane">
     <header class="head">
-      <div class="tabs-row">
+      <div class="tabs-row" :ref="setTabsRowRef">
         <NTabs
           v-if="rightTabs.tabs.length"
           type="card"
@@ -329,11 +375,11 @@ function onTabChange(name: string | number): void {
   display: flex;
   align-items: center;
   gap: 2px;
-  min-height: 30px;
-  height: 30px;
-  padding: 0 4px;
+  min-height: 32px;
+  height: 32px;
+  padding: 0 6px;
   border-bottom: 1px solid var(--border);
-  background: var(--bg-panel);
+  background: color-mix(in srgb, var(--bg-panel) 92%, var(--bg-elevated));
   flex-shrink: 0;
 }
 
@@ -363,9 +409,11 @@ function onTabChange(name: string | number): void {
 }
 
 .tabs-row :deep(.n-tabs-tab) {
-  padding: 2px 6px !important;
+  padding: 2px 8px !important;
   font-size: 11.5px !important;
   height: 24px !important;
+  border-radius: 7px !important;
+  transition: background var(--duration-fast, 140ms) var(--ease-out, ease);
 }
 
 .tabs-row :deep(.n-tabs-tab__close) {

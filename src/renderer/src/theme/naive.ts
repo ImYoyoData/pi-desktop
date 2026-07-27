@@ -4,7 +4,7 @@ const fontFamily =
   '-apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei UI", "Noto Sans SC", system-ui, sans-serif';
 const fontFamilyMono = '"SF Mono", "Cascadia Code", Consolas, ui-monospace, monospace';
 
-/** Light theme aligned with Cursor / pi-web Agents Window */
+/** Light theme — refined zinc + blue accent */
 export const lightThemeOverrides: GlobalThemeOverrides = {
   common: {
     primaryColor: "#2563eb",
@@ -15,8 +15,8 @@ export const lightThemeOverrides: GlobalThemeOverrides = {
     errorColor: "#dc2626",
     warningColor: "#ca8a04",
     infoColor: "#2563eb",
-    borderRadius: "10px",
-    borderRadiusSmall: "6px",
+    borderRadius: "11px",
+    borderRadiusSmall: "7px",
     fontFamily,
     fontFamilyMono,
     fontSize: "13px",
@@ -24,30 +24,42 @@ export const lightThemeOverrides: GlobalThemeOverrides = {
     textColor1: "#09090b",
     textColor2: "#71717a",
     textColor3: "#a1a1aa",
-    bodyColor: "#fafafa",
+    bodyColor: "#f7f7f8",
     cardColor: "#ffffff",
     modalColor: "#ffffff",
     popoverColor: "#ffffff",
     tableColor: "#ffffff",
     inputColor: "#ffffff",
-    actionColor: "#f4f4f5",
-    hoverColor: "#ececef",
-    borderColor: "#e4e4e7",
-    dividerColor: "#e4e4e7",
+    actionColor: "#f0f0f2",
+    hoverColor: "#e8e8ec",
+    borderColor: "#e6e6ea",
+    dividerColor: "#e6e6ea",
+    boxShadow1: "0 1px 2px rgba(15, 23, 42, 0.04)",
+    boxShadow2: "0 4px 18px rgba(15, 23, 42, 0.07)",
+    boxShadow3: "0 12px 40px rgba(15, 23, 42, 0.1)",
   },
   Button: {
     fontWeight: "500",
+    heightMedium: "32px",
+    heightSmall: "28px",
+    heightTiny: "22px",
   },
   Input: {
-    borderHover: "1px solid #d4d4d8",
+    borderHover: "1px solid #d2d2d8",
     borderFocus: "1px solid #2563eb",
+    borderRadius: "9px",
   },
   Card: {
-    borderColor: "#e4e4e7",
+    borderColor: "#e6e6ea",
+    borderRadius: "14px",
+  },
+  Tabs: {
+    tabBorderRadius: "8px",
+    tabFontWeightActive: "560",
   },
 };
 
-/** Dark theme — zinc/slate with blue accent (pi-web-like) */
+/** Dark theme — deep zinc with restrained blue */
 export const darkThemeOverrides: GlobalThemeOverrides = {
   common: {
     primaryColor: "#3b82f6",
@@ -58,8 +70,8 @@ export const darkThemeOverrides: GlobalThemeOverrides = {
     errorColor: "#f87171",
     warningColor: "#fbbf24",
     infoColor: "#60a5fa",
-    borderRadius: "10px",
-    borderRadiusSmall: "6px",
+    borderRadius: "11px",
+    borderRadiusSmall: "7px",
     fontFamily,
     fontFamilyMono,
     fontSize: "13px",
@@ -67,26 +79,38 @@ export const darkThemeOverrides: GlobalThemeOverrides = {
     textColor1: "#fafafa",
     textColor2: "#a1a1aa",
     textColor3: "#71717a",
-    bodyColor: "#09090b",
-    cardColor: "#18181b",
-    modalColor: "#18181b",
-    popoverColor: "#18181b",
-    tableColor: "#18181b",
-    inputColor: "#27272a",
-    actionColor: "#27272a",
-    hoverColor: "#27272a",
-    borderColor: "#3f3f46",
-    dividerColor: "#3f3f46",
+    bodyColor: "#0b0b0e",
+    cardColor: "#141418",
+    modalColor: "#141418",
+    popoverColor: "#1c1c22",
+    tableColor: "#141418",
+    inputColor: "#1c1c22",
+    actionColor: "#1c1c22",
+    hoverColor: "#25252c",
+    borderColor: "#2a2a32",
+    dividerColor: "#2a2a32",
+    boxShadow1: "0 1px 2px rgba(0, 0, 0, 0.35)",
+    boxShadow2: "0 8px 28px rgba(0, 0, 0, 0.45)",
+    boxShadow3: "0 16px 48px rgba(0, 0, 0, 0.55)",
   },
   Button: {
     fontWeight: "500",
+    heightMedium: "32px",
+    heightSmall: "28px",
+    heightTiny: "22px",
   },
   Input: {
-    borderHover: "1px solid #52525b",
+    borderHover: "1px solid #3a3a44",
     borderFocus: "1px solid #3b82f6",
+    borderRadius: "9px",
   },
   Card: {
-    borderColor: "#3f3f46",
+    borderColor: "#2a2a32",
+    borderRadius: "14px",
+  },
+  Tabs: {
+    tabBorderRadius: "8px",
+    tabFontWeightActive: "560",
   },
 };
 
