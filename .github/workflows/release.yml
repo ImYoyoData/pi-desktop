@@ -1,10 +1,11 @@
-# Publish from `main` or version tags. `dev` uses CI only.
+# Release packaging + GitHub Release: ONLY on push to main (or manual dispatch).
+# Tags and `dev` must NOT trigger this workflow. Use ci.yml for PR/dev checks.
 name: Build and Release
 
 on:
   push:
-    tags:
-      - "v*"
+    branches:
+      - main
   workflow_dispatch:
     inputs:
       publish:
@@ -83,7 +84,7 @@ jobs:
     needs: build
     if: >
       github.event_name == 'workflow_dispatch' ||
-      startsWith(github.ref, 'refs/tags/v')
+      (github.event_name == 'push' && github.ref == 'refs/heads/main')
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
