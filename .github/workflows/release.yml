@@ -3,8 +3,6 @@ name: Build and Release
 
 on:
   push:
-    branches:
-      - main
     tags:
       - "v*"
   workflow_dispatch:
@@ -59,9 +57,11 @@ jobs:
 
       - name: Build & package
         env:
+          # Prevent electron-builder from creating/updating GitHub Releases mid-build
+          # (publish is handled solely by the softprops job below).
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           CSC_IDENTITY_AUTO_DISCOVERY: false
-        run: ${{ matrix.build_cmd }}
+        run: ${{ matrix.build_cmd }} -- --publish never
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
@@ -83,8 +83,7 @@ jobs:
     needs: build
     if: >
       github.event_name == 'workflow_dispatch' ||
-      startsWith(github.ref, 'refs/tags/v') ||
-      (github.event_name == 'push' && github.ref == 'refs/heads/main')
+      startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
