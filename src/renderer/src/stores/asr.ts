@@ -1,6 +1,7 @@
 import { defineStore } from "pinia";
 import { computed, ref } from "vue";
 import type { AsrInstallProgress, AsrStatus, AsrStreamEvent } from "../../../shared/asr";
+import { t } from "@renderer/i18n";
 
 /** Electron IPC wraps as `Error invoking remote method 'x': <real message>`. */
 function unwrapIpcError(err: unknown): string {
@@ -14,7 +15,27 @@ export function formatAsrInstallError(err: unknown, downloadFailed: (url: string
   const raw = unwrapIpcError(err);
   const m = raw.match(/^ASR_DOWNLOAD_(TIMEOUT|FAILED)\|([^\n|]+)(?:\|.*)?$/);
   if (m?.[2]) return downloadFailed(m[2]);
-  return raw;
+  return formatAsrRuntimeError(raw);
+}
+
+/** Friendly copy for CUDA crash / native exit codes (and IPC wrappers). */
+export function formatAsrRuntimeError(err: unknown, fallback = ""): string {
+  const raw = unwrapIpcError(err);
+  const cuda = raw.match(/^ASR_CUDA_CRASH\|([^|]*)\|?(.*)$/s);
+  if (cuda) {
+    const tail = (cuda[2] || "").trim();
+    if (/Vulkan fallback failed/i.test(tail)) {
+      return t.asrCudaCrashFallbackFail;
+    }
+    if (/Switched to Vulkan/i.test(tail) || /tap the mic/i.test(tail)) {
+      return t.asrCudaCrashRetry;
+    }
+    return t.asrCudaCrashRetry;
+  }
+  if (/exited with code\s+3221225477/i.test(raw) || /0xC0000005/i.test(raw)) {
+    return t.asrCudaCrashHint;
+  }
+  return raw || fallback;
 }
 
 const emptyStatus = (): AsrStatus => ({

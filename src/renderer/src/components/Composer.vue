@@ -29,7 +29,7 @@ import { isHttpUrl, useComposerStore } from "@renderer/stores/composer";
 import { useSendQueueStore } from "@renderer/stores/send-queue";
 import { useSessionsStore } from "@renderer/stores/sessions";
 import { useWorkspaceStore } from "@renderer/stores/workspace";
-import { formatAsrInstallError, useAsrStore } from "@renderer/stores/asr";
+import { formatAsrInstallError, formatAsrRuntimeError, useAsrStore } from "@renderer/stores/asr";
 import { heuristicSessionTitle } from "@renderer/utils/session-title";
 import { startVoiceRecord, type VoiceRecordSession } from "@renderer/utils/pcm-capture";
 import { scrubAsrHallucination } from "../../../shared/asr";
@@ -249,10 +249,16 @@ const hasSendContent = computed(() =>
 const canSend = computed(() => Boolean(sessionId.value && hasSendContent.value) && !running.value);
 /** While running, draft can be queued instead of sent immediately. */
 const canQueue = computed(() => Boolean(sessionId.value && hasSendContent.value) && running.value);
+/** Editing a queued item — Enter/Send commits back to the queue. */
+const isEditingQueue = computed(() => Boolean(sendQueue.editingId));
 
-/** Show send when idle with content, or queue button while running with content; always show stop while running. */
-const showPrimaryAction = computed(() => running.value || canSend.value);
-const showQueueSend = computed(() => canQueue.value);
+/** Show stop while running; show send whenever there is a session (empty → disabled). */
+const showPrimaryAction = computed(() => Boolean(sessionId.value));
+/** Queue/save button: running+content, or editing while running (commit without aborting). */
+const showQueueSend = computed(() => {
+  if (isEditingQueue.value) return running.value && hasSendContent.value;
+  return canQueue.value;
+});
 
 async function readImageFile(file: File): Promise<{
   data: string;
@@ -381,7 +387,109 @@ function enqueueFromComposer(): boolean {
   });
   composer.clear();
   messageApi.success(t.queueAdded, { duration: 1400 });
+  // Race fix: turn may already be idle when Enter queued — flush now instead of waiting
+  // for the next running→idle edge (which made messages look "lost" until the next turn).
+  if (!isAgentBusy(id)) {
+    void drainQueueIfIdle(id);
+  }
   return true;
+}
+
+/** Persist main-composer contents back onto the queue item being edited. */
+function saveEditingToQueue(): boolean {
+  const id = sessionId.value;
+  const qid = sendQueue.editingId;
+  if (!id || !qid) return false;
+  const snap = snapshotComposerPayload();
+  if (!snap) {
+    messageApi.warning(t.queueEditPlaceholder);
+    return false;
+  }
+  const message =
+    snap.displayText ||
+    (snap.imagesToSend.length || snap.tagsToSend?.length ? " " : snap.text || " ");
+  const updated = sendQueue.updateItem(id, qid, {
+    text: message,
+    images: snap.imagesToSend.length ? snap.imagesToSend : undefined,
+    citations: snap.citationsToSend,
+    elementTags: snap.tagsToSend,
+  });
+  if (!updated) {
+    sendQueue.setEditing(id, null);
+    return false;
+  }
+  sendQueue.setEditing(id, null);
+  composer.clear();
+  messageApi.success(t.queueSaved, { duration: 1400 });
+  return true;
+}
+
+function discardQueueEdit(): void {
+  const id = sessionId.value;
+  if (!id) return;
+  sendQueue.setEditing(id, null);
+  composer.clear();
+}
+
+function loadQueueItemIntoComposer(item: {
+  text: string;
+  images?: { type: "image"; data: string; mimeType: string }[];
+  citations?: { url: string; selector?: string; text?: string; htmlSnippet?: string }[];
+  elementTags?: { url: string; host: string; label: string; content?: string }[];
+}): void {
+  composer.clear();
+  composer.draft = item.text === " " ? "" : item.text;
+  for (const img of item.images ?? []) {
+    composer.addImageFile({
+      data: img.data,
+      mimeType: img.mimeType || "image/png",
+      previewUrl: `data:${img.mimeType || "image/png"};base64,${img.data}`,
+    });
+  }
+  const seenUrls = new Set<string>();
+  for (const c of item.citations ?? []) {
+    seenUrls.add(c.url);
+    composer.addCitation({
+      url: c.url,
+      selector: c.selector ?? "",
+      text: c.text ?? "",
+      htmlSnippet: c.htmlSnippet ?? "",
+    });
+  }
+  for (const tag of item.elementTags ?? []) {
+    if (seenUrls.has(tag.url)) continue;
+    seenUrls.add(tag.url);
+    composer.addCitation({
+      url: tag.url,
+      selector: "",
+      text: tag.content || tag.label || "",
+      htmlSnippet: "",
+    });
+  }
+}
+
+function beginEditQueueItem(itemId: string): void {
+  const id = sessionId.value;
+  if (!id) return;
+  if (voiceActive.value) cancelVoice();
+
+  const editing = sendQueue.editingId;
+  if (editing && editing !== itemId) {
+    // Commit the previous edit before switching
+    if (hasSendContent.value) saveEditingToQueue();
+    else sendQueue.setEditing(id, null);
+  }
+
+  // Don't lose an unrelated draft sitting in the composer
+  if (!sendQueue.editingId && hasSendContent.value) {
+    enqueueFromComposer();
+  }
+
+  const item = sendQueue.get(id, itemId);
+  if (!item) return;
+  loadQueueItemIntoComposer(item);
+  sendQueue.setEditing(id, itemId);
+  void nextTick(() => focusDraftAtEnd());
 }
 
 async function dispatchQueuedItem(
@@ -428,19 +536,34 @@ function waitUntilIdle(sessionId: string, timeoutMs = 15_000): Promise<void> {
   });
 }
 
-async function drainQueueIfIdle(sessionId: string): Promise<void> {
-  if (sendQueue.isDrainSuppressed(sessionId)) return;
-  const stateRunning = chat.bySession[sessionId]?.running;
-  const statusRunning =
-    sessions.sessions.find((s) => s.id === sessionId)?.status === "running";
-  if (stateRunning || statusRunning) return;
-  const next = sendQueue.takeNext(sessionId);
+function isAgentBusy(targetSessionId?: string): boolean {
+  const id = targetSessionId ?? sessionId.value;
+  if (!id) return false;
+  if (chat.bySession[id]?.running) return true;
+  return sessions.sessions.find((s) => s.id === id)?.status === "running";
+}
+
+/** Serialize auto-drain so idle races cannot fire two follow-ups at once. */
+let drainInFlight: string | null = null;
+
+async function drainQueueIfIdle(targetSessionId: string): Promise<void> {
+  if (drainInFlight === targetSessionId) return;
+  if (sendQueue.isDrainSuppressed(targetSessionId)) return;
+  if (isAgentBusy(targetSessionId)) return;
+
+  const next = sendQueue.takeNext(targetSessionId);
   if (!next) return;
   if (!next.text.trim() && !next.images?.length) {
-    void drainQueueIfIdle(sessionId);
+    void drainQueueIfIdle(targetSessionId);
     return;
   }
-  await dispatchQueuedItem(sessionId, next, "follow_up");
+
+  drainInFlight = targetSessionId;
+  try {
+    await dispatchQueuedItem(targetSessionId, next, "follow_up");
+  } finally {
+    if (drainInFlight === targetSessionId) drainInFlight = null;
+  }
 }
 
 async function sendQueuedNow(itemId: string): Promise<void> {
@@ -468,6 +591,12 @@ async function submit(mode: "prompt" | "steer" | "follow_up"): Promise<void> {
 
   const id = sessionId.value;
   if (!id) return;
+
+  // Editing a queued message: commit back into the queue
+  if (sendQueue.editingId) {
+    saveEditingToQueue();
+    return;
+  }
 
   // While agent is running, new sends go to the queue (Cursor-style)
   if (running.value && mode === "prompt") {
@@ -502,6 +631,10 @@ async function submit(mode: "prompt" | "steer" | "follow_up"): Promise<void> {
 function onKeydown(event: KeyboardEvent): void {
   if (event.key !== "Enter" || event.isComposing || event.shiftKey) return;
   event.preventDefault();
+  if (sendQueue.editingId) {
+    saveEditingToQueue();
+    return;
+  }
   if (running.value) {
     enqueueFromComposer();
     return;
@@ -514,6 +647,11 @@ async function onAbort(): Promise<void> {
 }
 
 function onPrimaryAction(): void {
+  // While running the red button stays Abort; use the queue Send to save an edit.
+  if (sendQueue.editingId && !running.value) {
+    saveEditingToQueue();
+    return;
+  }
   if (running.value) {
     void onAbort();
     return;
@@ -522,6 +660,10 @@ function onPrimaryAction(): void {
 }
 
 function onQueueSendClick(): void {
+  if (sendQueue.editingId) {
+    saveEditingToQueue();
+    return;
+  }
   enqueueFromComposer();
 }
 
@@ -899,12 +1041,10 @@ async function confirmVoice(): Promise<void> {
   } catch (err) {
     if (gen !== voiceGen) return;
     const raw = err instanceof Error ? err.message : String(err);
-    messageApi.error(raw || t.asrFail, { duration: 4500 });
+    messageApi.error(formatAsrRuntimeError(raw, t.asrFail), { duration: 5500 });
   } finally {
-    if (gen === voiceGen) {
-      voiceConfirming = false;
-      voicePending.value = false;
-    }
+    voiceConfirming = false;
+    voicePending.value = false;
   }
 }
 
@@ -989,22 +1129,42 @@ watch(
   },
 );
 
-/** After a turn finishes, auto-send the next queued follow-up. */
+/** After a turn finishes — or when queue gains items while already idle — flush follow-ups. */
 watch(running, (now, was) => {
   if (was && !now && sessionId.value) {
     void drainQueueIfIdle(sessionId.value);
   }
 });
+
+watch(
+  () => sendQueue.activeItems.length,
+  (len) => {
+    const id = sessionId.value;
+    if (len > 0 && id && !running.value) {
+      void drainQueueIfIdle(id);
+    }
+  },
+);
 </script>
 
 <template>
   <div class="composer-wrap">
     <SendQueueBar
       :items="sendQueue.activeItems"
-      @update-text="(qid, text) => sessionId && sendQueue.updateText(sessionId, qid, text)"
+      :editing-id="sendQueue.editingId"
+      @edit="(qid) => beginEditQueueItem(qid)"
       @remove="(qid) => sessionId && sendQueue.remove(sessionId, qid)"
       @send-now="(qid) => void sendQueuedNow(qid)"
     />
+    <div
+      v-if="isEditingQueue && !voiceActive"
+      class="queue-edit-banner"
+    >
+      <span>{{ t.queueEditingHint }}</span>
+      <button type="button" class="queue-edit-discard" @click="discardQueueEdit">
+        {{ t.queueDiscardEdit }}
+      </button>
+    </div>
     <div class="composer-card" :class="{ 'is-voice-recording': voiceActive }">
       <div
         v-if="voiceActive"
@@ -1143,8 +1303,8 @@ watch(running, (now, was) => {
             size="tiny"
             circle
             type="primary"
-            :aria-label="t.queueAdded"
-            :title="t.runningHint"
+            :aria-label="isEditingQueue ? t.queueSave : t.queueAdded"
+            :title="isEditingQueue ? t.queueSave : t.runningHint"
             @click="onQueueSendClick"
           >
             <template #icon>
@@ -1157,8 +1317,19 @@ watch(running, (now, was) => {
             circle
             :type="running ? 'error' : 'primary'"
             :loading="voicePending"
-            :disabled="voicePending || (!running && !canSend)"
-            :aria-label="voicePending ? t.voiceTranscribing : running ? t.stop : t.enterToSend"
+            :disabled="
+              voicePending || (!running && !canSend && !(isEditingQueue && hasSendContent))
+            "
+            :aria-label="
+              voicePending
+                ? t.voiceTranscribing
+                : running
+                  ? t.stop
+                  : isEditingQueue
+                    ? t.queueSave
+                    : t.enterToSend
+            "
+            :title="!running && isEditingQueue ? t.queueSave : undefined"
             @click="onPrimaryAction"
           >
             <template #icon>
@@ -1217,6 +1388,36 @@ watch(running, (now, was) => {
   align-items: stretch;
   gap: 4px;
   min-width: 0;
+}
+
+.queue-edit-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 3px 8px;
+  border-radius: 6px;
+  font-size: 11px;
+  line-height: 1.3;
+  color: var(--fg-muted, #666);
+  background: color-mix(in srgb, var(--primary, #3b82f6) 10%, transparent);
+  border: 1px solid color-mix(in srgb, var(--primary, #3b82f6) 22%, transparent);
+}
+
+.queue-edit-discard {
+  flex-shrink: 0;
+  margin: 0;
+  padding: 1px 6px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--primary, #3b82f6);
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.queue-edit-discard:hover {
+  text-decoration: underline;
 }
 
 .composer-card {

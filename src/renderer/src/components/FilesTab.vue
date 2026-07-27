@@ -38,10 +38,20 @@ const message = useMessage();
 const dialog = useDialog();
 
 let offFs: (() => void) | null = null;
+/** Match main `fs-watch-host` rootsEqual: only Windows folds case. */
+let pathCaseInsensitive = false;
+void window.api.window.platform().then((p) => {
+  pathCaseInsensitive = p === "win32";
+});
 
 function sameWorkspaceRoot(a: string, b: string): boolean {
-  const na = a.replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
-  const nb = b.replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
+  const fold = (p: string) => {
+    const n = p.replace(/\\/g, "/").replace(/\/+$/, "");
+    // Only Windows folds case (macOS APFS may be case-sensitive).
+    return pathCaseInsensitive ? n.toLowerCase() : n;
+  };
+  const na = fold(a);
+  const nb = fold(b);
   return na === nb;
 }
 

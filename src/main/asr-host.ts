@@ -37,13 +37,20 @@ import {
   type AsrStatus,
   type AsrStreamEvent,
 } from "../shared/asr";
-import { detectAsrGpuInfo, type AsrGpuInfo } from "./asr-gpu";
+import { detectAsrGpuInfo, isAsrNativeCrashExitCode, parseAsrExitCode, type AsrGpuInfo } from "./asr-gpu";
 
 const execFileAsync = promisify(execFile);
 const PREFS_FILE = "asr-prefs.json";
 const BACKEND_MARKER = ".backend";
 
-type Prefs = { enabled: boolean };
+type Prefs = {
+  enabled: boolean;
+  /**
+   * After a CUDA native crash (AV / missing DLL), stick to Vulkan until the user
+   * re-downloads runtime (clears this flag).
+   */
+  disableCuda?: boolean;
+};
 
 /** Install/import only — must NOT gate the install UI via transcription. */
 let installBusy = false;
@@ -82,7 +89,10 @@ function ensureDirs(): void {
 function readPrefs(): Prefs {
   try {
     const raw = JSON.parse(readFileSync(prefsPath(), "utf8")) as Prefs;
-    return { enabled: raw.enabled !== false };
+    return {
+      enabled: raw.enabled !== false,
+      disableCuda: Boolean(raw.disableCuda),
+    };
   } catch {
     return { enabled: true };
   }
@@ -91,6 +101,30 @@ function readPrefs(): Prefs {
 function writePrefs(prefs: Prefs): void {
   ensureDirs();
   writeFileSync(prefsPath(), `${JSON.stringify(prefs, null, 2)}\n`, "utf8");
+}
+
+function clearCudaDisable(): void {
+  const prefs = readPrefs();
+  if (!prefs.disableCuda) return;
+  writePrefs({ enabled: prefs.enabled, disableCuda: false });
+  cachedGpuInfo = null;
+}
+
+/** When CUDA was blacklisted, expose Vulkan as the effective preference. */
+function applyCudaPolicy(info: AsrGpuInfo): AsrGpuInfo {
+  if (info.backend !== "cuda" || !readPrefs().disableCuda) return info;
+  return {
+    backend: "vulkan",
+    deviceLabel: /vulkan/i.test(info.deviceLabel)
+      ? info.deviceLabel
+      : `${info.deviceLabel} · Vulkan`,
+    kind: info.kind === "cpu" ? "discrete" : info.kind,
+  };
+}
+
+function gpuInfo(): AsrGpuInfo {
+  if (!cachedGpuInfo) cachedGpuInfo = applyCudaPolicy(detectAsrGpuInfo());
+  return cachedGpuInfo;
 }
 
 function findBinary(dir: string, names: string[]): string | null {
@@ -149,11 +183,6 @@ function findBinary(dir: string, names: string[]): string | null {
     }
   }
   return null;
-}
-
-function gpuInfo(): AsrGpuInfo {
-  if (!cachedGpuInfo) cachedGpuInfo = detectAsrGpuInfo();
-  return cachedGpuInfo;
 }
 
 function preferredGpuBackend(): AsrGpuBackend {
@@ -580,6 +609,7 @@ async function pickAsrModelFile(): Promise<string | null> {
 
 async function reinstallAsrRuntime(): Promise<AsrStatus> {
   return withInstallLock(async (signal) => {
+    clearCudaDisable();
     const backend = preferredGpuBackend();
     rmSync(runtimeDir(), { recursive: true, force: true });
     mkdirSync(runtimeDir(), { recursive: true });
@@ -684,12 +714,136 @@ async function waitForInferSlot(maxMs = 60_000): Promise<void> {
   }
 }
 
+/** Blacklist CUDA and swap runtime to Vulkan after a native crash. */
+async function recoverFromCudaCrash(detail: string): Promise<void> {
+  const prefs = readPrefs();
+  writePrefs({ enabled: prefs.enabled, disableCuda: true });
+  const detected = detectAsrGpuInfo();
+  cachedGpuInfo = {
+    backend: "vulkan",
+    deviceLabel: /vulkan/i.test(detected.deviceLabel)
+      ? detected.deviceLabel
+      : `${detected.deviceLabel} · Vulkan`,
+    kind: detected.kind === "cpu" ? "discrete" : detected.kind,
+  };
+
+  if (runtimeMatchesBackend("vulkan")) return;
+
+  if (installBusy) {
+    throw new Error(
+      `ASR_CUDA_CRASH|${detail}|CUDA runtime crashed; Vulkan fallback install is busy — retry in a moment`,
+    );
+  }
+
+  installBusy = true;
+  installAbort = new AbortController();
+  const signal = installAbort.signal;
+  try {
+    broadcastProgress({
+      phase: "binary",
+      receivedBytes: 0,
+      totalBytes: estimatePhaseBytes("binary"),
+      message: "CUDA crashed — switching to Vulkan runtime…",
+    });
+    rmSync(runtimeDir(), { recursive: true, force: true });
+    mkdirSync(runtimeDir(), { recursive: true });
+    await installRuntimeBackend("vulkan", signal);
+    broadcastProgress({
+      phase: "done",
+      receivedBytes: 0,
+      totalBytes: null,
+      message: "Vulkan runtime ready",
+    });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    throw new Error(`ASR_CUDA_CRASH|${detail}|Vulkan fallback failed: ${msg}`);
+  } finally {
+    installBusy = false;
+    installAbort = null;
+  }
+}
+
+function shouldFallbackCuda(err: unknown): boolean {
+  if (installedBackend() !== "cuda" && preferredGpuBackend() !== "cuda") return false;
+  const msg = err instanceof Error ? err.message : String(err);
+  const code = parseAsrExitCode(msg);
+  return isAsrNativeCrashExitCode(code) || /ASR exited with code\s+3221225477/i.test(msg);
+}
+
+async function spawnTranscribeOnce(
+  modelFile: string,
+  wavPath: string,
+  outBase: string,
+  outTxtPath: string,
+): Promise<string> {
+  const status = getStatus();
+  if (!status.binaryPath) {
+    throw new Error("ASR runtime is not ready for this GPU — open Settings to install/update");
+  }
+  ensureRuntimeExecutables();
+  const backend = preferredGpuBackend();
+  const args = [
+    "--backend",
+    "qwen3",
+    "-m",
+    modelFile,
+    "-f",
+    wavPath,
+    "-t",
+    String(streamThreadCount()),
+    "--gpu-backend",
+    backend,
+    "-np",
+    "-l",
+    "zh",
+    "-otxt",
+    "-of",
+    outBase,
+  ];
+
+  const { stdout, stderr } = await new Promise<{ stdout: string; stderr: string }>((resolve, reject) => {
+    const child = spawn(status.binaryPath!, args, {
+      windowsHide: true,
+      cwd: dirname(status.binaryPath!),
+      env: streamChildEnv(status.binaryPath!),
+    });
+    let out = "";
+    let err = "";
+    const timer = setTimeout(() => {
+      try {
+        child.kill();
+      } catch {
+        // ignore
+      }
+      reject(new Error("ASR timed out (90s) — first run loads the model, please retry"));
+    }, 90_000);
+    child.stdout.on("data", (d) => {
+      out += String(d);
+    });
+    child.stderr.on("data", (d) => {
+      err += String(d);
+    });
+    child.on("error", (e) => {
+      clearTimeout(timer);
+      reject(e);
+    });
+    child.on("close", (code) => {
+      clearTimeout(timer);
+      if (code === 0) resolve({ stdout: out, stderr: err });
+      else reject(new Error(err.trim() || out.trim() || `ASR exited with code ${code}`));
+    });
+  });
+
+  const text = readTranscriptFile(outTxtPath) || pickTranscript(stdout, stderr);
+  if (!text) throw new Error("ASR returned empty transcript");
+  return text;
+}
+
 async function transcribePcm(pcmBase64: string, sampleRate: number): Promise<string> {
   const prefs = readPrefs();
   if (!prefs.enabled) throw new Error("ASR is disabled in settings");
   if (installBusy) throw new Error("ASR install in progress");
 
-  // Model may exist while GPU runtime is still the old CPU build — require match.
   let status = getStatus();
   if (!status.modelPath || !existsSync(status.modelPath)) {
     throw new Error("ASR model is not installed");
@@ -703,72 +857,31 @@ async function transcribePcm(pcmBase64: string, sampleRate: number): Promise<str
   lastError = null;
   const stamp = Date.now();
   const wavPath = join(asrRoot(), "tmp", `utt-${stamp}.wav`);
-  // CrispASR writes FNAME.txt when using -otxt / -of (path without extension)
   const outBase = join(asrRoot(), "tmp", `utt-${stamp}-out`);
   const outTxtPath = `${outBase}.txt`;
-  const backend = preferredGpuBackend();
   try {
     const raw = Buffer.from(pcmBase64, "base64");
     const pcm = new Int16Array(raw.buffer, raw.byteOffset, Math.floor(raw.byteLength / 2));
     writeWavPcm16(wavPath, pcm, sampleRate || 16000);
 
-    status = getStatus();
-    ensureRuntimeExecutables();
-    const args = [
-      "--backend",
-      "qwen3",
-      "-m",
-      status.modelPath!,
-      "-f",
-      wavPath,
-      "-t",
-      String(streamThreadCount()),
-      "--gpu-backend",
-      backend,
-      "-np",
-      "-l",
-      "zh",
-      "-otxt",
-      "-of",
-      outBase,
-    ];
-
-    const { stdout, stderr } = await new Promise<{ stdout: string; stderr: string }>((resolve, reject) => {
-      const child = spawn(status.binaryPath!, args, {
-        windowsHide: true,
-        cwd: dirname(status.binaryPath!),
-        env: streamChildEnv(status.binaryPath!),
-      });
-      let out = "";
-      let err = "";
-      const timer = setTimeout(() => {
-        try {
-          child.kill();
-        } catch {
-          // ignore
-        }
-        reject(new Error("ASR timed out (90s) — first run loads the model, please retry"));
-      }, 90_000);
-      child.stdout.on("data", (d) => {
-        out += String(d);
-      });
-      child.stderr.on("data", (d) => {
-        err += String(d);
-      });
-      child.on("error", (e) => {
-        clearTimeout(timer);
-        reject(e);
-      });
-      child.on("close", (code) => {
-        clearTimeout(timer);
-        if (code === 0) resolve({ stdout: out, stderr: err });
-        else reject(new Error(err.trim() || out.trim() || `ASR exited with code ${code}`));
-      });
-    });
-
-    const text = readTranscriptFile(outTxtPath) || pickTranscript(stdout, stderr);
-    if (!text) throw new Error("ASR returned empty transcript");
-    return text;
+    try {
+      return await spawnTranscribeOnce(status.modelPath, wavPath, outBase, outTxtPath);
+    } catch (err) {
+      if (!shouldFallbackCuda(err)) throw err;
+      const detail = err instanceof Error ? err.message : String(err);
+      inferBusy = false;
+      try {
+        await recoverFromCudaCrash(detail);
+      } finally {
+        await waitForInferSlot();
+        inferBusy = true;
+      }
+      status = getStatus();
+      if (!status.binaryPath || !runtimeMatchesPreferred()) {
+        throw new Error(`ASR_CUDA_CRASH|${detail}|Vulkan runtime not ready after fallback`);
+      }
+      return await spawnTranscribeOnce(status.modelPath!, wavPath, outBase, outTxtPath);
+    }
   } catch (err) {
     lastError = err instanceof Error ? err.message : String(err);
     throw err;
@@ -1096,6 +1209,24 @@ async function startAsrStream(): Promise<AsrStatus> {
       streamReady = false;
       inferBusy = false;
       if (code && code !== 0) {
+        if (isAsrNativeCrashExitCode(code) && installedBackend() === "cuda") {
+          const detail = `ASR stream exited with code ${code}`;
+          void recoverFromCudaCrash(detail)
+            .then(() => {
+              lastError = "ASR_CUDA_CRASH|stream|Switched to Vulkan — tap the mic again";
+              broadcastStreamEvent({
+                type: "error",
+                message: lastError,
+              });
+              broadcastStreamEvent({ type: "ended" });
+            })
+            .catch((err) => {
+              lastError = err instanceof Error ? err.message : String(err);
+              broadcastStreamEvent({ type: "error", message: lastError });
+              broadcastStreamEvent({ type: "ended" });
+            });
+          return;
+        }
         const msg = `ASR stream exited with code ${code}`;
         lastError = msg;
         broadcastStreamEvent({ type: "error", message: msg });
@@ -1166,7 +1297,8 @@ export function registerAsrIpc(): void {
 
   ipcMain.handle(IpcChannels.asr.status, () => getStatus());
   ipcMain.handle(IpcChannels.asr.setEnabled, (_e, enabled: boolean) => {
-    writePrefs({ enabled: Boolean(enabled) });
+    const prefs = readPrefs();
+    writePrefs({ enabled: Boolean(enabled), disableCuda: prefs.disableCuda });
     return getStatus();
   });
   ipcMain.handle(IpcChannels.asr.install, async () => installAsr());

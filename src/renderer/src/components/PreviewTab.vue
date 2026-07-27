@@ -39,6 +39,11 @@ const message = useMessage();
 const dialog = useDialog();
 const rightTabs = useRightTabsStore();
 const appearance = useAppearanceStore();
+/** Match main `fs-watch-host` rootsEqual: only Windows folds case. */
+let pathCaseInsensitive = false;
+void window.api.window.platform().then((p) => {
+  pathCaseInsensitive = p === "win32";
+});
 const currentPath = ref<string | null>(props.filePath ?? null);
 const result = ref<PreviewResult | null>(null);
 const loading = ref(false);
@@ -282,12 +287,19 @@ function onFsChanged(event: Event): void {
   // Ignore events from a previous workspace watcher
   const wsRoot = useWorkspaceStore().root;
   if (!wsRoot) return;
-  const rootA = detail.root.replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
-  const rootB = wsRoot.replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
+  const normalizeCmp = (p: string) => {
+    const n = p.replace(/\\/g, "/").replace(/\/+$/, "");
+    return pathCaseInsensitive ? n.toLowerCase() : n;
+  };
+  const rootA = normalizeCmp(detail.root);
+  const rootB = normalizeCmp(wsRoot);
   if (rootA !== rootB) return;
 
   const path = currentPath.value.replace(/\\/g, "/");
-  const hit = detail.events.find((e) => e.path.replace(/\\/g, "/") === path);
+  const hit = detail.events.find((e) => {
+    const ep = e.path.replace(/\\/g, "/");
+    return pathCaseInsensitive ? ep.toLowerCase() === path.toLowerCase() : ep === path;
+  });
   if (!hit) return;
 
   if (hit.kind === "unlink") {

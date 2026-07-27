@@ -118,6 +118,25 @@ jobs:
           draft: false
           prerelease: true
           generate_release_notes: true
+          body: |
+            ## Fixes
+            - **#4** NVIDIA CUDA ASR crash (`3221225477` / `0xC0000005`): auto-fallback to Vulkan and retry; friendlier errors
+            - **#3** Session title now updates immediately after the first prompt (already on `dev`; shipping in this release)
+            - **#2** API key save reloads workers without restart (already closed; included if not on previous mac builds)
+            - Queued chat messages no longer look “lost”: idle-race drain so follow-ups send without waiting for the next turn
+            - Preview / file tree path compare respects case-sensitive volumes (macOS APFS)
+            - Pi CLI installer on macOS opens via `.command` + `open` (avoids silent AppleScript Automation failures)
+
+            ## Features
+            - Send queue: edit pulls content into the main composer; Enter/Send saves back to the queue
+            - Terminal: right-click copy (with selection) / paste (empty area)
+            - Chat tool cards for `edit` / `write`: path, `+N/-M` stats, expandable diff (Pi SDK `EditToolDetails`)
+            - Compact send-queue toolbar layout
+
+            ## macOS
+            - Builds: Intel (x64) + Apple Silicon (arm64) DMG/ZIP
+            - Mic entitlement + usage description; Metal ASR path
+            - Note: `notarize` is still off — first open may need right-click → Open (Gatekeeper)
           files: upload/*
           fail_on_unmatched_files: false
         env:
