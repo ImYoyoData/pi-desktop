@@ -109,7 +109,11 @@ export const useSessionsStore = defineStore("sessions", () => {
         patchStatus(event.sessionId, event.status);
         break;
       case "worker_exit":
-        patchStatus(event.sessionId, "error");
+        // code 0 / null = clean idle-destroy or session close — stay idle, not error
+        patchStatus(
+          event.sessionId,
+          event.code === 0 || event.code == null ? "idle" : "error",
+        );
         break;
       default: {
         const _never: never = event;

@@ -223,12 +223,23 @@ export function createSessionBroker(deps: {
       }
 
       if (msg.kind === "fatal") {
-        rejectPendingCommands(rec, msg.error ?? "worker fatal");
+        // Idle-destroy / clean process exit must not spam the chat as an error.
+        const errText = msg.error ?? "worker fatal";
+        if (/^worker exited \(0\)$/i.test(errText.trim())) {
+          clearIdleDestroyTimer(rec);
+          stopHeartbeat(rec);
+          rec.worker = null;
+          if (rec.summary.status === "running") {
+            setStatus(sessionId, "idle");
+          }
+          return;
+        }
+        rejectPendingCommands(rec, errText);
         setStatus(sessionId, "error");
         emit({
           type: "prompt_error",
           sessionId,
-          errorMessage: msg.error ?? "worker fatal",
+          errorMessage: errText,
         });
         return;
       }
