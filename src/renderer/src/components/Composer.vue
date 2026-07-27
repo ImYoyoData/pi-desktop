@@ -31,9 +31,11 @@ import { useSendQueueStore } from "@renderer/stores/send-queue";
 import { useSessionsStore } from "@renderer/stores/sessions";
 import { useWorkspaceStore } from "@renderer/stores/workspace";
 import { formatAsrInstallError, formatAsrRuntimeError, useAsrStore } from "@renderer/stores/asr";
+import { useMediaStore } from "@renderer/stores/media";
 import { heuristicSessionTitle } from "@renderer/utils/session-title";
 import { startVoiceRecord, type VoiceRecordSession } from "@renderer/utils/pcm-capture";
 import { scrubAsrHallucination } from "../../../shared/asr";
+import { formatAcceleratorLabel } from "../../../shared/hotkey";
 import { formatLlmError } from "@renderer/utils/llm-error";
 import { locale, t } from "@renderer/i18n";
 
@@ -45,6 +47,7 @@ const sendQueue = useSendQueueStore();
 const sessions = useSessionsStore();
 const workspace = useWorkspaceStore();
 const asr = useAsrStore();
+const media = useMediaStore();
 const messageApi = useMessage();
 let voiceSession: VoiceRecordSession | null = null;
 let voiceConfirming = false;
@@ -249,6 +252,11 @@ const hasSendContent = computed(() =>
 
 /** Editing a queued item — Enter/Send commits back to the queue. */
 const isEditingQueue = computed(() => Boolean(sendQueue.editingId));
+const isEditingPublished = computed(
+  () =>
+    Boolean(chat.pendingUserEdit) &&
+    chat.pendingUserEdit?.sessionId === sessionId.value,
+);
 
 /** Show stop while running; show send whenever there is a session (empty → disabled). */
 const showPrimaryAction = computed(() => Boolean(sessionId.value));
@@ -281,9 +289,27 @@ async function readImageFile(file: File): Promise<{
 
 function electronFilePath(file: File): string | null {
   const p = (file as File & { path?: string }).path;
-  if (typeof p === "string" && p.trim()) return p.trim();
+  if (typeof p === "string" && p.trim()) return toWorkspaceRelative(p.trim());
   return null;
 }
+
+/** Prefer workspace-relative paths for file tags. */
+function toWorkspaceRelative(absOrRel: string): string {
+  const raw = absOrRel.replace(/\\/g, "/");
+  const root = (workspace.root || "").replace(/\\/g, "/").replace(/\/+$/, "");
+  if (!root) return raw;
+  const fold = (s: string) => (pathCaseInsensitive.value ? s.toLowerCase() : s);
+  const rootFold = fold(root);
+  const pathFold = fold(raw);
+  if (pathFold === rootFold) return "";
+  if (pathFold.startsWith(`${rootFold}/`)) return raw.slice(root.length + 1);
+  return raw;
+}
+
+const pathCaseInsensitive = ref(false);
+void window.api.window.platform().then((p) => {
+  pathCaseInsensitive.value = p === "win32";
+});
 
 function fileUrlToPath(uri: string): string | null {
   const raw = uri.trim();
@@ -295,13 +321,13 @@ function fileUrlToPath(uri: string): string | null {
       if (/^\/[A-Za-z]:\//.test(p)) {
         p = p.slice(1).replace(/\//g, "\\");
       }
-      return p;
+      return toWorkspaceRelative(p);
     }
   } catch {
     // fall through
   }
   if (/^[A-Za-z]:[\\/]/.test(raw) || raw.startsWith("\\\\") || raw.startsWith("/")) {
-    return raw;
+    return toWorkspaceRelative(raw);
   }
   return null;
 }
@@ -326,14 +352,24 @@ function snapshotComposerPayload(): {
   citationsToSend:
     | { url: string; selector?: string; text?: string; htmlSnippet?: string }[]
     | undefined;
-  tagsToSend: { url: string; host: string; label: string; content?: string }[] | undefined;
+  tagsToSend:
+    | {
+        url: string;
+        host: string;
+        label: string;
+        content?: string;
+        kind?: "file" | "url" | "element";
+      }[]
+    | undefined;
 } | null {
   const chipText = composer.formatChipsForMessage();
-  const text = [composer.draft.trim(), chipText].filter(Boolean).join("\n\n");
+  const displayText = composer.draft.trim();
+  // Agent prompt includes @path / url chip refs; bubble shows tags + displayText separately.
+  const text = [displayText, chipText].filter(Boolean).join("\n\n");
   if (!text && !composer.images.length && !composer.chips.length) return null;
   const citations = composer.elementCitations();
   const citationList = citations.length ? citations : undefined;
-  const elementTags = composer.elementTagSnapshot();
+  const attachmentTags = composer.attachmentTagSnapshot();
   const seen = new Set<string>();
   const imagesToSend = composer.images
     .filter((i) => {
@@ -354,15 +390,25 @@ function snapshotComposerPayload(): {
         htmlSnippet: c.htmlSnippet,
       }))
     : undefined;
-  const tagsToSend = elementTags.length
-    ? elementTags.map((row) => ({
-        url: row.url,
-        host: row.host,
-        label: row.label,
-        content: row.content,
-      }))
+  const tagsToSend = attachmentTags.length
+    ? attachmentTags.map((row) => {
+        let host = "";
+        if (row.kind === "url" || row.kind === "element") {
+          try {
+            host = new URL(row.ref).host;
+          } catch {
+            host = "";
+          }
+        }
+        return {
+          url: row.ref,
+          host,
+          label: row.label,
+          content: row.content,
+          kind: row.kind,
+        };
+      })
     : undefined;
-  const displayText = composer.draft.trim();
   return { text, displayText, imagesToSend, citationsToSend, tagsToSend };
 }
 
@@ -379,6 +425,7 @@ function enqueueFromComposer(): boolean {
     images: snap.imagesToSend.length ? snap.imagesToSend : undefined,
     citations: snap.citationsToSend,
     elementTags: snap.tagsToSend,
+    agentText: snap.text || undefined,
   });
   composer.clear();
   messageApi.success(t.queueAdded, { duration: 1400 });
@@ -405,6 +452,7 @@ function saveEditingToQueue(): boolean {
     (snap.imagesToSend.length || snap.tagsToSend?.length ? " " : snap.text || " ");
   const updated = sendQueue.updateItem(id, qid, {
     text: message,
+    agentText: snap.text || undefined,
     images: snap.imagesToSend.length ? snap.imagesToSend : undefined,
     citations: snap.citationsToSend,
     elementTags: snap.tagsToSend,
@@ -426,11 +474,22 @@ function discardQueueEdit(): void {
   composer.clear();
 }
 
+function discardPublishedEdit(): void {
+  chat.cancelEditUser();
+  composer.clear();
+}
+
 function loadQueueItemIntoComposer(item: {
   text: string;
   images?: { type: "image"; data: string; mimeType: string }[];
   citations?: { url: string; selector?: string; text?: string; htmlSnippet?: string }[];
-  elementTags?: { url: string; host: string; label: string; content?: string }[];
+  elementTags?: {
+    url: string;
+    host: string;
+    label: string;
+    content?: string;
+    kind?: "file" | "url" | "element";
+  }[];
 }): void {
   composer.clear();
   composer.draft = item.text === " " ? "" : item.text;
@@ -452,6 +511,14 @@ function loadQueueItemIntoComposer(item: {
     });
   }
   for (const tag of item.elementTags ?? []) {
+    if (tag.kind === "file") {
+      composer.addFileTag(tag.content || tag.label || tag.url);
+      continue;
+    }
+    if (tag.kind === "url" || (!tag.kind && /^https?:\/\//i.test(tag.url))) {
+      composer.addUrlTag(tag.url);
+      continue;
+    }
     if (seenUrls.has(tag.url)) continue;
     seenUrls.add(tag.url);
     composer.addCitation({
@@ -467,6 +534,7 @@ function beginEditQueueItem(itemId: string): void {
   const id = sessionId.value;
   if (!id) return;
   if (voiceActive.value) cancelVoice();
+  if (chat.pendingUserEdit) chat.cancelEditUser();
 
   const editing = sendQueue.editingId;
   if (editing && editing !== itemId) {
@@ -491,23 +559,30 @@ async function dispatchQueuedItem(
   id: string,
   item: {
     text: string;
+    agentText?: string;
     images?: { type: "image"; data: string; mimeType: string }[];
     citations?: { url: string; selector?: string; text?: string; htmlSnippet?: string }[];
-    elementTags?: { url: string; host: string; label: string; content?: string }[];
+    elementTags?: {
+      url: string;
+      host: string;
+      label: string;
+      content?: string;
+      kind?: "file" | "url" | "element";
+    }[];
   },
-  mode: "follow_up" | "prompt",
 ): Promise<void> {
-  if (mode === "prompt" || item.images?.length) {
-    await chat.sendPrompt(
-      id,
-      item.text || " ",
-      item.citations,
-      item.images,
-      item.elementTags,
-    );
-    return;
-  }
-  await chat.followUp(id, item.text || " ");
+  // Always prompt: Pi followUp only queues during a live turn and will not
+  // start a new turn when the agent is already idle (queued items vanished).
+  const agentText = item.agentText || item.text || " ";
+  const displayText = item.text === " " ? "" : item.text;
+  await chat.sendPrompt(
+    id,
+    agentText,
+    item.citations,
+    item.images,
+    item.elementTags,
+    displayText,
+  );
 }
 
 function waitUntilIdle(sessionId: string, timeoutMs = 15_000): Promise<void> {
@@ -538,7 +613,21 @@ function isAgentBusy(targetSessionId?: string): boolean {
   return sessions.sessions.find((s) => s.id === id)?.status === "running";
 }
 
-/** Serialize auto-drain so idle races cannot fire two follow-ups at once. */
+function queueItemHasContent(item: {
+  text: string;
+  images?: unknown[];
+  citations?: unknown[];
+  elementTags?: unknown[];
+}): boolean {
+  return Boolean(
+    item.text.trim() ||
+      item.images?.length ||
+      item.citations?.length ||
+      item.elementTags?.length,
+  );
+}
+
+/** Serialize auto-drain so idle races cannot fire two sends at once. */
 let drainInFlight: string | null = null;
 
 async function drainQueueIfIdle(targetSessionId: string): Promise<void> {
@@ -546,18 +635,44 @@ async function drainQueueIfIdle(targetSessionId: string): Promise<void> {
   if (sendQueue.isDrainSuppressed(targetSessionId)) return;
   if (isAgentBusy(targetSessionId)) return;
 
-  const next = sendQueue.takeNext(targetSessionId);
-  if (!next) return;
-  if (!next.text.trim() && !next.images?.length) {
-    void drainQueueIfIdle(targetSessionId);
-    return;
-  }
-
+  // Claim lock before takeNext — concurrent running/length watchers otherwise
+  // both shift items and one send is lost.
   drainInFlight = targetSessionId;
+  let taken: ReturnType<typeof sendQueue.takeNext> = null;
+  let sentOk = false;
   try {
-    await dispatchQueuedItem(targetSessionId, next, "follow_up");
+    while (!isAgentBusy(targetSessionId) && !sendQueue.isDrainSuppressed(targetSessionId)) {
+      taken = sendQueue.takeNext(targetSessionId);
+      if (!taken) return;
+      if (!queueItemHasContent(taken)) {
+        taken = null;
+        continue;
+      }
+      await dispatchQueuedItem(targetSessionId, taken);
+      taken = null;
+      sentOk = true;
+      // One turn per drain; chain the next item after the lock is released.
+      return;
+    }
+  } catch (err) {
+    if (taken) {
+      sendQueue.requeueFront(targetSessionId, taken);
+      taken = null;
+    }
+    const msg = err instanceof Error ? err.message : String(err);
+    messageApi.error(msg);
   } finally {
     if (drainInFlight === targetSessionId) drainInFlight = null;
+    // running→idle watch may have been skipped while the lock was held for the
+    // full prompt; continue the queue now that we are idle again.
+    if (
+      sentOk &&
+      !sendQueue.isDrainSuppressed(targetSessionId) &&
+      !isAgentBusy(targetSessionId) &&
+      sendQueue.list(targetSessionId).length > 0
+    ) {
+      void drainQueueIfIdle(targetSessionId);
+    }
   }
 }
 
@@ -573,7 +688,7 @@ async function sendQueuedNow(itemId: string): Promise<void> {
       await chat.abort(id);
       await waitUntilIdle(id);
     }
-    await dispatchQueuedItem(id, item, "prompt");
+    await dispatchQueuedItem(id, item);
   } finally {
     sendQueue.setSuppressDrain(id, false);
   }
@@ -601,7 +716,14 @@ async function submit(mode: "prompt" | "steer" | "follow_up"): Promise<void> {
 
   const snap = snapshotComposerPayload();
   if (!snap) return;
+
+  // Re-editing a published user bubble: truncate that turn only once we have a send payload
+  if (chat.pendingUserEdit?.sessionId === id) {
+    chat.commitEditUser(id);
+  }
+
   const displayText = snap.displayText;
+  const agentText = snap.text || " ";
   const titleSeed = displayText || snap.tagsToSend?.[0]?.content || snap.tagsToSend?.[0]?.label || "";
   composer.clear();
   if (mode === "prompt") {
@@ -613,14 +735,14 @@ async function submit(mode: "prompt" | "steer" | "follow_up"): Promise<void> {
     }
     await chat.sendPrompt(
       id,
-      displayText ||
-        (snap.imagesToSend.length || snap.tagsToSend?.length ? " " : snap.text || " "),
+      agentText,
       snap.citationsToSend,
       snap.imagesToSend,
       snap.tagsToSend,
+      displayText,
     );
-  } else if (mode === "steer") await chat.steer(id, snap.text || " ");
-  else await chat.followUp(id, snap.text || " ");
+  } else if (mode === "steer") await chat.steer(id, agentText);
+  else await chat.followUp(id, agentText);
 }
 
 function onKeydown(event: KeyboardEvent): void {
@@ -1076,6 +1198,9 @@ async function onMicClick(): Promise<void> {
   const ready = await ensureAsrReady();
   if (!ready) return;
 
+  // Mic capture + tab media cannot share the audio focus — stop all players first.
+  media.stopAll();
+
   try {
     voiceSession = await startVoiceRecord({
       onLevel: (level) => {
@@ -1102,17 +1227,50 @@ async function onMicClick(): Promise<void> {
   }
 }
 
+const micTitle = computed(
+  () => `${t.voiceInput} (${formatAcceleratorLabel(asr.status.wakeHotkey || "Control+Alt+Y")})`,
+);
+
+function onVoiceSessionKeydown(e: KeyboardEvent): void {
+  if (!voiceActive.value || voicePending.value || voiceConfirming) return;
+  if (e.isComposing) return;
+  if (e.key === "Enter" && !e.ctrlKey && !e.altKey && !e.metaKey && !e.shiftKey) {
+    e.preventDefault();
+    e.stopPropagation();
+    void confirmVoice();
+    return;
+  }
+  if (e.key === "Escape") {
+    e.preventDefault();
+    e.stopPropagation();
+    cancelVoice();
+  }
+}
+
+function onAsrWake(): void {
+  if (asr.capturingHotkey) return;
+  if (!asr.micVisible) return;
+  if (voiceActive.value || voicePending.value || voiceConfirming || asr.installing) return;
+  void onMicClick();
+}
+
+let offAsrWake: (() => void) | undefined;
+
 onMounted(() => {
   composer.bindSession(sessionId.value);
   void refreshModels();
   void asr.refresh();
   offAsrProgress = asr.bindProgress();
+  offAsrWake = window.api.asr.onWake(onAsrWake);
+  window.addEventListener("keydown", onVoiceSessionKeydown, true);
   window.addEventListener("pi-models-changed", onModelsChanged);
 });
 
 onUnmounted(() => {
   window.removeEventListener("pi-models-changed", onModelsChanged);
+  window.removeEventListener("keydown", onVoiceSessionKeydown, true);
   offAsrProgress?.();
+  offAsrWake?.();
   cancelVoice();
 });
 
@@ -1120,9 +1278,17 @@ function onModelsChanged(): void {
   void refreshModels();
 }
 
+watch(
+  () => asr.recording,
+  (recording) => {
+    if (recording) media.stopAll();
+  },
+);
+
 watch(sessionId, (id, prev) => {
   // Switching session cancels an in-progress voice take / pending ASR
   if (voiceActive.value || voicePending.value) cancelVoice();
+  if (chat.pendingUserEdit) chat.cancelEditUser();
   composer.bindSession(id);
 
   if (prev && selectedModelKey.value) {
@@ -1186,6 +1352,15 @@ watch(
         {{ t.queueDiscardEdit }}
       </button>
     </div>
+    <div
+      v-else-if="isEditingPublished && !voiceActive"
+      class="queue-edit-banner"
+    >
+      <span>{{ t.editingPublishedHint }}</span>
+      <button type="button" class="queue-edit-discard" @click="discardPublishedEdit">
+        {{ t.discardPublishedEdit }}
+      </button>
+    </div>
     <div class="composer-card" :class="{ 'is-voice-recording': voiceActive }">
       <div v-if="voiceActive" class="voice-row">
         <VoiceRecordBar
@@ -1210,28 +1385,28 @@ watch(
         </div>
       </div>
 
-      <!-- Rich composer: only tags + textarea share one editor surface -->
+      <!-- Tags + text share one editor surface (inline flow). -->
       <div class="rich-editor" @paste="onPaste" @click="focusDraft">
-        <div v-if="composer.chips.length" class="inline-chips">
+        <div class="editor-flow">
           <CitationCard
             v-for="chip in composer.chips"
             :key="chip.id"
             :chip="chip"
             @remove="composer.removeChip(chip.id)"
           />
+          <NInput
+            ref="draftInput"
+            v-model:value="composer.draft"
+            class="draft-input"
+            type="textarea"
+            :placeholder="composer.chips.length ? '' : t.composerPlaceholder"
+            :autosize="{ minRows: 1, maxRows: 8 }"
+            :bordered="false"
+            @keydown="onKeydown"
+            @click="onDraftCaretClick"
+            @keyup="onDraftKeyup"
+          />
         </div>
-        <NInput
-          ref="draftInput"
-          v-model:value="composer.draft"
-          class="draft-input"
-          type="textarea"
-          :placeholder="t.composerPlaceholder"
-          :autosize="{ minRows: 1, maxRows: 8 }"
-          :bordered="false"
-          @keydown="onKeydown"
-          @click="onDraftCaretClick"
-          @keyup="onDraftKeyup"
-        />
       </div>
 
       <div class="toolbar">
@@ -1353,7 +1528,8 @@ watch(
             type="button"
             class="mic-btn"
             :disabled="asr.installing"
-            :aria-label="t.voiceInput"
+            :aria-label="micTitle"
+            :title="micTitle"
             @click="onMicClick"
           >
             <NIcon :component="MicOutline" :size="18" />
@@ -1508,22 +1684,33 @@ watch(
 .rich-editor {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 0;
   min-width: 0;
-  padding: 4px 2px 2px;
+  padding: 6px 8px;
   cursor: text;
+  border-radius: 8px;
+  background: var(--bg-input, transparent);
 }
 
-.inline-chips {
+.editor-flow {
   display: flex;
-  gap: 6px;
   flex-wrap: wrap;
   align-items: center;
-  padding: 0 2px;
+  gap: 6px;
+  min-width: 0;
+  width: 100%;
 }
 
 .draft-input {
-  width: 100%;
+  flex: 1 1 140px;
+  min-width: 120px;
+  width: auto;
+}
+
+.draft-input :deep(.n-input-wrapper),
+.draft-input :deep(textarea) {
+  padding-left: 0 !important;
+  padding-right: 0 !important;
 }
 
 .img-chip {

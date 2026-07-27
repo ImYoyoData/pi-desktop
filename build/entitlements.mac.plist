@@ -12,8 +12,13 @@
     <true/>
     <key>com.apple.security.files.user-selected.read-write</key>
     <true/>
+    <key>com.apple.security.files.downloads.read-write</key>
+    <true/>
     <!-- Required for local ASR / voice dictation on macOS -->
     <key>com.apple.security.device.audio-input</key>
+    <true/>
+    <!-- Embedded browser / element picker may request camera -->
+    <key>com.apple.security.device.camera</key>
     <true/>
   </dict>
 </plist>

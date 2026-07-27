@@ -14,12 +14,6 @@ if (!document.getElementById("monaco-editor-css")) {
   document.head.appendChild(link);
 }
 
-(self as unknown as { MonacoEnvironment?: { getWorker: () => Worker } }).MonacoEnvironment = {
-  getWorker() {
-    return undefined as unknown as Worker;
-  },
-};
-
 const props = defineProps<{
   filePath: string;
   oldContent: string;
@@ -33,8 +27,11 @@ let monacoApi: typeof Monaco | null = null;
 let diffEditor: Monaco.editor.IStandaloneDiffEditor | null = null;
 let originalModel: Monaco.editor.ITextModel | null = null;
 let modifiedModel: Monaco.editor.ITextModel | null = null;
+let gen = 0;
 
 const language = computed(() => languageFromPath(props.filePath));
+const isFullAdd = computed(() => !props.oldContent && Boolean(props.newContent));
+const isFullDelete = computed(() => Boolean(props.oldContent) && !props.newContent);
 
 function disposeModels(): void {
   originalModel?.dispose();
@@ -49,10 +46,35 @@ function disposeEditor(): void {
   disposeModels();
 }
 
+function applyInlineEditorOptions(): void {
+  if (!diffEditor) return;
+  // Inline view keeps both editors in DOM; hide the original gutter so we don't
+  // get two line-number columns glued together.
+  diffEditor.getOriginalEditor().updateOptions({
+    lineNumbers: "off",
+    glyphMargin: false,
+    folding: false,
+    lineDecorationsWidth: 0,
+    lineNumbersMinChars: 0,
+    renderLineHighlight: "none",
+    overviewRulerLanes: 0,
+  });
+  diffEditor.getModifiedEditor().updateOptions({
+    lineNumbers: "on",
+    glyphMargin: false,
+    folding: false,
+    renderLineHighlight: "line",
+    lineDecorationsWidth: 10,
+    lineNumbersMinChars: 3,
+  });
+}
+
 async function ensureDiffEditor(): Promise<void> {
+  const myGen = ++gen;
   await nextTick();
-  if (!host.value) return;
+  if (!host.value || myGen !== gen) return;
   if (!monacoApi) monacoApi = await loadMonaco();
+  if (myGen !== gen) return;
   const monaco = monacoApi;
   const theme = appearance.resolvedTheme === "dark" ? "vs-dark" : "vs";
 
@@ -62,6 +84,7 @@ async function ensureDiffEditor(): Promise<void> {
       automaticLayout: true,
       readOnly: true,
       renderSideBySide: false,
+      useInlineViewWhenSpaceIsLimited: true,
       enableSplitViewResizing: false,
       renderOverviewRuler: true,
       originalEditable: false,
@@ -71,25 +94,50 @@ async function ensureDiffEditor(): Promise<void> {
       minimap: { enabled: false },
       scrollBeyondLastLine: false,
       padding: { top: 8 },
-      wordWrap: "on",
+      wordWrap: "off",
+      diffWordWrap: "off",
       smoothScrolling: true,
       ignoreTrimWhitespace: false,
       renderIndicators: true,
       renderMarginRevertIcon: false,
+      renderGutterMenu: false,
       glyphMargin: false,
-      folding: true,
+      folding: false,
       lineNumbers: "on",
-      diffWordWrap: "on",
+      // Full add/delete: keep every line visible (all green / all red).
+      hideUnchangedRegions: {
+        enabled: !isFullAdd.value && !isFullDelete.value,
+        contextLineCount: 3,
+        minimumLineCount: 4,
+        revealLineCount: 20,
+      },
+      diffAlgorithm: "advanced",
     });
+    applyInlineEditorOptions();
   } else {
     monaco.editor.setTheme(theme);
+    diffEditor.updateOptions({
+      hideUnchangedRegions: {
+        enabled: !isFullAdd.value && !isFullDelete.value,
+        contextLineCount: 3,
+        minimumLineCount: 4,
+        revealLineCount: 20,
+      },
+    });
+    applyInlineEditorOptions();
   }
 
   disposeModels();
   originalModel = monaco.editor.createModel(props.oldContent, language.value);
   modifiedModel = monaco.editor.createModel(props.newContent, language.value);
+  if (myGen !== gen) {
+    disposeModels();
+    return;
+  }
   diffEditor.setModel({ original: originalModel, modified: modifiedModel });
   await nextTick();
+  if (myGen !== gen || !diffEditor) return;
+  applyInlineEditorOptions();
   diffEditor.layout();
 }
 
@@ -110,6 +158,7 @@ watch(
 );
 
 onBeforeUnmount(() => {
+  gen += 1;
   disposeEditor();
 });
 </script>
@@ -123,5 +172,14 @@ onBeforeUnmount(() => {
   width: 100%;
   height: 100%;
   min-height: 0;
+}
+
+/* Keep inline original pane from painting a second line-number rail */
+.diff-editor-host :deep(.editor.original .margin),
+.diff-editor-host :deep(.editor.original .monaco-editor .margin-view-overlays) {
+  width: 0 !important;
+  min-width: 0 !important;
+  opacity: 0;
+  pointer-events: none;
 }
 </style>

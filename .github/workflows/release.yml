@@ -1,5 +1,7 @@
 # Release packaging + GitHub Release: ONLY on push to main (or manual dispatch).
 # Tags and `dev` must NOT trigger this workflow. Use ci.yml for PR/dev checks.
+#
+# One job = one OS/arch installer (never fat / multi-arch packages).
 name: Build and Release
 
 on:
@@ -21,19 +23,40 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  check:
+    name: Typecheck & tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+
   build:
     name: Build (${{ matrix.name }})
+    needs: check
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
         include:
-          - name: windows
+          - name: windows-x64
             os: windows-latest
-            build_cmd: npm run dist:win
-          - name: macos
+            build_cmd: npm run dist:win:x64
+          - name: windows-arm64
+            # Separate job → separate NSIS (not a fat installer). Cross-arch Electron + node-pty prebuilds.
+            os: windows-latest
+            build_cmd: npm run dist:win:arm64
+          - name: macos-arm64
             os: macos-latest
-            build_cmd: npm run dist:mac
+            build_cmd: npm run dist:mac:arm64
+          - name: macos-x64
+            os: macos-13
+            build_cmd: npm run dist:mac:x64
 
     steps:
       - name: Checkout
@@ -51,11 +74,6 @@ jobs:
       - name: Generate icons
         run: npm run icons
 
-      - name: Typecheck & unit tests
-        run: |
-          npm run typecheck
-          npm test
-
       - name: Build & package
         env:
           # Prevent electron-builder from creating/updating GitHub Releases mid-build
@@ -68,7 +86,6 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: pi-desktop-${{ matrix.name }}
-          # One installer per OS/arch — no portable/zip/blockmap/yml clutter
           path: |
             release/*-setup.exe
             release/*.dmg
@@ -120,27 +137,26 @@ jobs:
             ## Downloads (one installer per OS / arch)
             - **Windows x64**: `Pi Desktop-*-win-x64-setup.exe`
             - **Windows ARM64**: `Pi Desktop-*-win-arm64-setup.exe`
-            - **macOS Intel**: `Pi Desktop-*-mac-x64.dmg`
             - **macOS Apple Silicon**: `Pi Desktop-*-mac-arm64.dmg`
+            - **macOS Intel**: `Pi Desktop-*-mac-x64.dmg`
 
-            No portable EXE, ZIP, or blockmap extras.
+            Separate packages only — no universal / fat installer.
 
-            ## Highlights
-            - **Update UX**: startup silent check → red badge only; click opens version card with release notes; download shows progress bar
-            - Download uses Electron `net.fetch` (fixes common `fetch failed` via Chromium network stack)
-            - Tool cards: read lines read/total; execution order `#N`; success/failure
-            - Settings → Extension market
-            - Full UI i18n; built-in browser first-open race fixed; idle worker exit silent
+            ## Package notes
+            - Leaner asar (renderer-only deps excluded; keep `marked` + `highlight.js` for Pi SDK / agent-worker)
+            - Parallel per-arch CI builds (faster than dual-arch on one runner)
 
             ## macOS
-            - DMG for Intel + Apple Silicon; hardened runtime + entitlements (mic / JIT)
-            - Notarization still off — first open may need right-click → Open (Gatekeeper)
-            - Path compare stays case-sensitive; Pi CLI installer uses `.command` + `open`
+            - Hardened runtime + mic/camera entitlements
+            - Notarization still off without Apple Developer ID — first open may need right-click → Open
+            - Embedded terminal uses a login shell (`-l`) so Homebrew/PATH work
+            - ASR prefers Metal; CUDA/Vulkan prefs are ignored on macOS
+            - GPU Chromium flags kept minimal on darwin (avoids black-window regressions)
 
-            ## Fixes (carry-forward)
-            - **#4** NVIDIA CUDA ASR crash → Vulkan fallback
-            - **#3** Session title updates after first prompt
-            - **#2** API key save reloads workers
+            ## Highlights
+            - Fix: packaged app no longer crashes with `Cannot find module 'marked'`
+            - Files tree shows `.`-prefixed hidden dirs; turn notify / revert / durable terminals
+            - ASR wake hotkey, market uninstall, preview media, send-queue defaults
           files: upload/*
           fail_on_unmatched_files: false
         env:

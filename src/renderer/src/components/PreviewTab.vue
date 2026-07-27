@@ -11,6 +11,8 @@ import { loadMonaco } from "@renderer/utils/monaco-loader";
 import { useRightTabsStore } from "@renderer/stores/right-tabs";
 import { useWorkspaceStore } from "@renderer/stores/workspace";
 import { useAppearanceStore } from "@renderer/stores/appearance";
+import { useLayoutStore } from "@renderer/stores/layout";
+import { useMediaStore } from "@renderer/stores/media";
 import { t } from "@renderer/i18n";
 
 type MdViewMode = "edit" | "preview" | "split";
@@ -23,12 +25,6 @@ if (!document.getElementById("monaco-editor-css")) {
   document.head.appendChild(link);
 }
 
-(self as unknown as { MonacoEnvironment?: { getWorker: () => Worker } }).MonacoEnvironment = {
-  getWorker() {
-    return undefined as unknown as Worker;
-  },
-};
-
 const props = defineProps<{
   filePath?: string | null;
   tabId?: string;
@@ -39,6 +35,8 @@ const message = useMessage();
 const dialog = useDialog();
 const rightTabs = useRightTabsStore();
 const appearance = useAppearanceStore();
+const layout = useLayoutStore();
+const media = useMediaStore();
 /** Match main `fs-watch-host` rootsEqual: only Windows folds case. */
 let pathCaseInsensitive = false;
 void window.api.window.platform().then((p) => {
@@ -51,6 +49,8 @@ const dirty = ref(false);
 const saving = ref(false);
 const missing = ref(false);
 const editorHost = ref<HTMLElement | null>(null);
+const videoRef = ref<HTMLVideoElement | null>(null);
+const audioRef = ref<HTMLAudioElement | null>(null);
 const liveContent = ref("");
 const mdViewMode = ref<MdViewMode>("preview");
 let monacoApi: typeof Monaco | null = null;
@@ -61,6 +61,8 @@ let loadGen = 0;
 let diskFingerprint = "";
 let reloadPromptOpen = false;
 let applyingExternal = false;
+let unregisterVideo: (() => void) | undefined;
+let unregisterAudio: (() => void) | undefined;
 
 const crumbs = computed(() => (currentPath.value ? breadcrumbs(currentPath.value) : []));
 const isMarkdown = computed(() => result.value?.kind === "markdown");
@@ -70,6 +72,26 @@ const showEditor = computed(
     (!isMarkdown.value || mdViewMode.value !== "preview"),
 );
 const showMdPreview = computed(() => isMarkdown.value && mdViewMode.value !== "edit");
+const mediaVisible = computed(() => Boolean(props.active) && !layout.rightCollapsed);
+const mediaIdPrefix = computed(() => `preview:${props.tabId ?? "anon"}:`);
+
+function stopMedia(): void {
+  media.stopByPrefix(mediaIdPrefix.value);
+}
+
+function syncMediaRegistration(): void {
+  unregisterVideo?.();
+  unregisterAudio?.();
+  unregisterVideo = undefined;
+  unregisterAudio = undefined;
+  const prefix = mediaIdPrefix.value;
+  if (videoRef.value) {
+    unregisterVideo = media.register(`${prefix}video`, videoRef.value);
+  }
+  if (audioRef.value) {
+    unregisterAudio = media.register(`${prefix}audio`, audioRef.value);
+  }
+}
 
 function syncTabMeta(patch: { dirty?: boolean; missing?: boolean; gitCode?: string }): void {
   if (!props.tabId) return;
@@ -227,6 +249,7 @@ async function loadPath(path: string | null): Promise<void> {
       if (gen !== loadGen) return;
       await ensureEditor(next.content, languageFromPath(path));
     } else {
+      stopMedia();
       disposeEditor();
       liveContent.value = "";
       syncTabMeta({ dirty: false });
@@ -253,9 +276,26 @@ watch(
     if (active && currentPath.value) {
       void refreshGitForFile(currentPath.value);
       void nextTick(() => editor?.layout());
+    } else {
+      stopMedia();
     }
   },
 );
+
+watch(
+  () => layout.rightCollapsed,
+  (collapsed) => {
+    if (collapsed) stopMedia();
+  },
+);
+
+watch(mediaVisible, (visible) => {
+  if (!visible) stopMedia();
+});
+
+watch([videoRef, audioRef, () => result.value?.kind, () => props.tabId], () => {
+  void nextTick(() => syncMediaRegistration());
+});
 
 function promptReloadFromDisk(): void {
   if (reloadPromptOpen || !currentPath.value) return;
@@ -392,6 +432,11 @@ onMounted(() => {
 onBeforeUnmount(() => {
   if (props.tabId) rightTabs.unregisterSaveHandler(props.tabId);
   window.removeEventListener("pi-fs-changed", onFsChanged);
+  stopMedia();
+  unregisterVideo?.();
+  unregisterAudio?.();
+  unregisterVideo = undefined;
+  unregisterAudio = undefined;
   disposeEditor();
 });
 </script>
@@ -466,7 +511,7 @@ onBeforeUnmount(() => {
             {{ t.fileDeletedHint }}
           </NAlert>
           <NAlert v-else-if="result.kind === 'unsupported'" type="warning" :bordered="false">
-            {{ t.previewUnsupported }}
+            {{ result.reason === "binary" ? t.previewBinary : t.previewUnsupported }}
           </NAlert>
           <template v-else-if="result.kind === 'text' || result.kind === 'markdown'">
             <NAlert
@@ -490,7 +535,27 @@ onBeforeUnmount(() => {
               </div>
             </div>
           </template>
-          <img v-else-if="result.kind === 'image'" class="img" :src="result.dataUrl" :alt="result.path" />
+          <div v-else-if="result.kind === 'image'" class="media-wrap">
+            <img class="img" :src="result.dataUrl" :alt="result.path" />
+          </div>
+          <div v-else-if="result.kind === 'video'" class="media-wrap">
+            <video
+              ref="videoRef"
+              class="media-player"
+              controls
+              preload="metadata"
+              :src="result.mediaSrc"
+            />
+          </div>
+          <div v-else-if="result.kind === 'audio'" class="media-wrap audio-wrap">
+            <audio
+              ref="audioRef"
+              class="media-audio"
+              controls
+              preload="metadata"
+              :src="result.mediaSrc"
+            />
+          </div>
         </template>
       </NSpin>
     </div>
@@ -653,5 +718,33 @@ onBeforeUnmount(() => {
   display: block;
   margin: 8px;
   border-radius: 4px;
+}
+
+.media-wrap {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: auto;
+  padding: 12px;
+  background: var(--bg);
+}
+
+.media-wrap.audio-wrap {
+  align-items: center;
+}
+
+.media-player {
+  max-width: 100%;
+  max-height: 100%;
+  outline: none;
+  border-radius: 6px;
+  background: #000;
+}
+
+.media-audio {
+  width: min(480px, 100%);
+  outline: none;
 }
 </style>

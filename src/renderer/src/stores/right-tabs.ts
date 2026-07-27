@@ -20,6 +20,10 @@ export type RightTab = {
    * until the user edits (then it becomes permanent).
    */
   transient?: boolean;
+  /** Terminal: node-pty id (session-scoped; kept while parking workspaces). */
+  ptyId?: string;
+  /** Terminal: cwd used when the pty was created. */
+  cwd?: string;
 };
 
 let tabSeq = 0;
@@ -36,6 +40,7 @@ type PersistedTabs = {
     label: string;
     filePath?: string;
     transient?: boolean;
+    cwd?: string;
   }>;
   activeIndex: number;
 };
@@ -44,6 +49,22 @@ const TABS_STORAGE_PREFIX = "pi-desktop:right-tabs:v1:";
 
 function storageKey(root: string): string {
   return `${TABS_STORAGE_PREFIX}${root.replace(/\\/g, "/").toLowerCase()}`;
+}
+
+function normalizeRoot(root: string): string {
+  return root.replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
+}
+
+type ParkedWorkspace = {
+  tabs: RightTab[];
+  activeId: string;
+};
+
+/** In-memory park so terminal PTYs stay alive across workspace switches. */
+const parkedByRoot = new Map<string, ParkedWorkspace>();
+
+function cloneTabs(list: RightTab[]): RightTab[] {
+  return list.map((tab) => ({ ...tab }));
 }
 
 export const useRightTabsStore = defineStore("rightTabs", () => {
@@ -63,6 +84,11 @@ export const useRightTabsStore = defineStore("rightTabs", () => {
   function closeTab(id: string): void {
     const idx = tabs.value.findIndex((t) => t.id === id);
     if (idx < 0) return;
+    const tab = tabs.value[idx]!;
+    // Explicit close kills the pty — workspace switch must NOT call this for terminals.
+    if (tab.kind === "terminal" && tab.ptyId) {
+      void window.api.terminal.dispose(tab.ptyId);
+    }
     tabs.value.splice(idx, 1);
     saveHandlers.delete(id);
     if (activeId.value === id) {
@@ -104,7 +130,21 @@ export const useRightTabsStore = defineStore("rightTabs", () => {
     tabs.value.splice(toIndex, 0, item);
   }
 
-  function addTab(kind: RightTabKind, opts?: { label?: string; filePath?: string }): RightTab {
+  /** Reorder by full id list from drag UI (preferred over index math). */
+  function reorderByIds(ids: string[]): void {
+    if (ids.length !== tabs.value.length) return;
+    const byId = new Map(tabs.value.map((tab) => [tab.id, tab]));
+    const next: RightTab[] = [];
+    for (const id of ids) {
+      const tab = byId.get(id);
+      if (!tab) return;
+      next.push(tab);
+    }
+    if (next.length !== tabs.value.length) return;
+    tabs.value = next;
+  }
+
+  function addTab(kind: RightTabKind, opts?: { label?: string; filePath?: string; cwd?: string }): RightTab {
     const counts = tabs.value.filter((t) => t.kind === kind).length;
     let label = opts?.label;
     if (!label) {
@@ -184,6 +224,7 @@ export const useRightTabsStore = defineStore("rightTabs", () => {
       dirty: false,
       missing: false,
       transient: kind === "preview",
+      cwd: kind === "terminal" ? opts?.cwd : undefined,
     };
     tabs.value.push(tab);
     activeId.value = tab.id;
@@ -228,6 +269,8 @@ export const useRightTabsStore = defineStore("rightTabs", () => {
           label: tab.label,
           filePath: tab.filePath,
           transient: tab.transient,
+          // ptyId is session-only — never write to localStorage
+          cwd: tab.kind === "terminal" ? tab.cwd : undefined,
         })),
       activeIndex: Math.max(
         0,
@@ -274,6 +317,7 @@ export const useRightTabsStore = defineStore("rightTabs", () => {
         dirty: false,
         missing: false,
         transient: row.kind === "preview" ? row.transient !== false : undefined,
+        cwd: row.kind === "terminal" ? row.cwd || root : undefined,
       });
     }
     if (!next.some((tab) => tab.kind === "changes")) {
@@ -283,6 +327,39 @@ export const useRightTabsStore = defineStore("rightTabs", () => {
     const idx = Math.min(Math.max(0, restored.activeIndex), next.length - 1);
     activeId.value = next[idx]?.id ?? next[0]!.id;
     persistReady = true;
+  }
+
+  /**
+   * Switch workspace tab set: park previous (keep pty alive), restore parked or disk.
+   */
+  function switchWorkspace(prev: string | null, next: string | null): void {
+    if (prev) {
+      const key = normalizeRoot(prev);
+      parkedByRoot.set(key, {
+        tabs: cloneTabs(tabs.value),
+        activeId: activeId.value,
+      });
+      persistTabs(prev);
+    }
+
+    persistReady = false;
+    if (!next) {
+      tabs.value = [{ id: "changes-0", kind: "changes", label: t.changesTab }];
+      activeId.value = "changes-0";
+      persistReady = true;
+      return;
+    }
+
+    const parked = parkedByRoot.get(normalizeRoot(next));
+    if (parked?.tabs?.length) {
+      tabs.value = cloneTabs(parked.tabs);
+      const stillThere = tabs.value.some((tab) => tab.id === parked.activeId);
+      activeId.value = stillThere ? parked.activeId : (tabs.value[0]?.id ?? "");
+      persistReady = true;
+      return;
+    }
+
+    restoreTabs(next);
   }
 
   return {
@@ -300,7 +377,9 @@ export const useRightTabsStore = defineStore("rightTabs", () => {
     saveTab,
     refreshPreviewGitMeta,
     reorderTabs,
+    reorderByIds,
     persistTabs,
     restoreTabs,
+    switchWorkspace,
   };
 });

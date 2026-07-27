@@ -80,6 +80,8 @@ export const IpcChannels = {
     resize: "terminal:resize",
     data: "terminal:data",
     dispose: "terminal:dispose",
+    isAlive: "terminal:isAlive",
+    getScrollback: "terminal:getScrollback",
   },
   preview: {
     read: "preview:read",
@@ -115,6 +117,9 @@ export const IpcChannels = {
     streamStop: "asr:streamStop",
     streamEvent: "asr:streamEvent",
     progress: "asr:progress",
+    setWakeHotkey: "asr:setWakeHotkey",
+    /** Main → renderer: global wake hotkey pressed. */
+    wake: "asr:wake",
   },
   update: {
     getAppInfo: "update:getAppInfo",
@@ -133,6 +138,21 @@ export const IpcChannels = {
     openDocs: "piCli:openDocs",
     openSite: "piCli:openSite",
     progress: "piCli:progress",
+  },
+  market: {
+    list: "market:list",
+    install: "market:install",
+  },
+  checkpoint: {
+    begin: "checkpoint:begin",
+    finish: "checkpoint:finish",
+    finishActive: "checkpoint:finishActive",
+    get: "checkpoint:get",
+    revert: "checkpoint:revert",
+    updated: "checkpoint:updated",
+  },
+  notify: {
+    turnComplete: "notify:turnComplete",
   },
 } as const;
 

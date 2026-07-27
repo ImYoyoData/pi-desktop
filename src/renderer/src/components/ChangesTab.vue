@@ -366,9 +366,8 @@ watch(
             <header class="diff-head">
               <div class="diff-titles">
                 <div class="diff-name" :title="selectedPath">{{ selectedFileName }}</div>
-                <div class="diff-path" :title="selectedPath">{{ selectedPath }}</div>
               </div>
-              <div v-if="diffStats" class="diff-stats">
+              <div v-if="diffStats" class="diff-stats" :title="selectedPath ?? undefined">
                 <span class="add">+{{ diffStats.additions }}</span>
                 <span class="del">-{{ diffStats.deletions }}</span>
               </div>

@@ -1,12 +1,10 @@
 <script setup lang="ts">
 import { onMounted, onUnmounted, ref, watch } from "vue";
-import DOMPurify from "dompurify";
-import { marked } from "marked";
-import hljs from "highlight.js/lib/common";
 import { useDialog } from "naive-ui";
 import { useRightTabsStore } from "@renderer/stores/right-tabs";
 import { useLayoutStore } from "@renderer/stores/layout";
 import { useBrowserNavStore } from "@renderer/stores/browser-nav";
+import { renderMarkdown, setMarkdownCopyLabel } from "@renderer/utils/markdown";
 import { t } from "@renderer/i18n";
 
 const props = defineProps<{
@@ -19,65 +17,19 @@ const rightTabs = useRightTabsStore();
 const layout = useLayoutStore();
 const browserNav = useBrowserNavStore();
 
-marked.setOptions({
-  gfm: true,
-  breaks: true,
-});
+setMarkdownCopyLabel(t.copy);
 
-marked.use({
-  renderer: {
-    code({ text, lang }: { text: string; lang?: string }) {
-      const language = (lang || "").trim().split(/\s+/)[0] || "";
-      let highlighted = "";
-      try {
-        highlighted =
-          language && hljs.getLanguage(language)
-            ? hljs.highlight(text, { language }).value
-            : hljs.highlightAuto(text).value;
-      } catch {
-        highlighted = escapeHtml(text);
-      }
-      const lines = text.replace(/\n$/, "").split("\n");
-      const nos = lines.map((_, i) => `<span>${i + 1}</span>`).join("");
-      const label = language || "code";
-      return [
-        `<div class="code-block" data-code-block>`,
-        `<div class="code-head"><span class="lang">${escapeHtml(label)}</span>`,
-        `<button type="button" class="copy-btn" data-copy>${t.copy}</button></div>`,
-        `<div class="code-body"><div class="line-nos" aria-hidden="true">${nos}</div>`,
-        `<pre><code class="hljs language-${escapeHtml(language)}">${highlighted}</code></pre>`,
-        `</div></div>`,
-      ].join("");
-    },
-    link({ href, title, text }: { href: string; title?: string | null; text: string }) {
-      const titleAttr = title ? ` title="${escapeHtml(title)}"` : "";
-      return `<a href="${escapeHtml(href)}"${titleAttr} rel="noopener noreferrer">${text}</a>`;
-    },
-  },
-});
-
-function escapeHtml(s: string): string {
-  return s
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
+function refreshHtml(content: string): string {
+  setMarkdownCopyLabel(t.copy);
+  return renderMarkdown(content);
 }
 
-function renderHtml(content: string): string {
-  const raw = marked.parse(content || "", { async: false }) as string;
-  return DOMPurify.sanitize(raw, {
-    ADD_ATTR: ["data-copy", "data-code-block", "target", "rel"],
-    ADD_TAGS: ["button"],
-  });
-}
-
-const html = ref(renderHtml(props.content));
+const html = ref(refreshHtml(props.content));
 
 watch(
   () => props.content,
   (c) => {
-    html.value = renderHtml(c);
+    html.value = refreshHtml(c);
   },
 );
 
@@ -158,11 +110,13 @@ onUnmounted(() => {
 </style>
 
 <style scoped>
+/* Global base.css resets ul list-style and * font-weight — restore GFM chrome here. */
 .md {
   font-size: 14px;
   line-height: 1.55;
   color: inherit;
   word-break: break-word;
+  overflow-wrap: anywhere;
 }
 
 .md :deep(p) {
@@ -173,10 +127,178 @@ onUnmounted(() => {
   margin-bottom: 0;
 }
 
+.md :deep(h1),
+.md :deep(h2),
+.md :deep(h3),
+.md :deep(h4),
+.md :deep(h5),
+.md :deep(h6) {
+  margin: 1em 0 0.45em;
+  line-height: 1.3;
+  color: var(--fg-strong);
+  font-weight: 650;
+}
+
+.md :deep(h1) {
+  font-size: 1.45em;
+}
+.md :deep(h2) {
+  font-size: 1.28em;
+}
+.md :deep(h3) {
+  font-size: 1.14em;
+}
+.md :deep(h4),
+.md :deep(h5),
+.md :deep(h6) {
+  font-size: 1em;
+}
+
+.md :deep(h1:first-child),
+.md :deep(h2:first-child),
+.md :deep(h3:first-child),
+.md :deep(h4:first-child) {
+  margin-top: 0;
+}
+
+.md :deep(strong),
+.md :deep(b) {
+  font-weight: 650;
+  color: var(--fg-strong);
+}
+
+.md :deep(em),
+.md :deep(i) {
+  font-style: italic;
+}
+
+.md :deep(del),
+.md :deep(s) {
+  text-decoration: line-through;
+  color: var(--fg-muted);
+}
+
 .md :deep(ul),
 .md :deep(ol) {
   margin: 0 0 0.65em;
-  padding-left: 1.35em;
+  padding-left: 1.5em;
+}
+
+.md :deep(ul) {
+  list-style: disc outside;
+}
+
+.md :deep(ol) {
+  list-style: decimal outside;
+}
+
+.md :deep(ul ul) {
+  list-style: circle;
+  margin-bottom: 0;
+}
+
+.md :deep(ul ul ul) {
+  list-style: square;
+}
+
+.md :deep(ol ol) {
+  list-style: lower-alpha;
+  margin-bottom: 0;
+}
+
+.md :deep(li) {
+  margin: 0.2em 0;
+}
+
+.md :deep(li > p) {
+  margin: 0.2em 0;
+}
+
+.md :deep(li > ul),
+.md :deep(li > ol) {
+  margin: 0.15em 0 0.25em;
+}
+
+/* GFM task lists */
+.md :deep(li:has(> input[type="checkbox"])) {
+  list-style: none;
+  margin-left: -1.25em;
+  padding-left: 0.15em;
+}
+
+.md :deep(li > input[type="checkbox"]) {
+  margin-right: 0.45em;
+  vertical-align: middle;
+}
+
+.md :deep(blockquote) {
+  margin: 0.5em 0 0.75em;
+  padding: 0.15em 0 0.15em 0.85em;
+  border-left: 3px solid var(--border-strong);
+  color: var(--fg-muted);
+}
+
+.md :deep(blockquote p) {
+  margin-bottom: 0.4em;
+}
+
+.md :deep(blockquote p:last-child) {
+  margin-bottom: 0;
+}
+
+.md :deep(hr) {
+  margin: 1em 0;
+  border: none;
+  border-top: 1px solid var(--border);
+}
+
+.md :deep(.md-table-scroll) {
+  margin: 0.65em 0;
+  overflow-x: auto;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.md :deep(table) {
+  width: max-content;
+  min-width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+  margin: 0;
+}
+
+.md :deep(.md-table-scroll table) {
+  border: none;
+  border-radius: 0;
+}
+
+.md :deep(thead) {
+  background: var(--code-bg);
+}
+
+.md :deep(th),
+.md :deep(td) {
+  border: 1px solid var(--border);
+  padding: 6px 10px;
+  text-align: left;
+  vertical-align: top;
+}
+
+.md :deep(th) {
+  font-weight: 650;
+  color: var(--fg-strong);
+  white-space: nowrap;
+}
+
+.md :deep(tr:nth-child(even) td) {
+  background: color-mix(in srgb, var(--code-bg) 55%, transparent);
+}
+
+.md :deep(img) {
+  max-width: 100%;
+  height: auto;
+  border-radius: 6px;
+  margin: 0.4em 0;
 }
 
 .md :deep(a) {
@@ -263,6 +385,6 @@ onUnmounted(() => {
   font-size: 0.9em;
   padding: 0.1em 0.35em;
   border-radius: 4px;
-  background: rgba(0, 0, 0, 0.06);
+  background: var(--md-inline-code-bg, rgba(0, 0, 0, 0.06));
 }
 </style>

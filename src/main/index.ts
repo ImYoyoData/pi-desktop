@@ -20,12 +20,17 @@ import { registerWindowIpc } from "./window-ipc";
 import { registerAsrIpc } from "./asr-host";
 import { registerUpdateIpc } from "./update-host";
 import { registerPiCliIpc } from "./pi-cli-host";
+import { registerMarketIpc } from "./market-host";
+import { registerCheckpointIpc } from "./checkpoint-ipc";
+import { registerNotifyIpc } from "./notify-host";
 import { ensurePiAgentEnvironment } from "./pi-env";
 import { installApplicationMenu } from "./app-menu";
 import { enableHardwareAcceleration } from "./gpu-flags";
+import { installLocalFileProtocol, registerLocalFileScheme } from "./local-file-protocol";
 
 /** GPU raster / compositing before ready (no-op if only software GL). */
 enableHardwareAcceleration();
+registerLocalFileScheme();
 
 /** Packaged / desktop: only one running instance with one primary window. */
 const gotSingleInstanceLock = app.requestSingleInstanceLock();
@@ -93,11 +98,15 @@ function boot(): void {
       console.info("[pi-env] initialized", init.agentDir, init.created);
     }
 
+    installLocalFileProtocol();
     installApplicationMenu();
     registerWindowIpc();
     registerAsrIpc();
     registerUpdateIpc();
     registerPiCliIpc();
+    registerMarketIpc();
+    registerCheckpointIpc();
+    registerNotifyIpc();
     registerWorkspaceIpc();
     registerPreviewIpc();
     registerFilesIpc();

@@ -8,12 +8,15 @@ import {
   NTag,
   NText,
   NTooltip,
+  useDialog,
   useMessage,
 } from "naive-ui";
-import { CopyOutline, CreateOutline, RefreshOutline } from "@vicons/ionicons5";
+import { ArrowUndoOutline, CopyOutline, CreateOutline, RefreshOutline } from "@vicons/ionicons5";
 import type { ChatMessage, ChatRetryHint } from "@renderer/stores/chat";
 import { useChatStore } from "@renderer/stores/chat";
+import { useCheckpointStore } from "@renderer/stores/checkpoint";
 import { useComposerStore } from "@renderer/stores/composer";
+import { useSendQueueStore } from "@renderer/stores/send-queue";
 import { useSessionsStore } from "@renderer/stores/sessions";
 import MarkdownView from "@renderer/components/MarkdownView.vue";
 import ToolCallCard from "@renderer/components/ToolCallCard.vue";
@@ -30,11 +33,14 @@ const props = defineProps<{
 }>();
 
 const chat = useChatStore();
+const checkpoints = useCheckpointStore();
 const composer = useComposerStore();
+const sendQueue = useSendQueueStore();
 const sessions = useSessionsStore();
 const previewStore = usePreviewStore();
 const rightTabs = useRightTabsStore();
 const messageApi = useMessage();
+const dialog = useDialog();
 const scroller = ref<HTMLElement | null>(null);
 
 const displayMessages = computed(() => {
@@ -74,9 +80,28 @@ async function copyText(text: string): Promise<void> {
 function onEditUser(msg: Extract<ChatMessage, { role: "user" }>): void {
   const id = sessionId.value;
   if (!id || props.running) return;
-  const text = chat.beginEditUser(id, msg.id);
-  if (text == null) return;
-  composer.draft = text;
+  const edited = chat.beginEditUser(id, msg.id);
+  if (!edited) return;
+  if (sendQueue.editingId) sendQueue.setEditing(id, null);
+  composer.clear();
+  composer.draft = edited.text;
+  for (const img of edited.images ?? []) {
+    composer.addImageFromDataUrl(img.dataUrl);
+  }
+  for (const tag of edited.elementTags ?? []) {
+    if (tag.kind === "file") {
+      composer.addFileTag(tag.content || tag.label || tag.url);
+    } else if (tag.kind === "url" || (!tag.kind && /^https?:\/\//i.test(tag.url))) {
+      composer.addUrlTag(tag.url);
+    } else {
+      composer.addCitation({
+        url: tag.url,
+        selector: "",
+        text: tag.content || tag.label || "",
+        htmlSnippet: "",
+      });
+    }
+  }
   messageApi.info(t.loadedForReEdit);
 }
 
@@ -90,6 +115,44 @@ async function onRetryError(msg: Extract<ChatMessage, { role: "error" }>): Promi
   const id = sessionId.value;
   if (!id || props.running) return;
   await chat.retryFromError(id, msg.id);
+}
+
+function canRevertUser(msg: Extract<ChatMessage, { role: "user" }>): boolean {
+  const id = sessionId.value;
+  if (!id) return false;
+  // Touch byKey so Vue re-renders when checkpoint status flips to ready.
+  const s = checkpoints.summaryFor(id, msg.id);
+  return s?.status === "ready" && s.fileCount > 0;
+}
+
+function isRevertedUser(msg: Extract<ChatMessage, { role: "user" }>): boolean {
+  const id = sessionId.value;
+  if (!id) return false;
+  return checkpoints.summaryFor(id, msg.id)?.status === "reverted";
+}
+
+function onRevertUser(msg: Extract<ChatMessage, { role: "user" }>): void {
+  const id = sessionId.value;
+  if (!id || props.running) return;
+  if (!checkpoints.canRevert(id, msg.id)) return;
+  dialog.warning({
+    title: t.revertTurn,
+    content: t.revertTurnConfirm,
+    positiveText: t.confirm,
+    negativeText: t.cancel,
+    onPositiveClick: async () => {
+      const result = await checkpoints.revert(id, msg.id);
+      if (!result.ok) {
+        messageApi.error(t.revertTurnFail(result.error || "unknown"));
+        return;
+      }
+      if (result.restored === 0 && result.deleted === 0) {
+        messageApi.info(t.revertTurnEmpty);
+        return;
+      }
+      messageApi.success(t.revertTurnDone(result.restored, result.deleted));
+    },
+  });
 }
 
 watch(
@@ -115,7 +178,10 @@ watch(
         v-for="msg in displayMessages"
         :key="msg.id"
         class="row"
-        :class="`row-${msg.role}`"
+        :class="[
+          `row-${msg.role}`,
+          sessionId && chat.isPendingEditTail(sessionId, msg.id) ? 'row-edit-tail' : '',
+        ]"
       >
         <template v-if="msg.role === 'user'">
           <div class="bubble-wrap user">
@@ -127,9 +193,11 @@ watch(
                   type="info"
                   size="small"
                   round
-                  :title="tag.url"
+                  class="user-tag"
+                  :class="{ 'user-tag-file': tag.kind === 'file' }"
+                  :title="tag.url || tag.label"
                 >
-                  {{ tag.content || tag.label }}
+                  {{ tag.kind === "file" ? tag.content || tag.label : tag.content || tag.label }}
                 </NTag>
               </div>
               <div v-if="msg.images?.length" class="user-images">
@@ -144,7 +212,28 @@ watch(
               </div>
               <MarkdownView v-if="msg.text" :content="msg.text" />
             </div>
-            <div v-if="!running" class="actions">
+            <div
+              v-if="!running"
+              class="actions"
+              :class="{ 'actions-visible': canRevertUser(msg) || isRevertedUser(msg) }"
+            >
+              <NTooltip v-if="canRevertUser(msg) || isRevertedUser(msg)">
+                <template #trigger>
+                  <NButton
+                    quaternary
+                    size="tiny"
+                    class="revert-btn"
+                    :disabled="isRevertedUser(msg)"
+                    @click="onRevertUser(msg)"
+                  >
+                    <template #icon>
+                      <NIcon :component="ArrowUndoOutline" />
+                    </template>
+                    {{ isRevertedUser(msg) ? t.reverted : t.revertTurn }}
+                  </NButton>
+                </template>
+                {{ isRevertedUser(msg) ? t.reverted : t.revertTurnConfirm }}
+              </NTooltip>
               <NTooltip>
                 <template #trigger>
                   <NButton quaternary circle size="tiny" @click="copyText(msg.text)">
@@ -276,6 +365,11 @@ watch(
   justify-content: flex-end;
 }
 
+.row-edit-tail {
+  opacity: 0.45;
+  transition: opacity 0.15s ease;
+}
+
 .row-assistant,
 .row-tool,
 .row-error {
@@ -340,6 +434,18 @@ watch(
   margin-bottom: 6px;
 }
 
+.user-tag-file {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  max-width: min(420px, 70vw);
+}
+
+.user-tag-file :deep(.n-tag__content) {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .user-image {
   width: 72px;
   height: 72px;
@@ -350,12 +456,19 @@ watch(
 .actions {
   display: flex;
   gap: 2px;
+  align-items: center;
   opacity: 0;
   transition: opacity 0.12s ease;
 }
 
+.actions.actions-visible,
 .bubble-wrap:hover .actions {
   opacity: 1;
+}
+
+.revert-btn {
+  font-size: 11px;
+  padding: 0 6px !important;
 }
 
 .cursor {

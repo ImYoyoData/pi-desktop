@@ -300,17 +300,26 @@ export async function getGitFileDiff(
   } else {
     const headPath = entry.originalPath || repoRelative;
     oldContent = (await readHeadContent(repositoryRoot, headPath)) ?? "";
-    const trackedPatch = await createTrackedFilePatch(
-      repositoryRoot,
-      repoRelative,
-      entry.originalPath,
-    );
-    if (trackedPatch === null) {
-      if (status !== "added") return { supported: false };
+    // Brand-new tracked/staged file: treat as full addition (empty at HEAD).
+    if (!oldContent) {
       patch = createAddedFilePatch(repoRelative, newContent);
       oldContent = "";
     } else {
-      patch = trackedPatch;
+      const trackedPatch = await createTrackedFilePatch(
+        repositoryRoot,
+        repoRelative,
+        entry.originalPath,
+      );
+      if (trackedPatch === null || (!trackedPatch.includes("\n@@ ") && !trackedPatch.startsWith("@@ "))) {
+        if (status === "added") {
+          patch = createAddedFilePatch(repoRelative, newContent);
+          oldContent = "";
+        } else {
+          return { supported: false };
+        }
+      } else {
+        patch = trackedPatch;
+      }
     }
   }
 

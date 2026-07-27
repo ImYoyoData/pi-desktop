@@ -14,8 +14,7 @@ export const useWorkspaceStore = defineStore("workspace", () => {
   function onRootChanged(next: string | null, prev: string | null): void {
     if (next === prev) return;
     const tabs = useRightTabsStore();
-    if (prev) tabs.persistTabs(prev);
-    tabs.restoreTabs(next);
+    tabs.switchWorkspace(prev, next);
     if (next) void window.api.fs.watch(next);
     else void window.api.fs.unwatch();
   }

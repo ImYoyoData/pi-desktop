@@ -63,7 +63,36 @@ describe("preview-host", () => {
   it("returns unsupported for unknown binary types", () => {
     fs.writeFileSync(path.join(root, "app.exe"), Buffer.from([0, 1, 2, 3]));
     const result = readPreview(root, "app.exe");
-    expect(result).toEqual({ kind: "unsupported", path: "app.exe" });
+    expect(result).toEqual({ kind: "unsupported", path: "app.exe", reason: "binary" });
+  });
+
+  it("opens unknown text-like extensions in the text editor", () => {
+    fs.writeFileSync(path.join(root, "notes.weird"), "hello plain text\n", "utf8");
+    const result = readPreview(root, "notes.weird");
+    expect(result).toEqual({
+      kind: "text",
+      path: "notes.weird",
+      content: "hello plain text\n",
+    });
+  });
+
+  it("returns video preview with local media src", () => {
+    fs.writeFileSync(path.join(root, "clip.mp4"), Buffer.from([0, 0, 0, 1]));
+    const result = readPreview(root, "clip.mp4");
+    expect(result.kind).toBe("video");
+    if (result.kind === "video") {
+      expect(result.path).toBe("clip.mp4");
+      expect(result.mediaSrc).toMatch(/^pi-local:\/\/media\/\?p=/);
+    }
+  });
+
+  it("returns audio preview with local media src", () => {
+    fs.writeFileSync(path.join(root, "track.mp3"), Buffer.from([0xff, 0xfb, 0x90]));
+    const result = readPreview(root, "track.mp3");
+    expect(result.kind).toBe("audio");
+    if (result.kind === "audio") {
+      expect(result.mediaSrc).toContain(encodeURIComponent("track.mp3"));
+    }
   });
 
   it("returns error when path escapes workspace", () => {

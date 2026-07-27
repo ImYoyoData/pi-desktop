@@ -17,8 +17,14 @@ export type ChatMessage =
       role: "user";
       text: string;
       images?: ChatUserImage[];
-      /** Cursor-style element tags shown in the bubble (url + selector + content). */
-      elementTags?: { url: string; host: string; label: string; content?: string }[];
+      /** Cursor-style tags (element / file path / url) shown in the bubble. */
+      elementTags?: {
+        url: string;
+        host: string;
+        label: string;
+        content?: string;
+        kind?: "file" | "url" | "element";
+      }[];
     }
   | { id: string; role: "assistant"; text: string; streaming?: boolean }
   | {
@@ -265,18 +271,18 @@ function reduceAgentPayload(state: ChatState, payload: Record<string, unknown>):
       const last = state.messages.at(-1);
       if (last?.role === "user") {
         const sameText = last.text === text || last.text.trim() === text.trim();
-        const attachmentOnlyOptimistic =
-          (Boolean(last.images?.length) || Boolean(last.elementTags?.length)) &&
-          !last.text.trim() &&
-          !text.trim();
+        const hasLocalExtras =
+          Boolean(last.images?.length) || Boolean(last.elementTags?.length);
         // Agent expands browser selection into a long "Context from browser selection" prompt.
         // Keep the optimistic short user bubble; never show that dump as a second message.
         const expandedCitationEcho =
           /Context from browser selection:|### Citation\s+\d+/i.test(text) &&
-          ( !last.text.trim() ||
+          (!last.text.trim() ||
             text.trim().endsWith(last.text.trim()) ||
-            text.includes(last.text.trim()) );
-        if (sameText || attachmentOnlyOptimistic || expandedCitationEcho) {
+            text.includes(last.text.trim()));
+        // File/URL chips are path/url *text* for the agent (`@path` / raw url). The bubble
+        // keeps structured tags — never mirror the expanded prompt as another user row.
+        if (sameText || expandedCitationEcho || hasLocalExtras) {
           const next = [...state.messages];
           next[next.length - 1] = {
             id,
@@ -445,7 +451,13 @@ export function appendUserMessage(
   state: ChatState,
   text: string,
   images?: ChatUserImage[],
-  elementTags?: { url: string; host: string; label: string; content?: string }[],
+  elementTags?: {
+    url: string;
+    host: string;
+    label: string;
+    content?: string;
+    kind?: "file" | "url" | "element";
+  }[],
 ): ChatState {
   const trimmed = text.trim();
   const hasImages = Boolean(images?.length);
