@@ -11,6 +11,7 @@ import {
   type ChatUserImage,
 } from "./chat-reducer";
 import { useSessionsStore } from "./sessions";
+import { formatLlmError } from "../utils/llm-error";
 
 export type { ChatMessage, ChatState, ChatUserImage, ChatRetryHint } from "./chat-reducer";
 export { appendUserMessage, createChatState, reduceChatEvent } from "./chat-reducer";
@@ -119,7 +120,8 @@ export const useChatStore = defineStore("chat", () => {
         images: promptImages,
       });
     } catch (err) {
-      const text = err instanceof Error ? err.message : String(err);
+      const raw = err instanceof Error ? err.message : String(err);
+      const text = formatLlmError(raw);
       const state = stateFor(sessionId);
       const last = state.messages.at(-1);
       if (!(last?.role === "error" && last.text === text)) {

@@ -176,4 +176,31 @@ describe("session-broker", () => {
     });
     vi.useRealTimers();
   });
+
+  it("restarts live workers when models/auth change so auth.json is re-read", async () => {
+    let spawnCount = 0;
+    let killCount = 0;
+    const broker = createSessionBroker({
+      spawnWorker: async (cwd) => {
+        spawnCount += 1;
+        return {
+          id: "session-a",
+          cwd,
+          filePath: "/tmp/session-a.jsonl",
+          worker: {
+            send: async () => null,
+            kill: () => {
+              killCount += 1;
+            },
+            onMessage: () => () => {},
+          },
+        };
+      },
+    });
+    await broker.createSession("/tmp/a");
+    expect(spawnCount).toBe(1);
+    await broker.notifyWorkersReloadModels();
+    expect(killCount).toBe(1);
+    expect(spawnCount).toBe(2);
+  });
 });
