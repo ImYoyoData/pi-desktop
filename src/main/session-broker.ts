@@ -480,11 +480,15 @@ export function createSessionBroker(deps: {
   }
 
   async function notifyWorkersReloadModels(): Promise<void> {
-    await Promise.all(
-      [...sessions.values()]
-        .filter((rec): rec is SessionRecord & { worker: WorkerHandle } => rec.worker !== null)
-        .map((rec) => rec.worker.send({ kind: "reload_models" })),
-    );
+    // AuthStorage caches auth.json in memory at worker start. ModelRuntime.refresh()
+    // does not call AuthStorage.reload(), so a live worker keeps empty credentials
+    // after the main process writes a new API key — until restart (matches issue #2).
+    const ids = [...sessions.entries()]
+      .filter(([, rec]) => rec.worker !== null)
+      .map(([id]) => id);
+    for (const id of ids) {
+      await restartWorker(id);
+    }
   }
 
   return {

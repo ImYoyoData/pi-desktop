@@ -126,6 +126,26 @@ function requireSession(): AgentSession {
   return session;
 }
 
+/**
+ * ModelRuntime.refresh() reloads models.json / catalogs, but AuthStorage keeps an
+ * in-memory snapshot of auth.json from worker start. Re-read disk before refresh.
+ */
+function reloadAuthStorageCache(active: AgentSession): void {
+  const runtime = active.modelRuntime as unknown as {
+    credentials?: { store?: { reload?: () => void } };
+  };
+  runtime.credentials?.store?.reload?.();
+}
+
+async function refreshSessionModel(active: AgentSession): Promise<void> {
+  const current = active.model;
+  if (!current) return;
+  const next = active.modelRuntime.getModel(current.provider, current.id);
+  if (next && next !== current) {
+    await active.setModel(next);
+  }
+}
+
 function readContextUsage(active: AgentSession): {
   tokens: number | null;
   contextWindow: number;
@@ -171,7 +191,9 @@ export async function handleWorkerMessage(msg: WorkerInbound): Promise<void> {
   }
   if (msg.kind === "reload_models") {
     if (session) {
-      await session.modelRuntime.refresh();
+      reloadAuthStorageCache(session);
+      await session.modelRuntime.refresh({ allowNetwork: false });
+      await refreshSessionModel(session);
     }
     return;
   }

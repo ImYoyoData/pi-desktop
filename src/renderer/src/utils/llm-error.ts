@@ -61,7 +61,9 @@ const RULES: Rule[] = [
 ];
 
 export function formatLlmError(raw: string, locale: "zh-CN" | "en" = "zh-CN"): string {
-  const text = raw.trim();
+  let text = raw.trim();
+  // Electron IPC wraps worker errors: Error invoking remote method 'x': Error: <actual>
+  text = text.replace(/^Error invoking remote method '[^']+':\s*(?:Error:\s*)?/i, "").trim();
   if (!text) {
     return locale === "zh-CN" ? "请求失败" : "Request failed";
   }

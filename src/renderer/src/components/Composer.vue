@@ -33,6 +33,7 @@ import { formatAsrInstallError, useAsrStore } from "@renderer/stores/asr";
 import { heuristicSessionTitle } from "@renderer/utils/session-title";
 import { startVoiceRecord, type VoiceRecordSession } from "@renderer/utils/pcm-capture";
 import { scrubAsrHallucination } from "../../../shared/asr";
+import { formatLlmError } from "@renderer/utils/llm-error";
 import { t } from "@renderer/i18n";
 
 type ThinkingLevel = "off" | "minimal" | "low" | "medium" | "high" | "xhigh";
@@ -706,9 +707,9 @@ async function applySelectedModel(): Promise<void> {
   } catch (err) {
     appliedModelForSession.value = null;
     const text = err instanceof Error ? err.message : String(err);
-    // Startup race / cold worker: don't toast unknown-session noise.
-    if (/unknown session/i.test(text)) return;
-    messageApi.error(text);
+    // Startup race / cold worker / post-auth reload: don't toast transient noise.
+    if (/unknown session|Model not found/i.test(text)) return;
+    messageApi.error(formatLlmError(text));
   }
 }
 
