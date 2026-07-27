@@ -15,6 +15,7 @@ import {
   type BrowserLibraryEntry,
   type HistoryGroupKey,
 } from "@renderer/stores/browser-library";
+import { t } from "@renderer/i18n";
 
 const props = defineProps<{
   mode: "history" | "bookmarks";
@@ -55,7 +56,7 @@ function faviconSrc(entry: { favicon?: string }): string | null {
 <template>
   <div class="library-panel">
     <div class="search-wrap">
-      <NInput v-model:value="query" size="small" clearable placeholder="搜索" round>
+      <NInput v-model:value="query" size="small" clearable :placeholder="t.search" round>
         <template #prefix>
           <NIcon :component="SearchOutline" :size="16" />
         </template>
@@ -66,7 +67,7 @@ function faviconSrc(entry: { favicon?: string }): string | null {
       <template v-if="mode === 'history'">
         <NEmpty
           v-if="!historyGroups.length"
-          description="暂无历史记录"
+          :description="t.noHistory"
           style="padding: 40px 16px"
         />
         <div v-for="group in historyGroups" :key="group.key" class="group">
@@ -107,7 +108,7 @@ function faviconSrc(entry: { favicon?: string }): string | null {
       <template v-else>
         <NEmpty
           v-if="!filteredBookmarks.length"
-          description="暂无收藏"
+          :description="t.noBookmarks"
           style="padding: 40px 16px"
         />
         <button

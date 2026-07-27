@@ -13,11 +13,13 @@ import {
   MoonOutline,
   SettingsOutline,
   SparklesOutline,
+  StorefrontOutline,
   SunnyOutline,
 } from "@vicons/ionicons5";
 import ModelsSettings from "@renderer/components/ModelsSettings.vue";
 import SkillsSettings from "@renderer/components/SkillsSettings.vue";
 import ExtensionsSettings from "@renderer/components/ExtensionsSettings.vue";
+import MarketSettings from "@renderer/components/MarketSettings.vue";
 import AppearanceSettings from "@renderer/components/AppearanceSettings.vue";
 import AsrSettings from "@renderer/components/AsrSettings.vue";
 import AboutSettings from "@renderer/components/AboutSettings.vue";
@@ -35,6 +37,7 @@ const messageApi = useMessage();
 const modelsOpen = ref(false);
 const skillsOpen = ref(false);
 const extensionsOpen = ref(false);
+const marketOpen = ref(false);
 const appearanceOpen = ref(false);
 const asrOpen = ref(false);
 const aboutOpen = ref(false);
@@ -79,19 +82,24 @@ const settingsOptions: DropdownOption[] = [
     icon: () => h(NIcon, null, { default: () => h(MicOutline) }),
   },
   {
-    label: "模型 / API Keys",
+    label: t.modelsMenu,
     key: "models",
     icon: () => h(NIcon, null, { default: () => h(SettingsOutline) }),
   },
   {
-    label: "Skills",
+    label: t.skillsTitle,
     key: "skills",
     icon: () => h(NIcon, null, { default: () => h(SparklesOutline) }),
   },
   {
-    label: "扩展 / Plugins",
+    label: t.extensionsTitle,
     key: "extensions",
     icon: () => h(NIcon, null, { default: () => h(ExtensionPuzzleOutline) }),
+  },
+  {
+    label: t.marketTitle,
+    key: "market",
+    icon: () => h(NIcon, null, { default: () => h(StorefrontOutline) }),
   },
   {
     type: "divider",
@@ -120,6 +128,9 @@ function onSettingsSelect(key: string | number): void {
       break;
     case "extensions":
       extensionsOpen.value = true;
+      break;
+    case "market":
+      marketOpen.value = true;
       break;
     case "about":
       aboutOpen.value = true;
@@ -270,6 +281,7 @@ async function maybeAutoCheckUpdate(): Promise<void> {
   <ModelsSettings :open="modelsOpen" @close="modelsOpen = false" />
   <SkillsSettings :open="skillsOpen" @close="skillsOpen = false" />
   <ExtensionsSettings :open="extensionsOpen" @close="extensionsOpen = false" />
+  <MarketSettings :open="marketOpen" @close="marketOpen = false" />
   <AboutSettings :open="aboutOpen" @close="aboutOpen = false" />
 </template>
 

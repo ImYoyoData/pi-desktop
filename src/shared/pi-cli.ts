@@ -5,6 +5,11 @@ export const PI_INSTALL_URL = "https://pi.dev/";
 export const PI_DOCS_INSTALL_URL = "https://pi.dev/docs/latest";
 export const PI_INSTALL_SH = "https://pi.dev/install.sh";
 export const PI_INSTALL_PS1 = "https://pi.dev/install.ps1";
+/** npm search for discoverable Pi packages (extensions / skills / prompts / themes). */
+export const PI_MARKET_URL = "https://www.npmjs.com/search?q=keywords%3Api-package";
+export const PI_PACKAGES_DOCS_URL = "https://pi.dev/docs/latest";
+export const PI_MARKETPLACE_INSTALL = "npm:pi-marketplace";
+export const PI_MARKETPLACE_INSTALL_CMD = "pi install npm:pi-marketplace";
 
 export type PiCliInstallMethod = "bun" | "pnpm" | "npm" | "powershell" | "curl";
 

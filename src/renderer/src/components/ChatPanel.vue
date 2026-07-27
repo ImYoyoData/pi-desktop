@@ -31,10 +31,10 @@ const title = computed(() => {
   const row = sessions.sessions.find((s) => s.id === sessions.activeId);
   if (row?.name?.trim()) return row.name.trim();
   if (row?.firstMessage?.trim() && row.firstMessage !== "(no messages)") {
-    const t = row.firstMessage.trim();
-    return t.length > 56 ? `${t.slice(0, 53)}…` : t;
+    const text = row.firstMessage.trim();
+    return text.length > 56 ? `${text.slice(0, 53)}…` : text;
   }
-  return "新会话";
+  return t.newSession;
 });
 
 async function onNewAgent(): Promise<void> {
@@ -52,7 +52,7 @@ async function onNewAgent(): Promise<void> {
   <section class="chat-panel">
     <template v-if="!hasSession">
       <div class="empty-agent">
-        <NEmpty description="在左侧选择会话，或新建一个来开始。">
+        <NEmpty :description="t.selectOrCreateSession">
           <template #icon>
             <NIcon :component="SparklesOutline" :size="28" />
           </template>

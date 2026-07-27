@@ -12,6 +12,7 @@ import {
 } from "./chat-reducer";
 import { useSessionsStore } from "./sessions";
 import { formatLlmError } from "../utils/llm-error";
+import { locale } from "../i18n";
 
 export type { ChatMessage, ChatState, ChatUserImage, ChatRetryHint } from "./chat-reducer";
 export { appendUserMessage, createChatState, reduceChatEvent } from "./chat-reducer";
@@ -77,6 +78,7 @@ export const useChatStore = defineStore("chat", () => {
       streamingMessage: null,
       running: false,
       retryHint: null,
+      nextToolOrder: 1,
     };
   }
 
@@ -121,7 +123,7 @@ export const useChatStore = defineStore("chat", () => {
       });
     } catch (err) {
       const raw = err instanceof Error ? err.message : String(err);
-      const text = formatLlmError(raw);
+      const text = formatLlmError(raw, locale === "zh-CN" ? "zh-CN" : "en");
       const state = stateFor(sessionId);
       const last = state.messages.at(-1);
       if (!(last?.role === "error" && last.text === text)) {

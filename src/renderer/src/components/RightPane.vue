@@ -41,7 +41,7 @@ watch(
     if (previewStore.filePath) {
       rightTabs.addTab("preview", {
         filePath: previewStore.filePath,
-        label: previewStore.filePath.split(/[/\\]/).pop() ?? "预览",
+        label: previewStore.filePath.split(/[/\\]/).pop() ?? t.preview,
       });
       void rightTabs.refreshPreviewGitMeta();
       if (layout.rightCollapsed) layout.toggleRightCollapsed();
@@ -97,17 +97,17 @@ function tabLabelStyle(tab: RightTab): Record<string, string> | undefined {
 
 const addOptions: DropdownOption[] = [
   {
-    label: "终端",
+    label: t.terminal,
     key: "terminal",
     icon: () => h(NIcon, null, { default: () => h(TerminalOutline) }),
   },
   {
-    label: "浏览器",
+    label: t.browser,
     key: "browser",
     icon: () => h(NIcon, null, { default: () => h(GlobeOutline) }),
   },
   {
-    label: "更改",
+    label: t.changesTab,
     key: "changes",
     icon: () => h(NIcon, null, { default: () => h(GitCompareOutline) }),
   },
@@ -132,8 +132,8 @@ function onTabClose(name: string | number): void {
   if (tab.kind === "preview" && tab.missing) {
     const d = dialog.create({
       type: "warning",
-      title: "文件已经被删除",
-      content: "你需要保存吗？保存将重新创建该文件。",
+      title: t.fileDeletedTitle,
+      content: t.fileDeletedSavePrompt,
       closable: true,
       maskClosable: false,
       closeOnEsc: true,
@@ -151,7 +151,7 @@ function onTabClose(name: string | number): void {
                     d.destroy();
                   },
                 },
-                { default: () => "取消" },
+                { default: () => t.cancel },
               ),
               h(
                 NButton,
@@ -162,7 +162,7 @@ function onTabClose(name: string | number): void {
                     doClose(id);
                   },
                 },
-                { default: () => "不保存" },
+                { default: () => t.dontSave },
               ),
               h(
                 NButton,
@@ -179,7 +179,7 @@ function onTabClose(name: string | number): void {
                     })();
                   },
                 },
-                { default: () => "保存" },
+                { default: () => t.save },
               ),
             ],
           },
@@ -190,10 +190,10 @@ function onTabClose(name: string | number): void {
 
   if (tab.kind === "preview" && tab.dirty && !tab.missing) {
     dialog.warning({
-      title: "未保存的更改",
-      content: `「${tab.label}」已修改，关闭前是否保存？`,
-      positiveText: "保存",
-      negativeText: "不保存",
+      title: t.unsavedChangesTitle,
+      content: t.unsavedChangesClose(tab.label),
+      positiveText: t.save,
+      negativeText: t.dontSave,
       closable: true,
       maskClosable: true,
       onPositiveClick: async () => {
@@ -250,7 +250,7 @@ function onTabChange(name: string | number): void {
         </NTabs>
 
         <NDropdown trigger="click" :options="addOptions" @select="onAddSelect">
-          <NButton quaternary circle size="tiny" title="新建标签">
+          <NButton quaternary circle size="tiny" :title="t.newTab">
             <template #icon>
               <NIcon :component="AddOutline" :size="14" />
             </template>
@@ -286,6 +286,7 @@ function onTabChange(name: string | number): void {
           v-if="tab.kind === 'browser'"
           v-show="active?.id === tab.id"
           class="tab-panel"
+          :tab-id="tab.id"
           :visible="active?.id === tab.id && !layout.rightCollapsed"
         />
         <TerminalTab
@@ -306,7 +307,7 @@ function onTabChange(name: string | number): void {
       </template>
       <NEmpty
         v-if="!rightTabs.tabs.length"
-        description="点击 + 添加标签"
+        :description="t.clickToAddTab"
         class="empty"
         size="small"
       />

@@ -58,7 +58,7 @@ function workspaceName(path: string): string {
         </NListItem>
       </NList>
     </div>
-    <NEmpty v-else description="暂无最近项目" style="margin-top: 24px" />
+    <NEmpty v-else :description="t.noRecentProjects" style="margin-top: 24px" />
   </section>
 </template>
 

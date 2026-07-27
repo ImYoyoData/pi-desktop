@@ -28,6 +28,7 @@ import { useRightTabsStore } from "@renderer/stores/right-tabs";
 import { useLayoutStore } from "@renderer/stores/layout";
 import { useComposerStore } from "@renderer/stores/composer";
 import { gitCodeColor } from "@renderer/utils/editor-lang";
+import { t } from "@renderer/i18n";
 
 const workspace = useWorkspaceStore();
 const previewStore = usePreviewStore();
@@ -98,7 +99,7 @@ function labelColor(key: string, isDir: boolean): string | undefined {
 function renderSuffix({ option }: { option: TreeOption }) {
   if (option.isLeaf === false) {
     if (!gitDirtyDirs.value.has(String(option.key))) return null;
-    return h("span", { class: "git-dot", title: "包含变更" });
+    return h("span", { class: "git-dot", title: t.filesContainsChanges });
   }
   const code = gitCodes.value[String(option.key)];
   if (!code) return null;
@@ -218,7 +219,7 @@ function openFile(filePath: string): void {
   previewStore.openPreview(filePath);
   rightTabs.addTab("preview", {
     filePath,
-    label: filePath.split(/[/\\]/).pop() ?? "预览",
+    label: filePath.split(/[/\\]/).pop() ?? t.preview,
   });
   if (layout.rightCollapsed) layout.toggleRightCollapsed();
 }
@@ -260,28 +261,28 @@ const ctxOptions = computed<DropdownOption[]>(() => {
   const items: DropdownOption[] = [];
   if (kind === "file") {
     items.push(
-      { label: "打开", key: "open" },
-      { label: "添加到聊天", key: "cite" },
-      { label: "在资源管理器中显示", key: "reveal" },
+      { label: t.open, key: "open" },
+      { label: t.filesAddToChat, key: "cite" },
+      { label: t.filesReveal, key: "reveal" },
       { type: "divider", key: "d1" },
-      { label: "重命名", key: "rename" },
-      { label: "删除", key: "delete" },
+      { label: t.filesRename, key: "rename" },
+      { label: t.filesDelete, key: "delete" },
     );
   } else if (kind === "dir") {
     items.push(
-      { label: "新建文件", key: "new-file" },
-      { label: "新建文件夹", key: "new-dir" },
-      { label: "添加到聊天", key: "cite" },
-      { label: "在资源管理器中显示", key: "reveal" },
+      { label: t.filesNewFile, key: "new-file" },
+      { label: t.filesNewFolder, key: "new-dir" },
+      { label: t.filesAddToChat, key: "cite" },
+      { label: t.filesReveal, key: "reveal" },
       { type: "divider", key: "d1" },
-      { label: "重命名", key: "rename" },
-      { label: "删除", key: "delete" },
+      { label: t.filesRename, key: "rename" },
+      { label: t.filesDelete, key: "delete" },
     );
   } else {
     items.push(
-      { label: "新建文件", key: "new-file" },
-      { label: "新建文件夹", key: "new-dir" },
-      { label: "刷新", key: "refresh" },
+      { label: t.filesNewFile, key: "new-file" },
+      { label: t.filesNewFolder, key: "new-dir" },
+      { label: t.filesRefresh, key: "refresh" },
     );
   }
   return items;
@@ -292,13 +293,13 @@ function openPrompt(mode: "file" | "dir" | "rename", targetDir: string, renamePa
   promptTargetDir.value = targetDir;
   promptRenamePath.value = renamePath;
   if (mode === "file") {
-    promptTitle.value = "新建文件";
+    promptTitle.value = t.filesNewFile;
     promptValue.value = "untitled.txt";
   } else if (mode === "dir") {
-    promptTitle.value = "新建文件夹";
+    promptTitle.value = t.filesNewFolder;
     promptValue.value = "new-folder";
   } else {
-    promptTitle.value = "重命名";
+    promptTitle.value = t.filesRename;
     promptValue.value = renamePath.split("/").pop() ?? "";
   }
   promptOpen.value = true;
@@ -341,7 +342,7 @@ async function onCtxSelect(key: string | number): Promise<void> {
         break;
       case "cite":
         composer.insertPathRef(target);
-        message.success("已添加文件标签");
+        message.success(t.filesCited);
         break;
       case "reveal":
         await window.api.files.reveal(target);
@@ -364,14 +365,14 @@ async function onCtxSelect(key: string | number): Promise<void> {
         break;
       case "delete": {
         dialog.warning({
-          title: "确认删除",
-          content: `删除「${target}」？此操作不可撤销。`,
-          positiveText: "删除",
-          negativeText: "取消",
+          title: t.filesDeleteConfirmTitle,
+          content: t.filesDeleteConfirm(target),
+          positiveText: t.delete,
+          negativeText: t.cancel,
           onPositiveClick: async () => {
             try {
               await window.api.files.delete(target);
-              message.success("已删除");
+              message.success(t.filesDeleted);
               await refreshNode(parentDirOf(target));
               await refreshGit();
               selectedKeys.value = selectedKeys.value.filter((k) => k !== target);
@@ -393,7 +394,7 @@ async function onCtxSelect(key: string | number): Promise<void> {
 async function submitPrompt(): Promise<boolean> {
   const name = promptValue.value.trim();
   if (!name) {
-    message.warning("请输入名称");
+    message.warning(t.filesNameRequired);
     return false;
   }
   try {
@@ -505,20 +506,20 @@ watch(
   <div class="files-tab">
     <div class="head">
       <NText class="title" :title="workspace.root ?? undefined">
-        文件
+        {{ t.filesTab }}
       </NText>
       <NSpace :size="2">
-        <NButton quaternary circle size="tiny" title="刷新" @click="refreshRoot">
+        <NButton quaternary circle size="tiny" :title="t.filesRefresh" @click="refreshRoot">
           <template #icon>
             <NIcon :component="RefreshOutline" :size="14" />
           </template>
         </NButton>
-        <NButton quaternary circle size="tiny" title="新建文件" @click="toolbarNewFile">
+        <NButton quaternary circle size="tiny" :title="t.filesNewFile" @click="toolbarNewFile">
           <template #icon>
             <NIcon :component="DocumentAttachOutline" :size="14" />
           </template>
         </NButton>
-        <NButton quaternary circle size="tiny" title="新建文件夹" @click="toolbarNewDir">
+        <NButton quaternary circle size="tiny" :title="t.filesNewFolder" @click="toolbarNewDir">
           <template #icon>
             <NIcon :component="FolderOpenOutline" :size="14" />
           </template>
@@ -527,7 +528,7 @@ watch(
     </div>
 
     <div class="body" @contextmenu="(e) => openCtx(e, '', 'blank')">
-      <NEmpty v-if="!workspace.root" description="请先打开工作区" size="small" />
+      <NEmpty v-if="!workspace.root" :description="t.filesOpenWorkspaceFirst" size="small" />
       <NSpin v-else :show="loading" size="small">
         <NTree
           v-if="treeData.length"
@@ -544,7 +545,7 @@ watch(
           @update:expanded-keys="onUpdateExpanded"
           @update:selected-keys="onSelect"
         />
-        <NEmpty v-else-if="!loading" description="空目录" size="small" />
+        <NEmpty v-else-if="!loading" :description="t.filesEmptyDir" size="small" />
       </NSpin>
     </div>
 
@@ -563,8 +564,8 @@ watch(
       v-model:show="promptOpen"
       preset="dialog"
       :title="promptTitle"
-      positive-text="确定"
-      negative-text="取消"
+      :positive-text="t.confirm"
+      :negative-text="t.cancel"
       @positive-click="submitPrompt"
     >
       <NInput

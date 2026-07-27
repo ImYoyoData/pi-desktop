@@ -125,21 +125,23 @@ jobs:
 
             No portable EXE, ZIP, or blockmap extras.
 
-            ## Fixes
-            - Suppress normal worker idle-exit noise (`worker exited (0)` no longer shown as an error)
-            - **#4** NVIDIA CUDA ASR crash (`3221225477`): auto-fallback to Vulkan + retry
-            - **#3** Session title updates immediately after the first prompt
-            - **#2** API key save reloads workers without restart
-            - Queued messages drain correctly when a turn already ended
-            - macOS path case-sensitivity + Pi CLI `.command` installer open
+            ## Highlights
+            - Tool cards: read shows file + lines read/total; bash/tools show execution order `#N` and success/failure
+            - Settings → Extension market (browse npm `pi-package`, install `pi-marketplace`)
+            - Full UI i18n pass — English locale no longer shows leftover Chinese chrome
+            - Built-in browser: first link open no longer races a blank tab
+            - Idle worker exit `(0)` is silent (not a chat error)
 
-            ## Features
-            - Send queue: edit in main composer; Enter/Send saves back to queue
-            - Terminal right-click copy / paste
-            - Chat `edit`/`write` tool cards with `+N/-M` and expandable diff
+            ## macOS
+            - DMG for Intel + Apple Silicon; hardened runtime + entitlements (mic / JIT)
+            - Notarization still off — first open may need right-click → Open (Gatekeeper)
+            - Path compare stays case-sensitive; Pi CLI installer uses `.command` + `open`
+            - Metal ASR path unchanged
 
-            ## Packaging
-            - One installer per OS/arch only (Win NSIS x64+arm64, mac DMG Intel+Apple Silicon)
+            ## Fixes (carry-forward)
+            - **#4** NVIDIA CUDA ASR crash → Vulkan fallback
+            - **#3** Session title updates after first prompt
+            - **#2** API key save reloads workers
           files: upload/*
           fail_on_unmatched_files: false
         env:
