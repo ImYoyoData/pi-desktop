@@ -1,5 +1,5 @@
 # Release packaging + GitHub Release: ONLY on push to main (or manual dispatch).
-# Tags and `dev` must NOT trigger this workflow. Use ci.yml for PR/dev checks.
+# Feature branches must NOT trigger this workflow. Use ci.yml for PR checks.
 name: Build and Release
 
 on:
