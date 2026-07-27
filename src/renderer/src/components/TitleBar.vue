@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, h, onMounted, onUnmounted, ref } from "vue";
 import type { DropdownOption } from "naive-ui";
-import { NButton, NDropdown, NIcon, NSpace, NTag } from "naive-ui";
+import { NButton, NDropdown, NIcon, NSpace } from "naive-ui";
 import {
   ArrowUpCircleOutline,
   ColorPaletteOutline,
@@ -58,12 +58,6 @@ onUnmounted(() => {
 
 function openFolder(): void {
   void workspace.openWorkspace();
-}
-
-function basename(p: string | null): string {
-  if (!p) return t.noFolder;
-  const parts = p.replace(/\\/g, "/").split("/");
-  return parts.filter(Boolean).pop() ?? p;
 }
 
 const settingsOptions: DropdownOption[] = [
@@ -167,23 +161,7 @@ async function onUpdateClick(): Promise<void> {
       <img class="logo-img" :src="logoUrl" alt="" width="18" height="18" />
       <span class="name">{{ t.appName }}</span>
     </div>
-    <div class="center drag">
-      <NTag
-        v-if="workspace.root"
-        class="no-drag workspace-chip"
-        size="small"
-        round
-        :bordered="true"
-        style="cursor: pointer; max-width: 280px"
-        :title="workspace.root"
-        @click="openFolder"
-      >
-        <template #icon>
-          <NIcon :component="FolderOpenOutline" :size="14" />
-        </template>
-        {{ basename(workspace.root) }}
-      </NTag>
-    </div>
+    <div class="center drag" />
     <div class="actions no-drag">
       <NSpace :size="4">
         <NButton quaternary circle size="small" @click="cycleTheme">
@@ -242,12 +220,13 @@ async function onUpdateClick(): Promise<void> {
   align-items: center;
   height: 36px;
   padding: 0 8px;
-  background: var(--bg-title);
+  background: color-mix(in srgb, var(--bg-title) 88%, var(--bg-elevated));
   border-bottom: 1px solid var(--border);
   color: var(--fg-muted);
   font-size: 12px;
   user-select: none;
   flex-shrink: 0;
+  box-shadow: 0 1px 0 color-mix(in srgb, var(--bg-elevated) 40%, transparent);
 }
 
 .drag {
@@ -291,8 +270,6 @@ async function onUpdateClick(): Promise<void> {
 
 .center {
   flex: 1;
-  display: flex;
-  justify-content: center;
   min-width: 0;
 }
 

@@ -8,8 +8,10 @@ import {
   NDivider,
   NSwitch,
   NInput,
+  NSelect,
   useMessage,
 } from "naive-ui";
+import type { SelectOption } from "naive-ui";
 import { formatAsrInstallError, useAsrStore } from "@renderer/stores/asr";
 import AsrInstallProgress from "@renderer/components/AsrInstallProgress.vue";
 import { t } from "@renderer/i18n";
@@ -28,6 +30,20 @@ const asrEnabled = computed({
     void asr.setEnabled(v);
   },
 });
+
+const gpuPreference = computed({
+  get: () => asr.status.gpuPreference || "auto",
+  set: (v: string) => {
+    void onGpuPreferenceChange(v);
+  },
+});
+
+const gpuSelectOptions = computed<SelectOption[]>(() =>
+  (asr.status.gpuOptions ?? []).map((opt) => ({
+    label: opt.id === "auto" ? t.asrGpuAuto : opt.id === "cpu" ? t.asrDeviceCpu : opt.label,
+    value: opt.id,
+  })),
+);
 
 function gpuKindLabel(): string {
   switch (asr.status.gpuKind) {
@@ -60,6 +76,19 @@ async function withRuntimeToast(action: () => Promise<void>, okMsg: string): Pro
       key: "asr-runtime",
       duration: 6000,
     });
+  }
+}
+
+async function onGpuPreferenceChange(value: string): Promise<void> {
+  try {
+    const prevBackend = asr.status.gpuBackend;
+    const next = await asr.setGpuPreference(value);
+    if (next.gpuBackend !== prevBackend || !next.runtimeMatchesPreference) {
+      message.info(t.asrGpuRuntimeMismatch, { duration: 4500 });
+    }
+  } catch (err) {
+    message.error(formatAsrInstallError(err, t.asrDownloadFailed), { duration: 5000 });
+    await asr.refresh();
   }
 }
 
@@ -153,9 +182,29 @@ onUnmounted(() => {
         {{ asr.status.installed ? t.asrInstalled : t.asrNotInstalled }} · ≈{{ asr.status.diskMb }}MB
         disk / ≈{{ asr.status.ramMb }}MB RAM
       </NText>
-      <NText style="font-size: 12px; margin-top: 6px; display: block">
+
+      <NText strong style="font-size: 12px; margin-top: 14px; display: block">
+        {{ t.asrGpuSelect }}
+      </NText>
+      <NText depth="3" style="font-size: 12px; display: block; margin: 4px 0 8px">
+        {{ t.asrGpuSelectHint }}
+      </NText>
+      <NSelect
+        v-model:value="gpuPreference"
+        size="small"
+        :options="gpuSelectOptions"
+        :disabled="!asr.status.supported || asr.installing"
+      />
+      <NText style="font-size: 12px; margin-top: 8px; display: block">
         {{ t.asrDevice }}: {{ asr.status.gpuDeviceLabel }} ({{ asr.status.gpuBackend.toUpperCase() }} /
         {{ gpuKindLabel() }})
+      </NText>
+      <NText
+        v-if="!asr.status.runtimeMatchesPreference"
+        type="warning"
+        style="font-size: 12px; margin-top: 4px; display: block"
+      >
+        {{ t.asrGpuRuntimeMismatch }}
       </NText>
       <NText
         :type="asr.status.gpuKind === 'cpu' ? 'warning' : 'default'"
@@ -235,6 +284,7 @@ onUnmounted(() => {
       <NSpace :size="8">
         <NButton
           size="small"
+          :type="asr.status.runtimeMatchesPreference ? 'default' : 'primary'"
           :disabled="!asr.status.supported || asr.installing"
           :loading="asr.installing"
           @click="onRedownloadRuntime"

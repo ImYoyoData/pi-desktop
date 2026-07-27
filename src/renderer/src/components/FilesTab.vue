@@ -22,6 +22,8 @@ import {
   DocumentAttachOutline,
   FolderOpenOutline,
 } from "@vicons/ionicons5";
+import Sortable from "sortablejs";
+import type { SortableEvent } from "sortablejs";
 import { useWorkspaceStore } from "@renderer/stores/workspace";
 import { usePreviewStore } from "@renderer/stores/preview";
 import { useRightTabsStore } from "@renderer/stores/right-tabs";
@@ -29,6 +31,8 @@ import { useLayoutStore } from "@renderer/stores/layout";
 import { useComposerStore } from "@renderer/stores/composer";
 import { gitCodeColor } from "@renderer/utils/editor-lang";
 import { t } from "@renderer/i18n";
+
+const FILES_ORDER_KEY_PREFIX = "pi-desktop:files-order:v1:";
 
 const workspace = useWorkspaceStore();
 const previewStore = usePreviewStore();
@@ -44,6 +48,165 @@ let pathCaseInsensitive = false;
 void window.api.window.platform().then((p) => {
   pathCaseInsensitive = p === "win32";
 });
+
+const fileSortables: Sortable[] = [];
+const filesBodyRef = ref<HTMLElement | null>(null);
+let filesOrder: Record<string, string[]> = {};
+
+function filesOrderKey(root: string): string {
+  return `${FILES_ORDER_KEY_PREFIX}${root}`;
+}
+
+function loadFilesOrder(root: string): void {
+  try {
+    const raw = localStorage.getItem(filesOrderKey(root));
+    if (!raw) {
+      filesOrder = {};
+      return;
+    }
+    const parsed = JSON.parse(raw) as Record<string, string[]>;
+    filesOrder = parsed && typeof parsed === "object" ? parsed : {};
+  } catch {
+    filesOrder = {};
+  }
+}
+
+function persistFilesOrder(root: string): void {
+  localStorage.setItem(filesOrderKey(root), JSON.stringify(filesOrder));
+}
+
+function applyOrder(parentPath: string, nodes: TreeOption[]): TreeOption[] {
+  const order = filesOrder[parentPath];
+  if (!order?.length) return nodes;
+  const orderMap = new Map(order.map((id, i) => [id, i]));
+  return [...nodes].sort((a, b) => {
+    const ak = String(a.key);
+    const bk = String(b.key);
+    const ai = orderMap.has(ak) ? (orderMap.get(ak) as number) : Number.MAX_SAFE_INTEGER;
+    const bi = orderMap.has(bk) ? (orderMap.get(bk) as number) : Number.MAX_SAFE_INTEGER;
+    if (ai !== bi) return ai - bi;
+    return String(a.label ?? "").localeCompare(String(b.label ?? ""));
+  });
+}
+
+function destroyFileSortables(): void {
+  for (const s of fileSortables) s.destroy();
+  fileSortables.length = 0;
+}
+
+function parentPathOfContainer(el: HTMLElement): string {
+  if (el.classList.contains("n-tree") && !el.classList.contains("n-tree-children")) {
+    return "";
+  }
+  const node = el.closest(".n-tree-node");
+  if (!node) return "";
+  const content = node.querySelector<HTMLElement>(".n-tree-node-content[data-path]");
+  // Prefer the content belonging to this node, not a nested child
+  const own = node.querySelector<HTMLElement>(":scope > .n-tree-node-content[data-path]");
+  return own?.dataset.path ?? content?.dataset.path ?? "";
+}
+
+function findChildrenList(parentPath: string): TreeOption[] | null {
+  if (!parentPath) return treeData.value;
+  const find = (nodes: TreeOption[]): TreeOption | null => {
+    for (const n of nodes) {
+      if (String(n.key) === parentPath) return n;
+      if (n.children) {
+        const hit = find(n.children);
+        if (hit) return hit;
+      }
+    }
+    return null;
+  };
+  const node = find(treeData.value);
+  if (!node || node.isLeaf !== false) return null;
+  if (!node.children) node.children = [];
+  return node.children;
+}
+
+async function onFileSortEnd(evt: SortableEvent): Promise<void> {
+  const item = evt.item as HTMLElement;
+  const fromPath = item.querySelector<HTMLElement>(".n-tree-node-content[data-path]")?.dataset.path
+    ?? item.closest<HTMLElement>("[data-path]")?.dataset.path;
+  if (!fromPath) return;
+
+  const toList = evt.to as HTMLElement;
+  const fromList = evt.from as HTMLElement;
+  const destDir = parentPathOfContainer(toList);
+
+  if (fromList === toList) {
+    const parent = parentPathOfContainer(fromList);
+    const children = findChildrenList(parent);
+    if (!children) return;
+    const ids = [...toList.children]
+      .map((child) => {
+        const el = child as HTMLElement;
+        return (
+          el.querySelector<HTMLElement>(".n-tree-node-content[data-path]")?.dataset.path
+          ?? el.dataset.path
+          ?? ""
+        );
+      })
+      .filter(Boolean);
+    if (!ids.length) return;
+    const byKey = new Map(children.map((c) => [String(c.key), c]));
+    const next: TreeOption[] = [];
+    for (const id of ids) {
+      const node = byKey.get(id);
+      if (node) next.push(node);
+    }
+    for (const c of children) {
+      if (!ids.includes(String(c.key))) next.push(c);
+    }
+    if (!parent) {
+      treeData.value = next;
+    } else {
+      const dir = findChildrenList(parent);
+      if (dir) {
+        dir.splice(0, dir.length, ...next);
+        treeData.value = [...treeData.value];
+      }
+    }
+    if (workspace.root) {
+      filesOrder[parent] = ids;
+      persistFilesOrder(workspace.root);
+    }
+    return;
+  }
+
+  // Cross-parent move via filesystem
+  try {
+    await window.api.files.move(fromPath, destDir);
+    message.success(t.filesMoved);
+    await refreshRoot();
+  } catch (err) {
+    message.error(err instanceof Error ? err.message : String(err));
+    await refreshRoot();
+  }
+}
+
+function bindFileSortables(): void {
+  destroyFileSortables();
+  const root = filesBodyRef.value;
+  if (!root || !workspace.root) return;
+  const lists = [...root.querySelectorAll<HTMLElement>(".n-tree-children")];
+  const treeRoot = root.querySelector<HTMLElement>(".n-tree");
+  if (treeRoot) lists.unshift(treeRoot);
+  const seen = new Set<HTMLElement>();
+  for (const list of lists) {
+    if (seen.has(list)) continue;
+    seen.add(list);
+    const sortable = Sortable.create(list, {
+      group: "files-tree",
+      animation: 150,
+      draggable: ".n-tree-node-wrapper",
+      onEnd: (evt) => {
+        void onFileSortEnd(evt);
+      },
+    });
+    fileSortables.push(sortable);
+  }
+}
 
 function sameWorkspaceRoot(a: string, b: string): boolean {
   const fold = (p: string) => {
@@ -156,7 +319,7 @@ async function refreshGit(): Promise<void> {
 
 async function loadChildren(relativePath: string): Promise<TreeOption[]> {
   const entries = await window.api.files.list(relativePath || undefined);
-  return entries.map(toTreeOption);
+  return applyOrder(relativePath || "", entries.map(toTreeOption));
 }
 
 async function refreshRoot(): Promise<void> {
@@ -164,8 +327,10 @@ async function refreshRoot(): Promise<void> {
     treeData.value = [];
     gitCodes.value = {};
     gitDirtyDirs.value = new Set();
+    destroyFileSortables();
     return;
   }
+  loadFilesOrder(workspace.root);
   loading.value = true;
   try {
     await refreshGit();
@@ -176,6 +341,7 @@ async function refreshRoot(): Promise<void> {
     }
   } finally {
     loading.value = false;
+    void nextTick(() => bindFileSortables());
   }
 }
 
@@ -249,6 +415,7 @@ function openCtx(e: MouseEvent, path: string, kind: "file" | "dir" | "blank"): v
 
 function nodeProps({ option }: { option: TreeOption }) {
   return {
+    "data-path": String(option.key),
     onContextmenu(e: MouseEvent) {
       const kind = option.isLeaf === false ? "dir" : "file";
       openCtx(e, String(option.key), kind);
@@ -478,6 +645,7 @@ onMounted(() => {
 onUnmounted(() => {
   offFs?.();
   if (fsRefreshTimer) clearTimeout(fsRefreshTimer);
+  destroyFileSortables();
   // Do NOT unwatch here — watcher is owned by workspace switch lifecycle in main/store
 });
 
@@ -486,8 +654,17 @@ watch(
   () => {
     expandedKeys.value = [];
     selectedKeys.value = [];
+    destroyFileSortables();
     void refreshRoot();
   },
+);
+
+watch(
+  () => [treeData.value, expandedKeys.value] as const,
+  () => {
+    void nextTick(() => bindFileSortables());
+  },
+  { deep: true },
 );
 
 watch(
@@ -527,7 +704,7 @@ watch(
       </NSpace>
     </div>
 
-    <div class="body" @contextmenu="(e) => openCtx(e, '', 'blank')">
+    <div ref="filesBodyRef" class="body" @contextmenu="(e) => openCtx(e, '', 'blank')">
       <NEmpty v-if="!workspace.root" :description="t.filesOpenWorkspaceFirst" size="small" />
       <NSpin v-else :show="loading" size="small">
         <NTree

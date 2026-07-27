@@ -1,22 +1,22 @@
 @import './base.css';
 
-/* Align tokens with pi-web globals.css (light) */
+/* Align tokens with pi-web globals.css (light) — refined premium layer */
 :root {
-  --bg: #fafafa;
-  --bg-title: #f4f4f5;
-  --bg-sidebar: #f4f4f5;
-  --bg-panel: #f4f4f5;
+  --bg: #f7f7f8;
+  --bg-title: #f0f0f2;
+  --bg-sidebar: #f0f0f2;
+  --bg-panel: #f0f0f2;
   --bg-elevated: #ffffff;
   --bg-input: #ffffff;
-  --bg-hover: #ececef;
-  --bg-active: #e4e4e7;
-  --bg-selected: #e4e4e7;
-  --bg-user-bubble: #eff6ff;
-  --user-bg: #eff6ff;
+  --bg-hover: #e8e8ec;
+  --bg-active: #e0e0e5;
+  --bg-selected: #e0e0e5;
+  --bg-user-bubble: #eef4ff;
+  --user-bg: #eef4ff;
   --assistant-bg: #ffffff;
-  --tool-bg: #f9fafb;
-  --border: #e4e4e7;
-  --border-strong: #d4d4d8;
+  --tool-bg: #f7f7f8;
+  --border: #e6e6ea;
+  --border-strong: #d2d2d8;
   --fg: #18181b;
   --fg-strong: #09090b;
   --fg-muted: #71717a;
@@ -29,15 +29,15 @@
   --accent-fg: #ffffff;
   --accent-soft: rgba(37, 99, 235, 0.08);
   --accent-soft-hover: rgba(37, 99, 235, 0.14);
-  --accent-border: rgba(37, 99, 235, 0.35);
+  --accent-border: rgba(37, 99, 235, 0.32);
   --blue: #2563eb;
   --green: #16a34a;
   --red: #dc2626;
   --font-ui: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
     "Hiragino Sans GB", "Microsoft YaHei UI", "Noto Sans SC", system-ui, sans-serif;
   --font-mono: "SF Mono", "Cascadia Code", Consolas, ui-monospace, monospace;
-  --radius-sm: 6px;
-  --radius-md: 10px;
+  --radius-sm: 7px;
+  --radius-md: 11px;
   --radius-lg: 14px;
   --composer-max: 100%;
   --chat-pad-x: 12px;
@@ -47,29 +47,33 @@
   --git-m: #ca8a04;
   --git-u: #16a34a;
   --git-d: #dc2626;
-  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.04);
-  --shadow-md: 0 4px 16px rgba(0, 0, 0, 0.06);
+  --shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.04), 0 0 0 1px rgba(15, 23, 42, 0.02);
+  --shadow-md: 0 4px 18px rgba(15, 23, 42, 0.07), 0 1px 3px rgba(15, 23, 42, 0.04);
+  --shadow-lg: 0 12px 40px rgba(15, 23, 42, 0.1), 0 2px 8px rgba(15, 23, 42, 0.05);
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --duration-fast: 140ms;
+  --duration: 180ms;
   --code-bg: #f4f4f5;
   --pre-bg: #f4f4f5;
   --md-inline-code-bg: #f0f0f0;
 }
 
 html[data-theme="dark"] {
-  --bg: #09090b;
-  --bg-title: #18181b;
-  --bg-sidebar: #18181b;
-  --bg-panel: #18181b;
-  --bg-elevated: #27272a;
-  --bg-input: #27272a;
-  --bg-hover: #27272a;
-  --bg-active: #3f3f46;
-  --bg-selected: #3f3f46;
-  --bg-user-bubble: rgba(37, 99, 235, 0.18);
-  --user-bg: rgba(37, 99, 235, 0.18);
+  --bg: #0b0b0e;
+  --bg-title: #141418;
+  --bg-sidebar: #141418;
+  --bg-panel: #141418;
+  --bg-elevated: #1c1c22;
+  --bg-input: #1c1c22;
+  --bg-hover: #25252c;
+  --bg-active: #2e2e36;
+  --bg-selected: #2e2e36;
+  --bg-user-bubble: rgba(59, 130, 246, 0.16);
+  --user-bg: rgba(59, 130, 246, 0.16);
   --assistant-bg: transparent;
-  --tool-bg: #18181b;
-  --border: #3f3f46;
-  --border-strong: #52525b;
+  --tool-bg: #141418;
+  --border: #2a2a32;
+  --border-strong: #3a3a44;
   --fg: #e4e4e7;
   --fg-strong: #fafafa;
   --fg-muted: #a1a1aa;
@@ -86,11 +90,12 @@ html[data-theme="dark"] {
   --blue: #3b82f6;
   --green: #22c55e;
   --red: #f87171;
-  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.35);
-  --shadow-md: 0 8px 24px rgba(0, 0, 0, 0.45);
-  --code-bg: #27272a;
-  --pre-bg: #18181b;
-  --md-inline-code-bg: #27272a;
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.35), 0 0 0 1px rgba(255, 255, 255, 0.03);
+  --shadow-md: 0 8px 28px rgba(0, 0, 0, 0.45), 0 1px 3px rgba(0, 0, 0, 0.3);
+  --shadow-lg: 0 16px 48px rgba(0, 0, 0, 0.55);
+  --code-bg: #1c1c22;
+  --pre-bg: #141418;
+  --md-inline-code-bg: #1c1c22;
 }
 
 * {
@@ -112,8 +117,11 @@ body {
   color: var(--fg);
   font-family: var(--font-ui);
   font-size: 12.5px;
-  letter-spacing: -0.01em;
+  letter-spacing: -0.011em;
   user-select: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
 button,
@@ -132,6 +140,15 @@ button {
   flex-direction: column;
 }
 
+/* Prefer compositor layers for the shell */
+.app-shell,
+.sidebar,
+.right-pane,
+.composer-card {
+  transform: translateZ(0);
+  backface-visibility: hidden;
+}
+
 .splitpanes {
   background: var(--bg) !important;
 }
@@ -139,6 +156,7 @@ button {
 .splitpanes__splitter {
   background: transparent !important;
   position: relative;
+  transition: background var(--duration-fast) var(--ease-out);
 }
 
 .splitpanes--vertical > .splitpanes__splitter {
@@ -151,13 +169,41 @@ button {
 .splitpanes__splitter:hover,
 .splitpanes__splitter:active {
   background: var(--accent) !important;
-  opacity: 0.45;
+  opacity: 0.5;
 }
 
 .splitpanes__splitter::before {
   content: "";
   position: absolute;
   inset: -3px;
+}
+
+/* Refined scrollbars */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--fg-faint) 70%, transparent) transparent;
+}
+
+*::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+*::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--fg-faint) 55%, transparent);
+  border-radius: 8px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background: color-mix(in srgb, var(--fg-muted) 70%, transparent);
+  background-clip: padding-box;
+  border: 2px solid transparent;
+}
+
+*::-webkit-scrollbar-track {
+  background: transparent;
 }
 
 .md {
@@ -177,6 +223,7 @@ button {
   font-weight: 650;
   color: var(--fg-strong);
   line-height: 1.3;
+  letter-spacing: -0.02em;
 }
 
 .md h1 { font-size: 1.35em; }
@@ -195,7 +242,7 @@ button {
   font-size: 0.88em;
   background: var(--md-inline-code-bg);
   border: 1px solid var(--border);
-  border-radius: 4px;
+  border-radius: 5px;
   padding: 0.1em 0.35em;
 }
 
@@ -204,8 +251,9 @@ button {
   padding: 12px 14px;
   background: var(--pre-bg);
   border: 1px solid var(--border);
-  border-radius: 10px;
+  border-radius: var(--radius-md);
   overflow: auto;
+  box-shadow: var(--shadow-sm);
 }
 
 .md pre code {
@@ -230,10 +278,12 @@ button {
   color: var(--fg-muted);
 }
 
-/* Settings modals: comfortable card padding */
+/* Settings modals */
 .pi-settings-modal.n-modal,
 .pi-settings-modal.n-card {
-  border-radius: 12px;
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  border: 1px solid var(--border);
 }
 
 .pi-settings-modal .n-card-header {
@@ -249,7 +299,6 @@ button {
   border-top: 1px solid var(--border);
 }
 
-/* Nested settings split: give the right detail pane breathing room */
 .pi-settings-modal .right,
 .pi-settings-modal .right-scroll {
   padding: 20px 24px 24px !important;
