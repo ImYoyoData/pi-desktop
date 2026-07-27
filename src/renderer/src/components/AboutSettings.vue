@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { onMounted, ref, watch } from "vue";
-import { NModal, NText, NButton, NSpace, useMessage } from "naive-ui";
+import { NModal, NText, NButton, NSpace } from "naive-ui";
+import { useUpdateStore } from "@renderer/stores/update";
 import { t } from "@renderer/i18n";
 
 type AppInfo = {
@@ -15,9 +16,8 @@ type AppInfo = {
 const props = defineProps<{ open: boolean }>();
 const emit = defineEmits<{ close: [] }>();
 
-const message = useMessage();
+const updateStore = useUpdateStore();
 const appInfo = ref<AppInfo | null>(null);
-const checking = ref(false);
 
 async function refreshAppInfo(): Promise<void> {
   appInfo.value = await window.api.update.getAppInfo();
@@ -36,24 +36,8 @@ async function onOpenEmail(): Promise<void> {
 }
 
 async function onCheckUpdate(): Promise<void> {
-  if (checking.value) return;
-  checking.value = true;
-  try {
-    const result = await window.api.update.check({ download: true });
-    if (result.status === "upToDate") {
-      message.success(result.message, { duration: 3000 });
-    } else if (result.status === "downloaded") {
-      message.success(result.message, { duration: 6000 });
-    } else if (result.status === "error") {
-      message.error(result.message, { duration: 5000 });
-    } else {
-      message.info(result.message, { duration: 5000 });
-    }
-  } catch (err) {
-    message.error(err instanceof Error ? err.message : String(err), { duration: 5000 });
-  } finally {
-    checking.value = false;
-  }
+  emit("close");
+  await updateStore.openUpdateCard();
 }
 
 watch(
@@ -102,8 +86,9 @@ onMounted(() => {
         </div>
       </div>
       <NSpace style="margin-top: 14px" :size="8">
-        <NButton size="small" type="primary" :loading="checking" @click="onCheckUpdate">
+        <NButton size="small" type="primary" @click="onCheckUpdate">
           {{ t.checkUpdate }}
+          <span v-if="updateStore.available" class="about-dot" />
         </NButton>
         <NButton size="small" @click="onOpenGithub">{{ t.aboutOpenGithub }}</NButton>
         <NButton size="small" @click="onOpenReleases">{{ t.aboutOpenReleases }}</NButton>
@@ -156,5 +141,14 @@ onMounted(() => {
 .footer {
   display: flex;
   justify-content: flex-end;
+}
+.about-dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin-left: 6px;
+  border-radius: 50%;
+  background: #e5484d;
+  vertical-align: middle;
 }
 </style>

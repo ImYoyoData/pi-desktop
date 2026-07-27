@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, h, onMounted, onUnmounted, ref } from "vue";
 import type { DropdownOption } from "naive-ui";
-import { NButton, NDropdown, NIcon, NSpace, NTag, useMessage } from "naive-ui";
+import { NButton, NDropdown, NIcon, NSpace, NTag } from "naive-ui";
 import {
   ArrowUpCircleOutline,
   ColorPaletteOutline,
@@ -23,17 +23,16 @@ import MarketSettings from "@renderer/components/MarketSettings.vue";
 import AppearanceSettings from "@renderer/components/AppearanceSettings.vue";
 import AsrSettings from "@renderer/components/AsrSettings.vue";
 import AboutSettings from "@renderer/components/AboutSettings.vue";
+import UpdateCard from "@renderer/components/UpdateCard.vue";
 import { useWorkspaceStore } from "@renderer/stores/workspace";
 import { useAppearanceStore } from "@renderer/stores/appearance";
+import { useUpdateStore } from "@renderer/stores/update";
 import { t } from "@renderer/i18n";
 import logoUrl from "@renderer/assets/logo.svg";
 
-const AUTO_CHECK_KEY = "pi-desktop:last-update-check";
-const AUTO_CHECK_MS = 24 * 60 * 60 * 1000;
-
 const workspace = useWorkspaceStore();
 const appearance = useAppearanceStore();
-const messageApi = useMessage();
+const updateStore = useUpdateStore();
 const modelsOpen = ref(false);
 const skillsOpen = ref(false);
 const extensionsOpen = ref(false);
@@ -42,18 +41,15 @@ const appearanceOpen = ref(false);
 const asrOpen = ref(false);
 const aboutOpen = ref(false);
 const platform = ref<NodeJS.Platform>("win32");
-const updateBusy = ref(false);
 let offUpdateProgress: (() => void) | undefined;
 
 onMounted(async () => {
   platform.value = await window.api.window.platform();
-  // No loading toasts for update progress — button :loading is enough; sticky duration:0 toasts never clear reliably.
   offUpdateProgress = window.api.update.onProgress((p) => {
-    if (p.phase === "error") {
-      messageApi.error(p.message, { duration: 5000 });
-    }
+    updateStore.onProgress(p);
   });
-  void maybeAutoCheckUpdate();
+  // Silent startup check — red badge only when an update exists.
+  void updateStore.checkOnStartup();
 });
 
 onUnmounted(() => {
@@ -156,56 +152,8 @@ async function openGithub(): Promise<void> {
   await window.api.update.openGithub();
 }
 
-async function runUpdateCheck(opts: { download: boolean; silent: boolean }): Promise<void> {
-  if (updateBusy.value) return;
-  updateBusy.value = true;
-  try {
-    const result = await window.api.update.check({ download: opts.download });
-    try {
-      localStorage.setItem(AUTO_CHECK_KEY, String(Date.now()));
-    } catch {
-      // ignore
-    }
-    if (result.status === "upToDate") {
-      if (!opts.silent) {
-        messageApi.success(result.message, { duration: 3000 });
-      }
-      return;
-    }
-    if (result.status === "downloaded") {
-      messageApi.success(result.message, { duration: 6000 });
-      return;
-    }
-    if (result.status === "openedBrowser" || result.status === "available") {
-      messageApi.info(result.message, { duration: 5000 });
-      return;
-    }
-    if (!opts.silent) {
-      messageApi.error(result.message, { duration: 5000 });
-    }
-  } catch (err) {
-    if (!opts.silent) {
-      messageApi.error(err instanceof Error ? err.message : String(err), { duration: 5000 });
-    }
-  } finally {
-    updateBusy.value = false;
-  }
-}
-
-async function onCheckUpdate(): Promise<void> {
-  await runUpdateCheck({ download: true, silent: false });
-}
-
-async function maybeAutoCheckUpdate(): Promise<void> {
-  try {
-    const raw = localStorage.getItem(AUTO_CHECK_KEY);
-    const last = raw ? Number(raw) : 0;
-    if (Number.isFinite(last) && Date.now() - last < AUTO_CHECK_MS) return;
-  } catch {
-    // ignore
-  }
-  // Silent: only notify when an update / browser open / error with useful message
-  await runUpdateCheck({ download: true, silent: true });
+async function onUpdateClick(): Promise<void> {
+  await updateStore.openUpdateCard();
 }
 </script>
 
@@ -249,16 +197,18 @@ async function maybeAutoCheckUpdate(): Promise<void> {
           </template>
         </NButton>
         <NButton
+          class="update-btn"
           quaternary
           circle
           size="small"
-          :loading="updateBusy"
-          :disabled="updateBusy"
-          @click="onCheckUpdate"
+          :loading="updateStore.checking && !updateStore.modalOpen"
+          :title="t.checkUpdate"
+          @click="onUpdateClick"
         >
           <template #icon>
             <NIcon :component="ArrowUpCircleOutline" />
           </template>
+          <span v-if="updateStore.available" class="update-dot" aria-hidden="true" />
         </NButton>
         <NButton quaternary circle size="small" @click="openGithub">
           <template #icon>
@@ -276,6 +226,7 @@ async function maybeAutoCheckUpdate(): Promise<void> {
     </div>
     <div v-if="platform !== 'darwin'" class="overlay-space" aria-hidden="true" />
   </header>
+  <UpdateCard />
   <AppearanceSettings :open="appearanceOpen" @close="appearanceOpen = false" />
   <AsrSettings :open="asrOpen" @close="asrOpen = false" />
   <ModelsSettings :open="modelsOpen" @close="modelsOpen = false" />
@@ -348,6 +299,22 @@ async function maybeAutoCheckUpdate(): Promise<void> {
 .actions {
   display: flex;
   align-items: center;
+}
+
+.update-btn {
+  position: relative;
+}
+
+.update-dot {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #e5484d;
+  box-shadow: 0 0 0 1.5px var(--bg-title, var(--bg));
+  pointer-events: none;
 }
 
 .overlay-space {
