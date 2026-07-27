@@ -126,6 +126,7 @@ jobs:
             No portable EXE, ZIP, or blockmap extras.
 
             ## Fixes
+            - Suppress normal worker idle-exit noise (`worker exited (0)` no longer shown as an error)
             - **#4** NVIDIA CUDA ASR crash (`3221225477`): auto-fallback to Vulkan + retry
             - **#3** Session title updates immediately after the first prompt
             - **#2** API key save reloads workers without restart
@@ -137,8 +138,8 @@ jobs:
             - Terminal right-click copy / paste
             - Chat `edit`/`write` tool cards with `+N/-M` and expandable diff
 
-            ## macOS note
-            - Notarization is off — first open may need right-click → Open (Gatekeeper)
+            ## Packaging
+            - One installer per OS/arch only (Win NSIS x64+arm64, mac DMG Intel+Apple Silicon)
           files: upload/*
           fail_on_unmatched_files: false
         env:
