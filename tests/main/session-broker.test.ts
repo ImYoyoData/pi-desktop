@@ -203,4 +203,24 @@ describe("session-broker", () => {
     expect(killCount).toBe(1);
     expect(spawnCount).toBe(2);
   });
+
+  it("exposes renamed title on live sessions without waiting for a switch (#3)", async () => {
+    const broker = createSessionBroker({
+      spawnWorker: async (cwd) => ({
+        id: "session-a",
+        cwd,
+        filePath: "/tmp/session-a.jsonl",
+        worker: {
+          send: async () => null,
+          kill: () => {},
+          onMessage: () => () => {},
+        },
+      }),
+    });
+    await broker.createSession("/tmp/a");
+    expect(broker.patchSummary("session-a", {})?.name).toBeUndefined();
+    broker.patchSummary("session-a", { name: "你好世界" });
+    const listed = await broker.listSessions("/tmp/a");
+    expect(listed.find((s) => s.id === "session-a")?.name).toBe("你好世界");
+  });
 });

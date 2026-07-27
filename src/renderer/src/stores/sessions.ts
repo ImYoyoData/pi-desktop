@@ -37,9 +37,10 @@ export const useSessionsStore = defineStore("sessions", () => {
   function upsert(summary: SessionSummary): void {
     const idx = sessions.value.findIndex((s) => s.id === summary.id);
     if (idx >= 0) {
-      sessions.value[idx] = summary;
+      // Replace array so sidebar/header title computeds refresh reliably (#3).
+      sessions.value = sessions.value.map((s, i) => (i === idx ? { ...summary } : s));
     } else {
-      sessions.value.push(summary);
+      sessions.value = [...sessions.value, summary];
     }
   }
 
@@ -182,8 +183,19 @@ export const useSessionsStore = defineStore("sessions", () => {
   }
 
   async function renameSession(sessionId: string, cwd: string, name: string): Promise<SessionSummary | null> {
-    const updated = await window.api.sessions.rename(sessionId, cwd, name);
-    if (updated) upsert(updated);
+    const trimmed = name.trim();
+    // Optimistic UI update so title flips immediately (before IPC round-trip).
+    if (trimmed) {
+      const idx = sessions.value.findIndex((s) => s.id === sessionId);
+      if (idx >= 0) {
+        const row = sessions.value[idx]!;
+        sessions.value = sessions.value.map((s, i) =>
+          i === idx ? { ...row, name: trimmed, modified: new Date().toISOString() } : s,
+        );
+      }
+    }
+    const updated = await window.api.sessions.rename(sessionId, cwd, trimmed);
+    if (updated) upsert({ ...updated, name: updated.name?.trim() || trimmed });
     return updated;
   }
 
