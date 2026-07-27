@@ -1,5 +1,5 @@
 import { app, BrowserWindow, ipcMain, shell } from "electron";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync, chmodSync } from "fs";
 import { join } from "path";
 import { tmpdir } from "os";
 import { execFile, spawn } from "child_process";
@@ -322,6 +322,48 @@ async function installWithCurl(): Promise<MethodResult> {
   if (!curl) return { ok: false, log: "curl not found" };
 
   if (process.platform === "darwin") {
+    // Prefer a .command launcher + `open` — does not need Automation / Apple Events
+    // permission (osascript → Terminal often fails silently on modern macOS).
+    const cmdPath = join(tmpdir(), `pi-desktop-install-${Date.now()}.command`);
+    const body = [
+      "#!/bin/bash",
+      'echo "Installing Pi CLI from pi.dev …"',
+      `curl -fsSL ${JSON.stringify(PI_INSTALL_SH)} | sh`,
+      "echo",
+      'read -n1 -r -p "Press any key to close…"',
+      "echo",
+    ].join("\n");
+    writeFileSync(cmdPath, `${body}\n`, { encoding: "utf8", mode: 0o755 });
+    try {
+      chmodSync(cmdPath, 0o755);
+    } catch {
+      // mode in writeFileSync may be enough
+    }
+
+    const opened = await new Promise<boolean>((resolve) => {
+      let settled = false;
+      const done = (ok: boolean) => {
+        if (settled) return;
+        settled = true;
+        resolve(ok);
+      };
+      const child = spawn("open", [cmdPath], { detached: true, stdio: "ignore" });
+      child.once("error", () => done(false));
+      child.once("spawn", () => {
+        child.unref();
+        done(true);
+      });
+      setTimeout(() => done(Boolean(child.pid)), 800);
+    });
+    if (opened) {
+      return {
+        ok: true,
+        openedExternal: true,
+        log: "Opened Terminal with the official pi.dev installer. Finish prompts there, then restart Pi Desktop if needed.",
+      };
+    }
+
+    // Fallback: AppleScript (may prompt for Automation permission)
     const script = `curl -fsSL ${JSON.stringify(PI_INSTALL_SH)} | sh`;
     const r = await runCapture(
       "osascript",
@@ -337,10 +379,15 @@ async function installWithCurl(): Promise<MethodResult> {
       return {
         ok: true,
         openedExternal: true,
-        log: "Opened Terminal with the official pi.dev installer. Finish prompts there, then restart Pi Desktop if needed.",
+        log: "Opened Terminal via AppleScript. Finish prompts there, then restart Pi Desktop if needed.",
       };
     }
-    return { ok: false, log: `${r.stdout}\n${r.stderr}`.trim() || "Failed to open Terminal.app" };
+    return {
+      ok: false,
+      log:
+        `${r.stdout}\n${r.stderr}`.trim() ||
+        "Failed to open Terminal.app — allow Automation for Pi Desktop, or install from pi.dev manually",
+    };
   }
 
   // Linux: try common terminals; fall back to non-interactive pipe (may prompt fail)
