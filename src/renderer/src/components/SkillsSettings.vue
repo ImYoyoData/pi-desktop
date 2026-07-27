@@ -13,6 +13,7 @@ import {
   useMessage,
 } from "naive-ui";
 import { useWorkspaceStore } from "@renderer/stores/workspace";
+import { t } from "@renderer/i18n";
 
 type SkillRow = {
   name: string;
@@ -64,7 +65,7 @@ async function onToggle(skill: SkillRow, enabled: boolean): Promise<void> {
   try {
     await window.api.skills.setDisabled(skill.filePath, !enabled);
     skill.disableModelInvocation = !enabled;
-    message.success(enabled ? "已启用" : "已禁用（仅手动 /skill 调用）");
+    message.success(enabled ? t.skillEnabled : t.skillDisabledManual);
   } catch (err) {
     message.error(err instanceof Error ? err.message : String(err));
   } finally {
@@ -85,15 +86,15 @@ function canUninstall(skill: SkillRow): boolean {
 
 function onUninstall(skill: SkillRow): void {
   dialog.warning({
-    title: "卸载 Skill",
-    content: `删除「${skill.name}」目录？此操作不可撤销。\n（插件包内的 Skill 请到「扩展」中移除整个包）`,
-    positiveText: "卸载",
-    negativeText: "取消",
+    title: t.skillUninstallTitle,
+    content: t.skillUninstallConfirm(skill.name),
+    positiveText: t.uninstall,
+    negativeText: t.cancel,
     onPositiveClick: async () => {
       uninstalling.value = true;
       try {
         await window.api.skills.uninstall(skill.filePath, workspace.root ?? undefined);
-        message.success("已卸载");
+        message.success(t.skillUninstalled);
         if (selected.value === skill.filePath) selected.value = null;
         await load();
       } catch (err) {
@@ -110,7 +111,7 @@ function onUninstall(skill: SkillRow): void {
   <NModal
     :show="open"
     preset="card"
-    title="Skills"
+    :title="t.skillsTitle"
     class="pi-settings-modal"
     style="width: min(860px, 94vw)"
     :bordered="false"
@@ -124,7 +125,7 @@ function onUninstall(skill: SkillRow): void {
       <NSpin :show="loading" class="spin-fill">
         <div class="layout">
           <NScrollbar class="left">
-            <NEmpty v-if="!skills.length" description="未发现 Skills" style="padding: 24px" />
+            <NEmpty v-if="!skills.length" :description="t.skillsEmpty" style="padding: 24px" />
             <button
               v-for="skill in skills"
               :key="skill.filePath"
@@ -146,7 +147,7 @@ function onUninstall(skill: SkillRow): void {
                   <NText depth="3" style="font-size: 12px">{{ sourceLabel(selectedSkill()!) }}</NText>
                 </div>
                 <NSpace align="center">
-                  <NText style="font-size: 12px">启用</NText>
+                  <NText style="font-size: 12px">{{ t.enable }}</NText>
                   <NSwitch
                     :value="!selectedSkill()!.disableModelInvocation"
                     :loading="toggling === selectedSkill()!.filePath"
@@ -166,11 +167,11 @@ function onUninstall(skill: SkillRow): void {
                   :loading="uninstalling"
                   @click="onUninstall(selectedSkill()!)"
                 >
-                  卸载 Skill
+                  {{ t.skillUninstall }}
                 </NButton>
               </div>
             </template>
-            <NEmpty v-else description="选择一个 Skill" />
+            <NEmpty v-else :description="t.skillSelect" />
           </NScrollbar>
         </div>
       </NSpin>
@@ -178,7 +179,7 @@ function onUninstall(skill: SkillRow): void {
 
     <template #footer>
       <NSpace justify="end">
-        <NButton size="small" @click="emit('close')">关闭</NButton>
+        <NButton size="small" @click="emit('close')">{{ t.close }}</NButton>
       </NSpace>
     </template>
   </NModal>

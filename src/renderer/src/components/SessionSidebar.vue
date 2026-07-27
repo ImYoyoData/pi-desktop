@@ -260,10 +260,10 @@ function confirmDeleteSession(root: string, sessionId: string): void {
   const session = (sessionsByRoot[root] ?? []).find((s) => s.id === sessionId);
   const label = sessionLabel(session ?? { id: sessionId });
   dialog.warning({
-    title: "删除会话",
+    title: t.deleteSession,
     content: t.deleteConfirm(label),
-    positiveText: "删除",
-    negativeText: "取消",
+    positiveText: t.delete,
+    negativeText: t.cancel,
     onPositiveClick: async () => {
       if (workspace.root !== root) await workspace.openWorkspacePath(root);
       await sessionsStore.deleteSession(sessionId, root);
@@ -292,7 +292,7 @@ async function submitRename(): Promise<void> {
     await sessionsStore.renameSession(target.id, target.root, name);
     await loadSessions(target.root);
     renameOpen.value = false;
-    message.success("已重命名");
+    message.success(t.renamed);
   } catch (err) {
     message.error(err instanceof Error ? err.message : String(err));
   }
@@ -304,7 +304,7 @@ function sessionLabel(session: { name?: string; firstMessage?: string; id: strin
     const text = session.firstMessage.trim();
     return text.length > 42 ? `${text.slice(0, 39)}…` : text;
   }
-  return "新会话";
+  return t.newSession;
 }
 
 function relativeTime(iso: string): string {
@@ -322,33 +322,33 @@ function relativeTime(iso: string): string {
 function workspaceMenuOptions(): DropdownOption[] {
   return [
     {
-      label: "打开工作区",
+      label: t.openFolder,
       key: "open",
       icon: () => h(NIcon, null, { default: () => h(FolderOpenOutline) }),
     },
     {
-      label: "新建会话",
+      label: t.newSessionAction,
       key: "new-session",
       icon: () => h(NIcon, null, { default: () => h(AddOutline) }),
     },
     {
-      label: "刷新会话",
+      label: t.refreshSessions,
       key: "refresh",
       icon: () => h(NIcon, null, { default: () => h(RefreshOutline) }),
     },
     {
-      label: "在资源管理器中打开",
+      label: t.revealInExplorer,
       key: "reveal",
       icon: () => h(NIcon, null, { default: () => h(FolderOpenOutline) }),
     },
     {
-      label: "复制路径",
+      label: t.copyPath,
       key: "copy",
       icon: () => h(NIcon, null, { default: () => h(CopyOutline) }),
     },
     { type: "divider", key: "d1" },
     {
-      label: "从列表移除",
+      label: t.removeFromList,
       key: "remove",
       icon: () => h(NIcon, null, { default: () => h(TrashOutline) }),
     },
@@ -377,21 +377,21 @@ async function onWorkspaceMenu(root: string, key: string | number): Promise<void
     case "refresh":
       expanded[root] = true;
       await loadSessions(root);
-      message.success("已刷新");
+      message.success(t.refreshed);
       break;
     case "reveal":
       await workspace.revealInFolder(root);
       break;
     case "copy":
       await navigator.clipboard.writeText(root);
-      message.success("已复制路径");
+      message.success(t.pathCopied);
       break;
     case "remove":
       dialog.warning({
-        title: "移除工作区",
-        content: `从列表中移除「${workspaceName(root)}」？（不会删除磁盘文件）`,
-        positiveText: "移除",
-        negativeText: "取消",
+        title: t.removeWorkspaceTitle,
+        content: t.removeWorkspaceConfirm(workspaceName(root)),
+        positiveText: t.remove,
+        negativeText: t.cancel,
         onPositiveClick: async () => {
           await workspace.removeRecent(root);
           delete sessionsByRoot[root];
@@ -414,12 +414,12 @@ async function onWorkspaceMenu(root: string, key: string | number): Promise<void
 function sessionMenu(root: string, session: SessionSummary): DropdownOption[] {
   const pinned = isPinned(root, session.id);
   return [
-    { label: "打开", key: "open" },
-    { label: "重命名", key: "rename" },
-    { label: pinned ? "取消置顶" : "置顶", key: "pin" },
-    { label: "复制会话 ID", key: "copy-id" },
+    { label: t.open, key: "open" },
+    { label: t.filesRename, key: "rename" },
+    { label: pinned ? t.unpin : t.pin, key: "pin" },
+    { label: t.copySessionId, key: "copy-id" },
     { type: "divider", key: "d1" },
-    { label: "删除", key: "delete" },
+    { label: t.delete, key: "delete" },
   ];
 }
 
@@ -441,7 +441,7 @@ async function onSessionMenu(
       break;
     case "copy-id":
       await navigator.clipboard.writeText(session.id);
-      message.success("已复制会话 ID");
+      message.success(t.sessionIdCopied);
       break;
     case "delete":
       confirmDeleteSession(root, session.id);
@@ -526,7 +526,7 @@ function onLeftSplitResized(payload: SplitpanesResizedPayload): void {
         <template #icon>
           <NIcon :component="AddOutline" />
         </template>
-        新建会话
+        {{ t.newSessionAction }}
       </NButton>
       <NTooltip>
         <template #trigger>
@@ -554,7 +554,7 @@ function onLeftSplitResized(payload: SplitpanesResizedPayload): void {
       <Pane :size="sessionsPaneSize" :min-size="22">
         <div class="sessions-pane">
           <div class="section-head">
-            <NText depth="3" style="font-size: 12px; font-weight: 600">工作区</NText>
+            <NText depth="3" style="font-size: 12px; font-weight: 600">{{ t.workspaces }}</NText>
             <NTooltip>
               <template #trigger>
                 <NButton quaternary circle size="tiny" @click="onAddWorkspace">
@@ -648,12 +648,12 @@ function onLeftSplitResized(payload: SplitpanesResizedPayload): void {
     <NModal
       v-model:show="renameOpen"
       preset="dialog"
-      title="重命名会话"
-      positive-text="保存"
-      negative-text="取消"
+      :title="t.renameSession"
+      :positive-text="t.save"
+      :negative-text="t.cancel"
       @positive-click="submitRename"
     >
-      <NInput v-model:value="renameDraft" placeholder="会话名称" @keydown.enter.prevent="submitRename" />
+      <NInput v-model:value="renameDraft" :placeholder="t.sessionNamePlaceholder" @keydown.enter.prevent="submitRename" />
     </NModal>
   </aside>
 </template>

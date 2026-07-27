@@ -34,7 +34,7 @@ import { heuristicSessionTitle } from "@renderer/utils/session-title";
 import { startVoiceRecord, type VoiceRecordSession } from "@renderer/utils/pcm-capture";
 import { scrubAsrHallucination } from "../../../shared/asr";
 import { formatLlmError } from "@renderer/utils/llm-error";
-import { t } from "@renderer/i18n";
+import { locale, t } from "@renderer/i18n";
 
 type ThinkingLevel = "off" | "minimal" | "low" | "medium" | "high" | "xhigh";
 
@@ -851,7 +851,7 @@ async function applySelectedModel(): Promise<void> {
     const text = err instanceof Error ? err.message : String(err);
     // Startup race / cold worker / post-auth reload: don't toast transient noise.
     if (/unknown session|Model not found/i.test(text)) return;
-    messageApi.error(formatLlmError(text));
+    messageApi.error(formatLlmError(text, locale === "zh-CN" ? "zh-CN" : "en"));
   }
 }
 
