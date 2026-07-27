@@ -66,6 +66,34 @@ function scheduleFit(): void {
   });
 }
 
+function onContextMenu(event: MouseEvent): void {
+  event.preventDefault();
+  event.stopPropagation();
+  if (!term) return;
+
+  if (term.hasSelection()) {
+    const text = term.getSelection();
+    term.clearSelection();
+    if (text) {
+      void navigator.clipboard.writeText(text).catch(() => {
+        // ignore clipboard write failures
+      });
+    }
+    term.focus();
+    return;
+  }
+
+  void navigator.clipboard
+    .readText()
+    .then((text) => {
+      if (text && term) term.paste(text);
+    })
+    .catch(() => {
+      // ignore clipboard read failures (permission / empty)
+    });
+  term.focus();
+}
+
 async function start(): Promise<void> {
   const cwd = workspace.root;
   if (!cwd || !hostRef.value || ptyId) return;
@@ -75,6 +103,8 @@ async function start(): Promise<void> {
     cursorBlink: true,
     fontSize: 13,
     fontFamily: "Cascadia Code, Consolas, Menlo, monospace",
+    // Use contextmenu handler below for Windows-Terminal-style copy/paste.
+    rightClickSelectsWord: false,
     theme: terminalTheme(),
   });
   fit = new FitAddon();
@@ -83,6 +113,8 @@ async function start(): Promise<void> {
   term.onData((data) => {
     if (ptyId) void window.api.terminal.write(ptyId, data);
   });
+  // Capture phase so we beat xterm's default context menu / selection quirks.
+  hostRef.value.addEventListener("contextmenu", onContextMenu, true);
 
   await nextTick();
   scheduleFit();
@@ -91,6 +123,7 @@ async function start(): Promise<void> {
 }
 
 async function stop(): Promise<void> {
+  hostRef.value?.removeEventListener("contextmenu", onContextMenu, true);
   if (ptyId) {
     await window.api.terminal.dispose(ptyId);
     ptyId = null;

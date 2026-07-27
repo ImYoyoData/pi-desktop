@@ -24,7 +24,9 @@ import { useChatStore } from "@renderer/stores/chat";
 import { useComposerStore } from "@renderer/stores/composer";
 import { useSessionsStore } from "@renderer/stores/sessions";
 import MarkdownView from "@renderer/components/MarkdownView.vue";
+import ToolFileCard from "@renderer/components/ToolFileCard.vue";
 import { extractWorkspacePaths } from "@renderer/utils/preview-paths";
+import { isFileMutationTool, parseFileToolCard } from "@renderer/utils/tool-diff";
 import { usePreviewStore } from "@renderer/stores/preview";
 import { useRightTabsStore } from "@renderer/stores/right-tabs";
 import { t } from "@renderer/i18n";
@@ -57,6 +59,11 @@ function toolPaths(msg: Extract<ChatMessage, { role: "tool" }>): string[] {
   const fromArgs = extractWorkspacePaths(msg.args);
   const fromResult = extractWorkspacePaths(msg.result);
   return [...new Set([...fromArgs, ...fromResult])];
+}
+
+function fileToolCard(msg: Extract<ChatMessage, { role: "tool" }>) {
+  if (!isFileMutationTool(msg.toolName)) return null;
+  return parseFileToolCard(msg.toolName, msg.args, msg.result);
 }
 
 function openPreview(filePath: string): void {
@@ -221,7 +228,16 @@ watch(
 
         <template v-else-if="msg.role === 'tool'">
           <div class="tool">
-            <NCollapse v-model:expanded-names="expandedTools">
+            <ToolFileCard
+              v-if="fileToolCard(msg)"
+              :card="fileToolCard(msg)!"
+              :tool-name="msg.toolName"
+              :status-label="toolStatus(msg).label"
+              :status-type="toolStatus(msg).type"
+              :streaming="msg.streaming"
+              @open="openPreview"
+            />
+            <NCollapse v-else v-model:expanded-names="expandedTools">
               <NCollapseItem :name="msg.id">
                 <template #header>
                   <NSpace :size="8" align="center">
