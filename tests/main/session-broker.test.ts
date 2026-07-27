@@ -106,6 +106,37 @@ describe("session-broker", () => {
     await expect(pending).rejects.toThrow("boom");
   });
 
+  it("ignores clean worker exit (0) without prompt_error", async () => {
+    let messageCb: ((msg: { kind: string; error?: string }) => void) | null = null;
+    const events: Array<{ type: string; errorMessage?: string; status?: string }> = [];
+    const broker = createSessionBroker({
+      spawnWorker: async (cwd) => ({
+        id: "session-a",
+        cwd,
+        filePath: "/tmp/session-a.jsonl",
+        worker: {
+          send: async () => null,
+          kill: () => {},
+          onMessage: (cb) => {
+            messageCb = cb;
+            return () => {
+              messageCb = null;
+            };
+          },
+        },
+      }),
+    });
+    broker.onEvent((event) => {
+      events.push(event as { type: string; errorMessage?: string; status?: string });
+    });
+    await broker.createSession("/tmp/a");
+    messageCb?.({ kind: "fatal", error: "worker exited (0)" });
+    expect(events.some((e) => e.type === "prompt_error")).toBe(false);
+    expect(events.some((e) => e.type === "session_status" && e.status === "error")).toBe(
+      false,
+    );
+  });
+
   it("rejects pending commands when worker is terminated", async () => {
     const broker = createSessionBroker({
       spawnWorker: async (cwd) => ({
