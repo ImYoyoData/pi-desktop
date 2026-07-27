@@ -1,6 +1,7 @@
 import { defineStore } from "pinia";
 import { computed, ref } from "vue";
 import type { AsrInstallProgress, AsrStatus, AsrStreamEvent } from "../../../shared/asr";
+import { DEFAULT_ASR_WAKE_HOTKEY } from "../../../shared/hotkey";
 import { t } from "@renderer/i18n";
 
 /** Electron IPC wraps as `Error invoking remote method 'x': <real message>`. */
@@ -64,6 +65,7 @@ const emptyStatus = (): AsrStatus => ({
   gpuOptions: [{ id: "auto", label: "Auto", backend: "cpu", kind: "cpu" }],
   runtimeMatchesPreference: true,
   runtimeArchiveHint: null,
+  wakeHotkey: DEFAULT_ASR_WAKE_HOTKEY,
   lastError: null,
 });
 
@@ -76,6 +78,8 @@ export const useAsrStore = defineStore("asr", () => {
   const queueDepth = ref(0);
   /** Local lock so install modal never tracks transcription busy. */
   const installInFlight = ref(false);
+  /** True while settings is listening for a new wake chord — Composer ignores wake. */
+  const capturingHotkey = ref(false);
 
   const micVisible = computed(() => status.value.enabled && status.value.supported);
   /** Only true while installing runtime/model — never during transcription. */
@@ -202,17 +206,29 @@ export const useAsrStore = defineStore("asr", () => {
     }
   }
 
+  async function setWakeHotkey(accel: string): Promise<AsrStatus> {
+    status.value = await window.api.asr.setWakeHotkey(accel);
+    return status.value;
+  }
+
+  function setCapturingHotkey(v: boolean): void {
+    capturingHotkey.value = v;
+  }
+
   return {
     status,
     progress,
     recording,
     transcribing,
     queueDepth,
+    capturingHotkey,
     micVisible,
     installing,
     refresh,
     setEnabled,
     setGpuPreference,
+    setWakeHotkey,
+    setCapturingHotkey,
     install,
     installFromUrl,
     importLocal,

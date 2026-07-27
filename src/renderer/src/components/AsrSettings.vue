@@ -14,6 +14,7 @@ import {
 import type { SelectOption } from "naive-ui";
 import { formatAsrInstallError, useAsrStore } from "@renderer/stores/asr";
 import AsrInstallProgress from "@renderer/components/AsrInstallProgress.vue";
+import { formatAcceleratorLabel, keyboardEventToAccelerator } from "../../../shared/hotkey";
 import { t } from "@renderer/i18n";
 
 const props = defineProps<{ open: boolean }>();
@@ -22,6 +23,7 @@ const emit = defineEmits<{ close: [] }>();
 const asr = useAsrStore();
 const message = useMessage();
 const modelUrl = ref("");
+const capturingHotkey = ref(false);
 let offProgress: (() => void) | undefined;
 
 const asrEnabled = computed({
@@ -30,6 +32,10 @@ const asrEnabled = computed({
     void asr.setEnabled(v);
   },
 });
+
+const wakeHotkeyLabel = computed(() =>
+  formatAcceleratorLabel(asr.status.wakeHotkey || "Control+Alt+Y"),
+);
 
 const gpuPreference = computed({
   get: () => asr.status.gpuPreference || "auto",
@@ -58,6 +64,52 @@ function gpuKindLabel(): string {
     default: {
       const _exhaustive: never = asr.status.gpuKind;
       return _exhaustive;
+    }
+  }
+}
+
+function stopHotkeyCapture(): void {
+  if (!capturingHotkey.value) return;
+  capturingHotkey.value = false;
+  asr.setCapturingHotkey(false);
+  window.removeEventListener("keydown", onHotkeyCaptureKeydown, true);
+}
+
+function startHotkeyCapture(): void {
+  if (capturingHotkey.value) {
+    stopHotkeyCapture();
+    return;
+  }
+  capturingHotkey.value = true;
+  asr.setCapturingHotkey(true);
+  window.addEventListener("keydown", onHotkeyCaptureKeydown, true);
+}
+
+async function onHotkeyCaptureKeydown(e: KeyboardEvent): Promise<void> {
+  if (!capturingHotkey.value) return;
+  if (e.key === "Escape" && !e.ctrlKey && !e.altKey && !e.metaKey && !e.shiftKey) {
+    e.preventDefault();
+    e.stopPropagation();
+    stopHotkeyCapture();
+    return;
+  }
+  // Ignore pure modifier presses
+  const accel = keyboardEventToAccelerator(e);
+  if (!accel) return;
+  e.preventDefault();
+  e.stopPropagation();
+  stopHotkeyCapture();
+  try {
+    await asr.setWakeHotkey(accel);
+    message.success(t.asrWakeHotkeySaved);
+  } catch (err) {
+    const raw = err instanceof Error ? err.message : String(err);
+    if (/already in use/i.test(raw)) {
+      message.error(t.asrWakeHotkeyInUse);
+    } else if (/invalid/i.test(raw)) {
+      message.error(t.asrWakeHotkeyInvalid);
+    } else {
+      message.error(raw || t.asrWakeHotkeyInvalid);
     }
   }
 }
@@ -145,6 +197,7 @@ watch(
   () => props.open,
   (open) => {
     if (open) void asr.refresh();
+    else stopHotkeyCapture();
   },
 );
 
@@ -154,6 +207,7 @@ onMounted(() => {
 });
 
 onUnmounted(() => {
+  stopHotkeyCapture();
   offProgress?.();
 });
 </script>
@@ -176,6 +230,22 @@ onUnmounted(() => {
       <div class="asr-row">
         <span>{{ t.asrEnable }}</span>
         <NSwitch v-model:value="asrEnabled" size="small" :disabled="!asr.status.supported" />
+      </div>
+      <div class="asr-row" style="margin-top: 12px; align-items: flex-start">
+        <div style="flex: 1; min-width: 0">
+          <div>{{ t.asrWakeHotkey }}</div>
+          <NText depth="3" style="font-size: 12px; display: block; margin-top: 4px">
+            {{ capturingHotkey ? t.asrWakeHotkeyListening : t.asrWakeHotkeyHint }}
+          </NText>
+        </div>
+        <NButton
+          size="small"
+          :type="capturingHotkey ? 'primary' : 'default'"
+          :disabled="!asr.status.supported"
+          @click="startHotkeyCapture"
+        >
+          {{ capturingHotkey ? "…" : wakeHotkeyLabel }}
+        </NButton>
       </div>
       <NText depth="3" style="font-size: 12px; margin-top: 8px">
         {{ asr.status.modelLabel }} ·

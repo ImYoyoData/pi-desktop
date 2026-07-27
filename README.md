@@ -18,8 +18,8 @@
 
 | Platform | Architectures | Installer |
 |----------|---------------|-----------|
-| Windows  | **x64**, **arm64** | NSIS setup + portable (x64) |
-| macOS    | **x64**, **arm64** | DMG + ZIP |
+| Windows  | **x64**, **arm64** | Separate NSIS setup per arch |
+| macOS    | **x64**, **arm64** | Separate DMG per arch |
 
 > **Note:** Modern Electron (39+) no longer ships **Windows 32-bit (ia32)**. Use the x64 build on 64-bit Windows.
 
@@ -49,8 +49,8 @@ Useful scripts:
 | `npm test` | Unit tests |
 | `npm run typecheck` | TypeScript check |
 | `npm run build` | Compile main/preload/renderer |
-| `npm run dist:win` | Package Windows x64 + arm64 |
-| `npm run dist:mac` | Package macOS x64 + arm64 |
+| `npm run dist:win:x64` / `dist:win:arm64` | Package Windows **one arch** (separate NSIS) |
+| `npm run dist:mac:arm64` / `dist:mac:x64` | Package macOS **one arch** (separate DMG) |
 
 ## Branches & releases
 

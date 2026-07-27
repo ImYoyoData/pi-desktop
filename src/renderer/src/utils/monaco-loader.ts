@@ -1,7 +1,25 @@
 import type * as Monaco from "monaco-editor";
 import { resolveMonacoNls, type MonacoNlsId } from "@renderer/i18n/locale";
+// monaco-editor@0.56 exports map `monaco-editor/<path>` → `esm/vs/<path>` —
+// do NOT prefix with `esm/vs/` or resolution doubles the path and Vite fails.
+import EditorWorker from "monaco-editor/editor/editor.worker.js?worker";
 
 let monacoPromise: Promise<typeof Monaco> | null = null;
+let envInstalled = false;
+
+/** Diff/tokenization need a real editor worker — returning undefined breaks decorations. */
+export function installMonacoEnvironment(): void {
+  if (envInstalled) return;
+  envInstalled = true;
+  const g = globalThis as typeof globalThis & {
+    MonacoEnvironment?: { getWorker: (workerId: string, label: string) => Worker };
+  };
+  g.MonacoEnvironment = {
+    getWorker() {
+      return new EditorWorker();
+    },
+  };
+}
 
 /**
  * monaco-editor package exports map `monaco-editor/<path>` → `esm/vs/<path>`.
@@ -63,6 +81,7 @@ async function loadNlsPack(id: MonacoNlsId): Promise<void> {
 export function loadMonaco(): Promise<typeof Monaco> {
   if (!monacoPromise) {
     monacoPromise = (async () => {
+      installMonacoEnvironment();
       const nls = resolveMonacoNls();
       if (nls) await loadNlsPack(nls);
       return import("monaco-editor");

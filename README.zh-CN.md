@@ -18,8 +18,8 @@
 
 | 平台 | 架构 | 安装包 |
 |------|------|--------|
-| Windows | **x64**、**arm64** | NSIS 安装包 + 便携版（x64） |
-| macOS | **x64**、**arm64** | DMG + ZIP |
+| Windows | **x64**、**arm64** | 各架构独立 NSIS 安装包 |
+| macOS | **x64**、**arm64** | 各架构独立 DMG |
 
 > **说明：** Electron 39+ 已不再提供 **Windows 32 位 (ia32)** 运行时，64 位系统请使用 x64 包。
 
@@ -49,8 +49,8 @@ npm run dev
 | `npm test` | 单元测试 |
 | `npm run typecheck` | 类型检查 |
 | `npm run build` | 编译 |
-| `npm run dist:win` | 打包 Windows x64 + arm64 |
-| `npm run dist:mac` | 打包 macOS x64 + arm64 |
+| `npm run dist:win:x64` / `dist:win:arm64` | 打包 Windows **单一架构**（独立 NSIS，非合并包） |
+| `npm run dist:mac:arm64` / `dist:mac:x64` | 打包 macOS **单一架构**（独立 DMG） |
 
 ## 分支与发布
 

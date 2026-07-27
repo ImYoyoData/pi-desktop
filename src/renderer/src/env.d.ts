@@ -18,5 +18,7 @@ declare module "vue" {
   }
 }
 
-declare module "monaco-editor/nls/lang/*.js";
-
+declare module "*.mp3" {
+  const src: string;
+  export default src;
+}

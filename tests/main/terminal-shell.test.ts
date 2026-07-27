@@ -3,15 +3,24 @@ import { resolveTerminalShell } from "../../src/main/terminal-shell";
 
 describe("resolveTerminalShell", () => {
   it("uses powershell on Windows", () => {
-    expect(resolveTerminalShell("win32", "/bin/bash")).toBe("powershell.exe");
+    expect(resolveTerminalShell("win32", "/bin/bash")).toEqual({
+      file: "powershell.exe",
+      args: [],
+    });
   });
 
-  it("uses SHELL on macOS when set", () => {
-    expect(resolveTerminalShell("darwin", "/bin/fish")).toBe("/bin/fish");
+  it("uses SHELL on macOS when set, as a login shell", () => {
+    expect(resolveTerminalShell("darwin", "/bin/fish")).toEqual({
+      file: "/bin/fish",
+      args: ["-l"],
+    });
   });
 
-  it("defaults to zsh on macOS when SHELL unset", () => {
+  it("defaults to zsh login shell on macOS when SHELL unset", () => {
     // Pass "" — explicit `undefined` still triggers the default param (= process.env.SHELL).
-    expect(resolveTerminalShell("darwin", "")).toBe("/bin/zsh");
+    expect(resolveTerminalShell("darwin", "")).toEqual({
+      file: "/bin/zsh",
+      args: ["-l"],
+    });
   });
 });

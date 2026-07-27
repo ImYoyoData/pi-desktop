@@ -2,6 +2,7 @@
 import { NTag } from "naive-ui";
 import type { ComposerChip } from "@renderer/stores/composer";
 import { truncateElementContent } from "@renderer/stores/composer";
+import { fileTagLabel } from "@renderer/utils/composer-tags";
 import { t } from "@renderer/i18n";
 
 defineProps<{
@@ -11,12 +12,6 @@ defineProps<{
 const emit = defineEmits<{
   remove: [];
 }>();
-
-function fileLabel(path: string): string {
-  const parts = path.replace(/\\/g, "/").split("/");
-  const name = parts[parts.length - 1] || path;
-  return name.length > 28 ? `${name.slice(0, 28)}…` : name;
-}
 
 function urlLabel(url: string): string {
   try {
@@ -46,9 +41,22 @@ function elementTitle(chip: Extract<ComposerChip, { kind: "element" }>): string 
 </script>
 
 <template>
-  <!-- Naive default blue (info) tag — no thumbnail; screenshot is a separate image chip -->
+  <!-- File tags show workspace-relative path (not basename-only). -->
   <NTag
-    v-if="chip.kind === 'element'"
+    v-if="chip.kind === 'file'"
+    type="info"
+    size="small"
+    closable
+    round
+    class="chip-tag chip-file"
+    :title="chip.path"
+    @close="emit('remove')"
+  >
+    {{ fileTagLabel(chip.path) }}
+  </NTag>
+
+  <NTag
+    v-else-if="chip.kind === 'element'"
     type="info"
     size="small"
     closable
@@ -58,19 +66,6 @@ function elementTitle(chip: Extract<ComposerChip, { kind: "element" }>): string 
     @close="emit('remove')"
   >
     {{ elementLabel(chip) }}
-  </NTag>
-
-  <NTag
-    v-else-if="chip.kind === 'file'"
-    type="info"
-    size="small"
-    closable
-    round
-    class="chip-tag"
-    :title="chip.path"
-    @close="emit('remove')"
-  >
-    {{ fileLabel(chip.path) }}
   </NTag>
 
   <NTag
@@ -89,8 +84,13 @@ function elementTitle(chip: Extract<ComposerChip, { kind: "element" }>): string 
 
 <style scoped>
 .chip-tag {
-  max-width: 240px;
+  max-width: min(420px, 70vw);
   flex-shrink: 0;
+}
+
+.chip-file {
+  font-family: var(--font-mono);
+  font-size: 11px;
 }
 
 .chip-tag :deep(.n-tag__content) {

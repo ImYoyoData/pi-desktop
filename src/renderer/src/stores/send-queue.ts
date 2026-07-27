@@ -5,10 +5,19 @@ import { useSessionsStore } from "./sessions";
 
 export type QueuedSendItem = {
   id: string;
+  /** Bubble / display text (may be empty when only tags/images). */
   text: string;
+  /** Full prompt text for the agent (includes @path chip refs). */
+  agentText?: string;
   images?: PromptImageContent[];
   citations?: ElementCitation[];
-  elementTags?: { url: string; host: string; label: string; content?: string }[];
+  elementTags?: {
+    url: string;
+    host: string;
+    label: string;
+    content?: string;
+    kind?: "file" | "url" | "element";
+  }[];
 };
 
 function itemId(): string {
@@ -55,6 +64,7 @@ export const useSendQueueStore = defineStore("sendQueue", () => {
     const item: QueuedSendItem = {
       id: payload.id ?? itemId(),
       text: payload.text,
+      agentText: payload.agentText,
       images: payload.images?.length ? payload.images.map((i) => ({ ...i })) : undefined,
       citations: payload.citations?.length ? payload.citations.map((c) => ({ ...c })) : undefined,
       elementTags: payload.elementTags?.length
@@ -78,6 +88,7 @@ export const useSendQueueStore = defineStore("sendQueue", () => {
     const row = list(sessionId).find((i) => i.id === id);
     if (!row) return null;
     row.text = payload.text;
+    row.agentText = payload.agentText;
     row.images = payload.images?.length ? payload.images.map((i) => ({ ...i })) : undefined;
     row.citations = payload.citations?.length
       ? payload.citations.map((c) => ({ ...c }))
@@ -107,6 +118,13 @@ export const useSendQueueStore = defineStore("sendQueue", () => {
     return next;
   }
 
+  /** Put an item back at the front after a failed auto-drain send. */
+  function requeueFront(sessionId: string, item: QueuedSendItem): void {
+    const rows = list(sessionId);
+    if (rows.some((row) => row.id === item.id)) return;
+    rows.unshift(item);
+  }
+
   function clearSession(sessionId: string): void {
     delete bySession[sessionId];
     delete suppressDrain[sessionId];
@@ -133,6 +151,7 @@ export const useSendQueueStore = defineStore("sendQueue", () => {
     updateItem,
     remove,
     takeNext,
+    requeueFront,
     clearSession,
     setSuppressDrain,
     isDrainSuppressed,

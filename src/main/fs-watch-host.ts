@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { BrowserWindow, ipcMain } from "electron";
 import { IpcChannels } from "../shared/protocol";
+import { noteCheckpointFsChange } from "./checkpoint-host";
 
 export type FsChangeKind = "add" | "change" | "unlink";
 
@@ -61,6 +62,7 @@ function broadcast(events: FsChangeEvent[]): void {
 function flushPending(): void {
   debounceTimer = null;
   if (!watchedRoot || pending.size === 0) return;
+  const root = watchedRoot;
   const events: FsChangeEvent[] = [];
   for (const [rel, kind] of pending) {
     events.push({ path: rel, kind });
@@ -69,8 +71,21 @@ function flushPending(): void {
   broadcast(events);
 }
 
+/** Flush debounced events now (e.g. before finishing a turn checkpoint). */
+export function flushPendingFsWatch(): void {
+  if (debounceTimer) {
+    clearTimeout(debounceTimer);
+    debounceTimer = null;
+  }
+  flushPending();
+}
+
 function queueChange(relPosix: string, kind: FsChangeKind): void {
   if (shouldIgnore(relPosix)) return;
+  // Checkpoint must see touches immediately — debounce only coalesces UI broadcasts.
+  if (watchedRoot) {
+    noteCheckpointFsChange(watchedRoot, relPosix, kind);
+  }
   const prev = pending.get(relPosix);
   if (prev === "unlink" && kind !== "unlink") {
     pending.set(relPosix, kind === "add" ? "add" : "change");

@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain } from "electron";
+import { app, BrowserWindow, dialog, globalShortcut, ipcMain } from "electron";
 import {
   copyFileSync,
   createWriteStream,
@@ -47,6 +47,7 @@ import {
   resolveAsrGpuPreference,
   type AsrGpuInfo,
 } from "./asr-gpu";
+import { DEFAULT_ASR_WAKE_HOTKEY, normalizeAccelerator } from "../shared/hotkey";
 
 const execFileAsync = promisify(execFile);
 const PREFS_FILE = "asr-prefs.json";
@@ -61,7 +62,12 @@ type Prefs = {
   disableCuda?: boolean;
   /** "auto" | "cuda" | "cpu" | "metal" | "vulkan:<id>" */
   gpuPreference?: string;
+  /** Electron accelerator for wake / start voice recording. */
+  wakeHotkey?: string;
 };
+
+/** Currently registered wake accelerator (for unregister on change). */
+let registeredWakeHotkey: string | null = null;
 
 /** Install/import only — must NOT gate the install UI via transcription. */
 let installBusy = false;
@@ -105,18 +111,24 @@ function readPrefs(): Prefs {
       typeof raw.gpuPreference === "string" && raw.gpuPreference.trim()
         ? raw.gpuPreference.trim()
         : "auto";
+    const wake =
+      normalizeAccelerator(typeof raw.wakeHotkey === "string" ? raw.wakeHotkey : "") ||
+      DEFAULT_ASR_WAKE_HOTKEY;
     return {
       enabled: raw.enabled !== false,
       disableCuda: Boolean(raw.disableCuda),
       gpuPreference: pref,
+      wakeHotkey: wake,
     };
   } catch {
-    return { enabled: true, gpuPreference: "auto" };
+    return { enabled: true, gpuPreference: "auto", wakeHotkey: DEFAULT_ASR_WAKE_HOTKEY };
   }
 }
 
 function writePrefs(prefs: Prefs): void {
   ensureDirs();
+  const wake =
+    normalizeAccelerator(prefs.wakeHotkey || "") || DEFAULT_ASR_WAKE_HOTKEY;
   writeFileSync(
     prefsPath(),
     `${JSON.stringify(
@@ -124,12 +136,72 @@ function writePrefs(prefs: Prefs): void {
         enabled: prefs.enabled,
         disableCuda: Boolean(prefs.disableCuda),
         gpuPreference: prefs.gpuPreference || "auto",
+        wakeHotkey: wake,
       },
       null,
       2,
     )}\n`,
     "utf8",
   );
+}
+
+function wakeHotkeyFromPrefs(): string {
+  return readPrefs().wakeHotkey || DEFAULT_ASR_WAKE_HOTKEY;
+}
+
+function broadcastWake(): void {
+  for (const win of BrowserWindow.getAllWindows()) {
+    if (win.isDestroyed()) continue;
+    if (win.isMinimized()) win.restore();
+    win.show();
+    win.focus();
+    win.webContents.send(IpcChannels.asr.wake);
+  }
+}
+
+function unregisterWakeHotkey(): void {
+  if (registeredWakeHotkey) {
+    try {
+      globalShortcut.unregister(registeredWakeHotkey);
+    } catch {
+      // ignore
+    }
+    registeredWakeHotkey = null;
+  }
+}
+
+/** Register (or re-register) the global ASR wake shortcut. Returns false if taken/invalid. */
+function registerWakeHotkey(accel?: string): boolean {
+  const next = normalizeAccelerator(accel || wakeHotkeyFromPrefs()) || DEFAULT_ASR_WAKE_HOTKEY;
+  unregisterWakeHotkey();
+  try {
+    const ok = globalShortcut.register(next, () => {
+      broadcastWake();
+    });
+    if (!ok) return false;
+    registeredWakeHotkey = next;
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function setWakeHotkey(raw: string): AsrStatus {
+  const next = normalizeAccelerator(raw);
+  if (!next) throw new Error("Invalid hotkey");
+  const prefs = readPrefs();
+  if (!registerWakeHotkey(next)) {
+    // Restore previous registration
+    registerWakeHotkey(prefs.wakeHotkey || DEFAULT_ASR_WAKE_HOTKEY);
+    throw new Error("Hotkey already in use");
+  }
+  writePrefs({
+    enabled: prefs.enabled,
+    disableCuda: prefs.disableCuda,
+    gpuPreference: prefs.gpuPreference,
+    wakeHotkey: next,
+  });
+  return getStatus();
 }
 
 function clearCudaDisable(): void {
@@ -139,6 +211,7 @@ function clearCudaDisable(): void {
     enabled: prefs.enabled,
     disableCuda: false,
     gpuPreference: prefs.gpuPreference,
+    wakeHotkey: prefs.wakeHotkey,
   });
   cachedGpuInfo = null;
 }
@@ -298,6 +371,7 @@ function getStatus(): AsrStatus {
     gpuOptions: localizedGpuOptions(),
     runtimeMatchesPreference: matches,
     runtimeArchiveHint: asrRuntimeArchiveName(process.platform, process.arch, backend),
+    wakeHotkey: prefs.wakeHotkey || DEFAULT_ASR_WAKE_HOTKEY,
     lastError,
   };
 }
@@ -316,6 +390,7 @@ function setGpuPreference(preference: string): AsrStatus {
     enabled: prefs.enabled,
     disableCuda,
     gpuPreference: next,
+    wakeHotkey: prefs.wakeHotkey,
   });
   cachedGpuInfo = null;
   return getStatus();
@@ -793,6 +868,7 @@ async function recoverFromCudaCrash(detail: string): Promise<void> {
     disableCuda: true,
     // Keep explicit vulkan/cpu picks; bump auto/cuda toward vulkan via disableCuda.
     gpuPreference: prefs.gpuPreference === "cuda" ? "auto" : prefs.gpuPreference || "auto",
+    wakeHotkey: prefs.wakeHotkey,
   });
   const detected = detectAsrGpuInfo();
   cachedGpuInfo = {
@@ -1450,6 +1526,10 @@ async function stopAsrStream(): Promise<AsrStatus> {
 
 export function registerAsrIpc(): void {
   ensureDirs();
+  registerWakeHotkey();
+  app.on("will-quit", () => {
+    unregisterWakeHotkey();
+  });
 
   ipcMain.handle(IpcChannels.asr.status, () => getStatus());
   ipcMain.handle(IpcChannels.asr.setEnabled, (_e, enabled: boolean) => {
@@ -1458,11 +1538,15 @@ export function registerAsrIpc(): void {
       enabled: Boolean(enabled),
       disableCuda: prefs.disableCuda,
       gpuPreference: prefs.gpuPreference,
+      wakeHotkey: prefs.wakeHotkey,
     });
     return getStatus();
   });
   ipcMain.handle(IpcChannels.asr.setGpuPreference, (_e, preference: string) => {
     return setGpuPreference(String(preference ?? "auto"));
+  });
+  ipcMain.handle(IpcChannels.asr.setWakeHotkey, (_e, accel: string) => {
+    return setWakeHotkey(String(accel ?? ""));
   });
   ipcMain.handle(IpcChannels.asr.install, async () => installAsr());
   ipcMain.handle(IpcChannels.asr.installFromUrl, async (_e, url: string) => installAsrFromUrl(url));

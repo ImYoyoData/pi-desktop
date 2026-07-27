@@ -1,10 +1,17 @@
 <script setup lang="ts">
+import { ref, watch } from "vue";
 import { NButton, NIcon } from "naive-ui";
-import { CreateOutline, FlashOutline, TrashOutline } from "@vicons/ionicons5";
+import {
+  ChevronDownOutline,
+  ChevronForwardOutline,
+  CreateOutline,
+  FlashOutline,
+  TrashOutline,
+} from "@vicons/ionicons5";
 import type { QueuedSendItem } from "@renderer/stores/send-queue";
 import { t } from "@renderer/i18n";
 
-defineProps<{
+const props = defineProps<{
   items: QueuedSendItem[];
   editingId?: string | null;
 }>();
@@ -14,6 +21,29 @@ const emit = defineEmits<{
   remove: [id: string];
   sendNow: [id: string];
 }>();
+
+/** Expanded by default so queued items stay visible. */
+const expanded = ref(true);
+
+watch(
+  () => props.items.length,
+  (len) => {
+    if (len === 0) expanded.value = true;
+    // Auto-expand when user starts editing a queued item
+    if (props.editingId) expanded.value = true;
+  },
+);
+
+watch(
+  () => props.editingId,
+  (id) => {
+    if (id) expanded.value = true;
+  },
+);
+
+function toggleExpanded(): void {
+  expanded.value = !expanded.value;
+}
 
 function previewText(item: QueuedSendItem): string {
   const raw = item.text.replace(/\s+/g, " ").trim();
@@ -26,65 +56,76 @@ function previewText(item: QueuedSendItem): string {
 
 <template>
   <div v-if="items.length" class="send-queue" :aria-label="t.queueTitle">
-    <div class="queue-head">{{ t.queueTitle }} · {{ items.length }}</div>
-    <div
-      v-for="(item, index) in items"
-      :key="item.id"
-      class="queue-row"
-      :class="{ editing: editingId === item.id }"
-    >
-      <span class="queue-index">{{ index + 1 }}</span>
-      <button
-        type="button"
-        class="queue-preview"
-        :title="item.text"
-        :disabled="editingId === item.id"
-        @click="emit('edit', item.id)"
+    <button type="button" class="queue-head" @click="toggleExpanded">
+      <NIcon
+        class="queue-chevron"
+        :component="expanded ? ChevronDownOutline : ChevronForwardOutline"
+        :size="12"
+      />
+      <span class="queue-head-title">{{ t.queueTitle }} · {{ items.length }}</span>
+      <span v-if="!expanded" class="queue-head-preview">{{ previewText(items[0]!) }}</span>
+    </button>
+
+    <template v-if="expanded">
+      <div
+        v-for="(item, index) in items"
+        :key="item.id"
+        class="queue-row"
+        :class="{ editing: editingId === item.id }"
       >
-        <span class="queue-preview-text">{{ previewText(item) }}</span>
-        <span v-if="editingId === item.id" class="queue-editing-badge">{{ t.queueEditing }}</span>
-      </button>
-      <div class="queue-actions">
-        <NButton
-          size="tiny"
-          quaternary
-          class="q-btn"
+        <span class="queue-index">{{ index + 1 }}</span>
+        <button
+          type="button"
+          class="queue-preview"
+          :title="item.text"
           :disabled="editingId === item.id"
-          :title="t.queueEdit"
-          :aria-label="t.queueEdit"
           @click="emit('edit', item.id)"
         >
-          <template #icon>
-            <NIcon :component="CreateOutline" :size="12" />
-          </template>
-        </NButton>
-        <NButton
-          size="tiny"
-          quaternary
-          class="q-btn"
-          :disabled="editingId === item.id"
-          :title="t.queueSendNow"
-          :aria-label="t.queueSendNow"
-          @click="emit('sendNow', item.id)"
-        >
-          <template #icon>
-            <NIcon :component="FlashOutline" :size="12" />
-          </template>
-        </NButton>
-        <NButton
-          size="tiny"
-          quaternary
-          class="q-btn"
-          :title="t.queueRemove"
-          :aria-label="t.queueRemove"
-          @click="emit('remove', item.id)"
-        >
-          <template #icon>
-            <NIcon :component="TrashOutline" :size="12" />
-          </template>
-        </NButton>
+          <span class="queue-preview-text">{{ previewText(item) }}</span>
+          <span v-if="editingId === item.id" class="queue-editing-badge">{{ t.queueEditing }}</span>
+        </button>
+        <div class="queue-actions">
+          <NButton
+            size="tiny"
+            quaternary
+            class="q-btn"
+            :disabled="editingId === item.id"
+            :title="t.queueEdit"
+            :aria-label="t.queueEdit"
+            @click="emit('edit', item.id)"
+          >
+            <template #icon>
+              <NIcon :component="CreateOutline" :size="12" />
+            </template>
+          </NButton>
+          <NButton
+            size="tiny"
+            quaternary
+            class="q-btn"
+            :disabled="editingId === item.id"
+            :title="t.queueSendNow"
+            :aria-label="t.queueSendNow"
+            @click="emit('sendNow', item.id)"
+          >
+            <template #icon>
+              <NIcon :component="FlashOutline" :size="12" />
+            </template>
+          </NButton>
+          <NButton
+            size="tiny"
+            quaternary
+            class="q-btn"
+            :title="t.queueRemove"
+            :aria-label="t.queueRemove"
+            @click="emit('remove', item.id)"
+          >
+            <template #icon>
+              <NIcon :component="TrashOutline" :size="12" />
+            </template>
+          </NButton>
+        </div>
       </div>
-    </div>
+    </template>
   </div>
 </template>
 
@@ -101,11 +142,47 @@ function previewText(item: QueuedSendItem): string {
 }
 
 .queue-head {
-  font-size: 10px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  width: 100%;
+  margin: 0;
+  padding: 2px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
   color: var(--fg-muted, #888);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.queue-head:hover {
+  background: var(--bg-hover, rgba(127, 127, 127, 0.08));
+  color: var(--fg);
+}
+
+.queue-chevron {
+  flex-shrink: 0;
+  opacity: 0.8;
+}
+
+.queue-head-title {
+  flex-shrink: 0;
+  font-size: 10px;
   font-weight: 600;
   line-height: 1.2;
-  padding: 0 2px 1px;
+}
+
+.queue-head-preview {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 10px;
+  font-weight: 400;
+  opacity: 0.75;
 }
 
 .queue-row {

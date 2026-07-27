@@ -4,16 +4,10 @@ import { resolveWorkspacePath } from "../shared/path-sandbox";
 
 const SKIP = new Set([
   "node_modules",
-  ".git",
-  ".svn",
-  ".hg",
   "dist",
   "out",
-  ".next",
   "coverage",
   "__pycache__",
-  ".turbo",
-  ".cache",
 ]);
 
 export type WorkspaceDirEntry = {
@@ -37,9 +31,6 @@ export function listWorkspaceDir(root: string, relative = ""): WorkspaceDirEntry
   const entries: WorkspaceDirEntry[] = [];
   for (const name of names) {
     if (SKIP.has(name) || name === "." || name === "..") continue;
-    if (name.startsWith(".") && name !== ".gitignore" && name !== ".env" && name !== ".npmrc") {
-      if (name !== ".editorconfig" && name !== ".prettierrc") continue;
-    }
     const childAbs = path.join(abs, name);
     let kind: "file" | "dir";
     try {
