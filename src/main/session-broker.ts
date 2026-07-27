@@ -29,6 +29,11 @@ export type SessionBroker = {
   restartWorker: (sessionId: string) => Promise<void>;
   deleteSession: (sessionId: string, cwd: string) => Promise<void>;
   notifyWorkersReloadModels: () => Promise<void>;
+  /** Update in-memory session metadata (e.g. after rename on disk). */
+  patchSummary: (
+    sessionId: string,
+    patch: Partial<Pick<SessionSummary, "name" | "firstMessage" | "modified">>,
+  ) => SessionSummary | null;
   onEvent: (cb: (event: AgentEvent) => void) => () => void;
 };
 
@@ -302,26 +307,49 @@ export function createSessionBroker(deps: {
         continue;
       }
       const existing = merged.get(rec.summary.id);
+      // Live status/path win, but never let undefined live name/firstMessage
+      // clobber values already loaded from disk (rename writes disk first — #3).
       merged.set(rec.summary.id, {
         ...(existing ?? rec.summary),
         ...rec.summary,
+        name: rec.summary.name ?? existing?.name,
+        firstMessage: rec.summary.firstMessage ?? existing?.firstMessage,
+        filePath: rec.summary.filePath || existing?.filePath || "",
+        modified:
+          existing?.modified && rec.summary.modified
+            ? rec.summary.modified > existing.modified
+              ? rec.summary.modified
+              : existing.modified
+            : (rec.summary.modified ?? existing?.modified ?? new Date().toISOString()),
         status: rec.summary.status,
       });
     }
     return [...merged.values()].sort((a, b) => b.modified.localeCompare(a.modified));
   }
 
+  function patchSummary(
+    sessionId: string,
+    patch: Partial<Pick<SessionSummary, "name" | "firstMessage" | "modified">>,
+  ): SessionSummary | null {
+    const rec = sessions.get(sessionId);
+    if (!rec) return null;
+    if (patch.name !== undefined) rec.summary.name = patch.name;
+    if (patch.firstMessage !== undefined) rec.summary.firstMessage = patch.firstMessage;
+    if (patch.modified !== undefined) rec.summary.modified = patch.modified;
+    return { ...rec.summary };
+  }
+
   async function openSession(sessionId: string, cwd: string): Promise<SessionSummary | null> {
     const live = sessions.get(sessionId);
     if (live?.worker) {
-      if (!live.summary.name && !live.summary.firstMessage) {
-        const disk = await listSessionsForCwd(cwd);
-        const target = disk.find((s) => s.id === sessionId);
-        if (target) {
-          live.summary.name = target.name ?? live.summary.name;
-          live.summary.firstMessage = target.firstMessage ?? live.summary.firstMessage;
-          live.summary.modified = target.modified;
-        }
+      // Always re-sync title/first message from disk — rename may have updated the file
+      // while the live summary still had empty metadata (#3).
+      const disk = await listSessionsForCwd(cwd);
+      const target = disk.find((s) => s.id === sessionId);
+      if (target) {
+        if (target.name?.trim()) live.summary.name = target.name;
+        if (target.firstMessage?.trim()) live.summary.firstMessage = target.firstMessage;
+        live.summary.modified = target.modified;
       }
       return { ...live.summary };
     }
@@ -501,6 +529,7 @@ export function createSessionBroker(deps: {
     restartWorker,
     deleteSession,
     notifyWorkersReloadModels,
+    patchSummary,
     onEvent,
   };
 }
