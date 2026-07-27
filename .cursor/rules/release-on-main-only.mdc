@@ -1,0 +1,11 @@
+---
+description: GitHub Actions release builds only on main branch push
+alwaysApply: true
+---
+
+# Release policy
+
+- **Build and Release** Actions run **only** when pushing to `main` (or manual `workflow_dispatch`).
+- Do **not** trigger packaging/release on `dev`, feature branches, or version tags (`v*`).
+- Day-to-day work stays on `dev` with CI-only checks; merge/push to `main` when you want a packaged GitHub Release.
+- When releasing: bump `package.json` version on `dev`, merge to `main`, push `main`. Do not rely on `git tag` / `git push origin v*` to start the release workflow.
