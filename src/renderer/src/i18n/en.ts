@@ -205,7 +205,8 @@ export const en = {
   piCliSkip: "Not now",
   piCliInstalling: "Installing Pi CLI…",
   piCliInstallOk: "Pi CLI installed",
-  piCliInstallStarted: "Opened the system installer — finish there, then restart this app",
+  piCliInstallStarted: "Opened a system console installer — finish there, then restart this app",
+  piCliInstallNeedRestart: "Install finished; restart this app if `pi` is still not detected",
   piCliInstallFail: "Pi CLI install failed — open pi.dev and install manually",
 } as const;
 

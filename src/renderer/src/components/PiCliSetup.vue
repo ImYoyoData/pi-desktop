@@ -65,8 +65,10 @@ async function onInstall(): Promise<void> {
     if (result.ok) {
       if (result.status.installed) {
         message.success(t.piCliInstallOk, { duration: 3500 });
+      } else if (result.openedExternal) {
+        message.info(t.piCliInstallStarted, { duration: 7000 });
       } else {
-        message.info(t.piCliInstallStarted, { duration: 6000 });
+        message.info(t.piCliInstallNeedRestart, { duration: 7000 });
       }
       open.value = false;
     } else {
