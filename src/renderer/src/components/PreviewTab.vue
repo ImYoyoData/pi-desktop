@@ -50,6 +50,8 @@ const liveContent = ref("");
 const mdViewMode = ref<MdViewMode>("preview");
 let monacoApi: typeof Monaco | null = null;
 let editor: Monaco.editor.IStandaloneCodeEditor | null = null;
+/** Bumps on every loadPath to ignore stale async reads when switching files quickly. */
+let loadGen = 0;
 /** Content fingerprint last loaded from disk (for external-change detection). */
 let diskFingerprint = "";
 let reloadPromptOpen = false;
@@ -78,10 +80,14 @@ function disposeEditor(): void {
   editor = null;
 }
 
+function editorHostIsLive(): boolean {
+  if (!editor || !editorHost.value) return false;
+  const dom = editor.getDomNode();
+  return Boolean(dom && editorHost.value.contains(dom));
+}
+
 async function ensureEditor(content: string, language: string): Promise<void> {
-  if (!editorHost.value) {
-    await nextTick();
-  }
+  await nextTick();
   if (!editorHost.value) {
     liveContent.value = content;
     diskFingerprint = fingerprint(content);
@@ -89,6 +95,10 @@ async function ensureEditor(content: string, language: string): Promise<void> {
     missing.value = false;
     syncTabMeta({ dirty: false, missing: false });
     return;
+  }
+  // Switching files temporarily remounts the host — recreate Monaco on the new node
+  if (editor && !editorHostIsLive()) {
+    disposeEditor();
   }
   if (!monacoApi) monacoApi = await loadMonaco();
   const monaco = monacoApi;
@@ -160,42 +170,65 @@ async function refreshGitForFile(path: string): Promise<void> {
 }
 
 async function loadPath(path: string | null): Promise<void> {
+  const gen = ++loadGen;
   currentPath.value = path;
-  result.value = null;
   dirty.value = false;
   missing.value = false;
-  liveContent.value = "";
   diskFingerprint = "";
   if (!path) {
+    result.value = null;
+    liveContent.value = "";
     disposeEditor();
     syncTabMeta({ dirty: false, missing: false });
     return;
   }
   loading.value = true;
   try {
-    result.value = await window.api.preview.read(path);
-    await nextTick();
-    if (result.value?.kind === "error") {
+    // Keep previous result mounted while loading so Monaco's host is not torn down
+    // mid-switch (that left a blank tab when reusing the transient preview tab).
+    const next = await window.api.preview.read(path);
+    if (gen !== loadGen) return;
+
+    if (next.kind === "error") {
+      result.value = next;
       disposeEditor();
+      liveContent.value = "";
       missing.value = true;
       syncTabMeta({ missing: true, dirty: false });
       return;
     }
+
+    const prevKind = result.value?.kind;
+    const nextIsEditor = next.kind === "text" || next.kind === "markdown";
+    const prevIsEditor = prevKind === "text" || prevKind === "markdown";
+    // Kind change remounts the template branch — dispose before swapping result
+    if (editor && (!nextIsEditor || !prevIsEditor)) {
+      disposeEditor();
+    }
+
+    result.value = next;
     missing.value = false;
     syncTabMeta({ missing: false });
-    if (result.value?.kind === "text" || result.value?.kind === "markdown") {
-      if (result.value.kind === "markdown") {
+    await nextTick();
+    if (gen !== loadGen) return;
+
+    if (next.kind === "text" || next.kind === "markdown") {
+      if (next.kind === "markdown") {
         mdViewMode.value = "preview";
+      } else {
+        mdViewMode.value = "edit";
       }
       await nextTick();
-      await ensureEditor(result.value.content, languageFromPath(path));
+      if (gen !== loadGen) return;
+      await ensureEditor(next.content, languageFromPath(path));
     } else {
       disposeEditor();
+      liveContent.value = "";
       syncTabMeta({ dirty: false });
     }
     await refreshGitForFile(path);
   } finally {
-    loading.value = false;
+    if (gen === loadGen) loading.value = false;
   }
 }
 
