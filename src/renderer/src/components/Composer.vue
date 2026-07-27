@@ -6,6 +6,7 @@ import {
   NIcon,
   NImage,
   NModal,
+  NPopover,
   NSelect,
   NText,
   NTooltip,
@@ -246,19 +247,13 @@ const hasSendContent = computed(() =>
   Boolean(composer.draft.trim() || composer.images.length || composer.chips.length),
 );
 
-const canSend = computed(() => Boolean(sessionId.value && hasSendContent.value) && !running.value);
-/** While running, draft can be queued instead of sent immediately. */
-const canQueue = computed(() => Boolean(sessionId.value && hasSendContent.value) && running.value);
 /** Editing a queued item — Enter/Send commits back to the queue. */
 const isEditingQueue = computed(() => Boolean(sendQueue.editingId));
 
 /** Show stop while running; show send whenever there is a session (empty → disabled). */
 const showPrimaryAction = computed(() => Boolean(sessionId.value));
-/** Queue/save button: running+content, or editing while running (commit without aborting). */
-const showQueueSend = computed(() => {
-  if (isEditingQueue.value) return running.value && hasSendContent.value;
-  return canQueue.value;
-});
+/** Stop when running with empty composer; otherwise send/queue. */
+const primaryIsStop = computed(() => running.value && !hasSendContent.value);
 
 async function readImageFile(file: File): Promise<{
   data: string;
@@ -647,13 +642,17 @@ async function onAbort(): Promise<void> {
 }
 
 function onPrimaryAction(): void {
-  // While running the red button stays Abort; use the queue Send to save an edit.
+  if (voicePending.value) return;
   if (sendQueue.editingId && !running.value) {
     saveEditingToQueue();
     return;
   }
-  if (running.value) {
+  if (running.value && !hasSendContent.value) {
     void onAbort();
+    return;
+  }
+  if (running.value && hasSendContent.value) {
+    onQueueSendClick();
     return;
   }
   void submit("prompt");
@@ -667,17 +666,6 @@ function onQueueSendClick(): void {
   enqueueFromComposer();
 }
 
-async function onCompact(): Promise<void> {
-  const id = sessionId.value;
-  if (!id) return;
-  try {
-    await sessions.sendCommand(id, { type: "compact" });
-    messageApi.success(t.compactDone);
-  } catch (err) {
-    messageApi.error(err instanceof Error ? err.message : String(err));
-  }
-}
-
 function formatTokens(count: number): string {
   if (count < 1000) return String(count);
   if (count < 10_000) return `${(count / 1000).toFixed(1)}k`;
@@ -687,43 +675,76 @@ function formatTokens(count: number): string {
 }
 
 const contextUsage = computed(() => sessions.activeContextUsage);
+const ctxPopoverShow = ref(false);
+const skillsCount = ref<number | null>(null);
+let skillsCountCachedFor: string | null = null;
 
-const contextLabel = computed(() => {
-  const usage = contextUsage.value;
-  if (!usage) return null;
-  const windowLabel = formatTokens(usage.contextWindow);
-  const pct =
-    usage.percent !== null && Number.isFinite(usage.percent)
-      ? `${usage.percent.toFixed(1)}%`
-      : "?";
-  return `${pct}/${windowLabel}`;
+const contextPercent = computed(() => {
+  const pct = contextUsage.value?.percent;
+  if (pct == null || !Number.isFinite(pct)) return null;
+  return Math.max(0, Math.min(100, pct));
 });
 
-const contextDetail = computed(() => {
-  const usage = contextUsage.value;
-  if (!usage) return t.contextUsageEmpty;
-  const windowLabel = formatTokens(usage.contextWindow);
-  if (usage.tokens !== null) {
-    return `${formatTokens(usage.tokens)} / ${windowLabel} ? ${
-      usage.percent !== null ? `${usage.percent.toFixed(1)}%` : "?"
-    }`;
-  }
-  return `? / ${windowLabel} ? ${t.contextUsageUnknown}`;
+const contextPercentLabel = computed(() => {
+  const pct = contextPercent.value;
+  if (pct == null) return "?%";
+  return `${pct.toFixed(0)}%`;
 });
 
 const contextTone = computed(() => {
-  const pct = contextUsage.value?.percent;
+  const pct = contextPercent.value;
   if (pct == null) return "muted";
   if (pct > 90) return "danger";
   if (pct > 70) return "warn";
   return "ok";
 });
 
-const contextBarWidth = computed(() => {
-  const pct = contextUsage.value?.percent;
-  if (pct == null) return 0;
-  return Math.max(0, Math.min(100, pct));
+const contextRingStyle = computed(() => {
+  const pct = contextPercent.value ?? 0;
+  const r = 7;
+  const c = 2 * Math.PI * r;
+  const offset = c * (1 - pct / 100);
+  return {
+    strokeDasharray: `${c}`,
+    strokeDashoffset: `${offset}`,
+  };
 });
+
+const contextMessageCount = computed(() => chat.activeMessages.length);
+const contextToolCount = computed(
+  () => chat.activeMessages.filter((m) => m.role === "tool").length,
+);
+
+const contextTokensLabel = computed(() => {
+  const usage = contextUsage.value;
+  if (!usage) return "—";
+  if (usage.tokens !== null) return formatTokens(usage.tokens);
+  return "?";
+});
+
+const contextWindowLabel = computed(() => {
+  const usage = contextUsage.value;
+  if (!usage) return "—";
+  return formatTokens(usage.contextWindow);
+});
+
+async function openContextPopover(): Promise<void> {
+  ctxPopoverShow.value = !ctxPopoverShow.value;
+  if (!ctxPopoverShow.value) return;
+  const root = workspace.root ?? "";
+  if (skillsCountCachedFor === root && skillsCount.value !== null) return;
+  try {
+    const data = await window.api.skills.list(workspace.root ?? undefined);
+    skillsCount.value = data.skills?.length ?? 0;
+    skillsCountCachedFor = root;
+  } catch {
+    skillsCount.value = null;
+  }
+}
+
+function closeContextPopover(): void {
+  ctxPopoverShow.value = false;
+}
 
 async function onThinkingChange(value: string | number): Promise<void> {
   const id = sessionId.value;
@@ -1166,12 +1187,7 @@ watch(
       </button>
     </div>
     <div class="composer-card" :class="{ 'is-voice-recording': voiceActive }">
-      <div
-        v-if="voiceActive"
-        class="voice-overlay"
-        @mousedown.prevent
-        @click.prevent
-      >
+      <div v-if="voiceActive" class="voice-row">
         <VoiceRecordBar
           :level="voiceLevel"
           @cancel="cancelVoice"
@@ -1212,7 +1228,6 @@ watch(
           :placeholder="t.composerPlaceholder"
           :autosize="{ minRows: 1, maxRows: 8 }"
           :bordered="false"
-          :disabled="voiceActive || voicePending"
           @keydown="onKeydown"
           @click="onDraftCaretClick"
           @keyup="onDraftKeyup"
@@ -1265,26 +1280,71 @@ watch(
             </NButton>
           </NDropdown>
 
-          <NTooltip>
+          <NPopover
+            trigger="manual"
+            :show="ctxPopoverShow"
+            placement="top-start"
+            @clickoutside="closeContextPopover"
+          >
             <template #trigger>
-              <button
-                type="button"
-                class="ctx-meter"
-                :class="`ctx-${contextTone}`"
-                :disabled="!sessionId || voiceActive || voicePending"
-                @click="onCompact"
-              >
-                <span class="ctx-bar" aria-hidden="true">
-                  <span class="ctx-fill" :style="{ width: `${contextBarWidth}%` }" />
-                </span>
-                <span class="ctx-label">{{ contextLabel ?? "?/?" }}</span>
-              </button>
+              <NTooltip :disabled="ctxPopoverShow">
+                <template #trigger>
+                  <button
+                    type="button"
+                    class="ctx-meter"
+                    :class="`ctx-${contextTone}`"
+                    :disabled="!sessionId"
+                    @click="openContextPopover"
+                  >
+                    <svg class="ctx-ring" width="18" height="18" viewBox="0 0 18 18" aria-hidden="true">
+                      <circle class="ctx-ring-track" cx="9" cy="9" r="7" fill="none" stroke-width="2" />
+                      <circle
+                        class="ctx-ring-fill"
+                        cx="9"
+                        cy="9"
+                        r="7"
+                        fill="none"
+                        stroke-width="2"
+                        stroke-linecap="round"
+                        transform="rotate(-90 9 9)"
+                        :style="contextRingStyle"
+                      />
+                    </svg>
+                    <span class="ctx-label">{{ contextPercentLabel }}</span>
+                  </button>
+                </template>
+                {{ t.contextUsageHint }}
+              </NTooltip>
             </template>
-            <div class="ctx-tip">
-              <div>{{ contextDetail }}</div>
-              <div class="ctx-tip-action">{{ t.compactContext }}</div>
+            <div class="ctx-popover">
+              <div class="ctx-pop-title">{{ t.contextUsageTitle }}</div>
+              <div class="ctx-pop-row">
+                <span>{{ t.contextUsageTokens }}</span>
+                <strong>{{ contextTokensLabel }}</strong>
+              </div>
+              <div class="ctx-pop-row">
+                <span>{{ t.contextUsageWindow }}</span>
+                <strong>{{ contextWindowLabel }}</strong>
+              </div>
+              <div class="ctx-pop-row">
+                <span>%</span>
+                <strong>{{ contextPercentLabel }}</strong>
+              </div>
+              <div class="ctx-pop-row">
+                <span>{{ t.contextUsageMessages }}</span>
+                <strong>{{ contextMessageCount }}</strong>
+              </div>
+              <div class="ctx-pop-row">
+                <span>{{ t.contextUsageTools }}</span>
+                <strong>{{ contextToolCount }}</strong>
+              </div>
+              <div class="ctx-pop-row">
+                <span>{{ t.contextUsageSkills }}</span>
+                <strong>{{ skillsCount ?? "—" }}</strong>
+              </div>
+              <div class="ctx-pop-hint">{{ t.contextUsageHint }}</div>
             </div>
-          </NTooltip>
+          </NPopover>
         </div>
 
         <div class="toolbar-right">
@@ -1299,41 +1359,29 @@ watch(
             <NIcon :component="MicOutline" :size="18" />
           </button>
           <NButton
-            v-if="showQueueSend && !voicePending"
-            size="tiny"
-            circle
-            type="primary"
-            :aria-label="isEditingQueue ? t.queueSave : t.queueAdded"
-            :title="isEditingQueue ? t.queueSave : t.runningHint"
-            @click="onQueueSendClick"
-          >
-            <template #icon>
-              <NIcon :component="SendOutline" />
-            </template>
-          </NButton>
-          <NButton
             v-if="showPrimaryAction || voicePending"
             size="tiny"
             circle
-            :type="running ? 'error' : 'primary'"
+            :type="primaryIsStop ? 'error' : 'primary'"
             :loading="voicePending"
             :disabled="
-              voicePending || (!running && !canSend && !(isEditingQueue && hasSendContent))
+              voicePending
+                || (!primaryIsStop && !hasSendContent && !(isEditingQueue && hasSendContent))
             "
             :aria-label="
               voicePending
                 ? t.voiceTranscribing
-                : running
+                : primaryIsStop
                   ? t.stop
                   : isEditingQueue
                     ? t.queueSave
                     : t.enterToSend
             "
-            :title="!running && isEditingQueue ? t.queueSave : undefined"
+            :title="!primaryIsStop && isEditingQueue ? t.queueSave : undefined"
             @click="onPrimaryAction"
           >
             <template #icon>
-              <NIcon :component="running ? StopOutline : SendOutline" />
+              <NIcon :component="primaryIsStop ? StopOutline : SendOutline" />
             </template>
           </NButton>
         </div>
@@ -1424,36 +1472,29 @@ watch(
   position: relative;
   width: 100%;
   max-width: none;
-  border: 1px solid var(--border-strong);
-  border-radius: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg, 14px);
   background: var(--bg-elevated);
-  box-shadow: var(--shadow-sm);
-  padding: 4px 6px 4px;
+  box-shadow: var(--shadow-md);
+  padding: 6px 8px 6px;
   min-width: 0;
   box-sizing: border-box;
+  transition:
+    border-color var(--duration-fast, 140ms) var(--ease-out, ease),
+    box-shadow var(--duration, 180ms) var(--ease-out, ease);
 }
 
-.voice-overlay {
-  position: absolute;
-  inset: 0;
-  z-index: 5;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 10px 12px;
-  border-radius: 12px;
-  background: color-mix(in srgb, var(--bg-elevated, #fff) 92%, transparent);
-  backdrop-filter: blur(6px);
+.composer-card:focus-within {
+  border-color: var(--accent-border);
+  box-shadow: var(--shadow-md), 0 0 0 3px var(--accent-soft);
 }
 
-.voice-overlay :deep(.voice-bar) {
-  width: min(100%, 440px);
+.voice-row {
+  padding: 6px 4px 2px;
 }
 
-.composer-card.is-voice-recording .rich-editor,
-.composer-card.is-voice-recording .image-attachments {
-  pointer-events: none;
-  user-select: none;
+.voice-row :deep(.voice-bar) {
+  width: 100%;
 }
 
 .image-attachments {
@@ -1643,25 +1684,22 @@ watch(
   background: rgba(0, 0, 0, 0.04);
 }
 
-.ctx-bar {
-  width: 28px;
-  height: 4px;
-  border-radius: 2px;
-  background: rgba(0, 0, 0, 0.08);
-  overflow: hidden;
+.ctx-ring {
   flex-shrink: 0;
-}
-
-.ctx-fill {
   display: block;
-  height: 100%;
-  border-radius: 2px;
-  background: #5c5c5c;
-  transition: width 0.2s ease;
 }
 
-.ctx-ok .ctx-fill {
-  background: #5c5c5c;
+.ctx-ring-track {
+  stroke: rgba(0, 0, 0, 0.12);
+}
+
+.ctx-ring-fill {
+  stroke: #5c5c5c;
+  transition: stroke-dashoffset 0.2s ease;
+}
+
+.ctx-ok .ctx-ring-fill {
+  stroke: #5c5c5c;
 }
 
 .ctx-warn {
@@ -1669,8 +1707,8 @@ watch(
   border-color: rgba(180, 83, 9, 0.35);
 }
 
-.ctx-warn .ctx-fill {
-  background: #d97706;
+.ctx-warn .ctx-ring-fill {
+  stroke: #d97706;
 }
 
 .ctx-danger {
@@ -1678,8 +1716,8 @@ watch(
   border-color: rgba(185, 28, 28, 0.35);
 }
 
-.ctx-danger .ctx-fill {
-  background: #dc2626;
+.ctx-danger .ctx-ring-fill {
+  stroke: #dc2626;
 }
 
 .ctx-muted .ctx-label {
@@ -1691,15 +1729,41 @@ watch(
   white-space: nowrap;
 }
 
-.ctx-tip {
+.ctx-popover {
+  min-width: 180px;
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 6px;
+  padding: 2px 0;
+  font-size: 12px;
 }
 
-.ctx-tip-action {
-  opacity: 0.7;
+.ctx-pop-title {
+  font-weight: 600;
+  font-size: 12.5px;
+  color: var(--fg-strong);
+  margin-bottom: 2px;
+}
+
+.ctx-pop-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  color: var(--fg-muted);
+}
+
+.ctx-pop-row strong {
+  font-weight: 600;
+  color: var(--fg-strong);
+  font-variant-numeric: tabular-nums;
+}
+
+.ctx-pop-hint {
+  margin-top: 4px;
   font-size: 11px;
+  color: var(--fg-faint);
+  line-height: 1.35;
 }
 
 /* Compact when chat column is narrow */

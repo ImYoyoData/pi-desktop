@@ -35,6 +35,10 @@ export type GitFileDiffResult = {
   supported: boolean;
   status?: GitFileStatusKind;
   patch?: string;
+  /** File content at HEAD (empty for new/untracked). */
+  oldContent?: string | null;
+  /** Working-tree content (empty for deleted). */
+  newContent?: string | null;
 };
 
 export type GitBranchesResult = {
@@ -218,6 +222,22 @@ async function createTrackedFilePatch(
   }
 }
 
+/** Read file content at HEAD; null if path did not exist in HEAD. */
+async function readHeadContent(
+  repositoryRoot: string,
+  gitPath: string,
+): Promise<string | null> {
+  try {
+    return await git(
+      repositoryRoot,
+      ["show", `HEAD:${gitPath}`],
+      TEXT_PREVIEW_MAX_BYTES,
+    );
+  } catch {
+    return null;
+  }
+}
+
 export async function getGitFileDiff(
   cwd: string,
   relativePath: string,
@@ -243,6 +263,7 @@ export async function getGitFileDiff(
   const { status } = classify(entry);
   if (status === "deleted") {
     try {
+      const headPath = entry.originalPath || repoRelative;
       const patch = await git(repositoryRoot, [
         "diff",
         "--no-color",
@@ -250,10 +271,11 @@ export async function getGitFileDiff(
         "--unified=3",
         "HEAD",
         "--",
-        repoRelative,
+        headPath,
       ]);
       if (!patch.includes("\n@@ ") && !patch.startsWith("@@ ")) return { supported: false };
-      return { supported: true, status, patch };
+      const oldContent = (await readHeadContent(repositoryRoot, headPath)) ?? "";
+      return { supported: true, status, patch, oldContent, newContent: "" };
     } catch {
       return { supported: false };
     }
@@ -272,9 +294,12 @@ export async function getGitFileDiff(
   const newContent = currentBuffer.toString("utf8");
 
   let patch: string;
+  let oldContent = "";
   if (status === "untracked") {
     patch = createAddedFilePatch(repoRelative, newContent);
   } else {
+    const headPath = entry.originalPath || repoRelative;
+    oldContent = (await readHeadContent(repositoryRoot, headPath)) ?? "";
     const trackedPatch = await createTrackedFilePatch(
       repositoryRoot,
       repoRelative,
@@ -283,13 +308,14 @@ export async function getGitFileDiff(
     if (trackedPatch === null) {
       if (status !== "added") return { supported: false };
       patch = createAddedFilePatch(repoRelative, newContent);
+      oldContent = "";
     } else {
       patch = trackedPatch;
     }
   }
 
   if (!patch.includes("\n@@ ") && !patch.startsWith("@@ ")) return { supported: false };
-  return { supported: true, status, patch };
+  return { supported: true, status, patch, oldContent, newContent };
 }
 
 export async function listBranches(cwd: string): Promise<GitBranchesResult> {

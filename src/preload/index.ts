@@ -31,6 +31,7 @@ const api = {
     minimize: () => ipcRenderer.invoke(IpcChannels.window.minimize) as Promise<void>,
     maximize: () => ipcRenderer.invoke(IpcChannels.window.maximize) as Promise<void>,
     close: () => ipcRenderer.invoke(IpcChannels.window.close) as Promise<void>,
+    forceClose: () => ipcRenderer.invoke(IpcChannels.window.forceClose) as Promise<void>,
     isMaximized: () => ipcRenderer.invoke(IpcChannels.window.isMaximized) as Promise<boolean>,
     setThemeSource: (source: "system" | "light" | "dark") =>
       ipcRenderer.invoke(IpcChannels.window.setThemeSource, source) as Promise<void>,
@@ -38,6 +39,13 @@ const api = {
       ipcRenderer.invoke(IpcChannels.window.setChromeTheme, mode) as Promise<void>,
     requestMediaAccess: (kind: "microphone" | "camera") =>
       ipcRenderer.invoke(IpcChannels.window.requestMediaAccess, kind) as Promise<boolean>,
+    onCloseRequest: (callback: () => void) => {
+      const listener = () => callback();
+      ipcRenderer.on(IpcChannels.window.closeRequest, listener);
+      return () => {
+        ipcRenderer.removeListener(IpcChannels.window.closeRequest, listener);
+      };
+    },
   },
   workspace: {
     get: () => ipcRenderer.invoke(IpcChannels.workspace.get) as Promise<string | null>,
@@ -94,6 +102,8 @@ const api = {
       ipcRenderer.invoke(IpcChannels.files.createDir, relativeDir, name) as Promise<string>,
     rename: (relativePath: string, newName: string) =>
       ipcRenderer.invoke(IpcChannels.files.rename, relativePath, newName) as Promise<string>,
+    move: (relativePath: string, destRelativeDir: string) =>
+      ipcRenderer.invoke(IpcChannels.files.move, relativePath, destRelativeDir) as Promise<string>,
     delete: (relativePath: string) =>
       ipcRenderer.invoke(IpcChannels.files.delete, relativePath) as Promise<void>,
     reveal: (relativePath: string) =>
@@ -134,6 +144,8 @@ const api = {
         supported: boolean;
         status?: string;
         patch?: string;
+        oldContent?: string | null;
+        newContent?: string | null;
       }>,
     branches: () =>
       ipcRenderer.invoke(IpcChannels.git.branches) as Promise<{
@@ -300,6 +312,8 @@ const api = {
     status: () => ipcRenderer.invoke(IpcChannels.asr.status) as Promise<AsrStatus>,
     setEnabled: (enabled: boolean) =>
       ipcRenderer.invoke(IpcChannels.asr.setEnabled, enabled) as Promise<AsrStatus>,
+    setGpuPreference: (preference: string) =>
+      ipcRenderer.invoke(IpcChannels.asr.setGpuPreference, preference) as Promise<AsrStatus>,
     install: () => ipcRenderer.invoke(IpcChannels.asr.install) as Promise<AsrStatus>,
     installFromUrl: (url: string) =>
       ipcRenderer.invoke(IpcChannels.asr.installFromUrl, url) as Promise<AsrStatus>,

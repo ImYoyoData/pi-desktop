@@ -16,16 +16,17 @@ import {
   ArrowDownOutline,
   ArrowUpOutline,
   GitBranchOutline,
+  GitCommitOutline,
   GitCompareOutline,
   GitMergeOutline,
   RefreshOutline,
 } from "@vicons/ionicons5";
 import { t } from "@renderer/i18n";
 import { useWorkspaceStore } from "@renderer/stores/workspace";
+import { countDiffStats } from "@renderer/utils/tool-diff";
+import ChangesDiffEditor from "@renderer/components/ChangesDiffEditor.vue";
 
 type GitFile = { relativePath: string; status: string; code: string };
-
-type DiffLine = { type: "add" | "del" | "ctx" | "meta"; text: string };
 
 const workspace = useWorkspaceStore();
 const message = useMessage();
@@ -38,6 +39,8 @@ const files = ref<GitFile[]>([]);
 const checked = ref<Record<string, boolean>>({});
 const selectedPath = ref<string | null>(null);
 const patch = ref<string | null>(null);
+const oldContent = ref("");
+const newContent = ref("");
 const diffSupported = ref(true);
 const commitMessage = ref("");
 const localBranches = ref<string[]>([]);
@@ -58,17 +61,19 @@ const canCommit = computed(
   () => Boolean(commitMessage.value.trim()) && checkedPaths.value.length > 0 && !busy.value,
 );
 
-const diffLines = computed<DiffLine[]>(() => {
-  if (!patch.value) return [];
-  return patch.value.split(/\r?\n/).map((line) => {
-    if (line.startsWith("+++") || line.startsWith("---") || line.startsWith("diff ") || line.startsWith("index ") || line.startsWith("new file") || line.startsWith("deleted file") || line.startsWith("@@")) {
-      return { type: "meta", text: line };
-    }
-    if (line.startsWith("+")) return { type: "add", text: line };
-    if (line.startsWith("-")) return { type: "del", text: line };
-    return { type: "ctx", text: line };
-  });
+const selectedFileName = computed(() => {
+  if (!selectedPath.value) return "";
+  return selectedPath.value.split(/[/\\]/).pop() || selectedPath.value;
 });
+
+const diffStats = computed(() => {
+  if (!patch.value) return null;
+  return countDiffStats(patch.value);
+});
+
+const showDiffEditor = computed(
+  () => Boolean(selectedPath.value && diffSupported.value && patch.value != null),
+);
 
 const branchMenu = computed<DropdownOption[]>(() => {
   const items: DropdownOption[] = localBranches.value.map((name) => ({
@@ -132,6 +137,8 @@ async function refresh(): Promise<void> {
       localBranches.value = [];
       selectedPath.value = null;
       patch.value = null;
+      oldContent.value = "";
+      newContent.value = "";
     }
     if (selectedPath.value) await loadDiff(selectedPath.value);
   } catch (err) {
@@ -145,7 +152,15 @@ async function loadDiff(relativePath: string): Promise<void> {
   selectedPath.value = relativePath;
   const result = await window.api.git.diff(relativePath);
   diffSupported.value = result.supported;
-  patch.value = result.supported ? (result.patch ?? null) : null;
+  if (!result.supported) {
+    patch.value = null;
+    oldContent.value = "";
+    newContent.value = "";
+    return;
+  }
+  patch.value = result.patch ?? null;
+  oldContent.value = result.oldContent ?? "";
+  newContent.value = result.newContent ?? "";
 }
 
 async function runOp(
@@ -247,13 +262,13 @@ watch(
         </NButton>
       </NDropdown>
       <div class="spacer" />
-      <NButton size="tiny" quaternary :disabled="!isGit || busy" :title="t.changesPull" @click="onPull">
+      <NButton class="tool-btn" size="tiny" quaternary :disabled="!isGit || busy" :title="t.changesPull" @click="onPull">
         <template #icon>
           <NIcon :component="ArrowDownOutline" :size="14" />
         </template>
         {{ t.changesPull }}
       </NButton>
-      <NButton size="tiny" quaternary :disabled="!isGit || busy" :title="t.changesPush" @click="onPush">
+      <NButton class="tool-btn" size="tiny" quaternary :disabled="!isGit || busy" :title="t.changesPush" @click="onPush">
         <template #icon>
           <NIcon :component="ArrowUpOutline" :size="14" />
         </template>
@@ -274,7 +289,10 @@ watch(
         :disabled="busy"
         @keydown.enter.exact.prevent="onCommit"
       />
-      <NButton size="tiny" type="primary" :disabled="!canCommit" :loading="busy" @click="onCommit">
+      <NButton class="tool-btn" size="tiny" type="primary" :disabled="!canCommit" :loading="busy" @click="onCommit">
+        <template #icon>
+          <NIcon :component="GitCommitOutline" :size="14" />
+        </template>
         {{ t.changesCommit }}
       </NButton>
     </div>
@@ -344,12 +362,26 @@ watch(
           <NText v-else-if="!diffSupported || !patch" depth="3" style="font-size: 12px; padding: 12px">
             {{ t.changesNoDiff }}
           </NText>
-          <pre v-else class="diff"><code><span
-            v-for="(line, i) in diffLines"
-            :key="i"
-            class="dl"
-            :class="line.type"
-          >{{ line.text + '\n' }}</span></code></pre>
+          <template v-else>
+            <header class="diff-head">
+              <div class="diff-titles">
+                <div class="diff-name" :title="selectedPath">{{ selectedFileName }}</div>
+                <div class="diff-path" :title="selectedPath">{{ selectedPath }}</div>
+              </div>
+              <div v-if="diffStats" class="diff-stats">
+                <span class="add">+{{ diffStats.additions }}</span>
+                <span class="del">-{{ diffStats.deletions }}</span>
+              </div>
+            </header>
+            <div class="diff-editor-wrap">
+              <ChangesDiffEditor
+                v-if="showDiffEditor && selectedPath"
+                :file-path="selectedPath"
+                :old-content="oldContent"
+                :new-content="newContent"
+              />
+            </div>
+          </template>
         </div>
       </div>
     </NSpin>
@@ -368,10 +400,15 @@ watch(
 .toolbar {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 6px;
   padding: 6px 8px;
   border-bottom: 1px solid var(--border);
   flex-shrink: 0;
+}
+
+.tool-btn {
+  font-size: 12px;
+  gap: 4px;
 }
 
 .spacer {
@@ -494,39 +531,67 @@ watch(
 }
 
 .diff-pane {
-  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
   min-height: 0;
   background: var(--bg-panel);
 }
 
-.diff {
-  margin: 0;
-  padding: 8px;
-  font-family: var(--font-mono), Consolas, monospace;
-  font-size: 11.5px;
-  line-height: 1.45;
-  white-space: pre;
+.diff-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+  background: var(--bg);
 }
 
-.dl {
-  display: block;
+.diff-titles {
+  flex: 1;
+  min-width: 0;
 }
 
-.dl.add {
-  background: #e6ffed;
-  color: #22863a;
+.diff-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--fg-strong);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.dl.del {
-  background: #ffeef0;
-  color: #b31d28;
+.diff-path {
+  margin-top: 2px;
+  font-size: 11px;
+  color: var(--fg-muted);
+  font-family: var(--font-mono), monospace;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.dl.meta {
-  color: #6a737d;
+.diff-stats {
+  flex-shrink: 0;
+  display: inline-flex;
+  gap: 8px;
+  font-size: 12px;
+  font-family: var(--font-mono), monospace;
+  font-variant-numeric: tabular-nums;
+  padding-top: 2px;
 }
 
-.dl.ctx {
-  color: #24292e;
+.diff-stats .add {
+  color: #1a7f37;
+}
+
+.diff-stats .del {
+  color: #cf222e;
+}
+
+.diff-editor-wrap {
+  flex: 1;
+  min-height: 0;
 }
 </style>

@@ -30,12 +30,29 @@ function nextTabId(kind: RightTabKind): string {
 
 type SaveHandler = () => Promise<boolean>;
 
+type PersistedTabs = {
+  tabs: Array<{
+    kind: RightTabKind;
+    label: string;
+    filePath?: string;
+    transient?: boolean;
+  }>;
+  activeIndex: number;
+};
+
+const TABS_STORAGE_PREFIX = "pi-desktop:right-tabs:v1:";
+
+function storageKey(root: string): string {
+  return `${TABS_STORAGE_PREFIX}${root.replace(/\\/g, "/").toLowerCase()}`;
+}
+
 export const useRightTabsStore = defineStore("rightTabs", () => {
   const tabs = ref<RightTab[]>([
     { id: "changes-0", kind: "changes", label: t.changesTab },
   ]);
   const activeId = ref("changes-0");
   const saveHandlers = new Map<string, SaveHandler>();
+  let persistReady = false;
 
   const activeTab = computed(() => tabs.value.find((t) => t.id === activeId.value) ?? null);
 
@@ -76,6 +93,15 @@ export const useRightTabsStore = defineStore("rightTabs", () => {
     const handler = saveHandlers.get(id);
     if (!handler) return false;
     return handler();
+  }
+
+  function reorderTabs(fromIndex: number, toIndex: number): void {
+    if (fromIndex === toIndex) return;
+    if (fromIndex < 0 || toIndex < 0) return;
+    if (fromIndex >= tabs.value.length || toIndex >= tabs.value.length) return;
+    const [item] = tabs.value.splice(fromIndex, 1);
+    if (!item) return;
+    tabs.value.splice(toIndex, 0, item);
   }
 
   function addTab(kind: RightTabKind, opts?: { label?: string; filePath?: string }): RightTab {
@@ -192,6 +218,73 @@ export const useRightTabsStore = defineStore("rightTabs", () => {
     }
   }
 
+  function persistTabs(root: string | null): void {
+    if (!persistReady || !root) return;
+    const payload: PersistedTabs = {
+      tabs: tabs.value
+        .filter((tab) => tab.kind !== "files")
+        .map((tab) => ({
+          kind: tab.kind,
+          label: tab.label,
+          filePath: tab.filePath,
+          transient: tab.transient,
+        })),
+      activeIndex: Math.max(
+        0,
+        tabs.value.findIndex((tab) => tab.id === activeId.value),
+      ),
+    };
+    try {
+      localStorage.setItem(storageKey(root), JSON.stringify(payload));
+    } catch {
+      // ignore quota
+    }
+  }
+
+  function restoreTabs(root: string | null): void {
+    persistReady = false;
+    if (!root) {
+      tabs.value = [{ id: "changes-0", kind: "changes", label: t.changesTab }];
+      activeId.value = "changes-0";
+      persistReady = true;
+      return;
+    }
+    let restored: PersistedTabs | null = null;
+    try {
+      const raw = localStorage.getItem(storageKey(root));
+      if (raw) restored = JSON.parse(raw) as PersistedTabs;
+    } catch {
+      restored = null;
+    }
+    if (!restored?.tabs?.length) {
+      tabs.value = [{ id: nextTabId("changes"), kind: "changes", label: t.changesTab }];
+      activeId.value = tabs.value[0]!.id;
+      persistReady = true;
+      return;
+    }
+    const next: RightTab[] = [];
+    for (const row of restored.tabs) {
+      if (row.kind === "files") continue;
+      if (row.kind === "preview" && !row.filePath) continue;
+      next.push({
+        id: nextTabId(row.kind),
+        kind: row.kind,
+        label: row.label || (row.kind === "changes" ? t.changesTab : row.kind),
+        filePath: row.filePath,
+        dirty: false,
+        missing: false,
+        transient: row.kind === "preview" ? row.transient !== false : undefined,
+      });
+    }
+    if (!next.some((tab) => tab.kind === "changes")) {
+      next.unshift({ id: nextTabId("changes"), kind: "changes", label: t.changesTab });
+    }
+    tabs.value = next;
+    const idx = Math.min(Math.max(0, restored.activeIndex), next.length - 1);
+    activeId.value = next[idx]?.id ?? next[0]!.id;
+    persistReady = true;
+  }
+
   return {
     tabs,
     activeId,
@@ -206,5 +299,8 @@ export const useRightTabsStore = defineStore("rightTabs", () => {
     unregisterSaveHandler,
     saveTab,
     refreshPreviewGitMeta,
+    reorderTabs,
+    persistTabs,
+    restoreTabs,
   };
 });

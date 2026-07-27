@@ -14,6 +14,7 @@ import TitleBar from "@renderer/components/TitleBar.vue";
 import WelcomeView from "@renderer/components/WelcomeView.vue";
 import SplitRoot from "@renderer/components/SplitRoot.vue";
 import PiCliSetup from "@renderer/components/PiCliSetup.vue";
+import CloseGuard from "@renderer/components/CloseGuard.vue";
 import { useWorkspaceStore } from "@renderer/stores/workspace";
 import { useAppearanceStore } from "@renderer/stores/appearance";
 import { darkThemeOverrides, lightThemeOverrides } from "@renderer/theme/naive";
@@ -54,6 +55,7 @@ onUnmounted(() => {
   >
     <NMessageProvider>
       <NDialogProvider>
+        <CloseGuard />
         <div class="app-shell" :data-theme="appearance.resolvedTheme">
           <TitleBar />
           <main class="app-main">
@@ -75,7 +77,7 @@ onUnmounted(() => {
   height: 100%;
   background: var(--bg);
   color: var(--fg);
-  transition: background-color 0.18s ease, color 0.18s ease;
+  transition: background-color var(--duration, 180ms) var(--ease-out, ease), color var(--duration, 180ms) var(--ease-out, ease);
 }
 
 .app-main {

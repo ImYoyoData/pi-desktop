@@ -6,6 +6,7 @@ import {
   createWorkspaceFile,
   deleteWorkspaceEntry,
   listWorkspaceDir,
+  moveWorkspaceEntry,
   renameWorkspaceEntry,
 } from "./files-host";
 import { getWorkspace } from "./workspace-ipc";
@@ -42,6 +43,15 @@ export function registerFilesIpc(): void {
       const root = getWorkspace();
       if (!root) throw new Error("未打开工作区");
       return renameWorkspaceEntry(root, relativePath, newName);
+    },
+  );
+
+  ipcMain.handle(
+    IpcChannels.files.move,
+    (_event, relativePath: string, destRelativeDir: string) => {
+      const root = getWorkspace();
+      if (!root) throw new Error("未打开工作区");
+      return moveWorkspaceEntry(root, relativePath, destRelativeDir ?? "");
     },
   );
 

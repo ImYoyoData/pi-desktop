@@ -13,6 +13,8 @@ import {
   ArrowForwardOutline,
   ColorWandOutline,
   CodeSlashOutline,
+  ContractOutline,
+  ExpandOutline,
   LibraryOutline,
   OpenOutline,
   RefreshOutline,
@@ -68,6 +70,8 @@ const bookmarkRows = ref<BookmarkEntry[]>([]);
 /** DevTools width as % of the browser viewport when open. */
 const devtoolsPercent = ref(40);
 const isDraggingDevtools = ref(false);
+const isFullscreen = ref(false);
+const browserRootRef = ref<HTMLElement | null>(null);
 let offElementSelected: (() => void) | null = null;
 let offElementScreenshot: (() => void) | null = null;
 let offToggleHotkey: (() => void) | null = null;
@@ -273,6 +277,29 @@ async function toggleDevTools(): Promise<void> {
 async function openExternal(): Promise<void> {
   const url = webviewRef.value?.getURL?.() || urlInput.value;
   await window.api.browser.openExternal(normalizeUrl(url));
+}
+
+async function toggleFullscreen(): Promise<void> {
+  const el = browserRootRef.value;
+  if (!el) {
+    isFullscreen.value = !isFullscreen.value;
+    return;
+  }
+  try {
+    if (!document.fullscreenElement) {
+      await el.requestFullscreen();
+      isFullscreen.value = true;
+    } else {
+      await document.exitFullscreen();
+      isFullscreen.value = false;
+    }
+  } catch {
+    isFullscreen.value = !isFullscreen.value;
+  }
+}
+
+function onFullscreenChange(): void {
+  isFullscreen.value = document.fullscreenElement === browserRootRef.value;
 }
 
 async function setSelectMode(next: boolean): Promise<void> {
@@ -518,6 +545,7 @@ async function registerPageGuest(): Promise<void> {
 onMounted(async () => {
   loadDevtoolsWidth();
   refreshLibrary();
+  document.addEventListener("fullscreenchange", onFullscreenChange);
   offElementSelected = window.api.browser.onElementSelected(onCitation);
   offElementScreenshot = window.api.browser.onElementScreenshot(onElementScreenshot);
   offToggleHotkey = window.api.browser.onToggleEmbeddedDevTools(() => {
@@ -572,6 +600,7 @@ onUnmounted(() => {
   offElementSelected?.();
   offElementScreenshot?.();
   offToggleHotkey?.();
+  document.removeEventListener("fullscreenchange", onFullscreenChange);
   window.removeEventListener("keydown", onKeydown, true);
   document.removeEventListener("mousemove", onDragMove);
   document.removeEventListener("mouseup", onDragEnd);
@@ -600,7 +629,11 @@ watch(
 </script>
 
 <template>
-  <div class="browser-tab">
+  <div
+    ref="browserRootRef"
+    class="browser-tab"
+    :class="{ 'is-fullscreen': isFullscreen }"
+  >
     <div class="toolbar">
       <NSpace :size="4" align="center" style="flex: 1; min-width: 0" :wrap="false">
         <NTooltip>
@@ -710,6 +743,17 @@ watch(
 
         <NTooltip>
           <template #trigger>
+            <NButton quaternary circle size="tiny" @click="toggleFullscreen">
+              <template #icon>
+                <NIcon :component="isFullscreen ? ContractOutline : ExpandOutline" />
+              </template>
+            </NButton>
+          </template>
+          {{ isFullscreen ? t.browserExitFullscreen : t.browserFullscreen }}
+        </NTooltip>
+
+        <NTooltip>
+          <template #trigger>
             <NButton quaternary circle size="tiny" @click="openExternal">
               <template #icon>
                 <NIcon :component="OpenOutline" />
@@ -812,6 +856,15 @@ watch(
   flex-direction: column;
   height: 100%;
   min-height: 0;
+  background: var(--bg);
+}
+
+.browser-tab.is-fullscreen {
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
+  height: 100vh;
+  width: 100vw;
   background: var(--bg);
 }
 

@@ -1,5 +1,6 @@
 import { BrowserWindow, ipcMain, nativeTheme, systemPreferences } from "electron";
 import { IpcChannels } from "../shared/protocol";
+import { allowWindowClose } from "./window";
 
 type ThemeSource = "system" | "light" | "dark";
 type ChromeTheme = "light" | "dark";
@@ -40,6 +41,11 @@ export function registerWindowIpc(): void {
   });
 
   ipcMain.handle(IpcChannels.window.close, (event) => {
+    BrowserWindow.fromWebContents(event.sender)?.close();
+  });
+
+  ipcMain.handle(IpcChannels.window.forceClose, (event) => {
+    allowWindowClose();
     BrowserWindow.fromWebContents(event.sender)?.close();
   });
 

@@ -83,6 +83,20 @@ export const en = {
   compactDone: "Context compacted",
   contextUsageEmpty: "No context usage yet",
   contextUsageUnknown: "Unknown until next reply after compact",
+  contextUsageTitle: "Context usage",
+  contextUsageTokens: "Tokens",
+  contextUsageWindow: "Window",
+  contextUsageMessages: "Messages",
+  contextUsageTools: "Tool calls",
+  contextUsageSkills: "Skills",
+  contextUsageHint: "Usage only — manual compact is disabled when the session is too small",
+  closeRunningTitle: "Sessions still running",
+  closeRunningContent: (n: number) =>
+    `${n} session(s) are still running. Force close will stop them first, then quit.`,
+  forceCloseApp: "Force close",
+  browserFullscreen: "Fullscreen",
+  browserExitFullscreen: "Exit fullscreen",
+  filesMoved: "Moved",
   chipElement: "Element",
   chipFile: "File",
   chipUrl: "Link",
@@ -170,6 +184,8 @@ export const en = {
     "NVIDIA CUDA runtime crashed and Vulkan fallback failed. Re-download the runtime in Speech settings, then retry.",
   asrCudaCrashHint:
     "Speech engine crashed (often NVIDIA CUDA). Re-download the runtime in Speech settings (Vulkan recommended), then retry.",
+  asrGpuInitFailed:
+    "GPU init failed (common when NVIDIA runs via Vulkan). Tried other devices/CPU. Re-download runtime in Speech settings; GTX 16 / RTX should use the CUDA package.",
   asrPreparingRuntime: (backend: string) => `Preparing ${backend} runtime…`,
   asrDownloadFailed: (url: string) =>
     `Download failed (timeout/blocked). Check network/proxy, or use a custom URL / local file.\n${url}`,
@@ -179,6 +195,11 @@ export const en = {
   asrProgressModel: "Downloading model…",
   asrProgressExtract: "Extracting runtime…",
   asrDevice: "Compute device",
+  asrGpuSelect: "GPU to use",
+  asrGpuSelectHint:
+    "With iGPU + discrete GPU, discrete is preferred by default (RTX via CUDA). You can override it here.",
+  asrGpuAuto: "Auto (prefer discrete)",
+  asrGpuRuntimeMismatch: "Installed runtime does not match the selected device. Re-download the runtime.",
   asrDeviceDiscrete: "Discrete GPU",
   asrDeviceIntegrated: "Integrated GPU",
   asrDeviceMetal: "Apple GPU",

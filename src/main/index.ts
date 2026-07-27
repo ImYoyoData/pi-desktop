@@ -22,6 +22,10 @@ import { registerUpdateIpc } from "./update-host";
 import { registerPiCliIpc } from "./pi-cli-host";
 import { ensurePiAgentEnvironment } from "./pi-env";
 import { installApplicationMenu } from "./app-menu";
+import { enableHardwareAcceleration } from "./gpu-flags";
+
+/** GPU raster / compositing before ready (no-op if only software GL). */
+enableHardwareAcceleration();
 
 /** Packaged / desktop: only one running instance with one primary window. */
 const gotSingleInstanceLock = app.requestSingleInstanceLock();
