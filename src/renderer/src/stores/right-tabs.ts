@@ -1,5 +1,6 @@
 import { defineStore } from "pinia";
 import { computed, ref } from "vue";
+import { t } from "@renderer/i18n";
 
 export type RightTabKind = "changes" | "files" | "browser" | "terminal" | "preview";
 
@@ -31,7 +32,7 @@ type SaveHandler = () => Promise<boolean>;
 
 export const useRightTabsStore = defineStore("rightTabs", () => {
   const tabs = ref<RightTab[]>([
-    { id: "changes-0", kind: "changes", label: "更改" },
+    { id: "changes-0", kind: "changes", label: t.changesTab },
   ]);
   const activeId = ref("changes-0");
   const saveHandlers = new Map<string, SaveHandler>();
@@ -83,19 +84,19 @@ export const useRightTabsStore = defineStore("rightTabs", () => {
     if (!label) {
       switch (kind) {
         case "changes":
-          label = "更改";
+          label = t.changesTab;
           break;
         case "files":
-          label = "文件";
+          label = t.filesTab;
           break;
         case "browser":
-          label = counts === 0 ? "浏览器" : `浏览器 ${counts + 1}`;
+          label = counts === 0 ? t.browser : t.browserLabel(counts + 1);
           break;
         case "terminal":
-          label = counts === 0 ? "终端" : `终端 ${counts + 1}`;
+          label = counts === 0 ? t.terminal : t.terminalLabel(counts + 1);
           break;
         case "preview":
-          label = opts?.filePath?.split(/[/\\]/).pop() ?? "预览";
+          label = opts?.filePath?.split(/[/\\]/).pop() ?? t.preview;
           break;
         default: {
           const _never: never = kind;
@@ -112,7 +113,7 @@ export const useRightTabsStore = defineStore("rightTabs", () => {
     }
     if (kind === "preview" && opts?.filePath) {
       const normalized = opts.filePath.replace(/\\/g, "/");
-      const fileLabel = opts.label ?? normalized.split(/[/\\]/).pop() ?? "预览";
+      const fileLabel = opts.label ?? normalized.split(/[/\\]/).pop() ?? t.preview;
       const existing = tabs.value.find(
         (t) => t.kind === "preview" && t.filePath === normalized,
       );
@@ -173,7 +174,7 @@ export const useRightTabsStore = defineStore("rightTabs", () => {
     if (!picked) return;
     addTab("preview", {
       filePath: picked,
-      label: picked.split(/[/\\]/).pop() ?? "预览",
+      label: picked.split(/[/\\]/).pop() ?? t.preview,
     });
   }
 

@@ -1,5 +1,10 @@
 import type { AgentEvent } from "../../../shared/protocol";
 import { formatLlmError } from "../utils/llm-error";
+import { locale as uiLocalePref } from "../i18n";
+
+function uiLocale(): "zh-CN" | "en" {
+  return uiLocalePref === "zh-CN" ? "zh-CN" : "en";
+}
 
 export type ChatUserImage = {
   mimeType: string;
@@ -25,6 +30,8 @@ export type ChatMessage =
       result?: unknown;
       isError?: boolean;
       streaming?: boolean;
+      /** 1-based order within the current agent run */
+      order?: number;
     }
   | { id: string; role: "error"; text: string };
 
@@ -43,10 +50,18 @@ export type ChatState = {
   running: boolean;
   /** Shown while Pi SDK auto-retry is in progress */
   retryHint: ChatRetryHint | null;
+  /** Next tool order index for the active run (reset when agent settles). */
+  nextToolOrder: number;
 };
 
 export function createChatState(): ChatState {
-  return { messages: [], streamingMessage: null, running: false, retryHint: null };
+  return {
+    messages: [],
+    streamingMessage: null,
+    running: false,
+    retryHint: null,
+    nextToolOrder: 1,
+  };
 }
 
 let nextLocalId = 0;
@@ -109,15 +124,6 @@ function assistantFromPartial(
     text: snapshot || prevText,
     streaming: true,
   };
-}
-
-function uiLocale(): "zh-CN" | "en" {
-  try {
-    const lang = typeof navigator !== "undefined" ? navigator.language : "zh-CN";
-    return lang.toLowerCase().startsWith("zh") ? "zh-CN" : "en";
-  } catch {
-    return "zh-CN";
-  }
 }
 
 /** Pi SDK assistant failures use stopReason + errorMessage instead of throwing. */
@@ -346,10 +352,12 @@ function reduceAgentPayload(state: ChatState, payload: Record<string, unknown>):
         { ...state.streamingMessage, streaming: false },
       ];
     }
+    const order = state.nextToolOrder;
     return {
       ...state,
       running: true,
       messages,
+      nextToolOrder: order + 1,
       streamingMessage: {
         id,
         role: "tool",
@@ -357,23 +365,34 @@ function reduceAgentPayload(state: ChatState, payload: Record<string, unknown>):
         toolName: String(payload.toolName ?? "tool"),
         args: payload.args,
         streaming: true,
+        order,
       },
     };
   }
   if (type === "tool_execution_end") {
     const toolCallId = String(payload.toolCallId ?? "");
     const id = `tool-${toolCallId}`;
+    const stream =
+      state.streamingMessage?.role === "tool" && state.streamingMessage.id === id
+        ? state.streamingMessage
+        : null;
+    const existing = state.messages.find((m) => m.id === id);
+    const prior =
+      stream ??
+      (existing?.role === "tool" ? existing : null);
     const toolMsg: ChatMessage = {
       id,
       role: "tool",
       toolCallId,
-      toolName: String(payload.toolName ?? "tool"),
+      toolName: String(payload.toolName ?? prior?.toolName ?? "tool"),
+      args: prior?.args ?? payload.args,
       result: payload.result,
       isError: Boolean(payload.isError),
       streaming: false,
+      order: prior?.order,
     };
     // Replace streaming tool or append
-    if (state.streamingMessage?.role === "tool" && state.streamingMessage.id === id) {
+    if (stream) {
       return {
         ...state,
         messages: [...state.messages, toolMsg],
@@ -414,10 +433,10 @@ function reduceAgentPayload(state: ChatState, payload: Record<string, unknown>):
         }
       }
     }
-    return { ...state, running: false, streamingMessage: null, retryHint: null };
+    return { ...state, running: false, streamingMessage: null, retryHint: null, nextToolOrder: 1 };
   }
   if (type === "agent_settled") {
-    return { ...state, running: false, streamingMessage: null, retryHint: null };
+    return { ...state, running: false, streamingMessage: null, retryHint: null, nextToolOrder: 1 };
   }
   return state;
 }
@@ -438,6 +457,7 @@ export function appendUserMessage(
     ...state,
     running: true,
     retryHint: null,
+    nextToolOrder: 1,
     streamingMessage: null,
     messages: [
       ...state.messages,

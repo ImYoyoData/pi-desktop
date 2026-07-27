@@ -33,6 +33,7 @@ import {
   type BrowserLibraryEntry,
 } from "@renderer/stores/browser-library";
 import BrowserLibraryPanel from "@renderer/components/BrowserLibraryPanel.vue";
+import { useBrowserNavStore } from "@renderer/stores/browser-nav";
 import { t } from "@renderer/i18n";
 
 const DEFAULT_URL = "about:blank";
@@ -40,8 +41,10 @@ const DEVTOOLS_WIDTH_KEY = "browser:devtoolsWidth";
 
 const composer = useComposerStore();
 const message = useMessage();
+const browserNav = useBrowserNavStore();
 
 const props = defineProps<{
+  tabId: string;
   visible?: boolean;
 }>();
 
@@ -128,15 +131,42 @@ function devtoolsId(): number | null {
 }
 
 function navigate(): void {
-  const wv = webviewRef.value;
-  if (!wv) return;
-  void wv.loadURL(normalizeUrl(urlInput.value));
+  loadUrlWhenReady(normalizeUrl(urlInput.value));
 }
 
 function navigateTo(url: string): void {
   urlInput.value = url;
   libraryOpen.value = false;
   navigate();
+}
+
+/** loadURL before the guest is attached throws; wait for dom-ready. */
+function loadUrlWhenReady(url: string): void {
+  const wv = webviewRef.value;
+  if (!wv) return;
+  const target = normalizeUrl(url);
+  try {
+    if (wv.getWebContentsId()) {
+      void wv.loadURL(target);
+      return;
+    }
+  } catch {
+    // not attached yet
+  }
+  wv.addEventListener(
+    "dom-ready",
+    () => {
+      void wv.loadURL(target);
+    },
+    { once: true },
+  );
+}
+
+function applyPendingNavigate(): void {
+  if (props.visible === false) return;
+  const url = browserNav.takePending(props.tabId);
+  if (!url) return;
+  navigateTo(url);
 }
 
 function goBack(): void {
@@ -156,14 +186,14 @@ function reload(): void {
 function onToggleBookmark(): void {
   const url = normalizeUrl(urlInput.value);
   if (!url || url === "about:blank") {
-    message.warning("当前页面无法收藏");
+    message.warning(t.cannotBookmark);
     return;
   }
   const title = pageTitle.value || webviewRef.value?.getTitle?.() || url;
   const result = toggleBookmark({ url, title });
   bookmarked.value = result.bookmarked;
   refreshLibrary();
-  message.success(result.bookmarked ? "已加入收藏" : "已取消收藏");
+  message.success(result.bookmarked ? t.bookmarkAdded : t.bookmarkRemoved);
 }
 
 function toggleLibrary(): void {
@@ -205,7 +235,7 @@ async function remountDevtoolsHost(): Promise<void> {
 async function toggleDevTools(): Promise<void> {
   const pageId = guestId();
   if (pageId === null) {
-    message.warning("浏览器尚未就绪");
+    message.warning(t.browserNotReady);
     return;
   }
 
@@ -217,7 +247,7 @@ async function toggleDevTools(): Promise<void> {
     }
     const dtId = devtoolsId();
     if (dtId === null || !devtoolsReady.value) {
-      message.warning("浏览器尚未就绪");
+      message.warning(t.browserNotReady);
       return;
     }
     devtoolsOpen.value = true;
@@ -226,7 +256,7 @@ async function toggleDevTools(): Promise<void> {
     const result = await window.api.browser.attachDevTools(pageId, dtId, true);
     if (!result.ok) {
       devtoolsOpen.value = false;
-      message.warning("无法打开开发者工具");
+      message.warning(t.cannotOpenDevtools);
     }
     return;
   }
@@ -252,7 +282,7 @@ async function setSelectMode(next: boolean): Promise<void> {
     const result = await window.api.browser.startSelect(id);
     if (!result.ok) {
       selectMode.value = false;
-      message.warning("此页不支持选元素");
+      message.warning(t.selectNotSupported);
       return;
     }
     selectMode.value = true;
@@ -346,16 +376,16 @@ async function onCitation(citation: ElementCitation): Promise<void> {
   if (shot) {
     composer.addImageFromDataUrl(shot);
     composer.attachScreenshotToLatestElement(shot);
-    message.success("已添加元素标签和截图");
+    message.success(t.elementTagAndShot);
     return;
   }
 
   awaitingScreenshotIpc = true;
-  message.success("已添加元素标签");
+  message.success(t.elementTagAdded);
   window.setTimeout(() => {
     if (!awaitingScreenshotIpc) return;
     awaitingScreenshotIpc = false;
-    message.warning("元素截图失败，仅添加了标签");
+    message.warning(t.elementShotFailed);
   }, 1800);
 }
 
@@ -367,7 +397,7 @@ function onElementScreenshot(dataUrl: string): void {
   composer.attachScreenshotToLatestElement(dataUrl);
   if (awaitingScreenshotIpc) {
     awaitingScreenshotIpc = false;
-    message.success("已添加元素截图");
+    message.success(t.elementShotAdded);
   }
 }
 
@@ -495,16 +525,6 @@ onMounted(async () => {
     void toggleDevTools();
   });
   window.addEventListener("keydown", onKeydown, true);
-  const onNavigate = (event: Event) => {
-    const url = (event as CustomEvent<{ url?: string }>).detail?.url;
-    if (!url) return;
-    urlInput.value = url;
-    navigate();
-  };
-  window.addEventListener("pi-browser-navigate", onNavigate);
-  (window as unknown as { __piBrowserNavOff?: () => void }).__piBrowserNavOff = () => {
-    window.removeEventListener("pi-browser-navigate", onNavigate);
-  };
   await nextTick();
   const wv = webviewRef.value;
   if (wv) {
@@ -519,7 +539,15 @@ onMounted(async () => {
     }
   }
   bindDevtoolsHost();
+  applyPendingNavigate();
 });
+
+watch(
+  () => [browserNav.seq, props.visible, props.tabId] as const,
+  () => {
+    applyPendingNavigate();
+  },
+);
 
 watch(devtoolsMountKey, async () => {
   await nextTick();
@@ -547,7 +575,6 @@ onUnmounted(() => {
   window.removeEventListener("keydown", onKeydown, true);
   document.removeEventListener("mousemove", onDragMove);
   document.removeEventListener("mouseup", onDragEnd);
-  (window as unknown as { __piBrowserNavOff?: () => void }).__piBrowserNavOff?.();
   const id = guestId();
   if (id !== null) {
     void window.api.browser.stopSelect(id);
@@ -620,14 +647,14 @@ watch(
               </template>
             </NButton>
           </template>
-          {{ bookmarked ? "取消收藏" : "收藏此页" }}
+          {{ bookmarked ? t.unbookmark : t.bookmarkPage }}
         </NTooltip>
 
         <NInput
           v-model:value="urlInput"
           size="tiny"
           class="url"
-          placeholder="输入网址"
+          :placeholder="t.urlPlaceholder"
           @keydown.enter.prevent="navigate"
         />
 
@@ -644,7 +671,7 @@ watch(
               </template>
             </NButton>
           </template>
-          {{ selectMode ? "取消选取" : t.selectElement }}
+          {{ selectMode ? t.cancelSelect : t.selectElement }}
         </NTooltip>
 
         <NTooltip>
@@ -661,7 +688,7 @@ watch(
               </template>
             </NButton>
           </template>
-          历史与收藏
+          {{ t.historyAndBookmarks }}
         </NTooltip>
 
         <NTooltip>
@@ -678,7 +705,7 @@ watch(
               </template>
             </NButton>
           </template>
-          开发者工具 (F12)
+          {{ t.devtools }}
         </NTooltip>
 
         <NTooltip>
@@ -689,7 +716,7 @@ watch(
               </template>
             </NButton>
           </template>
-          在系统浏览器打开
+          {{ t.openInSystemBrowser }}
         </NTooltip>
       </NSpace>
     </div>
@@ -714,7 +741,7 @@ watch(
       <div
         v-show="devtoolsOpen"
         class="devtools-handle"
-        title="拖动调整宽度"
+        :title="t.resizeDevtools"
         @mousedown="startDevtoolsDrag"
       />
 
@@ -742,7 +769,7 @@ watch(
             :class="{ active: libraryTab === 'history' }"
             @click="setLibraryTab('history')"
           >
-            历史
+            {{ t.history }}
           </button>
           <button
             type="button"
@@ -750,9 +777,9 @@ watch(
             :class="{ active: libraryTab === 'bookmarks' }"
             @click="setLibraryTab('bookmarks')"
           >
-            收藏
+            {{ t.bookmarks }}
           </button>
-          <button type="button" class="drawer-close" title="关闭" @click="libraryOpen = false">
+          <button type="button" class="drawer-close" :title="t.close" @click="libraryOpen = false">
             ×
           </button>
         </div>

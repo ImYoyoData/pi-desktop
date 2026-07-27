@@ -6,6 +6,8 @@ import hljs from "highlight.js/lib/common";
 import { useDialog } from "naive-ui";
 import { useRightTabsStore } from "@renderer/stores/right-tabs";
 import { useLayoutStore } from "@renderer/stores/layout";
+import { useBrowserNavStore } from "@renderer/stores/browser-nav";
+import { t } from "@renderer/i18n";
 
 const props = defineProps<{
   content: string;
@@ -15,6 +17,7 @@ const rootEl = ref<HTMLElement | null>(null);
 const dialog = useDialog();
 const rightTabs = useRightTabsStore();
 const layout = useLayoutStore();
+const browserNav = useBrowserNavStore();
 
 marked.setOptions({
   gfm: true,
@@ -40,15 +43,15 @@ marked.use({
       return [
         `<div class="code-block" data-code-block>`,
         `<div class="code-head"><span class="lang">${escapeHtml(label)}</span>`,
-        `<button type="button" class="copy-btn" data-copy>复制</button></div>`,
+        `<button type="button" class="copy-btn" data-copy>${t.copy}</button></div>`,
         `<div class="code-body"><div class="line-nos" aria-hidden="true">${nos}</div>`,
         `<pre><code class="hljs language-${escapeHtml(language)}">${highlighted}</code></pre>`,
         `</div></div>`,
       ].join("");
     },
     link({ href, title, text }: { href: string; title?: string | null; text: string }) {
-      const t = title ? ` title="${escapeHtml(title)}"` : "";
-      return `<a href="${escapeHtml(href)}"${t} rel="noopener noreferrer">${text}</a>`;
+      const titleAttr = title ? ` title="${escapeHtml(title)}"` : "";
+      return `<a href="${escapeHtml(href)}"${titleAttr} rel="noopener noreferrer">${text}</a>`;
     },
   },
 });
@@ -79,8 +82,21 @@ watch(
 );
 
 function openInBuiltinBrowser(url: string): void {
-  rightTabs.addTab("browser");
-  window.dispatchEvent(new CustomEvent("pi-browser-navigate", { detail: { url } }));
+  // Reuse an existing browser tab so link clicks don't spawn blank tabs.
+  const active = rightTabs.activeTab;
+  const existing =
+    (active?.kind === "browser" ? active : null) ??
+    rightTabs.tabs.find((t) => t.kind === "browser") ??
+    null;
+  let tab = existing;
+  if (tab) {
+    rightTabs.selectTab(tab.id);
+  } else {
+    tab = rightTabs.addTab("browser");
+  }
+  // Store pending URL — BrowserTab consumes after mount / when visible.
+  // Do not dispatch a window event here (race: new tab not listening yet).
+  browserNav.requestNavigate(url, tab.id);
   if (layout.rightCollapsed) layout.toggleRightCollapsed();
 }
 
@@ -94,9 +110,9 @@ function onRootClick(event: MouseEvent): void {
     const block = copyBtn.closest("[data-code-block]");
     const code = block?.querySelector("code")?.textContent ?? "";
     void navigator.clipboard.writeText(code).then(() => {
-      copyBtn.textContent = "已复制";
+      copyBtn.textContent = t.copied;
       setTimeout(() => {
-        copyBtn.textContent = "复制";
+        copyBtn.textContent = t.copy;
       }, 1200);
     });
     return;
@@ -110,10 +126,10 @@ function onRootClick(event: MouseEvent): void {
 
   if (event.ctrlKey || event.metaKey) {
     dialog.warning({
-      title: "打开外部浏览器",
-      content: `是否用系统浏览器打开？\n${url}`,
-      positiveText: "打开",
-      negativeText: "取消",
+      title: t.openExternalBrowser,
+      content: t.openExternalBrowserConfirm(url),
+      positiveText: t.open,
+      negativeText: t.cancel,
       onPositiveClick: () => {
         void window.api.browser.openExternal(url);
       },

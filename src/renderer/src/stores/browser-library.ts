@@ -1,3 +1,5 @@
+import { t } from "@renderer/i18n";
+
 export interface BrowserLibraryEntry {
   id: string;
   url: string;
@@ -157,8 +159,8 @@ export function groupHistoryByRecency(entries: BrowserLibraryEntry[]): HistoryGr
     else older.push(row);
   }
   const groups: HistoryGroup[] = [];
-  if (today.length) groups.push({ key: "today", label: "今天", items: today });
-  if (week.length) groups.push({ key: "week", label: "最近 7 天", items: week });
-  if (older.length) groups.push({ key: "older", label: "更早", items: older });
+  if (today.length) groups.push({ key: "today", label: t.historyToday, items: today });
+  if (week.length) groups.push({ key: "week", label: t.historyWeek, items: week });
+  if (older.length) groups.push({ key: "older", label: t.historyOlder, items: older });
   return groups;
 }

@@ -14,6 +14,7 @@ import {
   useMessage,
 } from "naive-ui";
 import { useWorkspaceStore } from "@renderer/stores/workspace";
+import { t } from "@renderer/i18n";
 
 type PluginRow = {
   source: string;
@@ -73,7 +74,7 @@ async function onToggle(pkg: PluginRow, enabled: boolean): Promise<void> {
       workspace.root ?? undefined,
     );
     packages.value = data.packages;
-    message.success(enabled ? "已启用扩展包" : "已禁用扩展包");
+    message.success(enabled ? t.extensionEnabled : t.extensionDisabled);
   } catch (err) {
     message.error(err instanceof Error ? err.message : String(err));
   } finally {
@@ -99,10 +100,10 @@ function statusType(status: PluginRow["status"]): "default" | "success" | "warni
 
 function onRemove(pkg: PluginRow): void {
   dialog.warning({
-    title: "卸载扩展包",
-    content: `移除「${pkg.source}」（${pkg.scope}）？将从配置中删除并卸载本地包。`,
-    positiveText: "卸载",
-    negativeText: "取消",
+    title: t.extensionUninstallTitle,
+    content: t.extensionUninstallConfirm(pkg.source, pkg.scope),
+    positiveText: t.uninstall,
+    negativeText: t.cancel,
     onPositiveClick: async () => {
       removing.value = true;
       try {
@@ -113,7 +114,7 @@ function onRemove(pkg: PluginRow): void {
         );
         packages.value = data.packages;
         selected.value = packages.value[0] ? keyOf(packages.value[0]) : null;
-        message.success("已卸载扩展包");
+        message.success(t.extensionUninstalled);
       } catch (err) {
         message.error(err instanceof Error ? err.message : String(err));
       } finally {
@@ -128,7 +129,7 @@ function onRemove(pkg: PluginRow): void {
   <NModal
     :show="open"
     preset="card"
-    title="扩展 / Plugins"
+    :title="t.extensionsTitle"
     class="pi-settings-modal"
     style="width: min(860px, 94vw)"
     :bordered="false"
@@ -142,7 +143,7 @@ function onRemove(pkg: PluginRow): void {
       <NSpin :show="loading" class="spin-fill">
         <div class="layout">
           <NScrollbar class="left">
-            <NEmpty v-if="!packages.length" description="未配置扩展包" style="padding: 24px" />
+            <NEmpty v-if="!packages.length" :description="t.extensionsEmpty" style="padding: 24px" />
             <button
               v-for="pkg in packages"
               :key="keyOf(pkg)"
@@ -169,7 +170,7 @@ function onRemove(pkg: PluginRow): void {
                   </NSpace>
                 </div>
                 <NSpace align="center">
-                  <NText style="font-size: 12px">启用</NText>
+                  <NText style="font-size: 12px">{{ t.enable }}</NText>
                   <NSwitch
                     :value="!selectedPkg()!.disabled"
                     :loading="toggling === keyOf(selectedPkg()!)"
@@ -181,7 +182,7 @@ function onRemove(pkg: PluginRow): void {
                 {{ selectedPkg()!.installedPath }}
               </NText>
               <NText depth="3" style="display: block; margin-top: 12px; font-size: 12px">
-                管理 ~/.pi/agent 与项目下的 package 扩展。安装新包可用 CLI `pi install`，然后在此启用/禁用/卸载。
+                {{ t.extensionsHint }}
               </NText>
               <div class="danger">
                 <NButton
@@ -191,11 +192,11 @@ function onRemove(pkg: PluginRow): void {
                   :loading="removing"
                   @click="onRemove(selectedPkg()!)"
                 >
-                  卸载扩展包
+                  {{ t.extensionUninstall }}
                 </NButton>
               </div>
             </template>
-            <NEmpty v-else description="选择一个扩展包" />
+            <NEmpty v-else :description="t.extensionSelect" />
           </NScrollbar>
         </div>
       </NSpin>
@@ -203,7 +204,7 @@ function onRemove(pkg: PluginRow): void {
 
     <template #footer>
       <NSpace justify="end">
-        <NButton size="small" @click="emit('close')">关闭</NButton>
+        <NButton size="small" @click="emit('close')">{{ t.close }}</NButton>
       </NSpace>
     </template>
   </NModal>

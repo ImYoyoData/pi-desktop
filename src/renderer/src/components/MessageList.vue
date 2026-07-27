@@ -2,31 +2,22 @@
 import { computed, nextTick, ref, watch } from "vue";
 import {
   NButton,
-  NCollapse,
-  NCollapseItem,
   NEmpty,
   NIcon,
   NImage,
-  NSpace,
   NTag,
   NText,
   NTooltip,
   useMessage,
 } from "naive-ui";
-import {
-  CopyOutline,
-  CreateOutline,
-  DocumentTextOutline,
-  RefreshOutline,
-} from "@vicons/ionicons5";
+import { CopyOutline, CreateOutline, RefreshOutline } from "@vicons/ionicons5";
 import type { ChatMessage, ChatRetryHint } from "@renderer/stores/chat";
 import { useChatStore } from "@renderer/stores/chat";
 import { useComposerStore } from "@renderer/stores/composer";
 import { useSessionsStore } from "@renderer/stores/sessions";
 import MarkdownView from "@renderer/components/MarkdownView.vue";
-import ToolFileCard from "@renderer/components/ToolFileCard.vue";
-import { extractWorkspacePaths } from "@renderer/utils/preview-paths";
-import { isFileMutationTool, parseFileToolCard } from "@renderer/utils/tool-diff";
+import ToolCallCard from "@renderer/components/ToolCallCard.vue";
+import { parseToolCard } from "@renderer/utils/tool-diff";
 import { usePreviewStore } from "@renderer/stores/preview";
 import { useRightTabsStore } from "@renderer/stores/right-tabs";
 import { t } from "@renderer/i18n";
@@ -45,7 +36,6 @@ const previewStore = usePreviewStore();
 const rightTabs = useRightTabsStore();
 const messageApi = useMessage();
 const scroller = ref<HTMLElement | null>(null);
-const expandedTools = ref<string[]>([]);
 
 const displayMessages = computed(() => {
   const list = [...props.messages];
@@ -55,32 +45,16 @@ const displayMessages = computed(() => {
 
 const sessionId = computed(() => sessions.activeId);
 
-function toolPaths(msg: Extract<ChatMessage, { role: "tool" }>): string[] {
-  const fromArgs = extractWorkspacePaths(msg.args);
-  const fromResult = extractWorkspacePaths(msg.result);
-  return [...new Set([...fromArgs, ...fromResult])];
-}
-
-function fileToolCard(msg: Extract<ChatMessage, { role: "tool" }>) {
-  if (!isFileMutationTool(msg.toolName)) return null;
-  return parseFileToolCard(msg.toolName, msg.args, msg.result);
+function toolCard(msg: Extract<ChatMessage, { role: "tool" }>) {
+  return parseToolCard(msg.toolName, msg.args, msg.result);
 }
 
 function openPreview(filePath: string): void {
   previewStore.openPreview(filePath);
   rightTabs.addTab("preview", {
     filePath,
-    label: filePath.split(/[/\\]/).pop() ?? "预览",
+    label: filePath.split(/[/\\]/).pop() ?? t.preview,
   });
-}
-
-function formatArgs(args: unknown): string {
-  if (args === undefined) return "";
-  try {
-    return JSON.stringify(args, null, 2);
-  } catch {
-    return String(args);
-  }
 }
 
 function toolStatus(msg: Extract<ChatMessage, { role: "tool" }>): {
@@ -94,7 +68,7 @@ function toolStatus(msg: Extract<ChatMessage, { role: "tool" }>): {
 
 async function copyText(text: string): Promise<void> {
   await navigator.clipboard.writeText(text);
-  messageApi.success("已复制");
+  messageApi.success(t.copied);
 }
 
 function onEditUser(msg: Extract<ChatMessage, { role: "user" }>): void {
@@ -103,7 +77,7 @@ function onEditUser(msg: Extract<ChatMessage, { role: "user" }>): void {
   const text = chat.beginEditUser(id, msg.id);
   if (text == null) return;
   composer.draft = text;
-  messageApi.info("已载入到输入框，发送后将从此处重新开始");
+  messageApi.info(t.loadedForReEdit);
 }
 
 async function onRegenerate(msg: Extract<ChatMessage, { role: "assistant" }>): Promise<void> {
@@ -179,7 +153,7 @@ watch(
                     </template>
                   </NButton>
                 </template>
-                复制
+                {{ t.copy }}
               </NTooltip>
               <NTooltip>
                 <template #trigger>
@@ -189,7 +163,7 @@ watch(
                     </template>
                   </NButton>
                 </template>
-                重新编辑
+                {{ t.reEdit }}
               </NTooltip>
             </div>
           </div>
@@ -210,7 +184,7 @@ watch(
                     </template>
                   </NButton>
                 </template>
-                复制
+                {{ t.copy }}
               </NTooltip>
               <NTooltip>
                 <template #trigger>
@@ -220,7 +194,7 @@ watch(
                     </template>
                   </NButton>
                 </template>
-                重新生成
+                {{ t.regenerate }}
               </NTooltip>
             </div>
           </div>
@@ -228,42 +202,15 @@ watch(
 
         <template v-else-if="msg.role === 'tool'">
           <div class="tool">
-            <ToolFileCard
-              v-if="fileToolCard(msg)"
-              :card="fileToolCard(msg)!"
+            <ToolCallCard
+              :card="toolCard(msg)"
               :tool-name="msg.toolName"
+              :order="msg.order"
               :status-label="toolStatus(msg).label"
               :status-type="toolStatus(msg).type"
               :streaming="msg.streaming"
               @open="openPreview"
             />
-            <NCollapse v-else v-model:expanded-names="expandedTools">
-              <NCollapseItem :name="msg.id">
-                <template #header>
-                  <NSpace :size="8" align="center">
-                    <NText code style="font-size: 12px">{{ msg.toolName }}</NText>
-                    <NTag size="tiny" :type="toolStatus(msg).type" :bordered="false">
-                      {{ toolStatus(msg).label }}
-                    </NTag>
-                  </NSpace>
-                </template>
-                <pre class="tool-body">{{ formatArgs(msg.args ?? msg.result) }}</pre>
-                <NSpace v-if="toolPaths(msg).length" size="small" style="margin-top: 8px">
-                  <NButton
-                    v-for="filePath in toolPaths(msg)"
-                    :key="filePath"
-                    size="tiny"
-                    secondary
-                    @click="openPreview(filePath)"
-                  >
-                    <template #icon>
-                      <NIcon :component="DocumentTextOutline" />
-                    </template>
-                    {{ filePath }}
-                  </NButton>
-                </NSpace>
-              </NCollapseItem>
-            </NCollapse>
           </div>
         </template>
 
@@ -348,8 +295,55 @@ watch(
 }
 
 .bubble-wrap.assistant {
-  width: 100%;
   align-items: flex-start;
+  width: 100%;
+}
+
+.bubble-wrap.error-wrap {
+  align-items: flex-start;
+  gap: 8px;
+  max-width: 100%;
+}
+
+.bubble {
+  padding: 8px 12px;
+  border-radius: 12px;
+  font-size: 14px;
+  line-height: 1.55;
+  word-break: break-word;
+}
+
+.bubble.user {
+  background: var(--user-bg);
+  color: var(--fg-strong);
+  border: 1px solid var(--border);
+}
+
+.bubble.assistant {
+  background: transparent;
+  padding: 2px 0;
+  width: 100%;
+}
+
+.bubble.error {
+  background: rgba(208, 48, 80, 0.08);
+  border: 1px solid rgba(208, 48, 80, 0.35);
+  color: var(--fg-strong);
+}
+
+.user-tags,
+.user-images {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+
+.user-image {
+  width: 72px;
+  height: 72px;
+  border-radius: 8px;
+  overflow: hidden;
 }
 
 .actions {
@@ -363,110 +357,14 @@ watch(
   opacity: 1;
 }
 
-.bubble {
-  max-width: 100%;
-  font-size: 13px;
-  line-height: 1.5;
-  user-select: text;
-}
-
-.bubble.user {
-  padding: 8px 12px;
-  border-radius: 10px;
-  background: var(--user-bg);
-  color: var(--fg-strong);
-}
-
-.user-images {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  margin-bottom: 6px;
-}
-
-.user-images:last-child {
-  margin-bottom: 0;
-}
-
-.user-tags {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  margin-bottom: 8px;
-}
-
-.user-tags:last-child {
-  margin-bottom: 0;
-}
-
-.user-image {
-  display: block;
-  max-width: min(240px, 100%);
-  max-height: 180px;
-  border-radius: 8px;
-  overflow: hidden;
-  background: var(--bg-panel);
-  border: 1px solid var(--border);
-  cursor: zoom-in;
-}
-
-.user-image :deep(img) {
-  max-width: min(240px, 100%);
-  max-height: 180px;
-  object-fit: cover;
-}
-
-.bubble.assistant {
-  width: 100%;
-  color: var(--fg);
-  padding: 1px 0;
-}
-
-.bubble.error {
-  padding: 8px 10px;
-  border-radius: 8px;
-  background: rgba(220, 38, 38, 0.08);
-  border: 1px solid rgba(220, 38, 38, 0.25);
-  color: #b91c1c;
-  font-size: 13px;
-  max-width: 92%;
-}
-
-.error-wrap {
-  align-items: flex-start;
-  gap: 8px;
-}
-
-.running-indicator {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.running-indicator.retry .retry-detail {
-  opacity: 0.75;
-}
-
-.dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 999px;
-  background: var(--accent);
-  animation: pulse 1.2s ease-in-out infinite;
-}
-
-.dot.warn {
-  background: #d97706;
-}
-
 .cursor {
   display: inline-block;
-  width: 2px;
-  height: 1em;
+  width: 6px;
+  height: 14px;
   margin-left: 2px;
+  vertical-align: text-bottom;
   background: var(--accent);
   animation: blink 1s step-end infinite;
-  vertical-align: text-bottom;
 }
 
 @keyframes blink {
@@ -477,29 +375,41 @@ watch(
 
 .tool {
   width: 100%;
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  background: var(--tool-bg);
-  overflow: hidden;
-  padding: 0 8px;
+  max-width: 100%;
 }
 
-.tool-body {
-  margin: 0;
-  padding: 8px 4px;
-  font-size: 12px;
-  overflow: auto;
-  max-height: 200px;
-  background: var(--bg);
-  color: var(--fg-muted);
-  font-family: var(--font-mono);
-  border-radius: 6px;
-  user-select: text;
+.running-indicator {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 0;
+}
+
+.dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--accent);
+  animation: pulse 1.2s ease-in-out infinite;
+}
+
+.dot.warn {
+  background: #f0a020;
+}
+
+.retry-detail {
+  opacity: 0.8;
 }
 
 @keyframes pulse {
-  50% {
+  0%,
+  100% {
     opacity: 0.35;
+    transform: scale(0.85);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1);
   }
 }
 </style>

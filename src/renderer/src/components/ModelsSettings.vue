@@ -15,6 +15,7 @@ import {
 } from "naive-ui";
 import type { ModelsProviderAuth } from "../../../shared/models-settings";
 import ProviderIcon from "@renderer/components/ProviderIcon.vue";
+import { t } from "@renderer/i18n";
 
 const props = defineProps<{
   open: boolean;
@@ -77,15 +78,15 @@ function sourceLabel(source?: string): string {
     case "stored":
       return "auth.json";
     case "environment":
-      return "环境变量";
+      return t.modelsSourceEnv;
     case "runtime":
-      return "运行时";
+      return t.modelsSourceRuntime;
     case "fallback":
-      return "默认";
+      return t.modelsSourceFallback;
     case "models_json_command":
-      return "models.json 命令";
+      return t.modelsSourceCommand;
     default:
-      return source || "未知";
+      return source || t.modelsSourceUnknown;
   }
 }
 
@@ -146,7 +147,7 @@ async function save(): Promise<void> {
       modelsText: modelsText.value,
       apiKeys: keysToWrite,
     });
-    message.success("已保存");
+    message.success(t.saved);
     emit("saved");
     window.dispatchEvent(new CustomEvent("pi-models-changed"));
     await load();
@@ -162,7 +163,7 @@ async function clearKey(): Promise<void> {
   try {
     await window.api.models.clearKey(selectedProvider.value);
     delete apiKeys.value[selectedProvider.value];
-    message.success("已清除 API Key");
+    message.success(t.modelsKeyCleared);
     await load();
     window.dispatchEvent(new CustomEvent("pi-models-changed"));
   } catch (err) {
@@ -180,7 +181,7 @@ function goCustomJson(): void {
   <NModal
     :show="open"
     preset="card"
-    title="模型"
+    :title="t.modelsTitle"
     class="models-modal pi-settings-modal"
     style="width: min(880px, 94vw)"
     :bordered="false"
@@ -202,9 +203,9 @@ function goCustomJson(): void {
             <div class="layout">
               <div class="left">
                 <div class="left-head">
-                  <NText class="section-label">已配置</NText>
+                  <NText class="section-label">{{ t.modelsConfigured }}</NText>
                   <NButton size="tiny" type="primary" secondary @click="openPicker">
-                    + 添加
+                    {{ t.modelsAdd }}
                   </NButton>
                 </div>
                 <NScrollbar class="left-scroll">
@@ -220,13 +221,13 @@ function goCustomJson(): void {
                     <div class="meta">
                       <div class="name">{{ p.displayName }}</div>
                       <NText depth="3" style="font-size: 11px">
-                        {{ p.configured ? "已配置" : "待配置" }}
-                        <template v-if="p.configured"> · {{ p.modelCount }} 个可用</template>
+                        {{ p.configured ? t.modelsConfigured : t.modelsPending }}
+                        <template v-if="p.configured"> · {{ t.modelsAvailableCount(p.modelCount) }}</template>
                       </NText>
                     </div>
                   </button>
                   <div v-if="!leftList.length" class="empty-left">
-                    尚未配置 Provider。<br />点击「+ 添加」选择。
+                    {{ t.modelsEmptyProviders }}
                   </div>
                 </NScrollbar>
               </div>
@@ -247,7 +248,7 @@ function goCustomJson(): void {
                         :type="selectedMeta.configured ? 'success' : 'warning'"
                         :bordered="false"
                       >
-                        {{ selectedMeta.configured ? "已配置" : "未配置" }}
+                        {{ selectedMeta.configured ? t.modelsConfigured : t.modelsNotConfigured }}
                       </NTag>
                     </div>
 
@@ -261,7 +262,7 @@ function goCustomJson(): void {
                           type="error"
                           @click="clearKey"
                         >
-                          清除
+                          {{ t.modelsClearKey }}
                         </NButton>
                       </div>
                       <NInput
@@ -272,22 +273,22 @@ function goCustomJson(): void {
                         :placeholder="
                           selectedMeta.configured
                             ? selectedMeta.source === 'environment'
-                              ? '已从环境变量读取（可覆盖写入 auth.json）'
-                              : '••••••••（留空保留）'
-                            : '粘贴 API Key…'
+                              ? t.modelsKeyFromEnv
+                              : t.modelsKeyKeep
+                            : t.modelsKeyPaste
                         "
                       />
                       <NText depth="3" style="font-size: 11px">
-                        写入 ~/.pi/agent/auth.json，与 pi CLI / pi-web 共用。
+                        {{ t.modelsKeyHint }}
                       </NText>
                     </div>
 
                     <div class="models-block">
                       <NText style="font-size: 12px; font-weight: 600">
-                        可用模型（{{ selectedModels.length }}）
+                        {{ t.modelsAvailable(selectedModels.length) }}
                       </NText>
                       <div v-if="!selectedModels.length" class="empty-models">
-                        暂无可用模型
+                        {{ t.modelsNone }}
                       </div>
                       <div
                         v-for="m in selectedModels"
@@ -302,7 +303,7 @@ function goCustomJson(): void {
                     </div>
                   </template>
                   <div v-else class="empty-right">
-                    <NText depth="3">从左侧选择 Provider，或点击「+ 添加」</NText>
+                    <NText depth="3">{{ t.modelsSelectHint }}</NText>
                   </div>
                 </NScrollbar>
               </div>
@@ -312,7 +313,7 @@ function goCustomJson(): void {
           <NTabPane name="json" tab="models.json">
             <div class="json-pane">
               <NText depth="3" style="font-size: 12px; display: block; margin-bottom: 8px">
-                编辑 ~/.pi/agent/models.json（自定义 Provider / baseUrl / 模型）
+                {{ t.modelsJsonHint }}
               </NText>
               <NInput
                 v-model:value="modelsText"
@@ -329,15 +330,15 @@ function goCustomJson(): void {
 
       <!-- Inline picker overlay (avoid nested NModal which often fails to show) -->
       <div v-if="pickerOpen" class="picker-overlay" @click.self="pickerOpen = false">
-        <div class="picker-panel" role="dialog" aria-label="添加 Provider">
+        <div class="picker-panel" role="dialog" :aria-label="t.modelsAddProvider">
           <div class="picker-head">
-            <NText strong style="font-size: 13px">添加 Provider</NText>
-            <NButton size="tiny" quaternary @click="pickerOpen = false">关闭</NButton>
+            <NText strong style="font-size: 13px">{{ t.modelsAddProvider }}</NText>
+            <NButton size="tiny" quaternary @click="pickerOpen = false">{{ t.close }}</NButton>
           </div>
           <NInput
             v-model:value="pickerQuery"
             size="small"
-            placeholder="搜索 Provider…"
+            :placeholder="t.modelsSearchProvider"
             clearable
             autofocus
             style="margin-bottom: 8px"
@@ -345,8 +346,8 @@ function goCustomJson(): void {
           <NScrollbar style="max-height: 320px">
             <button type="button" class="picker-card" @click="goCustomJson">
               <div class="picker-meta">
-                <div class="name">自定义（OpenAI / Anthropic 兼容）</div>
-                <NText depth="3" style="font-size: 11px">在 models.json 中配置</NText>
+                <div class="name">{{ t.modelsCustomProvider }}</div>
+                <NText depth="3" style="font-size: 11px">{{ t.modelsCustomHint }}</NText>
               </div>
             </button>
             <button
@@ -360,13 +361,13 @@ function goCustomJson(): void {
               <div class="picker-meta">
                 <div class="name">{{ p.displayName }}</div>
                 <NText depth="3" style="font-size: 11px">
-                  {{ p.id }} · 需配置 API Key
+                  {{ p.id }} · {{ t.modelsNeedsKey }}
                 </NText>
               </div>
               <NText depth="3" style="font-size: 11px">API Key</NText>
             </button>
             <div v-if="!availableToAdd.length" class="empty-models">
-              没有可添加的 Provider（可能均已配置）
+              {{ t.modelsNothingToAdd }}
             </div>
           </NScrollbar>
         </div>
@@ -375,8 +376,8 @@ function goCustomJson(): void {
 
     <template #footer>
       <NSpace justify="end">
-        <NButton size="small" @click="emit('close')">关闭</NButton>
-        <NButton size="small" type="primary" :loading="saving" @click="save">保存</NButton>
+        <NButton size="small" @click="emit('close')">{{ t.close }}</NButton>
+        <NButton size="small" type="primary" :loading="saving" @click="save">{{ t.save }}</NButton>
       </NSpace>
     </template>
   </NModal>
@@ -548,6 +549,7 @@ function goCustomJson(): void {
   color: var(--fg-faint);
   font-size: 12px;
   line-height: 1.5;
+  white-space: pre-line;
 }
 
 .empty-right {
