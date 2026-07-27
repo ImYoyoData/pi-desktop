@@ -1,6 +1,7 @@
 import { app, BrowserWindow, ipcMain, shell } from "electron";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
 import { join } from "path";
+import { tmpdir } from "os";
 import { execFile, spawn } from "child_process";
 import { promisify } from "util";
 import { IpcChannels } from "../shared/protocol";
@@ -25,6 +26,8 @@ type Prefs = {
   /** Last successful install timestamp. */
   installedAt: number | null;
 };
+
+type MethodResult = { ok: boolean; log: string; openedExternal?: boolean };
 
 let installBusy = false;
 
@@ -72,16 +75,40 @@ async function resolveCommand(name: string): Promise<string | null> {
         .split(/\r?\n/)
         .map((l) => l.trim())
         .find(Boolean);
-      return first && existsSync(first) ? first : first || null;
+      if (first && existsSync(first)) return first;
+      if (first) return first;
+    } else {
+      const { stdout } = await execFileAsync("which", [name], {
+        timeout: 8000,
+      });
+      const first = stdout.trim().split(/\n/)[0]?.trim();
+      if (first) return first;
     }
-    const { stdout } = await execFileAsync("which", [name], {
-      timeout: 8000,
-    });
-    const first = stdout.trim().split(/\n/)[0]?.trim();
-    return first || null;
   } catch {
-    return null;
+    // fall through to known locations
   }
+
+  // Electron inherits a stale PATH — check common global bins after package-manager installs
+  const home = app.getPath("home");
+  const candidates =
+    process.platform === "win32"
+      ? [
+          join(process.env.APPDATA || join(home, "AppData", "Roaming"), "npm", `${name}.cmd`),
+          join(process.env.APPDATA || join(home, "AppData", "Roaming"), "npm", `${name}.exe`),
+          join(process.env.LOCALAPPDATA || join(home, "AppData", "Local"), "bun", "bin", `${name}.exe`),
+          join(home, ".bun", "bin", `${name}.exe`),
+        ]
+      : [
+          join(home, ".bun", "bin", name),
+          join(home, ".local", "share", "pnpm", name),
+          join(home, ".npm-global", "bin", name),
+          `/usr/local/bin/${name}`,
+          `/opt/homebrew/bin/${name}`,
+        ];
+  for (const p of candidates) {
+    if (existsSync(p)) return p;
+  }
+  return null;
 }
 
 async function runCapture(
@@ -182,7 +209,7 @@ export async function getPiCliStatus(): Promise<PiCliStatus> {
   };
 }
 
-async function installWithBun(): Promise<{ ok: boolean; log: string }> {
+async function installWithBun(): Promise<MethodResult> {
   const bun = (await resolveCommand("bun"))!;
   const r = await runCapture(bun, ["add", "-g", PI_CLI_PACKAGE], { timeoutMs: 600_000 });
   return {
@@ -191,7 +218,7 @@ async function installWithBun(): Promise<{ ok: boolean; log: string }> {
   };
 }
 
-async function installWithPnpm(): Promise<{ ok: boolean; log: string }> {
+async function installWithPnpm(): Promise<MethodResult> {
   const pnpm = (await resolveCommand("pnpm"))!;
   const r = await runCapture(pnpm, ["add", "-g", PI_CLI_PACKAGE], { timeoutMs: 600_000 });
   return {
@@ -200,7 +227,7 @@ async function installWithPnpm(): Promise<{ ok: boolean; log: string }> {
   };
 }
 
-async function installWithNpm(): Promise<{ ok: boolean; log: string }> {
+async function installWithNpm(): Promise<MethodResult> {
   const npm = (await resolveCommand("npm"))!;
   const r = await runCapture(
     npm,
@@ -213,61 +240,107 @@ async function installWithNpm(): Promise<{ ok: boolean; log: string }> {
   };
 }
 
-async function installWithPowershell(): Promise<{ ok: boolean; log: string }> {
-  const pwsh = (await resolveCommand("pwsh")) || (await resolveCommand("powershell"));
-  if (!pwsh) return { ok: false, log: "powershell not found" };
-  // Official installer is interactive (Read-Host) — open a visible window.
-  try {
-    const child = spawn(
-      pwsh,
-      [
-        "-NoExit",
-        "-NoProfile",
-        "-ExecutionPolicy",
-        "Bypass",
-        "-Command",
-        `irm '${PI_INSTALL_PS1}' | iex`,
-      ],
-      {
-        windowsHide: false,
-        detached: true,
-        stdio: "ignore",
-      },
-    );
-    child.unref();
+/**
+ * Electron GUI apps have no console. Spawning powershell.exe directly often
+ * creates a hidden/orphan process. Use `cmd /c start` (or a .cmd launcher) so
+ * Windows allocates a real visible console window.
+ */
+async function openWindowsInstallerConsole(): Promise<MethodResult> {
+  const bat = join(tmpdir(), `pi-desktop-install-${Date.now()}.cmd`);
+  const body = [
+    "@echo off",
+    "title Pi CLI Installer",
+    "echo.",
+    "echo Installing Pi CLI from pi.dev …",
+    "echo.",
+    `powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -NoExit -Command "try { irm '${PI_INSTALL_PS1}' | iex } catch { Write-Host $_; Write-Host ''; Read-Host 'Press Enter to close' }"`,
+  ].join("\r\n");
+  writeFileSync(bat, `${body}\r\n`, "utf8");
+
+  const comspec = process.env.ComSpec || "cmd.exe";
+  const started = await new Promise<boolean>((resolve) => {
+    let settled = false;
+    const done = (ok: boolean) => {
+      if (settled) return;
+      settled = true;
+      resolve(ok);
+    };
+    // start "title" "path\to\bat" — first quoted arg is the window title
+    const child = spawn(comspec, ["/c", "start", "Pi CLI Installer", bat], {
+      windowsHide: true,
+      detached: true,
+      stdio: "ignore",
+      shell: false,
+    });
+    child.once("error", () => done(false));
+    child.once("spawn", () => {
+      child.unref();
+      done(true);
+    });
+    setTimeout(() => done(Boolean(child.pid)), 800);
+  });
+
+  if (started) {
     return {
       ok: true,
-      log: "Opened PowerShell with the official pi.dev installer. Finish prompts in that window, then restart Pi Desktop if needed.",
+      openedExternal: true,
+      log: "Opened a system console with the official pi.dev installer. Finish prompts there, then restart Pi Desktop if needed.",
     };
-  } catch (err) {
-    return { ok: false, log: err instanceof Error ? err.message : String(err) };
   }
+
+  // Fallback: let the shell association open the .cmd
+  const openErr = await shell.openPath(bat);
+  if (!openErr) {
+    return {
+      ok: true,
+      openedExternal: true,
+      log: "Opened installer script via shell.openPath. Finish prompts in that window, then restart Pi Desktop if needed.",
+    };
+  }
+  return {
+    ok: false,
+    openedExternal: false,
+    log: `Failed to open system console (${openErr}). Run manually: irm ${PI_INSTALL_PS1} | iex`,
+  };
 }
 
-async function installWithCurl(): Promise<{ ok: boolean; log: string }> {
+async function installWithPowershell(): Promise<MethodResult> {
+  if (process.platform !== "win32") {
+    return { ok: false, log: "powershell installer is Windows-only" };
+  }
+  const pwsh = (await resolveCommand("pwsh")) || (await resolveCommand("powershell"));
+  if (!pwsh) return { ok: false, log: "powershell not found" };
+  return openWindowsInstallerConsole();
+}
+
+async function installWithCurl(): Promise<MethodResult> {
   if (process.platform === "win32") {
-    // Prefer opening the PowerShell installer UI rather than hanging on Read-Host
     return installWithPowershell();
   }
 
   const curl = await resolveCommand("curl");
   if (!curl) return { ok: false, log: "curl not found" };
 
-  // Open Terminal.app / xterm-like shell for the interactive official installer
   if (process.platform === "darwin") {
-    const script = `curl -fsSL '${PI_INSTALL_SH}' | sh`;
+    const script = `curl -fsSL ${JSON.stringify(PI_INSTALL_SH)} | sh`;
     const r = await runCapture(
       "osascript",
-      ["-e", `tell application "Terminal" to do script "${script.replace(/"/g, '\\"')}"`],
+      [
+        "-e",
+        'tell application "Terminal" to activate',
+        "-e",
+        `tell application "Terminal" to do script ${JSON.stringify(script)}`,
+      ],
       { timeoutMs: 15_000 },
     );
     if (r.code === 0) {
       return {
         ok: true,
+        openedExternal: true,
         log: "Opened Terminal with the official pi.dev installer. Finish prompts there, then restart Pi Desktop if needed.",
       };
     }
-    return { ok: false, log: `${r.stdout}\n${r.stderr}`.trim() };
+    return { ok: false, log: `${r.stdout}\n${r.stderr}`.trim() || "Failed to open Terminal.app" };
   }
 
   // Linux: try common terminals; fall back to non-interactive pipe (may prompt fail)
@@ -275,19 +348,35 @@ async function installWithCurl(): Promise<{ ok: boolean; log: string }> {
   for (const term of termCandidates) {
     const termPath = await resolveCommand(term);
     if (!termPath) continue;
-    try {
-      const child = spawn(
-        termPath,
-        ["-e", `bash -lc 'curl -fsSL "${PI_INSTALL_SH}" | sh; echo; read -n1 -r -p \"Press any key…\"'`],
-        { detached: true, stdio: "ignore" },
-      );
-      child.unref();
+    const opened = await new Promise<boolean>((resolve) => {
+      let settled = false;
+      const done = (ok: boolean) => {
+        if (settled) return;
+        settled = true;
+        resolve(ok);
+      };
+      try {
+        const child = spawn(
+          termPath,
+          ["-e", `bash -lc 'curl -fsSL "${PI_INSTALL_SH}" | sh; echo; read -n1 -r -p \"Press any key…\"'`],
+          { detached: true, stdio: "ignore" },
+        );
+        child.once("error", () => done(false));
+        child.once("spawn", () => {
+          child.unref();
+          done(true);
+        });
+        setTimeout(() => done(Boolean(child.pid)), 800);
+      } catch {
+        done(false);
+      }
+    });
+    if (opened) {
       return {
         ok: true,
+        openedExternal: true,
         log: `Opened ${term} with the official pi.dev installer.`,
       };
-    } catch {
-      // try next
     }
   }
 
@@ -300,7 +389,7 @@ async function installWithCurl(): Promise<{ ok: boolean; log: string }> {
   };
 }
 
-async function runMethod(method: PiCliInstallMethod): Promise<{ ok: boolean; log: string }> {
+async function runMethod(method: PiCliInstallMethod): Promise<MethodResult> {
   switch (method) {
     case "bun":
       return installWithBun();
@@ -322,7 +411,14 @@ async function runMethod(method: PiCliInstallMethod): Promise<{ ok: boolean; log
 export async function installPiCli(): Promise<PiCliInstallResult> {
   if (installBusy) {
     const status = await getPiCliStatus();
-    return { ok: false, method: null, status, log: "", error: "Pi CLI install already in progress" };
+    return {
+      ok: false,
+      method: null,
+      status,
+      log: "",
+      error: "Pi CLI install already in progress",
+      openedExternal: false,
+    };
   }
   installBusy = true;
   const logs: string[] = [];
@@ -344,6 +440,7 @@ export async function installPiCli(): Promise<PiCliInstallResult> {
         status,
         log: "",
         error: `No installer available. See ${PI_INSTALL_URL}`,
+        openedExternal: false,
       };
     }
 
@@ -359,7 +456,7 @@ export async function installPiCli(): Promise<PiCliInstallResult> {
       logs.push(`[${method}]\n${result.log}`);
       if (result.ok) {
         broadcastProgress({ phase: "verify", method, message: "Verifying pi command…" });
-        // Refresh PATH may lag on Windows — re-probe a few times
+        // Refresh PATH may lag on Windows — re-probe a few times (+ known global bins)
         let status = await getPiCliStatus();
         for (let i = 0; i < 5 && !status.installed; i++) {
           await new Promise((r) => setTimeout(r, 400));
@@ -368,10 +465,22 @@ export async function installPiCli(): Promise<PiCliInstallResult> {
         if (status.installed) {
           writePrefs({ installedAt: Date.now(), skipped: false });
           broadcastProgress({ phase: "done", method, message: "Pi CLI installed" });
-          return { ok: true, method, status, log: logs.join("\n\n"), error: null };
+          return {
+            ok: true,
+            method,
+            status,
+            log: logs.join("\n\n"),
+            error: null,
+            openedExternal: Boolean(result.openedExternal),
+          };
         }
-        // Interactive external installer (powershell/curl) — don't mark done permanently
-        if (method === "powershell" || method === "curl") {
+        // Interactive external installer (powershell/curl) — don't claim PATH is ready
+        if (result.openedExternal || method === "powershell" || method === "curl") {
+          if (!result.openedExternal) {
+            // Method claimed success without actually opening a console — treat as failure
+            lastErr = result.log || `${method} did not open an installer window`;
+            continue;
+          }
           broadcastProgress({
             phase: "done",
             method,
@@ -383,14 +492,15 @@ export async function installPiCli(): Promise<PiCliInstallResult> {
             status,
             log: logs.join("\n\n"),
             error: null,
+            openedExternal: true,
           };
         }
-        // Package manager succeeded but PATH not visible yet
+        // Package manager succeeded but PATH not visible yet in this process
         writePrefs({ installedAt: Date.now(), skipped: false });
         broadcastProgress({
           phase: "done",
           method,
-          message: "Install finished — restart terminal/app if `pi` is not found yet",
+          message: "Install finished — restart the app if `pi` is not found yet",
         });
         return {
           ok: true,
@@ -398,6 +508,7 @@ export async function installPiCli(): Promise<PiCliInstallResult> {
           status,
           log: logs.join("\n\n"),
           error: null,
+          openedExternal: false,
         };
       }
       lastErr = result.log || `${method} failed`;
@@ -411,12 +522,20 @@ export async function installPiCli(): Promise<PiCliInstallResult> {
       status,
       log: logs.join("\n\n"),
       error: lastErr || "All install methods failed",
+      openedExternal: false,
     };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     const status = await getPiCliStatus();
     broadcastProgress({ phase: "error", method: used, message });
-    return { ok: false, method: used, status, log: logs.join("\n\n"), error: message };
+    return {
+      ok: false,
+      method: used,
+      status,
+      log: logs.join("\n\n"),
+      error: message,
+      openedExternal: false,
+    };
   } finally {
     installBusy = false;
   }

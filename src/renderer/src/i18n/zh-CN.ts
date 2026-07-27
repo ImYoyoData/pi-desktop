@@ -204,7 +204,8 @@ export const zh = {
   piCliSkip: "暂不安装",
   piCliInstalling: "正在安装 Pi CLI…",
   piCliInstallOk: "Pi CLI 已安装",
-  piCliInstallStarted: "已打开系统安装窗口，请在其中完成安装后重启本应用",
+  piCliInstallStarted: "已打开系统命令行安装窗口，请在其中完成安装后重启本应用",
+  piCliInstallNeedRestart: "安装命令已执行完成；若仍检测不到 pi，请重启本应用后再试",
   piCliInstallFail: "Pi CLI 安装失败，请打开 pi.dev 手动安装后重试",
 } as const;
 

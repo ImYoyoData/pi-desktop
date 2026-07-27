@@ -32,4 +32,6 @@ export type PiCliInstallResult = {
   status: PiCliStatus;
   log: string;
   error: string | null;
+  /** True when an interactive system console/terminal was opened for the official installer. */
+  openedExternal?: boolean;
 };
