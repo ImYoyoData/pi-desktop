@@ -281,7 +281,53 @@ export const useComposerStore = defineStore("composer", () => {
     return parts.join(" ");
   }
 
-  /** Snapshot of element tags for chat bubble — content only. */
+  /** Snapshot of all chips for chat bubble tags (file path / url / element). */
+  function attachmentTagSnapshot(): {
+    kind: "file" | "url" | "element";
+    label: string;
+    title: string;
+    ref: string;
+    content?: string;
+  }[] {
+    const out: {
+      kind: "file" | "url" | "element";
+      label: string;
+      title: string;
+      ref: string;
+      content?: string;
+    }[] = [];
+    for (const chip of bucket().chips) {
+      if (chip.kind === "file") {
+        out.push({
+          kind: "file",
+          label: chip.path,
+          title: chip.path,
+          ref: chip.path,
+          content: chip.path,
+        });
+      } else if (chip.kind === "url") {
+        out.push({
+          kind: "url",
+          label: chip.url,
+          title: chip.url,
+          ref: chip.url,
+          content: chip.url,
+        });
+      } else {
+        const content = truncateElementContent(chip.citation.text ?? "", 100);
+        out.push({
+          kind: "element",
+          label: content || chip.citation.selector?.trim() || "element",
+          title: chip.citation.url,
+          ref: chip.citation.url,
+          content,
+        });
+      }
+    }
+    return out;
+  }
+
+  /** @deprecated use attachmentTagSnapshot — kept for element-only callers. */
   function elementTagSnapshot(): {
     url: string;
     host: string;
@@ -309,6 +355,7 @@ export const useComposerStore = defineStore("composer", () => {
     resetAll,
     elementCitations,
     elementTagSnapshot,
+    attachmentTagSnapshot,
     addCitation,
     attachScreenshotToLatestElement,
     addImageFile,

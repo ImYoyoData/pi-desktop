@@ -11,6 +11,11 @@ import type {
   PiCliInstallResult,
   PiCliStatus,
 } from "../shared/pi-cli";
+import type {
+  PiPackageInstallResult,
+  PiPackageListResult,
+  PiPackageType,
+} from "../shared/pi-market";
 
 export type AppInfo = {
   version: string;
@@ -348,6 +353,15 @@ const api = {
         ipcRenderer.removeListener(IpcChannels.asr.progress, listener);
       };
     },
+    setWakeHotkey: (accel: string) =>
+      ipcRenderer.invoke(IpcChannels.asr.setWakeHotkey, accel) as Promise<AsrStatus>,
+    onWake: (callback: () => void) => {
+      const listener = () => callback();
+      ipcRenderer.on(IpcChannels.asr.wake, listener);
+      return () => {
+        ipcRenderer.removeListener(IpcChannels.asr.wake, listener);
+      };
+    },
   },
   update: {
     getAppInfo: () => ipcRenderer.invoke(IpcChannels.update.getAppInfo) as Promise<AppInfo>,
@@ -388,6 +402,87 @@ const api = {
       };
     },
   },
+  market: {
+    list: (opts?: { query?: string; type?: PiPackageType }) =>
+      ipcRenderer.invoke(IpcChannels.market.list, opts) as Promise<PiPackageListResult>,
+    install: (packageName: string) =>
+      ipcRenderer.invoke(IpcChannels.market.install, packageName) as Promise<PiPackageInstallResult>,
+  },
+  checkpoint: {
+    begin: (sessionId: string, userMessageId: string) =>
+      ipcRenderer.invoke(IpcChannels.checkpoint.begin, sessionId, userMessageId) as Promise<{
+        sessionId: string;
+        userMessageId: string;
+        status: "capturing" | "ready" | "reverted" | "empty";
+        fileCount: number;
+        skippedCount: number;
+      }>,
+    finish: (sessionId: string, userMessageId: string) =>
+      ipcRenderer.invoke(IpcChannels.checkpoint.finish, sessionId, userMessageId) as Promise<{
+        sessionId: string;
+        userMessageId: string;
+        status: "capturing" | "ready" | "reverted" | "empty";
+        fileCount: number;
+        skippedCount: number;
+      }>,
+    finishActive: (sessionId: string) =>
+      ipcRenderer.invoke(IpcChannels.checkpoint.finishActive, sessionId) as Promise<{
+        sessionId: string;
+        userMessageId: string;
+        status: "capturing" | "ready" | "reverted" | "empty";
+        fileCount: number;
+        skippedCount: number;
+      } | null>,
+    get: (sessionId: string, userMessageId: string) =>
+      ipcRenderer.invoke(IpcChannels.checkpoint.get, sessionId, userMessageId) as Promise<{
+        sessionId: string;
+        userMessageId: string;
+        status: "capturing" | "ready" | "reverted" | "empty";
+        fileCount: number;
+        skippedCount: number;
+      } | null>,
+    revert: (sessionId: string, userMessageId: string) =>
+      ipcRenderer.invoke(IpcChannels.checkpoint.revert, sessionId, userMessageId) as Promise<{
+        ok: boolean;
+        restored: number;
+        deleted: number;
+        skipped: number;
+        error: string | null;
+      }>,
+    onUpdated: (
+      callback: (summary: {
+        sessionId: string;
+        userMessageId: string;
+        status: "capturing" | "ready" | "reverted" | "empty";
+        fileCount: number;
+        skippedCount: number;
+      }) => void,
+    ) => {
+      const listener = (
+        _event: Electron.IpcRendererEvent,
+        summary: {
+          sessionId: string;
+          userMessageId: string;
+          status: "capturing" | "ready" | "reverted" | "empty";
+          fileCount: number;
+          skippedCount: number;
+        },
+      ) => callback(summary);
+      ipcRenderer.on(IpcChannels.checkpoint.updated, listener);
+      return () => {
+        ipcRenderer.removeListener(IpcChannels.checkpoint.updated, listener);
+      };
+    },
+  },
+  notify: {
+    turnComplete: (payload: { title: string; body: string }) =>
+      ipcRenderer.invoke(IpcChannels.notify.turnComplete, payload) as Promise<{
+        ok: boolean;
+        notified: boolean;
+        focused: boolean;
+        error?: string;
+      }>,
+  },
   terminal: {
     create: (cwd?: string) =>
       ipcRenderer.invoke(IpcChannels.terminal.create, cwd) as Promise<string>,
@@ -397,6 +492,10 @@ const api = {
       ipcRenderer.invoke(IpcChannels.terminal.resize, id, cols, rows) as Promise<void>,
     dispose: (id: string) =>
       ipcRenderer.invoke(IpcChannels.terminal.dispose, id) as Promise<void>,
+    isAlive: (id: string) =>
+      ipcRenderer.invoke(IpcChannels.terminal.isAlive, id) as Promise<boolean>,
+    getScrollback: (id: string) =>
+      ipcRenderer.invoke(IpcChannels.terminal.getScrollback, id) as Promise<string | null>,
     onData: (callback: (payload: { id: string; data: string }) => void) => {
       const listener = (
         _event: Electron.IpcRendererEvent,

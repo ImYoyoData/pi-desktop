@@ -62,6 +62,36 @@ describe("reduceChatEvent", () => {
     expect(state.messages[0]).toMatchObject({ role: "user", text: "这个是？" });
   });
 
+  it("does not mirror @path chip expansion as a second user bubble", () => {
+    let state = createChatState();
+    state = appendUserMessage(state, "删除", undefined, [
+      {
+        url: "txt",
+        host: "",
+        label: "txt",
+        content: "txt",
+        kind: "file",
+      },
+    ]);
+    state = reduceChatEvent(state, {
+      type: "agent_event",
+      sessionId: "s",
+      event: {
+        type: "message_end",
+        message: {
+          role: "user",
+          content: [{ type: "text", text: "删除\n\n@txt" }],
+        },
+      },
+    });
+    expect(state.messages).toHaveLength(1);
+    expect(state.messages[0]).toMatchObject({
+      role: "user",
+      text: "删除",
+      elementTags: [{ kind: "file", content: "txt" }],
+    });
+  });
+
   it("keeps a single streaming bubble replaced on message_update (pi-web style)", () => {
     let state = createChatState();
     const sessionId = "sess-1";

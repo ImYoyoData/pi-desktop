@@ -1,5 +1,5 @@
 import { defineStore } from "pinia";
-import { computed, onScopeDispose, reactive } from "vue";
+import { computed, onScopeDispose, reactive, ref } from "vue";
 import type { AgentEvent, ElementCitation, PromptImageContent, SessionHistoryMessage } from "../../../shared/protocol";
 import { toPromptCitations, toPromptImages } from "../../../shared/protocol";
 import {
@@ -11,11 +11,19 @@ import {
   type ChatUserImage,
 } from "./chat-reducer";
 import { useSessionsStore } from "./sessions";
+import { useCheckpointStore } from "./checkpoint";
+import { useNotifyStore } from "./notify";
 import { formatLlmError } from "../utils/llm-error";
-import { locale } from "../i18n";
+import { locale, t } from "../i18n";
 
 export type { ChatMessage, ChatState, ChatUserImage, ChatRetryHint } from "./chat-reducer";
 export { appendUserMessage, createChatState, reduceChatEvent } from "./chat-reducer";
+
+/** In-progress re-edit of a published user bubble (messages stay until commit/send). */
+export type PendingUserEdit = {
+  sessionId: string;
+  messageId: string;
+};
 
 function toChatImages(images?: PromptImageContent[]): ChatUserImage[] | undefined {
   if (!images?.length) return undefined;
@@ -31,6 +39,9 @@ function toChatImages(images?: PromptImageContent[]): ChatUserImage[] | undefine
 export const useChatStore = defineStore("chat", () => {
   const bySession = reactive<Record<string, ChatState>>({});
   const sessionsStore = useSessionsStore();
+  const checkpointStore = useCheckpointStore();
+  const notifyStore = useNotifyStore();
+  const pendingUserEdit = ref<PendingUserEdit | null>(null);
 
   function stateFor(sessionId: string): ChatState {
     if (!bySession[sessionId]) {
@@ -66,9 +77,19 @@ export const useChatStore = defineStore("chat", () => {
   function applyEvent(event: AgentEvent): void {
     const sessionId = event.sessionId;
     bySession[sessionId] = reduceChatEvent(stateFor(sessionId), event);
+    if (event.type === "prompt_done" || event.type === "prompt_error") {
+      void checkpointStore.finishActive(sessionId);
+    }
+    if (event.type === "prompt_done") {
+      void notifyStore.onTurnComplete({
+        title: "Pi Desktop",
+        body: t.notifyTurnCompleteBody,
+      });
+    }
   }
 
   function hydrateFromHistory(sessionId: string, history: SessionHistoryMessage[]): void {
+    pendingUserEdit.value = null;
     bySession[sessionId] = {
       messages: history.map((row) =>
         row.role === "user"
@@ -83,6 +104,9 @@ export const useChatStore = defineStore("chat", () => {
   }
 
   function clearSession(sessionId: string): void {
+    if (pendingUserEdit.value?.sessionId === sessionId) {
+      pendingUserEdit.value = null;
+    }
     delete bySession[sessionId];
   }
 
@@ -90,6 +114,7 @@ export const useChatStore = defineStore("chat", () => {
   function bindEvents(): void {
     if (eventsBound) return;
     eventsBound = true;
+    checkpointStore.bindEvents();
     const off = window.api.sessions.onEvent((event) => {
       applyEvent(event);
     });
@@ -104,16 +129,30 @@ export const useChatStore = defineStore("chat", () => {
     message: string,
     citations?: ElementCitation[],
     images?: PromptImageContent[],
-    elementTags?: { url: string; host: string; label: string; content?: string }[],
+    elementTags?: {
+      url: string;
+      host: string;
+      label: string;
+      content?: string;
+      kind?: "file" | "url" | "element";
+    }[],
+    /** Bubble text (defaults to `message`). Agent always receives `message`. */
+    displayText?: string,
   ): Promise<void> {
     const promptImages = toPromptImages(images);
     const promptCitations = toPromptCitations(citations);
+    const bubbleText = displayText !== undefined ? displayText : message;
     bySession[sessionId] = appendUserMessage(
       stateFor(sessionId),
-      message,
+      bubbleText,
       toChatImages(promptImages),
       elementTags?.length ? elementTags : undefined,
     );
+    const last = stateFor(sessionId).messages.at(-1);
+    if (last?.role === "user") {
+      // Must finish begin (baseline snapshot) before the agent starts writing files.
+      await checkpointStore.begin(sessionId, last.id);
+    }
     try {
       await sessionsStore.sendCommand(sessionId, {
         type: "prompt",
@@ -122,6 +161,7 @@ export const useChatStore = defineStore("chat", () => {
         images: promptImages,
       });
     } catch (err) {
+      void checkpointStore.finishActive(sessionId);
       const raw = err instanceof Error ? err.message : String(err);
       const text = formatLlmError(raw, locale === "zh-CN" ? "zh-CN" : "en");
       const state = stateFor(sessionId);
@@ -173,13 +213,32 @@ export const useChatStore = defineStore("chat", () => {
     };
   }
 
-  /** Re-edit a user message: keep messages before it, put text into composer via return value. */
-  function beginEditUser(sessionId: string, messageId: string): string | null {
+  /** Start re-edit: keep chat intact; truncate only on commit (send). */
+  function beginEditUser(
+    sessionId: string,
+    messageId: string,
+  ): Extract<ChatMessage, { role: "user" }> | null {
     const state = stateFor(sessionId);
     const idx = state.messages.findIndex((m) => m.id === messageId && m.role === "user");
     if (idx < 0) return null;
     const msg = state.messages[idx];
     if (msg.role !== "user") return null;
+    pendingUserEdit.value = { sessionId, messageId };
+    return msg;
+  }
+
+  function cancelEditUser(): void {
+    pendingUserEdit.value = null;
+  }
+
+  /** Drop the edited user turn and everything after it. Call right before re-send. */
+  function commitEditUser(sessionId: string): boolean {
+    const pending = pendingUserEdit.value;
+    if (!pending || pending.sessionId !== sessionId) return false;
+    const state = stateFor(sessionId);
+    const idx = state.messages.findIndex((m) => m.id === pending.messageId && m.role === "user");
+    pendingUserEdit.value = null;
+    if (idx < 0) return false;
     bySession[sessionId] = {
       ...state,
       messages: state.messages.slice(0, idx),
@@ -187,11 +246,27 @@ export const useChatStore = defineStore("chat", () => {
       running: false,
       retryHint: null,
     };
-    return msg.text;
+    return true;
+  }
+
+  function isPendingEditMessage(sessionId: string, messageId: string): boolean {
+    const p = pendingUserEdit.value;
+    return Boolean(p && p.sessionId === sessionId && p.messageId === messageId);
+  }
+
+  /** True for the edited bubble and everything after it (dim while editing). */
+  function isPendingEditTail(sessionId: string, messageId: string): boolean {
+    const p = pendingUserEdit.value;
+    if (!p || p.sessionId !== sessionId) return false;
+    const state = stateFor(sessionId);
+    const editIdx = state.messages.findIndex((m) => m.id === p.messageId);
+    const msgIdx = state.messages.findIndex((m) => m.id === messageId);
+    return editIdx >= 0 && msgIdx >= editIdx;
   }
 
   /** Regenerate from an assistant message by re-sending the preceding user prompt. */
   async function regenerate(sessionId: string, assistantMessageId: string): Promise<void> {
+    pendingUserEdit.value = null;
     const state = stateFor(sessionId);
     const idx = state.messages.findIndex((m) => m.id === assistantMessageId);
     if (idx < 0) return;
@@ -227,6 +302,7 @@ export const useChatStore = defineStore("chat", () => {
 
   /** Retry after an error bubble: re-send the last user turn before the error. */
   async function retryFromError(sessionId: string, errorMessageId: string): Promise<void> {
+    pendingUserEdit.value = null;
     const state = stateFor(sessionId);
     const errIdx = state.messages.findIndex((m) => m.id === errorMessageId && m.role === "error");
     if (errIdx < 0) return;
@@ -262,6 +338,7 @@ export const useChatStore = defineStore("chat", () => {
 
   return {
     bySession,
+    pendingUserEdit,
     activeMessages,
     activeStreaming,
     activeRunning,
@@ -275,6 +352,10 @@ export const useChatStore = defineStore("chat", () => {
     abort,
     truncateFrom,
     beginEditUser,
+    cancelEditUser,
+    commitEditUser,
+    isPendingEditMessage,
+    isPendingEditTail,
     regenerate,
     retryFromError,
   };

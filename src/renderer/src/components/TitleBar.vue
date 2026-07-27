@@ -11,6 +11,7 @@ import {
   LogoGithub,
   MicOutline,
   MoonOutline,
+  NotificationsOutline,
   SettingsOutline,
   SparklesOutline,
   StorefrontOutline,
@@ -21,6 +22,7 @@ import SkillsSettings from "@renderer/components/SkillsSettings.vue";
 import ExtensionsSettings from "@renderer/components/ExtensionsSettings.vue";
 import MarketSettings from "@renderer/components/MarketSettings.vue";
 import AppearanceSettings from "@renderer/components/AppearanceSettings.vue";
+import NotifySettings from "@renderer/components/NotifySettings.vue";
 import AsrSettings from "@renderer/components/AsrSettings.vue";
 import AboutSettings from "@renderer/components/AboutSettings.vue";
 import UpdateCard from "@renderer/components/UpdateCard.vue";
@@ -38,6 +40,7 @@ const skillsOpen = ref(false);
 const extensionsOpen = ref(false);
 const marketOpen = ref(false);
 const appearanceOpen = ref(false);
+const notifyOpen = ref(false);
 const asrOpen = ref(false);
 const aboutOpen = ref(false);
 const platform = ref<NodeJS.Platform>("win32");
@@ -65,6 +68,11 @@ const settingsOptions: DropdownOption[] = [
     label: t.appearance,
     key: "appearance",
     icon: () => h(NIcon, null, { default: () => h(ColorPaletteOutline) }),
+  },
+  {
+    label: t.notifyTitle,
+    key: "notify",
+    icon: () => h(NIcon, null, { default: () => h(NotificationsOutline) }),
   },
   {
     label: t.asrTitle,
@@ -106,6 +114,9 @@ function onSettingsSelect(key: string | number): void {
   switch (String(key)) {
     case "appearance":
       appearanceOpen.value = true;
+      break;
+    case "notify":
+      notifyOpen.value = true;
       break;
     case "asr":
       asrOpen.value = true;
@@ -206,6 +217,7 @@ async function onUpdateClick(): Promise<void> {
   </header>
   <UpdateCard />
   <AppearanceSettings :open="appearanceOpen" @close="appearanceOpen = false" />
+  <NotifySettings :open="notifyOpen" @close="notifyOpen = false" />
   <AsrSettings :open="asrOpen" @close="asrOpen = false" />
   <ModelsSettings :open="modelsOpen" @close="modelsOpen = false" />
   <SkillsSettings :open="skillsOpen" @close="skillsOpen = false" />

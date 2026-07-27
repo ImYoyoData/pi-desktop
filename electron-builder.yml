@@ -10,14 +10,42 @@ files:
   - '!tests/*'
   - '!_ev-scaffold2/*'
   - '!.superpowers/*'
+  - '!docs/*'
+  - '!scripts/*'
+  - '!release/*'
+  - '!**/*.{md,map}'
   - '!electron.vite.config.{js,ts,mjs,cjs}'
   - '!{.eslintcache,eslint.config.mjs,.prettierignore,.prettierrc.yaml,dev-app-update.yml,CHANGELOG.md}'
   - '!{.env,.env.*,.npmrc,pnpm-lock.yaml}'
   - '!{tsconfig.json,tsconfig.node.json,tsconfig.web.json,tsconfig.*.tsbuildinfo}'
-  - '!scripts/*'
-  - '!**/*.md'
+  # Renderer-only packages are already bundled into out/ — exclude to cut size hard
+  - '!node_modules/monaco-editor/**'
+  - '!node_modules/naive-ui/**'
+  - '!node_modules/@vicons/**'
+  - '!node_modules/vue/**'
+  - '!node_modules/pinia/**'
+  - '!node_modules/splitpanes/**'
+  - '!node_modules/sortablejs/**'
+  - '!node_modules/@types/**'
+  - '!node_modules/xterm/**'
+  - '!node_modules/@xterm/**'
+  # Keep marked + highlight.js: Pi SDK (agent-worker) requires them at runtime.
+  - '!node_modules/dompurify/**'
+  - '!node_modules/csstype/**'
+  - '!node_modules/seemly/**'
+  - '!node_modules/vooks/**'
+  - '!node_modules/vueuc/**'
+  - '!node_modules/@juggle/**'
+  - '!node_modules/@css-render/**'
+  - '!node_modules/css-render/**'
+  - '!node_modules/evtd/**'
+  - '!node_modules/treemate/**'
+  - '!node_modules/date-fns-tz/**'
+  - '!node_modules/date-fns/**'
+  - '!**/node_modules/*/{CHANGELOG*,README*,readme*,License,LICENSE,LICENCE,*.d.ts}'
+  - '!**/node_modules/*/{test,tests,__tests__,example,examples,doc,docs,coverage,.github}/**'
+  - '!**/node_modules/.bin/**'
 asarUnpack:
-  - 'resources/**'
   - '**/*.node'
 extraResources:
   - from: resources/
@@ -25,17 +53,22 @@ extraResources:
     filter:
       - '**/*'
 icon: build/icon.png
+compression: maximum
+removePackageScripts: true
+nodeGypRebuild: false
+# Rebuild native addons (node-pty) for the current --arch only.
+npmRebuild: true
+buildDependenciesFromSource: false
+electronLanguages:
+  - en-US
+  - zh-CN
 
-# Electron 39+ has no Windows ia32. Ship one installer per arch only:
-# Windows NSIS: x64 + arm64 | macOS DMG: x64 + arm64 (no portable/zip extras).
+# One NSIS installer per arch (build with --x64 OR --arm64, never both in one fat package).
 win:
   executableName: PiDesktop
   artifactName: ${productName}-${version}-win-${arch}-setup.${ext}
   target:
     - target: nsis
-      arch:
-        - x64
-        - arm64
 nsis:
   oneClick: false
   allowToChangeInstallationDirectory: true
@@ -44,6 +77,7 @@ nsis:
   shortcutName: Pi Desktop
   uninstallDisplayName: Pi Desktop
   artifactName: ${productName}-${version}-win-${arch}-setup.${ext}
+  differentialPackage: false
 
 mac:
   category: public.app-category.developer-tools
@@ -54,29 +88,23 @@ mac:
   artifactName: ${productName}-${version}-mac-${arch}.${ext}
   target:
     - target: dmg
-      arch:
-        - x64
-        - arm64
   extendInfo:
     NSCameraUsageDescription: Pi Desktop may use the camera for browser previews.
     NSMicrophoneUsageDescription: Pi Desktop uses the microphone for local speech recognition and browser previews.
     NSDocumentsFolderUsageDescription: Pi Desktop needs access to your Documents folder for workspaces.
     NSDownloadsFolderUsageDescription: Pi Desktop needs access to your Downloads folder for workspaces.
+  # Requires Apple Developer ID + notary credentials in CI to enable.
   notarize: false
 
 dmg:
   artifactName: ${productName}-${version}-mac-${arch}.${ext}
+  writeUpdateInfo: false
 
 linux:
   target:
     - AppImage
   category: Development
   artifactName: ${productName}-${version}-linux-${arch}.${ext}
-
-npmRebuild: true
-electronLanguages:
-  - en-US
-  - zh-CN
 
 publish:
   provider: github

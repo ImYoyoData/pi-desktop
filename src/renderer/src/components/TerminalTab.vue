@@ -5,6 +5,7 @@ import "xterm/css/xterm.css";
 import { nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useWorkspaceStore } from "@renderer/stores/workspace";
 import { useAppearanceStore } from "@renderer/stores/appearance";
+import { useRightTabsStore } from "@renderer/stores/right-tabs";
 import { t } from "@renderer/i18n";
 
 const props = defineProps<{
@@ -12,19 +13,41 @@ const props = defineProps<{
   instanceId?: string;
   /** Tab is visible — refit when shown so height matches the pane */
   visible?: boolean;
+  /** Existing pty to re-attach (kept alive across workspace switches). */
+  ptyId?: string | null;
+  /** Cwd used when the pty was created. */
+  cwd?: string | null;
 }>();
 
 const workspace = useWorkspaceStore();
 const appearance = useAppearanceStore();
+const rightTabs = useRightTabsStore();
 const hostRef = ref<HTMLDivElement | null>(null);
 const ready = ref(false);
+const activePtyId = ref<string | null>(null);
 
 let term: Terminal | null = null;
 let fit: FitAddon | null = null;
-let ptyId: string | null = null;
 let resizeObserver: ResizeObserver | null = null;
 let offData: (() => void) | null = null;
 let fitRaf = 0;
+/** Renderer-side coalesce — xterm.write is expensive under flood. */
+let writeBuf = "";
+let writeRaf = 0;
+
+function flushWriteBuf(): void {
+  writeRaf = 0;
+  if (!term || !writeBuf) return;
+  const chunk = writeBuf;
+  writeBuf = "";
+  term.write(chunk);
+}
+
+function enqueueWrite(data: string): void {
+  writeBuf += data;
+  if (writeRaf) return;
+  writeRaf = requestAnimationFrame(flushWriteBuf);
+}
 
 function terminalTheme() {
   const dark = appearance.resolvedTheme === "dark";
@@ -33,25 +56,61 @@ function terminalTheme() {
         background: "#18181b",
         foreground: "#e4e4e7",
         cursor: "#fafafa",
+        cursorAccent: "#18181b",
         selectionBackground: "rgba(59, 130, 246, 0.35)",
+        selectionForeground: "#fafafa",
+        black: "#52525b",
+        red: "#f87171",
+        green: "#4ade80",
+        yellow: "#facc15",
+        blue: "#60a5fa",
+        magenta: "#e879f9",
+        cyan: "#22d3ee",
+        white: "#e4e4e7",
+        brightBlack: "#71717a",
+        brightRed: "#fca5a5",
+        brightGreen: "#86efac",
+        brightYellow: "#fde047",
+        brightBlue: "#93c5fd",
+        brightMagenta: "#f0abfc",
+        brightCyan: "#67e8f9",
+        brightWhite: "#fafafa",
       }
     : {
         background: "#ffffff",
         foreground: "#18181b",
         cursor: "#18181b",
+        cursorAccent: "#ffffff",
         selectionBackground: "rgba(37, 99, 235, 0.25)",
+        selectionForeground: "#18181b",
+        black: "#18181b",
+        red: "#dc2626",
+        green: "#16a34a",
+        yellow: "#ca8a04",
+        blue: "#2563eb",
+        magenta: "#c026d3",
+        cyan: "#0891b2",
+        white: "#e4e4e7",
+        brightBlack: "#71717a",
+        brightRed: "#ef4444",
+        brightGreen: "#22c55e",
+        brightYellow: "#eab308",
+        brightBlue: "#3b82f6",
+        brightMagenta: "#d946ef",
+        brightCyan: "#06b6d4",
+        brightWhite: "#fafafa",
       };
 }
 
 function fitTerm(): void {
-  if (!term || !fit || !ptyId || !hostRef.value) return;
+  if (!term || !fit || !activePtyId.value || !hostRef.value) return;
   if (props.visible === false) return;
   const rect = hostRef.value.getBoundingClientRect();
   if (rect.width < 8 || rect.height < 8) return;
   try {
     fit.fit();
     const { cols, rows } = term;
-    void window.api.terminal.resize(ptyId, cols, rows);
+    void window.api.terminal.resize(activePtyId.value, cols, rows);
   } catch {
     // container may not be laid out yet
   }
@@ -94,54 +153,73 @@ function onContextMenu(event: MouseEvent): void {
   term.focus();
 }
 
-async function start(): Promise<void> {
-  const cwd = workspace.root;
-  if (!cwd || !hostRef.value || ptyId) return;
-
-  ptyId = await window.api.terminal.create(cwd);
+function bindXterm(host: HTMLDivElement): void {
   term = new Terminal({
     cursorBlink: true,
     fontSize: 13,
     fontFamily: "Cascadia Code, Consolas, Menlo, monospace",
-    // Use contextmenu handler below for Windows-Terminal-style copy/paste.
     rightClickSelectsWord: false,
+    scrollback: 5000,
+    windowOptions: {},
     theme: terminalTheme(),
   });
   fit = new FitAddon();
   term.loadAddon(fit);
-  term.open(hostRef.value);
+  term.open(host);
   term.onData((data) => {
-    if (ptyId) void window.api.terminal.write(ptyId, data);
+    if (activePtyId.value) void window.api.terminal.write(activePtyId.value, data);
   });
-  // Capture phase so we beat xterm's default context menu / selection quirks.
-  hostRef.value.addEventListener("contextmenu", onContextMenu, true);
-
-  await nextTick();
-  scheduleFit();
-  term.focus();
-  ready.value = true;
+  host.addEventListener("contextmenu", onContextMenu, true);
 }
 
-async function stop(): Promise<void> {
+/** Tear down xterm UI only — keep the pty process running. */
+function detachUi(): void {
   hostRef.value?.removeEventListener("contextmenu", onContextMenu, true);
-  if (ptyId) {
-    await window.api.terminal.dispose(ptyId);
-    ptyId = null;
+  if (writeRaf) {
+    cancelAnimationFrame(writeRaf);
+    writeRaf = 0;
   }
+  writeBuf = "";
   term?.dispose();
   term = null;
   fit = null;
   ready.value = false;
 }
 
-watch(
-  () => workspace.root,
-  async (root, prev) => {
-    if (!root || root === prev) return;
-    await stop();
-    await start();
-  },
-);
+async function start(): Promise<void> {
+  const host = hostRef.value;
+  if (!host || term) return;
+
+  const preferredCwd = (props.cwd || workspace.root || "").trim();
+  if (!preferredCwd && !props.ptyId) return;
+
+  let id = props.ptyId?.trim() || null;
+  if (id) {
+    const alive = await window.api.terminal.isAlive(id);
+    if (!alive) id = null;
+  }
+
+  if (!id) {
+    if (!preferredCwd) return;
+    id = await window.api.terminal.create(preferredCwd);
+    if (props.instanceId) {
+      rightTabs.patchTab(props.instanceId, { ptyId: id, cwd: preferredCwd });
+    }
+  }
+
+  activePtyId.value = id;
+  bindXterm(host);
+
+  const history = await window.api.terminal.getScrollback(id);
+  if (history && term) {
+    term.write(history);
+  }
+
+  await nextTick();
+  scheduleFit();
+  term?.focus();
+  ready.value = true;
+}
 
 watch(
   () => props.visible,
@@ -159,27 +237,33 @@ watch(
 
 onMounted(async () => {
   offData = window.api.terminal.onData(({ id, data }) => {
-    if (id === ptyId) term?.write(data);
+    if (id === activePtyId.value) enqueueWrite(data);
   });
   resizeObserver = new ResizeObserver(() => scheduleFit());
   if (hostRef.value) resizeObserver.observe(hostRef.value);
-  await workspace.getWorkspace();
-  if (workspace.root) await start();
+  if (!workspace.root) await workspace.getWorkspace();
+  // Prefer tab host even when global workspace briefly differs during switch
+  if (props.ptyId || props.cwd || workspace.root) await start();
 });
 
-onBeforeUnmount(async () => {
+onBeforeUnmount(() => {
   if (fitRaf) cancelAnimationFrame(fitRaf);
   offData?.();
+  offData = null;
   resizeObserver?.disconnect();
-  await stop();
+  resizeObserver = null;
+  // Workspace switch remounts tabs — never kill pty here.
+  // Explicit tab close disposes via rightTabs.closeTab.
+  detachUi();
+  activePtyId.value = null;
 });
-
-void props.instanceId;
 </script>
 
 <template>
   <div class="terminal-tab">
-    <div v-if="!workspace.root" class="empty">{{ t.terminalEmpty }}</div>
+    <div v-if="!props.ptyId && !props.cwd && !workspace.root" class="empty">
+      {{ t.terminalEmpty }}
+    </div>
     <div v-else ref="hostRef" class="term-host" />
   </div>
 </template>
@@ -213,10 +297,17 @@ void props.instanceId;
   height: 100%;
   padding: 4px;
   box-sizing: border-box;
+  color: var(--fg, #e4e4e7);
 }
 
 .term-host :deep(.xterm-viewport) {
   overflow-y: auto !important;
+}
+
+.term-host :deep(.xterm-helper-textarea),
+.term-host :deep(.xterm-composition-view) {
+  color: var(--fg, #e4e4e7) !important;
+  caret-color: var(--fg, #e4e4e7) !important;
 }
 
 .empty {

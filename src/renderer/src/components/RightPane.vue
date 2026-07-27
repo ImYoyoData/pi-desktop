@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, h, nextTick, onMounted, onUnmounted, watch } from "vue";
+import { computed, h, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 import type { DropdownOption } from "naive-ui";
 import {
   NButton,
@@ -7,13 +7,12 @@ import {
   NEmpty,
   NIcon,
   NSpace,
-  NTabPane,
-  NTabs,
   NTooltip,
   useDialog,
 } from "naive-ui";
 import {
   AddOutline,
+  CloseOutline,
   DocumentTextOutline,
   GitCompareOutline,
   GlobeOutline,
@@ -28,20 +27,18 @@ import PreviewTab from "@renderer/components/PreviewTab.vue";
 import { useLayoutStore } from "@renderer/stores/layout";
 import { usePreviewStore } from "@renderer/stores/preview";
 import { useRightTabsStore, type RightTab, type RightTabKind } from "@renderer/stores/right-tabs";
+import { useWorkspaceStore } from "@renderer/stores/workspace";
 import { gitCodeColor } from "@renderer/utils/editor-lang";
 import { t } from "@renderer/i18n";
 
 const layout = useLayoutStore();
 const previewStore = usePreviewStore();
 const rightTabs = useRightTabsStore();
+const workspace = useWorkspaceStore();
 const dialog = useDialog();
 
+const tabsBarRef = ref<HTMLElement | null>(null);
 let tabsSortable: Sortable | null = null;
-const tabsRowRef = { el: null as HTMLElement | null };
-
-function setTabsRowRef(el: unknown): void {
-  tabsRowRef.el = el instanceof HTMLElement ? el : null;
-}
 
 function destroyTabsSortable(): void {
   tabsSortable?.destroy();
@@ -50,21 +47,25 @@ function destroyTabsSortable(): void {
 
 function bindTabsSortable(): void {
   destroyTabsSortable();
-  const root = tabsRowRef.el;
-  if (!root || rightTabs.tabs.length < 2) return;
-  const container =
-    root.querySelector<HTMLElement>(".n-tabs-nav-scroll-content")
-    ?? root.querySelector<HTMLElement>(".n-tabs-wrapper")
-    ?? root.querySelector<HTMLElement>(".n-tabs-nav");
-  if (!container) return;
-  tabsSortable = Sortable.create(container, {
+  const el = tabsBarRef.value;
+  if (!el || rightTabs.tabs.length < 2) return;
+  tabsSortable = Sortable.create(el, {
     animation: 150,
-    draggable: ".n-tabs-tab-wrapper, .n-tabs-tab",
-    onEnd: (evt) => {
-      const oldIndex = evt.oldIndex;
-      const newIndex = evt.newIndex;
-      if (oldIndex == null || newIndex == null || oldIndex === newIndex) return;
-      rightTabs.reorderTabs(oldIndex, newIndex);
+    direction: "horizontal",
+    draggable: ".tab-item",
+    filter: ".tab-close",
+    preventOnFilter: false,
+    delay: 0,
+    delayOnTouchOnly: true,
+    onEnd: () => {
+      const ids = [...el.querySelectorAll<HTMLElement>(".tab-item[data-id]")]
+        .map((n) => n.dataset.id)
+        .filter((id): id is string => Boolean(id));
+      if (ids.length !== rightTabs.tabs.length) return;
+      const same = ids.every((id, i) => rightTabs.tabs[i]?.id === id);
+      if (same) return;
+      rightTabs.reorderByIds(ids);
+      rightTabs.persistTabs(workspace.root);
     },
   });
 }
@@ -97,7 +98,7 @@ onUnmounted(() => {
 });
 
 watch(
-  () => rightTabs.tabs.map((t) => t.id).join("|"),
+  () => rightTabs.tabs.map((tab) => tab.id).join("|"),
   () => {
     void nextTick(() => bindTabsSortable());
   },
@@ -160,7 +161,12 @@ const addOptions: DropdownOption[] = [
 ];
 
 async function onAddSelect(key: string | number): Promise<void> {
-  rightTabs.addTab(String(key) as RightTabKind);
+  const kind = String(key) as RightTabKind;
+  if (kind === "terminal") {
+    rightTabs.addTab("terminal", { cwd: workspace.root ?? undefined });
+    return;
+  }
+  rightTabs.addTab(kind);
 }
 
 const active = computed(() => rightTabs.activeTab);
@@ -171,7 +177,7 @@ function doClose(id: string): void {
 
 function onTabClose(name: string | number): void {
   const id = String(name);
-  const tab = rightTabs.tabs.find((t) => t.id === id);
+  const tab = rightTabs.tabs.find((item) => item.id === id);
   if (!tab) return;
 
   // Deleted on disk — ask whether to recreate via save
@@ -256,44 +262,42 @@ function onTabClose(name: string | number): void {
   doClose(id);
 }
 
-function onTabChange(name: string | number): void {
-  rightTabs.selectTab(String(name));
+function onTabChange(id: string): void {
+  rightTabs.selectTab(id);
 }
 </script>
 
 <template>
   <aside class="right-pane">
     <header class="head">
-      <div class="tabs-row" :ref="setTabsRowRef">
-        <NTabs
-          v-if="rightTabs.tabs.length"
-          type="card"
-          size="small"
-          :value="rightTabs.activeId"
-          :tabs-padding="4"
-          closable
-          @close="onTabClose"
-          @update:value="onTabChange"
-        >
-          <NTabPane
+      <div class="tabs-row">
+        <div ref="tabsBarRef" class="tabs-bar">
+          <div
             v-for="tab in rightTabs.tabs"
             :key="tab.id"
-            :name="tab.id"
-            display-directive="show"
+            class="tab-item"
+            :class="{ active: tab.id === rightTabs.activeId }"
+            :data-id="tab.id"
+            role="tab"
+            :aria-selected="tab.id === rightTabs.activeId"
+            @click="onTabChange(tab.id)"
           >
-            <template #tab>
-              <NSpace :size="4" align="center" :wrap="false">
-                <NIcon :component="iconFor(tab.kind)" :size="12" :style="tabLabelStyle(tab)" />
-                <span
-                  class="tab-label"
-                  :class="{ transient: tab.kind === 'preview' && tab.transient !== false && !tab.dirty }"
-                  :style="tabLabelStyle(tab)"
-                >{{ tabDisplayLabel(tab) }}</span>
-              </NSpace>
-            </template>
-            <div class="pane-placeholder" />
-          </NTabPane>
-        </NTabs>
+            <NIcon :component="iconFor(tab.kind)" :size="12" :style="tabLabelStyle(tab)" />
+            <span
+              class="tab-label"
+              :class="{ transient: tab.kind === 'preview' && tab.transient !== false && !tab.dirty }"
+              :style="tabLabelStyle(tab)"
+            >{{ tabDisplayLabel(tab) }}</span>
+            <button
+              type="button"
+              class="tab-close"
+              :title="t.closeTab"
+              @click.stop="onTabClose(tab.id)"
+            >
+              <NIcon :component="CloseOutline" :size="12" />
+            </button>
+          </div>
+        </div>
 
         <NDropdown trigger="click" :options="addOptions" @select="onAddSelect">
           <NButton quaternary circle size="tiny" :title="t.newTab">
@@ -340,6 +344,8 @@ function onTabChange(name: string | number): void {
           v-show="active?.id === tab.id"
           class="tab-panel"
           :instance-id="tab.id"
+          :pty-id="tab.ptyId ?? null"
+          :cwd="tab.cwd ?? null"
           :visible="active?.id === tab.id && !layout.rightCollapsed"
         />
         <PreviewTab
@@ -397,32 +403,88 @@ function onTabChange(name: string | number): void {
   height: 100%;
 }
 
-.tabs-row :deep(.n-tabs) {
+.tabs-bar {
   flex: 1;
   min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  overflow-x: auto;
+  overflow-y: hidden;
   height: 100%;
+  scrollbar-width: none;
 }
 
-.tabs-row :deep(.n-tabs-nav) {
-  padding-top: 0 !important;
-  line-height: 1;
-}
-
-.tabs-row :deep(.n-tabs-tab) {
-  padding: 2px 8px !important;
-  font-size: 11.5px !important;
-  height: 24px !important;
-  border-radius: 7px !important;
-  transition: background var(--duration-fast, 140ms) var(--ease-out, ease);
-}
-
-.tabs-row :deep(.n-tabs-tab__close) {
-  margin-left: 2px;
-  font-size: 12px;
-}
-
-.tabs-row :deep(.n-tabs-pane-wrapper) {
+.tabs-bar::-webkit-scrollbar {
   display: none;
+}
+
+.tab-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 140px;
+  height: 24px;
+  padding: 0 6px 0 8px;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--fg-muted);
+  font-size: 11.5px;
+  cursor: pointer;
+  flex-shrink: 0;
+  user-select: none;
+  transition: background var(--duration-fast, 140ms) var(--ease-out, ease),
+    color var(--duration-fast, 140ms) var(--ease-out, ease);
+}
+
+.tab-item:hover {
+  background: var(--bg-hover);
+  color: var(--fg);
+}
+
+.tab-item.active {
+  background: var(--bg-elevated);
+  border-color: var(--border);
+  color: var(--fg-strong);
+  box-shadow: var(--shadow-sm);
+}
+
+.tab-item.sortable-ghost {
+  opacity: 0.35;
+}
+
+.tab-item.sortable-drag {
+  opacity: 0.95;
+  background: var(--bg-elevated);
+  box-shadow: var(--shadow-md);
+}
+
+.tab-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  margin-left: 0;
+  padding: 0;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--fg-faint);
+  cursor: pointer;
+  flex-shrink: 0;
+  opacity: 0.55;
+}
+
+.tab-item:hover .tab-close,
+.tab-item.active .tab-close {
+  opacity: 1;
+}
+
+.tab-close:hover {
+  background: var(--bg-active);
+  color: var(--fg);
 }
 
 .tab-label {
@@ -438,32 +500,21 @@ function onTabChange(name: string | number): void {
   font-weight: 450;
 }
 
-.pane-placeholder {
-  display: none;
-}
-
 .body {
   flex: 1;
   min-height: 0;
-  display: flex;
-  flex-direction: column;
   position: relative;
   overflow: hidden;
 }
 
 .tab-panel {
-  flex: 1 1 auto;
+  position: absolute;
+  inset: 0;
   min-height: 0;
-  min-width: 0;
-  height: 100%;
-  display: flex;
-  flex-direction: column;
   overflow: hidden;
 }
 
 .empty {
-  flex: 1;
-  display: grid;
-  place-items: center;
+  margin-top: 40px;
 }
 </style>

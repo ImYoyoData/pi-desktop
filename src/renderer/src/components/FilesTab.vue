@@ -22,8 +22,6 @@ import {
   DocumentAttachOutline,
   FolderOpenOutline,
 } from "@vicons/ionicons5";
-import Sortable from "sortablejs";
-import type { SortableEvent } from "sortablejs";
 import { useWorkspaceStore } from "@renderer/stores/workspace";
 import { usePreviewStore } from "@renderer/stores/preview";
 import { useRightTabsStore } from "@renderer/stores/right-tabs";
@@ -31,8 +29,6 @@ import { useLayoutStore } from "@renderer/stores/layout";
 import { useComposerStore } from "@renderer/stores/composer";
 import { gitCodeColor } from "@renderer/utils/editor-lang";
 import { t } from "@renderer/i18n";
-
-const FILES_ORDER_KEY_PREFIX = "pi-desktop:files-order:v1:";
 
 const workspace = useWorkspaceStore();
 const previewStore = usePreviewStore();
@@ -49,163 +45,122 @@ void window.api.window.platform().then((p) => {
   pathCaseInsensitive = p === "win32";
 });
 
-const fileSortables: Sortable[] = [];
-const filesBodyRef = ref<HTMLElement | null>(null);
-let filesOrder: Record<string, string[]> = {};
+/** Drag source for move-into-folder (not sibling reorder). */
+const dragSrcPath = ref<string | null>(null);
+/** Highlighted drop folder ("" = workspace root blank area). */
+const dropTargetPath = ref<string | null>(null);
+const moving = ref(false);
+/** Path pending cut → paste (cleared after successful move). */
+const cutPath = ref<string | null>(null);
 
-function filesOrderKey(root: string): string {
-  return `${FILES_ORDER_KEY_PREFIX}${root}`;
+function parentDirOf(relPath: string): string {
+  const normalized = relPath.replace(/\\/g, "/");
+  const idx = normalized.lastIndexOf("/");
+  return idx < 0 ? "" : normalized.slice(0, idx);
 }
 
-function loadFilesOrder(root: string): void {
+/** Dest must be a folder path (or "" for root); never self / descendant / current parent. */
+function canMoveInto(srcPath: string, destDir: string): boolean {
+  const src = srcPath.replace(/\\/g, "/");
+  const dest = destDir.replace(/\\/g, "/").replace(/\/+$/, "");
+  if (!src) return false;
+  if (dest === src || dest.startsWith(`${src}/`)) return false;
+  if (dest === parentDirOf(src)) return false;
+  return true;
+}
+
+async function moveIntoFolder(srcPath: string, destDir: string): Promise<boolean> {
+  if (!canMoveInto(srcPath, destDir) || moving.value) return false;
+  moving.value = true;
   try {
-    const raw = localStorage.getItem(filesOrderKey(root));
-    if (!raw) {
-      filesOrder = {};
-      return;
-    }
-    const parsed = JSON.parse(raw) as Record<string, string[]>;
-    filesOrder = parsed && typeof parsed === "object" ? parsed : {};
-  } catch {
-    filesOrder = {};
-  }
-}
-
-function persistFilesOrder(root: string): void {
-  localStorage.setItem(filesOrderKey(root), JSON.stringify(filesOrder));
-}
-
-function applyOrder(parentPath: string, nodes: TreeOption[]): TreeOption[] {
-  const order = filesOrder[parentPath];
-  if (!order?.length) return nodes;
-  const orderMap = new Map(order.map((id, i) => [id, i]));
-  return [...nodes].sort((a, b) => {
-    const ak = String(a.key);
-    const bk = String(b.key);
-    const ai = orderMap.has(ak) ? (orderMap.get(ak) as number) : Number.MAX_SAFE_INTEGER;
-    const bi = orderMap.has(bk) ? (orderMap.get(bk) as number) : Number.MAX_SAFE_INTEGER;
-    if (ai !== bi) return ai - bi;
-    return String(a.label ?? "").localeCompare(String(b.label ?? ""));
-  });
-}
-
-function destroyFileSortables(): void {
-  for (const s of fileSortables) s.destroy();
-  fileSortables.length = 0;
-}
-
-function parentPathOfContainer(el: HTMLElement): string {
-  if (el.classList.contains("n-tree") && !el.classList.contains("n-tree-children")) {
-    return "";
-  }
-  const node = el.closest(".n-tree-node");
-  if (!node) return "";
-  const content = node.querySelector<HTMLElement>(".n-tree-node-content[data-path]");
-  // Prefer the content belonging to this node, not a nested child
-  const own = node.querySelector<HTMLElement>(":scope > .n-tree-node-content[data-path]");
-  return own?.dataset.path ?? content?.dataset.path ?? "";
-}
-
-function findChildrenList(parentPath: string): TreeOption[] | null {
-  if (!parentPath) return treeData.value;
-  const find = (nodes: TreeOption[]): TreeOption | null => {
-    for (const n of nodes) {
-      if (String(n.key) === parentPath) return n;
-      if (n.children) {
-        const hit = find(n.children);
-        if (hit) return hit;
-      }
-    }
-    return null;
-  };
-  const node = find(treeData.value);
-  if (!node || node.isLeaf !== false) return null;
-  if (!node.children) node.children = [];
-  return node.children;
-}
-
-async function onFileSortEnd(evt: SortableEvent): Promise<void> {
-  const item = evt.item as HTMLElement;
-  const fromPath = item.querySelector<HTMLElement>(".n-tree-node-content[data-path]")?.dataset.path
-    ?? item.closest<HTMLElement>("[data-path]")?.dataset.path;
-  if (!fromPath) return;
-
-  const toList = evt.to as HTMLElement;
-  const fromList = evt.from as HTMLElement;
-  const destDir = parentPathOfContainer(toList);
-
-  if (fromList === toList) {
-    const parent = parentPathOfContainer(fromList);
-    const children = findChildrenList(parent);
-    if (!children) return;
-    const ids = [...toList.children]
-      .map((child) => {
-        const el = child as HTMLElement;
-        return (
-          el.querySelector<HTMLElement>(".n-tree-node-content[data-path]")?.dataset.path
-          ?? el.dataset.path
-          ?? ""
-        );
-      })
-      .filter(Boolean);
-    if (!ids.length) return;
-    const byKey = new Map(children.map((c) => [String(c.key), c]));
-    const next: TreeOption[] = [];
-    for (const id of ids) {
-      const node = byKey.get(id);
-      if (node) next.push(node);
-    }
-    for (const c of children) {
-      if (!ids.includes(String(c.key))) next.push(c);
-    }
-    if (!parent) {
-      treeData.value = next;
-    } else {
-      const dir = findChildrenList(parent);
-      if (dir) {
-        dir.splice(0, dir.length, ...next);
-        treeData.value = [...treeData.value];
-      }
-    }
-    if (workspace.root) {
-      filesOrder[parent] = ids;
-      persistFilesOrder(workspace.root);
-    }
-    return;
-  }
-
-  // Cross-parent move via filesystem
-  try {
-    await window.api.files.move(fromPath, destDir);
+    await window.api.files.move(srcPath, destDir);
     message.success(t.filesMoved);
+    if (cutPath.value === srcPath) cutPath.value = null;
     await refreshRoot();
+    return true;
   } catch (err) {
     message.error(err instanceof Error ? err.message : String(err));
     await refreshRoot();
+    return false;
+  } finally {
+    moving.value = false;
   }
 }
 
-function bindFileSortables(): void {
-  destroyFileSortables();
-  const root = filesBodyRef.value;
-  if (!root || !workspace.root) return;
-  const lists = [...root.querySelectorAll<HTMLElement>(".n-tree-children")];
-  const treeRoot = root.querySelector<HTMLElement>(".n-tree");
-  if (treeRoot) lists.unshift(treeRoot);
-  const seen = new Set<HTMLElement>();
-  for (const list of lists) {
-    if (seen.has(list)) continue;
-    seen.add(list);
-    const sortable = Sortable.create(list, {
-      group: "files-tree",
-      animation: 150,
-      draggable: ".n-tree-node-wrapper",
-      onEnd: (evt) => {
-        void onFileSortEnd(evt);
-      },
-    });
-    fileSortables.push(sortable);
-  }
+function clearDragState(): void {
+  dragSrcPath.value = null;
+  dropTargetPath.value = null;
+}
+
+function onRootDragOver(e: DragEvent): void {
+  if (!dragSrcPath.value) return;
+  // Only treat empty body / padding as root; folder nodes handle themselves.
+  const target = e.target as HTMLElement | null;
+  if (target?.closest?.(".n-tree-node-content")) return;
+  if (!canMoveInto(dragSrcPath.value, "")) return;
+  e.preventDefault();
+  if (e.dataTransfer) e.dataTransfer.dropEffect = "move";
+  dropTargetPath.value = "";
+}
+
+function onRootDragLeave(e: DragEvent): void {
+  const related = e.relatedTarget as Node | null;
+  const current = e.currentTarget as HTMLElement;
+  if (related && current.contains(related)) return;
+  if (dropTargetPath.value === "") dropTargetPath.value = null;
+}
+
+function onRootDrop(e: DragEvent): void {
+  const target = e.target as HTMLElement | null;
+  if (target?.closest?.(".n-tree-node-content")) return;
+  e.preventDefault();
+  const src = dragSrcPath.value ?? e.dataTransfer?.getData("text/plain") ?? "";
+  clearDragState();
+  if (!src) return;
+  void moveIntoFolder(src, "");
+}
+
+type DropPosition = "before" | "after" | "inside";
+
+/** Only allow drop *inside* directories (never sibling reorder). */
+function allowTreeDrop(info: {
+  node: TreeOption;
+  dropPosition: DropPosition;
+  phase: "drag" | "drop";
+}): boolean {
+  if (info.dropPosition !== "inside") return false;
+  if (info.node.isLeaf !== false) return false;
+  const src = dragSrcPath.value;
+  // dragSrcPath may lag one tick behind Naive's internal drag node — still show mark.
+  if (!src) return true;
+  return canMoveInto(src, String(info.node.key));
+}
+
+function onTreeDragStart(info: { node: TreeOption; event: DragEvent }): void {
+  const path = String(info.node.key);
+  dragSrcPath.value = path;
+  dropTargetPath.value = null;
+  info.event.dataTransfer?.setData("text/plain", path);
+  if (info.event.dataTransfer) info.event.dataTransfer.effectAllowed = "move";
+}
+
+function onTreeDragEnd(): void {
+  clearDragState();
+}
+
+function onTreeDrop(info: {
+  node: TreeOption;
+  dragNode: TreeOption;
+  dropPosition: DropPosition;
+  event: DragEvent;
+}): void {
+  info.event.preventDefault();
+  const src = String(info.dragNode.key);
+  const dest = String(info.node.key);
+  clearDragState();
+  if (info.dropPosition !== "inside") return;
+  if (!canMoveInto(src, dest)) return;
+  void moveIntoFolder(src, dest);
 }
 
 function sameWorkspaceRoot(a: string, b: string): boolean {
@@ -319,7 +274,7 @@ async function refreshGit(): Promise<void> {
 
 async function loadChildren(relativePath: string): Promise<TreeOption[]> {
   const entries = await window.api.files.list(relativePath || undefined);
-  return applyOrder(relativePath || "", entries.map(toTreeOption));
+  return entries.map(toTreeOption);
 }
 
 async function refreshRoot(): Promise<void> {
@@ -327,10 +282,8 @@ async function refreshRoot(): Promise<void> {
     treeData.value = [];
     gitCodes.value = {};
     gitDirtyDirs.value = new Set();
-    destroyFileSortables();
     return;
   }
-  loadFilesOrder(workspace.root);
   loading.value = true;
   try {
     await refreshGit();
@@ -341,7 +294,6 @@ async function refreshRoot(): Promise<void> {
     }
   } finally {
     loading.value = false;
-    void nextTick(() => bindFileSortables());
   }
 }
 
@@ -397,12 +349,6 @@ function onSelect(keys: Array<string | number>, option: Array<TreeOption | null>
   openFile(String(node.key));
 }
 
-function parentDirOf(relPath: string): string {
-  const normalized = relPath.replace(/\\/g, "/");
-  const idx = normalized.lastIndexOf("/");
-  return idx < 0 ? "" : normalized.slice(0, idx);
-}
-
 function closeCtx(): void {
   ctx.value.show = false;
 }
@@ -414,11 +360,16 @@ function openCtx(e: MouseEvent, path: string, kind: "file" | "dir" | "blank"): v
 }
 
 function nodeProps({ option }: { option: TreeOption }) {
+  const path = String(option.key);
+  const isDir = option.isLeaf === false;
   return {
-    "data-path": String(option.key),
+    "data-path": path,
+    "data-kind": isDir ? "dir" : "file",
+    // Do NOT set draggable/onDrag* here — Naive TreeNodeContent overwrites them.
+    // Use NTree `draggable` + @drop instead.
+    class: cutPath.value === path ? "is-cut" : undefined,
     onContextmenu(e: MouseEvent) {
-      const kind = option.isLeaf === false ? "dir" : "file";
-      openCtx(e, String(option.key), kind);
+      openCtx(e, path, isDir ? "dir" : "file");
     },
   };
 }
@@ -426,12 +377,19 @@ function nodeProps({ option }: { option: TreeOption }) {
 const ctxOptions = computed<DropdownOption[]>(() => {
   const kind = ctx.value.kind;
   const items: DropdownOption[] = [];
+  const pasteDest =
+    kind === "dir" ? ctx.value.path : kind === "file" ? parentDirOf(ctx.value.path) : "";
+  const canPaste = Boolean(cutPath.value) && canMoveInto(cutPath.value!, pasteDest);
+
   if (kind === "file") {
     items.push(
       { label: t.open, key: "open" },
       { label: t.filesAddToChat, key: "cite" },
       { label: t.filesReveal, key: "reveal" },
       { type: "divider", key: "d1" },
+      { label: t.filesCut, key: "cut" },
+      { label: t.filesPaste, key: "paste", disabled: !canPaste },
+      { type: "divider", key: "d2" },
       { label: t.filesRename, key: "rename" },
       { label: t.filesDelete, key: "delete" },
     );
@@ -442,6 +400,9 @@ const ctxOptions = computed<DropdownOption[]>(() => {
       { label: t.filesAddToChat, key: "cite" },
       { label: t.filesReveal, key: "reveal" },
       { type: "divider", key: "d1" },
+      { label: t.filesCut, key: "cut" },
+      { label: t.filesPaste, key: "paste", disabled: !canPaste },
+      { type: "divider", key: "d2" },
       { label: t.filesRename, key: "rename" },
       { label: t.filesDelete, key: "delete" },
     );
@@ -449,6 +410,7 @@ const ctxOptions = computed<DropdownOption[]>(() => {
     items.push(
       { label: t.filesNewFile, key: "new-file" },
       { label: t.filesNewFolder, key: "new-dir" },
+      { label: t.filesPaste, key: "paste", disabled: !canPaste },
       { label: t.filesRefresh, key: "refresh" },
     );
   }
@@ -530,6 +492,22 @@ async function onCtxSelect(key: string | number): Promise<void> {
       case "rename":
         openPrompt("rename", parentDirOf(target), target);
         break;
+      case "cut":
+        if (!target) break;
+        cutPath.value = target;
+        message.success(t.filesCutReady);
+        break;
+      case "paste": {
+        const src = cutPath.value;
+        if (!src) {
+          message.info(t.filesPasteEmpty);
+          break;
+        }
+        const dest =
+          kind === "dir" ? target : kind === "file" ? parentDirOf(target) : "";
+        await moveIntoFolder(src, dest);
+        break;
+      }
       case "delete": {
         dialog.warning({
           title: t.filesDeleteConfirmTitle,
@@ -645,7 +623,7 @@ onMounted(() => {
 onUnmounted(() => {
   offFs?.();
   if (fsRefreshTimer) clearTimeout(fsRefreshTimer);
-  destroyFileSortables();
+  clearDragState();
   // Do NOT unwatch here — watcher is owned by workspace switch lifecycle in main/store
 });
 
@@ -654,17 +632,10 @@ watch(
   () => {
     expandedKeys.value = [];
     selectedKeys.value = [];
-    destroyFileSortables();
+    cutPath.value = null;
+    clearDragState();
     void refreshRoot();
   },
-);
-
-watch(
-  () => [treeData.value, expandedKeys.value] as const,
-  () => {
-    void nextTick(() => bindFileSortables());
-  },
-  { deep: true },
 );
 
 watch(
@@ -704,13 +675,22 @@ watch(
       </NSpace>
     </div>
 
-    <div ref="filesBodyRef" class="body" @contextmenu="(e) => openCtx(e, '', 'blank')">
+    <div
+      class="body"
+      :class="{ 'drop-root': dropTargetPath === '' }"
+      @contextmenu="(e) => openCtx(e, '', 'blank')"
+      @dragover="onRootDragOver"
+      @dragleave="onRootDragLeave"
+      @drop="onRootDrop"
+    >
       <NEmpty v-if="!workspace.root" :description="t.filesOpenWorkspaceFirst" size="small" />
       <NSpin v-else :show="loading" size="small">
         <NTree
           v-if="treeData.length"
           block-line
           expand-on-click
+          draggable
+          :allow-drop="allowTreeDrop"
           :data="treeData"
           :expanded-keys="expandedKeys"
           :selected-keys="selectedKeys"
@@ -719,6 +699,9 @@ watch(
           :render-suffix="renderSuffix"
           :render-label="renderLabel"
           :node-props="nodeProps"
+          @dragstart="onTreeDragStart"
+          @dragend="onTreeDragEnd"
+          @drop="onTreeDrop"
           @update:expanded-keys="onUpdateExpanded"
           @update:selected-keys="onSelect"
         />
@@ -791,9 +774,27 @@ watch(
   padding: 2px 4px;
 }
 
+.body.drop-root {
+  outline: 1px dashed var(--accent-border, #93c5fd);
+  outline-offset: -2px;
+  background: var(--accent-soft, rgba(37, 99, 235, 0.08));
+}
+
 .body :deep(.n-tree .n-tree-node-content) {
   font-size: 12px;
   min-height: 22px;
+  border-radius: 6px;
+  transition: background 120ms ease;
+}
+
+.body :deep(.n-tree .n-tree-node-content.drop-target) {
+  background: var(--accent-soft, rgba(37, 99, 235, 0.12));
+  box-shadow: inset 0 0 0 1px var(--accent-border, #93c5fd);
+}
+
+.body :deep(.n-tree .n-tree-node-content.drag-source),
+.body :deep(.n-tree .n-tree-node-content.is-cut) {
+  opacity: 0.45;
 }
 
 .body :deep(.n-tree-node-wrapper) {

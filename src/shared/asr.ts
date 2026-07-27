@@ -201,6 +201,8 @@ export type AsrStatus = {
   runtimeMatchesPreference: boolean;
   /** Official archive filename for the preferred backend (manual download hint). */
   runtimeArchiveHint: string | null;
+  /** Electron accelerator for wake / start recording (e.g. Control+Alt+Y). */
+  wakeHotkey: string;
   lastError: string | null;
 };
 
