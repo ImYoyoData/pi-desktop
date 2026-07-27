@@ -66,8 +66,14 @@ export function registerSessionsIpc(broker: SessionBroker): void {
       if (!target?.filePath) {
         throw new Error("session not found");
       }
-      renameSessionFile(target.filePath, name);
-      return (await broker.listSessions(cwd)).find((s) => s.id === sessionId) ?? null;
+      const trimmed = name.trim();
+      renameSessionFile(target.filePath, trimmed);
+      // Keep live worker summary in sync so list merge / UI don't stay on "新会话" (#3).
+      const patched = broker.patchSummary(sessionId, {
+        name: trimmed,
+        modified: new Date().toISOString(),
+      });
+      return patched ?? (await broker.listSessions(cwd)).find((s) => s.id === sessionId) ?? null;
     },
   );
 }
