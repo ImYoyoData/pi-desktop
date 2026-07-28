@@ -5,12 +5,16 @@ import { IpcChannels } from "../shared/protocol";
 export function registerAgentRunsIpc(registry: {
   list: (workspaceRoot: string) => AgentRunSnapshot[];
   terminate: (runId: string) => Promise<void>;
+  background: (runId: string) => Promise<void>;
 }): void {
   ipcMain.handle(IpcChannels.runs.list, (_e, workspaceRoot: string) =>
     registry.list(workspaceRoot ?? ""),
   );
   ipcMain.handle(IpcChannels.runs.terminate, (_e, runId: string) =>
     registry.terminate(runId),
+  );
+  ipcMain.handle(IpcChannels.runs.background, (_e, runId: string) =>
+    registry.background(runId),
   );
 }
 

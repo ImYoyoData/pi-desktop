@@ -315,84 +315,95 @@ watch(query, () => {
       </NSpace>
     </div>
 
-    <div ref="listEl" class="list-spin" @scroll.passive="onListScroll">
-      <NSpin :show="loading">
-        <NEmpty v-if="error" :description="error" size="small" class="empty" />
-        <NEmpty v-else-if="filteredEmpty" :description="t.marketEmpty" size="small" class="empty" />
-        <ul v-else class="pkg-list">
-          <li v-for="pkg in items" :key="pkg.name" class="pkg-row">
-            <div class="pkg-main">
-              <div class="pkg-title-row">
-                <button
-                  type="button"
-                  class="pkg-name pi-interactive"
-                  :title="pkg.path"
-                  @click="openInBuiltinBrowser(`${PI_MARKET_URL}/${pkg.name}`)"
+    <div class="list-wrap">
+      <div ref="listEl" class="list-spin" @scroll.passive="onListScroll">
+        <NSpin :show="loading">
+          <NEmpty v-if="error" :description="error" size="small" class="empty" />
+          <NEmpty v-else-if="filteredEmpty" :description="t.marketEmpty" size="small" class="empty" />
+          <ul v-else class="pkg-list">
+            <li v-for="pkg in items" :key="pkg.name" class="pkg-row">
+              <div class="pkg-main">
+                <div class="pkg-title-row">
+                  <button
+                    type="button"
+                    class="pkg-name pi-interactive"
+                    :title="pkg.path"
+                    @click="openInBuiltinBrowser(`${PI_MARKET_URL}/${pkg.name}`)"
+                  >
+                    {{ pkg.name }}
+                  </button>
+                  <NTag
+                    v-if="isInstalled(pkg.name)"
+                    size="tiny"
+                    type="success"
+                    :bordered="false"
+                  >
+                    {{ t.marketAlreadyInstalled }}
+                  </NTag>
+                </div>
+                <div class="pkg-desc">{{ pkg.description || "—" }}</div>
+                <code class="pkg-cmd">{{ piInstallCommand(pkg.name) }}</code>
+              </div>
+              <div class="pkg-actions">
+                <NButton
+                  size="tiny"
+                  secondary
+                  class="pi-interactive"
+                  :disabled="Boolean(busy)"
+                  @click="copyCmd(pkg)"
                 >
-                  {{ pkg.name }}
-                </button>
-                <NTag
+                  {{ t.copy }}
+                </NButton>
+                <NButton
                   v-if="isInstalled(pkg.name)"
                   size="tiny"
-                  type="success"
-                  :bordered="false"
+                  type="error"
+                  secondary
+                  class="pi-interactive"
+                  :loading="busy === pkg.name"
+                  :disabled="Boolean(busy) && busy !== pkg.name"
+                  @click="uninstallPkg(pkg)"
                 >
-                  {{ t.marketAlreadyInstalled }}
-                </NTag>
+                  {{ t.marketUninstall }}
+                </NButton>
+                <NButton
+                  v-else
+                  size="tiny"
+                  type="primary"
+                  class="pi-interactive"
+                  :loading="busy === pkg.name"
+                  :disabled="Boolean(busy) && busy !== pkg.name"
+                  @click="installPkg(pkg)"
+                >
+                  {{ t.marketInstall }}
+                </NButton>
               </div>
-              <div class="pkg-desc">{{ pkg.description || "—" }}</div>
-              <code class="pkg-cmd">{{ piInstallCommand(pkg.name) }}</code>
-            </div>
-            <div class="pkg-actions">
+            </li>
+            <li v-if="items.length && (hasMore || loadingMore)" class="pkg-footer">
               <NButton
+                v-if="hasMore && !loadingMore"
                 size="tiny"
-                secondary
+                quaternary
                 class="pi-interactive"
-                :disabled="Boolean(busy)"
-                @click="copyCmd(pkg)"
+                @click="loadMore"
               >
-                {{ t.copy }}
+                {{ t.marketLoadMore }}
               </NButton>
-              <NButton
-                v-if="isInstalled(pkg.name)"
-                size="tiny"
-                type="error"
-                secondary
-                class="pi-interactive"
-                :loading="busy === pkg.name"
-                :disabled="Boolean(busy) && busy !== pkg.name"
-                @click="uninstallPkg(pkg)"
-              >
-                {{ t.marketUninstall }}
-              </NButton>
-              <NButton
-                v-else
-                size="tiny"
-                type="primary"
-                class="pi-interactive"
-                :loading="busy === pkg.name"
-                :disabled="Boolean(busy) && busy !== pkg.name"
-                @click="installPkg(pkg)"
-              >
-                {{ t.marketInstall }}
-              </NButton>
-            </div>
-          </li>
-          <li v-if="hasMore || loadingMore" class="pkg-footer">
-            <NButton
-              v-if="hasMore && !loadingMore"
-              size="tiny"
-              quaternary
-              class="pi-interactive"
-              @click="loadMore"
-            >
-              {{ t.marketLoadMore }}
-            </NButton>
-            <NSpin v-else-if="loadingMore" size="small" />
-            <NText v-else depth="3" style="font-size: 11px">{{ t.marketEnd }}</NText>
-          </li>
-        </ul>
-      </NSpin>
+              <div v-else-if="loadingMore" class="load-more-inline">
+                <NSpin size="small" />
+                <span>{{ t.marketLoadingMore }}</span>
+              </div>
+            </li>
+            <li v-else-if="items.length && !hasMore && !loading && !loadingMore" class="pkg-footer">
+              <NText depth="3" style="font-size: 11px">{{ t.marketEnd }}</NText>
+            </li>
+          </ul>
+        </NSpin>
+      </div>
+      <div v-if="loadingMore" class="load-more-bar" aria-live="polite">
+        <NSpin size="small" />
+        <span>{{ t.marketLoadingMore }}</span>
+      </div>
     </div>
 
     <template #footer>
@@ -429,11 +440,46 @@ watch(query, () => {
   margin-bottom: 8px;
 }
 
-.list-spin {
+.list-wrap {
+  position: relative;
   min-height: 280px;
   max-height: min(52vh, 480px);
+}
+
+.list-spin {
+  height: 100%;
+  max-height: min(52vh, 480px);
+  min-height: 280px;
   overflow: auto;
   overscroll-behavior: contain;
+}
+
+.load-more-bar {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 10px 12px;
+  pointer-events: none;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--fg-muted);
+  background: color-mix(in srgb, var(--bg, #fff) 88%, transparent);
+  border-top: 1px solid color-mix(in srgb, var(--border, #ddd) 70%, transparent);
+  backdrop-filter: blur(6px);
+}
+
+.load-more-inline {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--fg-muted);
 }
 
 .empty {

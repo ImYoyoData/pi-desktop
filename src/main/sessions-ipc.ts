@@ -59,6 +59,11 @@ export function registerSessionsIpc(broker: SessionBroker): void {
   );
 
   ipcMain.handle(
+    IpcChannels.sessions.clearContext,
+    (_event, sessionId: string, cwd: string) => broker.clearContext(sessionId, cwd),
+  );
+
+  ipcMain.handle(
     IpcChannels.sessions.rename,
     async (_event, sessionId: string, cwd: string, name: string) => {
       const list = await broker.listSessions(cwd);

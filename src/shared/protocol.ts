@@ -15,7 +15,9 @@ export const IpcChannels = {
   workspace: {
     get: "workspace:get",
     open: "workspace:open",
+    pick: "workspace:pick",
     openPath: "workspace:openPath",
+    clear: "workspace:clear",
     listRecent: "workspace:listRecent",
     removeRecent: "workspace:removeRecent",
     reorderRecent: "workspace:reorderRecent",
@@ -34,6 +36,16 @@ export const IpcChannels = {
     delete: "sessions:delete",
     history: "sessions:history",
     rename: "sessions:rename",
+    /** Clear conversation messages on disk and restart the worker (keeps session id). */
+    clearContext: "sessions:clearContext",
+    /** Main → renderer: permission strip ask */
+    permission: "sessions:permission",
+    /** Renderer → main: permission strip reply */
+    permissionReply: "sessions:permissionReply",
+    /** Main → renderer: Pi extension UI (select/confirm/notify/…) */
+    extensionUi: "sessions:extensionUi",
+    /** Renderer → main: extension UI dialog reply */
+    extensionUiReply: "sessions:extensionUiReply",
   },
   files: {
     list: "files:list",
@@ -59,6 +71,12 @@ export const IpcChannels = {
     commit: "git:commit",
     pull: "git:pull",
     push: "git:push",
+    init: "git:init",
+    remotes: "git:remotes",
+    addRemote: "git:addRemote",
+    setRemoteUrl: "git:setRemoteUrl",
+    removeRemote: "git:removeRemote",
+    log: "git:log",
   },
   skills: {
     list: "skills:list",
@@ -167,17 +185,55 @@ export const IpcChannels = {
   runs: {
     list: "runs:list",
     terminate: "runs:terminate",
+    background: "runs:background",
     event: "runs:event",
+  },
+  trust: {
+    get: "trust:get",
+    set: "trust:set",
+    clear: "trust:clear",
+    listTrusted: "trust:listTrusted",
+  },
+  security: {
+    get: "security:get",
+    set: "security:set",
   },
 } as const;
 
+export type TrustPromptKind = "none" | "ask";
+
+export type TrustState = {
+  decision: boolean | null;
+  needsResources: boolean;
+  prompt: TrustPromptKind;
+  projectTrusted: boolean;
+};
+
 export type SessionStatus = "idle" | "running" | "error" | "stuck";
 
-/** Mirrors Pi SDK `ContextUsage` from `AgentSession.getContextUsage()`. */
+/** Mirrors Pi SDK `ContextUsage` from `AgentSession.getContextUsage()`, plus session stats. */
 export type SessionContextUsage = {
   tokens: number | null;
   contextWindow: number;
   percent: number | null;
+  /** Tool calls across the session (from Pi `getSessionStats`). */
+  toolCalls?: number | null;
+  /** User + assistant + toolResult messages (from Pi `getSessionStats`). */
+  messageCount?: number | null;
+  /** Estimated token breakdown for the stacked context bar. */
+  segments?: ContextUsageSegment[] | null;
+};
+
+export type ContextUsageSegmentId =
+  | "system"
+  | "tools"
+  | "summarized"
+  | "conversation"
+  | "toolResults";
+
+export type ContextUsageSegment = {
+  id: ContextUsageSegmentId;
+  tokens: number;
 };
 
 /** Pi SDK ImageContent — base64 payload without data: URL prefix. */
@@ -273,13 +329,29 @@ export type AgentEvent =
   | { type: "worker_exit"; sessionId: string; code: number | null }
   | { type: "session_status"; sessionId: string; status: SessionStatus };
 
-export type SessionHistoryMessage = {
-  id: string;
-  role: "user" | "assistant";
-  text: string;
-  /** Model reasoning / thinking block when present. */
-  thinking?: string;
-};
+export type SessionHistoryMessage =
+  | {
+      id: string;
+      role: "user";
+      text: string;
+    }
+  | {
+      id: string;
+      role: "assistant";
+      text: string;
+      /** Model reasoning / thinking block when present. */
+      thinking?: string;
+    }
+  | {
+      id: string;
+      role: "tool";
+      toolCallId: string;
+      toolName: string;
+      text: string;
+      isError?: boolean;
+      /** Tool-call arguments from the preceding assistant toolCall (e.g. write content). */
+      args?: unknown;
+    };
 
 export type SessionSummary = {
   id: string;

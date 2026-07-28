@@ -1,10 +1,8 @@
 <script setup lang="ts">
 import { onMounted, onUnmounted, ref, watch } from "vue";
 import { useDialog } from "naive-ui";
-import { useRightTabsStore } from "@renderer/stores/right-tabs";
-import { useLayoutStore } from "@renderer/stores/layout";
-import { useBrowserNavStore } from "@renderer/stores/browser-nav";
 import { renderMarkdown, setMarkdownCopyLabel } from "@renderer/utils/markdown";
+import { handleAppLinkClick } from "@renderer/utils/open-link";
 import { t } from "@renderer/i18n";
 
 const props = defineProps<{
@@ -13,9 +11,6 @@ const props = defineProps<{
 
 const rootEl = ref<HTMLElement | null>(null);
 const dialog = useDialog();
-const rightTabs = useRightTabsStore();
-const layout = useLayoutStore();
-const browserNav = useBrowserNavStore();
 
 setMarkdownCopyLabel(t.copy);
 
@@ -32,15 +27,6 @@ watch(
     html.value = refreshHtml(c);
   },
 );
-
-function openInBuiltinBrowser(url: string): void {
-  // Always open a new browser tab — never overwrite an existing one.
-  const tab = rightTabs.addTab("browser");
-  // Store pending URL — BrowserTab consumes after mount / when visible.
-  // Do not dispatch a window event here (race: new tab not listening yet).
-  browserNav.requestNavigate(url, tab.id);
-  if (layout.rightCollapsed) layout.toggleRightCollapsed();
-}
 
 function onRootClick(event: MouseEvent): void {
   const target = event.target as HTMLElement | null;
@@ -63,23 +49,7 @@ function onRootClick(event: MouseEvent): void {
   const anchor = target.closest("a") as HTMLAnchorElement | null;
   if (!anchor || !anchor.href) return;
   event.preventDefault();
-  const url = anchor.href;
-  if (!/^https?:\/\//i.test(url)) return;
-
-  if (event.ctrlKey || event.metaKey) {
-    dialog.warning({
-      title: t.openExternalBrowser,
-      content: t.openExternalBrowserConfirm(url),
-      positiveText: t.open,
-      negativeText: t.cancel,
-      onPositiveClick: () => {
-        void window.api.browser.openExternal(url);
-      },
-    });
-    return;
-  }
-
-  openInBuiltinBrowser(url);
+  handleAppLinkClick(event, anchor.href, dialog);
 }
 
 onMounted(() => {

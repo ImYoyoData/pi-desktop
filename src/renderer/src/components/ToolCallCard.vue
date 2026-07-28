@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref } from "vue";
-import { NIcon } from "naive-ui";
+import { NButton, NIcon, useMessage } from "naive-ui";
 import {
   CheckmarkCircleOutline,
   ChevronDownOutline,
@@ -13,6 +13,8 @@ import {
 } from "@vicons/ionicons5";
 import type { ToolCard } from "@renderer/utils/tool-diff";
 import { t } from "@renderer/i18n";
+import { useAgentRunsStore } from "@renderer/stores/agent-runs";
+import { useSessionsStore } from "@renderer/stores/sessions";
 import { ASK_USER_TOOL_NAME } from "../../../shared/ask-user";
 
 const props = defineProps<{
@@ -29,8 +31,36 @@ const emit = defineEmits<{
 }>();
 
 const open = ref(false);
+const backgroundBusy = ref(false);
+const message = useMessage();
+const agentRuns = useAgentRunsStore();
+const sessions = useSessionsStore();
 
 const isAskUserTool = computed(() => props.toolName === ASK_USER_TOOL_NAME);
+
+const blockingRunId = computed(() => {
+  if (props.card.kind !== "bash" || !props.streaming) return null;
+  const sessionId = sessions.activeId;
+  const command = props.card.command?.trim();
+  if (!sessionId || !command) return null;
+  return agentRuns.findBlockingRun(sessionId, command)?.id ?? null;
+});
+
+const canBackground = computed(() => Boolean(blockingRunId.value));
+
+async function onBackground(): Promise<void> {
+  const runId = blockingRunId.value;
+  if (!runId || backgroundBusy.value) return;
+  backgroundBusy.value = true;
+  try {
+    await agentRuns.background(runId);
+    message.success(t.toolBackgrounded);
+  } catch (err) {
+    message.error(err instanceof Error ? err.message : t.toolBackgroundFailed);
+  } finally {
+    backgroundBusy.value = false;
+  }
+}
 
 const fileName = computed(() => {
   if (props.card.kind === "bash" || props.card.kind === "generic") return null;
@@ -224,6 +254,17 @@ function onOpenPreview(): void {
       >
         <NIcon :component="DocumentTextOutline" :size="13" />
       </button>
+      <NButton
+        v-if="canBackground"
+        size="tiny"
+        secondary
+        class="bg-btn"
+        :loading="backgroundBusy"
+        :title="t.toolMoveToBackground"
+        @click.stop="onBackground"
+      >
+        {{ t.toolMoveToBackground }}
+      </NButton>
     </div>
     <pre v-if="open && body" class="tool-body" :class="{ 'tool-body-bash': card.kind === 'bash' }"><code><span
       v-for="(line, i) in body.split('\n')"
@@ -448,6 +489,10 @@ function onOpenPreview(): void {
 .open-btn:hover {
   background: var(--bg-hover, rgba(127, 127, 127, 0.1));
   color: var(--fg-strong);
+}
+
+.bg-btn {
+  flex-shrink: 0;
 }
 
 .tool-body {

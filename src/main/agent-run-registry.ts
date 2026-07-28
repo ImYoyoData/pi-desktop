@@ -13,6 +13,7 @@ export type AgentRunRegistry = {
   handleWorkerMessage: (sessionId: string, msg: WorkerOutbound) => void;
   list: (workspaceRoot: string) => AgentRunSnapshot[];
   terminate: (runId: string) => Promise<void>;
+  background: (runId: string) => Promise<void>;
   endSessionRuns: (sessionId: string) => void;
   hasActiveRuns: (sessionId: string) => boolean;
 };
@@ -20,6 +21,7 @@ export type AgentRunRegistry = {
 export function createAgentRunRegistry(deps: {
   onEvent: (event: AgentRunEvent) => void;
   sendTerminate?: (sessionId: string, runId: string) => Promise<void>;
+  sendBackground?: (sessionId: string, runId: string) => Promise<void>;
 }): AgentRunRegistry {
   const runs = new Map<string, AgentRunSnapshot>();
 
@@ -35,6 +37,7 @@ export function createAgentRunRegistry(deps: {
         startedAt: msg.run.startedAt,
         status: "running",
         outputTail: "",
+        detached: false,
       };
       runs.set(snap.id, snap);
       deps.onEvent({ type: "upsert", run: { ...snap } });
@@ -48,6 +51,15 @@ export function createAgentRunRegistry(deps: {
       const next: AgentRunSnapshot = { ...existing, outputTail };
       runs.set(msg.runId, next);
       deps.onEvent({ type: "output", runId: msg.runId, chunk: msg.chunk, outputTail });
+      return;
+    }
+
+    if (msg.kind === "run_backgrounded") {
+      const existing = runs.get(msg.runId);
+      if (!existing) return;
+      const next: AgentRunSnapshot = { ...existing, detached: true };
+      runs.set(msg.runId, next);
+      deps.onEvent({ type: "upsert", run: { ...next } });
       return;
     }
 
@@ -84,6 +96,12 @@ export function createAgentRunRegistry(deps: {
     }
   }
 
+  async function background(runId: string): Promise<void> {
+    const existing = runs.get(runId);
+    if (!existing || existing.detached) return;
+    await deps.sendBackground?.(existing.sessionId, runId);
+  }
+
   function endSessionRuns(sessionId: string): void {
     for (const [id, run] of [...runs.entries()]) {
       if (run.sessionId !== sessionId) continue;
@@ -99,5 +117,12 @@ export function createAgentRunRegistry(deps: {
     return false;
   }
 
-  return { handleWorkerMessage, list, terminate, endSessionRuns, hasActiveRuns };
+  return {
+    handleWorkerMessage,
+    list,
+    terminate,
+    background,
+    endSessionRuns,
+    hasActiveRuns,
+  };
 }

@@ -4,8 +4,15 @@ import {
   SettingsManager,
   type PackageSource,
 } from "@earendil-works/pi-coding-agent";
+import { resolveTrustState } from "./project-trust";
 
 export type PluginScope = "global" | "project";
+
+function createSettingsManager(cwd: string): SettingsManager {
+  return SettingsManager.create(cwd, getAgentDir(), {
+    projectTrusted: resolveTrustState(cwd).projectTrusted,
+  });
+}
 
 export type PluginPackageDto = {
   source: string;
@@ -65,7 +72,7 @@ function setPackageDisabled(
 }
 
 export async function listPlugins(cwd: string): Promise<{ packages: PluginPackageDto[] }> {
-  const settingsManager = SettingsManager.create(cwd, getAgentDir());
+  const settingsManager = createSettingsManager(cwd);
   const packageManager = new DefaultPackageManager({
     cwd,
     agentDir: getAgentDir(),
@@ -105,7 +112,7 @@ export async function setPluginEnabled(
   scope: PluginScope,
   enabled: boolean,
 ): Promise<void> {
-  const settingsManager = SettingsManager.create(cwd, getAgentDir());
+  const settingsManager = createSettingsManager(cwd);
   setPackageDisabled(settingsManager, source, scope, !enabled);
   await settingsManager.flush();
 }
@@ -115,7 +122,7 @@ export async function removePlugin(
   source: string,
   scope: PluginScope,
 ): Promise<void> {
-  const settingsManager = SettingsManager.create(cwd, getAgentDir());
+  const settingsManager = createSettingsManager(cwd);
   const packageManager = new DefaultPackageManager({
     cwd,
     agentDir: getAgentDir(),

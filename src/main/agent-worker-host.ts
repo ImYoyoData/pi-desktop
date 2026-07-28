@@ -2,7 +2,9 @@ import { utilityProcess } from "electron";
 import path from "node:path";
 import type { WorkerInbound, WorkerOutbound } from "../shared/agent-worker-messages";
 import type { SpawnWorker, WorkerHandle } from "./session-broker";
+import { getDesktopSecuritySettings } from "./desktop-security-host";
 import { augmentPathForPiCli } from "./pi-path-env";
+import { resolveTrustState } from "./project-trust";
 
 export { IDLE_WORKER_DESTROY_MS } from "./worker-lifecycle";
 
@@ -74,7 +76,15 @@ export function createUtilityProcessSpawnWorker(): SpawnWorker {
     };
 
     const readyPromise = waitForReady(child);
-    child.postMessage({ kind: "init", cwd, filePath } satisfies WorkerInbound);
+    const projectTrusted = resolveTrustState(cwd).projectTrusted;
+    const desktopSecurity = await getDesktopSecuritySettings();
+    child.postMessage({
+      kind: "init",
+      cwd,
+      filePath,
+      projectTrusted,
+      desktopSecurity,
+    } satisfies WorkerInbound);
     const ready = await readyPromise;
 
     return { worker: handle, ...ready };

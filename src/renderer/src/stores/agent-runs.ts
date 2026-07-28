@@ -114,6 +114,24 @@ export const useAgentRunsStore = defineStore("agentRuns", () => {
     await window.api.runs.terminate(runId);
   }
 
+  async function background(runId: string): Promise<void> {
+    await window.api.runs.background(runId);
+  }
+
+  /** Prefer newest non-detached run matching session + command (tool card → Running). */
+  function findBlockingRun(sessionId: string, command: string): AgentRunSnapshot | null {
+    const cmd = command.trim();
+    if (!cmd) return null;
+    let best: AgentRunSnapshot | null = null;
+    for (const run of runs.value) {
+      if (run.sessionId !== sessionId) continue;
+      if (run.detached) continue;
+      if (run.command.trim() !== cmd) continue;
+      if (!best || run.startedAt >= best.startedAt) best = run;
+    }
+    return best;
+  }
+
   function select(id: string): void {
     selectedId.value = id;
   }
@@ -127,6 +145,8 @@ export const useAgentRunsStore = defineStore("agentRuns", () => {
     bind,
     unbind,
     terminate,
+    background,
+    findBlockingRun,
     select,
   };
 });

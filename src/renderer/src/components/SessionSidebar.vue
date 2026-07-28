@@ -19,7 +19,6 @@ import {
 } from "naive-ui";
 import {
   AddOutline,
-  ChevronBackOutline,
   ChevronForwardOutline,
   CopyOutline,
   FolderOpenOutline,
@@ -27,6 +26,7 @@ import {
   RefreshOutline,
   TrashOutline,
 } from "@vicons/ionicons5";
+import PanelLeftIcon from "@renderer/components/icons/PanelLeftIcon.vue";
 import Sortable from "sortablejs";
 import { Splitpanes, Pane } from "splitpanes";
 import type { SplitpanesResizedPayload } from "splitpanes";
@@ -204,7 +204,7 @@ onMounted(async () => {
   sessionsStore.bindEvents();
   await workspace.getWorkspace();
   await workspace.listRecent();
-  if (workspace.root) {
+  if (workspace.root && workspace.sessionsReady) {
     expanded[workspace.root] = true;
     await loadSessions(workspace.root);
     await ensureActiveSession(workspace.root);
@@ -225,9 +225,9 @@ watch(
 );
 
 watch(
-  () => workspace.root,
-  async (root) => {
-    if (!root) return;
+  () => [workspace.root, workspace.sessionsReady] as const,
+  async ([root, ready]) => {
+    if (!root || !ready) return;
     expanded[root] = true;
     await loadSessions(root);
     await ensureActiveSession(root);
@@ -341,9 +341,11 @@ async function onWorkspaceClick(path: string): Promise<void> {
 }
 
 async function onNewAgent(): Promise<void> {
+  if (workspace.trustDialogOpen) return;
   let root = workspace.root;
   if (!root) root = await workspace.openWorkspace();
   if (!root) return;
+  if (workspace.trustDialogOpen || !workspace.sessionsReady) return;
   expanded[root] = true;
   const created = await sessionsStore.createSession(root);
   await loadSessions(root);
@@ -503,7 +505,9 @@ async function onWorkspaceMenu(root: string, key: string | number): Promise<void
       }
       break;
     case "new-session": {
+      if (workspace.trustDialogOpen) return;
       if (workspace.root !== root) await workspace.openWorkspacePath(root);
+      if (workspace.trustDialogOpen || !workspace.sessionsReady) return;
       expanded[root] = true;
       const created = await sessionsStore.createSession(root);
       await loadSessions(root);
@@ -586,8 +590,10 @@ async function onSessionMenu(
     case "clear-context":
       try {
         await onSelectSession(root, session.id);
-        await sessionsStore.sendCommand(session.id, { type: "compact" });
-        message.success(t.compactDone);
+        await window.api.sessions.clearContext(session.id, root);
+        chatStore.hydrateFromHistory(session.id, []);
+        await loadSessions(root);
+        message.success(t.clearContextDone);
       } catch (err) {
         message.error(err instanceof Error ? err.message : String(err));
       }
@@ -671,7 +677,14 @@ function onLeftSplitResized(payload: SplitpanesResizedPayload): void {
 <template>
   <aside class="sidebar">
     <div class="top-actions">
-      <NButton secondary strong class="pi-interactive" style="flex: 1" @click="onNewAgent">
+      <NButton
+        secondary
+        strong
+        class="pi-interactive"
+        style="flex: 1"
+        :disabled="workspace.trustDialogOpen"
+        @click="onNewAgent"
+      >
         <template #icon>
           <NIcon :component="AddOutline" />
         </template>
@@ -679,9 +692,14 @@ function onLeftSplitResized(payload: SplitpanesResizedPayload): void {
       </NButton>
       <NTooltip>
         <template #trigger>
-          <NButton quaternary circle @click="layout.toggleLeftCollapsed()">
+          <NButton
+            class="collapse-left-btn"
+            quaternary
+            circle
+            @click="layout.toggleLeftCollapsed()"
+          >
             <template #icon>
-              <NIcon :component="ChevronBackOutline" :size="18" />
+              <PanelLeftIcon :size="16" />
             </template>
           </NButton>
         </template>
@@ -853,6 +871,13 @@ function onLeftSplitResized(payload: SplitpanesResizedPayload): void {
   gap: 4px;
   padding: 8px 6px 4px;
   flex-shrink: 0;
+  position: relative;
+  z-index: 6;
+  background: var(--bg-sidebar);
+}
+
+.collapse-left-btn:active {
+  transform: none !important;
 }
 
 .section-head {

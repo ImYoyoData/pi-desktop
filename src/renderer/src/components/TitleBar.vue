@@ -13,10 +13,13 @@ import {
   MoonOutline,
   NotificationsOutline,
   SettingsOutline,
+  ShieldCheckmarkOutline,
   SparklesOutline,
   StorefrontOutline,
   SunnyOutline,
 } from "@vicons/ionicons5";
+import PanelLeftIcon from "@renderer/components/icons/PanelLeftIcon.vue";
+import PanelRightIcon from "@renderer/components/icons/PanelRightIcon.vue";
 import ModelsSettings from "@renderer/components/ModelsSettings.vue";
 import SkillsSettings from "@renderer/components/SkillsSettings.vue";
 import ExtensionsSettings from "@renderer/components/ExtensionsSettings.vue";
@@ -24,17 +27,20 @@ import MarketSettings from "@renderer/components/MarketSettings.vue";
 import AppearanceSettings from "@renderer/components/AppearanceSettings.vue";
 import NotifySettings from "@renderer/components/NotifySettings.vue";
 import AsrSettings from "@renderer/components/AsrSettings.vue";
+import SecuritySettings from "@renderer/components/SecuritySettings.vue";
 import AboutSettings from "@renderer/components/AboutSettings.vue";
 import UpdateCard from "@renderer/components/UpdateCard.vue";
 import { useWorkspaceStore } from "@renderer/stores/workspace";
 import { useAppearanceStore } from "@renderer/stores/appearance";
 import { useUpdateStore } from "@renderer/stores/update";
+import { useLayoutStore } from "@renderer/stores/layout";
 import { t } from "@renderer/i18n";
 import logoUrl from "@renderer/assets/logo.svg";
 
 const workspace = useWorkspaceStore();
 const appearance = useAppearanceStore();
 const updateStore = useUpdateStore();
+const layout = useLayoutStore();
 const modelsOpen = ref(false);
 const skillsOpen = ref(false);
 const extensionsOpen = ref(false);
@@ -42,6 +48,7 @@ const marketOpen = ref(false);
 const appearanceOpen = ref(false);
 const notifyOpen = ref(false);
 const asrOpen = ref(false);
+const securityOpen = ref(false);
 const aboutOpen = ref(false);
 const platform = ref<NodeJS.Platform>("win32");
 let offUpdateProgress: (() => void) | undefined;
@@ -78,6 +85,11 @@ const settingsOptions: DropdownOption[] = [
     label: t.asrTitle,
     key: "asr",
     icon: () => h(NIcon, null, { default: () => h(MicOutline) }),
+  },
+  {
+    label: t.securityTitle,
+    key: "security",
+    icon: () => h(NIcon, null, { default: () => h(ShieldCheckmarkOutline) }),
   },
   {
     label: t.modelsMenu,
@@ -120,6 +132,9 @@ function onSettingsSelect(key: string | number): void {
       break;
     case "asr":
       asrOpen.value = true;
+      break;
+    case "security":
+      securityOpen.value = true;
       break;
     case "models":
       modelsOpen.value = true;
@@ -172,19 +187,23 @@ async function onUpdateClick(): Promise<void> {
       <img class="logo-img" :src="logoUrl" alt="" width="18" height="18" />
       <span class="name">{{ t.appName }}</span>
     </div>
+    <NButton
+      v-if="workspace.root && layout.leftCollapsed"
+      class="pane-toggle no-drag"
+      quaternary
+      circle
+      size="small"
+      :title="t.expandLeft"
+      :aria-label="t.expandLeft"
+      @click="layout.toggleLeftCollapsed()"
+    >
+      <template #icon>
+        <PanelLeftIcon :size="16" />
+      </template>
+    </NButton>
     <div class="center drag" />
     <div class="actions no-drag">
       <NSpace :size="4">
-        <NButton quaternary circle size="small" @click="cycleTheme">
-          <template #icon>
-            <NIcon :component="themeIcon" />
-          </template>
-        </NButton>
-        <NButton quaternary circle size="small" @click="openFolder">
-          <template #icon>
-            <NIcon :component="FolderOpenOutline" />
-          </template>
-        </NButton>
         <NButton
           class="update-btn"
           quaternary
@@ -199,6 +218,16 @@ async function onUpdateClick(): Promise<void> {
           </template>
           <span v-if="updateStore.available" class="update-dot" aria-hidden="true" />
         </NButton>
+        <NButton quaternary circle size="small" @click="cycleTheme">
+          <template #icon>
+            <NIcon :component="themeIcon" />
+          </template>
+        </NButton>
+        <NButton quaternary circle size="small" @click="openFolder">
+          <template #icon>
+            <NIcon :component="FolderOpenOutline" />
+          </template>
+        </NButton>
         <NButton quaternary circle size="small" @click="openGithub">
           <template #icon>
             <NIcon :component="LogoGithub" />
@@ -211,6 +240,20 @@ async function onUpdateClick(): Promise<void> {
             </template>
           </NButton>
         </NDropdown>
+        <NButton
+          v-if="workspace.root && layout.rightCollapsed"
+          class="pane-toggle"
+          quaternary
+          circle
+          size="small"
+          :title="t.expandRight"
+          :aria-label="t.expandRight"
+          @click="layout.toggleRightCollapsed()"
+        >
+          <template #icon>
+            <PanelRightIcon :size="16" />
+          </template>
+        </NButton>
       </NSpace>
     </div>
     <div v-if="platform !== 'darwin'" class="overlay-space" aria-hidden="true" />
@@ -219,6 +262,7 @@ async function onUpdateClick(): Promise<void> {
   <AppearanceSettings :open="appearanceOpen" @close="appearanceOpen = false" />
   <NotifySettings :open="notifyOpen" @close="notifyOpen = false" />
   <AsrSettings :open="asrOpen" @close="asrOpen = false" />
+  <SecuritySettings :open="securityOpen" @close="securityOpen = false" />
   <ModelsSettings :open="modelsOpen" @close="modelsOpen = false" />
   <SkillsSettings :open="skillsOpen" @close="skillsOpen = false" />
   <ExtensionsSettings :open="extensionsOpen" @close="extensionsOpen = false" />
@@ -267,6 +311,17 @@ async function onUpdateClick(): Promise<void> {
   color: var(--fg-strong);
 }
 
+.pane-toggle {
+  flex-shrink: 0;
+  margin-left: 2px;
+  color: var(--fg-muted) !important;
+  transform: none !important;
+}
+
+.pane-toggle:active {
+  transform: none !important;
+}
+
 .logo-img {
   width: 18px;
   height: 18px;
@@ -293,6 +348,8 @@ async function onUpdateClick(): Promise<void> {
 
 .update-btn {
   position: relative;
+  flex-shrink: 0;
+  margin-right: 2px;
 }
 
 .update-dot {
