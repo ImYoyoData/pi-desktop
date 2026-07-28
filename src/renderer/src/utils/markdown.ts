@@ -1,5 +1,7 @@
 import DOMPurify from "dompurify";
+import katex from "katex";
 import { marked } from "marked";
+import markedKatex from "marked-katex-extension";
 import hljs from "highlight.js/lib/common";
 
 let copyButtonLabel = "Copy";
@@ -14,18 +16,54 @@ marked.setOptions({
   breaks: true,
 });
 
+marked.use(
+  markedKatex({
+    throwOnError: false,
+    nonStandard: true,
+  }),
+);
+
+function diagramPlaceholder(kind: "mermaid" | "dot", source: string): string {
+  const attrs =
+    kind === "mermaid"
+      ? `class="md-diagram md-mermaid" data-mermaid data-diagram="mermaid"`
+      : `class="md-diagram" data-diagram="dot"`;
+  return [
+    `<div ${attrs}>`,
+    `<pre class="md-diagram-src">${escapeHtml(source)}</pre>`,
+    `</div>`,
+  ].join("");
+}
+
+function renderMathBlock(source: string): string {
+  try {
+    return `<div class="md-math-block">${katex.renderToString(source, {
+      displayMode: true,
+      throwOnError: false,
+      strict: "ignore",
+    })}</div>`;
+  } catch {
+    return `<pre class="md-math-fallback">${escapeHtml(source)}</pre>`;
+  }
+}
+
 marked.use({
   renderer: {
     code({ text, lang }: { text: string; lang?: string }) {
       const language = (lang || "").trim().split(/\s+/)[0] || "";
-      if (language.toLowerCase() === "mermaid") {
-        const source = text.replace(/\n$/, "");
-        return [
-          `<div class="md-mermaid" data-mermaid>`,
-          `<pre class="md-mermaid-src">${escapeHtml(source)}</pre>`,
-          `</div>`,
-        ].join("");
+      const langKey = language.toLowerCase();
+      const source = text.replace(/\n$/, "");
+
+      if (langKey === "mermaid") {
+        return diagramPlaceholder("mermaid", source);
       }
+      if (langKey === "dot" || langKey === "graphviz" || langKey === "gv") {
+        return diagramPlaceholder("dot", source);
+      }
+      if (langKey === "math" || langKey === "latex" || langKey === "katex" || langKey === "tex") {
+        return renderMathBlock(source);
+      }
+
       let highlighted = "";
       try {
         highlighted =
@@ -77,12 +115,35 @@ export function renderMarkdown(content: string): string {
       "data-copy",
       "data-code-block",
       "data-mermaid",
+      "data-diagram",
+      "data-diagram-action",
+      "data-diagram-zoom-label",
+      "aria-label",
+      "aria-hidden",
       "target",
       "rel",
       "type",
       "checked",
       "disabled",
       "class",
+      "style",
+      "hidden",
+      "xmlns",
+      "viewBox",
+      "fill",
+      "stroke",
+      "d",
+      "cx",
+      "cy",
+      "r",
+      "x",
+      "y",
+      "width",
+      "height",
+      "transform",
+      "text-anchor",
+      "font-family",
+      "font-size",
     ],
   });
 }
