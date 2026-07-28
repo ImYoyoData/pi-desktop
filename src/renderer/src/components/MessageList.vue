@@ -12,7 +12,7 @@ import {
   useDialog,
   useMessage,
 } from "naive-ui";
-import { ArrowUndoOutline, CopyOutline, CreateOutline, RefreshOutline } from "@vicons/ionicons5";
+import { ArrowDownOutline, ArrowUndoOutline, CopyOutline, CreateOutline, RefreshOutline } from "@vicons/ionicons5";
 import type { ChatMessage, ChatRetryHint } from "@renderer/stores/chat";
 import { useChatStore } from "@renderer/stores/chat";
 import { useCheckpointStore } from "@renderer/stores/checkpoint";
@@ -27,11 +27,18 @@ import { usePreviewStore } from "@renderer/stores/preview";
 import { useRightTabsStore } from "@renderer/stores/right-tabs";
 import { t } from "@renderer/i18n";
 
-/** Keep a sliding window of recent messages mounted; older ones become a spacer. */
-const VIRTUAL_WINDOW = 48;
-const VIRTUAL_CHUNK = 24;
-const EST_MSG_HEIGHT = 112;
-const NEAR_BOTTOM_PX = 96;
+/**
+ * Sliding virtual window: mount a generous range around the viewport so
+ * scroll stays continuous (overscan above + below), not only at the absolute top.
+ */
+const VIRTUAL_WINDOW = 96;
+/** Soft cap before trimming the far side of the window. */
+const VIRTUAL_MAX = 140;
+const VIRTUAL_CHUNK = 40;
+const EST_MSG_HEIGHT = 120;
+const NEAR_BOTTOM_PX = 120;
+/** Prefetch when viewport is this close to a spacer edge. */
+const OVERSCAN_PX = 900;
 /** Sticky user card must never cover the whole viewport (agent output would look "stuck"). */
 const STICKY_MAX_VH = 0.38;
 
@@ -56,16 +63,20 @@ const scroller = ref<HTMLElement | null>(null);
 let lastPinnedUserId: string | null = null;
 /** Avoid follow-bottom immediately undoing the post-send card-bottom scroll. */
 let suppressFollowBottomUntil = 0;
-/** First index of displayMessages currently mounted in the DOM. */
+/** Inclusive start / exclusive end of displayMessages currently mounted. */
 const renderStart = ref(0);
+const renderEnd = ref(0);
 const heightById = new Map<string, number>();
-let expandingHistory = false;
+let adjustingWindow = false;
 let followBottom = true;
 /** Session switch / hydrate settle — snap to bottom, never smooth-scroll. */
 let settlingSession = false;
 let sessionJumpToken = 0;
 /** Template flag: hide list until first bottom snap (avoids blank spacer flash). */
 const settlingUi = ref(false);
+/** Show floating jump control when user scrolled away from latest. */
+const showJumpLatest = ref(false);
+let scrollRaf = 0;
 
 const displayMessages = computed(() => {
   const list = [...props.messages];
@@ -73,17 +84,25 @@ const displayMessages = computed(() => {
   return list;
 });
 
-const visibleMessages = computed(() => displayMessages.value.slice(renderStart.value));
+const visibleMessages = computed(() =>
+  displayMessages.value.slice(renderStart.value, renderEnd.value),
+);
 
-const topSpacerPx = computed(() => {
+function estimateRangeHeight(from: number, to: number): number {
   const all = displayMessages.value;
   let h = 0;
-  for (let i = 0; i < renderStart.value; i++) {
+  for (let i = from; i < to; i++) {
     const id = all[i]?.id;
     h += (id && heightById.get(id)) || EST_MSG_HEIGHT;
   }
   return h;
-});
+}
+
+const topSpacerPx = computed(() => estimateRangeHeight(0, renderStart.value));
+
+const bottomSpacerPx = computed(() =>
+  estimateRangeHeight(renderEnd.value, displayMessages.value.length),
+);
 
 const latestUserMessageId = computed(() => {
   for (let i = displayMessages.value.length - 1; i >= 0; i--) {
@@ -111,13 +130,23 @@ function clampRenderWindow(preferBottom: boolean): void {
   const len = displayMessages.value.length;
   if (len <= VIRTUAL_WINDOW) {
     renderStart.value = 0;
+    renderEnd.value = len;
     return;
   }
   if (preferBottom) {
+    renderEnd.value = len;
     renderStart.value = Math.max(0, len - VIRTUAL_WINDOW);
-  } else {
-    renderStart.value = Math.min(renderStart.value, Math.max(0, len - VIRTUAL_WINDOW));
+    return;
   }
+  // Keep current window sized and clamped inside [0, len].
+  let start = Math.max(0, Math.min(renderStart.value, len));
+  let end = Math.max(start, Math.min(renderEnd.value, len));
+  if (end - start < Math.min(VIRTUAL_WINDOW, len)) {
+    end = Math.min(len, start + VIRTUAL_WINDOW);
+    start = Math.max(0, end - VIRTUAL_WINDOW);
+  }
+  renderStart.value = start;
+  renderEnd.value = end;
 }
 
 function measureVisibleRows(): void {
@@ -133,24 +162,60 @@ function measureVisibleRows(): void {
   }
 }
 
+function restoreScrollAfterMutation(sc: HTMLElement, prevHeight: number, prevTop: number): void {
+  const delta = sc.scrollHeight - prevHeight;
+  sc.scrollTop = prevTop + delta;
+}
+
 function expandHistoryUp(): void {
-  if (expandingHistory || renderStart.value <= 0) return;
+  if (adjustingWindow || renderStart.value <= 0) return;
   const sc = scroller.value;
   if (!sc) return;
-  expandingHistory = true;
-  const prevStart = renderStart.value;
-  const nextStart = Math.max(0, prevStart - VIRTUAL_CHUNK);
-  let added = 0;
-  const all = displayMessages.value;
-  for (let i = nextStart; i < prevStart; i++) {
-    const id = all[i]?.id;
-    added += (id && heightById.get(id)) || EST_MSG_HEIGHT;
-  }
+  adjustingWindow = true;
+  const prevHeight = sc.scrollHeight;
+  const prevTop = sc.scrollTop;
+  const nextStart = Math.max(0, renderStart.value - VIRTUAL_CHUNK);
   renderStart.value = nextStart;
+  // Trim far (bottom) side so mounting stays bounded while scrolling up.
+  if (renderEnd.value - renderStart.value > VIRTUAL_MAX) {
+    renderEnd.value = renderStart.value + VIRTUAL_MAX;
+  }
   void nextTick(() => {
-    sc.scrollTop += added;
+    restoreScrollAfterMutation(sc, prevHeight, prevTop);
     measureVisibleRows();
-    expandingHistory = false;
+    adjustingWindow = false;
+    // Keep a thick overscan of real content above the viewport.
+    if (renderStart.value > 0 && sc.scrollTop < topSpacerPx.value + OVERSCAN_PX) {
+      expandHistoryUp();
+    }
+  });
+}
+
+function expandHistoryDown(): void {
+  if (adjustingWindow) return;
+  const len = displayMessages.value.length;
+  if (renderEnd.value >= len) return;
+  const sc = scroller.value;
+  if (!sc) return;
+  adjustingWindow = true;
+  const prevHeight = sc.scrollHeight;
+  const prevTop = sc.scrollTop;
+  renderEnd.value = Math.min(len, renderEnd.value + VIRTUAL_CHUNK);
+  // Trim far (top) side when window grows too large.
+  if (renderEnd.value - renderStart.value > VIRTUAL_MAX) {
+    renderStart.value = renderEnd.value - VIRTUAL_MAX;
+  }
+  void nextTick(() => {
+    restoreScrollAfterMutation(sc, prevHeight, prevTop);
+    measureVisibleRows();
+    adjustingWindow = false;
+    const bottomEdge = sc.scrollHeight - bottomSpacerPx.value;
+    if (
+      renderEnd.value < len &&
+      sc.scrollTop + sc.clientHeight > bottomEdge - OVERSCAN_PX
+    ) {
+      expandHistoryDown();
+    }
   });
 }
 
@@ -169,9 +234,20 @@ function jumpToBottomInstant(): void {
   });
 }
 
+function jumpToLatest(): void {
+  followBottom = true;
+  showJumpLatest.value = false;
+  clampRenderWindow(true);
+  void nextTick(() => {
+    measureVisibleRows();
+    jumpToBottomInstant();
+  });
+}
+
 async function snapSessionToBottom(token: number): Promise<void> {
   if (token !== sessionJumpToken) return;
   followBottom = true;
+  showJumpLatest.value = false;
   clampRenderWindow(true);
   lastPinnedUserId = latestUserMessageId.value;
   await nextTick();
@@ -187,7 +263,9 @@ async function beginSessionSettle(): Promise<void> {
   settlingUi.value = true;
   heightById.clear();
   followBottom = true;
+  showJumpLatest.value = false;
   renderStart.value = 0;
+  renderEnd.value = 0;
 
   // History load is async after activeId flips — wait for messages / load end before revealing.
   const deadline = Date.now() + 8_000;
@@ -230,9 +308,9 @@ async function beginSessionSettle(): Promise<void> {
   }
 }
 
-function onScrollerScroll(): void {
+function handleScrollerScroll(): void {
   const sc = scroller.value;
-  if (!sc || expandingHistory || settlingSession) return;
+  if (!sc || adjustingWindow || settlingSession) return;
   // During post-send pin, smooth scroll may leave us away from the true bottom;
   // keep follow enabled so streaming output still becomes visible.
   if (Date.now() < suppressFollowBottomUntil) {
@@ -240,12 +318,35 @@ function onScrollerScroll(): void {
   } else {
     followBottom = isNearBottom(sc);
   }
-  if (sc.scrollTop < 160) expandHistoryUp();
+  showJumpLatest.value = !followBottom && displayMessages.value.length > 0;
+
   if (followBottom) {
     const len = displayMessages.value.length;
-    const ideal = Math.max(0, len - VIRTUAL_WINDOW);
-    if (renderStart.value < ideal) renderStart.value = ideal;
+    const idealStart = Math.max(0, len - VIRTUAL_WINDOW);
+    if (renderStart.value < idealStart || renderEnd.value < len) {
+      renderStart.value = idealStart;
+      renderEnd.value = len;
+    }
+    return;
   }
+
+  // Prefetch above: expand before the viewport hits blank spacer.
+  if (sc.scrollTop < topSpacerPx.value + OVERSCAN_PX) {
+    expandHistoryUp();
+  }
+  // Prefetch below: keep continuity when scrolling back toward latest.
+  const bottomEdge = sc.scrollHeight - bottomSpacerPx.value;
+  if (sc.scrollTop + sc.clientHeight > bottomEdge - OVERSCAN_PX) {
+    expandHistoryDown();
+  }
+}
+
+function onScrollerScroll(): void {
+  if (scrollRaf) return;
+  scrollRaf = requestAnimationFrame(() => {
+    scrollRaf = 0;
+    handleScrollerScroll();
+  });
 }
 
 watch(
@@ -275,11 +376,15 @@ watch(
       clampRenderWindow(true);
     } else if (len <= VIRTUAL_WINDOW) {
       renderStart.value = 0;
+      renderEnd.value = len;
+    } else {
+      clampRenderWindow(false);
     }
     // Critical: hydrate often lands AFTER settle timeouts. Always snap when
     // following bottom / first populate, otherwise the virtual spacer stays in view (blank).
     if (followBottom || settlingSession || hydratedFromEmpty) {
       lastPinnedUserId = latestUserMessageId.value;
+      showJumpLatest.value = false;
       void nextTick(() => {
         jumpToBottomInstant();
       });
@@ -371,6 +476,10 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
   scroller.value?.removeEventListener("scroll", onScrollerScroll);
+  if (scrollRaf) {
+    cancelAnimationFrame(scrollRaf);
+    scrollRaf = 0;
+  }
 });
 
 function toolCard(msg: Extract<ChatMessage, { role: "tool" }>) {
@@ -687,19 +796,42 @@ function onRevertUser(msg: Extract<ChatMessage, { role: "user" }>): void {
         </template>
       </article>
 
-      <div v-if="retryHint" class="running-indicator retry">
-        <span class="dot warn" />
-        <NText depth="3" style="font-size: 12px">
-          {{ t.retrying(retryHint.attempt, retryHint.maxAttempts) }}
-          <span v-if="retryHint.message" class="retry-detail"> · {{ retryHint.message }}</span>
-        </NText>
-      </div>
-      <div v-else-if="running && !streaming" class="running-indicator">
-        <span class="dot" />
-        <NText depth="3" style="font-size: 12px">{{ t.agentRunning }}</NText>
-      </div>
+      <div
+        v-if="bottomSpacerPx > 0"
+        class="virtual-spacer"
+        :style="{ height: `${bottomSpacerPx}px` }"
+        aria-hidden="true"
+      />
+
+      <template v-if="renderEnd >= displayMessages.length">
+        <div v-if="retryHint" class="running-indicator retry">
+          <span class="dot warn" />
+          <NText depth="3" style="font-size: 12px">
+            {{ t.retrying(retryHint.attempt, retryHint.maxAttempts) }}
+            <span v-if="retryHint.message" class="retry-detail"> · {{ retryHint.message }}</span>
+          </NText>
+        </div>
+        <div v-else-if="running && !streaming" class="running-indicator">
+          <span class="dot" />
+          <NText depth="3" style="font-size: 12px">{{ t.agentRunning }}</NText>
+        </div>
+      </template>
     </div>
   </div>
+
+    <Transition name="jump-latest">
+      <button
+        v-if="showJumpLatest && !settlingUi && !historyLoading"
+        type="button"
+        class="jump-latest pi-interactive"
+        :title="t.scrollToLatest"
+        :aria-label="t.scrollToLatest"
+        @click="jumpToLatest"
+      >
+        <NIcon :component="ArrowDownOutline" :size="16" />
+        <span>{{ t.scrollToLatest }}</span>
+      </button>
+    </Transition>
   </div>
 </template>
 
@@ -769,6 +901,44 @@ function onRevertUser(msg: Extract<ChatMessage, { role: "user" }>): void {
   flex-shrink: 0;
   width: 100%;
   pointer-events: none;
+}
+
+.jump-latest {
+  position: absolute;
+  left: 50%;
+  bottom: 14px;
+  z-index: 8;
+  transform: translateX(-50%);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 14px;
+  border: 1px solid color-mix(in srgb, var(--border, #ddd) 80%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--bg-panel, var(--bg)) 92%, transparent);
+  color: var(--fg, #222);
+  font-size: 12px;
+  font-weight: 600;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.12);
+  backdrop-filter: blur(8px);
+  cursor: pointer;
+}
+
+.jump-latest:hover {
+  background: var(--bg-panel, var(--bg));
+}
+
+.jump-latest-enter-active,
+.jump-latest-leave-active {
+  transition:
+    opacity 160ms ease,
+    transform 160ms ease;
+}
+
+.jump-latest-enter-from,
+.jump-latest-leave-to {
+  opacity: 0;
+  transform: translateX(-50%) translateY(8px);
 }
 
 .row {

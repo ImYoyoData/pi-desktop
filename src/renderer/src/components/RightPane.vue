@@ -22,6 +22,7 @@ import {
   PlayCircleOutline,
   TerminalOutline,
   TrashOutline,
+  ChevronBackOutline,
   ChevronForwardOutline,
 } from "@vicons/ionicons5";
 import Sortable from "sortablejs";
@@ -48,9 +49,64 @@ const browserNav = useBrowserNavStore();
 const dialog = useDialog();
 
 const tabsBarRef = ref<HTMLElement | null>(null);
+const canScrollTabsLeft = ref(false);
+const canScrollTabsRight = ref(false);
 let tabsSortable: Sortable | null = null;
+let tabsResizeObs: ResizeObserver | null = null;
 let offOpenBrowserTab: (() => void) | null = null;
 let offCloseBrowserTab: (() => void) | null = null;
+
+function updateTabsScrollState(): void {
+  const el = tabsBarRef.value;
+  if (!el) {
+    canScrollTabsLeft.value = false;
+    canScrollTabsRight.value = false;
+    return;
+  }
+  const max = el.scrollWidth - el.clientWidth;
+  const overflow = max > 2;
+  canScrollTabsLeft.value = overflow && el.scrollLeft > 2;
+  canScrollTabsRight.value = overflow && el.scrollLeft < max - 2;
+}
+
+function scrollTabsBy(dir: -1 | 1): void {
+  const el = tabsBarRef.value;
+  if (!el) return;
+  const step = Math.max(120, Math.floor(el.clientWidth * 0.55));
+  el.scrollBy({ left: dir * step, behavior: "smooth" });
+}
+
+function onTabsWheel(ev: WheelEvent): void {
+  const el = tabsBarRef.value;
+  if (!el || el.scrollWidth <= el.clientWidth + 2) return;
+  const dx = ev.deltaX;
+  const dy = ev.deltaY;
+  // macOS trackpad often sends deltaX for horizontal swipes; map vertical wheel too.
+  if (Math.abs(dx) > Math.abs(dy) && dx !== 0) {
+    el.scrollLeft += dx;
+    ev.preventDefault();
+    updateTabsScrollState();
+    return;
+  }
+  if (dy !== 0) {
+    el.scrollLeft += dy;
+    ev.preventDefault();
+    updateTabsScrollState();
+  }
+}
+
+function bindTabsScrollObservers(): void {
+  tabsResizeObs?.disconnect();
+  tabsResizeObs = null;
+  const el = tabsBarRef.value;
+  if (!el || typeof ResizeObserver === "undefined") {
+    updateTabsScrollState();
+    return;
+  }
+  tabsResizeObs = new ResizeObserver(() => updateTabsScrollState());
+  tabsResizeObs.observe(el);
+  updateTabsScrollState();
+}
 
 function destroyTabsSortable(): void {
   tabsSortable?.destroy();
@@ -104,7 +160,10 @@ onMounted(() => {
     if (tab.kind === "files") rightTabs.closeTab(tab.id);
   }
   void rightTabs.refreshPreviewGitMeta();
-  void nextTick(() => bindTabsSortable());
+  void nextTick(() => {
+    bindTabsSortable();
+    bindTabsScrollObservers();
+  });
   // Keep run list warm even when the Running tab is not active.
   agentRuns.bind();
   void agentRuns.refresh(workspace.root);
@@ -135,6 +194,8 @@ onMounted(() => {
 
 onUnmounted(() => {
   destroyTabsSortable();
+  tabsResizeObs?.disconnect();
+  tabsResizeObs = null;
   agentRuns.unbind();
   offOpenBrowserTab?.();
   offOpenBrowserTab = null;
@@ -154,11 +215,26 @@ watch(
   () => {
     void nextTick(() => {
       bindTabsSortable();
+      bindTabsScrollObservers();
       // Keep the newly appended / active tab visible at the end of the strip.
       const active = tabsBarRef.value?.querySelector<HTMLElement>(
         `.tab-item[data-id="${rightTabs.activeId}"]`,
       );
       active?.scrollIntoView({ inline: "nearest", block: "nearest" });
+      updateTabsScrollState();
+    });
+  },
+);
+
+watch(
+  () => rightTabs.activeId,
+  () => {
+    void nextTick(() => {
+      const active = tabsBarRef.value?.querySelector<HTMLElement>(
+        `.tab-item[data-id="${rightTabs.activeId}"]`,
+      );
+      active?.scrollIntoView({ inline: "nearest", block: "nearest" });
+      updateTabsScrollState();
     });
   },
 );
@@ -418,7 +494,30 @@ function submitRenameTab(): void {
   <aside class="right-pane">
     <header class="head">
       <div class="tabs-row">
-        <div ref="tabsBarRef" class="tabs-bar">
+        <NButton
+          v-show="canScrollTabsLeft"
+          class="tabs-scroll-btn pi-interactive"
+          quaternary
+          circle
+          size="tiny"
+          :title="t.tabsScrollLeft"
+          @click="scrollTabsBy(-1)"
+        >
+          <template #icon>
+            <NIcon :component="ChevronBackOutline" :size="14" />
+          </template>
+        </NButton>
+
+        <div
+          ref="tabsBarRef"
+          class="tabs-bar"
+          :class="{
+            'can-scroll-left': canScrollTabsLeft,
+            'can-scroll-right': canScrollTabsRight,
+          }"
+          @scroll.passive="updateTabsScrollState"
+          @wheel="onTabsWheel"
+        >
           <div
             v-for="tab in rightTabs.tabs"
             :key="tab.id"
@@ -451,8 +550,22 @@ function submitRenameTab(): void {
           </div>
         </div>
 
+        <NButton
+          v-show="canScrollTabsRight"
+          class="tabs-scroll-btn pi-interactive"
+          quaternary
+          circle
+          size="tiny"
+          :title="t.tabsScrollRight"
+          @click="scrollTabsBy(1)"
+        >
+          <template #icon>
+            <NIcon :component="ChevronForwardOutline" :size="14" />
+          </template>
+        </NButton>
+
         <NDropdown trigger="click" :options="addOptions" @select="onAddSelect">
-          <NButton quaternary circle size="tiny" :title="t.newTab">
+          <NButton quaternary circle size="tiny" class="pi-interactive" :title="t.newTab">
             <template #icon>
               <NIcon :component="AddOutline" :size="14" />
             </template>
@@ -593,7 +706,13 @@ function submitRenameTab(): void {
   height: 100%;
 }
 
+.tabs-scroll-btn {
+  flex-shrink: 0;
+  color: var(--fg-muted);
+}
+
 .tabs-bar {
+  position: relative;
   flex: 1;
   min-width: 0;
   display: flex;
@@ -603,6 +722,24 @@ function submitRenameTab(): void {
   overflow-y: hidden;
   height: 100%;
   scrollbar-width: none;
+  overscroll-behavior-x: contain;
+  mask-image: linear-gradient(
+    to right,
+    transparent 0,
+    #000 var(--tabs-fade-left, 0px),
+    #000 calc(100% - var(--tabs-fade-right, 0px)),
+    transparent 100%
+  );
+  --tabs-fade-left: 0px;
+  --tabs-fade-right: 0px;
+}
+
+.tabs-bar.can-scroll-left {
+  --tabs-fade-left: 10px;
+}
+
+.tabs-bar.can-scroll-right {
+  --tabs-fade-right: 10px;
 }
 
 .tabs-bar::-webkit-scrollbar {

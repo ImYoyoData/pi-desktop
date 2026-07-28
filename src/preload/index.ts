@@ -363,6 +363,13 @@ const api = {
         ipcRenderer.removeListener(IpcChannels.browser.elementScreenshot, listener);
       };
     },
+    onSelectCancelled: (callback: () => void) => {
+      const listener = () => callback();
+      ipcRenderer.on(IpcChannels.browser.selectCancelled, listener);
+      return () => {
+        ipcRenderer.removeListener(IpcChannels.browser.selectCancelled, listener);
+      };
+    },
     onToggleEmbeddedDevTools: (callback: () => void) => {
       const listener = () => callback();
       ipcRenderer.on(IpcChannels.browser.toggleEmbeddedDevTools, listener);

@@ -114,7 +114,7 @@ export const useChatStore = defineStore("chat", () => {
     }
     if (event.type === "prompt_done") {
       void notifyStore.onTurnComplete({
-        title: "Pi Desktop",
+        title: t.appName,
         body: t.notifyTurnCompleteBody,
       });
     }

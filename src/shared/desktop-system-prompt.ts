@@ -54,6 +54,7 @@ For typing/filling, put field content in \`value\`, and locate with \`label\` / 
 2. \`browser_snapshot\` / \`browser_find\` to discover elements
 3. \`browser_click\` / \`browser_fill\` / \`browser_select\` / \`browser_get_text\`
 4. \`browser_wait_for\` when the UI is async
+5. \`browser_close_tab\` with \`tabId\` (from \`browser_tabs\`) — or omit \`tabId\` to close the visible tab
 
 Prefer find/snapshot/get_* over \`browser_evaluate\`.
 `;

@@ -251,8 +251,14 @@ export function createBrowserAutomationHost(deps: {
     }
 
     if (method === "browser.close_tab") {
-      const closeId = typeof params.tabId === "string" ? params.tabId.trim() : "";
-      if (!closeId) throw new Error("tabId is required");
+      let closeId = typeof params.tabId === "string" ? params.tabId.trim() : "";
+      if (!closeId) {
+        const target = deps.tabs.resolveTarget({ workspaceRoot });
+        if (!target) throw new Error("No built-in browser tab to close");
+        closeId = target.tabId;
+      } else if (!deps.tabs.get(closeId)) {
+        throw new Error(`Unknown browser tabId: ${closeId}`);
+      }
       deps.tabs.remove(closeId);
       for (const win of BrowserWindow.getAllWindows()) {
         if (!win.isDestroyed()) win.webContents.send(IpcChannels.browser.closeTab, { tabId: closeId });
