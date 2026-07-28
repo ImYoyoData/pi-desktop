@@ -308,8 +308,42 @@ const api = {
       ipcRenderer.invoke(IpcChannels.browser.registerGuest, pageWebContentsId) as Promise<{
         ok: boolean;
       }>,
+    reportTab: (info: {
+      tabId: string;
+      webContentsId: number;
+      url: string;
+      title: string;
+      visible: boolean;
+      workspaceRoot: string | null;
+    }) => ipcRenderer.invoke(IpcChannels.browser.reportTab, info) as Promise<{ ok: boolean }>,
+    unreportTab: (tabId: string) =>
+      ipcRenderer.invoke(IpcChannels.browser.unreportTab, tabId) as Promise<{ ok: boolean }>,
+    openTabAck: (payload: { requestId: string; tabId?: string; error?: string }) =>
+      ipcRenderer.invoke(IpcChannels.browser.openTabAck, payload) as Promise<{ ok: boolean }>,
     openExternal: (url: string) =>
       ipcRenderer.invoke(IpcChannels.browser.openExternal, url) as Promise<void>,
+    onOpenTab: (
+      callback: (payload: { requestId: string; url: string | null }) => void,
+    ) => {
+      const listener = (
+        _event: Electron.IpcRendererEvent,
+        payload: { requestId: string; url: string | null },
+      ) => callback(payload);
+      ipcRenderer.on(IpcChannels.browser.openTab, listener);
+      return () => {
+        ipcRenderer.removeListener(IpcChannels.browser.openTab, listener);
+      };
+    },
+    onCloseTab: (callback: (payload: { tabId: string }) => void) => {
+      const listener = (
+        _event: Electron.IpcRendererEvent,
+        payload: { tabId: string },
+      ) => callback(payload);
+      ipcRenderer.on(IpcChannels.browser.closeTab, listener);
+      return () => {
+        ipcRenderer.removeListener(IpcChannels.browser.closeTab, listener);
+      };
+    },
     onElementSelected: (callback: (citation: ElementCitation) => void) => {
       const listener = (
         _event: Electron.IpcRendererEvent,
@@ -431,7 +465,7 @@ const api = {
     },
   },
   market: {
-    list: (opts?: { query?: string; type?: PiPackageType }) =>
+    list: (opts?: { query?: string; type?: PiPackageType; page?: number }) =>
       ipcRenderer.invoke(IpcChannels.market.list, opts) as Promise<PiPackageListResult>,
     install: (packageName: string) =>
       ipcRenderer.invoke(IpcChannels.market.install, packageName) as Promise<PiPackageInstallResult>,

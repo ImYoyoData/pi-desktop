@@ -40,6 +40,10 @@ onMounted(() => {
   void window.api.window.setUiLocale(locale === "zh-CN" ? "zh-CN" : "en");
   void workspace.getWorkspace();
   void workspace.listRecent();
+  void window.api.window.platform().then((p) => {
+    document.documentElement.classList.toggle("platform-darwin", p === "darwin");
+    document.documentElement.classList.toggle("platform-win32", p === "win32");
+  });
 });
 
 onUnmounted(() => {

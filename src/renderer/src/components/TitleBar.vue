@@ -255,7 +255,8 @@ async function onUpdateClick(): Promise<void> {
 }
 
 .title-bar.mac .traffic-space {
-  width: 78px;
+  /* Leave room for traffic lights (hiddenInset + trafficLightPosition). */
+  width: 72px;
 }
 
 .brand {

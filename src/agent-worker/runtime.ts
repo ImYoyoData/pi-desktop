@@ -4,7 +4,6 @@ import {
   createAgentSessionFromServices,
   createAgentSessionServices,
   createBashToolDefinition,
-  createLocalBashOperations,
   defineTool,
   getAgentDir,
   SessionManager,
@@ -16,11 +15,14 @@ import { truncateHtmlSnippet } from "../shared/html-snippet";
 import type { WorkerInbound, WorkerOutbound } from "../shared/agent-worker-messages";
 import {
   DESKTOP_ASK_USER_PROMPT,
+  DESKTOP_BROWSER_TOOLS_PROMPT,
   DESKTOP_COMPOSER_MODES_PROMPT,
   DESKTOP_PROJECT_ORIENTATION_PROMPT,
 } from "../shared/desktop-system-prompt";
 import { createAskUserToolDefinition } from "./ask-user-tool";
 import { createTrackedBashOperations } from "./bash-run-tracker";
+import { createBrowserToolDefinitions } from "./browser-tools";
+import { handleRpcResponse, setRpcWorkspaceRoot } from "./main-rpc";
 
 function post(msg: WorkerOutbound): void {
   process.parentPort?.postMessage(msg);
@@ -93,6 +95,7 @@ async function initSession(cwd: string, filePath?: string): Promise<void> {
     return;
   }
   initStarted = true;
+  setRpcWorkspaceRoot(cwd);
   const agentDir = getAgentDir();
   const sessionManager = filePath
     ? SessionManager.open(filePath, undefined, cwd)
@@ -104,11 +107,12 @@ async function initSession(cwd: string, filePath?: string): Promise<void> {
       appendSystemPrompt: [
         DESKTOP_PROJECT_ORIENTATION_PROMPT,
         DESKTOP_ASK_USER_PROMPT,
+        DESKTOP_BROWSER_TOOLS_PROMPT,
         DESKTOP_COMPOSER_MODES_PROMPT,
       ],
     },
   });
-  runTracker = createTrackedBashOperations(createLocalBashOperations(), {
+  runTracker = createTrackedBashOperations(undefined, {
     sessionId: sessionManager.getSessionId(),
     workspaceRoot: cwd,
     onStarted: (run) => post({ kind: "run_started", run }),
@@ -125,6 +129,7 @@ async function initSession(cwd: string, filePath?: string): Promise<void> {
         }),
       ),
       createAskUserToolDefinition(),
+      ...createBrowserToolDefinitions(),
     ],
   });
   created.subscribe((event) => {
@@ -242,12 +247,21 @@ export async function handleWorkerMessage(msg: WorkerInbound): Promise<void> {
     runTracker?.terminateRun(msg.runId);
     return;
   }
+  if (msg.kind === "rpc_response") {
+    handleRpcResponse(msg);
+    return;
+  }
   if (msg.kind !== "command") {
     return;
   }
 
   const { id, command } = msg;
-  await runCommand(id, command);
+  try {
+    await runCommand(id, command);
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    post({ kind: "result", id, error: message });
+  }
 }
 
 async function runCommand(id: string, command: AgentCommand): Promise<void> {

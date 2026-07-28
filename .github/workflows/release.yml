@@ -19,13 +19,16 @@ permissions:
   contents: write
 
 concurrency:
+  # Never cancel an in-flight release — previous runs were aborted mid macOS build
+  # when a follow-up push to main arrived (cancel-in-progress: true).
   group: release-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   check:
     name: Typecheck & tests
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -40,6 +43,8 @@ jobs:
     name: Build (${{ matrix.name }})
     needs: check
     runs-on: ${{ matrix.os }}
+    # Fail fast instead of sitting in a scarce-runner queue for hours.
+    timeout-minutes: 90
     strategy:
       fail-fast: false
       matrix:
@@ -47,16 +52,22 @@ jobs:
           - name: windows-x64
             os: windows-latest
             build_cmd: npm run dist:win:x64
+            artifact_glob: release/*-setup.exe
           - name: windows-arm64
             # Separate job → separate NSIS (not a fat installer). Cross-arch Electron + node-pty prebuilds.
             os: windows-latest
             build_cmd: npm run dist:win:arm64
+            artifact_glob: release/*-setup.exe
           - name: macos-arm64
             os: macos-latest
             build_cmd: npm run dist:mac:arm64
+            artifact_glob: release/*.dmg
           - name: macos-x64
-            os: macos-13
+            # Build Intel DMG on Apple Silicon runners (electron-builder cross-arch).
+            # Avoid macos-13: runners are scarce and previously queued ~2h then cancelled.
+            os: macos-latest
             build_cmd: npm run dist:mac:x64
+            artifact_glob: release/*.dmg
 
     steps:
       - name: Checkout
@@ -79,6 +90,7 @@ jobs:
           # Prevent electron-builder from creating/updating GitHub Releases mid-build
           # (publish is handled solely by the softprops job below).
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Skip Apple identity discovery — unsigned builds; avoids notarize/signing hangs.
           CSC_IDENTITY_AUTO_DISCOVERY: false
         run: ${{ matrix.build_cmd }} -- --publish never
 
@@ -86,11 +98,8 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: pi-desktop-${{ matrix.name }}
-          path: |
-            release/*-setup.exe
-            release/*.dmg
-            release/*.AppImage
-          if-no-files-found: warn
+          path: ${{ matrix.artifact_glob }}
+          if-no-files-found: error
           retention-days: 14
 
   release:
@@ -100,6 +109,7 @@ jobs:
       github.event_name == 'workflow_dispatch' ||
       (github.event_name == 'push' && github.ref == 'refs/heads/main')
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -116,6 +126,11 @@ jobs:
           find dist-artifacts -type f \( -name '*-setup.exe' -o -name '*.dmg' -o -name '*.AppImage' \) -print -exec cp {} upload/ \;
           echo "=== release assets ==="
           ls -lah upload || true
+          count=$(find upload -type f | wc -l | tr -d ' ')
+          if [ "$count" -lt 1 ]; then
+            echo "No release assets found" >&2
+            exit 1
+          fi
 
       - name: Read version
         id: ver
@@ -145,6 +160,8 @@ jobs:
             ## Package notes
             - Leaner asar (renderer-only deps excluded; keep `marked` + `highlight.js` for Pi SDK / agent-worker)
             - Parallel per-arch CI builds (faster than dual-arch on one runner)
+            - Release concurrency does not cancel in-flight packaging
+            - macOS x64 builds on `macos-latest` (cross-arch) — avoids scarce `macos-13` queues
 
             ## macOS
             - Hardened runtime + mic/camera entitlements
@@ -154,9 +171,10 @@ jobs:
             - GPU Chromium flags kept minimal on darwin (avoids black-window regressions)
 
             ## Highlights
-            - Fix: packaged app no longer crashes with `Cannot find module 'marked'`
-            - Files tree shows `.`-prefixed hidden dirs; turn notify / revert / durable terminals
-            - ASR wake hotkey, market uninstall, preview media, send-queue defaults
+            - Extension market infinite scroll (pull to load more)
+            - ASR wake words require explicit Save
+            - Session switch shows chat history loading state
+            - UI interaction polish + macOS release pipeline hardening
           files: upload/*
           fail_on_unmatched_files: false
         env:

@@ -14,6 +14,7 @@ export type AgentRunRegistry = {
   list: (workspaceRoot: string) => AgentRunSnapshot[];
   terminate: (runId: string) => Promise<void>;
   endSessionRuns: (sessionId: string) => void;
+  hasActiveRuns: (sessionId: string) => boolean;
 };
 
 export function createAgentRunRegistry(deps: {
@@ -91,5 +92,12 @@ export function createAgentRunRegistry(deps: {
     }
   }
 
-  return { handleWorkerMessage, list, terminate, endSessionRuns };
+  function hasActiveRuns(sessionId: string): boolean {
+    for (const run of runs.values()) {
+      if (run.sessionId === sessionId) return true;
+    }
+    return false;
+  }
+
+  return { handleWorkerMessage, list, terminate, endSessionRuns, hasActiveRuns };
 }

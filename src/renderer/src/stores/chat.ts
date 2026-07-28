@@ -48,12 +48,28 @@ export const useChatStore = defineStore("chat", () => {
   const checkpointStore = useCheckpointStore();
   const notifyStore = useNotifyStore();
   const pendingUserEdit = ref<PendingUserEdit | null>(null);
+  const historyLoadingId = ref<string | null>(null);
 
   function stateFor(sessionId: string): ChatState {
     if (!bySession[sessionId]) {
       bySession[sessionId] = createChatState();
     }
     return bySession[sessionId];
+  }
+
+  const historyLoading = computed(() => {
+    const id = sessionsStore.activeId;
+    return Boolean(id && historyLoadingId.value === id);
+  });
+
+  function beginHistoryLoad(sessionId: string): void {
+    historyLoadingId.value = sessionId;
+  }
+
+  function endHistoryLoad(sessionId: string): void {
+    if (historyLoadingId.value === sessionId) {
+      historyLoadingId.value = null;
+    }
   }
 
   const activeMessages = computed(() => {
@@ -363,6 +379,8 @@ export const useChatStore = defineStore("chat", () => {
   return {
     bySession,
     pendingUserEdit,
+    historyLoadingId,
+    historyLoading,
     activeMessages,
     activeStreaming,
     activeRunning,
@@ -370,6 +388,8 @@ export const useChatStore = defineStore("chat", () => {
     activePendingAskUser,
     bindEvents,
     clearPendingAskUserFor,
+    beginHistoryLoad,
+    endHistoryLoad,
     hydrateFromHistory,
     clearSession,
     sendPrompt,

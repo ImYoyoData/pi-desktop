@@ -116,11 +116,29 @@ const pathHint = computed(() => {
 
 const body = computed(() => {
   const card = props.card;
+  if (card.kind === "bash") {
+    const cmd = card.command?.trim() || "";
+    const out = card.preview?.trim() || "";
+    if (cmd && out) return `$ ${cmd}\n\n${out}`;
+    if (out) return out;
+    if (cmd) return `$ ${cmd}`;
+    return null;
+  }
   if (card.kind === "edit" || card.kind === "write" || card.kind === "other") {
     return card.diff;
   }
   return card.preview;
 });
+
+const emptyBodyText = computed(() => {
+  if (props.card.kind === "bash") return t.toolNoOutput;
+  if (props.card.kind === "read" || props.card.kind === "generic") return t.toolNoOutput;
+  return t.toolNoDiff;
+});
+
+const isDiffBody = computed(
+  () => props.card.kind === "edit" || props.card.kind === "write",
+);
 
 const pathTitle = computed(() => {
   if (props.card.kind === "bash" || props.card.kind === "generic") return undefined;
@@ -207,17 +225,17 @@ function onOpenPreview(): void {
         <NIcon :component="DocumentTextOutline" :size="13" />
       </button>
     </div>
-    <pre v-if="open && body" class="tool-body"><code><span
+    <pre v-if="open && body" class="tool-body" :class="{ 'tool-body-bash': card.kind === 'bash' }"><code><span
       v-for="(line, i) in body.split('\n')"
       :key="i"
       class="dline"
       :class="{
-        add: (card.kind === 'edit' || card.kind === 'write') && line.startsWith('+') && !line.startsWith('+++'),
-        del: (card.kind === 'edit' || card.kind === 'write') && line.startsWith('-') && !line.startsWith('---'),
-        meta: line.startsWith('@@') || line.startsWith('diff ') || line.startsWith('index ') || line.startsWith('+++') || line.startsWith('---'),
+        add: isDiffBody && line.startsWith('+') && !line.startsWith('+++'),
+        del: isDiffBody && line.startsWith('-') && !line.startsWith('---'),
+        meta: isDiffBody && (line.startsWith('@@') || line.startsWith('diff ') || line.startsWith('index ') || line.startsWith('+++') || line.startsWith('---')),
       }"
     >{{ line || ' ' }}</span></code></pre>
-    <pre v-else-if="open && !body" class="tool-body empty">{{ t.toolNoDiff }}</pre>
+    <pre v-else-if="open && !body" class="tool-body empty">{{ emptyBodyText }}</pre>
   </div>
 </template>
 
@@ -447,6 +465,10 @@ function onOpenPreview(): void {
 .tool-body.empty {
   padding: 10px 12px;
   color: var(--fg-muted);
+}
+
+.tool-body-bash .dline {
+  color: var(--fg-strong, #222);
 }
 
 .dline {

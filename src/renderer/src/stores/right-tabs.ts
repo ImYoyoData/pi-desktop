@@ -1,6 +1,7 @@
 import { defineStore } from "pinia";
 import { computed, ref } from "vue";
 import { t } from "@renderer/i18n";
+import { clearTabHistory } from "@renderer/stores/browser-library";
 import { pinRunningFirst } from "@renderer/utils/right-tabs-running";
 
 export type RightTabKind =
@@ -34,8 +35,10 @@ export type RightTab = {
   transient?: boolean;
   /** Terminal: node-pty id (session-scoped; kept while parking workspaces). */
   ptyId?: string;
-  /** Terminal: cwd used when the pty was created. */
+  /** Terminal: cwd used when the pty was created (restored after restart). */
   cwd?: string;
+  /** Browser: last address-bar URL (restored after restart). */
+  url?: string;
 };
 
 let tabSeq = 0;
@@ -54,11 +57,12 @@ type PersistedTabs = {
     transient?: boolean;
     labelLocked?: boolean;
     cwd?: string;
+    url?: string;
   }>;
   activeIndex: number;
 };
 
-const TABS_STORAGE_PREFIX = "pi-desktop:right-tabs:v1:";
+const TABS_STORAGE_PREFIX = "pi-desktop:right-tabs:v2:";
 
 function storageKey(root: string): string {
   return `${TABS_STORAGE_PREFIX}${root.replace(/\\/g, "/").toLowerCase()}`;
@@ -121,6 +125,10 @@ export const useRightTabsStore = defineStore("rightTabs", () => {
     // Explicit close kills the pty — workspace switch must NOT call this for terminals.
     if (tab.kind === "terminal" && tab.ptyId) {
       void window.api.terminal.dispose(tab.ptyId);
+    }
+    if (tab.kind === "browser") {
+      clearTabHistory(id);
+      void window.api.browser.unreportTab(id);
     }
     tabs.value.splice(idx, 1);
     saveHandlers.delete(id);
@@ -333,6 +341,7 @@ export const useRightTabsStore = defineStore("rightTabs", () => {
           labelLocked: tab.labelLocked,
           // ptyId is session-only — never write to localStorage
           cwd: tab.kind === "terminal" ? tab.cwd : undefined,
+          url: tab.kind === "browser" ? tab.url : undefined,
         })),
       activeIndex: Math.max(
         0,
@@ -357,7 +366,10 @@ export const useRightTabsStore = defineStore("rightTabs", () => {
     }
     let restored: PersistedTabs | null = null;
     try {
-      const raw = localStorage.getItem(storageKey(root));
+      // Prefer v2; fall back to v1 so existing workspaces keep their tabs.
+      const raw =
+        localStorage.getItem(storageKey(root)) ??
+        localStorage.getItem(`pi-desktop:right-tabs:v1:${root.replace(/\\/g, "/").toLowerCase()}`);
       if (raw) restored = JSON.parse(raw) as PersistedTabs;
     } catch {
       restored = null;
@@ -376,6 +388,10 @@ export const useRightTabsStore = defineStore("rightTabs", () => {
     for (const row of restored.tabs) {
       if (row.kind === "files") continue;
       if (row.kind === "preview" && !row.filePath) continue;
+      const url =
+        row.kind === "browser" && typeof row.url === "string" && row.url.trim()
+          ? row.url.trim()
+          : undefined;
       next.push({
         id: nextTabId(row.kind),
         kind: row.kind,
@@ -392,6 +408,7 @@ export const useRightTabsStore = defineStore("rightTabs", () => {
         labelLocked: row.labelLocked === true,
         transient: row.kind === "preview" ? row.transient !== false : undefined,
         cwd: row.kind === "terminal" ? row.cwd || root : undefined,
+        url,
       });
     }
     if (!next.some((tab) => tab.kind === "changes")) {

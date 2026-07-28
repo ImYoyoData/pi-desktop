@@ -361,6 +361,7 @@ async function onAddWorkspace(): Promise<void> {
 }
 
 async function onSelectSession(root: string, sessionId: string): Promise<void> {
+  chatStore.beginHistoryLoad(sessionId);
   try {
     if (workspace.root !== root) await workspace.openWorkspacePath(root);
     await sessionsStore.selectSession(sessionId, root);
@@ -376,6 +377,8 @@ async function onSelectSession(root: string, sessionId: string): Promise<void> {
   } catch (err) {
     console.error("select session failed", err);
     message.error(err instanceof Error ? err.message : String(err));
+  } finally {
+    chatStore.endHistoryLoad(sessionId);
   }
 }
 
@@ -554,6 +557,7 @@ function sessionMenu(root: string, session: SessionSummary): DropdownOption[] {
     { label: t.filesRename, key: "rename" },
     { label: pinned ? t.unpin : t.pin, key: "pin" },
     { label: t.copySessionId, key: "copy-id" },
+    { label: t.clearContext, key: "clear-context" },
     { type: "divider", key: "d1" },
     { label: t.delete, key: "delete" },
   ];
@@ -578,6 +582,15 @@ async function onSessionMenu(
     case "copy-id":
       await navigator.clipboard.writeText(session.id);
       message.success(t.sessionIdCopied);
+      break;
+    case "clear-context":
+      try {
+        await onSelectSession(root, session.id);
+        await sessionsStore.sendCommand(session.id, { type: "compact" });
+        message.success(t.compactDone);
+      } catch (err) {
+        message.error(err instanceof Error ? err.message : String(err));
+      }
       break;
     case "delete":
       confirmDeleteSession(root, session.id);
@@ -658,7 +671,7 @@ function onLeftSplitResized(payload: SplitpanesResizedPayload): void {
 <template>
   <aside class="sidebar">
     <div class="top-actions">
-      <NButton secondary strong style="flex: 1" @click="onNewAgent">
+      <NButton secondary strong class="pi-interactive" style="flex: 1" @click="onNewAgent">
         <template #icon>
           <NIcon :component="AddOutline" />
         </template>

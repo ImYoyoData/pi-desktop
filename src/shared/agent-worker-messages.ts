@@ -1,4 +1,5 @@
 import type { AgentCommand } from "./protocol";
+import type { BrowserRpcMethod } from "./browser-automation";
 
 export type WorkerInbound =
   | { kind: "init"; cwd: string; filePath?: string }
@@ -6,7 +7,13 @@ export type WorkerInbound =
   | { kind: "reload_models" }
   | { kind: "shutdown" }
   | { kind: "ping" }
-  | { kind: "terminate_run"; runId: string };
+  | { kind: "terminate_run"; runId: string }
+  | {
+      kind: "rpc_response";
+      id: string;
+      result?: unknown;
+      error?: string;
+    };
 
 export type WorkerOutbound =
   | { kind: "ready"; id: string; filePath: string; cwd: string }
@@ -27,4 +34,10 @@ export type WorkerOutbound =
       };
     }
   | { kind: "run_output"; runId: string; chunk: string }
-  | { kind: "run_ended"; runId: string };
+  | { kind: "run_ended"; runId: string }
+  | {
+      kind: "rpc_request";
+      id: string;
+      method: BrowserRpcMethod | string;
+      params: Record<string, unknown>;
+    };

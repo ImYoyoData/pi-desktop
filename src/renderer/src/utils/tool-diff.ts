@@ -277,7 +277,7 @@ export function parseToolCard(
   if (name === "read" || name === "read_file") {
     return parseReadToolCard(args, result);
   }
-  if (name === "bash" || name === "shell" || name === "execute" || name === "run") {
+  if (isBashTool(name)) {
     return parseBashToolCard(args, result);
   }
   const { text } = extractToolResult(result);
@@ -311,5 +311,13 @@ export function isReadTool(toolName: string): boolean {
 
 export function isBashTool(toolName: string): boolean {
   const n = toolName.toLowerCase();
-  return n === "bash" || n === "shell" || n === "execute" || n === "run";
+  return (
+    n === "bash" ||
+    n === "shell" ||
+    n === "execute" ||
+    n === "run" ||
+    n === "run_terminal_cmd" ||
+    n === "terminal" ||
+    n === "exec"
+  );
 }

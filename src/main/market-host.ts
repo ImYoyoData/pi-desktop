@@ -7,6 +7,7 @@ import { IpcChannels } from "../shared/protocol";
 import {
   PI_PACKAGES_CATALOG_URL,
   piInstallCommand,
+  piPackagesHasMore,
   type PiPackageInstallResult,
   type PiPackageListItem,
   type PiPackageListResult,
@@ -94,11 +95,14 @@ function parseCatalogHtml(html: string): { items: PiPackageListItem[]; totalHint
 export async function listPiPackages(opts?: {
   query?: string;
   type?: PiPackageType;
+  page?: number;
 }): Promise<PiPackageListResult> {
+  const page = Math.max(1, Math.floor(opts?.page ?? 1));
   const params = new URLSearchParams();
   const q = opts?.query?.trim();
   if (q) params.set("name", q);
   if (opts?.type) params.set("type", opts.type);
+  if (page > 1) params.set("page", String(page));
   const sourceUrl = params.toString()
     ? `${PI_PACKAGES_CATALOG_URL}?${params.toString()}`
     : PI_PACKAGES_CATALOG_URL;
@@ -115,18 +119,30 @@ export async function listPiPackages(opts?: {
         ok: false,
         items: [],
         totalHint: null,
+        page,
+        hasMore: false,
         error: `HTTP ${res.status}`,
         sourceUrl,
       };
     }
     const html = await res.text();
     const { items, totalHint } = parseCatalogHtml(html);
-    return { ok: true, items, totalHint, error: null, sourceUrl };
+    return {
+      ok: true,
+      items,
+      totalHint,
+      page,
+      hasMore: piPackagesHasMore(totalHint, page, items.length),
+      error: null,
+      sourceUrl,
+    };
   } catch (err) {
     return {
       ok: false,
       items: [],
       totalHint: null,
+      page,
+      hasMore: false,
       error: err instanceof Error ? err.message : String(err),
       sourceUrl,
     };
@@ -190,7 +206,8 @@ export async function installPiPackage(packageName: string): Promise<PiPackageIn
 export function registerMarketIpc(): void {
   ipcMain.handle(
     IpcChannels.market.list,
-    (_event, opts?: { query?: string; type?: PiPackageType }) => listPiPackages(opts),
+    (_event, opts?: { query?: string; type?: PiPackageType; page?: number }) =>
+      listPiPackages(opts),
   );
   ipcMain.handle(IpcChannels.market.install, (_event, packageName: string) =>
     installPiPackage(packageName),

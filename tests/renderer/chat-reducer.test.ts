@@ -266,7 +266,7 @@ describe("reduceChatEvent", () => {
     expect(state.running).toBe(true);
   });
 
-  it("marks idle on agent_end when not retrying", () => {
+  it("keeps running on agent_end until prompt_done", () => {
     let state = createChatState();
     state = { ...state, running: true };
     state = reduceChatEvent(state, {
@@ -274,6 +274,8 @@ describe("reduceChatEvent", () => {
       sessionId: "s",
       event: { type: "agent_end", willRetry: false },
     });
+    expect(state.running).toBe(true);
+    state = reduceChatEvent(state, { type: "prompt_done", sessionId: "s" });
     expect(state.running).toBe(false);
   });
 

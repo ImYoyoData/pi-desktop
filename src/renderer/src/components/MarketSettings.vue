@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch } from "vue";
+import { computed, nextTick, ref, watch } from "vue";
 import {
   NButton,
   NEmpty,
@@ -41,15 +41,20 @@ const rightTabs = useRightTabsStore();
 const workspace = useWorkspaceStore();
 
 const loading = ref(false);
+const loadingMore = ref(false);
 const busy = ref<string | null>(null);
 const query = ref("");
 const pkgType = ref<PiPackageType>("");
 const items = ref<PiPackageListItem[]>([]);
+const page = ref(1);
+const hasMore = ref(false);
 const totalHint = ref<string | null>(null);
 const error = ref<string | null>(null);
 /** Bare package name → installed entries (npm:foo → foo). */
 const installedByName = ref<Map<string, InstalledPkg[]>>(new Map());
+const listEl = ref<HTMLElement | null>(null);
 let searchTimer: ReturnType<typeof setTimeout> | null = null;
+let loadSeq = 0;
 
 const typeOptions = [
   { label: t.marketTypeAll, value: "" },
@@ -91,31 +96,89 @@ async function loadInstalled(): Promise<void> {
   }
 }
 
-async function refresh(): Promise<void> {
-  loading.value = true;
-  error.value = null;
+function mergeItems(prev: PiPackageListItem[], next: PiPackageListItem[]): PiPackageListItem[] {
+  const seen = new Set(prev.map((p) => p.name));
+  const out = [...prev];
+  for (const item of next) {
+    if (seen.has(item.name)) continue;
+    seen.add(item.name);
+    out.push(item);
+  }
+  return out;
+}
+
+async function fetchPage(nextPage: number, append: boolean): Promise<void> {
+  const seq = ++loadSeq;
+  if (append) loadingMore.value = true;
+  else {
+    loading.value = true;
+    error.value = null;
+  }
   try {
-    const [result] = await Promise.all([
+    const tasks: Promise<unknown>[] = [
       window.api.market.list({
         query: query.value.trim() || undefined,
         type: pkgType.value || undefined,
+        page: nextPage,
       }),
-      loadInstalled(),
-    ]);
+    ];
+    if (!append) tasks.push(loadInstalled());
+    const [result] = (await Promise.all(tasks)) as [
+      Awaited<ReturnType<typeof window.api.market.list>>,
+    ];
+    if (seq !== loadSeq) return;
     if (!result.ok) {
-      error.value = result.error ?? t.marketLoadFailed;
-      items.value = [];
-      totalHint.value = null;
+      if (!append) {
+        error.value = result.error ?? t.marketLoadFailed;
+        items.value = [];
+        totalHint.value = null;
+        hasMore.value = false;
+        page.value = 1;
+      } else {
+        message.error(result.error ?? t.marketLoadFailed);
+      }
       return;
     }
-    items.value = result.items;
+    items.value = append ? mergeItems(items.value, result.items) : result.items;
+    page.value = result.page;
+    hasMore.value = result.hasMore;
     totalHint.value = result.totalHint;
   } catch (err) {
-    error.value = err instanceof Error ? err.message : String(err);
-    items.value = [];
+    if (seq !== loadSeq) return;
+    const msg = err instanceof Error ? err.message : String(err);
+    if (!append) {
+      error.value = msg;
+      items.value = [];
+      hasMore.value = false;
+    } else {
+      message.error(msg);
+    }
   } finally {
-    loading.value = false;
+    if (seq === loadSeq) {
+      loading.value = false;
+      loadingMore.value = false;
+    }
   }
+}
+
+async function refresh(): Promise<void> {
+  page.value = 1;
+  hasMore.value = false;
+  await fetchPage(1, false);
+  await nextTick();
+  if (listEl.value) listEl.value.scrollTop = 0;
+}
+
+async function loadMore(): Promise<void> {
+  if (loading.value || loadingMore.value || !hasMore.value) return;
+  await fetchPage(page.value + 1, true);
+}
+
+function onListScroll(ev: Event): void {
+  const el = ev.target as HTMLElement | null;
+  if (!el || loading.value || loadingMore.value || !hasMore.value) return;
+  const remain = el.scrollHeight - el.scrollTop - el.clientHeight;
+  if (remain < 120) void loadMore();
 }
 
 function scheduleRefresh(): void {
@@ -233,7 +296,9 @@ watch(query, () => {
         :options="typeOptions"
         class="type"
       />
-      <NButton size="small" :loading="loading" @click="refresh">{{ t.filesRefresh }}</NButton>
+      <NButton size="small" class="pi-interactive" :loading="loading" @click="refresh">
+        {{ t.filesRefresh }}
+      </NButton>
     </div>
 
     <div class="meta-row">
@@ -241,80 +306,98 @@ watch(query, () => {
         {{ totalHint ? t.marketShowing(totalHint) : t.marketFromPiDev }}
       </NText>
       <NSpace :size="6">
-        <NButton text size="tiny" @click="openInBuiltinBrowser(PI_MARKET_URL)">
+        <NButton text size="tiny" class="pi-interactive" @click="openInBuiltinBrowser(PI_MARKET_URL)">
           {{ t.marketOpenBuiltin }}
         </NButton>
-        <NButton text size="tiny" @click="openExternal(PI_PACKAGES_DOCS_URL)">
+        <NButton text size="tiny" class="pi-interactive" @click="openExternal(PI_PACKAGES_DOCS_URL)">
           {{ t.marketDocs }}
         </NButton>
       </NSpace>
     </div>
 
-    <NSpin :show="loading" class="list-spin">
-      <NEmpty v-if="error" :description="error" size="small" class="empty" />
-      <NEmpty v-else-if="filteredEmpty" :description="t.marketEmpty" size="small" class="empty" />
-      <ul v-else class="pkg-list">
-        <li v-for="pkg in items" :key="pkg.name" class="pkg-row">
-          <div class="pkg-main">
-            <div class="pkg-title-row">
-              <button
-                type="button"
-                class="pkg-name"
-                :title="pkg.path"
-                @click="openInBuiltinBrowser(`${PI_MARKET_URL}/${pkg.name}`)"
+    <div ref="listEl" class="list-spin" @scroll.passive="onListScroll">
+      <NSpin :show="loading">
+        <NEmpty v-if="error" :description="error" size="small" class="empty" />
+        <NEmpty v-else-if="filteredEmpty" :description="t.marketEmpty" size="small" class="empty" />
+        <ul v-else class="pkg-list">
+          <li v-for="pkg in items" :key="pkg.name" class="pkg-row">
+            <div class="pkg-main">
+              <div class="pkg-title-row">
+                <button
+                  type="button"
+                  class="pkg-name pi-interactive"
+                  :title="pkg.path"
+                  @click="openInBuiltinBrowser(`${PI_MARKET_URL}/${pkg.name}`)"
+                >
+                  {{ pkg.name }}
+                </button>
+                <NTag
+                  v-if="isInstalled(pkg.name)"
+                  size="tiny"
+                  type="success"
+                  :bordered="false"
+                >
+                  {{ t.marketAlreadyInstalled }}
+                </NTag>
+              </div>
+              <div class="pkg-desc">{{ pkg.description || "—" }}</div>
+              <code class="pkg-cmd">{{ piInstallCommand(pkg.name) }}</code>
+            </div>
+            <div class="pkg-actions">
+              <NButton
+                size="tiny"
+                secondary
+                class="pi-interactive"
+                :disabled="Boolean(busy)"
+                @click="copyCmd(pkg)"
               >
-                {{ pkg.name }}
-              </button>
-              <NTag
+                {{ t.copy }}
+              </NButton>
+              <NButton
                 v-if="isInstalled(pkg.name)"
                 size="tiny"
-                type="success"
-                :bordered="false"
+                type="error"
+                secondary
+                class="pi-interactive"
+                :loading="busy === pkg.name"
+                :disabled="Boolean(busy) && busy !== pkg.name"
+                @click="uninstallPkg(pkg)"
               >
-                {{ t.marketAlreadyInstalled }}
-              </NTag>
+                {{ t.marketUninstall }}
+              </NButton>
+              <NButton
+                v-else
+                size="tiny"
+                type="primary"
+                class="pi-interactive"
+                :loading="busy === pkg.name"
+                :disabled="Boolean(busy) && busy !== pkg.name"
+                @click="installPkg(pkg)"
+              >
+                {{ t.marketInstall }}
+              </NButton>
             </div>
-            <div class="pkg-desc">{{ pkg.description || "—" }}</div>
-            <code class="pkg-cmd">{{ piInstallCommand(pkg.name) }}</code>
-          </div>
-          <div class="pkg-actions">
+          </li>
+          <li v-if="hasMore || loadingMore" class="pkg-footer">
             <NButton
+              v-if="hasMore && !loadingMore"
               size="tiny"
-              secondary
-              :disabled="Boolean(busy)"
-              @click="copyCmd(pkg)"
+              quaternary
+              class="pi-interactive"
+              @click="loadMore"
             >
-              {{ t.copy }}
+              {{ t.marketLoadMore }}
             </NButton>
-            <NButton
-              v-if="isInstalled(pkg.name)"
-              size="tiny"
-              type="error"
-              secondary
-              :loading="busy === pkg.name"
-              :disabled="Boolean(busy) && busy !== pkg.name"
-              @click="uninstallPkg(pkg)"
-            >
-              {{ t.marketUninstall }}
-            </NButton>
-            <NButton
-              v-else
-              size="tiny"
-              type="primary"
-              :loading="busy === pkg.name"
-              :disabled="Boolean(busy) && busy !== pkg.name"
-              @click="installPkg(pkg)"
-            >
-              {{ t.marketInstall }}
-            </NButton>
-          </div>
-        </li>
-      </ul>
-    </NSpin>
+            <NSpin v-else-if="loadingMore" size="small" />
+            <NText v-else depth="3" style="font-size: 11px">{{ t.marketEnd }}</NText>
+          </li>
+        </ul>
+      </NSpin>
+    </div>
 
     <template #footer>
       <NSpace justify="end">
-        <NButton @click="emit('close')">{{ t.close }}</NButton>
+        <NButton class="pi-interactive" @click="emit('close')">{{ t.close }}</NButton>
       </NSpace>
     </template>
   </NModal>
@@ -350,6 +433,7 @@ watch(query, () => {
   min-height: 280px;
   max-height: min(52vh, 480px);
   overflow: auto;
+  overscroll-behavior: contain;
 }
 
 .empty {
@@ -373,6 +457,15 @@ watch(query, () => {
   border: 1px solid var(--border);
   border-radius: 10px;
   background: var(--bg-elevated, #fff);
+  transition:
+    border-color var(--duration-fast, 140ms) var(--ease-out, ease),
+    box-shadow var(--duration-fast, 140ms) var(--ease-out, ease),
+    transform var(--duration-fast, 140ms) var(--ease-out, ease);
+}
+
+.pkg-row:hover {
+  border-color: var(--accent-border, var(--border-strong));
+  box-shadow: var(--shadow-sm);
 }
 
 .pkg-main {
@@ -430,5 +523,13 @@ watch(query, () => {
   flex-direction: column;
   gap: 6px;
   flex-shrink: 0;
+}
+
+.pkg-footer {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 36px;
+  padding: 4px 0 8px;
 }
 </style>
