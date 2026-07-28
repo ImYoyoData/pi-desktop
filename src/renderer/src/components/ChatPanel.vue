@@ -89,6 +89,7 @@ async function onNewAgent(): Promise<void> {
         :streaming="chat.activeStreaming"
         :running="running"
         :retry-hint="chat.activeRetryHint"
+        :history-loading="chat.historyLoading"
       />
       <AskUserStrip />
       <Composer />

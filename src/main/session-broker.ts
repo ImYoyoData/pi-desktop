@@ -66,6 +66,8 @@ export function createSessionBroker(deps: {
   idleDestroyMs?: number;
   onWorkerMessage?: (sessionId: string, msg: WorkerOutbound) => void;
   onSessionWorkerGone?: (sessionId: string) => void;
+  /** When true, skip idle worker destroy so Running-panel processes keep their worker. */
+  hasActiveRuns?: (sessionId: string) => boolean;
 }): SessionBroker {
   const idleDestroyMs = deps.idleDestroyMs ?? IDLE_WORKER_DESTROY_MS;
   const sessions = new Map<string, SessionRecord>();
@@ -115,6 +117,11 @@ export function createSessionBroker(deps: {
   function destroyIdleWorker(sessionId: string): void {
     const rec = sessions.get(sessionId);
     if (!rec || !rec.worker || rec.summary.status !== "idle") {
+      return;
+    }
+    // Defer destroy while Running-panel still tracks bash (incl. background survivors).
+    if (deps.hasActiveRuns?.(sessionId)) {
+      scheduleIdleDestroy(sessionId);
       return;
     }
     stopHeartbeat(rec);
@@ -222,14 +229,21 @@ export function createSessionBroker(deps: {
         }
         emit({ type: "agent_event", sessionId, event: msg.event });
         // Keep broker status aligned with agent lifecycle (not only prompt IPC result).
+        // Do not mark idle while a prompt command is still awaiting session.prompt() —
+        // agent_end/settled can fire before that promise resolves; draining a new prompt
+        // then hits "Agent is already processing".
+        const hasPendingPrompt = [...rec.pendingCommands.values()].some(
+          (p) => p.command.type === "prompt",
+        );
         if (ev.type === "agent_start" || ev.type === "turn_start") {
           setStatus(sessionId, "running");
         } else if (ev.type === "agent_end" && !ev.willRetry) {
-          // May still auto-compact / continue before agent_settled — don't destroy worker yet.
-          setStatus(sessionId, "idle");
+          if (!hasPendingPrompt) setStatus(sessionId, "idle");
         } else if (ev.type === "agent_settled") {
-          setStatus(sessionId, "idle");
-          scheduleIdleDestroy(sessionId);
+          if (!hasPendingPrompt) {
+            setStatus(sessionId, "idle");
+            scheduleIdleDestroy(sessionId);
+          }
         }
         return;
       }

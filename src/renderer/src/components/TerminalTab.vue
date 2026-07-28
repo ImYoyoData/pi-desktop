@@ -38,6 +38,8 @@ let writeRaf = 0;
 /** First Enter-submitted command → auto tab title (once). */
 let inputLineBuf = "";
 let autoTitled = false;
+/** Skip CSI / OSC sequences in onData so focus-in `[I` never enters the title buffer. */
+let ansiSkip: "none" | "esc" | "csi" | "osc" = "none";
 
 function flushWriteBuf(): void {
   writeRaf = 0;
@@ -160,9 +162,43 @@ function onContextMenu(event: MouseEvent): void {
 function noteUserInput(data: string): void {
   if (autoTitled || !props.instanceId) return;
   for (const ch of data) {
+    if (ansiSkip === "esc") {
+      if (ch === "[") {
+        ansiSkip = "csi";
+        continue;
+      }
+      if (ch === "]") {
+        ansiSkip = "osc";
+        continue;
+      }
+      ansiSkip = "none";
+      // Drop rare two-char ESC followers
+      continue;
+    }
+    if (ansiSkip === "csi") {
+      // CSI ends on final byte @-~
+      if (ch >= "@" && ch <= "~") ansiSkip = "none";
+      continue;
+    }
+    if (ansiSkip === "osc") {
+      if (ch === "\u0007") {
+        ansiSkip = "none";
+        continue;
+      }
+      if (ch === "\x1b") {
+        ansiSkip = "esc";
+        continue;
+      }
+      continue;
+    }
+    if (ch === "\x1b") {
+      ansiSkip = "esc";
+      continue;
+    }
     if (ch === "\r" || ch === "\n") {
       const cmd = sanitizeTerminalCommandLabel(inputLineBuf);
       inputLineBuf = "";
+      ansiSkip = "none";
       if (!cmd) continue;
       autoTitled = true;
       rightTabs.autoTitleTab(props.instanceId, truncateTabLabel(cmd));

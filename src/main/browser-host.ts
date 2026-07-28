@@ -8,6 +8,7 @@ import {
   readPendingSelection,
   removeSelectMode,
 } from "./select-element-script";
+import type { BrowserTabRegistry } from "./browser-tab-registry";
 
 /** Renderer listens for this to toggle the in-pane browser DevTools. */
 export const IpcBrowserHotkeys = {
@@ -21,6 +22,64 @@ type SelectState = {
 
 const selectByWebContentsId = new Map<number, SelectState>();
 const guestF12Bound = new Set<number>();
+let tabRegistry: BrowserTabRegistry | null = null;
+
+type OpenTabPending = {
+  resolve: (value: { tabId: string }) => void;
+  reject: (err: Error) => void;
+  timer: ReturnType<typeof setTimeout>;
+};
+const openTabPending = new Map<string, OpenTabPending>();
+
+export function bindBrowserTabRegistry(registry: BrowserTabRegistry): void {
+  tabRegistry = registry;
+}
+
+function newRequestId(): string {
+  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+/**
+ * Ask the renderer to create a built-in browser tab (and optionally navigate).
+ * Resolves with the new tabId once the UI acknowledges.
+ */
+export function requestOpenBrowserTab(opts?: {
+  url?: string;
+  timeoutMs?: number;
+}): Promise<{ tabId: string }> {
+  const windows = BrowserWindow.getAllWindows().filter((w) => !w.isDestroyed());
+  if (!windows.length) {
+    return Promise.reject(new Error("No application window available to open a browser tab"));
+  }
+  const requestId = newRequestId();
+  const timeoutMs = opts?.timeoutMs ?? 12_000;
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      openTabPending.delete(requestId);
+      reject(new Error("Timed out waiting for renderer to open a browser tab"));
+    }, timeoutMs);
+    openTabPending.set(requestId, { resolve, reject, timer });
+    const payload = { requestId, url: opts?.url?.trim() || null };
+    for (const win of windows) {
+      win.webContents.send(IpcChannels.browser.openTab, payload);
+    }
+  });
+}
+
+export async function waitForBrowserTabReady(
+  tabId: string,
+  timeoutMs = 12_000,
+): Promise<{ tabId: string; url: string; webContentsId: number }> {
+  const started = Date.now();
+  while (Date.now() - started < timeoutMs) {
+    const row = tabRegistry?.get(tabId);
+    if (row && row.webContentsId > 0) {
+      return { tabId: row.tabId, url: row.url, webContentsId: row.webContentsId };
+    }
+    await new Promise<void>((r) => setTimeout(r, 100));
+  }
+  throw new Error(`Timed out waiting for browser tab to become ready (tabId=${tabId})`);
+}
 
 function broadcastElementSelected(citation: ElementCitation): void {
   for (const win of BrowserWindow.getAllWindows()) {
@@ -293,6 +352,54 @@ export function registerBrowserIpc(): void {
     ensureGuestF12Intercept(page);
     return { ok: true as const };
   });
+
+  ipcMain.handle(
+    IpcChannels.browser.reportTab,
+    (
+      _event,
+      info: {
+        tabId: string;
+        webContentsId: number;
+        url: string;
+        title: string;
+        visible: boolean;
+        workspaceRoot: string | null;
+      },
+    ) => {
+      tabRegistry?.upsert(info);
+      return { ok: true as const };
+    },
+  );
+
+  ipcMain.handle(IpcChannels.browser.unreportTab, (_event, tabId: string) => {
+    tabRegistry?.remove(String(tabId ?? ""));
+    return { ok: true as const };
+  });
+
+  ipcMain.handle(
+    IpcChannels.browser.openTabAck,
+    (
+      _event,
+      payload: { requestId?: string; tabId?: string; error?: string },
+    ) => {
+      const requestId = String(payload?.requestId ?? "");
+      const pending = openTabPending.get(requestId);
+      if (!pending) return { ok: false as const };
+      openTabPending.delete(requestId);
+      clearTimeout(pending.timer);
+      if (payload?.error) {
+        pending.reject(new Error(payload.error));
+        return { ok: true as const };
+      }
+      const tabId = String(payload?.tabId ?? "").trim();
+      if (!tabId) {
+        pending.reject(new Error("openTabAck missing tabId"));
+        return { ok: true as const };
+      }
+      pending.resolve({ tabId });
+      return { ok: true as const };
+    },
+  );
 
   ipcMain.handle(IpcChannels.browser.openDevTools, (_event, webContentsId: number) => {
     // Intentionally no-op for detach windows — use attachDevTools for embedded pane only.

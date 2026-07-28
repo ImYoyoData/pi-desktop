@@ -24,8 +24,13 @@ export interface HistoryGroup {
   items: BrowserLibraryEntry[];
 }
 
-const HISTORY_KEY = "browser:history:v1";
-const BOOKMARKS_KEY = "browser:bookmarks:v1";
+/** Per browser-tab history (independent instances). */
+const HISTORY_KEY_PREFIX = "browser:history:v2:tab:";
+/** Workspace-shared bookmarks (all browser tabs in the same workspace). */
+const BOOKMARKS_KEY_PREFIX = "browser:bookmarks:v2:ws:";
+/** Legacy global keys — bookmarks migrate into workspace on first read. */
+const LEGACY_HISTORY_KEY = "browser:history:v1";
+const LEGACY_BOOKMARKS_KEY = "browser:bookmarks:v1";
 const HISTORY_CAP = 200;
 
 function newId(): string {
@@ -46,27 +51,40 @@ function writeJson(key: string, value: unknown): void {
   localStorage.setItem(key, JSON.stringify(value));
 }
 
+function historyStorageKey(tabId: string): string {
+  return `${HISTORY_KEY_PREFIX}${tabId}`;
+}
+
+function bookmarksStorageKey(workspaceRoot: string): string {
+  return `${BOOKMARKS_KEY_PREFIX}${encodeURIComponent(workspaceRoot)}`;
+}
+
 export function normalizeLibraryUrl(url: string): string {
   const trimmed = url.trim();
   if (!trimmed || trimmed === "about:blank") return "";
   return trimmed;
 }
 
-export function listHistory(): BrowserLibraryEntry[] {
-  const rows = readJson<BrowserLibraryEntry[]>(HISTORY_KEY, []);
+export function listHistory(tabId: string): BrowserLibraryEntry[] {
+  if (!tabId) return [];
+  const rows = readJson<BrowserLibraryEntry[]>(historyStorageKey(tabId), []);
   return Array.isArray(rows) ? rows : [];
 }
 
-export function recordHistory(input: {
-  url: string;
-  title?: string;
-  favicon?: string;
-}): BrowserLibraryEntry | null {
+export function recordHistory(
+  tabId: string,
+  input: {
+    url: string;
+    title?: string;
+    favicon?: string;
+  },
+): BrowserLibraryEntry | null {
+  if (!tabId) return null;
   const url = normalizeLibraryUrl(input.url);
   if (!url) return null;
   const now = Date.now();
   const title = (input.title || url).trim() || url;
-  const existing = listHistory().filter((row) => row.url !== url);
+  const existing = listHistory(tabId).filter((row) => row.url !== url);
   const entry: BrowserLibraryEntry = {
     id: newId(),
     url,
@@ -74,60 +92,98 @@ export function recordHistory(input: {
     favicon: input.favicon,
     visitedAt: now,
   };
-  writeJson(HISTORY_KEY, [entry, ...existing].slice(0, HISTORY_CAP));
+  writeJson(historyStorageKey(tabId), [entry, ...existing].slice(0, HISTORY_CAP));
   return entry;
 }
 
-export function removeHistory(id: string): void {
+export function removeHistory(tabId: string, id: string): void {
+  if (!tabId) return;
   writeJson(
-    HISTORY_KEY,
-    listHistory().filter((row) => row.id !== id),
+    historyStorageKey(tabId),
+    listHistory(tabId).filter((row) => row.id !== id),
   );
 }
 
-export function listBookmarks(): BookmarkEntry[] {
-  const rows = readJson<BookmarkEntry[]>(BOOKMARKS_KEY, []);
-  return Array.isArray(rows) ? rows : [];
+/** Drop a tab's history when the browser tab is closed. */
+export function clearTabHistory(tabId: string): void {
+  if (!tabId) return;
+  try {
+    localStorage.removeItem(historyStorageKey(tabId));
+  } catch {
+    // ignore
+  }
 }
 
-export function isBookmarked(url: string): boolean {
+export function listBookmarks(workspaceRoot: string | null | undefined): BookmarkEntry[] {
+  if (!workspaceRoot) {
+    const legacy = readJson<BookmarkEntry[]>(LEGACY_BOOKMARKS_KEY, []);
+    return Array.isArray(legacy) ? legacy : [];
+  }
+  const key = bookmarksStorageKey(workspaceRoot);
+  const rows = readJson<BookmarkEntry[] | null>(key, null);
+  if (Array.isArray(rows)) return rows;
+  // First open for this workspace: seed from legacy global bookmarks if any.
+  const legacy = readJson<BookmarkEntry[]>(LEGACY_BOOKMARKS_KEY, []);
+  if (Array.isArray(legacy) && legacy.length) {
+    writeJson(key, legacy);
+    return legacy;
+  }
+  writeJson(key, []);
+  return [];
+}
+
+export function isBookmarked(
+  workspaceRoot: string | null | undefined,
+  url: string,
+): boolean {
   const normalized = normalizeLibraryUrl(url);
   if (!normalized) return false;
-  return listBookmarks().some((row) => row.url === normalized);
+  return listBookmarks(workspaceRoot).some((row) => row.url === normalized);
 }
 
-export function toggleBookmark(input: {
-  url: string;
-  title?: string;
-  favicon?: string;
-}): { bookmarked: boolean; entry: BookmarkEntry | null } {
+export function toggleBookmark(
+  workspaceRoot: string | null | undefined,
+  input: {
+    url: string;
+    title?: string;
+    favicon?: string;
+  },
+): { bookmarked: boolean; entry: BookmarkEntry | null } {
   const url = normalizeLibraryUrl(input.url);
   if (!url) return { bookmarked: false, entry: null };
-  const current = listBookmarks();
+  const current = listBookmarks(workspaceRoot);
   const found = current.find((row) => row.url === url);
-  if (found) {
-    writeJson(
-      BOOKMARKS_KEY,
-      current.filter((row) => row.url !== url),
-    );
-    return { bookmarked: false, entry: null };
+  const next = found
+    ? current.filter((row) => row.url !== url)
+    : [
+        {
+          id: newId(),
+          url,
+          title: (input.title || url).trim() || url,
+          favicon: input.favicon,
+          createdAt: Date.now(),
+        } satisfies BookmarkEntry,
+        ...current,
+      ];
+  if (workspaceRoot) {
+    writeJson(bookmarksStorageKey(workspaceRoot), next);
+  } else {
+    writeJson(LEGACY_BOOKMARKS_KEY, next);
   }
-  const entry: BookmarkEntry = {
-    id: newId(),
-    url,
-    title: (input.title || url).trim() || url,
-    favicon: input.favicon,
-    createdAt: Date.now(),
-  };
-  writeJson(BOOKMARKS_KEY, [entry, ...current]);
-  return { bookmarked: true, entry };
+  if (found) return { bookmarked: false, entry: null };
+  return { bookmarked: true, entry: next[0]! };
 }
 
-export function removeBookmark(id: string): void {
-  writeJson(
-    BOOKMARKS_KEY,
-    listBookmarks().filter((row) => row.id !== id),
-  );
+export function removeBookmark(
+  workspaceRoot: string | null | undefined,
+  id: string,
+): void {
+  const next = listBookmarks(workspaceRoot).filter((row) => row.id !== id);
+  if (workspaceRoot) {
+    writeJson(bookmarksStorageKey(workspaceRoot), next);
+  } else {
+    writeJson(LEGACY_BOOKMARKS_KEY, next);
+  }
 }
 
 export function filterEntries<T extends { title: string; url: string }>(
@@ -163,4 +219,13 @@ export function groupHistoryByRecency(entries: BrowserLibraryEntry[]): HistoryGr
   if (week.length) groups.push({ key: "week", label: t.historyWeek, items: week });
   if (older.length) groups.push({ key: "older", label: t.historyOlder, items: older });
   return groups;
+}
+
+/** Best-effort cleanup of unused legacy global history (no longer shared). */
+export function dropLegacyGlobalHistory(): void {
+  try {
+    localStorage.removeItem(LEGACY_HISTORY_KEY);
+  } catch {
+    // ignore
+  }
 }

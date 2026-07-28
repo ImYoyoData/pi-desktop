@@ -147,7 +147,7 @@ export function createMainWindow(): BrowserWindow {
     ...(iconPath ? { icon: nativeImage.createFromPath(iconPath) } : {}),
     titleBarStyle: isMac ? "hiddenInset" : "hidden",
     ...(isMac
-      ? { trafficLightPosition: { x: 16, y: 12 } }
+      ? { trafficLightPosition: { x: 14, y: 11 } }
       : {
           titleBarOverlay: {
             color: "#f5f5f5",

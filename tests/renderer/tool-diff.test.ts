@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { countDiffStats, parseFileToolCard } from "../../src/renderer/src/utils/tool-diff";
+import { countDiffStats, parseBashToolCard, parseFileToolCard } from "../../src/renderer/src/utils/tool-diff";
 
 describe("countDiffStats", () => {
   it("counts unified diff additions and deletions", () => {
@@ -42,5 +42,20 @@ describe("parseFileToolCard", () => {
     expect(card.kind).toBe("write");
     expect(card.stats).toEqual({ additions: 3, deletions: 0 });
     expect(card.diff).toContain("+   1 a");
+  });
+});
+
+describe("parseBashToolCard", () => {
+  it("keeps command + output (not a file diff)", () => {
+    const card = parseBashToolCard(
+      { command: "npm test" },
+      {
+        content: [{ type: "text", text: "ok\npassed" }],
+        details: {},
+      },
+    );
+    expect(card.kind).toBe("bash");
+    expect(card.command).toBe("npm test");
+    expect(card.preview).toContain("passed");
   });
 });

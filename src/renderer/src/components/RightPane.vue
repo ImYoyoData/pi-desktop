@@ -31,6 +31,7 @@ import RunningTab from "@renderer/components/RunningTab.vue";
 import TerminalTab from "@renderer/components/TerminalTab.vue";
 import PreviewTab from "@renderer/components/PreviewTab.vue";
 import { useAgentRunsStore } from "@renderer/stores/agent-runs";
+import { useBrowserNavStore } from "@renderer/stores/browser-nav";
 import { useLayoutStore } from "@renderer/stores/layout";
 import { usePreviewStore } from "@renderer/stores/preview";
 import { useRightTabsStore, type RightTab, type RightTabKind } from "@renderer/stores/right-tabs";
@@ -43,10 +44,13 @@ const previewStore = usePreviewStore();
 const rightTabs = useRightTabsStore();
 const workspace = useWorkspaceStore();
 const agentRuns = useAgentRunsStore();
+const browserNav = useBrowserNavStore();
 const dialog = useDialog();
 
 const tabsBarRef = ref<HTMLElement | null>(null);
 let tabsSortable: Sortable | null = null;
+let offOpenBrowserTab: (() => void) | null = null;
+let offCloseBrowserTab: (() => void) | null = null;
 
 function destroyTabsSortable(): void {
   tabsSortable?.destroy();
@@ -104,11 +108,38 @@ onMounted(() => {
   // Keep run list warm even when the Running tab is not active.
   agentRuns.bind();
   void agentRuns.refresh(workspace.root);
+
+  offOpenBrowserTab = window.api.browser.onOpenTab((payload) => {
+    try {
+      if (layout.rightCollapsed) layout.rightCollapsed = false;
+      const tab = rightTabs.addTab("browser");
+      const url = (payload.url || "").trim();
+      if (url && /^https?:\/\//i.test(url)) {
+        rightTabs.patchTab(tab.id, { url });
+        browserNav.requestNavigate(url, tab.id);
+      }
+      void window.api.browser.openTabAck({ requestId: payload.requestId, tabId: tab.id });
+    } catch (err) {
+      void window.api.browser.openTabAck({
+        requestId: payload.requestId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  });
+  offCloseBrowserTab = window.api.browser.onCloseTab((payload) => {
+    const id = (payload.tabId || "").trim();
+    if (!id) return;
+    rightTabs.closeTab(id);
+  });
 });
 
 onUnmounted(() => {
   destroyTabsSortable();
   agentRuns.unbind();
+  offOpenBrowserTab?.();
+  offOpenBrowserTab = null;
+  offCloseBrowserTab?.();
+  offCloseBrowserTab = null;
 });
 
 watch(
@@ -463,6 +494,7 @@ function submitRenameTab(): void {
           v-show="active?.id === tab.id"
           class="tab-panel"
           :tab-id="tab.id"
+          :initial-url="tab.url ?? null"
           :visible="active?.id === tab.id && !layout.rightCollapsed"
         />
         <TerminalTab
