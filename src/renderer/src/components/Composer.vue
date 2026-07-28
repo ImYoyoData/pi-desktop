@@ -800,7 +800,16 @@ async function submit(mode: "prompt" | "steer" | "follow_up"): Promise<void> {
 }
 
 function onKeydown(event: KeyboardEvent): void {
-  if (event.key !== "Enter" || event.isComposing || event.shiftKey) return;
+  if (event.key !== "Enter" || event.isComposing) return;
+
+  if (editorExpanded.value) {
+    // Expanded editor: Enter inserts newline; Shift+Enter sends.
+    if (!event.shiftKey) return;
+  } else {
+    // Compact editor: Enter sends; Shift+Enter inserts newline.
+    if (event.shiftKey) return;
+  }
+
   event.preventDefault();
   if (sendQueue.editingId) {
     saveEditingToQueue();
@@ -1585,7 +1594,9 @@ watch(
                   ? t.stop
                   : isEditingQueue
                     ? t.queueSave
-                    : t.enterToSend
+                    : editorExpanded
+                      ? t.shiftEnterToSend
+                      : t.enterToSend
             "
             :title="!primaryIsStop && isEditingQueue ? t.queueSave : undefined"
             @click="onPrimaryAction"

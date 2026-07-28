@@ -3,20 +3,16 @@ import { join } from "path";
 import { existsSync } from "fs";
 import { is } from "@electron-toolkit/utils";
 import { IpcChannels } from "../shared/protocol";
-import { editMenuLabels, type EditMenuLocale } from "../shared/edit-menu-i18n";
+import { editMenuLabels } from "../shared/edit-menu-i18n";
+import { getUiLocale, setUiLocale } from "./ui-locale";
 
-/** Follows renderer UI locale (not OS language). */
-let uiLocale: EditMenuLocale = "zh-CN";
-
-export function setUiLocale(next: EditMenuLocale): void {
-  if (next === "zh-CN" || next === "en") uiLocale = next;
-}
+export { getUiLocale, setUiLocale };
 
 /** Standard cut/copy/paste/select-all context menu for editable fields and selections. */
 function installEditContextMenu(win: BrowserWindow): void {
   win.webContents.on("context-menu", (_event, params) => {
     const { editFlags, isEditable, selectionText } = params;
-    const L = editMenuLabels(uiLocale);
+    const L = editMenuLabels(getUiLocale());
     const wc = win.webContents;
     const items: Electron.MenuItemConstructorOptions[] = [];
 

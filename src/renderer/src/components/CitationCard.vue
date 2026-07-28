@@ -3,6 +3,7 @@ import { NTag } from "naive-ui";
 import type { ComposerChip } from "@renderer/stores/composer";
 import { truncateElementContent } from "@renderer/stores/composer";
 import { fileTagLabel } from "@renderer/utils/composer-tags";
+import { isRegionCitation } from "../../../shared/protocol";
 import { t } from "@renderer/i18n";
 
 defineProps<{
@@ -25,6 +26,7 @@ function urlLabel(url: string): string {
 
 /** Content-only label for element tags (max 100 chars). */
 function elementLabel(chip: Extract<ComposerChip, { kind: "element" }>): string {
+  if (isRegionCitation(chip.citation)) return t.chipRegion;
   const content = truncateElementContent(chip.citation.text ?? "", 100);
   if (content) return content;
   const sel = chip.citation.selector?.trim();

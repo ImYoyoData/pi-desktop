@@ -4,6 +4,7 @@ import type { ComposerChip } from "@renderer/stores/composer";
 import { truncateElementContent, useComposerStore } from "@renderer/stores/composer";
 import { fileTagLabel } from "@renderer/utils/composer-tags";
 import { serializeRichEditor } from "@renderer/utils/composer-rich";
+import { isRegionCitation } from "../../../shared/protocol";
 import { t } from "@renderer/i18n";
 
 const props = defineProps<{
@@ -43,6 +44,7 @@ function chipLabel(chip: ComposerChip): string {
     }
   }
   const content = truncateElementContent(chip.citation.text ?? "", 100);
+  if (isRegionCitation(chip.citation)) return t.chipRegion;
   if (content) return content;
   const sel = chip.citation.selector?.trim();
   if (sel) {

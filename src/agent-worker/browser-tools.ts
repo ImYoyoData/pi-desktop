@@ -70,10 +70,19 @@ export function createBrowserToolDefinitions() {
     defineTool({
       name: "browser_close_tab",
       label: "Browser close tab",
-      description: "Close a built-in browser tab by tabId.",
+      description:
+        "Close a built-in browser tab. Pass tabId from browser_tabs, or omit tabId to close the visible/active browser tab.",
       promptSnippet: "Close a built-in browser tab",
+      promptGuidelines: [
+        "Use browser_tabs first if you need a specific tabId.",
+        "Omit tabId to close whichever browser tab is currently visible.",
+      ],
       parameters: Type.Object({
-        tabId: Type.String({ description: "Tab id to close" }),
+        tabId: Type.Optional(
+          Type.String({
+            description: "Tab id from browser_tabs. Omit to close the visible browser tab.",
+          }),
+        ),
       }),
       async execute(_id, params) {
         return textResult(await rpcToMain("browser.close_tab", { tabId: params.tabId }));
