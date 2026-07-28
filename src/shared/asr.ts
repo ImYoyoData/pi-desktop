@@ -203,6 +203,13 @@ export type AsrStatus = {
   runtimeArchiveHint: string | null;
   /** Electron accelerator for wake / start recording (e.g. Control+Alt+Y). */
   wakeHotkey: string;
+  /**
+   * When true (and enabled + installed), keep ASR warm and run always-on
+   * local wake-word listening. Default off for privacy.
+   */
+  residentModel: boolean;
+  /** Raw wake-word list (comma / newline separated). */
+  wakeWords: string;
   lastError: string | null;
 };
 

@@ -33,6 +33,32 @@ const asrEnabled = computed({
   },
 });
 
+const residentModel = computed({
+  get: () => asr.status.residentModel,
+  set: (v: boolean) => {
+    void asr.setResidentModel(v);
+  },
+});
+
+const wakeWordsDraft = ref(asr.status.wakeWords || "");
+let wakeWordsTimer: ReturnType<typeof setTimeout> | null = null;
+
+watch(
+  () => asr.status.wakeWords,
+  (v) => {
+    if (document.activeElement?.closest?.(".asr-wake-words")) return;
+    wakeWordsDraft.value = v || "";
+  },
+);
+
+function onWakeWordsInput(v: string): void {
+  wakeWordsDraft.value = v;
+  if (wakeWordsTimer) clearTimeout(wakeWordsTimer);
+  wakeWordsTimer = setTimeout(() => {
+    void asr.setWakeWords(wakeWordsDraft.value);
+  }, 400);
+}
+
 const wakeHotkeyLabel = computed(() =>
   formatAcceleratorLabel(asr.status.wakeHotkey || "Control+Alt+Y"),
 );
@@ -209,6 +235,10 @@ onMounted(() => {
 onUnmounted(() => {
   stopHotkeyCapture();
   offProgress?.();
+  if (wakeWordsTimer) clearTimeout(wakeWordsTimer);
+  if (wakeWordsDraft.value !== (asr.status.wakeWords || "")) {
+    void asr.setWakeWords(wakeWordsDraft.value);
+  }
 });
 </script>
 
@@ -246,6 +276,34 @@ onUnmounted(() => {
         >
           {{ capturingHotkey ? "…" : wakeHotkeyLabel }}
         </NButton>
+      </div>
+      <div class="asr-row" style="margin-top: 12px; align-items: flex-start">
+        <div style="flex: 1; min-width: 0">
+          <div>{{ t.asrResidentModel }}</div>
+          <NText depth="3" style="font-size: 12px; display: block; margin-top: 4px">
+            {{ t.asrResidentHint }}
+          </NText>
+        </div>
+        <NSwitch
+          v-model:value="residentModel"
+          size="small"
+          :disabled="!asr.status.supported || !asr.status.enabled"
+        />
+      </div>
+      <div class="asr-wake-words" style="margin-top: 12px">
+        <div>{{ t.asrWakeWords }}</div>
+        <NText depth="3" style="font-size: 12px; display: block; margin: 4px 0 8px">
+          {{ t.asrWakeWordsHint }}
+        </NText>
+        <NInput
+          :value="wakeWordsDraft"
+          type="textarea"
+          size="small"
+          :rows="3"
+          :disabled="!asr.status.supported"
+          :placeholder="t.asrWakeWordsPlaceholder"
+          @update:value="onWakeWordsInput"
+        />
       </div>
       <NText depth="3" style="font-size: 12px; margin-top: 8px">
         {{ asr.status.modelLabel }} ·

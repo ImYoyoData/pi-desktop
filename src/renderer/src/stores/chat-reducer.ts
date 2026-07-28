@@ -1,4 +1,9 @@
 import type { AgentEvent } from "../../../shared/protocol";
+import {
+  ASK_USER_TOOL_NAME,
+  parseAskUserArgs,
+  type AskUserPrompt,
+} from "../../../shared/ask-user";
 import { formatLlmError } from "../utils/llm-error";
 import { locale as uiLocalePref } from "../i18n";
 
@@ -23,10 +28,10 @@ export type ChatMessage =
         host: string;
         label: string;
         content?: string;
-        kind?: "file" | "url" | "element";
+        kind?: "file" | "url" | "element" | "agent" | "plan" | "ask" | "task";
       }[];
     }
-  | { id: string; role: "assistant"; text: string; streaming?: boolean }
+  | { id: string; role: "assistant"; text: string; thinking?: string; streaming?: boolean }
   | {
       id: string;
       role: "tool";
@@ -58,6 +63,8 @@ export type ChatState = {
   retryHint: ChatRetryHint | null;
   /** Next tool order index for the active run (reset when agent settles). */
   nextToolOrder: number;
+  /** Interactive ask_user strip; null when none / discarded. */
+  pendingAskUser: AskUserPrompt | null;
 };
 
 export function createChatState(): ChatState {
@@ -67,7 +74,13 @@ export function createChatState(): ChatState {
     running: false,
     retryHint: null,
     nextToolOrder: 1,
+    pendingAskUser: null,
   };
+}
+
+export function clearPendingAskUser(state: ChatState): ChatState {
+  if (!state.pendingAskUser) return state;
+  return { ...state, pendingAskUser: null };
 }
 
 let nextLocalId = 0;
@@ -89,6 +102,22 @@ function textFromMessage(message: Record<string, unknown>): string {
       return Boolean(part && typeof part === "object" && (part as { type?: string }).type === "text");
     })
     .map((part) => part.text)
+    .join("");
+}
+
+function thinkingFromMessage(message: Record<string, unknown>): string {
+  const content = message.content;
+  if (!Array.isArray(content)) return "";
+  return content
+    .filter((part): part is { type: string; thinking: string } => {
+      return (
+        Boolean(part) &&
+        typeof part === "object" &&
+        (part as { type?: string }).type === "thinking" &&
+        typeof (part as { thinking?: unknown }).thinking === "string"
+      );
+    })
+    .map((part) => part.thinking)
     .join("");
 }
 
@@ -123,11 +152,15 @@ function assistantFromPartial(
         ? prev.id
         : localId("assistant");
   const snapshot = textFromMessage(msg);
+  const thinkingSnap = thinkingFromMessage(msg);
   const prevText = prev?.role === "assistant" ? prev.text : "";
+  const prevThinking = prev?.role === "assistant" ? (prev.thinking ?? "") : "";
+  const thinking = thinkingSnap || prevThinking;
   return {
     id,
     role: "assistant",
     text: snapshot || prevText,
+    ...(thinking ? { thinking } : {}),
     streaming: true,
   };
 }
@@ -244,6 +277,21 @@ function reduceAgentPayload(state: ChatState, payload: Record<string, unknown>):
           };
         }
       }
+      if (ev.type === "thinking_delta" && typeof ev.delta === "string") {
+        const snap = thinkingFromMessage(msg);
+        if (!snap) {
+          nextStream = {
+            ...nextStream,
+            thinking: (nextStream.thinking ?? "") + ev.delta,
+          };
+        }
+      }
+      if (ev.type === "thinking_end" && typeof ev.content === "string" && ev.content) {
+        nextStream = {
+          ...nextStream,
+          thinking: ev.content,
+        };
+      }
       if (ev.type === "error" && typeof ev.error === "object" && ev.error) {
         const errObj = ev.error as Record<string, unknown>;
         const msgText =
@@ -316,6 +364,7 @@ function reduceAgentPayload(state: ChatState, payload: Record<string, unknown>):
         return appendError(state, errText);
       }
       const snapshot = textFromMessage(msg);
+      const thinkingSnap = thinkingFromMessage(msg);
       const stream = state.streamingMessage;
       const id =
         typeof msg.id === "string" && msg.id
@@ -326,11 +375,24 @@ function reduceAgentPayload(state: ChatState, payload: Record<string, unknown>):
       const text =
         snapshot ||
         (stream?.role === "assistant" ? stream.text : "");
+      const thinking =
+        thinkingSnap ||
+        (stream?.role === "assistant" ? stream.thinking : undefined) ||
+        undefined;
+      if (!text && !thinking) {
+        return { ...state, streamingMessage: null };
+      }
       return {
         ...state,
         messages: [
           ...state.messages,
-          { id, role: "assistant", text, streaming: false },
+          {
+            id,
+            role: "assistant",
+            text,
+            ...(thinking ? { thinking } : {}),
+            streaming: false,
+          },
         ],
         streamingMessage: null,
       };
@@ -359,16 +421,22 @@ function reduceAgentPayload(state: ChatState, payload: Record<string, unknown>):
       ];
     }
     const order = state.nextToolOrder;
+    const toolName = String(payload.toolName ?? "tool");
+    const pendingAskUser =
+      toolName === ASK_USER_TOOL_NAME
+        ? parseAskUserArgs(payload.args)
+        : state.pendingAskUser;
     return {
       ...state,
       running: true,
       messages,
       nextToolOrder: order + 1,
+      pendingAskUser,
       streamingMessage: {
         id,
         role: "tool",
         toolCallId,
-        toolName: String(payload.toolName ?? "tool"),
+        toolName,
         args: payload.args,
         streaming: true,
         order,
@@ -456,7 +524,7 @@ export function appendUserMessage(
     host: string;
     label: string;
     content?: string;
-    kind?: "file" | "url" | "element";
+    kind?: "file" | "url" | "element" | "agent" | "plan" | "ask" | "task";
   }[],
 ): ChatState {
   const trimmed = text.trim();
@@ -471,6 +539,7 @@ export function appendUserMessage(
     retryHint: null,
     nextToolOrder: 1,
     streamingMessage: null,
+    pendingAskUser: null,
     messages: [
       ...state.messages,
       {

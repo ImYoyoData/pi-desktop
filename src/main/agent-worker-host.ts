@@ -2,6 +2,7 @@ import { utilityProcess } from "electron";
 import path from "node:path";
 import type { WorkerInbound, WorkerOutbound } from "../shared/agent-worker-messages";
 import type { SpawnWorker, WorkerHandle } from "./session-broker";
+import { augmentPathForPiCli } from "./pi-path-env";
 
 export { IDLE_WORKER_DESTROY_MS } from "./worker-lifecycle";
 
@@ -34,6 +35,7 @@ export function createUtilityProcessSpawnWorker(): SpawnWorker {
       cwd,
       serviceName: `pi-agent-${path.basename(cwd).slice(0, 8) || "ws"}`,
       stdio: "pipe",
+      env: augmentPathForPiCli({ ...process.env }),
     });
 
     const messageListeners = new Set<(msg: WorkerOutbound) => void>();

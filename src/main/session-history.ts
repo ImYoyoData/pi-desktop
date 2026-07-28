@@ -25,6 +25,22 @@ function textFromAgentMessage(message: Record<string, unknown>): string {
     .join("");
 }
 
+function thinkingFromAgentMessage(message: Record<string, unknown>): string {
+  const content = message.content;
+  if (!Array.isArray(content)) return "";
+  return content
+    .filter((part): part is { type: string; thinking: string } => {
+      return (
+        Boolean(part) &&
+        typeof part === "object" &&
+        (part as { type?: string }).type === "thinking" &&
+        typeof (part as { thinking?: unknown }).thinking === "string"
+      );
+    })
+    .map((part) => part.thinking)
+    .join("");
+}
+
 function findLeafId(entries: ParsedEntry[]): string | null {
   const hasChild = new Set<string>();
   for (const entry of entries) {
@@ -99,8 +115,14 @@ export async function readSessionHistoryMessages(filePath: string): Promise<Sess
       }
     } else if (role === "assistant") {
       const text = textFromAgentMessage(entry.message);
-      if (text) {
-        messages.push({ id: entry.id, role: "assistant", text });
+      const thinking = thinkingFromAgentMessage(entry.message);
+      if (text || thinking) {
+        messages.push({
+          id: entry.id,
+          role: "assistant",
+          text,
+          ...(thinking ? { thinking } : {}),
+        });
       }
     }
   }

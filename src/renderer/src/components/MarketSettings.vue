@@ -126,17 +126,8 @@ function scheduleRefresh(): void {
 }
 
 function openInBuiltinBrowser(url: string): void {
-  const active = rightTabs.activeTab;
-  const existing =
-    (active?.kind === "browser" ? active : null) ??
-    rightTabs.tabs.find((tab) => tab.kind === "browser") ??
-    null;
-  let tab = existing;
-  if (tab) {
-    rightTabs.selectTab(tab.id);
-  } else {
-    tab = rightTabs.addTab("browser");
-  }
+  // Always open a new browser tab — never overwrite an existing one.
+  const tab = rightTabs.addTab("browser");
   browserNav.requestNavigate(url, tab.id);
   if (layout.rightCollapsed) layout.toggleRightCollapsed();
   emit("close");

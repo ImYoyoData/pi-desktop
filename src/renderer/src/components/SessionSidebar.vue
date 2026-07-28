@@ -63,11 +63,42 @@ const renameTarget = ref<{ root: string; id: string } | null>(null);
 
 const workspacePaths = computed(() => {
   const paths = [...workspace.recent];
+  // Safety: active root missing from list — append, never promote to front.
   if (workspace.root && !paths.includes(workspace.root)) {
-    paths.unshift(workspace.root);
+    paths.push(workspace.root);
   }
   return paths;
 });
+
+const workspaceTreeEl = ref<HTMLElement | null>(null);
+let workspaceSortable: Sortable | null = null;
+
+function destroyWorkspaceSortable(): void {
+  workspaceSortable?.destroy();
+  workspaceSortable = null;
+}
+
+function bindWorkspaceSortable(): void {
+  destroyWorkspaceSortable();
+  const el = workspaceTreeEl.value;
+  if (!el || workspacePaths.value.length < 2) return;
+  workspaceSortable = Sortable.create(el, {
+    animation: 150,
+    draggable: ".ws-block",
+    handle: ".ws-row",
+    filter: ".session-list, .session-row, .trash",
+    preventOnFilter: false,
+    onEnd: () => {
+      const paths = [...el.querySelectorAll<HTMLElement>(".ws-block[data-root]")]
+        .map((n) => n.dataset.root)
+        .filter((p): p is string => Boolean(p));
+      if (paths.length !== workspacePaths.value.length) return;
+      const same = paths.every((p, i) => workspacePaths.value[i] === p);
+      if (same) return;
+      void workspace.reorderRecent(paths);
+    },
+  });
+}
 
 const activeSession = computed(() =>
   sessionsStore.activeId
@@ -178,11 +209,20 @@ onMounted(async () => {
     await loadSessions(workspace.root);
     await ensureActiveSession(workspace.root);
   }
+  void nextTick(() => bindWorkspaceSortable());
 });
 
 onUnmounted(() => {
+  destroyWorkspaceSortable();
   destroySessionSortables();
 });
+
+watch(
+  () => workspacePaths.value.join("\0"),
+  () => {
+    void nextTick(() => bindWorkspaceSortable());
+  },
+);
 
 watch(
   () => workspace.root,
@@ -257,6 +297,15 @@ function sessionsFor(root: string): SessionSummary[] {
   return list;
 }
 
+/** Freeze current visual order and append a new session id at the end. */
+function appendSessionToOrder(root: string, sessionId: string): void {
+  const base = sessionsFor(root)
+    .map((s) => s.id)
+    .filter((id) => id !== sessionId);
+  sessionOrders[root] = [...base, sessionId];
+  persistSessionOrders();
+}
+
 async function loadSessions(root: string): Promise<void> {
   const list = await window.api.sessions.list(root);
   sessionsByRoot[root] = list;
@@ -298,7 +347,10 @@ async function onNewAgent(): Promise<void> {
   expanded[root] = true;
   const created = await sessionsStore.createSession(root);
   await loadSessions(root);
-  if (created) await onSelectSession(root, created.id);
+  if (created) {
+    appendSessionToOrder(root, created.id);
+    await onSelectSession(root, created.id);
+  }
 }
 
 async function onAddWorkspace(): Promise<void> {
@@ -452,7 +504,10 @@ async function onWorkspaceMenu(root: string, key: string | number): Promise<void
       expanded[root] = true;
       const created = await sessionsStore.createSession(root);
       await loadSessions(root);
-      if (created) await onSelectSession(root, created.id);
+      if (created) {
+        appendSessionToOrder(root, created.id);
+        await onSelectSession(root, created.id);
+      }
       break;
     }
     case "refresh":
@@ -649,7 +704,13 @@ function onLeftSplitResized(payload: SplitpanesResizedPayload): void {
           </div>
 
           <NScrollbar v-if="workspacePaths.length" class="tree">
-            <div v-for="root in workspacePaths" :key="root" class="ws-block">
+            <div ref="workspaceTreeEl" class="ws-tree">
+              <div
+                v-for="root in workspacePaths"
+                :key="root"
+                class="ws-block"
+                :data-root="root"
+              >
               <button
                 type="button"
                 class="ws-row"
@@ -707,6 +768,7 @@ function onLeftSplitResized(payload: SplitpanesResizedPayload): void {
                   </div>
                 </li>
               </ul>
+              </div>
             </div>
           </NScrollbar>
           <div v-else class="empty">{{ t.emptyWorkspaces }}</div>
@@ -818,8 +880,12 @@ function onLeftSplitResized(payload: SplitpanesResizedPayload): void {
   color: var(--fg-strong);
   font-size: 13px;
   text-align: left;
-  cursor: pointer;
+  cursor: grab;
   transition: background var(--duration-fast, 140ms) var(--ease-out, ease);
+}
+
+.ws-row:active {
+  cursor: grabbing;
 }
 
 .ws-row:hover,

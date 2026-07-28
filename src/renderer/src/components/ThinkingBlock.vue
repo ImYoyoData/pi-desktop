@@ -1,0 +1,117 @@
+<script setup lang="ts">
+import { ref } from "vue";
+import { NIcon } from "naive-ui";
+import { ChevronDownOutline, ChevronForwardOutline } from "@vicons/ionicons5";
+import { t } from "@renderer/i18n";
+
+defineProps<{
+  thinking: string;
+  /** True while the model is still producing thinking (before answer text). */
+  streaming?: boolean;
+}>();
+
+/** Expanded by default so thinking text is visible (Cursor-like). */
+const open = ref(true);
+</script>
+
+<template>
+  <div class="thinking" :class="{ streaming: Boolean(streaming) }">
+    <button type="button" class="thinking-head" @click="open = !open">
+      <NIcon
+        class="chev"
+        :component="open ? ChevronDownOutline : ChevronForwardOutline"
+        :size="12"
+      />
+      <span class="label">{{ streaming ? t.thinkingStreaming : t.thinking }}</span>
+      <span v-if="streaming" class="pulse" aria-hidden="true" />
+    </button>
+    <div v-if="open && thinking" class="thinking-body">{{ thinking }}</div>
+    <div v-else-if="open && streaming && !thinking" class="thinking-body muted">
+      {{ t.thinkingStreaming }}
+    </div>
+  </div>
+</template>
+
+<style scoped>
+.thinking {
+  margin: 0 0 8px;
+  border-radius: 8px;
+  border: 1px solid color-mix(in srgb, var(--border, #ddd) 80%, transparent);
+  background: color-mix(in srgb, var(--fg-muted, #888) 4%, transparent);
+  overflow: hidden;
+}
+
+.thinking.streaming {
+  border-color: color-mix(in srgb, var(--primary, #3b82f6) 28%, var(--border, #ddd));
+}
+
+.thinking-head {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  padding: 6px 10px;
+  border: none;
+  background: transparent;
+  color: var(--fg-muted, #666);
+  font-size: 12px;
+  font-weight: 500;
+  text-align: left;
+  cursor: pointer;
+}
+
+.thinking-head:hover {
+  background: var(--bg-hover, rgba(127, 127, 127, 0.06));
+  color: var(--fg-strong, #222);
+}
+
+.chev {
+  flex-shrink: 0;
+  opacity: 0.7;
+}
+
+.label {
+  letter-spacing: 0.01em;
+}
+
+.pulse {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--primary, #3b82f6);
+  animation: think-pulse 1.1s ease-in-out infinite;
+}
+
+@keyframes think-pulse {
+  0%,
+  100% {
+    opacity: 0.35;
+    transform: scale(0.85);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.thinking-body {
+  margin: 0;
+  padding: 0 12px 10px 28px;
+  max-height: 320px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: var(--fg-muted, #666);
+  font-style: italic;
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+.thinking-body.muted {
+  font-style: normal;
+  opacity: 0.75;
+}
+</style>

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
+import { computed, h, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 import {
   NButton,
   NDropdown,
@@ -10,18 +10,18 @@ import {
   NSelect,
   NText,
   NTooltip,
-  NInput,
   useMessage,
 } from "naive-ui";
 import type { DropdownOption } from "naive-ui";
 import {
   AddOutline,
+  DocumentOutline,
   FlashOutline,
   MicOutline,
   SendOutline,
   StopOutline,
 } from "@vicons/ionicons5";
-import CitationCard from "@renderer/components/CitationCard.vue";
+import ComposerRichEditor from "@renderer/components/ComposerRichEditor.vue";
 import AsrInstallProgress from "@renderer/components/AsrInstallProgress.vue";
 import VoiceRecordBar from "@renderer/components/VoiceRecordBar.vue";
 import SendQueueBar from "@renderer/components/SendQueueBar.vue";
@@ -34,8 +34,14 @@ import { formatAsrInstallError, formatAsrRuntimeError, useAsrStore } from "@rend
 import { useMediaStore } from "@renderer/stores/media";
 import { heuristicSessionTitle } from "@renderer/utils/session-title";
 import { startVoiceRecord, type VoiceRecordSession } from "@renderer/utils/pcm-capture";
+import { ASR_VOICE_WAKE_EVENT, stopWakeListen } from "@renderer/utils/asr-wake-listen";
 import { scrubAsrHallucination } from "../../../shared/asr";
 import { formatAcceleratorLabel } from "../../../shared/hotkey";
+import {
+  composerModePreamble,
+  isComposerAgentMode,
+  type ComposerAgentMode,
+} from "../../../shared/composer-modes";
 import { formatLlmError } from "@renderer/utils/llm-error";
 import { locale, t } from "@renderer/i18n";
 
@@ -96,9 +102,11 @@ const modelBySession = ref<Record<string, string>>(loadSessionPrefs().models);
 const thinkingBySession = ref<Record<string, ThinkingLevel>>(loadSessionPrefs().thinking);
 const thinkingLevel = ref<ThinkingLevel>("medium");
 const fileInput = ref<HTMLInputElement | null>(null);
-const draftInput = ref<{
+const richEditor = ref<{
   focus?: () => void;
-  textareaElRef?: HTMLTextAreaElement | null;
+  focusEnd?: () => void;
+  isCaretAtEnd?: () => boolean;
+  getSurface?: () => HTMLElement | null;
 } | null>(null);
 /** True while we programmatically move the caret during ASR updates. */
 let asrCaretGuardUntil = 0;
@@ -107,37 +115,19 @@ function armAsrCaretGuard(ms = 120): void {
   asrCaretGuardUntil = Date.now() + ms;
 }
 
-function getDraftTextarea(): HTMLTextAreaElement | null {
-  const inst = draftInput.value;
-  if (!inst) return null;
-  if (inst.textareaElRef) return inst.textareaElRef;
-  const root = (inst as { $el?: HTMLElement }).$el;
-  return root?.querySelector?.("textarea") ?? null;
-}
-
 function focusDraft(): void {
-  draftInput.value?.focus?.();
+  richEditor.value?.focus?.();
 }
 
 /** Keep focus + caret at end of the draft while dictating. */
 function focusDraftAtEnd(): void {
   armAsrCaretGuard();
-  focusDraft();
-  const el = getDraftTextarea();
-  if (el) {
-    const len = el.value.length;
-    try {
-      el.focus();
-      el.setSelectionRange(len, len);
-    } catch {
-      // ignore selection errors on detached nodes
-    }
-  }
+  richEditor.value?.focusEnd?.();
 }
 
 /**
  * Stop recording only when the user intentionally moves the caret
- * (mouse reposition or navigation keys) ? typing must NOT cancel.
+ * (mouse reposition or navigation keys) — typing must NOT cancel.
  * Only applies once the draft already has text.
  */
 function shouldStopForCaretMove(): boolean {
@@ -148,10 +138,7 @@ function shouldStopForCaretMove(): boolean {
 
 function onDraftCaretClick(): void {
   if (!shouldStopForCaretMove()) return;
-  const el = getDraftTextarea();
-  if (!el) return;
-  const atEnd = el.selectionStart === el.value.length && el.selectionEnd === el.value.length;
-  if (atEnd) return;
+  if (richEditor.value?.isCaretAtEnd?.()) return;
   cancelVoice();
 }
 
@@ -288,7 +275,14 @@ async function readImageFile(file: File): Promise<{
 }
 
 function electronFilePath(file: File): string | null {
-  const p = (file as File & { path?: string }).path;
+  let p = (file as File & { path?: string }).path;
+  if (typeof p !== "string" || !p.trim()) {
+    try {
+      p = window.api.files.getPathForFile(file);
+    } catch {
+      p = "";
+    }
+  }
   if (typeof p === "string" && p.trim()) return toWorkspaceRelative(p.trim());
   return null;
 }
@@ -308,7 +302,8 @@ function toWorkspaceRelative(absOrRel: string): string {
 
 const pathCaseInsensitive = ref(false);
 void window.api.window.platform().then((p) => {
-  pathCaseInsensitive.value = p === "win32";
+  // Windows + default macOS APFS volumes are case-insensitive.
+  pathCaseInsensitive.value = p === "win32" || p === "darwin";
 });
 
 function fileUrlToPath(uri: string): string | null {
@@ -345,6 +340,23 @@ async function addFiles(files: FileList | File[]): Promise<void> {
   }
 }
 
+function modeTagLabel(mode: ComposerAgentMode): string {
+  switch (mode) {
+    case "agent":
+      return t.composerModeAgent;
+    case "ask":
+      return t.composerModeAsk;
+    case "plan":
+      return t.composerModePlan;
+    case "task":
+      return t.composerModeTask;
+    default: {
+      const _never: never = mode;
+      return String(_never);
+    }
+  }
+}
+
 function snapshotComposerPayload(): {
   text: string;
   displayText: string;
@@ -358,15 +370,16 @@ function snapshotComposerPayload(): {
         host: string;
         label: string;
         content?: string;
-        kind?: "file" | "url" | "element";
+        kind?: "file" | "url" | "element" | "agent" | "plan" | "ask" | "task";
       }[]
     | undefined;
 } | null {
   const chipText = composer.formatChipsForMessage();
   const displayText = composer.draft.trim();
-  // Agent prompt includes @path / url chip refs; bubble shows tags + displayText separately.
-  const text = [displayText, chipText].filter(Boolean).join("\n\n");
-  if (!text && !composer.images.length && !composer.chips.length) return null;
+  const mode = composer.activeMode();
+  const body = [displayText, chipText].filter(Boolean).join("\n\n");
+  const text = [composerModePreamble(mode), body].filter(Boolean).join("\n\n");
+  if (!body && !composer.images.length && !composer.chips.length) return null;
   const citations = composer.elementCitations();
   const citationList = citations.length ? citations : undefined;
   const attachmentTags = composer.attachmentTagSnapshot();
@@ -390,26 +403,56 @@ function snapshotComposerPayload(): {
         htmlSnippet: c.htmlSnippet,
       }))
     : undefined;
-  const tagsToSend = attachmentTags.length
-    ? attachmentTags.map((row) => {
-        let host = "";
-        if (row.kind === "url" || row.kind === "element") {
-          try {
-            host = new URL(row.ref).host;
-          } catch {
-            host = "";
-          }
+  const modeLabel = modeTagLabel(mode);
+  const tagsToSend = [
+    {
+      url: mode,
+      host: "",
+      label: modeLabel,
+      content: mode,
+      kind: mode,
+    },
+    ...attachmentTags.map((row) => {
+      let host = "";
+      if (row.kind === "url" || row.kind === "element") {
+        try {
+          host = new URL(row.ref).host;
+        } catch {
+          host = "";
         }
-        return {
-          url: row.ref,
-          host,
-          label: row.label,
-          content: row.content,
-          kind: row.kind,
-        };
-      })
-    : undefined;
+      }
+      return {
+        url: row.ref,
+        host,
+        label: row.label,
+        content: row.content,
+        kind: row.kind,
+      };
+    }),
+  ];
   return { text, displayText, imagesToSend, citationsToSend, tagsToSend };
+}
+
+const attachMenu: DropdownOption[] = [
+  {
+    label: t.composerAttachFile,
+    key: "file",
+    icon: () => h(NIcon, null, { default: () => h(DocumentOutline) }),
+  },
+];
+
+const modeSelectOptions = [
+  { label: t.composerModeAgent, value: "agent" as const },
+  { label: t.composerModeAsk, value: "ask" as const },
+  { label: t.composerModePlan, value: "plan" as const },
+  { label: t.composerModeTask, value: "task" as const },
+];
+
+async function onAttachSelect(key: string | number): Promise<void> {
+  if (String(key) === "file") {
+    const picked = await window.api.preview.pickFile();
+    if (picked) composer.addFileTag(picked);
+  }
 }
 
 function enqueueFromComposer(): boolean {
@@ -488,7 +531,7 @@ function loadQueueItemIntoComposer(item: {
     host: string;
     label: string;
     content?: string;
-    kind?: "file" | "url" | "element";
+    kind?: "file" | "url" | "element" | "agent" | "plan" | "ask" | "task";
   }[];
 }): void {
   composer.clear();
@@ -511,6 +554,10 @@ function loadQueueItemIntoComposer(item: {
     });
   }
   for (const tag of item.elementTags ?? []) {
+    if (isComposerAgentMode(tag.kind)) {
+      composer.setMode(tag.kind);
+      continue;
+    }
     if (tag.kind === "file") {
       composer.addFileTag(tag.content || tag.label || tag.url);
       continue;
@@ -567,7 +614,7 @@ async function dispatchQueuedItem(
       host: string;
       label: string;
       content?: string;
-      kind?: "file" | "url" | "element";
+      kind?: "file" | "url" | "element" | "agent" | "plan" | "ask" | "task";
     }[];
   },
 ): Promise<void> {
@@ -1086,7 +1133,10 @@ function onPaste(event: ClipboardEvent): void {
 }
 
 async function ensureAsrReady(): Promise<boolean> {
-  await asr.refresh();
+  // Resident warm path: status already loaded + installed — skip refresh hitch when possible.
+  if (!(asr.status.residentModel && asr.status.installed && asr.status.enabled)) {
+    await asr.refresh();
+  }
   if (!asr.status.supported) {
     messageApi.warning(t.asrUnsupported);
     return false;
@@ -1127,6 +1177,10 @@ async function ensureAsrReady(): Promise<boolean> {
   }
 }
 
+function setDictationWakePaused(paused: boolean): void {
+  asr.setWakePaused(paused);
+}
+
 function joinAsr(base: string, next: string): string {
   const a = base.replace(/\s+$/u, "");
   const b = next.replace(/^\s+/u, "").trim();
@@ -1139,7 +1193,7 @@ function joinAsr(base: string, next: string): string {
   return needSpace ? `${a} ${b}` : `${a}${b}`;
 }
 
-function cancelVoice(): void {
+function cancelVoice(opts?: { resumeWake?: boolean }): void {
   voiceGen += 1;
   voiceSession?.abort();
   voiceSession = null;
@@ -1148,6 +1202,7 @@ function cancelVoice(): void {
   voicePending.value = false;
   voiceConfirming = false;
   asr.recording = false;
+  if (opts?.resumeWake !== false) setDictationWakePaused(false);
 }
 
 async function confirmVoice(): Promise<void> {
@@ -1188,6 +1243,7 @@ async function confirmVoice(): Promise<void> {
   } finally {
     voiceConfirming = false;
     voicePending.value = false;
+    setDictationWakePaused(false);
   }
 }
 
@@ -1195,8 +1251,15 @@ async function onMicClick(): Promise<void> {
   if (asr.installing || voiceConfirming || voicePending.value) return;
   if (voiceActive.value) return;
 
+  // Pause App-level wake + release stream/mic so one-shot dictation can take the infer slot.
+  setDictationWakePaused(true);
+  await stopWakeListen();
+
   const ready = await ensureAsrReady();
-  if (!ready) return;
+  if (!ready) {
+    setDictationWakePaused(false);
+    return;
+  }
 
   // Mic capture + tab media cannot share the audio focus — stop all players first.
   media.stopAll();
@@ -1262,6 +1325,7 @@ onMounted(() => {
   void asr.refresh();
   offAsrProgress = asr.bindProgress();
   offAsrWake = window.api.asr.onWake(onAsrWake);
+  window.addEventListener(ASR_VOICE_WAKE_EVENT, onAsrWake);
   window.addEventListener("keydown", onVoiceSessionKeydown, true);
   window.addEventListener("pi-models-changed", onModelsChanged);
 });
@@ -1269,9 +1333,11 @@ onMounted(() => {
 onUnmounted(() => {
   window.removeEventListener("pi-models-changed", onModelsChanged);
   window.removeEventListener("keydown", onVoiceSessionKeydown, true);
+  window.removeEventListener(ASR_VOICE_WAKE_EVENT, onAsrWake);
   offAsrProgress?.();
   offAsrWake?.();
-  cancelVoice();
+  // Do not stop App-level wake listen — only clear dictation pause if we held it.
+  cancelVoice({ resumeWake: true });
 });
 
 function onModelsChanged(): void {
@@ -1385,28 +1451,15 @@ watch(
         </div>
       </div>
 
-      <!-- Tags + text share one editor surface (inline flow). -->
+      <!-- Path/url/element chips + text share one contenteditable surface. -->
       <div class="rich-editor" @paste="onPaste" @click="focusDraft">
-        <div class="editor-flow">
-          <CitationCard
-            v-for="chip in composer.chips"
-            :key="chip.id"
-            :chip="chip"
-            @remove="composer.removeChip(chip.id)"
-          />
-          <NInput
-            ref="draftInput"
-            v-model:value="composer.draft"
-            class="draft-input"
-            type="textarea"
-            :placeholder="composer.chips.length ? '' : t.composerPlaceholder"
-            :autosize="{ minRows: 1, maxRows: 8 }"
-            :bordered="false"
-            @keydown="onKeydown"
-            @click="onDraftCaretClick"
-            @keyup="onDraftKeyup"
-          />
-        </div>
+        <ComposerRichEditor
+          ref="richEditor"
+          :disabled="voiceActive || voicePending"
+          @keydown="onKeydown"
+          @click="onDraftCaretClick"
+          @keyup="onDraftKeyup"
+        />
       </div>
 
       <div class="toolbar">
@@ -1423,11 +1476,34 @@ watch(
               input.value = '';
             }"
           />
-          <NButton quaternary circle size="tiny" :disabled="voiceActive || voicePending" @click="fileInput?.click()">
-            <template #icon>
-              <NIcon :component="AddOutline" />
-            </template>
-          </NButton>
+          <NDropdown
+            trigger="click"
+            :options="attachMenu"
+            :disabled="voiceActive || voicePending"
+            @select="onAttachSelect"
+          >
+            <NButton
+              quaternary
+              circle
+              size="tiny"
+              :title="t.composerAttach"
+              :disabled="voiceActive || voicePending"
+            >
+              <template #icon>
+                <NIcon :component="AddOutline" />
+              </template>
+            </NButton>
+          </NDropdown>
+
+          <NSelect
+            v-model:value="composer.mode"
+            class="mode-select"
+            :options="modeSelectOptions"
+            size="tiny"
+            :consistent-menu-width="false"
+            :disabled="voiceActive || voicePending"
+            :title="t.composerModeHint"
+          />
 
           <NSelect
             v-model:value="selectedModelKey"
@@ -1692,27 +1768,6 @@ watch(
   background: var(--bg-input, transparent);
 }
 
-.editor-flow {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 6px;
-  min-width: 0;
-  width: 100%;
-}
-
-.draft-input {
-  flex: 1 1 140px;
-  min-width: 120px;
-  width: auto;
-}
-
-.draft-input :deep(.n-input-wrapper),
-.draft-input :deep(textarea) {
-  padding-left: 0 !important;
-  padding-right: 0 !important;
-}
-
 .img-chip {
   position: relative;
   width: 56px;
@@ -1825,8 +1880,17 @@ watch(
   max-width: 140px;
 }
 
+.mode-select {
+  flex: 0 0 auto;
+  width: 78px;
+  min-width: 78px;
+  max-width: 78px;
+}
+
+.mode-select :deep(.n-base-selection),
 .model-select :deep(.n-base-selection) {
-  --n-padding-single: 0 22px 0 6px;
+  --n-padding-single: 0 18px 0 6px;
+  font-size: 12px;
 }
 
 .think-btn {
@@ -1953,16 +2017,13 @@ watch(
   line-height: 1.35;
 }
 
-/* Compact when chat column is narrow */
-.composer-card :deep(.n-input) {
-  font-size: 13px;
-}
-
-.composer-card :deep(.n-input__textarea-el) {
-  min-height: 20px !important;
-}
-
 @media (max-width: 900px) {
+  .mode-select {
+    width: 70px;
+    min-width: 70px;
+    max-width: 70px;
+  }
+
   .model-select {
     max-width: 100px;
   }
