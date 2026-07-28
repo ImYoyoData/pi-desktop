@@ -41,9 +41,29 @@ describe("parseMarkdownRaw (GFM)", () => {
       "```",
     ].join("\n");
     const html = parseMarkdownRaw(src);
-    expect(html).toContain('data-mermaid');
-    expect(html).toContain("md-mermaid-src");
+    expect(html).toContain("data-mermaid");
+    expect(html).toContain("md-diagram-src");
     expect(html).toContain("flowchart LR");
     expect(html).not.toContain("data-code-block");
+  });
+
+  it("emits graphviz/dot placeholder", () => {
+    const src = ["```dot", "digraph { a -> b }", "```"].join("\n");
+    const html = parseMarkdownRaw(src);
+    expect(html).toContain('data-diagram="dot"');
+    expect(html).toContain("digraph");
+  });
+
+  it("renders display math code fences with katex", () => {
+    const html = parseMarkdownRaw("```math\nE = mc^2\n```");
+    expect(html).toContain("katex");
+    expect(html).toContain("md-math-block");
+  });
+
+  it("renders inline and block dollar math", () => {
+    const inline = parseMarkdownRaw("energy $E=mc^2$ here");
+    expect(inline).toContain("katex");
+    const block = parseMarkdownRaw("$$\na+b=c\n$$");
+    expect(block).toContain("katex");
   });
 });
