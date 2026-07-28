@@ -18,6 +18,14 @@ marked.use({
   renderer: {
     code({ text, lang }: { text: string; lang?: string }) {
       const language = (lang || "").trim().split(/\s+/)[0] || "";
+      if (language.toLowerCase() === "mermaid") {
+        const source = text.replace(/\n$/, "");
+        return [
+          `<div class="md-mermaid" data-mermaid>`,
+          `<pre class="md-mermaid-src">${escapeHtml(source)}</pre>`,
+          `</div>`,
+        ].join("");
+      }
       let highlighted = "";
       try {
         highlighted =
@@ -68,6 +76,7 @@ export function renderMarkdown(content: string): string {
     ADD_ATTR: [
       "data-copy",
       "data-code-block",
+      "data-mermaid",
       "target",
       "rel",
       "type",

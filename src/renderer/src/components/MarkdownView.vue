@@ -1,8 +1,10 @@
 <script setup lang="ts">
-import { onMounted, onUnmounted, ref, watch } from "vue";
+import { nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 import { useDialog } from "naive-ui";
 import { renderMarkdown, setMarkdownCopyLabel } from "@renderer/utils/markdown";
+import { mountMermaidIn } from "@renderer/utils/mermaid-render";
 import { handleAppLinkClick } from "@renderer/utils/open-link";
+import { useAppearanceStore } from "@renderer/stores/appearance";
 import { t } from "@renderer/i18n";
 
 const props = defineProps<{
@@ -11,6 +13,7 @@ const props = defineProps<{
 
 const rootEl = ref<HTMLElement | null>(null);
 const dialog = useDialog();
+const appearance = useAppearanceStore();
 
 setMarkdownCopyLabel(t.copy);
 
@@ -20,13 +23,22 @@ function refreshHtml(content: string): string {
 }
 
 const html = ref(refreshHtml(props.content));
+let mermaidTimer = 0;
 
-watch(
-  () => props.content,
-  (c) => {
-    html.value = refreshHtml(c);
-  },
-);
+function scheduleMermaid(): void {
+  if (mermaidTimer) window.clearTimeout(mermaidTimer);
+  mermaidTimer = window.setTimeout(() => {
+    mermaidTimer = 0;
+    void paintMermaid();
+  }, 140);
+}
+
+async function paintMermaid(): Promise<void> {
+  await nextTick();
+  const root = rootEl.value;
+  if (!root) return;
+  await mountMermaidIn(root, appearance.resolvedTheme === "dark");
+}
 
 function onRootClick(event: MouseEvent): void {
   const target = event.target as HTMLElement | null;
@@ -52,11 +64,29 @@ function onRootClick(event: MouseEvent): void {
   handleAppLinkClick(event, anchor.href, dialog);
 }
 
+watch(
+  () => props.content,
+  (c) => {
+    html.value = refreshHtml(c);
+    scheduleMermaid();
+  },
+);
+
+watch(
+  () => appearance.resolvedTheme,
+  () => {
+    html.value = refreshHtml(props.content);
+    scheduleMermaid();
+  },
+);
+
 onMounted(() => {
   rootEl.value?.addEventListener("click", onRootClick);
+  scheduleMermaid();
 });
 
 onUnmounted(() => {
+  if (mermaidTimer) window.clearTimeout(mermaidTimer);
   rootEl.value?.removeEventListener("click", onRootClick);
 });
 </script>
@@ -349,5 +379,36 @@ onUnmounted(() => {
   padding: 0.1em 0.35em;
   border-radius: 4px;
   background: var(--md-inline-code-bg, rgba(0, 0, 0, 0.06));
+}
+
+.md :deep(.md-mermaid) {
+  margin: 0.75em 0;
+  padding: 10px 12px;
+  overflow-x: auto;
+  border-radius: 8px;
+  border: 1px solid var(--border-subtle, rgba(127, 127, 127, 0.25));
+  background: var(--bg-elevated, transparent);
+}
+
+.md :deep(.md-mermaid svg) {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  margin: 0 auto;
+}
+
+.md :deep(.md-mermaid-src) {
+  margin: 0;
+  padding: 0;
+  overflow: auto;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  background: transparent;
+}
+
+.md :deep(.md-mermaid-error .md-mermaid-src) {
+  opacity: 0.85;
 }
 </style>
