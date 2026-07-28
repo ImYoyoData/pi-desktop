@@ -1882,15 +1882,29 @@ watch(
 
 .mode-select {
   flex: 0 0 auto;
-  width: 78px;
-  min-width: 78px;
-  max-width: 78px;
+  width: 56px;
+  min-width: 56px;
+  max-width: 56px;
 }
 
-.mode-select :deep(.n-base-selection),
 .model-select :deep(.n-base-selection) {
-  --n-padding-single: 0 18px 0 6px;
-  font-size: 12px;
+  --n-padding-single: 0 16px 0 4px;
+  font-size: 11px;
+}
+
+.mode-select :deep(.n-base-selection) {
+  --n-padding-single: 0 12px 0 3px;
+  --n-height: 22px;
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.mode-select :deep(.n-base-suffix) {
+  width: 12px;
+}
+
+.mode-select :deep(.n-base-selection-label) {
+  padding: 0 !important;
 }
 
 .think-btn {
@@ -2019,9 +2033,9 @@ watch(
 
 @media (max-width: 900px) {
   .mode-select {
-    width: 70px;
-    min-width: 70px;
-    max-width: 70px;
+    width: 52px;
+    min-width: 52px;
+    max-width: 52px;
   }
 
   .model-select {
