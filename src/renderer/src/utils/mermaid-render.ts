@@ -1,3 +1,7 @@
+import {
+  mountDiagramChrome,
+  type DiagramToolLabels,
+} from "@renderer/utils/diagram-chrome";
 import type { MermaidConfig } from "mermaid";
 
 type MermaidApi = {
@@ -39,7 +43,11 @@ async function ensureMermaid(isDark: boolean): Promise<MermaidApi> {
  * Render every `[data-mermaid]` placeholder under `root`.
  * Safe to call repeatedly after `v-html` updates (placeholders are fresh each time).
  */
-export async function mountMermaidIn(root: HTMLElement, isDark: boolean): Promise<void> {
+export async function mountMermaidIn(
+  root: HTMLElement,
+  isDark: boolean,
+  labels: DiagramToolLabels,
+): Promise<void> {
   const blocks = Array.from(root.querySelectorAll<HTMLElement>("[data-mermaid]"));
   if (!blocks.length) return;
 
@@ -51,9 +59,9 @@ export async function mountMermaidIn(root: HTMLElement, isDark: boolean): Promis
   for (const block of blocks) {
     if (seq !== renderSeq) return;
     if (!root.contains(block)) continue;
-    if (block.getAttribute("data-mermaid-done") === "1") continue;
+    if (block.classList.contains("md-diagram-ready")) continue;
 
-    const srcEl = block.querySelector(".md-mermaid-src");
+    const srcEl = block.querySelector(".md-diagram-src, .md-mermaid-src");
     const source = (srcEl?.textContent ?? "").trim();
     if (!source) continue;
 
@@ -61,15 +69,18 @@ export async function mountMermaidIn(root: HTMLElement, isDark: boolean): Promis
       const id = `pi-mmd-${Date.now().toString(36)}-${index++}`;
       const { svg, bindFunctions } = await mermaid.render(id, source);
       if (seq !== renderSeq || !root.contains(block)) return;
-      block.innerHTML = svg;
+      mountDiagramChrome(block, {
+        svg,
+        source,
+        kind: "mermaid",
+        labels,
+        bindFunctions,
+      });
       block.setAttribute("data-mermaid-done", "1");
-      block.classList.remove("md-mermaid-error");
-      const svgEl = block.querySelector("svg");
-      if (svgEl && bindFunctions) bindFunctions(svgEl);
     } catch {
       if (!root.contains(block)) continue;
-      block.classList.add("md-mermaid-error");
-      // Keep source pre visible so incomplete streaming diagrams stay readable.
+      block.classList.add("md-diagram-error");
+      // Keep source visible so incomplete streaming diagrams stay readable.
     }
   }
 }

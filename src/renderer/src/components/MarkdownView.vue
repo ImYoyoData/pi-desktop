@@ -1,7 +1,17 @@
 <script setup lang="ts">
-import { nextTick, onMounted, onUnmounted, ref, watch } from "vue";
-import { useDialog } from "naive-ui";
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
+import { NModal, NButton, NSpace, useDialog, useMessage } from "naive-ui";
 import { renderMarkdown, setMarkdownCopyLabel } from "@renderer/utils/markdown";
+import {
+  applyDiagramZoom,
+  clampDiagramZoom,
+  getDiagramSource,
+  getDiagramSvgMarkup,
+  handleDiagramToolClick,
+  readDiagramZoom,
+  type DiagramToolLabels,
+} from "@renderer/utils/diagram-chrome";
+import { mountDotIn } from "@renderer/utils/dot-render";
 import { mountMermaidIn } from "@renderer/utils/mermaid-render";
 import { handleAppLinkClick } from "@renderer/utils/open-link";
 import { useAppearanceStore } from "@renderer/stores/appearance";
@@ -13,7 +23,23 @@ const props = defineProps<{
 
 const rootEl = ref<HTMLElement | null>(null);
 const dialog = useDialog();
+const message = useMessage();
 const appearance = useAppearanceStore();
+
+const previewOpen = ref(false);
+const previewZoom = ref(1);
+const previewSvg = ref("");
+const previewSource = ref("");
+const previewKind = ref("diagram");
+
+const diagramLabels = computed<DiagramToolLabels>(() => ({
+  zoomIn: t.mdDiagramZoomIn,
+  zoomOut: t.mdDiagramZoomOut,
+  zoomReset: t.mdDiagramZoomReset,
+  expand: t.mdDiagramExpand,
+  copySource: t.mdDiagramCopySource,
+  downloadSvg: t.mdDiagramDownloadSvg,
+}));
 
 setMarkdownCopyLabel(t.copy);
 
@@ -23,26 +49,52 @@ function refreshHtml(content: string): string {
 }
 
 const html = ref(refreshHtml(props.content));
-let mermaidTimer = 0;
+let diagramTimer = 0;
 
-function scheduleMermaid(): void {
-  if (mermaidTimer) window.clearTimeout(mermaidTimer);
-  mermaidTimer = window.setTimeout(() => {
-    mermaidTimer = 0;
-    void paintMermaid();
+function scheduleDiagrams(): void {
+  if (diagramTimer) window.clearTimeout(diagramTimer);
+  diagramTimer = window.setTimeout(() => {
+    diagramTimer = 0;
+    void paintDiagrams();
   }, 140);
 }
 
-async function paintMermaid(): Promise<void> {
+async function paintDiagrams(): Promise<void> {
   await nextTick();
   const root = rootEl.value;
   if (!root) return;
-  await mountMermaidIn(root, appearance.resolvedTheme === "dark");
+  const labels = diagramLabels.value;
+  await Promise.all([
+    mountMermaidIn(root, appearance.resolvedTheme === "dark", labels),
+    mountDotIn(root, labels),
+  ]);
+}
+
+function openPreview(block: HTMLElement): void {
+  previewSvg.value = getDiagramSvgMarkup(block);
+  previewSource.value = getDiagramSource(block);
+  previewKind.value = block.getAttribute("data-diagram") || "diagram";
+  previewZoom.value = readDiagramZoom(block);
+  previewOpen.value = Boolean(previewSvg.value);
 }
 
 function onRootClick(event: MouseEvent): void {
   const target = event.target as HTMLElement | null;
   if (!target) return;
+
+  const toolBtn = target.closest("[data-diagram-action]") as HTMLElement | null;
+  if (toolBtn) {
+    event.preventDefault();
+    event.stopPropagation();
+    const block = toolBtn.closest(".md-diagram") as HTMLElement | null;
+    if (!block) return;
+    const action = toolBtn.getAttribute("data-diagram-action") || "";
+    const result = handleDiagramToolClick(block, action);
+    if (result === "expand") openPreview(block);
+    if (result === "copied") message.success(t.copied);
+    if (result === "downloaded") message.success(t.mdDiagramDownloaded);
+    return;
+  }
 
   const copyBtn = target.closest("[data-copy]") as HTMLElement | null;
   if (copyBtn) {
@@ -64,11 +116,48 @@ function onRootClick(event: MouseEvent): void {
   handleAppLinkClick(event, anchor.href, dialog);
 }
 
+function onRootWheel(event: WheelEvent): void {
+  if (!event.ctrlKey && !event.metaKey) return;
+  const target = event.target as HTMLElement | null;
+  const block = target?.closest?.(".md-diagram.md-diagram-ready") as HTMLElement | null;
+  if (!block) return;
+  event.preventDefault();
+  const factor = event.deltaY < 0 ? 1.1 : 1 / 1.1;
+  applyDiagramZoom(block, readDiagramZoom(block) * factor);
+}
+
+function nudgePreviewZoom(factor: number): void {
+  previewZoom.value = clampDiagramZoom(previewZoom.value * factor);
+}
+
+function resetPreviewZoom(): void {
+  previewZoom.value = 1;
+}
+
+function copyPreviewSource(): void {
+  if (!previewSource.value) return;
+  void navigator.clipboard.writeText(previewSource.value).then(() => {
+    message.success(t.copied);
+  });
+}
+
+function downloadPreviewSvg(): void {
+  if (!previewSvg.value) return;
+  const blob = new Blob([previewSvg.value], { type: "image/svg+xml;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `diagram-${Date.now()}.svg`;
+  a.click();
+  URL.revokeObjectURL(url);
+  message.success(t.mdDiagramDownloaded);
+}
+
 watch(
   () => props.content,
   (c) => {
     html.value = refreshHtml(c);
-    scheduleMermaid();
+    scheduleDiagrams();
   },
 );
 
@@ -76,27 +165,58 @@ watch(
   () => appearance.resolvedTheme,
   () => {
     html.value = refreshHtml(props.content);
-    scheduleMermaid();
+    scheduleDiagrams();
   },
 );
 
 onMounted(() => {
   rootEl.value?.addEventListener("click", onRootClick);
-  scheduleMermaid();
+  rootEl.value?.addEventListener("wheel", onRootWheel, { passive: false });
+  scheduleDiagrams();
 });
 
 onUnmounted(() => {
-  if (mermaidTimer) window.clearTimeout(mermaidTimer);
+  if (diagramTimer) window.clearTimeout(diagramTimer);
   rootEl.value?.removeEventListener("click", onRootClick);
+  rootEl.value?.removeEventListener("wheel", onRootWheel);
 });
 </script>
 
 <template>
   <div ref="rootEl" class="md" v-html="html" />
+
+  <NModal
+    v-model:show="previewOpen"
+    preset="card"
+    :title="t.mdDiagramPreviewTitle(previewKind)"
+    class="pi-settings-modal"
+    style="width: min(960px, 96vw)"
+    :bordered="false"
+    size="huge"
+  >
+    <div class="preview-toolbar">
+      <NSpace :size="6">
+        <NButton size="tiny" @click="nudgePreviewZoom(1 / 1.2)">−</NButton>
+        <span class="preview-zoom">{{ Math.round(previewZoom * 100) }}%</span>
+        <NButton size="tiny" @click="nudgePreviewZoom(1.2)">+</NButton>
+        <NButton size="tiny" @click="resetPreviewZoom">1:1</NButton>
+        <NButton size="tiny" @click="copyPreviewSource">{{ t.mdDiagramCopySource }}</NButton>
+        <NButton size="tiny" @click="downloadPreviewSvg">{{ t.mdDiagramDownloadSvg }}</NButton>
+      </NSpace>
+    </div>
+    <div class="preview-viewport">
+      <div
+        class="preview-canvas"
+        :style="{ transform: `scale(${previewZoom})` }"
+        v-html="previewSvg"
+      />
+    </div>
+  </NModal>
 </template>
 
 <style>
 @import "highlight.js/styles/github.css";
+@import "katex/dist/katex.min.css";
 </style>
 
 <style scoped>
@@ -207,144 +327,93 @@ onUnmounted(() => {
   margin: 0.2em 0;
 }
 
-.md :deep(li > ul),
-.md :deep(li > ol) {
-  margin: 0.15em 0 0.25em;
-}
-
-/* GFM task lists */
-.md :deep(li:has(> input[type="checkbox"])) {
-  list-style: none;
-  margin-left: -1.25em;
-  padding-left: 0.15em;
-}
-
-.md :deep(li > input[type="checkbox"]) {
-  margin-right: 0.45em;
-  vertical-align: middle;
-}
-
 .md :deep(blockquote) {
-  margin: 0.5em 0 0.75em;
+  margin: 0.65em 0;
   padding: 0.15em 0 0.15em 0.85em;
-  border-left: 3px solid var(--border-strong);
+  border-left: 3px solid var(--border-strong, rgba(127, 127, 127, 0.45));
   color: var(--fg-muted);
-}
-
-.md :deep(blockquote p) {
-  margin-bottom: 0.4em;
-}
-
-.md :deep(blockquote p:last-child) {
-  margin-bottom: 0;
 }
 
 .md :deep(hr) {
   margin: 1em 0;
   border: none;
-  border-top: 1px solid var(--border);
-}
-
-.md :deep(.md-table-scroll) {
-  margin: 0.65em 0;
-  overflow-x: auto;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-}
-
-.md :deep(table) {
-  width: max-content;
-  min-width: 100%;
-  border-collapse: collapse;
-  font-size: 13px;
-  margin: 0;
-}
-
-.md :deep(.md-table-scroll table) {
-  border: none;
-  border-radius: 0;
-}
-
-.md :deep(thead) {
-  background: var(--code-bg);
-}
-
-.md :deep(th),
-.md :deep(td) {
-  border: 1px solid var(--border);
-  padding: 6px 10px;
-  text-align: left;
-  vertical-align: top;
-}
-
-.md :deep(th) {
-  font-weight: 650;
-  color: var(--fg-strong);
-  white-space: nowrap;
-}
-
-.md :deep(tr:nth-child(even) td) {
-  background: color-mix(in srgb, var(--code-bg) 55%, transparent);
-}
-
-.md :deep(img) {
-  max-width: 100%;
-  height: auto;
-  border-radius: 6px;
-  margin: 0.4em 0;
+  border-top: 1px solid var(--border-subtle, rgba(127, 127, 127, 0.25));
 }
 
 .md :deep(a) {
-  color: var(--accent);
+  color: var(--accent, #3b82f6);
   text-decoration: underline;
   text-underline-offset: 2px;
   cursor: pointer;
 }
 
+.md :deep(.md-table-scroll) {
+  overflow-x: auto;
+  margin: 0.65em 0;
+}
+
+.md :deep(table) {
+  border-collapse: collapse;
+  width: max-content;
+  min-width: 100%;
+  font-size: 13px;
+}
+
+.md :deep(th),
+.md :deep(td) {
+  border: 1px solid var(--border-subtle, rgba(127, 127, 127, 0.3));
+  padding: 6px 10px;
+  text-align: left;
+}
+
+.md :deep(th) {
+  background: var(--bg-elevated, rgba(127, 127, 127, 0.08));
+  font-weight: 600;
+}
+
 .md :deep(.code-block) {
-  margin: 0.6em 0;
-  border: 1px solid var(--border);
+  margin: 0.75em 0;
   border-radius: 8px;
+  border: 1px solid var(--border-subtle, rgba(127, 127, 127, 0.25));
   overflow: hidden;
-  background: var(--pre-bg);
+  background: var(--bg-elevated, transparent);
 }
 
 .md :deep(.code-head) {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 8px;
   padding: 4px 10px;
-  border-bottom: 1px solid var(--border);
-  background: var(--code-bg);
+  border-bottom: 1px solid var(--border-subtle, rgba(127, 127, 127, 0.2));
   font-size: 11px;
-  color: var(--fg-muted);
+  color: var(--fg-faint);
 }
 
 .md :deep(.copy-btn) {
-  border: 1px solid var(--border);
-  background: var(--bg-elevated);
-  border-radius: 4px;
-  padding: 1px 8px;
-  font-size: 11px;
-  cursor: pointer;
+  border: none;
+  background: transparent;
   color: var(--fg-muted);
+  cursor: pointer;
+  font-size: 11px;
+  padding: 2px 6px;
+  border-radius: 4px;
 }
 
 .md :deep(.copy-btn:hover) {
-  color: var(--fg-strong);
+  background: rgba(127, 127, 127, 0.12);
+  color: var(--fg);
 }
 
 .md :deep(.code-body) {
-  display: grid;
-  grid-template-columns: auto 1fr;
+  display: flex;
   max-height: 420px;
   overflow: auto;
 }
 
 .md :deep(.line-nos) {
+  flex: 0 0 auto;
   padding: 10px 0;
-  background: var(--code-bg);
-  border-right: 1px solid var(--border);
   text-align: right;
   user-select: none;
   font-family: var(--font-mono);
@@ -381,25 +450,80 @@ onUnmounted(() => {
   background: var(--md-inline-code-bg, rgba(0, 0, 0, 0.06));
 }
 
-.md :deep(.md-mermaid) {
+.md :deep(.md-diagram) {
   margin: 0.75em 0;
-  padding: 10px 12px;
-  overflow-x: auto;
   border-radius: 8px;
   border: 1px solid var(--border-subtle, rgba(127, 127, 127, 0.25));
   background: var(--bg-elevated, transparent);
+  overflow: hidden;
 }
 
-.md :deep(.md-mermaid svg) {
-  display: block;
-  max-width: 100%;
-  height: auto;
+.md :deep(.md-diagram-toolbar) {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--border-subtle, rgba(127, 127, 127, 0.2));
+  font-size: 11px;
+  color: var(--fg-faint);
+}
+
+.md :deep(.md-diagram-kind) {
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-weight: 600;
+}
+
+.md :deep(.md-diagram-spacer) {
+  flex: 1;
+}
+
+.md :deep(.md-diagram-zoom) {
+  min-width: 40px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.md :deep(.md-diagram-btn) {
+  border: none;
+  background: transparent;
+  color: var(--fg-muted);
+  cursor: pointer;
+  font-size: 12px;
+  line-height: 1;
+  min-width: 24px;
+  height: 24px;
+  padding: 0 6px;
+  border-radius: 4px;
+}
+
+.md :deep(.md-diagram-btn:hover) {
+  background: rgba(127, 127, 127, 0.14);
+  color: var(--fg);
+}
+
+.md :deep(.md-diagram-viewport) {
+  overflow: auto;
+  max-height: 480px;
+  padding: 12px;
+  cursor: grab;
+}
+
+.md :deep(.md-diagram-canvas) {
+  transform-origin: top left;
+  width: max-content;
   margin: 0 auto;
 }
 
-.md :deep(.md-mermaid-src) {
+.md :deep(.md-diagram-canvas svg) {
+  display: block;
+  max-width: none;
+  height: auto;
+}
+
+.md :deep(.md-diagram-src) {
   margin: 0;
-  padding: 0;
+  padding: 10px 12px;
   overflow: auto;
   font-family: var(--font-mono);
   font-size: 12px;
@@ -408,7 +532,52 @@ onUnmounted(() => {
   background: transparent;
 }
 
-.md :deep(.md-mermaid-error .md-mermaid-src) {
-  opacity: 0.85;
+.md :deep(.md-diagram-error .md-diagram-src) {
+  opacity: 0.9;
+}
+
+.md :deep(.md-math-block) {
+  margin: 0.75em 0;
+  overflow-x: auto;
+  text-align: center;
+}
+
+.md :deep(.katex-display) {
+  margin: 0.5em 0;
+}
+
+.preview-toolbar {
+  margin-bottom: 10px;
+}
+
+.preview-zoom {
+  display: inline-flex;
+  align-items: center;
+  min-width: 44px;
+  justify-content: center;
+  font-size: 12px;
+  color: var(--fg-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.preview-viewport {
+  overflow: auto;
+  max-height: min(70vh, 640px);
+  padding: 16px;
+  border-radius: 8px;
+  border: 1px solid var(--border-subtle, rgba(127, 127, 127, 0.25));
+  background: var(--bg-elevated, transparent);
+}
+
+.preview-canvas {
+  transform-origin: top left;
+  width: max-content;
+  margin: 0 auto;
+}
+
+.preview-canvas :deep(svg) {
+  display: block;
+  max-width: none;
+  height: auto;
 }
 </style>
