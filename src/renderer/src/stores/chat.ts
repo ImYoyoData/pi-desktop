@@ -4,6 +4,7 @@ import type { AgentEvent, ElementCitation, PromptImageContent, SessionHistoryMes
 import { toPromptCitations, toPromptImages } from "../../../shared/protocol";
 import {
   appendUserMessage,
+  clearPendingAskUser,
   createChatState,
   reduceChatEvent,
   type ChatMessage,
@@ -17,7 +18,12 @@ import { formatLlmError } from "../utils/llm-error";
 import { locale, t } from "../i18n";
 
 export type { ChatMessage, ChatState, ChatUserImage, ChatRetryHint } from "./chat-reducer";
-export { appendUserMessage, createChatState, reduceChatEvent } from "./chat-reducer";
+export {
+  appendUserMessage,
+  clearPendingAskUser,
+  createChatState,
+  reduceChatEvent,
+} from "./chat-reducer";
 
 /** In-progress re-edit of a published user bubble (messages stay until commit/send). */
 export type PendingUserEdit = {
@@ -74,6 +80,16 @@ export const useChatStore = defineStore("chat", () => {
     return stateFor(id).retryHint;
   });
 
+  const activePendingAskUser = computed(() => {
+    const id = sessionsStore.activeId;
+    if (!id) return null;
+    return stateFor(id).pendingAskUser;
+  });
+
+  function clearPendingAskUserFor(sessionId: string): void {
+    bySession[sessionId] = clearPendingAskUser(stateFor(sessionId));
+  }
+
   function applyEvent(event: AgentEvent): void {
     const sessionId = event.sessionId;
     bySession[sessionId] = reduceChatEvent(stateFor(sessionId), event);
@@ -94,12 +110,18 @@ export const useChatStore = defineStore("chat", () => {
       messages: history.map((row) =>
         row.role === "user"
           ? { id: row.id, role: "user" as const, text: row.text }
-          : { id: row.id, role: "assistant" as const, text: row.text },
+          : {
+              id: row.id,
+              role: "assistant" as const,
+              text: row.text,
+              ...(row.thinking ? { thinking: row.thinking } : {}),
+            },
       ),
       streamingMessage: null,
       running: false,
       retryHint: null,
       nextToolOrder: 1,
+      pendingAskUser: null,
     };
   }
 
@@ -134,7 +156,7 @@ export const useChatStore = defineStore("chat", () => {
       host: string;
       label: string;
       content?: string;
-      kind?: "file" | "url" | "element";
+      kind?: "file" | "url" | "element" | "agent" | "plan" | "ask" | "task";
     }[],
     /** Bubble text (defaults to `message`). Agent always receives `message`. */
     displayText?: string,
@@ -189,10 +211,12 @@ export const useChatStore = defineStore("chat", () => {
   }
 
   async function steer(sessionId: string, message: string): Promise<void> {
+    clearPendingAskUserFor(sessionId);
     await sessionsStore.sendCommand(sessionId, { type: "steer", message });
   }
 
   async function followUp(sessionId: string, message: string): Promise<void> {
+    clearPendingAskUserFor(sessionId);
     await sessionsStore.sendCommand(sessionId, { type: "follow_up", message });
   }
 
@@ -343,7 +367,9 @@ export const useChatStore = defineStore("chat", () => {
     activeStreaming,
     activeRunning,
     activeRetryHint,
+    activePendingAskUser,
     bindEvents,
+    clearPendingAskUserFor,
     hydrateFromHistory,
     clearSession,
     sendPrompt,

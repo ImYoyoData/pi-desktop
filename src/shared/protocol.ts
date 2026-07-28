@@ -10,6 +10,7 @@ export const IpcChannels = {
     setThemeSource: "window:setThemeSource",
     setChromeTheme: "window:setChromeTheme",
     requestMediaAccess: "window:requestMediaAccess",
+    setUiLocale: "window:setUiLocale",
   },
   workspace: {
     get: "workspace:get",
@@ -17,6 +18,7 @@ export const IpcChannels = {
     openPath: "workspace:openPath",
     listRecent: "workspace:listRecent",
     removeRecent: "workspace:removeRecent",
+    reorderRecent: "workspace:reorderRecent",
     revealInFolder: "workspace:revealInFolder",
   },
   sessions: {
@@ -118,6 +120,8 @@ export const IpcChannels = {
     streamEvent: "asr:streamEvent",
     progress: "asr:progress",
     setWakeHotkey: "asr:setWakeHotkey",
+    setResidentModel: "asr:setResidentModel",
+    setWakeWords: "asr:setWakeWords",
     /** Main → renderer: global wake hotkey pressed. */
     wake: "asr:wake",
   },
@@ -153,6 +157,11 @@ export const IpcChannels = {
   },
   notify: {
     turnComplete: "notify:turnComplete",
+  },
+  runs: {
+    list: "runs:list",
+    terminate: "runs:terminate",
+    event: "runs:event",
   },
 } as const;
 
@@ -255,6 +264,8 @@ export type SessionHistoryMessage = {
   id: string;
   role: "user" | "assistant";
   text: string;
+  /** Model reasoning / thinking block when present. */
+  thinking?: string;
 };
 
 export type SessionSummary = {

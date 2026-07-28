@@ -1,14 +1,19 @@
 <script setup lang="ts">
 import { computed, ref } from "vue";
-import { NButton, NIcon, NTag, NText } from "naive-ui";
+import { NIcon } from "naive-ui";
 import {
+  CheckmarkCircleOutline,
   ChevronDownOutline,
   ChevronForwardOutline,
+  CloseCircleOutline,
   DocumentTextOutline,
+  CreateOutline,
+  EyeOutline,
   TerminalOutline,
 } from "@vicons/ionicons5";
 import type { ToolCard } from "@renderer/utils/tool-diff";
 import { t } from "@renderer/i18n";
+import { ASK_USER_TOOL_NAME } from "../../../shared/ask-user";
 
 const props = defineProps<{
   card: ToolCard;
@@ -24,6 +29,8 @@ const emit = defineEmits<{
 }>();
 
 const open = ref(false);
+
+const isAskUserTool = computed(() => props.toolName === ASK_USER_TOOL_NAME);
 
 const fileName = computed(() => {
   if (props.card.kind === "bash" || props.card.kind === "generic") return null;
@@ -44,12 +51,31 @@ const actionLabel = computed(() => {
     case "bash":
       return t.toolBash;
     case "generic":
-      return props.toolName;
+      return isAskUserTool.value ? t.askUserToolLabel : props.toolName;
     case "other":
-      return props.toolName;
+      return isAskUserTool.value ? t.askUserToolLabel : props.toolName;
     default: {
       const _never: never = props.card;
       return String(_never);
+    }
+  }
+});
+
+const kindIcon = computed(() => {
+  switch (props.card.kind) {
+    case "read":
+      return EyeOutline;
+    case "write":
+    case "edit":
+      return CreateOutline;
+    case "bash":
+      return TerminalOutline;
+    case "generic":
+    case "other":
+      return DocumentTextOutline;
+    default: {
+      const _never: never = props.card;
+      return DocumentTextOutline;
     }
   }
 });
@@ -70,17 +96,22 @@ const metaLine = computed(() => {
     if (card.linesRead != null) return t.toolLinesOf(card.linesRead);
     return null;
   }
-  if ((card.kind === "edit" || card.kind === "write") && card.stats) {
-    return `+${card.stats.additions} -${card.stats.deletions}`;
-  }
   return null;
 });
 
 const headline = computed(() => {
+  if (isAskUserTool.value) return "";
   const card = props.card;
   if (card.kind === "bash") return card.command || props.toolName;
   if (card.kind === "generic") return card.summary || props.toolName;
   return fileName.value || props.toolName;
+});
+
+const pathHint = computed(() => {
+  if (props.card.kind === "bash" || props.card.kind === "generic") return undefined;
+  const full = props.card.path;
+  if (!full || full === fileName.value) return undefined;
+  return full;
 });
 
 const body = computed(() => {
@@ -121,45 +152,61 @@ function onOpenPreview(): void {
 </script>
 
 <template>
-  <div class="tool-call" :class="{ streaming, error: statusType === 'error' }">
-    <button type="button" class="tool-call-head" @click="open = !open">
-      <NIcon
-        class="chev"
-        :component="open ? ChevronDownOutline : ChevronForwardOutline"
-        :size="12"
-      />
-      <span v-if="order != null" class="order" :title="t.toolOrderHint(order)">#{{ order }}</span>
-      <NText code class="tool-name">{{ actionLabel }}</NText>
+  <div
+    class="tool-call"
+    :class="{
+      streaming: Boolean(streaming),
+      error: statusType === 'error',
+      open,
+      'ask-user-muted': isAskUserTool,
+      [`kind-${card.kind}`]: true,
+    }"
+  >
+    <div class="tool-call-head" @click="open = !open">
+      <button type="button" class="expand-hit" :aria-expanded="open">
+        <NIcon
+          class="chev"
+          :component="open ? ChevronDownOutline : ChevronForwardOutline"
+          :size="12"
+        />
+      </button>
+      <NIcon class="kind-icon" :component="kindIcon" :size="14" />
+      <span class="action">{{ actionLabel }}</span>
       <span class="headline" :title="pathTitle || headline">{{ headline }}</span>
-      <span v-if="metaLine" class="meta" :class="{ stats: card.kind === 'edit' || card.kind === 'write' }">
-        <template v-if="card.kind === 'edit' || card.kind === 'write'">
-          <span v-if="card.stats" class="add">+{{ card.stats.additions }}</span>
-          <span v-if="card.stats" class="del">-{{ card.stats.deletions }}</span>
-        </template>
-        <template v-else>{{ metaLine }}</template>
+      <span v-if="pathHint" class="path-hint" :title="pathHint">{{ pathHint }}</span>
+      <span v-if="metaLine" class="meta">{{ metaLine }}</span>
+      <span
+        v-if="(card.kind === 'edit' || card.kind === 'write') && card.stats"
+        class="meta stats"
+      >
+        <span class="add">+{{ card.stats.additions }}</span>
+        <span class="del">-{{ card.stats.deletions }}</span>
       </span>
       <span v-if="card.kind === 'read' && card.truncated" class="trunc">{{ t.toolTruncated }}</span>
       <span v-if="card.kind === 'bash' && card.truncated" class="trunc">{{ t.toolTruncated }}</span>
-      <NTag size="tiny" :type="statusType" :bordered="false">{{ statusLabel }}</NTag>
-      <NButton
+      <span class="status" :class="statusType" :title="statusLabel">
+        <span v-if="streaming" class="spinner" aria-hidden="true" />
+        <NIcon
+          v-else-if="statusType === 'error'"
+          :component="CloseCircleOutline"
+          :size="14"
+        />
+        <NIcon
+          v-else-if="statusType === 'success' || statusType === 'default'"
+          :component="CheckmarkCircleOutline"
+          :size="14"
+        />
+      </span>
+      <button
         v-if="canPreviewPath"
-        size="tiny"
-        quaternary
+        type="button"
         class="open-btn"
         :title="t.previewFile"
         @click.stop="onOpenPreview"
       >
-        <template #icon>
-          <NIcon :component="DocumentTextOutline" :size="12" />
-        </template>
-      </NButton>
-      <NIcon
-        v-else-if="card.kind === 'bash'"
-        class="kind-icon"
-        :component="TerminalOutline"
-        :size="12"
-      />
-    </button>
+        <NIcon :component="DocumentTextOutline" :size="13" />
+      </button>
+    </div>
     <pre v-if="open && body" class="tool-body"><code><span
       v-for="(line, i) in body.split('\n')"
       :key="i"
@@ -177,27 +224,45 @@ function onOpenPreview(): void {
 <style scoped>
 .tool-call {
   width: 100%;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: var(--tool-bg, var(--bg-elevated));
+  border: 1px solid color-mix(in srgb, var(--border, #ddd) 85%, transparent);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--bg-elevated, #fff) 92%, var(--fg-muted, #888) 8%);
   overflow: hidden;
+  transition:
+    border-color 0.12s ease,
+    background 0.12s ease;
 }
 
 .tool-call.streaming {
-  opacity: 0.85;
+  border-color: color-mix(in srgb, var(--primary, #3b82f6) 32%, var(--border, #ddd));
 }
 
 .tool-call.error {
-  border-color: color-mix(in srgb, var(--error, #d03050) 35%, var(--border));
+  border-color: color-mix(in srgb, var(--error, #d03050) 40%, var(--border));
+  background: color-mix(in srgb, var(--error, #d03050) 5%, var(--bg-elevated, #fff));
+}
+
+.tool-call.ask-user-muted {
+  border-color: color-mix(in srgb, var(--border, #ddd) 92%, transparent);
+  background: color-mix(in srgb, var(--bg-elevated, #fff) 96%, var(--fg-muted, #888) 4%);
+}
+
+.tool-call.ask-user-muted .action {
+  color: var(--fg-faint, #888);
+  font-weight: 500;
+}
+
+.tool-call.ask-user-muted .headline:empty {
+  display: none;
 }
 
 .tool-call-head {
   width: 100%;
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 7px;
   margin: 0;
-  padding: 5px 8px;
+  padding: 7px 10px;
   border: none;
   background: transparent;
   color: inherit;
@@ -210,26 +275,48 @@ function onOpenPreview(): void {
   background: var(--bg-hover, rgba(127, 127, 127, 0.06));
 }
 
-.chev,
+.expand-hit {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+
+.chev {
+  flex-shrink: 0;
+  color: var(--fg-faint, #999);
+}
+
 .kind-icon {
   flex-shrink: 0;
-  color: var(--fg-muted);
+  color: var(--fg-muted, #666);
 }
 
-.order {
-  flex-shrink: 0;
-  font-size: 10px;
-  font-variant-numeric: tabular-nums;
-  color: var(--fg-muted);
-  background: var(--bg-hover, rgba(127, 127, 127, 0.08));
-  border-radius: 4px;
-  padding: 0 5px;
-  line-height: 16px;
+.kind-bash .kind-icon {
+  color: color-mix(in srgb, var(--primary, #3b82f6) 70%, var(--fg-muted));
 }
 
-.tool-name {
+.kind-read .kind-icon {
+  color: #6b7280;
+}
+
+.kind-edit .kind-icon,
+.kind-write .kind-icon {
+  color: #0d9488;
+}
+
+.action {
   flex-shrink: 0;
-  font-size: 11px !important;
+  font-size: 12px;
+  font-weight: 550;
+  color: var(--fg-muted, #555);
+  letter-spacing: 0.01em;
 }
 
 .headline {
@@ -238,8 +325,28 @@ function onOpenPreview(): void {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 12px;
+  font-size: 12.5px;
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
+  color: var(--fg-strong, #1a1a1a);
+}
+
+.path-hint {
+  display: none;
+  flex-shrink: 1;
+  min-width: 0;
+  max-width: 40%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+  color: var(--fg-faint, #999);
   font-family: var(--font-mono, ui-monospace, monospace);
+}
+
+@media (min-width: 720px) {
+  .path-hint {
+    display: inline;
+  }
 }
 
 .meta {
@@ -251,7 +358,7 @@ function onOpenPreview(): void {
 
 .meta.stats {
   display: inline-flex;
-  gap: 4px;
+  gap: 5px;
   font-family: var(--font-mono, ui-monospace, monospace);
 }
 
@@ -269,28 +376,82 @@ function onOpenPreview(): void {
   color: var(--warning, #9a6700);
 }
 
+.status {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  color: var(--fg-faint, #999);
+}
+
+.status.success,
+.status.default {
+  color: #1a7f37;
+}
+
+.status.error {
+  color: #cf222e;
+}
+
+.status.info {
+  color: var(--primary, #3b82f6);
+}
+
+.spinner {
+  width: 12px;
+  height: 12px;
+  border: 1.5px solid color-mix(in srgb, var(--primary, #3b82f6) 30%, transparent);
+  border-top-color: var(--primary, #3b82f6);
+  border-radius: 50%;
+  animation: tool-spin 0.7s linear infinite;
+}
+
+@keyframes tool-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 .open-btn {
   flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  margin: 0;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--fg-muted);
+  cursor: pointer;
+}
+
+.open-btn:hover {
+  background: var(--bg-hover, rgba(127, 127, 127, 0.1));
+  color: var(--fg-strong);
 }
 
 .tool-body {
   margin: 0;
-  padding: 8px 10px;
-  border-top: 1px solid var(--border);
-  max-height: 280px;
+  padding: 8px 0;
+  border-top: 1px solid color-mix(in srgb, var(--border, #ddd) 80%, transparent);
+  max-height: 300px;
   overflow: auto;
-  font-size: 11px;
-  line-height: 1.45;
-  font-family: var(--font-mono, ui-monospace, monospace);
-  background: var(--pre-bg, rgba(0, 0, 0, 0.03));
+  font-size: 11.5px;
+  line-height: 1.5;
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
+  background: color-mix(in srgb, var(--bg, #fafafa) 88%, #000 4%);
 }
 
 .tool-body.empty {
+  padding: 10px 12px;
   color: var(--fg-muted);
 }
 
 .dline {
   display: block;
+  padding: 0 12px;
   white-space: pre-wrap;
   word-break: break-all;
 }

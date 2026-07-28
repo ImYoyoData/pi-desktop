@@ -62,6 +62,11 @@ export const useWorkspaceStore = defineStore("workspace", () => {
     recent.value = next.recent;
   }
 
+  async function reorderRecent(order: string[]): Promise<string[]> {
+    recent.value = await window.api.workspace.reorderRecent(order);
+    return recent.value;
+  }
+
   async function revealInFolder(workspaceRoot: string): Promise<void> {
     await window.api.workspace.revealInFolder(workspaceRoot);
   }
@@ -74,6 +79,7 @@ export const useWorkspaceStore = defineStore("workspace", () => {
     openWorkspacePath,
     listRecent,
     removeRecent,
+    reorderRecent,
     revealInFolder,
   };
 });

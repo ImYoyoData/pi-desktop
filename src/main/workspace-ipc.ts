@@ -1,4 +1,4 @@
-import { app, dialog, ipcMain, shell } from "electron";
+import { app, BrowserWindow, dialog, ipcMain, shell } from "electron";
 import path from "node:path";
 import { IpcChannels } from "../shared/protocol";
 import { createWorkspaceStore, type WorkspaceStore } from "./workspace-store";
@@ -37,9 +37,11 @@ export async function openWorkspacePath(root: string): Promise<string | null> {
 }
 
 export async function openWorkspace(): Promise<string | null> {
-  const result = await dialog.showOpenDialog({
-    properties: ["openDirectory"],
-  });
+  const win = BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0];
+  const opts = { properties: ["openDirectory" as const] };
+  const result = win
+    ? await dialog.showOpenDialog(win, opts)
+    : await dialog.showOpenDialog(opts);
   if (result.canceled || result.filePaths.length === 0) {
     return getStore().getRoot();
   }
@@ -68,6 +70,14 @@ export function registerWorkspaceIpc(): void {
     const next = getStore().getRoot();
     syncWorkspaceWatch(next);
     return { root: next, recent: getStore().listRecent() };
+  });
+
+  ipcMain.handle(IpcChannels.workspace.reorderRecent, (_event, order: string[]) => {
+    const list = Array.isArray(order)
+      ? order.filter((entry): entry is string => typeof entry === "string")
+      : [];
+    getStore().reorderRecent(list);
+    return getStore().listRecent();
   });
 
   ipcMain.handle(IpcChannels.workspace.revealInFolder, async (_event, root: string) => {

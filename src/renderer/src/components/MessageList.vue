@@ -19,6 +19,7 @@ import { useComposerStore } from "@renderer/stores/composer";
 import { useSendQueueStore } from "@renderer/stores/send-queue";
 import { useSessionsStore } from "@renderer/stores/sessions";
 import MarkdownView from "@renderer/components/MarkdownView.vue";
+import ThinkingBlock from "@renderer/components/ThinkingBlock.vue";
 import ToolCallCard from "@renderer/components/ToolCallCard.vue";
 import { parseToolCard } from "@renderer/utils/tool-diff";
 import { usePreviewStore } from "@renderer/stores/preview";
@@ -42,6 +43,9 @@ const rightTabs = useRightTabsStore();
 const messageApi = useMessage();
 const dialog = useDialog();
 const scroller = ref<HTMLElement | null>(null);
+let lastPinnedUserId: string | null = null;
+/** Avoid follow-bottom immediately undoing the sticky pin scroll. */
+let suppressFollowBottomUntil = 0;
 
 const displayMessages = computed(() => {
   const list = [...props.messages];
@@ -49,7 +53,68 @@ const displayMessages = computed(() => {
   return list;
 });
 
+const latestUserMessageId = computed(() => {
+  for (let i = displayMessages.value.length - 1; i >= 0; i--) {
+    const m = displayMessages.value[i];
+    if (m?.role === "user") return m.id;
+  }
+  return null;
+});
+
 const sessionId = computed(() => sessions.activeId);
+
+function isStickyUser(msg: ChatMessage): boolean {
+  return msg.role === "user" && msg.id === latestUserMessageId.value;
+}
+
+watch(
+  () => sessionId.value,
+  () => {
+    lastPinnedUserId = null;
+  },
+);
+
+/** Only when a new latest user message appears: scroll that card to the top. */
+watch(
+  () => latestUserMessageId.value,
+  async (id) => {
+    if (!id || id === lastPinnedUserId) return;
+    lastPinnedUserId = id;
+    suppressFollowBottomUntil = Date.now() + 500;
+    await nextTick();
+    const sc = scroller.value;
+    const card = sc?.querySelector(`[data-msg-id="${CSS.escape(id)}"]`) as HTMLElement | null;
+    if (!sc || !card) return;
+    const scRect = sc.getBoundingClientRect();
+    const cardRect = card.getBoundingClientRect();
+    const top = cardRect.top - scRect.top + sc.scrollTop - 6;
+    sc.scrollTo({ top: Math.max(0, top), behavior: "smooth" });
+  },
+);
+
+watch(
+  () => [props.messages.length, props.streaming, props.running] as const,
+  async ([, streaming, running], prev) => {
+    if (Date.now() < suppressFollowBottomUntil) return;
+    await nextTick();
+    const el = scroller.value;
+    if (!el) return;
+    const prevStreaming = prev?.[1] ?? null;
+    const prevRunning = prev?.[2] ?? false;
+    const justFinished =
+      Boolean(prevRunning || prevStreaming) && !running && !streaming;
+    // Follow while generating; also snap once when the turn settles (actions mount).
+    if (running || streaming || justFinished) {
+      el.scrollTop = el.scrollHeight;
+      if (justFinished) {
+        requestAnimationFrame(() => {
+          const sc = scroller.value;
+          if (sc) sc.scrollTop = sc.scrollHeight;
+        });
+      }
+    }
+  },
+);
 
 function toolCard(msg: Extract<ChatMessage, { role: "tool" }>) {
   return parseToolCard(msg.toolName, msg.args, msg.result);
@@ -89,7 +154,14 @@ function onEditUser(msg: Extract<ChatMessage, { role: "user" }>): void {
     composer.addImageFromDataUrl(img.dataUrl);
   }
   for (const tag of edited.elementTags ?? []) {
-    if (tag.kind === "file") {
+    if (
+      tag.kind === "agent" ||
+      tag.kind === "plan" ||
+      tag.kind === "ask" ||
+      tag.kind === "task"
+    ) {
+      composer.setMode(tag.kind);
+    } else if (tag.kind === "file") {
       composer.addFileTag(tag.content || tag.label || tag.url);
     } else if (tag.kind === "url" || (!tag.kind && /^https?:\/\//i.test(tag.url))) {
       composer.addUrlTag(tag.url);
@@ -154,15 +226,6 @@ function onRevertUser(msg: Extract<ChatMessage, { role: "user" }>): void {
     },
   });
 }
-
-watch(
-  () => [props.messages.length, props.streaming, props.running],
-  async () => {
-    await nextTick();
-    const el = scroller.value;
-    if (el) el.scrollTop = el.scrollHeight;
-  },
-);
 </script>
 
 <template>
@@ -180,8 +243,10 @@ watch(
         class="row"
         :class="[
           `row-${msg.role}`,
+          isStickyUser(msg) ? 'row-user-sticky' : '',
           sessionId && chat.isPendingEditTail(sessionId, msg.id) ? 'row-edit-tail' : '',
         ]"
+        :data-msg-id="msg.id"
       >
         <template v-if="msg.role === 'user'">
           <div class="bubble-wrap user">
@@ -190,14 +255,33 @@ watch(
                 <NTag
                   v-for="(tag, idx) in msg.elementTags"
                   :key="`${msg.id}-tag-${idx}`"
-                  type="info"
+                  :type="
+                    tag.kind === 'agent' ||
+                    tag.kind === 'plan' ||
+                    tag.kind === 'ask' ||
+                    tag.kind === 'task'
+                      ? 'warning'
+                      : 'info'
+                  "
                   size="small"
                   round
                   class="user-tag"
-                  :class="{ 'user-tag-file': tag.kind === 'file' }"
+                  :class="{
+                    'user-tag-file': tag.kind === 'file',
+                    'user-tag-mode':
+                      tag.kind === 'agent' ||
+                      tag.kind === 'plan' ||
+                      tag.kind === 'ask' ||
+                      tag.kind === 'task',
+                    [`user-tag-mode-${tag.kind}`]:
+                      tag.kind === 'agent' ||
+                      tag.kind === 'plan' ||
+                      tag.kind === 'ask' ||
+                      tag.kind === 'task',
+                  }"
                   :title="tag.url || tag.label"
                 >
-                  {{ tag.kind === "file" ? tag.content || tag.label : tag.content || tag.label }}
+                  {{ tag.label || tag.content }}
                 </NTag>
               </div>
               <div v-if="msg.images?.length" class="user-images">
@@ -210,26 +294,27 @@ watch(
                   object-fit="cover"
                 />
               </div>
-              <MarkdownView v-if="msg.text" :content="msg.text" />
+              <div v-if="msg.text" class="user-plain">{{ msg.text }}</div>
             </div>
             <div
               v-if="!running"
-              class="actions"
+              class="actions user-actions"
               :class="{ 'actions-visible': canRevertUser(msg) || isRevertedUser(msg) }"
             >
               <NTooltip v-if="canRevertUser(msg) || isRevertedUser(msg)">
                 <template #trigger>
                   <NButton
                     quaternary
+                    circle
                     size="tiny"
                     class="revert-btn"
                     :disabled="isRevertedUser(msg)"
+                    :aria-label="isRevertedUser(msg) ? t.reverted : t.revertTurn"
                     @click="onRevertUser(msg)"
                   >
                     <template #icon>
                       <NIcon :component="ArrowUndoOutline" />
                     </template>
-                    {{ isRevertedUser(msg) ? t.reverted : t.revertTurn }}
                   </NButton>
                 </template>
                 {{ isRevertedUser(msg) ? t.reverted : t.revertTurnConfirm }}
@@ -259,10 +344,18 @@ watch(
         </template>
 
         <template v-else-if="msg.role === 'assistant'">
-          <div class="bubble-wrap assistant">
+          <div
+            v-if="msg.text || msg.thinking || !msg.streaming"
+            class="bubble-wrap assistant"
+          >
             <div class="bubble assistant">
-              <MarkdownView :content="msg.text || (msg.streaming ? '…' : '')" />
-              <span v-if="msg.streaming" class="cursor" aria-hidden="true" />
+              <ThinkingBlock
+                v-if="msg.thinking || (msg.streaming && !msg.text)"
+                :thinking="msg.thinking ?? ''"
+                :streaming="Boolean(msg.streaming && !msg.text)"
+              />
+              <MarkdownView v-if="msg.text" :content="msg.text" />
+              <span v-if="msg.streaming && msg.text" class="cursor" aria-hidden="true" />
             </div>
             <div v-if="!msg.streaming && !running" class="actions">
               <NTooltip>
@@ -343,6 +436,9 @@ watch(
   overflow: auto;
   min-height: 0;
   background: var(--bg);
+  /* Body defaults to user-select:none — allow selecting chat text to copy. */
+  user-select: text;
+  -webkit-user-select: text;
 }
 
 .inner {
@@ -362,7 +458,17 @@ watch(
 }
 
 .row-user {
-  justify-content: flex-end;
+  justify-content: flex-start;
+  width: 100%;
+}
+
+.row-user-sticky {
+  position: sticky;
+  top: 0;
+  z-index: 6;
+  background: var(--bg);
+  padding: 6px 0 8px;
+  border-bottom: 1px solid color-mix(in srgb, var(--border, #ddd) 55%, transparent);
 }
 
 .row-edit-tail {
@@ -384,8 +490,9 @@ watch(
 }
 
 .bubble-wrap.user {
-  align-items: flex-end;
-  max-width: 92%;
+  align-items: stretch;
+  width: 100%;
+  max-width: 100%;
 }
 
 .bubble-wrap.assistant {
@@ -405,13 +512,21 @@ watch(
   font-size: 14px;
   line-height: 1.55;
   word-break: break-word;
+  user-select: text;
+  -webkit-user-select: text;
+  cursor: text;
 }
 
+/* Cursor-like user prompt card: soft fill, wide, calm radius. */
 .bubble.user {
-  background: var(--user-bg);
+  width: 100%;
+  box-sizing: border-box;
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--fg-muted, #888) 8%, var(--bg-elevated, var(--bg)));
   color: var(--fg-strong);
-  border: 1px solid color-mix(in srgb, var(--accent) 14%, var(--border));
-  box-shadow: var(--shadow-sm);
+  border: 1px solid color-mix(in srgb, var(--border, #ddd) 70%, transparent);
+  box-shadow: none;
 }
 
 .bubble.assistant {
@@ -434,13 +549,40 @@ watch(
   margin-bottom: 6px;
 }
 
+.user-tag {
+  max-width: 200px;
+}
+
 .user-tag-file {
   font-family: var(--font-mono);
   font-size: 11px;
-  max-width: min(420px, 70vw);
 }
 
-.user-tag-file :deep(.n-tag__content) {
+.user-tag-mode-plan {
+  --n-color: rgba(234, 179, 8, 0.2) !important;
+  --n-text-color: #a16207 !important;
+  --n-border: rgba(202, 138, 4, 0.45) !important;
+}
+
+.user-tag-mode-agent {
+  --n-color: rgba(113, 113, 122, 0.16) !important;
+  --n-text-color: #3f3f46 !important;
+  --n-border: rgba(113, 113, 122, 0.4) !important;
+}
+
+.user-tag-mode-ask {
+  --n-color: rgba(59, 130, 246, 0.16) !important;
+  --n-text-color: #1d4ed8 !important;
+  --n-border: rgba(37, 99, 235, 0.4) !important;
+}
+
+.user-tag-mode-task {
+  --n-color: rgba(16, 185, 129, 0.16) !important;
+  --n-text-color: #047857 !important;
+  --n-border: rgba(5, 150, 105, 0.4) !important;
+}
+
+.user-tag :deep(.n-tag__content) {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -453,6 +595,15 @@ watch(
   overflow: hidden;
 }
 
+.user-plain {
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 13.5px;
+  line-height: 1.55;
+  user-select: text;
+  -webkit-user-select: text;
+}
+
 .actions {
   display: flex;
   gap: 2px;
@@ -461,14 +612,20 @@ watch(
   transition: opacity 0.12s ease;
 }
 
+/* Cursor: action icons under the prompt, left-aligned (undo / copy / edit). */
+.user-actions {
+  justify-content: flex-start;
+  margin-top: 2px;
+  padding-left: 2px;
+}
+
 .actions.actions-visible,
 .bubble-wrap:hover .actions {
   opacity: 1;
 }
 
 .revert-btn {
-  font-size: 11px;
-  padding: 0 6px !important;
+  color: var(--fg-muted);
 }
 
 .cursor {

@@ -24,6 +24,11 @@ export type PcmStreamPushHandlers = {
   onChunk: (pcmBase64: string, sampleRate: number) => void | Promise<void>;
   /** Fired after IDLE_STOP_MS with no speech energy. */
   onIdleStop?: () => void;
+  /**
+   * When false, never auto-stop on silence (always-on wake listening).
+   * Default true.
+   */
+  idleStop?: boolean;
 };
 
 const TARGET_RATE = 16000;
@@ -145,6 +150,7 @@ export async function startVoiceRecord(handlers: {
 export async function startPcmStreamPush(handlers: PcmStreamPushHandlers): Promise<StreamingPcmCapture> {
   const session = await openMicSession();
   const inputRate = session.sampleRate;
+  const idleStop = handlers.idleStop !== false;
 
   let stopped = false;
   let lastSpeechAt = Date.now();
@@ -174,7 +180,7 @@ export async function startPcmStreamPush(handlers: PcmStreamPushHandlers): Promi
       // caller handles errors
     }
 
-    if (now - lastSpeechAt >= IDLE_STOP_MS) {
+    if (idleStop && now - lastSpeechAt >= IDLE_STOP_MS) {
       stopped = true;
       session.cleanup();
       handlers.onIdleStop?.();

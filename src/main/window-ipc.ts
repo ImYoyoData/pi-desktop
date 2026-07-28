@@ -1,6 +1,7 @@
 import { BrowserWindow, ipcMain, nativeTheme, systemPreferences } from "electron";
 import { IpcChannels } from "../shared/protocol";
-import { allowWindowClose } from "./window";
+import type { EditMenuLocale } from "../shared/edit-menu-i18n";
+import { allowWindowClose, setUiLocale } from "./window";
 
 type ThemeSource = "system" | "light" | "dark";
 type ChromeTheme = "light" | "dark";
@@ -63,6 +64,10 @@ export function registerWindowIpc(): void {
     const win = BrowserWindow.fromWebContents(event.sender);
     if (!win) return;
     if (mode === "light" || mode === "dark") applyChrome(win, mode);
+  });
+
+  ipcMain.handle(IpcChannels.window.setUiLocale, (_event, next: EditMenuLocale) => {
+    if (next === "zh-CN" || next === "en") setUiLocale(next);
   });
 
   /** macOS requires TCC prompt via askForMediaAccess before getUserMedia works reliably. */

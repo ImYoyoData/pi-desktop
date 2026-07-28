@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
+import { ASK_USER_TOOL_NAME } from "../../src/shared/ask-user";
 import {
   appendUserMessage,
+  clearPendingAskUser,
   createChatState,
   reduceChatEvent,
 } from "../../src/renderer/src/stores/chat-reducer";
@@ -345,5 +347,229 @@ describe("reduceChatEvent", () => {
     });
     expect(state.running).toBe(true);
     expect(state.retryHint).toMatchObject({ attempt: 2, maxAttempts: 3 });
+  });
+
+  it("streams thinking text via thinking_delta and keeps it on message_end", () => {
+    let state = createChatState();
+    state = reduceChatEvent(state, {
+      type: "agent_event",
+      sessionId: "s",
+      event: {
+        type: "message_update",
+        message: {
+          role: "assistant",
+          content: [{ type: "thinking", thinking: "Let me" }],
+        },
+        assistantMessageEvent: { type: "thinking_delta", delta: " check" },
+      },
+    });
+    expect(state.streamingMessage).toMatchObject({
+      role: "assistant",
+      thinking: "Let me",
+    });
+
+    state = reduceChatEvent(state, {
+      type: "agent_event",
+      sessionId: "s",
+      event: {
+        type: "message_update",
+        message: {
+          role: "assistant",
+          content: [{ type: "thinking", thinking: "Let me check the file" }],
+        },
+        assistantMessageEvent: {
+          type: "thinking_delta",
+          delta: " the file",
+        },
+      },
+    });
+    expect(state.streamingMessage).toMatchObject({
+      role: "assistant",
+      thinking: "Let me check the file",
+    });
+
+    state = reduceChatEvent(state, {
+      type: "agent_event",
+      sessionId: "s",
+      event: {
+        type: "message_end",
+        message: {
+          role: "assistant",
+          id: "a1",
+          content: [
+            { type: "thinking", thinking: "Let me check the file" },
+            { type: "text", text: "Done." },
+          ],
+        },
+      },
+    });
+    expect(state.streamingMessage).toBeNull();
+    expect(state.messages.at(-1)).toMatchObject({
+      role: "assistant",
+      text: "Done.",
+      thinking: "Let me check the file",
+    });
+  });
+
+  it("sets pendingAskUser on ask_user tool_execution_start", () => {
+    let state = createChatState();
+    state = reduceChatEvent(state, {
+      type: "agent_event",
+      sessionId: "s1",
+      event: {
+        type: "tool_execution_start",
+        toolCallId: "t1",
+        toolName: ASK_USER_TOOL_NAME,
+        args: {
+          questions: [
+            {
+              id: "q1",
+              prompt: "Pick",
+              type: "single",
+              options: [{ id: "a", label: "A" }],
+            },
+          ],
+        },
+      },
+    });
+    expect(state.pendingAskUser?.questions[0]?.id).toBe("q1");
+  });
+
+  it("clearPendingAskUser drops pending prompt without adding a message", () => {
+    let state = createChatState();
+    state = {
+      ...state,
+      pendingAskUser: {
+        questions: [
+          {
+            id: "q1",
+            prompt: "Pick",
+            type: "single",
+            options: [{ id: "a", label: "A" }],
+          },
+        ],
+      },
+    };
+    state = clearPendingAskUser(state);
+    expect(state.pendingAskUser).toBeNull();
+    expect(state.messages).toHaveLength(0);
+  });
+
+  it("clears pendingAskUser when appending a user message", () => {
+    let state = createChatState();
+    state = {
+      ...state,
+      pendingAskUser: {
+        questions: [
+          {
+            id: "q1",
+            prompt: "Pick",
+            type: "single",
+            options: [{ id: "a", label: "A" }],
+          },
+        ],
+      },
+    };
+    state = appendUserMessage(state, "hello");
+    expect(state.pendingAskUser).toBeNull();
+  });
+
+  it("replaces pendingAskUser on a newer ask_user call", () => {
+    let state = createChatState();
+    state = reduceChatEvent(state, {
+      type: "agent_event",
+      sessionId: "s1",
+      event: {
+        type: "tool_execution_start",
+        toolCallId: "t1",
+        toolName: ASK_USER_TOOL_NAME,
+        args: {
+          questions: [
+            {
+              id: "old",
+              prompt: "Old",
+              type: "buttons",
+              options: [{ id: "y", label: "Yes" }],
+            },
+          ],
+        },
+      },
+    });
+    state = reduceChatEvent(state, {
+      type: "agent_event",
+      sessionId: "s1",
+      event: {
+        type: "tool_execution_start",
+        toolCallId: "t2",
+        toolName: ASK_USER_TOOL_NAME,
+        args: {
+          questions: [
+            {
+              id: "new",
+              prompt: "New",
+              type: "buttons",
+              options: [{ id: "n", label: "No" }],
+            },
+          ],
+        },
+      },
+    });
+    expect(state.pendingAskUser?.questions[0]?.id).toBe("new");
+  });
+
+  it("clears pendingAskUser when ask_user args fail to parse", () => {
+    let state = createChatState();
+    state = {
+      ...state,
+      pendingAskUser: {
+        questions: [
+          {
+            id: "q1",
+            prompt: "Pick",
+            type: "single",
+            options: [{ id: "a", label: "A" }],
+          },
+        ],
+      },
+    };
+    state = reduceChatEvent(state, {
+      type: "agent_event",
+      sessionId: "s1",
+      event: {
+        type: "tool_execution_start",
+        toolCallId: "t1",
+        toolName: ASK_USER_TOOL_NAME,
+        args: { questions: [] },
+      },
+    });
+    expect(state.pendingAskUser).toBeNull();
+  });
+
+  it("keeps pendingAskUser on non-ask_user tool_execution_start", () => {
+    let state = createChatState();
+    state = {
+      ...state,
+      pendingAskUser: {
+        questions: [
+          {
+            id: "q1",
+            prompt: "Pick",
+            type: "single",
+            options: [{ id: "a", label: "A" }],
+          },
+        ],
+      },
+    };
+    state = reduceChatEvent(state, {
+      type: "agent_event",
+      sessionId: "s1",
+      event: {
+        type: "tool_execution_start",
+        toolCallId: "t1",
+        toolName: "read",
+        args: { path: "foo.txt" },
+      },
+    });
+    expect(state.pendingAskUser?.questions[0]?.id).toBe("q1");
   });
 });

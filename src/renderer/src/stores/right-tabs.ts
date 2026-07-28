@@ -1,13 +1,25 @@
 import { defineStore } from "pinia";
 import { computed, ref } from "vue";
 import { t } from "@renderer/i18n";
+import { pinRunningFirst } from "@renderer/utils/right-tabs-running";
 
-export type RightTabKind = "changes" | "files" | "browser" | "terminal" | "preview";
+export type RightTabKind =
+  | "running"
+  | "changes"
+  | "files"
+  | "browser"
+  | "terminal"
+  | "preview";
 
 export type RightTab = {
   id: string;
   kind: RightTabKind;
   label: string;
+  /**
+   * When true, auto-title from browser page / first terminal command
+   * must not overwrite (user renamed).
+   */
+  labelLocked?: boolean;
   /** For preview tabs */
   filePath?: string;
   dirty?: boolean;
@@ -40,6 +52,7 @@ type PersistedTabs = {
     label: string;
     filePath?: string;
     transient?: boolean;
+    labelLocked?: boolean;
     cwd?: string;
   }>;
   activeIndex: number;
@@ -67,15 +80,34 @@ function cloneTabs(list: RightTab[]): RightTab[] {
   return list.map((tab) => ({ ...tab }));
 }
 
-export const useRightTabsStore = defineStore("rightTabs", () => {
-  const tabs = ref<RightTab[]>([
+function defaultRunningAndChanges(): RightTab[] {
+  return [
+    { id: "running-0", kind: "running", label: t.runningTab },
     { id: "changes-0", kind: "changes", label: t.changesTab },
-  ]);
+  ];
+}
+
+export const useRightTabsStore = defineStore("rightTabs", () => {
+  const tabs = ref<RightTab[]>(defaultRunningAndChanges());
   const activeId = ref("changes-0");
   const saveHandlers = new Map<string, SaveHandler>();
   let persistReady = false;
 
   const activeTab = computed(() => tabs.value.find((t) => t.id === activeId.value) ?? null);
+
+  function ensureRunningTabPinned(): void {
+    const existing = tabs.value.find((t) => t.kind === "running");
+    if (!existing) {
+      const tab: RightTab = {
+        id: nextTabId("running"),
+        kind: "running",
+        label: t.runningTab,
+      };
+      tabs.value = [tab, ...tabs.value.filter((t) => t.kind !== "running")];
+      return;
+    }
+    tabs.value = pinRunningFirst(tabs.value);
+  }
 
   function selectTab(id: string): void {
     activeId.value = id;
@@ -85,6 +117,7 @@ export const useRightTabsStore = defineStore("rightTabs", () => {
     const idx = tabs.value.findIndex((t) => t.id === id);
     if (idx < 0) return;
     const tab = tabs.value[idx]!;
+    if (tab.kind === "running") return;
     // Explicit close kills the pty — workspace switch must NOT call this for terminals.
     if (tab.kind === "terminal" && tab.ptyId) {
       void window.api.terminal.dispose(tab.ptyId);
@@ -105,6 +138,27 @@ export const useRightTabsStore = defineStore("rightTabs", () => {
     if (tab.kind === "preview" && patch.dirty === true) {
       tab.transient = false;
     }
+  }
+
+  /** Auto-update label unless the user locked it via rename. */
+  function autoTitleTab(id: string, label: string): void {
+    const tab = tabs.value.find((t) => t.id === id);
+    if (!tab || tab.labelLocked) return;
+    const next = label.trim();
+    if (!next || tab.label === next) return;
+    tab.label = next;
+  }
+
+  function renameTab(id: string, label: string): void {
+    const tab = tabs.value.find((t) => t.id === id);
+    // Fixed singleton tabs keep their i18n labels
+    if (!tab || tab.kind === "running" || tab.kind === "changes" || tab.kind === "files") {
+      return;
+    }
+    const next = label.trim();
+    if (!next) return;
+    tab.label = next;
+    tab.labelLocked = true;
   }
 
   function registerSaveHandler(id: string, handler: SaveHandler): void {
@@ -128,6 +182,7 @@ export const useRightTabsStore = defineStore("rightTabs", () => {
     const [item] = tabs.value.splice(fromIndex, 1);
     if (!item) return;
     tabs.value.splice(toIndex, 0, item);
+    ensureRunningTabPinned();
   }
 
   /** Reorder by full id list from drag UI (preferred over index math). */
@@ -142,6 +197,7 @@ export const useRightTabsStore = defineStore("rightTabs", () => {
     }
     if (next.length !== tabs.value.length) return;
     tabs.value = next;
+    ensureRunningTabPinned();
   }
 
   function addTab(kind: RightTabKind, opts?: { label?: string; filePath?: string; cwd?: string }): RightTab {
@@ -149,6 +205,9 @@ export const useRightTabsStore = defineStore("rightTabs", () => {
     let label = opts?.label;
     if (!label) {
       switch (kind) {
+        case "running":
+          label = t.runningTab;
+          break;
         case "changes":
           label = t.changesTab;
           break;
@@ -170,7 +229,7 @@ export const useRightTabsStore = defineStore("rightTabs", () => {
         }
       }
     }
-    if (kind === "changes" || kind === "files") {
+    if (kind === "running" || kind === "changes" || kind === "files") {
       const existing = tabs.value.find((t) => t.kind === kind);
       if (existing) {
         activeId.value = existing.id;
@@ -226,7 +285,9 @@ export const useRightTabsStore = defineStore("rightTabs", () => {
       transient: kind === "preview",
       cwd: kind === "terminal" ? opts?.cwd : undefined,
     };
-    tabs.value.push(tab);
+    // Always append at the end — never insert after the active tab / at the front.
+    tabs.value = [...tabs.value, tab];
+    if (kind === "running") ensureRunningTabPinned();
     activeId.value = tab.id;
     return tab;
   }
@@ -269,6 +330,7 @@ export const useRightTabsStore = defineStore("rightTabs", () => {
           label: tab.label,
           filePath: tab.filePath,
           transient: tab.transient,
+          labelLocked: tab.labelLocked,
           // ptyId is session-only — never write to localStorage
           cwd: tab.kind === "terminal" ? tab.cwd : undefined,
         })),
@@ -287,8 +349,9 @@ export const useRightTabsStore = defineStore("rightTabs", () => {
   function restoreTabs(root: string | null): void {
     persistReady = false;
     if (!root) {
-      tabs.value = [{ id: "changes-0", kind: "changes", label: t.changesTab }];
+      tabs.value = defaultRunningAndChanges();
       activeId.value = "changes-0";
+      ensureRunningTabPinned();
       persistReady = true;
       return;
     }
@@ -300,8 +363,12 @@ export const useRightTabsStore = defineStore("rightTabs", () => {
       restored = null;
     }
     if (!restored?.tabs?.length) {
-      tabs.value = [{ id: nextTabId("changes"), kind: "changes", label: t.changesTab }];
-      activeId.value = tabs.value[0]!.id;
+      tabs.value = [
+        { id: nextTabId("running"), kind: "running", label: t.runningTab },
+        { id: nextTabId("changes"), kind: "changes", label: t.changesTab },
+      ];
+      activeId.value = tabs.value.find((tab) => tab.kind === "changes")?.id ?? tabs.value[0]!.id;
+      ensureRunningTabPinned();
       persistReady = true;
       return;
     }
@@ -312,10 +379,17 @@ export const useRightTabsStore = defineStore("rightTabs", () => {
       next.push({
         id: nextTabId(row.kind),
         kind: row.kind,
-        label: row.label || (row.kind === "changes" ? t.changesTab : row.kind),
+        label:
+          row.label ||
+          (row.kind === "running"
+            ? t.runningTab
+            : row.kind === "changes"
+              ? t.changesTab
+              : row.kind),
         filePath: row.filePath,
         dirty: false,
         missing: false,
+        labelLocked: row.labelLocked === true,
         transient: row.kind === "preview" ? row.transient !== false : undefined,
         cwd: row.kind === "terminal" ? row.cwd || root : undefined,
       });
@@ -324,8 +398,15 @@ export const useRightTabsStore = defineStore("rightTabs", () => {
       next.unshift({ id: nextTabId("changes"), kind: "changes", label: t.changesTab });
     }
     tabs.value = next;
-    const idx = Math.min(Math.max(0, restored.activeIndex), next.length - 1);
-    activeId.value = next[idx]?.id ?? next[0]!.id;
+    const preferredIdx = Math.min(Math.max(0, restored.activeIndex), next.length - 1);
+    const preferredId = next[preferredIdx]?.id;
+    ensureRunningTabPinned();
+    const stillThere = preferredId
+      ? tabs.value.some((tab) => tab.id === preferredId)
+      : false;
+    activeId.value = stillThere
+      ? preferredId!
+      : (tabs.value.find((tab) => tab.kind === "changes")?.id ?? tabs.value[0]!.id);
     persistReady = true;
   }
 
@@ -344,8 +425,9 @@ export const useRightTabsStore = defineStore("rightTabs", () => {
 
     persistReady = false;
     if (!next) {
-      tabs.value = [{ id: "changes-0", kind: "changes", label: t.changesTab }];
+      tabs.value = defaultRunningAndChanges();
       activeId.value = "changes-0";
+      ensureRunningTabPinned();
       persistReady = true;
       return;
     }
@@ -353,6 +435,7 @@ export const useRightTabsStore = defineStore("rightTabs", () => {
     const parked = parkedByRoot.get(normalizeRoot(next));
     if (parked?.tabs?.length) {
       tabs.value = cloneTabs(parked.tabs);
+      ensureRunningTabPinned();
       const stillThere = tabs.value.some((tab) => tab.id === parked.activeId);
       activeId.value = stillThere ? parked.activeId : (tabs.value[0]?.id ?? "");
       persistReady = true;
@@ -370,6 +453,8 @@ export const useRightTabsStore = defineStore("rightTabs", () => {
     closeTab,
     closeAllPreviewTabs,
     patchTab,
+    autoTitleTab,
+    renameTab,
     addTab,
     addPreviewFromPicker,
     registerSaveHandler,

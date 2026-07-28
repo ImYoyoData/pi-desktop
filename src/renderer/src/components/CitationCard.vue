@@ -84,7 +84,7 @@ function elementTitle(chip: Extract<ComposerChip, { kind: "element" }>): string 
 
 <style scoped>
 .chip-tag {
-  max-width: min(420px, 70vw);
+  max-width: 200px;
   flex-shrink: 0;
 }
 

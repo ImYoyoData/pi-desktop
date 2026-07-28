@@ -3,6 +3,9 @@ import type { ImageContent } from "@earendil-works/pi-ai/compat";
 import {
   createAgentSessionFromServices,
   createAgentSessionServices,
+  createBashToolDefinition,
+  createLocalBashOperations,
+  defineTool,
   getAgentDir,
   SessionManager,
   type AgentSession,
@@ -11,6 +14,13 @@ import type { AgentCommand, ElementCitation } from "../shared/protocol";
 import { toPromptImages } from "../shared/protocol";
 import { truncateHtmlSnippet } from "../shared/html-snippet";
 import type { WorkerInbound, WorkerOutbound } from "../shared/agent-worker-messages";
+import {
+  DESKTOP_ASK_USER_PROMPT,
+  DESKTOP_COMPOSER_MODES_PROMPT,
+  DESKTOP_PROJECT_ORIENTATION_PROMPT,
+} from "../shared/desktop-system-prompt";
+import { createAskUserToolDefinition } from "./ask-user-tool";
+import { createTrackedBashOperations } from "./bash-run-tracker";
 
 function post(msg: WorkerOutbound): void {
   process.parentPort?.postMessage(msg);
@@ -18,6 +28,7 @@ function post(msg: WorkerOutbound): void {
 
 let session: AgentSession | null = null;
 let initStarted = false;
+let runTracker: ReturnType<typeof createTrackedBashOperations> | null = null;
 
 function normalizePromptImages(images: unknown[] | undefined): ImageContent[] | undefined {
   const normalized = toPromptImages(images);
@@ -86,10 +97,35 @@ async function initSession(cwd: string, filePath?: string): Promise<void> {
   const sessionManager = filePath
     ? SessionManager.open(filePath, undefined, cwd)
     : SessionManager.create(cwd);
-  const services = await createAgentSessionServices({ cwd, agentDir });
+  const services = await createAgentSessionServices({
+    cwd,
+    agentDir,
+    resourceLoaderOptions: {
+      appendSystemPrompt: [
+        DESKTOP_PROJECT_ORIENTATION_PROMPT,
+        DESKTOP_ASK_USER_PROMPT,
+        DESKTOP_COMPOSER_MODES_PROMPT,
+      ],
+    },
+  });
+  runTracker = createTrackedBashOperations(createLocalBashOperations(), {
+    sessionId: sessionManager.getSessionId(),
+    workspaceRoot: cwd,
+    onStarted: (run) => post({ kind: "run_started", run }),
+    onOutput: (runId, chunk) => post({ kind: "run_output", runId, chunk }),
+    onEnded: (runId) => post({ kind: "run_ended", runId }),
+  });
   const { session: created } = await createAgentSessionFromServices({
     services,
     sessionManager,
+    customTools: [
+      defineTool(
+        createBashToolDefinition(cwd, {
+          operations: runTracker.operations,
+        }),
+      ),
+      createAskUserToolDefinition(),
+    ],
   });
   created.subscribe((event) => {
     const raw = event as Record<string, unknown>;
@@ -186,6 +222,7 @@ export async function handleWorkerMessage(msg: WorkerInbound): Promise<void> {
     return;
   }
   if (msg.kind === "shutdown") {
+    runTracker?.endAllRuns();
     process.exit(0);
     return;
   }
@@ -199,6 +236,10 @@ export async function handleWorkerMessage(msg: WorkerInbound): Promise<void> {
   }
   if (msg.kind === "init") {
     await initSession(msg.cwd, msg.filePath);
+    return;
+  }
+  if (msg.kind === "terminate_run") {
+    runTracker?.terminateRun(msg.runId);
     return;
   }
   if (msg.kind !== "command") {

@@ -36,6 +36,8 @@ import {
 } from "@renderer/stores/browser-library";
 import BrowserLibraryPanel from "@renderer/components/BrowserLibraryPanel.vue";
 import { useBrowserNavStore } from "@renderer/stores/browser-nav";
+import { useRightTabsStore } from "@renderer/stores/right-tabs";
+import { truncateTabLabel } from "../../../shared/tab-label";
 import { t } from "@renderer/i18n";
 
 const DEFAULT_URL = "about:blank";
@@ -44,6 +46,7 @@ const DEVTOOLS_WIDTH_KEY = "browser:devtoolsWidth";
 const composer = useComposerStore();
 const message = useMessage();
 const browserNav = useBrowserNavStore();
+const rightTabs = useRightTabsStore();
 
 const props = defineProps<{
   tabId: string;
@@ -433,6 +436,7 @@ function rememberNavigation(url: string): void {
   urlInput.value = url;
   const title = webviewRef.value?.getTitle?.() || pageTitle.value || url;
   pageTitle.value = title;
+  syncTabTitle(title);
   recordHistory({ url, title });
   bookmarked.value = isBookmarked(url);
   if (libraryOpen.value && libraryTab.value === "history") refreshLibrary();
@@ -445,7 +449,17 @@ function onDidNavigate(event: Event): void {
 
 function onPageTitleUpdated(event: Event): void {
   const title = (event as Event & { title?: string }).title;
-  if (title) pageTitle.value = title;
+  if (title) {
+    pageTitle.value = title;
+    syncTabTitle(title);
+  }
+}
+
+function syncTabTitle(raw: string): void {
+  const label = truncateTabLabel(raw);
+  if (!label) return;
+  rightTabs.autoTitleTab(props.tabId, label);
+  // Persist best-effort when workspace is open (RightPane/workspace also persist on switch)
 }
 
 function onStartLoading(): void {

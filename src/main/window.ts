@@ -1,8 +1,114 @@
-import { BrowserWindow, nativeImage, shell } from "electron";
+import { BrowserWindow, Menu, nativeImage, shell } from "electron";
 import { join } from "path";
 import { existsSync } from "fs";
 import { is } from "@electron-toolkit/utils";
 import { IpcChannels } from "../shared/protocol";
+import { editMenuLabels, type EditMenuLocale } from "../shared/edit-menu-i18n";
+
+/** Follows renderer UI locale (not OS language). */
+let uiLocale: EditMenuLocale = "zh-CN";
+
+export function setUiLocale(next: EditMenuLocale): void {
+  if (next === "zh-CN" || next === "en") uiLocale = next;
+}
+
+/** Standard cut/copy/paste/select-all context menu for editable fields and selections. */
+function installEditContextMenu(win: BrowserWindow): void {
+  win.webContents.on("context-menu", (_event, params) => {
+    const { editFlags, isEditable, selectionText } = params;
+    const L = editMenuLabels(uiLocale);
+    const wc = win.webContents;
+    const items: Electron.MenuItemConstructorOptions[] = [];
+
+    if (isEditable) {
+      items.push(
+        {
+          label: L.undo,
+          accelerator: "CmdOrCtrl+Z",
+          enabled: editFlags.canUndo,
+          click: () => {
+            if (!win.isDestroyed()) wc.undo();
+          },
+        },
+        {
+          label: L.redo,
+          accelerator: process.platform === "darwin" ? "Shift+CmdOrCtrl+Z" : "CmdOrCtrl+Y",
+          enabled: editFlags.canRedo,
+          click: () => {
+            if (!win.isDestroyed()) wc.redo();
+          },
+        },
+        { type: "separator" },
+        {
+          label: L.cut,
+          accelerator: "CmdOrCtrl+X",
+          enabled: editFlags.canCut,
+          click: () => {
+            if (!win.isDestroyed()) wc.cut();
+          },
+        },
+        {
+          label: L.copy,
+          accelerator: "CmdOrCtrl+C",
+          enabled: editFlags.canCopy,
+          click: () => {
+            if (!win.isDestroyed()) wc.copy();
+          },
+        },
+        {
+          label: L.paste,
+          accelerator: "CmdOrCtrl+V",
+          enabled: editFlags.canPaste,
+          click: () => {
+            if (!win.isDestroyed()) wc.paste();
+          },
+        },
+        {
+          label: L.delete,
+          enabled: editFlags.canDelete,
+          click: () => {
+            if (!win.isDestroyed()) wc.delete();
+          },
+        },
+        { type: "separator" },
+        {
+          label: L.selectAll,
+          accelerator: "CmdOrCtrl+A",
+          enabled: editFlags.canSelectAll,
+          click: () => {
+            if (!win.isDestroyed()) wc.selectAll();
+          },
+        },
+      );
+    } else if (selectionText?.trim()) {
+      items.push({
+        label: L.copy,
+        accelerator: "CmdOrCtrl+C",
+        enabled: editFlags.canCopy,
+        click: () => {
+          if (!win.isDestroyed()) wc.copy();
+        },
+      });
+      if (editFlags.canSelectAll) {
+        items.push(
+          { type: "separator" },
+          {
+            label: L.selectAll,
+            accelerator: "CmdOrCtrl+A",
+            enabled: true,
+            click: () => {
+              if (!win.isDestroyed()) wc.selectAll();
+            },
+          },
+        );
+      }
+    } else {
+      return;
+    }
+
+    Menu.buildFromTemplate(items).popup({ window: win });
+  });
+}
 
 function resolveWindowIcon(): string | undefined {
   const candidates = [
@@ -74,6 +180,8 @@ export function createMainWindow(): BrowserWindow {
     void shell.openExternal(details.url);
     return { action: "deny" };
   });
+
+  installEditContextMenu(mainWindow);
 
   if (is.dev && process.env["ELECTRON_RENDERER_URL"]) {
     void mainWindow.loadURL(process.env["ELECTRON_RENDERER_URL"]);

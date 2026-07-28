@@ -48,6 +48,7 @@ import {
   type AsrGpuInfo,
 } from "./asr-gpu";
 import { DEFAULT_ASR_WAKE_HOTKEY, normalizeAccelerator } from "../shared/hotkey";
+import { DEFAULT_ASR_WAKE_WORDS } from "../shared/asr-wake";
 
 const execFileAsync = promisify(execFile);
 const PREFS_FILE = "asr-prefs.json";
@@ -64,6 +65,10 @@ type Prefs = {
   gpuPreference?: string;
   /** Electron accelerator for wake / start voice recording. */
   wakeHotkey?: string;
+  /** Keep ASR warm + always-on local wake mic (default off). */
+  residentModel?: boolean;
+  /** Raw wake-word list (comma / newline separated). */
+  wakeWords?: string;
 };
 
 /** Currently registered wake accelerator (for unregister on change). */
@@ -114,14 +119,24 @@ function readPrefs(): Prefs {
     const wake =
       normalizeAccelerator(typeof raw.wakeHotkey === "string" ? raw.wakeHotkey : "") ||
       DEFAULT_ASR_WAKE_HOTKEY;
+    const wakeWords =
+      typeof raw.wakeWords === "string" ? raw.wakeWords : DEFAULT_ASR_WAKE_WORDS;
     return {
       enabled: raw.enabled !== false,
       disableCuda: Boolean(raw.disableCuda),
       gpuPreference: pref,
       wakeHotkey: wake,
+      residentModel: Boolean(raw.residentModel),
+      wakeWords,
     };
   } catch {
-    return { enabled: true, gpuPreference: "auto", wakeHotkey: DEFAULT_ASR_WAKE_HOTKEY };
+    return {
+      enabled: true,
+      gpuPreference: "auto",
+      wakeHotkey: DEFAULT_ASR_WAKE_HOTKEY,
+      residentModel: false,
+      wakeWords: DEFAULT_ASR_WAKE_WORDS,
+    };
   }
 }
 
@@ -129,6 +144,8 @@ function writePrefs(prefs: Prefs): void {
   ensureDirs();
   const wake =
     normalizeAccelerator(prefs.wakeHotkey || "") || DEFAULT_ASR_WAKE_HOTKEY;
+  const wakeWords =
+    typeof prefs.wakeWords === "string" ? prefs.wakeWords : DEFAULT_ASR_WAKE_WORDS;
   writeFileSync(
     prefsPath(),
     `${JSON.stringify(
@@ -137,6 +154,8 @@ function writePrefs(prefs: Prefs): void {
         disableCuda: Boolean(prefs.disableCuda),
         gpuPreference: prefs.gpuPreference || "auto",
         wakeHotkey: wake,
+        residentModel: Boolean(prefs.residentModel),
+        wakeWords,
       },
       null,
       2,
@@ -196,10 +215,26 @@ function setWakeHotkey(raw: string): AsrStatus {
     throw new Error("Hotkey already in use");
   }
   writePrefs({
-    enabled: prefs.enabled,
-    disableCuda: prefs.disableCuda,
-    gpuPreference: prefs.gpuPreference,
+    ...prefs,
     wakeHotkey: next,
+  });
+  return getStatus();
+}
+
+function setResidentModel(enabled: boolean): AsrStatus {
+  const prefs = readPrefs();
+  writePrefs({
+    ...prefs,
+    residentModel: Boolean(enabled),
+  });
+  return getStatus();
+}
+
+function setWakeWords(raw: string): AsrStatus {
+  const prefs = readPrefs();
+  writePrefs({
+    ...prefs,
+    wakeWords: typeof raw === "string" ? raw : DEFAULT_ASR_WAKE_WORDS,
   });
   return getStatus();
 }
@@ -208,10 +243,8 @@ function clearCudaDisable(): void {
   const prefs = readPrefs();
   if (!prefs.disableCuda) return;
   writePrefs({
-    enabled: prefs.enabled,
+    ...prefs,
     disableCuda: false,
-    gpuPreference: prefs.gpuPreference,
-    wakeHotkey: prefs.wakeHotkey,
   });
   cachedGpuInfo = null;
 }
@@ -372,6 +405,8 @@ function getStatus(): AsrStatus {
     runtimeMatchesPreference: matches,
     runtimeArchiveHint: asrRuntimeArchiveName(process.platform, process.arch, backend),
     wakeHotkey: prefs.wakeHotkey || DEFAULT_ASR_WAKE_HOTKEY,
+    residentModel: Boolean(prefs.residentModel),
+    wakeWords: prefs.wakeWords ?? DEFAULT_ASR_WAKE_WORDS,
     lastError,
   };
 }
@@ -387,10 +422,9 @@ function setGpuPreference(preference: string): AsrStatus {
   // Explicit CUDA selection clears crash blacklist.
   const disableCuda = next === "cuda" ? false : prefs.disableCuda;
   writePrefs({
-    enabled: prefs.enabled,
+    ...prefs,
     disableCuda,
     gpuPreference: next,
-    wakeHotkey: prefs.wakeHotkey,
   });
   cachedGpuInfo = null;
   return getStatus();
@@ -864,11 +898,10 @@ async function waitForInferSlot(maxMs = 60_000): Promise<void> {
 async function recoverFromCudaCrash(detail: string): Promise<void> {
   const prefs = readPrefs();
   writePrefs({
-    enabled: prefs.enabled,
+    ...prefs,
     disableCuda: true,
     // Keep explicit vulkan/cpu picks; bump auto/cuda toward vulkan via disableCuda.
     gpuPreference: prefs.gpuPreference === "cuda" ? "auto" : prefs.gpuPreference || "auto",
-    wakeHotkey: prefs.wakeHotkey,
   });
   const detected = detectAsrGpuInfo();
   cachedGpuInfo = {
@@ -1535,10 +1568,8 @@ export function registerAsrIpc(): void {
   ipcMain.handle(IpcChannels.asr.setEnabled, (_e, enabled: boolean) => {
     const prefs = readPrefs();
     writePrefs({
+      ...prefs,
       enabled: Boolean(enabled),
-      disableCuda: prefs.disableCuda,
-      gpuPreference: prefs.gpuPreference,
-      wakeHotkey: prefs.wakeHotkey,
     });
     return getStatus();
   });
@@ -1547,6 +1578,12 @@ export function registerAsrIpc(): void {
   });
   ipcMain.handle(IpcChannels.asr.setWakeHotkey, (_e, accel: string) => {
     return setWakeHotkey(String(accel ?? ""));
+  });
+  ipcMain.handle(IpcChannels.asr.setResidentModel, (_e, enabled: boolean) => {
+    return setResidentModel(Boolean(enabled));
+  });
+  ipcMain.handle(IpcChannels.asr.setWakeWords, (_e, raw: string) => {
+    return setWakeWords(String(raw ?? ""));
   });
   ipcMain.handle(IpcChannels.asr.install, async () => installAsr());
   ipcMain.handle(IpcChannels.asr.installFromUrl, async (_e, url: string) => installAsrFromUrl(url));

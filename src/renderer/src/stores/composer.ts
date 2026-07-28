@@ -2,6 +2,7 @@ import { defineStore } from "pinia";
 import { computed, reactive, ref } from "vue";
 import type { ElementCitation } from "../../../shared/protocol";
 import { truncateHtmlSnippet } from "../../../shared/html-snippet";
+import type { ComposerAgentMode } from "../../../shared/composer-modes";
 
 export type ComposerChip =
   | { id: string; kind: "element"; citation: ElementCitation }
@@ -20,6 +21,8 @@ type ComposerBucket = {
   draft: string;
   chips: ComposerChip[];
   images: ComposerImage[];
+  /** Persistent toolbar mode (not an editor capsule). */
+  mode: ComposerAgentMode;
 };
 
 const NONE_KEY = "__none__";
@@ -62,7 +65,7 @@ function parseDataUrl(dataUrl: string): { mimeType: string; data: string } | nul
 }
 
 function emptyBucket(): ComposerBucket {
-  return { draft: "", chips: [], images: [] };
+  return { draft: "", chips: [], images: [], mode: "agent" };
 }
 
 export const useComposerStore = defineStore("composer", () => {
@@ -128,6 +131,20 @@ export const useComposerStore = defineStore("composer", () => {
 
   const chips = computed(() => bucket().chips);
   const images = computed(() => bucket().images);
+  const mode = computed({
+    get: () => bucket().mode,
+    set: (value: ComposerAgentMode) => {
+      bucket().mode = value;
+    },
+  });
+
+  function setMode(next: ComposerAgentMode): void {
+    bucket().mode = next;
+  }
+
+  function activeMode(): ComposerAgentMode {
+    return bucket().mode;
+  }
 
   function elementCitations(): ElementCitation[] {
     return bucket()
@@ -281,7 +298,7 @@ export const useComposerStore = defineStore("composer", () => {
     return parts.join(" ");
   }
 
-  /** Snapshot of all chips for chat bubble tags (file path / url / element). */
+  /** Snapshot of attachment chips for chat bubble tags (file / url / element). */
   function attachmentTagSnapshot(): {
     kind: "file" | "url" | "element";
     label: string;
@@ -350,6 +367,7 @@ export const useComposerStore = defineStore("composer", () => {
     draft,
     chips,
     images,
+    mode,
     bindSession,
     dropSession,
     resetAll,
@@ -364,6 +382,8 @@ export const useComposerStore = defineStore("composer", () => {
     clearImages,
     addFileTag,
     addUrlTag,
+    setMode,
+    activeMode,
     removeChip,
     clear,
     insertPathRef,

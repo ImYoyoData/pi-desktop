@@ -4,6 +4,8 @@ import { join } from "path";
 import { existsSync } from "fs";
 import { IpcChannels } from "../shared/protocol";
 import { createUtilityProcessSpawnWorker } from "./agent-worker-host";
+import { createAgentRunRegistry } from "./agent-run-registry";
+import { broadcastRunsEvent, registerAgentRunsIpc } from "./agent-runs-ipc";
 import { createSessionBroker } from "./session-broker";
 import { registerModelsIpc } from "./models-ipc";
 import { registerSessionsIpc } from "./sessions-ipc";
@@ -41,7 +43,27 @@ if (!gotSingleInstanceLock) {
 }
 
 function boot(): void {
-  const broker = createSessionBroker({ spawnWorker: createUtilityProcessSpawnWorker() });
+  const registryHolder: { current: ReturnType<typeof createAgentRunRegistry> | null } = {
+    current: null,
+  };
+  const broker = createSessionBroker({
+    spawnWorker: createUtilityProcessSpawnWorker(),
+    onWorkerMessage: (sessionId, msg) =>
+      registryHolder.current?.handleWorkerMessage(sessionId, msg),
+    onSessionWorkerGone: (sessionId) => registryHolder.current?.endSessionRuns(sessionId),
+  });
+  registryHolder.current = createAgentRunRegistry({
+    onEvent: broadcastRunsEvent,
+    sendTerminate: async (sessionId, runId) => {
+      const ok = await broker.sendRawIfAlive(sessionId, {
+        kind: "terminate_run",
+        runId,
+      });
+      if (!ok) {
+        throw new Error("worker unavailable");
+      }
+    },
+  });
 
   app.on("second-instance", () => {
     const win = BrowserWindow.getAllWindows()[0];
@@ -116,6 +138,7 @@ function boot(): void {
     registerBrowserIpc();
     registerTerminalIpc();
     registerSessionsIpc(broker);
+    registerAgentRunsIpc(registryHolder.current!);
     registerModelsIpc(broker);
     electronApp.setAppUserModelId("com.pi.desktop");
 
