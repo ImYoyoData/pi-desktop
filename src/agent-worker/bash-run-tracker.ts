@@ -24,6 +24,12 @@ export type BashRunTrackerHooks = {
   onStarted: (run: TrackedRunStart) => void;
   onOutput: (runId: string, chunk: string) => void;
   onEnded: (runId: string) => void;
+  /** Fired when the bash tool detaches; process may still be running. */
+  onBackgrounded?: (runId: string) => void;
+  /** Defense-in-depth permission check before shell spawn (bash only). */
+  beforeExec?: (command: string) => void;
+  /** When true, start detached from the tool call (permission "后台运行"). */
+  shouldStartBackground?: (command: string) => boolean;
 };
 
 type ActiveRun = {
@@ -31,7 +37,16 @@ type ActiveRun = {
   shellPid?: number;
   /** Surviving descendant PIDs kept after the shell exits (background services). */
   survivors: Set<number>;
+  backgrounded: boolean;
+  /** Forwards to the bash tool until backgrounded. */
+  toolOnData: ((data: Buffer) => void) | null;
+  resolveTool: ((result: { exitCode: number | null }) => void) | null;
+  rejectTool: ((err: Error) => void) | null;
+  removeOuterAbort: (() => void) | null;
 };
+
+const BACKGROUND_NOTICE =
+  "\n[pi-desktop] Running in background — conversation continues; output is in the Running panel.\n";
 
 function killProcessTree(pid: number): void {
   if (process.platform === "win32") {
@@ -136,6 +151,10 @@ async function waitForSurvivorsExit(
  * Track bash invocations for the Running panel.
  * When `base` is omitted, uses a local shell that keeps tracking background
  * descendants after the shell exits (until they die or the user terminates).
+ *
+ * A run can be detached from the agent tool (`backgroundRun` / start-as-background)
+ * while the OS process keeps running — stdout/stderr continue to be drained so
+ * macOS/Linux servers don't die on SIGPIPE.
  */
 export function createTrackedBashOperations(
   base: BashOperations | undefined,
@@ -143,10 +162,39 @@ export function createTrackedBashOperations(
 ): {
   operations: BashOperations;
   terminateRun: (runId: string) => boolean;
+  backgroundRun: (runId: string) => boolean;
   endAllRuns: () => void;
   getActiveRunIds: () => string[];
 } {
   const active = new Map<string, ActiveRun>();
+
+  function detachTool(row: ActiveRun, runId: string, notice: boolean): boolean {
+    if (row.backgrounded) return false;
+    row.backgrounded = true;
+    if (notice && row.toolOnData) {
+      try {
+        row.toolOnData(Buffer.from(BACKGROUND_NOTICE));
+      } catch {
+        // ignore
+      }
+    }
+    hooks.onOutput(runId, BACKGROUND_NOTICE);
+    row.toolOnData = null;
+    row.removeOuterAbort?.();
+    row.removeOuterAbort = null;
+    const resolve = row.resolveTool;
+    row.resolveTool = null;
+    row.rejectTool = null;
+    resolve?.({ exitCode: null });
+    hooks.onBackgrounded?.(runId);
+    return true;
+  }
+
+  function backgroundRun(runId: string): boolean {
+    const row = active.get(runId);
+    if (!row || row.backgrounded) return false;
+    return detachTool(row, runId, true);
+  }
 
   function terminateRun(runId: string): boolean {
     const row = active.get(runId);
@@ -165,19 +213,39 @@ export function createTrackedBashOperations(
     return [...active.keys()];
   }
 
+  function bindOuterAbort(row: ActiveRun, signal: AbortSignal | undefined): void {
+    if (!signal) return;
+    const onOuterAbort = () => {
+      if (row.backgrounded) return;
+      row.controller.abort();
+    };
+    if (signal.aborted) {
+      onOuterAbort();
+      return;
+    }
+    signal.addEventListener("abort", onOuterAbort);
+    row.removeOuterAbort = () => signal.removeEventListener("abort", onOuterAbort);
+  }
+
   /** Test / inject path: wrap an existing BashOperations without OS spawn. */
   if (base) {
     const operations: BashOperations = {
       exec: async (command, cwd, options) => {
+        hooks.beforeExec?.(command);
+        const startBg = Boolean(hooks.shouldStartBackground?.(command));
         const id = randomUUID();
         const local = new AbortController();
-        active.set(id, { controller: local, survivors: new Set() });
-
-        const onOuterAbort = () => local.abort();
-        if (options.signal) {
-          if (options.signal.aborted) local.abort();
-          else options.signal.addEventListener("abort", onOuterAbort, { once: true });
-        }
+        const row: ActiveRun = {
+          controller: local,
+          survivors: new Set(),
+          backgrounded: false,
+          toolOnData: options.onData,
+          resolveTool: null,
+          rejectTool: null,
+          removeOuterAbort: null,
+        };
+        active.set(id, row);
+        bindOuterAbort(row, options.signal);
 
         const startedAt = Date.now();
         hooks.onStarted({
@@ -189,38 +257,67 @@ export function createTrackedBashOperations(
           startedAt,
         });
 
-        try {
-          return await base.exec(command, cwd, {
-            ...options,
-            signal: local.signal,
-            onData: (data) => {
-              const chunk = data.toString("utf8");
-              hooks.onOutput(id, chunk);
-              options.onData(data);
-            },
-          });
-        } finally {
-          options.signal?.removeEventListener("abort", onOuterAbort);
-          active.delete(id);
-          hooks.onEnded(id);
+        const toolPromise = new Promise<{ exitCode: number | null }>((resolve, reject) => {
+          row.resolveTool = resolve;
+          row.rejectTool = reject;
+        });
+
+        void (async () => {
+          try {
+            const result = await base.exec(command, cwd, {
+              ...options,
+              signal: local.signal,
+              onData: (data) => {
+                const chunk = data.toString("utf8");
+                hooks.onOutput(id, chunk);
+                row.toolOnData?.(data);
+              },
+            });
+            if (!row.backgrounded) {
+              row.resolveTool?.(result);
+              row.resolveTool = null;
+              row.rejectTool = null;
+            }
+          } catch (err) {
+            if (!row.backgrounded) {
+              row.rejectTool?.(err instanceof Error ? err : new Error(String(err)));
+              row.resolveTool = null;
+              row.rejectTool = null;
+            }
+          } finally {
+            row.removeOuterAbort?.();
+            active.delete(id);
+            hooks.onEnded(id);
+          }
+        })();
+
+        if (startBg) {
+          detachTool(row, id, true);
         }
+
+        return toolPromise;
       },
     };
-    return { operations, terminateRun, endAllRuns, getActiveRunIds };
+    return { operations, terminateRun, backgroundRun, endAllRuns, getActiveRunIds };
   }
 
   const operations: BashOperations = {
     exec: async (command, cwd, options) => {
+      hooks.beforeExec?.(command);
+      const startBg = Boolean(hooks.shouldStartBackground?.(command));
       const id = randomUUID();
       const local = new AbortController();
-      const row: ActiveRun = { controller: local, survivors: new Set() };
+      const row: ActiveRun = {
+        controller: local,
+        survivors: new Set(),
+        backgrounded: false,
+        toolOnData: options.onData,
+        resolveTool: null,
+        rejectTool: null,
+        removeOuterAbort: null,
+      };
       active.set(id, row);
-
-      const onOuterAbort = () => local.abort();
-      if (options.signal) {
-        if (options.signal.aborted) local.abort();
-        else options.signal.addEventListener("abort", onOuterAbort, { once: true });
-      }
+      bindOuterAbort(row, options.signal);
 
       const startedAt = Date.now();
       hooks.onStarted({
@@ -232,106 +329,142 @@ export function createTrackedBashOperations(
         startedAt,
       });
 
-      try {
-        if (local.signal.aborted) throw new Error("aborted");
+      const toolPromise = new Promise<{ exitCode: number | null }>((resolve, reject) => {
+        row.resolveTool = resolve;
+        row.rejectTool = reject;
+      });
+
+      void (async () => {
         try {
-          await fsAccess(cwd, constants.F_OK);
-        } catch {
-          throw new Error(
-            `Working directory does not exist: ${cwd}\nCannot execute bash commands.`,
-          );
-        }
-
-        const shellConfig = getShellConfig();
-        const commandFromStdin = shellConfig.commandTransport === "stdin";
-        const child = spawn(
-          shellConfig.shell,
-          commandFromStdin ? shellConfig.args : [...shellConfig.args, command],
-          {
-            cwd,
-            detached: process.platform !== "win32",
-            env: options.env ?? { ...process.env },
-            stdio: [commandFromStdin ? "pipe" : "ignore", "pipe", "pipe"],
-            windowsHide: true,
-          },
-        );
-        if (commandFromStdin) {
-          child.stdin?.on("error", () => {});
-          child.stdin?.end(command);
-        }
-
-        if (child.pid) {
-          row.shellPid = child.pid;
-          hooks.onStarted({
-            id,
-            sessionId: hooks.sessionId,
-            workspaceRoot: hooks.workspaceRoot,
-            command,
-            cwd,
-            startedAt,
-            pid: child.pid,
-          });
-        }
-
-        const onAbort = () => {
-          if (child.pid) killProcessTree(child.pid);
-          for (const pid of row.survivors) killProcessTree(pid);
-        };
-        if (local.signal.aborted) onAbort();
-        else local.signal.addEventListener("abort", onAbort, { once: true });
-
-        child.stdout?.on("data", (data: Buffer) => {
-          const chunk = data.toString("utf8");
-          hooks.onOutput(id, chunk);
-          options.onData(data);
-        });
-        child.stderr?.on("data", (data: Buffer) => {
-          const chunk = data.toString("utf8");
-          hooks.onOutput(id, chunk);
-          options.onData(data);
-        });
-
-        const sample = setInterval(() => {
-          if (!child.pid) return;
-          void collectDescendants(child.pid).then((kids) => {
-            for (const kid of kids) row.survivors.add(kid);
-          });
-        }, 750);
-
-        let exitCode: number | null = null;
-        try {
-          exitCode = await waitForChildExit(child);
-        } finally {
-          clearInterval(sample);
-        }
-
-        if (local.signal.aborted) throw new Error("aborted");
-
-        if (child.pid) {
-          const late = await collectDescendants(child.pid);
-          for (const kid of late) row.survivors.add(kid);
-          row.survivors.delete(child.pid);
-        }
-        for (const pid of [...row.survivors]) {
-          if (!isPidAlive(pid)) row.survivors.delete(pid);
-        }
-        if (row.survivors.size > 0) {
-          hooks.onOutput(
-            id,
-            `\n[pi-desktop] shell exited; tracking ${row.survivors.size} background process(es)…\n`,
-          );
-          await waitForSurvivorsExit(row.survivors, local.signal);
           if (local.signal.aborted) throw new Error("aborted");
-        }
+          try {
+            await fsAccess(cwd, constants.F_OK);
+          } catch {
+            throw new Error(
+              `Working directory does not exist: ${cwd}\nCannot execute bash commands.`,
+            );
+          }
 
-        return { exitCode };
-      } finally {
-        options.signal?.removeEventListener("abort", onOuterAbort);
-        active.delete(id);
-        hooks.onEnded(id);
-      }
+          const shellConfig = getShellConfig();
+          const commandFromStdin = shellConfig.commandTransport === "stdin";
+          const child = spawn(
+            shellConfig.shell,
+            commandFromStdin ? shellConfig.args : [...shellConfig.args, command],
+            {
+              cwd,
+              // New process group on macOS/Linux so kill(-pid) terminates the tree.
+              detached: process.platform !== "win32",
+              env: options.env ?? { ...process.env },
+              stdio: [commandFromStdin ? "pipe" : "ignore", "pipe", "pipe"],
+              windowsHide: true,
+            },
+          );
+          if (commandFromStdin) {
+            child.stdin?.on("error", () => {});
+            child.stdin?.end(command);
+          }
+
+          if (child.pid) {
+            row.shellPid = child.pid;
+            hooks.onStarted({
+              id,
+              sessionId: hooks.sessionId,
+              workspaceRoot: hooks.workspaceRoot,
+              command,
+              cwd,
+              startedAt,
+              pid: child.pid,
+            });
+          }
+
+          const onAbort = () => {
+            if (child.pid) killProcessTree(child.pid);
+            for (const pid of row.survivors) killProcessTree(pid);
+          };
+          if (local.signal.aborted) onAbort();
+          else local.signal.addEventListener("abort", onAbort, { once: true });
+
+          const forward = (data: Buffer) => {
+            const chunk = data.toString("utf8");
+            hooks.onOutput(id, chunk);
+            // Keep draining after detach so background servers don't SIGPIPE.
+            row.toolOnData?.(data);
+          };
+          child.stdout?.on("data", forward);
+          child.stderr?.on("data", forward);
+
+          const sample = setInterval(() => {
+            if (!child.pid) return;
+            void collectDescendants(child.pid).then((kids) => {
+              for (const kid of kids) row.survivors.add(kid);
+            });
+          }, 750);
+
+          if (startBg) {
+            detachTool(row, id, true);
+          }
+
+          let exitCode: number | null = null;
+          try {
+            exitCode = await waitForChildExit(child);
+          } finally {
+            clearInterval(sample);
+          }
+
+          if (local.signal.aborted) {
+            if (!row.backgrounded) throw new Error("aborted");
+            return;
+          }
+
+          if (child.pid) {
+            const late = await collectDescendants(child.pid);
+            for (const kid of late) row.survivors.add(kid);
+            row.survivors.delete(child.pid);
+          }
+          for (const pid of [...row.survivors]) {
+            if (!isPidAlive(pid)) row.survivors.delete(pid);
+          }
+
+          if (row.backgrounded) {
+            // Detached from the tool: still track survivors in Running until they exit.
+            if (row.survivors.size > 0) {
+              hooks.onOutput(
+                id,
+                `\n[pi-desktop] shell exited; tracking ${row.survivors.size} background process(es)…\n`,
+              );
+              await waitForSurvivorsExit(row.survivors, local.signal);
+            }
+            return;
+          }
+
+          if (row.survivors.size > 0) {
+            hooks.onOutput(
+              id,
+              `\n[pi-desktop] shell exited; tracking ${row.survivors.size} background process(es)…\n`,
+            );
+            await waitForSurvivorsExit(row.survivors, local.signal);
+            if (local.signal.aborted) throw new Error("aborted");
+          }
+
+          row.resolveTool?.({ exitCode });
+          row.resolveTool = null;
+          row.rejectTool = null;
+        } catch (err) {
+          if (!row.backgrounded) {
+            row.rejectTool?.(err instanceof Error ? err : new Error(String(err)));
+            row.resolveTool = null;
+            row.rejectTool = null;
+          }
+        } finally {
+          row.removeOuterAbort?.();
+          active.delete(id);
+          hooks.onEnded(id);
+        }
+      })();
+
+      return toolPromise;
     },
   };
 
-  return { operations, terminateRun, endAllRuns, getActiveRunIds };
+  return { operations, terminateRun, backgroundRun, endAllRuns, getActiveRunIds };
 }

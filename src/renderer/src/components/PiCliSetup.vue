@@ -98,7 +98,10 @@ onMounted(() => {
   offProgress = window.api.piCli.onProgress((p) => {
     progress.value = p;
   });
-  void checkPrompt();
+  // Defer CLI probe so it never contends with first paint / workspace restore.
+  window.setTimeout(() => {
+    void checkPrompt();
+  }, 1500);
 });
 
 onUnmounted(() => {

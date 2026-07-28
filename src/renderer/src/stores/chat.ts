@@ -1,28 +1,52 @@
 import { defineStore } from "pinia";
 import { computed, onScopeDispose, reactive, ref } from "vue";
+import { createDiscreteApi } from "naive-ui";
 import type { AgentEvent, ElementCitation, PromptImageContent, SessionHistoryMessage } from "../../../shared/protocol";
 import { toPromptCitations, toPromptImages } from "../../../shared/protocol";
 import {
   appendUserMessage,
   clearPendingAskUser,
+  clearPendingExtensionUi,
+  clearPendingPermission,
   createChatState,
   reduceChatEvent,
+  setPendingExtensionUi,
+  setPendingPermission,
   type ChatMessage,
   type ChatState,
   type ChatUserImage,
+  type PendingPermission,
 } from "./chat-reducer";
 import { useSessionsStore } from "./sessions";
 import { useCheckpointStore } from "./checkpoint";
+import { useComposerStore } from "./composer";
 import { useNotifyStore } from "./notify";
 import { formatLlmError } from "../utils/llm-error";
 import { locale, t } from "../i18n";
+import {
+  isPermissionAskCancelled,
+  type PermissionDecision,
+} from "../../../shared/desktop-security";
+import {
+  isExtensionUiCancelled,
+  isExtensionUiPending,
+  type ExtensionUiEvent,
+  type ExtensionUiPending,
+  type ExtensionUiReply,
+} from "../../../shared/extension-ui";
 
-export type { ChatMessage, ChatState, ChatUserImage, ChatRetryHint } from "./chat-reducer";
+const { message: discreteMessage } = createDiscreteApi(["message"]);
+
+export type { ChatMessage, ChatState, ChatUserImage, ChatRetryHint, PendingPermission } from "./chat-reducer";
 export {
   appendUserMessage,
   clearPendingAskUser,
+  clearPendingExtensionUi,
+  clearPendingPermission,
   createChatState,
   reduceChatEvent,
+  setPendingExtensionUi,
+  setPendingPermission,
 } from "./chat-reducer";
 
 /** In-progress re-edit of a published user bubble (messages stay until commit/send). */
@@ -49,6 +73,12 @@ export const useChatStore = defineStore("chat", () => {
   const notifyStore = useNotifyStore();
   const pendingUserEdit = ref<PendingUserEdit | null>(null);
   const historyLoadingId = ref<string | null>(null);
+  /** Bumped when a permission ask is denied or times out — UI may toast Security remediation. */
+  const securityRemediationTick = ref(0);
+
+  function noteSecurityRemediation(): void {
+    securityRemediationTick.value += 1;
+  }
 
   function stateFor(sessionId: string): ChatState {
     if (!bySession[sessionId]) {
@@ -102,8 +132,85 @@ export const useChatStore = defineStore("chat", () => {
     return stateFor(id).pendingAskUser;
   });
 
+  const activePendingPermission = computed(() => {
+    const id = sessionsStore.activeId;
+    if (!id) return null;
+    return stateFor(id).pendingPermission;
+  });
+
+  const activePendingExtensionUi = computed(() => {
+    const id = sessionsStore.activeId;
+    if (!id) return null;
+    return stateFor(id).pendingExtensionUi;
+  });
+
   function clearPendingAskUserFor(sessionId: string): void {
     bySession[sessionId] = clearPendingAskUser(stateFor(sessionId));
+  }
+
+  function setPendingPermissionFor(req: PendingPermission): void {
+    bySession[req.sessionId] = setPendingPermission(stateFor(req.sessionId), req);
+  }
+
+  function clearPendingPermissionFor(sessionId: string): void {
+    bySession[sessionId] = clearPendingPermission(stateFor(sessionId));
+  }
+
+  function setPendingExtensionUiFor(req: ExtensionUiPending): void {
+    bySession[req.sessionId] = setPendingExtensionUi(stateFor(req.sessionId), req);
+  }
+
+  function clearPendingExtensionUiFor(sessionId: string): void {
+    bySession[sessionId] = clearPendingExtensionUi(stateFor(sessionId));
+  }
+
+  async function replyPermission(
+    sessionId: string,
+    requestId: string,
+    decision: PermissionDecision,
+  ): Promise<void> {
+    clearPendingPermissionFor(sessionId);
+    if (decision === "deny") {
+      noteSecurityRemediation();
+    }
+    await window.api.sessions.permissionReply({ requestId, decision });
+  }
+
+  async function replyExtensionUi(reply: ExtensionUiReply): Promise<void> {
+    const id = sessionsStore.activeId;
+    if (id) clearPendingExtensionUiFor(id);
+    await window.api.sessions.extensionUiReply(reply);
+  }
+
+  function handleExtensionUiEvent(event: ExtensionUiEvent): void {
+    if (isExtensionUiCancelled(event)) {
+      const pending = stateFor(event.sessionId).pendingExtensionUi;
+      if (pending?.requestId === event.requestId) {
+        clearPendingExtensionUiFor(event.sessionId);
+      }
+      return;
+    }
+    if (isExtensionUiPending(event)) {
+      setPendingExtensionUiFor(event);
+      if (notifyStore.soundEnabled) {
+        void notifyStore.playChime();
+      }
+      return;
+    }
+    if (event.method === "notify") {
+      // Toast for the active session only to avoid noise from background workers.
+      if (event.sessionId !== sessionsStore.activeId) return;
+      if (event.notifyType === "error") discreteMessage.error(event.message);
+      else if (event.notifyType === "warning") discreteMessage.warning(event.message);
+      else discreteMessage.info(event.message);
+      return;
+    }
+    if (event.method === "setEditorText") {
+      if (event.sessionId !== sessionsStore.activeId) return;
+      useComposerStore().draft = event.text;
+      return;
+    }
+    // setStatus / setWidget / setTitle: reserved for a future chrome strip.
   }
 
   function applyEvent(event: AgentEvent): void {
@@ -123,21 +230,36 @@ export const useChatStore = defineStore("chat", () => {
   function hydrateFromHistory(sessionId: string, history: SessionHistoryMessage[]): void {
     pendingUserEdit.value = null;
     bySession[sessionId] = {
-      messages: history.map((row) =>
-        row.role === "user"
-          ? { id: row.id, role: "user" as const, text: row.text }
-          : {
-              id: row.id,
-              role: "assistant" as const,
-              text: row.text,
-              ...(row.thinking ? { thinking: row.thinking } : {}),
-            },
-      ),
+      messages: history.map((row) => {
+        if (row.role === "user") {
+          return { id: row.id, role: "user" as const, text: row.text };
+        }
+        if (row.role === "tool") {
+          return {
+            id: row.id,
+            role: "tool" as const,
+            toolCallId: row.toolCallId,
+            toolName: row.toolName,
+            args: row.args,
+            result: row.text,
+            isError: row.isError,
+            streaming: false,
+          };
+        }
+        return {
+          id: row.id,
+          role: "assistant" as const,
+          text: row.text,
+          ...(row.thinking ? { thinking: row.thinking } : {}),
+        };
+      }),
       streamingMessage: null,
       running: false,
       retryHint: null,
       nextToolOrder: 1,
       pendingAskUser: null,
+      pendingPermission: null,
+      pendingExtensionUi: null,
     };
   }
 
@@ -156,9 +278,28 @@ export const useChatStore = defineStore("chat", () => {
     const off = window.api.sessions.onEvent((event) => {
       applyEvent(event);
     });
+    const offPermission = window.api.sessions.onPermission((req) => {
+      if (isPermissionAskCancelled(req)) {
+        const pending = stateFor(req.sessionId).pendingPermission;
+        if (pending?.requestId === req.requestId) {
+          clearPendingPermissionFor(req.sessionId);
+          noteSecurityRemediation();
+        }
+        return;
+      }
+      setPendingPermissionFor(req);
+      if (notifyStore.soundEnabled) {
+        void notifyStore.playChime();
+      }
+    });
+    const offExtensionUi = window.api.sessions.onExtensionUi((event) => {
+      handleExtensionUiEvent(event);
+    });
     onScopeDispose(() => {
       eventsBound = false;
       off();
+      offPermission();
+      offExtensionUi();
     });
   }
 
@@ -386,8 +527,13 @@ export const useChatStore = defineStore("chat", () => {
     activeRunning,
     activeRetryHint,
     activePendingAskUser,
+    activePendingPermission,
+    activePendingExtensionUi,
+    securityRemediationTick,
     bindEvents,
     clearPendingAskUserFor,
+    replyPermission,
+    replyExtensionUi,
     beginHistoryLoad,
     endHistoryLoad,
     hydrateFromHistory,

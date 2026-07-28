@@ -36,17 +36,30 @@ export async function openWorkspacePath(root: string): Promise<string | null> {
   return next;
 }
 
-export async function openWorkspace(): Promise<string | null> {
+/** Folder picker only — does not change the active workspace root. */
+export async function pickWorkspace(): Promise<string | null> {
   const win = BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0];
   const opts = { properties: ["openDirectory" as const] };
   const result = win
     ? await dialog.showOpenDialog(win, opts)
     : await dialog.showOpenDialog(opts);
   if (result.canceled || result.filePaths.length === 0) {
-    return getStore().getRoot();
+    return null;
   }
-  const root = result.filePaths[0];
-  return openWorkspacePath(root);
+  return result.filePaths[0] ?? null;
+}
+
+/** @deprecated Prefer pick + openPath after trust; kept for API compatibility. */
+export async function openWorkspace(): Promise<string | null> {
+  const picked = await pickWorkspace();
+  if (!picked) return null;
+  return openWorkspacePath(picked);
+}
+
+export async function clearWorkspace(): Promise<null> {
+  getStore().setRoot(null);
+  syncWorkspaceWatch(null);
+  return null;
 }
 
 export function registerWorkspaceIpc(): void {
@@ -63,7 +76,11 @@ export function registerWorkspaceIpc(): void {
     openWorkspacePath(root),
   );
 
-  ipcMain.handle(IpcChannels.workspace.open, () => openWorkspace());
+  ipcMain.handle(IpcChannels.workspace.pick, () => pickWorkspace());
+
+  ipcMain.handle(IpcChannels.workspace.open, () => pickWorkspace());
+
+  ipcMain.handle(IpcChannels.workspace.clear, () => clearWorkspace());
 
   ipcMain.handle(IpcChannels.workspace.removeRecent, (_event, root: string) => {
     getStore().removeRecent(root);

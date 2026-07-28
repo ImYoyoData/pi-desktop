@@ -3,23 +3,56 @@ import { computed, onScopeDispose, ref } from "vue";
 import type {
   AgentCommand,
   AgentEvent,
+  ContextUsageSegment,
+  ContextUsageSegmentId,
   SessionContextUsage,
   SessionSummary,
 } from "../../../shared/protocol";
 import { toIpcPlain } from "../../../shared/protocol";
 import { useComposerStore } from "./composer";
 
+const SEGMENT_IDS = new Set<ContextUsageSegmentId>([
+  "system",
+  "tools",
+  "summarized",
+  "conversation",
+  "toolResults",
+]);
+
 function parseContextUsage(data: unknown): SessionContextUsage | null {
   if (!data || typeof data !== "object") return null;
   const raw = data as { contextUsage?: unknown };
   const usage = raw.contextUsage ?? data;
   if (!usage || typeof usage !== "object") return null;
-  const u = usage as { tokens?: unknown; contextWindow?: unknown; percent?: unknown };
+  const u = usage as {
+    tokens?: unknown;
+    contextWindow?: unknown;
+    percent?: unknown;
+    toolCalls?: unknown;
+    messageCount?: unknown;
+    segments?: unknown;
+  };
   if (typeof u.contextWindow !== "number" || u.contextWindow <= 0) return null;
+  const segments = Array.isArray(u.segments)
+    ? u.segments
+        .map((row): ContextUsageSegment | null => {
+          if (!row || typeof row !== "object") return null;
+          const s = row as { id?: unknown; tokens?: unknown };
+          if (typeof s.id !== "string" || !SEGMENT_IDS.has(s.id as ContextUsageSegmentId)) {
+            return null;
+          }
+          if (typeof s.tokens !== "number" || s.tokens <= 0) return null;
+          return { id: s.id as ContextUsageSegmentId, tokens: s.tokens };
+        })
+        .filter((s): s is ContextUsageSegment => Boolean(s))
+    : null;
   return {
     tokens: typeof u.tokens === "number" ? u.tokens : null,
     contextWindow: u.contextWindow,
     percent: typeof u.percent === "number" ? u.percent : null,
+    toolCalls: typeof u.toolCalls === "number" ? u.toolCalls : null,
+    messageCount: typeof u.messageCount === "number" ? u.messageCount : null,
+    segments,
   };
 }
 

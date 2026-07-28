@@ -9,12 +9,13 @@ import {
   NPopover,
   NSelect,
   NText,
-  NTooltip,
   useMessage,
 } from "naive-ui";
 import type { DropdownOption } from "naive-ui";
 import {
   AddOutline,
+  CheckmarkOutline,
+  ChevronDownOutline,
   ContractOutline,
   DocumentOutline,
   ExpandOutline,
@@ -24,10 +25,12 @@ import {
   StopOutline,
 } from "@vicons/ionicons5";
 import ComposerRichEditor from "@renderer/components/ComposerRichEditor.vue";
+import ComposerSlashMenu from "@renderer/components/ComposerSlashMenu.vue";
 import AsrInstallProgress from "@renderer/components/AsrInstallProgress.vue";
 import VoiceRecordBar from "@renderer/components/VoiceRecordBar.vue";
 import SendQueueBar from "@renderer/components/SendQueueBar.vue";
 import { useChatStore } from "@renderer/stores/chat";
+import type { ContextUsageSegmentId } from "../../../shared/protocol";
 import { isHttpUrl, useComposerStore } from "@renderer/stores/composer";
 import { useSendQueueStore } from "@renderer/stores/send-queue";
 import { useSessionsStore } from "@renderer/stores/sessions";
@@ -44,6 +47,14 @@ import {
   isComposerAgentMode,
   type ComposerAgentMode,
 } from "../../../shared/composer-modes";
+import {
+  filterSlashItems,
+  isSlashBuiltinId,
+  parseSlashContext,
+  replaceSlashLine,
+  skillSlashCommand,
+  type SlashItem,
+} from "../../../shared/slash-commands";
 import { formatLlmError } from "@renderer/utils/llm-error";
 import { locale, t } from "@renderer/i18n";
 
@@ -448,12 +459,48 @@ const attachMenu: DropdownOption[] = [
   },
 ];
 
-const modeSelectOptions = [
-  { label: t.composerModeAgent, value: "agent" as const },
-  { label: t.composerModeAsk, value: "ask" as const },
-  { label: t.composerModePlan, value: "plan" as const },
-  { label: t.composerModeTask, value: "task" as const },
+type ModeMenuItem = {
+  value: ComposerAgentMode;
+  label: string;
+  tag: string;
+  hint: string;
+};
+
+const modeMenuItems: ModeMenuItem[] = [
+  {
+    value: "agent",
+    label: t.composerModeAgent,
+    tag: t.composerModeAgentTag,
+    hint: t.composerModeAgentHint,
+  },
+  {
+    value: "ask",
+    label: t.composerModeAsk,
+    tag: t.composerModeAskTag,
+    hint: t.composerModeAskHint,
+  },
+  {
+    value: "plan",
+    label: t.composerModePlan,
+    tag: t.composerModePlanTag,
+    hint: t.composerModePlanHint,
+  },
+  {
+    value: "task",
+    label: t.composerModeTask,
+    tag: t.composerModeTaskTag,
+    hint: t.composerModeTaskHint,
+  },
 ];
+
+const modeBubbleShow = ref(false);
+
+const activeModeLabel = computed(() => modeTagLabel(composer.mode));
+
+function onModePick(mode: ComposerAgentMode): void {
+  composer.mode = mode;
+  modeBubbleShow.value = false;
+}
 
 async function onAttachSelect(key: string | number): Promise<void> {
   if (String(key) === "file") {
@@ -768,6 +815,9 @@ async function submit(mode: "prompt" | "steer" | "follow_up"): Promise<void> {
     return;
   }
 
+  // Bare builtin slash (e.g. `/compact`) — run locally, do not prompt the model.
+  if (mode === "prompt" && (await tryConsumeBuiltinSlashDraft())) return;
+
   const snap = snapshotComposerPayload();
   if (!snap) return;
 
@@ -800,6 +850,35 @@ async function submit(mode: "prompt" | "steer" | "follow_up"): Promise<void> {
 }
 
 function onKeydown(event: KeyboardEvent): void {
+  if (slashMenuOpen.value) {
+    if (event.key === "ArrowDown") {
+      event.preventDefault();
+      slashMenuRef.value?.move(1);
+      return;
+    }
+    if (event.key === "ArrowUp") {
+      event.preventDefault();
+      slashMenuRef.value?.move(-1);
+      return;
+    }
+    if (event.key === "Escape") {
+      event.preventDefault();
+      const ctx = slashContext.value;
+      if (ctx) composer.draft = composer.draft.slice(0, ctx.slashIndex);
+      return;
+    }
+    if (event.key === "Enter" && !event.shiftKey && !event.isComposing) {
+      event.preventDefault();
+      slashMenuRef.value?.confirm();
+      return;
+    }
+    if (event.key === "Tab" && !event.shiftKey) {
+      event.preventDefault();
+      slashMenuRef.value?.confirm();
+      return;
+    }
+  }
+
   if (event.key !== "Enter" || event.isComposing) return;
 
   if (editorExpanded.value) {
@@ -859,10 +938,155 @@ function formatTokens(count: number): string {
   return `${Math.round(count / 1_000_000)}M`;
 }
 
+const SEGMENT_META: Record<
+  ContextUsageSegmentId,
+  { color: string; label: () => string }
+> = {
+  system: { color: "#8b8b8b", label: () => t.contextUsageSegSystem },
+  tools: { color: "#a855f7", label: () => t.contextUsageSegTools },
+  summarized: { color: "#b91c1c", label: () => t.contextUsageSegSummarized },
+  conversation: { color: "#ef4444", label: () => t.contextUsageSegConversation },
+  toolResults: { color: "#db2777", label: () => t.contextUsageSegToolResults },
+};
+
 const contextUsage = computed(() => sessions.activeContextUsage);
 const ctxPopoverShow = ref(false);
 const skillsCount = ref<number | null>(null);
 let skillsCountCachedFor: string | null = null;
+
+const slashMenuRef = ref<{ move: (d: number) => void; confirm: () => boolean } | null>(null);
+const modelSelectRef = ref<{ focus?: () => void } | null>(null);
+const slashSkills = ref<{ name: string; description: string }[]>([]);
+let slashSkillsCachedFor: string | null = null;
+let slashSkillsLoading = false;
+
+const slashBuiltins = computed<SlashItem[]>(() => [
+  {
+    id: "new",
+    kind: "builtin",
+    command: "new",
+    title: "/new",
+    description: t.slashNewDesc,
+  },
+  {
+    id: "compact",
+    kind: "builtin",
+    command: "compact",
+    title: "/compact",
+    description: t.slashCompactDesc,
+  },
+  {
+    id: "model",
+    kind: "builtin",
+    command: "model",
+    title: "/model",
+    description: t.slashModelDesc,
+  },
+]);
+
+const slashSkillItems = computed<SlashItem[]>(() =>
+  slashSkills.value.map((s) => ({
+    id: `skill:${s.name}`,
+    kind: "skill" as const,
+    command: skillSlashCommand(s.name),
+    title: `/${skillSlashCommand(s.name)}`,
+    description: s.description || t.slashSkillFallbackDesc,
+  })),
+);
+
+const slashContext = computed(() => parseSlashContext(composer.draft));
+
+const slashItems = computed(() => {
+  const ctx = slashContext.value;
+  if (!ctx) return [] as SlashItem[];
+  return filterSlashItems([...slashBuiltins.value, ...slashSkillItems.value], ctx.query);
+});
+
+const slashMenuOpen = computed(
+  () => Boolean(slashContext.value) && slashItems.value.length > 0 && !voiceActive.value,
+);
+
+async function ensureSlashSkills(): Promise<void> {
+  const root = workspace.root ?? "";
+  if (slashSkillsCachedFor === root || slashSkillsLoading) return;
+  slashSkillsLoading = true;
+  try {
+    const data = await window.api.skills.list(workspace.root ?? undefined);
+    slashSkills.value = (data.skills ?? []).map((s) => ({
+      name: s.name,
+      description: s.description ?? "",
+    }));
+    slashSkillsCachedFor = root;
+  } catch {
+    slashSkills.value = [];
+  } finally {
+    slashSkillsLoading = false;
+  }
+}
+
+watch(slashContext, (ctx) => {
+  if (ctx) void ensureSlashSkills();
+});
+
+async function runSlashBuiltin(id: string): Promise<void> {
+  if (!isSlashBuiltinId(id)) return;
+  switch (id) {
+    case "new": {
+      const root = workspace.root;
+      if (!root) {
+        message.warning(t.slashNeedWorkspace);
+        return;
+      }
+      const created = await sessions.createSession(root);
+      if (created) message.success(t.slashNewDone);
+      return;
+    }
+    case "compact": {
+      const idSession = sessionId.value;
+      if (!idSession) {
+        message.warning(t.slashNeedSession);
+        return;
+      }
+      await sessions.sendCommand(idSession, { type: "compact" });
+      message.success(t.compactDone);
+      return;
+    }
+    case "model": {
+      await nextTick();
+      modelSelectRef.value?.focus?.();
+      return;
+    }
+    default: {
+      const _never: never = id;
+      void _never;
+    }
+  }
+}
+
+async function onSlashSelect(item: SlashItem): Promise<void> {
+  const ctx = slashContext.value;
+  if (!ctx) return;
+  if (item.kind === "builtin") {
+    composer.clear();
+    await runSlashBuiltin(item.id);
+    return;
+  }
+  // Skills: leave `/skill:name` so AgentSession expands on send; trailing space for optional args.
+  composer.draft = replaceSlashLine(composer.draft, ctx, item.command, true);
+  await nextTick();
+  focusDraft();
+}
+
+/** If the whole draft is a bare builtin slash, run it instead of prompting. */
+async function tryConsumeBuiltinSlashDraft(): Promise<boolean> {
+  const raw = composer.draft.trim();
+  if (!raw.startsWith("/") || raw.includes("\n")) return false;
+  const body = raw.slice(1).trim();
+  if (!isSlashBuiltinId(body)) return false;
+  composer.clear();
+  await runSlashBuiltin(body);
+  return true;
+}
 
 const contextPercent = computed(() => {
   const pct = contextUsage.value?.percent;
@@ -895,10 +1119,18 @@ const contextRingStyle = computed(() => {
   };
 });
 
-const contextMessageCount = computed(() => chat.activeMessages.length);
-const contextToolCount = computed(
-  () => chat.activeMessages.filter((m) => m.role === "tool").length,
-);
+const contextMessageCount = computed(() => {
+  const fromStats = contextUsage.value?.messageCount;
+  if (typeof fromStats === "number") return fromStats;
+  return chat.activeMessages.length;
+});
+const contextToolCount = computed(() => {
+  const fromStats = contextUsage.value?.toolCalls;
+  if (typeof fromStats === "number") return fromStats;
+  const messages = chat.activeMessages.filter((m) => m.role === "tool").length;
+  const streaming = chat.activeStreaming?.role === "tool" ? 1 : 0;
+  return messages + streaming;
+});
 
 const contextTokensLabel = computed(() => {
   const usage = contextUsage.value;
@@ -911,6 +1143,47 @@ const contextWindowLabel = computed(() => {
   const usage = contextUsage.value;
   if (!usage) return "—";
   return formatTokens(usage.contextWindow);
+});
+
+const contextSegments = computed(() => {
+  const usage = contextUsage.value;
+  const window = usage?.contextWindow ?? 0;
+  const segs = usage?.segments ?? [];
+  if (!window || !segs.length) return [];
+  return segs.map((s) => {
+    const meta = SEGMENT_META[s.id];
+    return {
+      id: s.id,
+      tokens: s.tokens,
+      label: meta?.label() ?? s.id,
+      color: meta?.color ?? "#888",
+      widthPct: Math.max(0.4, (s.tokens / window) * 100),
+      tokensLabel: formatTokens(s.tokens),
+    };
+  });
+});
+
+const contextFreePct = computed(() => {
+  const usage = contextUsage.value;
+  if (!usage?.contextWindow) return 100;
+  const used =
+    typeof usage.tokens === "number"
+      ? usage.tokens
+      : (usage.segments ?? []).reduce((n, s) => n + s.tokens, 0);
+  return Math.max(0, 100 - (used / usage.contextWindow) * 100);
+});
+
+const contextFullLabel = computed(() => {
+  const pct = contextPercent.value;
+  if (pct == null) return t.contextUsageUnknown;
+  return t.contextUsageFull(pct.toFixed(0));
+});
+
+const contextTokensPairLabel = computed(() => {
+  const usage = contextUsage.value;
+  if (!usage) return t.contextUsageEmpty;
+  const used = usage.tokens !== null ? formatTokens(usage.tokens) : "?";
+  return t.contextUsageTokensPair(used, formatTokens(usage.contextWindow));
 });
 
 async function openContextPopover(): Promise<void> {
@@ -1491,6 +1764,12 @@ watch(
 
       <!-- Path/url/element chips + text share one contenteditable surface. -->
       <div class="rich-editor" @paste="onPaste" @click="focusDraft">
+        <ComposerSlashMenu
+          ref="slashMenuRef"
+          :visible="slashMenuOpen"
+          :items="slashItems"
+          @select="(item) => void onSlashSelect(item)"
+        />
         <ComposerRichEditor
           ref="richEditor"
           :disabled="voiceActive || voicePending"
@@ -1542,17 +1821,60 @@ watch(
             </NButton>
           </NDropdown>
 
-          <NSelect
-            v-model:value="composer.mode"
-            class="mode-select"
-            :options="modeSelectOptions"
-            size="tiny"
-            :consistent-menu-width="false"
+          <NPopover
+            v-model:show="modeBubbleShow"
+            trigger="click"
+            placement="top-start"
+            :show-arrow="true"
             :disabled="voiceActive || voicePending"
-            :title="t.composerModeHint"
-          />
+            raw
+          >
+            <template #trigger>
+              <button
+                type="button"
+                class="mode-trigger pi-interactive"
+                :disabled="voiceActive || voicePending"
+                :title="t.composerModeHint"
+                :aria-expanded="modeBubbleShow"
+                :aria-haspopup="true"
+              >
+                <span class="mode-trigger-label">{{ activeModeLabel }}</span>
+                <NIcon :component="ChevronDownOutline" :size="12" />
+              </button>
+            </template>
+            <div class="mode-bubble" role="listbox" :aria-label="t.composerModeHint">
+              <button
+                v-for="item in modeMenuItems"
+                :key="item.value"
+                type="button"
+                class="mode-option"
+                role="option"
+                :aria-selected="composer.mode === item.value"
+                :class="{ active: composer.mode === item.value }"
+                @click="onModePick(item.value)"
+              >
+                <div class="mode-option-main">
+                  <span class="mode-option-name">
+                    {{ item.label }}
+                    <span
+                      v-if="item.tag && item.tag !== item.label"
+                      class="mode-option-tag"
+                    >{{ item.tag }}</span>
+                  </span>
+                  <span class="mode-option-hint">{{ item.hint }}</span>
+                </div>
+                <NIcon
+                  v-if="composer.mode === item.value"
+                  class="mode-option-check"
+                  :component="CheckmarkOutline"
+                  :size="14"
+                />
+              </button>
+            </div>
+          </NPopover>
 
           <NSelect
+            ref="modelSelectRef"
             v-model:value="selectedModelKey"
             class="model-select"
             :options="availableModels"
@@ -1637,60 +1959,71 @@ watch(
         @clickoutside="closeContextPopover"
       >
         <template #trigger>
-          <NTooltip :disabled="ctxPopoverShow" placement="top-end">
-            <template #trigger>
-              <button
-                type="button"
-                class="ctx-meter"
-                :class="`ctx-${contextTone}`"
-                :disabled="!sessionId"
-                @click="openContextPopover"
-              >
-                <svg class="ctx-ring" width="18" height="18" viewBox="0 0 18 18" aria-hidden="true">
-                  <circle class="ctx-ring-track" cx="9" cy="9" r="7" fill="none" stroke-width="2" />
-                  <circle
-                    class="ctx-ring-fill"
-                    cx="9"
-                    cy="9"
-                    r="7"
-                    fill="none"
-                    stroke-width="2"
-                    stroke-linecap="round"
-                    transform="rotate(-90 9 9)"
-                    :style="contextRingStyle"
-                  />
-                </svg>
-                <span class="ctx-label">{{ contextPercentLabel }}</span>
-              </button>
-            </template>
-            {{ t.contextUsageHint }}
-          </NTooltip>
+          <button
+            type="button"
+            class="ctx-meter"
+            :class="`ctx-${contextTone}`"
+            :disabled="!sessionId"
+            @click="openContextPopover"
+          >
+            <svg class="ctx-ring" width="18" height="18" viewBox="0 0 18 18" aria-hidden="true">
+              <circle class="ctx-ring-track" cx="9" cy="9" r="7" fill="none" stroke-width="2" />
+              <circle
+                class="ctx-ring-fill"
+                cx="9"
+                cy="9"
+                r="7"
+                fill="none"
+                stroke-width="2"
+                stroke-linecap="round"
+                transform="rotate(-90 9 9)"
+                :style="contextRingStyle"
+              />
+            </svg>
+            <span class="ctx-label">{{ contextPercentLabel }}</span>
+          </button>
         </template>
         <div class="ctx-popover">
           <div class="ctx-pop-title">{{ t.contextUsageTitle }}</div>
-          <div class="ctx-pop-row">
-            <span>{{ t.contextUsageTokens }}</span>
-            <strong>{{ contextTokensLabel }}</strong>
+          <div class="ctx-pop-summary">
+            <span class="ctx-pop-full">{{ contextFullLabel }}</span>
+            <span class="ctx-pop-pair">{{ contextTokensPairLabel }}</span>
           </div>
-          <div class="ctx-pop-row">
-            <span>{{ t.contextUsageWindow }}</span>
-            <strong>{{ contextWindowLabel }}</strong>
+          <div class="ctx-bar" aria-hidden="true">
+            <span
+              v-for="seg in contextSegments"
+              :key="seg.id"
+              class="ctx-bar-seg"
+              :style="{ width: `${seg.widthPct}%`, background: seg.color }"
+              :title="`${seg.label}: ${seg.tokensLabel}`"
+            />
+            <span
+              v-if="contextFreePct > 0.5"
+              class="ctx-bar-seg free"
+              :style="{ width: `${contextFreePct}%` }"
+            />
           </div>
-          <div class="ctx-pop-row">
-            <span>%</span>
-            <strong>{{ contextPercentLabel }}</strong>
+          <div v-if="contextSegments.length" class="ctx-legend">
+            <div v-for="seg in contextSegments" :key="`leg-${seg.id}`" class="ctx-legend-row">
+              <span class="ctx-swatch" :style="{ background: seg.color }" />
+              <span class="ctx-legend-label">{{ seg.label }}</span>
+              <strong>{{ seg.tokensLabel }}</strong>
+            </div>
           </div>
-          <div class="ctx-pop-row">
-            <span>{{ t.contextUsageMessages }}</span>
-            <strong>{{ contextMessageCount }}</strong>
-          </div>
-          <div class="ctx-pop-row">
-            <span>{{ t.contextUsageTools }}</span>
-            <strong>{{ contextToolCount }}</strong>
-          </div>
-          <div class="ctx-pop-row">
-            <span>{{ t.contextUsageSkills }}</span>
-            <strong>{{ skillsCount ?? "—" }}</strong>
+          <div v-else class="ctx-pop-hint">{{ t.contextUsageEmpty }}</div>
+          <div class="ctx-pop-meta">
+            <div class="ctx-pop-row">
+              <span>{{ t.contextUsageMessages }}</span>
+              <strong>{{ contextMessageCount }}</strong>
+            </div>
+            <div class="ctx-pop-row">
+              <span>{{ t.contextUsageTools }}</span>
+              <strong>{{ contextToolCount }}</strong>
+            </div>
+            <div class="ctx-pop-row">
+              <span>{{ t.contextUsageSkills }}</span>
+              <strong>{{ skillsCount ?? "—" }}</strong>
+            </div>
           </div>
           <div class="ctx-pop-hint">{{ t.contextUsageHint }}</div>
         </div>
@@ -1834,6 +2167,7 @@ watch(
 }
 
 .rich-editor {
+  position: relative;
   display: flex;
   flex-direction: column;
   gap: 0;
@@ -1983,31 +2317,120 @@ watch(
   max-width: 140px;
 }
 
-.mode-select {
+.mode-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
   flex: 0 0 auto;
-  width: 56px;
-  min-width: 56px;
-  max-width: 56px;
+  height: 22px;
+  max-width: 72px;
+  padding: 0 6px 0 8px;
+  border: 1px solid color-mix(in srgb, var(--border, #ddd) 85%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--bg-elevated, #fff) 92%, transparent);
+  color: var(--fg, #222);
+  font-size: 11px;
+  font-weight: 550;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.mode-trigger:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.mode-trigger:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--primary, #3b82f6) 45%, var(--border));
+  color: var(--fg-strong, #111);
+}
+
+.mode-trigger-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.mode-bubble {
+  min-width: 260px;
+  max-width: min(360px, 92vw);
+  padding: 6px;
+  border: 1px solid color-mix(in srgb, var(--border, #ddd) 80%, transparent);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--bg-panel, var(--bg-elevated, #fff)) 96%, transparent);
+  box-shadow: 0 10px 28px color-mix(in srgb, #000 16%, transparent);
+  backdrop-filter: blur(10px);
+}
+
+.mode-option {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  width: 100%;
+  margin: 0;
+  padding: 8px 10px;
+  border: none;
+  border-radius: 10px;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.mode-option:hover {
+  background: var(--bg-hover, rgba(127, 127, 127, 0.08));
+}
+
+.mode-option.active {
+  background: color-mix(in srgb, var(--primary, #3b82f6) 12%, transparent);
+}
+
+.mode-option-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.mode-option-name {
+  display: inline-flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 6px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--fg-strong, #1a1a1a);
+}
+
+.mode-option.active .mode-option-name {
+  color: var(--primary, #3b82f6);
+}
+
+.mode-option-tag {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--fg-muted, #666);
+}
+
+.mode-option.active .mode-option-tag {
+  color: color-mix(in srgb, var(--primary, #3b82f6) 75%, var(--fg-muted));
+}
+
+.mode-option-hint {
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--fg-faint, #888);
+}
+
+.mode-option-check {
+  flex-shrink: 0;
+  margin-top: 2px;
+  color: var(--primary, #3b82f6);
 }
 
 .model-select :deep(.n-base-selection) {
   --n-padding-single: 0 16px 0 4px;
   font-size: 11px;
-}
-
-.mode-select :deep(.n-base-selection) {
-  --n-padding-single: 0 12px 0 3px;
-  --n-height: 22px;
-  font-size: 11px;
-  font-weight: 500;
-}
-
-.mode-select :deep(.n-base-suffix) {
-  width: 12px;
-}
-
-.mode-select :deep(.n-base-selection-label) {
-  padding: 0 !important;
 }
 
 .think-btn {
@@ -2098,19 +2521,100 @@ watch(
 }
 
 .ctx-popover {
-  min-width: 180px;
+  width: min(320px, 86vw);
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  padding: 2px 0;
+  gap: 8px;
+  padding: 4px 2px 2px;
   font-size: 12px;
 }
 
 .ctx-pop-title {
   font-weight: 600;
-  font-size: 12.5px;
+  font-size: 13px;
   color: var(--fg-strong);
-  margin-bottom: 2px;
+}
+
+.ctx-pop-summary {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.ctx-pop-full {
+  font-weight: 600;
+  color: var(--fg-strong);
+}
+
+.ctx-pop-pair {
+  color: var(--fg-muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.ctx-bar {
+  display: flex;
+  width: 100%;
+  height: 10px;
+  border-radius: 999px;
+  overflow: hidden;
+  background: color-mix(in srgb, var(--border, #ddd) 55%, transparent);
+}
+
+.ctx-bar-seg {
+  display: block;
+  height: 100%;
+  min-width: 2px;
+  flex-shrink: 0;
+}
+
+.ctx-bar-seg.free {
+  background: color-mix(in srgb, var(--bg-elevated, #f4f4f5) 70%, #d4d4d8);
+  flex-shrink: 1;
+  min-width: 0;
+}
+
+.ctx-legend {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.ctx-legend-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--fg-muted);
+}
+
+.ctx-legend-row strong {
+  margin-left: auto;
+  font-weight: 600;
+  color: var(--fg-strong);
+  font-variant-numeric: tabular-nums;
+}
+
+.ctx-swatch {
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  flex-shrink: 0;
+}
+
+.ctx-legend-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ctx-pop-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding-top: 4px;
+  border-top: 1px solid color-mix(in srgb, var(--border, #ddd) 70%, transparent);
 }
 
 .ctx-pop-row {
@@ -2128,17 +2632,15 @@ watch(
 }
 
 .ctx-pop-hint {
-  margin-top: 4px;
   font-size: 11px;
   color: var(--fg-faint);
   line-height: 1.35;
 }
 
 @media (max-width: 900px) {
-  .mode-select {
-    width: 52px;
-    min-width: 52px;
-    max-width: 52px;
+  .mode-trigger {
+    max-width: 64px;
+    padding: 0 5px 0 7px;
   }
 
   .model-select {

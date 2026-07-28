@@ -1,20 +1,31 @@
 import { ipcMain } from "electron";
 import { IpcChannels } from "../shared/protocol";
+import type { GitOpResult } from "../shared/git-types";
 import {
+  addRemote,
   checkoutBranch,
   commitPaths,
   createBranch,
   getGitFileDiff,
   getWorkspaceGitStatus,
+  initRepo,
   listBranches,
+  listLog,
+  listRemotes,
   mergeBranch,
   pullRepo,
   pushRepo,
+  removeRemote,
+  setRemoteUrl,
 } from "./git-host";
 import { getWorkspace } from "./workspace-ipc";
 
 function requireRoot(): string | null {
   return getWorkspace();
+}
+
+function noWorkspace(): GitOpResult {
+  return { ok: false, code: "invalid_args", message: "No workspace" };
 }
 
 export function registerGitIpc(): void {
@@ -38,19 +49,19 @@ export function registerGitIpc(): void {
 
   ipcMain.handle(IpcChannels.git.checkout, async (_e, branch: string) => {
     const root = requireRoot();
-    if (!root) return { ok: false as const, message: "No workspace" };
+    if (!root) return noWorkspace();
     return checkoutBranch(root, String(branch ?? ""));
   });
 
   ipcMain.handle(IpcChannels.git.createBranch, async (_e, branch: string) => {
     const root = requireRoot();
-    if (!root) return { ok: false as const, message: "No workspace" };
+    if (!root) return noWorkspace();
     return createBranch(root, String(branch ?? ""));
   });
 
   ipcMain.handle(IpcChannels.git.merge, async (_e, branch: string) => {
     const root = requireRoot();
-    if (!root) return { ok: false as const, message: "No workspace" };
+    if (!root) return noWorkspace();
     return mergeBranch(root, String(branch ?? ""));
   });
 
@@ -58,20 +69,66 @@ export function registerGitIpc(): void {
     IpcChannels.git.commit,
     async (_e, payload: { message: string; paths: string[] }) => {
       const root = requireRoot();
-      if (!root) return { ok: false as const, message: "No workspace" };
-      return commitPaths(root, payload?.message ?? "", Array.isArray(payload?.paths) ? payload.paths : []);
+      if (!root) return noWorkspace();
+      return commitPaths(
+        root,
+        payload?.message ?? "",
+        Array.isArray(payload?.paths) ? payload.paths : [],
+      );
     },
   );
 
   ipcMain.handle(IpcChannels.git.pull, async () => {
     const root = requireRoot();
-    if (!root) return { ok: false as const, message: "No workspace" };
+    if (!root) return noWorkspace();
     return pullRepo(root);
   });
 
   ipcMain.handle(IpcChannels.git.push, async () => {
     const root = requireRoot();
-    if (!root) return { ok: false as const, message: "No workspace" };
+    if (!root) return noWorkspace();
     return pushRepo(root);
+  });
+
+  ipcMain.handle(IpcChannels.git.init, async () => {
+    const root = requireRoot();
+    if (!root) return noWorkspace();
+    return initRepo(root);
+  });
+
+  ipcMain.handle(IpcChannels.git.remotes, async () => {
+    const root = requireRoot();
+    if (!root) return [] as Awaited<ReturnType<typeof listRemotes>>;
+    return listRemotes(root);
+  });
+
+  ipcMain.handle(
+    IpcChannels.git.addRemote,
+    async (_e, payload: { name: string; url: string }) => {
+      const root = requireRoot();
+      if (!root) return noWorkspace();
+      return addRemote(root, payload?.name ?? "", payload?.url ?? "");
+    },
+  );
+
+  ipcMain.handle(
+    IpcChannels.git.setRemoteUrl,
+    async (_e, payload: { name: string; url: string }) => {
+      const root = requireRoot();
+      if (!root) return noWorkspace();
+      return setRemoteUrl(root, payload?.name ?? "", payload?.url ?? "");
+    },
+  );
+
+  ipcMain.handle(IpcChannels.git.removeRemote, async (_e, name: string) => {
+    const root = requireRoot();
+    if (!root) return noWorkspace();
+    return removeRemote(root, String(name ?? ""));
+  });
+
+  ipcMain.handle(IpcChannels.git.log, async (_e, limit?: number) => {
+    const root = requireRoot();
+    if (!root) return { entries: [] };
+    return listLog(root, typeof limit === "number" ? limit : 50);
   });
 }

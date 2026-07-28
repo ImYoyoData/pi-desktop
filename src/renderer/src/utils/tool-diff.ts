@@ -158,24 +158,60 @@ function parseLineRangeNotice(text: string): {
   return { startLine: null, linesRead: null, totalLines: null };
 }
 
-function previewWriteContent(content: string, maxLines = 40): string {
+function previewWriteContent(content: string, path: string | null, maxLines = 40): string {
   const lines = content.replace(/\r\n/g, "\n").split("\n");
+  // Trailing empty line from final newline is normal for files — keep it in the count
+  // but present as a pure addition diff (new file / full rewrite).
+  const total = lines.length;
   const slice = lines.slice(0, maxLines);
-  const body = slice.map((l, i) => `+${String(i + 1).padStart(4)} ${l}`).join("\n");
-  if (lines.length > maxLines) {
-    return `${body}\n     … (${lines.length - maxLines} more lines)`;
+  const fileLabel = path ? path.replace(/\\/g, "/") : "file";
+  const header = [
+    `--- /dev/null`,
+    `+++ b/${fileLabel}`,
+    `@@ -0,0 +1,${total} @@`,
+  ];
+  const body = slice.map((l) => `+${l}`).join("\n");
+  if (total > maxLines) {
+    return `${header.join("\n")}\n${body}\n… (${total - maxLines} more lines)`;
   }
-  return body;
+  return `${header.join("\n")}\n${body}`;
+}
+
+function contentFromWriteArgs(args: unknown): string {
+  if (!isRecord(args)) return "";
+  const candidates = [args.content, args.contents, args.text, args.new_content, args.newContent];
+  for (const c of candidates) {
+    if (typeof c === "string") return c;
+  }
+  return "";
 }
 
 export function parseFileToolCard(
   toolName: string,
   args: unknown,
   result: unknown,
+  opts?: { isError?: boolean },
 ): FileToolCard {
   const name = toolName.toLowerCase();
   const path = pathFromArgs(args);
-  const { details } = extractToolResult(result);
+  const { details, text } = extractToolResult(result);
+
+  // Blocked tools (e.g. desktop security deny) should surface the reason, not a fake diff.
+  if (opts?.isError && text.trim()) {
+    const kind =
+      name === "write" || name === "write_file" || name === "create_file"
+        ? ("write" as const)
+        : name === "edit" || name === "str_replace" || name === "search_replace"
+          ? ("edit" as const)
+          : ("other" as const);
+    return {
+      kind,
+      path,
+      stats: null,
+      diff: previewText(text),
+      patch: null,
+    };
+  }
 
   if (name === "edit" || name === "str_replace" || name === "search_replace") {
     const diff = typeof details?.diff === "string" ? details.diff : null;
@@ -195,14 +231,27 @@ export function parseFileToolCard(
   }
 
   if (name === "write" || name === "write_file" || name === "create_file") {
-    const content =
-      isRecord(args) && typeof args.content === "string" ? args.content : "";
+    // Prefer an explicit diff from the tool when present (overwrite with real +/-).
+    const detailsDiff = typeof details?.diff === "string" ? details.diff : null;
+    const detailsPatch = typeof details?.patch === "string" ? details.patch : null;
+    if (detailsDiff || detailsPatch) {
+      const source = detailsDiff || detailsPatch || "";
+      return {
+        kind: "write",
+        path,
+        stats: source ? countDiffStats(source) : null,
+        diff: detailsDiff || detailsPatch,
+        patch: detailsPatch,
+      };
+    }
+    const content = contentFromWriteArgs(args);
     const lineCount = content ? content.replace(/\r\n/g, "\n").split("\n").length : 0;
     return {
       kind: "write",
       path,
       stats: content ? { additions: lineCount, deletions: 0 } : null,
-      diff: content ? previewWriteContent(content) : null,
+      // New / full rewrite: present every line as an addition.
+      diff: content ? previewWriteContent(content, path) : null,
       patch: null,
     };
   }
@@ -211,7 +260,7 @@ export function parseFileToolCard(
     kind: "other",
     path,
     stats: null,
-    diff: null,
+    diff: text.trim() ? previewText(text) : null,
     patch: null,
   };
 }
@@ -269,10 +318,11 @@ export function parseToolCard(
   toolName: string,
   args: unknown,
   result: unknown,
+  opts?: { isError?: boolean },
 ): ToolCard {
   const name = toolName.toLowerCase();
   if (isFileMutationTool(name)) {
-    return parseFileToolCard(toolName, args, result);
+    return parseFileToolCard(toolName, args, result, opts);
   }
   if (name === "read" || name === "read_file") {
     return parseReadToolCard(args, result);

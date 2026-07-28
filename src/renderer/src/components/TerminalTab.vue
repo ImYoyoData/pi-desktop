@@ -1,13 +1,17 @@
 <script setup lang="ts">
 import { FitAddon } from "@xterm/addon-fit";
 import { Terminal } from "xterm";
+import { WebLinksAddon } from "xterm-addon-web-links";
 import "xterm/css/xterm.css";
 import { nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import { useDialog } from "naive-ui";
 import { useWorkspaceStore } from "@renderer/stores/workspace";
 import { useAppearanceStore } from "@renderer/stores/appearance";
 import { useRightTabsStore } from "@renderer/stores/right-tabs";
 import { sanitizeTerminalCommandLabel, truncateTabLabel } from "../../../shared/tab-label";
 import { t } from "@renderer/i18n";
+import { handleAppLinkClick } from "@renderer/utils/open-link";
+import { xtermTheme } from "@renderer/utils/xterm-theme";
 
 const props = defineProps<{
   /** Unique id for this terminal pane (dynamic right tab) */
@@ -23,6 +27,7 @@ const props = defineProps<{
 const workspace = useWorkspaceStore();
 const appearance = useAppearanceStore();
 const rightTabs = useRightTabsStore();
+const dialog = useDialog();
 const hostRef = ref<HTMLDivElement | null>(null);
 const ready = ref(false);
 const activePtyId = ref<string | null>(null);
@@ -53,59 +58,6 @@ function enqueueWrite(data: string): void {
   writeBuf += data;
   if (writeRaf) return;
   writeRaf = requestAnimationFrame(flushWriteBuf);
-}
-
-function terminalTheme() {
-  const dark = appearance.resolvedTheme === "dark";
-  return dark
-    ? {
-        background: "#18181b",
-        foreground: "#e4e4e7",
-        cursor: "#fafafa",
-        cursorAccent: "#18181b",
-        selectionBackground: "rgba(59, 130, 246, 0.35)",
-        selectionForeground: "#fafafa",
-        black: "#52525b",
-        red: "#f87171",
-        green: "#4ade80",
-        yellow: "#facc15",
-        blue: "#60a5fa",
-        magenta: "#e879f9",
-        cyan: "#22d3ee",
-        white: "#e4e4e7",
-        brightBlack: "#71717a",
-        brightRed: "#fca5a5",
-        brightGreen: "#86efac",
-        brightYellow: "#fde047",
-        brightBlue: "#93c5fd",
-        brightMagenta: "#f0abfc",
-        brightCyan: "#67e8f9",
-        brightWhite: "#fafafa",
-      }
-    : {
-        background: "#ffffff",
-        foreground: "#18181b",
-        cursor: "#18181b",
-        cursorAccent: "#ffffff",
-        selectionBackground: "rgba(37, 99, 235, 0.25)",
-        selectionForeground: "#18181b",
-        black: "#18181b",
-        red: "#dc2626",
-        green: "#16a34a",
-        yellow: "#ca8a04",
-        blue: "#2563eb",
-        magenta: "#c026d3",
-        cyan: "#0891b2",
-        white: "#e4e4e7",
-        brightBlack: "#71717a",
-        brightRed: "#ef4444",
-        brightGreen: "#22c55e",
-        brightYellow: "#eab308",
-        brightBlue: "#3b82f6",
-        brightMagenta: "#d946ef",
-        brightCyan: "#06b6d4",
-        brightWhite: "#fafafa",
-      };
 }
 
 function fitTerm(): void {
@@ -221,10 +173,15 @@ function bindXterm(host: HTMLDivElement): void {
     rightClickSelectsWord: false,
     scrollback: 5000,
     windowOptions: {},
-    theme: terminalTheme(),
+    theme: xtermTheme(appearance.resolvedTheme === "dark"),
   });
   fit = new FitAddon();
   term.loadAddon(fit);
+  term.loadAddon(
+    new WebLinksAddon((event, uri) => {
+      handleAppLinkClick(event, uri, dialog);
+    }),
+  );
   term.open(host);
   term.onData((data) => {
     noteUserInput(data);
@@ -292,7 +249,7 @@ watch(
 watch(
   () => appearance.resolvedTheme,
   () => {
-    if (term) term.options.theme = terminalTheme();
+    if (term) term.options.theme = xtermTheme(appearance.resolvedTheme === "dark");
   },
 );
 

@@ -2,15 +2,12 @@
 import { computed, watch } from "vue";
 import { Splitpanes, Pane } from "splitpanes";
 import "splitpanes/dist/splitpanes.css";
-import { NButton, NIcon, NTooltip } from "naive-ui";
-import { ChevronBackOutline, ChevronForwardOutline } from "@vicons/ionicons5";
 import SessionSidebar from "@renderer/components/SessionSidebar.vue";
 import ChatPanel from "@renderer/components/ChatPanel.vue";
 import RightPane from "@renderer/components/RightPane.vue";
 import { useLayoutStore } from "@renderer/stores/layout";
 import { useWorkspaceStore } from "@renderer/stores/workspace";
 import type { SplitpanesResizedPayload } from "splitpanes";
-import { t } from "@renderer/i18n";
 
 /** Nested splits: outer left↔main, inner chat↔right — sides never fight each other. */
 const PANE_MIN = 15;
@@ -100,28 +97,6 @@ function onInnerResized(payload: SplitpanesResizedPayload): void {
         </Splitpanes>
       </Pane>
     </Splitpanes>
-
-    <NTooltip v-if="layout.leftCollapsed" placement="right">
-      <template #trigger>
-        <NButton class="rail left" quaternary size="tiny" @click="layout.toggleLeftCollapsed()">
-          <template #icon>
-            <NIcon :component="ChevronForwardOutline" :size="16" />
-          </template>
-        </NButton>
-      </template>
-      {{ t.expandLeft }}
-    </NTooltip>
-
-    <NTooltip v-if="layout.rightCollapsed" placement="left">
-      <template #trigger>
-        <NButton class="rail right" quaternary size="tiny" @click="layout.toggleRightCollapsed()">
-          <template #icon>
-            <NIcon :component="ChevronBackOutline" :size="16" />
-          </template>
-        </NButton>
-      </template>
-      {{ t.expandRight }}
-    </NTooltip>
   </div>
 </template>
 
@@ -158,34 +133,5 @@ function onInnerResized(payload: SplitpanesResizedPayload): void {
   overflow: hidden !important;
   pointer-events: none;
   visibility: hidden;
-}
-
-.rail {
-  position: absolute !important;
-  top: 50%;
-  z-index: 5;
-  transform: translateY(-50%);
-  width: 22px !important;
-  min-width: 22px !important;
-  height: 56px !important;
-  padding: 0 !important;
-  border: 1px solid var(--border) !important;
-  border-radius: 6px !important;
-  background: var(--bg-elevated) !important;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
-  color: var(--fg-muted) !important;
-}
-
-.rail:hover {
-  color: var(--fg-strong) !important;
-  border-color: var(--border-strong) !important;
-}
-
-.rail.left {
-  left: 6px;
-}
-
-.rail.right {
-  right: 6px;
 }
 </style>

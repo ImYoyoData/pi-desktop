@@ -12,7 +12,7 @@ import {
   useDialog,
   useMessage,
 } from "naive-ui";
-import { ArrowDownOutline, ArrowUndoOutline, CopyOutline, CreateOutline, RefreshOutline } from "@vicons/ionicons5";
+import { ArrowDownOutline, ArrowUndoOutline, ChevronDownOutline, ChevronUpOutline, CopyOutline, CreateOutline, RefreshOutline } from "@vicons/ionicons5";
 import type { ChatMessage, ChatRetryHint } from "@renderer/stores/chat";
 import { useChatStore } from "@renderer/stores/chat";
 import { useCheckpointStore } from "@renderer/stores/checkpoint";
@@ -40,7 +40,8 @@ const NEAR_BOTTOM_PX = 120;
 /** Prefetch when viewport is this close to a spacer edge. */
 const OVERSCAN_PX = 900;
 /** Sticky user card must never cover the whole viewport (agent output would look "stuck"). */
-const STICKY_MAX_VH = 0.38;
+const STICKY_MAX_VH = 0.22;
+const STICKY_MAX_PX = 160;
 
 const props = defineProps<{
   messages: ChatMessage[];
@@ -113,13 +114,205 @@ const latestUserMessageId = computed(() => {
 });
 
 const sessionId = computed(() => sessions.activeId);
+/**
+ * Cursor-like sticky user prompt:
+ * Among user messages scrolled fully above the viewport, pin the nearest
+ * (highest index). Virtual window must keep that row mounted for measurement.
+ */
+const stickyExpanded = ref(false);
+const stickyNeedsToggle = ref(false);
+const stickyHover = ref(false);
+const stickyPinId = ref<string | null>(null);
+const stickyPinEl = ref<HTMLElement | null>(null);
+let stickyRemountPending = false;
 
-function isStickyUser(msg: ChatMessage): boolean {
-  return msg.role === "user" && msg.id === latestUserMessageId.value;
-}
+const stickyPinned = computed(() => stickyPinId.value != null);
+
+const stickyPinMessage = computed(() => {
+  const id = stickyPinId.value;
+  if (!id) return null;
+  const msg = displayMessages.value.find((m) => m.id === id);
+  return msg?.role === "user" ? msg : null;
+});
 
 function stickyCapPx(sc: HTMLElement): number {
-  return Math.min(Math.round(sc.clientHeight * STICKY_MAX_VH), 360);
+  return Math.min(Math.round(sc.clientHeight * STICKY_MAX_VH), STICKY_MAX_PX);
+}
+
+function measureStickyNeedsToggle(naturalHeight: number): void {
+  const sc = scroller.value;
+  if (!sc || !stickyPinned.value) {
+    stickyNeedsToggle.value = false;
+    return;
+  }
+  stickyNeedsToggle.value = naturalHeight > stickyCapPx(sc) + 12;
+}
+
+function estimateOffsetTop(index: number): number {
+  return estimateRangeHeight(0, index);
+}
+
+/** Keep the sticky (and a little context above) inside the mounted window. */
+function ensureMessageInWindow(index: number): boolean {
+  const len = displayMessages.value.length;
+  if (index < 0 || index >= len) return false;
+  let changed = false;
+  if (index < renderStart.value) {
+    renderStart.value = Math.max(0, index);
+    changed = true;
+  }
+  if (index >= renderEnd.value) {
+    renderEnd.value = Math.min(len, index + 1);
+    changed = true;
+  }
+  if (renderEnd.value - renderStart.value > VIRTUAL_MAX) {
+    // Prefer keeping the sticky index; trim the far side.
+    if (renderStart.value === Math.max(0, index)) {
+      renderEnd.value = Math.min(len, renderStart.value + VIRTUAL_MAX);
+    } else {
+      renderStart.value = Math.max(0, renderEnd.value - VIRTUAL_MAX);
+      if (index < renderStart.value) {
+        renderStart.value = Math.max(0, index);
+        renderEnd.value = Math.min(len, renderStart.value + VIRTUAL_MAX);
+      }
+    }
+    changed = true;
+  }
+  return changed;
+}
+
+/**
+ * Nearest user message fully above the viewport top (Cursor behavior).
+ * Uses live DOM when mounted; falls back to height estimates when virtualized.
+ */
+function findStickyUserMessageId(): string | null {
+  const sc = scroller.value;
+  const all = displayMessages.value;
+  if (!sc || all.length === 0) return null;
+
+  const scRect = sc.getBoundingClientRect();
+  const viewportTop = scRect.top + 8;
+  let bestId: string | null = null;
+  let bestIdx = -1;
+
+  for (let i = 0; i < all.length; i++) {
+    const m = all[i];
+    if (!m || m.role !== "user") continue;
+
+    let scrolledAway = false;
+    const row = sc.querySelector(
+      `[data-msg-id="${CSS.escape(m.id)}"]`,
+    ) as HTMLElement | null;
+
+    if (row) {
+      scrolledAway = row.getBoundingClientRect().bottom < viewportTop;
+    } else {
+      const top = estimateOffsetTop(i);
+      const h = heightById.get(m.id) ?? EST_MSG_HEIGHT;
+      scrolledAway = top + h < sc.scrollTop + 8;
+    }
+
+    if (scrolledAway && i >= bestIdx) {
+      bestIdx = i;
+      bestId = m.id;
+    }
+  }
+
+  return bestId;
+}
+
+function clearStickyPin(): void {
+  if (!stickyPinId.value && !stickyNeedsToggle.value) return;
+  stickyPinId.value = null;
+  stickyExpanded.value = false;
+  stickyHover.value = false;
+  stickyNeedsToggle.value = false;
+}
+
+/** Pin overlay for the nearest user message scrolled above the viewport. */
+function updateStickyPinned(): void {
+  const sc = scroller.value;
+  if (!sc) {
+    clearStickyPin();
+    return;
+  }
+
+  const id = findStickyUserMessageId();
+  if (!id) {
+    clearStickyPin();
+    return;
+  }
+
+  const idx = displayMessages.value.findIndex((m) => m.id === id);
+  if (idx >= 0 && ensureMessageInWindow(idx)) {
+    if (id !== stickyPinId.value) {
+      stickyPinId.value = id;
+      stickyExpanded.value = false;
+      stickyHover.value = false;
+    }
+    // Remount then re-measure so DOM-based pin state is accurate (one shot).
+    if (!stickyRemountPending) {
+      stickyRemountPending = true;
+      void nextTick(() => {
+        stickyRemountPending = false;
+        measureVisibleRows();
+        updateStickyPinned();
+      });
+    }
+    return;
+  }
+
+  if (id !== stickyPinId.value) {
+    stickyPinId.value = id;
+    stickyExpanded.value = false;
+    stickyHover.value = false;
+  }
+
+  const row = sc.querySelector(
+    `[data-msg-id="${CSS.escape(id)}"]`,
+  ) as HTMLElement | null;
+  const bubble = row?.querySelector<HTMLElement>(".bubble.user");
+  const natural = bubble?.scrollHeight ?? row?.scrollHeight ?? 0;
+  if (natural > 0) {
+    measureStickyNeedsToggle(natural);
+  }
+
+  void nextTick(() => {
+    const pin = stickyPinEl.value;
+    const body = pin?.querySelector<HTMLElement>(".sticky-pin-body");
+    if (body) measureStickyNeedsToggle(body.scrollHeight);
+  });
+}
+
+function refreshStickyToggleNeed(): void {
+  void nextTick(() => {
+    if (!stickyPinned.value) {
+      stickyNeedsToggle.value = false;
+      return;
+    }
+    const pin = stickyPinEl.value;
+    const body = pin?.querySelector<HTMLElement>(".sticky-pin-body");
+    if (body) {
+      measureStickyNeedsToggle(body.scrollHeight);
+      return;
+    }
+    updateStickyPinned();
+  });
+}
+
+function toggleStickyExpanded(): void {
+  stickyExpanded.value = !stickyExpanded.value;
+  void nextTick(() => refreshStickyToggleNeed());
+}
+
+function onStickyUserEnter(): void {
+  if (!stickyPinned.value) return;
+  stickyHover.value = true;
+  refreshStickyToggleNeed();
+}
+
+function onStickyUserLeave(): void {
+  stickyHover.value = false;
 }
 
 function isNearBottom(el: HTMLElement): boolean {
@@ -156,7 +349,7 @@ function measureVisibleRows(): void {
   for (const row of rows) {
     const id = row.dataset.msgId;
     if (!id) continue;
-    // Use layout height (includes sticky max-height clamp).
+    // Use layout height for virtual window estimates.
     const h = row.offsetHeight;
     if (h > 0) heightById.set(id, h);
   }
@@ -184,6 +377,7 @@ function expandHistoryUp(): void {
     restoreScrollAfterMutation(sc, prevHeight, prevTop);
     measureVisibleRows();
     adjustingWindow = false;
+    updateStickyPinned();
     // Keep a thick overscan of real content above the viewport.
     if (renderStart.value > 0 && sc.scrollTop < topSpacerPx.value + OVERSCAN_PX) {
       expandHistoryUp();
@@ -201,14 +395,19 @@ function expandHistoryDown(): void {
   const prevHeight = sc.scrollHeight;
   const prevTop = sc.scrollTop;
   renderEnd.value = Math.min(len, renderEnd.value + VIRTUAL_CHUNK);
-  // Trim far (top) side when window grows too large.
+  // Trim far (top) side when window grows too large — keep sticky user row.
   if (renderEnd.value - renderStart.value > VIRTUAL_MAX) {
-    renderStart.value = renderEnd.value - VIRTUAL_MAX;
+    const stickyIdx = stickyPinId.value
+      ? displayMessages.value.findIndex((m) => m.id === stickyPinId.value)
+      : -1;
+    const minStart = stickyIdx >= 0 ? stickyIdx : 0;
+    renderStart.value = Math.max(minStart, renderEnd.value - VIRTUAL_MAX);
   }
   void nextTick(() => {
     restoreScrollAfterMutation(sc, prevHeight, prevTop);
     measureVisibleRows();
     adjustingWindow = false;
+    updateStickyPinned();
     const bottomEdge = sc.scrollHeight - bottomSpacerPx.value;
     if (
       renderEnd.value < len &&
@@ -254,6 +453,8 @@ async function snapSessionToBottom(token: number): Promise<void> {
   if (token !== sessionJumpToken) return;
   measureVisibleRows();
   jumpToBottomInstant();
+  updateStickyPinned();
+  refreshStickyToggleNeed();
 }
 
 /** Cold start + session switch: wait for hydrate, then land on bottom (no blank spacer). */
@@ -322,8 +523,14 @@ function handleScrollerScroll(): void {
 
   if (followBottom) {
     const len = displayMessages.value.length;
-    const idealStart = Math.max(0, len - VIRTUAL_WINDOW);
-    if (renderStart.value < idealStart || renderEnd.value < len) {
+    let idealStart = Math.max(0, len - VIRTUAL_WINDOW);
+    // Keep the sticky user row mounted while agent output grows at the bottom.
+    const pinId = stickyPinId.value ?? findStickyUserMessageId();
+    if (pinId) {
+      const stickyIdx = displayMessages.value.findIndex((m) => m.id === pinId);
+      if (stickyIdx >= 0) idealStart = Math.min(idealStart, stickyIdx);
+    }
+    if (renderStart.value !== idealStart || renderEnd.value < len) {
       renderStart.value = idealStart;
       renderEnd.value = len;
     }
@@ -346,6 +553,7 @@ function onScrollerScroll(): void {
   scrollRaf = requestAnimationFrame(() => {
     scrollRaf = 0;
     handleScrollerScroll();
+    updateStickyPinned();
   });
 }
 
@@ -405,11 +613,19 @@ watch(
   },
 );
 
-/** When a new latest user message appears (send / re-edit send): pin card, leave room for agent. */
+/** When a new latest user message appears (send / re-edit send): leave room for agent. */
 watch(
   () => latestUserMessageId.value,
   async (id) => {
-    if (!id || id === lastPinnedUserId) return;
+    stickyExpanded.value = false;
+    stickyHover.value = false;
+    stickyNeedsToggle.value = false;
+    stickyPinId.value = null;
+    if (!id || id === lastPinnedUserId) {
+      updateStickyPinned();
+      refreshStickyToggleNeed();
+      return;
+    }
     lastPinnedUserId = id;
     followBottom = true;
     clampRenderWindow(true);
@@ -417,22 +633,20 @@ watch(
     if (settlingSession) {
       await nextTick();
       jumpToBottomInstant();
+      updateStickyPinned();
+      refreshStickyToggleNeed();
       return;
     }
     // Brief pause so follow-bottom doesn't yank away before layout settles.
     suppressFollowBottomUntil = Date.now() + 160;
     await nextTick();
     measureVisibleRows();
+    updateStickyPinned();
+    refreshStickyToggleNeed();
     const sc = scroller.value;
     const card = sc?.querySelector(`[data-msg-id="${CSS.escape(id)}"]`) as HTMLElement | null;
     if (!sc || !card) return;
-    const cap = stickyCapPx(sc);
-    // Tall prompts are clamped by sticky max-height; park the card near the top
-    // so agent streaming has visible space underneath (not covered by sticky paint).
-    if (card.scrollHeight > cap + 24) {
-      sc.scrollTo({ top: Math.max(0, card.offsetTop - 4), behavior: "smooth" });
-      return;
-    }
+    // Show the end of the full prompt (no height clamp until actually pinned).
     const scRect = sc.getBoundingClientRect();
     const cardRect = card.getBoundingClientRect();
     const top = cardRect.bottom - scRect.top + sc.scrollTop - sc.clientHeight + 8;
@@ -483,7 +697,7 @@ onBeforeUnmount(() => {
 });
 
 function toolCard(msg: Extract<ChatMessage, { role: "tool" }>) {
-  return parseToolCard(msg.toolName, msg.args, msg.result);
+  return parseToolCard(msg.toolName, msg.args, msg.result, { isError: msg.isError });
 }
 
 function openPreview(filePath: string): void {
@@ -626,7 +840,6 @@ function onRevertUser(msg: Extract<ChatMessage, { role: "user" }>): void {
         class="row"
         :class="[
           `row-${msg.role}`,
-          isStickyUser(msg) ? 'row-user-sticky' : '',
           sessionId && chat.isPendingEditTail(sessionId, msg.id) ? 'row-edit-tail' : '',
         ]"
         :data-msg-id="msg.id"
@@ -817,7 +1030,77 @@ function onRevertUser(msg: Extract<ChatMessage, { role: "user" }>): void {
         </div>
       </template>
     </div>
-  </div>
+    </div>
+
+    <div
+      v-if="stickyPinned && stickyPinMessage"
+      ref="stickyPinEl"
+      class="user-sticky-pin"
+      :class="{ 'is-expanded': stickyExpanded }"
+      @mouseenter="onStickyUserEnter"
+      @mouseleave="onStickyUserLeave"
+    >
+      <div class="sticky-pin-body bubble user">
+        <div v-if="stickyPinMessage.elementTags?.length" class="user-tags">
+          <NTag
+            v-for="(tag, idx) in stickyPinMessage.elementTags"
+            :key="`pin-tag-${idx}`"
+            :type="
+              tag.kind === 'agent' ||
+              tag.kind === 'plan' ||
+              tag.kind === 'ask' ||
+              tag.kind === 'task'
+                ? 'warning'
+                : 'info'
+            "
+            size="small"
+            round
+            class="user-tag"
+            :class="{
+              'user-tag-file': tag.kind === 'file',
+              'user-tag-mode':
+                tag.kind === 'agent' ||
+                tag.kind === 'plan' ||
+                tag.kind === 'ask' ||
+                tag.kind === 'task',
+              [`user-tag-mode-${tag.kind}`]:
+                tag.kind === 'agent' ||
+                tag.kind === 'plan' ||
+                tag.kind === 'ask' ||
+                tag.kind === 'task',
+            }"
+            :title="tag.url || tag.label"
+          >
+            {{ tag.label || tag.content }}
+          </NTag>
+        </div>
+        <div v-if="stickyPinMessage.images?.length" class="user-images">
+          <NImage
+            v-for="(img, idx) in stickyPinMessage.images"
+            :key="`pin-img-${idx}`"
+            class="user-image"
+            :src="img.dataUrl"
+            :preview-src="img.dataUrl"
+            object-fit="cover"
+          />
+        </div>
+        <div v-if="stickyPinMessage.text" class="user-plain">{{ stickyPinMessage.text }}</div>
+      </div>
+      <button
+        v-if="stickyNeedsToggle && (stickyHover || stickyExpanded)"
+        type="button"
+        class="sticky-toggle"
+        :aria-expanded="stickyExpanded"
+        :aria-label="stickyExpanded ? t.stickyCollapse : t.stickyExpand"
+        @click.stop="toggleStickyExpanded"
+      >
+        <NIcon
+          :component="stickyExpanded ? ChevronUpOutline : ChevronDownOutline"
+          :size="14"
+        />
+        <span>{{ stickyExpanded ? t.stickyCollapse : t.stickyExpand }}</span>
+      </button>
+    </div>
 
     <Transition name="jump-latest">
       <button
@@ -908,7 +1191,8 @@ function onRevertUser(msg: Extract<ChatMessage, { role: "user" }>): void {
   left: 50%;
   bottom: 14px;
   z-index: 8;
-  transform: translateX(-50%);
+  /* Independent of transform/scale press feedback — keeps hit target stable. */
+  translate: -50% 0;
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -932,13 +1216,13 @@ function onRevertUser(msg: Extract<ChatMessage, { role: "user" }>): void {
 .jump-latest-leave-active {
   transition:
     opacity 160ms ease,
-    transform 160ms ease;
+    translate 160ms ease;
 }
 
 .jump-latest-enter-from,
 .jump-latest-leave-to {
   opacity: 0;
-  transform: translateX(-50%) translateY(8px);
+  translate: -50% 8px;
 }
 
 .row {
@@ -950,18 +1234,69 @@ function onRevertUser(msg: Extract<ChatMessage, { role: "user" }>): void {
   width: 100%;
 }
 
-.row-user-sticky {
-  position: sticky;
+.user-sticky-pin {
+  position: absolute;
   top: 0;
+  left: 0;
+  right: 0;
   z-index: 6;
-  /* Cap height so a huge prompt cannot paint over the whole chat (looks like agent stuck). */
-  max-height: min(38vh, 360px);
-  overflow-x: hidden;
-  overflow-y: auto;
-  overscroll-behavior: contain;
+  max-height: min(22vh, 160px);
+  overflow: hidden;
   background: var(--bg);
-  padding: 6px 0 8px;
+  padding: 8px var(--chat-pad-x, 10px) 10px;
   border-bottom: 1px solid color-mix(in srgb, var(--border, #ddd) 55%, transparent);
+  box-shadow: 0 6px 16px color-mix(in srgb, #000 8%, transparent);
+  transition: max-height 0.18s ease;
+}
+
+.user-sticky-pin.is-expanded {
+  max-height: min(55vh, 420px);
+  overflow-y: auto;
+}
+
+.user-sticky-pin::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 36px;
+  pointer-events: none;
+  background: linear-gradient(to bottom, transparent, var(--bg));
+  transition: opacity 0.15s ease;
+}
+
+.user-sticky-pin.is-expanded::after {
+  opacity: 0;
+}
+
+.sticky-pin-body {
+  width: 100%;
+}
+
+.sticky-toggle {
+  position: absolute;
+  left: 50%;
+  bottom: 6px;
+  z-index: 2;
+  translate: -50% 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 10px;
+  border: 1px solid color-mix(in srgb, var(--border, #ddd) 70%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--bg) 92%, var(--fg, #111) 8%);
+  color: var(--fg-secondary, var(--fg, #666));
+  font-size: 12px;
+  line-height: 1.4;
+  cursor: pointer;
+  box-shadow: 0 1px 4px color-mix(in srgb, #000 12%, transparent);
+}
+
+.sticky-toggle:hover {
+  color: var(--fg, #111);
+  border-color: color-mix(in srgb, var(--border, #ddd) 100%, transparent);
 }
 
 .row-edit-tail {

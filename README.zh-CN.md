@@ -1,37 +1,108 @@
+<div align="center">
+
+<img src="resources/icon.svg" alt="Pi Desktop" width="88" height="88" />
+
 # Pi Desktop
 
-[English](./README.md)
+**面向 [Pi](https://github.com/badlogic/pi-mono) 编程 Agent 的桌面工作台** — 多会话对话、工具流、浏览器、终端与文件预览，一窗完成。
 
-**Pi Desktop** 是基于 Electron + Vue 3 的 [Pi](https://github.com/badlogic/pi-mono) 编程助手桌面工作区：多会话对话、模型配置、浏览器选元素、终端、文件预览等，集中在一个窗口里完成。
+[English](./README.md) · [Releases](https://github.com/ImYoyoData/pi-desktop/releases) · [Issues](https://github.com/ImYoyoData/pi-desktop/issues)
 
-> 当前版本：**v0.0.4**（测试 / 预发布）
+<br />
 
-## 功能
+<a href="https://github.com/ImYoyoData/pi-desktop/releases">
+  <img alt="version" src="https://img.shields.io/github/v/release/ImYoyoData/pi-desktop?include_prereleases&style=for-the-badge&label=version&color=C9A227&labelColor=1a1a1a" />
+</a>
+<a href="https://github.com/ImYoyoData/pi-desktop/blob/dev/LICENSE">
+  <img alt="license" src="https://img.shields.io/badge/license-MIT-2B6CB0?style=for-the-badge&labelColor=1a1a1a" />
+</a>
+<a href="https://www.electronjs.org/">
+  <img alt="electron" src="https://img.shields.io/badge/Electron-39-47848F?style=for-the-badge&labelColor=1a1a1a&logo=electron&logoColor=white" />
+</a>
+<a href="https://vuejs.org/">
+  <img alt="vue" src="https://img.shields.io/badge/Vue-3.5-42B883?style=for-the-badge&labelColor=1a1a1a&logo=vuedotjs&logoColor=white" />
+</a>
+<a href="https://github.com/ImYoyoData/pi-desktop">
+  <img alt="platform" src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS-6B7280?style=for-the-badge&labelColor=1a1a1a" />
+</a>
 
-- 多会话 Pi Agent（侧边栏 + 流式对话）
-- 模型 / API Key 与 `~/.pi/agent` 同步
-- 右侧面板：变更、文件、浏览器（选元素 → 标签 + 截图）、终端、预览
-- 首次启动若无 Pi 配置会自动初始化
-- 打包后**单实例**：再次打开会聚焦已有窗口
+<br /><br />
+
+```text
+┌─────────────┬──────────────────────┬──────────────────┐
+│  会话 / 模型  │   Agent 流式对话      │  运行 · Diff      │
+│  Skills     │   工具 · 询问用户      │  浏览器 · 终端    │
+│             │   语音 · 引用截图      │  预览 · Git       │
+└─────────────┴──────────────────────┴──────────────────┘
+```
+
+</div>
+
+---
+
+## 为什么是 Pi Desktop
+
+Pi 本身很强。Pi Desktop 把它装进**产品级工作台**：多会话并行、工具调用可审阅、变更可回看、浏览器可点选元素、终端常开 —— 不必来回切换窗口。
+
+| 层次 | 你得到什么 |
+| --- | --- |
+| **Agent 核心** | 多会话 Pi 运行时、流式回合、带 diff 的工具卡片 |
+| **工作台** | 运行 / 变更 / 浏览器 / 终端 / 预览 Tab |
+| **信任与安全** | 项目信任门禁、Bash 白名单、权限询问 |
+| **本地语音** | 可选端侧 ASR（首次使用时下载） |
+| **发布链路** | 推送 `main` 经 Actions 产出各架构 NSIS / DMG |
+
+---
+
+## 亮点
+
+<details open>
+<summary><strong>工作区</strong></summary>
+
+- 多会话侧栏 + 流式对话与粘性上下文
+- read / write / edit / bash 工具卡片 — **写入按新增（+）展示**
+- 对话内「询问用户」与权限条
+- 回合完成通知 + 文件回退检查点
+
+</details>
+
+<details open>
+<summary><strong>右侧面板</strong></summary>
+
+- **运行** — 进行中命令列表，有任务时 Tab 浅黄高亮并显示数量
+- **变更** — dugite Git 审阅（远端 / 日志 / 冲突）
+- **浏览器** — 选元素 → 引用与截图进入对话
+- **终端** — 与 Agent 并排的 PTY
+- **预览** — Monaco 文件查看 / 编辑
+
+</details>
+
+<details open>
+<summary><strong>设置</strong></summary>
+
+- 模型与 API Key，与 `~/.pi/agent` 同步
+- 外观（跟随系统 / 亮 / 暗）与语言
+- 桌面安全：bash / write 模式 + 白名单
+- 可选 CrispASR 麦克风输入
+
+</details>
+
+---
 
 ## 支持平台
 
-| 平台 | 架构 | 安装包 |
-|------|------|--------|
-| Windows | **x64**、**arm64** | 各架构独立 NSIS 安装包 |
-| macOS | **x64**、**arm64** | 各架构独立 DMG |
+| 系统 | 架构 | 产物 |
+| --- | --- | --- |
+| **Windows** | x64 · arm64 | 各架构独立 NSIS |
+| **macOS** | x64 · arm64 | 各架构独立 DMG |
 
-> **说明：** Electron 39+ 已不再提供 **Windows 32 位 (ia32)** 运行时，64 位系统请使用 x64 包。
+> Electron 39+ **不再提供** Windows ia32。64 位系统请使用 x64 包。
 
-## 开发环境
+---
 
-- Node.js 22.x
-- npm 10+
-- Windows 或 macOS
+## 快速开始
 
-Pi 数据目录：`~/.pi/agent`（可用环境变量 `PI_CODING_AGENT_DIR` 覆盖）。
-
-## 安装与开发
+**环境：** Node.js **22.x**、npm **10+**、Windows 或 macOS。
 
 ```sh
 git clone https://github.com/ImYoyoData/pi-desktop.git
@@ -41,43 +112,92 @@ npm run icons
 npm run dev
 ```
 
-常用脚本：
-
-| 脚本 | 说明 |
-|------|------|
-| `npm run dev` | 启动开发 |
+| 脚本 | 用途 |
+| --- | --- |
+| `npm run dev` | Electron + Vite |
 | `npm test` | 单元测试 |
-| `npm run typecheck` | 类型检查 |
-| `npm run build` | 编译 |
-| `npm run dist:win:x64` / `dist:win:arm64` | 打包 Windows **单一架构**（独立 NSIS，非合并包） |
-| `npm run dist:mac:arm64` / `dist:mac:x64` | 打包 macOS **单一架构**（独立 DMG） |
+| `npm run typecheck` | `vue-tsc` |
+| `npm run build` | 编译 main / preload / renderer |
+| `npm run dist:win:x64` · `dist:win:arm64` | Windows NSIS（单架构） |
+| `npm run dist:mac:arm64` · `dist:mac:x64` | macOS DMG（单架构） |
+
+Pi 数据目录：`~/.pi/agent`（可用 `PI_CODING_AGENT_DIR` 覆盖）。首次启动会准备 `models.json`、`auth.json`、`settings.json`、`sessions/`、`skills/` 等。
+
+然后打开 **设置 → 模型 / API Keys**。
+
+---
 
 ## 分支与发布
 
-- **`dev`**：日常开发分支
-- **`main` / `master`**：推送后触发 GitHub Actions，按 `package.json` 版本编译并发布 Release（预发布）
-- 标签 `v*` 同样触发发布流程
+| 分支 | 职责 |
+| --- | --- |
+| **`dev`** | 日常开发与 CI |
+| **`main`** | 发布线 — 推送后构建并发布 GitHub Release |
 
-安装包见仓库 **Releases** 页面。
+在 `dev`  bump `package.json` 版本 → 合并到 `main` → 推送 `main`。安装包见 [Releases](https://github.com/ImYoyoData/pi-desktop/releases)。
 
-## 外观
+---
 
-主题默认**跟随系统**。可在标题栏按钮（太阳/月亮/调色盘）或 **设置 → 外观** 中切换亮色/暗色。语言支持：跟随系统 / 中文 / English。
+## 技术栈
 
-## 语音输入（可选 ASR）
+```mermaid
+flowchart LR
+  UI["渲染进程 · Vue 3 + Naive UI"]
+  MAIN["主进程 · Electron 39"]
+  WORKER["Agent Worker · pi-coding-agent"]
+  FS["~/.pi/agent"]
 
-本地 **Qwen3-ASR 0.6B Q4_K**（GGUF，CrispASR 运行时）。默认不安装——点击麦克风会提示下载（约 640MB 磁盘，推理约 900MB 内存）。可在 **设置 → 外观** 关闭，隐藏麦克风且不加载模型。
+  UI <-->|IPC| MAIN
+  MAIN <-->|UtilityProcess| WORKER
+  WORKER --> FS
+  MAIN --> FS
+```
 
-## 首次使用
+- **界面：** Vue 3 · Pinia · Naive UI · Monaco · xterm
+- **Agent：** `@earendil-works/pi-coding-agent`（及 agent-core / pi-ai）
+- **Git：** dugite（内置 Git，不依赖系统 Git）
+- **语音：** 可选 Qwen3-ASR 0.6B Q4_K（CrispASR）
 
-启动时会自动准备：
+---
 
-- `~/.pi/agent/`
-- `models.json`、`auth.json`、`settings.json`
-- `sessions/`、`skills/` 等目录
+## Star History
 
-然后在 **设置 → 模型 / API Keys** 中配置供应商即可。
+<div align="center">
+
+<a href="https://www.star-history.com/#ImYoyoData/pi-desktop&Date">
+  <picture>
+    <source
+      media="(prefers-color-scheme: dark)"
+      srcset="https://api.star-history.com/svg?repos=ImYoyoData/pi-desktop&type=Date&theme=dark"
+    />
+    <source
+      media="(prefers-color-scheme: light)"
+      srcset="https://api.star-history.com/svg?repos=ImYoyoData/pi-desktop&type=Date"
+    />
+    <img
+      alt="Star History Chart — ImYoyoData/pi-desktop"
+      src="https://api.star-history.com/svg?repos=ImYoyoData/pi-desktop&type=Date&theme=dark"
+      width="100%"
+    />
+  </picture>
+</a>
+
+<sub>随系统亮 / 暗色切换 · 数据来自 <a href="https://www.star-history.com/">star-history.com</a></sub>
+
+</div>
+
+---
+
+## 参与贡献
+
+1. 在 **`dev`** 上开发
+2. PR 保持聚焦；本地跑 `npm test` + `npm run typecheck`
+3. 推荐约定式提交（`feat` / `fix` / `chore` / `docs` …）
+
+问题与想法 → [Issues](https://github.com/ImYoyoData/pi-desktop/issues)。
+
+---
 
 ## 许可证
 
-MIT
+[MIT](./LICENSE) · 服务于 Pi coding-agent 生态。

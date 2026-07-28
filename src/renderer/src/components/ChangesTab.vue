@@ -8,6 +8,7 @@ import {
   NEmpty,
   NIcon,
   NInput,
+  NModal,
   NSpin,
   NText,
   useMessage,
@@ -15,18 +16,32 @@ import {
 import {
   ArrowDownOutline,
   ArrowUpOutline,
+  CloudOutline,
   GitBranchOutline,
   GitCommitOutline,
   GitCompareOutline,
   GitMergeOutline,
   RefreshOutline,
+  TimeOutline,
 } from "@vicons/ionicons5";
 import { t } from "@renderer/i18n";
 import { useWorkspaceStore } from "@renderer/stores/workspace";
 import { countDiffStats } from "@renderer/utils/tool-diff";
 import ChangesDiffEditor from "@renderer/components/ChangesDiffEditor.vue";
+import type { GitErrorCode } from "../../../shared/git-types";
 
 type GitFile = { relativePath: string; status: string; code: string };
+type GitRemote = { name: string; fetchUrl: string; pushUrl: string };
+type GitLogEntry = {
+  hash: string;
+  shortHash: string;
+  author: string;
+  date: string;
+  subject: string;
+};
+type GitOp =
+  | { ok: true; message?: string }
+  | { ok: false; message: string; code?: string };
 
 const workspace = useWorkspaceStore();
 const message = useMessage();
@@ -34,6 +49,7 @@ const message = useMessage();
 const loading = ref(false);
 const busy = ref(false);
 const isGit = ref(false);
+const gitUnavailable = ref(false);
 const branch = ref<string | null>(null);
 const files = ref<GitFile[]>([]);
 const checked = ref<Record<string, boolean>>({});
@@ -44,6 +60,13 @@ const newContent = ref("");
 const diffSupported = ref(true);
 const commitMessage = ref("");
 const localBranches = ref<string[]>([]);
+const remotes = ref<GitRemote[]>([]);
+const showRemotes = ref(false);
+const showLog = ref(false);
+const remoteName = ref("origin");
+const remoteUrl = ref("");
+const logEntries = ref<GitLogEntry[]>([]);
+const logLoading = ref(false);
 
 const checkedPaths = computed(() =>
   files.value.filter((f) => checked.value[f.relativePath]).map((f) => f.relativePath),
@@ -59,6 +82,10 @@ const someChecked = computed(
 
 const canCommit = computed(
   () => Boolean(commitMessage.value.trim()) && checkedPaths.value.length > 0 && !busy.value,
+);
+
+const conflictCount = computed(
+  () => files.value.filter((f) => f.status === "conflict" || f.code === "C").length,
 );
 
 const selectedFileName = computed(() => {
@@ -95,6 +122,16 @@ const branchMenu = computed<DropdownOption[]>(() => {
   return items;
 });
 
+function formatGitError(result: Extract<GitOp, { ok: false }>): string {
+  const code = (result.code || "unknown") as GitErrorCode;
+  const key = `gitErr_${code}` as keyof typeof t;
+  const localized = typeof t[key] === "string" ? (t[key] as string) : t.gitErr_unknown;
+  const detail = result.message?.trim();
+  if (!detail || detail === code || detail === localized) return localized;
+  if (code === "unknown" || code === "invalid_args") return `${localized}\n${detail}`;
+  return localized;
+}
+
 function syncChecks(next: GitFile[]): void {
   const prev = checked.value;
   const map: Record<string, boolean> = {};
@@ -121,20 +158,44 @@ function onToggleAll(value: boolean): void {
   setAllChecked(value);
 }
 
+async function refreshRemotes(): Promise<void> {
+  if (!isGit.value) {
+    remotes.value = [];
+    return;
+  }
+  try {
+    remotes.value = await window.api.git.remotes();
+  } catch {
+    remotes.value = [];
+  }
+}
+
 async function refresh(): Promise<void> {
   loading.value = true;
   try {
     const status = await window.api.git.status();
     isGit.value = status.isGitRepository;
+    gitUnavailable.value = status.errorCode === "git_unavailable";
     branch.value = status.branch;
     files.value = status.files as GitFile[];
     syncChecks(files.value);
-    if (status.isGitRepository) {
+    if (status.errorCode === "git_unavailable") {
+      message.error(
+        formatGitError({
+          ok: false,
+          code: "git_unavailable",
+          message: status.errorMessage || "",
+        }),
+      );
+    }
+    if (status.isGitRepository && !gitUnavailable.value) {
       const br = await window.api.git.branches();
       localBranches.value = br.local;
       if (br.current) branch.value = br.current;
+      await refreshRemotes();
     } else {
       localBranches.value = [];
+      remotes.value = [];
       selectedPath.value = null;
       patch.value = null;
       oldContent.value = "";
@@ -163,19 +224,19 @@ async function loadDiff(relativePath: string): Promise<void> {
   newContent.value = result.newContent ?? "";
 }
 
-async function runOp(
-  labelOk: string,
-  fn: () => Promise<{ ok: true; message?: string } | { ok: false; message: string }>,
-): Promise<void> {
+async function runOp(labelOk: string, fn: () => Promise<GitOp>): Promise<boolean> {
   busy.value = true;
   try {
     const result = await fn();
     if (!result.ok) {
-      message.error(result.message);
-      return;
+      message.error(formatGitError(result));
+      if (result.code === "no_remote") showRemotes.value = true;
+      await refresh();
+      return false;
     }
     message.success(labelOk);
     await refresh();
+    return true;
   } finally {
     busy.value = false;
   }
@@ -189,7 +250,7 @@ async function onCommit(): Promise<void> {
   try {
     const result = await window.api.git.commit({ message: msg, paths });
     if (!result.ok) {
-      message.error(result.message);
+      message.error(formatGitError(result));
       return;
     }
     message.success(t.changesCommitted);
@@ -206,6 +267,62 @@ async function onPull(): Promise<void> {
 
 async function onPush(): Promise<void> {
   await runOp(t.changesPushed, () => window.api.git.push());
+}
+
+async function onInitGit(): Promise<void> {
+  await runOp(t.changesGitInitialized, () => window.api.git.init());
+}
+
+async function openRemotes(): Promise<void> {
+  showRemotes.value = true;
+  await refreshRemotes();
+}
+
+async function openLog(): Promise<void> {
+  showLog.value = true;
+  logLoading.value = true;
+  try {
+    const result = await window.api.git.log(80);
+    logEntries.value = result.entries;
+  } catch (err) {
+    message.error(err instanceof Error ? err.message : String(err));
+    logEntries.value = [];
+  } finally {
+    logLoading.value = false;
+  }
+}
+
+async function onAddRemote(): Promise<void> {
+  const name = remoteName.value.trim();
+  const url = remoteUrl.value.trim();
+  if (!name || !url) {
+    message.error(t.gitErr_invalid_args);
+    return;
+  }
+  const ok = await runOp(t.changesRemoteAdded, () =>
+    window.api.git.addRemote({ name, url }),
+  );
+  if (ok) {
+    remoteUrl.value = "";
+    await refreshRemotes();
+  }
+}
+
+async function onEditRemote(remote: GitRemote): Promise<void> {
+  const next = window.prompt(t.changesRemoteEdit, remote.pushUrl || remote.fetchUrl);
+  if (next == null) return;
+  const url = next.trim();
+  if (!url) return;
+  await runOp(t.changesRemoteUpdated, () =>
+    window.api.git.setRemoteUrl({ name: remote.name, url }),
+  );
+  await refreshRemotes();
+}
+
+async function onRemoveRemote(remote: GitRemote): Promise<void> {
+  if (!window.confirm(`${t.changesRemoteRemove}: ${remote.name}?`)) return;
+  await runOp(t.changesRemoteRemoved, () => window.api.git.removeRemote(remote.name));
+  await refreshRemotes();
 }
 
 function onBranchSelect(key: string | number): void {
@@ -226,6 +343,13 @@ function onBranchSelect(key: string | number): void {
     const name = k.slice("checkout:".length);
     void runOp(t.changesCheckoutOk, () => window.api.git.checkout(name));
   }
+}
+
+function formatLogDate(iso: string): string {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  return d.toLocaleString();
 }
 
 function onFsChanged(): void {
@@ -262,6 +386,33 @@ watch(
         </NButton>
       </NDropdown>
       <div class="spacer" />
+      <NButton
+        class="tool-btn"
+        size="tiny"
+        quaternary
+        :disabled="!isGit || busy"
+        :title="t.changesRemotes"
+        @click="openRemotes"
+      >
+        <template #icon>
+          <NIcon :component="CloudOutline" :size="14" />
+        </template>
+        {{ t.changesRemotes }}
+        <span v-if="remotes.length" class="remote-count">{{ remotes.length }}</span>
+      </NButton>
+      <NButton
+        class="tool-btn"
+        size="tiny"
+        quaternary
+        :disabled="!isGit || busy"
+        :title="t.changesLog"
+        @click="openLog"
+      >
+        <template #icon>
+          <NIcon :component="TimeOutline" :size="14" />
+        </template>
+        {{ t.changesLog }}
+      </NButton>
       <NButton class="tool-btn" size="tiny" quaternary :disabled="!isGit || busy" :title="t.changesPull" @click="onPull">
         <template #icon>
           <NIcon :component="ArrowDownOutline" :size="14" />
@@ -281,6 +432,10 @@ watch(
       </NButton>
     </div>
 
+    <div v-if="isGit && conflictCount > 0" class="conflict-banner">
+      {{ t.changesConflictBanner }} ({{ conflictCount }})
+    </div>
+
     <div v-if="isGit" class="commit-row">
       <NInput
         v-model:value="commitMessage"
@@ -298,11 +453,34 @@ watch(
     </div>
 
     <NSpin :show="loading" class="body">
-      <template v-if="!isGit">
+      <template v-if="gitUnavailable">
+        <div class="empty-wrap">
+          <NEmpty :description="t.gitErr_git_unavailable" size="small">
+            <template #icon>
+              <NIcon :component="GitCompareOutline" :size="28" />
+            </template>
+            <template #extra>
+              <NText depth="3" style="font-size: 12px">{{ t.changesGitUnavailableHint }}</NText>
+            </template>
+          </NEmpty>
+        </div>
+      </template>
+      <template v-else-if="!isGit">
         <div class="empty-wrap">
           <NEmpty :description="t.changesNotGit" size="small">
             <template #icon>
               <NIcon :component="GitCompareOutline" :size="28" />
+            </template>
+            <template #extra>
+              <NButton
+                type="primary"
+                size="small"
+                :loading="busy"
+                :disabled="!workspace.root"
+                @click="onInitGit"
+              >
+                {{ t.changesInitGit }}
+              </NButton>
             </template>
           </NEmpty>
         </div>
@@ -384,6 +562,58 @@ watch(
         </div>
       </div>
     </NSpin>
+
+    <NModal
+      v-model:show="showRemotes"
+      preset="card"
+      :title="t.changesRemotes"
+      style="width: min(520px, 92vw)"
+      :mask-closable="true"
+    >
+      <div class="remote-form">
+        <NInput v-model:value="remoteName" size="small" :placeholder="t.changesRemoteName" :disabled="busy" />
+        <NInput v-model:value="remoteUrl" size="small" :placeholder="t.changesRemoteUrl" :disabled="busy" />
+        <NButton type="primary" size="small" :disabled="busy || !remoteName.trim() || !remoteUrl.trim()" @click="onAddRemote">
+          {{ t.changesRemoteSave }}
+        </NButton>
+      </div>
+      <NEmpty v-if="!remotes.length" :description="t.changesRemoteEmpty" size="small" style="margin-top: 12px" />
+      <ul v-else class="remote-list">
+        <li v-for="r in remotes" :key="r.name" class="remote-item">
+          <div class="remote-meta">
+            <div class="remote-name">{{ r.name }}</div>
+            <div class="remote-url" :title="r.fetchUrl || r.pushUrl">{{ r.fetchUrl || r.pushUrl }}</div>
+          </div>
+          <div class="remote-actions">
+            <NButton size="tiny" quaternary :disabled="busy" @click="onEditRemote(r)">{{ t.changesRemoteEdit }}</NButton>
+            <NButton size="tiny" quaternary type="error" :disabled="busy" @click="onRemoveRemote(r)">
+              {{ t.changesRemoteRemove }}
+            </NButton>
+          </div>
+        </li>
+      </ul>
+    </NModal>
+
+    <NModal
+      v-model:show="showLog"
+      preset="card"
+      :title="t.changesLog"
+      style="width: min(640px, 94vw)"
+      :mask-closable="true"
+    >
+      <NSpin :show="logLoading">
+        <NEmpty v-if="!logEntries.length" :description="t.changesLogEmpty" size="small" />
+        <ul v-else class="log-list">
+          <li v-for="entry in logEntries" :key="entry.hash" class="log-item">
+            <code class="log-hash">{{ entry.shortHash }}</code>
+            <div class="log-body">
+              <div class="log-subject">{{ entry.subject }}</div>
+              <div class="log-meta">{{ entry.author }} · {{ formatLogDate(entry.date) }}</div>
+            </div>
+          </li>
+        </ul>
+      </NSpin>
+    </NModal>
   </div>
 </template>
 
@@ -412,6 +642,21 @@ watch(
 
 .spacer {
   flex: 1;
+}
+
+.remote-count {
+  margin-left: 4px;
+  opacity: 0.7;
+  font-variant-numeric: tabular-nums;
+}
+
+.conflict-banner {
+  flex-shrink: 0;
+  padding: 6px 10px;
+  font-size: 12px;
+  color: #8a1f1f;
+  background: color-mix(in srgb, #cf222e 12%, var(--bg));
+  border-bottom: 1px solid color-mix(in srgb, #cf222e 28%, var(--border));
 }
 
 .commit-row {
@@ -592,5 +837,87 @@ watch(
 .diff-editor-wrap {
   flex: 1;
   min-height: 0;
+}
+
+.remote-form {
+  display: grid;
+  grid-template-columns: 120px 1fr auto;
+  gap: 8px;
+  align-items: center;
+}
+
+.remote-list,
+.log-list {
+  list-style: none;
+  margin: 12px 0 0;
+  padding: 0;
+  max-height: min(50vh, 420px);
+  overflow: auto;
+}
+
+.remote-item {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.remote-meta {
+  flex: 1;
+  min-width: 0;
+}
+
+.remote-name {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.remote-url {
+  margin-top: 2px;
+  font-size: 11px;
+  color: var(--fg-muted);
+  font-family: var(--font-mono), monospace;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.remote-actions {
+  display: flex;
+  gap: 2px;
+  flex-shrink: 0;
+}
+
+.log-item {
+  display: flex;
+  gap: 10px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.log-hash {
+  flex-shrink: 0;
+  font-size: 12px;
+  color: var(--accent);
+  padding-top: 2px;
+}
+
+.log-body {
+  min-width: 0;
+}
+
+.log-subject {
+  font-size: 13px;
+  color: var(--fg-strong);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.log-meta {
+  margin-top: 2px;
+  font-size: 11px;
+  color: var(--fg-muted);
 }
 </style>

@@ -1,12 +1,27 @@
 import path from "node:path";
 import type { WorkerInbound, WorkerOutbound } from "../shared/agent-worker-messages";
-import type { AgentCommand, AgentEvent, SessionStatus, SessionSummary } from "../shared/protocol";
+import type { DesktopSecuritySettings } from "../shared/desktop-security";
+import type {
+  AgentCommand,
+  AgentEvent,
+  ContextUsageSegment,
+  ContextUsageSegmentId,
+  SessionStatus,
+  SessionSummary,
+} from "../shared/protocol";
 import { IDLE_WORKER_DESTROY_MS } from "./worker-lifecycle";
 import { listSessionsForCwd } from "./session-list";
-import { deleteSessionFile } from "./session-history";
+import { clearSessionConversation, deleteSessionFile } from "./session-history";
 
 const HEARTBEAT_INTERVAL_MS = 5_000;
 const HEARTBEAT_MISS_LIMIT = 3;
+const CONTEXT_SEGMENT_IDS = new Set<ContextUsageSegmentId>([
+  "system",
+  "tools",
+  "summarized",
+  "conversation",
+  "toolResults",
+]);
 
 export type WorkerHandle = {
   send: (msg: WorkerInbound) => Promise<WorkerOutbound | null>;
@@ -34,8 +49,14 @@ export type SessionBroker = {
   sendRawIfAlive: (sessionId: string, msg: WorkerInbound) => Promise<boolean>;
   killWorker: (sessionId: string) => Promise<void>;
   restartWorker: (sessionId: string) => Promise<void>;
+  /** Restart live workers for a workspace so `projectTrusted` / init snapshot reloads. */
+  restartWorkersForCwd: (cwd: string) => Promise<void>;
   deleteSession: (sessionId: string, cwd: string) => Promise<void>;
+  /** Wipe chat history for a session (disk + live worker) while keeping the same session id. */
+  clearContext: (sessionId: string, cwd: string) => Promise<void>;
   notifyWorkersReloadModels: () => Promise<void>;
+  /** Hot-reload desktopSecurity into live workers (no restart). */
+  notifyWorkersReloadSecurity: (desktopSecurity: DesktopSecuritySettings) => Promise<void>;
   /** Update in-memory session metadata (e.g. after rename on disk). */
   patchSummary: (
     sessionId: string,
@@ -213,9 +234,28 @@ export function createSessionBroker(deps: {
           tokens?: unknown;
           contextWindow?: unknown;
           percent?: unknown;
+          toolCalls?: unknown;
+          messageCount?: unknown;
+          segments?: unknown;
           willRetry?: unknown;
         };
         if (ev.type === "context_usage" && typeof ev.contextWindow === "number") {
+          const segments = Array.isArray(ev.segments)
+            ? ev.segments
+                .map((row): ContextUsageSegment | null => {
+                  if (!row || typeof row !== "object") return null;
+                  const s = row as { id?: unknown; tokens?: unknown };
+                  if (
+                    typeof s.id !== "string" ||
+                    !CONTEXT_SEGMENT_IDS.has(s.id as ContextUsageSegmentId)
+                  ) {
+                    return null;
+                  }
+                  if (typeof s.tokens !== "number" || s.tokens <= 0) return null;
+                  return { id: s.id as ContextUsageSegmentId, tokens: s.tokens };
+                })
+                .filter((s): s is ContextUsageSegment => Boolean(s))
+            : null;
           emit({
             type: "context_usage",
             sessionId,
@@ -223,6 +263,9 @@ export function createSessionBroker(deps: {
               tokens: typeof ev.tokens === "number" ? ev.tokens : null,
               contextWindow: ev.contextWindow,
               percent: typeof ev.percent === "number" ? ev.percent : null,
+              toolCalls: typeof ev.toolCalls === "number" ? ev.toolCalls : null,
+              messageCount: typeof ev.messageCount === "number" ? ev.messageCount : null,
+              segments,
             },
           });
           return;
@@ -545,6 +588,16 @@ export function createSessionBroker(deps: {
     setStatus(sessionId, "idle");
   }
 
+  async function restartWorkersForCwd(cwd: string): Promise<void> {
+    const resolved = path.resolve(cwd);
+    const ids = [...sessions.entries()]
+      .filter(([, rec]) => path.resolve(rec.cwd) === resolved && rec.worker !== null)
+      .map(([id]) => id);
+    for (const id of ids) {
+      await restartWorker(id);
+    }
+  }
+
   async function deleteSession(sessionId: string, cwd: string): Promise<void> {
     const rec = sessions.get(sessionId);
     let filePath = rec?.summary.filePath;
@@ -570,6 +623,35 @@ export function createSessionBroker(deps: {
     }
   }
 
+  async function clearContext(sessionId: string, cwd: string): Promise<void> {
+    const live = sessions.get(sessionId);
+    const disk = await listSessionsForCwd(cwd);
+    const target = disk.find((s) => s.id === sessionId);
+    const filePath = (live?.summary.filePath || target?.filePath || "").trim();
+    if (!filePath) {
+      throw new Error("session file not found");
+    }
+
+    // Stop the live worker first so it cannot append while we rewrite the file.
+    if (live?.worker) {
+      clearIdleDestroyTimer(live);
+      stopHeartbeat(live);
+      rejectPendingCommands(live, "context cleared");
+      live.worker.kill();
+      live.worker = null;
+      deps.onSessionWorkerGone?.(sessionId);
+    }
+
+    await clearSessionConversation(filePath);
+
+    if (live) {
+      live.summary.firstMessage = undefined;
+      live.summary.modified = new Date().toISOString();
+      await spawnWorkerForRecord(sessionId, live);
+      setStatus(sessionId, "idle");
+    }
+  }
+
   function onEvent(cb: (event: AgentEvent) => void): () => void {
     listeners.add(cb);
     return () => listeners.delete(cb);
@@ -587,6 +669,17 @@ export function createSessionBroker(deps: {
     }
   }
 
+  async function notifyWorkersReloadSecurity(
+    desktopSecurity: DesktopSecuritySettings,
+  ): Promise<void> {
+    const ids = [...sessions.entries()]
+      .filter(([, rec]) => rec.worker !== null)
+      .map(([id]) => id);
+    for (const id of ids) {
+      await sendRawIfAlive(id, { kind: "reload_security", desktopSecurity });
+    }
+  }
+
   return {
     createSession,
     listSessions,
@@ -597,8 +690,11 @@ export function createSessionBroker(deps: {
     sendRawIfAlive,
     killWorker,
     restartWorker,
+    restartWorkersForCwd,
     deleteSession,
+    clearContext,
     notifyWorkersReloadModels,
+    notifyWorkersReloadSecurity,
     patchSummary,
     onEvent,
   };

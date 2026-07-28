@@ -25,6 +25,7 @@ import {
   ChevronBackOutline,
   ChevronForwardOutline,
 } from "@vicons/ionicons5";
+import PanelRightIcon from "@renderer/components/icons/PanelRightIcon.vue";
 import Sortable from "sortablejs";
 import ChangesTab from "@renderer/components/ChangesTab.vue";
 import BrowserTab from "@renderer/components/BrowserTab.vue";
@@ -307,6 +308,7 @@ async function onAddSelect(key: string | number): Promise<void> {
 }
 
 const active = computed(() => rightTabs.activeTab);
+const runningCount = computed(() => agentRuns.runs.length);
 
 function doClose(id: string): void {
   rightTabs.closeTab(id);
@@ -495,11 +497,11 @@ function submitRenameTab(): void {
     <header class="head">
       <div class="tabs-row">
         <NButton
-          v-show="canScrollTabsLeft"
           class="tabs-scroll-btn pi-interactive"
           quaternary
           circle
           size="tiny"
+          :disabled="!canScrollTabsLeft"
           :title="t.tabsScrollLeft"
           @click="scrollTabsBy(-1)"
         >
@@ -525,6 +527,7 @@ function submitRenameTab(): void {
             :class="{
               active: tab.id === rightTabs.activeId,
               'tab-pinned': tab.kind === 'running',
+              'has-runs': tab.kind === 'running' && runningCount > 0,
             }"
             :data-id="tab.id"
             role="tab"
@@ -538,6 +541,10 @@ function submitRenameTab(): void {
               :class="{ transient: tab.kind === 'preview' && tab.transient !== false && !tab.dirty }"
               :style="tabLabelStyle(tab)"
             >{{ tabDisplayLabel(tab) }}</span>
+            <span
+              v-if="tab.kind === 'running' && runningCount > 0"
+              class="tab-run-count"
+            >{{ runningCount }}</span>
             <button
               v-if="tab.kind !== 'running'"
               type="button"
@@ -551,11 +558,11 @@ function submitRenameTab(): void {
         </div>
 
         <NButton
-          v-show="canScrollTabsRight"
           class="tabs-scroll-btn pi-interactive"
           quaternary
           circle
           size="tiny"
+          :disabled="!canScrollTabsRight"
           :title="t.tabsScrollRight"
           @click="scrollTabsBy(1)"
         >
@@ -583,7 +590,7 @@ function submitRenameTab(): void {
             @click="layout.toggleRightCollapsed()"
           >
             <template #icon>
-              <NIcon :component="ChevronForwardOutline" :size="16" />
+              <PanelRightIcon :size="15" />
             </template>
           </NButton>
         </template>
@@ -597,6 +604,7 @@ function submitRenameTab(): void {
           v-if="tab.kind === 'running'"
           v-show="active?.id === tab.id"
           class="tab-panel"
+          :visible="active?.id === tab.id && !layout.rightCollapsed"
         />
         <ChangesTab
           v-show="active?.id === tab.id && tab.kind === 'changes'"
@@ -690,10 +698,18 @@ function submitRenameTab(): void {
   border-bottom: 1px solid var(--border);
   background: color-mix(in srgb, var(--bg-panel) 92%, var(--bg-elevated));
   flex-shrink: 0;
+  position: relative;
+  z-index: 6;
 }
 
 .collapse-btn {
   flex-shrink: 0;
+  position: relative;
+  z-index: 7;
+}
+
+.collapse-btn:active {
+  transform: none !important;
 }
 
 .tabs-row {
@@ -709,6 +725,15 @@ function submitRenameTab(): void {
 .tabs-scroll-btn {
   flex-shrink: 0;
   color: var(--fg-muted);
+}
+
+.tabs-scroll-btn:disabled {
+  opacity: 0.28;
+  pointer-events: none;
+}
+
+.tabs-scroll-btn:active {
+  transform: none !important;
 }
 
 .tabs-bar {
@@ -775,6 +800,38 @@ function submitRenameTab(): void {
   border-color: var(--border);
   color: var(--fg-strong);
   box-shadow: var(--shadow-sm);
+}
+
+.tab-item.has-runs {
+  background: color-mix(in srgb, #eab308 22%, var(--bg));
+  border-color: color-mix(in srgb, #eab308 40%, var(--border));
+  color: color-mix(in srgb, #854d0e 55%, var(--fg));
+}
+
+.tab-item.has-runs:hover {
+  background: color-mix(in srgb, #eab308 30%, var(--bg-hover));
+  color: color-mix(in srgb, #854d0e 45%, var(--fg));
+}
+
+.tab-item.has-runs.active {
+  background: color-mix(in srgb, #eab308 34%, var(--bg-elevated));
+  border-color: color-mix(in srgb, #eab308 50%, var(--border));
+  color: color-mix(in srgb, #713f12 40%, var(--fg-strong));
+  box-shadow: var(--shadow-sm);
+}
+
+.tab-run-count {
+  flex-shrink: 0;
+  min-width: 14px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: color-mix(in srgb, #ca8a04 28%, transparent);
+  color: inherit;
+  font-size: 10px;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+  line-height: 14px;
+  text-align: center;
 }
 
 .tab-item.sortable-ghost {

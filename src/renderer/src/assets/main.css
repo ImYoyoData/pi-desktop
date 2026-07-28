@@ -317,13 +317,49 @@ button {
     box-shadow var(--duration-fast) var(--ease-out) !important;
 }
 
+/*
+ * Use the independent `scale` property — never `transform: scale(...)`.
+ * `transform` replaces any positioning transform (e.g. translateX(-50%) on
+ * centered floating buttons), which shifts the hit target and misses clicks.
+ */
 .pi-interactive:active:not(:disabled),
 .n-button:not(.n-button--disabled):active {
-  transform: translateY(0.5px) scale(0.985);
+  scale: 0.985;
 }
 
 .n-button.n-button--circle:active:not(.n-button--disabled) {
-  transform: scale(0.94);
+  scale: 0.94;
+}
+
+/* Theme switch: diagonal wipe from top-left → bottom-right (View Transitions). */
+html.theme-transitioning,
+html.theme-transitioning * {
+  transition: none !important;
+}
+
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation: none;
+  mix-blend-mode: normal;
+}
+
+::view-transition-old(root) {
+  z-index: 1;
+}
+
+::view-transition-new(root) {
+  z-index: 2;
+  animation: theme-wipe-tl 520ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@keyframes theme-wipe-tl {
+  from {
+    clip-path: polygon(0 0, 0 0, 0 0);
+  }
+  to {
+    /* Overshoot so the expanding triangle fully covers the window. */
+    clip-path: polygon(0 0, 220% 0, 0 220%);
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -334,6 +370,11 @@ button {
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
     scroll-behavior: auto !important;
+  }
+
+  ::view-transition-old(root),
+  ::view-transition-new(root) {
+    animation: none !important;
   }
 }
 

@@ -13,6 +13,11 @@ export type AgentRunSnapshot = {
   startedAt: number;
   status: AgentRunStatus;
   outputTail: string;
+  /**
+   * True once the bash tool call has detached (conversation no longer waits).
+   * Process may still be alive — shown in Running panel.
+   */
+  detached?: boolean;
 };
 
 export type AgentRunEvent =

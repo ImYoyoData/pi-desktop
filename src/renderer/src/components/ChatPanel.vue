@@ -1,8 +1,10 @@
 <script setup lang="ts">
-import { computed, onMounted } from "vue";
-import { NButton, NEmpty, NIcon, NTag, NText } from "naive-ui";
+import { computed, onMounted, watch } from "vue";
+import { NButton, NEmpty, NIcon, NTag, NText, useMessage } from "naive-ui";
 import { AddOutline, SparklesOutline } from "@vicons/ionicons5";
 import AskUserStrip from "@renderer/components/AskUserStrip.vue";
+import PermissionStrip from "@renderer/components/PermissionStrip.vue";
+import ExtensionUiStrip from "@renderer/components/ExtensionUiStrip.vue";
 import Composer from "@renderer/components/Composer.vue";
 import MessageList from "@renderer/components/MessageList.vue";
 import { useChatStore } from "@renderer/stores/chat";
@@ -13,12 +15,25 @@ import { t } from "@renderer/i18n";
 const chat = useChatStore();
 const sessions = useSessionsStore();
 const workspace = useWorkspaceStore();
+const message = useMessage();
 
 onMounted(() => {
   chat.bindEvents();
 });
 
+watch(
+  () => chat.securityRemediationTick,
+  (n, prev) => {
+    if (n > (prev ?? 0)) {
+      message.warning(t.securityToolDeniedToast, { duration: 5500 });
+    }
+  },
+);
 const hasSession = computed(() => Boolean(sessions.activeId));
+
+const canCreateSession = computed(
+  () => !workspace.trustDialogOpen && (!workspace.root || workspace.sessionsReady),
+);
 
 const running = computed(() => {
   const id = sessions.activeId;
@@ -39,9 +54,12 @@ const title = computed(() => {
 });
 
 async function onNewAgent(): Promise<void> {
+  if (!canCreateSession.value && workspace.root) return;
+  if (workspace.trustDialogOpen) return;
   let root = workspace.root;
   if (!root) root = await workspace.openWorkspace();
   if (!root) return;
+  if (workspace.trustDialogOpen || !workspace.sessionsReady) return;
   const created = await sessions.createSession(root);
   if (created) {
     chat.hydrateFromHistory(created.id, []);
@@ -58,7 +76,11 @@ async function onNewAgent(): Promise<void> {
             <NIcon :component="SparklesOutline" :size="28" />
           </template>
           <template #extra>
-            <NButton type="primary" @click="onNewAgent">
+            <NButton
+              type="primary"
+              :disabled="!canCreateSession"
+              @click="onNewAgent"
+            >
               <template #icon>
                 <NIcon :component="AddOutline" />
               </template>
@@ -91,7 +113,12 @@ async function onNewAgent(): Promise<void> {
         :retry-hint="chat.activeRetryHint"
         :history-loading="chat.historyLoading"
       />
-      <AskUserStrip />
+      <!-- Permission blocks the tool; when both pending, show permission first. -->
+      <PermissionStrip />
+      <ExtensionUiStrip v-if="!chat.activePendingPermission" />
+      <AskUserStrip
+        v-if="!chat.activePendingPermission && !chat.activePendingExtensionUi"
+      />
       <Composer />
     </template>
   </section>
