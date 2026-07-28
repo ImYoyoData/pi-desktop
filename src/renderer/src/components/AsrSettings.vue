@@ -41,22 +41,36 @@ const residentModel = computed({
 });
 
 const wakeWordsDraft = ref(asr.status.wakeWords || "");
-let wakeWordsTimer: ReturnType<typeof setTimeout> | null = null;
+const wakeWordsSaving = ref(false);
+
+const wakeWordsDirty = computed(
+  () => wakeWordsDraft.value.trim() !== (asr.status.wakeWords || "").trim(),
+);
 
 watch(
   () => asr.status.wakeWords,
   (v) => {
     if (document.activeElement?.closest?.(".asr-wake-words")) return;
+    if (wakeWordsDirty.value) return;
     wakeWordsDraft.value = v || "";
   },
 );
 
 function onWakeWordsInput(v: string): void {
   wakeWordsDraft.value = v;
-  if (wakeWordsTimer) clearTimeout(wakeWordsTimer);
-  wakeWordsTimer = setTimeout(() => {
-    void asr.setWakeWords(wakeWordsDraft.value);
-  }, 400);
+}
+
+async function saveWakeWords(): Promise<void> {
+  if (!wakeWordsDirty.value || wakeWordsSaving.value) return;
+  wakeWordsSaving.value = true;
+  try {
+    await asr.setWakeWords(wakeWordsDraft.value);
+    message.success(t.asrWakeWordsSaved);
+  } catch (err) {
+    message.error(err instanceof Error ? err.message : String(err));
+  } finally {
+    wakeWordsSaving.value = false;
+  }
 }
 
 const wakeHotkeyLabel = computed(() =>
@@ -235,10 +249,6 @@ onMounted(() => {
 onUnmounted(() => {
   stopHotkeyCapture();
   offProgress?.();
-  if (wakeWordsTimer) clearTimeout(wakeWordsTimer);
-  if (wakeWordsDraft.value !== (asr.status.wakeWords || "")) {
-    void asr.setWakeWords(wakeWordsDraft.value);
-  }
 });
 </script>
 
@@ -304,6 +314,18 @@ onUnmounted(() => {
           :placeholder="t.asrWakeWordsPlaceholder"
           @update:value="onWakeWordsInput"
         />
+        <div class="asr-wake-words-actions">
+          <NButton
+            size="small"
+            type="primary"
+            class="pi-interactive"
+            :disabled="!asr.status.supported || !wakeWordsDirty"
+            :loading="wakeWordsSaving"
+            @click="saveWakeWords"
+          >
+            {{ t.asrWakeWordsSave }}
+          </NButton>
+        </div>
       </div>
       <NText depth="3" style="font-size: 12px; margin-top: 8px">
         {{ asr.status.modelLabel }} ·
@@ -452,6 +474,11 @@ onUnmounted(() => {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
+}
+.asr-wake-words-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 8px;
 }
 .footer {
   display: flex;

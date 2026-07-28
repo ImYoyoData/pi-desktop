@@ -53,7 +53,7 @@ extraResources:
     filter:
       - '**/*'
 icon: build/icon.png
-compression: maximum
+compression: normal
 removePackageScripts: true
 nodeGypRebuild: false
 # Rebuild native addons (node-pty) for the current --arch only.

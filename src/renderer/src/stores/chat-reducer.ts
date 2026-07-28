@@ -507,9 +507,11 @@ function reduceAgentPayload(state: ChatState, payload: Record<string, unknown>):
         }
       }
     }
-    return { ...state, running: false, streamingMessage: null, retryHint: null, nextToolOrder: 1 };
+    // Keep running until prompt_done — agent_end can arrive before prompt() resolves.
+    return { ...state, streamingMessage: null, retryHint: null, nextToolOrder: 1 };
   }
   if (type === "agent_settled") {
+    // Fallback idle if prompt_done was missed; normally prompt_done clears running.
     return { ...state, running: false, streamingMessage: null, retryHint: null, nextToolOrder: 1 };
   }
   return state;

@@ -15,7 +15,9 @@ import {
 import type { DropdownOption } from "naive-ui";
 import {
   AddOutline,
+  ContractOutline,
   DocumentOutline,
+  ExpandOutline,
   FlashOutline,
   MicOutline,
   SendOutline,
@@ -107,7 +109,11 @@ const richEditor = ref<{
   focusEnd?: () => void;
   isCaretAtEnd?: () => boolean;
   getSurface?: () => HTMLElement | null;
+  appendTextAtEnd?: (text: string) => void;
+  scrollToEnd?: () => void;
 } | null>(null);
+/** Expanded tall editor (hover affordance top-right). */
+const editorExpanded = ref(false);
 /** True while we programmatically move the caret during ASR updates. */
 let asrCaretGuardUntil = 0;
 
@@ -123,6 +129,7 @@ function focusDraft(): void {
 function focusDraftAtEnd(): void {
   armAsrCaretGuard();
   richEditor.value?.focusEnd?.();
+  richEditor.value?.scrollToEnd?.();
 }
 
 /**
@@ -1225,6 +1232,9 @@ async function confirmVoice(): Promise<void> {
       messageApi.warning(t.voiceEmpty);
       return;
     }
+    const ready = await ensureAsrReady();
+    if (gen !== voiceGen) return;
+    if (!ready) return;
     const raw = await asr.transcribe(pcmBase64, sampleRate);
     if (gen !== voiceGen) return;
     const text = scrubAsrHallucination(raw);
@@ -1232,10 +1242,14 @@ async function confirmVoice(): Promise<void> {
       messageApi.warning(t.voiceEmpty);
       return;
     }
-    // Append after existing draft content
+    // Append after chips / existing content (end of editor), then scroll there.
     armAsrCaretGuard();
-    composer.draft = joinAsr(composer.draft, text);
-    void nextTick(() => focusDraftAtEnd());
+    if (richEditor.value?.appendTextAtEnd) {
+      richEditor.value.appendTextAtEnd(text);
+    } else {
+      composer.draft = joinAsr(composer.draft, text);
+      void nextTick(() => focusDraftAtEnd());
+    }
   } catch (err) {
     if (gen !== voiceGen) return;
     const raw = err instanceof Error ? err.message : String(err);
@@ -1251,17 +1265,19 @@ async function onMicClick(): Promise<void> {
   if (asr.installing || voiceConfirming || voicePending.value) return;
   if (voiceActive.value) return;
 
-  // Pause App-level wake + release stream/mic so one-shot dictation can take the infer slot.
-  setDictationWakePaused(true);
-  await stopWakeListen();
-
-  const ready = await ensureAsrReady();
-  if (!ready) {
-    setDictationWakePaused(false);
+  // Fast gate — do not await model warm before opening the record UI.
+  if (asr.status.supported === false) {
+    messageApi.warning(t.asrUnsupported);
+    return;
+  }
+  if (asr.status.enabled === false) {
+    messageApi.warning(t.asrDisabled);
     return;
   }
 
-  // Mic capture + tab media cannot share the audio focus — stop all players first.
+  setDictationWakePaused(true);
+  // Free wake mic (must finish before we open the dictation mic).
+  await stopWakeListen();
   media.stopAll();
 
   try {
@@ -1287,7 +1303,15 @@ async function onMicClick(): Promise<void> {
     }
     messageApi.error(msg);
     cancelVoice();
+    return;
   }
+
+  // Warm / ensure runtime+model in the background for when the user confirms.
+  void ensureAsrReady().then((ready) => {
+    if (!ready && voiceActive.value) {
+      // Keep recording UI; confirmVoice will re-check / show install.
+    }
+  });
 }
 
 const micTitle = computed(
@@ -1427,14 +1451,19 @@ watch(
         {{ t.discardPublishedEdit }}
       </button>
     </div>
-    <div class="composer-card" :class="{ 'is-voice-recording': voiceActive }">
-      <div v-if="voiceActive" class="voice-row">
-        <VoiceRecordBar
-          :level="voiceLevel"
-          @cancel="cancelVoice"
-          @confirm="confirmVoice"
-        />
-      </div>
+    <div
+      class="composer-card"
+      :class="{ 'is-voice-recording': voiceActive, 'is-editor-expanded': editorExpanded }"
+    >
+      <button
+        type="button"
+        class="composer-expand-btn"
+        :title="editorExpanded ? t.composerCollapse : t.composerExpand"
+        :aria-label="editorExpanded ? t.composerCollapse : t.composerExpand"
+        @click.stop="editorExpanded = !editorExpanded"
+      >
+        <NIcon :component="editorExpanded ? ContractOutline : ExpandOutline" :size="14" />
+      </button>
 
       <!-- Images are separate attachments (sent as model images), not part of the rich text surface -->
       <div v-if="composer.images.length" class="image-attachments">
@@ -1456,9 +1485,18 @@ watch(
         <ComposerRichEditor
           ref="richEditor"
           :disabled="voiceActive || voicePending"
+          :expanded="editorExpanded"
           @keydown="onKeydown"
           @click="onDraftCaretClick"
           @keyup="onDraftKeyup"
+        />
+      </div>
+
+      <div v-if="voiceActive" class="voice-row">
+        <VoiceRecordBar
+          :level="voiceLevel"
+          @cancel="cancelVoice"
+          @confirm="confirmVoice"
         />
       </div>
 
@@ -1516,86 +1554,6 @@ watch(
             :disabled="voiceActive || voicePending"
             @update:value="onModelChange"
           />
-
-          <NDropdown
-            trigger="click"
-            :options="thinkingMenu"
-            :disabled="voiceActive || voicePending"
-            @select="onThinkingChange"
-          >
-            <NButton quaternary size="tiny" class="think-btn" :disabled="voiceActive || voicePending">
-              <template #icon>
-                <NIcon :component="FlashOutline" :size="14" />
-              </template>
-              <span class="think-label">{{ thinkingLabel }}</span>
-            </NButton>
-          </NDropdown>
-
-          <NPopover
-            trigger="manual"
-            :show="ctxPopoverShow"
-            placement="top-start"
-            @clickoutside="closeContextPopover"
-          >
-            <template #trigger>
-              <NTooltip :disabled="ctxPopoverShow">
-                <template #trigger>
-                  <button
-                    type="button"
-                    class="ctx-meter"
-                    :class="`ctx-${contextTone}`"
-                    :disabled="!sessionId"
-                    @click="openContextPopover"
-                  >
-                    <svg class="ctx-ring" width="18" height="18" viewBox="0 0 18 18" aria-hidden="true">
-                      <circle class="ctx-ring-track" cx="9" cy="9" r="7" fill="none" stroke-width="2" />
-                      <circle
-                        class="ctx-ring-fill"
-                        cx="9"
-                        cy="9"
-                        r="7"
-                        fill="none"
-                        stroke-width="2"
-                        stroke-linecap="round"
-                        transform="rotate(-90 9 9)"
-                        :style="contextRingStyle"
-                      />
-                    </svg>
-                    <span class="ctx-label">{{ contextPercentLabel }}</span>
-                  </button>
-                </template>
-                {{ t.contextUsageHint }}
-              </NTooltip>
-            </template>
-            <div class="ctx-popover">
-              <div class="ctx-pop-title">{{ t.contextUsageTitle }}</div>
-              <div class="ctx-pop-row">
-                <span>{{ t.contextUsageTokens }}</span>
-                <strong>{{ contextTokensLabel }}</strong>
-              </div>
-              <div class="ctx-pop-row">
-                <span>{{ t.contextUsageWindow }}</span>
-                <strong>{{ contextWindowLabel }}</strong>
-              </div>
-              <div class="ctx-pop-row">
-                <span>%</span>
-                <strong>{{ contextPercentLabel }}</strong>
-              </div>
-              <div class="ctx-pop-row">
-                <span>{{ t.contextUsageMessages }}</span>
-                <strong>{{ contextMessageCount }}</strong>
-              </div>
-              <div class="ctx-pop-row">
-                <span>{{ t.contextUsageTools }}</span>
-                <strong>{{ contextToolCount }}</strong>
-              </div>
-              <div class="ctx-pop-row">
-                <span>{{ t.contextUsageSkills }}</span>
-                <strong>{{ skillsCount ?? "—" }}</strong>
-              </div>
-              <div class="ctx-pop-hint">{{ t.contextUsageHint }}</div>
-            </div>
-          </NPopover>
         </div>
 
         <div class="toolbar-right">
@@ -1638,6 +1596,94 @@ watch(
           </NButton>
         </div>
       </div>
+    </div>
+
+    <div class="composer-meta">
+      <NDropdown
+        trigger="click"
+        :options="thinkingMenu"
+        :disabled="voiceActive || voicePending"
+        @select="onThinkingChange"
+      >
+        <NButton
+          quaternary
+          size="tiny"
+          class="think-btn"
+          :disabled="voiceActive || voicePending"
+          :title="t.thinkingLevel"
+        >
+          <template #icon>
+            <NIcon :component="FlashOutline" :size="14" />
+          </template>
+          <span class="think-label">{{ thinkingLabel }}</span>
+        </NButton>
+      </NDropdown>
+
+      <NPopover
+        trigger="manual"
+        :show="ctxPopoverShow"
+        placement="top-end"
+        @clickoutside="closeContextPopover"
+      >
+        <template #trigger>
+          <NTooltip :disabled="ctxPopoverShow" placement="top-end">
+            <template #trigger>
+              <button
+                type="button"
+                class="ctx-meter"
+                :class="`ctx-${contextTone}`"
+                :disabled="!sessionId"
+                @click="openContextPopover"
+              >
+                <svg class="ctx-ring" width="18" height="18" viewBox="0 0 18 18" aria-hidden="true">
+                  <circle class="ctx-ring-track" cx="9" cy="9" r="7" fill="none" stroke-width="2" />
+                  <circle
+                    class="ctx-ring-fill"
+                    cx="9"
+                    cy="9"
+                    r="7"
+                    fill="none"
+                    stroke-width="2"
+                    stroke-linecap="round"
+                    transform="rotate(-90 9 9)"
+                    :style="contextRingStyle"
+                  />
+                </svg>
+                <span class="ctx-label">{{ contextPercentLabel }}</span>
+              </button>
+            </template>
+            {{ t.contextUsageHint }}
+          </NTooltip>
+        </template>
+        <div class="ctx-popover">
+          <div class="ctx-pop-title">{{ t.contextUsageTitle }}</div>
+          <div class="ctx-pop-row">
+            <span>{{ t.contextUsageTokens }}</span>
+            <strong>{{ contextTokensLabel }}</strong>
+          </div>
+          <div class="ctx-pop-row">
+            <span>{{ t.contextUsageWindow }}</span>
+            <strong>{{ contextWindowLabel }}</strong>
+          </div>
+          <div class="ctx-pop-row">
+            <span>%</span>
+            <strong>{{ contextPercentLabel }}</strong>
+          </div>
+          <div class="ctx-pop-row">
+            <span>{{ t.contextUsageMessages }}</span>
+            <strong>{{ contextMessageCount }}</strong>
+          </div>
+          <div class="ctx-pop-row">
+            <span>{{ t.contextUsageTools }}</span>
+            <strong>{{ contextToolCount }}</strong>
+          </div>
+          <div class="ctx-pop-row">
+            <span>{{ t.contextUsageSkills }}</span>
+            <strong>{{ skillsCount ?? "—" }}</strong>
+          </div>
+          <div class="ctx-pop-hint">{{ t.contextUsageHint }}</div>
+        </div>
+      </NPopover>
     </div>
 
     <NModal
@@ -1736,13 +1782,59 @@ watch(
     box-shadow var(--duration, 180ms) var(--ease-out, ease);
 }
 
+.composer-expand-btn {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  z-index: 3;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--fg-muted, #888);
+  cursor: pointer;
+  opacity: 0.35;
+  pointer-events: auto;
+  transition:
+    opacity 0.12s ease,
+    background 0.12s ease,
+    color 0.12s ease;
+}
+
+.composer-card:hover .composer-expand-btn,
+.composer-card:focus-within .composer-expand-btn,
+.composer-card.is-editor-expanded .composer-expand-btn {
+  opacity: 1;
+}
+
+.composer-expand-btn:hover {
+  color: var(--fg-strong, #222);
+  background: color-mix(in srgb, var(--fg-muted, #888) 12%, transparent);
+}
+
 .composer-card:focus-within {
   border-color: var(--accent-border);
   box-shadow: var(--shadow-md), 0 0 0 3px var(--accent-soft);
 }
 
+.rich-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  min-width: 0;
+  padding: 6px 28px 6px 8px;
+  cursor: text;
+  border-radius: 8px;
+  background: var(--bg-input, transparent);
+}
+
 .voice-row {
-  padding: 6px 4px 2px;
+  padding: 4px 4px 2px;
 }
 
 .voice-row :deep(.voice-bar) {
@@ -1755,17 +1847,6 @@ watch(
   flex-wrap: wrap;
   padding: 6px 6px 0;
   align-items: flex-start;
-}
-
-.rich-editor {
-  display: flex;
-  flex-direction: column;
-  gap: 0;
-  min-width: 0;
-  padding: 6px 8px;
-  cursor: text;
-  border-radius: 8px;
-  background: var(--bg-input, transparent);
 }
 
 .img-chip {
@@ -1806,6 +1887,17 @@ watch(
   line-height: 1;
   font-size: 12px;
   padding: 0;
+}
+
+.composer-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  padding: 4px 4px 0;
+  box-sizing: border-box;
+  min-width: 0;
 }
 
 .toolbar {

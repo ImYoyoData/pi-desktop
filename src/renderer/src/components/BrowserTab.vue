@@ -37,6 +37,7 @@ import {
 import BrowserLibraryPanel from "@renderer/components/BrowserLibraryPanel.vue";
 import { useBrowserNavStore } from "@renderer/stores/browser-nav";
 import { useRightTabsStore } from "@renderer/stores/right-tabs";
+import { useWorkspaceStore } from "@renderer/stores/workspace";
 import { truncateTabLabel } from "../../../shared/tab-label";
 import { t } from "@renderer/i18n";
 
@@ -47,10 +48,13 @@ const composer = useComposerStore();
 const message = useMessage();
 const browserNav = useBrowserNavStore();
 const rightTabs = useRightTabsStore();
+const workspace = useWorkspaceStore();
 
 const props = defineProps<{
   tabId: string;
   visible?: boolean;
+  /** Restored address-bar URL after app restart / workspace switch. */
+  initialUrl?: string | null;
 }>();
 
 const webviewRef = ref<Electron.WebviewTag | null>(null);
@@ -105,9 +109,9 @@ function loadDevtoolsWidth(): void {
 }
 
 function refreshLibrary(): void {
-  historyRows.value = listHistory();
-  bookmarkRows.value = listBookmarks();
-  bookmarked.value = isBookmarked(urlInput.value);
+  historyRows.value = listHistory(props.tabId);
+  bookmarkRows.value = listBookmarks(workspace.root);
+  bookmarked.value = isBookmarked(workspace.root, urlInput.value);
 }
 
 function normalizeUrl(raw: string): string {
@@ -197,7 +201,7 @@ function onToggleBookmark(): void {
     return;
   }
   const title = pageTitle.value || webviewRef.value?.getTitle?.() || url;
-  const result = toggleBookmark({ url, title });
+  const result = toggleBookmark(workspace.root, { url, title });
   bookmarked.value = result.bookmarked;
   refreshLibrary();
   message.success(result.bookmarked ? t.bookmarkAdded : t.bookmarkRemoved);
@@ -437,8 +441,10 @@ function rememberNavigation(url: string): void {
   const title = webviewRef.value?.getTitle?.() || pageTitle.value || url;
   pageTitle.value = title;
   syncTabTitle(title);
-  recordHistory({ url, title });
-  bookmarked.value = isBookmarked(url);
+  recordHistory(props.tabId, { url, title });
+  bookmarked.value = isBookmarked(workspace.root, url);
+  rightTabs.patchTab(props.tabId, { url });
+  reportTabToMain();
   if (libraryOpen.value && libraryTab.value === "history") refreshLibrary();
 }
 
@@ -554,6 +560,20 @@ async function registerPageGuest(): Promise<void> {
   const id = guestId();
   if (id === null) return;
   await window.api.browser.registerGuest(id);
+  reportTabToMain();
+}
+
+function reportTabToMain(): void {
+  const id = guestId();
+  if (id === null) return;
+  void window.api.browser.reportTab({
+    tabId: props.tabId,
+    webContentsId: id,
+    url: urlInput.value || DEFAULT_URL,
+    title: pageTitle.value || "",
+    visible: props.visible !== false,
+    workspaceRoot: workspace.root,
+  });
 }
 
 onMounted(async () => {
@@ -582,12 +602,35 @@ onMounted(async () => {
   }
   bindDevtoolsHost();
   applyPendingNavigate();
+  const restored = (props.initialUrl || "").trim();
+  if (
+    restored &&
+    restored !== "about:blank" &&
+    (!(urlInput.value || "").trim() || urlInput.value === "about:blank")
+  ) {
+    urlInput.value = restored;
+    loadUrlWhenReady(restored);
+  }
 });
 
 watch(
   () => [browserNav.seq, props.visible, props.tabId] as const,
   () => {
     applyPendingNavigate();
+  },
+);
+
+watch(
+  () => [props.tabId, workspace.root] as const,
+  () => {
+    refreshLibrary();
+  },
+);
+
+watch(
+  () => [props.visible, props.tabId, urlInput.value, pageTitle.value, workspace.root] as const,
+  () => {
+    reportTabToMain();
   },
 );
 
@@ -611,6 +654,7 @@ function bindDevtoolsHost(): void {
 }
 
 onUnmounted(() => {
+  void window.api.browser.unreportTab(props.tabId);
   offElementSelected?.();
   offElementScreenshot?.();
   offToggleHotkey?.();
@@ -848,13 +892,13 @@ watch(
           @navigate="navigateTo"
           @remove-history="
             (id) => {
-              removeHistory(id);
+              removeHistory(props.tabId, id);
               refreshLibrary();
             }
           "
           @remove-bookmark="
             (id) => {
-              removeBookmark(id);
+              removeBookmark(workspace.root, id);
               refreshLibrary();
             }
           "

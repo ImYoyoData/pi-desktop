@@ -8,6 +8,7 @@ import { t } from "@renderer/i18n";
 
 const props = defineProps<{
   disabled?: boolean;
+  expanded?: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -153,8 +154,19 @@ function rebuildFromStore(): void {
   applyingStore = true;
   root.replaceChildren();
 
+  // Chips first, then draft text — ASR / typing append after tags.
+  for (const chip of composer.chips) {
+    if (root.childNodes.length > 0) {
+      root.appendChild(document.createTextNode(" "));
+    }
+    root.appendChild(createChipEl(chip));
+  }
+
   const draft = composer.draft;
   if (draft) {
+    if (root.childNodes.length > 0) {
+      root.appendChild(document.createTextNode(" "));
+    }
     const lines = draft.split("\n");
     for (let i = 0; i < lines.length; i++) {
       if (i > 0) root.appendChild(document.createElement("br"));
@@ -163,17 +175,63 @@ function rebuildFromStore(): void {
     }
   }
 
-  for (const chip of composer.chips) {
-    if (root.childNodes.length > 0) {
-      root.appendChild(document.createTextNode(" "));
-    }
-    root.appendChild(createChipEl(chip));
-  }
-
   if (!root.lastChild || root.lastChild.nodeType !== Node.TEXT_NODE) {
     root.appendChild(document.createTextNode("\u200B"));
   }
   applyingStore = false;
+}
+
+/** Append plain text after chips / existing content, sync draft, scroll into view. */
+function appendTextAtEnd(text: string): void {
+  const root = surface.value;
+  const next = text.replace(/\u200B/g, "").trim();
+  if (!root || !next) return;
+
+  applyingStore = true;
+  // Drop trailing zero-width spacer so we do not nest junk
+  const last = root.lastChild;
+  if (
+    last &&
+    last.nodeType === Node.TEXT_NODE &&
+    (last.textContent === "\u200B" || last.textContent === "")
+  ) {
+    last.remove();
+  }
+
+  const before = serializeRichEditor(root).draft.replace(/\s+$/u, "");
+  const needSpace =
+    Boolean(before) &&
+    !/[\s\u3000]$/u.test(before) &&
+    !/^[,.!?;:\uFF0C\u3002\uFF01\uFF1F\u3001\uFF1B\uFF1A]/.test(next);
+  if (root.childNodes.length > 0 && needSpace) {
+    root.appendChild(document.createTextNode(" "));
+  }
+  root.appendChild(document.createTextNode(next));
+  root.appendChild(document.createTextNode("\u200B"));
+  applyingStore = false;
+  syncDraftFromDom();
+  focusEnd();
+  scrollToEnd();
+}
+
+function scrollToEnd(): void {
+  const root = surface.value;
+  if (!root) return;
+  root.scrollTop = root.scrollHeight;
+  // Ensure last caret line is visible inside the scrollport
+  try {
+    const sel = window.getSelection();
+    if (sel && sel.rangeCount > 0) {
+      const node = sel.getRangeAt(0).endContainer;
+      const el =
+        node.nodeType === Node.ELEMENT_NODE
+          ? (node as HTMLElement)
+          : node.parentElement;
+      el?.scrollIntoView({ block: "nearest", inline: "nearest" });
+    }
+  } catch {
+    // ignore
+  }
 }
 
 function syncChipsFromStore(): void {
@@ -345,11 +403,13 @@ defineExpose({
   focusEnd,
   isCaretAtEnd,
   getSurface,
+  appendTextAtEnd,
+  scrollToEnd,
 });
 </script>
 
 <template>
-  <div class="rich-wrap">
+  <div class="rich-wrap" :class="{ 'is-expanded': expanded }">
     <div
       v-if="isEmpty && placeholder"
       class="rich-placeholder"
@@ -414,6 +474,15 @@ defineExpose({
   color: var(--fg-strong, inherit);
   user-select: text;
   -webkit-user-select: text;
+  transition:
+    max-height 0.18s ease,
+    min-height 0.18s ease;
+}
+
+.rich-wrap.is-expanded .rich-surface {
+  /* Grow the visible input area upward (not only raise max-height for long text). */
+  min-height: min(42vh, 420px);
+  max-height: min(60vh, 560px);
 }
 
 .rich-surface.is-disabled {

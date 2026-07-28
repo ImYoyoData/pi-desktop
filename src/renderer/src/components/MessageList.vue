@@ -1,10 +1,11 @@
 <script setup lang="ts">
-import { computed, nextTick, ref, watch } from "vue";
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import {
   NButton,
   NEmpty,
   NIcon,
   NImage,
+  NSpin,
   NTag,
   NText,
   NTooltip,
@@ -26,11 +27,20 @@ import { usePreviewStore } from "@renderer/stores/preview";
 import { useRightTabsStore } from "@renderer/stores/right-tabs";
 import { t } from "@renderer/i18n";
 
+/** Keep a sliding window of recent messages mounted; older ones become a spacer. */
+const VIRTUAL_WINDOW = 48;
+const VIRTUAL_CHUNK = 24;
+const EST_MSG_HEIGHT = 112;
+const NEAR_BOTTOM_PX = 96;
+/** Sticky user card must never cover the whole viewport (agent output would look "stuck"). */
+const STICKY_MAX_VH = 0.38;
+
 const props = defineProps<{
   messages: ChatMessage[];
   streaming: ChatMessage | null;
   running: boolean;
   retryHint?: ChatRetryHint | null;
+  historyLoading?: boolean;
 }>();
 
 const chat = useChatStore();
@@ -44,13 +54,35 @@ const messageApi = useMessage();
 const dialog = useDialog();
 const scroller = ref<HTMLElement | null>(null);
 let lastPinnedUserId: string | null = null;
-/** Avoid follow-bottom immediately undoing the sticky pin scroll. */
+/** Avoid follow-bottom immediately undoing the post-send card-bottom scroll. */
 let suppressFollowBottomUntil = 0;
+/** First index of displayMessages currently mounted in the DOM. */
+const renderStart = ref(0);
+const heightById = new Map<string, number>();
+let expandingHistory = false;
+let followBottom = true;
+/** Session switch / hydrate settle — snap to bottom, never smooth-scroll. */
+let settlingSession = false;
+let sessionJumpToken = 0;
+/** Template flag: hide list until first bottom snap (avoids blank spacer flash). */
+const settlingUi = ref(false);
 
 const displayMessages = computed(() => {
   const list = [...props.messages];
   if (props.streaming) list.push(props.streaming);
   return list;
+});
+
+const visibleMessages = computed(() => displayMessages.value.slice(renderStart.value));
+
+const topSpacerPx = computed(() => {
+  const all = displayMessages.value;
+  let h = 0;
+  for (let i = 0; i < renderStart.value; i++) {
+    const id = all[i]?.id;
+    h += (id && heightById.get(id)) || EST_MSG_HEIGHT;
+  }
+  return h;
 });
 
 const latestUserMessageId = computed(() => {
@@ -67,27 +99,238 @@ function isStickyUser(msg: ChatMessage): boolean {
   return msg.role === "user" && msg.id === latestUserMessageId.value;
 }
 
+function stickyCapPx(sc: HTMLElement): number {
+  return Math.min(Math.round(sc.clientHeight * STICKY_MAX_VH), 360);
+}
+
+function isNearBottom(el: HTMLElement): boolean {
+  return el.scrollHeight - el.scrollTop - el.clientHeight < NEAR_BOTTOM_PX;
+}
+
+function clampRenderWindow(preferBottom: boolean): void {
+  const len = displayMessages.value.length;
+  if (len <= VIRTUAL_WINDOW) {
+    renderStart.value = 0;
+    return;
+  }
+  if (preferBottom) {
+    renderStart.value = Math.max(0, len - VIRTUAL_WINDOW);
+  } else {
+    renderStart.value = Math.min(renderStart.value, Math.max(0, len - VIRTUAL_WINDOW));
+  }
+}
+
+function measureVisibleRows(): void {
+  const sc = scroller.value;
+  if (!sc) return;
+  const rows = sc.querySelectorAll<HTMLElement>(".row[data-msg-id]");
+  for (const row of rows) {
+    const id = row.dataset.msgId;
+    if (!id) continue;
+    // Use layout height (includes sticky max-height clamp).
+    const h = row.offsetHeight;
+    if (h > 0) heightById.set(id, h);
+  }
+}
+
+function expandHistoryUp(): void {
+  if (expandingHistory || renderStart.value <= 0) return;
+  const sc = scroller.value;
+  if (!sc) return;
+  expandingHistory = true;
+  const prevStart = renderStart.value;
+  const nextStart = Math.max(0, prevStart - VIRTUAL_CHUNK);
+  let added = 0;
+  const all = displayMessages.value;
+  for (let i = nextStart; i < prevStart; i++) {
+    const id = all[i]?.id;
+    added += (id && heightById.get(id)) || EST_MSG_HEIGHT;
+  }
+  renderStart.value = nextStart;
+  void nextTick(() => {
+    sc.scrollTop += added;
+    measureVisibleRows();
+    expandingHistory = false;
+  });
+}
+
+function jumpToBottomInstant(): void {
+  const sc = scroller.value;
+  if (!sc) return;
+  sc.scrollTop = sc.scrollHeight;
+  requestAnimationFrame(() => {
+    const el = scroller.value;
+    if (!el) return;
+    el.scrollTop = el.scrollHeight;
+    requestAnimationFrame(() => {
+      const el2 = scroller.value;
+      if (el2) el2.scrollTop = el2.scrollHeight;
+    });
+  });
+}
+
+async function snapSessionToBottom(token: number): Promise<void> {
+  if (token !== sessionJumpToken) return;
+  followBottom = true;
+  clampRenderWindow(true);
+  lastPinnedUserId = latestUserMessageId.value;
+  await nextTick();
+  if (token !== sessionJumpToken) return;
+  measureVisibleRows();
+  jumpToBottomInstant();
+}
+
+/** Cold start + session switch: wait for hydrate, then land on bottom (no blank spacer). */
+async function beginSessionSettle(): Promise<void> {
+  const token = ++sessionJumpToken;
+  settlingSession = true;
+  settlingUi.value = true;
+  heightById.clear();
+  followBottom = true;
+  renderStart.value = 0;
+
+  // History load is async after activeId flips — wait for messages / load end before revealing.
+  const deadline = Date.now() + 8_000;
+  while (token === sessionJumpToken && Date.now() < deadline) {
+    const stillLoading = Boolean(props.historyLoading);
+    if (!stillLoading) {
+      // Allow one frame for hydrate to land after loading clears.
+      await new Promise<void>((r) => setTimeout(r, 16));
+      break;
+    }
+    await new Promise<void>((r) => setTimeout(r, 40));
+  }
+  if (token !== sessionJumpToken) return;
+
+  // Empty brand-new sessions finish quickly; long histories may still be painting.
+  if (displayMessages.value.length === 0) {
+    const emptyDeadline = Date.now() + 400;
+    while (
+      token === sessionJumpToken &&
+      displayMessages.value.length === 0 &&
+      Date.now() < emptyDeadline
+    ) {
+      await new Promise<void>((r) => setTimeout(r, 40));
+    }
+  }
+  if (token !== sessionJumpToken) return;
+
+  await snapSessionToBottom(token);
+  for (const waitMs of [0, 50, 120, 280, 600]) {
+    if (waitMs) await new Promise<void>((r) => setTimeout(r, waitMs));
+    if (token !== sessionJumpToken) return;
+    await snapSessionToBottom(token);
+  }
+  if (token === sessionJumpToken) {
+    settlingSession = false;
+    settlingUi.value = false;
+    // Final snap after reveal (layout may change when visibility returns).
+    await nextTick();
+    jumpToBottomInstant();
+  }
+}
+
+function onScrollerScroll(): void {
+  const sc = scroller.value;
+  if (!sc || expandingHistory || settlingSession) return;
+  // During post-send pin, smooth scroll may leave us away from the true bottom;
+  // keep follow enabled so streaming output still becomes visible.
+  if (Date.now() < suppressFollowBottomUntil) {
+    followBottom = true;
+  } else {
+    followBottom = isNearBottom(sc);
+  }
+  if (sc.scrollTop < 160) expandHistoryUp();
+  if (followBottom) {
+    const len = displayMessages.value.length;
+    const ideal = Math.max(0, len - VIRTUAL_WINDOW);
+    if (renderStart.value < ideal) renderStart.value = ideal;
+  }
+}
+
 watch(
   () => sessionId.value,
   () => {
-    lastPinnedUserId = null;
+    void beginSessionSettle();
   },
 );
 
-/** Only when a new latest user message appears: scroll that card to the top. */
+watch(
+  () => props.historyLoading,
+  (loading, wasLoading) => {
+    // History finished while settling — snap immediately (don't wait for poll tick).
+    if (wasLoading && !loading && settlingSession) {
+      void snapSessionToBottom(sessionJumpToken);
+    }
+  },
+);
+
+watch(
+  () => displayMessages.value.length,
+  (len, prevLen) => {
+    const grew = prevLen != null && len > prevLen;
+    const hydratedFromEmpty = (prevLen === 0 || prevLen == null) && len > 0;
+    // New messages while following bottom → keep a trailing window.
+    if (followBottom || hydratedFromEmpty || (grew && props.running)) {
+      clampRenderWindow(true);
+    } else if (len <= VIRTUAL_WINDOW) {
+      renderStart.value = 0;
+    }
+    // Critical: hydrate often lands AFTER settle timeouts. Always snap when
+    // following bottom / first populate, otherwise the virtual spacer stays in view (blank).
+    if (followBottom || settlingSession || hydratedFromEmpty) {
+      lastPinnedUserId = latestUserMessageId.value;
+      void nextTick(() => {
+        jumpToBottomInstant();
+      });
+    }
+  },
+  { immediate: true },
+);
+
+/** Hydrate can replace history with the same length — still need a bottom snap. */
+watch(
+  () => props.messages.at(-1)?.id ?? null,
+  (id, prev) => {
+    if (!id || id === prev) return;
+    if (!(followBottom || settlingSession)) return;
+    clampRenderWindow(true);
+    lastPinnedUserId = latestUserMessageId.value;
+    void nextTick(() => jumpToBottomInstant());
+  },
+);
+
+/** When a new latest user message appears (send / re-edit send): pin card, leave room for agent. */
 watch(
   () => latestUserMessageId.value,
   async (id) => {
     if (!id || id === lastPinnedUserId) return;
     lastPinnedUserId = id;
-    suppressFollowBottomUntil = Date.now() + 500;
+    followBottom = true;
+    clampRenderWindow(true);
+    // Session switch / hydrate: land on bottom instantly (no slide).
+    if (settlingSession) {
+      await nextTick();
+      jumpToBottomInstant();
+      return;
+    }
+    // Brief pause so follow-bottom doesn't yank away before layout settles.
+    suppressFollowBottomUntil = Date.now() + 160;
     await nextTick();
+    measureVisibleRows();
     const sc = scroller.value;
     const card = sc?.querySelector(`[data-msg-id="${CSS.escape(id)}"]`) as HTMLElement | null;
     if (!sc || !card) return;
+    const cap = stickyCapPx(sc);
+    // Tall prompts are clamped by sticky max-height; park the card near the top
+    // so agent streaming has visible space underneath (not covered by sticky paint).
+    if (card.scrollHeight > cap + 24) {
+      sc.scrollTo({ top: Math.max(0, card.offsetTop - 4), behavior: "smooth" });
+      return;
+    }
     const scRect = sc.getBoundingClientRect();
     const cardRect = card.getBoundingClientRect();
-    const top = cardRect.top - scRect.top + sc.scrollTop - 6;
+    const top = cardRect.bottom - scRect.top + sc.scrollTop - sc.clientHeight + 8;
     sc.scrollTo({ top: Math.max(0, top), behavior: "smooth" });
   },
 );
@@ -105,7 +348,9 @@ watch(
       Boolean(prevRunning || prevStreaming) && !running && !streaming;
     // Follow while generating; also snap once when the turn settles (actions mount).
     if (running || streaming || justFinished) {
+      if (!followBottom && !justFinished) return;
       el.scrollTop = el.scrollHeight;
+      measureVisibleRows();
       if (justFinished) {
         requestAnimationFrame(() => {
           const sc = scroller.value;
@@ -115,6 +360,18 @@ watch(
     }
   },
 );
+
+onMounted(() => {
+  const sc = scroller.value;
+  sc?.addEventListener("scroll", onScrollerScroll, { passive: true });
+  // Auto-load on startup mounts MessageList *after* activeId is set, so the
+  // sessionId watcher may not re-fire — settle here or the spacer looks blank.
+  void beginSessionSettle();
+});
+
+onBeforeUnmount(() => {
+  scroller.value?.removeEventListener("scroll", onScrollerScroll);
+});
 
 function toolCard(msg: Extract<ChatMessage, { role: "tool" }>) {
   return parseToolCard(msg.toolName, msg.args, msg.result);
@@ -229,16 +486,33 @@ function onRevertUser(msg: Extract<ChatMessage, { role: "user" }>): void {
 </script>
 
 <template>
-  <div ref="scroller" class="message-list">
+  <div class="message-list-root">
+    <div
+      v-if="historyLoading || settlingUi"
+      class="history-loading"
+      aria-live="polite"
+      aria-busy="true"
+    >
+      <NSpin size="small" />
+      <span>{{ t.loadingChatHistory }}</span>
+    </div>
+    <div ref="scroller" class="message-list" :class="{ 'is-settling': settlingUi }">
     <div class="inner">
       <NEmpty
-        v-if="messages.length === 0 && !streaming"
+        v-if="messages.length === 0 && !streaming && !historyLoading && !settlingUi"
         :description="t.emptyChat"
         style="margin: auto"
       />
 
+      <div
+        v-if="topSpacerPx > 0"
+        class="virtual-spacer"
+        :style="{ height: `${topSpacerPx}px` }"
+        aria-hidden="true"
+      />
+
       <article
-        v-for="msg in displayMessages"
+        v-for="msg in visibleMessages"
         :key="msg.id"
         class="row"
         :class="[
@@ -295,30 +569,28 @@ function onRevertUser(msg: Extract<ChatMessage, { role: "user" }>): void {
                 />
               </div>
               <div v-if="msg.text" class="user-plain">{{ msg.text }}</div>
+              <!-- Cursor-style: revert lives inside the card, bottom-right -->
+              <div
+                v-if="canRevertUser(msg) || isRevertedUser(msg)"
+                class="user-bubble-footer"
+              >
+                <NTooltip placement="top">
+                  <template #trigger>
+                    <button
+                      type="button"
+                      class="bubble-revert"
+                      :disabled="running || isRevertedUser(msg)"
+                      :aria-label="isRevertedUser(msg) ? t.reverted : t.revertTurn"
+                      @click.stop="onRevertUser(msg)"
+                    >
+                      <NIcon :component="ArrowUndoOutline" :size="15" />
+                    </button>
+                  </template>
+                  {{ isRevertedUser(msg) ? t.reverted : t.revertTurn }}
+                </NTooltip>
+              </div>
             </div>
-            <div
-              v-if="!running"
-              class="actions user-actions"
-              :class="{ 'actions-visible': canRevertUser(msg) || isRevertedUser(msg) }"
-            >
-              <NTooltip v-if="canRevertUser(msg) || isRevertedUser(msg)">
-                <template #trigger>
-                  <NButton
-                    quaternary
-                    circle
-                    size="tiny"
-                    class="revert-btn"
-                    :disabled="isRevertedUser(msg)"
-                    :aria-label="isRevertedUser(msg) ? t.reverted : t.revertTurn"
-                    @click="onRevertUser(msg)"
-                  >
-                    <template #icon>
-                      <NIcon :component="ArrowUndoOutline" />
-                    </template>
-                  </NButton>
-                </template>
-                {{ isRevertedUser(msg) ? t.reverted : t.revertTurnConfirm }}
-              </NTooltip>
+            <div v-if="!running" class="actions user-actions">
               <NTooltip>
                 <template #trigger>
                   <NButton quaternary circle size="tiny" @click="copyText(msg.text)">
@@ -428,9 +700,44 @@ function onRevertUser(msg: Extract<ChatMessage, { role: "user" }>): void {
       </div>
     </div>
   </div>
+  </div>
 </template>
 
 <style scoped>
+.message-list-root {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.history-loading {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  color: var(--fg-muted);
+  font-size: 13px;
+  background: color-mix(in srgb, var(--bg) 82%, transparent);
+  backdrop-filter: blur(2px);
+  pointer-events: none;
+  animation: history-fade-in var(--duration, 180ms) var(--ease-out, ease);
+}
+
+@keyframes history-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
 .message-list {
   flex: 1;
   overflow: auto;
@@ -439,6 +746,11 @@ function onRevertUser(msg: Extract<ChatMessage, { role: "user" }>): void {
   /* Body defaults to user-select:none — allow selecting chat text to copy. */
   user-select: text;
   -webkit-user-select: text;
+}
+
+.message-list.is-settling {
+  /* Hide until scrolled to bottom so the virtual spacer is not shown as a blank chat. */
+  visibility: hidden;
 }
 
 .inner {
@@ -451,6 +763,12 @@ function onRevertUser(msg: Extract<ChatMessage, { role: "user" }>): void {
   gap: 10px;
   min-height: 100%;
   box-sizing: border-box;
+}
+
+.virtual-spacer {
+  flex-shrink: 0;
+  width: 100%;
+  pointer-events: none;
 }
 
 .row {
@@ -466,6 +784,11 @@ function onRevertUser(msg: Extract<ChatMessage, { role: "user" }>): void {
   position: sticky;
   top: 0;
   z-index: 6;
+  /* Cap height so a huge prompt cannot paint over the whole chat (looks like agent stuck). */
+  max-height: min(38vh, 360px);
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
   background: var(--bg);
   padding: 6px 0 8px;
   border-bottom: 1px solid color-mix(in srgb, var(--border, #ddd) 55%, transparent);
@@ -604,6 +927,39 @@ function onRevertUser(msg: Extract<ChatMessage, { role: "user" }>): void {
   -webkit-user-select: text;
 }
 
+.user-bubble-footer {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  margin-top: 6px;
+  min-height: 22px;
+}
+
+.bubble-revert {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--fg-muted, #8a8a8a);
+  cursor: pointer;
+  transition: color 0.12s ease, background 0.12s ease;
+}
+
+.bubble-revert:hover:not(:disabled) {
+  color: var(--fg-strong, #222);
+  background: color-mix(in srgb, var(--fg-muted, #888) 12%, transparent);
+}
+
+.bubble-revert:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
 .actions {
   display: flex;
   gap: 2px;
@@ -612,20 +968,15 @@ function onRevertUser(msg: Extract<ChatMessage, { role: "user" }>): void {
   transition: opacity 0.12s ease;
 }
 
-/* Cursor: action icons under the prompt, left-aligned (undo / copy / edit). */
+/* Copy / re-edit under the prompt (hover). Revert is inside the bubble. */
 .user-actions {
   justify-content: flex-start;
   margin-top: 2px;
   padding-left: 2px;
 }
 
-.actions.actions-visible,
 .bubble-wrap:hover .actions {
   opacity: 1;
-}
-
-.revert-btn {
-  color: var(--fg-muted);
 }
 
 .cursor {

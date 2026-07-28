@@ -304,3 +304,40 @@ button {
   padding: 20px 24px 24px !important;
   box-sizing: border-box;
 }
+
+/* Interactive controls — snappy press feedback without layout shift */
+.pi-interactive,
+.n-button {
+  transition:
+    transform var(--duration-fast) var(--ease-out),
+    opacity var(--duration-fast) var(--ease-out),
+    background-color var(--duration-fast) var(--ease-out),
+    color var(--duration-fast) var(--ease-out),
+    border-color var(--duration-fast) var(--ease-out),
+    box-shadow var(--duration-fast) var(--ease-out) !important;
+}
+
+.pi-interactive:active:not(:disabled),
+.n-button:not(.n-button--disabled):active {
+  transform: translateY(0.5px) scale(0.985);
+}
+
+.n-button.n-button--circle:active:not(.n-button--disabled) {
+  transform: scale(0.94);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* macOS: slightly denser titlebar hit targets feel closer to native */
+html.platform-darwin .title-bar .n-button {
+  --n-height: 28px;
+}

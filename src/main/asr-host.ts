@@ -1441,7 +1441,15 @@ async function startAsrStream(): Promise<AsrStatus> {
   streamReady = false;
   streamStderrTail = "";
 
-  // Keep stdin binary (PCM s16le) — do not setEncoding on stdin
+  // Keep stdin binary (PCM s16le) — do not setEncoding on stdin.
+  // Must handle stdin errors or closed-pipe writes become uncaught "write EOF".
+  child.stdin.on("error", (err) => {
+    const code = (err as NodeJS.ErrnoException).code;
+    if (code === "EPIPE" || code === "EOF" || /EOF|EPIPE/i.test(err.message)) {
+      return;
+    }
+    lastError = err.message;
+  });
   child.stdout.setEncoding("utf8");
   child.stderr.setEncoding("utf8");
   child.stdout.on("data", (d: string) => handleStreamStdout(String(d)));
@@ -1515,13 +1523,21 @@ async function startAsrStream(): Promise<AsrStatus> {
 
 function pushAsrStreamPcm(pcmBase64: string): void {
   const child = streamChild;
-  if (!child || !child.stdin.writable) return;
+  const stdin = child?.stdin;
+  if (!child || !stdin || stdin.destroyed || !stdin.writable) return;
   try {
     const buf = Buffer.from(pcmBase64, "base64");
     if (buf.length === 0) return;
-    child.stdin.write(buf);
+    stdin.write(buf, (err) => {
+      if (!err) return;
+      const code = (err as NodeJS.ErrnoException).code;
+      if (code === "EPIPE" || code === "EOF" || /EOF|EPIPE/i.test(err.message)) return;
+      lastError = err.message;
+    });
   } catch (err) {
-    lastError = err instanceof Error ? err.message : String(err);
+    const msg = err instanceof Error ? err.message : String(err);
+    if (/EOF|EPIPE/i.test(msg)) return;
+    lastError = msg;
   }
 }
 
