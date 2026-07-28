@@ -318,7 +318,8 @@ function canRenameTab(tab: RightTab): boolean {
 }
 
 function openTabContextMenu(event: MouseEvent, tab: RightTab): void {
-  if (tab.kind === "running") return;
+  // Singleton tabs: no rename/delete context menu
+  if (tab.kind === "running" || tab.kind === "changes" || tab.kind === "files") return;
   const options = tabContextOptions(tab);
   if (!options.length) return;
   ctxMenuTabId.value = tab.id;

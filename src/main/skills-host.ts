@@ -59,7 +59,7 @@ export function setSkillDisabled(filePath: string, disableModelInvocation: boole
 
 /** Remove a skill directory (SKILL.md parent). Allowed under agent/project skills roots. */
 export function uninstallSkill(filePath: string, cwd?: string): void {
-  if (!fs.existsSync(filePath)) throw new Error("skill 不存在");
+  if (!fs.existsSync(filePath)) throw new Error("Skill not found");
   const skillDir = path.resolve(path.dirname(filePath));
   const agentSkills = path.resolve(getAgentDir(), "skills");
   const projectSkills = cwd ? path.resolve(cwd, ".pi", "skills") : null;
@@ -68,11 +68,11 @@ export function uninstallSkill(filePath: string, cwd?: string): void {
     (projectSkills !== null && isPathInsideRoot(projectSkills, skillDir));
   if (!allowed) {
     throw new Error(
-      "只能卸载 ~/.pi/agent/skills 或项目 .pi/skills 下的 Skill（插件包内 Skill 请在扩展中移除）",
+      "Can only uninstall skills under ~/.pi/agent/skills or project .pi/skills (remove package skills from Extensions)",
     );
   }
   if (skillDir === agentSkills || (projectSkills && skillDir === projectSkills)) {
-    throw new Error("拒绝删除 skills 根目录");
+    throw new Error("Refusing to delete the skills root directory");
   }
   fs.rmSync(skillDir, { recursive: true, force: false });
 }

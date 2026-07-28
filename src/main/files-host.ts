@@ -49,9 +49,9 @@ export function listWorkspaceDir(root: string, relative = ""): WorkspaceDirEntry
 
 function assertSafeName(name: string): string {
   const trimmed = name.trim();
-  if (!trimmed) throw new Error("名称不能为空");
+  if (!trimmed) throw new Error("Name cannot be empty");
   if (trimmed.includes("/") || trimmed.includes("\\") || trimmed.includes("..")) {
-    throw new Error("名称不能包含路径分隔符");
+    throw new Error("Name cannot contain path separators");
   }
   return trimmed;
 }
@@ -62,7 +62,7 @@ export function createWorkspaceFile(root: string, relativeDir: string, name: str
   fs.mkdirSync(dirAbs, { recursive: true });
   const abs = path.join(dirAbs, safe);
   resolveWorkspacePath(root, path.relative(root, abs));
-  if (fs.existsSync(abs)) throw new Error("已存在同名文件");
+  if (fs.existsSync(abs)) throw new Error("A file with that name already exists");
   fs.writeFileSync(abs, "", "utf8");
   return toRel(relativeDir, safe);
 }
@@ -73,7 +73,7 @@ export function createWorkspaceDir(root: string, relativeDir: string, name: stri
   fs.mkdirSync(dirAbs, { recursive: true });
   const abs = path.join(dirAbs, safe);
   resolveWorkspacePath(root, path.relative(root, abs));
-  if (fs.existsSync(abs)) throw new Error("已存在同名文件夹");
+  if (fs.existsSync(abs)) throw new Error("A folder with that name already exists");
   fs.mkdirSync(abs);
   return toRel(relativeDir, safe);
 }
@@ -84,7 +84,7 @@ export function renameWorkspaceEntry(root: string, relativePath: string, newName
   const parent = path.dirname(abs);
   const nextAbs = path.join(parent, safe);
   resolveWorkspacePath(root, path.relative(root, nextAbs));
-  if (fs.existsSync(nextAbs)) throw new Error("目标名称已存在");
+  if (fs.existsSync(nextAbs)) throw new Error("That name already exists");
   fs.renameSync(abs, nextAbs);
   const parentRel = path.dirname(relativePath.replace(/\\/g, "/"));
   const parentKey = parentRel === "." ? "" : parentRel;
@@ -102,18 +102,18 @@ export function moveWorkspaceEntry(
   const fromNorm = relativePath.replace(/\\/g, "/");
   const destNorm = (destRelativeDir || "").replace(/\\/g, "/").replace(/\/+$/, "");
   if (destNorm === fromNorm || destNorm.startsWith(`${fromNorm}/`)) {
-    throw new Error("不能移动到自身或其子目录");
+    throw new Error("Cannot move into itself or a subdirectory");
   }
   const destDirAbs = destNorm
     ? resolveWorkspacePath(root, destNorm)
     : path.resolve(root);
   if (!fs.existsSync(destDirAbs) || !fs.statSync(destDirAbs).isDirectory()) {
-    throw new Error("目标目录不存在");
+    throw new Error("Destination folder does not exist");
   }
   const nextAbs = path.join(destDirAbs, base);
   resolveWorkspacePath(root, path.relative(root, nextAbs));
   if (path.resolve(abs) === path.resolve(nextAbs)) return fromNorm;
-  if (fs.existsSync(nextAbs)) throw new Error("目标位置已存在同名项");
+  if (fs.existsSync(nextAbs)) throw new Error("An item with that name already exists there");
   fs.renameSync(abs, nextAbs);
   return toRel(destNorm, base);
 }
