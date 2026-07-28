@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted } from "vue";
+import { computed, defineAsyncComponent, onMounted, onUnmounted } from "vue";
 import {
   NConfigProvider,
   NMessageProvider,
@@ -12,14 +12,17 @@ import {
 } from "naive-ui";
 import TitleBar from "@renderer/components/TitleBar.vue";
 import WelcomeView from "@renderer/components/WelcomeView.vue";
-import SplitRoot from "@renderer/components/SplitRoot.vue";
 import PiCliSetup from "@renderer/components/PiCliSetup.vue";
 import CloseGuard from "@renderer/components/CloseGuard.vue";
 import AsrWakeGuard from "@renderer/components/AsrWakeGuard.vue";
+import TrustDialog from "@renderer/components/TrustDialog.vue";
 import { useWorkspaceStore } from "@renderer/stores/workspace";
 import { useAppearanceStore } from "@renderer/stores/appearance";
 import { darkThemeOverrides, lightThemeOverrides } from "@renderer/theme/naive";
 import { locale } from "@renderer/i18n";
+
+/** Heavy workspace chrome — load after first paint when a folder is open. */
+const SplitRoot = defineAsyncComponent(() => import("@renderer/components/SplitRoot.vue"));
 
 const workspace = useWorkspaceStore();
 const appearance = useAppearanceStore();
@@ -70,6 +73,7 @@ onUnmounted(() => {
             <SplitRoot v-else />
           </main>
           <PiCliSetup />
+          <TrustDialog />
         </div>
       </NDialogProvider>
     </NMessageProvider>
@@ -84,7 +88,6 @@ onUnmounted(() => {
   height: 100%;
   background: var(--bg);
   color: var(--fg);
-  transition: background-color var(--duration, 180ms) var(--ease-out, ease), color var(--duration, 180ms) var(--ease-out, ease);
 }
 
 .app-main {

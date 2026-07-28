@@ -47,6 +47,9 @@ files:
   - '!**/node_modules/.bin/**'
 asarUnpack:
   - '**/*.node'
+  # dugite embeds a real Git binary (win/mac/linux); must stay outside asar.
+  # dugite rewrites app.asar → app.asar.unpacked when resolving git/.
+  - '**/node_modules/dugite/git/**'
 extraResources:
   - from: resources/
     to: resources/

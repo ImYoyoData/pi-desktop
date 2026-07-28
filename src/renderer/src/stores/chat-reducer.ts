@@ -4,6 +4,8 @@ import {
   parseAskUserArgs,
   type AskUserPrompt,
 } from "../../../shared/ask-user";
+import type { PermissionAskPrompt } from "../../../shared/desktop-security";
+import type { ExtensionUiPending } from "../../../shared/extension-ui";
 import { formatLlmError } from "../utils/llm-error";
 import { locale as uiLocalePref } from "../i18n";
 
@@ -15,6 +17,8 @@ export type ChatUserImage = {
   mimeType: string;
   dataUrl: string;
 };
+
+export type PendingPermission = PermissionAskPrompt;
 
 export type ChatMessage =
   | {
@@ -65,6 +69,10 @@ export type ChatState = {
   nextToolOrder: number;
   /** Interactive ask_user strip; null when none / discarded. */
   pendingAskUser: AskUserPrompt | null;
+  /** Interactive permission strip; null when none. */
+  pendingPermission: PendingPermission | null;
+  /** Pi extension UI dialog (select/confirm/input/editor). */
+  pendingExtensionUi: ExtensionUiPending | null;
 };
 
 export function createChatState(): ChatState {
@@ -75,12 +83,38 @@ export function createChatState(): ChatState {
     retryHint: null,
     nextToolOrder: 1,
     pendingAskUser: null,
+    pendingPermission: null,
+    pendingExtensionUi: null,
   };
 }
 
 export function clearPendingAskUser(state: ChatState): ChatState {
   if (!state.pendingAskUser) return state;
   return { ...state, pendingAskUser: null };
+}
+
+export function clearPendingPermission(state: ChatState): ChatState {
+  if (!state.pendingPermission) return state;
+  return { ...state, pendingPermission: null };
+}
+
+export function setPendingPermission(
+  state: ChatState,
+  pending: PendingPermission | null,
+): ChatState {
+  return { ...state, pendingPermission: pending };
+}
+
+export function clearPendingExtensionUi(state: ChatState): ChatState {
+  if (!state.pendingExtensionUi) return state;
+  return { ...state, pendingExtensionUi: null };
+}
+
+export function setPendingExtensionUi(
+  state: ChatState,
+  pending: ExtensionUiPending | null,
+): ChatState {
+  return { ...state, pendingExtensionUi: pending };
 }
 
 let nextLocalId = 0;

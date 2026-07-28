@@ -15,6 +15,7 @@ import { createBrowserTabRegistry } from "./browser-tab-registry";
 import { createBrowserAutomationHost } from "./browser-automation-host";
 import type { BrowserRpcMethod } from "../shared/browser-automation";
 import type { WorkerOutbound } from "../shared/agent-worker-messages";
+import type { SecurityCategory } from "../shared/desktop-security";
 import { registerPreviewIpc } from "./preview-ipc";
 import { registerTerminalIpc } from "./terminal-host";
 import { registerWorkspaceIpc } from "./workspace-ipc";
@@ -29,6 +30,12 @@ import { registerPiCliIpc } from "./pi-cli-host";
 import { registerMarketIpc } from "./market-host";
 import { registerCheckpointIpc } from "./checkpoint-ipc";
 import { registerNotifyIpc } from "./notify-host";
+import { askRendererPermission, registerPermissionAskIpc } from "./permission-ask-host";
+import {
+  handleExtensionUiRpc,
+  registerExtensionUiIpc,
+} from "./extension-ui-host";
+import { registerSecurityTrustIpc } from "./security-trust-ipc";
 import { ensurePiAgentEnvironment } from "./pi-env";
 import { installApplicationMenu } from "./app-menu";
 import { enableHardwareAcceleration } from "./gpu-flags";
@@ -94,10 +101,37 @@ function boot(): void {
       if (msg.kind !== "rpc_request") return;
       void (async () => {
         try {
-          const result = await browserAutomation.handle({
-            method: msg.method as BrowserRpcMethod,
-            params: msg.params ?? {},
-          });
+          let result: unknown;
+          if (msg.method === "desktop.permissionAsk") {
+            const params = msg.params ?? {};
+            const category = params.category;
+            const toolName = typeof params.toolName === "string" ? params.toolName : "";
+            const summary = typeof params.summary === "string" ? params.summary : "";
+            if (category !== "bash" && category !== "write") {
+              throw new Error("desktop.permissionAsk: invalid category");
+            }
+            if (!toolName) {
+              throw new Error("desktop.permissionAsk: toolName required");
+            }
+            result = await askRendererPermission({
+              sessionId,
+              requestId: msg.id,
+              category: category as SecurityCategory,
+              toolName,
+              summary,
+            });
+          } else if (msg.method === "desktop.extensionUi") {
+            result = await handleExtensionUiRpc(
+              sessionId,
+              msg.id,
+              msg.params ?? {},
+            );
+          } else {
+            result = await browserAutomation.handle({
+              method: msg.method as BrowserRpcMethod,
+              params: msg.params ?? {},
+            });
+          }
           await brokerHolder.current?.sendRawIfAlive(sessionId, {
             kind: "rpc_response",
             id: msg.id,
@@ -122,6 +156,15 @@ function boot(): void {
     sendTerminate: async (sessionId, runId) => {
       const ok = await broker.sendRawIfAlive(sessionId, {
         kind: "terminate_run",
+        runId,
+      });
+      if (!ok) {
+        throw new Error("worker unavailable");
+      }
+    },
+    sendBackground: async (sessionId, runId) => {
+      const ok = await broker.sendRawIfAlive(sessionId, {
+        kind: "background_run",
         runId,
       });
       if (!ok) {
@@ -187,14 +230,16 @@ function boot(): void {
 
     installLocalFileProtocol();
     installApplicationMenu();
+
+    // Critical IPC first — needed for shell, workspace, sessions.
     registerWindowIpc();
-    registerAsrIpc();
-    registerUpdateIpc();
-    registerPiCliIpc();
-    registerMarketIpc();
-    registerCheckpointIpc();
-    registerNotifyIpc();
     registerWorkspaceIpc();
+    registerSessionsIpc(broker);
+    registerAgentRunsIpc(registryHolder.current!);
+    registerModelsIpc(broker);
+    registerPermissionAskIpc(broker);
+    registerExtensionUiIpc();
+    registerSecurityTrustIpc(broker);
     registerPreviewIpc();
     registerFilesIpc();
     registerFsWatchIpc();
@@ -202,9 +247,8 @@ function boot(): void {
     registerSkillsIpc();
     registerBrowserIpc();
     registerTerminalIpc();
-    registerSessionsIpc(broker);
-    registerAgentRunsIpc(registryHolder.current!);
-    registerModelsIpc(broker);
+    registerNotifyIpc();
+    registerCheckpointIpc();
     electronApp.setAppUserModelId("com.pi.desktop");
 
     // Allow mic/camera for ASR + embedded browser (macOS TCC still gates via askForMediaAccess).
@@ -239,7 +283,15 @@ function boot(): void {
       installWindowShortcuts(window);
     });
 
+    // Show UI as soon as possible — defer non-critical hosts (ASR / update / market / CLI).
     createMainWindow();
+
+    setImmediate(() => {
+      registerAsrIpc();
+      registerUpdateIpc();
+      registerPiCliIpc();
+      registerMarketIpc();
+    });
 
     app.on("activate", () => {
       if (BrowserWindow.getAllWindows().length === 0) {

@@ -43,6 +43,22 @@ describe("tool cards", () => {
     expect(card.linesRead).toBe(3);
   });
 
+  it("synthesizes write as an all-additions diff", () => {
+    const card = parseToolCard(
+      "write",
+      { path: "src/new.ts", content: "a\nb\nc" },
+      { content: [{ type: "text", text: "Wrote src/new.ts" }] },
+    );
+    expect(card.kind).toBe("write");
+    if (card.kind !== "write") return;
+    expect(card.stats).toEqual({ additions: 3, deletions: 0 });
+    expect(card.diff).toContain("--- /dev/null");
+    expect(card.diff).toContain("+++ b/src/new.ts");
+    expect(card.diff).toContain("+a");
+    expect(card.diff).toContain("+b");
+    expect(card.diff).toContain("+c");
+  });
+
   it("preserves args and order across tool start/end", () => {
     let state = createChatState();
     state = reduceChatEvent(state, {

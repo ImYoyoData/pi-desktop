@@ -161,7 +161,14 @@ export function createMainWindow(): BrowserWindow {
   });
 
   mainWindow.on("ready-to-show", () => {
-    mainWindow.show();
+    if (!mainWindow.isDestroyed()) mainWindow.show();
+  });
+
+  // Failsafe: if ready-to-show is late/missed, still surface the window.
+  mainWindow.webContents.once("did-finish-load", () => {
+    if (!mainWindow.isDestroyed() && !mainWindow.isVisible()) {
+      mainWindow.show();
+    }
   });
 
   mainWindow.on("close", (event) => {

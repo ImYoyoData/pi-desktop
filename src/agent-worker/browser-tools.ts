@@ -44,10 +44,11 @@ export function createBrowserToolDefinitions() {
     defineTool({
       name: "browser_tabs",
       label: "Browser tabs",
-      description: "List Pi Desktop built-in browser tabs. Use tabId with other browser_* tools.",
+      description: "List Pi Desktop built-in browser tabs. Use tabId with other browser_* tools. Only for the embedded right-pane browser — not general web fetch.",
       promptSnippet: "List built-in browser tabs",
       promptGuidelines: [
-        "Prefer browser_* tools for the embedded right-pane browser.",
+        "Use browser_* only when the user asks for the embedded browser or selected page elements.",
+        "For ordinary network/fetch/research, prefer MCP servers and extension tools.",
         "Use browser_open_tab when you need a new tab / no tab exists.",
       ],
       parameters: Type.Object({}),

@@ -7,6 +7,7 @@ import {
   defineTool,
   getAgentDir,
   SessionManager,
+  SettingsManager,
   type AgentSession,
 } from "@earendil-works/pi-coding-agent";
 import type { AgentCommand, ElementCitation } from "../shared/protocol";
@@ -14,15 +15,32 @@ import { toPromptImages } from "../shared/protocol";
 import { truncateHtmlSnippet } from "../shared/html-snippet";
 import type { WorkerInbound, WorkerOutbound } from "../shared/agent-worker-messages";
 import {
+  isBuiltinBrowserToolName,
+  resolveBuiltinBrowserSkillDir,
+  shouldEnableBuiltinBrowserTools,
+} from "../shared/builtin-browser";
+import {
+  DEFAULT_DESKTOP_SECURITY,
+  isPermissionDecision,
+  parseDesktopSecurity,
+  PERMISSION_ASK_TIMEOUT_MS,
+  type DesktopSecuritySettings,
+  type SecurityCategory,
+} from "../shared/desktop-security";
+import {
   DESKTOP_ASK_USER_PROMPT,
-  DESKTOP_BROWSER_TOOLS_PROMPT,
   DESKTOP_COMPOSER_MODES_PROMPT,
   DESKTOP_PROJECT_ORIENTATION_PROMPT,
 } from "../shared/desktop-system-prompt";
-import { createAskUserToolDefinition } from "./ask-user-tool";
+import {
+  createAskUserToolDefinition,
+} from "./ask-user-tool";
 import { createTrackedBashOperations } from "./bash-run-tracker";
 import { createBrowserToolDefinitions } from "./browser-tools";
-import { handleRpcResponse, setRpcWorkspaceRoot } from "./main-rpc";
+import { readContextUsage } from "./context-usage";
+import { createDesktopExtensionUIContext } from "./extension-ui-context";
+import { handleRpcResponse, rpcToMain, setRpcWorkspaceRoot } from "./main-rpc";
+import { createPermissionGate } from "./permission-gate";
 
 function post(msg: WorkerOutbound): void {
   process.parentPort?.postMessage(msg);
@@ -31,7 +49,45 @@ function post(msg: WorkerOutbound): void {
 let session: AgentSession | null = null;
 let initStarted = false;
 let runTracker: ReturnType<typeof createTrackedBashOperations> | null = null;
+let desktopSecurity: DesktopSecuritySettings = { ...DEFAULT_DESKTOP_SECURITY };
+const sessionAllows = new Set<SecurityCategory>();
+/** Once unlocked this session, keep browser_* available for follow-up clicks/fills. */
+let browserToolsUnlocked = false;
 
+function workerDirname(): string {
+  // electron-vite bundles the worker as CJS; __dirname points at out/agent-worker.
+  return typeof __dirname === "string" ? __dirname : process.cwd();
+}
+
+function syncBuiltinBrowserTools(active: AgentSession, enable: boolean): void {
+  const current = active.getActiveToolNames();
+  const withoutBrowser = current.filter((name) => !isBuiltinBrowserToolName(name));
+  if (!enable) {
+    if (withoutBrowser.length !== current.length) {
+      active.setActiveToolsByName(withoutBrowser);
+    }
+    return;
+  }
+  const browserNames = active
+    .getAllTools()
+    .map((t) => t.name)
+    .filter(isBuiltinBrowserToolName);
+  const next = [...new Set([...withoutBrowser, ...browserNames])];
+  if (next.length !== current.length || next.some((n) => !current.includes(n))) {
+    active.setActiveToolsByName(next);
+  }
+}
+
+function applyBuiltinBrowserToolGate(
+  active: AgentSession,
+  message: string,
+  citations?: ElementCitation[] | null,
+): void {
+  if (!browserToolsUnlocked && shouldEnableBuiltinBrowserTools(message, citations)) {
+    browserToolsUnlocked = true;
+  }
+  syncBuiltinBrowserTools(active, browserToolsUnlocked);
+}
 function normalizePromptImages(images: unknown[] | undefined): ImageContent[] | undefined {
   const normalized = toPromptImages(images);
   return normalized as ImageContent[] | undefined;
@@ -71,6 +127,7 @@ const CONTEXT_USAGE_EVENT_TYPES = new Set([
   "message_end",
   "compaction_end",
   "turn_end",
+  "tool_execution_end",
 ]);
 
 function busyLoopMs(ms: number): void {
@@ -96,34 +153,58 @@ function formatCitationsBlock(citations: ElementCitation[]): string {
   return `Context from browser selection:\n\n${body}\n\n---\n\n`;
 }
 
-async function initSession(cwd: string, filePath?: string): Promise<void> {
+async function initSession(
+  cwd: string,
+  filePath: string | undefined,
+  projectTrusted: boolean,
+  securitySnapshot?: DesktopSecuritySettings,
+): Promise<void> {
   if (initStarted) {
     return;
   }
   initStarted = true;
+  browserToolsUnlocked = false;
   setRpcWorkspaceRoot(cwd);
+  if (securitySnapshot) {
+    desktopSecurity = parseDesktopSecurity(securitySnapshot);
+  }
   const agentDir = getAgentDir();
   const sessionManager = filePath
     ? SessionManager.open(filePath, undefined, cwd)
     : SessionManager.create(cwd);
+  const settingsManager = SettingsManager.create(cwd, agentDir, {
+    projectTrusted: Boolean(projectTrusted),
+  });
+  const builtinBrowserSkillDir = resolveBuiltinBrowserSkillDir(
+    workerDirname(),
+    typeof process.resourcesPath === "string" ? process.resourcesPath : undefined,
+  );
   const services = await createAgentSessionServices({
     cwd,
     agentDir,
+    settingsManager,
     resourceLoaderOptions: {
       appendSystemPrompt: [
         DESKTOP_PROJECT_ORIENTATION_PROMPT,
         DESKTOP_ASK_USER_PROMPT,
-        DESKTOP_BROWSER_TOOLS_PROMPT,
         DESKTOP_COMPOSER_MODES_PROMPT,
       ],
+      ...(builtinBrowserSkillDir
+        ? { additionalSkillPaths: [builtinBrowserSkillDir] }
+        : {}),
     },
   });
+  let assertBashExecAllowed: ((command: string) => void) | null = null;
+  let takeBashBackgroundFlag: ((command: string) => boolean) | null = null;
   runTracker = createTrackedBashOperations(undefined, {
     sessionId: sessionManager.getSessionId(),
     workspaceRoot: cwd,
     onStarted: (run) => post({ kind: "run_started", run }),
     onOutput: (runId, chunk) => post({ kind: "run_output", runId, chunk }),
     onEnded: (runId) => post({ kind: "run_ended", runId }),
+    onBackgrounded: (runId) => post({ kind: "run_backgrounded", runId }),
+    beforeExec: (command) => assertBashExecAllowed?.(command),
+    shouldStartBackground: (command) => Boolean(takeBashBackgroundFlag?.(command)),
   });
   const { session: created } = await createAgentSessionFromServices({
     services,
@@ -138,6 +219,46 @@ async function initSession(cwd: string, filePath?: string): Promise<void> {
       ...createBrowserToolDefinitions(),
     ],
   });
+  // Bind Desktop ExtensionUIContext so ctx.ui.select/confirm/notify work in Electron.
+  await created.bindExtensions({
+    uiContext: createDesktopExtensionUIContext(),
+    mode: "rpc",
+  });
+  // Registered but inactive until the user mentions browser / selects elements.
+  syncBuiltinBrowserTools(created, false);
+  const {
+    gate: permissionGate,
+    assertBashExecAllowed: assertBash,
+    takeBashBackgroundFlag: takeBg,
+  } = createPermissionGate({
+    getSettings: () => desktopSecurity,
+    getCwd: () => cwd,
+    sessionAllows,
+    askUser: async (req) => {
+      const raw = await rpcToMain(
+        "desktop.permissionAsk",
+        {
+          category: req.category,
+          toolName: req.toolName,
+          summary: req.summary,
+        },
+        PERMISSION_ASK_TIMEOUT_MS,
+      );
+      if (!isPermissionDecision(raw)) {
+        throw new Error("invalid permission decision from main");
+      }
+      return raw;
+    },
+  });
+  assertBashExecAllowed = assertBash;
+  takeBashBackgroundFlag = takeBg;
+  const prevBefore = created.agent.beforeToolCall?.bind(created.agent);
+  created.agent.beforeToolCall = async (ctx, signal) => {
+    const gated = await permissionGate(ctx, signal);
+    if (gated?.block) return gated;
+    return prevBefore?.(ctx, signal);
+  };
+
   created.subscribe((event) => {
     const raw = event as Record<string, unknown>;
     try {
@@ -193,26 +314,6 @@ async function refreshSessionModel(active: AgentSession): Promise<void> {
   }
 }
 
-function readContextUsage(active: AgentSession): {
-  tokens: number | null;
-  contextWindow: number;
-  percent: number | null;
-} | null {
-  const usage = active.getContextUsage();
-  if (usage) {
-    return {
-      tokens: usage.tokens,
-      contextWindow: usage.contextWindow,
-      percent: usage.percent,
-    };
-  }
-  const contextWindow = active.model?.contextWindow;
-  if (typeof contextWindow === "number" && contextWindow > 0) {
-    return { tokens: null, contextWindow, percent: null };
-  }
-  return null;
-}
-
 function emitContextUsage(active: AgentSession): void {
   const usage = readContextUsage(active);
   if (!usage) return;
@@ -223,6 +324,9 @@ function emitContextUsage(active: AgentSession): void {
       tokens: usage.tokens,
       contextWindow: usage.contextWindow,
       percent: usage.percent,
+      toolCalls: usage.toolCalls,
+      messageCount: usage.messageCount,
+      segments: usage.segments ?? null,
     },
   });
 }
@@ -245,12 +349,20 @@ export async function handleWorkerMessage(msg: WorkerInbound): Promise<void> {
     }
     return;
   }
+  if (msg.kind === "reload_security") {
+    desktopSecurity = parseDesktopSecurity(msg.desktopSecurity);
+    return;
+  }
   if (msg.kind === "init") {
-    await initSession(msg.cwd, msg.filePath);
+    await initSession(msg.cwd, msg.filePath, msg.projectTrusted, msg.desktopSecurity);
     return;
   }
   if (msg.kind === "terminate_run") {
     runTracker?.terminateRun(msg.runId);
+    return;
+  }
+  if (msg.kind === "background_run") {
+    runTracker?.backgroundRun(msg.runId);
     return;
   }
   if (msg.kind === "rpc_response") {
@@ -285,19 +397,26 @@ async function runCommand(id: string, command: AgentCommand): Promise<void> {
       if (command.citations?.length) {
         message = formatCitationsBlock(command.citations) + message;
       }
+      applyBuiltinBrowserToolGate(active, message, command.citations);
       const images = normalizePromptImages(command.images);
       await active.prompt(message, images?.length ? { images } : undefined);
       post({ kind: "result", id, data: { promptDone: true } });
       return;
     }
-    case "steer":
-      await requireSession().steer(command.message);
+    case "steer": {
+      const active = requireSession();
+      applyBuiltinBrowserToolGate(active, command.message);
+      await active.steer(command.message);
       post({ kind: "result", id, data: { ok: true } });
       return;
-    case "follow_up":
-      await requireSession().followUp(command.message);
+    }
+    case "follow_up": {
+      const active = requireSession();
+      applyBuiltinBrowserToolGate(active, command.message);
+      await active.followUp(command.message);
       post({ kind: "result", id, data: { ok: true } });
       return;
+    }
     case "abort":
       await requireSession().abort();
       post({ kind: "result", id, data: { ok: true } });

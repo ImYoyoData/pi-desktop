@@ -17,6 +17,16 @@ import type {
   PiPackageListResult,
   PiPackageType,
 } from "../shared/pi-market";
+import type {
+  DesktopSecuritySettings,
+  PermissionAskReply,
+  PermissionAskRequest,
+} from "../shared/desktop-security";
+import type {
+  ExtensionUiEvent,
+  ExtensionUiReply,
+} from "../shared/extension-ui";
+import type { TrustState } from "../shared/protocol";
 
 export type AppInfo = {
   version: string;
@@ -58,9 +68,11 @@ const api = {
   workspace: {
     get: () => ipcRenderer.invoke(IpcChannels.workspace.get) as Promise<string | null>,
     open: () => ipcRenderer.invoke(IpcChannels.workspace.open) as Promise<string | null>,
+    pick: () => ipcRenderer.invoke(IpcChannels.workspace.pick) as Promise<string | null>,
     listRecent: () => ipcRenderer.invoke(IpcChannels.workspace.listRecent) as Promise<string[]>,
     openPath: (root: string) =>
       ipcRenderer.invoke(IpcChannels.workspace.openPath, root) as Promise<string | null>,
+    clear: () => ipcRenderer.invoke(IpcChannels.workspace.clear) as Promise<null>,
     removeRecent: (root: string) =>
       ipcRenderer.invoke(IpcChannels.workspace.removeRecent, root) as Promise<{
         root: string | null;
@@ -91,6 +103,8 @@ const api = {
       ipcRenderer.invoke(IpcChannels.sessions.rename, sessionId, cwd, name) as Promise<SessionSummary | null>,
     history: (filePath: string) =>
       ipcRenderer.invoke(IpcChannels.sessions.history, filePath) as Promise<SessionHistoryMessage[]>,
+    clearContext: (sessionId: string, cwd: string) =>
+      ipcRenderer.invoke(IpcChannels.sessions.clearContext, sessionId, cwd) as Promise<void>,
     status: (sessionId: string, cwd: string) =>
       ipcRenderer.invoke(IpcChannels.sessions.status, sessionId, cwd) as Promise<SessionStatus | null>,
     onEvent: (callback: (event: AgentEvent) => void) => {
@@ -100,12 +114,44 @@ const api = {
         ipcRenderer.removeListener(IpcChannels.sessions.event, listener);
       };
     },
+    onPermission: (callback: (payload: PermissionAskRequest) => void) => {
+      const listener = (
+        _event: Electron.IpcRendererEvent,
+        payload: PermissionAskRequest,
+      ) => callback(payload);
+      ipcRenderer.on(IpcChannels.sessions.permission, listener);
+      return () => {
+        ipcRenderer.removeListener(IpcChannels.sessions.permission, listener);
+      };
+    },
+    permissionReply: (payload: PermissionAskReply) =>
+      ipcRenderer.invoke(IpcChannels.sessions.permissionReply, payload) as Promise<{
+        ok: boolean;
+        reason?: string;
+      }>,
+    onExtensionUi: (callback: (payload: ExtensionUiEvent) => void) => {
+      const listener = (
+        _event: Electron.IpcRendererEvent,
+        payload: ExtensionUiEvent,
+      ) => callback(payload);
+      ipcRenderer.on(IpcChannels.sessions.extensionUi, listener);
+      return () => {
+        ipcRenderer.removeListener(IpcChannels.sessions.extensionUi, listener);
+      };
+    },
+    extensionUiReply: (payload: ExtensionUiReply) =>
+      ipcRenderer.invoke(IpcChannels.sessions.extensionUiReply, payload) as Promise<{
+        ok: boolean;
+        reason?: string;
+      }>,
   },
   runs: {
     list: (workspaceRoot: string) =>
       ipcRenderer.invoke(IpcChannels.runs.list, workspaceRoot) as Promise<AgentRunSnapshot[]>,
     terminate: (runId: string) =>
       ipcRenderer.invoke(IpcChannels.runs.terminate, runId) as Promise<void>,
+    background: (runId: string) =>
+      ipcRenderer.invoke(IpcChannels.runs.background, runId) as Promise<void>,
     onEvent: (callback: (event: AgentRunEvent) => void) => {
       const listener = (_: unknown, event: AgentRunEvent) => callback(event);
       ipcRenderer.on(IpcChannels.runs.event, listener);
@@ -167,6 +213,8 @@ const api = {
         isGitRepository: boolean;
         branch: string | null;
         files: { relativePath: string; status: string; code: string }[];
+        errorCode?: string;
+        errorMessage?: string;
       }>,
     diff: (relativePath: string) =>
       ipcRenderer.invoke(IpcChannels.git.diff, relativePath) as Promise<{
@@ -183,28 +231,58 @@ const api = {
       }>,
     checkout: (branch: string) =>
       ipcRenderer.invoke(IpcChannels.git.checkout, branch) as Promise<
-        { ok: true; message?: string } | { ok: false; message: string }
+        { ok: true; message?: string } | { ok: false; message: string; code: string }
       >,
     createBranch: (branch: string) =>
       ipcRenderer.invoke(IpcChannels.git.createBranch, branch) as Promise<
-        { ok: true; message?: string } | { ok: false; message: string }
+        { ok: true; message?: string } | { ok: false; message: string; code: string }
       >,
     merge: (branch: string) =>
       ipcRenderer.invoke(IpcChannels.git.merge, branch) as Promise<
-        { ok: true; message?: string } | { ok: false; message: string }
+        { ok: true; message?: string } | { ok: false; message: string; code: string }
       >,
     commit: (payload: { message: string; paths: string[] }) =>
       ipcRenderer.invoke(IpcChannels.git.commit, payload) as Promise<
-        { ok: true; message?: string } | { ok: false; message: string }
+        { ok: true; message?: string } | { ok: false; message: string; code: string }
       >,
     pull: () =>
       ipcRenderer.invoke(IpcChannels.git.pull) as Promise<
-        { ok: true; message?: string } | { ok: false; message: string }
+        { ok: true; message?: string } | { ok: false; message: string; code: string }
       >,
     push: () =>
       ipcRenderer.invoke(IpcChannels.git.push) as Promise<
-        { ok: true; message?: string } | { ok: false; message: string }
+        { ok: true; message?: string } | { ok: false; message: string; code: string }
       >,
+    init: () =>
+      ipcRenderer.invoke(IpcChannels.git.init) as Promise<
+        { ok: true; message?: string } | { ok: false; message: string; code: string }
+      >,
+    remotes: () =>
+      ipcRenderer.invoke(IpcChannels.git.remotes) as Promise<
+        { name: string; fetchUrl: string; pushUrl: string }[]
+      >,
+    addRemote: (payload: { name: string; url: string }) =>
+      ipcRenderer.invoke(IpcChannels.git.addRemote, payload) as Promise<
+        { ok: true; message?: string } | { ok: false; message: string; code: string }
+      >,
+    setRemoteUrl: (payload: { name: string; url: string }) =>
+      ipcRenderer.invoke(IpcChannels.git.setRemoteUrl, payload) as Promise<
+        { ok: true; message?: string } | { ok: false; message: string; code: string }
+      >,
+    removeRemote: (name: string) =>
+      ipcRenderer.invoke(IpcChannels.git.removeRemote, name) as Promise<
+        { ok: true; message?: string } | { ok: false; message: string; code: string }
+      >,
+    log: (limit?: number) =>
+      ipcRenderer.invoke(IpcChannels.git.log, limit) as Promise<{
+        entries: {
+          hash: string;
+          shortHash: string;
+          author: string;
+          date: string;
+          subject: string;
+        }[];
+      }>,
   },
   skills: {
     list: (cwd?: string) =>
@@ -551,6 +629,22 @@ const api = {
         focused: boolean;
         error?: string;
       }>,
+  },
+  trust: {
+    get: (cwd: string) =>
+      ipcRenderer.invoke(IpcChannels.trust.get, cwd) as Promise<TrustState>,
+    set: (cwd: string, trusted: boolean) =>
+      ipcRenderer.invoke(IpcChannels.trust.set, cwd, trusted) as Promise<void>,
+    clear: (cwd: string) =>
+      ipcRenderer.invoke(IpcChannels.trust.clear, cwd) as Promise<void>,
+    listTrusted: () =>
+      ipcRenderer.invoke(IpcChannels.trust.listTrusted) as Promise<string[]>,
+  },
+  security: {
+    get: () =>
+      ipcRenderer.invoke(IpcChannels.security.get) as Promise<DesktopSecuritySettings>,
+    set: (settings: DesktopSecuritySettings) =>
+      ipcRenderer.invoke(IpcChannels.security.set, settings) as Promise<void>,
   },
   terminal: {
     create: (cwd?: string) =>

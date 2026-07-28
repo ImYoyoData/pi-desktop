@@ -1,36 +1,37 @@
-# Task 5 Report
+# Task 5 Report: Worker permission gate + RPC ask
 
-**Status:** DONE (automated tests pass; manual jsonl verify not run in CI)
+**Date:** 2026-07-28  
+**Status:** Complete (+ Important review fixes)  
+**Commits:** none (per instructions)
 
-**Commits:** `6c92d88` — `feat: integrate Pi SDK workers and session file listing`
+## What landed
 
-**Tests:** `npm test` — 10/10 passed (incl. `session-list.test.ts`, `session-broker.test.ts`)
+1. **`src/agent-worker/permission-gate.ts`** — `createPermissionGate` with mockable `askUser`; unit tests in `tests/agent-worker/permission-gate.test.ts` (8 cases after review fixes).
+2. **`runtime.ts`** — init takes `desktopSecurity` snapshot; `reload_security` inbound; `sessionAllows` per worker; composes `created.agent.beforeToolCall` with existing extension hook.
+3. **RPC** — `desktop.permissionAsk` via `rpcToMain` with `PERMISSION_ASK_TIMEOUT_MS` (10 min); main router in `index.ts` → `askRendererPermission` → `sessions:permission` / `sessions:permissionReply`.
+4. **Hot reload** — `notifyWorkersReloadSecurity` on `security.set`; init snapshot from `getDesktopSecuritySettings` in `agent-worker-host`.
+5. **Minimal UI** — stub `PermissionStrip.vue` (3 buttons) + chat store pending + preload IPC (Task 6 can polish).
 
-**npm install:** Root `npm install` failed (`EBUSY` on `node_modules/electron`). Installed Pi deps in `%TEMP%/pi-desktop-pi-deps` and copied packages into `node_modules`; `package.json` + `package-lock.json` updated.
+## Verification
 
-**Concerns:** `npm run build` / `vue-tsc` fail in this workspace (broken `.ignored` dev deps from partial install). Restore with full `npm install` when Electron is not locked. Worker init requires Pi models/auth for real prompts.
+- `vitest run` permission-gate + desktop-security + chat-reducer: **43 passed**
+- `npm run typecheck`: **pass**
 
-**Deliverables:** Real SDK in `runtime.ts`, disk `listSessionsForCwd`, broker open/list merge, sidebar wired with workspace gate.
+## Concerns / follow-ups for Task 6
 
----
+- Permission ask for a non-active session still blocks the worker; strip only shows on the active session until UI switches or times out.
+- Strip styling/copy is minimal; ask_user vs permission overlap UX can be refined (permission already mounted above ask_user).
+- No bash `exec` second-line wrapper yet (design optional; Task 8 / later).
 
-## Review fix (sessions.status + randomUUID)
+## Review Important fixes (2026-07-28)
 
-**Changes:** Preload `sessions.status(sessionId, cwd)` aligned with `sessions-ipc.ts`; removed `node:crypto` `randomUUID` import (use global `crypto.randomUUID()` for command ids).
+Addressed the three Important items from `task-5-review.md`:
 
-**Tests:** `npm test` — 6 files, 10/10 passed (2026-07-27).
+1. **No-UI fail-fast** — `askRendererPermission` now rejects immediately with `permission UI unavailable` when `BrowserWindow.getAllWindows().length === 0` (no 10‑min wait).
+2. **Clear strip on main timeout** — On timer expiry and `clearPendingPermissionAsks`, main broadcasts `sessions:permission` with `{ sessionId, requestId, cancelled: true }`. Renderer `onPermission` clears matching `pendingPermission`. Worker RPC still rejects (deny), never resolves as allow. Types: `PermissionAskPrompt | PermissionAskCancelled`.
+3. **Exhaustive `evaluatePermission`** — Gate uses `switch` + `never` default; `deny` returns `{ block: true, reason }` without `askUser`. Unit test stubs `evaluate` to force deny.
 
-```
- RUN  v3.2.7 C:/MyCode/golang/pi-desktop
- ✓ tests/shared/path-sandbox.test.ts (2 tests)
- ✓ tests/shared/protocol.test.ts (1 test)
- ✓ tests/main/workspace-store.test.ts (1 test)
- ✓ tests/renderer/layout-clamp.test.ts (4 tests)
- ✓ tests/main/session-broker.test.ts (1 test)
- ✓ tests/main/session-list.test.ts (1 test)
- Test Files  6 passed (6)
-      Tests  10 passed (10)
-   Duration  1.27s
-```
+### Re-verification
 
-**Renderer:** No call sites for `window.api.sessions.status` (status shown via list/events).
+- `vitest run` permission-gate + desktop-security + project-trust: **28 passed** (permission-gate **8**)
+- `npm run typecheck`: **pass**

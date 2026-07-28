@@ -1,38 +1,213 @@
 <script setup lang="ts">
-import { nextTick, onMounted, onUnmounted, ref, watch } from "vue";
-import { NButton, NEmpty, useMessage } from "naive-ui";
+import { FitAddon } from "@xterm/addon-fit";
+import { Terminal } from "xterm";
+import { WebLinksAddon } from "xterm-addon-web-links";
+import "xterm/css/xterm.css";
+import { nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import { NButton, NEmpty, useDialog, useMessage } from "naive-ui";
 import { t } from "@renderer/i18n";
 import { useAgentRunsStore } from "@renderer/stores/agent-runs";
+import { useAppearanceStore } from "@renderer/stores/appearance";
 import { useSessionsStore } from "@renderer/stores/sessions";
+import { handleAppLinkClick } from "@renderer/utils/open-link";
+import { xtermTheme } from "@renderer/utils/xterm-theme";
+
+const props = defineProps<{
+  /** Tab is visible — refit when shown so height matches the pane */
+  visible?: boolean;
+}>();
 
 const store = useAgentRunsStore();
 const sessions = useSessionsStore();
+const appearance = useAppearanceStore();
 const message = useMessage();
+const dialog = useDialog();
 
 const now = ref(Date.now());
-const outEl = ref<HTMLPreElement | null>(null);
+const hostRef = ref<HTMLDivElement | null>(null);
 let tickTimer: ReturnType<typeof setInterval> | null = null;
+
+let term: Terminal | null = null;
+let fit: FitAddon | null = null;
+let resizeObserver: ResizeObserver | null = null;
+let fitRaf = 0;
+let writeBuf = "";
+let writeRaf = 0;
+/** Last run id + tail successfully pushed to xterm (for incremental writes). */
+let syncedRunId: string | null = null;
+let lastWrittenTail = "";
+
+function flushWriteBuf(): void {
+  writeRaf = 0;
+  if (!term || !writeBuf) return;
+  const chunk = writeBuf;
+  writeBuf = "";
+  term.write(chunk);
+}
+
+function enqueueWrite(data: string): void {
+  if (!data) return;
+  writeBuf += data;
+  if (writeRaf) return;
+  writeRaf = requestAnimationFrame(flushWriteBuf);
+}
+
+function fitTerm(): void {
+  if (!term || !fit || !hostRef.value) return;
+  if (props.visible === false) return;
+  const rect = hostRef.value.getBoundingClientRect();
+  if (rect.width < 8 || rect.height < 8) return;
+  try {
+    fit.fit();
+  } catch {
+    // container may not be laid out yet
+  }
+}
+
+function scheduleFit(): void {
+  if (fitRaf) cancelAnimationFrame(fitRaf);
+  fitRaf = requestAnimationFrame(() => {
+    fitRaf = requestAnimationFrame(() => {
+      fitTerm();
+    });
+  });
+}
+
+function onContextMenu(event: MouseEvent): void {
+  event.preventDefault();
+  event.stopPropagation();
+  if (!term || !term.hasSelection()) return;
+  const text = term.getSelection();
+  term.clearSelection();
+  if (text) {
+    void navigator.clipboard.writeText(text).catch(() => {
+      // ignore clipboard write failures
+    });
+  }
+}
+
+function resetSync(): void {
+  syncedRunId = null;
+  lastWrittenTail = "";
+  writeBuf = "";
+  if (writeRaf) {
+    cancelAnimationFrame(writeRaf);
+    writeRaf = 0;
+  }
+}
+
+function syncOutput(): void {
+  if (!term) return;
+  const run = store.selected;
+  if (!run) {
+    if (syncedRunId !== null || lastWrittenTail) {
+      term.reset();
+      resetSync();
+    }
+    return;
+  }
+  const tail = run.outputTail ?? "";
+  if (run.id !== syncedRunId) {
+    term.reset();
+    writeBuf = "";
+    if (writeRaf) {
+      cancelAnimationFrame(writeRaf);
+      writeRaf = 0;
+    }
+    enqueueWrite(tail);
+    syncedRunId = run.id;
+    lastWrittenTail = tail;
+    return;
+  }
+  if (tail === lastWrittenTail) return;
+  if (tail.startsWith(lastWrittenTail)) {
+    enqueueWrite(tail.slice(lastWrittenTail.length));
+    lastWrittenTail = tail;
+    return;
+  }
+  // Ring buffer capped from the front — full rewrite.
+  term.reset();
+  writeBuf = "";
+  if (writeRaf) {
+    cancelAnimationFrame(writeRaf);
+    writeRaf = 0;
+  }
+  enqueueWrite(tail);
+  lastWrittenTail = tail;
+}
+
+function bindXterm(host: HTMLDivElement): void {
+  term = new Terminal({
+    disableStdin: true,
+    convertEol: true,
+    cursorBlink: false,
+    cursorInactiveStyle: "none",
+    fontSize: 13,
+    fontFamily: "Cascadia Code, Consolas, Menlo, monospace",
+    rightClickSelectsWord: false,
+    scrollback: 5000,
+    theme: xtermTheme(appearance.resolvedTheme === "dark"),
+  });
+  fit = new FitAddon();
+  term.loadAddon(fit);
+  term.loadAddon(
+    new WebLinksAddon((event, uri) => {
+      handleAppLinkClick(event, uri, dialog);
+    }),
+  );
+  term.open(host);
+  host.addEventListener("contextmenu", onContextMenu, true);
+}
 
 onMounted(() => {
   tickTimer = setInterval(() => {
     now.value = Date.now();
   }, 1000);
+
+  const host = hostRef.value;
+  if (host) {
+    bindXterm(host);
+    resizeObserver = new ResizeObserver(() => scheduleFit());
+    resizeObserver.observe(host);
+    syncOutput();
+    void nextTick(() => scheduleFit());
+  }
 });
 
-onUnmounted(() => {
+onBeforeUnmount(() => {
   if (tickTimer) {
     clearInterval(tickTimer);
     tickTimer = null;
   }
+  if (fitRaf) cancelAnimationFrame(fitRaf);
+  if (writeRaf) cancelAnimationFrame(writeRaf);
+  hostRef.value?.removeEventListener("contextmenu", onContextMenu, true);
+  resizeObserver?.disconnect();
+  resizeObserver = null;
+  term?.dispose();
+  term = null;
+  fit = null;
+  resetSync();
 });
 
 watch(
-  () => store.selected?.outputTail?.length ?? 0,
-  async () => {
-    await nextTick();
-    const el = outEl.value;
-    if (!el) return;
-    el.scrollTop = el.scrollHeight;
+  () => [store.selectedId, store.selected?.outputTail] as const,
+  () => {
+    syncOutput();
+  },
+);
+
+watch(
+  () => props.visible,
+  (v) => {
+    if (v) scheduleFit();
+  },
+);
+
+watch(
+  () => appearance.resolvedTheme,
+  () => {
+    if (term) term.options.theme = xtermTheme(appearance.resolvedTheme === "dark");
   },
 );
 
@@ -88,6 +263,7 @@ function onRowKeydown(e: KeyboardEvent, runId: string): void {
           <div class="cmd" :title="run.command">{{ truncate(run.command) }}</div>
           <div class="meta">
             {{ sessionLabel(run.sessionId) }} · {{ elapsed(run.startedAt) }}
+            <span v-if="run.detached" class="status"> · {{ t.runningDetached }}</span>
             <span v-if="run.status === 'terminating'" class="status"> · …</span>
           </div>
         </div>
@@ -100,7 +276,12 @@ function onRowKeydown(e: KeyboardEvent, runId: string): void {
         </NButton>
       </div>
     </aside>
-    <pre ref="outEl" class="run-out">{{ store.selected?.outputTail ?? "" }}</pre>
+    <div class="run-out">
+      <div ref="hostRef" class="term-host" />
+      <div v-if="!store.selected" class="out-empty">
+        <NEmpty :description="t.runningSelectHint" size="small" />
+      </div>
+    </div>
   </div>
 </template>
 
@@ -170,16 +351,48 @@ function onRowKeydown(e: KeyboardEvent, runId: string): void {
 }
 
 .run-out {
-  margin: 0;
-  padding: 8px 10px;
-  overflow: auto;
+  position: relative;
   min-height: 0;
-  font-family: var(--font-mono), ui-monospace, monospace;
-  font-size: 12px;
-  line-height: 1.45;
-  white-space: pre-wrap;
-  word-break: break-word;
-  color: var(--fg);
-  background: color-mix(in srgb, var(--bg) 92%, var(--bg-elevated));
+  min-width: 0;
+  overflow: hidden;
+  background: var(--bg-elevated);
+}
+
+.term-host {
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+.term-host :deep(.xterm) {
+  width: 100%;
+  height: 100%;
+  padding: 4px;
+  box-sizing: border-box;
+  color: var(--fg, #e4e4e7);
+}
+
+.term-host :deep(.xterm-viewport) {
+  overflow-y: auto !important;
+}
+
+.term-host :deep(.xterm-helper-textarea),
+.term-host :deep(.xterm-composition-view) {
+  color: var(--fg, #e4e4e7) !important;
+  caret-color: transparent !important;
+}
+
+.out-empty {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 12px;
+  background: var(--bg-elevated);
+  z-index: 1;
 }
 </style>
