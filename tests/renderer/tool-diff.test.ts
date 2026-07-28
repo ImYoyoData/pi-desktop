@@ -41,7 +41,9 @@ describe("parseFileToolCard", () => {
     const card = parseFileToolCard("write", { path: "n.ts", content: "a\nb\nc" }, undefined);
     expect(card.kind).toBe("write");
     expect(card.stats).toEqual({ additions: 3, deletions: 0 });
-    expect(card.diff).toContain("+   1 a");
+    expect(card.diff).toContain("+a");
+    expect(card.diff).toContain("+b");
+    expect(card.diff).toContain("+c");
   });
 });
 
