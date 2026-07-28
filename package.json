@@ -40,6 +40,7 @@
     "dugite": "^3.2.2",
     "highlight.js": "^11.11.1",
     "marked": "^18.0.7",
+    "mermaid": "^11.16.0",
     "monaco-editor": "^0.56.0",
     "naive-ui": "^2.44.1",
     "node-pty": "^1.0.0",
