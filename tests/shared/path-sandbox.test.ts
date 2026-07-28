@@ -13,4 +13,9 @@ describe("path-sandbox", () => {
   it("denies .. escape", () => {
     expect(() => resolveWorkspacePath(root, "../outside.txt")).toThrow(/escape|outside/i);
   });
+
+  it("treats case variants as inside on case-insensitive platforms", () => {
+    const upper = path.join(root.toUpperCase(), "Src", "A.ts");
+    expect(isPathInsideRoot(root, upper, true)).toBe(true);
+  });
 });

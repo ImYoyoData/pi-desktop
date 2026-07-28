@@ -2,6 +2,7 @@
 import { computed, onMounted } from "vue";
 import { NButton, NEmpty, NIcon, NTag, NText } from "naive-ui";
 import { AddOutline, SparklesOutline } from "@vicons/ionicons5";
+import AskUserStrip from "@renderer/components/AskUserStrip.vue";
 import Composer from "@renderer/components/Composer.vue";
 import MessageList from "@renderer/components/MessageList.vue";
 import { useChatStore } from "@renderer/stores/chat";
@@ -89,6 +90,7 @@ async function onNewAgent(): Promise<void> {
         :running="running"
         :retry-hint="chat.activeRetryHint"
       />
+      <AskUserStrip />
       <Composer />
     </template>
   </section>

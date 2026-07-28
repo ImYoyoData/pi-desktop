@@ -28,10 +28,6 @@ watch(
   { immediate: true },
 );
 
-const splitKey = computed(
-  () => `${layout.leftCollapsed ? "L0" : "L1"}-${layout.rightCollapsed ? "R0" : "R1"}`,
-);
-
 /** Outer: left % of window (rest is main). */
 const outerLeftSize = computed(() => layout.leftSize);
 const outerMainSize = computed(() => 100 - layout.leftSize);
@@ -71,17 +67,20 @@ function onInnerResized(payload: SplitpanesResizedPayload): void {
 
 <template>
   <div class="split-root">
-    <Splitpanes :key="splitKey" class="panes" @resized="onOuterResized">
+    <Splitpanes class="panes" @resized="onOuterResized">
       <Pane
-        v-if="!layout.leftCollapsed"
-        :size="outerLeftSize"
-        :min-size="PANE_MIN"
-        :max-size="PANE_MAX"
+        :size="layout.leftCollapsed ? 0 : outerLeftSize"
+        :min-size="layout.leftCollapsed ? 0 : PANE_MIN"
+        :max-size="layout.leftCollapsed ? 0 : PANE_MAX"
+        :class="{ 'pane-collapsed': layout.leftCollapsed }"
       >
         <SessionSidebar />
       </Pane>
 
-      <Pane :size="layout.leftCollapsed ? 100 : outerMainSize" :min-size="100 - PANE_MAX">
+      <Pane
+        :size="layout.leftCollapsed ? 100 : outerMainSize"
+        :min-size="layout.leftCollapsed ? 100 : 100 - PANE_MAX"
+      >
         <Splitpanes class="panes inner" @resized="onInnerResized">
           <Pane
             :size="layout.rightCollapsed ? 100 : innerPair.chat"
@@ -91,10 +90,10 @@ function onInnerResized(payload: SplitpanesResizedPayload): void {
             <ChatPanel />
           </Pane>
           <Pane
-            v-if="!layout.rightCollapsed"
-            :size="innerPair.right"
-            :min-size="PANE_MIN"
-            :max-size="PANE_MAX"
+            :size="layout.rightCollapsed ? 0 : innerPair.right"
+            :min-size="layout.rightCollapsed ? 0 : PANE_MIN"
+            :max-size="layout.rightCollapsed ? 0 : PANE_MAX"
+            :class="{ 'pane-collapsed': layout.rightCollapsed }"
           >
             <RightPane />
           </Pane>
@@ -153,6 +152,12 @@ function onInnerResized(payload: SplitpanesResizedPayload): void {
   flex: 1;
   min-height: 0;
   height: 100%;
+}
+
+:deep(.pane-collapsed) {
+  overflow: hidden !important;
+  pointer-events: none;
+  visibility: hidden;
 }
 
 .rail {

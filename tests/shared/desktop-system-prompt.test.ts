@@ -1,0 +1,35 @@
+import { describe, expect, it } from "vitest";
+import {
+  DESKTOP_ASK_USER_PROMPT,
+  DESKTOP_COMPOSER_MODES_PROMPT,
+  DESKTOP_PROJECT_ORIENTATION_PROMPT,
+} from "../../src/shared/desktop-system-prompt";
+
+describe("DESKTOP_PROJECT_ORIENTATION_PROMPT", () => {
+  it("mentions key project orientation sources", () => {
+    expect(DESKTOP_PROJECT_ORIENTATION_PROMPT).toContain("AGENTS.md");
+    expect(DESKTOP_PROJECT_ORIENTATION_PROMPT).toContain("README.md");
+    expect(DESKTOP_PROJECT_ORIENTATION_PROMPT).toContain(".cursor/");
+    expect(DESKTOP_PROJECT_ORIENTATION_PROMPT).toContain(".pi/");
+    expect(DESKTOP_PROJECT_ORIENTATION_PROMPT).toContain(".opencode/");
+  });
+});
+
+describe("DESKTOP_ASK_USER_PROMPT", () => {
+  it("documents ask_user usage", () => {
+    expect(DESKTOP_ASK_USER_PROMPT).toContain("ask_user");
+    expect(DESKTOP_ASK_USER_PROMPT).toContain("[ask_user answers]");
+    expect(DESKTOP_ASK_USER_PROMPT).toContain("allowCustom");
+  });
+});
+
+describe("DESKTOP_COMPOSER_MODES_PROMPT", () => {
+  it("documents plan/ask/task/agent modes", () => {
+    expect(DESKTOP_COMPOSER_MODES_PROMPT).toContain("agent");
+    expect(DESKTOP_COMPOSER_MODES_PROMPT).toContain("plan");
+    expect(DESKTOP_COMPOSER_MODES_PROMPT).toContain("ask");
+    expect(DESKTOP_COMPOSER_MODES_PROMPT).toContain("task");
+    expect(DESKTOP_COMPOSER_MODES_PROMPT).toContain("[pi-desktop mode:");
+    expect(DESKTOP_COMPOSER_MODES_PROMPT).toContain("Task mode");
+  });
+});

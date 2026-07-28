@@ -15,6 +15,7 @@ import WelcomeView from "@renderer/components/WelcomeView.vue";
 import SplitRoot from "@renderer/components/SplitRoot.vue";
 import PiCliSetup from "@renderer/components/PiCliSetup.vue";
 import CloseGuard from "@renderer/components/CloseGuard.vue";
+import AsrWakeGuard from "@renderer/components/AsrWakeGuard.vue";
 import { useWorkspaceStore } from "@renderer/stores/workspace";
 import { useAppearanceStore } from "@renderer/stores/appearance";
 import { darkThemeOverrides, lightThemeOverrides } from "@renderer/theme/naive";
@@ -36,6 +37,7 @@ let stopAppearance: (() => void) | undefined;
 
 onMounted(() => {
   stopAppearance = appearance.init();
+  void window.api.window.setUiLocale(locale === "zh-CN" ? "zh-CN" : "en");
   void workspace.getWorkspace();
   void workspace.listRecent();
 });
@@ -56,6 +58,7 @@ onUnmounted(() => {
     <NMessageProvider>
       <NDialogProvider>
         <CloseGuard />
+        <AsrWakeGuard />
         <div class="app-shell" :data-theme="appearance.resolvedTheme">
           <TitleBar />
           <main class="app-main">

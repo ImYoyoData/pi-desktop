@@ -1,7 +1,8 @@
-import { contextBridge, ipcRenderer } from "electron";
+import { contextBridge, ipcRenderer, webUtils } from "electron";
 import { electronAPI } from "@electron-toolkit/preload";
 import type { AgentCommand, AgentEvent, ElementCitation, SessionHistoryMessage, SessionStatus, SessionSummary } from "../shared/protocol";
 import { IpcChannels } from "../shared/protocol";
+import type { AgentRunEvent, AgentRunSnapshot } from "../shared/agent-runs";
 import type { ModelsGetResult, ModelsSetPayload } from "../shared/models-settings";
 import type { PreviewResult } from "../shared/preview-types";
 import type { AsrInstallProgress, AsrStatus, AsrStreamEvent } from "../shared/asr";
@@ -42,6 +43,8 @@ const api = {
       ipcRenderer.invoke(IpcChannels.window.setThemeSource, source) as Promise<void>,
     setChromeTheme: (mode: "light" | "dark") =>
       ipcRenderer.invoke(IpcChannels.window.setChromeTheme, mode) as Promise<void>,
+    setUiLocale: (locale: "zh-CN" | "en") =>
+      ipcRenderer.invoke(IpcChannels.window.setUiLocale, locale) as Promise<void>,
     requestMediaAccess: (kind: "microphone" | "camera") =>
       ipcRenderer.invoke(IpcChannels.window.requestMediaAccess, kind) as Promise<boolean>,
     onCloseRequest: (callback: () => void) => {
@@ -63,6 +66,8 @@ const api = {
         root: string | null;
         recent: string[];
       }>,
+    reorderRecent: (order: string[]) =>
+      ipcRenderer.invoke(IpcChannels.workspace.reorderRecent, order) as Promise<string[]>,
     revealInFolder: (root: string) =>
       ipcRenderer.invoke(IpcChannels.workspace.revealInFolder, root) as Promise<void>,
   },
@@ -96,7 +101,26 @@ const api = {
       };
     },
   },
+  runs: {
+    list: (workspaceRoot: string) =>
+      ipcRenderer.invoke(IpcChannels.runs.list, workspaceRoot) as Promise<AgentRunSnapshot[]>,
+    terminate: (runId: string) =>
+      ipcRenderer.invoke(IpcChannels.runs.terminate, runId) as Promise<void>,
+    onEvent: (callback: (event: AgentRunEvent) => void) => {
+      const listener = (_: unknown, event: AgentRunEvent) => callback(event);
+      ipcRenderer.on(IpcChannels.runs.event, listener);
+      return () => ipcRenderer.removeListener(IpcChannels.runs.event, listener);
+    },
+  },
   files: {
+    /** Electron 32+ removed File.path in renderer; resolve via preload webUtils. */
+    getPathForFile: (file: File): string => {
+      try {
+        return webUtils.getPathForFile(file);
+      } catch {
+        return "";
+      }
+    },
     list: (relativePath?: string) =>
       ipcRenderer.invoke(IpcChannels.files.list, relativePath) as Promise<
         { name: string; path: string; kind: "file" | "dir" }[]
@@ -355,6 +379,10 @@ const api = {
     },
     setWakeHotkey: (accel: string) =>
       ipcRenderer.invoke(IpcChannels.asr.setWakeHotkey, accel) as Promise<AsrStatus>,
+    setResidentModel: (enabled: boolean) =>
+      ipcRenderer.invoke(IpcChannels.asr.setResidentModel, enabled) as Promise<AsrStatus>,
+    setWakeWords: (raw: string) =>
+      ipcRenderer.invoke(IpcChannels.asr.setWakeWords, raw) as Promise<AsrStatus>,
     onWake: (callback: () => void) => {
       const listener = () => callback();
       ipcRenderer.on(IpcChannels.asr.wake, listener);

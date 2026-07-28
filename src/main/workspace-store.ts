@@ -45,14 +45,34 @@ export function createWorkspaceStore(statePath: string) {
       persist();
     },
 
+    /**
+     * Add by append order (first-added stays first). Re-opening an existing
+     * root does NOT move it — order is fixed until reorderRecent / remove.
+     */
     addRecent(root: string): void {
-      const recent = [root, ...state.recent.filter((entry) => entry !== root)];
-      state = { ...state, recent };
+      if (state.recent.includes(root)) {
+        return;
+      }
+      state = { ...state, recent: [...state.recent, root] };
       persist();
     },
 
     listRecent(): string[] {
       return [...state.recent];
+    },
+
+    /** Persist a user-defined order (e.g. drag-and-drop). */
+    reorderRecent(order: string[]): void {
+      const known = new Set(state.recent);
+      const next = order.filter((entry) => known.has(entry));
+      for (const entry of state.recent) {
+        if (!next.includes(entry)) next.push(entry);
+      }
+      if (next.length === state.recent.length && next.every((p, i) => p === state.recent[i])) {
+        return;
+      }
+      state = { ...state, recent: next };
+      persist();
     },
 
     removeRecent(root: string): void {

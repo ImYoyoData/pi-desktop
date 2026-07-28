@@ -6,6 +6,8 @@ import {
   NDropdown,
   NEmpty,
   NIcon,
+  NInput,
+  NModal,
   NSpace,
   NTooltip,
   useDialog,
@@ -13,17 +15,22 @@ import {
 import {
   AddOutline,
   CloseOutline,
+  CreateOutline,
   DocumentTextOutline,
   GitCompareOutline,
   GlobeOutline,
+  PlayCircleOutline,
   TerminalOutline,
+  TrashOutline,
   ChevronForwardOutline,
 } from "@vicons/ionicons5";
 import Sortable from "sortablejs";
 import ChangesTab from "@renderer/components/ChangesTab.vue";
 import BrowserTab from "@renderer/components/BrowserTab.vue";
+import RunningTab from "@renderer/components/RunningTab.vue";
 import TerminalTab from "@renderer/components/TerminalTab.vue";
 import PreviewTab from "@renderer/components/PreviewTab.vue";
+import { useAgentRunsStore } from "@renderer/stores/agent-runs";
 import { useLayoutStore } from "@renderer/stores/layout";
 import { usePreviewStore } from "@renderer/stores/preview";
 import { useRightTabsStore, type RightTab, type RightTabKind } from "@renderer/stores/right-tabs";
@@ -35,6 +42,7 @@ const layout = useLayoutStore();
 const previewStore = usePreviewStore();
 const rightTabs = useRightTabsStore();
 const workspace = useWorkspaceStore();
+const agentRuns = useAgentRunsStore();
 const dialog = useDialog();
 
 const tabsBarRef = ref<HTMLElement | null>(null);
@@ -52,8 +60,8 @@ function bindTabsSortable(): void {
   tabsSortable = Sortable.create(el, {
     animation: 150,
     direction: "horizontal",
-    draggable: ".tab-item",
-    filter: ".tab-close",
+    draggable: ".tab-item:not(.tab-pinned)",
+    filter: ".tab-close, .tab-pinned",
     preventOnFilter: false,
     delay: 0,
     delayOnTouchOnly: true,
@@ -66,6 +74,8 @@ function bindTabsSortable(): void {
       if (same) return;
       rightTabs.reorderByIds(ids);
       rightTabs.persistTabs(workspace.root);
+      // Pin may reshuffle store order vs Sortable DOM — rebind after paint.
+      void nextTick(() => bindTabsSortable());
     },
   });
 }
@@ -91,21 +101,41 @@ onMounted(() => {
   }
   void rightTabs.refreshPreviewGitMeta();
   void nextTick(() => bindTabsSortable());
+  // Keep run list warm even when the Running tab is not active.
+  agentRuns.bind();
+  void agentRuns.refresh(workspace.root);
 });
 
 onUnmounted(() => {
   destroyTabsSortable();
+  agentRuns.unbind();
 });
+
+watch(
+  () => workspace.root,
+  (root) => {
+    void agentRuns.refresh(root);
+  },
+);
 
 watch(
   () => rightTabs.tabs.map((tab) => tab.id).join("|"),
   () => {
-    void nextTick(() => bindTabsSortable());
+    void nextTick(() => {
+      bindTabsSortable();
+      // Keep the newly appended / active tab visible at the end of the strip.
+      const active = tabsBarRef.value?.querySelector<HTMLElement>(
+        `.tab-item[data-id="${rightTabs.activeId}"]`,
+      );
+      active?.scrollIntoView({ inline: "nearest", block: "nearest" });
+    });
   },
 );
 
 function iconFor(kind: RightTabKind) {
   switch (kind) {
+    case "running":
+      return PlayCircleOutline;
     case "changes":
       return GitCompareOutline;
     case "files":
@@ -179,6 +209,7 @@ function onTabClose(name: string | number): void {
   const id = String(name);
   const tab = rightTabs.tabs.find((item) => item.id === id);
   if (!tab) return;
+  if (tab.kind === "running") return;
 
   // Deleted on disk — ask whether to recreate via save
   if (tab.kind === "preview" && tab.missing) {
@@ -265,6 +296,90 @@ function onTabClose(name: string | number): void {
 function onTabChange(id: string): void {
   rightTabs.selectTab(id);
 }
+
+const renameVisible = ref(false);
+const renameDraft = ref("");
+const renameTargetId = ref<string | null>(null);
+const ctxMenuShow = ref(false);
+const ctxMenuX = ref(0);
+const ctxMenuY = ref(0);
+const ctxMenuTabId = ref<string | null>(null);
+
+const ctxMenuTab = computed(() =>
+  rightTabs.tabs.find((tab) => tab.id === ctxMenuTabId.value) ?? null,
+);
+
+const ctxMenuOptions = computed(() =>
+  ctxMenuTab.value ? tabContextOptions(ctxMenuTab.value) : [],
+);
+
+function canRenameTab(tab: RightTab): boolean {
+  return tab.kind === "browser" || tab.kind === "terminal" || tab.kind === "preview";
+}
+
+function openTabContextMenu(event: MouseEvent, tab: RightTab): void {
+  if (tab.kind === "running") return;
+  const options = tabContextOptions(tab);
+  if (!options.length) return;
+  ctxMenuTabId.value = tab.id;
+  ctxMenuX.value = event.clientX;
+  ctxMenuY.value = event.clientY;
+  ctxMenuShow.value = true;
+}
+
+function closeTabContextMenu(): void {
+  ctxMenuShow.value = false;
+  ctxMenuTabId.value = null;
+}
+
+function tabContextOptions(tab: RightTab): DropdownOption[] {
+  const options: DropdownOption[] = [];
+  if (canRenameTab(tab)) {
+    options.push({
+      label: t.renameTab,
+      key: "rename",
+      icon: () => h(NIcon, null, { default: () => h(CreateOutline) }),
+    });
+  }
+  if (tab.kind !== "running") {
+    options.push({
+      label: t.deleteTab,
+      key: "delete",
+      icon: () => h(NIcon, null, { default: () => h(TrashOutline) }),
+    });
+  }
+  return options;
+}
+
+function onTabContextSelect(key: string | number): void {
+  const tab = ctxMenuTab.value;
+  closeTabContextMenu();
+  if (!tab) return;
+  const action = String(key);
+  if (action === "rename") {
+    if (!canRenameTab(tab)) return;
+    renameTargetId.value = tab.id;
+    renameDraft.value = tab.label;
+    renameVisible.value = true;
+    return;
+  }
+  if (action === "delete") {
+    onTabClose(tab.id);
+  }
+}
+
+function submitRenameTab(): void {
+  const id = renameTargetId.value;
+  const name = renameDraft.value.trim();
+  if (!id || !name) {
+    renameVisible.value = false;
+    return;
+  }
+  rightTabs.renameTab(id, name);
+  rightTabs.persistTabs(workspace.root);
+  renameVisible.value = false;
+  renameTargetId.value = null;
+}
 </script>
 
 <template>
@@ -276,11 +391,15 @@ function onTabChange(id: string): void {
             v-for="tab in rightTabs.tabs"
             :key="tab.id"
             class="tab-item"
-            :class="{ active: tab.id === rightTabs.activeId }"
+            :class="{
+              active: tab.id === rightTabs.activeId,
+              'tab-pinned': tab.kind === 'running',
+            }"
             :data-id="tab.id"
             role="tab"
             :aria-selected="tab.id === rightTabs.activeId"
             @click="onTabChange(tab.id)"
+            @contextmenu.prevent="openTabContextMenu($event, tab)"
           >
             <NIcon :component="iconFor(tab.kind)" :size="12" :style="tabLabelStyle(tab)" />
             <span
@@ -289,6 +408,7 @@ function onTabChange(id: string): void {
               :style="tabLabelStyle(tab)"
             >{{ tabDisplayLabel(tab) }}</span>
             <button
+              v-if="tab.kind !== 'running'"
               type="button"
               class="tab-close"
               :title="t.closeTab"
@@ -328,6 +448,11 @@ function onTabChange(id: string): void {
 
     <div class="body">
       <template v-for="tab in rightTabs.tabs" :key="tab.id">
+        <RunningTab
+          v-if="tab.kind === 'running'"
+          v-show="active?.id === tab.id"
+          class="tab-panel"
+        />
         <ChangesTab
           v-show="active?.id === tab.id && tab.kind === 'changes'"
           class="tab-panel"
@@ -364,6 +489,38 @@ function onTabChange(id: string): void {
         size="small"
       />
     </div>
+
+    <NDropdown
+      placement="bottom-start"
+      trigger="manual"
+      :x="ctxMenuX"
+      :y="ctxMenuY"
+      :options="ctxMenuOptions"
+      :show="ctxMenuShow"
+      @clickoutside="closeTabContextMenu"
+      @select="onTabContextSelect"
+    />
+
+    <NModal
+      v-model:show="renameVisible"
+      preset="card"
+      :title="t.renameTab"
+      style="width: 360px"
+      :mask-closable="true"
+    >
+      <p class="rename-hint">{{ t.renameTabPrompt }}</p>
+      <NInput
+        v-model:value="renameDraft"
+        :placeholder="t.renameTabPlaceholder"
+        @keydown.enter.prevent="submitRenameTab"
+      />
+      <template #footer>
+        <NSpace justify="end">
+          <NButton size="small" @click="renameVisible = false">{{ t.cancel }}</NButton>
+          <NButton size="small" type="primary" @click="submitRenameTab">{{ t.confirm }}</NButton>
+        </NSpace>
+      </template>
+    </NModal>
   </aside>
 </template>
 
@@ -516,5 +673,11 @@ function onTabChange(id: string): void {
 
 .empty {
   margin-top: 40px;
+}
+
+.rename-hint {
+  margin: 0 0 10px;
+  font-size: 13px;
+  color: var(--text-muted, #71717a);
 }
 </style>

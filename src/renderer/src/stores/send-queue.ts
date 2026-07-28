@@ -16,7 +16,7 @@ export type QueuedSendItem = {
     host: string;
     label: string;
     content?: string;
-    kind?: "file" | "url" | "element";
+    kind?: "file" | "url" | "element" | "agent" | "plan" | "ask" | "task";
   }[];
 };
 

@@ -6,6 +6,7 @@ import { nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useWorkspaceStore } from "@renderer/stores/workspace";
 import { useAppearanceStore } from "@renderer/stores/appearance";
 import { useRightTabsStore } from "@renderer/stores/right-tabs";
+import { sanitizeTerminalCommandLabel, truncateTabLabel } from "../../../shared/tab-label";
 import { t } from "@renderer/i18n";
 
 const props = defineProps<{
@@ -34,6 +35,9 @@ let fitRaf = 0;
 /** Renderer-side coalesce — xterm.write is expensive under flood. */
 let writeBuf = "";
 let writeRaf = 0;
+/** First Enter-submitted command → auto tab title (once). */
+let inputLineBuf = "";
+let autoTitled = false;
 
 function flushWriteBuf(): void {
   writeRaf = 0;
@@ -153,6 +157,26 @@ function onContextMenu(event: MouseEvent): void {
   term.focus();
 }
 
+function noteUserInput(data: string): void {
+  if (autoTitled || !props.instanceId) return;
+  for (const ch of data) {
+    if (ch === "\r" || ch === "\n") {
+      const cmd = sanitizeTerminalCommandLabel(inputLineBuf);
+      inputLineBuf = "";
+      if (!cmd) continue;
+      autoTitled = true;
+      rightTabs.autoTitleTab(props.instanceId, truncateTabLabel(cmd));
+      return;
+    }
+    if (ch === "\u007f" || ch === "\b") {
+      inputLineBuf = inputLineBuf.slice(0, -1);
+      continue;
+    }
+    // Ignore other control bytes; keep printable + tab
+    if (ch === "\t" || ch >= " ") inputLineBuf += ch;
+  }
+}
+
 function bindXterm(host: HTMLDivElement): void {
   term = new Terminal({
     cursorBlink: true,
@@ -167,6 +191,7 @@ function bindXterm(host: HTMLDivElement): void {
   term.loadAddon(fit);
   term.open(host);
   term.onData((data) => {
+    noteUserInput(data);
     if (activePtyId.value) void window.api.terminal.write(activePtyId.value, data);
   });
   host.addEventListener("contextmenu", onContextMenu, true);

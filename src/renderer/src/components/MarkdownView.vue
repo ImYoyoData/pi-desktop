@@ -34,18 +34,8 @@ watch(
 );
 
 function openInBuiltinBrowser(url: string): void {
-  // Reuse an existing browser tab so link clicks don't spawn blank tabs.
-  const active = rightTabs.activeTab;
-  const existing =
-    (active?.kind === "browser" ? active : null) ??
-    rightTabs.tabs.find((t) => t.kind === "browser") ??
-    null;
-  let tab = existing;
-  if (tab) {
-    rightTabs.selectTab(tab.id);
-  } else {
-    tab = rightTabs.addTab("browser");
-  }
+  // Always open a new browser tab — never overwrite an existing one.
+  const tab = rightTabs.addTab("browser");
   // Store pending URL — BrowserTab consumes after mount / when visible.
   // Do not dispatch a window event here (race: new tab not listening yet).
   browserNav.requestNavigate(url, tab.id);
@@ -117,6 +107,9 @@ onUnmounted(() => {
   color: inherit;
   word-break: break-word;
   overflow-wrap: anywhere;
+  user-select: text;
+  -webkit-user-select: text;
+  cursor: text;
 }
 
 .md :deep(p) {

@@ -1,6 +1,7 @@
 import { defineStore } from "pinia";
 import { computed, ref } from "vue";
 import type { AsrInstallProgress, AsrStatus, AsrStreamEvent } from "../../../shared/asr";
+import { DEFAULT_ASR_WAKE_WORDS } from "../../../shared/asr-wake";
 import { DEFAULT_ASR_WAKE_HOTKEY } from "../../../shared/hotkey";
 import { t } from "@renderer/i18n";
 
@@ -66,6 +67,8 @@ const emptyStatus = (): AsrStatus => ({
   runtimeMatchesPreference: true,
   runtimeArchiveHint: null,
   wakeHotkey: DEFAULT_ASR_WAKE_HOTKEY,
+  residentModel: false,
+  wakeWords: DEFAULT_ASR_WAKE_WORDS,
   lastError: null,
 });
 
@@ -80,6 +83,8 @@ export const useAsrStore = defineStore("asr", () => {
   const installInFlight = ref(false);
   /** True while settings is listening for a new wake chord — Composer ignores wake. */
   const capturingHotkey = ref(false);
+  /** True while Composer dictation (record / pending) — App-level wake listen pauses. */
+  const wakePaused = ref(false);
 
   const micVisible = computed(() => status.value.enabled && status.value.supported);
   /** Only true while installing runtime/model — never during transcription. */
@@ -211,9 +216,32 @@ export const useAsrStore = defineStore("asr", () => {
     return status.value;
   }
 
+  async function setResidentModel(enabled: boolean): Promise<AsrStatus> {
+    status.value = await window.api.asr.setResidentModel(enabled);
+    return status.value;
+  }
+
+  async function setWakeWords(raw: string): Promise<AsrStatus> {
+    status.value = await window.api.asr.setWakeWords(raw);
+    return status.value;
+  }
+
   function setCapturingHotkey(v: boolean): void {
     capturingHotkey.value = v;
   }
+
+  function setWakePaused(v: boolean): void {
+    wakePaused.value = v;
+  }
+
+  /** True when prefs say we should keep a wake mic / warm stream. */
+  const residentActive = computed(
+    () =>
+      status.value.residentModel &&
+      status.value.enabled &&
+      status.value.supported &&
+      status.value.installed,
+  );
 
   return {
     status,
@@ -222,13 +250,18 @@ export const useAsrStore = defineStore("asr", () => {
     transcribing,
     queueDepth,
     capturingHotkey,
+    wakePaused,
     micVisible,
     installing,
+    residentActive,
     refresh,
     setEnabled,
     setGpuPreference,
     setWakeHotkey,
+    setResidentModel,
+    setWakeWords,
     setCapturingHotkey,
+    setWakePaused,
     install,
     installFromUrl,
     importLocal,

@@ -25,6 +25,13 @@ export type SessionBroker = {
   openSession: (sessionId: string, cwd: string) => Promise<SessionSummary | null>;
   closeSession: (sessionId: string) => Promise<void>;
   send: (sessionId: string, command: AgentCommand) => Promise<unknown>;
+  /** Fire-and-forget worker message (no pending-command tracking). */
+  sendRaw: (sessionId: string, msg: WorkerInbound) => Promise<WorkerOutbound | null>;
+  /**
+   * Send to a live worker only — never cold-starts via ensureWorker/spawn.
+   * Returns false when no worker is alive for the session.
+   */
+  sendRawIfAlive: (sessionId: string, msg: WorkerInbound) => Promise<boolean>;
   killWorker: (sessionId: string) => Promise<void>;
   restartWorker: (sessionId: string) => Promise<void>;
   deleteSession: (sessionId: string, cwd: string) => Promise<void>;
@@ -57,6 +64,8 @@ type SessionRecord = {
 export function createSessionBroker(deps: {
   spawnWorker: SpawnWorker;
   idleDestroyMs?: number;
+  onWorkerMessage?: (sessionId: string, msg: WorkerOutbound) => void;
+  onSessionWorkerGone?: (sessionId: string) => void;
 }): SessionBroker {
   const idleDestroyMs = deps.idleDestroyMs ?? IDLE_WORKER_DESTROY_MS;
   const sessions = new Map<string, SessionRecord>();
@@ -112,6 +121,7 @@ export function createSessionBroker(deps: {
     clearIdleDestroyTimer(rec);
     rec.worker.kill();
     rec.worker = null;
+    deps.onSessionWorkerGone?.(sessionId);
   }
 
   function stopHeartbeat(rec: SessionRecord): void {
@@ -179,6 +189,8 @@ export function createSessionBroker(deps: {
         return;
       }
 
+      deps.onWorkerMessage?.(sessionId, msg);
+
       if (msg.kind === "pong") {
         rec.heartbeatMisses = 0;
         if (rec.summary.status === "stuck") {
@@ -229,6 +241,7 @@ export function createSessionBroker(deps: {
           clearIdleDestroyTimer(rec);
           stopHeartbeat(rec);
           rec.worker = null;
+          deps.onSessionWorkerGone?.(sessionId);
           if (rec.summary.status === "running") {
             setStatus(sessionId, "idle");
           }
@@ -236,6 +249,7 @@ export function createSessionBroker(deps: {
         }
         rejectPendingCommands(rec, errText);
         setStatus(sessionId, "error");
+        deps.onSessionWorkerGone?.(sessionId);
         emit({
           type: "prompt_error",
           sessionId,
@@ -408,6 +422,32 @@ export function createSessionBroker(deps: {
     }
     await teardownWorker(sessionId, 0);
     sessions.delete(sessionId);
+    deps.onSessionWorkerGone?.(sessionId);
+  }
+
+  async function sendRaw(
+    sessionId: string,
+    msg: WorkerInbound,
+  ): Promise<WorkerOutbound | null> {
+    const rec = await ensureWorker(sessionId);
+    const worker = rec.worker;
+    if (!worker) {
+      throw new Error(`session worker unavailable: ${sessionId}`);
+    }
+    return worker.send(msg);
+  }
+
+  async function sendRawIfAlive(
+    sessionId: string,
+    msg: WorkerInbound,
+  ): Promise<boolean> {
+    const rec = sessions.get(sessionId);
+    const worker = rec?.worker;
+    if (!worker) {
+      return false;
+    }
+    await worker.send(msg);
+    return true;
   }
 
   async function send(sessionId: string, command: AgentCommand): Promise<unknown> {
@@ -469,6 +509,7 @@ export function createSessionBroker(deps: {
       rec.worker.kill();
       rec.worker = null;
     }
+    deps.onSessionWorkerGone?.(sessionId);
     setStatus(sessionId, "error");
     emit({ type: "worker_exit", sessionId, code: null });
   }
@@ -485,6 +526,7 @@ export function createSessionBroker(deps: {
       rec.worker.kill();
       rec.worker = null;
     }
+    deps.onSessionWorkerGone?.(sessionId);
     await spawnWorkerForRecord(sessionId, rec);
     setStatus(sessionId, "idle");
   }
@@ -503,6 +545,7 @@ export function createSessionBroker(deps: {
       rec.worker.kill();
       rec.worker = null;
     }
+    deps.onSessionWorkerGone?.(sessionId);
     sessions.delete(sessionId);
     if (filePath) {
       try {
@@ -536,6 +579,8 @@ export function createSessionBroker(deps: {
     openSession,
     closeSession,
     send,
+    sendRaw,
+    sendRawIfAlive,
     killWorker,
     restartWorker,
     deleteSession,
