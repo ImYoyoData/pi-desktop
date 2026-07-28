@@ -15,6 +15,7 @@ import {
 } from "naive-ui";
 import type { ModelsProviderAuth } from "../../../shared/models-settings";
 import ProviderIcon from "@renderer/components/ProviderIcon.vue";
+import CustomModelsPanel from "@renderer/components/CustomModelsPanel.vue";
 import { t } from "@renderer/i18n";
 
 const props = defineProps<{
@@ -34,9 +35,10 @@ const available = ref<{ provider: string; id: string; name: string }[]>([]);
 const loading = ref(false);
 const saving = ref(false);
 const selectedProvider = ref<string | null>(null);
-const mainTab = ref<"auth" | "json">("auth");
+const mainTab = ref<"auth" | "custom" | "json">("auth");
 const pickerOpen = ref(false);
 const pickerQuery = ref("");
+const customStartAdd = ref(false);
 
 const configuredProviders = computed(() => providers.value.filter((p) => p.configured));
 
@@ -171,9 +173,10 @@ async function clearKey(): Promise<void> {
   }
 }
 
-function goCustomJson(): void {
+function goCustomPanel(): void {
   pickerOpen.value = false;
-  mainTab.value = "json";
+  mainTab.value = "custom";
+  customStartAdd.value = true;
 }
 </script>
 
@@ -310,6 +313,13 @@ function goCustomJson(): void {
             </div>
           </NTabPane>
 
+          <NTabPane name="custom" :tab="t.modelsCustomTab">
+            <CustomModelsPanel
+              v-model:models-text="modelsText"
+              v-model:start-add="customStartAdd"
+            />
+          </NTabPane>
+
           <NTabPane name="json" tab="models.json">
             <div class="json-pane">
               <NText depth="3" style="font-size: 12px; display: block; margin-bottom: 8px">
@@ -344,7 +354,7 @@ function goCustomJson(): void {
             style="margin-bottom: 8px"
           />
           <NScrollbar style="max-height: 320px">
-            <button type="button" class="picker-card" @click="goCustomJson">
+            <button type="button" class="picker-card" @click="goCustomPanel">
               <div class="picker-meta">
                 <div class="name">{{ t.modelsCustomProvider }}</div>
                 <NText depth="3" style="font-size: 11px">{{ t.modelsCustomHint }}</NText>

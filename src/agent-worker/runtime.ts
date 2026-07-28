@@ -83,7 +83,13 @@ function busyLoopMs(ms: number): void {
 function formatCitationsBlock(citations: ElementCitation[]): string {
   const body = citations
     .map((c, index) => {
-      const shot = c.screenshotDataUrl ? "\n- Screenshot: attached as image" : "";
+      const shot =
+        c.screenshotDataUrl || c.kind === "region"
+          ? "\n- Screenshot: attached as image"
+          : "";
+      if (c.kind === "region" || c.selector === "[region]") {
+        return `### Citation ${index + 1} (region)\n- URL: ${c.url}\n- Region: ${c.text || "screenshot"}${shot}`;
+      }
       return `### Citation ${index + 1}\n- URL: ${c.url}\n- Selector: \`${c.selector}\`\n- Text: ${c.text}${shot}\n\n\`\`\`html\n${truncateHtmlSnippet(c.htmlSnippet)}\n\`\`\``;
     })
     .join("\n\n");

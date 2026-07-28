@@ -9,6 +9,7 @@ import {
   removeSelectMode,
 } from "./select-element-script";
 import type { BrowserTabRegistry } from "./browser-tab-registry";
+import { getUiLocale } from "./ui-locale";
 
 /** Renderer listens for this to toggle the in-pane browser DevTools. */
 export const IpcBrowserHotkeys = {
@@ -84,6 +85,12 @@ export async function waitForBrowserTabReady(
 function broadcastElementSelected(citation: ElementCitation): void {
   for (const win of BrowserWindow.getAllWindows()) {
     win.webContents.send(IpcChannels.browser.elementSelected, citation);
+  }
+}
+
+function broadcastSelectCancelled(): void {
+  for (const win of BrowserWindow.getAllWindows()) {
+    win.webContents.send(IpcChannels.browser.selectCancelled);
   }
 }
 
@@ -223,6 +230,16 @@ export function registerBrowserIpc(): void {
           if (typeof message !== "string" || !message.startsWith(SELECT_ELEMENT_CONSOLE_PREFIX)) {
             return;
           }
+          const signal = message.slice(SELECT_ELEMENT_CONSOLE_PREFIX.length);
+          if (signal === "cancel") {
+            state.active = false;
+            wc.removeListener("console-message", state.onConsoleMessage);
+            selectByWebContentsId.delete(webContentsId);
+            await removeSelectMode(wc);
+            broadcastSelectCancelled();
+            return;
+          }
+          if (signal !== "ready") return;
           state.active = false;
 
           // Read selection from the page (avoids console truncation of large HTML)
@@ -243,11 +260,14 @@ export function registerBrowserIpc(): void {
           }
           await removeSelectMode(wc);
 
-          const citation = {
+          const kind =
+            payload.kind === "region" || payload.selector === "[region]" ? "region" : "element";
+          const citation: ElementCitation = {
             url: payload.url || wc.getURL(),
             selector: payload.selector,
             text: payload.text,
             htmlSnippet: truncateHtmlSnippet(payload.html ?? ""),
+            kind,
             bounds: payload.bounds,
             screenshotDataUrl,
           };
@@ -264,7 +284,7 @@ export function registerBrowserIpc(): void {
     };
 
     try {
-      await injectSelectMode(wc);
+      await injectSelectMode(wc, getUiLocale());
       wc.on("console-message", onConsoleMessage);
       selectByWebContentsId.set(webContentsId, { active: true, onConsoleMessage });
       return { ok: true as const };

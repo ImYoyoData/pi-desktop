@@ -95,6 +95,7 @@ export const IpcChannels = {
     stopSelect: "browser:stopSelect",
     elementSelected: "browser:elementSelected",
     elementScreenshot: "browser:elementScreenshot",
+    selectCancelled: "browser:selectCancelled",
     openDevTools: "browser:openDevTools",
     attachDevTools: "browser:attachDevTools",
     registerGuest: "browser:registerGuest",
@@ -208,11 +209,17 @@ export type ElementCitation = {
   selector: string;
   text: string;
   htmlSnippet: string;
+  /** element click vs drag-to-region screenshot (Cursor-like). */
+  kind?: "element" | "region";
   /** data:image/...;base64,... screenshot of selected element bounds (UI only; strip before IPC) */
   screenshotDataUrl?: string;
   /** CSS-pixel bounds in the guest page viewport (UI only; strip before IPC) */
   bounds?: { x: number; y: number; width: number; height: number };
 };
+
+export function isRegionCitation(c: Pick<ElementCitation, "kind" | "selector">): boolean {
+  return c.kind === "region" || c.selector === "[region]";
+}
 
 /** Deep plain clone for Electron IPC (Vue proxies cannot be structured-cloned). */
 export function toIpcPlain<T>(value: T): T {
@@ -252,6 +259,7 @@ export function toPromptCitations(
     selector: String(c.selector ?? ""),
     text: String(c.text ?? ""),
     htmlSnippet: String(c.htmlSnippet ?? ""),
+    ...(c.kind === "region" || c.kind === "element" ? { kind: c.kind } : {}),
   }));
 }
 

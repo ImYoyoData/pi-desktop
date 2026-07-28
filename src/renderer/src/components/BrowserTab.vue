@@ -4,14 +4,12 @@ import {
   NButton,
   NIcon,
   NInput,
-  NSpace,
   NTooltip,
   useMessage,
 } from "naive-ui";
 import {
   ArrowBackOutline,
   ArrowForwardOutline,
-  ColorWandOutline,
   CodeSlashOutline,
   ContractOutline,
   ExpandOutline,
@@ -21,7 +19,9 @@ import {
   Star,
   StarOutline,
 } from "@vicons/ionicons5";
+import PenNibIcon from "@renderer/components/icons/PenNibIcon.vue";
 import type { ElementCitation } from "../../../shared/protocol";
+import { isRegionCitation } from "../../../shared/protocol";
 import { useComposerStore } from "@renderer/stores/composer";
 import {
   isBookmarked,
@@ -81,6 +81,7 @@ const isFullscreen = ref(false);
 const browserRootRef = ref<HTMLElement | null>(null);
 let offElementSelected: (() => void) | null = null;
 let offElementScreenshot: (() => void) | null = null;
+let offSelectCancelled: (() => void) | null = null;
 let offToggleHotkey: (() => void) | null = null;
 /** True while this tab expects a late screenshot IPC after local capture failed. */
 let awaitingScreenshotIpc = false;
@@ -410,12 +411,12 @@ async function onCitation(citation: ElementCitation): Promise<void> {
   if (shot) {
     composer.addImageFromDataUrl(shot);
     composer.attachScreenshotToLatestElement(shot);
-    message.success(t.elementTagAndShot);
+    message.success(isRegionCitation(citation) ? t.regionShotAdded : t.elementTagAndShot);
     return;
   }
 
   awaitingScreenshotIpc = true;
-  message.success(t.elementTagAdded);
+  message.success(isRegionCitation(citation) ? t.regionTagAdded : t.elementTagAdded);
   window.setTimeout(() => {
     if (!awaitingScreenshotIpc) return;
     awaitingScreenshotIpc = false;
@@ -576,12 +577,18 @@ function reportTabToMain(): void {
   });
 }
 
+function onSelectCancelled(): void {
+  selectMode.value = false;
+  awaitingScreenshotIpc = false;
+}
+
 onMounted(async () => {
   loadDevtoolsWidth();
   refreshLibrary();
   document.addEventListener("fullscreenchange", onFullscreenChange);
   offElementSelected = window.api.browser.onElementSelected(onCitation);
   offElementScreenshot = window.api.browser.onElementScreenshot(onElementScreenshot);
+  offSelectCancelled = window.api.browser.onSelectCancelled(onSelectCancelled);
   offToggleHotkey = window.api.browser.onToggleEmbeddedDevTools(() => {
     if (props.visible === false) return;
     void toggleDevTools();
@@ -657,6 +664,7 @@ onUnmounted(() => {
   void window.api.browser.unreportTab(props.tabId);
   offElementSelected?.();
   offElementScreenshot?.();
+  offSelectCancelled?.();
   offToggleHotkey?.();
   document.removeEventListener("fullscreenchange", onFullscreenChange);
   window.removeEventListener("keydown", onKeydown, true);
@@ -693,7 +701,7 @@ watch(
     :class="{ 'is-fullscreen': isFullscreen }"
   >
     <div class="toolbar">
-      <NSpace :size="4" align="center" style="flex: 1; min-width: 0" :wrap="false">
+      <div class="toolbar-nav">
         <NTooltip>
           <template #trigger>
             <NButton quaternary circle size="tiny" @click="goBack">
@@ -724,6 +732,17 @@ watch(
           </template>
           {{ t.reload }}
         </NTooltip>
+      </div>
+
+      <NInput
+        v-model:value="urlInput"
+        size="tiny"
+        class="url"
+        :placeholder="t.urlPlaceholder"
+        @keydown.enter.prevent="navigate"
+      />
+
+      <div class="toolbar-actions">
         <NTooltip>
           <template #trigger>
             <NButton
@@ -741,29 +760,19 @@ watch(
           {{ bookmarked ? t.unbookmark : t.bookmarkPage }}
         </NTooltip>
 
-        <NInput
-          v-model:value="urlInput"
+        <NButton
           size="tiny"
-          class="url"
-          :placeholder="t.urlPlaceholder"
-          @keydown.enter.prevent="navigate"
-        />
-
-        <NTooltip>
-          <template #trigger>
-            <NButton
-              size="tiny"
-              :type="selectMode ? 'primary' : 'default'"
-              secondary
-              @click="setSelectMode(!selectMode)"
-            >
-              <template #icon>
-                <NIcon :component="ColorWandOutline" />
-              </template>
-            </NButton>
+          :type="selectMode ? 'primary' : 'default'"
+          secondary
+          class="select-el-btn"
+          :title="t.selectElement"
+          :aria-label="t.selectElement"
+          @click="setSelectMode(!selectMode)"
+        >
+          <template #icon>
+            <PenNibIcon :size="15" />
           </template>
-          {{ selectMode ? t.cancelSelect : t.selectElement }}
-        </NTooltip>
+        </NButton>
 
         <NTooltip>
           <template #trigger>
@@ -820,7 +829,7 @@ watch(
           </template>
           {{ t.openInSystemBrowser }}
         </NTooltip>
-      </NSpace>
+      </div>
     </div>
 
     <div
@@ -927,16 +936,36 @@ watch(
 }
 
 .toolbar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
   padding: 4px 6px;
   border-bottom: 1px solid var(--border);
   background: var(--bg-panel);
   flex-shrink: 0;
   z-index: 2;
+  min-width: 0;
+}
+
+.toolbar-nav,
+.toolbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex-shrink: 0;
 }
 
 .url {
-  flex: 1;
-  min-width: 8rem;
+  flex: 1 1 auto;
+  min-width: 12rem;
+  width: 0;
+}
+
+.select-el-btn :deep(.n-button__icon) {
+  margin: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .viewport-area {

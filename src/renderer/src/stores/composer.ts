@@ -1,8 +1,10 @@
 import { defineStore } from "pinia";
 import { computed, reactive, ref } from "vue";
 import type { ElementCitation } from "../../../shared/protocol";
+import { isRegionCitation } from "../../../shared/protocol";
 import { truncateHtmlSnippet } from "../../../shared/html-snippet";
 import type { ComposerAgentMode } from "../../../shared/composer-modes";
+import { t } from "@renderer/i18n";
 
 export type ComposerChip =
   | { id: string; kind: "element"; citation: ElementCitation }
@@ -331,10 +333,11 @@ export const useComposerStore = defineStore("composer", () => {
           content: chip.url,
         });
       } else {
+        const region = isRegionCitation(chip.citation);
         const content = truncateElementContent(chip.citation.text ?? "", 100);
         out.push({
           kind: "element",
-          label: content || chip.citation.selector?.trim() || "element",
+          label: region ? t.chipRegion : content || chip.citation.selector?.trim() || "element",
           title: chip.citation.url,
           ref: chip.citation.url,
           content,
