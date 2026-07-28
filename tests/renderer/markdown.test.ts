@@ -32,4 +32,18 @@ describe("parseMarkdownRaw (GFM)", () => {
     expect(html).toContain("<h2>");
     expect(html).toContain("<hr");
   });
+
+  it("emits mermaid placeholder instead of a highlighted code block", () => {
+    const src = [
+      "```mermaid",
+      "flowchart LR",
+      '  A["UI"] --> B["Main"]',
+      "```",
+    ].join("\n");
+    const html = parseMarkdownRaw(src);
+    expect(html).toContain('data-mermaid');
+    expect(html).toContain("md-mermaid-src");
+    expect(html).toContain("flowchart LR");
+    expect(html).not.toContain("data-code-block");
+  });
 });
