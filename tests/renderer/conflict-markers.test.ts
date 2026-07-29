@@ -33,7 +33,10 @@ describe("conflict-markers", () => {
   });
 
   it("returns no_markers when file has no conflict markers", () => {
-    expect(parseConflictMarkers("plain\n").ok).toBe(false);
+    const parsed = parseConflictMarkers("plain\n");
+    expect(parsed.ok).toBe(false);
+    if (parsed.ok) return;
+    expect(parsed.reason).toBe("no_markers");
   });
 
   it("returns malformed when separator missing", () => {
