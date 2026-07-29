@@ -6,6 +6,7 @@ import {
   checkoutBranch,
   commitPaths,
   createBranch,
+  fetchRepo,
   getGitFileDiff,
   getWorkspaceGitStatus,
   initRepo,
@@ -16,6 +17,7 @@ import {
   pullRepo,
   pushRepo,
   removeRemote,
+  restorePaths,
   setRemoteUrl,
 } from "./git-host";
 import { getWorkspace } from "./workspace-ipc";
@@ -43,7 +45,7 @@ export function registerGitIpc(): void {
 
   ipcMain.handle(IpcChannels.git.branches, async () => {
     const root = requireRoot();
-    if (!root) return { current: null, local: [] };
+    if (!root) return { current: null, local: [], remote: [] };
     return listBranches(root);
   });
 
@@ -88,6 +90,18 @@ export function registerGitIpc(): void {
     const root = requireRoot();
     if (!root) return noWorkspace();
     return pushRepo(root);
+  });
+
+  ipcMain.handle(IpcChannels.git.fetch, async (_e, remote?: string) => {
+    const root = requireRoot();
+    if (!root) return noWorkspace();
+    return fetchRepo(root, typeof remote === "string" ? remote : undefined);
+  });
+
+  ipcMain.handle(IpcChannels.git.restore, async (_e, paths: string[]) => {
+    const root = requireRoot();
+    if (!root) return noWorkspace();
+    return restorePaths(root, Array.isArray(paths) ? paths : []);
   });
 
   ipcMain.handle(IpcChannels.git.init, async () => {

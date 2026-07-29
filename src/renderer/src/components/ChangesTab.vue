@@ -15,7 +15,9 @@ import {
 } from "naive-ui";
 import {
   ArrowDownOutline,
+  ArrowUndoOutline,
   ArrowUpOutline,
+  CloudDownloadOutline,
   CloudOutline,
   GitBranchOutline,
   GitCommitOutline,
@@ -60,6 +62,7 @@ const newContent = ref("");
 const diffSupported = ref(true);
 const commitMessage = ref("");
 const localBranches = ref<string[]>([]);
+const remoteBranches = ref<string[]>([]);
 const remotes = ref<GitRemote[]>([]);
 const showRemotes = ref(false);
 const showLog = ref(false);
@@ -84,6 +87,10 @@ const canCommit = computed(
   () => Boolean(commitMessage.value.trim()) && checkedPaths.value.length > 0 && !busy.value,
 );
 
+const canDiscardSelected = computed(
+  () => checkedPaths.value.length > 0 && !busy.value && isGit.value,
+);
+
 const conflictCount = computed(
   () => files.value.filter((f) => f.status === "conflict" || f.code === "C").length,
 );
@@ -103,12 +110,31 @@ const showDiffEditor = computed(
 );
 
 const branchMenu = computed<DropdownOption[]>(() => {
-  const items: DropdownOption[] = localBranches.value.map((name) => ({
-    label: name === branch.value ? `${name} ?` : name,
-    key: `checkout:${name}`,
-    disabled: name === branch.value,
-  }));
-  items.push({ type: "divider", key: "d1" });
+  const items: DropdownOption[] = [];
+  if (localBranches.value.length) {
+    items.push({
+      type: "group",
+      key: "local-group",
+      label: t.changesLocalBranches,
+      children: localBranches.value.map((name) => ({
+        label: name === branch.value ? `${name} ✓` : name,
+        key: `checkout:${name}`,
+        disabled: name === branch.value,
+      })),
+    });
+  }
+  if (remoteBranches.value.length) {
+    items.push({
+      type: "group",
+      key: "remote-group",
+      label: t.changesRemoteBranches,
+      children: remoteBranches.value.map((name) => ({
+        label: name,
+        key: `checkout:${name}`,
+      })),
+    });
+  }
+  if (items.length) items.push({ type: "divider", key: "d1" });
   items.push({
     label: t.changesNewBranch,
     key: "new",
@@ -191,10 +217,12 @@ async function refresh(): Promise<void> {
     if (status.isGitRepository && !gitUnavailable.value) {
       const br = await window.api.git.branches();
       localBranches.value = br.local;
+      remoteBranches.value = br.remote ?? [];
       if (br.current) branch.value = br.current;
       await refreshRemotes();
     } else {
       localBranches.value = [];
+      remoteBranches.value = [];
       remotes.value = [];
       selectedPath.value = null;
       patch.value = null;
@@ -267,6 +295,23 @@ async function onPull(): Promise<void> {
 
 async function onPush(): Promise<void> {
   await runOp(t.changesPushed, () => window.api.git.push());
+}
+
+async function onFetch(): Promise<void> {
+  await runOp(t.changesFetched, () => window.api.git.fetch());
+}
+
+async function onDiscardSelected(): Promise<void> {
+  const paths = [...checkedPaths.value];
+  if (!paths.length) return;
+  if (!window.confirm(t.changesDiscardConfirmSelected)) return;
+  await runOp(t.changesDiscarded, () => window.api.git.restore(paths));
+}
+
+async function onDiscardFile(relativePath: string): Promise<void> {
+  if (!relativePath) return;
+  if (!window.confirm(t.changesDiscardConfirmFile)) return;
+  await runOp(t.changesDiscarded, () => window.api.git.restore([relativePath]));
 }
 
 async function onInitGit(): Promise<void> {
@@ -413,6 +458,19 @@ watch(
         </template>
         {{ t.changesLog }}
       </NButton>
+      <NButton
+        class="tool-btn"
+        size="tiny"
+        quaternary
+        :disabled="!isGit || busy"
+        :title="t.changesFetch"
+        @click="onFetch"
+      >
+        <template #icon>
+          <NIcon :component="CloudDownloadOutline" :size="14" />
+        </template>
+        {{ t.changesFetch }}
+      </NButton>
       <NButton class="tool-btn" size="tiny" quaternary :disabled="!isGit || busy" :title="t.changesPull" @click="onPull">
         <template #icon>
           <NIcon :component="ArrowDownOutline" :size="14" />
@@ -444,6 +502,19 @@ watch(
         :disabled="busy"
         @keydown.enter.exact.prevent="onCommit"
       />
+      <NButton
+        class="tool-btn"
+        size="tiny"
+        quaternary
+        :disabled="!canDiscardSelected"
+        :title="t.changesDiscardSelected"
+        @click="onDiscardSelected"
+      >
+        <template #icon>
+          <NIcon :component="ArrowUndoOutline" :size="14" />
+        </template>
+        {{ t.changesDiscardSelected }}
+      </NButton>
       <NButton class="tool-btn" size="tiny" type="primary" :disabled="!canCommit" :loading="busy" @click="onCommit">
         <template #icon>
           <NIcon :component="GitCommitOutline" :size="14" />
@@ -531,15 +602,23 @@ watch(
             />
             <span class="code" :data-code="f.code">{{ f.code }}</span>
             <span class="path" :title="f.relativePath">{{ f.relativePath }}</span>
+            <button
+              type="button"
+              class="row-discard"
+              :title="t.changesDiscardFile"
+              :disabled="busy"
+              @click.stop="onDiscardFile(f.relativePath)"
+            >
+              <NIcon :component="ArrowUndoOutline" :size="13" />
+            </button>
           </button>
         </div>
         <div class="diff-pane">
-          <NText v-if="!selectedPath" depth="3" style="font-size: 12px; padding: 12px">
-            {{ t.changesSelectFile }}
-          </NText>
-          <NText v-else-if="!diffSupported || !patch" depth="3" style="font-size: 12px; padding: 12px">
-            {{ t.changesNoDiff }}
-          </NText>
+          <template v-if="!selectedPath">
+            <NText depth="3" style="font-size: 12px; padding: 12px">
+              {{ t.changesSelectFile }}
+            </NText>
+          </template>
           <template v-else>
             <header class="diff-head">
               <div class="diff-titles">
@@ -549,8 +628,23 @@ watch(
                 <span class="add">+{{ diffStats.additions }}</span>
                 <span class="del">-{{ diffStats.deletions }}</span>
               </div>
+              <NButton
+                size="tiny"
+                quaternary
+                :disabled="busy"
+                :title="t.changesDiscardFile"
+                @click="onDiscardFile(selectedPath)"
+              >
+                <template #icon>
+                  <NIcon :component="ArrowUndoOutline" :size="14" />
+                </template>
+                {{ t.changesDiscard }}
+              </NButton>
             </header>
-            <div class="diff-editor-wrap">
+            <NText v-if="!diffSupported || !patch" depth="3" style="font-size: 12px; padding: 12px">
+              {{ t.changesNoDiff }}
+            </NText>
+            <div v-else class="diff-editor-wrap">
               <ChangesDiffEditor
                 v-if="showDiffEditor && selectedPath"
                 :file-path="selectedPath"
@@ -740,6 +834,39 @@ watch(
 
 .file-row.active {
   background: var(--bg-panel);
+}
+
+.row-discard {
+  margin-left: auto;
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--fg);
+  opacity: 0;
+  cursor: pointer;
+  padding: 0;
+}
+
+.file-row:hover .row-discard,
+.file-row.active .row-discard {
+  opacity: 0.65;
+}
+
+.row-discard:hover:not(:disabled) {
+  opacity: 1;
+  background: var(--bg-hover);
+  color: #c44;
+}
+
+.row-discard:disabled {
+  cursor: not-allowed;
+  opacity: 0.3;
 }
 
 .code {

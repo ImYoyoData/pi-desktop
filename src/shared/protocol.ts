@@ -71,6 +71,8 @@ export const IpcChannels = {
     commit: "git:commit",
     pull: "git:pull",
     push: "git:push",
+    fetch: "git:fetch",
+    restore: "git:restore",
     init: "git:init",
     remotes: "git:remotes",
     addRemote: "git:addRemote",
