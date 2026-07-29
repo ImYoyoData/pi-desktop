@@ -3,6 +3,7 @@ import path from "node:path";
 import { IpcChannels } from "../shared/protocol";
 import { createWorkspaceStore, type WorkspaceStore } from "./workspace-store";
 import { startWorkspaceWatch, stopWorkspaceWatch } from "./fs-watch-host";
+import { mergeRecentWithPiCliWorkspaces, workspacePathsEqual } from "./session-list";
 
 let store: WorkspaceStore | null = null;
 
@@ -18,8 +19,14 @@ export function getWorkspace(): string | null {
   return getStore().getRoot();
 }
 
-export function listRecent(): string[] {
+export function listRecentDesktop(): string[] {
   return getStore().listRecent();
+}
+
+/** Desktop recent + workspaces discovered from Pi CLI session store. */
+export async function listRecent(): Promise<string[]> {
+  const s = getStore();
+  return mergeRecentWithPiCliWorkspaces(s.listRecent(), s.listDismissedPi());
 }
 
 /** Keep exactly one watcher bound to the active workspace root. */
@@ -82,21 +89,26 @@ export function registerWorkspaceIpc(): void {
 
   ipcMain.handle(IpcChannels.workspace.clear, () => clearWorkspace());
 
-  ipcMain.handle(IpcChannels.workspace.removeRecent, (_event, root: string) => {
+  ipcMain.handle(IpcChannels.workspace.removeRecent, async (_event, root: string) => {
     getStore().removeRecent(root);
     const next = getStore().getRoot();
     syncWorkspaceWatch(next);
-    return { root: next, recent: getStore().listRecent() };
+    return { root: next, recent: await listRecent() };
   });
 
-  ipcMain.handle(IpcChannels.workspace.reorderRecent, (_event, order: string[]) => {
+  ipcMain.handle(IpcChannels.workspace.reorderRecent, async (_event, order: string[]) => {
     const list = Array.isArray(order)
       ? order.filter((entry): entry is string => typeof entry === "string")
       : [];
-    getStore().reorderRecent(list);
-    return getStore().listRecent();
+    // Only reorder paths that are already pinned in Desktop recent;
+    // Pi-discovered-only roots stay appended after Desktop order.
+    const desktop = new Set(listRecentDesktop().map((p) => path.resolve(p)));
+    const desktopOrder = list.filter((p) =>
+      [...desktop].some((d) => workspacePathsEqual(d, p)),
+    );
+    getStore().reorderRecent(desktopOrder);
+    return listRecent();
   });
-
   ipcMain.handle(IpcChannels.workspace.revealInFolder, async (_event, root: string) => {
     if (!root?.trim()) return;
     await shell.openPath(root);
