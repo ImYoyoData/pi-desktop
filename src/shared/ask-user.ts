@@ -15,6 +15,9 @@ export type AskUserQuestion = {
 
 export type AskUserPrompt = {
   questions: AskUserQuestion[];
+  /** Present when the strip is driven by a blocking worker RPC. */
+  sessionId?: string;
+  requestId?: string;
 };
 
 /** Per-question UI draft keyed by question id. */
@@ -25,6 +28,39 @@ export type AskUserAnswerDraft = Record<
     customText: string;
   }
 >;
+
+/** Injected when the model omitted a free-text option (single/multi). */
+export const ASK_USER_CUSTOM_OPTION_ID = "__custom__";
+
+/** Worker → main RPC wait; long enough for multi-question wizards. */
+export const ASK_USER_TIMEOUT_MS = 30 * 60 * 1000;
+
+/** Main → renderer ask / cancel. */
+export type AskUserAskPrompt = {
+  sessionId: string;
+  requestId: string;
+  questions: AskUserQuestion[];
+};
+
+export type AskUserAskCancelled = {
+  sessionId: string;
+  requestId: string;
+  cancelled: true;
+};
+
+export type AskUserAskRequest = AskUserAskPrompt | AskUserAskCancelled;
+
+export type AskUserAskReply = {
+  requestId: string;
+  /** Formatted `[ask_user answers]` text returned to the tool. */
+  answersText: string;
+};
+
+export function isAskUserAskCancelled(
+  req: AskUserAskRequest,
+): req is AskUserAskCancelled {
+  return "cancelled" in req && req.cancelled === true;
+}
 
 function asRecord(v: unknown): Record<string, unknown> | null {
   return v && typeof v === "object" && !Array.isArray(v) ? (v as Record<string, unknown>) : null;
@@ -40,6 +76,23 @@ function parseOption(raw: unknown): AskUserOption | null {
     id,
     label,
     ...(o.allowCustom === true ? { allowCustom: true } : {}),
+  };
+}
+
+/** Ensure single/multi always have one allowCustom option. */
+export function withEnsuredCustomOption(q: AskUserQuestion): AskUserQuestion {
+  if (q.type !== "single" && q.type !== "multi") return q;
+  if (q.options.some((o) => o.allowCustom)) return q;
+  return {
+    ...q,
+    options: [
+      ...q.options,
+      {
+        id: ASK_USER_CUSTOM_OPTION_ID,
+        label: "Custom",
+        allowCustom: true,
+      },
+    ],
   };
 }
 
@@ -62,7 +115,7 @@ function parseQuestion(raw: unknown): AskUserQuestion | null {
     options.push(opt);
   }
   if (options.length === 0) return null;
-  return { id, prompt, type, options };
+  return withEnsuredCustomOption({ id, prompt, type, options });
 }
 
 /** Returns null if args are unusable for UI. */
@@ -106,6 +159,14 @@ export function validateAskUserAnswers(
     }
   }
   return null;
+}
+
+/** Validate a single question (wizard step). */
+export function validateAskUserQuestionAnswer(
+  q: AskUserQuestion,
+  draft: AskUserAnswerDraft,
+): string | null {
+  return validateAskUserAnswers({ questions: [q] }, draft);
 }
 
 export function formatAskUserAnswers(

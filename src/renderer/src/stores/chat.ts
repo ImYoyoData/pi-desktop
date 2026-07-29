@@ -10,6 +10,7 @@ import {
   clearPendingPermission,
   createChatState,
   reduceChatEvent,
+  setPendingAskUser,
   setPendingExtensionUi,
   setPendingPermission,
   type ChatMessage,
@@ -29,6 +30,11 @@ import {
   type PermissionDecision,
 } from "../../../shared/desktop-security";
 import {
+  isAskUserAskCancelled,
+  type AskUserAskReply,
+  type AskUserPrompt,
+} from "../../../shared/ask-user";
+import {
   isExtensionUiCancelled,
   isExtensionUiPending,
   type ExtensionUiEvent,
@@ -46,6 +52,7 @@ export {
   clearPendingPermission,
   createChatState,
   reduceChatEvent,
+  setPendingAskUser,
   setPendingExtensionUi,
   setPendingPermission,
 } from "./chat-reducer";
@@ -149,6 +156,11 @@ export const useChatStore = defineStore("chat", () => {
     bySession[sessionId] = clearPendingAskUser(stateFor(sessionId));
   }
 
+  function setPendingAskUserFor(prompt: AskUserPrompt): void {
+    if (!prompt.sessionId) return;
+    bySession[prompt.sessionId] = setPendingAskUser(stateFor(prompt.sessionId), prompt);
+  }
+
   function setPendingPermissionFor(req: PendingPermission): void {
     bySession[req.sessionId] = setPendingPermission(stateFor(req.sessionId), req);
   }
@@ -175,6 +187,12 @@ export const useChatStore = defineStore("chat", () => {
       noteSecurityRemediation();
     }
     await window.api.sessions.permissionReply({ requestId, decision });
+  }
+
+  async function replyAskUser(payload: AskUserAskReply): Promise<void> {
+    const id = sessionsStore.activeId;
+    if (id) clearPendingAskUserFor(id);
+    await window.api.sessions.askUserReply(payload);
   }
 
   async function replyExtensionUi(reply: ExtensionUiReply): Promise<void> {
@@ -303,6 +321,23 @@ export const useChatStore = defineStore("chat", () => {
         void notifyStore.playChime();
       }
     });
+    const offAskUser = window.api.sessions.onAskUser((req) => {
+      if (isAskUserAskCancelled(req)) {
+        const pending = stateFor(req.sessionId).pendingAskUser;
+        if (pending?.requestId === req.requestId) {
+          clearPendingAskUserFor(req.sessionId);
+        }
+        return;
+      }
+      setPendingAskUserFor({
+        sessionId: req.sessionId,
+        requestId: req.requestId,
+        questions: req.questions,
+      });
+      if (notifyStore.soundEnabled) {
+        void notifyStore.playChime();
+      }
+    });
     const offExtensionUi = window.api.sessions.onExtensionUi((event) => {
       handleExtensionUiEvent(event);
     });
@@ -310,6 +345,7 @@ export const useChatStore = defineStore("chat", () => {
       eventsBound = false;
       off();
       offPermission();
+      offAskUser();
       offExtensionUi();
     });
   }
@@ -544,6 +580,7 @@ export const useChatStore = defineStore("chat", () => {
     bindEvents,
     clearPendingAskUserFor,
     replyPermission,
+    replyAskUser,
     replyExtensionUi,
     beginHistoryLoad,
     endHistoryLoad,

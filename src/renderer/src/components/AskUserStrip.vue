@@ -9,29 +9,39 @@ import {
 import { ChatbubbleEllipsesOutline, CheckmarkCircle } from "@vicons/ionicons5";
 import type { AskUserAnswerDraft, AskUserQuestion } from "../../../shared/ask-user";
 import {
+  ASK_USER_CUSTOM_OPTION_ID,
   formatAskUserAnswers,
   validateAskUserAnswers,
+  validateAskUserQuestionAnswer,
 } from "../../../shared/ask-user";
 import { t } from "@renderer/i18n";
 import { useChatStore } from "@renderer/stores/chat";
-import { useNotifyStore } from "@renderer/stores/notify";
-import { useSessionsStore } from "@renderer/stores/sessions";
 
 const chat = useChatStore();
-const sessions = useSessionsStore();
-const notify = useNotifyStore();
 
 const draft = ref<AskUserAnswerDraft>({});
 const validationError = ref<string | null>(null);
 const confirming = ref(false);
+const currentIndex = ref(0);
 
 const prompt = computed(() => chat.activePendingAskUser);
+const questions = computed(() => prompt.value?.questions ?? []);
+const total = computed(() => questions.value.length);
+const currentQuestion = computed(() => questions.value[currentIndex.value] ?? null);
+const isFirst = computed(() => currentIndex.value <= 0);
+const isLast = computed(() => currentIndex.value >= total.value - 1);
+
+const progressLabel = computed(() => {
+  if (total.value <= 0) return "";
+  return t.askUserProgress(currentIndex.value + 1, total.value);
+});
 
 watch(
   prompt,
-  (p, prev) => {
+  (p) => {
     validationError.value = null;
     confirming.value = false;
+    currentIndex.value = 0;
     if (!p) {
       draft.value = {};
       return;
@@ -41,10 +51,6 @@ watch(
       next[q.id] = { optionIds: [], customText: "" };
     }
     draft.value = next;
-    // Chime when a new ask panel appears (respect sound preference).
-    if (!prev && notify.soundEnabled) {
-      void notify.playChime();
-    }
   },
   { immediate: true },
 );
@@ -56,6 +62,11 @@ watch(
   },
   { deep: true },
 );
+
+function optionLabel(opt: { id: string; label: string }): string {
+  if (opt.id === ASK_USER_CUSTOM_OPTION_ID) return t.askUserCustomOption;
+  return opt.label;
+}
 
 function isSelected(q: AskUserQuestion, optionId: string): boolean {
   return (draft.value[q.id]?.optionIds ?? []).includes(optionId);
@@ -91,20 +102,53 @@ function needsCustomInput(q: AskUserQuestion): boolean {
   return selected.some((o) => o.allowCustom);
 }
 
-async function onConfirm(): Promise<void> {
-  const p = prompt.value;
-  const sessionId = sessions.activeId;
-  if (!p || !sessionId || confirming.value) return;
-  const err = validateAskUserAnswers(p, draft.value);
+function goPrev(): void {
+  if (isFirst.value) return;
+  validationError.value = null;
+  currentIndex.value -= 1;
+}
+
+function goNext(): void {
+  const q = currentQuestion.value;
+  if (!q) return;
+  const err = validateAskUserQuestionAnswer(q, draft.value);
   if (err) {
     validationError.value = err;
     return;
   }
   validationError.value = null;
+  if (!isLast.value) currentIndex.value += 1;
+}
+
+async function onConfirm(): Promise<void> {
+  const p = prompt.value;
+  if (!p?.requestId || confirming.value) return;
+  // Validate current step first, then all questions before publishing.
+  const stepErr = currentQuestion.value
+    ? validateAskUserQuestionAnswer(currentQuestion.value, draft.value)
+    : null;
+  if (stepErr) {
+    validationError.value = stepErr;
+    return;
+  }
+  const err = validateAskUserAnswers(p, draft.value);
+  if (err) {
+    validationError.value = err;
+    // Jump to first incomplete question if possible.
+    const idx = p.questions.findIndex(
+      (q) => validateAskUserQuestionAnswer(q, draft.value) != null,
+    );
+    if (idx >= 0) currentIndex.value = idx;
+    return;
+  }
+  validationError.value = null;
   confirming.value = true;
   try {
-    const message = formatAskUserAnswers(p, draft.value);
-    await chat.sendPrompt(sessionId, message);
+    const answersText = formatAskUserAnswers(p, draft.value);
+    await chat.replyAskUser({
+      requestId: p.requestId,
+      answersText,
+    });
   } finally {
     confirming.value = false;
   }
@@ -112,7 +156,7 @@ async function onConfirm(): Promise<void> {
 </script>
 
 <template>
-  <div v-if="prompt" class="ask-user-wrap">
+  <div v-if="prompt && currentQuestion" class="ask-user-wrap">
     <div class="ask-user-card" role="dialog" :aria-label="t.askUserToolLabel">
       <header class="strip-head">
         <div class="head-badge" aria-hidden="true">
@@ -122,54 +166,60 @@ async function onConfirm(): Promise<void> {
           <div class="head-title">{{ t.askUserToolLabel }}</div>
           <div class="head-sub">{{ t.askUserTitle }}</div>
         </div>
+        <div v-if="total > 0" class="head-progress" :title="progressLabel">
+          {{ progressLabel }}
+        </div>
       </header>
 
       <div class="strip-body">
-        <section v-for="(q, qi) in prompt.questions" :key="q.id" class="question">
+        <section class="question">
           <div class="q-prompt">
-            <span v-if="prompt.questions.length > 1" class="q-index">{{ qi + 1 }}</span>
-            <NText strong class="q-text">{{ q.prompt }}</NText>
+            <NText strong class="q-text">{{ currentQuestion.prompt }}</NText>
           </div>
 
           <div
             class="opt-grid"
             :class="{
-              'opt-grid-wrap': q.type === 'buttons',
-              'opt-grid-stack': q.type !== 'buttons',
+              'opt-grid-wrap': currentQuestion.type === 'buttons',
+              'opt-grid-stack': currentQuestion.type !== 'buttons',
             }"
           >
             <button
-              v-for="opt in q.options"
+              v-for="opt in currentQuestion.options"
               :key="opt.id"
               type="button"
               class="opt-chip pi-interactive"
               :class="{
-                selected: isSelected(q, opt.id),
-                compact: q.type === 'buttons',
+                selected: isSelected(currentQuestion, opt.id),
+                compact: currentQuestion.type === 'buttons',
               }"
-              @click="toggleOption(q, opt.id)"
+              @click="toggleOption(currentQuestion, opt.id)"
             >
               <span class="opt-check" aria-hidden="true">
                 <NIcon
-                  v-if="isSelected(q, opt.id)"
+                  v-if="isSelected(currentQuestion, opt.id)"
                   :component="CheckmarkCircle"
                   :size="16"
                 />
-                <span v-else class="opt-ring" :class="{ multi: q.type === 'multi' }" />
+                <span
+                  v-else
+                  class="opt-ring"
+                  :class="{ multi: currentQuestion.type === 'multi' }"
+                />
               </span>
-              <span class="opt-label">{{ opt.label }}</span>
+              <span class="opt-label">{{ optionLabel(opt) }}</span>
             </button>
           </div>
 
           <NInput
-            v-if="needsCustomInput(q)"
+            v-if="needsCustomInput(currentQuestion)"
             class="custom-input"
-            :value="customModel(q)"
+            :value="customModel(currentQuestion)"
             type="textarea"
             :placeholder="t.askUserCustomPlaceholder"
             :autosize="{ minRows: 2, maxRows: 4 }"
             round
-            @update:value="(v) => setCustom(q, v)"
+            @update:value="(v) => setCustom(currentQuestion, v)"
           />
         </section>
       </div>
@@ -178,15 +228,38 @@ async function onConfirm(): Promise<void> {
         <NText v-if="validationError" type="error" class="err">
           {{ validationError }}
         </NText>
-        <NButton
-          type="primary"
-          round
-          class="pi-interactive confirm-btn"
-          :loading="confirming"
-          @click="onConfirm"
-        >
-          {{ t.askUserConfirm }}
-        </NButton>
+        <div class="foot-actions">
+          <NButton
+            v-if="total > 1"
+            quaternary
+            round
+            class="pi-interactive"
+            :disabled="isFirst || confirming"
+            @click="goPrev"
+          >
+            {{ t.askUserPrev }}
+          </NButton>
+          <NButton
+            v-if="!isLast"
+            type="primary"
+            round
+            class="pi-interactive"
+            :disabled="confirming"
+            @click="goNext"
+          >
+            {{ t.askUserNext }}
+          </NButton>
+          <NButton
+            v-else
+            type="primary"
+            round
+            class="pi-interactive confirm-btn"
+            :loading="confirming"
+            @click="onConfirm"
+          >
+            {{ t.askUserConfirm }}
+          </NButton>
+        </div>
       </footer>
     </div>
   </div>
@@ -256,6 +329,7 @@ async function onConfirm(): Promise<void> {
 
 .head-text {
   min-width: 0;
+  flex: 1;
   display: flex;
   flex-direction: column;
   gap: 2px;
@@ -273,6 +347,18 @@ async function onConfirm(): Promise<void> {
   color: var(--fg-muted);
 }
 
+.head-progress {
+  flex-shrink: 0;
+  font-size: 12px;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+  color: var(--accent);
+  background: var(--accent-soft);
+  border: 1px solid var(--accent-border);
+  border-radius: 999px;
+  padding: 4px 10px;
+}
+
 .strip-body {
   overflow-y: auto;
   padding: 4px 14px 8px;
@@ -280,32 +366,11 @@ async function onConfirm(): Promise<void> {
   min-height: 0;
 }
 
-.question + .question {
-  margin-top: 14px;
-  padding-top: 14px;
-  border-top: 1px solid color-mix(in srgb, var(--border) 80%, transparent);
-}
-
 .q-prompt {
   display: flex;
   align-items: flex-start;
   gap: 8px;
   margin-bottom: 10px;
-}
-
-.q-index {
-  flex-shrink: 0;
-  width: 20px;
-  height: 20px;
-  margin-top: 1px;
-  border-radius: 999px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 11px;
-  font-weight: 650;
-  color: var(--accent);
-  background: var(--accent-soft);
 }
 
 .q-text {
@@ -413,6 +478,13 @@ async function onConfirm(): Promise<void> {
   flex: 1;
   min-width: 0;
   font-size: 12px;
+}
+
+.foot-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
 }
 
 .confirm-btn {
