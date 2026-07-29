@@ -23,10 +23,13 @@ import { useTtsStore } from "@renderer/stores/tts";
 import MarkdownView from "@renderer/components/MarkdownView.vue";
 import ThinkingBlock from "@renderer/components/ThinkingBlock.vue";
 import ToolCallCard from "@renderer/components/ToolCallCard.vue";
+import ToolCallGroup from "@renderer/components/ToolCallGroup.vue";
 import { parseToolCard } from "@renderer/utils/tool-diff";
+import { buildToolGroupSpans } from "@renderer/utils/tool-group";
 import { usePreviewStore } from "@renderer/stores/preview";
 import { useRightTabsStore } from "@renderer/stores/right-tabs";
 import { t } from "@renderer/i18n";
+import { ASK_USER_TOOL_NAME } from "../../../shared/ask-user";
 
 /**
  * Sliding virtual window: mount a generous range around the viewport so
@@ -37,6 +40,8 @@ const VIRTUAL_WINDOW = 96;
 const VIRTUAL_MAX = 140;
 const VIRTUAL_CHUNK = 40;
 const EST_MSG_HEIGHT = 120;
+/** Collapsed tool-group summary row (Cursor-style). */
+const EST_TOOL_GROUP_HEIGHT = 40;
 const NEAR_BOTTOM_PX = 120;
 /** Prefetch when viewport is this close to a spacer edge. */
 const OVERSCAN_PX = 900;
@@ -87,16 +92,60 @@ const displayMessages = computed(() => {
   return list;
 });
 
+type ToolMessage = Extract<ChatMessage, { role: "tool" }>;
+
+type ToolGroupMembership = {
+  groupId: string;
+  leadId: string;
+  isLead: boolean;
+  tools: ToolMessage[];
+};
+
+/** Consecutive tool calls (2+) collapse into one Cursor-style group. */
+const toolGroupMembership = computed(() => {
+  const all = displayMessages.value;
+  const map = new Map<string, ToolGroupMembership>();
+  const spans = buildToolGroupSpans(
+    all.map((m) => ({
+      id: m.id,
+      role: m.role,
+      toolName: m.role === "tool" ? m.toolName : "",
+    })),
+    (m) => m.role === "tool" && m.toolName !== ASK_USER_TOOL_NAME,
+  );
+  for (const span of spans) {
+    const tools = all.slice(span.start, span.end) as ToolMessage[];
+    for (let i = 0; i < span.ids.length; i++) {
+      map.set(span.ids[i]!, {
+        groupId: span.groupId,
+        leadId: span.ids[0]!,
+        isLead: i === 0,
+        tools,
+      });
+    }
+  }
+  return map;
+});
+
 const visibleMessages = computed(() =>
   displayMessages.value.slice(renderStart.value, renderEnd.value),
 );
+
+function estimateMessageHeight(msg: ChatMessage | undefined): number {
+  if (!msg) return EST_MSG_HEIGHT;
+  const group = toolGroupMembership.value.get(msg.id);
+  if (group) {
+    if (!group.isLead) return 0;
+    return heightById.get(group.leadId) || EST_TOOL_GROUP_HEIGHT;
+  }
+  return heightById.get(msg.id) || EST_MSG_HEIGHT;
+}
 
 function estimateRangeHeight(from: number, to: number): number {
   const all = displayMessages.value;
   let h = 0;
   for (let i = from; i < to; i++) {
-    const id = all[i]?.id;
-    h += (id && heightById.get(id)) || EST_MSG_HEIGHT;
+    h += estimateMessageHeight(all[i]);
   }
   return h;
 }
@@ -882,6 +931,7 @@ function onRevertUser(msg: Extract<ChatMessage, { role: "user" }>): void {
         class="row"
         :class="[
           `row-${msg.role}`,
+          toolGroupMembership.get(msg.id)?.isLead === false ? 'row-tool-group-follower' : '',
           sessionId && chat.isPendingEditTail(sessionId, msg.id) ? 'row-edit-tail' : '',
         ]"
         :data-msg-id="msg.id"
@@ -1053,7 +1103,13 @@ function onRevertUser(msg: Extract<ChatMessage, { role: "user" }>): void {
         </template>
 
         <template v-else-if="msg.role === 'tool'">
-          <div class="tool">
+          <div v-if="toolGroupMembership.get(msg.id)?.isLead" class="tool">
+            <ToolCallGroup
+              :tools="toolGroupMembership.get(msg.id)!.tools"
+              @open="openPreview"
+            />
+          </div>
+          <div v-else-if="!toolGroupMembership.has(msg.id)" class="tool">
             <ToolCallCard
               :card="toolCard(msg)"
               :tool-name="msg.toolName"
@@ -1384,6 +1440,11 @@ function onRevertUser(msg: Extract<ChatMessage, { role: "user" }>): void {
 .row-tool,
 .row-error {
   justify-content: flex-start;
+}
+
+/* Folded into ToolCallGroup on the lead row — keep DOM for virtual ids, zero layout. */
+.row-tool-group-follower {
+  display: none;
 }
 
 .bubble-wrap {

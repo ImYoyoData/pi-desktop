@@ -1,6 +1,6 @@
 {
   "name": "pi-desktop",
-  "version": "0.0.17",
+  "version": "0.0.18",
   "description": "Pi Desktop ? Electron + Vue3 Agent Workspace",
   "main": "./out/main/index.js",
   "author": "ImYoyoData",
@@ -24,7 +24,7 @@
     "dist:win:arm64": "npm run icons && npm run build && node scripts/ensure-dugite-git.mjs arm64 && electron-builder --win --arm64",
     "dist:mac": "npm run dist:mac:arm64 && npm run dist:mac:x64",
     "dist:mac:arm64": "npm run icons && npm run build && node scripts/ensure-dugite-git.mjs arm64 && electron-builder --mac --arm64",
-    "dist:mac:x64": "npm run icons && npm run build && node scripts/ensure-dugite-git.mjs x64 && electron-builder --mac --x64",
+    "dist:mac:x64": "npm run icons && npm run build && node scripts/ensure-dugite-git.mjs x64 && npx --yes @electron/rebuild --force --only=node-pty --arch=x64 && electron-builder --mac --x64 -c.npmRebuild=false",
     "dist:dir": "npm run icons && npm run build && npm run dugite:git && electron-builder --dir",
     "postinstall": "node scripts/ensure-dugite-git.mjs && node scripts/patch-highlightjs-exports.mjs && electron-builder install-app-deps"
   },
@@ -40,6 +40,7 @@
     "dompurify": "^3.4.12",
     "dugite": "^3.2.2",
     "highlight.js": "^11.11.1",
+    "json5": "^2.2.3",
     "katex": "^0.16.22",
     "marked": "^18.0.7",
     "marked-katex-extension": "^5.1.10",

@@ -608,8 +608,10 @@ function submitRenameTab(): void {
           :visible="active?.id === tab.id && !layout.rightCollapsed"
         />
         <ChangesTab
-          v-show="active?.id === tab.id && tab.kind === 'changes'"
+          v-if="tab.kind === 'changes'"
+          v-show="active?.id === tab.id"
           class="tab-panel"
+          :visible="active?.id === tab.id && !layout.rightCollapsed"
         />
         <BrowserTab
           v-if="tab.kind === 'browser'"

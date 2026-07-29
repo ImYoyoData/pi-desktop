@@ -83,15 +83,6 @@ async function reply(decision: PermissionDecision): Promise<void> {
           {{ t.permissionAllowWhitelist }}
         </NButton>
         <NButton
-          v-if="prompt.category === 'bash'"
-          round
-          class="pi-interactive"
-          :disabled="replying"
-          @click="reply('allow_once_background')"
-        >
-          {{ t.permissionAllowBackground }}
-        </NButton>
-        <NButton
           type="primary"
           round
           class="pi-interactive confirm-btn"
