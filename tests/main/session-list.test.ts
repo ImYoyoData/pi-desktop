@@ -2,20 +2,30 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { encodeCwdSessionDir, listSessionsForCwd } from "../../src/main/session-list";
+import {
+  encodeCwdSessionDir,
+  listPiCliWorkspaces,
+  listSessionsForCwd,
+  mergeRecentWithPiCliWorkspaces,
+  normalizeWorkspacePath,
+} from "../../src/main/session-list";
 
 const CURRENT_SESSION_VERSION = 3;
 
-function writeSessionHeader(filePath: string, id: string, cwd: string): void {
+function writeSessionHeader(filePath: string, id: string, cwd: string, modifiedIso?: string): void {
   const line = JSON.stringify({
     type: "session",
     version: CURRENT_SESSION_VERSION,
     id,
-    timestamp: "2026-01-15T12:00:00.000Z",
+    timestamp: modifiedIso ?? "2026-01-15T12:00:00.000Z",
     cwd,
   });
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
   fs.writeFileSync(filePath, `${line}\n`, "utf8");
+  if (modifiedIso) {
+    const t = new Date(modifiedIso).getTime() / 1000;
+    fs.utimesSync(filePath, t, t);
+  }
 }
 
 describe("session-list", () => {
@@ -53,6 +63,43 @@ describe("session-list", () => {
 
     expect(listed).toHaveLength(1);
     expect(listed[0]?.id).toBe("session-a");
-    expect(listed[0]?.cwd).toBe(cwdA);
+    expect(path.resolve(listed[0]!.cwd)).toBe(path.resolve(cwdA));
+  });
+
+  it("lists workspaces discovered from Pi CLI sessions", async () => {
+    const cwdA = path.join(tempRoot, "ws-a");
+    const cwdB = path.join(tempRoot, "ws-b");
+    fs.mkdirSync(cwdA, { recursive: true });
+    fs.mkdirSync(cwdB, { recursive: true });
+
+    writeSessionHeader(
+      path.join(encodeCwdSessionDir(cwdA), "2026-01-15T12-00-00-000Z_a.jsonl"),
+      "a",
+      cwdA,
+      "2026-01-15T12:00:00.000Z",
+    );
+    writeSessionHeader(
+      path.join(encodeCwdSessionDir(cwdB), "2026-01-16T12-00-00-000Z_b.jsonl"),
+      "b",
+      cwdB,
+      "2026-01-16T12:00:00.000Z",
+    );
+
+    const workspaces = await listPiCliWorkspaces();
+    expect(workspaces.map((p) => normalizeWorkspacePath(p))).toEqual(
+      [cwdB, cwdA].map((p) => normalizeWorkspacePath(p)),
+    );
+  });
+
+  it("merges desktop recent ahead of pi-discovered workspaces and respects dismiss", async () => {
+    const cwdA = path.join(tempRoot, "merge-a");
+    const cwdB = path.join(tempRoot, "merge-b");
+    fs.mkdirSync(cwdA, { recursive: true });
+    fs.mkdirSync(cwdB, { recursive: true });
+    writeSessionHeader(path.join(encodeCwdSessionDir(cwdA), "a.jsonl"), "a", cwdA);
+    writeSessionHeader(path.join(encodeCwdSessionDir(cwdB), "b.jsonl"), "b", cwdB);
+
+    const merged = await mergeRecentWithPiCliWorkspaces([cwdB], [cwdA]);
+    expect(merged.map(normalizeWorkspacePath)).toEqual([normalizeWorkspacePath(cwdB)]);
   });
 });
