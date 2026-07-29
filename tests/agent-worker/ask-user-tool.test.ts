@@ -1,9 +1,10 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { createAskUserToolDefinition } from "../../src/agent-worker/ask-user-tool";
 
 describe("createAskUserToolDefinition", () => {
-  it("returns immediately with ack text", async () => {
-    const tool = createAskUserToolDefinition();
+  it("waits for answers and returns them as tool content", async () => {
+    const waitForAnswers = vi.fn(async () => "[ask_user answers]\n1. ok");
+    const tool = createAskUserToolDefinition({ waitForAnswers });
     expect(tool.name).toBe("ask_user");
     const result = await tool.execute(
       "tc-1",
@@ -24,14 +25,17 @@ describe("createAskUserToolDefinition", () => {
       undefined,
       {} as never,
     );
+    expect(waitForAnswers).toHaveBeenCalledOnce();
     const text = result.content.map((c) => ("text" in c ? c.text : "")).join("");
-    expect(text).toMatch(/Await their next message/i);
+    expect(text).toContain("[ask_user answers]");
   });
 
-  it("rejects empty questions", async () => {
-    const tool = createAskUserToolDefinition();
+  it("rejects empty questions without waiting", async () => {
+    const waitForAnswers = vi.fn(async () => "nope");
+    const tool = createAskUserToolDefinition({ waitForAnswers });
     await expect(
       tool.execute("tc-2", { questions: [] }, undefined, undefined, {} as never),
     ).rejects.toThrow(/question/i);
+    expect(waitForAnswers).not.toHaveBeenCalled();
   });
 });

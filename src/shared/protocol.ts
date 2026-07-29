@@ -42,6 +42,10 @@ export const IpcChannels = {
     permission: "sessions:permission",
     /** Renderer → main: permission strip reply */
     permissionReply: "sessions:permissionReply",
+    /** Main → renderer: ask_user wizard */
+    askUser: "sessions:askUser",
+    /** Renderer → main: ask_user answers */
+    askUserReply: "sessions:askUserReply",
     /** Main → renderer: Pi extension UI (select/confirm/notify/…) */
     extensionUi: "sessions:extensionUi",
     /** Renderer → main: extension UI dialog reply */

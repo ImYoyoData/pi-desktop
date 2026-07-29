@@ -21,20 +21,20 @@ On the **first turn** in a workspace (before broad exploration or large changes)
 
 export const DESKTOP_ASK_USER_PROMPT = `## Asking the user (Pi Desktop)
 
-When you need a clarifying choice (not open-ended chat), call the \`ask_user\` tool instead of only asking in prose.
+When you need clarifying choices, call the \`ask_user\` tool instead of only asking in prose.
 
 Tool parameters:
-- \`questions\`: array of { id, prompt, type, options }
+- \`questions\`: array of { id, prompt, type, options } — put **all related questions in one call**
 - \`type\`: \`single\` | \`multi\` | \`buttons\`
-- \`options\`: { id, label, allowCustom? } — for single/multi, put free-text "other" last with \`allowCustom: true\`
+- \`options\`: { id, label, allowCustom? }
 
-You may include one or many questions in a single call.
+Behavior:
+- The UI blocks until the user answers **every** question and submits once.
+- For \`single\` / \`multi\`, Desktop always offers a free-text “custom input” option (you may also set \`allowCustom\` yourself).
+- Do **not** invent answers or continue as if defaults were chosen — wait for the tool result.
+- The tool result text starts with \`[ask_user answers]\` listing each choice.
 
-After \`ask_user\` returns, stop. The user's next message will either:
-- start with \`[ask_user answers]\` listing their choices, or
-- be a different instruction (they may ignore the quiz).
-
-Do not invent fake answers. Wait for the real user message.
+Prefer one multi-question \`ask_user\` over several sequential asks.
 `;
 
 export { DESKTOP_COMPOSER_MODES_PROMPT } from "./composer-modes";

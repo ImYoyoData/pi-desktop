@@ -1,6 +1,12 @@
 import { Type, type Static } from "typebox";
 import { defineTool } from "@earendil-works/pi-coding-agent";
-import { ASK_USER_TOOL_NAME, parseAskUserArgs } from "../shared/ask-user";
+import {
+  ASK_USER_TIMEOUT_MS,
+  ASK_USER_TOOL_NAME,
+  parseAskUserArgs,
+  type AskUserQuestion,
+} from "../shared/ask-user";
+import { rpcToMain } from "./main-rpc";
 
 const askUserSchema = Type.Object({
   questions: Type.Array(
@@ -19,7 +25,7 @@ const askUserSchema = Type.Object({
           allowCustom: Type.Optional(
             Type.Boolean({
               description:
-                "If true, selecting this option shows a free-text field (prefer last option for single/multi)",
+                "If true, selecting this option shows a free-text field. Desktop always adds a custom option for single/multi when missing.",
             }),
           ),
         }),
@@ -32,21 +38,38 @@ const askUserSchema = Type.Object({
 
 export type AskUserToolInput = Static<typeof askUserSchema>;
 
-const ACK =
-  "Questions shown to the user. Await their next message with answers.";
+export type AskUserWaitForAnswers = (
+  questions: AskUserQuestion[],
+) => Promise<string>;
 
-export function createAskUserToolDefinition() {
+async function defaultWaitForAnswers(questions: AskUserQuestion[]): Promise<string> {
+  const raw = await rpcToMain(
+    "desktop.askUser",
+    { questions },
+    ASK_USER_TIMEOUT_MS,
+  );
+  if (typeof raw !== "string" || !raw.trim()) {
+    throw new Error("ask_user: no answers from user");
+  }
+  return raw.trim();
+}
+
+export function createAskUserToolDefinition(deps?: {
+  waitForAnswers?: AskUserWaitForAnswers;
+}) {
+  const waitForAnswers = deps?.waitForAnswers ?? defaultWaitForAnswers;
   return defineTool({
     name: ASK_USER_TOOL_NAME,
     label: "Ask user",
     description:
-      "Show an interactive question strip in Pi Desktop (single-select, multi-select, or buttons). Call when you need a clarifying choice. Turn ends after this tool; the user replies with a message starting with [ask_user answers].",
+      "Show an interactive question wizard in Pi Desktop (single-select, multi-select, or buttons). Blocks until the user answers every question. Prefer one call with multiple questions over many sequential calls.",
     promptSnippet:
-      "Ask the user structured single/multi/button questions in the desktop UI",
+      "Ask the user structured single/multi/button questions and wait for all answers",
     promptGuidelines: [
       "Use ask_user instead of only asking clarifying choices in prose when a discrete choice is needed.",
-      "For free-text 'other', set allowCustom on the last option of single/multi.",
-      "After ask_user returns, stop and wait for the user's next message.",
+      "Put multiple related questions in one ask_user call; the UI collects all answers before continuing.",
+      "Desktop always offers a custom free-text option for single/multi; you may also set allowCustom on an option.",
+      "Do not invent answers — ask_user blocks until the user submits.",
     ],
     parameters: askUserSchema,
     async execute(_toolCallId, params) {
@@ -54,8 +77,9 @@ export function createAskUserToolDefinition() {
       if (!parsed) {
         throw new Error("ask_user: invalid or empty questions");
       }
+      const answersText = await waitForAnswers(parsed.questions);
       return {
-        content: [{ type: "text" as const, text: ACK }],
+        content: [{ type: "text" as const, text: answersText }],
       };
     },
   });
