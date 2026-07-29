@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { ExecError, exec } from "dugite";
 import type {
+  GitConflictContentResult,
   GitErrorCode,
   GitLogEntry,
   GitLogResult,
@@ -58,7 +59,7 @@ export type GitBranchesResult = {
   remote: string[];
 };
 
-export type { GitOpResult, GitRemote, GitLogEntry, GitLogResult, GitErrorCode };
+export type { GitOpResult, GitRemote, GitLogEntry, GitLogResult, GitErrorCode, GitConflictContentResult };
 
 type PorcelainEntry = {
   path: string;
@@ -807,4 +808,136 @@ export async function pushRepo(cwd: string): Promise<GitOpResult> {
   ]);
   if (upstream.ok) return { ok: true, message: upstream.stdout.trim() || undefined };
   return fail(upstream.code, upstream.message || push.message);
+}
+
+async function readIndexStage(
+  repositoryRoot: string,
+  stage: 2 | 3,
+  repoRelative: string,
+): Promise<string> {
+  const result = await gitAllowFail(repositoryRoot, ["show", `:${stage}:${repoRelative}`]);
+  if (!result.ok) return "";
+  return result.stdout;
+}
+
+async function conflictSideLabels(
+  repositoryRoot: string,
+): Promise<{ ours: string; theirs: string }> {
+  let ours = "HEAD";
+  try {
+    const branch = (await git(repositoryRoot, ["rev-parse", "--abbrev-ref", "HEAD"])).trim();
+    if (branch && branch !== "HEAD") ours = branch;
+  } catch {
+    /* keep HEAD */
+  }
+
+  let theirs = "theirs";
+  for (const headRef of ["MERGE_HEAD", "REBASE_HEAD"] as const) {
+    const verify = await gitAllowFail(repositoryRoot, ["rev-parse", "-q", "--verify", headRef]);
+    if (!verify.ok) continue;
+    const nameRev = await gitAllowFail(repositoryRoot, ["name-rev", "--name-only", headRef]);
+    if (nameRev.ok && nameRev.stdout.trim()) {
+      theirs = nameRev.stdout.trim().replace(/^remotes\//, "");
+      break;
+    }
+  }
+
+  return { ours, theirs };
+}
+
+export async function getConflictContent(
+  cwd: string,
+  relativePath: string,
+): Promise<GitConflictContentResult> {
+  const repositoryRoot = await findRepositoryRoot(cwd);
+  if (!repositoryRoot) return { supported: false, reason: "not_repo" };
+
+  const resolvedFilePath = path.resolve(cwd, relativePath);
+  if (!isWithin(cwd, resolvedFilePath) || !isWithin(repositoryRoot, resolvedFilePath)) {
+    return { supported: false, reason: "not_found" };
+  }
+
+  const repoRelative = toGitPath(path.relative(repositoryRoot, resolvedFilePath));
+
+  let stat: fs.Stats;
+  try {
+    stat = fs.lstatSync(resolvedFilePath);
+  } catch {
+    return { supported: false, reason: "not_found" };
+  }
+  if (!stat.isFile()) return { supported: false, reason: "not_found" };
+  if (stat.size > TEXT_PREVIEW_MAX_BYTES) return { supported: false, reason: "too_large" };
+
+  const currentBuffer = fs.readFileSync(resolvedFilePath);
+  if (hasNullByte(currentBuffer)) return { supported: false, reason: "binary" };
+
+  const working = currentBuffer.toString("utf8");
+  const ours = await readIndexStage(repositoryRoot, 2, repoRelative);
+  const theirs = await readIndexStage(repositoryRoot, 3, repoRelative);
+  const labels = await conflictSideLabels(repositoryRoot);
+
+  return { supported: true, working, ours, theirs, labels };
+}
+
+export async function resolveConflictPath(
+  cwd: string,
+  relativePath: string,
+  content: string,
+): Promise<GitOpResult> {
+  const repositoryRoot = await findRepositoryRoot(cwd);
+  if (!repositoryRoot) return fail("not_repo", "Not a git repository");
+
+  const resolvedFilePath = path.resolve(cwd, relativePath);
+  if (!isWithin(cwd, resolvedFilePath) || !isWithin(repositoryRoot, resolvedFilePath)) {
+    return fail("invalid_args", `Path outside workspace: ${relativePath}`);
+  }
+
+  const repoRelative = toGitPath(path.relative(repositoryRoot, resolvedFilePath));
+  fs.writeFileSync(resolvedFilePath, content, "utf8");
+
+  const add = await gitAllowFail(repositoryRoot, ["add", "--", repoRelative]);
+  if (!add.ok) return fail(add.code, add.message);
+  return { ok: true };
+}
+
+export async function checkoutConflictSide(
+  cwd: string,
+  relativePath: string,
+  side: "ours" | "theirs",
+): Promise<GitOpResult> {
+  const repositoryRoot = await findRepositoryRoot(cwd);
+  if (!repositoryRoot) return fail("not_repo", "Not a git repository");
+
+  const resolvedFilePath = path.resolve(cwd, relativePath);
+  if (!isWithin(cwd, resolvedFilePath) || !isWithin(repositoryRoot, resolvedFilePath)) {
+    return fail("invalid_args", `Path outside workspace: ${relativePath}`);
+  }
+
+  const repoRelative = toGitPath(path.relative(repositoryRoot, resolvedFilePath));
+  const sideFlag = side === "ours" ? "--ours" : "--theirs";
+
+  const checkout = await gitAllowFail(repositoryRoot, ["checkout", sideFlag, "--", repoRelative]);
+  if (!checkout.ok) return fail(checkout.code, checkout.message);
+
+  const add = await gitAllowFail(repositoryRoot, ["add", "--", repoRelative]);
+  if (!add.ok) return fail(add.code, add.message);
+  return { ok: true };
+}
+
+export async function abortMerge(cwd: string): Promise<GitOpResult> {
+  const repositoryRoot = await findRepositoryRoot(cwd);
+  if (!repositoryRoot) return fail("not_repo", "Not a git repository");
+
+  const gitDir = (await git(repositoryRoot, ["rev-parse", "--git-dir"])).trim();
+  const absGitDir = path.isAbsolute(gitDir) ? gitDir : path.join(repositoryRoot, gitDir);
+  const rebasing =
+    fs.existsSync(path.join(absGitDir, "rebase-merge")) ||
+    fs.existsSync(path.join(absGitDir, "rebase-apply"));
+
+  const result = await gitAllowFail(
+    repositoryRoot,
+    rebasing ? ["rebase", "--abort"] : ["merge", "--abort"],
+  );
+  if (!result.ok) return fail(result.code, result.message);
+  return { ok: true };
 }
