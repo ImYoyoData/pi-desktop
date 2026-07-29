@@ -85,23 +85,28 @@ function canUninstall(skill: SkillRow): boolean {
 }
 
 function onUninstall(skill: SkillRow): void {
-  dialog.warning({
+  const d = dialog.warning({
     title: t.skillUninstallTitle,
     content: t.skillUninstallConfirm(skill.name),
     positiveText: t.uninstall,
     negativeText: t.cancel,
-    onPositiveClick: async () => {
+    onPositiveClick: () => {
+      d.loading = true;
       uninstalling.value = true;
-      try {
-        await window.api.skills.uninstall(skill.filePath, workspace.root ?? undefined);
-        message.success(t.skillUninstalled);
-        if (selected.value === skill.filePath) selected.value = null;
-        await load();
-      } catch (err) {
-        message.error(err instanceof Error ? err.message : String(err));
-      } finally {
-        uninstalling.value = false;
-      }
+      return (async () => {
+        try {
+          await window.api.skills.uninstall(skill.filePath, workspace.root ?? undefined);
+          message.success(t.skillUninstalled);
+          if (selected.value === skill.filePath) selected.value = null;
+          await load();
+        } catch (err) {
+          message.error(err instanceof Error ? err.message : String(err));
+          d.loading = false;
+          return false;
+        } finally {
+          uninstalling.value = false;
+        }
+      })();
     },
   });
 }

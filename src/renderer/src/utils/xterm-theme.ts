@@ -27,8 +27,8 @@ export function xtermTheme(dark: boolean) {
       }
     : {
         background: "#ffffff",
-        foreground: "#18181b",
-        cursor: "#18181b",
+        foreground: "#27272a",
+        cursor: "#27272a",
         cursorAccent: "#ffffff",
         selectionBackground: "rgba(37, 99, 235, 0.25)",
         selectionForeground: "#18181b",
@@ -39,7 +39,8 @@ export function xtermTheme(dark: boolean) {
         blue: "#2563eb",
         magenta: "#c026d3",
         cyan: "#0891b2",
-        white: "#e4e4e7",
+        // Many shells paint "normal" text as ANSI white — keep it readable on white bg.
+        white: "#3f3f46",
         brightBlack: "#71717a",
         brightRed: "#ef4444",
         brightGreen: "#22c55e",
@@ -47,6 +48,6 @@ export function xtermTheme(dark: boolean) {
         brightBlue: "#3b82f6",
         brightMagenta: "#d946ef",
         brightCyan: "#06b6d4",
-        brightWhite: "#fafafa",
+        brightWhite: "#52525b",
       };
 }

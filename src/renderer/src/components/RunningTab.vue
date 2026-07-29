@@ -3,7 +3,8 @@ import { FitAddon } from "@xterm/addon-fit";
 import { Terminal } from "xterm";
 import { WebLinksAddon } from "xterm-addon-web-links";
 import "xterm/css/xterm.css";
-import { nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import { storeToRefs } from "pinia";
 import { NButton, NEmpty, useDialog, useMessage } from "naive-ui";
 import { t } from "@renderer/i18n";
 import { useAgentRunsStore } from "@renderer/stores/agent-runs";
@@ -18,6 +19,7 @@ const props = defineProps<{
 }>();
 
 const store = useAgentRunsStore();
+const { selectedId, runs } = storeToRefs(store);
 const sessions = useSessionsStore();
 const appearance = useAppearanceStore();
 const message = useMessage();
@@ -37,12 +39,22 @@ let writeRaf = 0;
 let syncedRunId: string | null = null;
 let lastWrittenTail = "";
 
+const selectedRun = computed(() => {
+  const id = selectedId.value;
+  if (!id) return null;
+  return runs.value.find((r) => r.id === id) ?? null;
+});
+
+const selectedOutputTail = computed(() => selectedRun.value?.outputTail ?? "");
+
 function flushWriteBuf(): void {
   writeRaf = 0;
   if (!term || !writeBuf) return;
   const chunk = writeBuf;
   writeBuf = "";
-  term.write(chunk);
+  term.write(chunk, () => {
+    term?.scrollToBottom();
+  });
 }
 
 function enqueueWrite(data: string): void {
@@ -59,6 +71,11 @@ function fitTerm(): void {
   if (rect.width < 8 || rect.height < 8) return;
   try {
     fit.fit();
+    // After display:none → visible, force a full cell redraw so prior writes show up.
+    if (term.rows > 0) {
+      term.refresh(0, term.rows - 1);
+    }
+    term.scrollToBottom();
   } catch {
     // container may not be laid out yet
   }
@@ -96,9 +113,9 @@ function resetSync(): void {
   }
 }
 
-function syncOutput(): void {
+function syncOutput(forceFull = false): void {
   if (!term) return;
-  const run = store.selected;
+  const run = selectedRun.value;
   if (!run) {
     if (syncedRunId !== null || lastWrittenTail) {
       term.reset();
@@ -107,7 +124,8 @@ function syncOutput(): void {
     return;
   }
   const tail = run.outputTail ?? "";
-  if (run.id !== syncedRunId) {
+  const mustFull = forceFull || run.id !== syncedRunId;
+  if (mustFull) {
     term.reset();
     writeBuf = "";
     if (writeRaf) {
@@ -169,7 +187,7 @@ onMounted(() => {
     bindXterm(host);
     resizeObserver = new ResizeObserver(() => scheduleFit());
     resizeObserver.observe(host);
-    syncOutput();
+    syncOutput(true);
     void nextTick(() => scheduleFit());
   }
 });
@@ -190,26 +208,31 @@ onBeforeUnmount(() => {
   resetSync();
 });
 
-watch(
-  () => [store.selectedId, store.selected?.outputTail] as const,
-  () => {
-    syncOutput();
-  },
-);
+// Selection change → full redraw; output growth → incremental append.
+watch(selectedId, () => {
+  syncOutput(true);
+  if (props.visible !== false) scheduleFit();
+});
+
+watch(selectedOutputTail, () => {
+  syncOutput(false);
+});
 
 watch(
   () => props.visible,
   (v) => {
     if (!v || !term) return;
     term.options.theme = xtermTheme(appearance.resolvedTheme === "dark");
-    scheduleFit();
+    // Parent was display:none — rewrite + fit so the live buffer is actually painted.
+    syncOutput(true);
+    void nextTick(() => scheduleFit());
   },
 );
 
 watch(
   () => appearance.resolvedTheme,
   () => {
-    if (!term || !props.visible) return;
+    if (!term || props.visible === false) return;
     term.options.theme = xtermTheme(appearance.resolvedTheme === "dark");
   },
 );
@@ -281,7 +304,7 @@ function onRowKeydown(e: KeyboardEvent, runId: string): void {
     </aside>
     <div class="run-out">
       <div ref="hostRef" class="term-host" />
-      <div v-if="!store.selected" class="out-empty">
+      <div v-if="!selectedRun" class="out-empty">
         <NEmpty :description="t.runningSelectHint" size="small" />
       </div>
     </div>
@@ -376,7 +399,7 @@ function onRowKeydown(e: KeyboardEvent, runId: string): void {
   height: 100%;
   padding: 4px;
   box-sizing: border-box;
-  color: var(--fg, #e4e4e7);
+  color: var(--fg-strong, #27272a);
 }
 
 .term-host :deep(.xterm-viewport) {
@@ -385,7 +408,7 @@ function onRowKeydown(e: KeyboardEvent, runId: string): void {
 
 .term-host :deep(.xterm-helper-textarea),
 .term-host :deep(.xterm-composition-view) {
-  color: var(--fg, #e4e4e7) !important;
+  color: var(--fg-strong, #27272a) !important;
   caret-color: transparent !important;
 }
 

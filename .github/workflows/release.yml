@@ -164,21 +164,23 @@ jobs:
           prerelease: true
           generate_release_notes: true
           body: |
-            ## 主要更新（0.0.20 测试版）
-            - **向用户提问**：单选/多选必有「自定义输入」；多题逐题作答并显示 `当前/总数`；全部提交后才继续（工具阻塞等待，不再默认跳过）
-            - **聊天工具折叠**：连续工具调用收成「调用工具 N 次、读取文件 M 次」，可展开
-            - **文件树**：修复偶发无法展开/收起；静默刷新可见目录
-            - **预览编辑**：未修改时磁盘变更静默重载；Ctrl/Cmd+S 保存
-            - **Changes**：真实对话框与 Git API
-            - **标签与语法**：同名标签路径区分；`.env` / JSON / JSON5 / JSONC
-            - **主题与扩展**：主题切换更顺滑；扩展/Skills 加载校验；`AGENTS.md` 首次必读
-            - **CI**：修复 ask_user 相关单元测试导致 Typecheck & tests 失败、整次发布被跳过的问题；加固 macOS 打包流程
+            ## 主要更新（0.0.21 测试版）
+            - **写入/编辑工具**：执行中自动展开，并实时预览 diff
+            - **Bash 后台**：启发式识别长任务；支持 `# pi-desktop:background`；Win11 用 PowerShell CIM 查子进程
+            - **Running 面板**：输出更实时（合并 IPC + 选中刷新）
+            - **TTS**：边合成边播放（分句流水线）
+            - **删除确认**：对话框 loading，失败不关窗
+            - **文件预览**：删除后保留编辑器缓存，顶部提示
+            - **其它**：亮色终端 ANSI 白色可读性；ask_user 更紧凑；安全设置 IPC 纯对象 clone；录音条图标尺寸微调
 
-            ## What's New (0.0.20 prerelease)
-            - **Ask user**: always offer custom input for single/multi; wizard with `current/total`; blocks until all answers are submitted
-            - **Collapsed tool groups**: Cursor-style summary for consecutive tool calls
-            - **File tree / preview / Changes / tabs / languages / theme / extensions**: as in 0.0.18+
-            - **CI**: fix ask_user reducer tests that blocked the whole release; keep macOS packaging hardening
+            ## What's New (0.0.21 prerelease)
+            - **Write/edit tools**: auto-expand while running with live diff preview
+            - **Background bash**: heuristics + `# pi-desktop:background`; Win11 CIM child-process lookup
+            - **Running tab**: snappier live output
+            - **TTS**: chunked synthesize-and-play pipeline
+            - **Delete dialogs**: loading state; keep open on failure
+            - **Preview**: keep editor cache after file delete with a top notice
+            - **Also**: light-theme terminal ANSI white; compact ask_user; security settings IPC clone; voice bar icon sizing
 
             ## 下载（每个系统/架构单独安装包）
             - **Windows x64**: `Pi Desktop-*-win-x64-setup.exe`

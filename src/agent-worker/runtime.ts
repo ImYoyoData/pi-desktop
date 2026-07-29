@@ -31,11 +31,13 @@ import {
 import {
   DESKTOP_ASK_USER_PROMPT,
   DESKTOP_COMPOSER_MODES_PROMPT,
+  DESKTOP_BASH_BACKGROUND_PROMPT,
   DESKTOP_PROJECT_ORIENTATION_PROMPT,
 } from "../shared/desktop-system-prompt";
 import {
   createAskUserToolDefinition,
 } from "./ask-user-tool";
+import { commandShouldStartBackground } from "../shared/bash-background";
 import { createTrackedBashOperations } from "./bash-run-tracker";
 import { createBrowserToolDefinitions } from "./browser-tools";
 import { readContextUsage } from "./context-usage";
@@ -189,6 +191,7 @@ async function initSession(
       appendSystemPrompt: [
         DESKTOP_PROJECT_ORIENTATION_PROMPT,
         DESKTOP_ASK_USER_PROMPT,
+        DESKTOP_BASH_BACKGROUND_PROMPT,
         DESKTOP_COMPOSER_MODES_PROMPT,
       ],
       ...(builtinBrowserSkillDir
@@ -206,7 +209,8 @@ async function initSession(
     onEnded: (runId) => post({ kind: "run_ended", runId }),
     onBackgrounded: (runId) => post({ kind: "run_backgrounded", runId }),
     beforeExec: (command) => assertBashExecAllowed?.(command),
-    shouldStartBackground: (command) => Boolean(takeBashBackgroundFlag?.(command)),
+    shouldStartBackground: (command) =>
+      Boolean(takeBashBackgroundFlag?.(command)) || commandShouldStartBackground(command),
   });
   const { session: created, extensionsResult } = await createAgentSessionFromServices({
     services,

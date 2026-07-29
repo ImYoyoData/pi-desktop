@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from "vue";
+import { computed, ref, watch } from "vue";
 import { NButton, NIcon, useMessage } from "naive-ui";
 import {
   CheckmarkCircleOutline,
@@ -30,7 +30,24 @@ const emit = defineEmits<{
   open: [path: string];
 }>();
 
-const open = ref(false);
+/** Expanded while streaming (like ThinkingBlock); user can still collapse. */
+const manuallyOpen = ref<boolean | null>(null);
+const open = computed(() => {
+  if (manuallyOpen.value !== null) return manuallyOpen.value;
+  return Boolean(props.streaming);
+});
+
+watch(
+  () => props.streaming,
+  (streaming) => {
+    if (streaming) manuallyOpen.value = null;
+  },
+);
+
+function toggleOpen(): void {
+  manuallyOpen.value = !open.value;
+}
+
 const backgroundBusy = ref(false);
 const message = useMessage();
 const agentRuns = useAgentRunsStore();
@@ -210,7 +227,7 @@ function onOpenPreview(): void {
       [`kind-${card.kind}`]: true,
     }"
   >
-    <div class="tool-call-head" @click="open = !open">
+    <div class="tool-call-head" @click="toggleOpen">
       <button type="button" class="expand-hit" :aria-expanded="open">
         <NIcon
           class="chev"

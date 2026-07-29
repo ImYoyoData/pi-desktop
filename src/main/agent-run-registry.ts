@@ -24,20 +24,53 @@ export function createAgentRunRegistry(deps: {
   sendBackground?: (sessionId: string, runId: string) => Promise<void>;
 }): AgentRunRegistry {
   const runs = new Map<string, AgentRunSnapshot>();
+  /** Batch high-frequency stdout into ~30fps IPC so the Running xterm can keep up. */
+  const pendingOutput = new Map<string, { chunk: string; outputTail: string }>();
+  let outputFlushTimer: ReturnType<typeof setTimeout> | null = null;
+
+  function flushPendingOutput(): void {
+    if (outputFlushTimer != null) {
+      clearTimeout(outputFlushTimer);
+      outputFlushTimer = null;
+    }
+    if (!pendingOutput.size) return;
+    const batch = [...pendingOutput.entries()];
+    pendingOutput.clear();
+    for (const [runId, payload] of batch) {
+      deps.onEvent({
+        type: "output",
+        runId,
+        chunk: payload.chunk,
+        outputTail: payload.outputTail,
+      });
+    }
+  }
+
+  function queueOutput(runId: string, chunk: string, outputTail: string): void {
+    const prev = pendingOutput.get(runId);
+    pendingOutput.set(runId, {
+      chunk: prev ? prev.chunk + chunk : chunk,
+      outputTail,
+    });
+    if (outputFlushTimer != null) return;
+    outputFlushTimer = setTimeout(flushPendingOutput, 32);
+  }
 
   function handleWorkerMessage(sessionId: string, msg: WorkerOutbound): void {
     if (msg.kind === "run_started") {
+      const existing = runs.get(msg.run.id);
       const snap: AgentRunSnapshot = {
         id: msg.run.id,
         sessionId: msg.run.sessionId || sessionId,
         workspaceRoot: normalizeRoot(msg.run.workspaceRoot),
         command: msg.run.command,
         cwd: msg.run.cwd,
-        pid: msg.run.pid,
-        startedAt: msg.run.startedAt,
-        status: "running",
-        outputTail: "",
-        detached: false,
+        pid: msg.run.pid ?? existing?.pid,
+        startedAt: existing?.startedAt ?? msg.run.startedAt,
+        status: existing?.status === "terminating" ? "terminating" : "running",
+        // Preserve already-streamed stdout when the worker re-emits start with a pid.
+        outputTail: existing?.outputTail ?? "",
+        detached: existing?.detached ?? false,
       };
       runs.set(snap.id, snap);
       deps.onEvent({ type: "upsert", run: { ...snap } });
@@ -50,11 +83,13 @@ export function createAgentRunRegistry(deps: {
       const outputTail = appendCappedTail(existing.outputTail, msg.chunk);
       const next: AgentRunSnapshot = { ...existing, outputTail };
       runs.set(msg.runId, next);
-      deps.onEvent({ type: "output", runId: msg.runId, chunk: msg.chunk, outputTail });
+      queueOutput(msg.runId, msg.chunk, outputTail);
       return;
     }
 
     if (msg.kind === "run_backgrounded") {
+      // Flush buffered stdout before marking detached so the UI doesn't lag behind.
+      if (pendingOutput.has(msg.runId)) flushPendingOutput();
       const existing = runs.get(msg.runId);
       if (!existing) return;
       const next: AgentRunSnapshot = { ...existing, detached: true };
@@ -64,6 +99,7 @@ export function createAgentRunRegistry(deps: {
     }
 
     if (msg.kind === "run_ended") {
+      if (pendingOutput.has(msg.runId)) flushPendingOutput();
       if (!runs.has(msg.runId)) return;
       runs.delete(msg.runId);
       deps.onEvent({ type: "ended", runId: msg.runId });
