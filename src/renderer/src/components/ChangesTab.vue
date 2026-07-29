@@ -92,8 +92,18 @@ const canCommit = computed(
   () => Boolean(commitMessage.value.trim()) && checkedPaths.value.length > 0 && !busy.value,
 );
 
+function isConflictFile(f: GitFile): boolean {
+  return f.status === "conflict" || f.code === "C";
+}
+
+const discardableCheckedPaths = computed(() =>
+  files.value
+    .filter((f) => checked.value[f.relativePath] && !isConflictFile(f))
+    .map((f) => f.relativePath),
+);
+
 const canDiscardSelected = computed(
-  () => checkedPaths.value.length > 0 && !busy.value && isGit.value,
+  () => discardableCheckedPaths.value.length > 0 && !busy.value && isGit.value,
 );
 
 const conflictCount = computed(
@@ -251,6 +261,9 @@ async function loadDiff(relativePath: string): Promise<void> {
     if (result.supported) {
       conflictPayload.value = { working: result.working, labels: result.labels };
       patch.value = null;
+      oldContent.value = "";
+      newContent.value = "";
+      diffSupported.value = false;
       return;
     }
     conflictPayload.value = null;
@@ -320,7 +333,7 @@ async function onFetch(): Promise<void> {
 }
 
 async function onDiscardSelected(): Promise<void> {
-  const paths = [...checkedPaths.value];
+  const paths = [...discardableCheckedPaths.value];
   if (!paths.length) return;
   if (!window.confirm(t.changesDiscardConfirmSelected)) return;
   await runOp(t.changesDiscarded, () => window.api.git.restore(paths));
@@ -643,6 +656,7 @@ watch(
             <span class="code" :data-code="f.code">{{ f.code }}</span>
             <span class="path" :title="f.relativePath">{{ f.relativePath }}</span>
             <button
+              v-if="!isConflictFile(f)"
               type="button"
               class="row-discard"
               :title="t.changesDiscardFile"
@@ -669,6 +683,7 @@ watch(
                 <span class="del">-{{ diffStats.deletions }}</span>
               </div>
               <NButton
+                v-if="!conflictPayload"
                 size="tiny"
                 quaternary
                 :disabled="busy"

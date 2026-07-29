@@ -286,6 +286,13 @@ function hasNullByte(content: Buffer): boolean {
   return content.includes(0);
 }
 
+function stageTextRejectReason(text: string): "binary" | "too_large" | null {
+  const buf = Buffer.from(text, "utf8");
+  if (buf.length > TEXT_PREVIEW_MAX_BYTES) return "too_large";
+  if (hasNullByte(buf)) return "binary";
+  return null;
+}
+
 function createAddedFilePatch(gitPath: string, content: string): string {
   const hasTrailingNewline = content.endsWith("\n");
   const lines = content.split("\n");
@@ -563,24 +570,42 @@ export async function checkoutBranch(cwd: string, branch: string): Promise<GitOp
     const remoteName = name.slice(0, slash);
     const short = name.slice(slash + 1);
     if (remoteName && short && !short.includes(" ")) {
-      const locals = await listBranches(cwd);
-      if (locals.local.includes(short)) {
-        const localCheckout = await gitAllowFail(repositoryRoot, ["checkout", short]);
-        if (!localCheckout.ok) return fail(localCheckout.code, localCheckout.message);
-        return { ok: true };
+      let remotes: GitRemote[] = [];
+      try {
+        remotes = await readRemotes(repositoryRoot);
+      } catch {
+        remotes = [];
       }
-      const tracked = await gitAllowFail(repositoryRoot, [
-        "checkout",
-        "-b",
-        short,
-        "--track",
-        name,
-      ]);
-      if (tracked.ok) return { ok: true };
-      // Fallback: detached from remote tip then rename is riskier — try switch.
-      const switched = await gitAllowFail(repositoryRoot, ["switch", "-c", short, "--track", name]);
-      if (switched.ok) return { ok: true };
-      return fail(tracked.code, tracked.message);
+      const remoteNames = new Set(remotes.map((r) => r.name));
+      const branches = await listBranches(cwd);
+      const isRemoteTracking =
+        remoteNames.has(remoteName) || branches.remote.includes(name);
+
+      if (isRemoteTracking) {
+        if (branches.local.includes(short)) {
+          const localCheckout = await gitAllowFail(repositoryRoot, ["checkout", short]);
+          if (!localCheckout.ok) return fail(localCheckout.code, localCheckout.message);
+          return { ok: true };
+        }
+        const tracked = await gitAllowFail(repositoryRoot, [
+          "checkout",
+          "-b",
+          short,
+          "--track",
+          name,
+        ]);
+        if (tracked.ok) return { ok: true };
+        // Fallback: detached from remote tip then rename is riskier — try switch.
+        const switched = await gitAllowFail(repositoryRoot, [
+          "switch",
+          "-c",
+          short,
+          "--track",
+          name,
+        ]);
+        if (switched.ok) return { ok: true };
+        return fail(tracked.code, tracked.message);
+      }
     }
   }
 
@@ -874,6 +899,10 @@ export async function getConflictContent(
   const working = currentBuffer.toString("utf8");
   const ours = await readIndexStage(repositoryRoot, 2, repoRelative);
   const theirs = await readIndexStage(repositoryRoot, 3, repoRelative);
+  const oursReject = stageTextRejectReason(ours);
+  if (oursReject) return { supported: false, reason: oursReject };
+  const theirsReject = stageTextRejectReason(theirs);
+  if (theirsReject) return { supported: false, reason: theirsReject };
   const labels = await conflictSideLabels(repositoryRoot);
 
   return { supported: true, working, ours, theirs, labels };
