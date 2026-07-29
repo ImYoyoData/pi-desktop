@@ -3,9 +3,13 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
+  abortMerge,
+  checkoutConflictSide,
+  getConflictContent,
   getWorkspaceGitStatus,
   initRepo,
   listBranches,
+  resolveConflictPath,
   restorePaths,
 } from "../../src/main/git-host";
 
@@ -28,6 +32,51 @@ async function runGit(cwd: string, args: string[]): Promise<string> {
     env: { ...process.env, GIT_AUTHOR_NAME: "Test", GIT_AUTHOR_EMAIL: "test@example.com", GIT_COMMITTER_NAME: "Test", GIT_COMMITTER_EMAIL: "test@example.com" },
   });
   return stdout;
+}
+
+async function runGitAllowFail(cwd: string, args: string[]): Promise<boolean> {
+  try {
+    await runGit(cwd, args);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function defaultBranchName(cwd: string): Promise<string> {
+  return (await runGit(cwd, ["rev-parse", "--abbrev-ref", "HEAD"])).trim();
+}
+
+async function mergeHeadExists(cwd: string): Promise<boolean> {
+  const gitDir = (await runGit(cwd, ["rev-parse", "--git-dir"])).trim();
+  const absGitDir = path.isAbsolute(gitDir) ? gitDir : path.join(cwd, gitDir);
+  return fs.existsSync(path.join(absGitDir, "MERGE_HEAD"));
+}
+
+async function makeConflictRepo(): Promise<string> {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-git-conflict-"));
+  temps.push(dir);
+
+  expect((await initRepo(dir)).ok).toBe(true);
+
+  fs.writeFileSync(path.join(dir, "f.txt"), "base\n", "utf8");
+  await runGit(dir, ["add", "f.txt"]);
+  await runGit(dir, ["commit", "-m", "base"]);
+  const main = await defaultBranchName(dir);
+
+  await runGit(dir, ["checkout", "-b", "feature"]);
+  fs.writeFileSync(path.join(dir, "f.txt"), "feature\n", "utf8");
+  await runGit(dir, ["add", "f.txt"]);
+  await runGit(dir, ["commit", "-m", "feature"]);
+
+  await runGit(dir, ["checkout", main]);
+  fs.writeFileSync(path.join(dir, "f.txt"), "mainline\n", "utf8");
+  await runGit(dir, ["add", "f.txt"]);
+  await runGit(dir, ["commit", "-m", "mainline"]);
+
+  expect(await runGitAllowFail(dir, ["merge", "feature"])).toBe(false);
+
+  return dir;
 }
 
 describe("git-host dugite smoke", () => {
@@ -88,5 +137,51 @@ describe("git-host dugite smoke", () => {
     const branches = await listBranches(dir);
     expect(branches.local.length).toBeGreaterThan(0);
     expect(branches.remote.some((name) => name.startsWith("origin/"))).toBe(true);
+  }, 60_000);
+
+  it("resolveConflictPath clears merge conflict after writing merged content", async () => {
+    const dir = await makeConflictRepo();
+
+    const content = await getConflictContent(dir, "f.txt");
+    expect(content.supported).toBe(true);
+    if (!content.supported) return;
+    expect(content.working).toContain("<<<<<<<");
+    expect(content.ours).toContain("mainline");
+    expect(content.theirs).toContain("feature");
+
+    const resolved = await resolveConflictPath(dir, "f.txt", "merged\n");
+    expect(resolved.ok).toBe(true);
+    const status = await getWorkspaceGitStatus(dir);
+    expect(status.files.every((f) => f.code !== "C")).toBe(true);
+  }, 60_000);
+
+  it("checkoutConflictSide stages ours", async () => {
+    const dir = await makeConflictRepo();
+
+    const ours = await getConflictContent(dir, "f.txt");
+    expect(ours.supported).toBe(true);
+    if (!ours.supported) return;
+
+    const picked = await checkoutConflictSide(dir, "f.txt", "ours");
+    expect(picked.ok).toBe(true);
+
+    const status = await getWorkspaceGitStatus(dir);
+    expect(status.files.every((f) => f.code !== "C")).toBe(true);
+    expect(fs.readFileSync(path.join(dir, "f.txt"), "utf8").replace(/\r\n/g, "\n")).toBe(
+      ours.ours.replace(/\r\n/g, "\n"),
+    );
+  }, 60_000);
+
+  it("abortMerge restores clean state", async () => {
+    const dir = await makeConflictRepo();
+    expect(await mergeHeadExists(dir)).toBe(true);
+
+    const aborted = await abortMerge(dir);
+    expect(aborted.ok).toBe(true);
+
+    const status = await getWorkspaceGitStatus(dir);
+    expect(status.isGitRepository).toBe(true);
+    expect(status.files.every((f) => f.code !== "C")).toBe(true);
+    expect(await mergeHeadExists(dir)).toBe(false);
   }, 60_000);
 });
