@@ -400,20 +400,29 @@ async function onRestart(): Promise<void> {
 function confirmDeleteSession(root: string, sessionId: string): void {
   const session = (sessionsByRoot[root] ?? []).find((s) => s.id === sessionId);
   const label = sessionLabel(session ?? { id: sessionId });
-  dialog.warning({
+  const d = dialog.warning({
     title: t.deleteSession,
     content: t.deleteConfirm(label),
     positiveText: t.delete,
     negativeText: t.cancel,
-    onPositiveClick: async () => {
-      if (workspace.root !== root) await workspace.openWorkspacePath(root);
-      await sessionsStore.deleteSession(sessionId, root);
-      chatStore.clearSession(sessionId);
-      sendQueueStore.clearSession(sessionId);
-      pins[root] = (pins[root] ?? []).filter((id) => id !== sessionId);
-      persistPins();
-      await loadSessions(root);
-      await ensureActiveSession(root);
+    onPositiveClick: () => {
+      d.loading = true;
+      return (async () => {
+        try {
+          if (workspace.root !== root) await workspace.openWorkspacePath(root);
+          await sessionsStore.deleteSession(sessionId, root);
+          chatStore.clearSession(sessionId);
+          sendQueueStore.clearSession(sessionId);
+          pins[root] = (pins[root] ?? []).filter((id) => id !== sessionId);
+          persistPins();
+          await loadSessions(root);
+          await ensureActiveSession(root);
+        } catch (err) {
+          message.error(err instanceof Error ? err.message : String(err));
+          d.loading = false;
+          return false;
+        }
+      })();
     },
   });
 }
@@ -532,26 +541,36 @@ async function onWorkspaceMenu(root: string, key: string | number): Promise<void
       await navigator.clipboard.writeText(root);
       message.success(t.pathCopied);
       break;
-    case "remove":
-      dialog.warning({
+    case "remove": {
+      const d = dialog.warning({
         title: t.removeWorkspaceTitle,
         content: t.removeWorkspaceConfirm(workspaceName(root)),
         positiveText: t.remove,
         negativeText: t.cancel,
-        onPositiveClick: async () => {
-          await workspace.removeRecent(root);
-          delete sessionsByRoot[root];
-          delete expanded[root];
-          if (workspace.root) {
-            expanded[workspace.root] = true;
-            await loadSessions(workspace.root);
-            await ensureActiveSession(workspace.root);
-          } else {
-            sessionsStore.activeId = null;
-          }
+        onPositiveClick: () => {
+          d.loading = true;
+          return (async () => {
+            try {
+              await workspace.removeRecent(root);
+              delete sessionsByRoot[root];
+              delete expanded[root];
+              if (workspace.root) {
+                expanded[workspace.root] = true;
+                await loadSessions(workspace.root);
+                await ensureActiveSession(workspace.root);
+              } else {
+                sessionsStore.activeId = null;
+              }
+            } catch (err) {
+              message.error(err instanceof Error ? err.message : String(err));
+              d.loading = false;
+              return false;
+            }
+          })();
         },
       });
       break;
+    }
     default:
       break;
   }

@@ -225,24 +225,29 @@ function uninstallPkg(pkg: PiPackageListItem): void {
   const entries = installedEntries(pkg.name);
   if (!entries.length || busy.value) return;
 
-  dialog.warning({
+  const d = dialog.warning({
     title: t.marketUninstall,
     content: t.marketUninstallConfirm(pkg.name),
     positiveText: t.uninstall,
     negativeText: t.cancel,
-    onPositiveClick: async () => {
+    onPositiveClick: () => {
+      d.loading = true;
       busy.value = pkg.name;
-      try {
-        for (const entry of entries) {
-          await window.api.plugins.remove(entry.source, entry.scope, workspace.root ?? undefined);
+      return (async () => {
+        try {
+          for (const entry of entries) {
+            await window.api.plugins.remove(entry.source, entry.scope, workspace.root ?? undefined);
+          }
+          message.success(t.marketUninstalled(pkg.name));
+          await loadInstalled();
+        } catch (err) {
+          message.error(err instanceof Error ? err.message : t.marketUninstallFailed);
+          d.loading = false;
+          return false;
+        } finally {
+          busy.value = null;
         }
-        message.success(t.marketUninstalled(pkg.name));
-        await loadInstalled();
-      } catch (err) {
-        message.error(err instanceof Error ? err.message : t.marketUninstallFailed);
-      } finally {
-        busy.value = null;
-      }
+      })();
     },
   });
 }

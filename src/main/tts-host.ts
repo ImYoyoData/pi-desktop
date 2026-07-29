@@ -21,6 +21,7 @@ import { IpcChannels } from "../shared/protocol";
 import {
   resolveTtsBinaryAsset,
   sanitizeTtsText,
+  splitTtsChunks,
   TTS_RUNTIME_DISK_MB,
   TTS_VOICE_DISK_MB,
   TTS_VOICE_JSON,
@@ -483,42 +484,103 @@ async function speakText(raw: string): Promise<TtsSpeakResult> {
   playChild = null;
   const gen = speakGen;
   broadcastSpeaking(true);
-  let wavPath = "";
-  try {
-    wavPath = await synthesizeToWav(text);
-    if (gen !== speakGen) {
-      try {
-        rmSync(wavPath, { force: true });
-      } catch {
-        // ignore
-      }
-      return { ok: false, message: "Stopped" };
-    }
-    const pathToClean = wavPath;
-    void playWav(pathToClean)
-      .catch(() => {
-        // ignore playback errors
-      })
-      .finally(() => {
-        if (gen === speakGen) broadcastSpeaking(false);
-        try {
-          rmSync(pathToClean, { force: true });
-        } catch {
-          // ignore
-        }
-      });
-    return { ok: true, wavPath: pathToFileURL(wavPath).href };
-  } catch (err) {
-    if (gen === speakGen) broadcastSpeaking(false);
-    if (wavPath) {
-      try {
-        rmSync(wavPath, { force: true });
-      } catch {
-        // ignore
-      }
-    }
-    return { ok: false, message: err instanceof Error ? err.message : String(err) };
+
+  const chunks = splitTtsChunks(text);
+  if (!chunks.length) {
+    broadcastSpeaking(false);
+    return { ok: false, message: "Nothing to speak" };
   }
+
+  const queue: string[] = [];
+  let synthIndex = 0;
+  let playIndex = 0;
+  let synthDone = false;
+  let synthError: Error | null = null;
+  let firstWav = "";
+
+  const cleanupPath = (p: string) => {
+    try {
+      rmSync(p, { force: true });
+    } catch {
+      // ignore
+    }
+  };
+
+  const synthesizeOne = async (): Promise<boolean> => {
+    if (synthIndex >= chunks.length || gen !== speakGen) return false;
+    const piece = chunks[synthIndex]!;
+    synthIndex += 1;
+    try {
+      const wavPath = await synthesizeToWav(piece);
+      if (gen !== speakGen) {
+        cleanupPath(wavPath);
+        return false;
+      }
+      if (!firstWav) firstWav = wavPath;
+      queue.push(wavPath);
+      return true;
+    } catch (err) {
+      synthError = err instanceof Error ? err : new Error(String(err));
+      return false;
+    }
+  };
+
+  // Producer: keep 1–2 chunks ahead so playback starts after the first phrase.
+  void (async () => {
+    try {
+      while (gen === speakGen && synthIndex < chunks.length && !synthError) {
+        // Bound queue depth so we don't synth the whole reply before playing.
+        while (queue.length - playIndex >= 2 && gen === speakGen && !synthError) {
+          await new Promise<void>((r) => setTimeout(r, 40));
+        }
+        if (gen !== speakGen || synthError) break;
+        await synthesizeOne();
+      }
+    } finally {
+      synthDone = true;
+    }
+  })();
+
+  // Consumer: play as soon as the first wav is ready.
+  void (async () => {
+    try {
+      while (gen === speakGen) {
+        if (playIndex < queue.length) {
+          const wavPath = queue[playIndex]!;
+          playIndex += 1;
+          try {
+            await playWav(wavPath);
+          } catch {
+            // ignore single-chunk playback errors
+          } finally {
+            cleanupPath(wavPath);
+          }
+          continue;
+        }
+        if (synthDone || synthError) break;
+        await new Promise<void>((r) => setTimeout(r, 40));
+      }
+    } finally {
+      for (const p of queue.slice(playIndex)) cleanupPath(p);
+      if (gen === speakGen) broadcastSpeaking(false);
+    }
+  })();
+
+  // Wait for first chunk so callers learn about synth failures quickly.
+  const deadline = Date.now() + 12_000;
+  while (gen === speakGen && !firstWav && !synthError && Date.now() < deadline) {
+    await new Promise<void>((r) => setTimeout(r, 40));
+  }
+  if (gen !== speakGen) return { ok: false, message: "Stopped" };
+  if (synthError) {
+    broadcastSpeaking(false);
+    return { ok: false, message: synthError.message };
+  }
+  if (!firstWav) {
+    broadcastSpeaking(false);
+    return { ok: false, message: "TTS synthesis timed out" };
+  }
+  return { ok: true, wavPath: pathToFileURL(firstWav).href };
 }
 
 export function registerTtsIpc(): void {
