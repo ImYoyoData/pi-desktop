@@ -33,6 +33,11 @@ import { registerCheckpointIpc } from "./checkpoint-ipc";
 import { registerNotifyIpc } from "./notify-host";
 import { askRendererPermission, registerPermissionAskIpc } from "./permission-ask-host";
 import {
+  askRendererAskUser,
+  questionsFromAskUserParams,
+  registerAskUserIpc,
+} from "./ask-user-host";
+import {
   handleExtensionUiRpc,
   registerExtensionUiIpc,
 } from "./extension-ui-host";
@@ -120,6 +125,16 @@ function boot(): void {
               category: category as SecurityCategory,
               toolName,
               summary,
+            });
+          } else if (msg.method === "desktop.askUser") {
+            const questions = questionsFromAskUserParams(msg.params ?? {});
+            if (!questions.length) {
+              throw new Error("desktop.askUser: invalid or empty questions");
+            }
+            result = await askRendererAskUser({
+              sessionId,
+              requestId: msg.id,
+              questions,
             });
           } else if (msg.method === "desktop.extensionUi") {
             result = await handleExtensionUiRpc(
@@ -239,6 +254,7 @@ function boot(): void {
     registerAgentRunsIpc(registryHolder.current!);
     registerModelsIpc(broker);
     registerPermissionAskIpc(broker);
+    registerAskUserIpc();
     registerExtensionUiIpc();
     registerSecurityTrustIpc(broker);
     registerPreviewIpc();

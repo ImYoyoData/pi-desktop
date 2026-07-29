@@ -1,13 +1,34 @@
 import { describe, expect, it } from "vitest";
 import {
+  ASK_USER_CUSTOM_OPTION_ID,
   formatAskUserAnswers,
   parseAskUserArgs,
   validateAskUserAnswers,
+  withEnsuredCustomOption,
   type AskUserAnswerDraft,
 } from "../../src/shared/ask-user";
 
 describe("parseAskUserArgs", () => {
-  it("parses a valid single-question payload", () => {
+  it("parses a valid single-question payload and injects custom option", () => {
+    const prompt = parseAskUserArgs({
+      questions: [
+        {
+          id: "env",
+          prompt: "Deploy where?",
+          type: "single",
+          options: [{ id: "prod", label: "production" }],
+        },
+      ],
+    });
+    expect(prompt?.questions).toHaveLength(1);
+    expect(prompt?.questions[0]?.type).toBe("single");
+    expect(prompt?.questions[0]?.options.some((o) => o.allowCustom)).toBe(true);
+    expect(
+      prompt?.questions[0]?.options.some((o) => o.id === ASK_USER_CUSTOM_OPTION_ID),
+    ).toBe(true);
+  });
+
+  it("does not duplicate custom when allowCustom already present", () => {
     const prompt = parseAskUserArgs({
       questions: [
         {
@@ -21,12 +42,26 @@ describe("parseAskUserArgs", () => {
         },
       ],
     });
-    expect(prompt?.questions).toHaveLength(1);
-    expect(prompt?.questions[0]?.type).toBe("single");
+    expect(prompt?.questions[0]?.options.filter((o) => o.allowCustom)).toHaveLength(1);
   });
 
   it("returns null for empty questions", () => {
     expect(parseAskUserArgs({ questions: [] })).toBeNull();
+  });
+});
+
+describe("withEnsuredCustomOption", () => {
+  it("leaves buttons unchanged", () => {
+    const q = withEnsuredCustomOption({
+      id: "go",
+      prompt: "Proceed?",
+      type: "buttons",
+      options: [
+        { id: "yes", label: "Yes" },
+        { id: "no", label: "No" },
+      ],
+    });
+    expect(q.options).toHaveLength(2);
   });
 });
 

@@ -1,9 +1,5 @@
 import type { AgentEvent } from "../../../shared/protocol";
-import {
-  ASK_USER_TOOL_NAME,
-  parseAskUserArgs,
-  type AskUserPrompt,
-} from "../../../shared/ask-user";
+import type { AskUserPrompt } from "../../../shared/ask-user";
 import type { PermissionAskPrompt } from "../../../shared/desktop-security";
 import type { ExtensionUiPending } from "../../../shared/extension-ui";
 import { formatLlmError } from "../utils/llm-error";
@@ -91,6 +87,13 @@ export function createChatState(): ChatState {
 export function clearPendingAskUser(state: ChatState): ChatState {
   if (!state.pendingAskUser) return state;
   return { ...state, pendingAskUser: null };
+}
+
+export function setPendingAskUser(
+  state: ChatState,
+  pending: AskUserPrompt | null,
+): ChatState {
+  return { ...state, pendingAskUser: pending };
 }
 
 export function clearPendingPermission(state: ChatState): ChatState {
@@ -456,16 +459,11 @@ function reduceAgentPayload(state: ChatState, payload: Record<string, unknown>):
     }
     const order = state.nextToolOrder;
     const toolName = String(payload.toolName ?? "tool");
-    const pendingAskUser =
-      toolName === ASK_USER_TOOL_NAME
-        ? parseAskUserArgs(payload.args)
-        : state.pendingAskUser;
     return {
       ...state,
       running: true,
       messages,
       nextToolOrder: order + 1,
-      pendingAskUser,
       streamingMessage: {
         id,
         role: "tool",
