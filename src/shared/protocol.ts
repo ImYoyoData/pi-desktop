@@ -79,6 +79,10 @@ export const IpcChannels = {
     setRemoteUrl: "git:setRemoteUrl",
     removeRemote: "git:removeRemote",
     log: "git:log",
+    conflictContent: "git:conflictContent",
+    resolveConflict: "git:resolveConflict",
+    checkoutConflictSide: "git:checkoutConflictSide",
+    abortMerge: "git:abortMerge",
   },
   skills: {
     list: "skills:list",
