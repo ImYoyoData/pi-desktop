@@ -38,3 +38,13 @@ export type GitLogEntry = {
 export type GitLogResult = {
   entries: GitLogEntry[];
 };
+
+export type GitConflictContentResult =
+  | {
+      supported: true;
+      working: string;
+      ours: string;
+      theirs: string;
+      labels: { ours: string; theirs: string };
+    }
+  | { supported: false; reason?: "too_large" | "binary" | "not_found" | "not_repo" };
