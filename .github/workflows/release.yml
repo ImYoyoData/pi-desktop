@@ -43,7 +43,7 @@ jobs:
     name: Build (${{ matrix.name }})
     needs: check
     runs-on: ${{ matrix.os }}
-    # Fail fast instead of sitting in a scarce-runner queue for hours.
+    # Fail fast instead of sitting in a scarce-runner void for hours.
     timeout-minutes: 90
     strategy:
       fail-fast: false
@@ -52,28 +52,27 @@ jobs:
           - name: windows-x64
             os: windows-latest
             dugite_arch: x64
-            eb_args: --win --x64
+            build_cmd: npm run dist:win:x64
             artifact_glob: release/*-setup.exe
           - name: windows-arm64
             # Separate job → separate NSIS (not a fat installer). Cross-arch Electron + node-pty prebuilds.
             os: windows-latest
             dugite_arch: arm64
-            eb_args: --win --arm64
+            build_cmd: npm run dist:win:arm64
             artifact_glob: release/*-setup.exe
           - name: macos-arm64
             os: macos-latest
             dugite_arch: arm64
-            eb_args: --mac --arm64
+            build_cmd: npm run dist:mac:arm64
             artifact_glob: release/*.dmg
           - name: macos-x64
             # Intel DMG on Apple Silicon runners. Avoid macos-13 (scarce / long queue).
-            # Cross-arch npmRebuild often SIGABRT (exit 134); rebuild node-pty for x64
-            # first, then package with npmRebuild disabled.
+            # dist:mac:x64 rebuilds node-pty for x64 then packages with npmRebuild=false
+            # (cross-arch electron-builder rebuild often SIGABRT / exit 134).
             os: macos-latest
             dugite_arch: x64
-            eb_args: --mac --x64
+            build_cmd: npm run dist:mac:x64
             artifact_glob: release/*.dmg
-            cross_arch_native: true
 
     steps:
       - name: Checkout
@@ -88,51 +87,23 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Generate icons
-        run: npm run icons
-
-      - name: Build app (electron-vite)
-        run: npm run build
-
       # dugite postinstall fetches host-arch Git; cross-arch jobs must refresh before pack.
       - name: Ensure dugite embedded Git (${{ matrix.dugite_arch }})
         run: node scripts/ensure-dugite-git.mjs ${{ matrix.dugite_arch }}
 
-      - name: Rebuild native modules for target arch
-        if: matrix.cross_arch_native
-        shell: bash
-        env:
-          npm_config_arch: ${{ matrix.dugite_arch }}
-          npm_config_target_arch: ${{ matrix.dugite_arch }}
-        run: |
-          set -euo pipefail
-          # Rosetta helps some x64 tooling on Apple Silicon runners.
-          if [[ "${{ runner.os }}" == "macOS" && "${{ matrix.dugite_arch }}" == "x64" ]]; then
-            sudo softwareupdate --install-rosetta --agree-to-license || true
-          fi
-          # Drop host-arch build trees so a wrong .node cannot be packed.
-          rm -rf node_modules/node-pty/build node_modules/node-pty/prebuilds || true
-          npx --yes @electron/rebuild --force --only=node-pty --arch="${{ matrix.dugite_arch }}"
+      - name: Generate icons
+        run: npm run icons
 
-      - name: Package with electron-builder
+      - name: Build & package
         env:
           # Prevent electron-builder from creating/updating GitHub Releases mid-build
           # (publish is handled solely by the softprops job below).
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # Skip Apple identity discovery — unsigned builds; avoids notarize/signing hangs.
           CSC_IDENTITY_AUTO_DISCOVERY: false
-          npm_config_arch: ${{ matrix.dugite_arch }}
-          npm_config_target_arch: ${{ matrix.dugite_arch }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          # Cross-arch: we already rebuilt node-pty; skip electron-builder's rebuild
-          # (that path frequently aborts with exit 134 / SIGABRT on macos-x64).
-          if [[ "${{ matrix.cross_arch_native }}" == "true" ]]; then
-            npx electron-builder ${{ matrix.eb_args }} --publish never -c.npmRebuild=false
-          else
-            npx electron-builder ${{ matrix.eb_args }} --publish never
-          fi
+          # Monaco / Vite can OOM-abort (exit 134) on macOS runners without a larger heap.
+          NODE_OPTIONS: --max-old-space-size=8192
+        run: ${{ matrix.build_cmd }} -- --publish never
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
@@ -144,10 +115,13 @@ jobs:
 
   release:
     name: GitHub Release
-    needs: build
+    needs: [check, build]
+    # Publish whatever arch artifacts succeeded (don't block the whole release on one matrix cell).
     if: >
-      github.event_name == 'workflow_dispatch' ||
-      (github.event_name == 'push' && github.ref == 'refs/heads/main')
+      always() &&
+      needs.check.result == 'success' &&
+      (github.event_name == 'workflow_dispatch' ||
+       (github.event_name == 'push' && github.ref == 'refs/heads/main'))
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -158,6 +132,7 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           path: dist-artifacts
+          merge-multiple: true
 
       - name: Prepare release files
         shell: bash
@@ -189,29 +164,21 @@ jobs:
           prerelease: true
           generate_release_notes: true
           body: |
-            ## 主要更新（0.0.18 测试版）
-            - **聊天工具折叠**：连续多次读取/命令等工具调用会收成「调用工具 N 次、读取文件 M 次」，可展开查看详情（类似 Cursor）
-            - **文件树**：修复偶发无法展开/收起；手风琴式单分支展开；可见目录静默监听刷新
-            - **预览编辑**：磁盘变更且未修改时静默重载；支持 Ctrl/Cmd+S 保存
-            - **Changes**：新建分支/合并/远程等改用真实对话框与 Git API（修复 Electron 拦截 prompt 导致按钮失灵）
-            - **标签与语法**：同名文件标签显示路径区分；`.env` / JSON / JSON5 / JSONC 高亮与校验
-            - **主题与流畅度**：主题切换更顺滑；减少不必要的重绘（Markdown/Mermaid、Monaco、终端）
-            - **扩展 / Skills**：确保 agent 目录与会话加载扩展与 Skills；启动日志汇总加载结果（扩展内 MCP 随扩展绑定）
-            - **项目指引**：存在 `AGENTS.md` 时，首次进入工作区必须遵循（已注入上下文则视为已读）
-            - **权限条**：去掉 bash 权限条中的「后台运行」入口
-            - **macOS**：补充权限说明与 entitlement；加固 Intel 包打包
+            ## 主要更新（0.0.19 测试版）
+            - **向用户提问**：单选/多选必有「自定义输入」；多题逐题作答并显示 `当前/总数`；全部提交后才继续（工具阻塞等待，不再默认跳过）
+            - **聊天工具折叠**：连续工具调用收成「调用工具 N 次、读取文件 M 次」，可展开
+            - **文件树**：修复偶发无法展开/收起；静默刷新可见目录
+            - **预览编辑**：未修改时磁盘变更静默重载；Ctrl/Cmd+S 保存
+            - **Changes**：真实对话框与 Git API
+            - **标签与语法**：同名标签路径区分；`.env` / JSON / JSON5 / JSONC
+            - **主题与扩展**：主题切换更顺滑；扩展/Skills 加载校验；`AGENTS.md` 首次必读
+            - **构建**：修复 macOS CI 在 electron-vite 阶段 SIGABRT(134) 导致无法出包的问题
 
-            ## What's New (0.0.18 prerelease)
-            - **Collapsed tool groups**: consecutive reads/commands fold into “Called N tools, Read M files” (expand for details)
-            - **File tree**: fix flaky expand/collapse; accordion single-branch; silent refresh for visible dirs
-            - **Preview**: silent reload when clean on disk change; Ctrl/Cmd+S save
-            - **Changes**: real modals + Git APIs (fixes dead buttons where `prompt`/`confirm` were blocked)
-            - **Tabs & languages**: disambiguate same-basename tabs; `.env` / JSON / JSON5 / JSONC highlighting
-            - **Theme & fluidity**: smoother theme switches; less redundant remount/repaint
-            - **Extensions / Skills**: reliable load paths + startup resource summary (MCP via extensions)
-            - **AGENTS.md**: must follow on first visit when present
-            - **Permission strip**: remove bash “run in background” action
-            - **macOS**: permissions/entitlements + Intel packaging hardening
+            ## What's New (0.0.19 prerelease)
+            - **Ask user**: always offer custom input for single/multi; wizard with `current/total`; blocks until all answers are submitted
+            - **Collapsed tool groups**: Cursor-style summary for consecutive tool calls
+            - **File tree / preview / Changes / tabs / languages / theme / extensions**: as in 0.0.18
+            - **Build**: fix macOS CI abort (exit 134) during electron-vite so releases can publish again
 
             ## 下载（每个系统/架构单独安装包）
             - **Windows x64**: `Pi Desktop-*-win-x64-setup.exe`
