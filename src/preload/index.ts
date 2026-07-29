@@ -27,6 +27,7 @@ import type {
   ExtensionUiReply,
 } from "../shared/extension-ui";
 import type { TrustState } from "../shared/protocol";
+import type { GitConflictContentResult, GitOpResult } from "../shared/git-types";
 
 export type AppInfo = {
   version: string;
@@ -292,6 +293,19 @@ const api = {
           subject: string;
         }[];
       }>,
+    conflictContent: (relativePath: string) =>
+      ipcRenderer.invoke(IpcChannels.git.conflictContent, relativePath) as Promise<
+        GitConflictContentResult
+      >,
+    resolveConflict: (payload: { relativePath: string; content: string }) =>
+      ipcRenderer.invoke(IpcChannels.git.resolveConflict, payload) as Promise<GitOpResult>,
+    checkoutConflictSide: (payload: { relativePath: string; side: "ours" | "theirs" }) =>
+      ipcRenderer.invoke(
+        IpcChannels.git.checkoutConflictSide,
+        payload,
+      ) as Promise<GitOpResult>,
+    abortMerge: () =>
+      ipcRenderer.invoke(IpcChannels.git.abortMerge) as Promise<GitOpResult>,
   },
   skills: {
     list: (cwd?: string) =>

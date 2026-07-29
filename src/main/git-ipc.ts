@@ -19,6 +19,10 @@ import {
   removeRemote,
   restorePaths,
   setRemoteUrl,
+  getConflictContent,
+  resolveConflictPath,
+  checkoutConflictSide,
+  abortMerge,
 } from "./git-host";
 import { getWorkspace } from "./workspace-ipc";
 
@@ -144,5 +148,45 @@ export function registerGitIpc(): void {
     const root = requireRoot();
     if (!root) return { entries: [] };
     return listLog(root, typeof limit === "number" ? limit : 50);
+  });
+
+  ipcMain.handle(IpcChannels.git.conflictContent, async (_e, relativePath: string) => {
+    const root = requireRoot();
+    if (!root || typeof relativePath !== "string") return { supported: false };
+    return getConflictContent(root, relativePath);
+  });
+
+  ipcMain.handle(
+    IpcChannels.git.resolveConflict,
+    async (_e, payload: { relativePath: string; content: string }) => {
+      const root = requireRoot();
+      if (!root) return noWorkspace();
+      const relativePath = payload?.relativePath;
+      const content = payload?.content;
+      if (typeof relativePath !== "string" || typeof content !== "string") {
+        return noWorkspace();
+      }
+      return resolveConflictPath(root, relativePath, content);
+    },
+  );
+
+  ipcMain.handle(
+    IpcChannels.git.checkoutConflictSide,
+    async (_e, payload: { relativePath: string; side: "ours" | "theirs" }) => {
+      const root = requireRoot();
+      if (!root) return noWorkspace();
+      const relativePath = payload?.relativePath;
+      const side = payload?.side;
+      if (typeof relativePath !== "string" || (side !== "ours" && side !== "theirs")) {
+        return noWorkspace();
+      }
+      return checkoutConflictSide(root, relativePath, side);
+    },
+  );
+
+  ipcMain.handle(IpcChannels.git.abortMerge, async () => {
+    const root = requireRoot();
+    if (!root) return noWorkspace();
+    return abortMerge(root);
   });
 }
