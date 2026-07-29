@@ -30,6 +30,7 @@ import { t } from "@renderer/i18n";
 import { useWorkspaceStore } from "@renderer/stores/workspace";
 import { countDiffStats } from "@renderer/utils/tool-diff";
 import ChangesDiffEditor from "@renderer/components/ChangesDiffEditor.vue";
+import ChangesConflictResolve from "@renderer/components/ChangesConflictResolve.vue";
 import type { GitErrorCode } from "../../../shared/git-types";
 
 type GitFile = { relativePath: string; status: string; code: string };
@@ -57,6 +58,10 @@ const files = ref<GitFile[]>([]);
 const checked = ref<Record<string, boolean>>({});
 const selectedPath = ref<string | null>(null);
 const patch = ref<string | null>(null);
+const conflictPayload = ref<null | {
+  working: string;
+  labels: { ours: string; theirs: string };
+}>(null);
 const oldContent = ref("");
 const newContent = ref("");
 const diffSupported = ref(true);
@@ -226,6 +231,7 @@ async function refresh(): Promise<void> {
       remotes.value = [];
       selectedPath.value = null;
       patch.value = null;
+      conflictPayload.value = null;
       oldContent.value = "";
       newContent.value = "";
     }
@@ -239,6 +245,18 @@ async function refresh(): Promise<void> {
 
 async function loadDiff(relativePath: string): Promise<void> {
   selectedPath.value = relativePath;
+  const file = files.value.find((f) => f.relativePath === relativePath);
+  if (file && (file.status === "conflict" || file.code === "C")) {
+    const result = await window.api.git.conflictContent(relativePath);
+    if (result.supported) {
+      conflictPayload.value = { working: result.working, labels: result.labels };
+      patch.value = null;
+      return;
+    }
+    conflictPayload.value = null;
+  } else {
+    conflictPayload.value = null;
+  }
   const result = await window.api.git.diff(relativePath);
   diffSupported.value = result.supported;
   if (!result.supported) {
@@ -312,6 +330,25 @@ async function onDiscardFile(relativePath: string): Promise<void> {
   if (!relativePath) return;
   if (!window.confirm(t.changesDiscardConfirmFile)) return;
   await runOp(t.changesDiscarded, () => window.api.git.restore([relativePath]));
+}
+
+async function onConflictResolve(content: string): Promise<void> {
+  if (!selectedPath.value) return;
+  await runOp(t.changesConflictResolved, () =>
+    window.api.git.resolveConflict({ relativePath: selectedPath.value!, content }),
+  );
+}
+
+async function onConflictAcceptSide(side: "ours" | "theirs"): Promise<void> {
+  if (!selectedPath.value) return;
+  await runOp(t.changesConflictResolved, () =>
+    window.api.git.checkoutConflictSide({ relativePath: selectedPath.value!, side }),
+  );
+}
+
+async function onAbortMerge(): Promise<void> {
+  if (!window.confirm(t.changesConflictAbort + "?")) return;
+  await runOp(t.changesConflictAborted, () => window.api.git.abortMerge());
 }
 
 async function onInitGit(): Promise<void> {
@@ -491,7 +528,10 @@ watch(
     </div>
 
     <div v-if="isGit && conflictCount > 0" class="conflict-banner">
-      {{ t.changesConflictBanner }} ({{ conflictCount }})
+      <span>{{ t.changesConflictBanner }} ({{ conflictCount }})</span>
+      <NButton size="tiny" quaternary :disabled="busy" @click="onAbortMerge">
+        {{ t.changesConflictBannerAction }}
+      </NButton>
     </div>
 
     <div v-if="isGit" class="commit-row">
@@ -641,17 +681,27 @@ watch(
                 {{ t.changesDiscard }}
               </NButton>
             </header>
-            <NText v-if="!diffSupported || !patch" depth="3" style="font-size: 12px; padding: 12px">
-              {{ t.changesNoDiff }}
-            </NText>
-            <div v-else class="diff-editor-wrap">
-              <ChangesDiffEditor
-                v-if="showDiffEditor && selectedPath"
-                :file-path="selectedPath"
-                :old-content="oldContent"
-                :new-content="newContent"
-              />
-            </div>
+            <ChangesConflictResolve
+              v-if="conflictPayload && selectedPath"
+              :file-path="selectedPath"
+              :working="conflictPayload.working"
+              :labels="conflictPayload.labels"
+              @resolve="onConflictResolve"
+              @accept-side="onConflictAcceptSide"
+            />
+            <template v-else>
+              <NText v-if="!diffSupported || !patch" depth="3" style="font-size: 12px; padding: 12px">
+                {{ t.changesNoDiff }}
+              </NText>
+              <div v-else class="diff-editor-wrap">
+                <ChangesDiffEditor
+                  v-if="showDiffEditor && selectedPath"
+                  :file-path="selectedPath"
+                  :old-content="oldContent"
+                  :new-content="newContent"
+                />
+              </div>
+            </template>
           </template>
         </div>
       </div>
@@ -746,6 +796,10 @@ watch(
 
 .conflict-banner {
   flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
   padding: 6px 10px;
   font-size: 12px;
   color: #8a1f1f;
