@@ -5,6 +5,7 @@ import { access as fsAccess } from "node:fs/promises";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { getShellConfig, type BashOperations } from "@earendil-works/pi-coding-agent";
+import { stripBashBackgroundMarker } from "../shared/bash-background";
 
 const execFileAsync = promisify(execFile);
 
@@ -87,6 +88,24 @@ async function listDirectChildren(pid: number): Promise<number[]> {
   if (!Number.isFinite(pid) || pid <= 0) return [];
   try {
     if (process.platform === "win32") {
+      // Prefer CIM — `wmic` is removed on many Win11 installs.
+      try {
+        const { stdout } = await execFileAsync(
+          "powershell.exe",
+          [
+            "-NoProfile",
+            "-Command",
+            `(Get-CimInstance Win32_Process -Filter "ParentProcessId=${pid}").ProcessId`,
+          ],
+          { windowsHide: true, timeout: 4_000 },
+        );
+        return stdout
+          .split(/\s+/)
+          .map((s) => Number(s.trim()))
+          .filter((n) => Number.isFinite(n) && n > 0);
+      } catch {
+        // fall through to wmic
+      }
       const { stdout } = await execFileAsync(
         "wmic",
         ["process", "where", `ParentProcessId=${pid}`, "get", "ProcessId", "/value"],
@@ -231,7 +250,8 @@ export function createTrackedBashOperations(
   if (base) {
     const operations: BashOperations = {
       exec: async (command, cwd, options) => {
-        hooks.beforeExec?.(command);
+        const { command: spawnCommand } = stripBashBackgroundMarker(command);
+        hooks.beforeExec?.(spawnCommand);
         const startBg = Boolean(hooks.shouldStartBackground?.(command));
         const id = randomUUID();
         const local = new AbortController();
@@ -252,7 +272,7 @@ export function createTrackedBashOperations(
           id,
           sessionId: hooks.sessionId,
           workspaceRoot: hooks.workspaceRoot,
-          command,
+          command: spawnCommand,
           cwd,
           startedAt,
         });
@@ -264,7 +284,7 @@ export function createTrackedBashOperations(
 
         void (async () => {
           try {
-            const result = await base.exec(command, cwd, {
+            const result = await base.exec(spawnCommand, cwd, {
               ...options,
               signal: local.signal,
               onData: (data) => {
@@ -303,7 +323,8 @@ export function createTrackedBashOperations(
 
   const operations: BashOperations = {
     exec: async (command, cwd, options) => {
-      hooks.beforeExec?.(command);
+      const { command: spawnCommand } = stripBashBackgroundMarker(command);
+      hooks.beforeExec?.(spawnCommand);
       const startBg = Boolean(hooks.shouldStartBackground?.(command));
       const id = randomUUID();
       const local = new AbortController();
@@ -324,7 +345,7 @@ export function createTrackedBashOperations(
         id,
         sessionId: hooks.sessionId,
         workspaceRoot: hooks.workspaceRoot,
-        command,
+        command: spawnCommand,
         cwd,
         startedAt,
       });
@@ -349,7 +370,7 @@ export function createTrackedBashOperations(
           const commandFromStdin = shellConfig.commandTransport === "stdin";
           const child = spawn(
             shellConfig.shell,
-            commandFromStdin ? shellConfig.args : [...shellConfig.args, command],
+            commandFromStdin ? shellConfig.args : [...shellConfig.args, spawnCommand],
             {
               cwd,
               // New process group on macOS/Linux so kill(-pid) terminates the tree.
@@ -361,7 +382,7 @@ export function createTrackedBashOperations(
           );
           if (commandFromStdin) {
             child.stdin?.on("error", () => {});
-            child.stdin?.end(command);
+            child.stdin?.end(spawnCommand);
           }
 
           if (child.pid) {
@@ -370,7 +391,7 @@ export function createTrackedBashOperations(
               id,
               sessionId: hooks.sessionId,
               workspaceRoot: hooks.workspaceRoot,
-              command,
+              command: spawnCommand,
               cwd,
               startedAt,
               pid: child.pid,

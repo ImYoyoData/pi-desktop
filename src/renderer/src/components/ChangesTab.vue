@@ -365,26 +365,30 @@ async function onFetch(): Promise<void> {
 async function onDiscardSelected(): Promise<void> {
   const paths = [...discardableCheckedPaths.value];
   if (!paths.length) return;
-  dialog.warning({
+  const d = dialog.warning({
     title: t.changesDiscardSelected,
     content: t.changesDiscardConfirmSelected,
     positiveText: t.confirm,
     negativeText: t.cancel,
     onPositiveClick: () => {
-      void runOp(t.changesDiscarded, () => window.api.git.restore(paths));
+      d.loading = true;
+      return runOp(t.changesDiscarded, () => window.api.git.restore(paths)).then(() => true);
     },
   });
 }
 
 async function onDiscardFile(relativePath: string): Promise<void> {
   if (!relativePath) return;
-  dialog.warning({
+  const d = dialog.warning({
     title: t.changesDiscardFile,
     content: t.changesDiscardConfirmFile,
     positiveText: t.confirm,
     negativeText: t.cancel,
     onPositiveClick: () => {
-      void runOp(t.changesDiscarded, () => window.api.git.restore([relativePath]));
+      d.loading = true;
+      return runOp(t.changesDiscarded, () => window.api.git.restore([relativePath])).then(
+        () => true,
+      );
     },
   });
 }
@@ -404,13 +408,14 @@ async function onConflictAcceptSide(side: "ours" | "theirs"): Promise<void> {
 }
 
 async function onAbortMerge(): Promise<void> {
-  dialog.warning({
+  const d = dialog.warning({
     title: t.changesConflictAbort,
     content: t.changesConflictAbortConfirm,
     positiveText: t.confirm,
     negativeText: t.cancel,
     onPositiveClick: () => {
-      void runOp(t.changesConflictAborted, () => window.api.git.abortMerge());
+      d.loading = true;
+      return runOp(t.changesConflictAborted, () => window.api.git.abortMerge()).then(() => true);
     },
   });
 }
@@ -477,15 +482,22 @@ async function submitEditRemote(): Promise<boolean> {
 }
 
 async function onRemoveRemote(remote: GitRemote): Promise<void> {
-  dialog.warning({
+  const d = dialog.warning({
     title: t.changesRemoteRemove,
     content: `${t.changesRemoteRemove}: ${remote.name}?`,
     positiveText: t.confirm,
     negativeText: t.cancel,
     onPositiveClick: () => {
-      void (async () => {
-        await runOp(t.changesRemoteRemoved, () => window.api.git.removeRemote(remote.name));
-        await refreshRemotes();
+      d.loading = true;
+      return (async () => {
+        try {
+          await runOp(t.changesRemoteRemoved, () => window.api.git.removeRemote(remote.name));
+          await refreshRemotes();
+        } catch (err) {
+          message.error(err instanceof Error ? err.message : String(err));
+          d.loading = false;
+          return false;
+        }
       })();
     },
   });

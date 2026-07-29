@@ -160,7 +160,7 @@ async function onConfirm(): Promise<void> {
     <div class="ask-user-card" role="dialog" :aria-label="t.askUserToolLabel">
       <header class="strip-head">
         <div class="head-badge" aria-hidden="true">
-          <NIcon :component="ChatbubbleEllipsesOutline" :size="16" />
+          <NIcon :component="ChatbubbleEllipsesOutline" :size="14" />
         </div>
         <div class="head-text">
           <div class="head-title">{{ t.askUserToolLabel }}</div>
@@ -268,8 +268,8 @@ async function onConfirm(): Promise<void> {
 <style scoped>
 .ask-user-wrap {
   flex-shrink: 0;
-  padding: 0 12px 10px;
-  max-height: min(42vh, 420px);
+  padding: 0 10px 6px;
+  max-height: min(28vh, 280px);
   display: flex;
   flex-direction: column;
   min-height: 0;
@@ -292,7 +292,7 @@ async function onConfirm(): Promise<void> {
   flex-direction: column;
   min-height: 0;
   max-height: inherit;
-  border-radius: 18px;
+  border-radius: 12px;
   border: 1px solid color-mix(in srgb, var(--accent-border, var(--border)) 55%, var(--border));
   background:
     linear-gradient(
@@ -301,7 +301,7 @@ async function onConfirm(): Promise<void> {
       var(--bg-elevated, #fff) 42%
     );
   box-shadow:
-    var(--shadow-md),
+    var(--shadow-sm, 0 1px 2px rgba(0, 0, 0, 0.06)),
     0 0 0 1px color-mix(in srgb, var(--accent) 6%, transparent);
   overflow: hidden;
 }
@@ -309,15 +309,15 @@ async function onConfirm(): Promise<void> {
 .strip-head {
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 14px 16px 10px;
+  gap: 8px;
+  padding: 8px 12px 6px;
   flex-shrink: 0;
 }
 
 .head-badge {
-  width: 34px;
-  height: 34px;
-  border-radius: 12px;
+  width: 26px;
+  height: 26px;
+  border-radius: 8px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -332,36 +332,35 @@ async function onConfirm(): Promise<void> {
   flex: 1;
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 0;
 }
 
 .head-title {
-  font-size: 13.5px;
+  font-size: 12.5px;
   font-weight: 650;
   letter-spacing: -0.02em;
   color: var(--fg-strong);
 }
 
 .head-sub {
-  font-size: 12px;
-  color: var(--fg-muted);
+  display: none;
 }
 
 .head-progress {
   flex-shrink: 0;
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 650;
   font-variant-numeric: tabular-nums;
   color: var(--accent);
   background: var(--accent-soft);
   border: 1px solid var(--accent-border);
   border-radius: 999px;
-  padding: 4px 10px;
+  padding: 2px 8px;
 }
 
 .strip-body {
   overflow-y: auto;
-  padding: 4px 14px 8px;
+  padding: 2px 12px 6px;
   flex: 1;
   min-height: 0;
 }
@@ -370,18 +369,18 @@ async function onConfirm(): Promise<void> {
   display: flex;
   align-items: flex-start;
   gap: 8px;
-  margin-bottom: 10px;
+  margin-bottom: 6px;
 }
 
 .q-text {
-  font-size: 13.5px;
-  line-height: 1.45;
+  font-size: 12.5px;
+  line-height: 1.35;
   letter-spacing: -0.01em;
 }
 
 .opt-grid {
   display: flex;
-  gap: 8px;
+  gap: 6px;
 }
 
 .opt-grid-wrap {
@@ -395,11 +394,11 @@ async function onConfirm(): Promise<void> {
 .opt-chip {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
   width: 100%;
   margin: 0;
-  padding: 10px 12px;
-  border-radius: 12px;
+  padding: 6px 10px;
+  border-radius: 8px;
   border: 1px solid var(--border);
   background: color-mix(in srgb, var(--bg-elevated) 70%, var(--bg));
   color: var(--fg);
@@ -415,7 +414,7 @@ async function onConfirm(): Promise<void> {
 .opt-chip.compact {
   width: auto;
   max-width: 100%;
-  padding: 8px 12px;
+  padding: 5px 10px;
   border-radius: 999px;
 }
 
@@ -454,21 +453,21 @@ async function onConfirm(): Promise<void> {
 }
 
 .opt-label {
-  font-size: 13px;
-  line-height: 1.35;
+  font-size: 12.5px;
+  line-height: 1.3;
   font-weight: 500;
 }
 
 .custom-input {
-  margin-top: 10px;
+  margin-top: 6px;
 }
 
 .strip-foot {
   display: flex;
   align-items: center;
   justify-content: flex-end;
-  gap: 12px;
-  padding: 10px 14px 14px;
+  gap: 10px;
+  padding: 6px 12px 8px;
   flex-shrink: 0;
   border-top: 1px solid color-mix(in srgb, var(--border) 75%, transparent);
   background: color-mix(in srgb, var(--bg-elevated) 88%, transparent);

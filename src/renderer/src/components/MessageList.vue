@@ -878,22 +878,32 @@ function onRevertUser(msg: Extract<ChatMessage, { role: "user" }>): void {
   const id = sessionId.value;
   if (!id || props.running) return;
   if (!checkpoints.canRevert(id, msg.id)) return;
-  dialog.warning({
+  const d = dialog.warning({
     title: t.revertTurn,
     content: t.revertTurnConfirm,
     positiveText: t.confirm,
     negativeText: t.cancel,
-    onPositiveClick: async () => {
-      const result = await checkpoints.revert(id, msg.id);
-      if (!result.ok) {
-        messageApi.error(t.revertTurnFail(result.error || "unknown"));
-        return;
-      }
-      if (result.restored === 0 && result.deleted === 0) {
-        messageApi.info(t.revertTurnEmpty);
-        return;
-      }
-      messageApi.success(t.revertTurnDone(result.restored, result.deleted));
+    onPositiveClick: () => {
+      d.loading = true;
+      return (async () => {
+        try {
+          const result = await checkpoints.revert(id, msg.id);
+          if (!result.ok) {
+            messageApi.error(t.revertTurnFail(result.error || "unknown"));
+            d.loading = false;
+            return false;
+          }
+          if (result.restored === 0 && result.deleted === 0) {
+            messageApi.info(t.revertTurnEmpty);
+            return;
+          }
+          messageApi.success(t.revertTurnDone(result.restored, result.deleted));
+        } catch (err) {
+          messageApi.error(err instanceof Error ? err.message : String(err));
+          d.loading = false;
+          return false;
+        }
+      })();
     },
   });
 }

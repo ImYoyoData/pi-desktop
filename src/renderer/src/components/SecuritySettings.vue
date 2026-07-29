@@ -20,6 +20,7 @@ import {
   type WorkspaceToolPermissions,
 } from "../../../shared/desktop-security";
 import type { TrustState } from "../../../shared/protocol";
+import { toIpcPlain } from "../../../shared/protocol";
 import { useWorkspaceStore } from "@renderer/stores/workspace";
 import { t } from "@renderer/i18n";
 
@@ -196,7 +197,7 @@ async function onSave(): Promise<void> {
       ],
       workspacePermissions,
     };
-    await window.api.security.set(payload);
+    await window.api.security.set(toIpcPlain(payload));
     draft.value = {
       ...payload,
       bashAllowlist: [...payload.bashAllowlist],

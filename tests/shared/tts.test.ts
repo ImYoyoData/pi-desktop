@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { resolveTtsBinaryAsset, sanitizeTtsText } from "../../src/shared/tts";
+import { resolveTtsBinaryAsset, sanitizeTtsText, splitTtsChunks } from "../../src/shared/tts";
 
 describe("sanitizeTtsText", () => {
   it("strips fenced code and keeps surrounding prose", () => {
@@ -30,6 +30,17 @@ describe("sanitizeTtsText", () => {
 
   it("strips html pre/code", () => {
     expect(sanitizeTtsText("前<pre>secret</pre>后")).toBe("前 后");
+  });
+});
+
+describe("splitTtsChunks", () => {
+  it("splits on Chinese sentence boundaries when over the cap", () => {
+    expect(splitTtsChunks("你好。世界！继续。", 4)).toEqual(["你好。", "世界！", "继续。"]);
+  });
+
+  it("merges short sentences under the cap", () => {
+    const out = splitTtsChunks("Hi. Yo.", 80);
+    expect(out).toEqual(["Hi. Yo."]);
   });
 });
 
