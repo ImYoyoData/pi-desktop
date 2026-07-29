@@ -223,6 +223,15 @@ async function loadPath(path: string | null): Promise<void> {
     if (gen !== loadGen) return;
 
     if (next.kind === "error") {
+      // Keep editor + cached content when the open file disappears (delete / rename).
+      const hadCachedDoc =
+        (result.value?.kind === "text" || result.value?.kind === "markdown") &&
+        Boolean(liveContent.value || editor);
+      if (hadCachedDoc) {
+        missing.value = true;
+        syncTabMeta({ missing: true });
+        return;
+      }
       result.value = next;
       disposeEditor();
       liveContent.value = "";
@@ -560,13 +569,22 @@ onBeforeUnmount(() => {
       <NEmpty v-if="!currentPath" :description="t.previewHint" size="small" />
       <NSpin v-else :show="loading" class="spin">
         <template v-if="result">
-          <NAlert v-if="result.kind === 'error' || missing" type="error" :bordered="false">
+          <NAlert
+            v-if="missing || result.kind === 'error'"
+            type="error"
+            :bordered="false"
+            style="margin: 4px 8px"
+          >
             {{ t.fileDeletedHint }}
           </NAlert>
-          <NAlert v-else-if="result.kind === 'unsupported'" type="warning" :bordered="false">
+          <NAlert
+            v-else-if="result.kind === 'unsupported'"
+            type="warning"
+            :bordered="false"
+          >
             {{ result.reason === "binary" ? t.previewBinary : t.previewUnsupported }}
           </NAlert>
-          <template v-else-if="result.kind === 'text' || result.kind === 'markdown'">
+          <template v-if="result.kind === 'text' || result.kind === 'markdown'">
             <NAlert
               v-if="result.truncated"
               type="warning"
@@ -588,10 +606,10 @@ onBeforeUnmount(() => {
               </div>
             </div>
           </template>
-          <div v-else-if="result.kind === 'image'" class="media-wrap">
+          <div v-else-if="!missing && result.kind === 'image'" class="media-wrap">
             <img class="img" :src="result.dataUrl" :alt="result.path" />
           </div>
-          <div v-else-if="result.kind === 'video'" class="media-wrap">
+          <div v-else-if="!missing && result.kind === 'video'" class="media-wrap">
             <video
               ref="videoRef"
               class="media-player"
@@ -600,7 +618,7 @@ onBeforeUnmount(() => {
               :src="result.mediaSrc"
             />
           </div>
-          <div v-else-if="result.kind === 'audio'" class="media-wrap audio-wrap">
+          <div v-else-if="!missing && result.kind === 'audio'" class="media-wrap audio-wrap">
             <audio
               ref="audioRef"
               class="media-audio"

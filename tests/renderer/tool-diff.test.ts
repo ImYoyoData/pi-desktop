@@ -45,6 +45,18 @@ describe("parseFileToolCard", () => {
     expect(card.diff).toContain("+b");
     expect(card.diff).toContain("+c");
   });
+
+  it("synthesizes edit preview from args while result is still streaming", () => {
+    const card = parseFileToolCard(
+      "edit",
+      { path: "a.ts", oldText: "foo", newText: "bar" },
+      undefined,
+    );
+    expect(card.kind).toBe("edit");
+    expect(card.diff).toContain("-foo");
+    expect(card.diff).toContain("+bar");
+    expect(card.stats).toEqual({ additions: 1, deletions: 1 });
+  });
 });
 
 describe("parseBashToolCard", () => {

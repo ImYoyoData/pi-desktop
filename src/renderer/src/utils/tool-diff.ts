@@ -186,6 +186,67 @@ function contentFromWriteArgs(args: unknown): string {
   return "";
 }
 
+function previewEditFromArgs(args: unknown, path: string | null): string | null {
+  if (!isRecord(args)) return null;
+  // Single edit shape
+  const oldOne =
+    typeof args.oldText === "string"
+      ? args.oldText
+      : typeof args.old_string === "string"
+        ? args.old_string
+        : typeof args.old_str === "string"
+          ? args.old_str
+          : null;
+  const newOne =
+    typeof args.newText === "string"
+      ? args.newText
+      : typeof args.new_string === "string"
+        ? args.new_string
+        : typeof args.new_str === "string"
+          ? args.new_str
+          : null;
+  if (oldOne != null && newOne != null) {
+    const fileLabel = path ? path.replace(/\\/g, "/") : "file";
+    const oldLines = oldOne.replace(/\r\n/g, "\n").split("\n");
+    const newLines = newOne.replace(/\r\n/g, "\n").split("\n");
+    return [
+      `--- a/${fileLabel}`,
+      `+++ b/${fileLabel}`,
+      `@@`,
+      ...oldLines.map((l) => `-${l}`),
+      ...newLines.map((l) => `+${l}`),
+    ].join("\n");
+  }
+  // Multi-edit array
+  if (Array.isArray(args.edits)) {
+    const parts: string[] = [];
+    for (const edit of args.edits) {
+      if (!isRecord(edit)) continue;
+      const o =
+        typeof edit.oldText === "string"
+          ? edit.oldText
+          : typeof edit.old_string === "string"
+            ? edit.old_string
+            : null;
+      const n =
+        typeof edit.newText === "string"
+          ? edit.newText
+          : typeof edit.new_string === "string"
+            ? edit.new_string
+            : null;
+      if (o == null || n == null) continue;
+      parts.push(
+        ...o.replace(/\r\n/g, "\n").split("\n").map((l) => `-${l}`),
+        ...n.replace(/\r\n/g, "\n").split("\n").map((l) => `+${l}`),
+      );
+    }
+    if (!parts.length) return null;
+    const fileLabel = path ? path.replace(/\\/g, "/") : "file";
+    return [`--- a/${fileLabel}`, `+++ b/${fileLabel}`, `@@`, ...parts].join("\n");
+  }
+  return null;
+}
+
 export function parseFileToolCard(
   toolName: string,
   args: unknown,
@@ -216,7 +277,7 @@ export function parseFileToolCard(
   if (name === "edit" || name === "str_replace" || name === "search_replace") {
     const diff = typeof details?.diff === "string" ? details.diff : null;
     const patch = typeof details?.patch === "string" ? details.patch : null;
-    const source = diff || patch || "";
+    const source = diff || patch || previewEditFromArgs(args, path) || "";
     const stats = source ? countDiffStats(source) : null;
     const firstChangedLine =
       typeof details?.firstChangedLine === "number" ? details.firstChangedLine : undefined;
@@ -224,7 +285,7 @@ export function parseFileToolCard(
       kind: "edit",
       path,
       stats,
-      diff: diff || patch,
+      diff: diff || patch || previewEditFromArgs(args, path),
       patch,
       firstChangedLine,
     };

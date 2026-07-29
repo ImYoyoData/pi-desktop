@@ -56,7 +56,7 @@ function draw(): void {
   if (!canvas) return;
   const dpr = Math.min(window.devicePixelRatio || 1, 2);
   const cssW = canvas.clientWidth || 160;
-  const cssH = canvas.clientHeight || 28;
+  const cssH = canvas.clientHeight || 20;
   const w = Math.max(1, Math.floor(cssW * dpr));
   const h = Math.max(1, Math.floor(cssH * dpr));
   if (canvas.width !== w || canvas.height !== h) {
@@ -143,7 +143,7 @@ onUnmounted(() => {
       :aria-label="t.voiceCancel"
       @click="emit('cancel')"
     >
-      <NIcon :component="CloseOutline" :size="18" />
+      <NIcon :component="CloseOutline" :size="15" />
     </button>
     <button
       type="button"
@@ -153,7 +153,7 @@ onUnmounted(() => {
       :aria-label="busy ? t.voiceTranscribing : t.voiceConfirm"
       @click="emit('confirm')"
     >
-      <NIcon :component="CheckmarkOutline" :size="18" />
+      <NIcon :component="CheckmarkOutline" :size="15" />
     </button>
   </div>
 </template>
@@ -162,10 +162,12 @@ onUnmounted(() => {
 .voice-bar {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 6px;
   width: 100%;
   min-width: 0;
-  padding: 2px 2px 2px 0;
+  height: 100%;
+  padding: 0;
+  box-sizing: border-box;
   --voice-wave: #9aa0a6;
 }
 
@@ -173,27 +175,29 @@ onUnmounted(() => {
   display: block;
   flex: 1;
   min-width: 120px;
-  height: 28px;
+  height: 20px;
   width: 100%;
 }
 
 .time {
   font-variant-numeric: tabular-nums;
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 500;
   color: #9aa0a6;
-  min-width: 2.5em;
+  min-width: 2.3em;
   text-align: right;
   user-select: none;
   flex-shrink: 0;
+  line-height: 1;
 }
 
 .icon-btn {
+  box-sizing: border-box;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 28px;
-  height: 28px;
+  width: 22px;
+  height: 22px;
   border: none;
   border-radius: 50%;
   background: transparent;
@@ -218,7 +222,9 @@ onUnmounted(() => {
 }
 
 .stop-btn {
-  border: 1.5px solid #9aa0a6;
+  width: 20px;
+  height: 20px;
+  border: 1px solid color-mix(in srgb, #9aa0a6 75%, transparent);
   color: #5f6368;
 }
 
@@ -229,9 +235,9 @@ onUnmounted(() => {
 
 .stop-square {
   display: block;
-  width: 9px;
-  height: 9px;
-  border-radius: 1.5px;
+  width: 6px;
+  height: 6px;
+  border-radius: 1px;
   background: currentColor;
 }
 
