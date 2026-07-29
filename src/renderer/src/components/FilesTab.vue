@@ -618,21 +618,26 @@ async function onCtxSelect(key: string | number): Promise<void> {
         break;
       }
       case "delete": {
-        dialog.warning({
+        const d = dialog.warning({
           title: t.filesDeleteConfirmTitle,
           content: t.filesDeleteConfirm(target),
           positiveText: t.delete,
           negativeText: t.cancel,
-          onPositiveClick: async () => {
-            try {
-              await window.api.files.delete(target);
-              message.success(t.filesDeleted);
-              await refreshNode(parentDirOf(target));
-              await refreshGit();
-              selectedKeys.value = selectedKeys.value.filter((k) => k !== target);
-            } catch (err) {
-              message.error(err instanceof Error ? err.message : String(err));
-            }
+          onPositiveClick: () => {
+            d.loading = true;
+            return (async () => {
+              try {
+                await window.api.files.delete(target);
+                message.success(t.filesDeleted);
+                await refreshNode(parentDirOf(target));
+                await refreshGit();
+                selectedKeys.value = selectedKeys.value.filter((k) => k !== target);
+              } catch (err) {
+                message.error(err instanceof Error ? err.message : String(err));
+                d.loading = false;
+                return false;
+              }
+            })();
           },
         });
         break;

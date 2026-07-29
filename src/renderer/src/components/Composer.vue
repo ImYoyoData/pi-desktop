@@ -76,7 +76,7 @@ let offAsrProgress: (() => void) | undefined;
 const voiceActive = ref(false);
 /** Non-reactive meter — mutated from ScriptProcessor; VoiceRecordBar samples via rAF. */
 const voiceMeter: VoiceMeter = { level: 0 };
-/** True from confirm until transcription finishes ? send button loading. */
+/** True from confirm until transcription finishes — send button loading. */
 const voicePending = ref(false);
 
 type ModelSelectOption =
@@ -1941,6 +1941,7 @@ watch(
           </NButton>
           <VoiceRecordBar
             :meter="voiceMeter"
+            :busy="voicePending"
             :show-stop="running"
             @cancel="cancelVoice"
             @confirm="confirmVoice"
@@ -2219,9 +2220,10 @@ watch(
   z-index: 2;
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 2px 4px;
+  gap: 6px;
+  padding: 4px 6px 3px;
   box-sizing: border-box;
+  overflow: hidden;
   background: var(--bg-elevated, #fff);
   border-top: 1px solid color-mix(in srgb, var(--border, #e5e7eb) 55%, transparent);
   border-radius: 0 0 calc(var(--radius-lg, 14px) - 6px) calc(var(--radius-lg, 14px) - 6px);
@@ -2229,10 +2231,17 @@ watch(
 
 .voice-row .voice-attach {
   flex-shrink: 0;
-  width: 28px;
-  height: 28px;
+  width: 22px;
+  height: 22px;
+  min-width: 22px;
+  min-height: 22px;
+  padding: 0;
   color: #9aa0a6;
   background: rgba(0, 0, 0, 0.05);
+}
+
+.voice-row .voice-attach :deep(.n-icon) {
+  font-size: 14px;
 }
 
 .voice-row .voice-attach:disabled {

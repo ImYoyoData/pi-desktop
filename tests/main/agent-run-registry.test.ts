@@ -115,4 +115,76 @@ describe("AgentRunRegistry", () => {
     }>;
     expect(upserts.at(-1)?.run.status).toBe("running");
   });
+
+  it("preserves outputTail when run_started is re-emitted with pid", () => {
+    const reg = createAgentRunRegistry({ onEvent: () => {} });
+    reg.handleWorkerMessage("s1", {
+      kind: "run_started",
+      run: {
+        id: "r1",
+        sessionId: "s1",
+        workspaceRoot: "/ws",
+        command: "npm run dev",
+        cwd: "/ws",
+        startedAt: 1,
+      },
+    });
+    reg.handleWorkerMessage("s1", {
+      kind: "run_output",
+      runId: "r1",
+      chunk: "boot\n",
+    });
+    expect(reg.list("/ws")[0]!.outputTail).toBe("boot\n");
+
+    reg.handleWorkerMessage("s1", {
+      kind: "run_started",
+      run: {
+        id: "r1",
+        sessionId: "s1",
+        workspaceRoot: "/ws",
+        command: "npm run dev",
+        cwd: "/ws",
+        startedAt: 1,
+        pid: 4242,
+      },
+    });
+    const row = reg.list("/ws")[0]!;
+    expect(row.pid).toBe(4242);
+    expect(row.outputTail).toBe("boot\n");
+  });
+
+  it("coalesces rapid output into fewer IPC events", async () => {
+    vi.useFakeTimers();
+    const events: unknown[] = [];
+    const reg = createAgentRunRegistry({
+      onEvent: (e) => events.push(e),
+    });
+    reg.handleWorkerMessage("s1", {
+      kind: "run_started",
+      run: {
+        id: "r1",
+        sessionId: "s1",
+        workspaceRoot: "/ws",
+        command: "x",
+        cwd: "/ws",
+        startedAt: 1,
+      },
+    });
+    reg.handleWorkerMessage("s1", { kind: "run_output", runId: "r1", chunk: "a" });
+    reg.handleWorkerMessage("s1", { kind: "run_output", runId: "r1", chunk: "b" });
+    reg.handleWorkerMessage("s1", { kind: "run_output", runId: "r1", chunk: "c" });
+    expect(events.filter((e: any) => e.type === "output")).toHaveLength(0);
+    expect(reg.list("/ws")[0]!.outputTail).toBe("abc");
+
+    await vi.advanceTimersByTimeAsync(40);
+    const outs = events.filter((e: any) => e.type === "output") as Array<{
+      type: string;
+      chunk: string;
+      outputTail: string;
+    }>;
+    expect(outs).toHaveLength(1);
+    expect(outs[0]!.chunk).toBe("abc");
+    expect(outs[0]!.outputTail).toBe("abc");
+    vi.useRealTimers();
+  });
 });
