@@ -2,6 +2,7 @@ import { defineStore } from "pinia";
 import { computed, ref } from "vue";
 import { t } from "@renderer/i18n";
 import { clearTabHistory } from "@renderer/stores/browser-library";
+import { uniquePreviewTabLabel } from "@renderer/utils/preview-tab-label";
 import { localizedTabLabel } from "@renderer/utils/right-tab-labels";
 import { pinRunningFirst } from "@renderer/utils/right-tabs-running";
 
@@ -141,12 +142,14 @@ export const useRightTabsStore = defineStore("rightTabs", () => {
       clearTabHistory(id);
       void window.api.browser.unreportTab(id);
     }
+    const wasPreview = tab.kind === "preview";
     tabs.value.splice(idx, 1);
     saveHandlers.delete(id);
     if (activeId.value === id) {
       const next = tabs.value[idx] ?? tabs.value[idx - 1] ?? null;
       activeId.value = next?.id ?? "";
     }
+    if (wasPreview) refreshPreviewTabLabels();
   }
 
   function patchTab(id: string, patch: Partial<RightTab>): void {
@@ -156,6 +159,20 @@ export const useRightTabsStore = defineStore("rightTabs", () => {
     // Editing pins the tab so the next open creates / reuses another transient slot
     if (tab.kind === "preview" && patch.dirty === true) {
       tab.transient = false;
+    }
+    if (tab.kind === "preview" && patch.filePath !== undefined) {
+      refreshPreviewTabLabels();
+    }
+  }
+
+  /** Disambiguate same-basename preview tabs (e.g. src/index.ts vs lib/index.ts). */
+  function refreshPreviewTabLabels(): void {
+    const previewTabs = tabs.value.filter((tab) => tab.kind === "preview" && tab.filePath);
+    const paths = previewTabs.map((tab) => tab.filePath!);
+    for (const tab of previewTabs) {
+      if (tab.labelLocked || !tab.filePath) continue;
+      const next = uniquePreviewTabLabel(tab.filePath, paths);
+      if (tab.label !== next) tab.label = next;
     }
   }
 
@@ -257,12 +274,12 @@ export const useRightTabsStore = defineStore("rightTabs", () => {
     }
     if (kind === "preview" && opts?.filePath) {
       const normalized = opts.filePath.replace(/\\/g, "/");
-      const fileLabel = opts.label ?? normalized.split(/[/\\]/).pop() ?? t.preview;
       const existing = tabs.value.find(
         (t) => t.kind === "preview" && t.filePath === normalized,
       );
       if (existing) {
         activeId.value = existing.id;
+        refreshPreviewTabLabels();
         return existing;
       }
 
@@ -281,18 +298,21 @@ export const useRightTabsStore = defineStore("rightTabs", () => {
       if (reusable) {
         Object.assign(reusable, {
           filePath: normalized,
-          label: fileLabel,
           dirty: false,
           missing: false,
           gitCode: undefined,
           transient: true,
         });
         activeId.value = reusable.id;
+        refreshPreviewTabLabels();
         return reusable;
       }
 
       opts = { ...opts, filePath: normalized };
-      label = fileLabel;
+      label = uniquePreviewTabLabel(
+        normalized,
+        tabs.value.filter((t) => t.kind === "preview" && t.filePath).map((t) => t.filePath!),
+      );
     }
     const tab: RightTab = {
       id: nextTabId(kind),
@@ -308,6 +328,7 @@ export const useRightTabsStore = defineStore("rightTabs", () => {
     tabs.value = [...tabs.value, tab];
     if (kind === "running") ensureRunningTabPinned();
     activeId.value = tab.id;
+    if (kind === "preview") refreshPreviewTabLabels();
     return tab;
   }
 
@@ -427,6 +448,7 @@ export const useRightTabsStore = defineStore("rightTabs", () => {
     }
     syncLocalizedLabels(next);
     tabs.value = next;
+    refreshPreviewTabLabels();
     const preferredIdx = Math.min(Math.max(0, restored.activeIndex), next.length - 1);
     const preferredId = next[preferredIdx]?.id;
     ensureRunningTabPinned();
@@ -468,6 +490,7 @@ export const useRightTabsStore = defineStore("rightTabs", () => {
       syncLocalizedLabels(tabs.value);
       const stillThere = tabs.value.some((tab) => tab.id === parked.activeId);
       activeId.value = stillThere ? parked.activeId : (tabs.value[0]?.id ?? "");
+      refreshPreviewTabLabels();
       persistReady = true;
       return;
     }

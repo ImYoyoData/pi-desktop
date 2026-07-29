@@ -21,6 +21,9 @@ export function ensurePiAgentEnvironment(): { agentDir: string; created: string[
   ensureDir(path.join(agentDir, "sessions"));
   ensureDir(path.join(agentDir, "agents"));
   ensureDir(path.join(agentDir, "skills"));
+  ensureDir(path.join(agentDir, "extensions"));
+  ensureDir(path.join(agentDir, "npm"));
+  ensureDir(path.join(agentDir, "git"));
   ensureDir(path.join(agentDir, "bin"));
 
   const writeIfMissing = (filePath: string, body: string): void => {

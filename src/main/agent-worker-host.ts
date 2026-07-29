@@ -19,6 +19,18 @@ function waitForReady(
     const onMessage = (raw: WorkerOutbound) => {
       if (raw.kind === "ready") {
         child.off("message", onMessage);
+        if (raw.resources) {
+          const r = raw.resources;
+          console.info(
+            `[pi-desktop] worker ready: ${r.extensionCount} extension(s), ${r.skillCount} skill(s), ${r.agentsFileCount ?? 0} agents file(s), ${r.activeTools.length} tool(s)`,
+          );
+          if (r.agentsFilePaths?.length) {
+            console.info(`[pi-desktop] agents files: ${r.agentsFilePaths.join(" | ")}`);
+          }
+          for (const line of r.diagnostics) {
+            console.warn(`[pi-desktop] worker resource: ${line}`);
+          }
+        }
         resolve({ id: raw.id, filePath: raw.filePath, cwd: raw.cwd });
         return;
       }

@@ -6,8 +6,11 @@ import {
 } from "../../src/shared/desktop-system-prompt";
 
 describe("DESKTOP_PROJECT_ORIENTATION_PROMPT", () => {
-  it("mentions key project orientation sources", () => {
+  it("requires AGENTS.md on first visit and mentions other orientation sources", () => {
     expect(DESKTOP_PROJECT_ORIENTATION_PROMPT).toContain("AGENTS.md");
+    expect(DESKTOP_PROJECT_ORIENTATION_PROMPT).toMatch(/first turn/i);
+    expect(DESKTOP_PROJECT_ORIENTATION_PROMPT).toMatch(/MUST/i);
+    expect(DESKTOP_PROJECT_ORIENTATION_PROMPT).toContain("project_context");
     expect(DESKTOP_PROJECT_ORIENTATION_PROMPT).toContain("README.md");
     expect(DESKTOP_PROJECT_ORIENTATION_PROMPT).toContain(".cursor/");
     expect(DESKTOP_PROJECT_ORIENTATION_PROMPT).toContain(".pi/");

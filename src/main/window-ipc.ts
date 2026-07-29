@@ -77,6 +77,8 @@ export function registerWindowIpc(): void {
     try {
       const status = systemPreferences.getMediaAccessStatus(kind);
       if (status === "granted") return true;
+      // Already denied in System Settings — askForMediaAccess will not show a dialog.
+      if (status === "denied" || status === "restricted") return false;
       return await systemPreferences.askForMediaAccess(kind);
     } catch {
       return false;

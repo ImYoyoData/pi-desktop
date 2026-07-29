@@ -1,0 +1,13 @@
+---
+description: Project AGENTS.md must be read on first workspace visit
+alwaysApply: true
+---
+
+# AGENTS.md on first visit
+
+When working in this product (Pi Desktop agent sessions) or implementing related behavior:
+
+- If the project directory has `AGENTS.md` (or `AGENTS.MD`), the agent **must** read and follow it on the **first visit / first turn** in that workspace.
+- Prefer content already injected under `<project_context>` / `<project_instructions>` (Pi SDK loads these into the system prompt). Treat that as already read — do not ignore it.
+- If the file exists on disk but is missing from context, call `read` on `AGENTS.md` before broad exploration or large changes.
+- Do not skip `AGENTS.md` in favor of guessing project conventions from the tree alone.

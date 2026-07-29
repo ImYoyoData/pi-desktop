@@ -40,6 +40,25 @@ async function ensureMermaid(isDark: boolean): Promise<MermaidApi> {
 }
 
 /**
+ * Drop rendered mermaid chrome so the next mountMermaidIn pass re-draws
+ * with the current theme (without re-parsing markdown HTML).
+ */
+export function resetMermaidForTheme(root: HTMLElement): void {
+  appliedTheme = null;
+  for (const block of root.querySelectorAll<HTMLElement>("[data-mermaid]")) {
+    const srcEl = block.querySelector(".md-diagram-src, .md-mermaid-src");
+    const source = (srcEl?.textContent ?? "").trim();
+    if (!source) continue;
+    block.classList.remove("md-diagram-ready", "md-diagram-error");
+    block.removeAttribute("data-mermaid-done");
+    const pre = document.createElement("pre");
+    pre.className = "md-diagram-src";
+    pre.textContent = source;
+    block.replaceChildren(pre);
+  }
+}
+
+/**
  * Render every `[data-mermaid]` placeholder under `root`.
  * Safe to call repeatedly after `v-html` updates (placeholders are fresh each time).
  */

@@ -19,7 +19,11 @@ function ensureTheme(): Theme {
   const existing = (globalThis as Record<PropertyKey, unknown>)[THEME_KEY];
   if (existing instanceof Theme) return existing;
   // Public API — loads dark/light via package exports (deep theme.js path is blocked).
-  initTheme();
+  try {
+    initTheme();
+  } catch (err) {
+    console.error("[pi-desktop] initTheme failed; extensions that need ctx.ui.theme may degrade", err);
+  }
   const theme = (globalThis as Record<PropertyKey, unknown>)[THEME_KEY];
   if (!(theme instanceof Theme)) {
     throw new Error("Failed to initialize Pi theme for extension UI");
@@ -146,7 +150,15 @@ export function createDesktopExtensionUIContext(): ExtensionUIContext {
     setEditorComponent: () => {},
     getEditorComponent: () => undefined,
     get theme() {
-      return ensureTheme();
+      try {
+        return ensureTheme();
+      } catch (err) {
+        console.error("[pi-desktop] extension requested theme but init failed", err);
+        // Re-throw would abort session_start / MCP connect — return a last-ditch Theme if present.
+        const theme = (globalThis as Record<PropertyKey, unknown>)[THEME_KEY];
+        if (theme instanceof Theme) return theme;
+        throw err;
+      }
     },
     getAllThemes: () => [],
     getTheme: () => undefined,
