@@ -1,0 +1,11 @@
+---
+description: Never attribute git commits/PRs to Cursor Agent
+alwaysApply: true
+---
+
+# No Cursor git attribution
+
+- Never add `Co-authored-by: Cursor <cursoragent@cursor.com>` or any `Co-authored-by: Cursor …` trailer to commits.
+- Never add `Made-with: Cursor` / “Made with Cursor” footers to commits or PR bodies.
+- Commits and PRs must use only the repo owner identity (`Yoyo` / `ImYoyoData` and their configured `user.email`).
+- If a commit message template or tool injects Cursor attribution, remove it before finishing the commit.

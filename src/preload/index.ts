@@ -6,6 +6,7 @@ import type { AgentRunEvent, AgentRunSnapshot } from "../shared/agent-runs";
 import type { ModelsGetResult, ModelsSetPayload } from "../shared/models-settings";
 import type { PreviewResult } from "../shared/preview-types";
 import type { AsrInstallProgress, AsrStatus, AsrStreamEvent } from "../shared/asr";
+import type { TtsInstallProgress, TtsSpeakResult, TtsStatus } from "../shared/tts";
 import type { UpdateCheckResult, UpdateProgress } from "../shared/update";
 import type {
   PiCliInstallProgress,
@@ -530,6 +531,34 @@ const api = {
       ipcRenderer.on(IpcChannels.asr.wake, listener);
       return () => {
         ipcRenderer.removeListener(IpcChannels.asr.wake, listener);
+      };
+    },
+  },
+  tts: {
+    status: () => ipcRenderer.invoke(IpcChannels.tts.status) as Promise<TtsStatus>,
+    setEnabled: (enabled: boolean) =>
+      ipcRenderer.invoke(IpcChannels.tts.setEnabled, enabled) as Promise<TtsStatus>,
+    install: () => ipcRenderer.invoke(IpcChannels.tts.install) as Promise<TtsStatus>,
+    uninstall: () => ipcRenderer.invoke(IpcChannels.tts.uninstall) as Promise<TtsStatus>,
+    speak: (text: string) =>
+      ipcRenderer.invoke(IpcChannels.tts.speak, text) as Promise<TtsSpeakResult>,
+    stop: () => ipcRenderer.invoke(IpcChannels.tts.stop) as Promise<TtsStatus>,
+    onProgress: (callback: (progress: TtsInstallProgress) => void) => {
+      const listener = (_event: Electron.IpcRendererEvent, progress: TtsInstallProgress) =>
+        callback(progress);
+      ipcRenderer.on(IpcChannels.tts.progress, listener);
+      return () => {
+        ipcRenderer.removeListener(IpcChannels.tts.progress, listener);
+      };
+    },
+    onSpeaking: (callback: (payload: { speaking: boolean }) => void) => {
+      const listener = (
+        _event: Electron.IpcRendererEvent,
+        payload: { speaking: boolean },
+      ) => callback(payload);
+      ipcRenderer.on(IpcChannels.tts.speaking, listener);
+      return () => {
+        ipcRenderer.removeListener(IpcChannels.tts.speaking, listener);
       };
     },
   },

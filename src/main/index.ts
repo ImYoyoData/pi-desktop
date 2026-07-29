@@ -25,6 +25,7 @@ import { registerGitIpc } from "./git-ipc";
 import { registerFsWatchIpc } from "./fs-watch-host";
 import { registerWindowIpc } from "./window-ipc";
 import { registerAsrIpc } from "./asr-host";
+import { registerTtsIpc } from "./tts-host";
 import { registerUpdateIpc } from "./update-host";
 import { registerPiCliIpc } from "./pi-cli-host";
 import { registerMarketIpc } from "./market-host";
@@ -288,6 +289,7 @@ function boot(): void {
 
     setImmediate(() => {
       registerAsrIpc();
+      registerTtsIpc();
       registerUpdateIpc();
       registerPiCliIpc();
       registerMarketIpc();

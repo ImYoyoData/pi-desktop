@@ -39,6 +39,7 @@ import { usePreviewStore } from "@renderer/stores/preview";
 import { useRightTabsStore, type RightTab, type RightTabKind } from "@renderer/stores/right-tabs";
 import { useWorkspaceStore } from "@renderer/stores/workspace";
 import { gitCodeColor } from "@renderer/utils/editor-lang";
+import { localizedTabLabel } from "@renderer/utils/right-tab-labels";
 import { t } from "@renderer/i18n";
 
 const layout = useLayoutStore();
@@ -262,7 +263,7 @@ function iconFor(kind: RightTabKind) {
 }
 
 function tabDisplayLabel(tab: RightTab): string {
-  const base = tab.label;
+  const base = localizedTabLabel(tab);
   if (tab.missing) return base;
   if (tab.dirty) return `${base}*`;
   return base;
