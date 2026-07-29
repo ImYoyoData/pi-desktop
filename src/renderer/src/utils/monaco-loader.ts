@@ -3,6 +3,10 @@ import { resolveMonacoNls, type MonacoNlsId } from "@renderer/i18n/locale";
 // monaco-editor@0.56 exports map `monaco-editor/<path>` → `esm/vs/<path>` —
 // do NOT prefix with `esm/vs/` or resolution doubles the path and Vite fails.
 import EditorWorker from "monaco-editor/editor/editor.worker.js?worker";
+import JsonWorker from "monaco-editor/language/json/json.worker.js?worker";
+import CssWorker from "monaco-editor/language/css/css.worker.js?worker";
+import HtmlWorker from "monaco-editor/language/html/html.worker.js?worker";
+import TsWorker from "monaco-editor/language/typescript/ts.worker.js?worker";
 
 let monacoPromise: Promise<typeof Monaco> | null = null;
 let envInstalled = false;
@@ -15,8 +19,24 @@ export function installMonacoEnvironment(): void {
     MonacoEnvironment?: { getWorker: (workerId: string, label: string) => Worker };
   };
   g.MonacoEnvironment = {
-    getWorker() {
-      return new EditorWorker();
+    getWorker(_workerId: string, label: string) {
+      switch (label) {
+        case "json":
+          return new JsonWorker();
+        case "css":
+        case "scss":
+        case "less":
+          return new CssWorker();
+        case "html":
+        case "handlebars":
+        case "razor":
+          return new HtmlWorker();
+        case "typescript":
+        case "javascript":
+          return new TsWorker();
+        default:
+          return new EditorWorker();
+      }
     },
   };
 }
@@ -84,7 +104,10 @@ export function loadMonaco(): Promise<typeof Monaco> {
       installMonacoEnvironment();
       const nls = resolveMonacoNls();
       if (nls) await loadNlsPack(nls);
-      return import("monaco-editor");
+      const monaco = await import("monaco-editor");
+      const { ensureMonacoExtraLanguages } = await import("@renderer/utils/monaco-extra-languages");
+      ensureMonacoExtraLanguages(monaco);
+      return monaco;
     })();
   }
   return monacoPromise;

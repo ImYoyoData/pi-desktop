@@ -3,6 +3,10 @@ export type GitStatusCode = "M" | "A" | "D" | "R" | "U" | "C";
 /** language id for monaco from file path */
 export function languageFromPath(filePath: string): string {
   const name = filePath.split(/[/\\]/).pop()?.toLowerCase() ?? "";
+  // .env, .env.local, .env.development, foo.env
+  if (name === ".env" || name.startsWith(".env.") || name.endsWith(".env")) {
+    return "dotenv";
+  }
   const ext = name.includes(".") ? name.slice(name.lastIndexOf(".")) : "";
   switch (ext) {
     case ".ts":
@@ -17,6 +21,9 @@ export function languageFromPath(filePath: string): string {
       return "javascript";
     case ".json":
       return "json";
+    case ".json5":
+    case ".jsonc":
+      return "json5";
     case ".vue":
       return "html";
     case ".css":

@@ -8,6 +8,7 @@ import monacoCssUrl from "../../../../node_modules/monaco-editor/min/vs/editor/e
 import MarkdownView from "@renderer/components/MarkdownView.vue";
 import { breadcrumbs, languageFromPath } from "@renderer/utils/editor-lang";
 import { loadMonaco } from "@renderer/utils/monaco-loader";
+import { applyMonacoColorTheme } from "@renderer/utils/monaco-theme";
 import { useRightTabsStore } from "@renderer/stores/right-tabs";
 import { useWorkspaceStore } from "@renderer/stores/workspace";
 import { useAppearanceStore } from "@renderer/stores/appearance";
@@ -149,13 +150,18 @@ async function ensureEditor(content: string, language: string): Promise<void> {
       quickSuggestions: false,
       parameterHints: { enabled: false },
       suggestOnTriggerCharacters: false,
-      hover: { enabled: false },
+      // Needed so json / json5 validation messages are readable on hover.
+      hover: { enabled: true },
     });
+    applyMonacoColorTheme(monaco, appearance.resolvedTheme === "dark");
     editor.onDidChangeModelContent(() => {
       liveContent.value = editor?.getValue() ?? "";
       if (applyingExternal) return;
       dirty.value = true;
       syncTabMeta({ dirty: true });
+    });
+    editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => {
+      void save();
     });
   } else {
     const model = editor.getModel();
@@ -182,7 +188,7 @@ watch(
   () => appearance.resolvedTheme,
   (mode) => {
     if (!monacoApi || !editor) return;
-    monacoApi.editor.setTheme(mode === "dark" ? "vs-dark" : "vs");
+    applyMonacoColorTheme(monacoApi, mode === "dark");
   },
 );
 
@@ -302,7 +308,7 @@ function promptReloadFromDisk(): void {
   reloadPromptOpen = true;
   dialog.warning({
     title: t.fileExternallyModified,
-    content: dirty.value ? t.externalChangedDirty : t.externalChanged,
+    content: t.externalChangedDirty,
     positiveText: t.reloadFromDisk,
     negativeText: t.keepCurrent,
     onPositiveClick: () => {
@@ -316,6 +322,31 @@ function promptReloadFromDisk(): void {
       reloadPromptOpen = false;
     },
   });
+}
+
+async function applyDiskContentSilently(path: string, content: string): Promise<void> {
+  applyingExternal = true;
+  try {
+    if (editor && editorHostIsLive()) {
+      const model = editor.getModel();
+      if (model && model.getValue() !== content) {
+        editor.pushUndoStop();
+        model.setValue(content);
+        editor.pushUndoStop();
+      }
+    }
+    liveContent.value = content;
+    diskFingerprint = fingerprint(content);
+    dirty.value = false;
+    missing.value = false;
+    if (result.value?.kind === "text" || result.value?.kind === "markdown") {
+      result.value = { ...result.value, content };
+    }
+    syncTabMeta({ dirty: false, missing: false });
+  } finally {
+    applyingExternal = false;
+  }
+  await refreshGitForFile(path);
 }
 
 function onFsChanged(event: Event): void {
@@ -371,6 +402,11 @@ function onFsChanged(event: Event): void {
         syncTabMeta({ dirty: false });
         return;
       }
+      // No local edits → silently take disk content (no prompt).
+      if (!dirty.value) {
+        await applyDiskContentSilently(path, res.content);
+        return;
+      }
       promptReloadFromDisk();
     })();
   }
@@ -422,16 +458,32 @@ async function save(): Promise<boolean> {
   }
 }
 
+function onPreviewKeydown(event: KeyboardEvent): void {
+  if (props.active === false) return;
+  if (!(event.ctrlKey || event.metaKey) || event.altKey) return;
+  if (event.key.toLowerCase() !== "s") return;
+  if (event.isComposing) return;
+  // Only when this preview can save text content
+  if (!(result.value?.kind === "text" || result.value?.kind === "markdown" || missing.value)) {
+    return;
+  }
+  event.preventDefault();
+  event.stopPropagation();
+  void save();
+}
+
 onMounted(() => {
   if (props.tabId) {
     rightTabs.registerSaveHandler(props.tabId, save);
   }
   window.addEventListener("pi-fs-changed", onFsChanged);
+  window.addEventListener("keydown", onPreviewKeydown, true);
 });
 
 onBeforeUnmount(() => {
   if (props.tabId) rightTabs.unregisterSaveHandler(props.tabId);
   window.removeEventListener("pi-fs-changed", onFsChanged);
+  window.removeEventListener("keydown", onPreviewKeydown, true);
   stopMedia();
   unregisterVideo?.();
   unregisterAudio?.();
@@ -486,8 +538,9 @@ onBeforeUnmount(() => {
           v-if="result?.kind === 'text' || result?.kind === 'markdown' || missing"
           size="tiny"
           quaternary
-          :disabled="!dirty && !missing"
+          :disabled="saving || (!dirty && !missing)"
           :loading="saving"
+          :title="t.saveShortcut"
           @click="() => void save()"
         >
           <template #icon>

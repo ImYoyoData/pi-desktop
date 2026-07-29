@@ -12,7 +12,7 @@ import {
   type DiagramToolLabels,
 } from "@renderer/utils/diagram-chrome";
 import { mountDotIn } from "@renderer/utils/dot-render";
-import { mountMermaidIn } from "@renderer/utils/mermaid-render";
+import { mountMermaidIn, resetMermaidForTheme } from "@renderer/utils/mermaid-render";
 import { handleAppLinkClick } from "@renderer/utils/open-link";
 import { useAppearanceStore } from "@renderer/stores/appearance";
 import { t } from "@renderer/i18n";
@@ -164,7 +164,9 @@ watch(
 watch(
   () => appearance.resolvedTheme,
   () => {
-    html.value = refreshHtml(props.content);
+    // Theme only affects Mermaid — avoid full markdown re-parse of every message.
+    const root = rootEl.value;
+    if (root) resetMermaidForTheme(root);
     scheduleDiagrams();
   },
 );

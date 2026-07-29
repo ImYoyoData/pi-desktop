@@ -9,6 +9,7 @@ import {
   SessionManager,
   SettingsManager,
   type AgentSession,
+  type ExtensionError,
 } from "@earendil-works/pi-coding-agent";
 import type { AgentCommand, ElementCitation } from "../shared/protocol";
 import { toPromptImages } from "../shared/protocol";
@@ -41,6 +42,7 @@ import { readContextUsage } from "./context-usage";
 import { createDesktopExtensionUIContext } from "./extension-ui-context";
 import { handleRpcResponse, rpcToMain, setRpcWorkspaceRoot } from "./main-rpc";
 import { createPermissionGate } from "./permission-gate";
+import { logResourceSummary, summarizeSessionResources } from "./resource-summary";
 
 function post(msg: WorkerOutbound): void {
   process.parentPort?.postMessage(msg);
@@ -206,7 +208,7 @@ async function initSession(
     beforeExec: (command) => assertBashExecAllowed?.(command),
     shouldStartBackground: (command) => Boolean(takeBashBackgroundFlag?.(command)),
   });
-  const { session: created } = await createAgentSessionFromServices({
+  const { session: created, extensionsResult } = await createAgentSessionFromServices({
     services,
     sessionManager,
     customTools: [
@@ -220,10 +222,24 @@ async function initSession(
     ],
   });
   // Bind Desktop ExtensionUIContext so ctx.ui.select/confirm/notify work in Electron.
-  await created.bindExtensions({
-    uiContext: createDesktopExtensionUIContext(),
-    mode: "rpc",
-  });
+  // session_start is when extensions (incl. MCP-backed ones) typically connect.
+  const extensionBindErrors: string[] = [];
+  try {
+    await created.bindExtensions({
+      uiContext: createDesktopExtensionUIContext(),
+      mode: "rpc",
+      onError: (err: ExtensionError) => {
+        const message = `${err.extensionPath} @ ${err.event}: ${err.error}`;
+        extensionBindErrors.push(message);
+        console.error(`[pi-desktop] extension runtime error: ${message}`);
+        if (err.stack) console.error(err.stack);
+      },
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    extensionBindErrors.push(`bindExtensions failed: ${message}`);
+    console.error(`[pi-desktop] bindExtensions failed: ${message}`);
+  }
   // Registered but inactive until the user mentions browser / selects elements.
   syncBuiltinBrowserTools(created, false);
   const {
@@ -278,11 +294,23 @@ async function initSession(
     }
   });
   session = created;
+  const resources = summarizeSessionResources(
+    services,
+    extensionsResult,
+    created.getActiveToolNames(),
+  );
+  if (extensionBindErrors.length) {
+    resources.diagnostics.push(
+      ...extensionBindErrors.map((message) => `[bind] ${message}`),
+    );
+  }
+  logResourceSummary(resources);
   post({
     kind: "ready",
     id: sessionManager.getSessionId(),
     filePath: sessionManager.getSessionFile() ?? "",
     cwd: sessionManager.getCwd(),
+    resources,
   });
   // contextUsage is pulled via get_state after attach; emitting here races ready handshake.
 }

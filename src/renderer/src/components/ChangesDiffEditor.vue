@@ -4,6 +4,7 @@ import type * as Monaco from "monaco-editor";
 import monacoCssUrl from "../../../../node_modules/monaco-editor/min/vs/editor/editor.main.css?url";
 import { languageFromPath } from "@renderer/utils/editor-lang";
 import { loadMonaco } from "@renderer/utils/monaco-loader";
+import { applyMonacoColorTheme } from "@renderer/utils/monaco-theme";
 import { useAppearanceStore } from "@renderer/stores/appearance";
 
 if (!document.getElementById("monaco-editor-css")) {
@@ -77,6 +78,7 @@ async function ensureDiffEditor(): Promise<void> {
   if (myGen !== gen) return;
   const monaco = monacoApi;
   const theme = appearance.resolvedTheme === "dark" ? "vs-dark" : "vs";
+  applyMonacoColorTheme(monaco, appearance.resolvedTheme === "dark");
 
   if (!diffEditor) {
     diffEditor = monaco.editor.createDiffEditor(host.value, {
@@ -115,7 +117,7 @@ async function ensureDiffEditor(): Promise<void> {
     });
     applyInlineEditorOptions();
   } else {
-    monaco.editor.setTheme(theme);
+    applyMonacoColorTheme(monaco, appearance.resolvedTheme === "dark");
     diffEditor.updateOptions({
       hideUnchangedRegions: {
         enabled: !isFullAdd.value && !isFullDelete.value,
@@ -153,7 +155,7 @@ watch(
   () => appearance.resolvedTheme,
   (mode) => {
     if (!monacoApi || !diffEditor) return;
-    monacoApi.editor.setTheme(mode === "dark" ? "vs-dark" : "vs");
+    applyMonacoColorTheme(monacoApi, mode === "dark");
   },
 );
 

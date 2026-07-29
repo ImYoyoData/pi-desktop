@@ -20,5 +20,8 @@
     <!-- Embedded browser / element picker may request camera -->
     <key>com.apple.security.device.camera</key>
     <true/>
+    <!-- Fallback Pi CLI installer may drive Terminal.app via AppleScript -->
+    <key>com.apple.security.automation.apple-events</key>
+    <true/>
   </dict>
 </plist>
