@@ -24,6 +24,10 @@ import type {
   PermissionAskRequest,
 } from "../shared/desktop-security";
 import type {
+  AskUserAskReply,
+  AskUserAskRequest,
+} from "../shared/ask-user";
+import type {
   ExtensionUiEvent,
   ExtensionUiReply,
 } from "../shared/extension-ui";
@@ -128,6 +132,21 @@ const api = {
     },
     permissionReply: (payload: PermissionAskReply) =>
       ipcRenderer.invoke(IpcChannels.sessions.permissionReply, payload) as Promise<{
+        ok: boolean;
+        reason?: string;
+      }>,
+    onAskUser: (callback: (payload: AskUserAskRequest) => void) => {
+      const listener = (
+        _event: Electron.IpcRendererEvent,
+        payload: AskUserAskRequest,
+      ) => callback(payload);
+      ipcRenderer.on(IpcChannels.sessions.askUser, listener);
+      return () => {
+        ipcRenderer.removeListener(IpcChannels.sessions.askUser, listener);
+      };
+    },
+    askUserReply: (payload: AskUserAskReply) =>
+      ipcRenderer.invoke(IpcChannels.sessions.askUserReply, payload) as Promise<{
         ok: boolean;
         reason?: string;
       }>,
