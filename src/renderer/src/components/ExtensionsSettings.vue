@@ -99,27 +99,32 @@ function statusType(status: PluginRow["status"]): "default" | "success" | "warni
 }
 
 function onRemove(pkg: PluginRow): void {
-  dialog.warning({
+  const d = dialog.warning({
     title: t.extensionUninstallTitle,
     content: t.extensionUninstallConfirm(pkg.source, pkg.scope),
     positiveText: t.uninstall,
     negativeText: t.cancel,
-    onPositiveClick: async () => {
+    onPositiveClick: () => {
+      d.loading = true;
       removing.value = true;
-      try {
-        const data = await window.api.plugins.remove(
-          pkg.source,
-          pkg.scope,
-          workspace.root ?? undefined,
-        );
-        packages.value = data.packages;
-        selected.value = packages.value[0] ? keyOf(packages.value[0]) : null;
-        message.success(t.extensionUninstalled);
-      } catch (err) {
-        message.error(err instanceof Error ? err.message : String(err));
-      } finally {
-        removing.value = false;
-      }
+      return (async () => {
+        try {
+          const data = await window.api.plugins.remove(
+            pkg.source,
+            pkg.scope,
+            workspace.root ?? undefined,
+          );
+          packages.value = data.packages;
+          selected.value = packages.value[0] ? keyOf(packages.value[0]) : null;
+          message.success(t.extensionUninstalled);
+        } catch (err) {
+          message.error(err instanceof Error ? err.message : String(err));
+          d.loading = false;
+          return false;
+        } finally {
+          removing.value = false;
+        }
+      })();
     },
   });
 }

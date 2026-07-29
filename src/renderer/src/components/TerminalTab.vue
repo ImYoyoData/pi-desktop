@@ -318,7 +318,7 @@ onBeforeUnmount(() => {
   height: 100%;
   padding: 4px;
   box-sizing: border-box;
-  color: var(--fg, #e4e4e7);
+  color: var(--fg-strong, #27272a);
 }
 
 .term-host :deep(.xterm-viewport) {
@@ -327,8 +327,8 @@ onBeforeUnmount(() => {
 
 .term-host :deep(.xterm-helper-textarea),
 .term-host :deep(.xterm-composition-view) {
-  color: var(--fg, #e4e4e7) !important;
-  caret-color: var(--fg, #e4e4e7) !important;
+  color: var(--fg-strong, #27272a) !important;
+  caret-color: var(--fg-strong, #27272a) !important;
 }
 
 .empty {

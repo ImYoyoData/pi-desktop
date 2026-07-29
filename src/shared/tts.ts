@@ -91,6 +91,54 @@ export function ttsRuntimeArchiveName(
 export const TTS_MAX_CHARS = 600;
 
 /**
+ * Split speakable text into short phrases for pipelined synth+play.
+ * Prefers sentence boundaries; falls back to length chops.
+ */
+export function splitTtsChunks(text: string, maxChunkChars = 80): string[] {
+  const cleaned = String(text ?? "").replace(/\s+/g, " ").trim();
+  if (!cleaned) return [];
+
+  const sentences = cleaned
+    .split(/(?<=[。！？!?；;…]|\.(?=\s|$))/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+  const units = sentences.length ? sentences : [cleaned];
+
+  const chunks: string[] = [];
+  let buf = "";
+
+  const pushPieces = (s: string) => {
+    for (let i = 0; i < s.length; i += maxChunkChars) {
+      const piece = s.slice(i, i + maxChunkChars).trim();
+      if (piece) chunks.push(piece);
+    }
+  };
+
+  for (const sentence of units) {
+    if (sentence.length > maxChunkChars) {
+      if (buf) {
+        chunks.push(buf);
+        buf = "";
+      }
+      pushPieces(sentence);
+      continue;
+    }
+    if (!buf) {
+      buf = sentence;
+      continue;
+    }
+    if (buf.length + 1 + sentence.length <= maxChunkChars) {
+      buf = `${buf} ${sentence}`;
+      continue;
+    }
+    chunks.push(buf);
+    buf = sentence;
+  }
+  if (buf) chunks.push(buf);
+  return chunks;
+}
+
+/**
  * Keep only speakable prose: drop code fences/blocks, inline code, images,
  * HTML, tables, math, and markdown chrome. Link labels are kept.
  */
