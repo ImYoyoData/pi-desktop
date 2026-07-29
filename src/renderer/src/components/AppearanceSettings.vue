@@ -15,6 +15,10 @@ import {
   type ThemePreference,
 } from "@renderer/stores/appearance";
 import { t } from "@renderer/i18n";
+import {
+  markLocaleReloading,
+  showLocaleReloadSplash,
+} from "@renderer/utils/locale-reload-splash";
 
 const props = defineProps<{ open: boolean }>();
 const emit = defineEmits<{ close: [] }>();
@@ -28,8 +32,14 @@ const themeValue = computed({
 
 function onLocaleUpdate(v: string | number | null): void {
   if (v !== "system" && v !== "zh-CN" && v !== "en") return;
+  if (v === appearance.localePreference) return;
   appearance.setLocalePreference(v as LocalePreference);
-  window.location.reload();
+  markLocaleReloading(v);
+  // Paint overlay in the outgoing page so reload never shows a blank window.
+  showLocaleReloadSplash(v);
+  window.setTimeout(() => {
+    window.location.reload();
+  }, 40);
 }
 </script>
 

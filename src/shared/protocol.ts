@@ -155,6 +155,17 @@ export const IpcChannels = {
     /** Main → renderer: global wake hotkey pressed. */
     wake: "asr:wake",
   },
+  tts: {
+    status: "tts:status",
+    setEnabled: "tts:setEnabled",
+    install: "tts:install",
+    uninstall: "tts:uninstall",
+    speak: "tts:speak",
+    stop: "tts:stop",
+    progress: "tts:progress",
+    /** Main → renderer: playback started/stopped. */
+    speaking: "tts:speaking",
+  },
   update: {
     getAppInfo: "update:getAppInfo",
     openGithub: "update:openGithub",

@@ -1,26 +1,41 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref, watch } from "vue";
+import { computed, onMounted, onUnmounted, ref, shallowRef } from "vue";
 import { NIcon } from "naive-ui";
 import { CheckmarkOutline, CloseOutline } from "@vicons/ionicons5";
 import { t } from "@renderer/i18n";
 
+/** Non-reactive meter — parent mutates `.level` from the audio thread. */
+export type VoiceMeter = { level: number };
+
 const props = defineProps<{
-  /** Latest mic level 0..1 */
-  level: number;
+  meter: VoiceMeter;
   /** True while ASR is running after confirm */
   busy?: boolean;
+  /** Show stop control when an agent turn is running */
+  showStop?: boolean;
 }>();
 
 const emit = defineEmits<{
   cancel: [];
   confirm: [];
+  stop: [];
 }>();
 
-const BAR_COUNT = 40;
-const levels = ref<number[]>(Array.from({ length: BAR_COUNT }, () => 0.08));
+const BAR_COUNT = 48;
+const canvasRef = shallowRef<HTMLCanvasElement | null>(null);
+const hostRef = shallowRef<HTMLElement | null>(null);
 const startedAt = ref(Date.now());
 const nowTick = ref(Date.now());
-let timer: ReturnType<typeof setInterval> | null = null;
+
+/** Ring of smoothed bar heights 0..1 — mutated only on the rAF path. */
+const bars = new Float32Array(BAR_COUNT);
+let writeIdx = 0;
+let rafId = 0;
+let clockTimer: ReturnType<typeof setInterval> | null = null;
+let lastSampleAt = 0;
+/** Target sample interval — ~60fps visual, independent of ScriptProcessor rate. */
+const SAMPLE_MS = 16;
+const SMOOTH = 0.38;
 
 const elapsedLabel = computed(() => {
   const sec = Math.max(0, Math.floor((nowTick.value - startedAt.value) / 1000));
@@ -29,39 +44,97 @@ const elapsedLabel = computed(() => {
   return `${m}:${s.toString().padStart(2, "0")}`;
 });
 
-watch(
-  () => props.level,
-  (v) => {
-    const next = levels.value.slice(1);
-    next.push(Math.max(0.06, Math.min(1, v)));
-    levels.value = next;
-  },
-);
+function cssColor(name: string, fallback: string): string {
+  const el = hostRef.value;
+  if (!el) return fallback;
+  const v = getComputedStyle(el).getPropertyValue(name).trim();
+  return v || fallback;
+}
+
+function draw(): void {
+  const canvas = canvasRef.value;
+  if (!canvas) return;
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  const cssW = canvas.clientWidth || 160;
+  const cssH = canvas.clientHeight || 28;
+  const w = Math.max(1, Math.floor(cssW * dpr));
+  const h = Math.max(1, Math.floor(cssH * dpr));
+  if (canvas.width !== w || canvas.height !== h) {
+    canvas.width = w;
+    canvas.height = h;
+  }
+
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return;
+  ctx.clearRect(0, 0, w, h);
+
+  const barColor = cssColor("--voice-wave", "#9aa0a6");
+  const midY = h / 2;
+  const gap = Math.max(1 * dpr, (w / BAR_COUNT) * 0.35);
+  const barW = Math.max(1 * dpr, (w - gap * (BAR_COUNT - 1)) / BAR_COUNT);
+  const maxAmp = midY * 0.92;
+
+  for (let i = 0; i < BAR_COUNT; i++) {
+    const idx = (writeIdx + i) % BAR_COUNT;
+    const amp = Math.max(0.06, bars[idx] ?? 0.06);
+    const edge = Math.min(i, BAR_COUNT - 1 - i);
+    const fade = Math.min(1, edge / 6);
+    const half = Math.max(dpr, amp * maxAmp * fade);
+    const x = i * (barW + gap);
+    ctx.globalAlpha = 0.35 + 0.65 * fade;
+    ctx.fillStyle = barColor;
+    ctx.fillRect(x, midY - half, barW, half * 2);
+  }
+  ctx.globalAlpha = 1;
+}
+
+function tick(now: number): void {
+  if (now - lastSampleAt >= SAMPLE_MS) {
+    lastSampleAt = now;
+    const raw = Math.max(0, Math.min(1, props.meter.level));
+    const idle = 0.08 + 0.03 * (0.5 + 0.5 * Math.sin(now / 320));
+    const target = raw < 0.04 ? idle : Math.max(0.08, raw);
+    const prev = bars[(writeIdx + BAR_COUNT - 1) % BAR_COUNT] ?? 0.08;
+    const smoothed = prev + (target - prev) * SMOOTH;
+    bars[writeIdx] = smoothed;
+    writeIdx = (writeIdx + 1) % BAR_COUNT;
+  }
+  draw();
+  rafId = requestAnimationFrame(tick);
+}
 
 onMounted(() => {
   startedAt.value = Date.now();
-  timer = setInterval(() => {
+  bars.fill(0.08);
+  clockTimer = setInterval(() => {
     nowTick.value = Date.now();
   }, 250);
+  rafId = requestAnimationFrame(tick);
 });
 
 onUnmounted(() => {
-  if (timer) clearInterval(timer);
-  timer = null;
+  if (rafId) cancelAnimationFrame(rafId);
+  rafId = 0;
+  if (clockTimer) clearInterval(clockTimer);
+  clockTimer = null;
 });
 </script>
 
 <template>
-  <div class="voice-bar" role="group" :aria-label="t.voiceRecording">
-    <div class="wave" aria-hidden="true">
-      <span
-        v-for="(h, i) in levels"
-        :key="i"
-        class="bar"
-        :style="{ height: `${Math.round(10 + h * 18)}px` }"
-      />
-    </div>
+  <div ref="hostRef" class="voice-bar" role="group" :aria-label="t.voiceRecording">
+    <canvas ref="canvasRef" class="wave" aria-hidden="true" />
     <span class="time">{{ elapsedLabel }}</span>
+    <button
+      v-if="showStop"
+      type="button"
+      class="icon-btn stop-btn"
+      :disabled="busy"
+      :title="t.stop"
+      :aria-label="t.stop"
+      @click="emit('stop')"
+    >
+      <span class="stop-square" aria-hidden="true" />
+    </button>
     <button
       type="button"
       class="icon-btn"
@@ -87,40 +160,32 @@ onUnmounted(() => {
 
 <style scoped>
 .voice-bar {
-  display: inline-flex;
+  display: flex;
   align-items: center;
   gap: 10px;
-  padding: 8px 12px 8px 14px;
-  border-radius: 999px;
-  background: var(--bg-elevated, #fff);
-  border: 1px solid var(--border, rgba(0, 0, 0, 0.08));
-  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.08);
-  max-width: 100%;
+  width: 100%;
+  min-width: 0;
+  padding: 2px 2px 2px 0;
+  --voice-wave: #9aa0a6;
 }
 
 .wave {
-  display: flex;
-  align-items: center;
-  gap: 2px;
-  height: 28px;
-  min-width: 140px;
+  display: block;
   flex: 1;
-}
-
-.bar {
-  width: 2px;
-  border-radius: 1px;
-  background: #9aa0a6;
-  transition: height 60ms linear;
+  min-width: 120px;
+  height: 28px;
+  width: 100%;
 }
 
 .time {
   font-variant-numeric: tabular-nums;
   font-size: 13px;
+  font-weight: 500;
   color: #9aa0a6;
   min-width: 2.5em;
   text-align: right;
   user-select: none;
+  flex-shrink: 0;
 }
 
 .icon-btn {
@@ -135,10 +200,11 @@ onUnmounted(() => {
   color: #9aa0a6;
   cursor: pointer;
   padding: 0;
+  flex-shrink: 0;
 }
 
 .icon-btn:hover:not(:disabled) {
-  background: rgba(0, 0, 0, 0.05);
+  background: rgba(0, 0, 0, 0.06);
   color: #5f6368;
 }
 
@@ -151,15 +217,38 @@ onUnmounted(() => {
   color: #5f6368;
 }
 
-:root.dark .voice-bar,
-.dark .voice-bar {
-  background: var(--bg-elevated, #2a2a2a);
-  border-color: rgba(255, 255, 255, 0.08);
-  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.35);
+.stop-btn {
+  border: 1.5px solid #9aa0a6;
+  color: #5f6368;
 }
 
-:root.dark .bar,
-.dark .bar {
-  background: #9aa0a6;
+.stop-btn:hover:not(:disabled) {
+  border-color: #5f6368;
+  background: rgba(0, 0, 0, 0.04);
+}
+
+.stop-square {
+  display: block;
+  width: 9px;
+  height: 9px;
+  border-radius: 1.5px;
+  background: currentColor;
+}
+
+:root.dark .voice-bar,
+.dark .voice-bar {
+  --voice-wave: #9aa0a6;
+}
+
+:root.dark .icon-btn:hover:not(:disabled),
+.dark .icon-btn:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.08);
+  color: #dadce0;
+}
+
+:root.dark .stop-btn,
+.dark .stop-btn {
+  border-color: #9aa0a6;
+  color: #dadce0;
 }
 </style>

@@ -20,6 +20,7 @@ import { useWorkspaceStore } from "@renderer/stores/workspace";
 import { useAppearanceStore } from "@renderer/stores/appearance";
 import { darkThemeOverrides, lightThemeOverrides } from "@renderer/theme/naive";
 import { locale } from "@renderer/i18n";
+import { dismissLocaleReloadSplash } from "@renderer/utils/locale-reload-splash";
 
 /** Heavy workspace chrome — load after first paint when a folder is open. */
 const SplitRoot = defineAsyncComponent(() => import("@renderer/components/SplitRoot.vue"));
@@ -41,12 +42,20 @@ let stopAppearance: (() => void) | undefined;
 onMounted(() => {
   stopAppearance = appearance.init();
   void window.api.window.setUiLocale(locale === "zh-CN" ? "zh-CN" : "en");
-  void workspace.getWorkspace();
-  void workspace.listRecent();
-  void window.api.window.platform().then((p) => {
-    document.documentElement.classList.toggle("platform-darwin", p === "darwin");
-    document.documentElement.classList.toggle("platform-win32", p === "win32");
-  });
+  void (async () => {
+    try {
+      await Promise.all([
+        workspace.getWorkspace(),
+        workspace.listRecent(),
+        window.api.window.platform().then((p) => {
+          document.documentElement.classList.toggle("platform-darwin", p === "darwin");
+          document.documentElement.classList.toggle("platform-win32", p === "win32");
+        }),
+      ]);
+    } finally {
+      await dismissLocaleReloadSplash();
+    }
+  })();
 });
 
 onUnmounted(() => {

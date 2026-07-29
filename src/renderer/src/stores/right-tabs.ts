@@ -2,6 +2,7 @@ import { defineStore } from "pinia";
 import { computed, ref } from "vue";
 import { t } from "@renderer/i18n";
 import { clearTabHistory } from "@renderer/stores/browser-library";
+import { localizedTabLabel } from "@renderer/utils/right-tab-labels";
 import { pinRunningFirst } from "@renderer/utils/right-tabs-running";
 
 export type RightTabKind =
@@ -91,6 +92,14 @@ function defaultRunningAndChanges(): RightTab[] {
   ];
 }
 
+/** Re-apply active-locale labels after restore / language switch reload. */
+function syncLocalizedLabels(list: RightTab[]): void {
+  for (const tab of list) {
+    const next = localizedTabLabel(tab);
+    if (tab.label !== next) tab.label = next;
+  }
+}
+
 export const useRightTabsStore = defineStore("rightTabs", () => {
   const tabs = ref<RightTab[]>(defaultRunningAndChanges());
   const activeId = ref("changes-0");
@@ -108,9 +117,11 @@ export const useRightTabsStore = defineStore("rightTabs", () => {
         label: t.runningTab,
       };
       tabs.value = [tab, ...tabs.value.filter((t) => t.kind !== "running")];
+      syncLocalizedLabels(tabs.value);
       return;
     }
     tabs.value = pinRunningFirst(tabs.value);
+    syncLocalizedLabels(tabs.value);
   }
 
   function selectTab(id: string): void {
@@ -414,6 +425,7 @@ export const useRightTabsStore = defineStore("rightTabs", () => {
     if (!next.some((tab) => tab.kind === "changes")) {
       next.unshift({ id: nextTabId("changes"), kind: "changes", label: t.changesTab });
     }
+    syncLocalizedLabels(next);
     tabs.value = next;
     const preferredIdx = Math.min(Math.max(0, restored.activeIndex), next.length - 1);
     const preferredId = next[preferredIdx]?.id;
@@ -453,6 +465,7 @@ export const useRightTabsStore = defineStore("rightTabs", () => {
     if (parked?.tabs?.length) {
       tabs.value = cloneTabs(parked.tabs);
       ensureRunningTabPinned();
+      syncLocalizedLabels(tabs.value);
       const stillThere = tabs.value.some((tab) => tab.id === parked.activeId);
       activeId.value = stillThere ? parked.activeId : (tabs.value[0]?.id ?? "");
       persistReady = true;

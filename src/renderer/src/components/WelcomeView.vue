@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { onMounted } from "vue";
-import { NButton, NEmpty, NIcon, NList, NListItem, NThing, NText } from "naive-ui";
+import { NButton, NIcon, NList, NListItem, NThing, NText } from "naive-ui";
 import { FolderOpenOutline, FolderOutline } from "@vicons/ionicons5";
 import { useWorkspaceStore } from "@renderer/stores/workspace";
 import { t } from "@renderer/i18n";
@@ -58,7 +58,6 @@ function workspaceName(path: string): string {
         </NListItem>
       </NList>
     </div>
-    <NEmpty v-else :description="t.noRecentProjects" style="margin-top: 24px" />
   </section>
 </template>
 

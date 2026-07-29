@@ -6,6 +6,7 @@
 import { onMounted, onUnmounted, watch } from "vue";
 import { useMessage } from "naive-ui";
 import { useAsrStore } from "@renderer/stores/asr";
+import { useTtsStore } from "@renderer/stores/tts";
 import { useNotifyStore } from "@renderer/stores/notify";
 import {
   ASR_VOICE_WAKE_EVENT,
@@ -59,14 +60,21 @@ async function syncResidentWakeListen(): Promise<void> {
   }
 }
 
+let offTtsSpeaking: (() => void) | undefined;
+
 onMounted(() => {
   void asr.refresh().then(() => {
     void syncResidentWakeListen();
   });
+  const tts = useTtsStore();
+  void tts.refresh();
+  offTtsSpeaking = tts.bindSpeaking();
 });
 
 onUnmounted(() => {
   void stopWakeListen();
+  offTtsSpeaking?.();
+  offTtsSpeaking = undefined;
 });
 
 watch(
