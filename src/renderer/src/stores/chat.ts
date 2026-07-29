@@ -21,6 +21,7 @@ import { useSessionsStore } from "./sessions";
 import { useCheckpointStore } from "./checkpoint";
 import { useComposerStore } from "./composer";
 import { useNotifyStore } from "./notify";
+import { useTtsStore } from "./tts";
 import { formatLlmError } from "../utils/llm-error";
 import { locale, t } from "../i18n";
 import {
@@ -224,6 +225,16 @@ export const useChatStore = defineStore("chat", () => {
         title: t.appName,
         body: t.notifyTurnCompleteBody,
       });
+      // Only speak for the focused session — avoid background tabs narrating.
+      if (sessionId === useSessionsStore().activeId) {
+        const state = stateFor(sessionId);
+        const lastAssistant = [...state.messages]
+          .reverse()
+          .find((m) => m.role === "assistant" && m.text?.trim());
+        if (lastAssistant && "text" in lastAssistant && lastAssistant.text) {
+          useTtsStore().speakReply(lastAssistant.text, lastAssistant.id);
+        }
+      }
     }
   }
 

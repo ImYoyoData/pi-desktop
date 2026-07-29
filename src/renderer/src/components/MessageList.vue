@@ -12,13 +12,14 @@ import {
   useDialog,
   useMessage,
 } from "naive-ui";
-import { ArrowDownOutline, ArrowUndoOutline, ChevronDownOutline, ChevronUpOutline, CopyOutline, CreateOutline, RefreshOutline } from "@vicons/ionicons5";
+import { ArrowDownOutline, ArrowUndoOutline, ChevronDownOutline, ChevronUpOutline, CopyOutline, CreateOutline, PauseOutline, RefreshOutline, VolumeMediumOutline } from "@vicons/ionicons5";
 import type { ChatMessage, ChatRetryHint } from "@renderer/stores/chat";
 import { useChatStore } from "@renderer/stores/chat";
 import { useCheckpointStore } from "@renderer/stores/checkpoint";
 import { useComposerStore } from "@renderer/stores/composer";
 import { useSendQueueStore } from "@renderer/stores/send-queue";
 import { useSessionsStore } from "@renderer/stores/sessions";
+import { useTtsStore } from "@renderer/stores/tts";
 import MarkdownView from "@renderer/components/MarkdownView.vue";
 import ThinkingBlock from "@renderer/components/ThinkingBlock.vue";
 import ToolCallCard from "@renderer/components/ToolCallCard.vue";
@@ -58,6 +59,7 @@ const sendQueue = useSendQueueStore();
 const sessions = useSessionsStore();
 const previewStore = usePreviewStore();
 const rightTabs = useRightTabsStore();
+const tts = useTtsStore();
 const messageApi = useMessage();
 const dialog = useDialog();
 const scroller = ref<HTMLElement | null>(null);
@@ -717,6 +719,46 @@ function toolStatus(msg: Extract<ChatMessage, { role: "tool" }>): {
   return { type: "success", label: t.toolDone };
 }
 
+function isSpeakingMessage(id: string): boolean {
+  return tts.speakingMessageId === id && tts.status.speaking;
+}
+
+async function onSpeakMessage(msgId: string, text: string): Promise<void> {
+  if (!text?.trim()) return;
+
+  if (isSpeakingMessage(msgId)) {
+    await tts.stopSpeak();
+    return;
+  }
+
+  await tts.refresh();
+  if (!tts.status.supported) {
+    messageApi.warning(t.ttsUnsupported);
+    return;
+  }
+  if (!tts.status.installed) {
+    const mb = tts.status.voiceDiskMb + tts.status.runtimeDiskMb;
+    dialog.warning({
+      title: t.ttsInstall,
+      content: `${t.ttsNeedInstall}\n\n${t.ttsInstallConfirm(mb)}`,
+      positiveText: t.ttsInstall,
+      negativeText: t.cancel,
+      onPositiveClick: async () => {
+        try {
+          await tts.install();
+          messageApi.success(t.ttsInstallOk);
+          await tts.speakManual(msgId, text);
+        } catch (err) {
+          messageApi.error(err instanceof Error ? err.message : t.ttsNotInstalled);
+        }
+      },
+    });
+    return;
+  }
+
+  await tts.speakManual(msgId, text);
+}
+
 async function copyText(text: string): Promise<void> {
   await navigator.clipboard.writeText(text);
   messageApi.success(t.copied);
@@ -923,6 +965,23 @@ function onRevertUser(msg: Extract<ChatMessage, { role: "user" }>): void {
                 </template>
                 {{ t.copy }}
               </NTooltip>
+              <NTooltip v-if="msg.text">
+                <template #trigger>
+                  <NButton
+                    quaternary
+                    circle
+                    size="tiny"
+                    @click="onSpeakMessage(msg.id, msg.text)"
+                  >
+                    <template #icon>
+                      <NIcon
+                        :component="isSpeakingMessage(msg.id) ? PauseOutline : VolumeMediumOutline"
+                      />
+                    </template>
+                  </NButton>
+                </template>
+                {{ isSpeakingMessage(msg.id) ? t.ttsStopSpeak : t.ttsSpeak }}
+              </NTooltip>
               <NTooltip>
                 <template #trigger>
                   <NButton quaternary circle size="tiny" @click="onEditUser(msg)">
@@ -961,6 +1020,23 @@ function onRevertUser(msg: Extract<ChatMessage, { role: "user" }>): void {
                   </NButton>
                 </template>
                 {{ t.copy }}
+              </NTooltip>
+              <NTooltip v-if="msg.text">
+                <template #trigger>
+                  <NButton
+                    quaternary
+                    circle
+                    size="tiny"
+                    @click="onSpeakMessage(msg.id, msg.text)"
+                  >
+                    <template #icon>
+                      <NIcon
+                        :component="isSpeakingMessage(msg.id) ? PauseOutline : VolumeMediumOutline"
+                      />
+                    </template>
+                  </NButton>
+                </template>
+                {{ isSpeakingMessage(msg.id) ? t.ttsStopSpeak : t.ttsSpeak }}
               </NTooltip>
               <NTooltip>
                 <template #trigger>

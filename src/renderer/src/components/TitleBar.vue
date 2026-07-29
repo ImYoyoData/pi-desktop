@@ -82,7 +82,7 @@ const settingsOptions: DropdownOption[] = [
     icon: () => h(NIcon, null, { default: () => h(NotificationsOutline) }),
   },
   {
-    label: t.asrTitle,
+    label: t.voiceTitle,
     key: "asr",
     icon: () => h(NIcon, null, { default: () => h(MicOutline) }),
   },

@@ -27,7 +27,7 @@ import {
 import ComposerRichEditor from "@renderer/components/ComposerRichEditor.vue";
 import ComposerSlashMenu from "@renderer/components/ComposerSlashMenu.vue";
 import AsrInstallProgress from "@renderer/components/AsrInstallProgress.vue";
-import VoiceRecordBar from "@renderer/components/VoiceRecordBar.vue";
+import VoiceRecordBar, { type VoiceMeter } from "@renderer/components/VoiceRecordBar.vue";
 import SendQueueBar from "@renderer/components/SendQueueBar.vue";
 import { useChatStore } from "@renderer/stores/chat";
 import type { ContextUsageSegmentId } from "../../../shared/protocol";
@@ -74,7 +74,8 @@ let voiceConfirming = false;
 let voiceGen = 0;
 let offAsrProgress: (() => void) | undefined;
 const voiceActive = ref(false);
-const voiceLevel = ref(0);
+/** Non-reactive meter — mutated from ScriptProcessor; VoiceRecordBar samples via rAF. */
+const voiceMeter: VoiceMeter = { level: 0 };
 /** True from confirm until transcription finishes ? send button loading. */
 const voicePending = ref(false);
 
@@ -1487,7 +1488,7 @@ function cancelVoice(opts?: { resumeWake?: boolean }): void {
   voiceSession?.abort();
   voiceSession = null;
   voiceActive.value = false;
-  voiceLevel.value = 0;
+  voiceMeter.level = 0;
   voicePending.value = false;
   voiceConfirming = false;
   asr.recording = false;
@@ -1503,7 +1504,7 @@ async function confirmVoice(): Promise<void> {
   const session = voiceSession;
   voiceSession = null;
   voiceActive.value = false;
-  voiceLevel.value = 0;
+  voiceMeter.level = 0;
   asr.recording = false;
   voicePending.value = true;
 
@@ -1566,7 +1567,7 @@ async function onMicClick(): Promise<void> {
     voiceSession = await startVoiceRecord({
       onLevel: (level) => {
         if (!voiceActive.value) return;
-        voiceLevel.value = level;
+        voiceMeter.level = level;
       },
       onMaxDuration: () => {
         void confirmVoice();
@@ -1772,7 +1773,7 @@ watch(
         />
         <ComposerRichEditor
           ref="richEditor"
-          :disabled="voiceActive || voicePending"
+          :disabled="voicePending"
           :expanded="editorExpanded"
           @keydown="onKeydown"
           @click="onDraftCaretClick"
@@ -1780,46 +1781,40 @@ watch(
         />
       </div>
 
-      <div v-if="voiceActive" class="voice-row">
-        <VoiceRecordBar
-          :level="voiceLevel"
-          @cancel="cancelVoice"
-          @confirm="confirmVoice"
-        />
-      </div>
-
-      <div class="toolbar">
-        <div class="toolbar-left">
-          <input
-            ref="fileInput"
-            type="file"
-            accept="image/*"
-            multiple
-            hidden
-            @change="(e) => {
-              const input = e.target as HTMLInputElement;
-              if (input.files) void addFiles(input.files);
-              input.value = '';
-            }"
-          />
-          <NDropdown
-            trigger="click"
-            :options="attachMenu"
-            :disabled="voiceActive || voicePending"
-            @select="onAttachSelect"
-          >
-            <NButton
-              quaternary
-              circle
-              size="tiny"
-              :title="t.composerAttach"
+      <!-- Toolbar stays mounted; voice UI overlays this row only. -->
+      <div class="composer-footer">
+        <div class="toolbar" :aria-hidden="voiceActive">
+          <div class="toolbar-left">
+            <input
+              ref="fileInput"
+              type="file"
+              accept="image/*"
+              multiple
+              hidden
+              @change="(e) => {
+                const input = e.target as HTMLInputElement;
+                if (input.files) void addFiles(input.files);
+                input.value = '';
+              }"
+            />
+            <NDropdown
+              trigger="click"
+              :options="attachMenu"
               :disabled="voiceActive || voicePending"
+              @select="onAttachSelect"
             >
-              <template #icon>
-                <NIcon :component="AddOutline" />
-              </template>
-            </NButton>
-          </NDropdown>
+              <NButton
+                quaternary
+                circle
+                size="tiny"
+                :title="t.composerAttach"
+                :disabled="voiceActive || voicePending"
+              >
+                <template #icon>
+                  <NIcon :component="AddOutline" />
+                </template>
+              </NButton>
+            </NDropdown>
 
           <NPopover
             v-model:show="modeBubbleShow"
@@ -1927,6 +1922,30 @@ watch(
               <NIcon :component="primaryIsStop ? StopOutline : SendOutline" />
             </template>
           </NButton>
+        </div>
+      </div>
+
+        <div v-if="voiceActive" class="voice-row" role="presentation">
+          <NButton
+            quaternary
+            circle
+            size="tiny"
+            class="voice-attach"
+            :title="t.composerAttach"
+            disabled
+            tabindex="-1"
+          >
+            <template #icon>
+              <NIcon :component="AddOutline" />
+            </template>
+          </NButton>
+          <VoiceRecordBar
+            :meter="voiceMeter"
+            :show-stop="running"
+            @cancel="cancelVoice"
+            @confirm="confirmVoice"
+            @stop="onAbort"
+          />
         </div>
       </div>
     </div>
@@ -2178,12 +2197,58 @@ watch(
   background: var(--bg-input, transparent);
 }
 
+/* Bottom toolbar slot — voice UI overlays this row without resizing the editor. */
+.composer-footer {
+  position: relative;
+  min-width: 0;
+}
+
+.composer-footer .toolbar {
+  /* Keep layout height while covered so the card does not jump. */
+  transition: none;
+}
+
+.composer-card.is-voice-recording .composer-footer .toolbar {
+  visibility: hidden;
+  pointer-events: none;
+}
+
 .voice-row {
-  padding: 4px 4px 2px;
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 2px 4px;
+  box-sizing: border-box;
+  background: var(--bg-elevated, #fff);
+  border-top: 1px solid color-mix(in srgb, var(--border, #e5e7eb) 55%, transparent);
+  border-radius: 0 0 calc(var(--radius-lg, 14px) - 6px) calc(var(--radius-lg, 14px) - 6px);
+}
+
+.voice-row .voice-attach {
+  flex-shrink: 0;
+  width: 28px;
+  height: 28px;
+  color: #9aa0a6;
+  background: rgba(0, 0, 0, 0.05);
+}
+
+.voice-row .voice-attach:disabled {
+  opacity: 1;
+  color: #9aa0a6;
 }
 
 .voice-row :deep(.voice-bar) {
-  width: 100%;
+  flex: 1;
+  min-width: 0;
+}
+
+:root.dark .voice-row .voice-attach,
+.dark .voice-row .voice-attach {
+  background: rgba(255, 255, 255, 0.08);
+  color: #9aa0a6;
 }
 
 .image-attachments {

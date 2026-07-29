@@ -9,10 +9,14 @@ import {
   NSwitch,
   NInput,
   NSelect,
+  NTabs,
+  NTabPane,
+  NProgress,
   useMessage,
 } from "naive-ui";
 import type { SelectOption } from "naive-ui";
 import { formatAsrInstallError, useAsrStore } from "@renderer/stores/asr";
+import { useTtsStore } from "@renderer/stores/tts";
 import AsrInstallProgress from "@renderer/components/AsrInstallProgress.vue";
 import { formatAcceleratorLabel, keyboardEventToAccelerator } from "../../../shared/hotkey";
 import { t } from "@renderer/i18n";
@@ -21,10 +25,13 @@ const props = defineProps<{ open: boolean }>();
 const emit = defineEmits<{ close: [] }>();
 
 const asr = useAsrStore();
+const tts = useTtsStore();
 const message = useMessage();
+const voiceTab = ref<"asr" | "tts">("asr");
 const modelUrl = ref("");
 const capturingHotkey = ref(false);
 let offProgress: (() => void) | undefined;
+let offTtsProgress: (() => void) | undefined;
 
 const asrEnabled = computed({
   get: () => asr.status.enabled,
@@ -233,22 +240,54 @@ async function onUninstall(): Promise<void> {
   await asr.uninstall();
 }
 
+const ttsEnabled = computed({
+  get: () => tts.status.enabled,
+  set: (v: boolean) => {
+    void tts.setEnabled(v);
+  },
+});
+
+const ttsProgressPct = computed(() => {
+  const p = tts.progress;
+  if (!p || p.totalBytes == null || p.totalBytes <= 0) return null;
+  return Math.min(100, Math.round((p.receivedBytes / p.totalBytes) * 100));
+});
+
+async function onTtsInstall(): Promise<void> {
+  try {
+    await tts.install();
+    message.success(t.ttsInstallOk);
+  } catch (err) {
+    message.error(err instanceof Error ? err.message : String(err), { duration: 6000 });
+  }
+}
+
+async function onTtsUninstall(): Promise<void> {
+  await tts.uninstall();
+  message.success(t.ttsUninstalled);
+}
+
 watch(
   () => props.open,
   (open) => {
-    if (open) void asr.refresh();
-    else stopHotkeyCapture();
+    if (open) {
+      void asr.refresh();
+      void tts.refresh();
+    } else stopHotkeyCapture();
   },
 );
 
 onMounted(() => {
   offProgress = asr.bindProgress();
+  offTtsProgress = tts.bindProgress();
   void asr.refresh();
+  void tts.refresh();
 });
 
 onUnmounted(() => {
   stopHotkeyCapture();
   offProgress?.();
+  offTtsProgress?.();
 });
 </script>
 
@@ -256,13 +295,16 @@ onUnmounted(() => {
   <NModal
     :show="props.open"
     preset="card"
-    class="pi-settings-modal"
+    class="pi-settings-modal voice-settings-modal"
     style="width: min(560px, 92vw)"
-    :title="t.asrTitle"
+    :title="t.voiceTitle"
     :bordered="false"
     size="huge"
     @update:show="(v) => !v && emit('close')"
   >
+    <NTabs v-model:value="voiceTab" class="voice-tabs" type="line" size="small" animated>
+      <NTabPane name="asr" :tab="t.asrTitle">
+    <div class="voice-tab-scroll">
     <div class="section">
       <NText depth="3" style="font-size: 12px; display: block; margin-bottom: 10px">
         {{ t.asrHint }}
@@ -455,6 +497,82 @@ onUnmounted(() => {
       v-if="asr.installing || asr.progress?.phase === 'error'"
       style="margin-top: 14px"
     />
+    </div>
+      </NTabPane>
+
+      <NTabPane name="tts" :tab="t.ttsTitle">
+        <div class="voice-tab-scroll">
+        <div class="section">
+          <NText depth="3" style="font-size: 12px; display: block; margin-bottom: 10px">
+            {{ t.ttsHint }}
+          </NText>
+          <div class="asr-row">
+            <div style="flex: 1; min-width: 0">
+              <div>{{ t.ttsEnable }}</div>
+              <NText depth="3" style="font-size: 12px; display: block; margin-top: 4px">
+                {{ t.ttsEnableHint }}
+              </NText>
+            </div>
+            <NSwitch
+              v-model:value="ttsEnabled"
+              size="small"
+              :disabled="!tts.status.supported || !tts.status.installed"
+            />
+          </div>
+          <NText depth="3" style="font-size: 12px; display: block; margin-top: 12px">
+            {{ tts.status.voiceLabel }} ·
+            {{ tts.status.installed ? t.ttsInstalled : t.ttsNotInstalled }} ·
+            ≈{{ tts.status.voiceDiskMb + tts.status.runtimeDiskMb }}MB
+          </NText>
+          <NText
+            v-if="tts.status.runtimeArchiveHint"
+            depth="3"
+            style="font-size: 12px; display: block; margin-top: 6px; word-break: break-all"
+          >
+            {{ t.ttsRuntimeHint(tts.status.runtimeArchiveHint) }}
+          </NText>
+          <NText
+            v-if="!tts.status.supported"
+            depth="3"
+            type="warning"
+            style="font-size: 12px; display: block; margin-top: 8px"
+          >
+            {{ t.ttsUnsupported }}
+          </NText>
+          <NSpace :size="8" style="margin-top: 12px">
+            <NButton
+              size="small"
+              type="primary"
+              :disabled="!tts.status.supported || tts.status.installing || tts.status.installed"
+              :loading="tts.status.installing"
+              @click="onTtsInstall"
+            >
+              {{ t.ttsInstall }}
+            </NButton>
+            <NButton
+              size="small"
+              :disabled="!tts.status.installed || tts.status.installing"
+              @click="onTtsUninstall"
+            >
+              {{ t.ttsUninstall }}
+            </NButton>
+          </NSpace>
+          <div v-if="tts.status.installing || tts.progress" style="margin-top: 12px">
+            <NText depth="3" style="font-size: 12px; display: block; margin-bottom: 6px">
+              {{ tts.progress?.message || t.ttsInstalling }}
+            </NText>
+            <NProgress
+              v-if="ttsProgressPct != null"
+              type="line"
+              :percentage="ttsProgressPct"
+              :show-indicator="true"
+              processing
+            />
+          </div>
+        </div>
+        </div>
+      </NTabPane>
+    </NTabs>
 
     <template #footer>
       <div class="footer">
@@ -465,6 +583,48 @@ onUnmounted(() => {
 </template>
 
 <style scoped>
+.voice-settings-modal :deep(.n-card) {
+  max-height: min(80vh, 720px);
+  display: flex;
+  flex-direction: column;
+}
+
+.voice-settings-modal :deep(.n-card__content) {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.voice-tabs {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.voice-tabs :deep(.n-tabs-nav) {
+  flex-shrink: 0;
+}
+
+.voice-tabs :deep(.n-tabs-pane-wrapper) {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.voice-tabs :deep(.n-tab-pane) {
+  height: 100%;
+}
+
+.voice-tab-scroll {
+  max-height: min(58vh, 520px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-right: 2px;
+  box-sizing: border-box;
+}
+
 .section {
   display: flex;
   flex-direction: column;
