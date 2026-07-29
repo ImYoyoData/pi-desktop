@@ -228,6 +228,7 @@ const api = {
       ipcRenderer.invoke(IpcChannels.git.branches) as Promise<{
         current: string | null;
         local: string[];
+        remote: string[];
       }>,
     checkout: (branch: string) =>
       ipcRenderer.invoke(IpcChannels.git.checkout, branch) as Promise<
@@ -251,6 +252,14 @@ const api = {
       >,
     push: () =>
       ipcRenderer.invoke(IpcChannels.git.push) as Promise<
+        { ok: true; message?: string } | { ok: false; message: string; code: string }
+      >,
+    fetch: (remote?: string) =>
+      ipcRenderer.invoke(IpcChannels.git.fetch, remote) as Promise<
+        { ok: true; message?: string } | { ok: false; message: string; code: string }
+      >,
+    restore: (paths: string[]) =>
+      ipcRenderer.invoke(IpcChannels.git.restore, paths) as Promise<
         { ok: true; message?: string } | { ok: false; message: string; code: string }
       >,
     init: () =>

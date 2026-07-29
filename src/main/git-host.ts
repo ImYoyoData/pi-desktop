@@ -54,6 +54,8 @@ export type GitFileDiffResult = {
 export type GitBranchesResult = {
   current: string | null;
   local: string[];
+  /** Remote-tracking refs like `origin/main` (excludes `origin/HEAD`). */
+  remote: string[];
 };
 
 export type { GitOpResult, GitRemote, GitLogEntry, GitLogResult, GitErrorCode };
@@ -427,7 +429,7 @@ export async function getGitFileDiff(
 
 export async function listBranches(cwd: string): Promise<GitBranchesResult> {
   const repositoryRoot = await findRepositoryRoot(cwd);
-  if (!repositoryRoot) return { current: null, local: [] };
+  if (!repositoryRoot) return { current: null, local: [], remote: [] };
 
   let current: string | null = null;
   try {
@@ -436,16 +438,116 @@ export async function listBranches(cwd: string): Promise<GitBranchesResult> {
     current = null;
   }
 
+  let local: string[] = [];
   try {
     const out = await git(repositoryRoot, ["branch", "--format=%(refname:short)"]);
-    const local = out
+    local = out
       .split(/\r?\n/)
       .map((l) => l.trim())
       .filter(Boolean);
-    return { current, local };
   } catch {
-    return { current, local: [] };
+    local = [];
   }
+
+  let remote: string[] = [];
+  try {
+    const out = await git(repositoryRoot, ["branch", "-r", "--format=%(refname:short)"]);
+    remote = out
+      .split(/\r?\n/)
+      .map((l) => l.trim())
+      .filter((name) => Boolean(name) && !name.endsWith("/HEAD"));
+  } catch {
+    remote = [];
+  }
+
+  return { current, local, remote };
+}
+
+/**
+ * Discard working-tree / index changes for paths.
+ * Tracked → `git restore --staged --worktree`; untracked → `git clean -f --`.
+ */
+export async function restorePaths(
+  cwd: string,
+  relativePaths: string[],
+): Promise<GitOpResult> {
+  const repositoryRoot = await findRepositoryRoot(cwd);
+  if (!repositoryRoot) return fail("not_repo", "Not a git repository");
+  if (!relativePaths.length) return fail("invalid_args", "No files selected");
+
+  const tracked: string[] = [];
+  const untracked: string[] = [];
+
+  for (const rel of relativePaths) {
+    const abs = path.resolve(cwd, rel);
+    if (!isWithin(cwd, abs) || !isWithin(repositoryRoot, abs)) {
+      return fail("invalid_args", `Path outside workspace: ${rel}`);
+    }
+    const gitPath = toGitPath(path.relative(repositoryRoot, abs));
+    let isUntracked = false;
+    try {
+      const check = await git(repositoryRoot, ["ls-files", "--error-unmatch", "--", gitPath]);
+      void check;
+    } catch {
+      isUntracked = true;
+    }
+    if (isUntracked) untracked.push(gitPath);
+    else tracked.push(gitPath);
+  }
+
+  if (tracked.length) {
+    // Prefer restore (Git 2.23+); checkout HEAD -- restores index + worktree.
+    const restore = await gitAllowFail(repositoryRoot, [
+      "restore",
+      "--source=HEAD",
+      "--staged",
+      "--worktree",
+      "--",
+      ...tracked,
+    ]);
+    if (!restore.ok) {
+      const checkout = await gitAllowFail(repositoryRoot, [
+        "checkout",
+        "HEAD",
+        "--",
+        ...tracked,
+      ]);
+      if (!checkout.ok) return fail(checkout.code, checkout.message || restore.message);
+    }
+  }
+
+  if (untracked.length) {
+    const clean = await gitAllowFail(repositoryRoot, ["clean", "-f", "--", ...untracked]);
+    if (!clean.ok) return fail(clean.code, clean.message);
+  }
+
+  return { ok: true };
+}
+
+export async function fetchRepo(
+  cwd: string,
+  remote?: string,
+): Promise<GitOpResult> {
+  const repositoryRoot = await findRepositoryRoot(cwd);
+  if (!repositoryRoot) return fail("not_repo", "Not a git repository");
+
+  let remotes: GitRemote[] = [];
+  try {
+    remotes = await readRemotes(repositoryRoot);
+  } catch {
+    remotes = [];
+  }
+  if (!remotes.length) {
+    return fail("no_remote", "No remotes configured. Add origin (or another remote) first.");
+  }
+
+  const name = (remote || "").trim();
+  const args = name
+    ? ["fetch", name, "--prune"]
+    : ["fetch", "--all", "--prune"];
+  const result = await gitAllowFail(repositoryRoot, args);
+  if (!result.ok) return fail(result.code, result.message);
+  return { ok: true, message: result.stdout.trim() || undefined };
 }
 
 export async function checkoutBranch(cwd: string, branch: string): Promise<GitOpResult> {
@@ -453,6 +555,34 @@ export async function checkoutBranch(cwd: string, branch: string): Promise<GitOp
   if (!repositoryRoot) return fail("not_repo", "Not a git repository");
   const name = branch.trim();
   if (!name) return fail("invalid_args", "Branch name required");
+
+  // Remote-tracking ref → create/switch local branch with tracking.
+  if (name.includes("/")) {
+    const slash = name.indexOf("/");
+    const remoteName = name.slice(0, slash);
+    const short = name.slice(slash + 1);
+    if (remoteName && short && !short.includes(" ")) {
+      const locals = await listBranches(cwd);
+      if (locals.local.includes(short)) {
+        const localCheckout = await gitAllowFail(repositoryRoot, ["checkout", short]);
+        if (!localCheckout.ok) return fail(localCheckout.code, localCheckout.message);
+        return { ok: true };
+      }
+      const tracked = await gitAllowFail(repositoryRoot, [
+        "checkout",
+        "-b",
+        short,
+        "--track",
+        name,
+      ]);
+      if (tracked.ok) return { ok: true };
+      // Fallback: detached from remote tip then rename is riskier — try switch.
+      const switched = await gitAllowFail(repositoryRoot, ["switch", "-c", short, "--track", name]);
+      if (switched.ok) return { ok: true };
+      return fail(tracked.code, tracked.message);
+    }
+  }
+
   const result = await gitAllowFail(repositoryRoot, ["checkout", name]);
   if (!result.ok) return fail(result.code, result.message);
   return { ok: true };
