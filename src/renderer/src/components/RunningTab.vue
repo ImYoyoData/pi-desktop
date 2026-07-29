@@ -200,14 +200,17 @@ watch(
 watch(
   () => props.visible,
   (v) => {
-    if (v) scheduleFit();
+    if (!v || !term) return;
+    term.options.theme = xtermTheme(appearance.resolvedTheme === "dark");
+    scheduleFit();
   },
 );
 
 watch(
   () => appearance.resolvedTheme,
   () => {
-    if (term) term.options.theme = xtermTheme(appearance.resolvedTheme === "dark");
+    if (!term || !props.visible) return;
+    term.options.theme = xtermTheme(appearance.resolvedTheme === "dark");
   },
 );
 

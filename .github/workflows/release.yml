@@ -189,23 +189,29 @@ jobs:
           prerelease: true
           generate_release_notes: true
           body: |
-            ## 主要更新
-            - **安全与信任**：工作区信任对话框；设置 → 安全；按工具类别询问/允许；Bash 命令前缀白名单；已信任工作区可单独配置工具权限（全局权限在下方并已说明）
-            - **权限确认条**：bash / 写文件操作可「允许一次」「本会话允许此类」「加入白名单」「后台运行」「拒绝」
-            - **终端链接**：单击 URL 打开内置浏览器；Ctrl/Cmd+单击可选择系统浏览器或内置浏览
-            - **清除上下文**：侧栏右键清除上下文会同时清空对话记录（不再只做压缩）
-            - **斜杠命令**：输入 `/` 可快速 `/new`、`/compact`、`/model` 与 skills
-            - **Bash 后台运行**：权限条与工具卡片支持转到后台；Running 页用只读终端展示输出
-            - **其它**：冷启动优化、内置 Git（dugite）修复、扩展 UI 桥接、界面更紧凑与中英双语补齐
+            ## 主要更新（0.0.18 测试版）
+            - **聊天工具折叠**：连续多次读取/命令等工具调用会收成「调用工具 N 次、读取文件 M 次」，可展开查看详情（类似 Cursor）
+            - **文件树**：修复偶发无法展开/收起；手风琴式单分支展开；可见目录静默监听刷新
+            - **预览编辑**：磁盘变更且未修改时静默重载；支持 Ctrl/Cmd+S 保存
+            - **Changes**：新建分支/合并/远程等改用真实对话框与 Git API（修复 Electron 拦截 prompt 导致按钮失灵）
+            - **标签与语法**：同名文件标签显示路径区分；`.env` / JSON / JSON5 / JSONC 高亮与校验
+            - **主题与流畅度**：主题切换更顺滑；减少不必要的重绘（Markdown/Mermaid、Monaco、终端）
+            - **扩展 / Skills**：确保 agent 目录与会话加载扩展与 Skills；启动日志汇总加载结果（扩展内 MCP 随扩展绑定）
+            - **项目指引**：存在 `AGENTS.md` 时，首次进入工作区必须遵循（已注入上下文则视为已读）
+            - **权限条**：去掉 bash 权限条中的「后台运行」入口
+            - **macOS**：补充权限说明与 entitlement；加固 Intel 包打包
 
-            ## What's New
-            - **Security & trust**: workspace trust dialog; Settings → Security; ask/allow per tool category; bash command **prefix** allowlist; per-trusted-workspace tool permissions (global defaults explained below)
-            - **Permission strip**: allow once / allow category for session / add to allowlist / run in background / deny
-            - **Terminal links**: click opens built-in browser; Ctrl/Cmd+click chooses system or in-app browser
-            - **Clear context**: sidebar action clears chat history as well (not compact-only)
-            - **Slash commands**: `/` menu for `/new`, `/compact`, `/model`, and skills
-            - **Background bash**: permission strip + tool card; Running tab uses a read-only xterm view
-            - **Also**: faster cold start, embedded Git (dugite) fix, extension UI bridge, denser security UI, zh/en copy
+            ## What's New (0.0.18 prerelease)
+            - **Collapsed tool groups**: consecutive reads/commands fold into “Called N tools, Read M files” (expand for details)
+            - **File tree**: fix flaky expand/collapse; accordion single-branch; silent refresh for visible dirs
+            - **Preview**: silent reload when clean on disk change; Ctrl/Cmd+S save
+            - **Changes**: real modals + Git APIs (fixes dead buttons where `prompt`/`confirm` were blocked)
+            - **Tabs & languages**: disambiguate same-basename tabs; `.env` / JSON / JSON5 / JSONC highlighting
+            - **Theme & fluidity**: smoother theme switches; less redundant remount/repaint
+            - **Extensions / Skills**: reliable load paths + startup resource summary (MCP via extensions)
+            - **AGENTS.md**: must follow on first visit when present
+            - **Permission strip**: remove bash “run in background” action
+            - **macOS**: permissions/entitlements + Intel packaging hardening
 
             ## 下载（每个系统/架构单独安装包）
             - **Windows x64**: `Pi Desktop-*-win-x64-setup.exe`
