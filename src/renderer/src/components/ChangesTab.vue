@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, h, onMounted, onUnmounted, ref, watch } from "vue";
-import type { DropdownOption } from "naive-ui";
+import type { DropdownOption, SelectOption } from "naive-ui";
 import {
   NButton,
   NCheckbox,
@@ -9,8 +9,10 @@ import {
   NIcon,
   NInput,
   NModal,
+  NSelect,
   NSpin,
   NText,
+  useDialog,
   useMessage,
 } from "naive-ui";
 import {
@@ -33,6 +35,14 @@ import ChangesDiffEditor from "@renderer/components/ChangesDiffEditor.vue";
 import ChangesConflictResolve from "@renderer/components/ChangesConflictResolve.vue";
 import type { GitErrorCode } from "../../../shared/git-types";
 
+const props = withDefaults(
+  defineProps<{
+    /** False when the Changes panel is hidden — defer expensive git refreshes. */
+    visible?: boolean;
+  }>(),
+  { visible: true },
+);
+
 type GitFile = { relativePath: string; status: string; code: string };
 type GitRemote = { name: string; fetchUrl: string; pushUrl: string };
 type GitLogEntry = {
@@ -48,6 +58,7 @@ type GitOp =
 
 const workspace = useWorkspaceStore();
 const message = useMessage();
+const dialog = useDialog();
 
 const loading = ref(false);
 const busy = ref(false);
@@ -71,6 +82,13 @@ const remoteBranches = ref<string[]>([]);
 const remotes = ref<GitRemote[]>([]);
 const showRemotes = ref(false);
 const showLog = ref(false);
+const showNewBranch = ref(false);
+const newBranchName = ref("");
+const showMerge = ref(false);
+const mergeTarget = ref<string | null>(null);
+const showEditRemote = ref(false);
+const editRemoteName = ref("");
+const editRemoteUrl = ref("");
 const remoteName = ref("origin");
 const remoteUrl = ref("");
 const logEntries = ref<GitLogEntry[]>([]);
@@ -123,6 +141,18 @@ const diffStats = computed(() => {
 const showDiffEditor = computed(
   () => Boolean(selectedPath.value && diffSupported.value && patch.value != null),
 );
+
+const mergeBranchOptions = computed<SelectOption[]>(() => {
+  const opts: SelectOption[] = [];
+  for (const name of localBranches.value) {
+    if (name === branch.value) continue;
+    opts.push({ label: name, value: name });
+  }
+  for (const name of remoteBranches.value) {
+    opts.push({ label: name, value: name });
+  }
+  return opts;
+});
 
 const branchMenu = computed<DropdownOption[]>(() => {
   const items: DropdownOption[] = [];
@@ -335,14 +365,28 @@ async function onFetch(): Promise<void> {
 async function onDiscardSelected(): Promise<void> {
   const paths = [...discardableCheckedPaths.value];
   if (!paths.length) return;
-  if (!window.confirm(t.changesDiscardConfirmSelected)) return;
-  await runOp(t.changesDiscarded, () => window.api.git.restore(paths));
+  dialog.warning({
+    title: t.changesDiscardSelected,
+    content: t.changesDiscardConfirmSelected,
+    positiveText: t.confirm,
+    negativeText: t.cancel,
+    onPositiveClick: () => {
+      void runOp(t.changesDiscarded, () => window.api.git.restore(paths));
+    },
+  });
 }
 
 async function onDiscardFile(relativePath: string): Promise<void> {
   if (!relativePath) return;
-  if (!window.confirm(t.changesDiscardConfirmFile)) return;
-  await runOp(t.changesDiscarded, () => window.api.git.restore([relativePath]));
+  dialog.warning({
+    title: t.changesDiscardFile,
+    content: t.changesDiscardConfirmFile,
+    positiveText: t.confirm,
+    negativeText: t.cancel,
+    onPositiveClick: () => {
+      void runOp(t.changesDiscarded, () => window.api.git.restore([relativePath]));
+    },
+  });
 }
 
 async function onConflictResolve(content: string): Promise<void> {
@@ -360,8 +404,15 @@ async function onConflictAcceptSide(side: "ours" | "theirs"): Promise<void> {
 }
 
 async function onAbortMerge(): Promise<void> {
-  if (!window.confirm(t.changesConflictAbort + "?")) return;
-  await runOp(t.changesConflictAborted, () => window.api.git.abortMerge());
+  dialog.warning({
+    title: t.changesConflictAbort,
+    content: t.changesConflictAbortConfirm,
+    positiveText: t.confirm,
+    negativeText: t.cancel,
+    onPositiveClick: () => {
+      void runOp(t.changesConflictAborted, () => window.api.git.abortMerge());
+    },
+  });
 }
 
 async function onInitGit(): Promise<void> {
@@ -404,40 +455,80 @@ async function onAddRemote(): Promise<void> {
 }
 
 async function onEditRemote(remote: GitRemote): Promise<void> {
-  const next = window.prompt(t.changesRemoteEdit, remote.pushUrl || remote.fetchUrl);
-  if (next == null) return;
-  const url = next.trim();
-  if (!url) return;
-  await runOp(t.changesRemoteUpdated, () =>
-    window.api.git.setRemoteUrl({ name: remote.name, url }),
+  editRemoteName.value = remote.name;
+  editRemoteUrl.value = remote.pushUrl || remote.fetchUrl;
+  showEditRemote.value = true;
+}
+
+async function submitEditRemote(): Promise<boolean> {
+  const url = editRemoteUrl.value.trim();
+  if (!url) {
+    message.warning(t.changesRemoteUrl);
+    return false;
+  }
+  const ok = await runOp(t.changesRemoteUpdated, () =>
+    window.api.git.setRemoteUrl({ name: editRemoteName.value, url }),
   );
-  await refreshRemotes();
+  if (ok) {
+    showEditRemote.value = false;
+    await refreshRemotes();
+  }
+  return ok;
 }
 
 async function onRemoveRemote(remote: GitRemote): Promise<void> {
-  if (!window.confirm(`${t.changesRemoteRemove}: ${remote.name}?`)) return;
-  await runOp(t.changesRemoteRemoved, () => window.api.git.removeRemote(remote.name));
-  await refreshRemotes();
+  dialog.warning({
+    title: t.changesRemoteRemove,
+    content: `${t.changesRemoteRemove}: ${remote.name}?`,
+    positiveText: t.confirm,
+    negativeText: t.cancel,
+    onPositiveClick: () => {
+      void (async () => {
+        await runOp(t.changesRemoteRemoved, () => window.api.git.removeRemote(remote.name));
+        await refreshRemotes();
+      })();
+    },
+  });
 }
 
 function onBranchSelect(key: string | number): void {
   const k = String(key);
   if (k === "new") {
-    const name = window.prompt(t.changesNewBranchPrompt, "");
-    if (!name?.trim()) return;
-    void runOp(t.changesBranchCreated, () => window.api.git.createBranch(name.trim()));
+    newBranchName.value = "";
+    showNewBranch.value = true;
     return;
   }
   if (k === "merge") {
-    const name = window.prompt(t.changesMergePrompt, "");
-    if (!name?.trim()) return;
-    void runOp(t.changesMerged, () => window.api.git.merge(name.trim()));
+    mergeTarget.value = null;
+    showMerge.value = true;
     return;
   }
   if (k.startsWith("checkout:")) {
     const name = k.slice("checkout:".length);
     void runOp(t.changesCheckoutOk, () => window.api.git.checkout(name));
   }
+}
+
+async function submitNewBranch(): Promise<boolean> {
+  const name = newBranchName.value.trim();
+  if (!name) {
+    message.warning(t.changesNewBranchPrompt);
+    return false;
+  }
+  const ok = await runOp(t.changesBranchCreated, () => window.api.git.createBranch(name));
+  if (ok) showNewBranch.value = false;
+  return ok;
+}
+
+async function submitMerge(): Promise<boolean> {
+  const name = (mergeTarget.value ?? "").trim();
+  if (!name) {
+    message.warning(t.changesMergePrompt);
+    return false;
+  }
+  const ok = await runOp(t.changesMerged, () => window.api.git.merge(name));
+  if (ok) showMerge.value = false;
+  return ok;
 }
 
 function formatLogDate(iso: string): string {
@@ -447,9 +538,21 @@ function formatLogDate(iso: string): string {
   return d.toLocaleString();
 }
 
+let fsRefreshTimer: ReturnType<typeof setTimeout> | null = null;
+let fsRefreshPending = false;
+
 function onFsChanged(): void {
   if (!workspace.root) return;
-  void refresh();
+  // Coalesce bursty watcher events; skip work while the panel is hidden.
+  if (fsRefreshTimer) clearTimeout(fsRefreshTimer);
+  fsRefreshTimer = setTimeout(() => {
+    fsRefreshTimer = null;
+    if (!props.visible) {
+      fsRefreshPending = true;
+      return;
+    }
+    void refresh();
+  }, 400);
 }
 
 onMounted(() => {
@@ -459,11 +562,21 @@ onMounted(() => {
 
 onUnmounted(() => {
   window.removeEventListener("pi-fs-changed", onFsChanged);
+  if (fsRefreshTimer) clearTimeout(fsRefreshTimer);
 });
 
 watch(
   () => workspace.root,
   () => {
+    void refresh();
+  },
+);
+
+watch(
+  () => props.visible,
+  (visible) => {
+    if (!visible || !fsRefreshPending) return;
+    fsRefreshPending = false;
     void refresh();
   },
 );
@@ -772,6 +885,66 @@ watch(
           </li>
         </ul>
       </NSpin>
+    </NModal>
+
+    <NModal
+      v-model:show="showNewBranch"
+      preset="dialog"
+      :title="t.changesNewBranch"
+      :positive-text="t.confirm"
+      :negative-text="t.cancel"
+      :positive-button-props="{ disabled: busy || !newBranchName.trim(), loading: busy }"
+      @positive-click="submitNewBranch"
+    >
+      <NInput
+        v-model:value="newBranchName"
+        size="small"
+        :placeholder="t.changesNewBranchPrompt"
+        :disabled="busy"
+        autofocus
+        @keydown.enter.prevent="() => void submitNewBranch()"
+      />
+    </NModal>
+
+    <NModal
+      v-model:show="showMerge"
+      preset="dialog"
+      :title="t.changesMergeBranch"
+      :positive-text="t.confirm"
+      :negative-text="t.cancel"
+      :positive-button-props="{ disabled: busy || !mergeTarget, loading: busy }"
+      @positive-click="submitMerge"
+    >
+      <NSelect
+        v-model:value="mergeTarget"
+        size="small"
+        filterable
+        :placeholder="t.changesMergePrompt"
+        :options="mergeBranchOptions"
+        :disabled="busy"
+      />
+    </NModal>
+
+    <NModal
+      v-model:show="showEditRemote"
+      preset="dialog"
+      :title="t.changesRemoteEdit"
+      :positive-text="t.confirm"
+      :negative-text="t.cancel"
+      :positive-button-props="{ disabled: busy || !editRemoteUrl.trim(), loading: busy }"
+      @positive-click="submitEditRemote"
+    >
+      <div class="remote-form">
+        <NText depth="3" style="font-size: 12px">{{ editRemoteName }}</NText>
+        <NInput
+          v-model:value="editRemoteUrl"
+          size="small"
+          :placeholder="t.changesRemoteUrl"
+          :disabled="busy"
+          autofocus
+          @keydown.enter.prevent="() => void submitEditRemote()"
+        />
+      </div>
     </NModal>
   </div>
 </template>

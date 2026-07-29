@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, nativeImage, session } from "electron";
+import { app, BrowserWindow, dialog, nativeImage, session, systemPreferences } from "electron";
 import { electronApp, is } from "@electron-toolkit/utils";
 import { join } from "path";
 import { existsSync } from "fs";
@@ -264,8 +264,41 @@ function boot(): void {
       "pointerLock",
       "openExternal",
     ]);
-    session.defaultSession.setPermissionRequestHandler((_wc, permission, callback) => {
-      callback(allowPermissions.has(permission));
+
+    async function ensureDarwinMediaAccess(
+      mediaTypes: Array<"audio" | "video"> | undefined,
+    ): Promise<boolean> {
+      if (process.platform !== "darwin") return true;
+      const types = mediaTypes?.length ? mediaTypes : (["audio", "video"] as const);
+      for (const kind of types) {
+        const tccKind = kind === "video" ? "camera" : "microphone";
+        try {
+          const status = systemPreferences.getMediaAccessStatus(tccKind);
+          if (status === "granted") continue;
+          if (status === "denied" || status === "restricted") return false;
+          const ok = await systemPreferences.askForMediaAccess(tccKind);
+          if (!ok) return false;
+        } catch {
+          return false;
+        }
+      }
+      return true;
+    }
+
+    session.defaultSession.setPermissionRequestHandler((_wc, permission, callback, details) => {
+      void (async () => {
+        if (!allowPermissions.has(permission)) {
+          callback(false);
+          return;
+        }
+        if (permission === "media") {
+          const mediaTypes = (details as { mediaTypes?: Array<"audio" | "video"> }).mediaTypes;
+          const ok = await ensureDarwinMediaAccess(mediaTypes);
+          callback(ok);
+          return;
+        }
+        callback(true);
+      })();
     });
     session.defaultSession.setPermissionCheckHandler((_wc, permission) => {
       return allowPermissions.has(permission);

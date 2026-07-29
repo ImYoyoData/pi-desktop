@@ -28,6 +28,7 @@ import { useRightTabsStore } from "@renderer/stores/right-tabs";
 import { useLayoutStore } from "@renderer/stores/layout";
 import { useComposerStore } from "@renderer/stores/composer";
 import { gitCodeColor } from "@renderer/utils/editor-lang";
+import { ancestorChain, nextExpandedKeys } from "@renderer/utils/files-tree-expand";
 import { t } from "@renderer/i18n";
 
 const workspace = useWorkspaceStore();
@@ -252,6 +253,17 @@ function toTreeOption(entry: { name: string; path: string; kind: "file" | "dir" 
   };
 }
 
+function findTreeNode(nodes: TreeOption[], relativePath: string): TreeOption | null {
+  for (const n of nodes) {
+    if (String(n.key) === relativePath) return n;
+    if (n.children) {
+      const hit = findTreeNode(n.children, relativePath);
+      if (hit) return hit;
+    }
+  }
+  return null;
+}
+
 async function refreshGit(): Promise<void> {
   try {
     const status = await window.api.git.status();
@@ -288,7 +300,7 @@ async function refreshRoot(): Promise<void> {
   try {
     await refreshGit();
     treeData.value = await loadChildren("");
-    // Rehydrate expanded directories so watch updates show under open folders
+    // Only rehydrate currently expanded dirs (accordion = one branch), one level each.
     for (const key of [...expandedKeys.value]) {
       await reloadNodeChildren(key);
     }
@@ -298,39 +310,145 @@ async function refreshRoot(): Promise<void> {
 }
 
 async function reloadNodeChildren(relativeDir: string): Promise<void> {
-  const find = (nodes: TreeOption[]): TreeOption | null => {
-    for (const n of nodes) {
-      if (String(n.key) === relativeDir) return n;
-      if (n.children) {
-        const hit = find(n.children);
-        if (hit) return hit;
-      }
-    }
-    return null;
-  };
-  const node = find(treeData.value);
+  const node = findTreeNode(treeData.value, relativeDir);
   if (!node || node.isLeaf !== false) return;
-  node.children = await loadChildren(relativeDir);
+  const children = await loadChildren(relativeDir);
+  // Preserve already-loaded children of still-expanded immediate children (one layer only).
+  const prevByKey = new Map(
+    (node.children ?? []).map((c) => [String(c.key), c] as const),
+  );
+  for (const child of children) {
+    if (child.isLeaf === false && expandedKeys.value.includes(String(child.key))) {
+      const prev = prevByKey.get(String(child.key));
+      if (prev?.children) child.children = prev.children;
+    }
+  }
+  node.children = children;
   treeData.value = [...treeData.value];
 }
 
-/** Debounced tree refresh from filesystem watcher. */
+/** If an expanded dir lost its children (refresh race), load one layer again. */
+async function ensureExpandedNodesLoaded(): Promise<void> {
+  for (const key of [...expandedKeys.value]) {
+    const node = findTreeNode(treeData.value, key);
+    if (node && node.isLeaf === false && !Array.isArray(node.children)) {
+      await reloadNodeChildren(key);
+    }
+  }
+}
+
+/** True if this directory's children are currently shown in the tree. */
+function isDirVisible(relativeDir: string): boolean {
+  if (!relativeDir) return true;
+  return expandedKeys.value.includes(relativeDir);
+}
+
+/**
+ * Silent watch refresh: only reload parents that are currently visible.
+ * Closed subtrees are left alone (lazy-loaded when the user expands them).
+ * Content-only "change" events do not re-list directories (names unchanged).
+ */
+async function silentRefreshFromEvents(
+  events: { path: string; kind: "add" | "change" | "unlink" }[],
+): Promise<void> {
+  if (!workspace.root) return;
+  void refreshGit();
+  const parents = new Set<string>();
+  for (const e of events) {
+    const rel = e.path.replace(/\\/g, "/");
+    // If an expanded dir itself disappeared, drop it from expanded keys.
+    if (e.kind === "unlink" && expandedKeys.value.includes(rel)) {
+      expandedKeys.value = expandedKeys.value.filter(
+        (k) => k !== rel && !k.startsWith(`${rel}/`),
+      );
+    }
+    // File content change: list entries unchanged — skip tree reload.
+    if (e.kind === "change") continue;
+    const parent = parentDirOf(rel);
+    if (isDirVisible(parent)) parents.add(parent);
+  }
+  if (!parents.size) return;
+  for (const dir of parents) {
+    if (!dir) {
+      const fresh = await loadChildren("");
+      const prevByKey = new Map(treeData.value.map((n) => [String(n.key), n] as const));
+      for (const opt of fresh) {
+        if (opt.isLeaf === false && expandedKeys.value.includes(String(opt.key))) {
+          const prev = prevByKey.get(String(opt.key));
+          if (prev?.children) opt.children = prev.children;
+        }
+      }
+      treeData.value = fresh;
+      continue;
+    }
+    await reloadNodeChildren(dir);
+  }
+  await ensureExpandedNodesLoaded();
+}
+
+/** Debounced tree refresh from filesystem watcher — silent, visible dirs only. */
 let fsRefreshTimer: ReturnType<typeof setTimeout> | null = null;
-function scheduleFsRefresh(): void {
+let pendingFsEvents: { path: string; kind: "add" | "change" | "unlink" }[] = [];
+function scheduleFsRefresh(
+  events: { path: string; kind: "add" | "change" | "unlink" }[],
+): void {
+  pendingFsEvents.push(...events);
   if (fsRefreshTimer) clearTimeout(fsRefreshTimer);
   fsRefreshTimer = setTimeout(() => {
     fsRefreshTimer = null;
-    void refreshRoot();
+    const batch = pendingFsEvents;
+    pendingFsEvents = [];
+    void silentRefreshFromEvents(batch);
   }, 250);
 }
 
 async function onLoad(option: TreeOption): Promise<void> {
   const key = String(option.key);
-  option.children = await loadChildren(key);
+  const children = await loadChildren(key);
+  // Always write to the live tree node — option may be stale after a silent refresh
+  // replaced `treeData` while this load was in flight.
+  const live = findTreeNode(treeData.value, key) ?? option;
+  live.children = children;
+  if (live !== option) option.children = children;
 }
 
+/**
+ * Drop cached children so the next expand triggers on-load (fresh one layer).
+ * Mutate in place only — replacing `treeData` clears Naive's loadingKeys mid-load
+ * and can strand expand animation state.
+ */
+function clearCachedChildren(relativeDir: string): void {
+  const node = findTreeNode(treeData.value, relativeDir);
+  if (!node || node.isLeaf !== false) return;
+  if (node.children === undefined) return;
+  node.children = undefined;
+}
+
+/** Expand exactly the ancestor chain of `dir` (accordion). */
+function ensureExpanded(dir: string): void {
+  if (!dir) return;
+  const chain = ancestorChain(dir);
+  const prev = expandedKeys.value;
+  expandedKeys.value = chain;
+  // Clear dropped caches after keys update so Naive never animates a child-less collapse.
+  const dropped = prev.filter((k) => !chain.includes(k));
+  void nextTick(() => {
+    for (const d of dropped) clearCachedChildren(d);
+  });
+}
+
+/** Accordion: only one subdirectory branch open at a time. */
 function onUpdateExpanded(keys: Array<string | number>): void {
-  expandedKeys.value = keys.map(String);
+  const prev = expandedKeys.value;
+  const finalKeys = nextExpandedKeys(prev, keys.map(String));
+  expandedKeys.value = finalKeys;
+  // Defer cache drop: clearing children in the same turn as collapse makes Naive Tree
+  // start expand animation with aipRef=true but no MotionWrapper → clicks stop working.
+  const dropped = prev.filter((k) => !finalKeys.includes(k));
+  if (!dropped.length) return;
+  void nextTick(() => {
+    for (const dir of dropped) clearCachedChildren(dir);
+  });
 }
 
 function openFile(filePath: string): void {
@@ -436,27 +554,18 @@ function openPrompt(mode: "file" | "dir" | "rename", targetDir: string, renamePa
 
 async function refreshNode(relativeDir: string): Promise<void> {
   if (!relativeDir) {
-    await refreshRoot();
-    return;
-  }
-  const find = (nodes: TreeOption[]): TreeOption | null => {
-    for (const n of nodes) {
-      if (String(n.key) === relativeDir) return n;
-      if (n.children) {
-        const hit = find(n.children);
-        if (hit) return hit;
+    const fresh = await loadChildren("");
+    const prevByKey = new Map(treeData.value.map((n) => [String(n.key), n] as const));
+    for (const opt of fresh) {
+      if (opt.isLeaf === false && expandedKeys.value.includes(String(opt.key))) {
+        const prev = prevByKey.get(String(opt.key));
+        if (prev?.children) opt.children = prev.children;
       }
     }
-    return null;
-  };
-  const node = find(treeData.value);
-  if (node) {
-    node.children = await loadChildren(relativeDir);
-    // force reactivity
-    treeData.value = [...treeData.value];
-  } else {
-    await refreshRoot();
+    treeData.value = fresh;
+    return;
   }
+  await reloadNodeChildren(relativeDir);
 }
 
 async function onCtxSelect(key: string | number): Promise<void> {
@@ -545,17 +654,13 @@ async function submitPrompt(): Promise<boolean> {
   try {
     if (promptMode.value === "file") {
       const created = await window.api.files.createFile(promptTargetDir.value, name);
+      if (promptTargetDir.value) ensureExpanded(promptTargetDir.value);
       await refreshNode(promptTargetDir.value);
-      if (promptTargetDir.value && !expandedKeys.value.includes(promptTargetDir.value)) {
-        expandedKeys.value = [...expandedKeys.value, promptTargetDir.value];
-      }
       openFile(created);
     } else if (promptMode.value === "dir") {
       await window.api.files.createDir(promptTargetDir.value, name);
+      if (promptTargetDir.value) ensureExpanded(promptTargetDir.value);
       await refreshNode(promptTargetDir.value);
-      if (promptTargetDir.value && !expandedKeys.value.includes(promptTargetDir.value)) {
-        expandedKeys.value = [...expandedKeys.value, promptTargetDir.value];
-      }
     } else {
       const next = await window.api.files.rename(promptRenamePath.value, name);
       await refreshNode(parentDirOf(promptRenamePath.value));
@@ -574,17 +679,7 @@ function toolbarNewFile(): void {
   const sel = selectedKeys.value[0];
   let dir = "";
   if (sel) {
-    const find = (nodes: TreeOption[]): TreeOption | null => {
-      for (const n of nodes) {
-        if (String(n.key) === sel) return n;
-        if (n.children) {
-          const hit = find(n.children);
-          if (hit) return hit;
-        }
-      }
-      return null;
-    };
-    const node = find(treeData.value);
+    const node = findTreeNode(treeData.value, sel);
     dir = node?.isLeaf === false ? sel : parentDirOf(sel);
   }
   openPrompt("file", dir);
@@ -594,17 +689,7 @@ function toolbarNewDir(): void {
   const sel = selectedKeys.value[0];
   let dir = "";
   if (sel) {
-    const find = (nodes: TreeOption[]): TreeOption | null => {
-      for (const n of nodes) {
-        if (String(n.key) === sel) return n;
-        if (n.children) {
-          const hit = find(n.children);
-          if (hit) return hit;
-        }
-      }
-      return null;
-    };
-    const node = find(treeData.value);
+    const node = findTreeNode(treeData.value, sel);
     dir = node?.isLeaf === false ? sel : parentDirOf(sel);
   }
   openPrompt("dir", dir);
@@ -615,7 +700,7 @@ onMounted(() => {
   offFs = window.api.fs.onChanged((payload) => {
     // Ignore events from a previous workspace (stale watch race)
     if (!workspace.root || !sameWorkspaceRoot(payload.root, workspace.root)) return;
-    scheduleFsRefresh();
+    scheduleFsRefresh(payload.events ?? []);
     window.dispatchEvent(new CustomEvent("pi-fs-changed", { detail: payload }));
   });
 });
@@ -689,6 +774,7 @@ watch(
           v-if="treeData.length"
           block-line
           expand-on-click
+          :animated="false"
           draggable
           :allow-drop="allowTreeDrop"
           :data="treeData"
