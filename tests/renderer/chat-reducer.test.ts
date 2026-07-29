@@ -5,6 +5,7 @@ import {
   clearPendingAskUser,
   createChatState,
   reduceChatEvent,
+  setPendingAskUser,
 } from "../../src/renderer/src/stores/chat-reducer";
 
 describe("reduceChatEvent", () => {
@@ -413,7 +414,7 @@ describe("reduceChatEvent", () => {
     });
   });
 
-  it("sets pendingAskUser on ask_user tool_execution_start", () => {
+  it("does not set pendingAskUser from ask_user tool_execution_start (IPC owns the strip)", () => {
     let state = createChatState();
     state = reduceChatEvent(state, {
       type: "agent_event",
@@ -434,7 +435,30 @@ describe("reduceChatEvent", () => {
         },
       },
     });
+    expect(state.pendingAskUser).toBeNull();
+    expect(state.streamingMessage).toMatchObject({
+      role: "tool",
+      toolName: ASK_USER_TOOL_NAME,
+      streaming: true,
+    });
+  });
+
+  it("setPendingAskUser stores the interactive prompt", () => {
+    let state = createChatState();
+    state = setPendingAskUser(state, {
+      sessionId: "s1",
+      requestId: "req-1",
+      questions: [
+        {
+          id: "q1",
+          prompt: "Pick",
+          type: "single",
+          options: [{ id: "a", label: "A" }],
+        },
+      ],
+    });
     expect(state.pendingAskUser?.questions[0]?.id).toBe("q1");
+    expect(state.pendingAskUser?.requestId).toBe("req-1");
   });
 
   it("clearPendingAskUser drops pending prompt without adding a message", () => {
@@ -476,64 +500,20 @@ describe("reduceChatEvent", () => {
     expect(state.pendingAskUser).toBeNull();
   });
 
-  it("replaces pendingAskUser on a newer ask_user call", () => {
+  it("ask_user tool_execution_start does not clear an existing pendingAskUser", () => {
     let state = createChatState();
-    state = reduceChatEvent(state, {
-      type: "agent_event",
+    state = setPendingAskUser(state, {
       sessionId: "s1",
-      event: {
-        type: "tool_execution_start",
-        toolCallId: "t1",
-        toolName: ASK_USER_TOOL_NAME,
-        args: {
-          questions: [
-            {
-              id: "old",
-              prompt: "Old",
-              type: "buttons",
-              options: [{ id: "y", label: "Yes" }],
-            },
-          ],
+      requestId: "req-old",
+      questions: [
+        {
+          id: "old",
+          prompt: "Old",
+          type: "buttons",
+          options: [{ id: "y", label: "Yes" }],
         },
-      },
+      ],
     });
-    state = reduceChatEvent(state, {
-      type: "agent_event",
-      sessionId: "s1",
-      event: {
-        type: "tool_execution_start",
-        toolCallId: "t2",
-        toolName: ASK_USER_TOOL_NAME,
-        args: {
-          questions: [
-            {
-              id: "new",
-              prompt: "New",
-              type: "buttons",
-              options: [{ id: "n", label: "No" }],
-            },
-          ],
-        },
-      },
-    });
-    expect(state.pendingAskUser?.questions[0]?.id).toBe("new");
-  });
-
-  it("clears pendingAskUser when ask_user args fail to parse", () => {
-    let state = createChatState();
-    state = {
-      ...state,
-      pendingAskUser: {
-        questions: [
-          {
-            id: "q1",
-            prompt: "Pick",
-            type: "single",
-            options: [{ id: "a", label: "A" }],
-          },
-        ],
-      },
-    };
     state = reduceChatEvent(state, {
       type: "agent_event",
       sessionId: "s1",
@@ -544,7 +524,38 @@ describe("reduceChatEvent", () => {
         args: { questions: [] },
       },
     });
-    expect(state.pendingAskUser).toBeNull();
+    expect(state.pendingAskUser?.questions[0]?.id).toBe("old");
+    expect(state.pendingAskUser?.requestId).toBe("req-old");
+  });
+
+  it("setPendingAskUser replaces a previous prompt", () => {
+    let state = createChatState();
+    state = setPendingAskUser(state, {
+      sessionId: "s1",
+      requestId: "req-1",
+      questions: [
+        {
+          id: "old",
+          prompt: "Old",
+          type: "buttons",
+          options: [{ id: "y", label: "Yes" }],
+        },
+      ],
+    });
+    state = setPendingAskUser(state, {
+      sessionId: "s1",
+      requestId: "req-2",
+      questions: [
+        {
+          id: "new",
+          prompt: "New",
+          type: "buttons",
+          options: [{ id: "n", label: "No" }],
+        },
+      ],
+    });
+    expect(state.pendingAskUser?.questions[0]?.id).toBe("new");
+    expect(state.pendingAskUser?.requestId).toBe("req-2");
   });
 
   it("keeps pendingAskUser on non-ask_user tool_execution_start", () => {
