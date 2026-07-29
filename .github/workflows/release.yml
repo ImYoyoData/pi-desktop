@@ -52,27 +52,28 @@ jobs:
           - name: windows-x64
             os: windows-latest
             dugite_arch: x64
-            build_cmd: npm run dist:win:x64
+            eb_args: --win --x64
             artifact_glob: release/*-setup.exe
           - name: windows-arm64
             # Separate job → separate NSIS (not a fat installer). Cross-arch Electron + node-pty prebuilds.
             os: windows-latest
             dugite_arch: arm64
-            build_cmd: npm run dist:win:arm64
+            eb_args: --win --arm64
             artifact_glob: release/*-setup.exe
           - name: macos-arm64
             os: macos-latest
             dugite_arch: arm64
-            build_cmd: npm run dist:mac:arm64
+            eb_args: --mac --arm64
             artifact_glob: release/*.dmg
           - name: macos-x64
-            # Build Intel DMG on Apple Silicon runners (electron-builder cross-arch).
-            # Avoid macos-13: runners are scarce and previously queued ~2h then cancelled.
-            # dugite_arch=x64 re-downloads Intel embedded Git (npm ci alone would fetch arm64).
+            # Intel DMG on Apple Silicon runners. Avoid macos-13 (scarce / long queue).
+            # Cross-arch npmRebuild often SIGABRT (exit 134); rebuild node-pty for x64
+            # first, then package with npmRebuild disabled.
             os: macos-latest
             dugite_arch: x64
-            build_cmd: npm run dist:mac:x64
+            eb_args: --mac --x64
             artifact_glob: release/*.dmg
+            cross_arch_native: true
 
     steps:
       - name: Checkout
@@ -87,21 +88,51 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Generate icons
+        run: npm run icons
+
+      - name: Build app (electron-vite)
+        run: npm run build
+
       # dugite postinstall fetches host-arch Git; cross-arch jobs must refresh before pack.
       - name: Ensure dugite embedded Git (${{ matrix.dugite_arch }})
         run: node scripts/ensure-dugite-git.mjs ${{ matrix.dugite_arch }}
 
-      - name: Generate icons
-        run: npm run icons
+      - name: Rebuild native modules for target arch
+        if: matrix.cross_arch_native
+        shell: bash
+        env:
+          npm_config_arch: ${{ matrix.dugite_arch }}
+          npm_config_target_arch: ${{ matrix.dugite_arch }}
+        run: |
+          set -euo pipefail
+          # Rosetta helps some x64 tooling on Apple Silicon runners.
+          if [[ "${{ runner.os }}" == "macOS" && "${{ matrix.dugite_arch }}" == "x64" ]]; then
+            sudo softwareupdate --install-rosetta --agree-to-license || true
+          fi
+          # Drop host-arch build trees so a wrong .node cannot be packed.
+          rm -rf node_modules/node-pty/build node_modules/node-pty/prebuilds || true
+          npx --yes @electron/rebuild --force --only=node-pty --arch="${{ matrix.dugite_arch }}"
 
-      - name: Build & package
+      - name: Package with electron-builder
         env:
           # Prevent electron-builder from creating/updating GitHub Releases mid-build
           # (publish is handled solely by the softprops job below).
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # Skip Apple identity discovery — unsigned builds; avoids notarize/signing hangs.
           CSC_IDENTITY_AUTO_DISCOVERY: false
-        run: ${{ matrix.build_cmd }} -- --publish never
+          npm_config_arch: ${{ matrix.dugite_arch }}
+          npm_config_target_arch: ${{ matrix.dugite_arch }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Cross-arch: we already rebuilt node-pty; skip electron-builder's rebuild
+          # (that path frequently aborts with exit 134 / SIGABRT on macos-x64).
+          if [[ "${{ matrix.cross_arch_native }}" == "true" ]]; then
+            npx electron-builder ${{ matrix.eb_args }} --publish never -c.npmRebuild=false
+          else
+            npx electron-builder ${{ matrix.eb_args }} --publish never
+          fi
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
