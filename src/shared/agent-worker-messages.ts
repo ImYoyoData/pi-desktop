@@ -1,6 +1,9 @@
 import type { AgentCommand } from "./protocol";
 import type { BrowserRpcMethod } from "./browser-automation";
 import type { DesktopSecuritySettings } from "./desktop-security";
+import type { WorkerResourceSummary } from "./worker-resources";
+
+export type { WorkerResourceSummary } from "./worker-resources";
 
 export type WorkerInbound =
   | {
@@ -25,7 +28,7 @@ export type WorkerInbound =
     };
 
 export type WorkerOutbound =
-  | { kind: "ready"; id: string; filePath: string; cwd: string }
+  | { kind: "ready"; id: string; filePath: string; cwd: string; resources?: WorkerResourceSummary }
   | { kind: "result"; id: string; data?: unknown; error?: string }
   | { kind: "event"; event: Record<string, unknown> }
   | { kind: "pong" }

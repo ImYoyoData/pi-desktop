@@ -4,8 +4,10 @@ import {
   DefaultResourceLoader,
   getAgentDir,
   parseFrontmatter,
+  SettingsManager,
 } from "@earendil-works/pi-coding-agent";
 import { isPathInsideRoot } from "../shared/path-sandbox";
+import { resolveTrustState } from "./project-trust";
 
 export type SkillDto = {
   name: string;
@@ -19,7 +21,10 @@ export type SkillDto = {
 
 export async function listSkills(cwd: string): Promise<{ skills: SkillDto[]; diagnostics: string[] }> {
   const agentDir = getAgentDir();
-  const loader = new DefaultResourceLoader({ cwd, agentDir });
+  const settingsManager = SettingsManager.create(cwd, agentDir, {
+    projectTrusted: resolveTrustState(cwd, agentDir).projectTrusted,
+  });
+  const loader = new DefaultResourceLoader({ cwd, agentDir, settingsManager });
   await loader.reload();
   const { skills, diagnostics } = loader.getSkills();
   return {

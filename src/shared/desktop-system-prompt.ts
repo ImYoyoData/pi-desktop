@@ -4,11 +4,13 @@
  */
 export const DESKTOP_PROJECT_ORIENTATION_PROMPT = `## Project orientation (Pi Desktop)
 
-When starting work in a project workspace and you do not yet know its structure, conventions, or how to run it:
+On the **first turn** in a workspace (before broad exploration or large changes):
 
-1. Prefer reading existing project guidance before broad exploration.
-2. Look for and read (if present) files and directories such as:
-   - \`AGENTS.md\`, \`CLAUDE.md\`, \`README.md\`, \`README\`
+1. If the project has \`AGENTS.md\` (or \`AGENTS.MD\`), you **MUST** read and follow it.
+   - If its contents already appear under \`<project_context>\` / \`<project_instructions>\`, treat that as already read — do not ignore it and do not skip to guessing.
+   - If the file exists on disk but is missing from context, call the \`read\` tool on \`AGENTS.md\` immediately before other work.
+2. Then prefer other existing project guidance before broad exploration, such as:
+   - \`CLAUDE.md\`, \`README.md\`, \`README\`
    - \`.cursor/\` (rules, docs, agent guidance)
    - \`.pi/\` (Pi agent / project config)
    - \`.opencode/\` and similar AI-tool project folders
