@@ -4,6 +4,7 @@ import type { AgentCommand, AgentEvent, ElementCitation, SessionHistoryMessage, 
 import { IpcChannels } from "../shared/protocol";
 import type { AgentRunEvent, AgentRunSnapshot } from "../shared/agent-runs";
 import type { ModelsGetResult, ModelsSetPayload } from "../shared/models-settings";
+import type { DiscoverModelsResult } from "../shared/model-discover";
 import type { PreviewResult } from "../shared/preview-types";
 import type { AsrInstallProgress, AsrStatus, AsrStreamEvent } from "../shared/asr";
 import type { TtsInstallProgress, TtsSpeakResult, TtsStatus } from "../shared/tts";
@@ -400,6 +401,8 @@ const api = {
     clearKey: (provider: string) =>
       ipcRenderer.invoke(IpcChannels.models.clearKey, provider) as Promise<void>,
     test: () => ipcRenderer.invoke(IpcChannels.models.test) as Promise<ModelsGetResult["available"]>,
+    discover: (payload: { baseUrl: string; apiKey?: string; api?: string }) =>
+      ipcRenderer.invoke(IpcChannels.models.discover, payload) as Promise<DiscoverModelsResult>,
   },
   preview: {
     read: (filePath: string) =>
