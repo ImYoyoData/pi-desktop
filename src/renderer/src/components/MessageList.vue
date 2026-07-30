@@ -36,13 +36,13 @@ import {
 } from "../../../shared/composer-modes";
 
 /**
- * Sliding virtual window: mount a generous range around the viewport so
- * scroll stays continuous (overscan above + below), not only at the absolute top.
+ * Sliding virtual window: mount a modest range around the viewport so
+ * opening a long shared Pi session stays interactive (overscan above + below).
  */
-const VIRTUAL_WINDOW = 96;
+const VIRTUAL_WINDOW = 32;
 /** Soft cap before trimming the far side of the window. */
-const VIRTUAL_MAX = 140;
-const VIRTUAL_CHUNK = 40;
+const VIRTUAL_MAX = 48;
+const VIRTUAL_CHUNK = 16;
 const EST_MSG_HEIGHT = 120;
 /** Collapsed tool-group summary row (Cursor-style). */
 const EST_TOOL_GROUP_HEIGHT = 40;
@@ -59,6 +59,8 @@ const props = defineProps<{
   running: boolean;
   retryHint?: ChatRetryHint | null;
   historyLoading?: boolean;
+  historyHasMore?: boolean;
+  historyLoadingOlder?: boolean;
 }>();
 
 const chat = useChatStore();
@@ -416,7 +418,13 @@ function restoreScrollAfterMutation(sc: HTMLElement, prevHeight: number, prevTop
 }
 
 function expandHistoryUp(): void {
-  if (adjustingWindow || renderStart.value <= 0) return;
+  if (adjustingWindow || renderStart.value <= 0) {
+    // At the start of the *loaded* window — fetch an older page from disk if any.
+    if (renderStart.value <= 0 && !adjustingWindow) {
+      void loadOlderHistoryPage();
+    }
+    return;
+  }
   const sc = scroller.value;
   if (!sc) return;
   adjustingWindow = true;
@@ -436,8 +444,43 @@ function expandHistoryUp(): void {
     // Keep a thick overscan of real content above the viewport.
     if (renderStart.value > 0 && sc.scrollTop < topSpacerPx.value + OVERSCAN_PX) {
       expandHistoryUp();
+    } else if (renderStart.value <= 0) {
+      void loadOlderHistoryPage();
     }
   });
+}
+
+let loadingOlderPage = false;
+async function loadOlderHistoryPage(): Promise<void> {
+  if (loadingOlderPage || !props.historyHasMore) return;
+  const id = sessionId.value;
+  if (!id) return;
+  const sc = scroller.value;
+  if (!sc) return;
+  loadingOlderPage = true;
+  adjustingWindow = true;
+  const prevHeight = sc.scrollHeight;
+  const prevTop = sc.scrollTop;
+  try {
+    const added = await chat.loadOlderHistory(id);
+    if (added <= 0) return;
+    // Newly prepended rows sit before the previous window — expand mount range up.
+    renderStart.value = 0;
+    renderEnd.value = Math.min(
+      displayMessages.value.length,
+      Math.max(renderEnd.value + added, VIRTUAL_WINDOW),
+    );
+    if (renderEnd.value - renderStart.value > VIRTUAL_MAX) {
+      renderEnd.value = renderStart.value + VIRTUAL_MAX;
+    }
+    await nextTick();
+    restoreScrollAfterMutation(sc, prevHeight, prevTop);
+    measureVisibleRows();
+    updateStickyPinned();
+  } finally {
+    adjustingWindow = false;
+    loadingOlderPage = false;
+  }
 }
 
 function expandHistoryDown(): void {
@@ -975,6 +1018,14 @@ function onRevertUser(msg: Extract<ChatMessage, { role: "user" }>): void {
       />
 
       <div
+        v-if="historyLoadingOlder || (historyHasMore && renderStart === 0 && topSpacerPx < 8)"
+        class="history-older-banner"
+        aria-live="polite"
+      >
+        {{ historyLoadingOlder ? t.loadingOlderHistory : t.scrollForOlderHistory }}
+      </div>
+
+      <div
         v-if="topSpacerPx > 0"
         class="virtual-spacer"
         :style="{ height: `${topSpacerPx}px` }"
@@ -1318,6 +1369,16 @@ function onRevertUser(msg: Extract<ChatMessage, { role: "user" }>): void {
   to {
     opacity: 1;
   }
+}
+
+.history-older-banner {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  padding: 6px 10px;
+  font-size: 11px;
+  color: var(--fg-muted, #888);
 }
 
 .message-list {
