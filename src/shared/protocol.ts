@@ -103,6 +103,7 @@ export const IpcChannels = {
     set: "models:set",
     clearKey: "models:clearKey",
     test: "models:test",
+    discover: "models:discover",
   },
   terminal: {
     create: "terminal:create",

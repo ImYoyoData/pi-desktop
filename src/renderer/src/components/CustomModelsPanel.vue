@@ -3,6 +3,7 @@ import { computed, ref, watch } from "vue";
 import {
   NButton,
   NInput,
+  NInputNumber,
   NSelect,
   NSpace,
   NSwitch,
@@ -15,26 +16,34 @@ import {
   CUSTOM_MODEL_APIS,
   emptyCustomProvider,
   listEditableProviders,
+  mergeDiscoveredIntoDraft,
   parseModelsConfigText,
   removeCustomProvider,
   renameCustomProvider,
+  shouldStoreApiKeyInModelsJson,
   stringifyModelsConfig,
   upsertCustomProvider,
   validateCustomProvider,
   type CustomModelEntry,
   type CustomProviderDraft,
 } from "../../../shared/custom-models";
+import { CUSTOM_PROVIDER_PRESETS } from "../../../shared/custom-model-presets";
+import { normalizeProviderBaseUrl } from "../../../shared/model-discover";
 import { t } from "@renderer/i18n";
 
 const props = defineProps<{
   modelsText: string;
   /** When true, start a blank “add provider” form. */
   startAdd?: boolean;
+  /** Parent is writing models.json / auth.json */
+  saving?: boolean;
 }>();
 
 const emit = defineEmits<{
   "update:modelsText": [string];
   "update:startAdd": [boolean];
+  /** Persist immediately (Pi-aligned: models.json + auth.json). */
+  commit: [payload: { modelsText: string; apiKeys?: Record<string, string> }];
 }>();
 
 const message = useMessage();
@@ -45,8 +54,15 @@ const editing = ref(false);
 const isNew = ref(false);
 const draft = ref<CustomProviderDraft>(emptyCustomProvider());
 const formError = ref<string | null>(null);
+const fetching = ref(false);
 
 const apiOptions = CUSTOM_MODEL_APIS.map((api) => ({ label: api, value: api }));
+
+const keyGoesToAuth = computed(
+  () =>
+    Boolean(draft.value.apiKey.trim()) &&
+    !shouldStoreApiKeyInModelsJson(draft.value.apiKey, draft.value.baseUrl),
+);
 
 const docProviders = computed(() => {
   try {
@@ -77,19 +93,31 @@ watch(
   { immediate: true },
 );
 
+function cloneDraft(src: CustomProviderDraft): CustomProviderDraft {
+  return {
+    ...src,
+    models: src.models.map((m) => ({ ...m })),
+  };
+}
+
 function beginAdd(): void {
   isNew.value = true;
   editing.value = true;
   formError.value = null;
   selectedId.value = null;
-  draft.value = emptyCustomProvider({
-    id: "ollama",
-    name: "Ollama",
-    baseUrl: "http://localhost:11434/v1",
-    apiKey: "ollama",
-    models: [{ id: "llama3.1:8b", name: "", reasoning: false }],
-  });
+  draft.value = cloneDraft(emptyCustomProvider());
   emit("update:startAdd", false);
+}
+
+function applyPreset(presetId: string): void {
+  const preset = CUSTOM_PROVIDER_PRESETS.find((p) => p.id === presetId);
+  if (!preset) return;
+  const keepKey =
+    draft.value.apiKey.trim() && draft.value.id === preset.draft.id
+      ? draft.value.apiKey
+      : preset.draft.apiKey;
+  draft.value = cloneDraft({ ...preset.draft, apiKey: keepKey });
+  formError.value = null;
 }
 
 function beginEdit(id: string): void {
@@ -99,10 +127,7 @@ function beginEdit(id: string): void {
   isNew.value = false;
   editing.value = true;
   formError.value = null;
-  draft.value = {
-    ...row,
-    models: row.models.map((m) => ({ ...m })),
-  };
+  draft.value = cloneDraft(row);
 }
 
 function cancelEdit(): void {
@@ -126,7 +151,52 @@ function removeModelRow(index: number): void {
   draft.value.models.splice(index, 1);
 }
 
+async function fetchModels(): Promise<void> {
+  if (fetching.value) return;
+  draft.value.baseUrl = normalizeProviderBaseUrl(draft.value.baseUrl);
+  if (!draft.value.baseUrl.trim()) {
+    message.warning(t.modelsCustomBaseUrl);
+    return;
+  }
+  fetching.value = true;
+  try {
+    const result = await window.api.models.discover({
+      baseUrl: draft.value.baseUrl,
+      apiKey: draft.value.apiKey,
+      api: draft.value.api,
+    });
+    if (!result.ok) {
+      message.error(`${t.modelsCustomFetchFail}: ${result.error}`, { duration: 7000 });
+      return;
+    }
+    draft.value.models = mergeDiscoveredIntoDraft(draft.value.models, result.models);
+    message.success(t.modelsCustomFetchOk(result.models.length));
+  } catch (err) {
+    message.error(err instanceof Error ? err.message : String(err));
+  } finally {
+    fetching.value = false;
+  }
+}
+
+function buildCommitPayload(doc: ReturnType<typeof parseModelsConfigText>): {
+  modelsText: string;
+  apiKeys?: Record<string, string>;
+} {
+  const id = draft.value.id.trim();
+  const next = isNew.value
+    ? upsertCustomProvider(doc, draft.value)
+    : renameCustomProvider(doc, selectedId.value || id, draft.value);
+  const modelsText = stringifyModelsConfig(next);
+  const key = draft.value.apiKey.trim();
+  const apiKeys =
+    key && !shouldStoreApiKeyInModelsJson(key, draft.value.baseUrl)
+      ? { [id]: key }
+      : undefined;
+  return { modelsText, apiKeys };
+}
+
 function applyDraft(): void {
+  draft.value.baseUrl = normalizeProviderBaseUrl(draft.value.baseUrl);
   let doc;
   try {
     doc = parseModelsConfigText(props.modelsText);
@@ -145,14 +215,12 @@ function applyDraft(): void {
     return;
   }
   formError.value = null;
-  const next = isNew.value
-    ? upsertCustomProvider(doc, draft.value)
-    : renameCustomProvider(doc, selectedId.value || draft.value.id, draft.value);
-  emit("update:modelsText", stringifyModelsConfig(next));
+  const payload = buildCommitPayload(doc);
+  emit("update:modelsText", payload.modelsText);
   selectedId.value = draft.value.id.trim();
   editing.value = false;
   isNew.value = false;
-  message.success(t.modelsCustomApplied);
+  emit("commit", payload);
 }
 
 function confirmDelete(id: string): void {
@@ -165,10 +233,11 @@ function confirmDelete(id: string): void {
       try {
         const doc = parseModelsConfigText(props.modelsText);
         const next = removeCustomProvider(doc, id);
-        emit("update:modelsText", stringifyModelsConfig(next));
+        const modelsText = stringifyModelsConfig(next);
+        emit("update:modelsText", modelsText);
         if (selectedId.value === id) selectedId.value = null;
         if (editing.value && draft.value.id === id) cancelEdit();
-        message.success(t.modelsCustomDeleted);
+        emit("commit", { modelsText });
       } catch (err) {
         message.error(err instanceof Error ? err.message : String(err));
       }
@@ -176,8 +245,8 @@ function confirmDelete(id: string): void {
   });
 }
 
-function modelPlaceholder(m: CustomModelEntry, i: number): string {
-  return i === 0 ? "llama3.1:8b" : t.modelsCustomModelId;
+function modelPlaceholder(_m: CustomModelEntry, i: number): string {
+  return i === 0 ? "LongCat-2.0" : t.modelsCustomModelId;
 }
 </script>
 
@@ -224,26 +293,45 @@ function modelPlaceholder(m: CustomModelEntry, i: number): string {
             </NText>
           </div>
 
+          <div v-if="isNew" class="presets">
+            <div class="field-label">{{ t.modelsCustomPresets }}</div>
+            <div class="preset-chips">
+              <button
+                v-for="p in CUSTOM_PROVIDER_PRESETS"
+                :key="p.id"
+                type="button"
+                class="preset-chip pi-interactive"
+                @click="applyPreset(p.id)"
+              >
+                <span class="preset-label">{{ p.label }}</span>
+                <span class="preset-hint">{{ p.hint }}</span>
+              </button>
+            </div>
+          </div>
+
           <div class="field">
             <div class="field-label">{{ t.modelsCustomProviderId }}</div>
             <NInput
               v-model:value="draft.id"
               size="small"
               :disabled="!isNew"
-              placeholder="ollama"
+              placeholder="longcat"
             />
           </div>
           <div class="field">
             <div class="field-label">{{ t.modelsCustomDisplayName }}</div>
-            <NInput v-model:value="draft.name" size="small" placeholder="Ollama" />
+            <NInput v-model:value="draft.name" size="small" placeholder="LongCat" />
           </div>
           <div class="field">
             <div class="field-label">{{ t.modelsCustomBaseUrl }}</div>
             <NInput
               v-model:value="draft.baseUrl"
               size="small"
-              placeholder="http://localhost:11434/v1"
+              placeholder="https://api.longcat.chat/openai/v1"
             />
+            <NText depth="3" style="font-size: 11px; display: block; margin-top: 4px">
+              {{ t.modelsCustomBaseUrlHint }}
+            </NText>
           </div>
           <div class="field">
             <div class="field-label">{{ t.modelsCustomApi }}</div>
@@ -258,6 +346,9 @@ function modelPlaceholder(m: CustomModelEntry, i: number): string {
               show-password-on="click"
               :placeholder="t.modelsCustomApiKeyHint"
             />
+            <NText depth="3" style="font-size: 11px; display: block; margin-top: 4px">
+              {{ keyGoesToAuth ? t.modelsCustomApiKeyAuthHint : t.modelsCustomApiKeyModelsHint }}
+            </NText>
           </div>
 
           <div class="compat-row">
@@ -280,9 +371,21 @@ function modelPlaceholder(m: CustomModelEntry, i: number): string {
           <div class="models-editor">
             <div class="models-editor-head">
               <NText style="font-size: 12px; font-weight: 600">{{ t.modelsCustomModels }}</NText>
-              <NButton size="tiny" quaternary class="pi-interactive" @click="addModelRow">
-                {{ t.modelsCustomAddModel }}
-              </NButton>
+              <NSpace :size="6">
+                <NButton
+                  size="tiny"
+                  secondary
+                  class="pi-interactive"
+                  :loading="fetching"
+                  :disabled="fetching"
+                  @click="fetchModels"
+                >
+                  {{ fetching ? t.modelsCustomFetching : t.modelsCustomFetchModels }}
+                </NButton>
+                <NButton size="tiny" quaternary class="pi-interactive" @click="addModelRow">
+                  {{ t.modelsCustomAddModel }}
+                </NButton>
+              </NSpace>
             </div>
             <div v-for="(m, i) in draft.models" :key="i" class="model-edit-row">
               <NInput
@@ -297,9 +400,31 @@ function modelPlaceholder(m: CustomModelEntry, i: number): string {
                 class="m-name"
                 :placeholder="t.modelsCustomModelName"
               />
+              <NInputNumber
+                v-model:value="m.contextWindow"
+                size="small"
+                class="m-ctx"
+                :min="1024"
+                :step="1024"
+                :show-button="false"
+                :placeholder="t.modelsCustomContextWindow"
+              />
+              <NInputNumber
+                v-model:value="m.maxTokens"
+                size="small"
+                class="m-max"
+                :min="256"
+                :step="256"
+                :show-button="false"
+                :placeholder="t.modelsCustomMaxTokens"
+              />
               <div class="m-reason">
                 <NText depth="3" style="font-size: 11px">{{ t.modelsCustomReasoning }}</NText>
                 <NSwitch v-model:value="m.reasoning" size="small" />
+              </div>
+              <div class="m-reason">
+                <NText depth="3" style="font-size: 11px">{{ t.modelsCustomVision }}</NText>
+                <NSwitch v-model:value="m.vision" size="small" />
               </div>
               <NButton size="tiny" quaternary type="error" @click="removeModelRow(i)">
                 {{ t.delete }}
@@ -312,13 +437,21 @@ function modelPlaceholder(m: CustomModelEntry, i: number): string {
           </NText>
 
           <NSpace justify="end" style="margin-top: 14px">
-            <NButton size="small" class="pi-interactive" @click="cancelEdit">{{ t.cancel }}</NButton>
-            <NButton size="small" type="primary" class="pi-interactive" @click="applyDraft">
-              {{ t.modelsCustomApply }}
+            <NButton size="small" class="pi-interactive" :disabled="saving" @click="cancelEdit">
+              {{ t.cancel }}
+            </NButton>
+            <NButton
+              size="small"
+              type="primary"
+              class="pi-interactive"
+              :loading="saving"
+              :disabled="saving"
+              @click="applyDraft"
+            >
+              {{ t.modelsCustomSave }}
             </NButton>
           </NSpace>
         </template>
-
         <template v-else-if="selected">
           <div class="detail-head">
             <div style="min-width: 0; flex: 1">
@@ -361,7 +494,9 @@ function modelPlaceholder(m: CustomModelEntry, i: number): string {
             >
               <span class="model-name">{{ m.name || m.id }}</span>
               <NText depth="3" style="font-size: 11px; font-family: var(--font-mono)">
-                {{ m.id }}{{ m.reasoning ? " · reasoning" : "" }}
+                {{ m.id }}{{ m.reasoning ? " · reasoning" : "" }}{{
+                  m.contextWindow ? ` · ctx ${m.contextWindow}` : ""
+                }}{{ m.maxTokens ? ` · max ${m.maxTokens}` : "" }}
               </NText>
             </div>
           </div>
@@ -475,6 +610,47 @@ function modelPlaceholder(m: CustomModelEntry, i: number): string {
   margin-bottom: 14px;
 }
 
+.presets {
+  margin-bottom: 14px;
+}
+
+.preset-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+.preset-chip {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--bg-panel);
+  cursor: pointer;
+  text-align: left;
+  min-width: 120px;
+}
+
+.preset-chip:hover {
+  border-color: var(--accent, #5b8def);
+  background: var(--bg-hover);
+}
+
+.preset-label {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--fg-strong);
+}
+
+.preset-hint {
+  font-size: 10.5px;
+  color: var(--fg-faint);
+}
+
 .detail-head {
   display: flex;
   align-items: center;
@@ -530,10 +706,15 @@ function modelPlaceholder(m: CustomModelEntry, i: number): string {
 
 .model-edit-row {
   display: grid;
-  grid-template-columns: 1.2fr 1fr auto auto;
-  gap: 8px;
+  grid-template-columns: minmax(80px, 1fr) minmax(60px, 0.85fr) 80px 68px auto auto auto;
+  gap: 6px;
   align-items: center;
   margin-bottom: 8px;
+}
+
+.m-ctx,
+.m-max {
+  width: 100%;
 }
 
 .m-reason {
