@@ -161,22 +161,57 @@ jobs:
           tag_name: ${{ steps.ver.outputs.tag }}
           name: Pi Desktop ${{ steps.ver.outputs.tag }}
           draft: false
-          prerelease: true
+          prerelease: false
           generate_release_notes: true
           body: |
-            ## 主要更新（0.0.22 测试版）
-            - **自定义模型（对齐官方 Pi）**：远程 Key 写入 `auth.json`；本地占位 / `$ENV` 留在 `models.json`
-            - **一键保存生效**：自定义面板「保存并生效」直接写盘并刷新，不再假「应用」
-            - **预设**：LongCat / LongCat Anthropic / Ollama / LM Studio / vLLM / Google AI Studio / OpenAI 兼容
-            - **拉取模型**：`GET {base}/models`（Ollama 回退 `/api/tags`），按 id 合并；支持上下文/最大输出/图片
-            - **安全合并**：GUI 保存不会抹掉手写的 `headers` / `cost` / `thinkingLevelMap` 等字段
+            ## 主要更新（0.1.0 正式版）
 
-            ## What's New (0.0.22 prerelease)
-            - **Custom models (Pi-aligned)**: remote keys → `auth.json`; local placeholders / `$ENV` stay in `models.json`
-            - **One-click save**: Custom panel Save writes disk + reloads (no fake Apply)
-            - **Presets**: LongCat, LongCat Anthropic, Ollama, LM Studio, vLLM, Google AI Studio, OpenAI-compatible
-            - **Fetch models**: `GET {base}/models` (Ollama `/api/tags` fallback), merge by id; context/max/vision fields
-            - **Safe merge**: GUI save keeps hand-edited `headers` / `cost` / `thinkingLevelMap`, etc.
+            首个正式稳定版，集合近期 Agent 工作区能力。
+
+            ### 对话与工具
+            - **思考流**：真实 thinking 文本；流式时卡片贴底最新内容；展开高度更紧凑
+            - **写入 / 编辑**：运行中自动展开、完整 diff 预览，并 stick 到底部最新行
+            - **读取**：默认折叠，不抢视线
+            - **中断保留**：停止生成时保留已输出的思考与正文；取消提示改为 Cursor 风格（「已停止生成」+ 轻量重试）
+            - **工具组**：连续读写/命令可折叠汇总
+            - **Bash 后台**：启发式 / `# pi-desktop:background`；Running 页实时输出更跟手
+
+            ### 模型与 Composer
+            - **自定义模型（对齐官方 Pi）**：远程 Key → `auth.json`；占位 / `$ENV` 留在 `models.json`
+            - **一键保存生效** + 预设：LongCat / Ollama / LM Studio / vLLM / Google AI Studio / OpenAI 兼容等
+            - **拉取远程模型列表**并安全 merge（不抹掉手写 headers / cost / thinkingLevelMap）
+            - **Composer 模式**（Agent / Ask / Plan / Task）：注入给模型，**用户气泡不再显示 mode 标签 / `[pi-desktop mode:…]` 前缀**
+
+            ### 内置浏览器与工作区
+            - 选元素上下文增加 **`# 内置浏览器`** 头，便于模型识别并启用 `browser_*`
+            - 文件树 / 预览 / Changes（含冲突解决）/ 终端 / TTS 语音等既有能力一并纳入正式版
+
+            ### 窗口与体验
+            - **Windows 标题栏可拖拽**（去掉 titleBarOverlay 拦截；整条自定义栏可拖，按钮 no-drag）
+            - 亮色终端、紧凑 ask_user、预览删文件缓存提示等体验修复
+
+            ## What's New (0.1.0 stable)
+
+            First stable formal release — rolls up the Agent Workspace feature set.
+
+            ### Chat & tools
+            - **Thinking stream**: real text; stick-to-bottom while streaming; compact max height
+            - **Write / edit**: auto-expand with full live diff; stick to latest lines
+            - **Read**: collapsed by default
+            - **Abort keeps content**: partial thinking/answer preserved; Cursor-like “Generation stopped” + light Retry
+            - **Tool groups** + **background bash** + snappier Running output
+
+            ### Models & composer
+            - **Custom models (Pi-aligned)**: keys in `auth.json`; safe merge into `models.json`
+            - Presets + remote model discover
+            - Composer modes for the model — **no mode chips / `[pi-desktop mode:…]` on user bubbles**
+
+            ### Built-in browser & workspace
+            - Selection context starts with **`# 内置浏览器 (Built-in browser)`**
+            - Files / Preview / Changes (conflict resolve) / Terminal / TTS included
+
+            ### Window
+            - **Draggable Windows title bar** (no titleBarOverlay hit-test block)
 
             ## 下载（每个系统/架构单独安装包）
             - **Windows x64**: `Pi Desktop-*-win-x64-setup.exe`
@@ -195,9 +230,9 @@ jobs:
             Separate packages only — no universal / fat installer.
 
             ## 说明 / Notes
-            - 本版本为 **prerelease 测试版**
+            - 本版本为 **正式稳定版**（非 prerelease）
             - macOS 未公证：首次打开可能需要右键 → 打开
-            - This is a **prerelease** test build
+            - This is a **stable** release (not a prerelease)
             - macOS is unsigned/notarization off — first open may need right-click → Open
           files: upload/*
           fail_on_unmatched_files: false

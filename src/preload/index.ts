@@ -71,6 +71,20 @@ const api = {
         ipcRenderer.removeListener(IpcChannels.window.closeRequest, listener);
       };
     },
+    onMaximized: (callback: () => void) => {
+      const listener = () => callback();
+      ipcRenderer.on(IpcChannels.window.onMaximized, listener);
+      return () => {
+        ipcRenderer.removeListener(IpcChannels.window.onMaximized, listener);
+      };
+    },
+    onUnmaximized: (callback: () => void) => {
+      const listener = () => callback();
+      ipcRenderer.on(IpcChannels.window.onUnmaximized, listener);
+      return () => {
+        ipcRenderer.removeListener(IpcChannels.window.onUnmaximized, listener);
+      };
+    },
   },
   workspace: {
     get: () => ipcRenderer.invoke(IpcChannels.workspace.get) as Promise<string | null>,

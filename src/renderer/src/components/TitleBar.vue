@@ -51,10 +51,34 @@ const asrOpen = ref(false);
 const securityOpen = ref(false);
 const aboutOpen = ref(false);
 const platform = ref<NodeJS.Platform>("win32");
+const isMaximized = ref(false);
 let offUpdateProgress: (() => void) | undefined;
+let offMaximized: (() => void) | undefined;
+let offUnmaximized: (() => void) | undefined;
+
+async function onMinimize(): Promise<void> {
+  await window.api.window.minimize();
+}
+
+async function onMaximize(): Promise<void> {
+  await window.api.window.maximize();
+}
+
+async function onClose(): Promise<void> {
+  await window.api.window.close();
+}
 
 onMounted(async () => {
   platform.value = await window.api.window.platform();
+  if (platform.value !== "darwin") {
+    isMaximized.value = await window.api.window.isMaximized();
+    offMaximized = window.api.window.onMaximized(() => {
+      isMaximized.value = true;
+    });
+    offUnmaximized = window.api.window.onUnmaximized(() => {
+      isMaximized.value = false;
+    });
+  }
   offUpdateProgress = window.api.update.onProgress((p) => {
     updateStore.onProgress(p);
   });
@@ -64,6 +88,8 @@ onMounted(async () => {
 
 onUnmounted(() => {
   offUpdateProgress?.();
+  offMaximized?.();
+  offUnmaximized?.();
 });
 
 function openFolder(): void {
@@ -183,7 +209,7 @@ async function onUpdateClick(): Promise<void> {
     :class="{ mac: platform === 'darwin', win: platform !== 'darwin' }"
   >
     <div class="drag traffic-space" aria-hidden="true" />
-    <div class="brand no-drag">
+    <div class="brand">
       <img class="logo-img" :src="logoUrl" alt="" width="18" height="18" />
       <span class="name">{{ t.appName }}</span>
     </div>
@@ -256,7 +282,17 @@ async function onUpdateClick(): Promise<void> {
         </NButton>
       </NSpace>
     </div>
-    <div v-if="platform !== 'darwin'" class="overlay-space" aria-hidden="true" />
+    <div v-if="platform !== 'darwin'" class="window-controls no-drag">
+      <button type="button" class="wc-btn" :title="t.minimize" :aria-label="t.minimize" @click="onMinimize">
+        <span class="wc-icon minimize-icon" />
+      </button>
+      <button type="button" class="wc-btn" :title="isMaximized ? t.restore : t.maximize" :aria-label="isMaximized ? t.restore : t.maximize" @click="onMaximize">
+        <span class="wc-icon" :class="isMaximized ? 'restore-icon' : 'maximize-icon'" />
+      </button>
+      <button type="button" class="wc-btn close-btn" :title="t.close" :aria-label="t.close" @click="onClose">
+        <span class="wc-icon close-icon" />
+      </button>
+    </div>
   </header>
   <UpdateCard />
   <AppearanceSettings :open="appearanceOpen" @close="appearanceOpen = false" />
@@ -283,6 +319,8 @@ async function onUpdateClick(): Promise<void> {
   user-select: none;
   flex-shrink: 0;
   box-shadow: 0 1px 0 color-mix(in srgb, var(--bg-elevated) 40%, transparent);
+  /* Whole bar is draggable; interactive children use .no-drag. */
+  -webkit-app-region: drag;
 }
 
 .drag {
@@ -364,8 +402,106 @@ async function onUpdateClick(): Promise<void> {
   pointer-events: none;
 }
 
-.overlay-space {
-  width: 138px;
+.window-controls {
+  display: flex;
+  align-items: center;
   flex-shrink: 0;
+  height: 100%;
+}
+
+.wc-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 46px;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--fg-muted);
+  cursor: pointer;
+  -webkit-app-region: no-drag;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+
+.wc-btn:hover {
+  background: var(--bg-hover, rgba(127, 127, 127, 0.1));
+  color: var(--fg-strong);
+}
+
+.wc-btn.close-btn:hover {
+  background: #e5484d;
+  color: #fff;
+}
+
+.wc-icon {
+  display: block;
+  width: 10px;
+  height: 10px;
+  position: relative;
+}
+
+/* Minimize: horizontal line */
+.minimize-icon::after {
+  content: "";
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: currentColor;
+}
+
+/* Maximize: square outline */
+.maximize-icon::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border: 1px solid currentColor;
+  border-radius: 1px;
+}
+
+/* Restore: overlapping squares */
+.restore-icon::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 7px;
+  height: 7px;
+  border: 1px solid currentColor;
+  border-radius: 1px;
+}
+
+.restore-icon::after {
+  content: "";
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  width: 7px;
+  height: 7px;
+  border: 1px solid currentColor;
+  border-radius: 1px;
+}
+
+/* Close: X shape */
+.close-icon::before,
+.close-icon::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: currentColor;
+}
+
+.close-icon::before {
+  transform: translateY(-50%) rotate(45deg);
+}
+
+.close-icon::after {
+  transform: translateY(-50%) rotate(-45deg);
 }
 </style>

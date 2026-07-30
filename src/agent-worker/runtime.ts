@@ -16,6 +16,7 @@ import { toPromptImages } from "../shared/protocol";
 import { truncateHtmlSnippet } from "../shared/html-snippet";
 import type { WorkerInbound, WorkerOutbound } from "../shared/agent-worker-messages";
 import {
+  BUILTIN_BROWSER_SELECTION_HEADER,
   isBuiltinBrowserToolName,
   resolveBuiltinBrowserSkillDir,
   shouldEnableBuiltinBrowserTools,
@@ -154,7 +155,7 @@ function formatCitationsBlock(citations: ElementCitation[]): string {
       return `### Citation ${index + 1}\n- URL: ${c.url}\n- Selector: \`${c.selector}\`\n- Text: ${c.text}${shot}\n\n\`\`\`html\n${truncateHtmlSnippet(c.htmlSnippet)}\n\`\`\``;
     })
     .join("\n\n");
-  return `Context from browser selection:\n\n${body}\n\n---\n\n`;
+  return `${BUILTIN_BROWSER_SELECTION_HEADER}\n\nContext from browser selection:\n\n${body}\n\n---\n\n`;
 }
 
 async function initSession(
