@@ -27,18 +27,25 @@ const emit = defineEmits<{
 }>();
 
 const manuallyOpen = ref<boolean | null>(null);
+const wasStreaming = ref(false);
 
 const anyStreaming = computed(() => props.tools.some((m) => m.streaming));
 const anyError = computed(() => props.tools.some((m) => m.isError && !m.streaming));
 
 const open = computed(() => {
   if (manuallyOpen.value !== null) return manuallyOpen.value;
-  // While tools are running, keep expanded so the latest call is visible.
-  return anyStreaming.value;
+  // While tools are running (and just after), keep expanded so the latest call is visible.
+  return wasStreaming.value || anyStreaming.value;
 });
 
-watch(anyStreaming, (streaming) => {
-  if (streaming) manuallyOpen.value = null;
+watch(anyStreaming, (streaming, prev) => {
+  if (streaming) {
+    manuallyOpen.value = null;
+    wasStreaming.value = true;
+  } else if (prev && !streaming) {
+    // Just finished — keep expanded so results are visible.
+    wasStreaming.value = true;
+  }
 });
 
 function toggle(): void {

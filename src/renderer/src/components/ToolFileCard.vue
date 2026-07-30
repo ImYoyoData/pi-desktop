@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from "vue";
+import { computed, ref, watch } from "vue";
 import { NButton, NIcon, NTag, NText } from "naive-ui";
 import { ChevronDownOutline, ChevronForwardOutline, DocumentTextOutline } from "@vicons/ionicons5";
 import type { FileToolCard } from "@renderer/utils/tool-diff";
@@ -17,7 +17,30 @@ const emit = defineEmits<{
   open: [path: string];
 }>();
 
-const open = ref(false);
+/** Auto-expand while streaming and after completion so the diff is visible. */
+const manuallyOpen = ref<boolean | null>(null);
+const wasStreaming = ref(false);
+const open = computed(() => {
+  if (manuallyOpen.value !== null) return manuallyOpen.value;
+  return wasStreaming.value || Boolean(props.streaming);
+});
+
+watch(
+  () => props.streaming,
+  (streaming, prev) => {
+    if (streaming) {
+      manuallyOpen.value = null;
+      wasStreaming.value = true;
+    } else if (prev && !streaming) {
+      // Just finished — keep expanded so the diff is visible.
+      wasStreaming.value = true;
+    }
+  },
+);
+
+function toggleOpen(): void {
+  manuallyOpen.value = !open.value;
+}
 
 const fileName = computed(() => {
   const p = props.card.path;
@@ -35,7 +58,7 @@ const actionLabel = computed(() => {
 
 <template>
   <div class="tool-file" :class="{ streaming }">
-    <button type="button" class="tool-file-head" @click="open = !open">
+    <button type="button" class="tool-file-head" @click="toggleOpen">
       <NIcon
         class="chev"
         :component="open ? ChevronDownOutline : ChevronForwardOutline"
@@ -155,7 +178,7 @@ const actionLabel = computed(() => {
   margin: 0;
   padding: 6px 8px 8px;
   border-top: 1px solid var(--border);
-  max-height: 280px;
+  max-height: 180px;
   overflow: auto;
   font-size: 11px;
   line-height: 1.45;

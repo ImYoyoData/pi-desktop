@@ -142,15 +142,7 @@ export function createMainWindow(): BrowserWindow {
     title: "Pi Desktop",
     ...(iconPath ? { icon: nativeImage.createFromPath(iconPath) } : {}),
     titleBarStyle: isMac ? "hiddenInset" : "hidden",
-    ...(isMac
-      ? { trafficLightPosition: { x: 14, y: 11 } }
-      : {
-          titleBarOverlay: {
-            color: "#f5f5f5",
-            symbolColor: "#6b7280",
-            height: 36,
-          },
-        }),
+    ...(isMac ? { trafficLightPosition: { x: 14, y: 11 } } : {}),
     webPreferences: {
       preload: join(__dirname, "../preload/index.js"),
       sandbox: false,
@@ -158,6 +150,17 @@ export function createMainWindow(): BrowserWindow {
       webviewTag: true,
       spellcheck: true,
     },
+  });
+
+  mainWindow.on("maximize", () => {
+    if (!mainWindow.isDestroyed()) {
+      mainWindow.webContents.send(IpcChannels.window.onMaximized);
+    }
+  });
+  mainWindow.on("unmaximize", () => {
+    if (!mainWindow.isDestroyed()) {
+      mainWindow.webContents.send(IpcChannels.window.onUnmaximized);
+    }
   });
 
   mainWindow.on("ready-to-show", () => {
