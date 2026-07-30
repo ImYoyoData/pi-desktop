@@ -161,47 +161,48 @@ jobs:
           tag_name: ${{ steps.ver.outputs.tag }}
           name: Pi Desktop ${{ steps.ver.outputs.tag }}
           draft: false
-          prerelease: true
+          prerelease: false
           generate_release_notes: true
           body: |
-            ## 主要更新（0.1.1 测试版）
+            ## 主要更新（0.1.2 正式版）
 
-            在 0.1.0 正式版之上，聚焦**长会话不卡顿**，且继续共用 Pi CLI 全局会话（`~/.pi/agent/sessions`），无独立会话库。
+            长会话性能与稳定性小版本。会话继续共用 Pi CLI（`~/.pi/agent/sessions`），无独立会话库。
 
-            ### 长会话性能
-            - **历史分页**：打开会话默认只加载最近约 30 条；上滑再拉更早一页（磁盘 jsonl 仍完整）
-            - **虚拟窗口收紧**：视口附近挂载约 32～48 条，减少首屏 DOM
-            - **思考块**：历史默认折叠；流式时自动展开
-            - **Tool 输出 prune**（OpenCode 风格）：发送前裁剪内存里的旧工具结果，保留约最近 40k tokens；不改磁盘历史
-            - **手动压缩上下文**：上下文用量弹层可一键压缩
+            ### 卡死修复
+            - 修复聊天 / 拖动滚动条时整应用冻结（sticky 虚拟窗口无限 remount、滚动扩窗风暴）
+            - follow-bottom 只挂最近窗口，不再被 sticky 撑爆
+            - 上滑加载更早历史时正确平移窗口，避免空白/错位
+            - Agent 运行中上滑阅读不再被强制拽回底部
 
-            ## What's New (0.1.1 prerelease)
+            ### 长会话性能（含 0.1.1）
+            - 历史分页（约 30 条/页）+ 虚拟窗口（约 32～48）
+            - 历史思考块默认折叠；流式自动展开
+            - Tool 输出内存 prune；手动压缩上下文
 
-            Performance follow-up on 0.1.0 for long chats. Sessions remain **shared with Pi CLI** (`~/.pi/agent/sessions`) — no separate app DB.
+            ## What's New (0.1.2 stable)
 
-            ### Long-session performance
-            - **Paged history** (~30 messages on open; scroll up for older)
-            - **Tighter virtual window** (~32–48 mounted rows)
-            - **Thinking collapsed** in history; expands while streaming
-            - **Tool-result prune** before turns (in-memory; jsonl untouched)
-            - **Manual context compact** from the usage popover
+            Stability patch for long chats. Sessions stay **shared with Pi CLI**.
 
-            ## 下载（每个系统/架构单独安装包）
-            - **Windows x64**: `Pi Desktop-*-win-x64-setup.exe`
-            - **Windows ARM64**: `Pi Desktop-*-win-arm64-setup.exe`
-            - **macOS Apple Silicon**: `Pi Desktop-*-mac-arm64.dmg`
-            - **macOS Intel**: `Pi Desktop-*-mac-x64.dmg`
+            ### Freeze fixes
+            - Fixed full-app freezes while chatting / dragging the scrollbar
+            - Capped follow-bottom mount window; sticky no longer remounts unbounded rows
+            - Correct window shift when loading older history
+            - Scrolling up during a run no longer yanks back to bottom
 
-            ## Downloads (one installer per OS / arch)
+            ### Long-session performance (includes 0.1.1)
+            - Paged history + virtual window
+            - Thinking collapsed in history; tool-result prune; manual compact
+
+            ## 下载 / Downloads
             - **Windows x64**: `Pi Desktop-*-win-x64-setup.exe`
             - **Windows ARM64**: `Pi Desktop-*-win-arm64-setup.exe`
             - **macOS Apple Silicon**: `Pi Desktop-*-mac-arm64.dmg`
             - **macOS Intel**: `Pi Desktop-*-mac-x64.dmg`
 
             ## 说明 / Notes
-            - 本版本为 **测试版（prerelease）**
+            - 本版本为 **正式稳定版**（非 prerelease）
             - macOS 未公证：首次打开可能需要右键 → 打开
-            - This is a **prerelease** build
+            - This is a **stable** release
             - macOS is unsigned/notarization off — first open may need right-click → Open
           files: upload/*
           fail_on_unmatched_files: false
