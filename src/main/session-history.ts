@@ -255,7 +255,11 @@ export async function readSessionHistoryPage(
   let end = total;
   if (beforeId) {
     const idx = all.findIndex((m) => m.id === beforeId);
-    if (idx <= 0) {
+    if (idx < 0) {
+      // Cursor not in file (stale UI id) — stop paging rather than looping forever.
+      return { messages: [], hasMore: false, total };
+    }
+    if (idx === 0) {
       return { messages: [], hasMore: false, total };
     }
     end = idx;
