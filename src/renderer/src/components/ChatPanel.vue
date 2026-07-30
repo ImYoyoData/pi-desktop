@@ -112,6 +112,8 @@ async function onNewAgent(): Promise<void> {
         :running="running"
         :retry-hint="chat.activeRetryHint"
         :history-loading="chat.historyLoading"
+        :history-has-more="chat.historyHasMore"
+        :history-loading-older="chat.historyLoadingOlder"
       />
       <!-- Permission blocks the tool; when both pending, show permission first. -->
       <PermissionStrip />

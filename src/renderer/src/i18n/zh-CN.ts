@@ -158,7 +158,10 @@ export const zh = {
   contextUsageSegSummarized: "已摘要对话",
   contextUsageSegConversation: "对话",
   contextUsageSegToolResults: "工具结果",
-  contextUsageHint: "分段为估算值；会话过短时无法手动压缩",
+  contextUsageHint:
+    "分段为估算值。发送前会先裁剪旧工具输出（保留约最近 40k tokens）；自动压缩仍是用量 > 窗口 − 16k（约 98%）。80% 可点下方手动压缩。",
+  contextUsageAutoCompact:
+    "自动压缩阈值：contextTokens > contextWindow − reserveTokens（默认 reserveTokens=16384）",
   closeRunningTitle: "有会话正在运行",
   closeRunningContent: (n: number) =>
     `当前有 ${n} 个会话仍在运行。强制关闭将先终止这些会话再退出。`,
@@ -339,6 +342,8 @@ export const zh = {
   asrWakeWordsSaved: "唤醒词已保存",
   asrWakeListenFail: "无法启动语音唤醒监听",
   loadingChatHistory: "正在加载聊天记录…",
+  loadingOlderHistory: "加载更早的消息…",
+  scrollForOlderHistory: "继续上滑加载更早记录",
   scrollToLatest: "回到最新",
   marketLoadMore: "加载更多",
   marketLoadingMore: "正在加载更多…",
