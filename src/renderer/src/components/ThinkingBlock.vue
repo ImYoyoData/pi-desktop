@@ -1,10 +1,10 @@
 <script setup lang="ts">
-import { ref } from "vue";
+import { nextTick, ref, watch } from "vue";
 import { NIcon } from "naive-ui";
 import { ChevronDownOutline, ChevronForwardOutline } from "@vicons/ionicons5";
 import { t } from "@renderer/i18n";
 
-defineProps<{
+const props = defineProps<{
   thinking: string;
   /** True while the model is still producing thinking (before answer text). */
   streaming?: boolean;
@@ -12,6 +12,39 @@ defineProps<{
 
 /** Expanded by default so thinking text is visible (Cursor-like). */
 const open = ref(true);
+const bodyRef = ref<HTMLElement | null>(null);
+/** Follow newest text unless the user scrolls up inside the card. */
+let stickToBottom = true;
+const NEAR_BOTTOM_PX = 48;
+
+function onBodyScroll(): void {
+  const el = bodyRef.value;
+  if (!el) return;
+  stickToBottom = el.scrollHeight - el.scrollTop - el.clientHeight < NEAR_BOTTOM_PX;
+}
+
+async function scrollBodyToLatest(): Promise<void> {
+  if (!open.value || !stickToBottom) return;
+  await nextTick();
+  const el = bodyRef.value;
+  if (!el) return;
+  el.scrollTop = el.scrollHeight;
+}
+
+watch(
+  () => props.streaming,
+  (streaming) => {
+    if (streaming) stickToBottom = true;
+  },
+);
+
+watch(
+  () => [props.thinking, props.streaming, open.value] as const,
+  () => {
+    if (!props.streaming) return;
+    void scrollBodyToLatest();
+  },
+);
 </script>
 
 <template>
@@ -25,7 +58,12 @@ const open = ref(true);
       <span class="label">{{ streaming ? t.thinkingStreaming : t.thinking }}</span>
       <span v-if="streaming" class="pulse" aria-hidden="true" />
     </button>
-    <div v-if="open && thinking" class="thinking-body">{{ thinking }}</div>
+    <div
+      v-if="open && thinking"
+      ref="bodyRef"
+      class="thinking-body"
+      @scroll="onBodyScroll"
+    >{{ thinking }}</div>
     <div v-else-if="open && streaming && !thinking" class="thinking-body muted">
       {{ t.thinkingStreaming }}
     </div>
@@ -98,7 +136,7 @@ const open = ref(true);
 .thinking-body {
   margin: 0;
   padding: 0 12px 10px 28px;
-  max-height: 320px;
+  max-height: 180px;
   overflow: auto;
   white-space: pre-wrap;
   word-break: break-word;

@@ -414,6 +414,77 @@ describe("reduceChatEvent", () => {
     });
   });
 
+  it("keeps partial thinking/text on abort and shows cancelled notice", () => {
+    let state = createChatState();
+    state = reduceChatEvent(state, {
+      type: "agent_event",
+      sessionId: "s",
+      event: {
+        type: "message_update",
+        message: {
+          role: "assistant",
+          content: [{ type: "thinking", thinking: "Analyzing…" }],
+        },
+        assistantMessageEvent: { type: "thinking_delta", delta: "" },
+      },
+    });
+    state = reduceChatEvent(state, {
+      type: "agent_event",
+      sessionId: "s",
+      event: {
+        type: "message_update",
+        message: {
+          role: "assistant",
+          content: [
+            { type: "thinking", thinking: "Analyzing…" },
+            { type: "text", text: "Partial answer" },
+          ],
+        },
+        assistantMessageEvent: { type: "text_delta", delta: "" },
+      },
+    });
+    expect(state.streamingMessage).toMatchObject({
+      role: "assistant",
+      thinking: "Analyzing…",
+      text: "Partial answer",
+    });
+
+    state = reduceChatEvent(state, {
+      type: "agent_event",
+      sessionId: "s",
+      event: {
+        type: "message_end",
+        message: {
+          role: "assistant",
+          id: "a-abort",
+          content: [
+            { type: "thinking", thinking: "Analyzing…" },
+            { type: "text", text: "Partial answer" },
+          ],
+          stopReason: "aborted",
+          errorMessage: "Aborted",
+        },
+      },
+    });
+
+    expect(state.streamingMessage).toBeNull();
+    expect(state.running).toBe(false);
+    const assistant = state.messages.find((m) => m.role === "assistant");
+    expect(assistant).toMatchObject({
+      role: "assistant",
+      thinking: "Analyzing…",
+      text: "Partial answer",
+      streaming: false,
+    });
+    expect(state.messages.at(-1)).toMatchObject({
+      role: "error",
+      variant: "cancelled",
+    });
+    expect(String((state.messages.at(-1) as { text: string }).text)).toMatch(
+      /已停止|stopped/i,
+    );
+  });
+
   it("does not set pendingAskUser from ask_user tool_execution_start (IPC owns the strip)", () => {
     let state = createChatState();
     state = reduceChatEvent(state, {
