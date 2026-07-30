@@ -160,6 +160,19 @@ async function save(): Promise<void> {
   }
 }
 
+async function commitCustom(payload: {
+  modelsText: string;
+  apiKeys?: Record<string, string>;
+}): Promise<void> {
+  modelsText.value = payload.modelsText;
+  if (payload.apiKeys) {
+    for (const [id, key] of Object.entries(payload.apiKeys)) {
+      if (key?.trim()) apiKeys.value[id] = key.trim();
+    }
+  }
+  await save();
+}
+
 async function clearKey(): Promise<void> {
   if (!selectedProvider.value) return;
   try {
@@ -317,6 +330,8 @@ function goCustomPanel(): void {
             <CustomModelsPanel
               v-model:models-text="modelsText"
               v-model:start-add="customStartAdd"
+              :saving="saving"
+              @commit="commitCustom"
             />
           </NTabPane>
 

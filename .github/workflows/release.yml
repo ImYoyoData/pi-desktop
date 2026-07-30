@@ -164,23 +164,19 @@ jobs:
           prerelease: true
           generate_release_notes: true
           body: |
-            ## 主要更新（0.0.21 测试版）
-            - **写入/编辑工具**：执行中自动展开，并实时预览 diff
-            - **Bash 后台**：启发式识别长任务；支持 `# pi-desktop:background`；Win11 用 PowerShell CIM 查子进程
-            - **Running 面板**：输出更实时（合并 IPC + 选中刷新）
-            - **TTS**：边合成边播放（分句流水线）
-            - **删除确认**：对话框 loading，失败不关窗
-            - **文件预览**：删除后保留编辑器缓存，顶部提示
-            - **其它**：亮色终端 ANSI 白色可读性；ask_user 更紧凑；安全设置 IPC 纯对象 clone；录音条图标尺寸微调
+            ## 主要更新（0.0.22 测试版）
+            - **自定义模型（对齐官方 Pi）**：远程 Key 写入 `auth.json`；本地占位 / `$ENV` 留在 `models.json`
+            - **一键保存生效**：自定义面板「保存并生效」直接写盘并刷新，不再假「应用」
+            - **预设**：LongCat / LongCat Anthropic / Ollama / LM Studio / vLLM / Google AI Studio / OpenAI 兼容
+            - **拉取模型**：`GET {base}/models`（Ollama 回退 `/api/tags`），按 id 合并；支持上下文/最大输出/图片
+            - **安全合并**：GUI 保存不会抹掉手写的 `headers` / `cost` / `thinkingLevelMap` 等字段
 
-            ## What's New (0.0.21 prerelease)
-            - **Write/edit tools**: auto-expand while running with live diff preview
-            - **Background bash**: heuristics + `# pi-desktop:background`; Win11 CIM child-process lookup
-            - **Running tab**: snappier live output
-            - **TTS**: chunked synthesize-and-play pipeline
-            - **Delete dialogs**: loading state; keep open on failure
-            - **Preview**: keep editor cache after file delete with a top notice
-            - **Also**: light-theme terminal ANSI white; compact ask_user; security settings IPC clone; voice bar icon sizing
+            ## What's New (0.0.22 prerelease)
+            - **Custom models (Pi-aligned)**: remote keys → `auth.json`; local placeholders / `$ENV` stay in `models.json`
+            - **One-click save**: Custom panel Save writes disk + reloads (no fake Apply)
+            - **Presets**: LongCat, LongCat Anthropic, Ollama, LM Studio, vLLM, Google AI Studio, OpenAI-compatible
+            - **Fetch models**: `GET {base}/models` (Ollama `/api/tags` fallback), merge by id; context/max/vision fields
+            - **Safe merge**: GUI save keeps hand-edited `headers` / `cost` / `thinkingLevelMap`, etc.
 
             ## 下载（每个系统/架构单独安装包）
             - **Windows x64**: `Pi Desktop-*-win-x64-setup.exe`
