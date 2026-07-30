@@ -18,6 +18,18 @@ export function isComposerAgentMode(value: unknown): value is ComposerAgentMode 
   return value === "agent" || value === "ask" || value === "plan" || value === "task";
 }
 
+/**
+ * Remove the injected mode marker + instructions from user-visible message text.
+ * Agent still receives the full preamble; the chat bubble should not.
+ */
+export function stripComposerModePreamble(text: string): string {
+  const raw = text ?? "";
+  if (!raw.startsWith(COMPOSER_MODE_MARKER_PREFIX)) return raw;
+  const sep = raw.indexOf("\n\n");
+  if (sep < 0) return "";
+  return raw.slice(sep + 2);
+}
+
 export function composerModePreamble(mode: ComposerAgentMode): string {
   switch (mode) {
     case "agent":

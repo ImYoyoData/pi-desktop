@@ -158,22 +158,19 @@ function parseLineRangeNotice(text: string): {
   return { startLine: null, linesRead: null, totalLines: null };
 }
 
-function previewWriteContent(content: string, path: string | null, maxLines = 40): string {
+function previewWriteContent(content: string, path: string | null): string {
   const lines = content.replace(/\r\n/g, "\n").split("\n");
   // Trailing empty line from final newline is normal for files — keep it in the count
   // but present as a pure addition diff (new file / full rewrite).
+  // Full content: the tool card body scrolls and sticks to the latest lines.
   const total = lines.length;
-  const slice = lines.slice(0, maxLines);
   const fileLabel = path ? path.replace(/\\/g, "/") : "file";
   const header = [
     `--- /dev/null`,
     `+++ b/${fileLabel}`,
     `@@ -0,0 +1,${total} @@`,
   ];
-  const body = slice.map((l) => `+${l}`).join("\n");
-  if (total > maxLines) {
-    return `${header.join("\n")}\n${body}\n… (${total - maxLines} more lines)`;
-  }
+  const body = lines.map((l) => `+${l}`).join("\n");
   return `${header.join("\n")}\n${body}`;
 }
 

@@ -1,5 +1,6 @@
 import fs from "node:fs/promises";
 import type { SessionHistoryMessage } from "../shared/protocol";
+import { stripComposerModePreamble } from "../shared/composer-modes";
 
 type ParsedEntry = {
   id: string;
@@ -124,7 +125,7 @@ export async function readSessionHistoryMessages(filePath: string): Promise<Sess
     }
     const role = entry.message.role;
     if (role === "user") {
-      const text = textFromAgentMessage(entry.message);
+      const text = stripComposerModePreamble(textFromAgentMessage(entry.message));
       if (text) {
         messages.push({ id: entry.id, role: "user", text });
       }

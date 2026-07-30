@@ -5,6 +5,9 @@ import type { ElementCitation } from "./protocol";
 /** Tool name prefix for Pi Desktop embedded-browser automation. */
 export const BUILTIN_BROWSER_TOOL_PREFIX = "browser_";
 
+/** Leading header injected with element/region selection context for the agent. */
+export const BUILTIN_BROWSER_SELECTION_HEADER = "# 内置浏览器 (Built-in browser)";
+
 export function isBuiltinBrowserToolName(name: string): boolean {
   return name.startsWith(BUILTIN_BROWSER_TOOL_PREFIX);
 }
@@ -25,6 +28,7 @@ export function shouldEnableBuiltinBrowserTools(
   // Skill expanded into the prompt, or selection context block.
   if (
     /Context from browser selection:/i.test(text) ||
+    /#\s*内置浏览器/i.test(text) ||
     /skill[:\s]+(?:pi-desktop-)?builtin-browser\b/i.test(text) ||
     /# Built-in browser \(Pi Desktop\)/i.test(text) ||
     /Operate Pi Desktop's embedded right-pane browser/i.test(text)
