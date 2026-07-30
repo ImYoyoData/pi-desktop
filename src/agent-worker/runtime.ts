@@ -42,6 +42,7 @@ import { commandShouldStartBackground } from "../shared/bash-background";
 import { createTrackedBashOperations } from "./bash-run-tracker";
 import { createBrowserToolDefinitions } from "./browser-tools";
 import { readContextUsage } from "./context-usage";
+import { pruneOldToolResults } from "./tool-result-prune";
 import { createDesktopExtensionUIContext } from "./extension-ui-context";
 import { handleRpcResponse, rpcToMain, setRpcWorkspaceRoot } from "./main-rpc";
 import { createPermissionGate } from "./permission-gate";
@@ -364,6 +365,21 @@ function emitContextUsage(active: AgentSession): void {
   });
 }
 
+/**
+ * OpenCode-style prune: shrink old tool results in the live agent message list
+ * before the next model turn (or before LLM compact). Disk jsonl is unchanged.
+ */
+function pruneAgentToolResults(active: AgentSession): void {
+  try {
+    const result = pruneOldToolResults(active.messages as Parameters<typeof pruneOldToolResults>[0]);
+    if (result.changed) {
+      emitContextUsage(active);
+    }
+  } catch {
+    // prune is best-effort — never block the turn
+  }
+}
+
 export async function handleWorkerMessage(msg: WorkerInbound): Promise<void> {
   if (msg.kind === "ping") {
     post({ kind: "pong" });
@@ -431,6 +447,7 @@ async function runCommand(id: string, command: AgentCommand): Promise<void> {
         message = formatCitationsBlock(command.citations) + message;
       }
       applyBuiltinBrowserToolGate(active, message, command.citations);
+      pruneAgentToolResults(active);
       const images = normalizePromptImages(command.images);
       await active.prompt(message, images?.length ? { images } : undefined);
       post({ kind: "result", id, data: { promptDone: true } });
@@ -439,6 +456,7 @@ async function runCommand(id: string, command: AgentCommand): Promise<void> {
     case "steer": {
       const active = requireSession();
       applyBuiltinBrowserToolGate(active, command.message);
+      pruneAgentToolResults(active);
       await active.steer(command.message);
       post({ kind: "result", id, data: { ok: true } });
       return;
@@ -446,6 +464,7 @@ async function runCommand(id: string, command: AgentCommand): Promise<void> {
     case "follow_up": {
       const active = requireSession();
       applyBuiltinBrowserToolGate(active, command.message);
+      pruneAgentToolResults(active);
       await active.followUp(command.message);
       post({ kind: "result", id, data: { ok: true } });
       return;
@@ -479,6 +498,8 @@ async function runCommand(id: string, command: AgentCommand): Promise<void> {
       return;
     case "compact": {
       const active = requireSession();
+      // Light prune first so the summarizer sees less tool noise / fewer tokens.
+      pruneAgentToolResults(active);
       await active.compact(command.customInstructions);
       emitContextUsage(active);
       post({ kind: "result", id, data: { ok: true } });

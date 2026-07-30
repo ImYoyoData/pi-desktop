@@ -1,6 +1,6 @@
 import { contextBridge, ipcRenderer, webUtils } from "electron";
 import { electronAPI } from "@electron-toolkit/preload";
-import type { AgentCommand, AgentEvent, ElementCitation, SessionHistoryMessage, SessionStatus, SessionSummary } from "../shared/protocol";
+import type { AgentCommand, AgentEvent, ElementCitation, SessionHistoryMessage, SessionHistoryPage, SessionHistoryQuery, SessionStatus, SessionSummary } from "../shared/protocol";
 import { IpcChannels } from "../shared/protocol";
 import type { AgentRunEvent, AgentRunSnapshot } from "../shared/agent-runs";
 import type { ModelsGetResult, ModelsSetPayload } from "../shared/models-settings";
@@ -46,7 +46,7 @@ export type AppInfo = {
 
 export type { UpdateProgress };
 
-export type { AgentCommand, AgentEvent, ElementCitation, SessionHistoryMessage, SessionStatus, SessionSummary };
+export type { AgentCommand, AgentEvent, ElementCitation, SessionHistoryMessage, SessionHistoryPage, SessionHistoryQuery, SessionStatus, SessionSummary };
 
 const api = {
   window: {
@@ -122,8 +122,8 @@ const api = {
       ipcRenderer.invoke(IpcChannels.sessions.delete, sessionId, cwd) as Promise<void>,
     rename: (sessionId: string, cwd: string, name: string) =>
       ipcRenderer.invoke(IpcChannels.sessions.rename, sessionId, cwd, name) as Promise<SessionSummary | null>,
-    history: (filePath: string) =>
-      ipcRenderer.invoke(IpcChannels.sessions.history, filePath) as Promise<SessionHistoryMessage[]>,
+    history: (filePath: string, query?: SessionHistoryQuery) =>
+      ipcRenderer.invoke(IpcChannels.sessions.history, filePath, query) as Promise<SessionHistoryPage>,
     clearContext: (sessionId: string, cwd: string) =>
       ipcRenderer.invoke(IpcChannels.sessions.clearContext, sessionId, cwd) as Promise<void>,
     status: (sessionId: string, cwd: string) =>

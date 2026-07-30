@@ -1184,6 +1184,23 @@ const contextTokensPairLabel = computed(() => {
   return t.contextUsageTokensPair(used, formatTokens(usage.contextWindow));
 });
 
+const compactBusy = ref(false);
+
+async function onCompactContext(): Promise<void> {
+  const idSession = sessionId.value;
+  if (!idSession || compactBusy.value) return;
+  compactBusy.value = true;
+  try {
+    await sessions.sendCommand(idSession, { type: "compact" });
+    message.success(t.compactDone);
+    closeContextPopover();
+  } catch (err) {
+    message.error(err instanceof Error ? err.message : String(err));
+  } finally {
+    compactBusy.value = false;
+  }
+}
+
 async function openContextPopover(): Promise<void> {
   ctxPopoverShow.value = !ctxPopoverShow.value;
   if (!ctxPopoverShow.value) return;
@@ -2043,6 +2060,18 @@ watch(
             </div>
           </div>
           <div class="ctx-pop-hint">{{ t.contextUsageHint }}</div>
+          <NButton
+            size="small"
+            type="primary"
+            secondary
+            block
+            class="ctx-compact-btn"
+            :disabled="!sessionId || running || compactBusy"
+            :loading="compactBusy"
+            @click="onCompactContext"
+          >
+            {{ t.compactContext }}
+          </NButton>
         </div>
       </NPopover>
     </div>
@@ -2706,6 +2735,10 @@ watch(
   font-size: 11px;
   color: var(--fg-faint);
   line-height: 1.35;
+}
+
+.ctx-compact-btn {
+  margin-top: 10px;
 }
 
 @media (max-width: 900px) {

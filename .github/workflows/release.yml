@@ -161,57 +161,30 @@ jobs:
           tag_name: ${{ steps.ver.outputs.tag }}
           name: Pi Desktop ${{ steps.ver.outputs.tag }}
           draft: false
-          prerelease: false
+          prerelease: true
           generate_release_notes: true
           body: |
-            ## 主要更新（0.1.0 正式版）
+            ## 主要更新（0.1.1 测试版）
 
-            首个正式稳定版，集合近期 Agent 工作区能力。
+            在 0.1.0 正式版之上，聚焦**长会话不卡顿**，且继续共用 Pi CLI 全局会话（`~/.pi/agent/sessions`），无独立会话库。
 
-            ### 对话与工具
-            - **思考流**：真实 thinking 文本；流式时卡片贴底最新内容；展开高度更紧凑
-            - **写入 / 编辑**：运行中自动展开、完整 diff 预览，并 stick 到底部最新行
-            - **读取**：默认折叠，不抢视线
-            - **中断保留**：停止生成时保留已输出的思考与正文；取消提示改为 Cursor 风格（「已停止生成」+ 轻量重试）
-            - **工具组**：连续读写/命令可折叠汇总
-            - **Bash 后台**：启发式 / `# pi-desktop:background`；Running 页实时输出更跟手
+            ### 长会话性能
+            - **历史分页**：打开会话默认只加载最近约 30 条；上滑再拉更早一页（磁盘 jsonl 仍完整）
+            - **虚拟窗口收紧**：视口附近挂载约 32～48 条，减少首屏 DOM
+            - **思考块**：历史默认折叠；流式时自动展开
+            - **Tool 输出 prune**（OpenCode 风格）：发送前裁剪内存里的旧工具结果，保留约最近 40k tokens；不改磁盘历史
+            - **手动压缩上下文**：上下文用量弹层可一键压缩
 
-            ### 模型与 Composer
-            - **自定义模型（对齐官方 Pi）**：远程 Key → `auth.json`；占位 / `$ENV` 留在 `models.json`
-            - **一键保存生效** + 预设：LongCat / Ollama / LM Studio / vLLM / Google AI Studio / OpenAI 兼容等
-            - **拉取远程模型列表**并安全 merge（不抹掉手写 headers / cost / thinkingLevelMap）
-            - **Composer 模式**（Agent / Ask / Plan / Task）：注入给模型，**用户气泡不再显示 mode 标签 / `[pi-desktop mode:…]` 前缀**
+            ## What's New (0.1.1 prerelease)
 
-            ### 内置浏览器与工作区
-            - 选元素上下文增加 **`# 内置浏览器`** 头，便于模型识别并启用 `browser_*`
-            - 文件树 / 预览 / Changes（含冲突解决）/ 终端 / TTS 语音等既有能力一并纳入正式版
+            Performance follow-up on 0.1.0 for long chats. Sessions remain **shared with Pi CLI** (`~/.pi/agent/sessions`) — no separate app DB.
 
-            ### 窗口与体验
-            - **Windows 标题栏可拖拽**（去掉 titleBarOverlay 拦截；整条自定义栏可拖，按钮 no-drag）
-            - 亮色终端、紧凑 ask_user、预览删文件缓存提示等体验修复
-
-            ## What's New (0.1.0 stable)
-
-            First stable formal release — rolls up the Agent Workspace feature set.
-
-            ### Chat & tools
-            - **Thinking stream**: real text; stick-to-bottom while streaming; compact max height
-            - **Write / edit**: auto-expand with full live diff; stick to latest lines
-            - **Read**: collapsed by default
-            - **Abort keeps content**: partial thinking/answer preserved; Cursor-like “Generation stopped” + light Retry
-            - **Tool groups** + **background bash** + snappier Running output
-
-            ### Models & composer
-            - **Custom models (Pi-aligned)**: keys in `auth.json`; safe merge into `models.json`
-            - Presets + remote model discover
-            - Composer modes for the model — **no mode chips / `[pi-desktop mode:…]` on user bubbles**
-
-            ### Built-in browser & workspace
-            - Selection context starts with **`# 内置浏览器 (Built-in browser)`**
-            - Files / Preview / Changes (conflict resolve) / Terminal / TTS included
-
-            ### Window
-            - **Draggable Windows title bar** (no titleBarOverlay hit-test block)
+            ### Long-session performance
+            - **Paged history** (~30 messages on open; scroll up for older)
+            - **Tighter virtual window** (~32–48 mounted rows)
+            - **Thinking collapsed** in history; expands while streaming
+            - **Tool-result prune** before turns (in-memory; jsonl untouched)
+            - **Manual context compact** from the usage popover
 
             ## 下载（每个系统/架构单独安装包）
             - **Windows x64**: `Pi Desktop-*-win-x64-setup.exe`
@@ -219,20 +192,16 @@ jobs:
             - **macOS Apple Silicon**: `Pi Desktop-*-mac-arm64.dmg`
             - **macOS Intel**: `Pi Desktop-*-mac-x64.dmg`
 
-            仅分架构独立包，无 universal / fat 安装包。
-
             ## Downloads (one installer per OS / arch)
             - **Windows x64**: `Pi Desktop-*-win-x64-setup.exe`
             - **Windows ARM64**: `Pi Desktop-*-win-arm64-setup.exe`
             - **macOS Apple Silicon**: `Pi Desktop-*-mac-arm64.dmg`
             - **macOS Intel**: `Pi Desktop-*-mac-x64.dmg`
 
-            Separate packages only — no universal / fat installer.
-
             ## 说明 / Notes
-            - 本版本为 **正式稳定版**（非 prerelease）
+            - 本版本为 **测试版（prerelease）**
             - macOS 未公证：首次打开可能需要右键 → 打开
-            - This is a **stable** release (not a prerelease)
+            - This is a **prerelease** build
             - macOS is unsigned/notarization off — first open may need right-click → Open
           files: upload/*
           fail_on_unmatched_files: false

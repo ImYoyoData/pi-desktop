@@ -2,7 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { clearSessionConversation, readSessionHistoryMessages } from "../../src/main/session-history";
+import { clearSessionConversation, readSessionHistoryMessages, readSessionHistoryPage } from "../../src/main/session-history";
 
 function writeJsonl(filePath: string, lines: unknown[]): void {
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
@@ -220,5 +220,59 @@ describe("session-history", () => {
     expect(raw).toContain('"type":"session_info"');
     expect(raw).not.toContain('"type":"message"');
     expect(raw).not.toContain('"type":"compaction"');
+  });
+
+  it("pages history: tail first, then older beforeId", async () => {
+    const filePath = path.join(tempRoot, "session-page.jsonl");
+    const lines: unknown[] = [
+      {
+        type: "session",
+        version: 3,
+        id: "session-p",
+        timestamp: "2026-01-15T12:00:00.000Z",
+        cwd: tempRoot,
+      },
+    ];
+    for (let i = 1; i <= 12; i++) {
+      lines.push({
+        type: "message",
+        id: `u${i}`,
+        parentId: i === 1 ? null : `a${i - 1}`,
+        timestamp: `2026-01-15T12:00:${String(i).padStart(2, "0")}.000Z`,
+        message: { role: "user", content: `user-${i}` },
+      });
+      lines.push({
+        type: "message",
+        id: `a${i}`,
+        parentId: `u${i}`,
+        timestamp: `2026-01-15T12:00:${String(i).padStart(2, "0")}.500Z`,
+        message: {
+          role: "assistant",
+          content: [{ type: "text", text: `assistant-${i}` }],
+        },
+      });
+    }
+    writeJsonl(filePath, lines);
+
+    const tail = await readSessionHistoryPage(filePath, { limit: 5 });
+    expect(tail.total).toBe(24);
+    expect(tail.messages).toHaveLength(5);
+    expect(tail.hasMore).toBe(true);
+    expect(tail.messages.map((m) => m.id)).toEqual(["a10", "u11", "a11", "u12", "a12"]);
+
+    const older = await readSessionHistoryPage(filePath, {
+      limit: 5,
+      beforeId: tail.messages[0]!.id,
+    });
+    expect(older.messages).toHaveLength(5);
+    expect(older.hasMore).toBe(true);
+    expect(older.messages.map((m) => m.id)).toEqual(["u8", "a8", "u9", "a9", "u10"]);
+
+    const head = await readSessionHistoryPage(filePath, {
+      limit: 50,
+      beforeId: "u1",
+    });
+    expect(head.messages).toEqual([]);
+    expect(head.hasMore).toBe(false);
   });
 });
