@@ -30,6 +30,10 @@ import { usePreviewStore } from "@renderer/stores/preview";
 import { useRightTabsStore } from "@renderer/stores/right-tabs";
 import { t } from "@renderer/i18n";
 import { ASK_USER_TOOL_NAME } from "../../../shared/ask-user";
+import {
+  isComposerAgentMode,
+  stripComposerModePreamble,
+} from "../../../shared/composer-modes";
 
 /**
  * Sliding virtual window: mount a generous range around the viewport so
@@ -731,6 +735,33 @@ watch(
   },
 );
 
+/** Thinking / tool body growth often keeps the same message id — still pin to bottom. */
+watch(
+  () => {
+    const s = props.streaming;
+    if (!s) return "";
+    if (s.role === "assistant") {
+      return `a:${s.thinking?.length ?? 0}:${s.text?.length ?? 0}`;
+    }
+    if (s.role === "tool") {
+      try {
+        const argsLen = s.args != null ? JSON.stringify(s.args).length : 0;
+        const resultLen = s.result != null ? JSON.stringify(s.result).length : 0;
+        return `t:${s.id}:${argsLen}:${resultLen}`;
+      } catch {
+        return `t:${s.id}`;
+      }
+    }
+    return s.id;
+  },
+  async () => {
+    if (!followBottom || Date.now() < suppressFollowBottomUntil) return;
+    if (!props.running && !props.streaming) return;
+    await nextTick();
+    jumpToBottomInstant();
+  },
+);
+
 onMounted(() => {
   const sc = scroller.value;
   sc?.addEventListener("scroll", onScrollerScroll, { passive: true });
@@ -749,6 +780,28 @@ onBeforeUnmount(() => {
 
 function toolCard(msg: Extract<ChatMessage, { role: "tool" }>) {
   return parseToolCard(msg.toolName, msg.args, msg.result, { isError: msg.isError });
+}
+
+function isModeTagKind(kind: string | undefined): boolean {
+  return isComposerAgentMode(kind);
+}
+
+function visibleUserTags(
+  tags:
+    | {
+        url: string;
+        host: string;
+        label: string;
+        content?: string;
+        kind?: "file" | "url" | "element" | "agent" | "plan" | "ask" | "task";
+      }[]
+    | undefined,
+) {
+  return (tags ?? []).filter((tag) => !isModeTagKind(tag.kind));
+}
+
+function displayUserText(text: string): string {
+  return stripComposerModePreamble(text);
 }
 
 function openPreview(filePath: string): void {
@@ -820,19 +873,12 @@ function onEditUser(msg: Extract<ChatMessage, { role: "user" }>): void {
   if (!edited) return;
   if (sendQueue.editingId) sendQueue.setEditing(id, null);
   composer.clear();
-  composer.draft = edited.text;
+  composer.draft = displayUserText(edited.text);
   for (const img of edited.images ?? []) {
     composer.addImageFromDataUrl(img.dataUrl);
   }
-  for (const tag of edited.elementTags ?? []) {
-    if (
-      tag.kind === "agent" ||
-      tag.kind === "plan" ||
-      tag.kind === "ask" ||
-      tag.kind === "task"
-    ) {
-      composer.setMode(tag.kind);
-    } else if (tag.kind === "file") {
+  for (const tag of visibleUserTags(edited.elementTags)) {
+    if (tag.kind === "file") {
       composer.addFileTag(tag.content || tag.label || tag.url);
     } else if (tag.kind === "url" || (!tag.kind && /^https?:\/\//i.test(tag.url))) {
       composer.addUrlTag(tag.url);
@@ -949,33 +995,16 @@ function onRevertUser(msg: Extract<ChatMessage, { role: "user" }>): void {
         <template v-if="msg.role === 'user'">
           <div class="bubble-wrap user">
             <div class="bubble user">
-              <div v-if="msg.elementTags?.length" class="user-tags">
+              <div v-if="visibleUserTags(msg.elementTags).length" class="user-tags">
                 <NTag
-                  v-for="(tag, idx) in msg.elementTags"
+                  v-for="(tag, idx) in visibleUserTags(msg.elementTags)"
                   :key="`${msg.id}-tag-${idx}`"
-                  :type="
-                    tag.kind === 'agent' ||
-                    tag.kind === 'plan' ||
-                    tag.kind === 'ask' ||
-                    tag.kind === 'task'
-                      ? 'warning'
-                      : 'info'
-                  "
+                  type="info"
                   size="small"
                   round
                   class="user-tag"
                   :class="{
                     'user-tag-file': tag.kind === 'file',
-                    'user-tag-mode':
-                      tag.kind === 'agent' ||
-                      tag.kind === 'plan' ||
-                      tag.kind === 'ask' ||
-                      tag.kind === 'task',
-                    [`user-tag-mode-${tag.kind}`]:
-                      tag.kind === 'agent' ||
-                      tag.kind === 'plan' ||
-                      tag.kind === 'ask' ||
-                      tag.kind === 'task',
                   }"
                   :title="tag.url || tag.label"
                 >
@@ -992,7 +1021,7 @@ function onRevertUser(msg: Extract<ChatMessage, { role: "user" }>): void {
                   object-fit="cover"
                 />
               </div>
-              <div v-if="msg.text" class="user-plain">{{ msg.text }}</div>
+              <div v-if="displayUserText(msg.text)" class="user-plain">{{ displayUserText(msg.text) }}</div>
               <!-- Cursor-style: revert lives inside the card, bottom-right -->
               <div
                 v-if="canRevertUser(msg) || isRevertedUser(msg)"
@@ -1017,7 +1046,7 @@ function onRevertUser(msg: Extract<ChatMessage, { role: "user" }>): void {
             <div v-if="!running" class="actions user-actions">
               <NTooltip>
                 <template #trigger>
-                  <NButton quaternary circle size="tiny" @click="copyText(msg.text)">
+                  <NButton quaternary circle size="tiny" @click="copyText(displayUserText(msg.text))">
                     <template #icon>
                       <NIcon :component="CopyOutline" />
                     </template>
@@ -1061,7 +1090,10 @@ function onRevertUser(msg: Extract<ChatMessage, { role: "user" }>): void {
             v-if="msg.text || msg.thinking || !msg.streaming"
             class="bubble-wrap assistant"
           >
-            <div class="bubble assistant">
+            <div
+              class="bubble assistant"
+              :class="{ 'think-bottom': msg.streaming && msg.thinking && !msg.text }"
+            >
               <ThinkingBlock
                 v-if="msg.thinking || (msg.streaming && !msg.text)"
                 :thinking="msg.thinking ?? ''"
@@ -1133,13 +1165,23 @@ function onRevertUser(msg: Extract<ChatMessage, { role: "user" }>): void {
         </template>
 
         <template v-else-if="msg.role === 'error'">
-          <div class="bubble-wrap error-wrap">
-            <div class="bubble error">{{ msg.text }}</div>
+          <div
+            class="bubble-wrap"
+            :class="msg.variant === 'cancelled' ? 'cancelled-wrap' : 'error-wrap'"
+          >
+            <div
+              class="bubble"
+              :class="msg.variant === 'cancelled' ? 'cancelled' : 'error'"
+            >
+              {{ msg.text }}
+            </div>
             <NButton
               size="tiny"
-              type="primary"
-              secondary
+              :quaternary="msg.variant === 'cancelled'"
+              :secondary="msg.variant !== 'cancelled'"
+              :type="msg.variant === 'cancelled' ? 'default' : 'primary'"
               :disabled="running"
+              class="error-retry-btn"
               @click="onRetryError(msg)"
             >
               <template #icon>
@@ -1183,33 +1225,16 @@ function onRevertUser(msg: Extract<ChatMessage, { role: "user" }>): void {
       @mouseleave="onStickyUserLeave"
     >
       <div class="sticky-pin-body bubble user">
-        <div v-if="stickyPinMessage.elementTags?.length" class="user-tags">
+        <div v-if="visibleUserTags(stickyPinMessage.elementTags).length" class="user-tags">
           <NTag
-            v-for="(tag, idx) in stickyPinMessage.elementTags"
+            v-for="(tag, idx) in visibleUserTags(stickyPinMessage.elementTags)"
             :key="`pin-tag-${idx}`"
-            :type="
-              tag.kind === 'agent' ||
-              tag.kind === 'plan' ||
-              tag.kind === 'ask' ||
-              tag.kind === 'task'
-                ? 'warning'
-                : 'info'
-            "
+            type="info"
             size="small"
             round
             class="user-tag"
             :class="{
               'user-tag-file': tag.kind === 'file',
-              'user-tag-mode':
-                tag.kind === 'agent' ||
-                tag.kind === 'plan' ||
-                tag.kind === 'ask' ||
-                tag.kind === 'task',
-              [`user-tag-mode-${tag.kind}`]:
-                tag.kind === 'agent' ||
-                tag.kind === 'plan' ||
-                tag.kind === 'ask' ||
-                tag.kind === 'task',
             }"
             :title="tag.url || tag.label"
           >
@@ -1226,7 +1251,7 @@ function onRevertUser(msg: Extract<ChatMessage, { role: "user" }>): void {
             object-fit="cover"
           />
         </div>
-        <div v-if="stickyPinMessage.text" class="user-plain">{{ stickyPinMessage.text }}</div>
+        <div v-if="displayUserText(stickyPinMessage.text)" class="user-plain">{{ displayUserText(stickyPinMessage.text) }}</div>
       </div>
       <button
         v-if="stickyNeedsToggle && (stickyHover || stickyExpanded)"
@@ -1481,6 +1506,15 @@ function onRevertUser(msg: Extract<ChatMessage, { role: "user" }>): void {
   max-width: 100%;
 }
 
+.bubble-wrap.cancelled-wrap {
+  align-items: center;
+  flex-direction: row;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+  max-width: 100%;
+  margin: 4px 0 2px;
+}
+
 .bubble {
   padding: 9px 13px;
   border-radius: var(--radius-md, 11px);
@@ -1508,12 +1542,53 @@ function onRevertUser(msg: Extract<ChatMessage, { role: "user" }>): void {
   background: transparent;
   padding: 2px 0;
   width: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+/* While thinking with no answer yet: pin the thinking block to the bottom
+   so it follows the "live" edge as thinking text grows. */
+.bubble.assistant.think-bottom {
+  flex-direction: column-reverse;
+}
+
+.bubble.assistant.think-bottom .markdown-view {
+  margin-top: 0;
+  margin-bottom: 0;
 }
 
 .bubble.error {
   background: rgba(208, 48, 80, 0.08);
   border: 1px solid rgba(208, 48, 80, 0.35);
   color: var(--fg-strong);
+}
+
+/* Cursor-like stop notice: muted inline text, no alarm card. */
+.bubble.cancelled {
+  padding: 0;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  font-size: 12.5px;
+  line-height: 1.4;
+  color: var(--fg-muted, #888);
+  font-style: italic;
+}
+
+.error-retry-btn {
+  flex-shrink: 0;
+}
+
+.cancelled-wrap .error-retry-btn {
+  --n-height: 22px !important;
+  --n-font-size: 12px !important;
+  --n-padding: 0 6px !important;
+  color: var(--fg-muted, #888) !important;
+}
+
+.cancelled-wrap .error-retry-btn:hover {
+  color: var(--fg-strong, #222) !important;
 }
 
 .user-tags,

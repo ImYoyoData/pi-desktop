@@ -17,7 +17,7 @@ embedded browser (not external Chrome/Playwright).
 
 - User mentions 浏览器 / browser / 内置浏览器 / built-in browser
 - User asks to open or automate the embedded right-pane browser
-- User selected page elements (context includes "Context from browser selection")
+- User selected page elements (context includes `# 内置浏览器` / "Context from browser selection")
 
 ## When NOT to use
 

@@ -18,13 +18,13 @@ import {
   type ChatUserImage,
   type PendingPermission,
 } from "./chat-reducer";
+import { stripComposerModePreamble } from "../../../shared/composer-modes";
 import { useSessionsStore } from "./sessions";
 import { useCheckpointStore } from "./checkpoint";
 import { useComposerStore } from "./composer";
 import { useNotifyStore } from "./notify";
 import { useTtsStore } from "./tts";
-import { formatLlmError } from "../utils/llm-error";
-import { locale, t } from "../i18n";
+import { t } from "../i18n";
 import {
   isPermissionAskCancelled,
   type PermissionDecision,
@@ -261,7 +261,11 @@ export const useChatStore = defineStore("chat", () => {
     bySession[sessionId] = {
       messages: history.map((row) => {
         if (row.role === "user") {
-          return { id: row.id, role: "user" as const, text: row.text };
+          return {
+            id: row.id,
+            role: "user" as const,
+            text: stripComposerModePreamble(row.text),
+          };
         }
         if (row.role === "tool") {
           return {
@@ -389,28 +393,12 @@ export const useChatStore = defineStore("chat", () => {
     } catch (err) {
       void checkpointStore.finishActive(sessionId);
       const raw = err instanceof Error ? err.message : String(err);
-      const text = formatLlmError(raw, locale === "zh-CN" ? "zh-CN" : "en");
       const state = stateFor(sessionId);
-      const last = state.messages.at(-1);
-      if (!(last?.role === "error" && last.text === text)) {
-        bySession[sessionId] = {
-          ...state,
-          running: false,
-          streamingMessage: null,
-          retryHint: null,
-          messages: [
-            ...state.messages,
-            { id: `error-local-${Date.now()}`, role: "error", text },
-          ],
-        };
-      } else {
-        bySession[sessionId] = {
-          ...state,
-          running: false,
-          streamingMessage: null,
-          retryHint: null,
-        };
-      }
+      bySession[sessionId] = reduceChatEvent(state, {
+        type: "prompt_error",
+        sessionId,
+        errorMessage: raw,
+      });
     }
   }
 

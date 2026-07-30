@@ -4,6 +4,10 @@ import type { PermissionAskPrompt } from "../../../shared/desktop-security";
 import type { ExtensionUiPending } from "../../../shared/extension-ui";
 import { formatLlmError } from "../utils/llm-error";
 import { locale as uiLocalePref } from "../i18n";
+import {
+  isComposerAgentMode,
+  stripComposerModePreamble,
+} from "../../../shared/composer-modes";
 
 function uiLocale(): "zh-CN" | "en" {
   return uiLocalePref === "zh-CN" ? "zh-CN" : "en";
@@ -44,7 +48,7 @@ export type ChatMessage =
       /** 1-based order within the current agent run */
       order?: number;
     }
-  | { id: string; role: "error"; text: string };
+  | { id: string; role: "error"; text: string; variant?: "error" | "cancelled" };
 
 export type ChatRetryHint = {
   attempt: number;
@@ -226,19 +230,65 @@ function friendlyError(text: string): string {
   return formatLlmError(text, uiLocale());
 }
 
-function appendError(state: ChatState, text: string): ChatState {
+/** Flush in-flight assistant/tool bubble into history so abort doesn't wipe it. */
+function commitStreamingMessage(state: ChatState): ChatState {
+  const stream = state.streamingMessage;
+  if (!stream) return state;
+  if (stream.role === "assistant") {
+    if (!stream.text && !stream.thinking) {
+      return { ...state, streamingMessage: null };
+    }
+    return {
+      ...state,
+      streamingMessage: null,
+      messages: [...state.messages, { ...stream, streaming: false }],
+    };
+  }
+  if (stream.role === "tool") {
+    return {
+      ...state,
+      streamingMessage: null,
+      messages: [...state.messages, { ...stream, streaming: false }],
+    };
+  }
+  return { ...state, streamingMessage: null };
+}
+
+function errorVariant(
+  text: string,
+  explicit?: "error" | "cancelled",
+): "error" | "cancelled" {
+  if (explicit) return explicit;
+  if (/已取消|已停止|cancelled|canceled|aborted|generation stopped/i.test(text)) {
+    return "cancelled";
+  }
+  return "error";
+}
+
+function appendError(
+  state: ChatState,
+  text: string,
+  opts?: { variant?: "error" | "cancelled" },
+): ChatState {
+  const committed = commitStreamingMessage(state);
   const trimmed = friendlyError(text).trim();
-  if (!trimmed) return { ...state, running: false, streamingMessage: null, retryHint: null };
-  const last = state.messages.at(-1);
+  if (!trimmed) {
+    return { ...committed, running: false, streamingMessage: null, retryHint: null };
+  }
+  const variant = errorVariant(trimmed, opts?.variant);
+  const last = committed.messages.at(-1);
   if (last?.role === "error" && last.text === trimmed) {
-    return { ...state, running: false, streamingMessage: null, retryHint: null };
+    return { ...committed, running: false, streamingMessage: null, retryHint: null };
   }
   return {
-    ...state,
+    ...committed,
     running: false,
     streamingMessage: null,
     retryHint: null,
-    messages: [...state.messages, { id: localId("error"), role: "error", text: trimmed }],
+    messages: [
+      ...committed.messages,
+      { id: localId("error"), role: "error", text: trimmed, variant },
+    ],
   };
 }
 
@@ -350,7 +400,8 @@ function reduceAgentPayload(state: ChatState, payload: Record<string, unknown>):
     }
     const msg = message as Record<string, unknown>;
     if (msg.role === "user") {
-      const text = textFromMessage(msg);
+      const rawText = textFromMessage(msg);
+      const text = stripComposerModePreamble(rawText);
       const fromEvent = imagesFromMessage(msg);
       const id = typeof msg.id === "string" && msg.id ? msg.id : localId("user");
       const last = state.messages.at(-1);
@@ -361,20 +412,31 @@ function reduceAgentPayload(state: ChatState, payload: Record<string, unknown>):
         // Agent expands browser selection into a long "Context from browser selection" prompt.
         // Keep the optimistic short user bubble; never show that dump as a second message.
         const expandedCitationEcho =
-          /Context from browser selection:|### Citation\s+\d+/i.test(text) &&
+          /Context from browser selection:|### Citation\s+\d+/i.test(rawText) &&
           (!last.text.trim() ||
-            text.trim().endsWith(last.text.trim()) ||
-            text.includes(last.text.trim()));
+            rawText.trim().endsWith(last.text.trim()) ||
+            rawText.includes(last.text.trim()));
+        // Mode preamble is for the model only — keep the short optimistic bubble.
+        const modePreambleEcho =
+          rawText !== text &&
+          Boolean(last.text.trim()) &&
+          (text.trim() === last.text.trim() || rawText.includes(last.text.trim()));
         // File/URL chips are path/url *text* for the agent (`@path` / raw url). The bubble
         // keeps structured tags — never mirror the expanded prompt as another user row.
-        if (sameText || expandedCitationEcho || hasLocalExtras) {
+        if (sameText || expandedCitationEcho || modePreambleEcho || hasLocalExtras) {
           const next = [...state.messages];
           next[next.length - 1] = {
             id,
             role: "user",
             text: last.text,
             images: last.images ?? fromEvent,
-            elementTags: last.elementTags,
+            elementTags: last.elementTags?.filter(
+              (tag) =>
+                tag.kind !== "agent" &&
+                tag.kind !== "ask" &&
+                tag.kind !== "plan" &&
+                tag.kind !== "task",
+            ),
           };
           return { ...state, messages: next, streamingMessage: null };
         }
@@ -383,7 +445,7 @@ function reduceAgentPayload(state: ChatState, payload: Record<string, unknown>):
         return { ...state, streamingMessage: null };
       }
       // Never surface agent-side citation dumps as user bubbles
-      if (/Context from browser selection:|### Citation\s+\d+/i.test(text)) {
+      if (/Context from browser selection:|### Citation\s+\d+/i.test(rawText)) {
         return { ...state, streamingMessage: null };
       }
       return {
@@ -396,10 +458,9 @@ function reduceAgentPayload(state: ChatState, payload: Record<string, unknown>):
       };
     }
     if (msg.role === "assistant" || !msg.role) {
+      const stop = msg.stopReason;
+      const isAborted = stop === "aborted";
       const errText = sdkErrorText(msg);
-      if (errText) {
-        return appendError(state, errText);
-      }
       const snapshot = textFromMessage(msg);
       const thinkingSnap = thinkingFromMessage(msg);
       const stream = state.streamingMessage;
@@ -416,32 +477,43 @@ function reduceAgentPayload(state: ChatState, payload: Record<string, unknown>):
         thinkingSnap ||
         (stream?.role === "assistant" ? stream.thinking : undefined) ||
         undefined;
-      if (!text && !thinking) {
-        return { ...state, streamingMessage: null };
+
+      // Always keep partial thinking/answer on abort (and on mid-stream errors).
+      let next: ChatState = { ...state, streamingMessage: null };
+      if (text || thinking) {
+        next = {
+          ...next,
+          messages: [
+            ...state.messages,
+            {
+              id,
+              role: "assistant",
+              text,
+              ...(thinking ? { thinking } : {}),
+              streaming: false,
+            },
+          ],
+        };
       }
-      return {
-        ...state,
-        messages: [
-          ...state.messages,
-          {
-            id,
-            role: "assistant",
-            text,
-            ...(thinking ? { thinking } : {}),
-            streaming: false,
-          },
-        ],
-        streamingMessage: null,
-      };
+
+      if (errText) {
+        return appendError(next, errText, {
+          variant: isAborted ? "cancelled" : "error",
+        });
+      }
+      return next;
     }
     return { ...state, streamingMessage: null };
   }
   if (type === "turn_end") {
     const message = payload.message;
     if (message && typeof message === "object") {
-      const errText = sdkErrorText(message as Record<string, unknown>);
+      const msg = message as Record<string, unknown>;
+      const errText = sdkErrorText(msg);
       if (errText) {
-        return appendError(state, errText);
+        return appendError(state, errText, {
+          variant: msg.stopReason === "aborted" ? "cancelled" : "error",
+        });
       }
     }
     return state;
@@ -449,9 +521,12 @@ function reduceAgentPayload(state: ChatState, payload: Record<string, unknown>):
   if (type === "tool_execution_start") {
     const toolCallId = String(payload.toolCallId ?? localId("tool"));
     const id = `tool-${toolCallId}`;
-    // Finalize any in-progress assistant text into history first
+    // Finalize any in-progress assistant text/thinking into history first
     let messages = state.messages;
-    if (state.streamingMessage?.role === "assistant" && state.streamingMessage.text) {
+    if (
+      state.streamingMessage?.role === "assistant" &&
+      (state.streamingMessage.text || state.streamingMessage.thinking)
+    ) {
       messages = [
         ...messages,
         { ...state.streamingMessage, streaming: false },
@@ -533,18 +608,29 @@ function reduceAgentPayload(state: ChatState, payload: Record<string, unknown>):
     if (Array.isArray(messages) && messages.length > 0) {
       const last = messages[messages.length - 1];
       if (last && typeof last === "object") {
-        const errText = sdkErrorText(last as Record<string, unknown>);
+        const msg = last as Record<string, unknown>;
+        const errText = sdkErrorText(msg);
         if (errText) {
-          return appendError(state, errText);
+          return appendError(state, errText, {
+            variant: msg.stopReason === "aborted" ? "cancelled" : "error",
+          });
         }
       }
     }
     // Keep running until prompt_done — agent_end can arrive before prompt() resolves.
-    return { ...state, streamingMessage: null, retryHint: null, nextToolOrder: 1 };
+    // Still commit any in-flight bubble so a late abort doesn't wipe thinking/text.
+    const committed = commitStreamingMessage(state);
+    return { ...committed, retryHint: null, nextToolOrder: 1 };
   }
   if (type === "agent_settled") {
     // Fallback idle if prompt_done was missed; normally prompt_done clears running.
-    return { ...state, running: false, streamingMessage: null, retryHint: null, nextToolOrder: 1 };
+    const committed = commitStreamingMessage(state);
+    return {
+      ...committed,
+      running: false,
+      retryHint: null,
+      nextToolOrder: 1,
+    };
   }
   return state;
 }
@@ -561,9 +647,10 @@ export function appendUserMessage(
     kind?: "file" | "url" | "element" | "agent" | "plan" | "ask" | "task";
   }[],
 ): ChatState {
-  const trimmed = text.trim();
+  const trimmed = stripComposerModePreamble(text).trim();
+  const visibleTags = elementTags?.filter((tag) => !isComposerAgentMode(tag.kind));
   const hasImages = Boolean(images?.length);
-  const hasTags = Boolean(elementTags?.length);
+  const hasTags = Boolean(visibleTags?.length);
   if (!trimmed && !hasImages && !hasTags) {
     return state;
   }
@@ -581,7 +668,7 @@ export function appendUserMessage(
         role: "user",
         text: trimmed,
         images: hasImages ? images : undefined,
-        elementTags: hasTags ? elementTags : undefined,
+        elementTags: hasTags ? visibleTags : undefined,
       },
     ],
   };
@@ -594,16 +681,17 @@ export function reduceChatEvent(state: ChatState, event: AgentEvent): ChatState 
     case "agent_event":
       // Don't force running:true here — late events after prompt_done would stick UI in "running"
       return reduceAgentPayload(state, event.event);
-    case "prompt_done":
+    case "prompt_done": {
+      const committed = commitStreamingMessage(state);
       return {
-        ...state,
+        ...committed,
         running: false,
         retryHint: null,
-        streamingMessage: null,
-        messages: state.messages.map((m) =>
+        messages: committed.messages.map((m) =>
           m.role === "assistant" || m.role === "tool" ? { ...m, streaming: false } : m,
         ),
       };
+    }
     case "prompt_error":
       return appendError(state, event.errorMessage);
     case "worker_stuck":

@@ -49,9 +49,9 @@ const RULES: Rule[] = [
     en: "Model unavailable. Choose another model.",
   },
   {
-    test: (t) => /aborted|AbortError/i.test(t) || t.includes("已取消"),
-    zh: "已取消请求。",
-    en: "Request cancelled.",
+    test: (t) => /aborted|AbortError/i.test(t) || t.includes("已取消") || t.includes("已停止"),
+    zh: "已停止生成",
+    en: "Generation stopped",
   },
   {
     test: (t) => /500|502|503|504|bad gateway|service unavailable|internal server/i.test(t),

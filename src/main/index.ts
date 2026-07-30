@@ -52,7 +52,7 @@ enableHardwareAcceleration();
 registerLocalFileScheme();
 
 /** Packaged / desktop: only one running instance with one primary window. */
-const gotSingleInstanceLock = app.requestSingleInstanceLock();
+const gotSingleInstanceLock = is.dev || app.requestSingleInstanceLock();
 if (!gotSingleInstanceLock) {
   app.quit();
 } else {
