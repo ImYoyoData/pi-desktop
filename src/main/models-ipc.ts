@@ -2,6 +2,7 @@ import { ipcMain } from "electron";
 import { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { IpcChannels } from "../shared/protocol";
 import type { ModelsGetResult, ModelsProviderAuth, ModelsSetPayload } from "../shared/models-settings";
+import { discoverModels, type DiscoverModelsResult } from "../shared/model-discover";
 import type { SessionBroker } from "./session-broker";
 import { getModelsConfigService } from "./models-config";
 
@@ -111,4 +112,18 @@ export function registerModelsIpc(broker: SessionBroker): void {
     const runtime = await createRuntime();
     return listAvailableModels(runtime);
   });
+
+  ipcMain.handle(
+    IpcChannels.models.discover,
+    async (
+      _event,
+      payload: { baseUrl: string; apiKey?: string; api?: string },
+    ): Promise<DiscoverModelsResult> => {
+      return discoverModels({
+        baseUrl: String(payload?.baseUrl ?? ""),
+        apiKey: typeof payload?.apiKey === "string" ? payload.apiKey : undefined,
+        api: typeof payload?.api === "string" ? payload.api : undefined,
+      });
+    },
+  );
 }
