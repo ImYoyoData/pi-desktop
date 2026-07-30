@@ -2,7 +2,7 @@ import { BrowserWindow, ipcMain } from "electron";
 import type { AgentCommand } from "../shared/protocol";
 import { IpcChannels } from "../shared/protocol";
 import type { SessionBroker } from "./session-broker";
-import { readSessionHistoryMessages } from "./session-history";
+import { readSessionHistoryPage } from "./session-history";
 import { renameSessionFile } from "./session-rename";
 
 function broadcastEvent(event: unknown): void {
@@ -54,8 +54,13 @@ export function registerSessionsIpc(broker: SessionBroker): void {
     broker.deleteSession(sessionId, cwd),
   );
 
-  ipcMain.handle(IpcChannels.sessions.history, (_event, filePath: string) =>
-    readSessionHistoryMessages(filePath),
+  ipcMain.handle(
+    IpcChannels.sessions.history,
+    (
+      _event,
+      filePath: string,
+      query?: { limit?: number; beforeId?: string | null },
+    ) => readSessionHistoryPage(filePath, query),
   );
 
   ipcMain.handle(

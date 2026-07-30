@@ -140,7 +140,7 @@ export const en = {
   terminalLabel: (n: number) => `Terminal ${n}`,
   enterToSend: "Enter to send",
   shiftEnterToSend: "Shift+Enter to send",
-  compactContext: "Click to compact context",
+  compactContext: "Compact context",
   compactDone: "Context compacted",
   clearContext: "Clear context",
   clearContextDone: "Context and chat history cleared",
@@ -159,7 +159,10 @@ export const en = {
   contextUsageSegSummarized: "Summarized conversation",
   contextUsageSegConversation: "Conversation",
   contextUsageSegToolResults: "Tool results",
-  contextUsageHint: "Segments are estimates — manual compact is disabled when the session is too small",
+  contextUsageHint:
+    "Segments are estimates. Before each turn, old tool outputs are pruned (keeps ~40k recent tokens). Auto-compact still at usage > window − 16k (~98%). At 80%, compact manually below.",
+  contextUsageAutoCompact:
+    "Auto-compact when contextTokens > contextWindow − reserveTokens (default reserveTokens=16384)",
   closeRunningTitle: "Sessions still running",
   closeRunningContent: (n: number) =>
     `${n} session(s) are still running. Force close will stop them first, then quit.`,
@@ -342,6 +345,8 @@ export const en = {
   asrWakeWordsSaved: "Wake words saved",
   asrWakeListenFail: "Could not start voice wake listening",
   loadingChatHistory: "Loading chat history…",
+  loadingOlderHistory: "Loading older messages…",
+  scrollForOlderHistory: "Scroll up for older messages",
   scrollToLatest: "Jump to latest",
   marketLoadMore: "Load more",
   marketLoadingMore: "Loading more…",

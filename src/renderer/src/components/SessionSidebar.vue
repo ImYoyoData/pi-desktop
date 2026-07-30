@@ -374,10 +374,10 @@ async function onSelectSession(root: string, sessionId: string): Promise<void> {
       (sessionsByRoot[root] ?? []).find((s) => s.id === sessionId) ??
       sessionsStore.sessions.find((s) => s.id === sessionId);
     if (opened?.filePath) {
-      const history = await window.api.sessions.history(opened.filePath);
-      chatStore.hydrateFromHistory(sessionId, history);
+      const page = await window.api.sessions.history(opened.filePath, { limit: 30 });
+      chatStore.hydrateFromHistoryPage(sessionId, page, opened.filePath);
     } else {
-      chatStore.hydrateFromHistory(sessionId, []);
+      chatStore.hydrateFromHistoryPage(sessionId, { messages: [], hasMore: false, total: 0 }, null);
     }
   } catch (err) {
     console.error("select session failed", err);
@@ -613,7 +613,7 @@ async function onSessionMenu(
       try {
         await onSelectSession(root, session.id);
         await window.api.sessions.clearContext(session.id, root);
-        chatStore.hydrateFromHistory(session.id, []);
+        chatStore.hydrateFromHistoryPage(session.id, { messages: [], hasMore: false, total: 0 }, session.filePath ?? null);
         await loadSessions(root);
         message.success(t.clearContextDone);
       } catch (err) {
