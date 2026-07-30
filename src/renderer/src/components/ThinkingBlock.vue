@@ -10,8 +10,11 @@ const props = defineProps<{
   streaming?: boolean;
 }>();
 
-/** Expanded by default so thinking text is visible (Cursor-like). */
-const open = ref(true);
+/**
+ * History rows stay collapsed (cheap open). Live streaming auto-expands;
+ * after the turn finishes we leave open so the just-finished thought stays readable.
+ */
+const open = ref(Boolean(props.streaming));
 const bodyRef = ref<HTMLElement | null>(null);
 /** Follow newest text unless the user scrolls up inside the card. */
 let stickToBottom = true;
@@ -34,7 +37,9 @@ async function scrollBodyToLatest(): Promise<void> {
 watch(
   () => props.streaming,
   (streaming) => {
-    if (streaming) stickToBottom = true;
+    if (!streaming) return;
+    open.value = true;
+    stickToBottom = true;
   },
 );
 
