@@ -34,6 +34,10 @@ import {
   isComposerAgentMode,
   stripComposerModePreamble,
 } from "../../../shared/composer-modes";
+import {
+  followBottomVirtualWindow,
+  windowAfterHistoryPrepend,
+} from "@renderer/utils/message-virtual-window";
 
 /**
  * Sliding virtual window: mount a modest range around the viewport so
@@ -47,8 +51,11 @@ const EST_MSG_HEIGHT = 120;
 /** Collapsed tool-group summary row (Cursor-style). */
 const EST_TOOL_GROUP_HEIGHT = 40;
 const NEAR_BOTTOM_PX = 120;
-/** Prefetch when viewport is this close to a spacer edge. */
-const OVERSCAN_PX = 900;
+/**
+ * Prefetch distance to spacers. Keep modest — large overscan + recursive expand
+ * remounted Markdown/tool rows and froze the whole Electron UI while dragging.
+ */
+const OVERSCAN_PX = 280;
 /** Sticky user card must never cover the whole viewport (agent output would look "stuck"). */
 const STICKY_MAX_VH = 0.22;
 const STICKY_MAX_PX = 160;
@@ -174,14 +181,13 @@ const sessionId = computed(() => sessions.activeId);
 /**
  * Cursor-like sticky user prompt:
  * Among user messages scrolled fully above the viewport, pin the nearest
- * (highest index). Virtual window must keep that row mounted for measurement.
+ * (highest index). Overlay uses store text — no need to remount that row.
  */
 const stickyExpanded = ref(false);
 const stickyNeedsToggle = ref(false);
 const stickyHover = ref(false);
 const stickyPinId = ref<string | null>(null);
 const stickyPinEl = ref<HTMLElement | null>(null);
-let stickyRemountPending = false;
 
 const stickyPinned = computed(() => stickyPinId.value != null);
 
@@ -205,74 +211,27 @@ function measureStickyNeedsToggle(naturalHeight: number): void {
   stickyNeedsToggle.value = naturalHeight > stickyCapPx(sc) + 12;
 }
 
-function estimateOffsetTop(index: number): number {
-  return estimateRangeHeight(0, index);
-}
-
-/** Keep the sticky (and a little context above) inside the mounted window. */
-function ensureMessageInWindow(index: number): boolean {
-  const len = displayMessages.value.length;
-  if (index < 0 || index >= len) return false;
-  let changed = false;
-  if (index < renderStart.value) {
-    renderStart.value = Math.max(0, index);
-    changed = true;
-  }
-  if (index >= renderEnd.value) {
-    renderEnd.value = Math.min(len, index + 1);
-    changed = true;
-  }
-  if (renderEnd.value - renderStart.value > VIRTUAL_MAX) {
-    // Prefer keeping the sticky index; trim the far side.
-    if (renderStart.value === Math.max(0, index)) {
-      renderEnd.value = Math.min(len, renderStart.value + VIRTUAL_MAX);
-    } else {
-      renderStart.value = Math.max(0, renderEnd.value - VIRTUAL_MAX);
-      if (index < renderStart.value) {
-        renderStart.value = Math.max(0, index);
-        renderEnd.value = Math.min(len, renderStart.value + VIRTUAL_MAX);
-      }
-    }
-    changed = true;
-  }
-  return changed;
-}
-
 /**
  * Nearest user message fully above the viewport top (Cursor behavior).
- * Uses live DOM when mounted; falls back to height estimates when virtualized.
+ * Single pass with running offsets — no per-row querySelector.
  */
 function findStickyUserMessageId(): string | null {
   const sc = scroller.value;
   const all = displayMessages.value;
   if (!sc || all.length === 0) return null;
 
-  const scRect = sc.getBoundingClientRect();
-  const viewportTop = scRect.top + 8;
+  const viewportTop = sc.scrollTop + 8;
+  let offset = 0;
   let bestId: string | null = null;
-  let bestIdx = -1;
 
   for (let i = 0; i < all.length; i++) {
-    const m = all[i];
-    if (!m || m.role !== "user") continue;
-
-    let scrolledAway = false;
-    const row = sc.querySelector(
-      `[data-msg-id="${CSS.escape(m.id)}"]`,
-    ) as HTMLElement | null;
-
-    if (row) {
-      scrolledAway = row.getBoundingClientRect().bottom < viewportTop;
-    } else {
-      const top = estimateOffsetTop(i);
-      const h = heightById.get(m.id) ?? EST_MSG_HEIGHT;
-      scrolledAway = top + h < sc.scrollTop + 8;
+    const m = all[i]!;
+    const h = estimateMessageHeight(m);
+    if (m.role === "user") {
+      if (offset + h < viewportTop) bestId = m.id;
+      else break;
     }
-
-    if (scrolledAway && i >= bestIdx) {
-      bestIdx = i;
-      bestId = m.id;
-    }
+    offset += h;
   }
 
   return bestId;
@@ -300,44 +259,22 @@ function updateStickyPinned(): void {
     return;
   }
 
-  const idx = displayMessages.value.findIndex((m) => m.id === id);
-  if (idx >= 0 && ensureMessageInWindow(idx)) {
-    if (id !== stickyPinId.value) {
-      stickyPinId.value = id;
-      stickyExpanded.value = false;
-      stickyHover.value = false;
-    }
-    // Remount then re-measure so DOM-based pin state is accurate (one shot).
-    if (!stickyRemountPending) {
-      stickyRemountPending = true;
-      void nextTick(() => {
-        stickyRemountPending = false;
-        measureVisibleRows();
-        updateStickyPinned();
-      });
-    }
-    return;
-  }
-
   if (id !== stickyPinId.value) {
     stickyPinId.value = id;
     stickyExpanded.value = false;
     stickyHover.value = false;
   }
 
-  const row = sc.querySelector(
-    `[data-msg-id="${CSS.escape(id)}"]`,
-  ) as HTMLElement | null;
-  const bubble = row?.querySelector<HTMLElement>(".bubble.user");
-  const natural = bubble?.scrollHeight ?? row?.scrollHeight ?? 0;
-  if (natural > 0) {
-    measureStickyNeedsToggle(natural);
+  // Sticky UI is an overlay copy from store — do NOT expand the virtual window
+  // to remount that row (that previously caused unbounded mounts + nextTick loops).
+  const body = stickyPinEl.value?.querySelector<HTMLElement>(".sticky-pin-body");
+  if (body) {
+    measureStickyNeedsToggle(body.scrollHeight);
+    return;
   }
-
   void nextTick(() => {
-    const pin = stickyPinEl.value;
-    const body = pin?.querySelector<HTMLElement>(".sticky-pin-body");
-    if (body) measureStickyNeedsToggle(body.scrollHeight);
+    const el = stickyPinEl.value?.querySelector<HTMLElement>(".sticky-pin-body");
+    if (el) measureStickyNeedsToggle(el.scrollHeight);
   });
 }
 
@@ -417,6 +354,22 @@ function restoreScrollAfterMutation(sc: HTMLElement, prevHeight: number, prevTop
   sc.scrollTop = prevTop + delta;
 }
 
+/** After a window mutate, continue prefetch on the next frame (yields to paint — no nextTick storm). */
+function scheduleWindowPrefetch(): void {
+  requestAnimationFrame(() => {
+    const sc = scroller.value;
+    if (!sc || adjustingWindow || settlingSession || followBottom) return;
+    if (sc.scrollTop < topSpacerPx.value + OVERSCAN_PX) {
+      expandHistoryUp();
+      return;
+    }
+    const bottomEdge = sc.scrollHeight - bottomSpacerPx.value;
+    if (sc.scrollTop + sc.clientHeight > bottomEdge - OVERSCAN_PX) {
+      expandHistoryDown();
+    }
+  });
+}
+
 function expandHistoryUp(): void {
   if (adjustingWindow || renderStart.value <= 0) {
     // At the start of the *loaded* window — fetch an older page from disk if any.
@@ -441,11 +394,10 @@ function expandHistoryUp(): void {
     measureVisibleRows();
     adjustingWindow = false;
     updateStickyPinned();
-    // Keep a thick overscan of real content above the viewport.
-    if (renderStart.value > 0 && sc.scrollTop < topSpacerPx.value + OVERSCAN_PX) {
-      expandHistoryUp();
-    } else if (renderStart.value <= 0) {
+    if (renderStart.value <= 0) {
       void loadOlderHistoryPage();
+    } else {
+      scheduleWindowPrefetch();
     }
   });
 }
@@ -464,19 +416,21 @@ async function loadOlderHistoryPage(): Promise<void> {
   try {
     const added = await chat.loadOlderHistory(id);
     if (added <= 0) return;
-    // Newly prepended rows sit before the previous window — expand mount range up.
-    renderStart.value = 0;
-    renderEnd.value = Math.min(
+    // Prepend shifts every index — keep the same rows mounted, then peek a chunk older.
+    const shifted = windowAfterHistoryPrepend(
+      { start: renderStart.value, end: renderEnd.value },
+      added,
       displayMessages.value.length,
-      Math.max(renderEnd.value + added, VIRTUAL_WINDOW),
+      VIRTUAL_MAX,
+      VIRTUAL_CHUNK,
     );
-    if (renderEnd.value - renderStart.value > VIRTUAL_MAX) {
-      renderEnd.value = renderStart.value + VIRTUAL_MAX;
-    }
+    renderStart.value = shifted.start;
+    renderEnd.value = shifted.end;
     await nextTick();
     restoreScrollAfterMutation(sc, prevHeight, prevTop);
     measureVisibleRows();
     updateStickyPinned();
+    scheduleWindowPrefetch();
   } finally {
     adjustingWindow = false;
     loadingOlderPage = false;
@@ -493,26 +447,16 @@ function expandHistoryDown(): void {
   const prevHeight = sc.scrollHeight;
   const prevTop = sc.scrollTop;
   renderEnd.value = Math.min(len, renderEnd.value + VIRTUAL_CHUNK);
-  // Trim far (top) side when window grows too large — keep sticky user row.
+  // Trim far (top) side — never grow past VIRTUAL_MAX (sticky is overlay-only).
   if (renderEnd.value - renderStart.value > VIRTUAL_MAX) {
-    const stickyIdx = stickyPinId.value
-      ? displayMessages.value.findIndex((m) => m.id === stickyPinId.value)
-      : -1;
-    const minStart = stickyIdx >= 0 ? stickyIdx : 0;
-    renderStart.value = Math.max(minStart, renderEnd.value - VIRTUAL_MAX);
+    renderStart.value = Math.max(0, renderEnd.value - VIRTUAL_MAX);
   }
   void nextTick(() => {
     restoreScrollAfterMutation(sc, prevHeight, prevTop);
     measureVisibleRows();
     adjustingWindow = false;
     updateStickyPinned();
-    const bottomEdge = sc.scrollHeight - bottomSpacerPx.value;
-    if (
-      renderEnd.value < len &&
-      sc.scrollTop + sc.clientHeight > bottomEdge - OVERSCAN_PX
-    ) {
-      expandHistoryDown();
-    }
+    scheduleWindowPrefetch();
   });
 }
 
@@ -621,16 +565,10 @@ function handleScrollerScroll(): void {
 
   if (followBottom) {
     const len = displayMessages.value.length;
-    let idealStart = Math.max(0, len - VIRTUAL_WINDOW);
-    // Keep the sticky user row mounted while agent output grows at the bottom.
-    const pinId = stickyPinId.value ?? findStickyUserMessageId();
-    if (pinId) {
-      const stickyIdx = displayMessages.value.findIndex((m) => m.id === pinId);
-      if (stickyIdx >= 0) idealStart = Math.min(idealStart, stickyIdx);
-    }
-    if (renderStart.value !== idealStart || renderEnd.value < len) {
-      renderStart.value = idealStart;
-      renderEnd.value = len;
+    const ideal = followBottomVirtualWindow(len, VIRTUAL_WINDOW);
+    if (renderStart.value !== ideal.start || renderEnd.value !== ideal.end) {
+      renderStart.value = ideal.start;
+      renderEnd.value = ideal.end;
     }
     return;
   }
@@ -675,15 +613,18 @@ watch(
 watch(
   () => displayMessages.value.length,
   (len, prevLen) => {
-    const grew = prevLen != null && len > prevLen;
+    // loadOlderHistoryPage owns index shifts while prepending; skip to avoid double-clamp.
+    if (loadingOlderPage) return;
     const hydratedFromEmpty = (prevLen === 0 || prevLen == null) && len > 0;
-    // New messages while following bottom → keep a trailing window.
-    if (followBottom || hydratedFromEmpty || (grew && props.running)) {
+    // Only pin the trailing window when the user is following the bottom.
+    // (Do NOT yank the window during agent runs if the user scrolled up to read history.)
+    if (followBottom || hydratedFromEmpty) {
       clampRenderWindow(true);
     } else if (len <= VIRTUAL_WINDOW) {
       renderStart.value = 0;
       renderEnd.value = len;
     } else {
+      // Prepend path adjusts indices inside loadOlderHistoryPage before length settles.
       clampRenderWindow(false);
     }
     // Critical: hydrate often lands AFTER settle timeouts. Always snap when
