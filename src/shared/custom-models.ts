@@ -1,4 +1,6 @@
-/** Helpers for GUI editing of ~/.pi/agent/models.json custom providers. */
+/** Helpers for GUI editing of ~/.pi/agent/models.json custom providers (Pi-aligned). */
+
+import { normalizeProviderBaseUrl } from "./model-discover";
 
 export const CUSTOM_MODEL_APIS = [
   "openai-completions",
@@ -13,6 +15,12 @@ export type CustomModelEntry = {
   id: string;
   name: string;
   reasoning: boolean;
+  /** Optional — defaults to SDK 128000 if omitted */
+  contextWindow?: number;
+  /** Optional — defaults to SDK 16384 if omitted */
+  maxTokens?: number;
+  /** When true, model accepts images (`input: ["text","image"]`). */
+  vision?: boolean;
 };
 
 export type CustomProviderDraft = {
@@ -21,7 +29,11 @@ export type CustomProviderDraft = {
   name: string;
   baseUrl: string;
   api: CustomModelApi;
-  /** Stored in models.json (placeholder OK for local servers). */
+  /**
+   * UI field for the API key.
+   * Remote keys are saved to auth.json (Pi `/login` style).
+   * Local placeholders / `$ENV` / `!cmd` stay in models.json.
+   */
   apiKey: string;
   supportsDeveloperRole: boolean;
   supportsReasoningEffort: boolean;
@@ -30,6 +42,8 @@ export type CustomProviderDraft = {
 
 export type ModelsConfigDoc = {
   providers: Record<string, unknown>;
+  /** Preserved top-level keys (e.g. modelOverrides). */
+  rest: Record<string, unknown>;
 };
 
 function asRecord(v: unknown): Record<string, unknown> | null {
@@ -40,9 +54,9 @@ export function emptyCustomProvider(partial?: Partial<CustomProviderDraft>): Cus
   return {
     id: "",
     name: "",
-    baseUrl: "http://localhost:11434/v1",
+    baseUrl: "http://127.0.0.1:1234/v1",
     api: "openai-completions",
-    apiKey: "ollama",
+    apiKey: "",
     supportsDeveloperRole: false,
     supportsReasoningEffort: false,
     models: [{ id: "", name: "", reasoning: false }],
@@ -54,11 +68,16 @@ export function parseModelsConfigText(text: string): ModelsConfigDoc {
   const raw = text.trim() ? JSON.parse(text) : { providers: {} };
   const root = asRecord(raw) ?? {};
   const providers = asRecord(root.providers) ?? {};
-  return { providers: { ...providers } };
+  const rest: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(root)) {
+    if (k === "providers") continue;
+    rest[k] = v;
+  }
+  return { providers: { ...providers }, rest };
 }
 
 export function stringifyModelsConfig(doc: ModelsConfigDoc): string {
-  return `${JSON.stringify({ providers: doc.providers }, null, 2)}\n`;
+  return `${JSON.stringify({ ...doc.rest, providers: doc.providers }, null, 2)}\n`;
 }
 
 function parseApi(v: unknown): CustomModelApi {
@@ -68,21 +87,71 @@ function parseApi(v: unknown): CustomModelApi {
   return "openai-completions";
 }
 
+function parsePositiveInt(v: unknown): number | undefined {
+  if (typeof v === "number" && Number.isFinite(v) && v > 0) return Math.floor(v);
+  if (typeof v === "string" && /^\d+$/u.test(v.trim())) {
+    const n = Number(v.trim());
+    return Number.isFinite(n) && n > 0 ? n : undefined;
+  }
+  return undefined;
+}
+
+function modelHasVision(input: unknown): boolean {
+  return Array.isArray(input) && input.includes("image");
+}
+
 function parseModelEntry(raw: unknown): CustomModelEntry | null {
   const o = asRecord(raw);
   if (!o) return null;
   const id = typeof o.id === "string" ? o.id.trim() : "";
   if (!id) return null;
+  const contextWindow = parsePositiveInt(o.contextWindow);
+  const maxTokens = parsePositiveInt(o.maxTokens);
   return {
     id,
     name: typeof o.name === "string" ? o.name : "",
     reasoning: o.reasoning === true,
+    ...(contextWindow ? { contextWindow } : {}),
+    ...(maxTokens ? { maxTokens } : {}),
+    ...(modelHasVision(o.input) ? { vision: true } : {}),
   };
+}
+
+/**
+ * Keys that belong in models.json per Pi docs (literal local placeholder, $ENV, !command).
+ * Real remote secrets should go to auth.json instead.
+ */
+export function shouldStoreApiKeyInModelsJson(apiKey: string, baseUrl: string): boolean {
+  const key = apiKey.trim();
+  if (!key) return false;
+  if (key.startsWith("$") || key.startsWith("!")) return true;
+  try {
+    const host = new URL(normalizeProviderBaseUrl(baseUrl) || baseUrl).hostname.toLowerCase();
+    if (host === "localhost" || host === "127.0.0.1" || host === "::1" || host.endsWith(".local")) {
+      return true;
+    }
+  } catch {
+    // fall through
+  }
+  return false;
+}
+
+function defaultLocalCompatOff(baseUrl: string): boolean {
+  try {
+    const host = new URL(normalizeProviderBaseUrl(baseUrl) || baseUrl).hostname.toLowerCase();
+    if (host === "localhost" || host === "127.0.0.1" || host === "::1" || host.endsWith(".local")) {
+      return true;
+    }
+  } catch {
+    // ignore
+  }
+  return false;
 }
 
 export function providerToDraft(id: string, raw: unknown): CustomProviderDraft {
   const o = asRecord(raw) ?? {};
   const compat = asRecord(o.compat) ?? {};
+  const baseUrl = typeof o.baseUrl === "string" ? o.baseUrl : "";
   const modelsRaw = Array.isArray(o.models) ? o.models : [];
   const models: CustomModelEntry[] = [];
   for (const item of modelsRaw) {
@@ -90,14 +159,21 @@ export function providerToDraft(id: string, raw: unknown): CustomProviderDraft {
     if (m) models.push(m);
   }
   if (!models.length) models.push({ id: "", name: "", reasoning: false });
+  const localOff = defaultLocalCompatOff(baseUrl);
   return {
     id,
     name: typeof o.name === "string" ? o.name : "",
-    baseUrl: typeof o.baseUrl === "string" ? o.baseUrl : "",
+    baseUrl,
     api: parseApi(o.api),
     apiKey: typeof o.apiKey === "string" ? o.apiKey : "",
-    supportsDeveloperRole: compat.supportsDeveloperRole === true,
-    supportsReasoningEffort: compat.supportsReasoningEffort === true,
+    supportsDeveloperRole:
+      typeof compat.supportsDeveloperRole === "boolean"
+        ? compat.supportsDeveloperRole
+        : !localOff,
+    supportsReasoningEffort:
+      typeof compat.supportsReasoningEffort === "boolean"
+        ? compat.supportsReasoningEffort
+        : !localOff,
     models,
   };
 }
@@ -116,28 +192,96 @@ export function listEditableProviders(doc: ModelsConfigDoc): CustomProviderDraft
   return out.sort((a, b) => a.id.localeCompare(b.id));
 }
 
-export function draftToProviderJson(draft: CustomProviderDraft): Record<string, unknown> {
+function mergeModelJson(
+  draft: CustomModelEntry,
+  existing: Record<string, unknown> | null,
+): Record<string, unknown> {
+  const base: Record<string, unknown> = existing ? { ...existing } : {};
+  base.id = draft.id.trim();
+  if (draft.name.trim()) base.name = draft.name.trim();
+  else delete base.name;
+
+  if (draft.reasoning) base.reasoning = true;
+  else delete base.reasoning;
+
+  if (draft.contextWindow && draft.contextWindow > 0) {
+    base.contextWindow = Math.floor(draft.contextWindow);
+  } else if (!existing?.contextWindow) {
+    delete base.contextWindow;
+  }
+
+  if (draft.maxTokens && draft.maxTokens > 0) {
+    base.maxTokens = Math.floor(draft.maxTokens);
+  } else if (!existing?.maxTokens) {
+    delete base.maxTokens;
+  }
+
+  if (draft.vision) {
+    base.input = ["text", "image"];
+  } else if (Array.isArray(base.input)) {
+    // Preserve non-image custom input arrays; strip image when vision off.
+    const next = (base.input as unknown[]).filter((x) => x !== "image");
+    base.input = next.length ? next : ["text"];
+  }
+
+  return base;
+}
+
+/**
+ * Build provider JSON while merging unknown fields from `existing`
+ * (headers, modelOverrides, cost, thinkingLevelMap, extra compat, …).
+ */
+export function draftToProviderJson(
+  draft: CustomProviderDraft,
+  existing?: unknown,
+  opts?: { omitApiKey?: boolean },
+): Record<string, unknown> {
+  const prev = asRecord(existing) ?? {};
+  const prevModels = Array.isArray(prev.models) ? prev.models : [];
+  const prevById = new Map<string, Record<string, unknown>>();
+  for (const item of prevModels) {
+    const o = asRecord(item);
+    if (!o || typeof o.id !== "string") continue;
+    prevById.set(o.id, o);
+  }
+
   const models = draft.models
-    .map((m) => ({
-      id: m.id.trim(),
-      ...(m.name.trim() ? { name: m.name.trim() } : {}),
-      ...(m.reasoning ? { reasoning: true } : {}),
-    }))
-    .filter((m) => m.id);
+    .map((m) => {
+      const id = m.id.trim();
+      if (!id) return null;
+      return mergeModelJson(m, prevById.get(id) ?? null);
+    })
+    .filter((m): m is Record<string, unknown> => Boolean(m));
 
-  const out: Record<string, unknown> = {
-    baseUrl: draft.baseUrl.trim(),
-    api: draft.api,
-    models,
-  };
+  const out: Record<string, unknown> = { ...prev };
+  out.baseUrl = normalizeProviderBaseUrl(draft.baseUrl);
+  out.api = draft.api;
+  out.models = models;
+
   if (draft.name.trim()) out.name = draft.name.trim();
-  if (draft.apiKey.trim()) out.apiKey = draft.apiKey.trim();
+  else delete out.name;
 
-  const compat: Record<string, boolean> = {};
-  // Local OpenAI-compatible servers usually need these false.
-  if (!draft.supportsDeveloperRole) compat.supportsDeveloperRole = false;
-  if (!draft.supportsReasoningEffort) compat.supportsReasoningEffort = false;
+  const inlineKey = shouldStoreApiKeyInModelsJson(draft.apiKey, draft.baseUrl);
+  if (opts?.omitApiKey) {
+    delete out.apiKey;
+  } else if (inlineKey) {
+    out.apiKey = draft.apiKey.trim();
+  } else if (!draft.apiKey.trim()) {
+    // Keep existing models.json key (e.g. $ENV) if user cleared the UI field.
+    // If there was none, leave omitted (auth.json can supply it).
+  } else {
+    // Remote secret → auth.json; remove plaintext from models.json if present.
+    delete out.apiKey;
+  }
+
+  const prevCompat = asRecord(prev.compat) ?? {};
+  const compat: Record<string, unknown> = { ...prevCompat };
+  if (draft.supportsDeveloperRole) delete compat.supportsDeveloperRole;
+  else compat.supportsDeveloperRole = false;
+  if (draft.supportsReasoningEffort) delete compat.supportsReasoningEffort;
+  else compat.supportsReasoningEffort = false;
   if (Object.keys(compat).length) out.compat = compat;
+  else delete out.compat;
 
   return out;
 }
@@ -154,7 +298,7 @@ export function validateCustomProvider(
   if (!draft.baseUrl.trim()) return "Base URL is required";
   try {
     // eslint-disable-next-line no-new
-    new URL(draft.baseUrl.trim());
+    new URL(normalizeProviderBaseUrl(draft.baseUrl) || draft.baseUrl.trim());
   } catch {
     return "Base URL is invalid";
   }
@@ -175,14 +319,13 @@ export function validateCustomProvider(
 
 export function upsertCustomProvider(doc: ModelsConfigDoc, draft: CustomProviderDraft): ModelsConfigDoc {
   const id = draft.id.trim();
-  const next = { providers: { ...doc.providers } };
-  // If renaming (shouldn't happen when id locked), delete old — caller passes editingId separately.
-  next.providers[id] = draftToProviderJson(draft);
+  const next = { providers: { ...doc.providers }, rest: { ...doc.rest } };
+  next.providers[id] = draftToProviderJson(draft, doc.providers[id]);
   return next;
 }
 
 export function removeCustomProvider(doc: ModelsConfigDoc, id: string): ModelsConfigDoc {
-  const next = { providers: { ...doc.providers } };
+  const next = { providers: { ...doc.providers }, rest: { ...doc.rest } };
   delete next.providers[id];
   return next;
 }
@@ -192,10 +335,43 @@ export function renameCustomProvider(
   fromId: string,
   draft: CustomProviderDraft,
 ): ModelsConfigDoc {
-  const next = { providers: { ...doc.providers } };
+  const next = { providers: { ...doc.providers }, rest: { ...doc.rest } };
+  const existing = fromId ? next.providers[fromId] : next.providers[draft.id.trim()];
   if (fromId && fromId !== draft.id.trim()) {
     delete next.providers[fromId];
   }
-  next.providers[draft.id.trim()] = draftToProviderJson(draft);
+  next.providers[draft.id.trim()] = draftToProviderJson(draft, existing);
   return next;
+}
+
+/** Merge discovered models into draft rows (upsert by id, keep manual fields). */
+export function mergeDiscoveredIntoDraft(
+  current: CustomModelEntry[],
+  discovered: Array<{
+    id: string;
+    name?: string;
+    contextWindow?: number;
+    maxTokens?: number;
+  }>,
+): CustomModelEntry[] {
+  const byId = new Map<string, CustomModelEntry>();
+  for (const m of current) {
+    const id = m.id.trim();
+    if (id) byId.set(id, { ...m, id });
+  }
+  for (const d of discovered) {
+    const id = d.id.trim();
+    if (!id) continue;
+    const prev = byId.get(id);
+    byId.set(id, {
+      id,
+      name: prev?.name || d.name || "",
+      reasoning: prev?.reasoning ?? false,
+      vision: prev?.vision,
+      contextWindow: d.contextWindow ?? prev?.contextWindow,
+      maxTokens: d.maxTokens ?? prev?.maxTokens,
+    });
+  }
+  const list = [...byId.values()];
+  return list.length ? list : [{ id: "", name: "", reasoning: false }];
 }
