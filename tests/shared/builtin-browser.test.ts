@@ -37,6 +37,9 @@ describe("shouldEnableBuiltinBrowserTools", () => {
       shouldEnableBuiltinBrowserTools("Context from browser selection:\n\n### Citation 1"),
     ).toBe(true);
     expect(
+      shouldEnableBuiltinBrowserTools("# 内置浏览器 (Built-in browser)\n\nContext from browser selection:"),
+    ).toBe(true);
+    expect(
       shouldEnableBuiltinBrowserTools("# Built-in browser (Pi Desktop)\n\nUse browser_*"),
     ).toBe(true);
   });

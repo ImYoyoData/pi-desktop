@@ -422,34 +422,31 @@ function snapshotComposerPayload(): {
         htmlSnippet: c.htmlSnippet,
       }))
     : undefined;
-  const modeLabel = modeTagLabel(mode);
-  const tagsToSend = [
-    {
-      url: mode,
-      host: "",
-      label: modeLabel,
-      content: mode,
-      kind: mode,
-    },
-    ...attachmentTags.map((row) => {
-      let host = "";
-      if (row.kind === "url" || row.kind === "element") {
-        try {
-          host = new URL(row.ref).host;
-        } catch {
-          host = "";
-        }
+  // Mode is injected into agentText via preamble — do not show a mode chip on the bubble.
+  const tagsToSend = attachmentTags.map((row) => {
+    let host = "";
+    if (row.kind === "url" || row.kind === "element") {
+      try {
+        host = new URL(row.ref).host;
+      } catch {
+        host = "";
       }
-      return {
-        url: row.ref,
-        host,
-        label: row.label,
-        content: row.content,
-        kind: row.kind,
-      };
-    }),
-  ];
-  return { text, displayText, imagesToSend, citationsToSend, tagsToSend };
+    }
+    return {
+      url: row.ref,
+      host,
+      label: row.label,
+      content: row.content,
+      kind: row.kind,
+    };
+  });
+  return {
+    text,
+    displayText,
+    imagesToSend,
+    citationsToSend,
+    tagsToSend: tagsToSend.length ? tagsToSend : undefined,
+  };
 }
 
 const attachMenu: DropdownOption[] = [

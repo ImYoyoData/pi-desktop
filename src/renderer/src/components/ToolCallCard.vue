@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch } from "vue";
+import { computed, nextTick, ref, watch } from "vue";
 import { NButton, NIcon, useMessage } from "naive-ui";
 import {
   CheckmarkCircleOutline,
@@ -30,22 +30,75 @@ const emit = defineEmits<{
   open: [path: string];
 }>();
 
-/** Expanded while streaming (like ThinkingBlock); user can still collapse. */
+/** Write / edit / bash expand while live; read stays collapsed by default. */
+function shouldAutoExpand(kind: ToolCard["kind"]): boolean {
+  switch (kind) {
+    case "write":
+    case "edit":
+    case "bash":
+      return true;
+    case "read":
+    case "generic":
+    case "other":
+      return false;
+    default: {
+      const _never: never = kind;
+      return Boolean(_never);
+    }
+  }
+}
+
+/** Expanded while streaming for write/edit/bash; stays open after so diffs are visible. */
 const manuallyOpen = ref<boolean | null>(null);
+const wasStreaming = ref(false);
+const bodyRef = ref<HTMLElement | null>(null);
+/** Follow newest lines unless the user scrolls up inside the card. */
+let stickToBottom = true;
+const NEAR_BOTTOM_PX = 48;
+
 const open = computed(() => {
   if (manuallyOpen.value !== null) return manuallyOpen.value;
-  return Boolean(props.streaming);
+  if (!shouldAutoExpand(props.card.kind)) return false;
+  return wasStreaming.value || Boolean(props.streaming);
 });
 
 watch(
   () => props.streaming,
-  (streaming) => {
-    if (streaming) manuallyOpen.value = null;
+  (streaming, prev) => {
+    if (!shouldAutoExpand(props.card.kind)) return;
+    if (streaming) {
+      // Reset manual override while streaming so it tracks live state.
+      manuallyOpen.value = null;
+      wasStreaming.value = true;
+      stickToBottom = true;
+    } else if (prev && !streaming) {
+      // Just finished — keep expanded so the result (diff/output) is visible.
+      wasStreaming.value = true;
+    }
   },
+  { immediate: true },
 );
 
 function toggleOpen(): void {
-  manuallyOpen.value = !open.value;
+  const next = !open.value;
+  manuallyOpen.value = next;
+  if (!next) return;
+  stickToBottom = true;
+  void scrollBodyToLatest();
+}
+
+function onBodyScroll(): void {
+  const el = bodyRef.value;
+  if (!el) return;
+  stickToBottom = el.scrollHeight - el.scrollTop - el.clientHeight < NEAR_BOTTOM_PX;
+}
+
+async function scrollBodyToLatest(): Promise<void> {
+  if (!open.value || !stickToBottom) return;
+  await nextTick();
+  const el = bodyRef.value;
+  if (!el) return;
+  el.scrollTop = el.scrollHeight;
 }
 
 const backgroundBusy = ref(false);
@@ -177,6 +230,21 @@ const body = computed(() => {
   return card.preview;
 });
 
+const stickKinds = computed(
+  () => props.card.kind === "write" || props.card.kind === "edit" || props.card.kind === "bash",
+);
+
+watch(
+  () => [body.value, props.streaming, open.value, stickKinds.value] as const,
+  () => {
+    if (!stickKinds.value) return;
+    // Write/edit: always stick while open (args/result land progressively).
+    // Bash: stick while streaming live output.
+    if (props.card.kind === "bash" && !props.streaming) return;
+    void scrollBodyToLatest();
+  },
+);
+
 const emptyBodyText = computed(() => {
   if (props.card.kind === "bash") return t.toolNoOutput;
   if (props.card.kind === "read" || props.card.kind === "generic") return t.toolNoOutput;
@@ -283,7 +351,13 @@ function onOpenPreview(): void {
         {{ t.toolMoveToBackground }}
       </NButton>
     </div>
-    <pre v-if="open && body" class="tool-body" :class="{ 'tool-body-bash': card.kind === 'bash' }"><code><span
+    <pre
+      v-if="open && body"
+      ref="bodyRef"
+      class="tool-body"
+      :class="{ 'tool-body-bash': card.kind === 'bash' }"
+      @scroll="onBodyScroll"
+    ><code><span
       v-for="(line, i) in body.split('\n')"
       :key="i"
       class="dline"
@@ -516,7 +590,7 @@ function onOpenPreview(): void {
   margin: 0;
   padding: 8px 0;
   border-top: 1px solid color-mix(in srgb, var(--border, #ddd) 80%, transparent);
-  max-height: 300px;
+  max-height: 180px;
   overflow: auto;
   font-size: 11.5px;
   line-height: 1.5;

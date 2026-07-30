@@ -8,23 +8,14 @@ type ChromeTheme = "light" | "dark";
 
 function applyChrome(win: BrowserWindow, mode: ChromeTheme): void {
   const bg = mode === "dark" ? "#18181b" : "#f4f4f5";
-  const symbol = mode === "dark" ? "#a1a1aa" : "#71717a";
   try {
     win.setBackgroundColor(bg);
   } catch {
     // ignore
   }
-  if (process.platform === "win32") {
-    try {
-      win.setTitleBarOverlay({
-        color: bg,
-        symbolColor: symbol,
-        height: 36,
-      });
-    } catch {
-      // ignore when overlay unavailable
-    }
-  }
+  // Do NOT enable titleBarOverlay on Windows: it owns the title-bar hit-test
+  // strip and blocks `-webkit-app-region: drag` on our custom TitleBar.
+  // Window chrome buttons are drawn in the renderer instead.
 }
 
 export function registerWindowIpc(): void {

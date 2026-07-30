@@ -6,6 +6,10 @@ export const IpcChannels = {
     forceClose: "window:forceClose",
     closeRequest: "window:closeRequest",
     isMaximized: "window:isMaximized",
+    /** Main → renderer: window just maximized (for title-bar button state). */
+    onMaximized: "window:onMaximized",
+    /** Main → renderer: window just unmaximized/restored (for title-bar button state). */
+    onUnmaximized: "window:onUnmaximized",
     platform: "window:platform",
     setThemeSource: "window:setThemeSource",
     setChromeTheme: "window:setChromeTheme",
