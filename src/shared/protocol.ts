@@ -379,6 +379,19 @@ export type SessionHistoryMessage =
       args?: unknown;
     };
 
+/** Paginated leaf-path history for the chat UI (avoid loading entire huge sessions). */
+export type SessionHistoryPage = {
+  messages: SessionHistoryMessage[];
+  hasMore: boolean;
+  total: number;
+};
+
+export type SessionHistoryQuery = {
+  limit?: number;
+  /** Load messages strictly older than this id (scroll-up). */
+  beforeId?: string | null;
+};
+
 export type SessionSummary = {
   id: string;
   filePath: string;
