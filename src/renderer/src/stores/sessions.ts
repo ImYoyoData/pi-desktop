@@ -138,6 +138,9 @@ export const useSessionsStore = defineStore("sessions", () => {
       case "worker_stuck":
         patchStatus(event.sessionId, "stuck");
         break;
+      case "worker_alive":
+        // Soft liveness for the chat wait indicator — status stays running/idle.
+        break;
       case "session_status":
         patchStatus(event.sessionId, event.status);
         break;

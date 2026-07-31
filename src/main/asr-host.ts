@@ -24,14 +24,18 @@ import {
   ASR_DISK_MB,
   ASR_MODEL_FILENAME,
   ASR_MODEL_LABEL,
-  ASR_MODEL_URLS,
   ASR_RAM_MB,
+  asrDownloadSourceHost,
+  asrModelUrlsForMirror,
   assertAsrGgufPath,
   assertAsrRuntimeArchivePath,
   asrRuntimeArchiveName,
+  expandAsrDownloadUrls,
+  normalizeAsrDownloadMirror,
   normalizeAsrModelUrl,
   resolveAsrBinaryAsset,
   scrubAsrHallucination,
+  type AsrDownloadMirror,
   type AsrGpuBackend,
   type AsrGpuOption,
   type AsrInstallProgress,
@@ -63,6 +67,8 @@ type Prefs = {
   disableCuda?: boolean;
   /** "auto" | "cuda" | "cpu" | "metal" | "vulkan:<id>" */
   gpuPreference?: string;
+  /** Prefer China vs international download mirrors. */
+  downloadMirror?: AsrDownloadMirror;
   /** Electron accelerator for wake / start voice recording. */
   wakeHotkey?: string;
   /** Keep ASR warm + always-on local wake mic (default off). */
@@ -76,6 +82,8 @@ let registeredWakeHotkey: string | null = null;
 
 /** Install/import only — must NOT gate the install UI via transcription. */
 let installBusy = false;
+/** Chains withInstallLock callers so concurrent IPC waits instead of throwing. */
+let installQueue: Promise<void> = Promise.resolve();
 /** Transcription job lock. */
 let inferBusy = false;
 /** Long-lived CrispASR `--stream` session. */
@@ -86,6 +94,26 @@ let streamStderrTail = "";
 let lastError: string | null = null;
 let installAbort: AbortController | null = null;
 let cachedGpuInfo: AsrGpuInfo | null = null;
+
+/** Stable token so renderer can suppress error toasts on user cancel. */
+const ASR_INSTALL_CANCELLED = "ASR_INSTALL_CANCELLED";
+
+function throwIfInstallAborted(signal: AbortSignal): void {
+  if (signal.aborted) throw new Error(ASR_INSTALL_CANCELLED);
+}
+
+/** True only for explicit user cancel (install AbortSignal), not mirror stall aborts. */
+function isInstallCancelledError(err: unknown, signal?: AbortSignal): boolean {
+  if (signal?.aborted) return true;
+  if (!(err instanceof Error)) return false;
+  return /ASR_INSTALL_CANCELLED/i.test(err.message);
+}
+
+function cancelAsrInstall(): { ok: boolean } {
+  if (!installAbort) return { ok: false };
+  installAbort.abort();
+  return { ok: true };
+}
 
 function asrRoot(): string {
   return join(app.getPath("userData"), "asr");
@@ -125,6 +153,7 @@ function readPrefs(): Prefs {
       enabled: raw.enabled !== false,
       disableCuda: Boolean(raw.disableCuda),
       gpuPreference: pref,
+      downloadMirror: normalizeAsrDownloadMirror(raw.downloadMirror),
       wakeHotkey: wake,
       residentModel: Boolean(raw.residentModel),
       wakeWords,
@@ -133,6 +162,7 @@ function readPrefs(): Prefs {
     return {
       enabled: true,
       gpuPreference: "auto",
+      downloadMirror: "auto",
       wakeHotkey: DEFAULT_ASR_WAKE_HOTKEY,
       residentModel: false,
       wakeWords: DEFAULT_ASR_WAKE_WORDS,
@@ -153,6 +183,7 @@ function writePrefs(prefs: Prefs): void {
         enabled: prefs.enabled,
         disableCuda: Boolean(prefs.disableCuda),
         gpuPreference: prefs.gpuPreference || "auto",
+        downloadMirror: normalizeAsrDownloadMirror(prefs.downloadMirror),
         wakeHotkey: wake,
         residentModel: Boolean(prefs.residentModel),
         wakeWords,
@@ -404,6 +435,7 @@ function getStatus(): AsrStatus {
     gpuOptions: localizedGpuOptions(),
     runtimeMatchesPreference: matches,
     runtimeArchiveHint: asrRuntimeArchiveName(process.platform, process.arch, backend),
+    downloadMirror: normalizeAsrDownloadMirror(prefs.downloadMirror),
     wakeHotkey: prefs.wakeHotkey || DEFAULT_ASR_WAKE_HOTKEY,
     residentModel: Boolean(prefs.residentModel),
     wakeWords: prefs.wakeWords ?? DEFAULT_ASR_WAKE_WORDS,
@@ -428,6 +460,19 @@ function setGpuPreference(preference: string): AsrStatus {
   });
   cachedGpuInfo = null;
   return getStatus();
+}
+
+function setDownloadMirror(mirror: string): AsrStatus {
+  const prefs = readPrefs();
+  writePrefs({
+    ...prefs,
+    downloadMirror: normalizeAsrDownloadMirror(mirror),
+  });
+  return getStatus();
+}
+
+function currentDownloadMirror(): AsrDownloadMirror {
+  return normalizeAsrDownloadMirror(readPrefs().downloadMirror);
 }
 
 function broadcastProgress(progress: AsrInstallProgress): void {
@@ -461,22 +506,18 @@ function downloadErrorMessage(err: unknown, url: string): string {
 
 /** GitHub release URLs often need mirrors from CN networks. */
 function expandDownloadUrls(urls: readonly string[]): string[] {
-  const out: string[] = [];
-  const seen = new Set<string>();
-  const push = (u: string): void => {
-    if (!u || seen.has(u)) return;
-    seen.add(u);
-    out.push(u);
-  };
-  for (const url of urls) {
-    if (/^https?:\/\/(github\.com|objects\.githubusercontent\.com)\//i.test(url)) {
-      push(`https://gh-proxy.com/${url}`);
-      push(`https://mirror.ghproxy.com/${url}`);
-      push(`https://ghfast.top/${url}`);
-    }
-    push(url);
-  }
-  return out;
+  return expandAsrDownloadUrls(urls, currentDownloadMirror(), app.getLocale());
+}
+
+/** No first byte / stalled transfer → switch mirror. */
+const DOWNLOAD_STALL_MS = 8_000;
+/** After this window, require a minimum of bytes or treat the mirror as too slow. */
+const DOWNLOAD_SLOW_CHECK_MS = 6_000;
+const DOWNLOAD_SLOW_MIN_BYTES = 256 * 1024;
+
+function isSlowDownloadError(err: unknown): boolean {
+  const msg = err instanceof Error ? err.message : String(err);
+  return /ASR_DOWNLOAD_SLOW\|/i.test(msg);
 }
 
 async function downloadOnce(
@@ -488,62 +529,121 @@ async function downloadOnce(
   mkdirSync(dirname(dest), { recursive: true });
   const tmp = `${dest}.part`;
   rmSync(tmp, { force: true });
+  const host = asrDownloadSourceHost(url);
+  const phaseLabel = phase === "model" ? "Downloading ASR model…" : "Downloading ASR runtime…";
   broadcastProgress({
     phase,
     receivedBytes: 0,
     totalBytes: estimatePhaseBytes(phase),
-    message: phase === "model" ? "Downloading ASR model…" : "Downloading ASR runtime…",
+    message: host ? `${phaseLabel} (${host})` : phaseLabel,
+    sourceHost: host || null,
   });
-  const res = await fetch(url, {
-    signal,
-    redirect: "follow",
-    headers: {
-      // Some CDNs reject empty / electron default agents
-      "User-Agent": `pi-desktop-asr/${app.getVersion()}`,
-      Accept: "*/*",
-    },
-  });
-  if (!res.ok || !res.body) {
-    throw new Error(`HTTP ${res.status}`);
-  }
-  const headerTotal = Number(res.headers.get("content-length") || 0);
-  let totalBytes = headerTotal > 0 ? headerTotal : estimatePhaseBytes(phase);
+
+  const local = new AbortController();
+  const onParentAbort = (): void => local.abort();
+  if (signal.aborted) throw new Error(ASR_INSTALL_CANCELLED);
+  signal.addEventListener("abort", onParentAbort, { once: true });
+
+  let stallTimer: ReturnType<typeof setTimeout> | null = null;
+  let slowTimer: ReturnType<typeof setTimeout> | null = null;
   let received = 0;
-  let lastEmit = 0;
-  const reader = Readable.fromWeb(res.body as import("stream/web").ReadableStream);
-  const out = createWriteStream(tmp);
-  const emit = (force = false): void => {
-    const now = Date.now();
-    if (!force && now - lastEmit < 100) return;
-    lastEmit = now;
-    if (received > totalBytes) totalBytes = Math.ceil(received * 1.05);
-    broadcastProgress({
-      phase,
-      receivedBytes: received,
-      totalBytes,
-      message: phase === "model" ? "Downloading ASR model…" : "Downloading ASR runtime…",
-    });
+  let markedSlow = false;
+
+  const clearTimers = (): void => {
+    if (stallTimer) clearTimeout(stallTimer);
+    if (slowTimer) clearTimeout(slowTimer);
+    stallTimer = null;
+    slowTimer = null;
   };
-  reader.on("data", (chunk: Buffer) => {
-    received += chunk.length;
-    emit();
-  });
+
+  const armStall = (): void => {
+    if (stallTimer) clearTimeout(stallTimer);
+    stallTimer = setTimeout(() => {
+      markedSlow = true;
+      local.abort();
+    }, DOWNLOAD_STALL_MS);
+  };
+
   try {
-    await pipeline(reader, out);
+    armStall();
+    slowTimer = setTimeout(() => {
+      if (received < DOWNLOAD_SLOW_MIN_BYTES) {
+        markedSlow = true;
+        local.abort();
+      }
+    }, DOWNLOAD_SLOW_CHECK_MS);
+
+    const res = await fetch(url, {
+      signal: local.signal,
+      redirect: "follow",
+      headers: {
+        // Some CDNs reject empty / electron default agents
+        "User-Agent": `pi-desktop-asr/${app.getVersion()}`,
+        Accept: "*/*",
+      },
+    });
+    if (!res.ok || !res.body) {
+      throw new Error(`HTTP ${res.status}`);
+    }
+    const headerTotal = Number(res.headers.get("content-length") || 0);
+    let totalBytes = headerTotal > 0 ? headerTotal : estimatePhaseBytes(phase);
+    let lastEmit = 0;
+    const reader = Readable.fromWeb(res.body as import("stream/web").ReadableStream);
+    const out = createWriteStream(tmp, { highWaterMark: 1024 * 1024 });
+    const emit = (force = false): void => {
+      const now = Date.now();
+      if (!force && now - lastEmit < 100) return;
+      lastEmit = now;
+      if (received > totalBytes) totalBytes = Math.ceil(received * 1.05);
+      broadcastProgress({
+        phase,
+        receivedBytes: received,
+        totalBytes,
+        message: host ? `${phaseLabel} (${host})` : phaseLabel,
+        sourceHost: host || null,
+      });
+    };
+    reader.on("data", (chunk: Buffer) => {
+      received += chunk.length;
+      armStall();
+      if (received >= DOWNLOAD_SLOW_MIN_BYTES && slowTimer) {
+        clearTimeout(slowTimer);
+        slowTimer = null;
+      }
+      emit();
+    });
+    try {
+      await pipeline(reader, out);
+    } catch (err) {
+      rmSync(tmp, { force: true });
+      throw err;
+    }
+    emit(true);
+    if (received <= 0) {
+      rmSync(tmp, { force: true });
+      throw new Error("empty download");
+    }
+    rmSync(dest, { force: true });
+    renameSync(tmp, dest);
   } catch (err) {
-    rmSync(tmp, { force: true });
+    // Mirror stall/slow uses local.abort() → AbortError; that is NOT user cancel.
+    if (signal.aborted) {
+      throw new Error(ASR_INSTALL_CANCELLED);
+    }
+    if (markedSlow || local.signal.aborted) {
+      throw new Error(`ASR_DOWNLOAD_SLOW|${url}`);
+    }
+    if (isInstallCancelledError(err, signal)) {
+      throw new Error(ASR_INSTALL_CANCELLED);
+    }
     throw err;
+  } finally {
+    clearTimers();
+    signal.removeEventListener("abort", onParentAbort);
   }
-  emit(true);
-  if (received <= 0) {
-    rmSync(tmp, { force: true });
-    throw new Error("empty download");
-  }
-  rmSync(dest, { force: true });
-  renameSync(tmp, dest);
 }
 
-/** Try each URL (with a short retry) until one succeeds. */
+/** Try each URL until one succeeds; skip slow mirrors quickly. */
 async function downloadFile(
   urls: string | readonly string[],
   dest: string,
@@ -555,16 +655,25 @@ async function downloadFile(
   let lastUrl = list[list.length - 1] ?? "";
   for (const url of list) {
     lastUrl = url;
-    for (let attempt = 1; attempt <= 2; attempt++) {
-      if (signal.aborted) throw new Error("Download aborted");
+    throwIfInstallAborted(signal);
+    try {
+      await downloadOnce(url, dest, phase, signal);
+      return;
+    } catch (err) {
+      lastErr = err;
+      if (isInstallCancelledError(err, signal)) throw new Error(ASR_INSTALL_CANCELLED);
+      // Slow / stalled mirrors: jump to the next candidate immediately.
+      if (isSlowDownloadError(err)) continue;
+      // One quick retry for transient mid-transfer failures on the same URL.
+      throwIfInstallAborted(signal);
       try {
+        await new Promise((r) => setTimeout(r, 300));
         await downloadOnce(url, dest, phase, signal);
         return;
-      } catch (err) {
-        lastErr = err;
-        if (signal.aborted) throw err;
-        // brief backoff before retry / next mirror
-        await new Promise((r) => setTimeout(r, 400 * attempt));
+      } catch (retryErr) {
+        lastErr = retryErr;
+        if (isInstallCancelledError(retryErr, signal)) throw new Error(ASR_INSTALL_CANCELLED);
+        if (isSlowDownloadError(retryErr)) continue;
       }
     }
   }
@@ -614,6 +723,7 @@ async function installRuntimeBackend(backend: AsrGpuBackend, signal: AbortSignal
   });
   const archivePath = join(asrRoot(), `runtime-download.${asset.archive === "zip" ? "zip" : "tar.gz"}`);
   await downloadFile(asset.url, archivePath, "binary", signal);
+  throwIfInstallAborted(signal);
   rmSync(runtimeDir(), { recursive: true, force: true });
   mkdirSync(runtimeDir(), { recursive: true });
   await extractArchive(archivePath, runtimeDir(), asset.archive);
@@ -677,11 +787,19 @@ async function ensureRuntime(signal: AbortSignal): Promise<void> {
 }
 
 async function withInstallLock(run: (signal: AbortSignal) => Promise<AsrStatus>): Promise<AsrStatus> {
-  if (installBusy) throw new Error("ASR install already in progress");
   const backend = preferredGpuBackend();
   if (!resolveAsrBinaryAsset(process.platform, process.arch, backend)) {
     throw new Error("ASR is not supported on this platform");
   }
+
+  // Serialize install/reinstall so concurrent IPC (voice warm + confirm) cannot race.
+  const prev = installQueue;
+  let releaseQueue!: () => void;
+  const gate = new Promise<void>((resolve) => {
+    releaseQueue = resolve;
+  });
+  installQueue = prev.then(() => gate, () => gate);
+  await prev.catch(() => undefined);
 
   installBusy = true;
   lastError = null;
@@ -705,6 +823,16 @@ async function withInstallLock(run: (signal: AbortSignal) => Promise<AsrStatus>)
     });
     return status;
   } catch (err) {
+    if (isInstallCancelledError(err, signal)) {
+      lastError = null;
+      broadcastProgress({
+        phase: "error",
+        receivedBytes: 0,
+        totalBytes: null,
+        message: ASR_INSTALL_CANCELLED,
+      });
+      throw new Error(ASR_INSTALL_CANCELLED);
+    }
     lastError = err instanceof Error ? err.message : String(err);
     broadcastProgress({
       phase: "error",
@@ -716,15 +844,21 @@ async function withInstallLock(run: (signal: AbortSignal) => Promise<AsrStatus>)
   } finally {
     installBusy = false;
     installAbort = null;
+    releaseQueue();
   }
 }
 
 async function installAsr(): Promise<AsrStatus> {
   return withInstallLock(async (signal) => {
     await ensureRuntime(signal);
-    // Model (mirror-first; huggingface.co often times out via Node fetch)
+    // Model (mirror order follows downloadMirror preference)
     if (!existsSync(modelPath())) {
-      await downloadFile(ASR_MODEL_URLS, modelPath(), "model", signal);
+      await downloadFile(
+        asrModelUrlsForMirror(currentDownloadMirror(), app.getLocale()),
+        modelPath(),
+        "model",
+        signal,
+      );
     }
     return getStatus();
   });
@@ -1592,6 +1726,9 @@ export function registerAsrIpc(): void {
   ipcMain.handle(IpcChannels.asr.setGpuPreference, (_e, preference: string) => {
     return setGpuPreference(String(preference ?? "auto"));
   });
+  ipcMain.handle(IpcChannels.asr.setDownloadMirror, (_e, mirror: string) => {
+    return setDownloadMirror(String(mirror ?? "auto"));
+  });
   ipcMain.handle(IpcChannels.asr.setWakeHotkey, (_e, accel: string) => {
     return setWakeHotkey(String(accel ?? ""));
   });
@@ -1608,6 +1745,7 @@ export function registerAsrIpc(): void {
   ipcMain.handle(IpcChannels.asr.reinstallRuntime, async () => reinstallAsrRuntime());
   ipcMain.handle(IpcChannels.asr.pickRuntimeArchive, async () => pickAsrRuntimeArchive());
   ipcMain.handle(IpcChannels.asr.importRuntime, async (_e, filePath: string) => importAsrRuntime(filePath));
+  ipcMain.handle(IpcChannels.asr.cancelInstall, () => cancelAsrInstall());
   ipcMain.handle(IpcChannels.asr.uninstall, async () => {
     await stopAsrStream();
     return uninstallAsr();
