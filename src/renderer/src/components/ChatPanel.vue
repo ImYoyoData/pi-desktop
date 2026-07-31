@@ -5,6 +5,7 @@ import { AddOutline, SparklesOutline } from "@vicons/ionicons5";
 import AskUserStrip from "@renderer/components/AskUserStrip.vue";
 import PermissionStrip from "@renderer/components/PermissionStrip.vue";
 import ExtensionUiStrip from "@renderer/components/ExtensionUiStrip.vue";
+import SessionTodoPanel from "@renderer/components/SessionTodoPanel.vue";
 import Composer from "@renderer/components/Composer.vue";
 import MessageList from "@renderer/components/MessageList.vue";
 import { useChatStore } from "@renderer/stores/chat";
@@ -135,6 +136,7 @@ async function onNewAgent(): Promise<void> {
       <AskUserStrip
         v-if="!chat.activePendingPermission && !chat.activePendingExtensionUi"
       />
+      <SessionTodoPanel />
       <Composer />
     </template>
   </section>

@@ -26,6 +26,8 @@ export const en = {
   deleteConfirm: (label: string) =>
     `Delete session “${label}”? Session files will be permanently removed.`,
   stuckBanner: "This session’s Worker is unresponsive. Terminate or restart this session only.",
+  todoProgress: (done: number, total: number) => `Todos ${done}/${total}`,
+  todoAllDone: (total: number) => `Todos complete (${total})`,
   send: "Send",
   stop: "Stop",
   steer: "Steer",

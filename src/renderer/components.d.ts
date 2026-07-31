@@ -52,6 +52,7 @@ declare module 'vue' {
     SecuritySettings: typeof import('./src/components/SecuritySettings.vue')['default']
     SendQueueBar: typeof import('./src/components/SendQueueBar.vue')['default']
     SessionSidebar: typeof import('./src/components/SessionSidebar.vue')['default']
+    SessionTodoPanel: typeof import('./src/components/SessionTodoPanel.vue')['default']
     SkillsSettings: typeof import('./src/components/SkillsSettings.vue')['default']
     SplitRoot: typeof import('./src/components/SplitRoot.vue')['default']
     TerminalTab: typeof import('./src/components/TerminalTab.vue')['default']

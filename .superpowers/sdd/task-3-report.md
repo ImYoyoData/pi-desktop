@@ -1,58 +1,45 @@
-# Task 3 Report: Trust dialog on workspace open + pass `projectTrusted` into worker
+# Task 3 Report: IPC + preload + protocol (git conflict APIs)
 
 ## Status
 
-**Complete.** Workspace open/get gates session hydrate on trust prompt; workers init with explicit `projectTrusted` via `SettingsManager.create`.
-
-## Commits
-
-None (per instructions).
+**Complete**
 
 ## Changes
 
-| File | Summary |
-|------|---------|
-| `src/shared/agent-worker-messages.ts` | `init` requires `projectTrusted: boolean` |
-| `src/agent-worker/runtime.ts` | `SettingsManager.create(cwd, agentDir, { projectTrusted })` → `createAgentSessionServices` |
-| `src/main/agent-worker-host.ts` | Spawn resolves `resolveTrustState(cwd).projectTrusted` into init |
-| `src/renderer/src/stores/workspace.ts` | `pendingTrustPrompt` / `sessionsReady`; Trust / Don't trust / Later; await before ready |
-| `src/renderer/src/components/TrustDialog.vue` | Naive `NModal` (non-dismissible) with three actions |
-| `src/renderer/src/App.vue` | Mount `TrustDialog` |
-| `src/renderer/src/components/SessionSidebar.vue` | Hydrate only when `root && sessionsReady` |
-| `src/renderer/src/i18n/en.ts` / `zh-CN.ts` | Trust dialog strings |
-| `src/renderer/components.d.ts` | Register `TrustDialog` |
+| File | Change |
+|------|--------|
+| `src/shared/protocol.ts` | Added `IpcChannels.git`: `conflictContent`, `resolveConflict`, `checkoutConflictSide`, `abortMerge` |
+| `src/main/git-ipc.ts` | Registered four handlers; delegate to `getConflictContent`, `resolveConflictPath`, `checkoutConflictSide`, `abortMerge` from `git-host.ts` |
+| `src/preload/index.ts` | Exposed matching methods on `api.git` with `GitConflictContentResult` / `GitOpResult` types |
 
-## Behavior
+## Handler behavior
 
-- **Trust** → `trust.set(true)` → proceed; restart live workers for cwd (best-effort).
-- **Don't trust** → `trust.set(false)` → `projectTrusted=false`.
-- **Later** → no write; session-local defer until workspace root changes; `projectTrusted=false`.
-- Worker spawn always uses `resolveTrustState(cwd).projectTrusted` (safe default `false` while unresolved).
+- All handlers call `requireRoot()` first.
+- `conflictContent`: missing workspace or non-string path → `{ supported: false }` (same as `git.diff`).
+- `resolveConflict`, `checkoutConflictSide`, `abortMerge`: missing workspace or invalid payload → `noWorkspace()` (`GitOpResult` with `invalid_args`).
+- `checkoutConflictSide` validates `side` is `"ours"` or `"theirs"`.
 
-## Tests
+## Verification
 
-```
-npm run typecheck → pass
-npx vitest run tests/main/project-trust.test.ts tests/main/session-broker.test.ts tests/shared/desktop-security.test.ts
-→ 20 passed
+```text
+npm run typecheck  → exit 0 (vue-tsc --noEmit)
 ```
 
-Manual check (Step 4) not run in this environment: open untrusted repo with `.pi/settings.json` → dialog; Trust loads project resources; Don't trust does not.
+## Commit
 
-## Self-review
+- **Message:** `feat: expose git conflict resolve IPC to renderer`
+- **Files staged:** only the three files above (no Cursor attribution).
 
-- SDK default `projectTrusted ?? true` is overridden by explicit boolean on every worker init.
-- Dialog `mask-closable` / `close-on-esc` / `closable` disabled so open blocks until a choice.
-- Concurrent `getWorkspace` / open calls join the same in-flight trust wait promise.
-- Session hydrate gated on `sessionsReady` so workers are not cold-started before the answer.
+## Renderer API
 
-## Concerns / follow-ups
+```ts
+window.api.git.conflictContent(relativePath)
+window.api.git.resolveConflict({ relativePath, content })
+window.api.git.checkoutConflictSide({ relativePath, side: "ours" | "theirs" })
+window.api.git.abortMerge()
+```
 
-1. **No automated UI/store test** for TrustDialog / `sessionsReady` gate — covered by typecheck + trust unit tests; manual Step 4 still needed.
-2. **plugins-host** still uses `SettingsManager.create(cwd, getAgentDir())` without `projectTrusted` — out of scope for Task 3 (worker path only); may over-trust when listing plugins from main.
-3. **Trust → restart workers** is best-effort; with the hydrate gate, list is usually empty at answer time; Security settings (later) should still recreate workers on trust toggle.
-4. Path equality for cancel/re-open uses string `===` (not normalized) — matches prior workspace IPC path strings.
+## Notes / concerns
 
-## Out of scope (later tasks)
-
-- PermissionStrip, SecuritySettings, `evaluatePermission`, `beforeToolCall` approval, `reload_security` / `desktopSecurity` on init.
+- Invalid mutation payloads reuse `noWorkspace()` rather than a dedicated `invalid_args` message; consistent with several existing git IPC handlers.
+- Task 4+ can consume these APIs from the renderer conflict UI.
