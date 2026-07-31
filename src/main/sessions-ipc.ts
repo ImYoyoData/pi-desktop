@@ -33,6 +33,10 @@ export function registerSessionsIpc(broker: SessionBroker): void {
     broker.send(sessionId, command),
   );
 
+  ipcMain.handle(IpcChannels.sessions.tryCommand, (_event, sessionId: string, command: AgentCommand) =>
+    broker.trySend(sessionId, command),
+  );
+
   ipcMain.handle(IpcChannels.sessions.killWorker, (_event, sessionId: string) =>
     broker.killWorker(sessionId),
   );
