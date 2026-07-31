@@ -112,9 +112,10 @@ describe("buildAgentWorkerEnv", () => {
       packageRootFromPiCli(cli),
     );
     expect(env[PI_SUBAGENT_PI_BINARY_ENV]).toBeUndefined();
+    expect(env.ELECTRON_RUN_AS_NODE).toBeUndefined();
   });
 
-  it("drops system Node when the only CLI path is under app.asar", () => {
+  it("drops system Node when the only CLI path is under app.asar (no ELECTRON_RUN_AS_NODE on fork env)", () => {
     const root = mkdtempSync(path.join(tmpdir(), "pi-asar-cli-"));
     // Create a real file whose absolute path contains "app.asar"
     const asarDir = path.join(root, "app.asar", "node_modules", "@earendil-works", "pi-coding-agent", "dist");
@@ -128,6 +129,7 @@ describe("buildAgentWorkerEnv", () => {
     const env = buildAgentWorkerEnv(
       {
         PATH: "/usr/bin",
+        ELECTRON_RUN_AS_NODE: "1",
         [PI_DESKTOP_NODE_PATH_ENV]: fakeNode,
         [PI_DESKTOP_PI_CLI_PATH_ENV]: asarCli,
       },
@@ -136,7 +138,8 @@ describe("buildAgentWorkerEnv", () => {
 
     expect(env[PI_DESKTOP_PI_CLI_PATH_ENV]).toBe(asarCli);
     expect(env[PI_DESKTOP_NODE_PATH_ENV]).toBeUndefined();
-    expect(env.ELECTRON_RUN_AS_NODE).toBe("1");
+    // Must never reach utilityProcess.fork — breaks parentPort / sessions:open.
+    expect(env.ELECTRON_RUN_AS_NODE).toBeUndefined();
   });
 });
 
@@ -147,6 +150,7 @@ describe("applyPiSubagentSpawnFix", () => {
     const prevNode = process.env[PI_DESKTOP_NODE_PATH_ENV];
     const prevCli = process.env[PI_DESKTOP_PI_CLI_PATH_ENV];
     const prevBinary = process.env[PI_SUBAGENT_PI_BINARY_ENV];
+    const prevAsNode = process.env.ELECTRON_RUN_AS_NODE;
 
     const root = mkdtempSync(path.join(tmpdir(), "pi-spawn-fix-"));
     const fakeNode = path.join(root, "node");
@@ -157,6 +161,7 @@ describe("applyPiSubagentSpawnFix", () => {
     process.env[PI_DESKTOP_NODE_PATH_ENV] = fakeNode;
     process.env[PI_DESKTOP_PI_CLI_PATH_ENV] = fakeCli;
     process.env[PI_SUBAGENT_PI_BINARY_ENV] = "C:\\\\shim\\\\pi.CMD";
+    delete process.env.ELECTRON_RUN_AS_NODE;
 
     try {
       applyPiSubagentSpawnFix();
@@ -175,6 +180,37 @@ describe("applyPiSubagentSpawnFix", () => {
       else process.env[PI_DESKTOP_PI_CLI_PATH_ENV] = prevCli;
       if (prevBinary === undefined) delete process.env[PI_SUBAGENT_PI_BINARY_ENV];
       else process.env[PI_SUBAGENT_PI_BINARY_ENV] = prevBinary;
+      if (prevAsNode === undefined) delete process.env.ELECTRON_RUN_AS_NODE;
+      else process.env.ELECTRON_RUN_AS_NODE = prevAsNode;
+    }
+  });
+
+  it("sets ELECTRON_RUN_AS_NODE after boot when no system Node (for child inheritance)", () => {
+    const prevArgv1 = process.argv[1];
+    const prevNode = process.env[PI_DESKTOP_NODE_PATH_ENV];
+    const prevCli = process.env[PI_DESKTOP_PI_CLI_PATH_ENV];
+    const prevAsNode = process.env.ELECTRON_RUN_AS_NODE;
+
+    const root = mkdtempSync(path.join(tmpdir(), "pi-spawn-asnode-"));
+    const fakeCli = path.join(root, "cli.js");
+    writeFileSync(fakeCli, "", "utf8");
+
+    delete process.env[PI_DESKTOP_NODE_PATH_ENV];
+    process.env[PI_DESKTOP_PI_CLI_PATH_ENV] = fakeCli;
+    delete process.env.ELECTRON_RUN_AS_NODE;
+
+    try {
+      applyPiSubagentSpawnFix();
+      expect(process.argv[1]).toBe(fakeCli);
+      expect(process.env.ELECTRON_RUN_AS_NODE).toBe("1");
+    } finally {
+      process.argv[1] = prevArgv1;
+      if (prevNode === undefined) delete process.env[PI_DESKTOP_NODE_PATH_ENV];
+      else process.env[PI_DESKTOP_NODE_PATH_ENV] = prevNode;
+      if (prevCli === undefined) delete process.env[PI_DESKTOP_PI_CLI_PATH_ENV];
+      else process.env[PI_DESKTOP_PI_CLI_PATH_ENV] = prevCli;
+      if (prevAsNode === undefined) delete process.env.ELECTRON_RUN_AS_NODE;
+      else process.env.ELECTRON_RUN_AS_NODE = prevAsNode;
     }
   });
 });
