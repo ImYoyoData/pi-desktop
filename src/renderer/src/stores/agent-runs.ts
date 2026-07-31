@@ -1,7 +1,12 @@
 import { defineStore } from "pinia";
 import { computed, ref } from "vue";
+import { createDiscreteApi } from "naive-ui";
 import type { AgentRunEvent, AgentRunSnapshot } from "../../../shared/agent-runs";
+import { shouldInterruptBashStall } from "../../../shared/bash-stall";
 import { useWorkspaceStore } from "@renderer/stores/workspace";
+import { t } from "@renderer/i18n";
+
+const { message: discreteMessage } = createDiscreteApi(["message"]);
 
 function normalizeRoot(root: string): string {
   return root.replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
@@ -17,6 +22,9 @@ export const useAgentRunsStore = defineStore("agentRuns", () => {
   const selectedId = ref<string | null>(null);
   let unsub: (() => void) | null = null;
   let refreshGen = 0;
+  let stallTimer: ReturnType<typeof setInterval> | null = null;
+  /** Avoid repeat terminate storms for the same run id. */
+  const stallTerminating = new Set<string>();
 
   const selected = computed(
     () => runs.value.find((r) => r.id === selectedId.value) ?? null,
@@ -54,11 +62,14 @@ export const useAgentRunsStore = defineStore("agentRuns", () => {
         if (i < 0) return;
         const prev = runs.value[i]!;
         runs.value = runs.value.map((r, idx) =>
-          idx === i ? { ...prev, outputTail: event.outputTail } : r,
+          idx === i
+            ? { ...prev, outputTail: event.outputTail, lastOutputAt: Date.now() }
+            : r,
         );
         break;
       }
       case "ended": {
+        stallTerminating.delete(event.runId);
         runs.value = runs.value.filter((r) => r.id !== event.runId);
         if (selectedId.value === event.runId) {
           selectedId.value = runs.value[0]?.id ?? null;
@@ -100,14 +111,47 @@ export const useAgentRunsStore = defineStore("agentRuns", () => {
     syncSelection();
   }
 
+  function checkBashStalls(): void {
+    const now = Date.now();
+    for (const run of runs.value) {
+      if (stallTerminating.has(run.id)) continue;
+      if (
+        !shouldInterruptBashStall({
+          status: run.status,
+          detached: run.detached,
+          startedAt: run.startedAt,
+          lastOutputAt: run.lastOutputAt ?? run.startedAt,
+        }, now)
+      ) {
+        continue;
+      }
+      stallTerminating.add(run.id);
+      void terminate(run.id)
+        .then(() => {
+          discreteMessage.warning(t.bashStallInterrupted);
+        })
+        .catch(() => {
+          stallTerminating.delete(run.id);
+          discreteMessage.error(t.runningTerminateFailed);
+        });
+    }
+  }
+
   function bind(): void {
     unsub?.();
     unsub = window.api.runs.onEvent(applyEvent);
+    if (!stallTimer) {
+      stallTimer = setInterval(() => checkBashStalls(), 5_000);
+    }
   }
 
   function unbind(): void {
     unsub?.();
     unsub = null;
+    if (stallTimer) {
+      clearInterval(stallTimer);
+      stallTimer = null;
+    }
   }
 
   async function terminate(runId: string): Promise<void> {
@@ -148,5 +192,6 @@ export const useAgentRunsStore = defineStore("agentRuns", () => {
     background,
     findBlockingRun,
     select,
+    checkBashStalls,
   };
 });

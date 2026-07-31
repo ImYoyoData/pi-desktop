@@ -164,44 +164,40 @@ jobs:
           prerelease: false
           generate_release_notes: true
           body: |
-            ## 主要更新（0.1.7 正式版）
-
-            Agent 体验与语音输入稳定性改进。会话继续共用 Pi CLI（`~/.pi/agent/sessions`）。
-
+            ## 主要更新（0.1.8 正式版）
+            
+            Agent 运行可靠性、待办 UI 与计时体验改进。会话继续共用 Pi CLI（`~/.pi/agent/sessions`）。
+            
             ### Agent
-            - Worker 无响应或长时间无输出时自动重启并有限次重试
-            - 修复「任务已完成但仍显示运行中」的状态卡住
-            - 长等待时显示阶段与静默提示；思考过程显示耗时
-            - 左侧文件树可拖到输入框，直接插入路径标签
-            - Plan / Task 模式按约定路径保存计划文档
-
-            ### 语音输入
-            - 修复麦克风 Worklet 被 CSP 拦截导致无法录音
-            - 安装可取消；支持国内/国际下载源与更快镜像切换
-            - 安装进度与错误提示更清晰
-
-            ## What's New (0.1.7 stable)
-
-            Agent reliability and voice input improvements. Sessions stay **shared with Pi CLI**.
-
+            - 终端/命令长时间无输出时自动中断该命令（不整轮 abort）
+            - 点击「重试」保留已有 AI 回复与对话记录，按「继续」方式恢复
+            - 模型长时间无响应时给出超时错误与重试，避免误杀仍在运行的回合
+            - 顶部显示本轮总时长；底部等待模型 / 思考 / 生成 / 工具各自单独计时
+            
+            ### 待办
+            - `todo` / `todo_write` 等工具正确更新顶部待办面板
+            - 对话内待办工具卡片改为清单式 UI（不再只显示 JSON）
+            
+            ## What's New (0.1.8 stable)
+            
+            Agent reliability, todo UI, and wait-timer improvements. Sessions stay **shared with Pi CLI**.
+            
             ### Agent
-            - Auto-restart and limited retry when the worker hangs or a turn goes silent
-            - Fixed sticky “running” UI after a turn already finished
-            - Clearer wait phases / silence hints; thinking duration display
-            - Drag files from the tree into the composer as path tags
-            - Plan / Task modes save plans under the documented path convention
-
-            ### Voice input
-            - Fixed CSP blocking AudioWorklet mic capture
-            - Cancellable ASR install; China / global download mirrors
-            - Clearer install progress and errors
-
+            - Auto-interrupt bash/terminal commands that produce no output for too long
+            - Retry keeps prior AI replies and continues instead of wiping the turn
+            - Model silence surfaces a timeout + retry (does not kill healthy long turns)
+            - Header shows whole-turn time; bottom phases (model / thinking / writing / tools) each have their own clock
+            
+            ### Todos
+            - `todo` / `todo_write` correctly update the session todo panel
+            - In-chat todo tool cards render as checklists instead of raw JSON
+            
             ## 下载 / Downloads
             - **Windows x64**: `Pi Desktop-*-win-x64-setup.exe`
             - **Windows ARM64**: `Pi Desktop-*-win-arm64-setup.exe`
             - **macOS Apple Silicon**: `Pi Desktop-*-mac-arm64.dmg`
             - **macOS Intel**: `Pi Desktop-*-mac-x64.dmg`
-
+            
             ## 说明 / Notes
             - 本版本为 **正式稳定版**（非 prerelease）
             - macOS 未公证：首次打开可能需要右键 → 打开

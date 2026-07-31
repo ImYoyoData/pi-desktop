@@ -398,6 +398,49 @@ describe("reduceChatEvent", () => {
     expect(state.retryHint).toMatchObject({ attempt: 2, maxAttempts: 3 });
   });
 
+  it("does not shrink thinking when a later snapshot is only a short title", () => {
+    let state = createChatState();
+    const longThinking =
+      "**Adjusting proxy configuration**\n\nI need to check the proxy env and rewrite the spawn path so Windows can launch the CLI.";
+    state = reduceChatEvent(state, {
+      type: "agent_event",
+      sessionId: "s",
+      event: {
+        type: "message_update",
+        message: {
+          role: "assistant",
+          content: [{ type: "thinking", thinking: longThinking }],
+        },
+        assistantMessageEvent: { type: "thinking_delta", delta: "" },
+      },
+    });
+    expect(state.streamingMessage).toMatchObject({
+      role: "assistant",
+      thinking: longThinking,
+    });
+
+    // SDK/model replaces thinking part with a short section heading.
+    state = reduceChatEvent(state, {
+      type: "agent_event",
+      sessionId: "s",
+      event: {
+        type: "message_update",
+        message: {
+          role: "assistant",
+          content: [{ type: "thinking", thinking: "**Adjusting proxy configuration**" }],
+        },
+        assistantMessageEvent: {
+          type: "thinking_end",
+          content: "**Adjusting proxy configuration**",
+        },
+      },
+    });
+    expect(state.streamingMessage).toMatchObject({
+      role: "assistant",
+      thinking: longThinking,
+    });
+  });
+
   it("streams thinking text via thinking_delta and keeps it on message_end", () => {
     let state = createChatState();
     state = reduceChatEvent(state, {

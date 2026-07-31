@@ -112,6 +112,7 @@ export const en = {
   autoRecoverSoftHang: "Timed out with no output — retried automatically",
   autoRecoverGaveUp:
     "Auto-recover budget exhausted. Retry manually, or terminate/restart this session.",
+  modelResponseTimeout: "Model response timed out. Please retry.",
   askUserConfirm: "Submit all answers",
   askUserNext: "Next",
   askUserPrev: "Previous",
@@ -139,6 +140,11 @@ export const en = {
     `${toolName} · ${category}`,
   retrying: (attempt: number, max: number) => `Retrying ${attempt}/${max}…`,
   retryRequest: "Retry",
+  /** Visible user bubble when retrying after a partial AI turn. */
+  retryContinue: "Continue",
+  /** Instruction sent to the agent (may differ from the bubble text). */
+  retryContinueAgentPrompt:
+    "Continue from where you left off. Do not repeat work or content already completed above.",
   toolRunning: "Running",
   toolDone: "Done",
   toolError: "Error",
@@ -149,6 +155,12 @@ export const en = {
   toolMoveToBackground: "Background",
   toolBackgrounded: "Moved to Running panel — conversation continues",
   toolBackgroundFailed: "Could not move command to background",
+  toolTodo: "Todos",
+  toolTodoAdd: "Add todo",
+  toolTodoToggle: "Update todo",
+  toolTodoClear: "Clear todos",
+  toolTodoList: "List todos",
+  toolTodoEmpty: "No todo items",
   composerExpand: "Expand editor",
   composerCollapse: "Collapse editor",
   previewFile: "Preview",
@@ -621,6 +633,7 @@ export const en = {
   runningDetached: "background",
   runningTerminate: "Terminate",
   runningTerminateFailed: "Terminate failed — you can retry",
+  bashStallInterrupted: "Terminal produced no output for too long — command interrupted",
   runningElapsed: (s: number) => `${s}s`,
   runningSession: "Session",
   browserLabel: (n: number) => `Browser ${n}`,

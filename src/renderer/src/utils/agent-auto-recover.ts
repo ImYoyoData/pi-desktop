@@ -18,6 +18,11 @@ export type SoftHangInput = {
   running: boolean;
   /** Waiting on ask_user / permission / extension UI. */
   waitingUser: boolean;
+  /**
+   * True while a tool card is streaming (bash / subagent / long tools).
+   * Soft hang must not abort these — silence is normal until the tool returns.
+   */
+  toolInFlight: boolean;
   outputSilenceMs: number;
   workerSilenceMs: number;
 };
@@ -31,11 +36,11 @@ export function nextAutoRecoverCount(count: number): number {
 }
 
 /**
- * Soft hang: turn running, not waiting on user, long output silence,
- * but worker still answering heartbeats (so main won't emit worker_stuck).
+ * Soft hang: turn running, not waiting on user, no tool in flight, long output
+ * silence, but worker still answering heartbeats (so main won't emit worker_stuck).
  */
 export function shouldSoftHangRecover(input: SoftHangInput): boolean {
-  if (!input.running || input.waitingUser) return false;
+  if (!input.running || input.waitingUser || input.toolInFlight) return false;
   if (input.outputSilenceMs < SOFT_HANG_SILENCE_MS) return false;
   if (!Number.isFinite(input.workerSilenceMs)) return false;
   return input.workerSilenceMs < SOFT_HANG_WORKER_ALIVE_MS;

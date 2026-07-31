@@ -8,7 +8,9 @@ import {
   CloseCircleOutline,
   DocumentTextOutline,
   CreateOutline,
+  EllipseOutline,
   EyeOutline,
+  ListOutline,
   TerminalOutline,
 } from "@vicons/ionicons5";
 import type { ToolCard } from "@renderer/utils/tool-diff";
@@ -30,12 +32,13 @@ const emit = defineEmits<{
   open: [path: string];
 }>();
 
-/** Write / edit / bash expand while live; read stays collapsed by default. */
+/** Write / edit / bash / todo expand while live; read stays collapsed by default. */
 function shouldAutoExpand(kind: ToolCard["kind"]): boolean {
   switch (kind) {
     case "write":
     case "edit":
     case "bash":
+    case "todo":
       return true;
     case "read":
     case "generic":
@@ -133,7 +136,9 @@ async function onBackground(): Promise<void> {
 }
 
 const fileName = computed(() => {
-  if (props.card.kind === "bash" || props.card.kind === "generic") return null;
+  if (props.card.kind === "bash" || props.card.kind === "generic" || props.card.kind === "todo") {
+    return null;
+  }
   const p = props.card.path;
   if (!p) return null;
   const parts = p.split(/[/\\]/);
@@ -150,6 +155,8 @@ const actionLabel = computed(() => {
       return t.toolRead;
     case "bash":
       return t.toolBash;
+    case "todo":
+      return t.toolTodo;
     case "generic":
       return isAskUserTool.value ? t.askUserToolLabel : props.toolName;
     case "other":
@@ -170,6 +177,8 @@ const kindIcon = computed(() => {
       return CreateOutline;
     case "bash":
       return TerminalOutline;
+    case "todo":
+      return ListOutline;
     case "generic":
     case "other":
       return DocumentTextOutline;
@@ -196,6 +205,7 @@ const metaLine = computed(() => {
     if (card.linesRead != null) return t.toolLinesOf(card.linesRead);
     return null;
   }
+  if (card.kind === "todo" && card.summary) return card.summary;
   return null;
 });
 
@@ -204,11 +214,27 @@ const headline = computed(() => {
   const card = props.card;
   if (card.kind === "bash") return card.command || props.toolName;
   if (card.kind === "generic") return card.summary || props.toolName;
+  if (card.kind === "todo") {
+    if (card.action === "add") return t.toolTodoAdd;
+    if (card.action === "toggle") return t.toolTodoToggle;
+    if (card.action === "clear") return t.toolTodoClear;
+    if (card.action === "list") return t.toolTodoList;
+    return card.items.length ? t.todoProgress(
+      card.items.filter((i) => i.done).length,
+      card.items.length,
+    ) : props.toolName;
+  }
   return fileName.value || props.toolName;
 });
 
 const pathHint = computed(() => {
-  if (props.card.kind === "bash" || props.card.kind === "generic") return undefined;
+  if (
+    props.card.kind === "bash" ||
+    props.card.kind === "generic" ||
+    props.card.kind === "todo"
+  ) {
+    return undefined;
+  }
   const full = props.card.path;
   if (!full || full === fileName.value) return undefined;
   return full;
@@ -216,6 +242,7 @@ const pathHint = computed(() => {
 
 const body = computed(() => {
   const card = props.card;
+  if (card.kind === "todo") return null;
   if (card.kind === "bash") {
     const cmd = card.command?.trim() || "";
     const out = card.preview?.trim() || "";
@@ -231,7 +258,10 @@ const body = computed(() => {
 });
 
 const stickKinds = computed(
-  () => props.card.kind === "write" || props.card.kind === "edit" || props.card.kind === "bash",
+  () =>
+    props.card.kind === "write" ||
+    props.card.kind === "edit" ||
+    props.card.kind === "bash",
 );
 
 watch(
@@ -247,6 +277,7 @@ watch(
 
 const emptyBodyText = computed(() => {
   if (props.card.kind === "bash") return t.toolNoOutput;
+  if (props.card.kind === "todo") return t.toolTodoEmpty;
   if (props.card.kind === "read" || props.card.kind === "generic") return t.toolNoOutput;
   return t.toolNoDiff;
 });
@@ -256,7 +287,13 @@ const isDiffBody = computed(
 );
 
 const pathTitle = computed(() => {
-  if (props.card.kind === "bash" || props.card.kind === "generic") return undefined;
+  if (
+    props.card.kind === "bash" ||
+    props.card.kind === "generic" ||
+    props.card.kind === "todo"
+  ) {
+    return undefined;
+  }
   return props.card.path ?? undefined;
 });
 
@@ -270,6 +307,10 @@ const canPreviewPath = computed(() => {
     Boolean(card.path)
   );
 });
+
+const todoItems = computed(() =>
+  props.card.kind === "todo" ? props.card.items : [],
+);
 
 function onOpenPreview(): void {
   const card = props.card;
@@ -351,8 +392,23 @@ function onOpenPreview(): void {
         {{ t.toolMoveToBackground }}
       </NButton>
     </div>
+    <ul v-if="open && card.kind === 'todo' && todoItems.length" class="todo-body">
+      <li
+        v-for="item in todoItems"
+        :key="item.id"
+        class="todo-row"
+        :class="{ done: item.done }"
+      >
+        <NIcon
+          :component="item.done ? CheckmarkCircleOutline : EllipseOutline"
+          :size="14"
+          class="todo-mark"
+        />
+        <span class="todo-text">{{ item.text }}</span>
+      </li>
+    </ul>
     <pre
-      v-if="open && body"
+      v-else-if="open && body"
       ref="bodyRef"
       class="tool-body"
       :class="{ 'tool-body-bash': card.kind === 'bash' }"
@@ -624,5 +680,51 @@ function onOpenPreview(): void {
 
 .dline.meta {
   color: var(--fg-muted);
+}
+
+.todo-body {
+  list-style: none;
+  margin: 0;
+  padding: 6px 10px 8px;
+  border-top: 1px solid color-mix(in srgb, var(--border, #ddd) 80%, transparent);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 180px;
+  overflow: auto;
+  background: color-mix(in srgb, var(--bg, #fafafa) 88%, #000 4%);
+}
+
+.todo-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: 12.5px;
+  line-height: 1.35;
+  color: var(--fg);
+}
+
+.todo-row.done {
+  color: var(--fg-muted);
+}
+
+.todo-row.done .todo-text {
+  text-decoration: line-through;
+  text-decoration-color: color-mix(in srgb, var(--fg-muted) 55%, transparent);
+}
+
+.todo-mark {
+  flex-shrink: 0;
+  margin-top: 1px;
+  color: var(--fg-muted);
+}
+
+.todo-row.done .todo-mark {
+  color: var(--success, #3d9a6a);
+}
+
+.todo-text {
+  min-width: 0;
+  word-break: break-word;
 }
 </style>

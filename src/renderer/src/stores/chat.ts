@@ -27,9 +27,11 @@ import { useNotifyStore } from "./notify";
 import { useTtsStore } from "./tts";
 import { useSessionWidgetsStore } from "./session-widgets";
 import { extractToolResult } from "../utils/tool-diff";
+import { isTodoToolName } from "../utils/session-todos";
 import {
   agentOutputSilenceMs,
   agentWorkerSilenceMs,
+  syncPhaseClock,
 } from "../utils/agent-wait";
 import {
   canAutoRecoverForReason,
@@ -37,6 +39,11 @@ import {
   shouldSoftHangRecover,
   type AutoRecoverReason,
 } from "../utils/agent-auto-recover";
+import {
+  dropErrorKeepHistory,
+  findUserBeforeError,
+  turnHasProgressBeforeError,
+} from "../utils/chat-retry-continue";
 import { t } from "../i18n";
 import {
   isPermissionAskCancelled,
@@ -102,6 +109,8 @@ export const useChatStore = defineStore("chat", () => {
   const securityRemediationTick = ref(0);
   /** Sessions currently inside autoRecover (restart + resend). */
   const recoveringIds = new Set<string>();
+  /** Soft-hang timeout already reported for this turn (avoid repeat errors). */
+  const softHangReported = new Set<string>();
   let softHangTimer: ReturnType<typeof setInterval> | null = null;
 
   function noteSecurityRemediation(): void {
@@ -113,6 +122,12 @@ export const useChatStore = defineStore("chat", () => {
       bySession[sessionId] = createChatState();
     }
     return bySession[sessionId];
+  }
+
+  /** Commit chat state and reset phaseStartedAt when the wait phase changes. */
+  function setSessionState(sessionId: string, next: ChatState): void {
+    const prev = bySession[sessionId] ?? createChatState();
+    bySession[sessionId] = syncPhaseClock(prev, next);
   }
 
   const historyLoading = computed(() => {
@@ -201,6 +216,7 @@ export const useChatStore = defineStore("chat", () => {
       pendingPermission: s.pendingPermission,
       pendingExtensionUi: s.pendingExtensionUi,
       turnStartedAt: s.turnStartedAt,
+      phaseStartedAt: s.phaseStartedAt,
       lastActivityAt: s.lastActivityAt,
       lastWorkerAliveAt: s.lastWorkerAliveAt,
       autoRecovering: s.autoRecovering,
@@ -232,28 +248,28 @@ export const useChatStore = defineStore("chat", () => {
   });
 
   function clearPendingAskUserFor(sessionId: string): void {
-    bySession[sessionId] = clearPendingAskUser(stateFor(sessionId));
+    setSessionState(sessionId, clearPendingAskUser(stateFor(sessionId)));
   }
 
   function setPendingAskUserFor(prompt: AskUserPrompt): void {
     if (!prompt.sessionId) return;
-    bySession[prompt.sessionId] = setPendingAskUser(stateFor(prompt.sessionId), prompt);
+    setSessionState(prompt.sessionId, setPendingAskUser(stateFor(prompt.sessionId), prompt));
   }
 
   function setPendingPermissionFor(req: PendingPermission): void {
-    bySession[req.sessionId] = setPendingPermission(stateFor(req.sessionId), req);
+    setSessionState(req.sessionId, setPendingPermission(stateFor(req.sessionId), req));
   }
 
   function clearPendingPermissionFor(sessionId: string): void {
-    bySession[sessionId] = clearPendingPermission(stateFor(sessionId));
+    setSessionState(sessionId, clearPendingPermission(stateFor(sessionId)));
   }
 
   function setPendingExtensionUiFor(req: ExtensionUiPending): void {
-    bySession[req.sessionId] = setPendingExtensionUi(stateFor(req.sessionId), req);
+    setSessionState(req.sessionId, setPendingExtensionUi(stateFor(req.sessionId), req));
   }
 
   function clearPendingExtensionUiFor(sessionId: string): void {
-    bySession[sessionId] = clearPendingExtensionUi(stateFor(sessionId));
+    setSessionState(sessionId, clearPendingExtensionUi(stateFor(sessionId)));
   }
 
   async function replyPermission(
@@ -328,38 +344,59 @@ export const useChatStore = defineStore("chat", () => {
 
   function applyEvent(event: AgentEvent): void {
     const sessionId = event.sessionId;
-    bySession[sessionId] = reduceChatEvent(stateFor(sessionId), event);
+    setSessionState(sessionId, reduceChatEvent(stateFor(sessionId), event));
 
     if (event.type === "agent_event") {
       const payload = event.event as {
         type?: unknown;
         toolName?: unknown;
+        args?: unknown;
         result?: unknown;
+        partialResult?: unknown;
         isError?: unknown;
       };
+      if (payload.type === "agent_start" || payload.type === "turn_start") {
+        softHangReported.delete(sessionId);
+      }
       if (
-        payload.type === "tool_execution_end" &&
         typeof payload.toolName === "string" &&
-        /^(todo|todos)$/i.test(payload.toolName) &&
+        isTodoToolName(payload.toolName) &&
         !payload.isError
       ) {
-        const { details } = extractToolResult(payload.result);
-        useSessionWidgetsStore().applyTodoToolResult(sessionId, details);
+        const widgets = useSessionWidgetsStore();
+        if (
+          payload.type === "tool_execution_start" ||
+          payload.type === "tool_execution_update"
+        ) {
+          widgets.applyTodoToolArgs(sessionId, payload.args);
+          if (payload.type === "tool_execution_update") {
+            const { details } = extractToolResult(payload.partialResult);
+            if (details) widgets.applyTodoToolResult(sessionId, details);
+          }
+        } else if (payload.type === "tool_execution_end") {
+          widgets.applyTodoToolArgs(sessionId, payload.args);
+          const { details } = extractToolResult(payload.result);
+          // Prefer details; fall back to the whole result when details is missing.
+          widgets.applyTodoToolResult(sessionId, details ?? payload.result);
+        }
+      }
+      // Recover banner must clear when the agent loop finishes (prompt IPC may still lag).
+      if (payload.type === "agent_end" || payload.type === "agent_settled") {
+        clearAutoRecovering(sessionId);
+        softHangReported.delete(sessionId);
       }
     }
 
     if (event.type === "prompt_done" || event.type === "prompt_error") {
       void checkpointStore.finishActive(sessionId);
+      softHangReported.delete(sessionId);
+      if (event.type === "prompt_done") {
+        resetAutoRecoverBudget(sessionId);
+      } else {
+        clearAutoRecovering(sessionId);
+      }
     }
     if (event.type === "prompt_done") {
-      const done = stateFor(sessionId);
-      if (done.autoRecoverCount !== 0 || done.autoRecovering) {
-        bySession[sessionId] = {
-          ...done,
-          autoRecoverCount: 0,
-          autoRecovering: false,
-        };
-      }
       void notifyStore.onTurnComplete({
         title: t.appName,
         body: t.notifyTurnCompleteBody,
@@ -381,6 +418,23 @@ export const useChatStore = defineStore("chat", () => {
     }
   }
 
+  /** Drop the "正在自动恢复" banner without resetting the attempt budget. */
+  function clearAutoRecovering(sessionId: string): void {
+    const cur = stateFor(sessionId);
+    if (!cur.autoRecovering) return;
+    setSessionState(sessionId, { ...cur, autoRecovering: false });
+  }
+
+  function resetAutoRecoverBudget(sessionId: string): void {
+    const cur = stateFor(sessionId);
+    if (!cur.autoRecovering && cur.autoRecoverCount === 0) return;
+    setSessionState(sessionId, {
+      ...cur,
+      autoRecovering: false,
+      autoRecoverCount: 0,
+    });
+  }
+
   /**
    * Restart the session worker (when needed) and re-send the last user prompt.
    * Shared by worker_stuck and soft-hang watchdogs.
@@ -396,11 +450,11 @@ export const useChatStore = defineStore("chat", () => {
     }
     if (!canAutoRecoverForReason(state.autoRecoverCount, reason)) {
       if (reason === "soft_hang") {
-        bySession[sessionId] = reduceChatEvent(state, {
+        setSessionState(sessionId, reduceChatEvent(state, {
           type: "prompt_error",
           sessionId,
           errorMessage: t.autoRecoverGaveUp,
-        });
+        }));
       } else {
         discreteMessage.warning(t.autoRecoverGaveUp);
       }
@@ -408,11 +462,11 @@ export const useChatStore = defineStore("chat", () => {
     }
 
     recoveringIds.add(sessionId);
-    bySession[sessionId] = {
+    setSessionState(sessionId, {
       ...state,
       autoRecoverCount: nextAutoRecoverCount(state.autoRecoverCount),
       autoRecovering: true,
-    };
+    });
 
     try {
       if (reason === "soft_hang") {
@@ -444,14 +498,15 @@ export const useChatStore = defineStore("chat", () => {
       const userMsg = after.messages[userIdx]!;
       if (userMsg.role !== "user") return false;
 
-      bySession[sessionId] = withRunClock({
+      setSessionState(sessionId, withRunClock({
         ...after,
         messages: after.messages.slice(0, userIdx),
         streamingMessage: null,
         running: false,
         retryHint: null,
-        autoRecovering: true,
-      });
+        // Banner only covers restart+resend kickoff — not the whole retried turn.
+        autoRecovering: false,
+      }));
 
       discreteMessage.info(
         reason === "worker_stuck" ? t.autoRecoverWorkerStuck : t.autoRecoverSoftHang,
@@ -461,6 +516,9 @@ export const useChatStore = defineStore("chat", () => {
         const raw = img.dataUrl.replace(/^data:[^;]+;base64,/, "");
         return { type: "image" as const, data: raw, mimeType: img.mimeType };
       });
+      // Release the recover lock before awaiting the turn so soft-hang can arm again
+      // only after this prompt finishes (running becomes true via sendPrompt).
+      recoveringIds.delete(sessionId);
       await sendPrompt(
         sessionId,
         userMsg.text,
@@ -471,10 +529,7 @@ export const useChatStore = defineStore("chat", () => {
       return true;
     } finally {
       recoveringIds.delete(sessionId);
-      const cur = stateFor(sessionId);
-      if (cur.autoRecovering) {
-        bySession[sessionId] = { ...cur, autoRecovering: false };
-      }
+      clearAutoRecovering(sessionId);
     }
   }
 
@@ -482,19 +537,49 @@ export const useChatStore = defineStore("chat", () => {
     const now = Date.now();
     for (const [sessionId, state] of Object.entries(bySession)) {
       if (!state?.running || state.autoRecovering || recoveringIds.has(sessionId)) continue;
+      if (softHangReported.has(sessionId)) continue;
+      const toolInFlight =
+        state.streamingMessage?.role === "tool" ||
+        state.messages.some((m) => m.role === "tool" && m.streaming);
       if (
         !shouldSoftHangRecover({
           running: state.running,
           waitingUser: Boolean(
             state.pendingAskUser || state.pendingPermission || state.pendingExtensionUi,
           ),
+          toolInFlight,
           outputSilenceMs: agentOutputSilenceMs(state, now),
           workerSilenceMs: agentWorkerSilenceMs(state, now),
         })
       ) {
         continue;
       }
-      void autoRecover(sessionId, "soft_hang");
+      void reportModelTimeout(sessionId);
+    }
+  }
+
+  /**
+   * Worker is alive but the model/network produced no output for too long.
+   * Surface a clear timeout error (with Retry) instead of killing as "worker stuck".
+   */
+  async function reportModelTimeout(sessionId: string): Promise<void> {
+    if (softHangReported.has(sessionId) || recoveringIds.has(sessionId)) return;
+    softHangReported.add(sessionId);
+    try {
+      try {
+        await abort(sessionId);
+      } catch {
+        // Ignore — we still want the timeout bubble even if abort races.
+      }
+      setSessionState(sessionId, reduceChatEvent(stateFor(sessionId), {
+        type: "prompt_error",
+        sessionId,
+        errorMessage: t.modelResponseTimeout,
+      }));
+      clearAutoRecovering(sessionId);
+    } catch (err) {
+      softHangReported.delete(sessionId);
+      discreteMessage.error(err instanceof Error ? err.message : String(err));
     }
   }
 
@@ -510,9 +595,13 @@ export const useChatStore = defineStore("chat", () => {
       pendingPermission: null,
       pendingExtensionUi: null,
       turnStartedAt: null,
+      phaseStartedAt: null,
       lastActivityAt: null,
       lastWorkerAliveAt: null,
+      autoRecoverCount: 0,
+      autoRecovering: false,
     };
+    softHangReported.delete(sessionId);
     historyFileBySession[sessionId] = historyFileBySession[sessionId] ?? null;
     if (!history.length) {
       historyHasMoreBySession[sessionId] = false;
@@ -536,10 +625,10 @@ export const useChatStore = defineStore("chat", () => {
     const existing = new Set(state.messages.map((m) => m.id));
     const mapped = older.map(mapHistoryRow).filter((m) => !existing.has(m.id));
     if (!mapped.length) return 0;
-    bySession[sessionId] = {
+    setSessionState(sessionId, {
       ...state,
       messages: [...mapped, ...state.messages],
-    };
+    });
     return mapped.length;
   }
 
@@ -656,12 +745,12 @@ export const useChatStore = defineStore("chat", () => {
     const bubbleText = displayText !== undefined ? displayText : message;
     // Cursor-like: hide a fully completed todo list when the next task starts.
     useSessionWidgetsStore().dismissCompletedOnNewTask(sessionId);
-    bySession[sessionId] = appendUserMessage(
+    setSessionState(sessionId, appendUserMessage(
       stateFor(sessionId),
       bubbleText,
       toChatImages(promptImages),
       elementTags?.length ? elementTags : undefined,
-    );
+    ));
     const last = stateFor(sessionId).messages.at(-1);
     if (last?.role === "user") {
       // Must finish begin (baseline snapshot) before the agent starts writing files.
@@ -678,11 +767,11 @@ export const useChatStore = defineStore("chat", () => {
       void checkpointStore.finishActive(sessionId);
       const raw = err instanceof Error ? err.message : String(err);
       const state = stateFor(sessionId);
-      bySession[sessionId] = reduceChatEvent(state, {
+      setSessionState(sessionId, reduceChatEvent(state, {
         type: "prompt_error",
         sessionId,
         errorMessage: raw,
-      });
+      }));
     }
   }
 
@@ -701,12 +790,12 @@ export const useChatStore = defineStore("chat", () => {
     if (row?.status === "stuck") {
       await sessionsStore.killWorker(sessionId, null);
       const state = stateFor(sessionId);
-      bySession[sessionId] = withRunClock({
+      setSessionState(sessionId, withRunClock({
         ...state,
         running: false,
         streamingMessage: null,
         retryHint: null,
-      });
+      }));
       return;
     }
     await sessionsStore.sendCommand(sessionId, { type: "abort" });
@@ -716,13 +805,13 @@ export const useChatStore = defineStore("chat", () => {
     const state = stateFor(sessionId);
     const idx = state.messages.findIndex((m) => m.id === messageId);
     if (idx < 0) return;
-    bySession[sessionId] = withRunClock({
+    setSessionState(sessionId, withRunClock({
       ...state,
       messages: state.messages.slice(0, idx),
       streamingMessage: null,
       running: false,
       retryHint: null,
-    });
+    }));
   }
 
   /** Start re-edit: keep chat intact; truncate only on commit (send). */
@@ -751,13 +840,13 @@ export const useChatStore = defineStore("chat", () => {
     const idx = state.messages.findIndex((m) => m.id === pending.messageId && m.role === "user");
     pendingUserEdit.value = null;
     if (idx < 0) return false;
-    bySession[sessionId] = withRunClock({
+    setSessionState(sessionId, withRunClock({
       ...state,
       messages: state.messages.slice(0, idx),
       streamingMessage: null,
       running: false,
       retryHint: null,
-    });
+    }));
     return true;
   }
 
@@ -792,13 +881,13 @@ export const useChatStore = defineStore("chat", () => {
     if (userIdx < 0) return;
     const userMsg = state.messages[userIdx];
     if (userMsg.role !== "user") return;
-    bySession[sessionId] = withRunClock({
+    setSessionState(sessionId, withRunClock({
       ...state,
       messages: state.messages.slice(0, userIdx),
       streamingMessage: null,
       running: false,
       retryHint: null,
-    });
+    }));
     const images = userMsg.images?.map((img) => {
       const raw = img.dataUrl.replace(/^data:[^;]+;base64,/, "");
       return { type: "image" as const, data: raw, mimeType: img.mimeType };
@@ -812,40 +901,80 @@ export const useChatStore = defineStore("chat", () => {
     );
   }
 
-  /** Retry after an error bubble: re-send the last user turn before the error. */
+  /**
+   * Retry after an error bubble: keep prior user/assistant/tool history and continue.
+   * Does not wipe the failed turn's AI replies (unlike regenerate).
+   */
   async function retryFromError(sessionId: string, errorMessageId: string): Promise<void> {
     pendingUserEdit.value = null;
     const state = stateFor(sessionId);
-    const errIdx = state.messages.findIndex((m) => m.id === errorMessageId && m.role === "error");
-    if (errIdx < 0) return;
-    let userIdx = -1;
-    for (let i = errIdx - 1; i >= 0; i--) {
-      if (state.messages[i].role === "user") {
-        userIdx = i;
-        break;
-      }
-    }
-    if (userIdx < 0) return;
-    const userMsg = state.messages[userIdx];
-    if (userMsg.role !== "user") return;
-    bySession[sessionId] = withRunClock({
+    const kept = dropErrorKeepHistory(state.messages, errorMessageId);
+    if (!kept) return;
+    const userMsg = findUserBeforeError(state.messages, errorMessageId);
+    if (!userMsg) return;
+    const continueTurn = turnHasProgressBeforeError(state.messages, errorMessageId);
+
+    softHangReported.delete(sessionId);
+    setSessionState(sessionId, withRunClock({
       ...state,
-      messages: state.messages.slice(0, userIdx),
+      messages: kept,
       streamingMessage: null,
       running: false,
       retryHint: null,
-    });
+    }));
+
+    if (continueTurn) {
+      await sendPrompt(
+        sessionId,
+        t.retryContinueAgentPrompt,
+        undefined,
+        undefined,
+        undefined,
+        t.retryContinue,
+      );
+      return;
+    }
+
+    // Error before any assistant/tool output: re-drive the same user turn without
+    // duplicating the user bubble or clearing earlier conversation.
+    await resumePrompt(sessionId, userMsg);
+  }
+
+  /** Send a prompt to the worker without appending another user message to the transcript. */
+  async function resumePrompt(
+    sessionId: string,
+    userMsg: Extract<ChatMessage, { role: "user" }>,
+  ): Promise<void> {
     const images = userMsg.images?.map((img) => {
       const raw = img.dataUrl.replace(/^data:[^;]+;base64,/, "");
       return { type: "image" as const, data: raw, mimeType: img.mimeType };
     });
-    await sendPrompt(
-      sessionId,
-      userMsg.text,
-      undefined,
-      images,
-      userMsg.elementTags,
-    );
+    const promptImages = toPromptImages(images);
+    setSessionState(sessionId, withRunClock(
+      {
+        ...stateFor(sessionId),
+        running: true,
+        streamingMessage: null,
+        retryHint: null,
+        nextToolOrder: 1,
+        pendingAskUser: null,
+      },
+      { activity: true },
+    ));
+    try {
+      await sessionsStore.sendCommand(sessionId, {
+        type: "prompt",
+        message: userMsg.text,
+        images: promptImages,
+      });
+    } catch (err) {
+      const raw = err instanceof Error ? err.message : String(err);
+      setSessionState(sessionId, reduceChatEvent(stateFor(sessionId), {
+        type: "prompt_error",
+        sessionId,
+        errorMessage: raw,
+      }));
+    }
   }
 
   return {

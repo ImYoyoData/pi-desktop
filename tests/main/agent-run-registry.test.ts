@@ -19,12 +19,14 @@ describe("AgentRunRegistry", () => {
       },
     });
     expect(reg.list("/ws")).toHaveLength(1);
+    expect(reg.list("/ws")[0]!.lastOutputAt).toBe(1);
     reg.handleWorkerMessage("s1", {
       kind: "run_output",
       runId: "r1",
       chunk: "hi\n",
     });
     expect(reg.list("/ws")[0]!.outputTail).toContain("hi");
+    expect(reg.list("/ws")[0]!.lastOutputAt).toBeGreaterThanOrEqual(1);
     reg.handleWorkerMessage("s1", { kind: "run_ended", runId: "r1" });
     expect(reg.list("/ws")).toHaveLength(0);
     expect(events.some((e: any) => e.type === "ended")).toBe(true);

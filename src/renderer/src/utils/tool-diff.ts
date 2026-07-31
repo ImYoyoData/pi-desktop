@@ -1,5 +1,12 @@
 /** Parse Pi coding-agent tool payloads for Cursor-like tool cards. */
 
+import {
+  isTodoToolName,
+  normalizeTodoRows,
+  todosFromToolArgs,
+  todosFromToolDetails,
+} from "./session-todos";
+
 export type ToolDiffStats = {
   additions: number;
   deletions: number;
@@ -38,13 +45,25 @@ export type BashToolCard = {
   preview: string | null;
 };
 
+export type TodoToolCard = {
+  kind: "todo";
+  action: string | null;
+  items: Array<{ id: string; text: string; done: boolean }>;
+  summary: string | null;
+};
+
 export type GenericToolCard = {
   kind: "generic";
   summary: string | null;
   preview: string | null;
 };
 
-export type ToolCard = FileToolCard | ReadToolCard | BashToolCard | GenericToolCard;
+export type ToolCard =
+  | FileToolCard
+  | ReadToolCard
+  | BashToolCard
+  | TodoToolCard
+  | GenericToolCard;
 
 function isRecord(v: unknown): v is Record<string, unknown> {
   return Boolean(v) && typeof v === "object" && !Array.isArray(v);
@@ -372,6 +391,39 @@ export function parseBashToolCard(args: unknown, result: unknown): BashToolCard 
   };
 }
 
+export function parseTodoToolCard(args: unknown, result: unknown): TodoToolCard {
+  const { details, text } = extractToolResult(result);
+  const fromDetails = details ? todosFromToolDetails("todo", details) : null;
+  const fromResult =
+    !fromDetails && result ? todosFromToolDetails("todo", result) : null;
+  const fromArgs = todosFromToolArgs("todo", args);
+  const list = fromDetails ?? fromResult ?? fromArgs;
+  const items = list?.items ?? normalizeTodoRows(
+    isRecord(args) ? (args.todos ?? args.tasks ?? args.items) : null,
+  );
+
+  let action: string | null = null;
+  if (isRecord(args) && typeof args.action === "string") {
+    action = args.action;
+  } else if (details && typeof (details as { action?: unknown }).action === "string") {
+    action = String((details as { action: string }).action);
+  }
+
+  const done = items.filter((i) => i.done).length;
+  const summary =
+    items.length > 0
+      ? `${done}/${items.length}`
+      : text.trim().slice(0, 80) ||
+        (action ? action : null);
+
+  return {
+    kind: "todo",
+    action,
+    items,
+    summary,
+  };
+}
+
 export function parseToolCard(
   toolName: string,
   args: unknown,
@@ -387,6 +439,9 @@ export function parseToolCard(
   }
   if (isBashTool(name)) {
     return parseBashToolCard(args, result);
+  }
+  if (isTodoToolName(toolName)) {
+    return parseTodoToolCard(args, result);
   }
   const { text } = extractToolResult(result);
   const summary =

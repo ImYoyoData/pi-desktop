@@ -4,6 +4,12 @@ import type { AgentRunSnapshot } from "../../src/shared/agent-runs";
 import { useAgentRunsStore } from "../../src/renderer/src/stores/agent-runs";
 import { useWorkspaceStore } from "../../src/renderer/src/stores/workspace";
 
+vi.mock("naive-ui", () => ({
+  createDiscreteApi: () => ({
+    message: { warning: vi.fn(), error: vi.fn(), info: vi.fn() },
+  }),
+}));
+
 function snap(partial: Partial<AgentRunSnapshot> & Pick<AgentRunSnapshot, "id">): AgentRunSnapshot {
   return {
     sessionId: "sess-1",
@@ -13,6 +19,7 @@ function snap(partial: Partial<AgentRunSnapshot> & Pick<AgentRunSnapshot, "id">)
     startedAt: 1_000,
     status: "running",
     outputTail: "",
+    lastOutputAt: 1_000,
     ...partial,
   };
 }
@@ -83,6 +90,7 @@ describe("agent-runs store", () => {
     });
     expect(store.runs[0]?.outputTail).toBe("");
 
+    const before = Date.now();
     store.applyEvent({
       type: "output",
       runId: "r1",
@@ -90,6 +98,31 @@ describe("agent-runs store", () => {
       outputTail: "hello",
     });
     expect(store.runs[0]?.outputTail).toBe("hello");
+    expect(store.runs[0]?.lastOutputAt).toBeGreaterThanOrEqual(before);
+  });
+
+  it("checkBashStalls terminates silent running bash once", async () => {
+    vi.useFakeTimers();
+    const workspace = useWorkspaceStore();
+    workspace.root = "c:/ws/a";
+    const store = useAgentRunsStore();
+    const terminate = vi.mocked(window.api.runs.terminate);
+    store.applyEvent({
+      type: "upsert",
+      run: snap({
+        id: "r1",
+        startedAt: Date.now() - 130_000,
+        lastOutputAt: Date.now() - 130_000,
+      }),
+    });
+
+    store.checkBashStalls();
+    store.checkBashStalls();
+    await Promise.resolve();
+
+    expect(terminate).toHaveBeenCalledTimes(1);
+    expect(terminate).toHaveBeenCalledWith("r1");
+    vi.useRealTimers();
   });
 
   it("removes ended run and reselects", () => {
