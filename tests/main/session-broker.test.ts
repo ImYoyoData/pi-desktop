@@ -1,18 +1,77 @@
 import { describe, expect, it, vi } from "vitest";
-import { createSessionBroker } from "../../src/main/session-broker";
+import { createSessionBroker, type AllocateSession, type SpawnWorker } from "../../src/main/session-broker";
+
+function allocateFixed(id: string): AllocateSession {
+  return async (cwd) => ({ id, cwd, filePath: `/tmp/${id}.jsonl` });
+}
+
+function allocateSeq(ids: string[]): AllocateSession {
+  let i = 0;
+  return async (cwd) => {
+    const id = ids[i] ?? `session-${i + 1}`;
+    i += 1;
+    return { id, cwd, filePath: `/tmp/${id}.jsonl` };
+  };
+}
+
+function idFromPath(filePath?: string, fallback = "session-a"): string {
+  if (!filePath) return fallback;
+  const base = filePath.replace(/\\/g, "/").split("/").pop() ?? fallback;
+  return base.replace(/\.jsonl$/i, "") || fallback;
+}
+
+function spawnEcho(): SpawnWorker {
+  return async (cwd, filePath) => {
+    const id = idFromPath(filePath);
+    return {
+      id,
+      cwd,
+      filePath: filePath ?? `/tmp/${id}.jsonl`,
+      worker: {
+        send: async () => null,
+        kill: () => {},
+        onMessage: () => () => {},
+      },
+    };
+  };
+}
 
 describe("session-broker", () => {
+  it("creates a disk session without spawning the agent worker", async () => {
+    let spawnCount = 0;
+    const broker = createSessionBroker({
+      allocateSession: allocateFixed("session-a"),
+      spawnWorker: async (cwd, filePath) => {
+        spawnCount += 1;
+        return {
+          id: idFromPath(filePath),
+          cwd,
+          filePath: filePath ?? "/tmp/session-a.jsonl",
+          worker: {
+            send: async () => null,
+            kill: () => {},
+            onMessage: () => () => {},
+          },
+        };
+      },
+    });
+    const created = await broker.createSession("/tmp/a");
+    expect(created.id).toBe("session-a");
+    expect(spawnCount).toBe(0);
+    await broker.send(created.id, { type: "ping" });
+    expect(spawnCount).toBe(1);
+  });
+
   it("routes command to the matching session worker only", async () => {
     const hits: string[] = [];
-    let seq = 0;
     const broker = createSessionBroker({
-      spawnWorker: async (cwd) => {
-        seq += 1;
-        const id = seq === 1 ? "session-a" : "session-b";
+      allocateSession: allocateSeq(["session-a", "session-b"]),
+      spawnWorker: async (cwd, filePath) => {
+        const id = idFromPath(filePath);
         return {
           id,
           cwd,
-          filePath: `/tmp/${id}.jsonl`,
+          filePath: filePath ?? `/tmp/${id}.jsonl`,
           worker: {
             send: async (msg) => {
               if (msg.kind === "command") hits.push(id);
@@ -38,12 +97,13 @@ describe("session-broker", () => {
     let messageCb: ((msg: { kind: string }) => void) | null = null;
     const broker = createSessionBroker({
       idleDestroyMs: 60_000,
-      spawnWorker: async (cwd) => {
+      allocateSession: allocateFixed("session-a"),
+      spawnWorker: async (cwd, filePath) => {
         spawnCount += 1;
         return {
-          id: "session-a",
+          id: idFromPath(filePath),
           cwd,
-          filePath: "/tmp/session-a.jsonl",
+          filePath: filePath ?? "/tmp/session-a.jsonl",
           worker: {
             send: async (msg) => {
               if (msg.kind === "ping") {
@@ -65,6 +125,8 @@ describe("session-broker", () => {
       },
     });
     const session = await broker.createSession("/tmp/a");
+    expect(spawnCount).toBe(0);
+    await broker.send(session.id, { type: "ping" });
     expect(spawnCount).toBe(1);
     await vi.advanceTimersByTimeAsync(60_000);
     expect(killed).toBe(true);
@@ -77,10 +139,11 @@ describe("session-broker", () => {
   it("rejects pending prompt commands on worker fatal", async () => {
     let messageCb: ((msg: { kind: string; id?: string; error?: string }) => void) | null = null;
     const broker = createSessionBroker({
-      spawnWorker: async (cwd) => ({
-        id: "session-a",
+      allocateSession: allocateFixed("session-a"),
+      spawnWorker: async (cwd, filePath) => ({
+        id: idFromPath(filePath),
         cwd,
-        filePath: "/tmp/session-a.jsonl",
+        filePath: filePath ?? "/tmp/session-a.jsonl",
         worker: {
           send: async (msg) => {
             if (msg.kind === "command" && msg.id) {
@@ -110,10 +173,11 @@ describe("session-broker", () => {
     let messageCb: ((msg: { kind: string; error?: string }) => void) | null = null;
     const events: Array<{ type: string; errorMessage?: string; status?: string }> = [];
     const broker = createSessionBroker({
-      spawnWorker: async (cwd) => ({
-        id: "session-a",
+      allocateSession: allocateFixed("session-a"),
+      spawnWorker: async (cwd, filePath) => ({
+        id: idFromPath(filePath),
         cwd,
-        filePath: "/tmp/session-a.jsonl",
+        filePath: filePath ?? "/tmp/session-a.jsonl",
         worker: {
           send: async () => null,
           kill: () => {},
@@ -129,7 +193,8 @@ describe("session-broker", () => {
     broker.onEvent((event) => {
       events.push(event as { type: string; errorMessage?: string; status?: string });
     });
-    await broker.createSession("/tmp/a");
+    const session = await broker.createSession("/tmp/a");
+    await broker.send(session.id, { type: "ping" });
     messageCb?.({ kind: "fatal", error: "worker exited (0)" });
     expect(events.some((e) => e.type === "prompt_error")).toBe(false);
     expect(events.some((e) => e.type === "session_status" && e.status === "error")).toBe(
@@ -140,10 +205,11 @@ describe("session-broker", () => {
   it("rejects pending commands when worker is terminated", async () => {
     const events: Array<{ type: string; status?: string }> = [];
     const broker = createSessionBroker({
-      spawnWorker: async (cwd) => ({
-        id: "session-a",
+      allocateSession: allocateFixed("session-a"),
+      spawnWorker: async (cwd, filePath) => ({
+        id: idFromPath(filePath),
         cwd,
-        filePath: "/tmp/session-a.jsonl",
+        filePath: filePath ?? "/tmp/session-a.jsonl",
         worker: {
           send: async (msg) => {
             if (msg.kind === "command" && msg.command.type === "hang") {
@@ -159,7 +225,6 @@ describe("session-broker", () => {
     broker.onEvent((event) => events.push(event as { type: string; status?: string }));
     const session = await broker.createSession("/tmp/a");
     const pending = broker.send(session.id, { type: "hang" });
-    // ensureWorker yields once before pendingCommands is populated — wait for running.
     await vi.waitFor(() => {
       expect(events.some((e) => e.type === "session_status" && e.status === "running")).toBe(
         true,
@@ -169,16 +234,85 @@ describe("session-broker", () => {
     await expect(pending).rejects.toThrow("worker terminated");
   });
 
+  it("disconnects worker before deleting session", async () => {
+    let killed = false;
+    let disconnectSend: string | null = null;
+    const broker = createSessionBroker({
+      allocateSession: allocateFixed("session-a"),
+      spawnWorker: async (cwd, filePath) => ({
+        id: idFromPath(filePath),
+        cwd,
+        filePath: filePath ?? "/tmp/session-a.jsonl",
+        worker: {
+          send: async (msg) => {
+            if (msg.kind === "shutdown") disconnectSend = "shutdown";
+            return null;
+          },
+          kill: () => {
+            killed = true;
+          },
+          onMessage: () => () => {},
+        },
+      }),
+    });
+    const session = await broker.createSession("/tmp/a");
+    await broker.send(session.id, { type: "ping" });
+    await broker.deleteSession(session.id, "/tmp/a");
+    expect(disconnectSend).toBe("shutdown");
+    expect(killed).toBe(true);
+  });
+
+  it("never marks stuck during an active turn regardless of silence duration", async () => {
+    vi.useFakeTimers();
+    const events: Array<{ type: string }> = [];
+    let killed = false;
+    const broker = createSessionBroker({
+      allocateSession: allocateFixed("session-a"),
+      spawnWorker: async (cwd, filePath) => ({
+        id: idFromPath(filePath),
+        cwd,
+        filePath: filePath ?? "/tmp/session-a.jsonl",
+        worker: {
+          // Never answers ping / never emits — simulates long LLM/tool silence.
+          send: async (msg) => {
+            if (msg.kind === "command" && msg.command.type === "hang") {
+              return new Promise(() => {});
+            }
+            return null;
+          },
+          kill: () => {
+            killed = true;
+          },
+          onMessage: () => () => {},
+        },
+      }),
+    });
+    broker.onEvent((event) => events.push(event));
+    const session = await broker.createSession("/tmp/a");
+    const pending = broker.send(session.id, { type: "hang" });
+    await vi.waitFor(() => {
+      expect(events.some((e) => e.type === "session_status")).toBe(true);
+    });
+    // Far beyond any former idle/active heartbeat window — must stay alive.
+    await vi.advanceTimersByTimeAsync(5_000 * 120);
+    expect(events.some((e) => e.type === "worker_stuck")).toBe(false);
+    expect(killed).toBe(false);
+    await broker.closeSession(session.id);
+    await expect(pending).rejects.toThrow(/session closed|worker/);
+    vi.useRealTimers();
+  });
+
   it("emits session_status when heartbeat recovers from stuck to idle", async () => {
     vi.useFakeTimers();
     const events: Array<{ type: string; status?: string; sessionId?: string }> = [];
     let messageCb: ((msg: { kind: string }) => void) | null = null;
     let killed = false;
     const broker = createSessionBroker({
-      spawnWorker: async (cwd) => ({
-        id: "session-a",
+      allocateSession: allocateFixed("session-a"),
+      spawnWorker: async (cwd, filePath) => ({
+        id: idFromPath(filePath),
         cwd,
-        filePath: "/tmp/session-a.jsonl",
+        filePath: filePath ?? "/tmp/session-a.jsonl",
         worker: {
           send: async () => null,
           kill: () => {
@@ -193,14 +327,13 @@ describe("session-broker", () => {
         },
       }),
     });
-    broker.onEvent((event) => events.push(event));
+    broker.onEvent((event) => events.push(event as { type: string; status?: string; sessionId?: string }));
     const session = await broker.createSession("/tmp/a");
-    // No pong for the full miss window → stuck + detach hung worker
+    await broker.send(session.id, { type: "ping" });
     await vi.advanceTimersByTimeAsync(5_000 * 3);
     expect(events.some((e) => e.type === "worker_stuck")).toBe(true);
     expect(killed).toBe(true);
 
-    // Late pong on a detached handle can still clear stuck UI if the listener remains.
     const beforeRecovery = events.length;
     messageCb?.({ kind: "pong" });
     const recovery = events.slice(beforeRecovery);
@@ -216,10 +349,11 @@ describe("session-broker", () => {
     vi.useFakeTimers();
     let killed = false;
     const broker = createSessionBroker({
-      spawnWorker: async (cwd) => ({
-        id: "session-a",
+      allocateSession: allocateFixed("session-a"),
+      spawnWorker: async (cwd, filePath) => ({
+        id: idFromPath(filePath),
         cwd,
-        filePath: "/tmp/session-a.jsonl",
+        filePath: filePath ?? "/tmp/session-a.jsonl",
         worker: {
           send: async () => null,
           kill: () => {
@@ -242,10 +376,11 @@ describe("session-broker", () => {
     const events: Array<{ type: string }> = [];
     let messageCb: ((msg: { kind: string; event?: { type: string } }) => void) | null = null;
     const broker = createSessionBroker({
-      spawnWorker: async (cwd) => ({
-        id: "session-a",
+      allocateSession: allocateFixed("session-a"),
+      spawnWorker: async (cwd, filePath) => ({
+        id: idFromPath(filePath),
         cwd,
-        filePath: "/tmp/session-a.jsonl",
+        filePath: filePath ?? "/tmp/session-a.jsonl",
         worker: {
           send: async () => null,
           kill: () => {},
@@ -259,8 +394,8 @@ describe("session-broker", () => {
       }),
     });
     broker.onEvent((event) => events.push(event));
-    await broker.createSession("/tmp/a");
-    // Stream activity every 4s — proves liveness even without answering ping.
+    const session = await broker.createSession("/tmp/a");
+    await broker.send(session.id, { type: "ping" });
     for (let i = 0; i < 5; i++) {
       await vi.advanceTimersByTimeAsync(4_000);
       messageCb?.({ kind: "event", event: { type: "message_update" } });
@@ -274,14 +409,14 @@ describe("session-broker", () => {
     const events: Array<{ type: string }> = [];
     let messageCb: ((msg: { kind: string }) => void) | null = null;
     const broker = createSessionBroker({
-      spawnWorker: async (cwd) => ({
-        id: "session-a",
+      allocateSession: allocateFixed("session-a"),
+      spawnWorker: async (cwd, filePath) => ({
+        id: idFromPath(filePath),
         cwd,
-        filePath: "/tmp/session-a.jsonl",
+        filePath: filePath ?? "/tmp/session-a.jsonl",
         worker: {
           send: async (msg) => {
             if (msg.kind === "ping") {
-              // Answer immediately — simulates healthy worker once main unblocks.
               queueMicrotask(() => messageCb?.({ kind: "pong" }));
             }
             return null;
@@ -297,11 +432,8 @@ describe("session-broker", () => {
       }),
     });
     broker.onEvent((event) => events.push(event));
-    await broker.createSession("/tmp/a");
-    // Jump past 3 intervals at once (main-thread stall). lastAliveAt was just set at start,
-    // so silentMs is large — but then pongs from queued pings should recover; we assert we
-    // only stuck if truly silent. With lastAliveAt from create (~now), advancing 15s without
-    // any inbound message WOULD stuck — so answer via send's pong after first interval batch.
+    const session = await broker.createSession("/tmp/a");
+    await broker.send(session.id, { type: "ping" });
     await vi.advanceTimersByTimeAsync(5_000);
     expect(events.some((e) => e.type === "worker_stuck")).toBe(false);
     await vi.advanceTimersByTimeAsync(5_000);
@@ -313,12 +445,13 @@ describe("session-broker", () => {
     let spawnCount = 0;
     let killCount = 0;
     const broker = createSessionBroker({
-      spawnWorker: async (cwd) => {
+      allocateSession: allocateFixed("session-a"),
+      spawnWorker: async (cwd, filePath) => {
         spawnCount += 1;
         return {
-          id: "session-a",
+          id: idFromPath(filePath),
           cwd,
-          filePath: "/tmp/session-a.jsonl",
+          filePath: filePath ?? "/tmp/session-a.jsonl",
           worker: {
             send: async () => null,
             kill: () => {
@@ -329,25 +462,43 @@ describe("session-broker", () => {
         };
       },
     });
-    await broker.createSession("/tmp/a");
+    const session = await broker.createSession("/tmp/a");
+    expect(spawnCount).toBe(0);
+    await broker.send(session.id, { type: "ping" });
     expect(spawnCount).toBe(1);
     await broker.notifyWorkersReloadModels();
     expect(killCount).toBe(1);
     expect(spawnCount).toBe(2);
   });
 
+  it("trySend does not cold-start a worker", async () => {
+    let spawnCount = 0;
+    const broker = createSessionBroker({
+      allocateSession: allocateFixed("session-a"),
+      spawnWorker: async (cwd, filePath) => {
+        spawnCount += 1;
+        return {
+          id: idFromPath(filePath),
+          cwd,
+          filePath: filePath ?? "/tmp/session-a.jsonl",
+          worker: {
+            send: async () => null,
+            kill: () => {},
+            onMessage: () => () => {},
+          },
+        };
+      },
+    });
+    const session = await broker.createSession("/tmp/a");
+    const result = await broker.trySend(session.id, { type: "get_state" });
+    expect(result).toBeUndefined();
+    expect(spawnCount).toBe(0);
+  });
+
   it("exposes renamed title on live sessions without waiting for a switch (#3)", async () => {
     const broker = createSessionBroker({
-      spawnWorker: async (cwd) => ({
-        id: "session-a",
-        cwd,
-        filePath: "/tmp/session-a.jsonl",
-        worker: {
-          send: async () => null,
-          kill: () => {},
-          onMessage: () => () => {},
-        },
-      }),
+      allocateSession: allocateFixed("session-a"),
+      spawnWorker: spawnEcho(),
     });
     await broker.createSession("/tmp/a");
     expect(broker.patchSummary("session-a", {})?.name).toBeUndefined();

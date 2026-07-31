@@ -656,4 +656,28 @@ describe("reduceChatEvent", () => {
     });
     expect(state.pendingAskUser?.questions[0]?.id).toBe("q1");
   });
+
+  it("surfaces worker_stuck as an error bubble in chat", () => {
+    let state = createChatState();
+    state = { ...state, running: true };
+    state = reduceChatEvent(state, { type: "worker_stuck", sessionId: "s1" });
+    expect(state.running).toBe(false);
+    const last = state.messages.at(-1);
+    expect(last?.role).toBe("error");
+    expect(last && last.role === "error" ? last.text : "").toMatch(/Worker/i);
+  });
+
+  it("surfaces non-zero worker_exit as an error bubble", () => {
+    let state = createChatState();
+    state = reduceChatEvent(state, { type: "worker_exit", sessionId: "s1", code: 1 });
+    const last = state.messages.at(-1);
+    expect(last?.role).toBe("error");
+    expect(last && last.role === "error" ? last.text : "").toMatch(/1/);
+  });
+
+  it("keeps clean worker_exit silent in chat", () => {
+    let state = createChatState();
+    state = reduceChatEvent(state, { type: "worker_exit", sessionId: "s1", code: 0 });
+    expect(state.messages.some((m) => m.role === "error")).toBe(false);
+  });
 });

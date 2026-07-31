@@ -115,6 +115,10 @@ const api = {
     close: (sessionId: string) => ipcRenderer.invoke(IpcChannels.sessions.close, sessionId) as Promise<void>,
     command: (sessionId: string, command: AgentCommand) =>
       ipcRenderer.invoke(IpcChannels.sessions.command, sessionId, command) as Promise<unknown>,
+    tryCommand: (sessionId: string, command: AgentCommand) =>
+      ipcRenderer.invoke(IpcChannels.sessions.tryCommand, sessionId, command) as Promise<
+        unknown | undefined
+      >,
     killWorker: (sessionId: string) =>
       ipcRenderer.invoke(IpcChannels.sessions.killWorker, sessionId) as Promise<void>,
     restartWorker: (sessionId: string) =>
