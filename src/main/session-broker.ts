@@ -13,11 +13,17 @@ import type {
 import { IDLE_WORKER_DESTROY_MS } from "./worker-lifecycle";
 import { listSessionsForCwd } from "./session-list";
 import { clearSessionConversation, deleteSessionFile } from "./session-history";
+import { allocateSessionOnDisk } from "./session-allocate";
 
 const HEARTBEAT_INTERVAL_MS = 5_000;
-const HEARTBEAT_MISS_LIMIT = 3;
-/** Stop button must not hang forever on a wedged worker. */
+/** Idle workers only: ~15s of silence → stuck (catch wedged utilityProcess). */
+const HEARTBEAT_MISS_LIMIT_IDLE = 3;
+/**
+ * Active agent turns are never killed by heartbeat silence (thinking / TTFT / long tools).
+ * Process death → exit/fatal; Stop → abort force-kill.
+ */
 const ABORT_FORCE_KILL_MS = 4_000;
+const SHUTDOWN_GRACE_MS = 800;
 const CONTEXT_SEGMENT_IDS = new Set<ContextUsageSegmentId>([
   "system",
   "tools",
@@ -37,12 +43,24 @@ export type SpawnWorker = (
   filePath?: string,
 ) => Promise<{ worker: WorkerHandle; id: string; filePath: string; cwd: string }>;
 
+/** Allocate session id + jsonl without spawning the Pi agent worker. */
+export type AllocateSession = (cwd: string) => Promise<{
+  id: string;
+  cwd: string;
+  filePath: string;
+}>;
+
 export type SessionBroker = {
   createSession: (cwd: string) => Promise<SessionSummary>;
   listSessions: (cwd: string) => Promise<SessionSummary[]>;
   openSession: (sessionId: string, cwd: string) => Promise<SessionSummary | null>;
   closeSession: (sessionId: string) => Promise<void>;
   send: (sessionId: string, command: AgentCommand) => Promise<unknown>;
+  /**
+   * Like send, but never cold-starts a worker. Returns `undefined` when no worker is alive
+   * (used for UI sync without waking the Pi agent).
+   */
+  trySend: (sessionId: string, command: AgentCommand) => Promise<unknown | undefined>;
   /** Fire-and-forget worker message (no pending-command tracking). */
   sendRaw: (sessionId: string, msg: WorkerInbound) => Promise<WorkerOutbound | null>;
   /**
@@ -88,6 +106,8 @@ type SessionRecord = {
 
 export function createSessionBroker(deps: {
   spawnWorker: SpawnWorker;
+  /** Override for tests — default writes a Pi session jsonl without spawning a worker. */
+  allocateSession?: AllocateSession;
   idleDestroyMs?: number;
   onWorkerMessage?: (sessionId: string, msg: WorkerOutbound) => void;
   onSessionWorkerGone?: (sessionId: string) => void;
@@ -95,6 +115,7 @@ export function createSessionBroker(deps: {
   hasActiveRuns?: (sessionId: string) => boolean;
 }): SessionBroker {
   const idleDestroyMs = deps.idleDestroyMs ?? IDLE_WORKER_DESTROY_MS;
+  const allocateSession = deps.allocateSession ?? (async (cwd: string) => allocateSessionOnDisk(cwd));
   const sessions = new Map<string, SessionRecord>();
   const listeners = new Set<(event: AgentEvent) => void>();
 
@@ -175,11 +196,17 @@ export function createSessionBroker(deps: {
       if (!current?.worker) {
         return;
       }
-      // Mark stuck only when the worker has been silent for the full miss window.
+      // Never declare stuck while a turn is in flight — silence is normal
+      // (thinking / TTFT / long tools). Real deaths come via exit/fatal; Stop uses abort.
+      if (hasActiveTurn(current)) {
+        void current.worker.send({ kind: "ping" });
+        return;
+      }
+      // Idle only: mark stuck when silent for the full miss window.
       // Using lastAliveAt (not a miss counter) avoids false positives when the main
       // process was blocked and several setInterval callbacks queue up at once.
       const silentMs = Date.now() - current.lastAliveAt;
-      if (silentMs >= HEARTBEAT_INTERVAL_MS * HEARTBEAT_MISS_LIMIT) {
+      if (silentMs >= HEARTBEAT_INTERVAL_MS * HEARTBEAT_MISS_LIMIT_IDLE) {
         if (current.summary.status !== "stuck") {
           setStatus(sessionId, "stuck");
           emit({ type: "worker_stuck", sessionId });
@@ -203,6 +230,24 @@ export function createSessionBroker(deps: {
         void current.worker.send({ kind: "ping" });
       }
     }, HEARTBEAT_INTERVAL_MS);
+  }
+
+  function hasActiveTurn(rec: SessionRecord): boolean {
+    if (rec.summary.status === "running") return true;
+    for (const pending of rec.pendingCommands.values()) {
+      const t = pending.command.type;
+      if (
+        t === "prompt" ||
+        t === "steer" ||
+        t === "follow_up" ||
+        t === "hang" ||
+        t === "compact" ||
+        t === "abort"
+      ) {
+        return true;
+      }
+    }
+    return false;
   }
 
   function noteWorkerAlive(rec: SessionRecord): void {
@@ -384,11 +429,10 @@ export function createSessionBroker(deps: {
     });
   }
 
-  function registerWorkerSession(
+  function registerSessionShell(
     id: string,
     cwd: string,
     filePath: string,
-    worker: WorkerHandle,
     meta?: Partial<Pick<SessionSummary, "name" | "firstMessage" | "modified">>,
   ): SessionSummary {
     const summary: SessionSummary = {
@@ -400,25 +444,52 @@ export function createSessionBroker(deps: {
       modified: meta?.modified ?? new Date().toISOString(),
       status: "idle",
     };
+    const existing = sessions.get(id);
+    if (existing) {
+      existing.cwd = cwd;
+      existing.summary = {
+        ...existing.summary,
+        ...summary,
+        status: existing.worker ? existing.summary.status : "idle",
+      };
+      return { ...existing.summary };
+    }
     sessions.set(id, {
       cwd,
       summary,
-      worker,
+      worker: null,
       lastAliveAt: Date.now(),
       heartbeatTimer: null,
       idleDestroyTimer: null,
       pendingCommands: new Map(),
     });
+    return { ...summary };
+  }
+
+  function registerWorkerSession(
+    id: string,
+    cwd: string,
+    filePath: string,
+    worker: WorkerHandle,
+    meta?: Partial<Pick<SessionSummary, "name" | "firstMessage" | "modified">>,
+  ): SessionSummary {
+    const summary = registerSessionShell(id, cwd, filePath, meta);
+    const rec = sessions.get(id);
+    if (!rec) return summary;
+    rec.worker = worker;
+    rec.summary.filePath = filePath;
+    rec.lastAliveAt = Date.now();
     attachWorker(id, worker);
     startHeartbeat(id);
     scheduleIdleDestroy(id);
     emit({ type: "connected", sessionId: id });
-    return { ...summary };
+    return { ...rec.summary };
   }
 
   async function createSession(cwd: string): Promise<SessionSummary> {
-    const spawned = await deps.spawnWorker(cwd);
-    return registerWorkerSession(spawned.id, spawned.cwd, spawned.filePath, spawned.worker);
+    // Fast path: disk session only. Pi agent worker starts on first send/command.
+    const allocated = await allocateSession(cwd);
+    return registerSessionShell(allocated.id, allocated.cwd, allocated.filePath);
   }
 
   async function listSessions(cwd: string): Promise<SessionSummary[]> {
@@ -466,20 +537,16 @@ export function createSessionBroker(deps: {
 
   async function openSession(sessionId: string, cwd: string): Promise<SessionSummary | null> {
     const live = sessions.get(sessionId);
-    if (live?.worker) {
-      // Always re-sync title/first message from disk — rename may have updated the file
-      // while the live summary still had empty metadata (#3).
+    if (live) {
+      // Re-sync title/first message from disk — do NOT spawn the agent worker here.
       const disk = await listSessionsForCwd(cwd);
       const target = disk.find((s) => s.id === sessionId);
       if (target) {
         if (target.name?.trim()) live.summary.name = target.name;
         if (target.firstMessage?.trim()) live.summary.firstMessage = target.firstMessage;
         live.summary.modified = target.modified;
+        if (target.filePath) live.summary.filePath = target.filePath;
       }
-      return { ...live.summary };
-    }
-    if (live && !live.worker) {
-      await spawnWorkerForRecord(sessionId, live);
       return { ...live.summary };
     }
     const disk = await listSessionsForCwd(cwd);
@@ -492,18 +559,42 @@ export function createSessionBroker(deps: {
         `session file missing (cannot open): ${target.filePath}. Create a new session or restore the file.`,
       );
     }
-    const spawned = await deps.spawnWorker(cwd, target.filePath);
-    if (spawned.id !== sessionId) {
-      spawned.worker.kill();
-      throw new Error(
-        `session id mismatch: expected ${sessionId}, got ${spawned.id} (file: ${target.filePath})`,
-      );
-    }
-    return registerWorkerSession(spawned.id, spawned.cwd, spawned.filePath, spawned.worker, {
+    // Register shell only — worker cold-starts on first prompt/command.
+    return registerSessionShell(target.id, cwd, target.filePath, {
       name: target.name,
       firstMessage: target.firstMessage,
       modified: target.modified,
     });
+  }
+
+  async function disconnectWorker(sessionId: string, reason: string): Promise<void> {
+    const rec = sessions.get(sessionId);
+    if (!rec?.worker) {
+      if (rec) {
+        clearIdleDestroyTimer(rec);
+        stopHeartbeat(rec);
+      }
+      return;
+    }
+    clearIdleDestroyTimer(rec);
+    stopHeartbeat(rec);
+    rejectPendingCommands(rec, reason);
+    const worker = rec.worker;
+    rec.worker = null;
+    try {
+      await Promise.race([
+        worker.send({ kind: "shutdown" }),
+        new Promise<void>((resolve) => setTimeout(resolve, SHUTDOWN_GRACE_MS)),
+      ]);
+    } catch {
+      // ignore — force kill below
+    }
+    try {
+      worker.kill();
+    } catch {
+      // ignore
+    }
+    deps.onSessionWorkerGone?.(sessionId);
   }
 
   async function teardownWorker(sessionId: string, code: number | null): Promise<void> {
@@ -524,12 +615,9 @@ export function createSessionBroker(deps: {
     if (!rec) {
       return;
     }
-    if (rec.worker) {
-      await rec.worker.send({ kind: "shutdown" });
-    }
-    await teardownWorker(sessionId, 0);
+    await disconnectWorker(sessionId, "session closed");
     sessions.delete(sessionId);
-    deps.onSessionWorkerGone?.(sessionId);
+    emit({ type: "worker_exit", sessionId, code: 0 });
   }
 
   async function sendRaw(
@@ -557,10 +645,16 @@ export function createSessionBroker(deps: {
     return true;
   }
 
-  async function send(sessionId: string, command: AgentCommand): Promise<unknown> {
-    const rec = await ensureWorker(sessionId);
-    const worker = rec.worker;
+  async function send(
+    sessionId: string,
+    command: AgentCommand,
+    opts?: { coldStart?: boolean },
+  ): Promise<unknown | undefined> {
+    const coldStart = opts?.coldStart !== false;
+    const rec = coldStart ? await ensureWorker(sessionId) : sessions.get(sessionId);
+    const worker = rec?.worker;
     if (!worker) {
+      if (!coldStart) return undefined;
       throw new Error(`session worker unavailable: ${sessionId}`);
     }
     if (command.type === "prompt" || command.type === "hang") {
@@ -593,7 +687,7 @@ export function createSessionBroker(deps: {
           forceTimer = null;
         }
       };
-      rec.pendingCommands.set(cmdId, {
+      rec!.pendingCommands.set(cmdId, {
         command,
         resolve: (v) => {
           clearForce();
@@ -606,19 +700,19 @@ export function createSessionBroker(deps: {
       });
       if (command.type === "abort") {
         forceTimer = setTimeout(() => {
-          const pending = rec.pendingCommands.get(cmdId);
+          const pending = rec!.pendingCommands.get(cmdId);
           if (!pending) return;
-          rec.pendingCommands.delete(cmdId);
-          clearIdleDestroyTimer(rec);
-          stopHeartbeat(rec);
-          rejectPendingCommands(rec, "abort timed out — worker killed");
-          if (rec.worker) {
+          rec!.pendingCommands.delete(cmdId);
+          clearIdleDestroyTimer(rec!);
+          stopHeartbeat(rec!);
+          rejectPendingCommands(rec!, "abort timed out — worker killed");
+          if (rec!.worker) {
             try {
-              rec.worker.kill();
+              rec!.worker.kill();
             } catch {
               // ignore
             }
-            rec.worker = null;
+            rec!.worker = null;
           }
           deps.onSessionWorkerGone?.(sessionId);
           setStatus(sessionId, "idle");
@@ -627,11 +721,11 @@ export function createSessionBroker(deps: {
       }
       void worker.send(outbound).then((direct) => {
         if (direct?.kind === "result") {
-          const pending = rec.pendingCommands.get(cmdId);
+          const pending = rec!.pendingCommands.get(cmdId);
           if (!pending) {
             return;
           }
-          rec.pendingCommands.delete(cmdId);
+          rec!.pendingCommands.delete(cmdId);
           clearForce();
           if (direct.error) {
             reject(new Error(direct.error));
@@ -643,19 +737,19 @@ export function createSessionBroker(deps: {
     });
   }
 
+  async function trySend(
+    sessionId: string,
+    command: AgentCommand,
+  ): Promise<unknown | undefined> {
+    return send(sessionId, command, { coldStart: false });
+  }
+
   async function killWorker(sessionId: string): Promise<void> {
     const rec = sessions.get(sessionId);
     if (!rec) {
       return;
     }
-    clearIdleDestroyTimer(rec);
-    stopHeartbeat(rec);
-    rejectPendingCommands(rec, "worker terminated");
-    if (rec.worker) {
-      rec.worker.kill();
-      rec.worker = null;
-    }
-    deps.onSessionWorkerGone?.(sessionId);
+    await disconnectWorker(sessionId, "worker terminated");
     setStatus(sessionId, "error");
     emit({ type: "worker_exit", sessionId, code: null });
   }
@@ -665,14 +759,7 @@ export function createSessionBroker(deps: {
     if (!rec) {
       return;
     }
-    clearIdleDestroyTimer(rec);
-    stopHeartbeat(rec);
-    rejectPendingCommands(rec, "worker restarted");
-    if (rec.worker) {
-      rec.worker.kill();
-      rec.worker = null;
-    }
-    deps.onSessionWorkerGone?.(sessionId);
+    await disconnectWorker(sessionId, "worker restarted");
     await spawnWorkerForRecord(sessionId, rec);
     setStatus(sessionId, "idle");
   }
@@ -694,14 +781,8 @@ export function createSessionBroker(deps: {
       const disk = await listSessionsForCwd(cwd);
       filePath = disk.find((s) => s.id === sessionId)?.filePath;
     }
-    if (rec?.worker) {
-      clearIdleDestroyTimer(rec);
-      stopHeartbeat(rec);
-      rejectPendingCommands(rec, "session deleted");
-      rec.worker.kill();
-      rec.worker = null;
-    }
-    deps.onSessionWorkerGone?.(sessionId);
+    // Disconnect agent first, then remove registry + disk record.
+    await disconnectWorker(sessionId, "session deleted");
     sessions.delete(sessionId);
     if (filePath) {
       try {
@@ -722,21 +803,13 @@ export function createSessionBroker(deps: {
     }
 
     // Stop the live worker first so it cannot append while we rewrite the file.
-    if (live?.worker) {
-      clearIdleDestroyTimer(live);
-      stopHeartbeat(live);
-      rejectPendingCommands(live, "context cleared");
-      live.worker.kill();
-      live.worker = null;
-      deps.onSessionWorkerGone?.(sessionId);
-    }
+    await disconnectWorker(sessionId, "context cleared");
 
     await clearSessionConversation(filePath);
 
     if (live) {
       live.summary.firstMessage = undefined;
       live.summary.modified = new Date().toISOString();
-      await spawnWorkerForRecord(sessionId, live);
       setStatus(sessionId, "idle");
     }
   }
@@ -775,6 +848,7 @@ export function createSessionBroker(deps: {
     openSession,
     closeSession,
     send,
+    trySend,
     sendRaw,
     sendRawIfAlive,
     killWorker,

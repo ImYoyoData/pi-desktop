@@ -278,6 +278,29 @@ button {
   color: var(--fg-muted);
 }
 
+/*
+ * Modal enter/leave: opacity only (no scale). Scale + large card paint feels janky
+ * in Electron with chat/Monaco behind the mask.
+ */
+.n-modal-container .fade-in-scale-up-transition-enter-from,
+.n-modal-container .fade-in-scale-up-transition-leave-to {
+  opacity: 0;
+  transform: none !important;
+}
+.n-modal-container .fade-in-scale-up-transition-enter-to,
+.n-modal-container .fade-in-scale-up-transition-leave-from {
+  opacity: 1;
+  transform: none !important;
+}
+.n-modal-container .fade-in-scale-up-transition-enter-active,
+.n-modal-container .fade-in-scale-up-transition-leave-active {
+  transition: opacity 110ms var(--ease-out, ease) !important;
+}
+.n-modal-mask.fade-in-transition-enter-active,
+.n-modal-mask.fade-in-transition-leave-active {
+  transition: opacity 100ms var(--ease-out, ease) !important;
+}
+
 /* Settings modals */
 .pi-settings-modal.n-modal,
 .pi-settings-modal.n-card {

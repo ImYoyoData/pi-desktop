@@ -82,7 +82,7 @@ let voiceConfirming = false;
 let voiceGen = 0;
 let offAsrProgress: (() => void) | undefined;
 const voiceActive = ref(false);
-/** Non-reactive meter — mutated from ScriptProcessor; VoiceRecordBar samples via rAF. */
+/** Non-reactive meter — mutated from AudioWorklet; VoiceRecordBar samples via rAF. */
 const voiceMeter: VoiceMeter = { level: 0 };
 /** True from confirm until transcription finishes — send button loading. */
 const voicePending = ref(false);
@@ -680,6 +680,8 @@ async function dispatchQueuedItem(
 ): Promise<void> {
   // Always prompt: Pi followUp only queues during a live turn and will not
   // start a new turn when the agent is already idle (queued items vanished).
+  // Cold session: spawn worker on first real dispatch (not on create/open).
+  await applySelectedModel({ allowStart: true });
   const agentText = item.agentText || item.text || " ";
   const displayText = item.text === " " ? "" : item.text;
   await chat.sendPrompt(
@@ -836,6 +838,17 @@ async function submit(mode: "prompt" | "steer" | "follow_up"): Promise<void> {
   const agentText = snap.text || " ";
   const titleSeed = displayText || snap.tagsToSend?.[0]?.content || snap.tagsToSend?.[0]?.label || "";
   composer.clear();
+  // First message (or any send) activates the Pi agent worker and applies model.
+  if (mode === "prompt" || mode === "steer" || mode === "follow_up") {
+    await applySelectedModel({ allowStart: true });
+    const level = thinkingLevel.value;
+    try {
+      await sessions.sendCommand(id, { type: "set_thinking_level", level });
+      rememberThinking(id, level);
+    } catch {
+      // ignore — prompt may still proceed with worker default
+    }
+  }
   if (mode === "prompt") {
     const root = workspace.root;
     const summary = sessions.sessions.find((s) => s.id === id);
@@ -1427,16 +1440,18 @@ async function syncSessionModelAndThinking(): Promise<void> {
     thinkingLevel.value = rememberedThinking;
   }
 
-  // Prefer live worker state (source of truth for existing sessions)
+  // Prefer live worker state when agent is already running (never cold-start here).
   let workerKey: string | null = null;
   let workerThinking: ThinkingLevel | null = null;
   try {
-    const state = await sessions.sendCommand(id, { type: "get_state" });
-    workerKey = modelKeyFromState(state);
-    workerThinking = thinkingFromState(state);
-    sessions.applyContextFromState(id, state);
+    const state = await sessions.tryCommand(id, { type: "get_state" });
+    if (state !== undefined) {
+      workerKey = modelKeyFromState(state);
+      workerThinking = thinkingFromState(state);
+      sessions.applyContextFromState(id, state);
+    }
   } catch {
-    // Worker may still be starting; fall back to remembered / default below.
+    // ignore sync failures
   }
 
   if (workerKey && flat.some((o) => o.value === workerKey)) {
@@ -1455,23 +1470,23 @@ async function syncSessionModelAndThinking(): Promise<void> {
     thinkingLevel.value = rememberedThinking;
   }
 
-  // Ensure worker uses this session's remembered model (new sessions / cold workers)
-  if (selectedModelKey.value) {
+  // Only push model/thinking to a live worker — first prompt cold-starts the agent.
+  if (selectedModelKey.value && workerKey !== null) {
     const token = `${id}::${selectedModelKey.value}`;
     if (workerKey !== selectedModelKey.value || appliedModelForSession.value !== token) {
       appliedModelForSession.value = null;
-      await applySelectedModel();
+      await applySelectedModel({ allowStart: false });
     } else {
       appliedModelForSession.value = token;
       rememberModel(id, selectedModelKey.value);
     }
   }
 
-  if (rememberedThinking || thinkingLevel.value) {
+  if (workerThinking !== null && (rememberedThinking || thinkingLevel.value)) {
     const level = thinkingLevel.value;
     if (workerThinking !== level) {
       try {
-        await sessions.sendCommand(id, { type: "set_thinking_level", level });
+        await sessions.tryCommand(id, { type: "set_thinking_level", level });
         rememberThinking(id, level);
       } catch {
         // ignore thinking sync failures
@@ -1480,7 +1495,7 @@ async function syncSessionModelAndThinking(): Promise<void> {
   }
 }
 
-async function applySelectedModel(): Promise<void> {
+async function applySelectedModel(opts?: { allowStart?: boolean }): Promise<void> {
   const id = sessionId.value;
   const value = selectedModelKey.value;
   if (!id || !value) return;
@@ -1490,12 +1505,23 @@ async function applySelectedModel(): Promise<void> {
   if (slash <= 0) return;
   const token = `${id}::${value}`;
   if (appliedModelForSession.value === token) return;
+  const allowStart = opts?.allowStart === true;
   try {
-    await sessions.sendCommand(id, {
-      type: "set_model",
+    const command = {
+      type: "set_model" as const,
       provider: value.slice(0, slash),
       modelId: value.slice(slash + 1),
-    });
+    };
+    if (allowStart) {
+      await sessions.sendCommand(id, command);
+    } else {
+      const applied = await sessions.tryCommand(id, command);
+      if (applied === undefined) {
+        // No live worker yet — keep UI selection; first prompt will apply.
+        rememberModel(id, value);
+        return;
+      }
+    }
     appliedModelForSession.value = token;
     rememberModel(id, value);
   } catch (err) {
@@ -1512,7 +1538,7 @@ async function onModelChange(value: string | null): Promise<void> {
   appliedModelForSession.value = null;
   const id = sessionId.value;
   if (id && value) rememberModel(id, value);
-  await applySelectedModel();
+  await applySelectedModel({ allowStart: false });
 }
 
 function onPaste(event: ClipboardEvent): void {
