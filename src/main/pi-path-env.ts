@@ -90,6 +90,15 @@ function acceptNodeBinary(filePath: string | undefined): string | undefined {
   return filePath;
 }
 
+/** Process-lifetime cache — avoid sync where/which on every session open/create. */
+let cachedSystemNode: { key: string; value: string | undefined } | null = null;
+
+function systemNodeCacheKey(env: NodeJS.ProcessEnv): string {
+  const override = env[PI_DESKTOP_NODE_PATH_ENV]?.trim() ?? "";
+  const pathVar = env.PATH || env.Path || "";
+  return `${override}\0${pathVar}`;
+}
+
 /** Resolve a real Node.js binary (not Electron) for spawning Pi CLI / subagents. */
 export function resolveSystemNodeExecutable(
   env: NodeJS.ProcessEnv = process.env,
@@ -100,35 +109,27 @@ export function resolveSystemNodeExecutable(
     return acceptNodeBinary(override) ?? (existsSync(override) ? override : undefined);
   }
 
-  const lookupEnv = augmentPathForPiCli(env);
-  try {
-    if (process.platform === "win32") {
-      const out = execFileSync("where.exe", ["node"], {
-        encoding: "utf8",
-        env: lookupEnv,
-        windowsHide: true,
-        timeout: 8000,
-      });
-      for (const line of out.split(/\r?\n/)) {
-        const hit = acceptNodeBinary(line.trim());
-        if (hit) return hit;
-      }
-    } else {
-      const out = execFileSync("which", ["node"], {
-        encoding: "utf8",
-        env: lookupEnv,
-        timeout: 8000,
-      });
-      for (const line of out.split(/\n/)) {
-        const hit = acceptNodeBinary(line.trim());
-        if (hit) return hit;
-      }
-    }
-  } catch {
-    // fall through to known locations
+  const cacheKey = systemNodeCacheKey(env);
+  if (cachedSystemNode?.key === cacheKey) {
+    return cachedSystemNode.value;
   }
 
+  const resolved = resolveSystemNodeExecutableUncached(env);
+  cachedSystemNode = { key: cacheKey, value: resolved };
+  return resolved;
+}
+
+/** Test helper — clear process-lifetime node resolution cache. */
+export function clearSystemNodeExecutableCache(): void {
+  cachedSystemNode = null;
+}
+
+function resolveSystemNodeExecutableUncached(
+  env: NodeJS.ProcessEnv,
+): string | undefined {
   const home = env.HOME || env.USERPROFILE || homedir();
+  // Prefer cheap existsSync probes before shelling out to where/which (can block
+  // the Electron main process for seconds and stall sessions:open IPC).
   const candidates =
     process.platform === "win32"
       ? [
@@ -152,6 +153,34 @@ export function resolveSystemNodeExecutable(
   for (const c of candidates) {
     const hit = acceptNodeBinary(c);
     if (hit) return hit;
+  }
+
+  const lookupEnv = augmentPathForPiCli(env);
+  try {
+    if (process.platform === "win32") {
+      const out = execFileSync("where.exe", ["node"], {
+        encoding: "utf8",
+        env: lookupEnv,
+        windowsHide: true,
+        timeout: 1500,
+      });
+      for (const line of out.split(/\r?\n/)) {
+        const hit = acceptNodeBinary(line.trim());
+        if (hit) return hit;
+      }
+    } else {
+      const out = execFileSync("which", ["node"], {
+        encoding: "utf8",
+        env: lookupEnv,
+        timeout: 1500,
+      });
+      for (const line of out.split(/\n/)) {
+        const hit = acceptNodeBinary(line.trim());
+        if (hit) return hit;
+      }
+    }
+  } catch {
+    // fall through
   }
 
   // Last resort: if this process itself is Node (unit tests / non-Electron), use it.
@@ -332,13 +361,19 @@ export interface BuildAgentWorkerEnvOptions {
  * spawn() cannot run without shell:true.
  *
  * Packaged builds: system Node cannot execute scripts inside app.asar — if the only
- * CLI is asar-hosted, keep Electron as the runtime (ELECTRON_RUN_AS_NODE) instead.
+ * CLI is asar-hosted, omit PI_DESKTOP_NODE_PATH so the worker applies Electron-as-Node
+ * *after* boot (never set ELECTRON_RUN_AS_NODE on utilityProcess.fork env — that
+ * breaks parentPort IPC and causes sessions:open "reply was never sent").
  */
 export function buildAgentWorkerEnv(
   env: NodeJS.ProcessEnv,
   options: BuildAgentWorkerEnvOptions = {},
 ): NodeJS.ProcessEnv {
   const next = augmentPathForPiCli({ ...env });
+  // utilityProcess must boot as a normal Electron utility process. Stripping this
+  // also guards against a polluted parent env. Worker sets it post-boot for children.
+  delete next.ELECTRON_RUN_AS_NODE;
+
   const searchRoots = options.searchRoots ?? [];
   let nodePath = resolveSystemNodeExecutable(next);
   let cliPath = resolvePiCodingAgentCliPath(searchRoots, next);
@@ -370,11 +405,6 @@ export function buildAgentWorkerEnv(
   const binary = next[PI_SUBAGENT_PI_BINARY_ENV]?.trim();
   if (binary && cliPath && /\.(cmd|bat)$/i.test(binary)) {
     delete next[PI_SUBAGENT_PI_BINARY_ENV];
-  }
-
-  // Prefer real Node; if missing (or asar-only CLI), child runs need Electron-as-Node.
-  if (!nodePath) {
-    next.ELECTRON_RUN_AS_NODE = "1";
   }
 
   return next;
