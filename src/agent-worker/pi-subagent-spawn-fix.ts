@@ -7,6 +7,9 @@
  *
  * Main sets PI_DESKTOP_NODE_PATH + PI_DESKTOP_PI_CLI_PATH; we rewrite execPath
  * and argv[1] so the package's resolver finds the real CLI + Node binary.
+ *
+ * ELECTRON_RUN_AS_NODE is set here *after* the utility process has booted so
+ * child spawns inherit it — never pass it via utilityProcess.fork env.
  */
 import {
   PI_DESKTOP_NODE_PATH_ENV,
@@ -26,7 +29,7 @@ export function applyPiSubagentSpawnFix(): void {
         configurable: true,
       });
     } catch {
-      // Some runtimes freeze execPath; ELECTRON_RUN_AS_NODE may still help.
+      // Some runtimes freeze execPath; ELECTRON_RUN_AS_NODE may still help children.
       process.env.ELECTRON_RUN_AS_NODE = "1";
     }
   } else {
