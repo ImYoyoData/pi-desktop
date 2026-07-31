@@ -531,6 +531,8 @@ const api = {
       ipcRenderer.invoke(IpcChannels.asr.setEnabled, enabled) as Promise<AsrStatus>,
     setGpuPreference: (preference: string) =>
       ipcRenderer.invoke(IpcChannels.asr.setGpuPreference, preference) as Promise<AsrStatus>,
+    setDownloadMirror: (mirror: string) =>
+      ipcRenderer.invoke(IpcChannels.asr.setDownloadMirror, mirror) as Promise<AsrStatus>,
     install: () => ipcRenderer.invoke(IpcChannels.asr.install) as Promise<AsrStatus>,
     installFromUrl: (url: string) =>
       ipcRenderer.invoke(IpcChannels.asr.installFromUrl, url) as Promise<AsrStatus>,
@@ -542,6 +544,8 @@ const api = {
       ipcRenderer.invoke(IpcChannels.asr.pickRuntimeArchive) as Promise<string | null>,
     importRuntime: (filePath: string) =>
       ipcRenderer.invoke(IpcChannels.asr.importRuntime, filePath) as Promise<AsrStatus>,
+    cancelInstall: () =>
+      ipcRenderer.invoke(IpcChannels.asr.cancelInstall) as Promise<{ ok: boolean }>,
     uninstall: () => ipcRenderer.invoke(IpcChannels.asr.uninstall) as Promise<AsrStatus>,
     transcribe: (pcmBase64: string, sampleRate: number) =>
       ipcRenderer.invoke(IpcChannels.asr.transcribe, { pcmBase64, sampleRate }) as Promise<string>,

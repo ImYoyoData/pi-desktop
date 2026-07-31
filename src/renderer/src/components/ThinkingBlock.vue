@@ -1,13 +1,18 @@
 <script setup lang="ts">
-import { nextTick, ref, watch } from "vue";
+import { computed, nextTick, onUnmounted, ref, watch } from "vue";
 import { NIcon } from "naive-ui";
 import { ChevronDownOutline, ChevronForwardOutline } from "@vicons/ionicons5";
+import { formatElapsedShort } from "@renderer/utils/agent-wait";
 import { t } from "@renderer/i18n";
 
 const props = defineProps<{
   thinking: string;
   /** True while the model is still producing thinking (before answer text). */
   streaming?: boolean;
+  /** Epoch ms when thinking started (live timer while streaming). */
+  startedAt?: number;
+  /** Final thinking duration once finished (ms). */
+  durationMs?: number;
 }>();
 
 /**
@@ -19,6 +24,58 @@ const bodyRef = ref<HTMLElement | null>(null);
 /** Follow newest text unless the user scrolls up inside the card. */
 let stickToBottom = true;
 const NEAR_BOTTOM_PX = 48;
+
+const nowMs = ref(Date.now());
+let tickTimer: ReturnType<typeof setInterval> | null = null;
+
+function stopTick(): void {
+  if (tickTimer) clearInterval(tickTimer);
+  tickTimer = null;
+}
+
+function startTick(): void {
+  stopTick();
+  nowMs.value = Date.now();
+  tickTimer = setInterval(() => {
+    nowMs.value = Date.now();
+  }, 250);
+}
+
+const elapsedLabel = computed(() => {
+  if (props.streaming && props.startedAt) {
+    return formatElapsedShort(Math.max(0, nowMs.value - props.startedAt));
+  }
+  if (props.durationMs != null && props.durationMs >= 0) {
+    return formatElapsedShort(props.durationMs);
+  }
+  if (props.streaming && !props.startedAt) {
+    // Clock not stamped yet — still show a live 0s once streaming.
+    return formatElapsedShort(0);
+  }
+  return "";
+});
+
+const headLabel = computed(() => {
+  const base = props.streaming ? t.thinkingStreaming : t.thinking;
+  return elapsedLabel.value ? `${base} · ${elapsedLabel.value}` : base;
+});
+
+watch(
+  () => [props.streaming, props.startedAt] as const,
+  ([streaming, startedAt]) => {
+    if (streaming) {
+      open.value = true;
+      stickToBottom = true;
+      if (startedAt) startTick();
+      else stopTick();
+      return;
+    }
+    stopTick();
+  },
+  { immediate: true },
+);
+
+onUnmounted(() => stopTick());
 
 function onBodyScroll(): void {
   const el = bodyRef.value;
@@ -33,15 +90,6 @@ async function scrollBodyToLatest(): Promise<void> {
   if (!el) return;
   el.scrollTop = el.scrollHeight;
 }
-
-watch(
-  () => props.streaming,
-  (streaming) => {
-    if (!streaming) return;
-    open.value = true;
-    stickToBottom = true;
-  },
-);
 
 watch(
   () => [props.thinking, props.streaming, open.value] as const,
@@ -60,7 +108,7 @@ watch(
         :component="open ? ChevronDownOutline : ChevronForwardOutline"
         :size="12"
       />
-      <span class="label">{{ streaming ? t.thinkingStreaming : t.thinking }}</span>
+      <span class="label">{{ headLabel }}</span>
       <span v-if="streaming" class="pulse" aria-hidden="true" />
     </button>
     <div
@@ -70,7 +118,7 @@ watch(
       @scroll="onBodyScroll"
     >{{ thinking }}</div>
     <div v-else-if="open && streaming && !thinking" class="thinking-body muted">
-      {{ t.thinkingStreaming }}
+      {{ headLabel }}
     </div>
   </div>
 </template>

@@ -1,10 +1,11 @@
 <script setup lang="ts">
-import { computed } from "vue";
-import { NProgress, NText } from "naive-ui";
+import { computed, ref } from "vue";
+import { NButton, NProgress, NText } from "naive-ui";
 import { useAsrStore } from "@renderer/stores/asr";
 import { t } from "@renderer/i18n";
 
 const asr = useAsrStore();
+const cancelling = ref(false);
 
 function formatMb(bytes: number): string {
   if (!Number.isFinite(bytes) || bytes <= 0) return "0";
@@ -49,15 +50,34 @@ const detail = computed(() => {
   if (!p) return "";
   if (p.phase === "extract" || p.phase === "done" || p.phase === "error") return "";
   const total = p.totalBytes ?? 0;
-  if (total > 0) {
-    return `${formatMb(p.receivedBytes)} / ${formatMb(total)} MB`;
-  }
-  return `${formatMb(p.receivedBytes)} MB`;
+  const size =
+    total > 0
+      ? `${formatMb(p.receivedBytes)} / ${formatMb(total)} MB`
+      : `${formatMb(p.receivedBytes)} MB`;
+  const host = p.sourceHost?.trim();
+  return host ? `${size} · ${host}` : size;
 });
 
 const processing = computed(
   () => asr.status.busy && asr.progress?.phase !== "done" && asr.progress?.phase !== "error",
 );
+
+const canCancel = computed(
+  () =>
+    asr.installing &&
+    asr.progress?.phase !== "done" &&
+    asr.progress?.phase !== "error",
+);
+
+async function onCancel(): Promise<void> {
+  if (cancelling.value || !canCancel.value) return;
+  cancelling.value = true;
+  try {
+    await asr.cancelInstall();
+  } finally {
+    cancelling.value = false;
+  }
+}
 </script>
 
 <template>
@@ -74,6 +94,11 @@ const processing = computed(
       :show-indicator="true"
       style="margin-top: 8px"
     />
+    <div v-if="canCancel" class="asr-progress-actions">
+      <NButton size="small" :loading="cancelling" :disabled="cancelling" @click="onCancel">
+        {{ t.cancel }}
+      </NButton>
+    </div>
   </div>
 </template>
 
@@ -86,5 +111,10 @@ const processing = computed(
   align-items: baseline;
   justify-content: space-between;
   gap: 12px;
+}
+.asr-progress-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 12px;
 }
 </style>

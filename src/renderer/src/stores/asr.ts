@@ -15,14 +15,22 @@ function unwrapIpcError(err: unknown): string {
 /** Map main-process ASCII error tokens to UI copy. */
 export function formatAsrInstallError(err: unknown, downloadFailed: (url: string) => string): string {
   const raw = unwrapIpcError(err);
+  if (isAsrInstallCancelled(raw)) return t.asrInstallCancelled;
   const m = raw.match(/^ASR_DOWNLOAD_(TIMEOUT|FAILED)\|([^\n|]+)(?:\|.*)?$/);
   if (m?.[2]) return downloadFailed(m[2]);
   return formatAsrRuntimeError(raw);
 }
 
+/** True when the user aborted an in-flight ASR install/download. */
+export function isAsrInstallCancelled(err: unknown): boolean {
+  const raw = typeof err === "string" ? err : unwrapIpcError(err);
+  return /ASR_INSTALL_CANCELLED/i.test(raw);
+}
+
 /** Friendly copy for CUDA crash / native exit codes (and IPC wrappers). */
 export function formatAsrRuntimeError(err: unknown, fallback = ""): string {
   const raw = unwrapIpcError(err);
+  if (isAsrInstallCancelled(raw)) return t.asrInstallCancelled;
   const cuda = raw.match(/^ASR_CUDA_CRASH\|([^|]*)\|?(.*)$/s);
   if (cuda) {
     const tail = (cuda[2] || "").trim();
@@ -66,6 +74,7 @@ const emptyStatus = (): AsrStatus => ({
   gpuOptions: [{ id: "auto", label: "Auto", backend: "cpu", kind: "cpu" }],
   runtimeMatchesPreference: true,
   runtimeArchiveHint: null,
+  downloadMirror: "auto",
   wakeHotkey: DEFAULT_ASR_WAKE_HOTKEY,
   residentModel: false,
   wakeWords: DEFAULT_ASR_WAKE_WORDS,
@@ -109,38 +118,59 @@ export const useAsrStore = defineStore("asr", () => {
     return status.value;
   }
 
+  async function setDownloadMirror(mirror: string): Promise<AsrStatus> {
+    status.value = await window.api.asr.setDownloadMirror(mirror);
+    return status.value;
+  }
+
+  /** Coalesce concurrent install/reinstall IPC calls onto one in-flight promise. */
+  let installFlight: Promise<void> | null = null;
+
   async function runInstall(action: () => Promise<AsrStatus>): Promise<void> {
-    installInFlight.value = true;
-    progress.value = {
-      phase: "binary",
-      receivedBytes: 0,
-      totalBytes: null,
-      message: "Starting…",
-    };
-    try {
-      status.value = await action();
+    if (installFlight) {
+      await installFlight;
+      return;
+    }
+
+    installFlight = (async () => {
+      installInFlight.value = true;
       progress.value = {
-        phase: "done",
+        phase: "binary",
         receivedBytes: 0,
         totalBytes: null,
-        message: "Ready",
+        message: "Starting…",
       };
-    } catch (err) {
-      const message = unwrapIpcError(err);
-      progress.value = {
-        phase: "error",
-        receivedBytes: 0,
-        totalBytes: null,
-        message,
-      };
-      throw new Error(message);
-    } finally {
-      installInFlight.value = false;
-      await refresh();
-      // Clear sticky "installing" progress after failure so UI can settle
-      if (progress.value?.phase === "error") {
-        // keep error message briefly for settings panel; caller toasts separately
+      try {
+        status.value = await action();
+        progress.value = {
+          phase: "done",
+          receivedBytes: 0,
+          totalBytes: null,
+          message: "Ready",
+        };
+      } catch (err) {
+        const message = unwrapIpcError(err);
+        if (isAsrInstallCancelled(message)) {
+          progress.value = null;
+          throw new Error("ASR_INSTALL_CANCELLED");
+        }
+        progress.value = {
+          phase: "error",
+          receivedBytes: 0,
+          totalBytes: null,
+          message,
+        };
+        throw new Error(message);
+      } finally {
+        installInFlight.value = false;
+        await refresh();
       }
+    })();
+
+    try {
+      await installFlight;
+    } finally {
+      installFlight = null;
     }
   }
 
@@ -170,6 +200,10 @@ export const useAsrStore = defineStore("asr", () => {
     if (!filePath) return false;
     await runInstall(() => window.api.asr.importRuntime(filePath));
     return true;
+  }
+
+  async function cancelInstall(): Promise<void> {
+    await window.api.asr.cancelInstall();
   }
 
   async function uninstall(): Promise<void> {
@@ -257,6 +291,7 @@ export const useAsrStore = defineStore("asr", () => {
     refresh,
     setEnabled,
     setGpuPreference,
+    setDownloadMirror,
     setWakeHotkey,
     setResidentModel,
     setWakeWords,
@@ -267,6 +302,7 @@ export const useAsrStore = defineStore("asr", () => {
     importLocal,
     reinstallRuntime,
     importRuntimeArchive,
+    cancelInstall,
     uninstall,
     bindProgress,
     streamStart,

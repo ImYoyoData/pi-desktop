@@ -294,11 +294,18 @@ async function openMicSession(): Promise<MicSession> {
   }
 
   try {
+    // Requires CSP worker-src blob: (AudioWorklet modules are worker-class).
     await audioCtx.audioWorklet.addModule(workletBlobUrl());
   } catch (err) {
     for (const t of stream.getTracks()) t.stop();
     void audioCtx.close();
-    throw err instanceof Error ? err : new Error(String(err));
+    const msg = err instanceof Error ? err.message : String(err);
+    if (/worklet/i.test(msg)) {
+      throw new Error(
+        `Unable to load audio worklet (${msg}). Check CSP worker-src allows blob:.`,
+      );
+    }
+    throw err instanceof Error ? err : new Error(msg);
   }
 
   const source = audioCtx.createMediaStreamSource(stream);

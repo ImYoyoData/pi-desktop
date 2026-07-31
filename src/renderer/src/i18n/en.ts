@@ -94,6 +94,24 @@ export const en = {
   addWorkspace: "Add workspace",
   emptyChat: "Send a message to start Pi",
   agentRunning: "Pi is running…",
+  agentWaitStarting: "Starting…",
+  agentWaitModel: "Waiting for model…",
+  agentWaitThinking: "Thinking…",
+  agentWaitWriting: "Writing…",
+  agentWaitTool: (name: string) => `Running tool: ${name}`,
+  agentWaitToolGeneric: "Running tool…",
+  agentWaitUser: "Waiting for your confirmation…",
+  agentWaitSilentAlive: (silent: string, elapsed: string) =>
+    `${elapsed} · no new output for ${silent} (worker OK — still waiting on model/network)`,
+  agentWaitSilentUnknown: (silent: string, elapsed: string) =>
+    `${elapsed} · no new output for ${silent}`,
+  agentWaitLikelyStuck: (silent: string) =>
+    `No output for ${silent} and worker heartbeat is quiet — try Stop, or restart this session`,
+  autoRecovering: "Auto-recovering…",
+  autoRecoverWorkerStuck: "Worker unresponsive — restarted and retried",
+  autoRecoverSoftHang: "Timed out with no output — retried automatically",
+  autoRecoverGaveUp:
+    "Auto-recover budget exhausted. Retry manually, or terminate/restart this session.",
   askUserConfirm: "Submit all answers",
   askUserNext: "Next",
   askUserPrev: "Previous",
@@ -387,6 +405,7 @@ export const en = {
   asrDownloadFailed: (url: string) =>
     `Download failed (timeout/blocked). Check network/proxy, or use a custom URL / local file.\n${url}`,
   asrInstalling: "Installing speech model",
+  asrInstallCancelled: "Install cancelled",
   asrProgressStarting: "Preparing download…",
   asrProgressBinary: "Downloading runtime…",
   asrProgressModel: "Downloading model…",
@@ -395,6 +414,13 @@ export const en = {
   asrGpuSelect: "GPU to use",
   asrGpuSelectHint:
     "With iGPU + discrete GPU, discrete is preferred by default (RTX via CUDA). You can override it here.",
+  asrDownloadMirror: "Download mirror",
+  asrDownloadMirrorHint:
+    "China mirrors are usually faster on mainland networks; international uses GitHub / Hugging Face directly.",
+  asrDownloadMirrorAuto: "Auto (by language)",
+  asrDownloadMirrorChina: "China mirror",
+  asrDownloadMirrorGlobal: "International",
+  asrInstallContinue: "Download & install",
   asrGpuAuto: "Auto (prefer discrete)",
   asrGpuRuntimeMismatch: "Installed runtime does not match the selected device. Re-download the runtime.",
   asrDeviceDiscrete: "Discrete GPU",
