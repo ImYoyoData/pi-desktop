@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, defineAsyncComponent, onMounted, onUnmounted } from "vue";
+import { computed, defineAsyncComponent, onMounted, onUnmounted, watch } from "vue";
 import {
   NConfigProvider,
   NMessageProvider,
@@ -21,6 +21,7 @@ import { useAppearanceStore } from "@renderer/stores/appearance";
 import { darkThemeOverrides, lightThemeOverrides } from "@renderer/theme/naive";
 import { locale } from "@renderer/i18n";
 import { dismissLocaleReloadSplash } from "@renderer/utils/locale-reload-splash";
+import { dismissStartupSplash } from "@renderer/utils/startup-splash";
 
 /** Heavy workspace chrome — load after first paint when a folder is open. */
 const SplitRoot = defineAsyncComponent(() => import("@renderer/components/SplitRoot.vue"));
@@ -35,6 +36,14 @@ const naiveTheme = computed(() =>
 );
 const themeOverrides = computed(() =>
   appearance.resolvedTheme === "dark" ? darkThemeOverrides : lightThemeOverrides,
+);
+
+// The trust prompt is a modal that must be clickable: drop the splash fast.
+watch(
+  () => workspace.trustDialogOpen,
+  (open) => {
+    if (open) void dismissStartupSplash(true);
+  },
 );
 
 let stopAppearance: (() => void) | undefined;
@@ -53,6 +62,9 @@ onMounted(() => {
         }),
       ]);
     } finally {
+      // Startup splash fades out once the workspace/platform init is done,
+      // hiding session/history/trust loading flashes behind a smooth transition.
+      await dismissStartupSplash();
       await dismissLocaleReloadSplash();
     }
   })();

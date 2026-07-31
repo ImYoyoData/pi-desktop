@@ -37,6 +37,7 @@ import {
   canAutoRecoverForReason,
   nextAutoRecoverCount,
   shouldSoftHangRecover,
+  shouldStallRecover,
   type AutoRecoverReason,
 } from "../utils/agent-auto-recover";
 import {
@@ -111,6 +112,8 @@ export const useChatStore = defineStore("chat", () => {
   const recoveringIds = new Set<string>();
   /** Soft-hang timeout already reported for this turn (avoid repeat errors). */
   const softHangReported = new Set<string>();
+  /** Event-loop stall already reported for this episode (watchdog runs every 5s). */
+  const stallReported = new Set<string>();
   let softHangTimer: ReturnType<typeof setInterval> | null = null;
 
   function noteSecurityRemediation(): void {
@@ -357,6 +360,7 @@ export const useChatStore = defineStore("chat", () => {
       };
       if (payload.type === "agent_start" || payload.type === "turn_start") {
         softHangReported.delete(sessionId);
+        stallReported.delete(sessionId);
       }
       if (
         typeof payload.toolName === "string" &&
@@ -384,12 +388,14 @@ export const useChatStore = defineStore("chat", () => {
       if (payload.type === "agent_end" || payload.type === "agent_settled") {
         clearAutoRecovering(sessionId);
         softHangReported.delete(sessionId);
+        stallReported.delete(sessionId);
       }
     }
 
     if (event.type === "prompt_done" || event.type === "prompt_error") {
       void checkpointStore.finishActive(sessionId);
       softHangReported.delete(sessionId);
+      stallReported.delete(sessionId);
       if (event.type === "prompt_done") {
         resetAutoRecoverBudget(sessionId);
       } else {
@@ -415,6 +421,13 @@ export const useChatStore = defineStore("chat", () => {
 
     if (event.type === "worker_stuck") {
       void autoRecover(sessionId, "worker_stuck");
+    }
+
+    if (event.type === "worker_stall") {
+      if (!stallReported.has(sessionId)) {
+        stallReported.add(sessionId);
+        void autoRecover(sessionId, "stall");
+      }
     }
   }
 
@@ -509,7 +522,11 @@ export const useChatStore = defineStore("chat", () => {
       }));
 
       discreteMessage.info(
-        reason === "worker_stuck" ? t.autoRecoverWorkerStuck : t.autoRecoverSoftHang,
+        reason === "worker_stuck"
+          ? t.autoRecoverWorkerStuck
+          : reason === "stall"
+            ? t.autoRecoverStall
+            : t.autoRecoverSoftHang,
       );
 
       const images = userMsg.images?.map((img) => {
@@ -538,18 +555,32 @@ export const useChatStore = defineStore("chat", () => {
     for (const [sessionId, state] of Object.entries(bySession)) {
       if (!state?.running || state.autoRecovering || recoveringIds.has(sessionId)) continue;
       if (softHangReported.has(sessionId)) continue;
+      const waitingUser = Boolean(
+        state.pendingAskUser || state.pendingPermission || state.pendingExtensionUi,
+      );
+      const outputSilenceMs = agentOutputSilenceMs(state, now);
+      const workerSilenceMs = agentWorkerSilenceMs(state, now);
+      // Event-loop stall (heartbeats AND output dead) — full restart + resend.
+      // Mirrors the main-process worker_stall event as a renderer-side fallback
+      // (covers cases where the main timer was delayed). Deduped by recoveringIds
+      // and stallReported (watchdog fires every 5s).
+      if (shouldStallRecover({ running: state.running, waitingUser, outputSilenceMs, workerSilenceMs })) {
+        if (!stallReported.has(sessionId)) {
+          stallReported.add(sessionId);
+          void autoRecover(sessionId, "stall");
+        }
+        continue;
+      }
       const toolInFlight =
         state.streamingMessage?.role === "tool" ||
         state.messages.some((m) => m.role === "tool" && m.streaming);
       if (
         !shouldSoftHangRecover({
           running: state.running,
-          waitingUser: Boolean(
-            state.pendingAskUser || state.pendingPermission || state.pendingExtensionUi,
-          ),
+          waitingUser,
           toolInFlight,
-          outputSilenceMs: agentOutputSilenceMs(state, now),
-          workerSilenceMs: agentWorkerSilenceMs(state, now),
+          outputSilenceMs,
+          workerSilenceMs,
         })
       ) {
         continue;
@@ -775,9 +806,17 @@ export const useChatStore = defineStore("chat", () => {
     }
   }
 
-  async function steer(sessionId: string, message: string): Promise<void> {
+  async function steer(
+    sessionId: string,
+    message: string,
+    images?: PromptImageContent[],
+  ): Promise<void> {
     clearPendingAskUserFor(sessionId);
-    await sessionsStore.sendCommand(sessionId, { type: "steer", message });
+    await sessionsStore.sendCommand(sessionId, {
+      type: "steer",
+      message,
+      ...(images?.length ? { images } : {}),
+    });
   }
 
   async function followUp(sessionId: string, message: string): Promise<void> {

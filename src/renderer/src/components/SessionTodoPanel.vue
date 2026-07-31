@@ -20,6 +20,9 @@ const doneCount = computed(
 );
 const total = computed(() => list.value?.items.length ?? 0);
 const allDone = computed(() => total.value > 0 && doneCount.value === total.value);
+const pct = computed(() =>
+  total.value > 0 ? Math.round((doneCount.value / total.value) * 100) : 0,
+);
 
 const headerLabel = computed(() => {
   if (!list.value) return "";
@@ -39,6 +42,10 @@ const headerLabel = computed(() => {
       <span class="title">{{ headerLabel }}</span>
       <NText depth="3" class="meta">{{ doneCount }}/{{ total }}</NText>
     </button>
+
+    <div v-show="!collapsed" class="todo-progress" :class="{ done: allDone }">
+      <div class="todo-progress-fill" :style="{ width: `${pct}%` }" />
+    </div>
 
     <ul v-show="!collapsed" class="todo-list">
       <li
@@ -107,13 +114,32 @@ const headerLabel = computed(() => {
   flex-shrink: 0;
 }
 
+.todo-progress {
+  height: 3px;
+  margin: 0 10px 6px;
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--fg-muted) 14%, transparent);
+  overflow: hidden;
+}
+
+.todo-progress-fill {
+  height: 100%;
+  border-radius: 2px;
+  background: var(--accent, #3b82f6);
+  transition: width 0.25s var(--ease-out, ease);
+}
+
+.todo-progress.done .todo-progress-fill {
+  background: var(--success, #3d9a6a);
+}
+
 .todo-list {
   list-style: none;
   margin: 0;
-  padding: 0 10px 8px;
+  padding: 0 6px 8px;
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 2px;
   max-height: 180px;
   overflow: auto;
 }
@@ -122,10 +148,16 @@ const headerLabel = computed(() => {
   display: flex;
   align-items: flex-start;
   gap: 8px;
-  padding: 2px 0;
+  padding: 4px 8px;
+  border-radius: 6px;
   font-size: 12.5px;
   line-height: 1.35;
   color: var(--fg);
+  transition: background var(--duration-fast, 140ms) var(--ease-out, ease);
+}
+
+.todo-item:hover {
+  background: var(--bg-hover, color-mix(in srgb, var(--fg) 4%, transparent));
 }
 
 .todo-item.done {

@@ -80,6 +80,7 @@ export function createAskUserToolDefinition(deps?: {
       const answersText = await waitForAnswers(parsed.questions);
       return {
         content: [{ type: "text" as const, text: answersText }],
+        details: {},
       };
     },
   });

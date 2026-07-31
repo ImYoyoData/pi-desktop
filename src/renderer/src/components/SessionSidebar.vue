@@ -379,16 +379,19 @@ async function onSelectSession(root: string, sessionId: string): Promise<void> {
   chatStore.beginHistoryLoad(sessionId);
   try {
     if (workspace.root !== root) await workspace.openWorkspacePath(root);
-    await sessionsStore.selectSession(sessionId, root);
     const opened =
       (sessionsByRoot[root] ?? []).find((s) => s.id === sessionId) ??
       sessionsStore.sessions.find((s) => s.id === sessionId);
-    if (opened?.filePath) {
-      const page = await window.api.sessions.history(opened.filePath, { limit: 30 });
-      chatStore.hydrateFromHistoryPage(sessionId, page, opened.filePath);
-    } else {
-      chatStore.hydrateFromHistoryPage(sessionId, { messages: [], hasMore: false, total: 0 }, null);
-    }
+    // Load history from disk in parallel with opening the session in main:
+    // history only needs the file path, so the two round-trips no longer stack.
+    const historyPromise = opened?.filePath
+      ? window.api.sessions.history(opened.filePath, { limit: 30 })
+      : Promise.resolve({ messages: [], hasMore: false, total: 0 });
+    const [page] = await Promise.all([
+      historyPromise,
+      sessionsStore.selectSession(sessionId, root),
+    ]);
+    chatStore.hydrateFromHistoryPage(sessionId, page, opened?.filePath ?? null);
   } catch (err) {
     console.error("select session failed", err);
     message.error(err instanceof Error ? err.message : String(err));

@@ -366,7 +366,12 @@ function coercePathToken(raw: string): string | null {
   if (fromUrl != null && fromUrl !== "") return fromUrl;
   if (fromUrl === "") return null; // dropped onto workspace root itself
   if (looksLikeWorkspaceRelPath(raw)) {
-    return raw.trim().replace(/\\/g, "/").replace(/^\.\//, "");
+    // Strip quotes wrapping pasted paths that contain spaces.
+    return raw
+      .trim()
+      .replace(/^["']|["']$/g, "")
+      .replace(/\\/g, "/")
+      .replace(/^\.\//, "");
   }
   return null;
 }
@@ -926,6 +931,18 @@ async function drainQueueIfIdle(targetSessionId: string): Promise<void> {
   }
 }
 
+/** Embed URL citations as text so they survive the steer message (text-only queue). */
+function steerTextWithCitations(item: {
+  agentText?: string;
+  text: string;
+  citations?: { url?: string; text?: string }[];
+}): string {
+  const base = item.agentText || item.text || " ";
+  const cites = (item.citations ?? []).filter((c) => c && c.url);
+  if (!cites.length) return base;
+  const lines = cites.map((c) => `- ${c.url}${c.text ? ` (${c.text.slice(0, 160)})` : ""}`);
+  return [base, "", "References:", ...lines].join("\n");
+}
 async function sendQueuedNow(itemId: string): Promise<void> {
   const id = sessionId.value;
   if (!id) return;
@@ -934,11 +951,14 @@ async function sendQueuedNow(itemId: string): Promise<void> {
   if (voiceActive.value) cancelVoice();
   sendQueue.setSuppressDrain(id, true);
   try {
-    if (running.value) {
-      await chat.abort(id);
-      await waitUntilIdle(id);
+    if (isAgentBusy(id)) {
+      // Codex-style steer: queue the message as guidance for the running turn
+      // WITHOUT aborting it. The model processes it after the current output.
+      await applySelectedModel({ allowStart: true });
+      await chat.steer(id, steerTextWithCitations(item), item.images);
+    } else {
+      await dispatchQueuedItem(id, item);
     }
-    await dispatchQueuedItem(id, item);
   } finally {
     sendQueue.setSuppressDrain(id, false);
   }
@@ -1682,10 +1702,30 @@ async function onModelChange(value: string | null): Promise<void> {
   await applySelectedModel({ allowStart: false });
 }
 
+/**
+ * Paste into the composer: only complete URLs (and pasted images) become
+ * tags/attachments. File paths and any other text stay plain text — the
+ * path→tag behavior is reserved for drag & drop (ingestTransferData), not paste.
+ */
 function onPaste(event: ClipboardEvent): void {
   const data = event.clipboardData;
   if (!data) return;
-  if (ingestTransferData(data)) event.preventDefault();
+  const imageFiles: File[] = [];
+  if (data.files?.length) {
+    for (const file of Array.from(data.files)) {
+      if (file.type.startsWith("image/")) imageFiles.push(file);
+    }
+  }
+  if (imageFiles.length) {
+    void addFiles(imageFiles);
+    event.preventDefault();
+    return;
+  }
+  const text = data.getData("text/plain")?.trim() ?? "";
+  if (text && isHttpUrl(text)) {
+    composer.addUrlTag(text);
+    event.preventDefault();
+  }
 }
 
 async function ensureAsrReady(): Promise<boolean> {
@@ -2420,6 +2460,9 @@ watch(
 
 .composer-wrap {
   flex-shrink: 0;
+  width: 100%;
+  max-width: var(--composer-max, 780px);
+  margin: 0 auto;
   padding: 0 var(--chat-pad-x, 10px) 8px;
   display: flex;
   flex-direction: column;

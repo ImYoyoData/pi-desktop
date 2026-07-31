@@ -3,7 +3,7 @@
  * Renderer orchestrates restart + resend; this module owns thresholds/budget.
  */
 
-export type AutoRecoverReason = "worker_stuck" | "soft_hang";
+export type AutoRecoverReason = "worker_stuck" | "soft_hang" | "stall";
 
 /** Consecutive auto-recover attempts allowed per session before giving up. */
 export const AUTO_RECOVER_MAX = 2;
@@ -13,6 +13,14 @@ export const SOFT_HANG_SILENCE_MS = 180_000;
 
 /** Worker heartbeat considered "alive" for soft-hang detection (ms). */
 export const SOFT_HANG_WORKER_ALIVE_MS = 20_000;
+
+/**
+ * Event-loop stall: worker heartbeats AND output both silent this long while a
+ * turn is running. The worker answers pings before any command work, so total
+ * silence past this window means the loop is wedged (stdout pipe backpressure,
+ * deadlock, OOM thrash), not slow work. Mirrors STALL_EMIT_MS in main.
+ */
+export const STALL_SILENCE_MS = 75_000;
 
 export type SoftHangInput = {
   running: boolean;
@@ -46,10 +54,40 @@ export function shouldSoftHangRecover(input: SoftHangInput): boolean {
   return input.workerSilenceMs < SOFT_HANG_WORKER_ALIVE_MS;
 }
 
+export type StallInput = {
+  running: boolean;
+  /** Waiting on ask_user / permission / extension UI. */
+  waitingUser: boolean;
+  outputSilenceMs: number;
+  workerSilenceMs: number;
+};
+
+/**
+ * Event-loop stall: turn running, not waiting on user, and BOTH output and
+ * heartbeats silent past STALL_SILENCE_MS. Unlike soft hang this intentionally
+ * ignores toolInFlight — a wedged event loop can never finish the tool either,
+ * and a live subagent/tool keeps answering pings, so false positives need a
+ * blocked loop to even reach this state.
+ *
+ * `workerSilenceMs` of Infinity (no heartbeat signal received at all this turn)
+ * counts as stalled: a healthy worker answers pings within seconds of the turn
+ * starting, and a worker that never becomes ready fails within the 45s spawn
+ * window and ends the turn — so Infinity persisting past the stall window
+ * means the worker is unresponsive, not initializing.
+ */
+export function shouldStallRecover(input: StallInput): boolean {
+  if (!input.running || input.waitingUser) return false;
+  return (
+    input.outputSilenceMs >= STALL_SILENCE_MS &&
+    input.workerSilenceMs >= STALL_SILENCE_MS
+  );
+}
+
 /** Soft hang only gets one of the shared recover budget slots in practice via reason. */
 export function maxAttemptsForReason(reason: AutoRecoverReason): number {
   switch (reason) {
     case "worker_stuck":
+    case "stall":
       return AUTO_RECOVER_MAX;
     case "soft_hang":
       return 1;

@@ -24,7 +24,13 @@ const HEARTBEAT_MISS_LIMIT_IDLE = 3;
  * work is progressing — mid-turn stuck was a false positive that aborted live runs.
  * Real deaths still surface via exit/fatal; Stop uses abort force-kill; renderer
  * soft-hang covers "worker alive but no output" without killing mid-tool.
+ *
+ * A turn whose event loop stays silent past STALL_EMIT_MS is beyond "slow work":
+ * the worker answers pings before any command work, so 75s of zero messages means
+ * the loop is wedged (e.g. stdout pipe backpressure, deadlock, OOM thrash). Emit
+ * worker_stall (never kill mid-turn) so the renderer can abort + restart + resend.
  */
+export const STALL_EMIT_MS = 75_000;
 const ABORT_FORCE_KILL_MS = 4_000;
 const SHUTDOWN_GRACE_MS = 800;
 const CONTEXT_SEGMENT_IDS = new Set<ContextUsageSegmentId>([
@@ -97,6 +103,8 @@ type SessionRecord = {
   lastAliveAt: number;
   heartbeatTimer: ReturnType<typeof setInterval> | null;
   idleDestroyTimer: ReturnType<typeof setTimeout> | null;
+  /** True once worker_stall was emitted for the current silence episode. */
+  stallEmitted: boolean;
   pendingCommands: Map<
     string,
     {
@@ -194,6 +202,7 @@ export function createSessionBroker(deps: {
     }
     stopHeartbeat(rec);
     rec.lastAliveAt = Date.now();
+    rec.stallEmitted = false;
     rec.heartbeatTimer = setInterval(() => {
       const current = sessions.get(sessionId);
       if (!current?.worker) {
@@ -203,6 +212,13 @@ export function createSessionBroker(deps: {
       // (thinking / TTFT / long tools / event-loop busy). Real deaths come via
       // exit/fatal; Stop uses abort; renderer soft-hang handles alive-but-silent.
       if (hasActiveTurn(current)) {
+        // Total event-loop silence (no pong, no events) past the stall window
+        // means the loop is wedged, not slow. Emit once — the renderer decides
+        // whether to abort + restart; we never kill a mid-turn worker here.
+        if (Date.now() - current.lastAliveAt >= STALL_EMIT_MS && !current.stallEmitted) {
+          current.stallEmitted = true;
+          emit({ type: "worker_stall", sessionId });
+        }
         void current.worker.send({ kind: "ping" });
         return;
       }
@@ -256,6 +272,7 @@ export function createSessionBroker(deps: {
 
   function noteWorkerAlive(rec: SessionRecord): void {
     rec.lastAliveAt = Date.now();
+    rec.stallEmitted = false;
   }
 
   function recoverFromStuck(sessionId: string, rec: SessionRecord): void {
@@ -470,6 +487,7 @@ export function createSessionBroker(deps: {
       lastAliveAt: Date.now(),
       heartbeatTimer: null,
       idleDestroyTimer: null,
+      stallEmitted: false,
       pendingCommands: new Map(),
     });
     return { ...summary };
