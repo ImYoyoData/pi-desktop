@@ -138,6 +138,7 @@ describe("session-broker", () => {
   });
 
   it("rejects pending commands when worker is terminated", async () => {
+    const events: Array<{ type: string; status?: string }> = [];
     const broker = createSessionBroker({
       spawnWorker: async (cwd) => ({
         id: "session-a",
@@ -155,9 +156,15 @@ describe("session-broker", () => {
         },
       }),
     });
+    broker.onEvent((event) => events.push(event as { type: string; status?: string }));
     const session = await broker.createSession("/tmp/a");
     const pending = broker.send(session.id, { type: "hang" });
-    await new Promise<void>((resolve) => setImmediate(resolve));
+    // ensureWorker yields once before pendingCommands is populated — wait for running.
+    await vi.waitFor(() => {
+      expect(events.some((e) => e.type === "session_status" && e.status === "running")).toBe(
+        true,
+      );
+    });
     await broker.killWorker(session.id);
     await expect(pending).rejects.toThrow("worker terminated");
   });
@@ -166,6 +173,7 @@ describe("session-broker", () => {
     vi.useFakeTimers();
     const events: Array<{ type: string; status?: string; sessionId?: string }> = [];
     let messageCb: ((msg: { kind: string }) => void) | null = null;
+    let killed = false;
     const broker = createSessionBroker({
       spawnWorker: async (cwd) => ({
         id: "session-a",
@@ -173,7 +181,9 @@ describe("session-broker", () => {
         filePath: "/tmp/session-a.jsonl",
         worker: {
           send: async () => null,
-          kill: () => {},
+          kill: () => {
+            killed = true;
+          },
           onMessage: (cb) => {
             messageCb = cb;
             return () => {
@@ -185,10 +195,12 @@ describe("session-broker", () => {
     });
     broker.onEvent((event) => events.push(event));
     const session = await broker.createSession("/tmp/a");
-    // No pong for the full miss window → stuck
+    // No pong for the full miss window → stuck + detach hung worker
     await vi.advanceTimersByTimeAsync(5_000 * 3);
     expect(events.some((e) => e.type === "worker_stuck")).toBe(true);
+    expect(killed).toBe(true);
 
+    // Late pong on a detached handle can still clear stuck UI if the listener remains.
     const beforeRecovery = events.length;
     messageCb?.({ kind: "pong" });
     const recovery = events.slice(beforeRecovery);
@@ -197,6 +209,31 @@ describe("session-broker", () => {
       sessionId: session.id,
       status: "idle",
     });
+    vi.useRealTimers();
+  });
+
+  it("force-resolves abort when the worker never answers", async () => {
+    vi.useFakeTimers();
+    let killed = false;
+    const broker = createSessionBroker({
+      spawnWorker: async (cwd) => ({
+        id: "session-a",
+        cwd,
+        filePath: "/tmp/session-a.jsonl",
+        worker: {
+          send: async () => null,
+          kill: () => {
+            killed = true;
+          },
+          onMessage: () => () => {},
+        },
+      }),
+    });
+    const session = await broker.createSession("/tmp/a");
+    const pending = broker.send(session.id, { type: "abort" });
+    await vi.advanceTimersByTimeAsync(4_000);
+    await expect(pending).resolves.toEqual({ ok: true, forced: true });
+    expect(killed).toBe(true);
     vi.useRealTimers();
   });
 
