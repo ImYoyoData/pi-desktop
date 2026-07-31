@@ -3,7 +3,6 @@ import { computed, ref, watch } from "vue";
 import {
   NButton,
   NIcon,
-  NInput,
   NText,
 } from "naive-ui";
 import { ChatbubbleEllipsesOutline, CheckmarkCircle } from "@vicons/ionicons5";
@@ -16,6 +15,7 @@ import {
 } from "../../../shared/ask-user";
 import { t } from "@renderer/i18n";
 import { useChatStore } from "@renderer/stores/chat";
+import VoiceTextField from "@renderer/components/VoiceTextField.vue";
 
 const chat = useChatStore();
 
@@ -211,7 +211,7 @@ async function onConfirm(): Promise<void> {
             </button>
           </div>
 
-          <NInput
+          <VoiceTextField
             v-if="needsCustomInput(currentQuestion)"
             class="custom-input"
             :value="customModel(currentQuestion)"

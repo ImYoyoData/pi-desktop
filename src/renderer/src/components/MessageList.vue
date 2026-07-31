@@ -24,12 +24,11 @@ import MarkdownView from "@renderer/components/MarkdownView.vue";
 import ThinkingBlock from "@renderer/components/ThinkingBlock.vue";
 import ToolCallCard from "@renderer/components/ToolCallCard.vue";
 import ToolCallGroup from "@renderer/components/ToolCallGroup.vue";
-import { parseToolCard } from "@renderer/utils/tool-diff";
+import { parseToolCard, isReadTool } from "@renderer/utils/tool-diff";
 import { buildToolGroupSpans } from "@renderer/utils/tool-group";
 import { usePreviewStore } from "@renderer/stores/preview";
 import { useRightTabsStore } from "@renderer/stores/right-tabs";
 import { t } from "@renderer/i18n";
-import { ASK_USER_TOOL_NAME } from "../../../shared/ask-user";
 import {
   isComposerAgentMode,
   stripComposerModePreamble,
@@ -57,8 +56,8 @@ const NEAR_BOTTOM_PX = 120;
  */
 const OVERSCAN_PX = 280;
 /** Sticky user card must never cover the whole viewport (agent output would look "stuck"). */
-const STICKY_MAX_VH = 0.22;
-const STICKY_MAX_PX = 160;
+const STICKY_MAX_VH = 0.16;
+const STICKY_MAX_PX = 110;
 
 const props = defineProps<{
   messages: ChatMessage[];
@@ -124,7 +123,9 @@ const toolGroupMembership = computed(() => {
       role: m.role,
       toolName: m.role === "tool" ? m.toolName : "",
     })),
-    (m) => m.role === "tool" && m.toolName !== ASK_USER_TOOL_NAME,
+    // Only collapse consecutive reads; write/edit/bash stay standalone
+    // so their live streaming diffs stay visible.
+    (m) => m.role === "tool" && isReadTool(m.toolName),
   );
   for (const span of spans) {
     const tools = all.slice(span.start, span.end) as ToolMessage[];
@@ -1344,7 +1345,7 @@ function onRevertUser(msg: Extract<ChatMessage, { role: "user" }>): void {
   padding: 10px var(--chat-pad-x, 10px) 8px;
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 8px;
   min-height: 100%;
   box-sizing: border-box;
 }
@@ -1409,17 +1410,17 @@ function onRevertUser(msg: Extract<ChatMessage, { role: "user" }>): void {
   left: 0;
   right: 0;
   z-index: 6;
-  max-height: min(22vh, 160px);
+  max-height: min(16vh, 110px);
   overflow: hidden;
   background: var(--bg);
-  padding: 8px var(--chat-pad-x, 10px) 10px;
+  padding: 6px var(--chat-pad-x, 10px) 8px;
   border-bottom: 1px solid color-mix(in srgb, var(--border, #ddd) 55%, transparent);
-  box-shadow: 0 6px 16px color-mix(in srgb, #000 8%, transparent);
+  box-shadow: 0 4px 12px color-mix(in srgb, #000 6%, transparent);
   transition: max-height 0.18s ease;
 }
 
 .user-sticky-pin.is-expanded {
-  max-height: min(55vh, 420px);
+  max-height: min(40vh, 280px);
   overflow-y: auto;
 }
 
@@ -1532,11 +1533,11 @@ function onRevertUser(msg: Extract<ChatMessage, { role: "user" }>): void {
 .bubble.user {
   width: 100%;
   box-sizing: border-box;
-  padding: 12px 14px;
-  border-radius: 12px;
-  background: color-mix(in srgb, var(--fg-muted, #888) 8%, var(--bg-elevated, var(--bg)));
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--fg-muted, #888) 6.5%, var(--bg-elevated, var(--bg)));
   color: var(--fg-strong);
-  border: 1px solid color-mix(in srgb, var(--border, #ddd) 70%, transparent);
+  border: 1px solid color-mix(in srgb, var(--border, #ddd) 55%, transparent);
   box-shadow: none;
 }
 

@@ -8,6 +8,7 @@ import {
   listWorkspaceDir,
   moveWorkspaceEntry,
   renameWorkspaceEntry,
+  searchWorkspaceFiles,
 } from "./files-host";
 import { getWorkspace } from "./workspace-ipc";
 import { resolveWorkspacePath } from "../shared/path-sandbox";
@@ -18,6 +19,15 @@ export function registerFilesIpc(): void {
     if (!root) return [];
     return listWorkspaceDir(root, relativePath ?? "");
   });
+
+  ipcMain.handle(
+    IpcChannels.files.search,
+    (_event, query: string, limit?: number) => {
+      const root = getWorkspace();
+      if (!root) return [];
+      return searchWorkspaceFiles(root, query ?? "", { limit });
+    },
+  );
 
   ipcMain.handle(
     IpcChannels.files.createFile,

@@ -105,6 +105,20 @@ async function onNewAgent(): Promise<void> {
         <NTag v-else-if="running" type="success" size="small" round :bordered="false">
           {{ t.agentRunning }}
         </NTag>
+        <NButton
+          quaternary
+          circle
+          size="tiny"
+          class="pi-interactive"
+          :disabled="!canCreateSession"
+          :title="t.newSessionAction"
+          :aria-label="t.newSessionAction"
+          @click="onNewAgent"
+        >
+          <template #icon>
+            <NIcon :component="AddOutline" :size="16" />
+          </template>
+        </NButton>
       </header>
       <MessageList
         :messages="chat.activeMessages"
