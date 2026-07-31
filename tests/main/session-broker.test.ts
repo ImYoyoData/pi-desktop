@@ -262,7 +262,7 @@ describe("session-broker", () => {
     expect(killed).toBe(true);
   });
 
-  it("does not mark stuck during an active turn before the turn heartbeat window", async () => {
+  it("never marks stuck during an active turn regardless of silence duration", async () => {
     vi.useFakeTimers();
     const events: Array<{ type: string }> = [];
     let killed = false;
@@ -273,7 +273,7 @@ describe("session-broker", () => {
         cwd,
         filePath: filePath ?? "/tmp/session-a.jsonl",
         worker: {
-          // Never answers ping / never emits — wedged mid-turn.
+          // Never answers ping / never emits — simulates long LLM/tool silence.
           send: async (msg) => {
             if (msg.kind === "command" && msg.command.type === "hang") {
               return new Promise(() => {});
@@ -293,94 +293,8 @@ describe("session-broker", () => {
     await vi.waitFor(() => {
       expect(events.some((e) => e.type === "session_status")).toBe(true);
     });
-    // Idle window is 15s; turn window is 45s — stay alive just under turn limit.
-    await vi.advanceTimersByTimeAsync(5_000 * 8);
-    expect(events.some((e) => e.type === "worker_stuck")).toBe(false);
-    expect(killed).toBe(false);
-    await broker.closeSession(session.id);
-    await expect(pending).rejects.toThrow(/session closed|worker/);
-    vi.useRealTimers();
-  });
-
-  it("marks stuck during an active turn after ~45s with no worker messages", async () => {
-    vi.useFakeTimers();
-    const events: Array<{ type: string }> = [];
-    let killed = false;
-    const broker = createSessionBroker({
-      allocateSession: allocateFixed("session-a"),
-      spawnWorker: async (cwd, filePath) => ({
-        id: idFromPath(filePath),
-        cwd,
-        filePath: filePath ?? "/tmp/session-a.jsonl",
-        worker: {
-          send: async (msg) => {
-            if (msg.kind === "command" && msg.command.type === "hang") {
-              return new Promise(() => {});
-            }
-            return null;
-          },
-          kill: () => {
-            killed = true;
-          },
-          onMessage: () => () => {},
-        },
-      }),
-    });
-    broker.onEvent((event) => events.push(event));
-    const session = await broker.createSession("/tmp/a");
-    const pending = broker.send(session.id, { type: "hang" });
-    const expectUnresponsive = expect(pending).rejects.toThrow(/worker unresponsive/);
-    await vi.waitFor(() => {
-      expect(events.some((e) => e.type === "session_status")).toBe(true);
-    });
-    await vi.advanceTimersByTimeAsync(5_000 * 9);
-    expect(events.some((e) => e.type === "worker_stuck")).toBe(true);
-    expect(killed).toBe(true);
-    await expectUnresponsive;
-    vi.useRealTimers();
-  });
-
-  it("keeps an active turn alive when the worker answers ping", async () => {
-    vi.useFakeTimers();
-    const events: Array<{ type: string }> = [];
-    let messageCb: ((msg: { kind: string }) => void) | null = null;
-    let killed = false;
-    const broker = createSessionBroker({
-      allocateSession: allocateFixed("session-a"),
-      spawnWorker: async (cwd, filePath) => ({
-        id: idFromPath(filePath),
-        cwd,
-        filePath: filePath ?? "/tmp/session-a.jsonl",
-        worker: {
-          send: async (msg) => {
-            if (msg.kind === "ping") {
-              queueMicrotask(() => messageCb?.({ kind: "pong" }));
-            }
-            if (msg.kind === "command" && msg.command.type === "hang") {
-              return new Promise(() => {});
-            }
-            return null;
-          },
-          kill: () => {
-            killed = true;
-          },
-          onMessage: (cb) => {
-            messageCb = cb;
-            return () => {
-              messageCb = null;
-            };
-          },
-        },
-      }),
-    });
-    broker.onEvent((event) => events.push(event));
-    const session = await broker.createSession("/tmp/a");
-    const pending = broker.send(session.id, { type: "hang" });
-    await vi.waitFor(() => {
-      expect(events.some((e) => e.type === "session_status")).toBe(true);
-    });
-    // Well past turn window — pongs keep lastAliveAt fresh.
-    await vi.advanceTimersByTimeAsync(5_000 * 20);
+    // Far beyond idle heartbeat window — must stay alive while the turn is active.
+    await vi.advanceTimersByTimeAsync(5_000 * 120);
     expect(events.some((e) => e.type === "worker_stuck")).toBe(false);
     expect(killed).toBe(false);
     await broker.closeSession(session.id);
