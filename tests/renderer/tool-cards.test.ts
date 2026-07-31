@@ -339,6 +339,63 @@ describe("tool cards", () => {
     }
   });
 
+  it("keeps every parallel tool card visible while streaming (no single-box flip)", () => {
+    let state = createChatState();
+    const ev = (event: Record<string, unknown>) =>
+      (state = reduceChatEvent(state, {
+        type: "agent_event",
+        sessionId: "s1",
+        event,
+      } as never));
+
+    // One assistant message streams two parallel edit calls (a.ts then b.ts).
+    ev({
+      type: "message_update",
+      message: {
+        role: "assistant",
+        content: [
+          { type: "toolCall", id: "a", name: "edit", arguments: { path: "a.ts" } },
+          { type: "toolCall", id: "b", name: "edit", arguments: { path: "b.ts" } },
+        ],
+      },
+      assistantMessageEvent: { type: "toolcall_start", contentIndex: 0 },
+    });
+    ev({ type: "tool_execution_start", toolCallId: "a", toolName: "edit", args: { path: "a.ts" } });
+    ev({ type: "tool_execution_start", toolCallId: "b", toolName: "edit", args: { path: "b.ts" } });
+
+    const toolIds = state.messages
+      .filter((m) => m.role === "tool")
+      .map((m) => (m.role === "tool" ? m.id : ""));
+    expect(toolIds).toContain("tool-a");
+    expect(state.streamingMessage?.role === "tool" && state.streamingMessage.id).toBe("tool-b");
+
+    // a finishes first: it lands in history while b stays live.
+    ev({
+      type: "tool_execution_end",
+      toolCallId: "a",
+      toolName: "edit",
+      result: { ok: true },
+      isError: false,
+    });
+    const a = state.messages.find((m) => m.role === "tool" && m.id === "tool-a");
+    expect(a).toMatchObject({ role: "tool", streaming: false });
+    expect(state.streamingMessage?.role === "tool" && state.streamingMessage.id).toBe("tool-b");
+
+    // b finishes last: both cards are committed in order.
+    ev({
+      type: "tool_execution_end",
+      toolCallId: "b",
+      toolName: "edit",
+      result: { ok: true },
+      isError: false,
+    });
+    const ids = state.messages
+      .filter((m) => m.role === "tool")
+      .map((m) => (m.role === "tool" ? m.id : ""));
+    expect(ids).toEqual(["tool-a", "tool-b"]);
+    expect(state.streamingMessage).toBeNull();
+  });
+
   it("applies tool_execution_update to the live tool card", () => {
     let state = createChatState();
     state = reduceChatEvent(state, {

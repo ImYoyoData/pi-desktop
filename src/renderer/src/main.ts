@@ -6,6 +6,7 @@ import {
   isLocaleReloading,
   showLocaleReloadSplash,
 } from "./utils/locale-reload-splash";
+import { hideStartupSplashInstantly } from "./utils/startup-splash";
 
 // Apply theme before first paint of Vue tree (CSP-safe; no inline HTML script).
 try {
@@ -22,6 +23,8 @@ try {
 // Cover the white reload flash when switching UI language.
 if (isLocaleReloading()) {
   showLocaleReloadSplash();
+  // The locale splash already covers the window; drop the startup splash.
+  hideStartupSplashInstantly();
 }
 
 createApp(App).use(createPinia()).mount("#app");

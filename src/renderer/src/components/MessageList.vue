@@ -25,7 +25,7 @@ import ThinkingBlock from "@renderer/components/ThinkingBlock.vue";
 import ToolCallCard from "@renderer/components/ToolCallCard.vue";
 import ToolCallGroup from "@renderer/components/ToolCallGroup.vue";
 import AgentWaitIndicator from "@renderer/components/AgentWaitIndicator.vue";
-import { parseToolCard, isReadTool } from "@renderer/utils/tool-diff";
+import { parseToolCard, isReadTool, type ToolCard } from "@renderer/utils/tool-diff";
 import { buildToolGroupSpans } from "@renderer/utils/tool-group";
 import { agentOutputSilenceMs } from "@renderer/utils/agent-wait";
 import type { ChatState } from "@renderer/stores/chat-reducer";
@@ -486,6 +486,37 @@ function jumpToBottomInstant(): void {
   });
 }
 
+/**
+ * Coalesced follow-bottom scroll for streaming updates. Forcing layout three
+ * times per tool_execution_update (immediate + two rAF re-sets) starved the UI
+ * thread while bash/write output streamed. One scrollTop set per animation
+ * frame is enough; later updates simply re-schedule.
+ */
+let bottomScrollRaf = 0;
+function scheduleBottomScroll(): void {
+  // Minimized / hidden: no layout work until the window is restored.
+  if (document.hidden) return;
+  if (bottomScrollRaf) return;
+  bottomScrollRaf = requestAnimationFrame(() => {
+    bottomScrollRaf = 0;
+    const sc = scroller.value;
+    if (!sc || document.hidden) return;
+    sc.scrollTop = sc.scrollHeight;
+  });
+}
+
+/** Restored from minimized: land at the live edge without a big re-measure. */
+function onVisibilityChange(): void {
+  if (document.hidden) return;
+  if (!followBottom) return;
+  clampRenderWindow(true);
+  scheduleBottomScroll();
+  requestAnimationFrame(() => {
+    measureVisibleRows();
+    scheduleBottomScroll();
+  });
+}
+
 function jumpToLatest(): void {
   followBottom = true;
   showJumpLatest.value = false;
@@ -640,7 +671,8 @@ watch(
     }
     // Critical: hydrate often lands AFTER settle timeouts. Always snap when
     // following bottom / first populate, otherwise the virtual spacer stays in view (blank).
-    if (followBottom || settlingSession || hydratedFromEmpty) {
+    // Skip while hidden — the visibility handler re-snaps once on restore.
+    if ((followBottom || settlingSession || hydratedFromEmpty) && !document.hidden) {
       lastPinnedUserId = latestUserMessageId.value;
       showJumpLatest.value = false;
       void nextTick(() => {
@@ -708,6 +740,7 @@ watch(
   () => [props.messages.length, props.streaming, props.running] as const,
   async ([, streaming, running], prev) => {
     if (Date.now() < suppressFollowBottomUntil) return;
+    if (document.hidden) return;
     await nextTick();
     const el = scroller.value;
     if (!el) return;
@@ -730,36 +763,49 @@ watch(
   },
 );
 
+let lastStreamToolId = "";
+let lastStreamArgs: unknown;
+let lastStreamResult: unknown;
 /** Thinking / tool body growth often keeps the same message id — still pin to bottom. */
 watch(
   () => {
     const s = props.streaming;
     if (!s) return "";
     if (s.role === "assistant") {
+      lastStreamToolId = "";
+      lastStreamArgs = undefined;
+      lastStreamResult = undefined;
       return `a:${s.thinking?.length ?? 0}:${s.text?.length ?? 0}`;
     }
     if (s.role === "tool") {
-      try {
-        const argsLen = s.args != null ? JSON.stringify(s.args).length : 0;
-        const resultLen = s.result != null ? JSON.stringify(s.result).length : 0;
-        return `t:${s.id}:${argsLen}:${resultLen}`;
-      } catch {
-        return `t:${s.id}`;
-      }
+      // Every streamed update replaces the args/result objects, so identity is
+      // enough — avoids JSON.stringify(args/result) on every chunk (O(output)
+      // stringify per tick while a bash/write tool streams).
+      const changed =
+        s.id !== lastStreamToolId || s.args !== lastStreamArgs || s.result !== lastStreamResult;
+      lastStreamToolId = s.id;
+      lastStreamArgs = s.args;
+      lastStreamResult = s.result;
+      return `t:${s.id}:${changed ? "1" : "0"}`;
     }
+    lastStreamToolId = "";
+    lastStreamArgs = undefined;
+    lastStreamResult = undefined;
     return s.id;
   },
   async () => {
     if (!followBottom || Date.now() < suppressFollowBottomUntil) return;
     if (!props.running && !props.streaming) return;
+    if (document.hidden) return;
     await nextTick();
-    jumpToBottomInstant();
+    scheduleBottomScroll();
   },
 );
 
 onMounted(() => {
   const sc = scroller.value;
   sc?.addEventListener("scroll", onScrollerScroll, { passive: true });
+  document.addEventListener("visibilitychange", onVisibilityChange);
   // Auto-load on startup mounts MessageList *after* activeId is set, so the
   // sessionId watcher may not re-fire — settle here or the spacer looks blank.
   void beginSessionSettle();
@@ -767,14 +813,45 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
   scroller.value?.removeEventListener("scroll", onScrollerScroll);
+  document.removeEventListener("visibilitychange", onVisibilityChange);
   if (scrollRaf) {
     cancelAnimationFrame(scrollRaf);
     scrollRaf = 0;
   }
+  if (bottomScrollRaf) {
+    cancelAnimationFrame(bottomScrollRaf);
+    bottomScrollRaf = 0;
+  }
 });
 
-function toolCard(msg: Extract<ChatMessage, { role: "tool" }>) {
-  return parseToolCard(msg.toolName, msg.args, msg.result, { isError: msg.isError });
+/**
+ * The current round finished (nothing streaming and nothing running): fold all
+ * process rows (tools + thinking) so only the user question and final answer
+ * stay prominent, Codex-style. Users can still re-expand any row manually.
+ */
+const turnDone = computed(() => !props.running && !props.streaming);
+
+/** A tool group is still live while any member tool is streaming. */
+function toolGroupStreaming(msg: ToolMessage): boolean {
+  return (
+    toolGroupMembership.value.get(msg.id)?.tools.some((t) => t.streaming) ?? false
+  );
+}
+
+/**
+ * Memoize card parsing: the same message object never re-parses its diff.
+ * Write/edit diff synthesis is O(file size) and used to run again on every
+ * unrelated re-render (other tool streams, phase-clock ticks, status flips),
+ * which starved the UI thread while an agent ran bash / edited large files.
+ */
+const toolCardCache = new WeakMap<Extract<ChatMessage, { role: "tool" }>, ToolCard>();
+function toolCard(msg: Extract<ChatMessage, { role: "tool" }>): ToolCard {
+  let card = toolCardCache.get(msg);
+  if (!card) {
+    card = parseToolCard(msg.toolName, msg.args, msg.result, { isError: msg.isError });
+    toolCardCache.set(msg, card);
+  }
+  return card;
 }
 
 function isModeTagKind(kind: string | undefined): boolean {
@@ -1103,6 +1180,7 @@ function onRevertUser(msg: Extract<ChatMessage, { role: "user" }>): void {
                 :streaming="Boolean(msg.streaming && !msg.text)"
                 :started-at="msg.thinkingStartedAt"
                 :duration-ms="msg.thinkingDurationMs"
+                :auto-collapse="turnDone || !(msg.streaming && !msg.text)"
               />
               <MarkdownView v-if="msg.text" :content="msg.text" />
               <span v-if="msg.streaming && msg.text" class="cursor" aria-hidden="true" />
@@ -1153,6 +1231,7 @@ function onRevertUser(msg: Extract<ChatMessage, { role: "user" }>): void {
           <div v-if="toolGroupMembership.get(msg.id)?.isLead" class="tool">
             <ToolCallGroup
               :tools="toolGroupMembership.get(msg.id)!.tools"
+              :auto-collapse="turnDone || !toolGroupStreaming(msg)"
               @open="openPreview"
             />
           </div>
@@ -1164,6 +1243,7 @@ function onRevertUser(msg: Extract<ChatMessage, { role: "user" }>): void {
               :status-label="toolStatus(msg).label"
               :status-type="toolStatus(msg).type"
               :streaming="msg.streaming"
+              :auto-collapse="turnDone || !msg.streaming"
               @open="openPreview"
             />
           </div>
@@ -1352,12 +1432,12 @@ function onRevertUser(msg: Extract<ChatMessage, { role: "user" }>): void {
 
 .inner {
   width: 100%;
-  max-width: none;
-  margin: 0;
-  padding: 10px var(--chat-pad-x, 10px) 8px;
+  max-width: var(--composer-max, 780px);
+  margin: 0 auto;
+  padding: 14px var(--chat-pad-x, 10px) 10px;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 10px;
   min-height: 100%;
   box-sizing: border-box;
 }
@@ -1412,7 +1492,7 @@ function onRevertUser(msg: Extract<ChatMessage, { role: "user" }>): void {
 }
 
 .row-user {
-  justify-content: flex-start;
+  justify-content: flex-end;
   width: 100%;
 }
 
@@ -1422,6 +1502,8 @@ function onRevertUser(msg: Extract<ChatMessage, { role: "user" }>): void {
   left: 0;
   right: 0;
   z-index: 6;
+  display: flex;
+  justify-content: flex-end;
   max-height: min(16vh, 110px);
   overflow: hidden;
   background: var(--bg);
@@ -1453,7 +1535,9 @@ function onRevertUser(msg: Extract<ChatMessage, { role: "user" }>): void {
 }
 
 .sticky-pin-body {
-  width: 100%;
+  width: auto;
+  max-width: min(85%, 640px);
+  margin-left: auto;
 }
 
 .sticky-toggle {
@@ -1505,9 +1589,9 @@ function onRevertUser(msg: Extract<ChatMessage, { role: "user" }>): void {
 }
 
 .bubble-wrap.user {
-  align-items: stretch;
-  width: 100%;
-  max-width: 100%;
+  align-items: flex-end;
+  width: auto;
+  max-width: min(85%, 640px);
 }
 
 .bubble-wrap.assistant {
@@ -1541,16 +1625,17 @@ function onRevertUser(msg: Extract<ChatMessage, { role: "user" }>): void {
   cursor: text;
 }
 
-/* Cursor-like user prompt card: soft fill, wide, calm radius. */
+/* Codex-like user prompt: right-aligned, subtle tinted bubble. */
 .bubble.user {
-  width: 100%;
+  width: auto;
+  max-width: 100%;
   box-sizing: border-box;
-  padding: 10px 12px;
-  border-radius: 10px;
-  background: color-mix(in srgb, var(--fg-muted, #888) 6.5%, var(--bg-elevated, var(--bg)));
+  padding: 9px 14px;
+  border-radius: 16px;
+  background: var(--bg-user-bubble, rgba(59, 130, 246, 0.1));
   color: var(--fg-strong);
-  border: 1px solid color-mix(in srgb, var(--border, #ddd) 55%, transparent);
-  box-shadow: none;
+  border: 1px solid color-mix(in srgb, var(--bg-user-bubble, #eef4ff) 100%, var(--border, #ddd) 45%);
+  box-shadow: var(--shadow-sm, none);
 }
 
 .bubble.assistant {
@@ -1559,6 +1644,9 @@ function onRevertUser(msg: Extract<ChatMessage, { role: "user" }>): void {
   width: 100%;
   display: flex;
   flex-direction: column;
+  font-size: 14.5px;
+  line-height: 1.7;
+  color: var(--fg, #18181b);
 }
 
 /* While thinking with no answer yet: pin the thinking block to the bottom
@@ -1712,9 +1800,9 @@ function onRevertUser(msg: Extract<ChatMessage, { role: "user" }>): void {
 
 /* Copy / re-edit under the prompt (hover). Revert is inside the bubble. */
 .user-actions {
-  justify-content: flex-start;
+  justify-content: flex-end;
   margin-top: 2px;
-  padding-left: 2px;
+  padding-right: 2px;
 }
 
 .bubble-wrap:hover .actions {

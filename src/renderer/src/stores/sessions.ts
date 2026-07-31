@@ -138,6 +138,9 @@ export const useSessionsStore = defineStore("sessions", () => {
       case "worker_stuck":
         patchStatus(event.sessionId, "stuck");
         break;
+      case "worker_stall":
+        // Turn still counts as running — the renderer watchdog restarts + resends.
+        break;
       case "worker_alive":
         // Soft liveness for the chat wait indicator — status stays running/idle.
         break;

@@ -5,6 +5,7 @@ import path from "node:path";
 import {
   PI_DESKTOP_NODE_PATH_ENV,
   PI_DESKTOP_PI_CLI_PATH_ENV,
+  PI_PACKAGE_DIR_ENV,
   PI_SUBAGENT_PI_BINARY_ENV,
   PI_SUBAGENTS_PI_CODING_AGENT_PACKAGE_ROOT_ENV,
 } from "../shared/pi-subagent-env";
@@ -14,6 +15,7 @@ export {
   PI_DESKTOP_PI_CLI_PATH_ENV,
   PI_SUBAGENT_PI_BINARY_ENV,
   PI_SUBAGENTS_PI_CODING_AGENT_PACKAGE_ROOT_ENV,
+  PI_PACKAGE_DIR_ENV,
 } from "../shared/pi-subagent-env";
 
 const PI_CLI_REL = path.join(
@@ -396,7 +398,16 @@ export function buildAgentWorkerEnv(
   }
   if (cliPath) {
     next[PI_DESKTOP_PI_CLI_PATH_ENV] = cliPath;
-    next[PI_SUBAGENTS_PI_CODING_AGENT_PACKAGE_ROOT_ENV] = packageRootFromPiCli(cliPath);
+    const packageRoot = packageRootFromPiCli(cliPath);
+    next[PI_SUBAGENTS_PI_CODING_AGENT_PACKAGE_ROOT_ENV] = packageRoot;
+    // The bundled SDK resolves its package dir by walking up from the bundle's
+    // __dirname — inside out/main, so it lands on the app root and then picks
+    // <root>/src/… for themes/templates (ENOENT). Point the SDK's official
+    // PI_PACKAGE_DIR hook at the package root that owns this CLI so
+    // ctx.ui.theme / export templates resolve inside node_modules.
+    if (packageRoot && existsSync(path.join(packageRoot, "package.json"))) {
+      next[PI_PACKAGE_DIR_ENV] = packageRoot;
+    }
   }
 
   // Windows .cmd/.bat cannot be spawn()'d without shell:true (EINVAL). pi-subagents
