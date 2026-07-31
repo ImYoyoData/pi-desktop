@@ -15,6 +15,7 @@ export const IpcChannels = {
     setChromeTheme: "window:setChromeTheme",
     requestMediaAccess: "window:requestMediaAccess",
     setUiLocale: "window:setUiLocale",
+    openDevTools: "window:openDevTools",
   },
   workspace: {
     get: "workspace:get",

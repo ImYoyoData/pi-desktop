@@ -16,6 +16,10 @@ import { toPromptImages } from "../shared/protocol";
 import { truncateHtmlSnippet } from "../shared/html-snippet";
 import type { WorkerInbound, WorkerOutbound } from "../shared/agent-worker-messages";
 import {
+  ensureSessionFileOnDisk,
+  openExistingSessionFile,
+} from "./session-file";
+import {
   BUILTIN_BROWSER_SELECTION_HEADER,
   isBuiltinBrowserToolName,
   resolveBuiltinBrowserSkillDir,
@@ -176,8 +180,10 @@ async function initSession(
   }
   const agentDir = getAgentDir();
   const sessionManager = filePath
-    ? SessionManager.open(filePath, undefined, cwd)
+    ? openExistingSessionFile(SessionManager, filePath, cwd)
     : SessionManager.create(cwd);
+  // New sessions must hit disk before idle-destroy / cold reopen (avoids id mismatch).
+  ensureSessionFileOnDisk(sessionManager);
   const settingsManager = SettingsManager.create(cwd, agentDir, {
     projectTrusted: Boolean(projectTrusted),
   });
