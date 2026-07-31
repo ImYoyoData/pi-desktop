@@ -29,6 +29,7 @@ describe("agent-auto-recover", () => {
       shouldSoftHangRecover({
         running: true,
         waitingUser: false,
+        toolInFlight: false,
         outputSilenceMs: SOFT_HANG_SILENCE_MS,
         workerSilenceMs: 5_000,
       }),
@@ -38,6 +39,7 @@ describe("agent-auto-recover", () => {
       shouldSoftHangRecover({
         running: true,
         waitingUser: true,
+        toolInFlight: false,
         outputSilenceMs: SOFT_HANG_SILENCE_MS,
         workerSilenceMs: 5_000,
       }),
@@ -47,6 +49,17 @@ describe("agent-auto-recover", () => {
       shouldSoftHangRecover({
         running: true,
         waitingUser: false,
+        toolInFlight: true,
+        outputSilenceMs: SOFT_HANG_SILENCE_MS,
+        workerSilenceMs: 5_000,
+      }),
+    ).toBe(false);
+
+    expect(
+      shouldSoftHangRecover({
+        running: true,
+        waitingUser: false,
+        toolInFlight: false,
         outputSilenceMs: SOFT_HANG_SILENCE_MS - 1,
         workerSilenceMs: 5_000,
       }),
@@ -56,6 +69,7 @@ describe("agent-auto-recover", () => {
       shouldSoftHangRecover({
         running: true,
         waitingUser: false,
+        toolInFlight: false,
         outputSilenceMs: SOFT_HANG_SILENCE_MS,
         workerSilenceMs: Number.POSITIVE_INFINITY,
       }),

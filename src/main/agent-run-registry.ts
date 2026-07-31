@@ -59,6 +59,7 @@ export function createAgentRunRegistry(deps: {
   function handleWorkerMessage(sessionId: string, msg: WorkerOutbound): void {
     if (msg.kind === "run_started") {
       const existing = runs.get(msg.run.id);
+      const startedAt = existing?.startedAt ?? msg.run.startedAt;
       const snap: AgentRunSnapshot = {
         id: msg.run.id,
         sessionId: msg.run.sessionId || sessionId,
@@ -66,10 +67,11 @@ export function createAgentRunRegistry(deps: {
         command: msg.run.command,
         cwd: msg.run.cwd,
         pid: msg.run.pid ?? existing?.pid,
-        startedAt: existing?.startedAt ?? msg.run.startedAt,
+        startedAt,
         status: existing?.status === "terminating" ? "terminating" : "running",
         // Preserve already-streamed stdout when the worker re-emits start with a pid.
         outputTail: existing?.outputTail ?? "",
+        lastOutputAt: existing?.lastOutputAt ?? startedAt,
         detached: existing?.detached ?? false,
       };
       runs.set(snap.id, snap);
@@ -81,7 +83,11 @@ export function createAgentRunRegistry(deps: {
       const existing = runs.get(msg.runId);
       if (!existing) return;
       const outputTail = appendCappedTail(existing.outputTail, msg.chunk);
-      const next: AgentRunSnapshot = { ...existing, outputTail };
+      const next: AgentRunSnapshot = {
+        ...existing,
+        outputTail,
+        lastOutputAt: Date.now(),
+      };
       runs.set(msg.runId, next);
       queueOutput(msg.runId, msg.chunk, outputTail);
       return;
