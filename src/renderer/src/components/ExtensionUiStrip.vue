@@ -1,10 +1,11 @@
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
-import { NButton, NIcon, NInput, NText } from "naive-ui";
+import { NButton, NIcon, NText } from "naive-ui";
 import { CheckmarkOutline, CloseOutline, ExtensionPuzzleOutline } from "@vicons/ionicons5";
 import type { ExtensionUiPending } from "../../../shared/extension-ui";
 import { t } from "@renderer/i18n";
 import { useChatStore } from "@renderer/stores/chat";
+import VoiceTextField from "@renderer/components/VoiceTextField.vue";
 
 const chat = useChatStore();
 const replying = ref(false);
@@ -127,22 +128,24 @@ async function onSubmitText(
       </div>
 
       <div v-else-if="prompt.method === 'input' || prompt.method === 'editor'" class="strip-body">
-        <NInput
+        <VoiceTextField
           v-if="prompt.method === 'input'"
-          v-model:value="textDraft"
+          :value="textDraft"
           size="small"
           :placeholder="prompt.placeholder || t.extensionUiInputPlaceholder"
           :disabled="replying"
-          @keydown.enter.prevent="onSubmitText(prompt)"
+          @update:value="(v) => (textDraft = v)"
+          @keydown="(e) => e.key === 'Enter' && (e.preventDefault(), onSubmitText(prompt))"
         />
-        <NInput
+        <VoiceTextField
           v-else
-          v-model:value="textDraft"
+          :value="textDraft"
           type="textarea"
           :rows="4"
           size="small"
           :placeholder="t.extensionUiEditorPlaceholder"
           :disabled="replying"
+          @update:value="(v) => (textDraft = v)"
         />
         <footer class="strip-foot">
           <NButton round class="pi-interactive" :disabled="replying" @click="onCancel(prompt)">

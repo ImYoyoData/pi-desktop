@@ -89,7 +89,7 @@ function bindWorkspaceSortable(): void {
     animation: 150,
     draggable: ".ws-block",
     handle: ".ws-row",
-    filter: ".session-list, .session-row, .trash",
+    filter: ".session-list, .session-row, .trash, .ws-new-session",
     preventOnFilter: false,
     onEnd: () => {
       const paths = [...el.querySelectorAll<HTMLElement>(".ws-block[data-root]")]
@@ -348,6 +348,16 @@ async function onNewAgent(): Promise<void> {
   let root = workspace.root;
   if (!root) root = await workspace.openWorkspace();
   if (!root) return;
+  await onNewAgentForWorkspace(root);
+}
+
+async function onNewAgentForWorkspace(root: string, event?: Event): Promise<void> {
+  event?.stopPropagation();
+  event?.preventDefault();
+  if (workspace.trustDialogOpen) return;
+  if (workspace.root !== root) {
+    await workspace.openWorkspacePath(root);
+  }
   if (workspace.trustDialogOpen || !workspace.sessionsReady) return;
   expanded[root] = true;
   const created = await sessionsStore.createSession(root);
@@ -764,19 +774,40 @@ function onLeftSplitResized(payload: SplitpanesResizedPayload): void {
                 class="ws-block"
                 :data-root="root"
               >
-              <button
-                type="button"
-                class="ws-row"
-                :class="{ active: workspace.root === root && !sessionsStore.activeId }"
-                :title="root"
-                @click="onWorkspaceClick(root)"
-                @contextmenu="(e) => openWorkspaceCtx(e, root)"
-              >
-                <span class="chevron" :class="{ open: expanded[root] }">
-                  <NIcon :component="ChevronForwardOutline" :size="14" />
-                </span>
-                <NEllipsis style="font-weight: 600">{{ workspaceName(root) }}</NEllipsis>
-              </button>
+              <div class="ws-row-wrap">
+                <button
+                  type="button"
+                  class="ws-row"
+                  :class="{ active: workspace.root === root && !sessionsStore.activeId }"
+                  :title="root"
+                  @click="onWorkspaceClick(root)"
+                  @contextmenu="(e) => openWorkspaceCtx(e, root)"
+                >
+                  <span class="chevron" :class="{ open: expanded[root] }">
+                    <NIcon :component="ChevronForwardOutline" :size="14" />
+                  </span>
+                  <NEllipsis style="font-weight: 600; flex: 1; min-width: 0">{{
+                    workspaceName(root)
+                  }}</NEllipsis>
+                </button>
+                <NTooltip>
+                  <template #trigger>
+                    <NButton
+                      class="ws-new-session"
+                      quaternary
+                      circle
+                      size="tiny"
+                      :disabled="workspace.trustDialogOpen"
+                      @click="(e) => void onNewAgentForWorkspace(root, e)"
+                    >
+                      <template #icon>
+                        <NIcon :component="AddOutline" :size="14" />
+                      </template>
+                    </NButton>
+                  </template>
+                  {{ t.newSessionAction }}
+                </NTooltip>
+              </div>
 
               <ul
                 v-show="expanded[root]"
@@ -927,8 +958,22 @@ function onLeftSplitResized(payload: SplitpanesResizedPayload): void {
   background: var(--accent-border, #93c5fd) !important;
 }
 
-.ws-row {
+.ws-row-wrap {
+  display: flex;
+  align-items: center;
+  gap: 2px;
   width: 100%;
+  border-radius: var(--radius-sm, 7px);
+}
+
+.ws-row-wrap:hover,
+.ws-row-wrap:focus-within {
+  background: var(--bg-hover);
+}
+
+.ws-row {
+  flex: 1;
+  min-width: 0;
   display: flex;
   align-items: center;
   gap: 4px;
@@ -948,9 +993,22 @@ function onLeftSplitResized(payload: SplitpanesResizedPayload): void {
   cursor: grabbing;
 }
 
-.ws-row:hover,
 .ws-row.active {
   background: var(--bg-hover);
+}
+
+.ws-new-session {
+  flex-shrink: 0;
+  margin-right: 4px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--duration-fast, 140ms) var(--ease-out, ease);
+}
+
+.ws-row-wrap:hover .ws-new-session,
+.ws-row-wrap:focus-within .ws-new-session {
+  opacity: 1;
+  pointer-events: auto;
 }
 
 .chevron {

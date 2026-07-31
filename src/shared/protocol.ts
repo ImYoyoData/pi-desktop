@@ -57,6 +57,7 @@ export const IpcChannels = {
   },
   files: {
     list: "files:list",
+    search: "files:search",
     createFile: "files:createFile",
     createDir: "files:createDir",
     rename: "files:rename",

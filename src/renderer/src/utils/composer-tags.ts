@@ -2,6 +2,9 @@ import type { ComposerChip } from "@renderer/stores/composer";
 import { truncateElementContent } from "@renderer/stores/composer";
 import { isRegionCitation } from "../../../shared/protocol";
 import { t } from "@renderer/i18n";
+import { fileTagLabel, urlTagLabel } from "@renderer/utils/path-label";
+
+export { ellipsisMiddle, fileTagLabel, urlTagLabel } from "@renderer/utils/path-label";
 
 /** Tag shown in composer / chat bubble — file tags use the relative path. */
 export type ComposerAttachmentTag = {
@@ -15,22 +18,19 @@ export type ComposerAttachmentTag = {
   content?: string;
 };
 
-export function fileTagLabel(path: string, max = 48): string {
-  const p = path.replace(/\\/g, "/");
-  if (p.length <= max) return p;
-  const name = p.split("/").pop() || p;
-  if (name.length >= max - 1) return `${name.slice(0, max - 1)}…`;
-  const head = max - name.length - 2;
-  return `${p.slice(0, Math.max(4, head))}…/${name}`;
-}
-
 export function chipsToAttachmentTags(chips: ComposerChip[]): ComposerAttachmentTag[] {
   const out: ComposerAttachmentTag[] = [];
   for (const chip of chips) {
     if (chip.kind === "file") {
+      const range =
+        chip.startLine && chip.endLine
+          ? `:${chip.startLine}-${chip.endLine}`
+          : chip.startLine
+            ? `:${chip.startLine}`
+            : "";
       out.push({
         kind: "file",
-        label: fileTagLabel(chip.path),
+        label: `${fileTagLabel(chip.path)}${range}`,
         title: chip.path,
         ref: chip.path,
         content: chip.path,
@@ -38,7 +38,7 @@ export function chipsToAttachmentTags(chips: ComposerChip[]): ComposerAttachment
     } else if (chip.kind === "url") {
       out.push({
         kind: "url",
-        label: chip.url.length > 40 ? `${chip.url.slice(0, 40)}…` : chip.url,
+        label: urlTagLabel(chip.url),
         title: chip.url,
         ref: chip.url,
         content: chip.url,

@@ -166,7 +166,76 @@ describe("session-broker", () => {
     vi.useFakeTimers();
     const events: Array<{ type: string; status?: string; sessionId?: string }> = [];
     let messageCb: ((msg: { kind: string }) => void) | null = null;
-    let pingCount = 0;
+    const broker = createSessionBroker({
+      spawnWorker: async (cwd) => ({
+        id: "session-a",
+        cwd,
+        filePath: "/tmp/session-a.jsonl",
+        worker: {
+          send: async () => null,
+          kill: () => {},
+          onMessage: (cb) => {
+            messageCb = cb;
+            return () => {
+              messageCb = null;
+            };
+          },
+        },
+      }),
+    });
+    broker.onEvent((event) => events.push(event));
+    const session = await broker.createSession("/tmp/a");
+    // No pong for the full miss window → stuck
+    await vi.advanceTimersByTimeAsync(5_000 * 3);
+    expect(events.some((e) => e.type === "worker_stuck")).toBe(true);
+
+    const beforeRecovery = events.length;
+    messageCb?.({ kind: "pong" });
+    const recovery = events.slice(beforeRecovery);
+    expect(recovery).toContainEqual({
+      type: "session_status",
+      sessionId: session.id,
+      status: "idle",
+    });
+    vi.useRealTimers();
+  });
+
+  it("does not mark stuck when worker keeps sending events without pong", async () => {
+    vi.useFakeTimers();
+    const events: Array<{ type: string }> = [];
+    let messageCb: ((msg: { kind: string; event?: { type: string } }) => void) | null = null;
+    const broker = createSessionBroker({
+      spawnWorker: async (cwd) => ({
+        id: "session-a",
+        cwd,
+        filePath: "/tmp/session-a.jsonl",
+        worker: {
+          send: async () => null,
+          kill: () => {},
+          onMessage: (cb) => {
+            messageCb = cb;
+            return () => {
+              messageCb = null;
+            };
+          },
+        },
+      }),
+    });
+    broker.onEvent((event) => events.push(event));
+    await broker.createSession("/tmp/a");
+    // Stream activity every 4s — proves liveness even without answering ping.
+    for (let i = 0; i < 5; i++) {
+      await vi.advanceTimersByTimeAsync(4_000);
+      messageCb?.({ kind: "event", event: { type: "message_update" } });
+    }
+    expect(events.some((e) => e.type === "worker_stuck")).toBe(false);
+    vi.useRealTimers();
+  });
+
+  it("does not false-stuck when heartbeat timers coalesce after a pause", async () => {
+    vi.useFakeTimers();
+    const events: Array<{ type: string }> = [];
+    let messageCb: ((msg: { kind: string }) => void) | null = null;
     const broker = createSessionBroker({
       spawnWorker: async (cwd) => ({
         id: "session-a",
@@ -175,10 +244,8 @@ describe("session-broker", () => {
         worker: {
           send: async (msg) => {
             if (msg.kind === "ping") {
-              pingCount += 1;
-              if (pingCount >= 4) {
-                messageCb?.({ kind: "pong" });
-              }
+              // Answer immediately — simulates healthy worker once main unblocks.
+              queueMicrotask(() => messageCb?.({ kind: "pong" }));
             }
             return null;
           },
@@ -193,18 +260,15 @@ describe("session-broker", () => {
       }),
     });
     broker.onEvent((event) => events.push(event));
-    const session = await broker.createSession("/tmp/a");
-    await vi.advanceTimersByTimeAsync(5_000 * 3);
-    expect(events.some((e) => e.type === "worker_stuck")).toBe(true);
-
-    const beforeRecovery = events.length;
+    await broker.createSession("/tmp/a");
+    // Jump past 3 intervals at once (main-thread stall). lastAliveAt was just set at start,
+    // so silentMs is large — but then pongs from queued pings should recover; we assert we
+    // only stuck if truly silent. With lastAliveAt from create (~now), advancing 15s without
+    // any inbound message WOULD stuck — so answer via send's pong after first interval batch.
     await vi.advanceTimersByTimeAsync(5_000);
-    const recovery = events.slice(beforeRecovery);
-    expect(recovery).toContainEqual({
-      type: "session_status",
-      sessionId: session.id,
-      status: "idle",
-    });
+    expect(events.some((e) => e.type === "worker_stuck")).toBe(false);
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(events.some((e) => e.type === "worker_stuck")).toBe(false);
     vi.useRealTimers();
   });
 

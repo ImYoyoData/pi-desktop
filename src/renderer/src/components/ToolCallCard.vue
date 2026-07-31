@@ -374,9 +374,9 @@ function onOpenPreview(): void {
 <style scoped>
 .tool-call {
   width: 100%;
-  border: 1px solid color-mix(in srgb, var(--border, #ddd) 85%, transparent);
-  border-radius: 10px;
-  background: color-mix(in srgb, var(--bg-elevated, #fff) 92%, var(--fg-muted, #888) 8%);
+  border: 1px solid color-mix(in srgb, var(--border, #ddd) 78%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--bg-elevated, #fff) 94%, var(--fg-muted, #888) 6%);
   overflow: hidden;
   transition:
     border-color 0.12s ease,
@@ -588,9 +588,9 @@ function onOpenPreview(): void {
 
 .tool-body {
   margin: 0;
-  padding: 8px 0;
+  padding: 6px 0;
   border-top: 1px solid color-mix(in srgb, var(--border, #ddd) 80%, transparent);
-  max-height: 180px;
+  max-height: 140px;
   overflow: auto;
   font-size: 11.5px;
   line-height: 1.5;

@@ -26,11 +26,13 @@ declare module 'vue' {
     CitationCard: typeof import('./src/components/CitationCard.vue')['default']
     CloseGuard: typeof import('./src/components/CloseGuard.vue')['default']
     Composer: typeof import('./src/components/Composer.vue')['default']
+    ComposerAtFileMenu: typeof import('./src/components/ComposerAtFileMenu.vue')['default']
     ComposerRichEditor: typeof import('./src/components/ComposerRichEditor.vue')['default']
     ComposerSlashMenu: typeof import('./src/components/ComposerSlashMenu.vue')['default']
     CustomModelsPanel: typeof import('./src/components/CustomModelsPanel.vue')['default']
     ExtensionsSettings: typeof import('./src/components/ExtensionsSettings.vue')['default']
     ExtensionUiStrip: typeof import('./src/components/ExtensionUiStrip.vue')['default']
+    FieldVoiceButton: typeof import('./src/components/FieldVoiceButton.vue')['default']
     FilesTab: typeof import('./src/components/FilesTab.vue')['default']
     Icon: typeof import('./src/components/Icon.vue')['default']
     MarkdownView: typeof import('./src/components/MarkdownView.vue')['default']
@@ -63,6 +65,7 @@ declare module 'vue' {
     UpdateCard: typeof import('./src/components/UpdateCard.vue')['default']
     Versions: typeof import('./src/components/Versions.vue')['default']
     VoiceRecordBar: typeof import('./src/components/VoiceRecordBar.vue')['default']
+    VoiceTextField: typeof import('./src/components/VoiceTextField.vue')['default']
     WelcomeView: typeof import('./src/components/WelcomeView.vue')['default']
   }
 }
