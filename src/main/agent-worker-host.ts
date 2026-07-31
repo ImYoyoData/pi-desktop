@@ -18,10 +18,27 @@ function workerScriptPath(): string {
 
 function waitForReady(
   child: Electron.UtilityProcess,
+  timeoutMs = 45_000,
 ): Promise<{ id: string; filePath: string; cwd: string }> {
   return new Promise((resolve, reject) => {
+    let settled = false;
+    const timer = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      child.off("message", onMessage);
+      try {
+        child.kill();
+      } catch {
+        // ignore
+      }
+      reject(new Error(`agent worker ready timed out after ${timeoutMs}ms`));
+    }, timeoutMs);
+
     const onMessage = (raw: WorkerOutbound) => {
       if (raw.kind === "ready") {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
         child.off("message", onMessage);
         if (raw.resources) {
           const r = raw.resources;
@@ -39,6 +56,9 @@ function waitForReady(
         return;
       }
       if (raw.kind === "fatal") {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
         child.off("message", onMessage);
         reject(new Error(raw.error ?? "worker fatal during init"));
       }
