@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { resolveWorkspacePath } from "../shared/path-sandbox";
+import { rankFuzzyPathEntries, scoreFuzzyPathQuery } from "../shared/fuzzy-path";
 
 const SKIP = new Set([
   "node_modules",
@@ -121,4 +122,73 @@ export function moveWorkspaceEntry(
 export function deleteWorkspaceEntry(root: string, relativePath: string): void {
   const abs = resolveWorkspacePath(root, relativePath);
   fs.rmSync(abs, { recursive: true, force: false });
+}
+
+const SEARCH_SKIP = new Set([
+  ...SKIP,
+  ".git",
+  ".hg",
+  ".svn",
+  ".next",
+  ".nuxt",
+  ".turbo",
+  ".cache",
+  "build",
+  "vendor",
+]);
+
+export type WorkspaceSearchOptions = {
+  /** Max results to return (default 80). */
+  limit?: number;
+};
+
+/**
+ * Walk the workspace and return entries matching `query` with fuzzy
+ * ranking (basename / camelCase / multi-token). Empty query lists the root.
+ */
+export function searchWorkspaceFiles(
+  root: string,
+  query: string,
+  options: WorkspaceSearchOptions = {},
+): WorkspaceDirEntry[] {
+  const q = query.trim().replace(/\\/g, "/");
+  if (!q) return listWorkspaceDir(root, "");
+  const limit = Math.max(1, Math.min(options.limit ?? 80, 200));
+  const rootAbs = path.resolve(root);
+  const candidates: WorkspaceDirEntry[] = [];
+  const maxCandidates = Math.max(limit * 8, 400);
+
+  const walk = (relative: string, depth: number): void => {
+    if (candidates.length >= maxCandidates) return;
+    // Soft depth cap keeps large monorepos responsive for the picker.
+    if (depth > 12) return;
+    const abs = relative ? path.join(rootAbs, relative) : rootAbs;
+    let names: string[];
+    try {
+      names = fs.readdirSync(abs);
+    } catch {
+      return;
+    }
+    for (const name of names) {
+      if (SEARCH_SKIP.has(name) || name === "." || name === "..") continue;
+      if (name.startsWith(".") && name !== ".env" && !name.startsWith(".env.")) continue;
+      const childRel = toRel(relative, name);
+      const childAbs = path.join(abs, name);
+      let kind: "file" | "dir";
+      try {
+        kind = fs.statSync(childAbs).isDirectory() ? "dir" : "file";
+      } catch {
+        continue;
+      }
+      const entry: WorkspaceDirEntry = { name, path: childRel, kind };
+      if (scoreFuzzyPathQuery(q, name, childRel) != null) {
+        candidates.push(entry);
+      }
+      if (kind === "dir") walk(childRel, depth + 1);
+      if (candidates.length >= maxCandidates) return;
+    }
+  };
+
+  walk("", 0);
+  return rankFuzzyPathEntries(q, candidates).slice(0, limit);
 }

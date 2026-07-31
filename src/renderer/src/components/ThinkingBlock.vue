@@ -77,10 +77,10 @@ watch(
 
 <style scoped>
 .thinking {
-  margin: 0 0 8px;
-  border-radius: 8px;
-  border: 1px solid color-mix(in srgb, var(--border, #ddd) 80%, transparent);
-  background: color-mix(in srgb, var(--fg-muted, #888) 4%, transparent);
+  margin: 0 0 6px;
+  border-radius: 6px;
+  border: 1px solid color-mix(in srgb, var(--border, #ddd) 70%, transparent);
+  background: color-mix(in srgb, var(--fg-muted, #888) 3.5%, transparent);
   overflow: hidden;
 }
 
@@ -140,13 +140,13 @@ watch(
 
 .thinking-body {
   margin: 0;
-  padding: 0 12px 10px 28px;
-  max-height: 180px;
+  padding: 0 12px 8px 28px;
+  max-height: 120px;
   overflow: auto;
   white-space: pre-wrap;
   word-break: break-word;
-  font-size: 12.5px;
-  line-height: 1.55;
+  font-size: 12px;
+  line-height: 1.5;
   color: var(--fg-muted, #666);
   font-style: italic;
   user-select: text;

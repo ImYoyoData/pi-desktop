@@ -16,6 +16,7 @@ import {
   useMessage,
 } from "naive-ui";
 import {
+  ChatbubbleEllipsesOutline,
   DocumentOutline,
   FolderOutline,
   RefreshOutline,
@@ -502,8 +503,11 @@ const ctxOptions = computed<DropdownOption[]>(() => {
   if (kind === "file") {
     items.push(
       { label: t.open, key: "open" },
-      { label: t.filesAddToChat, key: "cite" },
+      { label: t.filesAddToChat, key: "cite", icon: () => h(NIcon, null, { default: () => h(ChatbubbleEllipsesOutline) }) },
       { label: t.filesReveal, key: "reveal" },
+      { type: "divider", key: "d0" },
+      { label: t.filesCopyRelativePath, key: "copy-rel" },
+      { label: t.filesCopyAbsolutePath, key: "copy-abs" },
       { type: "divider", key: "d1" },
       { label: t.filesCut, key: "cut" },
       { label: t.filesPaste, key: "paste", disabled: !canPaste },
@@ -515,8 +519,11 @@ const ctxOptions = computed<DropdownOption[]>(() => {
     items.push(
       { label: t.filesNewFile, key: "new-file" },
       { label: t.filesNewFolder, key: "new-dir" },
-      { label: t.filesAddToChat, key: "cite" },
+      { label: t.filesAddToChat, key: "cite", icon: () => h(NIcon, null, { default: () => h(ChatbubbleEllipsesOutline) }) },
       { label: t.filesReveal, key: "reveal" },
+      { type: "divider", key: "d0" },
+      { label: t.filesCopyRelativePath, key: "copy-rel" },
+      { label: t.filesCopyAbsolutePath, key: "copy-abs" },
       { type: "divider", key: "d1" },
       { label: t.filesCut, key: "cut" },
       { label: t.filesPaste, key: "paste", disabled: !canPaste },
@@ -568,6 +575,14 @@ async function refreshNode(relativeDir: string): Promise<void> {
   await reloadNodeChildren(relativeDir);
 }
 
+function toAbsolutePath(relativePath: string): string {
+  const root = (workspace.root || "").replace(/[\\/]+$/, "");
+  if (!relativePath) return root;
+  const sep = root.includes("\\") ? "\\" : "/";
+  const rel = relativePath.replace(/\\/g, "/").replace(/^\/+/, "");
+  return `${root}${sep}${rel.split("/").join(sep)}`;
+}
+
 async function onCtxSelect(key: string | number): Promise<void> {
   closeCtx();
   const action = String(key);
@@ -585,6 +600,18 @@ async function onCtxSelect(key: string | number): Promise<void> {
       case "reveal":
         await window.api.files.reveal(target);
         break;
+      case "copy-rel": {
+        const rel = (target || ".").replace(/\\/g, "/");
+        await navigator.clipboard.writeText(rel);
+        message.success(t.filesRelativePathCopied);
+        break;
+      }
+      case "copy-abs": {
+        const abs = toAbsolutePath(target || "");
+        await navigator.clipboard.writeText(abs);
+        message.success(t.filesAbsolutePathCopied);
+        break;
+      }
       case "refresh":
         await refreshRoot();
         break;

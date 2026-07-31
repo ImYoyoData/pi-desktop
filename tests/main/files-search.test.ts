@@ -1,0 +1,56 @@
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { afterEach, describe, expect, it } from "vitest";
+import { searchWorkspaceFiles } from "../../src/main/files-host";
+
+const temps: string[] = [];
+
+afterEach(() => {
+  for (const dir of temps.splice(0)) {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+function makeTree(): string {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "pi-at-search-"));
+  temps.push(root);
+  fs.mkdirSync(path.join(root, "src", "components"), { recursive: true });
+  fs.writeFileSync(path.join(root, "README.md"), "# hi");
+  fs.writeFileSync(path.join(root, "src", "components", "Composer.vue"), "<template />");
+  fs.writeFileSync(path.join(root, "src", "main.ts"), "export {}");
+  fs.mkdirSync(path.join(root, "node_modules", "pkg"), { recursive: true });
+  fs.writeFileSync(path.join(root, "node_modules", "pkg", "index.js"), "");
+  return root;
+}
+
+describe("searchWorkspaceFiles", () => {
+  it("lists root when query empty", () => {
+    const root = makeTree();
+    const entries = searchWorkspaceFiles(root, "");
+    expect(entries.map((e) => e.name).sort()).toEqual(["README.md", "src"]);
+  });
+
+  it("matches nested files and skips node_modules", () => {
+    const root = makeTree();
+    const entries = searchWorkspaceFiles(root, "composer");
+    expect(entries.map((e) => e.path)).toEqual(["src/components/Composer.vue"]);
+    expect(searchWorkspaceFiles(root, "index").every((e) => !e.path.includes("node_modules"))).toBe(
+      true,
+    );
+  });
+
+  it("supports fuzzy camelCase and multi-token queries", () => {
+    const root = makeTree();
+    fs.writeFileSync(
+      path.join(root, "src", "components", "ComposerAtFileMenu.vue"),
+      "<template />",
+    );
+    expect(searchWorkspaceFiles(root, "cafm").map((e) => e.name)).toContain(
+      "ComposerAtFileMenu.vue",
+    );
+    expect(
+      searchWorkspaceFiles(root, "comp vue").some((e) => e.name === "Composer.vue"),
+    ).toBe(true);
+  });
+});

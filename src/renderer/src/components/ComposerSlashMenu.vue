@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch } from "vue";
+import { computed, nextTick, ref, watch } from "vue";
 import type { SlashItem } from "../../../shared/slash-commands";
 
 const props = defineProps<{
@@ -13,6 +13,7 @@ const emit = defineEmits<{
 }>();
 
 const activeIndex = ref(0);
+const listRef = ref<HTMLElement | null>(null);
 
 watch(
   () => [props.visible, props.items.map((i) => i.id).join("|")] as const,
@@ -24,6 +25,19 @@ watch(
 const safeIndex = computed(() => {
   if (!props.items.length) return 0;
   return Math.min(activeIndex.value, props.items.length - 1);
+});
+
+function scrollActiveIntoView(): void {
+  void nextTick(() => {
+    const root = listRef.value;
+    if (!root) return;
+    const row = root.querySelector<HTMLElement>(`.slash-row[data-index="${safeIndex.value}"]`);
+    row?.scrollIntoView({ block: "nearest" });
+  });
+}
+
+watch(safeIndex, () => {
+  if (props.visible) scrollActiveIntoView();
 });
 
 function move(delta: number): void {
@@ -49,13 +63,14 @@ defineExpose({
 </script>
 
 <template>
-  <div v-if="visible && items.length" class="slash-menu" role="listbox">
+  <div v-if="visible && items.length" ref="listRef" class="slash-menu" role="listbox">
     <button
       v-for="(item, index) in items"
       :key="item.id"
       type="button"
       class="slash-row"
       role="option"
+      :data-index="index"
       :aria-selected="index === safeIndex"
       :class="{ active: index === safeIndex, skill: item.kind === 'skill' }"
       @mousedown.prevent="emit('select', item)"
