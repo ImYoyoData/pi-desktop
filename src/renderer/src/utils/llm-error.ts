@@ -54,6 +54,11 @@ const RULES: Rule[] = [
     en: "Generation stopped",
   },
   {
+    test: (t) => /worker unresponsive|worker.?stuck|Worker 无响应/i.test(t),
+    zh: "该会话的 Worker 无响应。可终止或仅重启此会话。",
+    en: "This session’s Worker is unresponsive. Terminate or restart this session only.",
+  },
+  {
     test: (t) => /500|502|503|504|bad gateway|service unavailable|internal server/i.test(t),
     zh: "模型服务暂时不可用，请稍后重试。",
     en: "Model service temporarily unavailable. Retry later.",

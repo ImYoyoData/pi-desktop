@@ -33,7 +33,7 @@ let writeIdx = 0;
 let rafId = 0;
 let clockTimer: ReturnType<typeof setInterval> | null = null;
 let lastSampleAt = 0;
-/** Target sample interval — ~60fps visual, independent of ScriptProcessor rate. */
+/** Target sample interval — ~60fps visual, independent of AudioWorklet frame rate. */
 const SAMPLE_MS = 16;
 const SMOOTH = 0.38;
 
