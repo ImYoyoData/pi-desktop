@@ -212,6 +212,14 @@ async function onSave(): Promise<void> {
   }
 }
 
+async function onOpenDevTools(): Promise<void> {
+  try {
+    await window.api.window.openDevTools();
+  } catch (err) {
+    message.error(err instanceof Error ? err.message : t.cannotOpenDevtools);
+  }
+}
+
 watch(
   () => props.open,
   (open) => {
@@ -381,6 +389,18 @@ watch(
         :disabled="loading"
         :input-props="{ placeholder: t.securityBashAllowlistPlaceholder }"
       />
+    </div>
+
+    <NDivider class="div" />
+
+    <div class="section">
+      <div class="section-head">
+        <NText strong class="section-title">{{ t.securityOpenDevTools }}</NText>
+        <NText depth="3" class="hint">{{ t.securityOpenDevToolsHint }}</NText>
+      </div>
+      <NButton size="small" secondary :disabled="loading" @click="onOpenDevTools">
+        {{ t.securityOpenDevTools }}
+      </NButton>
     </div>
 
     <template #footer>
