@@ -4,6 +4,7 @@ import * as pty from "node-pty";
 import { IpcChannels } from "../shared/protocol";
 import { getWorkspace } from "./workspace-ipc";
 import { resolveTerminalShell } from "./terminal-shell";
+import { isWindowHidden, onWindowShown } from "./window-visibility";
 
 const terminals = new Map<string, pty.IPty>();
 /** Ring buffer of recent output so UI can re-attach after workspace switch. */
@@ -14,8 +15,19 @@ const SCROLLBACK_MAX = 200_000;
 const pendingData = new Map<string, string>();
 let flushTimer: ReturnType<typeof setTimeout> | null = null;
 const FLUSH_MS = 16;
-/** Cap a single flush so one huge dump can't freeze the UI for seconds. */
+/** Cap a single IPC payload so one huge dump can't freeze the UI for seconds. */
 const MAX_CHUNK = 64 * 1024;
+/**
+ * Max bytes flushed per tick across all terminals. webContents.send serializes
+ * synchronously in the main process, so an uncapped batch (e.g. `Get-Content
+ * -Wait` on a big file) freezes the whole app. Anything over the budget stays
+ * pending and flushes on the next tick.
+ */
+const FLUSH_BUDGET = 1024 * 1024;
+/** Hard cap per-terminal pending bytes so pausing while hidden stays bounded. */
+const MAX_PENDING = 2 * 1024 * 1024;
+/** Poll interval while the window is hidden (no IPC, keeps the newest data). */
+const HIDDEN_RETRY_MS = 250;
 
 function appendScrollback(id: string, data: string): void {
   const prev = scrollbacks.get(id) ?? "";
@@ -29,12 +41,27 @@ function appendScrollback(id: string, data: string): void {
 function flushTerminalData(): void {
   flushTimer = null;
   if (!pendingData.size) return;
-  const batch = [...pendingData.entries()];
-  pendingData.clear();
+  // No window is visible (e.g. minimized): hold the newest data and stop IPC.
+  // Flushing while hidden used to pile up synchronous sends that froze the
+  // whole app when the window was restored.
+  if (isWindowHidden()) {
+    flushTimer = setTimeout(flushTerminalData, HIDDEN_RETRY_MS);
+    return;
+  }
   const windows = BrowserWindow.getAllWindows();
   if (!windows.length) return;
-  for (const [id, raw] of batch) {
-    let data = raw;
+  let budget = FLUSH_BUDGET;
+  for (const [id, raw] of [...pendingData.entries()]) {
+    if (budget <= 0) break;
+    const sendNow = raw.slice(0, budget);
+    const rest = raw.slice(budget);
+    budget -= sendNow.length;
+    if (rest) {
+      pendingData.set(id, rest);
+    } else {
+      pendingData.delete(id);
+    }
+    let data = sendNow;
     while (data.length) {
       const chunk = data.slice(0, MAX_CHUNK);
       data = data.slice(MAX_CHUNK);
@@ -43,18 +70,35 @@ function flushTerminalData(): void {
         win.webContents.send(IpcChannels.terminal.data, payload);
       }
     }
+    if (budget <= 0) break;
+  }
+  // Overflow stays pending — keep draining on subsequent ticks so no data is lost.
+  if (pendingData.size && flushTimer == null) {
+    flushTimer = setTimeout(flushTerminalData, FLUSH_MS);
   }
 }
 
 function queueTerminalData(id: string, data: string): void {
   appendScrollback(id, data);
-  pendingData.set(id, (pendingData.get(id) ?? "") + data);
+  let next = (pendingData.get(id) ?? "") + data;
+  if (next.length > MAX_PENDING) {
+    // Keep the newest data; the UI renders the tail, not the middle.
+    next = next.slice(next.length - MAX_PENDING);
+  }
+  pendingData.set(id, next);
   if (flushTimer == null) {
     flushTimer = setTimeout(flushTerminalData, FLUSH_MS);
   }
 }
 
 export function registerTerminalIpc(): void {
+  // Drain anything buffered while the window was hidden as soon as it shows.
+  onWindowShown(() => {
+    if (pendingData.size && flushTimer == null) {
+      flushTerminalData();
+    }
+  });
+
   ipcMain.handle(IpcChannels.terminal.create, (_event, cwd?: string) => {
     const root = cwd?.trim() || getWorkspace();
     if (!root) {

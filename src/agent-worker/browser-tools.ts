@@ -6,6 +6,7 @@ function textResult(data: unknown) {
   const body = typeof data === "string" ? data : JSON.stringify(data, null, 2);
   return {
     content: [{ type: "text" as const, text: body.slice(0, 100_000) }],
+    details: {},
   };
 }
 

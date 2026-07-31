@@ -39,7 +39,10 @@ function writeState(statePath: string, state: WorkspacePersistedState): void {
 
 function pathKey(input: string): string {
   const resolved = path.resolve(input.trim());
-  return process.platform === "win32" ? resolved.toLowerCase() : resolved;
+  // Windows and macOS (default APFS) are case-insensitive — fold both.
+  return process.platform === "win32" || process.platform === "darwin"
+    ? resolved.toLowerCase()
+    : resolved;
 }
 
 export function createWorkspaceStore(statePath: string) {

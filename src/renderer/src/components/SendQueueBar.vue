@@ -5,7 +5,7 @@ import {
   ChevronDownOutline,
   ChevronForwardOutline,
   CreateOutline,
-  FlashOutline,
+  NavigateOutline,
   TrashOutline,
 } from "@vicons/ionicons5";
 import type { QueuedSendItem } from "@renderer/stores/send-queue";
@@ -108,7 +108,7 @@ function previewText(item: QueuedSendItem): string {
             @click="emit('sendNow', item.id)"
           >
             <template #icon>
-              <NIcon :component="FlashOutline" :size="12" />
+              <NIcon :component="NavigateOutline" :size="12" />
             </template>
           </NButton>
           <NButton

@@ -31,15 +31,29 @@ export function decodeWorkspacePaths(raw: string): string[] {
 }
 
 /**
- * True when the string looks like a workspace-relative path (not a URL / absolute).
- * Used when dragging from the Files tree with text/plain = relative key.
+ * True when the string looks like a workspace-relative path (not a URL / absolute /
+ * prose). Used when dragging from the Files tree with text/plain = relative key
+ * and when pasting plain text.
+ *
+ * Path-shaped means: contains a directory separator, starts with ./ or ../, or
+ * carries a file extension (single filename like `README.md`). Text with spaces
+ * is prose unless it is quoted — a pasted path that contains spaces usually
+ * arrives wrapped in quotes.
  */
 export function looksLikeWorkspaceRelPath(raw: string): boolean {
   const t = raw.trim().replace(/\\/g, "/");
   if (!t || t.includes("\0")) return false;
   if (/^https?:\/\//i.test(t) || /^file:\/\//i.test(t)) return false;
   if (/^[A-Za-z]:\//.test(t) || t.startsWith("//") || t.startsWith("/")) return false;
-  // Reject prose with spaces that isn't a quoted path — allow normal rel paths with spaces.
   if (t.includes("://")) return false;
-  return true;
+  // Prose with spaces is text, not a path — unless quoted.
+  if (/\s/.test(t)) {
+    return /^["'].*["']$/.test(t);
+  }
+  return (
+    t.includes("/") ||
+    t.startsWith("./") ||
+    t.startsWith("../") ||
+    /\.[A-Za-z0-9]{1,8}$/.test(t)
+  );
 }

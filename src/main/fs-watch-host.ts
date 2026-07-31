@@ -38,7 +38,8 @@ function normalizeRoot(root: string): string {
 function rootsEqual(a: string, b: string): boolean {
   const na = normalizeRoot(a);
   const nb = normalizeRoot(b);
-  return process.platform === "win32"
+  // Windows and macOS (default APFS) are case-insensitive — fold both.
+  return process.platform === "win32" || process.platform === "darwin"
     ? na.toLowerCase() === nb.toLowerCase()
     : na === nb;
 }

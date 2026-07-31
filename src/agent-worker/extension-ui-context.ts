@@ -145,7 +145,7 @@ export function createDesktopExtensionUIContext(): ExtensionUIContext {
     setHiddenThinkingLabel: () => {},
     setFooter: () => {},
     setHeader: () => {},
-    custom: async () => undefined,
+    custom: async <T,>() => undefined as T,
     addAutocompleteProvider: () => {},
     setEditorComponent: () => {},
     getEditorComponent: () => undefined,

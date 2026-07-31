@@ -695,8 +695,8 @@ function submitRenameTab(): void {
   display: flex;
   align-items: center;
   gap: 2px;
-  min-height: 32px;
-  height: 32px;
+  min-height: 34px;
+  height: 34px;
   padding: 0 6px;
   border-bottom: 1px solid var(--border);
   background: color-mix(in srgb, var(--bg-panel) 92%, var(--bg-elevated));
