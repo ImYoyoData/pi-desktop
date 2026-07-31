@@ -377,7 +377,9 @@ function emitContextUsage(active: AgentSession): void {
  */
 function pruneAgentToolResults(active: AgentSession): void {
   try {
-    const result = pruneOldToolResults(active.messages as Parameters<typeof pruneOldToolResults>[0]);
+    const result = pruneOldToolResults(
+      active.messages as unknown as Parameters<typeof pruneOldToolResults>[0],
+    );
     if (result.changed) {
       emitContextUsage(active);
     }
@@ -463,7 +465,8 @@ async function runCommand(id: string, command: AgentCommand): Promise<void> {
       const active = requireSession();
       applyBuiltinBrowserToolGate(active, command.message);
       pruneAgentToolResults(active);
-      await active.steer(command.message);
+      const images = normalizePromptImages(command.images);
+      await active.steer(command.message, images?.length ? images : undefined);
       post({ kind: "result", id, data: { ok: true } });
       return;
     }

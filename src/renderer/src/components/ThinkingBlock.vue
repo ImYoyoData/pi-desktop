@@ -13,13 +13,22 @@ const props = defineProps<{
   startedAt?: number;
   /** Final thinking duration once finished (ms). */
   durationMs?: number;
+  /** True once the whole turn finished: fold finished thinking (Codex-like). */
+  autoCollapse?: boolean;
 }>();
 
 /**
  * History rows stay collapsed (cheap open). Live streaming auto-expands;
- * after the turn finishes we leave open so the just-finished thought stays readable.
+ * once the whole turn finishes the block folds back up (Codex-like), unless
+ * the user expanded it manually.
  */
-const open = ref(Boolean(props.streaming));
+const manuallyOpen = ref<boolean | null>(null);
+const open = computed(() => {
+  // Turn finished: only a user-expanded block stays open; history stays folded.
+  if (props.autoCollapse) return manuallyOpen.value === true;
+  if (manuallyOpen.value !== null) return manuallyOpen.value;
+  return Boolean(props.streaming);
+});
 const bodyRef = ref<HTMLElement | null>(null);
 /** Follow newest text unless the user scrolls up inside the card. */
 let stickToBottom = true;
@@ -64,7 +73,8 @@ watch(
   () => [props.streaming, props.startedAt] as const,
   ([streaming, startedAt]) => {
     if (streaming) {
-      open.value = true;
+      // Let the computed track live state (auto-expands when the turn is open).
+      manuallyOpen.value = null;
       stickToBottom = true;
       if (startedAt) startTick();
       else stopTick();
@@ -74,6 +84,18 @@ watch(
   },
   { immediate: true },
 );
+
+// Fold everything as soon as the round finishes; users can re-expand manually.
+watch(
+  () => props.autoCollapse,
+  (v) => {
+    if (v) manuallyOpen.value = false;
+  },
+);
+
+function toggleOpen(): void {
+  manuallyOpen.value = !open.value;
+}
 
 onUnmounted(() => stopTick());
 
@@ -102,7 +124,7 @@ watch(
 
 <template>
   <div class="thinking" :class="{ streaming: Boolean(streaming) }">
-    <button type="button" class="thinking-head" @click="open = !open">
+    <button type="button" class="thinking-head" @click="toggleOpen">
       <NIcon
         class="chev"
         :component="open ? ChevronDownOutline : ChevronForwardOutline"
@@ -125,10 +147,10 @@ watch(
 
 <style scoped>
 .thinking {
-  margin: 0 0 6px;
-  border-radius: 6px;
-  border: 1px solid color-mix(in srgb, var(--border, #ddd) 70%, transparent);
-  background: color-mix(in srgb, var(--fg-muted, #888) 3.5%, transparent);
+  margin: 0 0 8px;
+  border-radius: 8px;
+  border: 1px solid color-mix(in srgb, var(--border, #ddd) 75%, transparent);
+  background: color-mix(in srgb, var(--fg-muted, #888) 4%, transparent);
   overflow: hidden;
 }
 
@@ -140,9 +162,9 @@ watch(
   width: 100%;
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 7px;
   margin: 0;
-  padding: 6px 10px;
+  padding: 7px 10px;
   border: none;
   background: transparent;
   color: var(--fg-muted, #666);

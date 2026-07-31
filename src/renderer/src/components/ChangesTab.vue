@@ -19,14 +19,19 @@ import {
   ArrowDownOutline,
   ArrowUndoOutline,
   ArrowUpOutline,
+  ChevronBackOutline,
+  ChevronForwardOutline,
   CloudDownloadOutline,
   CloudOutline,
+  CreateOutline,
+  EllipsisHorizontalOutline,
   GitBranchOutline,
   GitCommitOutline,
   GitCompareOutline,
   GitMergeOutline,
   RefreshOutline,
   TimeOutline,
+  TrashOutline,
 } from "@vicons/ionicons5";
 import { t } from "@renderer/i18n";
 import { useWorkspaceStore } from "@renderer/stores/workspace";
@@ -93,6 +98,18 @@ const remoteName = ref("origin");
 const remoteUrl = ref("");
 const logEntries = ref<GitLogEntry[]>([]);
 const logLoading = ref(false);
+const showRenameBranch = ref(false);
+const renameBranchName = ref("");
+const showDeleteBranch = ref(false);
+const deleteBranchTarget = ref<string | null>(null);
+const showFileLog = ref(false);
+const fileLogPath = ref<string | null>(null);
+const fileLogEntries = ref<GitLogEntry[]>([]);
+const fileLogLoading = ref(false);
+const fileLogSelected = ref<{ hash: string; shortHash: string; subject: string } | null>(null);
+const fileLogDiff = ref<string | null>(null);
+const fileLogDiffLoading = ref(false);
+const restoringCommit = ref(false);
 
 const checkedPaths = computed(() =>
   files.value.filter((f) => checked.value[f.relativePath]).map((f) => f.relativePath),
@@ -133,6 +150,40 @@ const selectedFileName = computed(() => {
   return selectedPath.value.split(/[/\\]/).pop() || selectedPath.value;
 });
 
+const selectedCode = computed(() => {
+  if (!selectedPath.value) return "";
+  return files.value.find((f) => f.relativePath === selectedPath.value)?.code ?? "";
+});
+
+function statusClass(code: string): string {
+  switch (code) {
+    case "M":
+      return "st-modified";
+    case "A":
+      return "st-added";
+    case "D":
+      return "st-deleted";
+    case "R":
+      return "st-renamed";
+    case "U":
+      return "st-untracked";
+    case "C":
+      return "st-conflict";
+    default:
+      return "st-modified";
+  }
+}
+
+function fileName(rel: string): string {
+  const parts = rel.split("/");
+  return parts[parts.length - 1] || rel;
+}
+
+function fileDir(rel: string): string {
+  const idx = rel.lastIndexOf("/");
+  return idx > 0 ? rel.slice(0, idx) : "";
+}
+
 const diffStats = computed(() => {
   if (!patch.value) return null;
   return countDiffStats(patch.value);
@@ -153,6 +204,12 @@ const mergeBranchOptions = computed<SelectOption[]>(() => {
   }
   return opts;
 });
+
+const deleteBranchOptions = computed<SelectOption[]>(() =>
+  localBranches.value
+    .filter((name) => name !== branch.value)
+    .map((name) => ({ label: name, value: name })),
+);
 
 const branchMenu = computed<DropdownOption[]>(() => {
   const items: DropdownOption[] = [];
@@ -189,6 +246,16 @@ const branchMenu = computed<DropdownOption[]>(() => {
     label: t.changesMergeBranch,
     key: "merge",
     icon: () => h(NIcon, null, { default: () => h(GitMergeOutline) }),
+  });
+  items.push({
+    label: t.changesRenameBranch,
+    key: "rename",
+    icon: () => h(NIcon, null, { default: () => h(CreateOutline) }),
+  });
+  items.push({
+    label: t.changesDeleteBranch,
+    key: "delete",
+    icon: () => h(NIcon, null, { default: () => h(TrashOutline) }),
   });
   return items;
 });
@@ -241,46 +308,70 @@ async function refreshRemotes(): Promise<void> {
   }
 }
 
+/**
+ * Refresh git status without piling up concurrent calls. Multiple refreshes
+ * (fs-watcher bursts + manual refresh + post-op refresh) used to run git
+ * subprocesses at the same time as commit/push/checkout, racing on
+ * .git/index.lock and failing with "index.lock: File exists".
+ */
+let refreshInFlight: Promise<void> | null = null;
+let refreshQueued = false;
 async function refresh(): Promise<void> {
-  loading.value = true;
-  try {
-    const status = await window.api.git.status();
-    isGit.value = status.isGitRepository;
-    gitUnavailable.value = status.errorCode === "git_unavailable";
-    branch.value = status.branch;
-    files.value = status.files as GitFile[];
-    syncChecks(files.value);
-    if (status.errorCode === "git_unavailable") {
-      message.error(
-        formatGitError({
-          ok: false,
-          code: "git_unavailable",
-          message: status.errorMessage || "",
-        }),
-      );
-    }
-    if (status.isGitRepository && !gitUnavailable.value) {
-      const br = await window.api.git.branches();
-      localBranches.value = br.local;
-      remoteBranches.value = br.remote ?? [];
-      if (br.current) branch.value = br.current;
-      await refreshRemotes();
-    } else {
-      localBranches.value = [];
-      remoteBranches.value = [];
-      remotes.value = [];
-      selectedPath.value = null;
-      patch.value = null;
-      conflictPayload.value = null;
-      oldContent.value = "";
-      newContent.value = "";
-    }
-    if (selectedPath.value) await loadDiff(selectedPath.value);
-  } catch (err) {
-    message.error(err instanceof Error ? err.message : String(err));
-  } finally {
-    loading.value = false;
+  if (refreshInFlight) {
+    // Another refresh is running: run one follow-up afterwards so the latest
+    // state is always reflected (but never more than one extra pass).
+    refreshQueued = true;
+    return refreshInFlight;
   }
+  const run = (async () => {
+    loading.value = true;
+    try {
+      const status = await window.api.git.status();
+      isGit.value = status.isGitRepository;
+      gitUnavailable.value = status.errorCode === "git_unavailable";
+      branch.value = status.branch;
+      files.value = status.files as GitFile[];
+      syncChecks(files.value);
+      if (status.errorCode === "git_unavailable") {
+        message.error(
+          formatGitError({
+            ok: false,
+            code: "git_unavailable",
+            message: status.errorMessage || "",
+          }),
+        );
+      }
+      if (status.isGitRepository && !gitUnavailable.value) {
+        const br = await window.api.git.branches();
+        localBranches.value = br.local;
+        remoteBranches.value = br.remote ?? [];
+        if (br.current) branch.value = br.current;
+        await refreshRemotes();
+      } else {
+        localBranches.value = [];
+        remoteBranches.value = [];
+        remotes.value = [];
+        selectedPath.value = null;
+        patch.value = null;
+        conflictPayload.value = null;
+        oldContent.value = "";
+        newContent.value = "";
+      }
+      if (selectedPath.value) await loadDiff(selectedPath.value);
+    } catch (err) {
+      message.error(err instanceof Error ? err.message : String(err));
+    } finally {
+      loading.value = false;
+    }
+  })();
+  refreshInFlight = run.finally(() => {
+    refreshInFlight = null;
+    if (refreshQueued) {
+      refreshQueued = false;
+      void refresh();
+    }
+  });
+  return refreshInFlight;
 }
 
 async function loadDiff(relativePath: string): Promise<void> {
@@ -503,6 +594,62 @@ async function onRemoveRemote(remote: GitRemote): Promise<void> {
   });
 }
 
+const moreMenu = computed<DropdownOption[]>(() => [
+  {
+    label: t.changesRemotes,
+    key: "remotes",
+    icon: () => h(NIcon, null, { default: () => h(CloudOutline) }),
+  },
+  {
+    label: t.changesLog,
+    key: "log",
+    icon: () => h(NIcon, null, { default: () => h(TimeOutline) }),
+  },
+  {
+    label: t.changesRefresh,
+    key: "refresh",
+    icon: () => h(NIcon, null, { default: () => h(RefreshOutline) }),
+  },
+]);
+
+function onMoreSelect(key: string | number): void {
+  const k = String(key);
+  if (k === "remotes") void openRemotes();
+  else if (k === "log") void openLog();
+  else if (k === "refresh") void refresh();
+}
+
+function onCommitKeydown(e: KeyboardEvent): void {
+  if (e.key !== "Enter" || e.shiftKey || e.altKey) return;
+  e.preventDefault();
+  void onCommit();
+}
+
+async function onCommitAndPush(): Promise<void> {
+  if (!canCommit.value) return;
+  const msg = commitMessage.value.trim();
+  const paths = [...checkedPaths.value];
+  busy.value = true;
+  try {
+    const commit = await window.api.git.commit({ message: msg, paths });
+    if (!commit.ok) {
+      message.error(formatGitError(commit));
+      return;
+    }
+    message.success(t.changesCommitted);
+    commitMessage.value = "";
+    const push = await window.api.git.push();
+    if (!push.ok) {
+      message.error(formatGitError(push));
+      return;
+    }
+    message.success(t.changesPushed);
+    await refresh();
+  } finally {
+    busy.value = false;
+  }
+}
+
 function onBranchSelect(key: string | number): void {
   const k = String(key);
   if (k === "new") {
@@ -515,10 +662,128 @@ function onBranchSelect(key: string | number): void {
     showMerge.value = true;
     return;
   }
+  if (k === "rename") {
+    renameBranchName.value = branch.value ?? "";
+    showRenameBranch.value = true;
+    return;
+  }
+  if (k === "delete") {
+    deleteBranchTarget.value = null;
+    showDeleteBranch.value = true;
+    return;
+  }
   if (k.startsWith("checkout:")) {
     const name = k.slice("checkout:".length);
     void runOp(t.changesCheckoutOk, () => window.api.git.checkout(name));
   }
+}
+
+async function submitRenameBranch(): Promise<boolean> {
+  const next = renameBranchName.value.trim();
+  const current = branch.value ?? "";
+  if (!next) {
+    message.warning(t.changesRenameBranchPrompt);
+    return false;
+  }
+  const ok = await runOp(t.changesBranchRenamed, () =>
+    window.api.git.renameBranch({ branch: current, nextName: next }),
+  );
+  if (ok) showRenameBranch.value = false;
+  return ok;
+}
+
+async function submitDeleteBranch(): Promise<boolean> {
+  const name = (deleteBranchTarget.value ?? "").trim();
+  if (!name) {
+    message.warning(t.changesDeleteBranchPrompt);
+    return false;
+  }
+  const ok = await runOp(t.changesBranchDeleted, () => window.api.git.deleteBranch(name));
+  if (ok) showDeleteBranch.value = false;
+  return ok;
+}
+
+async function openFileLog(relativePath: string): Promise<void> {
+  if (!relativePath) return;
+  fileLogPath.value = relativePath;
+  showFileLog.value = true;
+  fileLogLoading.value = true;
+  fileLogEntries.value = [];
+  fileLogSelected.value = null;
+  fileLogDiff.value = null;
+  try {
+    const result = await window.api.git.logFile(relativePath, 50);
+    fileLogEntries.value = result.entries;
+  } catch (err) {
+    message.error(err instanceof Error ? err.message : String(err));
+    fileLogEntries.value = [];
+  } finally {
+    fileLogLoading.value = false;
+  }
+}
+
+async function showFileLogDiff(entry: GitLogEntry): Promise<void> {
+  const filePath = fileLogPath.value;
+  if (!filePath) return;
+  fileLogSelected.value = { hash: entry.hash, shortHash: entry.shortHash, subject: entry.subject };
+  fileLogDiffLoading.value = true;
+  fileLogDiff.value = null;
+  try {
+    const result = await window.api.git.fileDiffAtCommit({
+      relativePath: filePath,
+      commitHash: entry.hash,
+    });
+    fileLogDiff.value = result.supported ? (result.patch ?? null) : null;
+  } catch (err) {
+    message.error(err instanceof Error ? err.message : String(err));
+    fileLogDiff.value = null;
+  } finally {
+    fileLogDiffLoading.value = false;
+  }
+}
+
+function closeFileLogDiff(): void {
+  fileLogSelected.value = null;
+  fileLogDiff.value = null;
+}
+
+function onRestoreToCommit(): void {
+  const filePath = fileLogPath.value;
+  const commit = fileLogSelected.value;
+  if (!filePath || !commit || restoringCommit.value) return;
+  const d = dialog.warning({
+    title: t.changesRestoreToCommit,
+    content: t.changesRestoreToCommitConfirm(commit.shortHash),
+    positiveText: t.changesRestoreToCommit,
+    negativeText: t.cancel,
+    onPositiveClick: () => {
+      d.loading = true;
+      return (async () => {
+        restoringCommit.value = true;
+        try {
+          const result = await window.api.git.restoreFileToCommit({
+            relativePath: filePath,
+            commitHash: commit.hash,
+          });
+          if (!result.ok) {
+            message.error(formatGitError(result));
+            return false;
+          }
+          message.success(t.changesRestoredToCommit);
+          showFileLog.value = false;
+          closeFileLogDiff();
+          await refresh();
+          if (selectedPath.value) await loadDiff(selectedPath.value);
+          return true;
+        } catch (err) {
+          message.error(err instanceof Error ? err.message : String(err));
+          return false;
+        } finally {
+          restoringCommit.value = false;
+        }
+      })();
+    },
+  });
 }
 
 async function submitNewBranch(): Promise<boolean> {
@@ -607,97 +872,62 @@ watch(
       </NDropdown>
       <div class="spacer" />
       <NButton
-        class="tool-btn"
+        class="icon-btn"
         size="tiny"
         quaternary
-        :disabled="!isGit || busy"
-        :title="t.changesRemotes"
-        @click="openRemotes"
-      >
-        <template #icon>
-          <NIcon :component="CloudOutline" :size="14" />
-        </template>
-        {{ t.changesRemotes }}
-        <span v-if="remotes.length" class="remote-count">{{ remotes.length }}</span>
-      </NButton>
-      <NButton
-        class="tool-btn"
-        size="tiny"
-        quaternary
-        :disabled="!isGit || busy"
-        :title="t.changesLog"
-        @click="openLog"
-      >
-        <template #icon>
-          <NIcon :component="TimeOutline" :size="14" />
-        </template>
-        {{ t.changesLog }}
-      </NButton>
-      <NButton
-        class="tool-btn"
-        size="tiny"
-        quaternary
+        circle
         :disabled="!isGit || busy"
         :title="t.changesFetch"
         @click="onFetch"
       >
         <template #icon>
-          <NIcon :component="CloudDownloadOutline" :size="14" />
+          <NIcon :component="CloudDownloadOutline" :size="15" />
         </template>
-        {{ t.changesFetch }}
       </NButton>
-      <NButton class="tool-btn" size="tiny" quaternary :disabled="!isGit || busy" :title="t.changesPull" @click="onPull">
+      <NButton
+        class="icon-btn"
+        size="tiny"
+        quaternary
+        circle
+        :disabled="!isGit || busy"
+        :title="t.changesPull"
+        @click="onPull"
+      >
         <template #icon>
-          <NIcon :component="ArrowDownOutline" :size="14" />
+          <NIcon :component="ArrowDownOutline" :size="15" />
         </template>
-        {{ t.changesPull }}
       </NButton>
-      <NButton class="tool-btn" size="tiny" quaternary :disabled="!isGit || busy" :title="t.changesPush" @click="onPush">
+      <NButton
+        class="icon-btn"
+        size="tiny"
+        quaternary
+        circle
+        :disabled="!isGit || busy"
+        :title="t.changesPush"
+        @click="onPush"
+      >
         <template #icon>
-          <NIcon :component="ArrowUpOutline" :size="14" />
-        </template>
-        {{ t.changesPush }}
-      </NButton>
-      <NButton size="tiny" quaternary circle :disabled="busy" :title="t.changesRefresh" @click="refresh">
-        <template #icon>
-          <NIcon :component="RefreshOutline" :size="14" />
+          <NIcon :component="ArrowUpOutline" :size="15" />
         </template>
       </NButton>
+      <NDropdown
+        trigger="click"
+        :options="moreMenu"
+        :disabled="!isGit || busy"
+        @select="onMoreSelect"
+      >
+        <NButton size="tiny" quaternary circle :disabled="!isGit || busy" :title="t.changesMore">
+          <template #icon>
+            <NIcon :component="EllipsisHorizontalOutline" :size="16" />
+          </template>
+        </NButton>
+      </NDropdown>
     </div>
 
     <div v-if="isGit && conflictCount > 0" class="conflict-banner">
       <span>{{ t.changesConflictBanner }} ({{ conflictCount }})</span>
       <NButton size="tiny" quaternary :disabled="busy" @click="onAbortMerge">
         {{ t.changesConflictBannerAction }}
-      </NButton>
-    </div>
-
-    <div v-if="isGit" class="commit-row">
-      <NInput
-        v-model:value="commitMessage"
-        size="tiny"
-        :placeholder="t.changesCommitPlaceholder"
-        :disabled="busy"
-        @keydown.enter.exact.prevent="onCommit"
-      />
-      <NButton
-        class="tool-btn"
-        size="tiny"
-        quaternary
-        :disabled="!canDiscardSelected"
-        :title="t.changesDiscardSelected"
-        @click="onDiscardSelected"
-      >
-        <template #icon>
-          <NIcon :component="ArrowUndoOutline" :size="14" />
-        </template>
-        {{ t.changesDiscardSelected }}
-      </NButton>
-      <NButton class="tool-btn" size="tiny" type="primary" :disabled="!canCommit" :loading="busy" @click="onCommit">
-        <template #icon>
-          <NIcon :component="GitCommitOutline" :size="14" />
-        </template>
-        {{ t.changesCommit }}
       </NButton>
     </div>
 
@@ -778,8 +1008,21 @@ watch(
               @click.stop
               @update:checked="(v) => (checked[f.relativePath] = v)"
             />
-            <span class="code" :data-code="f.code">{{ f.code }}</span>
-            <span class="path" :title="f.relativePath">{{ f.relativePath }}</span>
+            <span class="status-badge" :class="statusClass(f.code)">{{ f.code }}</span>
+            <span class="file-main">
+              <span class="file-name" :title="f.relativePath">{{ fileName(f.relativePath) }}</span>
+              <span class="file-dir">{{ fileDir(f.relativePath) }}</span>
+            </span>
+            <button
+              v-if="!isConflictFile(f)"
+              type="button"
+              class="row-discard"
+              :title="t.changesFileHistory"
+              :disabled="busy"
+              @click.stop="openFileLog(f.relativePath)"
+            >
+              <NIcon :component="TimeOutline" :size="13" />
+            </button>
             <button
               v-if="!isConflictFile(f)"
               type="button"
@@ -800,13 +1043,28 @@ watch(
           </template>
           <template v-else>
             <header class="diff-head">
+              <span v-if="selectedCode" class="status-badge" :class="statusClass(selectedCode)">{{ selectedCode }}</span>
               <div class="diff-titles">
                 <div class="diff-name" :title="selectedPath">{{ selectedFileName }}</div>
+                <div v-if="selectedPath" class="diff-path" :title="selectedPath">{{ selectedPath }}</div>
               </div>
               <div v-if="diffStats" class="diff-stats" :title="selectedPath ?? undefined">
                 <span class="add">+{{ diffStats.additions }}</span>
                 <span class="del">-{{ diffStats.deletions }}</span>
               </div>
+              <NButton
+                v-if="!conflictPayload && selectedPath"
+                size="tiny"
+                quaternary
+                :disabled="busy"
+                :title="t.changesFileHistory"
+                @click="openFileLog(selectedPath)"
+              >
+                <template #icon>
+                  <NIcon :component="TimeOutline" :size="14" />
+                </template>
+                {{ t.changesFileHistory }}
+              </NButton>
               <NButton
                 v-if="!conflictPayload"
                 size="tiny"
@@ -846,6 +1104,62 @@ watch(
         </div>
       </div>
     </NSpin>
+
+    <div v-if="isGit" class="commit-box">
+      <div class="commit-head">
+        <div class="commit-summary">
+          <NIcon :component="GitCommitOutline" :size="13" />
+          <span>{{ t.changesCommitFiles(checkedPaths.length) }}</span>
+        </div>
+        <button
+          type="button"
+          class="commit-discard-link"
+          :disabled="!canDiscardSelected || busy"
+          @click="onDiscardSelected"
+        >
+          {{ t.changesDiscardSelected }}
+        </button>
+      </div>
+      <NInput
+        v-model:value="commitMessage"
+        type="textarea"
+        :autosize="{ minRows: 2, maxRows: 6 }"
+        :placeholder="t.changesCommitPlaceholder"
+        :disabled="busy"
+        @keydown="onCommitKeydown"
+      />
+      <div class="commit-foot">
+        <NText depth="3" style="font-size: 10.5px">{{ t.changesCommitEnterHint }}</NText>
+        <div class="commit-actions">
+          <NButton
+            class="tool-btn"
+            size="tiny"
+            type="primary"
+            :disabled="!canCommit"
+            :loading="busy"
+            @click="onCommit"
+          >
+            <template #icon>
+              <NIcon :component="GitCommitOutline" :size="14" />
+            </template>
+            {{ t.changesCommit }}
+          </NButton>
+          <NButton
+            class="tool-btn"
+            size="tiny"
+            secondary
+            :disabled="!canCommit"
+            :loading="busy"
+            @click="onCommitAndPush"
+          >
+            <template #icon>
+              <NIcon :component="ArrowUpOutline" :size="14" />
+            </template>
+            {{ t.changesCommitPush }}
+          </NButton>
+        </div>
+      </div>
+    </div>
 
     <NModal
       v-model:show="showRemotes"
@@ -897,6 +1211,117 @@ watch(
           </li>
         </ul>
       </NSpin>
+    </NModal>
+
+    <NModal
+      v-model:show="showFileLog"
+      preset="card"
+      :title="t.changesFileHistory"
+      style="width: min(640px, 94vw)"
+      :mask-closable="true"
+    >
+      <div v-if="fileLogPath" class="file-log-path" :title="fileLogPath">{{ fileLogPath }}</div>
+
+      <template v-if="fileLogSelected">
+        <div class="file-log-diff-head">
+          <button type="button" class="file-log-back" :disabled="busy" @click="closeFileLogDiff">
+            <NIcon :component="ChevronBackOutline" :size="14" />
+            {{ t.back }}
+          </button>
+          <div class="file-log-diff-title" :title="fileLogSelected.subject">
+            <code class="log-hash">{{ fileLogSelected.shortHash }}</code>
+            <span class="log-subject">{{ fileLogSelected.subject }}</span>
+          </div>
+          <div class="file-log-restore">
+            <NButton
+              size="tiny"
+              type="warning"
+              secondary
+              :disabled="busy || fileLogDiffLoading"
+              :loading="restoringCommit"
+              @click="onRestoreToCommit"
+            >
+              <template #icon>
+                <NIcon :component="ArrowUndoOutline" :size="13" />
+              </template>
+              {{ t.changesRestoreToCommit }}
+            </NButton>
+          </div>
+        </div>
+        <NSpin :show="fileLogDiffLoading">
+          <pre v-if="fileLogDiff" class="file-log-diff"><code><span
+            v-for="(line, i) in fileLogDiff.split('\n')"
+            :key="i"
+            class="dline"
+            :class="{
+              add: line.startsWith('+') && !line.startsWith('+++'),
+              del: line.startsWith('-') && !line.startsWith('---'),
+              meta: line.startsWith('@@') || line.startsWith('diff ') || line.startsWith('index ') || line.startsWith('+++') || line.startsWith('---'),
+            }"
+          >{{ line || ' ' }}</span></code></pre>
+          <NEmpty v-else-if="!fileLogDiffLoading" :description="t.changesNoDiff" size="small" />
+        </NSpin>
+      </template>
+
+      <NSpin v-else :show="fileLogLoading">
+        <NEmpty v-if="!fileLogEntries.length" :description="t.changesFileLogEmpty" size="small" />
+        <ul v-else class="log-list">
+          <li v-for="entry in fileLogEntries" :key="entry.hash">
+            <button
+              type="button"
+              class="log-item"
+              :disabled="busy"
+              :title="t.changesFileLogViewDiff"
+              @click="showFileLogDiff(entry)"
+            >
+              <code class="log-hash">{{ entry.shortHash }}</code>
+              <div class="log-body">
+                <div class="log-subject">{{ entry.subject }}</div>
+                <div class="log-meta">{{ entry.author }} · {{ formatLogDate(entry.date) }}</div>
+              </div>
+              <NIcon class="log-chevron" :component="ChevronForwardOutline" :size="13" />
+            </button>
+          </li>
+        </ul>
+      </NSpin>
+    </NModal>
+
+    <NModal
+      v-model:show="showRenameBranch"
+      preset="dialog"
+      :title="t.changesRenameBranch"
+      :positive-text="t.confirm"
+      :negative-text="t.cancel"
+      :positive-button-props="{ disabled: busy || !renameBranchName.trim(), loading: busy }"
+      @positive-click="submitRenameBranch"
+    >
+      <NInput
+        v-model:value="renameBranchName"
+        size="small"
+        :placeholder="t.changesRenameBranchPrompt"
+        :disabled="busy"
+        autofocus
+        @keydown.enter.prevent="() => void submitRenameBranch()"
+      />
+    </NModal>
+
+    <NModal
+      v-model:show="showDeleteBranch"
+      preset="dialog"
+      :title="t.changesDeleteBranch"
+      :positive-text="t.confirm"
+      :negative-text="t.cancel"
+      :positive-button-props="{ disabled: busy || !deleteBranchTarget, loading: busy }"
+      @positive-click="submitDeleteBranch"
+    >
+      <NSelect
+        v-model:value="deleteBranchTarget"
+        size="small"
+        filterable
+        :placeholder="t.changesDeleteBranchPrompt"
+        :options="deleteBranchOptions"
+        :disabled="busy"
+      />
     </NModal>
 
     <NModal
@@ -1007,11 +1432,68 @@ watch(
   border-bottom: 1px solid color-mix(in srgb, #cf222e 28%, var(--border));
 }
 
-.commit-row {
+.commit-box {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 8px;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg-elevated, var(--bg));
+  box-shadow: var(--shadow-sm, none);
+}
+
+.commit-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.commit-summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  color: var(--fg-muted, #666);
+  font-weight: 550;
+}
+
+.commit-discard-link {
+  border: none;
+  background: transparent;
+  padding: 0;
+  font-size: 11px;
+  color: var(--fg-muted, #666);
+  cursor: pointer;
+}
+
+.commit-discard-link:hover:not(:disabled) {
+  color: #c44;
+  text-decoration: underline;
+}
+
+.commit-discard-link:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.commit-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.commit-actions {
   display: flex;
   gap: 6px;
-  padding: 6px 8px;
-  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.icon-btn {
   flex-shrink: 0;
 }
 
@@ -1033,7 +1515,7 @@ watch(
 .split {
   height: 100%;
   display: grid;
-  grid-template-columns: minmax(160px, 38%) 1fr;
+  grid-template-columns: minmax(190px, 36%) 1fr;
   min-height: 0;
 }
 
@@ -1071,23 +1553,24 @@ watch(
 .file-row {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
   width: 100%;
   border: none;
   background: transparent;
   text-align: left;
-  padding: 4px 8px;
+  padding: 6px 8px;
   cursor: pointer;
   font-size: 12px;
   color: var(--fg);
 }
 
-.file-row:hover {
-  background: var(--bg-hover);
+.file-row.active {
+  background: color-mix(in srgb, var(--accent) 7%, var(--bg-panel));
+  box-shadow: inset 2px 0 0 var(--accent);
 }
 
-.file-row.active {
-  background: var(--bg-panel);
+.file-row:hover:not(.active) {
+  background: var(--bg-hover);
 }
 
 .row-discard {
@@ -1123,36 +1606,73 @@ watch(
   opacity: 0.3;
 }
 
-.code {
-  font-family: var(--font-mono), monospace;
-  font-size: 11px;
-  font-weight: 600;
-  width: 12px;
+.status-badge {
   flex-shrink: 0;
+  width: 18px;
+  height: 18px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 5px;
+  font-family: var(--font-mono), monospace;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1;
 }
 
-.code[data-code="M"] {
-  color: #c27803;
-}
-.code[data-code="A"],
-.code[data-code="U"] {
-  color: #3f8f5a;
-}
-.code[data-code="D"] {
-  color: #c44;
-}
-.code[data-code="C"] {
-  color: #c44;
-}
-.code[data-code="R"] {
-  color: #3b82f6;
+.st-modified {
+  color: #0969da;
+  background: rgba(9, 105, 218, 0.12);
 }
 
-.path {
+.st-added {
+  color: #1a7f37;
+  background: rgba(26, 127, 55, 0.12);
+}
+
+.st-deleted {
+  color: #cf222e;
+  background: rgba(207, 34, 46, 0.12);
+}
+
+.st-renamed {
+  color: #8250df;
+  background: rgba(130, 80, 223, 0.12);
+}
+
+.st-untracked {
+  color: #9a6700;
+  background: rgba(154, 103, 0, 0.12);
+}
+
+.st-conflict {
+  color: #bc4c00;
+  background: rgba(188, 76, 0, 0.14);
+}
+
+.file-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.file-name {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  min-width: 0;
+  font-size: 12px;
+  color: var(--fg);
+}
+
+.file-dir {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 10.5px;
+  color: var(--fg-faint, #999);
+  font-family: var(--font-mono), monospace;
 }
 
 .diff-pane {
@@ -1176,6 +1696,9 @@ watch(
 .diff-titles {
   flex: 1;
   min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
 }
 
 .diff-name {
@@ -1270,11 +1793,117 @@ watch(
   flex-shrink: 0;
 }
 
+.file-log-path {
+  font-size: 11.5px;
+  color: var(--fg-muted, #666);
+  font-family: var(--font-mono, ui-monospace, monospace);
+  margin-bottom: 8px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .log-item {
   display: flex;
   gap: 10px;
-  padding: 8px 0;
+  align-items: flex-start;
+  width: 100%;
+  padding: 8px 6px;
+  border: none;
   border-bottom: 1px solid var(--border);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  border-radius: 6px;
+}
+
+.log-item:hover:not(:disabled) {
+  background: var(--bg-hover, rgba(127, 127, 127, 0.06));
+}
+
+.log-chevron {
+  flex-shrink: 0;
+  margin-left: auto;
+  color: var(--fg-faint, #999);
+  padding-top: 3px;
+}
+
+.file-log-diff-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 6px 0 8px;
+}
+
+.file-log-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--fg-muted);
+  font-size: 12px;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.file-log-back:hover:not(:disabled) {
+  color: var(--fg-strong);
+  border-color: var(--border-strong);
+}
+
+.file-log-diff-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.file-log-restore {
+  flex-shrink: 0;
+  margin-left: auto;
+}
+
+.file-log-diff-title .log-subject {
+  font-size: 12.5px;
+  flex: 1;
+  min-width: 0;
+}
+
+.file-log-diff {
+  margin: 0;
+  padding: 8px 10px;
+  max-height: min(46vh, 380px);
+  overflow: auto;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--bg, #fafafa) 90%, #000 4%);
+  font-size: 11.5px;
+  line-height: 1.5;
+  font-family: var(--font-mono, ui-monospace, Consolas, monospace);
+}
+
+.file-log-diff .dline {
+  display: block;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.file-log-diff .dline.add {
+  background: rgba(22, 163, 74, 0.12);
+  color: #15803d;
+}
+
+.file-log-diff .dline.del {
+  background: rgba(220, 38, 38, 0.1);
+  color: #b91c1c;
+}
+
+.file-log-diff .dline.meta {
+  color: var(--fg-muted);
 }
 
 .log-hash {

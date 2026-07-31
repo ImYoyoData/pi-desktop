@@ -15,14 +15,71 @@ export function encodeCwdSessionDir(cwd: string, agentDir?: string): string {
   return path.join(resolvedAgentDir, "sessions", safePath);
 }
 
-/** Case-fold on Windows so Desktop recent and CLI cwd keys merge cleanly. */
+/** Case-fold on Windows/macOS so Desktop recent and CLI cwd keys merge cleanly. */
 export function normalizeWorkspacePath(input: string): string {
   const resolved = path.resolve(input.trim());
-  return process.platform === "win32" ? resolved.toLowerCase() : resolved;
+  // macOS APFS is case-insensitive by default, like Windows.
+  return process.platform === "win32" || process.platform === "darwin"
+    ? resolved.toLowerCase()
+    : resolved;
 }
 
 export function workspacePathsEqual(a: string, b: string): boolean {
   return normalizeWorkspacePath(a) === normalizeWorkspacePath(b);
+}
+
+/**
+ * Caches for session listings.
+ *
+ * Pi's SessionManager.list reads the ENTIRE content of every session jsonl to
+ * build name / firstMessage / modified. It used to run on every session open,
+ * every sidebar refresh and every workspace switch (via listPiCliWorkspaces),
+ * which made switching sessions/workspaces visibly laggy on workspaces with
+ * many (or large) session files. The signature below is computed from file
+ * sizes + mtimes only (no content reads), so cached results stay fresh cheaply.
+ */
+const sessionListCache = new Map<string, { signature: string; sessions: SessionSummary[] }>();
+let piWorkspacesCache: { agentDir: string; signature: string; workspaces: string[] } | null = null;
+
+/** Signature of the .jsonl files in one session dir (sizes + mtimes, no content). */
+async function dirJsonlSignature(dir: string): Promise<string | null> {
+  let entries;
+  try {
+    entries = await fs.promises.readdir(dir, { withFileTypes: true });
+  } catch {
+    return null;
+  }
+  const rows: string[] = [];
+  for (const entry of entries) {
+    if (!entry.isFile() || !entry.name.endsWith(".jsonl")) continue;
+    try {
+      const st = await fs.promises.stat(path.join(dir, entry.name));
+      rows.push(`${entry.name}:${st.size}:${Math.floor(st.mtimeMs)}`);
+    } catch {
+      // skip unreadable files
+    }
+  }
+  rows.sort();
+  return rows.join("|");
+}
+
+/** Signature across every workspace's session dir (dir name + its file signature). */
+async function sessionsTreeSignature(sessionsDir: string): Promise<string | null> {
+  let entries;
+  try {
+    entries = await fs.promises.readdir(sessionsDir, { withFileTypes: true });
+  } catch {
+    return null;
+  }
+  const rows: string[] = [];
+  for (const entry of entries) {
+    if (!entry.isDirectory()) continue;
+    const sub = path.join(sessionsDir, entry.name);
+    const files = await dirJsonlSignature(sub);
+    rows.push(`${entry.name}:${files ?? "-"}`);
+  }
+  rows.sort();
+  return rows.join("|");
 }
 
 function sessionInfoToSummary(info: {
@@ -46,14 +103,28 @@ function sessionInfoToSummary(info: {
 
 export async function listSessionsForCwd(cwd: string): Promise<SessionSummary[]> {
   const resolvedCwd = path.resolve(cwd);
+  const sessionDir = encodeCwdSessionDir(resolvedCwd);
+  const signature = await dirJsonlSignature(sessionDir);
+  if (signature === null) return [];
+  const key = sessionDir; // includes agent dir, so env changes never serve stale rows
+  const hit = sessionListCache.get(key);
+  if (hit && hit.signature === signature) return hit.sessions;
+
   const infos = await SessionManager.list(resolvedCwd);
-  return infos
+  const sessions = infos
     .filter((info) => {
       const sessionCwd = info.cwd ? path.resolve(info.cwd) : resolvedCwd;
       return workspacePathsEqual(sessionCwd, resolvedCwd);
     })
     .map(sessionInfoToSummary)
     .sort((a, b) => b.modified.localeCompare(a.modified));
+
+  sessionListCache.set(key, { signature, sessions });
+  if (sessionListCache.size > 64) {
+    const oldest = sessionListCache.keys().next().value;
+    if (typeof oldest === "string") sessionListCache.delete(oldest);
+  }
+  return sessions;
 }
 
 /**
@@ -61,6 +132,18 @@ export async function listSessionsForCwd(cwd: string): Promise<SessionSummary[]>
  * Sorted by most recently modified session. Missing folders on disk are skipped.
  */
 export async function listPiCliWorkspaces(): Promise<string[]> {
+  const agentDir = resolveAgentDir();
+  const sessionsDir = path.join(agentDir, "sessions");
+  const signature = await sessionsTreeSignature(sessionsDir);
+  if (
+    piWorkspacesCache &&
+    piWorkspacesCache.agentDir === agentDir &&
+    signature != null &&
+    piWorkspacesCache.signature === signature
+  ) {
+    return piWorkspacesCache.workspaces;
+  }
+
   const infos = await SessionManager.listAll();
   const latestByCwd = new Map<string, { display: string; modified: number }>();
 
@@ -76,7 +159,7 @@ export async function listPiCliWorkspaces(): Promise<string[]> {
     }
   }
 
-  return [...latestByCwd.values()]
+  const result = [...latestByCwd.values()]
     .filter((row) => {
       try {
         return fs.existsSync(row.display) && fs.statSync(row.display).isDirectory();
@@ -86,6 +169,11 @@ export async function listPiCliWorkspaces(): Promise<string[]> {
     })
     .sort((a, b) => b.modified - a.modified)
     .map((row) => row.display);
+
+  if (signature != null) {
+    piWorkspacesCache = { agentDir, signature, workspaces: result };
+  }
+  return result;
 }
 
 /**

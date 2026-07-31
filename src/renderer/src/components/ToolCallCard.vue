@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, ref, watch } from "vue";
+import { computed, nextTick, onBeforeUnmount, ref, watch } from "vue";
 import { NButton, NIcon, useMessage } from "naive-ui";
 import {
   CheckmarkCircleOutline,
@@ -26,6 +26,8 @@ const props = defineProps<{
   statusLabel: string;
   statusType: "default" | "success" | "error" | "info";
   streaming?: boolean;
+  /** True once the whole turn finished: fold finished process rows (Codex-like). */
+  autoCollapse?: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -58,8 +60,24 @@ const bodyRef = ref<HTMLElement | null>(null);
 /** Follow newest lines unless the user scrolls up inside the card. */
 let stickToBottom = true;
 const NEAR_BOTTOM_PX = 48;
+/**
+ * How long a finished tool stays expanded before it folds back into history.
+ * The agent usually starts its next step within this window, so the result is
+ * visible for a beat, then history collapses (Codex-like).
+ */
+const AUTO_COLLAPSE_MS = 1200;
+let finishTimer: ReturnType<typeof setTimeout> | null = null;
+
+function clearFinishTimer(): void {
+  if (finishTimer) {
+    clearTimeout(finishTimer);
+    finishTimer = null;
+  }
+}
 
 const open = computed(() => {
+  // Turn finished: only a user-expanded card stays open; history stays folded.
+  if (props.autoCollapse) return manuallyOpen.value === true;
   if (manuallyOpen.value !== null) return manuallyOpen.value;
   if (!shouldAutoExpand(props.card.kind)) return false;
   return wasStreaming.value || Boolean(props.streaming);
@@ -74,13 +92,33 @@ watch(
       manuallyOpen.value = null;
       wasStreaming.value = true;
       stickToBottom = true;
+      clearFinishTimer();
     } else if (prev && !streaming) {
-      // Just finished — keep expanded so the result (diff/output) is visible.
+      // Just finished — keep expanded so the result (diff/output) is visible,
+      // then auto-collapse once the agent moves on / shortly after completion.
       wasStreaming.value = true;
+      clearFinishTimer();
+      finishTimer = setTimeout(() => {
+        finishTimer = null;
+        // Respect a manual open: only auto-fold cards the user didn't expand.
+        if (manuallyOpen.value === null) manuallyOpen.value = false;
+      }, AUTO_COLLAPSE_MS);
     }
   },
   { immediate: true },
 );
+
+// Fold everything as soon as the round finishes; users can re-expand manually.
+watch(
+  () => props.autoCollapse,
+  (v) => {
+    if (!v) return;
+    clearFinishTimer();
+    manuallyOpen.value = false;
+  },
+);
+
+onBeforeUnmount(clearFinishTimer);
 
 function toggleOpen(): void {
   const next = !open.value;
@@ -468,7 +506,7 @@ function onOpenPreview(): void {
   align-items: center;
   gap: 7px;
   margin: 0;
-  padding: 7px 10px;
+  padding: 5px 8px;
   border: none;
   background: transparent;
   color: inherit;
@@ -519,7 +557,7 @@ function onOpenPreview(): void {
 
 .action {
   flex-shrink: 0;
-  font-size: 12px;
+  font-size: 11.5px;
   font-weight: 550;
   color: var(--fg-muted, #555);
   letter-spacing: 0.01em;
@@ -531,7 +569,7 @@ function onOpenPreview(): void {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 12.5px;
+  font-size: 12px;
   font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
   color: var(--fg-strong, #1a1a1a);
 }
@@ -644,7 +682,7 @@ function onOpenPreview(): void {
 
 .tool-body {
   margin: 0;
-  padding: 6px 0;
+  padding: 5px 0;
   border-top: 1px solid color-mix(in srgb, var(--border, #ddd) 80%, transparent);
   max-height: 140px;
   overflow: auto;

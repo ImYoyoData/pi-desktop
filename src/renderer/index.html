@@ -10,6 +10,91 @@
   </head>
   <body>
     <div id="app"></div>
+
+    <!-- Startup splash: covers loading states until the app is ready. -->
+    <div id="pi-startup-splash" role="status" aria-label="Pi Desktop is starting">
+      <div class="pi-startup-mark" aria-hidden="true">
+        <svg viewBox="0 0 800 800" xmlns="http://www.w3.org/2000/svg">
+          <rect width="800" height="800" rx="120" fill="#09090b"/>
+          <path fill="#fff" fill-rule="evenodd" d="M165.29 165.29 H517.36 V400 H400 V517.36 H282.65 V634.72 H165.29 Z M282.65 282.65 V400 H400 V282.65 Z"/>
+          <path fill="#fff" d="M517.36 400 H634.72 V634.72 H517.36 Z"/>
+        </svg>
+      </div>
+      <div class="pi-startup-title">Pi Desktop</div>
+      <div class="pi-startup-bar" aria-hidden="true"><span /></div>
+    </div>
+    <style>
+      #pi-startup-splash {
+        position: fixed;
+        inset: 0;
+        z-index: 2147483645;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 16px;
+        margin: 0;
+        padding: 24px;
+        box-sizing: border-box;
+        background: #f6f7f9;
+        color: #1f2328;
+        font-family: "Segoe UI", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+        -webkit-app-region: no-drag;
+        transition: opacity 0.28s ease, visibility 0.28s ease;
+      }
+      html[data-theme="dark"] #pi-startup-splash {
+        background: #121417;
+        color: #e8eaed;
+      }
+      #pi-startup-splash.is-leaving {
+        opacity: 0;
+        visibility: hidden;
+        pointer-events: none;
+      }
+      .pi-startup-mark {
+        width: 58px;
+        height: 58px;
+        border-radius: 15px;
+        background: #09090b;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        box-shadow: 0 10px 28px rgba(0, 0, 0, 0.2);
+        animation: pi-startup-breathe 1.6s ease-in-out infinite;
+      }
+      .pi-startup-mark svg {
+        width: 36px;
+        height: 36px;
+      }
+      .pi-startup-title {
+        font-size: 15px;
+        font-weight: 600;
+        letter-spacing: 0.02em;
+      }
+      .pi-startup-bar {
+        width: 128px;
+        height: 3px;
+        border-radius: 2px;
+        background: color-mix(in srgb, currentColor 16%, transparent);
+        overflow: hidden;
+      }
+      .pi-startup-bar span {
+        display: block;
+        height: 100%;
+        width: 38%;
+        border-radius: 2px;
+        background: #2563eb;
+        animation: pi-startup-slide 1.1s ease-in-out infinite;
+      }
+      @keyframes pi-startup-breathe {
+        0%, 100% { opacity: 0.85; transform: scale(0.98); }
+        50% { opacity: 1; transform: scale(1); }
+      }
+      @keyframes pi-startup-slide {
+        0% { transform: translateX(-130%); }
+        100% { transform: translateX(340%); }
+      }
+    </style>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>
