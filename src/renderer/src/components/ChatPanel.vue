@@ -12,11 +12,8 @@ import { useChatStore } from "@renderer/stores/chat";
 import { useSessionsStore } from "@renderer/stores/sessions";
 import { useWorkspaceStore } from "@renderer/stores/workspace";
 import {
-  agentWaitPhase,
-  agentWaitToolName,
   formatElapsedShort,
 } from "@renderer/utils/agent-wait";
-import type { ChatState } from "@renderer/stores/chat-reducer";
 import { t } from "@renderer/i18n";
 
 const chat = useChatStore();
@@ -63,39 +60,11 @@ const headerWaitLabel = computed(() => {
   const s = chat.activeWaitState;
   if (!s) return t.agentRunning;
   if (s.autoRecovering) return t.autoRecovering;
-  const phase = agentWaitPhase(s as ChatState);
-  const tool = agentWaitToolName(s as ChatState);
+  // Header shows whole-turn total; per-phase clocks live in AgentWaitIndicator.
   const elapsed = s.turnStartedAt
     ? formatElapsedShort(Math.max(0, nowTick.value - s.turnStartedAt))
     : "";
-  let label = t.agentRunning;
-  switch (phase) {
-    case "starting":
-      label = t.agentWaitStarting;
-      break;
-    case "waiting_model":
-      label = t.agentWaitModel;
-      break;
-    case "thinking":
-      label = t.agentWaitThinking;
-      break;
-    case "writing":
-      label = t.agentWaitWriting;
-      break;
-    case "tool":
-      label = tool ? t.agentWaitTool(tool) : t.agentWaitToolGeneric;
-      break;
-    case "waiting_user":
-      label = t.agentWaitUser;
-      break;
-    case null:
-      break;
-    default: {
-      const _exhaustive: never = phase;
-      return _exhaustive;
-    }
-  }
-  return elapsed ? `${label} · ${elapsed}` : label;
+  return elapsed ? `${t.agentRunning} · ${elapsed}` : t.agentRunning;
 });
 
 const showHeaderRunning = computed(
@@ -180,6 +149,7 @@ async function onNewAgent(): Promise<void> {
           </template>
         </NButton>
       </header>
+      <SessionTodoPanel />
       <MessageList
         :messages="chat.activeMessages"
         :streaming="chat.activeStreaming"
@@ -195,7 +165,6 @@ async function onNewAgent(): Promise<void> {
       <AskUserStrip
         v-if="!chat.activePendingPermission && !chat.activePendingExtensionUi"
       />
-      <SessionTodoPanel />
       <Composer />
     </template>
   </section>

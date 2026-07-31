@@ -6,6 +6,7 @@ import {
   parseTodoWidgetLines,
   todoListAllDone,
   todoListVisible,
+  todosFromToolArgs,
   todosFromToolDetails,
   type SessionTodoList,
 } from "../utils/session-todos";
@@ -73,12 +74,26 @@ export const useSessionWidgetsStore = defineStore("session-widgets", () => {
   }
 
   function applyTodoToolResult(sessionId: string, details: unknown): void {
-    const list = todosFromToolDetails("pi-deck-todo", details);
+    applyTodoList(sessionId, todosFromToolDetails("pi-deck-todo", details), details);
+  }
+
+  /** Prefer full-list args (todo_write); ignore incremental add/toggle-only args. */
+  function applyTodoToolArgs(sessionId: string, args: unknown): void {
+    const list = todosFromToolArgs("pi-deck-todo", args);
+    if (!list) return;
+    applyTodoList(sessionId, list, args);
+  }
+
+  function applyTodoList(
+    sessionId: string,
+    list: SessionTodoList | null,
+    raw: unknown,
+  ): void {
     if (!list) {
       if (
-        details &&
-        typeof details === "object" &&
-        (details as { action?: string }).action === "clear"
+        raw &&
+        typeof raw === "object" &&
+        (raw as { action?: string }).action === "clear"
       ) {
         todosBySession.value = { ...todosBySession.value, [sessionId]: null };
       }
@@ -118,6 +133,7 @@ export const useSessionWidgetsStore = defineStore("session-widgets", () => {
     activeTodoList,
     setWidget,
     applyTodoToolResult,
+    applyTodoToolArgs,
     dismissCompletedOnNewTask,
     clearSession,
   };

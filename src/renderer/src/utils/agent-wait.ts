@@ -38,6 +38,35 @@ export function agentWaitToolName(state: ChatState): string | null {
   return null;
 }
 
+/** Stable id for the current wait phase (tool name included). */
+export function agentWaitPhaseId(state: ChatState): string {
+  const phase = agentWaitPhase(state);
+  if (!phase) return "idle";
+  if (phase === "tool") return `tool:${agentWaitToolName(state) ?? ""}`;
+  return phase;
+}
+
+/**
+ * Keep turnStartedAt as the whole-turn clock; reset phaseStartedAt whenever
+ * the wait phase changes (waiting_model → thinking → writing → tool → …).
+ */
+export function syncPhaseClock(
+  prev: ChatState,
+  next: ChatState,
+  now = Date.now(),
+): ChatState {
+  if (!next.running) {
+    if (next.phaseStartedAt == null) return next;
+    return { ...next, phaseStartedAt: null };
+  }
+  const nextId = agentWaitPhaseId(next);
+  const prevId = prev.running ? agentWaitPhaseId(prev) : "";
+  if (prevId !== nextId || next.phaseStartedAt == null) {
+    return { ...next, phaseStartedAt: now };
+  }
+  return next;
+}
+
 /** Silence since last agent output / stream chunk (ms). */
 export function agentOutputSilenceMs(state: ChatState, now = Date.now()): number {
   if (!state.running || !state.lastActivityAt) return 0;

@@ -14,6 +14,11 @@ export type AgentRunSnapshot = {
   status: AgentRunStatus;
   outputTail: string;
   /**
+   * Wall-clock ms of last stdout/stderr chunk (or startedAt before any output).
+   * Used to detect stuck terminals with no output updates.
+   */
+  lastOutputAt: number;
+  /**
    * True once the bash tool call has detached (conversation no longer waits).
    * Process may still be alive — shown in Running panel.
    */

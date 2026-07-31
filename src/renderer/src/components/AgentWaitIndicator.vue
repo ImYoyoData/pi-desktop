@@ -21,6 +21,7 @@ const props = defineProps<{
     | "pendingPermission"
     | "pendingExtensionUi"
     | "turnStartedAt"
+    | "phaseStartedAt"
     | "lastActivityAt"
     | "lastWorkerAliveAt"
   > & {
@@ -49,8 +50,9 @@ const phase = computed(() =>
 );
 const toolName = computed(() => agentWaitToolName(props.state as ChatState));
 const elapsedMs = computed(() => {
-  if (!props.state.turnStartedAt) return 0;
-  return Math.max(0, now.value - props.state.turnStartedAt);
+  const started = props.state.phaseStartedAt ?? props.state.turnStartedAt;
+  if (!started) return 0;
+  return Math.max(0, now.value - started);
 });
 const silenceMs = computed(() => agentOutputSilenceMs(props.state as ChatState, now.value));
 const workerSilenceMs = computed(() => agentWorkerSilenceMs(props.state as ChatState, now.value));
