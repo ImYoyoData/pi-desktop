@@ -75,6 +75,12 @@ export type ChatState = {
   pendingExtensionUi: ExtensionUiPending | null;
   /** Wall-clock when the current turn became running (ms). */
   turnStartedAt: number | null;
+  /**
+   * Wall-clock when the current wait phase began (ms).
+   * Resets on phase changes (waiting_model → thinking → tool → …);
+   * turnStartedAt keeps the whole-turn total for the header.
+   */
+  phaseStartedAt: number | null;
   /** Last agent stream / tool / status activity (ms). */
   lastActivityAt: number | null;
   /** Last worker heartbeat pong while a turn is active (ms). */
@@ -96,6 +102,7 @@ export function createChatState(): ChatState {
     pendingPermission: null,
     pendingExtensionUi: null,
     turnStartedAt: null,
+    phaseStartedAt: null,
     lastActivityAt: null,
     lastWorkerAliveAt: null,
     autoRecoverCount: 0,
@@ -111,6 +118,7 @@ export function withRunClock(
   if (!state.running) {
     if (
       state.turnStartedAt == null &&
+      state.phaseStartedAt == null &&
       state.lastActivityAt == null &&
       state.lastWorkerAliveAt == null
     ) {
@@ -119,6 +127,7 @@ export function withRunClock(
     return {
       ...state,
       turnStartedAt: null,
+      phaseStartedAt: null,
       lastActivityAt: null,
       lastWorkerAliveAt: null,
     };
@@ -127,6 +136,7 @@ export function withRunClock(
   return {
     ...state,
     turnStartedAt: state.turnStartedAt ?? now,
+    phaseStartedAt: state.phaseStartedAt ?? now,
     lastActivityAt: opts?.activity === false ? state.lastActivityAt ?? now : now,
     lastWorkerAliveAt: opts?.workerAlive ? now : state.lastWorkerAliveAt,
   };
@@ -204,6 +214,18 @@ function thinkingFromMessage(message: Record<string, unknown>): string {
     })
     .map((part) => part.thinking)
     .join("");
+}
+
+/**
+ * Streaming text/thinking must not shrink mid-turn.
+ * Some model/SDK updates replace the thinking part with a short section title
+ * (e.g. "**Adjusting proxy configuration**") after longer content already arrived.
+ */
+export function coalesceGrowingText(snapshot: string, previous: string): string {
+  if (!snapshot) return previous;
+  if (!previous) return snapshot;
+  if (snapshot.length >= previous.length) return snapshot;
+  return previous;
 }
 
 type ExtractedToolCall = {
@@ -442,11 +464,12 @@ function assistantFromPartial(
     prev?.role === "assistant" ? prev.thinkingStartedAt : undefined;
   const prevDuration =
     prev?.role === "assistant" ? prev.thinkingDurationMs : undefined;
-  const thinking = thinkingSnap || prevThinking;
+  const text = coalesceGrowingText(snapshot, prevText);
+  const thinking = coalesceGrowingText(thinkingSnap, prevThinking);
   return stampThinkingClock({
     id,
     role: "assistant",
-    text: snapshot || prevText,
+    text,
     ...(thinking ? { thinking } : {}),
     ...(prevStarted != null ? { thinkingStartedAt: prevStarted } : {}),
     ...(prevDuration != null ? { thinkingDurationMs: prevDuration } : {}),
@@ -685,10 +708,17 @@ function reduceAgentPayload(state: ChatState, payload: Record<string, unknown>):
       }
       if (ev.type === "thinking_delta" && typeof ev.delta === "string") {
         const snap = thinkingFromMessage(msg);
-        if (!snap) {
+        const current = nextStream.thinking ?? "";
+        // Prefer growing snapshot; only append delta when snapshot is empty/stale.
+        if (snap && snap.length >= current.length) {
           nextStream = stampThinkingClock({
             ...nextStream,
-            thinking: (nextStream.thinking ?? "") + ev.delta,
+            thinking: snap,
+          });
+        } else if (ev.delta) {
+          nextStream = stampThinkingClock({
+            ...nextStream,
+            thinking: current + ev.delta,
           });
         }
       }
@@ -696,7 +726,8 @@ function reduceAgentPayload(state: ChatState, payload: Record<string, unknown>):
         nextStream = stampThinkingClock(
           {
             ...nextStream,
-            thinking: ev.content,
+            // Never replace a long stream with a short "section title" end payload.
+            thinking: coalesceGrowingText(ev.content, nextStream.thinking ?? ""),
           },
           { finalize: true },
         );
@@ -808,12 +839,15 @@ function reduceAgentPayload(state: ChatState, payload: Record<string, unknown>):
             ? stream.id
             : localId("assistant");
       const text =
-        snapshot ||
-        (stream?.role === "assistant" ? stream.text : "");
+        coalesceGrowingText(
+          snapshot,
+          stream?.role === "assistant" ? stream.text : "",
+        );
       const thinking =
-        thinkingSnap ||
-        (stream?.role === "assistant" ? stream.thinking : undefined) ||
-        undefined;
+        coalesceGrowingText(
+          thinkingSnap,
+          stream?.role === "assistant" ? (stream.thinking ?? "") : "",
+        ) || undefined;
 
       // Always keep partial thinking/answer on abort (and on mid-stream errors).
       let next: ChatState = { ...state, streamingMessage: null };

@@ -34,9 +34,14 @@ const RULES: Rule[] = [
     en: "Network connection failed. Check your network and retry.",
   },
   {
-    test: (t) => /ETIMEDOUT|timeout|timed out/i.test(t) || t.includes("超时"),
-    zh: "请求超时，请稍后重试。",
-    en: "Request timed out. Please retry.",
+    test: (t) => /ETIMEDOUT|ESOCKETTIMEDOUT|timeout|timed out|deadline exceeded/i.test(t) || t.includes("超时"),
+    zh: "模型响应超时，请稍后重试。",
+    en: "Model response timed out. Please retry.",
+  },
+  {
+    test: (t) => /no response from model|empty response|model.*(hang|stall|silent)/i.test(t),
+    zh: "模型未返回有效内容，请稍后重试或更换模型。",
+    en: "Model returned no usable response. Retry or switch models.",
   },
   {
     test: (t) => /context.?length|context.?overflow|too many tokens|maximum context/i.test(t) || t.includes("上下文"),
@@ -44,9 +49,14 @@ const RULES: Rule[] = [
     en: "Context too long. Compact context or start a new session.",
   },
   {
-    test: (t) => /model.?not.?found|unknown model/i.test(t) || t.includes("不支持的模型"),
+    test: (t) => /model.?not.?found|unknown model|model.*(unavailable|not available)/i.test(t) || t.includes("不支持的模型"),
     zh: "模型不可用，请更换模型。",
     en: "Model unavailable. Choose another model.",
+  },
+  {
+    test: (t) => /overloaded|capacity|upstream.*(error|fail)|provider.*(error|fail)/i.test(t),
+    zh: "模型服务繁忙或上游异常，请稍后重试。",
+    en: "Model provider busy or upstream error. Retry later.",
   },
   {
     test: (t) => /aborted|AbortError/i.test(t) || t.includes("已取消") || t.includes("已停止"),
