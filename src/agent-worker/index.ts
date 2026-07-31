@@ -1,5 +1,9 @@
 import type { WorkerInbound } from "../shared/agent-worker-messages";
+import { applyPiSubagentSpawnFix } from "./pi-subagent-spawn-fix";
 import { handleWorkerMessage } from "./runtime";
+
+// Must run before extensions load / subagent spawn resolution.
+applyPiSubagentSpawnFix();
 
 process.parentPort.on("message", (event: { data: WorkerInbound }) => {
   void handleWorkerMessage(event.data).catch((err: unknown) => {

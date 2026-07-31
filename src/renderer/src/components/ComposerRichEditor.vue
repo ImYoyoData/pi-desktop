@@ -2,7 +2,7 @@
 import { computed, nextTick, onMounted, ref, watch } from "vue";
 import type { ComposerChip } from "@renderer/stores/composer";
 import { truncateElementContent, useComposerStore } from "@renderer/stores/composer";
-import { fileTagLabel } from "@renderer/utils/composer-tags";
+import { fileTagLabel, urlTagLabel } from "@renderer/utils/composer-tags";
 import { serializeRichEditor } from "@renderer/utils/composer-rich";
 import { isRegionCitation } from "../../../shared/protocol";
 import { t } from "@renderer/i18n";
@@ -33,16 +33,16 @@ const isEmpty = computed(
 );
 
 function chipLabel(chip: ComposerChip): string {
-  if (chip.kind === "file") return fileTagLabel(chip.path);
-  if (chip.kind === "url") {
-    try {
-      const u = new URL(chip.url);
-      const hostPath = `${u.host}${u.pathname === "/" ? "" : u.pathname}`;
-      return hostPath.length > 40 ? `${hostPath.slice(0, 40)}…` : hostPath;
-    } catch {
-      return chip.url.length > 40 ? `${chip.url.slice(0, 40)}…` : chip.url;
-    }
+  if (chip.kind === "file") {
+    const range =
+      chip.startLine && chip.endLine
+        ? `:${chip.startLine}-${chip.endLine}`
+        : chip.startLine
+          ? `:${chip.startLine}`
+          : "";
+    return `${fileTagLabel(chip.path)}${range}`;
   }
+  if (chip.kind === "url") return urlTagLabel(chip.url);
   const content = truncateElementContent(chip.citation.text ?? "", 100);
   if (isRegionCitation(chip.citation)) return t.chipRegion;
   if (content) return content;
