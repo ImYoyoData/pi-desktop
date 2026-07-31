@@ -11,7 +11,12 @@ import type {
 } from "../shared/git-types";
 import { classifyGitFailure, detailFromGitOutput, isEmbeddedGitMissing } from "./git-errors";
 
-const GIT_TIMEOUT_MS = 60_000;
+/** Quick local ops (status / diff / branch). */
+const GIT_TIMEOUT_MS = 30_000;
+/** Commits can wait on GPG signing / pre-commit hooks. */
+const GIT_COMMIT_TIMEOUT_MS = 120_000;
+/** Network ops (fetch / pull / push) need a lot longer than local ones. */
+const GIT_NETWORK_TIMEOUT_MS = 10 * 60_000;
 const GIT_STATUS_MAX_BUFFER = 8 * 1024 * 1024;
 const TEXT_PREVIEW_MAX_BYTES = 1.5 * 1024 * 1024;
 const GIT_LOG_DEFAULT_LIMIT = 50;
@@ -78,16 +83,42 @@ function toText(value: string | Buffer): string {
   return typeof value === "string" ? value : value.toString("utf8");
 }
 
+/**
+ * Serialize every git subprocess. Concurrent `git status` refreshes and user
+ * operations (commit / push / checkout) used to race on .git/index.lock and fail
+ * with "Unable to create index.lock: File exists" even though the exact same
+ * command succeeds in a native terminal.
+ */
+let gitChain: Promise<void> = Promise.resolve();
+function enqueueGit<T>(fn: () => Promise<T>): Promise<T> {
+  const run = gitChain.then(fn, fn);
+  gitChain = run.then(
+    () => undefined,
+    () => undefined,
+  );
+  return run;
+}
+
 async function git(
   cwd: string,
   args: string[],
   maxBuffer = GIT_STATUS_MAX_BUFFER,
+  timeoutMs = GIT_TIMEOUT_MS,
+): Promise<string> {
+  return enqueueGit(() => gitSpawn(cwd, args, maxBuffer, timeoutMs));
+}
+
+async function gitSpawn(
+  cwd: string,
+  args: string[],
+  maxBuffer = GIT_STATUS_MAX_BUFFER,
+  timeoutMs = GIT_TIMEOUT_MS,
 ): Promise<string> {
   try {
     const result = await exec(args, cwd, {
       maxBuffer,
       env: { ...process.env, LC_ALL: "C" },
-      signal: AbortSignal.timeout(GIT_TIMEOUT_MS),
+      signal: AbortSignal.timeout(timeoutMs),
     });
     const stdout = toText(result.stdout);
     const stderr = toText(result.stderr);
@@ -126,9 +157,10 @@ async function git(
 async function gitAllowFail(
   cwd: string,
   args: string[],
+  timeoutMs = GIT_TIMEOUT_MS,
 ): Promise<{ ok: true; stdout: string } | GitFail> {
   try {
-    const stdout = await git(cwd, args);
+    const stdout = await git(cwd, args, GIT_STATUS_MAX_BUFFER, timeoutMs);
     return { ok: true, stdout };
   } catch (err) {
     const e = err as { stderr?: string; stdout?: string; message?: string };
@@ -486,21 +518,33 @@ export async function restorePaths(
   const tracked: string[] = [];
   const untracked: string[] = [];
 
+  const gitPaths: string[] = [];
   for (const rel of relativePaths) {
     const abs = path.resolve(cwd, rel);
     if (!isWithin(cwd, abs) || !isWithin(repositoryRoot, abs)) {
       return fail("invalid_args", `Path outside workspace: ${rel}`);
     }
-    const gitPath = toGitPath(path.relative(repositoryRoot, abs));
-    let isUntracked = false;
-    try {
-      const check = await git(repositoryRoot, ["ls-files", "--error-unmatch", "--", gitPath]);
-      void check;
-    } catch {
-      isUntracked = true;
+    gitPaths.push(toGitPath(path.relative(repositoryRoot, abs)));
+  }
+
+  // One batch call instead of one subprocess per file.
+  const trackedSet = new Set<string>();
+  if (gitPaths.length) {
+    const listing = await gitAllowFail(repositoryRoot, [
+      "ls-files",
+      "-z",
+      "--",
+      ...gitPaths,
+    ]);
+    if (listing.ok) {
+      for (const item of listing.stdout.split(" ")) {
+        if (item) trackedSet.add(item);
+      }
     }
-    if (isUntracked) untracked.push(gitPath);
-    else tracked.push(gitPath);
+  }
+  for (const gitPath of gitPaths) {
+    if (trackedSet.has(gitPath)) tracked.push(gitPath);
+    else untracked.push(gitPath);
   }
 
   if (tracked.length) {
@@ -553,9 +597,17 @@ export async function fetchRepo(
   const args = name
     ? ["fetch", name, "--prune"]
     : ["fetch", "--all", "--prune"];
-  const result = await gitAllowFail(repositoryRoot, args);
+  const result = await gitAllowFail(repositoryRoot, args, GIT_NETWORK_TIMEOUT_MS);
   if (!result.ok) return fail(result.code, result.message);
   return { ok: true, message: result.stdout.trim() || undefined };
+}
+
+/** Local changes that would be overwritten by checkout: make the reason actionable. */
+function withCheckoutHint(code: GitErrorCode, message: string): string {
+  if (code !== "local_changes") return message;
+  const hint =
+    "Your local changes to some files would be overwritten. Commit or stash them first, then switch branches again.";
+  return message ? `${message}\n${hint}` : hint;
 }
 
 export async function checkoutBranch(cwd: string, branch: string): Promise<GitOpResult> {
@@ -583,35 +635,39 @@ export async function checkoutBranch(cwd: string, branch: string): Promise<GitOp
 
       if (isRemoteTracking) {
         if (branches.local.includes(short)) {
-          const localCheckout = await gitAllowFail(repositoryRoot, ["checkout", short]);
-          if (!localCheckout.ok) return fail(localCheckout.code, localCheckout.message);
-          return { ok: true };
+          const localCheckout = await gitAllowFail(repositoryRoot, ["switch", short]);
+          if (localCheckout.ok) return { ok: true };
+          const legacy = await gitAllowFail(repositoryRoot, ["checkout", short]);
+          if (legacy.ok) return { ok: true };
+          return fail(localCheckout.code, withCheckoutHint(localCheckout.code, localCheckout.message));
         }
         const tracked = await gitAllowFail(repositoryRoot, [
-          "checkout",
-          "-b",
-          short,
-          "--track",
-          name,
-        ]);
-        if (tracked.ok) return { ok: true };
-        // Fallback: detached from remote tip then rename is riskier — try switch.
-        const switched = await gitAllowFail(repositoryRoot, [
           "switch",
           "-c",
           short,
           "--track",
           name,
         ]);
-        if (switched.ok) return { ok: true };
-        return fail(tracked.code, tracked.message);
+        if (tracked.ok) return { ok: true };
+        // Older git fallback.
+        const create = await gitAllowFail(repositoryRoot, [
+          "checkout",
+          "-b",
+          short,
+          "--track",
+          name,
+        ]);
+        if (create.ok) return { ok: true };
+        return fail(tracked.code, withCheckoutHint(tracked.code, tracked.message));
       }
     }
   }
 
-  const result = await gitAllowFail(repositoryRoot, ["checkout", name]);
-  if (!result.ok) return fail(result.code, result.message);
-  return { ok: true };
+  const switched = await gitAllowFail(repositoryRoot, ["switch", name]);
+  if (switched.ok) return { ok: true };
+  const checked = await gitAllowFail(repositoryRoot, ["checkout", name]);
+  if (checked.ok) return { ok: true };
+  return fail(switched.code, withCheckoutHint(switched.code, switched.message));
 }
 
 export async function createBranch(cwd: string, branch: string): Promise<GitOpResult> {
@@ -632,6 +688,41 @@ export async function mergeBranch(cwd: string, branch: string): Promise<GitOpRes
   const result = await gitAllowFail(repositoryRoot, ["merge", name]);
   if (!result.ok) return fail(result.code, result.message);
   return { ok: true, message: result.stdout.trim() || undefined };
+}
+
+export async function deleteBranch(cwd: string, branch: string): Promise<GitOpResult> {
+  const repositoryRoot = await findRepositoryRoot(cwd);
+  if (!repositoryRoot) return fail("not_repo", "Not a git repository");
+  const name = branch.trim();
+  if (!name) return fail("invalid_args", "Branch name required");
+
+  const current = await gitAllowFail(repositoryRoot, ["rev-parse", "--abbrev-ref", "HEAD"]);
+  if (current.ok && current.stdout.trim() === name) {
+    return fail(
+      "invalid_args",
+      "Cannot delete the currently checked-out branch. Switch to another branch first.",
+    );
+  }
+  // Safe delete: git refuses when the branch is not fully merged (use -D to force).
+  const result = await gitAllowFail(repositoryRoot, ["branch", "-d", name]);
+  if (!result.ok) return fail(result.code, result.message);
+  return { ok: true };
+}
+
+export async function renameBranch(
+  cwd: string,
+  branch: string,
+  nextName: string,
+): Promise<GitOpResult> {
+  const repositoryRoot = await findRepositoryRoot(cwd);
+  if (!repositoryRoot) return fail("not_repo", "Not a git repository");
+  const from = branch.trim();
+  const to = nextName.trim();
+  if (!from || !to) return fail("invalid_args", "Branch name required");
+  if (from === to) return fail("invalid_args", "New branch name is the same as the current name");
+  const result = await gitAllowFail(repositoryRoot, ["branch", "-m", from, to]);
+  if (!result.ok) return fail(result.code, result.message);
+  return { ok: true };
 }
 
 export async function commitPaths(
@@ -656,7 +747,13 @@ export async function commitPaths(
 
   const add = await gitAllowFail(repositoryRoot, ["add", "--", ...repoPaths]);
   if (!add.ok) return fail(add.code, add.message);
-  const commit = await gitAllowFail(repositoryRoot, ["commit", "-m", msg]);
+  // Pathspec commit: only the selected paths are committed, so unrelated
+  // pre-staged files never sneak in, and "nothing to commit" is accurate.
+  const commit = await gitAllowFail(
+    repositoryRoot,
+    ["commit", "-m", msg, "--", ...repoPaths],
+    GIT_COMMIT_TIMEOUT_MS,
+  );
   if (!commit.ok) return fail(commit.code, commit.message);
   return { ok: true };
 }
@@ -741,6 +838,24 @@ export async function removeRemote(cwd: string, name: string): Promise<GitOpResu
   return { ok: true };
 }
 
+/** Parse the NUL-delimited pretty log output into commit entries. */
+function parseLogOutput(out: string): GitLogEntry[] {
+  const entries: GitLogEntry[] = [];
+  const parts = out.split("\0");
+  for (let i = 0; i + 4 < parts.length; i += 5) {
+    const hash = parts[i]?.trim();
+    if (!hash) continue;
+    entries.push({
+      hash,
+      shortHash: parts[i + 1]?.trim() || hash.slice(0, 7),
+      author: parts[i + 2]?.trim() || "",
+      date: parts[i + 3]?.trim() || "",
+      subject: parts[i + 4]?.trim() || "",
+    });
+  }
+  return entries;
+}
+
 export async function listLog(
   cwd: string,
   limit = GIT_LOG_DEFAULT_LIMIT,
@@ -754,23 +869,97 @@ export async function listLog(
       `-n${n}`,
       "--pretty=format:%H%x00%h%x00%an%x00%aI%x00%s%x00",
     ]);
-    const entries: GitLogEntry[] = [];
-    const parts = out.split("\0");
-    for (let i = 0; i + 4 < parts.length; i += 5) {
-      const hash = parts[i]?.trim();
-      if (!hash) continue;
-      entries.push({
-        hash,
-        shortHash: parts[i + 1]?.trim() || hash.slice(0, 7),
-        author: parts[i + 2]?.trim() || "",
-        date: parts[i + 3]?.trim() || "",
-        subject: parts[i + 4]?.trim() || "",
-      });
-    }
-    return { entries };
+    return { entries: parseLogOutput(out) };
   } catch {
     return { entries: [] };
   }
+}
+
+/** Commit history restricted to one workspace-relative file. */
+export async function logFile(
+  cwd: string,
+  relativePath: string,
+  limit = 50,
+): Promise<GitLogResult> {
+  const repositoryRoot = await findRepositoryRoot(cwd);
+  if (!repositoryRoot) return { entries: [] };
+  const abs = path.resolve(cwd, relativePath);
+  if (!isWithin(cwd, abs) || !isWithin(repositoryRoot, abs)) {
+    return { entries: [] };
+  }
+  const gitPath = toGitPath(path.relative(repositoryRoot, abs));
+  const n = Math.max(1, Math.min(200, Math.floor(limit) || 50));
+  try {
+    const out = await git(repositoryRoot, [
+      "log",
+      `-n${n}`,
+      "--pretty=format:%H%x00%h%x00%an%x00%aI%x00%s%x00",
+      "--follow",
+      "--",
+      gitPath,
+    ]);
+    return { entries: parseLogOutput(out) };
+  } catch {
+    return { entries: [] };
+  }
+}
+
+/** Diff of one workspace-relative file introduced by a specific commit. */
+export async function fileDiffAtCommit(
+  cwd: string,
+  relativePath: string,
+  commitHash: string,
+): Promise<{ supported: boolean; patch?: string }> {
+  const repositoryRoot = await findRepositoryRoot(cwd);
+  if (!repositoryRoot) return { supported: false };
+  const abs = path.resolve(cwd, relativePath);
+  if (!isWithin(cwd, abs) || !isWithin(repositoryRoot, abs)) {
+    return { supported: false };
+  }
+  const gitPath = toGitPath(path.relative(repositoryRoot, abs));
+  const rev = commitHash?.trim() ?? "";
+  if (!/^[0-9a-fA-F]{4,40}$/.test(rev)) return { supported: false };
+  try {
+    const patch = await git(repositoryRoot, [
+      "show",
+      "--no-color",
+      "--no-ext-diff",
+      "--unified=3",
+      "--format=",
+      rev,
+      "--",
+      gitPath,
+    ]);
+    if (!patch.trim()) return { supported: false };
+    return { supported: true, patch };
+  } catch {
+    return { supported: false };
+  }
+}
+
+/**
+ * Restore one workspace-relative file to the content it had at a specific
+ * commit. Updates both the index and the working tree (git checkout <rev> -- <path>).
+ */
+export async function restoreFileToCommit(
+  cwd: string,
+  relativePath: string,
+  commitHash: string,
+): Promise<GitOpResult> {
+  const repositoryRoot = await findRepositoryRoot(cwd);
+  if (!repositoryRoot) return fail("not_repo", "Not a git repository");
+  const abs = path.resolve(cwd, relativePath);
+  if (!isWithin(cwd, abs) || !isWithin(repositoryRoot, abs)) {
+    return fail("invalid_args", `Path outside workspace: ${relativePath}`);
+  }
+  const gitPath = toGitPath(path.relative(repositoryRoot, abs));
+  const rev = commitHash?.trim() ?? "";
+  if (!/^[0-9a-fA-F]{4,40}$/.test(rev)) {
+    return fail("invalid_args", "Invalid commit hash");
+  }
+  const result = await gitAllowFail(repositoryRoot, ["checkout", rev, "--", gitPath]);
+  if (!result.ok) return fail(result.code, result.message);
+  return { ok: true };
 }
 
 export async function pullRepo(cwd: string): Promise<GitOpResult> {
@@ -787,11 +976,11 @@ export async function pullRepo(cwd: string): Promise<GitOpResult> {
     return fail("no_remote", "No remotes configured. Add origin (or another remote) first.");
   }
 
-  const rebase = await gitAllowFail(repositoryRoot, ["pull", "--rebase"]);
+  const rebase = await gitAllowFail(repositoryRoot, ["pull", "--rebase"], GIT_NETWORK_TIMEOUT_MS);
   if (rebase.ok) return { ok: true, message: rebase.stdout.trim() || undefined };
   if (rebase.code === "conflicts") return fail("conflicts", rebase.message);
 
-  const plain = await gitAllowFail(repositoryRoot, ["pull"]);
+  const plain = await gitAllowFail(repositoryRoot, ["pull"], GIT_NETWORK_TIMEOUT_MS);
   if (plain.ok) return { ok: true, message: plain.stdout.trim() || undefined };
   return fail(plain.code !== "unknown" ? plain.code : rebase.code, plain.message || rebase.message);
 }
@@ -810,7 +999,7 @@ export async function pushRepo(cwd: string): Promise<GitOpResult> {
     return fail("no_remote", "No remotes configured. Add origin (or another remote) first.");
   }
 
-  const push = await gitAllowFail(repositoryRoot, ["push"]);
+  const push = await gitAllowFail(repositoryRoot, ["push"], GIT_NETWORK_TIMEOUT_MS);
   if (push.ok) return { ok: true, message: push.stdout.trim() || undefined };
   if (push.code !== "no_upstream" && push.code !== "unknown") {
     return fail(push.code, push.message);
@@ -825,12 +1014,11 @@ export async function pushRepo(cwd: string): Promise<GitOpResult> {
   if (!branch || branch === "HEAD") return fail(push.code, push.message);
 
   const origin = remotes.find((r) => r.name === "origin") ?? remotes[0];
-  const upstream = await gitAllowFail(repositoryRoot, [
-    "push",
-    "-u",
-    origin.name,
-    branch,
-  ]);
+  const upstream = await gitAllowFail(
+    repositoryRoot,
+    ["push", "-u", origin.name, branch],
+    GIT_NETWORK_TIMEOUT_MS,
+  );
   if (upstream.ok) return { ok: true, message: upstream.stdout.trim() || undefined };
   return fail(upstream.code, upstream.message || push.message);
 }

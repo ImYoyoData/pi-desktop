@@ -287,6 +287,27 @@ const api = {
       ipcRenderer.invoke(IpcChannels.git.merge, branch) as Promise<
         { ok: true; message?: string } | { ok: false; message: string; code: string }
       >,
+    deleteBranch: (branch: string) =>
+      ipcRenderer.invoke(IpcChannels.git.deleteBranch, branch) as Promise<
+        { ok: true; message?: string } | { ok: false; message: string; code: string }
+      >,
+    renameBranch: (payload: { branch: string; nextName: string }) =>
+      ipcRenderer.invoke(IpcChannels.git.renameBranch, payload) as Promise<
+        { ok: true; message?: string } | { ok: false; message: string; code: string }
+      >,
+    logFile: (relativePath: string, limit?: number) =>
+      ipcRenderer.invoke(IpcChannels.git.logFile, relativePath, limit) as Promise<{
+        entries: { hash: string; shortHash: string; author: string; date: string; subject: string }[];
+      }>,
+    fileDiffAtCommit: (payload: { relativePath: string; commitHash: string }) =>
+      ipcRenderer.invoke(IpcChannels.git.fileDiffAtCommit, payload) as Promise<{
+        supported: boolean;
+        patch?: string;
+      }>,
+    restoreFileToCommit: (payload: { relativePath: string; commitHash: string }) =>
+      ipcRenderer.invoke(IpcChannels.git.restoreFileToCommit, payload) as Promise<
+        { ok: true; message?: string } | { ok: false; message: string; code: string }
+      >,
     commit: (payload: { message: string; paths: string[] }) =>
       ipcRenderer.invoke(IpcChannels.git.commit, payload) as Promise<
         { ok: true; message?: string } | { ok: false; message: string; code: string }

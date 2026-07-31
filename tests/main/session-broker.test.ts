@@ -1,5 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
-import { createSessionBroker, type AllocateSession, type SpawnWorker } from "../../src/main/session-broker";
+import {
+  createSessionBroker,
+  STALL_EMIT_MS,
+  type AllocateSession,
+  type SpawnWorker,
+} from "../../src/main/session-broker";
 
 function allocateFixed(id: string): AllocateSession {
   return async (cwd) => ({ id, cwd, filePath: `/tmp/${id}.jsonl` });
@@ -262,7 +267,7 @@ describe("session-broker", () => {
     expect(killed).toBe(true);
   });
 
-  it("never marks stuck during an active turn regardless of silence duration", async () => {
+  it("never kills during an active turn, but emits worker_stall once when the loop is silent past the stall window", async () => {
     vi.useFakeTimers();
     const events: Array<{ type: string }> = [];
     let killed = false;
@@ -273,7 +278,7 @@ describe("session-broker", () => {
         cwd,
         filePath: filePath ?? "/tmp/session-a.jsonl",
         worker: {
-          // Never answers ping / never emits — simulates long LLM/tool silence.
+          // Never answers ping / never emits — simulates a wedged event loop.
           send: async (msg) => {
             if (msg.kind === "command" && msg.command.type === "hang") {
               return new Promise(() => {});
@@ -297,6 +302,55 @@ describe("session-broker", () => {
     await vi.advanceTimersByTimeAsync(5_000 * 120);
     expect(events.some((e) => e.type === "worker_stuck")).toBe(false);
     expect(killed).toBe(false);
+    // But total silence (no pong, no events) past STALL_EMIT_MS surfaces as a
+    // stall signal so the renderer can abort + restart — never a silent freeze.
+    const stalls = events.filter((e) => e.type === "worker_stall");
+    expect(stalls.length).toBeGreaterThan(0);
+    // Idempotent — one event per silence episode, not one per heartbeat tick.
+    await vi.advanceTimersByTimeAsync(5_000 * 10);
+    expect(events.filter((e) => e.type === "worker_stall").length).toBe(stalls.length);
+    await broker.closeSession(session.id);
+    await expect(pending).rejects.toThrow(/session closed|worker/);
+    vi.useRealTimers();
+  });
+
+  it("does not emit worker_stall while an active turn keeps answering pings", async () => {
+    vi.useFakeTimers();
+    const events: Array<{ type: string }> = [];
+    let messageCb: ((msg: { kind: string }) => void) | null = null;
+    const broker = createSessionBroker({
+      allocateSession: allocateFixed("session-a"),
+      spawnWorker: async (cwd, filePath) => ({
+        id: idFromPath(filePath),
+        cwd,
+        filePath: filePath ?? "/tmp/session-a.jsonl",
+        worker: {
+          send: async (msg) => {
+            if (msg.kind === "ping") {
+              // Healthy worker: answers every heartbeat even mid-turn.
+              queueMicrotask(() => messageCb?.({ kind: "pong" }));
+            }
+            return null;
+          },
+          kill: () => {},
+          onMessage: (cb) => {
+            messageCb = cb;
+            return () => {
+              messageCb = null;
+            };
+          },
+        },
+      }),
+    });
+    broker.onEvent((event) => events.push(event));
+    const session = await broker.createSession("/tmp/a");
+    const pending = broker.send(session.id, { type: "hang" });
+    await vi.waitFor(() => {
+      expect(events.some((e) => e.type === "session_status")).toBe(true);
+    });
+    await vi.advanceTimersByTimeAsync(STALL_EMIT_MS + 5_000 * 5);
+    expect(events.some((e) => e.type === "worker_stall")).toBe(false);
+    expect(events.some((e) => e.type === "worker_stuck")).toBe(false);
     await broker.closeSession(session.id);
     await expect(pending).rejects.toThrow(/session closed|worker/);
     vi.useRealTimers();

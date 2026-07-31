@@ -40,6 +40,13 @@ let fitRaf = 0;
 /** Renderer-side coalesce — xterm.write is expensive under flood. */
 let writeBuf = "";
 let writeRaf = 0;
+/**
+ * xterm parses synchronously — one giant write freezes the renderer (and with
+ * it the whole window) for seconds. Cap the pending buffer (keep newest) and
+ * write at most one frame's worth per animation frame.
+ */
+const MAX_WRITE_BUF = 512 * 1024;
+const WRITE_PER_FRAME = 64 * 1024;
 /** First Enter-submitted command → auto tab title (once). */
 let inputLineBuf = "";
 let autoTitled = false;
@@ -49,13 +56,22 @@ let ansiSkip: "none" | "esc" | "csi" | "osc" = "none";
 function flushWriteBuf(): void {
   writeRaf = 0;
   if (!term || !writeBuf) return;
-  const chunk = writeBuf;
-  writeBuf = "";
+  const chunk = writeBuf.slice(0, WRITE_PER_FRAME);
+  writeBuf = writeBuf.slice(WRITE_PER_FRAME);
   term.write(chunk);
+  // Spread large dumps over multiple frames so the renderer never stalls.
+  if (writeBuf) {
+    writeRaf = requestAnimationFrame(flushWriteBuf);
+  }
 }
 
 function enqueueWrite(data: string): void {
+  if (!data) return;
   writeBuf += data;
+  if (writeBuf.length > MAX_WRITE_BUF) {
+    // Keep the newest data (what the user sees) — drop the middle.
+    writeBuf = writeBuf.slice(writeBuf.length - MAX_WRITE_BUF);
+  }
   if (writeRaf) return;
   writeRaf = requestAnimationFrame(flushWriteBuf);
 }
@@ -230,7 +246,7 @@ async function start(): Promise<void> {
 
   const history = await window.api.terminal.getScrollback(id);
   if (history && term) {
-    term.write(history);
+    enqueueWrite(history);
   }
 
   await nextTick();

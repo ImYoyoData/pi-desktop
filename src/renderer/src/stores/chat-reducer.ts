@@ -262,6 +262,21 @@ function toolCallsFromMessage(message: Record<string, unknown>): ExtractedToolCa
   return out;
 }
 
+/**
+ * Keep the currently-live tool card visible when a newer tool takes over the
+ * live slot. Moving it into history (instead of overwriting) means parallel
+ * edit/write/bash calls each show their own card instead of one box that
+ * directly switches to the next file.
+ */
+function parkLiveTool(
+  messages: ChatMessage[],
+  streaming: ChatState["streamingMessage"],
+): ChatMessage[] {
+  if (streaming?.role !== "tool") return messages;
+  if (messages.some((m) => m.id === streaming.id)) return messages;
+  return [...messages, { ...streaming, streaming: true }];
+}
+
 function commitAssistantStream(state: ChatState): ChatState {
   const stream = state.streamingMessage;
   if (stream?.role !== "assistant") return state;
@@ -920,8 +935,12 @@ function reduceAgentPayload(state: ChatState, payload: Record<string, unknown>):
         args: args ?? existing.args,
         streaming: true,
       };
-      // Promote to streamingMessage for live follow-bottom.
-      messages = messages.filter((_, i) => i !== existingIdx);
+      // Promote to streamingMessage for live follow-bottom, but keep any other
+      // currently-live tool card visible instead of dropping it.
+      messages = parkLiveTool(
+        messages.filter((_, i) => i !== existingIdx),
+        next.streamingMessage,
+      );
       return {
         ...next,
         running: true,
@@ -931,6 +950,7 @@ function reduceAgentPayload(state: ChatState, payload: Record<string, unknown>):
     }
 
     const order = next.nextToolOrder;
+    messages = parkLiveTool(messages, next.streamingMessage);
     return {
       ...next,
       running: true,
@@ -975,10 +995,12 @@ function reduceAgentPayload(state: ChatState, payload: Record<string, unknown>):
     }
     // Late update without start — create a streaming card.
     const order = state.nextToolOrder;
+    const parked = parkLiveTool(state.messages, state.streamingMessage);
     return {
       ...state,
       running: true,
       nextToolOrder: order + 1,
+      messages: parked,
       streamingMessage: {
         id,
         role: "tool",
@@ -1013,7 +1035,7 @@ function reduceAgentPayload(state: ChatState, payload: Record<string, unknown>):
       streaming: false,
       order: prior?.order,
     };
-    // Replace streaming tool or append
+    // The finished tool is the live card: finalize it into history.
     if (stream) {
       return {
         ...state,
@@ -1021,16 +1043,18 @@ function reduceAgentPayload(state: ChatState, payload: Record<string, unknown>):
         streamingMessage: null,
       };
     }
+    // Otherwise just update/append the finished tool. A different tool may
+    // still be streaming in the live slot — keep it visible instead of
+    // nulling streamingMessage (that used to drop the other card).
     const idx = state.messages.findIndex((m) => m.id === id);
     if (idx >= 0) {
       const next = [...state.messages];
       next[idx] = toolMsg;
-      return { ...state, messages: next, streamingMessage: null };
+      return { ...state, messages: next };
     }
     return {
       ...state,
       messages: [...state.messages, toolMsg],
-      streamingMessage: null,
     };
   }
   if (type === "agent_end") {
@@ -1061,7 +1085,17 @@ function reduceAgentPayload(state: ChatState, payload: Record<string, unknown>):
     // Keep UI in sync when the agent loop finished — do not wait for prompt_done
     // (session.prompt() can lag or stall after agent_end; sessions store already goes idle).
     const committed = commitStreamingMessage(state);
-    return { ...committed, running: false, retryHint: null, nextToolOrder: 1 };
+    return {
+      ...committed,
+      running: false,
+      retryHint: null,
+      nextToolOrder: 1,
+      // Never leave parked tool/assistant cards flagged "streaming" after the
+      // round ends — the UI folds them once nothing is live anymore.
+      messages: committed.messages.map((m) =>
+        m.role === "tool" || m.role === "assistant" ? { ...m, streaming: false } : m,
+      ),
+    };
   }
   if (type === "agent_settled") {
     // Fallback idle if prompt_done was missed; normally agent_end / prompt_done clears running.

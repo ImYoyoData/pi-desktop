@@ -12,6 +12,7 @@ import {
 import {
   PI_DESKTOP_NODE_PATH_ENV,
   PI_DESKTOP_PI_CLI_PATH_ENV,
+  PI_PACKAGE_DIR_ENV,
   PI_SUBAGENT_PI_BINARY_ENV,
   PI_SUBAGENTS_PI_CODING_AGENT_PACKAGE_ROOT_ENV,
 } from "../../src/shared/pi-subagent-env";
@@ -84,16 +85,17 @@ describe("resolvePiCodingAgentCliPath", () => {
 describe("buildAgentWorkerEnv", () => {
   it("sets desktop node/cli and package root; clears .cmd PI_SUBAGENT_PI_BINARY", () => {
     const root = mkdtempSync(path.join(tmpdir(), "pi-worker-env-"));
-    const cli = path.join(
+    const packageRoot = path.join(
       root,
       "node_modules",
       "@earendil-works",
       "pi-coding-agent",
-      "dist",
-      "cli.js",
     );
+    const cli = path.join(packageRoot, "dist", "cli.js");
     mkdirSync(path.dirname(cli), { recursive: true });
     writeFileSync(cli, "#!/usr/bin/env node\n", "utf8");
+    // Real packages ship a package.json at the root — getPackageDir relies on it.
+    writeFileSync(path.join(packageRoot, "package.json"), "{}", "utf8");
     const fakeNode = path.join(root, "node.exe");
     writeFileSync(fakeNode, "", "utf8");
 
@@ -111,8 +113,25 @@ describe("buildAgentWorkerEnv", () => {
     expect(env[PI_SUBAGENTS_PI_CODING_AGENT_PACKAGE_ROOT_ENV]).toBe(
       packageRootFromPiCli(cli),
     );
+    // SDK hook points at the package root so themes/templates resolve (the
+    // bundled SDK otherwise walks up from out/main to the app root).
+    expect(env[PI_PACKAGE_DIR_ENV]).toBe(packageRootFromPiCli(cli));
     expect(env[PI_SUBAGENT_PI_BINARY_ENV]).toBeUndefined();
     expect(env.ELECTRON_RUN_AS_NODE).toBeUndefined();
+  });
+
+  it("omits PI_PACKAGE_DIR when the CLI's package root has no package.json", () => {
+    const root = mkdtempSync(path.join(tmpdir(), "pi-pkgdir-missing-"));
+    const cli = path.join(root, "dist", "cli.js");
+    mkdirSync(path.dirname(cli), { recursive: true });
+    writeFileSync(cli, "#!/usr/bin/env node\n", "utf8");
+
+    const env = buildAgentWorkerEnv(
+      { PATH: "/usr/bin", [PI_DESKTOP_PI_CLI_PATH_ENV]: cli },
+      { searchRoots: [] },
+    );
+    expect(env[PI_DESKTOP_PI_CLI_PATH_ENV]).toBe(cli);
+    expect(env[PI_PACKAGE_DIR_ENV]).toBeUndefined();
   });
 
   it("drops system Node when the only CLI path is under app.asar (no ELECTRON_RUN_AS_NODE on fork env)", () => {
