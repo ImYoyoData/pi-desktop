@@ -725,6 +725,8 @@ export const zh = {
   securityBashAllowlistPlaceholder: "例如 git status / docker compose",
   securityToolDeniedToast:
     "工具已被安全设置拦截。请打开「设置 → 安全」以允许、调整 bash 白名单，或信任工作区。",
+  securityOpenDevTools: "打开开发者工具",
+  securityOpenDevToolsHint: "打开本应用窗口的开发者工具（排查问题用）",
 
   // Tool cards / market (forward-looking)
   toolRead: "已读取",

@@ -486,6 +486,18 @@ export const useChatStore = defineStore("chat", () => {
   }
 
   async function abort(sessionId: string): Promise<void> {
+    const row = sessionsStore.sessions.find((s) => s.id === sessionId);
+    if (row?.status === "stuck") {
+      await sessionsStore.killWorker(sessionId, null);
+      const state = stateFor(sessionId);
+      bySession[sessionId] = {
+        ...state,
+        running: false,
+        streamingMessage: null,
+        retryHint: null,
+      };
+      return;
+    }
     await sessionsStore.sendCommand(sessionId, { type: "abort" });
   }
 
