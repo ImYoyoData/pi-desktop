@@ -1,4 +1,5 @@
 import path from "node:path";
+import { existsSync } from "node:fs";
 import type { WorkerInbound, WorkerOutbound } from "../shared/agent-worker-messages";
 import type { DesktopSecuritySettings } from "../shared/desktop-security";
 import type {
@@ -15,6 +16,8 @@ import { clearSessionConversation, deleteSessionFile } from "./session-history";
 
 const HEARTBEAT_INTERVAL_MS = 5_000;
 const HEARTBEAT_MISS_LIMIT = 3;
+/** Stop button must not hang forever on a wedged worker. */
+const ABORT_FORCE_KILL_MS = 4_000;
 const CONTEXT_SEGMENT_IDS = new Set<ContextUsageSegmentId>([
   "system",
   "tools",
@@ -181,8 +184,24 @@ export function createSessionBroker(deps: {
           setStatus(sessionId, "stuck");
           emit({ type: "worker_stuck", sessionId });
         }
+        // Drop the hung worker handle. Leaving it alive makes stop/send hang forever
+        // on postMessage to a non-responsive utilityProcess.
+        if (current.worker) {
+          clearIdleDestroyTimer(current);
+          stopHeartbeat(current);
+          rejectPendingCommands(current, "worker unresponsive");
+          try {
+            current.worker.kill();
+          } catch {
+            // ignore
+          }
+          current.worker = null;
+          deps.onSessionWorkerGone?.(sessionId);
+        }
       }
-      void current.worker.send({ kind: "ping" });
+      if (current.worker) {
+        void current.worker.send({ kind: "ping" });
+      }
     }, HEARTBEAT_INTERVAL_MS);
   }
 
@@ -209,7 +228,10 @@ export function createSessionBroker(deps: {
     const spawned = await deps.spawnWorker(rec.cwd, filePath);
     if (spawned.id !== sessionId) {
       spawned.worker.kill();
-      throw new Error(`session id mismatch: expected ${sessionId}, got ${spawned.id}`);
+      throw new Error(
+        `session id mismatch: expected ${sessionId}, got ${spawned.id}` +
+          (filePath ? ` (file: ${filePath})` : " (new session had no file yet)"),
+      );
     }
     rec.worker = spawned.worker;
     rec.summary.filePath = spawned.filePath;
@@ -465,10 +487,17 @@ export function createSessionBroker(deps: {
     if (!target?.filePath) {
       return null;
     }
+    if (!existsSync(target.filePath)) {
+      throw new Error(
+        `session file missing (cannot open): ${target.filePath}. Create a new session or restore the file.`,
+      );
+    }
     const spawned = await deps.spawnWorker(cwd, target.filePath);
     if (spawned.id !== sessionId) {
       spawned.worker.kill();
-      throw new Error(`session id mismatch: expected ${sessionId}, got ${spawned.id}`);
+      throw new Error(
+        `session id mismatch: expected ${sessionId}, got ${spawned.id} (file: ${target.filePath})`,
+      );
     }
     return registerWorkerSession(spawned.id, spawned.cwd, spawned.filePath, spawned.worker, {
       name: target.name,
@@ -557,7 +586,45 @@ export function createSessionBroker(deps: {
     }
 
     return await new Promise<unknown>((resolve, reject) => {
-      rec.pendingCommands.set(cmdId, { command, resolve, reject });
+      let forceTimer: ReturnType<typeof setTimeout> | null = null;
+      const clearForce = (): void => {
+        if (forceTimer) {
+          clearTimeout(forceTimer);
+          forceTimer = null;
+        }
+      };
+      rec.pendingCommands.set(cmdId, {
+        command,
+        resolve: (v) => {
+          clearForce();
+          resolve(v);
+        },
+        reject: (e) => {
+          clearForce();
+          reject(e);
+        },
+      });
+      if (command.type === "abort") {
+        forceTimer = setTimeout(() => {
+          const pending = rec.pendingCommands.get(cmdId);
+          if (!pending) return;
+          rec.pendingCommands.delete(cmdId);
+          clearIdleDestroyTimer(rec);
+          stopHeartbeat(rec);
+          rejectPendingCommands(rec, "abort timed out — worker killed");
+          if (rec.worker) {
+            try {
+              rec.worker.kill();
+            } catch {
+              // ignore
+            }
+            rec.worker = null;
+          }
+          deps.onSessionWorkerGone?.(sessionId);
+          setStatus(sessionId, "idle");
+          resolve({ ok: true, forced: true });
+        }, ABORT_FORCE_KILL_MS);
+      }
       void worker.send(outbound).then((direct) => {
         if (direct?.kind === "result") {
           const pending = rec.pendingCommands.get(cmdId);
@@ -565,6 +632,7 @@ export function createSessionBroker(deps: {
             return;
           }
           rec.pendingCommands.delete(cmdId);
+          clearForce();
           if (direct.error) {
             reject(new Error(direct.error));
           } else {

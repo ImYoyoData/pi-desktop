@@ -732,6 +732,8 @@ export const en = {
   securityBashAllowlistPlaceholder: "e.g. git status / docker compose",
   securityToolDeniedToast:
     "Tool blocked by security settings. Open Settings → Security to allow, adjust the bash allowlist, or trust the workspace.",
+  securityOpenDevTools: "Open DevTools",
+  securityOpenDevToolsHint: "Open this app window’s developer tools (for troubleshooting)",
 
   // Tool cards / market (forward-looking)
   toolRead: "Read",

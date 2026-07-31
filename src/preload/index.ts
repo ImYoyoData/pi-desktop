@@ -64,6 +64,7 @@ const api = {
       ipcRenderer.invoke(IpcChannels.window.setUiLocale, locale) as Promise<void>,
     requestMediaAccess: (kind: "microphone" | "camera") =>
       ipcRenderer.invoke(IpcChannels.window.requestMediaAccess, kind) as Promise<boolean>,
+    openDevTools: () => ipcRenderer.invoke(IpcChannels.window.openDevTools) as Promise<void>,
     onCloseRequest: (callback: () => void) => {
       const listener = () => callback();
       ipcRenderer.on(IpcChannels.window.closeRequest, listener);
