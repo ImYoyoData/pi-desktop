@@ -39,7 +39,7 @@
   --radius-sm: 7px;
   --radius-md: 11px;
   --radius-lg: 14px;
-  --composer-max: 100%;
+  --composer-max: 780px;
   --chat-pad-x: 12px;
   --space-1: 4px;
   --space-2: 8px;
@@ -310,11 +310,37 @@ button {
 }
 
 .pi-settings-modal .n-card-header {
-  padding: 16px 20px 8px !important;
+  padding: 18px 20px 10px !important;
+  border-bottom: 1px solid var(--border);
+}
+
+.pi-settings-modal .n-card-header .n-card-header__title {
+  font-size: 15px;
+  font-weight: 650;
+  letter-spacing: 0.01em;
 }
 
 .pi-settings-modal .n-card__content {
-  padding: 8px 16px 16px !important;
+  padding: 14px 20px 18px !important;
+}
+
+/* Settings modals: consistent section cards */
+.pi-settings-modal .section {
+  padding: 14px 16px;
+  margin: 0 0 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md, 10px);
+  background: var(--bg-elevated, var(--bg));
+}
+
+.pi-settings-modal .section:last-child {
+  margin-bottom: 0;
+}
+
+.pi-settings-modal .section-label {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--fg-strong);
 }
 
 .pi-settings-modal .n-card__footer {

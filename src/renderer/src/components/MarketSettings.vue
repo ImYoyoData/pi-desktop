@@ -279,7 +279,7 @@ watch(query, () => {
     preset="card"
     :title="t.marketTitle"
     class="pi-settings-modal"
-    style="width: min(720px, 94vw)"
+    style="width: min(880px, 96vw)"
     :bordered="false"
     @update:show="(v: boolean) => !v && emit('close')"
   >
@@ -495,19 +495,22 @@ watch(query, () => {
   list-style: none;
   margin: 0;
   padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 10px;
 }
 
 .pkg-row {
   display: flex;
-  gap: 12px;
-  align-items: flex-start;
-  padding: 10px 12px;
+  flex-direction: column;
+  gap: 10px;
+  align-items: stretch;
+  justify-content: space-between;
+  padding: 12px;
   border: 1px solid var(--border);
-  border-radius: 10px;
+  border-radius: 12px;
   background: var(--bg-elevated, #fff);
+  box-shadow: var(--shadow-sm, none);
   transition:
     border-color var(--duration-fast, 140ms) var(--ease-out, ease),
     box-shadow var(--duration-fast, 140ms) var(--ease-out, ease),
@@ -516,7 +519,8 @@ watch(query, () => {
 
 .pkg-row:hover {
   border-color: var(--accent-border, var(--border-strong));
-  box-shadow: var(--shadow-sm);
+  box-shadow: var(--shadow-md);
+  transform: translateY(-1px);
 }
 
 .pkg-main {
@@ -571,9 +575,16 @@ watch(query, () => {
 
 .pkg-actions {
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
+  flex-wrap: wrap;
   gap: 6px;
   flex-shrink: 0;
+  margin-top: auto;
+  padding-top: 2px;
+}
+
+.pkg-actions :deep(.n-button) {
+  flex: 1 1 auto;
 }
 
 .pkg-footer {

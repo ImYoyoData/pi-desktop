@@ -78,6 +78,8 @@ export const IpcChannels = {
     branches: "git:branches",
     checkout: "git:checkout",
     createBranch: "git:createBranch",
+    deleteBranch: "git:deleteBranch",
+    renameBranch: "git:renameBranch",
     merge: "git:merge",
     commit: "git:commit",
     pull: "git:pull",
@@ -90,6 +92,9 @@ export const IpcChannels = {
     setRemoteUrl: "git:setRemoteUrl",
     removeRemote: "git:removeRemote",
     log: "git:log",
+    logFile: "git:logFile",
+    fileDiffAtCommit: "git:fileDiffAtCommit",
+    restoreFileToCommit: "git:restoreFileToCommit",
     conflictContent: "git:conflictContent",
     resolveConflict: "git:resolveConflict",
     checkoutConflictSide: "git:checkoutConflictSide",
@@ -282,7 +287,7 @@ export type AgentCommand =
       images?: PromptImageContent[];
       citations?: ElementCitation[];
     }
-  | { type: "steer"; message: string }
+  | { type: "steer"; message: string; images?: PromptImageContent[] }
   | { type: "follow_up"; message: string }
   | { type: "abort" }
   | { type: "set_model"; provider: string; modelId: string }
@@ -358,6 +363,7 @@ export type AgentEvent =
   | { type: "prompt_done"; sessionId: string }
   | { type: "prompt_error"; sessionId: string; errorMessage: string }
   | { type: "worker_stuck"; sessionId: string }
+  | { type: "worker_stall"; sessionId: string }
   | { type: "worker_alive"; sessionId: string }
   | { type: "worker_exit"; sessionId: string; code: number | null }
   | { type: "session_status"; sessionId: string; status: SessionStatus };

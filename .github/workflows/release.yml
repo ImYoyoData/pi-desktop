@@ -164,42 +164,70 @@ jobs:
           prerelease: false
           generate_release_notes: true
           body: |
-            ## 主要更新（0.1.8 正式版）
-            
-            Agent 运行可靠性、待办 UI 与计时体验改进。会话继续共用 Pi CLI（`~/.pi/agent/sessions`）。
-            
-            ### Agent
-            - 终端/命令长时间无输出时自动中断该命令（不整轮 abort）
-            - 点击「重试」保留已有 AI 回复与对话记录，按「继续」方式恢复
-            - 模型长时间无响应时给出超时错误与重试，避免误杀仍在运行的回合
-            - 顶部显示本轮总时长；底部等待模型 / 思考 / 生成 / 工具各自单独计时
-            
-            ### 待办
-            - `todo` / `todo_write` 等工具正确更新顶部待办面板
-            - 对话内待办工具卡片改为清单式 UI（不再只显示 JSON）
-            
-            ## What's New (0.1.8 stable)
-            
-            Agent reliability, todo UI, and wait-timer improvements. Sessions stay **shared with Pi CLI**.
-            
-            ### Agent
-            - Auto-interrupt bash/terminal commands that produce no output for too long
-            - Retry keeps prior AI replies and continues instead of wiping the turn
-            - Model silence surfaces a timeout + retry (does not kill healthy long turns)
-            - Header shows whole-turn time; bottom phases (model / thinking / writing / tools) each have their own clock
-            
-            ### Todos
-            - `todo` / `todo_write` correctly update the session todo panel
-            - In-chat todo tool cards render as checklists instead of raw JSON
-            
+            ## 主要更新（0.1.9 正式版）
+
+            本轮聚焦：聊天体验、Git 稳定性与面板重构、全局 UI 打磨与性能。会话继续与 Pi CLI 共享（`~/.pi/agent/sessions`）。
+
+            ### 聊天体验
+            - 会话/回合完成后执行过程全部折叠（工具卡片、思考块、工具组），只突出用户问题与最终答复——即使会话状态异常也会折叠
+            - 并行编辑多文件独立卡片；工具完成后自动折叠
+            - Codex 风格布局：居中阅读列、用户消息右对齐气泡
+            - 待发送队列「引导提交」：运行中发送不打断模型，作为引导排队处理（支持图片）
+
+            ### 启动与过渡
+            - 新增启动过渡动画：Logo + 进度条遮罩，应用就绪后淡出，隐藏所有加载状态
+            - 最小化/恢复不再卡顿（隐藏时暂停 IPC 冲刷）
+
+            ### Git
+            - 分支管理完善：删除/重命名分支、文件历史、单提交 diff、还原到指定版本
+            - 提交区重构：底部多行输入、Enter 提交、提交并推送
+            - 串行化 git 子进程消除 index.lock 竞争；网络操作独立 10 分钟超时
+            - Changes 面板 GitHub Desktop 风格重构：状态徽章、双行文件行、卡片式提交区
+
+            ### 全局 UI
+            - 设置弹窗统一卡片式分区
+            - 扩展市场卡片网格展示
+            - 待办列表新增进度条
+
+            ### 性能
+            - 会话/工作区切换缓存优化；流式滚动合并；工具卡片解析缓存
+
+            ## What's New (0.1.9 stable)
+
+            Chat UX, Git stability & redesigned Changes panel, startup transition, and global UI polish. Sessions stay **shared with Pi CLI**.
+
+            ### Chat
+            - All process rows (tools, thinking, groups) fold after a round completes - even if session status is stuck
+            - Steer send from the queue no longer interrupts the running model (images supported)
+            - Codex-style layout: centered column, right-aligned user bubbles
+
+            ### Startup & Transitions
+            - New startup splash (logo + progress) fades out once the app is ready, hiding loading states
+            - Restoring from minimized is smooth (IPC flushing paused while hidden)
+
+            ### Git
+            - Full branch management: rename / delete branches
+            - File history with per-commit diff and restore-to-version
+            - Redesigned Changes panel (GitHub Desktop style): status badges, two-line file rows, bottom commit card
+            - Commit & push in one click; Enter to commit
+            - Git subprocesses serialized (no more index.lock races); 10-minute network timeout
+
+            ### UI Polish
+            - Settings modals use unified section cards
+            - Extension market rendered as a responsive card grid
+            - Todo panel gets a progress bar
+
+            ### Performance
+            - Cached session listings; coalesced stream scrolling; memoized tool card parsing
+
             ## 下载 / Downloads
             - **Windows x64**: `Pi Desktop-*-win-x64-setup.exe`
             - **Windows ARM64**: `Pi Desktop-*-win-arm64-setup.exe`
             - **macOS Apple Silicon**: `Pi Desktop-*-mac-arm64.dmg`
             - **macOS Intel**: `Pi Desktop-*-mac-x64.dmg`
-            
+
             ## 说明 / Notes
-            - 本版本为 **正式稳定版**（非 prerelease）
+            - 本版本为**正式稳定版**（非 prerelease）
             - macOS 未公证：首次打开可能需要右键 → 打开
             - This is a **stable** release
             - macOS is unsigned/notarization off — first open may need right-click → Open

@@ -189,4 +189,38 @@ describe("AgentRunRegistry", () => {
     expect(outs[0]!.outputTail).toBe("abc");
     vi.useRealTimers();
   });
+
+  it("caps a pending output chunk so one huge dump cannot freeze main-process IPC", async () => {
+    vi.useFakeTimers();
+    const events: unknown[] = [];
+    const reg = createAgentRunRegistry({
+      onEvent: (e) => events.push(e),
+    });
+    reg.handleWorkerMessage("s1", {
+      kind: "run_started",
+      run: {
+        id: "r1",
+        sessionId: "s1",
+        workspaceRoot: "/ws",
+        command: "x",
+        cwd: "/ws",
+        startedAt: 1,
+      },
+    });
+    const big = "x".repeat(500 * 1024);
+    reg.handleWorkerMessage("s1", { kind: "run_output", runId: "r1", chunk: big });
+    reg.handleWorkerMessage("s1", { kind: "run_output", runId: "r1", chunk: "TAIL" });
+    await vi.advanceTimersByTimeAsync(40);
+    const outs = events.filter((e: any) => e.type === "output") as Array<{
+      type: string;
+      chunk: string;
+    }>;
+    expect(outs).toHaveLength(1);
+    // Newest data wins — the batch stays under 64KiB and ends with the newest chunk.
+    expect(outs[0]!.chunk.length).toBeLessThanOrEqual(64 * 1024);
+    expect(outs[0]!.chunk.endsWith("TAIL")).toBe(true);
+    // The run snapshot itself keeps the (already capped) full tail.
+    expect(reg.list("/ws")[0]!.outputTail.endsWith("TAIL")).toBe(true);
+    vi.useRealTimers();
+  });
 });

@@ -101,6 +101,25 @@ export function createUtilityProcessSpawnWorker(): SpawnWorker {
       env: workerEnv,
     });
 
+    // Drain worker stdout/stderr. utilityProcess `stdio: "pipe"` leaves the OS pipe
+    // unread when the parent never consumes it; once ~128-256KB of console output
+    // accumulates (cold-start resource summaries, extension logs, error stacks over
+    // a long session), the next write blocks the worker's event loop — pings stop,
+    // prompt() never resolves, and the session looks disconnected with no response.
+    // Relay to the main-process console so dev terminals still see worker logs.
+    const workerTag = `[worker:${child.pid ?? "?"}]`;
+    const relay = (stream: NodeJS.ReadableStream | null, isErr: boolean): void => {
+      stream?.on("data", (chunk: Buffer) => {
+        const text = String(chunk).replace(/\r?\n$/, "");
+        if (isErr) console.error(workerTag, text);
+        else console.info(workerTag, text);
+      });
+      // Pipe teardown after worker exit — the exit handler owns the lifecycle.
+      stream?.on("error", () => undefined);
+    };
+    relay(child.stdout, false);
+    relay(child.stderr, true);
+
     const messageListeners = new Set<(msg: WorkerOutbound) => void>();
     /** Set when we call kill() — exit is expected (idle destroy / session close). */
     let expectExit = false;

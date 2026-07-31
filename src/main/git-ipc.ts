@@ -6,17 +6,22 @@ import {
   checkoutBranch,
   commitPaths,
   createBranch,
+  deleteBranch,
   fetchRepo,
+  fileDiffAtCommit,
   getGitFileDiff,
   getWorkspaceGitStatus,
   initRepo,
   listBranches,
   listLog,
   listRemotes,
+  logFile,
   mergeBranch,
   pullRepo,
   pushRepo,
   removeRemote,
+  renameBranch,
+  restoreFileToCommit,
   restorePaths,
   setRemoteUrl,
   getConflictContent,
@@ -70,6 +75,48 @@ export function registerGitIpc(): void {
     if (!root) return noWorkspace();
     return mergeBranch(root, String(branch ?? ""));
   });
+
+  ipcMain.handle(IpcChannels.git.deleteBranch, async (_e, branch: string) => {
+    const root = requireRoot();
+    if (!root) return noWorkspace();
+    return deleteBranch(root, String(branch ?? ""));
+  });
+
+  ipcMain.handle(
+    IpcChannels.git.renameBranch,
+    async (_e, payload: { branch: string; nextName: string }) => {
+      const root = requireRoot();
+      if (!root) return noWorkspace();
+      return renameBranch(root, payload?.branch ?? "", payload?.nextName ?? "");
+    },
+  );
+
+  ipcMain.handle(
+    IpcChannels.git.logFile,
+    async (_e, relativePath: string, limit?: number) => {
+      const root = requireRoot();
+      if (!root || typeof relativePath !== "string") return { entries: [] };
+      return logFile(root, relativePath, typeof limit === "number" ? limit : 50);
+    },
+  );
+
+  ipcMain.handle(
+    IpcChannels.git.fileDiffAtCommit,
+    async (_e, payload: { relativePath: string; commitHash: string }) => {
+      const root = requireRoot();
+      if (!root) return { supported: false };
+      return fileDiffAtCommit(root, payload?.relativePath ?? "", payload?.commitHash ?? "");
+    },
+  );
+
+  ipcMain.handle(
+    IpcChannels.git.restoreFileToCommit,
+    async (_e, payload: { relativePath: string; commitHash: string }) => {
+      const root = requireRoot();
+      if (!root) return noWorkspace();
+      return restoreFileToCommit(root, payload?.relativePath ?? "", payload?.commitHash ?? "");
+    },
+  );
 
   ipcMain.handle(
     IpcChannels.git.commit,

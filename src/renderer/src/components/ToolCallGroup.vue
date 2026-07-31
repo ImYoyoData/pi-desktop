@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch } from "vue";
+import { computed, onBeforeUnmount, ref, watch } from "vue";
 import { NIcon } from "naive-ui";
 import {
   CheckmarkCircleOutline,
@@ -9,7 +9,7 @@ import {
 } from "@vicons/ionicons5";
 import type { ChatMessage } from "@renderer/stores/chat";
 import ToolCallCard from "@renderer/components/ToolCallCard.vue";
-import { parseToolCard } from "@renderer/utils/tool-diff";
+import { parseToolCard, type ToolCard } from "@renderer/utils/tool-diff";
 import {
   countToolActivities,
   formatToolGroupSummary,
@@ -20,6 +20,8 @@ type ToolMessage = Extract<ChatMessage, { role: "tool" }>;
 
 const props = defineProps<{
   tools: ToolMessage[];
+  /** True once the whole turn finished: fold the finished group (Codex-like). */
+  autoCollapse?: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -31,8 +33,20 @@ const wasStreaming = ref(false);
 
 const anyStreaming = computed(() => props.tools.some((m) => m.streaming));
 const anyError = computed(() => props.tools.some((m) => m.isError && !m.streaming));
+/** Collapse the finished group shortly after it stops streaming (Codex-like). */
+const AUTO_COLLAPSE_MS = 1200;
+let finishTimer: ReturnType<typeof setTimeout> | null = null;
+
+function clearFinishTimer(): void {
+  if (finishTimer) {
+    clearTimeout(finishTimer);
+    finishTimer = null;
+  }
+}
 
 const open = computed(() => {
+  // Turn finished: only a user-expanded group stays open; history stays folded.
+  if (props.autoCollapse) return manuallyOpen.value === true;
   if (manuallyOpen.value !== null) return manuallyOpen.value;
   // While tools are running (and just after), keep expanded so the latest call is visible.
   return wasStreaming.value || anyStreaming.value;
@@ -42,11 +56,30 @@ watch(anyStreaming, (streaming, prev) => {
   if (streaming) {
     manuallyOpen.value = null;
     wasStreaming.value = true;
+    clearFinishTimer();
   } else if (prev && !streaming) {
-    // Just finished — keep expanded so results are visible.
+    // Just finished — keep expanded so results are visible, then fold
+    // the history back up as the agent moves on.
     wasStreaming.value = true;
+    clearFinishTimer();
+    finishTimer = setTimeout(() => {
+      finishTimer = null;
+      if (manuallyOpen.value === null) manuallyOpen.value = false;
+    }, AUTO_COLLAPSE_MS);
   }
 });
+
+// Fold everything as soon as the round finishes; users can re-expand manually.
+watch(
+  () => props.autoCollapse,
+  (v) => {
+    if (!v) return;
+    clearFinishTimer();
+    manuallyOpen.value = false;
+  },
+);
+
+onBeforeUnmount(clearFinishTimer);
 
 function toggle(): void {
   manuallyOpen.value = !open.value;
@@ -66,8 +99,15 @@ const statusType = computed<"info" | "error" | "success">(() => {
   return "success";
 });
 
-function toolCard(msg: ToolMessage) {
-  return parseToolCard(msg.toolName, msg.args, msg.result, { isError: msg.isError });
+/** Memoize card parsing per message object (see MessageList.vue). */
+const toolCardCache = new WeakMap<ToolMessage, ToolCard>();
+function toolCard(msg: ToolMessage): ToolCard {
+  let card = toolCardCache.get(msg);
+  if (!card) {
+    card = parseToolCard(msg.toolName, msg.args, msg.result, { isError: msg.isError });
+    toolCardCache.set(msg, card);
+  }
+  return card;
 }
 
 function toolStatus(msg: ToolMessage): {
@@ -114,6 +154,7 @@ function toolStatus(msg: ToolMessage): {
         :status-label="toolStatus(msg).label"
         :status-type="toolStatus(msg).type"
         :streaming="msg.streaming"
+        :auto-collapse="props.autoCollapse || !msg.streaming"
         @open="emit('open', $event)"
       />
     </div>

@@ -5,6 +5,7 @@ import { is } from "@electron-toolkit/utils";
 import { IpcChannels } from "../shared/protocol";
 import { editMenuLabels } from "../shared/edit-menu-i18n";
 import { getUiLocale, setUiLocale } from "./ui-locale";
+import { bindWindowVisibility } from "./window-visibility";
 
 export { getUiLocale, setUiLocale };
 
@@ -188,6 +189,8 @@ export function createMainWindow(): BrowserWindow {
   });
 
   installEditContextMenu(mainWindow);
+  // Pause high-frequency IPC (terminal / run-output flushing) while hidden.
+  bindWindowVisibility(mainWindow);
 
   if (is.dev && process.env["ELECTRON_RENDERER_URL"]) {
     void mainWindow.loadURL(process.env["ELECTRON_RENDERER_URL"]);
