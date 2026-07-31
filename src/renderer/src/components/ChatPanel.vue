@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, watch } from "vue";
+import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import { NButton, NEmpty, NIcon, NTag, NText, useMessage } from "naive-ui";
 import { AddOutline, SparklesOutline } from "@vicons/ionicons5";
 import AskUserStrip from "@renderer/components/AskUserStrip.vue";
@@ -11,16 +11,18 @@ import MessageList from "@renderer/components/MessageList.vue";
 import { useChatStore } from "@renderer/stores/chat";
 import { useSessionsStore } from "@renderer/stores/sessions";
 import { useWorkspaceStore } from "@renderer/stores/workspace";
+import {
+  agentWaitPhase,
+  agentWaitToolName,
+  formatElapsedShort,
+} from "@renderer/utils/agent-wait";
+import type { ChatState } from "@renderer/stores/chat-reducer";
 import { t } from "@renderer/i18n";
 
 const chat = useChatStore();
 const sessions = useSessionsStore();
 const workspace = useWorkspaceStore();
 const message = useMessage();
-
-onMounted(() => {
-  chat.bindEvents();
-});
 
 watch(
   () => chat.securityRemediationTick,
@@ -42,6 +44,63 @@ const running = computed(() => {
   const row = sessions.sessions.find((s) => s.id === id);
   return chat.activeRunning || row?.status === "running";
 });
+
+const nowTick = ref(Date.now());
+let headerTimer: ReturnType<typeof setInterval> | null = null;
+onMounted(() => {
+  chat.bindEvents();
+  headerTimer = setInterval(() => {
+    nowTick.value = Date.now();
+  }, 1000);
+});
+onUnmounted(() => {
+  if (headerTimer) clearInterval(headerTimer);
+  headerTimer = null;
+});
+
+const headerWaitLabel = computed(() => {
+  void nowTick.value;
+  const s = chat.activeWaitState;
+  if (!s) return t.agentRunning;
+  if (s.autoRecovering) return t.autoRecovering;
+  const phase = agentWaitPhase(s as ChatState);
+  const tool = agentWaitToolName(s as ChatState);
+  const elapsed = s.turnStartedAt
+    ? formatElapsedShort(Math.max(0, nowTick.value - s.turnStartedAt))
+    : "";
+  let label = t.agentRunning;
+  switch (phase) {
+    case "starting":
+      label = t.agentWaitStarting;
+      break;
+    case "waiting_model":
+      label = t.agentWaitModel;
+      break;
+    case "thinking":
+      label = t.agentWaitThinking;
+      break;
+    case "writing":
+      label = t.agentWaitWriting;
+      break;
+    case "tool":
+      label = tool ? t.agentWaitTool(tool) : t.agentWaitToolGeneric;
+      break;
+    case "waiting_user":
+      label = t.agentWaitUser;
+      break;
+    case null:
+      break;
+    default: {
+      const _exhaustive: never = phase;
+      return _exhaustive;
+    }
+  }
+  return elapsed ? `${label} · ${elapsed}` : label;
+});
+
+const showHeaderRunning = computed(
+  () => running.value || Boolean(chat.activeWaitState?.autoRecovering),
+);
 
 const title = computed(() => {
   if (!sessions.activeId) return "";
@@ -103,8 +162,8 @@ async function onNewAgent(): Promise<void> {
             )
           }}
         </NTag>
-        <NTag v-else-if="running" type="success" size="small" round :bordered="false">
-          {{ t.agentRunning }}
+        <NTag v-else-if="showHeaderRunning" type="success" size="small" round :bordered="false">
+          {{ headerWaitLabel }}
         </NTag>
         <NButton
           quaternary

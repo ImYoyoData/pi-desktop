@@ -15,10 +15,12 @@ import {
   useMessage,
 } from "naive-ui";
 import type { SelectOption } from "naive-ui";
-import { formatAsrInstallError, useAsrStore } from "@renderer/stores/asr";
+import { formatAsrInstallError, isAsrInstallCancelled, useAsrStore } from "@renderer/stores/asr";
 import { useTtsStore } from "@renderer/stores/tts";
 import AsrInstallProgress from "@renderer/components/AsrInstallProgress.vue";
+import AsrInstallConfirmModal from "@renderer/components/AsrInstallConfirmModal.vue";
 import { formatAcceleratorLabel, keyboardEventToAccelerator } from "../../../shared/hotkey";
+import type { AsrDownloadMirror } from "../../../shared/asr";
 import { t } from "@renderer/i18n";
 
 const props = defineProps<{ open: boolean }>();
@@ -91,6 +93,19 @@ const gpuPreference = computed({
   },
 });
 
+const downloadMirror = computed({
+  get: (): AsrDownloadMirror => asr.status.downloadMirror || "auto",
+  set: (v: AsrDownloadMirror) => {
+    void onDownloadMirrorChange(v);
+  },
+});
+
+const downloadMirrorOptions = computed<SelectOption[]>(() => [
+  { label: t.asrDownloadMirrorAuto, value: "auto" },
+  { label: t.asrDownloadMirrorChina, value: "china" },
+  { label: t.asrDownloadMirrorGlobal, value: "global" },
+]);
+
 const gpuSelectOptions = computed<SelectOption[]>(() =>
   (asr.status.gpuOptions ?? []).map((opt) => ({
     label: opt.id === "auto" ? t.asrGpuAuto : opt.id === "cpu" ? t.asrDeviceCpu : opt.label,
@@ -162,19 +177,16 @@ async function onHotkeyCaptureKeydown(e: KeyboardEvent): Promise<void> {
 }
 
 async function withRuntimeToast(action: () => Promise<void>, okMsg: string): Promise<void> {
-  // Same key replaces loading — Naive UI has no message.destroy(key)
-  message.loading(t.asrPreparingRuntime(asr.status.gpuBackend.toUpperCase()), {
-    duration: 0,
-    key: "asr-runtime",
-  });
+  // Progress UI is AsrInstallProgress (with cancel); skip the sticky loading toast.
   try {
     await action();
-    message.success(okMsg, { key: "asr-runtime", duration: 2500 });
+    message.success(okMsg, { duration: 2500 });
   } catch (err) {
-    message.error(formatAsrInstallError(err, t.asrDownloadFailed), {
-      key: "asr-runtime",
-      duration: 6000,
-    });
+    if (isAsrInstallCancelled(err)) {
+      message.info(t.asrInstallCancelled, { duration: 2000 });
+      return;
+    }
+    message.error(formatAsrInstallError(err, t.asrDownloadFailed), { duration: 6000 });
   }
 }
 
@@ -191,18 +203,28 @@ async function onGpuPreferenceChange(value: string): Promise<void> {
   }
 }
 
+async function onDownloadMirrorChange(value: AsrDownloadMirror): Promise<void> {
+  try {
+    await asr.setDownloadMirror(value);
+  } catch (err) {
+    message.error(formatAsrInstallError(err, t.asrDownloadFailed), { duration: 5000 });
+    await asr.refresh();
+  }
+}
+
+const installConfirmOpen = ref(false);
+
 async function onInstall(): Promise<void> {
-  const ok = window.confirm(
-    t.asrInstallConfirm(
-      asr.status.diskMb,
-      asr.status.ramMb,
-      asr.status.gpuDeviceLabel,
-      asr.status.gpuBackend.toUpperCase(),
-      asr.status.gpuKind === "cpu",
-    ),
-  );
-  if (!ok) return;
+  installConfirmOpen.value = true;
+}
+
+async function onInstallConfirmed(): Promise<void> {
+  installConfirmOpen.value = false;
   await withRuntimeToast(() => asr.install(), t.asrInstallOk);
+}
+
+function onInstallConfirmCancel(): void {
+  installConfirmOpen.value = false;
 }
 
 async function onInstallFromUrl(): Promise<void> {
@@ -376,6 +398,19 @@ onUnmounted(() => {
       </NText>
 
       <NText strong style="font-size: 12px; margin-top: 14px; display: block">
+        {{ t.asrDownloadMirror }}
+      </NText>
+      <NText depth="3" style="font-size: 12px; display: block; margin: 4px 0 8px">
+        {{ t.asrDownloadMirrorHint }}
+      </NText>
+      <NSelect
+        v-model:value="downloadMirror"
+        size="small"
+        :options="downloadMirrorOptions"
+        :disabled="!asr.status.supported || asr.installing"
+      />
+
+      <NText strong style="font-size: 12px; margin-top: 14px; display: block">
         {{ t.asrGpuSelect }}
       </NText>
       <NText depth="3" style="font-size: 12px; display: block; margin: 4px 0 8px">
@@ -496,6 +531,11 @@ onUnmounted(() => {
     <AsrInstallProgress
       v-if="asr.installing || asr.progress?.phase === 'error'"
       style="margin-top: 14px"
+    />
+    <AsrInstallConfirmModal
+      :show="installConfirmOpen"
+      @confirm="onInstallConfirmed"
+      @cancel="onInstallConfirmCancel"
     />
     </div>
       </NTabPane>

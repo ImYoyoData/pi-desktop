@@ -24,8 +24,11 @@ import MarkdownView from "@renderer/components/MarkdownView.vue";
 import ThinkingBlock from "@renderer/components/ThinkingBlock.vue";
 import ToolCallCard from "@renderer/components/ToolCallCard.vue";
 import ToolCallGroup from "@renderer/components/ToolCallGroup.vue";
+import AgentWaitIndicator from "@renderer/components/AgentWaitIndicator.vue";
 import { parseToolCard, isReadTool } from "@renderer/utils/tool-diff";
 import { buildToolGroupSpans } from "@renderer/utils/tool-group";
+import { agentOutputSilenceMs } from "@renderer/utils/agent-wait";
+import type { ChatState } from "@renderer/stores/chat-reducer";
 import { usePreviewStore } from "@renderer/stores/preview";
 import { useRightTabsStore } from "@renderer/stores/right-tabs";
 import { t } from "@renderer/i18n";
@@ -70,6 +73,13 @@ const props = defineProps<{
 }>();
 
 const chat = useChatStore();
+const waitState = computed(() => chat.activeWaitState);
+/** Keep status visible during long gaps between stream chunks. */
+const showWaitWhileStreaming = computed(() => {
+  const s = waitState.value;
+  if (!s) return false;
+  return agentOutputSilenceMs(s as ChatState) >= 15_000;
+});
 const checkpoints = useCheckpointStore();
 const composer = useComposerStore();
 const sendQueue = useSendQueueStore();
@@ -1091,6 +1101,8 @@ function onRevertUser(msg: Extract<ChatMessage, { role: "user" }>): void {
                 v-if="msg.thinking || (msg.streaming && !msg.text)"
                 :thinking="msg.thinking ?? ''"
                 :streaming="Boolean(msg.streaming && !msg.text)"
+                :started-at="msg.thinkingStartedAt"
+                :duration-ms="msg.thinkingDurationMs"
               />
               <MarkdownView v-if="msg.text" :content="msg.text" />
               <span v-if="msg.streaming && msg.text" class="cursor" aria-hidden="true" />
@@ -1201,10 +1213,10 @@ function onRevertUser(msg: Extract<ChatMessage, { role: "user" }>): void {
             <span v-if="retryHint.message" class="retry-detail"> · {{ retryHint.message }}</span>
           </NText>
         </div>
-        <div v-else-if="running && !streaming" class="running-indicator">
-          <span class="dot" />
-          <NText depth="3" style="font-size: 12px">{{ t.agentRunning }}</NText>
-        </div>
+        <AgentWaitIndicator
+          v-else-if="waitState && (showWaitWhileStreaming || !streaming)"
+          :state="waitState"
+        />
       </template>
     </div>
     </div>
