@@ -28,6 +28,7 @@ import ComposerRichEditor from "@renderer/components/ComposerRichEditor.vue";
 import ComposerSlashMenu from "@renderer/components/ComposerSlashMenu.vue";
 import ComposerAtFileMenu from "@renderer/components/ComposerAtFileMenu.vue";
 import AsrInstallProgress from "@renderer/components/AsrInstallProgress.vue";
+import AsrInstallConfirmModal from "@renderer/components/AsrInstallConfirmModal.vue";
 import VoiceRecordBar, { type VoiceMeter } from "@renderer/components/VoiceRecordBar.vue";
 import SendQueueBar from "@renderer/components/SendQueueBar.vue";
 import { useChatStore } from "@renderer/stores/chat";
@@ -37,7 +38,7 @@ import { useSendQueueStore } from "@renderer/stores/send-queue";
 import { useSessionsStore } from "@renderer/stores/sessions";
 import { useWorkspaceStore } from "@renderer/stores/workspace";
 import { useRightTabsStore } from "@renderer/stores/right-tabs";
-import { formatAsrInstallError, formatAsrRuntimeError, useAsrStore } from "@renderer/stores/asr";
+import { formatAsrInstallError, formatAsrRuntimeError, isAsrInstallCancelled, useAsrStore } from "@renderer/stores/asr";
 import { useMediaStore } from "@renderer/stores/media";
 import { heuristicSessionTitle } from "@renderer/utils/session-title";
 import { startVoiceRecord, type VoiceRecordSession } from "@renderer/utils/pcm-capture";
@@ -63,6 +64,11 @@ import {
   type AtFileItem,
 } from "../../../shared/at-file-mention";
 import { formatLlmError } from "@renderer/utils/llm-error";
+import {
+  decodeWorkspacePaths,
+  looksLikeWorkspaceRelPath,
+  PI_WORKSPACE_PATHS_MIME,
+} from "@renderer/utils/workspace-path-dnd";
 import { locale, t } from "@renderer/i18n";
 
 type ThinkingLevel = "off" | "minimal" | "low" | "medium" | "high" | "xhigh";
@@ -352,6 +358,141 @@ function fileUrlToPath(uri: string): string | null {
     return toWorkspaceRelative(raw);
   }
   return null;
+}
+
+/** Absolute / file:// / workspace-relative path token → workspace-relative for file tags. */
+function coercePathToken(raw: string): string | null {
+  const fromUrl = fileUrlToPath(raw);
+  if (fromUrl != null && fromUrl !== "") return fromUrl;
+  if (fromUrl === "") return null; // dropped onto workspace root itself
+  if (looksLikeWorkspaceRelPath(raw)) {
+    return raw.trim().replace(/\\/g, "/").replace(/^\.\//, "");
+  }
+  return null;
+}
+
+const fileDragOver = ref(false);
+
+function transferHasFilePayload(data: DataTransfer): boolean {
+  const types = Array.from(data.types);
+  return (
+    types.includes(PI_WORKSPACE_PATHS_MIME) ||
+    types.includes("Files") ||
+    types.includes("text/uri-list") ||
+    types.includes("text/plain")
+  );
+}
+
+function onComposerDragOver(event: DragEvent): void {
+  const data = event.dataTransfer;
+  if (!data || !transferHasFilePayload(data)) return;
+  event.preventDefault();
+  data.dropEffect = "copy";
+  fileDragOver.value = true;
+}
+
+function onComposerDragLeave(event: DragEvent): void {
+  const next = event.relatedTarget as Node | null;
+  const card = event.currentTarget as HTMLElement | null;
+  if (card && next && card.contains(next)) return;
+  fileDragOver.value = false;
+}
+
+function onComposerDrop(event: DragEvent): void {
+  fileDragOver.value = false;
+  const data = event.dataTransfer;
+  if (!data) return;
+  if (ingestTransferData(data)) {
+    event.preventDefault();
+    event.stopPropagation();
+  }
+}
+
+/**
+ * Shared paste/drop ingest. Returns true when the event should be consumed
+ * (paths/urls/images handled as tags/attachments instead of plain text).
+ */
+function ingestTransferData(data: DataTransfer): boolean {
+  const custom = data.getData(PI_WORKSPACE_PATHS_MIME)?.trim() ?? "";
+  if (custom) {
+    const paths = decodeWorkspacePaths(custom);
+    if (paths.length) {
+      for (const filePath of paths) composer.addFileTag(filePath);
+      return true;
+    }
+  }
+
+  const imageFiles: File[] = [];
+  const pathFiles: File[] = [];
+
+  if (data.files?.length) {
+    for (const file of Array.from(data.files)) {
+      if (file.type.startsWith("image/")) imageFiles.push(file);
+      else pathFiles.push(file);
+    }
+  }
+
+  if (data.items) {
+    for (const item of Array.from(data.items)) {
+      if (item.kind !== "file") continue;
+      const file = item.getAsFile();
+      if (!file) continue;
+      if (file.type.startsWith("image/") || item.type.startsWith("image/")) {
+        if (!imageFiles.some((f) => f.name === file.name && f.size === file.size)) {
+          imageFiles.push(file);
+        }
+      } else if (!pathFiles.some((f) => f.name === file.name && f.size === file.size)) {
+        pathFiles.push(file);
+      }
+    }
+  }
+
+  if (imageFiles.length || pathFiles.length) {
+    if (imageFiles.length) void addFiles(imageFiles);
+    for (const file of pathFiles) {
+      const filePath = electronFilePath(file);
+      if (filePath) composer.addFileTag(filePath);
+    }
+    return true;
+  }
+
+  const uriList = data.getData("text/uri-list")?.trim() ?? "";
+  if (uriList) {
+    const paths: string[] = [];
+    let hasHttp = false;
+    for (const line of uriList.split(/\r?\n/)) {
+      const trimmed = line.trim();
+      if (!trimmed || trimmed.startsWith("#")) continue;
+      if (/^https?:\/\//i.test(trimmed)) {
+        hasHttp = true;
+        composer.addUrlTag(trimmed);
+        continue;
+      }
+      const filePath = coercePathToken(trimmed);
+      if (filePath) paths.push(filePath);
+    }
+    if (paths.length || hasHttp) {
+      for (const filePath of paths) composer.addFileTag(filePath);
+      return true;
+    }
+  }
+
+  const text = data.getData("text/plain")?.trim() ?? "";
+  if (text && isHttpUrl(text)) {
+    composer.addUrlTag(text);
+    return true;
+  }
+
+  if (text) {
+    const lines = text.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+    const asPaths = lines.map(coercePathToken).filter((p): p is string => Boolean(p));
+    if (asPaths.length && asPaths.length === lines.length) {
+      for (const filePath of asPaths) composer.addFileTag(filePath);
+      return true;
+    }
+  }
+
+  return false;
 }
 
 async function addFiles(files: FileList | File[]): Promise<void> {
@@ -1544,83 +1685,20 @@ async function onModelChange(value: string | null): Promise<void> {
 function onPaste(event: ClipboardEvent): void {
   const data = event.clipboardData;
   if (!data) return;
-
-  const imageFiles: File[] = [];
-  const pathFiles: File[] = [];
-
-  if (data.files?.length) {
-    for (const file of Array.from(data.files)) {
-      if (file.type.startsWith("image/")) imageFiles.push(file);
-      else pathFiles.push(file);
-    }
-  }
-
-  if (data.items) {
-    for (const item of Array.from(data.items)) {
-      if (item.kind === "file") {
-        const file = item.getAsFile();
-        if (!file) continue;
-        if (file.type.startsWith("image/") || item.type.startsWith("image/")) {
-          if (!imageFiles.some((f) => f.name === file.name && f.size === file.size)) {
-            imageFiles.push(file);
-          }
-        } else if (!pathFiles.some((f) => f.name === file.name && f.size === file.size)) {
-          pathFiles.push(file);
-        }
-      }
-    }
-  }
-
-  if (imageFiles.length || pathFiles.length) {
-    event.preventDefault();
-    if (imageFiles.length) void addFiles(imageFiles);
-    for (const file of pathFiles) {
-      const filePath = electronFilePath(file);
-      if (filePath) composer.addFileTag(filePath);
-    }
-    return;
-  }
-
-  const uriList = data.getData("text/uri-list")?.trim() ?? "";
-  if (uriList) {
-    const paths: string[] = [];
-    let hasHttp = false;
-    for (const line of uriList.split(/\r?\n/)) {
-      const trimmed = line.trim();
-      if (!trimmed || trimmed.startsWith("#")) continue;
-      if (/^https?:\/\//i.test(trimmed)) {
-        hasHttp = true;
-        composer.addUrlTag(trimmed);
-        continue;
-      }
-      const filePath = fileUrlToPath(trimmed);
-      if (filePath) paths.push(filePath);
-    }
-    if (paths.length || hasHttp) {
-      event.preventDefault();
-      for (const filePath of paths) composer.addFileTag(filePath);
-      return;
-    }
-  }
-
-  const text = data.getData("text/plain")?.trim() ?? "";
-  if (text && isHttpUrl(text)) {
-    event.preventDefault();
-    composer.addUrlTag(text);
-    return;
-  }
-
-  if (text) {
-    const lines = text.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
-    const asPaths = lines.map(fileUrlToPath).filter((p): p is string => Boolean(p));
-    if (asPaths.length && asPaths.length === lines.length) {
-      event.preventDefault();
-      for (const filePath of asPaths) composer.addFileTag(filePath);
-    }
-  }
+  if (ingestTransferData(data)) event.preventDefault();
 }
 
 async function ensureAsrReady(): Promise<boolean> {
+  if (ensureAsrReadyFlight) return ensureAsrReadyFlight;
+  ensureAsrReadyFlight = doEnsureAsrReady().finally(() => {
+    ensureAsrReadyFlight = null;
+  });
+  return ensureAsrReadyFlight;
+}
+
+let ensureAsrReadyFlight: Promise<boolean> | null = null;
+
+async function doEnsureAsrReady(): Promise<boolean> {
   // Resident warm path: status already loaded + installed — skip refresh hitch when possible.
   if (!(asr.status.residentModel && asr.status.installed && asr.status.enabled)) {
     await asr.refresh();
@@ -1635,34 +1713,54 @@ async function ensureAsrReady(): Promise<boolean> {
   }
   if (asr.status.installed) return true;
 
-  // Model already on disk ? only (re)fetch GPU-matched runtime (install modal shows progress)
-  if (asr.status.modelPath) {
+  // Join an in-flight install (e.g. background warm from mic click) — don't start a second one.
+  if (asr.installing) {
     try {
       await asr.install();
-      return true;
+      return asr.status.installed;
     } catch (err) {
+      if (isAsrInstallCancelled(err)) return false;
       messageApi.error(formatAsrInstallError(err, t.asrDownloadFailed), { duration: 6000 });
       return false;
     }
   }
 
-  const ok = window.confirm(
-    t.asrInstallConfirm(
-      asr.status.diskMb,
-      asr.status.ramMb,
-      asr.status.gpuDeviceLabel,
-      asr.status.gpuBackend.toUpperCase(),
-      asr.status.gpuKind === "cpu",
-    ),
-  );
+  const ok = await promptAsrInstallConfirm();
   if (!ok) return false;
   try {
     await asr.install();
     return true;
   } catch (err) {
+    if (isAsrInstallCancelled(err)) return false;
     messageApi.error(formatAsrInstallError(err, t.asrDownloadFailed), { duration: 6000 });
     return false;
   }
+}
+
+const asrInstallConfirmOpen = ref(false);
+let asrInstallConfirmResolve: ((ok: boolean) => void) | null = null;
+
+function promptAsrInstallConfirm(): Promise<boolean> {
+  if (asrInstallConfirmResolve) {
+    asrInstallConfirmResolve(false);
+    asrInstallConfirmResolve = null;
+  }
+  asrInstallConfirmOpen.value = true;
+  return new Promise((resolve) => {
+    asrInstallConfirmResolve = resolve;
+  });
+}
+
+function onAsrInstallConfirm(): void {
+  asrInstallConfirmOpen.value = false;
+  asrInstallConfirmResolve?.(true);
+  asrInstallConfirmResolve = null;
+}
+
+function onAsrInstallConfirmCancel(): void {
+  asrInstallConfirmOpen.value = false;
+  asrInstallConfirmResolve?.(false);
+  asrInstallConfirmResolve = null;
 }
 
 function setDictationWakePaused(paused: boolean): void {
@@ -1934,7 +2032,14 @@ watch(
     </div>
     <div
       class="composer-card"
-      :class="{ 'is-voice-recording': voiceActive, 'is-editor-expanded': editorExpanded }"
+      :class="{
+        'is-voice-recording': voiceActive,
+        'is-editor-expanded': editorExpanded,
+        'is-file-drag-over': fileDragOver,
+      }"
+      @dragover="onComposerDragOver"
+      @dragleave="onComposerDragLeave"
+      @drop="onComposerDrop"
     >
       <button
         type="button"
@@ -2267,6 +2372,12 @@ watch(
       </NPopover>
     </div>
 
+    <AsrInstallConfirmModal
+      :show="asrInstallConfirmOpen"
+      @confirm="onAsrInstallConfirm"
+      @cancel="onAsrInstallConfirmCancel"
+    />
+
     <NModal
       :show="asr.installing"
       preset="card"
@@ -2361,6 +2472,13 @@ watch(
   transition:
     border-color var(--duration-fast, 140ms) var(--ease-out, ease),
     box-shadow var(--duration, 180ms) var(--ease-out, ease);
+}
+
+.composer-card.is-file-drag-over {
+  border-color: color-mix(in srgb, var(--primary, #3b82f6) 55%, var(--border));
+  box-shadow:
+    var(--shadow-md),
+    0 0 0 2px color-mix(in srgb, var(--primary, #3b82f6) 22%, transparent);
 }
 
 .composer-expand-btn {

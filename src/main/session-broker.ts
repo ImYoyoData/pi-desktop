@@ -16,12 +16,14 @@ import { clearSessionConversation, deleteSessionFile } from "./session-history";
 import { allocateSessionOnDisk } from "./session-allocate";
 
 const HEARTBEAT_INTERVAL_MS = 5_000;
-/** Idle workers only: ~15s of silence → stuck (catch wedged utilityProcess). */
+/** Idle workers: ~15s of silence → stuck (catch wedged utilityProcess). */
 const HEARTBEAT_MISS_LIMIT_IDLE = 3;
 /**
- * Active agent turns are never killed by heartbeat silence (thinking / TTFT / long tools).
- * Process death → exit/fatal; Stop → abort force-kill.
+ * Active turns: ~45s with no inbound message (incl. pong) → stuck.
+ * Longer than idle so TTFT / brief tool stalls don't false-positive; soft hangs
+ * (worker still pinging) are handled in the renderer.
  */
+const HEARTBEAT_MISS_LIMIT_TURN = 9;
 const ABORT_FORCE_KILL_MS = 4_000;
 const SHUTDOWN_GRACE_MS = 800;
 const CONTEXT_SEGMENT_IDS = new Set<ContextUsageSegmentId>([
@@ -196,17 +198,13 @@ export function createSessionBroker(deps: {
       if (!current?.worker) {
         return;
       }
-      // Never declare stuck while a turn is in flight — silence is normal
-      // (thinking / TTFT / long tools). Real deaths come via exit/fatal; Stop uses abort.
-      if (hasActiveTurn(current)) {
-        void current.worker.send({ kind: "ping" });
-        return;
-      }
-      // Idle only: mark stuck when silent for the full miss window.
       // Using lastAliveAt (not a miss counter) avoids false positives when the main
       // process was blocked and several setInterval callbacks queue up at once.
       const silentMs = Date.now() - current.lastAliveAt;
-      if (silentMs >= HEARTBEAT_INTERVAL_MS * HEARTBEAT_MISS_LIMIT_IDLE) {
+      const missLimit = hasActiveTurn(current)
+        ? HEARTBEAT_MISS_LIMIT_TURN
+        : HEARTBEAT_MISS_LIMIT_IDLE;
+      if (silentMs >= HEARTBEAT_INTERVAL_MS * missLimit) {
         if (current.summary.status !== "stuck") {
           setStatus(sessionId, "stuck");
           emit({ type: "worker_stuck", sessionId });
@@ -311,6 +309,11 @@ export function createSessionBroker(deps: {
 
       if (msg.kind === "pong") {
         recoverFromStuck(sessionId, rec);
+        // During long turns, surface heartbeat so UI can distinguish "waiting on model"
+        // from a wedged worker (renderer soft-hang vs main turn heartbeat).
+        if (hasActiveTurn(rec)) {
+          emit({ type: "worker_alive", sessionId });
+        }
         return;
       }
 

@@ -147,6 +147,7 @@ export const IpcChannels = {
     status: "asr:status",
     setEnabled: "asr:setEnabled",
     setGpuPreference: "asr:setGpuPreference",
+    setDownloadMirror: "asr:setDownloadMirror",
     install: "asr:install",
     installFromUrl: "asr:installFromUrl",
     pickModel: "asr:pickModel",
@@ -154,6 +155,8 @@ export const IpcChannels = {
     reinstallRuntime: "asr:reinstallRuntime",
     pickRuntimeArchive: "asr:pickRuntimeArchive",
     importRuntime: "asr:importRuntime",
+    /** Abort in-flight runtime/model download. */
+    cancelInstall: "asr:cancelInstall",
     uninstall: "asr:uninstall",
     transcribe: "asr:transcribe",
     streamStart: "asr:streamStart",
@@ -355,6 +358,7 @@ export type AgentEvent =
   | { type: "prompt_done"; sessionId: string }
   | { type: "prompt_error"; sessionId: string; errorMessage: string }
   | { type: "worker_stuck"; sessionId: string }
+  | { type: "worker_alive"; sessionId: string }
   | { type: "worker_exit"; sessionId: string; code: number | null }
   | { type: "session_status"; sessionId: string; status: SessionStatus };
 

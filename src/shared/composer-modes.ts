@@ -53,7 +53,7 @@ You are in **Plan mode** (planning only — not the same as auto-task execution)
 - Explore the codebase with read-only tools as needed to ground the plan.
 - Do **not** implement the work yet (no edits, no commits, no destructive commands).
 - Produce a concrete markdown plan (goals, steps, risks, open questions).
-- Prefer writing the plan to a file such as \`PLAN.md\` (or a path the user chose) when ready.
+- When saving the plan, write it under \`docs/superpowers/plans/\` with a **descriptive + dated** filename: \`YYYY-MM-DD-<short-kebab-topic>.md\` (e.g. \`2026-07-31-asr-download-mirror.md\`). Do **not** default to \`PLAN.md\` or any fixed generic name. If the user specifies a path, use that instead.
 - Call \`ask_user\` with confirm/reject (and optional revise) before treating the plan as accepted.
 - Stop after presenting the plan / waiting for confirmation — do not auto-execute.`;
     case "task":
@@ -61,6 +61,7 @@ You are in **Plan mode** (planning only — not the same as auto-task execution)
 You are in **Task mode** (plan → confirm → fully automatic delivery).
 - Clarify the desired end state with \`ask_user\` when ambiguous.
 - Draft a short execution plan, then call \`ask_user\` with confirm/reject **before** starting implementation.
+- When saving the plan, write it under \`docs/superpowers/plans/\` with a **descriptive + dated** filename: \`YYYY-MM-DD-<short-kebab-topic>.md\` (e.g. \`2026-07-31-asr-download-mirror.md\`). Do **not** default to \`PLAN.md\` or any fixed generic name. If the user specifies a path, use that instead.
 - After the user confirms, autonomously implement using available tools (edit, bash, MCP, etc.).
 - Self-check: run relevant tests/commands, fix failures, and verify the goal is met end-to-end.
 - Prefer finishing the goal rather than stopping at a partial sketch — pause for \`ask_user\` only on irreversible / high-risk decisions.`;
@@ -79,8 +80,8 @@ Honor that mode for the turn (and follow-ups until a different mode marker appea
 
 - **agent** (default): normal coding agent; use \`ask_user\` when a clarifying choice is needed.
 - **ask**: read-only Q&A; inspect with read/query tools only; never mutate the workspace.
-- **plan**: clarify via \`ask_user\`, research read-only, write a markdown plan, wait for confirmation — do **not** implement / auto-execute.
-- **task** (Task mode): clarify outcome, propose a plan and get \`ask_user\` confirmation, then **fully automatically** implement and self-test to completion.
+- **plan**: clarify via \`ask_user\`, research read-only, write a markdown plan under \`docs/superpowers/plans/YYYY-MM-DD-<topic>.md\` (never default \`PLAN.md\`), wait for confirmation — do **not** implement / auto-execute.
+- **task** (Task mode): clarify outcome, save a dated descriptive plan the same way, get \`ask_user\` confirmation, then **fully automatically** implement and self-test to completion.
 
 Plan mode and Task mode are different: plan stops at the plan; task executes after confirmation.
 `;
