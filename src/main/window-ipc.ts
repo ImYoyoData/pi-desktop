@@ -75,4 +75,14 @@ export function registerWindowIpc(): void {
       return false;
     }
   });
+
+  /** Open (or focus) the app Chromium DevTools for this window. */
+  ipcMain.handle(IpcChannels.window.openDevTools, (event) => {
+    const wc = event.sender;
+    if (wc.isDevToolsOpened()) {
+      wc.devToolsWebContents?.focus();
+      return;
+    }
+    wc.openDevTools({ mode: "detach" });
+  });
 }
