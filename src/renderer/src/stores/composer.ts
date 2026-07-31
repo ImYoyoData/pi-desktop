@@ -5,10 +5,11 @@ import { isRegionCitation } from "../../../shared/protocol";
 import { truncateHtmlSnippet } from "../../../shared/html-snippet";
 import type { ComposerAgentMode } from "../../../shared/composer-modes";
 import { t } from "@renderer/i18n";
+import { fileTagLabel, urlTagLabel } from "@renderer/utils/path-label";
 
 export type ComposerChip =
   | { id: string; kind: "element"; citation: ElementCitation }
-  | { id: string; kind: "file"; path: string }
+  | { id: string; kind: "file"; path: string; startLine?: number; endLine?: number }
   | { id: string; kind: "url"; url: string };
 
 export type ComposerImage = {
@@ -242,12 +243,22 @@ export const useComposerStore = defineStore("composer", () => {
     }
   }
 
-  function addFileTag(filePath: string): void {
+  function addFileTag(filePath: string, startLine?: number, endLine?: number): void {
     const path = filePath.trim();
     if (!path) return;
     const b = bucket();
-    if (b.chips.some((c) => c.kind === "file" && c.path === path)) return;
-    b.chips = [...b.chips, { id: chipId(), kind: "file", path }];
+    // Deduplicate: same path + same range → skip
+    if (
+      b.chips.some(
+        (c) =>
+          c.kind === "file" &&
+          c.path === path &&
+          c.startLine === startLine &&
+          c.endLine === endLine,
+      )
+    )
+      return;
+    b.chips = [...b.chips, { id: chipId(), kind: "file", path, startLine, endLine }];
   }
 
   function addUrlTag(url: string): void {
@@ -289,7 +300,13 @@ export const useComposerStore = defineStore("composer", () => {
     for (const chip of bucket().chips) {
       if (chip.kind === "file") {
         const ref = chip.path.includes(" ") ? `"${chip.path}"` : chip.path;
-        parts.push(`@${ref}`);
+        const range =
+          chip.startLine && chip.endLine
+            ? `:${chip.startLine}-${chip.endLine}`
+            : chip.startLine
+              ? `:${chip.startLine}`
+              : "";
+        parts.push(`@${ref}${range}`);
       } else if (chip.kind === "url") {
         parts.push(chip.url);
       } else if (chip.kind === "element") {
@@ -317,9 +334,15 @@ export const useComposerStore = defineStore("composer", () => {
     }[] = [];
     for (const chip of bucket().chips) {
       if (chip.kind === "file") {
+        const range =
+          chip.startLine && chip.endLine
+            ? `:${chip.startLine}-${chip.endLine}`
+            : chip.startLine
+              ? `:${chip.startLine}`
+              : "";
         out.push({
           kind: "file",
-          label: chip.path,
+          label: `${fileTagLabel(chip.path)}${range}`,
           title: chip.path,
           ref: chip.path,
           content: chip.path,
@@ -327,7 +350,7 @@ export const useComposerStore = defineStore("composer", () => {
       } else if (chip.kind === "url") {
         out.push({
           kind: "url",
-          label: chip.url,
+          label: urlTagLabel(chip.url),
           title: chip.url,
           ref: chip.url,
           content: chip.url,

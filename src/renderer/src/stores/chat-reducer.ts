@@ -26,7 +26,7 @@ export type ChatMessage =
       role: "user";
       text: string;
       images?: ChatUserImage[];
-      /** Cursor-style tags (element / file path / url) shown in the bubble. */
+      /** Inline tags (element / file path / url) shown in the bubble. */
       elementTags?: {
         url: string;
         host: string;
@@ -162,6 +162,201 @@ function thinkingFromMessage(message: Record<string, unknown>): string {
     .join("");
 }
 
+type ExtractedToolCall = {
+  id: string;
+  name: string;
+  arguments: unknown;
+};
+
+/** Tool calls embedded in a streaming assistant message (partial args grow via toolcall_delta). */
+function toolCallsFromMessage(message: Record<string, unknown>): ExtractedToolCall[] {
+  const content = message.content;
+  if (!Array.isArray(content)) return [];
+  const out: ExtractedToolCall[] = [];
+  for (const part of content) {
+    if (!part || typeof part !== "object") continue;
+    const p = part as Record<string, unknown>;
+    if (p.type !== "toolCall" && p.type !== "tool_use") continue;
+    const id = typeof p.id === "string" ? p.id : "";
+    if (!id) continue;
+    const name =
+      typeof p.name === "string" && p.name
+        ? p.name
+        : typeof p.toolName === "string" && p.toolName
+          ? p.toolName
+          : "tool";
+    const args =
+      p.arguments !== undefined
+        ? p.arguments
+        : p.input !== undefined
+          ? p.input
+          : {};
+    out.push({ id, name, arguments: args });
+  }
+  return out;
+}
+
+function commitAssistantStream(state: ChatState): ChatState {
+  const stream = state.streamingMessage;
+  if (stream?.role !== "assistant") return state;
+  if (!stream.text && !stream.thinking) {
+    return { ...state, streamingMessage: null };
+  }
+  return upsertAssistantMessage(state, { ...stream, streaming: false });
+}
+
+/**
+ * Insert or replace an assistant row. Same SDK message id (or identical text+thinking
+ * after the last user bubble) must never create a second bubble — tool loops used to
+ * re-commit the same assistant on every toolcall_delta / message_end.
+ */
+function upsertAssistantMessage(
+  state: ChatState,
+  assistant: Extract<ChatMessage, { role: "assistant" }>,
+): ChatState {
+  const finalized: Extract<ChatMessage, { role: "assistant" }> = {
+    ...assistant,
+    streaming: false,
+  };
+
+  const byId = state.messages.findIndex(
+    (m) => m.role === "assistant" && m.id === finalized.id,
+  );
+  if (byId >= 0) {
+    const messages = state.messages.slice();
+    messages[byId] = finalized;
+    return { ...state, messages, streamingMessage: null };
+  }
+
+  // Unstable ids: collapse identical content since the last user message.
+  let from = 0;
+  for (let i = state.messages.length - 1; i >= 0; i--) {
+    if (state.messages[i]?.role === "user") {
+      from = i + 1;
+      break;
+    }
+  }
+  for (let i = from; i < state.messages.length; i++) {
+    const m = state.messages[i];
+    if (m?.role !== "assistant") continue;
+    if (
+      m.text === finalized.text &&
+      (m.thinking ?? "") === (finalized.thinking ?? "")
+    ) {
+      const messages = state.messages.slice();
+      messages[i] = { ...finalized, id: m.id };
+      return { ...state, messages, streamingMessage: null };
+    }
+  }
+
+  return {
+    ...state,
+    messages: [...state.messages, finalized],
+    streamingMessage: null,
+  };
+}
+
+/**
+ * Mirror partial toolCall.* from the assistant message into live tool cards so
+ * write/edit content streams like thinking (not only after tool_execution_end).
+ *
+ * Important: park the in-flight assistant bubble at most once. Rebuilding it from
+ * the partial message on every toolcall_delta re-appends duplicates in the UI.
+ */
+function syncStreamingToolCalls(state: ChatState, message: Record<string, unknown>): ChatState {
+  const calls = toolCallsFromMessage(message);
+  if (!calls.length) return state;
+
+  let next = state;
+  if (state.streamingMessage?.role === "assistant") {
+    // Refresh once from the latest partial, then move it into history so the
+    // live slot can become the tool card.
+    next = commitAssistantStream({
+      ...state,
+      streamingMessage: assistantFromPartial(message, state.streamingMessage),
+    });
+  } else if (!state.streamingMessage) {
+    // Toolcalls arrived with no live assistant stream — park text/thinking once
+    // (upsert) if missing from history for this turn.
+    const text = textFromMessage(message);
+    const thinking = thinkingFromMessage(message);
+    if (text || thinking) {
+      const draft = assistantFromPartial(message, null);
+      next = upsertAssistantMessage(state, { ...draft, streaming: false });
+    }
+  }
+  // If streamingMessage is already a tool (or assistant already parked), only
+  // update tool cards — never re-materialize an assistant bubble.
+
+  let messages = next.messages;
+  let streaming = next.streamingMessage;
+  let order = next.nextToolOrder;
+
+  for (let i = 0; i < calls.length; i++) {
+    const tc = calls[i]!;
+    const id = `tool-${tc.id}`;
+    const isLast = i === calls.length - 1;
+    const existingIdx = messages.findIndex((m) => m.id === id);
+    const existingInList =
+      existingIdx >= 0 && messages[existingIdx]?.role === "tool"
+        ? (messages[existingIdx] as Extract<ChatMessage, { role: "tool" }>)
+        : null;
+
+    // Already finalized with a result — leave alone.
+    if (existingInList && !existingInList.streaming && existingInList.result !== undefined) {
+      continue;
+    }
+
+    const baseOrder = existingInList?.order ?? (streaming?.role === "tool" && streaming.id === id ? streaming.order : undefined);
+    const toolMsg: Extract<ChatMessage, { role: "tool" }> = {
+      id,
+      role: "tool",
+      toolCallId: tc.id,
+      toolName: tc.name,
+      args: tc.arguments,
+      streaming: true,
+      order: baseOrder ?? order++,
+      ...(existingInList?.result !== undefined ? { result: existingInList.result } : {}),
+      ...(existingInList?.isError !== undefined ? { isError: existingInList.isError } : {}),
+    };
+
+    if (existingInList) {
+      messages = messages.slice();
+      messages[existingIdx] = toolMsg;
+      if (streaming?.role === "tool" && streaming.id === id) {
+        streaming = toolMsg;
+      }
+      continue;
+    }
+
+    if (streaming?.role === "tool" && streaming.id === id) {
+      streaming = toolMsg;
+      continue;
+    }
+
+    if (isLast) {
+      if (streaming?.role === "tool" && streaming.id !== id) {
+        // Park the previous live tool into history so the newest stays in streamingMessage.
+        const parked = messages.find((m) => m.id === streaming!.id);
+        if (!parked) {
+          messages = [...messages, { ...streaming, streaming: true }];
+        }
+      }
+      streaming = toolMsg;
+    } else {
+      messages = [...messages, toolMsg];
+    }
+  }
+
+  return {
+    ...next,
+    messages,
+    streamingMessage: streaming,
+    nextToolOrder: order,
+    running: true,
+  };
+}
+
 function imagesFromMessage(message: Record<string, unknown>): ChatUserImage[] | undefined {
   const content = message.content;
   if (!Array.isArray(content)) return undefined;
@@ -238,11 +433,7 @@ function commitStreamingMessage(state: ChatState): ChatState {
     if (!stream.text && !stream.thinking) {
       return { ...state, streamingMessage: null };
     }
-    return {
-      ...state,
-      streamingMessage: null,
-      messages: [...state.messages, { ...stream, streaming: false }],
-    };
+    return upsertAssistantMessage(state, { ...stream, streaming: false });
   }
   if (stream.role === "tool") {
     return {
@@ -350,6 +541,34 @@ function reduceAgentPayload(state: ChatState, payload: Record<string, unknown>):
       return appendError(state, midError);
     }
 
+    // Progressive toolCall args (write/edit content) — stream into tool cards.
+    const toolCalls = toolCallsFromMessage(msg);
+    if (toolCalls.length > 0) {
+      return syncStreamingToolCalls(state, msg);
+    }
+
+    // Mid tool-loop: keep the live tool card; do not resurrect an assistant bubble
+    // from a text/thinking snapshot (that re-commits on the next toolcall_delta).
+    if (state.streamingMessage?.role === "tool") {
+      return { ...state, running: true };
+    }
+
+    const msgId = typeof msg.id === "string" ? msg.id : "";
+    const existingAssistantIdx = msgId
+      ? state.messages.findIndex((m) => m.role === "assistant" && m.id === msgId)
+      : -1;
+    if (existingAssistantIdx >= 0) {
+      // Already parked for this turn (tools in progress). Refresh in place only.
+      const prev = state.messages[existingAssistantIdx] as Extract<
+        ChatMessage,
+        { role: "assistant" }
+      >;
+      const refreshed = assistantFromPartial(msg, prev);
+      const messages = state.messages.slice();
+      messages[existingAssistantIdx] = { ...refreshed, streaming: false };
+      return { ...state, running: true, messages };
+    }
+
     let nextStream = assistantFromPartial(msg, state.streamingMessage);
 
     const assistantEvent = payload.assistantMessageEvent;
@@ -379,6 +598,18 @@ function reduceAgentPayload(state: ChatState, payload: Record<string, unknown>):
           thinking: ev.content,
         };
       }
+      if (
+        ev.type === "toolcall_start" ||
+        ev.type === "toolcall_delta" ||
+        ev.type === "toolcall_end"
+      ) {
+        // Prefer the partial AssistantMessage on the event when present.
+        const partial =
+          ev.partial && typeof ev.partial === "object"
+            ? (ev.partial as Record<string, unknown>)
+            : msg;
+        return syncStreamingToolCalls(state, partial);
+      }
       if (ev.type === "error" && typeof ev.error === "object" && ev.error) {
         const errObj = ev.error as Record<string, unknown>;
         const msgText =
@@ -387,7 +618,10 @@ function reduceAgentPayload(state: ChatState, payload: Record<string, unknown>):
             : typeof ev.message === "string"
               ? ev.message
               : "Request failed";
-        return appendError(state, msgText);
+        return appendError(
+          { ...state, streamingMessage: nextStream },
+          msgText,
+        );
       }
     }
 
@@ -481,19 +715,13 @@ function reduceAgentPayload(state: ChatState, payload: Record<string, unknown>):
       // Always keep partial thinking/answer on abort (and on mid-stream errors).
       let next: ChatState = { ...state, streamingMessage: null };
       if (text || thinking) {
-        next = {
-          ...next,
-          messages: [
-            ...state.messages,
-            {
-              id,
-              role: "assistant",
-              text,
-              ...(thinking ? { thinking } : {}),
-              streaming: false,
-            },
-          ],
-        };
+        next = upsertAssistantMessage(next, {
+          id,
+          role: "assistant",
+          text,
+          ...(thinking ? { thinking } : {}),
+          streaming: false,
+        });
       }
 
       if (errText) {
@@ -522,20 +750,46 @@ function reduceAgentPayload(state: ChatState, payload: Record<string, unknown>):
     const toolCallId = String(payload.toolCallId ?? localId("tool"));
     const id = `tool-${toolCallId}`;
     // Finalize any in-progress assistant text/thinking into history first
-    let messages = state.messages;
-    if (
-      state.streamingMessage?.role === "assistant" &&
-      (state.streamingMessage.text || state.streamingMessage.thinking)
-    ) {
-      messages = [
-        ...messages,
-        { ...state.streamingMessage, streaming: false },
-      ];
-    }
-    const order = state.nextToolOrder;
+    let next = commitAssistantStream(state);
+    let messages = next.messages;
     const toolName = String(payload.toolName ?? "tool");
+    const args = payload.args;
+
+    // Prefer updating an already-streaming tool card (from toolcall_delta).
+    if (next.streamingMessage?.role === "tool" && next.streamingMessage.id === id) {
+      return {
+        ...next,
+        running: true,
+        streamingMessage: {
+          ...next.streamingMessage,
+          toolName,
+          args: args ?? next.streamingMessage.args,
+          streaming: true,
+        },
+      };
+    }
+    const existingIdx = messages.findIndex((m) => m.id === id);
+    if (existingIdx >= 0 && messages[existingIdx]?.role === "tool") {
+      const existing = messages[existingIdx] as Extract<ChatMessage, { role: "tool" }>;
+      const updated: Extract<ChatMessage, { role: "tool" }> = {
+        ...existing,
+        toolName,
+        args: args ?? existing.args,
+        streaming: true,
+      };
+      // Promote to streamingMessage for live follow-bottom.
+      messages = messages.filter((_, i) => i !== existingIdx);
+      return {
+        ...next,
+        running: true,
+        messages,
+        streamingMessage: updated,
+      };
+    }
+
+    const order = next.nextToolOrder;
     return {
-      ...state,
+      ...next,
       running: true,
       messages,
       nextToolOrder: order + 1,
@@ -544,7 +798,51 @@ function reduceAgentPayload(state: ChatState, payload: Record<string, unknown>):
         role: "tool",
         toolCallId,
         toolName,
+        args,
+        streaming: true,
+        order,
+      },
+    };
+  }
+  if (type === "tool_execution_update") {
+    const toolCallId = String(payload.toolCallId ?? "");
+    const id = `tool-${toolCallId}`;
+    const toolName = String(payload.toolName ?? "tool");
+    const patch = (msg: Extract<ChatMessage, { role: "tool" }>): Extract<ChatMessage, { role: "tool" }> => ({
+      ...msg,
+      toolName: toolName || msg.toolName,
+      args: payload.args ?? msg.args,
+      // Progressive tool output (bash etc.); write/edit usually update via args.
+      result: payload.partialResult ?? msg.result,
+      streaming: true,
+    });
+
+    if (state.streamingMessage?.role === "tool" && state.streamingMessage.id === id) {
+      return {
+        ...state,
+        running: true,
+        streamingMessage: patch(state.streamingMessage),
+      };
+    }
+    const idx = state.messages.findIndex((m) => m.id === id);
+    if (idx >= 0 && state.messages[idx]?.role === "tool") {
+      const next = state.messages.slice();
+      next[idx] = patch(state.messages[idx] as Extract<ChatMessage, { role: "tool" }>);
+      return { ...state, running: true, messages: next };
+    }
+    // Late update without start — create a streaming card.
+    const order = state.nextToolOrder;
+    return {
+      ...state,
+      running: true,
+      nextToolOrder: order + 1,
+      streamingMessage: {
+        id,
+        role: "tool",
+        toolCallId,
+        toolName,
         args: payload.args,
+        result: payload.partialResult,
         streaming: true,
         order,
       },

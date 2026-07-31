@@ -69,7 +69,8 @@ type SessionRecord = {
   cwd: string;
   summary: SessionSummary;
   worker: WorkerHandle | null;
-  heartbeatMisses: number;
+  /** Wall-clock ms of last message from this worker (any kind). */
+  lastAliveAt: number;
   heartbeatTimer: ReturnType<typeof setInterval> | null;
   idleDestroyTimer: ReturnType<typeof setTimeout> | null;
   pendingCommands: Map<
@@ -165,19 +166,39 @@ export function createSessionBroker(deps: {
       return;
     }
     stopHeartbeat(rec);
-    rec.heartbeatMisses = 0;
+    rec.lastAliveAt = Date.now();
     rec.heartbeatTimer = setInterval(() => {
       const current = sessions.get(sessionId);
       if (!current?.worker) {
         return;
       }
-      current.heartbeatMisses += 1;
-      if (current.heartbeatMisses >= HEARTBEAT_MISS_LIMIT) {
-        setStatus(sessionId, "stuck");
-        emit({ type: "worker_stuck", sessionId });
+      // Mark stuck only when the worker has been silent for the full miss window.
+      // Using lastAliveAt (not a miss counter) avoids false positives when the main
+      // process was blocked and several setInterval callbacks queue up at once.
+      const silentMs = Date.now() - current.lastAliveAt;
+      if (silentMs >= HEARTBEAT_INTERVAL_MS * HEARTBEAT_MISS_LIMIT) {
+        if (current.summary.status !== "stuck") {
+          setStatus(sessionId, "stuck");
+          emit({ type: "worker_stuck", sessionId });
+        }
       }
       void current.worker.send({ kind: "ping" });
     }, HEARTBEAT_INTERVAL_MS);
+  }
+
+  function noteWorkerAlive(rec: SessionRecord): void {
+    rec.lastAliveAt = Date.now();
+  }
+
+  function recoverFromStuck(sessionId: string, rec: SessionRecord): void {
+    if (rec.summary.status !== "stuck") return;
+    const hasPendingPrompt = [...rec.pendingCommands.values()].some(
+      (p) => p.command.type === "prompt",
+    );
+    setStatus(sessionId, hasPendingPrompt ? "running" : "idle");
+    if (!hasPendingPrompt) {
+      scheduleIdleDestroy(sessionId);
+    }
   }
 
   async function spawnWorkerForRecord(
@@ -217,18 +238,17 @@ export function createSessionBroker(deps: {
         return;
       }
 
+      // Any inbound message proves the utilityProcess event loop is alive.
+      noteWorkerAlive(rec);
       deps.onWorkerMessage?.(sessionId, msg);
 
       if (msg.kind === "pong") {
-        rec.heartbeatMisses = 0;
-        if (rec.summary.status === "stuck") {
-          setStatus(sessionId, "idle");
-          scheduleIdleDestroy(sessionId);
-        }
+        recoverFromStuck(sessionId, rec);
         return;
       }
 
       if (msg.kind === "event" && msg.event) {
+        recoverFromStuck(sessionId, rec);
         const ev = msg.event as {
           type?: unknown;
           tokens?: unknown;
@@ -294,12 +314,12 @@ export function createSessionBroker(deps: {
       if (msg.kind === "fatal") {
         // Idle-destroy / clean process exit must not spam the chat as an error.
         const errText = msg.error ?? "worker fatal";
+        clearIdleDestroyTimer(rec);
+        stopHeartbeat(rec);
+        rec.worker = null;
         if (/^worker exited \(0\)$/i.test(errText.trim())) {
-          clearIdleDestroyTimer(rec);
-          stopHeartbeat(rec);
-          rec.worker = null;
           deps.onSessionWorkerGone?.(sessionId);
-          if (rec.summary.status === "running") {
+          if (rec.summary.status === "running" || rec.summary.status === "stuck") {
             setStatus(sessionId, "idle");
           }
           return;
@@ -316,6 +336,7 @@ export function createSessionBroker(deps: {
       }
 
       if (msg.kind === "result" && msg.id) {
+        recoverFromStuck(sessionId, rec);
         const pending = rec.pendingCommands.get(msg.id);
         if (!pending) {
           return;
@@ -361,7 +382,7 @@ export function createSessionBroker(deps: {
       cwd,
       summary,
       worker,
-      heartbeatMisses: 0,
+      lastAliveAt: Date.now(),
       heartbeatTimer: null,
       idleDestroyTimer: null,
       pendingCommands: new Map(),
