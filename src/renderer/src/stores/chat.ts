@@ -24,6 +24,8 @@ import { useCheckpointStore } from "./checkpoint";
 import { useComposerStore } from "./composer";
 import { useNotifyStore } from "./notify";
 import { useTtsStore } from "./tts";
+import { useSessionWidgetsStore } from "./session-widgets";
+import { extractToolResult } from "../utils/tool-diff";
 import { t } from "../i18n";
 import {
   isPermissionAskCancelled,
@@ -262,6 +264,13 @@ export const useChatStore = defineStore("chat", () => {
     if (event.method === "notify") {
       // Toast for the active session only to avoid noise from background workers.
       if (event.sessionId !== sessionsStore.activeId) return;
+      // Todo / plan snapshots belong in the persistent panel — don't also toast.
+      if (
+        /(?:待办|计划进度|Todos\s+\d|☑|☐)/.test(event.message) &&
+        event.message.includes("\n")
+      ) {
+        return;
+      }
       if (event.notifyType === "error") discreteMessage.error(event.message);
       else if (event.notifyType === "warning") discreteMessage.warning(event.message);
       else discreteMessage.info(event.message);
@@ -272,12 +281,39 @@ export const useChatStore = defineStore("chat", () => {
       useComposerStore().draft = event.text;
       return;
     }
-    // setStatus / setWidget / setTitle: reserved for a future chrome strip.
+    if (event.method === "setWidget") {
+      useSessionWidgetsStore().setWidget(
+        event.sessionId,
+        event.widgetKey,
+        event.widgetLines,
+      );
+      return;
+    }
+    // setStatus / setTitle: reserved for future chrome.
   }
 
   function applyEvent(event: AgentEvent): void {
     const sessionId = event.sessionId;
     bySession[sessionId] = reduceChatEvent(stateFor(sessionId), event);
+
+    if (event.type === "agent_event") {
+      const payload = event.event as {
+        type?: unknown;
+        toolName?: unknown;
+        result?: unknown;
+        isError?: unknown;
+      };
+      if (
+        payload.type === "tool_execution_end" &&
+        typeof payload.toolName === "string" &&
+        /^(todo|todos)$/i.test(payload.toolName) &&
+        !payload.isError
+      ) {
+        const { details } = extractToolResult(payload.result);
+        useSessionWidgetsStore().applyTodoToolResult(sessionId, details);
+      }
+    }
+
     if (event.type === "prompt_done" || event.type === "prompt_error") {
       void checkpointStore.finishActive(sessionId);
     }
@@ -445,6 +481,8 @@ export const useChatStore = defineStore("chat", () => {
     const promptImages = toPromptImages(images);
     const promptCitations = toPromptCitations(citations);
     const bubbleText = displayText !== undefined ? displayText : message;
+    // Cursor-like: hide a fully completed todo list when the next task starts.
+    useSessionWidgetsStore().dismissCompletedOnNewTask(sessionId);
     bySession[sessionId] = appendUserMessage(
       stateFor(sessionId),
       bubbleText,

@@ -6,9 +6,15 @@ import { handleWorkerMessage } from "./runtime";
 applyPiSubagentSpawnFix();
 
 process.parentPort.on("message", (event: { data: WorkerInbound }) => {
-  void handleWorkerMessage(event.data).catch((err: unknown) => {
+  const data = event.data;
+  // Answer heartbeat before any async command work so long awaits / sync tools
+  // cannot starve pongs (false "worker unresponsive" during active turns).
+  if (data && typeof data === "object" && data.kind === "ping") {
+    process.parentPort?.postMessage({ kind: "pong" });
+    return;
+  }
+  void handleWorkerMessage(data).catch((err: unknown) => {
     const message = err instanceof Error ? err.message : String(err);
-    const data = event.data;
     // Command failures must resolve that command — never fatal the whole worker
     // (e.g. "Agent is already processing" from a raced second prompt).
     if (data && typeof data === "object" && data.kind === "command" && typeof data.id === "string") {

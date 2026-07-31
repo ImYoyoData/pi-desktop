@@ -3,7 +3,7 @@ import type { AskUserPrompt } from "../../../shared/ask-user";
 import type { PermissionAskPrompt } from "../../../shared/desktop-security";
 import type { ExtensionUiPending } from "../../../shared/extension-ui";
 import { formatLlmError } from "../utils/llm-error";
-import { locale as uiLocalePref } from "../i18n";
+import { locale as uiLocalePref, t } from "../i18n";
 import {
   isComposerAgentMode,
   stripComposerModePreamble,
@@ -993,8 +993,18 @@ export function reduceChatEvent(state: ChatState, event: AgentEvent): ChatState 
     case "prompt_error":
       return appendError(state, event.errorMessage);
     case "worker_stuck":
-      return { ...state, running: false, streamingMessage: null, retryHint: null };
+      // Surface in this session's chat (not only the sidebar banner).
+      return appendError(state, t.stuckBanner);
     case "worker_exit":
+      // Non-zero / unexpected exit → show in chat; clean idle-destroy (0/null) is silent.
+      if (event.code !== 0 && event.code != null) {
+        return appendError(
+          state,
+          uiLocale() === "zh-CN"
+            ? `会话 Worker 异常退出（code ${event.code}）。可终止或重启此会话。`
+            : `Session worker exited unexpectedly (code ${event.code}). Terminate or restart this session.`,
+        );
+      }
       return { ...state, running: false, streamingMessage: null, retryHint: null };
     case "session_status":
       if (event.status === "running") {

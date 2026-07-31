@@ -34,6 +34,7 @@ export const IpcChannels = {
     open: "sessions:open",
     close: "sessions:close",
     command: "sessions:command",
+    tryCommand: "sessions:tryCommand",
     event: "sessions:event",
     status: "sessions:status",
     killWorker: "sessions:killWorker",

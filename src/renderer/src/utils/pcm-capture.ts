@@ -2,6 +2,8 @@
  * Mic capture → 16 kHz PCM.
  * Voice record mode buffers audio for one-shot transcription (Cursor-like).
  * Stream push mode remains for any leftover callers.
+ *
+ * Uses AudioWorkletNode (ScriptProcessorNode is deprecated).
  */
 
 export type PcmCapture = {
@@ -43,8 +45,33 @@ const SPEECH_HANGOVER_MS = 450;
 const IDLE_STOP_MS = 30_000;
 /** Hard cap for one Cursor-like take. */
 const MAX_VOICE_RECORD_MS = 120_000;
-/** Smaller buffer → snappier push (~43ms @ 48kHz). */
-const PROCESSOR_BUFFER = 2048;
+
+const WORKLET_NAME = "pi-pcm-capture-processor";
+
+/** Inline worklet: copy input channel and post to main thread. */
+const WORKLET_SOURCE = `
+class PiPcmCaptureProcessor extends AudioWorkletProcessor {
+  process(inputs) {
+    const channel = inputs[0] && inputs[0][0];
+    if (channel && channel.length > 0) {
+      this.port.postMessage(channel.slice(0));
+    }
+    return true;
+  }
+}
+registerProcessor('${WORKLET_NAME}', PiPcmCaptureProcessor);
+`;
+
+let workletModuleUrl: string | null = null;
+
+function workletBlobUrl(): string {
+  if (!workletModuleUrl) {
+    workletModuleUrl = URL.createObjectURL(
+      new Blob([WORKLET_SOURCE], { type: "application/javascript" }),
+    );
+  }
+  return workletModuleUrl;
+}
 
 /** Legacy one-shot capture (kept for tests / fallback). */
 export async function startPcmCapture(): Promise<PcmCapture> {
@@ -52,9 +79,10 @@ export async function startPcmCapture(): Promise<PcmCapture> {
   const chunks: Float32Array[] = [];
   let aborted = false;
 
-  session.processor.onaudioprocess = (ev) => {
+  session.worklet.port.onmessage = (ev: MessageEvent<Float32Array>) => {
     if (aborted) return;
-    chunks.push(new Float32Array(ev.inputBuffer.getChannelData(0)));
+    const data = ev.data;
+    if (data instanceof Float32Array) chunks.push(data);
   };
 
   return {
@@ -94,9 +122,11 @@ export async function startVoiceRecord(handlers: {
   const startedAt = Date.now();
   let maxFired = false;
 
-  session.processor.onaudioprocess = (ev) => {
+  session.worklet.port.onmessage = (ev: MessageEvent<Float32Array>) => {
     if (aborted || stopped) return;
-    const input = ev.inputBuffer.getChannelData(0);
+    const input = ev.data;
+    if (!(input instanceof Float32Array) || input.length === 0) return;
+
     const rms = calcRms(input);
     const now = Date.now();
     if (rms >= SPEECH_RMS) lastVoiceAt = now;
@@ -104,8 +134,7 @@ export async function startVoiceRecord(handlers: {
     const level = Math.min(1, rms / 0.08);
     handlers.onLevel?.(level);
 
-    const copy = new Float32Array(input);
-    const resampled = inputRate === TARGET_RATE ? copy : downsample(copy, inputRate, TARGET_RATE);
+    const resampled = inputRate === TARGET_RATE ? input : downsample(input, inputRate, TARGET_RATE);
     if (resampled.length === 0) return;
 
     const inHangover = lastVoiceAt > 0 && now - lastVoiceAt < SPEECH_HANGOVER_MS;
@@ -130,7 +159,6 @@ export async function startVoiceRecord(handlers: {
       if (aborted) {
         return { pcmBase64: "", sampleRate: TARGET_RATE };
       }
-      // Flip flags first so onaudioprocess stops immediately (no more recording/levels)
       stopped = true;
       aborted = true;
       session.cleanup();
@@ -156,9 +184,11 @@ export async function startPcmStreamPush(handlers: PcmStreamPushHandlers): Promi
   let lastSpeechAt = Date.now();
   let lastVoiceAt = 0;
 
-  session.processor.onaudioprocess = (ev) => {
+  session.worklet.port.onmessage = (ev: MessageEvent<Float32Array>) => {
     if (stopped) return;
-    const input = ev.inputBuffer.getChannelData(0);
+    const input = ev.data;
+    if (!(input instanceof Float32Array) || input.length === 0) return;
+
     const rms = calcRms(input);
     const now = Date.now();
     if (rms >= SPEECH_RMS) {
@@ -166,8 +196,7 @@ export async function startPcmStreamPush(handlers: PcmStreamPushHandlers): Promi
       lastVoiceAt = now;
     }
 
-    const copy = new Float32Array(input);
-    const resampled = inputRate === TARGET_RATE ? copy : downsample(copy, inputRate, TARGET_RATE);
+    const resampled = inputRate === TARGET_RATE ? input : downsample(input, inputRate, TARGET_RATE);
     if (resampled.length === 0) return;
 
     const inHangover = lastVoiceAt > 0 && now - lastVoiceAt < SPEECH_HANGOVER_MS;
@@ -213,7 +242,7 @@ export async function startStreamingPcmCapture(handlers: {
 }
 
 type MicSession = {
-  processor: ScriptProcessorNode;
+  worklet: AudioWorkletNode;
   sampleRate: number;
   cleanup: () => void;
 };
@@ -263,17 +292,31 @@ async function openMicSession(): Promise<MicSession> {
       // ignore
     }
   }
+
+  try {
+    await audioCtx.audioWorklet.addModule(workletBlobUrl());
+  } catch (err) {
+    for (const t of stream.getTracks()) t.stop();
+    void audioCtx.close();
+    throw err instanceof Error ? err : new Error(String(err));
+  }
+
   const source = audioCtx.createMediaStreamSource(stream);
-  const processor = audioCtx.createScriptProcessor(PROCESSOR_BUFFER, 1, 1);
+  const worklet = new AudioWorkletNode(audioCtx, WORKLET_NAME, {
+    numberOfInputs: 1,
+    numberOfOutputs: 1,
+    channelCount: 1,
+  });
   const mute = audioCtx.createGain();
   mute.gain.value = 0;
-  source.connect(processor);
-  processor.connect(mute);
+  source.connect(worklet);
+  worklet.connect(mute);
   mute.connect(audioCtx.destination);
 
   const cleanup = () => {
     try {
-      processor.disconnect();
+      worklet.port.onmessage = null;
+      worklet.disconnect();
       source.disconnect();
       mute.disconnect();
     } catch {
@@ -284,7 +327,7 @@ async function openMicSession(): Promise<MicSession> {
   };
 
   return {
-    processor,
+    worklet,
     sampleRate: audioCtx.sampleRate || 48000,
     cleanup,
   };

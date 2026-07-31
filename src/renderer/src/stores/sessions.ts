@@ -197,6 +197,12 @@ export const useSessionsStore = defineStore("sessions", () => {
     }
   }
 
+  /** Never cold-starts the Pi agent worker — returns undefined when idle/shelled. */
+  async function tryCommand(sessionId: string, command: AgentCommand): Promise<unknown | undefined> {
+    const plain = toIpcPlain(command);
+    return window.api.sessions.tryCommand(sessionId, plain);
+  }
+
   async function killWorker(sessionId: string, cwd: string | null): Promise<void> {
     await window.api.sessions.killWorker(sessionId);
     await refresh(cwd);
@@ -259,6 +265,7 @@ export const useSessionsStore = defineStore("sessions", () => {
     createSession,
     selectSession,
     sendCommand,
+    tryCommand,
     killWorker,
     restartWorker,
     deleteSession,
