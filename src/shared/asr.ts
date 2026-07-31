@@ -13,8 +13,7 @@ export const ASR_MODEL_FILENAME = "qwen3-asr-0.6b-q4_k.gguf";
 
 /**
  * Model download candidates (tried in order).
- * hf-mirror first: huggingface.co often times out from CN / restricted networks
- * when Electron/Node fetch is used.
+ * Default list prefers hf-mirror (CN-friendly); use asrModelUrlsForMirror() for preference-aware order.
  */
 export const ASR_MODEL_URLS = [
   `https://hf-mirror.com/cstr/qwen3-asr-0.6b-GGUF/resolve/main/${ASR_MODEL_FILENAME}`,
@@ -23,6 +22,90 @@ export const ASR_MODEL_URLS = [
 
 /** @deprecated Prefer ASR_MODEL_URLS — kept for older imports. */
 export const ASR_MODEL_URL = ASR_MODEL_URLS[0];
+
+/**
+ * Download mirror preference for ASR runtime (GitHub) and model (Hugging Face).
+ * - auto: zh locales prefer China mirrors; otherwise international first
+ * - china: CN proxies / hf-mirror first
+ * - global: github.com / huggingface.co first
+ */
+export type AsrDownloadMirror = "auto" | "china" | "global";
+
+export const ASR_DOWNLOAD_MIRRORS: readonly AsrDownloadMirror[] = ["auto", "china", "global"];
+
+export function normalizeAsrDownloadMirror(raw: unknown): AsrDownloadMirror {
+  const v = typeof raw === "string" ? raw.trim().toLowerCase() : "";
+  if (v === "china" || v === "global" || v === "auto") return v;
+  return "auto";
+}
+
+/** Resolve whether China mirrors should be tried before upstream hosts. */
+export function asrMirrorChinaFirst(mirror: AsrDownloadMirror, locale = "en"): boolean {
+  const pref = normalizeAsrDownloadMirror(mirror);
+  if (pref === "china") return true;
+  if (pref === "global") return false;
+  return locale.toLowerCase().startsWith("zh");
+}
+
+/** CN-friendly GitHub release proxies (prefix the full https://github.com/... URL). */
+export const ASR_GITHUB_CN_PROXIES = [
+  "https://gh.llkk.cc/",
+  "https://ghproxy.net/",
+  "https://gh-proxy.com/",
+  "https://mirror.ghproxy.com/",
+  "https://ghfast.top/",
+] as const;
+
+/**
+ * Expand GitHub release URLs with CN proxies, ordered by mirror preference.
+ * Non-GitHub URLs are returned unchanged.
+ */
+export function expandAsrDownloadUrls(
+  urls: readonly string[],
+  mirror: AsrDownloadMirror = "auto",
+  locale = "en",
+): string[] {
+  const chinaFirst = asrMirrorChinaFirst(mirror, locale);
+  const out: string[] = [];
+  const seen = new Set<string>();
+  const push = (u: string): void => {
+    if (!u || seen.has(u)) return;
+    seen.add(u);
+    out.push(u);
+  };
+  for (const url of urls) {
+    const isGithub = /^https?:\/\/(github\.com|objects\.githubusercontent\.com)\//i.test(url);
+    if (isGithub) {
+      const proxies = ASR_GITHUB_CN_PROXIES.map((base) => `${base}${url}`);
+      if (chinaFirst) {
+        for (const p of proxies) push(p);
+        push(url);
+      } else {
+        push(url);
+        for (const p of proxies) push(p);
+      }
+    } else {
+      push(url);
+    }
+  }
+  return out;
+}
+
+/** Hostname shown in install progress (proxy host, not the nested GitHub URL). */
+export function asrDownloadSourceHost(url: string): string {
+  try {
+    return new URL(url).hostname;
+  } catch {
+    return "";
+  }
+}
+
+/** Model URL candidates ordered by mirror preference. */
+export function asrModelUrlsForMirror(mirror: AsrDownloadMirror = "auto", locale = "en"): string[] {
+  const cn = `https://hf-mirror.com/cstr/qwen3-asr-0.6b-GGUF/resolve/main/${ASR_MODEL_FILENAME}`;
+  const intl = `https://huggingface.co/cstr/qwen3-asr-0.6b-GGUF/resolve/main/${ASR_MODEL_FILENAME}`;
+  return asrMirrorChinaFirst(mirror, locale) ? [cn, intl] : [intl, cn];
+}
 
 export const ASR_RELEASE_TAG = "v0.8.23";
 
@@ -201,6 +284,8 @@ export type AsrStatus = {
   runtimeMatchesPreference: boolean;
   /** Official archive filename for the preferred backend (manual download hint). */
   runtimeArchiveHint: string | null;
+  /** Prefer China vs international download mirrors. */
+  downloadMirror: AsrDownloadMirror;
   /** Electron accelerator for wake / start recording (e.g. Control+Alt+Y). */
   wakeHotkey: string;
   /**
@@ -218,6 +303,8 @@ export type AsrInstallProgress = {
   receivedBytes: number;
   totalBytes: number | null;
   message: string;
+  /** Active download host (mirror), when phase is binary/model. */
+  sourceHost?: string | null;
 };
 
 /** Events from CrispASR `--stream --stream-json` (plus lifecycle). */

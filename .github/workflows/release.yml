@@ -164,32 +164,37 @@ jobs:
           prerelease: false
           generate_release_notes: true
           body: |
-            ## 主要更新（0.1.5 正式版）
+            ## 主要更新（0.1.7 正式版）
 
-            会话稳定性热修复。会话继续共用 Pi CLI（`~/.pi/agent/sessions`）。
+            Agent 体验与语音输入稳定性改进。会话继续共用 Pi CLI（`~/.pi/agent/sessions`）。
 
-            ### 紧急修复
-            - 修复打开会话 `session id mismatch`（冷启动时会话文件尚未落盘，Pi 会静默新建另一个 ID）
-            - 新建会话立即写入 session 头，保证空闲回收后可重新打开
-            - Worker 无响应时自动断开僵死进程，避免停止/发送一直无反应
-            - 「停止」在 Worker 卡住时 4 秒内强制结束
-            - 设置 → 安全：底部可打开本应用开发者工具
+            ### Agent
+            - Worker 无响应或长时间无输出时自动重启并有限次重试
+            - 修复「任务已完成但仍显示运行中」的状态卡住
+            - 长等待时显示阶段与静默提示；思考过程显示耗时
+            - 左侧文件树可拖到输入框，直接插入路径标签
+            - Plan / Task 模式按约定路径保存计划文档
 
-            ### 含 0.1.4
-            - 修复 `sessions:open` reply was never sent（utilityProcess 误带 ELECTRON_RUN_AS_NODE）
+            ### 语音输入
+            - 修复麦克风 Worklet 被 CSP 拦截导致无法录音
+            - 安装可取消；支持国内/国际下载源与更快镜像切换
+            - 安装进度与错误提示更清晰
 
-            ## What's New (0.1.5 stable)
+            ## What's New (0.1.7 stable)
 
-            Session stability hotfix. Sessions stay **shared with Pi CLI**.
+            Agent reliability and voice input improvements. Sessions stay **shared with Pi CLI**.
 
-            ### Hotfix
-            - Fixed `session id mismatch` on open (unpersisted new sessions were recreated with a new id)
-            - Persist session header immediately so idle-destroy / cold reopen keeps the same id
-            - Detach hung workers on stuck; Stop force-kills after 4s
-            - Settings → Security: Open DevTools button
+            ### Agent
+            - Auto-restart and limited retry when the worker hangs or a turn goes silent
+            - Fixed sticky “running” UI after a turn already finished
+            - Clearer wait phases / silence hints; thinking duration display
+            - Drag files from the tree into the composer as path tags
+            - Plan / Task modes save plans under the documented path convention
 
-            ### Includes 0.1.4
-            - Fixed `sessions:open` reply was never sent (`ELECTRON_RUN_AS_NODE` on utilityProcess)
+            ### Voice input
+            - Fixed CSP blocking AudioWorklet mic capture
+            - Cancellable ASR install; China / global download mirrors
+            - Clearer install progress and errors
 
             ## 下载 / Downloads
             - **Windows x64**: `Pi Desktop-*-win-x64-setup.exe`
