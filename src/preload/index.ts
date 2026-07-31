@@ -207,6 +207,10 @@ const api = {
       ipcRenderer.invoke(IpcChannels.files.list, relativePath) as Promise<
         { name: string; path: string; kind: "file" | "dir" }[]
       >,
+    search: (query: string, limit?: number) =>
+      ipcRenderer.invoke(IpcChannels.files.search, query, limit) as Promise<
+        { name: string; path: string; kind: "file" | "dir" }[]
+      >,
     createFile: (relativeDir: string, name: string) =>
       ipcRenderer.invoke(IpcChannels.files.createFile, relativeDir, name) as Promise<string>,
     createDir: (relativeDir: string, name: string) =>

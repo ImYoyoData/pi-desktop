@@ -1,9 +1,13 @@
-import { utilityProcess } from "electron";
+import { app, utilityProcess } from "electron";
 import path from "node:path";
 import type { WorkerInbound, WorkerOutbound } from "../shared/agent-worker-messages";
 import type { SpawnWorker, WorkerHandle } from "./session-broker";
 import { getDesktopSecuritySettings } from "./desktop-security-host";
-import { augmentPathForPiCli } from "./pi-path-env";
+import { buildAgentWorkerEnv } from "./pi-path-env";
+import {
+  PI_DESKTOP_NODE_PATH_ENV,
+  PI_DESKTOP_PI_CLI_PATH_ENV,
+} from "../shared/pi-subagent-env";
 import { resolveTrustState } from "./project-trust";
 
 export { IDLE_WORKER_DESTROY_MS } from "./worker-lifecycle";
@@ -45,11 +49,36 @@ function waitForReady(
 
 export function createUtilityProcessSpawnWorker(): SpawnWorker {
   return async (cwd, filePath) => {
+    const workerEnv = buildAgentWorkerEnv(
+      { ...process.env },
+      {
+        searchRoots: [
+          app.getAppPath(),
+          path.join(app.getAppPath(), ".."),
+          process.cwd(),
+          // electron-vite: out/main → repo root (dev) / resources (packaged)
+          path.resolve(__dirname, "../.."),
+          path.resolve(__dirname, "../../.."),
+        ],
+      },
+    );
+    const cliForLog = workerEnv[PI_DESKTOP_PI_CLI_PATH_ENV];
+    const nodeForLog = workerEnv[PI_DESKTOP_NODE_PATH_ENV];
+    if (cliForLog) {
+      console.info(
+        `[pi-desktop] subagent spawn: node=${nodeForLog ?? "(electron/as-node)"} cli=${cliForLog}`,
+      );
+    } else {
+      console.warn(
+        "[pi-desktop] subagent spawn: Pi CLI not resolved; nested agents may fail to launch",
+      );
+    }
+
     const child = utilityProcess.fork(workerScriptPath(), [], {
       cwd,
       serviceName: `pi-agent-${path.basename(cwd).slice(0, 8) || "ws"}`,
       stdio: "pipe",
-      env: augmentPathForPiCli({ ...process.env }),
+      env: workerEnv,
     });
 
     const messageListeners = new Set<(msg: WorkerOutbound) => void>();

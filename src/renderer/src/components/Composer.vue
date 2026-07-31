@@ -26,6 +26,7 @@ import {
 } from "@vicons/ionicons5";
 import ComposerRichEditor from "@renderer/components/ComposerRichEditor.vue";
 import ComposerSlashMenu from "@renderer/components/ComposerSlashMenu.vue";
+import ComposerAtFileMenu from "@renderer/components/ComposerAtFileMenu.vue";
 import AsrInstallProgress from "@renderer/components/AsrInstallProgress.vue";
 import VoiceRecordBar, { type VoiceMeter } from "@renderer/components/VoiceRecordBar.vue";
 import SendQueueBar from "@renderer/components/SendQueueBar.vue";
@@ -35,6 +36,7 @@ import { isHttpUrl, useComposerStore } from "@renderer/stores/composer";
 import { useSendQueueStore } from "@renderer/stores/send-queue";
 import { useSessionsStore } from "@renderer/stores/sessions";
 import { useWorkspaceStore } from "@renderer/stores/workspace";
+import { useRightTabsStore } from "@renderer/stores/right-tabs";
 import { formatAsrInstallError, formatAsrRuntimeError, useAsrStore } from "@renderer/stores/asr";
 import { useMediaStore } from "@renderer/stores/media";
 import { heuristicSessionTitle } from "@renderer/utils/session-title";
@@ -55,6 +57,11 @@ import {
   skillSlashCommand,
   type SlashItem,
 } from "../../../shared/slash-commands";
+import {
+  parseAtFileContext,
+  replaceAtFileMention,
+  type AtFileItem,
+} from "../../../shared/at-file-mention";
 import { formatLlmError } from "@renderer/utils/llm-error";
 import { locale, t } from "@renderer/i18n";
 
@@ -65,6 +72,7 @@ const composer = useComposerStore();
 const sendQueue = useSendQueueStore();
 const sessions = useSessionsStore();
 const workspace = useWorkspaceStore();
+const rightTabs = useRightTabsStore();
 const asr = useAsrStore();
 const media = useMediaStore();
 const messageApi = useMessage();
@@ -807,7 +815,7 @@ async function submit(mode: "prompt" | "steer" | "follow_up"): Promise<void> {
     return;
   }
 
-  // While agent is running, new sends go to the queue (Cursor-style)
+  // While agent is running, new sends go to the queue
   if (running.value && mode === "prompt") {
     enqueueFromComposer();
     return;
@@ -873,6 +881,35 @@ function onKeydown(event: KeyboardEvent): void {
     if (event.key === "Tab" && !event.shiftKey) {
       event.preventDefault();
       slashMenuRef.value?.confirm();
+      return;
+    }
+  }
+
+  if (atFileMenuOpen.value) {
+    if (event.key === "ArrowDown") {
+      event.preventDefault();
+      atFileMenuRef.value?.move(1);
+      return;
+    }
+    if (event.key === "ArrowUp") {
+      event.preventDefault();
+      atFileMenuRef.value?.move(-1);
+      return;
+    }
+    if (event.key === "Escape") {
+      event.preventDefault();
+      const ctx = atFileContext.value;
+      if (ctx) composer.draft = replaceAtFileMention(composer.draft, ctx);
+      return;
+    }
+    if (event.key === "Enter" && !event.shiftKey && !event.isComposing) {
+      event.preventDefault();
+      atFileMenuRef.value?.confirm();
+      return;
+    }
+    if (event.key === "Tab" && !event.shiftKey) {
+      event.preventDefault();
+      atFileMenuRef.value?.confirm();
       return;
     }
   }
@@ -953,10 +990,14 @@ const skillsCount = ref<number | null>(null);
 let skillsCountCachedFor: string | null = null;
 
 const slashMenuRef = ref<{ move: (d: number) => void; confirm: () => boolean } | null>(null);
+const atFileMenuRef = ref<{ move: (d: number) => void; confirm: () => boolean } | null>(null);
 const modelSelectRef = ref<{ focus?: () => void } | null>(null);
 const slashSkills = ref<{ name: string; description: string }[]>([]);
 let slashSkillsCachedFor: string | null = null;
 let slashSkillsLoading = false;
+const atFileItems = ref<AtFileItem[]>([]);
+const atFileLoading = ref(false);
+let atFileSearchGen = 0;
 
 const slashBuiltins = computed<SlashItem[]>(() => [
   {
@@ -1003,6 +1044,123 @@ const slashItems = computed(() => {
 const slashMenuOpen = computed(
   () => Boolean(slashContext.value) && slashItems.value.length > 0 && !voiceActive.value,
 );
+
+const atFileContext = computed(() => {
+  // Slash command on the last line takes priority over @ mentions.
+  if (slashContext.value) return null;
+  return parseAtFileContext(composer.draft);
+});
+
+const atFileMenuOpen = computed(
+  () => Boolean(atFileContext.value) && !voiceActive.value,
+);
+
+const atFileEmptyHint = computed(() => {
+  if (!workspace.root) return t.atFileNeedWorkspace;
+  if (atFileLoading.value) return t.atFileSearching;
+  return t.atFileEmpty;
+});
+
+/** Recently opened preview tabs (workspace-relative) for the empty-@ list. */
+function recentPreviewAtFiles(): AtFileItem[] {
+  const out: AtFileItem[] = [];
+  const seen = new Set<string>();
+  for (const tab of rightTabs.tabs) {
+    if (tab.kind !== "preview" || !tab.filePath) continue;
+    const rel = tab.filePath.replace(/\\/g, "/").replace(/^\.\//, "");
+    if (!rel || seen.has(rel)) continue;
+    // Skip obvious absolute paths that aren't workspace-relative.
+    if (/^[a-zA-Z]:/.test(rel) || rel.startsWith("/")) continue;
+    seen.add(rel);
+    out.push({
+      name: rel.split("/").pop() || rel,
+      path: rel,
+      kind: "file",
+    });
+  }
+  return out;
+}
+
+async function refreshAtFileItems(query: string): Promise<void> {
+  const gen = ++atFileSearchGen;
+  if (!workspace.root) {
+    atFileItems.value = [];
+    return;
+  }
+  atFileLoading.value = true;
+  try {
+    const q = query.trim();
+    if (!q) {
+      const recent = recentPreviewAtFiles();
+      const rootEntries = await window.api.files.list();
+      if (gen !== atFileSearchGen) return;
+      const seen = new Set(recent.map((r) => r.path));
+      const merged: AtFileItem[] = [...recent];
+      for (const e of rootEntries) {
+        if (seen.has(e.path)) continue;
+        merged.push({ name: e.name, path: e.path, kind: e.kind });
+      }
+      atFileItems.value = merged;
+      return;
+    }
+    const entries = await window.api.files.search(q, 80);
+    if (gen !== atFileSearchGen) return;
+    // Boost recently opened files that still match the query to the top.
+    const recent = recentPreviewAtFiles();
+    const recentHit = new Set(
+      recent.filter((r) => entries.some((e) => e.path === r.path)).map((r) => r.path),
+    );
+    const mapped = entries.map((e) => ({
+      name: e.name,
+      path: e.path,
+      kind: e.kind,
+    }));
+    atFileItems.value = [
+      ...mapped.filter((e) => recentHit.has(e.path)),
+      ...mapped.filter((e) => !recentHit.has(e.path)),
+    ];
+  } catch {
+    if (gen !== atFileSearchGen) return;
+    atFileItems.value = [];
+  } finally {
+    if (gen === atFileSearchGen) atFileLoading.value = false;
+  }
+}
+
+let atFileRefreshTimer: ReturnType<typeof setTimeout> | null = null;
+
+watch(
+  atFileContext,
+  (ctx) => {
+    if (atFileRefreshTimer) {
+      clearTimeout(atFileRefreshTimer);
+      atFileRefreshTimer = null;
+    }
+    if (!ctx) {
+      atFileItems.value = [];
+      return;
+    }
+    // Bare `@` loads immediately; typed queries debounce slightly.
+    const delay = ctx.query.trim() ? 80 : 0;
+    atFileRefreshTimer = setTimeout(() => {
+      atFileRefreshTimer = null;
+      void refreshAtFileItems(ctx.query);
+    }, delay);
+  },
+  { immediate: true },
+);
+
+async function onAtFileSelect(item: AtFileItem): Promise<void> {
+  const ctx = atFileContext.value;
+  if (!ctx) return;
+  const nextDraft = replaceAtFileMention(composer.draft, ctx);
+  composer.addFileTag(item.path);
+  // Chip sync may re-read DOM still containing `@query`; strip after that flush.
+  await nextTick();
+  composer.draft = nextDraft;
+  await nextTick();
+  focusDraft();
+}
 
 async function ensureSlashSkills(): Promise<void> {
   const root = workspace.root ?? "";
@@ -1784,6 +1942,13 @@ watch(
           :visible="slashMenuOpen"
           :items="slashItems"
           @select="(item) => void onSlashSelect(item)"
+        />
+        <ComposerAtFileMenu
+          ref="atFileMenuRef"
+          :visible="atFileMenuOpen"
+          :items="atFileItems"
+          :empty-hint="atFileEmptyHint"
+          @select="(item) => void onAtFileSelect(item)"
         />
         <ComposerRichEditor
           ref="richEditor"

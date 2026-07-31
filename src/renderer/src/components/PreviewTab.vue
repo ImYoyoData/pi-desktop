@@ -2,7 +2,7 @@
 import type { PreviewResult } from "../../../shared/preview-types";
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { NAlert, NButton, NEmpty, NIcon, NSpin, NText, useDialog, useMessage } from "naive-ui";
-import { FolderOpenOutline, SaveOutline } from "@vicons/ionicons5";
+import { ChatbubbleEllipsesOutline, FolderOpenOutline, SaveOutline } from "@vicons/ionicons5";
 import type * as Monaco from "monaco-editor";
 import monacoCssUrl from "../../../../node_modules/monaco-editor/min/vs/editor/editor.main.css?url";
 import MarkdownView from "@renderer/components/MarkdownView.vue";
@@ -14,6 +14,7 @@ import { useWorkspaceStore } from "@renderer/stores/workspace";
 import { useAppearanceStore } from "@renderer/stores/appearance";
 import { useLayoutStore } from "@renderer/stores/layout";
 import { useMediaStore } from "@renderer/stores/media";
+import { useComposerStore } from "@renderer/stores/composer";
 import { t } from "@renderer/i18n";
 
 type MdViewMode = "edit" | "preview" | "split";
@@ -38,6 +39,21 @@ const rightTabs = useRightTabsStore();
 const appearance = useAppearanceStore();
 const layout = useLayoutStore();
 const media = useMediaStore();
+const composer = useComposerStore();
+const workspace = useWorkspaceStore();
+
+/** Floating "add to chat" button state on selection */
+const selectionFloater = ref({
+  show: false,
+  x: 0,
+  y: 0,
+  startLine: 0,
+  endLine: 0,
+});
+let selectionDebounce: ReturnType<typeof setTimeout> | null = null;
+/** Last pointer inside the Monaco surface (viewport coords for fixed floater). */
+let lastPointerClient = { x: 0, y: 0, at: 0 };
+let detachEditorPointer: (() => void) | null = null;
 /** Match main `fs-watch-host` rootsEqual: only Windows folds case. */
 let pathCaseInsensitive = false;
 void window.api.window.platform().then((p) => {
@@ -104,8 +120,151 @@ function fingerprint(content: string): string {
 }
 
 function disposeEditor(): void {
+  detachEditorPointer?.();
   editor?.dispose();
   editor = null;
+}
+
+function hideSelectionFloater(): void {
+  if (selectionDebounce) {
+    clearTimeout(selectionDebounce);
+    selectionDebounce = null;
+  }
+  if (selectionFloater.value.show) selectionFloater.value.show = false;
+}
+
+function onEditorSelectionChange(_e: Monaco.editor.ICursorSelectionChangedEvent): void {
+  if (!editor || !monacoApi) return;
+  const selection = editor.getSelection();
+  if (!selection || selection.isEmpty()) {
+    hideSelectionFloater();
+    return;
+  }
+  // While dragging, only track range; show the chip on pointerup (more reliable than
+  // selection+scroll races — Monaco often fires scroll during select and used to
+  // cancel the pending show).
+  if (selectionDebounce) clearTimeout(selectionDebounce);
+  selectionDebounce = setTimeout(() => {
+    selectionDebounce = null;
+    // Keyboard / programmatic selections still need a chip without pointerup.
+    if (Date.now() - lastPointerClient.at > 400) {
+      showFloaterNearPointer(
+        selection.startLineNumber,
+        selection.endLineNumber,
+        selection.endColumn,
+      );
+    }
+  }, 120);
+}
+
+function clientPointFromSelectionEnd(endLine: number, endColumn: number): { x: number; y: number } | null {
+  if (!editor) return null;
+  try {
+    const pos = editor.getScrolledVisiblePosition({ lineNumber: endLine, column: endColumn });
+    const dom = editor.getDomNode();
+    if (!pos || !dom) return null;
+    const rect = dom.getBoundingClientRect();
+    return {
+      x: rect.left + pos.left,
+      y: rect.top + pos.top + pos.height,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function clampFloaterPoint(x: number, y: number): { x: number; y: number } {
+  const pad = 8;
+  const approxW = 148;
+  const approxH = 32;
+  return {
+    x: Math.min(Math.max(pad, x), Math.max(pad, window.innerWidth - approxW - pad)),
+    y: Math.min(Math.max(pad, y), Math.max(pad, window.innerHeight - approxH - pad)),
+  };
+}
+
+/** Prefer recent mouse position; fall back to selection caret for keyboard selects. */
+function showFloaterNearPointer(startLine: number, endLine: number, endColumn: number): void {
+  if (!editor || !monacoApi) return;
+  const selection = editor.getSelection();
+  if (!selection || selection.isEmpty()) {
+    hideSelectionFloater();
+    return;
+  }
+  const pointerFresh = Date.now() - lastPointerClient.at < 1000;
+  const fromCaret = clientPointFromSelectionEnd(endLine, endColumn);
+  const rawX = pointerFresh
+    ? lastPointerClient.x + 12
+    : (fromCaret?.x ?? lastPointerClient.x) + 8;
+  const rawY = pointerFresh
+    ? lastPointerClient.y + 12
+    : (fromCaret?.y ?? lastPointerClient.y) + 8;
+  const { x, y } = clampFloaterPoint(rawX, rawY);
+  selectionFloater.value = {
+    show: true,
+    x,
+    y,
+    startLine: selection.startLineNumber,
+    endLine: selection.endLineNumber,
+  };
+}
+
+function tryShowFloaterAfterPointerUp(): void {
+  if (!editor) return;
+  // Let Monaco finish applying the selection from this pointerup.
+  requestAnimationFrame(() => {
+    const selection = editor?.getSelection();
+    if (!selection || selection.isEmpty()) {
+      hideSelectionFloater();
+      return;
+    }
+    showFloaterNearPointer(
+      selection.startLineNumber,
+      selection.endLineNumber,
+      selection.endColumn,
+    );
+  });
+}
+
+function bindEditorPointerTracking(dom: HTMLElement): void {
+  detachEditorPointer?.();
+  const onMove = (e: PointerEvent) => {
+    lastPointerClient = { x: e.clientX, y: e.clientY, at: Date.now() };
+  };
+  const onUp = (e: PointerEvent) => {
+    lastPointerClient = { x: e.clientX, y: e.clientY, at: Date.now() };
+    tryShowFloaterAfterPointerUp();
+  };
+  // Capture on host: Monaco routes events through nested nodes.
+  dom.addEventListener("pointermove", onMove, true);
+  dom.addEventListener("pointerup", onUp, true);
+  detachEditorPointer = () => {
+    dom.removeEventListener("pointermove", onMove, true);
+    dom.removeEventListener("pointerup", onUp, true);
+    detachEditorPointer = null;
+  };
+}
+
+function addToChatFromSelection(): void {
+  if (!currentPath.value) return;
+  const { startLine, endLine } = selectionFloater.value;
+  const relPath = workspaceRelativePath(currentPath.value);
+  composer.addFileTag(relPath, startLine, endLine);
+  hideSelectionFloater();
+  message.success(t.filesCited);
+  // Clear the selection so the floater goes away cleanly
+  editor?.setSelection(new monacoApi!.Range(1, 1, 1, 1));
+}
+
+function workspaceRelativePath(absPath: string): string {
+  const raw = absPath.replace(/\\/g, "/");
+  const root = (workspace.root || "").replace(/\\/g, "/").replace(/\/+$/, "");
+  if (!root) return raw;
+  const pathFold = raw.toLowerCase();
+  const rootFold = root.toLowerCase();
+  if (pathFold === rootFold) return "";
+  if (pathFold.startsWith(`${rootFold}/`)) return raw.slice(root.length + 1);
+  return raw;
 }
 
 function editorHostIsLive(): boolean {
@@ -160,6 +319,13 @@ async function ensureEditor(content: string, language: string): Promise<void> {
       dirty.value = true;
       syncTabMeta({ dirty: true });
     });
+    editor.onDidChangeCursorSelection(onEditorSelectionChange);
+    // Wheel / intentional scroll dismisses the chip; ignore tiny layout scrolls during select.
+    editor.onMouseWheel(() => {
+      hideSelectionFloater();
+    });
+    const dom = editor.getDomNode();
+    if (dom) bindEditorPointerTracking(dom);
     editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => {
       void save();
     });
@@ -292,6 +458,7 @@ watch(
       void refreshGitForFile(currentPath.value);
       void nextTick(() => editor?.layout());
     } else {
+      hideSelectionFloater();
       stopMedia();
     }
   },
@@ -493,6 +660,7 @@ onBeforeUnmount(() => {
   if (props.tabId) rightTabs.unregisterSaveHandler(props.tabId);
   window.removeEventListener("pi-fs-changed", onFsChanged);
   window.removeEventListener("keydown", onPreviewKeydown, true);
+  if (selectionDebounce) clearTimeout(selectionDebounce);
   stopMedia();
   unregisterVideo?.();
   unregisterAudio?.();
@@ -566,6 +734,20 @@ onBeforeUnmount(() => {
       </div>
     </div>
     <div class="viewport">
+      <Teleport to="body">
+        <!-- Fixed chip near pointer; teleported so overflow:hidden parents cannot clip it -->
+        <button
+          v-if="selectionFloater.show && active !== false"
+          type="button"
+          class="selection-floater"
+          :style="{ left: `${selectionFloater.x}px`, top: `${selectionFloater.y}px` }"
+          :title="t.selectionAddToChat"
+          @mousedown.prevent="addToChatFromSelection"
+        >
+          <NIcon :component="ChatbubbleEllipsesOutline" :size="14" />
+          <span>{{ t.selectionAddToChat }}</span>
+        </button>
+      </Teleport>
       <NEmpty v-if="!currentPath" :description="t.previewHint" size="small" />
       <NSpin v-else :show="loading" class="spin">
         <template v-if="result">
@@ -817,5 +999,35 @@ onBeforeUnmount(() => {
 .media-audio {
   width: min(480px, 100%);
   outline: none;
+}
+
+.selection-floater {
+  position: fixed;
+  z-index: 40;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 10px;
+  border: 1px solid var(--accent-border, color-mix(in srgb, var(--primary, #3b82f6) 35%, var(--border, #ddd)));
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--primary, #3b82f6) 14%, var(--bg-panel, #fff));
+  color: var(--primary, #3b82f6);
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.14);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1;
+  white-space: nowrap;
+  transition: background 0.12s ease, transform 0.12s ease;
+}
+
+.selection-floater:hover {
+  background: color-mix(in srgb, var(--primary, #3b82f6) 24%, var(--bg-panel, #fff));
+  transform: translateY(-1px);
+}
+
+.selection-floater:active {
+  transform: scale(0.98);
 }
 </style>

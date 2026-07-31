@@ -1,6 +1,6 @@
 {
   "name": "pi-desktop",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "Pi Desktop ? Electron + Vue3 Agent Workspace",
   "main": "./out/main/index.js",
   "author": "ImYoyoData",

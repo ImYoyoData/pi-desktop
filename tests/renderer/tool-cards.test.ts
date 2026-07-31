@@ -98,4 +98,276 @@ describe("tool cards", () => {
       "read",
     );
   });
+
+  it("does not duplicate assistant bubbles across repeated toolcall deltas", () => {
+    let state = createChatState();
+    state = reduceChatEvent(state, {
+      type: "agent_event",
+      sessionId: "s1",
+      event: {
+        type: "message_update",
+        message: {
+          id: "a1",
+          role: "assistant",
+          content: [
+            { type: "thinking", thinking: "先查一下" },
+            { type: "text", text: "读表工具返回空，让我用原始 SQL 查询。" },
+          ],
+        },
+        assistantMessageEvent: { type: "text_delta", delta: "读表工具返回空，让我用原始 SQL 查询。" },
+      },
+    } as never);
+    expect(state.streamingMessage?.role).toBe("assistant");
+
+    const toolPartial = (content: string) =>
+      ({
+        type: "agent_event",
+        sessionId: "s1",
+        event: {
+          type: "message_update",
+          message: {
+            id: "a1",
+            role: "assistant",
+            content: [
+              { type: "thinking", thinking: "先查一下" },
+              { type: "text", text: "读表工具返回空，让我用原始 SQL 查询。" },
+              {
+                type: "toolCall",
+                id: "sql1",
+                name: "bash",
+                arguments: { command: content },
+              },
+            ],
+          },
+          assistantMessageEvent: {
+            type: "toolcall_delta",
+            contentIndex: 2,
+            delta: content,
+          },
+        },
+      }) as never;
+
+    state = reduceChatEvent(state, toolPartial("SELECT 1"));
+    state = reduceChatEvent(state, toolPartial("SELECT 1 FROM t"));
+    state = reduceChatEvent(state, toolPartial("SELECT 1 FROM t WHERE id=1"));
+
+    const assistants = state.messages.filter((m) => m.role === "assistant");
+    expect(assistants).toHaveLength(1);
+    expect(assistants[0]).toMatchObject({
+      id: "a1",
+      text: "读表工具返回空，让我用原始 SQL 查询。",
+      thinking: "先查一下",
+      streaming: false,
+    });
+    expect(state.streamingMessage?.role).toBe("tool");
+  });
+
+  it("does not re-append assistant after tool end + text snapshot + next tool + message_end", () => {
+    const assistantContent = [
+      { type: "thinking", thinking: "想一下" },
+      { type: "text", text: "先看看有哪些可用的子 agent。" },
+    ];
+    let state = createChatState();
+    state = reduceChatEvent(state, {
+      type: "agent_event",
+      sessionId: "s1",
+      event: {
+        type: "message_update",
+        message: { id: "a1", role: "assistant", content: assistantContent },
+        assistantMessageEvent: { type: "text_delta", delta: "先看看有哪些可用的子 agent。" },
+      },
+    } as never);
+
+    // First toolcall parks assistant
+    state = reduceChatEvent(state, {
+      type: "agent_event",
+      sessionId: "s1",
+      event: {
+        type: "message_update",
+        message: {
+          id: "a1",
+          role: "assistant",
+          content: [
+            ...assistantContent,
+            { type: "toolCall", id: "t1", name: "subagent", arguments: { action: "list" } },
+          ],
+        },
+        assistantMessageEvent: { type: "toolcall_delta", contentIndex: 2, delta: "{}" },
+      },
+    } as never);
+    expect(state.messages.filter((m) => m.role === "assistant")).toHaveLength(1);
+
+    state = reduceChatEvent(state, {
+      type: "agent_event",
+      sessionId: "s1",
+      event: {
+        type: "tool_execution_end",
+        toolCallId: "t1",
+        toolName: "subagent",
+        result: { content: [{ type: "text", text: "ok" }] },
+        isError: false,
+      },
+    } as never);
+    expect(state.streamingMessage).toBeNull();
+
+    // Between tools Pi often re-sends the assistant snapshot WITHOUT toolCall parts —
+    // this used to resurrect streamingMessage and re-commit on the next tool.
+    state = reduceChatEvent(state, {
+      type: "agent_event",
+      sessionId: "s1",
+      event: {
+        type: "message_update",
+        message: { id: "a1", role: "assistant", content: assistantContent },
+        assistantMessageEvent: { type: "text_delta", delta: "" },
+      },
+    } as never);
+    expect(state.streamingMessage?.role === "assistant").toBe(false);
+    expect(state.messages.filter((m) => m.role === "assistant")).toHaveLength(1);
+
+    state = reduceChatEvent(state, {
+      type: "agent_event",
+      sessionId: "s1",
+      event: {
+        type: "message_update",
+        message: {
+          id: "a1",
+          role: "assistant",
+          content: [
+            ...assistantContent,
+            { type: "toolCall", id: "t2", name: "subagent", arguments: { action: "status" } },
+          ],
+        },
+        assistantMessageEvent: { type: "toolcall_start", contentIndex: 2 },
+      },
+    } as never);
+    expect(state.messages.filter((m) => m.role === "assistant")).toHaveLength(1);
+
+    state = reduceChatEvent(state, {
+      type: "agent_event",
+      sessionId: "s1",
+      event: {
+        type: "message_end",
+        message: {
+          id: "a1",
+          role: "assistant",
+          content: assistantContent,
+          stopReason: "toolUse",
+        },
+      },
+    } as never);
+    expect(state.messages.filter((m) => m.role === "assistant")).toHaveLength(1);
+  });
+
+  it("streams write tool args from toolcall_delta before execution ends", () => {
+    let state = createChatState();
+    state = reduceChatEvent(state, {
+      type: "agent_event",
+      sessionId: "s1",
+      event: {
+        type: "message_update",
+        message: {
+          role: "assistant",
+          content: [
+            {
+              type: "toolCall",
+              id: "w1",
+              name: "write",
+              arguments: { path: "a.ts", content: "hel" },
+            },
+          ],
+        },
+        assistantMessageEvent: {
+          type: "toolcall_delta",
+          contentIndex: 0,
+          delta: "hel",
+        },
+      },
+    } as never);
+    expect(state.streamingMessage?.role).toBe("tool");
+    if (state.streamingMessage?.role === "tool") {
+      expect(state.streamingMessage.toolName).toBe("write");
+      expect(state.streamingMessage.args).toEqual({ path: "a.ts", content: "hel" });
+      expect(state.streamingMessage.streaming).toBe(true);
+    }
+
+    state = reduceChatEvent(state, {
+      type: "agent_event",
+      sessionId: "s1",
+      event: {
+        type: "message_update",
+        message: {
+          role: "assistant",
+          content: [
+            {
+              type: "toolCall",
+              id: "w1",
+              name: "write",
+              arguments: { path: "a.ts", content: "hello\nworld" },
+            },
+          ],
+        },
+        assistantMessageEvent: {
+          type: "toolcall_delta",
+          contentIndex: 0,
+          delta: "lo\nworld",
+        },
+      },
+    } as never);
+    if (state.streamingMessage?.role === "tool") {
+      expect(state.streamingMessage.args).toEqual({
+        path: "a.ts",
+        content: "hello\nworld",
+      });
+    }
+
+    state = reduceChatEvent(state, {
+      type: "agent_event",
+      sessionId: "s1",
+      event: {
+        type: "tool_execution_end",
+        toolCallId: "w1",
+        toolName: "write",
+        result: { content: [{ type: "text", text: "Wrote a.ts" }] },
+        isError: false,
+      },
+    } as never);
+    const tool = state.messages.find((m) => m.role === "tool");
+    expect(tool?.role).toBe("tool");
+    if (tool?.role === "tool") {
+      expect(tool.args).toEqual({ path: "a.ts", content: "hello\nworld" });
+      expect(tool.streaming).toBe(false);
+    }
+  });
+
+  it("applies tool_execution_update to the live tool card", () => {
+    let state = createChatState();
+    state = reduceChatEvent(state, {
+      type: "agent_event",
+      sessionId: "s1",
+      event: {
+        type: "tool_execution_start",
+        toolCallId: "b1",
+        toolName: "bash",
+        args: { command: "echo hi" },
+      },
+    } as never);
+    state = reduceChatEvent(state, {
+      type: "agent_event",
+      sessionId: "s1",
+      event: {
+        type: "tool_execution_update",
+        toolCallId: "b1",
+        toolName: "bash",
+        args: { command: "echo hi" },
+        partialResult: { content: [{ type: "text", text: "hi\n" }] },
+      },
+    } as never);
+    expect(state.streamingMessage?.role).toBe("tool");
+    if (state.streamingMessage?.role === "tool") {
+      expect(state.streamingMessage.result).toEqual({
+        content: [{ type: "text", text: "hi\n" }],
+      });
+      expect(state.streamingMessage.streaming).toBe(true);
+    }
+  });
 });
