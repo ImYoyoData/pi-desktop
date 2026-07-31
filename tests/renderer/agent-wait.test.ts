@@ -8,8 +8,10 @@ import {
 import {
   agentOutputSilenceMs,
   agentWaitPhase,
+  agentWaitPhaseId,
   agentWorkerSilenceMs,
   formatElapsedShort,
+  syncPhaseClock,
 } from "../../src/renderer/src/utils/agent-wait";
 
 describe("agent wait clocks", () => {
@@ -18,6 +20,7 @@ describe("agent wait clocks", () => {
     const state = appendUserMessage(createChatState(), "hello");
     expect(state.running).toBe(true);
     expect(state.turnStartedAt).toBeGreaterThanOrEqual(before);
+    expect(state.phaseStartedAt).toBeGreaterThanOrEqual(before);
     expect(state.lastActivityAt).toBeGreaterThanOrEqual(before);
   });
 
@@ -26,6 +29,7 @@ describe("agent wait clocks", () => {
     state = reduceChatEvent(state, { type: "prompt_done", sessionId: "s" });
     expect(state.running).toBe(false);
     expect(state.turnStartedAt).toBeNull();
+    expect(state.phaseStartedAt).toBeNull();
     expect(state.lastActivityAt).toBeNull();
     expect(state.lastWorkerAliveAt).toBeNull();
   });
@@ -65,6 +69,95 @@ describe("agentWaitPhase", () => {
       },
     };
     expect(agentWaitPhase(state)).toBe("tool");
+  });
+});
+
+describe("syncPhaseClock", () => {
+  it("resets phaseStartedAt when wait phase changes, keeps turnStartedAt", () => {
+    const waiting = syncPhaseClock(
+      createChatState(),
+      {
+        ...createChatState(),
+        running: true,
+        turnStartedAt: 1_000,
+        phaseStartedAt: 1_000,
+        lastActivityAt: 1_000,
+      },
+      1_000,
+    );
+    expect(agentWaitPhaseId(waiting)).toBe("waiting_model");
+    expect(waiting.phaseStartedAt).toBe(1_000);
+
+    const thinking = syncPhaseClock(
+      waiting,
+      {
+        ...waiting,
+        streamingMessage: {
+          id: "a1",
+          role: "assistant",
+          text: "",
+          thinking: "plan",
+          streaming: true,
+        },
+        lastActivityAt: 5_000,
+      },
+      5_000,
+    );
+    expect(agentWaitPhaseId(thinking)).toBe("thinking");
+    expect(thinking.turnStartedAt).toBe(1_000);
+    expect(thinking.phaseStartedAt).toBe(5_000);
+
+    const writing = syncPhaseClock(
+      thinking,
+      {
+        ...thinking,
+        streamingMessage: {
+          id: "a1",
+          role: "assistant",
+          text: "hello",
+          thinking: "plan",
+          streaming: true,
+        },
+        lastActivityAt: 8_000,
+      },
+      8_000,
+    );
+    expect(agentWaitPhaseId(writing)).toBe("writing");
+    expect(writing.turnStartedAt).toBe(1_000);
+    expect(writing.phaseStartedAt).toBe(8_000);
+  });
+
+  it("resets when switching between tools", () => {
+    const bash = {
+      ...createChatState(),
+      running: true,
+      turnStartedAt: 1,
+      phaseStartedAt: 10,
+      lastActivityAt: 10,
+      streamingMessage: {
+        id: "t1",
+        role: "tool" as const,
+        toolCallId: "1",
+        toolName: "bash",
+        streaming: true,
+      },
+    };
+    const edit = syncPhaseClock(
+      bash,
+      {
+        ...bash,
+        phaseStartedAt: 10,
+        streamingMessage: {
+          id: "t2",
+          role: "tool" as const,
+          toolCallId: "2",
+          toolName: "edit",
+          streaming: true,
+        },
+      },
+      50,
+    );
+    expect(edit.phaseStartedAt).toBe(50);
   });
 });
 
