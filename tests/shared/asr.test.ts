@@ -5,6 +5,8 @@ import {
   ASR_RAM_MB,
   ASR_MODEL_URLS,
   ASR_MODEL_FILENAME,
+  asrModelUrlsForMirror,
+  expandAsrDownloadUrls,
   normalizeAsrModelUrl,
   assertAsrGgufPath,
   collapseAsrRepetition,
@@ -25,11 +27,28 @@ describe("asr config", () => {
     expect(resolveAsrBinaryAsset("linux", "x64", "vulkan")?.url).toContain("vulkan");
   });
 
-  it("lists model mirrors with hf-mirror first", () => {
+  it("lists model mirrors with hf-mirror first by default", () => {
     expect(ASR_MODEL_URLS.length).toBeGreaterThanOrEqual(2);
     expect(ASR_MODEL_URLS[0]).toContain("hf-mirror.com");
     expect(ASR_MODEL_URLS[0]).toContain(ASR_MODEL_FILENAME);
     expect(ASR_MODEL_URLS.some((u) => u.includes("huggingface.co"))).toBe(true);
+  });
+
+  it("orders download URLs by mirror preference", () => {
+    const gh = "https://github.com/CrispStrobe/CrispASR/releases/download/v0.8.23/x.zip";
+    const china = expandAsrDownloadUrls([gh], "china", "en");
+    expect(china[0]).toContain("gh.llkk.cc");
+    expect(china[china.length - 1]).toBe(gh);
+    expect(china.some((u) => u.includes("gh-proxy.com"))).toBe(true);
+
+    const global = expandAsrDownloadUrls([gh], "global", "zh-CN");
+    expect(global[0]).toBe(gh);
+    expect(global.some((u) => u.includes("gh.llkk.cc"))).toBe(true);
+
+    expect(asrModelUrlsForMirror("global", "zh-CN")[0]).toContain("huggingface.co");
+    expect(asrModelUrlsForMirror("china", "en")[0]).toContain("hf-mirror.com");
+    expect(asrModelUrlsForMirror("auto", "zh-CN")[0]).toContain("hf-mirror.com");
+    expect(asrModelUrlsForMirror("auto", "en")[0]).toContain("huggingface.co");
   });
 
   it("normalizes custom model URLs", () => {

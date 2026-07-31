@@ -30,6 +30,10 @@ import { useLayoutStore } from "@renderer/stores/layout";
 import { useComposerStore } from "@renderer/stores/composer";
 import { gitCodeColor } from "@renderer/utils/editor-lang";
 import { ancestorChain, nextExpandedKeys } from "@renderer/utils/files-tree-expand";
+import {
+  encodeWorkspacePaths,
+  PI_WORKSPACE_PATHS_MIME,
+} from "@renderer/utils/workspace-path-dnd";
 import { t } from "@renderer/i18n";
 
 const workspace = useWorkspaceStore();
@@ -138,12 +142,26 @@ function allowTreeDrop(info: {
   return canMoveInto(src, String(info.node.key));
 }
 
+function toFileUrl(absPath: string): string {
+  const normalized = absPath.replace(/\\/g, "/");
+  if (/^[A-Za-z]:\//.test(normalized)) return `file:///${normalized}`;
+  if (normalized.startsWith("/")) return `file://${normalized}`;
+  return `file:///${normalized}`;
+}
+
 function onTreeDragStart(info: { node: TreeOption; event: DragEvent }): void {
   const path = String(info.node.key);
   dragSrcPath.value = path;
   dropTargetPath.value = null;
-  info.event.dataTransfer?.setData("text/plain", path);
-  if (info.event.dataTransfer) info.event.dataTransfer.effectAllowed = "move";
+  const dt = info.event.dataTransfer;
+  if (!dt) return;
+  // Rel path for composer tags; copyMove so tree can still move while composer accepts copy.
+  dt.setData("text/plain", path);
+  dt.setData(PI_WORKSPACE_PATHS_MIME, encodeWorkspacePaths([path]));
+  if (workspace.root) {
+    dt.setData("text/uri-list", toFileUrl(toAbsolutePath(path)));
+  }
+  dt.effectAllowed = "copyMove";
 }
 
 function onTreeDragEnd(): void {

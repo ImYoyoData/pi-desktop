@@ -238,22 +238,63 @@ describe("reduceChatEvent", () => {
     });
   });
 
-  it("marks idle on prompt_done", () => {
-    let state = createChatState();
-    state = { ...state, running: true };
-    state = reduceChatEvent(state, { type: "prompt_done", sessionId: "s" });
-    expect(state.running).toBe(false);
-  });
-
-  it("marks idle on agent_settled", () => {
+  it("clears running on agent_end when not retrying", () => {
     let state = createChatState();
     state = { ...state, running: true };
     state = reduceChatEvent(state, {
       type: "agent_event",
       sessionId: "s",
-      event: { type: "agent_settled" },
+      event: { type: "agent_end", willRetry: false },
     });
     expect(state.running).toBe(false);
+  });
+
+  it("does not resurrect running from late stream events after idle", () => {
+    let state = createChatState();
+    state = { ...state, running: true };
+    state = reduceChatEvent(state, { type: "prompt_done", sessionId: "s" });
+    expect(state.running).toBe(false);
+    state = reduceChatEvent(state, {
+      type: "agent_event",
+      sessionId: "s",
+      event: {
+        type: "message_update",
+        message: {
+          id: "a1",
+          role: "assistant",
+          content: [{ type: "text", text: "late" }],
+        },
+      },
+    });
+    expect(state.running).toBe(false);
+  });
+
+  it("does not resurrect running from late tool events after idle", () => {
+    let state = createChatState();
+    state = reduceChatEvent(state, { type: "prompt_done", sessionId: "s" });
+    expect(state.running).toBe(false);
+    state = reduceChatEvent(state, {
+      type: "agent_event",
+      sessionId: "s",
+      event: {
+        type: "tool_execution_start",
+        toolCallId: "late",
+        toolName: "read",
+        args: { path: "x" },
+      },
+    });
+    expect(state.running).toBe(false);
+  });
+
+  it("allows agent_start to set running again after idle", () => {
+    let state = createChatState();
+    state = reduceChatEvent(state, { type: "prompt_done", sessionId: "s" });
+    state = reduceChatEvent(state, {
+      type: "agent_event",
+      sessionId: "s",
+      event: { type: "agent_start" },
+    });
+    expect(state.running).toBe(true);
   });
 
   it("keeps running on agent_end when willRetry", () => {
@@ -267,15 +308,20 @@ describe("reduceChatEvent", () => {
     expect(state.running).toBe(true);
   });
 
-  it("keeps running on agent_end until prompt_done", () => {
+  it("marks idle on agent_settled", () => {
     let state = createChatState();
     state = { ...state, running: true };
     state = reduceChatEvent(state, {
       type: "agent_event",
       sessionId: "s",
-      event: { type: "agent_end", willRetry: false },
+      event: { type: "agent_settled" },
     });
-    expect(state.running).toBe(true);
+    expect(state.running).toBe(false);
+  });
+
+  it("marks idle on prompt_done", () => {
+    let state = createChatState();
+    state = { ...state, running: true };
     state = reduceChatEvent(state, { type: "prompt_done", sessionId: "s" });
     expect(state.running).toBe(false);
   });

@@ -35,7 +35,7 @@ export type ChatMessage =
         kind?: "file" | "url" | "element" | "agent" | "plan" | "ask" | "task";
       }[];
     }
-  | { id: string; role: "assistant"; text: string; thinking?: string; streaming?: boolean }
+  | { id: string; role: "assistant"; text: string; thinking?: string; streaming?: boolean; thinkingStartedAt?: number; thinkingDurationMs?: number }
   | {
       id: string;
       role: "tool";
@@ -73,6 +73,16 @@ export type ChatState = {
   pendingPermission: PendingPermission | null;
   /** Pi extension UI dialog (select/confirm/input/editor). */
   pendingExtensionUi: ExtensionUiPending | null;
+  /** Wall-clock when the current turn became running (ms). */
+  turnStartedAt: number | null;
+  /** Last agent stream / tool / status activity (ms). */
+  lastActivityAt: number | null;
+  /** Last worker heartbeat pong while a turn is active (ms). */
+  lastWorkerAliveAt: number | null;
+  /** Consecutive auto-recover attempts since last successful turn. */
+  autoRecoverCount: number;
+  /** True while restart + resend is in flight. */
+  autoRecovering: boolean;
 };
 
 export function createChatState(): ChatState {
@@ -85,6 +95,40 @@ export function createChatState(): ChatState {
     pendingAskUser: null,
     pendingPermission: null,
     pendingExtensionUi: null,
+    turnStartedAt: null,
+    lastActivityAt: null,
+    lastWorkerAliveAt: null,
+    autoRecoverCount: 0,
+    autoRecovering: false,
+  };
+}
+
+/** Keep / clear turn clocks after a reducer step. */
+export function withRunClock(
+  state: ChatState,
+  opts?: { activity?: boolean; workerAlive?: boolean; now?: number },
+): ChatState {
+  if (!state.running) {
+    if (
+      state.turnStartedAt == null &&
+      state.lastActivityAt == null &&
+      state.lastWorkerAliveAt == null
+    ) {
+      return state;
+    }
+    return {
+      ...state,
+      turnStartedAt: null,
+      lastActivityAt: null,
+      lastWorkerAliveAt: null,
+    };
+  }
+  const now = opts?.now ?? Date.now();
+  return {
+    ...state,
+    turnStartedAt: state.turnStartedAt ?? now,
+    lastActivityAt: opts?.activity === false ? state.lastActivityAt ?? now : now,
+    lastWorkerAliveAt: opts?.workerAlive ? now : state.lastWorkerAliveAt,
   };
 }
 
@@ -214,10 +258,13 @@ function upsertAssistantMessage(
   state: ChatState,
   assistant: Extract<ChatMessage, { role: "assistant" }>,
 ): ChatState {
-  const finalized: Extract<ChatMessage, { role: "assistant" }> = {
-    ...assistant,
-    streaming: false,
-  };
+  const finalized: Extract<ChatMessage, { role: "assistant" }> = stampThinkingClock(
+    {
+      ...assistant,
+      streaming: false,
+    },
+    { finalize: true },
+  );
 
   const byId = state.messages.findIndex(
     (m) => m.role === "assistant" && m.id === finalized.id,
@@ -391,14 +438,64 @@ function assistantFromPartial(
   const thinkingSnap = thinkingFromMessage(msg);
   const prevText = prev?.role === "assistant" ? prev.text : "";
   const prevThinking = prev?.role === "assistant" ? (prev.thinking ?? "") : "";
+  const prevStarted =
+    prev?.role === "assistant" ? prev.thinkingStartedAt : undefined;
+  const prevDuration =
+    prev?.role === "assistant" ? prev.thinkingDurationMs : undefined;
   const thinking = thinkingSnap || prevThinking;
-  return {
+  return stampThinkingClock({
     id,
     role: "assistant",
     text: snapshot || prevText,
     ...(thinking ? { thinking } : {}),
+    ...(prevStarted != null ? { thinkingStartedAt: prevStarted } : {}),
+    ...(prevDuration != null ? { thinkingDurationMs: prevDuration } : {}),
     streaming: true,
+  });
+}
+
+/** Start / freeze thinking elapsed time on assistant bubbles. */
+export function stampThinkingClock(
+  msg: Extract<ChatMessage, { role: "assistant" }>,
+  opts: { now?: number; finalize?: boolean } = {},
+): Extract<ChatMessage, { role: "assistant" }> {
+  const now = opts.now ?? Date.now();
+  const hasThinkingText = Boolean(msg.thinking?.trim());
+  const thinkingInFlight = Boolean(msg.streaming) && !msg.text?.trim();
+  let thinkingStartedAt = msg.thinkingStartedAt;
+  let thinkingDurationMs = msg.thinkingDurationMs;
+
+  if (
+    (hasThinkingText || thinkingInFlight) &&
+    thinkingStartedAt == null &&
+    thinkingDurationMs == null
+  ) {
+    thinkingStartedAt = now;
+  }
+
+  const shouldFinalize =
+    Boolean(opts.finalize) ||
+    (Boolean(msg.text?.trim()) && thinkingStartedAt != null) ||
+    (!msg.streaming && thinkingStartedAt != null && hasThinkingText);
+
+  if (shouldFinalize && thinkingStartedAt != null) {
+    thinkingDurationMs = Math.max(
+      thinkingDurationMs ?? 0,
+      Math.max(0, now - thinkingStartedAt),
+    );
+    thinkingStartedAt = undefined;
+  }
+
+  const next: Extract<ChatMessage, { role: "assistant" }> = {
+    id: msg.id,
+    role: "assistant",
+    text: msg.text,
+    streaming: msg.streaming,
   };
+  if (msg.thinking) next.thinking = msg.thinking;
+  if (thinkingStartedAt != null) next.thinkingStartedAt = thinkingStartedAt;
+  if (thinkingDurationMs != null) next.thinkingDurationMs = thinkingDurationMs;
+  return next;
 }
 
 /** Pi SDK assistant failures use stopReason + errorMessage instead of throwing. */
@@ -565,7 +662,10 @@ function reduceAgentPayload(state: ChatState, payload: Record<string, unknown>):
       >;
       const refreshed = assistantFromPartial(msg, prev);
       const messages = state.messages.slice();
-      messages[existingAssistantIdx] = { ...refreshed, streaming: false };
+      messages[existingAssistantIdx] = stampThinkingClock(
+        { ...refreshed, streaming: false },
+        { finalize: true },
+      );
       return { ...state, running: true, messages };
     }
 
@@ -577,26 +677,29 @@ function reduceAgentPayload(state: ChatState, payload: Record<string, unknown>):
       if (ev.type === "text_delta" && typeof ev.delta === "string") {
         const snapshot = textFromMessage(msg);
         if (!snapshot) {
-          nextStream = {
+          nextStream = stampThinkingClock({
             ...nextStream,
             text: nextStream.text + ev.delta,
-          };
+          });
         }
       }
       if (ev.type === "thinking_delta" && typeof ev.delta === "string") {
         const snap = thinkingFromMessage(msg);
         if (!snap) {
-          nextStream = {
+          nextStream = stampThinkingClock({
             ...nextStream,
             thinking: (nextStream.thinking ?? "") + ev.delta,
-          };
+          });
         }
       }
       if (ev.type === "thinking_end" && typeof ev.content === "string" && ev.content) {
-        nextStream = {
-          ...nextStream,
-          thinking: ev.content,
-        };
+        nextStream = stampThinkingClock(
+          {
+            ...nextStream,
+            thinking: ev.content,
+          },
+          { finalize: true },
+        );
       }
       if (
         ev.type === "toolcall_start" ||
@@ -715,11 +818,17 @@ function reduceAgentPayload(state: ChatState, payload: Record<string, unknown>):
       // Always keep partial thinking/answer on abort (and on mid-stream errors).
       let next: ChatState = { ...state, streamingMessage: null };
       if (text || thinking) {
+        const started =
+          stream?.role === "assistant" ? stream.thinkingStartedAt : undefined;
+        const duration =
+          stream?.role === "assistant" ? stream.thinkingDurationMs : undefined;
         next = upsertAssistantMessage(next, {
           id,
           role: "assistant",
           text,
           ...(thinking ? { thinking } : {}),
+          ...(started != null ? { thinkingStartedAt: started } : {}),
+          ...(duration != null ? { thinkingDurationMs: duration } : {}),
           streaming: false,
         });
       }
@@ -915,13 +1024,13 @@ function reduceAgentPayload(state: ChatState, payload: Record<string, unknown>):
         }
       }
     }
-    // Keep running until prompt_done — agent_end can arrive before prompt() resolves.
-    // Still commit any in-flight bubble so a late abort doesn't wipe thinking/text.
+    // Keep UI in sync when the agent loop finished — do not wait for prompt_done
+    // (session.prompt() can lag or stall after agent_end; sessions store already goes idle).
     const committed = commitStreamingMessage(state);
-    return { ...committed, retryHint: null, nextToolOrder: 1 };
+    return { ...committed, running: false, retryHint: null, nextToolOrder: 1 };
   }
   if (type === "agent_settled") {
-    // Fallback idle if prompt_done was missed; normally prompt_done clears running.
+    // Fallback idle if prompt_done was missed; normally agent_end / prompt_done clears running.
     const committed = commitStreamingMessage(state);
     return {
       ...committed,
@@ -952,66 +1061,91 @@ export function appendUserMessage(
   if (!trimmed && !hasImages && !hasTags) {
     return state;
   }
-  return {
-    ...state,
-    running: true,
-    retryHint: null,
-    nextToolOrder: 1,
-    streamingMessage: null,
-    pendingAskUser: null,
-    messages: [
-      ...state.messages,
-      {
-        id: localId("user"),
-        role: "user",
-        text: trimmed,
-        images: hasImages ? images : undefined,
-        elementTags: hasTags ? visibleTags : undefined,
-      },
-    ],
-  };
+  return withRunClock(
+    {
+      ...state,
+      running: true,
+      retryHint: null,
+      nextToolOrder: 1,
+      streamingMessage: null,
+      pendingAskUser: null,
+      messages: [
+        ...state.messages,
+        {
+          id: localId("user"),
+          role: "user",
+          text: trimmed,
+          images: hasImages ? images : undefined,
+          elementTags: hasTags ? visibleTags : undefined,
+        },
+      ],
+    },
+    { activity: true },
+  );
 }
 
 export function reduceChatEvent(state: ChatState, event: AgentEvent): ChatState {
   switch (event.type) {
     case "connected":
       return state;
-    case "agent_event":
-      // Don't force running:true here — late events after prompt_done would stick UI in "running"
-      return reduceAgentPayload(state, event.event);
+    case "agent_event": {
+      const payload =
+        event.event && typeof event.event === "object"
+          ? (event.event as Record<string, unknown>)
+          : {};
+      const next = reduceAgentPayload(state, payload);
+      const t = payload.type;
+      // Start a turn only on lifecycle starts. Late stream/tool chunks after
+      // prompt_done / agent_end must not resurrect running (sticky "运行中").
+      const isLifecycleStart =
+        t === "agent_start" || t === "turn_start" || t === "auto_retry_start";
+      if (!state.running && !isLifecycleStart && next.running) {
+        return withRunClock({ ...next, running: false }, { activity: true });
+      }
+      return withRunClock(next, { activity: true });
+    }
     case "prompt_done": {
       const committed = commitStreamingMessage(state);
-      return {
+      return withRunClock({
         ...committed,
         running: false,
         retryHint: null,
         messages: committed.messages.map((m) =>
           m.role === "assistant" || m.role === "tool" ? { ...m, streaming: false } : m,
         ),
-      };
+      });
     }
     case "prompt_error":
-      return appendError(state, event.errorMessage);
+      return withRunClock(appendError(state, event.errorMessage));
     case "worker_stuck":
       // Surface in this session's chat (not only the sidebar banner).
-      return appendError(state, t.stuckBanner);
+      return withRunClock(appendError(state, t.stuckBanner));
+    case "worker_alive":
+      return withRunClock(state, { activity: false, workerAlive: true });
     case "worker_exit":
       // Non-zero / unexpected exit → show in chat; clean idle-destroy (0/null) is silent.
       if (event.code !== 0 && event.code != null) {
-        return appendError(
-          state,
-          uiLocale() === "zh-CN"
-            ? `会话 Worker 异常退出（code ${event.code}）。可终止或重启此会话。`
-            : `Session worker exited unexpectedly (code ${event.code}). Terminate or restart this session.`,
+        return withRunClock(
+          appendError(
+            state,
+            uiLocale() === "zh-CN"
+              ? `会话 Worker 异常退出（code ${event.code}）。可终止或重启此会话。`
+              : `Session worker exited unexpectedly (code ${event.code}). Terminate or restart this session.`,
+          ),
         );
       }
-      return { ...state, running: false, streamingMessage: null, retryHint: null };
+      return withRunClock({ ...state, running: false, streamingMessage: null, retryHint: null });
     case "session_status":
       if (event.status === "running") {
-        return { ...state, running: true };
+        return withRunClock({ ...state, running: true }, { activity: true });
       }
       // idle | error | stuck → not actively generating
-      return { ...state, running: false, streamingMessage: null, retryHint: null };
+      return withRunClock({
+        ...state,
+        running: false,
+        streamingMessage: null,
+        retryHint: null,
+      });
     case "context_usage":
       return state;
     default: {

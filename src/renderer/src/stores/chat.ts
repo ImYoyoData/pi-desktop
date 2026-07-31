@@ -13,6 +13,7 @@ import {
   setPendingAskUser,
   setPendingExtensionUi,
   setPendingPermission,
+  withRunClock,
   type ChatMessage,
   type ChatState,
   type ChatUserImage,
@@ -26,6 +27,16 @@ import { useNotifyStore } from "./notify";
 import { useTtsStore } from "./tts";
 import { useSessionWidgetsStore } from "./session-widgets";
 import { extractToolResult } from "../utils/tool-diff";
+import {
+  agentOutputSilenceMs,
+  agentWorkerSilenceMs,
+} from "../utils/agent-wait";
+import {
+  canAutoRecoverForReason,
+  nextAutoRecoverCount,
+  shouldSoftHangRecover,
+  type AutoRecoverReason,
+} from "../utils/agent-auto-recover";
 import { t } from "../i18n";
 import {
   isPermissionAskCancelled,
@@ -89,6 +100,9 @@ export const useChatStore = defineStore("chat", () => {
   const historyLoadingOlderId = ref<string | null>(null);
   /** Bumped when a permission ask is denied or times out — UI may toast Security remediation. */
   const securityRemediationTick = ref(0);
+  /** Sessions currently inside autoRecover (restart + resend). */
+  const recoveringIds = new Set<string>();
+  let softHangTimer: ReturnType<typeof setInterval> | null = null;
 
   function noteSecurityRemediation(): void {
     securityRemediationTick.value += 1;
@@ -171,6 +185,26 @@ export const useChatStore = defineStore("chat", () => {
     const id = sessionsStore.activeId;
     if (!id) return false;
     return stateFor(id).running;
+  });
+
+  /** Fields for the long-running wait indicator (phase / silence / worker alive). */
+  const activeWaitState = computed(() => {
+    const id = sessionsStore.activeId;
+    if (!id) return null;
+    const s = stateFor(id);
+    if (!s.running && !s.autoRecovering) return null;
+    return {
+      running: s.running,
+      streamingMessage: s.streamingMessage,
+      retryHint: s.retryHint,
+      pendingAskUser: s.pendingAskUser,
+      pendingPermission: s.pendingPermission,
+      pendingExtensionUi: s.pendingExtensionUi,
+      turnStartedAt: s.turnStartedAt,
+      lastActivityAt: s.lastActivityAt,
+      lastWorkerAliveAt: s.lastWorkerAliveAt,
+      autoRecovering: s.autoRecovering,
+    };
   });
 
   const activeRetryHint = computed(() => {
@@ -318,6 +352,14 @@ export const useChatStore = defineStore("chat", () => {
       void checkpointStore.finishActive(sessionId);
     }
     if (event.type === "prompt_done") {
+      const done = stateFor(sessionId);
+      if (done.autoRecoverCount !== 0 || done.autoRecovering) {
+        bySession[sessionId] = {
+          ...done,
+          autoRecoverCount: 0,
+          autoRecovering: false,
+        };
+      }
       void notifyStore.onTurnComplete({
         title: t.appName,
         body: t.notifyTurnCompleteBody,
@@ -333,6 +375,127 @@ export const useChatStore = defineStore("chat", () => {
         }
       }
     }
+
+    if (event.type === "worker_stuck") {
+      void autoRecover(sessionId, "worker_stuck");
+    }
+  }
+
+  /**
+   * Restart the session worker (when needed) and re-send the last user prompt.
+   * Shared by worker_stuck and soft-hang watchdogs.
+   */
+  async function autoRecover(
+    sessionId: string,
+    reason: AutoRecoverReason,
+  ): Promise<boolean> {
+    if (recoveringIds.has(sessionId)) return false;
+    const state = stateFor(sessionId);
+    if (state.pendingAskUser || state.pendingPermission || state.pendingExtensionUi) {
+      return false;
+    }
+    if (!canAutoRecoverForReason(state.autoRecoverCount, reason)) {
+      if (reason === "soft_hang") {
+        bySession[sessionId] = reduceChatEvent(state, {
+          type: "prompt_error",
+          sessionId,
+          errorMessage: t.autoRecoverGaveUp,
+        });
+      } else {
+        discreteMessage.warning(t.autoRecoverGaveUp);
+      }
+      return false;
+    }
+
+    recoveringIds.add(sessionId);
+    bySession[sessionId] = {
+      ...state,
+      autoRecoverCount: nextAutoRecoverCount(state.autoRecoverCount),
+      autoRecovering: true,
+    };
+
+    try {
+      if (reason === "soft_hang") {
+        try {
+          await abort(sessionId);
+        } catch {
+          // Force-kill path may already have cleared the worker.
+        }
+      }
+
+      try {
+        await sessionsStore.restartWorker(sessionId, null);
+      } catch (err) {
+        discreteMessage.error(err instanceof Error ? err.message : String(err));
+        return false;
+      }
+
+      const after = stateFor(sessionId);
+      let userIdx = -1;
+      for (let i = after.messages.length - 1; i >= 0; i--) {
+        if (after.messages[i]!.role === "user") {
+          userIdx = i;
+          break;
+        }
+      }
+      if (userIdx < 0) {
+        return false;
+      }
+      const userMsg = after.messages[userIdx]!;
+      if (userMsg.role !== "user") return false;
+
+      bySession[sessionId] = withRunClock({
+        ...after,
+        messages: after.messages.slice(0, userIdx),
+        streamingMessage: null,
+        running: false,
+        retryHint: null,
+        autoRecovering: true,
+      });
+
+      discreteMessage.info(
+        reason === "worker_stuck" ? t.autoRecoverWorkerStuck : t.autoRecoverSoftHang,
+      );
+
+      const images = userMsg.images?.map((img) => {
+        const raw = img.dataUrl.replace(/^data:[^;]+;base64,/, "");
+        return { type: "image" as const, data: raw, mimeType: img.mimeType };
+      });
+      await sendPrompt(
+        sessionId,
+        userMsg.text,
+        undefined,
+        images,
+        userMsg.elementTags,
+      );
+      return true;
+    } finally {
+      recoveringIds.delete(sessionId);
+      const cur = stateFor(sessionId);
+      if (cur.autoRecovering) {
+        bySession[sessionId] = { ...cur, autoRecovering: false };
+      }
+    }
+  }
+
+  function checkSoftHangSessions(): void {
+    const now = Date.now();
+    for (const [sessionId, state] of Object.entries(bySession)) {
+      if (!state?.running || state.autoRecovering || recoveringIds.has(sessionId)) continue;
+      if (
+        !shouldSoftHangRecover({
+          running: state.running,
+          waitingUser: Boolean(
+            state.pendingAskUser || state.pendingPermission || state.pendingExtensionUi,
+          ),
+          outputSilenceMs: agentOutputSilenceMs(state, now),
+          workerSilenceMs: agentWorkerSilenceMs(state, now),
+        })
+      ) {
+        continue;
+      }
+      void autoRecover(sessionId, "soft_hang");
+    }
   }
 
   function hydrateFromHistory(sessionId: string, history: SessionHistoryMessage[]): void {
@@ -346,6 +509,9 @@ export const useChatStore = defineStore("chat", () => {
       pendingAskUser: null,
       pendingPermission: null,
       pendingExtensionUi: null,
+      turnStartedAt: null,
+      lastActivityAt: null,
+      lastWorkerAliveAt: null,
     };
     historyFileBySession[sessionId] = historyFileBySession[sessionId] ?? null;
     if (!history.length) {
@@ -417,6 +583,9 @@ export const useChatStore = defineStore("chat", () => {
     if (eventsBound) return;
     eventsBound = true;
     checkpointStore.bindEvents();
+    if (!softHangTimer) {
+      softHangTimer = setInterval(() => checkSoftHangSessions(), 5_000);
+    }
     const off = window.api.sessions.onEvent((event) => {
       applyEvent(event);
     });
@@ -456,6 +625,10 @@ export const useChatStore = defineStore("chat", () => {
     });
     onScopeDispose(() => {
       eventsBound = false;
+      if (softHangTimer) {
+        clearInterval(softHangTimer);
+        softHangTimer = null;
+      }
       off();
       offPermission();
       offAskUser();
@@ -528,12 +701,12 @@ export const useChatStore = defineStore("chat", () => {
     if (row?.status === "stuck") {
       await sessionsStore.killWorker(sessionId, null);
       const state = stateFor(sessionId);
-      bySession[sessionId] = {
+      bySession[sessionId] = withRunClock({
         ...state,
         running: false,
         streamingMessage: null,
         retryHint: null,
-      };
+      });
       return;
     }
     await sessionsStore.sendCommand(sessionId, { type: "abort" });
@@ -543,13 +716,13 @@ export const useChatStore = defineStore("chat", () => {
     const state = stateFor(sessionId);
     const idx = state.messages.findIndex((m) => m.id === messageId);
     if (idx < 0) return;
-    bySession[sessionId] = {
+    bySession[sessionId] = withRunClock({
       ...state,
       messages: state.messages.slice(0, idx),
       streamingMessage: null,
       running: false,
       retryHint: null,
-    };
+    });
   }
 
   /** Start re-edit: keep chat intact; truncate only on commit (send). */
@@ -578,13 +751,13 @@ export const useChatStore = defineStore("chat", () => {
     const idx = state.messages.findIndex((m) => m.id === pending.messageId && m.role === "user");
     pendingUserEdit.value = null;
     if (idx < 0) return false;
-    bySession[sessionId] = {
+    bySession[sessionId] = withRunClock({
       ...state,
       messages: state.messages.slice(0, idx),
       streamingMessage: null,
       running: false,
       retryHint: null,
-    };
+    });
     return true;
   }
 
@@ -619,13 +792,13 @@ export const useChatStore = defineStore("chat", () => {
     if (userIdx < 0) return;
     const userMsg = state.messages[userIdx];
     if (userMsg.role !== "user") return;
-    bySession[sessionId] = {
+    bySession[sessionId] = withRunClock({
       ...state,
       messages: state.messages.slice(0, userIdx),
       streamingMessage: null,
       running: false,
       retryHint: null,
-    };
+    });
     const images = userMsg.images?.map((img) => {
       const raw = img.dataUrl.replace(/^data:[^;]+;base64,/, "");
       return { type: "image" as const, data: raw, mimeType: img.mimeType };
@@ -655,13 +828,13 @@ export const useChatStore = defineStore("chat", () => {
     if (userIdx < 0) return;
     const userMsg = state.messages[userIdx];
     if (userMsg.role !== "user") return;
-    bySession[sessionId] = {
+    bySession[sessionId] = withRunClock({
       ...state,
       messages: state.messages.slice(0, userIdx),
       streamingMessage: null,
       running: false,
       retryHint: null,
-    };
+    });
     const images = userMsg.images?.map((img) => {
       const raw = img.dataUrl.replace(/^data:[^;]+;base64,/, "");
       return { type: "image" as const, data: raw, mimeType: img.mimeType };
@@ -685,6 +858,7 @@ export const useChatStore = defineStore("chat", () => {
     activeMessages,
     activeStreaming,
     activeRunning,
+    activeWaitState,
     activeRetryHint,
     activePendingAskUser,
     activePendingPermission,
@@ -713,5 +887,6 @@ export const useChatStore = defineStore("chat", () => {
     isPendingEditTail,
     regenerate,
     retryFromError,
+    autoRecover,
   };
 });

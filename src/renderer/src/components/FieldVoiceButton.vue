@@ -6,10 +6,11 @@
 import { onUnmounted, ref } from "vue";
 import { NButton, NIcon, useMessage } from "naive-ui";
 import { MicOutline, StopCircleOutline } from "@vicons/ionicons5";
-import { formatAsrInstallError, formatAsrRuntimeError, useAsrStore } from "@renderer/stores/asr";
+import { formatAsrInstallError, formatAsrRuntimeError, isAsrInstallCancelled, useAsrStore } from "@renderer/stores/asr";
 import { useMediaStore } from "@renderer/stores/media";
 import { startVoiceRecord, type VoiceRecordSession } from "@renderer/utils/pcm-capture";
 import { stopWakeListen } from "@renderer/utils/asr-wake-listen";
+import AsrInstallConfirmModal from "@renderer/components/AsrInstallConfirmModal.vue";
 import { scrubAsrHallucination } from "../../../shared/asr";
 import { t } from "@renderer/i18n";
 
@@ -39,6 +40,16 @@ onUnmounted(() => {
 });
 
 async function ensureReady(): Promise<boolean> {
+  if (ensureReadyFlight) return ensureReadyFlight;
+  ensureReadyFlight = doEnsureReady().finally(() => {
+    ensureReadyFlight = null;
+  });
+  return ensureReadyFlight;
+}
+
+let ensureReadyFlight: Promise<boolean> | null = null;
+
+async function doEnsureReady(): Promise<boolean> {
   if (!(asr.status.residentModel && asr.status.installed && asr.status.enabled)) {
     await asr.refresh();
   }
@@ -51,32 +62,52 @@ async function ensureReady(): Promise<boolean> {
     return false;
   }
   if (asr.status.installed) return true;
-  if (asr.status.modelPath) {
+  if (asr.installing) {
     try {
       await asr.install();
-      return true;
+      return asr.status.installed;
     } catch (err) {
+      if (isAsrInstallCancelled(err)) return false;
       messageApi.error(formatAsrInstallError(err, t.asrDownloadFailed), { duration: 6000 });
       return false;
     }
   }
-  const ok = window.confirm(
-    t.asrInstallConfirm(
-      asr.status.diskMb,
-      asr.status.ramMb,
-      asr.status.gpuDeviceLabel,
-      asr.status.gpuBackend.toUpperCase(),
-      asr.status.gpuKind === "cpu",
-    ),
-  );
+  const ok = await promptAsrInstallConfirm();
   if (!ok) return false;
   try {
     await asr.install();
     return true;
   } catch (err) {
+    if (isAsrInstallCancelled(err)) return false;
     messageApi.error(formatAsrInstallError(err, t.asrDownloadFailed), { duration: 6000 });
     return false;
   }
+}
+
+const asrInstallConfirmOpen = ref(false);
+let asrInstallConfirmResolve: ((ok: boolean) => void) | null = null;
+
+function promptAsrInstallConfirm(): Promise<boolean> {
+  if (asrInstallConfirmResolve) {
+    asrInstallConfirmResolve(false);
+    asrInstallConfirmResolve = null;
+  }
+  asrInstallConfirmOpen.value = true;
+  return new Promise((resolve) => {
+    asrInstallConfirmResolve = resolve;
+  });
+}
+
+function onAsrInstallConfirm(): void {
+  asrInstallConfirmOpen.value = false;
+  asrInstallConfirmResolve?.(true);
+  asrInstallConfirmResolve = null;
+}
+
+function onAsrInstallConfirmCancel(): void {
+  asrInstallConfirmOpen.value = false;
+  asrInstallConfirmResolve?.(false);
+  asrInstallConfirmResolve = null;
 }
 
 function cancel(opts?: { resumeWake?: boolean }): void {
@@ -185,6 +216,11 @@ async function onClick(): Promise<void> {
       <NIcon :component="recording ? StopCircleOutline : MicOutline" :size="16" />
     </template>
   </NButton>
+  <AsrInstallConfirmModal
+    :show="asrInstallConfirmOpen"
+    @confirm="onAsrInstallConfirm"
+    @cancel="onAsrInstallConfirmCancel"
+  />
 </template>
 
 <style scoped>
