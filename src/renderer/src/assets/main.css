@@ -310,31 +310,16 @@ button {
 }
 
 /*
- * ALL naive-ui card modals: stay smaller than the window so the header
- * close button is always reachable (a taller-than-window modal pushes its
- * X under the titlebar where clicks are swallowed), and scroll internally.
+ * Internal scroll container for modal bodies: each modal wraps its content
+ * in <div class="modal-scroll"> so a tall dialog scrolls inside instead of
+ * overflowing the window (keeps header + footer fixed).
  */
-.n-modal-container .n-card {
-  max-height: min(80vh, 720px) !important;
-  margin-top: 44px;
-  display: flex;
-  flex-direction: column;
-}
-
-.n-modal-container .n-card-header,
-.n-modal-container .n-card__footer {
-  flex-shrink: 0;
-}
-
-.n-modal-container .n-card__content {
-  flex: 1 1 auto;
-  min-height: 0;
+.modal-scroll {
+  max-height: min(62vh, 540px);
   overflow-y: auto;
-}
-
-.n-modal-container .n-card__close {
-  -webkit-app-region: no-drag;
-  z-index: 3;
+  overscroll-behavior: contain;
+  padding-right: 2px;
+  box-sizing: border-box;
 }
 
 .pi-settings-modal .n-card-header {

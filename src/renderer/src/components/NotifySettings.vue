@@ -35,8 +35,12 @@ async function onPreview(): Promise<void> {
     :title="t.notifyTitle"
     :bordered="false"
     size="huge"
-    @update:show="(v) => !v && emit('close')"
+    @update:show="(v) =>
+    
+ !v && emit('close')"
   >
+    <div class="modal-scroll">
+
     <div class="section">
       <div class="row">
         <div class="labels">
@@ -66,7 +70,11 @@ async function onPreview(): Promise<void> {
       </div>
     </div>
 
-    <template #footer>
+    
+    
+
+    </div>
+<template #footer>
       <div class="footer">
         <NButton @click="emit('close')">{{ t.close }}</NButton>
       </div>

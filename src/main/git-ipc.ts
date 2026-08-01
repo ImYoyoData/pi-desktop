@@ -69,10 +69,10 @@ export function registerGitIpc(): void {
     return checkoutBranch(root, String(branch ?? ""));
   });
 
-  ipcMain.handle(IpcChannels.git.createBranch, async (_e, branch: string) => {
+  ipcMain.handle(IpcChannels.git.createBranch, async (_e, branch: string, base?: string) => {
     const root = requireRoot();
     if (!root) return noWorkspace();
-    return createBranch(root, String(branch ?? ""));
+    return createBranch(root, String(branch ?? ""), base ? String(base) : undefined);
   });
 
   ipcMain.handle(IpcChannels.git.merge, async (_e, branch: string) => {

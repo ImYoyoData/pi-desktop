@@ -52,8 +52,12 @@ function onLocaleUpdate(v: string | number | null): void {
     :title="t.appearance"
     :bordered="false"
     size="huge"
-    @update:show="(v) => !v && emit('close')"
+    @update:show="(v) =>
+    
+ !v && emit('close')"
   >
+    <div class="modal-scroll">
+
     <div class="section">
       <NText strong>{{ t.theme }}</NText>
       <NText depth="3" style="font-size: 12px; display: block; margin: 4px 0 10px">
@@ -88,7 +92,11 @@ function onLocaleUpdate(v: string | number | null): void {
       </NRadioGroup>
     </div>
 
-    <template #footer>
+    
+    
+
+    </div>
+<template #footer>
       <div class="footer">
         <NButton @click="emit('close')">{{ t.close }}</NButton>
       </div>

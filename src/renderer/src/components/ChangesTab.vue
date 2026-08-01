@@ -95,6 +95,8 @@ const showRemotes = ref(false);
 const showLog = ref(false);
 const showNewBranch = ref(false);
 const newBranchName = ref("");
+/** Branch to base the new branch on (defaults to the current branch). */
+const newBranchBase = ref<string | null>(null);
 const showMerge = ref(false);
 const mergeTarget = ref<string | null>(null);
 const showEditRemote = ref(false);
@@ -225,6 +227,21 @@ const deleteBranchOptions = computed<SelectOption[]>(() =>
     .filter((name) => name !== branch.value)
     .map((name) => ({ label: name, value: name })),
 );
+
+/** Base-branch choices: all local branches + remote branches, current first. */
+const newBranchBaseOptions = computed<SelectOption[]>(() => {
+  const seen = new Set<string>();
+  const opts: SelectOption[] = [];
+  const push = (name: string): void => {
+    if (!name || seen.has(name)) return;
+    seen.add(name);
+    opts.push({ label: name, value: name });
+  };
+  push(branch.value ?? "");
+  for (const name of localBranches.value) push(name);
+  for (const name of remoteBranches.value) push(name);
+  return opts;
+});
 
 const branchMenu = computed<DropdownOption[]>(() => {
   const items: DropdownOption[] = [];
@@ -789,6 +806,7 @@ function onBranchSelect(key: string | number): void {
   const k = String(key);
   if (k === "new") {
     newBranchName.value = "";
+    newBranchBase.value = branch.value ?? null;
     showNewBranch.value = true;
     return;
   }
@@ -927,7 +945,10 @@ async function submitNewBranch(): Promise<boolean> {
     message.warning(t.changesNewBranchPrompt);
     return false;
   }
-  const ok = await runOp(t.changesBranchCreated, () => window.api.git.createBranch(name));
+  const ok = await runOp(
+    t.changesBranchCreated,
+    () => window.api.git.createBranch(name, newBranchBase.value ?? undefined),
+  );
   if (ok) showNewBranch.value = false;
   return ok;
 }
@@ -1599,12 +1620,22 @@ watch(
       :positive-button-props="{ disabled: busy || !newBranchName.trim(), loading: busy }"
       @positive-click="submitNewBranch"
     >
+      <NSelect
+        v-model:value="newBranchBase"
+        size="small"
+        filterable
+        :placeholder="t.changesNewBranchBase"
+        :options="newBranchBaseOptions"
+        :disabled="busy"
+        style="margin-top: 10px"
+      />
       <NInput
         v-model:value="newBranchName"
         size="small"
         :placeholder="t.changesNewBranchPrompt"
         :disabled="busy"
         autofocus
+        style="margin-top: 8px"
         @keydown.enter.prevent="() => void submitNewBranch()"
       />
     </NModal>

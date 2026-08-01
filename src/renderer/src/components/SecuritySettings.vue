@@ -254,8 +254,12 @@ watch(
     :title="t.securityTitle"
     :bordered="false"
     size="medium"
-    @update:show="(v) => !v && emit('close')"
+    @update:show="(v) =>
+    
+ !v && emit('close')"
   >
+    <div class="modal-scroll">
+
     <div class="card">
       <button
         type="button"
@@ -434,7 +438,11 @@ watch(
       </NButton>
     </div>
 
-    <template #footer>
+    
+    
+
+    </div>
+<template #footer>
       <div class="footer">
         <NButton size="small" @click="emit('close')">{{ t.close }}</NButton>
         <NButton size="small" type="primary" :loading="saving" :disabled="loading" @click="onSave">
