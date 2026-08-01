@@ -41,6 +41,7 @@ import {
   type AsrInstallProgress,
   type AsrStatus,
   type AsrStreamEvent,
+  type AsrTranscribePayload,
 } from "../shared/asr";
 import {
   detectAsrGpuInfo,
@@ -1227,7 +1228,22 @@ async function spawnTranscribeOnce(
   throw lastErr instanceof Error ? lastErr : new Error(String(lastErr ?? "ASR failed"));
 }
 
-async function transcribePcm(pcmBase64: string, sampleRate: number): Promise<string> {
+/**
+ * Normalize IPC-delivered PCM (Int16Array / Uint8Array / ArrayBuffer) into a
+ * single Int16Array view without copying when possible.
+ */
+function toInt16Pcm(pcm: unknown): Int16Array {
+  if (pcm instanceof Int16Array) return pcm;
+  if (pcm instanceof Uint8Array) {
+    return new Int16Array(pcm.buffer, pcm.byteOffset, Math.floor(pcm.byteLength / 2));
+  }
+  if (pcm instanceof ArrayBuffer) {
+    return new Int16Array(pcm);
+  }
+  throw new Error("ASR received invalid PCM payload");
+}
+
+async function transcribePcm(pcm: Int16Array, sampleRate: number): Promise<string> {
   const prefs = readPrefs();
   if (!prefs.enabled) throw new Error("ASR is disabled in settings");
   if (installBusy) throw new Error("ASR install in progress");
@@ -1248,9 +1264,11 @@ async function transcribePcm(pcmBase64: string, sampleRate: number): Promise<str
   const outBase = join(asrRoot(), "tmp", `utt-${stamp}-out`);
   const outTxtPath = `${outBase}.txt`;
   try {
-    const raw = Buffer.from(pcmBase64, "base64");
-    const pcm = new Int16Array(raw.buffer, raw.byteOffset, Math.floor(raw.byteLength / 2));
-    writeWavPcm16(wavPath, pcm, sampleRate || 16000);
+    const pcm16 = toInt16Pcm(pcm);
+    if (pcm16.byteLength === 0) {
+      throw new Error("ASR received empty audio");
+    }
+    writeWavPcm16(wavPath, pcm16, sampleRate || 16000);
 
     try {
       return await spawnTranscribeOnce(status.modelPath, wavPath, outBase, outTxtPath);
@@ -1752,8 +1770,8 @@ export function registerAsrIpc(): void {
   });
   ipcMain.handle(
     IpcChannels.asr.transcribe,
-    async (_e, payload: { pcmBase64: string; sampleRate: number }) => {
-      return transcribePcm(payload.pcmBase64, payload.sampleRate);
+    async (_e, payload: AsrTranscribePayload) => {
+      return transcribePcm(payload.pcm, payload.sampleRate);
     },
   );
   ipcMain.handle(IpcChannels.asr.streamStart, async () => startAsrStream());

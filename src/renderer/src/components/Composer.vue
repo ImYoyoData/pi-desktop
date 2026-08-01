@@ -1845,16 +1845,16 @@ async function confirmVoice(): Promise<void> {
   voicePending.value = true;
 
   try {
-    const { pcmBase64, sampleRate } = await session.stop();
+    const { pcm, sampleRate } = await session.stop();
     if (gen !== voiceGen) return;
-    if (!pcmBase64) {
+    if (!pcm || pcm.length === 0) {
       messageApi.warning(t.voiceEmpty);
       return;
     }
     const ready = await ensureAsrReady();
     if (gen !== voiceGen) return;
     if (!ready) return;
-    const raw = await asr.transcribe(pcmBase64, sampleRate);
+    const raw = await asr.transcribe(pcm, sampleRate);
     if (gen !== voiceGen) return;
     const text = scrubAsrHallucination(raw);
     if (!text) {
