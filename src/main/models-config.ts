@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
-import { getAgentDir } from "@earendil-works/pi-coding-agent";
+import { agentDir } from "./agent-dir";
 import type { ApiKeyCredential } from "@earendil-works/pi-ai";
 import { COMMON_API_KEY_PROVIDERS } from "../shared/models-settings";
 
@@ -21,7 +21,7 @@ export type ModelsConfigPaths = {
 };
 
 export function resolveModelsConfigPaths(agentDir?: string): ModelsConfigPaths {
-  const base = path.resolve(agentDir ?? getAgentDir());
+  const base = path.resolve(agentDir ?? agentDir());
   return {
     modelsPath: path.join(base, "models.json"),
     authPath: path.join(base, "auth.json"),

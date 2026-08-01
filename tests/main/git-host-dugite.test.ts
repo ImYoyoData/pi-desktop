@@ -9,8 +9,11 @@ import {
   getWorkspaceGitStatus,
   initRepo,
   listBranches,
+  listLog,
+  resetToCommit,
   resolveConflictPath,
   restorePaths,
+  showCommitFiles,
 } from "../../src/main/git-host";
 
 const temps: string[] = [];
@@ -183,5 +186,58 @@ describe("git-host dugite smoke", () => {
     expect(status.isGitRepository).toBe(true);
     expect(status.files.every((f) => f.code !== "C")).toBe(true);
     expect(await mergeHeadExists(dir)).toBe(false);
+  }, 60_000);
+
+  it("showCommitFiles lists files changed by a commit", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-git-files-"));
+    temps.push(dir);
+    expect((await initRepo(dir)).ok).toBe(true);
+    fs.writeFileSync(path.join(dir, "a.txt"), "v1\n");
+    await runGit(dir, ["add", "a.txt"]);
+    await runGit(dir, ["commit", "-m", "first"]);
+    fs.writeFileSync(path.join(dir, "a.txt"), "v2\n");
+    fs.writeFileSync(path.join(dir, "b.txt"), "new\n");
+    await runGit(dir, ["add", "-A"]);
+    await runGit(dir, ["commit", "-m", "second"]);
+    const log = await listLog(dir, 5);
+    const second = log.entries[0];
+    if (!second) throw new Error("no commits");
+    const files = await showCommitFiles(dir, second.hash);
+    const paths = files.files.map((f) => f.path);
+    expect(paths).toContain("a.txt");
+    expect(paths).toContain("b.txt");
+    const a = files.files.find((f) => f.path === "a.txt");
+    expect(a?.status).toBe("M");
+    const b = files.files.find((f) => f.path === "b.txt");
+    expect(b?.status).toBe("A");
+  }, 60_000);
+
+  it("resetToCommit moves HEAD back with soft keeping changes and hard discarding them", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-git-reset-"));
+    temps.push(dir);
+    expect((await initRepo(dir)).ok).toBe(true);
+    fs.writeFileSync(path.join(dir, "a.txt"), "v1\n");
+    await runGit(dir, ["add", "a.txt"]);
+    await runGit(dir, ["commit", "-m", "first"]);
+    const log1 = await listLog(dir, 5);
+    const first = log1.entries[log1.entries.length - 1];
+    if (!first) throw new Error("no commits");
+    fs.writeFileSync(path.join(dir, "a.txt"), "v2\n");
+    await runGit(dir, ["add", "a.txt"]);
+    await runGit(dir, ["commit", "-m", "second"]);
+
+    const soft = await resetToCommit(dir, first.hash, "soft");
+    expect(soft.ok).toBe(true);
+    expect(fs.readFileSync(path.join(dir, "a.txt"), "utf8")).toBe("v2\n"); // working tree kept
+    const statusSoft = await getWorkspaceGitStatus(dir);
+    expect(statusSoft.files.some((f) => f.relativePath === "a.txt")).toBe(true); // staged
+
+    // Re-commit to give hard reset something to discard
+    await runGit(dir, ["commit", "-m", "second again"]);
+    const hard = await resetToCommit(dir, first.hash, "hard");
+    expect(hard.ok).toBe(true);
+    expect(fs.readFileSync(path.join(dir, "a.txt"), "utf8").replace(/\r\n/g, "\n")).toBe("v1\n");
+    const statusHard = await getWorkspaceGitStatus(dir);
+    expect(statusHard.files.length).toBe(0);
   }, 60_000);
 });

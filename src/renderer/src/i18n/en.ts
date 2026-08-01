@@ -36,6 +36,9 @@ export const en = {
   copyImage: "Copy image",
   copyImageDone: "Image copied",
   saveImage: "Save as…",
+  processSummary: (tools: number, thinking: number) =>
+    `Process · ${tools} tool call${tools === 1 ? "" : "s"} · ${thinking} thought${thinking === 1 ? "" : "s"}`,
+  processExpand: "Show process",
   send: "Send",
   stop: "Stop",
   steer: "Steer",
@@ -311,6 +314,13 @@ export const en = {
   changesRemoteUpdated: "Remote URL updated",
   changesRemoteRemoved: "Remote removed",
   changesLogEmpty: "No commits yet",
+  changesCommitFiles: "Files changed",
+  changesResetSoft: "Reset (soft)",
+  changesResetHard: "Reset (hard)",
+  changesResetConfirm: (hash: string, mode: string) =>
+    `Reset current branch to ${hash} (${mode})? Soft keeps your changes staged; hard discards working-tree changes.`,
+  changesRestoreFileConfirm: (path: string, hash: string) =>
+    `Restore ${path} to the version from commit ${hash}? Working-tree changes to this file will be overwritten.`,
   changesConflictBanner: "Merge conflicts detected. Resolve conflicted files, then commit.",
   changesConflictAcceptOurs: "Accept ours",
   changesConflictAcceptTheirs: "Accept theirs",

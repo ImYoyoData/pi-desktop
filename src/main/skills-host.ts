@@ -1,11 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
-import {
-  DefaultResourceLoader,
-  getAgentDir,
-  parseFrontmatter,
-  SettingsManager,
-} from "@earendil-works/pi-coding-agent";
+import { agentDir } from "./agent-dir";
 import { isPathInsideRoot } from "../shared/path-sandbox";
 import { resolveTrustState } from "./project-trust";
 
@@ -20,6 +15,11 @@ export type SkillDto = {
 };
 
 export async function listSkills(cwd: string): Promise<{ skills: SkillDto[]; diagnostics: string[] }> {
+  const {
+    DefaultResourceLoader,
+    getAgentDir,
+    SettingsManager,
+  } = await import("@earendil-works/pi-coding-agent");
   const agentDir = getAgentDir();
   const settingsManager = SettingsManager.create(cwd, agentDir, {
     projectTrusted: resolveTrustState(cwd, agentDir).projectTrusted,
@@ -41,12 +41,13 @@ export async function listSkills(cwd: string): Promise<{ skills: SkillDto[]; dia
   };
 }
 
-export function setSkillDisabled(filePath: string, disableModelInvocation: boolean): void {
+export async function setSkillDisabled(filePath: string, disableModelInvocation: boolean): Promise<void> {
   if (!fs.existsSync(filePath)) {
     throw new Error("skill file not found");
   }
   const content = fs.readFileSync(filePath, "utf8");
   const key = "disable-model-invocation";
+  const { parseFrontmatter } = await import("@earendil-works/pi-coding-agent");
   const { frontmatter } = parseFrontmatter<Record<string, unknown>>(content);
   const alreadySet = Boolean(frontmatter[key]);
 
@@ -63,9 +64,10 @@ export function setSkillDisabled(filePath: string, disableModelInvocation: boole
 }
 
 /** Remove a skill directory (SKILL.md parent). Allowed under agent/project skills roots. */
-export function uninstallSkill(filePath: string, cwd?: string): void {
+export async function uninstallSkill(filePath: string, cwd?: string): Promise<void> {
   if (!fs.existsSync(filePath)) throw new Error("Skill not found");
   const skillDir = path.resolve(path.dirname(filePath));
+  const { getAgentDir } = await import("@earendil-works/pi-coding-agent");
   const agentSkills = path.resolve(getAgentDir(), "skills");
   const projectSkills = cwd ? path.resolve(cwd, ".pi", "skills") : null;
   const allowed =

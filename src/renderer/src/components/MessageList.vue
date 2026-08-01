@@ -183,10 +183,87 @@ const settlingUi = ref(false);
 const showJumpLatest = ref(false);
 let scrollRaf = 0;
 
+const workFolded = ref(true);
+
+/**
+ * When the final answer is shown, the whole latest turn's process (all tool
+ * calls + thinking-only rows) folds into one compact summary instead of a
+ * stack of individually folded cards.
+ */
+const latestTurnStart = computed(() => {
+  const list = props.messages;
+  for (let i = list.length - 1; i >= 0; i--) {
+    if (list[i]?.role === "user") return i;
+  }
+  return -1;
+});
+
+const processSummaryCounts = computed(() => {
+  let tools = 0;
+  let thinking = 0;
+  const start = latestTurnStart.value;
+  const list = props.messages;
+  for (let i = start + 1; i < list.length; i++) {
+    const m = list[i]!;
+    if (m.role === "tool") tools += 1;
+    else if (m.role === "assistant" && Boolean(m.thinking) && !m.text) thinking += 1;
+  }
+  return { tools, thinking };
+});
+
+/** True for the synthetic row shown in place of the latest turn's process. */
+function processSummaryLabel(msg: ChatMessage): string {
+  const args = (msg.role === "tool" ? msg.args : undefined) as
+    | { toolCount?: number; thinkingCount?: number }
+    | undefined;
+  return t.processSummary(args?.toolCount ?? 0, args?.thinkingCount ?? 0);
+}
+
+function isProcessSummary(msg: ChatMessage | null | undefined): boolean {
+  return Boolean(msg && msg.role === "tool" && msg.toolName === "process-summary");
+}
+
+watch([() => props.running, () => props.streaming], ([running, streaming]) => {
+  // Auto-fold only when the turn is done and there is work to fold.
+  if (running || streaming) {
+    workFolded.value = false;
+  } else {
+    const counts = processSummaryCounts.value;
+    workFolded.value = counts.tools + counts.thinking > 0;
+  }
+}, { immediate: true });
+
 const displayMessages = computed(() => {
   const list = [...props.messages];
   if (props.streaming) list.push(props.streaming);
-  return list;
+  if (!workFolded.value) return list;
+  const counts = processSummaryCounts.value;
+  if (counts.tools + counts.thinking === 0) return list;
+  const start = latestTurnStart.value;
+  const out: ChatMessage[] = [];
+  let inserted = false;
+  for (let i = 0; i < list.length; i++) {
+    const msg = list[i]!;
+    const isLatestTurnWork =
+      i > start &&
+      (msg.role === "tool" ||
+        (msg.role === "assistant" && Boolean(msg.thinking) && !msg.text));
+    if (isLatestTurnWork) {
+      if (!inserted) {
+        out.push({
+          id: "__process-summary__",
+          role: "tool",
+          toolCallId: "__process-summary__",
+          toolName: "process-summary",
+          args: { toolCount: counts.tools, thinkingCount: counts.thinking },
+        } as ChatMessage);
+        inserted = true;
+      }
+      continue;
+    }
+    out.push(msg);
+  }
+  return out;
 });
 
 type ToolMessage = Extract<ChatMessage, { role: "tool" }>;
@@ -1305,7 +1382,19 @@ function onRevertUser(msg: Extract<ChatMessage, { role: "user" }>): void {
         </template>
 
         <template v-else-if="msg.role === 'tool'">
-          <div v-if="toolGroupMembership.get(msg.id)?.isLead" class="tool">
+          <div v-if="isProcessSummary(msg)" class="tool process-summary-row">
+            <button
+              type="button"
+              class="process-summary pi-interactive"
+              :title="t.processExpand"
+              @click="workFolded = false"
+            >
+              <span class="ps-dot" aria-hidden="true" />
+              <span class="ps-label">{{ processSummaryLabel(msg) }}</span>
+              <NIcon :component="ChevronDownOutline" :size="14" class="ps-chevron" />
+            </button>
+          </div>
+          <div v-else-if="toolGroupMembership.get(msg.id)?.isLead" class="tool">
             <ToolCallGroup
               :tools="toolGroupMembership.get(msg.id)!.tools"
               :auto-collapse="turnDone || !toolGroupStreaming(msg)"
@@ -2120,5 +2209,56 @@ function onRevertUser(msg: Extract<ChatMessage, { role: "user" }>): void {
   .image-preview-overlay {
     animation: none;
   }
+}
+
+/* One-big-group process summary after the final answer */
+.process-summary-row {
+  padding: 0 4px 2px;
+}
+
+.process-summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 10px;
+  border: 1px dashed var(--border-strong, var(--border));
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--bg-panel) 70%, transparent);
+  color: var(--fg-muted);
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+  transition:
+    background var(--duration-fast, 140ms) var(--ease-out, ease),
+    border-color var(--duration-fast, 140ms) var(--ease-out, ease);
+}
+
+.process-summary:hover {
+  border-color: var(--accent-border);
+  background: var(--accent-soft);
+  color: var(--fg);
+}
+
+.ps-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--accent);
+  flex-shrink: 0;
+}
+
+.ps-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ps-chevron {
+  flex-shrink: 0;
+  color: var(--fg-faint, var(--fg-muted));
+  transition: transform var(--duration-fast, 140ms) var(--ease-out, ease);
 }
 </style>

@@ -94,7 +94,7 @@ export function registerSessionsIpc(broker: SessionBroker): void {
         throw new Error("session not found");
       }
       const trimmed = name.trim();
-      renameSessionFile(target.filePath, trimmed);
+      await renameSessionFile(target.filePath, trimmed);
       // Keep live worker summary in sync so list merge / UI don't stay on "新会话" (#3).
       const patched = broker.patchSummary(sessionId, {
         name: trimmed,
