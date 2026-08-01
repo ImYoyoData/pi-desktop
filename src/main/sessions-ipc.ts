@@ -1,4 +1,7 @@
 import { BrowserWindow, ipcMain } from "electron";
+import { existsSync, readFileSync, statSync } from "node:fs";
+import { basename, dirname, join } from "node:path";
+import type { SessionExtensionInfo } from "../shared/protocol";
 import type { AgentCommand } from "../shared/protocol";
 import type { SessionImageCacheSource } from "../shared/protocol";
 import type { ChatMessageTag } from "../shared/chat-meta";
@@ -10,6 +13,49 @@ import {
   getSessionResources,
 } from "./agent-worker-host";
 import { renameSessionFile } from "./session-rename";
+
+/**
+ * Enrich an extension entry path with a readable name + brief description.
+ * Walks up from the entry file/dir to find the nearest package.json.
+ */
+function describeExtension(entryPath: string): SessionExtensionInfo {
+  let dir = entryPath;
+  try {
+    if (existsSync(dir) && !statSync(dir).isDirectory()) dir = dirname(dir);
+  } catch {
+    // keep dir as-is
+  }
+  for (let i = 0; i < 6; i++) {
+    try {
+      const pkgPath = join(dir, "package.json");
+      if (existsSync(pkgPath)) {
+        const raw = JSON.parse(readFileSync(pkgPath, "utf8")) as {
+          name?: unknown;
+          description?: unknown;
+        };
+        if (typeof raw.name === "string" && raw.name) {
+          return {
+            path: entryPath,
+            name: raw.name,
+            brief: typeof raw.description === "string" ? raw.description : "",
+          };
+        }
+      }
+    } catch {
+      // keep walking
+    }
+    const next = dirname(dir);
+    if (next === dir) break;
+    dir = next;
+  }
+  const norm = entryPath.replace(/\\/g, "/");
+  const stem = norm.split("/").pop() ?? basename(entryPath);
+  return {
+    path: entryPath,
+    name: stem.replace(/\.(ts|js|mjs|cjs)$/i, "") || basename(entryPath),
+    brief: "",
+  };
+}
 
 function broadcastEvent(event: unknown): void {
   for (const win of BrowserWindow.getAllWindows()) {
@@ -54,7 +100,8 @@ export function registerSessionsIpc(broker: SessionBroker): void {
 
   ipcMain.handle(IpcChannels.sessions.getInfo, (_event, sessionId: string) => {
     const resources = typeof sessionId === "string" ? getSessionResources(sessionId) : null;
-    return { resources };
+    const extensions = (resources?.extensionPaths ?? []).map(describeExtension);
+    return { resources, extensions };
   });
 
   ipcMain.handle(IpcChannels.sessions.status, async (_event, sessionId: string, cwd: string) => {
