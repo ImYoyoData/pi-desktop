@@ -1,6 +1,6 @@
 import { contextBridge, ipcRenderer, webUtils } from "electron";
 import { electronAPI } from "@electron-toolkit/preload";
-import type { AgentCommand, AgentEvent, ElementCitation, SessionHistoryMessage, SessionHistoryPage, SessionHistoryQuery, SessionStatus, SessionSummary } from "../shared/protocol";
+import type { AgentCommand, AgentEvent, ElementCitation, SessionHistoryMessage, SessionHistoryPage, SessionHistoryQuery, SessionInfoResult, SessionStatus, SessionSummary } from "../shared/protocol";
 import { IpcChannels } from "../shared/protocol";
 import type { AgentRunEvent, AgentRunSnapshot } from "../shared/agent-runs";
 import type { ModelsGetResult, ModelsSetPayload } from "../shared/models-settings";
@@ -143,6 +143,15 @@ const api = {
       ipcRenderer.invoke(IpcChannels.sessions.clearContext, sessionId, cwd) as Promise<void>,
     status: (sessionId: string, cwd: string) =>
       ipcRenderer.invoke(IpcChannels.sessions.status, sessionId, cwd) as Promise<SessionStatus | null>,
+    getInfo: (sessionId: string) =>
+      ipcRenderer.invoke(IpcChannels.sessions.getInfo, sessionId) as Promise<SessionInfoResult>,
+    onWorkerReady: (callback: (sessionId: string) => void): (() => void) => {
+      const listener = (_e: Electron.IpcRendererEvent, sessionId: string) => callback(sessionId);
+      ipcRenderer.on(IpcChannels.sessions.workerReady, listener);
+      return () => {
+        ipcRenderer.removeListener(IpcChannels.sessions.workerReady, listener);
+      };
+    },
     onEvent: (callback: (event: AgentEvent) => void) => {
       const listener = (_event: Electron.IpcRendererEvent, payload: AgentEvent) => callback(payload);
       ipcRenderer.on(IpcChannels.sessions.event, listener);

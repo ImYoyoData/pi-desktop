@@ -790,6 +790,13 @@ export const en = {
   // Sessions / welcome / chat
   newSession: "New session",
   openWorkspace: "Open workspace",
+  sessionInfoTitle: "Session info",
+  sessionInfoHint: "Tools, extensions, skills and files read by this session (extension/skill counts are a snapshot taken when the worker loaded).",
+  sessionInfoTools: "Tools",
+  sessionInfoExtensions: "Extensions",
+  sessionInfoSkills: "Skills",
+  sessionInfoFilesRead: "Files read",
+  sessionInfoEmpty: "None",
   bootLoading: "Loading…",
   newSessionAction: "New session",
   renamed: "Renamed",
