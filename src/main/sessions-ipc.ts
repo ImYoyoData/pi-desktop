@@ -1,6 +1,6 @@
 import { BrowserWindow, ipcMain } from "electron";
-import { existsSync, readFileSync, statSync } from "node:fs";
-import { basename, dirname, join } from "node:path";
+import { existsSync, readFileSync } from "node:fs";
+import { basename, join } from "node:path";
 import type { SessionExtensionInfo } from "../shared/protocol";
 import type { AgentCommand } from "../shared/protocol";
 import type { SessionImageCacheSource } from "../shared/protocol";
@@ -16,39 +16,38 @@ import { renameSessionFile } from "./session-rename";
 
 /**
  * Enrich an extension entry path with a readable name + brief description.
- * Walks up from the entry file/dir to find the nearest package.json.
+ * For node_modules packages the package name is taken from the path and
+ * package.json is read at exactly that package root (never walks up into
+ * an unrelated package). Local ~/.pi/agent/extensions/*.ts files use the
+ * file stem as the name.
  */
 function describeExtension(entryPath: string): SessionExtensionInfo {
-  let dir = entryPath;
-  try {
-    if (existsSync(dir) && !statSync(dir).isDirectory()) dir = dirname(dir);
-  } catch {
-    // keep dir as-is
-  }
-  for (let i = 0; i < 6; i++) {
-    try {
-      const pkgPath = join(dir, "package.json");
-      if (existsSync(pkgPath)) {
-        const raw = JSON.parse(readFileSync(pkgPath, "utf8")) as {
+  const norm = entryPath.replace(/\\/g, "/");
+  const nmMarker = "/node_modules/";
+  const nmIdx = norm.indexOf(nmMarker);
+  if (nmIdx >= 0) {
+    const rest = norm.slice(nmIdx + nmMarker.length);
+    const parts = rest.split("/");
+    const scoped = parts[0]?.startsWith("@")
+      ? `${parts[0] ?? ""}/${parts[1] ?? ""}`
+      : (parts[0] ?? "");
+    if (scoped) {
+      const pkgRoot = entryPath.slice(0, nmIdx + nmMarker.length + scoped.length);
+      try {
+        const raw = JSON.parse(readFileSync(join(pkgRoot, "package.json"), "utf8")) as {
           name?: unknown;
           description?: unknown;
         };
-        if (typeof raw.name === "string" && raw.name) {
-          return {
-            path: entryPath,
-            name: raw.name,
-            brief: typeof raw.description === "string" ? raw.description : "",
-          };
-        }
+        return {
+          path: entryPath,
+          name: typeof raw.name === "string" && raw.name ? raw.name : scoped,
+          brief: typeof raw.description === "string" ? raw.description : "",
+        };
+      } catch {
+        return { path: entryPath, name: scoped, brief: "" };
       }
-    } catch {
-      // keep walking
     }
-    const next = dirname(dir);
-    if (next === dir) break;
-    dir = next;
   }
-  const norm = entryPath.replace(/\\/g, "/");
   const stem = norm.split("/").pop() ?? basename(entryPath);
   return {
     path: entryPath,

@@ -310,28 +310,29 @@ button {
 }
 
 /*
- * All settings modals: stay smaller than the window so the header close
- * button is always reachable (a taller-than-window modal pushes its X
- * under the titlebar where clicks are swallowed), and scroll internally.
+ * ALL naive-ui card modals: stay smaller than the window so the header
+ * close button is always reachable (a taller-than-window modal pushes its
+ * X under the titlebar where clicks are swallowed), and scroll internally.
  */
-.pi-settings-modal.n-modal,
-.pi-settings-modal .n-card {
+.n-modal-container .n-card {
   max-height: min(80vh, 720px) !important;
-}
-
-.pi-settings-modal .n-card {
   margin-top: 44px;
   display: flex;
   flex-direction: column;
 }
 
-.pi-settings-modal .n-card__content {
+.n-modal-container .n-card-header,
+.n-modal-container .n-card__footer {
+  flex-shrink: 0;
+}
+
+.n-modal-container .n-card__content {
   flex: 1 1 auto;
   min-height: 0;
   overflow-y: auto;
 }
 
-.pi-settings-modal .n-card__close {
+.n-modal-container .n-card__close {
   -webkit-app-region: no-drag;
   z-index: 3;
 }
