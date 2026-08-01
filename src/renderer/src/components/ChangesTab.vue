@@ -1033,6 +1033,7 @@ watch(
         quaternary
         circle
         :disabled="!isGit || busy"
+        :loading="busy"
         :title="t.changesFetch"
         @click="onFetch"
       >
@@ -1046,6 +1047,7 @@ watch(
         quaternary
         circle
         :disabled="!isGit || busy"
+        :loading="busy"
         :title="t.changesPull"
         @click="onPull"
       >
@@ -1059,6 +1061,7 @@ watch(
         quaternary
         circle
         :disabled="!isGit || busy"
+        :loading="busy"
         :title="t.changesPush"
         @click="onPush"
       >
