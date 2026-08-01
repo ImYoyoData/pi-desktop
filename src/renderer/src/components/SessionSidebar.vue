@@ -715,15 +715,28 @@ function onLeftSplitResized(payload: SplitpanesResizedPayload): void {
       <NButton
         secondary
         strong
-        class="pi-interactive"
-        style="flex: 1"
+        size="small"
+        class="pi-interactive top-btn"
+        :disabled="workspace.trustDialogOpen"
+        @click="onAddWorkspace"
+      >
+        <template #icon>
+          <NIcon :component="FolderOpenOutline" :size="14" />
+        </template>
+        <span class="btn-label">{{ t.openWorkspace }}</span>
+      </NButton>
+      <NButton
+        secondary
+        strong
+        size="small"
+        class="pi-interactive top-btn"
         :disabled="workspace.trustDialogOpen"
         @click="onNewAgent"
       >
         <template #icon>
-          <NIcon :component="AddOutline" />
+          <NIcon :component="AddOutline" :size="14" />
         </template>
-        {{ t.newSessionAction }}
+        <span class="btn-label">{{ t.newSessionAction }}</span>
       </NButton>
       <NTooltip>
         <template #trigger>
@@ -734,7 +747,7 @@ function onLeftSplitResized(payload: SplitpanesResizedPayload): void {
             @click="layout.toggleLeftCollapsed()"
           >
             <template #icon>
-              <PanelLeftIcon :size="16" />
+              <PanelLeftIcon :size="15" />
             </template>
           </NButton>
         </template>
@@ -930,6 +943,20 @@ function onLeftSplitResized(payload: SplitpanesResizedPayload): void {
   position: relative;
   z-index: 6;
   background: var(--bg-sidebar);
+}
+
+.top-btn {
+  flex: 1;
+  min-width: 0;
+  padding: 0 6px;
+  height: 26px;
+  font-size: 12px;
+}
+
+.top-btn .btn-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .collapse-left-btn:active {

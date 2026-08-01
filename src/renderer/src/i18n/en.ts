@@ -701,6 +701,7 @@ export const en = {
   extensionUninstall: "Uninstall extension",
   extensionUninstalled: "Extension uninstalled",
   extensionsEmpty: "No extensions configured",
+  extensionsCapabilitiesNote: "Installed extensions load into the Pi Agent automatically ? their commands/actions become available in-chat as slash commands or tool calls, and extension UI (select/confirm/input/editor/status strip) follows the app theme.",
   extensionsHint:
     "Manage package extensions under ~/.pi/agent and the project. Install new ones with `pi install`, then enable / disable / uninstall here.",
   extensionSelect: "Select an extension",
@@ -788,6 +789,8 @@ export const en = {
 
   // Sessions / welcome / chat
   newSession: "New session",
+  openWorkspace: "Open workspace",
+  bootLoading: "Loading…",
   newSessionAction: "New session",
   renamed: "Renamed",
   refreshSessions: "Refresh sessions",

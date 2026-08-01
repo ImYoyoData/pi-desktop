@@ -189,6 +189,9 @@ function onRemove(pkg: PluginRow): void {
               <NText depth="3" style="display: block; margin-top: 12px; font-size: 12px">
                 {{ t.extensionsHint }}
               </NText>
+              <NText depth="3" style="display: block; margin-top: 8px; font-size: 11.5px; line-height: 1.5">
+                {{ t.extensionsCapabilitiesNote }}
+              </NText>
               <div class="danger">
                 <NButton
                   size="small"

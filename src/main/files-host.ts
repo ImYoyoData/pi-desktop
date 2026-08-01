@@ -142,6 +142,47 @@ export type WorkspaceSearchOptions = {
   limit?: number;
 };
 
+/** Absolute / drive-letter path queries (e.g. pasted C:\... or /home/...). */
+function isAbsoluteLikeQuery(q: string): boolean {
+  return /^[a-zA-Z]:[\/]/.test(q) || q.startsWith("/");
+}
+
+/**
+ * Search an absolute path (outside/inside the workspace). Resolves the
+ * deepest existing directory of the query, lists its children and fuzzy
+ * matches the trailing part. Entries carry absolute `path` values so they
+ * can be attached directly.
+ */
+function searchAbsolutePath(query: string, limit: number): WorkspaceDirEntry[] {
+  const q = query.replace(/\\/g, "/");
+  let probe = q;
+  let dir = "";
+  while (probe.length > 0) {
+    try {
+      const st = fs.statSync(probe);
+      if (st.isDirectory()) {
+        dir = probe;
+      } else {
+        dir = path.dirname(probe);
+      }
+      break;
+    } catch {
+      const next = path.dirname(probe);
+      if (next === probe) return [];
+      probe = next;
+    }
+  }
+  if (!dir || !fs.existsSync(dir)) return [];
+  const entries = listWorkspaceDir(dir, "").map((e) => ({
+    name: e.name,
+    path: `${dir.replace(/\\/g, "/")}/${e.name}`,
+    kind: e.kind,
+  }));
+  const trailing = q.slice(dir.length).replace(/^[/\\]+/, "");
+  const ranked = trailing ? rankFuzzyPathEntries(trailing, entries) : entries;
+  return ranked.slice(0, limit);
+}
+
 /**
  * Walk the workspace and return entries matching `query` with fuzzy
  * ranking (basename / camelCase / multi-token). Empty query lists the root.
@@ -154,6 +195,7 @@ export function searchWorkspaceFiles(
   const q = query.trim().replace(/\\/g, "/");
   if (!q) return listWorkspaceDir(root, "");
   const limit = Math.max(1, Math.min(options.limit ?? 80, 200));
+  if (isAbsoluteLikeQuery(q)) return searchAbsolutePath(q, limit);
   const rootAbs = path.resolve(root);
   const candidates: WorkspaceDirEntry[] = [];
   const maxCandidates = Math.max(limit * 8, 400);

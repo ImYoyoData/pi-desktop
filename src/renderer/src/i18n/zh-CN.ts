@@ -694,6 +694,7 @@ export const zh = {
   extensionUninstall: "卸载扩展包",
   extensionUninstalled: "已卸载扩展包",
   extensionsEmpty: "未配置扩展包",
+  extensionsCapabilitiesNote: "安装后扩展自动加载到 Pi Agent——扩展提供的命令/操作会在会话内以斜杠命令或工具调用形式可用;扩展 UI(选择/确认/输入/编辑器/状态条)自动适配当前明暗主题。",
   extensionsHint:
     "管理 ~/.pi/agent 与项目下的 package 扩展。安装新包可用 CLI `pi install`，然后在此启用/禁用/卸载。",
   extensionSelect: "选择一个扩展包",
@@ -780,6 +781,8 @@ export const zh = {
 
   // Sessions / welcome / chat
   newSession: "新会话",
+  openWorkspace: "打开工作区",
+  bootLoading: "正在加载…",
   newSessionAction: "新建会话",
   renamed: "已重命名",
   refreshSessions: "刷新会话",
