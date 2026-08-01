@@ -3,8 +3,7 @@ import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import {
   NModal,
   NSpace,
-  NRadioGroup,
-  NRadioButton,  NText,
+  NText,
   NButton,
   NDivider,
   NSwitch,
@@ -305,16 +304,12 @@ const cloudDraft = ref<{
   baseUrl: string;
   apiKey: string;
   model: string;
-  apiStyle: "openai-multipart" | "openai-json" | "chat" | "custom";
-  endpoint: string;
   language: string;
 }>({
   providerName: "",
   baseUrl: "",
   apiKey: "",
   model: "",
-  apiStyle: "openai-multipart",
-  endpoint: "",
   language: "",
 });
 const cloudSaving = ref(false);
@@ -356,8 +351,6 @@ async function saveCloudConfig(): Promise<void> {
       baseUrl: cloudDraft.value.baseUrl.trim(),
       apiKey: cloudDraft.value.apiKey.trim(),
       model: cloudDraft.value.model.trim(),
-      apiStyle: cloudDraft.value.apiStyle,
-      endpoint: cloudDraft.value.endpoint.trim(),
       language: cloudDraft.value.language.trim(),
     });
     message.success(t.asrCloudSaved);
@@ -672,32 +665,11 @@ onUnmounted(() => {
         <NTabPane name="cloud" :tab="t.asrBackendCloud">
           <div class="cloud-config">
             <NText depth="3" style="font-size: 12px; display: block; margin-bottom: 4px">
-              {{ t.asrCloudApiStyle }}
-            </NText>
-            <NRadioGroup
-              v-model:value="cloudDraft.apiStyle"
-              size="small"
-            >
-              <NRadioButton value="openai-multipart">{{ t.asrCloudStyleMultipart }}</NRadioButton>
-              <NRadioButton value="openai-json">{{ t.asrCloudStyleJson }}</NRadioButton>
-              <NRadioButton value="chat">{{ t.asrCloudStyleChat }}</NRadioButton>
-              <NRadioButton value="custom">{{ t.asrCloudStyleCustom }}</NRadioButton>
-            </NRadioGroup>
-            <NText depth="3" style="font-size: 11.5px; margin-top: 6px; display: block">
-              {{ t.asrCloudApiStyleHint }}
+              {{ t.asrCloudLanguage }}
             </NText>
             <NInput
-              v-if="cloudDraft.apiStyle === 'custom'"
-              v-model:value="cloudDraft.endpoint"
-              size="small"
-              style="margin-top: 8px"
-              placeholder="https://api.example.com/audio/transcriptions"
-            />
-            <NInput
-              v-if="cloudDraft.apiStyle === 'chat'"
               v-model:value="cloudDraft.language"
               size="small"
-              style="margin-top: 8px"
               :placeholder="t.asrCloudLanguagePh"
             />
             <NInput v-model:value="cloudDraft.providerName" size="small" :placeholder="t.asrCloudProviderName" style="margin-top:10px" />

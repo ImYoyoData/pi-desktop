@@ -462,7 +462,7 @@ export const zh = {
   asrCloudModelPh: "例如 whisper-large-v3",
   asrCloudSaveAndUse: "保存并使用",
   asrCloudConfigSettings: "配置…",
-  asrCloudCompatibleNote: "OpenAI 兼容：POST {baseUrl}/audio/transcriptions；聊天补全：POST {baseUrl}/chat/completions（如小米 MiMo ASR）。",
+  asrCloudCompatibleNote: "录音完成后自动上传识别：小米 MiMo 走聊天补全接口，其它服务商走 OpenAI 兼容接口，无需选择接口格式。",
   asrCloudApiStyle: "接口格式",
   asrCloudStyleMultipart: "文件上传（multipart）",
   asrCloudStyleJson: "JSON（base64）",

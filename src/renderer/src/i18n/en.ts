@@ -466,7 +466,7 @@ export const en = {
   asrCloudModelPh: "e.g. whisper-large-v3",
   asrCloudSaveAndUse: "Save & use",
   asrCloudConfigSettings: "Configure…",
-  asrCloudCompatibleNote: "OpenAI-compatible: POST {baseUrl}/audio/transcriptions; Chat: POST {baseUrl}/chat/completions (e.g. Xiaomi MiMo ASR).",
+  asrCloudCompatibleNote: "Recorded audio is uploaded automatically: Xiaomi MiMo uses the chat-completions endpoint; other providers use the OpenAI-compatible endpoint. No format selection needed.",
   asrCloudApiStyle: "API format",
   asrCloudStyleMultipart: "File upload (multipart)",
   asrCloudStyleJson: "JSON (base64)",
