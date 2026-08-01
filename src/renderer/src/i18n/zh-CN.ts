@@ -782,6 +782,13 @@ export const zh = {
   // Sessions / welcome / chat
   newSession: "新会话",
   openWorkspace: "打开工作区",
+  sessionInfoTitle: "会话信息",
+  sessionInfoHint: "查看此会话加载的工具、扩展、Skills 与读取的文件。（扩展/Skills 为进程加载后的快照）",
+  sessionInfoTools: "工具",
+  sessionInfoExtensions: "扩展",
+  sessionInfoSkills: "Skills",
+  sessionInfoFilesRead: "读取的文件",
+  sessionInfoEmpty: "暂无",
   bootLoading: "正在加载…",
   newSessionAction: "新建会话",
   renamed: "已重命名",
