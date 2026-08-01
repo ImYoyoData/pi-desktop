@@ -236,6 +236,60 @@ function scrollToEnd(): void {
   }
 }
 
+/**
+ * Insert plain text at the current caret; falls back to the end of the
+ * editor when there is no caret inside the surface (e.g. dictation finished
+ * while the editor lost focus). A zero-width spacer keeps the caret parked
+ * right after the inserted text.
+ */
+function insertTextAtCaret(text: string): void {
+  const root = surface.value;
+  const next = text.replace(/\u200B/g, "").trim();
+  if (!root || !next) return;
+
+  root.focus();
+  const sel = window.getSelection();
+  const caretInside =
+    sel &&
+    sel.rangeCount > 0 &&
+    sel.isCollapsed &&
+    root.contains(sel.getRangeAt(0).commonAncestorContainer);
+
+  if (!caretInside) {
+    appendTextAtEnd(next);
+    return;
+  }
+
+  const range = sel!.getRangeAt(0);
+  const before = (range.startContainer.textContent ?? "").slice(0, range.startOffset);
+  const needSpace =
+    Boolean(before.replace(/\s+$/u, "")) &&
+    !/[\s\u3000]$/u.test(before) &&
+    !/^[,.!?;:\uFF0C\u3002\uFF01\uFF1F\u3001\uFF1B\uFF1A]/.test(next);
+
+  applyingStore = true;
+  range.deleteContents();
+  if (needSpace) {
+    range.insertNode(document.createTextNode(" "));
+    // Move the caret past the inserted space before inserting the text.
+    const sp = document.createTextNode("\u200B");
+    range.insertNode(sp);
+    range.setStartAfter(sp);
+    range.collapse(true);
+    sp.remove();
+  }
+  const node = document.createTextNode(next);
+  range.insertNode(node);
+  const spacer = document.createTextNode("\u200B");
+  range.setStartAfter(node);
+  range.collapse(true);
+  range.insertNode(spacer);
+  placeCaretAfter(spacer);
+  applyingStore = false;
+  syncDraftFromDom();
+  scrollToEnd();
+}
+
 function syncChipsFromStore(): void {
   const root = surface.value;
   if (!root || applyingStore) return;
@@ -406,6 +460,7 @@ defineExpose({
   isCaretAtEnd,
   getSurface,
   appendTextAtEnd,
+  insertTextAtCaret,
   scrollToEnd,
 });
 </script>

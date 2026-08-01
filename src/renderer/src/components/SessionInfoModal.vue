@@ -35,7 +35,9 @@ const filesRead = computed<string[]>(() => {
   for (const msg of chat.activeMessages) {
     if (msg.role !== "tool") continue;
     try {
-      const card = parseToolCard(msg);
+      const card = parseToolCard(msg.toolName, msg.args, msg.result, {
+        isError: msg.isError,
+      });
       if (card.kind !== "read" || !card.path) continue;
       const p = card.path.replace(/\\/g, "/");
       if (!seen.has(p)) {

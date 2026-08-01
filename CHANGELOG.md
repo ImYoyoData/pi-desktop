@@ -1,8 +1,52 @@
 # Changelog
 
+## v0.2.3 (2026-08-02)
+
+### 修复 Fixes
+
+- 修复会话信息弹窗「读取的文件」统计不显示：解析工具卡片时参数传错导致异常被吞，现正确解析 read 工具调用并去重展示，点击可预览
+- 修复启动时 Chromium 缓存目录被锁报错（"Unable to move the cache: access denied"）：启动早期自动清理不可用的缓存目录；dev 版改用独立 userData 目录（与打包版共存不再互锁）；打包版保留单实例锁
+- 修复聊天过程折叠逻辑：中间含文本时不再断折，最新回合从用户消息到最后一个工具/思考行之间的全部内容（含过程文本）统一折叠，只保留最终答案
+- 修复待发送队列编辑后出现双套消息、意外撤回按钮、agent 卡死：编辑队列项不再把输入框残留内容误入队；同一会话的 prompt 严格串行发送，杜绝并发打乱 worker 状态与 checkpoint 关联
+- 修复撤回按钮误显示：没有修改文件时不再出现撤回按钮（checkpoint 关联错误已随串行发送解决）
+- 修复用户消息重新编辑后发送丢失后续内容：编辑后作为新消息追加发送，历史保留
+- 修复录音后光标丢失：录音/停止/取消/确认按钮全部改为不夺焦（mousedown.prevent），转写完成后光标回到编辑框；转写文本插入光标位置（无光标则末尾）
+- 修复 Running 面板终端空白：命令回显到终端（$ command），无输出的命令也能看到执行内容，且不污染 LLM 工具结果
+- 修复测试在带 PI_DESKTOP_PI_CLI_PATH 环境变量时失败：测试显式传空环境，不再依赖宿主环境
+- 修复待办最后一项不更新：agent 回合结束时自动完成仍进行中的项并计时
+- Fixed the session-info “files read” stat not rendering (tool-card args were passed wrong, exception swallowed); read calls are now parsed, deduped and previewable.
+- Fixed startup “Unable to move the cache: access denied” (locked Chromium cache dirs): unusable cache dirs are reset early; dev builds get their own userData dir so they coexist with the packaged app; packaged builds keep the single-instance lock.
+- Fixed process folding breaking when mid-process text existed — the whole latest turn (tools + thinking + interleaved text) now folds to one summary, keeping only the final answer.
+- Fixed duplicate sends / stray revert buttons / frozen agent after editing a queued item: editing no longer re-enqueues stray composer content, and prompts are strictly serialized per session so the worker and checkpoint state can't race.
+- Fixed stray revert buttons on user bubbles that never modified files (checkpoint association is now safe under serialized sends).
+- Fixed re-edit of a user message wiping later history: the edited text is sent as a new appended message.
+- Fixed caret loss after dictation: mic/stop/cancel/confirm buttons never steal focus (mousedown.prevent), transcript is inserted at the caret (fallback: end), then focus returns to the editor.
+- Fixed empty Running-panel terminals: the command is echoed into the terminal ($ command) even when it produces no stdout, without polluting the LLM's tool result.
+- Fixed tests failing when PI_DESKTOP_PI_CLI_PATH is set in the host environment (tests now pass an explicit empty env).
+- Fixed the last todo never updating: agent_end auto-completes any still-active item and records its duration.
+
+### 新功能 Features
+
+- 会话结束卡片显示统计：用时 · 总 token · token/秒（行内紧凑显示，悬停看完整信息，i18n 中英文案）
+- 用户消息改为明显的右侧卡片（恢复卡片化），长内容可展开/收起；吸顶时整卡吸顶同样支持展开
+- 待办升级：支持批量创建（一次 add 多条）、toggle 自动激活/完成并计时（无需单独 activate）、全部完成显示总用时、agent 回合结束自动收尾最后一项
+- 聊天列表布局优化：行类型化间距 + 工具行左侧缩进竖线弱化，思考/工具/正文层次清晰
+- 流式回答文本 shimmer 高亮扫过动画（尊重 prefers-reduced-motion）
+- Turn stats on the finished assistant card: duration · total tokens · tokens/sec (compact inline, full info on hover, i18n).
+- User messages are now clear right-aligned cards again with expand/collapse for long content; the sticky header pins the whole card and folds too.
+- Todos: batch create (one add, many texts), toggle auto-activates/completes with timing (no separate activate), total duration when all done, agent_end auto-completes the last item.
+- Chat list layout: typed row spacing + indented tool rows with a left rule so thinking/tools/answer read cleanly.
+- Streaming answers get a soft shimmer sweep (respects prefers-reduced-motion).
+
+### 兼容性 Compatibility
+
+- 全部改动使用跨平台 API，Windows/macOS/Linux 通用；既有 macOS 适配保持不变。
+- All changes use cross-platform APIs (Windows/macOS/Linux); existing macOS adaptations are unchanged.
+
 ## v0.2.2 (2026-08-02)
 
 ### 修复 Fixes
+
 - 修复启动蒙版遗留卡死：初始化完成时清除了兜底定时器，导致 worker 事件丢失后永久等待；现增 10 秒硬性兜底 + 3 秒宽限，并移除蒙版 logo、新增进度条
 - 修复发布打包脚本：generate-icons.mjs 误用 TS 语法导致 CI 失败
 - 所有弹窗统一内部滚动：内容区包裹 .modal-scroll，弹窗高度不超过窗口，右上角 X 可正常点击关闭
@@ -17,12 +61,14 @@
 - Extension names only trust node_modules/<package> package.json; local extensions use the file stem.
 
 ### 新功能 Features
+
 - 新建分支支持选择「基于分支」（本地+远端选项，默认当前分支）
 - New-branch dialog lets you pick the base branch (local + remote, defaults to current).
 
 ## v0.2.1 (2026-08-02)
 
 ### 性能优化 Performance
+
 - 启动提速：窗口创建前不再等待 Pi agent 环境初始化，非关键主机（ASR/TTS/更新/市场/CLI）延后加载；渲染进程首帧后立即淡出启动页，改为应用内轻量加载蒙版，工作区逐步加载（瞬间打开 + 渐进加载）。
 - 构建加速约 15%
 - 提速 Windows 打包：跳过原生模块重编译，新增 dist:win:fast 快速安装包模式（store 压缩），图标生成恰等性跳过。：主进程跳过压缩、渲染目标锁定现代 Chromium、关闭压缩体积报告。
@@ -30,6 +76,7 @@
 - Build ~15% faster: main process skips minification, renderer targets modern Chromium, compressed-size report disabled. Windows packaging skips native rebuild, adds a dist:win:fast script and idempotent icons.
 
 ### 修复 Fixes
+
 - 修复启动卡死在加载界面：启动蒙版引用了未导入的 i18n t，导致首帧渲染报错；并增加 5 秒兕底，蒙版绝不会永久停留。
 - 修复 ASR 识别混乱：录音被二次降采样压缩 3 倍（语速变快、音调变尖），现按 16kHz→16kHz 编码，降采样升级为线性插值；空转录不再报错，显示「未识别到语音」。
 - 修复聊天过程折叠条展开后消失，现在可随时再次折叠；会话结束后旧轮次的工具调用/思考隐藏，历史只显示用户消息+折叠条+结论。
@@ -40,6 +87,7 @@
 - The process-summary fold bar no longer disappears after expanding — it can be folded again anytime; finished turns hide tool/thinking rows so history reads as user messages + summary + final answer. The retry button resumes silently without a visible bubble; streamed command output is capped so long-running tools no longer lag the UI.
 
 ### 新功能 Features
+
 - 云端 ASR：首次使用选择弹窗、本地/云端 Tab、接口格式自动适配（小米 MiMo 走 chat/completions + input_audio，中文默认 language=zh）、录制音频自动上传、语音设置弹窗重新布局。
 - 聊天：粘贴图片融合进图片（不再额外 tag）、删除时清理缓存、右键复制/另存、切换会话图片与标签还原。
 - 更改面板：文件暂存/取消暂存、提交历史查看文件列表、软/硬重置、单文件 diff 与恢复、右键过滤文件写入 .gitignore。
@@ -51,18 +99,21 @@
 - Extensions: uninstall also removes the module from prompt extensions; security settings fold trusted workspaces; sidebar “Open workspace” button; @ mentions match absolute/drive-letter paths. A per-session info button shows loaded tools/extensions/skills and files read.
 
 ### 兼容性 Compatibility
+
 - 全部改动使用跨平台 API，Windows/macOS/Linux 通用；macOS 媒体权限、Dock 图标、隐藏标题栏、Homebrew PATH 等既有适配保持不变。
 - All changes use cross-platform APIs (Windows/macOS/Linux); existing macOS media permissions, Dock icon, hidden title bar and Homebrew PATH handling are unchanged.
 
 ## v0.2.0 (2026-08-01)
 
 ### 性能优化 Performance
+
 - **启动提速**：主进程把 Pi agent 环境初始化延后到窗口创建之后；渲染进程懒加载 Composer / MessageList / MarkdownView / RightPane / SessionSidebar / 设置弹窗等重型模块，katex、monaco、mermaid、xterm、viz 等不再阻塞首屏，低配 CPU 打开应用明显更快、不卡顿。
 - **ASR 不再冻结界面**：语音识别前的 PCM 编码（合并/重采样/转 16bit）移入 Web Worker，并改为通过 IPC 直接传原始 Int16 PCM（去掉原来在主线程 base64 编码几 MB 音频导致的卡死）。
 - **会话切换秒发首条消息**：打开会话时后台异步预热 Pi agent worker（带并发去重），首次发送不再等待冷启动。
 - **历史图片有界**：从会话文件恢复图片时按 24MB 预算“最新优先”保留，避免大会话把几十 MB base64 通过 IPC 塞给渲染进程。
 
 ### 修复 Fixes
+
 - **ask_user 未作答时 agent 不再继续执行**：ask_user 工具标记为顺序执行，同批其他工具不会在等待用户回答时并行运行。
 - **待办列表不再跨轮累积**：每轮新任务开始时重置待办，上一轮的待办不会叠加到本轮。
 - **切换会话后图片/标签不丢失**：会话历史现在会恢复用户消息中的图片，并把标签（文件/链接/元素）通过会话旁 sidecar 持久化后还原。
@@ -70,10 +121,12 @@
 - **删除会话先停止再清理**：删除会话时先停掉 agent worker，再删除会话文件及其缓存目录。
 
 ### 新功能 Features
+
 - 图片点击放大：消息里的图片改为自定义灯箱，支持右键复制图片到系统剪贴板、另存为文件。
 - 待办面板重做：图标徽章、进度 pill、渐变进度条、进行中/已完成分组、条目过渡动画、手动收起。
 - 图片缓存按会话隔离，随会话删除自动清理。
 
 ### 兼容性 Compatibility
+
 - 本轮改动均使用跨平台 API（fs / fetch / clipboard / Web Worker / IPC），Windows、macOS、Linux 通用；macOS 的媒体权限、Dock 图标、隐藏标题栏、Homebrew PATH 等既有适配保持不变。
 - 平台相关的 taskkill / GPU 探测 / 终端 Shell 均有平台守卫。
