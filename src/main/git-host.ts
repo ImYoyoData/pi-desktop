@@ -10,6 +10,7 @@ import type {
   GitRemote,
 } from "../shared/git-types";
 import { classifyGitFailure, detailFromGitOutput, isEmbeddedGitMissing } from "./git-errors";
+import { isGitIgnoredPath } from "./git-ignore-store";
 
 /** Quick local ops (status / diff / branch). */
 const GIT_TIMEOUT_MS = 30_000;
@@ -36,6 +37,10 @@ export type GitFileStatus = {
   relativePath: string;
   status: GitFileStatusKind;
   code: GitStatusCode;
+  /** True when changes are staged in the index. */
+  staged: boolean;
+  /** True when the file matches the workspace ignore/filter list. */
+  ignored: boolean;
 };
 
 export type GitStatusResult = {
@@ -309,7 +314,12 @@ export async function getWorkspaceGitStatus(cwd: string): Promise<GitStatusResul
     if (!isWithin(cwd, abs)) continue;
     const relativePath = path.relative(cwd, abs).split(path.sep).join("/");
     if (!relativePath || relativePath.startsWith("..")) continue;
-    files.push({ relativePath, ...classify(entry) });
+    files.push({
+      relativePath,
+      ...classify(entry),
+      staged: entry.indexStatus !== " " && entry.indexStatus !== "?",
+      ignored: isGitIgnoredPath(cwd, relativePath),
+    });
   }
   return { isGitRepository: true, branch, files };
 }
@@ -1019,6 +1029,45 @@ export async function resetToCommit(
   const result = await gitAllowFail(repositoryRoot, ["reset", flag, rev]);
   if (!result.ok) return fail(result.code, result.message);
   return { ok: true, message: `reset ${mode}` };
+}
+
+function assertPathsWithin(cwd: string, paths: string[], repositoryRoot: string): string[] | null {
+  const gitPaths: string[] = [];
+  for (const p of paths ?? []) {
+    if (typeof p !== "string" || !p.trim()) continue;
+    const abs = path.resolve(cwd, p);
+    if (!isWithin(cwd, abs) || !isWithin(repositoryRoot, abs)) return null;
+    gitPaths.push(toGitPath(path.relative(repositoryRoot, abs)));
+  }
+  return gitPaths;
+}
+
+/** Stage files (git add) — also stages deletions of tracked files. */
+export async function stagePaths(
+  cwd: string,
+  paths: string[],
+): Promise<GitOpResult> {
+  const repositoryRoot = await findRepositoryRoot(cwd);
+  if (!repositoryRoot) return fail("not_repo", "Not a git repository");
+  const gitPaths = assertPathsWithin(cwd, paths, repositoryRoot);
+  if (gitPaths === null || gitPaths.length === 0) return fail("invalid_args", "No valid paths to stage");
+  const result = await gitAllowFail(repositoryRoot, ["add", "--", ...gitPaths]);
+  if (!result.ok) return fail(result.code, result.message);
+  return { ok: true };
+}
+
+/** Unstage files (git restore --staged). */
+export async function unstagePaths(
+  cwd: string,
+  paths: string[],
+): Promise<GitOpResult> {
+  const repositoryRoot = await findRepositoryRoot(cwd);
+  if (!repositoryRoot) return fail("not_repo", "Not a git repository");
+  const gitPaths = assertPathsWithin(cwd, paths, repositoryRoot);
+  if (gitPaths === null || gitPaths.length === 0) return fail("invalid_args", "No valid paths to unstage");
+  const result = await gitAllowFail(repositoryRoot, ["restore", "--staged", "--", ...gitPaths]);
+  if (!result.ok) return fail(result.code, result.message);
+  return { ok: true };
 }
 
 export async function pullRepo(cwd: string): Promise<GitOpResult> {
