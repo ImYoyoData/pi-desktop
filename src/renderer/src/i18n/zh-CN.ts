@@ -313,7 +313,7 @@ export const zh = {
   changesRemoteUpdated: "已更新远端 URL",
   changesRemoteRemoved: "已删除远端",
   changesLogEmpty: "暂无提交记录",
-  changesCommitFiles: "变更文件",
+  changesFilesChanged: "变更文件",
   changesResetSoft: "重置（软）",
   changesResetHard: "重置（硬）",
   changesResetConfirm: (hash: string, mode: string) =>

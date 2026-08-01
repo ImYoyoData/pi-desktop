@@ -1373,7 +1373,7 @@ watch(
         </template>
 
         <template v-else>
-          <div class="commit-files-title">{{ t.changesCommitFiles }}</div>
+          <div class="commit-files-title">{{ t.changesFilesChanged }}</div>
           <NSpin :show="commitFilesLoading">
             <NEmpty
               v-if="!commitFilesLoading && !commitFiles.length"
