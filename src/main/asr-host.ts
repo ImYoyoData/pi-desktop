@@ -182,6 +182,21 @@ function inferCloudApiStyle(cloud: AsrCloudConfig | undefined): AsrCloudApiStyle
   return "openai-multipart";
 }
 
+/**
+ * Language hint for chat-style ASR (e.g. Xiaomi MiMo). MiMo docs
+ * recommend pinning the language for better accuracy; default to zh when
+ * the app locale is Chinese, otherwise leave auto-detection on.
+ */
+function cloudAsrLanguage(cloud: AsrCloudConfig): string {
+  const explicit = (cloud.language ?? "").trim();
+  if (explicit) return explicit;
+  try {
+    return app.getLocale().toLowerCase().startsWith("zh") ? "zh" : "";
+  } catch {
+    return "";
+  }
+}
+
 function isCloudConfigured(cloud: AsrCloudConfig | undefined): boolean {
   if (!cloud?.apiKey?.trim() || !cloud?.model?.trim()) return false;
   if (cloud.apiStyle === "custom") return Boolean(cloud.endpoint?.trim());
@@ -1349,7 +1364,7 @@ async function transcribeViaCloudApi(
     // OpenAI-style gateways that expose the same chat endpoint.
     headers["api-key"] = apiKey;
     headers["Authorization"] = `Bearer ${apiKey}`;
-    const lang = (cloud.language ?? "").trim();
+    const lang = cloudAsrLanguage(cloud);
     body = JSON.stringify({
       model,
       messages: [
