@@ -95,6 +95,74 @@ const previewStore = usePreviewStore();
 const rightTabs = useRightTabsStore();
 const tts = useTtsStore();
 const messageApi = useMessage();
+
+/**
+ * Custom image lightbox: click to zoom, right-click to copy / save.
+ * naive-ui's built-in preview has no clipboard integration.
+ */
+type ImagePreview = { dataUrl: string; mimeType: string };
+const imagePreview = ref<ImagePreview | null>(null);
+const previewMenuOpen = ref(false);
+const previewMenuPos = ref({ x: 0, y: 0 });
+
+function openImagePreview(img: { dataUrl: string; mimeType: string }): void {
+  imagePreview.value = { dataUrl: img.dataUrl, mimeType: img.mimeType };
+  previewMenuOpen.value = false;
+}
+
+function closeImagePreview(): void {
+  imagePreview.value = null;
+  previewMenuOpen.value = false;
+}
+
+function openPreviewMenu(event: MouseEvent): void {
+  previewMenuOpen.value = true;
+  const menuW = 160;
+  const menuH = 76;
+  previewMenuPos.value = {
+    x: Math.max(4, Math.min(event.clientX, window.innerWidth - menuW - 4)),
+    y: Math.max(4, Math.min(event.clientY, window.innerHeight - menuH - 4)),
+  };
+}
+
+async function copyPreviewImage(): Promise<void> {
+  const preview = imagePreview.value;
+  if (!preview) return;
+  try {
+    await window.api.clipboard.writeImage(preview.dataUrl);
+    previewMenuOpen.value = false;
+    messageApi.success(t.copyImageDone);
+  } catch (err) {
+    previewMenuOpen.value = false;
+    messageApi.error(err instanceof Error ? err.message : String(err));
+  }
+}
+
+function savePreviewImage(): void {
+  const preview = imagePreview.value;
+  if (!preview) return;
+  previewMenuOpen.value = false;
+  const a = document.createElement("a");
+  a.href = preview.dataUrl;
+  const ext = (preview.mimeType.split("/")[1] ?? "png").replace(/[^a-z0-9]/gi, "") || "png";
+  a.download = `image-${Date.now()}.${ext}`;
+  a.click();
+}
+
+function onPreviewKeydown(event: KeyboardEvent): void {
+  if (event.key === "Escape") closeImagePreview();
+}
+
+watch(imagePreview, (preview) => {
+  if (preview) window.addEventListener("keydown", onPreviewKeydown);
+  else window.removeEventListener("keydown", onPreviewKeydown);
+});
+
+onBeforeUnmount(() => {
+  window.removeEventListener("keydown", onPreviewKeydown);
+  imagePreview.value = null;
+});
+
 const dialog = useDialog();
 const scroller = ref<HTMLElement | null>(null);
 let lastPinnedUserId: string | null = null;
@@ -1099,13 +1167,15 @@ function onRevertUser(msg: Extract<ChatMessage, { role: "user" }>): void {
                 </NTag>
               </div>
               <div v-if="msg.images?.length" class="user-images">
-                <NImage
+                <img
                   v-for="(img, idx) in msg.images"
                   :key="`${msg.id}-img-${idx}`"
                   class="user-image"
                   :src="img.dataUrl"
-                  :preview-src="img.dataUrl"
-                  object-fit="cover"
+                  :alt="t.imageAttachment"
+                  loading="lazy"
+                  draggable="false"
+                  @click.stop="openImagePreview(img)"
                 />
               </div>
               <div v-if="displayUserText(msg.text)" class="user-plain">{{ displayUserText(msg.text) }}</div>
@@ -1334,13 +1404,15 @@ function onRevertUser(msg: Extract<ChatMessage, { role: "user" }>): void {
           </NTag>
         </div>
         <div v-if="stickyPinMessage.images?.length" class="user-images">
-          <NImage
+          <img
             v-for="(img, idx) in stickyPinMessage.images"
             :key="`pin-img-${idx}`"
             class="user-image"
             :src="img.dataUrl"
-            :preview-src="img.dataUrl"
-            object-fit="cover"
+            :alt="t.imageAttachment"
+            loading="lazy"
+            draggable="false"
+            @click.stop="openImagePreview(img)"
           />
         </div>
         <div v-if="displayUserText(stickyPinMessage.text)" class="user-plain">{{ displayUserText(stickyPinMessage.text) }}</div>
@@ -1375,6 +1447,57 @@ function onRevertUser(msg: Extract<ChatMessage, { role: "user" }>): void {
       </button>
     </Transition>
   </div>
+  <!-- Image lightbox: click to zoom, right-click to copy / save. -->
+  <Teleport to="body">
+    <div
+      v-if="imagePreview"
+      class="image-preview-overlay"
+      tabindex="-1"
+      @keydown="onPreviewKeydown"
+      @click.self="closeImagePreview"
+      @contextmenu.self.prevent="closeImagePreview"
+    >
+      <div class="preview-toolbar">
+        <span class="preview-title">{{ t.imageAttachment }}</span>
+        <div class="preview-actions">
+          <button type="button" class="preview-btn" @click="copyPreviewImage">
+            {{ t.copyImage }}
+          </button>
+          <button type="button" class="preview-btn" @click="savePreviewImage">
+            {{ t.saveImage }}
+          </button>
+          <button
+            type="button"
+            class="preview-btn close"
+            :aria-label="t.close"
+            :title="t.close"
+            @click="closeImagePreview"
+          >
+            ✕
+          </button>
+        </div>
+      </div>
+      <img
+        :src="imagePreview?.dataUrl"
+        class="preview-img"
+        alt=""
+        @contextmenu.prevent="openPreviewMenu"
+      />
+      <div
+        v-if="previewMenuOpen"
+        class="preview-context-menu"
+        :style="{ left: previewMenuPos.x + 'px', top: previewMenuPos.y + 'px' }"
+        @contextmenu.prevent
+      >
+        <button type="button" class="ctx-item" @click="copyPreviewImage">
+          {{ t.copyImage }}
+        </button>
+        <button type="button" class="ctx-item" @click="savePreviewImage">
+          {{ t.saveImage }}
+        </button>
+      </div>
+    </div>
+  </Teleport>
 </template>
 
 <style scoped>
@@ -1753,6 +1876,14 @@ function onRevertUser(msg: Extract<ChatMessage, { role: "user" }>): void {
   height: 72px;
   border-radius: 8px;
   overflow: hidden;
+  object-fit: cover;
+  cursor: zoom-in;
+  border: 1px solid var(--border);
+  transition: filter var(--duration-fast, 140ms) var(--ease-out, ease);
+}
+
+.user-image:hover {
+  filter: brightness(0.94);
 }
 
 .user-plain {
@@ -1869,6 +2000,125 @@ function onRevertUser(msg: Extract<ChatMessage, { role: "user" }>): void {
   50% {
     opacity: 1;
     transform: scale(1);
+  }
+}
+
+/* Image lightbox */
+.image-preview-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 2147483644;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(9, 9, 11, 0.82);
+  backdrop-filter: blur(3px);
+  cursor: zoom-out;
+  animation: preview-fade 160ms var(--ease-out, ease);
+  outline: none;
+}
+
+@keyframes preview-fade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.preview-toolbar {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  right: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: rgba(24, 24, 27, 0.72);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  color: #fafafa;
+  user-select: none;
+}
+
+.preview-title {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.85);
+}
+
+.preview-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.preview-btn {
+  padding: 4px 10px;
+  border-radius: 7px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  background: rgba(255, 255, 255, 0.08);
+  color: #fafafa;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  transition: background var(--duration-fast, 140ms) var(--ease-out, ease);
+}
+
+.preview-btn:hover {
+  background: rgba(255, 255, 255, 0.18);
+}
+
+.preview-btn.close {
+  border-color: transparent;
+  background: transparent;
+  font-size: 14px;
+  padding: 4px 8px;
+}
+
+.preview-img {
+  max-width: calc(100vw - 80px);
+  max-height: calc(100vh - 80px);
+  object-fit: contain;
+  border-radius: 8px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+  cursor: zoom-out;
+  user-select: none;
+  -webkit-user-drag: none;
+}
+
+.preview-context-menu {
+  position: fixed;
+  z-index: 2147483645;
+  min-width: 150px;
+  padding: 4px;
+  border-radius: 10px;
+  background: var(--bg-elevated, #1c1c22);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-lg, 0 12px 40px rgba(0, 0, 0, 0.3));
+  animation: preview-fade 100ms var(--ease-out, ease);
+}
+
+.ctx-item {
+  display: block;
+  width: 100%;
+  padding: 7px 10px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--fg);
+  text-align: left;
+  font: inherit;
+  font-size: 12.5px;
+  cursor: pointer;
+}
+
+.ctx-item:hover {
+  background: var(--bg-hover);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .image-preview-overlay {
+    animation: none;
   }
 }
 </style>

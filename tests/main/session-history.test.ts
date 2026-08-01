@@ -275,4 +275,91 @@ describe("session-history", () => {
     expect(head.messages).toEqual([]);
     expect(head.hasMore).toBe(false);
   });
+
+  it("restores images and attachment tags for user messages after reload", async () => {
+    const filePath = path.join(tempRoot, "session.jsonl");
+    const agentText = "[pi-desktop mode: agent]\n\nDo the work";
+    // sidecar written by persistUserMessageMeta
+    fs.writeFileSync(
+      `${filePath}.ui-meta.json`,
+      JSON.stringify({
+        version: 1,
+        entries: [
+          {
+            text: agentText,
+            tags: [
+              { kind: "file", url: "", host: "", label: "src/a.ts", content: "src/a.ts" },
+            ],
+          },
+        ],
+      }),
+      "utf8",
+    );
+    writeJsonl(filePath, [
+      {
+        type: "session",
+        version: 3,
+        id: "session-a",
+        timestamp: "2026-01-15T12:00:00.000Z",
+        cwd: tempRoot,
+      },
+      {
+        type: "message",
+        id: "m1",
+        parentId: null,
+        timestamp: "2026-01-15T12:00:01.000Z",
+        message: {
+          role: "user",
+          content: [
+            { type: "text", text: agentText },
+            { type: "image", data: "aGVsbG8=", mimeType: "image/png" },
+          ],
+        },
+      },
+    ]);
+
+    const messages = await readSessionHistoryMessages(filePath);
+    expect(messages).toHaveLength(1);
+    const user = messages[0]!;
+    expect(user.role).toBe("user");
+    if (user.role !== "user") return;
+    expect(user.text).toBe("Do the work"); // mode preamble stripped
+    expect(user.images).toEqual([
+      { mimeType: "image/png", dataUrl: "data:image/png;base64,aGVsbG8=" },
+    ]);
+    expect(user.elementTags).toEqual([
+      { kind: "file", url: "", host: "", label: "src/a.ts", content: "src/a.ts" },
+    ]);
+  });
+
+  it("strips the browser-selection citations block from displayed user text", async () => {
+    const filePath = path.join(tempRoot, "session2.jsonl");
+    const header = "# 内置浏览器 (Built-in browser)";
+    writeJsonl(filePath, [
+      {
+        type: "session",
+        version: 3,
+        id: "session-b",
+        timestamp: "2026-01-15T12:00:00.000Z",
+        cwd: tempRoot,
+      },
+      {
+        type: "message",
+        id: "m1",
+        parentId: null,
+        timestamp: "2026-01-15T12:00:01.000Z",
+        message: {
+          role: "user",
+          content: [
+            { type: "text", text: header + "\n\nContext from browser selection:\n\n### Citation 1\n- URL: x\n- Text: y\n\n---\n\n[pi-desktop mode: agent]\n\nRead this page" },
+          ],
+        },
+      },
+    ]);
+
+    const messages = await readSessionHistoryMessages(filePath);
+    const user = messages[0]!;
+    if (user.role !== "user") return;
+    expect(user.text).toBe("Read this page");
+  });
 });

@@ -17,6 +17,10 @@ export const IpcChannels = {
     setUiLocale: "window:setUiLocale",
     openDevTools: "window:openDevTools",
   },
+  clipboard: {
+    /** Renderer → main: copy a data-URL image onto the system clipboard. */
+    writeImage: "clipboard:writeImage",
+  },
   workspace: {
     get: "workspace:get",
     open: "workspace:open",
@@ -56,6 +60,8 @@ export const IpcChannels = {
     extensionUi: "sessions:extensionUi",
     /** Renderer → main: extension UI dialog reply */
     extensionUiReply: "sessions:extensionUiReply",
+    /** Renderer → main: persist attachment tags for a sent user message. */
+    setUserMessageMeta: "sessions:setUserMessageMeta",
   },
   files: {
     list: "files:list",
@@ -373,6 +379,16 @@ export type SessionHistoryMessage =
       id: string;
       role: "user";
       text: string;
+      /** Restored image content parts (data URLs) — survives session reloads. */
+      images?: { mimeType: string; dataUrl: string }[];
+      /** Restored attachment chips (file / url / element) — survives session reloads. */
+      elementTags?: {
+        url: string;
+        host: string;
+        label: string;
+        content?: string;
+        kind?: "file" | "url" | "element" | "agent" | "plan" | "ask" | "task";
+      }[];
     }
   | {
       id: string;

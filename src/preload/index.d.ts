@@ -24,6 +24,9 @@ export type AppInfo = {
 export type { UpdateProgress };
 export type { AgentCommand, AgentEvent, ElementCitation, SessionHistoryMessage, SessionHistoryPage, SessionHistoryQuery, SessionStatus, SessionSummary };
 declare const api: {
+    clipboard: {
+        writeImage: (dataUrl: string) => Promise<void>;
+    };
     window: {
         platform: () => Promise<NodeJS.Platform>;
         minimize: () => Promise<void>;
@@ -66,6 +69,7 @@ declare const api: {
         delete: (sessionId: string, cwd: string) => Promise<void>;
         rename: (sessionId: string, cwd: string, name: string) => Promise<SessionSummary | null>;
         history: (filePath: string, query?: SessionHistoryQuery) => Promise<SessionHistoryPage>;
+        setUserMessageMeta: (sessionId: string, text: string, tags: unknown[]) => Promise<void>;
         clearContext: (sessionId: string, cwd: string) => Promise<void>;
         status: (sessionId: string, cwd: string) => Promise<SessionStatus | null>;
         onEvent: (callback: (event: AgentEvent) => void) => () => void;
