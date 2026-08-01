@@ -160,6 +160,28 @@ function writeCloudPrefs(prefs: AsrCloudPrefs): void {
   writeFileSync(cloudPrefsPath(), `${JSON.stringify(prefs, null, 2)}\n`, "utf8");
 }
 
+/**
+ * Pick a concrete API style for a cloud ASR config.
+ *
+ * Older saved configs predate the format selector and have no apiStyle;
+ * Xiaomi MiMo has no /audio/transcriptions endpoint, so route it to the
+ * chat-completions + input_audio style automatically.
+ */
+function inferCloudApiStyle(cloud: AsrCloudConfig | undefined): AsrCloudApiStyle {
+  const style = cloud?.apiStyle;
+  if (
+    style === "openai-multipart" ||
+    style === "openai-json" ||
+    style === "chat" ||
+    style === "custom"
+  ) {
+    return style;
+  }
+  const base = (cloud?.baseUrl ?? "").toLowerCase();
+  if (/xiaomimimo\.com/.test(base)) return "chat";
+  return "openai-multipart";
+}
+
 function isCloudConfigured(cloud: AsrCloudConfig | undefined): boolean {
   if (!cloud?.apiKey?.trim() || !cloud?.model?.trim()) return false;
   if (cloud.apiStyle === "custom") return Boolean(cloud.endpoint?.trim());
@@ -1303,7 +1325,7 @@ async function transcribeViaCloudApi(
     throw new Error("Cloud ASR is not configured (set endpoint, API key and model)");
   }
   const wav = wavBytesFromPcm(pcm, sampleRate || 16000);
-  const style = cloud.apiStyle ?? "openai-multipart";
+  const style = inferCloudApiStyle(cloud);
   const apiKey = cloud.apiKey.trim();
   const model = cloud.model.trim();
 
@@ -1369,7 +1391,10 @@ async function transcribeViaCloudApi(
     body,
   });
   if (!resp.ok) {
-    throw new Error(`ASR cloud API failed: HTTP ${resp.status} ${(await resp.text()).slice(0, 300)}`);
+    const detail = (await resp.text()).trim().slice(0, 240);
+    throw new Error(
+      `ASR cloud API failed: HTTP ${resp.status} POST ${url}${detail ? ` - ${detail}` : ""}`,
+    );
   }
   const data = (await resp.json()) as {
     text?: unknown;
@@ -1953,15 +1978,13 @@ export function registerAsrIpc(): void {
   });
   ipcMain.handle(IpcChannels.asr.getCloudConfig, () => {
     const prefs = readCloudPrefs();
-    return { backend: prefs.backend ?? null, cloud: prefs.cloud ?? null };
+    const cloud = prefs.cloud
+      ? { ...prefs.cloud, apiStyle: inferCloudApiStyle(prefs.cloud) }
+      : null;
+    return { backend: prefs.backend ?? null, cloud };
   });
   ipcMain.handle(IpcChannels.asr.setCloudConfig, (_e, cloud: AsrCloudConfig) => {
-    const style =
-      cloud?.apiStyle === "openai-json" ||
-      cloud?.apiStyle === "custom" ||
-      cloud?.apiStyle === "chat"
-        ? cloud.apiStyle
-        : "openai-multipart";
+    const style = inferCloudApiStyle(cloud);
     const sanitized: AsrCloudConfig = {
       providerName: String(cloud?.providerName ?? "").slice(0, 80),
       baseUrl: String(cloud?.baseUrl ?? "").trim(),
