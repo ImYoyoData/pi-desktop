@@ -474,6 +474,7 @@ export const zh = {
   asrCloudLanguagePh: "auto / zh / en（可选）",
   asrBackendSection: "识别方式",
   asrBackendSectionHint: "选择语音识别方式：本机 CrispASR，或云端 ASR 模型 API。",
+    asrGeneralSection: "通用设置",
   asrCloudSave: "保存",
   asrCloudTest: "测试",
   asrCloudSaved: "云端 ASR 配置已保存",

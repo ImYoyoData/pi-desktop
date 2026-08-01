@@ -1415,16 +1415,15 @@ async function transcribeViaCloudApi(
     text?: unknown;
     choices?: Array<{ message?: { content?: unknown } }>;
   };
+  // HTTP 200 but nothing recognized (silence / too short / no speech):
+  // return an empty string so the UI can show a friendly "no speech"
+  // hint instead of a scary error.
   if (style === "chat") {
-    const content =
-      typeof data.choices?.[0]?.message?.content === "string"
-        ? data.choices[0].message.content.trim()
-        : "";
-    if (!content) throw new Error("ASR cloud API returned empty transcript");
-    return content;
+    return typeof data.choices?.[0]?.message?.content === "string"
+      ? data.choices[0].message.content.trim()
+      : "";
   }
   const text = typeof data.text === "string" ? data.text.trim() : "";
-  if (!text) throw new Error("ASR cloud API returned empty transcript");
   return text;
 }
 

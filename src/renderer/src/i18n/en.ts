@@ -478,6 +478,7 @@ export const en = {
   asrCloudLanguagePh: "auto / zh / en (optional)",
   asrBackendSection: "Recognition backend",
   asrBackendSectionHint: "Choose how speech is recognized: on-device CrispASR or a cloud ASR API.",
+    asrGeneralSection: "General",
   asrCloudSave: "Save",
   asrCloudTest: "Test",
   asrCloudSaved: "Cloud ASR config saved",
