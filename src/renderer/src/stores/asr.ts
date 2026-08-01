@@ -236,10 +236,10 @@ export const useAsrStore = defineStore("asr", () => {
     return window.api.asr.onStreamEvent(onEvent);
   }
 
-  async function transcribe(pcmBase64: string, sampleRate: number): Promise<string> {
+  async function transcribe(pcm: Int16Array, sampleRate: number): Promise<string> {
     transcribing.value = true;
     try {
-      return await window.api.asr.transcribe(pcmBase64, sampleRate);
+      return await window.api.asr.transcribe(pcm, sampleRate);
     } finally {
       transcribing.value = false;
     }

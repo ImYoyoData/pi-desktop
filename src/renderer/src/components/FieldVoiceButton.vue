@@ -131,16 +131,16 @@ async function confirm(): Promise<void> {
   asr.recording = false;
   pending.value = true;
   try {
-    const { pcmBase64, sampleRate } = await active.stop();
+    const { pcm, sampleRate } = await active.stop();
     if (myGen !== gen) return;
-    if (!pcmBase64) {
+    if (!pcm || pcm.length === 0) {
       messageApi.warning(t.voiceEmpty);
       return;
     }
     const ready = await ensureReady();
     if (myGen !== gen) return;
     if (!ready) return;
-    const raw = await asr.transcribe(pcmBase64, sampleRate);
+    const raw = await asr.transcribe(pcm, sampleRate);
     if (myGen !== gen) return;
     const text = scrubAsrHallucination(raw);
     if (!text) {

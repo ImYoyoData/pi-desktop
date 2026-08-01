@@ -357,3 +357,14 @@ export function scrubAsrHallucination(text: string): string {
   }
   return collapsed;
 }
+
+
+/**
+ * One-shot dictation take sent renderer → main for transcription.
+ * Raw 16 kHz s16le PCM (typed array) instead of base64 — encoding a long
+ * take on the renderer thread used to freeze the app.
+ */
+export type AsrTranscribePayload = {
+  pcm: Int16Array;
+  sampleRate: number;
+};
