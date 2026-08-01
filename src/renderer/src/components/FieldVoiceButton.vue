@@ -61,6 +61,8 @@ async function doEnsureReady(): Promise<boolean> {
     messageApi.warning(t.asrDisabled);
     return false;
   }
+  // Cloud backend needs no local model/runtime.
+  if (asr.status.backend === "cloud" && asr.status.cloudConfigured) return true;
   if (asr.status.installed) return true;
   if (asr.installing) {
     try {
@@ -162,6 +164,8 @@ async function confirm(): Promise<void> {
 
 async function onClick(): Promise<void> {
   if (props.disabled || asr.installing || pending.value) return;
+  // First use: let the user pick the recognition backend (local vs cloud API).
+  if (!(await asr.ensureBackendChosen())) return;
   if (recording.value) {
     await confirm();
     return;

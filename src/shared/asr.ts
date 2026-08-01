@@ -258,6 +258,20 @@ export type AsrGpuOption = {
   vulkanDeviceId?: number;
 };
 
+/** Which ASR backend performs recognition: local CrispASR or a cloud API. */
+export type AsrBackendKind = "local" | "cloud" | null;
+
+/**
+ * OpenAI-compatible cloud ASR provider (POST {baseUrl}/audio/transcriptions
+ * with a WAV file + model). e.g. SiliconFlow / Groq / DashScope compatible.
+ */
+export type AsrCloudConfig = {
+  providerName: string;
+  baseUrl: string;
+  apiKey: string;
+  model: string;
+};
+
 export type AsrStatus = {
   enabled: boolean;
   supported: boolean;
@@ -296,6 +310,10 @@ export type AsrStatus = {
   /** Raw wake-word list (comma / newline separated). */
   wakeWords: string;
   lastError: string | null;
+  /** Selected recognition backend (null = not chosen yet). */
+  backend: AsrBackendKind;
+  /** True when a cloud ASR provider is fully configured. */
+  cloudConfigured: boolean;
 };
 
 export type AsrInstallProgress = {

@@ -15,6 +15,7 @@ declare module 'vue' {
     AgentWaitIndicator: typeof import('./src/components/AgentWaitIndicator.vue')['default']
     AppearanceSettings: typeof import('./src/components/AppearanceSettings.vue')['default']
     AskUserStrip: typeof import('./src/components/AskUserStrip.vue')['default']
+    AsrBackendChooseModal: typeof import('./src/components/AsrBackendChooseModal.vue')['default']
     AsrInstallConfirmModal: typeof import('./src/components/AsrInstallConfirmModal.vue')['default']
     AsrInstallProgress: typeof import('./src/components/AsrInstallProgress.vue')['default']
     AsrSettings: typeof import('./src/components/AsrSettings.vue')['default']

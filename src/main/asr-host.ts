@@ -41,6 +41,8 @@ import {
   type AsrInstallProgress,
   type AsrStatus,
   type AsrStreamEvent,
+  type AsrBackendKind,
+  type AsrCloudConfig,
   type AsrTranscribePayload,
 } from "../shared/asr";
 import {
@@ -130,6 +132,36 @@ function modelPath(): string {
 
 function runtimeDir(): string {
   return join(asrRoot(), "runtime");
+}
+
+/** Cloud ASR backend prefs (~/.pi/agent/asr-cloud.json). */
+type AsrCloudPrefs = {
+  backend?: AsrBackendKind;
+  cloud?: AsrCloudConfig;
+};
+
+function cloudPrefsPath(): string {
+  return join(asrRoot(), "asr-cloud.json");
+}
+
+function readCloudPrefs(): AsrCloudPrefs {
+  try {
+    const parsed = JSON.parse(readFileSync(cloudPrefsPath(), "utf8")) as Partial<AsrCloudPrefs>;
+    return {
+      backend: parsed.backend === "local" || parsed.backend === "cloud" ? parsed.backend : null,
+      cloud: parsed.cloud && typeof parsed.cloud === "object" ? parsed.cloud : undefined,
+    };
+  } catch {
+    return {};
+  }
+}
+
+function writeCloudPrefs(prefs: AsrCloudPrefs): void {
+  writeFileSync(cloudPrefsPath(), `${JSON.stringify(prefs, null, 2)}\n`, "utf8");
+}
+
+function isCloudConfigured(cloud: AsrCloudConfig | undefined): boolean {
+  return Boolean(cloud?.baseUrl?.trim() && cloud?.apiKey?.trim() && cloud?.model?.trim());
 }
 
 function ensureDirs(): void {
@@ -441,6 +473,8 @@ function getStatus(): AsrStatus {
     residentModel: Boolean(prefs.residentModel),
     wakeWords: prefs.wakeWords ?? DEFAULT_ASR_WAKE_WORDS,
     lastError,
+    backend: readCloudPrefs().backend ?? null,
+    cloudConfigured: isCloudConfigured(readCloudPrefs().cloud),
   };
 }
 
@@ -1001,7 +1035,7 @@ async function uninstallAsr(): Promise<AsrStatus> {
   return getStatus();
 }
 
-function writeWavPcm16(filePath: string, pcm: Int16Array, sampleRate: number): void {
+function wavBytesFromPcm(pcm: Int16Array, sampleRate: number): Buffer {
   const dataSize = pcm.byteLength;
   const buffer = Buffer.alloc(44 + dataSize);
   buffer.write("RIFF", 0);
@@ -1018,7 +1052,11 @@ function writeWavPcm16(filePath: string, pcm: Int16Array, sampleRate: number): v
   buffer.write("data", 36);
   buffer.writeUInt32LE(dataSize, 40);
   Buffer.from(pcm.buffer, pcm.byteOffset, pcm.byteLength).copy(buffer, 44);
-  writeFileSync(filePath, buffer);
+  return buffer;
+}
+
+function writeWavPcm16(filePath: string, pcm: Int16Array, sampleRate: number): void {
+  writeFileSync(filePath, wavBytesFromPcm(pcm, sampleRate));
 }
 
 async function waitForInferSlot(maxMs = 60_000): Promise<void> {
@@ -1243,10 +1281,64 @@ function toInt16Pcm(pcm: unknown): Int16Array {
   throw new Error("ASR received invalid PCM payload");
 }
 
+/**
+ * Transcribe WAV PCM through an OpenAI-compatible cloud ASR API.
+ */
+async function transcribeViaCloudApi(
+  pcm: Int16Array,
+  sampleRate: number,
+  cloud: AsrCloudConfig,
+): Promise<string> {
+  if (!isCloudConfigured(cloud)) {
+    throw new Error("Cloud ASR is not configured (set base URL, API key and model)");
+  }
+  const wav = wavBytesFromPcm(pcm, sampleRate || 16000);
+  const base = cloud.baseUrl.trim().replace(/\/+$/, "");
+  const form = new FormData();
+  form.append("file", new Blob([wav], { type: "audio/wav" }), "audio.wav");
+  form.append("model", cloud.model.trim());
+  const resp = await fetch(`${base}/audio/transcriptions`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${cloud.apiKey.trim()}` },
+    body: form,
+  });
+  if (!resp.ok) {
+    throw new Error(`ASR cloud API failed: HTTP ${resp.status} ${(await resp.text()).slice(0, 300)}`);
+  }
+  const data = (await resp.json()) as { text?: unknown };
+  const text = typeof data.text === "string" ? data.text.trim() : "";
+  if (!text) throw new Error("ASR cloud API returned empty transcript");
+  return text;
+}
+
+/** Send a short silence sample to verify the cloud API config. */
+export async function testAsrCloud(): Promise<{ ok: boolean; message: string }> {
+  const prefs = readCloudPrefs();
+  const cloud = prefs.cloud;
+  if (!isCloudConfigured(cloud)) {
+    return { ok: false, message: "Cloud ASR is not configured" };
+  }
+  try {
+    const silence = new Int16Array(1600); // 0.1s @ 16k
+    const text = await transcribeViaCloudApi(silence, 16000, cloud!);
+    return { ok: true, message: text || "OK" };
+  } catch (err) {
+    return {
+      ok: false,
+      message: err instanceof Error ? err.message : String(err),
+    };
+  }
+}
+
 async function transcribePcm(pcm: Int16Array, sampleRate: number): Promise<string> {
   const prefs = readPrefs();
   if (!prefs.enabled) throw new Error("ASR is disabled in settings");
   if (installBusy) throw new Error("ASR install in progress");
+  // Cloud backend: no local model needed.
+  const cloudPrefs = readCloudPrefs();
+  if (cloudPrefs.backend === "cloud" && isCloudConfigured(cloudPrefs.cloud)) {
+    return transcribeViaCloudApi(pcm, sampleRate, cloudPrefs.cloud!);
+  }
 
   let status = getStatus();
   if (!status.modelPath || !existsSync(status.modelPath)) {
@@ -1774,6 +1866,27 @@ export function registerAsrIpc(): void {
       return transcribePcm(payload.pcm, payload.sampleRate);
     },
   );
+  ipcMain.handle(IpcChannels.asr.setBackend, (_e, backend: string) => {
+    const next: AsrBackendKind = backend === "local" || backend === "cloud" ? backend : null;
+    writeCloudPrefs({ ...readCloudPrefs(), backend: next });
+    return getStatus();
+  });
+  ipcMain.handle(IpcChannels.asr.getCloudConfig, () => {
+    const prefs = readCloudPrefs();
+    return { backend: prefs.backend ?? null, cloud: prefs.cloud ?? null };
+  });
+  ipcMain.handle(IpcChannels.asr.setCloudConfig, (_e, cloud: AsrCloudConfig) => {
+    const sanitized: AsrCloudConfig = {
+      providerName: String(cloud?.providerName ?? "").slice(0, 80),
+      baseUrl: String(cloud?.baseUrl ?? "").trim(),
+      apiKey: String(cloud?.apiKey ?? "").trim(),
+      model: String(cloud?.model ?? "").trim(),
+    };
+    writeCloudPrefs({ ...readCloudPrefs(), cloud: sanitized });
+    return getStatus();
+  });
+  ipcMain.handle(IpcChannels.asr.testCloud, async () => testAsrCloud());
+
   ipcMain.handle(IpcChannels.asr.streamStart, async () => startAsrStream());
   ipcMain.handle(IpcChannels.asr.streamPush, (_e, payload: { pcmBase64: string }) => {
     pushAsrStreamPcm(payload.pcmBase64);

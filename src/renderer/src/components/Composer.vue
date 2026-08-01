@@ -1839,6 +1839,8 @@ async function doEnsureAsrReady(): Promise<boolean> {
     messageApi.warning(t.asrDisabled);
     return false;
   }
+  // Cloud backend needs no local model/runtime.
+  if (asr.status.backend === "cloud" && asr.status.cloudConfigured) return true;
   if (asr.status.installed) return true;
 
   // Join an in-flight install (e.g. background warm from mic click) — don't start a second one.
@@ -1971,9 +1973,11 @@ async function confirmVoice(): Promise<void> {
 async function onMicClick(): Promise<void> {
   if (asr.installing || voiceConfirming || voicePending.value) return;
   if (voiceActive.value) return;
+  // First use: let the user pick the recognition backend (local vs cloud API).
+  if (!(await asr.ensureBackendChosen())) return;
 
   // Fast gate — do not await model warm before opening the record UI.
-  if (asr.status.supported === false) {
+  if (asr.status.supported === false && !asr.status.cloudConfigured) {
     messageApi.warning(t.asrUnsupported);
     return;
   }

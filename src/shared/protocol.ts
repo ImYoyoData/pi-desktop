@@ -189,6 +189,10 @@ export const IpcChannels = {
     setWakeHotkey: "asr:setWakeHotkey",
     setResidentModel: "asr:setResidentModel",
     setWakeWords: "asr:setWakeWords",
+    setBackend: "asr:setBackend",
+    getCloudConfig: "asr:getCloudConfig",
+    setCloudConfig: "asr:setCloudConfig",
+    testCloud: "asr:testCloud",
     /** Main → renderer: global wake hotkey pressed. */
     wake: "asr:wake",
   },
