@@ -1,4 +1,4 @@
-import type { AgentCommand, AgentEvent, ElementCitation, SessionHistoryMessage, SessionHistoryPage, SessionHistoryQuery, SessionStatus, SessionSummary } from "../shared/protocol";
+import type { AgentCommand, AgentEvent, ElementCitation, SessionHistoryMessage, SessionHistoryPage, SessionHistoryQuery, SessionInfoResult, SessionStatus, SessionSummary } from "../shared/protocol";
 import type { AgentRunEvent, AgentRunSnapshot } from "../shared/agent-runs";
 import type { ModelsGetResult, ModelsSetPayload } from "../shared/models-settings";
 import type { DiscoverModelsResult } from "../shared/model-discover";
@@ -22,7 +22,7 @@ export type AppInfo = {
     email: string;
 };
 export type { UpdateProgress };
-export type { AgentCommand, AgentEvent, ElementCitation, SessionHistoryMessage, SessionHistoryPage, SessionHistoryQuery, SessionStatus, SessionSummary };
+export type { AgentCommand, AgentEvent, ElementCitation, SessionHistoryMessage, SessionHistoryPage, SessionHistoryQuery, SessionInfoResult, SessionStatus, SessionSummary };
 declare const api: {
     clipboard: {
         writeImage: (dataUrl: string) => Promise<void>;
@@ -74,6 +74,8 @@ declare const api: {
         deleteCachedImage: (sessionId: string, cachePath: string) => Promise<void>;
         clearContext: (sessionId: string, cwd: string) => Promise<void>;
         status: (sessionId: string, cwd: string) => Promise<SessionStatus | null>;
+        getInfo: (sessionId: string) => Promise<SessionInfoResult>;
+        onWorkerReady: (callback: (sessionId: string) => void) => () => void;
         onEvent: (callback: (event: AgentEvent) => void) => () => void;
         onPermission: (callback: (payload: PermissionAskRequest) => void) => () => void;
         permissionReply: (payload: PermissionAskReply) => Promise<{

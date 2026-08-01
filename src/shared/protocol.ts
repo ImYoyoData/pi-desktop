@@ -1,3 +1,5 @@
+import type { WorkerResourceSummary } from "./worker-resources";
+
 export const IpcChannels = {
   window: {
     minimize: "window:minimize",
@@ -41,6 +43,10 @@ export const IpcChannels = {
     tryCommand: "sessions:tryCommand",
     event: "sessions:event",
     status: "sessions:status",
+    /** Renderer ? main: loaded tools/extensions/skills for a session. */
+    getInfo: "sessions:getInfo",
+    /** Main ? renderer: a session worker finished loading its resources. */
+    workerReady: "sessions:workerReady",
     killWorker: "sessions:killWorker",
     restartWorker: "sessions:restartWorker",
     delete: "sessions:delete",
@@ -268,6 +274,11 @@ export type TrustState = {
 };
 
 export type SessionStatus = "idle" | "running" | "error" | "stuck";
+
+/** Tools / extensions / skills loaded into a session worker (null while booting). */
+export type SessionInfoResult = {
+  resources: WorkerResourceSummary | null;
+};
 
 /** Mirrors Pi SDK `ContextUsage` from `AgentSession.getContextUsage()`, plus session stats. */
 export type SessionContextUsage = {

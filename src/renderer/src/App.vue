@@ -30,13 +30,25 @@ const SplitRoot = defineAsyncComponent(() => import("@renderer/components/SplitR
 const workspace = useWorkspaceStore();
 const appearance = useAppearanceStore();
 /** True once workspace/platform init finished (drives the boot overlay). */
-const booted = ref(false);
+const bootInitDone = ref(false);
+/**
+ * True once a session worker finished loading its extensions/skills/tools;
+ * the boot overlay waits for this so the app only appears fully ready.
+ */
+const bootResourcesReady = ref(false);
 /**
  * Failsafe: some init steps (e.g. the trust prompt awaiting user input)
  * can take a while; never leave the boot overlay up forever.
  */
-const BOOT_TIMEOUT_MS = 5000;
+const BOOT_TIMEOUT_MS = 12000;
 let bootTimer = 0;
+let offWorkerReady: (() => void) | undefined;
+
+const showBootOverlay = computed(
+  () =>
+    !bootInitDone.value ||
+    (Boolean(workspace.root) && !bootResourcesReady.value),
+);
 const naiveLocale = locale === "zh-CN" ? zhCN : enUS;
 const naiveDateLocale = locale === "zh-CN" ? dateZhCN : dateEnUS;
 
@@ -59,13 +71,19 @@ let stopAppearance: (() => void) | undefined;
 
 onMounted(() => {
   stopAppearance = appearance.init();
+  // Wait for the session worker's extensions/skills/tools before fading
+  // the boot overlay (the overlay only covers the main area).
+  offWorkerReady = window.api.sessions.onWorkerReady(() => {
+    bootResourcesReady.value = true;
+  });
   void window.api.window.setUiLocale(locale === "zh-CN" ? "zh-CN" : "en");
   // Instant open: drop the full-screen splash right after first paint so the
   // window feels instant; heavy workspace init runs behind an in-app boot
   // overlay that fades out when the content is ready (progressive loading).
   void dismissStartupSplash(true);
   bootTimer = window.setTimeout(() => {
-    booted.value = true;
+    bootInitDone.value = true;
+    bootResourcesReady.value = true;
   }, BOOT_TIMEOUT_MS);
   void (async () => {
     try {
@@ -80,13 +98,14 @@ onMounted(() => {
     } finally {
       window.clearTimeout(bootTimer);
       await dismissLocaleReloadSplash();
-      booted.value = true;
+      bootInitDone.value = true;
     }
   })();
 });
 
 onUnmounted(() => {
   window.clearTimeout(bootTimer);
+  offWorkerReady?.();
   stopAppearance?.();
 });
 </script>
@@ -106,17 +125,21 @@ onUnmounted(() => {
         <div class="app-shell" :data-theme="appearance.resolvedTheme">
           <TitleBar />
           <main class="app-main">
-            <div v-if="!booted" class="boot-overlay" role="status">
-              <div class="boot-mark" aria-hidden="true">
-                <svg viewBox="0 0 800 800" xmlns="http://www.w3.org/2000/svg">
-                  <rect width="800" height="800" rx="120" fill="#09090b"/>
-                  <path fill="#fff" fill-rule="evenodd" d="M165.29 165.29 H517.36 V400 H400 V517.36 H282.65 V634.72 H165.29 Z M282.65 282.65 V400 H400 V282.65 Z"/>
-                  <path fill="#fff" d="M517.36 400 H634.72 V634.72 H517.36 Z"/>
-                </svg>
+            <Transition name="boot-fade">
+              <div v-if="showBootOverlay" class="boot-overlay" role="status">
+                <div class="loader" aria-hidden="true">
+                  <div class="loader-inner">
+                    <div class="blob b1"></div>
+                    <div class="blob b2"></div>
+                    <div class="blob b3"></div>
+                    <div class="blob b4"></div>
+                    <div class="blob b5"></div>
+                  </div>
+                </div>
+                <div class="boot-text">{{ t.bootLoading }}</div>
               </div>
-              <div class="boot-text">{{ t.bootLoading }}</div>
-            </div>
-            <template v-else>
+            </Transition>
+            <template v-if="!showBootOverlay">
               <WelcomeView v-if="!workspace.root" />
               <SplitRoot v-else />
             </template>
@@ -154,26 +177,18 @@ onUnmounted(() => {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 14px;
+  gap: 22px;
   background: var(--bg);
-  animation: boot-fade-in 180ms ease;
 }
 
-.boot-mark {
-  width: 46px;
-  height: 46px;
-  border-radius: 12px;
-  background: #09090b;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.16);
-  animation: boot-breathe 1.6s ease-in-out infinite;
+.boot-fade-enter-active,
+.boot-fade-leave-active {
+  transition: opacity 0.45s ease;
 }
 
-.boot-mark svg {
-  width: 28px;
-  height: 28px;
+.boot-fade-enter-from,
+.boot-fade-leave-to {
+  opacity: 0;
 }
 
 .boot-text {
@@ -181,24 +196,123 @@ onUnmounted(() => {
   color: var(--fg-muted, #71717a);
 }
 
-@keyframes boot-fade-in {
-  from {
-    opacity: 0;
-  }
+/* Fluid blob loader */
+.loader {
+  --c1: #ffbf48;
+  --c2: #be4a1d;
+  --t: 2s;
+  --size: 0.9;
+  position: relative;
+  width: 100px;
+  height: 100px;
+  border-radius: 50%;
+  transform: scale(var(--size));
+  box-shadow:
+    0 0 25px 0 #ffbf4780,
+    0 20px 50px 0 #bf4a1d80;
+  animation: colorize calc(var(--t) * 3) ease-in-out infinite;
+  overflow: hidden;
+}
+
+.loader::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  border-top: 1px solid var(--c1);
+  border-bottom: 1px solid var(--c2);
+  background: linear-gradient(180deg, #ffbf4740, #bf4a1d80);
+  box-shadow:
+    inset 0 10px 10px 0 #ffbf4780,
+    inset 0 -10px 10px 0 #bf4a1d80;
+}
+
+.loader-inner {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  overflow: hidden;
+  -webkit-filter: url('data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg"><filter id="g"><feGaussianBlur in="SourceGraphic" stdDeviation="5"/><feColorMatrix values="1 0 0 0 0  0 1 0 0 0  0 0 1 0 0  0 0 0 22 -9"/></filter></svg>#g');
+  filter: url('data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg"><filter id="g"><feGaussianBlur in="SourceGraphic" stdDeviation="5"/><feColorMatrix values="1 0 0 0 0  0 1 0 0 0  0 0 1 0 0  0 0 0 22 -9"/></filter></svg>#g');
+}
+
+.blob {
+  position: absolute;
+  border-radius: 42%;
+  background: linear-gradient(180deg, var(--c1) 30%, var(--c2) 70%);
+}
+
+.b1 {
+  width: 44px;
+  height: 44px;
+  top: 12px;
+  left: 28px;
+  transform-origin: 50% 130%;
+  animation: spin var(--t) linear infinite reverse;
+}
+
+.b2 {
+  width: 40px;
+  height: 40px;
+  top: 18px;
+  left: 30px;
+  transform-origin: 50% -30%;
+  animation: spin var(--t) linear infinite;
+  animation-delay: calc(var(--t) / -3);
+}
+
+.b3 {
+  width: 30px;
+  height: 30px;
+  top: 28px;
+  left: 35px;
+  transform-origin: -30% -10%;
+  animation: spin var(--t) linear infinite reverse;
+}
+
+.b4 {
+  width: 28px;
+  height: 28px;
+  top: 30px;
+  left: 36px;
+  transform-origin: -30% -10%;
+  animation: spin var(--t) linear infinite reverse;
+  animation-delay: calc(var(--t) / -2);
+}
+
+.b5 {
+  width: 30px;
+  height: 30px;
+  top: 28px;
+  left: 35px;
+  transform-origin: 130% -10%;
+  animation: spin var(--t) linear infinite;
+}
+
+@keyframes spin {
   to {
-    opacity: 1;
+    transform: rotate(360deg);
   }
 }
 
-@keyframes boot-breathe {
-  0%,
-  100% {
-    opacity: 0.85;
-    transform: scale(0.98);
+@keyframes colorize {
+  0% {
+    filter: hue-rotate(0deg);
   }
-  50% {
-    opacity: 1;
-    transform: scale(1);
+  20% {
+    filter: hue-rotate(-30deg);
+  }
+  40% {
+    filter: hue-rotate(-60deg);
+  }
+  60% {
+    filter: hue-rotate(-90deg);
+  }
+  80% {
+    filter: hue-rotate(-45deg);
+  }
+  100% {
+    filter: hue-rotate(0deg);
   }
 }
 </style>

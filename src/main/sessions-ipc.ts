@@ -5,6 +5,10 @@ import type { ChatMessageTag } from "../shared/chat-meta";
 import { IpcChannels } from "../shared/protocol";
 import type { SessionBroker } from "./session-broker";
 import { readSessionHistoryPage } from "./session-history";
+import {
+  clearSessionResources,
+  getSessionResources,
+} from "./agent-worker-host";
 import { renameSessionFile } from "./session-rename";
 
 function broadcastEvent(event: unknown): void {
@@ -27,9 +31,10 @@ export function registerSessionsIpc(broker: SessionBroker): void {
     return broker.createSession(cwd);
   });
 
-  ipcMain.handle(IpcChannels.sessions.close, (_event, sessionId: string) =>
-    broker.closeSession(sessionId),
-  );
+  ipcMain.handle(IpcChannels.sessions.close, (_event, sessionId: string) => {
+    clearSessionResources(String(sessionId ?? ""));
+    return broker.closeSession(sessionId);
+  });
 
   ipcMain.handle(IpcChannels.sessions.command, (_event, sessionId: string, command: AgentCommand) =>
     broker.send(sessionId, command),
@@ -47,6 +52,11 @@ export function registerSessionsIpc(broker: SessionBroker): void {
     broker.restartWorker(sessionId),
   );
 
+  ipcMain.handle(IpcChannels.sessions.getInfo, (_event, sessionId: string) => {
+    const resources = typeof sessionId === "string" ? getSessionResources(sessionId) : null;
+    return { resources };
+  });
+
   ipcMain.handle(IpcChannels.sessions.status, async (_event, sessionId: string, cwd: string) => {
     const list = await broker.listSessions(cwd);
     return list.find((s) => s.id === sessionId)?.status ?? null;
@@ -56,9 +66,10 @@ export function registerSessionsIpc(broker: SessionBroker): void {
     broker.openSession(sessionId, cwd),
   );
 
-  ipcMain.handle(IpcChannels.sessions.delete, (_event, sessionId: string, cwd: string) =>
-    broker.deleteSession(sessionId, cwd),
-  );
+  ipcMain.handle(IpcChannels.sessions.delete, (_event, sessionId: string, cwd: string) => {
+    clearSessionResources(String(sessionId ?? ""));
+    return broker.deleteSession(sessionId, cwd);
+  });
 
   ipcMain.handle(
     IpcChannels.sessions.setUserMessageMeta,

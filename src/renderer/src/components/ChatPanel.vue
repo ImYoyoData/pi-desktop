@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import { computed, defineAsyncComponent, onMounted, onUnmounted, ref, watch } from "vue";
 import { NButton, NEmpty, NIcon, NTag, NText, useMessage } from "naive-ui";
-import { AddOutline, SparklesOutline } from "@vicons/ionicons5";
+import { AddOutline, InformationCircleOutline, SparklesOutline } from "@vicons/ionicons5";
 import AskUserStrip from "@renderer/components/AskUserStrip.vue";
+import SessionInfoModal from "@renderer/components/SessionInfoModal.vue";
 import PermissionStrip from "@renderer/components/PermissionStrip.vue";
 import ExtensionUiStrip from "@renderer/components/ExtensionUiStrip.vue";
 import SessionTodoPanel from "@renderer/components/SessionTodoPanel.vue";
@@ -53,6 +54,7 @@ const running = computed(() => {
 });
 
 const nowTick = ref(Date.now());
+const sessionInfoOpen = ref(false);
 let headerTimer: ReturnType<typeof setInterval> | null = null;
 onMounted(() => {
   chat.bindEvents();
@@ -149,6 +151,20 @@ async function onNewAgent(): Promise<void> {
           circle
           size="tiny"
           class="pi-interactive"
+          :disabled="!sessions.activeId"
+          :title="t.sessionInfoTitle"
+          :aria-label="t.sessionInfoTitle"
+          @click="sessionInfoOpen = true"
+        >
+          <template #icon>
+            <NIcon :component="InformationCircleOutline" :size="15" />
+          </template>
+        </NButton>
+        <NButton
+          quaternary
+          circle
+          size="tiny"
+          class="pi-interactive"
           :disabled="!canCreateSession"
           :title="t.newSessionAction"
           :aria-label="t.newSessionAction"
@@ -178,6 +194,11 @@ async function onNewAgent(): Promise<void> {
       <SessionTodoPanel />
       <Composer />
     </template>
+    <SessionInfoModal
+      :open="sessionInfoOpen"
+      :session-id="sessions.activeId"
+      @close="sessionInfoOpen = false"
+    />
   </section>
 </template>
 

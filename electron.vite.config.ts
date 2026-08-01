@@ -20,6 +20,9 @@ export default defineConfig({
       externalizeDeps: {
         exclude: piEsmPackages,
       },
+      // The main bundle lives inside the asar and is never downloaded, so
+      // skip minification there to make every build noticeably faster.
+      minify: false,
       rollupOptions: {
         input: {
           index: resolve("src/main/index.ts"),
@@ -47,5 +50,12 @@ export default defineConfig({
         resolvers: [NaiveUiResolver()],
       }),
     ],
+    build: {
+      // Electron 39 ships a modern Chromium: avoid transpiling to old
+      // syntax and speed up esbuild.
+      target: "chrome130",
+      reportCompressedSize: false,
+      chunkSizeWarningLimit: 8000,
+    },
   },
 });
