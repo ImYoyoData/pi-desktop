@@ -36,6 +36,20 @@ describe("pcm-encode-core", () => {
     expect(pcm[4]).toBe(-32768); // clamped
   });
 
+  it("preserves duration when chunks are already 16 kHz (regression: double resample)", () => {
+    // startVoiceRecord pre-downsamples each chunk to 16 kHz in the capture
+    // loop and must encode with (16000, 16000). Passing the 48 kHz mic rate
+    // again would compress a 0.3s take to 0.1s and garble the speech.
+    const input = new Float32Array(4800); // 0.3s @ 16 kHz
+    for (let i = 0; i < input.length; i++) {
+      input[i] = Math.sin((2 * Math.PI * 440 * i) / 16000) * 0.5;
+    }
+    const ok = encodeFloatChunksSync([input], 16000, 16000);
+    expect(ok.length).toBe(4800);
+    const doubleResampled = encodeFloatChunksSync([input], 48000, 16000);
+    expect(doubleResampled.length).toBe(1600);
+  });
+
   it("encodes a full take to 16 kHz s16le (1s at 48 kHz -> 16k samples)", () => {
     const sampleRate = 48000;
     const seconds = 1;

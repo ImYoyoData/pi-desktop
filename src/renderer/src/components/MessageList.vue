@@ -236,9 +236,9 @@ watch([() => props.running, () => props.streaming], ([running, streaming]) => {
 const displayMessages = computed(() => {
   const list = [...props.messages];
   if (props.streaming) list.push(props.streaming);
-  if (!workFolded.value) return list;
   const counts = processSummaryCounts.value;
-  if (counts.tools + counts.thinking === 0) return list;
+  const foldable = counts.tools + counts.thinking > 0;
+  if (!foldable) return list;
   const start = latestTurnStart.value;
   const out: ChatMessage[] = [];
   let inserted = false;
@@ -250,15 +250,22 @@ const displayMessages = computed(() => {
         (msg.role === "assistant" && Boolean(msg.thinking) && !msg.text));
     if (isLatestTurnWork) {
       if (!inserted) {
+        inserted = true;
+        // Folded: one compact summary replaces the whole process.
+        // Expanded: the same bar stays on top so the user can fold again.
         out.push({
           id: "__process-summary__",
           role: "tool",
           toolCallId: "__process-summary__",
           toolName: "process-summary",
-          args: { toolCount: counts.tools, thinkingCount: counts.thinking },
+          args: {
+            toolCount: counts.tools,
+            thinkingCount: counts.thinking,
+            expanded: !workFolded.value,
+          },
         } as ChatMessage);
-        inserted = true;
       }
+      if (!workFolded.value) out.push(msg);
       continue;
     }
     out.push(msg);
@@ -1386,12 +1393,16 @@ function onRevertUser(msg: Extract<ChatMessage, { role: "user" }>): void {
             <button
               type="button"
               class="process-summary pi-interactive"
-              :title="t.processExpand"
-              @click="workFolded = false"
+              :title="msg.args?.expanded ? t.processCollapse : t.processExpand"
+              @click="msg.args?.expanded ? (workFolded = true) : (workFolded = false)"
             >
               <span class="ps-dot" aria-hidden="true" />
               <span class="ps-label">{{ processSummaryLabel(msg) }}</span>
-              <NIcon :component="ChevronDownOutline" :size="14" class="ps-chevron" />
+              <NIcon
+                :component="msg.args?.expanded ? ChevronUpOutline : ChevronDownOutline"
+                :size="14"
+                class="ps-chevron"
+              />
             </button>
           </div>
           <div v-else-if="toolGroupMembership.get(msg.id)?.isLead" class="tool">
