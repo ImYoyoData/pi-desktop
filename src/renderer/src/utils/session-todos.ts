@@ -199,6 +199,8 @@ export function todoListAllDone(list: SessionTodoList): boolean {
 
 export function todoListVisible(list: SessionTodoList | null | undefined): boolean {
   if (!list || list.items.length === 0) return false;
-  if (list.dismissed && todoListAllDone(list)) return false;
+  // Manually dismissed (or auto-dismissed after completion): hidden until the
+  // next setWidget / tool update brings new open items (which resets dismissed).
+  if (list.dismissed) return false;
   return true;
 }

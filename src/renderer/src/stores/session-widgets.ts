@@ -110,6 +110,36 @@ export const useSessionWidgetsStore = defineStore("session-widgets", () => {
     };
   }
 
+  /**
+   * Reset the todo widget when a new task/turn starts, so the previous
+   * round's items never accumulate on top of the next round's list.
+   */
+  function resetTodosForSession(sessionId: string): void {
+    const next = { ...todosBySession.value };
+    delete next[sessionId];
+    todosBySession.value = next;
+    const widgets = { ...widgetsBySession.value };
+    const row = widgets[sessionId];
+    if (row) {
+      const cleaned: Record<string, string[]> = {};
+      for (const [k, v] of Object.entries(row)) {
+        if (!isTodoWidgetKey(k)) cleaned[k] = v;
+      }
+      widgets[sessionId] = cleaned;
+      widgetsBySession.value = widgets;
+    }
+  }
+
+  /** Hide the todo panel for this session (re-shows when new open items arrive). */
+  function dismissTodoList(sessionId: string): void {
+    const list = todosBySession.value[sessionId];
+    if (!list) return;
+    todosBySession.value = {
+      ...todosBySession.value,
+      [sessionId]: { ...list, dismissed: true },
+    };
+  }
+
   /** Hide completed list when the user starts the next task. */
   function dismissCompletedOnNewTask(sessionId: string): void {
     const list = todosBySession.value[sessionId];
@@ -135,6 +165,8 @@ export const useSessionWidgetsStore = defineStore("session-widgets", () => {
     applyTodoToolResult,
     applyTodoToolArgs,
     dismissCompletedOnNewTask,
+    dismissTodoList,
+    resetTodosForSession,
     clearSession,
   };
 });

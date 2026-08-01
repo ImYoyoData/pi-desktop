@@ -38,4 +38,9 @@ describe("createAskUserToolDefinition", () => {
     ).rejects.toThrow(/question/i);
     expect(waitForAnswers).not.toHaveBeenCalled();
   });
+
+  it("runs sequentially so no other tool can execute while waiting for answers", () => {
+    const tool = createAskUserToolDefinition({});
+    expect(tool.executionMode).toBe("sequential");
+  });
 });

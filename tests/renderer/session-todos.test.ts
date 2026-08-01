@@ -91,4 +91,14 @@ describe("session-todos", () => {
     expect(card.items).toHaveLength(2);
     expect(card.summary).toBe("1/2");
   });
+
+  it("hides a dismissed list even when it still has open items", () => {
+    const list = parseTodoWidgetLines("pi-deck-todo", [
+      "Todos 1/2",
+      "☐ #1 open item",
+      "☑ #2 done item",
+    ]);
+    expect(todoListVisible({ ...list!, dismissed: true })).toBe(false);
+    expect(todoListVisible({ ...list!, dismissed: false })).toBe(true);
+  });
 });

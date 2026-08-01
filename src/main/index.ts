@@ -239,11 +239,6 @@ function boot(): void {
   }
 
   app.whenReady().then(() => {
-    const init = ensurePiAgentEnvironment();
-    if (init.created.length && is.dev) {
-      console.info("[pi-env] initialized", init.agentDir, init.created);
-    }
-
     installLocalFileProtocol();
     installApplicationMenu();
 
@@ -333,10 +328,15 @@ function boot(): void {
       installWindowShortcuts(window);
     });
 
-    // Show UI as soon as possible — defer non-critical hosts (ASR / update / market / CLI).
+    // Show UI as soon as possible — defer agent env setup and non-critical
+    // hosts (ASR / update / market / CLI) so the window paints first.
     createMainWindow();
 
     setImmediate(() => {
+      const init = ensurePiAgentEnvironment();
+      if (init.created.length && is.dev) {
+        console.info("[pi-env] initialized", init.agentDir, init.created);
+      }
       registerAsrIpc();
       registerTtsIpc();
       registerUpdateIpc();
