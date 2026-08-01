@@ -215,6 +215,7 @@ declare const api: {
         unstage: (paths: string[]) => Promise<{ ok: boolean; message?: string; code?: string }>;
         ignore: (paths: string[]) => Promise<string[]>;
         unignore: (path: string) => Promise<string[]>;
+        ignored: () => Promise<string[]>;
 fileDiffAtCommit: (payload: {
             relativePath: string;
             commitHash: string;

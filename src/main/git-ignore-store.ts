@@ -64,13 +64,12 @@ export function removeGitIgnored(workspace: string, path: string): string[] {
   return current;
 }
 
+import { matchesGitIgnorePatterns } from "../shared/git-ignore";
+
 /**
  * True when a workspace-relative path matches the ignore list (exact file or
  * a folder prefix — `dist` also matches `dist/x/y`).
  */
 export function isGitIgnoredPath(workspace: string, relativePath: string): boolean {
-  const rel = (relativePath ?? "").replace(/\\/g, "/").replace(/^\//, "");
-  if (!rel) return false;
-  const patterns = listGitIgnored(workspace);
-  return patterns.some((p) => rel === p || rel.startsWith(`${p}/`));
+  return matchesGitIgnorePatterns(relativePath, listGitIgnored(workspace));
 }

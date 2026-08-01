@@ -314,11 +314,14 @@ export async function getWorkspaceGitStatus(cwd: string): Promise<GitStatusResul
     if (!isWithin(cwd, abs)) continue;
     const relativePath = path.relative(cwd, abs).split(path.sep).join("/");
     if (!relativePath || relativePath.startsWith("..")) continue;
+    const ignored = isGitIgnoredPath(cwd, relativePath);
+    // Filtered files are hidden from the Changes list entirely.
+    if (ignored) continue;
     files.push({
       relativePath,
       ...classify(entry),
       staged: entry.indexStatus !== " " && entry.indexStatus !== "?",
-      ignored: isGitIgnoredPath(cwd, relativePath),
+      ignored: false,
     });
   }
   return { isGitRepository: true, branch, files };

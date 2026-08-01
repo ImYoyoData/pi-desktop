@@ -22,6 +22,8 @@ import {
   RefreshOutline,
   DocumentAttachOutline,
   FolderOpenOutline,
+  EyeOffOutline,
+  EyeOutline,
 } from "@vicons/ionicons5";
 import { useWorkspaceStore } from "@renderer/stores/workspace";
 import { usePreviewStore } from "@renderer/stores/preview";
@@ -29,6 +31,7 @@ import { useRightTabsStore } from "@renderer/stores/right-tabs";
 import { useLayoutStore } from "@renderer/stores/layout";
 import { useComposerStore } from "@renderer/stores/composer";
 import { gitCodeColor } from "@renderer/utils/editor-lang";
+import { matchesGitIgnorePatterns } from "../../../shared/git-ignore";
 import { ancestorChain, nextExpandedKeys } from "@renderer/utils/files-tree-expand";
 import {
   encodeWorkspacePaths,
@@ -201,6 +204,7 @@ const selectedKeys = ref<string[]>([]);
 /** relativePath -> git code */
 const gitCodes = ref<Record<string, string>>({});
 const gitDirtyDirs = ref<Set<string>>(new Set());
+const ignoredPatterns = ref<string[]>([]);
 
 const ctx = ref({
   show: false,
@@ -239,26 +243,49 @@ function renderSuffix({ option }: { option: TreeOption }) {
     if (!gitDirtyDirs.value.has(String(option.key))) return null;
     return h("span", { class: "git-dot", title: t.filesContainsChanges });
   }
-  const code = gitCodes.value[String(option.key)];
-  if (!code) return null;
-  return h(
-    "span",
-    {
-      class: "git-badge",
-      style: { color: gitCodeColor(code) },
-      title: code,
-    },
-    code,
-  );
+  const key = String(option.key);
+  const code = gitCodes.value[key];
+  const ignored = Boolean((option as { ignored?: boolean }).ignored);
+  return h("span", { class: "file-suffix" }, [
+    code
+      ? h(
+          "span",
+          { class: "git-badge", style: { color: gitCodeColor(code) }, title: code },
+          code,
+        )
+      : null,
+    h(
+      "button",
+      {
+        type: "button",
+        class: "files-ignore-btn",
+        title: ignored ? t.changesUnignore : t.changesIgnore,
+        onClick: (e: MouseEvent) => {
+          e.stopPropagation();
+          e.preventDefault();
+          void toggleIgnore(key, ignored);
+        },
+      },
+      [
+        h(NIcon, {
+          component: ignored ? EyeOutline : EyeOffOutline,
+          size: 13,
+        }),
+      ],
+    ),
+  ]);
 }
 
 function renderLabel({ option }: { option: TreeOption }) {
   const isDir = option.isLeaf === false;
+  const ignored = !isDir && Boolean((option as { ignored?: boolean }).ignored);
   return h(
     "span",
     {
-      class: "tree-label",
-      style: { color: labelColor(String(option.key), isDir) },
+      class: ["tree-label", { ignored }],
+      style: ignored
+        ? { color: "var(--fg-faint, var(--fg-muted))" }
+        : { color: labelColor(String(option.key), isDir) },
     },
     String(option.label ?? ""),
   );
@@ -269,6 +296,9 @@ function toTreeOption(entry: { name: string; path: string; kind: "file" | "dir" 
     key: entry.path,
     label: entry.name,
     isLeaf: entry.kind === "file",
+    ...(entry.kind === "file"
+      ? { ignored: matchesGitIgnorePatterns(entry.path, ignoredPatterns.value) }
+      : {}),
   };
 }
 
@@ -281,6 +311,32 @@ function findTreeNode(nodes: TreeOption[], relativePath: string): TreeOption | n
     }
   }
   return null;
+}
+
+async function refreshIgnored(): Promise<void> {
+  try {
+    ignoredPatterns.value = await window.api.git.ignored();
+  } catch {
+    ignoredPatterns.value = [];
+  }
+}
+
+async function toggleIgnore(relativePath: string, currentlyIgnored: boolean): Promise<void> {
+  try {
+    if (currentlyIgnored) {
+      await window.api.git.unignore(relativePath);
+      message.success(t.changesUnignored);
+    } else {
+      await window.api.git.ignore([relativePath]);
+      message.success(t.changesIgnored);
+    }
+    await refreshIgnored();
+    // Rebuild the visible tree + git status so filtered files disappear
+    // from Changes and the file list reflects the new state.
+    await refreshRoot();
+  } catch (err) {
+    message.error(err instanceof Error ? err.message : String(err));
+  }
 }
 
 async function refreshGit(): Promise<void> {
@@ -313,10 +369,12 @@ async function refreshRoot(): Promise<void> {
     treeData.value = [];
     gitCodes.value = {};
     gitDirtyDirs.value = new Set();
+    ignoredPatterns.value = [];
     return;
   }
   loading.value = true;
   try {
+    await refreshIgnored();
     await refreshGit();
     treeData.value = await loadChildren("");
     // Only rehydrate currently expanded dirs (accordion = one branch), one level each.
@@ -523,6 +581,21 @@ const ctxOptions = computed<DropdownOption[]>(() => {
       { label: t.open, key: "open" },
       { label: t.filesAddToChat, key: "cite", icon: () => h(NIcon, null, { default: () => h(ChatbubbleEllipsesOutline) }) },
       { label: t.filesReveal, key: "reveal" },
+      {
+        label: matchesGitIgnorePatterns(ctx.value.path, ignoredPatterns.value)
+          ? t.changesUnignore
+          : t.changesIgnore,
+        key: "ignore",
+        icon: () =>
+          h(NIcon, null, {
+            default: () =>
+              h(
+                matchesGitIgnorePatterns(ctx.value.path, ignoredPatterns.value)
+                  ? EyeOutline
+                  : EyeOffOutline,
+              ),
+          }),
+      },
       { type: "divider", key: "d0" },
       { label: t.filesCopyRelativePath, key: "copy-rel" },
       { label: t.filesCopyAbsolutePath, key: "copy-abs" },
@@ -645,6 +718,9 @@ async function onCtxSelect(key: string | number): Promise<void> {
       }
       case "rename":
         openPrompt("rename", parentDirOf(target), target);
+        break;
+      case "ignore":
+        await toggleIgnore(ctx.value.path, matchesGitIgnorePatterns(ctx.value.path, ignoredPatterns.value));
         break;
       case "cut":
         if (!target) break;
@@ -956,5 +1032,45 @@ watch(
   background: #ca8a04;
   display: inline-block;
   margin-left: 6px;
+}
+
+/* File filter (ignore) toggle + grayed ignored rows */
+.file-suffix {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.files-ignore-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--fg-faint, var(--fg-muted));
+  cursor: pointer;
+  opacity: 0;
+  transition:
+    opacity var(--duration-fast, 140ms) var(--ease-out, ease),
+    background var(--duration-fast, 140ms) var(--ease-out, ease);
+}
+
+.n-tree-node-content:hover .files-ignore-btn,
+.files-ignore-btn.forced {
+  opacity: 1;
+}
+
+.files-ignore-btn:hover {
+  background: var(--bg-hover);
+  color: var(--fg);
+}
+
+.tree-label.ignored {
+  text-decoration: line-through;
+  text-decoration-color: color-mix(in srgb, var(--fg-muted) 45%, transparent);
 }
 </style>
