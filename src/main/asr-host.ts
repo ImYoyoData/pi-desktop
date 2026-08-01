@@ -163,6 +163,7 @@ function writeCloudPrefs(prefs: AsrCloudPrefs): void {
 function isCloudConfigured(cloud: AsrCloudConfig | undefined): boolean {
   if (!cloud?.apiKey?.trim() || !cloud?.model?.trim()) return false;
   if (cloud.apiStyle === "custom") return Boolean(cloud.endpoint?.trim());
+  // chat (MiMo) and openai-* styles all need a base URL; language is optional.
   return Boolean(cloud.baseUrl?.trim());
 }
 
@@ -1284,7 +1285,14 @@ function toInt16Pcm(pcm: unknown): Int16Array {
 }
 
 /**
- * Transcribe WAV PCM through an OpenAI-compatible cloud ASR API.
+ * Transcribe WAV PCM through a cloud ASR API.
+ *
+ * Supported formats:
+ * - openai-multipart: POST {baseUrl}/audio/transcriptions (multipart file + model)
+ * - openai-json:      POST {baseUrl}/audio/transcriptions (JSON with base64 data URL)
+ * - chat:             POST {baseUrl}/chat/completions with an input_audio message
+ *                     (Xiaomi MiMo style; sends api-key + Bearer headers)
+ * - custom:           POST {endpoint} exactly as configured (multipart)
  */
 async function transcribeViaCloudApi(
   pcm: Int16Array,
@@ -1296,12 +1304,12 @@ async function transcribeViaCloudApi(
   }
   const wav = wavBytesFromPcm(pcm, sampleRate || 16000);
   const style = cloud.apiStyle ?? "openai-multipart";
-  const auth = `Bearer ${cloud.apiKey.trim()}`;
+  const apiKey = cloud.apiKey.trim();
   const model = cloud.model.trim();
 
   let url: string;
   let body: BodyInit;
-  const headers: Record<string, string> = { Authorization: auth };
+  const headers: Record<string, string> = {};
 
   if (style === "custom") {
     url = (cloud.endpoint ?? "").trim();
@@ -1310,9 +1318,37 @@ async function transcribeViaCloudApi(
     form.append("file", new Blob([wav], { type: "audio/wav" }), "audio.wav");
     form.append("model", model);
     body = form;
+    headers["Authorization"] = `Bearer ${apiKey}`;
+  } else if (style === "chat") {
+    const base = cloud.baseUrl.trim().replace(/\/+$/, "");
+    url = `${base}/chat/completions`;
+    headers["Content-Type"] = "application/json";
+    // Xiaomi MiMo uses the `api-key` header; Bearer is sent too for
+    // OpenAI-style gateways that expose the same chat endpoint.
+    headers["api-key"] = apiKey;
+    headers["Authorization"] = `Bearer ${apiKey}`;
+    const lang = (cloud.language ?? "").trim();
+    body = JSON.stringify({
+      model,
+      messages: [
+        {
+          role: "user",
+          content: [
+            {
+              type: "input_audio",
+              input_audio: {
+                data: `data:audio/wav;base64,${wav.toString("base64")}`,
+              },
+            },
+          ],
+        },
+      ],
+      ...(lang ? { asr_options: { language: lang } } : {}),
+    });
   } else {
     const base = cloud.baseUrl.trim().replace(/\/+$/, "");
     url = `${base}/audio/transcriptions`;
+    headers["Authorization"] = `Bearer ${apiKey}`;
     if (style === "openai-json") {
       headers["Content-Type"] = "application/json";
       body = JSON.stringify({
@@ -1335,7 +1371,18 @@ async function transcribeViaCloudApi(
   if (!resp.ok) {
     throw new Error(`ASR cloud API failed: HTTP ${resp.status} ${(await resp.text()).slice(0, 300)}`);
   }
-  const data = (await resp.json()) as { text?: unknown };
+  const data = (await resp.json()) as {
+    text?: unknown;
+    choices?: Array<{ message?: { content?: unknown } }>;
+  };
+  if (style === "chat") {
+    const content =
+      typeof data.choices?.[0]?.message?.content === "string"
+        ? data.choices[0].message.content.trim()
+        : "";
+    if (!content) throw new Error("ASR cloud API returned empty transcript");
+    return content;
+  }
   const text = typeof data.text === "string" ? data.text.trim() : "";
   if (!text) throw new Error("ASR cloud API returned empty transcript");
   return text;
@@ -1353,10 +1400,13 @@ export async function testAsrCloud(): Promise<{ ok: boolean; message: string }> 
     const text = await transcribeViaCloudApi(silence, 16000, cloud!);
     return { ok: true, message: text || "OK" };
   } catch (err) {
-    return {
-      ok: false,
-      message: err instanceof Error ? err.message : String(err),
-    };
+    const raw = err instanceof Error ? err.message : String(err);
+    // Chat-style ASR (e.g. Xiaomi MiMo) returns an empty transcript for
+    // near-silent test audio even when the connection works ? count that as OK.
+    if (cloud?.apiStyle === "chat" && raw.includes("empty transcript")) {
+      return { ok: true, message: "OK" };
+    }
+    return { ok: false, message: raw };
   }
 }
 
@@ -1907,7 +1957,9 @@ export function registerAsrIpc(): void {
   });
   ipcMain.handle(IpcChannels.asr.setCloudConfig, (_e, cloud: AsrCloudConfig) => {
     const style =
-      cloud?.apiStyle === "openai-json" || cloud?.apiStyle === "custom"
+      cloud?.apiStyle === "openai-json" ||
+      cloud?.apiStyle === "custom" ||
+      cloud?.apiStyle === "chat"
         ? cloud.apiStyle
         : "openai-multipart";
     const sanitized: AsrCloudConfig = {
@@ -1917,6 +1969,7 @@ export function registerAsrIpc(): void {
       model: String(cloud?.model ?? "").trim(),
       apiStyle: style,
       endpoint: String(cloud?.endpoint ?? "").trim(),
+      language: String(cloud?.language ?? "").trim().slice(0, 16),
     };
     writeCloudPrefs({ ...readCloudPrefs(), cloud: sanitized });
     return getStatus();
