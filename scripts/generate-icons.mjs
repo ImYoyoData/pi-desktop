@@ -12,7 +12,7 @@ const root = join(__dirname, "..");
 const svgPath = join(root, "build", "icon.svg");
 const pngPath = join(root, "build", "icon.png");
 
-function pngIsFresh(): boolean {
+function pngIsFresh() {
   try {
     if (!existsSync(pngPath)) return false;
     return statSync(svgPath).mtimeMs <= statSync(pngPath).mtimeMs;
