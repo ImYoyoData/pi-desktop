@@ -243,37 +243,17 @@ function renderSuffix({ option }: { option: TreeOption }) {
     if (!gitDirtyDirs.value.has(String(option.key))) return null;
     return h("span", { class: "git-dot", title: t.filesContainsChanges });
   }
-  const key = String(option.key);
-  const code = gitCodes.value[key];
-  const ignored = Boolean((option as { ignored?: boolean }).ignored);
-  return h("span", { class: "file-suffix" }, [
-    code
-      ? h(
-          "span",
-          { class: "git-badge", style: { color: gitCodeColor(code) }, title: code },
-          code,
-        )
-      : null,
-    h(
-      "button",
-      {
-        type: "button",
-        class: "files-ignore-btn",
-        title: ignored ? t.changesUnignore : t.changesIgnore,
-        onClick: (e: MouseEvent) => {
-          e.stopPropagation();
-          e.preventDefault();
-          void toggleIgnore(key, ignored);
-        },
-      },
-      [
-        h(NIcon, {
-          component: ignored ? EyeOutline : EyeOffOutline,
-          size: 13,
-        }),
-      ],
-    ),
-  ]);
+  const code = gitCodes.value[String(option.key)];
+  if (!code) return null;
+  return h(
+    "span",
+    {
+      class: "git-badge",
+      style: { color: gitCodeColor(code) },
+      title: code,
+    },
+    code,
+  );
 }
 
 function renderLabel({ option }: { option: TreeOption }) {
@@ -1032,41 +1012,6 @@ watch(
   background: #ca8a04;
   display: inline-block;
   margin-left: 6px;
-}
-
-/* File filter (ignore) toggle + grayed ignored rows */
-.file-suffix {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-}
-
-.files-ignore-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 18px;
-  height: 18px;
-  padding: 0;
-  border: none;
-  border-radius: 4px;
-  background: transparent;
-  color: var(--fg-faint, var(--fg-muted));
-  cursor: pointer;
-  opacity: 0;
-  transition:
-    opacity var(--duration-fast, 140ms) var(--ease-out, ease),
-    background var(--duration-fast, 140ms) var(--ease-out, ease);
-}
-
-.n-tree-node-content:hover .files-ignore-btn,
-.files-ignore-btn.forced {
-  opacity: 1;
-}
-
-.files-ignore-btn:hover {
-  background: var(--bg-hover);
-  color: var(--fg);
 }
 
 .tree-label.ignored {
