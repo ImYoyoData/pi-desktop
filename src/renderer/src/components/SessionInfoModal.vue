@@ -1,10 +1,9 @@
 <script setup lang="ts">
-import { computed, ref, watch } from "vue";
+import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import {
   NButton,
   NIcon,
   NModal,
-  NScrollbar,
   NSpin,
   NTag,
   NText,
@@ -59,25 +58,50 @@ function openReadFile(filePath: string): void {
   });
 }
 
+async function load(): Promise<void> {
+  if (!props.sessionId) return;
+  loading.value = true;
+  resources.value = null;
+  extensions.value = [];
+  try {
+    const info = await window.api.sessions.getInfo(props.sessionId);
+    resources.value = info.resources ?? null;
+    extensions.value = info.extensions ?? [];
+  } catch {
+    resources.value = null;
+  } finally {
+    loading.value = false;
+  }
+}
+
 watch(
   () => props.open,
-  async (open) => {
-    if (!open || !props.sessionId) return;
-    loading.value = true;
-    resources.value = null;
-    extensions.value = [];
-    try {
-      const info = await window.api.sessions.getInfo(props.sessionId);
-      resources.value = info.resources ?? null;
-      extensions.value = info.extensions ?? [];
-    } catch {
-      resources.value = null;
-    } finally {
-      loading.value = false;
-    }
+  (open) => {
+    if (open) void load();
   },
   { immediate: true },
 );
+
+watch(
+  () => props.sessionId,
+  (id) => {
+    if (props.open && id) void load();
+  },
+);
+
+// Auto-refresh while open: when the session worker finishes loading its
+// extensions/skills/tools, update the panel without requiring a re-click.
+let offWorkerReady: (() => void) | undefined;
+
+onMounted(() => {
+  offWorkerReady = window.api.sessions.onWorkerReady((sessionId) => {
+    if (props.open && props.sessionId === sessionId) void load();
+  });
+});
+
+onUnmounted(() => {
+  offWorkerReady?.();
+});
 </script>
 
 <template>
@@ -93,7 +117,7 @@ watch(
   >
     <NText depth="3" class="info-hint">{{ t.sessionInfoHint }}</NText>
     <NSpin :show="loading" class="spin-fill">
-      <NScrollbar class="info-scroll">
+      <div class="modal-scroll info-scroll">
         <!-- Tools -->
         <section class="card">
           <div class="card-title">
@@ -165,7 +189,7 @@ watch(
           </ul>
           <NText v-else depth="3" class="empty">{{ t.sessionInfoEmpty }}</NText>
         </section>
-      </NScrollbar>
+      </div>
     </NSpin>
     <template #footer>
       <div class="footer">
@@ -188,14 +212,7 @@ watch(
 }
 
 .info-scroll {
-  max-height: min(56vh, 460px);
   padding-right: 6px;
-}
-
-/* The NScrollbar handles scrolling; don't let the global card-content
-   overflow rule add a second scrollbar. */
-.session-info-modal :deep(.n-card__content) {
-  overflow: hidden;
 }
 
 .card {
