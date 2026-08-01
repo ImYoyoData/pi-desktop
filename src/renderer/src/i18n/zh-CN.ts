@@ -316,6 +316,14 @@ export const zh = {
   changesFilesChanged: "变更文件",
   changesResetSoft: "重置（软）",
   changesResetHard: "重置（硬）",
+  changesStage: "暂存",
+  changesUnstage: "取消暂存",
+  changesStaged: "已暂存",
+  changesUnstaged: "已取消暂存",
+  changesIgnore: "过滤此文件",
+  changesUnignore: "取消过滤此文件",
+  changesIgnored: "已过滤",
+  changesUnignored: "已取消过滤",
   changesResetConfirm: (hash: string, mode: string) =>
     `将当前分支重置到 ${hash}（${mode}）？软重置保留你的更改到暂存区；硬重置会丢弃工作区的更改。`,
   changesRestoreFileConfirm: (path: string, hash: string) =>

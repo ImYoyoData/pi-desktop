@@ -29,6 +29,8 @@ import {
   GitCommitOutline,
   GitCompareOutline,
   GitMergeOutline,
+  EyeOffOutline,
+  EyeOutline,
   RefreshOutline,
   TimeOutline,
   TrashOutline,
@@ -48,7 +50,13 @@ const props = withDefaults(
   { visible: true },
 );
 
-type GitFile = { relativePath: string; status: string; code: string };
+type GitFile = {
+  relativePath: string;
+  status: string;
+  code: string;
+  staged?: boolean;
+  ignored?: boolean;
+};
 type GitRemote = { name: string; fetchUrl: string; pushUrl: string };
 type GitLogEntry = {
   hash: string;
@@ -474,6 +482,38 @@ async function onDiscardSelected(): Promise<void> {
       d.loading = true;
       return runOp(t.changesDiscarded, () => window.api.git.restore(paths)).then(() => true);
     },
+  });
+}
+
+function onStageFile(file: GitFile): void {
+  void runOp(t.changesStaged, () => window.api.git.stage([file.relativePath])).then((ok) => {
+    if (ok) {
+      file.staged = true;
+      if (selectedPath.value === file.relativePath) void loadDiff(file.relativePath);
+    }
+  });
+}
+
+function onUnstageFile(file: GitFile): void {
+  void runOp(t.changesUnstaged, () => window.api.git.unstage([file.relativePath])).then((ok) => {
+    if (ok) {
+      file.staged = false;
+      if (selectedPath.value === file.relativePath) void loadDiff(file.relativePath);
+    }
+  });
+}
+
+function onIgnoreFile(file: GitFile): void {
+  void window.api.git.ignore([file.relativePath]).then(() => {
+    file.ignored = true;
+    message.success(t.changesIgnored);
+  });
+}
+
+function onUnignoreFile(file: GitFile): void {
+  void window.api.git.unignore(file.relativePath).then(() => {
+    file.ignored = false;
+    message.success(t.changesUnignored);
   });
 }
 
@@ -1096,7 +1136,11 @@ watch(
             :key="f.relativePath"
             type="button"
             class="file-row"
-            :class="{ active: selectedPath === f.relativePath }"
+            :class="{
+              active: selectedPath === f.relativePath,
+              ignored: f.ignored,
+              staged: f.staged,
+            }"
             @click="loadDiff(f.relativePath)"
           >
             <NCheckbox
@@ -1105,6 +1149,16 @@ watch(
               @click.stop
               @update:checked="(v) => (checked[f.relativePath] = v)"
             />
+            <button
+              type="button"
+              class="row-stage"
+              :class="{ on: f.staged }"
+              :title="f.staged ? t.changesUnstage : t.changesStage"
+              :disabled="busy || f.ignored"
+              @click.stop="f.staged ? onUnstageFile(f) : onStageFile(f)"
+            >
+              <NIcon :component="GitCommitOutline" :size="13" />
+            </button>
             <span class="status-badge" :class="statusClass(f.code)">{{ f.code }}</span>
             <span class="file-main">
               <span class="file-name" :title="f.relativePath">{{ fileName(f.relativePath) }}</span>
@@ -1129,6 +1183,16 @@ watch(
               @click.stop="onDiscardFile(f.relativePath)"
             >
               <NIcon :component="ArrowUndoOutline" :size="13" />
+            </button>
+            <button
+              v-if="!isConflictFile(f)"
+              type="button"
+              class="row-discard"
+              :title="f.ignored ? t.changesUnignore : t.changesIgnore"
+              :disabled="busy"
+              @click.stop="f.ignored ? onUnignoreFile(f) : onIgnoreFile(f)"
+            >
+              <NIcon :component="f.ignored ? EyeOutline : EyeOffOutline" :size="14" />
             </button>
           </button>
         </div>
@@ -2273,5 +2337,56 @@ watch(
 
 .file-log-diff-head .file-status {
   margin-right: 4px;
+}
+
+/* Stage toggle + filtered (ignored) file rows */
+.row-stage {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: none;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--fg-faint, var(--fg-muted));
+  cursor: pointer;
+  flex-shrink: 0;
+  opacity: 0;
+  transition: opacity var(--duration-fast, 140ms) var(--ease-out, ease);
+}
+
+.file-row:hover .row-stage,
+.file-row.active .row-stage,
+.row-stage.on {
+  opacity: 1;
+}
+
+.row-stage.on {
+  color: var(--accent);
+}
+
+.row-stage:hover:not(:disabled) {
+  background: var(--bg-hover);
+  color: var(--fg);
+}
+
+.file-row.ignored {
+  opacity: 0.55;
+}
+
+.file-row.ignored .file-name,
+.file-row.ignored .file-dir {
+  color: var(--fg-faint, var(--fg-muted));
+}
+
+.file-row.ignored .status-badge {
+  background: color-mix(in srgb, var(--fg-muted) 8%, transparent);
+  color: var(--fg-faint, var(--fg-muted));
+}
+
+.file-row.staged .status-badge {
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 45%, transparent);
 }
 </style>
