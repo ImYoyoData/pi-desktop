@@ -110,6 +110,15 @@ const fileLogSelected = ref<{ hash: string; shortHash: string; subject: string }
 const fileLogDiff = ref<string | null>(null);
 const fileLogDiffLoading = ref(false);
 const restoringCommit = ref(false);
+/** Selected commit detail (history → file list → per-file diff). */
+type CommitDetail = { hash: string; shortHash: string; subject: string; author: string; date: string };
+const commitDetail = ref<CommitDetail | null>(null);
+const commitFiles = ref<{ status: string; path: string }[]>([]);
+const commitFilesLoading = ref(false);
+const commitFileSelected = ref<{ path: string; status: string } | null>(null);
+const commitFileDiff = ref<string | null>(null);
+const commitFileDiffLoading = ref(false);
+const resetting = ref<"soft" | "hard" | null>(null);
 
 const checkedPaths = computed(() =>
   files.value.filter((f) => checked.value[f.relativePath]).map((f) => f.relativePath),
@@ -532,6 +541,94 @@ async function openLog(): Promise<void> {
   } finally {
     logLoading.value = false;
   }
+}
+async function openCommitDetail(entry: GitLogEntry): Promise<void> {
+  commitDetail.value = {
+    hash: entry.hash,
+    shortHash: entry.shortHash,
+    subject: entry.subject,
+    author: entry.author,
+    date: entry.date,
+  };
+  commitFiles.value = [];
+  commitFileSelected.value = null;
+  commitFileDiff.value = null;
+  commitFilesLoading.value = true;
+  try {
+    const res = await window.api.git.showCommitFiles(entry.hash);
+    commitFiles.value = res.files ?? [];
+  } catch (err) {
+    message.error(err instanceof Error ? err.message : String(err));
+  } finally {
+    commitFilesLoading.value = false;
+  }
+}
+
+function closeCommitDetail(): void {
+  commitDetail.value = null;
+  commitFiles.value = [];
+  commitFileSelected.value = null;
+  commitFileDiff.value = null;
+}
+
+async function showCommitFileDiff(file: { path: string; status: string }): Promise<void> {
+  const commit = commitDetail.value;
+  if (!commit || busy.value) return;
+  commitFileSelected.value = file;
+  commitFileDiff.value = null;
+  commitFileDiffLoading.value = true;
+  try {
+    const res = await window.api.git.fileDiffAtCommit(file.path, commit.hash);
+    commitFileDiff.value = res.supported ? (res.patch ?? null) : null;
+  } catch (err) {
+    message.error(err instanceof Error ? err.message : String(err));
+  } finally {
+    commitFileDiffLoading.value = false;
+  }
+}
+
+function backFromCommitFileDiff(): void {
+  commitFileSelected.value = null;
+  commitFileDiff.value = null;
+}
+
+function restoreCommitFile(): void {
+  const file = commitFileSelected.value;
+  const commit = commitDetail.value;
+  if (!file || !commit || busy.value) return;
+  const d = dialog.warning({
+    title: t.changesRestoreToCommit,
+    content: t.changesRestoreFileConfirm(file.path, commit.shortHash),
+    positiveText: t.confirm,
+    negativeText: t.cancel,
+    onPositiveClick: () => {
+      d.loading = true;
+      return runOp(t.changesRestored, () =>
+        window.api.git.restoreFileToCommit(file.path, commit.hash),
+      );
+    },
+  });
+}
+
+function onResetCommit(mode: "soft" | "hard"): void {
+  const commit = commitDetail.value;
+  if (!commit || busy.value) return;
+  const d = dialog.warning({
+    title: mode === "soft" ? t.changesResetSoft : t.changesResetHard,
+    content: t.changesResetConfirm(commit.shortHash, mode),
+    positiveText: t.confirm,
+    negativeText: t.cancel,
+    onPositiveClick: () => {
+      d.loading = true;
+      resetting.value = mode;
+      return runOp(
+        mode === "soft" ? t.changesResetSoft : t.changesResetHard,
+        () => window.api.git.resetToCommit(commit.hash, mode),
+      ).finally(() => {
+        resetting.value = null;
+      });
+    },
+  });
 }
 
 async function onAddRemote(): Promise<void> {
@@ -1196,18 +1293,130 @@ watch(
       v-model:show="showLog"
       preset="card"
       :title="t.changesLog"
-      style="width: min(640px, 94vw)"
+      style="width: min(720px, 94vw)"
       :mask-closable="true"
     >
-      <NSpin :show="logLoading">
+      <!-- Commit detail: file list + reset + per-file diff -->
+      <template v-if="commitDetail">
+        <div class="commit-detail-head">
+          <button type="button" class="commit-back" :disabled="busy" @click="closeCommitDetail">
+            <NIcon :component="ChevronBackOutline" :size="14" />
+            {{ t.back }}
+          </button>
+          <div class="commit-detail-title" :title="commitDetail.subject">
+            <code class="log-hash">{{ commitDetail.shortHash }}</code>
+            <span class="log-subject">{{ commitDetail.subject }}</span>
+          </div>
+          <div class="commit-actions">
+            <NButton
+              size="tiny"
+              secondary
+              :disabled="busy || resetting !== null"
+              :loading="resetting === 'soft'"
+              @click="onResetCommit('soft')"
+            >
+              {{ t.changesResetSoft }}
+            </NButton>
+            <NButton
+              size="tiny"
+              secondary
+              type="error"
+              :disabled="busy || resetting !== null"
+              :loading="resetting === 'hard'"
+              @click="onResetCommit('hard')"
+            >
+              {{ t.changesResetHard }}
+            </NButton>
+          </div>
+        </div>
+        <div class="commit-detail-meta">{{ commitDetail.author }} · {{ formatLogDate(commitDetail.date) }}</div>
+
+        <template v-if="commitFileSelected">
+          <div class="file-log-diff-head">
+            <button type="button" class="file-log-back" :disabled="busy" @click="backFromCommitFileDiff">
+              <NIcon :component="ChevronBackOutline" :size="14" />
+              {{ t.back }}
+            </button>
+            <div class="file-log-diff-title" :title="commitFileSelected.path">
+              <span class="file-status" :class="'st-' + commitFileSelected.status">{{ commitFileSelected.status }}</span>
+              <code class="log-hash">{{ commitDetail.shortHash }}</code>
+              <span class="log-subject">{{ commitFileSelected.path }}</span>
+            </div>
+            <div class="file-log-restore">
+              <NButton
+                size="tiny"
+                type="warning"
+                secondary
+                :disabled="busy || commitFileDiffLoading"
+                @click="restoreCommitFile"
+              >
+                <template #icon>
+                  <NIcon :component="ArrowUndoOutline" :size="13" />
+                </template>
+                {{ t.changesRestoreToCommit }}
+              </NButton>
+            </div>
+          </div>
+          <NSpin :show="commitFileDiffLoading">
+            <pre v-if="commitFileDiff" class="file-log-diff"><code><span
+              v-for="(line, i) in commitFileDiff.split('\n')"
+              :key="i"
+              class="dline"
+              :class="{
+                add: line.startsWith('+') && !line.startsWith('+++'),
+                del: line.startsWith('-') && !line.startsWith('---'),
+                meta: line.startsWith('@@') || line.startsWith('diff ') || line.startsWith('index ') || line.startsWith('+++') || line.startsWith('---'),
+              }"
+            >{{ line || ' ' }}</span></code></pre>
+            <NEmpty v-else-if="!commitFileDiffLoading" :description="t.changesNoDiff" size="small" />
+          </NSpin>
+        </template>
+
+        <template v-else>
+          <div class="commit-files-title">{{ t.changesCommitFiles }}</div>
+          <NSpin :show="commitFilesLoading">
+            <NEmpty
+              v-if="!commitFilesLoading && !commitFiles.length"
+              :description="t.changesLogEmpty"
+              size="small"
+            />
+            <ul v-else class="commit-files">
+              <li v-for="file in commitFiles" :key="file.path" class="commit-file">
+                <button
+                  type="button"
+                  class="commit-file-btn"
+                  :disabled="busy"
+                  :title="file.path"
+                  @click="showCommitFileDiff(file)"
+                >
+                  <span class="file-status" :class="'st-' + file.status">{{ file.status }}</span>
+                  <span class="file-path">{{ file.path }}</span>
+                  <NIcon class="log-chevron" :component="ChevronForwardOutline" :size="13" />
+                </button>
+              </li>
+            </ul>
+          </NSpin>
+        </template>
+      </template>
+
+      <!-- Commit list -->
+      <NSpin v-else :show="logLoading">
         <NEmpty v-if="!logEntries.length" :description="t.changesLogEmpty" size="small" />
         <ul v-else class="log-list">
-          <li v-for="entry in logEntries" :key="entry.hash" class="log-item">
-            <code class="log-hash">{{ entry.shortHash }}</code>
-            <div class="log-body">
-              <div class="log-subject">{{ entry.subject }}</div>
-              <div class="log-meta">{{ entry.author }} · {{ formatLogDate(entry.date) }}</div>
-            </div>
+          <li v-for="entry in logEntries" :key="entry.hash">
+            <button
+              type="button"
+              class="log-item"
+              :disabled="busy"
+              @click="openCommitDetail(entry)"
+            >
+              <code class="log-hash">{{ entry.shortHash }}</code>
+              <div class="log-body">
+                <div class="log-subject">{{ entry.subject }}</div>
+                <div class="log-meta">{{ entry.author }} · {{ formatLogDate(entry.date) }}</div>
+              </div>
+              <NIcon class="log-chevron" :component="ChevronForwardOutline" :size="13" />
+            </button>
           </li>
         </ul>
       </NSpin>
@@ -1929,5 +2138,140 @@ watch(
   margin-top: 2px;
   font-size: 11px;
   color: var(--fg-muted);
+}
+
+/* Commit history detail (file list / reset / per-file diff) */
+.commit-detail-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.commit-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: transparent;
+  color: var(--fg-muted);
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+  flex-shrink: 0;
+}
+
+.commit-back:hover {
+  background: var(--bg-hover);
+  color: var(--fg);
+}
+
+.commit-detail-title {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.commit-detail-title .log-subject {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.commit-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.commit-detail-meta {
+  font-size: 11.5px;
+  color: var(--fg-muted);
+  margin-bottom: 10px;
+}
+
+.commit-files-title {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--fg-faint, var(--fg-muted));
+  margin: 8px 2px 6px;
+}
+
+.commit-files {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 320px;
+  overflow: auto;
+}
+
+.commit-file-btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--fg);
+  cursor: pointer;
+  font: inherit;
+  font-size: 12.5px;
+  text-align: left;
+}
+
+.commit-file-btn:hover {
+  background: var(--bg-hover);
+}
+
+.commit-file-btn .file-path {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+}
+
+.file-status {
+  flex-shrink: 0;
+  width: 18px;
+  height: 18px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 5px;
+  font-size: 10px;
+  font-weight: 800;
+  color: var(--fg-muted);
+  background: color-mix(in srgb, var(--fg-muted) 12%, transparent);
+}
+
+.file-status.st-A {
+  color: var(--git-u, #16a34a);
+  background: color-mix(in srgb, var(--git-u, #16a34a) 14%, transparent);
+}
+
+.file-status.st-M {
+  color: var(--git-m, #ca8a04);
+  background: color-mix(in srgb, var(--git-m, #ca8a04) 14%, transparent);
+}
+
+.file-status.st-D {
+  color: var(--git-d, #dc2626);
+  background: color-mix(in srgb, var(--git-d, #dc2626) 14%, transparent);
+}
+
+.file-log-diff-head .file-status {
+  margin-right: 4px;
 }
 </style>

@@ -35,6 +35,17 @@ export type GitLogEntry = {
   subject: string;
 };
 
+export type GitCommitFile = {
+  /** Single-letter status: A / M / D / R / C / U… */
+  status: string;
+  /** Workspace-relative path (destination path for renames). */
+  path: string;
+};
+
+export type GitCommitFilesResult = {
+  files: GitCommitFile[];
+};
+
 export type GitLogResult = {
   entries: GitLogEntry[];
 };

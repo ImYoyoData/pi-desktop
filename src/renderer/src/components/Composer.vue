@@ -504,11 +504,15 @@ async function addFiles(files: FileList | File[]): Promise<void> {
   const list = Array.from(files);
   for (const file of list) {
     if (file.type.startsWith("image/")) {
-      const img = await readImageFile(file);
-      if (img) {
-        // Persist into the session cache so the message references a real file.
-        await composer.addPastedImage(`data:${img.mimeType};base64,${img.data}`);
-        if (img.previewUrl.startsWith("blob:")) URL.revokeObjectURL(img.previewUrl);
+      try {
+        const img = await readImageFile(file);
+        if (img) {
+          // Persist into the session cache so the message references a real file.
+          await composer.addPastedImage(`data:${img.mimeType};base64,${img.data}`);
+          if (img.previewUrl.startsWith("blob:")) URL.revokeObjectURL(img.previewUrl);
+        }
+      } catch (err) {
+        console.warn("[composer] failed to read pasted image", err);
       }
       continue;
     }
@@ -548,7 +552,7 @@ function modeTagLabel(mode: ComposerAgentMode): string {
 function snapshotComposerPayload(): {
   text: string;
   displayText: string;
-  imagesToSend: { type: "image"; data: string; mimeType: string }[];
+  imagesToSend: { type: "image"; data: string; mimeType: string; cachePath?: string }[];
   citationsToSend:
     | { url: string; selector?: string; text?: string; htmlSnippet?: string }[]
     | undefined;
@@ -566,7 +570,13 @@ function snapshotComposerPayload(): {
   const displayText = composer.draft.trim();
   const mode = composer.activeMode();
   const body = [displayText, chipText].filter(Boolean).join("\n\n");
-  const text = [composerModePreamble(mode), body].filter(Boolean).join("\n\n");
+  let text = [composerModePreamble(mode), body].filter(Boolean).join("\n\n");
+  // Bind cached image paths to the prompt (hidden in the editor): text-only
+  // models can locate the files, vision models still get the base64 content.
+  const imagePaths = Array.from(new Set(composer.images.map((i) => i.cachePath).filter((p): p is string => Boolean(p))));
+  if (imagePaths.length) {
+    text = `${text}\n\n[attached images]\n${imagePaths.map((p) => `- ${p}`).join("\n")}`;
+  }
   if (!body && !composer.images.length && !composer.chips.length) return null;
   const citations = composer.elementCitations();
   const citationList = citations.length ? citations : undefined;
@@ -582,6 +592,7 @@ function snapshotComposerPayload(): {
       type: "image" as const,
       data: i.data,
       mimeType: i.mimeType || "image/png",
+      ...(i.cachePath ? { cachePath: i.cachePath } : {}),
     }));
   const citationsToSend = citationList
     ? citationList.map((c) => ({
@@ -1616,6 +1627,20 @@ async function syncSessionModelAndThinking(): Promise<void> {
     thinkingLevel.value = rememberedThinking;
   }
 
+  // New session with no saved prefs: inherit model + thinking level from the
+  // workspace's first session (sidebar top) so new chats match the user's setup.
+  if (!remembered && !rememberedThinking) {
+    const first = sessions.sessions[0];
+    if (first && first.id !== id) {
+      const firstModel = modelBySession.value[first.id];
+      const firstThinking = thinkingBySession.value[first.id];
+      if (firstModel && flat.some((o) => o.value === firstModel)) {
+        selectedModelKey.value = firstModel;
+      }
+      if (firstThinking) thinkingLevel.value = firstThinking;
+    }
+  }
+
   // Prefer live worker state when agent is already running (never cold-start here).
   let workerKey: string | null = null;
   let workerThinking: ThinkingLevel | null = null;
@@ -1723,8 +1748,9 @@ async function onModelChange(value: string | null): Promise<void> {
  * path→tag behavior is reserved for drag & drop (ingestTransferData), not paste.
  */
 function onPaste(event: ClipboardEvent): void {
-  const data = event.clipboardData;
-  if (!data) return;
+  try {
+    const data = event.clipboardData;
+    if (!data) return;
   const imageFiles: File[] = [];
   if (data.files?.length) {
     for (const file of Array.from(data.files)) {
@@ -1732,8 +1758,10 @@ function onPaste(event: ClipboardEvent): void {
     }
   }
   if (imageFiles.length) {
-    void addFiles(imageFiles);
     event.preventDefault();
+    void addFiles(imageFiles).catch((err) => {
+      console.warn("[composer] paste image failed", err);
+    });
     return;
   }
   const text = data.getData("text/plain")?.trim() ?? "";
@@ -1749,6 +1777,10 @@ function onPaste(event: ClipboardEvent): void {
     }
     composer.addUrlTag(text);
     event.preventDefault();
+  }
+  } catch (err) {
+    // Never let a paste handler exception swallow the user's clipboard.
+    console.warn("[composer] onPaste error", err);
   }
 }
 

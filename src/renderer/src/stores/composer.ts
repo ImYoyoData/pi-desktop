@@ -18,6 +18,12 @@ export type ComposerImage = {
   mimeType: string;
   /** data: URL or blob: URL for preview */
   previewUrl: string;
+  /**
+   * Absolute path of the copy cached in the session's attachment folder.
+   * Hidden from the editor UI but passed to the model so it can locate the
+   * image file (bound to the image, not shown as a chip).
+   */
+  cachePath?: string;
 };
 
 type ComposerBucket = {
@@ -155,7 +161,7 @@ export const useComposerStore = defineStore("composer", () => {
       .map((c) => c.citation);
   }
 
-  function addImageFromDataUrl(dataUrl: string): boolean {
+  function addImageFromDataUrl(dataUrl: string, cachePath?: string): boolean {
     const parsed = parseDataUrl(dataUrl);
     if (!parsed) {
       console.warn("[composer] failed to parse image data URL");
@@ -170,6 +176,7 @@ export const useComposerStore = defineStore("composer", () => {
         data: parsed.data,
         mimeType: parsed.mimeType,
         previewUrl: `data:${parsed.mimeType};base64,${parsed.data}`,
+        ...(cachePath ? { cachePath } : {}),
       },
     ];
     return true;
@@ -182,14 +189,16 @@ export const useComposerStore = defineStore("composer", () => {
    * locate the file).
    */
   async function addPastedImage(dataUrl: string): Promise<void> {
-    const added = addImageFromDataUrl(dataUrl);
     const sessionId = activeSessionId.value;
-    if (!sessionId || !added) return;
+    if (!sessionId) return;
     try {
       const cached = await window.api.sessions.cacheImage(sessionId, { dataUrl });
-      addFileTag(cached.filePath);
+      // The cached file path stays bound to the image (hidden in the editor,
+      // included in the prompt) instead of a visible chip.
+      addImageFromDataUrl(dataUrl, cached.filePath);
     } catch (err) {
       console.warn("[composer] cache pasted image failed", err);
+      addImageFromDataUrl(dataUrl);
     }
   }
 
@@ -203,8 +212,7 @@ export const useComposerStore = defineStore("composer", () => {
     if (!sessionId) return false;
     try {
       const cached = await window.api.sessions.cacheImage(sessionId, { url });
-      addImageFromDataUrl(cached.dataUrl);
-      addFileTag(cached.filePath);
+      addImageFromDataUrl(cached.dataUrl, cached.filePath);
       return true;
     } catch (err) {
       console.warn("[composer] download image failed", err);

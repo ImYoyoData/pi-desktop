@@ -1,5 +1,5 @@
 import { ipcMain } from "electron";
-import { ModelRuntime } from "@earendil-works/pi-coding-agent";
+
 import { IpcChannels } from "../shared/protocol";
 import type { ModelsGetResult, ModelsProviderAuth, ModelsSetPayload } from "../shared/models-settings";
 import { discoverModels, type DiscoverModelsResult } from "../shared/model-discover";
@@ -9,7 +9,8 @@ import { getModelsConfigService } from "./models-config";
 /** Providers that use OAuth — handled separately (pi-web /api/auth/all-providers) */
 const OAUTH_PROVIDER_IDS = new Set(["anthropic", "github-copilot", "openai-codex"]);
 
-async function createRuntime(): Promise<ModelRuntime> {
+async function createRuntime(): Promise<import("@earendil-works/pi-coding-agent").ModelRuntime> {
+  const { ModelRuntime } = await import("@earendil-works/pi-coding-agent");
   const { paths } = getModelsConfigService();
   return ModelRuntime.create({
     modelsPath: paths.modelsPath,

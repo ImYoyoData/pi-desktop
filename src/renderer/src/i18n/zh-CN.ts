@@ -35,6 +35,9 @@ export const zh = {
   copyImage: "复制图片",
   copyImageDone: "图片已复制",
   saveImage: "另存为…",
+  processSummary: (tools: number, thinking: number) =>
+    `过程 · ${tools} 次工具调用 · ${thinking} 段思考`,
+  processExpand: "展开过程",
   send: "发送",
   stop: "停止",
   steer: "插入引导",
@@ -309,6 +312,13 @@ export const zh = {
   changesRemoteUpdated: "已更新远端 URL",
   changesRemoteRemoved: "已删除远端",
   changesLogEmpty: "暂无提交记录",
+  changesCommitFiles: "变更文件",
+  changesResetSoft: "重置（软）",
+  changesResetHard: "重置（硬）",
+  changesResetConfirm: (hash: string, mode: string) =>
+    `将当前分支重置到 ${hash}（${mode}）？软重置保留你的更改到暂存区；硬重置会丢弃工作区的更改。`,
+  changesRestoreFileConfirm: (path: string, hash: string) =>
+    `将 ${path} 恢复到提交 ${hash} 的版本？该文件的工作区更改将被覆盖。`,
   changesConflictBanner: "存在合并冲突。请解决冲突文件后提交，或放弃合并。",
   changesConflictAcceptOurs: "采用当前",
   changesConflictAcceptTheirs: "采用传入",

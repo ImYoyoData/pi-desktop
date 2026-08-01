@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
-import { getAgentDir } from "@earendil-works/pi-coding-agent";
+import { agentDir } from "./agent-dir";
 import {
   bashAllowlistEntryFromCommand,
   DEFAULT_DESKTOP_SECURITY,
@@ -9,7 +9,7 @@ import {
 } from "../shared/desktop-security";
 
 function resolveSettingsPath(agentDir?: string): string {
-  return path.join(path.resolve(agentDir ?? getAgentDir()), "settings.json");
+  return path.join(path.resolve(agentDir ?? agentDir()), "settings.json");
 }
 
 function ensureParent(filePath: string): void {

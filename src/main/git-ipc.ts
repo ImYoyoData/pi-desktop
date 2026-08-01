@@ -22,7 +22,9 @@ import {
   removeRemote,
   renameBranch,
   restoreFileToCommit,
+  resetToCommit,
   restorePaths,
+  showCommitFiles,
   setRemoteUrl,
   getConflictContent,
   resolveConflictPath,
@@ -191,6 +193,19 @@ export function registerGitIpc(): void {
     return removeRemote(root, String(name ?? ""));
   });
 
+  ipcMain.handle(IpcChannels.git.showCommitFiles, async (_e, commitHash: string) => {
+    const cwd = getWorkspace();
+    if (!cwd) return { files: [] };
+    return showCommitFiles(cwd, commitHash);
+  });
+  ipcMain.handle(
+    IpcChannels.git.resetToCommit,
+    async (_e, commitHash: string, mode: "soft" | "hard") => {
+      const cwd = getWorkspace();
+      if (!cwd) return { ok: false, message: "no workspace", code: "invalid_args" };
+      return resetToCommit(cwd, commitHash, mode);
+    },
+  );
   ipcMain.handle(IpcChannels.git.log, async (_e, limit?: number) => {
     const root = requireRoot();
     if (!root) return { entries: [] };
