@@ -305,8 +305,9 @@ const cloudDraft = ref<{
   baseUrl: string;
   apiKey: string;
   model: string;
-  apiStyle: "openai-multipart" | "openai-json" | "custom";
+  apiStyle: "openai-multipart" | "openai-json" | "chat" | "custom";
   endpoint: string;
+  language: string;
 }>({
   providerName: "",
   baseUrl: "",
@@ -314,6 +315,7 @@ const cloudDraft = ref<{
   model: "",
   apiStyle: "openai-multipart",
   endpoint: "",
+  language: "",
 });
 const cloudSaving = ref(false);
 const cloudTesting = ref(false);
@@ -356,6 +358,7 @@ async function saveCloudConfig(): Promise<void> {
       model: cloudDraft.value.model.trim(),
       apiStyle: cloudDraft.value.apiStyle,
       endpoint: cloudDraft.value.endpoint.trim(),
+      language: cloudDraft.value.language.trim(),
     });
     message.success(t.asrCloudSaved);
     await asr.setBackend("cloud");
@@ -677,6 +680,7 @@ onUnmounted(() => {
             >
               <NRadioButton value="openai-multipart">{{ t.asrCloudStyleMultipart }}</NRadioButton>
               <NRadioButton value="openai-json">{{ t.asrCloudStyleJson }}</NRadioButton>
+              <NRadioButton value="chat">{{ t.asrCloudStyleChat }}</NRadioButton>
               <NRadioButton value="custom">{{ t.asrCloudStyleCustom }}</NRadioButton>
             </NRadioGroup>
             <NText depth="3" style="font-size: 11.5px; margin-top: 6px; display: block">
@@ -688,6 +692,13 @@ onUnmounted(() => {
               size="small"
               style="margin-top: 8px"
               placeholder="https://api.example.com/audio/transcriptions"
+            />
+            <NInput
+              v-if="cloudDraft.apiStyle === 'chat'"
+              v-model:value="cloudDraft.language"
+              size="small"
+              style="margin-top: 8px"
+              :placeholder="t.asrCloudLanguagePh"
             />
             <NInput v-model:value="cloudDraft.providerName" size="small" :placeholder="t.asrCloudProviderName" style="margin-top:10px" />
             <NInput v-model:value="cloudDraft.baseUrl" size="small" placeholder="https://api.example.com/v1" style="margin-top:8px" />

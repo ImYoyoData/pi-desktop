@@ -265,9 +265,11 @@ export type AsrBackendKind = "local" | "cloud" | null;
  * Cloud ASR request format:
  * - openai-multipart: POST {baseUrl}/audio/transcriptions (multipart file + model)
  * - openai-json:      POST {baseUrl}/audio/transcriptions (JSON with base64 data URL)
+ * - chat:             POST {baseUrl}/chat/completions with an input_audio message
+ *                     (Xiaomi MiMo style; also sends api-key header)
  * - custom:           POST {endpoint} exactly as configured (multipart)
  */
-export type AsrCloudApiStyle = "openai-multipart" | "openai-json" | "custom";
+export type AsrCloudApiStyle = "openai-multipart" | "openai-json" | "chat" | "custom";
 
 export type AsrCloudConfig = {
   providerName: string;
@@ -277,6 +279,8 @@ export type AsrCloudConfig = {
   apiStyle?: AsrCloudApiStyle;
   /** Full endpoint URL used when apiStyle = custom. */
   endpoint?: string;
+  /** asr_options.language for chat style (auto / zh / en …). */
+  language?: string;
 };
 
 export type AsrStatus = {

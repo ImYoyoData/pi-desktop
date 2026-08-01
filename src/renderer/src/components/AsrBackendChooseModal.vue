@@ -78,12 +78,17 @@ function onClose(): void {
         <NRadioGroup v-model:value="cloud.apiStyle" size="small">
           <NRadioButton value="openai-multipart">{{ t.asrCloudStyleMultipart }}</NRadioButton>
           <NRadioButton value="openai-json">{{ t.asrCloudStyleJson }}</NRadioButton>
+          <NRadioButton value="chat">{{ t.asrCloudStyleChat }}</NRadioButton>
           <NRadioButton value="custom">{{ t.asrCloudStyleCustom }}</NRadioButton>
         </NRadioGroup>
       </label>
       <label v-if="cloud.apiStyle === 'custom'" class="field">
         <span>{{ t.asrCloudEndpoint }}</span>
         <NInput v-model:value="cloud.endpoint" size="small" placeholder="https://api.example.com/audio/transcriptions" />
+      </label>
+      <label v-if="cloud.apiStyle === 'chat'" class="field">
+        <span>{{ t.asrCloudLanguage }}</span>
+        <NInput v-model:value="cloud.language" size="small" :placeholder="t.asrCloudLanguagePh" />
       </label>
       <label class="field">
         <span>{{ t.asrCloudProviderName }}</span>
