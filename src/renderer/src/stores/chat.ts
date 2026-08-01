@@ -972,14 +972,28 @@ export const useChatStore = defineStore("chat", () => {
     }));
 
     if (continueTurn) {
-      await sendPrompt(
-        sessionId,
-        t.retryContinueAgentPrompt,
-        undefined,
-        undefined,
-        undefined,
-        t.retryContinue,
-      );
+      // Resume-style: tell the agent to continue where it stopped WITHOUT
+      // adding a "continue" user bubble to the transcript.
+      setSessionState(sessionId, withRunClock({
+        ...stateFor(sessionId),
+        streamingMessage: null,
+        running: true,
+        retryHint: null,
+        pendingAskUser: null,
+      }, { activity: true }));
+      try {
+        await sessionsStore.sendCommand(sessionId, {
+          type: "prompt",
+          message: t.retryContinueAgentPrompt,
+        });
+      } catch (err) {
+        const raw = err instanceof Error ? err.message : String(err);
+        setSessionState(sessionId, reduceChatEvent(stateFor(sessionId), {
+          type: "prompt_error",
+          sessionId,
+          errorMessage: raw,
+        }));
+      }
       return;
     }
 
