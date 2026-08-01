@@ -452,7 +452,7 @@ declare const api: {
             ok: boolean;
         }>;
         uninstall: () => Promise<AsrStatus>;
-        transcribe: (pcmBase64: string, sampleRate: number) => Promise<string>;
+        transcribe: (pcm: Int16Array, sampleRate: number) => Promise<string>;
         streamStart: () => Promise<AsrStatus>;
         streamPush: (pcmBase64: string) => Promise<void>;
         streamStop: () => Promise<AsrStatus>;

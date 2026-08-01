@@ -6,8 +6,14 @@
  * Uses AudioWorkletNode (ScriptProcessorNode is deprecated).
  */
 
+import {
+  downsample,
+  encodeFloatChunksSync,
+  floatTo16BitPCM,
+} from "./pcm-encode-core";
+
 export type PcmCapture = {
-  stop: () => Promise<{ pcmBase64: string; sampleRate: number }>;
+  stop: () => Promise<{ pcm: Int16Array; sampleRate: number }>;
   abort: () => void;
 };
 
@@ -17,7 +23,7 @@ export type StreamingPcmCapture = {
 };
 
 export type VoiceRecordSession = {
-  stop: () => Promise<{ pcmBase64: string; sampleRate: number }>;
+  stop: () => Promise<{ pcm: Int16Array; sampleRate: number }>;
   abort: () => void;
 };
 
@@ -94,12 +100,8 @@ export async function startPcmCapture(): Promise<PcmCapture> {
       aborted = true;
       const inputRate = session.sampleRate;
       session.cleanup();
-      const merged = mergeFloat32(chunks);
-      const resampled = inputRate === TARGET_RATE ? merged : downsample(merged, inputRate, TARGET_RATE);
-      return {
-        pcmBase64: int16ToBase64(floatTo16BitPCM(resampled)),
-        sampleRate: TARGET_RATE,
-      };
+      const pcm = await encodePcmToInt16(chunks, inputRate, TARGET_RATE);
+      return { pcm, sampleRate: TARGET_RATE };
     },
   };
 }
@@ -157,16 +159,14 @@ export async function startVoiceRecord(handlers: {
     },
     stop: async () => {
       if (aborted) {
-        return { pcmBase64: "", sampleRate: TARGET_RATE };
+        return { pcm: new Int16Array(0), sampleRate: TARGET_RATE };
       }
       stopped = true;
       aborted = true;
       session.cleanup();
-      const merged = mergeFloat32(chunks);
-      return {
-        pcmBase64: int16ToBase64(floatTo16BitPCM(merged)),
-        sampleRate: TARGET_RATE,
-      };
+      // Encode off the UI thread so a long take never freezes the app.
+      const pcm = await encodePcmToInt16(chunks, inputRate, TARGET_RATE);
+      return { pcm, sampleRate: TARGET_RATE };
     },
   };
 }
@@ -349,37 +349,23 @@ function calcRms(input: Float32Array): number {
   return Math.sqrt(sum / Math.max(1, input.length));
 }
 
-function mergeFloat32(chunks: Float32Array[]): Float32Array {
-  let len = 0;
-  for (const c of chunks) len += c.length;
-  const out = new Float32Array(len);
-  let off = 0;
-  for (const c of chunks) {
-    out.set(c, off);
-    off += c.length;
+/**
+ * Encode recorded Float32 chunks to 16 kHz s16le PCM. Runs on a Web Worker
+ * so the encode (merge / resample / convert) never blocks the UI thread;
+ * falls back to the synchronous path when workers are unavailable.
+ */
+async function encodePcmToInt16(
+  chunks: Float32Array[],
+  inputRate: number,
+  targetRate: number,
+): Promise<Int16Array> {
+  try {
+    const { encodePcmChunks } = await import("./pcm-encode-client");
+    const buffer = await encodePcmChunks(chunks, inputRate, targetRate);
+    return new Int16Array(buffer);
+  } catch {
+    return encodeFloatChunksSync(chunks, inputRate, targetRate);
   }
-  return out;
-}
-
-function downsample(input: Float32Array, fromRate: number, toRate: number): Float32Array {
-  if (toRate >= fromRate) return input;
-  const ratio = fromRate / toRate;
-  const newLen = Math.floor(input.length / ratio);
-  const out = new Float32Array(newLen);
-  for (let i = 0; i < newLen; i++) {
-    const start = Math.floor(i * ratio);
-    out[i] = input[start] ?? 0;
-  }
-  return out;
-}
-
-function floatTo16BitPCM(input: Float32Array): Int16Array {
-  const out = new Int16Array(input.length);
-  for (let i = 0; i < input.length; i++) {
-    const s = Math.max(-1, Math.min(1, input[i] ?? 0));
-    out[i] = s < 0 ? Math.round(s * 0x8000) : Math.round(s * 0x7fff);
-  }
-  return out;
 }
 
 function int16ToBase64(pcm: Int16Array): string {

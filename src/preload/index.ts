@@ -568,8 +568,8 @@ const api = {
     cancelInstall: () =>
       ipcRenderer.invoke(IpcChannels.asr.cancelInstall) as Promise<{ ok: boolean }>,
     uninstall: () => ipcRenderer.invoke(IpcChannels.asr.uninstall) as Promise<AsrStatus>,
-    transcribe: (pcmBase64: string, sampleRate: number) =>
-      ipcRenderer.invoke(IpcChannels.asr.transcribe, { pcmBase64, sampleRate }) as Promise<string>,
+    transcribe: (pcm: Int16Array, sampleRate: number) =>
+      ipcRenderer.invoke(IpcChannels.asr.transcribe, { pcm, sampleRate }) as Promise<string>,
     streamStart: () => ipcRenderer.invoke(IpcChannels.asr.streamStart) as Promise<AsrStatus>,
     streamPush: (pcmBase64: string) =>
       ipcRenderer.invoke(IpcChannels.asr.streamPush, { pcmBase64 }) as Promise<void>,
