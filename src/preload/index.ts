@@ -322,6 +322,8 @@ const api = {
       ipcRenderer.invoke(IpcChannels.git.ignore, paths) as Promise<string[]>,
     unignore: (path: string) =>
       ipcRenderer.invoke(IpcChannels.git.unignore, path) as Promise<string[]>,
+    ignored: () =>
+      ipcRenderer.invoke(IpcChannels.git.ignored) as Promise<string[]>,
 fileDiffAtCommit: (payload: { relativePath: string; commitHash: string }) =>
       ipcRenderer.invoke(IpcChannels.git.fileDiffAtCommit, payload) as Promise<{
         supported: boolean;

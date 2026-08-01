@@ -224,6 +224,12 @@ export function registerGitIpc(): void {
     if (!cwd) return [];
     return addGitIgnored(cwd, paths);
   });
+  ipcMain.handle(IpcChannels.git.ignored, async () => {
+    const cwd = getWorkspace();
+    if (!cwd) return [];
+    return listGitIgnored(cwd);
+  });
+
   ipcMain.handle(IpcChannels.git.unignore, async (_e, path: string) => {
     const cwd = getWorkspace();
     if (!cwd) return [];

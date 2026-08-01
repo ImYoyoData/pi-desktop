@@ -108,6 +108,7 @@ export const IpcChannels = {
     stage: "git:stage",
     unstage: "git:unstage",
     ignore: "git:ignore",
+    ignored: "git:ignored",
     unignore: "git:unignore",
     showCommitFiles: "git:showCommitFiles",
     resetToCommit: "git:resetToCommit",

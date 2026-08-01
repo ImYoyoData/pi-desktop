@@ -280,7 +280,8 @@ describe("git-host dugite smoke", () => {
       const a = status.files.find((f) => f.relativePath === "a.txt");
       const b = status.files.find((f) => f.relativePath === "b.log");
       expect(a?.ignored).toBe(false);
-      expect(b?.ignored).toBe(true);
+      // Filtered files are excluded from the Changes list entirely.
+      expect(b).toBeUndefined();
     } finally {
       if (prevAgent === undefined) delete process.env.PI_CODING_AGENT_DIR;
       else process.env.PI_CODING_AGENT_DIR = prevAgent;
