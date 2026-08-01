@@ -164,73 +164,71 @@ jobs:
           prerelease: false
           generate_release_notes: true
           body: |
-            ## 主要更新（0.1.9 正式版）
 
-            本轮聚焦：聊天体验、Git 稳定性与面板重构、全局 UI 打磨与性能。会话继续与 Pi CLI 共享（`~/.pi/agent/sessions`）。
+            ## 主要更新（0.2.1 正式版）
 
-            ### 聊天体验
-            - 会话/回合完成后执行过程全部折叠（工具卡片、思考块、工具组），只突出用户问题与最终答复——即使会话状态异常也会折叠
-            - 并行编辑多文件独立卡片；工具完成后自动折叠
-            - Codex 风格布局：居中阅读列、用户消息右对齐气泡
-            - 待发送队列「引导提交」：运行中发送不打断模型，作为引导排队处理（支持图片）
+            本版聚焦：云端 ASR（含小米 MiMo 自动适配）、语音识别修复、会话信息面板、聊天与 Git 面板打磨、启动提速与打包加速。
 
-            ### 启动与过渡
-            - 新增启动过渡动画：Logo + 进度条遮罩，应用就绪后淡出，隐藏所有加载状态
-            - 最小化/恢复不再卡顿（隐藏时暂停 IPC 冲刷）
+            ### 语音识别 ASR
+            - 云端 ASR：首次使用选择弹窗、本地/云端 Tab、接口格式自动适配（小米 MiMo 走 chat/completions + input_audio，中文默认 language=zh）、录制音频自动上传
+            - 修复识别混乱：录音被二次降采样压缩 3 倍，现按 16kHz→16kHz 编码并升级为线性插值降采样
+            - 空转录不再报错，显示「未识别到语音」；语音设置弹窗全新卡片布局
+            - 启动蒙版等待扩展/Skills 加载完成后再淡出（新流体动画 + 过渡）
 
-            ### Git
-            - 分支管理完善：删除/重命名分支、文件历史、单提交 diff、还原到指定版本
-            - 提交区重构：底部多行输入、Enter 提交、提交并推送
-            - 串行化 git 子进程消除 index.lock 竞争；网络操作独立 10 分钟超时
-            - Changes 面板 GitHub Desktop 风格重构：状态徽章、双行文件行、卡片式提交区
+            ### 会话与聊天
+            - 会话信息按钮：查看该会话加载的工具、扩展、Skills 与读取的文件
+            - 过程折叠条展开后可随时再折叠；会话结束后历史只显示用户消息+折叠条+结论
+            - 重试按钮改为静默继续（不再追加「继续」气泡）
+            - 修复 agent 运行命令时界面卡顿（流式输出显示级截断）
+            - 图片粘贴融合进图片（不再额外 tag）、删除时清理缓存、右键复制/另存、切换会话图片与标签还原
 
-            ### 全局 UI
-            - 设置弹窗统一卡片式分区
-            - 扩展市场卡片网格展示
-            - 待办列表新增进度条
+            ### Git 与文件
+            - 文件暂存/取消暂存、提交历史查看文件列表、软/硬重置、单文件 diff 与恢复
+            - 右键过滤文件写入 .gitignore，过滤文件从更改列表隐藏
 
-            ### 性能
-            - 会话/工作区切换缓存优化；流式滚动合并；工具卡片解析缓存
+            ### 全局与性能
+            - 侧栏新增「打开工作区」按钮；安全设置信任列表折叠化；@ 提及支持绝对路径/盘符
+            - 启动提速（瞬间打开 + 渐进加载）；构建加速约 15%；Win 打包提速（跳过原生重编译、dist:win:fast）
+            - 扩展卸载同步移除于提示词扩展；README 重写
 
-            ## What's New (0.1.9 stable)
+            ## What's New (0.2.1 stable)
 
-            Chat UX, Git stability & redesigned Changes panel, startup transition, and global UI polish. Sessions stay **shared with Pi CLI**.
+            Cloud ASR with automatic Xiaomi MiMo routing, voice-recognition fixes, a session info panel, chat & Git polish, and faster startup/packaging.
 
-            ### Chat
-            - All process rows (tools, thinking, groups) fold after a round completes - even if session status is stuck
-            - Steer send from the queue no longer interrupts the running model (images supported)
-            - Codex-style layout: centered column, right-aligned user bubbles
+            ### Speech (ASR)
+            - Cloud ASR: first-use backend chooser, local/cloud tabs, auto API format (MiMo uses chat/completions + input_audio, Chinese defaults to language=zh), recorded audio uploads automatically
+            - Fixed garbled recognition (3x-compressed audio from double resampling); linear-interpolation downsampling
+            - Empty transcripts show a friendly hint; redesigned voice settings dialog
+            - Boot overlay waits for extensions/skills before fading (new blob loader animation)
 
-            ### Startup & Transitions
-            - New startup splash (logo + progress) fades out once the app is ready, hiding loading states
-            - Restoring from minimized is smooth (IPC flushing paused while hidden)
+            ### Sessions & Chat
+            - Session info button shows loaded tools, extensions, skills and files read
+            - The process fold bar can be re-folded anytime; history shows user messages + summary + final answer
+            - Retry resumes silently (no "Continue" bubble)
+            - Fixed UI lag during long-running commands (capped streamed output)
+            - Pasted images merge into the image with cache cleanup; right-click copy/save; images/tags survive session switches
 
-            ### Git
-            - Full branch management: rename / delete branches
-            - File history with per-commit diff and restore-to-version
-            - Redesigned Changes panel (GitHub Desktop style): status badges, two-line file rows, bottom commit card
-            - Commit & push in one click; Enter to commit
-            - Git subprocesses serialized (no more index.lock races); 10-minute network timeout
+            ### Git & Files
+            - Stage/unstage, commit file list, soft/hard reset, per-file diff & restore
+            - Right-click filter writes .gitignore rules; filtered files leave the Changes list
 
-            ### UI Polish
-            - Settings modals use unified section cards
-            - Extension market rendered as a responsive card grid
-            - Todo panel gets a progress bar
+            ### Global & Performance
+            - "Open workspace" button in the sidebar; foldable trusted-workspace list; @ mentions match absolute/drive-letter paths
+            - Instant open + progressive loading; ~15% faster build; faster Windows packaging (skip native rebuild, dist:win:fast)
+            - Uninstall removes extensions from prompt extensions; README rewrite
 
-            ### Performance
-            - Cached session listings; coalesced stream scrolling; memoized tool card parsing
-
-            ## 下载 / Downloads
+            ## ?? / Downloads
             - **Windows x64**: `Pi Desktop-*-win-x64-setup.exe`
             - **Windows ARM64**: `Pi Desktop-*-win-arm64-setup.exe`
             - **macOS Apple Silicon**: `Pi Desktop-*-mac-arm64.dmg`
             - **macOS Intel**: `Pi Desktop-*-mac-x64.dmg`
 
-            ## 说明 / Notes
-            - 本版本为**正式稳定版**（非 prerelease）
-            - macOS 未公证：首次打开可能需要右键 → 打开
+            ## ?? / Notes
+            - ????**?????**?? prerelease?
+            - macOS ?????????????? ? ??
             - This is a **stable** release
-            - macOS is unsigned/notarization off — first open may need right-click → Open
+            - macOS is unsigned/notarization off ? first open may need right-click ? Open
+
           files: upload/*
           fail_on_unmatched_files: false
         env:
