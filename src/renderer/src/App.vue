@@ -40,7 +40,9 @@ const bootResourcesReady = ref(false);
  * Failsafe: some init steps (e.g. the trust prompt awaiting user input)
  * can take a while; never leave the boot overlay up forever.
  */
-const BOOT_MAX_MS = 8000;
+const BOOT_MAX_MS = 10000;
+/** Extra grace after init for the worker-ready event before proceeding. */
+const RESOURCE_GRACE_MS = 3000;
 let bootTimer = 0;
 let offWorkerReady: (() => void) | undefined;
 
@@ -85,6 +87,9 @@ onMounted(() => {
   // window feels instant; heavy workspace init runs behind an in-app boot
   // overlay that fades out when the content is ready (progressive loading).
   void dismissStartupSplash(true);
+  // Hard cap: the overlay always disappears by BOOT_MAX_MS no matter what.
+  // NOTE: never clear this timer in the init finally ? clearing it is what
+  // left the overlay stuck at 85% when the worker-ready event was missed.
   bootTimer = window.setTimeout(() => {
     bootInitDone.value = true;
     bootResourcesReady.value = true;
@@ -100,9 +105,13 @@ onMounted(() => {
         }),
       ]);
     } finally {
-      window.clearTimeout(bootTimer);
       await dismissLocaleReloadSplash();
       bootInitDone.value = true;
+      // Give the worker a short window to report extensions/skills, then
+      // proceed even if the event was missed (never blocks the app).
+      window.setTimeout(() => {
+        bootResourcesReady.value = true;
+      }, RESOURCE_GRACE_MS);
     }
   })();
 });
@@ -131,13 +140,6 @@ onUnmounted(() => {
           <main class="app-main">
             <Transition name="boot-fade">
               <div v-if="showBootOverlay" class="boot-overlay" role="status">
-                <div class="boot-mark" aria-hidden="true">
-                  <svg viewBox="0 0 800 800" xmlns="http://www.w3.org/2000/svg">
-                    <rect width="800" height="800" rx="120" fill="#09090b"/>
-                    <path fill="#fff" fill-rule="evenodd" d="M165.29 165.29 H517.36 V400 H400 V517.36 H282.65 V634.72 H165.29 Z M282.65 282.65 V400 H400 V282.65 Z"/>
-                    <path fill="#fff" d="M517.36 400 H634.72 V634.72 H517.36 Z"/>
-                  </svg>
-                </div>
                 <div class="loader" aria-hidden="true">
                   <div class="loader-inner">
                     <div class="blob b1"></div>
@@ -191,7 +193,7 @@ onUnmounted(() => {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 22px;
+  gap: 18px;
   background: var(--bg);
 }
 
@@ -203,22 +205,6 @@ onUnmounted(() => {
 .boot-fade-enter-from,
 .boot-fade-leave-to {
   opacity: 0;
-}
-
-.boot-mark {
-  width: 58px;
-  height: 58px;
-  border-radius: 15px;
-  background: #09090b;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  box-shadow: 0 10px 26px rgba(0, 0, 0, 0.18);
-}
-
-.boot-mark svg {
-  width: 38px;
-  height: 38px;
 }
 
 .boot-text {
