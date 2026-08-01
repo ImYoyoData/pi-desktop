@@ -676,6 +676,9 @@ export const useChatStore = defineStore("chat", () => {
 		history: SessionHistoryMessage[],
 	): void {
 		pendingUserEdit.value = null;
+		// Restore persisted checkpoint summaries so history keeps its revert
+		// buttons across session switches / restarts.
+		void checkpointStore.loadSessionSummaries(sessionId);
 		bySession[sessionId] = {
 			messages: history.map(mapHistoryRow),
 			streamingMessage: null,
