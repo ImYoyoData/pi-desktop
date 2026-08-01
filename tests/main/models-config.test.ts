@@ -2,7 +2,7 @@ import { describe, expect, it, beforeEach, afterEach } from "vitest";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { createModelsConfig } from "../../src/main/models-config";
+import { createModelsConfig, resolveModelsConfigPaths } from "../../src/main/models-config";
 
 describe("models-config", () => {
   let dir: string;
@@ -34,5 +34,14 @@ describe("models-config", () => {
     expect(final.providers?.third).toEqual({ apiKey: "3" });
     expect(final.providers?.first).toBeUndefined();
     expect(final.providers?.second).toBeUndefined();
+  });
+
+  it("resolveModelsConfigPaths works with and without an explicit agent dir", () => {
+    const overridden = resolveModelsConfigPaths(path.join(dir, "custom"));
+    expect(overridden.modelsPath).toBe(path.join(dir, "custom", "models.json"));
+    // No arg must not crash (regression: the parameter used to shadow the
+    // agentDir() function and throw "agentDir is not a function").
+    const def = resolveModelsConfigPaths();
+    expect(def.modelsPath.endsWith(path.join(".pi", "agent", "models.json"))).toBe(true);
   });
 });
