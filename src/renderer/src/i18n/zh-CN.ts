@@ -35,6 +35,7 @@ export const zh = {
   copyImage: "复制图片",
   copyImageDone: "图片已复制",
   saveImage: "另存为…",
+  pasteImageDownloadFailed: "无法下载粘贴的图片",
   processSummary: (tools: number, thinking: number) =>
     `过程 · ${tools} 次工具调用 · ${thinking} 段思考`,
   processExpand: "展开过程",

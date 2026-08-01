@@ -67,6 +67,13 @@ export function registerSessionsIpc(broker: SessionBroker): void {
     },
   );
   ipcMain.handle(
+    IpcChannels.sessions.deleteCachedImage,
+    (_event, sessionId: string, cachePath: string) => {
+      broker.deleteCachedImage(sessionId, cachePath);
+    },
+  );
+
+  ipcMain.handle(
     IpcChannels.sessions.cacheImage,
     (_event, sessionId: string, source: SessionImageCacheSource) =>
       broker.cacheImage(sessionId, source),

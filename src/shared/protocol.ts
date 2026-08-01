@@ -64,6 +64,8 @@ export const IpcChannels = {
     setUserMessageMeta: "sessions:setUserMessageMeta",
     /** Renderer → main: cache a pasted/URL image into the session attachment folder. */
     cacheImage: "sessions:cacheImage",
+    /** Renderer → main: delete one cached image file (removed from the editor). */
+    deleteCachedImage: "sessions:deleteCachedImage",
   },
   files: {
     list: "files:list",

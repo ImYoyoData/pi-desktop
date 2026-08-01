@@ -1747,37 +1747,69 @@ async function onModelChange(value: string | null): Promise<void> {
  * tags/attachments. File paths and any other text stay plain text — the
  * path→tag behavior is reserved for drag & drop (ingestTransferData), not paste.
  */
+/** Extract the first http(s) <img src> from pasted HTML (web images). */
+function imgUrlFromHtml(html: string): string | null {
+  const doc = new DOMParser().parseFromString(html, "text/html");
+  const img = doc.querySelector("img[src]");
+  const src = img?.getAttribute("src")?.trim() ?? "";
+  return src && isHttpUrl(src) ? src : null;
+}
+
 function onPaste(event: ClipboardEvent): void {
   try {
     const data = event.clipboardData;
     if (!data) return;
-  const imageFiles: File[] = [];
-  if (data.files?.length) {
-    for (const file of Array.from(data.files)) {
-      if (file.type.startsWith("image/")) imageFiles.push(file);
+    const imageFiles: File[] = [];
+    if (data.files?.length) {
+      for (const file of Array.from(data.files)) {
+        if (file.type.startsWith("image/")) imageFiles.push(file);
+      }
     }
-  }
-  if (imageFiles.length) {
-    event.preventDefault();
-    void addFiles(imageFiles).catch((err) => {
-      console.warn("[composer] paste image failed", err);
-    });
-    return;
-  }
-  const text = data.getData("text/plain")?.trim() ?? "";
-  if (text && isHttpUrl(text)) {
-    // Image URLs are downloaded into the per-session cache and attached as
-    // images (with their cached file address) instead of plain URL tags.
-    if (looksLikeImageUrl(text)) {
-      void composer.addImageFromUrl(text).then((ok) => {
-        if (!ok) composer.addUrlTag(text);
-      });
+    if (!imageFiles.length && data.items) {
+      for (const item of Array.from(data.items)) {
+        if (item.kind === "file" && item.type.startsWith("image/")) {
+          const file = item.getAsFile();
+          if (file && !imageFiles.some((f) => f.name === file.name && f.size === file.size)) {
+            imageFiles.push(file);
+          }
+        }
+      }
+    }
+    if (imageFiles.length) {
       event.preventDefault();
+      void addFiles(imageFiles).catch((err) => {
+        console.warn("[composer] paste image failed", err);
+      });
       return;
     }
-    composer.addUrlTag(text);
-    event.preventDefault();
-  }
+
+    // Copying an image from a web page often carries an <img> tag in the
+    // HTML with no bitmap file — download it into the session cache instead
+    // of showing a raw URL tag.
+    const html = data.getData("text/html") ?? "";
+    const htmlImgUrl = html ? imgUrlFromHtml(html) : null;
+    if (htmlImgUrl) {
+      event.preventDefault();
+      void composer.addImageFromUrl(htmlImgUrl).then((ok) => {
+        if (!ok) messageApi.warning(t.pasteImageDownloadFailed);
+      });
+      return;
+    }
+
+    const text = data.getData("text/plain")?.trim() ?? "";
+    if (text && isHttpUrl(text)) {
+      // Image-looking URLs attach as images (bound to the cached file path);
+      // a failed download shows a message instead of silently becoming a tag.
+      if (looksLikeImageUrl(text)) {
+        event.preventDefault();
+        void composer.addImageFromUrl(text).then((ok) => {
+          if (!ok) messageApi.warning(t.pasteImageDownloadFailed);
+        });
+        return;
+      }
+      composer.addUrlTag(text);
+      event.preventDefault();
+    }
   } catch (err) {
     // Never let a paste handler exception swallow the user's clipboard.
     console.warn("[composer] onPaste error", err);

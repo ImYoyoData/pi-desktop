@@ -18,6 +18,7 @@ import { clearSessionConversation, deleteSessionFile, invalidateSessionHistoryCa
 import { appendChatMeta } from "./session-chat-meta";
 import type { ChatMessageTag } from "../shared/chat-meta";
 import { downloadImageToCache, saveImageDataUrl } from "./session-image-cache";
+import { deleteImageFile } from "./session-image-cache";
 import { allocateSessionOnDisk } from "./session-allocate";
 
 const HEARTBEAT_INTERVAL_MS = 5_000;
@@ -98,6 +99,8 @@ export type SessionBroker = {
   notifyWorkersReloadModels: () => Promise<void>;
   /** Hot-reload desktopSecurity into live workers (no restart). */
   notifyWorkersReloadSecurity: (desktopSecurity: DesktopSecuritySettings) => Promise<void>;
+  /** Delete one cached image file (user removed it from the editor). */
+  deleteCachedImage: (sessionId: string, cachePath: string) => void;
   /** Cache a pasted / URL image into the session's attachment folder. */
   cacheImage: (
     sessionId: string,
@@ -650,6 +653,14 @@ export function createSessionBroker(deps: {
     return [...merged.values()].sort((a, b) => b.modified.localeCompare(a.modified));
   }
 
+  function deleteCachedImage(sessionId: string, cachePath: string): void {
+    const rec = sessions.get(sessionId);
+    const filePath = rec?.summary.filePath;
+    if (!filePath || !cachePath) return;
+    deleteImageFile(filePath, cachePath);
+  }
+
+
   async function cacheImage(
     sessionId: string,
     source: SessionImageCacheSource,
@@ -1030,6 +1041,7 @@ export function createSessionBroker(deps: {
     patchSummary,
     persistUserMessageMeta,
     cacheImage,
+    deleteCachedImage,
     onEvent,
   };
 }

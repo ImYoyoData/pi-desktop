@@ -4,6 +4,7 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   deleteImageCache,
+  deleteImageFile,
   imageCacheDirFor,
   saveImageDataUrl,
 } from "../../src/main/session-image-cache";
@@ -40,5 +41,19 @@ describe("session-image-cache", () => {
     expect(fs.existsSync(dir)).toBe(true);
     deleteImageCache(sessionFile);
     expect(fs.existsSync(dir)).toBe(false);
+  });
+
+  it("deleteImageFile removes only files inside the session attachments folder", () => {
+    const sessionFile = path.join(tempRoot, "session.jsonl");
+    const saved = saveImageDataUrl(sessionFile, "data:image/png;base64,iVBORw0KGgo=");
+    expect(fs.existsSync(saved.filePath)).toBe(true);
+    deleteImageFile(sessionFile, saved.filePath);
+    expect(fs.existsSync(saved.filePath)).toBe(false);
+
+    // Outside paths are refused.
+    const outside = path.join(tempRoot, "outside.txt");
+    fs.writeFileSync(outside, "x");
+    deleteImageFile(sessionFile, outside);
+    expect(fs.existsSync(outside)).toBe(true);
   });
 });
