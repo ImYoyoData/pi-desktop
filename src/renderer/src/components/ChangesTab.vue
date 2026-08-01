@@ -29,8 +29,6 @@ import {
   GitCommitOutline,
   GitCompareOutline,
   GitMergeOutline,
-  EyeOffOutline,
-  EyeOutline,
   RefreshOutline,
   TimeOutline,
   TrashOutline,
@@ -1188,16 +1186,7 @@ watch(
             >
               <NIcon :component="ArrowUndoOutline" :size="13" />
             </button>
-            <button
-              v-if="!isConflictFile(f)"
-              type="button"
-              class="row-discard"
-              :title="f.ignored ? t.changesUnignore : t.changesIgnore"
-              :disabled="busy"
-              @click.stop="f.ignored ? onUnignoreFile(f) : onIgnoreFile(f)"
-            >
-              <NIcon :component="f.ignored ? EyeOutline : EyeOffOutline" :size="14" />
-            </button>
+
           </div>
         </div>
         <div class="diff-pane">
