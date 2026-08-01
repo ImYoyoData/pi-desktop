@@ -1131,17 +1131,21 @@ watch(
               {{ allChecked ? t.changesSelectNone : t.changesSelectAll }}
             </button>
           </div>
-          <button
+          <div
             v-for="f in files"
             :key="f.relativePath"
-            type="button"
             class="file-row"
             :class="{
               active: selectedPath === f.relativePath,
               ignored: f.ignored,
               staged: f.staged,
             }"
+            role="button"
+            tabindex="0"
+            :aria-pressed="selectedPath === f.relativePath"
             @click="loadDiff(f.relativePath)"
+            @keydown.enter.prevent="loadDiff(f.relativePath)"
+            @keydown.space.prevent="loadDiff(f.relativePath)"
           >
             <NCheckbox
               :checked="checked[f.relativePath]"
@@ -1194,7 +1198,7 @@ watch(
             >
               <NIcon :component="f.ignored ? EyeOutline : EyeOffOutline" :size="14" />
             </button>
-          </button>
+          </div>
         </div>
         <div class="diff-pane">
           <template v-if="!selectedPath">
