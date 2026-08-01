@@ -262,14 +262,21 @@ export type AsrGpuOption = {
 export type AsrBackendKind = "local" | "cloud" | null;
 
 /**
- * OpenAI-compatible cloud ASR provider (POST {baseUrl}/audio/transcriptions
- * with a WAV file + model). e.g. SiliconFlow / Groq / DashScope compatible.
+ * Cloud ASR request format:
+ * - openai-multipart: POST {baseUrl}/audio/transcriptions (multipart file + model)
+ * - openai-json:      POST {baseUrl}/audio/transcriptions (JSON with base64 data URL)
+ * - custom:           POST {endpoint} exactly as configured (multipart)
  */
+export type AsrCloudApiStyle = "openai-multipart" | "openai-json" | "custom";
+
 export type AsrCloudConfig = {
   providerName: string;
   baseUrl: string;
   apiKey: string;
   model: string;
+  apiStyle?: AsrCloudApiStyle;
+  /** Full endpoint URL used when apiStyle = custom. */
+  endpoint?: string;
 };
 
 export type AsrStatus = {

@@ -161,7 +161,9 @@ function writeCloudPrefs(prefs: AsrCloudPrefs): void {
 }
 
 function isCloudConfigured(cloud: AsrCloudConfig | undefined): boolean {
-  return Boolean(cloud?.baseUrl?.trim() && cloud?.apiKey?.trim() && cloud?.model?.trim());
+  if (!cloud?.apiKey?.trim() || !cloud?.model?.trim()) return false;
+  if (cloud.apiStyle === "custom") return Boolean(cloud.endpoint?.trim());
+  return Boolean(cloud.baseUrl?.trim());
 }
 
 function ensureDirs(): void {
@@ -1290,17 +1292,45 @@ async function transcribeViaCloudApi(
   cloud: AsrCloudConfig,
 ): Promise<string> {
   if (!isCloudConfigured(cloud)) {
-    throw new Error("Cloud ASR is not configured (set base URL, API key and model)");
+    throw new Error("Cloud ASR is not configured (set endpoint, API key and model)");
   }
   const wav = wavBytesFromPcm(pcm, sampleRate || 16000);
-  const base = cloud.baseUrl.trim().replace(/\/+$/, "");
-  const form = new FormData();
-  form.append("file", new Blob([wav], { type: "audio/wav" }), "audio.wav");
-  form.append("model", cloud.model.trim());
-  const resp = await fetch(`${base}/audio/transcriptions`, {
+  const style = cloud.apiStyle ?? "openai-multipart";
+  const auth = `Bearer ${cloud.apiKey.trim()}`;
+  const model = cloud.model.trim();
+
+  let url: string;
+  let body: BodyInit;
+  const headers: Record<string, string> = { Authorization: auth };
+
+  if (style === "custom") {
+    url = (cloud.endpoint ?? "").trim();
+    if (!url) throw new Error("Cloud ASR: custom endpoint URL is empty");
+    const form = new FormData();
+    form.append("file", new Blob([wav], { type: "audio/wav" }), "audio.wav");
+    form.append("model", model);
+    body = form;
+  } else {
+    const base = cloud.baseUrl.trim().replace(/\/+$/, "");
+    url = `${base}/audio/transcriptions`;
+    if (style === "openai-json") {
+      headers["Content-Type"] = "application/json";
+      body = JSON.stringify({
+        file: `data:audio/wav;base64,${wav.toString("base64")}`,
+        model,
+      });
+    } else {
+      const form = new FormData();
+      form.append("file", new Blob([wav], { type: "audio/wav" }), "audio.wav");
+      form.append("model", model);
+      body = form;
+    }
+  }
+
+  const resp = await fetch(url, {
     method: "POST",
-    headers: { Authorization: `Bearer ${cloud.apiKey.trim()}` },
-    body: form,
+    headers,
+    body,
   });
   if (!resp.ok) {
     throw new Error(`ASR cloud API failed: HTTP ${resp.status} ${(await resp.text()).slice(0, 300)}`);
@@ -1876,11 +1906,17 @@ export function registerAsrIpc(): void {
     return { backend: prefs.backend ?? null, cloud: prefs.cloud ?? null };
   });
   ipcMain.handle(IpcChannels.asr.setCloudConfig, (_e, cloud: AsrCloudConfig) => {
+    const style =
+      cloud?.apiStyle === "openai-json" || cloud?.apiStyle === "custom"
+        ? cloud.apiStyle
+        : "openai-multipart";
     const sanitized: AsrCloudConfig = {
       providerName: String(cloud?.providerName ?? "").slice(0, 80),
       baseUrl: String(cloud?.baseUrl ?? "").trim(),
       apiKey: String(cloud?.apiKey ?? "").trim(),
       model: String(cloud?.model ?? "").trim(),
+      apiStyle: style,
+      endpoint: String(cloud?.endpoint ?? "").trim(),
     };
     writeCloudPrefs({ ...readCloudPrefs(), cloud: sanitized });
     return getStatus();
