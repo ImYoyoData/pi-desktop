@@ -318,6 +318,14 @@ export const en = {
   changesFilesChanged: "Files changed",
   changesResetSoft: "Reset (soft)",
   changesResetHard: "Reset (hard)",
+  changesStage: "Stage",
+  changesUnstage: "Unstage",
+  changesStaged: "Staged",
+  changesUnstaged: "Unstaged",
+  changesIgnore: "Filter this file",
+  changesUnignore: "Unfilter this file",
+  changesIgnored: "File filtered",
+  changesUnignored: "File unfiltered",
   changesResetConfirm: (hash: string, mode: string) =>
     `Reset current branch to ${hash} (${mode})? Soft keeps your changes staged; hard discards working-tree changes.`,
   changesRestoreFileConfirm: (path: string, hash: string) =>

@@ -25,6 +25,8 @@ import {
   resetToCommit,
   restorePaths,
   showCommitFiles,
+  stagePaths,
+  unstagePaths,
   setRemoteUrl,
   getConflictContent,
   resolveConflictPath,
@@ -32,6 +34,7 @@ import {
   abortMerge,
 } from "./git-host";
 import { getWorkspace } from "./workspace-ipc";
+import { addGitIgnored, listGitIgnored, removeGitIgnored } from "./git-ignore-store";
 
 function requireRoot(): string | null {
   return getWorkspace();
@@ -206,6 +209,27 @@ export function registerGitIpc(): void {
       return resetToCommit(cwd, commitHash, mode);
     },
   );
+  ipcMain.handle(IpcChannels.git.stage, async (_e, paths: string[]) => {
+    const cwd = getWorkspace();
+    if (!cwd) return { ok: false, message: "no workspace", code: "invalid_args" };
+    return stagePaths(cwd, paths);
+  });
+  ipcMain.handle(IpcChannels.git.unstage, async (_e, paths: string[]) => {
+    const cwd = getWorkspace();
+    if (!cwd) return { ok: false, message: "no workspace", code: "invalid_args" };
+    return unstagePaths(cwd, paths);
+  });
+  ipcMain.handle(IpcChannels.git.ignore, async (_e, paths: string[]) => {
+    const cwd = getWorkspace();
+    if (!cwd) return [];
+    return addGitIgnored(cwd, paths);
+  });
+  ipcMain.handle(IpcChannels.git.unignore, async (_e, path: string) => {
+    const cwd = getWorkspace();
+    if (!cwd) return [];
+    return removeGitIgnored(cwd, path);
+  });
+
   ipcMain.handle(IpcChannels.git.log, async (_e, limit?: number) => {
     const root = requireRoot();
     if (!root) return { entries: [] };

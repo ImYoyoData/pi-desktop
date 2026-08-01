@@ -2,6 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { addGitIgnored } from "../../src/main/git-ignore-store";
 import {
   abortMerge,
   checkoutConflictSide,
@@ -11,6 +12,8 @@ import {
   listBranches,
   listLog,
   resetToCommit,
+  stagePaths,
+  unstagePaths,
   resolveConflictPath,
   restorePaths,
   showCommitFiles,
@@ -239,5 +242,48 @@ describe("git-host dugite smoke", () => {
     expect(fs.readFileSync(path.join(dir, "a.txt"), "utf8").replace(/\r\n/g, "\n")).toBe("v1\n");
     const statusHard = await getWorkspaceGitStatus(dir);
     expect(statusHard.files.length).toBe(0);
+  }, 60_000);
+
+  it("stagePaths / unstagePaths toggle the index", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-git-stage-"));
+    temps.push(dir);
+    expect((await initRepo(dir)).ok).toBe(true);
+    fs.writeFileSync(path.join(dir, "a.txt"), "v1\n");
+    await runGit(dir, ["add", "a.txt"]);
+    await runGit(dir, ["commit", "-m", "first"]);
+    fs.writeFileSync(path.join(dir, "a.txt"), "v2\n");
+    const staged = await stagePaths(dir, ["a.txt"]);
+    expect(staged.ok).toBe(true);
+    const statusAfterStage = await getWorkspaceGitStatus(dir);
+    expect(statusAfterStage.files.find((f) => f.relativePath === "a.txt")?.staged).toBe(true);
+    const unstaged = await unstagePaths(dir, ["a.txt"]);
+    expect(unstaged.ok).toBe(true);
+    const statusAfterUnstage = await getWorkspaceGitStatus(dir);
+    expect(statusAfterUnstage.files.find((f) => f.relativePath === "a.txt")?.staged).toBe(false);
+  }, 60_000);
+
+  it("status marks ignored files from the workspace filter", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-git-ignored-"));
+    temps.push(dir);
+    expect((await initRepo(dir)).ok).toBe(true);
+    fs.writeFileSync(path.join(dir, "a.txt"), "v1\n");
+    fs.writeFileSync(path.join(dir, "b.log"), "x\n");
+    await runGit(dir, ["add", "-A"]);
+    await runGit(dir, ["commit", "-m", "first"]);
+    fs.writeFileSync(path.join(dir, "a.txt"), "v2\n");
+    fs.writeFileSync(path.join(dir, "b.log"), "y\n");
+    const prevAgent = process.env.PI_CODING_AGENT_DIR;
+    process.env.PI_CODING_AGENT_DIR = dir;
+    addGitIgnored(dir, ["b.log"]);
+    try {
+      const status = await getWorkspaceGitStatus(dir);
+      const a = status.files.find((f) => f.relativePath === "a.txt");
+      const b = status.files.find((f) => f.relativePath === "b.log");
+      expect(a?.ignored).toBe(false);
+      expect(b?.ignored).toBe(true);
+    } finally {
+      if (prevAgent === undefined) delete process.env.PI_CODING_AGENT_DIR;
+      else process.env.PI_CODING_AGENT_DIR = prevAgent;
+    }
   }, 60_000);
 });

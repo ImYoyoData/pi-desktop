@@ -314,6 +314,14 @@ const api = {
       ipcRenderer.invoke(IpcChannels.git.showCommitFiles, commitHash) as Promise<{ files: { status: string; path: string }[] }>,
     resetToCommit: (commitHash: string, mode: "soft" | "hard") =>
       ipcRenderer.invoke(IpcChannels.git.resetToCommit, commitHash, mode) as Promise<{ ok: boolean; message?: string; code?: string }>,
+    stage: (paths: string[]) =>
+      ipcRenderer.invoke(IpcChannels.git.stage, paths) as Promise<{ ok: boolean; message?: string; code?: string }>,
+    unstage: (paths: string[]) =>
+      ipcRenderer.invoke(IpcChannels.git.unstage, paths) as Promise<{ ok: boolean; message?: string; code?: string }>,
+    ignore: (paths: string[]) =>
+      ipcRenderer.invoke(IpcChannels.git.ignore, paths) as Promise<string[]>,
+    unignore: (path: string) =>
+      ipcRenderer.invoke(IpcChannels.git.unignore, path) as Promise<string[]>,
 fileDiffAtCommit: (payload: { relativePath: string; commitHash: string }) =>
       ipcRenderer.invoke(IpcChannels.git.fileDiffAtCommit, payload) as Promise<{
         supported: boolean;

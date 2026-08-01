@@ -211,6 +211,10 @@ declare const api: {
         
         showCommitFiles: (commitHash: string) => Promise<{ files: { status: string; path: string }[] }>;
         resetToCommit: (commitHash: string, mode: "soft" | "hard") => Promise<{ ok: boolean; message?: string; code?: string }>;
+        stage: (paths: string[]) => Promise<{ ok: boolean; message?: string; code?: string }>;
+        unstage: (paths: string[]) => Promise<{ ok: boolean; message?: string; code?: string }>;
+        ignore: (paths: string[]) => Promise<string[]>;
+        unignore: (path: string) => Promise<string[]>;
 fileDiffAtCommit: (payload: {
             relativePath: string;
             commitHash: string;
