@@ -1,9 +1,12 @@
 {
   "name": "pi-desktop",
-  "version": "0.2.2",
-  "description": "Pi Desktop ? Electron + Vue3 Agent Workspace",
+  "version": "0.2.3",
+  "description": "Pi Desktop — Electron + Vue3 Agent Workspace",
   "main": "./out/main/index.js",
   "author": "ImYoyoData",
+  "engines": {
+    "node": ">=22"
+  },
   "homepage": "https://github.com/ImYoyoData/pi-desktop",
   "repository": {
     "type": "git",

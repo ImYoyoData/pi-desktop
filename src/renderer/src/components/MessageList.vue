@@ -247,10 +247,25 @@ const displayMessages = computed(() => {
   const start = latestTurnStart.value;
   const out: ChatMessage[] = [];
   let inserted = false;
+  // Fold the WHOLE latest turn's process — from the user prompt down to the
+  // last tool/thinking row — including any assistant text emitted mid-process.
+  // Only the final assistant answer (text after the last work row) stays out.
+  let lastWorkIndex = -1;
+  for (let i = list.length - 1; i > start; i--) {
+    const m = list[i]!;
+    if (
+      m.role === "tool" ||
+      (m.role === "assistant" && Boolean(m.thinking) && !m.text)
+    ) {
+      lastWorkIndex = i;
+      break;
+    }
+  }
   for (let i = 0; i < list.length; i++) {
     const msg = list[i]!;
     const isLatestTurnWork =
       i > start &&
+      i <= lastWorkIndex &&
       (msg.role === "tool" ||
         (msg.role === "assistant" && Boolean(msg.thinking) && !msg.text));
     if (isLatestTurnWork) {
@@ -270,6 +285,18 @@ const displayMessages = computed(() => {
           },
         } as ChatMessage);
       }
+      if (!workFolded.value) out.push(msg);
+      continue;
+    }
+    // Mid-process assistant text emitted between tool calls is part of the
+    // latest turn's process — fold it with the tools. Only the text that
+    // follows the last work row (the final answer) is kept visible.
+    if (
+      i > start &&
+      i <= lastWorkIndex &&
+      msg.role === "assistant" &&
+      msg.text
+    ) {
       if (!workFolded.value) out.push(msg);
       continue;
     }
@@ -373,6 +400,20 @@ const stickyNeedsToggle = ref(false);
 const stickyHover = ref(false);
 const stickyPinId = ref<string | null>(null);
 const stickyPinEl = ref<HTMLElement | null>(null);
+
+/** User cards the user explicitly expanded (id → true). Default: collapsed. */
+const expandedUserIds = ref(new Set<string>());
+
+function isUserExpanded(id: string): boolean {
+  return expandedUserIds.value.has(id);
+}
+
+function toggleUserExpanded(id: string): void {
+  const next = new Set(expandedUserIds.value);
+  if (next.has(id)) next.delete(id);
+  else next.add(id);
+  expandedUserIds.value = next;
+}
 
 const stickyPinned = computed(() => stickyPinId.value != null);
 
@@ -1050,6 +1091,14 @@ function displayUserText(text: string): string {
   return stripComposerModePreamble(text);
 }
 
+/** Long user cards get a fold toggle (line-clamp when collapsed). */
+function userCardNeedsToggle(msg: Extract<ChatMessage, { role: "user" }>): boolean {
+  const textLen = displayUserText(msg.text).length;
+  const imgCount = msg.images?.length ?? 0;
+  const tagCount = visibleUserTags(msg.elementTags).length;
+  return textLen > 140 || imgCount > 2 || tagCount > 4;
+}
+
 function openPreview(filePath: string): void {
   previewStore.openPreview(filePath);
   rightTabs.addTab("preview", {
@@ -1069,6 +1118,50 @@ function toolStatus(msg: Extract<ChatMessage, { role: "tool" }>): {
 
 function isSpeakingMessage(id: string): boolean {
   return tts.speakingMessageId === id && tts.status.speaking;
+}
+
+/**
+ * "12.4s · 1.2k tok · 96 tok/s" for a finished assistant turn.
+ * Shows when we have duration and/or usage from the final message.
+ */
+function assistantStats(
+  msg: Extract<ChatMessage, { role: "assistant" }>,
+): { compact: string; detail: string } | null {
+  const durMs = msg.durationMs;
+  const usage = msg.usage;
+  const total = usage?.totalTokens;
+  const durLabel = durMs != null && durMs > 0 ? formatElapsedMs(durMs) : null;
+  const tokLabel =
+    total != null && total > 0 ? formatTokenCount(total) : null;
+  if (!durLabel && !tokLabel) return null;
+
+  const perSec =
+    durLabel && tokLabel && durMs && durMs > 0 && total && total > 0
+      ? Math.round(total / (durMs / 1000))
+      : null;
+  const compact = [durLabel, tokLabel, perSec != null ? `${perSec}/s` : null]
+    .filter(Boolean)
+    .join(" · ");
+  const detail = t.assistantStatsTitle(
+    durLabel ?? "—",
+    total != null ? total.toLocaleString() : "—",
+    perSec != null ? String(perSec) : "—",
+  );
+  return { compact, detail };
+}
+
+function formatElapsedMs(ms: number): string {
+  const sec = ms / 1000;
+  if (sec < 60) return `${sec.toFixed(1)}s`;
+  const min = Math.floor(sec / 60);
+  const rem = Math.round(sec % 60);
+  return rem ? `${min}m ${rem}s` : `${min}m`;
+}
+
+function formatTokenCount(n: number): string {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}k`;
+  return String(n);
 }
 
 async function onSpeakMessage(msgId: string, text: string): Promise<void> {
@@ -1248,7 +1341,10 @@ function onRevertUser(msg: Extract<ChatMessage, { role: "user" }>): void {
       >
         <template v-if="msg.role === 'user'">
           <div class="bubble-wrap user">
-            <div class="bubble user">
+            <div
+              class="bubble user"
+              :class="{ 'user-collapsed': !isUserExpanded(msg.id) }"
+            >
               <div v-if="visibleUserTags(msg.elementTags).length" class="user-tags">
                 <NTag
                   v-for="(tag, idx) in visibleUserTags(msg.elementTags)"
@@ -1277,7 +1373,11 @@ function onRevertUser(msg: Extract<ChatMessage, { role: "user" }>): void {
                   @click.stop="openImagePreview(img)"
                 />
               </div>
-              <div v-if="displayUserText(msg.text)" class="user-plain">{{ displayUserText(msg.text) }}</div>
+              <div
+                v-if="displayUserText(msg.text)"
+                class="user-plain"
+                :class="{ clamped: !isUserExpanded(msg.id) }"
+              >{{ displayUserText(msg.text) }}</div>
               <!-- Cursor-style: revert lives inside the card, bottom-right -->
               <div
                 v-if="canRevertUser(msg) || isRevertedUser(msg)"
@@ -1298,6 +1398,19 @@ function onRevertUser(msg: Extract<ChatMessage, { role: "user" }>): void {
                   {{ isRevertedUser(msg) ? t.reverted : t.revertTurn }}
                 </NTooltip>
               </div>
+              <button
+                v-if="userCardNeedsToggle(msg)"
+                type="button"
+                class="user-card-toggle"
+                :aria-expanded="isUserExpanded(msg.id)"
+                @click.stop="toggleUserExpanded(msg.id)"
+              >
+                <NIcon
+                  :component="isUserExpanded(msg.id) ? ChevronUpOutline : ChevronDownOutline"
+                  :size="13"
+                />
+                <span>{{ isUserExpanded(msg.id) ? t.userCardCollapse : t.userCardExpand }}</span>
+              </button>
             </div>
             <div v-if="!running" class="actions user-actions">
               <NTooltip>
@@ -1358,7 +1471,12 @@ function onRevertUser(msg: Extract<ChatMessage, { role: "user" }>): void {
                 :duration-ms="msg.thinkingDurationMs"
                 :auto-collapse="turnDone || !(msg.streaming && !msg.text)"
               />
-              <MarkdownView v-if="msg.text" :content="msg.text" />
+              <MarkdownView
+                v-if="msg.text"
+                :content="msg.text"
+                class="assistant-md"
+                :class="{ 'stream-shimmer': msg.streaming && msg.text }"
+              />
               <span v-if="msg.streaming && msg.text" class="cursor" aria-hidden="true" />
             </div>
             <div v-if="!msg.streaming && !running" class="actions">
@@ -1399,6 +1517,13 @@ function onRevertUser(msg: Extract<ChatMessage, { role: "user" }>): void {
                 </template>
                 {{ t.regenerate }}
               </NTooltip>
+              <span
+                v-if="assistantStats(msg)"
+                class="assistant-stats"
+                :title="assistantStats(msg)!.detail"
+              >
+                {{ assistantStats(msg)!.compact }}
+              </span>
             </div>
           </div>
         </template>
@@ -1501,7 +1626,10 @@ function onRevertUser(msg: Extract<ChatMessage, { role: "user" }>): void {
       @mouseenter="onStickyUserEnter"
       @mouseleave="onStickyUserLeave"
     >
-      <div class="sticky-pin-body bubble user">
+      <div
+        class="sticky-pin-body bubble user"
+        :class="{ 'user-collapsed': !stickyExpanded && userCardNeedsToggle(stickyPinMessage) }"
+      >
         <div v-if="visibleUserTags(stickyPinMessage.elementTags).length" class="user-tags">
           <NTag
             v-for="(tag, idx) in visibleUserTags(stickyPinMessage.elementTags)"
@@ -1530,7 +1658,11 @@ function onRevertUser(msg: Extract<ChatMessage, { role: "user" }>): void {
             @click.stop="openImagePreview(img)"
           />
         </div>
-        <div v-if="displayUserText(stickyPinMessage.text)" class="user-plain">{{ displayUserText(stickyPinMessage.text) }}</div>
+        <div
+          v-if="displayUserText(stickyPinMessage.text)"
+          class="user-plain"
+          :class="{ clamped: !stickyExpanded && userCardNeedsToggle(stickyPinMessage) }"
+        >{{ displayUserText(stickyPinMessage.text) }}</div>
       </div>
       <button
         v-if="stickyNeedsToggle && (stickyHover || stickyExpanded)"
@@ -1682,7 +1814,7 @@ function onRevertUser(msg: Extract<ChatMessage, { role: "user" }>): void {
   padding: 14px var(--chat-pad-x, 10px) 10px;
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 6px;
   min-height: 100%;
   box-sizing: border-box;
 }
@@ -1736,11 +1868,45 @@ function onRevertUser(msg: Extract<ChatMessage, { role: "user" }>): void {
   display: flex;
 }
 
+/* Turn boundaries get breathing room; process rows stay tight so the whole
+   thinking+tools run reads as one compact "process" unit. */
 .row-user {
   justify-content: flex-end;
   width: 100%;
+  margin-top: 10px;
+  margin-bottom: 8px;
 }
 
+.row-assistant {
+  margin-top: 6px;
+  margin-bottom: 6px;
+}
+
+/* Tools are visually subordinated: tighter, indented under the process. */
+.row-tool {
+  margin: 1px 0;
+  padding-left: 14px;
+  border-left: 2px solid color-mix(in srgb, var(--border, #ddd) 38%, transparent);
+}
+
+.row-tool:hover {
+  border-left-color: color-mix(in srgb, var(--accent) 45%, transparent);
+}
+
+.row-tool.process-summary-row {
+  padding-left: 0;
+  border-left: none;
+}
+
+.row-error {
+  margin: 4px 0;
+}
+
+/* Only the last row of the stream adds bottom padding; the gap already
+   separates — avoid double spacing before the composer. */
+.row:last-child {
+  margin-bottom: 4px;
+}
 .user-sticky-pin {
   position: absolute;
   top: 0;
@@ -1870,17 +2036,46 @@ function onRevertUser(msg: Extract<ChatMessage, { role: "user" }>): void {
   cursor: text;
 }
 
-/* Codex-like user prompt: right-aligned, subtle tinted bubble. */
+/* User prompt: a clear, right-aligned card (distinct from assistant text). */
 .bubble.user {
   width: auto;
   max-width: 100%;
   box-sizing: border-box;
-  padding: 9px 14px;
-  border-radius: 16px;
-  background: var(--bg-user-bubble, rgba(59, 130, 246, 0.1));
+  padding: 10px 14px;
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--accent, #3b82f6) 9%, var(--bg-elevated, #fff));
   color: var(--fg-strong);
-  border: 1px solid color-mix(in srgb, var(--bg-user-bubble, #eef4ff) 100%, var(--border, #ddd) 45%);
-  box-shadow: var(--shadow-sm, none);
+  border: 1px solid color-mix(in srgb, var(--accent, #3b82f6) 22%, var(--border, #ddd));
+  box-shadow: 0 1px 3px color-mix(in srgb, #000 8%, transparent);
+  overflow: hidden;
+}
+
+/* Collapsed long card: clamp the text block to a few lines. */
+.bubble.user.user-collapsed .user-plain {
+  display: -webkit-box;
+  -webkit-line-clamp: 4;
+  line-clamp: 4;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.user-card-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  margin-top: 6px;
+  padding: 1px 6px;
+  border: none;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--accent, #3b82f6);
+  font-size: 11px;
+  line-height: 1.5;
+  cursor: pointer;
+}
+
+.user-card-toggle:hover {
+  background: color-mix(in srgb, var(--accent, #3b82f6) 12%, transparent);
 }
 
 .bubble.assistant {
@@ -1889,9 +2084,20 @@ function onRevertUser(msg: Extract<ChatMessage, { role: "user" }>): void {
   width: 100%;
   display: flex;
   flex-direction: column;
+  gap: 2px;
   font-size: 14.5px;
   line-height: 1.7;
   color: var(--fg, #18181b);
+}
+
+/* The final answer is the visual anchor of an assistant message — give the
+   markdown body room below the (folded) thinking block and above the actions. */
+.bubble.assistant :deep(.assistant-md) {
+  margin-top: 4px;
+}
+
+.bubble.assistant :deep(.assistant-md:first-child) {
+  margin-top: 0;
 }
 
 /* While thinking with no answer yet: pin the thinking block to the bottom
@@ -2062,6 +2268,17 @@ function onRevertUser(msg: Extract<ChatMessage, { role: "user" }>): void {
   opacity: 1;
 }
 
+/* Turn stats (duration · tokens · tok/s) — muted, right side of the actions. */
+.assistant-stats {
+  margin-left: 8px;
+  font-size: 10.5px;
+  font-variant-numeric: tabular-nums;
+  color: var(--fg-faint, var(--fg-muted));
+  white-space: nowrap;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
 .cursor {
   display: inline-block;
   width: 6px;
@@ -2077,6 +2294,50 @@ function onRevertUser(msg: Extract<ChatMessage, { role: "user" }>): void {
     opacity: 0;
   }
 }
+
+/*
+ * Streaming answer: a soft highlight sweeps across the text to show the
+ * model is still producing output (Cursor-style shimmer). A translucent
+ * gradient bar sweeps over the block — text colours are left untouched so
+ * markdown (code, links) stays readable.
+ */
+.stream-shimmer {
+  position: relative;
+  border-radius: 3px;
+}
+
+.stream-shimmer::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: linear-gradient(
+    100deg,
+    transparent 30%,
+    color-mix(in srgb, var(--accent, #2563eb) 14%, transparent) 48%,
+    color-mix(in srgb, var(--accent, #2563eb) 14%, transparent) 52%,
+    transparent 70%
+  );
+  background-repeat: no-repeat;
+  background-size: 55% 100%;
+  animation: stream-sweep 1.6s ease-in-out infinite;
+}
+
+@keyframes stream-sweep {
+  from {
+    background-position: -60% 0;
+  }
+  to {
+    background-position: 170% 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .stream-shimmer::after {
+    animation: none;
+  }
+}
+
 
 .tool {
   width: 100%;
@@ -2237,7 +2498,7 @@ function onRevertUser(msg: Extract<ChatMessage, { role: "user" }>): void {
   }
 }
 
-/* One-big-group process summary after the final answer */
+/* One-big-group process summary after the final answer — plain text row */
 .process-summary-row {
   padding: 0 4px 2px;
 }
@@ -2247,22 +2508,19 @@ function onRevertUser(msg: Extract<ChatMessage, { role: "user" }>): void {
   align-items: center;
   gap: 8px;
   width: 100%;
-  padding: 6px 10px;
-  border: 1px dashed var(--border-strong, var(--border));
-  border-radius: 9px;
-  background: color-mix(in srgb, var(--bg-panel) 70%, transparent);
+  padding: 4px 6px;
+  border: none;
+  border-radius: 5px;
+  background: transparent;
   color: var(--fg-muted);
   cursor: pointer;
   font: inherit;
   font-size: 12px;
-  transition:
-    background var(--duration-fast, 140ms) var(--ease-out, ease),
-    border-color var(--duration-fast, 140ms) var(--ease-out, ease);
+  transition: background var(--duration-fast, 140ms) var(--ease-out, ease);
 }
 
 .process-summary:hover {
-  border-color: var(--accent-border);
-  background: var(--accent-soft);
+  background: color-mix(in srgb, var(--fg) 4%, transparent);
   color: var(--fg);
 }
 

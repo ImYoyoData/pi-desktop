@@ -131,7 +131,7 @@ onUnmounted(() => {
       :disabled="busy"
       :title="t.stop"
       :aria-label="t.stop"
-      @click="emit('stop')"
+      @mousedown.prevent="emit('stop')"
     >
       <span class="stop-square" aria-hidden="true" />
     </button>
@@ -141,7 +141,7 @@ onUnmounted(() => {
       :disabled="busy"
       :title="t.voiceCancel"
       :aria-label="t.voiceCancel"
-      @click="emit('cancel')"
+      @mousedown.prevent="emit('cancel')"
     >
       <NIcon :component="CloseOutline" :size="15" />
     </button>
@@ -151,7 +151,7 @@ onUnmounted(() => {
       :disabled="busy"
       :title="busy ? t.voiceTranscribing : t.voiceConfirm"
       :aria-label="busy ? t.voiceTranscribing : t.voiceConfirm"
-      @click="emit('confirm')"
+      @mousedown.prevent="emit('confirm')"
     >
       <NIcon :component="CheckmarkOutline" :size="15" />
     </button>
