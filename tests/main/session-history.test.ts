@@ -362,4 +362,34 @@ describe("session-history", () => {
     if (user.role !== "user") return;
     expect(user.text).toBe("Read this page");
   });
+
+  it("does not show the [attached images] block in reloaded user text", async () => {
+    const filePath = path.join(tempRoot, "session3.jsonl");
+    const persisted =
+      "[pi-desktop mode: agent]\n\nDo the thing\n\n[attached images]\n- C:\\Users\\me\\img-a.png";
+    writeJsonl(filePath, [
+      {
+        type: "session",
+        version: 3,
+        id: "session-c",
+        timestamp: "2026-01-15T12:00:00.000Z",
+        cwd: tempRoot,
+      },
+      {
+        type: "message",
+        id: "m1",
+        parentId: null,
+        timestamp: "2026-01-15T12:00:01.000Z",
+        message: {
+          role: "user",
+          content: [{ type: "text", text: persisted }],
+        },
+      },
+    ]);
+    const messages = await readSessionHistoryMessages(filePath);
+    const user = messages[0];
+    if (!user || user.role !== "user") throw new Error("user message missing");
+    expect(user.text).toBe("Do the thing");
+    expect(user.text.includes("[attached images]")).toBe(false);
+  });
 });

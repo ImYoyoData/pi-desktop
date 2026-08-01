@@ -1,7 +1,7 @@
 import fs from "node:fs/promises";
 import type { SessionHistoryMessage, SessionHistoryPage } from "../shared/protocol";
 import { stripComposerModePreamble } from "../shared/composer-modes";
-import { stripSelectionCitationsBlock, type ChatMessageTag } from "../shared/chat-meta";
+import { stripAttachedImagesBlock, stripSelectionCitationsBlock, type ChatMessageTag } from "../shared/chat-meta";
 import { deleteChatMeta, readChatMeta } from "./session-chat-meta";
 import { deleteImageCache } from "./session-image-cache";
 
@@ -168,7 +168,9 @@ function buildMessagesFromEntries(
       if (images.length) pendingImages.set(entry.id, images);
       // The worker prepends a browser-selection block when citations exist;
       // drop it so the bubble shows clean text instead of a raw citation dump.
-      const cleanText = stripComposerModePreamble(stripSelectionCitationsBlock(rawText));
+      const cleanText = stripComposerModePreamble(
+        stripSelectionCitationsBlock(stripAttachedImagesBlock(rawText)),
+      );
       const agentText = stripSelectionCitationsBlock(rawText);
       let elementTags: ChatMessageTag[] | undefined;
       if (chatMeta && chatMeta.length > 0) {
