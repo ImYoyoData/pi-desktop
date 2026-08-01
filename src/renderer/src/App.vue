@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, defineAsyncComponent, onMounted, onUnmounted, watch } from "vue";
+import { computed, defineAsyncComponent, onMounted, onUnmounted, ref, watch } from "vue";
 import {
   NConfigProvider,
   NMessageProvider,
@@ -29,6 +29,8 @@ const SplitRoot = defineAsyncComponent(() => import("@renderer/components/SplitR
 
 const workspace = useWorkspaceStore();
 const appearance = useAppearanceStore();
+/** True once workspace/platform init finished (drives the boot overlay). */
+const booted = ref(false);
 const naiveLocale = locale === "zh-CN" ? zhCN : enUS;
 const naiveDateLocale = locale === "zh-CN" ? dateZhCN : dateEnUS;
 
@@ -52,6 +54,10 @@ let stopAppearance: (() => void) | undefined;
 onMounted(() => {
   stopAppearance = appearance.init();
   void window.api.window.setUiLocale(locale === "zh-CN" ? "zh-CN" : "en");
+  // Instant open: drop the full-screen splash right after first paint so the
+  // window feels instant; heavy workspace init runs behind an in-app boot
+  // overlay that fades out when the content is ready (progressive loading).
+  void dismissStartupSplash(true);
   void (async () => {
     try {
       await Promise.all([
@@ -63,10 +69,8 @@ onMounted(() => {
         }),
       ]);
     } finally {
-      // Startup splash fades out once the workspace/platform init is done,
-      // hiding session/history/trust loading flashes behind a smooth transition.
-      await dismissStartupSplash();
       await dismissLocaleReloadSplash();
+      booted.value = true;
     }
   })();
 });
@@ -91,8 +95,20 @@ onUnmounted(() => {
         <div class="app-shell" :data-theme="appearance.resolvedTheme">
           <TitleBar />
           <main class="app-main">
-            <WelcomeView v-if="!workspace.root" />
-            <SplitRoot v-else />
+            <div v-if="!booted" class="boot-overlay" role="status">
+              <div class="boot-mark" aria-hidden="true">
+                <svg viewBox="0 0 800 800" xmlns="http://www.w3.org/2000/svg">
+                  <rect width="800" height="800" rx="120" fill="#09090b"/>
+                  <path fill="#fff" fill-rule="evenodd" d="M165.29 165.29 H517.36 V400 H400 V517.36 H282.65 V634.72 H165.29 Z M282.65 282.65 V400 H400 V282.65 Z"/>
+                  <path fill="#fff" d="M517.36 400 H634.72 V634.72 H517.36 Z"/>
+                </svg>
+              </div>
+              <div class="boot-text">{{ t.bootLoading }}</div>
+            </div>
+            <template v-else>
+              <WelcomeView v-if="!workspace.root" />
+              <SplitRoot v-else />
+            </template>
           </main>
           <PiCliSetup />
           <TrustDialog />
@@ -118,5 +134,60 @@ onUnmounted(() => {
   min-height: 0;
   display: flex;
   flex-direction: column;
+}
+
+.boot-overlay {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  background: var(--bg);
+  animation: boot-fade-in 180ms ease;
+}
+
+.boot-mark {
+  width: 46px;
+  height: 46px;
+  border-radius: 12px;
+  background: #09090b;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.16);
+  animation: boot-breathe 1.6s ease-in-out infinite;
+}
+
+.boot-mark svg {
+  width: 28px;
+  height: 28px;
+}
+
+.boot-text {
+  font-size: 13px;
+  color: var(--fg-muted, #71717a);
+}
+
+@keyframes boot-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes boot-breathe {
+  0%,
+  100% {
+    opacity: 0.85;
+    transform: scale(0.98);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1);
+  }
 }
 </style>

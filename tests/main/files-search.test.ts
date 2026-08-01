@@ -40,6 +40,15 @@ describe("searchWorkspaceFiles", () => {
     );
   });
 
+  it("searches absolute / pasted paths outside the workspace walk", () => {
+    const root = makeTree();
+    const absQuery = path.join(root, "src", "components", "comp");
+    const entries = searchWorkspaceFiles(root, absQuery);
+    const expected = path.join(root, "src", "components", "Composer.vue").replace(/\\/g, "/");
+    expect(entries.map((e) => e.path)).toContain(expected);
+    expect(entries[0]!.path.startsWith("/") || /^[a-zA-Z]:\//.test(entries[0]!.path)).toBe(true);
+  });
+
   it("supports fuzzy camelCase and multi-token queries", () => {
     const root = makeTree();
     fs.writeFileSync(
