@@ -5,16 +5,17 @@ import {
   NSpace,
   NText,
   NButton,
-  NDivider,
   NSwitch,
   NInput,
   NSelect,
   NTabs,
   NTabPane,
   NProgress,
+  NIcon,
   useMessage,
 } from "naive-ui";
 import type { SelectOption } from "naive-ui";
+import { CloudOutline, HardwareChipOutline } from "@vicons/ionicons5";
 import { formatAsrInstallError, isAsrInstallCancelled, useAsrStore } from "@renderer/stores/asr";
 import { useTtsStore } from "@renderer/stores/tts";
 import AsrInstallProgress from "@renderer/components/AsrInstallProgress.vue";
@@ -393,7 +394,7 @@ onUnmounted(() => {
     :show="props.open"
     preset="card"
     class="pi-settings-modal voice-settings-modal"
-    style="width: min(560px, 92vw)"
+    style="width: min(640px, 94vw)"
     :title="t.voiceTitle"
     :bordered="false"
     size="huge"
@@ -401,317 +402,262 @@ onUnmounted(() => {
   >
     <NTabs v-model:value="voiceTab" class="voice-tabs" type="line" size="small" animated>
       <NTabPane name="asr" :tab="t.asrTitle">
-    <div class="voice-tab-scroll">
-    <div class="section">
-      <NText depth="3" style="font-size: 12px; display: block; margin-bottom: 10px">
-        {{ t.asrHint }}
-      </NText>
-      <div class="asr-row">
-        <span>{{ t.asrEnable }}</span>
-        <NSwitch v-model:value="asrEnabled" size="small" :disabled="!asr.status.supported" />
-      </div>
-      <div class="asr-row" style="margin-top: 12px; align-items: flex-start">
-        <div style="flex: 1; min-width: 0">
-          <div>{{ t.asrWakeHotkey }}</div>
-          <NText depth="3" style="font-size: 12px; display: block; margin-top: 4px">
-            {{ capturingHotkey ? t.asrWakeHotkeyListening : t.asrWakeHotkeyHint }}
-          </NText>
-        </div>
-        <NButton
-          size="small"
-          :type="capturingHotkey ? 'primary' : 'default'"
-          :disabled="!asr.status.supported"
-          @click="startHotkeyCapture"
-        >
-          {{ capturingHotkey ? "…" : wakeHotkeyLabel }}
-        </NButton>
-      </div>
-      <div class="asr-row" style="margin-top: 12px; align-items: flex-start">
-        <div style="flex: 1; min-width: 0">
-          <div>{{ t.asrResidentModel }}</div>
-          <NText depth="3" style="font-size: 12px; display: block; margin-top: 4px">
-            {{ t.asrResidentHint }}
-          </NText>
-        </div>
-        <NSwitch
-          v-model:value="residentModel"
-          size="small"
-          :disabled="!asr.status.supported || !asr.status.enabled"
-        />
-      </div>
-      <div class="asr-wake-words" style="margin-top: 12px">
-        <div>{{ t.asrWakeWords }}</div>
-        <NText depth="3" style="font-size: 12px; display: block; margin: 4px 0 8px">
-          {{ t.asrWakeWordsHint }}
-        </NText>
-        <NInput
-          :value="wakeWordsDraft"
-          type="textarea"
-          size="small"
-          :rows="3"
-          :disabled="!asr.status.supported"
-          :placeholder="t.asrWakeWordsPlaceholder"
-          @update:value="onWakeWordsInput"
-        />
-        <div class="asr-wake-words-actions">
-          <NButton
-            size="small"
-            type="primary"
-            class="pi-interactive"
-            :disabled="!asr.status.supported || !wakeWordsDirty"
-            :loading="wakeWordsSaving"
-            @click="saveWakeWords"
-          >
-            {{ t.asrWakeWordsSave }}
-          </NButton>
-        </div>
-      </div>
-      <NText depth="3" style="font-size: 12px; margin-top: 8px">
-        {{ asr.status.modelLabel }} ·
-        {{ asr.status.installed ? t.asrInstalled : t.asrNotInstalled }} · ≈{{ asr.status.diskMb }}MB
-        disk / ≈{{ asr.status.ramMb }}MB RAM
-      </NText>
+        <div class="voice-tab-scroll asr-scroll">
+          <!-- Recognition backend -->
+          <div class="card">
+            <div class="card-head">
+              <div class="card-title">{{ t.asrBackendSection }}</div>
+              <NText depth="3" class="card-hint">{{ t.asrBackendSectionHint }}</NText>
+            </div>
 
-      <NText strong style="font-size: 12px; margin-top: 14px; display: block">
-        {{ t.asrDownloadMirror }}
-      </NText>
-      <NText depth="3" style="font-size: 12px; display: block; margin: 4px 0 8px">
-        {{ t.asrDownloadMirrorHint }}
-      </NText>
-      <NSelect
-        v-model:value="downloadMirror"
-        size="small"
-        :options="downloadMirrorOptions"
-        :disabled="!asr.status.supported || asr.installing"
-      />
-
-      <NText strong style="font-size: 12px; margin-top: 14px; display: block">
-        {{ t.asrGpuSelect }}
-      </NText>
-      <NText depth="3" style="font-size: 12px; display: block; margin: 4px 0 8px">
-        {{ t.asrGpuSelectHint }}
-      </NText>
-      <NSelect
-        v-model:value="gpuPreference"
-        size="small"
-        :options="gpuSelectOptions"
-        :disabled="!asr.status.supported || asr.installing"
-      />
-      <NText style="font-size: 12px; margin-top: 8px; display: block">
-        {{ t.asrDevice }}: {{ asr.status.gpuDeviceLabel }} ({{ asr.status.gpuBackend.toUpperCase() }} /
-        {{ gpuKindLabel() }})
-      </NText>
-      <NText
-        v-if="!asr.status.runtimeMatchesPreference"
-        type="warning"
-        style="font-size: 12px; margin-top: 4px; display: block"
-      >
-        {{ t.asrGpuRuntimeMismatch }}
-      </NText>
-      <NText
-        :type="asr.status.gpuKind === 'cpu' ? 'warning' : 'default'"
-        depth="3"
-        style="font-size: 12px; margin-top: 4px; display: block"
-      >
-        {{ asr.status.gpuKind === "cpu" ? t.asrCpuSlowHint : t.asrGpuFastHint }}
-      </NText>
-    </div>
-
-    <NDivider style="margin: 16px 0" />
-
-    <div class="section">
-      <NText strong>{{ t.asrBackendSection }}</NText>
-      <NText depth="3" style="font-size: 12px; display: block; margin: 4px 0 10px">
-        {{ t.asrBackendSectionHint }}
-      </NText>
-      <NTabs
-        :value="asrConfigTab"
-        type="line"
-        size="small"
-        animated
-        @update:value="(v) => onAsrConfigTabChange(v as 'local' | 'cloud')"
-      >
-        <!-- Local backend config -->
-        <NTabPane name="local" :tab="t.asrBackendLocal">
-          <div class="local-config">
-            <NText depth="3" style="font-size: 12px; display: block">
-              {{ asr.status.modelLabel }} ·
-              {{ asr.status.installed ? t.asrInstalled : t.asrNotInstalled }} · ≈{{ asr.status.diskMb }}MB
-              disk / ≈{{ asr.status.ramMb }}MB RAM
-            </NText>
-
-            <NText strong style="font-size: 12px; margin-top: 14px; display: block">
-              {{ t.asrModelSection }}
-            </NText>
-            <NText depth="3" style="font-size: 12px; display: block; margin: 4px 0 8px">
-              {{ t.asrManualHint }}
-            </NText>
-            <NSpace :size="8">
-              <NButton
-                size="small"
-                type="primary"
-                :disabled="!asr.status.supported || asr.installing || asr.status.installed"
-                :loading="asr.installing"
-                @click="onInstall"
+            <div class="backend-seg" role="tablist" :aria-label="t.asrBackendSection">
+              <button
+                type="button"
+                class="seg-btn"
+                :class="{ on: asrConfigTab === 'local' }"
+                :aria-selected="asrConfigTab === 'local'"
+                @click="onAsrConfigTabChange('local')"
               >
-                {{ t.asrInstall }}
-              </NButton>
-              <NButton
-                size="small"
-                :disabled="(!asr.status.modelPath && !asr.status.binaryPath) || asr.installing"
-                @click="onUninstall"
+                <NIcon :component="HardwareChipOutline" :size="15" />
+                <span>{{ t.asrBackendLocal }}</span>
+              </button>
+              <button
+                type="button"
+                class="seg-btn"
+                :class="{ on: asrConfigTab === 'cloud' }"
+                :aria-selected="asrConfigTab === 'cloud'"
+                @click="onAsrConfigTabChange('cloud')"
               >
-                {{ t.asrUninstall }}
-              </NButton>
-            </NSpace>
-            <NInput
-              v-model:value="modelUrl"
-              size="small"
-              style="margin-top: 10px"
-              :disabled="!asr.status.supported || asr.installing"
-              :placeholder="t.asrCustomUrlPlaceholder"
-              clearable
-            />
-            <NSpace style="margin-top: 8px" :size="8">
-              <NButton
-                size="small"
-                :disabled="!asr.status.supported || asr.installing"
-                :loading="asr.installing"
-                @click="onInstallFromUrl"
-              >
-                {{ t.asrDownloadFromUrl }}
-              </NButton>
-              <NButton
-                size="small"
-                :disabled="!asr.status.supported || asr.installing"
-                @click="onPickLocal"
-              >
-                {{ t.asrPickLocal }}
-              </NButton>
-            </NSpace>
+                <NIcon :component="CloudOutline" :size="15" />
+                <span>{{ t.asrBackendCloud }}</span>
+              </button>
+            </div>
 
-            <NText strong style="font-size: 12px; margin-top: 16px; display: block">
-              {{ t.asrDownloadMirror }}
-            </NText>
-            <NSelect
-              v-model:value="downloadMirror"
-              size="small"
-              style="margin-top: 6px"
-              :options="downloadMirrorOptions"
-              :disabled="!asr.status.supported || asr.installing"
-            />
-
-            <NText strong style="font-size: 12px; margin-top: 16px; display: block">
-              {{ t.asrGpuSelect }}
-            </NText>
-            <NSelect
-              v-model:value="gpuPreference"
-              size="small"
-              style="margin-top: 6px"
-              :options="gpuSelectOptions"
-              :disabled="!asr.status.supported || asr.installing"
-            />
-            <NText style="font-size: 12px; margin-top: 8px; display: block">
-              {{ t.asrDevice }}: {{ asr.status.gpuDeviceLabel }} ({{ asr.status.gpuBackend.toUpperCase() }} /
-              {{ gpuKindLabel() }})
-            </NText>
-            <NText
-              v-if="!asr.status.runtimeMatchesPreference"
-              type="warning"
-              style="font-size: 12px; margin-top: 4px; display: block"
-            >
-              {{ t.asrGpuRuntimeMismatch }}
-            </NText>
-            <NText
-              :type="asr.status.gpuKind === 'cpu' ? 'warning' : 'default'"
-              depth="3"
-              style="font-size: 12px; margin-top: 4px; display: block"
-            >
-              {{ asr.status.gpuKind === "cpu" ? t.asrCpuSlowHint : t.asrGpuFastHint }}
-            </NText>
-
-            <NText strong style="font-size: 12px; margin-top: 16px; display: block">
-              {{ t.asrRuntimeTitle }}
-            </NText>
-            <NText
-              v-if="asr.status.runtimeArchiveHint"
-              depth="3"
-              style="font-size: 12px; display: block; margin: 4px 0 8px; word-break: break-all"
-            >
-              {{ t.asrRuntimeArchiveHint(asr.status.runtimeArchiveHint) }}
-            </NText>
-            <NSpace :size="8">
-              <NButton
-                size="small"
-                :type="asr.status.runtimeMatchesPreference ? 'default' : 'primary'"
-                :disabled="!asr.status.supported || asr.installing"
-                :loading="asr.installing"
-                @click="onRedownloadRuntime"
+            <!-- Cloud API config -->
+            <div v-if="asrConfigTab === 'cloud'" class="backend-panel cloud-panel">
+              <div class="field-grid">
+                <label class="field">
+                  <span>{{ t.asrCloudProviderName }}</span>
+                  <NInput v-model:value="cloudDraft.providerName" size="small" :placeholder="t.asrCloudProviderNamePh" clearable />
+                </label>
+                <label class="field">
+                  <span>{{ t.asrCloudBaseUrl }}</span>
+                  <NInput v-model:value="cloudDraft.baseUrl" size="small" placeholder="https://api.example.com/v1" clearable />
+                </label>
+                <label class="field">
+                  <span>{{ t.asrCloudApiKey }}</span>
+                  <NInput v-model:value="cloudDraft.apiKey" size="small" type="password" :placeholder="t.asrCloudApiKeyPh" show-password-on="click" />
+                </label>
+                <label class="field">
+                  <span>{{ t.asrCloudModel }}</span>
+                  <NInput v-model:value="cloudDraft.model" size="small" :placeholder="t.asrCloudModelPh" clearable />
+                </label>
+                <label class="field">
+                  <span>{{ t.asrCloudLanguage }}</span>
+                  <NInput v-model:value="cloudDraft.language" size="small" :placeholder="t.asrCloudLanguagePh" clearable />
+                </label>
+              </div>
+              <div class="cloud-actions">
+                <NButton size="small" type="primary" :loading="cloudSaving" @click="saveCloudConfig">
+                  {{ t.asrCloudSaveAndUse }}
+                </NButton>
+                <NButton size="small" :loading="cloudTesting" @click="runCloudTest">
+                  {{ t.asrCloudTest }}
+                </NButton>
+              </div>
+              <NText
+                v-if="cloudTestResult"
+                :type="cloudTestResult.startsWith(t.asrCloudTestOk) ? 'success' : 'error'"
+                depth="3"
+                class="test-result"
               >
-                {{ t.asrRedownloadRuntime }}
-              </NButton>
-              <NButton
-                size="small"
-                :disabled="!asr.status.supported || asr.installing"
-                @click="onPickRuntimeArchive"
-              >
-                {{ t.asrPickRuntimeArchive }}
-              </NButton>
-            </NSpace>
+                {{ cloudTestResult }}
+              </NText>
+              <NText depth="3" class="note">{{ t.asrCloudCompatibleNote }}</NText>
+            </div>
+
+            <!-- Local backend config -->
+            <div v-else class="backend-panel local-panel">
+              <div class="status-row">
+                <div class="status-text">
+                  <div class="setting-name">{{ asr.status.modelLabel }}</div>
+                  <NText depth="3" style="font-size: 12px; display: block; margin-top: 2px">
+                    {{ asr.status.installed ? t.asrInstalled : t.asrNotInstalled }}
+                    · ≈{{ asr.status.diskMb }}MB disk / ≈{{ asr.status.ramMb }}MB RAM
+                  </NText>
+                </div>
+                <div class="status-actions">
+                  <NButton
+                    size="small"
+                    type="primary"
+                    :disabled="!asr.status.supported || asr.installing || asr.status.installed"
+                    :loading="asr.installing"
+                    @click="onInstall"
+                  >
+                    {{ t.asrInstall }}
+                  </NButton>
+                  <NButton
+                    size="small"
+                    :disabled="(!asr.status.modelPath && !asr.status.binaryPath) || asr.installing"
+                    @click="onUninstall"
+                  >
+                    {{ t.asrUninstall }}
+                  </NButton>
+                </div>
+              </div>
+
+              <div class="sub-section">
+                <div class="sub-title">{{ t.asrModelSection }}</div>
+                <NText depth="3" class="sub-hint">{{ t.asrManualHint }}</NText>
+                <NInput
+                  v-model:value="modelUrl"
+                  size="small"
+                  :disabled="!asr.status.supported || asr.installing"
+                  :placeholder="t.asrCustomUrlPlaceholder"
+                  clearable
+                />
+                <NSpace :size="8" style="margin-top: 8px">
+                  <NButton size="small" :disabled="!asr.status.supported || asr.installing" :loading="asr.installing" @click="onInstallFromUrl">
+                    {{ t.asrDownloadFromUrl }}
+                  </NButton>
+                  <NButton size="small" :disabled="!asr.status.supported || asr.installing" @click="onPickLocal">
+                    {{ t.asrPickLocal }}
+                  </NButton>
+                </NSpace>
+              </div>
+
+              <div class="sub-section">
+                <div class="sub-title">{{ t.asrDownloadMirror }}</div>
+                <NText depth="3" class="sub-hint">{{ t.asrDownloadMirrorHint }}</NText>
+                <NSelect v-model:value="downloadMirror" size="small" :options="downloadMirrorOptions" :disabled="!asr.status.supported || asr.installing" />
+              </div>
+
+              <div class="sub-section">
+                <div class="sub-title">{{ t.asrGpuSelect }}</div>
+                <NText depth="3" class="sub-hint">{{ t.asrGpuSelectHint }}</NText>
+                <NSelect v-model:value="gpuPreference" size="small" :options="gpuSelectOptions" :disabled="!asr.status.supported || asr.installing" />
+                <NText style="font-size: 12px; margin-top: 8px; display: block">
+                  {{ t.asrDevice }}: {{ asr.status.gpuDeviceLabel }} ({{ asr.status.gpuBackend.toUpperCase() }} /
+                  {{ gpuKindLabel() }})
+                </NText>
+                <NText
+                  v-if="!asr.status.runtimeMatchesPreference"
+                  type="warning"
+                  style="font-size: 12px; margin-top: 4px; display: block"
+                >
+                  {{ t.asrGpuRuntimeMismatch }}
+                </NText>
+                <NText
+                  :type="asr.status.gpuKind === 'cpu' ? 'warning' : 'default'"
+                  depth="3"
+                  style="font-size: 12px; margin-top: 4px; display: block"
+                >
+                  {{ asr.status.gpuKind === "cpu" ? t.asrCpuSlowHint : t.asrGpuFastHint }}
+                </NText>
+                <NSpace :size="8" style="margin-top: 10px">
+                  <NButton
+                    size="small"
+                    :type="asr.status.runtimeMatchesPreference ? 'default' : 'primary'"
+                    :disabled="!asr.status.supported || asr.installing"
+                    :loading="asr.installing"
+                    @click="onRedownloadRuntime"
+                  >
+                    {{ t.asrRedownloadRuntime }}
+                  </NButton>
+                  <NButton
+                    size="small"
+                    :disabled="!asr.status.supported || asr.installing"
+                    @click="onPickRuntimeArchive"
+                  >
+                    {{ t.asrPickRuntimeArchive }}
+                  </NButton>
+                </NSpace>
+                <NText
+                  v-if="asr.status.runtimeArchiveHint"
+                  depth="3"
+                  style="font-size: 12px; display: block; margin: 6px 0 0; word-break: break-all"
+                >
+                  {{ t.asrRuntimeArchiveHint(asr.status.runtimeArchiveHint) }}
+                </NText>
+              </div>
+            </div>
           </div>
-        </NTabPane>
 
-        <!-- Cloud backend config -->
-        <NTabPane name="cloud" :tab="t.asrBackendCloud">
-          <div class="cloud-config">
-            <NText depth="3" style="font-size: 12px; display: block; margin-bottom: 4px">
-              {{ t.asrCloudLanguage }}
-            </NText>
-            <NInput
-              v-model:value="cloudDraft.language"
-              size="small"
-              :placeholder="t.asrCloudLanguagePh"
-            />
-            <NInput v-model:value="cloudDraft.providerName" size="small" :placeholder="t.asrCloudProviderName" style="margin-top:10px" />
-            <NInput v-model:value="cloudDraft.baseUrl" size="small" placeholder="https://api.example.com/v1" style="margin-top:8px" />
-            <NInput v-model:value="cloudDraft.apiKey" size="small" type="password" :placeholder="t.asrCloudApiKey" style="margin-top:8px" />
-            <NInput v-model:value="cloudDraft.model" size="small" :placeholder="t.asrCloudModel" style="margin-top:8px" />
-            <NSpace :size="8" style="margin-top:10px">
-              <NButton size="small" type="primary" :loading="cloudSaving" @click="saveCloudConfig">
-                {{ t.asrCloudSaveAndUse }}
+          <!-- General settings -->
+          <div class="card">
+            <div class="card-head">
+              <div class="card-title">{{ t.asrGeneralSection }}</div>
+            </div>
+            <div class="setting-row">
+              <div class="setting-info">
+                <div class="setting-name">{{ t.asrEnable }}</div>
+              </div>
+              <NSwitch v-model:value="asrEnabled" size="small" :disabled="!asr.status.supported" />
+            </div>
+            <div class="setting-row">
+              <div class="setting-info">
+                <div class="setting-name">{{ t.asrWakeHotkey }}</div>
+                <NText depth="3" class="setting-hint">
+                  {{ capturingHotkey ? t.asrWakeHotkeyListening : t.asrWakeHotkeyHint }}
+                </NText>
+              </div>
+              <NButton
+                size="small"
+                :type="capturingHotkey ? 'primary' : 'default'"
+                :disabled="!asr.status.supported"
+                @click="startHotkeyCapture"
+              >
+                {{ capturingHotkey ? "···" : wakeHotkeyLabel }}
               </NButton>
-              <NButton size="small" :loading="cloudTesting" @click="runCloudTest">
-                {{ t.asrCloudTest }}
-              </NButton>
-            </NSpace>
-            <NText
-              v-if="cloudTestResult"
-              :type="cloudTestResult.startsWith(t.asrCloudTestOk) ? 'success' : 'error'"
-              depth="3"
-              style="font-size: 12px; display: block; margin-top: 8px"
-            >
-              {{ cloudTestResult }}
-            </NText>
-            <NText depth="3" style="font-size: 11.5px; margin-top: 8px; display: block">
-              {{ t.asrCloudCompatibleNote }}
-            </NText>
+            </div>
+            <div class="setting-row">
+              <div class="setting-info">
+                <div class="setting-name">{{ t.asrResidentModel }}</div>
+                <NText depth="3" class="setting-hint">{{ t.asrResidentHint }}</NText>
+              </div>
+              <NSwitch v-model:value="residentModel" size="small" :disabled="!asr.status.supported || !asr.status.enabled" />
+            </div>
+            <div class="setting-block">
+              <div class="setting-name">{{ t.asrWakeWords }}</div>
+              <NText depth="3" class="setting-hint" style="margin: 4px 0 8px">
+                {{ t.asrWakeWordsHint }}
+              </NText>
+              <NInput
+                :value="wakeWordsDraft"
+                type="textarea"
+                size="small"
+                :rows="3"
+                :disabled="!asr.status.supported"
+                :placeholder="t.asrWakeWordsPlaceholder"
+                class="asr-wake-words"
+                @update:value="onWakeWordsInput"
+              />
+              <div class="asr-wake-words-actions">
+                <NButton
+                  size="small"
+                  type="primary"
+                  class="pi-interactive"
+                  :disabled="!asr.status.supported || !wakeWordsDirty"
+                  :loading="wakeWordsSaving"
+                  @click="saveWakeWords"
+                >
+                  {{ t.asrWakeWordsSave }}
+                </NButton>
+              </div>
+            </div>
           </div>
-        </NTabPane>
-      </NTabs>
-    </div>
 
-        <AsrInstallProgress
-      v-if="asr.installing || asr.progress?.phase === 'error'"
-      style="margin-top: 14px"
-    />
-    <AsrInstallConfirmModal
-      :show="installConfirmOpen"
-      @confirm="onInstallConfirmed"
-      @cancel="onInstallConfirmCancel"
-    />
-    </div>
+          <AsrInstallProgress
+            v-if="asr.installing || asr.progress?.phase === 'error'"
+            style="margin-top: 14px"
+          />
+          <AsrInstallConfirmModal
+            :show="installConfirmOpen"
+            @confirm="onInstallConfirmed"
+            @cancel="onInstallConfirmCancel"
+          />
+        </div>
       </NTabPane>
-
       <NTabPane name="tts" :tab="t.ttsTitle">
         <div class="voice-tab-scroll">
         <div class="section">
@@ -857,14 +803,214 @@ onUnmounted(() => {
   justify-content: flex-end;
 }
 
-/* Backend config tabs */
-.local-config,
-.cloud-config {
-  padding-top: 4px;
-}
-
-.cloud-config {
+/* Redesigned card layout */
+.asr-scroll {
   display: flex;
   flex-direction: column;
+  gap: 12px;
+}
+
+.card {
+  border: 1px solid var(--border, rgba(128, 128, 128, 0.25));
+  border-radius: 10px;
+  padding: 14px;
+  background: var(--bg-elevated, transparent);
+  display: flex;
+  flex-direction: column;
+}
+
+.card-head {
+  margin-bottom: 12px;
+}
+
+.card-title {
+  font-size: 13px;
+  font-weight: 650;
+  color: var(--fg, #1f2328);
+}
+
+.card-hint {
+  display: block;
+  font-size: 12px;
+  margin-top: 4px;
+}
+
+.backend-seg {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.seg-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 8px 10px;
+  border: 1px solid var(--border, rgba(128, 128, 128, 0.3));
+  border-radius: 8px;
+  background: transparent;
+  color: var(--fg-muted, #57606a);
+  font: inherit;
+  font-size: 12.5px;
+  cursor: pointer;
+  transition:
+    border-color 140ms ease,
+    background 140ms ease,
+    color 140ms ease;
+}
+
+.seg-btn:hover {
+  border-color: var(--accent-border, #a5b4fc);
+}
+
+.seg-btn.on {
+  border-color: var(--accent, #4f6ef7);
+  background: var(--accent-soft, rgba(79, 110, 247, 0.1));
+  color: var(--accent, #4f6ef7);
+  font-weight: 600;
+}
+
+.backend-panel {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px dashed var(--border, rgba(128, 128, 128, 0.2));
+  display: flex;
+  flex-direction: column;
+}
+
+.field-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px 12px;
+}
+
+@media (max-width: 520px) {
+  .field-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.field > span {
+  font-size: 11.5px;
+  color: var(--fg-muted, #57606a);
+}
+
+.cloud-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.test-result {
+  font-size: 12px;
+  display: block;
+  margin-top: 8px;
+  word-break: break-all;
+}
+
+.note {
+  font-size: 11.5px;
+  display: block;
+  margin-top: 8px;
+  line-height: 1.5;
+}
+
+.status-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.status-text {
+  flex: 1;
+  min-width: 0;
+}
+
+.status-actions {
+  display: flex;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.sub-section {
+  margin-top: 14px;
+}
+
+.sub-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--fg, #1f2328);
+}
+
+.sub-hint {
+  font-size: 12px;
+  display: block;
+  margin: 4px 0 8px;
+}
+
+.setting-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 9px 0;
+}
+
+.setting-row + .setting-row {
+  border-top: 1px solid var(--border, rgba(128, 128, 128, 0.15));
+}
+
+.setting-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.setting-name {
+  font-size: 12.5px;
+  color: var(--fg, #1f2328);
+}
+
+.setting-hint {
+  font-size: 12px;
+  display: block;
+  margin-top: 3px;
+}
+
+.setting-block {
+  padding-top: 10px;
+  border-top: 1px solid var(--border, rgba(128, 128, 128, 0.15));
+}
+
+.asr-wake-words-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 8px;
+}
+
+:root.dark .card {
+  border-color: rgba(255, 255, 255, 0.14);
+}
+
+:root.dark .card-title,
+:root.dark .setting-name,
+:root.dark .sub-title {
+  color: #e6edf3;
+}
+
+:root.dark .seg-btn {
+  color: #8b949e;
+}
+
+:root.dark .seg-btn.on {
+  background: rgba(79, 110, 247, 0.18);
 }
 </style>
