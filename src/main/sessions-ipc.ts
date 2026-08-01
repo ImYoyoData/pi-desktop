@@ -1,5 +1,6 @@
 import { BrowserWindow, ipcMain } from "electron";
 import type { AgentCommand } from "../shared/protocol";
+import type { ChatMessageTag } from "../shared/chat-meta";
 import { IpcChannels } from "../shared/protocol";
 import type { SessionBroker } from "./session-broker";
 import { readSessionHistoryPage } from "./session-history";
@@ -58,6 +59,12 @@ export function registerSessionsIpc(broker: SessionBroker): void {
     broker.deleteSession(sessionId, cwd),
   );
 
+  ipcMain.handle(
+    IpcChannels.sessions.setUserMessageMeta,
+    (_event, sessionId: string, text: string, tags: ChatMessageTag[]) => {
+      broker.persistUserMessageMeta(sessionId, String(text ?? ""), Array.isArray(tags) ? tags : []);
+    },
+  );
   ipcMain.handle(
     IpcChannels.sessions.history,
     (

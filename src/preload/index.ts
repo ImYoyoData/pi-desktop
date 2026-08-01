@@ -49,6 +49,10 @@ export type { UpdateProgress };
 export type { AgentCommand, AgentEvent, ElementCitation, SessionHistoryMessage, SessionHistoryPage, SessionHistoryQuery, SessionStatus, SessionSummary };
 
 const api = {
+  clipboard: {
+    writeImage: (dataUrl: string) =>
+      ipcRenderer.invoke(IpcChannels.clipboard.writeImage, dataUrl) as Promise<void>,
+  },
   window: {
     platform: () => ipcRenderer.invoke(IpcChannels.window.platform) as Promise<NodeJS.Platform>,
     minimize: () => ipcRenderer.invoke(IpcChannels.window.minimize) as Promise<void>,
@@ -129,6 +133,8 @@ const api = {
       ipcRenderer.invoke(IpcChannels.sessions.rename, sessionId, cwd, name) as Promise<SessionSummary | null>,
     history: (filePath: string, query?: SessionHistoryQuery) =>
       ipcRenderer.invoke(IpcChannels.sessions.history, filePath, query) as Promise<SessionHistoryPage>,
+    setUserMessageMeta: (sessionId: string, text: string, tags: unknown[]) =>
+      ipcRenderer.invoke(IpcChannels.sessions.setUserMessageMeta, sessionId, text, tags),
     clearContext: (sessionId: string, cwd: string) =>
       ipcRenderer.invoke(IpcChannels.sessions.clearContext, sessionId, cwd) as Promise<void>,
     status: (sessionId: string, cwd: string) =>

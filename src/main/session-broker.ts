@@ -12,7 +12,9 @@ import type {
 } from "../shared/protocol";
 import { IDLE_WORKER_DESTROY_MS } from "./worker-lifecycle";
 import { listSessionsForCwd } from "./session-list";
-import { clearSessionConversation, deleteSessionFile } from "./session-history";
+import { clearSessionConversation, deleteSessionFile, invalidateSessionHistoryCache } from "./session-history";
+import { appendChatMeta } from "./session-chat-meta";
+import type { ChatMessageTag } from "../shared/chat-meta";
 import { allocateSessionOnDisk } from "./session-allocate";
 
 const HEARTBEAT_INTERVAL_MS = 5_000;
@@ -87,6 +89,12 @@ export type SessionBroker = {
   notifyWorkersReloadModels: () => Promise<void>;
   /** Hot-reload desktopSecurity into live workers (no restart). */
   notifyWorkersReloadSecurity: (desktopSecurity: DesktopSecuritySettings) => Promise<void>;
+  /** Persist attachment tags for a sent user message (chat reload restores chips). */
+  persistUserMessageMeta: (
+    sessionId: string,
+    text: string,
+    tags: ChatMessageTag[],
+  ) => void;
   /** Update in-memory session metadata (e.g. after rename on disk). */
   patchSummary: (
     sessionId: string,
@@ -595,6 +603,20 @@ export function createSessionBroker(deps: {
     return [...merged.values()].sort((a, b) => b.modified.localeCompare(a.modified));
   }
 
+  function persistUserMessageMeta(
+    sessionId: string,
+    text: string,
+    tags: ChatMessageTag[],
+  ): void {
+    const rec = sessions.get(sessionId);
+    const filePath = rec?.summary.filePath;
+    if (!filePath || !text || !tags.length) return;
+    appendChatMeta(filePath, text, tags);
+    // Tags were written after the jsonl message append — drop the history
+    // cache so the next reload picks them up immediately.
+    invalidateSessionHistoryCache(filePath);
+  }
+
   function patchSummary(
     sessionId: string,
     patch: Partial<Pick<SessionSummary, "name" | "firstMessage" | "modified">>,
@@ -937,6 +959,7 @@ export function createSessionBroker(deps: {
     notifyWorkersReloadModels,
     notifyWorkersReloadSecurity,
     patchSummary,
+    persistUserMessageMeta,
     onEvent,
   };
 }
