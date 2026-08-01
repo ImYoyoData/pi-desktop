@@ -72,8 +72,10 @@ icon: build/icon.png
 compression: normal
 removePackageScripts: true
 nodeGypRebuild: false
-# Rebuild native addons (node-pty) for the current --arch only.
-npmRebuild: true
+# node-pty is already built for the local Electron by postinstall
+# (electron-builder install-app-deps), so skip the slow rebuild in the
+# common same-arch case. arm64 cross-packaging re-enables it explicitly.
+npmRebuild: false
 buildDependenciesFromSource: false
 electronLanguages:
   - en-US
