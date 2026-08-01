@@ -4,6 +4,8 @@ import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { IpcChannels } from "../shared/protocol";
+import { getWorkspace } from "./workspace-ipc";
+import { addAgentNpmExtension, npmNameFromSource } from "./agent-npm-extensions";
 import {
   PI_PACKAGES_CATALOG_URL,
   piInstallCommand,
@@ -190,6 +192,16 @@ export async function installPiPackage(packageName: string): Promise<PiPackageIn
     child.on("close", (code) => {
       clearTimeout(timer);
       if (code === 0) {
+        // Guarantee the module is recorded in the auto-loaded pi-extensions
+        // package so it is actually added to the agent's prompt extensions.
+        const npmName = npmNameFromSource(`npm:${name}`);
+        if (npmName) {
+          try {
+            addAgentNpmExtension(npmName);
+          } catch (err) {
+            console.warn("[market] failed to record npm extension", err);
+          }
+        }
         resolve({ ok: true, command, log, error: null });
       } else {
         resolve({
@@ -203,13 +215,18 @@ export async function installPiPackage(packageName: string): Promise<PiPackageIn
   });
 }
 
-export function registerMarketIpc(): void {
+export function registerMarketIpc(broker?: { restartWorkersForCwd: (cwd: string) => Promise<void> }): void {
   ipcMain.handle(
     IpcChannels.market.list,
     (_event, opts?: { query?: string; type?: PiPackageType; page?: number }) =>
       listPiPackages(opts),
   );
-  ipcMain.handle(IpcChannels.market.install, (_event, packageName: string) =>
-    installPiPackage(packageName),
-  );
+  ipcMain.handle(IpcChannels.market.install, async (_event, packageName: string) => {
+    const result = await installPiPackage(packageName);
+    if (result.ok) {
+      const root = broker?.getWorkspace?.() ?? null;
+      if (root) await broker?.restartWorkersForCwd(root);
+    }
+    return result;
+  });
 }

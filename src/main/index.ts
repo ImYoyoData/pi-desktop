@@ -256,7 +256,7 @@ function boot(): void {
     registerFilesIpc();
     registerFsWatchIpc();
     registerGitIpc();
-    registerSkillsIpc();
+    registerSkillsIpc(broker);
     registerBrowserIpc();
     registerTerminalIpc();
     registerNotifyIpc();
@@ -341,7 +341,7 @@ function boot(): void {
       registerTtsIpc();
       registerUpdateIpc();
       registerPiCliIpc();
-      registerMarketIpc();
+      registerMarketIpc(broker);
     });
 
     app.on("activate", () => {

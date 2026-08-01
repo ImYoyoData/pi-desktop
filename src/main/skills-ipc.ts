@@ -4,7 +4,7 @@ import { listSkills, setSkillDisabled, uninstallSkill } from "./skills-host";
 import { listPlugins, removePlugin, setPluginEnabled, type PluginScope } from "./plugins-host";
 import { getWorkspace } from "./workspace-ipc";
 
-export function registerSkillsIpc(): void {
+export function registerSkillsIpc(broker?: { restartWorkersForCwd: (cwd: string) => Promise<void> }): void {
   ipcMain.handle(IpcChannels.skills.list, async (_event, cwd?: string) => {
     const root = cwd || getWorkspace();
     if (!root) return { skills: [], diagnostics: ["open a workspace first"] };
@@ -35,6 +35,7 @@ export function registerSkillsIpc(): void {
       const root = cwd || getWorkspace();
       if (!root) throw new Error("workspace required");
       await setPluginEnabled(root, source, scope, enabled);
+      await broker?.restartWorkersForCwd(root);
       return listPlugins(root);
     },
   );
@@ -45,6 +46,7 @@ export function registerSkillsIpc(): void {
       const root = cwd || getWorkspace();
       if (!root) throw new Error("workspace required");
       await removePlugin(root, source, scope);
+      await broker?.restartWorkersForCwd(root);
       return listPlugins(root);
     },
   );
