@@ -110,6 +110,19 @@ export function createChatState(): ChatState {
   };
 }
 
+/**
+ * Cap streamed tool output (bash etc.) so repeated tool_execution_update
+ * events never re-parse an unbounded accumulator on the UI thread. The
+ * final tool_execution_end still carries the complete result, and the card
+ * preview only shows ~24 lines regardless.
+ */
+const STREAM_RESULT_CAP_CHARS = 48 * 1024;
+
+export function capStreamedToolResult(result: unknown): unknown {
+  if (typeof result !== "string" || result.length <= STREAM_RESULT_CAP_CHARS) return result;
+  return `\u2026 (output truncated for display)\n${result.slice(-STREAM_RESULT_CAP_CHARS)}`;
+}
+
 /** Keep / clear turn clocks after a reducer step. */
 export function withRunClock(
   state: ChatState,
@@ -976,7 +989,7 @@ function reduceAgentPayload(state: ChatState, payload: Record<string, unknown>):
       toolName: toolName || msg.toolName,
       args: payload.args ?? msg.args,
       // Progressive tool output (bash etc.); write/edit usually update via args.
-      result: payload.partialResult ?? msg.result,
+      result: capStreamedToolResult(payload.partialResult ?? msg.result),
       streaming: true,
     });
 
@@ -1007,7 +1020,7 @@ function reduceAgentPayload(state: ChatState, payload: Record<string, unknown>):
         toolCallId,
         toolName,
         args: payload.args,
-        result: payload.partialResult,
+        result: capStreamedToolResult(payload.partialResult),
         streaming: true,
         order,
       },
