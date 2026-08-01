@@ -165,6 +165,8 @@ export const useChatStore = defineStore("chat", () => {
         id: row.id,
         role: "user" as const,
         text: stripComposerModePreamble(row.text),
+        ...(row.images?.length ? { images: row.images } : {}),
+        ...(row.elementTags?.length ? { elementTags: row.elementTags } : {}),
       };
     }
     if (row.role === "tool") {
@@ -787,6 +789,12 @@ export const useChatStore = defineStore("chat", () => {
     if (last?.role === "user") {
       // Must finish begin (baseline snapshot) before the agent starts writing files.
       await checkpointStore.begin(sessionId, last.id);
+    }
+    // Persist attachment chips so they survive a session reload (sidecar keyed by agent text).
+    if (elementTags?.length) {
+      void window.api.sessions.setUserMessageMeta(sessionId, message, elementTags).catch(() => {
+        // best-effort — chips degrade to text if the sidecar write fails
+      });
     }
     try {
       await sessionsStore.sendCommand(sessionId, {

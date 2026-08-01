@@ -1,6 +1,8 @@
 import fs from "node:fs/promises";
 import type { SessionHistoryMessage, SessionHistoryPage } from "../shared/protocol";
 import { stripComposerModePreamble } from "../shared/composer-modes";
+import { stripSelectionCitationsBlock, type ChatMessageTag } from "../shared/chat-meta";
+import { deleteChatMeta, readChatMeta } from "./session-chat-meta";
 
 type ParsedEntry = {
   id: string;
@@ -58,6 +60,26 @@ function textFromAgentMessage(message: Record<string, unknown>): string {
     .join("");
 }
 
+/** Collect image content parts from a user message (data + mimeType). */
+function imagesFromAgentMessage(
+  message: Record<string, unknown>,
+): { mimeType: string; dataUrl: string }[] {
+  const content = message.content;
+  if (!Array.isArray(content)) return [];
+  const out: { mimeType: string; dataUrl: string }[] = [];
+  for (const part of content) {
+    if (!part || typeof part !== "object") continue;
+    const row = part as { type?: unknown; data?: unknown; mimeType?: unknown };
+    if (row.type !== "image" || typeof row.data !== "string" || !row.data) continue;
+    const mimeType = typeof row.mimeType === "string" && row.mimeType.trim() ? row.mimeType.trim() : "image/png";
+    const dataUrl = row.data.startsWith("data:")
+      ? row.data
+      : `data:${mimeType};base64,${row.data}`;
+    out.push({ mimeType, dataUrl });
+  }
+  return out;
+}
+
 function thinkingFromAgentMessage(message: Record<string, unknown>): string {
   const content = message.content;
   if (!Array.isArray(content)) return "";
@@ -103,7 +125,10 @@ function findLeafId(entries: ParsedEntry[]): string | null {
   return leaves[0]?.id ?? null;
 }
 
-function buildMessagesFromEntries(entries: ParsedEntry[]): SessionHistoryMessage[] {
+function buildMessagesFromEntries(
+  entries: ParsedEntry[],
+  chatMeta?: { text: string; tags: ChatMessageTag[] }[],
+): SessionHistoryMessage[] {
   const byId = new Map(entries.map((entry) => [entry.id, entry]));
   let leafId = findLeafId(entries);
   const pathIds: string[] = [];
@@ -116,6 +141,9 @@ function buildMessagesFromEntries(entries: ParsedEntry[]): SessionHistoryMessage
 
   const messages: SessionHistoryMessage[] = [];
   const toolCallArgsById = new Map<string, unknown>();
+  // Sidecar tags are appended in send order — walk a cursor so duplicate
+  // agent texts still line up with their messages.
+  let metaCursor = 0;
   for (const id of pathIds) {
     const entry = byId.get(id);
     if (!entry || entry.type !== "message" || !entry.message) {
@@ -123,9 +151,32 @@ function buildMessagesFromEntries(entries: ParsedEntry[]): SessionHistoryMessage
     }
     const role = entry.message.role;
     if (role === "user") {
-      const text = stripComposerModePreamble(textFromAgentMessage(entry.message));
-      if (text) {
-        messages.push({ id: entry.id, role: "user", text: truncateForUi(text) });
+      const rawText = textFromAgentMessage(entry.message);
+      const images = imagesFromAgentMessage(entry.message);
+      // The worker prepends a browser-selection block when citations exist;
+      // drop it so the bubble shows clean text instead of a raw citation dump.
+      const cleanText = stripComposerModePreamble(stripSelectionCitationsBlock(rawText));
+      const agentText = stripSelectionCitationsBlock(rawText);
+      let elementTags: ChatMessageTag[] | undefined;
+      if (chatMeta && chatMeta.length > 0) {
+        // Scan remaining sidecar entries from the cursor so untagged rows
+        // in between do not skip over later tagged messages.
+        for (let i = metaCursor; i < chatMeta.length; i++) {
+          if (chatMeta[i]!.text === agentText) {
+            elementTags = chatMeta[i]!.tags;
+            metaCursor = i + 1;
+            break;
+          }
+        }
+      }
+      if (cleanText || images.length > 0 || elementTags) {
+        messages.push({
+          id: entry.id,
+          role: "user",
+          text: truncateForUi(cleanText),
+          ...(images.length ? { images } : {}),
+          ...(elementTags ? { elementTags } : {}),
+        });
       }
     } else if (role === "assistant") {
       for (const [callId, args] of toolCallArgsFromAssistant(entry.message)) {
@@ -219,7 +270,8 @@ async function loadAllHistoryMessages(filePath: string): Promise<SessionHistoryM
     });
   }
 
-  const messages = buildMessagesFromEntries(entries);
+  const chatMeta = readChatMeta(filePath);
+  const messages = buildMessagesFromEntries(entries, chatMeta);
   historyCache.set(filePath, { mtimeMs: st.mtimeMs, messages });
   // Soft cap: drop oldest cache entries if too many sessions are open in memory.
   if (historyCache.size > 24) {
@@ -275,6 +327,7 @@ export async function readSessionHistoryPage(
 
 /** Drop conversation entries; keep session header + metadata (name, model, thinking). */
 export async function clearSessionConversation(filePath: string): Promise<void> {
+  deleteChatMeta(filePath);
   let raw: string;
   try {
     raw = await fs.readFile(filePath, "utf8");
@@ -323,5 +376,6 @@ export async function clearSessionConversation(filePath: string): Promise<void> 
 
 export async function deleteSessionFile(filePath: string): Promise<void> {
   invalidateSessionHistoryCache(filePath);
+  deleteChatMeta(filePath);
   await fs.unlink(filePath);
 }
