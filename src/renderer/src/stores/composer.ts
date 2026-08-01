@@ -155,14 +155,14 @@ export const useComposerStore = defineStore("composer", () => {
       .map((c) => c.citation);
   }
 
-  function addImageFromDataUrl(dataUrl: string): void {
+  function addImageFromDataUrl(dataUrl: string): boolean {
     const parsed = parseDataUrl(dataUrl);
     if (!parsed) {
       console.warn("[composer] failed to parse image data URL");
-      return;
+      return false;
     }
     const b = bucket();
-    if (b.images.some((i) => i.data === parsed.data)) return;
+    if (b.images.some((i) => i.data === parsed.data)) return false;
     b.images = [
       ...b.images,
       {
@@ -172,6 +172,44 @@ export const useComposerStore = defineStore("composer", () => {
         previewUrl: `data:${parsed.mimeType};base64,${parsed.data}`,
       },
     ];
+    return true;
+  }
+
+  /**
+   * Attach a pasted/dropped image: add it to the composer AND persist it into
+   * the session's attachment cache, adding a file chip with its on-disk path
+   * so the chat message carries the image address (text-only models can then
+   * locate the file).
+   */
+  async function addPastedImage(dataUrl: string): Promise<void> {
+    const added = addImageFromDataUrl(dataUrl);
+    const sessionId = activeSessionId.value;
+    if (!sessionId || !added) return;
+    try {
+      const cached = await window.api.sessions.cacheImage(sessionId, { dataUrl });
+      addFileTag(cached.filePath);
+    } catch (err) {
+      console.warn("[composer] cache pasted image failed", err);
+    }
+  }
+
+  /**
+   * Download a remote image URL into the session cache and attach it as an
+   * image (plus its cached file path chip). Returns false when the download
+   * fails / the URL is not an image so callers can fall back to a URL tag.
+   */
+  async function addImageFromUrl(url: string): Promise<boolean> {
+    const sessionId = activeSessionId.value;
+    if (!sessionId) return false;
+    try {
+      const cached = await window.api.sessions.cacheImage(sessionId, { url });
+      addImageFromDataUrl(cached.dataUrl);
+      addFileTag(cached.filePath);
+      return true;
+    } catch (err) {
+      console.warn("[composer] download image failed", err);
+      return false;
+    }
   }
 
   function addImageFile(image: Omit<ComposerImage, "id"> & { id?: string }): void {
@@ -404,6 +442,8 @@ export const useComposerStore = defineStore("composer", () => {
     attachScreenshotToLatestElement,
     addImageFile,
     addImageFromDataUrl,
+    addPastedImage,
+    addImageFromUrl,
     removeImage,
     clearImages,
     addFileTag,

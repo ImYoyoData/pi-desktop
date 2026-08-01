@@ -505,11 +505,26 @@ async function addFiles(files: FileList | File[]): Promise<void> {
   for (const file of list) {
     if (file.type.startsWith("image/")) {
       const img = await readImageFile(file);
-      if (img) composer.addImageFile(img);
+      if (img) {
+        // Persist into the session cache so the message references a real file.
+        await composer.addPastedImage(`data:${img.mimeType};base64,${img.data}`);
+        if (img.previewUrl.startsWith("blob:")) URL.revokeObjectURL(img.previewUrl);
+      }
       continue;
     }
     const filePath = electronFilePath(file);
     if (filePath) composer.addFileTag(filePath);
+  }
+}
+
+/** Heuristic: does this http(s) URL look like it points at an image file? */
+function looksLikeImageUrl(url: string): boolean {
+  try {
+    const u = new URL(url);
+    if (u.protocol !== "http:" && u.protocol !== "https:") return false;
+    return /\.(png|jpe?g|gif|webp|bmp|avif|svg|ico)([?#]|$)/i.test(u.pathname);
+  } catch {
+    return false;
   }
 }
 
@@ -1723,6 +1738,15 @@ function onPaste(event: ClipboardEvent): void {
   }
   const text = data.getData("text/plain")?.trim() ?? "";
   if (text && isHttpUrl(text)) {
+    // Image URLs are downloaded into the per-session cache and attached as
+    // images (with their cached file address) instead of plain URL tags.
+    if (looksLikeImageUrl(text)) {
+      void composer.addImageFromUrl(text).then((ok) => {
+        if (!ok) composer.addUrlTag(text);
+      });
+      event.preventDefault();
+      return;
+    }
     composer.addUrlTag(text);
     event.preventDefault();
   }
