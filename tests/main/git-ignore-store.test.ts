@@ -9,34 +9,42 @@ import {
   removeGitIgnored,
 } from "../../src/main/git-ignore-store";
 
-describe("git-ignore-store", () => {
-  let tmp: string;
-  let prev: string | undefined;
+describe("git-ignore-store (.gitignore-backed)", () => {
+  let ws: string;
 
   beforeEach(() => {
-    tmp = fs.mkdtempSync(path.join(os.tmpdir(), "pi-desk-ignore-"));
-    prev = process.env.PI_CODING_AGENT_DIR;
-    process.env.PI_CODING_AGENT_DIR = tmp;
+    ws = fs.mkdtempSync(path.join(os.tmpdir(), "pi-desk-ignore-"));
   });
 
   afterEach(() => {
-    if (prev === undefined) delete process.env.PI_CODING_AGENT_DIR;
-    else process.env.PI_CODING_AGENT_DIR = prev;
-    fs.rmSync(tmp, { recursive: true, force: true });
+    fs.rmSync(ws, { recursive: true, force: true });
   });
 
-  it("adds / lists / removes ignored paths per workspace", () => {
-    addGitIgnored("C:/ws", ["dist", "out/app.js"]);
-    expect(listGitIgnored("c:/ws")).toEqual(["dist", "out/app.js"]);
-    removeGitIgnored("C:/ws", "dist");
-    expect(listGitIgnored("C:/ws")).toEqual(["out/app.js"]);
+  it("appends managed rules to .gitignore and lists them", () => {
+    addGitIgnored(ws, ["dist", "tmp.log"]);
+    // Folder paths passed as objects get the gitignore trailing slash.
+    addGitIgnored(ws, [{ relativePath: "build", isDir: true }]);
+    const raw = fs.readFileSync(path.join(ws, ".gitignore"), "utf8");
+    expect(raw).toContain("dist");
+    expect(raw).toContain("build/");
+    expect(raw).toContain("tmp.log");
+    expect(listGitIgnored(ws)).toEqual(["build/", "dist", "tmp.log"]);
+  });
+
+  it("keeps user rules untouched and removes only managed ones", () => {
+    fs.writeFileSync(path.join(ws, ".gitignore"), "node_modules/\n", "utf8");
+    addGitIgnored(ws, ["out/"]);
+    removeGitIgnored(ws, "out");
+    const raw = fs.readFileSync(path.join(ws, ".gitignore"), "utf8");
+    expect(raw).toContain("node_modules/");
+    expect(raw).not.toContain("pi-desktop filter");
   });
 
   it("matches exact files and folder prefixes", () => {
-    addGitIgnored("C:/ws", ["dist", "tmp.log"]);
-    expect(isGitIgnoredPath("C:/ws", "dist")).toBe(true);
-    expect(isGitIgnoredPath("C:/ws", "dist/child/x.js")).toBe(true);
-    expect(isGitIgnoredPath("C:/ws", "tmp.log")).toBe(true);
-    expect(isGitIgnoredPath("C:/ws", "src/a.ts")).toBe(false);
+    addGitIgnored(ws, ["dist", "tmp.log"]);
+    expect(isGitIgnoredPath(ws, "dist/child/x.js")).toBe(true);
+    expect(isGitIgnoredPath(ws, "dist")).toBe(true);
+    expect(isGitIgnoredPath(ws, "tmp.log")).toBe(true);
+    expect(isGitIgnoredPath(ws, "src/a.ts")).toBe(false);
   });
 });
