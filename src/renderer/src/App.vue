@@ -20,7 +20,7 @@ import AsrBackendChooseModal from "@renderer/components/AsrBackendChooseModal.vu
 import { useWorkspaceStore } from "@renderer/stores/workspace";
 import { useAppearanceStore } from "@renderer/stores/appearance";
 import { darkThemeOverrides, lightThemeOverrides } from "@renderer/theme/naive";
-import { locale } from "@renderer/i18n";
+import { locale, t } from "@renderer/i18n";
 import { dismissLocaleReloadSplash } from "@renderer/utils/locale-reload-splash";
 import { dismissStartupSplash } from "@renderer/utils/startup-splash";
 
@@ -31,6 +31,12 @@ const workspace = useWorkspaceStore();
 const appearance = useAppearanceStore();
 /** True once workspace/platform init finished (drives the boot overlay). */
 const booted = ref(false);
+/**
+ * Failsafe: some init steps (e.g. the trust prompt awaiting user input)
+ * can take a while; never leave the boot overlay up forever.
+ */
+const BOOT_TIMEOUT_MS = 5000;
+let bootTimer = 0;
 const naiveLocale = locale === "zh-CN" ? zhCN : enUS;
 const naiveDateLocale = locale === "zh-CN" ? dateZhCN : dateEnUS;
 
@@ -58,6 +64,9 @@ onMounted(() => {
   // window feels instant; heavy workspace init runs behind an in-app boot
   // overlay that fades out when the content is ready (progressive loading).
   void dismissStartupSplash(true);
+  bootTimer = window.setTimeout(() => {
+    booted.value = true;
+  }, BOOT_TIMEOUT_MS);
   void (async () => {
     try {
       await Promise.all([
@@ -69,6 +78,7 @@ onMounted(() => {
         }),
       ]);
     } finally {
+      window.clearTimeout(bootTimer);
       await dismissLocaleReloadSplash();
       booted.value = true;
     }
@@ -76,6 +86,7 @@ onMounted(() => {
 });
 
 onUnmounted(() => {
+  window.clearTimeout(bootTimer);
   stopAppearance?.();
 });
 </script>
