@@ -1,6 +1,6 @@
 import { defineStore } from "pinia";
 import { computed, ref } from "vue";
-import type { AsrInstallProgress, AsrStatus, AsrStreamEvent } from "../../../shared/asr";
+import type { AsrCloudConfig, AsrInstallProgress, AsrStatus, AsrStreamEvent } from "../../../shared/asr";
 import { DEFAULT_ASR_WAKE_WORDS } from "../../../shared/asr-wake";
 import { DEFAULT_ASR_WAKE_HOTKEY } from "../../../shared/hotkey";
 import { t } from "@renderer/i18n";
@@ -79,6 +79,8 @@ const emptyStatus = (): AsrStatus => ({
   residentModel: false,
   wakeWords: DEFAULT_ASR_WAKE_WORDS,
   lastError: null,
+  backend: null,
+  cloudConfigured: false,
 });
 
 export const useAsrStore = defineStore("asr", () => {
@@ -92,10 +94,15 @@ export const useAsrStore = defineStore("asr", () => {
   const installInFlight = ref(false);
   /** True while settings is listening for a new wake chord — Composer ignores wake. */
   const capturingHotkey = ref(false);
+  /** First-click backend chooser modal visibility. */
+  const backendPickerOpen = ref(false);
+  let backendPickerResolve: ((chosen: boolean) => void) | null = null;
   /** True while Composer dictation (record / pending) — App-level wake listen pauses. */
   const wakePaused = ref(false);
 
-  const micVisible = computed(() => status.value.enabled && status.value.supported);
+  const micVisible = computed(
+    () => status.value.enabled && (status.value.supported || status.value.cloudConfigured),
+  );
   /** Only true while installing runtime/model — never during transcription. */
   const installing = computed(() => installInFlight.value || status.value.installing);
 
@@ -236,6 +243,48 @@ export const useAsrStore = defineStore("asr", () => {
     return window.api.asr.onStreamEvent(onEvent);
   }
 
+  async function setBackend(backend: "local" | "cloud" | null): Promise<void> {
+    status.value = await window.api.asr.setBackend(backend ?? "");
+  }
+
+  async function getCloudConfig(): Promise<{ backend: "local" | "cloud" | null; cloud: AsrCloudConfig | null }> {
+    return window.api.asr.getCloudConfig();
+  }
+
+  async function setCloudConfig(cloud: AsrCloudConfig): Promise<void> {
+    status.value = await window.api.asr.setCloudConfig(cloud);
+  }
+
+  async function testCloud(): Promise<{ ok: boolean; message: string }> {
+    return window.api.asr.testCloud();
+  }
+
+  function closeBackendPicker(): void {
+    backendPickerOpen.value = false;
+    backendPickerResolve?.(false);
+    backendPickerResolve = null;
+  }
+
+  function resolveBackendPick(chosen: boolean): void {
+    backendPickerOpen.value = false;
+    const resolve = backendPickerResolve;
+    backendPickerResolve = null;
+    resolve?.(chosen);
+  }
+
+  /**
+   * On first mic click: show the backend chooser and wait for the user to pick.
+   * Returns false when cancelled.
+   */
+  function ensureBackendChosen(): Promise<boolean> {
+    if (status.value.backend) return Promise.resolve(true);
+    if (backendPickerOpen.value) return Promise.resolve(false);
+    backendPickerOpen.value = true;
+    return new Promise<boolean>((resolve) => {
+      backendPickerResolve = resolve;
+    });
+  }
+
   async function transcribe(pcm: Int16Array, sampleRate: number): Promise<string> {
     transcribing.value = true;
     try {
@@ -296,6 +345,14 @@ export const useAsrStore = defineStore("asr", () => {
     setResidentModel,
     setWakeWords,
     setCapturingHotkey,
+    backendPickerOpen,
+    ensureBackendChosen,
+    resolveBackendPick,
+    closeBackendPicker,
+    setBackend,
+    getCloudConfig,
+    setCloudConfig,
+    testCloud,
     setWakePaused,
     install,
     installFromUrl,

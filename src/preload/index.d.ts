@@ -475,6 +475,10 @@ fileDiffAtCommit: (payload: {
         setWakeHotkey: (accel: string) => Promise<AsrStatus>;
         setResidentModel: (enabled: boolean) => Promise<AsrStatus>;
         setWakeWords: (raw: string) => Promise<AsrStatus>;
+        setBackend: (backend: string) => Promise<AsrStatus>;
+        getCloudConfig: () => Promise<{ backend: "local" | "cloud" | null; cloud: AsrCloudConfig | null }>;
+        setCloudConfig: (cloud: AsrCloudConfig) => Promise<AsrStatus>;
+        testCloud: () => Promise<{ ok: boolean; message: string }>;
         onWake: (callback: () => void) => () => void;
     };
     tts: {
