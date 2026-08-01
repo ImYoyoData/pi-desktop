@@ -1,5 +1,28 @@
 # Changelog
 
+## v0.2.4 (2026-08-02)
+
+### 新功能 Features
+
+- **无 Node 环境完整支持**：Pi Desktop 内置 npm 包 + Electron Node 运行时，用户电脑没有 Node/npm/pi 命令也能安装扩展、初始化全局 pi 配置。检测优先级：系统 pi CLI > 系统 npm/pnpm/bun > 内置 npm——有环境的用户行为不变，无环境用户自动走内置路径。
+- 撤回按钮状态持久化：checkpoint 摘要（状态+文件数）落盘，切换会话/重启后历史消息的撤回按钮仍可恢复显示。
+- Changes 面板：推送/拉取/拉取更新按钮操作时显示加载中 spinner，不再看起来像卡住。
+- Full support for machines without Node/npm: the app ships a bundled npm package and runs it with Electron's bundled Node, so extension installs and global Pi config init work with no system Node. Priority is system pi CLI > system npm/pnpm/bun > bundled npm — existing setups keep today's behavior, Node-less machines get the bundled path automatically.
+- Revert-button state is persisted (status + file count), so history keeps its revert button across session switches / app restarts.
+- Changes panel: fetch/pull/push buttons show a spinner while the operation runs.
+
+### 修复 Fixes
+
+- 修复吸顶时机不准：吸顶判断改用真实 DOM 测量（原来用估算高度，消息只滚出一半就提前吸顶），现在整条用户消息完全滚出视口才吸顶。
+- 修复待办扩展因字符串引号嵌套语法错误导致 `Tool todo not found`：扩展加载失败时 todo 工具缺失；已修复并回滚待办扩展到基础版（批量/计时/总用时等增强不再依赖全局扩展，遵守“不改全局扩展”原则）。
+- Fixed sticky-pin timing: uses real measured layout offsets (the estimate over-counted card height, pinning half-scrolled messages); now the whole user row must be fully above the viewport.
+- Fixed `Tool todo not found` caused by a quote-nesting syntax error in the global todo extension; the extension was also rolled back to its baseline (batch/timing enhancements no longer live in global extensions).
+
+### 兼容性 Compatibility
+
+- 全部改动使用跨平台 API，Windows/macOS/Linux 通用；有系统 Node 的环境完全不受影响。
+- All changes use cross-platform APIs (Windows/macOS/Linux); systems with Node keep today's behavior unchanged.
+
 ## v0.2.3 (2026-08-02)
 
 ### 修复 Fixes
@@ -13,7 +36,7 @@
 - 修复录音后光标丢失：录音/停止/取消/确认按钮全部改为不夺焦（mousedown.prevent），转写完成后光标回到编辑框；转写文本插入光标位置（无光标则末尾）
 - 修复 Running 面板终端空白：命令回显到终端（$ command），无输出的命令也能看到执行内容，且不污染 LLM 工具结果
 - 修复测试在带 PI_DESKTOP_PI_CLI_PATH 环境变量时失败：测试显式传空环境，不再依赖宿主环境
-- 修复待办最后一项不更新：agent 回合结束时自动完成仍进行中的项并计时
+- 修复待办最后一项不更新：agent 回合结束时自动完成仍进行中的项并计时（注：工具层增强随扩展回滚移除）
 - Fixed the session-info “files read” stat not rendering (tool-card args were passed wrong, exception swallowed); read calls are now parsed, deduped and previewable.
 - Fixed startup “Unable to move the cache: access denied” (locked Chromium cache dirs): unusable cache dirs are reset early; dev builds get their own userData dir so they coexist with the packaged app; packaged builds keep the single-instance lock.
 - Fixed process folding breaking when mid-process text existed — the whole latest turn (tools + thinking + interleaved text) now folds to one summary, keeping only the final answer.
@@ -23,18 +46,18 @@
 - Fixed caret loss after dictation: mic/stop/cancel/confirm buttons never steal focus (mousedown.prevent), transcript is inserted at the caret (fallback: end), then focus returns to the editor.
 - Fixed empty Running-panel terminals: the command is echoed into the terminal ($ command) even when it produces no stdout, without polluting the LLM's tool result.
 - Fixed tests failing when PI_DESKTOP_PI_CLI_PATH is set in the host environment (tests now pass an explicit empty env).
-- Fixed the last todo never updating: agent_end auto-completes any still-active item and records its duration.
+- Fixed the last todo never updating: agent_end auto-completes any still-active item and records its duration (tool-layer enhancement later removed with the extension rollback).
 
 ### 新功能 Features
 
 - 会话结束卡片显示统计：用时 · 总 token · token/秒（行内紧凑显示，悬停看完整信息，i18n 中英文案）
 - 用户消息改为明显的右侧卡片（恢复卡片化），长内容可展开/收起；吸顶时整卡吸顶同样支持展开
-- 待办升级：支持批量创建（一次 add 多条）、toggle 自动激活/完成并计时（无需单独 activate）、全部完成显示总用时、agent 回合结束自动收尾最后一项
+- 待办面板 UI 升级：编号显示、进行中 spinner、已完成/未完成混排（注：批量/计时/总用时等工具层增强随扩展回滚移除）
 - 聊天列表布局优化：行类型化间距 + 工具行左侧缩进竖线弱化，思考/工具/正文层次清晰
 - 流式回答文本 shimmer 高亮扫过动画（尊重 prefers-reduced-motion）
 - Turn stats on the finished assistant card: duration · total tokens · tokens/sec (compact inline, full info on hover, i18n).
 - User messages are now clear right-aligned cards again with expand/collapse for long content; the sticky header pins the whole card and folds too.
-- Todos: batch create (one add, many texts), toggle auto-activates/completes with timing (no separate activate), total duration when all done, agent_end auto-completes the last item.
+- Todo panel UI upgrade: numbered rows, in-progress spinner, mixed open/done order (tool-layer batch/timing enhancements later removed with the extension rollback).
 - Chat list layout: typed row spacing + indented tool rows with a left rule so thinking/tools/answer read cleanly.
 - Streaming answers get a soft shimmer sweep (respects prefers-reduced-motion).
 

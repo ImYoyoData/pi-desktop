@@ -2,74 +2,93 @@ import { defineStore } from "pinia";
 import { onScopeDispose, reactive } from "vue";
 
 export type CheckpointSummary = {
-  sessionId: string;
-  userMessageId: string;
-  status: "capturing" | "ready" | "reverted" | "empty";
-  fileCount: number;
-  skippedCount: number;
+	sessionId: string;
+	userMessageId: string;
+	status: "capturing" | "ready" | "reverted" | "empty";
+	fileCount: number;
+	skippedCount: number;
 };
 
 function keyOf(sessionId: string, userMessageId: string): string {
-  return `${sessionId}::${userMessageId}`;
+	return `${sessionId}::${userMessageId}`;
 }
 
 export const useCheckpointStore = defineStore("checkpoint", () => {
-  const byKey = reactive<Record<string, CheckpointSummary>>({});
+	const byKey = reactive<Record<string, CheckpointSummary>>({});
 
-  let bound = false;
-  function bindEvents(): void {
-    if (bound) return;
-    bound = true;
-    const off = window.api.checkpoint.onUpdated((summary) => {
-      byKey[keyOf(summary.sessionId, summary.userMessageId)] = summary;
-    });
-    onScopeDispose(() => {
-      bound = false;
-      off();
-    });
-  }
+	let bound = false;
+	function bindEvents(): void {
+		if (bound) return;
+		bound = true;
+		const off = window.api.checkpoint.onUpdated((summary) => {
+			byKey[keyOf(summary.sessionId, summary.userMessageId)] = summary;
+		});
+		onScopeDispose(() => {
+			bound = false;
+			off();
+		});
+	}
 
-  async function begin(sessionId: string, userMessageId: string): Promise<void> {
-    const summary = await window.api.checkpoint.begin(sessionId, userMessageId);
-    byKey[keyOf(sessionId, userMessageId)] = summary;
-  }
+	async function begin(
+		sessionId: string,
+		userMessageId: string,
+	): Promise<void> {
+		const summary = await window.api.checkpoint.begin(sessionId, userMessageId);
+		byKey[keyOf(sessionId, userMessageId)] = summary;
+	}
 
-  async function finishActive(sessionId: string): Promise<void> {
-    const summary = await window.api.checkpoint.finishActive(sessionId);
-    if (summary) {
-      byKey[keyOf(summary.sessionId, summary.userMessageId)] = summary;
-    }
-  }
+	async function finishActive(sessionId: string): Promise<void> {
+		const summary = await window.api.checkpoint.finishActive(sessionId);
+		if (summary) {
+			byKey[keyOf(summary.sessionId, summary.userMessageId)] = summary;
+		}
+	}
 
-  function canRevert(sessionId: string, userMessageId: string): boolean {
-    const s = byKey[keyOf(sessionId, userMessageId)];
-    return s?.status === "ready" && s.fileCount > 0;
-  }
+	/** Restore persisted summaries for a session (history revert buttons). */
+	async function loadSessionSummaries(sessionId: string): Promise<void> {
+		try {
+			const rows = await window.api.checkpoint.list(sessionId);
+			for (const s of rows) {
+				byKey[keyOf(s.sessionId, s.userMessageId)] = s;
+			}
+		} catch {
+			// best-effort — buttons degrade gracefully
+		}
+	}
 
-  function isReverted(sessionId: string, userMessageId: string): boolean {
-    return byKey[keyOf(sessionId, userMessageId)]?.status === "reverted";
-  }
+	function canRevert(sessionId: string, userMessageId: string): boolean {
+		const s = byKey[keyOf(sessionId, userMessageId)];
+		return s?.status === "ready" && s.fileCount > 0;
+	}
 
-  /** Expose summary so templates can depend on byKey reactively. */
-  function summaryFor(sessionId: string, userMessageId: string): CheckpointSummary | null {
-    return byKey[keyOf(sessionId, userMessageId)] ?? null;
-  }
+	function isReverted(sessionId: string, userMessageId: string): boolean {
+		return byKey[keyOf(sessionId, userMessageId)]?.status === "reverted";
+	}
 
-  async function revert(sessionId: string, userMessageId: string) {
-    const result = await window.api.checkpoint.revert(sessionId, userMessageId);
-    const summary = await window.api.checkpoint.get(sessionId, userMessageId);
-    if (summary) byKey[keyOf(sessionId, userMessageId)] = summary;
-    return result;
-  }
+	/** Expose summary so templates can depend on byKey reactively. */
+	function summaryFor(
+		sessionId: string,
+		userMessageId: string,
+	): CheckpointSummary | null {
+		return byKey[keyOf(sessionId, userMessageId)] ?? null;
+	}
 
-  return {
-    byKey,
-    bindEvents,
-    begin,
-    finishActive,
-    canRevert,
-    isReverted,
-    summaryFor,
-    revert,
-  };
+	async function revert(sessionId: string, userMessageId: string) {
+		const result = await window.api.checkpoint.revert(sessionId, userMessageId);
+		const summary = await window.api.checkpoint.get(sessionId, userMessageId);
+		if (summary) byKey[keyOf(sessionId, userMessageId)] = summary;
+		return result;
+	}
+
+	return {
+		byKey,
+		bindEvents,
+		begin,
+		finishActive,
+		loadSessionSummaries,
+		canRevert,
+		isReverted,
+		summaryFor,
+		revert,
+	};
 });

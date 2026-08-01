@@ -5,10 +5,9 @@ import {
   NIcon,
   NModal,
   NSpin,
-  NTag,
   NText,
 } from "naive-ui";
-import { DocumentOutline, ExtensionPuzzleOutline, FileTrayFullOutline, SparklesOutline, TerminalOutline } from "@vicons/ionicons5";
+import { ChevronDownOutline, ChevronForwardOutline, DocumentOutline, ExtensionPuzzleOutline, FileTrayFullOutline, SparklesOutline, TerminalOutline } from "@vicons/ionicons5";
 import { useChatStore } from "@renderer/stores/chat";
 import { usePreviewStore } from "@renderer/stores/preview";
 import { useRightTabsStore } from "@renderer/stores/right-tabs";
@@ -27,6 +26,15 @@ const rightTabs = useRightTabsStore();
 const resources = ref<WorkerResourceSummary | null>(null);
 const extensions = ref<SessionExtensionInfo[]>([]);
 const loading = ref(false);
+
+/** Collapse state per section (default: all open). */
+const collapsed = ref<Record<string, boolean>>({});
+function toggleSection(key: string): void {
+  collapsed.value = { ...collapsed.value, [key]: !collapsed.value[key] };
+}
+function isCollapsed(key: string): boolean {
+  return Boolean(collapsed.value[key]);
+}
 
 /** Files the agent read in this session (from read tool calls). */
 const filesRead = computed<string[]>(() => {
@@ -122,74 +130,122 @@ onUnmounted(() => {
       <div class="modal-scroll info-scroll">
         <!-- Tools -->
         <section class="card">
-          <div class="card-title">
+          <button
+            type="button"
+            class="card-title sect-toggle"
+            :aria-expanded="!isCollapsed('tools')"
+            @click="toggleSection('tools')"
+          >
             <NIcon :component="TerminalOutline" :size="15" />
             <span>{{ t.sessionInfoTools }}</span>
             <span class="count">{{ resources?.activeTools.length ?? 0 }}</span>
+            <NIcon
+              class="chev"
+              :component="isCollapsed('tools') ? ChevronForwardOutline : ChevronDownOutline"
+              :size="13"
+            />
+          </button>
+          <div v-if="!isCollapsed('tools')" class="sect-body">
+            <div v-if="resources?.activeTools.length" class="card-grid">
+              <div v-for="tool in resources.activeTools" :key="tool.name" class="item-card">
+                <div class="item-name" :title="tool.name">{{ tool.name }}</div>
+                <div v-if="tool.brief" class="item-brief" :title="tool.brief">{{ tool.brief }}</div>
+              </div>
+            </div>
+            <NText v-else depth="3" class="empty">{{ t.sessionInfoEmpty }}</NText>
           </div>
-          <div v-if="resources?.activeTools.length" class="chips">
-            <NTag v-for="tool in resources.activeTools" :key="tool" size="small" :bordered="false" class="chip">
-              {{ tool }}
-            </NTag>
-          </div>
-          <NText v-else depth="3" class="empty">{{ t.sessionInfoEmpty }}</NText>
         </section>
 
         <!-- Extensions -->
         <section class="card">
-          <div class="card-title">
+          <button
+            type="button"
+            class="card-title sect-toggle"
+            :aria-expanded="!isCollapsed('ext')"
+            @click="toggleSection('ext')"
+          >
             <NIcon :component="ExtensionPuzzleOutline" :size="15" />
             <span>{{ t.sessionInfoExtensions }}</span>
             <span class="count">{{ extensions.length }}</span>
-          </div>
-          <ul v-if="extensions.length" class="ext-list">
-            <li v-for="ext in extensions" :key="ext.path" class="ext-row" :title="ext.path">
-              <div class="ext-main">
-                <span class="ext-name">{{ ext.name }}</span>
-                <span v-if="ext.brief" class="ext-brief">{{ ext.brief }}</span>
+            <NIcon
+              class="chev"
+              :component="isCollapsed('ext') ? ChevronForwardOutline : ChevronDownOutline"
+              :size="13"
+            />
+          </button>
+          <div v-if="!isCollapsed('ext')" class="sect-body">
+            <div v-if="extensions.length" class="card-grid">
+              <div v-for="ext in extensions" :key="ext.path" class="item-card">
+                <div class="item-name" :title="ext.name">{{ ext.name }}</div>
+                <div v-if="ext.brief" class="item-brief" :title="ext.brief">{{ ext.brief }}</div>
+                <div class="item-path" :title="ext.path">{{ ext.path }}</div>
               </div>
-              <span class="ext-path">{{ ext.path }}</span>
-            </li>
-          </ul>
-          <NText v-else depth="3" class="empty">{{ t.sessionInfoEmpty }}</NText>
+            </div>
+            <NText v-else depth="3" class="empty">{{ t.sessionInfoEmpty }}</NText>
+          </div>
         </section>
 
         <!-- Skills -->
         <section class="card">
-          <div class="card-title">
+          <button
+            type="button"
+            class="card-title sect-toggle"
+            :aria-expanded="!isCollapsed('skills')"
+            @click="toggleSection('skills')"
+          >
             <NIcon :component="SparklesOutline" :size="15" />
             <span>{{ t.sessionInfoSkills }}</span>
             <span class="count">{{ resources?.skillNames.length ?? 0 }}</span>
+            <NIcon
+              class="chev"
+              :component="isCollapsed('skills') ? ChevronForwardOutline : ChevronDownOutline"
+              :size="13"
+            />
+          </button>
+          <div v-if="!isCollapsed('skills')" class="sect-body">
+            <div v-if="resources?.skillNames.length" class="card-grid">
+              <div v-for="sk in resources.skillNames" :key="sk.name" class="item-card">
+                <div class="item-name" :title="sk.name">{{ sk.name }}</div>
+                <div v-if="sk.brief" class="item-brief" :title="sk.brief">{{ sk.brief }}</div>
+              </div>
+            </div>
+            <NText v-else depth="3" class="empty">{{ t.sessionInfoEmpty }}</NText>
           </div>
-          <div v-if="resources?.skillNames.length" class="chips">
-            <NTag v-for="sk in resources.skillNames" :key="sk" size="small" :bordered="false" class="chip">
-              {{ sk }}
-            </NTag>
-          </div>
-          <NText v-else depth="3" class="empty">{{ t.sessionInfoEmpty }}</NText>
         </section>
 
         <!-- Files read -->
         <section class="card">
-          <div class="card-title">
+          <button
+            type="button"
+            class="card-title sect-toggle"
+            :aria-expanded="!isCollapsed('files')"
+            @click="toggleSection('files')"
+          >
             <NIcon :component="FileTrayFullOutline" :size="15" />
             <span>{{ t.sessionInfoFilesRead }}</span>
             <span class="count">{{ filesRead.length }}</span>
+            <NIcon
+              class="chev"
+              :component="isCollapsed('files') ? ChevronForwardOutline : ChevronDownOutline"
+              :size="13"
+            />
+          </button>
+          <div v-if="!isCollapsed('files')" class="sect-body">
+            <ul v-if="filesRead.length" class="file-list">
+              <li v-for="p in filesRead" :key="p">
+                <button
+                  type="button"
+                  class="file-row"
+                  :title="p"
+                  @click="openReadFile(p)"
+                >
+                  <NIcon :component="DocumentOutline" :size="13" class="file-icon" />
+                  <span class="file-path">{{ p }}</span>
+                </button>
+              </li>
+            </ul>
+            <NText v-else depth="3" class="empty">{{ t.sessionInfoEmpty }}</NText>
           </div>
-          <ul v-if="filesRead.length" class="file-list">
-            <li v-for="p in filesRead" :key="p">
-              <button
-                type="button"
-                class="file-row"
-                :title="p"
-                @click="openReadFile(p)"
-              >
-                <NIcon :component="DocumentOutline" :size="13" class="file-icon" />
-                <span class="file-path">{{ p }}</span>
-              </button>
-            </li>
-          </ul>
-          <NText v-else depth="3" class="empty">{{ t.sessionInfoEmpty }}</NText>
         </section>
       </div>
     </NSpin>
@@ -229,14 +285,83 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   gap: 7px;
+  width: 100%;
+  margin: 0 0 4px;
+  padding: 0;
+  border: none;
+  background: transparent;
   font-size: 13px;
   font-weight: 650;
   color: var(--fg, #1f2328);
-  margin-bottom: 10px;
+  text-align: left;
+  cursor: pointer;
 }
 
 .card-title > :first-child {
   color: var(--accent, #2563eb);
+}
+
+.sect-toggle:hover .chev {
+  color: var(--accent, #2563eb);
+}
+
+.chev {
+  color: var(--fg-muted, #71717a);
+  transition: color 120ms ease;
+}
+
+/* Each section body scrolls internally when content overflows. */
+.sect-body {
+  max-height: 240px;
+  overflow-y: auto;
+  padding-right: 4px;
+  margin-top: 6px;
+}
+
+.card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 8px;
+}
+
+.item-card {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 9px 11px;
+  border: 1px solid var(--border, rgba(128, 128, 128, 0.2));
+  border-radius: 9px;
+  background: var(--bg-hover, rgba(127, 127, 127, 0.05));
+  min-width: 0;
+}
+
+.item-name {
+  font-size: 12.5px;
+  font-weight: 650;
+  color: var(--fg, #1f2328);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.item-brief {
+  font-size: 11.5px;
+  line-height: 1.45;
+  color: var(--fg-muted, #71717a);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.item-path {
+  font-size: 10px;
+  color: var(--fg-faint, #999);
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .count {
@@ -249,73 +374,16 @@ onUnmounted(() => {
   padding: 1px 8px;
 }
 
-.chips {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-}
-
-.chip {
-  max-width: 220px;
-}
-
 .empty {
   font-size: 12px;
 }
 
-.ext-list,
 .file-list {
   margin: 0;
   padding: 0;
   list-style: none;
   display: flex;
   flex-direction: column;
-}
-
-.ext-row {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  padding: 7px 8px;
-  border-radius: 8px;
-  transition: background 120ms ease;
-}
-
-.ext-row:hover {
-  background: var(--bg-hover, rgba(127, 127, 127, 0.07));
-}
-
-.ext-main {
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
-  min-width: 0;
-}
-
-.ext-name {
-  font-size: 12.5px;
-  font-weight: 600;
-  color: var(--fg, #1f2328);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.ext-brief {
-  font-size: 11.5px;
-  color: var(--fg-muted, #71717a);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.ext-path {
-  font-size: 10.5px;
-  color: var(--fg-faint, #999);
-  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .file-row {
@@ -367,7 +435,7 @@ onUnmounted(() => {
   color: #e6edf3;
 }
 
-:root.dark .ext-name {
+:root.dark .item-name {
   color: #e6edf3;
 }
 </style>

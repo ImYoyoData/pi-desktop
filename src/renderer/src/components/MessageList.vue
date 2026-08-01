@@ -173,6 +173,8 @@ let suppressFollowBottomUntil = 0;
 const renderStart = ref(0);
 const renderEnd = ref(0);
 const heightById = new Map<string, number>();
+/** Real layout offsetTop of measured rows (for accurate sticky pinning). */
+const topById = new Map<string, number>();
 let adjustingWindow = false;
 let followBottom = true;
 /** Session switch / hydrate settle — snap to bottom, never smooth-scroll. */
@@ -439,7 +441,9 @@ function measureStickyNeedsToggle(naturalHeight: number): void {
 
 /**
  * Nearest user message fully above the viewport top (Cursor behavior).
- * Single pass with running offsets — no per-row querySelector.
+ * Uses real measured layout offsets when available (the estimate used to
+ * over-count the user card height, pinning messages that had only partially
+ * scrolled out of view). Falls back to estimate for unmeasured rows.
  */
 function findStickyUserMessageId(): string | null {
   const sc = scroller.value;
@@ -447,15 +451,25 @@ function findStickyUserMessageId(): string | null {
   if (!sc || all.length === 0) return null;
 
   const viewportTop = sc.scrollTop + 8;
-  let offset = 0;
   let bestId: string | null = null;
+  let offset = 0;
+  let measured = true;
 
   for (let i = 0; i < all.length; i++) {
     const m = all[i]!;
     const h = estimateMessageHeight(m);
-    if (m.role === "user") {
-      if (offset + h < viewportTop) bestId = m.id;
-      else break;
+    const top = topById.get(m.id);
+    if (top == null) {
+      measured = false;
+      // Unmeasured rows: fall back to accumulated estimate for the boundary.
+      if (m.role === "user" && offset + h < viewportTop) bestId = m.id;
+      else if (m.role === "user") break;
+    } else {
+      // Real position: pin only when the WHOLE row is above the viewport.
+      if (m.role === "user") {
+        if (top + h < viewportTop) bestId = m.id;
+        else break;
+      }
     }
     offset += h;
   }
@@ -572,6 +586,9 @@ function measureVisibleRows(): void {
     // Use layout height for virtual window estimates.
     const h = row.offsetHeight;
     if (h > 0) heightById.set(id, h);
+    // Real layout offset inside the scroller (rows are flex children of .inner).
+    const top = row.offsetTop;
+    if (top > 0 || row === rows[0]) topById.set(id, top);
   }
 }
 
