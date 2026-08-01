@@ -22,10 +22,17 @@ export function downsample(
 ): Float32Array {
   if (toRate >= fromRate) return input;
   const ratio = fromRate / toRate;
-  const newLen = Math.floor(input.length / ratio);
+  const newLen = Math.max(1, Math.floor(input.length / ratio));
   const out = new Float32Array(newLen);
+  // Linear interpolation: far better speech quality than keeping every
+  // Nth sample, which folds high frequencies back into the voice band.
   for (let i = 0; i < newLen; i++) {
-    out[i] = input[Math.floor(i * ratio)] ?? 0;
+    const pos = i * ratio;
+    const idx = Math.floor(pos);
+    const frac = pos - idx;
+    const a = input[idx] ?? 0;
+    const b = input[idx + 1] ?? a;
+    out[i] = a + (b - a) * frac;
   }
   return out;
 }

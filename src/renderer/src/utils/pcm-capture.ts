@@ -165,7 +165,10 @@ export async function startVoiceRecord(handlers: {
       aborted = true;
       session.cleanup();
       // Encode off the UI thread so a long take never freezes the app.
-      const pcm = await encodePcmToInt16(chunks, inputRate, TARGET_RATE);
+      // Chunks were already resampled to TARGET_RATE in the capture loop;
+      // passing the mic rate again would resample 16k as if it were 48k
+      // (keep every 3rd sample) and compress the take 3x, garbling speech.
+      const pcm = await encodePcmToInt16(chunks, TARGET_RATE, TARGET_RATE);
       return { pcm, sampleRate: TARGET_RATE };
     },
   };
