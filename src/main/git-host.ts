@@ -962,6 +962,65 @@ export async function restoreFileToCommit(
   return { ok: true };
 }
 
+/**
+ * Files changed by a specific commit (`git show --name-status`).
+ */
+export async function showCommitFiles(
+  cwd: string,
+  commitHash: string,
+): Promise<{ files: { status: string; path: string }[] }> {
+  const repositoryRoot = await findRepositoryRoot(cwd);
+  if (!repositoryRoot) return { files: [] };
+  const rev = commitHash?.trim() ?? "";
+  if (!/^[0-9a-fA-F]{4,40}$/.test(rev)) return { files: [] };
+  try {
+    const out = await git(repositoryRoot, [
+      "show",
+      "--name-status",
+      "--format=",
+      rev,
+    ]);
+    const files: { status: string; path: string }[] = [];
+    for (const raw of out.split(/\r?\n/)) {
+      const line = raw.trim();
+      if (!line) continue;
+      const parts = line.split("\t");
+      const status = parts[0]?.trim() ?? "";
+      if (!status) continue;
+      // Renames: R<score>\told\tnew — keep the destination path.
+      const path = parts[2] ?? parts[1] ?? "";
+      if (path) files.push({ status: status.charAt(0) ?? status, path });
+    }
+    return { files };
+  } catch {
+    return { files: [] };
+  }
+}
+
+/**
+ * Reset the current branch to a commit: `--soft` keeps changes staged,
+ * `--hard` discards working-tree changes.
+ */
+export async function resetToCommit(
+  cwd: string,
+  commitHash: string,
+  mode: "soft" | "hard",
+): Promise<GitOpResult> {
+  const repositoryRoot = await findRepositoryRoot(cwd);
+  if (!repositoryRoot) return fail("not_repo", "Not a git repository");
+  const rev = commitHash?.trim() ?? "";
+  if (!/^[0-9a-fA-F]{4,40}$/.test(rev)) {
+    return fail("invalid_args", "Invalid commit hash");
+  }
+  if (mode !== "soft" && mode !== "hard") {
+    return fail("invalid_args", "Reset mode must be soft or hard");
+  }
+  const flag = mode === "soft" ? "--soft" : "--hard";
+  const result = await gitAllowFail(repositoryRoot, ["reset", flag, rev]);
+  if (!result.ok) return fail(result.code, result.message);
+  return { ok: true, message: `reset ${mode}` };
+}
+
 export async function pullRepo(cwd: string): Promise<GitOpResult> {
   const repositoryRoot = await findRepositoryRoot(cwd);
   if (!repositoryRoot) return fail("not_repo", "Not a git repository");

@@ -21,6 +21,12 @@ import { downloadImageToCache, saveImageDataUrl } from "./session-image-cache";
 import { allocateSessionOnDisk } from "./session-allocate";
 
 const HEARTBEAT_INTERVAL_MS = 5_000;
+/**
+ * Keep at most this many idle workers alive. Prewarm spawns one utilityProcess
+ * per opened session; without a cap, clicking through many sessions left dozens
+ * of Pi agent processes running (users saw 70+ child processes).
+ */
+const MAX_IDLE_WORKERS = 4;
 /** Idle workers only: ~15s of silence → stuck (catch wedged utilityProcess). */
 const HEARTBEAT_MISS_LIMIT_IDLE = 3;
 /**
@@ -117,6 +123,8 @@ type SessionRecord = {
   worker: WorkerHandle | null;
   /** In-flight spawn (prewarm or cold start) — dedupes concurrent spawns. */
   workerPromise: Promise<void> | null;
+  /** Wall-clock ms when the current worker was spawned (for idle-worker trimming). */
+  spawnedAt: number;
   /** Wall-clock ms of last message from this worker (any kind). */
   lastAliveAt: number;
   heartbeatTimer: ReturnType<typeof setInterval> | null;
@@ -342,6 +350,7 @@ export function createSessionBroker(deps: {
       );
     }
     rec.worker = spawned.worker;
+    rec.spawnedAt = Date.now();
     rec.summary.filePath = spawned.filePath;
     attachWorker(sessionId, spawned.worker);
     startHeartbeat(sessionId);
@@ -353,7 +362,36 @@ export function createSessionBroker(deps: {
    * Start the Pi agent worker in the background so the first prompt after
    * switching to a session is fast (no cold-start stall on send).
    */
+  /**
+   * Destroy the oldest idle workers once more than MAX_IDLE_WORKERS are alive,
+   * so prewarming many sessions cannot balloon the process count.
+   */
+  function trimIdleWorkers(): void {
+    const idle: { sessionId: string; spawnedAt: number }[] = [];
+    for (const [id, rec] of sessions) {
+      if (!rec.worker || rec.summary.status !== "idle" || rec.workerPromise) continue;
+      if (deps.hasActiveRuns?.(id)) continue;
+      idle.push({ sessionId: id, spawnedAt: rec.spawnedAt });
+    }
+    const excess = idle.length - MAX_IDLE_WORKERS;
+    if (excess <= 0) return;
+    idle.sort((a, b) => a.spawnedAt - b.spawnedAt);
+    for (let i = 0; i < excess; i++) {
+      const target = idle[i]!;
+      const rec = sessions.get(target.sessionId);
+      if (rec?.worker && rec.summary.status === "idle" && !rec.workerPromise) {
+        stopHeartbeat(rec);
+        clearIdleDestroyTimer(rec);
+        rec.worker.kill();
+        rec.worker = null;
+        rec.workerPromise = null;
+        deps.onSessionWorkerGone?.(target.sessionId);
+      }
+    }
+  }
+
   function prewarmWorker(sessionId: string): void {
+    trimIdleWorkers();
     const rec = sessions.get(sessionId);
     if (!rec || rec.worker || rec.workerPromise) {
       return;
@@ -545,6 +583,7 @@ export function createSessionBroker(deps: {
       summary,
       worker: null,
       workerPromise: null,
+      spawnedAt: 0,
       lastAliveAt: Date.now(),
       heartbeatTimer: null,
       idleDestroyTimer: null,

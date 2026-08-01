@@ -1,10 +1,10 @@
-import { getAgentDir, SessionManager } from "@earendil-works/pi-coding-agent";
+import { agentDir } from "./agent-dir";
 import fs from "node:fs";
 import path from "node:path";
 import type { SessionSummary } from "../shared/protocol";
 
 export function resolveAgentDir(): string {
-  return getAgentDir();
+  return agentDir();
 }
 
 /** Matches Pi SDK default session directory encoding under ~/.pi/agent/sessions/. */
@@ -110,6 +110,7 @@ export async function listSessionsForCwd(cwd: string): Promise<SessionSummary[]>
   const hit = sessionListCache.get(key);
   if (hit && hit.signature === signature) return hit.sessions;
 
+  const { SessionManager } = await import("@earendil-works/pi-coding-agent");
   const infos = await SessionManager.list(resolvedCwd);
   const sessions = infos
     .filter((info) => {
@@ -144,6 +145,7 @@ export async function listPiCliWorkspaces(): Promise<string[]> {
     return piWorkspacesCache.workspaces;
   }
 
+  const { SessionManager } = await import("@earendil-works/pi-coding-agent");
   const infos = await SessionManager.listAll();
   const latestByCwd = new Map<string, { display: string; modified: number }>();
 

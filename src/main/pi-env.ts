@@ -1,13 +1,13 @@
 import fs from "node:fs";
 import path from "node:path";
-import { getAgentDir } from "@earendil-works/pi-coding-agent";
+import { agentDir } from "./agent-dir";
 
 /**
  * Ensure ~/.pi/agent (or PI_CODING_AGENT_DIR) exists with minimal config files
  * so first launch works without a prior `pi` CLI install.
  */
 export function ensurePiAgentEnvironment(): { agentDir: string; created: string[] } {
-  const agentDir = path.resolve(getAgentDir());
+  const agentDirPath = path.resolve(agentDir());
   const created: string[] = [];
 
   const ensureDir = (dir: string): void => {
@@ -17,14 +17,14 @@ export function ensurePiAgentEnvironment(): { agentDir: string; created: string[
     }
   };
 
-  ensureDir(agentDir);
-  ensureDir(path.join(agentDir, "sessions"));
-  ensureDir(path.join(agentDir, "agents"));
-  ensureDir(path.join(agentDir, "skills"));
-  ensureDir(path.join(agentDir, "extensions"));
-  ensureDir(path.join(agentDir, "npm"));
-  ensureDir(path.join(agentDir, "git"));
-  ensureDir(path.join(agentDir, "bin"));
+  ensureDir(agentDirPath);
+  ensureDir(path.join(agentDirPath, "sessions"));
+  ensureDir(path.join(agentDirPath, "agents"));
+  ensureDir(path.join(agentDirPath, "skills"));
+  ensureDir(path.join(agentDirPath, "extensions"));
+  ensureDir(path.join(agentDirPath, "npm"));
+  ensureDir(path.join(agentDirPath, "git"));
+  ensureDir(path.join(agentDirPath, "bin"));
 
   const writeIfMissing = (filePath: string, body: string): void => {
     if (fs.existsSync(filePath)) return;
@@ -33,12 +33,12 @@ export function ensurePiAgentEnvironment(): { agentDir: string; created: string[
   };
 
   writeIfMissing(
-    path.join(agentDir, "models.json"),
+    path.join(agentDirPath, "models.json"),
     `${JSON.stringify({ providers: {} }, null, 2)}\n`,
   );
-  writeIfMissing(path.join(agentDir, "auth.json"), `${JSON.stringify({}, null, 2)}\n`);
+  writeIfMissing(path.join(agentDirPath, "auth.json"), `${JSON.stringify({}, null, 2)}\n`);
   writeIfMissing(
-    path.join(agentDir, "settings.json"),
+    path.join(agentDirPath, "settings.json"),
     `${JSON.stringify(
       {
         thinkingLevel: "medium",
@@ -48,5 +48,5 @@ export function ensurePiAgentEnvironment(): { agentDir: string; created: string[
     )}\n`,
   );
 
-  return { agentDir, created };
+  return { agentDir: agentDirPath, created };
 }

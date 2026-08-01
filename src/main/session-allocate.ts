@@ -1,12 +1,12 @@
-import { SessionManager } from "@earendil-works/pi-coding-agent";
 import { ensureSessionFileOnDisk } from "../agent-worker/session-file";
 
 /** Create a Pi session jsonl on disk without starting an agent worker. */
-export function allocateSessionOnDisk(cwd: string): {
+export async function allocateSessionOnDisk(cwd: string): Promise<{
   id: string;
   cwd: string;
   filePath: string;
-} {
+}> {
+  const { SessionManager } = await import("@earendil-works/pi-coding-agent");
   const sm = SessionManager.create(cwd);
   ensureSessionFileOnDisk(sm);
   const filePath = sm.getSessionFile()?.trim();

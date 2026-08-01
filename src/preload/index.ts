@@ -307,7 +307,12 @@ const api = {
       ipcRenderer.invoke(IpcChannels.git.logFile, relativePath, limit) as Promise<{
         entries: { hash: string; shortHash: string; author: string; date: string; subject: string }[];
       }>,
-    fileDiffAtCommit: (payload: { relativePath: string; commitHash: string }) =>
+    
+    showCommitFiles: (commitHash: string) =>
+      ipcRenderer.invoke(IpcChannels.git.showCommitFiles, commitHash) as Promise<{ files: { status: string; path: string }[] }>,
+    resetToCommit: (commitHash: string, mode: "soft" | "hard") =>
+      ipcRenderer.invoke(IpcChannels.git.resetToCommit, commitHash, mode) as Promise<{ ok: boolean; message?: string; code?: string }>,
+fileDiffAtCommit: (payload: { relativePath: string; commitHash: string }) =>
       ipcRenderer.invoke(IpcChannels.git.fileDiffAtCommit, payload) as Promise<{
         supported: boolean;
         patch?: string;

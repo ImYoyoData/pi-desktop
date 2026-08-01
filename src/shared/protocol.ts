@@ -103,6 +103,8 @@ export const IpcChannels = {
     logFile: "git:logFile",
     fileDiffAtCommit: "git:fileDiffAtCommit",
     restoreFileToCommit: "git:restoreFileToCommit",
+    showCommitFiles: "git:showCommitFiles",
+    resetToCommit: "git:resetToCommit",
     conflictContent: "git:conflictContent",
     resolveConflict: "git:resolveConflict",
     checkoutConflictSide: "git:checkoutConflictSide",

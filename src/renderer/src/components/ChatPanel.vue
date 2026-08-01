@@ -159,7 +159,6 @@ async function onNewAgent(): Promise<void> {
           </template>
         </NButton>
       </header>
-      <SessionTodoPanel />
       <MessageList
         :messages="chat.activeMessages"
         :streaming="chat.activeStreaming"
@@ -175,6 +174,8 @@ async function onNewAgent(): Promise<void> {
       <AskUserStrip
         v-if="!chat.activePendingPermission && !chat.activePendingExtensionUi"
       />
+      <!-- Todo panel sits right above the input so the message history stays clean. -->
+      <SessionTodoPanel />
       <Composer />
     </template>
   </section>
