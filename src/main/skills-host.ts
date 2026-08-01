@@ -1,6 +1,5 @@
 import fs from "node:fs";
 import path from "node:path";
-import { agentDir } from "./agent-dir";
 import { isPathInsideRoot } from "../shared/path-sandbox";
 import { resolveTrustState } from "./project-trust";
 
