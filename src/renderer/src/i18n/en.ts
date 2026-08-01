@@ -315,7 +315,7 @@ export const en = {
   changesRemoteUpdated: "Remote URL updated",
   changesRemoteRemoved: "Remote removed",
   changesLogEmpty: "No commits yet",
-  changesCommitFiles: "Files changed",
+  changesFilesChanged: "Files changed",
   changesResetSoft: "Reset (soft)",
   changesResetHard: "Reset (hard)",
   changesResetConfirm: (hash: string, mode: string) =>
