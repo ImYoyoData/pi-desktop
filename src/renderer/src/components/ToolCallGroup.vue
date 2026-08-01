@@ -164,9 +164,9 @@ function toolStatus(msg: ToolMessage): {
 <style scoped>
 .tool-group {
   margin: 2px 0 6px;
-  border-radius: 8px;
-  border: 1px solid color-mix(in srgb, var(--border) 85%, transparent);
-  background: color-mix(in srgb, var(--bg-panel) 92%, var(--bg-app));
+  border-radius: 6px;
+  border: 1px solid color-mix(in srgb, var(--border) 65%, transparent);
+  background: color-mix(in srgb, var(--bg-panel) 96%, var(--bg-app));
   overflow: hidden;
 }
 
@@ -176,12 +176,12 @@ function toolStatus(msg: ToolMessage): {
   gap: 6px;
   width: 100%;
   margin: 0;
-  padding: 6px 10px;
+  padding: 5px 8px;
   border: 0;
   background: transparent;
   color: var(--fg-muted);
   font: inherit;
-  font-size: 12px;
+  font-size: 11.5px;
   text-align: left;
   cursor: pointer;
 }

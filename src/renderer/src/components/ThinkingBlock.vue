@@ -147,15 +147,15 @@ watch(
 
 <style scoped>
 .thinking {
-  margin: 0 0 8px;
-  border-radius: 8px;
-  border: 1px solid color-mix(in srgb, var(--border, #ddd) 75%, transparent);
-  background: color-mix(in srgb, var(--fg-muted, #888) 4%, transparent);
+  margin: 0 0 6px;
+  border-radius: 6px;
+  border: 1px solid color-mix(in srgb, var(--border, #ddd) 50%, transparent);
+  background: color-mix(in srgb, var(--fg-muted, #888) 2.5%, transparent);
   overflow: hidden;
 }
 
 .thinking.streaming {
-  border-color: color-mix(in srgb, var(--primary, #3b82f6) 28%, var(--border, #ddd));
+  border-color: color-mix(in srgb, var(--primary, #3b82f6) 20%, var(--border, #ddd));
 }
 
 .thinking-head {
@@ -164,11 +164,11 @@ watch(
   align-items: center;
   gap: 7px;
   margin: 0;
-  padding: 7px 10px;
+  padding: 5px 8px;
   border: none;
   background: transparent;
   color: var(--fg-muted, #666);
-  font-size: 12px;
+  font-size: 11.5px;
   font-weight: 500;
   text-align: left;
   cursor: pointer;
@@ -210,8 +210,8 @@ watch(
 
 .thinking-body {
   margin: 0;
-  padding: 0 12px 8px 28px;
-  max-height: 120px;
+  padding: 0 12px 6px 26px;
+  max-height: 160px;
   overflow: auto;
   white-space: pre-wrap;
   word-break: break-word;
