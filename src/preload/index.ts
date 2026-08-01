@@ -137,6 +137,8 @@ const api = {
       ipcRenderer.invoke(IpcChannels.sessions.setUserMessageMeta, sessionId, text, tags),
     cacheImage: (sessionId: string, source: { dataUrl?: string; url?: string }) =>
       ipcRenderer.invoke(IpcChannels.sessions.cacheImage, sessionId, source) as Promise<{ filePath: string; mimeType: string; dataUrl: string }>,
+    deleteCachedImage: (sessionId: string, cachePath: string) =>
+      ipcRenderer.invoke(IpcChannels.sessions.deleteCachedImage, sessionId, cachePath),
     clearContext: (sessionId: string, cwd: string) =>
       ipcRenderer.invoke(IpcChannels.sessions.clearContext, sessionId, cwd) as Promise<void>,
     status: (sessionId: string, cwd: string) =>

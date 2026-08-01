@@ -36,6 +36,7 @@ export const en = {
   copyImage: "Copy image",
   copyImageDone: "Image copied",
   saveImage: "Save as…",
+  pasteImageDownloadFailed: "Could not download the pasted image",
   processSummary: (tools: number, thinking: number) =>
     `Process · ${tools} tool call${tools === 1 ? "" : "s"} · ${thinking} thought${thinking === 1 ? "" : "s"}`,
   processExpand: "Show process",
