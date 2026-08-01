@@ -683,12 +683,19 @@ export async function checkoutBranch(cwd: string, branch: string): Promise<GitOp
   return fail(switched.code, withCheckoutHint(switched.code, switched.message));
 }
 
-export async function createBranch(cwd: string, branch: string): Promise<GitOpResult> {
+export async function createBranch(
+  cwd: string,
+  branch: string,
+  base?: string,
+): Promise<GitOpResult> {
   const repositoryRoot = await findRepositoryRoot(cwd);
   if (!repositoryRoot) return fail("not_repo", "Not a git repository");
   const name = branch.trim();
   if (!name) return fail("invalid_args", "Branch name required");
-  const result = await gitAllowFail(repositoryRoot, ["checkout", "-b", name]);
+  const args = ["checkout", "-b", name];
+  const baseName = base?.trim();
+  if (baseName) args.push(baseName);
+  const result = await gitAllowFail(repositoryRoot, args);
   if (!result.ok) return fail(result.code, result.message);
   return { ok: true };
 }

@@ -120,8 +120,12 @@ onUnmounted(() => {
     :mask-closable="!installing"
     :closable="!installing"
     size="huge"
-    @update:show="(v) => !installing && !v && onSkip()"
+    @update:show="(v) =>
+    
+ !installing && !v && onSkip()"
   >
+    <div class="modal-scroll">
+
     <NText depth="3" style="font-size: 13px; display: block; line-height: 1.55">
       {{ t.piCliMissingBody(platformLabel) }}
     </NText>
@@ -146,7 +150,11 @@ onUnmounted(() => {
       />
     </div>
 
-    <template #footer>
+    
+    
+
+    </div>
+<template #footer>
       <div class="footer">
         <NButton :disabled="installing" @click="onSkip">{{ t.piCliSkip }}</NButton>
         <NSpace :size="8">

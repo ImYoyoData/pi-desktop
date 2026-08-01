@@ -298,8 +298,8 @@ const api = {
       ipcRenderer.invoke(IpcChannels.git.checkout, branch) as Promise<
         { ok: true; message?: string } | { ok: false; message: string; code: string }
       >,
-    createBranch: (branch: string) =>
-      ipcRenderer.invoke(IpcChannels.git.createBranch, branch) as Promise<
+    createBranch: (branch: string, base?: string) =>
+      ipcRenderer.invoke(IpcChannels.git.createBranch, branch, base) as Promise<
         { ok: true; message?: string } | { ok: false; message: string; code: string }
       >,
     merge: (branch: string) =>

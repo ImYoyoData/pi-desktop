@@ -65,8 +65,12 @@ async function onRefresh(): Promise<void> {
     :title="title"
     :bordered="false"
     size="huge"
-    @update:show="(v: boolean) => !v && update.closeModal()"
+    @update:show="(v: boolean) =>
+    
+ !v && update.closeModal()"
   >
+    <div class="modal-scroll">
+
     <div class="body">
       <div class="version-line">{{ versionLine }}</div>
       <div v-if="update.releaseName" class="release-name">{{ update.releaseName }}</div>
@@ -118,7 +122,11 @@ async function onRefresh(): Promise<void> {
       </template>
     </div>
 
-    <template #footer>
+    
+    
+
+    </div>
+<template #footer>
       <NSpace justify="space-between" style="width: 100%">
         <NButton quaternary :disabled="update.busy" @click="onRefresh">
           {{ t.updateRecheck }}

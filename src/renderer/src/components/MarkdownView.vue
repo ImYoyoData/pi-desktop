@@ -196,6 +196,8 @@ onUnmounted(() => {
     :bordered="false"
     size="huge"
   >
+    <div class="modal-scroll">
+
     <div class="preview-toolbar">
       <NSpace :size="6">
         <NButton size="tiny" @click="nudgePreviewZoom(1 / 1.2)">−</NButton>
@@ -213,7 +215,9 @@ onUnmounted(() => {
         v-html="previewSvg"
       />
     </div>
-  </NModal>
+  
+    </div>
+</NModal>
 </template>
 
 <style>

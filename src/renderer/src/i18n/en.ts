@@ -272,6 +272,7 @@ export const en = {
   changesNewBranch: "New branch",
   changesMergeBranch: "Merge into current",
   changesMergePrompt: "Branch to merge into current",
+  changesNewBranchBase: "Based on branch",
   changesNewBranchPrompt: "New branch name",
   changesLocalBranches: "Local branches",
   changesRemoteBranches: "Remote branches",

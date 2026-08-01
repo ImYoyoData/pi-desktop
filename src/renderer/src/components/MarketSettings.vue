@@ -281,8 +281,12 @@ watch(query, () => {
     class="pi-settings-modal"
     style="width: min(880px, 96vw)"
     :bordered="false"
-    @update:show="(v: boolean) => !v && emit('close')"
+    @update:show="(v: boolean) =>
+    
+ !v && emit('close')"
   >
+    <div class="modal-scroll">
+
     <NText depth="3" style="font-size: 13px; line-height: 1.55; display: block; margin-bottom: 12px">
       {{ t.marketHint }}
     </NText>
@@ -411,7 +415,11 @@ watch(query, () => {
       </div>
     </div>
 
-    <template #footer>
+    
+    
+
+    </div>
+<template #footer>
       <NSpace justify="end">
         <NButton class="pi-interactive" @click="emit('close')">{{ t.close }}</NButton>
       </NSpace>
