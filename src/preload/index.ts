@@ -135,6 +135,8 @@ const api = {
       ipcRenderer.invoke(IpcChannels.sessions.history, filePath, query) as Promise<SessionHistoryPage>,
     setUserMessageMeta: (sessionId: string, text: string, tags: unknown[]) =>
       ipcRenderer.invoke(IpcChannels.sessions.setUserMessageMeta, sessionId, text, tags),
+    cacheImage: (sessionId: string, source: { dataUrl?: string; url?: string }) =>
+      ipcRenderer.invoke(IpcChannels.sessions.cacheImage, sessionId, source) as Promise<{ filePath: string; mimeType: string; dataUrl: string }>,
     clearContext: (sessionId: string, cwd: string) =>
       ipcRenderer.invoke(IpcChannels.sessions.clearContext, sessionId, cwd) as Promise<void>,
     status: (sessionId: string, cwd: string) =>

@@ -9,12 +9,15 @@ import type {
   ContextUsageSegmentId,
   SessionStatus,
   SessionSummary,
+  type SessionImageCacheResult,
+  type SessionImageCacheSource,
 } from "../shared/protocol";
 import { IDLE_WORKER_DESTROY_MS } from "./worker-lifecycle";
 import { listSessionsForCwd } from "./session-list";
 import { clearSessionConversation, deleteSessionFile, invalidateSessionHistoryCache } from "./session-history";
 import { appendChatMeta } from "./session-chat-meta";
 import type { ChatMessageTag } from "../shared/chat-meta";
+import { downloadImageToCache, saveImageDataUrl } from "./session-image-cache";
 import { allocateSessionOnDisk } from "./session-allocate";
 
 const HEARTBEAT_INTERVAL_MS = 5_000;
@@ -89,6 +92,11 @@ export type SessionBroker = {
   notifyWorkersReloadModels: () => Promise<void>;
   /** Hot-reload desktopSecurity into live workers (no restart). */
   notifyWorkersReloadSecurity: (desktopSecurity: DesktopSecuritySettings) => Promise<void>;
+  /** Cache a pasted / URL image into the session's attachment folder. */
+  cacheImage: (
+    sessionId: string,
+    source: SessionImageCacheSource,
+  ) => Promise<SessionImageCacheResult>;
   /** Persist attachment tags for a sent user message (chat reload restores chips). */
   persistUserMessageMeta: (
     sessionId: string,
@@ -603,6 +611,28 @@ export function createSessionBroker(deps: {
     return [...merged.values()].sort((a, b) => b.modified.localeCompare(a.modified));
   }
 
+  async function cacheImage(
+    sessionId: string,
+    source: SessionImageCacheSource,
+  ): Promise<SessionImageCacheResult> {
+    const rec = sessions.get(sessionId);
+    const filePath = rec?.summary.filePath;
+    if (!filePath) throw new Error(`session not found: ${sessionId}`);
+    if ("url" in source && typeof source.url === "string" && source.url.trim()) {
+      const saved = await downloadImageToCache(filePath, source.url.trim());
+      return { filePath: saved.filePath, mimeType: saved.mimeType, dataUrl: saved.dataUrl };
+    }
+    if ("dataUrl" in source && typeof source.dataUrl === "string" && source.dataUrl.trim()) {
+      const saved = saveImageDataUrl(filePath, source.dataUrl.trim());
+      return {
+        filePath: saved.filePath,
+        mimeType: saved.mimeType,
+        dataUrl: source.dataUrl.trim(),
+      };
+    }
+    throw new Error("cacheImage: no image source provided");
+  }
+
   function persistUserMessageMeta(
     sessionId: string,
     text: string,
@@ -960,6 +990,7 @@ export function createSessionBroker(deps: {
     notifyWorkersReloadSecurity,
     patchSummary,
     persistUserMessageMeta,
+    cacheImage,
     onEvent,
   };
 }

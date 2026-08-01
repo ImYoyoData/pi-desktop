@@ -70,6 +70,7 @@ declare const api: {
         rename: (sessionId: string, cwd: string, name: string) => Promise<SessionSummary | null>;
         history: (filePath: string, query?: SessionHistoryQuery) => Promise<SessionHistoryPage>;
         setUserMessageMeta: (sessionId: string, text: string, tags: unknown[]) => Promise<void>;
+        cacheImage: (sessionId: string, source: { dataUrl?: string; url?: string }) => Promise<{ filePath: string; mimeType: string; dataUrl: string }>;
         clearContext: (sessionId: string, cwd: string) => Promise<void>;
         status: (sessionId: string, cwd: string) => Promise<SessionStatus | null>;
         onEvent: (callback: (event: AgentEvent) => void) => () => void;

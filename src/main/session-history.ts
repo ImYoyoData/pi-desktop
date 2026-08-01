@@ -3,6 +3,7 @@ import type { SessionHistoryMessage, SessionHistoryPage } from "../shared/protoc
 import { stripComposerModePreamble } from "../shared/composer-modes";
 import { stripSelectionCitationsBlock, type ChatMessageTag } from "../shared/chat-meta";
 import { deleteChatMeta, readChatMeta } from "./session-chat-meta";
+import { deleteImageCache } from "./session-image-cache";
 
 type ParsedEntry = {
   id: string;
@@ -377,5 +378,7 @@ export async function clearSessionConversation(filePath: string): Promise<void> 
 export async function deleteSessionFile(filePath: string): Promise<void> {
   invalidateSessionHistoryCache(filePath);
   deleteChatMeta(filePath);
+  // Stop is handled by the broker (disconnectWorker) before files are removed.
+  deleteImageCache(filePath);
   await fs.unlink(filePath);
 }
