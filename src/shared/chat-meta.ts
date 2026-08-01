@@ -38,6 +38,16 @@ export function chatMetaPath(filePath: string): string {
  * prepends when a prompt carries element citations, so the original agent
  * text (and the display text) can be recovered from history.
  */
+/**
+ * Remove the trailing `[attached images]` block that the composer appends to
+ * the agent prompt (cached image paths for text-only models). It must not
+ * appear in the chat bubble when history is reloaded.
+ */
+export function stripAttachedImagesBlock(text: string): string {
+  const raw = text ?? "";
+  return raw.replace(/\r?\n\r?\n\[attached images\]\r?\n(?:- [^\r\n]*\r?\n?)+$/, "");
+}
+
 export function stripSelectionCitationsBlock(text: string): string {
   const raw = text ?? "";
   const idx = raw.indexOf(BUILTIN_BROWSER_SELECTION_HEADER);
