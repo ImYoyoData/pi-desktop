@@ -309,6 +309,33 @@ button {
   border: 1px solid var(--border);
 }
 
+/*
+ * All settings modals: stay smaller than the window so the header close
+ * button is always reachable (a taller-than-window modal pushes its X
+ * under the titlebar where clicks are swallowed), and scroll internally.
+ */
+.pi-settings-modal.n-modal,
+.pi-settings-modal .n-card {
+  max-height: min(80vh, 720px) !important;
+}
+
+.pi-settings-modal .n-card {
+  margin-top: 44px;
+  display: flex;
+  flex-direction: column;
+}
+
+.pi-settings-modal .n-card__content {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.pi-settings-modal .n-card__close {
+  -webkit-app-region: no-drag;
+  z-index: 3;
+}
+
 .pi-settings-modal .n-card-header {
   padding: 18px 20px 10px !important;
   border-bottom: 1px solid var(--border);

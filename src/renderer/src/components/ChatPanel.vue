@@ -160,20 +160,6 @@ async function onNewAgent(): Promise<void> {
             <NIcon :component="InformationCircleOutline" :size="15" />
           </template>
         </NButton>
-        <NButton
-          quaternary
-          circle
-          size="tiny"
-          class="pi-interactive"
-          :disabled="!canCreateSession"
-          :title="t.newSessionAction"
-          :aria-label="t.newSessionAction"
-          @click="onNewAgent"
-        >
-          <template #icon>
-            <NIcon :component="AddOutline" :size="16" />
-          </template>
-        </NButton>
       </header>
       <MessageList
         :messages="chat.activeMessages"

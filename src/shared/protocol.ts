@@ -276,8 +276,18 @@ export type TrustState = {
 export type SessionStatus = "idle" | "running" | "error" | "stuck";
 
 /** Tools / extensions / skills loaded into a session worker (null while booting). */
+export type SessionExtensionInfo = {
+  path: string;
+  /** Readable extension name (package name or file stem). */
+  name: string;
+  /** Short description from the extension package.json when available. */
+  brief: string;
+};
+
 export type SessionInfoResult = {
   resources: WorkerResourceSummary | null;
+  /** Extension paths enriched with a readable name + brief description. */
+  extensions: SessionExtensionInfo[];
 };
 
 /** Mirrors Pi SDK `ContextUsage` from `AgentSession.getContextUsage()`, plus session stats. */
