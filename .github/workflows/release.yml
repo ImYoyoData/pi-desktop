@@ -165,72 +165,50 @@ jobs:
           generate_release_notes: true
           body: |
 
-            ## 主要更新（0.2.1 正式版）
+            ## 主要更新（v0.2.4）
 
-            本版聚焦：云端 ASR（含小米 MiMo 自动适配）、语音识别修复、会话信息面板、聊天与 Git 面板打磨、启动提速与打包加速。
+            本版聚焦：无 Node 环境完整支持、会话信息卡片化、撤回按钮持久化、多项交互修复。
 
-            ### 语音识别 ASR
-            - 云端 ASR：首次使用选择弹窗、本地/云端 Tab、接口格式自动适配（小米 MiMo 走 chat/completions + input_audio，中文默认 language=zh）、录制音频自动上传
-            - 修复识别混乱：录音被二次降采样压缩 3 倍，现按 16kHz→16kHz 编码并升级为线性插值降采样
-            - 空转录不再报错，显示「未识别到语音」；语音设置弹窗全新卡片布局
-            - 启动蒙版等待扩展/Skills 加载完成后再淡出（新流体动画 + 过渡）
+            ### 新功能 Features
+            - **无 Node 环境完整支持**：内置 npm 包 + Electron Node 运行时，用户电脑没有 Node/npm/pi 命令也能安装扩展、初始化全局 pi 配置。检测优先级：系统 pi CLI > 系统 npm/pnpm/bun > 内置 npm——有环境的用户行为不变，无环境用户自动走内置路径。
+            - 会话信息弹窗：工具/技能/扩展改卡片显示（名称 + 简要），读取的文件保持列表，全部支持内部滚动与折叠。
+            - 撤回按钮状态持久化：checkpoint 摘要（状态 + 文件数）落盘，切换会话/重启后历史消息的撤回按钮仍可恢复显示。
+            - Changes 面板：推送/拉取/拉取更新按钮操作时显示加载中 spinner，不再看起来像卡住。
+            - 会话结束卡片显示统计：用时 · 总 token · token/秒（行内紧凑，悬停看完整信息）。
+            - 用户消息改为明显的右侧卡片，长内容可展开/收起；吸顶时整卡吸顶同样支持展开。
+            - 聊天列表布局优化：行类型化间距 + 工具行缩进竖线，思考/工具/正文层次清晰。
+            - 流式回答文本 shimmer 高亮扫过动画。
 
-            ### 会话与聊天
-            - 会话信息按钮：查看该会话加载的工具、扩展、Skills 与读取的文件
-            - 过程折叠条展开后可随时再折叠；会话结束后历史只显示用户消息+折叠条+结论
-            - 重试按钮改为静默继续（不再追加「继续」气泡）
-            - 修复 agent 运行命令时界面卡顿（流式输出显示级截断）
-            - 图片粘贴融合进图片（不再额外 tag）、删除时清理缓存、右键复制/另存、切换会话图片与标签还原
+            ### 修复 Fixes
+            - 吸顶时机修复：改用真实 DOM 测量，整条用户消息完全滚出视口才吸顶。
+            - 修复待发送队列编辑后双套消息/意外撤回/agent 卡死：编辑不再误入队 + 同会话 prompt 严格串行。
+            - 修复用户消息重新编辑后发送丢失后续内容（编辑后作为新消息追加）。
+            - 修复录音后光标丢失：录音/停止/取消/确认按钮全部不夺焦，转写插入光标位置（无光标则末尾）。
+            - 修复 Running 面板终端空白：命令回显到终端（$ command），不污染 LLM 工具结果。
+            - 修复 todo 扩展语法错误导致 Tool todo not found（扩展已回滚至基础版）。
+            - 修复测试在带 PI_DESKTOP_PI_CLI_PATH 环境变量时失败。
 
-            ### Git 与文件
-            - 文件暂存/取消暂存、提交历史查看文件列表、软/硬重置、单文件 diff 与恢复
-            - 右键过滤文件写入 .gitignore，过滤文件从更改列表隐藏
+            ## What's New (v0.2.4)
 
-            ### 全局与性能
-            - 侧栏新增「打开工作区」按钮；安全设置信任列表折叠化；@ 提及支持绝对路径/盘符
-            - 启动提速（瞬间打开 + 渐进加载）；构建加速约 15%；Win 打包提速（跳过原生重编译、dist:win:fast）
-            - 扩展卸载同步移除于提示词扩展；README 重写
+            Full support for machines without Node/npm (bundled npm + Electron's Node), card-style session info, persisted revert buttons, and a batch of interaction fixes.
 
-            ## What's New (0.2.1 stable)
+            ### Features
+            - No-Node support: the app ships a bundled npm package and runs it with Electron's bundled Node, so extension installs and global Pi config init work with no system Node. Priority: system pi CLI > system npm/pnpm/bun > bundled npm — existing setups keep today's behavior.
+            - Session info dialog: tools/skills/extensions render as cards (name + brief); files read stay a list; every section folds and scrolls internally.
+            - Revert-button state is persisted (status + file count), surviving session switches / app restarts.
+            - Changes panel: fetch/pull/push buttons show a spinner while running.
+            - Turn stats on the finished assistant card: duration · total tokens · tokens/sec.
+            - User messages are clear right-aligned cards with expand/collapse; the sticky header pins the whole card.
+            - Chat list layout: typed row spacing + indented tool rows; streaming answers get a shimmer sweep.
 
-            Cloud ASR with automatic Xiaomi MiMo routing, voice-recognition fixes, a session info panel, chat & Git polish, and faster startup/packaging.
-
-            ### Speech (ASR)
-            - Cloud ASR: first-use backend chooser, local/cloud tabs, auto API format (MiMo uses chat/completions + input_audio, Chinese defaults to language=zh), recorded audio uploads automatically
-            - Fixed garbled recognition (3x-compressed audio from double resampling); linear-interpolation downsampling
-            - Empty transcripts show a friendly hint; redesigned voice settings dialog
-            - Boot overlay waits for extensions/skills before fading (new blob loader animation)
-
-            ### Sessions & Chat
-            - Session info button shows loaded tools, extensions, skills and files read
-            - The process fold bar can be re-folded anytime; history shows user messages + summary + final answer
-            - Retry resumes silently (no "Continue" bubble)
-            - Fixed UI lag during long-running commands (capped streamed output)
-            - Pasted images merge into the image with cache cleanup; right-click copy/save; images/tags survive session switches
-
-            ### Git & Files
-            - Stage/unstage, commit file list, soft/hard reset, per-file diff & restore
-            - Right-click filter writes .gitignore rules; filtered files leave the Changes list
-
-            ### Global & Performance
-            - "Open workspace" button in the sidebar; foldable trusted-workspace list; @ mentions match absolute/drive-letter paths
-            - Instant open + progressive loading; ~15% faster build; faster Windows packaging (skip native rebuild, dist:win:fast)
-            - Uninstall removes extensions from prompt extensions; README rewrite
-            ### 修复与优化 Fixes & Polish
-            - 修复启动蒙版遗留卡死（初始化完成时清除了兜底定时器，worker 事件丢失后永久等待）；现有 10 秒硬性兜底 + 3 秒宽限，蒙版去掉 logo、新增进度条。
-            - 修复发布打包脚本（generate-icons.mjs 误用 TS 语法）。
-            - 所有弹窗统一内部滚动，高度不超过窗口，右上角 X 可点击关闭。
-            - 会话信息弹窗更换为可靠内部滚动，且 worker 加载完成后自动刷新。
-            - Windows ARM64 打包强制 node-pty 跨架构重建；扩展名解析仅信任 node_modules 包根目录。
-            - 新建分支可选择「基于分支」。
-
-            ### Fixes & Polish
-            - Boot overlay can no longer stick (10s hard cap + 3s grace), logo removed, progress bar added.
-            - Fixed the release icons script (TS syntax in a .mjs broke CI).
-            - Every modal scrolls internally and stays within the window; header X closes reliably.
-            - Session info modal scrolls internally and auto-refreshes when the worker finishes loading.
-            - Windows ARM64 forces a node-pty cross-arch rebuild; extension names only trust node_modules/<pkg>.
-            - New-branch dialog lets you pick the base branch.
+            ### Fixes
+            - Sticky-pin uses real measured offsets (pins only when the whole user row is above the viewport).
+            - Fixed duplicate sends / stray revert buttons / frozen agent after editing a queued item (no stray re-enqueue + per-session serial prompts).
+            - Fixed re-edit of a user message wiping later history (edited text is appended as a new message).
+            - Fixed caret loss after dictation (mic buttons never steal focus; transcript inserts at the caret).
+            - Fixed empty Running-panel terminals (command is echoed, without polluting the LLM tool result).
+            - Fixed `Tool todo not found` from a quote-nesting syntax error (extension rolled back to baseline).
+            - Fixed tests failing when PI_DESKTOP_PI_CLI_PATH is set in the host environment.
 
             ## 下载 / Downloads
             - **Windows x64**: `Pi Desktop-*-win-x64-setup.exe`
