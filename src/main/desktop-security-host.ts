@@ -8,8 +8,8 @@ import {
   type DesktopSecuritySettings,
 } from "../shared/desktop-security";
 
-function resolveSettingsPath(agentDir?: string): string {
-  return path.join(path.resolve(agentDir ?? agentDir()), "settings.json");
+function resolveSettingsPath(agentDirOverride?: string): string {
+  return path.join(path.resolve(agentDirOverride ?? agentDir()), "settings.json");
 }
 
 function ensureParent(filePath: string): void {
@@ -46,19 +46,19 @@ function enqueueWrite(task: () => void | Promise<void>): Promise<void> {
 }
 
 export async function getDesktopSecuritySettings(
-  agentDir?: string,
+  agentDirOverride?: string,
 ): Promise<DesktopSecuritySettings> {
-  const settingsPath = resolveSettingsPath(agentDir);
+  const settingsPath = resolveSettingsPath(agentDirOverride);
   const root = readSettingsRoot(settingsPath);
   return parseDesktopSecurity(root);
 }
 
 export async function setDesktopSecuritySettings(
   next: DesktopSecuritySettings,
-  agentDir?: string,
+  agentDirOverride?: string,
 ): Promise<DesktopSecuritySettings> {
   const sanitized = parseDesktopSecurity({ desktopSecurity: next });
-  const settingsPath = resolveSettingsPath(agentDir);
+  const settingsPath = resolveSettingsPath(agentDirOverride);
   await enqueueWrite(() => {
     const existing = readSettingsRoot(settingsPath);
     writeJsonAtomic(settingsPath, { ...existing, desktopSecurity: sanitized });
@@ -69,11 +69,11 @@ export async function setDesktopSecuritySettings(
 /** Append a bash allowlist entry (no-op if empty or already present). */
 export async function appendBashAllowlistEntry(
   command: string,
-  agentDir?: string,
+  agentDirOverride?: string,
 ): Promise<DesktopSecuritySettings> {
   // Accept either a stem (`git status`) or a full command line.
   const entry = bashAllowlistEntryFromCommand(command) || command.trim();
-  const current = await getDesktopSecuritySettings(agentDir);
+  const current = await getDesktopSecuritySettings(agentDirOverride);
   if (!entry) return current;
   if (current.bashAllowlist.includes(entry)) return current;
   return setDesktopSecuritySettings(
@@ -81,7 +81,7 @@ export async function appendBashAllowlistEntry(
       ...current,
       bashAllowlist: [...current.bashAllowlist, entry],
     },
-    agentDir,
+    agentDirOverride,
   );
 }
 

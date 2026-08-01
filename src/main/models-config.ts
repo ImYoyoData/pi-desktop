@@ -20,8 +20,8 @@ export type ModelsConfigPaths = {
   authPath: string;
 };
 
-export function resolveModelsConfigPaths(agentDir?: string): ModelsConfigPaths {
-  const base = path.resolve(agentDir ?? agentDir());
+export function resolveModelsConfigPaths(agentDirOverride?: string): ModelsConfigPaths {
+  const base = path.resolve(agentDirOverride ?? agentDir());
   return {
     modelsPath: path.join(base, "models.json"),
     authPath: path.join(base, "auth.json"),
