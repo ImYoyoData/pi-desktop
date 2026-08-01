@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import { computed, defineAsyncComponent, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import {
   NButton,
   NEmpty,
@@ -20,7 +20,14 @@ import { useComposerStore } from "@renderer/stores/composer";
 import { useSendQueueStore } from "@renderer/stores/send-queue";
 import { useSessionsStore } from "@renderer/stores/sessions";
 import { useTtsStore } from "@renderer/stores/tts";
-import MarkdownView from "@renderer/components/MarkdownView.vue";
+/**
+ * Markdown rendering pulls katex / marked / highlight.js — load it lazily
+ * so opening a session with many messages stays responsive on slow CPUs.
+ */
+const MarkdownView = defineAsyncComponent(
+  () => import("@renderer/components/MarkdownView.vue"),
+);
+
 import ThinkingBlock from "@renderer/components/ThinkingBlock.vue";
 import ToolCallCard from "@renderer/components/ToolCallCard.vue";
 import ToolCallGroup from "@renderer/components/ToolCallGroup.vue";

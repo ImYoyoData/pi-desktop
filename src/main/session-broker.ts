@@ -99,6 +99,8 @@ type SessionRecord = {
   cwd: string;
   summary: SessionSummary;
   worker: WorkerHandle | null;
+  /** In-flight spawn (prewarm or cold start) — dedupes concurrent spawns. */
+  workerPromise: Promise<void> | null;
   /** Wall-clock ms of last message from this worker (any kind). */
   lastAliveAt: number;
   heartbeatTimer: ReturnType<typeof setInterval> | null;
@@ -243,6 +245,7 @@ export function createSessionBroker(deps: {
             // ignore
           }
           current.worker = null;
+          current.workerPromise = null;
           deps.onSessionWorkerGone?.(sessionId);
         }
       }
@@ -290,6 +293,29 @@ export function createSessionBroker(deps: {
     sessionId: string,
     rec: SessionRecord,
   ): Promise<void> {
+    if (rec.worker) {
+      return;
+    }
+    // Dedupe: prewarm and a first-command cold start may race on the same session.
+    if (rec.workerPromise) {
+      await rec.workerPromise;
+      return;
+    }
+    const promise = doSpawnWorker(sessionId, rec);
+    rec.workerPromise = promise;
+    try {
+      await promise;
+    } finally {
+      if (rec.workerPromise === promise) {
+        rec.workerPromise = null;
+      }
+    }
+  }
+
+  async function doSpawnWorker(
+    sessionId: string,
+    rec: SessionRecord,
+  ): Promise<void> {
     const filePath = rec.summary.filePath || undefined;
     const spawned = await deps.spawnWorker(rec.cwd, filePath);
     if (spawned.id !== sessionId) {
@@ -305,6 +331,23 @@ export function createSessionBroker(deps: {
     startHeartbeat(sessionId);
     scheduleIdleDestroy(sessionId);
     emit({ type: "connected", sessionId });
+  }
+
+  /**
+   * Start the Pi agent worker in the background so the first prompt after
+   * switching to a session is fast (no cold-start stall on send).
+   */
+  function prewarmWorker(sessionId: string): void {
+    const rec = sessions.get(sessionId);
+    if (!rec || rec.worker || rec.workerPromise) {
+      return;
+    }
+    void spawnWorkerForRecord(sessionId, rec).catch((err) => {
+      console.warn(
+        `[session-broker] worker prewarm failed for session ${sessionId}:`,
+        err instanceof Error ? err.message : err,
+      );
+    });
   }
 
   async function ensureWorker(sessionId: string): Promise<SessionRecord> {
@@ -410,6 +453,7 @@ export function createSessionBroker(deps: {
         clearIdleDestroyTimer(rec);
         stopHeartbeat(rec);
         rec.worker = null;
+        rec.workerPromise = null;
         if (/^worker exited \(0\)$/i.test(errText.trim())) {
           deps.onSessionWorkerGone?.(sessionId);
           if (rec.summary.status === "running" || rec.summary.status === "stuck") {
@@ -484,6 +528,7 @@ export function createSessionBroker(deps: {
       cwd,
       summary,
       worker: null,
+      workerPromise: null,
       lastAliveAt: Date.now(),
       heartbeatTimer: null,
       idleDestroyTimer: null,
@@ -574,6 +619,8 @@ export function createSessionBroker(deps: {
         live.summary.modified = target.modified;
         if (target.filePath) live.summary.filePath = target.filePath;
       }
+      // Warm the Pi agent worker in the background so first send is snappy.
+      prewarmWorker(sessionId);
       return { ...live.summary };
     }
     const disk = await listSessionsForCwd(cwd);
@@ -586,12 +633,15 @@ export function createSessionBroker(deps: {
         `session file missing (cannot open): ${target.filePath}. Create a new session or restore the file.`,
       );
     }
-    // Register shell only — worker cold-starts on first prompt/command.
-    return registerSessionShell(target.id, cwd, target.filePath, {
+    // Register shell, then warm the Pi agent worker in the background so the
+    // first prompt after switching is fast (no cold-start stall on send).
+    const summary = registerSessionShell(target.id, cwd, target.filePath, {
       name: target.name,
       firstMessage: target.firstMessage,
       modified: target.modified,
     });
+    prewarmWorker(summary.id);
+    return summary;
   }
 
   async function disconnectWorker(sessionId: string, reason: string): Promise<void> {
@@ -608,6 +658,7 @@ export function createSessionBroker(deps: {
     rejectPendingCommands(rec, reason);
     const worker = rec.worker;
     rec.worker = null;
+    rec.workerPromise = null;
     try {
       await Promise.race([
         worker.send({ kind: "shutdown" }),

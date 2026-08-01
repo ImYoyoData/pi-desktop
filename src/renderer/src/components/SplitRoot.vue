@@ -1,13 +1,24 @@
 <script setup lang="ts">
-import { computed, watch } from "vue";
+import { computed, defineAsyncComponent, watch } from "vue";
 import { Splitpanes, Pane } from "splitpanes";
 import "splitpanes/dist/splitpanes.css";
-import SessionSidebar from "@renderer/components/SessionSidebar.vue";
-import ChatPanel from "@renderer/components/ChatPanel.vue";
-import RightPane from "@renderer/components/RightPane.vue";
 import { useLayoutStore } from "@renderer/stores/layout";
 import { useWorkspaceStore } from "@renderer/stores/workspace";
 import type { SplitpanesResizedPayload } from "splitpanes";
+
+/**
+ * Heavy workspace chrome — load lazily so the shell paints and stays
+ * responsive on slower CPUs while the chat / sidebar / right pane boot.
+ */
+const SessionSidebar = defineAsyncComponent(
+  () => import("@renderer/components/SessionSidebar.vue"),
+);
+const ChatPanel = defineAsyncComponent(
+  () => import("@renderer/components/ChatPanel.vue"),
+);
+const RightPane = defineAsyncComponent(
+  () => import("@renderer/components/RightPane.vue"),
+);
 
 /** Nested splits: outer left↔main, inner chat↔right — sides never fight each other. */
 const PANE_MIN = 15;
