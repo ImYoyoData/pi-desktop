@@ -1,15 +1,24 @@
-import {
-  DefaultPackageManager,
-  getAgentDir,
-  SettingsManager,
-  type PackageSource,
-} from "@earendil-works/pi-coding-agent";
+import { agentDir } from "./agent-dir";
 import { resolveTrustState } from "./project-trust";
+import {
+  listAgentNpmExtensions,
+  npmNameFromSource,
+  removeAgentNpmExtension,
+} from "./agent-npm-extensions";
+import type { PackageSource } from "@earendil-works/pi-coding-agent";
 
 export type PluginScope = "global" | "project";
 
-function createSettingsManager(cwd: string): SettingsManager {
-  return SettingsManager.create(cwd, getAgentDir(), {
+/**
+ * Plugin (pi package) management. The SDK classes are lazy-imported so the
+ * main-process boot never parses the multi-MB pi-coding-agent bundle.
+ * Uninstalling a module also removes it from the auto-loaded npm extensions
+ * package (~/.pi/agent/npm/package.json), so it stops appearing in the agent.
+ */
+
+async function createSettingsManager(cwd: string) {
+  const sdk = await import("@earendil-works/pi-coding-agent");
+  return sdk.SettingsManager.create(cwd, sdk.getAgentDir(), {
     projectTrusted: resolveTrustState(cwd).projectTrusted,
   });
 }
@@ -41,7 +50,7 @@ function isDisabledPackage(entry: PackageSource): boolean {
 }
 
 function setPackageDisabled(
-  settingsManager: SettingsManager,
+  settingsManager: import("@earendil-works/pi-coding-agent").SettingsManager,
   source: string,
   scope: PluginScope,
   disabled: boolean,
@@ -71,11 +80,13 @@ function setPackageDisabled(
   return true;
 }
 
+
 export async function listPlugins(cwd: string): Promise<{ packages: PluginPackageDto[] }> {
-  const settingsManager = createSettingsManager(cwd);
+  const { DefaultPackageManager } = await import("@earendil-works/pi-coding-agent");
+  const settingsManager = await createSettingsManager(cwd);
   const packageManager = new DefaultPackageManager({
     cwd,
-    agentDir: getAgentDir(),
+    agentDir: agentDir(),
     settingsManager,
   });
 
@@ -87,7 +98,7 @@ export async function listPlugins(cwd: string): Promise<{ packages: PluginPackag
     disabledMap.set(`project\0${getPackageSource(entry)}`, isDisabledPackage(entry));
   }
 
-  const packages = packageManager.listConfiguredPackages().map((pkg) => {
+  const packages: PluginPackageDto[] = packageManager.listConfiguredPackages().map((pkg) => {
     const scope: PluginScope = pkg.scope === "project" ? "project" : "global";
     const disabled = disabledMap.get(`${scope}\0${pkg.source}`) ?? false;
     return {
@@ -103,6 +114,21 @@ export async function listPlugins(cwd: string): Promise<{ packages: PluginPackag
     };
   });
 
+  // Also surface npm packages auto-loaded from ~/.pi/agent/npm (e.g. ones
+  // installed with `pi install` directly) so they can be disabled/removed here.
+  const known = new Set(packages.map((p) => p.source));
+  for (const ext of listAgentNpmExtensions()) {
+    const source = `npm:${ext.name}`;
+    if (known.has(source)) continue;
+    known.add(source);
+    packages.push({
+      source,
+      scope: "global",
+      disabled: false,
+      status: "installed",
+    });
+  }
+
   return { packages };
 }
 
@@ -112,7 +138,7 @@ export async function setPluginEnabled(
   scope: PluginScope,
   enabled: boolean,
 ): Promise<void> {
-  const settingsManager = createSettingsManager(cwd);
+  const settingsManager = await createSettingsManager(cwd);
   setPackageDisabled(settingsManager, source, scope, !enabled);
   await settingsManager.flush();
 }
@@ -122,11 +148,16 @@ export async function removePlugin(
   source: string,
   scope: PluginScope,
 ): Promise<void> {
-  const settingsManager = createSettingsManager(cwd);
+  const { DefaultPackageManager } = await import("@earendil-works/pi-coding-agent");
+  const settingsManager = await createSettingsManager(cwd);
   const packageManager = new DefaultPackageManager({
     cwd,
-    agentDir: getAgentDir(),
+    agentDir: agentDir(),
     settingsManager,
   });
   await packageManager.removeAndPersist(source, { local: scope === "project" });
+  // Hard requirement: also drop it from the auto-loaded npm extension package
+  // so it stops appearing in the agent's prompt extensions after uninstall.
+  const npmName = npmNameFromSource(source);
+  if (npmName) removeAgentNpmExtension(npmName);
 }
