@@ -270,6 +270,7 @@ export const zh = {
   changesNewBranch: "新建分支",
   changesMergeBranch: "合并到当前",
   changesMergePrompt: "要合并到当前分支的分支名",
+  changesNewBranchBase: "基于分支",
   changesNewBranchPrompt: "新分支名称",
   changesLocalBranches: "本地分支",
   changesRemoteBranches: "远程分支",

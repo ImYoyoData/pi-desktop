@@ -61,8 +61,12 @@ onMounted(() => {
     :title="t.aboutTitle"
     :bordered="false"
     size="huge"
-    @update:show="(v) => !v && emit('close')"
+    @update:show="(v) =>
+    
+ !v && emit('close')"
   >
+    <div class="modal-scroll">
+
     <div class="section">
       <NText strong style="font-size: 16px">{{ t.appName }}</NText>
       <div v-if="appInfo" class="about-block">
@@ -95,7 +99,11 @@ onMounted(() => {
       </NSpace>
     </div>
 
-    <template #footer>
+    
+    
+
+    </div>
+<template #footer>
       <div class="footer">
         <NButton @click="emit('close')">{{ t.close }}</NButton>
       </div>

@@ -65,8 +65,12 @@ function onClose(): void {
     :title="t.asrPickBackendTitle"
     style="width: min(480px, 94vw)"
     :mask-closable="false"
-    @update:show="(v: boolean) => { if (!v) onClose() }"
+    @update:show="(v: boolean) =>
+    
+ { if (!v) onClose() }"
   >
+    <div class="modal-scroll">
+
     <NText depth="3" style="font-size: 12.5px">{{ t.asrPickBackendHint }}</NText>
 
     <!-- Cloud config form (shown when cloud not configured yet) -->
@@ -125,7 +129,11 @@ function onClose(): void {
       </button>
     </div>
 
-    <template #footer>
+    
+    
+
+    </div>
+<template #footer>
       <div class="modal-foot">
         <NButton size="small" quaternary @click="onClose">{{ t.cancel }}</NButton>
         <NButton v-if="!editingCloud" size="small" quaternary @click="startCloudConfig">

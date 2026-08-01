@@ -166,7 +166,7 @@ declare const api: {
             message: string;
             code: string;
         }>;
-        createBranch: (branch: string) => Promise<{
+        createBranch: (branch: string, base?: string) => Promise<{
             ok: true;
             message?: string;
         } | {
