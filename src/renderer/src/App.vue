@@ -40,15 +40,19 @@ const bootResourcesReady = ref(false);
  * Failsafe: some init steps (e.g. the trust prompt awaiting user input)
  * can take a while; never leave the boot overlay up forever.
  */
-const BOOT_TIMEOUT_MS = 12000;
+const BOOT_MAX_MS = 8000;
 let bootTimer = 0;
 let offWorkerReady: (() => void) | undefined;
 
-const showBootOverlay = computed(
-  () =>
-    !bootInitDone.value ||
-    (Boolean(workspace.root) && !bootResourcesReady.value),
-);
+/** 0-100 progress for the boot bar (45 ? init done ? 85 ? resources ? 100). */
+const bootProgress = computed(() => {
+  if (!bootInitDone.value) return 45;
+  if (workspace.root && !bootResourcesReady.value) return 85;
+  return 100;
+});
+
+/** Hide as soon as progress completes (never blocks once init is done). */
+const showBootOverlay = computed(() => bootProgress.value < 100);
 const naiveLocale = locale === "zh-CN" ? zhCN : enUS;
 const naiveDateLocale = locale === "zh-CN" ? dateZhCN : dateEnUS;
 
@@ -84,7 +88,7 @@ onMounted(() => {
   bootTimer = window.setTimeout(() => {
     bootInitDone.value = true;
     bootResourcesReady.value = true;
-  }, BOOT_TIMEOUT_MS);
+  }, BOOT_MAX_MS);
   void (async () => {
     try {
       await Promise.all([
@@ -127,6 +131,13 @@ onUnmounted(() => {
           <main class="app-main">
             <Transition name="boot-fade">
               <div v-if="showBootOverlay" class="boot-overlay" role="status">
+                <div class="boot-mark" aria-hidden="true">
+                  <svg viewBox="0 0 800 800" xmlns="http://www.w3.org/2000/svg">
+                    <rect width="800" height="800" rx="120" fill="#09090b"/>
+                    <path fill="#fff" fill-rule="evenodd" d="M165.29 165.29 H517.36 V400 H400 V517.36 H282.65 V634.72 H165.29 Z M282.65 282.65 V400 H400 V282.65 Z"/>
+                    <path fill="#fff" d="M517.36 400 H634.72 V634.72 H517.36 Z"/>
+                  </svg>
+                </div>
                 <div class="loader" aria-hidden="true">
                   <div class="loader-inner">
                     <div class="blob b1"></div>
@@ -137,6 +148,9 @@ onUnmounted(() => {
                   </div>
                 </div>
                 <div class="boot-text">{{ t.bootLoading }}</div>
+                <div class="boot-progress" aria-hidden="true">
+                  <div class="boot-progress-fill" :style="{ width: bootProgress + '%' }" />
+                </div>
               </div>
             </Transition>
             <template v-if="!showBootOverlay">
@@ -191,9 +205,40 @@ onUnmounted(() => {
   opacity: 0;
 }
 
+.boot-mark {
+  width: 58px;
+  height: 58px;
+  border-radius: 15px;
+  background: #09090b;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 10px 26px rgba(0, 0, 0, 0.18);
+}
+
+.boot-mark svg {
+  width: 38px;
+  height: 38px;
+}
+
 .boot-text {
   font-size: 13px;
   color: var(--fg-muted, #71717a);
+}
+
+.boot-progress {
+  width: 180px;
+  height: 4px;
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--fg-muted, #71717a) 18%, transparent);
+  overflow: hidden;
+}
+
+.boot-progress-fill {
+  height: 100%;
+  border-radius: 2px;
+  background: linear-gradient(90deg, #ffbf48, #be4a1d);
+  transition: width 0.45s ease;
 }
 
 /* Fluid blob loader */
