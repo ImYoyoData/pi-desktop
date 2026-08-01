@@ -16,6 +16,7 @@ import PiCliSetup from "@renderer/components/PiCliSetup.vue";
 import CloseGuard from "@renderer/components/CloseGuard.vue";
 import AsrWakeGuard from "@renderer/components/AsrWakeGuard.vue";
 import TrustDialog from "@renderer/components/TrustDialog.vue";
+import AsrBackendChooseModal from "@renderer/components/AsrBackendChooseModal.vue";
 import { useWorkspaceStore } from "@renderer/stores/workspace";
 import { useAppearanceStore } from "@renderer/stores/appearance";
 import { darkThemeOverrides, lightThemeOverrides } from "@renderer/theme/naive";
@@ -95,6 +96,7 @@ onUnmounted(() => {
           </main>
           <PiCliSetup />
           <TrustDialog />
+          <AsrBackendChooseModal />
         </div>
       </NDialogProvider>
     </NMessageProvider>

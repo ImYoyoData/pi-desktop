@@ -3,7 +3,8 @@ import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import {
   NModal,
   NSpace,
-  NText,
+  NRadioGroup,
+  NRadioButton,  NText,
   NButton,
   NDivider,
   NSwitch,
@@ -299,7 +300,68 @@ watch(
   },
 );
 
+const cloudDraft = ref<{ providerName: string; baseUrl: string; apiKey: string; model: string }>({
+  providerName: "",
+  baseUrl: "",
+  apiKey: "",
+  model: "",
+});
+const cloudSaving = ref(false);
+const cloudTesting = ref(false);
+const cloudTestResult = ref<string | null>(null);
+
+const backendMode = computed<"local" | "cloud">(() =>
+  asr.status.backend === "cloud" ? "cloud" : "local",
+);
+
+async function loadCloudDraft(): Promise<void> {
+  try {
+    const cfg = await asr.getCloudConfig();
+    if (cfg.cloud) cloudDraft.value = { ...cfg.cloud };
+  } catch {
+    // ignore
+  }
+}
+
+async function applyBackendMode(mode: "local" | "cloud"): Promise<void> {
+  if (mode === "cloud" && !asr.status.cloudConfigured) {
+    message.warning(t.asrCloudNotConfiguredHint);
+    return;
+  }
+  await asr.setBackend(mode);
+}
+
+async function saveCloudConfig(): Promise<void> {
+  cloudSaving.value = true;
+  cloudTestResult.value = null;
+  try {
+    await asr.setCloudConfig({
+      providerName: cloudDraft.value.providerName.trim(),
+      baseUrl: cloudDraft.value.baseUrl.trim(),
+      apiKey: cloudDraft.value.apiKey.trim(),
+      model: cloudDraft.value.model.trim(),
+    });
+    message.success(t.asrCloudSaved);
+  } finally {
+    cloudSaving.value = false;
+  }
+}
+
+async function runCloudTest(): Promise<void> {
+  cloudTesting.value = true;
+  cloudTestResult.value = null;
+  try {
+    const result = await asr.testCloud();
+    cloudTestResult.value = result.ok
+      ? `${t.asrCloudTestOk}: ${result.message}`
+      : `${t.asrCloudTestFailed}: ${result.message}`;
+  } finally {
+    cloudTesting.value = false;
+  }
+}
+
 onMounted(() => {
+  void loadCloudDraft();
   offProgress = asr.bindProgress();
   offTtsProgress = tts.bindProgress();
   void asr.refresh();
@@ -440,6 +502,48 @@ onUnmounted(() => {
       >
         {{ asr.status.gpuKind === "cpu" ? t.asrCpuSlowHint : t.asrGpuFastHint }}
       </NText>
+    </div>
+
+    <NDivider style="margin: 16px 0" />
+
+    <div class="section">
+      <NText strong>{{ t.asrBackendSection }}</NText>
+      <NText depth="3" style="font-size: 12px; display: block; margin: 4px 0 10px">
+        {{ t.asrBackendSectionHint }}
+      </NText>
+      <NRadioGroup
+        :value="backendMode"
+        size="small"
+        @update:value="(v) => applyBackendMode(v as 'local' | 'cloud')"
+      >
+        <NRadioButton value="local">{{ t.asrBackendLocal }}</NRadioButton>
+        <NRadioButton value="cloud">{{ t.asrBackendCloud }}</NRadioButton>
+      </NRadioGroup>
+      <div v-if="backendMode === 'cloud'" class="cloud-config">
+        <NInput v-model:value="cloudDraft.providerName" size="small" :placeholder="t.asrCloudProviderName" style="margin-top:10px" />
+        <NInput v-model:value="cloudDraft.baseUrl" size="small" placeholder="https://api.example.com/v1" style="margin-top:8px" />
+        <NInput v-model:value="cloudDraft.apiKey" size="small" type="password" :placeholder="t.asrCloudApiKey" style="margin-top:8px" />
+        <NInput v-model:value="cloudDraft.model" size="small" :placeholder="t.asrCloudModel" style="margin-top:8px" />
+        <NSpace :size="8" style="margin-top:10px">
+          <NButton size="small" type="primary" :loading="cloudSaving" @click="saveCloudConfig">
+            {{ t.asrCloudSave }}
+          </NButton>
+          <NButton size="small" :loading="cloudTesting" @click="runCloudTest">
+            {{ t.asrCloudTest }}
+          </NButton>
+        </NSpace>
+        <NText
+          v-if="cloudTestResult"
+          :type="cloudTestResult.startsWith(t.asrCloudTestOk) ? 'success' : 'error'"
+          depth="3"
+          style="font-size: 12px; display: block; margin-top: 8px"
+        >
+          {{ cloudTestResult }}
+        </NText>
+        <NText depth="3" style="font-size: 11.5px; margin-top: 8px; display: block">
+          {{ t.asrCloudCompatibleNote }}
+        </NText>
+      </div>
     </div>
 
     <NDivider style="margin: 16px 0" />

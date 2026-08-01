@@ -621,6 +621,14 @@ fileDiffAtCommit: (payload: { relativePath: string; commitHash: string }) =>
       ipcRenderer.invoke(IpcChannels.asr.setResidentModel, enabled) as Promise<AsrStatus>,
     setWakeWords: (raw: string) =>
       ipcRenderer.invoke(IpcChannels.asr.setWakeWords, raw) as Promise<AsrStatus>,
+    setBackend: (backend: string) =>
+      ipcRenderer.invoke(IpcChannels.asr.setBackend, backend) as Promise<AsrStatus>,
+    getCloudConfig: () =>
+      ipcRenderer.invoke(IpcChannels.asr.getCloudConfig) as Promise<{ backend: "local" | "cloud" | null; cloud: AsrCloudConfig | null }>,
+    setCloudConfig: (cloud: AsrCloudConfig) =>
+      ipcRenderer.invoke(IpcChannels.asr.setCloudConfig, cloud) as Promise<AsrStatus>,
+    testCloud: () =>
+      ipcRenderer.invoke(IpcChannels.asr.testCloud) as Promise<{ ok: boolean; message: string }>,
     onWake: (callback: () => void) => {
       const listener = () => callback();
       ipcRenderer.on(IpcChannels.asr.wake, listener);
