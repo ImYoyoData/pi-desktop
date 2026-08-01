@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref } from "vue";
-import { NButton, NIcon, NInput, NModal, NText } from "naive-ui";
+import { NButton, NIcon, NInput, NModal, NRadioButton, NRadioGroup, NText } from "naive-ui";
 import { CheckmarkCircleOutline, CloudOutline, HardwareChipOutline } from "@vicons/ionicons5";
 import type { AsrCloudConfig } from "../../../shared/asr";
 import { useAsrStore } from "@renderer/stores/asr";
@@ -13,7 +13,14 @@ const cloudConfigured = computed(() => asr.status.cloudConfigured);
 const editingCloud = ref(false);
 const saving = ref(false);
 
-const cloud = ref<AsrCloudConfig>({ providerName: "", baseUrl: "", apiKey: "", model: "" });
+const cloud = ref<AsrCloudConfig>({
+  providerName: "",
+  baseUrl: "",
+  apiKey: "",
+  model: "",
+  apiStyle: "openai-multipart",
+  endpoint: "",
+});
 
 async function pickLocal(): Promise<void> {
   await asr.setBackend("local");
@@ -39,7 +46,7 @@ async function pickCloud(): Promise<void> {
 async function saveAndUseCloud(): Promise<void> {
   saving.value = true;
   try {
-    await asr.setCloudConfig(cloud.value);
+    await asr.setCloudConfig({ ...cloud.value });
     await asr.setBackend("cloud");
     asr.resolveBackendPick(true);
   } finally {
@@ -66,6 +73,18 @@ function onClose(): void {
 
     <!-- Cloud config form (shown when cloud not configured yet) -->
     <div v-if="editingCloud" class="cloud-form">
+      <label class="field">
+        <span>{{ t.asrCloudApiStyle }}</span>
+        <NRadioGroup v-model:value="cloud.apiStyle" size="small">
+          <NRadioButton value="openai-multipart">{{ t.asrCloudStyleMultipart }}</NRadioButton>
+          <NRadioButton value="openai-json">{{ t.asrCloudStyleJson }}</NRadioButton>
+          <NRadioButton value="custom">{{ t.asrCloudStyleCustom }}</NRadioButton>
+        </NRadioGroup>
+      </label>
+      <label v-if="cloud.apiStyle === 'custom'" class="field">
+        <span>{{ t.asrCloudEndpoint }}</span>
+        <NInput v-model:value="cloud.endpoint" size="small" placeholder="https://api.example.com/audio/transcriptions" />
+      </label>
       <label class="field">
         <span>{{ t.asrCloudProviderName }}</span>
         <NInput v-model:value="cloud.providerName" size="small" :placeholder="t.asrCloudProviderNamePh" />
