@@ -62,6 +62,8 @@ export const IpcChannels = {
     extensionUiReply: "sessions:extensionUiReply",
     /** Renderer → main: persist attachment tags for a sent user message. */
     setUserMessageMeta: "sessions:setUserMessageMeta",
+    /** Renderer → main: cache a pasted/URL image into the session attachment folder. */
+    cacheImage: "sessions:cacheImage",
   },
   files: {
     list: "files:list",
@@ -314,6 +316,21 @@ export type ElementCitation = {
   screenshotDataUrl?: string;
   /** CSS-pixel bounds in the guest page viewport (UI only; strip before IPC) */
   bounds?: { x: number; y: number; width: number; height: number };
+};
+
+/**
+ * Image attachment source for the per-session cache: either a base64 data
+ * URL (pasted bitmap) or a remote image URL to download.
+ */
+export type SessionImageCacheSource = { dataUrl: string } | { url: string };
+
+export type SessionImageCacheResult = {
+  /** Absolute path inside the session's .attachments folder. */
+  filePath: string;
+  /** Normalized image mime type. */
+  mimeType: string;
+  /** data: URL for immediate display / agent payload. */
+  dataUrl: string;
 };
 
 export function isRegionCitation(c: Pick<ElementCitation, "kind" | "selector">): boolean {

@@ -1,3 +1,6 @@
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import {
   createSessionBroker,
@@ -626,5 +629,25 @@ describe("session-broker", () => {
     releaseSpawn?.();
     await pending;
     expect(spawnCount).toBe(1);
+  });
+
+  it("caches pasted images into the session attachments and cleans them on delete", async () => {
+    const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "pi-desktop-broker-img-"));
+    const sessionFile = path.join(tempRoot, "session-a.jsonl");
+    const broker = createSessionBroker({
+      allocateSession: async (cwd) => ({ id: "session-a", cwd, filePath: sessionFile }),
+      spawnWorker: spawnEcho(),
+    });
+    await broker.createSession("/tmp/a");
+    const cached = await broker.cacheImage("session-a", {
+      dataUrl: "data:image/png;base64,iVBORw0KGgo=",
+    });
+    expect(fs.existsSync(cached.filePath)).toBe(true);
+    expect(cached.filePath.startsWith(sessionFile + ".attachments" + path.sep)).toBe(true);
+    const dir = path.join(sessionFile + ".attachments");
+    expect(fs.existsSync(dir)).toBe(true);
+    await broker.deleteSession("session-a", "/tmp/a");
+    expect(fs.existsSync(dir)).toBe(false);
+    fs.rmSync(tempRoot, { recursive: true, force: true });
   });
 });
