@@ -241,6 +241,16 @@ export const useComposerStore = defineStore("composer", () => {
     const [img] = next.splice(idx, 1);
     if (img?.previewUrl.startsWith("blob:")) URL.revokeObjectURL(img.previewUrl);
     b.images = next;
+    // Manual removal from the editor deletes the cached copy too — the
+    // message is gone, so the attachment file is no longer referenced.
+    if (img?.cachePath) {
+      const sessionId = activeSessionId.value;
+      if (sessionId) {
+        void window.api.sessions.deleteCachedImage(sessionId, img.cachePath).catch(() => {
+          // best-effort cleanup
+        });
+      }
+    }
   }
 
   function clearImages(): void {

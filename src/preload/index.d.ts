@@ -71,6 +71,7 @@ declare const api: {
         history: (filePath: string, query?: SessionHistoryQuery) => Promise<SessionHistoryPage>;
         setUserMessageMeta: (sessionId: string, text: string, tags: unknown[]) => Promise<void>;
         cacheImage: (sessionId: string, source: { dataUrl?: string; url?: string }) => Promise<{ filePath: string; mimeType: string; dataUrl: string }>;
+        deleteCachedImage: (sessionId: string, cachePath: string) => Promise<void>;
         clearContext: (sessionId: string, cwd: string) => Promise<void>;
         status: (sessionId: string, cwd: string) => Promise<SessionStatus | null>;
         onEvent: (callback: (event: AgentEvent) => void) => () => void;
