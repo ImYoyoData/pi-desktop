@@ -19,6 +19,14 @@ export const SESSION_HISTORY_PAGE_SIZE = 30;
 /** Cap oversized tool/assistant blobs so renderer IPC stays light. */
 const MAX_UI_TEXT_CHARS = 24_000;
 
+/**
+ * Budget for image data URLs restored from history — a session with many
+ * pasted screenshots must not ship tens of MB of base64 over IPC. Newest
+ * messages win; older images degrade to text-only rows.
+ */
+const MAX_HISTORY_IMAGE_BYTES = 24 * 1024 * 1024;
+const MAX_IMAGE_BASE64_LENGTH = 12 * 1024 * 1024;
+
 type HistoryCacheEntry = {
   mtimeMs: number;
   messages: SessionHistoryMessage[];
@@ -145,6 +153,7 @@ function buildMessagesFromEntries(
   // Sidecar tags are appended in send order — walk a cursor so duplicate
   // agent texts still line up with their messages.
   let metaCursor = 0;
+  const pendingImages = new Map<string, { mimeType: string; dataUrl: string }[]>();
   for (const id of pathIds) {
     const entry = byId.get(id);
     if (!entry || entry.type !== "message" || !entry.message) {
@@ -153,7 +162,10 @@ function buildMessagesFromEntries(
     const role = entry.message.role;
     if (role === "user") {
       const rawText = textFromAgentMessage(entry.message);
+      // Defer image attachment so we can keep the newest images within a
+      // byte budget (see attachImagesNewestFirst).
       const images = imagesFromAgentMessage(entry.message);
+      if (images.length) pendingImages.set(entry.id, images);
       // The worker prepends a browser-selection block when citations exist;
       // drop it so the bubble shows clean text instead of a raw citation dump.
       const cleanText = stripComposerModePreamble(stripSelectionCitationsBlock(rawText));
@@ -175,7 +187,6 @@ function buildMessagesFromEntries(
           id: entry.id,
           role: "user",
           text: truncateForUi(cleanText),
-          ...(images.length ? { images } : {}),
           ...(elementTags ? { elementTags } : {}),
         });
       }
@@ -212,6 +223,24 @@ function buildMessagesFromEntries(
         ...(args !== undefined ? { args: truncateArgsForUi(args) } : {}),
       });
     }
+  }
+
+  // Attach restored images newest-first so recent messages (the ones users
+  // actually re-read) keep their pictures, while huge sessions stay bounded.
+  let imageBudget = MAX_HISTORY_IMAGE_BYTES;
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const msg = messages[i]!;
+    if (msg.role !== "user" || imageBudget <= 0) continue;
+    const images = pendingImages.get(msg.id);
+    if (!images?.length) continue;
+    const kept: { mimeType: string; dataUrl: string }[] = [];
+    for (const img of images) {
+      if (img.dataUrl.length > MAX_IMAGE_BASE64_LENGTH) continue;
+      if (img.dataUrl.length > imageBudget) break;
+      kept.push(img);
+      imageBudget -= img.dataUrl.length;
+    }
+    if (kept.length) messages[i] = { ...msg, images: kept };
   }
 
   return messages;
