@@ -11,3 +11,9 @@ alwaysApply: true
 - Day-to-day work stays on `dev` with CI-only checks; merge/push to `main` when you want a packaged GitHub Release.
 - When releasing: bump `package.json` version on `dev`, merge to `main`, push `main`. Do not rely on `git tag` / `git push origin v*` to start the release workflow.
 - Do not keep a parallel `master` branch; default branch on GitHub is `main`.
+
+
+## Release checklist (when the user says 发布 / release)
+- Write this release's change notes (更新日志) into the `body:` block of `.github/workflows/release.yml` (the `## What's New` sections), keeping the existing Chinese + English format.
+- Bump the version in `package.json` (and keep `package-lock.json` in sync), then update `CHANGELOG.md` with the same notes.
+- Commit on `dev`, merge to `main`, push `main` — the push to `main` triggers Build and Release.
