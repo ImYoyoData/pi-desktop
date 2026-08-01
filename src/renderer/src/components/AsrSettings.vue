@@ -300,11 +300,20 @@ watch(
   },
 );
 
-const cloudDraft = ref<{ providerName: string; baseUrl: string; apiKey: string; model: string }>({
+const cloudDraft = ref<{
+  providerName: string;
+  baseUrl: string;
+  apiKey: string;
+  model: string;
+  apiStyle: "openai-multipart" | "openai-json" | "custom";
+  endpoint: string;
+}>({
   providerName: "",
   baseUrl: "",
   apiKey: "",
   model: "",
+  apiStyle: "openai-multipart",
+  endpoint: "",
 });
 const cloudSaving = ref(false);
 const cloudTesting = ref(false);
@@ -329,7 +338,7 @@ async function onAsrConfigTabChange(v: "local" | "cloud"): Promise<void> {
 async function loadCloudDraft(): Promise<void> {
   try {
     const cfg = await asr.getCloudConfig();
-    if (cfg.cloud) cloudDraft.value = { ...cfg.cloud };
+    if (cfg.cloud) cloudDraft.value = { ...cfg.cloud } as typeof cloudDraft.value;
   } catch {
     // ignore
   }
@@ -345,6 +354,8 @@ async function saveCloudConfig(): Promise<void> {
       baseUrl: cloudDraft.value.baseUrl.trim(),
       apiKey: cloudDraft.value.apiKey.trim(),
       model: cloudDraft.value.model.trim(),
+      apiStyle: cloudDraft.value.apiStyle,
+      endpoint: cloudDraft.value.endpoint.trim(),
     });
     message.success(t.asrCloudSaved);
     await asr.setBackend("cloud");
@@ -657,7 +668,28 @@ onUnmounted(() => {
         <!-- Cloud backend config -->
         <NTabPane name="cloud" :tab="t.asrBackendCloud">
           <div class="cloud-config">
-            <NInput v-model:value="cloudDraft.providerName" size="small" :placeholder="t.asrCloudProviderName" />
+            <NText depth="3" style="font-size: 12px; display: block; margin-bottom: 4px">
+              {{ t.asrCloudApiStyle }}
+            </NText>
+            <NRadioGroup
+              v-model:value="cloudDraft.apiStyle"
+              size="small"
+            >
+              <NRadioButton value="openai-multipart">{{ t.asrCloudStyleMultipart }}</NRadioButton>
+              <NRadioButton value="openai-json">{{ t.asrCloudStyleJson }}</NRadioButton>
+              <NRadioButton value="custom">{{ t.asrCloudStyleCustom }}</NRadioButton>
+            </NRadioGroup>
+            <NText depth="3" style="font-size: 11.5px; margin-top: 6px; display: block">
+              {{ t.asrCloudApiStyleHint }}
+            </NText>
+            <NInput
+              v-if="cloudDraft.apiStyle === 'custom'"
+              v-model:value="cloudDraft.endpoint"
+              size="small"
+              style="margin-top: 8px"
+              placeholder="https://api.example.com/audio/transcriptions"
+            />
+            <NInput v-model:value="cloudDraft.providerName" size="small" :placeholder="t.asrCloudProviderName" style="margin-top:10px" />
             <NInput v-model:value="cloudDraft.baseUrl" size="small" placeholder="https://api.example.com/v1" style="margin-top:8px" />
             <NInput v-model:value="cloudDraft.apiKey" size="small" type="password" :placeholder="t.asrCloudApiKey" style="margin-top:8px" />
             <NInput v-model:value="cloudDraft.model" size="small" :placeholder="t.asrCloudModel" style="margin-top:8px" />
