@@ -136,6 +136,7 @@ const richEditor = ref<{
   isCaretAtEnd?: () => boolean;
   getSurface?: () => HTMLElement | null;
   appendTextAtEnd?: (text: string) => void;
+  insertTextAtCaret?: (text: string) => void;
   scrollToEnd?: () => void;
 } | null>(null);
 /** Expanded tall editor (hover affordance top-right). */
@@ -822,10 +823,9 @@ function beginEditQueueItem(itemId: string): void {
     else sendQueue.setEditing(id, null);
   }
 
-  // Don't lose an unrelated draft sitting in the composer
-  if (!sendQueue.editingId && hasSendContent.value) {
-    enqueueFromComposer();
-  }
+  // Editing a queued item intentionally replaces the composer content with
+  // that item — do NOT enqueue any unrelated draft here (that duplicated the
+  // item and caused double-sends). If an unrelated draft exists, drop it.
 
   const item = sendQueue.get(id, itemId);
   if (!item) return;
@@ -1016,10 +1016,9 @@ async function submit(mode: "prompt" | "steer" | "follow_up"): Promise<void> {
   const snap = snapshotComposerPayload();
   if (!snap) return;
 
-  // Re-editing a published user bubble: truncate that turn only once we have a send payload
-  if (chat.pendingUserEdit?.sessionId === id) {
-    chat.commitEditUser(id);
-  }
+  // Re-editing a published user bubble: the edited text is sent as a NEW
+  // message appended after the original turn — history stays intact.
+  // `pendingUserEdit` is cleared once the send lands (in chat.sendPrompt).
 
   const displayText = snap.displayText;
   const agentText = snap.text || " ";
@@ -1131,6 +1130,12 @@ function onKeydown(event: KeyboardEvent): void {
   }
   if (running.value) {
     enqueueFromComposer();
+    return;
+  }
+  // Empty composer + queued sends: Enter flushes the first queued item
+  // (Cursor-like — the queue bar shows what will go next).
+  if (!hasSendContent.value && sendQueue.activeItems.length > 0) {
+    void drainQueueIfIdle(sessionId.value!);
     return;
   }
   void submit("prompt");
@@ -1951,14 +1956,15 @@ async function confirmVoice(): Promise<void> {
       messageApi.warning(t.voiceEmpty);
       return;
     }
-    // Append after chips / existing content (end of editor), then scroll there.
+    // Insert at the current caret (fallback: end of editor) — the mic flow
+    // must never leave the user typing in a defocused composer.
     armAsrCaretGuard();
-    if (richEditor.value?.appendTextAtEnd) {
-      richEditor.value.appendTextAtEnd(text);
+    if (richEditor.value?.insertTextAtCaret) {
+      richEditor.value.insertTextAtCaret(text);
     } else {
       composer.draft = joinAsr(composer.draft, text);
-      void nextTick(() => focusDraftAtEnd());
     }
+    void nextTick(() => focusDraftAtEnd());
   } catch (err) {
     if (gen !== voiceGen) return;
     const raw = err instanceof Error ? err.message : String(err);
@@ -2332,7 +2338,7 @@ watch(
             :disabled="asr.installing"
             :aria-label="micTitle"
             :title="micTitle"
-            @click="onMicClick"
+            @mousedown.prevent="onMicClick"
           >
             <NIcon :component="MicOutline" :size="18" />
           </button>

@@ -468,27 +468,22 @@ function onOpenPreview(): void {
 <style scoped>
 .tool-call {
   width: 100%;
-  border: 1px solid color-mix(in srgb, var(--border, #ddd) 55%, transparent);
-  border-radius: 6px;
-  background: color-mix(in srgb, var(--bg-elevated, #fff) 97%, var(--fg-muted, #888) 3%);
+  /* Cursor-style: no card chrome — plain text row with a fold chevron. */
   overflow: hidden;
-  transition:
-    border-color 0.12s ease,
-    background 0.12s ease;
+  transition: opacity 0.12s ease;
 }
 
 .tool-call.streaming {
-  border-color: color-mix(in srgb, var(--primary, #3b82f6) 32%, var(--border, #ddd));
+  /* Slight emphasis while live, no border box. */
+  color: var(--fg);
 }
 
 .tool-call.error {
-  border-color: color-mix(in srgb, var(--error, #d03050) 40%, var(--border));
-  background: color-mix(in srgb, var(--error, #d03050) 5%, var(--bg-elevated, #fff));
+  color: var(--error, #d03050);
 }
 
 .tool-call.ask-user-muted {
-  border-color: color-mix(in srgb, var(--border, #ddd) 92%, transparent);
-  background: color-mix(in srgb, var(--bg-elevated, #fff) 96%, var(--fg-muted, #888) 4%);
+  opacity: 0.82;
 }
 
 .tool-call.ask-user-muted .action {
@@ -506,8 +501,9 @@ function onOpenPreview(): void {
   align-items: center;
   gap: 7px;
   margin: 0;
-  padding: 4px 7px;
+  padding: 3px 4px;
   border: none;
+  border-radius: 5px;
   background: transparent;
   color: inherit;
   text-align: left;
@@ -516,7 +512,7 @@ function onOpenPreview(): void {
 }
 
 .tool-call-head:hover {
-  background: var(--bg-hover, rgba(127, 127, 127, 0.06));
+  background: color-mix(in srgb, var(--fg) 4%, transparent);
 }
 
 .expand-hit {
@@ -682,14 +678,13 @@ function onOpenPreview(): void {
 
 .tool-body {
   margin: 0;
-  padding: 5px 0;
-  border-top: 1px solid color-mix(in srgb, var(--border, #ddd) 80%, transparent);
+  padding: 5px 4px;
+  border-top: 1px solid color-mix(in srgb, var(--border, #ddd) 35%, transparent);
   max-height: 140px;
   overflow: auto;
   font-size: 11.5px;
   line-height: 1.5;
   font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
-  background: color-mix(in srgb, var(--bg, #fafafa) 88%, #000 4%);
 }
 
 .tool-body.empty {
@@ -703,7 +698,7 @@ function onOpenPreview(): void {
 
 .dline {
   display: block;
-  padding: 0 12px;
+  padding: 0 8px;
   white-space: pre-wrap;
   word-break: break-all;
 }
@@ -723,14 +718,13 @@ function onOpenPreview(): void {
 .todo-body {
   list-style: none;
   margin: 0;
-  padding: 6px 10px 8px;
-  border-top: 1px solid color-mix(in srgb, var(--border, #ddd) 80%, transparent);
+  padding: 6px 4px 8px;
+  border-top: 1px solid color-mix(in srgb, var(--border, #ddd) 35%, transparent);
   display: flex;
   flex-direction: column;
   gap: 4px;
   max-height: 180px;
   overflow: auto;
-  background: color-mix(in srgb, var(--bg, #fafafa) 88%, #000 4%);
 }
 
 .todo-row {

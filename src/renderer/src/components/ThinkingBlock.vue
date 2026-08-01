@@ -147,15 +147,13 @@ watch(
 
 <style scoped>
 .thinking {
-  margin: 0 0 6px;
-  border-radius: 6px;
-  border: 1px solid color-mix(in srgb, var(--border, #ddd) 50%, transparent);
-  background: color-mix(in srgb, var(--fg-muted, #888) 2.5%, transparent);
+  margin: 0 0 4px;
+  /* Cursor-style: no card chrome — muted text row with a fold chevron. */
   overflow: hidden;
 }
 
 .thinking.streaming {
-  border-color: color-mix(in srgb, var(--primary, #3b82f6) 20%, var(--border, #ddd));
+  color: var(--primary, #3b82f6);
 }
 
 .thinking-head {
@@ -164,8 +162,9 @@ watch(
   align-items: center;
   gap: 7px;
   margin: 0;
-  padding: 5px 8px;
+  padding: 2px 4px;
   border: none;
+  border-radius: 5px;
   background: transparent;
   color: var(--fg-muted, #666);
   font-size: 11.5px;
@@ -175,7 +174,7 @@ watch(
 }
 
 .thinking-head:hover {
-  background: var(--bg-hover, rgba(127, 127, 127, 0.06));
+  background: color-mix(in srgb, var(--fg) 4%, transparent);
   color: var(--fg-strong, #222);
 }
 
@@ -210,7 +209,7 @@ watch(
 
 .thinking-body {
   margin: 0;
-  padding: 0 12px 6px 26px;
+  padding: 2px 4px 6px 26px;
   max-height: 160px;
   overflow: auto;
   white-space: pre-wrap;

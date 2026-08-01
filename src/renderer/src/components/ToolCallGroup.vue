@@ -164,9 +164,7 @@ function toolStatus(msg: ToolMessage): {
 <style scoped>
 .tool-group {
   margin: 2px 0 6px;
-  border-radius: 6px;
-  border: 1px solid color-mix(in srgb, var(--border) 65%, transparent);
-  background: color-mix(in srgb, var(--bg-panel) 96%, var(--bg-app));
+  /* Cursor-style: plain text rows, no card chrome. */
   overflow: hidden;
 }
 
@@ -176,8 +174,9 @@ function toolStatus(msg: ToolMessage): {
   gap: 6px;
   width: 100%;
   margin: 0;
-  padding: 5px 8px;
+  padding: 3px 4px;
   border: 0;
+  border-radius: 5px;
   background: transparent;
   color: var(--fg-muted);
   font: inherit;
@@ -250,8 +249,8 @@ function toolStatus(msg: ToolMessage): {
 .tool-group-body {
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  padding: 0 6px 6px;
+  gap: 1px;
+  padding: 0 0 6px;
 }
 
 .tool-group-body :deep(.tool-call) {

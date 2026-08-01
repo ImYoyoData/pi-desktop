@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from "vue";
+import { computed, onBeforeUnmount, ref, watch } from "vue";
 import { NIcon } from "naive-ui";
 import {
   CheckmarkDoneOutline,
@@ -18,6 +18,60 @@ const collapsed = ref(false);
 
 const list = computed(() => widgets.activeTodoList);
 
+/** Live tick for in-progress durations — re-renders the panel every second. */
+const nowMs = ref(Date.now());
+let tickTimer: ReturnType<typeof setInterval> | null = null;
+function startTick(): void {
+  if (tickTimer) return;
+  tickTimer = setInterval(() => {
+    nowMs.value = Date.now();
+  }, 1000);
+}
+function stopTick(): void {
+  if (tickTimer) {
+    clearInterval(tickTimer);
+    tickTimer = null;
+  }
+}
+
+watch(
+  () => widgets.activeTodoList?.items.some((i) => i.active && !i.done) ?? false,
+  (hasActive) => {
+    if (hasActive) startTick();
+    else stopTick();
+  },
+  { immediate: true },
+);
+
+onBeforeUnmount(stopTick);
+
+/** "12s" / "1m 23s" / "2h 5m" from ms. */
+function formatDuration(ms: number | undefined): string {
+  if (ms == null || !Number.isFinite(ms) || ms < 0) return "";
+  const totalSec = Math.round(ms / 1000);
+  if (totalSec < 60) return `${totalSec}s`;
+  const min = Math.floor(totalSec / 60);
+  const sec = totalSec % 60;
+  if (min < 60) return sec ? `${min}m ${sec}s` : `${min}m`;
+  const hr = Math.floor(min / 60);
+  const remMin = min % 60;
+  return remMin ? `${hr}h ${remMin}m` : `${hr}h`;
+}
+
+/** 进行中的项：用 startedAt + 本地 tick 实时跳动；已完成用固定时长 */
+function itemDuration(item: {
+  durationMs?: number;
+  startedAt?: number;
+  done: boolean;
+  active?: boolean;
+}): string {
+  if (item.durationMs != null) return formatDuration(item.durationMs);
+  if (item.active && !item.done && item.startedAt != null) {
+    return formatDuration(nowMs.value - item.startedAt);
+  }
+  return "";
+}
+
 const doneCount = computed(
   () => list.value?.items.filter((i) => i.done).length ?? 0,
 );
@@ -28,12 +82,25 @@ const pct = computed(() =>
   total.value > 0 ? Math.round((doneCount.value / total.value) * 100) : 0,
 );
 
-const openItems = computed(() => (list.value?.items ?? []).filter((i) => !i.done));
-const doneItems = computed(() => (list.value?.items ?? []).filter((i) => i.done));
+/** 保持原始添加顺序，已完成与未完成混排在一起 */
+const orderedItems = computed(() => list.value?.items ?? []);
+
+/** 各项用时之和（已完成项） */
+const totalDurationMs = computed(() => {
+  if (!list.value) return 0;
+  let total = 0;
+  for (const i of list.value.items) {
+    if (i.done && i.durationMs != null) total += i.durationMs;
+  }
+  return total;
+});
 
 const headerLabel = computed(() => {
   if (!list.value) return "";
-  if (allDone.value) return t.todoAllDone(total.value);
+  if (allDone.value) {
+    const dur = formatDuration(totalDurationMs.value);
+    return dur ? `${t.todoAllDone(total.value)} · ${dur}` : t.todoAllDone(total.value);
+  }
   return t.todoProgress(doneCount.value, total.value);
 });
 
@@ -98,27 +165,27 @@ function onDismiss(): void {
 
       <TransitionGroup tag="ul" name="todo" class="todo-list">
         <li
-          v-for="item in openItems"
-          :key="'open-' + item.id"
+          v-for="item in orderedItems"
+          :key="item.id"
           class="todo-item"
+          :class="{
+            done: item.done,
+            active: item.active && !item.done,
+          }"
         >
-          <span class="mark open" aria-hidden="true" />
+          <span v-if="item.active && !item.done" class="mark active" aria-hidden="true">
+            <span class="spinner" />
+          </span>
+          <span v-else class="mark" :class="item.done ? 'done' : 'open'" aria-hidden="true" />
+          <span class="num" aria-hidden="true">{{ item.id }}</span>
           <span class="text">{{ item.text }}</span>
-        </li>
-        <li
-          v-if="doneItems.length"
-          key="__done-divider__"
-          class="done-divider"
-        >
-          <span>{{ t.todoDoneItems }}</span>
-        </li>
-        <li
-          v-for="item in doneItems"
-          :key="'done-' + item.id"
-          class="todo-item done"
-        >
-          <span class="mark done" aria-hidden="true" />
-          <span class="text">{{ item.text }}</span>
+          <span
+            v-if="itemDuration(item)"
+            class="dur"
+            :class="{ active: item.active && !item.done }"
+          >
+            {{ itemDuration(item) }}
+          </span>
         </li>
       </TransitionGroup>
     </div>
@@ -303,7 +370,7 @@ function onDismiss(): void {
 
 .todo-item {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   gap: 8px;
   padding: 5px 8px;
   border-radius: 8px;
@@ -326,11 +393,48 @@ function onDismiss(): void {
   text-decoration-color: color-mix(in srgb, var(--fg-muted) 50%, transparent);
 }
 
+.todo-item.active {
+  background: color-mix(in srgb, var(--accent) 6%, transparent);
+}
+
+.num {
+  flex-shrink: 0;
+  min-width: 16px;
+  text-align: center;
+  font-size: 10.5px;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+  color: var(--fg-faint, var(--fg-muted));
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
+}
+
+.todo-item.done .num {
+  color: color-mix(in srgb, var(--success, var(--green, #16a34a)) 75%, var(--fg-faint));
+}
+
+.todo-item.active .num {
+  color: var(--accent);
+}
+
+.dur {
+  flex-shrink: 0;
+  margin-left: auto;
+  font-size: 10.5px;
+  font-variant-numeric: tabular-nums;
+  color: var(--fg-faint, var(--fg-muted));
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
+  white-space: nowrap;
+}
+
+.dur.active {
+  color: var(--accent);
+}
+
 .mark {
   flex-shrink: 0;
   width: 14px;
   height: 14px;
-  margin-top: 2px;
+  margin-top: 0;
   border-radius: 4px;
   border: 1.5px solid var(--border-strong, var(--border));
   box-sizing: border-box;
@@ -342,6 +446,29 @@ function onDismiss(): void {
 
 .todo-item:hover .mark.open {
   border-color: var(--accent-border);
+}
+
+.mark.active {
+  border-color: transparent;
+  background: transparent;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.mark.active .spinner {
+  width: 12px;
+  height: 12px;
+  border: 1.5px solid color-mix(in srgb, var(--accent) 28%, transparent);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: todo-spin 0.7s linear infinite;
+}
+
+@keyframes todo-spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .mark.done {
@@ -366,25 +493,6 @@ function onDismiss(): void {
 .text {
   min-width: 0;
   word-break: break-word;
-}
-
-.done-divider {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin: 6px 4px 2px;
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--fg-faint, var(--fg-muted));
-}
-
-.done-divider::after {
-  content: "";
-  flex: 1;
-  height: 1px;
-  background: color-mix(in srgb, var(--border) 80%, transparent);
 }
 
 .todo-enter-active,
