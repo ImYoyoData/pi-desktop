@@ -1,16 +1,26 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref, watch } from "vue";
+import { computed, defineAsyncComponent, onMounted, onUnmounted, ref, watch } from "vue";
 import { NButton, NEmpty, NIcon, NTag, NText, useMessage } from "naive-ui";
 import { AddOutline, SparklesOutline } from "@vicons/ionicons5";
 import AskUserStrip from "@renderer/components/AskUserStrip.vue";
 import PermissionStrip from "@renderer/components/PermissionStrip.vue";
 import ExtensionUiStrip from "@renderer/components/ExtensionUiStrip.vue";
 import SessionTodoPanel from "@renderer/components/SessionTodoPanel.vue";
-import Composer from "@renderer/components/Composer.vue";
-import MessageList from "@renderer/components/MessageList.vue";
 import { useChatStore } from "@renderer/stores/chat";
 import { useSessionsStore } from "@renderer/stores/sessions";
 import { useWorkspaceStore } from "@renderer/stores/workspace";
+
+/**
+ * Heaviest chat chrome — load lazily so first paint / session switch stays
+ * responsive on slower CPUs (markdown + monaco parsing happens off the
+ * critical path).
+ */
+const Composer = defineAsyncComponent(
+  () => import("@renderer/components/Composer.vue"),
+);
+const MessageList = defineAsyncComponent(
+  () => import("@renderer/components/MessageList.vue"),
+);
 import {
   formatElapsedShort,
 } from "@renderer/utils/agent-wait";

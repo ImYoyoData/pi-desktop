@@ -71,6 +71,7 @@ export function createAskUserToolDefinition(deps?: {
       "Desktop always offers a custom free-text option for single/multi; you may also set allowCustom on an option.",
       "Do not invent answers — ask_user blocks until the user submits.",
     ],
+    executionMode: "sequential",
     parameters: askUserSchema,
     async execute(_toolCallId, params) {
       const parsed = parseAskUserArgs(params);

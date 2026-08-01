@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, h, onMounted, onUnmounted, ref } from "vue";
+import { computed, defineAsyncComponent, h, onMounted, onUnmounted, ref } from "vue";
 import type { DropdownOption } from "naive-ui";
 import { NButton, NDropdown, NIcon, NSpace } from "naive-ui";
 import {
@@ -20,15 +20,21 @@ import {
 } from "@vicons/ionicons5";
 import PanelLeftIcon from "@renderer/components/icons/PanelLeftIcon.vue";
 import PanelRightIcon from "@renderer/components/icons/PanelRightIcon.vue";
-import ModelsSettings from "@renderer/components/ModelsSettings.vue";
-import SkillsSettings from "@renderer/components/SkillsSettings.vue";
-import ExtensionsSettings from "@renderer/components/ExtensionsSettings.vue";
-import MarketSettings from "@renderer/components/MarketSettings.vue";
-import AppearanceSettings from "@renderer/components/AppearanceSettings.vue";
-import NotifySettings from "@renderer/components/NotifySettings.vue";
-import AsrSettings from "@renderer/components/AsrSettings.vue";
-import SecuritySettings from "@renderer/components/SecuritySettings.vue";
-import AboutSettings from "@renderer/components/AboutSettings.vue";
+
+/**
+ * Settings modals are only opened on demand — load their code lazily so
+ * startup stays light on slower CPUs.
+ */
+const ModelsSettings = defineAsyncComponent(() => import("@renderer/components/ModelsSettings.vue"));
+const SkillsSettings = defineAsyncComponent(() => import("@renderer/components/SkillsSettings.vue"));
+const ExtensionsSettings = defineAsyncComponent(() => import("@renderer/components/ExtensionsSettings.vue"));
+const MarketSettings = defineAsyncComponent(() => import("@renderer/components/MarketSettings.vue"));
+const AppearanceSettings = defineAsyncComponent(() => import("@renderer/components/AppearanceSettings.vue"));
+const NotifySettings = defineAsyncComponent(() => import("@renderer/components/NotifySettings.vue"));
+const AsrSettings = defineAsyncComponent(() => import("@renderer/components/AsrSettings.vue"));
+const SecuritySettings = defineAsyncComponent(() => import("@renderer/components/SecuritySettings.vue"));
+const AboutSettings = defineAsyncComponent(() => import("@renderer/components/AboutSettings.vue"));
+
 import UpdateCard from "@renderer/components/UpdateCard.vue";
 import { useWorkspaceStore } from "@renderer/stores/workspace";
 import { useAppearanceStore } from "@renderer/stores/appearance";

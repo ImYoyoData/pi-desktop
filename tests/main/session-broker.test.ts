@@ -560,4 +560,71 @@ describe("session-broker", () => {
     const listed = await broker.listSessions("/tmp/a");
     expect(listed.find((s) => s.id === "session-a")?.name).toBe("你好世界");
   });
+
+  it("openSession prewarms the worker without blocking the open", async () => {
+    let spawnCount = 0;
+    let releaseSpawn: (() => void) | null = null;
+    const gate = new Promise<void>((resolve) => {
+      releaseSpawn = resolve;
+    });
+    const broker = createSessionBroker({
+      allocateSession: allocateFixed("session-a"),
+      spawnWorker: async (cwd, filePath) => {
+        spawnCount += 1;
+        await gate;
+        return {
+          id: "session-a",
+          cwd,
+          filePath: filePath ?? "/tmp/session-a.jsonl",
+          worker: {
+            send: async () => null,
+            kill: () => {},
+            onMessage: () => () => {},
+          },
+        };
+      },
+    });
+    await broker.createSession("/tmp/a");
+    // openSession must resolve even though the worker spawn is still gated.
+    const opened = await broker.openSession("session-a", "/tmp/a");
+    expect(opened?.id).toBe("session-a");
+    expect(spawnCount).toBe(1);
+    releaseSpawn?.();
+    await vi.waitFor(() => {
+      // Prewarm completed without any further spawn.
+      expect(spawnCount).toBe(1);
+    });
+  });
+
+  it("dedupes a cold-start send that races the prewarm spawn", async () => {
+    let spawnCount = 0;
+    let releaseSpawn: (() => void) | null = null;
+    const gate = new Promise<void>((resolve) => {
+      releaseSpawn = resolve;
+    });
+    const broker = createSessionBroker({
+      allocateSession: allocateFixed("session-a"),
+      spawnWorker: async (cwd, filePath) => {
+        spawnCount += 1;
+        await gate;
+        return {
+          id: "session-a",
+          cwd,
+          filePath: filePath ?? "/tmp/session-a.jsonl",
+          worker: {
+            send: async () => null,
+            kill: () => {},
+            onMessage: () => () => {},
+          },
+        };
+      },
+    });
+    const session = await broker.createSession("/tmp/a");
+    await broker.openSession("session-a", "/tmp/a");
+    const pending = broker.send(session.id, { type: "ping" });
+    expect(spawnCount).toBe(1);
+    releaseSpawn?.();
+    await pending;
+    expect(spawnCount).toBe(1);
+  });
 });

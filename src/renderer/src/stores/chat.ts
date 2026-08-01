@@ -774,8 +774,9 @@ export const useChatStore = defineStore("chat", () => {
     const promptImages = toPromptImages(images);
     const promptCitations = toPromptCitations(citations);
     const bubbleText = displayText !== undefined ? displayText : message;
-    // Cursor-like: hide a fully completed todo list when the next task starts.
-    useSessionWidgetsStore().dismissCompletedOnNewTask(sessionId);
+    // A new task starts a clean slate: drop the previous round's todos so
+    // fresh items never accumulate on top of the old list.
+    useSessionWidgetsStore().resetTodosForSession(sessionId);
     setSessionState(sessionId, appendUserMessage(
       stateFor(sessionId),
       bubbleText,
@@ -984,6 +985,8 @@ export const useChatStore = defineStore("chat", () => {
     sessionId: string,
     userMsg: Extract<ChatMessage, { role: "user" }>,
   ): Promise<void> {
+    // New round: clear the previous round's todos before re-driving the prompt.
+    useSessionWidgetsStore().resetTodosForSession(sessionId);
     const images = userMsg.images?.map((img) => {
       const raw = img.dataUrl.replace(/^data:[^;]+;base64,/, "");
       return { type: "image" as const, data: raw, mimeType: img.mimeType };
