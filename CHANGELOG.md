@@ -1,5 +1,25 @@
 # Changelog
 
+## v0.2.2 (2026-08-02)
+
+### 修复 Fixes
+- 修复启动蒙版遗留卡死：初始化完成时清除了兜底定时器，导致 worker 事件丢失后永久等待；现增 10 秒硬性兜底 + 3 秒宽限，并移除蒙版 logo、新增进度条
+- 修复发布打包脚本：generate-icons.mjs 误用 TS 语法导致 CI 失败
+- 所有弹窗统一内部滚动：内容区包裹 .modal-scroll，弹窗高度不超过窗口，右上角 X 可正常点击关闭
+- 会话信息弹窗：更换为可靠的内部滚动，并在会话 worker 加载完成后自动刷新
+- Windows ARM64 打包：强制 node-pty 跨架构重建
+- 扩展名解析：仅信任 node_modules 包根目录的 package.json，本地扩展用文件名
+- Boot overlay can no longer stick (the init finally used to clear the failsafe timer, leaving the overlay at 85% forever when the worker-ready event was missed); now 10s hard cap + 3s grace, logo removed, progress bar added.
+- Fixed the release packaging script (TypeScript syntax slipped into generate-icons.mjs and broke CI).
+- Every modal now scrolls internally (.modal-scroll); dialogs stay within the window and the header X closes reliably.
+- Session info modal: reliable internal scroll + auto-refresh when the session worker finishes loading.
+- Windows ARM64 packaging forces a node-pty cross-arch rebuild.
+- Extension names only trust node_modules/<package> package.json; local extensions use the file stem.
+
+### 新功能 Features
+- 新建分支支持选择「基于分支」（本地+远端选项，默认当前分支）
+- New-branch dialog lets you pick the base branch (local + remote, defaults to current).
+
 ## v0.2.1 (2026-08-02)
 
 ### 性能优化 Performance
