@@ -43,6 +43,7 @@ import {
   isComposerAgentMode,
   stripComposerModePreamble,
 } from "../../../shared/composer-modes";
+import { ASK_USER_TOOL_NAME } from "../../../shared/ask-user";
 import {
   followBottomVirtualWindow,
   windowAfterHistoryPrepend,
@@ -233,12 +234,16 @@ watch([() => props.running, () => props.streaming], ([running, streaming]) => {
   }
 }, { immediate: true });
 
+/** Tool rows that must stay visible even in clean history (user questions). */
+function isKeepVisibleTool(msg: ChatMessage): boolean {
+  return msg.role === "tool" && msg.toolName === ASK_USER_TOOL_NAME;
+}
+
 const displayMessages = computed(() => {
   const list = [...props.messages];
   if (props.streaming) list.push(props.streaming);
   const counts = processSummaryCounts.value;
   const foldable = counts.tools + counts.thinking > 0;
-  if (!foldable) return list;
   const start = latestTurnStart.value;
   const out: ChatMessage[] = [];
   let inserted = false;
@@ -266,6 +271,16 @@ const displayMessages = computed(() => {
         } as ChatMessage);
       }
       if (!workFolded.value) out.push(msg);
+      continue;
+    }
+    // Older, already-finished turns: drop their tool/thinking rows so the
+    // history reads as user messages + final answers only (Codex-like).
+    // Interactive ask_user rows stay visible.
+    if (
+      !isKeepVisibleTool(msg) &&
+      (msg.role === "tool" ||
+        (msg.role === "assistant" && Boolean(msg.thinking) && !msg.text))
+    ) {
       continue;
     }
     out.push(msg);
