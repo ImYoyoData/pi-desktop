@@ -1362,22 +1362,6 @@ function onRevertUser(msg: Extract<ChatMessage, { role: "user" }>): void {
               class="bubble user"
               :class="{ 'user-collapsed': !isUserExpanded(msg.id) }"
             >
-              <div v-if="visibleUserTags(msg.elementTags).length" class="user-tags">
-                <NTag
-                  v-for="(tag, idx) in visibleUserTags(msg.elementTags)"
-                  :key="`${msg.id}-tag-${idx}`"
-                  type="info"
-                  size="small"
-                  round
-                  class="user-tag"
-                  :class="{
-                    'user-tag-file': tag.kind === 'file',
-                  }"
-                  :title="tag.url || tag.label"
-                >
-                  {{ tag.label || tag.content }}
-                </NTag>
-              </div>
               <div v-if="msg.images?.length" class="user-images">
                 <img
                   v-for="(img, idx) in msg.images"
@@ -1395,6 +1379,22 @@ function onRevertUser(msg: Extract<ChatMessage, { role: "user" }>): void {
                 class="user-plain"
                 :class="{ clamped: !isUserExpanded(msg.id) }"
               >{{ displayUserText(msg.text) }}</div>
+              <div v-if="visibleUserTags(msg.elementTags).length" class="user-tags">
+                <NTag
+                  v-for="(tag, idx) in visibleUserTags(msg.elementTags)"
+                  :key="`${msg.id}-tag-${idx}`"
+                  type="info"
+                  size="small"
+                  round
+                  class="user-tag"
+                  :class="{
+                    'user-tag-file': tag.kind === 'file',
+                  }"
+                  :title="tag.url || tag.label"
+                >
+                  {{ tag.label || tag.content }}
+                </NTag>
+              </div>
               <!-- Cursor-style: revert lives inside the card, bottom-right -->
               <div
                 v-if="canRevertUser(msg) || isRevertedUser(msg)"
@@ -1647,22 +1647,6 @@ function onRevertUser(msg: Extract<ChatMessage, { role: "user" }>): void {
         class="sticky-pin-body bubble user"
         :class="{ 'user-collapsed': !stickyExpanded && userCardNeedsToggle(stickyPinMessage) }"
       >
-        <div v-if="visibleUserTags(stickyPinMessage.elementTags).length" class="user-tags">
-          <NTag
-            v-for="(tag, idx) in visibleUserTags(stickyPinMessage.elementTags)"
-            :key="`pin-tag-${idx}`"
-            type="info"
-            size="small"
-            round
-            class="user-tag"
-            :class="{
-              'user-tag-file': tag.kind === 'file',
-            }"
-            :title="tag.url || tag.label"
-          >
-            {{ tag.label || tag.content }}
-          </NTag>
-        </div>
         <div v-if="stickyPinMessage.images?.length" class="user-images">
           <img
             v-for="(img, idx) in stickyPinMessage.images"
@@ -1680,6 +1664,22 @@ function onRevertUser(msg: Extract<ChatMessage, { role: "user" }>): void {
           class="user-plain"
           :class="{ clamped: !stickyExpanded && userCardNeedsToggle(stickyPinMessage) }"
         >{{ displayUserText(stickyPinMessage.text) }}</div>
+        <div v-if="visibleUserTags(stickyPinMessage.elementTags).length" class="user-tags">
+          <NTag
+            v-for="(tag, idx) in visibleUserTags(stickyPinMessage.elementTags)"
+            :key="`pin-tag-${idx}`"
+            type="info"
+            size="small"
+            round
+            class="user-tag"
+            :class="{
+              'user-tag-file': tag.kind === 'file',
+            }"
+            :title="tag.url || tag.label"
+          >
+            {{ tag.label || tag.content }}
+          </NTag>
+        </div>
       </div>
       <button
         v-if="stickyNeedsToggle && (stickyHover || stickyExpanded)"
@@ -2167,7 +2167,7 @@ function onRevertUser(msg: Extract<ChatMessage, { role: "user" }>): void {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
-  margin-bottom: 6px;
+  margin-top: 6px;
 }
 
 .user-tag {

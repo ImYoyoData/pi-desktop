@@ -2,13 +2,13 @@ import { defineStore } from "pinia";
 import { computed, ref } from "vue";
 import { useSessionsStore } from "./sessions";
 import {
-  isTodoWidgetKey,
-  parseTodoWidgetLines,
-  todoListAllDone,
-  todoListVisible,
-  todosFromToolArgs,
-  todosFromToolDetails,
-  type SessionTodoList,
+	isTodoWidgetKey,
+	parseTodoWidgetLines,
+	todoListAllDone,
+	todoListVisible,
+	todosFromToolArgs,
+	todosFromToolDetails,
+	type SessionTodoList,
 } from "../utils/session-todos";
 
 /**
@@ -16,157 +16,188 @@ import {
  * Fed by `ctx.ui.setWidget` and todo tool results.
  */
 export const useSessionWidgetsStore = defineStore("session-widgets", () => {
-  /** sessionId → widgetKey → raw lines (null = cleared) */
-  const widgetsBySession = ref<Record<string, Record<string, string[]>>>({});
-  /** sessionId → structured todo list (primary UI) */
-  const todosBySession = ref<Record<string, SessionTodoList | null>>({});
+	/** sessionId → widgetKey → raw lines (null = cleared) */
+	const widgetsBySession = ref<Record<string, Record<string, string[]>>>({});
+	/** sessionId → structured todo list (primary UI) */
+	const todosBySession = ref<Record<string, SessionTodoList | null>>({});
+	/** sessionId → wall-clock ms when the current todo round started (auto).
+	 *  Set when the first non-empty todo list appears; cleared on reset. */
+	const todoStartedAtBySession = ref<Record<string, number>>({});
 
-  const sessions = useSessionsStore();
+	const sessions = useSessionsStore();
 
-  const activeTodoList = computed(() => {
-    const id = sessions.activeId;
-    if (!id) return null;
-    const list = todosBySession.value[id];
-    return todoListVisible(list) ? list : null;
-  });
+	const activeTodoList = computed(() => {
+		const id = sessions.activeId;
+		if (!id) return null;
+		const list = todosBySession.value[id];
+		return todoListVisible(list) ? list : null;
+	});
 
-  function ensureSessionWidgets(sessionId: string): Record<string, string[]> {
-    const cur = widgetsBySession.value[sessionId];
-    if (cur) return cur;
-    const next: Record<string, string[]> = {};
-    widgetsBySession.value = { ...widgetsBySession.value, [sessionId]: next };
-    return next;
-  }
+	/** Wall-clock start of the current todo round (0 when none). */
+	function todoStartedAt(sessionId: string): number {
+		return todoStartedAtBySession.value[sessionId] ?? 0;
+	}
 
-  function setWidget(
-    sessionId: string,
-    widgetKey: string,
-    widgetLines: string[] | null,
-  ): void {
-    const map = { ...ensureSessionWidgets(sessionId) };
-    if (!widgetLines || widgetLines.length === 0) {
-      delete map[widgetKey];
-      widgetsBySession.value = { ...widgetsBySession.value, [sessionId]: map };
-      if (isTodoWidgetKey(widgetKey)) {
-        todosBySession.value = { ...todosBySession.value, [sessionId]: null };
-      }
-      return;
-    }
+	/** Arm the round clock on the first non-empty list for the session. */
+	function ensureTodoClock(sessionId: string, hasItems: boolean): void {
+		if (!hasItems) return;
+		if (!todoStartedAtBySession.value[sessionId]) {
+			todoStartedAtBySession.value = {
+				...todoStartedAtBySession.value,
+				[sessionId]: Date.now(),
+			};
+		}
+	}
 
-    map[widgetKey] = widgetLines;
-    widgetsBySession.value = { ...widgetsBySession.value, [sessionId]: map };
+	function ensureSessionWidgets(sessionId: string): Record<string, string[]> {
+		const cur = widgetsBySession.value[sessionId];
+		if (cur) return cur;
+		const next: Record<string, string[]> = {};
+		widgetsBySession.value = { ...widgetsBySession.value, [sessionId]: next };
+		return next;
+	}
 
-    if (isTodoWidgetKey(widgetKey)) {
-      const parsed = parseTodoWidgetLines(widgetKey, widgetLines);
-      if (parsed) {
-        const prev = todosBySession.value[sessionId];
-        const hasOpen = parsed.items.some((i) => !i.done);
-        todosBySession.value = {
-          ...todosBySession.value,
-          [sessionId]: {
-            ...parsed,
-            // Incomplete work always re-shows; keep dismiss only while still all-done.
-            dismissed: hasOpen ? false : Boolean(prev?.dismissed),
-          },
-        };
-      }
-    }
-  }
+	function setWidget(
+		sessionId: string,
+		widgetKey: string,
+		widgetLines: string[] | null,
+	): void {
+		const map = { ...ensureSessionWidgets(sessionId) };
+		if (!widgetLines || widgetLines.length === 0) {
+			delete map[widgetKey];
+			widgetsBySession.value = { ...widgetsBySession.value, [sessionId]: map };
+			if (isTodoWidgetKey(widgetKey)) {
+				todosBySession.value = { ...todosBySession.value, [sessionId]: null };
+			}
+			return;
+		}
 
-  function applyTodoToolResult(sessionId: string, details: unknown): void {
-    applyTodoList(sessionId, todosFromToolDetails("pi-deck-todo", details), details);
-  }
+		map[widgetKey] = widgetLines;
+		widgetsBySession.value = { ...widgetsBySession.value, [sessionId]: map };
 
-  /** Prefer full-list args (todo_write); ignore incremental add/toggle-only args. */
-  function applyTodoToolArgs(sessionId: string, args: unknown): void {
-    const list = todosFromToolArgs("pi-deck-todo", args);
-    if (!list) return;
-    applyTodoList(sessionId, list, args);
-  }
+		if (isTodoWidgetKey(widgetKey)) {
+			const parsed = parseTodoWidgetLines(widgetKey, widgetLines);
+			if (parsed) {
+				ensureTodoClock(sessionId, parsed.items.length > 0);
+				const prev = todosBySession.value[sessionId];
+				const hasOpen = parsed.items.some((i) => !i.done);
+				todosBySession.value = {
+					...todosBySession.value,
+					[sessionId]: {
+						...parsed,
+						// Incomplete work always re-shows; keep dismiss only while still all-done.
+						dismissed: hasOpen ? false : Boolean(prev?.dismissed),
+					},
+				};
+			}
+		}
+	}
 
-  function applyTodoList(
-    sessionId: string,
-    list: SessionTodoList | null,
-    raw: unknown,
-  ): void {
-    if (!list) {
-      if (
-        raw &&
-        typeof raw === "object" &&
-        (raw as { action?: string }).action === "clear"
-      ) {
-        todosBySession.value = { ...todosBySession.value, [sessionId]: null };
-      }
-      return;
-    }
-    const prev = todosBySession.value[sessionId];
-    const hasOpen = list.items.some((i) => !i.done);
-    todosBySession.value = {
-      ...todosBySession.value,
-      [sessionId]: {
-        ...list,
-        dismissed: hasOpen ? false : Boolean(prev?.dismissed),
-      },
-    };
-  }
+	function applyTodoToolResult(sessionId: string, details: unknown): void {
+		applyTodoList(
+			sessionId,
+			todosFromToolDetails("pi-deck-todo", details),
+			details,
+		);
+	}
 
-  /**
-   * Reset the todo widget when a new task/turn starts, so the previous
-   * round's items never accumulate on top of the next round's list.
-   */
-  function resetTodosForSession(sessionId: string): void {
-    const next = { ...todosBySession.value };
-    delete next[sessionId];
-    todosBySession.value = next;
-    const widgets = { ...widgetsBySession.value };
-    const row = widgets[sessionId];
-    if (row) {
-      const cleaned: Record<string, string[]> = {};
-      for (const [k, v] of Object.entries(row)) {
-        if (!isTodoWidgetKey(k)) cleaned[k] = v;
-      }
-      widgets[sessionId] = cleaned;
-      widgetsBySession.value = widgets;
-    }
-  }
+	/** Prefer full-list args (todo_write); ignore incremental add/toggle-only args. */
+	function applyTodoToolArgs(sessionId: string, args: unknown): void {
+		const list = todosFromToolArgs("pi-deck-todo", args);
+		if (!list) return;
+		applyTodoList(sessionId, list, args);
+	}
 
-  /** Hide the todo panel for this session (re-shows when new open items arrive). */
-  function dismissTodoList(sessionId: string): void {
-    const list = todosBySession.value[sessionId];
-    if (!list) return;
-    todosBySession.value = {
-      ...todosBySession.value,
-      [sessionId]: { ...list, dismissed: true },
-    };
-  }
+	function applyTodoList(
+		sessionId: string,
+		list: SessionTodoList | null,
+		raw: unknown,
+	): void {
+		if (!list) {
+			if (
+				raw &&
+				typeof raw === "object" &&
+				(raw as { action?: string }).action === "clear"
+			) {
+				todosBySession.value = { ...todosBySession.value, [sessionId]: null };
+			}
+			return;
+		}
+		const prev = todosBySession.value[sessionId];
+		const hasOpen = list.items.some((i) => !i.done);
+		ensureTodoClock(sessionId, list.items.length > 0);
+		todosBySession.value = {
+			...todosBySession.value,
+			[sessionId]: {
+				...list,
+				dismissed: hasOpen ? false : Boolean(prev?.dismissed),
+			},
+		};
+	}
 
-  /** Hide completed list when the user starts the next task. */
-  function dismissCompletedOnNewTask(sessionId: string): void {
-    const list = todosBySession.value[sessionId];
-    if (!list || !todoListAllDone(list)) return;
-    todosBySession.value = {
-      ...todosBySession.value,
-      [sessionId]: { ...list, dismissed: true },
-    };
-  }
+	/**
+	 * Reset the todo widget when a new task/turn starts, so the previous
+	 * round's items never accumulate on top of the next round's list.
+	 */
+	function resetTodosForSession(sessionId: string): void {
+		const next = { ...todosBySession.value };
+		delete next[sessionId];
+		todosBySession.value = next;
+		const clocks = { ...todoStartedAtBySession.value };
+		delete clocks[sessionId];
+		todoStartedAtBySession.value = clocks;
+		const widgets = { ...widgetsBySession.value };
+		const row = widgets[sessionId];
+		if (row) {
+			const cleaned: Record<string, string[]> = {};
+			for (const [k, v] of Object.entries(row)) {
+				if (!isTodoWidgetKey(k)) cleaned[k] = v;
+			}
+			widgets[sessionId] = cleaned;
+			widgetsBySession.value = widgets;
+		}
+	}
 
-  function clearSession(sessionId: string): void {
-    const { [sessionId]: _w, ...restW } = widgetsBySession.value;
-    const { [sessionId]: _t, ...restT } = todosBySession.value;
-    widgetsBySession.value = restW;
-    todosBySession.value = restT;
-  }
+	/** Hide the todo panel for this session (re-shows when new open items arrive). */
+	function dismissTodoList(sessionId: string): void {
+		const list = todosBySession.value[sessionId];
+		if (!list) return;
+		todosBySession.value = {
+			...todosBySession.value,
+			[sessionId]: { ...list, dismissed: true },
+		};
+	}
 
-  return {
-    widgetsBySession,
-    todosBySession,
-    activeTodoList,
-    setWidget,
-    applyTodoToolResult,
-    applyTodoToolArgs,
-    dismissCompletedOnNewTask,
-    dismissTodoList,
-    resetTodosForSession,
-    clearSession,
-  };
+	/** Hide completed list when the user starts the next task. */
+	function dismissCompletedOnNewTask(sessionId: string): void {
+		const list = todosBySession.value[sessionId];
+		if (!list || !todoListAllDone(list)) return;
+		todosBySession.value = {
+			...todosBySession.value,
+			[sessionId]: { ...list, dismissed: true },
+		};
+	}
+
+	function clearSession(sessionId: string): void {
+		const { [sessionId]: _w, ...restW } = widgetsBySession.value;
+		const { [sessionId]: _t, ...restT } = todosBySession.value;
+		const { [sessionId]: _c, ...restC } = todoStartedAtBySession.value;
+		widgetsBySession.value = restW;
+		todosBySession.value = restT;
+		todoStartedAtBySession.value = restC;
+	}
+
+	return {
+		widgetsBySession,
+		todosBySession,
+		activeTodoList,
+		todoStartedAt,
+		setWidget,
+		applyTodoToolResult,
+		applyTodoToolArgs,
+		dismissCompletedOnNewTask,
+		dismissTodoList,
+		resetTodosForSession,
+		clearSession,
+	};
 });

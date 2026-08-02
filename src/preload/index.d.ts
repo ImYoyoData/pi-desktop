@@ -97,6 +97,7 @@ declare const api: {
 		open: () => Promise<string | null>;
 		pick: () => Promise<string | null>;
 		listRecent: () => Promise<string[]>;
+		listClosed: () => Promise<string[]>;
 		openPath: (root: string) => Promise<string | null>;
 		clear: () => Promise<null>;
 		removeRecent: (root: string) => Promise<{
