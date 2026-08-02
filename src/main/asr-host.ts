@@ -1449,7 +1449,7 @@ export async function testAsrCloud(): Promise<{ ok: boolean; message: string }> 
   }
 }
 
-async function transcribePcm(pcm: Int16Array, sampleRate: number): Promise<string> {
+export async function transcribePcm(pcm: Int16Array, sampleRate: number): Promise<string> {
   const prefs = readPrefs();
   if (!prefs.enabled) throw new Error("ASR is disabled in settings");
   if (installBusy) throw new Error("ASR install in progress");

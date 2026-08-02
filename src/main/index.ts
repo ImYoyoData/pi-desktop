@@ -57,6 +57,7 @@ import {
 	registerExtensionUiIpc,
 } from "./extension-ui-host";
 import { registerSecurityTrustIpc } from "./security-trust-ipc";
+import { ensureLanConsoleFromSettings, registerLanConsoleIpc } from "./lan-console";
 import { ensurePiAgentEnvironment } from "./pi-env";
 import { installApplicationMenu } from "./app-menu";
 import { enableHardwareAcceleration } from "./gpu-flags";
@@ -317,6 +318,7 @@ function boot(): void {
 		registerAskUserIpc();
 		registerExtensionUiIpc();
 		registerSecurityTrustIpc(broker);
+		registerLanConsoleIpc(broker);
 		registerPreviewIpc();
 		registerFilesIpc();
 		registerFsWatchIpc();
@@ -404,6 +406,7 @@ function boot(): void {
 		createMainWindow();
 
 		setImmediate(() => {
+			ensureLanConsoleFromSettings();
 			const init = ensurePiAgentEnvironment();
 			if (init.created.length && is.dev) {
 				console.info("[pi-env] initialized", init.agentDir, init.created);
