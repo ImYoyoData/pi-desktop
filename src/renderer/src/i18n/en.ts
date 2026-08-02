@@ -879,6 +879,9 @@ export const en = {
 	copyPath: "Copy path",
 	pathCopied: "Path copied",
 	removeFromList: "Remove from list",
+	closeWorkspace: "Close workspace",
+	closedWorkspaces: "Closed workspaces",
+	reopenWorkspace: "Reopen",
 	removeWorkspaceTitle: "Remove workspace",
 	removeWorkspaceConfirm: (name: string) =>
 		`Remove “${name}” from the list? (Does not delete files on disk.)`,
