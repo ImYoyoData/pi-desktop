@@ -1449,10 +1449,18 @@ async function tryConsumeBuiltinSlashDraft(): Promise<boolean> {
   return true;
 }
 
+/**
+ * Cost-health reference: the UI treats this many context tokens as "full".
+ * Real model windows are huge (deepseek = 1M), so a window-based % always
+ * looks healthy while the bill grows. Show pressure against this budget
+ * instead (matches ~30k tokens of a 1M window as the compaction sweet spot).
+ */
+const CONTEXT_COST_REFERENCE = 300_000;
+
 const contextPercent = computed(() => {
-  const pct = contextUsage.value?.percent;
-  if (pct == null || !Number.isFinite(pct)) return null;
-  return Math.max(0, Math.min(100, pct));
+  const tokens = contextUsage.value?.tokens;
+  if (tokens == null || !Number.isFinite(tokens) || tokens <= 0) return null;
+  return Math.max(0, Math.min(100, (tokens / CONTEXT_COST_REFERENCE) * 100));
 });
 
 const contextPercentLabel = computed(() => {
@@ -1498,6 +1506,25 @@ const contextTokensLabel = computed(() => {
   if (!usage) return "—";
   if (usage.tokens !== null) return formatTokens(usage.tokens);
   return "?";
+});
+
+/**
+ * Rough per-turn input cost estimate ($). Uses the DeepSeek-style rate as a
+ * sensible default; the point is to surface cost growth, not exact billing.
+ */
+const CONTEXT_INPUT_COST_PER_M = 0.14;
+const contextCostLabel = computed(() => {
+  const tokens = contextUsage.value?.tokens;
+  if (tokens == null || !Number.isFinite(tokens) || tokens <= 0) return "";
+  const cost = (tokens / 1_000_000) * CONTEXT_INPUT_COST_PER_M;
+  if (cost < 0.01) return "<$0.01";
+  return `$${cost.toFixed(2)}`;
+});
+
+/** True when the context is past the cost-health reference (needs compaction). */
+const contextNeedsCompact = computed(() => {
+  const pct = contextPercent.value;
+  return pct != null && pct >= 90;
 });
 
 const contextWindowLabel = computed(() => {
@@ -2456,6 +2483,9 @@ watch(
           <div class="ctx-pop-summary">
             <span class="ctx-pop-full">{{ contextFullLabel }}</span>
             <span class="ctx-pop-pair">{{ contextTokensPairLabel }}</span>
+            <span v-if="contextCostLabel" class="ctx-pop-cost">
+              {{ contextCostLabel }}
+            </span>
           </div>
           <div class="ctx-bar" aria-hidden="true">
             <span
@@ -2500,10 +2530,12 @@ watch(
             secondary
             block
             class="ctx-compact-btn"
+            :class="{ 'ctx-compact-urgent': contextNeedsCompact }"
             :disabled="!sessionId || running || compactBusy"
             :loading="compactBusy"
             @click="onCompactContext"
           >
+            <span v-if="contextNeedsCompact" class="ctx-compact-dot" />
             {{ t.compactContext }}
           </NButton>
         </div>
@@ -3092,6 +3124,13 @@ watch(
   gap: 12px;
 }
 
+.ctx-pop-cost {
+  font-size: 11px;
+  font-weight: 650;
+  color: var(--warn, #d97706);
+  font-variant-numeric: tabular-nums;
+}
+
 .ctx-pop-full {
   font-weight: 600;
   color: var(--fg-strong);
@@ -3189,6 +3228,32 @@ watch(
 
 .ctx-compact-btn {
   margin-top: 10px;
+}
+
+.ctx-compact-btn.ctx-compact-urgent {
+  border-color: var(--error, #d03050) !important;
+  color: var(--error, #d03050) !important;
+  animation: ctx-pulse 1.6s ease-in-out infinite;
+}
+
+.ctx-compact-dot {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  margin-right: 6px;
+  border-radius: 50%;
+  background: var(--error, #d03050);
+  vertical-align: middle;
+}
+
+@keyframes ctx-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.55;
+  }
 }
 
 @media (max-width: 900px) {

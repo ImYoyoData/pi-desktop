@@ -316,6 +316,39 @@ export function todoListAllDone(list: SessionTodoList): boolean {
 	return list.items.length > 0 && list.items.every((i) => i.done);
 }
 
+/**
+ * New-task cleanup for stale extension todos.
+ *
+ * The pi-deck-todo extension keeps its todos in memory per branch and only
+ * clears when the LLM explicitly calls `todo clear` — which it often doesn't,
+ * so a new task's first setWidget arrives as a superset of the previous
+ * round's items. The desktop resets the UI on each new prompt; this function
+ * filters out the stale baseline rows so old work never accumulates on top of
+ * the new task's list.
+ *
+ * Returns the visible items plus whether the baseline should be dropped.
+ * - If the incoming list contains EVERY baseline text → it's the stale
+ *   extension memory; drop those rows and keep only the new additions.
+ * - If any baseline text is missing → the agent rebuilt/cleared the list;
+ *   keep everything and clear the baseline.
+ */
+export function filterBaselineItems(
+	list: SessionTodoList,
+	baselineTexts: Set<string>,
+): { items: SessionTodoItem[]; baselineCleared: boolean } {
+	if (baselineTexts.size === 0) {
+		return { items: list.items, baselineCleared: true };
+	}
+	const allBaselinePresent = [...baselineTexts].every((base) =>
+		list.items.some((i) => i.text.trim() === base),
+	);
+	if (!allBaselinePresent) {
+		return { items: list.items, baselineCleared: true };
+	}
+	const kept = list.items.filter((i) => !baselineTexts.has(i.text.trim()));
+	return { items: kept, baselineCleared: false };
+}
+
 export function todoListVisible(
 	list: SessionTodoList | null | undefined,
 ): boolean {
