@@ -2,6 +2,7 @@ import type {
 	AgentCommand,
 	AgentEvent,
 	ElementCitation,
+	LanConsoleStatus,
 	SessionHistoryMessage,
 	SessionHistoryPage,
 	SessionHistoryQuery,
@@ -65,6 +66,7 @@ export type {
 	AgentCommand,
 	AgentEvent,
 	ElementCitation,
+	LanConsoleStatus,
 	SessionHistoryMessage,
 	SessionHistoryPage,
 	SessionHistoryQuery,
@@ -75,6 +77,12 @@ export type {
 declare const api: {
 	clipboard: {
 		writeImage: (dataUrl: string) => Promise<void>;
+	};
+	lanConsole: {
+		getStatus: () => Promise<LanConsoleStatus>;
+		setEnabled: (enabled: boolean) => Promise<LanConsoleStatus>;
+		setPort: (port: number) => Promise<LanConsoleStatus>;
+		regenerateToken: () => Promise<LanConsoleStatus>;
 	};
 	window: {
 		platform: () => Promise<NodeJS.Platform>;
