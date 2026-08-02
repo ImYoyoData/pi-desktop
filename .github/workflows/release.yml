@@ -165,50 +165,37 @@ jobs:
           generate_release_notes: true
           body: |
 
-            ## 主要更新（v0.2.4）
+            ## 主要更新（v0.2.5）
 
-            本版聚焦：无 Node 环境完整支持、会话信息卡片化、撤回按钮持久化、多项交互修复。
+            本版聚焦：上下文成本可见性、待办自动计时与清理、工具结果裁剪强化。
 
             ### 新功能 Features
-            - **无 Node 环境完整支持**：内置 npm 包 + Electron Node 运行时，用户电脑没有 Node/npm/pi 命令也能安装扩展、初始化全局 pi 配置。检测优先级：系统 pi CLI > 系统 npm/pnpm/bun > 内置 npm——有环境的用户行为不变，无环境用户自动走内置路径。
-            - 会话信息弹窗：工具/技能/扩展改卡片显示（名称 + 简要），读取的文件保持列表，全部支持内部滚动与折叠。
-            - 撤回按钮状态持久化：checkpoint 摘要（状态 + 文件数）落盘，切换会话/重启后历史消息的撤回按钮仍可恢复显示。
-            - Changes 面板：推送/拉取/拉取更新按钮操作时显示加载中 spinner，不再看起来像卡住。
-            - 会话结束卡片显示统计：用时 · 总 token · token/秒（行内紧凑，悬停看完整信息）。
-            - 用户消息改为明显的右侧卡片，长内容可展开/收起；吸顶时整卡吸顶同样支持展开。
-            - 聊天列表布局优化：行类型化间距 + 工具行缩进竖线，思考/工具/正文层次清晰。
-            - 流式回答文本 shimmer 高亮扫过动画。
+            - **上下文成本可见性**：Composer 底部上下文百分比改为按 30 万 token 成本参考线计算（原按模型 100 万窗口算，长会话永远显示健康）；悬浮面板显示估算成本（$）与 token 绝对值，超过参考线时「压缩上下文」按钮变红脉冲提醒。
+            - **待办面板自动计时**：本轮待办总用时由面板层墙钟计时（从首次出现到全部完成），不再依赖扩展的时长后缀，切换/重启后仍准确。
+            - **已关闭工作区折叠区**：侧边栏新增已关闭工作区分组，支持重新打开；工作区菜单增加「关闭」项。
+            - **文件树过滤项灰色展示**：被过滤（@ 查询/忽略）的文件以深灰斜体弱化显示。
+            - **聊天 tag 输入优化**：添加聊天标签追加到输入框末尾；用户消息卡片上的 tag 移到内容后方。
+            - **@ 查询精确化**：去掉点开头文件的宽泛过滤，只排除明确的忽略项（SEARCH_SKIP）。
 
             ### 修复 Fixes
-            - 吸顶时机修复：改用真实 DOM 测量，整条用户消息完全滚出视口才吸顶。
-            - 修复待发送队列编辑后双套消息/意外撤回/agent 卡死：编辑不再误入队 + 同会话 prompt 严格串行。
-            - 修复用户消息重新编辑后发送丢失后续内容（编辑后作为新消息追加）。
-            - 修复录音后光标丢失：录音/停止/取消/确认按钮全部不夺焦，转写插入光标位置（无光标则末尾）。
-            - 修复 Running 面板终端空白：命令回显到终端（$ command），不污染 LLM 工具结果。
-            - 修复 todo 扩展语法错误导致 Tool todo not found（扩展已回滚至基础版）。
-            - 修复测试在带 PI_DESKTOP_PI_CLI_PATH 环境变量时失败。
+            - 修复新任务时旧待办残留：agent 很少主动调用 `todo clear`（实测 54 次 add / 0 次 clear），扩展内存里的旧项会在新任务第一次 add 时混入；现在新任务启动时记录旧列表 baseline，后续 widget/工具结果自动过滤旧项，只显示新任务的待办。
+            - 修复长会话 token 消耗：强化工具结果裁剪（触发阈值 20k→8k token、单结果保留 2k→800 字符），降低缓存未命中时的全量重发体积。
 
-            ## What's New (v0.2.4)
+            ## What's New (v0.2.5)
 
-            Full support for machines without Node/npm (bundled npm + Electron's Node), card-style session info, persisted revert buttons, and a batch of interaction fixes.
+            Context-cost visibility, wall-clocked todo timing, automatic stale-todo cleanup, and stronger tool-result pruning.
 
             ### Features
-            - No-Node support: the app ships a bundled npm package and runs it with Electron's bundled Node, so extension installs and global Pi config init work with no system Node. Priority: system pi CLI > system npm/pnpm/bun > bundled npm — existing setups keep today's behavior.
-            - Session info dialog: tools/skills/extensions render as cards (name + brief); files read stay a list; every section folds and scrolls internally.
-            - Revert-button state is persisted (status + file count), surviving session switches / app restarts.
-            - Changes panel: fetch/pull/push buttons show a spinner while running.
-            - Turn stats on the finished assistant card: duration · total tokens · tokens/sec.
-            - User messages are clear right-aligned cards with expand/collapse; the sticky header pins the whole card.
-            - Chat list layout: typed row spacing + indented tool rows; streaming answers get a shimmer sweep.
+            - Context-cost visibility: the composer's context ring now measures against a 30k-token cost-health line (the 1M model window always looked healthy); hover shows an estimated $ cost plus raw tokens, and the compact button pulses red past the line.
+            - Todo panel auto-timing: total round duration is wall-clocked by the panel layer (first appearance → all done), independent of extension duration suffixes.
+            - Closed-workspace collapsible section in the sidebar with reopen support, plus a Close action in the workspace menu.
+            - Filtered tree rows render faint/italic so excluded files no longer look identical to normal ones.
+            - Chat tag chips append at the end of the input (not at the caret); user-message tags moved after the content.
+            - @ search no longer broadly hides dotfiles — only explicit SEARCH_SKIP entries are excluded.
 
             ### Fixes
-            - Sticky-pin uses real measured offsets (pins only when the whole user row is above the viewport).
-            - Fixed duplicate sends / stray revert buttons / frozen agent after editing a queued item (no stray re-enqueue + per-session serial prompts).
-            - Fixed re-edit of a user message wiping later history (edited text is appended as a new message).
-            - Fixed caret loss after dictation (mic buttons never steal focus; transcript inserts at the caret).
-            - Fixed empty Running-panel terminals (command is echoed, without polluting the LLM tool result).
-            - Fixed `Tool todo not found` from a quote-nesting syntax error (extension rolled back to baseline).
-            - Fixed tests failing when PI_DESKTOP_PI_CLI_PATH is set in the host environment.
+            - Fixed stale todos leaking into a new task: the agent rarely calls `todo clear`, so the extension's in-memory list leaked in; the desktop now captures a baseline on each new task and filters stale rows from widget/tool pushes, restoring full lists once the agent actually clears.
+            - Stronger tool-result pruning (threshold 20k→8k tokens, per-result keep 2k→800 chars) to shrink full re-sends on cache misses.
 
             ## 下载 / Downloads
             - **Windows x64**: `Pi Desktop-*-win-x64-setup.exe`
