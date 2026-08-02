@@ -263,8 +263,9 @@ function renderLabel({ option }: { option: TreeOption }) {
     "span",
     {
       class: ["tree-label", { ignored }],
+      // Ignored files stay visible but muted (readable grey, not invisible).
       style: ignored
-        ? { color: "var(--fg-faint, var(--fg-muted))" }
+        ? { color: "color-mix(in srgb, var(--fg-muted, #888) 78%, var(--bg, #fff))" }
         : { color: labelColor(String(option.key), isDir) },
     },
     String(option.label ?? ""),
@@ -995,6 +996,7 @@ watch(
 
 .tree-label {
   font-size: 12px;
+  color: var(--fg, #1f2328);
 }
 
 :deep(.git-badge) {
@@ -1015,7 +1017,8 @@ watch(
 }
 
 .tree-label.ignored {
-  text-decoration: line-through;
-  text-decoration-color: color-mix(in srgb, var(--fg-muted) 45%, transparent);
+  /* Muted grey + subtle underline (still readable, clearly de-emphasized). */
+  font-style: italic;
+  opacity: 0.75;
 }
 </style>

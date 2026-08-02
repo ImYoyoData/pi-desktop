@@ -306,9 +306,14 @@ function syncChipsFromStore(): void {
 
   for (const chip of composer.chips) {
     if (!findChipEl(root, chip.id)) {
-      insertNodeAtCaret(createChipEl(chip));
+      // Append new chips at the END of the editor (stable position), never at
+      // the caret — the caret may be mid-text and a chip there would jump
+      // around as more chips arrive.
+      root.appendChild(createChipEl(chip));
     }
   }
+  // Keep the caret usable: after appending chips, ensure focus stays in the
+  // editor so typing continues (appendNode itself does not steal focus).
 }
 
 function normalizeDraft(s: string): string {
