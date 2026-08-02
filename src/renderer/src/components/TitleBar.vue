@@ -34,6 +34,7 @@ const NotifySettings = defineAsyncComponent(() => import("@renderer/components/N
 const AsrSettings = defineAsyncComponent(() => import("@renderer/components/AsrSettings.vue"));
 const SecuritySettings = defineAsyncComponent(() => import("@renderer/components/SecuritySettings.vue"));
 const AboutSettings = defineAsyncComponent(() => import("@renderer/components/AboutSettings.vue"));
+const LanConsoleSettings = defineAsyncComponent(() => import("@renderer/components/LanConsoleSettings.vue"));
 
 import UpdateCard from "@renderer/components/UpdateCard.vue";
 import { useWorkspaceStore } from "@renderer/stores/workspace";
@@ -56,6 +57,7 @@ const notifyOpen = ref(false);
 const asrOpen = ref(false);
 const securityOpen = ref(false);
 const aboutOpen = ref(false);
+const lanConsoleOpen = ref(false);
 const platform = ref<NodeJS.Platform>("win32");
 const isMaximized = ref(false);
 let offUpdateProgress: (() => void) | undefined;
@@ -219,6 +221,29 @@ async function onUpdateClick(): Promise<void> {
       <img class="logo-img" :src="logoUrl" alt="" width="18" height="18" />
       <span class="name">{{ t.appName }}</span>
     </div>
+    <NPopover
+      trigger="click"
+      placement="bottom-start"
+      :show="lanConsoleOpen"
+      @update:show="(v) => (lanConsoleOpen = v)"
+    >
+      <template #trigger>
+        <NButton
+          class="no-drag lan-console-btn"
+          quaternary
+          circle
+          size="small"
+          :title="t.lanConsoleTitle"
+          :aria-label="t.lanConsoleTitle"
+          @click.stop="lanConsoleOpen = true"
+        >
+          <template #icon>
+            <NIcon :component="WifiOutline" :size="15" />
+          </template>
+        </NButton>
+      </template>
+      <LanConsoleSettings @close="lanConsoleOpen = false" />
+    </NPopover>
     <NButton
       v-if="workspace.root && layout.leftCollapsed"
       class="pane-toggle no-drag"

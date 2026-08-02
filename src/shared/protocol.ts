@@ -89,6 +89,16 @@ export const IpcChannels = {
 		unwatch: "fs:unwatch",
 		changed: "fs:changed",
 	},
+	lanConsole: {
+		/** Renderer ? main: current LAN console status (enabled / port / token / url). */
+		getStatus: "lanConsole:getStatus",
+		/** Renderer ? main: enable or disable the LAN web console. */
+		setEnabled: "lanConsole:setEnabled",
+		/** Renderer ? main: change the LAN port. */
+		setPort: "lanConsole:setPort",
+		/** Renderer ? main: regenerate the access token. */
+		regenerateToken: "lanConsole:regenerateToken",
+	},
 	git: {
 		status: "git:status",
 		diff: "git:diff",
@@ -276,6 +286,18 @@ export type TrustState = {
 };
 
 export type SessionStatus = "idle" | "running" | "error" | "stuck";
+
+/** LAN web console status exposed to the settings UI. */
+export type LanConsoleStatus = {
+  enabled: boolean;
+  port: number;
+  /** Auto-generated access token (shown in settings, required by the web page). */
+  token: string;
+  /** Base LAN URL without the token, e.g. http://192.168.1.5:18700. */
+  baseUrl: string;
+  /** Full URL including the token for one-click open / QR. */
+  url: string;
+};
 
 /** Tools / extensions / skills loaded into a session worker (null while booting). */
 export type SessionExtensionInfo = {

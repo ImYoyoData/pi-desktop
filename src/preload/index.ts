@@ -1,7 +1,7 @@
 import { contextBridge, ipcRenderer, webUtils } from "electron";
 import { electronAPI } from "@electron-toolkit/preload";
 import type {
-	AgentCommand,
+	AgentCommand, LanConsoleStatus,
 	AgentEvent,
 	ElementCitation,
 	SessionHistoryMessage,
@@ -85,6 +85,16 @@ const api = {
 				IpcChannels.clipboard.writeImage,
 				dataUrl,
 			) as Promise<void>,
+	},
+	lanConsole: {
+		getStatus: () =>
+			ipcRenderer.invoke(IpcChannels.lanConsole.getStatus) as Promise<LanConsoleStatus>,
+		setEnabled: (enabled: boolean) =>
+			ipcRenderer.invoke(IpcChannels.lanConsole.setEnabled, enabled) as Promise<LanConsoleStatus>,
+		setPort: (port: number) =>
+			ipcRenderer.invoke(IpcChannels.lanConsole.setPort, port) as Promise<LanConsoleStatus>,
+		regenerateToken: () =>
+			ipcRenderer.invoke(IpcChannels.lanConsole.regenerateToken) as Promise<LanConsoleStatus>,
 	},
 	window: {
 		platform: () =>
