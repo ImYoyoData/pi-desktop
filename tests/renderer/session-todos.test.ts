@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+	filterBaselineItems,
 	isTodoToolName,
 	parseTodoWidgetLines,
 	todoListAllDone,
@@ -160,4 +161,75 @@ it("parses a finished header with total duration", () => {
 		{ id: "3", text: "验证", done: true, durationMs: 10000 },
 	]);
 	expect(todoListAllDone(list!)).toBe(true);
+});
+
+describe("filterBaselineItems — new-task cleanup of stale extension todos", () => {
+	it("drops baseline items when the new list is a superset (agent never cleared)", () => {
+		const baseline = new Set(["重构模块", "写测试"]);
+		const list = parseTodoWidgetLines("pi-deck-todo", [
+			"Todos 2/3",
+			"☐ #1 重构模块",
+			"☑ #2 写测试",
+			"☐ #3 写排序算法",
+		]);
+		const r = filterBaselineItems(list!, baseline);
+		expect(r.items.map((i) => i.text)).toEqual(["写排序算法"]);
+		expect(r.baselineCleared).toBe(false);
+	});
+
+	it("keeps everything when the list no longer contains baseline (agent cleared)", () => {
+		const baseline = new Set(["重构模块"]);
+		const list = parseTodoWidgetLines("pi-deck-todo", [
+			"Todos 0/2",
+			"☐ #1 写排序算法",
+			"☐ #2 跑测试",
+		]);
+		const r = filterBaselineItems(list!, baseline);
+		expect(r.items.map((i) => i.text)).toEqual(["写排序算法", "跑测试"]);
+		expect(r.baselineCleared).toBe(true);
+	});
+
+	it("empty result means the whole new list was stale (baseline persists)", () => {
+		const baseline = new Set(["重构模块"]);
+		const list = parseTodoWidgetLines("pi-deck-todo", [
+			"Todos 0/1",
+			"☐ #1 重构模块",
+		]);
+		const r = filterBaselineItems(list!, baseline);
+		expect(r.items).toEqual([]);
+		expect(r.baselineCleared).toBe(false);
+	});
+
+	it("new items appended after filtering stay visible", () => {
+		const baseline = new Set(["重构模块"]);
+		const first = parseTodoWidgetLines("pi-deck-todo", [
+			"Todos 1/2",
+			"☐ #1 重构模块",
+			"☐ #2 写排序算法",
+		]);
+		const r1 = filterBaselineItems(first!, baseline);
+		expect(r1.items.map((i) => i.text)).toEqual(["写排序算法"]);
+		// next setWidget appends more new work on top of the same stale baseline
+		const second = parseTodoWidgetLines("pi-deck-todo", [
+			"Todos 1/3",
+			"☐ #1 重构模块",
+			"☐ #2 写排序算法",
+			"☐ #3 写测试",
+		]);
+		const r2 = filterBaselineItems(second!, baseline);
+		expect(r2.items.map((i) => i.text)).toEqual(["写排序算法", "写测试"]);
+		expect(r2.baselineCleared).toBe(false);
+	});
+
+	it("handles identical text in old and new lists (partial overlap keeps new occurrence)", () => {
+		const baseline = new Set(["重构模块"]);
+		const list = parseTodoWidgetLines("pi-deck-todo", [
+			"Todos 1/2",
+			"☐ #1 重构模块",
+			"☑ #1 重构模块", // same text re-added by new task
+		]);
+		const r = filterBaselineItems(list!, baseline);
+		// Both rows carry baseline text; both are stale — nothing new here.
+		expect(r.items).toEqual([]);
+	});
 });

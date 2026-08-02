@@ -2,6 +2,7 @@ import { defineStore } from "pinia";
 import { computed, ref } from "vue";
 import { useSessionsStore } from "./sessions";
 import {
+	filterBaselineItems,
 	isTodoWidgetKey,
 	parseTodoWidgetLines,
 	todoListAllDone,
@@ -23,6 +24,12 @@ export const useSessionWidgetsStore = defineStore("session-widgets", () => {
 	/** sessionId → wall-clock ms when the current todo round started (auto).
 	 *  Set when the first non-empty todo list appears; cleared on reset. */
 	const todoStartedAtBySession = ref<Record<string, number>>({});
+	/**
+	 * sessionId → baseline item texts captured at reset time. While a baseline
+	 * is armed, incoming todo lists are filtered so stale extension items from
+	 * the previous round never accumulate on top of the new task's list.
+	 */
+	const baselineBySession = ref<Record<string, Set<string>>>({});
 
 	const sessions = useSessionsStore();
 
@@ -78,17 +85,7 @@ export const useSessionWidgetsStore = defineStore("session-widgets", () => {
 		if (isTodoWidgetKey(widgetKey)) {
 			const parsed = parseTodoWidgetLines(widgetKey, widgetLines);
 			if (parsed) {
-				ensureTodoClock(sessionId, parsed.items.length > 0);
-				const prev = todosBySession.value[sessionId];
-				const hasOpen = parsed.items.some((i) => !i.done);
-				todosBySession.value = {
-					...todosBySession.value,
-					[sessionId]: {
-						...parsed,
-						// Incomplete work always re-shows; keep dismiss only while still all-done.
-						dismissed: hasOpen ? false : Boolean(prev?.dismissed),
-					},
-				};
+				applyTodoList(sessionId, parsed, null);
 			}
 		}
 	}
@@ -123,23 +120,46 @@ export const useSessionWidgetsStore = defineStore("session-widgets", () => {
 			}
 			return;
 		}
+		const baseline = baselineBySession.value[sessionId];
+		let items = list.items;
+		let baselineCleared = true;
+		if (baseline && baseline.size > 0) {
+			const r = filterBaselineItems(list, baseline);
+			items = r.items;
+			baselineCleared = r.baselineCleared;
+		}
+		// Keep dismissing only while still all-done; incomplete work re-shows.
 		const prev = todosBySession.value[sessionId];
-		const hasOpen = list.items.some((i) => !i.done);
-		ensureTodoClock(sessionId, list.items.length > 0);
+		const hasOpen = items.some((i) => !i.done);
+		ensureTodoClock(sessionId, items.length > 0);
 		todosBySession.value = {
 			...todosBySession.value,
 			[sessionId]: {
 				...list,
+				items,
 				dismissed: hasOpen ? false : Boolean(prev?.dismissed),
 			},
 		};
+		if (baselineCleared) {
+			const next = { ...baselineBySession.value };
+			delete next[sessionId];
+			baselineBySession.value = next;
+		}
 	}
 
 	/**
 	 * Reset the todo widget when a new task/turn starts, so the previous
-	 * round's items never accumulate on top of the next round's list.
+	 * round's items never accumulate on top of the next round's list. Records
+	 * the old items as a baseline so stale extension re-pushes get filtered.
 	 */
 	function resetTodosForSession(sessionId: string): void {
+		const old = todosBySession.value[sessionId];
+		if (old && old.items.length > 0) {
+			baselineBySession.value = {
+				...baselineBySession.value,
+				[sessionId]: new Set(old.items.map((i) => i.text.trim())),
+			};
+		}
 		const next = { ...todosBySession.value };
 		delete next[sessionId];
 		todosBySession.value = next;
@@ -182,9 +202,11 @@ export const useSessionWidgetsStore = defineStore("session-widgets", () => {
 		const { [sessionId]: _w, ...restW } = widgetsBySession.value;
 		const { [sessionId]: _t, ...restT } = todosBySession.value;
 		const { [sessionId]: _c, ...restC } = todoStartedAtBySession.value;
+		const { [sessionId]: _b, ...restB } = baselineBySession.value;
 		widgetsBySession.value = restW;
 		todosBySession.value = restT;
 		todoStartedAtBySession.value = restC;
+		baselineBySession.value = restB;
 	}
 
 	return {
