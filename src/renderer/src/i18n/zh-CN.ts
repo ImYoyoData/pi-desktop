@@ -839,6 +839,9 @@ export const zh = {
 	copyPath: "复制路径",
 	pathCopied: "已复制路径",
 	removeFromList: "从列表移除",
+	closeWorkspace: "关闭工作区",
+	closedWorkspaces: "已关闭工作区",
+	reopenWorkspace: "重新打开",
 	removeWorkspaceTitle: "移除工作区",
 	removeWorkspaceConfirm: (name: string) =>
 		`从列表中移除「${name}」？（不会删除磁盘文件）`,
