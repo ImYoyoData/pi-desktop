@@ -35,7 +35,13 @@ function stopTick(): void {
 }
 
 watch(
-  () => widgets.activeTodoList?.items.some((i) => i.active && !i.done) ?? false,
+  () => {
+    const l = widgets.activeTodoList;
+    if (!l) return false;
+    // Tick while there are open items OR a started round is still visible
+    // (so the total-duration readout keeps updating until dismissed).
+    return l.items.some((i) => !i.done) || Boolean(widgets.todoStartedAt(sessions.activeId ?? ""));
+  },
   (hasActive) => {
     if (hasActive) startTick();
     else stopTick();
@@ -85,14 +91,15 @@ const pct = computed(() =>
 /** 保持原始添加顺序，已完成与未完成混排在一起 */
 const orderedItems = computed(() => list.value?.items ?? []);
 
-/** 各项用时之和（已完成项） */
+/** 本轮待办总时长：从首次出现到全部完成（面板层自动计时，不依赖扩展） */
 const totalDurationMs = computed(() => {
-  if (!list.value) return 0;
-  let total = 0;
-  for (const i of list.value.items) {
-    if (i.done && i.durationMs != null) total += i.durationMs;
-  }
-  return total;
+  const id = sessions.activeId;
+  if (!id || !list.value) return 0;
+  const start = widgets.todoStartedAt(id);
+  if (!start) return 0;
+  // 全部完成：起点 → 最后完成时刻（nowMs 在 allDone 时仍在走 tick）；
+  // 未完成：实时流逝时间。
+  return Math.max(0, nowMs.value - start);
 });
 
 const headerLabel = computed(() => {

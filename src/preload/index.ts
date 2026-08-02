@@ -153,6 +153,8 @@ const api = {
 			ipcRenderer.invoke(IpcChannels.workspace.pick) as Promise<string | null>,
 		listRecent: () =>
 			ipcRenderer.invoke(IpcChannels.workspace.listRecent) as Promise<string[]>,
+		listClosed: () =>
+			ipcRenderer.invoke(IpcChannels.workspace.listClosed) as Promise<string[]>,
 		openPath: (root: string) =>
 			ipcRenderer.invoke(IpcChannels.workspace.openPath, root) as Promise<
 				string | null

@@ -20,6 +20,7 @@ import {
 import {
   AddOutline,
   ChevronForwardOutline,
+  CloseOutline,
   CopyOutline,
   FolderOpenOutline,
   PinOutline,
@@ -72,6 +73,27 @@ const workspacePaths = computed(() => {
   }
   return paths;
 });
+
+/** Closed-workspace section collapsed state (default: expanded). */
+const closedExpanded = ref(true);
+
+function toggleClosed(): void {
+  closedExpanded.value = !closedExpanded.value;
+}
+
+/** Closed workspace paths not currently in the main list. */
+const closedPaths = computed(() => {
+  const keys = new Set(workspacePaths.value.map((p) => p.toLowerCase()));
+  return workspace.closed.filter((p) => !keys.has(p.toLowerCase()));
+});
+
+async function onReopenClosed(root: string): Promise<void> {
+  const next = await workspace.reopenWorkspace(root);
+  if (next) {
+    expanded[next] = true;
+    await loadSessions(next);
+  }
+}
 
 const workspaceTreeEl = ref<HTMLElement | null>(null);
 let workspaceSortable: Sortable | null = null;
@@ -207,6 +229,7 @@ onMounted(async () => {
   sessionsStore.bindEvents();
   await workspace.getWorkspace();
   await workspace.listRecent();
+  await workspace.listClosed();
   if (workspace.root && workspace.sessionsReady) {
     expanded[workspace.root] = true;
     await loadSessions(workspace.root);
@@ -511,6 +534,11 @@ function workspaceMenuOptions(): DropdownOption[] {
     },
     { type: "divider", key: "d1" },
     {
+      label: t.closeWorkspace,
+      key: "close",
+      icon: () => h(NIcon, null, { default: () => h(CloseOutline) }),
+    },
+    {
       label: t.removeFromList,
       key: "remove",
       icon: () => h(NIcon, null, { default: () => h(TrashOutline) }),
@@ -554,6 +582,21 @@ async function onWorkspaceMenu(root: string, key: string | number): Promise<void
       await navigator.clipboard.writeText(root);
       message.success(t.pathCopied);
       break;
+    case "close": {
+      // Close = hide from the main list; the workspace moves to the
+      // "Closed workspaces" section and can be reopened later.
+      await workspace.closeWorkspace(root);
+      delete sessionsByRoot[root];
+      delete expanded[root];
+      if (workspace.root) {
+        expanded[workspace.root] = true;
+        await loadSessions(workspace.root);
+        await ensureActiveSession(workspace.root);
+      } else {
+        sessionsStore.activeId = null;
+      }
+      break;
+    }
     case "remove": {
       const d = dialog.warning({
         title: t.removeWorkspaceTitle,
@@ -872,6 +915,34 @@ function onLeftSplitResized(payload: SplitpanesResizedPayload): void {
             </div>
           </NScrollbar>
           <div v-else class="empty">{{ t.emptyWorkspaces }}</div>
+
+          <!-- Closed workspaces (collapsed section, re-openable) -->
+          <div v-if="closedPaths.length" class="closed-ws">
+            <button
+              type="button"
+              class="closed-ws-head"
+              :aria-expanded="closedExpanded"
+              @click="toggleClosed"
+            >
+              <span class="chevron" :class="{ open: closedExpanded }">
+                <NIcon :component="ChevronForwardOutline" :size="13" />
+              </span>
+              <span class="closed-ws-title">{{ t.closedWorkspaces }}</span>
+              <span class="closed-ws-count">{{ closedPaths.length }}</span>
+            </button>
+            <div v-if="closedExpanded" class="closed-ws-list">
+              <button
+                v-for="root in closedPaths"
+                :key="root"
+                type="button"
+                class="closed-ws-row"
+                :title="root"
+                @click="() => void onReopenClosed(root)"
+              >
+                <span class="closed-ws-name">{{ workspaceName(root) }}</span>
+              </button>
+            </div>
+          </div>
         </div>
       </Pane>
 
@@ -975,6 +1046,83 @@ function onLeftSplitResized(payload: SplitpanesResizedPayload): void {
   flex: 1;
   min-height: 0;
   padding: 0 6px 8px;
+}
+
+/* Closed workspaces section (collapsed, re-openable). */
+.closed-ws {
+  border-top: 1px solid var(--border, rgba(128, 128, 128, 0.15));
+  padding: 6px;
+}
+
+.closed-ws-head {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  width: 100%;
+  margin: 0;
+  padding: 3px 4px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--fg-muted, #888);
+  font: inherit;
+  font-size: 11.5px;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+}
+
+.closed-ws-head:hover {
+  background: var(--bg-hover, rgba(127, 127, 127, 0.07));
+}
+
+.closed-ws-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.closed-ws-count {
+  font-size: 10.5px;
+  color: var(--fg-faint, #999);
+  background: var(--bg-hover, rgba(127, 127, 127, 0.1));
+  border-radius: 999px;
+  padding: 0 7px;
+}
+
+.closed-ws-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  margin-top: 3px;
+}
+
+.closed-ws-row {
+  width: 100%;
+  margin: 0;
+  padding: 4px 8px 4px 24px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--fg-muted, #888);
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.closed-ws-row:hover {
+  background: var(--bg-hover, rgba(127, 127, 127, 0.07));
+  color: var(--fg, #ddd);
+}
+
+.closed-ws-name {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .left-split :deep(.splitpanes__splitter) {

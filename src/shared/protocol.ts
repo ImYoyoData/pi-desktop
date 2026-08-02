@@ -30,6 +30,7 @@ export const IpcChannels = {
 		openPath: "workspace:openPath",
 		clear: "workspace:clear",
 		listRecent: "workspace:listRecent",
+		listClosed: "workspace:listClosed",
 		removeRecent: "workspace:removeRecent",
 		reorderRecent: "workspace:reorderRecent",
 		revealInFolder: "workspace:revealInFolder",
