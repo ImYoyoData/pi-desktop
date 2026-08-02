@@ -1,5 +1,34 @@
 # Changelog
 
+## v0.2.5 (2026-08-02)
+
+### 新功能 Features
+
+- **上下文成本可见性**：Composer 底部上下文百分比改为按 30 万 token 成本参考线计算（原按模型 100 万窗口算，长会话永远显示健康）；悬浮面板显示估算成本（$）与 token 绝对值，超过参考线时「压缩上下文」按钮变红脉冲提醒。
+- **待办面板自动计时**：本轮待办总用时由面板层墙钟计时（从首次出现到全部完成），不再依赖扩展的时长后缀，切换/重启后仍准确。
+- **已关闭工作区折叠区**：侧边栏新增已关闭工作区分组，支持重新打开；工作区菜单增加「关闭」项。
+- **文件树过滤项灰色展示**：被过滤（@ 查询/忽略）的文件以深灰斜体弱化显示，不再与正常文件混淆。
+- **聊天 tag 输入优化**：添加聊天标签追加到输入框末尾（不再插入光标处）；用户消息卡片上的 tag 移到内容后方展示。
+- **@ 查询精确化**：去掉点开头文件的宽泛过滤，只排除明确的忽略项（SEARCH_SKIP），dotfile 搜索更准确。
+- Context-cost visibility: the composer's context ring now measures against a 30k-token cost-health line (the 1M model window always looked healthy); hover shows an estimated $ cost plus raw tokens, and the compact button pulses red past the line.
+- Todo panel auto-timing: total round duration is wall-clocked by the panel layer (first appearance → all done), independent of extension duration suffixes.
+- Closed-workspace collapsible section in the sidebar with reopen support, plus a Close action in the workspace menu.
+- Filtered tree rows render faint/italic so excluded files no longer look identical to normal ones.
+- Chat tag chips append at the end of the input (not at the caret); user-message tags moved after the content.
+- @ search no longer broadly hides dotfiles — only explicit SEARCH_SKIP entries are excluded.
+
+### 修复 Fixes
+
+- 修复新任务时旧待办残留：agent 从不主动调用 `todo clear`（实测 54 次 add / 0 次 clear），扩展内存里的旧项会在新任务第一次 add 时混入；现在新任务启动时记录旧列表 baseline，后续 setWidget/工具结果自动过滤旧项，只显示新任务的待办；agent 真正 clear 后恢复正常。
+- 修复长会话 token 消耗：强化工具结果裁剪（触发阈值 20k→8k token、单结果保留 2k→800 字符），旧工具结果更早被截断，降低缓存未命中时的全量重发体积。
+- Fixed stale todos leaking into a new task: the agent rarely calls `todo clear`, so the extension's in-memory list leaked in; the desktop now captures a baseline on each new task and filters stale rows from widget/tool pushes, restoring full lists once the agent actually clears.
+- Stronger tool-result pruning (threshold 20k→8k tokens, per-result keep 2k→800 chars) to shrink full re-sends on cache misses.
+
+### 兼容性 Compatibility
+
+- 全部改动使用跨平台 API，Windows/macOS/Linux 通用；未改动任何全局扩展与 skill。
+- All changes use cross-platform APIs (Windows/macOS/Linux); no global extensions or skills were modified.
+
 ## v0.2.4 (2026-08-02)
 
 ### 新功能 Features
