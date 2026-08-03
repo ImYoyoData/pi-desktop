@@ -12,8 +12,8 @@
 
 import { createServer as createHttpServer, type Server as HttpServer } from "node:http";
 import { createServer as createHttpsServer } from "node:https";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { dirname, extname, join, sep } from "node:path";
 import { randomBytes } from "node:crypto";
 import { networkInterfaces } from "node:os";
 import { app, ipcMain } from "electron";
@@ -157,18 +157,22 @@ async function ensureCertificate(): Promise<{ key: string; cert: string }> {
   return { key: pems.private, cert: pems.cert };
 }
 
-function webPagePath(): string {
-  return join(__dirname, "../lan-web/index.html");
+function lanWebDir(): string {
+  return join(__dirname, "../lan-web");
 }
 
-function readWebPage(): string | null {
-  try {
-    const p = webPagePath();
-    return existsSync(p) ? readFileSync(p, "utf8") : null;
-  } catch {
-    return null;
-  }
-}
+const MIME: Record<string, string> = {
+  ".html": "text/html; charset=utf-8",
+  ".js": "text/javascript",
+  ".css": "text/css",
+  ".svg": "image/svg+xml",
+  ".png": "image/png",
+  ".jpg": "image/jpeg",
+  ".ico": "image/x-icon",
+  ".woff2": "font/woff2",
+  ".json": "application/json",
+  ".map": "application/json",
+};
 
 let httpServer: HttpServer | null = null;
 let wss: WebSocketServer | null = null;
@@ -241,10 +245,20 @@ async function handleHttp(
   const url = (req.url ?? "/").split("?")[0] ?? "/";
   const method = req.method ?? "GET";
 
-  if (method === "GET" && url === "/") {
-    const page = readWebPage();
-    res.writeHead(200, { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" });
-    res.end(page ?? "<h1>missing page</h1>");
+  if (method === "GET") {
+    const rel = (url === "/" ? "index.html" : url).replace(/^\/+/, "");
+    const dir = lanWebDir();
+    const file = join(dir, rel);
+    const within = file === join(dir, "index.html") || file.startsWith(dir + sep);
+    if (within && existsSync(file) && statSync(file).isFile()) {
+      const ct = MIME[extname(file).toLowerCase()] ?? "application/octet-stream";
+      const cache = extname(file).toLowerCase() === ".html" ? "no-store" : "public, max-age=31536000, immutable";
+      res.writeHead(200, { "Content-Type": ct, "Cache-Control": cache });
+      res.end(readFileSync(file));
+      return;
+    }
+    res.writeHead(404, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ ok: false, message: "not found" }));
     return;
   }
 
@@ -430,8 +444,9 @@ async function startLanConsole(): Promise<{ ok: boolean; message: string }> {
   if (!settings.username || !settings.password) {
     return { ok: false, message: "set username and password in settings first" };
   }
-  const page = readWebPage();
-  if (!page) return { ok: false, message: "LAN web page missing (run npm run build)" };
+  if (!existsSync(join(lanWebDir(), "index.html"))) {
+    return { ok: false, message: "LAN web page missing (run npm run build)" };
+  }
 
   let tls: { key: string; cert: string };
   try {
