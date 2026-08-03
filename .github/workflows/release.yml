@@ -165,37 +165,27 @@ jobs:
           generate_release_notes: true
           body: |
 
-            ## 主要更新（v0.2.5）
+            ## 主要更新（v0.2.6）
 
-            本版聚焦：上下文成本可见性、待办自动计时与清理、工具结果裁剪强化。
+            本版新增：局域网网页控制台－－手机/PC浏览器远程查看工作区/会话、聊天与语音识别（默认关闭，账号密码登录）。
 
             ### 新功能 Features
-            - **上下文成本可见性**：Composer 底部上下文百分比改为按 30 万 token 成本参考线计算（原按模型 100 万窗口算，长会话永远显示健康）；悬浮面板显示估算成本（$）与 token 绝对值，超过参考线时「压缩上下文」按钮变红脉冲提醒。
-            - **待办面板自动计时**：本轮待办总用时由面板层墙钟计时（从首次出现到全部完成），不再依赖扩展的时长后缀，切换/重启后仍准确。
-            - **已关闭工作区折叠区**：侧边栏新增已关闭工作区分组，支持重新打开；工作区菜单增加「关闭」项。
-            - **文件树过滤项灰色展示**：被过滤（@ 查询/忽略）的文件以深灰斜体弱化显示。
-            - **聊天 tag 输入优化**：添加聊天标签追加到输入框末尾；用户消息卡片上的 tag 移到内容后方。
-            - **@ 查询精确化**：去掉点开头文件的宽泛过滤，只排除明确的忽略项（SEARCH_SKIP）。
+            - 局域网网页控制台（默认关闭）：标题栏左侧远程图标入口，账号密码登录，签发 6 小时会话 token（刷新免重登）。
+            - 响应式 Vue + Naive UI 界面（与桌面同款组件库）：工作区手风琴展开会话、聊天、发送消息。
+            - 语音识别：网页录音 → HTTP 代理 → 桌面配置的识别方式（本地/云端）；点击录音、再点识别，含「正在转换」加载效果。
+            - 安全：HTTPS 自签证书(EC P-256，手机握手更快）、token 鉴权、开关状态持久化、重启自动开启。
+            - 性能：历史刷新合并防抖、渲染去重、WS保活，移动端连接与体验更流畅。
 
-            ### 修复 Fixes
-            - 修复新任务时旧待办残留：agent 很少主动调用 `todo clear`（实测 54 次 add / 0 次 clear），扩展内存里的旧项会在新任务第一次 add 时混入；现在新任务启动时记录旧列表 baseline，后续 widget/工具结果自动过滤旧项，只显示新任务的待办。
-            - 修复长会话 token 消耗：强化工具结果裁剪（触发阈值 20k→8k token、单结果保留 2k→800 字符），降低缓存未命中时的全量重发体积。
+            ## What's New (v0.2.6)
 
-            ## What's New (v0.2.5)
-
-            Context-cost visibility, wall-clocked todo timing, automatic stale-todo cleanup, and stronger tool-result pruning.
+            LAN web console: browse workspaces/sessions, chat and use voice recognition from a phone or PC browser (off by default, username/password login).
 
             ### Features
-            - Context-cost visibility: the composer's context ring now measures against a 30k-token cost-health line (the 1M model window always looked healthy); hover shows an estimated $ cost plus raw tokens, and the compact button pulses red past the line.
-            - Todo panel auto-timing: total round duration is wall-clocked by the panel layer (first appearance → all done), independent of extension duration suffixes.
-            - Closed-workspace collapsible section in the sidebar with reopen support, plus a Close action in the workspace menu.
-            - Filtered tree rows render faint/italic so excluded files no longer look identical to normal ones.
-            - Chat tag chips append at the end of the input (not at the caret); user-message tags moved after the content.
-            - @ search no longer broadly hides dotfiles — only explicit SEARCH_SKIP entries are excluded.
-
-            ### Fixes
-            - Fixed stale todos leaking into a new task: the agent rarely calls `todo clear`, so the extension's in-memory list leaked in; the desktop now captures a baseline on each new task and filters stale rows from widget/tool pushes, restoring full lists once the agent actually clears.
-            - Stronger tool-result pruning (threshold 20k→8k tokens, per-result keep 2k→800 chars) to shrink full re-sends on cache misses.
+            - LAN web console (off by default): remote icon in the title bar, username/password login with a 6-hour session token (refresh stays logged in).
+            - Responsive Vue + Naive UI page (same component library as the desktop): accordion workspaces with inline sessions, chat and messaging.
+            - Voice: record in the browser, proxy through /api/transcribe, recognize with the desktop's configured ASR (local or cloud); click to record, click again to convert.
+            - Security: HTTPS self-signed EC P-256 cert (faster mobile handshake), token auth, switch persists and auto-starts on launch.
+            - Performance: coalesced history refreshes, render de-dup, WS keepalive; smoother mobile connection and UX.
 
             ## 下载 / Downloads
             - **Windows x64**: `Pi Desktop-*-win-x64-setup.exe`
