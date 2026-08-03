@@ -292,7 +292,7 @@ async function startLanConsole(): Promise<{ ok: boolean; message: string }> {
 
   httpServer = server;
   wss = ws;
-  return { ok: true, message: `listening on ${getStatus().baseUrl}` };
+  return { ok: true, message: `listening on ${getLanConsoleStatus().baseUrl}` };
 }
 
 function stopLanConsole(): void {
