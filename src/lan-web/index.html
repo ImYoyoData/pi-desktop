@@ -111,6 +111,7 @@
   const $ = (id) => document.getElementById(id);
   const TOKEN_KEY = "piLanToken";
   let token = localStorage.getItem(TOKEN_KEY) || "";
+  const MIC_UNSECURE = "\u6d4f\u89c8\u5668\u7981\u6b62\u9ea6\u514b\u98ce\uff1a\u8bf7\u4f7f\u7528 https \u5730\u5740\u8bbf\u95ee\u5e76\u5141\u8bb8\u9ea6\u514b\u98ce\u6743\u9650\u3002";
   const wsProto = location.protocol === "https:" ? "wss" : "ws";
   let ws = null;
   let msgSeq = 0;
@@ -235,7 +236,8 @@
         cnt.className = "count"; cnt.textContent = String(sess.length);
         row.appendChild(cnt);
       }
-      row.onclick = () => {
+      row.onclick = (e) => {
+        e.stopPropagation();
         currentRoot = root;
         const willOpen = state.expandedRoot !== root;
         state.expandedRoot = willOpen ? root : null;
@@ -272,7 +274,11 @@
             const st = document.createElement("span");
             st.className = "txt"; st.textContent = sessItem.name || sessItem.firstMessage || sessItem.id; st.title = sessItem.id;
             li.appendChild(dot); li.appendChild(st);
-            li.onclick = (e) => { e.stopPropagation(); send({ type: "openSession", sessionId: sessItem.id, root: root }); };
+            li.onclick = (e) => {
+              e.stopPropagation();
+              send({ type: "openSession", sessionId: sessItem.id, root: root });
+              if (window.innerWidth <= 720) $("side").classList.remove("open");
+            };
             sl.appendChild(li);
           }
         }
@@ -389,7 +395,13 @@
       chunks = []; recording = true;
       $("btnVoice").classList.add("rec");
       toast("录音中… 再次点击结束并识别");
-    } catch (err) { toast("无法录音：" + ((err && err.message) || err)); }
+        } catch (err) {
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        toast(MIC_UNSECURE);
+      } else {
+        toast("无法录音：" + ((err && err.message) || err));
+      }
+    }
   }
   async function stopVoice() {
     recording = false;
