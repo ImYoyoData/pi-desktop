@@ -3,10 +3,10 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Pi Desktop ??????</title>
+<title>Pi Desktop Pi Desktop 局域网网页控制台</title>
 <style>
   :root { --bg:#f6f7f9; --bg2:#fff; --fg:#1f2328; --muted:#6b7280; --border:#e5e7eb; --accent:#2563eb; --user:#eef2ff; --code:#0f172a; }
-  * { box-sizing: border-box; }
+  * { box-sizing:border-box; }
   html, body { margin:0; height:100%; }
   body { font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",system-ui,sans-serif; background:var(--bg); color:var(--fg); display:flex; flex-direction:column; }
   @media (prefers-color-scheme: dark) {
@@ -62,21 +62,21 @@
 </head>
 <body>
   <header>
-    <button id="btnMenu" aria-label="??">&#9776;</button>
+    <button id="btnMenu" aria-label="菜单">&#9776;</button>
     <span id="title">Pi Desktop</span>
-    <span id="status">????</span>
+    <span id="status">连接中…</span>
   </header>
   <div id="wrap">
     <aside id="side">
-      <h3>???</h3><ul id="wsList"></ul>
-      <h3>??</h3><ul id="sessionList"></ul>
+      <h3>工作区</h3><ul id="wsList"></ul>
+      <h3>会话</h3><ul id="sessionList"></ul>
     </aside>
     <main>
-      <div id="chat"><div class="meta" style="text-align:center;margin-top:40px;color:var(--muted)">??????????????</div></div>
+      <div id="chat"><div class="meta" style="text-align:center;margin-top:40px;color:var(--muted)">选择一个工作区和会话开始沟通</div></div>
       <div id="composer">
-        <button id="btnVoice" title="??????">&#127908;</button>
-        <input id="input" placeholder="?????Enter ??" autocomplete="off">
-        <button id="btnSend">??</button>
+        <button id="btnVoice" title="按住录音识别">&#127908;</button>
+        <input id="input" placeholder="输入消息，Enter 发送" autocomplete="off">
+        <button id="btnSend">发送</button>
       </div>
     </main>
   </div>
@@ -104,23 +104,23 @@
     el._t = setTimeout(() => el.classList.remove("show"), ms || 2200);
   }
   function send(payload) {
-    if (!ws || ws.readyState !== 1) { toast("???"); return; }
+    if (!ws || ws.readyState !== 1) { toast("未连接"); return; }
     payload.id = ++msgSeq;
     ws.send(JSON.stringify(payload));
   }
   function connect() {
     ws = new WebSocket(wsProto + "://" + location.host + "/ws");
-    ws.onopen = () => { $("status").textContent = "???"; $("status").className = "ok"; send({ type: "hello", token: token }); };
-    ws.onclose = () => { $("status").textContent = "????????"; $("status").className = "err"; clearTimeout(reconnectTimer); reconnectTimer = setTimeout(connect, 2000); };
-    ws.onerror = () => { $("status").textContent = "????"; $("status").className = "err"; };
+    ws.onopen = () => { $("status").textContent = "已连接"; $("status").className = "ok"; send({ type: "hello", token: token }); };
+    ws.onclose = () => { $("status").textContent = "已断开，重连中…"; $("status").className = "err"; clearTimeout(reconnectTimer); reconnectTimer = setTimeout(connect, 2000); };
+    ws.onerror = () => { $("status").textContent = "连接错误"; $("status").className = "err"; };
     ws.onmessage = (ev) => { let m; try { m = JSON.parse(ev.data); } catch { return; } handle(m); };
   }
   function handle(msg) {
     switch (msg.type) {
       case "helloOk": send({ type: "listWorkspaces" }); break;
       case "error":
-        toast(msg.message || "??");
-        if (/token/i.test(msg.message || "")) { $("status").textContent = "Token ??"; $("status").className = "err"; }
+        toast(msg.message || "出错");
+        if (/token/i.test(msg.message || "")) { $("status").textContent = "Token 无效"; $("status").className = "err"; }
         break;
       case "workspaces":
         state.workspaces = msg.recent || [];
@@ -149,7 +149,7 @@
       clearTimeout(historyTimer);
       historyTimer = setTimeout(loadHistory, 350);
     }
-    if (t === "prompt_error") toast("????");
+    if (t === "prompt_error") toast("执行出错");
   }
   function loadHistory() { if (currentFilePath) send({ type: "getHistory", filePath: currentFilePath, limit: 60 }); }
 
@@ -158,7 +158,7 @@
     ul.innerHTML = "";
     const roots = (state.workspaces || []).slice();
     if (current && !roots.includes(current)) roots.unshift(current);
-    if (!roots.length) { ul.innerHTML = '<li style="color:var(--muted);cursor:default">?????</li>'; return; }
+    if (!roots.length) { ul.innerHTML = '<li style="color:var(--muted);cursor:default">暂无工作区</li>'; return; }
     for (const root of roots) {
       const li = document.createElement("li");
       li.className = root === current ? "on" : "";
@@ -174,7 +174,7 @@
   function renderSessions() {
     const ul = $("sessionList");
     ul.innerHTML = "";
-    if (!state.sessions.length) { ul.innerHTML = '<li style="color:var(--muted);cursor:default">????</li>'; return; }
+    if (!state.sessions.length) { ul.innerHTML = '<li style="color:var(--muted);cursor:default">暂无会话</li>'; return; }
     for (const s of state.sessions) {
       const li = document.createElement("li");
       li.className = s.id === currentSession ? "on" : "";
@@ -183,7 +183,7 @@
       const txt = document.createElement("span");
       txt.className = "txt"; txt.textContent = s.name || s.firstMessage || s.id; txt.title = s.id;
       li.appendChild(dot); li.appendChild(txt);
-      li.onclick = () => { if (!currentRoot) { toast("???????"); return; } send({ type: "openSession", sessionId: s.id, root: currentRoot }); };
+      li.onclick = () => { if (!currentRoot) { toast("请先选择工作区"); return; } send({ type: "openSession", sessionId: s.id, root: currentRoot }); };
       ul.appendChild(li);
     }
   }
@@ -204,22 +204,22 @@
       if (m.role === "user") {
         const div = document.createElement("div");
         div.className = "msg user";
-        div.innerHTML = '<div class="who">?</div><div class="bubble">' + renderMarkdown(m.text) + "</div>";
+        div.innerHTML = '<div class="who">你</div><div class="bubble">' + renderMarkdown(m.text) + "</div>";
         frag.appendChild(div);
       } else if (m.role === "assistant") {
         const div = document.createElement("div");
         div.className = "msg";
-        div.innerHTML = '<div class="who">??</div><div class="bubble">' + renderMarkdown(m.text || "") + "</div>";
+        div.innerHTML = '<div class="who">助手</div><div class="bubble">' + renderMarkdown(m.text || "") + "</div>";
         frag.appendChild(div);
       } else if (m.role === "tool") {
         const div = document.createElement("div");
         div.className = "msg tool";
-        div.innerHTML = '<div class="bubble">&#128295; ' + esc(m.toolName || "tool") + (m.isError ? "????" : "") + "</div>";
+        div.innerHTML = '<div class="bubble">&#128295; ' + esc(m.toolName || "tool") + (m.isError ? "（失败）" : "") + "</div>";
         frag.appendChild(div);
       } else if (m.role === "error") {
         const div = document.createElement("div");
         div.className = "msg error";
-        div.innerHTML = '<div class="bubble">&#9888; ' + esc(m.text || "??") + "</div>";
+        div.innerHTML = '<div class="bubble">&#9888; ' + esc(m.text || "错误") + "</div>";
         frag.appendChild(div);
       }
     }
@@ -231,7 +231,7 @@
   function sendPrompt() {
     const input = $("input");
     const text = input.value.trim();
-    if (!text || !currentSession) { if (!currentSession) toast("??????"); return; }
+    if (!text || !currentSession) { if (!currentSession) toast("请先选择会话"); return; }
     send({ type: "sendPrompt", sessionId: currentSession, text: text });
     input.value = "";
   }
@@ -267,7 +267,7 @@
     return btoa(bin);
   }
   async function startVoice() {
-    if (!currentSession) { toast("??????"); return; }
+    if (!currentSession) { toast("请先选择会话"); return; }
     try {
       stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
       audioCtx = new (window.AudioContext || window.webkitAudioContext)();
@@ -281,8 +281,8 @@
       workletNode.connect(audioCtx.destination);
       chunks = []; recording = true;
       $("btnVoice").classList.add("rec");
-      toast("???? ?????????");
-    } catch (err) { toast("?????" + ((err && err.message) || err)); }
+      toast("录音中… 再次点击结束并识别");
+    } catch (err) { toast("无法录音：" + ((err && err.message) || err)); }
   }
   async function stopVoice() {
     recording = false;
@@ -293,14 +293,14 @@
       if (audioCtx) await audioCtx.close();
     } catch { /* ignore */ }
     workletNode = null; stream = null; audioCtx = null;
-    if (!chunks.length) { toast("??????"); return; }
+    if (!chunks.length) { toast("没有录到声音"); return; }
     let total = chunks.reduce((n, c) => n + c.length, 0);
     const merged = new Float32Array(total);
     let off = 0;
     for (const c of chunks) { merged.set(c, off); off += c.length; }
     const resampled = linearDownsample(merged, inputRate, 16000);
     const pcm = floatToInt16(resampled);
-    toast("????");
+    toast("识别中…");
     send({ type: "transcribe", pcmBase64: pcmToBase64(pcm), sampleRate: 16000 });
     chunks = [];
   }
