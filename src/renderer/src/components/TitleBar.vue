@@ -240,7 +240,7 @@ async function onUpdateClick(): Promise<void> {
     >
       <template #trigger>
         <NButton
-          class="no-drag lan-console-btn"
+          class="no-drag"
           quaternary
           circle
           size="small"
@@ -554,30 +554,16 @@ async function onUpdateClick(): Promise<void> {
 .close-icon::after {
   transform: translateY(-50%) rotate(-45deg);
 }
-/* LAN console titlebar entry (left, after the app name) */
-.lan-console-btn {
-  color: var(--fg-muted, #6b7280);
-  border: 1px solid var(--border, rgba(128, 128, 128, 0.35));
-  background: color-mix(in srgb, var(--bg2, #fff) 60%, transparent);
-  margin-left: 4px;
-  position: relative;
-}
-.lan-console-btn:hover {
-  color: var(--accent, #2563eb);
-  border-color: var(--accent, #2563eb);
-}
+/* LAN console titlebar entry (left, after the app name) - same visual
+   language as the right-side titlebar buttons. */
 .lan-console-dot {
   position: absolute;
-  top: 2px;
-  right: 2px;
+  top: 4px;
+  right: 4px;
   width: 7px;
   height: 7px;
   border-radius: 50%;
   background: #22c55e;
-  border: 1px solid var(--bg2, #fff);
-}
-:root.dark .lan-console-btn {
-  border-color: rgba(255, 255, 255, 0.18);
-  background: rgba(255, 255, 255, 0.06);
+  box-shadow: 0 0 0 1.5px var(--bg-title, var(--bg));
 }
 </style>
