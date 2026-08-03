@@ -125,20 +125,27 @@ function certPaths(): { key: string; cert: string; meta: string } {
 async function ensureCertificate(): Promise<{ key: string; cert: string }> {
   const { key, cert, meta } = certPaths();
   const ips = lanIPv4s();
-  let storedIps: string[] = [];
+  let stored = { alg: "", ips: [] as string[] };
   try {
-    storedIps = JSON.parse(readFileSync(meta, "utf8")) as string[];
+    stored = JSON.parse(readFileSync(meta, "utf8")) as { alg: string; ips: string[] };
   } catch {
-    storedIps = [];
+    stored = { alg: "", ips: [] };
   }
   const sameIps =
-    storedIps.length === ips.length && storedIps.every((ip, i) => ip === ips[i]);
-  if (existsSync(key) && existsSync(cert) && sameIps) {
+    Array.isArray(stored.ips) &&
+    stored.ips.length === ips.length &&
+    stored.ips.every((ip, i) => ip === ips[i]);
+  const sameAlg = stored.alg === "ec-p256";
+  if (existsSync(key) && existsSync(cert) && sameIps && sameAlg) {
     return { key: readFileSync(key, "utf8"), cert: readFileSync(cert, "utf8") };
   }
   const pems = await selfsigned.generate([{ name: "commonName", value: "Pi Desktop" }], {
     days: 365,
     algorithm: "sha256",
+    // EC P-256: much faster TLS handshakes than RSA 2048 ? matters on phones
+    // (esp. iOS) where self-signed cert validation is the slow part.
+    keyType: "ec",
+    curve: "P-256",
     extensions: [
       {
         name: "subjectAltName",
@@ -153,7 +160,7 @@ async function ensureCertificate(): Promise<{ key: string; cert: string }> {
   mkdirSync(dirname(key), { recursive: true });
   writeFileSync(key, pems.private, "utf8");
   writeFileSync(cert, pems.cert, "utf8");
-  writeFileSync(meta, JSON.stringify(ips), "utf8");
+  writeFileSync(meta, JSON.stringify({ alg: "ec-p256", ips }), "utf8");
   return { key: pems.private, cert: pems.cert };
 }
 
