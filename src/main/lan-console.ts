@@ -10,12 +10,14 @@
  * the browser (localStorage), so a refresh does not require re-login.
  */
 
-import { createServer, type Server } from "node:http";
+import { createServer as createHttpServer, type Server as HttpServer } from "node:http";
+import { createServer as createHttpsServer } from "node:https";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { randomBytes } from "node:crypto";
 import { networkInterfaces } from "node:os";
 import { app, ipcMain } from "electron";
+import selfsigned from "selfsigned";
 import { WebSocket, WebSocketServer } from "ws";
 import type { SessionBroker } from "./session-broker";
 import { readSessionHistoryPage } from "./session-history";
@@ -92,12 +94,67 @@ function issueSessionToken(): string {
 }
 
 function lanIPv4(): string {
+  const ips = lanIPv4s();
+  return ips[0] ?? "127.0.0.1";
+}
+
+function lanIPv4s(): string[] {
+  const out: string[] = [];
   for (const infos of Object.values(networkInterfaces())) {
     for (const info of infos ?? []) {
-      if (info.family === "IPv4" && !info.internal) return info.address;
+      if (info.family === "IPv4" && !info.internal) out.push(info.address);
     }
   }
-  return "127.0.0.1";
+  return out;
+}
+
+function certPaths(): { key: string; cert: string; meta: string } {
+  const dir = app.getPath("userData");
+  return {
+    key: join(dir, "lan-console.key"),
+    cert: join(dir, "lan-console.crt"),
+    meta: join(dir, "lan-console-cert-meta.json"),
+  };
+}
+
+/**
+ * Self-signed certificate for HTTPS (mic requires a secure context).
+ * Regenerated when the set of LAN IPs changes so the SAN covers the
+ * address the phone/PC connects to.
+ */
+async function ensureCertificate(): Promise<{ key: string; cert: string }> {
+  const { key, cert, meta } = certPaths();
+  const ips = lanIPv4s();
+  let storedIps: string[] = [];
+  try {
+    storedIps = JSON.parse(readFileSync(meta, "utf8")) as string[];
+  } catch {
+    storedIps = [];
+  }
+  const sameIps =
+    storedIps.length === ips.length && storedIps.every((ip, i) => ip === ips[i]);
+  if (existsSync(key) && existsSync(cert) && sameIps) {
+    return { key: readFileSync(key, "utf8"), cert: readFileSync(cert, "utf8") };
+  }
+  const pems = await selfsigned.generate([{ name: "commonName", value: "Pi Desktop" }], {
+    days: 365,
+    algorithm: "sha256",
+    extensions: [
+      {
+        name: "subjectAltName",
+        altNames: [
+          { type: 2, value: "localhost" },
+          { type: 2, value: "127.0.0.1" },
+          ...ips.map((ip) => ({ type: 2, value: ip })),
+        ],
+      },
+    ],
+  });
+  mkdirSync(dirname(key), { recursive: true });
+  writeFileSync(key, pems.private, "utf8");
+  writeFileSync(cert, pems.cert, "utf8");
+  writeFileSync(meta, JSON.stringify(ips), "utf8");
+  return { key: pems.private, cert: pems.cert };
 }
 
 function webPagePath(): string {
@@ -113,7 +170,7 @@ function readWebPage(): string | null {
   }
 }
 
-let httpServer: Server | null = null;
+let httpServer: HttpServer | null = null;
 let wss: WebSocketServer | null = null;
 let brokerRef: SessionBroker | null = null;
 let offEvents: (() => void) | null = null;
@@ -376,14 +433,26 @@ async function startLanConsole(): Promise<{ ok: boolean; message: string }> {
   const page = readWebPage();
   if (!page) return { ok: false, message: "LAN web page missing (run npm run build)" };
 
-  const server = createServer((req, res) => {
-    void handleHttp(req, res).catch(() => {
-      if (!res.headersSent) {
-        res.writeHead(500, { "Content-Type": "application/json" });
-      }
-      res.end(JSON.stringify({ ok: false, message: "internal error" }));
-    });
-  });
+  let tls: { key: string; cert: string };
+  try {
+    tls = await ensureCertificate();
+  } catch (err) {
+    return {
+      ok: false,
+      message: `failed to create HTTPS certificate: ${err instanceof Error ? err.message : String(err)}`,
+    };
+  }
+  const server = createHttpsServer(
+    { key: tls.key, cert: tls.cert },
+    (req, res) => {
+      void handleHttp(req, res).catch(() => {
+        if (!res.headersSent) {
+          res.writeHead(500, { "Content-Type": "application/json" });
+        }
+        res.end(JSON.stringify({ ok: false, message: "internal error" }));
+      });
+    },
+  );
 
   const ws = new WebSocketServer({ server, path: "/ws" });
   ws.on("connection", (socket) => {
@@ -451,7 +520,7 @@ function stopLanConsole(): void {
 
 export function getLanConsoleStatus(): LanConsoleStatus {
   const settings = readSettings();
-  const baseUrl = `http://${lanIPv4()}:${settings.port}`;
+  const baseUrl = `https://${lanIPv4()}:${settings.port}`;
   return {
     enabled: settings.enabled && Boolean(httpServer),
     port: settings.port,

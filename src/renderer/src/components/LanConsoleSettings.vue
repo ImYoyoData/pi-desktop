@@ -42,6 +42,10 @@ async function refresh(): Promise<void> {
 }
 
 async function onToggle(enabled: boolean): Promise<void> {
+  if (enabled && !status.value?.hasCredentials) {
+    message.warning(t.lanConsoleCredsRequired);
+    return;
+  }
   try {
     status.value = await window.api.lanConsole.setEnabled(enabled);
     await updateQr();
