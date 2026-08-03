@@ -96,8 +96,8 @@ export const IpcChannels = {
 		setEnabled: "lanConsole:setEnabled",
 		/** Renderer ? main: change the LAN port. */
 		setPort: "lanConsole:setPort",
-		/** Renderer ? main: regenerate the access token. */
-		regenerateToken: "lanConsole:regenerateToken",
+		/** Renderer ? main: set the username/password used to log into the console. */
+		setCredentials: "lanConsole:setCredentials",
 	},
 	git: {
 		status: "git:status",

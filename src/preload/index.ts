@@ -94,7 +94,11 @@ const api = {
 		setPort: (port: number) =>
 			ipcRenderer.invoke(IpcChannels.lanConsole.setPort, port) as Promise<LanConsoleStatus>,
 		setCredentials: (username: string, password: string) =>
-			ipcRenderer.invoke(IpcChannels.lanConsole.setCredentials, username, password) as Promise<LanConsoleStatus>,
+			ipcRenderer.invoke(
+				IpcChannels.lanConsole.setCredentials,
+				String(username ?? ""),
+				String(password ?? ""),
+			) as Promise<LanConsoleStatus>,
 	},
 	window: {
 		platform: () =>
