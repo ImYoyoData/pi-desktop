@@ -63,6 +63,7 @@ let ws: WebSocket | null = null;
 let msgSeq = 0;
 let reconnectTimer: number | undefined;
 let historyTimer: number | undefined;
+let keepaliveTimer: number | undefined;
 
 const isTouch = "ontouchstart" in window || navigator.maxTouchPoints > 0;
 const isMobile = ref(window.innerWidth <= 720);
@@ -80,6 +81,7 @@ const currentRoot = ref<string | null>(null);
 const currentSession = ref<string | null>(null);
 const currentFilePath = ref<string | null>(null);
 const messages = ref<any[]>([]);
+let lastHistorySig = "";
 const draft = ref("");
 const chatEl = ref<HTMLElement | null>(null);
 
@@ -154,6 +156,8 @@ function connect(): void {
     statusOk.value = true;
     statusErr.value = false;
     send({ type: "hello", token: token.value });
+    clearInterval(keepaliveTimer);
+    keepaliveTimer = window.setInterval(() => send({ type: "ping" }), 20000);
   };
   ws.onclose = () => {
     statusText.value = T.disconnected;
@@ -208,10 +212,16 @@ function handle(msg: any): void {
         loadHistory();
       }
       break;
-    case "history":
-      messages.value = msg.messages || [];
-      scrollChat();
+    case "history": {
+      const next = msg.messages || [];
+      const sig = next.map((m: any) => m.id + "|" + (m.role || "") + "|" + String(m.text || "").length).join(",");
+      if (sig !== lastHistorySig) {
+        lastHistorySig = sig;
+        messages.value = next;
+        scrollChat();
+      }
       break;
+    }
     case "transcript":
       draft.value = (draft.value ? draft.value + " " : "") + (msg.text || "");
       break;
@@ -229,7 +239,7 @@ function onAgentEvent(ev: any): void {
     ["prompt_done", "prompt_error", "agent_event", "session_status", "agent_start", "agent_end", "tool_execution_start", "tool_execution_end", "message_update", "text_delta"].includes(t)
   ) {
     clearTimeout(historyTimer);
-    historyTimer = window.setTimeout(loadHistory, 350);
+    historyTimer = window.setTimeout(loadHistory, 600);
   }
   if (t === "prompt_error") toast(T.runErr);
 }
@@ -388,7 +398,7 @@ async function startVoice(): Promise<void> {
     workletNode = node;
     chunks = [];
     recording.value = true;
-    voiceLabel.value = isTouch ? T.release : T.clickStop;
+    voiceLabel.value = T.clickStop;
     toast(T.recording);
   } catch (err) {
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
@@ -451,17 +461,8 @@ async function stopVoice(): Promise<void> {
   }
 }
 function onVoiceClick(): void {
-  if (isTouch) return;
   if (recording.value) void stopVoice();
   else void startVoice();
-}
-function onVoiceDown(e: PointerEvent): void {
-  if (!isTouch) return;
-  e.preventDefault();
-  void startVoice();
-}
-function onVoiceUp(): void {
-  if (isTouch) void stopVoice();
 }
 
 onMounted(() => {
@@ -479,6 +480,7 @@ onMounted(() => {
 onBeforeUnmount(() => {
   document.removeEventListener("click", onDocClick);
   if (ws) ws.close();
+  clearInterval(keepaliveTimer);
   clearTimeout(reconnectTimer);
   clearTimeout(historyTimer);
   clearTimeout(toastTimer);
@@ -565,12 +567,8 @@ onBeforeUnmount(() => {
               <button
                 class="voice-btn"
                 :class="{ rec: recording, busy: converting }"
-                :title="isTouch ? T.voiceMobile : T.voicePc"
+                :title="T.voicePc"
                 @click="onVoiceClick"
-                @pointerdown="onVoiceDown"
-                @pointerup="onVoiceUp"
-                @pointercancel="onVoiceUp"
-                @contextmenu.prevent
               >
                 <span class="voice-icon">&#127908;</span>
                 <span v-if="voiceLabel" class="voice-label">{{ voiceLabel }}</span>
