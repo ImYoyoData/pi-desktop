@@ -19,6 +19,7 @@ import {
   SunnyOutline,
 } from "@vicons/ionicons5";
 import PanelLeftIcon from "@renderer/components/icons/PanelLeftIcon.vue";
+import LanRemoteIcon from "@renderer/components/icons/LanRemoteIcon.vue";
 import PanelRightIcon from "@renderer/components/icons/PanelRightIcon.vue";
 
 /**
@@ -251,7 +252,7 @@ async function onUpdateClick(): Promise<void> {
           "
         >
           <template #icon>
-            <NIcon :component="WifiOutline" :size="16" />
+            <LanRemoteIcon :size="16" />
           </template>
           <span
             v-if="lanConsoleEnabled"

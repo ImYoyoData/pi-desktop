@@ -39,6 +39,7 @@ declare module 'vue' {
     FilesTab: typeof import('./src/components/FilesTab.vue')['default']
     Icon: typeof import('./src/components/Icon.vue')['default']
     LanConsoleSettings: typeof import('./src/components/LanConsoleSettings.vue')['default']
+    LanRemoteIcon: typeof import('./src/components/icons/LanRemoteIcon.vue')['default']
     MarkdownView: typeof import('./src/components/MarkdownView.vue')['default']
     MarketSettings: typeof import('./src/components/MarketSettings.vue')['default']
     MessageList: typeof import('./src/components/MessageList.vue')['default']
