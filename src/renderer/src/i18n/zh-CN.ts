@@ -569,6 +569,7 @@ export const zh = {
 	updateOpenRelease: "打开发布页",
 	updateRecheck: "重新检查",
 	updateUpToDate: "已是最新版本",
+	lanConsoleOn: "开启中",
 	lanConsoleTitle: "局域网网页控制台",
 	lanConsoleEnableHint: "默认关闭。开启后，局域网内设备可通过浏览器访问本机，浏览工作区/会话、聊天并语音识别（需 Token 鉴权）。",
 	lanConsoleUrl: "访问地址",
