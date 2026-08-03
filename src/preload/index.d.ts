@@ -82,7 +82,7 @@ declare const api: {
 		getStatus: () => Promise<LanConsoleStatus>;
 		setEnabled: (enabled: boolean) => Promise<LanConsoleStatus>;
 		setPort: (port: number) => Promise<LanConsoleStatus>;
-		regenerateToken: () => Promise<LanConsoleStatus>;
+		setCredentials: (username: string, password: string) => Promise<LanConsoleStatus>;
 	};
 	window: {
 		platform: () => Promise<NodeJS.Platform>;

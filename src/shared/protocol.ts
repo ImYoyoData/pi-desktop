@@ -291,11 +291,13 @@ export type SessionStatus = "idle" | "running" | "error" | "stuck";
 export type LanConsoleStatus = {
   enabled: boolean;
   port: number;
-  /** Auto-generated access token (shown in settings, required by the web page). */
-  token: string;
-  /** Base LAN URL without the token, e.g. http://192.168.1.5:18700. */
+  /** Configured login username (empty until set). */
+  username: string;
+  /** True once both username and password are configured. */
+  hasCredentials: boolean;
+  /** Base LAN URL, e.g. http://192.168.1.5:18700. */
   baseUrl: string;
-  /** Full URL including the token for one-click open / QR. */
+  /** Full URL for opening the console (login is username/password based). */
   url: string;
 };
 

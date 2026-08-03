@@ -9,7 +9,10 @@ const message = useMessage();
 const status = ref<LanConsoleStatus | null>(null);
 const loading = ref(false);
 const savingPort = ref(false);
+const savingCreds = ref(false);
 const portDraft = ref(18700);
+const usernameDraft = ref("");
+const passwordDraft = ref("");
 const qrDataUrl = ref<string | null>(null);
 
 async function updateQr(): Promise<void> {
@@ -30,6 +33,8 @@ async function refresh(): Promise<void> {
   try {
     status.value = await window.api.lanConsole.getStatus();
     portDraft.value = status.value.port;
+    usernameDraft.value = status.value.username;
+    passwordDraft.value = "";
     await updateQr();
   } finally {
     loading.value = false;
@@ -65,10 +70,23 @@ async function onSavePort(): Promise<void> {
   }
 }
 
-async function onRegenerate(): Promise<void> {
-  status.value = await window.api.lanConsole.regenerateToken();
-  await updateQr();
-  message.success(t.lanConsoleTokenRegenerated);
+async function onSaveCredentials(): Promise<void> {
+  const u = usernameDraft.value.trim();
+  const p = passwordDraft.value;
+  if (!u || !p) {
+    message.warning(t.lanConsoleCredsRequired);
+    return;
+  }
+  savingCreds.value = true;
+  try {
+    status.value = await window.api.lanConsole.setCredentials(u, p);
+    passwordDraft.value = "";
+    message.success(t.lanConsoleCredsSaved);
+  } catch (err) {
+    message.error(err instanceof Error ? err.message : String(err));
+  } finally {
+    savingCreds.value = false;
+  }
 }
 
 async function onCopy(): Promise<void> {
@@ -105,6 +123,28 @@ onMounted(() => {
       {{ t.lanConsoleEnableHint }}
     </NText>
 
+    <!-- Credentials (username / password) -->
+    <div class="block">
+      <div class="label">{{ t.lanConsoleCreds }}</div>
+      <div style="display: flex; gap: 6px; margin-top: 6px; flex-wrap: wrap">
+        <NInput v-model:value="usernameDraft" size="small" :placeholder="t.lanConsoleUsername" style="width: 110px" />
+        <NInput
+          v-model:value="passwordDraft"
+          size="small"
+          type="password"
+          show-password-on="click"
+          :placeholder="t.lanConsolePassword"
+          style="width: 110px"
+        />
+        <NButton size="small" secondary :loading="savingCreds" @click="onSaveCredentials">
+          {{ t.lanConsoleSaveCreds }}
+        </NButton>
+      </div>
+      <NText depth="3" style="font-size: 11.5px; display: block; margin-top: 6px">
+        {{ t.lanConsoleCredsHint }}
+      </NText>
+    </div>
+
     <template v-if="status?.enabled">
       <div class="block">
         <div class="label">{{ t.lanConsoleUrl }}</div>
@@ -112,7 +152,6 @@ onMounted(() => {
         <NSpace :size="6" style="margin-top: 6px; flex-wrap: wrap">
           <NButton size="tiny" secondary @click="onCopy">{{ t.lanConsoleCopy }}</NButton>
           <NButton size="tiny" secondary @click="onOpenBrowser">{{ t.lanConsoleOpenBrowser }}</NButton>
-          <NButton size="tiny" secondary @click="onRegenerate">{{ t.lanConsoleRegenerate }}</NButton>
         </NSpace>
       </div>
 
@@ -140,7 +179,7 @@ onMounted(() => {
 
 <style scoped>
 .lan-panel {
-  width: 264px;
+  width: 300px;
 }
 .head {
   display: flex;
