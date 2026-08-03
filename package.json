@@ -15,7 +15,7 @@
   "license": "MIT",
   "scripts": {
     "dev": "node scripts/patch-highlightjs-exports.mjs && electron-vite dev",
-    "build": "node scripts/patch-highlightjs-exports.mjs && node scripts/copy-lan-web.mjs && electron-vite build",
+    "build": "node scripts/patch-highlightjs-exports.mjs && node scripts/build-lan-web.mjs && electron-vite build",
     "test": "vitest run",
     "typecheck": "vue-tsc --noEmit -p tsconfig.json",
     "start": "electron-vite preview",
