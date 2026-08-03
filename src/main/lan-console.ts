@@ -17,7 +17,7 @@ import type { SessionBroker } from "./session-broker";
 import { readSessionHistoryPage } from "./session-history";
 import { getSessionResources } from "./agent-worker-host";
 import { transcribePcm } from "./asr-host";
-import { getWorkspace, listRecentDesktop } from "./workspace-ipc";
+import { getWorkspace, listRecent } from "./workspace-ipc";
 import { IpcChannels } from "../shared/protocol";
 import type { LanConsoleStatus } from "../shared/protocol";
 import type { AgentEvent, SessionHistoryQuery } from "../shared/protocol";
@@ -145,7 +145,8 @@ async function handleMessage(client: WsClient, raw: string): Promise<void> {
       reply(client, id, { type: "pong" });
       return;
     case "listWorkspaces": {
-      const recent = listRecentDesktop();
+      // Same list as the desktop sidebar: desktop recent + Pi CLI workspaces.
+      const recent = await listRecent();
       const current = getWorkspace();
       reply(client, id, { type: "workspaces", current, recent });
       return;
