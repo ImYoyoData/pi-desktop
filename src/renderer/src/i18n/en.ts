@@ -599,6 +599,7 @@ export const en = {
 	updateOpenRelease: "Open release page",
 	updateRecheck: "Check again",
 	updateUpToDate: "You're up to date",
+	lanConsoleOn: "Enabled",
 	lanConsoleTitle: "LAN Web Console",
 	lanConsoleEnableHint: "Off by default. When enabled, devices on your LAN can open this machine in a browser to browse workspaces/sessions, chat and use voice recognition (token required).",
 	lanConsoleUrl: "Access URL",
