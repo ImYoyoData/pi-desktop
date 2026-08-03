@@ -93,6 +93,8 @@ let workletNode: AudioWorkletNode | null = null;
 let stream: MediaStream | null = null;
 let chunks: Float32Array[] = [];
 let inputRate = 48000;
+let voiceInitializing = false;
+let voiceInitCancelled = false;
 
 const WORKLET =
   "class P extends AudioWorkletProcessor{process(i){const c=i[0]&&i[0][0];if(c&&c.length)this.port.postMessage(c.slice(0));return true}}registerProcessor('pi-lan-capture',P);";
@@ -360,20 +362,30 @@ async function startVoice(): Promise<void> {
     toast(T.pickSession);
     return;
   }
-  if (converting.value) return;
+  if (voiceInitializing || recording.value || converting.value) return;
+  voiceInitializing = true;
+  voiceInitCancelled = false;
   try {
-    stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
-    audioCtx = new AudioContext();
-    await audioCtx.resume();
-    await audioCtx.audioWorklet.addModule(URL.createObjectURL(new Blob([WORKLET], { type: "application/javascript" })));
-    inputRate = audioCtx.sampleRate || 48000;
-    const src = audioCtx.createMediaStreamSource(stream);
-    workletNode = new AudioWorkletNode(audioCtx, "pi-lan-capture", { numberOfInputs: 1, numberOfOutputs: 1, channelCount: 1 });
-    workletNode.port.onmessage = (ev) => {
+    const s = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
+    const ctx = new AudioContext();
+    await ctx.resume();
+    await ctx.audioWorklet.addModule(URL.createObjectURL(new Blob([WORKLET], { type: "application/javascript" })));
+    inputRate = ctx.sampleRate || 48000;
+    if (voiceInitCancelled) {
+      s.getTracks().forEach((t) => t.stop());
+      void ctx.close().catch(() => undefined);
+      return;
+    }
+    const src = ctx.createMediaStreamSource(s);
+    const node = new AudioWorkletNode(ctx, "pi-lan-capture", { numberOfInputs: 1, numberOfOutputs: 1, channelCount: 1 });
+    node.port.onmessage = (ev) => {
       if (recording.value) chunks.push(ev.data as Float32Array);
     };
-    src.connect(workletNode);
-    workletNode.connect(audioCtx.destination);
+    src.connect(node);
+    node.connect(ctx.destination);
+    audioCtx = ctx;
+    stream = s;
+    workletNode = node;
     chunks = [];
     recording.value = true;
     voiceLabel.value = isTouch ? T.release : T.clickStop;
@@ -384,9 +396,15 @@ async function startVoice(): Promise<void> {
     } else {
       toast(T.micFail + ((err as Error)?.message || String(err)));
     }
+  } finally {
+    voiceInitializing = false;
   }
 }
 async function stopVoice(): Promise<void> {
+  if (voiceInitializing) {
+    voiceInitCancelled = true;
+    return;
+  }
   if (!recording.value) return;
   recording.value = false;
   voiceLabel.value = "";
