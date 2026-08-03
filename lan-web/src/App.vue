@@ -260,6 +260,14 @@ function toggleWorkspace(root: string): void {
 
 function openSession(id: string, root: string): void {
   send({ type: "openSession", sessionId: id, root });
+  if (isMobile.value) sideOpen.value = false;
+}
+
+function onDocClick(e: MouseEvent): void {
+  if (!isMobile.value || !sideOpen.value) return;
+  const t = e.target as HTMLElement;
+  if (t.closest(".menu-btn") || t.closest("aside")) return;
+  sideOpen.value = false;
 }
 
 function sendPrompt(): void {
@@ -446,10 +454,12 @@ onMounted(() => {
     mql.addEventListener("change", onChange);
     (window as any).__lanMqlHandler = onChange;
   }
+  document.addEventListener("click", onDocClick);
   if (token.value) connect();
 });
 
 onBeforeUnmount(() => {
+  document.removeEventListener("click", onDocClick);
   if (ws) ws.close();
   clearTimeout(reconnectTimer);
   clearTimeout(historyTimer);
@@ -495,33 +505,31 @@ onBeforeUnmount(() => {
               <h3>{{ T.workspaces }}</h3>
               <ul class="ws-list">
                 <li v-if="!workspaces.length" class="ws-row muted">{{ T.noWs }}</li>
-                <li
-                  v-for="root in workspaces"
-                  :key="root"
-                  class="ws-row"
-                  :class="{ on: currentRoot === root }"
-                  @click="toggleWorkspace(root)"
-                >
-                  <span class="chev" :class="{ open: expandedRoot === root }">&#9654;</span>
-                  <span class="txt" :title="root">{{ wsName(root) }}</span>
-                  <span v-if="sessionsByRoot[root] && sessionsByRoot[root].length" class="count">{{ sessionsByRoot[root].length }}</span>
-                </li>
-                <template v-if="expandedRoot">
-                  <ul class="sess-list">
-                    <li v-if="!sessionsByRoot[expandedRoot]" class="sess-row muted">{{ T.connecting }}</li>
-                    <li v-else-if="!sessionsByRoot[expandedRoot].length" class="sess-row muted">{{ T.noSession }}</li>
+                <li v-for="root in workspaces" :key="root" class="ws-item">
+                  <div
+                    class="ws-row"
+                    :class="{ on: currentRoot === root }"
+                    @click="toggleWorkspace(root)"
+                  >
+                    <span class="chev" :class="{ open: expandedRoot === root }">&#9654;</span>
+                    <span class="txt" :title="root">{{ wsName(root) }}</span>
+                    <span v-if="sessionsByRoot[root] && sessionsByRoot[root].length" class="count">{{ sessionsByRoot[root].length }}</span>
+                  </div>
+                  <ul v-if="expandedRoot === root" class="sess-list">
+                    <li v-if="!sessionsByRoot[root]" class="sess-row muted">{{ T.connecting }}</li>
+                    <li v-else-if="!sessionsByRoot[root].length" class="sess-row muted">{{ T.noSession }}</li>
                     <li
-                      v-for="sess in sessionsByRoot[expandedRoot]"
+                      v-for="sess in sessionsByRoot[root]"
                       :key="sess.id"
                       class="sess-row"
                       :class="{ on: currentSession === sess.id }"
-                      @click="openSession(sess.id, expandedRoot)"
+                      @click="openSession(sess.id, root)"
                     >
                       <span class="dot" :class="'dot-' + (sess.status || 'idle')" />
                       <span class="txt" :title="sess.id">{{ sess.name || sess.firstMessage || sess.id }}</span>
                     </li>
                   </ul>
-                </template>
+                </li>
               </ul>
             </n-scrollbar>
           </aside>
@@ -593,6 +601,7 @@ onBeforeUnmount(() => {
   aside { width:290px; background:var(--bg2); border-right:1px solid var(--border); overflow:hidden; flex-shrink:0; padding:10px; }
   aside h3 { font-size:11.5px; color:var(--muted); text-transform:uppercase; letter-spacing:.06em; margin:14px 6px 8px; }
   .ws-list { list-style:none; margin:0; padding:0; }
+  .ws-item { margin:0; padding:0; }
   .ws-row { display:flex; align-items:center; gap:7px; padding:9px 10px; border-radius:10px; font-size:13.5px; cursor:pointer; overflow:hidden; }
   .ws-row:hover { background:var(--border); }
   .ws-row.on { background:var(--accent); color:#fff; }
