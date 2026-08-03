@@ -55,6 +55,7 @@ const token = ref(localStorage.getItem(TOKEN_KEY) || "");
 const loginUser = ref("");
 const loginPass = ref("");
 const loginMsg = ref("");
+const loginBusy = ref(false);
 const statusText = ref(T.connecting);
 const statusOk = ref(false);
 const statusErr = ref(false);
@@ -127,6 +128,8 @@ function showLogin(): void {
 }
 
 async function doLogin(): Promise<void> {
+  if (loginBusy.value) return;
+  loginBusy.value = true;
   loginMsg.value = "";
   try {
     const res = await fetch("/api/login", {
@@ -145,6 +148,8 @@ async function doLogin(): Promise<void> {
     }
   } catch (err) {
     loginMsg.value = T.loginFail + " " + ((err as Error)?.message || String(err));
+  } finally {
+    loginBusy.value = false;
   }
 }
 
@@ -508,7 +513,7 @@ onBeforeUnmount(() => {
           <div class="login-hint">{{ T.loginHint }}</div>
           <n-input v-model:value="loginUser" :placeholder="T.user" size="large" />
           <n-input v-model:value="loginPass" type="password" :placeholder="T.pass" size="large" show-password-on="click" @keydown.enter="doLogin" />
-          <n-button type="primary" size="large" block @click="doLogin">{{ T.login }}</n-button>
+          <n-button type="primary" size="large" block :loading="loginBusy" :disabled="loginBusy" @click="doLogin">{{ T.login }}</n-button>
           <div class="login-msg">{{ loginMsg }}</div>
         </div>
       </div>
