@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Pi Desktop Pi Desktop 局域网网页控制台</title>
+<title>Pi Desktop 局域网网页控制台</title>
 <style>
   :root { --bg:#f6f7f9; --bg2:#fff; --fg:#1f2328; --muted:#6b7280; --border:#e5e7eb; --accent:#2563eb; --user:#eef2ff; --code:#0f172a; }
   * { box-sizing:border-box; }
@@ -19,15 +19,22 @@
   #status.ok { color:#16a34a; }
   #status.err { color:#dc2626; }
   #wrap { flex:1; display:flex; min-height:0; }
-  #side { width:260px; background:var(--bg2); border-right:1px solid var(--border); overflow-y:auto; flex-shrink:0; padding:10px; }
-  #side h3 { font-size:12px; color:var(--muted); text-transform:uppercase; letter-spacing:.04em; margin:14px 4px 6px; }
-  #side h3:first-child { margin-top:4px; }
-  #side ul { list-style:none; margin:0; padding:0; }
-  #side li { padding:8px 10px; border-radius:8px; font-size:13px; cursor:pointer; display:flex; align-items:center; gap:6px; overflow:hidden; }
-  #side li:hover { background:var(--border); }
-  #side li.on { background:var(--accent); color:#fff; }
-  #side li .dot { width:7px; height:7px; border-radius:50%; flex-shrink:0; }
-  #side li .txt { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  #side { width:280px; background:var(--bg2); border-right:1px solid var(--border); overflow-y:auto; flex-shrink:0; padding:8px 8px 16px; }
+  #side h3 { font-size:12px; color:var(--muted); text-transform:uppercase; letter-spacing:.04em; margin:12px 4px 6px; }
+  #wsList { list-style:none; margin:0; padding:0; }
+  .ws-row { display:flex; align-items:center; gap:6px; padding:8px 10px; border-radius:8px; font-size:13px; cursor:pointer; overflow:hidden; }
+  .ws-row:hover { background:var(--border); }
+  .ws-row.on { background:var(--accent); color:#fff; }
+  .ws-row .chev { width:12px; flex-shrink:0; transition:transform .18s ease; opacity:.7; }
+  .ws-row .chev.open { transform:rotate(90deg); }
+  .ws-row .txt { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .ws-row .count { margin-left:auto; font-size:10.5px; opacity:.7; }
+  .sess-list { list-style:none; margin:0 0 4px; padding:0 0 0 20px; border-left:1px solid var(--border); margin-left:15px; }
+  .sess-row { display:flex; align-items:center; gap:6px; padding:6px 8px; border-radius:7px; font-size:12.5px; cursor:pointer; overflow:hidden; }
+  .sess-row:hover { background:var(--border); }
+  .sess-row.on { background:var(--accent); color:#fff; }
+  .sess-row .dot { width:7px; height:7px; border-radius:50%; flex-shrink:0; }
+  .sess-row .txt { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   .dot-idle { background:#9ca3af; }
   .dot-running { background:#22c55e; }
   .dot-error { background:#dc2626; }
@@ -52,15 +59,33 @@
   @keyframes pulse { 0%,100% { opacity:1; } 50% { opacity:.55; } }
   #toast { position:fixed; left:50%; bottom:76px; transform:translateX(-50%); background:#111; color:#fff; padding:8px 14px; border-radius:8px; font-size:13px; opacity:0; transition:opacity .2s; pointer-events:none; z-index:10; max-width:90vw; }
   #toast.show { opacity:.95; }
+  .login-view { position:fixed; inset:0; z-index:50; display:flex; align-items:center; justify-content:center; background:var(--bg); }
+  .login-view.hidden { display:none; }
+  .login-card { width:300px; background:var(--bg2); border:1px solid var(--border); border-radius:14px; padding:24px; display:flex; flex-direction:column; gap:10px; box-shadow:0 12px 40px rgba(0,0,0,.12); }
+  .login-title { font-size:18px; font-weight:700; text-align:center; margin-bottom:4px; }
+  .login-hint { font-size:12px; color:var(--muted); text-align:center; margin-bottom:4px; }
+  .login-card input { padding:10px 12px; border-radius:10px; border:1px solid var(--border); background:var(--bg); color:var(--fg); font-size:14px; outline:none; }
+  .login-card input:focus { border-color:var(--accent); }
+  .login-msg { font-size:12.5px; color:#dc2626; min-height:16px; text-align:center; }
   @media (max-width:720px) {
     #btnMenu { display:inline-flex; }
-    #side { position:fixed; left:0; top:48px; bottom:0; z-index:5; transform:translateX(-100%); transition:transform .22s ease; width:78vw; max-width:300px; box-shadow:0 10px 30px rgba(0,0,0,.2); }
+    #side { position:fixed; left:0; top:48px; bottom:0; z-index:5; transform:translateX(-100%); transition:transform .22s ease; width:82vw; max-width:320px; box-shadow:0 10px 30px rgba(0,0,0,.2); }
     #side.open { transform:translateX(0); }
     .msg { max-width:92%; }
   }
 </style>
 </head>
 <body>
+  <div id="loginView" class="login-view">
+    <div class="login-card">
+      <div class="login-title">Pi Desktop</div>
+      <div class="login-hint">请输入桌面端设置的账号密码。</div>
+      <input id="loginUser" placeholder="用户名" autocomplete="username">
+      <input id="loginPass" type="password" placeholder="密码" autocomplete="current-password">
+      <button id="loginBtn">登录</button>
+      <div id="loginMsg" class="login-msg"></div>
+    </div>
+  </div>
   <header>
     <button id="btnMenu" aria-label="菜单">&#9776;</button>
     <span id="title">Pi Desktop</span>
@@ -69,10 +94,9 @@
   <div id="wrap">
     <aside id="side">
       <h3>工作区</h3><ul id="wsList"></ul>
-      <h3>会话</h3><ul id="sessionList"></ul>
     </aside>
     <main>
-      <div id="chat"><div class="meta" style="text-align:center;margin-top:40px;color:var(--muted)">选择一个工作区和会话开始沟通</div></div>
+      <div id="chat"><div style="text-align:center;margin-top:40px;color:var(--muted)">选择工作区和会话开始沟通</div></div>
       <div id="composer">
         <button id="btnVoice" title="按住录音识别">&#127908;</button>
         <input id="input" placeholder="输入消息，Enter 发送" autocomplete="off">
@@ -85,7 +109,8 @@
 (() => {
   "use strict";
   const $ = (id) => document.getElementById(id);
-  const token = new URLSearchParams(location.search).get("token") || "";
+  const TOKEN_KEY = "piLanToken";
+  let token = localStorage.getItem(TOKEN_KEY) || "";
   const wsProto = location.protocol === "https:" ? "wss" : "ws";
   let ws = null;
   let msgSeq = 0;
@@ -94,7 +119,7 @@
   let currentFilePath = null;
   let reconnectTimer = null;
   let historyTimer = 0;
-  const state = { workspaces: [], sessions: [] };
+  const state = { workspaces: [], sessionsByRoot: {}, expandedRoot: null };
 
   function toast(text, ms) {
     const el = $("toast");
@@ -108,10 +133,41 @@
     payload.id = ++msgSeq;
     ws.send(JSON.stringify(payload));
   }
+  function showLogin() {
+    token = "";
+    localStorage.removeItem(TOKEN_KEY);
+    $("loginView").classList.remove("hidden");
+  }
+  async function doLogin() {
+    const u = $("loginUser").value.trim();
+    const p = $("loginPass").value;
+    $("loginMsg").textContent = "";
+    try {
+      const res = await fetch("/api/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ username: u, password: p }),
+      });
+      const data = await res.json();
+      if (data.ok && data.token) {
+        token = data.token;
+        localStorage.setItem(TOKEN_KEY, token);
+        $("loginView").classList.add("hidden");
+        connect();
+      } else {
+        $("loginMsg").textContent = "登录失败： " + (data.message || "");
+      }
+    } catch (err) {
+      $("loginMsg").textContent = "登录失败： " + ((err && err.message) || err);
+    }
+  }
+  $("loginBtn").onclick = doLogin;
+  $("loginPass").addEventListener("keydown", (e) => { if (e.key === "Enter") doLogin(); });
+
   function connect() {
     ws = new WebSocket(wsProto + "://" + location.host + "/ws");
     ws.onopen = () => { $("status").textContent = "已连接"; $("status").className = "ok"; send({ type: "hello", token: token }); };
-    ws.onclose = () => { $("status").textContent = "已断开，重连中…"; $("status").className = "err"; clearTimeout(reconnectTimer); reconnectTimer = setTimeout(connect, 2000); };
+    ws.onclose = () => { $("status").textContent = "已断开，重连中…"; $("status").className = "err"; clearTimeout(reconnectTimer); reconnectTimer = setTimeout(connect, 2500); };
     ws.onerror = () => { $("status").textContent = "连接错误"; $("status").className = "err"; };
     ws.onmessage = (ev) => { let m; try { m = JSON.parse(ev.data); } catch { return; } handle(m); };
   }
@@ -119,19 +175,20 @@
     switch (msg.type) {
       case "helloOk": send({ type: "listWorkspaces" }); break;
       case "error":
-        toast(msg.message || "出错");
-        if (/token/i.test(msg.message || "")) { $("status").textContent = "Token 无效"; $("status").className = "err"; }
+        if (/token/i.test(msg.message || "")) { showLogin(); $("status").textContent = "会话 token 已失效，请重新登录"; $("status").className = "err"; }
+        else toast(msg.message || "出错");
         break;
       case "workspaces":
         state.workspaces = msg.recent || [];
-        renderWorkspaces(msg.current);
+        state.sessionsByRoot = {};
+        renderSidebar(msg.current);
         break;
       case "sessions":
-        state.sessions = msg.sessions || [];
-        renderSessions();
+        if (msg.root) state.sessionsByRoot[msg.root] = msg.sessions || [];
+        renderSidebar(msg.current || currentRoot);
         break;
       case "sessionOpened":
-        if (msg.session) { currentSession = msg.session.id; currentFilePath = msg.session.filePath || null; renderSessions(); loadHistory(); }
+        if (msg.session) { currentSession = msg.session.id; currentFilePath = msg.session.filePath || null; renderSidebar(currentRoot); loadHistory(); }
         break;
       case "history": renderHistory(msg.messages || []); break;
       case "transcript":
@@ -153,40 +210,77 @@
   }
   function loadHistory() { if (currentFilePath) send({ type: "getHistory", filePath: currentFilePath, limit: 60 }); }
 
-  function renderWorkspaces(current) {
+  function wsName(root) { return root.replace(/[\\/]+$/, "").split(/[\\/]/).pop() || root; }
+
+  function renderSidebar(current) {
     const ul = $("wsList");
     ul.innerHTML = "";
     const roots = (state.workspaces || []).slice();
     if (current && !roots.includes(current)) roots.unshift(current);
-    if (!roots.length) { ul.innerHTML = '<li style="color:var(--muted);cursor:default">暂无工作区</li>'; return; }
+    if (!roots.length) { ul.innerHTML = '<li class="ws-row" style="cursor:default;color:var(--muted)">暂无工作区</li>'; return; }
     for (const root of roots) {
-      const li = document.createElement("li");
-      li.className = root === current ? "on" : "";
-      const name = root.replace(/[\\/]+$/, "").split(/[\\/]/).pop() || root;
+      // workspace row
+      const row = document.createElement("li");
+      row.className = "ws-row" + (root === current ? " on" : "");
+      const chev = document.createElement("span");
+      chev.className = "chev" + (state.expandedRoot === root ? " open" : "");
+      chev.textContent = "&#9654;";
+      chev.innerHTML = "&#9654;";
       const txt = document.createElement("span");
-      txt.className = "txt"; txt.textContent = name; txt.title = root;
-      li.appendChild(txt);
-      li.onclick = () => { currentRoot = root; renderWorkspaces(root); send({ type: "listSessions", root: root }); };
-      ul.appendChild(li);
+      txt.className = "txt"; txt.textContent = wsName(root); txt.title = root;
+      row.appendChild(chev); row.appendChild(txt);
+      const sess = state.sessionsByRoot[root] || null;
+      if (sess && sess.length) {
+        const cnt = document.createElement("span");
+        cnt.className = "count"; cnt.textContent = String(sess.length);
+        row.appendChild(cnt);
+      }
+      row.onclick = () => {
+        currentRoot = root;
+        const willOpen = state.expandedRoot !== root;
+        state.expandedRoot = willOpen ? root : null;
+        if (willOpen && !state.sessionsByRoot[root]) send({ type: "listSessions", root: root });
+        renderSidebar(root);
+      };
+      ul.appendChild(row);
+
+      // inline sessions when expanded
+      if (state.expandedRoot === root) {
+        const sl = document.createElement("ul");
+        sl.className = "sess-list";
+        const items = state.sessionsByRoot[root] || null;
+        if (!items) {
+          const li = document.createElement("li");
+          li.className = "sess-row";
+          li.style.cursor = "default";
+          li.style.color = "var(--muted)";
+          li.textContent = "连接中…";
+          sl.appendChild(li);
+        } else if (!items.length) {
+          const li = document.createElement("li");
+          li.className = "sess-row";
+          li.style.cursor = "default";
+          li.style.color = "var(--muted)";
+          li.textContent = "暂无会话";
+          sl.appendChild(li);
+        } else {
+          for (const sessItem of items) {
+            const li = document.createElement("li");
+            li.className = "sess-row" + (sessItem.id === currentSession ? " on" : "");
+            const dot = document.createElement("span");
+            dot.className = "dot dot-" + (sessItem.status || "idle");
+            const st = document.createElement("span");
+            st.className = "txt"; st.textContent = sessItem.name || sessItem.firstMessage || sessItem.id; st.title = sessItem.id;
+            li.appendChild(dot); li.appendChild(st);
+            li.onclick = (e) => { e.stopPropagation(); send({ type: "openSession", sessionId: sessItem.id, root: root }); };
+            sl.appendChild(li);
+          }
+        }
+        ul.appendChild(sl);
+      }
     }
-    if (current && !currentRoot) { currentRoot = current; send({ type: "listSessions", root: current }); }
   }
-  function renderSessions() {
-    const ul = $("sessionList");
-    ul.innerHTML = "";
-    if (!state.sessions.length) { ul.innerHTML = '<li style="color:var(--muted);cursor:default">暂无会话</li>'; return; }
-    for (const s of state.sessions) {
-      const li = document.createElement("li");
-      li.className = s.id === currentSession ? "on" : "";
-      const dot = document.createElement("span");
-      dot.className = "dot dot-" + (s.status || "idle");
-      const txt = document.createElement("span");
-      txt.className = "txt"; txt.textContent = s.name || s.firstMessage || s.id; txt.title = s.id;
-      li.appendChild(dot); li.appendChild(txt);
-      li.onclick = () => { if (!currentRoot) { toast("请先选择工作区"); return; } send({ type: "openSession", sessionId: s.id, root: currentRoot }); };
-      ul.appendChild(li);
-    }
-  }
+
   function esc(s) { return String(s || "").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;"); }
   function renderMarkdown(text) {
     const parts = String(text || "").split(/```/);
@@ -238,7 +332,7 @@
   $("btnSend").onclick = sendPrompt;
   $("input").addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendPrompt(); } });
 
-  // ---------- voice ----------
+  // ---------- voice: record -> HTTP proxy -> desktop ASR ----------
   let audioCtx = null, workletNode = null, stream = null, chunks = [], inputRate = 48000, recording = false;
   const WORKLET = "class P extends AudioWorkletProcessor{process(i){const c=i[0]&&i[0][0];if(c&&c.length)this.port.postMessage(c.slice(0));return true}}registerProcessor('pi-lan-capture',P);";
   function linearDownsample(input, fromRate, toRate) {
@@ -265,6 +359,19 @@
     let bin = "";
     for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
     return btoa(bin);
+  }
+  async function transcribeViaProxy(b64, sampleRate) {
+    const res = await fetch("/api/transcribe", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Authorization": "Bearer " + token },
+      body: JSON.stringify({ pcmBase64: b64, sampleRate: sampleRate }),
+    });
+    const data = await res.json();
+    if (!res.ok || !data.ok) {
+      if (res.status === 401) { showLogin(); throw new Error("unauthorized"); }
+      throw new Error((data && data.message) || "failed");
+    }
+    return data.text || "";
   }
   async function startVoice() {
     if (!currentSession) { toast("请先选择会话"); return; }
@@ -300,9 +407,16 @@
     for (const c of chunks) { merged.set(c, off); off += c.length; }
     const resampled = linearDownsample(merged, inputRate, 16000);
     const pcm = floatToInt16(resampled);
+    const b64 = pcmToBase64(pcm);
     toast("识别中…");
-    send({ type: "transcribe", pcmBase64: pcmToBase64(pcm), sampleRate: 16000 });
     chunks = [];
+    try {
+      const text = await transcribeViaProxy(b64, 16000);
+      if (text) { $("input").value = ($("input").value ? $("input").value + " " : "") + text; $("input").focus(); }
+      else toast("没有录到声音");
+    } catch (err) {
+      toast(((err && err.message) || "出错"));
+    }
   }
   $("btnVoice").onclick = () => { if (recording) void stopVoice(); else void startVoice(); };
 
@@ -312,7 +426,7 @@
     if (window.innerWidth <= 720 && side.classList.contains("open") && !side.contains(e.target) && !e.target.closest("#btnMenu")) side.classList.remove("open");
   });
 
-  connect();
+  if (!token) { showLogin(); } else { connect(); }
 })();
 </script>
 </body>
