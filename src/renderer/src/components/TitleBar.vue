@@ -58,6 +58,15 @@ const asrOpen = ref(false);
 const securityOpen = ref(false);
 const aboutOpen = ref(false);
 const lanConsoleOpen = ref(false);
+const lanConsoleEnabled = ref(false);
+
+async function refreshLanConsoleStatus(): Promise<void> {
+  try {
+    lanConsoleEnabled.value = (await window.api.lanConsole.getStatus()).enabled;
+  } catch {
+    lanConsoleEnabled.value = false;
+  }
+}
 const platform = ref<NodeJS.Platform>("win32");
 const isMaximized = ref(false);
 let offUpdateProgress: (() => void) | undefined;
@@ -77,6 +86,7 @@ async function onClose(): Promise<void> {
 }
 
 onMounted(async () => {
+  void refreshLanConsoleStatus();
   platform.value = await window.api.window.platform();
   if (platform.value !== "darwin") {
     isMaximized.value = await window.api.window.isMaximized();
@@ -235,11 +245,19 @@ async function onUpdateClick(): Promise<void> {
           size="small"
           :title="t.lanConsoleTitle"
           :aria-label="t.lanConsoleTitle"
-          @click.stop="lanConsoleOpen = true"
+          @click.stop="
+            lanConsoleOpen = true;
+            void refreshLanConsoleStatus();
+          "
         >
           <template #icon>
-            <NIcon :component="WifiOutline" :size="15" />
+            <NIcon :component="WifiOutline" :size="16" />
           </template>
+          <span
+            v-if="lanConsoleEnabled"
+            class="lan-console-dot"
+            :title="t.lanConsoleOn"
+          />
         </NButton>
       </template>
       <LanConsoleSettings @close="lanConsoleOpen = false" />
@@ -534,5 +552,31 @@ async function onUpdateClick(): Promise<void> {
 
 .close-icon::after {
   transform: translateY(-50%) rotate(-45deg);
+}
+/* LAN console titlebar entry (left, after the app name) */
+.lan-console-btn {
+  color: var(--fg-muted, #6b7280);
+  border: 1px solid var(--border, rgba(128, 128, 128, 0.35));
+  background: color-mix(in srgb, var(--bg2, #fff) 60%, transparent);
+  margin-left: 4px;
+  position: relative;
+}
+.lan-console-btn:hover {
+  color: var(--accent, #2563eb);
+  border-color: var(--accent, #2563eb);
+}
+.lan-console-dot {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #22c55e;
+  border: 1px solid var(--bg2, #fff);
+}
+:root.dark .lan-console-btn {
+  border-color: rgba(255, 255, 255, 0.18);
+  background: rgba(255, 255, 255, 0.06);
 }
 </style>
