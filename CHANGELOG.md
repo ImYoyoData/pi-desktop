@@ -1,5 +1,19 @@
 # Changelog
 
+## v0.2.6 (2026-08-03)
+
+### 新功能 Features
+- 局域网网页控制台（默认关闭）：标题栏左侧远程图标入口，账号密码登录，发放 6 小时会话 token（刷新免重登）。
+- 手机/PC 浏览器访问：响应式界面、Vue + Naive UI（与桌面同款组件库），工作区手风琴展开会话、聊天、发送消息。
+- 语音识别：网页录音 → HTTP 代理 → 桌面配置的识别方式（本地/云端），PC 点击录音、再点识别，含「正在转换」加载效果。
+- 安全：HTTPS 自签证书（EC P-256，手机握手更快），token 鉴权，开关状态持久化、重启自动开启。
+- 性能：历史刷新合并防抖、渲染去重、WS 保活心跳，移动端连接与体验更流畅。
+- LAN web console (off by default): remote icon in the title bar, username/password login with a 6-hour session token (refresh stays logged in).
+- Responsive Vue + Naive UI page (same component library as the desktop): accordion workspaces with inline sessions, chat, and message sending.
+- Voice: record in the browser, proxy through /api/transcribe, recognize with the desktop's configured ASR (local or cloud); click to record, click again to convert with a converting overlay.
+- Security: HTTPS with a self-signed EC P-256 cert (faster mobile handshake), token auth, switch state persists and auto-starts on launch.
+- Performance: coalesced history refreshes, render de-duplication, WS keepalive; smoother mobile connection and UX.
+
 ## v0.2.5 (2026-08-02)
 
 ### 新功能 Features
