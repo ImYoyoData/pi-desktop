@@ -1,9 +1,13 @@
 /**
  * LAN web console ? a lightweight responsive web control panel for Pi
  * Desktop. Default OFF. When enabled it serves a small static page over
- * HTTP and exposes a WebSocket (token-authenticated) that can list/switch
- * workspaces and sessions, read chat history, send prompts, and transcribe
- * voice recorded in the browser using the desktop's configured ASR backend.
+ * HTTP and exposes a WebSocket (session-token authenticated) that can
+ * list/switch workspaces and sessions, read chat history and send prompts.
+ * Voice recorded in the browser is proxied through HTTP (/api/transcribe)
+ * and recognized by the desktop's configured ASR backend (local or cloud).
+ *
+ * Auth: username + password login issues a 6-hour session token stored in
+ * the browser (localStorage), so a refresh does not require re-login.
  */
 
 import { createServer, type Server } from "node:http";
@@ -23,19 +27,24 @@ import type { LanConsoleStatus } from "../shared/protocol";
 import type { AgentEvent, SessionHistoryQuery } from "../shared/protocol";
 
 const DEFAULT_PORT = 18700;
+const SESSION_TTL_MS = 6 * 60 * 60 * 1000; // 6h
 
 type LanConsoleSettings = {
   enabled: boolean;
   port: number;
-  token: string;
+  username: string;
+  password: string;
 };
+
+/** Active web sessions: token -> expiry epoch ms. */
+const authSessions = new Map<string, number>();
 
 function settingsPath(): string {
   return join(app.getPath("userData"), "lan-console.json");
 }
 
-function newToken(): string {
-  return randomBytes(16).toString("hex");
+function randomToken(): string {
+  return randomBytes(24).toString("hex");
 }
 
 function readSettings(): LanConsoleSettings {
@@ -44,16 +53,42 @@ function readSettings(): LanConsoleSettings {
     return {
       enabled: raw.enabled === true,
       port: typeof raw.port === "number" && raw.port > 0 && raw.port < 65536 ? raw.port : DEFAULT_PORT,
-      token: typeof raw.token === "string" && raw.token ? raw.token : newToken(),
+      username: typeof raw.username === "string" ? raw.username : "",
+      password: typeof raw.password === "string" ? raw.password : "",
     };
   } catch {
-    return { enabled: false, port: DEFAULT_PORT, token: newToken() };
+    return { enabled: false, port: DEFAULT_PORT, username: "", password: "" };
   }
 }
 
 function writeSettings(s: LanConsoleSettings): void {
   mkdirSync(dirname(settingsPath()), { recursive: true });
   writeFileSync(settingsPath(), `${JSON.stringify(s, null, 2)}\n`, "utf8");
+}
+
+function pruneSessions(now = Date.now()): void {
+  for (const [tok, exp] of authSessions) {
+    if (exp <= now) authSessions.delete(tok);
+  }
+}
+
+function isValidSessionToken(token: string | null | undefined): boolean {
+  if (typeof token !== "string" || !token) return false;
+  pruneSessions();
+  const exp = authSessions.get(token);
+  if (!exp) return false;
+  if (exp <= Date.now()) {
+    authSessions.delete(token);
+    return false;
+  }
+  return true;
+}
+
+function issueSessionToken(): string {
+  pruneSessions();
+  const token = randomToken();
+  authSessions.set(token, Date.now() + SESSION_TTL_MS);
+  return token;
 }
 
 function lanIPv4(): string {
@@ -117,6 +152,96 @@ function requireAuth(client: WsClient, id: unknown): boolean {
   return false;
 }
 
+/** Read a JSON request body (bounded to 20 MB). */
+function readJsonBody(req: import("node:http").IncomingMessage): Promise<Record<string, unknown>> {
+  return new Promise((resolve, reject) => {
+    const chunks: Buffer[] = [];
+    let size = 0;
+    req.on("data", (c: Buffer) => {
+      size += c.length;
+      if (size > 20 * 1024 * 1024) {
+        reject(new Error("body too large"));
+        req.destroy();
+        return;
+      }
+      chunks.push(c);
+    });
+    req.on("end", () => {
+      try {
+        resolve(JSON.parse(Buffer.concat(chunks).toString("utf8") || "{}"));
+      } catch {
+        reject(new Error("invalid JSON"));
+      }
+    });
+    req.on("error", reject);
+  });
+}
+
+async function handleHttp(
+  req: import("node:http").IncomingMessage,
+  res: import("node:http").ServerResponse,
+): Promise<void> {
+  const url = (req.url ?? "/").split("?")[0] ?? "/";
+  const method = req.method ?? "GET";
+
+  if (method === "GET" && url === "/") {
+    const page = readWebPage();
+    res.writeHead(200, { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" });
+    res.end(page ?? "<h1>missing page</h1>");
+    return;
+  }
+
+  if (method === "POST" && url === "/api/login") {
+    const settings = readSettings();
+    try {
+      const body = await readJsonBody(req);
+      if (body.username === settings.username && body.password === settings.password) {
+        const token = issueSessionToken();
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ ok: true, token }));
+      } else {
+        res.writeHead(401, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ ok: false, message: "invalid credentials" }));
+      }
+    } catch (err) {
+      res.writeHead(400, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ ok: false, message: err instanceof Error ? err.message : String(err) }));
+    }
+    return;
+  }
+
+  if (method === "POST" && url === "/api/transcribe") {
+    const auth = (req.headers.authorization ?? "").replace(/^Bearer\s+/i, "");
+    if (!isValidSessionToken(auth)) {
+      res.writeHead(401, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ ok: false, message: "unauthorized" }));
+      return;
+    }
+    try {
+      const body = await readJsonBody(req);
+      const b64 = typeof body.pcmBase64 === "string" ? body.pcmBase64 : "";
+      const sampleRate = typeof body.sampleRate === "number" ? body.sampleRate : 16000;
+      if (!b64) {
+        res.writeHead(400, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ ok: false, message: "pcmBase64 required" }));
+        return;
+      }
+      const buf = Buffer.from(b64, "base64");
+      const pcm = new Int16Array(buf.buffer, buf.byteOffset, Math.floor(buf.byteLength / 2));
+      const text = await transcribePcm(pcm, sampleRate);
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ ok: true, text }));
+    } catch (err) {
+      res.writeHead(500, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ ok: false, message: err instanceof Error ? err.message : String(err) }));
+    }
+    return;
+  }
+
+  res.writeHead(404, { "Content-Type": "application/json" });
+  res.end(JSON.stringify({ ok: false, message: "not found" }));
+}
+
 async function handleMessage(client: WsClient, raw: string): Promise<void> {
   let msg: Record<string, unknown>;
   try {
@@ -129,8 +254,7 @@ async function handleMessage(client: WsClient, raw: string): Promise<void> {
   const id = msg.id;
 
   if (type === "hello") {
-    const settings = readSettings();
-    if (msg.token === settings.token) {
+    if (isValidSessionToken(msg.token)) {
       client.authed = true;
       reply(client, id, { type: "helloOk" });
     } else {
@@ -145,7 +269,6 @@ async function handleMessage(client: WsClient, raw: string): Promise<void> {
       reply(client, id, { type: "pong" });
       return;
     case "listWorkspaces": {
-      // Same list as the desktop sidebar: desktop recent + Pi CLI workspaces.
       const recent = await listRecent();
       const current = getWorkspace();
       reply(client, id, { type: "workspaces", current, recent });
@@ -222,6 +345,7 @@ async function handleMessage(client: WsClient, raw: string): Promise<void> {
       return;
     }
     case "transcribe": {
+      // Kept for backward compatibility; the web page uses the HTTP proxy.
       const b64 = typeof msg.pcmBase64 === "string" ? msg.pcmBase64 : "";
       const sampleRate = typeof msg.sampleRate === "number" ? msg.sampleRate : 16000;
       if (!b64) {
@@ -230,10 +354,6 @@ async function handleMessage(client: WsClient, raw: string): Promise<void> {
       }
       try {
         const buf = Buffer.from(b64, "base64");
-        if (buf.length < 2) {
-          fail(client, id, "empty audio");
-          return;
-        }
         const pcm = new Int16Array(buf.buffer, buf.byteOffset, Math.floor(buf.byteLength / 2));
         const text = await transcribePcm(pcm, sampleRate);
         reply(client, id, { type: "transcript", text });
@@ -250,12 +370,19 @@ async function handleMessage(client: WsClient, raw: string): Promise<void> {
 async function startLanConsole(): Promise<{ ok: boolean; message: string }> {
   if (httpServer) return { ok: true, message: "already running" };
   const settings = readSettings();
+  if (!settings.username || !settings.password) {
+    return { ok: false, message: "set username and password in settings first" };
+  }
   const page = readWebPage();
   if (!page) return { ok: false, message: "LAN web page missing (run npm run build)" };
 
-  const server = createServer((_req, res) => {
-    res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
-    res.end(page);
+  const server = createServer((req, res) => {
+    void handleHttp(req, res).catch(() => {
+      if (!res.headersSent) {
+        res.writeHead(500, { "Content-Type": "application/json" });
+      }
+      res.end(JSON.stringify({ ok: false, message: "internal error" }));
+    });
   });
 
   const ws = new WebSocketServer({ server, path: "/ws" });
@@ -319,6 +446,7 @@ function stopLanConsole(): void {
     // ignore
   }
   httpServer = null;
+  authSessions.clear();
 }
 
 export function getLanConsoleStatus(): LanConsoleStatus {
@@ -327,9 +455,10 @@ export function getLanConsoleStatus(): LanConsoleStatus {
   return {
     enabled: settings.enabled && Boolean(httpServer),
     port: settings.port,
-    token: settings.token,
+    username: settings.username,
+    hasCredentials: Boolean(settings.username && settings.password),
     baseUrl,
-    url: `${baseUrl}/?token=${settings.token}`,
+    url: baseUrl,
   };
 }
 
@@ -338,14 +467,33 @@ export function registerLanConsoleIpc(broker: SessionBroker): void {
 
   ipcMain.handle(IpcChannels.lanConsole.getStatus, () => getLanConsoleStatus());
 
+  ipcMain.handle(IpcChannels.lanConsole.setCredentials, async (_e, username: unknown, password: unknown) => {
+    const u = typeof username === "string" ? username.trim() : "";
+    const p = typeof password === "string" ? password : "";
+    if (!u || !p) throw new Error("username and password required");
+    const settings = readSettings();
+    const wasEnabled = settings.enabled;
+    if (wasEnabled) stopLanConsole();
+    settings.username = u;
+    settings.password = p;
+    writeSettings(settings);
+    if (wasEnabled) {
+      const result = await startLanConsole();
+      if (!result.ok) throw new Error(result.message);
+    }
+    return getLanConsoleStatus();
+  });
+
   ipcMain.handle(IpcChannels.lanConsole.setEnabled, async (_e, enabled: boolean) => {
     const settings = readSettings();
+    if (enabled && (!settings.username || !settings.password)) {
+      throw new Error("set username and password in settings first");
+    }
     settings.enabled = enabled === true;
     writeSettings(settings);
     if (settings.enabled) {
       const result = await startLanConsole();
       if (!result.ok && !httpServer) {
-        // revert the flag when startup failed so the UI shows it as off
         settings.enabled = false;
         writeSettings(settings);
         throw new Error(result.message);
@@ -369,19 +517,14 @@ export function registerLanConsoleIpc(broker: SessionBroker): void {
     }
     return getLanConsoleStatus();
   });
-
-  ipcMain.handle(IpcChannels.lanConsole.regenerateToken, () => {
-    const settings = readSettings();
-    settings.token = newToken();
-    writeSettings(settings);
-    return getLanConsoleStatus();
-  });
 }
 
 /** Start the console at boot when the setting is enabled (non-fatal on failure). */
 export function ensureLanConsoleFromSettings(): void {
   const settings = readSettings();
-  console.info(`[lan-console] settings: enabled=${settings.enabled} port=${settings.port} path=${settingsPath()}`);
+  console.info(
+    `[lan-console] settings: enabled=${settings.enabled} port=${settings.port} credentials=${Boolean(settings.username && settings.password)}`,
+  );
   if (!settings.enabled) return;
   void startLanConsole()
     .then((r) => console.info(`[lan-console] start: ${r.ok ? "OK" : "FAIL"} ${r.message}`))
