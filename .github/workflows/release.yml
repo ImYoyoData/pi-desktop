@@ -161,7 +161,7 @@ jobs:
           tag_name: ${{ steps.ver.outputs.tag }}
           name: Pi Desktop ${{ steps.ver.outputs.tag }}
           draft: false
-          prerelease: false
+          prerelease: true
           generate_release_notes: true
           body: |
 
