@@ -11,7 +11,6 @@ import {
   NModal,
   NScrollbar,
   NSpace,
-  NSpin,
   NText,
   NTooltip,
   useDialog,
@@ -227,9 +226,11 @@ onMounted(async () => {
   loadPins();
   loadSessionOrders();
   sessionsStore.bindEvents();
-  await workspace.getWorkspace();
-  await workspace.listRecent();
-  await workspace.listClosed();
+  // App.vue already loads workspace/recent — skip duplicate IPC on cold start.
+  const boot: Promise<unknown>[] = [workspace.listClosed()];
+  if (!workspace.root) boot.push(workspace.getWorkspace());
+  if (!workspace.recent.length) boot.push(workspace.listRecent());
+  await Promise.all(boot);
   if (workspace.root && workspace.sessionsReady) {
     expanded[workspace.root] = true;
     await loadSessions(workspace.root);
@@ -871,32 +872,45 @@ function onLeftSplitResized(payload: SplitpanesResizedPayload): void {
               <ul
                 v-show="expanded[root]"
                 class="session-list"
+                :class="{ open: expanded[root] }"
                 :ref="(el) => setSessionListRef(root, el)"
               >
                 <li v-if="!sessionsFor(root).length" class="empty-inline">{{ t.emptySessions }}</li>
                 <li
-                  v-for="session in sessionsFor(root)"
+                  v-for="(session, sIdx) in sessionsFor(root)"
                   :key="session.id"
                   class="session-row"
                   :data-id="session.id"
-                  :class="{ active: sessionsStore.activeId === session.id }"
+                  :class="{
+                    active: sessionsStore.activeId === session.id,
+                    running: isRunning(session.status),
+                  }"
+                  :style="{ '--i': String(sIdx) }"
                   @click="onSelectSession(root, session.id)"
                   @contextmenu="(e) => openSessionCtx(e, root, session)"
                 >
                   <div class="session-inner">
                     <span class="active-bar" />
-                    <span v-if="isRunning(session.status)" class="status-spin">
-                      <NSpin :size="12" />
+                    <span class="status-mark" :class="`st-${session.status || 'idle'}`" aria-hidden="true">
+                      <i class="status-core" />
                     </span>
-                    <span v-else :class="`dot dot-${session.status}`" />
-                    <NIcon
-                      v-if="isPinned(root, session.id)"
-                      class="pin"
-                      :component="PinOutline"
-                      :size="12"
-                    />
-                    <span class="session-label">{{ sessionLabel(session) }}</span>
-                    <span class="time">{{ relativeTime(session.modified) }}</span>
+                    <div class="session-body">
+                      <div class="session-title-row">
+                        <NIcon
+                          v-if="isPinned(root, session.id)"
+                          class="pin"
+                          :component="PinOutline"
+                          :size="11"
+                        />
+                        <span class="session-label">{{ sessionLabel(session) }}</span>
+                      </div>
+                      <div class="session-meta">
+                        <span class="time">{{ relativeTime(session.modified) }}</span>
+                        <span v-if="isRunning(session.status)" class="run-tag">live</span>
+                        <span v-else-if="session.status === 'error'" class="err-tag">err</span>
+                        <span v-else-if="session.status === 'stuck'" class="stuck-tag">stuck</span>
+                      </div>
+                    </div>
                     <NButton
                       class="trash"
                       quaternary
@@ -1155,13 +1169,15 @@ function onLeftSplitResized(payload: SplitpanesResizedPayload): void {
   display: flex;
   align-items: center;
   gap: 4px;
-  height: 30px;
+  height: 32px;
   padding: 0 8px;
   border: none;
-  border-radius: var(--radius-sm, 7px);
+  border-radius: 9px;
   background: transparent;
   color: var(--fg-strong);
   font-size: 13px;
+  font-weight: 650;
+  letter-spacing: -0.01em;
   text-align: left;
   cursor: grab;
   transition: background var(--duration-fast, 140ms) var(--ease-out, ease);
@@ -1201,8 +1217,11 @@ function onLeftSplitResized(payload: SplitpanesResizedPayload): void {
 
 .session-list {
   list-style: none;
-  margin: 0 0 6px;
-  padding: 0;
+  margin: 0 0 8px;
+  padding: 2px 0 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
 }
 
 .session-row {
@@ -1210,10 +1229,23 @@ function onLeftSplitResized(payload: SplitpanesResizedPayload): void {
   list-style: none;
   margin: 0;
   padding: 0;
-  border-radius: var(--radius-sm, 7px);
+  border-radius: 10px;
   font-size: 13px;
   color: var(--fg-muted);
   cursor: pointer;
+  animation: session-row-in 220ms var(--ease-out, cubic-bezier(0.22, 1, 0.36, 1)) both;
+  animation-delay: calc(min(var(--i, 0), 12) * 18ms);
+}
+
+@keyframes session-row-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
 }
 
 .session-inner {
@@ -1221,10 +1253,16 @@ function onLeftSplitResized(payload: SplitpanesResizedPayload): void {
   display: flex;
   align-items: center;
   gap: 8px;
-  min-height: 32px;
-  padding: 4px 8px 4px 22px;
-  border-radius: var(--radius-sm, 7px);
-  transition: background var(--duration-fast, 140ms) var(--ease-out, ease), color var(--duration-fast, 140ms) var(--ease-out, ease);
+  min-height: 44px;
+  padding: 7px 8px 7px 14px;
+  border-radius: 10px;
+  border: 1px solid transparent;
+  transition:
+    background var(--duration-fast, 140ms) var(--ease-out, ease),
+    color var(--duration-fast, 140ms) var(--ease-out, ease),
+    border-color var(--duration-fast, 140ms) var(--ease-out, ease),
+    box-shadow var(--duration-fast, 140ms) var(--ease-out, ease),
+    transform var(--duration-fast, 140ms) var(--ease-out, ease);
 }
 
 .session-row:hover .session-inner {
@@ -1232,23 +1270,96 @@ function onLeftSplitResized(payload: SplitpanesResizedPayload): void {
   color: var(--fg);
 }
 
+.session-row:active .session-inner {
+  transform: scale(0.992);
+}
+
 .session-row.active .session-inner {
-  background: var(--bg-selected);
+  background: color-mix(in srgb, var(--accent-soft, rgba(37, 99, 235, 0.08)) 80%, var(--bg-selected));
+  border-color: color-mix(in srgb, var(--accent) 28%, transparent);
   color: var(--fg-strong);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 8%, transparent);
 }
 
 .active-bar {
   position: absolute;
-  left: 6px;
-  top: 8px;
-  bottom: 8px;
-  width: 3px;
-  border-radius: 2px;
+  left: 4px;
+  top: 11px;
+  bottom: 11px;
+  width: 2.5px;
+  border-radius: 999px;
   background: transparent;
+  transition:
+    background var(--duration-fast, 140ms) var(--ease-out, ease),
+    transform var(--duration-fast, 140ms) var(--ease-out, ease);
+  transform: scaleY(0.4);
 }
 
 .session-row.active .active-bar {
   background: var(--accent);
+  transform: scaleY(1);
+}
+
+.status-mark {
+  width: 8px;
+  height: 8px;
+  flex-shrink: 0;
+  display: grid;
+  place-items: center;
+  margin-left: 2px;
+}
+
+.status-core {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--fg-faint);
+  display: block;
+}
+
+.st-idle .status-core {
+  background: color-mix(in srgb, var(--fg-faint) 55%, transparent);
+}
+
+.st-running .status-core {
+  background: var(--green);
+  box-shadow: 0 0 0 0 color-mix(in srgb, var(--green) 45%, transparent);
+  animation: status-pulse 1.4s ease-out infinite;
+}
+
+.st-error .status-core {
+  background: var(--red);
+}
+
+.st-stuck .status-core {
+  background: #ca8a04;
+}
+
+@keyframes status-pulse {
+  0% {
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--green) 45%, transparent);
+  }
+  70% {
+    box-shadow: 0 0 0 6px transparent;
+  }
+  100% {
+    box-shadow: 0 0 0 0 transparent;
+  }
+}
+
+.session-body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.session-title-row {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
 }
 
 .session-label {
@@ -1257,15 +1368,61 @@ function onLeftSplitResized(payload: SplitpanesResizedPayload): void {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  font-size: 12.5px;
+  font-weight: 550;
+  letter-spacing: -0.01em;
+  line-height: 1.25;
+}
+
+.session-row.active .session-label {
+  font-weight: 650;
+}
+
+.session-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 14px;
+  padding-left: 1px;
 }
 
 .time {
-  font-size: 11px;
+  font-size: 10.5px;
   color: var(--fg-faint);
+  font-variant-numeric: tabular-nums;
+}
+
+.run-tag,
+.err-tag,
+.stuck-tag {
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  padding: 0 5px;
+  border-radius: 999px;
+  line-height: 14px;
+}
+
+.run-tag {
+  color: var(--green);
+  background: color-mix(in srgb, var(--green) 14%, transparent);
+}
+
+.err-tag {
+  color: var(--red);
+  background: color-mix(in srgb, var(--red) 14%, transparent);
+}
+
+.stuck-tag {
+  color: #ca8a04;
+  background: color-mix(in srgb, #ca8a04 16%, transparent);
 }
 
 .trash {
   opacity: 0;
+  flex-shrink: 0;
+  transition: opacity var(--duration-fast, 140ms) var(--ease-out, ease);
 }
 
 .session-row:hover .trash {
@@ -1275,33 +1432,14 @@ function onLeftSplitResized(payload: SplitpanesResizedPayload): void {
 .pin {
   flex-shrink: 0;
   color: var(--accent);
+  opacity: 0.9;
 }
 
-.status-spin {
-  width: 6px;
-  height: 6px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-}
-
-.dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: transparent;
-  flex-shrink: 0;
-}
-
-.dot-running {
-  background: var(--green);
-}
-.dot-error {
-  background: var(--red);
-}
-.dot-stuck {
-  background: #ca8a04;
+@media (prefers-reduced-motion: reduce) {
+  .session-row,
+  .st-running .status-core {
+    animation: none !important;
+  }
 }
 
 .empty,

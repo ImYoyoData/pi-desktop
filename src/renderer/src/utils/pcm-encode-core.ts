@@ -46,6 +46,29 @@ export function floatTo16BitPCM(input: Float32Array): Int16Array {
   return out;
 }
 
+/** Decode base64 s16le (little-endian) PCM back into an Int16Array. */
+export function base64ToInt16(b64: string): Int16Array {
+  const bin = atob(b64);
+  const out = new Int16Array(bin.length >> 1);
+  for (let i = 0; i < out.length; i++) {
+    out[i] = bin.charCodeAt(i * 2) | (bin.charCodeAt(i * 2 + 1) << 8);
+  }
+  return out;
+}
+
+/** Concatenate s16le PCM chunks in order into one Int16Array. */
+export function concatInt16(chunks: Int16Array[]): Int16Array {
+  let len = 0;
+  for (const c of chunks) len += c.length;
+  const out = new Int16Array(len);
+  let off = 0;
+  for (const c of chunks) {
+    out.set(c, off);
+    off += c.length;
+  }
+  return out;
+}
+
 /**
  * Encode a take synchronously (fallback when the worker is unavailable).
  * Returns s16le PCM at `targetRate`.

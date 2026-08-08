@@ -50,6 +50,13 @@ const residentModel = computed({
   },
 });
 
+const wakeEnabled = computed({
+  get: () => asr.status.wakeEnabled,
+  set: (v: boolean) => {
+    void asr.setWakeEnabled(v);
+  },
+});
+
 const wakeWordsDraft = ref(asr.status.wakeWords || "");
 const wakeWordsSaving = ref(false);
 
@@ -616,6 +623,13 @@ onUnmounted(() => {
                 <NText depth="3" class="setting-hint">{{ t.asrResidentHint }}</NText>
               </div>
               <NSwitch v-model:value="residentModel" size="small" :disabled="!asr.status.supported || !asr.status.enabled" />
+            </div>
+            <div class="setting-row">
+              <div class="setting-info">
+                <div class="setting-name">{{ t.asrWakeEnabled }}</div>
+                <NText depth="3" class="setting-hint">{{ t.asrWakeEnabledHint }}</NText>
+              </div>
+              <NSwitch v-model:value="wakeEnabled" size="small" :disabled="!asr.status.supported || !asr.status.enabled" />
             </div>
             <div class="setting-block">
               <div class="setting-name">{{ t.asrWakeWords }}</div>

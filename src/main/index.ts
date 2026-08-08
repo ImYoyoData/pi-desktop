@@ -406,7 +406,6 @@ function boot(): void {
 		createMainWindow();
 
 		setImmediate(() => {
-			ensureLanConsoleFromSettings();
 			const init = ensurePiAgentEnvironment();
 			if (init.created.length && is.dev) {
 				console.info("[pi-env] initialized", init.agentDir, init.created);
@@ -416,6 +415,11 @@ function boot(): void {
 			registerUpdateIpc();
 			registerPiCliIpc();
 			registerMarketIpc(broker);
+			// LAN cert generation can briefly block the event loop — wait until
+			// the window has had a chance to paint and hydrate.
+			setTimeout(() => {
+				ensureLanConsoleFromSettings();
+			}, 900);
 		});
 
 		app.on("activate", () => {

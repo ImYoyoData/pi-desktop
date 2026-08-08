@@ -36,10 +36,10 @@ describe("pcm-encode-core", () => {
     expect(pcm[4]).toBe(-32768); // clamped
   });
 
-  it("preserves duration when chunks are already 16 kHz (regression: double resample)", () => {
-    // startVoiceRecord pre-downsamples each chunk to 16 kHz in the capture
-    // loop and must encode with (16000, 16000). Passing the 48 kHz mic rate
-    // again would compress a 0.3s take to 0.1s and garble the speech.
+  it("preserves duration when encoding already-16kHz chunks (no double resample)", () => {
+    // Voice capture now keeps mic-rate chunks and resamples once on stop.
+    // If chunks are already 16 kHz, encode must use (16000, 16000); treating
+    // them as 48 kHz would compress a 0.3s take to 0.1s and garble speech.
     const input = new Float32Array(4800); // 0.3s @ 16 kHz
     for (let i = 0; i < input.length; i++) {
       input[i] = Math.sin((2 * Math.PI * 440 * i) / 16000) * 0.5;
@@ -48,6 +48,17 @@ describe("pcm-encode-core", () => {
     expect(ok.length).toBe(4800);
     const doubleResampled = encodeFloatChunksSync([input], 48000, 16000);
     expect(doubleResampled.length).toBe(1600);
+  });
+
+  it("resamples raw 48 kHz capture chunks once on stop", () => {
+    // Mimics the new startVoiceRecord path: buffer mic-rate floats, encode once.
+    const input = new Float32Array(4800); // 0.1s @ 48 kHz
+    for (let i = 0; i < input.length; i++) {
+      input[i] = Math.sin((2 * Math.PI * 440 * i) / 48000) * 0.5;
+    }
+    const pcm = encodeFloatChunksSync([input], 48000, 16000);
+    expect(pcm.length).toBe(1600);
+    expect(pcm.some((v) => v !== 0)).toBe(true);
   });
 
   it("encodes a full take to 16 kHz s16le (1s at 48 kHz -> 16k samples)", () => {

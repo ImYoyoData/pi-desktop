@@ -83,6 +83,7 @@ declare const api: {
 		setEnabled: (enabled: boolean) => Promise<LanConsoleStatus>;
 		setPort: (port: number) => Promise<LanConsoleStatus>;
 		setCredentials: (username: string, password: string) => Promise<LanConsoleStatus>;
+		setPreferredIp: (ip: string) => Promise<LanConsoleStatus>;
 	};
 	window: {
 		platform: () => Promise<NodeJS.Platform>;
@@ -638,6 +639,7 @@ declare const api: {
 		) => () => void;
 		setWakeHotkey: (accel: string) => Promise<AsrStatus>;
 		setResidentModel: (enabled: boolean) => Promise<AsrStatus>;
+		setWakeEnabled: (enabled: boolean) => Promise<AsrStatus>;
 		setWakeWords: (raw: string) => Promise<AsrStatus>;
 		setBackend: (backend: string) => Promise<AsrStatus>;
 		getCloudConfig: () => Promise<{

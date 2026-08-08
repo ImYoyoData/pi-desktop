@@ -375,6 +375,15 @@ export const useChatStore = defineStore("chat", () => {
 		// setStatus / setTitle: reserved for future chrome.
 	}
 
+	/**
+	 * Apply an agent event into chat state only (no TTS / auto-recover / notify).
+	 * Used by the LAN web console which feeds the same MessageList via WS.
+	 */
+	function applyLanEvent(event: AgentEvent): void {
+		const sessionId = event.sessionId;
+		setSessionState(sessionId, reduceChatEvent(stateFor(sessionId), event));
+	}
+
 	function applyEvent(event: AgentEvent): void {
 		const sessionId = event.sessionId;
 		setSessionState(sessionId, reduceChatEvent(stateFor(sessionId), event));
@@ -1193,6 +1202,7 @@ export const useChatStore = defineStore("chat", () => {
 		activePendingExtensionUi,
 		securityRemediationTick,
 		bindEvents,
+		applyLanEvent,
 		clearPendingAskUserFor,
 		replyPermission,
 		replyAskUser,

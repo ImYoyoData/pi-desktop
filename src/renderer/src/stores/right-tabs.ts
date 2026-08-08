@@ -4,7 +4,6 @@ import { t } from "@renderer/i18n";
 import { clearTabHistory } from "@renderer/stores/browser-library";
 import { uniquePreviewTabLabel } from "@renderer/utils/preview-tab-label";
 import { localizedTabLabel } from "@renderer/utils/right-tab-labels";
-import { pinRunningFirst } from "@renderer/utils/right-tabs-running";
 
 export type RightTabKind =
   | "running"
@@ -86,11 +85,8 @@ function cloneTabs(list: RightTab[]): RightTab[] {
   return list.map((tab) => ({ ...tab }));
 }
 
-function defaultRunningAndChanges(): RightTab[] {
-  return [
-    { id: "running-0", kind: "running", label: t.runningTab },
-    { id: "changes-0", kind: "changes", label: t.changesTab },
-  ];
+function defaultTabs(): RightTab[] {
+  return [];
 }
 
 /** Re-apply active-locale labels after restore / language switch reload. */
@@ -102,28 +98,12 @@ function syncLocalizedLabels(list: RightTab[]): void {
 }
 
 export const useRightTabsStore = defineStore("rightTabs", () => {
-  const tabs = ref<RightTab[]>(defaultRunningAndChanges());
+  const tabs = ref<RightTab[]>(defaultTabs());
   const activeId = ref("changes-0");
   const saveHandlers = new Map<string, SaveHandler>();
   let persistReady = false;
 
   const activeTab = computed(() => tabs.value.find((t) => t.id === activeId.value) ?? null);
-
-  function ensureRunningTabPinned(): void {
-    const existing = tabs.value.find((t) => t.kind === "running");
-    if (!existing) {
-      const tab: RightTab = {
-        id: nextTabId("running"),
-        kind: "running",
-        label: t.runningTab,
-      };
-      tabs.value = [tab, ...tabs.value.filter((t) => t.kind !== "running")];
-      syncLocalizedLabels(tabs.value);
-      return;
-    }
-    tabs.value = pinRunningFirst(tabs.value);
-    syncLocalizedLabels(tabs.value);
-  }
 
   function selectTab(id: string): void {
     activeId.value = id;
@@ -133,7 +113,6 @@ export const useRightTabsStore = defineStore("rightTabs", () => {
     const idx = tabs.value.findIndex((t) => t.id === id);
     if (idx < 0) return;
     const tab = tabs.value[idx]!;
-    if (tab.kind === "running") return;
     // Explicit close kills the pty — workspace switch must NOT call this for terminals.
     if (tab.kind === "terminal" && tab.ptyId) {
       void window.api.terminal.dispose(tab.ptyId);
@@ -187,8 +166,7 @@ export const useRightTabsStore = defineStore("rightTabs", () => {
 
   function renameTab(id: string, label: string): void {
     const tab = tabs.value.find((t) => t.id === id);
-    // Fixed singleton tabs keep their i18n labels
-    if (!tab || tab.kind === "running" || tab.kind === "changes" || tab.kind === "files") {
+    if (!tab || tab.kind === "files") {
       return;
     }
     const next = label.trim();
@@ -218,7 +196,6 @@ export const useRightTabsStore = defineStore("rightTabs", () => {
     const [item] = tabs.value.splice(fromIndex, 1);
     if (!item) return;
     tabs.value.splice(toIndex, 0, item);
-    ensureRunningTabPinned();
   }
 
   /** Reorder by full id list from drag UI (preferred over index math). */
@@ -233,7 +210,6 @@ export const useRightTabsStore = defineStore("rightTabs", () => {
     }
     if (next.length !== tabs.value.length) return;
     tabs.value = next;
-    ensureRunningTabPinned();
   }
 
   function addTab(kind: RightTabKind, opts?: { label?: string; filePath?: string; cwd?: string }): RightTab {
@@ -263,6 +239,13 @@ export const useRightTabsStore = defineStore("rightTabs", () => {
           const _never: never = kind;
           label = String(_never);
         }
+      }
+    }
+    // Running and Changes are mutually exclusive — only one may be open.
+    if (kind === "running" || kind === "changes") {
+      const other = kind === "running" ? "changes" : "running";
+      for (const t of [...tabs.value]) {
+        if (t.kind === other) closeTab(t.id);
       }
     }
     if (kind === "running" || kind === "changes" || kind === "files") {
@@ -326,7 +309,6 @@ export const useRightTabsStore = defineStore("rightTabs", () => {
     };
     // Always append at the end — never insert after the active tab / at the front.
     tabs.value = [...tabs.value, tab];
-    if (kind === "running") ensureRunningTabPinned();
     activeId.value = tab.id;
     if (kind === "preview") refreshPreviewTabLabels();
     return tab;
@@ -390,9 +372,8 @@ export const useRightTabsStore = defineStore("rightTabs", () => {
   function restoreTabs(root: string | null): void {
     persistReady = false;
     if (!root) {
-      tabs.value = defaultRunningAndChanges();
-      activeId.value = "changes-0";
-      ensureRunningTabPinned();
+      tabs.value = defaultTabs();
+      activeId.value = "";
       persistReady = true;
       return;
     }
@@ -407,12 +388,8 @@ export const useRightTabsStore = defineStore("rightTabs", () => {
       restored = null;
     }
     if (!restored?.tabs?.length) {
-      tabs.value = [
-        { id: nextTabId("running"), kind: "running", label: t.runningTab },
-        { id: nextTabId("changes"), kind: "changes", label: t.changesTab },
-      ];
-      activeId.value = tabs.value.find((tab) => tab.kind === "changes")?.id ?? tabs.value[0]!.id;
-      ensureRunningTabPinned();
+      tabs.value = defaultTabs();
+      activeId.value = "";
       persistReady = true;
       return;
     }
@@ -443,21 +420,22 @@ export const useRightTabsStore = defineStore("rightTabs", () => {
         url,
       });
     }
-    if (!next.some((tab) => tab.kind === "changes")) {
-      next.unshift({ id: nextTabId("changes"), kind: "changes", label: t.changesTab });
+    // Running and Changes are mutually exclusive — keep whichever was active.
+    if (next.some((t) => t.kind === "running") && next.some((t) => t.kind === "changes")) {
+      const activeKind = next[Math.min(restored.activeIndex, next.length - 1)]?.kind;
+      const dropKind = activeKind === "changes" ? "running" : "changes";
+      const dropIdx = next.findIndex((t) => t.kind === dropKind);
+      if (dropIdx >= 0) next.splice(dropIdx, 1);
     }
     syncLocalizedLabels(next);
     tabs.value = next;
     refreshPreviewTabLabels();
     const preferredIdx = Math.min(Math.max(0, restored.activeIndex), next.length - 1);
     const preferredId = next[preferredIdx]?.id;
-    ensureRunningTabPinned();
-    const stillThere = preferredId
-      ? tabs.value.some((tab) => tab.id === preferredId)
-      : false;
-    activeId.value = stillThere
-      ? preferredId!
-      : (tabs.value.find((tab) => tab.kind === "changes")?.id ?? tabs.value[0]!.id);
+    activeId.value =
+      preferredId && tabs.value.some((tab) => tab.id === preferredId)
+        ? preferredId
+        : "";
     persistReady = true;
   }
 
@@ -476,9 +454,8 @@ export const useRightTabsStore = defineStore("rightTabs", () => {
 
     persistReady = false;
     if (!next) {
-      tabs.value = defaultRunningAndChanges();
-      activeId.value = "changes-0";
-      ensureRunningTabPinned();
+      tabs.value = defaultTabs();
+      activeId.value = "";
       persistReady = true;
       return;
     }
@@ -486,7 +463,6 @@ export const useRightTabsStore = defineStore("rightTabs", () => {
     const parked = parkedByRoot.get(normalizeRoot(next));
     if (parked?.tabs?.length) {
       tabs.value = cloneTabs(parked.tabs);
-      ensureRunningTabPinned();
       syncLocalizedLabels(tabs.value);
       const stillThere = tabs.value.some((tab) => tab.id === parked.activeId);
       activeId.value = stillThere ? parked.activeId : (tabs.value[0]?.id ?? "");

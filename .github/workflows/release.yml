@@ -161,31 +161,39 @@ jobs:
           tag_name: ${{ steps.ver.outputs.tag }}
           name: Pi Desktop ${{ steps.ver.outputs.tag }}
           draft: false
-          prerelease: true
+          prerelease: false
           generate_release_notes: true
           body: |
 
-            ## 主要更新（v0.2.6）
+            ## 主要更新（v0.2.7）
 
-            本版新增：局域网网页控制台－－手机/PC浏览器远程查看工作区/会话、聊天与语音识别（默认关闭，账号密码登录）。
+            本版重点：局域网网页对齐桌面聊天体验（实时流式、思考/工具卡/Markdown），并优化手机连接与桌面录音卡顿。
 
             ### 新功能 Features
-            - 局域网网页控制台（默认关闭）：标题栏左侧远程图标入口，账号密码登录，签发 6 小时会话 token（刷新免重登）。
-            - 响应式 Vue + Naive UI 界面（与桌面同款组件库）：工作区手风琴展开会话、聊天、发送消息。
-            - 语音识别：网页录音 → HTTP 代理 → 桌面配置的识别方式（本地/云端）；点击录音、再点识别，含「正在转换」加载效果。
-            - 安全：HTTPS 自签证书(EC P-256，手机握手更快）、token 鉴权、开关状态持久化、重启自动开启。
-            - 性能：历史刷新合并防抖、渲染去重、WS保活，移动端连接与体验更流畅。
+            - 局域网网页复用桌面消息组件：思考块、读写文件等工具卡、Markdown/代码高亮；WebSocket 实时推送，边生成边显示。
+            - 会话模型与推理强度与桌面端同步；打开会话后读取 worker 状态，网页修改写回桌面。
+            - 连接门禁：登录后先显示「正在连接」界面，WS 握手并拿到工作区列表后再进入主界面；断线自动重连。
+            - 语音识别超过 4 秒显示取消；侧边栏会话预取/缓存，抽屉打开更快。
+            - 局域网地址选择：优先 Wi‑Fi/`192.168`，可选手动指定 IP；静态资源 gzip。
 
-            ## What's New (v0.2.6)
+            ### 修复 / 体验 Fixes
+            - 桌面端点击录音卡顿：预热 AudioWorklet、点击先出 UI；低性能机关闭重型麦处理、降波形帧率，录音中不再每帧 resample。
+            - 桌面启动与侧边栏体感优化：减少启动阻塞、会话列表更轻。
 
-            LAN web console: browse workspaces/sessions, chat and use voice recognition from a phone or PC browser (off by default, username/password login).
+            ## What's New (v0.2.7)
+
+            LAN web chat parity with the desktop (live streaming, thinking/tool cards, Markdown), plus smoother phone connect and less mic-click jank.
 
             ### Features
-            - LAN web console (off by default): remote icon in the title bar, username/password login with a 6-hour session token (refresh stays logged in).
-            - Responsive Vue + Naive UI page (same component library as the desktop): accordion workspaces with inline sessions, chat and messaging.
-            - Voice: record in the browser, proxy through /api/transcribe, recognize with the desktop's configured ASR (local or cloud); click to record, click again to convert.
-            - Security: HTTPS self-signed EC P-256 cert (faster mobile handshake), token auth, switch persists and auto-starts on launch.
-            - Performance: coalesced history refreshes, render de-dup, WS keepalive; smoother mobile connection and UX.
+            - LAN web reuses desktop MessageList: thinking blocks, read/write tool cards, Markdown/code highlight; WebSocket streams tokens live.
+            - Session model + thinking level sync with the desktop worker; web changes write back.
+            - Connect gate: after login, show a connecting screen until WS hello + workspace list succeed; auto-reconnect on drop.
+            - ASR cancel after 4s of converting; sidebar session prefetch/cache for faster drawer open.
+            - Smarter LAN IP pick (prefer Wi‑Fi / `192.168`, optional manual IP); gzip for static assets.
+
+            ### Fixes
+            - Desktop mic-click jank: prewarm AudioWorklet, paint UI first; on low-power machines disable heavy AEC/NS/AGC, lower waveform FPS, and stop per-frame resample while recording.
+            - Snappier desktop boot and session sidebar.
 
             ## 下载 / Downloads
             - **Windows x64**: `Pi Desktop-*-win-x64-setup.exe`
