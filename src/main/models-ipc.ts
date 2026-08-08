@@ -18,7 +18,7 @@ async function createRuntime(): Promise<import("@earendil-works/pi-coding-agent"
   });
 }
 
-async function listAvailableModels(runtime: ModelRuntime): Promise<ModelsGetResult["available"]> {
+export async function listAvailableModels(runtime: ModelRuntime): Promise<ModelsGetResult["available"]> {
   const models = await runtime.getAvailable();
   return models
     .map((m) => ({

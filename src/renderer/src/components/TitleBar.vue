@@ -232,37 +232,6 @@ async function onUpdateClick(): Promise<void> {
       <img class="logo-img" :src="logoUrl" alt="" width="18" height="18" />
       <span class="name">{{ t.appName }}</span>
     </div>
-    <NPopover
-      trigger="click"
-      placement="bottom-start"
-      :show="lanConsoleOpen"
-      @update:show="(v) => (lanConsoleOpen = v)"
-    >
-      <template #trigger>
-        <NButton
-          class="no-drag"
-          quaternary
-          circle
-          size="small"
-          :title="t.lanConsoleTitle"
-          :aria-label="t.lanConsoleTitle"
-          @click.stop="
-            lanConsoleOpen = true;
-            void refreshLanConsoleStatus();
-          "
-        >
-          <template #icon>
-            <LanRemoteIcon :size="16" />
-          </template>
-          <span
-            v-if="lanConsoleEnabled"
-            class="lan-console-dot"
-            :title="t.lanConsoleOn"
-          />
-        </NButton>
-      </template>
-      <LanConsoleSettings @close="lanConsoleOpen = false" />
-    </NPopover>
     <NButton
       v-if="workspace.root && layout.leftCollapsed"
       class="pane-toggle no-drag"
@@ -294,6 +263,40 @@ async function onUpdateClick(): Promise<void> {
           </template>
           <span v-if="updateStore.available" class="update-dot" aria-hidden="true" />
         </NButton>
+    <NPopover
+      trigger="click"
+      placement="bottom-end"
+      :show="lanConsoleOpen"
+      :width="360"
+      :show-arrow="false"
+      style="padding: 0"
+      @update:show="(v) => (lanConsoleOpen = v)"
+    >
+      <template #trigger>
+        <NButton
+          class="no-drag"
+          quaternary
+          circle
+          size="small"
+          :title="t.lanConsoleTitle"
+          :aria-label="t.lanConsoleTitle"
+          @click.stop="
+            lanConsoleOpen = true;
+            void refreshLanConsoleStatus();
+          "
+        >
+          <template #icon>
+            <LanRemoteIcon :size="16" />
+          </template>
+          <span
+            v-if="lanConsoleEnabled"
+            class="lan-console-dot"
+            :title="t.lanConsoleOn"
+          />
+        </NButton>
+      </template>
+      <LanConsoleSettings @close="lanConsoleOpen = false" />
+    </NPopover>
         <NButton quaternary circle size="small" @click="cycleTheme">
           <template #icon>
             <NIcon :component="themeIcon" />

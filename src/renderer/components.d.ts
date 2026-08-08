@@ -46,6 +46,7 @@ declare module 'vue' {
     ModelsSettings: typeof import('./src/components/ModelsSettings.vue')['default']
     NotifySettings: typeof import('./src/components/NotifySettings.vue')['default']
     NPopover: typeof import('naive-ui')['NPopover']
+    NSpin: typeof import('naive-ui')['NSpin']
     PanelLeftIcon: typeof import('./src/components/icons/PanelLeftIcon.vue')['default']
     PanelRightIcon: typeof import('./src/components/icons/PanelRightIcon.vue')['default']
     PenNibIcon: typeof import('./src/components/icons/PenNibIcon.vue')['default']

@@ -122,8 +122,8 @@ function bindTabsSortable(): void {
   tabsSortable = Sortable.create(el, {
     animation: 150,
     direction: "horizontal",
-    draggable: ".tab-item:not(.tab-pinned)",
-    filter: ".tab-close, .tab-pinned",
+    draggable: ".tab-item",
+    filter: ".tab-close",
     preventOnFilter: false,
     delay: 0,
     delayOnTouchOnly: true,
@@ -293,6 +293,11 @@ const addOptions: DropdownOption[] = [
     icon: () => h(NIcon, null, { default: () => h(GlobeOutline) }),
   },
   {
+    label: t.runningTab,
+    key: "running",
+    icon: () => h(NIcon, null, { default: () => h(PlayCircleOutline) }),
+  },
+  {
     label: t.changesTab,
     key: "changes",
     icon: () => h(NIcon, null, { default: () => h(GitCompareOutline) }),
@@ -319,7 +324,6 @@ function onTabClose(name: string | number): void {
   const id = String(name);
   const tab = rightTabs.tabs.find((item) => item.id === id);
   if (!tab) return;
-  if (tab.kind === "running") return;
 
   // Deleted on disk — ask whether to recreate via save
   if (tab.kind === "preview" && tab.missing) {
@@ -424,12 +428,18 @@ const ctxMenuOptions = computed(() =>
 );
 
 function canRenameTab(tab: RightTab): boolean {
-  return tab.kind === "browser" || tab.kind === "terminal" || tab.kind === "preview";
+  return (
+    tab.kind === "browser" ||
+    tab.kind === "terminal" ||
+    tab.kind === "preview" ||
+    tab.kind === "running" ||
+    tab.kind === "changes"
+  );
 }
 
 function openTabContextMenu(event: MouseEvent, tab: RightTab): void {
-  // Singleton tabs: no rename/delete context menu
-  if (tab.kind === "running" || tab.kind === "changes" || tab.kind === "files") return;
+  // Deprecated legacy files tab has no rename/delete context menu
+  if (tab.kind === "files") return;
   const options = tabContextOptions(tab);
   if (!options.length) return;
   ctxMenuTabId.value = tab.id;
@@ -527,7 +537,6 @@ function submitRenameTab(): void {
             class="tab-item"
             :class="{
               active: tab.id === rightTabs.activeId,
-              'tab-pinned': tab.kind === 'running',
               'has-runs': tab.kind === 'running' && runningCount > 0,
             }"
             :data-id="tab.id"
@@ -547,7 +556,6 @@ function submitRenameTab(): void {
               class="tab-run-count"
             >{{ runningCount }}</span>
             <button
-              v-if="tab.kind !== 'running'"
               type="button"
               class="tab-close"
               :title="t.closeTab"
@@ -640,8 +648,8 @@ function submitRenameTab(): void {
         />
       </template>
       <NEmpty
-        v-if="!rightTabs.tabs.length"
-        :description="t.clickToAddTab"
+        v-if="!active"
+        :description="rightTabs.tabs.length ? t.selectTabHint : t.clickToAddTab"
         class="empty"
         size="small"
       />

@@ -77,6 +77,40 @@ export function isWakeListenRunning(): boolean {
 
 }
 
+export function isWakeStreamWarm(): boolean {
+  return running || streamOwned;
+}
+
+let preloadOwned = false;
+let preloadDeps: WakeListenDeps | null = null;
+
+/**
+ * Preload-only mode: start the stream (loads the model into memory) WITHOUT
+ * opening the mic or matching wake words — the model is warm but never
+ * listening. Used when “model resident” is on but voice wake is off.
+ */
+export async function startPreloadStream(deps: WakeListenDeps): Promise<void> {
+  preloadDeps = deps;
+  if (preloadOwned || running || starting) return;
+  preloadOwned = true;
+  try {
+    await deps.streamStart();
+  } catch (err) {
+    preloadOwned = false;
+    throw err;
+  }
+}
+
+export async function stopPreloadStream(): Promise<void> {
+  if (!preloadOwned) return;
+  preloadOwned = false;
+  try {
+    await preloadDeps?.streamStop();
+  } catch {
+    // best-effort
+  }
+}
+
 
 
 async function tearDownCapture(): Promise<void> {
@@ -153,6 +187,28 @@ export async function stopWakeListen(): Promise<void> {
 
 
 
+/**
+ * Pause the wake listener's mic + event matching but keep the warm stream
+ * (and the loaded model) alive, so dictation can reuse it instantly.
+ */
+export async function suspendWakeListen(): Promise<void> {
+  if (!running && !starting) return;
+  // Let an in-flight start finish so it owns the stream, then pause just the mic.
+  if (startPromise) {
+    try {
+      await startPromise;
+    } catch {
+      // ignore start errors during suspend
+    }
+  }
+  capture?.stop();
+  capture = null;
+  offStream?.();
+  offStream = null;
+  running = false;
+  // streamOwned intentionally stays true — the stream child stays warm.
+}
+
 export async function startWakeListen(deps: WakeListenDeps): Promise<void> {
 
   lastDeps = deps;
@@ -211,8 +267,7 @@ export async function startWakeListen(deps: WakeListenDeps): Promise<void> {
 
           try {
 
-            await stopWakeListen();
-
+            await suspendWakeListen();
             await deps.onWake();
 
           } finally {

@@ -74,8 +74,10 @@ type Prefs = {
   downloadMirror?: AsrDownloadMirror;
   /** Electron accelerator for wake / start voice recording. */
   wakeHotkey?: string;
-  /** Keep ASR warm + always-on local wake mic (default off). */
+  /** Keep the model preloaded in memory (no mic / no wake listening). */
   residentModel?: boolean;
+  /** Always-on voice wake-word listening (separate from model resident). */
+  wakeEnabled?: boolean;
   /** Raw wake-word list (comma / newline separated). */
   wakeWords?: string;
 };
@@ -208,6 +210,23 @@ function ensureDirs(): void {
   mkdirSync(join(asrRoot(), "models"), { recursive: true });
   mkdirSync(runtimeDir(), { recursive: true });
   mkdirSync(join(asrRoot(), "tmp"), { recursive: true });
+  cleanupLegacyAsrModels();
+}
+
+/**
+ * Remove model files from superseded local ASR backends so a model switch
+ * does not leave hundreds of MB orphaned on disk. Only known legacy names.
+ */
+function cleanupLegacyAsrModels(): void {
+  const legacyNames = ["qwen3-asr-0.6b-q4_k.gguf", "qwen3-asr-0.6b-q4_k"] as const;
+  for (const name of legacyNames) {
+    try {
+      const target = join(asrRoot(), "models", name);
+      if (existsSync(target)) rmSync(target, { force: true });
+    } catch {
+      // best-effort cleanup
+    }
+  }
 }
 
 function readPrefs(): Prefs {
@@ -228,7 +247,8 @@ function readPrefs(): Prefs {
       gpuPreference: pref,
       downloadMirror: normalizeAsrDownloadMirror(raw.downloadMirror),
       wakeHotkey: wake,
-      residentModel: Boolean(raw.residentModel),
+      residentModel: raw.residentModel !== false,
+      wakeEnabled: Boolean(raw.wakeEnabled),
       wakeWords,
     };
   } catch {
@@ -237,7 +257,8 @@ function readPrefs(): Prefs {
       gpuPreference: "auto",
       downloadMirror: "auto",
       wakeHotkey: DEFAULT_ASR_WAKE_HOTKEY,
-      residentModel: false,
+      residentModel: true,
+      wakeEnabled: false,
       wakeWords: DEFAULT_ASR_WAKE_WORDS,
     };
   }
@@ -511,6 +532,7 @@ function getStatus(): AsrStatus {
     downloadMirror: normalizeAsrDownloadMirror(prefs.downloadMirror),
     wakeHotkey: prefs.wakeHotkey || DEFAULT_ASR_WAKE_HOTKEY,
     residentModel: Boolean(prefs.residentModel),
+    wakeEnabled: Boolean(prefs.wakeEnabled),
     wakeWords: prefs.wakeWords ?? DEFAULT_ASR_WAKE_WORDS,
     lastError,
     backend: readCloudPrefs().backend ?? null,
@@ -985,7 +1007,7 @@ async function importAsrModel(sourcePath: string): Promise<AsrStatus> {
 async function pickAsrModelFile(): Promise<string | null> {
   const win = BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0];
   const opts = {
-    title: "Select Qwen3-ASR GGUF model",
+    title: "Select SenseVoiceSmall GGUF model",
     properties: ["openFile" as const],
     filters: [{ name: "GGUF model", extensions: ["gguf"] }],
   };
@@ -1184,7 +1206,7 @@ async function spawnTranscribeAttempt(
   ensureRuntimeExecutables();
   const args = [
     "--backend",
-    "qwen3",
+    "sensevoice",
     "-m",
     modelFile,
     "-f",
@@ -1591,6 +1613,7 @@ function ensureRuntimeExecutables(): void {
         lower === "crispasr" ||
         lower.startsWith("crispasr") ||
         lower.includes("qwen3-asr") ||
+        lower.includes("sensevoice") ||
         (!lower.includes(".") && st.isFile())
       ) {
         try {
@@ -1736,6 +1759,9 @@ async function startAsrStream(): Promise<AsrStatus> {
   }
 
   if (streamChild && !streamChild.killed) {
+    // Reusing a warm resident stream — tell new subscribers it is ready so
+    // dictation can start pushing immediately (no model reload).
+    broadcastStreamEvent({ type: "ready" });
     return getStatus();
   }
 
@@ -1754,7 +1780,7 @@ async function startAsrStream(): Promise<AsrStatus> {
 
   const args = [
     "--backend",
-    "qwen3",
+    "sensevoice",
     "-m",
     status.modelPath!,
     "--stream",
@@ -1786,7 +1812,7 @@ async function startAsrStream(): Promise<AsrStatus> {
     "--stream-final-on-silence-ms",
     finalSilenceMs,
     "--stream-final-mode",
-    "prefix",
+    "redecode",
   ];
   const vulkanDeviceId = gpuInfo().vulkanDeviceId;
   if (backend === "vulkan" && vulkanDeviceId != null) {
@@ -1963,6 +1989,14 @@ export function registerAsrIpc(): void {
   });
   ipcMain.handle(IpcChannels.asr.setResidentModel, (_e, enabled: boolean) => {
     return setResidentModel(Boolean(enabled));
+  });
+  ipcMain.handle(IpcChannels.asr.setWakeEnabled, (_e, enabled: boolean) => {
+    const prefs = readPrefs();
+    writePrefs({
+      ...prefs,
+      wakeEnabled: Boolean(enabled),
+    });
+    return getStatus();
   });
   ipcMain.handle(IpcChannels.asr.setWakeWords, (_e, raw: string) => {
     return setWakeWords(String(raw ?? ""));

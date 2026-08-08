@@ -16,6 +16,7 @@ const emit = defineEmits<{
   keydown: [KeyboardEvent];
   keyup: [KeyboardEvent];
   click: [MouseEvent];
+  input: [];
 }>();
 
 const composer = useComposerStore();
@@ -23,6 +24,11 @@ const surface = ref<HTMLDivElement | null>(null);
 
 /** True while applying store → DOM so input/watchers do not loop. */
 let applyingStore = false;
+
+/** Live voice-stream insertion regions (start/end zero-width markers). */
+export type VoiceStreamHandle = { id: number };
+const voiceStreams = new Map<number, { start: Text; pending: Text; end: Text }>();
+let voiceStreamSeq = 0;
 
 const placeholder = computed(() =>
   composer.chips.length ? "" : t.composerPlaceholder,
@@ -290,6 +296,169 @@ function insertTextAtCaret(text: string): void {
   scrollToEnd();
 }
 
+
+/**
+ * Begin a live voice-stream insertion at the current caret (falls back to the
+ * end of the editor). Returns a handle used to update/commit/abort the region.
+ */
+function beginVoiceStream(): VoiceStreamHandle | null {
+  const root = surface.value;
+  if (!root) return null;
+  root.focus();
+  const sel = window.getSelection();
+  let anchorNode: Node;
+  let anchorOffset: number;
+  if (
+    sel &&
+    sel.rangeCount > 0 &&
+    sel.isCollapsed &&
+    root.contains(sel.getRangeAt(0).commonAncestorContainer)
+  ) {
+    const range = sel.getRangeAt(0);
+    anchorNode = range.startContainer;
+    anchorOffset = range.startOffset;
+  } else {
+    // No caret inside — park at the end (after the trailing zero-width spacer).
+    const last = root.lastChild;
+    if (last && last.nodeType === Node.TEXT_NODE && (last.textContent === "\u200B" || last.textContent === "")) {
+      anchorNode = last;
+      anchorOffset = 1;
+    } else {
+      anchorNode = root;
+      anchorOffset = root.childNodes.length;
+    }
+  }
+  const id = ++voiceStreamSeq;
+  const start = document.createTextNode("\u200B");
+  const pending = document.createTextNode("");
+  const end = document.createTextNode("\u200B");
+  applyingStore = true;
+  const range = document.createRange();
+  range.setStart(anchorNode, anchorOffset);
+  range.collapse(true);
+  range.insertNode(start);
+  range.setStartAfter(start);
+  range.collapse(true);
+  range.insertNode(pending);
+  range.setStartAfter(pending);
+  range.collapse(true);
+  range.insertNode(end);
+  const caret = document.createRange();
+  caret.setStartAfter(end);
+  caret.collapse(true);
+  const sel2 = window.getSelection();
+  sel2?.removeAllRanges();
+  sel2?.addRange(caret);
+  applyingStore = false;
+  voiceStreams.set(id, { start, pending, end });
+  return { id };
+}
+
+/** Update ONLY the current (pending) utterance tail — finalized text is never touched. */
+function setVoicePending(handle: VoiceStreamHandle, text: string): void {
+  const st = voiceStreams.get(handle.id);
+  const root = surface.value;
+  if (!st || !root) return;
+  applyingStore = true;
+  st.pending.textContent = (text ?? "").replace(/\u200B/g, "");
+  placeCaretAfter(st.end);
+  applyingStore = false;
+  syncDraftFromDom();
+  scrollToEnd();
+}
+
+/** Append a finalized utterance before the pending tail (committed once, never replaced). */
+function appendVoiceCommitted(handle: VoiceStreamHandle, text: string): void {
+  const st = voiceStreams.get(handle.id);
+  const root = surface.value;
+  if (!st || !root) return;
+  const clean = (text ?? "").replace(/\u200B/g, "");
+  if (!clean) return;
+  applyingStore = true;
+  const prev = st.pending.previousSibling;
+  const prevText = prev?.textContent ?? "";
+  if (
+    Boolean(prevText.trim()) &&
+    !/[\s\u3000]$/u.test(prevText) &&
+    !/^[,.!?;:\uFF0C\u3002\uFF01\uFF1F\u3001\uFF1B\uFF1A]/.test(clean)
+  ) {
+    st.pending.parentNode?.insertBefore(document.createTextNode(" "), st.pending);
+  }
+  st.pending.parentNode?.insertBefore(document.createTextNode(clean), st.pending);
+  placeCaretAfter(st.end);
+  applyingStore = false;
+  syncDraftFromDom();
+}
+/** Commit the live region: keep all text, drop the markers. */
+function commitVoiceStream(handle: VoiceStreamHandle): void {
+  const st = voiceStreams.get(handle.id);
+  if (!st) return;
+  voiceStreams.delete(handle.id);
+  const { start, end } = st;
+  const root = surface.value;
+  if (!root) return;
+  const caretNode = end.previousSibling ?? null;
+  applyingStore = true;
+  start.remove();
+  end.remove();
+  root.focus();
+  if (caretNode && caretNode.parentNode) {
+    placeCaretAfter(caretNode);
+  } else {
+    focusEnd();
+  }
+  applyingStore = false;
+  syncDraftFromDom();
+}
+
+/** Abort the live region: remove markers AND all inserted text. */
+function abortVoiceStream(handle: VoiceStreamHandle): void {
+  const st = voiceStreams.get(handle.id);
+  if (!st) return;
+  voiceStreams.delete(handle.id);
+  const { start, end } = st;
+  applyingStore = true;
+  let node: Node | null = start;
+  while (node) {
+    const next = node.nextSibling;
+    node.remove();
+    if (node === end) break;
+    node = next;
+  }
+  applyingStore = false;
+  syncDraftFromDom();
+}
+/** True when the caret is still parked at the live voice region's end. */
+function isCaretAtVoiceLive(handle: VoiceStreamHandle): boolean {
+  const st = voiceStreams.get(handle.id);
+  if (!st) return true;
+  const sel = window.getSelection();
+  if (!sel || sel.rangeCount === 0) return true;
+  const range = sel.getRangeAt(0);
+  if (!range.collapsed) return false;
+  const startContainer = range.startContainer;
+  const startOffset = range.startOffset;
+  const parent = st.end.parentNode;
+  if (!parent) return true;
+
+  const children = Array.from(parent.childNodes);
+  const startIndex = children.indexOf(st.start);
+  const endIndex = children.indexOf(st.end);
+  if (startIndex < 0 || endIndex < 0) return true;
+
+  // Caret expressed as (container, offset) directly on the shared parent.
+  if (startContainer === parent) {
+    return startOffset >= startIndex && startOffset <= endIndex + 1;
+  }
+  // Caret inside a text node between the markers (e.g. mid-partial).
+  if (startContainer.nodeType === Node.TEXT_NODE && startContainer.parentNode === parent) {
+    const nodeIndex = children.indexOf(startContainer);
+    return nodeIndex >= startIndex && nodeIndex <= endIndex;
+  }
+  // Selection outside the editor — keep streaming (record-bar clicks etc.).
+  return true;
+}
+
 function syncChipsFromStore(): void {
   const root = surface.value;
   if (!root || applyingStore) return;
@@ -393,6 +562,7 @@ function chipBeforeCaret(): HTMLElement | null {
 
 function onInput(): void {
   syncDraftFromDom();
+  emit("input");
 }
 
 function onKeydown(e: KeyboardEvent): void {
@@ -466,6 +636,12 @@ defineExpose({
   getSurface,
   appendTextAtEnd,
   insertTextAtCaret,
+  beginVoiceStream,
+  setVoicePending,
+  appendVoiceCommitted,
+  commitVoiceStream,
+  abortVoiceStream,
+  isCaretAtVoiceLive,
   scrollToEnd,
 });
 </script>

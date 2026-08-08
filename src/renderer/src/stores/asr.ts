@@ -61,10 +61,10 @@ const emptyStatus = (): AsrStatus => ({
   installed: false,
   modelPath: null,
   binaryPath: null,
-  diskMb: 640,
-  ramMb: 900,
+  diskMb: 140,
+  ramMb: 420,
   binaryMb: 10,
-  modelLabel: "Qwen3-ASR 0.6B (Q4_K)",
+  modelLabel: "SenseVoiceSmall (Q4_K)",
   installing: false,
   busy: false,
   gpuBackend: "cpu",
@@ -76,7 +76,8 @@ const emptyStatus = (): AsrStatus => ({
   runtimeArchiveHint: null,
   downloadMirror: "auto",
   wakeHotkey: DEFAULT_ASR_WAKE_HOTKEY,
-  residentModel: false,
+  residentModel: true,
+  wakeEnabled: false,
   wakeWords: DEFAULT_ASR_WAKE_WORDS,
   lastError: null,
   backend: null,
@@ -304,6 +305,11 @@ export const useAsrStore = defineStore("asr", () => {
     return status.value;
   }
 
+  async function setWakeEnabled(enabled: boolean): Promise<AsrStatus> {
+    status.value = await window.api.asr.setWakeEnabled(enabled);
+    return status.value;
+  }
+
   async function setWakeWords(raw: string): Promise<AsrStatus> {
     status.value = await window.api.asr.setWakeWords(raw);
     return status.value;
@@ -317,10 +323,19 @@ export const useAsrStore = defineStore("asr", () => {
     wakePaused.value = v;
   }
 
-  /** True when prefs say we should keep a wake mic / warm stream. */
-  const residentActive = computed(
+  /** True when voice wake listening should run (always-on recognition). */
+  const wakeActive = computed(
+    () =>
+      status.value.wakeEnabled &&
+      status.value.enabled &&
+      status.value.supported &&
+      status.value.installed,
+  );
+  /** True when the model should be preloaded only (no mic, no wake). */
+  const preloadActive = computed(
     () =>
       status.value.residentModel &&
+      !status.value.wakeEnabled &&
       status.value.enabled &&
       status.value.supported &&
       status.value.installed,
@@ -336,13 +351,15 @@ export const useAsrStore = defineStore("asr", () => {
     wakePaused,
     micVisible,
     installing,
-    residentActive,
+    wakeActive,
+    preloadActive,
     refresh,
     setEnabled,
     setGpuPreference,
     setDownloadMirror,
     setWakeHotkey,
     setResidentModel,
+    setWakeEnabled,
     setWakeWords,
     setCapturingHotkey,
     backendPickerOpen,
