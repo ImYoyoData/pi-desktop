@@ -90,14 +90,16 @@ export const IpcChannels = {
 		changed: "fs:changed",
 	},
 	lanConsole: {
-		/** Renderer ? main: current LAN console status (enabled / port / token / url). */
+		/** Renderer → main: current LAN console status (enabled / port / token / url). */
 		getStatus: "lanConsole:getStatus",
-		/** Renderer ? main: enable or disable the LAN web console. */
+		/** Renderer → main: enable or disable the LAN web console. */
 		setEnabled: "lanConsole:setEnabled",
-		/** Renderer ? main: change the LAN port. */
+		/** Renderer → main: change the LAN port. */
 		setPort: "lanConsole:setPort",
-		/** Renderer ? main: set the username/password used to log into the console. */
+		/** Renderer → main: set the username/password used to log into the console. */
 		setCredentials: "lanConsole:setCredentials",
+		/** Renderer → main: pick which LAN IPv4 to show in QR / copy URL. */
+		setPreferredIp: "lanConsole:setPreferredIp",
 	},
 	git: {
 		status: "git:status",
@@ -205,6 +207,7 @@ export const IpcChannels = {
 		progress: "asr:progress",
 		setWakeHotkey: "asr:setWakeHotkey",
 		setResidentModel: "asr:setResidentModel",
+		setWakeEnabled: "asr:setWakeEnabled",
 		setWakeWords: "asr:setWakeWords",
 		setBackend: "asr:setBackend",
 		getCloudConfig: "asr:getCloudConfig",
@@ -287,19 +290,25 @@ export type TrustState = {
 
 export type SessionStatus = "idle" | "running" | "error" | "stuck";
 
-/** LAN web console status exposed to the settings UI. */
-export type LanConsoleStatus = {
-  enabled: boolean;
-  port: number;
-  /** Configured login username (empty until set). */
-  username: string;
-  /** True once both username and password are configured. */
-  hasCredentials: boolean;
-  /** Base LAN URL, e.g. http://192.168.1.5:18700. */
-  baseUrl: string;
-  /** Full URL for opening the console (login is username/password based). */
-  url: string;
-};
+	/** LAN web console status exposed to the settings UI. */
+	export type LanConsoleStatus = {
+	  enabled: boolean;
+	  port: number;
+	  /** Configured login username (empty until set). */
+	  username: string;
+	  /** True once both username and password are configured. */
+	  hasCredentials: boolean;
+	  /** Selected LAN IPv4 used for QR / copy (best-effort ranked when unset). */
+	  preferredIp: string;
+	  /** All candidate LAN IPv4s, preferred/best-ranked first. */
+	  addresses: string[];
+	  /** HTTPS URLs for each address (same order as `addresses`). */
+	  urls: string[];
+	  /** Preferred access URL, e.g. https://192.168.1.5:18700. */
+	  baseUrl: string;
+	  /** Full URL for opening the console (login is username/password based). */
+	  url: string;
+	};
 
 /** Tools / extensions / skills loaded into a session worker (null while booting). */
 export type SessionExtensionInfo = {

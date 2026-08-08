@@ -1,5 +1,25 @@
 # Changelog
 
+## v0.2.7 (2026-08-09)
+
+### 新功能 Features
+- 局域网网页复用桌面消息组件：思考块、读写文件等工具卡、Markdown/代码高亮；WebSocket 实时推送，边生成边显示。
+- 会话模型与推理强度与桌面端同步；打开会话后读取 worker 状态，网页修改写回桌面。
+- 连接门禁：登录后先显示「正在连接」界面，WS 握手并拿到工作区列表后再进入主界面；断线自动重连。
+- 语音识别超过 4 秒显示取消；侧边栏会话预取/缓存，抽屉打开更快。
+- 局域网地址选择：优先 Wi‑Fi/`192.168`，可选手动指定 IP；静态资源 gzip。
+- LAN web reuses desktop MessageList: thinking blocks, read/write tool cards, Markdown/code highlight; WebSocket streams tokens live.
+- Session model + thinking level sync with the desktop worker; web changes write back.
+- Connect gate: after login, show a connecting screen until WS hello + workspace list succeed; auto-reconnect on drop.
+- ASR cancel after 4s of converting; sidebar session prefetch/cache for faster drawer open.
+- Smarter LAN IP pick (prefer Wi‑Fi / `192.168`, optional manual IP); gzip for static assets.
+
+### 修复 / 体验 Fixes
+- 桌面端点击录音卡顿：预热 AudioWorklet、点击先出 UI；低性能机关闭重型麦处理、降波形帧率，录音中不再每帧 resample。
+- 桌面启动与侧边栏体感优化：减少启动阻塞、会话列表更轻。
+- Desktop mic-click jank: prewarm AudioWorklet, paint UI first; on low-power machines disable heavy AEC/NS/AGC, lower waveform FPS, and stop per-frame resample while recording.
+- Snappier desktop boot and session sidebar.
+
 ## v0.2.6 (2026-08-03)
 
 ### 新功能 Features

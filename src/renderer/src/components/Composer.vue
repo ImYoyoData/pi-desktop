@@ -41,9 +41,18 @@ import { useRightTabsStore } from "@renderer/stores/right-tabs";
 import { formatAsrInstallError, formatAsrRuntimeError, isAsrInstallCancelled, useAsrStore } from "@renderer/stores/asr";
 import { useMediaStore } from "@renderer/stores/media";
 import { heuristicSessionTitle } from "@renderer/utils/session-title";
-import { startVoiceRecord, type VoiceRecordSession } from "@renderer/utils/pcm-capture";
-import { ASR_VOICE_WAKE_EVENT, stopWakeListen } from "@renderer/utils/asr-wake-listen";
-import { scrubAsrHallucination } from "../../../shared/asr";
+import {
+  prewarmVoiceCapture,
+  startVoiceRecord,
+  type VoiceRecordSession,
+} from "@renderer/utils/pcm-capture";
+import {
+  ASR_VOICE_WAKE_EVENT,
+  stopWakeListen,
+  stopPreloadStream,
+  suspendWakeListen,
+} from "@renderer/utils/asr-wake-listen";
+import { scrubAsrHallucination, type AsrStreamEvent } from "../../../shared/asr";
 import { formatAcceleratorLabel } from "../../../shared/hotkey";
 import {
   composerModePreamble,
@@ -82,7 +91,6 @@ const rightTabs = useRightTabsStore();
 const asr = useAsrStore();
 const media = useMediaStore();
 const messageApi = useMessage();
-let voiceSession: VoiceRecordSession | null = null;
 let voiceConfirming = false;
 /** Bumped to ignore late transcription results after cancel/switch. */
 let voiceGen = 0;
@@ -92,7 +100,7 @@ const voiceActive = ref(false);
 const voiceMeter: VoiceMeter = { level: 0 };
 /** True from confirm until transcription finishes — send button loading. */
 const voicePending = ref(false);
-
+let voiceSession: VoiceRecordSession | null = null;
 type ModelSelectOption =
   | { type: "group"; label: string; key: string; children: { label: string; value: string }[] }
   | { label: string; value: string };
@@ -137,6 +145,12 @@ const richEditor = ref<{
   getSurface?: () => HTMLElement | null;
   appendTextAtEnd?: (text: string) => void;
   insertTextAtCaret?: (text: string) => void;
+  beginVoiceStream?: () => { id: number } | null;
+  setVoicePending?: (handle: { id: number }, text: string) => void;
+  appendVoiceCommitted?: (handle: { id: number }, text: string) => void;
+  commitVoiceStream?: (handle: { id: number }) => void;
+  abortVoiceStream?: (handle: { id: number }) => void;
+  isCaretAtVoiceLive?: (handle: { id: number }) => boolean;
   scrollToEnd?: () => void;
 } | null>(null);
 /** Expanded tall editor (hover affordance top-right). */
@@ -162,36 +176,9 @@ function focusDraftAtEnd(): void {
 /**
  * Stop recording only when the user intentionally moves the caret
  * (mouse reposition or navigation keys) — typing must NOT cancel.
- * Only applies once the draft already has text.
+ * During streaming dictation the caret must stay parked at the live
+ * insertion point; any move away interrupts the stream.
  */
-function shouldStopForCaretMove(): boolean {
-  if (!voiceActive.value || asr.transcribing) return false;
-  if (Date.now() < asrCaretGuardUntil) return false;
-  return Boolean(composer.draft.trim());
-}
-
-function onDraftCaretClick(): void {
-  if (!shouldStopForCaretMove()) return;
-  if (richEditor.value?.isCaretAtEnd?.()) return;
-  cancelVoice();
-}
-
-function onDraftKeyup(e: KeyboardEvent): void {
-  const nav = new Set([
-    "ArrowLeft",
-    "ArrowRight",
-    "ArrowUp",
-    "ArrowDown",
-    "Home",
-    "End",
-    "PageUp",
-    "PageDown",
-  ]);
-  if (!nav.has(e.key)) return;
-  if (!shouldStopForCaretMove()) return;
-  cancelVoice();
-}
-
 function persistSessionPrefs(): void {
   localStorage.setItem(
     SESSION_PREFS_KEY,
@@ -1954,11 +1941,15 @@ function cancelVoice(opts?: { resumeWake?: boolean }): void {
 }
 
 async function confirmVoice(): Promise<void> {
-  if (!voiceSession || voiceConfirming) return;
+  if (!voiceSession) {
+    if (voiceActive.value && !voiceConfirming) messageApi.info(t.voiceMicOpening);
+    return;
+  }
+  if (voiceConfirming) return;
   voiceConfirming = true;
   const gen = voiceGen;
 
-  // Stop mic + close record UI immediately; send button shows loading until ASR finishes
+  // Stop mic + close record UI immediately; send button shows loading until ASR finishes.
   const session = voiceSession;
   voiceSession = null;
   voiceActive.value = false;
@@ -1983,15 +1974,13 @@ async function confirmVoice(): Promise<void> {
       messageApi.warning(t.voiceEmpty);
       return;
     }
-    // Insert at the current caret (fallback: end of editor) — the mic flow
-    // must never leave the user typing in a defocused composer.
+    // Insert directly at the current caret — do NOT move the cursor.
     armAsrCaretGuard();
     if (richEditor.value?.insertTextAtCaret) {
       richEditor.value.insertTextAtCaret(text);
     } else {
       composer.draft = joinAsr(composer.draft, text);
     }
-    void nextTick(() => focusDraftAtEnd());
   } catch (err) {
     if (gen !== voiceGen) return;
     const raw = err instanceof Error ? err.message : String(err);
@@ -2009,7 +1998,6 @@ async function onMicClick(): Promise<void> {
   // First use: let the user pick the recognition backend (local vs cloud API).
   if (!(await asr.ensureBackendChosen())) return;
 
-  // Fast gate — do not await model warm before opening the record UI.
   if (asr.status.supported === false && !asr.status.cloudConfigured) {
     messageApi.warning(t.asrUnsupported);
     return;
@@ -2020,11 +2008,24 @@ async function onMicClick(): Promise<void> {
   }
 
   setDictationWakePaused(true);
-  // Free wake mic (must finish before we open the dictation mic).
-  await stopWakeListen();
-  media.stopAll();
+
+  // Show the record UI INSTANTLY — never block the click on the mic or
+  // the ASR engine. The mic opens in the background; the model loads async.
+  voiceActive.value = true;
+  asr.recording = true;
+  voiceMeter.level = 0;
+  void nextTick(() => focusDraftAtEnd());
+
+  // Free wake mic / preload / media in the background — do NOT await on the click path.
+  // suspend keeps the ASR child warm so convert stays fast on low-end machines.
+  void (async () => {
+    await suspendWakeListen();
+    await stopPreloadStream();
+    media.stopAll();
+  })();
 
   try {
+    // Kick mic open without awaiting UI; startVoiceRecord already yields a frame.
     voiceSession = await startVoiceRecord({
       onLevel: (level) => {
         if (!voiceActive.value) return;
@@ -2034,9 +2035,10 @@ async function onMicClick(): Promise<void> {
         void confirmVoice();
       },
     });
-    voiceActive.value = true;
-    asr.recording = true;
-    void nextTick(() => focusDraftAtEnd());
+    if (!voiceActive.value) {
+      voiceSession.abort();
+      voiceSession = null;
+    }
   } catch (err) {
     const raw = err instanceof Error ? err.message : String(err);
     let msg = raw;
@@ -2050,14 +2052,13 @@ async function onMicClick(): Promise<void> {
     return;
   }
 
-  // Warm / ensure runtime+model in the background for when the user confirms.
+  // Warm / ensure runtime+model in the background so conversion is fast.
   void ensureAsrReady().then((ready) => {
     if (!ready && voiceActive.value) {
       // Keep recording UI; confirmVoice will re-check / show install.
     }
   });
 }
-
 const micTitle = computed(
   () => `${t.voiceInput} (${formatAcceleratorLabel(asr.status.wakeHotkey || "Control+Alt+Y")})`,
 );
@@ -2078,6 +2079,7 @@ function onVoiceSessionKeydown(e: KeyboardEvent): void {
   }
 }
 
+/** User typed/edited the draft while streaming — they took control, stop. */
 function onAsrWake(): void {
   if (asr.capturingHotkey) return;
   if (!asr.micVisible) return;
@@ -2096,6 +2098,14 @@ onMounted(() => {
   window.addEventListener(ASR_VOICE_WAKE_EVENT, onAsrWake);
   window.addEventListener("keydown", onVoiceSessionKeydown, true);
   window.addEventListener("pi-models-changed", onModelsChanged);
+  // Warm AudioWorklet + mic permission off the click path (idle so boot stays light).
+  const ric =
+    typeof window.requestIdleCallback === "function"
+      ? window.requestIdleCallback.bind(window)
+      : (cb: () => void) => window.setTimeout(cb, 900);
+  ric(() => {
+    void prewarmVoiceCapture();
+  });
 });
 
 onUnmounted(() => {
@@ -2251,8 +2261,6 @@ watch(
           :disabled="voicePending"
           :expanded="editorExpanded"
           @keydown="onKeydown"
-          @click="onDraftCaretClick"
-          @keyup="onDraftKeyup"
         />
       </div>
 
@@ -2365,6 +2373,7 @@ watch(
             :disabled="asr.installing"
             :aria-label="micTitle"
             :title="micTitle"
+            @pointerenter="void prewarmVoiceCapture()"
             @mousedown.prevent="onMicClick"
           >
             <NIcon :component="MicOutline" :size="18" />

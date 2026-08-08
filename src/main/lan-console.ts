@@ -16,12 +16,14 @@ import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "no
 import { dirname, extname, join, sep } from "node:path";
 import { randomBytes } from "node:crypto";
 import { networkInterfaces } from "node:os";
+import { gzipSync } from "node:zlib";
 import { app, ipcMain } from "electron";
 import selfsigned from "selfsigned";
 import { WebSocket, WebSocketServer } from "ws";
 import type { SessionBroker } from "./session-broker";
 import { readSessionHistoryPage } from "./session-history";
 import { getSessionResources } from "./agent-worker-host";
+import { listAvailableModels } from "./models-ipc";
 import { transcribePcm } from "./asr-host";
 import { getWorkspace, listRecent } from "./workspace-ipc";
 import { IpcChannels } from "../shared/protocol";
@@ -36,6 +38,8 @@ type LanConsoleSettings = {
   port: number;
   username: string;
   password: string;
+  /** User-picked LAN IPv4 for QR / copy URL (may be stale until validated). */
+  preferredIp: string;
 };
 
 /** Active web sessions: token -> expiry epoch ms. */
@@ -57,9 +61,10 @@ function readSettings(): LanConsoleSettings {
       port: typeof raw.port === "number" && raw.port > 0 && raw.port < 65536 ? raw.port : DEFAULT_PORT,
       username: typeof raw.username === "string" ? raw.username : "",
       password: typeof raw.password === "string" ? raw.password : "",
+      preferredIp: typeof raw.preferredIp === "string" ? raw.preferredIp.trim() : "",
     };
   } catch {
-    return { enabled: false, port: DEFAULT_PORT, username: "", password: "" };
+    return { enabled: false, port: DEFAULT_PORT, username: "", password: "", preferredIp: "" };
   }
 }
 
@@ -93,19 +98,59 @@ function issueSessionToken(): string {
   return token;
 }
 
-function lanIPv4(): string {
+/** Virtual / VPN adapters that often win Object.values() order but are unreachable from phones. */
+const VIRTUAL_IFACE_RE =
+  /vethernet|hyper-?v|wsl|docker|vmware|vbox|virtualbox|virbr|veth|tun|tap|tailscale|zerotier|hamachi|vpn|ppp|wireguard|\bwg\b|utun|clash|meta|npcap|loopback|bluetooth|isatap|teredo|microsoft wi-?fi direct|hosted network/i;
+const PHYSICAL_IFACE_RE =
+  /wi-?fi|wlan|wireless|ethernet|eth\d*|en\d+|en0|en1|本地连接|以太网|无线|lan\b|nic/i;
+
+function isIpv4Family(family: string | number): boolean {
+  return family === "IPv4" || family === 4;
+}
+
+function scoreLanAddress(ifaceName: string, address: string): number {
+  let score = 0;
+  // vEthernet contains "ethernet" — never award the physical bonus to virtual NICs.
+  const virtual = VIRTUAL_IFACE_RE.test(ifaceName);
+  if (virtual) score -= 120;
+  else if (PHYSICAL_IFACE_RE.test(ifaceName)) score += 55;
+
+  // Prefer common home/office LAN ranges; 172.16/12 is often Docker/WSL.
+  if (/^192\.168\./u.test(address)) score += 45;
+  else if (/^10\./u.test(address)) score += 35;
+  else if (/^172\.(1[6-9]|2\d|3[01])\./u.test(address)) score += 8;
+  else score -= 25;
+
+  if (/^169\.254\./u.test(address)) score -= 90; // link-local
+  if (/^100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\./u.test(address)) score -= 40; // CGNAT
+  return score;
+}
+
+/** Non-internal IPv4s, best guess for phone/LAN access first. */
+function lanIPv4s(): string[] {
+  type Row = { name: string; address: string; score: number };
+  const rows: Row[] = [];
+  const seen = new Set<string>();
+  for (const [name, infos] of Object.entries(networkInterfaces())) {
+    for (const info of infos ?? []) {
+      if (!isIpv4Family(info.family) || info.internal) continue;
+      if (seen.has(info.address)) continue;
+      seen.add(info.address);
+      rows.push({ name, address: info.address, score: scoreLanAddress(name, info.address) });
+    }
+  }
+  rows.sort((a, b) => b.score - a.score || a.address.localeCompare(b.address));
+  return rows.map((r) => r.address);
+}
+
+function resolvePreferredIp(settings: LanConsoleSettings): string {
   const ips = lanIPv4s();
+  if (settings.preferredIp && ips.includes(settings.preferredIp)) return settings.preferredIp;
   return ips[0] ?? "127.0.0.1";
 }
 
-function lanIPv4s(): string[] {
-  const out: string[] = [];
-  for (const infos of Object.values(networkInterfaces())) {
-    for (const info of infos ?? []) {
-      if (info.family === "IPv4" && !info.internal) out.push(info.address);
-    }
-  }
-  return out;
+function buildLanUrl(ip: string, port: number): string {
+  return `https://${ip}:${port}`;
 }
 
 function certPaths(): { key: string; cert: string; meta: string } {
@@ -125,6 +170,9 @@ function certPaths(): { key: string; cert: string; meta: string } {
 async function ensureCertificate(): Promise<{ key: string; cert: string }> {
   const { key, cert, meta } = certPaths();
   const ips = lanIPv4s();
+  // v2: IP SANs use type 7 (iPAddress). Older certs used type 2 (DNS) for IPs
+  // which breaks hostname checks when phones open https://192.168.x.x.
+  const CERT_ALG = "ec-p256-san-ip7";
   let stored = { alg: "", ips: [] as string[] };
   try {
     stored = JSON.parse(readFileSync(meta, "utf8")) as { alg: string; ips: string[] };
@@ -135,14 +183,14 @@ async function ensureCertificate(): Promise<{ key: string; cert: string }> {
     Array.isArray(stored.ips) &&
     stored.ips.length === ips.length &&
     stored.ips.every((ip, i) => ip === ips[i]);
-  const sameAlg = stored.alg === "ec-p256";
+  const sameAlg = stored.alg === CERT_ALG;
   if (existsSync(key) && existsSync(cert) && sameIps && sameAlg) {
     return { key: readFileSync(key, "utf8"), cert: readFileSync(cert, "utf8") };
   }
   const pems = await selfsigned.generate([{ name: "commonName", value: "Pi Desktop" }], {
     days: 365,
     algorithm: "sha256",
-    // EC P-256: much faster TLS handshakes than RSA 2048 ? matters on phones
+    // EC P-256: much faster TLS handshakes than RSA 2048 — matters on phones
     // (esp. iOS) where self-signed cert validation is the slow part.
     keyType: "ec",
     curve: "P-256",
@@ -151,8 +199,8 @@ async function ensureCertificate(): Promise<{ key: string; cert: string }> {
         name: "subjectAltName",
         altNames: [
           { type: 2, value: "localhost" },
-          { type: 2, value: "127.0.0.1" },
-          ...ips.map((ip) => ({ type: 2, value: ip })),
+          { type: 7, value: "127.0.0.1" },
+          ...ips.map((ip) => ({ type: 7, value: ip })),
         ],
       },
     ],
@@ -160,7 +208,7 @@ async function ensureCertificate(): Promise<{ key: string; cert: string }> {
   mkdirSync(dirname(key), { recursive: true });
   writeFileSync(key, pems.private, "utf8");
   writeFileSync(cert, pems.cert, "utf8");
-  writeFileSync(meta, JSON.stringify({ alg: "ec-p256", ips }), "utf8");
+  writeFileSync(meta, JSON.stringify({ alg: CERT_ALG, ips }), "utf8");
   return { key: pems.private, cert: pems.cert };
 }
 
@@ -170,8 +218,8 @@ function lanWebDir(): string {
 
 const MIME: Record<string, string> = {
   ".html": "text/html; charset=utf-8",
-  ".js": "text/javascript",
-  ".css": "text/css",
+  ".js": "text/javascript; charset=utf-8",
+  ".css": "text/css; charset=utf-8",
   ".svg": "image/svg+xml",
   ".png": "image/png",
   ".jpg": "image/jpeg",
@@ -180,6 +228,25 @@ const MIME: Record<string, string> = {
   ".json": "application/json",
   ".map": "application/json",
 };
+
+/** Compressible types — phones on LAN benefit a lot from gzip (naive-less JS still helps). */
+const GZIP_EXT = new Set([".html", ".js", ".css", ".svg", ".json", ".map"]);
+
+type CachedAsset = { raw: Buffer; gzip: Buffer; mtimeMs: number };
+const assetCache = new Map<string, CachedAsset>();
+
+function readCachedAsset(file: string): CachedAsset {
+  const st = statSync(file);
+  const hit = assetCache.get(file);
+  if (hit && hit.mtimeMs === st.mtimeMs) return hit;
+  const raw = readFileSync(file);
+  const gzip = GZIP_EXT.has(extname(file).toLowerCase()) && raw.length > 512
+    ? gzipSync(raw, { level: 6 })
+    : raw;
+  const row = { raw, gzip, mtimeMs: st.mtimeMs };
+  assetCache.set(file, row);
+  return row;
+}
 
 let httpServer: HttpServer | null = null;
 let wss: WebSocketServer | null = null;
@@ -245,6 +312,50 @@ function readJsonBody(req: import("node:http").IncomingMessage): Promise<Record<
   });
 }
 
+/** Read a raw binary request body (bounded to 20 MB) — for audio file uploads. */
+function readRawBody(req: import("node:http").IncomingMessage): Promise<Buffer> {
+  return new Promise((resolve, reject) => {
+    const chunks: Buffer[] = [];
+    let size = 0;
+    req.on("data", (c: Buffer) => {
+      size += c.length;
+      if (size > 20 * 1024 * 1024) {
+        reject(new Error("body too large"));
+        req.destroy();
+        return;
+      }
+      chunks.push(c);
+    });
+    req.on("end", () => resolve(Buffer.concat(chunks)));
+    req.on("error", reject);
+  });
+}
+
+/** Parse a 16-bit PCM WAV file: returns raw samples + sample rate. */
+function parseWav(buf: Buffer): { pcm: Int16Array; sampleRate: number } {
+  if (buf.length < 44 || buf.toString("ascii", 0, 4) !== "RIFF" || buf.toString("ascii", 8, 12) !== "WAVE") {
+    throw new Error("invalid WAV file");
+  }
+  const sampleRate = buf.readUInt32LE(24);
+  let offset = 12;
+  let dataOffset = -1;
+  let dataLen = 0;
+  while (offset + 8 <= buf.length) {
+    const id = buf.toString("ascii", offset, offset + 4);
+    const len = buf.readUInt32LE(offset + 4);
+    if (id === "data") {
+      dataOffset = offset + 8;
+      dataLen = len;
+      break;
+    }
+    offset += 8 + len + (len % 2);
+  }
+  if (dataOffset < 0) throw new Error("WAV has no data chunk");
+  const end = Math.min(buf.length, dataOffset + dataLen);
+  const pcm = new Int16Array(buf.buffer, buf.byteOffset + dataOffset, Math.floor((end - dataOffset) / 2));
+  return { pcm, sampleRate };
+}
+
 async function handleHttp(
   req: import("node:http").IncomingMessage,
   res: import("node:http").ServerResponse,
@@ -258,10 +369,25 @@ async function handleHttp(
     const file = join(dir, rel);
     const within = file === join(dir, "index.html") || file.startsWith(dir + sep);
     if (within && existsSync(file) && statSync(file).isFile()) {
-      const ct = MIME[extname(file).toLowerCase()] ?? "application/octet-stream";
-      const cache = extname(file).toLowerCase() === ".html" ? "no-store" : "public, max-age=31536000, immutable";
-      res.writeHead(200, { "Content-Type": ct, "Cache-Control": cache });
-      res.end(readFileSync(file));
+      const ext = extname(file).toLowerCase();
+      const ct = MIME[ext] ?? "application/octet-stream";
+      const cache = ext === ".html" ? "no-store" : "public, max-age=31536000, immutable";
+      const asset = readCachedAsset(file);
+      const accept = String(req.headers["accept-encoding"] ?? "");
+      const wantGzip = asset.gzip !== asset.raw && /\bgzip\b/i.test(accept);
+      const body = wantGzip ? asset.gzip : asset.raw;
+      const headers: Record<string, string | number> = {
+        "Content-Type": ct,
+        "Cache-Control": cache,
+        "Content-Length": body.length,
+        "X-Content-Type-Options": "nosniff",
+      };
+      if (wantGzip) {
+        headers["Content-Encoding"] = "gzip";
+        headers.Vary = "Accept-Encoding";
+      }
+      res.writeHead(200, headers);
+      res.end(body);
       return;
     }
     res.writeHead(404, { "Content-Type": "application/json" });
@@ -296,21 +422,20 @@ async function handleHttp(
       return;
     }
     try {
-      const body = await readJsonBody(req);
-      const b64 = typeof body.pcmBase64 === "string" ? body.pcmBase64 : "";
-      const sampleRate = typeof body.sampleRate === "number" ? body.sampleRate : 16000;
-      if (!b64) {
+      // The web page uploads the recorded audio as a raw WAV file body
+      // (not base64) — parsed here and handed to the desktop ASR backend.
+      const body = await readRawBody(req);
+      const { pcm, sampleRate } = parseWav(body);
+      if (!pcm || pcm.length === 0) {
         res.writeHead(400, { "Content-Type": "application/json" });
-        res.end(JSON.stringify({ ok: false, message: "pcmBase64 required" }));
+        res.end(JSON.stringify({ ok: false, message: "empty audio" }));
         return;
       }
-      const buf = Buffer.from(b64, "base64");
-      const pcm = new Int16Array(buf.buffer, buf.byteOffset, Math.floor(buf.byteLength / 2));
       const text = await transcribePcm(pcm, sampleRate);
       res.writeHead(200, { "Content-Type": "application/json" });
       res.end(JSON.stringify({ ok: true, text }));
     } catch (err) {
-      res.writeHead(500, { "Content-Type": "application/json" });
+      res.writeHead(400, { "Content-Type": "application/json" });
       res.end(JSON.stringify({ ok: false, message: err instanceof Error ? err.message : String(err) }));
     }
     return;
@@ -420,6 +545,69 @@ async function handleMessage(client: WsClient, raw: string): Promise<void> {
         return;
       }
       reply(client, id, { type: "sessionInfo", sessionId, resources: getSessionResources(sessionId) });
+      return;
+    }
+
+    case "listModels": {
+      try {
+        const { ModelRuntime } = await import("@earendil-works/pi-coding-agent");
+        const { getModelsConfigService } = await import("./models-config");
+        const { paths } = getModelsConfigService();
+        const runtime = await ModelRuntime.create({ modelsPath: paths.modelsPath, authPath: paths.authPath });
+        const available = await listAvailableModels(runtime);
+        reply(client, id, { type: "models", available });
+      } catch (err) {
+        fail(client, id, err instanceof Error ? err.message : String(err));
+      }
+      return;
+    }
+    case "setModel": {
+      const sessionId = typeof msg.sessionId === "string" ? msg.sessionId : "";
+      const provider = typeof msg.provider === "string" ? msg.provider : "";
+      const modelId = typeof msg.modelId === "string" ? msg.modelId : "";
+      if (!sessionId || !provider || !modelId || !brokerRef) {
+        fail(client, id, "sessionId, provider and modelId required");
+        return;
+      }
+      try {
+        await brokerRef.send(sessionId, { type: "set_model", provider, modelId });
+        reply(client, id, { type: "sent" });
+      } catch (err) {
+        fail(client, id, err instanceof Error ? err.message : String(err));
+      }
+      return;
+    }
+    case "setThinking": {
+      const sessionId2 = typeof msg.sessionId === "string" ? msg.sessionId : "";
+      const level = typeof msg.level === "string" ? msg.level : "";
+      if (!sessionId2 || !level || !brokerRef) {
+        fail(client, id, "sessionId and level required");
+        return;
+      }
+      try {
+        await brokerRef.send(sessionId2, { type: "set_thinking_level", level });
+        reply(client, id, { type: "sent" });
+      } catch (err) {
+        fail(client, id, err instanceof Error ? err.message : String(err));
+      }
+      return;
+    }
+    case "getSessionState": {
+      const sessionId = typeof msg.sessionId === "string" ? msg.sessionId : "";
+      if (!sessionId || !brokerRef) {
+        fail(client, id, "sessionId required");
+        return;
+      }
+      try {
+        // Prefer live worker (no cold start). Fall back to send which may warm the agent.
+        let state = await brokerRef.trySend(sessionId, { type: "get_state" });
+        if (state === undefined) {
+          state = await brokerRef.send(sessionId, { type: "get_state" });
+        }
+        reply(client, id, { type: "sessionState", sessionId, state });
+      } catch (err) {
+        fail(client, id, err instanceof Error ? err.message : String(err));
+      }
       return;
     }
     case "transcribe": {
@@ -542,12 +730,17 @@ function stopLanConsole(): void {
 
 export function getLanConsoleStatus(): LanConsoleStatus {
   const settings = readSettings();
-  const baseUrl = `https://${lanIPv4()}:${settings.port}`;
+  const addresses = lanIPv4s();
+  const preferredIp = resolvePreferredIp(settings);
+  const baseUrl = buildLanUrl(preferredIp, settings.port);
   return {
     enabled: settings.enabled && Boolean(httpServer),
     port: settings.port,
     username: settings.username,
     hasCredentials: Boolean(settings.username && settings.password),
+    preferredIp,
+    addresses,
+    urls: addresses.map((ip) => buildLanUrl(ip, settings.port)),
     baseUrl,
     url: baseUrl,
   };
@@ -606,6 +799,18 @@ export function registerLanConsoleIpc(broker: SessionBroker): void {
       const result = await startLanConsole();
       if (!result.ok) throw new Error(result.message);
     }
+    return getLanConsoleStatus();
+  });
+
+  ipcMain.handle(IpcChannels.lanConsole.setPreferredIp, async (_e, ip: unknown) => {
+    const next = typeof ip === "string" ? ip.trim() : "";
+    const ips = lanIPv4s();
+    if (next && !ips.includes(next)) {
+      throw new Error(`IP not available on this machine: ${next}`);
+    }
+    const settings = readSettings();
+    settings.preferredIp = next;
+    writeSettings(settings);
     return getLanConsoleStatus();
   });
 }

@@ -1,23 +1,23 @@
-/** Qwen3-ASR (~0.6–0.7B) local speech-to-text — optional, on-demand install. */
+/** SenseVoiceSmall (multilingual CTC, ~234M) local speech-to-text — optional, on-demand install. */
 
-export const ASR_MODEL_ID = "qwen3-asr-0.6b-q4_k";
-export const ASR_MODEL_LABEL = "Qwen3-ASR 0.6B (Q4_K)";
+export const ASR_MODEL_ID = "sensevoice-small-q4_k";
+export const ASR_MODEL_LABEL = "SenseVoiceSmall (Q4_K)";
 
 /** Approximate sizes shown to the user before install. */
-export const ASR_DISK_MB = 640;
-export const ASR_RAM_MB = 900;
+export const ASR_DISK_MB = 140;
+export const ASR_RAM_MB = 420;
 export const ASR_BINARY_MB = 10;
 
 /** Hugging Face GGUF (single-file CrispASR backend). */
-export const ASR_MODEL_FILENAME = "qwen3-asr-0.6b-q4_k.gguf";
+export const ASR_MODEL_FILENAME = "sensevoice-small-q4_k.gguf";
 
 /**
  * Model download candidates (tried in order).
  * Default list prefers hf-mirror (CN-friendly); use asrModelUrlsForMirror() for preference-aware order.
  */
 export const ASR_MODEL_URLS = [
-  `https://hf-mirror.com/cstr/qwen3-asr-0.6b-GGUF/resolve/main/${ASR_MODEL_FILENAME}`,
-  `https://huggingface.co/cstr/qwen3-asr-0.6b-GGUF/resolve/main/${ASR_MODEL_FILENAME}`,
+  `https://hf-mirror.com/cstr/sensevoice-small-GGUF/resolve/main/${ASR_MODEL_FILENAME}`,
+  `https://huggingface.co/cstr/sensevoice-small-GGUF/resolve/main/${ASR_MODEL_FILENAME}`,
 ] as const;
 
 /** @deprecated Prefer ASR_MODEL_URLS — kept for older imports. */
@@ -102,8 +102,8 @@ export function asrDownloadSourceHost(url: string): string {
 
 /** Model URL candidates ordered by mirror preference. */
 export function asrModelUrlsForMirror(mirror: AsrDownloadMirror = "auto", locale = "en"): string[] {
-  const cn = `https://hf-mirror.com/cstr/qwen3-asr-0.6b-GGUF/resolve/main/${ASR_MODEL_FILENAME}`;
-  const intl = `https://huggingface.co/cstr/qwen3-asr-0.6b-GGUF/resolve/main/${ASR_MODEL_FILENAME}`;
+  const cn = `https://hf-mirror.com/cstr/sensevoice-small-GGUF/resolve/main/${ASR_MODEL_FILENAME}`;
+  const intl = `https://huggingface.co/cstr/sensevoice-small-GGUF/resolve/main/${ASR_MODEL_FILENAME}`;
   return asrMirrorChinaFirst(mirror, locale) ? [cn, intl] : [intl, cn];
 }
 
@@ -318,6 +318,8 @@ export type AsrStatus = {
    * local wake-word listening. Default off for privacy.
    */
   residentModel: boolean;
+  /** Always-on voice wake-word listening (separate switch from model resident). */
+  wakeEnabled: boolean;
   /** Raw wake-word list (comma / newline separated). */
   wakeWords: string;
   lastError: string | null;

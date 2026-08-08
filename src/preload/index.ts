@@ -99,6 +99,8 @@ const api = {
 				String(username ?? ""),
 				String(password ?? ""),
 			) as Promise<LanConsoleStatus>,
+		setPreferredIp: (ip: string) =>
+			ipcRenderer.invoke(IpcChannels.lanConsole.setPreferredIp, String(ip ?? "")) as Promise<LanConsoleStatus>,
 	},
 	window: {
 		platform: () =>
@@ -980,6 +982,11 @@ const api = {
 		setResidentModel: (enabled: boolean) =>
 			ipcRenderer.invoke(
 				IpcChannels.asr.setResidentModel,
+				enabled,
+			) as Promise<AsrStatus>,
+		setWakeEnabled: (enabled: boolean) =>
+			ipcRenderer.invoke(
+				IpcChannels.asr.setWakeEnabled,
 				enabled,
 			) as Promise<AsrStatus>,
 		setWakeWords: (raw: string) =>

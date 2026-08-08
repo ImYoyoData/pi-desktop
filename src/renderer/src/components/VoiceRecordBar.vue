@@ -2,6 +2,7 @@
 import { computed, onMounted, onUnmounted, ref, shallowRef } from "vue";
 import { NIcon } from "naive-ui";
 import { CheckmarkOutline, CloseOutline } from "@vicons/ionicons5";
+import { isLowPowerClient } from "@renderer/utils/low-power";
 import { t } from "@renderer/i18n";
 
 /** Non-reactive meter — parent mutates `.level` from the audio thread. */
@@ -13,6 +14,10 @@ const props = defineProps<{
   busy?: boolean;
   /** Show stop control when an agent turn is running */
   showStop?: boolean;
+  /** Live streaming dictation is active (local backend). */
+  streaming?: boolean;
+  /** ASR engine is still loading (model not resident yet). */
+  starting?: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -21,7 +26,9 @@ const emit = defineEmits<{
   stop: [];
 }>();
 
-const BAR_COUNT = 48;
+const lowPower = isLowPowerClient();
+/** Fewer bars + lower FPS on weak CPUs so the record UI never fights the mic path. */
+const BAR_COUNT = lowPower ? 24 : 48;
 const canvasRef = shallowRef<HTMLCanvasElement | null>(null);
 const hostRef = shallowRef<HTMLElement | null>(null);
 const startedAt = ref(Date.now());
@@ -33,9 +40,11 @@ let writeIdx = 0;
 let rafId = 0;
 let clockTimer: ReturnType<typeof setInterval> | null = null;
 let lastSampleAt = 0;
-/** Target sample interval — ~60fps visual, independent of AudioWorklet frame rate. */
-const SAMPLE_MS = 16;
+let cachedBarColor = "";
+/** ~30fps low-power / ~60fps otherwise. */
+const SAMPLE_MS = lowPower ? 33 : 16;
 const SMOOTH = 0.38;
+const MAX_DPR = lowPower ? 1 : 2;
 
 const elapsedLabel = computed(() => {
   const sec = Math.max(0, Math.floor((nowTick.value - startedAt.value) / 1000));
@@ -45,16 +54,18 @@ const elapsedLabel = computed(() => {
 });
 
 function cssColor(name: string, fallback: string): string {
+  if (cachedBarColor) return cachedBarColor;
   const el = hostRef.value;
   if (!el) return fallback;
   const v = getComputedStyle(el).getPropertyValue(name).trim();
-  return v || fallback;
+  cachedBarColor = v || fallback;
+  return cachedBarColor;
 }
 
 function draw(): void {
   const canvas = canvasRef.value;
   if (!canvas) return;
-  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  const dpr = Math.min(window.devicePixelRatio || 1, MAX_DPR);
   const cssW = canvas.clientWidth || 160;
   const cssH = canvas.clientHeight || 20;
   const w = Math.max(1, Math.floor(cssW * dpr));
@@ -73,6 +84,7 @@ function draw(): void {
   const gap = Math.max(1 * dpr, (w / BAR_COUNT) * 0.35);
   const barW = Math.max(1 * dpr, (w - gap * (BAR_COUNT - 1)) / BAR_COUNT);
   const maxAmp = midY * 0.92;
+  ctx.fillStyle = barColor;
 
   for (let i = 0; i < BAR_COUNT; i++) {
     const idx = (writeIdx + i) % BAR_COUNT;
@@ -82,7 +94,6 @@ function draw(): void {
     const half = Math.max(dpr, amp * maxAmp * fade);
     const x = i * (barW + gap);
     ctx.globalAlpha = 0.35 + 0.65 * fade;
-    ctx.fillStyle = barColor;
     ctx.fillRect(x, midY - half, barW, half * 2);
   }
   ctx.globalAlpha = 1;
@@ -124,6 +135,12 @@ onUnmounted(() => {
   <div ref="hostRef" class="voice-bar" role="group" :aria-label="t.voiceRecording">
     <canvas ref="canvasRef" class="wave" aria-hidden="true" />
     <span class="time">{{ elapsedLabel }}</span>
+    <span v-if="starting" class="live starting" role="status" aria-live="polite">
+      <i class="live-dot" aria-hidden="true" />{{ t.voiceStarting }}
+    </span>
+    <span v-else-if="streaming" class="live" role="status" aria-live="polite">
+      <i class="live-dot" aria-hidden="true" />{{ t.voiceStreaming }}
+    </span>
     <button
       v-if="showStop"
       type="button"
@@ -139,13 +156,14 @@ onUnmounted(() => {
       type="button"
       class="icon-btn"
       :disabled="busy"
-      :title="t.voiceCancel"
-      :aria-label="t.voiceCancel"
+      :title="streaming ? t.voiceClose : t.voiceCancel"
+      :aria-label="streaming ? t.voiceClose : t.voiceCancel"
       @mousedown.prevent="emit('cancel')"
     >
       <NIcon :component="CloseOutline" :size="15" />
     </button>
     <button
+      v-if="!streaming"
       type="button"
       class="icon-btn confirm"
       :disabled="busy"
@@ -256,5 +274,33 @@ onUnmounted(() => {
 .dark .stop-btn {
   border-color: #9aa0a6;
   color: #dadce0;
+}
+
+.live.starting {
+  color: var(--warning, #f0a020);
+}
+.live.starting .live-dot {
+  background: var(--warning, #f0a020);
+}
+.live {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  color: var(--success, #18a058);
+  margin-left: 8px;
+  user-select: none;
+  white-space: nowrap;
+}
+.live-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--success, #18a058);
+  animation: voice-live-pulse 1.2s ease-in-out infinite;
+}
+@keyframes voice-live-pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.35; transform: scale(0.8); }
 }
 </style>
