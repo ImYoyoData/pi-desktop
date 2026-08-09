@@ -17,7 +17,10 @@ import type {
 	ModelsGetResult,
 	ModelsSetPayload,
 } from "../shared/models-settings";
-import type { DiscoverModelsResult } from "../shared/model-discover";
+import type {
+	DiscoverModelsResult,
+	TestModelConnectionResult,
+} from "../shared/model-discover";
 import type { PreviewResult } from "../shared/preview-types";
 import type {
 	AsrInstallProgress,
@@ -169,6 +172,10 @@ const api = {
 			ipcRenderer.invoke(IpcChannels.workspace.pick) as Promise<string | null>,
 		listRecent: () =>
 			ipcRenderer.invoke(IpcChannels.workspace.listRecent) as Promise<string[]>,
+		listRecentDesktop: () =>
+			ipcRenderer.invoke(IpcChannels.workspace.listRecentDesktop) as Promise<
+				string[]
+			>,
 		listClosed: () =>
 			ipcRenderer.invoke(IpcChannels.workspace.listClosed) as Promise<string[]>,
 		openPath: (root: string) =>
@@ -179,6 +186,11 @@ const api = {
 			ipcRenderer.invoke(IpcChannels.workspace.clear) as Promise<null>,
 		removeRecent: (root: string) =>
 			ipcRenderer.invoke(IpcChannels.workspace.removeRecent, root) as Promise<{
+				root: string | null;
+				recent: string[];
+			}>,
+		purge: (root: string) =>
+			ipcRenderer.invoke(IpcChannels.workspace.purge, root) as Promise<{
 				root: string | null;
 				recent: string[];
 			}>,
@@ -741,6 +753,17 @@ const api = {
 				IpcChannels.models.discover,
 				payload,
 			) as Promise<DiscoverModelsResult>,
+		testConnection: (payload: {
+			baseUrl: string;
+			apiKey?: string;
+			api?: string;
+			modelId: string;
+			providerId?: string;
+		}) =>
+			ipcRenderer.invoke(
+				IpcChannels.models.testConnection,
+				payload,
+			) as Promise<TestModelConnectionResult>,
 	},
 	preview: {
 		read: (filePath: string) =>
@@ -948,10 +971,12 @@ const api = {
 			}) as Promise<string>,
 		streamStart: () =>
 			ipcRenderer.invoke(IpcChannels.asr.streamStart) as Promise<AsrStatus>,
-		streamPush: (pcmBase64: string) =>
-			ipcRenderer.invoke(IpcChannels.asr.streamPush, {
-				pcmBase64,
-			}) as Promise<void>,
+		streamPush: (pcm: Int16Array) => {
+			// send (not invoke): wake listen pushes many frames/sec; avoid
+			// base64 + promise round-trips on the UI / main threads.
+			ipcRenderer.send(IpcChannels.asr.streamPush, { pcm });
+			return Promise.resolve();
+		},
 		streamStop: () =>
 			ipcRenderer.invoke(IpcChannels.asr.streamStop) as Promise<AsrStatus>,
 		onStreamEvent: (callback: (event: AsrStreamEvent) => void) => {

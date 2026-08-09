@@ -30,4 +30,23 @@ describe("workspace-store", () => {
     const again = createWorkspaceStore(path.join(dir, "state.json"));
     expect(again.listRecent()).toEqual(["/c", "/a", "/b"]);
   });
+
+  it("removeRecent dismisses to closed; forget drops entirely", () => {
+    const a = path.join(dir, "proj-a");
+    const b = path.join(dir, "proj-b");
+    const store = createWorkspaceStore(path.join(dir, "state.json"));
+    store.addRecent(a);
+    store.addRecent(b);
+    store.setRoot(a);
+    store.removeRecent(a);
+    expect(store.listRecent()).toEqual([b]);
+    expect(store.getRoot()).toBe(b);
+    expect(store.listDismissedPi().map((p) => path.resolve(p))).toContain(path.resolve(a));
+
+    store.forget(a);
+    expect(store.listDismissedPi().map((p) => path.resolve(p))).not.toContain(path.resolve(a));
+    store.forget(b);
+    expect(store.listRecent()).toEqual([]);
+    expect(store.getRoot()).toBeNull();
+  });
 });

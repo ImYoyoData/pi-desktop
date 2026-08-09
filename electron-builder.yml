@@ -63,6 +63,9 @@ asarUnpack:
   # dugite embeds a real Git binary (win/mac/linux); must stay outside asar.
   # dugite rewrites app.asar → app.asar.unpacked when resolving git/.
   - '**/node_modules/dugite/git/**'
+  # worker_threads cannot load JS from asar (ASR / history offload).
+  - '**/asr-cloud-worker.js'
+  - '**/session-history-worker.js'
 extraResources:
   - from: resources/
     to: resources/

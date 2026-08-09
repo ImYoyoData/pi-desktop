@@ -25,7 +25,7 @@ export type WakeListenDeps = {
 
   streamStart: () => Promise<void>;
 
-  streamPush: (pcmBase64: string) => void;
+  streamPush: (pcm: Int16Array) => void;
 
   streamStop: () => Promise<void>;
 
@@ -282,9 +282,9 @@ export async function startWakeListen(deps: WakeListenDeps): Promise<void> {
 
       capture = await startPcmStreamPush({
 
-        onChunk: (pcmBase64) => {
+        onChunk: (pcm) => {
 
-          deps.streamPush(pcmBase64);
+          deps.streamPush(pcm);
 
         },
 

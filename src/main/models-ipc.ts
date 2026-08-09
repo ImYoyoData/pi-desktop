@@ -2,7 +2,12 @@ import { ipcMain } from "electron";
 
 import { IpcChannels } from "../shared/protocol";
 import type { ModelsGetResult, ModelsProviderAuth, ModelsSetPayload } from "../shared/models-settings";
-import { discoverModels, type DiscoverModelsResult } from "../shared/model-discover";
+import {
+	discoverModels,
+	testModelConnection,
+	type DiscoverModelsResult,
+	type TestModelConnectionResult,
+} from "../shared/model-discover";
 import type { SessionBroker } from "./session-broker";
 import { getModelsConfigService } from "./models-config";
 
@@ -124,6 +129,41 @@ export function registerModelsIpc(broker: SessionBroker): void {
         baseUrl: String(payload?.baseUrl ?? ""),
         apiKey: typeof payload?.apiKey === "string" ? payload.apiKey : undefined,
         api: typeof payload?.api === "string" ? payload.api : undefined,
+      });
+    },
+  );
+
+  ipcMain.handle(
+    IpcChannels.models.testConnection,
+    async (
+      _event,
+      payload: {
+        baseUrl: string;
+        apiKey?: string;
+        api?: string;
+        modelId: string;
+        /** When set and apiKey omitted, use auth.json key for this provider id. */
+        providerId?: string;
+      },
+    ): Promise<TestModelConnectionResult> => {
+      let apiKey =
+        typeof payload?.apiKey === "string" && payload.apiKey.trim()
+          ? payload.apiKey.trim()
+          : undefined;
+      const providerId =
+        typeof payload?.providerId === "string" ? payload.providerId.trim() : "";
+      if (!apiKey && providerId) {
+        const auth = await getModelsConfigService().readAuthConfig();
+        const cred = auth[providerId];
+        if (cred && cred.type === "api_key" && typeof cred.key === "string" && cred.key.trim()) {
+          apiKey = cred.key.trim();
+        }
+      }
+      return testModelConnection({
+        baseUrl: String(payload?.baseUrl ?? ""),
+        apiKey,
+        api: typeof payload?.api === "string" ? payload.api : undefined,
+        modelId: String(payload?.modelId ?? ""),
       });
     },
   );

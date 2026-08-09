@@ -1,5 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
-import { discoverModels, normalizeProviderBaseUrl } from "../../src/shared/model-discover";
+import {
+  discoverModels,
+  normalizeProviderBaseUrl,
+  testModelConnection,
+} from "../../src/shared/model-discover";
 import { draftToProviderJson, emptyCustomProvider } from "../../src/shared/custom-models";
 import { CUSTOM_PROVIDER_PRESETS } from "../../src/shared/custom-model-presets";
 
@@ -69,6 +73,45 @@ describe("discoverModels", () => {
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.models[0]).toMatchObject({ id: "llama3.1:8b", contextWindow: 8192 });
+  });
+});
+
+describe("testModelConnection", () => {
+  it("sends a tiny chat completions probe", async () => {
+    const fetchImpl = vi.fn(async (_url: string, init?: { body?: string }) => {
+      expect(init?.body).toContain('"max_tokens":1');
+      expect(init?.body).toContain("ping");
+      return {
+        ok: true,
+        status: 200,
+        statusText: "OK",
+        text: async () => JSON.stringify({ choices: [{ message: { content: "ok" } }] }),
+      };
+    });
+    const result = await testModelConnection(
+      {
+        baseUrl: "https://api.example.com/v1",
+        apiKey: "k",
+        api: "openai-completions",
+        modelId: "demo",
+      },
+      { fetchImpl: fetchImpl as never },
+    );
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.latencyMs).toBeGreaterThanOrEqual(0);
+    expect(fetchImpl).toHaveBeenCalledWith(
+      "https://api.example.com/v1/chat/completions",
+      expect.objectContaining({ method: "POST" }),
+    );
+  });
+
+  it("requires model id", async () => {
+    const result = await testModelConnection({
+      baseUrl: "https://api.example.com/v1",
+      modelId: "  ",
+    });
+    expect(result.ok).toBe(false);
   });
 });
 

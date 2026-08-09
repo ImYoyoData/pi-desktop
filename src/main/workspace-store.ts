@@ -105,6 +105,10 @@ export function createWorkspaceStore(statePath: string) {
       persist();
     },
 
+    /**
+     * Close / hide: drop from the main list but keep in dismissedPi so the
+     * workspace can be reopened from "Closed workspaces".
+     */
     removeRecent(root: string): void {
       const recent = state.recent.filter((entry) => pathKey(entry) !== pathKey(root));
       const nextRoot = state.root && pathKey(state.root) === pathKey(root) ? (recent[0] ?? null) : state.root;
@@ -112,6 +116,19 @@ export function createWorkspaceStore(statePath: string) {
         ? state.dismissedPi
         : [...state.dismissedPi, path.resolve(root)];
       state = { ...state, recent, root: nextRoot, dismissedPi };
+      persist();
+    },
+
+    /**
+     * Forget entirely: remove from recent AND dismissedPi (no "closed" entry).
+     * Does not touch the project folder or Pi session files — callers purge those.
+     */
+    forget(root: string): void {
+      const key = pathKey(root);
+      const recent = state.recent.filter((entry) => pathKey(entry) !== key);
+      const dismissedPi = state.dismissedPi.filter((entry) => pathKey(entry) !== key);
+      const nextRoot = state.root && pathKey(state.root) === key ? (recent[0] ?? null) : state.root;
+      state = { ...state, recent, dismissedPi, root: nextRoot };
       persist();
     },
   };

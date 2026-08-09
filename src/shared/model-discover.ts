@@ -20,13 +20,30 @@ export type DiscoverModelsResult =
 
 type FetchLike = (
   input: string,
-  init?: { method?: string; headers?: Record<string, string>; signal?: AbortSignal },
+  init?: {
+    method?: string;
+    headers?: Record<string, string>;
+    body?: string;
+    signal?: AbortSignal;
+  },
 ) => Promise<{
   ok: boolean;
   status: number;
   statusText: string;
   text(): Promise<string>;
 }>;
+
+export type TestModelConnectionInput = {
+  baseUrl: string;
+  apiKey?: string;
+  /** openai-completions | openai-responses | anthropic-messages | google-generative-ai */
+  api?: string;
+  modelId: string;
+};
+
+export type TestModelConnectionResult =
+  | { ok: true; latencyMs: number; status: number }
+  | { ok: false; error: string; latencyMs?: number; status?: number };
 
 function trimSlash(url: string): string {
   return url.replace(/\/+$/u, "");
@@ -188,4 +205,124 @@ export async function discoverModels(
     ok: false,
     error: `Could not fetch models.\n${errors.join("\n")}`,
   };
+}
+
+function defaultTestSignal(signal?: AbortSignal): AbortSignal | undefined {
+  if (signal) return signal;
+  const AbortSignalCtor = globalThis.AbortSignal as
+    | (typeof AbortSignal & { timeout?: (ms: number) => AbortSignal })
+    | undefined;
+  if (AbortSignalCtor && typeof AbortSignalCtor.timeout === "function") {
+    return AbortSignalCtor.timeout(20_000);
+  }
+  return undefined;
+}
+
+/**
+ * Cheap connectivity / latency probe: one tiny completion (max 1 token).
+ * Does not persist anything — only checks that the endpoint accepts the model.
+ */
+export async function testModelConnection(
+  input: TestModelConnectionInput,
+  opts?: { fetchImpl?: FetchLike; signal?: AbortSignal },
+): Promise<TestModelConnectionResult> {
+  const baseUrl = normalizeProviderBaseUrl(input.baseUrl);
+  const modelId = input.modelId.trim();
+  if (!baseUrl) return { ok: false, error: "Base URL is required" };
+  if (!modelId) return { ok: false, error: "Model ID is required" };
+
+  let parsed: URL;
+  try {
+    parsed = new URL(baseUrl);
+  } catch {
+    return { ok: false, error: "Base URL is invalid" };
+  }
+  void parsed;
+
+  const api = (input.api ?? "openai-completions").trim();
+  const key = input.apiKey?.trim() ?? "";
+  const fetchImpl = opts?.fetchImpl ?? (globalThis.fetch as FetchLike);
+  const signal = defaultTestSignal(opts?.signal);
+  const started = Date.now();
+
+  let url: string;
+  let headers: Record<string, string>;
+  let body: string;
+
+  if (api === "anthropic-messages") {
+    url = `${baseUrl}/messages`;
+    headers = {
+      Accept: "application/json",
+      "Content-Type": "application/json",
+      "anthropic-version": "2023-06-01",
+    };
+    if (key) {
+      headers["x-api-key"] = key;
+      headers.Authorization = `Bearer ${key}`;
+    }
+    body = JSON.stringify({
+      model: modelId,
+      max_tokens: 1,
+      messages: [{ role: "user", content: "ping" }],
+    });
+  } else if (api === "google-generative-ai") {
+    const qs = key ? `?key=${encodeURIComponent(key)}` : "";
+    url = `${baseUrl}/models/${encodeURIComponent(modelId)}:generateContent${qs}`;
+    headers = {
+      Accept: "application/json",
+      "Content-Type": "application/json",
+    };
+    body = JSON.stringify({
+      contents: [{ role: "user", parts: [{ text: "ping" }] }],
+      generationConfig: { maxOutputTokens: 1 },
+    });
+  } else if (api === "openai-responses") {
+    url = `${baseUrl}/responses`;
+    headers = {
+      Accept: "application/json",
+      "Content-Type": "application/json",
+      ...authHeaders(key),
+    };
+    body = JSON.stringify({
+      model: modelId,
+      input: "ping",
+      max_output_tokens: 1,
+    });
+  } else {
+    // openai-completions and unknown → chat completions
+    url = `${baseUrl}/chat/completions`;
+    headers = {
+      Accept: "application/json",
+      "Content-Type": "application/json",
+      ...authHeaders(key),
+    };
+    body = JSON.stringify({
+      model: modelId,
+      messages: [{ role: "user", content: "ping" }],
+      max_tokens: 1,
+      stream: false,
+    });
+  }
+
+  try {
+    const res = await fetchImpl(url, { method: "POST", headers, body, signal });
+    const latencyMs = Date.now() - started;
+    const text = await res.text();
+    if (!res.ok) {
+      const snippet = text.replace(/\s+/gu, " ").slice(0, 180);
+      return {
+        ok: false,
+        error: `HTTP ${res.status} ${res.statusText}${snippet ? `: ${snippet}` : ""}`,
+        latencyMs,
+        status: res.status,
+      };
+    }
+    return { ok: true, latencyMs, status: res.status };
+  } catch (err) {
+    return {
+      ok: false,
+      error: err instanceof Error ? err.message : String(err),
+      latencyMs: Date.now() - started,
+    };
+  }
 }

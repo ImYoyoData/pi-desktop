@@ -94,6 +94,48 @@ async function onReopenClosed(root: string): Promise<void> {
   }
 }
 
+/** Purge Pi config + sessions for a workspace (keeps project folder). */
+async function purgeWorkspaceUi(root: string): Promise<void> {
+  const sessionIds = (sessionsByRoot[root] ?? []).map((s) => s.id);
+  await workspace.purgeWorkspace(root);
+  for (const id of sessionIds) {
+    chatStore.clearSession(id);
+    sendQueueStore.clearSession(id);
+  }
+  delete sessionsByRoot[root];
+  delete expanded[root];
+  delete pins[root];
+  persistPins();
+  if (workspace.root) {
+    expanded[workspace.root] = true;
+    await loadSessions(workspace.root);
+    await ensureActiveSession(workspace.root);
+  } else {
+    sessionsStore.activeId = null;
+  }
+}
+
+function confirmPurgeWorkspace(root: string): void {
+  const d = dialog.warning({
+    title: t.removeWorkspaceTitle,
+    content: t.removeWorkspaceConfirm(workspaceName(root)),
+    positiveText: t.remove,
+    negativeText: t.cancel,
+    onPositiveClick: () => {
+      d.loading = true;
+      return (async () => {
+        try {
+          await purgeWorkspaceUi(root);
+        } catch (err) {
+          message.error(err instanceof Error ? err.message : String(err));
+          d.loading = false;
+          return false;
+        }
+      })();
+    },
+  });
+}
+
 const workspaceTreeEl = ref<HTMLElement | null>(null);
 let workspaceSortable: Sortable | null = null;
 
@@ -229,7 +271,7 @@ onMounted(async () => {
   // App.vue already loads workspace/recent — skip duplicate IPC on cold start.
   const boot: Promise<unknown>[] = [workspace.listClosed()];
   if (!workspace.root) boot.push(workspace.getWorkspace());
-  if (!workspace.recent.length) boot.push(workspace.listRecent());
+  if (!workspace.recent.length) boot.push(workspace.listRecentFast());
   await Promise.all(boot);
   if (workspace.root && workspace.sessionsReady) {
     expanded[workspace.root] = true;
@@ -599,33 +641,7 @@ async function onWorkspaceMenu(root: string, key: string | number): Promise<void
       break;
     }
     case "remove": {
-      const d = dialog.warning({
-        title: t.removeWorkspaceTitle,
-        content: t.removeWorkspaceConfirm(workspaceName(root)),
-        positiveText: t.remove,
-        negativeText: t.cancel,
-        onPositiveClick: () => {
-          d.loading = true;
-          return (async () => {
-            try {
-              await workspace.removeRecent(root);
-              delete sessionsByRoot[root];
-              delete expanded[root];
-              if (workspace.root) {
-                expanded[workspace.root] = true;
-                await loadSessions(workspace.root);
-                await ensureActiveSession(workspace.root);
-              } else {
-                sessionsStore.activeId = null;
-              }
-            } catch (err) {
-              message.error(err instanceof Error ? err.message : String(err));
-              d.loading = false;
-              return false;
-            }
-          })();
-        },
-      });
+      confirmPurgeWorkspace(root);
       break;
     }
     default:
@@ -945,16 +961,36 @@ function onLeftSplitResized(payload: SplitpanesResizedPayload): void {
               <span class="closed-ws-count">{{ closedPaths.length }}</span>
             </button>
             <div v-if="closedExpanded" class="closed-ws-list">
-              <button
+              <div
                 v-for="root in closedPaths"
                 :key="root"
-                type="button"
                 class="closed-ws-row"
                 :title="root"
-                @click="() => void onReopenClosed(root)"
               >
-                <span class="closed-ws-name">{{ workspaceName(root) }}</span>
-              </button>
+                <button
+                  type="button"
+                  class="closed-ws-open"
+                  @click="() => void onReopenClosed(root)"
+                >
+                  <span class="closed-ws-name">{{ workspaceName(root) }}</span>
+                </button>
+                <NTooltip>
+                  <template #trigger>
+                    <NButton
+                      quaternary
+                      size="tiny"
+                      class="closed-ws-remove"
+                      :aria-label="t.removeFromList"
+                      @click.stop="confirmPurgeWorkspace(root)"
+                    >
+                      <template #icon>
+                        <NIcon :component="TrashOutline" :size="13" />
+                      </template>
+                    </NButton>
+                  </template>
+                  {{ t.removeFromList }}
+                </NTooltip>
+              </div>
             </div>
           </div>
         </div>
@@ -1114,11 +1150,25 @@ function onLeftSplitResized(payload: SplitpanesResizedPayload): void {
 }
 
 .closed-ws-row {
+  display: flex;
+  align-items: center;
+  gap: 2px;
   width: 100%;
-  margin: 0;
-  padding: 4px 8px 4px 24px;
-  border: none;
+  padding: 1px 4px 1px 18px;
   border-radius: 6px;
+}
+
+.closed-ws-row:hover {
+  background: var(--bg-hover, rgba(127, 127, 127, 0.07));
+}
+
+.closed-ws-open {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  padding: 4px 4px;
+  border: none;
+  border-radius: 4px;
   background: transparent;
   color: var(--fg-muted, #888);
   font: inherit;
@@ -1127,9 +1177,17 @@ function onLeftSplitResized(payload: SplitpanesResizedPayload): void {
   cursor: pointer;
 }
 
-.closed-ws-row:hover {
-  background: var(--bg-hover, rgba(127, 127, 127, 0.07));
+.closed-ws-open:hover {
   color: var(--fg, #ddd);
+}
+
+.closed-ws-remove {
+  flex-shrink: 0;
+  opacity: 0.55;
+}
+
+.closed-ws-row:hover .closed-ws-remove {
+  opacity: 1;
 }
 
 .closed-ws-name {
