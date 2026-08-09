@@ -231,8 +231,8 @@ export const useAsrStore = defineStore("asr", () => {
     status.value = await window.api.asr.streamStart();
   }
 
-  function streamPush(pcmBase64: string): void {
-    void window.api.asr.streamPush(pcmBase64);
+  function streamPush(pcm: Int16Array): void {
+    void window.api.asr.streamPush(pcm);
   }
 
   async function streamStop(): Promise<void> {

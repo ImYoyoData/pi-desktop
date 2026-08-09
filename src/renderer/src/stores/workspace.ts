@@ -148,18 +148,35 @@ export const useWorkspaceStore = defineStore("workspace", () => {
 		return commitWorkspace(next);
 	}
 
-	async function listRecent(): Promise<string[]> {
-		recent.value = await window.api.workspace.listRecent();
-		return recent.value;
-	}
+		/**
+		 * Full recent list (Desktop + Pi-discovered). Prefer listRecentFast on boot.
+		 */
+		async function listRecent(): Promise<string[]> {
+			recent.value = await window.api.workspace.listRecent();
+			return recent.value;
+		}
+
+		/**
+		 * Instant Desktop-only list, then refresh with Pi discovery in the background.
+		 * Keeps startup / first paint snappy when ~/.pi/agent/sessions is large.
+		 */
+		async function listRecentFast(): Promise<string[]> {
+			recent.value = await window.api.workspace.listRecentDesktop();
+			void listRecent().catch(() => {
+				/* background merge best-effort */
+			});
+			return recent.value;
+		}
 
 	async function listClosed(): Promise<string[]> {
 		closed.value = await window.api.workspace.listClosed();
 		return closed.value;
 	}
 
-	async function removeRecent(workspaceRoot: string): Promise<void> {
-		const next = await window.api.workspace.removeRecent(workspaceRoot);
+	async function applyWorkspaceSwitch(next: {
+		root: string | null;
+		recent: string[];
+	}): Promise<void> {
 		recent.value = next.recent;
 		if (next.root) {
 			const accepted = await requestTrustToOpen(next.root);
@@ -172,6 +189,21 @@ export const useWorkspaceStore = defineStore("workspace", () => {
 			return;
 		}
 		await commitWorkspace(null);
+	}
+
+	async function removeRecent(workspaceRoot: string): Promise<void> {
+		const next = await window.api.workspace.removeRecent(workspaceRoot);
+		await applyWorkspaceSwitch(next);
+	}
+
+	/**
+	 * Remove workspace from Pi Desktop: drop config/trust + delete Pi sessions.
+	 * Does not delete the project directory on disk.
+	 */
+	async function purgeWorkspace(workspaceRoot: string): Promise<void> {
+		const next = await window.api.workspace.purge(workspaceRoot);
+		await applyWorkspaceSwitch(next);
+		await listClosed();
 	}
 
 	/** Close a workspace: hide from the main list but keep it re-openable. */
@@ -213,8 +245,10 @@ export const useWorkspaceStore = defineStore("workspace", () => {
 		openWorkspacePath,
 		clearWorkspace,
 		listRecent,
+		listRecentFast,
 		listClosed,
 		removeRecent,
+		purgeWorkspace,
 		closeWorkspace,
 		reopenWorkspace,
 		reorderRecent,

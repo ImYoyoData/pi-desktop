@@ -13,7 +13,7 @@ import type {
   type SessionImageCacheSource,
 } from "../shared/protocol";
 import { IDLE_WORKER_DESTROY_MS } from "./worker-lifecycle";
-import { listSessionsForCwd } from "./session-list";
+import { listSessionsForCwd, purgeWorkspaceSessionDir } from "./session-list";
 import { clearSessionConversation, deleteSessionFile, invalidateSessionHistoryCache } from "./session-history";
 import { appendChatMeta } from "./session-chat-meta";
 import type { ChatMessageTag } from "../shared/chat-meta";
@@ -94,6 +94,11 @@ export type SessionBroker = {
   /** Restart live workers for a workspace so `projectTrusted` / init snapshot reloads. */
   restartWorkersForCwd: (cwd: string) => Promise<void>;
   deleteSession: (sessionId: string, cwd: string) => Promise<void>;
+  /**
+   * Remove all Pi sessions for a workspace (workers + `~/.pi/agent/sessions/...`).
+   * Does not delete the project directory on disk.
+   */
+  purgeWorkspace: (cwd: string) => Promise<void>;
   /** Wipe chat history for a session (disk + live worker) while keeping the same session id. */
   clearContext: (sessionId: string, cwd: string) => Promise<void>;
   notifyWorkersReloadModels: () => Promise<void>;
@@ -973,6 +978,21 @@ export function createSessionBroker(deps: {
     }
   }
 
+  async function purgeWorkspace(cwd: string): Promise<void> {
+    const resolved = path.resolve(cwd);
+    const live = [...sessions.entries()].filter(
+      ([, rec]) => path.resolve(rec.cwd) === resolved,
+    );
+    for (const [id, rec] of live) {
+      if (rec.summary.filePath) invalidateSessionHistoryCache(rec.summary.filePath);
+      await disconnectWorker(id, "workspace purged");
+      sessions.delete(id);
+      emit({ type: "worker_exit", sessionId: id, code: 0 });
+    }
+    // Removes ~/.pi/agent/sessions/<encoded-cwd>/ only — never the project folder.
+    await purgeWorkspaceSessionDir(resolved);
+  }
+
   async function clearContext(sessionId: string, cwd: string): Promise<void> {
     const live = sessions.get(sessionId);
     const disk = await listSessionsForCwd(cwd);
@@ -1035,6 +1055,7 @@ export function createSessionBroker(deps: {
     restartWorker,
     restartWorkersForCwd,
     deleteSession,
+    purgeWorkspace,
     clearContext,
     notifyWorkersReloadModels,
     notifyWorkersReloadSecurity,

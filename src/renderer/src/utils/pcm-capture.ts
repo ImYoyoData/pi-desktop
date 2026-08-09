@@ -32,8 +32,8 @@ export type VoiceRecordSession = {
 };
 
 export type PcmStreamPushHandlers = {
-  /** Fired every audio frame as 16 kHz s16le base64 (includes silence). */
-  onChunk: (pcmBase64: string, sampleRate: number) => void | Promise<void>;
+  /** Fired for voice (+ hangover) frames as 16 kHz s16le PCM — no base64. */
+  onChunk: (pcm: Int16Array, sampleRate: number) => void | Promise<void>;
   /** Raw speech-energy flag per frame (before hangover gating) — used for local silence timing. */
   onVoice?: (active: boolean) => void;
   /** Fired after IDLE_STOP_MS with no speech energy. */
@@ -251,7 +251,7 @@ export async function startVoiceRecord(handlers: {
 
 /**
  * Continuous listening: push PCM to the host stream process.
- * Non-voice frames are replaced with silence so ambient noise is not transcribed.
+ * Silence frames are skipped (no zero-fill / IPC) — only voice + hangover.
  */
 export async function startPcmStreamPush(handlers: PcmStreamPushHandlers): Promise<StreamingPcmCapture> {
   const session = await openMicSession();
@@ -279,17 +279,20 @@ export async function startPcmStreamPush(handlers: PcmStreamPushHandlers): Promi
       // caller handles errors
     }
 
-    const resampled = inputRate === TARGET_RATE ? input : downsample(input, inputRate, TARGET_RATE);
-    if (resampled.length === 0) return;
-
     const inHangover = lastVoiceAt > 0 && now - lastVoiceAt < SPEECH_HANGOVER_MS;
     const forwardVoice = rms >= SPEECH_RMS || inHangover;
-    const pcm = forwardVoice ? floatTo16BitPCM(resampled) : new Int16Array(resampled.length);
-    const pcmBase64 = int16ToBase64(pcm);
-    try {
-      void handlers.onChunk(pcmBase64, TARGET_RATE);
-    } catch {
-      // caller handles errors
+    // Skip ambient silence entirely — avoids per-frame resample/encode/IPC jank
+    // while wake listening with the mic open.
+    if (forwardVoice) {
+      const resampled = inputRate === TARGET_RATE ? input : downsample(input, inputRate, TARGET_RATE);
+      if (resampled.length > 0) {
+        const pcm = floatTo16BitPCM(resampled);
+        try {
+          void handlers.onChunk(pcm, TARGET_RATE);
+        } catch {
+          // caller handles errors
+        }
+      }
     }
 
     if (idleStop && now - lastSpeechAt >= IDLE_STOP_MS) {
@@ -315,7 +318,7 @@ export async function startPcmStreamPush(handlers: PcmStreamPushHandlers): Promi
 
 /** @deprecated Prefer startPcmStreamPush. */
 export async function startStreamingPcmCapture(handlers: {
-  onUtterance: (pcmBase64: string, sampleRate: number) => void | Promise<void>;
+  onUtterance: (pcm: Int16Array, sampleRate: number) => void | Promise<void>;
   onIdleStop?: () => void;
 }): Promise<StreamingPcmCapture> {
   return startPcmStreamPush({
@@ -478,16 +481,8 @@ async function encodePcmToInt16(
     const buffer = await encodePcmChunks(chunks, inputRate, targetRate);
     return new Int16Array(buffer);
   } catch {
+    // Rare fallback — yield a paint before the sync encode so the UI can update.
+    await yieldToPaint();
     return encodeFloatChunksSync(chunks, inputRate, targetRate);
   }
-}
-
-function int16ToBase64(pcm: Int16Array): string {
-  const bytes = new Uint8Array(pcm.buffer, pcm.byteOffset, pcm.byteLength);
-  let binary = "";
-  const chunk = 0x8000;
-  for (let i = 0; i < bytes.length; i += chunk) {
-    binary += String.fromCharCode(...bytes.subarray(i, i + chunk));
-  }
-  return btoa(binary);
 }

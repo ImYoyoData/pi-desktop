@@ -56,6 +56,7 @@ import {
 } from "./asr-gpu";
 import { DEFAULT_ASR_WAKE_HOTKEY, normalizeAccelerator } from "../shared/hotkey";
 import { DEFAULT_ASR_WAKE_WORDS } from "../shared/asr-wake";
+import { transcribeViaCloudOffMain, writeWavOffMain } from "./asr-cloud-offload";
 
 const execFileAsync = promisify(execFile);
 const PREFS_FILE = "asr-prefs.json";
@@ -1097,30 +1098,6 @@ async function uninstallAsr(): Promise<AsrStatus> {
   return getStatus();
 }
 
-function wavBytesFromPcm(pcm: Int16Array, sampleRate: number): Buffer {
-  const dataSize = pcm.byteLength;
-  const buffer = Buffer.alloc(44 + dataSize);
-  buffer.write("RIFF", 0);
-  buffer.writeUInt32LE(36 + dataSize, 4);
-  buffer.write("WAVE", 8);
-  buffer.write("fmt ", 12);
-  buffer.writeUInt32LE(16, 16);
-  buffer.writeUInt16LE(1, 20); // PCM
-  buffer.writeUInt16LE(1, 22); // mono
-  buffer.writeUInt32LE(sampleRate, 24);
-  buffer.writeUInt32LE(sampleRate * 2, 28);
-  buffer.writeUInt16LE(2, 32);
-  buffer.writeUInt16LE(16, 34);
-  buffer.write("data", 36);
-  buffer.writeUInt32LE(dataSize, 40);
-  Buffer.from(pcm.buffer, pcm.byteOffset, pcm.byteLength).copy(buffer, 44);
-  return buffer;
-}
-
-function writeWavPcm16(filePath: string, pcm: Int16Array, sampleRate: number): void {
-  writeFileSync(filePath, wavBytesFromPcm(pcm, sampleRate));
-}
-
 async function waitForInferSlot(maxMs = 60_000): Promise<void> {
   const start = Date.now();
   while (inferBusy) {
@@ -1343,110 +1320,11 @@ function toInt16Pcm(pcm: unknown): Int16Array {
   throw new Error("ASR received invalid PCM payload");
 }
 
-/**
- * Transcribe WAV PCM through a cloud ASR API.
- *
- * Supported formats:
- * - openai-multipart: POST {baseUrl}/audio/transcriptions (multipart file + model)
- * - openai-json:      POST {baseUrl}/audio/transcriptions (JSON with base64 data URL)
- * - chat:             POST {baseUrl}/chat/completions with an input_audio message
- *                     (Xiaomi MiMo style; sends api-key + Bearer headers)
- * - custom:           POST {endpoint} exactly as configured (multipart)
- */
-async function transcribeViaCloudApi(
-  pcm: Int16Array,
-  sampleRate: number,
-  cloud: AsrCloudConfig,
-): Promise<string> {
-  if (!isCloudConfigured(cloud)) {
-    throw new Error("Cloud ASR is not configured (set endpoint, API key and model)");
-  }
-  const wav = wavBytesFromPcm(pcm, sampleRate || 16000);
-  const style = inferCloudApiStyle(cloud);
-  const apiKey = cloud.apiKey.trim();
-  const model = cloud.model.trim();
-
-  let url: string;
-  let body: BodyInit;
-  const headers: Record<string, string> = {};
-
-  if (style === "custom") {
-    url = (cloud.endpoint ?? "").trim();
-    if (!url) throw new Error("Cloud ASR: custom endpoint URL is empty");
-    const form = new FormData();
-    form.append("file", new Blob([wav], { type: "audio/wav" }), "audio.wav");
-    form.append("model", model);
-    body = form;
-    headers["Authorization"] = `Bearer ${apiKey}`;
-  } else if (style === "chat") {
-    const base = cloud.baseUrl.trim().replace(/\/+$/, "");
-    url = `${base}/chat/completions`;
-    headers["Content-Type"] = "application/json";
-    // Xiaomi MiMo uses the `api-key` header; Bearer is sent too for
-    // OpenAI-style gateways that expose the same chat endpoint.
-    headers["api-key"] = apiKey;
-    headers["Authorization"] = `Bearer ${apiKey}`;
-    const lang = cloudAsrLanguage(cloud);
-    body = JSON.stringify({
-      model,
-      messages: [
-        {
-          role: "user",
-          content: [
-            {
-              type: "input_audio",
-              input_audio: {
-                data: `data:audio/wav;base64,${wav.toString("base64")}`,
-              },
-            },
-          ],
-        },
-      ],
-      ...(lang ? { asr_options: { language: lang } } : {}),
-    });
-  } else {
-    const base = cloud.baseUrl.trim().replace(/\/+$/, "");
-    url = `${base}/audio/transcriptions`;
-    headers["Authorization"] = `Bearer ${apiKey}`;
-    if (style === "openai-json") {
-      headers["Content-Type"] = "application/json";
-      body = JSON.stringify({
-        file: `data:audio/wav;base64,${wav.toString("base64")}`,
-        model,
-      });
-    } else {
-      const form = new FormData();
-      form.append("file", new Blob([wav], { type: "audio/wav" }), "audio.wav");
-      form.append("model", model);
-      body = form;
-    }
-  }
-
-  const resp = await fetch(url, {
-    method: "POST",
-    headers,
-    body,
-  });
-  if (!resp.ok) {
-    const detail = (await resp.text()).trim().slice(0, 240);
-    throw new Error(
-      `ASR cloud API failed: HTTP ${resp.status} POST ${url}${detail ? ` - ${detail}` : ""}`,
-    );
-  }
-  const data = (await resp.json()) as {
-    text?: unknown;
-    choices?: Array<{ message?: { content?: unknown } }>;
-  };
-  // HTTP 200 but nothing recognized (silence / too short / no speech):
-  // return an empty string so the UI can show a friendly "no speech"
-  // hint instead of a scary error.
-  if (style === "chat") {
-    return typeof data.choices?.[0]?.message?.content === "string"
-      ? data.choices[0].message.content.trim()
-      : "";
-  }
-  const text = typeof data.text === "string" ? data.text.trim() : "";
-  return text;
+/** Pin chat-style language (worker has no Electron `app` locale). */
+function cloudConfigForWorker(cloud: AsrCloudConfig): AsrCloudConfig {
+  const language = cloudAsrLanguage(cloud);
+  if (!language || cloud.language === language) return cloud;
+  return { ...cloud, language };
 }
 
 /** Send a short silence sample to verify the cloud API config. */
@@ -1458,7 +1336,12 @@ export async function testAsrCloud(): Promise<{ ok: boolean; message: string }> 
   }
   try {
     const silence = new Int16Array(1600); // 0.1s @ 16k
-    const text = await transcribeViaCloudApi(silence, 16000, cloud!);
+    // Same off-main path as real transcription (avoids freezing Settings UI).
+    const text = await transcribeViaCloudOffMain({
+      pcm: silence,
+      sampleRate: 16000,
+      cloud: cloudConfigForWorker(cloud!),
+    });
     return { ok: true, message: text || "OK" };
   } catch (err) {
     const raw = err instanceof Error ? err.message : String(err);
@@ -1475,10 +1358,16 @@ export async function transcribePcm(pcm: Int16Array, sampleRate: number): Promis
   const prefs = readPrefs();
   if (!prefs.enabled) throw new Error("ASR is disabled in settings");
   if (installBusy) throw new Error("ASR install in progress");
-  // Cloud backend: no local model needed.
+  // Cloud backend: no local model needed. Run WAV/base64/fetch off the main
+  // process — sync base64 of a long take on main freezes every Electron window.
   const cloudPrefs = readCloudPrefs();
   if (cloudPrefs.backend === "cloud" && isCloudConfigured(cloudPrefs.cloud)) {
-    return transcribeViaCloudApi(pcm, sampleRate, cloudPrefs.cloud!);
+    const pcm16 = toInt16Pcm(pcm);
+    return transcribeViaCloudOffMain({
+      pcm: pcm16,
+      sampleRate,
+      cloud: cloudConfigForWorker(cloudPrefs.cloud!),
+    });
   }
 
   let status = getStatus();
@@ -1501,7 +1390,8 @@ export async function transcribePcm(pcm: Int16Array, sampleRate: number): Promis
     if (pcm16.byteLength === 0) {
       throw new Error("ASR received empty audio");
     }
-    writeWavPcm16(wavPath, pcm16, sampleRate || 16000);
+    // Build + write WAV off the main process (sync write of a long take freezes UI).
+    await writeWavOffMain(wavPath, pcm16, sampleRate || 16000);
 
     try {
       return await spawnTranscribeOnce(status.modelPath, wavPath, outBase, outTxtPath);
@@ -1910,12 +1800,28 @@ async function startAsrStream(): Promise<AsrStatus> {
   return getStatus();
 }
 
-function pushAsrStreamPcm(pcmBase64: string): void {
+function pushAsrStreamPcm(pcm: unknown): void {
   const child = streamChild;
   const stdin = child?.stdin;
   if (!child || !stdin || stdin.destroyed || !stdin.writable) return;
   try {
-    const buf = Buffer.from(pcmBase64, "base64");
+    // Prefer raw PCM (Int16Array / Buffer) — base64 decode on main was a
+    // continuous hitch while wake listening.
+    let buf: Buffer;
+    if (Buffer.isBuffer(pcm)) {
+      buf = pcm;
+    } else if (pcm instanceof Int16Array) {
+      buf = Buffer.from(pcm.buffer, pcm.byteOffset, pcm.byteLength);
+    } else if (pcm instanceof Uint8Array) {
+      buf = Buffer.from(pcm.buffer, pcm.byteOffset, pcm.byteLength);
+    } else if (pcm instanceof ArrayBuffer) {
+      buf = Buffer.from(pcm);
+    } else if (typeof pcm === "string") {
+      // Legacy callers (LAN / older preload).
+      buf = Buffer.from(pcm, "base64");
+    } else {
+      return;
+    }
     if (buf.length === 0) return;
     stdin.write(buf, (err) => {
       if (!err) return;
@@ -2048,8 +1954,24 @@ export function registerAsrIpc(): void {
   ipcMain.handle(IpcChannels.asr.testCloud, async () => testAsrCloud());
 
   ipcMain.handle(IpcChannels.asr.streamStart, async () => startAsrStream());
-  ipcMain.handle(IpcChannels.asr.streamPush, (_e, payload: { pcmBase64: string }) => {
-    pushAsrStreamPcm(payload.pcmBase64);
-  });
+  // Fire-and-forget: avoid invoke promise overhead every audio frame.
+  ipcMain.on(
+    IpcChannels.asr.streamPush,
+    (_e, payload: { pcm?: unknown; pcmBase64?: string } | Int16Array | string) => {
+      if (payload instanceof Int16Array || typeof payload === "string") {
+        pushAsrStreamPcm(payload);
+        return;
+      }
+      if (payload && typeof payload === "object") {
+        if ("pcm" in payload && payload.pcm != null) {
+          pushAsrStreamPcm(payload.pcm);
+          return;
+        }
+        if (typeof payload.pcmBase64 === "string") {
+          pushAsrStreamPcm(payload.pcmBase64);
+        }
+      }
+    },
+  );
   ipcMain.handle(IpcChannels.asr.streamStop, async () => stopAsrStream());
 }

@@ -310,7 +310,9 @@ function boot(): void {
 
 		// Critical IPC first — needed for shell, workspace, sessions.
 		registerWindowIpc();
-		registerWorkspaceIpc();
+		registerWorkspaceIpc({
+			purgeWorkspaceSessions: (cwd) => broker.purgeWorkspace(cwd),
+		});
 		registerSessionsIpc(broker);
 		registerAgentRunsIpc(registryHolder.current!);
 		registerModelsIpc(broker);

@@ -79,7 +79,8 @@ onMounted(() => {
     try {
       await Promise.all([
         workspace.getWorkspace(),
-        workspace.listRecent(),
+        // Desktop-only first; Pi CLI session scan merges in the background.
+        workspace.listRecentFast(),
         window.api.window.platform().then((p) => {
           document.documentElement.classList.toggle("platform-darwin", p === "darwin");
           document.documentElement.classList.toggle("platform-win32", p === "win32");

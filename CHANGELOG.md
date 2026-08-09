@@ -1,5 +1,21 @@
 # Changelog
 
+## v0.2.8 (2026-08-09)
+
+### 新功能 Features
+- 自定义模型：拉取模型与保存分离；「测试连接」发极短请求测延迟/连通；删除 Provider 立即写入磁盘。
+- 移除工作区：清除 Pi 会话与配置，**不删除**项目文件夹；关闭仅移入已关闭列表。
+- Custom models: Fetch models vs Save are separate; Test sends a tiny probe for latency; deleting a provider persists immediately.
+- Remove workspace: purge Pi sessions/config without deleting the project folder; Close only dismisses to the closed list.
+
+### 修复 / 体验 Fixes
+- 录音确认与云端 ASR：WAV/base64 与云转写移出主进程，避免整窗冻结；唤醒流改用 Int16 PCM。
+- 启动与切会话：侧栏先出 Desktop 列表、Pi 扫描后台合并；历史分页只物化当前页图片，降低大会话切换成本。
+- 录音波形：接近上下边界 85% 时自动压缩增益，避免顶死、更跟手。
+- Recording confirm / cloud ASR: WAV/base64 and cloud transcribe off the main process so windows stay responsive; wake stream uses Int16 PCM.
+- Startup & session switch: Desktop-first sidebar list with background Pi merge; history pages only materialize images for the window, cutting large-session switch cost.
+- Voice waveform: auto-compress when nearing 85% of the canvas so bars stay lively.
+
 ## v0.2.7 (2026-08-09)
 
 ### 新功能 Features

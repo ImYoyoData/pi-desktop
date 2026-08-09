@@ -30,8 +30,12 @@ export const IpcChannels = {
 		openPath: "workspace:openPath",
 		clear: "workspace:clear",
 		listRecent: "workspace:listRecent",
+		/** Instant Desktop-only recent (no Pi CLI session scan). */
+		listRecentDesktop: "workspace:listRecentDesktop",
 		listClosed: "workspace:listClosed",
 		removeRecent: "workspace:removeRecent",
+		/** Forget workspace config + delete Pi sessions (not the project folder). */
+		purge: "workspace:purge",
 		reorderRecent: "workspace:reorderRecent",
 		revealInFolder: "workspace:revealInFolder",
 	},
@@ -152,6 +156,7 @@ export const IpcChannels = {
 		clearKey: "models:clearKey",
 		test: "models:test",
 		discover: "models:discover",
+		testConnection: "models:testConnection",
 	},
 	terminal: {
 		create: "terminal:create",

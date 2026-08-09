@@ -7,8 +7,16 @@ import {
 	mergeRecentWithPiCliWorkspaces,
 	workspacePathsEqual,
 } from "./session-list";
+import { clearProjectTrust } from "./project-trust";
 
 let store: WorkspaceStore | null = null;
+
+export type WorkspaceIpcDeps = {
+	/** Kill workers + delete Pi session files for a workspace (not the project dir). */
+	purgeWorkspaceSessions?: (cwd: string) => Promise<void>;
+};
+
+let deps: WorkspaceIpcDeps = {};
 
 function getStore(): WorkspaceStore {
 	if (!store) {
@@ -27,6 +35,14 @@ export function getWorkspace(): string | null {
 
 export function listRecentDesktop(): string[] {
 	return getStore().listRecent();
+}
+
+/**
+ * Instant: Desktop-pinned recent only (no SessionManager.listAll scan).
+ * Used on cold start so the shell paints before Pi CLI discovery finishes.
+ */
+export function listRecentDesktopOnly(): string[] {
+	return listRecentDesktop().map((p) => path.resolve(p));
 }
 
 /** Desktop recent + workspaces discovered from Pi CLI session store. */
@@ -76,7 +92,35 @@ export async function clearWorkspace(): Promise<null> {
 	return null;
 }
 
-export function registerWorkspaceIpc(): void {
+/**
+ * Forget a workspace from Desktop config and delete its Pi sessions.
+ * Never deletes the project directory on disk.
+ */
+export async function purgeWorkspace(root: string): Promise<{
+	root: string | null;
+	recent: string[];
+}> {
+	const cwd = path.resolve(root);
+	try {
+		await deps.purgeWorkspaceSessions?.(cwd);
+	} catch (err) {
+		console.error("[pi-desktop] purge workspace sessions failed", err);
+		throw err;
+	}
+	try {
+		clearProjectTrust(cwd);
+	} catch {
+		// trust store optional
+	}
+	getStore().forget(cwd);
+	const next = getStore().getRoot();
+	syncWorkspaceWatch(next);
+	return { root: next, recent: await listRecent() };
+}
+
+export function registerWorkspaceIpc(nextDeps: WorkspaceIpcDeps = {}): void {
+	deps = nextDeps;
+
 	ipcMain.handle(IpcChannels.workspace.get, () => {
 		const root = getWorkspace();
 		// App start / reload: attach the single watcher for the restored workspace
@@ -85,6 +129,8 @@ export function registerWorkspaceIpc(): void {
 	});
 
 	ipcMain.handle(IpcChannels.workspace.listRecent, () => listRecent());
+
+	ipcMain.handle(IpcChannels.workspace.listRecentDesktop, () => listRecentDesktopOnly());
 
 	/** Closed (dismissed) workspaces still known to Desktop — re-openable. */
 	ipcMain.handle(IpcChannels.workspace.listClosed, () => {
@@ -109,6 +155,11 @@ export function registerWorkspaceIpc(): void {
 			syncWorkspaceWatch(next);
 			return { root: next, recent: await listRecent() };
 		},
+	);
+
+	/** Forget workspace config + purge Pi sessions (keeps project folder). */
+	ipcMain.handle(IpcChannels.workspace.purge, (_event, root: string) =>
+		purgeWorkspace(root),
 	);
 
 	ipcMain.handle(

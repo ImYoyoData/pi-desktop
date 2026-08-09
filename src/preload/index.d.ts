@@ -15,7 +15,10 @@ import type {
 	ModelsGetResult,
 	ModelsSetPayload,
 } from "../shared/models-settings";
-import type { DiscoverModelsResult } from "../shared/model-discover";
+import type {
+	DiscoverModelsResult,
+	TestModelConnectionResult,
+} from "../shared/model-discover";
 import type { PreviewResult } from "../shared/preview-types";
 import type {
 	AsrInstallProgress,
@@ -106,10 +109,17 @@ declare const api: {
 		open: () => Promise<string | null>;
 		pick: () => Promise<string | null>;
 		listRecent: () => Promise<string[]>;
+		/** Fast path: Desktop recent only (no Pi CLI scan). */
+		listRecentDesktop: () => Promise<string[]>;
 		listClosed: () => Promise<string[]>;
 		openPath: (root: string) => Promise<string | null>;
 		clear: () => Promise<null>;
 		removeRecent: (root: string) => Promise<{
+			root: string | null;
+			recent: string[];
+		}>;
+		/** Forget workspace + purge Pi sessions; never deletes the project folder. */
+		purge: (root: string) => Promise<{
 			root: string | null;
 			recent: string[];
 		}>;
@@ -552,6 +562,13 @@ declare const api: {
 			apiKey?: string;
 			api?: string;
 		}) => Promise<DiscoverModelsResult>;
+		testConnection: (payload: {
+			baseUrl: string;
+			apiKey?: string;
+			api?: string;
+			modelId: string;
+			providerId?: string;
+		}) => Promise<TestModelConnectionResult>;
 	};
 	preview: {
 		read: (filePath: string) => Promise<PreviewResult>;
@@ -631,7 +648,7 @@ declare const api: {
 		uninstall: () => Promise<AsrStatus>;
 		transcribe: (pcm: Int16Array, sampleRate: number) => Promise<string>;
 		streamStart: () => Promise<AsrStatus>;
-		streamPush: (pcmBase64: string) => Promise<void>;
+		streamPush: (pcm: Int16Array) => Promise<void>;
 		streamStop: () => Promise<AsrStatus>;
 		onStreamEvent: (callback: (event: AsrStreamEvent) => void) => () => void;
 		onProgress: (
