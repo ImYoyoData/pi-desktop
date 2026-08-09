@@ -46,6 +46,7 @@ import {
   startVoiceRecord,
   type VoiceRecordSession,
 } from "@renderer/utils/pcm-capture";
+import { yieldToPaint } from "@renderer/utils/low-power";
 import {
   ASR_VOICE_WAKE_EVENT,
   stopWakeListen,
@@ -1958,6 +1959,10 @@ async function confirmVoice(): Promise<void> {
   voicePending.value = true;
 
   try {
+    // Let the "transcribing…" UI paint before encode / IPC / main work.
+    await nextTick();
+    await yieldToPaint();
+    if (gen !== voiceGen) return;
     const { pcm, sampleRate } = await session.stop();
     if (gen !== voiceGen) return;
     if (!pcm || pcm.length === 0) {

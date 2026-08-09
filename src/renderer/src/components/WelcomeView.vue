@@ -9,7 +9,7 @@ import logoUrl from "@renderer/assets/logo.svg";
 const workspace = useWorkspaceStore();
 
 onMounted(() => {
-  void workspace.listRecent();
+  void workspace.listRecentFast();
 });
 
 function openFolder(): void {

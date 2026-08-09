@@ -139,7 +139,18 @@ function selectProvider(id: string): void {
   pickerQuery.value = "";
 }
 
-async function save(): Promise<void> {
+async function loadQuiet(): Promise<void> {
+  try {
+    const data = await window.api.models.get();
+    modelsText.value = data.modelsText;
+    providers.value = data.providers ?? [];
+    available.value = data.available;
+  } catch (err) {
+    message.error(err instanceof Error ? err.message : String(err));
+  }
+}
+
+async function save(opts?: { successMessage?: string; quietReload?: boolean }): Promise<void> {
   saving.value = true;
   try {
     const keysToWrite = Object.fromEntries(
@@ -149,10 +160,11 @@ async function save(): Promise<void> {
       modelsText: modelsText.value,
       apiKeys: keysToWrite,
     });
-    message.success(t.saved);
+    message.success(opts?.successMessage ?? t.saved);
     emit("saved");
     window.dispatchEvent(new CustomEvent("pi-models-changed"));
-    await load();
+    if (opts?.quietReload) await loadQuiet();
+    else await load();
   } catch (err) {
     message.error(err instanceof Error ? err.message : String(err));
   } finally {
@@ -163,6 +175,8 @@ async function save(): Promise<void> {
 async function commitCustom(payload: {
   modelsText: string;
   apiKeys?: Record<string, string>;
+  clearProviderKeys?: string[];
+  successMessage?: string;
 }): Promise<void> {
   modelsText.value = payload.modelsText;
   if (payload.apiKeys) {
@@ -170,7 +184,20 @@ async function commitCustom(payload: {
       if (key?.trim()) apiKeys.value[id] = key.trim();
     }
   }
-  await save();
+  if (payload.clearProviderKeys?.length) {
+    for (const id of payload.clearProviderKeys) {
+      try {
+        await window.api.models.clearKey(id);
+      } catch {
+        /* still persist models.json removal */
+      }
+      delete apiKeys.value[id];
+    }
+  }
+  await save({
+    successMessage: payload.successMessage ?? t.saved,
+    quietReload: true,
+  });
 }
 
 async function clearKey(): Promise<void> {

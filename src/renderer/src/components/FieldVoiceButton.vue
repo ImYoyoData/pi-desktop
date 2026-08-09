@@ -3,13 +3,14 @@
  * Compact mic control for text fields (ask_user / extension UI).
  * Click to start → click again to stop, transcribe, emit text; parent focuses the input.
  */
-import { onUnmounted, ref } from "vue";
+import { nextTick, onUnmounted, ref } from "vue";
 import { NButton, NIcon, useMessage } from "naive-ui";
 import { MicOutline, StopCircleOutline } from "@vicons/ionicons5";
 import { formatAsrInstallError, formatAsrRuntimeError, isAsrInstallCancelled, useAsrStore } from "@renderer/stores/asr";
 import { useMediaStore } from "@renderer/stores/media";
 import { startVoiceRecord, type VoiceRecordSession } from "@renderer/utils/pcm-capture";
 import { stopWakeListen } from "@renderer/utils/asr-wake-listen";
+import { yieldToPaint } from "@renderer/utils/low-power";
 import AsrInstallConfirmModal from "@renderer/components/AsrInstallConfirmModal.vue";
 import { scrubAsrHallucination } from "../../../shared/asr";
 import { t } from "@renderer/i18n";
@@ -133,6 +134,10 @@ async function confirm(): Promise<void> {
   asr.recording = false;
   pending.value = true;
   try {
+    // Let pending UI paint before encode / IPC / main work.
+    await nextTick();
+    await yieldToPaint();
+    if (myGen !== gen) return;
     const { pcm, sampleRate } = await active.stop();
     if (myGen !== gen) return;
     if (!pcm || pcm.length === 0) {
@@ -180,7 +185,8 @@ async function onClick(): Promise<void> {
   }
 
   asr.setWakePaused(true);
-  await stopWakeListen();
+  // Don't await wake teardown on the click path (matches Composer).
+  void stopWakeListen();
   media.stopAll();
 
   try {

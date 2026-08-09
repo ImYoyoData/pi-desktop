@@ -43,7 +43,14 @@ const emit = defineEmits<{
   "update:modelsText": [string];
   "update:startAdd": [boolean];
   /** Persist immediately (Pi-aligned: models.json + auth.json). */
-  commit: [payload: { modelsText: string; apiKeys?: Record<string, string> }];
+  commit: [
+    payload: {
+      modelsText: string;
+      apiKeys?: Record<string, string>;
+      clearProviderKeys?: string[];
+      successMessage?: string;
+    },
+  ];
 }>();
 
 const message = useMessage();
@@ -55,6 +62,10 @@ const isNew = ref(false);
 const draft = ref<CustomProviderDraft>(emptyCustomProvider());
 const formError = ref<string | null>(null);
 const fetching = ref(false);
+const testing = ref(false);
+/** Stable keys so deleting a model row updates the UI immediately (not index-based). */
+const modelRowKeys = ref<string[]>([]);
+let rowKeySeq = 0;
 
 const apiOptions = CUSTOM_MODEL_APIS.map((api) => ({ label: api, value: api }));
 
@@ -93,6 +104,15 @@ watch(
   { immediate: true },
 );
 
+function nextRowKey(): string {
+  rowKeySeq += 1;
+  return `m-${rowKeySeq}`;
+}
+
+function resetModelRowKeys(count: number): void {
+  modelRowKeys.value = Array.from({ length: count }, () => nextRowKey());
+}
+
 function cloneDraft(src: CustomProviderDraft): CustomProviderDraft {
   return {
     ...src,
@@ -106,6 +126,7 @@ function beginAdd(): void {
   formError.value = null;
   selectedId.value = null;
   draft.value = cloneDraft(emptyCustomProvider());
+  resetModelRowKeys(draft.value.models.length);
   emit("update:startAdd", false);
 }
 
@@ -117,6 +138,7 @@ function applyPreset(presetId: string): void {
       ? draft.value.apiKey
       : preset.draft.apiKey;
   draft.value = cloneDraft({ ...preset.draft, apiKey: keepKey });
+  resetModelRowKeys(draft.value.models.length);
   formError.value = null;
 }
 
@@ -128,6 +150,7 @@ function beginEdit(id: string): void {
   editing.value = true;
   formError.value = null;
   draft.value = cloneDraft(row);
+  resetModelRowKeys(draft.value.models.length);
 }
 
 function cancelEdit(): void {
@@ -141,14 +164,21 @@ function cancelEdit(): void {
 
 function addModelRow(): void {
   draft.value.models.push({ id: "", name: "", reasoning: false });
+  modelRowKeys.value.push(nextRowKey());
 }
 
 function removeModelRow(index: number): void {
   if (draft.value.models.length <= 1) {
     draft.value.models = [{ id: "", name: "", reasoning: false }];
+    resetModelRowKeys(1);
     return;
   }
   draft.value.models.splice(index, 1);
+  modelRowKeys.value.splice(index, 1);
+}
+
+function firstModelId(models: CustomModelEntry[]): string {
+  return models.map((m) => m.id.trim()).find(Boolean) ?? "";
 }
 
 async function fetchModels(): Promise<void> {
@@ -170,11 +200,61 @@ async function fetchModels(): Promise<void> {
       return;
     }
     draft.value.models = mergeDiscoveredIntoDraft(draft.value.models, result.models);
+    resetModelRowKeys(draft.value.models.length);
     message.success(t.modelsCustomFetchOk(result.models.length));
   } catch (err) {
     message.error(err instanceof Error ? err.message : String(err));
   } finally {
     fetching.value = false;
+  }
+}
+
+async function testConnection(source: "draft" | "selected"): Promise<void> {
+  if (testing.value) return;
+  const cfg =
+    source === "draft"
+      ? {
+          baseUrl: normalizeProviderBaseUrl(draft.value.baseUrl),
+          apiKey: draft.value.apiKey,
+          api: draft.value.api,
+          modelId: firstModelId(draft.value.models),
+          providerId: draft.value.id.trim() || undefined,
+        }
+      : selected.value
+        ? {
+            baseUrl: normalizeProviderBaseUrl(selected.value.baseUrl),
+            apiKey: selected.value.apiKey,
+            api: selected.value.api,
+            modelId: firstModelId(selected.value.models),
+            providerId: selected.value.id,
+          }
+        : null;
+  if (!cfg) return;
+  if (!cfg.baseUrl.trim()) {
+    message.warning(t.modelsCustomBaseUrl);
+    return;
+  }
+  if (!cfg.modelId) {
+    message.warning(t.modelsCustomTestNeedModel);
+    return;
+  }
+  if (source === "draft") draft.value.baseUrl = cfg.baseUrl;
+  testing.value = true;
+  try {
+    const result = await window.api.models.testConnection(cfg);
+    if (result.ok) {
+      message.success(t.modelsCustomTestOk(result.latencyMs));
+    } else {
+      const latency =
+        typeof result.latencyMs === "number" ? ` (${result.latencyMs} ms)` : "";
+      message.error(`${t.modelsCustomTestFail}${latency}: ${result.error}`, {
+        duration: 8000,
+      });
+    }
+  } catch (err) {
+    message.error(err instanceof Error ? err.message : String(err));
+  } finally {
+    testing.value = false;
   }
 }
 
@@ -234,15 +314,34 @@ function confirmDelete(id: string): void {
         const doc = parseModelsConfigText(props.modelsText);
         const next = removeCustomProvider(doc, id);
         const modelsText = stringifyModelsConfig(next);
+        // Optimistic UI: drop from list immediately (before disk write finishes).
         emit("update:modelsText", modelsText);
-        if (selectedId.value === id) selectedId.value = null;
-        if (editing.value && draft.value.id === id) cancelEdit();
-        emit("commit", { modelsText });
+        if (selectedId.value === id) {
+          const remain = listEditableProviders(next);
+          selectedId.value = remain[0]?.id ?? null;
+        }
+        if (editing.value && draft.value.id === id) {
+          editing.value = false;
+          isNew.value = false;
+          formError.value = null;
+        }
+        emit("commit", {
+          modelsText,
+          clearProviderKeys: [id],
+          successMessage: t.modelsCustomDeleted,
+        });
       } catch (err) {
         message.error(err instanceof Error ? err.message : String(err));
       }
     },
   });
+}
+
+function selectProvider(id: string): void {
+  selectedId.value = id;
+  editing.value = false;
+  isNew.value = false;
+  formError.value = null;
 }
 
 function modelPlaceholder(_m: CustomModelEntry, i: number): string {
@@ -266,7 +365,7 @@ function modelPlaceholder(_m: CustomModelEntry, i: number): string {
           type="button"
           class="provider-row"
           :class="{ active: selectedId === p.id && !editing }"
-          @click="selectedId = p.id; editing = false"
+          @click="selectProvider(p.id)"
         >
           <div class="meta">
             <div class="name">{{ p.name || p.id }}</div>
@@ -309,85 +408,113 @@ function modelPlaceholder(_m: CustomModelEntry, i: number): string {
             </div>
           </div>
 
-          <div class="field">
-            <div class="field-label">{{ t.modelsCustomProviderId }}</div>
-            <NInput
-              v-model:value="draft.id"
-              size="small"
-              :disabled="!isNew"
-              placeholder="longcat"
-            />
-          </div>
-          <div class="field">
-            <div class="field-label">{{ t.modelsCustomDisplayName }}</div>
-            <NInput v-model:value="draft.name" size="small" placeholder="LongCat" />
-          </div>
-          <div class="field">
-            <div class="field-label">{{ t.modelsCustomBaseUrl }}</div>
-            <NInput
-              v-model:value="draft.baseUrl"
-              size="small"
-              placeholder="https://api.longcat.chat/openai/v1"
-            />
-            <NText depth="3" style="font-size: 11px; display: block; margin-top: 4px">
-              {{ t.modelsCustomBaseUrlHint }}
-            </NText>
-          </div>
-          <div class="field">
-            <div class="field-label">{{ t.modelsCustomApi }}</div>
-            <NSelect v-model:value="draft.api" size="small" :options="apiOptions" />
-          </div>
-          <div class="field">
-            <div class="field-label">{{ t.modelsCustomApiKey }}</div>
-            <NInput
-              v-model:value="draft.apiKey"
-              size="small"
-              type="password"
-              show-password-on="click"
-              :placeholder="t.modelsCustomApiKeyHint"
-            />
-            <NText depth="3" style="font-size: 11px; display: block; margin-top: 4px">
+          <section class="form-section">
+            <div class="section-title">{{ t.modelsCustomSectionBasic }}</div>
+            <div class="field-grid">
+              <div class="field">
+                <div class="field-label">{{ t.modelsCustomProviderId }}</div>
+                <NInput
+                  v-model:value="draft.id"
+                  size="small"
+                  :disabled="!isNew"
+                  placeholder="longcat"
+                />
+              </div>
+              <div class="field">
+                <div class="field-label">{{ t.modelsCustomDisplayName }}</div>
+                <NInput v-model:value="draft.name" size="small" placeholder="LongCat" />
+              </div>
+            </div>
+            <div class="field">
+              <div class="field-label">{{ t.modelsCustomBaseUrl }}</div>
+              <NInput
+                v-model:value="draft.baseUrl"
+                size="small"
+                placeholder="https://api.longcat.chat/openai/v1"
+              />
+              <NText depth="3" style="font-size: 11px; display: block; margin-top: 4px">
+                {{ t.modelsCustomBaseUrlHint }}
+              </NText>
+            </div>
+            <div class="field-grid">
+              <div class="field">
+                <div class="field-label">{{ t.modelsCustomApi }}</div>
+                <NSelect v-model:value="draft.api" size="small" :options="apiOptions" />
+              </div>
+              <div class="field">
+                <div class="field-label">{{ t.modelsCustomApiKey }}</div>
+                <NInput
+                  v-model:value="draft.apiKey"
+                  size="small"
+                  type="password"
+                  show-password-on="click"
+                  :placeholder="t.modelsCustomApiKeyHint"
+                />
+              </div>
+            </div>
+            <NText depth="3" style="font-size: 11px; display: block; margin-top: -4px">
               {{ keyGoesToAuth ? t.modelsCustomApiKeyAuthHint : t.modelsCustomApiKeyModelsHint }}
             </NText>
-          </div>
+          </section>
 
-          <div class="compat-row">
-            <div class="compat-item">
-              <div>
-                <div class="field-label">{{ t.modelsCustomDevRole }}</div>
-                <NText depth="3" style="font-size: 11px">{{ t.modelsCustomDevRoleHint }}</NText>
+          <section class="form-section">
+            <div class="section-title">{{ t.modelsCustomSectionCompat }}</div>
+            <div class="compat-row">
+              <div class="compat-item">
+                <div>
+                  <div class="field-label">{{ t.modelsCustomDevRole }}</div>
+                  <NText depth="3" style="font-size: 11px">{{ t.modelsCustomDevRoleHint }}</NText>
+                </div>
+                <NSwitch v-model:value="draft.supportsDeveloperRole" size="small" />
               </div>
-              <NSwitch v-model:value="draft.supportsDeveloperRole" size="small" />
-            </div>
-            <div class="compat-item">
-              <div>
-                <div class="field-label">{{ t.modelsCustomReasoningEffort }}</div>
-                <NText depth="3" style="font-size: 11px">{{ t.modelsCustomReasoningEffortHint }}</NText>
+              <div class="compat-item">
+                <div>
+                  <div class="field-label">{{ t.modelsCustomReasoningEffort }}</div>
+                  <NText depth="3" style="font-size: 11px">{{ t.modelsCustomReasoningEffortHint }}</NText>
+                </div>
+                <NSwitch v-model:value="draft.supportsReasoningEffort" size="small" />
               </div>
-              <NSwitch v-model:value="draft.supportsReasoningEffort" size="small" />
             </div>
-          </div>
+          </section>
 
-          <div class="models-editor">
+          <section class="form-section">
             <div class="models-editor-head">
-              <NText style="font-size: 12px; font-weight: 600">{{ t.modelsCustomModels }}</NText>
+              <div>
+                <div class="section-title" style="margin-bottom: 2px">{{ t.modelsCustomModels }}</div>
+                <NText depth="3" style="font-size: 11px">{{ t.modelsCustomFetchHint }}</NText>
+              </div>
               <NSpace :size="6">
                 <NButton
                   size="tiny"
                   secondary
                   class="pi-interactive"
                   :loading="fetching"
-                  :disabled="fetching"
+                  :disabled="fetching || testing || saving"
                   @click="fetchModels"
                 >
                   {{ fetching ? t.modelsCustomFetching : t.modelsCustomFetchModels }}
+                </NButton>
+                <NButton
+                  size="tiny"
+                  secondary
+                  class="pi-interactive"
+                  :loading="testing"
+                  :disabled="testing || fetching || saving"
+                  @click="testConnection('draft')"
+                >
+                  {{ testing ? t.modelsCustomTesting : t.modelsCustomTest }}
                 </NButton>
                 <NButton size="tiny" quaternary class="pi-interactive" @click="addModelRow">
                   {{ t.modelsCustomAddModel }}
                 </NButton>
               </NSpace>
             </div>
-            <div v-for="(m, i) in draft.models" :key="i" class="model-edit-row">
+
+            <div
+              v-for="(m, i) in draft.models"
+              :key="modelRowKeys[i] ?? `fallback-${i}`"
+              class="model-edit-row"
+            >
               <NInput
                 v-model:value="m.id"
                 size="small"
@@ -430,28 +557,32 @@ function modelPlaceholder(_m: CustomModelEntry, i: number): string {
                 {{ t.delete }}
               </NButton>
             </div>
-          </div>
+          </section>
 
           <NText v-if="formError" type="error" style="font-size: 12px; display: block; margin-top: 8px">
             {{ formError }}
           </NText>
 
-          <NSpace justify="end" style="margin-top: 14px">
-            <NButton size="small" class="pi-interactive" :disabled="saving" @click="cancelEdit">
-              {{ t.cancel }}
-            </NButton>
-            <NButton
-              size="small"
-              type="primary"
-              class="pi-interactive"
-              :loading="saving"
-              :disabled="saving"
-              @click="applyDraft"
-            >
-              {{ t.modelsCustomSave }}
-            </NButton>
-          </NSpace>
+          <div class="form-actions">
+            <NText depth="3" style="font-size: 11px; flex: 1">{{ t.modelsCustomSaveHint }}</NText>
+            <NSpace :size="8">
+              <NButton size="small" class="pi-interactive" :disabled="saving" @click="cancelEdit">
+                {{ t.cancel }}
+              </NButton>
+              <NButton
+                size="small"
+                type="primary"
+                class="pi-interactive"
+                :loading="saving"
+                :disabled="saving || fetching || testing"
+                @click="applyDraft"
+              >
+                {{ t.modelsCustomSave }}
+              </NButton>
+            </NSpace>
+          </div>
         </template>
+
         <template v-else-if="selected">
           <div class="detail-head">
             <div style="min-width: 0; flex: 1">
@@ -461,6 +592,16 @@ function modelPlaceholder(_m: CustomModelEntry, i: number): string {
               </NText>
             </div>
             <NSpace :size="6">
+              <NButton
+                size="tiny"
+                secondary
+                class="pi-interactive"
+                :loading="testing"
+                :disabled="testing || saving"
+                @click="testConnection('selected')"
+              >
+                {{ testing ? t.modelsCustomTesting : t.modelsCustomTest }}
+              </NButton>
               <NButton size="tiny" secondary class="pi-interactive" @click="beginEdit(selected.id)">
                 {{ t.edit }}
               </NButton>
@@ -469,6 +610,7 @@ function modelPlaceholder(_m: CustomModelEntry, i: number): string {
                 secondary
                 type="error"
                 class="pi-interactive"
+                :disabled="saving"
                 @click="confirmDelete(selected.id)"
               >
                 {{ t.delete }}
@@ -529,13 +671,14 @@ function modelPlaceholder(_m: CustomModelEntry, i: number): string {
   min-height: 0;
   height: 100%;
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: 10px;
   overflow: hidden;
+  background: var(--bg);
 }
 
 .left {
   border-right: 1px solid var(--border);
-  background: var(--bg-panel);
+  background: color-mix(in srgb, var(--bg-panel) 92%, transparent);
   display: flex;
   flex-direction: column;
   min-width: 0;
@@ -546,8 +689,9 @@ function modelPlaceholder(_m: CustomModelEntry, i: number): string {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 8px 10px;
+  padding: 10px 12px;
   flex-shrink: 0;
+  border-bottom: 1px solid var(--border);
 }
 
 .section-label {
@@ -567,8 +711,9 @@ function modelPlaceholder(_m: CustomModelEntry, i: number): string {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 8px 10px;
+  padding: 10px 12px;
   border: none;
+  border-left: 2px solid transparent;
   background: transparent;
   text-align: left;
   cursor: pointer;
@@ -580,6 +725,7 @@ function modelPlaceholder(_m: CustomModelEntry, i: number): string {
 
 .provider-row.active {
   background: var(--bg-selected);
+  border-left-color: var(--accent, #5b8def);
 }
 
 .meta {
@@ -603,11 +749,32 @@ function modelPlaceholder(_m: CustomModelEntry, i: number): string {
 .right-scroll {
   flex: 1;
   min-height: 0;
-  padding: 20px 24px 24px;
+  padding: 18px 22px 22px;
 }
 
 .form-head {
-  margin-bottom: 14px;
+  margin-bottom: 12px;
+}
+
+.form-section {
+  margin-bottom: 16px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--bg-panel) 70%, transparent);
+}
+
+.section-title {
+  font-size: 12px;
+  font-weight: 650;
+  color: var(--fg-strong);
+  margin-bottom: 10px;
+}
+
+.field-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px 12px;
 }
 
 .presets {
@@ -679,11 +846,6 @@ function modelPlaceholder(_m: CustomModelEntry, i: number): string {
   display: flex;
   flex-direction: column;
   gap: 10px;
-  margin: 4px 0 14px;
-  padding: 10px 12px;
-  border-radius: 10px;
-  border: 1px solid var(--border);
-  background: var(--bg-panel);
 }
 
 .compat-item {
@@ -693,15 +855,12 @@ function modelPlaceholder(_m: CustomModelEntry, i: number): string {
   gap: 12px;
 }
 
-.models-editor {
-  margin-top: 4px;
-}
-
 .models-editor-head {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
-  margin-bottom: 8px;
+  gap: 12px;
+  margin-bottom: 10px;
 }
 
 .model-edit-row {
@@ -723,6 +882,15 @@ function modelPlaceholder(_m: CustomModelEntry, i: number): string {
   gap: 6px;
 }
 
+.form-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 4px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+
 .models-block {
   margin-top: 4px;
 }
@@ -731,7 +899,7 @@ function modelPlaceholder(_m: CustomModelEntry, i: number): string {
   display: flex;
   justify-content: space-between;
   gap: 12px;
-  padding: 6px 2px;
+  padding: 8px 2px;
   border-bottom: 1px solid var(--border);
   font-size: 12.5px;
 }
@@ -755,5 +923,15 @@ function modelPlaceholder(_m: CustomModelEntry, i: number): string {
   align-items: center;
   justify-content: center;
   min-height: 200px;
+}
+
+@media (max-width: 720px) {
+  .field-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .model-edit-row {
+    grid-template-columns: 1fr 1fr;
+  }
 }
 </style>

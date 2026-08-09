@@ -31,7 +31,7 @@ function wakeListenDeps() {
   return {
     getWakeWords: () => asr.status.wakeWords || "",
     streamStart: () => asr.streamStart(),
-    streamPush: (pcmBase64: string) => asr.streamPush(pcmBase64),
+    streamPush: (pcm: Int16Array) => asr.streamPush(pcm),
     streamStop: () => asr.streamStop(),
     bindStreamEvents: (onEvent: Parameters<typeof asr.bindStreamEvents>[0]) =>
       asr.bindStreamEvents(onEvent),

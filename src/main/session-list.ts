@@ -101,6 +101,44 @@ function sessionInfoToSummary(info: {
   };
 }
 
+/** Drop listing caches (after deleting a workspace's Pi sessions). */
+export function invalidateSessionListCaches(cwd?: string): void {
+  if (cwd) {
+    sessionListCache.delete(encodeCwdSessionDir(path.resolve(cwd)));
+  } else {
+    sessionListCache.clear();
+  }
+  piWorkspacesCache = null;
+}
+
+/**
+ * Delete Pi's session store for a workspace under `~/.pi/agent/sessions/...`.
+ * Never touches the project directory itself — only the encoded session folder.
+ */
+export async function purgeWorkspaceSessionDir(cwd: string): Promise<void> {
+  const resolvedCwd = path.resolve(cwd);
+  const sessionDir = encodeCwdSessionDir(resolvedCwd);
+  const agentSessionsRoot = path.resolve(resolveAgentDir(), "sessions");
+  const resolvedSessionDir = path.resolve(sessionDir);
+  const rel = path.relative(agentSessionsRoot, resolvedSessionDir);
+  // Safety: only delete a direct child of the agent sessions root.
+  if (
+    !rel ||
+    rel.startsWith("..") ||
+    path.isAbsolute(rel) ||
+    rel.includes("..") ||
+    rel.split(path.sep).length !== 1
+  ) {
+    throw new Error("refuse to purge session dir outside agent sessions root");
+  }
+  invalidateSessionListCaches(resolvedCwd);
+  try {
+    await fs.promises.rm(resolvedSessionDir, { recursive: true, force: true });
+  } catch {
+    // already gone
+  }
+}
+
 export async function listSessionsForCwd(cwd: string): Promise<SessionSummary[]> {
   const resolvedCwd = path.resolve(cwd);
   const sessionDir = encodeCwdSessionDir(resolvedCwd);

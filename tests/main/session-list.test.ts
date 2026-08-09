@@ -8,6 +8,7 @@ import {
   listSessionsForCwd,
   mergeRecentWithPiCliWorkspaces,
   normalizeWorkspacePath,
+  purgeWorkspaceSessionDir,
 } from "../../src/main/session-list";
 
 const CURRENT_SESSION_VERSION = 3;
@@ -101,5 +102,20 @@ describe("session-list", () => {
 
     const merged = await mergeRecentWithPiCliWorkspaces([cwdB], [cwdA]);
     expect(merged.map(normalizeWorkspacePath)).toEqual([normalizeWorkspacePath(cwdB)]);
+  });
+
+  it("purgeWorkspaceSessionDir removes Pi sessions but keeps the project folder", async () => {
+    const cwd = path.join(tempRoot, "purge-me");
+    fs.mkdirSync(cwd, { recursive: true });
+    fs.writeFileSync(path.join(cwd, "README.md"), "keep me\n", "utf8");
+    const sessionDir = encodeCwdSessionDir(cwd);
+    writeSessionHeader(path.join(sessionDir, "s.jsonl"), "s", cwd);
+    expect(fs.existsSync(sessionDir)).toBe(true);
+
+    await purgeWorkspaceSessionDir(cwd);
+
+    expect(fs.existsSync(sessionDir)).toBe(false);
+    expect(fs.existsSync(path.join(cwd, "README.md"))).toBe(true);
+    expect(await listSessionsForCwd(cwd)).toEqual([]);
   });
 });
