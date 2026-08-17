@@ -1828,10 +1828,10 @@ function onRevertUser(msg: Extract<ChatMessage, { role: "user" }>): void {
   width: 100%;
   max-width: var(--composer-max, 780px);
   margin: 0 auto;
-  padding: 14px var(--chat-pad-x, 10px) 10px;
+  padding: 16px 16px;
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 16px;
   min-height: 100%;
   box-sizing: border-box;
 }
@@ -1885,29 +1885,22 @@ function onRevertUser(msg: Extract<ChatMessage, { role: "user" }>): void {
   display: flex;
 }
 
-/* Turn boundaries get breathing room; process rows stay tight so the whole
-   thinking+tools run reads as one compact "process" unit. */
+/* DeepSeek Harness: a single uniform column gap spaces every flow item. */
 .row-user {
   justify-content: flex-end;
   width: 100%;
-  margin-top: 10px;
-  margin-bottom: 8px;
 }
 
 .row-assistant {
-  margin-top: 6px;
-  margin-bottom: 6px;
+  /* spacing handled by .inner gap */
 }
 
-/* Tools are visually subordinated: tighter, indented under the process. */
+/* DeepSeek Harness renders tool calls inline as flow items — no indentation,
+   no left rail; spacing comes from the column gap alone. */
 .row-tool {
-  margin: 1px 0;
-  padding-left: 14px;
-  border-left: 2px solid color-mix(in srgb, var(--border, #ddd) 38%, transparent);
-}
-
-.row-tool:hover {
-  border-left-color: color-mix(in srgb, var(--accent) 45%, transparent);
+  margin: 0;
+  padding-left: 0;
+  border-left: none;
 }
 
 .row-tool.process-summary-row {
@@ -2019,7 +2012,7 @@ function onRevertUser(msg: Extract<ChatMessage, { role: "user" }>): void {
 .bubble-wrap.user {
   align-items: flex-end;
   width: auto;
-  max-width: min(85%, 640px);
+  max-width: min(82%, 525px);
 }
 
 .bubble-wrap.assistant {
@@ -2045,25 +2038,25 @@ function onRevertUser(msg: Extract<ChatMessage, { role: "user" }>): void {
 .bubble {
   padding: 9px 13px;
   border-radius: var(--radius-md, 11px);
-  font-size: 14px;
-  line-height: 1.55;
+  font-size: 16px;
+  line-height: 1.6;
   word-break: break-word;
   user-select: text;
   -webkit-user-select: text;
   cursor: text;
 }
 
-/* User prompt: a clear, right-aligned card (distinct from assistant text). */
+/* User prompt: DeepSeek-style soft blue pill, right-aligned, no border. */
 .bubble.user {
   width: auto;
   max-width: 100%;
   box-sizing: border-box;
-  padding: 10px 14px;
-  border-radius: 14px;
-  background: color-mix(in srgb, var(--accent, #3b82f6) 9%, var(--bg-elevated, #fff));
+  padding: 10px 16px;
+  border-radius: 22px;
+  background: var(--user-bg, #edf3fe);
   color: var(--fg-strong);
-  border: 1px solid color-mix(in srgb, var(--accent, #3b82f6) 22%, var(--border, #ddd));
-  box-shadow: 0 1px 3px color-mix(in srgb, #000 8%, transparent);
+  border: none;
+  box-shadow: none;
   overflow: hidden;
 }
 
@@ -2101,10 +2094,10 @@ function onRevertUser(msg: Extract<ChatMessage, { role: "user" }>): void {
   width: 100%;
   display: flex;
   flex-direction: column;
-  gap: 2px;
-  font-size: 14.5px;
-  line-height: 1.7;
-  color: var(--fg, #18181b);
+  gap: 6px;
+  font-size: 16px;
+  line-height: 1.75;
+  color: var(--fg, #0f1115);
 }
 
 /* The final answer is the visual anchor of an assistant message — give the
@@ -2227,8 +2220,8 @@ function onRevertUser(msg: Extract<ChatMessage, { role: "user" }>): void {
 .user-plain {
   white-space: pre-wrap;
   word-break: break-word;
-  font-size: 13.5px;
-  line-height: 1.55;
+  font-size: 16px;
+  line-height: 1.5;
   user-select: text;
   -webkit-user-select: text;
 }
@@ -2272,6 +2265,19 @@ function onRevertUser(msg: Extract<ChatMessage, { role: "user" }>): void {
   align-items: center;
   opacity: 0;
   transition: opacity 0.12s ease;
+}
+
+/* DeepSeek Harness MessageIconActions: 28px circular, label-tertiary,
+   hover → interactive-bg-hover + label-secondary. */
+.actions :deep(.n-button) {
+  width: 28px;
+  height: 28px;
+  color: var(--fg-faint, #81858c) !important;
+}
+
+.actions :deep(.n-button:hover:not(.n-button--disabled)) {
+  background: var(--bg-hover, #f1f3f5) !important;
+  color: var(--fg-muted, #61666b) !important;
 }
 
 /* Copy / re-edit under the prompt (hover). Revert is inside the bubble. */

@@ -377,7 +377,13 @@ export type AgentCommand =
 	| { type: "compact"; customInstructions?: string }
 	| { type: "get_state" }
 	| { type: "ping" }
-	| { type: "hang" };
+	| { type: "hang" }
+	/**
+	 * Abandon a user turn on the session tree (leaf moves to its parent).
+	 * Used when re-editing a published bubble, or to heal after a rejected
+	 * image turn that would otherwise poison every subsequent prompt.
+	 */
+	| { type: "rollback_user"; userIndex?: number };
 
 export type ElementCitation = {
 	url: string;

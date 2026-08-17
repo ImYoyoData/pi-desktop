@@ -54,6 +54,14 @@ const RULES: Rule[] = [
     en: "Model unavailable. Choose another model.",
   },
   {
+    test: (t) =>
+      /PI_MODEL_NO_VISION|image_url|unknown variant.*image|does not accept images|does not support image/i.test(
+        t,
+      ) || t.includes("不支持图片"),
+    zh: "当前模型不支持图片。请切换到支持视觉的模型，或去掉图片后再发送。",
+    en: "Current model does not accept images. Switch to a vision-capable model, or remove images and send again.",
+  },
+  {
     test: (t) => /overloaded|capacity|upstream.*(error|fail)|provider.*(error|fail)/i.test(t),
     zh: "模型服务繁忙或上游异常，请稍后重试。",
     en: "Model provider busy or upstream error. Retry later.",

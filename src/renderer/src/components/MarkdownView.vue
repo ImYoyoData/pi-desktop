@@ -73,9 +73,19 @@ async function paintDiagrams(): Promise<void> {
 function openPreview(block: HTMLElement): void {
   previewSvg.value = getDiagramSvgMarkup(block);
   previewSource.value = getDiagramSource(block);
-  previewKind.value = block.getAttribute("data-diagram") || "diagram";
-  previewZoom.value = readDiagramZoom(block);
+  previewKind.value =
+    block.getAttribute("data-diagram") ||
+    block.querySelector(".md-diagram-kind")?.textContent?.trim() ||
+    "diagram";
+  previewZoom.value = Math.max(1, readDiagramZoom(block));
   previewOpen.value = Boolean(previewSvg.value);
+}
+
+function onPreviewWheel(event: WheelEvent): void {
+  if (!event.ctrlKey && !event.metaKey) return;
+  event.preventDefault();
+  const factor = event.deltaY < 0 ? 1.12 : 1 / 1.12;
+  nudgePreviewZoom(factor);
 }
 
 function onRootClick(event: MouseEvent): void {
@@ -191,45 +201,43 @@ onUnmounted(() => {
     v-model:show="previewOpen"
     preset="card"
     :title="t.mdDiagramPreviewTitle(previewKind)"
-    class="pi-settings-modal"
-    style="width: min(960px, 96vw)"
+    class="pi-settings-modal diagram-fullscreen-modal"
+    style="width: min(100vw, 100%); max-width: 100vw"
     :bordered="false"
     size="huge"
   >
-    <div class="modal-scroll">
-
-    <div class="preview-toolbar">
-      <NSpace :size="6">
-        <NButton size="tiny" @click="nudgePreviewZoom(1 / 1.2)">−</NButton>
-        <span class="preview-zoom">{{ Math.round(previewZoom * 100) }}%</span>
-        <NButton size="tiny" @click="nudgePreviewZoom(1.2)">+</NButton>
-        <NButton size="tiny" @click="resetPreviewZoom">1:1</NButton>
-        <NButton size="tiny" @click="copyPreviewSource">{{ t.mdDiagramCopySource }}</NButton>
-        <NButton size="tiny" @click="downloadPreviewSvg">{{ t.mdDiagramDownloadSvg }}</NButton>
-      </NSpace>
+    <div class="modal-scroll preview-shell">
+      <div class="preview-toolbar">
+        <NSpace :size="6" align="center">
+          <NButton size="tiny" @click="nudgePreviewZoom(1 / 1.2)">−</NButton>
+          <span class="preview-zoom">{{ Math.round(previewZoom * 100) }}%</span>
+          <NButton size="tiny" @click="nudgePreviewZoom(1.2)">+</NButton>
+          <NButton size="tiny" @click="resetPreviewZoom">1:1</NButton>
+          <NButton size="tiny" @click="copyPreviewSource">{{ t.mdDiagramCopySource }}</NButton>
+          <NButton size="tiny" @click="downloadPreviewSvg">{{ t.mdDiagramDownloadSvg }}</NButton>
+          <span class="preview-hint">{{ t.mdDiagramFullscreenHint }}</span>
+        </NSpace>
+      </div>
+      <div class="preview-viewport" @wheel="onPreviewWheel">
+        <div
+          class="preview-canvas"
+          :style="{ transform: `scale(${previewZoom})` }"
+          v-html="previewSvg"
+        />
+      </div>
     </div>
-    <div class="preview-viewport">
-      <div
-        class="preview-canvas"
-        :style="{ transform: `scale(${previewZoom})` }"
-        v-html="previewSvg"
-      />
-    </div>
-  
-    </div>
-</NModal>
+  </NModal>
 </template>
 
 <style>
-@import "highlight.js/styles/github.css";
 @import "katex/dist/katex.min.css";
 </style>
 
 <style scoped>
 /* Global base.css resets ul list-style and * font-weight — restore GFM chrome here. */
 .md {
-  font-size: 14px;
-  line-height: 1.55;
+  font-size: 16px;
+  line-height: 1.75;
   color: inherit;
   word-break: break-word;
   overflow-wrap: anywhere;
@@ -382,7 +390,7 @@ onUnmounted(() => {
   border-radius: 8px;
   border: 1px solid var(--border-subtle, rgba(127, 127, 127, 0.25));
   overflow: hidden;
-  background: var(--bg-elevated, transparent);
+  background: var(--pre-bg, var(--code-bg, var(--bg-elevated, transparent)));
 }
 
 .md :deep(.code-head) {
@@ -413,12 +421,17 @@ onUnmounted(() => {
 
 .md :deep(.code-body) {
   display: flex;
+  align-items: flex-start;
   max-height: 420px;
+  /* Single scrollport so line numbers and code stay locked together. */
   overflow: auto;
 }
 
 .md :deep(.line-nos) {
   flex: 0 0 auto;
+  position: sticky;
+  left: 0;
+  z-index: 1;
   padding: 10px 0;
   text-align: right;
   user-select: none;
@@ -426,6 +439,7 @@ onUnmounted(() => {
   font-size: 12px;
   line-height: 1.5;
   color: var(--fg-faint);
+  background: var(--pre-bg, var(--code-bg, var(--bg-elevated, transparent)));
 }
 
 .md :deep(.line-nos span) {
@@ -433,11 +447,17 @@ onUnmounted(() => {
   padding: 0 8px;
 }
 
-.md :deep(pre) {
+/* Do not give <pre> its own scrollbar — that desyncs .line-nos (issue #6). */
+.md :deep(.code-body > pre) {
+  flex: 1 1 auto;
+  min-width: 0;
   margin: 0;
   padding: 10px 12px;
-  overflow: auto;
+  overflow: visible;
   background: transparent;
+  border: none;
+  border-radius: 0;
+  box-shadow: none;
 }
 
 .md :deep(code.hljs) {
@@ -446,6 +466,7 @@ onUnmounted(() => {
   line-height: 1.5;
   background: transparent;
   padding: 0;
+  white-space: pre;
 }
 
 .md :deep(:not(pre) > code) {
@@ -510,7 +531,7 @@ onUnmounted(() => {
 
 .md :deep(.md-diagram-viewport) {
   overflow: auto;
-  max-height: 480px;
+  max-height: min(70vh, 640px);
   padding: 12px;
   cursor: grab;
 }
@@ -542,6 +563,16 @@ onUnmounted(() => {
   opacity: 0.9;
 }
 
+.md :deep(.md-diagram-error-msg) {
+  margin: 0;
+  padding: 6px 10px 10px;
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--error, #d03050);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
 .md :deep(.md-math-block) {
   margin: 0.75em 0;
   overflow-x: auto;
@@ -552,8 +583,22 @@ onUnmounted(() => {
   margin: 0.5em 0;
 }
 
+.preview-shell {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: min(86vh, 900px);
+}
+
 .preview-toolbar {
-  margin-bottom: 10px;
+  margin-bottom: 0;
+  flex-shrink: 0;
+}
+
+.preview-hint {
+  margin-left: 8px;
+  font-size: 11px;
+  color: var(--fg-faint);
 }
 
 .preview-zoom {
@@ -567,12 +612,15 @@ onUnmounted(() => {
 }
 
 .preview-viewport {
+  flex: 1;
   overflow: auto;
-  max-height: min(70vh, 640px);
-  padding: 16px;
+  min-height: min(78vh, 820px);
+  max-height: min(82vh, 880px);
+  padding: 20px;
   border-radius: 8px;
   border: 1px solid var(--border-subtle, rgba(127, 127, 127, 0.25));
   background: var(--bg-elevated, transparent);
+  cursor: grab;
 }
 
 .preview-canvas {
@@ -585,5 +633,13 @@ onUnmounted(() => {
   display: block;
   max-width: none;
   height: auto;
+}
+</style>
+
+<style>
+.diagram-fullscreen-modal.n-card,
+.diagram-fullscreen-modal.n-modal {
+  width: min(100vw - 16px, 1400px) !important;
+  max-width: 100vw !important;
 }
 </style>

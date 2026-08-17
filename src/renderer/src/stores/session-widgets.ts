@@ -24,6 +24,12 @@ export const useSessionWidgetsStore = defineStore("session-widgets", () => {
 	/** sessionId → wall-clock ms when the current todo round started (auto).
 	 *  Set when the first non-empty todo list appears; cleared on reset. */
 	const todoStartedAtBySession = ref<Record<string, number>>({});
+	/** sessionId → wall-clock ms when the round finished (all items done). */
+	const todoCompletedAtBySession = ref<Record<string, number>>({});
+	/** sessionId → itemId → per-item timing (startedAt / completedAt). */
+	const itemTimingBySession = ref<
+		Record<string, Record<string, { startedAt: number; completedAt?: number }>>
+	>({});
 	/**
 	 * sessionId → baseline item texts captured at reset time. While a baseline
 	 * is armed, incoming todo lists are filtered so stale extension items from
@@ -43,6 +49,11 @@ export const useSessionWidgetsStore = defineStore("session-widgets", () => {
 	/** Wall-clock start of the current todo round (0 when none). */
 	function todoStartedAt(sessionId: string): number {
 		return todoStartedAtBySession.value[sessionId] ?? 0;
+	}
+
+	/** Wall-clock end of the current todo round (0 while still in progress). */
+	function todoCompletedAt(sessionId: string): number {
+		return todoCompletedAtBySession.value[sessionId] ?? 0;
 	}
 
 	/** Arm the round clock on the first non-empty list for the session. */
@@ -132,6 +143,46 @@ export const useSessionWidgetsStore = defineStore("session-widgets", () => {
 		const prev = todosBySession.value[sessionId];
 		const hasOpen = items.some((i) => !i.done);
 		ensureTodoClock(sessionId, items.length > 0);
+
+		// Per-item timing: arm a start clock on first sight of an open item,
+		// freeze its duration the moment it flips to done, and stop the round
+		// clock once every item is complete.
+		const now = Date.now();
+		const timing = itemTimingBySession.value[sessionId] ?? {};
+		const nextTiming = { ...timing };
+		for (const item of items) {
+			if (item.done) {
+				const t = timing[item.id];
+				if (t && !t.completedAt && item.durationMs == null) {
+					item.durationMs = Math.max(0, now - t.startedAt);
+				}
+				if (t && !t.completedAt) {
+					nextTiming[item.id] = { startedAt: t.startedAt, completedAt: now };
+				}
+				item.startedAt = undefined;
+			} else {
+				const t = timing[item.id];
+				if (!t) {
+					nextTiming[item.id] = { startedAt: now };
+					item.startedAt = now;
+				} else if (t.startedAt) {
+					item.startedAt = t.startedAt;
+				}
+			}
+		}
+		itemTimingBySession.value = {
+			...itemTimingBySession.value,
+			[sessionId]: nextTiming,
+		};
+
+		const allDone = items.length > 0 && !hasOpen;
+		if (allDone && !todoCompletedAtBySession.value[sessionId]) {
+			todoCompletedAtBySession.value = {
+				...todoCompletedAtBySession.value,
+				[sessionId]: now,
+			};
+		}
+
 		todosBySession.value = {
 			...todosBySession.value,
 			[sessionId]: {
@@ -166,6 +217,12 @@ export const useSessionWidgetsStore = defineStore("session-widgets", () => {
 		const clocks = { ...todoStartedAtBySession.value };
 		delete clocks[sessionId];
 		todoStartedAtBySession.value = clocks;
+		const ends = { ...todoCompletedAtBySession.value };
+		delete ends[sessionId];
+		todoCompletedAtBySession.value = ends;
+		const timings = { ...itemTimingBySession.value };
+		delete timings[sessionId];
+		itemTimingBySession.value = timings;
 		const widgets = { ...widgetsBySession.value };
 		const row = widgets[sessionId];
 		if (row) {
@@ -202,11 +259,15 @@ export const useSessionWidgetsStore = defineStore("session-widgets", () => {
 		const { [sessionId]: _w, ...restW } = widgetsBySession.value;
 		const { [sessionId]: _t, ...restT } = todosBySession.value;
 		const { [sessionId]: _c, ...restC } = todoStartedAtBySession.value;
+		const { [sessionId]: _e, ...restE } = todoCompletedAtBySession.value;
 		const { [sessionId]: _b, ...restB } = baselineBySession.value;
+		const { [sessionId]: _m, ...restM } = itemTimingBySession.value;
 		widgetsBySession.value = restW;
 		todosBySession.value = restT;
 		todoStartedAtBySession.value = restC;
+		todoCompletedAtBySession.value = restE;
 		baselineBySession.value = restB;
+		itemTimingBySession.value = restM;
 	}
 
 	return {
@@ -214,6 +275,7 @@ export const useSessionWidgetsStore = defineStore("session-widgets", () => {
 		todosBySession,
 		activeTodoList,
 		todoStartedAt,
+		todoCompletedAt,
 		setWidget,
 		applyTodoToolResult,
 		applyTodoToolArgs,

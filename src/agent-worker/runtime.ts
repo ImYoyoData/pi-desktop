@@ -13,6 +13,10 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import type { AgentCommand, ElementCitation } from "../shared/protocol";
 import { toPromptImages } from "../shared/protocol";
+import {
+	formatNoVisionModelError,
+	isImageSchemaPromptError,
+} from "../shared/session-tree";
 import { truncateHtmlSnippet } from "../shared/html-snippet";
 import type {
 	WorkerInbound,
@@ -115,6 +119,89 @@ function normalizePromptImages(
 ): ImageContent[] | undefined {
 	const normalized = toPromptImages(images);
 	return normalized as ImageContent[] | undefined;
+}
+
+function modelAcceptsImages(active: AgentSession): boolean {
+	const input = active.model?.input;
+	return Array.isArray(input) && input.includes("image");
+}
+
+function messageContentHasImage(content: unknown): boolean {
+	if (!Array.isArray(content)) return false;
+	return content.some(
+		(part) =>
+			Boolean(part) &&
+			typeof part === "object" &&
+			(part as { type?: unknown }).type === "image",
+	);
+}
+
+/**
+ * Navigate the session tree to abandon a user turn (leaf → parent of that entry).
+ * `userIndex` is 0-based among user messages on the current fork list.
+ */
+async function rollbackUserTurn(
+	active: AgentSession,
+	userIndex?: number,
+): Promise<boolean> {
+	const users = active.getUserMessagesForForking();
+	if (!users.length) return false;
+	const idx = userIndex == null ? users.length - 1 : userIndex;
+	// Out of range means the UI bubble never landed in the agent tree (e.g. rejected
+	// before prompt) — do not clamp onto an older successful turn.
+	if (idx < 0 || idx >= users.length) return false;
+	const target = users[idx];
+	if (!target) return false;
+	await active.navigateTree(target.entryId, { summarize: false });
+	return true;
+}
+
+/** Abandon the earliest user turn that still carries image parts (heals poisoned history). */
+async function rollbackFirstImageUserTurn(active: AgentSession): Promise<boolean> {
+	const users = active.getUserMessagesForForking();
+	for (const user of users) {
+		const entry = active.sessionManager.getEntry(user.entryId);
+		if (!entry || entry.type !== "message") continue;
+		const content = (entry.message as { content?: unknown }).content;
+		if (!messageContentHasImage(content)) continue;
+		await active.navigateTree(user.entryId, { summarize: false });
+		return true;
+	}
+	return false;
+}
+
+async function healAfterPromptFailure(
+	active: AgentSession,
+	hadImages: boolean,
+	errorMessage: string,
+): Promise<void> {
+	try {
+		if (hadImages) {
+			await rollbackUserTurn(active);
+			return;
+		}
+		if (isImageSchemaPromptError(errorMessage)) {
+			await rollbackFirstImageUserTurn(active);
+		}
+	} catch {
+		// best-effort — surface the original prompt error either way
+	}
+}
+
+function lastAssistantErrorMessage(active: AgentSession): string | null {
+	for (let i = active.messages.length - 1; i >= 0; i--) {
+		const m = active.messages[i] as {
+			role?: string;
+			stopReason?: string;
+			errorMessage?: string;
+		};
+		if (m?.role !== "assistant") continue;
+		if (m.stopReason === "error" && typeof m.errorMessage === "string" && m.errorMessage) {
+			return m.errorMessage;
+		}
+		return null;
+	}
+	return null;
 }
 
 /** Strip bulky / non-essential fields so IPC stays reliable and agent_end always reaches UI. */
@@ -484,7 +571,25 @@ async function runCommand(id: string, command: AgentCommand): Promise<void> {
 			applyBuiltinBrowserToolGate(active, message, command.citations);
 			pruneAgentToolResults(active);
 			const images = normalizePromptImages(command.images);
-			await active.prompt(message, images?.length ? { images } : undefined);
+			if (images?.length && !modelAcceptsImages(active)) {
+				post({ kind: "result", id, error: formatNoVisionModelError() });
+				return;
+			}
+			try {
+				await active.prompt(message, images?.length ? { images } : undefined);
+			} catch (err) {
+				const errText = err instanceof Error ? err.message : String(err);
+				await healAfterPromptFailure(active, Boolean(images?.length), errText);
+				throw err;
+			}
+			// Many providers surface 400s as an assistant error message without throwing.
+			const settledErr = lastAssistantErrorMessage(active);
+			if (
+				settledErr &&
+				(Boolean(images?.length) || isImageSchemaPromptError(settledErr))
+			) {
+				await healAfterPromptFailure(active, Boolean(images?.length), settledErr);
+			}
 			post({ kind: "result", id, data: { promptDone: true } });
 			return;
 		}
@@ -493,8 +598,24 @@ async function runCommand(id: string, command: AgentCommand): Promise<void> {
 			applyBuiltinBrowserToolGate(active, command.message);
 			pruneAgentToolResults(active);
 			const images = normalizePromptImages(command.images);
-			await active.steer(command.message, images?.length ? images : undefined);
+			if (images?.length && !modelAcceptsImages(active)) {
+				post({ kind: "result", id, error: formatNoVisionModelError() });
+				return;
+			}
+			try {
+				await active.steer(command.message, images?.length ? images : undefined);
+			} catch (err) {
+				const errText = err instanceof Error ? err.message : String(err);
+				await healAfterPromptFailure(active, Boolean(images?.length), errText);
+				throw err;
+			}
 			post({ kind: "result", id, data: { ok: true } });
+			return;
+		}
+		case "rollback_user": {
+			const active = requireSession();
+			const ok = await rollbackUserTurn(active, command.userIndex);
+			post({ kind: "result", id, data: { ok } });
 			return;
 		}
 		case "follow_up": {

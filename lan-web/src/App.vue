@@ -1020,64 +1020,111 @@ onBeforeUnmount(() => {
 </template>
 
 <style>
-  /* Align tokens with desktop main.css */
+  /* Align tokens with desktop main.css — DeepSeek Harness visual language */
   :root {
-    --bg: #f7f7f8;
+    --bg: #ffffff;
     --bg2: #ffffff;
-    --bg-sidebar: #f0f0f2;
+    --bg-title: #f9fafb;
+    --bg-sidebar: #f9fafb;
+    --bg-panel: #f9fafb;
     --bg-elevated: #ffffff;
-    --bg-hover: #e8e8ec;
-    --bg-selected: #e0e0e5;
     --bg-input: #ffffff;
-    --fg: #18181b;
-    --fg-strong: #09090b;
-    --muted: #71717a;
-    --fg-faint: #a1a1aa;
-    --border: #e6e6ea;
-    --accent: #2563eb;
+    --bg-hover: #f1f3f5;
+    --bg-active: #ebeff2;
+    --bg-selected: #ebeff2;
+    --bg-user-bubble: #edf3fe;
+    --user-bg: #edf3fe;
+    --tool-bg: #f5f6f7;
+    --border: #e3e6ec;
+    --border-strong: #d5d9e1;
+    --fg: #0f1115;
+    --fg-strong: #0f1115;
+    --fg-muted: #61666b;
+    --fg-faint: #81858c;
+    --muted: #61666b;
+    --text: #0f1115;
+    --text-muted: #61666b;
+    --text-dim: #81858c;
+    --accent: #4176e6;
+    --accent-hover: #5686fe;
     --accent-fg: #ffffff;
-    --accent-soft: rgba(37, 99, 235, 0.08);
-    --accent-border: rgba(37, 99, 235, 0.32);
-    --code: #18181b;
-    --ok: #16a34a;
-    --err: #dc2626;
-    --shadow: 0 4px 18px rgba(15, 23, 42, 0.07), 0 1px 3px rgba(15, 23, 42, 0.04);
-    --radius: 14px;
-    --radius-sm: 7px;
-    --radius-md: 11px;
-    --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
-    --duration-fast: 140ms;
-    --composer-max: 780px;
+    --accent-soft: rgba(65, 118, 230, 0.08);
+    --accent-border: rgba(65, 118, 230, 0.32);
+    --primary: var(--accent);
+    --blue: #4176e6;
+    --green: #22c55e;
+    --red: #ef4444;
+    --code: #0f1115;
+    --ok: #22c55e;
+    --err: #ef4444;
+    --font-ui: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+      "Hiragino Sans GB", "Microsoft YaHei", "Helvetica Neue", Helvetica, Arial, sans-serif;
+    --font-mono: "SF Mono", "JetBrains Mono", "Fira Code", Consolas,
+      "Liberation Mono", Menlo, Courier, "PingFang SC", "Microsoft YaHei";
+    --radius: 16px;
+    --radius-sm: 6px;
+    --radius-md: 12px;
+    --radius-lg: 16px;
+    --shadow-sm: 0 1px 2px rgba(15, 17, 21, 0.04), 0 0 0 1px rgba(15, 17, 21, 0.02);
+    --shadow: 0 4px 18px rgba(15, 17, 21, 0.07), 0 1px 3px rgba(15, 17, 21, 0.04);
+    --shadow-lg: 0 12px 40px rgba(15, 17, 21, 0.1), 0 2px 8px rgba(15, 17, 21, 0.05);
+    --ease-out: cubic-bezier(0.4, 0, 0.2, 1);
+    --duration-fast: 100ms;
+    --duration: 200ms;
+    --composer-max: 748px;
+    --code-bg: #f5f6f7;
+    --pre-bg: #f5f6f7;
+    --md-inline-code-bg: #f1f3f5;
   }
   * { box-sizing: border-box; }
   html, body { margin: 0; height: 100%; }
   body {
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei UI", system-ui, sans-serif;
+    font-family: var(--font-ui);
     background: var(--bg);
     color: var(--fg);
+    letter-spacing: -0.011em;
     -webkit-font-smoothing: antialiased;
   }
   .app[data-dark="true"] {
-    --bg: #0b0b0e;
-    --bg2: #141418;
-    --bg-sidebar: #141418;
-    --bg-elevated: #1c1c22;
-    --bg-hover: #25252c;
-    --bg-selected: #2e2e36;
-    --bg-input: #1c1c22;
-    --fg: #e4e4e7;
-    --fg-strong: #fafafa;
-    --muted: #a1a1aa;
-    --fg-faint: #71717a;
-    --border: #2a2a32;
-    --accent: #3b82f6;
+    --bg: #151517;
+    --bg2: #1b1b1c;
+    --bg-title: #1b1b1c;
+    --bg-sidebar: #1b1b1c;
+    --bg-panel: #1b1b1c;
+    --bg-elevated: #232324;
+    --bg-input: #232324;
+    --bg-hover: #2c2c2d;
+    --bg-active: #353536;
+    --bg-selected: #353536;
+    --bg-user-bubble: #2c2c2d;
+    --user-bg: #2c2c2d;
+    --tool-bg: #1b1b1c;
+    --border: #2c2c2d;
+    --border-strong: #3a3a3b;
+    --fg: #f5f6f7;
+    --fg-strong: #f9fafb;
+    --fg-muted: #cfd3d6;
+    --fg-faint: #adb2b8;
+    --muted: #cfd3d6;
+    --text: #f5f6f7;
+    --text-muted: #cfd3d6;
+    --text-dim: #adb2b8;
+    --accent: #5686fe;
+    --accent-hover: #679efe;
     --accent-fg: #ffffff;
-    --accent-soft: rgba(59, 130, 246, 0.14);
-    --accent-border: rgba(59, 130, 246, 0.4);
-    --code: #141418;
-    --ok: #22c55e;
-    --err: #f87171;
+    --accent-soft: rgba(86, 134, 254, 0.16);
+    --accent-border: rgba(86, 134, 254, 0.4);
+    --blue: #5686fe;
+    --green: #4ed17e;
+    --red: #f25a5a;
+    --code: #1b1b1c;
+    --ok: #4ed17e;
+    --err: #f25a5a;
     --shadow: 0 8px 28px rgba(0, 0, 0, 0.45), 0 1px 3px rgba(0, 0, 0, 0.3);
+    --shadow-lg: 0 16px 48px rgba(0, 0, 0, 0.55);
+    --code-bg: #232324;
+    --pre-bg: #0d1117;
+    --md-inline-code-bg: #232324;
   }
   .app {
     position: relative;
@@ -1282,8 +1329,8 @@ onBeforeUnmount(() => {
   }
   .session-row:hover .session-inner { background: var(--bg-hover); color: var(--fg); }
   .session-row.active .session-inner {
-    background: color-mix(in srgb, var(--accent-soft) 80%, var(--bg-selected));
-    border-color: color-mix(in srgb, var(--accent) 28%, transparent);
+    background: var(--bg-selected);
+    border-color: var(--border);
     color: var(--fg-strong);
   }
   .active-bar {
@@ -1473,14 +1520,14 @@ onBeforeUnmount(() => {
     width: 100%;
     border: 1px solid var(--border);
     border-radius: var(--radius);
-    background: var(--bg-elevated);
-    box-shadow: var(--shadow);
+    background: var(--tool-bg);
+    box-shadow: none;
     padding: 6px 8px;
     transition: border-color var(--duration-fast) var(--ease-out), box-shadow .18s var(--ease-out);
   }
   .composer-card:focus-within {
     border-color: var(--accent-border);
-    box-shadow: var(--shadow), 0 0 0 3px var(--accent-soft);
+    box-shadow: 0 0 0 3px var(--accent-soft);
   }
   .composer-card.is-voice-recording {
     border-color: color-mix(in srgb, var(--err) 45%, var(--border));
