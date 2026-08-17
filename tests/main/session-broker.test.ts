@@ -4,6 +4,7 @@ import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import {
   createSessionBroker,
+  ABORT_FORCE_KILL_MS,
   STALL_EMIT_MS,
   type AllocateSession,
   type SpawnWorker,
@@ -422,7 +423,7 @@ describe("session-broker", () => {
     });
     const session = await broker.createSession("/tmp/a");
     const pending = broker.send(session.id, { type: "abort" });
-    await vi.advanceTimersByTimeAsync(4_000);
+    await vi.advanceTimersByTimeAsync(ABORT_FORCE_KILL_MS);
     await expect(pending).resolves.toEqual({ ok: true, forced: true });
     expect(killed).toBe(true);
     vi.useRealTimers();

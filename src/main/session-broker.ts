@@ -49,7 +49,7 @@ export const STALL_EMIT_MS = 75_000;
  * grace period so a mid-tool abort (e.g. a slow LLM stream teardown) never
  * tears down the warm Pi connection + its prompt cache on a routine Stop.
  */
-const ABORT_FORCE_KILL_MS = 30_000;
+export const ABORT_FORCE_KILL_MS = 30_000;
 const SHUTDOWN_GRACE_MS = 800;
 const CONTEXT_SEGMENT_IDS = new Set<ContextUsageSegmentId>([
   "system",
