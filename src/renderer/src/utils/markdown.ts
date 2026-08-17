@@ -35,6 +35,37 @@ function diagramPlaceholder(kind: "mermaid" | "dot", source: string): string {
   ].join("");
 }
 
+/** Fence langs that should render via Mermaid (not highlight.js). */
+const MERMAID_LANGS = new Set([
+  "mermaid",
+  "flowchart",
+  "sequence",
+  "sequencediagram",
+  "classdiagram",
+  "statediagram",
+  "statediagram-v2",
+  "erdiagram",
+  "gantt",
+  "pie",
+  "mindmap",
+  "timeline",
+  "gitgraph",
+  "journey",
+  "quadrantchart",
+  "xychart-beta",
+  "sankey-beta",
+  "requirementdiagram",
+  "architecture-beta",
+]);
+
+/** Detect untitled fences that are clearly Mermaid diagrams. */
+function looksLikeMermaidSource(source: string): boolean {
+  const head = source.trimStart();
+  return /^(flowchart|graph\s+(TD|TB|BT|RL|LR)|sequenceDiagram|classDiagram|stateDiagram|erDiagram|gantt|pie|mindmap|timeline|gitGraph|journey)\b/m.test(
+    head,
+  );
+}
+
 function renderMathBlock(source: string): string {
   try {
     return `<div class="md-math-block">${katex.renderToString(source, {
@@ -54,7 +85,7 @@ marked.use({
       const langKey = language.toLowerCase();
       const source = text.replace(/\n$/, "");
 
-      if (langKey === "mermaid") {
+      if (MERMAID_LANGS.has(langKey) || (!langKey && looksLikeMermaidSource(source))) {
         return diagramPlaceholder("mermaid", source);
       }
       if (langKey === "dot" || langKey === "graphviz" || langKey === "gv") {

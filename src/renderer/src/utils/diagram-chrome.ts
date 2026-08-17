@@ -7,8 +7,8 @@ export type DiagramToolLabels = {
   downloadSvg: string;
 };
 
-const MIN_ZOOM = 0.4;
-const MAX_ZOOM = 4;
+const MIN_ZOOM = 0.35;
+const MAX_ZOOM = 6;
 const ZOOM_STEP = 1.2;
 
 export function clampDiagramZoom(z: number): number {
@@ -83,6 +83,7 @@ export function mountDiagramChrome(
   block.classList.add("md-diagram-ready");
   block.classList.remove("md-diagram-error");
   block.dataset.zoom = "1";
+  block.setAttribute("data-diagram", kind);
   applyDiagramZoom(block, 1);
 
   const svgEl = canvas.querySelector("svg");

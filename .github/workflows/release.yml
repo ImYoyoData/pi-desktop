@@ -165,31 +165,27 @@ jobs:
           generate_release_notes: true
           body: |
 
-            ## 主要更新（v0.2.8）
+            ## 主要更新（v0.2.9）
 
-            本版重点：消除录音/云 ASR 与大会话切换卡顿；工作区「移除」不再删项目目录；自定义模型可测连通、删除即时生效。
-
-            ### 新功能 Features
-            - 自定义模型：拉取模型与保存分离；「测试连接」发极短请求测延迟/连通；删除 Provider 立即写入磁盘。
-            - 移除工作区：清除 Pi 会话与配置，不删除项目文件夹；关闭仅移入已关闭列表。
+            本版重点：暗色代码高亮与行号对齐；发图/粘贴/Codex OAuth 等稳定性修复。
 
             ### 修复 / 体验 Fixes
-            - 录音确认与云端 ASR：WAV/base64 与云转写移出主进程，避免整窗冻结；唤醒流改用 Int16 PCM。
-            - 启动与切会话：侧栏先出 Desktop 列表、Pi 扫描后台合并；历史分页只物化当前页图片。
-            - 录音波形：接近上下边界 85% 时自动压缩增益，避免顶死。
+            - 暗色主题代码高亮改用 `github-dark`，不再误用浅色配色（#5）。
+            - 代码块行号与内容对齐：只保留外层滚动，行号 sticky（#6）。
+            - 非视觉模型发图：发送前校验 vision、失败回滚毒化消息，编辑重发真正替换（#7）。
+            - 粘贴 Word/网页富文本时剥离格式，只插入纯文本（#9）。
+            - 打包后 Codex / Anthropic / Copilot 等 OAuth 模块打进 asar，修复缺少 `openai-codex.js`（#10）。
 
-            ## What's New (v0.2.8)
+            ## What's New (v0.2.9)
 
-            Less UI freeze on recording / cloud ASR and large session switches; workspace Remove no longer deletes the project folder; custom models gain a connectivity test and instant delete.
-
-            ### Features
-            - Custom models: Fetch models vs Save are separate; Test sends a tiny probe for latency; deleting a provider persists immediately.
-            - Remove workspace: purge Pi sessions/config without deleting the project folder; Close only dismisses to the closed list.
+            Dark code highlighting and line-number alignment; stability fixes for images, paste, and Codex OAuth packaging.
 
             ### Fixes
-            - Recording confirm / cloud ASR: WAV/base64 and cloud transcribe off the main process; wake stream uses Int16 PCM.
-            - Startup & session switch: Desktop-first sidebar list with background Pi merge; history pages only materialize images for the window.
-            - Voice waveform: auto-compress when nearing 85% of the canvas.
+            - Dark theme code highlight uses `github-dark` instead of light styles (#5).
+            - Code-block line numbers stay aligned: single scrollport + sticky gutters (#6).
+            - Non-vision image sends: gate vision, roll back poisoned messages, edit-resend replaces in place (#7).
+            - Paste from Word/web strips formatting to plain text (#9).
+            - Packaged OAuth flows (Codex / Anthropic / Copilot, …) are statically chunked into asar — no missing `openai-codex.js` (#10).
 
             ## 下载 / Downloads
             - **Windows x64**: `Pi Desktop-*-win-x64-setup.exe`

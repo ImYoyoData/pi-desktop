@@ -23,6 +23,14 @@ export function extractDraftFromRichHtml(html: string): string {
     .replace(/\u200B/g, "");
 }
 
+/** Normalize clipboard payloads to plain text (prefer text/plain; HTML is stripped). */
+export function plainTextFromClipboard(textPlain: string, textHtml = ""): string {
+  const fromPlain = textPlain.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+  if (fromPlain.trim()) return fromPlain;
+  if (!textHtml.trim()) return "";
+  return extractDraftFromRichHtml(textHtml).replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+}
+
 export function chipIdsFromRichHtml(html: string): string[] {
   const ids: string[] = [];
   CHIP_ID_RE.lastIndex = 0;

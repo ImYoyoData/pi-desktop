@@ -885,10 +885,48 @@ export const useChatStore = defineStore("chat", () => {
 		const promptImages = toPromptImages(images);
 		const promptCitations = toPromptCitations(citations);
 		const bubbleText = displayText !== undefined ? displayText : message;
-		// Sending an edited bubble: the edit is committed as a NEW appended
-		// message (history preserved) — clear the re-edit marker once the send
-		// actually lands so the dimmed tail highlight disappears.
+
+		// Re-edit commit: replace that bubble and everything after it (UI + agent tree).
+		const edit = pendingUserEdit.value;
 		pendingUserEdit.value = null;
+		if (edit?.sessionId === sessionId) {
+			const before = stateFor(sessionId);
+			let userIndex = -1;
+			let found = false;
+			for (const m of before.messages) {
+				if (m.role !== "user") continue;
+				userIndex += 1;
+				if (m.id === edit.messageId) {
+					found = true;
+					break;
+				}
+			}
+			if (!found) userIndex = -1;
+			const cutIdx = before.messages.findIndex((m) => m.id === edit.messageId);
+			if (cutIdx >= 0) {
+				setSessionState(
+					sessionId,
+					withRunClock({
+						...before,
+						messages: before.messages.slice(0, cutIdx),
+						streamingMessage: null,
+						running: false,
+						retryHint: null,
+					}),
+				);
+			}
+			if (userIndex >= 0) {
+				try {
+					await sessionsStore.sendCommand(sessionId, {
+						type: "rollback_user",
+						userIndex,
+					});
+				} catch {
+					// Agent may already be past that leaf — continue with the new prompt.
+				}
+			}
+		}
+
 		// A new task starts a clean slate: drop the previous round's todos so
 		// fresh items never accumulate on top of the old list.
 		useSessionWidgetsStore().resetTodosForSession(sessionId);

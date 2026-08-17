@@ -1,5 +1,19 @@
 # Changelog
 
+## v0.2.9 (2026-08-17)
+
+### 修复 / 体验 Fixes
+- 暗色主题代码高亮改用 `github-dark`，不再误用浅色配色（#5）。
+- 代码块行号与内容对齐：只保留外层滚动，行号 sticky，避免双滚动错位（#6）。
+- 非视觉模型发图：发送前校验 vision、失败回滚毒化消息，编辑重发真正替换，避免会话卡死（#7）。
+- 粘贴 Word/网页富文本时剥离格式，只插入纯文本；图片与 URL 粘贴行为不变（#9）。
+- 打包后 Codex / Anthropic / Copilot 等 OAuth 动态模块打进 asar chunk，修复缺少 `openai-codex.js`（#10）。
+- Dark theme code highlight uses `github-dark` instead of light styles (#5).
+- Code-block line numbers stay aligned: single scrollport + sticky gutters (#6).
+- Non-vision image sends: gate vision, roll back poisoned messages, edit-resend replaces in place (#7).
+- Paste from Word/web strips formatting to plain text; image/URL paste unchanged (#9).
+- Packaged OAuth flows (Codex / Anthropic / Copilot, …) are statically chunked into asar — no missing `openai-codex.js` (#10).
+
 ## v0.2.8 (2026-08-09)
 
 ### 新功能 Features

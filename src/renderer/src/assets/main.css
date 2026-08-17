@@ -1,101 +1,107 @@
 @import './base.css';
 
-/* Align tokens with pi-web globals.css (light) — refined premium layer */
+/*
+ * Design tokens — aligned with the DeepSeek Harness visual language.
+ * Neutral-bluish grays on a pure-white base, near-black primary text and the
+ * DeepSeek blue (#4176E6) as the single accent.
+ */
 :root {
-  --bg: #f7f7f8;
-  --bg-title: #f0f0f2;
-  --bg-sidebar: #f0f0f2;
-  --bg-panel: #f0f0f2;
+  --bg: #ffffff;
+  --bg-title: #f9fafb;
+  --bg-sidebar: #f9fafb;
+  --bg-panel: #f9fafb;
   --bg-elevated: #ffffff;
   --bg-input: #ffffff;
-  --bg-hover: #e8e8ec;
-  --bg-active: #e0e0e5;
-  --bg-selected: #e0e0e5;
-  --bg-user-bubble: #eef4ff;
-  --user-bg: #eef4ff;
+  --bg-hover: #f1f3f5;
+  --bg-active: #ebeff2;
+  --bg-selected: #ebeff2;
+  --bg-user-bubble: #edf3fe;
+  --user-bg: #edf3fe;
   --assistant-bg: #ffffff;
-  --tool-bg: #f7f7f8;
-  --border: #e6e6ea;
-  --border-strong: #d2d2d8;
-  --fg: #18181b;
-  --fg-strong: #09090b;
-  --fg-muted: #71717a;
-  --fg-faint: #a1a1aa;
-  --text: #18181b;
-  --text-muted: #71717a;
-  --text-dim: #a1a1aa;
-  --accent: #2563eb;
-  --accent-hover: #1d4ed8;
+  --tool-bg: #f5f6f7;
+  --border: #e3e6ec;
+  --border-strong: #d5d9e1;
+  --fg: #0f1115;
+  --fg-strong: #0f1115;
+  --fg-muted: #61666b;
+  --fg-faint: #81858c;
+  --text: #0f1115;
+  --text-muted: #61666b;
+  --text-dim: #81858c;
+  --accent: #4176e6;
+  --accent-hover: #5686fe;
   --accent-fg: #ffffff;
-  --accent-soft: rgba(37, 99, 235, 0.08);
-  --accent-soft-hover: rgba(37, 99, 235, 0.14);
-  --accent-border: rgba(37, 99, 235, 0.32);
-  --blue: #2563eb;
-  --green: #16a34a;
-  --red: #dc2626;
+  --accent-soft: rgba(65, 118, 230, 0.08);
+  --accent-soft-hover: rgba(65, 118, 230, 0.14);
+  --accent-border: rgba(65, 118, 230, 0.32);
+  --primary: var(--accent);
+  --blue: #4176e6;
+  --green: #22c55e;
+  --red: #ef4444;
   --font-ui: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
-    "Hiragino Sans GB", "Microsoft YaHei UI", "Noto Sans SC", system-ui, sans-serif;
-  --font-mono: "SF Mono", "Cascadia Code", Consolas, ui-monospace, monospace;
-  --radius-sm: 7px;
-  --radius-md: 11px;
-  --radius-lg: 14px;
-  --composer-max: 780px;
+    "Hiragino Sans GB", "Microsoft YaHei", "Helvetica Neue", Helvetica, Arial, sans-serif;
+  --font-mono: "SF Mono", "JetBrains Mono", "Fira Code", Consolas,
+    "Liberation Mono", Menlo, Courier, "PingFang SC", "Microsoft YaHei";
+  --radius-sm: 6px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --composer-max: 748px;
   --chat-pad-x: 12px;
   --space-1: 4px;
   --space-2: 8px;
   --space-3: 12px;
   --git-m: #ca8a04;
-  --git-u: #16a34a;
-  --git-d: #dc2626;
-  --shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.04), 0 0 0 1px rgba(15, 23, 42, 0.02);
-  --shadow-md: 0 4px 18px rgba(15, 23, 42, 0.07), 0 1px 3px rgba(15, 23, 42, 0.04);
-  --shadow-lg: 0 12px 40px rgba(15, 23, 42, 0.1), 0 2px 8px rgba(15, 23, 42, 0.05);
-  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
-  --duration-fast: 140ms;
-  --duration: 180ms;
-  --code-bg: #f4f4f5;
-  --pre-bg: #f4f4f5;
-  --md-inline-code-bg: #f0f0f0;
+  --git-u: #22c55e;
+  --git-d: #ef4444;
+  --shadow-sm: 0 1px 2px rgba(15, 17, 21, 0.04), 0 0 0 1px rgba(15, 17, 21, 0.02);
+  --shadow-md: 0 4px 18px rgba(15, 17, 21, 0.07), 0 1px 3px rgba(15, 17, 21, 0.04);
+  --shadow-lg: 0 12px 40px rgba(15, 17, 21, 0.1), 0 2px 8px rgba(15, 17, 21, 0.05);
+  --ease-out: cubic-bezier(0.4, 0, 0.2, 1);
+  --duration-fast: 100ms;
+  --duration: 200ms;
+  --code-bg: #f5f6f7;
+  --pre-bg: #f5f6f7;
+  --md-inline-code-bg: #f1f3f5;
 }
 
 html[data-theme="dark"] {
-  --bg: #0b0b0e;
-  --bg-title: #141418;
-  --bg-sidebar: #141418;
-  --bg-panel: #141418;
-  --bg-elevated: #1c1c22;
-  --bg-input: #1c1c22;
-  --bg-hover: #25252c;
-  --bg-active: #2e2e36;
-  --bg-selected: #2e2e36;
-  --bg-user-bubble: rgba(59, 130, 246, 0.16);
-  --user-bg: rgba(59, 130, 246, 0.16);
+  --bg: #151517;
+  --bg-title: #1b1b1c;
+  --bg-sidebar: #1b1b1c;
+  --bg-panel: #1b1b1c;
+  --bg-elevated: #232324;
+  --bg-input: #232324;
+  --bg-hover: #2c2c2d;
+  --bg-active: #353536;
+  --bg-selected: #353536;
+  --bg-user-bubble: #2c2c2d;
+  --user-bg: #2c2c2d;
   --assistant-bg: transparent;
-  --tool-bg: #141418;
-  --border: #2a2a32;
-  --border-strong: #3a3a44;
-  --fg: #e4e4e7;
-  --fg-strong: #fafafa;
-  --fg-muted: #a1a1aa;
-  --fg-faint: #71717a;
-  --text: #e4e4e7;
-  --text-muted: #a1a1aa;
-  --text-dim: #71717a;
-  --accent: #3b82f6;
-  --accent-hover: #60a5fa;
+  --tool-bg: #1b1b1c;
+  --border: #2c2c2d;
+  --border-strong: #3a3a3b;
+  --fg: #f5f6f7;
+  --fg-strong: #f9fafb;
+  --fg-muted: #cfd3d6;
+  --fg-faint: #adb2b8;
+  --text: #f5f6f7;
+  --text-muted: #cfd3d6;
+  --text-dim: #adb2b8;
+  --accent: #5686fe;
+  --accent-hover: #679efe;
   --accent-fg: #ffffff;
-  --accent-soft: rgba(59, 130, 246, 0.14);
-  --accent-soft-hover: rgba(59, 130, 246, 0.22);
-  --accent-border: rgba(59, 130, 246, 0.4);
-  --blue: #3b82f6;
-  --green: #22c55e;
-  --red: #f87171;
+  --accent-soft: rgba(86, 134, 254, 0.16);
+  --accent-soft-hover: rgba(86, 134, 254, 0.24);
+  --accent-border: rgba(86, 134, 254, 0.4);
+  --blue: #5686fe;
+  --green: #4ed17e;
+  --red: #f25a5a;
   --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.35), 0 0 0 1px rgba(255, 255, 255, 0.03);
   --shadow-md: 0 8px 28px rgba(0, 0, 0, 0.45), 0 1px 3px rgba(0, 0, 0, 0.3);
   --shadow-lg: 0 16px 48px rgba(0, 0, 0, 0.55);
-  --code-bg: #1c1c22;
-  --pre-bg: #141418;
-  --md-inline-code-bg: #1c1c22;
+  --code-bg: #232324;
+  --pre-bg: #0d1117;
+  --md-inline-code-bg: #232324;
 }
 
 * {
@@ -207,8 +213,8 @@ button {
 }
 
 .md {
-  font-size: 14px;
-  line-height: 1.6;
+  font-size: 16px;
+  line-height: 1.75;
   color: var(--fg);
   word-break: break-word;
 }

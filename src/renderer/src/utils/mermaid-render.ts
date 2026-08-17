@@ -16,6 +16,26 @@ let mermaidPromise: Promise<MermaidApi> | null = null;
 let appliedTheme: "dark" | "default" | null = null;
 let renderSeq = 0;
 
+/** Mermaid accepts `<br>` / `<br/>` in node text when htmlLabels are on. */
+function normalizeMermaidSource(source: string): string {
+  return source.replace(/<br\s*\/?>/gi, "<br/>").trim();
+}
+
+function detectMermaidKind(source: string): string {
+  const head = source.trimStart().slice(0, 48).toLowerCase();
+  if (head.startsWith("flowchart") || head.startsWith("graph ")) return "flowchart";
+  if (head.startsWith("sequencediagram")) return "sequence";
+  if (head.startsWith("classdiagram")) return "class";
+  if (head.startsWith("statediagram")) return "state";
+  if (head.startsWith("erdiagram")) return "er";
+  if (head.startsWith("gantt")) return "gantt";
+  if (head.startsWith("pie")) return "pie";
+  if (head.startsWith("mindmap")) return "mindmap";
+  if (head.startsWith("timeline")) return "timeline";
+  if (head.startsWith("gitgraph")) return "git";
+  return "mermaid";
+}
+
 async function loadMermaid(): Promise<MermaidApi> {
   if (!mermaidPromise) {
     mermaidPromise = import("mermaid").then((mod) => mod.default as unknown as MermaidApi);
@@ -29,10 +49,20 @@ async function ensureMermaid(isDark: boolean): Promise<MermaidApi> {
   if (appliedTheme !== theme) {
     mermaid.initialize({
       startOnLoad: false,
-      securityLevel: "strict",
+      // loose: allow <br/> / HTML labels in flowchart nodes (common in Chinese docs)
+      securityLevel: "loose",
       theme,
-      fontFamily: "inherit",
-      flowchart: { htmlLabels: false },
+      fontFamily:
+        'ui-sans-serif, system-ui, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif',
+      flowchart: {
+        htmlLabels: true,
+        useMaxWidth: true,
+        curve: "basis",
+        padding: 12,
+      },
+      themeVariables: {
+        fontSize: "14px",
+      },
     });
     appliedTheme = theme;
   }
@@ -86,20 +116,27 @@ export async function mountMermaidIn(
 
     try {
       const id = `pi-mmd-${Date.now().toString(36)}-${index++}`;
-      const { svg, bindFunctions } = await mermaid.render(id, source);
+      const { svg, bindFunctions } = await mermaid.render(id, normalizeMermaidSource(source));
       if (seq !== renderSeq || !root.contains(block)) return;
       mountDiagramChrome(block, {
         svg,
         source,
-        kind: "mermaid",
+        kind: detectMermaidKind(source),
         labels,
         bindFunctions,
       });
       block.setAttribute("data-mermaid-done", "1");
-    } catch {
+    } catch (err) {
       if (!root.contains(block)) continue;
       block.classList.add("md-diagram-error");
       // Keep source visible so incomplete streaming diagrams stay readable.
+      const detail = err instanceof Error ? err.message : String(err);
+      if (detail && !block.querySelector(".md-diagram-error-msg")) {
+        const tip = document.createElement("div");
+        tip.className = "md-diagram-error-msg";
+        tip.textContent = detail.slice(0, 280);
+        block.appendChild(tip);
+      }
     }
   }
 }

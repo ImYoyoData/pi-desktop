@@ -192,7 +192,11 @@ function rebuildFromStore(): void {
 /** Append plain text after chips / existing content, sync draft, scroll into view. */
 function appendTextAtEnd(text: string): void {
   const root = surface.value;
-  const next = text.replace(/\u200B/g, "").trim();
+  const next = text
+    .replace(/\u200B/g, "")
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n")
+    .trim();
   if (!root || !next) return;
 
   applyingStore = true;
@@ -214,7 +218,12 @@ function appendTextAtEnd(text: string): void {
   if (root.childNodes.length > 0 && needSpace) {
     root.appendChild(document.createTextNode(" "));
   }
-  root.appendChild(document.createTextNode(next));
+  const lines = next.split("\n");
+  for (let i = 0; i < lines.length; i++) {
+    if (i > 0) root.appendChild(document.createElement("br"));
+    const line = lines[i] ?? "";
+    if (line) root.appendChild(document.createTextNode(line));
+  }
   root.appendChild(document.createTextNode("\u200B"));
   applyingStore = false;
   syncDraftFromDom();
@@ -250,7 +259,11 @@ function scrollToEnd(): void {
  */
 function insertTextAtCaret(text: string): void {
   const root = surface.value;
-  const next = text.replace(/\u200B/g, "").trim();
+  const next = text
+    .replace(/\u200B/g, "")
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n")
+    .trim();
   if (!root || !next) return;
 
   root.focus();
@@ -284,11 +297,31 @@ function insertTextAtCaret(text: string): void {
     range.collapse(true);
     sp.remove();
   }
-  const node = document.createTextNode(next);
-  range.insertNode(node);
+  // Split on newlines so paste/dictation multiline text becomes real <br>
+  // nodes (contenteditable often collapses bare \n in a text node).
+  const lines = next.split("\n");
+  let lastInserted: Node | null = null;
+  for (let i = 0; i < lines.length; i++) {
+    if (i > 0) {
+      const br = document.createElement("br");
+      range.insertNode(br);
+      range.setStartAfter(br);
+      range.collapse(true);
+      lastInserted = br;
+    }
+    const line = lines[i] ?? "";
+    if (!line) continue;
+    const node = document.createTextNode(line);
+    range.insertNode(node);
+    range.setStartAfter(node);
+    range.collapse(true);
+    lastInserted = node;
+  }
   const spacer = document.createTextNode("\u200B");
-  range.setStartAfter(node);
-  range.collapse(true);
+  if (lastInserted) {
+    range.setStartAfter(lastInserted);
+    range.collapse(true);
+  }
   range.insertNode(spacer);
   placeCaretAfter(spacer);
   applyingStore = false;
