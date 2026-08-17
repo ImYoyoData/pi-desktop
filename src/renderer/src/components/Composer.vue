@@ -40,6 +40,7 @@ import { useWorkspaceStore } from "@renderer/stores/workspace";
 import { useRightTabsStore } from "@renderer/stores/right-tabs";
 import { formatAsrInstallError, formatAsrRuntimeError, isAsrInstallCancelled, useAsrStore } from "@renderer/stores/asr";
 import { useMediaStore } from "@renderer/stores/media";
+import { plainTextFromClipboard } from "@renderer/utils/composer-rich";
 import { heuristicSessionTitle } from "@renderer/utils/session-title";
 import {
   prewarmVoiceCapture,
@@ -1004,8 +1005,8 @@ async function submit(mode: "prompt" | "steer" | "follow_up"): Promise<void> {
   const snap = snapshotComposerPayload();
   if (!snap) return;
 
-  // Re-editing a published user bubble: the edited text is sent as a NEW
-  // message appended after the original turn — history stays intact.
+  // Re-editing a published user bubble: commit replaces that message and
+  // everything after it (see chat.sendPromptSerial + agent rollback_user).
   // `pendingUserEdit` is cleared once the send lands (in chat.sendPrompt).
 
   const displayText = snap.displayText;
@@ -1103,13 +1104,8 @@ function onKeydown(event: KeyboardEvent): void {
 
   if (event.key !== "Enter" || event.isComposing) return;
 
-  if (editorExpanded.value) {
-    // Expanded editor: Enter inserts newline; Shift+Enter sends.
-    if (!event.shiftKey) return;
-  } else {
-    // Compact editor: Enter sends; Shift+Enter inserts newline.
-    if (event.shiftKey) return;
-  }
+  // DeepSeek-style: Enter sends; Shift+Enter inserts a newline (both modes).
+  if (event.shiftKey) return;
 
   event.preventDefault();
   if (sendQueue.editingId) {
@@ -1766,6 +1762,8 @@ async function onModelChange(value: string | null): Promise<void> {
  * Paste into the composer: only complete URLs (and pasted images) become
  * tags/attachments. File paths and any other text stay plain text — the
  * path→tag behavior is reserved for drag & drop (ingestTransferData), not paste.
+ * Rich HTML from Word/browsers is always stripped to plain text so styles
+ * cannot leak into the contenteditable surface.
  */
 /** Extract the first http(s) <img src> from pasted HTML (web images). */
 function imgUrlFromHtml(html: string): string | null {
@@ -1817,7 +1815,7 @@ function onPaste(event: ClipboardEvent): void {
     }
 
     const text = data.getData("text/plain")?.trim() ?? "";
-    if (text && isHttpUrl(text)) {
+    if (text && isHttpUrl(text) && !/\s/.test(text)) {
       // Image-looking URLs attach as images (bound to the cached file path);
       // a failed download shows a message instead of silently becoming a tag.
       if (looksLikeImageUrl(text)) {
@@ -1827,8 +1825,17 @@ function onPaste(event: ClipboardEvent): void {
         });
         return;
       }
-      composer.addUrlTag(text);
       event.preventDefault();
+      composer.addUrlTag(text);
+      return;
+    }
+
+    // Strip Word/browser formatting: never let contenteditable insert styled HTML.
+    const plain = plainTextFromClipboard(data.getData("text/plain") ?? "", html);
+    if (!plain.trim() && !html.trim()) return;
+    event.preventDefault();
+    if (plain.trim()) {
+      richEditor.value?.insertTextAtCaret(plain);
     }
   } catch (err) {
     // Never let a paste handler exception swallow the user's clipboard.
@@ -2400,9 +2407,7 @@ watch(
                   ? t.stop
                   : isEditingQueue
                     ? t.queueSave
-                    : editorExpanded
-                      ? t.shiftEnterToSend
-                      : t.enterToSend
+                    : t.enterToSendShiftNewline
             "
             :title="!primaryIsStop && isEditingQueue ? t.queueSave : undefined"
             @click="onPrimaryAction"
@@ -2651,8 +2656,8 @@ watch(
   max-width: none;
   border: 1px solid var(--border);
   border-radius: var(--radius-lg, 14px);
-  background: var(--bg-elevated);
-  box-shadow: var(--shadow-md);
+  background: var(--tool-bg, #f5f6f7);
+  box-shadow: none;
   padding: 6px 8px 6px;
   min-width: 0;
   box-sizing: border-box;
@@ -2705,7 +2710,7 @@ watch(
 
 .composer-card:focus-within {
   border-color: var(--accent-border);
-  box-shadow: var(--shadow-md), 0 0 0 3px var(--accent-soft);
+  box-shadow: 0 0 0 3px var(--accent-soft);
 }
 
 .rich-editor {
@@ -2717,7 +2722,7 @@ watch(
   padding: 6px 28px 6px 8px;
   cursor: text;
   border-radius: 8px;
-  background: var(--bg-input, transparent);
+  background: transparent;
 }
 
 /* Bottom toolbar slot — voice UI overlays this row without resizing the editor. */

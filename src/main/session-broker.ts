@@ -43,7 +43,13 @@ const HEARTBEAT_MISS_LIMIT_IDLE = 3;
  * worker_stall (never kill mid-turn) so the renderer can abort + restart + resend.
  */
 export const STALL_EMIT_MS = 75_000;
-const ABORT_FORCE_KILL_MS = 4_000;
+/**
+ * Stop is a cancel, not a disconnect: `session.abort()` is a signal that
+ * normally resolves in milliseconds. Only force-kill the worker after a long
+ * grace period so a mid-tool abort (e.g. a slow LLM stream teardown) never
+ * tears down the warm Pi connection + its prompt cache on a routine Stop.
+ */
+const ABORT_FORCE_KILL_MS = 30_000;
 const SHUTDOWN_GRACE_MS = 800;
 const CONTEXT_SEGMENT_IDS = new Set<ContextUsageSegmentId>([
   "system",
@@ -717,15 +723,19 @@ export function createSessionBroker(deps: {
   async function openSession(sessionId: string, cwd: string): Promise<SessionSummary | null> {
     const live = sessions.get(sessionId);
     if (live) {
-      // Re-sync title/first message from disk — do NOT spawn the agent worker here.
-      const disk = await listSessionsForCwd(cwd);
-      const target = disk.find((s) => s.id === sessionId);
-      if (target) {
-        if (target.name?.trim()) live.summary.name = target.name;
-        if (target.firstMessage?.trim()) live.summary.firstMessage = target.firstMessage;
-        live.summary.modified = target.modified;
-        if (target.filePath) live.summary.filePath = target.filePath;
-      }
+      // Re-sync title/first message from disk in the background (non-blocking).
+      // `openSession` is awaited by the renderer before flipping the active
+      // session, so a synchronous disk scan here made every switch janky.
+      void (async () => {
+        const disk = await listSessionsForCwd(cwd);
+        const target = disk.find((s) => s.id === sessionId);
+        if (target) {
+          if (target.name?.trim()) live.summary.name = target.name;
+          if (target.firstMessage?.trim()) live.summary.firstMessage = target.firstMessage;
+          live.summary.modified = target.modified;
+          if (target.filePath) live.summary.filePath = target.filePath;
+        }
+      })();
       // Warm the Pi agent worker in the background so first send is snappy.
       prewarmWorker(sessionId);
       return { ...live.summary };

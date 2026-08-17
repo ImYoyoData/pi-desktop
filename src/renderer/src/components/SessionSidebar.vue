@@ -1333,10 +1333,10 @@ function onLeftSplitResized(payload: SplitpanesResizedPayload): void {
 }
 
 .session-row.active .session-inner {
-  background: color-mix(in srgb, var(--accent-soft, rgba(37, 99, 235, 0.08)) 80%, var(--bg-selected));
-  border-color: color-mix(in srgb, var(--accent) 28%, transparent);
+  background: var(--bg-selected);
+  border-color: var(--border);
   color: var(--fg-strong);
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 8%, transparent);
+  box-shadow: none;
 }
 
 .active-bar {

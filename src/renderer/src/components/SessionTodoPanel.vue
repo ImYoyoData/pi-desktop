@@ -38,9 +38,9 @@ watch(
   () => {
     const l = widgets.activeTodoList;
     if (!l) return false;
-    // Tick while there are open items OR a started round is still visible
-    // (so the total-duration readout keeps updating until dismissed).
-    return l.items.some((i) => !i.done) || Boolean(widgets.todoStartedAt(sessions.activeId ?? ""));
+    // Tick only while open items remain, so each in-progress row keeps its
+    // own live timer. Once everything is done the total timer is frozen.
+    return l.items.some((i) => !i.done);
   },
   (hasActive) => {
     if (hasActive) startTick();
@@ -64,7 +64,7 @@ function formatDuration(ms: number | undefined): string {
   return remMin ? `${hr}h ${remMin}m` : `${hr}h`;
 }
 
-/** 进行中的项：用 startedAt + 本地 tick 实时跳动；已完成用固定时长 */
+/** 未完成的项：用 startedAt + 本地 tick 实时跳动；已完成用固定时长 */
 function itemDuration(item: {
   durationMs?: number;
   startedAt?: number;
@@ -72,7 +72,7 @@ function itemDuration(item: {
   active?: boolean;
 }): string {
   if (item.durationMs != null) return formatDuration(item.durationMs);
-  if (item.active && !item.done && item.startedAt != null) {
+  if (!item.done && item.startedAt != null) {
     return formatDuration(nowMs.value - item.startedAt);
   }
   return "";
@@ -91,15 +91,15 @@ const pct = computed(() =>
 /** 保持原始添加顺序，已完成与未完成混排在一起 */
 const orderedItems = computed(() => list.value?.items ?? []);
 
-/** 本轮待办总时长：从首次出现到全部完成（面板层自动计时，不依赖扩展） */
+/** 本轮待办总时长：从首次出现到全部完成（完成后冻结，不再走动） */
 const totalDurationMs = computed(() => {
   const id = sessions.activeId;
   if (!id || !list.value) return 0;
   const start = widgets.todoStartedAt(id);
   if (!start) return 0;
-  // 全部完成：起点 → 最后完成时刻（nowMs 在 allDone 时仍在走 tick）；
-  // 未完成：实时流逝时间。
-  return Math.max(0, nowMs.value - start);
+  // 全部完成：起点 → 最后完成时刻（固定）；未完成：实时流逝时间。
+  const end = widgets.todoCompletedAt(id) || nowMs.value;
+  return Math.max(0, end - start);
 });
 
 const headerLabel = computed(() => {
@@ -204,9 +204,9 @@ function onDismiss(): void {
   flex-shrink: 0;
   margin: 0 var(--chat-pad-x, 12px) 8px;
   border: 1px solid var(--border);
-  border-radius: var(--radius-md, 10px);
-  background: var(--bg-elevated, var(--bg));
-  box-shadow: var(--shadow-sm, 0 1px 2px rgba(0, 0, 0, 0.04));
+  border-radius: 12px;
+  background: var(--tool-bg, #f5f6f7);
+  box-shadow: none;
   overflow: hidden;
   animation: todo-rise 220ms var(--ease-out, ease);
 }

@@ -29,10 +29,10 @@ watch(
 
 const themeOverrides: GlobalThemeOverrides = {
   common: {
-    primaryColor: "#2563eb",
-    primaryColorHover: "#3b82f6",
-    primaryColorPressed: "#1d4ed8",
-    borderRadius: "8px",
+    primaryColor: "#4176e6",
+    primaryColorHover: "#5686fe",
+    primaryColorPressed: "#4176e6",
+    borderRadius: "10px",
   },
 };
 

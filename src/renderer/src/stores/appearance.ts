@@ -1,5 +1,6 @@
 import { defineStore } from "pinia";
 import { computed, ref } from "vue";
+import { applyHljsTheme } from "@renderer/utils/hljs-theme";
 
 export type ThemePreference = "system" | "light" | "dark";
 export type ResolvedTheme = "light" | "dark";
@@ -46,6 +47,7 @@ function applyDomTheme(mode: ResolvedTheme): void {
   const root = document.documentElement;
   root.dataset.theme = mode;
   root.style.colorScheme = mode;
+  void applyHljsTheme(mode);
 }
 
 function scheduleChromeSync(pref: ThemePreference, mode: ResolvedTheme): void {

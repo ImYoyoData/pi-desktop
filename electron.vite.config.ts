@@ -4,6 +4,7 @@ import vue from "@vitejs/plugin-vue";
 import Components from "unplugin-vue-components/vite";
 import { NaiveUiResolver } from "unplugin-vue-components/resolvers";
 import { piExtensionLoaderElectronPlugin } from "./scripts/pi-extension-loader-electron-plugin";
+import { piOAuthElectronPlugin } from "./scripts/pi-oauth-electron-plugin";
 
 /** Pi packages are ESM-only (`exports.import` without `require`); Electron main is CJS. */
 const piEsmPackages = [
@@ -15,7 +16,7 @@ const piEsmPackages = [
 
 export default defineConfig({
   main: {
-    plugins: [piExtensionLoaderElectronPlugin()],
+    plugins: [piExtensionLoaderElectronPlugin(), piOAuthElectronPlugin()],
     build: {
       externalizeDeps: {
         exclude: piEsmPackages,

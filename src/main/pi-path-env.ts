@@ -418,5 +418,13 @@ export function buildAgentWorkerEnv(
     delete next[PI_SUBAGENT_PI_BINARY_ENV];
   }
 
+  // Extended prompt-cache retention: Anthropic 1h / OpenAI 24h instead of the
+  // default short TTL (5m / in-memory). Keeps the prompt prefix cacheable across
+  // long turns and idle gaps, so follow-up sends hit cache far more often.
+  // Respect an explicit user override (e.g. "short" to opt back out).
+  if (!next.PI_CACHE_RETENTION || !next.PI_CACHE_RETENTION.trim()) {
+    next.PI_CACHE_RETENTION = "long";
+  }
+
   return next;
 }

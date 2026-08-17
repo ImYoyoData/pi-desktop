@@ -36,7 +36,14 @@ const bootInitDone = ref(false);
  * can take a while; never leave the boot overlay up forever.
  */
 const BOOT_MAX_MS = 6000;
+/**
+ * Keep the boot overlay visible at least this long after first paint. Without
+ * this, a fast workspace IPC resolves init before the first frame, so the
+ * overlay never paints and the user sees a plain white flash on startup.
+ */
+const BOOT_MIN_MS = 600;
 let bootTimer = 0;
+let bootStartedAt = 0;
 
 /** 0-100 progress for the boot bar — UI mounts as soon as workspace init finishes. */
 const bootProgress = computed(() => (bootInitDone.value ? 100 : 55));
@@ -66,6 +73,7 @@ watch(
 let stopAppearance: (() => void) | undefined;
 
 onMounted(() => {
+  bootStartedAt = Date.now();
   stopAppearance = appearance.init();
   void window.api.window.setUiLocale(locale === "zh-CN" ? "zh-CN" : "en");
   // Instant open: drop the full-screen splash right after first paint so the
@@ -88,6 +96,12 @@ onMounted(() => {
       ]);
     } finally {
       await dismissLocaleReloadSplash();
+      // Hold the loading overlay for a minimum time so a fast init still shows
+      // the loader instead of a white flash.
+      const elapsed = Date.now() - bootStartedAt;
+      if (elapsed < BOOT_MIN_MS) {
+        await new Promise<void>((r) => setTimeout(r, BOOT_MIN_MS - elapsed));
+      }
       bootInitDone.value = true;
     }
   })();
@@ -184,7 +198,8 @@ onUnmounted(() => {
 .boot-overlay {
   position: absolute;
   inset: 0;
-  z-index: 8;
+  /* High enough to sit above any app chrome (titlebar, splitpanes, modals). */
+  z-index: 9999;
   display: flex;
   flex-direction: column;
   align-items: center;

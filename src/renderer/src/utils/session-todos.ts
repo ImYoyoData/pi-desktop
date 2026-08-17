@@ -6,8 +6,10 @@ export type SessionTodoItem = {
 	done: boolean;
 	/** True while the agent is working on this item (⏳ row). */
 	active?: boolean;
-	/** Elapsed duration in ms (from widget "· 12s" suffix). */
+	/** Elapsed duration in ms (from widget "· 12s" suffix or completed timing). */
 	durationMs?: number;
+	/** Wall-clock ms when this item started (drives the live in-progress timer). */
+	startedAt?: number;
 };
 
 export type SessionTodoList = {

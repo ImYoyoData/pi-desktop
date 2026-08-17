@@ -47,6 +47,14 @@ describe("parseMarkdownRaw (GFM)", () => {
     expect(html).not.toContain("data-code-block");
   });
 
+  it("treats flowchart fences and untitled flowchart sources as mermaid", () => {
+    const named = ["```flowchart", "flowchart TD", "  A --> B", "```"].join("\n");
+    const bare = ["```", "flowchart TD", "  A[开始] --> B{判断}", "```"].join("\n");
+    expect(parseMarkdownRaw(named)).toContain("data-mermaid");
+    expect(parseMarkdownRaw(bare)).toContain("data-mermaid");
+    expect(parseMarkdownRaw(bare)).toContain("A[开始]");
+  });
+
   it("emits graphviz/dot placeholder", () => {
     const src = ["```dot", "digraph { a -> b }", "```"].join("\n");
     const html = parseMarkdownRaw(src);
@@ -58,6 +66,16 @@ describe("parseMarkdownRaw (GFM)", () => {
     const html = parseMarkdownRaw("```math\nE = mc^2\n```");
     expect(html).toContain("katex");
     expect(html).toContain("md-math-block");
+  });
+
+  it("emits line numbers beside highlighted code in one code-body", () => {
+    const html = parseMarkdownRaw("```js\nconst a = 1;\nconst b = 2;\n```");
+    expect(html).toContain('data-code-block');
+    expect(html).toContain('class="code-body"');
+    expect(html).toContain('class="line-nos"');
+    expect(html).toContain("<span>1</span>");
+    expect(html).toContain("<span>2</span>");
+    expect(html).toContain("language-js");
   });
 
   it("renders inline and block dollar math", () => {
