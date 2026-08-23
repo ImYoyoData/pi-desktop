@@ -165,27 +165,35 @@ jobs:
           generate_release_notes: true
           body: |
 
-            ## 主要更新（v0.2.9）
+            ## 主要更新（v0.3.0）
 
-            本版重点：暗色代码高亮与行号对齐；发图/粘贴/Codex OAuth 等稳定性修复。
+            本版重点：聊天界面全面对齐 opencode；内置待办工具与逐条计时；回合结束展示修改文件列表。
+
+            ### 新功能 Features
+            - 聊天界面全面对齐 opencode：工具调用、思考块全程内联展示，不再折叠成过程卡片；用户消息改为中性气泡 + 附件 chip + 悬停操作行。
+            - 回合结束展示修改文件列表：`修改了 N 个文件  +a −d`，可展开逐文件查看增删行数，点击直接在预览打开。
+            - 内置 `todo_write` 待办工具：每次调用全量替换列表；面板逐条独立计时（进行中实时跳动、完成即冻结）并显示总用时；进行中的待办有旋转图标与头部呼吸灯。
+            - 会话侧栏 opencode 风格：单行紧凑会话行、状态彩点、顶部会话搜索框、工作区数量徽标。
+            - 自定义模型「拉取模型」升级为可勾选的模型列表弹层：搜索过滤、全选/清空，确认后才写入草稿。
 
             ### 修复 / 体验 Fixes
-            - 暗色主题代码高亮改用 `github-dark`，不再误用浅色配色（#5）。
-            - 代码块行号与内容对齐：只保留外层滚动，行号 sticky（#6）。
-            - 非视觉模型发图：发送前校验 vision、失败回滚毒化消息，编辑重发真正替换（#7）。
-            - 粘贴 Word/网页富文本时剥离格式，只插入纯文本（#9）。
-            - 打包后 Codex / Anthropic / Copilot 等 OAuth 模块打进 asar，修复缺少 `openai-codex.js`（#10）。
+            - 待办数据串台修复：列表一律全量替换，旧条目不可能残留；新任务自动清空上一轮列表，已完成项不会复活。
+            - 停止 Agent 时待办进入「已暂停」而非完成态：可选「继续任务」（保留列表跳过一次重置）或「删除列表」；自然跑完才自动补完结并冻结总用时。
 
-            ## What's New (v0.2.9)
+            ## What's New (v0.3.0)
 
-            Dark code highlighting and line-number alignment; stability fixes for images, paste, and Codex OAuth packaging.
+            The chat UI is now fully aligned with opencode; a built-in todo tool with per-item timers; per-turn changed-files summaries.
+
+            ### Features
+            - opencode-style chat timeline: tool calls and thinking blocks render inline (no folded process cards); neutral user bubbles with attachment chips and hover actions.
+            - Per-turn changed-files summary after each finished turn — expandable list with +/- line counts, click opens the file in Preview.
+            - Built-in `todo_write` tool: every call fully replaces the list; per-item live timers (frozen on completion), total round time, animated spinner and pulsing badge while running.
+            - opencode-style session sidebar: compact single-line rows with status dots, session search box, workspace count badges.
+            - Custom models "Fetch" now opens a pickable model-list dialog before writing selected rows into the draft.
 
             ### Fixes
-            - Dark theme code highlight uses `github-dark` instead of light styles (#5).
-            - Code-block line numbers stay aligned: single scrollport + sticky gutters (#6).
-            - Non-vision image sends: gate vision, roll back poisoned messages, edit-resend replaces in place (#7).
-            - Paste from Word/web strips formatting to plain text (#9).
-            - Packaged OAuth flows (Codex / Anthropic / Copilot, …) are statically chunked into asar — no missing `openai-codex.js` (#10).
+            - Todo lists no longer bleed across tasks: full-replace updates and a clean slate on every new task.
+            - Stopping the agent pauses todos instead of completing them — Continue task or Delete list; natural finishes still auto-close with frozen total time.
 
             ## 下载 / Downloads
             - **Windows x64**: `Pi Desktop-*-win-x64-setup.exe`

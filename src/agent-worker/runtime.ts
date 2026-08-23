@@ -45,8 +45,10 @@ import {
 	DESKTOP_COMPOSER_MODES_PROMPT,
 	DESKTOP_BASH_BACKGROUND_PROMPT,
 	DESKTOP_PROJECT_ORIENTATION_PROMPT,
+	DESKTOP_TODO_PROMPT,
 } from "../shared/desktop-system-prompt";
 import { createAskUserToolDefinition } from "./ask-user-tool";
+import { createTodoWriteToolDefinition } from "./todo-tool";
 import { commandShouldStartBackground } from "../shared/bash-background";
 import { createTrackedBashOperations } from "./bash-run-tracker";
 import { createBrowserToolDefinitions } from "./browser-tools";
@@ -305,6 +307,7 @@ async function initSession(
 			appendSystemPrompt: [
 				DESKTOP_PROJECT_ORIENTATION_PROMPT,
 				DESKTOP_ASK_USER_PROMPT,
+				DESKTOP_TODO_PROMPT,
 				DESKTOP_BASH_BACKGROUND_PROMPT,
 				DESKTOP_COMPOSER_MODES_PROMPT,
 			],
@@ -338,6 +341,7 @@ async function initSession(
 					}),
 				),
 				createAskUserToolDefinition(),
+				createTodoWriteToolDefinition(),
 				...createBrowserToolDefinitions(),
 			],
 		});

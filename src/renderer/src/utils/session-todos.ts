@@ -21,6 +21,12 @@ export type SessionTodoList = {
 	 * (Cursor-like: stay visible through completion, dismiss on next task).
 	 */
 	dismissed: boolean;
+	/**
+	 * Set when the user STOPS the agent mid-run: the round did not finish, so
+	 * the list freezes in a paused state until the user chooses to continue
+	 * (keeps the list for the follow-up prompt) or delete it.
+	 */
+	paused?: boolean;
 };
 
 const TODO_WIDGET_KEYS = new Set([

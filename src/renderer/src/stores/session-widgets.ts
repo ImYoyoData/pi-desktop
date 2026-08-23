@@ -2,7 +2,6 @@ import { defineStore } from "pinia";
 import { computed, ref } from "vue";
 import { useSessionsStore } from "./sessions";
 import {
-	filterBaselineItems,
 	isTodoWidgetKey,
 	parseTodoWidgetLines,
 	todoListAllDone,
@@ -15,6 +14,12 @@ import {
 /**
  * Live extension widgets / todo lists keyed by session.
  * Fed by `ctx.ui.setWidget` and todo tool results.
+ *
+ * Todo semantics (full replace): every non-empty update REPLACES the
+ * session's list — no merging with previous rounds. Once the built-in
+ * `todo_write` tool has written a list, extension widget pushes are ignored
+ * until the next new-task reset, so stale extension memory can never bleed
+ * old items back in.
  */
 export const useSessionWidgetsStore = defineStore("session-widgets", () => {
 	/** sessionId → widgetKey → raw lines (null = cleared) */
@@ -26,16 +31,20 @@ export const useSessionWidgetsStore = defineStore("session-widgets", () => {
 	const todoStartedAtBySession = ref<Record<string, number>>({});
 	/** sessionId → wall-clock ms when the round finished (all items done). */
 	const todoCompletedAtBySession = ref<Record<string, number>>({});
-	/** sessionId → itemId → per-item timing (startedAt / completedAt). */
+	/** sessionId → itemKey → per-item timing (startedAt / completedAt).
+	 *  Keyed by trimmed item TEXT so timers survive id renumbering but never
+	 *  attach to a different task's items. */
 	const itemTimingBySession = ref<
 		Record<string, Record<string, { startedAt: number; completedAt?: number }>>
 	>({});
+	/** Sessions where the built-in todo_write tool owns the list — extension
+	 *  widget pushes are ignored there until the next new-task reset. */
+	const toolOwnedBySession = ref<Record<string, boolean>>({});
 	/**
-	 * sessionId → baseline item texts captured at reset time. While a baseline
-	 * is armed, incoming todo lists are filtered so stale extension items from
-	 * the previous round never accumulate on top of the new task's list.
+	 * Sessions whose NEXT reset is user-intentional ("continue task"): the
+	 * paused list must survive the follow-up prompt instead of being wiped.
 	 */
-	const baselineBySession = ref<Record<string, Set<string>>>({});
+	const skipNextResetBySession = ref<Record<string, boolean>>({});
 
 	const sessions = useSessionsStore();
 
@@ -80,6 +89,11 @@ export const useSessionWidgetsStore = defineStore("session-widgets", () => {
 		widgetKey: string,
 		widgetLines: string[] | null,
 	): void {
+		if (isTodoWidgetKey(widgetKey)) {
+			// The builtin tool owns this session's list — ignore stale
+			// extension re-pushes so old rows never resurface.
+			if (toolOwnedBySession.value[sessionId]) return;
+		}
 		const map = { ...ensureSessionWidgets(sessionId) };
 		if (!widgetLines || widgetLines.length === 0) {
 			delete map[widgetKey];
@@ -96,30 +110,35 @@ export const useSessionWidgetsStore = defineStore("session-widgets", () => {
 		if (isTodoWidgetKey(widgetKey)) {
 			const parsed = parseTodoWidgetLines(widgetKey, widgetLines);
 			if (parsed) {
-				applyTodoList(sessionId, parsed, null);
+				applyTodoList(sessionId, parsed);
 			}
 		}
 	}
 
 	function applyTodoToolResult(sessionId: string, details: unknown): void {
-		applyTodoList(
-			sessionId,
-			todosFromToolDetails("pi-deck-todo", details),
-			details,
-		);
+		const list = todosFromToolDetails("pi-deck-todo", details);
+		if (list) toolOwnedBySession.value = { ...toolOwnedBySession.value, [sessionId]: true };
+		applyTodoList(sessionId, list, details);
 	}
 
 	/** Prefer full-list args (todo_write); ignore incremental add/toggle-only args. */
 	function applyTodoToolArgs(sessionId: string, args: unknown): void {
 		const list = todosFromToolArgs("pi-deck-todo", args);
 		if (!list) return;
+		toolOwnedBySession.value = { ...toolOwnedBySession.value, [sessionId]: true };
 		applyTodoList(sessionId, list, args);
 	}
 
+	/**
+	 * FULL REPLACE: the incoming list becomes the entire visible list.
+	 * Per-item timers key off trimmed text — same text keeps/continues its
+	 * timer across updates; anything new starts fresh; removed items are
+	 * pruned so completed work never leaks into the next task's list.
+	 */
 	function applyTodoList(
 		sessionId: string,
 		list: SessionTodoList | null,
-		raw: unknown,
+		raw?: unknown,
 	): void {
 		if (!list) {
 			if (
@@ -131,16 +150,7 @@ export const useSessionWidgetsStore = defineStore("session-widgets", () => {
 			}
 			return;
 		}
-		const baseline = baselineBySession.value[sessionId];
-		let items = list.items;
-		let baselineCleared = true;
-		if (baseline && baseline.size > 0) {
-			const r = filterBaselineItems(list, baseline);
-			items = r.items;
-			baselineCleared = r.baselineCleared;
-		}
-		// Keep dismissing only while still all-done; incomplete work re-shows.
-		const prev = todosBySession.value[sessionId];
+		const items = list.items;
 		const hasOpen = items.some((i) => !i.done);
 		ensureTodoClock(sessionId, items.length > 0);
 
@@ -149,25 +159,26 @@ export const useSessionWidgetsStore = defineStore("session-widgets", () => {
 		// clock once every item is complete.
 		const now = Date.now();
 		const timing = itemTimingBySession.value[sessionId] ?? {};
-		const nextTiming = { ...timing };
+		const nextTiming: typeof timing = {};
 		for (const item of items) {
+			const key = item.text.trim();
+			const t = timing[key];
 			if (item.done) {
-				const t = timing[item.id];
 				if (t && !t.completedAt && item.durationMs == null) {
 					item.durationMs = Math.max(0, now - t.startedAt);
 				}
-				if (t && !t.completedAt) {
-					nextTiming[item.id] = { startedAt: t.startedAt, completedAt: now };
-				}
 				item.startedAt = undefined;
+				nextTiming[key] = t
+					? { startedAt: t.startedAt, completedAt: t.completedAt ?? now }
+					: { startedAt: now - (item.durationMs ?? 0), completedAt: now };
+			} else if (t && !t.completedAt) {
+				// Still open and running — continue its clock.
+				item.startedAt = t.startedAt;
+				nextTiming[key] = t;
 			} else {
-				const t = timing[item.id];
-				if (!t) {
-					nextTiming[item.id] = { startedAt: now };
-					item.startedAt = now;
-				} else if (t.startedAt) {
-					item.startedAt = t.startedAt;
-				}
+				// Fresh open item (new text, or reopened after completion).
+				item.startedAt = now;
+				nextTiming[key] = { startedAt: now };
 			}
 		}
 		itemTimingBySession.value = {
@@ -181,35 +192,134 @@ export const useSessionWidgetsStore = defineStore("session-widgets", () => {
 				...todoCompletedAtBySession.value,
 				[sessionId]: now,
 			};
+		} else if (!allDone) {
+			const ends = { ...todoCompletedAtBySession.value };
+			delete ends[sessionId];
+			todoCompletedAtBySession.value = ends;
 		}
 
+		// Full replace — dismissed only persists while the list stays all-done.
 		todosBySession.value = {
 			...todosBySession.value,
 			[sessionId]: {
 				...list,
 				items,
-				dismissed: hasOpen ? false : Boolean(prev?.dismissed),
+				dismissed: hasOpen ? false : Boolean(todosBySession.value[sessionId]?.dismissed),
+				// Fresh activity un-pauses a stopped round.
+				paused: hasOpen ? false : todosBySession.value[sessionId]?.paused,
 			},
 		};
-		if (baselineCleared) {
-			const next = { ...baselineBySession.value };
-			delete next[sessionId];
-			baselineBySession.value = next;
-		}
 	}
 
 	/**
-	 * Reset the todo widget when a new task/turn starts, so the previous
-	 * round's items never accumulate on top of the next round's list. Records
-	 * the old items as a baseline so stale extension re-pushes get filtered.
+	 * User STOPPED the agent mid-run. Freeze the round as "paused" — items
+	 * stay open, timers hold their value, and nothing is auto-completed.
+	 * The user then chooses to continue or delete from the panel.
+	 */
+	function pauseTodosForSession(sessionId: string): void {
+		const list = todosBySession.value[sessionId];
+		if (!list || todoListAllDone(list)) return;
+		todosBySession.value = {
+			...todosBySession.value,
+			[sessionId]: { ...list, paused: true },
+		};
+	}
+
+	/**
+	 * User chose CONTINUE on a paused list: un-pause and let the list
+	 * survive the next prompt's new-task reset (consumed once).
+	 */
+	function resumeTodosForSession(sessionId: string): void {
+		const list = todosBySession.value[sessionId];
+		if (!list) return;
+		skipNextResetBySession.value = {
+			...skipNextResetBySession.value,
+			[sessionId]: true,
+		};
+		todosBySession.value = {
+			...todosBySession.value,
+			[sessionId]: { ...list, paused: false },
+		};
+	}
+
+	/** User chose DELETE on a paused list: drop it entirely. */
+	function deleteTodoList(sessionId: string): void {
+		const next = { ...todosBySession.value };
+		delete next[sessionId];
+		todosBySession.value = next;
+		const clocks = { ...todoStartedAtBySession.value };
+		delete clocks[sessionId];
+		todoStartedAtBySession.value = clocks;
+		const ends = { ...todoCompletedAtBySession.value };
+		delete ends[sessionId];
+		todoCompletedAtBySession.value = ends;
+		const timings = { ...itemTimingBySession.value };
+		delete timings[sessionId];
+		itemTimingBySession.value = timings;
+		const owned = { ...toolOwnedBySession.value };
+		delete owned[sessionId];
+		toolOwnedBySession.value = owned;
+	}
+
+	/**
+	 * Turn finished: auto-complete any items the model left open so the
+	 * round always ends with a closed checklist and a frozen total time.
+	 * (Models routinely forget to flip the last item to completed.)
+	 */
+	function finalizeTodosForSession(sessionId: string): void {
+		const list = todosBySession.value[sessionId];
+		// Paused = user stopped this round on purpose — never auto-complete it.
+		if (!list || list.paused) return;
+		const now = Date.now();
+		const timing = { ...(itemTimingBySession.value[sessionId] ?? {}) };
+		let changed = false;
+		const items = list.items.map((item) => {
+			if (item.done) return item;
+			changed = true;
+			const key = item.text.trim();
+			const t = timing[key];
+			const startedAt = item.startedAt ?? t?.startedAt ?? now;
+			timing[key] = { startedAt, completedAt: now };
+			const { active: _active, startedAt: _startedAt, ...rest } = item;
+			return { ...rest, done: true, durationMs: Math.max(0, now - startedAt) };
+		});
+		if (!changed) {
+			// Already all done — just make sure the round clock is closed.
+			if (!todoCompletedAtBySession.value[sessionId]) {
+				todoCompletedAtBySession.value = {
+					...todoCompletedAtBySession.value,
+					[sessionId]: now,
+				};
+			}
+			return;
+		}
+		itemTimingBySession.value = {
+			...itemTimingBySession.value,
+			[sessionId]: timing,
+		};
+		todoCompletedAtBySession.value = {
+			...todoCompletedAtBySession.value,
+			[sessionId]: now,
+		};
+		todosBySession.value = {
+			...todosBySession.value,
+			[sessionId]: { ...list, items, dismissed: false },
+		};
+	}
+
+	/**
+	 * Reset the todo widget when a new task/turn starts. The UI list is
+	 * dropped entirely and the builtin-tool ownership flag clears, so the
+	 * next round's list (from any source) shows only that round's items.
 	 */
 	function resetTodosForSession(sessionId: string): void {
-		const old = todosBySession.value[sessionId];
-		if (old && old.items.length > 0) {
-			baselineBySession.value = {
-				...baselineBySession.value,
-				[sessionId]: new Set(old.items.map((i) => i.text.trim())),
-			};
+		// "Continue task" armed by resumeTodosForSession — keep the list for
+		// the follow-up prompt (the agent's next todo_write replaces it).
+		if (skipNextResetBySession.value[sessionId]) {
+			const skip = { ...skipNextResetBySession.value };
+			delete skip[sessionId];
+			skipNextResetBySession.value = skip;
+			return;
 		}
 		const next = { ...todosBySession.value };
 		delete next[sessionId];
@@ -223,6 +333,12 @@ export const useSessionWidgetsStore = defineStore("session-widgets", () => {
 		const timings = { ...itemTimingBySession.value };
 		delete timings[sessionId];
 		itemTimingBySession.value = timings;
+		const owned = { ...toolOwnedBySession.value };
+		delete owned[sessionId];
+		toolOwnedBySession.value = owned;
+		const skips = { ...skipNextResetBySession.value };
+		delete skips[sessionId];
+		skipNextResetBySession.value = skips;
 		const widgets = { ...widgetsBySession.value };
 		const row = widgets[sessionId];
 		if (row) {
@@ -260,13 +376,13 @@ export const useSessionWidgetsStore = defineStore("session-widgets", () => {
 		const { [sessionId]: _t, ...restT } = todosBySession.value;
 		const { [sessionId]: _c, ...restC } = todoStartedAtBySession.value;
 		const { [sessionId]: _e, ...restE } = todoCompletedAtBySession.value;
-		const { [sessionId]: _b, ...restB } = baselineBySession.value;
+		const { [sessionId]: _o, ...restO } = toolOwnedBySession.value;
 		const { [sessionId]: _m, ...restM } = itemTimingBySession.value;
 		widgetsBySession.value = restW;
 		todosBySession.value = restT;
 		todoStartedAtBySession.value = restC;
 		todoCompletedAtBySession.value = restE;
-		baselineBySession.value = restB;
+		toolOwnedBySession.value = restO;
 		itemTimingBySession.value = restM;
 	}
 
@@ -279,6 +395,10 @@ export const useSessionWidgetsStore = defineStore("session-widgets", () => {
 		setWidget,
 		applyTodoToolResult,
 		applyTodoToolArgs,
+		finalizeTodosForSession,
+		pauseTodosForSession,
+		resumeTodosForSession,
+		deleteTodoList,
 		dismissCompletedOnNewTask,
 		dismissTodoList,
 		resetTodosForSession,

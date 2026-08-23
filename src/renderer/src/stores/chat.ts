@@ -128,6 +128,9 @@ export const useChatStore = defineStore("chat", () => {
 	const softHangReported = new Set<string>();
 	/** Event-loop stall already reported for this episode (watchdog runs every 5s). */
 	const stallReported = new Set<string>();
+	/** Turns the user explicitly stopped — their prompt_done must NOT
+	 *  auto-complete the (paused) todo list. */
+	const stopIntentBySession = new Set<string>();
 	/** Per-session prompt chain: sends are strictly serial per session so two
 	 *  queued prompts never race the worker or corrupt the single-active
 	 *  checkpoint (duplicate sends from the queue-edit path caused both). */
@@ -442,6 +445,14 @@ export const useChatStore = defineStore("chat", () => {
 			}
 		}
 		if (event.type === "prompt_done") {
+			// Turn over: close any todo items the model left open so the
+			// checklist always finishes with a frozen total time — unless the
+			// user stopped this turn (paused list stays for continue/delete).
+			if (stopIntentBySession.delete(sessionId)) {
+				useSessionWidgetsStore().pauseTodosForSession(sessionId);
+			} else {
+				useSessionWidgetsStore().finalizeTodosForSession(sessionId);
+			}
 			void notifyStore.onTurnComplete({
 				title: t.appName,
 				body: t.notifyTurnCompleteBody,
@@ -993,6 +1004,10 @@ export const useChatStore = defineStore("chat", () => {
 	}
 
 	async function abort(sessionId: string): Promise<void> {
+		// User-initiated stop: freeze the todo round as paused — the user
+		// decides to continue or delete; never auto-complete it.
+		stopIntentBySession.add(sessionId);
+		useSessionWidgetsStore().pauseTodosForSession(sessionId);
 		const row = sessionsStore.sessions.find((s) => s.id === sessionId);
 		if (row?.status === "stuck") {
 			await sessionsStore.killWorker(sessionId, null);

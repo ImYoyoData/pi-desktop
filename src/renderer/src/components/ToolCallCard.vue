@@ -551,11 +551,12 @@ function onOpenPreview(): void {
   color: #0d9488;
 }
 
+/* opencode basic-tool title: medium-weight verb in the base text color. */
 .action {
   flex-shrink: 0;
-  font-size: 11.5px;
-  font-weight: 550;
-  color: var(--fg-muted, #555);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--fg, #222);
   letter-spacing: 0.01em;
 }
 
