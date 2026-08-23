@@ -1,5 +1,27 @@
 # Changelog
 
+## v0.3.0 (2026-08-23)
+
+### 新功能 Features
+- 聊天界面全面对齐 opencode：消息时间线（工具调用、思考块全程内联展示，不再折叠成过程卡片）；用户消息改为中性气泡 + 附件 chip + 悬停操作行；助手回复基准字号 14px。
+- 回合结束展示修改文件列表：`修改了 N 个文件  +a −d`，可展开逐文件查看目录/文件名与各自增删行数，点击直接在预览打开。
+- 内置 `todo_write` 待办工具：每次调用**全量替换**列表；系统提示词约束「一次只进行一项、完成立即标记、未开始可自由调整」；面板逐条独立计时（进行中实时跳动、完成即冻结）并显示总用时；进行中的待办有旋转图标与头部呼吸灯。
+- 会话侧栏 opencode 风格：单行紧凑会话行（状态彩点 + 标题 + 右侧相对时间）、顶部会话搜索框（过滤时自动展开工作区、隐藏无匹配项并暂停拖拽排序）、工作区数量徽标与大写间距分区标题。
+- 自定义模型「拉取模型」升级为可勾选的模型列表弹层：支持搜索过滤、全选/清空，确认后才把所选模型写入草稿。
+- opencode-style chat UI: inline tool-call timeline (no more folded process cards), neutral user bubbles with attachment chips and hover actions, 14px assistant base text.
+- Per-turn changed-files summary after each finished turn — `Changed N files +a −d`, expandable per-file list, click opens the file in Preview.
+- Built-in `todo_write` tool: every call fully replaces the list; system-prompt rules enforce one-in-progress-at-a-time; per-item live timers (frozen on completion) plus total round time; animated spinner and pulsing header badge while running.
+- opencode-style session sidebar: compact single-line session rows with status dots, session search box (auto-expands workspaces while filtering), workspace count badges.
+- Custom models "Fetch" now opens a pickable model-list dialog (search / select all / none) before writing selected rows into the draft.
+
+### 修复 / 体验 Fixes
+- 待办数据串台修复：列表更新一律全量替换，旧条目不可能残留；内置工具接管后忽略 pi-deck 扩展的旧推送；新任务自动清空上一轮列表，已完成项不会在下一个任务复活。
+- 停止 Agent 时待办进入「已暂停」而非完成态：可选「继续任务」（保留列表并跳过一次新任务重置）或「删除列表」；只有自然跑完才自动补完结并冻结总用时。
+- 每条待办按文本绑定计时器：跨更新保持计时连续（ID 重排不受影响），移除的条目计时同步清理。
+- Todo lists no longer bleed across tasks: full-replace updates, stale extension re-pushes ignored once the builtin tool owns the list, clean slate on every new task.
+- Stopping the agent now pauses todos instead of completing them — choose Continue task (list survives one reset) or Delete list; natural finishes still auto-close with frozen total time.
+- Per-item todo timers bind by text so they survive id renumbering; removed items are pruned with each replace.
+
 ## v0.2.9 (2026-08-17)
 
 ### 修复 / 体验 Fixes
