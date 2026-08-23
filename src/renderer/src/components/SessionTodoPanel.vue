@@ -17,8 +17,10 @@ const sessions = useSessionsStore();
 const collapsed = ref(false);
 
 const list = computed(() => widgets.activeTodoList);
+const paused = computed(() => Boolean(list.value?.paused));
 
-/** Live tick for in-progress durations — re-renders the panel every second. */
+/** Live tick for in-progress durations — re-renders the panel every second.
+ *  A paused round holds its timers (no ticking until resumed). */
 const nowMs = ref(Date.now());
 let tickTimer: ReturnType<typeof setInterval> | null = null;
 function startTick(): void {
@@ -37,7 +39,7 @@ function stopTick(): void {
 watch(
   () => {
     const l = widgets.activeTodoList;
-    if (!l) return false;
+    if (!l || l.paused) return false;
     // Tick only while open items remain, so each in-progress row keeps its
     // own live timer. Once everything is done the total timer is frozen.
     return l.items.some((i) => !i.done);
@@ -88,6 +90,11 @@ const pct = computed(() =>
   total.value > 0 ? Math.round((doneCount.value / total.value) * 100) : 0,
 );
 
+/** Any item actively running right now (drives the live pulse). */
+const hasActive = computed(
+  () => list.value?.items.some((i) => i.active && !i.done) ?? false,
+);
+
 /** 保持原始添加顺序，已完成与未完成混排在一起 */
 const orderedItems = computed(() => list.value?.items ?? []);
 
@@ -121,6 +128,17 @@ function onDismiss(): void {
   const id = sessions.activeId;
   if (id) widgets.dismissTodoList(id);
 }
+
+/** Paused-round actions: keep the list for the follow-up prompt, or drop it. */
+function onResume(): void {
+  const id = sessions.activeId;
+  if (id) widgets.resumeTodosForSession(id);
+}
+
+function onDeleteList(): void {
+  const id = sessions.activeId;
+  if (id) widgets.deleteTodoList(id);
+}
 </script>
 
 <template>
@@ -129,7 +147,7 @@ function onDismiss(): void {
     class="todo-panel"
     role="region"
     :aria-label="headerLabel"
-    :class="{ done: allDone }"
+    :class="{ done: allDone, paused }"
   >
     <div class="todo-head">
       <button
@@ -143,15 +161,19 @@ function onDismiss(): void {
           :size="14"
           class="chev"
         />
-        <span class="badge" :class="{ done: allDone }" aria-hidden="true">
+        <span class="badge" :class="{ done: allDone, paused }" aria-hidden="true">
           <NIcon
             :component="allDone ? CheckmarkDoneOutline : ListOutline"
             :size="13"
           />
         </span>
         <span class="title">{{ headerLabel }}</span>
-        <span class="pill" :class="{ open: openCount > 0, done: allDone }">
-          {{ subLabel }}
+        <span
+          class="pill"
+          :class="{ open: openCount > 0, done: allDone, live: hasActive && !paused }"
+        >
+          <span v-if="hasActive && !paused" class="live-dot" aria-hidden="true" />
+          {{ paused ? t.todoPaused : subLabel }}
         </span>
       </button>
       <button
@@ -162,6 +184,16 @@ function onDismiss(): void {
         @click="onDismiss"
       >
         <NIcon :component="CloseOutline" :size="13" />
+      </button>
+    </div>
+
+    <!-- Paused round: user decides to continue or delete — never auto-done. -->
+    <div v-if="paused" class="todo-paused-actions">
+      <button type="button" class="tp-btn primary pi-interactive" @click="onResume">
+        {{ t.todoResumeTask }}
+      </button>
+      <button type="button" class="tp-btn danger pi-interactive" @click="onDeleteList">
+        {{ t.todoDeleteList }}
       </button>
     </div>
 
@@ -181,7 +213,8 @@ function onDismiss(): void {
           }"
         >
           <span v-if="item.active && !item.done" class="mark active" aria-hidden="true">
-            <span class="spinner" />
+            <span v-if="!paused" class="spinner" />
+            <span v-else class="pause-glyph" />
           </span>
           <span v-else class="mark" :class="item.done ? 'done' : 'open'" aria-hidden="true" />
           <span class="num" aria-hidden="true">{{ item.id }}</span>
@@ -271,6 +304,12 @@ function onDismiss(): void {
   border-color: color-mix(in srgb, var(--success, var(--green, #16a34a)) 30%, transparent);
 }
 
+.badge.paused {
+  color: var(--fg-muted);
+  background: color-mix(in srgb, var(--fg-muted) 10%, transparent);
+  border-color: color-mix(in srgb, var(--fg-muted) 25%, transparent);
+}
+
 .title {
   flex: 1;
   min-width: 0;
@@ -296,6 +335,32 @@ function onDismiss(): void {
 .pill.open {
   color: var(--accent);
   background: var(--accent-soft);
+}
+
+/* Live indicator: breathing dot + soft pulse while an item is running. */
+.pill.live {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  animation: todo-live-pulse 1.6s ease-in-out infinite;
+}
+
+.live-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: currentColor;
+  flex-shrink: 0;
+}
+
+@keyframes todo-live-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent) 30%, transparent);
+  }
+  55% {
+    box-shadow: 0 0 0 4px transparent;
+  }
 }
 
 .pill.done {
@@ -472,6 +537,55 @@ function onDismiss(): void {
   animation: todo-spin 0.7s linear infinite;
 }
 
+/* Paused round: static pause bars instead of the spinner; timers hold. */
+.pause-glyph {
+  display: inline-block;
+  width: 8px;
+  height: 10px;
+  border-left: 2.5px solid var(--fg-muted);
+  border-right: 2.5px solid var(--fg-muted);
+  border-radius: 1px;
+}
+
+.todo-paused-actions {
+  display: flex;
+  gap: 6px;
+  padding: 0 10px 9px;
+}
+
+.tp-btn {
+  flex: 1;
+  padding: 4px 10px;
+  border: none;
+  border-radius: 7px;
+  font: inherit;
+  font-size: 11.5px;
+  font-weight: 600;
+  cursor: pointer;
+  transition:
+    background var(--duration-fast, 140ms) var(--ease-out, ease),
+    color var(--duration-fast, 140ms) var(--ease-out, ease);
+}
+
+.tp-btn.primary {
+  color: var(--accent-fg, #fff);
+  background: var(--accent);
+}
+
+.tp-btn.primary:hover {
+  background: var(--accent-hover, var(--accent));
+}
+
+.tp-btn.danger {
+  color: var(--fg-muted);
+  background: color-mix(in srgb, var(--fg) 7%, transparent);
+}
+
+.tp-btn.danger:hover {
+  color: var(--red, #ef4444);
+  background: color-mix(in srgb, var(--red, #ef4444) 12%, transparent);
+}
+
 @keyframes todo-spin {
   to {
     transform: rotate(360deg);
@@ -526,6 +640,14 @@ function onDismiss(): void {
 @media (prefers-reduced-motion: reduce) {
   .todo-panel {
     animation: none;
+  }
+
+  .pill.live {
+    animation: none;
+  }
+
+  .mark.active .spinner {
+    animation-duration: 2s;
   }
 
   .todo-enter-active,

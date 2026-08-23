@@ -4,9 +4,7 @@ import {
   NButton,
   NEmpty,
   NIcon,
-  NImage,
   NSpin,
-  NTag,
   NText,
   NTooltip,
   useDialog,
@@ -34,6 +32,10 @@ import ToolCallGroup from "@renderer/components/ToolCallGroup.vue";
 import AgentWaitIndicator from "@renderer/components/AgentWaitIndicator.vue";
 import { parseToolCard, isReadTool, type ToolCard } from "@renderer/utils/tool-diff";
 import { buildToolGroupSpans } from "@renderer/utils/tool-group";
+import {
+  collectTurnFileChanges,
+  type TurnFileChanges,
+} from "@renderer/utils/turn-file-changes";
 import { agentOutputSilenceMs } from "@renderer/utils/agent-wait";
 import type { ChatState } from "@renderer/stores/chat-reducer";
 import { usePreviewStore } from "@renderer/stores/preview";
@@ -43,7 +45,6 @@ import {
   isComposerAgentMode,
   stripComposerModePreamble,
 } from "../../../shared/composer-modes";
-import { ASK_USER_TOOL_NAME } from "../../../shared/ask-user";
 import {
   followBottomVirtualWindow,
   windowAfterHistoryPrepend,
@@ -186,135 +187,12 @@ const settlingUi = ref(false);
 const showJumpLatest = ref(false);
 let scrollRaf = 0;
 
-const workFolded = ref(true);
-
-/**
- * When the final answer is shown, the whole latest turn's process (all tool
- * calls + thinking-only rows) folds into one compact summary instead of a
- * stack of individually folded cards.
- */
-const latestTurnStart = computed(() => {
-  const list = props.messages;
-  for (let i = list.length - 1; i >= 0; i--) {
-    if (list[i]?.role === "user") return i;
-  }
-  return -1;
-});
-
-const processSummaryCounts = computed(() => {
-  let tools = 0;
-  let thinking = 0;
-  const start = latestTurnStart.value;
-  const list = props.messages;
-  for (let i = start + 1; i < list.length; i++) {
-    const m = list[i]!;
-    if (m.role === "tool") tools += 1;
-    else if (m.role === "assistant" && Boolean(m.thinking) && !m.text) thinking += 1;
-  }
-  return { tools, thinking };
-});
-
-/** True for the synthetic row shown in place of the latest turn's process. */
-function processSummaryLabel(msg: ChatMessage): string {
-  const args = (msg.role === "tool" ? msg.args : undefined) as
-    | { toolCount?: number; thinkingCount?: number }
-    | undefined;
-  return t.processSummary(args?.toolCount ?? 0, args?.thinkingCount ?? 0);
-}
-
-function isProcessSummary(msg: ChatMessage | null | undefined): boolean {
-  return Boolean(msg && msg.role === "tool" && msg.toolName === "process-summary");
-}
-
-watch([() => props.running, () => props.streaming], ([running, streaming]) => {
-  // Auto-fold only when the turn is done and there is work to fold.
-  if (running || streaming) {
-    workFolded.value = false;
-  } else {
-    const counts = processSummaryCounts.value;
-    workFolded.value = counts.tools + counts.thinking > 0;
-  }
-}, { immediate: true });
-
-/** Tool rows that must stay visible even in clean history (user questions). */
-function isKeepVisibleTool(msg: ChatMessage): boolean {
-  return msg.role === "tool" && msg.toolName === ASK_USER_TOOL_NAME;
-}
-
 const displayMessages = computed(() => {
+  // opencode timeline: every message renders inline in order — user prompts,
+  // thinking blocks and tool rows all stay visible; nothing folds away.
   const list = [...props.messages];
   if (props.streaming) list.push(props.streaming);
-  const counts = processSummaryCounts.value;
-  const foldable = counts.tools + counts.thinking > 0;
-  const start = latestTurnStart.value;
-  const out: ChatMessage[] = [];
-  let inserted = false;
-  // Fold the WHOLE latest turn's process — from the user prompt down to the
-  // last tool/thinking row — including any assistant text emitted mid-process.
-  // Only the final assistant answer (text after the last work row) stays out.
-  let lastWorkIndex = -1;
-  for (let i = list.length - 1; i > start; i--) {
-    const m = list[i]!;
-    if (
-      m.role === "tool" ||
-      (m.role === "assistant" && Boolean(m.thinking) && !m.text)
-    ) {
-      lastWorkIndex = i;
-      break;
-    }
-  }
-  for (let i = 0; i < list.length; i++) {
-    const msg = list[i]!;
-    const isLatestTurnWork =
-      i > start &&
-      i <= lastWorkIndex &&
-      (msg.role === "tool" ||
-        (msg.role === "assistant" && Boolean(msg.thinking) && !msg.text));
-    if (isLatestTurnWork) {
-      if (!inserted) {
-        inserted = true;
-        // Folded: one compact summary replaces the whole process.
-        // Expanded: the same bar stays on top so the user can fold again.
-        out.push({
-          id: "__process-summary__",
-          role: "tool",
-          toolCallId: "__process-summary__",
-          toolName: "process-summary",
-          args: {
-            toolCount: counts.tools,
-            thinkingCount: counts.thinking,
-            expanded: !workFolded.value,
-          },
-        } as ChatMessage);
-      }
-      if (!workFolded.value) out.push(msg);
-      continue;
-    }
-    // Mid-process assistant text emitted between tool calls is part of the
-    // latest turn's process — fold it with the tools. Only the text that
-    // follows the last work row (the final answer) is kept visible.
-    if (
-      i > start &&
-      i <= lastWorkIndex &&
-      msg.role === "assistant" &&
-      msg.text
-    ) {
-      if (!workFolded.value) out.push(msg);
-      continue;
-    }
-    // Older, already-finished turns: drop their tool/thinking rows so the
-    // history reads as user messages + final answers only (Codex-like).
-    // Interactive ask_user rows stay visible.
-    if (
-      !isKeepVisibleTool(msg) &&
-      (msg.role === "tool" ||
-        (msg.role === "assistant" && Boolean(msg.thinking) && !msg.text))
-    ) {
-      continue;
-    }
-    out.push(msg);
-  }
-  return out;
+  return list;
 });
 
 type ToolMessage = Extract<ChatMessage, { role: "tool" }>;
@@ -357,6 +235,40 @@ const toolGroupMembership = computed(() => {
 const visibleMessages = computed(() =>
   displayMessages.value.slice(renderStart.value, renderEnd.value),
 );
+
+/*
+ * opencode DiffSummary: after each finished turn, list the files the agent
+ * created/modified with +/- line counts. Attached to the turn's last row.
+ */
+const turnDiffs = computed(() => {
+  const settled = !props.running && !props.streaming;
+  return collectTurnFileChanges(displayMessages.value, toolCard, settled);
+});
+
+function turnDiffFor(msg: ChatMessage): TurnFileChanges | null {
+  return turnDiffs.value.get(msg.id) ?? null;
+}
+
+const expandedTurnDiffs = ref(new Set<string>());
+
+function isTurnDiffOpen(id: string): boolean {
+  return expandedTurnDiffs.value.has(id);
+}
+
+function toggleTurnDiff(id: string): void {
+  const next = new Set(expandedTurnDiffs.value);
+  if (next.has(id)) next.delete(id);
+  else next.add(id);
+  expandedTurnDiffs.value = next;
+}
+
+function splitPath(path: string): { dir: string; name: string } {
+  const norm = path.replace(/\\/g, "/");
+  const idx = norm.lastIndexOf("/");
+  return idx >= 0
+    ? { dir: norm.slice(0, idx + 1), name: norm.slice(idx + 1) }
+    : { dir: "", name: norm };
+}
 
 function estimateMessageHeight(msg: ChatMessage | undefined): number {
   if (!msg) return EST_MSG_HEIGHT;
@@ -1358,63 +1270,38 @@ function onRevertUser(msg: Extract<ChatMessage, { role: "user" }>): void {
       >
         <template v-if="msg.role === 'user'">
           <div class="bubble-wrap user">
+            <!-- opencode-style attachments row: compact chips above the bubble, right-aligned -->
             <div
-              class="bubble user"
+              v-if="msg.images?.length || visibleUserTags(msg.elementTags).length"
+              class="user-attachments"
+            >
+              <img
+                v-for="(img, idx) in msg.images"
+                :key="`${msg.id}-img-${idx}`"
+                class="user-image"
+                :src="img.dataUrl"
+                :alt="t.imageAttachment"
+                loading="lazy"
+                draggable="false"
+                @click.stop="openImagePreview(img)"
+              />
+              <span
+                v-for="(tag, idx) in visibleUserTags(msg.elementTags)"
+                :key="`${msg.id}-tag-${idx}`"
+                class="user-chip"
+                :class="{ 'user-chip-file': tag.kind === 'file' }"
+                :title="tag.url || tag.label"
+              >{{ tag.label || tag.content }}</span>
+            </div>
+            <div
+              v-if="displayUserText(msg.text)"
+              class="user-text"
               :class="{ 'user-collapsed': !isUserExpanded(msg.id) }"
             >
-              <div v-if="msg.images?.length" class="user-images">
-                <img
-                  v-for="(img, idx) in msg.images"
-                  :key="`${msg.id}-img-${idx}`"
-                  class="user-image"
-                  :src="img.dataUrl"
-                  :alt="t.imageAttachment"
-                  loading="lazy"
-                  draggable="false"
-                  @click.stop="openImagePreview(img)"
-                />
-              </div>
-              <div
-                v-if="displayUserText(msg.text)"
+              <span
                 class="user-plain"
                 :class="{ clamped: !isUserExpanded(msg.id) }"
-              >{{ displayUserText(msg.text) }}</div>
-              <div v-if="visibleUserTags(msg.elementTags).length" class="user-tags">
-                <NTag
-                  v-for="(tag, idx) in visibleUserTags(msg.elementTags)"
-                  :key="`${msg.id}-tag-${idx}`"
-                  type="info"
-                  size="small"
-                  round
-                  class="user-tag"
-                  :class="{
-                    'user-tag-file': tag.kind === 'file',
-                  }"
-                  :title="tag.url || tag.label"
-                >
-                  {{ tag.label || tag.content }}
-                </NTag>
-              </div>
-              <!-- Cursor-style: revert lives inside the card, bottom-right -->
-              <div
-                v-if="canRevertUser(msg) || isRevertedUser(msg)"
-                class="user-bubble-footer"
-              >
-                <NTooltip placement="top">
-                  <template #trigger>
-                    <button
-                      type="button"
-                      class="bubble-revert"
-                      :disabled="running || isRevertedUser(msg)"
-                      :aria-label="isRevertedUser(msg) ? t.reverted : t.revertTurn"
-                      @click.stop="onRevertUser(msg)"
-                    >
-                      <NIcon :component="ArrowUndoOutline" :size="15" />
-                    </button>
-                  </template>
-                  {{ isRevertedUser(msg) ? t.reverted : t.revertTurn }}
-                </NTooltip>
-              </div>
+              >{{ displayUserText(msg.text) }}</span>
               <button
                 v-if="userCardNeedsToggle(msg)"
                 type="button"
@@ -1429,48 +1316,67 @@ function onRevertUser(msg: Extract<ChatMessage, { role: "user" }>): void {
                 <span>{{ isUserExpanded(msg.id) ? t.userCardCollapse : t.userCardExpand }}</span>
               </button>
             </div>
+            <!-- opencode-style hover action row under the prompt (revert included) -->
             <div v-if="!running" class="actions user-actions">
-              <NTooltip>
+              <NTooltip v-if="canRevertUser(msg) || isRevertedUser(msg)">
                 <template #trigger>
-                  <NButton quaternary circle size="tiny" @click="copyText(displayUserText(msg.text))">
-                    <template #icon>
-                      <NIcon :component="CopyOutline" />
-                    </template>
-                  </NButton>
+                  <button
+                    type="button"
+                    class="action-icon-btn"
+                    :disabled="running || isRevertedUser(msg)"
+                    :aria-label="isRevertedUser(msg) ? t.reverted : t.revertTurn"
+                    @click.stop="onRevertUser(msg)"
+                  >
+                    <NIcon :component="ArrowUndoOutline" :size="14" />
+                  </button>
+                </template>
+                {{ isRevertedUser(msg) ? t.reverted : t.revertTurn }}
+              </NTooltip>
+              <NTooltip v-if="msg.text">
+                <template #trigger>
+                  <button
+                    type="button"
+                    class="action-icon-btn"
+                    :aria-label="t.copy"
+                    @click="copyText(displayUserText(msg.text))"
+                  >
+                    <NIcon :component="CopyOutline" :size="14" />
+                  </button>
                 </template>
                 {{ t.copy }}
               </NTooltip>
               <NTooltip v-if="msg.text">
                 <template #trigger>
-                  <NButton
-                    quaternary
-                    circle
-                    size="tiny"
+                  <button
+                    type="button"
+                    class="action-icon-btn"
+                    :aria-label="isSpeakingMessage(msg.id) ? t.ttsStopSpeak : t.ttsSpeak"
                     @click="onSpeakMessage(msg.id, msg.text)"
                   >
-                    <template #icon>
-                      <NIcon
-                        :component="isSpeakingMessage(msg.id) ? PauseOutline : VolumeMediumOutline"
-                      />
-                    </template>
-                  </NButton>
+                    <NIcon
+                      :component="isSpeakingMessage(msg.id) ? PauseOutline : VolumeMediumOutline"
+                      :size="14"
+                    />
+                  </button>
                 </template>
                 {{ isSpeakingMessage(msg.id) ? t.ttsStopSpeak : t.ttsSpeak }}
               </NTooltip>
               <NTooltip>
                 <template #trigger>
-                  <NButton quaternary circle size="tiny" @click="onEditUser(msg)">
-                    <template #icon>
-                      <NIcon :component="CreateOutline" />
-                    </template>
-                  </NButton>
+                  <button
+                    type="button"
+                    class="action-icon-btn"
+                    :aria-label="t.reEdit"
+                    @click="onEditUser(msg)"
+                  >
+                    <NIcon :component="CreateOutline" :size="14" />
+                  </button>
                 </template>
                 {{ t.reEdit }}
               </NTooltip>
             </div>
           </div>
         </template>
-
         <template v-else-if="msg.role === 'assistant'">
           <div
             v-if="msg.text || msg.thinking || !msg.streaming"
@@ -1496,44 +1402,7 @@ function onRevertUser(msg: Extract<ChatMessage, { role: "user" }>): void {
               />
               <span v-if="msg.streaming && msg.text" class="cursor" aria-hidden="true" />
             </div>
-            <div v-if="!msg.streaming && !running" class="actions">
-              <NTooltip>
-                <template #trigger>
-                  <NButton quaternary circle size="tiny" @click="copyText(msg.text)">
-                    <template #icon>
-                      <NIcon :component="CopyOutline" />
-                    </template>
-                  </NButton>
-                </template>
-                {{ t.copy }}
-              </NTooltip>
-              <NTooltip v-if="msg.text">
-                <template #trigger>
-                  <NButton
-                    quaternary
-                    circle
-                    size="tiny"
-                    @click="onSpeakMessage(msg.id, msg.text)"
-                  >
-                    <template #icon>
-                      <NIcon
-                        :component="isSpeakingMessage(msg.id) ? PauseOutline : VolumeMediumOutline"
-                      />
-                    </template>
-                  </NButton>
-                </template>
-                {{ isSpeakingMessage(msg.id) ? t.ttsStopSpeak : t.ttsSpeak }}
-              </NTooltip>
-              <NTooltip>
-                <template #trigger>
-                  <NButton quaternary circle size="tiny" @click="onRegenerate(msg)">
-                    <template #icon>
-                      <NIcon :component="RefreshOutline" />
-                    </template>
-                  </NButton>
-                </template>
-                {{ t.regenerate }}
-              </NTooltip>
+            <div v-if="!msg.streaming && !running" class="actions assistant-actions">
               <span
                 v-if="assistantStats(msg)"
                 class="assistant-stats"
@@ -1541,28 +1410,92 @@ function onRevertUser(msg: Extract<ChatMessage, { role: "user" }>): void {
               >
                 {{ assistantStats(msg)!.compact }}
               </span>
+              <NTooltip>
+                <template #trigger>
+                  <button
+                    type="button"
+                    class="action-icon-btn"
+                    :aria-label="t.copy"
+                    @click="copyText(msg.text)"
+                  >
+                    <NIcon :component="CopyOutline" :size="14" />
+                  </button>
+                </template>
+                {{ t.copy }}
+              </NTooltip>
+              <NTooltip v-if="msg.text">
+                <template #trigger>
+                  <button
+                    type="button"
+                    class="action-icon-btn"
+                    :aria-label="isSpeakingMessage(msg.id) ? t.ttsStopSpeak : t.ttsSpeak"
+                    @click="onSpeakMessage(msg.id, msg.text)"
+                  >
+                    <NIcon
+                      :component="isSpeakingMessage(msg.id) ? PauseOutline : VolumeMediumOutline"
+                      :size="14"
+                    />
+                  </button>
+                </template>
+                {{ isSpeakingMessage(msg.id) ? t.ttsStopSpeak : t.ttsSpeak }}
+              </NTooltip>
+              <NTooltip>
+                <template #trigger>
+                  <button
+                    type="button"
+                    class="action-icon-btn"
+                    :aria-label="t.regenerate"
+                    @click="onRegenerate(msg)"
+                  >
+                    <NIcon :component="RefreshOutline" :size="14" />
+                  </button>
+                </template>
+                {{ t.regenerate }}
+              </NTooltip>
+            </div>
+            <!-- opencode DiffSummary: changed files with +/- line counts -->
+            <div v-if="turnDiffFor(msg)" class="turn-diff">
+              <button
+                type="button"
+                class="td-head pi-interactive"
+                :aria-expanded="isTurnDiffOpen(msg.id)"
+                @click="toggleTurnDiff(msg.id)"
+              >
+                <NIcon
+                  :component="isTurnDiffOpen(msg.id) ? ChevronDownOutline : ChevronForwardOutline"
+                  :size="13"
+                  class="td-chev"
+                />
+                <span class="td-label">
+                  {{ t.filesChanged(turnDiffFor(msg)!.files.length) }}
+                </span>
+                <span class="td-nums">
+                  <span class="add">+{{ turnDiffFor(msg)!.totalAdditions }}</span>
+                  <span class="del">−{{ turnDiffFor(msg)!.totalDeletions }}</span>
+                </span>
+              </button>
+              <ul v-if="isTurnDiffOpen(msg.id)" class="td-files">
+                <li
+                  v-for="f in turnDiffFor(msg)!.files"
+                  :key="f.path"
+                  class="td-file-row"
+                  :title="f.path"
+                  @click="openPreview(f.path)"
+                >
+                  <span class="td-file">
+                    <span class="td-dir">{{ splitPath(f.path).dir }}</span>
+                    <span class="td-name">{{ splitPath(f.path).name }}</span>
+                  </span>
+                  <span class="td-add">+{{ f.additions }}</span>
+                  <span class="td-del">−{{ f.deletions }}</span>
+                </li>
+              </ul>
             </div>
           </div>
         </template>
 
         <template v-else-if="msg.role === 'tool'">
-          <div v-if="isProcessSummary(msg)" class="tool process-summary-row">
-            <button
-              type="button"
-              class="process-summary pi-interactive"
-              :title="msg.args?.expanded ? t.processCollapse : t.processExpand"
-              @click="msg.args?.expanded ? (workFolded = true) : (workFolded = false)"
-            >
-              <span class="ps-dot" aria-hidden="true" />
-              <span class="ps-label">{{ processSummaryLabel(msg) }}</span>
-              <NIcon
-                :component="msg.args?.expanded ? ChevronUpOutline : ChevronDownOutline"
-                :size="14"
-                class="ps-chevron"
-              />
-            </button>
-          </div>
-          <div v-else-if="toolGroupMembership.get(msg.id)?.isLead" class="tool">
+          <div v-if="toolGroupMembership.get(msg.id)?.isLead" class="tool">
             <ToolCallGroup
               :tools="toolGroupMembership.get(msg.id)!.tools"
               :auto-collapse="turnDone || !toolGroupStreaming(msg)"
@@ -1643,11 +1576,11 @@ function onRevertUser(msg: Extract<ChatMessage, { role: "user" }>): void {
       @mouseenter="onStickyUserEnter"
       @mouseleave="onStickyUserLeave"
     >
-      <div
-        class="sticky-pin-body bubble user"
-        :class="{ 'user-collapsed': !stickyExpanded && userCardNeedsToggle(stickyPinMessage) }"
-      >
-        <div v-if="stickyPinMessage.images?.length" class="user-images">
+      <div class="sticky-pin-body">
+        <div
+          v-if="stickyPinMessage.images?.length || visibleUserTags(stickyPinMessage.elementTags).length"
+          class="user-attachments"
+        >
           <img
             v-for="(img, idx) in stickyPinMessage.images"
             :key="`pin-img-${idx}`"
@@ -1658,27 +1591,23 @@ function onRevertUser(msg: Extract<ChatMessage, { role: "user" }>): void {
             draggable="false"
             @click.stop="openImagePreview(img)"
           />
+          <span
+            v-for="(tag, idx) in visibleUserTags(stickyPinMessage.elementTags)"
+            :key="`pin-tag-${idx}`"
+            class="user-chip"
+            :class="{ 'user-chip-file': tag.kind === 'file' }"
+            :title="tag.url || tag.label"
+          >{{ tag.label || tag.content }}</span>
         </div>
         <div
           v-if="displayUserText(stickyPinMessage.text)"
-          class="user-plain"
-          :class="{ clamped: !stickyExpanded && userCardNeedsToggle(stickyPinMessage) }"
-        >{{ displayUserText(stickyPinMessage.text) }}</div>
-        <div v-if="visibleUserTags(stickyPinMessage.elementTags).length" class="user-tags">
-          <NTag
-            v-for="(tag, idx) in visibleUserTags(stickyPinMessage.elementTags)"
-            :key="`pin-tag-${idx}`"
-            type="info"
-            size="small"
-            round
-            class="user-tag"
-            :class="{
-              'user-tag-file': tag.kind === 'file',
-            }"
-            :title="tag.url || tag.label"
-          >
-            {{ tag.label || tag.content }}
-          </NTag>
+          class="user-text"
+          :class="{ 'user-collapsed': !stickyExpanded && userCardNeedsToggle(stickyPinMessage) }"
+        >
+          <span
+            class="user-plain"
+            :class="{ clamped: !stickyExpanded && userCardNeedsToggle(stickyPinMessage) }"
+          >{{ displayUserText(stickyPinMessage.text) }}</span>
         </div>
       </div>
       <button
@@ -1828,10 +1757,11 @@ function onRevertUser(msg: Extract<ChatMessage, { role: "user" }>): void {
   width: 100%;
   max-width: var(--composer-max, 780px);
   margin: 0 auto;
-  padding: 16px 16px;
+  /* opencode timeline rhythm: px-5 gutters, ~18px between flow rows. */
+  padding: 16px 20px;
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 18px;
   min-height: 100%;
   box-sizing: border-box;
 }
@@ -1895,15 +1825,10 @@ function onRevertUser(msg: Extract<ChatMessage, { role: "user" }>): void {
   /* spacing handled by .inner gap */
 }
 
-/* DeepSeek Harness renders tool calls inline as flow items — no indentation,
-   no left rail; spacing comes from the column gap alone. */
+/* Tool calls render inline as flow items — no indentation, no left rail;
+   spacing comes from the column gap alone. */
 .row-tool {
   margin: 0;
-  padding-left: 0;
-  border-left: none;
-}
-
-.row-tool.process-summary-row {
   padding-left: 0;
   border-left: none;
 }
@@ -2009,10 +1934,12 @@ function onRevertUser(msg: Extract<ChatMessage, { role: "user" }>): void {
   max-width: 100%;
 }
 
+/* opencode user-message: right-aligned column, bubble max min(82%, 64ch). */
 .bubble-wrap.user {
   align-items: flex-end;
-  width: auto;
-  max-width: min(82%, 525px);
+  width: 100%;
+  max-width: min(82%, 64ch);
+  margin-left: auto;
 }
 
 .bubble-wrap.assistant {
@@ -2038,7 +1965,7 @@ function onRevertUser(msg: Extract<ChatMessage, { role: "user" }>): void {
 .bubble {
   padding: 9px 13px;
   border-radius: var(--radius-md, 11px);
-  font-size: 16px;
+  font-size: 14px;
   line-height: 1.6;
   word-break: break-word;
   user-select: text;
@@ -2046,25 +1973,26 @@ function onRevertUser(msg: Extract<ChatMessage, { role: "user" }>): void {
   cursor: text;
 }
 
-/* User prompt: DeepSeek-style soft blue pill, right-aligned, no border. */
-.bubble.user {
-  width: auto;
-  max-width: 100%;
+/*
+ * opencode user-message-text: neutral surface bubble — no border, radius 10,
+ * padding 8x12. Adapts to light/dark via a fg-tinted mix.
+ */
+.user-text {
+  display: inline-block;
   box-sizing: border-box;
-  padding: 10px 16px;
-  border-radius: 22px;
-  background: var(--user-bg, #edf3fe);
-  color: var(--fg-strong);
-  border: none;
-  box-shadow: none;
+  width: fit-content;
+  max-width: 100%;
+  padding: 8px 12px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--fg) 7%, transparent);
   overflow: hidden;
 }
 
 /* Collapsed long card: clamp the text block to a few lines. */
-.bubble.user.user-collapsed .user-plain {
+.user-text.user-collapsed .user-plain {
   display: -webkit-box;
-  -webkit-line-clamp: 4;
-  line-clamp: 4;
+  -webkit-line-clamp: 6;
+  line-clamp: 6;
   -webkit-box-orient: vertical;
   overflow: hidden;
 }
@@ -2095,9 +2023,15 @@ function onRevertUser(msg: Extract<ChatMessage, { role: "user" }>): void {
   display: flex;
   flex-direction: column;
   gap: 6px;
-  font-size: 16px;
-  line-height: 1.75;
+  font-size: 14px;
+  line-height: 1.7;
   color: var(--fg, #0f1115);
+}
+
+/* opencode renders assistant markdown at base size (14px), not display size. */
+.bubble.assistant :deep(.assistant-md.md) {
+  font-size: 14px;
+  line-height: 1.7;
 }
 
 /* The final answer is the visual anchor of an assistant message — give the
@@ -2122,8 +2056,9 @@ function onRevertUser(msg: Extract<ChatMessage, { role: "user" }>): void {
 }
 
 .bubble.error {
-  background: rgba(208, 48, 80, 0.08);
-  border: 1px solid rgba(208, 48, 80, 0.35);
+  background: color-mix(in srgb, var(--red, #ef4444) 9%, transparent);
+  border: none;
+  border-radius: 10px;
   color: var(--fg-strong);
 }
 
@@ -2155,61 +2090,47 @@ function onRevertUser(msg: Extract<ChatMessage, { role: "user" }>): void {
   color: var(--fg-strong, #222) !important;
 }
 
-.user-tags,
-.user-images {
+/* opencode user-message-attachments: compact chips above the bubble. */
+.user-attachments {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
-  margin-top: 6px;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 8px;
+  width: fit-content;
+  max-width: 100%;
+  margin-bottom: 2px;
 }
 
-.user-tag {
-  max-width: 200px;
-}
-
-.user-tag-file {
-  font-family: var(--font-mono);
-  font-size: 11px;
-}
-
-.user-tag-mode-plan {
-  --n-color: rgba(234, 179, 8, 0.2) !important;
-  --n-text-color: #a16207 !important;
-  --n-border: rgba(202, 138, 4, 0.45) !important;
-}
-
-.user-tag-mode-agent {
-  --n-color: rgba(113, 113, 122, 0.16) !important;
-  --n-text-color: #3f3f46 !important;
-  --n-border: rgba(113, 113, 122, 0.4) !important;
-}
-
-.user-tag-mode-ask {
-  --n-color: rgba(59, 130, 246, 0.16) !important;
-  --n-text-color: #1d4ed8 !important;
-  --n-border: rgba(37, 99, 235, 0.4) !important;
-}
-
-.user-tag-mode-task {
-  --n-color: rgba(16, 185, 129, 0.16) !important;
-  --n-text-color: #047857 !important;
-  --n-border: rgba(5, 150, 105, 0.4) !important;
-}
-
-.user-tag :deep(.n-tag__content) {
+.user-chip {
+  display: inline-flex;
+  align-items: center;
+  max-width: 220px;
+  padding: 3px 9px;
+  border-radius: 6px;
+  border: 0.5px solid color-mix(in srgb, var(--fg) 12%, transparent);
+  background: color-mix(in srgb, var(--fg) 5%, transparent);
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: var(--fg-muted);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
+.user-chip-file {
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
 .user-image {
-  width: 72px;
-  height: 72px;
-  border-radius: 8px;
+  width: 58px;
+  height: 46px;
+  border-radius: 6px;
   overflow: hidden;
   object-fit: cover;
   cursor: zoom-in;
-  border: 1px solid var(--border);
+  box-shadow: inset 0 0 0 0.5px color-mix(in srgb, var(--fg) 14%, transparent);
   transition: filter var(--duration-fast, 140ms) var(--ease-out, ease);
 }
 
@@ -2218,23 +2139,51 @@ function onRevertUser(msg: Extract<ChatMessage, { role: "user" }>): void {
 }
 
 .user-plain {
+  display: block;
   white-space: pre-wrap;
   word-break: break-word;
-  font-size: 16px;
-  line-height: 1.5;
+  unicode-bidi: plaintext;
+  font-size: 14px;
+  line-height: 1.65;
+  color: var(--fg-strong);
   user-select: text;
   -webkit-user-select: text;
 }
 
-.user-bubble-footer {
+/*
+ * opencode message action rows: min-height 24px, hover-revealed, icon
+ * buttons only — user row right-aligned under the bubble, assistant row
+ * left-aligned under the text with the stats meta leading.
+ */
+.actions {
+  min-height: 24px;
+  margin-top: 4px;
   display: flex;
-  justify-content: flex-end;
   align-items: center;
-  margin-top: 6px;
-  min-height: 22px;
+  gap: 6px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s ease;
 }
 
-.bubble-revert {
+.bubble-wrap:hover .actions,
+.bubble-wrap:focus-within .actions {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.user-actions {
+  justify-content: flex-end;
+  width: 100%;
+}
+
+.assistant-actions {
+  justify-content: flex-start;
+  width: 100%;
+}
+
+/* opencode MessageActionButton: ~24px quiet icon button. */
+.action-icon-btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -2244,62 +2193,158 @@ function onRevertUser(msg: Extract<ChatMessage, { role: "user" }>): void {
   border: none;
   border-radius: 6px;
   background: transparent;
-  color: var(--fg-muted, #8a8a8a);
+  color: var(--fg-faint, #81858c);
   cursor: pointer;
-  transition: color 0.12s ease, background 0.12s ease;
+  transition:
+    color var(--duration-fast, 140ms) var(--ease-out, ease),
+    background var(--duration-fast, 140ms) var(--ease-out, ease);
 }
 
-.bubble-revert:hover:not(:disabled) {
-  color: var(--fg-strong, #222);
-  background: color-mix(in srgb, var(--fg-muted, #888) 12%, transparent);
+.action-icon-btn:hover:not(:disabled) {
+  color: var(--fg-muted, #61666b);
+  background: var(--bg-hover, rgba(127, 127, 127, 0.08));
 }
 
-.bubble-revert:disabled {
+.action-icon-btn:disabled {
   opacity: 0.45;
   cursor: default;
 }
 
-.actions {
-  display: flex;
-  gap: 2px;
-  align-items: center;
-  opacity: 0;
-  transition: opacity 0.12s ease;
-}
-
-/* DeepSeek Harness MessageIconActions: 28px circular, label-tertiary,
-   hover → interactive-bg-hover + label-secondary. */
-.actions :deep(.n-button) {
-  width: 28px;
-  height: 28px;
-  color: var(--fg-faint, #81858c) !important;
-}
-
-.actions :deep(.n-button:hover:not(.n-button--disabled)) {
-  background: var(--bg-hover, #f1f3f5) !important;
-  color: var(--fg-muted, #61666b) !important;
-}
-
-/* Copy / re-edit under the prompt (hover). Revert is inside the bubble. */
-.user-actions {
-  justify-content: flex-end;
-  margin-top: 2px;
-  padding-right: 2px;
-}
-
-.bubble-wrap:hover .actions {
-  opacity: 1;
-}
-
-/* Turn stats (duration · tokens · tok/s) — muted, right side of the actions. */
+/* Turn stats (duration · tokens · tok/s) — muted meta at the head of the row. */
 .assistant-stats {
-  margin-left: 8px;
-  font-size: 10.5px;
+  margin-right: 6px;
+  font-size: 11px;
   font-variant-numeric: tabular-nums;
   color: var(--fg-faint, var(--fg-muted));
   white-space: nowrap;
   user-select: none;
   -webkit-user-select: none;
+}
+
+/*
+ * opencode DiffSummary row: "Changed N files  +a −d", expandable to a
+ * per-file list with directory/filename and per-file line counts.
+ */
+.turn-diff {
+  width: 100%;
+  margin-top: 4px;
+}
+
+.td-head {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  width: 100%;
+  padding: 4px 6px;
+  border: none;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--fg-muted);
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+  transition: background var(--duration-fast, 140ms) var(--ease-out, ease);
+}
+
+.td-head:hover {
+  background: color-mix(in srgb, var(--fg) 4%, transparent);
+  color: var(--fg);
+}
+
+.td-chev {
+  flex-shrink: 0;
+  color: var(--fg-faint, var(--fg-muted));
+}
+
+.td-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+}
+
+.td-nums,
+.td-add,
+.td-del {
+  flex-shrink: 0;
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.td-nums {
+  display: inline-flex;
+  gap: 6px;
+}
+
+.add,
+.td-add {
+  color: #1a7f37;
+}
+
+.del,
+.td-del {
+  color: #cf222e;
+}
+
+.td-files {
+  list-style: none;
+  margin: 2px 0 0;
+  padding: 0 0 0 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.td-file-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 3px 8px;
+  border-radius: 6px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.td-file-row:hover {
+  background: var(--bg-hover);
+}
+
+.td-file {
+  flex: 1;
+  min-width: 0;
+  display: inline-flex;
+  align-items: baseline;
+  overflow: hidden;
+  white-space: nowrap;
+  direction: ltr;
+  unicode-bidi: isolate;
+}
+
+/* Directory fades — ellipsize from the left like opencode's path rendering. */
+.td-dir {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  direction: rtl;
+  text-align: left;
+  color: var(--fg-faint, var(--fg-muted));
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 11px;
+}
+
+.td-name {
+  flex-shrink: 0;
+  max-width: 60%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--fg-strong);
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 11.5px;
 }
 
 .cursor {
@@ -2519,53 +2564,5 @@ function onRevertUser(msg: Extract<ChatMessage, { role: "user" }>): void {
   .image-preview-overlay {
     animation: none;
   }
-}
-
-/* One-big-group process summary after the final answer — plain text row */
-.process-summary-row {
-  padding: 0 4px 2px;
-}
-
-.process-summary {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  width: 100%;
-  padding: 4px 6px;
-  border: none;
-  border-radius: 5px;
-  background: transparent;
-  color: var(--fg-muted);
-  cursor: pointer;
-  font: inherit;
-  font-size: 12px;
-  transition: background var(--duration-fast, 140ms) var(--ease-out, ease);
-}
-
-.process-summary:hover {
-  background: color-mix(in srgb, var(--fg) 4%, transparent);
-  color: var(--fg);
-}
-
-.ps-dot {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: var(--accent);
-  flex-shrink: 0;
-}
-
-.ps-label {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.ps-chevron {
-  flex-shrink: 0;
-  color: var(--fg-faint, var(--fg-muted));
-  transition: transform var(--duration-fast, 140ms) var(--ease-out, ease);
 }
 </style>

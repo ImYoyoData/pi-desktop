@@ -37,6 +37,20 @@ Behavior:
 Prefer one multi-question \`ask_user\` over several sequential asks.
 `;
 
+export const DESKTOP_TODO_PROMPT = `## Todo checklist (Pi Desktop)
+
+For any multi-step task, maintain the user-visible checklist with the \`todo_write\` tool.
+
+Rules:
+1. **Plan first** — before starting work, send the complete list of steps (status \`pending\`).
+2. **Full replace** — every call sends the WHOLE list; items you omit disappear. There is no hidden state, so a new task always starts a clean list.
+3. **One in progress** — flip an item to \`in_progress\` right before working on it (only one at a time); flip to \`completed\` immediately when done. Do not batch completions.
+4. **Adjustable plan** — while items are still \`pending\` you may restructure/rewrite the list freely in response to new information.
+5. Skip the tool only for trivial single-step requests.
+
+Each item: { content: string, status: "pending" | "in_progress" | "completed", id?: string }. Keep \`id\` stable for unchanged items so timers stay attached.
+`;
+
 export const DESKTOP_BASH_BACKGROUND_PROMPT = `## Bash / terminal (Pi Desktop)
 
 Decide whether a command should **wait** or run in the **background**:

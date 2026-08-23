@@ -11,7 +11,6 @@ import {
   NModal,
   NScrollbar,
   NSpace,
-  NText,
   NTooltip,
   useDialog,
   useMessage,
@@ -24,13 +23,14 @@ import {
   FolderOpenOutline,
   PinOutline,
   RefreshOutline,
+  SearchOutline,
   TrashOutline,
 } from "@vicons/ionicons5";
 import PanelLeftIcon from "@renderer/components/icons/PanelLeftIcon.vue";
 import Sortable from "sortablejs";
 import { Splitpanes, Pane } from "splitpanes";
 import type { SplitpanesResizedPayload } from "splitpanes";
-import type { SessionStatus, SessionSummary } from "../../../shared/protocol";
+import type { SessionSummary } from "../../../shared/protocol";
 import { useLayoutStore } from "@renderer/stores/layout";
 import { useSessionsStore } from "@renderer/stores/sessions";
 import { useChatStore } from "@renderer/stores/chat";
@@ -56,6 +56,9 @@ const pins = reactive<Record<string, string[]>>({});
 const sessionOrders = reactive<Record<string, string[]>>({});
 const sessionListEls = new Map<string, HTMLElement>();
 const sessionSortables = new Map<string, Sortable>();
+
+/** Sidebar session filter (opencode-style search box). */
+const sessionQuery = ref("");
 
 const renameOpen = ref(false);
 const renameDraft = ref("");
@@ -225,6 +228,7 @@ function bindSessionSortable(root: string): void {
   sessionSortables.get(root)?.destroy();
   const sortable = Sortable.create(el, {
     animation: 150,
+    disabled: hasQuery.value,
     draggable: ".session-row",
     filter: ".empty-inline",
     onEnd: () => {
@@ -365,6 +369,30 @@ function sessionsFor(root: string): SessionSummary[] {
   });
   return list;
 }
+
+/** True when the sidebar filter box has a query — lists flatten & drag pauses. */
+const hasQuery = computed(() => sessionQuery.value.trim().length > 0);
+
+function matchesQuery(session: SessionSummary): boolean {
+  const q = sessionQuery.value.trim().toLowerCase();
+  if (!q) return true;
+  return (
+    (session.name ?? "").toLowerCase().includes(q) ||
+    (session.firstMessage ?? "").toLowerCase().includes(q) ||
+    session.id.toLowerCase().includes(q)
+  );
+}
+
+/** Sorted sessions filtered by the search box. */
+function visibleSessionsFor(root: string): SessionSummary[] {
+  const list = sessionsFor(root);
+  return hasQuery.value ? list.filter(matchesQuery) : list;
+}
+
+// Drag-to-reorder only makes sense on the unfiltered list.
+watch(hasQuery, () => {
+  for (const root of [...sessionListEls.keys()]) bindSessionSortable(root);
+});
 
 /** Freeze current visual order and append a new session id at the end. */
 function appendSessionToOrder(root: string, sessionId: string): void {
@@ -756,10 +784,6 @@ async function onCtxSelect(key: string | number): Promise<void> {
   }
 }
 
-function isRunning(status: SessionStatus): boolean {
-  return status === "running";
-}
-
 const sessionsPaneSize = computed(() => Math.max(22, 100 - layout.leftFilesSize));
 
 function onLeftSplitResized(payload: SplitpanesResizedPayload): void {
@@ -815,6 +839,20 @@ function onLeftSplitResized(payload: SplitpanesResizedPayload): void {
       </NTooltip>
     </div>
 
+    <div class="filter-wrap">
+      <NInput
+        v-model:value="sessionQuery"
+        size="small"
+        clearable
+        :placeholder="t.filterSessions"
+        class="filter-input"
+      >
+        <template #prefix>
+          <NIcon :component="SearchOutline" :size="13" class="filter-icon" />
+        </template>
+      </NInput>
+    </div>
+
     <NAlert v-if="showStuckRecovery" type="warning" :bordered="false" style="margin: 0 8px 8px">
       {{ t.stuckBanner }}
       <template #footer>
@@ -829,7 +867,7 @@ function onLeftSplitResized(payload: SplitpanesResizedPayload): void {
       <Pane :size="sessionsPaneSize" :min-size="22">
         <div class="sessions-pane">
           <div class="section-head">
-            <NText depth="3" style="font-size: 12px; font-weight: 600">{{ t.workspaces }}</NText>
+            <span class="section-title">{{ t.workspaces }}</span>
             <NTooltip>
               <template #trigger>
                 <NButton quaternary circle size="tiny" @click="onAddWorkspace">
@@ -849,6 +887,7 @@ function onLeftSplitResized(payload: SplitpanesResizedPayload): void {
                 :key="root"
                 class="ws-block"
                 :data-root="root"
+                v-show="!hasQuery || visibleSessionsFor(root).length > 0"
               >
               <div class="ws-row-wrap">
                 <button
@@ -859,12 +898,15 @@ function onLeftSplitResized(payload: SplitpanesResizedPayload): void {
                   @click="onWorkspaceClick(root)"
                   @contextmenu="(e) => openWorkspaceCtx(e, root)"
                 >
-                  <span class="chevron" :class="{ open: expanded[root] }">
-                    <NIcon :component="ChevronForwardOutline" :size="14" />
+                  <span class="chevron" :class="{ open: expanded[root] || hasQuery }">
+                    <NIcon :component="ChevronForwardOutline" :size="13" />
                   </span>
-                  <NEllipsis style="font-weight: 600; flex: 1; min-width: 0">{{
+                  <NEllipsis class="ws-name">{{
                     workspaceName(root)
                   }}</NEllipsis>
+                  <span v-if="sessionsFor(root).length" class="ws-count">{{
+                    sessionsFor(root).length
+                  }}</span>
                 </button>
                 <NTooltip>
                   <template #trigger>
@@ -886,47 +928,39 @@ function onLeftSplitResized(payload: SplitpanesResizedPayload): void {
               </div>
 
               <ul
-                v-show="expanded[root]"
+                v-show="expanded[root] || hasQuery"
                 class="session-list"
-                :class="{ open: expanded[root] }"
+                :class="{ open: expanded[root] || hasQuery }"
                 :ref="(el) => setSessionListRef(root, el)"
               >
                 <li v-if="!sessionsFor(root).length" class="empty-inline">{{ t.emptySessions }}</li>
+                <li v-else-if="!visibleSessionsFor(root).length" class="empty-inline">
+                  {{ t.noMatchSessions }}
+                </li>
                 <li
-                  v-for="(session, sIdx) in sessionsFor(root)"
+                  v-for="(session, sIdx) in visibleSessionsFor(root)"
                   :key="session.id"
                   class="session-row"
                   :data-id="session.id"
-                  :class="{
-                    active: sessionsStore.activeId === session.id,
-                    running: isRunning(session.status),
-                  }"
+                  :class="{ active: sessionsStore.activeId === session.id }"
                   :style="{ '--i': String(sIdx) }"
                   @click="onSelectSession(root, session.id)"
                   @contextmenu="(e) => openSessionCtx(e, root, session)"
                 >
                   <div class="session-inner">
-                    <span class="active-bar" />
-                    <span class="status-mark" :class="`st-${session.status || 'idle'}`" aria-hidden="true">
-                      <i class="status-core" />
-                    </span>
-                    <div class="session-body">
-                      <div class="session-title-row">
-                        <NIcon
-                          v-if="isPinned(root, session.id)"
-                          class="pin"
-                          :component="PinOutline"
-                          :size="11"
-                        />
-                        <span class="session-label">{{ sessionLabel(session) }}</span>
-                      </div>
-                      <div class="session-meta">
-                        <span class="time">{{ relativeTime(session.modified) }}</span>
-                        <span v-if="isRunning(session.status)" class="run-tag">live</span>
-                        <span v-else-if="session.status === 'error'" class="err-tag">err</span>
-                        <span v-else-if="session.status === 'stuck'" class="stuck-tag">stuck</span>
-                      </div>
-                    </div>
+                    <span
+                      class="s-dot"
+                      :class="`st-${session.status || 'idle'}`"
+                      aria-hidden="true"
+                    />
+                    <NIcon
+                      v-if="isPinned(root, session.id)"
+                      class="pin"
+                      :component="PinOutline"
+                      :size="11"
+                    />
+                    <span class="session-label">{{ sessionLabel(session) }}</span>
+                    <span class="time">{{ relativeTime(session.modified) }}</span>
                     <NButton
                       class="trash"
                       quaternary
@@ -935,7 +969,7 @@ function onLeftSplitResized(payload: SplitpanesResizedPayload): void {
                       @click.stop="confirmDeleteSession(root, session.id)"
                     >
                       <template #icon>
-                        <NIcon :component="TrashOutline" :size="14" />
+                        <NIcon :component="TrashOutline" :size="13" />
                       </template>
                     </NButton>
                   </div>
@@ -1084,12 +1118,34 @@ function onLeftSplitResized(payload: SplitpanesResizedPayload): void {
   transform: none !important;
 }
 
+.filter-wrap {
+  padding: 2px 8px 6px;
+  flex-shrink: 0;
+}
+
+.filter-input {
+  --n-border-radius: 8px;
+  font-size: 12px;
+}
+
+.filter-icon {
+  color: var(--fg-faint);
+}
+
 .section-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 6px 10px 2px;
+  padding: 4px 12px 4px;
   flex-shrink: 0;
+}
+
+.section-title {
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--fg-faint);
 }
 
 .tree {
@@ -1227,13 +1283,13 @@ function onLeftSplitResized(payload: SplitpanesResizedPayload): void {
   display: flex;
   align-items: center;
   gap: 4px;
-  height: 32px;
-  padding: 0 8px;
+  height: 28px;
+  padding: 0 6px;
   border: none;
-  border-radius: 9px;
+  border-radius: 8px;
   background: transparent;
-  color: var(--fg-strong);
-  font-size: 13px;
+  color: var(--fg);
+  font-size: 12px;
   font-weight: 650;
   letter-spacing: -0.01em;
   text-align: left;
@@ -1247,6 +1303,21 @@ function onLeftSplitResized(payload: SplitpanesResizedPayload): void {
 
 .ws-row.active {
   background: var(--bg-hover);
+}
+
+.ws-name {
+  font-weight: 650;
+  flex: 1;
+  min-width: 0;
+}
+
+.ws-count {
+  flex-shrink: 0;
+  font-size: 10.5px;
+  font-weight: 500;
+  color: var(--fg-faint);
+  font-variant-numeric: tabular-nums;
+  padding-right: 2px;
 }
 
 .ws-new-session {
@@ -1276,10 +1347,10 @@ function onLeftSplitResized(payload: SplitpanesResizedPayload): void {
 .session-list {
   list-style: none;
   margin: 0 0 8px;
-  padding: 2px 0 0;
+  padding: 1px 0 0;
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 1px;
 }
 
 .session-row {
@@ -1287,18 +1358,18 @@ function onLeftSplitResized(payload: SplitpanesResizedPayload): void {
   list-style: none;
   margin: 0;
   padding: 0;
-  border-radius: 10px;
-  font-size: 13px;
+  border-radius: 8px;
+  font-size: 12.5px;
   color: var(--fg-muted);
   cursor: pointer;
-  animation: session-row-in 220ms var(--ease-out, cubic-bezier(0.22, 1, 0.36, 1)) both;
-  animation-delay: calc(min(var(--i, 0), 12) * 18ms);
+  animation: session-row-in 200ms var(--ease-out, cubic-bezier(0.22, 1, 0.36, 1)) both;
+  animation-delay: calc(min(var(--i, 0), 12) * 14ms);
 }
 
 @keyframes session-row-in {
   from {
     opacity: 0;
-    transform: translateY(4px);
+    transform: translateY(3px);
   }
   to {
     opacity: 1;
@@ -1307,20 +1378,15 @@ function onLeftSplitResized(payload: SplitpanesResizedPayload): void {
 }
 
 .session-inner {
-  position: relative;
   display: flex;
   align-items: center;
-  gap: 8px;
-  min-height: 44px;
-  padding: 7px 8px 7px 14px;
-  border-radius: 10px;
-  border: 1px solid transparent;
+  gap: 7px;
+  height: 30px;
+  padding: 0 6px 0 10px;
+  border-radius: 8px;
   transition:
     background var(--duration-fast, 140ms) var(--ease-out, ease),
-    color var(--duration-fast, 140ms) var(--ease-out, ease),
-    border-color var(--duration-fast, 140ms) var(--ease-out, ease),
-    box-shadow var(--duration-fast, 140ms) var(--ease-out, ease),
-    transform var(--duration-fast, 140ms) var(--ease-out, ease);
+    color var(--duration-fast, 140ms) var(--ease-out, ease);
 }
 
 .session-row:hover .session-inner {
@@ -1329,95 +1395,45 @@ function onLeftSplitResized(payload: SplitpanesResizedPayload): void {
 }
 
 .session-row:active .session-inner {
-  transform: scale(0.992);
+  background: var(--bg-selected);
 }
 
 .session-row.active .session-inner {
-  background: var(--bg-selected);
-  border-color: var(--border);
+  background: var(--accent-soft);
   color: var(--fg-strong);
-  box-shadow: none;
 }
 
-.active-bar {
-  position: absolute;
-  left: 4px;
-  top: 11px;
-  bottom: 11px;
-  width: 2.5px;
-  border-radius: 999px;
-  background: transparent;
-  transition:
-    background var(--duration-fast, 140ms) var(--ease-out, ease),
-    transform var(--duration-fast, 140ms) var(--ease-out, ease);
-  transform: scaleY(0.4);
-}
-
-.session-row.active .active-bar {
-  background: var(--accent);
-  transform: scaleY(1);
-}
-
-.status-mark {
-  width: 8px;
-  height: 8px;
-  flex-shrink: 0;
-  display: grid;
-  place-items: center;
-  margin-left: 2px;
-}
-
-.status-core {
+.s-dot {
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  background: var(--fg-faint);
-  display: block;
+  flex-shrink: 0;
+  background: color-mix(in srgb, var(--fg-faint) 38%, transparent);
 }
 
-.st-idle .status-core {
-  background: color-mix(in srgb, var(--fg-faint) 55%, transparent);
-}
-
-.st-running .status-core {
+.st-running .s-dot {
   background: var(--green);
-  box-shadow: 0 0 0 0 color-mix(in srgb, var(--green) 45%, transparent);
-  animation: status-pulse 1.4s ease-out infinite;
+  animation: dot-pulse 1.4s ease-out infinite;
 }
 
-.st-error .status-core {
+.st-error .s-dot {
   background: var(--red);
 }
 
-.st-stuck .status-core {
+.st-stuck .s-dot {
   background: #ca8a04;
 }
 
-@keyframes status-pulse {
+@keyframes dot-pulse {
   0% {
     box-shadow: 0 0 0 0 color-mix(in srgb, var(--green) 45%, transparent);
   }
   70% {
-    box-shadow: 0 0 0 6px transparent;
+    box-shadow: 0 0 0 5px transparent;
   }
   100% {
     box-shadow: 0 0 0 0 transparent;
   }
-}
-
-.session-body {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
-.session-title-row {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  min-width: 0;
 }
 
 .session-label {
@@ -1427,54 +1443,22 @@ function onLeftSplitResized(payload: SplitpanesResizedPayload): void {
   text-overflow: ellipsis;
   white-space: nowrap;
   font-size: 12.5px;
-  font-weight: 550;
+  font-weight: 500;
   letter-spacing: -0.01em;
   line-height: 1.25;
 }
 
-.session-row.active .session-label {
-  font-weight: 650;
-}
-
-.session-meta {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  min-height: 14px;
-  padding-left: 1px;
+.session-row.active .session-label,
+.session-row:hover .session-label {
+  font-weight: 600;
+  color: var(--fg-strong);
 }
 
 .time {
+  flex-shrink: 0;
   font-size: 10.5px;
   color: var(--fg-faint);
   font-variant-numeric: tabular-nums;
-}
-
-.run-tag,
-.err-tag,
-.stuck-tag {
-  font-size: 9.5px;
-  font-weight: 700;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  padding: 0 5px;
-  border-radius: 999px;
-  line-height: 14px;
-}
-
-.run-tag {
-  color: var(--green);
-  background: color-mix(in srgb, var(--green) 14%, transparent);
-}
-
-.err-tag {
-  color: var(--red);
-  background: color-mix(in srgb, var(--red) 14%, transparent);
-}
-
-.stuck-tag {
-  color: #ca8a04;
-  background: color-mix(in srgb, #ca8a04 16%, transparent);
 }
 
 .trash {
@@ -1495,7 +1479,7 @@ function onLeftSplitResized(payload: SplitpanesResizedPayload): void {
 
 @media (prefers-reduced-motion: reduce) {
   .session-row,
-  .st-running .status-core {
+  .st-running .s-dot {
     animation: none !important;
   }
 }

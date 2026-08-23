@@ -28,7 +28,10 @@ import {
   type CustomProviderDraft,
 } from "../../../shared/custom-models";
 import { CUSTOM_PROVIDER_PRESETS } from "../../../shared/custom-model-presets";
-import { normalizeProviderBaseUrl } from "../../../shared/model-discover";
+import {
+  normalizeProviderBaseUrl,
+  type DiscoveredModel,
+} from "../../../shared/model-discover";
 import { t } from "@renderer/i18n";
 
 const props = defineProps<{
@@ -63,6 +66,49 @@ const draft = ref<CustomProviderDraft>(emptyCustomProvider());
 const formError = ref<string | null>(null);
 const fetching = ref(false);
 const testing = ref(false);
+
+/** 拉起模型列表:discover 结果进入可勾选弹层,确认后才合并进草稿。 */
+const pickOpen = ref(false);
+const pickQuery = ref("");
+const discovered = ref<DiscoveredModel[]>([]);
+const pickedIds = ref(new Set<string>());
+
+const filteredDiscovered = computed(() => {
+  const q = pickQuery.value.trim().toLowerCase();
+  if (!q) return discovered.value;
+  return discovered.value.filter(
+    (m) =>
+      m.id.toLowerCase().includes(q) ||
+      (m.name ?? "").toLowerCase().includes(q),
+  );
+});
+
+function togglePick(id: string): void {
+  const next = new Set(pickedIds.value);
+  if (next.has(id)) next.delete(id);
+  else next.add(id);
+  pickedIds.value = next;
+}
+
+function pickAll(): void {
+  pickedIds.value = new Set(discovered.value.map((m) => m.id));
+}
+
+function pickNone(): void {
+  pickedIds.value = new Set<string>();
+}
+
+function confirmPick(): void {
+  const picked = discovered.value.filter((m) => pickedIds.value.has(m.id));
+  if (!picked.length) {
+    pickOpen.value = false;
+    return;
+  }
+  draft.value.models = mergeDiscoveredIntoDraft(draft.value.models, picked);
+  resetModelRowKeys(draft.value.models.length);
+  pickOpen.value = false;
+  message.success(t.modelsCustomFetchOk(picked.length));
+}
 /** Stable keys so deleting a model row updates the UI immediately (not index-based). */
 const modelRowKeys = ref<string[]>([]);
 let rowKeySeq = 0;
@@ -199,9 +245,15 @@ async function fetchModels(): Promise<void> {
       message.error(`${t.modelsCustomFetchFail}: ${result.error}`, { duration: 7000 });
       return;
     }
-    draft.value.models = mergeDiscoveredIntoDraft(draft.value.models, result.models);
-    resetModelRowKeys(draft.value.models.length);
-    message.success(t.modelsCustomFetchOk(result.models.length));
+    if (!result.models.length) {
+      message.warning(t.modelsCustomPickEmpty);
+      return;
+    }
+    // 拉起模型列表供用户勾选,而不是静默合并全部。
+    discovered.value = result.models;
+    pickedIds.value = new Set(result.models.map((m) => m.id));
+    pickQuery.value = "";
+    pickOpen.value = true;
   } catch (err) {
     message.error(err instanceof Error ? err.message : String(err));
   } finally {
@@ -659,6 +711,61 @@ function modelPlaceholder(_m: CustomModelEntry, i: number): string {
         </div>
       </NScrollbar>
     </div>
+
+    <!-- 拉起模型列表:勾选要添加的模型,确认后才写入草稿行 -->
+    <div v-if="pickOpen" class="pick-overlay" @click.self="pickOpen = false">
+      <div class="pick-panel" role="dialog" :aria-label="t.modelsCustomPickTitle">
+        <div class="pick-head">
+          <NText strong style="font-size: 13px">{{ t.modelsCustomPickTitle }}</NText>
+          <NButton size="tiny" quaternary @click="pickOpen = false">
+            {{ t.close }}
+          </NButton>
+        </div>
+        <NInput
+          v-model:value="pickQuery"
+          size="small"
+          clearable
+          :placeholder="t.modelsSearchProvider"
+          style="margin-bottom: 8px"
+        />
+        <NScrollbar class="pick-scroll">
+          <button
+            v-for="m in filteredDiscovered"
+            :key="m.id"
+            type="button"
+            class="pick-row"
+            :class="{ picked: pickedIds.has(m.id) }"
+            @click="togglePick(m.id)"
+          >
+            <span class="pick-check" aria-hidden="true" />
+            <span class="pick-id">{{ m.id }}</span>
+            <span v-if="m.name && m.name !== m.id" class="pick-name">{{ m.name }}</span>
+          </button>
+          <div v-if="!filteredDiscovered.length" class="pick-empty">
+            {{ t.modelsCustomPickEmpty }}
+          </div>
+        </NScrollbar>
+        <div class="pick-foot">
+          <NSpace :size="6">
+            <NButton size="tiny" quaternary class="pi-interactive" @click="pickAll">
+              {{ t.modelsCustomPickAll }}
+            </NButton>
+            <NButton size="tiny" quaternary class="pi-interactive" @click="pickNone">
+              {{ t.modelsCustomPickNone }}
+            </NButton>
+          </NSpace>
+          <NButton
+            size="tiny"
+            type="primary"
+            class="pi-interactive"
+            :disabled="pickedIds.size === 0"
+            @click="confirmPick"
+          >
+            {{ t.modelsCustomPickAdd(pickedIds.size) }}
+          </NButton>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -674,6 +781,125 @@ function modelPlaceholder(_m: CustomModelEntry, i: number): string {
   border-radius: 10px;
   overflow: hidden;
   background: var(--bg);
+}
+
+/* 模型列表选择弹层(拉取模型后出现) */
+.pick-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 3000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(9, 9, 11, 0.4);
+  backdrop-filter: blur(2px);
+}
+
+.pick-panel {
+  width: min(440px, 92vw);
+  max-height: min(520px, 76vh);
+  display: flex;
+  flex-direction: column;
+  padding: 12px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: var(--bg-panel, var(--bg));
+  box-shadow: var(--shadow-lg, 0 12px 40px rgba(0, 0, 0, 0.3));
+}
+
+.pick-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.pick-scroll {
+  min-height: 120px;
+  max-height: 320px;
+}
+
+.pick-row {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  padding: 6px 9px;
+  border: none;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--fg);
+  font: inherit;
+  font-size: 12.5px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.pick-row:hover {
+  background: var(--bg-hover);
+}
+
+.pick-check {
+  flex-shrink: 0;
+  width: 14px;
+  height: 14px;
+  box-sizing: border-box;
+  border-radius: 4px;
+  border: 1.5px solid var(--border-strong, var(--border));
+  position: relative;
+  transition:
+    background var(--duration-fast, 140ms) var(--ease-out, ease),
+    border-color var(--duration-fast, 140ms) var(--ease-out, ease);
+}
+
+.pick-row.picked .pick-check {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.pick-row.picked .pick-check::after {
+  content: "";
+  position: absolute;
+  left: 3px;
+  top: 0.5px;
+  width: 4px;
+  height: 7px;
+  border: solid #fff;
+  border-width: 0 1.6px 1.6px 0;
+  transform: rotate(42deg);
+  border-radius: 1px;
+}
+
+.pick-id {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pick-name {
+  flex-shrink: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--fg-faint, var(--fg-muted));
+  font-size: 11.5px;
+}
+
+.pick-empty {
+  padding: 18px 10px;
+  text-align: center;
+  font-size: 12px;
+  color: var(--fg-faint, var(--fg-muted));
+}
+
+.pick-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 10px;
 }
 
 .left {
