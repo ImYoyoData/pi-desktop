@@ -2375,6 +2375,26 @@ watch(
             :disabled="voiceActive || voicePending"
             @update:value="onModelChange"
           />
+
+          <NDropdown
+            trigger="click"
+            :options="thinkingMenu"
+            :disabled="voiceActive || voicePending"
+            @select="onThinkingChange"
+          >
+            <NButton
+              quaternary
+              size="tiny"
+              class="think-btn"
+              :disabled="voiceActive || voicePending"
+              :title="t.thinkingLevel"
+            >
+              <template #icon>
+                <NIcon :component="FlashOutline" :size="14" />
+              </template>
+              <span class="think-label">{{ thinkingLabel }}</span>
+            </NButton>
+          </NDropdown>
         </div>
 
         <div class="toolbar-right">
@@ -2446,26 +2466,6 @@ watch(
     </div>
 
     <div class="composer-meta">
-      <NDropdown
-        trigger="click"
-        :options="thinkingMenu"
-        :disabled="voiceActive || voicePending"
-        @select="onThinkingChange"
-      >
-        <NButton
-          quaternary
-          size="tiny"
-          class="think-btn"
-          :disabled="voiceActive || voicePending"
-          :title="t.thinkingLevel"
-        >
-          <template #icon>
-            <NIcon :component="FlashOutline" :size="14" />
-          </template>
-          <span class="think-label">{{ thinkingLabel }}</span>
-        </NButton>
-      </NDropdown>
-
       <NPopover
         trigger="manual"
         :show="ctxPopoverShow"
