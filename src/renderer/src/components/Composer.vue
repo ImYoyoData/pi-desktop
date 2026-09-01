@@ -31,6 +31,7 @@ import AsrInstallConfirmModal from "@renderer/components/AsrInstallConfirmModal.
 import VoiceRecordBar, { type VoiceMeter } from "@renderer/components/VoiceRecordBar.vue";
 import SendQueueBar from "@renderer/components/SendQueueBar.vue";
 import { useChatStore } from "@renderer/stores/chat";
+import type { ContextUsageSegmentId } from "../../../shared/protocol";
 import { isHttpUrl, useComposerStore } from "@renderer/stores/composer";
 import { useSendQueueStore } from "@renderer/stores/send-queue";
 import { useSessionsStore } from "@renderer/stores/sessions";
@@ -1188,6 +1189,177 @@ function onQueueSendClick(): void {
 
 const contextUsage = computed(() => sessions.activeContextUsage);
 
+function formatTokens(count: number): string {
+  if (count < 1000) return String(count);
+  if (count < 10_000) return `${(count / 1000).toFixed(1)}k`;
+  if (count < 1_000_000) return `${Math.round(count / 1000)}k`;
+  if (count < 10_000_000) return `${(count / 1_000_000).toFixed(1)}M`;
+  return `${Math.round(count / 1_000_000)}M`;
+}
+
+const SEGMENT_META: Record<
+  ContextUsageSegmentId,
+  { color: string; label: () => string }
+> = {
+  system: { color: "#8b8b8b", label: () => t.contextUsageSegSystem },
+  tools: { color: "#a855f7", label: () => t.contextUsageSegTools },
+  summarized: { color: "#b91c1c", label: () => t.contextUsageSegSummarized },
+  conversation: { color: "#ef4444", label: () => t.contextUsageSegConversation },
+  toolResults: { color: "#db2777", label: () => t.contextUsageSegToolResults },
+};
+
+const ctxPopoverShow = ref(false);
+const skillsCount = ref<number | null>(null);
+let skillsCountCachedFor: string | null = null;
+
+/**
+ * Cost-health reference: the UI treats this many context tokens as "full".
+ * Real model windows are huge (deepseek = 1M), so a window-based % always
+ * looks healthy while the bill grows. Show pressure against this budget
+ * instead (matches ~30k tokens of a 1M window as the compaction sweet spot).
+ */
+const CONTEXT_COST_REFERENCE = 300_000;
+
+const contextPercent = computed(() => {
+  const tokens = contextUsage.value?.tokens;
+  if (tokens == null || !Number.isFinite(tokens) || tokens <= 0) return null;
+  return Math.max(0, Math.min(100, (tokens / CONTEXT_COST_REFERENCE) * 100));
+});
+
+const contextPercentLabel = computed(() => {
+  const pct = contextPercent.value;
+  if (pct == null) return "?%";
+  return `${pct.toFixed(0)}%`;
+});
+
+const contextTone = computed(() => {
+  const pct = contextPercent.value;
+  if (pct == null) return "muted";
+  if (pct > 90) return "danger";
+  if (pct > 70) return "warn";
+  return "ok";
+});
+
+const contextRingStyle = computed(() => {
+  const pct = contextPercent.value ?? 0;
+  const r = 7;
+  const c = 2 * Math.PI * r;
+  const offset = c * (1 - pct / 100);
+  return {
+    strokeDasharray: `${c}`,
+    strokeDashoffset: `${offset}`,
+  };
+});
+
+const contextMessageCount = computed(() => {
+  const fromStats = contextUsage.value?.messageCount;
+  if (typeof fromStats === "number") return fromStats;
+  return chat.activeMessages.length;
+});
+const contextToolCount = computed(() => {
+  const fromStats = contextUsage.value?.toolCalls;
+  if (typeof fromStats === "number") return fromStats;
+  const messages = chat.activeMessages.filter((m) => m.role === "tool").length;
+  const streaming = chat.activeStreaming?.role === "tool" ? 1 : 0;
+  return messages + streaming;
+});
+
+/**
+ * Rough per-turn input cost estimate ($). Uses the DeepSeek-style rate as a
+ * sensible default; the point is to surface cost growth, not exact billing.
+ */
+const CONTEXT_INPUT_COST_PER_M = 0.14;
+const contextCostLabel = computed(() => {
+  const tokens = contextUsage.value?.tokens;
+  if (tokens == null || !Number.isFinite(tokens) || tokens <= 0) return "";
+  const cost = (tokens / 1_000_000) * CONTEXT_INPUT_COST_PER_M;
+  if (cost < 0.01) return "<$0.01";
+  return `${cost.toFixed(2)}`;
+});
+
+/** True when the context is past the cost-health reference (needs compaction). */
+const contextNeedsCompact = computed(() => {
+  const pct = contextPercent.value;
+  return pct != null && pct >= 90;
+});
+
+const contextSegments = computed(() => {
+  const usage = contextUsage.value;
+  const window = usage?.contextWindow ?? 0;
+  const segs = usage?.segments ?? [];
+  if (!window || !segs.length) return [];
+  return segs.map((s) => {
+    const meta = SEGMENT_META[s.id];
+    return {
+      id: s.id,
+      tokens: s.tokens,
+      label: meta?.label() ?? s.id,
+      color: meta?.color ?? "#888",
+      widthPct: Math.max(0.4, (s.tokens / window) * 100),
+      tokensLabel: formatTokens(s.tokens),
+    };
+  });
+});
+
+const contextFreePct = computed(() => {
+  const usage = contextUsage.value;
+  if (!usage?.contextWindow) return 100;
+  const used =
+    typeof usage.tokens === "number"
+      ? usage.tokens
+      : (usage.segments ?? []).reduce((n, s) => n + s.tokens, 0);
+  return Math.max(0, 100 - (used / usage.contextWindow) * 100);
+});
+
+const contextFullLabel = computed(() => {
+  const pct = contextPercent.value;
+  if (pct == null) return t.contextUsageUnknown;
+  return t.contextUsageFull(pct.toFixed(0));
+});
+
+const contextTokensPairLabel = computed(() => {
+  const usage = contextUsage.value;
+  if (!usage) return t.contextUsageEmpty;
+  const used = usage.tokens !== null ? formatTokens(usage.tokens) : "?";
+  return t.contextUsageTokensPair(used, formatTokens(usage.contextWindow));
+});
+
+const compactBusy = ref(false);
+
+async function onCompactContext(): Promise<void> {
+  const idSession = sessionId.value;
+  if (!idSession || compactBusy.value) return;
+  compactBusy.value = true;
+  try {
+    await sessions.sendCommand(idSession, { type: "compact" });
+    message.success(t.compactDone);
+    closeContextPopover();
+  } catch (err) {
+    message.error(err instanceof Error ? err.message : String(err));
+  } finally {
+    compactBusy.value = false;
+  }
+}
+
+async function openContextPopover(): Promise<void> {
+  ctxPopoverShow.value = !ctxPopoverShow.value;
+  if (!ctxPopoverShow.value) return;
+  const root = workspace.root ?? "";
+  if (skillsCountCachedFor === root && skillsCount.value !== null) return;
+  try {
+    const data = await window.api.skills.list(workspace.root ?? undefined);
+    skillsCount.value = data.skills?.length ?? 0;
+    skillsCountCachedFor = root;
+  } catch {
+    skillsCount.value = null;
+  }
+}
+
+function closeContextPopover(): void {
+  ctxPopoverShow.value = false;
+}
+
+
 const slashMenuRef = ref<{ move: (d: number) => void; confirm: () => boolean } | null>(null);
 const atFileMenuRef = ref<{ move: (d: number) => void; confirm: () => boolean } | null>(null);
 const modelMenuRef = ref<{ focus?: () => void } | null>(null);
@@ -1443,7 +1615,6 @@ async function tryConsumeBuiltinSlashDraft(): Promise<boolean> {
   return true;
 }
 
-/**
 /**
  * Session-detail stats shown under the composer: Agent turns, steps, tool
  * calls, duration, TTFT, avg tokens/s, cache hit, input/output tokens.
@@ -2334,6 +2505,101 @@ watch(
           >
             <NIcon :component="MicOutline" :size="18" />
           </button>
+          <NPopover
+            trigger="manual"
+            :show="ctxPopoverShow"
+            placement="top-end"
+            @clickoutside="closeContextPopover"
+          >
+            <template #trigger>
+              <button
+                type="button"
+                class="ctx-meter"
+                :class="`ctx-${contextTone}`"
+                :disabled="!sessionId || voiceActive || voicePending"
+                :title="t.contextUsageTitle"
+                :aria-label="t.contextUsageTitle"
+                @click="openContextPopover"
+              >
+                <svg class="ctx-ring" width="18" height="18" viewBox="0 0 18 18" aria-hidden="true">
+                  <circle class="ctx-ring-track" cx="9" cy="9" r="7" fill="none" stroke-width="2" />
+                  <circle
+                    class="ctx-ring-fill"
+                    cx="9"
+                    cy="9"
+                    r="7"
+                    fill="none"
+                    stroke-width="2"
+                    stroke-linecap="round"
+                    transform="rotate(-90 9 9)"
+                    :style="contextRingStyle"
+                  />
+                </svg>
+                <span class="ctx-label">{{ contextPercentLabel }}</span>
+              </button>
+            </template>
+            <div class="ctx-popover">
+              <div class="ctx-pop-title">{{ t.contextUsageTitle }}</div>
+              <div class="ctx-pop-summary">
+                <span class="ctx-pop-full">{{ contextFullLabel }}</span>
+                <span class="ctx-pop-pair">{{ contextTokensPairLabel }}</span>
+                <span v-if="contextCostLabel" class="ctx-pop-cost">
+                  {{ contextCostLabel }}
+                </span>
+              </div>
+              <div class="ctx-bar" aria-hidden="true">
+                <span
+                  v-for="seg in contextSegments"
+                  :key="seg.id"
+                  class="ctx-bar-seg"
+                  :style="{ width: `${seg.widthPct}%`, background: seg.color }"
+                  :title="`${seg.label}: ${seg.tokensLabel}`"
+                />
+                <span
+                  v-if="contextFreePct > 0.5"
+                  class="ctx-bar-seg free"
+                  :style="{ width: `${contextFreePct}%` }"
+                />
+              </div>
+              <div v-if="contextSegments.length" class="ctx-legend">
+                <div v-for="seg in contextSegments" :key="`leg-${seg.id}`" class="ctx-legend-row">
+                  <span class="ctx-swatch" :style="{ background: seg.color }" />
+                  <span class="ctx-legend-label">{{ seg.label }}</span>
+                  <strong>{{ seg.tokensLabel }}</strong>
+                </div>
+              </div>
+              <div v-else class="ctx-pop-hint">{{ t.contextUsageEmpty }}</div>
+              <div class="ctx-pop-meta">
+                <div class="ctx-pop-row">
+                  <span>{{ t.contextUsageMessages }}</span>
+                  <strong>{{ contextMessageCount }}</strong>
+                </div>
+                <div class="ctx-pop-row">
+                  <span>{{ t.contextUsageTools }}</span>
+                  <strong>{{ contextToolCount }}</strong>
+                </div>
+                <div class="ctx-pop-row">
+                  <span>{{ t.contextUsageSkills }}</span>
+                  <strong>{{ skillsCount ?? "—" }}</strong>
+                </div>
+              </div>
+              <div class="ctx-pop-hint">{{ t.contextUsageHint }}</div>
+              <NButton
+                size="small"
+                type="primary"
+                secondary
+                block
+                class="ctx-compact-btn"
+                :class="{ 'ctx-compact-urgent': contextNeedsCompact }"
+                :disabled="!sessionId || running || compactBusy"
+                :loading="compactBusy"
+                @click="onCompactContext"
+              >
+                <span v-if="contextNeedsCompact" class="ctx-compact-dot" />
+                {{ t.compactContext }}
+              </NButton>
+            </div>
+          </NPopover>
           <NButton
             v-if="showPrimaryAction || voicePending"
             size="tiny"
@@ -2972,6 +3238,231 @@ watch(
 
 :root.dark .ss-sep {
   background: color-mix(in srgb, #30363d 70%, transparent);
+}
+
+.ctx-meter {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 22px;
+  padding: 0 6px;
+  border: 1px solid var(--border, #e5e5e5);
+  border-radius: 6px;
+  background: transparent;
+  cursor: pointer;
+  flex-shrink: 0;
+  color: #5c5c5c;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+.ctx-meter:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.ctx-meter:not(:disabled):hover {
+  background: rgba(0, 0, 0, 0.04);
+}
+
+.ctx-ring {
+  flex-shrink: 0;
+  display: block;
+}
+
+.ctx-ring-track {
+  stroke: rgba(0, 0, 0, 0.12);
+}
+
+.ctx-ring-fill {
+  stroke: #5c5c5c;
+  transition: stroke-dashoffset 0.2s ease;
+}
+
+.ctx-ok .ctx-ring-fill {
+  stroke: #5c5c5c;
+}
+
+.ctx-warn {
+  color: #b45309;
+  border-color: rgba(180, 83, 9, 0.35);
+}
+
+.ctx-warn .ctx-ring-fill {
+  stroke: #d97706;
+}
+
+.ctx-danger {
+  color: #b91c1c;
+  border-color: rgba(185, 28, 28, 0.35);
+}
+
+.ctx-danger .ctx-ring-fill {
+  stroke: #dc2626;
+}
+
+.ctx-muted .ctx-label {
+  color: #8a8a8a;
+}
+
+.ctx-label {
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.ctx-popover {
+  width: min(320px, 86vw);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 4px 2px 2px;
+  font-size: 12px;
+}
+
+.ctx-pop-title {
+  font-weight: 600;
+  font-size: 13px;
+  color: var(--fg-strong);
+}
+
+.ctx-pop-summary {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.ctx-pop-cost {
+  font-size: 11px;
+  font-weight: 650;
+  color: var(--warn, #d97706);
+  font-variant-numeric: tabular-nums;
+}
+
+.ctx-pop-full {
+  font-weight: 600;
+  color: var(--fg-strong);
+}
+
+.ctx-pop-pair {
+  color: var(--fg-muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.ctx-bar {
+  display: flex;
+  width: 100%;
+  height: 10px;
+  border-radius: 999px;
+  overflow: hidden;
+  background: color-mix(in srgb, var(--border, #ddd) 55%, transparent);
+}
+
+.ctx-bar-seg {
+  display: block;
+  height: 100%;
+  min-width: 2px;
+  flex-shrink: 0;
+}
+
+.ctx-bar-seg.free {
+  background: color-mix(in srgb, var(--bg-elevated, #f4f4f5) 70%, #d4d4d8);
+  flex-shrink: 1;
+  min-width: 0;
+}
+
+.ctx-legend {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.ctx-legend-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--fg-muted);
+}
+
+.ctx-legend-row strong {
+  margin-left: auto;
+  font-weight: 600;
+  color: var(--fg-strong);
+  font-variant-numeric: tabular-nums;
+}
+
+.ctx-swatch {
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  flex-shrink: 0;
+}
+
+.ctx-legend-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ctx-pop-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding-top: 4px;
+  border-top: 1px solid color-mix(in srgb, var(--border, #ddd) 70%, transparent);
+}
+
+.ctx-pop-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  color: var(--fg-muted);
+}
+
+.ctx-pop-row strong {
+  font-weight: 600;
+  color: var(--fg-strong);
+  font-variant-numeric: tabular-nums;
+}
+
+.ctx-pop-hint {
+  font-size: 11px;
+  color: var(--fg-faint);
+  line-height: 1.35;
+}
+
+.ctx-compact-btn {
+  margin-top: 10px;
+}
+
+.ctx-compact-btn.ctx-compact-urgent {
+  border-color: var(--error, #d03050) !important;
+  color: var(--error, #d03050) !important;
+  animation: ctx-pulse 1.6s ease-in-out infinite;
+}
+
+.ctx-compact-dot {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  margin-right: 6px;
+  border-radius: 50%;
+  background: var(--error, #d03050);
+  vertical-align: middle;
+}
+
+@keyframes ctx-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.55;
+  }
 }
 
 @media (max-width: 900px) {
