@@ -30,6 +30,16 @@ function parseContextUsage(data: unknown): SessionContextUsage | null {
     percent?: unknown;
     toolCalls?: unknown;
     messageCount?: unknown;
+    turns?: unknown;
+    steps?: unknown;
+    inputTokens?: unknown;
+    outputTokens?: unknown;
+    cacheReadTokens?: unknown;
+    cacheWriteTokens?: unknown;
+    llmDurationMs?: unknown;
+    ttftMs?: unknown;
+    ttftSteps?: unknown;
+    tokensPerSecond?: unknown;
     segments?: unknown;
   };
   if (typeof u.contextWindow !== "number" || u.contextWindow <= 0) return null;
@@ -52,6 +62,16 @@ function parseContextUsage(data: unknown): SessionContextUsage | null {
     percent: typeof u.percent === "number" ? u.percent : null,
     toolCalls: typeof u.toolCalls === "number" ? u.toolCalls : null,
     messageCount: typeof u.messageCount === "number" ? u.messageCount : null,
+    turns: typeof u.turns === "number" ? u.turns : null,
+    steps: typeof u.steps === "number" ? u.steps : null,
+    inputTokens: typeof u.inputTokens === "number" ? u.inputTokens : null,
+    outputTokens: typeof u.outputTokens === "number" ? u.outputTokens : null,
+    cacheReadTokens: typeof u.cacheReadTokens === "number" ? u.cacheReadTokens : null,
+    cacheWriteTokens: typeof u.cacheWriteTokens === "number" ? u.cacheWriteTokens : null,
+    llmDurationMs: typeof u.llmDurationMs === "number" ? u.llmDurationMs : null,
+    ttftMs: typeof u.ttftMs === "number" ? u.ttftMs : null,
+    ttftSteps: typeof u.ttftSteps === "number" ? u.ttftSteps : null,
+    tokensPerSecond: typeof u.tokensPerSecond === "number" ? u.tokensPerSecond : null,
     segments,
   };
 }
