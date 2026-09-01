@@ -1463,7 +1463,6 @@ const sessionStats = computed(() => {
     turns,
     steps,
     tools,
-    durationMs: u.llmDurationMs ?? null,
     ttftMs: u.ttftMs ?? null,
     tps: u.tokensPerSecond ?? null,
     cacheHitPct:
@@ -1485,14 +1484,6 @@ const sessionStats = computed(() => {
   };
 });
 
-function formatSessionDuration(ms: number | null): string {
-  if (ms == null || !Number.isFinite(ms) || ms <= 0) return "—";
-  const s = ms / 1000;
-  if (s < 60) return t.sessionStatsDurationFormat(s < 10 ? s.toFixed(1) : s.toFixed(0));
-  const min = Math.floor(s / 60);
-  const rem = Math.round(s % 60);
-  return rem ? `${min}m ${rem}s` : `${min}m`;
-}
 
 function formatSessionTtft(ms: number | null): string {
   if (ms == null || !Number.isFinite(ms) || ms <= 0) return "—";
@@ -2413,11 +2404,6 @@ watch(
         <span class="ss-item">
           <span class="ss-label">{{ t.sessionStatsToolCalls }}</span>
           <strong>{{ sessionStats.tools ?? "—" }}</strong>
-        </span>
-        <span class="ss-sep" aria-hidden="true" />
-        <span class="ss-item">
-          <span class="ss-label">{{ t.sessionStatsDuration }}</span>
-          <strong>{{ formatSessionDuration(sessionStats.durationMs) }}</strong>
         </span>
         <span class="ss-sep" aria-hidden="true" />
         <span class="ss-item">
