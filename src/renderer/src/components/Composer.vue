@@ -7,7 +7,6 @@ import {
   NImage,
   NModal,
   NPopover,
-  NSelect,
   NText,
   useMessage,
 } from "naive-ui";
@@ -245,6 +244,40 @@ const thinkingMenu = computed<DropdownOption[]>(() =>
 
 const thinkingLabel = computed(
   () => thinkingOptions.find((o) => o.value === thinkingLevel.value)?.label ?? "Medium",
+);
+
+const modelMenu = computed<DropdownOption[]>(() =>
+  availableModels.value.map((group) => {
+    if ("children" in group) {
+      return {
+        type: "group" as const,
+        label: group.label,
+        key: group.key,
+        children: group.children.map((o) => ({
+          label: o.label,
+          key: o.value,
+          props:
+            o.value === selectedModelKey.value
+              ? { style: "font-weight: 600; color: var(--accent)" }
+              : undefined,
+        })),
+      };
+    }
+    return {
+      label: group.label,
+      key: group.value,
+      props:
+        group.value === selectedModelKey.value
+          ? { style: "font-weight: 600; color: var(--accent)" }
+          : undefined,
+    };
+  }),
+);
+
+const modelLabel = computed(
+  () =>
+    flatModelOptions(availableModels.value).find((o) => o.value === selectedModelKey.value)
+      ?.label ?? t.modelPlaceholder,
 );
 
 const sessionId = computed(() => sessions.activeId);
@@ -1180,7 +1213,7 @@ let skillsCountCachedFor: string | null = null;
 
 const slashMenuRef = ref<{ move: (d: number) => void; confirm: () => boolean } | null>(null);
 const atFileMenuRef = ref<{ move: (d: number) => void; confirm: () => boolean } | null>(null);
-const modelSelectRef = ref<{ focus?: () => void } | null>(null);
+const modelMenuRef = ref<{ focus?: () => void } | null>(null);
 const slashSkills = ref<{ name: string; description: string }[]>([]);
 let slashSkillsCachedFor: string | null = null;
 let slashSkillsLoading = false;
@@ -1398,7 +1431,7 @@ async function runSlashBuiltin(id: string): Promise<void> {
     }
     case "model": {
       await nextTick();
-      modelSelectRef.value?.focus?.();
+      modelMenuRef.value?.focus?.();
       return;
     }
     default: {
@@ -1750,11 +1783,12 @@ async function applySelectedModel(opts?: { allowStart?: boolean }): Promise<void
   }
 }
 
-async function onModelChange(value: string | null): Promise<void> {
-  selectedModelKey.value = value;
+async function onModelChange(value: string | number): Promise<void> {
+  const key = String(value);
+  selectedModelKey.value = key;
   appliedModelForSession.value = null;
   const id = sessionId.value;
-  if (id && value) rememberModel(id, value);
+  if (id && key) rememberModel(id, key);
   await applySelectedModel({ allowStart: false });
 }
 
@@ -2363,18 +2397,23 @@ watch(
             </div>
           </NPopover>
 
-          <NSelect
-            ref="modelSelectRef"
-            v-model:value="selectedModelKey"
-            class="model-select"
-            :options="availableModels"
-            size="tiny"
-            :consistent-menu-width="false"
-            filterable
-            :placeholder="t.modelPlaceholder"
+          <NDropdown
+            ref="modelMenuRef"
+            trigger="click"
+            :options="modelMenu"
             :disabled="voiceActive || voicePending"
-            @update:value="onModelChange"
-          />
+            @select="onModelChange"
+          >
+            <NButton
+              quaternary
+              size="tiny"
+              class="model-btn"
+              :disabled="voiceActive || voicePending"
+              :title="t.modelPlaceholder"
+            >
+              <span class="model-label">{{ modelLabel }}</span>
+            </NButton>
+          </NDropdown>
 
           <NDropdown
             trigger="click"
@@ -2912,10 +2951,16 @@ watch(
   }
 }
 
-.model-select {
-  flex: 1 1 auto;
-  min-width: 56px;
-  max-width: 140px;
+.model-btn {
+  flex-shrink: 0;
+  padding: 0 4px !important;
+}
+
+.model-label {
+  display: inline-block;
+  white-space: nowrap;
+  font-size: 11px;
+  margin-left: 1px;
 }
 
 .mode-trigger {
@@ -3027,11 +3072,6 @@ watch(
   flex-shrink: 0;
   margin-top: 2px;
   color: var(--primary, #3b82f6);
-}
-
-.model-select :deep(.n-base-selection) {
-  --n-padding-single: 0 16px 0 4px;
-  font-size: 11px;
 }
 
 .think-btn {
@@ -3281,8 +3321,8 @@ watch(
     padding: 0 5px 0 7px;
   }
 
-  .model-select {
-    max-width: 100px;
+  .model-label {
+    display: none;
   }
 
   .think-label {
