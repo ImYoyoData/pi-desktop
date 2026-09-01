@@ -50,7 +50,7 @@ import { createAskUserToolDefinition } from "./ask-user-tool";
 import { commandShouldStartBackground } from "../shared/bash-background";
 import { createTrackedBashOperations } from "./bash-run-tracker";
 import { createBrowserToolDefinitions } from "./browser-tools";
-import { readContextUsage } from "./context-usage";
+import { readContextUsage, SessionTimingTracker } from "./context-usage";
 import { pruneOldToolResults } from "./tool-result-prune";
 import { createDesktopExtensionUIContext } from "./extension-ui-context";
 import { handleRpcResponse, rpcToMain, setRpcWorkspaceRoot } from "./main-rpc";
@@ -67,6 +67,7 @@ function post(msg: WorkerOutbound): void {
 let session: AgentSession | null = null;
 let initStarted = false;
 let runTracker: ReturnType<typeof createTrackedBashOperations> | null = null;
+const timingTracker = new SessionTimingTracker();
 let desktopSecurity: DesktopSecuritySettings = { ...DEFAULT_DESKTOP_SECURITY };
 const sessionAllows = new Set<SecurityCategory>();
 /** Once unlocked this session, keep browser_* available for follow-up clicks/fills. */
@@ -397,6 +398,7 @@ async function initSession(
 
 	created.subscribe((event) => {
 		const raw = event as Record<string, unknown>;
+		timingTracker.observe(event);
 		try {
 			post({ kind: "event", event: sanitizeAgentEvent(raw) });
 		} catch {
@@ -466,6 +468,7 @@ async function refreshSessionModel(active: AgentSession): Promise<void> {
 function emitContextUsage(active: AgentSession): void {
 	const usage = readContextUsage(active);
 	if (!usage) return;
+	const timing = timingTracker.snapshot();
 	post({
 		kind: "event",
 		event: {
@@ -475,6 +478,17 @@ function emitContextUsage(active: AgentSession): void {
 			percent: usage.percent,
 			toolCalls: usage.toolCalls,
 			messageCount: usage.messageCount,
+			turns: usage.turns,
+			steps: usage.steps,
+			inputTokens: usage.inputTokens,
+			outputTokens: usage.outputTokens,
+			cacheReadTokens: usage.cacheReadTokens,
+			cacheWriteTokens: usage.cacheWriteTokens,
+			llmDurationMs: timing.llmMs > 0 ? timing.llmMs : null,
+			ttftMs: timing.ttftSteps > 0 ? timing.ttftMs / timing.ttftSteps : null,
+			ttftSteps: timing.ttftSteps > 0 ? timing.ttftSteps : null,
+			tokensPerSecond:
+				timing.decodeMs > 0 ? timing.outputTokens / (timing.decodeMs / 1000) : null,
 			segments: usage.segments ?? null,
 		},
 	});
