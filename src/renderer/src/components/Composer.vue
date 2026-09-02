@@ -3187,15 +3187,11 @@ watch(
 
 .think-btn {
   flex-shrink: 0;
-  max-width: 72px;
   padding: 0 4px !important;
 }
 
 .think-label {
   display: inline-block;
-  max-width: 40px;
-  overflow: hidden;
-  text-overflow: ellipsis;
   white-space: nowrap;
   font-size: 11px;
   margin-left: 1px;
