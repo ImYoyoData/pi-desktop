@@ -10,6 +10,8 @@ export const zh = {
 	models: "模型设置",
 	sessions: "会话",
 	emptySessions: "暂无会话",
+	showMoreSessions: (n: number) => `展开其余 ${n} 个会话`,
+	collapseSessions: "收起会话",
 	emptyWorkspaces: "还没有工作区，点击上方打开文件夹",
 	terminal: "终端",
 	preview: "预览",

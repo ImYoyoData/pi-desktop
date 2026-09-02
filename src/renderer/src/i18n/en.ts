@@ -10,6 +10,8 @@ export const en = {
 	models: "Model Settings",
 	sessions: "Sessions",
 	emptySessions: "No sessions yet",
+	showMoreSessions: (n: number) => `Show ${n} more session${n === 1 ? "" : "s"}`,
+	collapseSessions: "Show less",
 	emptyWorkspaces: "No workspaces yet — open a folder above",
 	terminal: "Terminal",
 	preview: "Preview",

@@ -40,7 +40,8 @@ import FilesTab from "@renderer/components/FilesTab.vue";
 import { t } from "@renderer/i18n";
 
 const PIN_KEY = "session-pins:v1";
-const SESSION_ORDER_KEY = "pi-desktop:session-order:v1";
+const SESSION_ORDER_KEY = "pi-desktop:session-order:v2";
+const SESSION_VISIBLE_LIMIT = 7;
 
 const layout = useLayoutStore();
 const sessionsStore = useSessionsStore();
@@ -54,6 +55,7 @@ const sessionsByRoot = reactive<Record<string, SessionSummary[]>>({});
 const expanded = reactive<Record<string, boolean>>({});
 const pins = reactive<Record<string, string[]>>({});
 const sessionOrders = reactive<Record<string, string[]>>({});
+const sessionListExpanded = reactive<Record<string, boolean>>({});
 const sessionListEls = new Map<string, HTMLElement>();
 const sessionSortables = new Map<string, Sortable>();
 
@@ -226,7 +228,10 @@ function bindSessionSortable(root: string): void {
   const sortable = Sortable.create(el, {
     animation: 150,
     draggable: ".session-row",
-    filter: ".empty-inline",
+    filter: ".empty-inline, .session-expand-row",
+    disabled:
+      !sessionListExpanded[root] &&
+      (sessionsByRoot[root]?.length ?? 0) > SESSION_VISIBLE_LIMIT,
     onEnd: () => {
       const ids = [...el.querySelectorAll<HTMLElement>(".session-row[data-id]")]
         .map((n) => n.dataset.id)
@@ -366,12 +371,28 @@ function sessionsFor(root: string): SessionSummary[] {
   return list;
 }
 
-/** Freeze current visual order and append a new session id at the end. */
+function visibleSessionsFor(root: string): SessionSummary[] {
+  const list = sessionsFor(root);
+  if (sessionListExpanded[root] || list.length <= SESSION_VISIBLE_LIMIT) return list;
+  return list.slice(0, SESSION_VISIBLE_LIMIT);
+}
+
+function hiddenSessionCount(root: string): number {
+  if (sessionListExpanded[root]) return 0;
+  return Math.max(0, sessionsFor(root).length - SESSION_VISIBLE_LIMIT);
+}
+
+function toggleSessionListExpanded(root: string): void {
+  sessionListExpanded[root] = !sessionListExpanded[root];
+  void nextTick(() => bindSessionSortable(root));
+}
+
+/** Freeze current visual order and prepend a new session id at the front. */
 function appendSessionToOrder(root: string, sessionId: string): void {
   const base = sessionsFor(root)
     .map((s) => s.id)
     .filter((id) => id !== sessionId);
-  sessionOrders[root] = [...base, sessionId];
+  sessionOrders[root] = [sessionId, ...base];
   persistSessionOrders();
 }
 
@@ -893,7 +914,7 @@ function onLeftSplitResized(payload: SplitpanesResizedPayload): void {
               >
                 <li v-if="!sessionsFor(root).length" class="empty-inline">{{ t.emptySessions }}</li>
                 <li
-                  v-for="(session, sIdx) in sessionsFor(root)"
+                  v-for="(session, sIdx) in visibleSessionsFor(root)"
                   :key="session.id"
                   class="session-row"
                   :data-id="session.id"
@@ -939,6 +960,30 @@ function onLeftSplitResized(payload: SplitpanesResizedPayload): void {
                       </template>
                     </NButton>
                   </div>
+                </li>
+                <li v-if="hiddenSessionCount(root) > 0" class="session-expand-row">
+                  <button
+                    type="button"
+                    class="session-expand-btn"
+                    @click.stop="toggleSessionListExpanded(root)"
+                  >
+                    {{ t.showMoreSessions(hiddenSessionCount(root)) }}
+                  </button>
+                </li>
+                <li
+                  v-else-if="
+                    sessionListExpanded[root] &&
+                    sessionsFor(root).length > SESSION_VISIBLE_LIMIT
+                  "
+                  class="session-expand-row"
+                >
+                  <button
+                    type="button"
+                    class="session-expand-btn"
+                    @click.stop="toggleSessionListExpanded(root)"
+                  >
+                    {{ t.collapseSessions }}
+                  </button>
                 </li>
               </ul>
               </div>
@@ -1505,5 +1550,33 @@ function onLeftSplitResized(payload: SplitpanesResizedPayload): void {
   padding: 8px 12px;
   font-size: 12px;
   color: var(--fg-faint);
+}
+
+.session-expand-row {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.session-expand-btn {
+  width: 100%;
+  margin: 0;
+  padding: 5px 8px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--fg-faint);
+  font: inherit;
+  font-size: 11.5px;
+  text-align: center;
+  cursor: pointer;
+  transition:
+    background var(--duration-fast, 140ms) var(--ease-out, ease),
+    color var(--duration-fast, 140ms) var(--ease-out, ease);
+}
+
+.session-expand-btn:hover {
+  background: var(--bg-hover);
+  color: var(--fg);
 }
 </style>
