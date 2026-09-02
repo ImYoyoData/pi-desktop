@@ -339,6 +339,26 @@ export type SessionContextUsage = {
 	toolCalls?: number | null;
 	/** User + assistant + toolResult messages (from Pi `getSessionStats`). */
 	messageCount?: number | null;
+	/** User turns (Agent轮数) across the session. */
+	turns?: number | null;
+	/** Assistant LLM steps (步数) across the session. */
+	steps?: number | null;
+	/** Total billed input tokens (uncached + cache reads + cache writes). */
+	inputTokens?: number | null;
+	/** Total billed output tokens. */
+	outputTokens?: number | null;
+	/** Total cache-read tokens (缓存命中). */
+	cacheReadTokens?: number | null;
+	/** Total cache-write tokens. */
+	cacheWriteTokens?: number | null;
+	/** Total LLM wall time (时长) in ms across the session. */
+	llmDurationMs?: number | null;
+	/** Average time to first token (首 token) in ms across sampled steps. */
+	ttftMs?: number | null;
+	/** Number of steps that contributed a TTFT sample. */
+	ttftSteps?: number | null;
+	/** Average decode throughput (平均 token/s) across sampled steps. */
+	tokensPerSecond?: number | null;
 	/** Estimated token breakdown for the stacked context bar. */
 	segments?: ContextUsageSegment[] | null;
 };
