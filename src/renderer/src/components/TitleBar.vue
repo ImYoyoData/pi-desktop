@@ -7,6 +7,7 @@ import {
   ColorPaletteOutline,
   ExtensionPuzzleOutline,
   FolderOpenOutline,
+  GlobeOutline,
   InformationCircleOutline,
   LogoGithub,
   MicOutline,
@@ -36,6 +37,7 @@ const AsrSettings = defineAsyncComponent(() => import("@renderer/components/AsrS
 const SecuritySettings = defineAsyncComponent(() => import("@renderer/components/SecuritySettings.vue"));
 const AboutSettings = defineAsyncComponent(() => import("@renderer/components/AboutSettings.vue"));
 const LanConsoleSettings = defineAsyncComponent(() => import("@renderer/components/LanConsoleSettings.vue"));
+const ProxySettings = defineAsyncComponent(() => import("@renderer/components/ProxySettings.vue"));
 
 import UpdateCard from "@renderer/components/UpdateCard.vue";
 import { useWorkspaceStore } from "@renderer/stores/workspace";
@@ -58,6 +60,7 @@ const notifyOpen = ref(false);
 const asrOpen = ref(false);
 const securityOpen = ref(false);
 const aboutOpen = ref(false);
+const proxyOpen = ref(false);
 const lanConsoleOpen = ref(false);
 const lanConsoleEnabled = ref(false);
 
@@ -157,6 +160,11 @@ const settingsOptions: DropdownOption[] = [
     icon: () => h(NIcon, null, { default: () => h(StorefrontOutline) }),
   },
   {
+    label: t.proxyTitle,
+    key: "proxy",
+    icon: () => h(NIcon, null, { default: () => h(GlobeOutline) }),
+  },
+  {
     type: "divider",
     key: "d-about",
   },
@@ -192,6 +200,9 @@ function onSettingsSelect(key: string | number): void {
       break;
     case "market":
       marketOpen.value = true;
+      break;
+    case "proxy":
+      proxyOpen.value = true;
       break;
     case "about":
       aboutOpen.value = true;
@@ -368,6 +379,7 @@ async function onUpdateClick(): Promise<void> {
   <ExtensionsSettings :open="extensionsOpen" @close="extensionsOpen = false" />
   <MarketSettings :open="marketOpen" @close="marketOpen = false" />
   <AboutSettings :open="aboutOpen" @close="aboutOpen = false" />
+  <ProxySettings :open="proxyOpen" @close="proxyOpen = false" />
 </template>
 
 <style scoped>

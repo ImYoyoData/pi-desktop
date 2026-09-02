@@ -57,8 +57,12 @@ import {
 	registerExtensionUiIpc,
 } from "./extension-ui-host";
 import { registerSecurityTrustIpc } from "./security-trust-ipc";
-import { ensureLanConsoleFromSettings, registerLanConsoleIpc } from "./lan-console";
+import {
+	ensureLanConsoleFromSettings,
+	registerLanConsoleIpc,
+} from "./lan-console";
 import { ensurePiAgentEnvironment } from "./pi-env";
+import { initProxy, registerProxyIpc } from "./proxy-host";
 import { installApplicationMenu } from "./app-menu";
 import { enableHardwareAcceleration } from "./gpu-flags";
 import {
@@ -96,9 +100,7 @@ guardChromiumCacheDirs();
  */
 const allowMultiInstance = process.env.PI_DESKTOP_ALLOW_MULTI_INSTANCE === "1";
 const gotSingleInstanceLock =
-	app.isPackaged && !allowMultiInstance
-		? app.requestSingleInstanceLock()
-		: true;
+	app.isPackaged && !allowMultiInstance ? app.requestSingleInstanceLock() : true;
 if (!gotSingleInstanceLock) {
 	app.quit();
 } else {
@@ -175,8 +177,7 @@ function boot(): void {
 						const category = params.category;
 						const toolName =
 							typeof params.toolName === "string" ? params.toolName : "";
-						const summary =
-							typeof params.summary === "string" ? params.summary : "";
+						const summary = typeof params.summary === "string" ? params.summary : "";
 						if (category !== "bash" && category !== "write") {
 							throw new Error("desktop.permissionAsk: invalid category");
 						}
@@ -201,11 +202,7 @@ function boot(): void {
 							questions,
 						});
 					} else if (msg.method === "desktop.extensionUi") {
-						result = await handleExtensionUiRpc(
-							sessionId,
-							msg.id,
-							msg.params ?? {},
-						);
+						result = await handleExtensionUiRpc(sessionId, msg.id, msg.params ?? {});
 					} else {
 						result = await browserAutomation.handle({
 							method: msg.method as BrowserRpcMethod,
@@ -375,9 +372,8 @@ function boot(): void {
 						return;
 					}
 					if (permission === "media") {
-						const mediaTypes = (
-							details as { mediaTypes?: Array<"audio" | "video"> }
-						).mediaTypes;
+						const mediaTypes = (details as { mediaTypes?: Array<"audio" | "video"> })
+							.mediaTypes;
 						const ok = await ensureDarwinMediaAccess(mediaTypes);
 						callback(ok);
 						return;
@@ -405,6 +401,8 @@ function boot(): void {
 
 		// Show UI as soon as possible — defer agent env setup and non-critical
 		// hosts (ASR / update / market / CLI) so the window paints first.
+		void initProxy();
+		registerProxyIpc();
 		createMainWindow();
 
 		setImmediate(() => {
