@@ -337,13 +337,24 @@ async function onUpdateClick(): Promise<void> {
     </div>
     <div v-if="platform !== 'darwin'" class="window-controls no-drag">
       <button type="button" class="wc-btn" :title="t.minimize" :aria-label="t.minimize" @click="onMinimize">
-        <span class="wc-icon minimize-icon" />
+        <svg class="wc-icon minimize-icon" width="10" height="10" viewBox="0 0 10 10" aria-hidden="true">
+          <line x1="0.5" y1="5" x2="9.5" y2="5" stroke="currentColor" stroke-width="1" />
+        </svg>
       </button>
       <button type="button" class="wc-btn" :title="isMaximized ? t.restore : t.maximize" :aria-label="isMaximized ? t.restore : t.maximize" @click="onMaximize">
-        <span class="wc-icon" :class="isMaximized ? 'restore-icon' : 'maximize-icon'" />
+        <svg v-if="!isMaximized" class="wc-icon maximize-icon" width="10" height="10" viewBox="0 0 10 10" aria-hidden="true">
+          <rect x="0.5" y="0.5" width="9" height="9" fill="none" stroke="currentColor" stroke-width="1" />
+        </svg>
+        <svg v-else class="wc-icon restore-icon" width="10" height="10" viewBox="0 0 10 10" aria-hidden="true">
+          <rect x="2.5" y="2.5" width="7" height="7" fill="none" stroke="currentColor" stroke-width="1" />
+          <rect x="0.5" y="0.5" width="7" height="7" fill="var(--wc-restore-fill, var(--bg-title))" stroke="currentColor" stroke-width="1" />
+        </svg>
       </button>
       <button type="button" class="wc-btn close-btn" :title="t.close" :aria-label="t.close" @click="onClose">
-        <span class="wc-icon close-icon" />
+        <svg class="wc-icon close-icon" width="10" height="10" viewBox="0 0 10 10" aria-hidden="true">
+          <line x1="0.5" y1="0.5" x2="9.5" y2="9.5" stroke="currentColor" stroke-width="1" />
+          <line x1="9.5" y1="0.5" x2="0.5" y2="9.5" stroke="currentColor" stroke-width="1" />
+        </svg>
       </button>
     </div>
   </header>
@@ -492,70 +503,7 @@ async function onUpdateClick(): Promise<void> {
   display: block;
   width: 10px;
   height: 10px;
-  position: relative;
-}
-
-/* Minimize: horizontal line */
-.minimize-icon::after {
-  content: "";
-  position: absolute;
-  bottom: 0;
-  left: 0;
-  right: 0;
-  height: 1px;
-  background: currentColor;
-}
-
-/* Maximize: square outline */
-.maximize-icon::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  border: 1px solid currentColor;
-  border-radius: 1px;
-}
-
-/* Restore: overlapping squares */
-.restore-icon::before {
-  content: "";
-  position: absolute;
-  top: 0;
-  right: 0;
-  width: 7px;
-  height: 7px;
-  border: 1px solid currentColor;
-  border-radius: 1px;
-}
-
-.restore-icon::after {
-  content: "";
-  position: absolute;
-  bottom: 0;
-  left: 0;
-  width: 7px;
-  height: 7px;
-  border: 1px solid currentColor;
-  border-radius: 1px;
-}
-
-/* Close: X shape */
-.close-icon::before,
-.close-icon::after {
-  content: "";
-  position: absolute;
-  top: 50%;
-  left: 0;
-  right: 0;
-  height: 1px;
-  background: currentColor;
-}
-
-.close-icon::before {
-  transform: translateY(-50%) rotate(45deg);
-}
-
-.close-icon::after {
-  transform: translateY(-50%) rotate(-45deg);
+  flex-shrink: 0;
 }
 /* LAN console titlebar entry (left, after the app name) - same visual
    language as the right-side titlebar buttons. */
