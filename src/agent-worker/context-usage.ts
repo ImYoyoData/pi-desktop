@@ -1,5 +1,11 @@
 import type { AgentSession } from "@earendil-works/pi-coding-agent";
-import type { ContextUsageSegment, SessionContextUsage } from "../shared/protocol";
+import type {
+  ContextUsageSegment,
+  SessionContextUsage,
+} from "../shared/protocol";
+import type { SessionTiming } from "../shared/session-timing";
+
+export type { SessionTiming } from "../shared/session-timing";
 
 function charsToTokens(chars: number): number {
   return Math.max(0, Math.ceil(Math.max(0, chars) / 4));
@@ -16,7 +22,8 @@ function contentChars(content: unknown): number {
     if (typeof p.thinking === "string") n += p.thinking.length;
     if (typeof p.summary === "string") n += p.summary.length;
     if (p.type === "toolCall") {
-      n += String(p.name ?? "").length + JSON.stringify(p.arguments ?? {}).length;
+      n +=
+        String(p.name ?? "").length + JSON.stringify(p.arguments ?? {}).length;
     }
     // Cap image payloads so screenshots don't explode the estimate.
     if (typeof p.data === "string") n += Math.min(p.data.length, 512);
@@ -24,7 +31,10 @@ function contentChars(content: unknown): number {
   return n;
 }
 
-function estimateMessageTokens(message: unknown): { role: string; tokens: number } {
+function estimateMessageTokens(message: unknown): {
+  role: string;
+  tokens: number;
+} {
   if (!message || typeof message !== "object") return { role: "", tokens: 0 };
   const msg = message as Record<string, unknown>;
   const role = typeof msg.role === "string" ? msg.role : "";
@@ -36,7 +46,10 @@ function estimateMessageTokens(message: unknown): { role: string; tokens: number
   }
   if (role === "branchSummary" || role === "compactionSummary") {
     const summary = typeof msg.summary === "string" ? msg.summary : "";
-    return { role, tokens: charsToTokens(summary.length || contentChars(msg.content)) };
+    return {
+      role,
+      tokens: charsToTokens(summary.length || contentChars(msg.content)),
+    };
   }
   if (role === "bashExecution") {
     const command = typeof msg.command === "string" ? msg.command : "";
@@ -87,7 +100,8 @@ function buildSegments(active: AgentSession): ContextUsageSegment[] {
     for (const message of active.messages ?? []) {
       const { role, tokens } = estimateMessageTokens(message);
       if (!tokens) continue;
-      if (role === "branchSummary" || role === "compactionSummary") summarized += tokens;
+      if (role === "branchSummary" || role === "compactionSummary")
+        summarized += tokens;
       else if (role === "toolResult") toolResults += tokens;
       else conversation += tokens;
     }
@@ -99,8 +113,10 @@ function buildSegments(active: AgentSession): ContextUsageSegment[] {
   if (system > 0) segments.push({ id: "system", tokens: system });
   if (tools > 0) segments.push({ id: "tools", tokens: tools });
   if (summarized > 0) segments.push({ id: "summarized", tokens: summarized });
-  if (toolResults > 0) segments.push({ id: "toolResults", tokens: toolResults });
-  if (conversation > 0) segments.push({ id: "conversation", tokens: conversation });
+  if (toolResults > 0)
+    segments.push({ id: "toolResults", tokens: toolResults });
+  if (conversation > 0)
+    segments.push({ id: "conversation", tokens: conversation });
   return segments;
 }
 
@@ -130,7 +146,9 @@ function scaleMessageSegments(
   return [...fixed, ...scaled].filter((s) => s.tokens > 0);
 }
 
-export function readContextUsage(active: AgentSession): SessionContextUsage | null {
+export function readContextUsage(
+  active: AgentSession,
+): SessionContextUsage | null {
   let toolCalls: number | null = null;
   let messageCount: number | null = null;
   let turns: number | null = null;
@@ -143,14 +161,24 @@ export function readContextUsage(active: AgentSession): SessionContextUsage | nu
     const stats = active.getSessionStats();
     if (stats && typeof stats === "object") {
       if (typeof stats.toolCalls === "number") toolCalls = stats.toolCalls;
-      const users = typeof stats.userMessages === "number" ? stats.userMessages : 0;
-      const assistants = typeof stats.assistantMessages === "number" ? stats.assistantMessages : 0;
-      const toolResults = typeof stats.toolResults === "number" ? stats.toolResults : 0;
+      const users =
+        typeof stats.userMessages === "number" ? stats.userMessages : 0;
+      const assistants =
+        typeof stats.assistantMessages === "number"
+          ? stats.assistantMessages
+          : 0;
+      const toolResults =
+        typeof stats.toolResults === "number" ? stats.toolResults : 0;
       messageCount = users + assistants + toolResults;
       turns = users;
       steps = assistants;
       const tokens = stats.tokens as
-        | { input?: unknown; output?: unknown; cacheRead?: unknown; cacheWrite?: unknown }
+        | {
+            input?: unknown;
+            output?: unknown;
+            cacheRead?: unknown;
+            cacheWrite?: unknown;
+          }
         | undefined;
       if (tokens && typeof tokens === "object") {
         const num = (v: unknown): number | null =>
@@ -215,14 +243,6 @@ export function readContextUsage(active: AgentSession): SessionContextUsage | nu
  * (first token → message_end × reported output tokens). Totals accumulate
  * across the whole session; `snapshot()` also includes the in-flight step.
  */
-export type SessionTiming = {
-  llmMs: number;
-  ttftMs: number;
-  ttftSteps: number;
-  decodeMs: number;
-  outputTokens: number;
-};
-
 const ZERO_TIMING: SessionTiming = {
   llmMs: 0,
   ttftMs: 0,
@@ -243,7 +263,9 @@ function outputOfMessage(raw: unknown): number {
   const usage = msg.usage;
   if (!usage || typeof usage !== "object") return 0;
   const u = usage as Record<string, unknown>;
-  return typeof u.output === "number" && Number.isFinite(u.output) && u.output > 0
+  return typeof u.output === "number" &&
+    Number.isFinite(u.output) &&
+    u.output > 0
     ? u.output
     : 0;
 }
@@ -268,7 +290,9 @@ export class SessionTimingTracker {
     }
     if (type === "message_update") {
       if (this.firstToken === null && this.stepStart !== null) {
-        const ev = raw.assistantMessageEvent as Record<string, unknown> | undefined;
+        const ev = raw.assistantMessageEvent as
+          | Record<string, unknown>
+          | undefined;
         const evType = typeof ev?.type === "string" ? ev.type : "";
         if (
           evType === "text_delta" ||
@@ -306,7 +330,11 @@ export class SessionTimingTracker {
       }
       return;
     }
-    if (type === "agent_end" || type === "agent_settled" || type === "turn_end") {
+    if (
+      type === "agent_end" ||
+      type === "agent_settled" ||
+      type === "turn_end"
+    ) {
       if (this.stepStart !== null) {
         this.timing.llmMs += Math.max(0, now - this.stepStart);
         this.stepStart = null;
@@ -319,11 +347,19 @@ export class SessionTimingTracker {
   /** Current totals, including the in-flight step when one is open. */
   snapshot(): SessionTiming {
     const now = Date.now();
-    const inflight = this.stepStart !== null ? Math.max(0, now - this.stepStart) : 0;
+    const inflight =
+      this.stepStart !== null ? Math.max(0, now - this.stepStart) : 0;
     return {
       ...this.timing,
       llmMs: this.timing.llmMs + inflight,
     };
+  }
+
+  restore(timing: SessionTiming): void {
+    this.timing = { ...timing };
+    this.turnStart = null;
+    this.stepStart = null;
+    this.firstToken = null;
   }
 
   reset(): void {
