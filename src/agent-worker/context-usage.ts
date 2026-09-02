@@ -133,6 +133,12 @@ function scaleMessageSegments(
 export function readContextUsage(active: AgentSession): SessionContextUsage | null {
   let toolCalls: number | null = null;
   let messageCount: number | null = null;
+  let turns: number | null = null;
+  let steps: number | null = null;
+  let inputTokens: number | null = null;
+  let outputTokens: number | null = null;
+  let cacheReadTokens: number | null = null;
+  let cacheWriteTokens: number | null = null;
   try {
     const stats = active.getSessionStats();
     if (stats && typeof stats === "object") {
@@ -141,6 +147,19 @@ export function readContextUsage(active: AgentSession): SessionContextUsage | nu
       const assistants = typeof stats.assistantMessages === "number" ? stats.assistantMessages : 0;
       const toolResults = typeof stats.toolResults === "number" ? stats.toolResults : 0;
       messageCount = users + assistants + toolResults;
+      turns = users;
+      steps = assistants;
+      const tokens = stats.tokens as
+        | { input?: unknown; output?: unknown; cacheRead?: unknown; cacheWrite?: unknown }
+        | undefined;
+      if (tokens && typeof tokens === "object") {
+        const num = (v: unknown): number | null =>
+          typeof v === "number" && Number.isFinite(v) && v >= 0 ? v : null;
+        inputTokens = num(tokens.input);
+        outputTokens = num(tokens.output);
+        cacheReadTokens = num(tokens.cacheRead);
+        cacheWriteTokens = num(tokens.cacheWrite);
+      }
     }
   } catch {
     // stats are best-effort
@@ -158,6 +177,12 @@ export function readContextUsage(active: AgentSession): SessionContextUsage | nu
       percent: usage.percent,
       toolCalls,
       messageCount,
+      turns,
+      steps,
+      inputTokens,
+      outputTokens,
+      cacheReadTokens,
+      cacheWriteTokens,
       segments,
     };
   }
@@ -170,8 +195,141 @@ export function readContextUsage(active: AgentSession): SessionContextUsage | nu
       percent: estimated > 0 ? (estimated / contextWindow) * 100 : null,
       toolCalls,
       messageCount,
+      turns,
+      steps,
+      inputTokens,
+      outputTokens,
+      cacheReadTokens,
+      cacheWriteTokens,
       segments,
     };
   }
   return null;
+}
+
+/**
+ * Live session-timing tracker fed by the AgentSession event stream.
+ *
+ * Measures per-step LLM wall time (turn_start → message_end), first-token
+ * latency (turn_start → first streamed delta), and decode throughput
+ * (first token → message_end × reported output tokens). Totals accumulate
+ * across the whole session; `snapshot()` also includes the in-flight step.
+ */
+export type SessionTiming = {
+  llmMs: number;
+  ttftMs: number;
+  ttftSteps: number;
+  decodeMs: number;
+  outputTokens: number;
+};
+
+const ZERO_TIMING: SessionTiming = {
+  llmMs: 0,
+  ttftMs: 0,
+  ttftSteps: 0,
+  decodeMs: 0,
+  outputTokens: 0,
+};
+
+function roleOfMessage(raw: unknown): string {
+  if (!raw || typeof raw !== "object") return "";
+  const msg = raw as Record<string, unknown>;
+  return typeof msg.role === "string" ? msg.role : "";
+}
+
+function outputOfMessage(raw: unknown): number {
+  if (!raw || typeof raw !== "object") return 0;
+  const msg = raw as Record<string, unknown>;
+  const usage = msg.usage;
+  if (!usage || typeof usage !== "object") return 0;
+  const u = usage as Record<string, unknown>;
+  return typeof u.output === "number" && Number.isFinite(u.output) && u.output > 0
+    ? u.output
+    : 0;
+}
+
+export class SessionTimingTracker {
+  private timing: SessionTiming = { ...ZERO_TIMING };
+  private turnStart: number | null = null;
+  private stepStart: number | null = null;
+  private firstToken: number | null = null;
+
+  /** Feed one raw AgentSession event. */
+  observe(event: unknown): void {
+    const raw = event as Record<string, unknown> | null | undefined;
+    if (!raw || typeof raw !== "object") return;
+    const type = raw.type;
+    const now = Date.now();
+    if (type === "turn_start") {
+      this.turnStart = now;
+      this.stepStart = now;
+      this.firstToken = null;
+      return;
+    }
+    if (type === "message_update") {
+      if (this.firstToken === null && this.stepStart !== null) {
+        const ev = raw.assistantMessageEvent as Record<string, unknown> | undefined;
+        const evType = typeof ev?.type === "string" ? ev.type : "";
+        if (
+          evType === "text_delta" ||
+          evType === "thinking_delta" ||
+          evType === "toolcall_delta" ||
+          evType === "text_start" ||
+          evType === "thinking_start" ||
+          evType === "toolcall_start"
+        ) {
+          this.firstToken = now;
+        }
+      }
+      return;
+    }
+    if (type === "message_end") {
+      const msg = raw.message;
+      if (roleOfMessage(msg) === "assistant") {
+        if (this.stepStart !== null) {
+          this.timing.llmMs += Math.max(0, now - this.stepStart);
+          this.stepStart = null;
+        }
+        if (this.firstToken !== null) {
+          if (this.turnStart !== null) {
+            this.timing.ttftMs += Math.max(0, this.firstToken - this.turnStart);
+            this.timing.ttftSteps += 1;
+          }
+          const out = outputOfMessage(msg);
+          if (out > 0) {
+            this.timing.decodeMs += Math.max(0, now - this.firstToken);
+            this.timing.outputTokens += out;
+          }
+        }
+        this.firstToken = null;
+        this.turnStart = null;
+      }
+      return;
+    }
+    if (type === "agent_end" || type === "agent_settled" || type === "turn_end") {
+      if (this.stepStart !== null) {
+        this.timing.llmMs += Math.max(0, now - this.stepStart);
+        this.stepStart = null;
+      }
+      this.firstToken = null;
+      return;
+    }
+  }
+
+  /** Current totals, including the in-flight step when one is open. */
+  snapshot(): SessionTiming {
+    const now = Date.now();
+    const inflight = this.stepStart !== null ? Math.max(0, now - this.stepStart) : 0;
+    return {
+      ...this.timing,
+      llmMs: this.timing.llmMs + inflight,
+    };
+  }
+
+  reset(): void {
+    this.timing = { ...ZERO_TIMING };
+    this.turnStart = null;
+    this.stepStart = null;
+    this.firstToken = null;
+  }
 }
