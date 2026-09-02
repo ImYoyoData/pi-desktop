@@ -282,6 +282,11 @@ export const IpcChannels = {
 		get: "security:get",
 		set: "security:set",
 	},
+	proxy: {
+		get: "proxy:get",
+		set: "proxy:set",
+		changed: "proxy:changed",
+	},
 } as const;
 
 export type TrustPromptKind = "none" | "ask";
@@ -295,25 +300,25 @@ export type TrustState = {
 
 export type SessionStatus = "idle" | "running" | "error" | "stuck";
 
-	/** LAN web console status exposed to the settings UI. */
-	export type LanConsoleStatus = {
-	  enabled: boolean;
-	  port: number;
-	  /** Configured login username (empty until set). */
-	  username: string;
-	  /** True once both username and password are configured. */
-	  hasCredentials: boolean;
-	  /** Selected LAN IPv4 used for QR / copy (best-effort ranked when unset). */
-	  preferredIp: string;
-	  /** All candidate LAN IPv4s, preferred/best-ranked first. */
-	  addresses: string[];
-	  /** HTTPS URLs for each address (same order as `addresses`). */
-	  urls: string[];
-	  /** Preferred access URL, e.g. https://192.168.1.5:18700. */
-	  baseUrl: string;
-	  /** Full URL for opening the console (login is username/password based). */
-	  url: string;
-	};
+/** LAN web console status exposed to the settings UI. */
+export type LanConsoleStatus = {
+	enabled: boolean;
+	port: number;
+	/** Configured login username (empty until set). */
+	username: string;
+	/** True once both username and password are configured. */
+	hasCredentials: boolean;
+	/** Selected LAN IPv4 used for QR / copy (best-effort ranked when unset). */
+	preferredIp: string;
+	/** All candidate LAN IPv4s, preferred/best-ranked first. */
+	addresses: string[];
+	/** HTTPS URLs for each address (same order as `addresses`). */
+	urls: string[];
+	/** Preferred access URL, e.g. https://192.168.1.5:18700. */
+	baseUrl: string;
+	/** Full URL for opening the console (login is username/password based). */
+	url: string;
+};
 
 /** Tools / extensions / skills loaded into a session worker (null while booting). */
 export type SessionExtensionInfo = {
@@ -441,7 +446,13 @@ export function isRegionCitation(
 
 /** Deep plain clone for Electron IPC (Vue proxies cannot be structured-cloned). */
 export function toIpcPlain<T>(value: T): T {
-	return JSON.parse(JSON.stringify(value)) as T;
+	const json = JSON.stringify(value);
+	try {
+		return JSON.parse(json) as T;
+	} catch {
+		// stringify succeeded, so parse cannot realistically fail.
+		return value;
+	}
 }
 
 /** Build Pi ImageContent list from composer/chat image payloads. */

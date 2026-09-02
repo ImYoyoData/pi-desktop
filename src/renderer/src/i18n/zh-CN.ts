@@ -76,8 +76,7 @@ export const zh = {
 		"计划模式：多轮询问后生成 Markdown 计划，确认后停止，不自动执行",
 	composerModeAskHint: "问答模式：只读排查，解答疑问，不修改代码",
 	composerModeTaskHint: "任务模式：确认方案后全自动实现并自检完成目标",
-	runningHint:
-		"执行中 Enter 加入待发送 · 点编辑拉回输入框 · 引导提交不中断当前",
+	runningHint: "执行中 Enter 加入待发送 · 点编辑拉回输入框 · 引导提交不中断当前",
 	queueTitle: "待发送",
 	queueEdit: "编辑（拉回输入框）",
 	queueEditPlaceholder: "编辑待发送内容…",
@@ -386,6 +385,14 @@ export const zh = {
 	gitErr_unknown: "Git 操作失败",
 	appearance: "外观",
 	notifyTitle: "通知",
+	proxyTitle: "网络代理",
+	proxyModeOff: "关闭",
+	proxyModeSystem: "自动",
+	proxyModeCustom: "手动",
+	proxyUrlLabel: "代理地址",
+	proxyUrlPlaceholder: "http://127.0.0.1:7890 或 socks5://127.0.0.1:1080",
+	proxyApplied: "代理设置已生效",
+	proxyInvalidUrl: "代理地址无效，请输入 http / https / socks5 地址",
 	notifySound: "完成提示音",
 	notifySoundHint: "回合完成时播放内置提示音（窗口在前台时也会播放）。",
 	notifySystem: "系统通知",
@@ -437,15 +444,15 @@ export const zh = {
 	ttsUnsupported: "当前系统暂不支持 Piper TTS（需 Windows x64 或 macOS）",
 	ttsRuntimeHint: (name: string) =>
 		`当前系统运行时：${name}（语音模型跨系统共用，不会重复下载）`,
-	asrHint: "本地 SenseVoiceSmall Q4_K GGUF（约 129 MB，多语言），默认不下载。关闭后不会加载模型。",
+	asrHint:
+		"本地 SenseVoiceSmall Q4_K GGUF（约 129 MB，多语言），默认不下载。关闭后不会加载模型。",
 	asrEnable: "启用语音输入",
 	asrWakeHotkey: "唤醒快捷键",
 	asrWakeHotkeyHint:
 		"点击下方按钮，再按下组合键即可改写。唤醒后按 Enter 确认识别，Esc 取消。",
 	asrWakeHotkeyListening: "按下组合键…（Esc 取消改键）",
 	asrWakeHotkeySaved: "快捷键已更新",
-	asrWakeHotkeyInvalid:
-		"无效组合键，请至少包含一个修饰键（Ctrl / Alt / Shift）",
+	asrWakeHotkeyInvalid: "无效组合键，请至少包含一个修饰键（Ctrl / Alt / Shift）",
 	asrWakeHotkeyInUse: "该快捷键已被占用，请换一组",
 	asrResidentModel: "常驻模型加载",
 	asrWakeEnabled: "语音唤醒",
@@ -601,10 +608,12 @@ export const zh = {
 	lanConsoleCredsRequired: "请填写用户名和密码",
 	lanConsoleCredsSaved: "凭据已保存",
 	lanConsoleTitle: "局域网网页控制台",
-	lanConsoleEnableHint: "默认关闭。开启后，局域网内设备可通过浏览器访问本机，浏览工作区/会话、聊天并语音识别（需 Token 鉴权）。",
+	lanConsoleEnableHint:
+		"默认关闭。开启后，局域网内设备可通过浏览器访问本机，浏览工作区/会话、聊天并语音识别（需 Token 鉴权）。",
 	lanConsoleUrl: "访问地址",
 	lanConsoleAddresses: "可选地址",
-	lanConsoleAddressesHint: "本机可能有多个网卡。若手机扫码连不上，请点选 Wi‑Fi / 以太网对应的 192.168.x.x 地址。",
+	lanConsoleAddressesHint:
+		"本机可能有多个网卡。若手机扫码连不上，请点选 Wi‑Fi / 以太网对应的 192.168.x.x 地址。",
 	lanConsoleRecommended: "推荐",
 	lanConsoleToken: "访问 Token",
 	lanConsoleCopy: "复制",
@@ -613,7 +622,8 @@ export const zh = {
 	lanConsolePort: "端口",
 	lanConsoleSavePort: "保存端口",
 	lanConsoleScan: "手机扫码访问",
-	lanConsoleCertHint: "首次打开会提示证书不受信任，选择「继续访问」即可（麦克风需要 HTTPS）。",
+	lanConsoleCertHint:
+		"首次打开会提示证书不受信任，选择「继续访问」即可（麦克风需要 HTTPS）。",
 	lanConsoleDisabledNote: "未开启。保持默认关闭，不暴露任何端口。",
 	lanConsoleStarted: "已开启局域网网页",
 	lanConsolePortInvalid: "无效的端口",
@@ -763,7 +773,8 @@ export const zh = {
 	modelsCustomApply: "应用到配置",
 	modelsCustomApplied: "已写入编辑中的 models.json，请点保存生效",
 	modelsCustomDelete: "删除自定义 Provider",
-	modelsCustomDeleteConfirm: (id: string) => `立即从 models.json 删除「${id}」？此操作会马上生效。`,
+	modelsCustomDeleteConfirm: (id: string) =>
+		`立即从 models.json 删除「${id}」？此操作会马上生效。`,
 	modelsCustomDeleted: "已删除",
 	modelsNeedsKey: "需配置 API Key",
 	modelsNothingToAdd: "没有可添加的 Provider（可能均已配置）",
@@ -851,8 +862,7 @@ export const zh = {
 	fileDeletedSavePrompt: "你需要保存吗？保存将重新创建该文件。",
 	dontSave: "不保存",
 	unsavedChangesTitle: "未保存的更改",
-	unsavedChangesClose: (label: string) =>
-		`「${label}」已修改，关闭前是否保存？`,
+	unsavedChangesClose: (label: string) => `「${label}」已修改，关闭前是否保存？`,
 
 	// Browser
 	cannotBookmark: "当前页面无法收藏",
