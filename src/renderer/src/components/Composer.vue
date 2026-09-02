@@ -1211,7 +1211,6 @@ const SEGMENT_META: Record<
 const ctxPopoverShow = ref(false);
 const skillsCount = ref<number | null>(null);
 let skillsCountCachedFor: string | null = null;
-
 /**
  * Cost-health reference: the UI treats this many context tokens as "full".
  * Real model windows are huge (deepseek = 1M), so a window-based % always
@@ -1224,12 +1223,6 @@ const contextPercent = computed(() => {
   const tokens = contextUsage.value?.tokens;
   if (tokens == null || !Number.isFinite(tokens) || tokens <= 0) return null;
   return Math.max(0, Math.min(100, (tokens / CONTEXT_COST_REFERENCE) * 100));
-});
-
-const contextPercentLabel = computed(() => {
-  const pct = contextPercent.value;
-  if (pct == null) return "?%";
-  return `${pct.toFixed(0)}%`;
 });
 
 const contextTone = computed(() => {
@@ -1323,43 +1316,6 @@ const contextTokensPairLabel = computed(() => {
   const used = usage.tokens !== null ? formatTokens(usage.tokens) : "?";
   return t.contextUsageTokensPair(used, formatTokens(usage.contextWindow));
 });
-
-const compactBusy = ref(false);
-
-async function onCompactContext(): Promise<void> {
-  const idSession = sessionId.value;
-  if (!idSession || compactBusy.value) return;
-  compactBusy.value = true;
-  try {
-    await sessions.sendCommand(idSession, { type: "compact" });
-    message.success(t.compactDone);
-    closeContextPopover();
-  } catch (err) {
-    message.error(err instanceof Error ? err.message : String(err));
-  } finally {
-    compactBusy.value = false;
-  }
-}
-
-async function openContextPopover(): Promise<void> {
-  ctxPopoverShow.value = !ctxPopoverShow.value;
-  if (!ctxPopoverShow.value) return;
-  const root = workspace.root ?? "";
-  if (skillsCountCachedFor === root && skillsCount.value !== null) return;
-  try {
-    const data = await window.api.skills.list(workspace.root ?? undefined);
-    skillsCount.value = data.skills?.length ?? 0;
-    skillsCountCachedFor = root;
-  } catch {
-    skillsCount.value = null;
-  }
-}
-
-function closeContextPopover(): void {
-  ctxPopoverShow.value = false;
-}
-
-
 const slashMenuRef = ref<{ move: (d: number) => void; confirm: () => boolean } | null>(null);
 const atFileMenuRef = ref<{ move: (d: number) => void; confirm: () => boolean } | null>(null);
 const modelMenuRef = ref<{ focus?: () => void } | null>(null);
@@ -1681,7 +1637,40 @@ function formatNum(n: number | null): string {
   return n == null ? "—" : String(n);
 }
 
+const compactBusy = ref(false);
 
+async function onCompactContext(): Promise<void> {
+  const idSession = sessionId.value;
+  if (!idSession || compactBusy.value) return;
+  compactBusy.value = true;
+  try {
+    await sessions.sendCommand(idSession, { type: "compact" });
+    message.success(t.compactDone);
+    closeContextPopover();
+  } catch (err) {
+    message.error(err instanceof Error ? err.message : String(err));
+  } finally {
+    compactBusy.value = false;
+  }
+}
+
+async function openContextPopover(): Promise<void> {
+  ctxPopoverShow.value = !ctxPopoverShow.value;
+  if (!ctxPopoverShow.value) return;
+  const root = workspace.root ?? "";
+  if (skillsCountCachedFor === root && skillsCount.value !== null) return;
+  try {
+    const data = await window.api.skills.list(workspace.root ?? undefined);
+    skillsCount.value = data.skills?.length ?? 0;
+    skillsCountCachedFor = root;
+  } catch {
+    skillsCount.value = null;
+  }
+}
+
+function closeContextPopover(): void {
+  ctxPopoverShow.value = false;
+}
 async function onThinkingChange(value: string | number): Promise<void> {
   const id = sessionId.value;
   const level = String(value) as ThinkingLevel;
@@ -2535,7 +2524,6 @@ watch(
                     :style="contextRingStyle"
                   />
                 </svg>
-                <span class="ctx-label">{{ contextPercentLabel }}</span>
               </button>
             </template>
             <div class="ctx-popover">
@@ -3241,20 +3229,16 @@ watch(
 }
 
 .ctx-meter {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
+  display: inline-grid;
+  place-items: center;
+  width: 22px;
   height: 22px;
-  padding: 0 6px;
-  border: 1px solid var(--border, #e5e5e5);
-  border-radius: 6px;
+  border: none;
+  border-radius: 999px;
   background: transparent;
   cursor: pointer;
   flex-shrink: 0;
-  color: #5c5c5c;
-  font-size: 11px;
-  font-variant-numeric: tabular-nums;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  padding: 0;
 }
 
 .ctx-meter:disabled {
@@ -3284,31 +3268,16 @@ watch(
   stroke: #5c5c5c;
 }
 
-.ctx-warn {
-  color: #b45309;
-  border-color: rgba(180, 83, 9, 0.35);
-}
-
 .ctx-warn .ctx-ring-fill {
   stroke: #d97706;
-}
-
-.ctx-danger {
-  color: #b91c1c;
-  border-color: rgba(185, 28, 28, 0.35);
 }
 
 .ctx-danger .ctx-ring-fill {
   stroke: #dc2626;
 }
 
-.ctx-muted .ctx-label {
-  color: #8a8a8a;
-}
-
-.ctx-label {
-  line-height: 1;
-  white-space: nowrap;
+.ctx-muted .ctx-ring-fill {
+  stroke: #8a8a8a;
 }
 
 .ctx-popover {
