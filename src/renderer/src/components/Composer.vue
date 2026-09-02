@@ -1654,22 +1654,45 @@ async function onCompactContext(): Promise<void> {
   }
 }
 
+const ctxTriggerRef = ref<HTMLElement | null>(null);
+const ctxPopoverContentRef = ref<HTMLElement | null>(null);
+
+/**
+ * Toggle the context popover. Registers a capture-phase document listener
+ * while open so a click outside the ring button / popover closes it; the
+ * button's own click uses .stop so it never re-enters through the listener.
+ */
 async function openContextPopover(): Promise<void> {
   ctxPopoverShow.value = !ctxPopoverShow.value;
-  if (!ctxPopoverShow.value) return;
-  const root = workspace.root ?? "";
-  if (skillsCountCachedFor === root && skillsCount.value !== null) return;
-  try {
-    const data = await window.api.skills.list(workspace.root ?? undefined);
-    skillsCount.value = data.skills?.length ?? 0;
-    skillsCountCachedFor = root;
-  } catch {
-    skillsCount.value = null;
+  if (ctxPopoverShow.value) {
+    document.addEventListener("pointerdown", onContextOutside, true);
+    const root = workspace.root ?? "";
+    if (skillsCountCachedFor === root && skillsCount.value !== null) return;
+    try {
+      const data = await window.api.skills.list(workspace.root ?? undefined);
+      skillsCount.value = data.skills?.length ?? 0;
+      skillsCountCachedFor = root;
+    } catch {
+      skillsCount.value = null;
+    }
+  } else {
+    document.removeEventListener("pointerdown", onContextOutside, true);
   }
 }
 
+function onContextOutside(e: PointerEvent): void {
+  const target = e.target as Node | null;
+  if (target == null) return;
+  const trigger = ctxTriggerRef.value;
+  const content = ctxPopoverContentRef.value;
+  if (trigger?.contains(target) || content?.contains(target)) return;
+  closeContextPopover();
+}
+
 function closeContextPopover(): void {
+  if (!ctxPopoverShow.value) return;
   ctxPopoverShow.value = false;
+  document.removeEventListener("pointerdown", onContextOutside, true);
 }
 async function onThinkingChange(value: string | number): Promise<void> {
   const id = sessionId.value;
@@ -2203,6 +2226,7 @@ onUnmounted(() => {
   window.removeEventListener("pi-models-changed", onModelsChanged);
   window.removeEventListener("keydown", onVoiceSessionKeydown, true);
   window.removeEventListener(ASR_VOICE_WAKE_EVENT, onAsrWake);
+  document.removeEventListener("pointerdown", onContextOutside, true);
   offAsrProgress?.();
   offAsrWake?.();
   // Do not stop App-level wake listen — only clear dictation pause if we held it.
@@ -2498,17 +2522,17 @@ watch(
             trigger="manual"
             :show="ctxPopoverShow"
             placement="top-end"
-            @clickoutside="closeContextPopover"
           >
             <template #trigger>
               <button
+                ref="ctxTriggerRef"
                 type="button"
                 class="ctx-meter"
                 :class="`ctx-${contextTone}`"
                 :disabled="!sessionId || voiceActive || voicePending"
                 :title="t.contextUsageTitle"
                 :aria-label="t.contextUsageTitle"
-                @click="openContextPopover"
+                @click.stop="openContextPopover"
               >
                 <svg class="ctx-ring" width="18" height="18" viewBox="0 0 18 18" aria-hidden="true">
                   <circle class="ctx-ring-track" cx="9" cy="9" r="7" fill="none" stroke-width="2" />
@@ -2526,7 +2550,7 @@ watch(
                 </svg>
               </button>
             </template>
-            <div class="ctx-popover">
+            <div ref="ctxPopoverContentRef" class="ctx-popover">
               <div class="ctx-pop-title">{{ t.contextUsageTitle }}</div>
               <div class="ctx-pop-summary">
                 <span class="ctx-pop-full">{{ contextFullLabel }}</span>
