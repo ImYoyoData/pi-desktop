@@ -9,8 +9,13 @@ import type {
   GitOpResult,
   GitRemote,
 } from "../shared/git-types";
-import { classifyGitFailure, detailFromGitOutput, isEmbeddedGitMissing } from "./git-errors";
+import {
+  classifyGitFailure,
+  detailFromGitOutput,
+  isEmbeddedGitMissing,
+} from "./git-errors";
 import { isGitIgnoredPath } from "./git-ignore-store";
+import { withProxyEnv } from "./proxy-host";
 
 /** Quick local ops (status / diff / branch). */
 const GIT_TIMEOUT_MS = 30_000;
@@ -69,7 +74,14 @@ export type GitBranchesResult = {
   remote: string[];
 };
 
-export type { GitOpResult, GitRemote, GitLogEntry, GitLogResult, GitErrorCode, GitConflictContentResult };
+export type {
+  GitOpResult,
+  GitRemote,
+  GitLogEntry,
+  GitLogResult,
+  GitErrorCode,
+  GitConflictContentResult,
+};
 
 type PorcelainEntry = {
   path: string;
@@ -78,7 +90,13 @@ type PorcelainEntry = {
   worktreeStatus: string;
 };
 
-type GitFail = { ok: false; message: string; code: GitErrorCode; stdout: string; stderr: string };
+type GitFail = {
+  ok: false;
+  message: string;
+  code: GitErrorCode;
+  stdout: string;
+  stderr: string;
+};
 
 function fail(code: GitErrorCode, detail = ""): GitOpResult {
   return { ok: false, code, message: detail.trim() || code };
@@ -122,14 +140,15 @@ async function gitSpawn(
   try {
     const result = await exec(args, cwd, {
       maxBuffer,
-      env: { ...process.env, LC_ALL: "C" },
+      env: withProxyEnv({ ...process.env, LC_ALL: "C" }),
       signal: AbortSignal.timeout(timeoutMs),
     });
     const stdout = toText(result.stdout);
     const stderr = toText(result.stderr);
     if (result.exitCode !== 0) {
       const message =
-        detailFromGitOutput(stderr, stdout) || `git ${args[0] ?? "command"} failed`;
+        detailFromGitOutput(stderr, stdout) ||
+        `git ${args[0] ?? "command"} failed`;
       const err = new Error(message) as Error & {
         stderr: string;
         stdout: string;
@@ -146,7 +165,9 @@ async function gitSpawn(
       const stderr = toText(err.stderr);
       const stdout = toText(err.stdout);
       const message =
-        detailFromGitOutput(stderr, stdout) || err.message || "git executable failed";
+        detailFromGitOutput(stderr, stdout) ||
+        err.message ||
+        "git executable failed";
       const wrapped = new Error(message) as Error & {
         stderr: string;
         stdout: string;
@@ -171,7 +192,9 @@ async function gitAllowFail(
     const e = err as { stderr?: string; stdout?: string; message?: string };
     const stderr = (e.stderr || "").trim();
     const stdout = (e.stdout || "").trim();
-    const detail = detailFromGitOutput(stderr, stdout) || (e.message || "git command failed").trim();
+    const detail =
+      detailFromGitOutput(stderr, stdout) ||
+      (e.message || "git command failed").trim();
     return {
       ok: false,
       message: detail,
@@ -210,12 +233,16 @@ function parsePorcelainV1(output: string): PorcelainEntry[] {
 
 const CONFLICT = new Set(["DD", "AU", "UD", "UA", "DU", "AA", "UU"]);
 
-export function classify(entry: PorcelainEntry): Pick<GitFileStatus, "status" | "code"> {
+export function classify(
+  entry: PorcelainEntry,
+): Pick<GitFileStatus, "status" | "code"> {
   const pair = `${entry.indexStatus}${entry.worktreeStatus}`;
   if (pair === "??") return { status: "untracked", code: "U" };
-  if (CONFLICT.has(pair) || pair.includes("U")) return { status: "conflict", code: "C" };
+  if (CONFLICT.has(pair) || pair.includes("U"))
+    return { status: "conflict", code: "C" };
   if (pair.includes("D")) return { status: "deleted", code: "D" };
-  if (pair.includes("R") || pair.includes("C")) return { status: "renamed", code: "R" };
+  if (pair.includes("R") || pair.includes("C"))
+    return { status: "renamed", code: "R" };
   if (pair.includes("A")) return { status: "added", code: "A" };
   return { status: "modified", code: "M" };
 }
@@ -260,7 +287,9 @@ function hasLocalGitDir(cwd: string): boolean {
   }
 }
 
-async function readStatusEntries(repositoryRoot: string): Promise<PorcelainEntry[]> {
+async function readStatusEntries(
+  repositoryRoot: string,
+): Promise<PorcelainEntry[]> {
   const output = await git(repositoryRoot, [
     "status",
     "--porcelain=v1",
@@ -270,7 +299,9 @@ async function readStatusEntries(repositoryRoot: string): Promise<PorcelainEntry
   return parsePorcelainV1(output);
 }
 
-export async function getWorkspaceGitStatus(cwd: string): Promise<GitStatusResult> {
+export async function getWorkspaceGitStatus(
+  cwd: string,
+): Promise<GitStatusResult> {
   let repositoryRoot: string | null;
   try {
     repositoryRoot = await findRepositoryRoot(cwd);
@@ -287,14 +318,19 @@ export async function getWorkspaceGitStatus(cwd: string): Promise<GitStatusResul
     }
     throw err;
   }
-  if (!repositoryRoot) return { isGitRepository: false, branch: null, files: [] };
+  if (!repositoryRoot)
+    return { isGitRepository: false, branch: null, files: [] };
 
   let branch: string | null = null;
   try {
-    const name = (await git(repositoryRoot, ["rev-parse", "--abbrev-ref", "HEAD"])).trim();
+    const name = (
+      await git(repositoryRoot, ["rev-parse", "--abbrev-ref", "HEAD"])
+    ).trim();
     branch = name || null;
     if (branch === "HEAD") {
-      const short = (await git(repositoryRoot, ["rev-parse", "--short", "HEAD"])).trim();
+      const short = (
+        await git(repositoryRoot, ["rev-parse", "--short", "HEAD"])
+      ).trim();
       branch = short ? `detached@${short}` : "HEAD";
     }
   } catch {
@@ -344,7 +380,9 @@ function createAddedFilePatch(gitPath: string, content: string): string {
   if (hasTrailingNewline) lines.pop();
   const body = lines.map((line) => `+${line}`).join("\n");
   const noNewlineMarker =
-    !hasTrailingNewline && lines.length > 0 ? "\n\\ No newline at end of file" : "";
+    !hasTrailingNewline && lines.length > 0
+      ? "\n\\ No newline at end of file"
+      : "";
   return [
     `diff --git a/${gitPath} b/${gitPath}`,
     "new file mode 100644",
@@ -367,7 +405,15 @@ async function createTrackedFilePatch(
   try {
     return await git(
       repositoryRoot,
-      ["diff", "--no-color", "--no-ext-diff", "--unified=3", "HEAD", "--", ...paths],
+      [
+        "diff",
+        "--no-color",
+        "--no-ext-diff",
+        "--unified=3",
+        "HEAD",
+        "--",
+        ...paths,
+      ],
       TEXT_PREVIEW_MAX_BYTES * 4,
     );
   } catch {
@@ -399,11 +445,16 @@ export async function getGitFileDiff(
   if (!repositoryRoot) return { supported: false };
 
   const resolvedFilePath = path.resolve(cwd, relativePath);
-  if (!isWithin(cwd, resolvedFilePath) || !isWithin(repositoryRoot, resolvedFilePath)) {
+  if (
+    !isWithin(cwd, resolvedFilePath) ||
+    !isWithin(repositoryRoot, resolvedFilePath)
+  ) {
     return { supported: false };
   }
 
-  const repoRelative = toGitPath(path.relative(repositoryRoot, resolvedFilePath));
+  const repoRelative = toGitPath(
+    path.relative(repositoryRoot, resolvedFilePath),
+  );
   let entries: PorcelainEntry[];
   try {
     entries = await readStatusEntries(repositoryRoot);
@@ -426,8 +477,10 @@ export async function getGitFileDiff(
         "--",
         headPath,
       ]);
-      if (!patch.includes("\n@@ ") && !patch.startsWith("@@ ")) return { supported: false };
-      const oldContent = (await readHeadContent(repositoryRoot, headPath)) ?? "";
+      if (!patch.includes("\n@@ ") && !patch.startsWith("@@ "))
+        return { supported: false };
+      const oldContent =
+        (await readHeadContent(repositoryRoot, headPath)) ?? "";
       return { supported: true, status, patch, oldContent, newContent: "" };
     } catch {
       return { supported: false };
@@ -440,7 +493,8 @@ export async function getGitFileDiff(
   } catch {
     return { supported: false };
   }
-  if (!stat.isFile() || stat.size > TEXT_PREVIEW_MAX_BYTES) return { supported: false };
+  if (!stat.isFile() || stat.size > TEXT_PREVIEW_MAX_BYTES)
+    return { supported: false };
 
   const currentBuffer = fs.readFileSync(resolvedFilePath);
   if (hasNullByte(currentBuffer)) return { supported: false };
@@ -463,7 +517,10 @@ export async function getGitFileDiff(
         repoRelative,
         entry.originalPath,
       );
-      if (trackedPatch === null || (!trackedPatch.includes("\n@@ ") && !trackedPatch.startsWith("@@ "))) {
+      if (
+        trackedPatch === null ||
+        (!trackedPatch.includes("\n@@ ") && !trackedPatch.startsWith("@@ "))
+      ) {
         if (status === "added") {
           patch = createAddedFilePatch(repoRelative, newContent);
           oldContent = "";
@@ -476,7 +533,8 @@ export async function getGitFileDiff(
     }
   }
 
-  if (!patch.includes("\n@@ ") && !patch.startsWith("@@ ")) return { supported: false };
+  if (!patch.includes("\n@@ ") && !patch.startsWith("@@ "))
+    return { supported: false };
   return { supported: true, status, patch, oldContent, newContent };
 }
 
@@ -486,14 +544,20 @@ export async function listBranches(cwd: string): Promise<GitBranchesResult> {
 
   let current: string | null = null;
   try {
-    current = (await git(repositoryRoot, ["rev-parse", "--abbrev-ref", "HEAD"])).trim() || null;
+    current =
+      (
+        await git(repositoryRoot, ["rev-parse", "--abbrev-ref", "HEAD"])
+      ).trim() || null;
   } catch {
     current = null;
   }
 
   let local: string[] = [];
   try {
-    const out = await git(repositoryRoot, ["branch", "--format=%(refname:short)"]);
+    const out = await git(repositoryRoot, [
+      "branch",
+      "--format=%(refname:short)",
+    ]);
     local = out
       .split(/\r?\n/)
       .map((l) => l.trim())
@@ -504,7 +568,11 @@ export async function listBranches(cwd: string): Promise<GitBranchesResult> {
 
   let remote: string[] = [];
   try {
-    const out = await git(repositoryRoot, ["branch", "-r", "--format=%(refname:short)"]);
+    const out = await git(repositoryRoot, [
+      "branch",
+      "-r",
+      "--format=%(refname:short)",
+    ]);
     remote = out
       .split(/\r?\n/)
       .map((l) => l.trim())
@@ -577,12 +645,18 @@ export async function restorePaths(
         "--",
         ...tracked,
       ]);
-      if (!checkout.ok) return fail(checkout.code, checkout.message || restore.message);
+      if (!checkout.ok)
+        return fail(checkout.code, checkout.message || restore.message);
     }
   }
 
   if (untracked.length) {
-    const clean = await gitAllowFail(repositoryRoot, ["clean", "-f", "--", ...untracked]);
+    const clean = await gitAllowFail(repositoryRoot, [
+      "clean",
+      "-f",
+      "--",
+      ...untracked,
+    ]);
     if (!clean.ok) return fail(clean.code, clean.message);
   }
 
@@ -603,14 +677,21 @@ export async function fetchRepo(
     remotes = [];
   }
   if (!remotes.length) {
-    return fail("no_remote", "No remotes configured. Add origin (or another remote) first.");
+    return fail(
+      "no_remote",
+      "No remotes configured. Add origin (or another remote) first.",
+    );
   }
 
   const name = (remote || "").trim();
   const args = name
     ? ["fetch", name, "--prune"]
     : ["fetch", "--all", "--prune"];
-  const result = await gitAllowFail(repositoryRoot, args, GIT_NETWORK_TIMEOUT_MS);
+  const result = await gitAllowFail(
+    repositoryRoot,
+    args,
+    GIT_NETWORK_TIMEOUT_MS,
+  );
   if (!result.ok) return fail(result.code, result.message);
   return { ok: true, message: result.stdout.trim() || undefined };
 }
@@ -623,7 +704,10 @@ function withCheckoutHint(code: GitErrorCode, message: string): string {
   return message ? `${message}\n${hint}` : hint;
 }
 
-export async function checkoutBranch(cwd: string, branch: string): Promise<GitOpResult> {
+export async function checkoutBranch(
+  cwd: string,
+  branch: string,
+): Promise<GitOpResult> {
   const repositoryRoot = await findRepositoryRoot(cwd);
   if (!repositoryRoot) return fail("not_repo", "Not a git repository");
   const name = branch.trim();
@@ -648,11 +732,20 @@ export async function checkoutBranch(cwd: string, branch: string): Promise<GitOp
 
       if (isRemoteTracking) {
         if (branches.local.includes(short)) {
-          const localCheckout = await gitAllowFail(repositoryRoot, ["switch", short]);
+          const localCheckout = await gitAllowFail(repositoryRoot, [
+            "switch",
+            short,
+          ]);
           if (localCheckout.ok) return { ok: true };
-          const legacy = await gitAllowFail(repositoryRoot, ["checkout", short]);
+          const legacy = await gitAllowFail(repositoryRoot, [
+            "checkout",
+            short,
+          ]);
           if (legacy.ok) return { ok: true };
-          return fail(localCheckout.code, withCheckoutHint(localCheckout.code, localCheckout.message));
+          return fail(
+            localCheckout.code,
+            withCheckoutHint(localCheckout.code, localCheckout.message),
+          );
         }
         const tracked = await gitAllowFail(repositoryRoot, [
           "switch",
@@ -671,7 +764,10 @@ export async function checkoutBranch(cwd: string, branch: string): Promise<GitOp
           name,
         ]);
         if (create.ok) return { ok: true };
-        return fail(tracked.code, withCheckoutHint(tracked.code, tracked.message));
+        return fail(
+          tracked.code,
+          withCheckoutHint(tracked.code, tracked.message),
+        );
       }
     }
   }
@@ -700,7 +796,10 @@ export async function createBranch(
   return { ok: true };
 }
 
-export async function mergeBranch(cwd: string, branch: string): Promise<GitOpResult> {
+export async function mergeBranch(
+  cwd: string,
+  branch: string,
+): Promise<GitOpResult> {
   const repositoryRoot = await findRepositoryRoot(cwd);
   if (!repositoryRoot) return fail("not_repo", "Not a git repository");
   const name = branch.trim();
@@ -710,13 +809,20 @@ export async function mergeBranch(cwd: string, branch: string): Promise<GitOpRes
   return { ok: true, message: result.stdout.trim() || undefined };
 }
 
-export async function deleteBranch(cwd: string, branch: string): Promise<GitOpResult> {
+export async function deleteBranch(
+  cwd: string,
+  branch: string,
+): Promise<GitOpResult> {
   const repositoryRoot = await findRepositoryRoot(cwd);
   if (!repositoryRoot) return fail("not_repo", "Not a git repository");
   const name = branch.trim();
   if (!name) return fail("invalid_args", "Branch name required");
 
-  const current = await gitAllowFail(repositoryRoot, ["rev-parse", "--abbrev-ref", "HEAD"]);
+  const current = await gitAllowFail(repositoryRoot, [
+    "rev-parse",
+    "--abbrev-ref",
+    "HEAD",
+  ]);
   if (current.ok && current.stdout.trim() === name) {
     return fail(
       "invalid_args",
@@ -739,7 +845,11 @@ export async function renameBranch(
   const from = branch.trim();
   const to = nextName.trim();
   if (!from || !to) return fail("invalid_args", "Branch name required");
-  if (from === to) return fail("invalid_args", "New branch name is the same as the current name");
+  if (from === to)
+    return fail(
+      "invalid_args",
+      "New branch name is the same as the current name",
+    );
   const result = await gitAllowFail(repositoryRoot, ["branch", "-m", from, to]);
   if (!result.ok) return fail(result.code, result.message);
   return { ok: true };
@@ -822,8 +932,14 @@ export async function addRemote(
   if (!repositoryRoot) return fail("not_repo", "Not a git repository");
   const remoteName = name.trim();
   const remoteUrl = url.trim();
-  if (!remoteName || !remoteUrl) return fail("invalid_args", "Remote name and URL required");
-  const result = await gitAllowFail(repositoryRoot, ["remote", "add", remoteName, remoteUrl]);
+  if (!remoteName || !remoteUrl)
+    return fail("invalid_args", "Remote name and URL required");
+  const result = await gitAllowFail(repositoryRoot, [
+    "remote",
+    "add",
+    remoteName,
+    remoteUrl,
+  ]);
   if (!result.ok) return fail(result.code, result.message);
   return { ok: true };
 }
@@ -837,7 +953,8 @@ export async function setRemoteUrl(
   if (!repositoryRoot) return fail("not_repo", "Not a git repository");
   const remoteName = name.trim();
   const remoteUrl = url.trim();
-  if (!remoteName || !remoteUrl) return fail("invalid_args", "Remote name and URL required");
+  if (!remoteName || !remoteUrl)
+    return fail("invalid_args", "Remote name and URL required");
   const result = await gitAllowFail(repositoryRoot, [
     "remote",
     "set-url",
@@ -848,12 +965,19 @@ export async function setRemoteUrl(
   return { ok: true };
 }
 
-export async function removeRemote(cwd: string, name: string): Promise<GitOpResult> {
+export async function removeRemote(
+  cwd: string,
+  name: string,
+): Promise<GitOpResult> {
   const repositoryRoot = await findRepositoryRoot(cwd);
   if (!repositoryRoot) return fail("not_repo", "Not a git repository");
   const remoteName = name.trim();
   if (!remoteName) return fail("invalid_args", "Remote name required");
-  const result = await gitAllowFail(repositoryRoot, ["remote", "remove", remoteName]);
+  const result = await gitAllowFail(repositoryRoot, [
+    "remote",
+    "remove",
+    remoteName,
+  ]);
   if (!result.ok) return fail(result.code, result.message);
   return { ok: true };
 }
@@ -882,7 +1006,10 @@ export async function listLog(
 ): Promise<GitLogResult> {
   const repositoryRoot = await findRepositoryRoot(cwd);
   if (!repositoryRoot) return { entries: [] };
-  const n = Math.max(1, Math.min(200, Math.floor(limit) || GIT_LOG_DEFAULT_LIMIT));
+  const n = Math.max(
+    1,
+    Math.min(200, Math.floor(limit) || GIT_LOG_DEFAULT_LIMIT),
+  );
   try {
     const out = await git(repositoryRoot, [
       "log",
@@ -977,7 +1104,12 @@ export async function restoreFileToCommit(
   if (!/^[0-9a-fA-F]{4,40}$/.test(rev)) {
     return fail("invalid_args", "Invalid commit hash");
   }
-  const result = await gitAllowFail(repositoryRoot, ["checkout", rev, "--", gitPath]);
+  const result = await gitAllowFail(repositoryRoot, [
+    "checkout",
+    rev,
+    "--",
+    gitPath,
+  ]);
   if (!result.ok) return fail(result.code, result.message);
   return { ok: true };
 }
@@ -1041,7 +1173,11 @@ export async function resetToCommit(
   return { ok: true, message: `reset ${mode}` };
 }
 
-function assertPathsWithin(cwd: string, paths: string[], repositoryRoot: string): string[] | null {
+function assertPathsWithin(
+  cwd: string,
+  paths: string[],
+  repositoryRoot: string,
+): string[] | null {
   const gitPaths: string[] = [];
   for (const p of paths ?? []) {
     if (typeof p !== "string" || !p.trim()) continue;
@@ -1060,7 +1196,8 @@ export async function stagePaths(
   const repositoryRoot = await findRepositoryRoot(cwd);
   if (!repositoryRoot) return fail("not_repo", "Not a git repository");
   const gitPaths = assertPathsWithin(cwd, paths, repositoryRoot);
-  if (gitPaths === null || gitPaths.length === 0) return fail("invalid_args", "No valid paths to stage");
+  if (gitPaths === null || gitPaths.length === 0)
+    return fail("invalid_args", "No valid paths to stage");
   const result = await gitAllowFail(repositoryRoot, ["add", "--", ...gitPaths]);
   if (!result.ok) return fail(result.code, result.message);
   return { ok: true };
@@ -1074,8 +1211,14 @@ export async function unstagePaths(
   const repositoryRoot = await findRepositoryRoot(cwd);
   if (!repositoryRoot) return fail("not_repo", "Not a git repository");
   const gitPaths = assertPathsWithin(cwd, paths, repositoryRoot);
-  if (gitPaths === null || gitPaths.length === 0) return fail("invalid_args", "No valid paths to unstage");
-  const result = await gitAllowFail(repositoryRoot, ["restore", "--staged", "--", ...gitPaths]);
+  if (gitPaths === null || gitPaths.length === 0)
+    return fail("invalid_args", "No valid paths to unstage");
+  const result = await gitAllowFail(repositoryRoot, [
+    "restore",
+    "--staged",
+    "--",
+    ...gitPaths,
+  ]);
   if (!result.ok) return fail(result.code, result.message);
   return { ok: true };
 }
@@ -1091,16 +1234,31 @@ export async function pullRepo(cwd: string): Promise<GitOpResult> {
     remotes = [];
   }
   if (!remotes.length) {
-    return fail("no_remote", "No remotes configured. Add origin (or another remote) first.");
+    return fail(
+      "no_remote",
+      "No remotes configured. Add origin (or another remote) first.",
+    );
   }
 
-  const rebase = await gitAllowFail(repositoryRoot, ["pull", "--rebase"], GIT_NETWORK_TIMEOUT_MS);
-  if (rebase.ok) return { ok: true, message: rebase.stdout.trim() || undefined };
+  const rebase = await gitAllowFail(
+    repositoryRoot,
+    ["pull", "--rebase"],
+    GIT_NETWORK_TIMEOUT_MS,
+  );
+  if (rebase.ok)
+    return { ok: true, message: rebase.stdout.trim() || undefined };
   if (rebase.code === "conflicts") return fail("conflicts", rebase.message);
 
-  const plain = await gitAllowFail(repositoryRoot, ["pull"], GIT_NETWORK_TIMEOUT_MS);
+  const plain = await gitAllowFail(
+    repositoryRoot,
+    ["pull"],
+    GIT_NETWORK_TIMEOUT_MS,
+  );
   if (plain.ok) return { ok: true, message: plain.stdout.trim() || undefined };
-  return fail(plain.code !== "unknown" ? plain.code : rebase.code, plain.message || rebase.message);
+  return fail(
+    plain.code !== "unknown" ? plain.code : rebase.code,
+    plain.message || rebase.message,
+  );
 }
 
 export async function pushRepo(cwd: string): Promise<GitOpResult> {
@@ -1114,10 +1272,17 @@ export async function pushRepo(cwd: string): Promise<GitOpResult> {
     remotes = [];
   }
   if (!remotes.length) {
-    return fail("no_remote", "No remotes configured. Add origin (or another remote) first.");
+    return fail(
+      "no_remote",
+      "No remotes configured. Add origin (or another remote) first.",
+    );
   }
 
-  const push = await gitAllowFail(repositoryRoot, ["push"], GIT_NETWORK_TIMEOUT_MS);
+  const push = await gitAllowFail(
+    repositoryRoot,
+    ["push"],
+    GIT_NETWORK_TIMEOUT_MS,
+  );
   if (push.ok) return { ok: true, message: push.stdout.trim() || undefined };
   if (push.code !== "no_upstream" && push.code !== "unknown") {
     return fail(push.code, push.message);
@@ -1125,7 +1290,9 @@ export async function pushRepo(cwd: string): Promise<GitOpResult> {
 
   let branch = "";
   try {
-    branch = (await git(repositoryRoot, ["rev-parse", "--abbrev-ref", "HEAD"])).trim();
+    branch = (
+      await git(repositoryRoot, ["rev-parse", "--abbrev-ref", "HEAD"])
+    ).trim();
   } catch {
     return fail(push.code, push.message);
   }
@@ -1137,7 +1304,8 @@ export async function pushRepo(cwd: string): Promise<GitOpResult> {
     ["push", "-u", origin.name, branch],
     GIT_NETWORK_TIMEOUT_MS,
   );
-  if (upstream.ok) return { ok: true, message: upstream.stdout.trim() || undefined };
+  if (upstream.ok)
+    return { ok: true, message: upstream.stdout.trim() || undefined };
   return fail(upstream.code, upstream.message || push.message);
 }
 
@@ -1146,7 +1314,10 @@ async function readIndexStage(
   stage: 2 | 3,
   repoRelative: string,
 ): Promise<string> {
-  const result = await gitAllowFail(repositoryRoot, ["show", `:${stage}:${repoRelative}`]);
+  const result = await gitAllowFail(repositoryRoot, [
+    "show",
+    `:${stage}:${repoRelative}`,
+  ]);
   if (!result.ok) return "";
   return result.stdout;
 }
@@ -1156,7 +1327,9 @@ async function conflictSideLabels(
 ): Promise<{ ours: string; theirs: string }> {
   let ours = "HEAD";
   try {
-    const branch = (await git(repositoryRoot, ["rev-parse", "--abbrev-ref", "HEAD"])).trim();
+    const branch = (
+      await git(repositoryRoot, ["rev-parse", "--abbrev-ref", "HEAD"])
+    ).trim();
     if (branch && branch !== "HEAD") ours = branch;
   } catch {
     /* keep HEAD */
@@ -1164,9 +1337,18 @@ async function conflictSideLabels(
 
   let theirs = "theirs";
   for (const headRef of ["MERGE_HEAD", "REBASE_HEAD"] as const) {
-    const verify = await gitAllowFail(repositoryRoot, ["rev-parse", "-q", "--verify", headRef]);
+    const verify = await gitAllowFail(repositoryRoot, [
+      "rev-parse",
+      "-q",
+      "--verify",
+      headRef,
+    ]);
     if (!verify.ok) continue;
-    const nameRev = await gitAllowFail(repositoryRoot, ["name-rev", "--name-only", headRef]);
+    const nameRev = await gitAllowFail(repositoryRoot, [
+      "name-rev",
+      "--name-only",
+      headRef,
+    ]);
     if (nameRev.ok && nameRev.stdout.trim()) {
       theirs = nameRev.stdout.trim().replace(/^remotes\//, "");
       break;
@@ -1184,11 +1366,16 @@ export async function getConflictContent(
   if (!repositoryRoot) return { supported: false, reason: "not_repo" };
 
   const resolvedFilePath = path.resolve(cwd, relativePath);
-  if (!isWithin(cwd, resolvedFilePath) || !isWithin(repositoryRoot, resolvedFilePath)) {
+  if (
+    !isWithin(cwd, resolvedFilePath) ||
+    !isWithin(repositoryRoot, resolvedFilePath)
+  ) {
     return { supported: false, reason: "not_found" };
   }
 
-  const repoRelative = toGitPath(path.relative(repositoryRoot, resolvedFilePath));
+  const repoRelative = toGitPath(
+    path.relative(repositoryRoot, resolvedFilePath),
+  );
 
   let stat: fs.Stats;
   try {
@@ -1197,7 +1384,8 @@ export async function getConflictContent(
     return { supported: false, reason: "not_found" };
   }
   if (!stat.isFile()) return { supported: false, reason: "not_found" };
-  if (stat.size > TEXT_PREVIEW_MAX_BYTES) return { supported: false, reason: "too_large" };
+  if (stat.size > TEXT_PREVIEW_MAX_BYTES)
+    return { supported: false, reason: "too_large" };
 
   const currentBuffer = fs.readFileSync(resolvedFilePath);
   if (hasNullByte(currentBuffer)) return { supported: false, reason: "binary" };
@@ -1223,11 +1411,16 @@ export async function resolveConflictPath(
   if (!repositoryRoot) return fail("not_repo", "Not a git repository");
 
   const resolvedFilePath = path.resolve(cwd, relativePath);
-  if (!isWithin(cwd, resolvedFilePath) || !isWithin(repositoryRoot, resolvedFilePath)) {
+  if (
+    !isWithin(cwd, resolvedFilePath) ||
+    !isWithin(repositoryRoot, resolvedFilePath)
+  ) {
     return fail("invalid_args", `Path outside workspace: ${relativePath}`);
   }
 
-  const repoRelative = toGitPath(path.relative(repositoryRoot, resolvedFilePath));
+  const repoRelative = toGitPath(
+    path.relative(repositoryRoot, resolvedFilePath),
+  );
   fs.writeFileSync(resolvedFilePath, content, "utf8");
 
   const add = await gitAllowFail(repositoryRoot, ["add", "--", repoRelative]);
@@ -1244,14 +1437,24 @@ export async function checkoutConflictSide(
   if (!repositoryRoot) return fail("not_repo", "Not a git repository");
 
   const resolvedFilePath = path.resolve(cwd, relativePath);
-  if (!isWithin(cwd, resolvedFilePath) || !isWithin(repositoryRoot, resolvedFilePath)) {
+  if (
+    !isWithin(cwd, resolvedFilePath) ||
+    !isWithin(repositoryRoot, resolvedFilePath)
+  ) {
     return fail("invalid_args", `Path outside workspace: ${relativePath}`);
   }
 
-  const repoRelative = toGitPath(path.relative(repositoryRoot, resolvedFilePath));
+  const repoRelative = toGitPath(
+    path.relative(repositoryRoot, resolvedFilePath),
+  );
   const sideFlag = side === "ours" ? "--ours" : "--theirs";
 
-  const checkout = await gitAllowFail(repositoryRoot, ["checkout", sideFlag, "--", repoRelative]);
+  const checkout = await gitAllowFail(repositoryRoot, [
+    "checkout",
+    sideFlag,
+    "--",
+    repoRelative,
+  ]);
   if (!checkout.ok) return fail(checkout.code, checkout.message);
 
   const add = await gitAllowFail(repositoryRoot, ["add", "--", repoRelative]);
@@ -1264,7 +1467,9 @@ export async function abortMerge(cwd: string): Promise<GitOpResult> {
   if (!repositoryRoot) return fail("not_repo", "Not a git repository");
 
   const gitDir = (await git(repositoryRoot, ["rev-parse", "--git-dir"])).trim();
-  const absGitDir = path.isAbsolute(gitDir) ? gitDir : path.join(repositoryRoot, gitDir);
+  const absGitDir = path.isAbsolute(gitDir)
+    ? gitDir
+    : path.join(repositoryRoot, gitDir);
   const rebasing =
     fs.existsSync(path.join(absGitDir, "rebase-merge")) ||
     fs.existsSync(path.join(absGitDir, "rebase-apply"));
