@@ -11,3 +11,9 @@ _ev-scaffold2
 .superpowers
 *.tsbuildinfo
 .eslintcache
+/.idea/.gitignore
+/.idea/encodings.xml
+/.idea/misc.xml
+/.idea/modules.xml
+/.idea/pi-desktop.iml
+/.idea/vcs.xml

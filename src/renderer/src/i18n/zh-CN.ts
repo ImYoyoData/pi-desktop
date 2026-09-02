@@ -218,6 +218,21 @@ export const zh = {
 		"分段为估算值。发送前会先裁剪旧工具输出（保留约最近 40k tokens）；自动压缩仍是用量 > 窗口 − 16k（约 98%）。80% 可点下方手动压缩。",
 	contextUsageAutoCompact:
 		"自动压缩阈值：contextTokens > contextWindow − reserveTokens（默认 reserveTokens=16384）",
+	sessionStatsTurns: "轮数",
+	sessionStatsSteps: "步数",
+	sessionStatsToolCalls: "工具调用",
+	sessionStatsTtft: "首 token",
+	sessionStatsTps: "平均",
+	sessionStatsCacheHit: "缓存命中",
+	sessionStatsInputTokens: "输入",
+	sessionStatsOutputTokens: "输出",
+	sessionStatsEmpty: "暂无会话统计",
+	sessionStatsTitle: (turns: string, steps: string, tools: string) =>
+		`Agent 轮数 ${turns} · 步数 ${steps} · 工具调用 ${tools}`,
+	sessionStatsTtftFormat: (s: string) => `${s} 秒`,
+	sessionStatsTpsFormat: (n: string) => `${n} tok/s`,
+	sessionStatsCacheHitFormat: (p: string) => `${p}%`,
+	sessionStatsTokensFormat: (n: string) => `${n} tok`,
 	closeRunningTitle: "有会话正在运行",
 	closeRunningContent: (n: number) =>
 		`当前有 ${n} 个会话仍在运行。强制关闭将先终止这些会话再退出。`,
