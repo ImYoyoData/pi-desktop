@@ -462,6 +462,16 @@ export function createSessionBroker(deps: {
           messageCount?: unknown;
           segments?: unknown;
           willRetry?: unknown;
+          turns?: unknown;
+          steps?: unknown;
+          inputTokens?: unknown;
+          outputTokens?: unknown;
+          cacheReadTokens?: unknown;
+          cacheWriteTokens?: unknown;
+          llmDurationMs?: unknown;
+          ttftMs?: unknown;
+          ttftSteps?: unknown;
+          tokensPerSecond?: unknown;
         };
         if (ev.type === "context_usage" && typeof ev.contextWindow === "number") {
           const segments = Array.isArray(ev.segments)
@@ -489,6 +499,16 @@ export function createSessionBroker(deps: {
               percent: typeof ev.percent === "number" ? ev.percent : null,
               toolCalls: typeof ev.toolCalls === "number" ? ev.toolCalls : null,
               messageCount: typeof ev.messageCount === "number" ? ev.messageCount : null,
+              turns: typeof ev.turns === "number" ? ev.turns : null,
+              steps: typeof ev.steps === "number" ? ev.steps : null,
+              inputTokens: typeof ev.inputTokens === "number" ? ev.inputTokens : null,
+              outputTokens: typeof ev.outputTokens === "number" ? ev.outputTokens : null,
+              cacheReadTokens: typeof ev.cacheReadTokens === "number" ? ev.cacheReadTokens : null,
+              cacheWriteTokens: typeof ev.cacheWriteTokens === "number" ? ev.cacheWriteTokens : null,
+              llmDurationMs: typeof ev.llmDurationMs === "number" ? ev.llmDurationMs : null,
+              ttftMs: typeof ev.ttftMs === "number" ? ev.ttftMs : null,
+              ttftSteps: typeof ev.ttftSteps === "number" ? ev.ttftSteps : null,
+              tokensPerSecond: typeof ev.tokensPerSecond === "number" ? ev.tokensPerSecond : null,
               segments,
             },
           });

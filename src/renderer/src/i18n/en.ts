@@ -226,6 +226,21 @@ export const en = {
 		"Segments are estimates. Before each turn, old tool outputs are pruned (keeps ~40k recent tokens). Auto-compact still at usage > window − 16k (~98%). At 80%, compact manually below.",
 	contextUsageAutoCompact:
 		"Auto-compact when contextTokens > contextWindow − reserveTokens (default reserveTokens=16384)",
+	sessionStatsTurns: "Turns",
+	sessionStatsSteps: "Steps",
+	sessionStatsToolCalls: "Tool calls",
+	sessionStatsTtft: "TTFT",
+	sessionStatsTps: "Avg",
+	sessionStatsCacheHit: "Cache hit",
+	sessionStatsInputTokens: "Input",
+	sessionStatsOutputTokens: "Output",
+	sessionStatsEmpty: "No session stats yet",
+	sessionStatsTitle: (turns: string, steps: string, tools: string) =>
+		`Agent ${turns} turns · ${steps} steps · ${tools} tool calls`,
+	sessionStatsTtftFormat: (s: string) => `${s}s`,
+	sessionStatsTpsFormat: (n: string) => `${n} tok/s`,
+	sessionStatsCacheHitFormat: (p: string) => `${p}%`,
+	sessionStatsTokensFormat: (n: string) => `${n} tok`,
 	closeRunningTitle: "Sessions still running",
 	closeRunningContent: (n: number) =>
 		`${n} session(s) are still running. Force close will stop them first, then quit.`,

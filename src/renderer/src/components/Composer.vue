@@ -7,7 +7,6 @@ import {
   NImage,
   NModal,
   NPopover,
-  NSelect,
   NText,
   useMessage,
 } from "naive-ui";
@@ -245,6 +244,40 @@ const thinkingMenu = computed<DropdownOption[]>(() =>
 
 const thinkingLabel = computed(
   () => thinkingOptions.find((o) => o.value === thinkingLevel.value)?.label ?? "Medium",
+);
+
+const modelMenu = computed<DropdownOption[]>(() =>
+  availableModels.value.map((group) => {
+    if ("children" in group) {
+      return {
+        type: "group" as const,
+        label: group.label,
+        key: group.key,
+        children: group.children.map((o) => ({
+          label: o.label,
+          key: o.value,
+          props:
+            o.value === selectedModelKey.value
+              ? { style: "font-weight: 600; color: var(--accent)" }
+              : undefined,
+        })),
+      };
+    }
+    return {
+      label: group.label,
+      key: group.value,
+      props:
+        group.value === selectedModelKey.value
+          ? { style: "font-weight: 600; color: var(--accent)" }
+          : undefined,
+    };
+  }),
+);
+
+const modelLabel = computed(
+  () =>
+    flatModelOptions(availableModels.value).find((o) => o.value === selectedModelKey.value)
+      ?.label ?? t.modelPlaceholder,
 );
 
 const sessionId = computed(() => sessions.activeId);
@@ -1154,6 +1187,8 @@ function onQueueSendClick(): void {
   enqueueFromComposer();
 }
 
+const contextUsage = computed(() => sessions.activeContextUsage);
+
 function formatTokens(count: number): string {
   if (count < 1000) return String(count);
   if (count < 10_000) return `${(count / 1000).toFixed(1)}k`;
@@ -1173,14 +1208,117 @@ const SEGMENT_META: Record<
   toolResults: { color: "#db2777", label: () => t.contextUsageSegToolResults },
 };
 
-const contextUsage = computed(() => sessions.activeContextUsage);
 const ctxPopoverShow = ref(false);
 const skillsCount = ref<number | null>(null);
 let skillsCountCachedFor: string | null = null;
+/**
+ * Cost-health reference: the UI treats this many context tokens as "full".
+ * Real model windows are huge (deepseek = 1M), so a window-based % always
+ * looks healthy while the bill grows. Show pressure against this budget
+ * instead (matches ~30k tokens of a 1M window as the compaction sweet spot).
+ */
+const CONTEXT_COST_REFERENCE = 300_000;
 
+const contextPercent = computed(() => {
+  const tokens = contextUsage.value?.tokens;
+  if (tokens == null || !Number.isFinite(tokens) || tokens <= 0) return null;
+  return Math.max(0, Math.min(100, (tokens / CONTEXT_COST_REFERENCE) * 100));
+});
+
+const contextTone = computed(() => {
+  const pct = contextPercent.value;
+  if (pct == null) return "muted";
+  if (pct > 90) return "danger";
+  if (pct > 70) return "warn";
+  return "ok";
+});
+
+const contextRingStyle = computed(() => {
+  const pct = contextPercent.value ?? 0;
+  const r = 7;
+  const c = 2 * Math.PI * r;
+  const offset = c * (1 - pct / 100);
+  return {
+    strokeDasharray: `${c}`,
+    strokeDashoffset: `${offset}`,
+  };
+});
+
+const contextMessageCount = computed(() => {
+  const fromStats = contextUsage.value?.messageCount;
+  if (typeof fromStats === "number") return fromStats;
+  return chat.activeMessages.length;
+});
+const contextToolCount = computed(() => {
+  const fromStats = contextUsage.value?.toolCalls;
+  if (typeof fromStats === "number") return fromStats;
+  const messages = chat.activeMessages.filter((m) => m.role === "tool").length;
+  const streaming = chat.activeStreaming?.role === "tool" ? 1 : 0;
+  return messages + streaming;
+});
+
+/**
+ * Rough per-turn input cost estimate ($). Uses the DeepSeek-style rate as a
+ * sensible default; the point is to surface cost growth, not exact billing.
+ */
+const CONTEXT_INPUT_COST_PER_M = 0.14;
+const contextCostLabel = computed(() => {
+  const tokens = contextUsage.value?.tokens;
+  if (tokens == null || !Number.isFinite(tokens) || tokens <= 0) return "";
+  const cost = (tokens / 1_000_000) * CONTEXT_INPUT_COST_PER_M;
+  if (cost < 0.01) return "<$0.01";
+  return `${cost.toFixed(2)}`;
+});
+
+/** True when the context is past the cost-health reference (needs compaction). */
+const contextNeedsCompact = computed(() => {
+  const pct = contextPercent.value;
+  return pct != null && pct >= 90;
+});
+
+const contextSegments = computed(() => {
+  const usage = contextUsage.value;
+  const window = usage?.contextWindow ?? 0;
+  const segs = usage?.segments ?? [];
+  if (!window || !segs.length) return [];
+  return segs.map((s) => {
+    const meta = SEGMENT_META[s.id];
+    return {
+      id: s.id,
+      tokens: s.tokens,
+      label: meta?.label() ?? s.id,
+      color: meta?.color ?? "#888",
+      widthPct: Math.max(0.4, (s.tokens / window) * 100),
+      tokensLabel: formatTokens(s.tokens),
+    };
+  });
+});
+
+const contextFreePct = computed(() => {
+  const usage = contextUsage.value;
+  if (!usage?.contextWindow) return 100;
+  const used =
+    typeof usage.tokens === "number"
+      ? usage.tokens
+      : (usage.segments ?? []).reduce((n, s) => n + s.tokens, 0);
+  return Math.max(0, 100 - (used / usage.contextWindow) * 100);
+});
+
+const contextFullLabel = computed(() => {
+  const pct = contextPercent.value;
+  if (pct == null) return t.contextUsageUnknown;
+  return t.contextUsageFull(pct.toFixed(0));
+});
+
+const contextTokensPairLabel = computed(() => {
+  const usage = contextUsage.value;
+  if (!usage) return t.contextUsageEmpty;
+  const used = usage.tokens !== null ? formatTokens(usage.tokens) : "?";
+  return t.contextUsageTokensPair(used, formatTokens(usage.contextWindow));
+});
 const slashMenuRef = ref<{ move: (d: number) => void; confirm: () => boolean } | null>(null);
 const atFileMenuRef = ref<{ move: (d: number) => void; confirm: () => boolean } | null>(null);
-const modelSelectRef = ref<{ focus?: () => void } | null>(null);
+const modelMenuRef = ref<{ focus?: () => void } | null>(null);
 const slashSkills = ref<{ name: string; description: string }[]>([]);
 let slashSkillsCachedFor: string | null = null;
 let slashSkillsLoading = false;
@@ -1398,7 +1536,7 @@ async function runSlashBuiltin(id: string): Promise<void> {
     }
     case "model": {
       await nextTick();
-      modelSelectRef.value?.focus?.();
+      modelMenuRef.value?.focus?.();
       return;
     }
     default: {
@@ -1434,129 +1572,70 @@ async function tryConsumeBuiltinSlashDraft(): Promise<boolean> {
 }
 
 /**
- * Cost-health reference: the UI treats this many context tokens as "full".
- * Real model windows are huge (deepseek = 1M), so a window-based % always
- * looks healthy while the bill grows. Show pressure against this budget
- * instead (matches ~30k tokens of a 1M window as the compaction sweet spot).
+ * Session-detail stats shown under the composer: Agent turns, steps, tool
+ * calls, duration, TTFT, avg tokens/s, cache hit, input/output tokens.
+ * Fed by the worker's context_usage event (SessionTimingTracker + Pi stats).
  */
-const CONTEXT_COST_REFERENCE = 300_000;
-
-const contextPercent = computed(() => {
-  const tokens = contextUsage.value?.tokens;
-  if (tokens == null || !Number.isFinite(tokens) || tokens <= 0) return null;
-  return Math.max(0, Math.min(100, (tokens / CONTEXT_COST_REFERENCE) * 100));
-});
-
-const contextPercentLabel = computed(() => {
-  const pct = contextPercent.value;
-  if (pct == null) return "?%";
-  return `${pct.toFixed(0)}%`;
-});
-
-const contextTone = computed(() => {
-  const pct = contextPercent.value;
-  if (pct == null) return "muted";
-  if (pct > 90) return "danger";
-  if (pct > 70) return "warn";
-  return "ok";
-});
-
-const contextRingStyle = computed(() => {
-  const pct = contextPercent.value ?? 0;
-  const r = 7;
-  const c = 2 * Math.PI * r;
-  const offset = c * (1 - pct / 100);
+const sessionStats = computed(() => {
+  const u = contextUsage.value;
+  if (!u) return null;
+  const turns = u.turns ?? null;
+  const steps = u.steps ?? null;
+  const tools = u.toolCalls ?? null;
+  const hasCounts = turns != null || steps != null || tools != null;
+  if (!hasCounts && u.llmDurationMs == null && u.ttftMs == null && u.tokensPerSecond == null) {
+    return null;
+  }
   return {
-    strokeDasharray: `${c}`,
-    strokeDashoffset: `${offset}`,
+    turns,
+    steps,
+    tools,
+    ttftMs: u.ttftMs ?? null,
+    tps: u.tokensPerSecond ?? null,
+    cacheHitPct:
+      u.cacheReadTokens != null &&
+      u.inputTokens != null &&
+      u.cacheWriteTokens != null &&
+      u.inputTokens + u.cacheReadTokens + u.cacheWriteTokens > 0
+        ? Math.min(
+            100,
+            Math.round(
+              (u.cacheReadTokens /
+                (u.inputTokens + u.cacheReadTokens + u.cacheWriteTokens)) *
+                100,
+            ),
+          )
+        : null,
+    inputTokens: u.inputTokens ?? null,
+    outputTokens: u.outputTokens ?? null,
   };
 });
 
-const contextMessageCount = computed(() => {
-  const fromStats = contextUsage.value?.messageCount;
-  if (typeof fromStats === "number") return fromStats;
-  return chat.activeMessages.length;
-});
-const contextToolCount = computed(() => {
-  const fromStats = contextUsage.value?.toolCalls;
-  if (typeof fromStats === "number") return fromStats;
-  const messages = chat.activeMessages.filter((m) => m.role === "tool").length;
-  const streaming = chat.activeStreaming?.role === "tool" ? 1 : 0;
-  return messages + streaming;
-});
 
-const contextTokensLabel = computed(() => {
-  const usage = contextUsage.value;
-  if (!usage) return "—";
-  if (usage.tokens !== null) return formatTokens(usage.tokens);
-  return "?";
-});
+function formatSessionTtft(ms: number | null): string {
+  if (ms == null || !Number.isFinite(ms) || ms <= 0) return "—";
+  const s = ms / 1000;
+  return t.sessionStatsTtftFormat(s < 1 ? s.toFixed(2) : s.toFixed(1));
+}
 
-/**
- * Rough per-turn input cost estimate ($). Uses the DeepSeek-style rate as a
- * sensible default; the point is to surface cost growth, not exact billing.
- */
-const CONTEXT_INPUT_COST_PER_M = 0.14;
-const contextCostLabel = computed(() => {
-  const tokens = contextUsage.value?.tokens;
-  if (tokens == null || !Number.isFinite(tokens) || tokens <= 0) return "";
-  const cost = (tokens / 1_000_000) * CONTEXT_INPUT_COST_PER_M;
-  if (cost < 0.01) return "<$0.01";
-  return `$${cost.toFixed(2)}`;
-});
+function formatSessionTps(n: number | null): string {
+  if (n == null || !Number.isFinite(n) || n <= 0) return "—";
+  return t.sessionStatsTpsFormat(n >= 100 ? n.toFixed(0) : n.toFixed(1));
+}
 
-/** True when the context is past the cost-health reference (needs compaction). */
-const contextNeedsCompact = computed(() => {
-  const pct = contextPercent.value;
-  return pct != null && pct >= 90;
-});
+function formatSessionCacheHit(p: number | null): string {
+  if (p == null) return "—";
+  return t.sessionStatsCacheHitFormat(String(p));
+}
 
-const contextWindowLabel = computed(() => {
-  const usage = contextUsage.value;
-  if (!usage) return "—";
-  return formatTokens(usage.contextWindow);
-});
+function formatSessionTokens(n: number | null): string {
+  if (n == null || !Number.isFinite(n) || n < 0) return "—";
+  return t.sessionStatsTokensFormat(n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n));
+}
 
-const contextSegments = computed(() => {
-  const usage = contextUsage.value;
-  const window = usage?.contextWindow ?? 0;
-  const segs = usage?.segments ?? [];
-  if (!window || !segs.length) return [];
-  return segs.map((s) => {
-    const meta = SEGMENT_META[s.id];
-    return {
-      id: s.id,
-      tokens: s.tokens,
-      label: meta?.label() ?? s.id,
-      color: meta?.color ?? "#888",
-      widthPct: Math.max(0.4, (s.tokens / window) * 100),
-      tokensLabel: formatTokens(s.tokens),
-    };
-  });
-});
-
-const contextFreePct = computed(() => {
-  const usage = contextUsage.value;
-  if (!usage?.contextWindow) return 100;
-  const used =
-    typeof usage.tokens === "number"
-      ? usage.tokens
-      : (usage.segments ?? []).reduce((n, s) => n + s.tokens, 0);
-  return Math.max(0, 100 - (used / usage.contextWindow) * 100);
-});
-
-const contextFullLabel = computed(() => {
-  const pct = contextPercent.value;
-  if (pct == null) return t.contextUsageUnknown;
-  return t.contextUsageFull(pct.toFixed(0));
-});
-
-const contextTokensPairLabel = computed(() => {
-  const usage = contextUsage.value;
-  if (!usage) return t.contextUsageEmpty;
-  const used = usage.tokens !== null ? formatTokens(usage.tokens) : "?";
-  return t.contextUsageTokensPair(used, formatTokens(usage.contextWindow));
-});
+function formatNum(n: number | null): string {
+  return n == null ? "—" : String(n);
+}
 
 const compactBusy = ref(false);
 
@@ -1575,24 +1654,46 @@ async function onCompactContext(): Promise<void> {
   }
 }
 
+const ctxTriggerRef = ref<HTMLElement | null>(null);
+const ctxPopoverContentRef = ref<HTMLElement | null>(null);
+
+/**
+ * Toggle the context popover. Registers a capture-phase document listener
+ * while open so a click outside the ring button / popover closes it; the
+ * button's own click uses .stop so it never re-enters through the listener.
+ */
 async function openContextPopover(): Promise<void> {
   ctxPopoverShow.value = !ctxPopoverShow.value;
-  if (!ctxPopoverShow.value) return;
-  const root = workspace.root ?? "";
-  if (skillsCountCachedFor === root && skillsCount.value !== null) return;
-  try {
-    const data = await window.api.skills.list(workspace.root ?? undefined);
-    skillsCount.value = data.skills?.length ?? 0;
-    skillsCountCachedFor = root;
-  } catch {
-    skillsCount.value = null;
+  if (ctxPopoverShow.value) {
+    document.addEventListener("pointerdown", onContextOutside, true);
+    const root = workspace.root ?? "";
+    if (skillsCountCachedFor === root && skillsCount.value !== null) return;
+    try {
+      const data = await window.api.skills.list(workspace.root ?? undefined);
+      skillsCount.value = data.skills?.length ?? 0;
+      skillsCountCachedFor = root;
+    } catch {
+      skillsCount.value = null;
+    }
+  } else {
+    document.removeEventListener("pointerdown", onContextOutside, true);
   }
 }
 
-function closeContextPopover(): void {
-  ctxPopoverShow.value = false;
+function onContextOutside(e: PointerEvent): void {
+  const target = e.target as Node | null;
+  if (target == null) return;
+  const trigger = ctxTriggerRef.value;
+  const content = ctxPopoverContentRef.value;
+  if (trigger?.contains(target) || content?.contains(target)) return;
+  closeContextPopover();
 }
 
+function closeContextPopover(): void {
+  if (!ctxPopoverShow.value) return;
+  ctxPopoverShow.value = false;
+  document.removeEventListener("pointerdown", onContextOutside, true);
+}
 async function onThinkingChange(value: string | number): Promise<void> {
   const id = sessionId.value;
   const level = String(value) as ThinkingLevel;
@@ -1750,11 +1851,12 @@ async function applySelectedModel(opts?: { allowStart?: boolean }): Promise<void
   }
 }
 
-async function onModelChange(value: string | null): Promise<void> {
-  selectedModelKey.value = value;
+async function onModelChange(value: string | number): Promise<void> {
+  const key = String(value);
+  selectedModelKey.value = key;
   appliedModelForSession.value = null;
   const id = sessionId.value;
-  if (id && value) rememberModel(id, value);
+  if (id && key) rememberModel(id, key);
   await applySelectedModel({ allowStart: false });
 }
 
@@ -2124,6 +2226,7 @@ onUnmounted(() => {
   window.removeEventListener("pi-models-changed", onModelsChanged);
   window.removeEventListener("keydown", onVoiceSessionKeydown, true);
   window.removeEventListener(ASR_VOICE_WAKE_EVENT, onAsrWake);
+  document.removeEventListener("pointerdown", onContextOutside, true);
   offAsrProgress?.();
   offAsrWake?.();
   // Do not stop App-level wake listen — only clear dictation pause if we held it.
@@ -2363,18 +2466,43 @@ watch(
             </div>
           </NPopover>
 
-          <NSelect
-            ref="modelSelectRef"
-            v-model:value="selectedModelKey"
-            class="model-select"
-            :options="availableModels"
-            size="tiny"
-            :consistent-menu-width="false"
-            filterable
-            :placeholder="t.modelPlaceholder"
+          <NDropdown
+            ref="modelMenuRef"
+            trigger="click"
+            :options="modelMenu"
             :disabled="voiceActive || voicePending"
-            @update:value="onModelChange"
-          />
+            @select="onModelChange"
+          >
+            <NButton
+              quaternary
+              size="tiny"
+              class="model-btn"
+              :disabled="voiceActive || voicePending"
+              :title="t.modelPlaceholder"
+            >
+              <span class="model-label">{{ modelLabel }}</span>
+            </NButton>
+          </NDropdown>
+
+          <NDropdown
+            trigger="click"
+            :options="thinkingMenu"
+            :disabled="voiceActive || voicePending"
+            @select="onThinkingChange"
+          >
+            <NButton
+              quaternary
+              size="tiny"
+              class="think-btn"
+              :disabled="voiceActive || voicePending"
+              :title="t.thinkingLevel"
+            >
+              <template #icon>
+                <NIcon :component="FlashOutline" :size="14" />
+              </template>
+              <span class="think-label">{{ thinkingLabel }}</span>
+            </NButton>
+          </NDropdown>
         </div>
 
         <div class="toolbar-right">
@@ -2390,6 +2518,100 @@ watch(
           >
             <NIcon :component="MicOutline" :size="18" />
           </button>
+          <NPopover
+            trigger="manual"
+            :show="ctxPopoverShow"
+            placement="top-end"
+          >
+            <template #trigger>
+              <button
+                ref="ctxTriggerRef"
+                type="button"
+                class="ctx-meter"
+                :class="`ctx-${contextTone}`"
+                :disabled="!sessionId || voiceActive || voicePending"
+                :title="t.contextUsageTitle"
+                :aria-label="t.contextUsageTitle"
+                @click.stop="openContextPopover"
+              >
+                <svg class="ctx-ring" width="18" height="18" viewBox="0 0 18 18" aria-hidden="true">
+                  <circle class="ctx-ring-track" cx="9" cy="9" r="7" fill="none" stroke-width="2" />
+                  <circle
+                    class="ctx-ring-fill"
+                    cx="9"
+                    cy="9"
+                    r="7"
+                    fill="none"
+                    stroke-width="2"
+                    stroke-linecap="round"
+                    transform="rotate(-90 9 9)"
+                    :style="contextRingStyle"
+                  />
+                </svg>
+              </button>
+            </template>
+            <div ref="ctxPopoverContentRef" class="ctx-popover">
+              <div class="ctx-pop-title">{{ t.contextUsageTitle }}</div>
+              <div class="ctx-pop-summary">
+                <span class="ctx-pop-full">{{ contextFullLabel }}</span>
+                <span class="ctx-pop-pair">{{ contextTokensPairLabel }}</span>
+                <span v-if="contextCostLabel" class="ctx-pop-cost">
+                  {{ contextCostLabel }}
+                </span>
+              </div>
+              <div class="ctx-bar" aria-hidden="true">
+                <span
+                  v-for="seg in contextSegments"
+                  :key="seg.id"
+                  class="ctx-bar-seg"
+                  :style="{ width: `${seg.widthPct}%`, background: seg.color }"
+                  :title="`${seg.label}: ${seg.tokensLabel}`"
+                />
+                <span
+                  v-if="contextFreePct > 0.5"
+                  class="ctx-bar-seg free"
+                  :style="{ width: `${contextFreePct}%` }"
+                />
+              </div>
+              <div v-if="contextSegments.length" class="ctx-legend">
+                <div v-for="seg in contextSegments" :key="`leg-${seg.id}`" class="ctx-legend-row">
+                  <span class="ctx-swatch" :style="{ background: seg.color }" />
+                  <span class="ctx-legend-label">{{ seg.label }}</span>
+                  <strong>{{ seg.tokensLabel }}</strong>
+                </div>
+              </div>
+              <div v-else class="ctx-pop-hint">{{ t.contextUsageEmpty }}</div>
+              <div class="ctx-pop-meta">
+                <div class="ctx-pop-row">
+                  <span>{{ t.contextUsageMessages }}</span>
+                  <strong>{{ contextMessageCount }}</strong>
+                </div>
+                <div class="ctx-pop-row">
+                  <span>{{ t.contextUsageTools }}</span>
+                  <strong>{{ contextToolCount }}</strong>
+                </div>
+                <div class="ctx-pop-row">
+                  <span>{{ t.contextUsageSkills }}</span>
+                  <strong>{{ skillsCount ?? "—" }}</strong>
+                </div>
+              </div>
+              <div class="ctx-pop-hint">{{ t.contextUsageHint }}</div>
+              <NButton
+                size="small"
+                type="primary"
+                secondary
+                block
+                class="ctx-compact-btn"
+                :class="{ 'ctx-compact-urgent': contextNeedsCompact }"
+                :disabled="!sessionId || running || compactBusy"
+                :loading="compactBusy"
+                @click="onCompactContext"
+              >
+                <span v-if="contextNeedsCompact" class="ctx-compact-dot" />
+                {{ t.compactContext }}
+              </NButton>
+            </div>
+          </NPopover>
           <NButton
             v-if="showPrimaryAction || voicePending"
             size="tiny"
@@ -2446,119 +2668,47 @@ watch(
     </div>
 
     <div class="composer-meta">
-      <NDropdown
-        trigger="click"
-        :options="thinkingMenu"
-        :disabled="voiceActive || voicePending"
-        @select="onThinkingChange"
-      >
-        <NButton
-          quaternary
-          size="tiny"
-          class="think-btn"
-          :disabled="voiceActive || voicePending"
-          :title="t.thinkingLevel"
-        >
-          <template #icon>
-            <NIcon :component="FlashOutline" :size="14" />
-          </template>
-          <span class="think-label">{{ thinkingLabel }}</span>
-        </NButton>
-      </NDropdown>
-
-      <NPopover
-        trigger="manual"
-        :show="ctxPopoverShow"
-        placement="top-end"
-        @clickoutside="closeContextPopover"
-      >
-        <template #trigger>
-          <button
-            type="button"
-            class="ctx-meter"
-            :class="`ctx-${contextTone}`"
-            :disabled="!sessionId"
-            @click="openContextPopover"
-          >
-            <svg class="ctx-ring" width="18" height="18" viewBox="0 0 18 18" aria-hidden="true">
-              <circle class="ctx-ring-track" cx="9" cy="9" r="7" fill="none" stroke-width="2" />
-              <circle
-                class="ctx-ring-fill"
-                cx="9"
-                cy="9"
-                r="7"
-                fill="none"
-                stroke-width="2"
-                stroke-linecap="round"
-                transform="rotate(-90 9 9)"
-                :style="contextRingStyle"
-              />
-            </svg>
-            <span class="ctx-label">{{ contextPercentLabel }}</span>
-          </button>
-        </template>
-        <div class="ctx-popover">
-          <div class="ctx-pop-title">{{ t.contextUsageTitle }}</div>
-          <div class="ctx-pop-summary">
-            <span class="ctx-pop-full">{{ contextFullLabel }}</span>
-            <span class="ctx-pop-pair">{{ contextTokensPairLabel }}</span>
-            <span v-if="contextCostLabel" class="ctx-pop-cost">
-              {{ contextCostLabel }}
-            </span>
-          </div>
-          <div class="ctx-bar" aria-hidden="true">
-            <span
-              v-for="seg in contextSegments"
-              :key="seg.id"
-              class="ctx-bar-seg"
-              :style="{ width: `${seg.widthPct}%`, background: seg.color }"
-              :title="`${seg.label}: ${seg.tokensLabel}`"
-            />
-            <span
-              v-if="contextFreePct > 0.5"
-              class="ctx-bar-seg free"
-              :style="{ width: `${contextFreePct}%` }"
-            />
-          </div>
-          <div v-if="contextSegments.length" class="ctx-legend">
-            <div v-for="seg in contextSegments" :key="`leg-${seg.id}`" class="ctx-legend-row">
-              <span class="ctx-swatch" :style="{ background: seg.color }" />
-              <span class="ctx-legend-label">{{ seg.label }}</span>
-              <strong>{{ seg.tokensLabel }}</strong>
-            </div>
-          </div>
-          <div v-else class="ctx-pop-hint">{{ t.contextUsageEmpty }}</div>
-          <div class="ctx-pop-meta">
-            <div class="ctx-pop-row">
-              <span>{{ t.contextUsageMessages }}</span>
-              <strong>{{ contextMessageCount }}</strong>
-            </div>
-            <div class="ctx-pop-row">
-              <span>{{ t.contextUsageTools }}</span>
-              <strong>{{ contextToolCount }}</strong>
-            </div>
-            <div class="ctx-pop-row">
-              <span>{{ t.contextUsageSkills }}</span>
-              <strong>{{ skillsCount ?? "—" }}</strong>
-            </div>
-          </div>
-          <div class="ctx-pop-hint">{{ t.contextUsageHint }}</div>
-          <NButton
-            size="small"
-            type="primary"
-            secondary
-            block
-            class="ctx-compact-btn"
-            :class="{ 'ctx-compact-urgent': contextNeedsCompact }"
-            :disabled="!sessionId || running || compactBusy"
-            :loading="compactBusy"
-            @click="onCompactContext"
-          >
-            <span v-if="contextNeedsCompact" class="ctx-compact-dot" />
-            {{ t.compactContext }}
-          </NButton>
-        </div>
-      </NPopover>
+      <div v-if="sessionStats" class="session-stats" role="status" aria-label="session statistics">
+        <span class="ss-item" :title="t.sessionStatsTitle(formatNum(sessionStats.turns), formatNum(sessionStats.steps), formatNum(sessionStats.tools))">
+          <span class="ss-label">{{ t.sessionStatsTurns }}</span>
+          <strong>{{ sessionStats.turns ?? "—" }}</strong>
+        </span>
+        <span class="ss-sep" aria-hidden="true" />
+        <span class="ss-item">
+          <span class="ss-label">{{ t.sessionStatsSteps }}</span>
+          <strong>{{ sessionStats.steps ?? "—" }}</strong>
+        </span>
+        <span class="ss-sep" aria-hidden="true" />
+        <span class="ss-item">
+          <span class="ss-label">{{ t.sessionStatsToolCalls }}</span>
+          <strong>{{ sessionStats.tools ?? "—" }}</strong>
+        </span>
+        <span class="ss-sep" aria-hidden="true" />
+        <span class="ss-item">
+          <span class="ss-label">{{ t.sessionStatsTtft }}</span>
+          <strong>{{ formatSessionTtft(sessionStats.ttftMs) }}</strong>
+        </span>
+        <span class="ss-sep" aria-hidden="true" />
+        <span class="ss-item">
+          <span class="ss-label">{{ t.sessionStatsTps }}</span>
+          <strong>{{ formatSessionTps(sessionStats.tps) }}</strong>
+        </span>
+        <span class="ss-sep" aria-hidden="true" />
+        <span class="ss-item">
+          <span class="ss-label">{{ t.sessionStatsCacheHit }}</span>
+          <strong>{{ formatSessionCacheHit(sessionStats.cacheHitPct) }}</strong>
+        </span>
+        <span class="ss-sep" aria-hidden="true" />
+        <span class="ss-item">
+          <span class="ss-label">{{ t.sessionStatsInputTokens }}</span>
+          <strong>{{ formatSessionTokens(sessionStats.inputTokens) }}</strong>
+        </span>
+        <span class="ss-sep" aria-hidden="true" />
+        <span class="ss-item">
+          <span class="ss-label">{{ t.sessionStatsOutputTokens }}</span>
+          <strong>{{ formatSessionTokens(sessionStats.outputTokens) }}</strong>
+        </span>
+      </div>
     </div>
 
     <AsrInstallConfirmModal
@@ -2912,10 +3062,16 @@ watch(
   }
 }
 
-.model-select {
-  flex: 1 1 auto;
-  min-width: 56px;
-  max-width: 140px;
+.model-btn {
+  flex-shrink: 0;
+  padding: 0 4px !important;
+}
+
+.model-label {
+  display: inline-block;
+  white-space: nowrap;
+  font-size: 11px;
+  margin-left: 1px;
 }
 
 .mode-trigger {
@@ -3029,42 +3185,80 @@ watch(
   color: var(--primary, #3b82f6);
 }
 
-.model-select :deep(.n-base-selection) {
-  --n-padding-single: 0 16px 0 4px;
-  font-size: 11px;
-}
-
 .think-btn {
   flex-shrink: 0;
-  max-width: 72px;
   padding: 0 4px !important;
 }
 
 .think-label {
   display: inline-block;
-  max-width: 40px;
-  overflow: hidden;
-  text-overflow: ellipsis;
   white-space: nowrap;
   font-size: 11px;
   margin-left: 1px;
 }
 
-.ctx-meter {
-  display: inline-flex;
+.session-stats {
+  display: flex;
   align-items: center;
-  gap: 5px;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  width: 100%;
+  padding: 2px 2px 0;
+  box-sizing: border-box;
+  min-width: 0;
+  color: var(--fg-muted, #71717a);
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.ss-item {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+  white-space: nowrap;
+}
+
+.ss-item strong {
+  font-weight: 600;
+  color: var(--fg-strong, #1f2328);
+  font-variant-numeric: tabular-nums;
+}
+
+.ss-label {
+  color: var(--fg-faint, #999);
+}
+
+.ss-sep {
+  width: 1px;
+  height: 10px;
+  background: color-mix(in srgb, var(--border, #ddd) 70%, transparent);
+  flex-shrink: 0;
+}
+
+:root.dark .ss-item strong {
+  color: #e6edf3;
+}
+
+:root.dark .ss-label {
+  color: #8b949e;
+}
+
+:root.dark .ss-sep {
+  background: color-mix(in srgb, #30363d 70%, transparent);
+}
+
+.ctx-meter {
+  display: inline-grid;
+  place-items: center;
+  width: 22px;
   height: 22px;
-  padding: 0 6px;
-  border: 1px solid var(--border, #e5e5e5);
-  border-radius: 6px;
+  border: none;
+  border-radius: 999px;
   background: transparent;
   cursor: pointer;
   flex-shrink: 0;
-  color: #5c5c5c;
-  font-size: 11px;
-  font-variant-numeric: tabular-nums;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  padding: 0;
 }
 
 .ctx-meter:disabled {
@@ -3094,31 +3288,16 @@ watch(
   stroke: #5c5c5c;
 }
 
-.ctx-warn {
-  color: #b45309;
-  border-color: rgba(180, 83, 9, 0.35);
-}
-
 .ctx-warn .ctx-ring-fill {
   stroke: #d97706;
-}
-
-.ctx-danger {
-  color: #b91c1c;
-  border-color: rgba(185, 28, 28, 0.35);
 }
 
 .ctx-danger .ctx-ring-fill {
   stroke: #dc2626;
 }
 
-.ctx-muted .ctx-label {
-  color: #8a8a8a;
-}
-
-.ctx-label {
-  line-height: 1;
-  white-space: nowrap;
+.ctx-muted .ctx-ring-fill {
+  stroke: #8a8a8a;
 }
 
 .ctx-popover {
@@ -3281,11 +3460,23 @@ watch(
     padding: 0 5px 0 7px;
   }
 
-  .model-select {
-    max-width: 100px;
+  .model-label {
+    display: none;
   }
 
   .think-label {
+    display: none;
+  }
+
+  .session-stats {
+    justify-content: flex-start;
+    overflow-x: auto;
+    flex-wrap: nowrap;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+
+  .session-stats::-webkit-scrollbar {
     display: none;
   }
 }
