@@ -140,4 +140,37 @@ describe("decideFollowOnScroll", () => {
     expect(d.following).toBe(true);
     expect(d.away).toBe(false);
   });
+
+  it("guarded scroll events never silently disengage an active reader", () => {
+    // Stream growth prepends above the viewport while the user is anchored at
+    // top reading history; DOM shifts fire guarded scroll events. Those must
+    // not flip the latched truth.
+    const d = decideFollowOnScroll(
+      input({
+        top: 100,
+        lastTop: 100,
+        nearBottom: false,
+        guarded: true,
+        away: true,
+        following: false,
+      }),
+    );
+    expect(d.away).toBe(true);
+    expect(d.following).toBe(false);
+  });
+
+  it("guarded scroll events never re-engage a user still away from the bottom", () => {
+    const d = decideFollowOnScroll(
+      input({
+        top: 100,
+        lastTop: 100,
+        nearBottom: false,
+        guarded: true,
+        away: true,
+        following: false,
+      }),
+    );
+    expect(d.away).toBe(true);
+    expect(d.following).toBe(false);
+  });
 });
