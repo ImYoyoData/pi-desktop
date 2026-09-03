@@ -8,6 +8,15 @@ export type LocalePreference = "system" | "zh-CN" | "en";
 
 const THEME_KEY = "pi-desktop:theme-preference";
 const LOCALE_KEY = "pi-desktop:locale-preference";
+const COMPACT_BTN_KEY = "pi-desktop:show-compact-button";
+
+function readShowCompactButton(): boolean {
+  try {
+    return localStorage.getItem(COMPACT_BTN_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
 
 function readThemePreference(): ThemePreference {
   try {
@@ -62,6 +71,7 @@ export const useAppearanceStore = defineStore("appearance", () => {
   const themePreference = ref<ThemePreference>(readThemePreference());
   const localePreference = ref<LocalePreference>(readLocalePreference());
   const systemDark = ref(systemPrefersDark());
+  const showCompactButton = ref(readShowCompactButton());
 
   const resolvedTheme = computed<ResolvedTheme>(() =>
     resolveTheme(themePreference.value, systemDark.value),
@@ -83,6 +93,15 @@ export const useAppearanceStore = defineStore("appearance", () => {
     localePreference.value = next;
     try {
       localStorage.setItem(LOCALE_KEY, next);
+    } catch {
+      // ignore
+    }
+  }
+
+  function setShowCompactButton(next: boolean): void {
+    showCompactButton.value = next;
+    try {
+      localStorage.setItem(COMPACT_BTN_KEY, next ? "1" : "0");
     } catch {
       // ignore
     }
@@ -115,8 +134,10 @@ export const useAppearanceStore = defineStore("appearance", () => {
     themePreference,
     localePreference,
     resolvedTheme,
+    showCompactButton,
     setThemePreference,
     setLocalePreference,
+    setShowCompactButton,
     init,
   };
 });
