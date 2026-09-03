@@ -703,15 +703,21 @@ function expandHistoryDown(): void {
   });
 }
 
+let instantSnapToken = 0;
 function jumpToBottomInstant(): void {
   const sc = scroller.value;
   if (!sc) return;
+  const token = ++instantSnapToken;
   sc.scrollTop = sc.scrollHeight;
+  // Deferred re-snaps must re-check follow: the user may scroll up while these
+  // rAFs are still queued — never yank the viewport back down afterwards.
   requestAnimationFrame(() => {
+    if (token !== instantSnapToken || (!followBottom && !settlingSession)) return;
     const el = scroller.value;
     if (!el) return;
     el.scrollTop = el.scrollHeight;
     requestAnimationFrame(() => {
+      if (token !== instantSnapToken || (!followBottom && !settlingSession)) return;
       const el2 = scroller.value;
       if (el2) el2.scrollTop = el2.scrollHeight;
     });
@@ -834,8 +840,16 @@ async function beginSessionSettle(): Promise<void> {
  * this let an already-queued snap run with a stale followBottom=true and yank
  * the viewport back to the bottom while the user was reading history above.
  */
+let lastSyncScrollTop = -1;
 function syncFollowBottomOnScroll(sc: HTMLElement): void {
+  const top = sc.scrollTop;
+  const scrolledUp = lastSyncScrollTop >= 0 && top < lastSyncScrollTop - 1;
+  lastSyncScrollTop = top;
   if (adjustingWindow || settlingSession) return;
+  // Upward motion is always user intent — expire the post-send suppression
+  // immediately, otherwise follow stays forced=true until the next scroll
+  // event and queued stream snaps still yank the viewport back down.
+  if (scrolledUp) suppressFollowBottomUntil = 0;
   // During post-send pin, smooth scroll may leave us away from the true bottom;
   // keep follow enabled so streaming output still becomes visible.
   if (Date.now() < suppressFollowBottomUntil) {
@@ -843,9 +857,13 @@ function syncFollowBottomOnScroll(sc: HTMLElement): void {
   } else {
     followBottom = isNearBottom(sc);
   }
-  if (!followBottom && bottomScrollRaf) {
-    cancelAnimationFrame(bottomScrollRaf);
-    bottomScrollRaf = 0;
+  if (!followBottom) {
+    if (bottomScrollRaf) {
+      cancelAnimationFrame(bottomScrollRaf);
+      bottomScrollRaf = 0;
+    }
+    // Invalidate instant-snap rAF chains queued before the user scrolled away.
+    instantSnapToken++;
   }
   showJumpLatest.value = !followBottom && displayMessages.value.length > 0;
 }
@@ -1009,7 +1027,8 @@ watch(
     // mount) — but never yank a user who scrolled up to read history.
     if (running || streaming || justFinished) {
       if (!followBottom) return;
-      el.scrollTop = el.scrollHeight;
+      // Coalesced + re-checked at fire time (never yanks a scrolled-up reader).
+      scheduleBottomScroll();
       measureVisibleRows();
       if (justFinished) {
         requestAnimationFrame(() => {
@@ -1080,6 +1099,7 @@ onBeforeUnmount(() => {
     cancelAnimationFrame(bottomScrollRaf);
     bottomScrollRaf = 0;
   }
+  instantSnapToken++;
 });
 
 /**
