@@ -36,6 +36,7 @@ import { isHttpUrl, useComposerStore } from "@renderer/stores/composer";
 import { useSendQueueStore } from "@renderer/stores/send-queue";
 import { useSessionsStore } from "@renderer/stores/sessions";
 import { useWorkspaceStore } from "@renderer/stores/workspace";
+import { useAppearanceStore } from "@renderer/stores/appearance";
 import { useRightTabsStore } from "@renderer/stores/right-tabs";
 import { formatAsrInstallError, formatAsrRuntimeError, isAsrInstallCancelled, useAsrStore } from "@renderer/stores/asr";
 import { useMediaStore } from "@renderer/stores/media";
@@ -90,6 +91,7 @@ const sessions = useSessionsStore();
 const workspace = useWorkspaceStore();
 const rightTabs = useRightTabsStore();
 const asr = useAsrStore();
+const appearance = useAppearanceStore();
 const media = useMediaStore();
 const messageApi = useMessage();
 let voiceConfirming = false;
@@ -2590,6 +2592,7 @@ watch(
                 </div>
               </div>
               <NButton
+                v-if="appearance.showCompactButton"
                 size="small"
                 type="primary"
                 secondary

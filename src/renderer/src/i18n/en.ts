@@ -399,7 +399,10 @@ export const en = {
 	gitErr_git_unavailable:
 		"Embedded Git is missing — Changes cannot read the repository",
 	gitErr_unknown: "Git operation failed",
-	appearance: "Appearance",
+	appearance: "General",
+	showCompactButton: "Show compact button",
+	showCompactButtonHint:
+		"Show the compact-context button and its warning indicator in the context usage panel.",
 	notifyTitle: "Notifications",
 	proxyTitle: "Network proxy",
 	proxyModeOff: "Off",
