@@ -1569,42 +1569,107 @@ async function tryConsumeBuiltinSlashDraft(): Promise<boolean> {
 
 /**
  * Session-detail stats shown under the composer: Agent turns, steps, tool
- * calls, duration, TTFT, avg tokens/s, cache hit, input/output tokens.
+ * calls, TTFT, avg tokens/s, cache hit, input/output tokens.
  * Fed by the worker's context_usage event (SessionTimingTracker + Pi stats).
+ *
+ * Only items that actually have data are rendered — a stat with no sample
+ * is omitted instead of showing "label —".
  */
-const sessionStats = computed(() => {
+type SessionStatItem = {
+  key: string;
+  label: string;
+  value: string;
+  title?: string;
+};
+
+const sessionStats = computed<SessionStatItem[] | null>(() => {
   const u = contextUsage.value;
   if (!u) return null;
-  const turns = u.turns ?? null;
-  const steps = u.steps ?? null;
-  const tools = u.toolCalls ?? null;
-  const hasCounts = turns != null || steps != null || tools != null;
-  if (!hasCounts && u.llmDurationMs == null && u.ttftMs == null && u.tokensPerSecond == null) {
-    return null;
-  }
-  return {
-    turns,
-    steps,
-    tools,
-    ttftMs: u.ttftMs ?? null,
-    tps: u.tokensPerSecond ?? null,
-    cacheHitPct:
-      u.cacheReadTokens != null &&
-      u.inputTokens != null &&
-      u.cacheWriteTokens != null &&
-      u.inputTokens + u.cacheReadTokens + u.cacheWriteTokens > 0
-        ? Math.min(
-            100,
-            Math.round(
-              (u.cacheReadTokens /
-                (u.inputTokens + u.cacheReadTokens + u.cacheWriteTokens)) *
-                100,
-            ),
-          )
-        : null,
-    inputTokens: u.inputTokens ?? null,
-    outputTokens: u.outputTokens ?? null,
+  const items: SessionStatItem[] = [];
+  const push = (item: SessionStatItem | null): void => {
+    if (item) items.push(item);
   };
+  push(
+    u.turns != null && u.turns > 0
+      ? {
+          key: "turns",
+          label: t.sessionStatsTurns,
+          value: formatNum(u.turns),
+          title: t.sessionStatsTitle(
+            formatNum(u.turns),
+            formatNum(u.steps ?? null),
+            formatNum(u.toolCalls ?? null),
+          ),
+        }
+      : null,
+  );
+  push(
+    u.steps != null && u.steps > 0
+      ? {
+          key: "steps",
+          label: t.sessionStatsSteps,
+          value: formatNum(u.steps),
+        }
+      : null,
+  );
+  push(
+    u.toolCalls != null && u.toolCalls > 0
+      ? {
+          key: "tools",
+          label: t.sessionStatsToolCalls,
+          value: formatNum(u.toolCalls),
+        }
+      : null,
+  );
+  if (u.ttftMs != null && u.ttftMs > 0) {
+    push({
+      key: "ttft",
+      label: t.sessionStatsTtft,
+      value: formatSessionTtft(u.ttftMs),
+    });
+  }
+  if (u.tokensPerSecond != null && u.tokensPerSecond > 0) {
+    push({
+      key: "tps",
+      label: t.sessionStatsTps,
+      value: formatSessionTps(u.tokensPerSecond),
+    });
+  }
+  if (
+    u.cacheReadTokens != null &&
+    u.inputTokens != null &&
+    u.cacheWriteTokens != null &&
+    u.inputTokens + u.cacheReadTokens + u.cacheWriteTokens > 0
+  ) {
+    const pct = Math.min(
+      100,
+      Math.round(
+        (u.cacheReadTokens /
+          (u.inputTokens + u.cacheReadTokens + u.cacheWriteTokens)) *
+          100,
+      ),
+    );
+    push({
+      key: "cacheHit",
+      label: t.sessionStatsCacheHit,
+      value: formatSessionCacheHit(pct),
+    });
+  }
+  if (u.inputTokens != null && u.inputTokens > 0) {
+    push({
+      key: "input",
+      label: t.sessionStatsInputTokens,
+      value: formatSessionTokens(u.inputTokens),
+    });
+  }
+  if (u.outputTokens != null && u.outputTokens > 0) {
+    push({
+      key: "output",
+      label: t.sessionStatsOutputTokens,
+      value: formatSessionTokens(u.outputTokens),
+    });
+  }
+  return items.length > 0 ? items : null;
 });
 
 
@@ -2665,45 +2730,13 @@ watch(
 
     <div class="composer-meta">
       <div v-if="sessionStats" class="session-stats" role="status" aria-label="session statistics">
-        <span class="ss-item" :title="t.sessionStatsTitle(formatNum(sessionStats.turns), formatNum(sessionStats.steps), formatNum(sessionStats.tools))">
-          <span class="ss-label">{{ t.sessionStatsTurns }}</span>
-          <strong>{{ sessionStats.turns ?? "—" }}</strong>
-        </span>
-        <span class="ss-sep" aria-hidden="true" />
-        <span class="ss-item">
-          <span class="ss-label">{{ t.sessionStatsSteps }}</span>
-          <strong>{{ sessionStats.steps ?? "—" }}</strong>
-        </span>
-        <span class="ss-sep" aria-hidden="true" />
-        <span class="ss-item">
-          <span class="ss-label">{{ t.sessionStatsToolCalls }}</span>
-          <strong>{{ sessionStats.tools ?? "—" }}</strong>
-        </span>
-        <span class="ss-sep" aria-hidden="true" />
-        <span class="ss-item">
-          <span class="ss-label">{{ t.sessionStatsTtft }}</span>
-          <strong>{{ formatSessionTtft(sessionStats.ttftMs) }}</strong>
-        </span>
-        <span class="ss-sep" aria-hidden="true" />
-        <span class="ss-item">
-          <span class="ss-label">{{ t.sessionStatsTps }}</span>
-          <strong>{{ formatSessionTps(sessionStats.tps) }}</strong>
-        </span>
-        <span class="ss-sep" aria-hidden="true" />
-        <span class="ss-item">
-          <span class="ss-label">{{ t.sessionStatsCacheHit }}</span>
-          <strong>{{ formatSessionCacheHit(sessionStats.cacheHitPct) }}</strong>
-        </span>
-        <span class="ss-sep" aria-hidden="true" />
-        <span class="ss-item">
-          <span class="ss-label">{{ t.sessionStatsInputTokens }}</span>
-          <strong>{{ formatSessionTokens(sessionStats.inputTokens) }}</strong>
-        </span>
-        <span class="ss-sep" aria-hidden="true" />
-        <span class="ss-item">
-          <span class="ss-label">{{ t.sessionStatsOutputTokens }}</span>
-          <strong>{{ formatSessionTokens(sessionStats.outputTokens) }}</strong>
-        </span>
+        <template v-for="(item, idx) in sessionStats" :key="item.key">
+          <span v-if="idx > 0" class="ss-sep" aria-hidden="true" />
+          <span class="ss-item" :title="item.title">
+            <span class="ss-label">{{ item.label }}</span>
+            <strong>{{ item.value }}</strong>
+          </span>
+        </template>
       </div>
     </div>
 
