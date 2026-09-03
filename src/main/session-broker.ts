@@ -16,6 +16,7 @@ import type {
   SessionImageCacheSource,
 } from "../shared/protocol";
 import { IDLE_WORKER_DESTROY_MS } from "./worker-lifecycle";
+import { markStartup } from "./startup-timing";
 import { listSessionsForCwd, purgeWorkspaceSessionDir } from "./session-list";
 import {
   clearSessionConversation,
@@ -694,7 +695,9 @@ export function createSessionBroker(deps: {
   }
 
   async function listSessions(cwd: string): Promise<SessionSummary[]> {
+    markStartup("main:sessions-list-start");
     const disk = await listSessionsForCwd(cwd);
+    markStartup("main:sessions-list-disk-done");
     const merged = new Map<string, SessionSummary>();
     for (const row of disk) {
       merged.set(row.id, { ...row });

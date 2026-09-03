@@ -1,4 +1,5 @@
 <script setup lang="ts">
+// pi-lens-ignore: 2305
 import { computed, h, nextTick, onMounted, onUnmounted, reactive, ref, watch } from "vue";
 import type { DropdownOption } from "naive-ui";
 import {
@@ -38,6 +39,7 @@ import { useSendQueueStore } from "@renderer/stores/send-queue";
 import { useWorkspaceStore } from "@renderer/stores/workspace";
 import FilesTab from "@renderer/components/FilesTab.vue";
 import { t } from "@renderer/i18n";
+import { markRendererStartup } from "@renderer/utils/startup-timing";
 
 const PIN_KEY = "session-pins:v1";
 const SESSION_ORDER_KEY = "pi-desktop:session-order:v2";
@@ -133,6 +135,7 @@ function confirmPurgeWorkspace(root: string): void {
           d.loading = false;
           return false;
         }
+        return undefined;
       })();
     },
   });
@@ -270,6 +273,7 @@ function togglePin(root: string, id: string): void {
 }
 
 onMounted(async () => {
+  markRendererStartup("renderer:sidebar-mounted");
   loadPins();
   loadSessionOrders();
   sessionsStore.bindEvents();
@@ -397,9 +401,11 @@ function appendSessionToOrder(root: string, sessionId: string): void {
 }
 
 async function loadSessions(root: string): Promise<void> {
+  markRendererStartup("renderer:sessions-request");
   const list = await window.api.sessions.list(root);
   sessionsByRoot[root] = list;
   if (root === workspace.root) sessionsStore.sessions = list;
+  markRendererStartup("renderer:ready");
 }
 
 async function ensureActiveSession(root: string): Promise<void> {
@@ -522,6 +528,7 @@ function confirmDeleteSession(root: string, sessionId: string): void {
           d.loading = false;
           return false;
         }
+        return undefined;
       })();
     },
   });
@@ -838,12 +845,10 @@ function onLeftSplitResized(payload: SplitpanesResizedPayload): void {
 
     <NAlert v-if="showStuckRecovery" type="warning" :bordered="false" style="margin: 0 8px 8px">
       {{ t.stuckBanner }}
-      <template #footer>
-        <NSpace>
-          <NButton size="tiny" type="error" @click="onKill">{{ t.terminate }}</NButton>
-          <NButton size="tiny" @click="onRestart">{{ t.restart }}</NButton>
-        </NSpace>
-      </template>
+      <NSpace style="margin-top: 6px">
+        <NButton size="tiny" type="error" @click="onKill">{{ t.terminate }}</NButton>
+        <NButton size="tiny" @click="onRestart">{{ t.restart }}</NButton>
+      </NSpace>
     </NAlert>
 
     <Splitpanes class="left-split" horizontal @resized="onLeftSplitResized">

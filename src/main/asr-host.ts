@@ -15,7 +15,13 @@ import {
 import { join, dirname, basename } from "path";
 import { cpus } from "os";
 import { pipeline } from "stream/promises";
-import { spawn, execFile, execFileSync, type ChildProcessWithoutNullStreams } from "child_process";
+import {
+  spawn,
+  execFile,
+  execFileSync,
+  type ChildProcessWithoutNullStreams,
+} from "child_process";
+import { Worker } from "node:worker_threads";
 import { promisify } from "util";
 import { Readable } from "stream";
 import { IpcChannels } from "../shared/protocol";
@@ -43,6 +49,7 @@ import {
   type AsrStreamEvent,
   type AsrBackendKind,
   type AsrCloudConfig,
+  type AsrCloudApiStyle,
   type AsrTranscribePayload,
 } from "../shared/asr";
 import {
@@ -54,9 +61,15 @@ import {
   resolveAsrGpuPreference,
   type AsrGpuInfo,
 } from "./asr-gpu";
-import { DEFAULT_ASR_WAKE_HOTKEY, normalizeAccelerator } from "../shared/hotkey";
+import {
+  DEFAULT_ASR_WAKE_HOTKEY,
+  normalizeAccelerator,
+} from "../shared/hotkey";
 import { DEFAULT_ASR_WAKE_WORDS } from "../shared/asr-wake";
-import { transcribeViaCloudOffMain, writeWavOffMain } from "./asr-cloud-offload";
+import {
+  transcribeViaCloudOffMain,
+  writeWavOffMain,
+} from "./asr-cloud-offload";
 
 const execFileAsync = promisify(execFile);
 const PREFS_FILE = "asr-prefs.json";
@@ -100,6 +113,73 @@ let streamStderrTail = "";
 let lastError: string | null = null;
 let installAbort: AbortController | null = null;
 let cachedGpuInfo: AsrGpuInfo | null = null;
+let cachedGpuOptions: AsrGpuOption[] | null = null;
+let gpuDetectInFlight: Promise<void> | null = null;
+let gpuDetectPref: string | null = null;
+
+function gpuDetectWorkerPath(): string {
+  const candidates = [
+    join(__dirname, "asr-gpu-detect-worker.js"),
+    join(__dirname, "../../out/main/asr-gpu-detect-worker.js"),
+  ];
+  for (const candidate of candidates) {
+    let p = candidate;
+    if (p.includes("app.asar") && !p.includes("app.asar.unpacked")) {
+      p = p.replace("app.asar", "app.asar.unpacked");
+    }
+    if (existsSync(p)) return p;
+  }
+  return candidates[0]!;
+}
+
+/**
+ * GPU probes shell out to powershell / nvidia-smi / vulkaninfo with multi-second
+ * budgets — run them in a worker thread so the main event loop never stalls.
+ * Results feed cachedGpuInfo / cachedGpuOptions, so later sync callers hit cache.
+ */
+function ensureGpuDetection(): Promise<void> {
+  const pref = readPrefs().gpuPreference || "auto";
+  if (cachedGpuInfo && cachedGpuOptions && gpuDetectPref === pref) {
+    return Promise.resolve();
+  }
+  if (gpuDetectInFlight && gpuDetectPref === pref) return gpuDetectInFlight;
+  gpuDetectPref = pref;
+  gpuDetectInFlight = new Promise<void>((resolve) => {
+    const finish = () => {
+      gpuDetectInFlight = null;
+      resolve();
+    };
+    let worker: Worker;
+    try {
+      worker = new Worker(gpuDetectWorkerPath(), {
+        workerData: { preference: pref },
+      });
+    } catch {
+      finish();
+      return;
+    }
+    worker.once(
+      "message",
+      (msg: {
+        ok?: boolean;
+        resolved?: AsrGpuInfo;
+        options?: AsrGpuOption[];
+      }) => {
+        if (msg?.ok && msg.resolved) {
+          cachedGpuInfo = applyCudaPolicy(msg.resolved, pref);
+          cachedGpuOptions = Array.isArray(msg.options) ? msg.options : null;
+        }
+        void worker.terminate();
+        finish();
+      },
+    );
+    worker.once("error", () => {
+      void worker.terminate();
+      finish();
+    });
+  });
+  return gpuDetectInFlight;
+}
 
 /** Stable token so renderer can suppress error toasts on user cancel. */
 const ASR_INSTALL_CANCELLED = "ASR_INSTALL_CANCELLED";
@@ -149,10 +229,18 @@ function cloudPrefsPath(): string {
 
 function readCloudPrefs(): AsrCloudPrefs {
   try {
-    const parsed = JSON.parse(readFileSync(cloudPrefsPath(), "utf8")) as Partial<AsrCloudPrefs>;
+    const parsed = JSON.parse(
+      readFileSync(cloudPrefsPath(), "utf8"),
+    ) as Partial<AsrCloudPrefs>;
     return {
-      backend: parsed.backend === "local" || parsed.backend === "cloud" ? parsed.backend : null,
-      cloud: parsed.cloud && typeof parsed.cloud === "object" ? parsed.cloud : undefined,
+      backend:
+        parsed.backend === "local" || parsed.backend === "cloud"
+          ? parsed.backend
+          : null,
+      cloud:
+        parsed.cloud && typeof parsed.cloud === "object"
+          ? parsed.cloud
+          : undefined,
     };
   } catch {
     return {};
@@ -160,7 +248,11 @@ function readCloudPrefs(): AsrCloudPrefs {
 }
 
 function writeCloudPrefs(prefs: AsrCloudPrefs): void {
-  writeFileSync(cloudPrefsPath(), `${JSON.stringify(prefs, null, 2)}\n`, "utf8");
+  writeFileSync(
+    cloudPrefsPath(),
+    `${JSON.stringify(prefs, null, 2)}\n`,
+    "utf8",
+  );
 }
 
 /**
@@ -170,7 +262,9 @@ function writeCloudPrefs(prefs: AsrCloudPrefs): void {
  * Xiaomi MiMo has no /audio/transcriptions endpoint, so route it to the
  * chat-completions + input_audio style automatically.
  */
-function inferCloudApiStyle(cloud: AsrCloudConfig | undefined): AsrCloudApiStyle {
+function inferCloudApiStyle(
+  cloud: AsrCloudConfig | undefined,
+): AsrCloudApiStyle {
   const style = cloud?.apiStyle;
   if (
     style === "openai-multipart" ||
@@ -219,7 +313,10 @@ function ensureDirs(): void {
  * does not leave hundreds of MB orphaned on disk. Only known legacy names.
  */
 function cleanupLegacyAsrModels(): void {
-  const legacyNames = ["qwen3-asr-0.6b-q4_k.gguf", "qwen3-asr-0.6b-q4_k"] as const;
+  const legacyNames = [
+    "qwen3-asr-0.6b-q4_k.gguf",
+    "qwen3-asr-0.6b-q4_k",
+  ] as const;
   for (const name of legacyNames) {
     try {
       const target = join(asrRoot(), "models", name);
@@ -238,10 +335,13 @@ function readPrefs(): Prefs {
         ? raw.gpuPreference.trim()
         : "auto";
     const wake =
-      normalizeAccelerator(typeof raw.wakeHotkey === "string" ? raw.wakeHotkey : "") ||
-      DEFAULT_ASR_WAKE_HOTKEY;
+      normalizeAccelerator(
+        typeof raw.wakeHotkey === "string" ? raw.wakeHotkey : "",
+      ) || DEFAULT_ASR_WAKE_HOTKEY;
     const wakeWords =
-      typeof raw.wakeWords === "string" ? raw.wakeWords : DEFAULT_ASR_WAKE_WORDS;
+      typeof raw.wakeWords === "string"
+        ? raw.wakeWords
+        : DEFAULT_ASR_WAKE_WORDS;
     return {
       enabled: raw.enabled !== false,
       disableCuda: Boolean(raw.disableCuda),
@@ -270,7 +370,9 @@ function writePrefs(prefs: Prefs): void {
   const wake =
     normalizeAccelerator(prefs.wakeHotkey || "") || DEFAULT_ASR_WAKE_HOTKEY;
   const wakeWords =
-    typeof prefs.wakeWords === "string" ? prefs.wakeWords : DEFAULT_ASR_WAKE_WORDS;
+    typeof prefs.wakeWords === "string"
+      ? prefs.wakeWords
+      : DEFAULT_ASR_WAKE_WORDS;
   writeFileSync(
     prefsPath(),
     `${JSON.stringify(
@@ -317,7 +419,9 @@ function unregisterWakeHotkey(): void {
 
 /** Register (or re-register) the global ASR wake shortcut. Returns false if taken/invalid. */
 function registerWakeHotkey(accel?: string): boolean {
-  const next = normalizeAccelerator(accel || wakeHotkeyFromPrefs()) || DEFAULT_ASR_WAKE_HOTKEY;
+  const next =
+    normalizeAccelerator(accel || wakeHotkeyFromPrefs()) ||
+    DEFAULT_ASR_WAKE_HOTKEY;
   unregisterWakeHotkey();
   try {
     const ok = globalShortcut.register(next, () => {
@@ -400,7 +504,7 @@ function gpuInfo(): AsrGpuInfo {
 }
 
 function localizedGpuOptions(): AsrGpuOption[] {
-  return enumerateAsrGpuOptions().map((opt) => {
+  return (cachedGpuOptions ?? enumerateAsrGpuOptions()).map((opt) => {
     if (opt.id === "auto") return { ...opt, label: "Auto" };
     if (opt.id === "cpu") return { ...opt, label: "CPU" };
     return opt;
@@ -429,7 +533,9 @@ function findBinary(dir: string, names: string[]): string | null {
         stack.push(full);
         continue;
       }
-      if (names.some((n) => name === n || name.toLowerCase() === n.toLowerCase())) {
+      if (
+        names.some((n) => name === n || name.toLowerCase() === n.toLowerCase())
+      ) {
         return full;
       }
     }
@@ -457,7 +563,10 @@ function findBinary(dir: string, names: string[]): string | null {
         continue;
       }
       const lower = name.toLowerCase();
-      if (lower.startsWith("crispasr") && (lower.endsWith(".exe") || !lower.includes("."))) {
+      if (
+        lower.startsWith("crispasr") &&
+        (lower.endsWith(".exe") || !lower.includes("."))
+      ) {
         return full;
       }
     }
@@ -476,7 +585,8 @@ function backendMarkerPath(): string {
 function installedBackend(): AsrGpuBackend | null {
   try {
     const raw = readFileSync(backendMarkerPath(), "utf8").trim().toLowerCase();
-    if (raw === "cuda" || raw === "vulkan" || raw === "metal" || raw === "cpu") return raw;
+    if (raw === "cuda" || raw === "vulkan" || raw === "metal" || raw === "cpu")
+      return raw;
   } catch {
     // legacy installs without marker
   }
@@ -529,7 +639,11 @@ function getStatus(): AsrStatus {
     gpuPreference: prefs.gpuPreference || "auto",
     gpuOptions: localizedGpuOptions(),
     runtimeMatchesPreference: matches,
-    runtimeArchiveHint: asrRuntimeArchiveName(process.platform, process.arch, backend),
+    runtimeArchiveHint: asrRuntimeArchiveName(
+      process.platform,
+      process.arch,
+      backend,
+    ),
     downloadMirror: normalizeAsrDownloadMirror(prefs.downloadMirror),
     wakeHotkey: prefs.wakeHotkey || DEFAULT_ASR_WAKE_HOTKEY,
     residentModel: Boolean(prefs.residentModel),
@@ -541,9 +655,21 @@ function getStatus(): AsrStatus {
   };
 }
 
-function setGpuPreference(preference: string): AsrStatus {
+async function getStatusAsync(): Promise<AsrStatus> {
+  try {
+    await ensureGpuDetection();
+  } catch {
+    // worker failed — sync getStatus() keeps its own probe fallbacks
+  }
+  return getStatus();
+}
+
+function setGpuPreference(preference: string): void {
   const prefs = readPrefs();
-  const next = typeof preference === "string" && preference.trim() ? preference.trim() : "auto";
+  const next =
+    typeof preference === "string" && preference.trim()
+      ? preference.trim()
+      : "auto";
   const options = enumerateAsrGpuOptions();
   const allowed = new Set(options.map((o) => o.id));
   if (!allowed.has(next)) {
@@ -557,7 +683,6 @@ function setGpuPreference(preference: string): AsrStatus {
     gpuPreference: next,
   });
   cachedGpuInfo = null;
-  return getStatus();
 }
 
 function setDownloadMirror(mirror: string): AsrStatus {
@@ -591,7 +716,8 @@ function downloadErrorMessage(err: unknown, url: string): string {
       ? (err as { cause?: { code?: string; message?: string } }).cause
       : undefined;
   const code = cause?.code ?? "";
-  const detail = cause?.message || (err instanceof Error ? err.message : String(err));
+  const detail =
+    cause?.message || (err instanceof Error ? err.message : String(err));
   const kind =
     code === "UND_ERR_CONNECT_TIMEOUT" ||
     code === "ETIMEDOUT" ||
@@ -628,7 +754,8 @@ async function downloadOnce(
   const tmp = `${dest}.part`;
   rmSync(tmp, { force: true });
   const host = asrDownloadSourceHost(url);
-  const phaseLabel = phase === "model" ? "Downloading ASR model…" : "Downloading ASR runtime…";
+  const phaseLabel =
+    phase === "model" ? "Downloading ASR model…" : "Downloading ASR runtime…";
   broadcastProgress({
     phase,
     receivedBytes: 0,
@@ -686,7 +813,9 @@ async function downloadOnce(
     const headerTotal = Number(res.headers.get("content-length") || 0);
     let totalBytes = headerTotal > 0 ? headerTotal : estimatePhaseBytes(phase);
     let lastEmit = 0;
-    const reader = Readable.fromWeb(res.body as import("stream/web").ReadableStream);
+    const reader = Readable.fromWeb(
+      res.body as import("stream/web").ReadableStream,
+    );
     const out = createWriteStream(tmp, { highWaterMark: 1024 * 1024 });
     const emit = (force = false): void => {
       const now = Date.now();
@@ -759,7 +888,8 @@ async function downloadFile(
       return;
     } catch (err) {
       lastErr = err;
-      if (isInstallCancelledError(err, signal)) throw new Error(ASR_INSTALL_CANCELLED);
+      if (isInstallCancelledError(err, signal))
+        throw new Error(ASR_INSTALL_CANCELLED);
       // Slow / stalled mirrors: jump to the next candidate immediately.
       if (isSlowDownloadError(err)) continue;
       // One quick retry for transient mid-transfer failures on the same URL.
@@ -770,7 +900,8 @@ async function downloadFile(
         return;
       } catch (retryErr) {
         lastErr = retryErr;
-        if (isInstallCancelledError(retryErr, signal)) throw new Error(ASR_INSTALL_CANCELLED);
+        if (isInstallCancelledError(retryErr, signal))
+          throw new Error(ASR_INSTALL_CANCELLED);
         if (isSlowDownloadError(retryErr)) continue;
       }
     }
@@ -778,7 +909,11 @@ async function downloadFile(
   throw new Error(downloadErrorMessage(lastErr, lastUrl));
 }
 
-async function extractArchive(archivePath: string, destDir: string, kind: "zip" | "tar.gz"): Promise<void> {
+async function extractArchive(
+  archivePath: string,
+  destDir: string,
+  kind: "zip" | "tar.gz",
+): Promise<void> {
   mkdirSync(destDir, { recursive: true });
   broadcastProgress({
     phase: "extract",
@@ -809,7 +944,10 @@ async function extractArchive(archivePath: string, destDir: string, kind: "zip" 
   throw new Error(`Unsupported archive: ${kind}`);
 }
 
-async function installRuntimeBackend(backend: AsrGpuBackend, signal: AbortSignal): Promise<void> {
+async function installRuntimeBackend(
+  backend: AsrGpuBackend,
+  signal: AbortSignal,
+): Promise<void> {
   const asset = resolveAsrBinaryAsset(process.platform, process.arch, backend);
   if (!asset) throw new Error(`ASR runtime not available for ${backend}`);
 
@@ -819,7 +957,10 @@ async function installRuntimeBackend(backend: AsrGpuBackend, signal: AbortSignal
     totalBytes: estimatePhaseBytes("binary"),
     message: `Downloading ASR runtime (${backend})…`,
   });
-  const archivePath = join(asrRoot(), `runtime-download.${asset.archive === "zip" ? "zip" : "tar.gz"}`);
+  const archivePath = join(
+    asrRoot(),
+    `runtime-download.${asset.archive === "zip" ? "zip" : "tar.gz"}`,
+  );
   await downloadFile(asset.url, archivePath, "binary", signal);
   throwIfInstallAborted(signal);
   rmSync(runtimeDir(), { recursive: true, force: true });
@@ -847,7 +988,10 @@ async function ensureRuntime(signal: AbortSignal): Promise<void> {
   // Prefer GPU build; if GitHub/mirrors fail, fall back so voice still works (slower).
   const candidates: AsrGpuBackend[] = [];
   const add = (b: AsrGpuBackend): void => {
-    if (!candidates.includes(b) && resolveAsrBinaryAsset(process.platform, process.arch, b)) {
+    if (
+      !candidates.includes(b) &&
+      resolveAsrBinaryAsset(process.platform, process.arch, b)
+    ) {
       candidates.push(b);
     }
   };
@@ -861,7 +1005,8 @@ async function ensureRuntime(signal: AbortSignal): Promise<void> {
       if (backend !== preferred) {
         cachedGpuInfo = {
           backend,
-          deviceLabel: backend === "cpu" ? "CPU (fallback)" : gpuInfo().deviceLabel,
+          deviceLabel:
+            backend === "cpu" ? "CPU (fallback)" : gpuInfo().deviceLabel,
           kind: backend === "cpu" ? "cpu" : gpuInfo().kind,
         };
       }
@@ -872,7 +1017,8 @@ async function ensureRuntime(signal: AbortSignal): Promise<void> {
       if (backend !== preferred) {
         cachedGpuInfo = {
           backend,
-          deviceLabel: backend === "cpu" ? "CPU (fallback)" : gpuInfo().deviceLabel,
+          deviceLabel:
+            backend === "cpu" ? "CPU (fallback)" : gpuInfo().deviceLabel,
           kind: backend === "cpu" ? "cpu" : gpuInfo().kind,
         };
       }
@@ -881,10 +1027,14 @@ async function ensureRuntime(signal: AbortSignal): Promise<void> {
       lastErr = err;
     }
   }
-  throw lastErr instanceof Error ? lastErr : new Error(String(lastErr ?? "ASR runtime install failed"));
+  throw lastErr instanceof Error
+    ? lastErr
+    : new Error(String(lastErr ?? "ASR runtime install failed"));
 }
 
-async function withInstallLock(run: (signal: AbortSignal) => Promise<AsrStatus>): Promise<AsrStatus> {
+async function withInstallLock(
+  run: (signal: AbortSignal) => Promise<AsrStatus>,
+): Promise<AsrStatus> {
   const backend = preferredGpuBackend();
   if (!resolveAsrBinaryAsset(process.platform, process.arch, backend)) {
     throw new Error("ASR is not supported on this platform");
@@ -896,7 +1046,10 @@ async function withInstallLock(run: (signal: AbortSignal) => Promise<AsrStatus>)
   const gate = new Promise<void>((resolve) => {
     releaseQueue = resolve;
   });
-  installQueue = prev.then(() => gate, () => gate);
+  installQueue = prev.then(
+    () => gate,
+    () => gate,
+  );
   await prev.catch(() => undefined);
 
   installBusy = true;
@@ -1006,7 +1159,8 @@ async function importAsrModel(sourcePath: string): Promise<AsrStatus> {
 }
 
 async function pickAsrModelFile(): Promise<string | null> {
-  const win = BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0];
+  const win =
+    BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0];
   const opts = {
     title: "Select SenseVoiceSmall GGUF model",
     properties: ["openFile" as const],
@@ -1031,7 +1185,8 @@ async function reinstallAsrRuntime(): Promise<AsrStatus> {
 }
 
 async function pickAsrRuntimeArchive(): Promise<string | null> {
-  const win = BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0];
+  const win =
+    BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0];
   const opts = {
     title: "Select CrispASR runtime archive",
     properties: ["openFile" as const],
@@ -1113,7 +1268,8 @@ async function recoverFromCudaCrash(detail: string): Promise<void> {
     ...prefs,
     disableCuda: true,
     // Keep explicit vulkan/cpu picks; bump auto/cuda toward vulkan via disableCuda.
-    gpuPreference: prefs.gpuPreference === "cuda" ? "auto" : prefs.gpuPreference || "auto",
+    gpuPreference:
+      prefs.gpuPreference === "cuda" ? "auto" : prefs.gpuPreference || "auto",
   });
   const detected = detectAsrGpuInfo();
   cachedGpuInfo = {
@@ -1162,10 +1318,14 @@ async function recoverFromCudaCrash(detail: string): Promise<void> {
 }
 
 function shouldFallbackCuda(err: unknown): boolean {
-  if (installedBackend() !== "cuda" && preferredGpuBackend() !== "cuda") return false;
+  if (installedBackend() !== "cuda" && preferredGpuBackend() !== "cuda")
+    return false;
   const msg = err instanceof Error ? err.message : String(err);
   const code = parseAsrExitCode(msg);
-  return isAsrNativeCrashExitCode(code) || /ASR exited with code\s+3221225477/i.test(msg);
+  return (
+    isAsrNativeCrashExitCode(code) ||
+    /ASR exited with code\s+3221225477/i.test(msg)
+  );
 }
 
 async function spawnTranscribeAttempt(
@@ -1178,7 +1338,9 @@ async function spawnTranscribeAttempt(
 ): Promise<string> {
   const status = getStatus();
   if (!status.binaryPath) {
-    throw new Error("ASR runtime is not ready for this GPU — open Settings to install/update");
+    throw new Error(
+      "ASR runtime is not ready for this GPU — open Settings to install/update",
+    );
   }
   ensureRuntimeExecutables();
   const args = [
@@ -1221,7 +1383,11 @@ async function spawnTranscribeAttempt(
       } catch {
         // ignore
       }
-      reject(new Error("ASR timed out (90s) — first run loads the model, please retry"));
+      reject(
+        new Error(
+          "ASR timed out (90s) — first run loads the model, please retry",
+        ),
+      );
     }, 90_000);
     child.stdout.on("data", (d) => {
       out += String(d);
@@ -1244,13 +1410,17 @@ async function spawnTranscribeAttempt(
 
   if (code === 0) throw new Error("ASR returned empty transcript");
 
-  const raw = (stderr.trim() || stdout.trim() || `ASR exited with code ${code}`);
+  const raw = stderr.trim() || stdout.trim() || `ASR exited with code ${code}`;
   if (isAsrDiagnosticOnlyMessage(raw) || /^ggml_vulkan:/im.test(raw)) {
     throw new Error(
       `ASR_GPU_INIT_FAILED|${backend}|device=${deviceId ?? "auto"}|ASR exited with code ${code}`,
     );
   }
-  throw new Error(raw.includes("exited with code") ? raw : `${raw}\nASR exited with code ${code}`);
+  throw new Error(
+    raw.includes("exited with code")
+      ? raw
+      : `${raw}\nASR exited with code ${code}`,
+  );
 }
 
 async function spawnTranscribeOnce(
@@ -1259,12 +1429,14 @@ async function spawnTranscribeOnce(
   outBase: string,
   outTxtPath: string,
 ): Promise<string> {
+  void outTxtPath;
   const preferred = preferredGpuBackend();
   const attempts: Array<{ backend: AsrGpuBackend; deviceId?: number }> = [];
 
   if (preferred === "vulkan") {
     const primary = gpuInfo().vulkanDeviceId;
-    if (primary != null) attempts.push({ backend: "vulkan", deviceId: primary });
+    if (primary != null)
+      attempts.push({ backend: "vulkan", deviceId: primary });
     // Also try default device 0 if different — some drivers remap indices.
     if (primary !== 0) attempts.push({ backend: "vulkan", deviceId: 0 });
     attempts.push({ backend: "cpu" });
@@ -1302,7 +1474,9 @@ async function spawnTranscribeOnce(
       lastErr = err;
     }
   }
-  throw lastErr instanceof Error ? lastErr : new Error(String(lastErr ?? "ASR failed"));
+  throw lastErr instanceof Error
+    ? lastErr
+    : new Error(String(lastErr ?? "ASR failed"));
 }
 
 /**
@@ -1312,7 +1486,11 @@ async function spawnTranscribeOnce(
 function toInt16Pcm(pcm: unknown): Int16Array {
   if (pcm instanceof Int16Array) return pcm;
   if (pcm instanceof Uint8Array) {
-    return new Int16Array(pcm.buffer, pcm.byteOffset, Math.floor(pcm.byteLength / 2));
+    return new Int16Array(
+      pcm.buffer,
+      pcm.byteOffset,
+      Math.floor(pcm.byteLength / 2),
+    );
   }
   if (pcm instanceof ArrayBuffer) {
     return new Int16Array(pcm);
@@ -1328,7 +1506,10 @@ function cloudConfigForWorker(cloud: AsrCloudConfig): AsrCloudConfig {
 }
 
 /** Send a short silence sample to verify the cloud API config. */
-export async function testAsrCloud(): Promise<{ ok: boolean; message: string }> {
+export async function testAsrCloud(): Promise<{
+  ok: boolean;
+  message: string;
+}> {
   const prefs = readCloudPrefs();
   const cloud = prefs.cloud;
   if (!isCloudConfigured(cloud)) {
@@ -1354,7 +1535,10 @@ export async function testAsrCloud(): Promise<{ ok: boolean; message: string }> 
   }
 }
 
-export async function transcribePcm(pcm: Int16Array, sampleRate: number): Promise<string> {
+export async function transcribePcm(
+  pcm: Int16Array,
+  sampleRate: number,
+): Promise<string> {
   const prefs = readPrefs();
   if (!prefs.enabled) throw new Error("ASR is disabled in settings");
   if (installBusy) throw new Error("ASR install in progress");
@@ -1375,7 +1559,9 @@ export async function transcribePcm(pcm: Int16Array, sampleRate: number): Promis
     throw new Error("ASR model is not installed");
   }
   if (!status.binaryPath || !runtimeMatchesPreferred()) {
-    throw new Error("ASR runtime is not ready for this GPU — open Settings to install/update");
+    throw new Error(
+      "ASR runtime is not ready for this GPU — open Settings to install/update",
+    );
   }
 
   await waitForInferSlot();
@@ -1394,7 +1580,12 @@ export async function transcribePcm(pcm: Int16Array, sampleRate: number): Promis
     await writeWavOffMain(wavPath, pcm16, sampleRate || 16000);
 
     try {
-      return await spawnTranscribeOnce(status.modelPath, wavPath, outBase, outTxtPath);
+      return await spawnTranscribeOnce(
+        status.modelPath,
+        wavPath,
+        outBase,
+        outTxtPath,
+      );
     } catch (err) {
       if (!shouldFallbackCuda(err)) throw err;
       const detail = err instanceof Error ? err.message : String(err);
@@ -1407,9 +1598,16 @@ export async function transcribePcm(pcm: Int16Array, sampleRate: number): Promis
       }
       status = getStatus();
       if (!status.binaryPath || !runtimeMatchesPreferred()) {
-        throw new Error(`ASR_CUDA_CRASH|${detail}|Vulkan runtime not ready after fallback`);
+        throw new Error(
+          `ASR_CUDA_CRASH|${detail}|Vulkan runtime not ready after fallback`,
+        );
       }
-      return await spawnTranscribeOnce(status.modelPath!, wavPath, outBase, outTxtPath);
+      return await spawnTranscribeOnce(
+        status.modelPath!,
+        wavPath,
+        outBase,
+        outTxtPath,
+      );
     }
   } catch (err) {
     lastError = err instanceof Error ? err.message : String(err);
@@ -1645,7 +1843,9 @@ async function startAsrStream(): Promise<AsrStatus> {
     throw new Error("ASR model is not installed");
   }
   if (!status.binaryPath || !runtimeMatchesPreferred()) {
-    throw new Error("ASR runtime is not ready for this GPU — open Settings to install/update");
+    throw new Error(
+      "ASR runtime is not ready for this GPU — open Settings to install/update",
+    );
   }
 
   if (streamChild && !streamChild.killed) {
@@ -1738,7 +1938,9 @@ async function startAsrStream(): Promise<AsrStatus> {
     // First useful log after model load — mark ready so UI can keep pushing
     if (
       !streamReady &&
-      /stream|listening|ready|vad|ggml_vulkan|ggml_metal|metal|cuda|load/i.test(msg)
+      /stream|listening|ready|vad|ggml_vulkan|ggml_metal|metal|cuda|load/i.test(
+        msg,
+      )
     ) {
       streamReady = true;
       broadcastStreamEvent({ type: "ready" });
@@ -1761,7 +1963,8 @@ async function startAsrStream(): Promise<AsrStatus> {
           const detail = `ASR stream exited with code ${code}`;
           void recoverFromCudaCrash(detail)
             .then(() => {
-              lastError = "ASR_CUDA_CRASH|stream|Switched to Vulkan — tap the mic again";
+              lastError =
+                "ASR_CUDA_CRASH|stream|Switched to Vulkan — tap the mic again";
               broadcastStreamEvent({
                 type: "error",
                 message: lastError,
@@ -1777,7 +1980,8 @@ async function startAsrStream(): Promise<AsrStatus> {
         }
         const detail = `ASR stream exited with code ${code}`;
         const failMsg =
-          isAsrDiagnosticOnlyMessage(streamStderrTail) || /ggml_vulkan:/i.test(streamStderrTail)
+          isAsrDiagnosticOnlyMessage(streamStderrTail) ||
+          /ggml_vulkan:/i.test(streamStderrTail)
             ? `ASR_GPU_INIT_FAILED|${backend}|stream|${detail}`
             : detail;
         lastError = failMsg;
@@ -1826,7 +2030,8 @@ function pushAsrStreamPcm(pcm: unknown): void {
     stdin.write(buf, (err) => {
       if (!err) return;
       const code = (err as NodeJS.ErrnoException).code;
-      if (code === "EPIPE" || code === "EOF" || /EOF|EPIPE/i.test(err.message)) return;
+      if (code === "EPIPE" || code === "EOF" || /EOF|EPIPE/i.test(err.message))
+        return;
       lastError = err.message;
     });
   } catch (err) {
@@ -1875,7 +2080,7 @@ export function registerAsrIpc(): void {
     unregisterWakeHotkey();
   });
 
-  ipcMain.handle(IpcChannels.asr.status, () => getStatus());
+  ipcMain.handle(IpcChannels.asr.status, () => getStatusAsync());
   ipcMain.handle(IpcChannels.asr.setEnabled, (_e, enabled: boolean) => {
     const prefs = readPrefs();
     writePrefs({
@@ -1884,9 +2089,18 @@ export function registerAsrIpc(): void {
     });
     return getStatus();
   });
-  ipcMain.handle(IpcChannels.asr.setGpuPreference, (_e, preference: string) => {
-    return setGpuPreference(String(preference ?? "auto"));
-  });
+  ipcMain.handle(
+    IpcChannels.asr.setGpuPreference,
+    async (_e, preference: string) => {
+      setGpuPreference(String(preference ?? "auto"));
+      try {
+        await ensureGpuDetection();
+      } catch {
+        // fall through to cached / sync status
+      }
+      return getStatus();
+    },
+  );
   ipcMain.handle(IpcChannels.asr.setDownloadMirror, (_e, mirror: string) => {
     return setDownloadMirror(String(mirror ?? "auto"));
   });
@@ -1908,12 +2122,22 @@ export function registerAsrIpc(): void {
     return setWakeWords(String(raw ?? ""));
   });
   ipcMain.handle(IpcChannels.asr.install, async () => installAsr());
-  ipcMain.handle(IpcChannels.asr.installFromUrl, async (_e, url: string) => installAsrFromUrl(url));
+  ipcMain.handle(IpcChannels.asr.installFromUrl, async (_e, url: string) =>
+    installAsrFromUrl(url),
+  );
   ipcMain.handle(IpcChannels.asr.pickModel, async () => pickAsrModelFile());
-  ipcMain.handle(IpcChannels.asr.importModel, async (_e, filePath: string) => importAsrModel(filePath));
-  ipcMain.handle(IpcChannels.asr.reinstallRuntime, async () => reinstallAsrRuntime());
-  ipcMain.handle(IpcChannels.asr.pickRuntimeArchive, async () => pickAsrRuntimeArchive());
-  ipcMain.handle(IpcChannels.asr.importRuntime, async (_e, filePath: string) => importAsrRuntime(filePath));
+  ipcMain.handle(IpcChannels.asr.importModel, async (_e, filePath: string) =>
+    importAsrModel(filePath),
+  );
+  ipcMain.handle(IpcChannels.asr.reinstallRuntime, async () =>
+    reinstallAsrRuntime(),
+  );
+  ipcMain.handle(IpcChannels.asr.pickRuntimeArchive, async () =>
+    pickAsrRuntimeArchive(),
+  );
+  ipcMain.handle(IpcChannels.asr.importRuntime, async (_e, filePath: string) =>
+    importAsrRuntime(filePath),
+  );
   ipcMain.handle(IpcChannels.asr.cancelInstall, () => cancelAsrInstall());
   ipcMain.handle(IpcChannels.asr.uninstall, async () => {
     await stopAsrStream();
@@ -1926,7 +2150,8 @@ export function registerAsrIpc(): void {
     },
   );
   ipcMain.handle(IpcChannels.asr.setBackend, (_e, backend: string) => {
-    const next: AsrBackendKind = backend === "local" || backend === "cloud" ? backend : null;
+    const next: AsrBackendKind =
+      backend === "local" || backend === "cloud" ? backend : null;
     writeCloudPrefs({ ...readCloudPrefs(), backend: next });
     return getStatus();
   });
@@ -1937,27 +2162,35 @@ export function registerAsrIpc(): void {
       : null;
     return { backend: prefs.backend ?? null, cloud };
   });
-  ipcMain.handle(IpcChannels.asr.setCloudConfig, (_e, cloud: AsrCloudConfig) => {
-    const style = inferCloudApiStyle(cloud);
-    const sanitized: AsrCloudConfig = {
-      providerName: String(cloud?.providerName ?? "").slice(0, 80),
-      baseUrl: String(cloud?.baseUrl ?? "").trim(),
-      apiKey: String(cloud?.apiKey ?? "").trim(),
-      model: String(cloud?.model ?? "").trim(),
-      apiStyle: style,
-      endpoint: String(cloud?.endpoint ?? "").trim(),
-      language: String(cloud?.language ?? "").trim().slice(0, 16),
-    };
-    writeCloudPrefs({ ...readCloudPrefs(), cloud: sanitized });
-    return getStatus();
-  });
+  ipcMain.handle(
+    IpcChannels.asr.setCloudConfig,
+    (_e, cloud: AsrCloudConfig) => {
+      const style = inferCloudApiStyle(cloud);
+      const sanitized: AsrCloudConfig = {
+        providerName: String(cloud?.providerName ?? "").slice(0, 80),
+        baseUrl: String(cloud?.baseUrl ?? "").trim(),
+        apiKey: String(cloud?.apiKey ?? "").trim(),
+        model: String(cloud?.model ?? "").trim(),
+        apiStyle: style,
+        endpoint: String(cloud?.endpoint ?? "").trim(),
+        language: String(cloud?.language ?? "")
+          .trim()
+          .slice(0, 16),
+      };
+      writeCloudPrefs({ ...readCloudPrefs(), cloud: sanitized });
+      return getStatus();
+    },
+  );
   ipcMain.handle(IpcChannels.asr.testCloud, async () => testAsrCloud());
 
   ipcMain.handle(IpcChannels.asr.streamStart, async () => startAsrStream());
   // Fire-and-forget: avoid invoke promise overhead every audio frame.
   ipcMain.on(
     IpcChannels.asr.streamPush,
-    (_e, payload: { pcm?: unknown; pcmBase64?: string } | Int16Array | string) => {
+    (
+      _e,
+      payload: { pcm?: unknown; pcmBase64?: string } | Int16Array | string,
+    ) => {
       if (payload instanceof Int16Array || typeof payload === "string") {
         pushAsrStreamPcm(payload);
         return;
