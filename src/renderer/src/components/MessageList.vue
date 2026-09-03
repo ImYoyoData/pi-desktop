@@ -186,6 +186,13 @@ let followBottom = true;
  * never escape it.
  */
 let userScrolledAway = false;
+/**
+ * Hard latch: the user is reading history and may be away from the live edge —
+ * absolutely no viewport motion until they ask for it. Guards every watcher /
+ * mutation that would otherwise snap back to the bottom while the agent keeps
+ * streaming or while older pages keep loading.
+ */
+let readingHistory = false;
 /** Session switch / hydrate settle — snap to bottom, never smooth-scroll. */
 let settlingSession = false;
 let sessionJumpToken = 0;
@@ -610,7 +617,7 @@ function restoreScrollAfterMutation(sc: HTMLElement, prevHeight: number, prevTop
 function scheduleWindowPrefetch(): void {
   requestAnimationFrame(() => {
     const sc = scroller.value;
-    if (!sc || adjustingWindow || settlingSession || followBottom) return;
+    if (!sc || adjustingWindow || settlingSession || followBottom || readingHistory) return;
     if (sc.scrollTop < topSpacerPx.value + OVERSCAN_PX) {
       expandHistoryUp();
       return;
@@ -623,11 +630,10 @@ function scheduleWindowPrefetch(): void {
 }
 
 function expandHistoryUp(): void {
-  if (adjustingWindow || renderStart.value <= 0) {
+  if (adjustingWindow || loadingOlderPage || readingHistory) return;
+  if (renderStart.value <= 0) {
     // At the start of the *loaded* window — fetch an older page from disk if any.
-    if (renderStart.value <= 0 && !adjustingWindow) {
-      void loadOlderHistoryPage();
-    }
+    void loadOlderHistoryPage();
     return;
   }
   const sc = scroller.value;
@@ -646,9 +652,11 @@ function expandHistoryUp(): void {
     measureVisibleRows();
     adjustingWindow = false;
     updateStickyPinned();
-    if (renderStart.value <= 0) {
+    // readingHistory may have latched while we were mutating the window
+    // (mid-await wheel). Prefetch must not run in that state.
+    if (!readingHistory && renderStart.value <= 0) {
       void loadOlderHistoryPage();
-    } else {
+    } else if (!readingHistory) {
       scheduleWindowPrefetch();
     }
   });
@@ -661,13 +669,18 @@ async function loadOlderHistoryPage(): Promise<void> {
   if (!id) return;
   const sc = scroller.value;
   if (!sc) return;
+  const wasReading = readingHistory;
   loadingOlderPage = true;
   adjustingWindow = true;
   const prevHeight = sc.scrollHeight;
   const prevTop = sc.scrollTop;
   try {
+    // If the user wheels up to read history while this fetch is in flight,
+    // abort it — their reads must not wait for (or be shifted by) a prepend.
+    if (readingHistory) return;
     const added = await chat.loadOlderHistory(id);
     if (added <= 0) return;
+    if (readingHistory) return;
     // Prepend shifts every index — keep the same rows mounted, then peek a chunk older.
     const shifted = windowAfterHistoryPrepend(
       { start: renderStart.value, end: renderEnd.value },
@@ -682,6 +695,9 @@ async function loadOlderHistoryPage(): Promise<void> {
     restoreScrollAfterMutation(sc, prevHeight, prevTop);
     measureVisibleRows();
     updateStickyPinned();
+    // Even a page that finished loading while the user began reading must not
+    // auto-chain into the next prefetch.
+    if (readingHistory || wasReading) return;
     scheduleWindowPrefetch();
   } finally {
     adjustingWindow = false;
@@ -690,7 +706,7 @@ async function loadOlderHistoryPage(): Promise<void> {
 }
 
 function expandHistoryDown(): void {
-  if (adjustingWindow) return;
+  if (adjustingWindow || readingHistory || loadingOlderPage) return;
   const len = displayMessages.value.length;
   if (renderEnd.value >= len) return;
   const sc = scroller.value;
@@ -708,12 +724,16 @@ function expandHistoryDown(): void {
     measureVisibleRows();
     adjustingWindow = false;
     updateStickyPinned();
+    if (readingHistory) return;
     scheduleWindowPrefetch();
   });
 }
 
 let instantSnapToken = 0;
 function jumpToBottomInstant(): void {
+  // Jump control / settle are the only callers; anything else must not move
+  // the viewport while the user is reading history.
+  if (readingHistory) return;
   const sc = scroller.value;
   if (!sc) return;
   const token = ++instantSnapToken;
@@ -722,11 +742,13 @@ function jumpToBottomInstant(): void {
   // rAFs are still queued — never yank the viewport back down afterwards.
   requestAnimationFrame(() => {
     if (token !== instantSnapToken || (!followBottom && !settlingSession)) return;
+    if (readingHistory) return;
     const el = scroller.value;
     if (!el) return;
     el.scrollTop = el.scrollHeight;
     requestAnimationFrame(() => {
       if (token !== instantSnapToken || (!followBottom && !settlingSession)) return;
+      if (readingHistory) return;
       const el2 = scroller.value;
       if (el2) el2.scrollTop = el2.scrollHeight;
     });
@@ -741,6 +763,9 @@ function jumpToBottomInstant(): void {
  */
 let bottomScrollRaf = 0;
 function scheduleBottomScroll(): void {
+  // Hard latch first: a reader must never be yanked, even if followBottom is
+  // still momentarily true in a state snapshot taken mid-wheel.
+  if (readingHistory) return;
   // Minimized / hidden: no layout work until the window is restored.
   if (document.hidden) return;
   if (bottomScrollRaf) return;
@@ -751,6 +776,9 @@ function scheduleBottomScroll(): void {
     // up after the snap was queued (the follow decision is sync, this rAF is
     // not) — never yank the viewport back down while they read history.
     if (!sc || document.hidden || !followBottom) return;
+    // Even when a prior state sample left follow=true (samples are not atomic
+    // with a mid-await wheel), the hard reading latch still wins at fire time.
+    if (readingHistory) return;
     sc.scrollTop = sc.scrollHeight;
   });
 }
@@ -758,7 +786,7 @@ function scheduleBottomScroll(): void {
 /** Restored from minimized: land at the live edge without a big re-measure. */
 function onVisibilityChange(): void {
   if (document.hidden) return;
-  if (!followBottom) return;
+  if (!followBottom || readingHistory) return;
   clampRenderWindow(true);
   scheduleBottomScroll();
   requestAnimationFrame(() => {
@@ -768,8 +796,7 @@ function onVisibilityChange(): void {
 }
 
 function jumpToLatest(): void {
-  followBottom = true;
-  userScrolledAway = false;
+  disengageHistoryReading();
   showJumpLatest.value = false;
   clampRenderWindow(true);
   void nextTick(() => {
@@ -778,16 +805,21 @@ function jumpToLatest(): void {
   });
 }
 
-async function snapSessionToBottom(token: number): Promise<void> {
+/** Bottom snap for session settle / post-hydrate; guards follow + settle + latch. */
+function snapSessionToBottom(token: number): void {
   if (token !== sessionJumpToken) return;
-  followBottom = true;
-  userScrolledAway = false;
-  showJumpLatest.value = false;
-  clampRenderWindow(true);
-  lastPinnedUserId = latestUserMessageId.value;
-  await nextTick();
-  if (token !== sessionJumpToken) return;
-  measureVisibleRows();
+  if (settlingSession) {
+    // settle state is being snapped anyway — do NOT reset a mid-settle latch.
+    clampRenderWindow(true);
+    lastPinnedUserId = latestUserMessageId.value;
+    return;
+  }
+  // historyLoading finished outside settle (hydrate landed late): jump to live.
+  if (!followBottom && !readingHistory) {
+    disengageHistoryReading();
+    clampRenderWindow(true);
+    lastPinnedUserId = latestUserMessageId.value;
+  }
   jumpToBottomInstant();
   updateStickyPinned();
   refreshStickyToggleNeed();
@@ -799,9 +831,7 @@ async function beginSessionSettle(): Promise<void> {
   settlingSession = true;
   settlingUi.value = true;
   heightById.clear();
-  followBottom = true;
-  userScrolledAway = false;
-  showJumpLatest.value = false;
+  disengageHistoryReading();
   renderStart.value = 0;
   renderEnd.value = 0;
 
@@ -863,6 +893,13 @@ function cancelQueuedBottomSnaps(): void {
 }
 
 function syncFollowBottomOnScroll(sc: HTMLElement): void {
+  // While the virtual window / history loading adjusts the DOM, scroll events
+  // are synthetic — the decision machine must not run at all (a prepend nudge
+  // could otherwise look like the user scrolling back down).
+  if (adjustingWindow || loadingOlderPage || settlingSession) {
+    lastSyncScrollTop = sc.scrollTop;
+    return;
+  }
   const decision = decideFollowOnScroll({
     top: sc.scrollTop,
     lastTop: lastSyncScrollTop,
@@ -871,13 +908,23 @@ function syncFollowBottomOnScroll(sc: HTMLElement): void {
     suppressUntil: suppressFollowBottomUntil,
     away: userScrolledAway,
     following: followBottom,
-    guarded: adjustingWindow || settlingSession,
+    guarded: false,
   });
   lastSyncScrollTop = sc.scrollTop;
   userScrolledAway = decision.away;
   suppressFollowBottomUntil = decision.suppressUntil;
   followBottom = decision.following;
   if (!followBottom) cancelQueuedBottomSnaps();
+  // While a user is reading history (hard latch), every extra list insert /
+  // prepend shifts the DOM; synthetic scroll events then fire. Those are not
+  // intent — the state machine must stay fully inert except for a real return
+  // into the live edge, which the user expresses by scrolling all the way down.
+  if (readingHistory) {
+    showJumpLatest.value = displayMessages.value.length > 0;
+    return;
+  }
+  // Return to the live edge = explicit "stop reading history" intent.
+  if (!followBottom) engageHistoryReading();
   showJumpLatest.value = !followBottom && displayMessages.value.length > 0;
 }
 
@@ -895,13 +942,13 @@ function onScrollerWheel(event: WheelEvent): void {
   userScrolledAway = true;
   followBottom = false;
   cancelQueuedBottomSnaps();
-  showJumpLatest.value = displayMessages.value.length > 0;
+  engageHistoryReading();
 }
 
 /** Heavy virtual-window / prefetch work stays rAF-coalesced (follow already synced). */
 function handleScrollerScroll(): void {
   const sc = scroller.value;
-  if (!sc || adjustingWindow || settlingSession) return;
+  if (!sc || adjustingWindow || settlingSession || readingHistory) return;
 
   if (followBottom) {
     const len = displayMessages.value.length;
@@ -935,9 +982,22 @@ function onScrollerScroll(): void {
   });
 }
 
+function engageHistoryReading(): void {
+  readingHistory = true;
+  showJumpLatest.value = true;
+}
+
+function disengageHistoryReading(): void {
+  readingHistory = false;
+  followBottom = true;
+  userScrolledAway = false;
+  lastSyncScrollTop = -1;
+}
+
 watch(
   () => sessionId.value,
   () => {
+    disengageHistoryReading();
     void beginSessionSettle();
   },
 );
@@ -960,7 +1020,11 @@ watch(
     const hydratedFromEmpty = (prevLen === 0 || prevLen == null) && len > 0;
     // Only pin the trailing window when the user is following the bottom.
     // (Do NOT yank the window during agent runs if the user scrolled up to read history.)
-    if (followBottom || hydratedFromEmpty) {
+    if (readingHistory) {
+      // List growth above the anchored read position is fine — the spacer
+      // absorbs it and the browser keeps the anchored row on screen.
+      if (!hydratedFromEmpty) clampRenderWindow(false);
+    } else if (followBottom || hydratedFromEmpty) {
       clampRenderWindow(true);
     } else if (len <= VIRTUAL_WINDOW) {
       renderStart.value = 0;
@@ -972,7 +1036,11 @@ watch(
     // Critical: hydrate often lands AFTER settle timeouts. Always snap when
     // following bottom / first populate, otherwise the virtual spacer stays in view (blank).
     // Skip while hidden — the visibility handler re-snaps once on restore.
-    if ((followBottom || settlingSession || hydratedFromEmpty) && !document.hidden) {
+    if (
+      (followBottom || settlingSession || hydratedFromEmpty) &&
+      !document.hidden &&
+      !readingHistory
+    ) {
       lastPinnedUserId = latestUserMessageId.value;
       showJumpLatest.value = false;
       void nextTick(() => {
@@ -990,13 +1058,19 @@ watch(
   () => props.messages.at(-1)?.id ?? null,
   (id, prev) => {
     if (!id || id === prev) return;
-    if (!(followBottom || settlingSession)) return;
-    clampRenderWindow(true);
-    lastPinnedUserId = latestUserMessageId.value;
-    void nextTick(() => {
-      if (!followBottom && !settlingSession) return;
-      jumpToBottomInstant();
-    });
+    if (readingHistory) return;
+    // A *new* trailing message while already following: just re-clamp + snap.
+    if (followBottom) {
+      clampRenderWindow(true);
+      lastPinnedUserId = latestUserMessageId.value;
+      void nextTick(() => {
+        if (!followBottom && !settlingSession) return;
+        jumpToBottomInstant();
+      });
+    } else if (!settlingSession) {
+      // hydrate landed late (settle already finished) — snap now.
+      snapSessionToBottom(sessionJumpToken);
+    }
   },
 );
 
@@ -1013,11 +1087,30 @@ watch(
       refreshStickyToggleNeed();
       return;
     }
+    const prevReading = readingHistory;
     lastPinnedUserId = id;
-    followBottom = true;
-    userScrolledAway = false;
-    clampRenderWindow(true);
+    if (prevReading) {
+      // While the user was reading history and sends a follow-up, follow them
+      // down to the new tail — jump immediately, don't wait for settle logic.
+      disengageHistoryReading();
+      clampRenderWindow(true);
+      suppressFollowBottomUntil = Date.now() + 160;
+      await nextTick();
+      measureVisibleRows();
+      updateStickyPinned();
+      refreshStickyToggleNeed();
+      const sc = scroller.value;
+      const card = sc?.querySelector(`[data-msg-id="${CSS.escape(id)}"]`) as HTMLElement | null;
+      if (!sc || !card) return;
+      const scRect = sc.getBoundingClientRect();
+      const cardRect = card.getBoundingClientRect();
+      const top = cardRect.bottom - scRect.top + sc.scrollTop - sc.clientHeight + 8;
+      sc.scrollTo({ top: Math.max(0, top), behavior: "smooth" });
+      return;
+    }
     // Session switch / hydrate: land on bottom instantly (no slide).
+    disengageHistoryReading();
+    clampRenderWindow(true);
     if (settlingSession) {
       await nextTick();
       jumpToBottomInstant();
@@ -1031,14 +1124,16 @@ watch(
     measureVisibleRows();
     updateStickyPinned();
     refreshStickyToggleNeed();
-    const sc = scroller.value;
-    const card = sc?.querySelector(`[data-msg-id="${CSS.escape(id)}"]`) as HTMLElement | null;
-    if (!sc || !card) return;
+    const sc2 = scroller.value;
+    const card2 = sc2?.querySelector(
+      `[data-msg-id="${CSS.escape(id)}"]`,
+    ) as HTMLElement | null;
+    if (!sc2 || !card2) return;
     // Show the end of the full prompt (no height clamp until actually pinned).
-    const scRect = sc.getBoundingClientRect();
-    const cardRect = card.getBoundingClientRect();
-    const top = cardRect.bottom - scRect.top + sc.scrollTop - sc.clientHeight + 8;
-    sc.scrollTo({ top: Math.max(0, top), behavior: "smooth" });
+    const scRect2 = sc2.getBoundingClientRect();
+    const cardRect2 = card2.getBoundingClientRect();
+    const top2 = cardRect2.bottom - scRect2.top + sc2.scrollTop - sc2.clientHeight + 8;
+    sc2.scrollTo({ top: Math.max(0, top2), behavior: "smooth" });
   },
 );
 
@@ -1046,7 +1141,7 @@ watch(
   () => [props.messages.length, props.streaming, props.running] as const,
   async ([, streaming, running], prev) => {
     if (Date.now() < suppressFollowBottomUntil) return;
-    if (document.hidden) return;
+    if (document.hidden || readingHistory) return;
     await nextTick();
     const el = scroller.value;
     if (!el) return;
@@ -1064,7 +1159,7 @@ watch(
       if (justFinished) {
         requestAnimationFrame(() => {
           const sc = scroller.value;
-          if (sc && followBottom) sc.scrollTop = sc.scrollHeight;
+          if (sc && followBottom && !readingHistory) sc.scrollTop = sc.scrollHeight;
         });
       }
     }
@@ -1104,7 +1199,7 @@ watch(
   async () => {
     if (!followBottom || Date.now() < suppressFollowBottomUntil) return;
     if (!props.running && !props.streaming) return;
-    if (document.hidden) return;
+    if (document.hidden || readingHistory) return;
     await nextTick();
     scheduleBottomScroll();
   },
