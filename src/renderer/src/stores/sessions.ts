@@ -36,6 +36,7 @@ function parseContextUsage(data: unknown): SessionContextUsage | null {
     outputTokens?: unknown;
     cacheReadTokens?: unknown;
     cacheWriteTokens?: unknown;
+    costUsd?: unknown;
     llmDurationMs?: unknown;
     ttftMs?: unknown;
     ttftSteps?: unknown;
@@ -48,7 +49,10 @@ function parseContextUsage(data: unknown): SessionContextUsage | null {
         .map((row): ContextUsageSegment | null => {
           if (!row || typeof row !== "object") return null;
           const s = row as { id?: unknown; tokens?: unknown };
-          if (typeof s.id !== "string" || !SEGMENT_IDS.has(s.id as ContextUsageSegmentId)) {
+          if (
+            typeof s.id !== "string" ||
+            !SEGMENT_IDS.has(s.id as ContextUsageSegmentId)
+          ) {
             return null;
           }
           if (typeof s.tokens !== "number" || s.tokens <= 0) return null;
@@ -66,12 +70,16 @@ function parseContextUsage(data: unknown): SessionContextUsage | null {
     steps: typeof u.steps === "number" ? u.steps : null,
     inputTokens: typeof u.inputTokens === "number" ? u.inputTokens : null,
     outputTokens: typeof u.outputTokens === "number" ? u.outputTokens : null,
-    cacheReadTokens: typeof u.cacheReadTokens === "number" ? u.cacheReadTokens : null,
-    cacheWriteTokens: typeof u.cacheWriteTokens === "number" ? u.cacheWriteTokens : null,
+    cacheReadTokens:
+      typeof u.cacheReadTokens === "number" ? u.cacheReadTokens : null,
+    cacheWriteTokens:
+      typeof u.cacheWriteTokens === "number" ? u.cacheWriteTokens : null,
+    costUsd: typeof u.costUsd === "number" ? u.costUsd : null,
     llmDurationMs: typeof u.llmDurationMs === "number" ? u.llmDurationMs : null,
     ttftMs: typeof u.ttftMs === "number" ? u.ttftMs : null,
     ttftSteps: typeof u.ttftSteps === "number" ? u.ttftSteps : null,
-    tokensPerSecond: typeof u.tokensPerSecond === "number" ? u.tokensPerSecond : null,
+    tokensPerSecond:
+      typeof u.tokensPerSecond === "number" ? u.tokensPerSecond : null,
     segments,
   };
 }
@@ -91,22 +99,32 @@ export const useSessionsStore = defineStore("sessions", () => {
     const idx = sessions.value.findIndex((s) => s.id === summary.id);
     if (idx >= 0) {
       // Replace array so sidebar/header title computeds refresh reliably (#3).
-      sessions.value = sessions.value.map((s, i) => (i === idx ? { ...summary } : s));
+      sessions.value = sessions.value.map((s, i) =>
+        i === idx ? { ...summary } : s,
+      );
     } else {
       sessions.value = [...sessions.value, summary];
     }
   }
 
-  function patchStatus(sessionId: string, status: SessionSummary["status"]): void {
+  function patchStatus(
+    sessionId: string,
+    status: SessionSummary["status"],
+  ): void {
     const idx = sessions.value.findIndex((s) => s.id === sessionId);
     if (idx < 0) return;
     const row = sessions.value[idx];
     if (row.status === status) return;
     // Replace row so list watchers / computed status update reliably.
-    sessions.value = sessions.value.map((s, i) => (i === idx ? { ...s, status } : s));
+    sessions.value = sessions.value.map((s, i) =>
+      i === idx ? { ...s, status } : s,
+    );
   }
 
-  function setContextUsage(sessionId: string, usage: SessionContextUsage): void {
+  function setContextUsage(
+    sessionId: string,
+    usage: SessionContextUsage,
+  ): void {
     contextBySession.value = { ...contextBySession.value, [sessionId]: usage };
   }
 
@@ -207,7 +225,10 @@ export const useSessionsStore = defineStore("sessions", () => {
     activeId.value = sessionId;
   }
 
-  async function sendCommand(sessionId: string, command: AgentCommand): Promise<unknown> {
+  async function sendCommand(
+    sessionId: string,
+    command: AgentCommand,
+  ): Promise<unknown> {
     // Vue/Pinia proxies are not structured-cloneable → "An object could not be cloned".
     const plain = toIpcPlain(command);
     if (plain.type === "prompt" || plain.type === "hang") {
@@ -224,17 +245,26 @@ export const useSessionsStore = defineStore("sessions", () => {
   }
 
   /** Never cold-starts the Pi agent worker — returns undefined when idle/shelled. */
-  async function tryCommand(sessionId: string, command: AgentCommand): Promise<unknown | undefined> {
+  async function tryCommand(
+    sessionId: string,
+    command: AgentCommand,
+  ): Promise<unknown | undefined> {
     const plain = toIpcPlain(command);
     return window.api.sessions.tryCommand(sessionId, plain);
   }
 
-  async function killWorker(sessionId: string, cwd: string | null): Promise<void> {
+  async function killWorker(
+    sessionId: string,
+    cwd: string | null,
+  ): Promise<void> {
     await window.api.sessions.killWorker(sessionId);
     await refresh(cwd);
   }
 
-  async function restartWorker(sessionId: string, cwd: string | null): Promise<void> {
+  async function restartWorker(
+    sessionId: string,
+    cwd: string | null,
+  ): Promise<void> {
     await window.api.sessions.restartWorker(sessionId);
     await refresh(cwd);
   }
@@ -251,7 +281,11 @@ export const useSessionsStore = defineStore("sessions", () => {
     useComposerStore().dropSession(sessionId);
   }
 
-  async function renameSession(sessionId: string, cwd: string, name: string): Promise<SessionSummary | null> {
+  async function renameSession(
+    sessionId: string,
+    cwd: string,
+    name: string,
+  ): Promise<SessionSummary | null> {
     const trimmed = name.trim();
     // Optimistic UI update so title flips immediately (before IPC round-trip).
     if (trimmed) {
@@ -259,7 +293,9 @@ export const useSessionsStore = defineStore("sessions", () => {
       if (idx >= 0) {
         const row = sessions.value[idx]!;
         sessions.value = sessions.value.map((s, i) =>
-          i === idx ? { ...row, name: trimmed, modified: new Date().toISOString() } : s,
+          i === idx
+            ? { ...row, name: trimmed, modified: new Date().toISOString() }
+            : s,
         );
       }
     }

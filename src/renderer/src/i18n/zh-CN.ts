@@ -215,8 +215,7 @@ export const zh = {
 	contextUsageSegSummarized: "已摘要对话",
 	contextUsageSegConversation: "对话",
 	contextUsageSegToolResults: "工具结果",
-	contextUsageHint:
-		"分段为估算值。发送前会先裁剪旧工具输出（保留约最近 40k tokens）；自动压缩仍是用量 > 窗口 − 16k（约 98%）。80% 可点下方手动压缩。",
+	contextUsageCost: "成本",
 	contextUsageAutoCompact:
 		"自动压缩阈值：contextTokens > contextWindow − reserveTokens（默认 reserveTokens=16384）",
 	sessionStatsTurns: "轮数",

@@ -223,8 +223,7 @@ export const en = {
 	contextUsageSegSummarized: "Summarized conversation",
 	contextUsageSegConversation: "Conversation",
 	contextUsageSegToolResults: "Tool results",
-	contextUsageHint:
-		"Segments are estimates. Before each turn, old tool outputs are pruned (keeps ~40k recent tokens). Auto-compact still at usage > window − 16k (~98%). At 80%, compact manually below.",
+	contextUsageCost: "Cost",
 	contextUsageAutoCompact:
 		"Auto-compact when contextTokens > contextWindow − reserveTokens (default reserveTokens=16384)",
 	sessionStatsTurns: "Turns",

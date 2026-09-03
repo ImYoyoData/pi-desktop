@@ -499,6 +499,7 @@ export function createSessionBroker(deps: {
           outputTokens?: unknown;
           cacheReadTokens?: unknown;
           cacheWriteTokens?: unknown;
+          costUsd?: unknown;
           llmDurationMs?: unknown;
           ttftMs?: unknown;
           ttftSteps?: unknown;
@@ -552,6 +553,7 @@ export function createSessionBroker(deps: {
                 typeof ev.cacheWriteTokens === "number"
                   ? ev.cacheWriteTokens
                   : null,
+              costUsd: typeof ev.costUsd === "number" ? ev.costUsd : null,
               llmDurationMs:
                 typeof ev.llmDurationMs === "number" ? ev.llmDurationMs : null,
               ttftMs: typeof ev.ttftMs === "number" ? ev.ttftMs : null,
