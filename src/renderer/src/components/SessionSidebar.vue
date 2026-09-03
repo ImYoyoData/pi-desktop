@@ -714,6 +714,7 @@ async function onSessionMenu(
       try {
         await onSelectSession(root, session.id);
         await window.api.sessions.clearContext(session.id, root);
+        chatStore.clearSession(session.id);
         chatStore.hydrateFromHistoryPage(session.id, { messages: [], hasMore: false, total: 0 }, session.filePath ?? null);
         await loadSessions(root);
         message.success(t.clearContextDone);
