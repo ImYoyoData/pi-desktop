@@ -732,7 +732,10 @@ function scheduleBottomScroll(): void {
   bottomScrollRaf = requestAnimationFrame(() => {
     bottomScrollRaf = 0;
     const sc = scroller.value;
-    if (!sc || document.hidden) return;
+    // Re-check at fire time, not just schedule time: the user may have scrolled
+    // up after the snap was queued (the follow decision is sync, this rAF is
+    // not) — never yank the viewport back down while they read history.
+    if (!sc || document.hidden || !followBottom) return;
     sc.scrollTop = sc.scrollHeight;
   });
 }
@@ -825,9 +828,14 @@ async function beginSessionSettle(): Promise<void> {
   }
 }
 
-function handleScrollerScroll(): void {
-  const sc = scroller.value;
-  if (!sc || adjustingWindow || settlingSession) return;
+/**
+ * Cheap, synchronous follow-bottom decision on every scroll event. Must NOT be
+ * rAF-deferred: stream snaps are themselves scheduled on rAFs, so deferring
+ * this let an already-queued snap run with a stale followBottom=true and yank
+ * the viewport back to the bottom while the user was reading history above.
+ */
+function syncFollowBottomOnScroll(sc: HTMLElement): void {
+  if (adjustingWindow || settlingSession) return;
   // During post-send pin, smooth scroll may leave us away from the true bottom;
   // keep follow enabled so streaming output still becomes visible.
   if (Date.now() < suppressFollowBottomUntil) {
@@ -835,7 +843,17 @@ function handleScrollerScroll(): void {
   } else {
     followBottom = isNearBottom(sc);
   }
+  if (!followBottom && bottomScrollRaf) {
+    cancelAnimationFrame(bottomScrollRaf);
+    bottomScrollRaf = 0;
+  }
   showJumpLatest.value = !followBottom && displayMessages.value.length > 0;
+}
+
+/** Heavy virtual-window / prefetch work stays rAF-coalesced (follow already synced). */
+function handleScrollerScroll(): void {
+  const sc = scroller.value;
+  if (!sc || adjustingWindow || settlingSession) return;
 
   if (followBottom) {
     const len = displayMessages.value.length;
@@ -859,6 +877,8 @@ function handleScrollerScroll(): void {
 }
 
 function onScrollerScroll(): void {
+  const sc = scroller.value;
+  if (sc) syncFollowBottomOnScroll(sc);
   if (scrollRaf) return;
   scrollRaf = requestAnimationFrame(() => {
     scrollRaf = 0;
@@ -908,6 +928,8 @@ watch(
       lastPinnedUserId = latestUserMessageId.value;
       showJumpLatest.value = false;
       void nextTick(() => {
+        // User may have scrolled up while this tick was queued — respect it.
+        if (!followBottom && !settlingSession && !hydratedFromEmpty) return;
         jumpToBottomInstant();
       });
     }
@@ -923,7 +945,10 @@ watch(
     if (!(followBottom || settlingSession)) return;
     clampRenderWindow(true);
     lastPinnedUserId = latestUserMessageId.value;
-    void nextTick(() => jumpToBottomInstant());
+    void nextTick(() => {
+      if (!followBottom && !settlingSession) return;
+      jumpToBottomInstant();
+    });
   },
 );
 
@@ -980,15 +1005,16 @@ watch(
     const prevRunning = prev?.[2] ?? false;
     const justFinished =
       Boolean(prevRunning || prevStreaming) && !running && !streaming;
-    // Follow while generating; also snap once when the turn settles (actions mount).
+    // Follow while generating; also snap once when the turn settles (actions
+    // mount) — but never yank a user who scrolled up to read history.
     if (running || streaming || justFinished) {
-      if (!followBottom && !justFinished) return;
+      if (!followBottom) return;
       el.scrollTop = el.scrollHeight;
       measureVisibleRows();
       if (justFinished) {
         requestAnimationFrame(() => {
           const sc = scroller.value;
-          if (sc) sc.scrollTop = sc.scrollHeight;
+          if (sc && followBottom) sc.scrollTop = sc.scrollHeight;
         });
       }
     }
