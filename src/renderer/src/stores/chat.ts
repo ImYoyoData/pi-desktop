@@ -9,6 +9,7 @@ import type {
 	SessionHistoryPage,
 } from "../../../shared/protocol";
 import { toPromptCitations, toPromptImages } from "../../../shared/protocol";
+import { createHiddenEventSink } from "@renderer/utils/hidden-event-buffer";
 import {
 	appendUserMessage,
 	clearPendingAskUser,
@@ -133,6 +134,11 @@ export const useChatStore = defineStore("chat", () => {
 	 *  checkpoint (duplicate sends from the queue-edit path caused both). */
 	const promptChain = new Map<string, Promise<unknown>>();
 	let softHangTimer: ReturnType<typeof setInterval> | null = null;
+	const agentEventSink = createHiddenEventSink<AgentEvent>({
+		apply: (event) => applyEvent(event),
+		isHidden: () => document.hidden,
+		onError: (err) => console.error("[chat] buffered event apply failed", err),
+	});
 
 	function noteSecurityRemediation(): void {
 		securityRemediationTick.value += 1;
@@ -602,17 +608,11 @@ export const useChatStore = defineStore("chat", () => {
 	function checkSoftHangSessions(): void {
 		const now = Date.now();
 		for (const [sessionId, state] of Object.entries(bySession)) {
-			if (
-				!state?.running ||
-				state.autoRecovering ||
-				recoveringIds.has(sessionId)
-			)
+			if (!state?.running || state.autoRecovering || recoveringIds.has(sessionId))
 				continue;
 			if (softHangReported.has(sessionId)) continue;
 			const waitingUser = Boolean(
-				state.pendingAskUser ||
-					state.pendingPermission ||
-					state.pendingExtensionUi,
+				state.pendingAskUser || state.pendingPermission || state.pendingExtensionUi,
 			);
 			const outputSilenceMs = agentOutputSilenceMs(state, now);
 			const workerSilenceMs = agentWorkerSilenceMs(state, now);
@@ -782,8 +782,9 @@ export const useChatStore = defineStore("chat", () => {
 			softHangTimer = setInterval(() => checkSoftHangSessions(), 5_000);
 		}
 		const off = window.api.sessions.onEvent((event) => {
-			applyEvent(event);
+			agentEventSink.push(event);
 		});
+		document.addEventListener("visibilitychange", agentEventSink.flushNow);
 		const offPermission = window.api.sessions.onPermission((req) => {
 			if (isPermissionAskCancelled(req)) {
 				const pending = stateFor(req.sessionId).pendingPermission;
@@ -824,6 +825,8 @@ export const useChatStore = defineStore("chat", () => {
 				clearInterval(softHangTimer);
 				softHangTimer = null;
 			}
+			agentEventSink.dispose();
+			document.removeEventListener("visibilitychange", agentEventSink.flushNow);
 			off();
 			offPermission();
 			offAskUser();
