@@ -254,6 +254,9 @@ export const IpcChannels = {
 		list: "market:list",
 		install: "market:install",
 	},
+	startupTiming: {
+		mark: "startupTiming:mark",
+	},
 	checkpoint: {
 		begin: "checkpoint:begin",
 		finish: "checkpoint:finish",

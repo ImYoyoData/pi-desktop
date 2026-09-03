@@ -71,6 +71,7 @@
     "@types/selfsigned": "^2.0.4",
     "@types/sortablejs": "^1.15.9",
     "@vitejs/plugin-vue": "^6.0.2",
+    "@vue/typescript-plugin": "^3.3.11",
     "electron": "^39.2.6",
     "electron-builder": "^26.0.12",
     "electron-vite": "^5.0.0",

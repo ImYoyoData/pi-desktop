@@ -1226,6 +1226,14 @@ const api = {
 			};
 		},
 	},
+	startupTiming: {
+		mark: (name: string, detail?: string) =>
+			ipcRenderer.invoke(IpcChannels.startupTiming.mark, {
+				name,
+				atEpochMs: Date.now(),
+				detail,
+			}) as Promise<void>,
+	},
 	notify: {
 		turnComplete: (payload: { title: string; body: string }) =>
 			ipcRenderer.invoke(IpcChannels.notify.turnComplete, payload) as Promise<{
