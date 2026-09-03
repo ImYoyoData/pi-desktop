@@ -1212,17 +1212,17 @@ const ctxPopoverShow = ref(false);
 const skillsCount = ref<number | null>(null);
 let skillsCountCachedFor: string | null = null;
 /**
- * Cost-health reference: the UI treats this many context tokens as "full".
- * Real model windows are huge (deepseek = 1M), so a window-based % always
- * looks healthy while the bill grows. Show pressure against this budget
- * instead (matches ~30k tokens of a 1M window as the compaction sweet spot).
+ * True context fill as a fraction of the model's real context window.
+ * Ring, tone and the "% Full" label all use this same window-based percent,
+ * matching the stacked bar's widths (tokens / contextWindow).
  */
-const CONTEXT_COST_REFERENCE = 300_000;
-
 const contextPercent = computed(() => {
-  const tokens = contextUsage.value?.tokens;
+  const usage = contextUsage.value;
+  const tokens = usage?.tokens;
+  const window = usage?.contextWindow;
   if (tokens == null || !Number.isFinite(tokens) || tokens <= 0) return null;
-  return Math.max(0, Math.min(100, (tokens / CONTEXT_COST_REFERENCE) * 100));
+  if (!window || !Number.isFinite(window) || window <= 0) return null;
+  return Math.max(0, Math.min(100, (tokens / window) * 100));
 });
 
 const contextTone = computed(() => {
@@ -1257,23 +1257,17 @@ const contextToolCount = computed(() => {
   return messages + streaming;
 });
 
-/**
- * Rough per-turn input cost estimate ($). Uses the DeepSeek-style rate as a
- * sensible default; the point is to surface cost growth, not exact billing.
- */
-const CONTEXT_INPUT_COST_PER_M = 0.14;
+/** Real cumulative session LLM cost in USD (from Pi getSessionStats). */
 const contextCostLabel = computed(() => {
-  const tokens = contextUsage.value?.tokens;
-  if (tokens == null || !Number.isFinite(tokens) || tokens <= 0) return "";
-  const cost = (tokens / 1_000_000) * CONTEXT_INPUT_COST_PER_M;
-  if (cost < 0.01) return "<$0.01";
-  return `${cost.toFixed(2)}`;
+  const cost = contextUsage.value?.costUsd;
+  if (cost == null || !Number.isFinite(cost) || cost <= 0) return "";
+  return `$${cost.toFixed(2)}`;
 });
 
-/** True when the context is past the cost-health reference (needs compaction). */
+/** True when the context is at/past the manual-compact line (70% of the real window). */
 const contextNeedsCompact = computed(() => {
   const pct = contextPercent.value;
-  return pct != null && pct >= 90;
+  return pct != null && pct >= 70;
 });
 
 const contextSegments = computed(() => {
@@ -2551,11 +2545,11 @@ watch(
               </button>
             </template>
             <div ref="ctxPopoverContentRef" class="ctx-popover">
-              <div class="ctx-pop-title">{{ t.contextUsageTitle }}</div>
               <div class="ctx-pop-summary">
                 <span class="ctx-pop-full">{{ contextFullLabel }}</span>
                 <span class="ctx-pop-pair">{{ contextTokensPairLabel }}</span>
                 <span v-if="contextCostLabel" class="ctx-pop-cost">
+                  <span class="ctx-pop-cost-label">{{ t.contextUsageCost }}</span>
                   {{ contextCostLabel }}
                 </span>
               </div>
@@ -2595,7 +2589,6 @@ watch(
                   <strong>{{ skillsCount ?? "—" }}</strong>
                 </div>
               </div>
-              <div class="ctx-pop-hint">{{ t.contextUsageHint }}</div>
               <NButton
                 size="small"
                 type="primary"
@@ -3309,12 +3302,6 @@ watch(
   font-size: 12px;
 }
 
-.ctx-pop-title {
-  font-weight: 600;
-  font-size: 13px;
-  color: var(--fg-strong);
-}
-
 .ctx-pop-summary {
   display: flex;
   align-items: baseline;
@@ -3327,6 +3314,12 @@ watch(
   font-weight: 650;
   color: var(--warn, #d97706);
   font-variant-numeric: tabular-nums;
+}
+
+.ctx-pop-cost-label {
+  font-weight: 500;
+  opacity: 0.7;
+  margin-right: 2px;
 }
 
 .ctx-pop-full {
