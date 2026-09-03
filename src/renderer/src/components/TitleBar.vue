@@ -13,6 +13,7 @@ import {
   MicOutline,
   MoonOutline,
   NotificationsOutline,
+  OptionsOutline,
   SettingsOutline,
   ShieldCheckmarkOutline,
   SparklesOutline,
@@ -122,7 +123,7 @@ const settingsOptions: DropdownOption[] = [
   {
     label: t.appearance,
     key: "appearance",
-    icon: () => h(NIcon, null, { default: () => h(ColorPaletteOutline) }),
+    icon: () => h(NIcon, null, { default: () => h(OptionsOutline) }),
   },
   {
     label: t.notifyTitle,

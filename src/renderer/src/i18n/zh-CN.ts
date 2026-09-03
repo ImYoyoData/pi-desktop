@@ -384,7 +384,10 @@ export const zh = {
 	gitErr_invalid_args: "参数无效",
 	gitErr_git_unavailable: "内置 Git 缺失，无法读取仓库变更",
 	gitErr_unknown: "Git 操作失败",
-	appearance: "外观",
+	appearance: "通用",
+	showCompactButton: "显示压缩按钮",
+	showCompactButtonHint:
+		"在上下文用量面板中显示“点击压缩上下文”按钮和预警提示。",
 	notifyTitle: "通知",
 	proxyTitle: "网络代理",
 	proxyModeOff: "关闭",
