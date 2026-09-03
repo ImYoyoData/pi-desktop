@@ -544,6 +544,7 @@ function emitContextUsage(active: AgentSession): void {
 			outputTokens: usage.outputTokens,
 			cacheReadTokens: usage.cacheReadTokens,
 			cacheWriteTokens: usage.cacheWriteTokens,
+			costUsd: usage.costUsd,
 			llmDurationMs: timing.llmMs > 0 ? timing.llmMs : null,
 			ttftMs: timing.ttftSteps > 0 ? timing.ttftMs / timing.ttftSteps : null,
 			ttftSteps: timing.ttftSteps > 0 ? timing.ttftSteps : null,

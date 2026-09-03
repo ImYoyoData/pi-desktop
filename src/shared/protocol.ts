@@ -355,10 +355,12 @@ export type SessionContextUsage = {
 	inputTokens?: number | null;
 	/** Total billed output tokens. */
 	outputTokens?: number | null;
-	/** Total cache-read tokens (缓存命中). */
+	/** Total billed cache-read tokens (缓存命中). */
 	cacheReadTokens?: number | null;
-	/** Total cache-write tokens. */
+	/** Total billed cache-write tokens. */
 	cacheWriteTokens?: number | null;
+	/** Total session LLM cost in USD (from Pi `getSessionStats`). */
+	costUsd?: number | null;
 	/** Total LLM wall time (时长) in ms across the session. */
 	llmDurationMs?: number | null;
 	/** Average time to first token (首 token) in ms across sampled steps. */

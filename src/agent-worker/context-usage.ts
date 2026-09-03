@@ -157,10 +157,14 @@ export function readContextUsage(
   let outputTokens: number | null = null;
   let cacheReadTokens: number | null = null;
   let cacheWriteTokens: number | null = null;
+  let costUsd: number | null = null;
   try {
     const stats = active.getSessionStats();
     if (stats && typeof stats === "object") {
       if (typeof stats.toolCalls === "number") toolCalls = stats.toolCalls;
+      if (typeof (stats as { cost?: unknown }).cost === "number") {
+        costUsd = (stats as { cost: number }).cost;
+      }
       const users =
         typeof stats.userMessages === "number" ? stats.userMessages : 0;
       const assistants =
@@ -211,6 +215,7 @@ export function readContextUsage(
       outputTokens,
       cacheReadTokens,
       cacheWriteTokens,
+      costUsd,
       segments,
     };
   }
@@ -229,6 +234,7 @@ export function readContextUsage(
       outputTokens,
       cacheReadTokens,
       cacheWriteTokens,
+      costUsd,
       segments,
     };
   }
