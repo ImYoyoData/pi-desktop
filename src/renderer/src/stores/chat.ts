@@ -16,6 +16,7 @@ import {
 	clearPendingExtensionUi,
 	clearPendingPermission,
 	createChatState,
+	hasLiveTurnState,
 	reduceChatEvent,
 	setPendingAskUser,
 	setPendingExtensionUi,
@@ -85,6 +86,7 @@ export {
 	clearPendingExtensionUi,
 	clearPendingPermission,
 	createChatState,
+	hasLiveTurnState,
 	reduceChatEvent,
 	setPendingAskUser,
 	setPendingExtensionUi,
@@ -688,6 +690,15 @@ export const useChatStore = defineStore("chat", () => {
 		// Restore persisted checkpoint summaries so history keeps its revert
 		// buttons across session switches / restarts.
 		void checkpointStore.loadSessionSummaries(sessionId);
+		const live = bySession[sessionId];
+		if (live && hasLiveTurnState(live)) {
+			// Session already has a live turn in memory (streaming tail / ask_user
+			// / permission / extension strip). The disk page read on session switch
+			// lags the live turn, so replacing state would drop the pending prompt
+			// and any un-flushed stream tail; keep it until the turn settles.
+			softHangReported.delete(sessionId);
+			return;
+		}
 		bySession[sessionId] = {
 			messages: history.map(mapHistoryRow),
 			streamingMessage: null,
