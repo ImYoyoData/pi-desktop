@@ -1,4 +1,10 @@
 import {
+	markStartup,
+	registerStartupTimingIpc,
+	startLagMonitor,
+	installIpcTiming,
+} from "./startup-timing";
+import {
 	app,
 	BrowserWindow,
 	dialog,
@@ -73,6 +79,8 @@ import { guardChromiumCacheDirs } from "./cache-guard";
 
 /** GPU raster / compositing before ready (no-op if only software GL). */
 enableHardwareAcceleration();
+markStartup("main:module-loaded");
+installIpcTiming();
 registerLocalFileScheme();
 
 /**
@@ -83,7 +91,9 @@ registerLocalFileScheme();
  * dir means the two can run side by side without locking each other.
  * Must run before any getPath("userData") call / BrowserWindow.
  */
-if (!app.isPackaged) {
+if (process.env.PI_DESKTOP_USER_DATA) {
+	app.setPath("userData", process.env.PI_DESKTOP_USER_DATA);
+} else if (!app.isPackaged) {
 	app.setPath("userData", join(app.getPath("appData"), "pi-desktop-dev"));
 }
 
@@ -302,10 +312,12 @@ function boot(): void {
 	}
 
 	app.whenReady().then(() => {
+		markStartup("main:ready");
 		installLocalFileProtocol();
 		installApplicationMenu();
 
 		// Critical IPC first — needed for shell, workspace, sessions.
+		registerStartupTimingIpc();
 		registerWindowIpc();
 		registerWorkspaceIpc({
 			purgeWorkspaceSessions: (cwd) => broker.purgeWorkspace(cwd),
@@ -328,6 +340,7 @@ function boot(): void {
 		registerNotifyIpc();
 		registerCheckpointIpc();
 		electronApp.setAppUserModelId("com.pi.desktop");
+		markStartup("main:ipc-critical-done");
 
 		// Allow mic/camera for ASR + embedded browser (macOS TCC still gates via askForMediaAccess).
 		const allowPermissions = new Set([
@@ -403,22 +416,38 @@ function boot(): void {
 		// hosts (ASR / update / market / CLI) so the window paints first.
 		void initProxy();
 		registerProxyIpc();
-		createMainWindow();
+		const mainWindow = createMainWindow();
+		markStartup("main:window-created");
+		mainWindow.webContents.once("did-finish-load", () => {
+			markStartup("main:did-finish-load");
+		});
+		mainWindow.once("show", () => {
+			markStartup("main:window-shown");
+		});
 
 		setImmediate(() => {
+			markStartup("main:defer:start");
+			startLagMonitor();
 			const init = ensurePiAgentEnvironment();
 			if (init.created.length && is.dev) {
 				console.info("[pi-env] initialized", init.agentDir, init.created);
 			}
+			markStartup("main:defer:pi-env");
 			registerAsrIpc();
+			markStartup("main:defer:asr");
 			registerTtsIpc();
 			registerUpdateIpc();
 			registerPiCliIpc();
 			registerMarketIpc(broker);
+			markStartup("main:defer:hosts");
 			// LAN cert generation can briefly block the event loop — wait until
 			// the window has had a chance to paint and hydrate.
 			setTimeout(() => {
-				ensureLanConsoleFromSettings();
+				markStartup("main:defer:lan-start");
+				if (process.env.PI_DESKTOP_NO_LAN !== "1") {
+					ensureLanConsoleFromSettings();
+				}
+				markStartup("main:deferred-init-done");
 			}, 900);
 		});
 

@@ -4,11 +4,16 @@
 import { existsSync } from "node:fs";
 import { Worker } from "node:worker_threads";
 import { join } from "node:path";
-import type { SessionHistoryMessage, SessionHistoryPage } from "../shared/protocol";
+import type {
+  SessionHistoryMessage,
+  SessionHistoryPage,
+} from "../shared/protocol";
+import type { DiskSessionRow } from "./session-history-worker";
 
 type WorkerReply =
   | { ok: true; messages: SessionHistoryMessage[] }
   | { ok: true; page: SessionHistoryPage }
+  | { ok: true; sessions: DiskSessionRow[] }
   | { ok: false; error: string };
 
 function workerScriptPath(): string {
@@ -29,8 +34,10 @@ function workerScriptPath(): string {
 }
 
 function runHistoryWorker(job: {
-  filePath: string;
-  page?: { limit: number; beforeId?: string | null };
+  filePath?: string;
+  page?: { limit?: number; beforeId?: string | null };
+  listDir?: string;
+  listAllUnder?: string;
 }): Promise<WorkerReply> {
   return new Promise((resolve, reject) => {
     let settled = false;
@@ -67,8 +74,26 @@ function runHistoryWorker(job: {
   });
 }
 
+/** Session dir scan + summary parse off the Electron main process. */
+export function listSessionSummariesOffMain(job: {
+  dir?: string;
+  allUnder?: string;
+}): Promise<DiskSessionRow[]> {
+  return runHistoryWorker({
+    listDir: job.dir,
+    listAllUnder: job.allUnder,
+  }).then((msg) => {
+    if (msg.ok && "sessions" in msg && Array.isArray(msg.sessions)) {
+      return msg.sessions;
+    }
+    throw new Error("history worker: expected sessions reply");
+  });
+}
+
 /** Parse a session jsonl file off the Electron main process (full leaf path). */
-export function parseHistoryOffMain(filePath: string): Promise<SessionHistoryMessage[]> {
+export function parseHistoryOffMain(
+  filePath: string,
+): Promise<SessionHistoryMessage[]> {
   return runHistoryWorker({ filePath }).then((msg) => {
     if (!msg.ok || !("messages" in msg)) {
       throw new Error("history worker: expected full messages reply");

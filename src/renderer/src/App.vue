@@ -1,4 +1,5 @@
 <script setup lang="ts">
+// pi-lens-ignore: 2305
 import { computed, defineAsyncComponent, onMounted, onUnmounted, ref, watch } from "vue";
 import {
   NConfigProvider,
@@ -23,9 +24,16 @@ import { darkThemeOverrides, lightThemeOverrides } from "@renderer/theme/naive";
 import { locale, t } from "@renderer/i18n";
 import { dismissLocaleReloadSplash } from "@renderer/utils/locale-reload-splash";
 import { dismissStartupSplash } from "@renderer/utils/startup-splash";
+import { markRendererStartup } from "@renderer/utils/startup-timing";
 
 /** Heavy workspace chrome — load after first paint when a folder is open. */
-const SplitRoot = defineAsyncComponent(() => import("@renderer/components/SplitRoot.vue"));
+const SplitRoot = defineAsyncComponent(() => {
+  markRendererStartup("renderer:splitroot-load-start");
+  return import("@renderer/components/SplitRoot.vue").then((m) => {
+    markRendererStartup("renderer:splitroot-load-done");
+    return m;
+  });
+});
 
 const workspace = useWorkspaceStore();
 const appearance = useAppearanceStore();
@@ -103,6 +111,8 @@ onMounted(() => {
         await new Promise<void>((r) => setTimeout(r, BOOT_MIN_MS - elapsed));
       }
       bootInitDone.value = true;
+      markRendererStartup("renderer:shell-ready");
+      if (!workspace.root) markRendererStartup("renderer:ready");
     }
   })();
 });
