@@ -48,6 +48,7 @@ import {
   followBottomVirtualWindow,
   windowAfterHistoryPrepend,
 } from "@renderer/utils/message-virtual-window";
+import { decideFollowOnScroll } from "@renderer/utils/follow-bottom";
 
 /**
  * Sliding virtual window: mount a modest range around the viewport so
@@ -177,6 +178,14 @@ const heightById = new Map<string, number>();
 const topById = new Map<string, number>();
 let adjustingWindow = false;
 let followBottom = true;
+/**
+ * Latched once the user scrolls away from the live edge; cleared only when they
+ * scroll back down into the near-bottom zone (or send / jump-to-latest). A pure
+ * distance threshold deadlocks while streaming: every chunk snap re-bottoms the
+ * viewport, so `isNearBottom` stays true and small upward wheel steps could
+ * never escape it.
+ */
+let userScrolledAway = false;
 /** Session switch / hydrate settle — snap to bottom, never smooth-scroll. */
 let settlingSession = false;
 let sessionJumpToken = 0;
@@ -760,6 +769,7 @@ function onVisibilityChange(): void {
 
 function jumpToLatest(): void {
   followBottom = true;
+  userScrolledAway = false;
   showJumpLatest.value = false;
   clampRenderWindow(true);
   void nextTick(() => {
@@ -771,6 +781,7 @@ function jumpToLatest(): void {
 async function snapSessionToBottom(token: number): Promise<void> {
   if (token !== sessionJumpToken) return;
   followBottom = true;
+  userScrolledAway = false;
   showJumpLatest.value = false;
   clampRenderWindow(true);
   lastPinnedUserId = latestUserMessageId.value;
@@ -789,6 +800,7 @@ async function beginSessionSettle(): Promise<void> {
   settlingUi.value = true;
   heightById.clear();
   followBottom = true;
+  userScrolledAway = false;
   showJumpLatest.value = false;
   renderStart.value = 0;
   renderEnd.value = 0;
@@ -841,31 +853,49 @@ async function beginSessionSettle(): Promise<void> {
  * the viewport back to the bottom while the user was reading history above.
  */
 let lastSyncScrollTop = -1;
+function cancelQueuedBottomSnaps(): void {
+  if (bottomScrollRaf) {
+    cancelAnimationFrame(bottomScrollRaf);
+    bottomScrollRaf = 0;
+  }
+  // Invalidate instant-snap rAF chains queued before the user scrolled away.
+  instantSnapToken++;
+}
+
 function syncFollowBottomOnScroll(sc: HTMLElement): void {
-  const top = sc.scrollTop;
-  const scrolledUp = lastSyncScrollTop >= 0 && top < lastSyncScrollTop - 1;
-  lastSyncScrollTop = top;
-  if (adjustingWindow || settlingSession) return;
-  // Upward motion is always user intent — expire the post-send suppression
-  // immediately, otherwise follow stays forced=true until the next scroll
-  // event and queued stream snaps still yank the viewport back down.
-  if (scrolledUp) suppressFollowBottomUntil = 0;
-  // During post-send pin, smooth scroll may leave us away from the true bottom;
-  // keep follow enabled so streaming output still becomes visible.
-  if (Date.now() < suppressFollowBottomUntil) {
-    followBottom = true;
-  } else {
-    followBottom = isNearBottom(sc);
-  }
-  if (!followBottom) {
-    if (bottomScrollRaf) {
-      cancelAnimationFrame(bottomScrollRaf);
-      bottomScrollRaf = 0;
-    }
-    // Invalidate instant-snap rAF chains queued before the user scrolled away.
-    instantSnapToken++;
-  }
+  const decision = decideFollowOnScroll({
+    top: sc.scrollTop,
+    lastTop: lastSyncScrollTop,
+    nearBottom: isNearBottom(sc),
+    now: Date.now(),
+    suppressUntil: suppressFollowBottomUntil,
+    away: userScrolledAway,
+    following: followBottom,
+    guarded: adjustingWindow || settlingSession,
+  });
+  lastSyncScrollTop = sc.scrollTop;
+  userScrolledAway = decision.away;
+  suppressFollowBottomUntil = decision.suppressUntil;
+  followBottom = decision.following;
+  if (!followBottom) cancelQueuedBottomSnaps();
   showJumpLatest.value = !followBottom && displayMessages.value.length > 0;
+}
+
+/**
+ * Wheel events only fire for real user input (programmatic scrollTop writes do
+ * not). One upward tick disengages follow immediately — even inside the
+ * near-bottom threshold, where stream snaps would otherwise keep resetting the
+ * user's scroll progress every chunk and they could never escape.
+ */
+function onScrollerWheel(event: WheelEvent): void {
+  if (event.deltaY >= 0 || settlingSession || adjustingWindow) return;
+  const sc = scroller.value;
+  if (!sc || sc.scrollTop <= 0) return;
+  suppressFollowBottomUntil = 0;
+  userScrolledAway = true;
+  followBottom = false;
+  cancelQueuedBottomSnaps();
+  showJumpLatest.value = displayMessages.value.length > 0;
 }
 
 /** Heavy virtual-window / prefetch work stays rAF-coalesced (follow already synced). */
@@ -985,6 +1015,7 @@ watch(
     }
     lastPinnedUserId = id;
     followBottom = true;
+    userScrolledAway = false;
     clampRenderWindow(true);
     // Session switch / hydrate: land on bottom instantly (no slide).
     if (settlingSession) {
@@ -1082,6 +1113,7 @@ watch(
 onMounted(() => {
   const sc = scroller.value;
   sc?.addEventListener("scroll", onScrollerScroll, { passive: true });
+  sc?.addEventListener("wheel", onScrollerWheel, { passive: true });
   document.addEventListener("visibilitychange", onVisibilityChange);
   // Auto-load on startup mounts MessageList *after* activeId is set, so the
   // sessionId watcher may not re-fire — settle here or the spacer looks blank.
@@ -1090,6 +1122,7 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
   scroller.value?.removeEventListener("scroll", onScrollerScroll);
+  scroller.value?.removeEventListener("wheel", onScrollerWheel);
   document.removeEventListener("visibilitychange", onVisibilityChange);
   if (scrollRaf) {
     cancelAnimationFrame(scrollRaf);
