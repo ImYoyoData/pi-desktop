@@ -7,6 +7,10 @@
  * A pure distance threshold deadlocks while streaming: every chunk snap resets
  * scrollTop to the very bottom, so `nearBottom` stays true and a user wheeling
  * up in small steps can never escape the threshold.
+ *
+ * Callers must gate BEFORE invoking this during DOM mutations: scroll events
+ * fired while the virtual window prepends rows / restores scrollTop are
+ * synthetic and would otherwise be mistaken for user motion.
  */
 
 export type FollowDecision = {
@@ -28,6 +32,9 @@ export function decideFollowOnScroll(input: {
 }): FollowDecision {
   const scrolledUp = input.lastTop >= 0 && input.top < input.lastTop - 1;
   if (input.guarded) {
+    // While a window adjust / settle mutates the list, synthetic scroll events
+    // fire — never let them re-engage (or "detach") a reader. `following` is
+    // derived anyway; keep the latched truth stable.
     return {
       following: input.following,
       away: input.away,
