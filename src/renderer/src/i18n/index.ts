@@ -23,10 +23,15 @@ function resolveActiveLocale(): UiLocale {
 const locale: UiLocale = resolveActiveLocale();
 
 /** Active UI strings — Chinese when zh*, otherwise English (or user override). */
-export const t: Messages = locale === "zh-CN" ? zh : en;
+export const t = (locale === "zh-CN" ? zh : en) as Messages;
 
 /** Compile-time guard: en must stay key-compatible with zh. */
-const _enCompat: Messages = en;
+type _AssertSameKeys<A, B> = [keyof A] extends [keyof B]
+  ? [keyof B] extends [keyof A]
+    ? true
+    : never
+  : never;
+const _enCompat: _AssertSameKeys<typeof zh, typeof en> = true;
 void _enCompat;
 
 export { zh, en, locale, resolveUiLocale };

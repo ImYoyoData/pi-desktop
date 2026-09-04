@@ -75,23 +75,6 @@ const selectedModels = computed(() => {
   return available.value.filter((m) => m.provider === selectedProvider.value);
 });
 
-function sourceLabel(source?: string): string {
-  switch (source) {
-    case "stored":
-      return "auth.json";
-    case "environment":
-      return t.modelsSourceEnv;
-    case "runtime":
-      return t.modelsSourceRuntime;
-    case "fallback":
-      return t.modelsSourceFallback;
-    case "models_json_command":
-      return t.modelsSourceCommand;
-    default:
-      return source || t.modelsSourceUnknown;
-  }
-}
-
 async function load(): Promise<void> {
   loading.value = true;
   try {
@@ -429,7 +412,7 @@ function goCustomPanel(): void {
     <template #footer>
       <NSpace justify="end">
         <NButton size="small" @click="emit('close')">{{ t.close }}</NButton>
-        <NButton size="small" type="primary" :loading="saving" @click="save">{{ t.save }}</NButton>
+        <NButton size="small" type="primary" :loading="saving" @click="() => save()">{{ t.save }}</NButton>
       </NSpace>
     </template>
   </NModal>

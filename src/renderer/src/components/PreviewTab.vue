@@ -184,7 +184,7 @@ function clampFloaterPoint(x: number, y: number): { x: number; y: number } {
 }
 
 /** Prefer recent mouse position; fall back to selection caret for keyboard selects. */
-function showFloaterNearPointer(startLine: number, endLine: number, endColumn: number): void {
+function showFloaterNearPointer(_startLine: number, endLine: number, endColumn: number): void {
   if (!editor || !monacoApi) return;
   const selection = editor.getSelection();
   if (!selection || selection.isEmpty()) {
@@ -310,7 +310,7 @@ async function ensureEditor(content: string, language: string): Promise<void> {
       parameterHints: { enabled: false },
       suggestOnTriggerCharacters: false,
       // Needed so json / json5 validation messages are readable on hover.
-      hover: { enabled: true },
+      hover: { enabled: "on" },
     });
     applyMonacoColorTheme(monaco, appearance.resolvedTheme === "dark");
     editor.onDidChangeModelContent(() => {
@@ -320,12 +320,12 @@ async function ensureEditor(content: string, language: string): Promise<void> {
       syncTabMeta({ dirty: true });
     });
     editor.onDidChangeCursorSelection(onEditorSelectionChange);
-    // Wheel / intentional scroll dismisses the chip; ignore tiny layout scrolls during select.
-    editor.onMouseWheel(() => {
-      hideSelectionFloater();
-    });
     const dom = editor.getDomNode();
-    if (dom) bindEditorPointerTracking(dom);
+    if (dom) {
+      bindEditorPointerTracking(dom);
+      // Wheel / intentional scroll dismisses the chip; ignore tiny layout scrolls during select.
+      dom.addEventListener("wheel", () => hideSelectionFloater(), { passive: true });
+    }
     editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => {
       void save();
     });

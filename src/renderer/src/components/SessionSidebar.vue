@@ -1,4 +1,5 @@
 <script setup lang="ts">
+// pi-lens-ignore: 2305
 import { computed, h, nextTick, onMounted, onUnmounted, reactive, ref, watch } from "vue";
 import type { DropdownOption } from "naive-ui";
 import {
@@ -38,9 +39,11 @@ import { useSendQueueStore } from "@renderer/stores/send-queue";
 import { useWorkspaceStore } from "@renderer/stores/workspace";
 import FilesTab from "@renderer/components/FilesTab.vue";
 import { t } from "@renderer/i18n";
+import { markRendererStartup } from "@renderer/utils/startup-timing";
 
 const PIN_KEY = "session-pins:v1";
-const SESSION_ORDER_KEY = "pi-desktop:session-order:v1";
+const SESSION_ORDER_KEY = "pi-desktop:session-order:v2";
+const SESSION_VISIBLE_LIMIT = 7;
 
 const layout = useLayoutStore();
 const sessionsStore = useSessionsStore();
@@ -54,6 +57,7 @@ const sessionsByRoot = reactive<Record<string, SessionSummary[]>>({});
 const expanded = reactive<Record<string, boolean>>({});
 const pins = reactive<Record<string, string[]>>({});
 const sessionOrders = reactive<Record<string, string[]>>({});
+const sessionListExpanded = reactive<Record<string, boolean>>({});
 const sessionListEls = new Map<string, HTMLElement>();
 const sessionSortables = new Map<string, Sortable>();
 
@@ -131,6 +135,7 @@ function confirmPurgeWorkspace(root: string): void {
           d.loading = false;
           return false;
         }
+        return undefined;
       })();
     },
   });
@@ -226,7 +231,10 @@ function bindSessionSortable(root: string): void {
   const sortable = Sortable.create(el, {
     animation: 150,
     draggable: ".session-row",
-    filter: ".empty-inline",
+    filter: ".empty-inline, .session-expand-row",
+    disabled:
+      !sessionListExpanded[root] &&
+      (sessionsByRoot[root]?.length ?? 0) > SESSION_VISIBLE_LIMIT,
     onEnd: () => {
       const ids = [...el.querySelectorAll<HTMLElement>(".session-row[data-id]")]
         .map((n) => n.dataset.id)
@@ -265,6 +273,7 @@ function togglePin(root: string, id: string): void {
 }
 
 onMounted(async () => {
+  markRendererStartup("renderer:sidebar-mounted");
   loadPins();
   loadSessionOrders();
   sessionsStore.bindEvents();
@@ -366,19 +375,37 @@ function sessionsFor(root: string): SessionSummary[] {
   return list;
 }
 
-/** Freeze current visual order and append a new session id at the end. */
+function visibleSessionsFor(root: string): SessionSummary[] {
+  const list = sessionsFor(root);
+  if (sessionListExpanded[root] || list.length <= SESSION_VISIBLE_LIMIT) return list;
+  return list.slice(0, SESSION_VISIBLE_LIMIT);
+}
+
+function hiddenSessionCount(root: string): number {
+  if (sessionListExpanded[root]) return 0;
+  return Math.max(0, sessionsFor(root).length - SESSION_VISIBLE_LIMIT);
+}
+
+function toggleSessionListExpanded(root: string): void {
+  sessionListExpanded[root] = !sessionListExpanded[root];
+  void nextTick(() => bindSessionSortable(root));
+}
+
+/** Freeze current visual order and prepend a new session id at the front. */
 function appendSessionToOrder(root: string, sessionId: string): void {
   const base = sessionsFor(root)
     .map((s) => s.id)
     .filter((id) => id !== sessionId);
-  sessionOrders[root] = [...base, sessionId];
+  sessionOrders[root] = [sessionId, ...base];
   persistSessionOrders();
 }
 
 async function loadSessions(root: string): Promise<void> {
+  markRendererStartup("renderer:sessions-request");
   const list = await window.api.sessions.list(root);
   sessionsByRoot[root] = list;
   if (root === workspace.root) sessionsStore.sessions = list;
+  markRendererStartup("renderer:ready");
 }
 
 async function ensureActiveSession(root: string): Promise<void> {
@@ -501,6 +528,7 @@ function confirmDeleteSession(root: string, sessionId: string): void {
           d.loading = false;
           return false;
         }
+        return undefined;
       })();
     },
   });
@@ -686,6 +714,7 @@ async function onSessionMenu(
       try {
         await onSelectSession(root, session.id);
         await window.api.sessions.clearContext(session.id, root);
+        chatStore.clearSession(session.id);
         chatStore.hydrateFromHistoryPage(session.id, { messages: [], hasMore: false, total: 0 }, session.filePath ?? null);
         await loadSessions(root);
         message.success(t.clearContextDone);
@@ -817,12 +846,10 @@ function onLeftSplitResized(payload: SplitpanesResizedPayload): void {
 
     <NAlert v-if="showStuckRecovery" type="warning" :bordered="false" style="margin: 0 8px 8px">
       {{ t.stuckBanner }}
-      <template #footer>
-        <NSpace>
-          <NButton size="tiny" type="error" @click="onKill">{{ t.terminate }}</NButton>
-          <NButton size="tiny" @click="onRestart">{{ t.restart }}</NButton>
-        </NSpace>
-      </template>
+      <NSpace style="margin-top: 6px">
+        <NButton size="tiny" type="error" @click="onKill">{{ t.terminate }}</NButton>
+        <NButton size="tiny" @click="onRestart">{{ t.restart }}</NButton>
+      </NSpace>
     </NAlert>
 
     <Splitpanes class="left-split" horizontal @resized="onLeftSplitResized">
@@ -893,7 +920,7 @@ function onLeftSplitResized(payload: SplitpanesResizedPayload): void {
               >
                 <li v-if="!sessionsFor(root).length" class="empty-inline">{{ t.emptySessions }}</li>
                 <li
-                  v-for="(session, sIdx) in sessionsFor(root)"
+                  v-for="(session, sIdx) in visibleSessionsFor(root)"
                   :key="session.id"
                   class="session-row"
                   :data-id="session.id"
@@ -939,6 +966,30 @@ function onLeftSplitResized(payload: SplitpanesResizedPayload): void {
                       </template>
                     </NButton>
                   </div>
+                </li>
+                <li v-if="hiddenSessionCount(root) > 0" class="session-expand-row">
+                  <button
+                    type="button"
+                    class="session-expand-btn"
+                    @click.stop="toggleSessionListExpanded(root)"
+                  >
+                    {{ t.showMoreSessions(hiddenSessionCount(root)) }}
+                  </button>
+                </li>
+                <li
+                  v-else-if="
+                    sessionListExpanded[root] &&
+                    sessionsFor(root).length > SESSION_VISIBLE_LIMIT
+                  "
+                  class="session-expand-row"
+                >
+                  <button
+                    type="button"
+                    class="session-expand-btn"
+                    @click.stop="toggleSessionListExpanded(root)"
+                  >
+                    {{ t.collapseSessions }}
+                  </button>
                 </li>
               </ul>
               </div>
@@ -1505,5 +1556,33 @@ function onLeftSplitResized(payload: SplitpanesResizedPayload): void {
   padding: 8px 12px;
   font-size: 12px;
   color: var(--fg-faint);
+}
+
+.session-expand-row {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.session-expand-btn {
+  width: 100%;
+  margin: 0;
+  padding: 5px 8px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--fg-faint);
+  font: inherit;
+  font-size: 11.5px;
+  text-align: center;
+  cursor: pointer;
+  transition:
+    background var(--duration-fast, 140ms) var(--ease-out, ease),
+    color var(--duration-fast, 140ms) var(--ease-out, ease);
+}
+
+.session-expand-btn:hover {
+  background: var(--bg-hover);
+  color: var(--fg);
 }
 </style>

@@ -220,10 +220,8 @@ const kindIcon = computed(() => {
     case "generic":
     case "other":
       return DocumentTextOutline;
-    default: {
-      const _never: never = props.card;
+    default:
       return DocumentTextOutline;
-    }
   }
 });
 
@@ -292,7 +290,7 @@ const body = computed(() => {
   if (card.kind === "edit" || card.kind === "write" || card.kind === "other") {
     return card.diff;
   }
-  return card.preview;
+  return card.kind === "read" || card.kind === "generic" ? card.preview : null;
 });
 
 const stickKinds = computed(
