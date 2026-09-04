@@ -47,7 +47,7 @@ export function encodePcmChunks(
   const id = nextId++;
   // Each chunk owns its buffer exclusively (fresh views from the worklet),
   // so transfer them to the worker without copying.
-  const buffers = chunks.map((c) => c.buffer);
+  const buffers = chunks.map((c) => c.buffer as ArrayBuffer);
   return new Promise<ArrayBuffer>((resolve, reject) => {
     pending.set(id, { resolve, reject });
     try {

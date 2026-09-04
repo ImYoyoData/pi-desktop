@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { onMounted, ref } from "vue";
-import { NButton, NInput, NSpace, NSwitch, NText, useMessage } from "naive-ui";
+import { NButton, NInput, NInputNumber, NSpace, NSwitch, NText, useMessage } from "naive-ui";
 import QRCode from "qrcode";
 import type { LanConsoleStatus } from "../../../shared/protocol";
 import { t } from "@renderer/i18n";
@@ -206,7 +206,7 @@ onMounted(() => {
       <div class="block">
         <div class="label">{{ t.lanConsolePort }}</div>
         <div style="display: flex; gap: 6px; margin-top: 6px">
-          <NInput v-model:value="portDraft" size="small" type="number" style="width: 110px" />
+          <NInputNumber v-model:value="portDraft" size="small" style="width: 110px" />
           <NButton size="small" secondary :loading="savingPort" @click="onSavePort">
             {{ t.lanConsoleSavePort }}
           </NButton>

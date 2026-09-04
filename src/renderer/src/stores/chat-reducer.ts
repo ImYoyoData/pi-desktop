@@ -572,7 +572,7 @@ function imagesFromMessage(
 function assistantFromPartial(
 	msg: Record<string, unknown>,
 	prev: ChatMessage | null,
-): ChatMessage {
+): Extract<ChatMessage, { role: "assistant" }> {
 	const id =
 		typeof msg.id === "string" && msg.id.length > 0
 			? msg.id
@@ -1349,6 +1349,9 @@ export function reduceChatEvent(
 			return withRunClock(appendError(state, t.stuckBanner));
 		case "worker_alive":
 			return withRunClock(state, { activity: false, workerAlive: true });
+		case "worker_stall":
+			// Renderer watchdog owns stall recovery (autoRecover) — keep turn running.
+			return state;
 		case "worker_exit":
 			// Non-zero / unexpected exit → show in chat; clean idle-destroy (0/null) is silent.
 			if (event.code !== 0 && event.code != null) {

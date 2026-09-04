@@ -1,4 +1,4 @@
-import { app, BrowserWindow, Menu, shell } from "electron";
+import { app, Menu, shell } from "electron";
 import { APP_GITHUB_URL } from "../shared/app-meta";
 
 /** Native app menu — especially important on macOS for Edit/Copy/Paste shortcuts. */

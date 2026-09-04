@@ -343,13 +343,43 @@ declare const api: {
 		resetToCommit: (
 			commitHash: string,
 			mode: "soft" | "hard",
-		) => Promise<{ ok: boolean; message?: string; code?: string }>;
+		) => Promise<
+			| {
+					ok: true;
+					message?: string;
+			  }
+			| {
+					ok: false;
+					message: string;
+					code?: string;
+			  }
+		>;
 		stage: (
 			paths: string[],
-		) => Promise<{ ok: boolean; message?: string; code?: string }>;
+		) => Promise<
+			| {
+					ok: true;
+					message?: string;
+			  }
+			| {
+					ok: false;
+					message: string;
+					code?: string;
+			  }
+		>;
 		unstage: (
 			paths: string[],
-		) => Promise<{ ok: boolean; message?: string; code?: string }>;
+		) => Promise<
+			| {
+					ok: true;
+					message?: string;
+			  }
+			| {
+					ok: false;
+					message: string;
+					code?: string;
+			  }
+		>;
 		ignore: (paths: string[]) => Promise<string[]>;
 		unignore: (path: string) => Promise<string[]>;
 		ignored: () => Promise<string[]>;

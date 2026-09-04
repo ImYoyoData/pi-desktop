@@ -3,9 +3,9 @@ import {
   type DiagramToolLabels,
 } from "@renderer/utils/diagram-chrome";
 
-let vizPromise: Promise<{
-  renderString: (src: string, opts?: { format?: string }) => Promise<string>;
-}> | null = null;
+type VizInstance = Awaited<ReturnType<typeof import("@viz-js/viz")["instance"]>>;
+
+let vizPromise: Promise<VizInstance> | null = null;
 let renderSeq = 0;
 
 async function loadViz() {
