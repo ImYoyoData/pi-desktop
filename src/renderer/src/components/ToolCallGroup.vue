@@ -1,26 +1,17 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref, watch } from "vue";
 import { NIcon } from "naive-ui";
-import {
-  CheckmarkCircleOutline,
-  ChevronDownOutline,
-  ChevronForwardOutline,
-  CloseCircleOutline,
-} from "@vicons/ionicons5";
+import { ChevronForwardOutline } from "@vicons/ionicons5";
 import type { ChatMessage } from "@renderer/stores/chat";
 import ToolCallCard from "@renderer/components/ToolCallCard.vue";
 import { parseToolCard, type ToolCard } from "@renderer/utils/tool-diff";
-import {
-  countToolActivities,
-  formatToolGroupSummary,
-} from "@renderer/utils/tool-group";
 import { t } from "@renderer/i18n";
 
 type ToolMessage = Extract<ChatMessage, { role: "tool" }>;
 
 const props = defineProps<{
   tools: ToolMessage[];
-  /** True once the whole turn finished: fold the finished group (Codex-like). */
+  /** True once the whole turn finished: fold the finished group. */
   autoCollapse?: boolean;
 }>();
 
@@ -28,70 +19,53 @@ const emit = defineEmits<{
   open: [path: string];
 }>();
 
-const manuallyOpen = ref<boolean | null>(null);
-const wasStreaming = ref(false);
+const manuallyOpen = ref(false);
 
 const anyStreaming = computed(() => props.tools.some((m) => m.streaming));
 const anyError = computed(() => props.tools.some((m) => m.isError && !m.streaming));
-/** Collapse the finished group shortly after it stops streaming (Codex-like). */
-const AUTO_COLLAPSE_MS = 1200;
-let finishTimer: ReturnType<typeof setTimeout> | null = null;
 
-function clearFinishTimer(): void {
-  if (finishTimer) {
-    clearTimeout(finishTimer);
-    finishTimer = null;
-  }
-}
-
+/**
+ * Streaming: label-only (shimmer) — no live tool dump.
+ * Finished: collapsed by default; user can expand cards.
+ */
 const open = computed(() => {
-  // Turn finished: only a user-expanded group stays open; history stays folded.
-  if (props.autoCollapse) return manuallyOpen.value === true;
-  if (manuallyOpen.value !== null) return manuallyOpen.value;
-  // While tools are running (and just after), keep expanded so the latest call is visible.
-  return wasStreaming.value || anyStreaming.value;
+  if (anyStreaming.value) return false;
+  if (props.autoCollapse && !manuallyOpen.value) return false;
+  return manuallyOpen.value;
 });
 
-watch(anyStreaming, (streaming, prev) => {
-  if (streaming) {
-    manuallyOpen.value = null;
-    wasStreaming.value = true;
-    clearFinishTimer();
-  } else if (prev && !streaming) {
-    // Just finished — keep expanded so results are visible, then fold
-    // the history back up as the agent moves on.
-    wasStreaming.value = true;
-    clearFinishTimer();
-    finishTimer = setTimeout(() => {
-      finishTimer = null;
-      if (manuallyOpen.value === null) manuallyOpen.value = false;
-    }, AUTO_COLLAPSE_MS);
-  }
+watch(anyStreaming, (streaming) => {
+  if (streaming) manuallyOpen.value = false;
 });
 
-// Fold everything as soon as the round finishes; users can re-expand manually.
 watch(
   () => props.autoCollapse,
   (v) => {
-    if (!v) return;
-    clearFinishTimer();
-    manuallyOpen.value = false;
+    if (v) manuallyOpen.value = false;
   },
 );
 
-onBeforeUnmount(clearFinishTimer);
-
 function toggle(): void {
-  manuallyOpen.value = !open.value;
+  if (anyStreaming.value) return;
+  manuallyOpen.value = !manuallyOpen.value;
 }
 
-const summary = computed(() =>
-  formatToolGroupSummary(countToolActivities(props.tools), {
-    readTimes: t.toolGroupReadTimes,
-    toolTimes: t.toolGroupToolTimes,
-    join: (parts) => parts.join(t.toolGroupJoin),
-  }),
-);
+const titleLabel = computed(() => {
+  if (anyStreaming.value) {
+    const live = props.tools.find((m) => m.streaming)?.toolName;
+    return live ? t.toolsRunningHint(live) : t.toolsRunning;
+  }
+  return t.toolsCalledCount(props.tools.length);
+});
+
+const namesHint = computed(() => {
+  if (anyStreaming.value) return "";
+  const names = props.tools.map((m) => m.toolName).filter(Boolean);
+  const unique = [...new Set(names)];
+  if (unique.length === 0) return "";
+  const shown = unique.slice(0, 4);
+  return shown.join(", ") + (unique.length > shown.length ? "…" : "");
+});
 
 const statusType = computed<"info" | "error" | "success">(() => {
   if (anyStreaming.value) return "info";
@@ -118,6 +92,10 @@ function toolStatus(msg: ToolMessage): {
   if (msg.isError) return { type: "error", label: t.toolError };
   return { type: "success", label: t.toolDone };
 }
+
+onBeforeUnmount(() => {
+  // no timers
+});
 </script>
 
 <template>
@@ -125,23 +103,30 @@ function toolStatus(msg: ToolMessage): {
     class="tool-group"
     :class="{ open, streaming: anyStreaming, error: statusType === 'error' }"
   >
-    <button type="button" class="tool-group-head" :aria-expanded="open" @click="toggle">
+    <!-- Streaming: single shimmer line — no chevron / cards / body. -->
+    <div v-if="anyStreaming" class="tool-group-head inert">
+      <span class="summary chat-shimmer-text">{{ titleLabel }}</span>
+    </div>
+    <button
+      v-else
+      type="button"
+      class="tool-group-head"
+      :aria-expanded="open"
+      @click="toggle"
+    >
       <NIcon
-        class="chev"
-        :component="open ? ChevronDownOutline : ChevronForwardOutline"
-        :size="12"
+        class="chev collapse-arrow"
+        :component="ChevronForwardOutline"
+        :size="14"
       />
-      <span class="summary">{{ summary }}</span>
-      <span class="count">{{ tools.length }}</span>
-      <span class="status" :class="statusType" aria-hidden="true">
-        <span v-if="anyStreaming" class="spinner" />
-        <NIcon
-          v-else-if="statusType === 'error'"
-          :component="CloseCircleOutline"
-          :size="14"
-        />
-        <NIcon v-else :component="CheckmarkCircleOutline" :size="14" />
-      </span>
+      <span
+        v-if="statusType === 'success'"
+        class="ok-mark"
+        aria-hidden="true"
+      >✓</span>
+      <span v-else-if="statusType === 'error'" class="err-mark" aria-hidden="true">!</span>
+      <span class="summary">{{ titleLabel }}</span>
+      <span v-if="namesHint" class="names" :title="namesHint">{{ namesHint }}</span>
     </button>
 
     <div v-if="open" class="tool-group-body">
@@ -163,94 +148,95 @@ function toolStatus(msg: ToolMessage): {
 
 <style scoped>
 .tool-group {
-  margin: 2px 0 6px;
-  /* Cursor-style: plain text rows, no card chrome. */
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: transparent;
   overflow: hidden;
+  font-family: var(--font-ui, inherit);
 }
 
 .tool-group-head {
-  display: flex;
+  display: inline-flex;
   align-items: center;
-  gap: 6px;
-  width: 100%;
+  gap: 5px;
+  width: auto;
+  max-width: 100%;
   margin: 0;
-  padding: 3px 4px;
+  padding: 2px 0;
   border: 0;
-  border-radius: 5px;
+  border-radius: 0;
   background: transparent;
   color: var(--fg-muted);
   font: inherit;
-  font-size: 11.5px;
+  font-size: 13px;
   text-align: left;
   cursor: pointer;
 }
 
-.tool-group-head:hover {
+.tool-group-head.inert {
+  cursor: default;
+  display: flex;
+  width: 100%;
+}
+
+.tool-group-head:not(.inert):hover {
   color: var(--fg);
-  background: color-mix(in srgb, var(--fg) 4%, transparent);
 }
 
 .chev {
   flex-shrink: 0;
-  opacity: 0.7;
+  opacity: 0.55;
+  transition: transform 150ms ease;
+}
+
+.tool-group.open .collapse-arrow {
+  transform: rotate(90deg);
+}
+
+.ok-mark {
+  flex-shrink: 0;
+  color: var(--green, #22c55e);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.err-mark {
+  flex-shrink: 0;
+  color: var(--red, #ef4444);
+  font-size: 11px;
+  font-weight: 700;
 }
 
 .summary {
+  flex-shrink: 0;
+  font-weight: 500;
+  color: inherit;
+}
+
+.names {
   flex: 1;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  color: inherit;
+  color: var(--fg-faint, var(--fg-muted));
+  font-size: 12px;
 }
 
-.count {
-  flex-shrink: 0;
-  font-variant-numeric: tabular-nums;
-  opacity: 0.55;
-  font-size: 11px;
-}
-
-.status {
-  flex-shrink: 0;
-  display: inline-flex;
-  align-items: center;
-  width: 14px;
-  height: 14px;
-}
-
-.status.success {
-  color: var(--success, #3c9a5f);
-}
-
-.status.error {
-  color: var(--error, #d94848);
-}
-
-.status.info {
-  color: var(--fg-muted);
-}
-
-.spinner {
-  width: 10px;
-  height: 10px;
-  border: 1.5px solid color-mix(in srgb, currentColor 35%, transparent);
-  border-top-color: currentColor;
-  border-radius: 50%;
-  animation: tool-group-spin 0.7s linear infinite;
-}
-
-@keyframes tool-group-spin {
-  to {
-    transform: rotate(360deg);
-  }
+.names::before {
+  content: "·";
+  margin: 0 6px 0 2px;
+  color: color-mix(in srgb, var(--fg-muted) 50%, transparent);
 }
 
 .tool-group-body {
   display: flex;
   flex-direction: column;
   gap: 1px;
-  padding: 0 0 6px;
+  margin: 2px 0 0 17px;
+  padding: 0;
+  border: none;
 }
 
 .tool-group-body :deep(.tool-call) {

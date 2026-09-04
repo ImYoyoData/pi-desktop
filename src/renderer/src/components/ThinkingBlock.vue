@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { computed, nextTick, onUnmounted, ref, watch } from "vue";
+import { computed, onUnmounted, ref, watch } from "vue";
 import { NIcon } from "naive-ui";
-import { ChevronDownOutline, ChevronForwardOutline } from "@vicons/ionicons5";
+import { ChevronForwardOutline } from "@vicons/ionicons5";
 import { formatElapsedShort } from "@renderer/utils/agent-wait";
 import { t } from "@renderer/i18n";
 
@@ -13,26 +13,21 @@ const props = defineProps<{
   startedAt?: number;
   /** Final thinking duration once finished (ms). */
   durationMs?: number;
-  /** True once the whole turn finished: fold finished thinking (Codex-like). */
+  /** True once the whole turn finished: fold finished thinking. */
   autoCollapse?: boolean;
 }>();
 
 /**
- * History rows stay collapsed (cheap open). Live streaming auto-expands;
- * once the whole turn finishes the block folds back up (Codex-like), unless
- * the user expanded it manually.
+ * Streaming: plain shimmer label only — no rail, chevron, or body (Cursor).
+ * Finished: collapsed by default; user can expand.
  */
-const manuallyOpen = ref<boolean | null>(null);
+const manuallyOpen = ref(false);
+
 const open = computed(() => {
-  // Turn finished: only a user-expanded block stays open; history stays folded.
-  if (props.autoCollapse) return manuallyOpen.value === true;
-  if (manuallyOpen.value !== null) return manuallyOpen.value;
-  return Boolean(props.streaming);
+  if (props.streaming) return false;
+  if (props.autoCollapse && !manuallyOpen.value) return false;
+  return manuallyOpen.value;
 });
-const bodyRef = ref<HTMLElement | null>(null);
-/** Follow newest text unless the user scrolls up inside the card. */
-let stickToBottom = true;
-const NEAR_BOTTOM_PX = 48;
 
 const nowMs = ref(Date.now());
 let tickTimer: ReturnType<typeof setInterval> | null = null;
@@ -58,24 +53,20 @@ const elapsedLabel = computed(() => {
     return formatElapsedShort(props.durationMs);
   }
   if (props.streaming && !props.startedAt) {
-    // Clock not stamped yet — still show a live 0s once streaming.
     return formatElapsedShort(0);
   }
   return "";
 });
 
-const headLabel = computed(() => {
-  const base = props.streaming ? t.thinkingStreaming : t.thinking;
-  return elapsedLabel.value ? `${base} · ${elapsedLabel.value}` : base;
-});
+const titleLabel = computed(() =>
+  props.streaming ? t.thinkingStreaming : t.thinkingDone,
+);
 
 watch(
   () => [props.streaming, props.startedAt] as const,
   ([streaming, startedAt]) => {
     if (streaming) {
-      // Let the computed track live state (auto-expands when the turn is open).
-      manuallyOpen.value = null;
-      stickToBottom = true;
+      manuallyOpen.value = false;
       if (startedAt) startTick();
       else stopTick();
       return;
@@ -85,7 +76,6 @@ watch(
   { immediate: true },
 );
 
-// Fold everything as soon as the round finishes; users can re-expand manually.
 watch(
   () => props.autoCollapse,
   (v) => {
@@ -94,136 +84,149 @@ watch(
 );
 
 function toggleOpen(): void {
-  manuallyOpen.value = !open.value;
+  if (props.streaming) return;
+  if (!props.thinking) return;
+  manuallyOpen.value = !manuallyOpen.value;
 }
 
 onUnmounted(() => stopTick());
-
-function onBodyScroll(): void {
-  const el = bodyRef.value;
-  if (!el) return;
-  stickToBottom = el.scrollHeight - el.scrollTop - el.clientHeight < NEAR_BOTTOM_PX;
-}
-
-async function scrollBodyToLatest(): Promise<void> {
-  if (!open.value || !stickToBottom) return;
-  await nextTick();
-  const el = bodyRef.value;
-  if (!el) return;
-  el.scrollTop = el.scrollHeight;
-}
-
-watch(
-  () => [props.thinking, props.streaming, open.value] as const,
-  () => {
-    if (!props.streaming) return;
-    void scrollBodyToLatest();
-  },
-);
 </script>
 
 <template>
-  <div class="thinking" :class="{ streaming: Boolean(streaming) }">
-    <button type="button" class="thinking-head" @click="toggleOpen">
+  <div class="thinking" :class="{ streaming: Boolean(streaming), open }">
+    <!-- Cursor live: ONLY shimmer text — no card / chevron / rail. -->
+    <div v-if="streaming" class="thinking-live" aria-live="polite">
+      <span class="chat-shimmer-text">{{ titleLabel }}</span>
+    </div>
+    <button
+      v-else
+      type="button"
+      class="thinking-head"
+      :class="{ inert: !thinking }"
+      :aria-expanded="open"
+      @click="toggleOpen"
+    >
       <NIcon
-        class="chev"
-        :component="open ? ChevronDownOutline : ChevronForwardOutline"
-        :size="12"
+        class="chev collapse-arrow"
+        :component="ChevronForwardOutline"
+        :size="13"
       />
-      <span class="label">{{ headLabel }}</span>
-      <span v-if="streaming" class="pulse" aria-hidden="true" />
+      <span class="label">{{ titleLabel }}</span>
+      <template v-if="elapsedLabel">
+        <span class="meta">{{ elapsedLabel }}</span>
+      </template>
     </button>
-    <div
-      v-if="open && thinking"
-      ref="bodyRef"
-      class="thinking-body"
-      @scroll="onBodyScroll"
-    >{{ thinking }}</div>
-    <div v-else-if="open && streaming && !thinking" class="thinking-body muted">
-      {{ headLabel }}
+    <div v-if="open && thinking" class="thinking-body">
+      <div
+        v-for="(line, idx) in thinking.split(/\n+/).filter((l) => l.trim())"
+        :key="idx"
+        class="thought-line"
+      >
+        {{ line.trim() }}
+      </div>
     </div>
   </div>
 </template>
 
 <style scoped>
 .thinking {
-  margin: 0 0 4px;
-  /* Cursor-style: no card chrome — muted text row with a fold chevron. */
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: transparent;
   overflow: hidden;
+  font-size: 13px;
 }
 
-.thinking.streaming {
-  color: var(--primary, #3b82f6);
+/* Live thinking: bare shimmer — short like Cursor. */
+.thinking-live {
+  display: flex;
+  align-items: center;
+  min-height: 18px;
+  padding: 0;
+  margin: 0;
+  border: none;
+  background: transparent;
+  font-family: var(--font-ui, inherit);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.35;
 }
 
 .thinking-head {
-  width: 100%;
-  display: flex;
+  width: auto;
+  max-width: 100%;
+  display: inline-flex;
   align-items: center;
-  gap: 7px;
+  gap: 4px;
   margin: 0;
-  padding: 2px 4px;
+  padding: 2px 0;
   border: none;
-  border-radius: 5px;
+  border-radius: 0;
   background: transparent;
-  color: var(--fg-muted, #666);
-  font-size: 11.5px;
+  color: var(--fg-muted, #8b93a7);
+  font-family: var(--font-ui, inherit);
+  font-size: 13px;
   font-weight: 500;
   text-align: left;
   cursor: pointer;
 }
 
-.thinking-head:hover {
-  background: color-mix(in srgb, var(--fg) 4%, transparent);
-  color: var(--fg-strong, #222);
+.thinking-head.inert {
+  cursor: default;
+}
+
+.thinking-head:not(.inert):hover {
+  color: var(--fg-strong, #c4cad8);
 }
 
 .chev {
   flex-shrink: 0;
-  opacity: 0.7;
+  opacity: 0.55;
+  color: inherit;
+  transition: transform 150ms ease;
+}
+
+.thinking.open .collapse-arrow {
+  transform: rotate(90deg);
 }
 
 .label {
   letter-spacing: 0.01em;
+  color: inherit;
 }
 
-.pulse {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--primary, #3b82f6);
-  animation: think-pulse 1.1s ease-in-out infinite;
+.meta {
+  color: var(--fg-faint, #5c6578);
+  font-size: 12px;
+  font-weight: 400;
+  font-variant-numeric: tabular-nums;
 }
 
-@keyframes think-pulse {
-  0%,
-  100% {
-    opacity: 0.35;
-    transform: scale(0.85);
-  }
-  50% {
-    opacity: 1;
-    transform: scale(1);
-  }
+.meta::before {
+  content: "·";
+  margin: 0 5px 0 2px;
+  color: color-mix(in srgb, var(--fg-muted) 45%, transparent);
 }
 
+/* Expanded thought text — plain indented copy, no card border. */
 .thinking-body {
-  margin: 0;
-  padding: 2px 4px 6px 26px;
-  max-height: 160px;
+  margin: 4px 0 2px 17px;
+  padding: 0;
+  max-height: 240px;
   overflow: auto;
+  border: none;
+  color: var(--fg-muted, #8b93a7);
+  font-family: var(--font-ui, inherit);
+  font-size: 12.5px;
+  line-height: 1.55;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.thought-line {
   white-space: pre-wrap;
   word-break: break-word;
-  font-size: 12px;
-  line-height: 1.5;
-  color: var(--fg-muted, #666);
-  font-style: italic;
-  user-select: text;
-  -webkit-user-select: text;
-}
-
-.thinking-body.muted {
-  font-style: normal;
-  opacity: 0.75;
 }
 </style>

@@ -50,7 +50,8 @@ function mergeInto(
  */
 export function collectTurnFileChanges(
 	messages: ChatMessage[],
-	parseTool: ParseTool = parseToolCard,
+	parseTool: ParseTool = (msg) =>
+		parseToolCard(msg.toolName, msg.args, msg.result, { isError: msg.isError }),
 	includeTrailing = false,
 ): Map<string, TurnFileChanges> {
 	const out = new Map<string, TurnFileChanges>();
