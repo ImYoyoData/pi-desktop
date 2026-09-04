@@ -1,5 +1,6 @@
 import type * as Monaco from "monaco-editor";
 import JSON5 from "json5";
+import { jsonDefaults } from "monaco-editor/language/json/monaco.contribution";
 
 let registered = false;
 
@@ -125,10 +126,8 @@ function registerJson5(monaco: typeof Monaco): void {
   });
 }
 
-function configureJsonDiagnostics(monaco: typeof Monaco): void {
-  const jsonLang = monaco.languages.json;
-  if (!jsonLang?.jsonDefaults) return;
-  jsonLang.jsonDefaults.setDiagnosticsOptions({
+function configureJsonDiagnostics(_monaco: typeof Monaco): void {
+  jsonDefaults.setDiagnosticsOptions({
     validate: true,
     allowComments: false,
     schemas: [],

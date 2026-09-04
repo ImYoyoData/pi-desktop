@@ -4,7 +4,6 @@ import {
   NButton,
   NEmpty,
   NIcon,
-  NImage,
   NSpin,
   NTag,
   NText,
@@ -242,6 +241,12 @@ function isProcessSummary(msg: ChatMessage | null | undefined): boolean {
   return Boolean(msg && msg.role === "tool" && msg.toolName === "process-summary");
 }
 
+function processSummaryExpanded(msg: ChatMessage): boolean {
+  if (msg.role !== "tool") return false;
+  const args = msg.args as { expanded?: boolean } | undefined;
+  return args?.expanded === true;
+}
+
 watch([() => props.running, () => props.streaming], ([running, streaming]) => {
   // Auto-fold only when the turn is done and there is work to fold.
   if (running || streaming) {
@@ -261,7 +266,6 @@ const displayMessages = computed(() => {
   const list = [...props.messages];
   if (props.streaming) list.push(props.streaming);
   const counts = processSummaryCounts.value;
-  const foldable = counts.tools + counts.thinking > 0;
   const start = latestTurnStart.value;
   const out: ChatMessage[] = [];
   let inserted = false;
@@ -469,14 +473,12 @@ function findStickyUserMessageId(): string | null {
   const viewportTop = sc.scrollTop + 8;
   let bestId: string | null = null;
   let offset = 0;
-  let measured = true;
 
   for (let i = 0; i < all.length; i++) {
     const m = all[i]!;
     const h = estimateMessageHeight(m);
     const top = topById.get(m.id);
     if (top == null) {
-      measured = false;
       // Unmeasured rows: fall back to accumulated estimate for the boundary.
       if (m.role === "user" && offset + h < viewportTop) bestId = m.id;
       else if (m.role === "user") break;
@@ -1471,9 +1473,10 @@ function onRevertUser(msg: Extract<ChatMessage, { role: "user" }>): void {
           }
           if (result.restored === 0 && result.deleted === 0) {
             messageApi.info(t.revertTurnEmpty);
-            return;
+            return true;
           }
           messageApi.success(t.revertTurnDone(result.restored, result.deleted));
+          return true;
         } catch (err) {
           messageApi.error(err instanceof Error ? err.message : String(err));
           d.loading = false;
@@ -1724,13 +1727,13 @@ function onRevertUser(msg: Extract<ChatMessage, { role: "user" }>): void {
             <button
               type="button"
               class="process-summary pi-interactive"
-              :title="msg.args?.expanded ? t.processCollapse : t.processExpand"
-              @click="msg.args?.expanded ? (workFolded = true) : (workFolded = false)"
+              :title="processSummaryExpanded(msg) ? t.processCollapse : t.processExpand"
+              @click="processSummaryExpanded(msg) ? (workFolded = true) : (workFolded = false)"
             >
               <span class="ps-dot" aria-hidden="true" />
               <span class="ps-label">{{ processSummaryLabel(msg) }}</span>
               <NIcon
-                :component="msg.args?.expanded ? ChevronUpOutline : ChevronDownOutline"
+                :component="processSummaryExpanded(msg) ? ChevronUpOutline : ChevronDownOutline"
                 :size="14"
                 class="ps-chevron"
               />

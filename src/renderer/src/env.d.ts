@@ -14,10 +14,6 @@ declare global {
       };
     }
   }
-
-  interface Window {
-    api: PiDesktopApi;
-  }
 }
 
 declare module "vue" {

@@ -65,7 +65,7 @@ export function augmentPathForPiCli(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
     if (e && !parts.includes(e)) parts.push(e);
   }
   const next = { ...env, PATH: parts.join(sep) };
-  if (process.platform === "win32") next.Path = next.PATH;
+  if (process.platform === "win32") next["Path"] = next.PATH;
   return next;
 }
 
