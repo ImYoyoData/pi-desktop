@@ -1,6 +1,9 @@
 import path from "node:path";
 import { existsSync } from "node:fs";
-import type { WorkerInbound, WorkerOutbound } from "../shared/agent-worker-messages";
+import type {
+  WorkerInbound,
+  WorkerOutbound,
+} from "../shared/agent-worker-messages";
 import type { DesktopSecuritySettings } from "../shared/desktop-security";
 import type {
   AgentCommand,
@@ -9,12 +12,17 @@ import type {
   ContextUsageSegmentId,
   SessionStatus,
   SessionSummary,
-  type SessionImageCacheResult,
-  type SessionImageCacheSource,
+  SessionImageCacheResult,
+  SessionImageCacheSource,
 } from "../shared/protocol";
 import { IDLE_WORKER_DESTROY_MS } from "./worker-lifecycle";
+import { markStartup } from "./startup-timing";
 import { listSessionsForCwd, purgeWorkspaceSessionDir } from "./session-list";
-import { clearSessionConversation, deleteSessionFile, invalidateSessionHistoryCache } from "./session-history";
+import {
+  clearSessionConversation,
+  deleteSessionFile,
+  invalidateSessionHistoryCache,
+} from "./session-history";
 import { appendChatMeta } from "./session-chat-meta";
 import type { ChatMessageTag } from "../shared/chat-meta";
 import { downloadImageToCache, saveImageDataUrl } from "./session-image-cache";
@@ -68,7 +76,12 @@ export type WorkerHandle = {
 export type SpawnWorker = (
   cwd: string,
   filePath?: string,
-) => Promise<{ worker: WorkerHandle; id: string; filePath: string; cwd: string }>;
+) => Promise<{
+  worker: WorkerHandle;
+  id: string;
+  filePath: string;
+  cwd: string;
+}>;
 
 /** Allocate session id + jsonl without spawning the Pi agent worker. */
 export type AllocateSession = (cwd: string) => Promise<{
@@ -80,16 +93,25 @@ export type AllocateSession = (cwd: string) => Promise<{
 export type SessionBroker = {
   createSession: (cwd: string) => Promise<SessionSummary>;
   listSessions: (cwd: string) => Promise<SessionSummary[]>;
-  openSession: (sessionId: string, cwd: string) => Promise<SessionSummary | null>;
+  openSession: (
+    sessionId: string,
+    cwd: string,
+  ) => Promise<SessionSummary | null>;
   closeSession: (sessionId: string) => Promise<void>;
   send: (sessionId: string, command: AgentCommand) => Promise<unknown>;
   /**
    * Like send, but never cold-starts a worker. Returns `undefined` when no worker is alive
    * (used for UI sync without waking the Pi agent).
    */
-  trySend: (sessionId: string, command: AgentCommand) => Promise<unknown | undefined>;
+  trySend: (
+    sessionId: string,
+    command: AgentCommand,
+  ) => Promise<unknown | undefined>;
   /** Fire-and-forget worker message (no pending-command tracking). */
-  sendRaw: (sessionId: string, msg: WorkerInbound) => Promise<WorkerOutbound | null>;
+  sendRaw: (
+    sessionId: string,
+    msg: WorkerInbound,
+  ) => Promise<WorkerOutbound | null>;
   /**
    * Send to a live worker only — never cold-starts via ensureWorker/spawn.
    * Returns false when no worker is alive for the session.
@@ -109,7 +131,9 @@ export type SessionBroker = {
   clearContext: (sessionId: string, cwd: string) => Promise<void>;
   notifyWorkersReloadModels: () => Promise<void>;
   /** Hot-reload desktopSecurity into live workers (no restart). */
-  notifyWorkersReloadSecurity: (desktopSecurity: DesktopSecuritySettings) => Promise<void>;
+  notifyWorkersReloadSecurity: (
+    desktopSecurity: DesktopSecuritySettings,
+  ) => Promise<void>;
   /** Delete one cached image file (user removed it from the editor). */
   deleteCachedImage: (sessionId: string, cachePath: string) => void;
   /** Cache a pasted / URL image into the session's attachment folder. */
@@ -166,7 +190,8 @@ export function createSessionBroker(deps: {
   hasActiveRuns?: (sessionId: string) => boolean;
 }): SessionBroker {
   const idleDestroyMs = deps.idleDestroyMs ?? IDLE_WORKER_DESTROY_MS;
-  const allocateSession = deps.allocateSession ?? (async (cwd: string) => allocateSessionOnDisk(cwd));
+  const allocateSession =
+    deps.allocateSession ?? (async (cwd: string) => allocateSessionOnDisk(cwd));
   const sessions = new Map<string, SessionRecord>();
   const listeners = new Set<(event: AgentEvent) => void>();
 
@@ -255,7 +280,10 @@ export function createSessionBroker(deps: {
         // Total event-loop silence (no pong, no events) past the stall window
         // means the loop is wedged, not slow. Emit once — the renderer decides
         // whether to abort + restart; we never kill a mid-turn worker here.
-        if (Date.now() - current.lastAliveAt >= STALL_EMIT_MS && !current.stallEmitted) {
+        if (
+          Date.now() - current.lastAliveAt >= STALL_EMIT_MS &&
+          !current.stallEmitted
+        ) {
           current.stallEmitted = true;
           emit({ type: "worker_stall", sessionId });
         }
@@ -360,7 +388,9 @@ export function createSessionBroker(deps: {
       spawned.worker.kill();
       throw new Error(
         `session id mismatch: expected ${sessionId}, got ${spawned.id}` +
-          (filePath ? ` (file: ${filePath})` : " (new session had no file yet)"),
+          (filePath
+            ? ` (file: ${filePath})`
+            : " (new session had no file yet)"),
       );
     }
     rec.worker = spawned.worker;
@@ -383,7 +413,8 @@ export function createSessionBroker(deps: {
   function trimIdleWorkers(): void {
     const idle: { sessionId: string; spawnedAt: number }[] = [];
     for (const [id, rec] of sessions) {
-      if (!rec.worker || rec.summary.status !== "idle" || rec.workerPromise) continue;
+      if (!rec.worker || rec.summary.status !== "idle" || rec.workerPromise)
+        continue;
       if (deps.hasActiveRuns?.(id)) continue;
       idle.push({ sessionId: id, spawnedAt: rec.spawnedAt });
     }
@@ -468,12 +499,16 @@ export function createSessionBroker(deps: {
           outputTokens?: unknown;
           cacheReadTokens?: unknown;
           cacheWriteTokens?: unknown;
+          costUsd?: unknown;
           llmDurationMs?: unknown;
           ttftMs?: unknown;
           ttftSteps?: unknown;
           tokensPerSecond?: unknown;
         };
-        if (ev.type === "context_usage" && typeof ev.contextWindow === "number") {
+        if (
+          ev.type === "context_usage" &&
+          typeof ev.contextWindow === "number"
+        ) {
           const segments = Array.isArray(ev.segments)
             ? ev.segments
                 .map((row): ContextUsageSegment | null => {
@@ -485,8 +520,12 @@ export function createSessionBroker(deps: {
                   ) {
                     return null;
                   }
-                  if (typeof s.tokens !== "number" || s.tokens <= 0) return null;
-                  return { id: s.id as ContextUsageSegmentId, tokens: s.tokens };
+                  if (typeof s.tokens !== "number" || s.tokens <= 0)
+                    return null;
+                  return {
+                    id: s.id as ContextUsageSegmentId,
+                    tokens: s.tokens,
+                  };
                 })
                 .filter((s): s is ContextUsageSegment => Boolean(s))
             : null;
@@ -498,17 +537,31 @@ export function createSessionBroker(deps: {
               contextWindow: ev.contextWindow,
               percent: typeof ev.percent === "number" ? ev.percent : null,
               toolCalls: typeof ev.toolCalls === "number" ? ev.toolCalls : null,
-              messageCount: typeof ev.messageCount === "number" ? ev.messageCount : null,
+              messageCount:
+                typeof ev.messageCount === "number" ? ev.messageCount : null,
               turns: typeof ev.turns === "number" ? ev.turns : null,
               steps: typeof ev.steps === "number" ? ev.steps : null,
-              inputTokens: typeof ev.inputTokens === "number" ? ev.inputTokens : null,
-              outputTokens: typeof ev.outputTokens === "number" ? ev.outputTokens : null,
-              cacheReadTokens: typeof ev.cacheReadTokens === "number" ? ev.cacheReadTokens : null,
-              cacheWriteTokens: typeof ev.cacheWriteTokens === "number" ? ev.cacheWriteTokens : null,
-              llmDurationMs: typeof ev.llmDurationMs === "number" ? ev.llmDurationMs : null,
+              inputTokens:
+                typeof ev.inputTokens === "number" ? ev.inputTokens : null,
+              outputTokens:
+                typeof ev.outputTokens === "number" ? ev.outputTokens : null,
+              cacheReadTokens:
+                typeof ev.cacheReadTokens === "number"
+                  ? ev.cacheReadTokens
+                  : null,
+              cacheWriteTokens:
+                typeof ev.cacheWriteTokens === "number"
+                  ? ev.cacheWriteTokens
+                  : null,
+              costUsd: typeof ev.costUsd === "number" ? ev.costUsd : null,
+              llmDurationMs:
+                typeof ev.llmDurationMs === "number" ? ev.llmDurationMs : null,
               ttftMs: typeof ev.ttftMs === "number" ? ev.ttftMs : null,
               ttftSteps: typeof ev.ttftSteps === "number" ? ev.ttftSteps : null,
-              tokensPerSecond: typeof ev.tokensPerSecond === "number" ? ev.tokensPerSecond : null,
+              tokensPerSecond:
+                typeof ev.tokensPerSecond === "number"
+                  ? ev.tokensPerSecond
+                  : null,
               segments,
             },
           });
@@ -544,7 +597,10 @@ export function createSessionBroker(deps: {
         rec.workerPromise = null;
         if (/^worker exited \(0\)$/i.test(errText.trim())) {
           deps.onSessionWorkerGone?.(sessionId);
-          if (rec.summary.status === "running" || rec.summary.status === "stuck") {
+          if (
+            rec.summary.status === "running" ||
+            rec.summary.status === "stuck"
+          ) {
             setStatus(sessionId, "idle");
           }
           return;
@@ -569,7 +625,10 @@ export function createSessionBroker(deps: {
         rec.pendingCommands.delete(msg.id);
         if (msg.error) {
           // Prompt/command failure ends the turn — UI should not stay "running".
-          setStatus(sessionId, pending.command.type === "prompt" ? "idle" : "error");
+          setStatus(
+            sessionId,
+            pending.command.type === "prompt" ? "idle" : "error",
+          );
           emit({ type: "prompt_error", sessionId, errorMessage: msg.error });
           pending.reject(new Error(msg.error));
           return;
@@ -627,34 +686,20 @@ export function createSessionBroker(deps: {
     return { ...summary };
   }
 
-  function registerWorkerSession(
-    id: string,
-    cwd: string,
-    filePath: string,
-    worker: WorkerHandle,
-    meta?: Partial<Pick<SessionSummary, "name" | "firstMessage" | "modified">>,
-  ): SessionSummary {
-    const summary = registerSessionShell(id, cwd, filePath, meta);
-    const rec = sessions.get(id);
-    if (!rec) return summary;
-    rec.worker = worker;
-    rec.summary.filePath = filePath;
-    rec.lastAliveAt = Date.now();
-    attachWorker(id, worker);
-    startHeartbeat(id);
-    scheduleIdleDestroy(id);
-    emit({ type: "connected", sessionId: id });
-    return { ...rec.summary };
-  }
-
   async function createSession(cwd: string): Promise<SessionSummary> {
     // Fast path: disk session only. Pi agent worker starts on first send/command.
     const allocated = await allocateSession(cwd);
-    return registerSessionShell(allocated.id, allocated.cwd, allocated.filePath);
+    return registerSessionShell(
+      allocated.id,
+      allocated.cwd,
+      allocated.filePath,
+    );
   }
 
   async function listSessions(cwd: string): Promise<SessionSummary[]> {
+    markStartup("main:sessions-list-start");
     const disk = await listSessionsForCwd(cwd);
+    markStartup("main:sessions-list-disk-done");
     const merged = new Map<string, SessionSummary>();
     for (const row of disk) {
       merged.set(row.id, { ...row });
@@ -677,11 +722,15 @@ export function createSessionBroker(deps: {
             ? rec.summary.modified > existing.modified
               ? rec.summary.modified
               : existing.modified
-            : (rec.summary.modified ?? existing?.modified ?? new Date().toISOString()),
+            : (rec.summary.modified ??
+              existing?.modified ??
+              new Date().toISOString()),
         status: rec.summary.status,
       });
     }
-    return [...merged.values()].sort((a, b) => b.modified.localeCompare(a.modified));
+    return [...merged.values()].sort((a, b) =>
+      b.modified.localeCompare(a.modified),
+    );
   }
 
   function deleteCachedImage(sessionId: string, cachePath: string): void {
@@ -691,7 +740,6 @@ export function createSessionBroker(deps: {
     deleteImageFile(filePath, cachePath);
   }
 
-
   async function cacheImage(
     sessionId: string,
     source: SessionImageCacheSource,
@@ -699,11 +747,23 @@ export function createSessionBroker(deps: {
     const rec = sessions.get(sessionId);
     const filePath = rec?.summary.filePath;
     if (!filePath) throw new Error(`session not found: ${sessionId}`);
-    if ("url" in source && typeof source.url === "string" && source.url.trim()) {
+    if (
+      "url" in source &&
+      typeof source.url === "string" &&
+      source.url.trim()
+    ) {
       const saved = await downloadImageToCache(filePath, source.url.trim());
-      return { filePath: saved.filePath, mimeType: saved.mimeType, dataUrl: saved.dataUrl };
+      return {
+        filePath: saved.filePath,
+        mimeType: saved.mimeType,
+        dataUrl: saved.dataUrl,
+      };
     }
-    if ("dataUrl" in source && typeof source.dataUrl === "string" && source.dataUrl.trim()) {
+    if (
+      "dataUrl" in source &&
+      typeof source.dataUrl === "string" &&
+      source.dataUrl.trim()
+    ) {
       const saved = saveImageDataUrl(filePath, source.dataUrl.trim());
       return {
         filePath: saved.filePath,
@@ -735,12 +795,16 @@ export function createSessionBroker(deps: {
     const rec = sessions.get(sessionId);
     if (!rec) return null;
     if (patch.name !== undefined) rec.summary.name = patch.name;
-    if (patch.firstMessage !== undefined) rec.summary.firstMessage = patch.firstMessage;
+    if (patch.firstMessage !== undefined)
+      rec.summary.firstMessage = patch.firstMessage;
     if (patch.modified !== undefined) rec.summary.modified = patch.modified;
     return { ...rec.summary };
   }
 
-  async function openSession(sessionId: string, cwd: string): Promise<SessionSummary | null> {
+  async function openSession(
+    sessionId: string,
+    cwd: string,
+  ): Promise<SessionSummary | null> {
     const live = sessions.get(sessionId);
     if (live) {
       // Re-sync title/first message from disk in the background (non-blocking).
@@ -751,7 +815,8 @@ export function createSessionBroker(deps: {
         const target = disk.find((s) => s.id === sessionId);
         if (target) {
           if (target.name?.trim()) live.summary.name = target.name;
-          if (target.firstMessage?.trim()) live.summary.firstMessage = target.firstMessage;
+          if (target.firstMessage?.trim())
+            live.summary.firstMessage = target.firstMessage;
           live.summary.modified = target.modified;
           if (target.filePath) live.summary.filePath = target.filePath;
         }
@@ -781,7 +846,10 @@ export function createSessionBroker(deps: {
     return summary;
   }
 
-  async function disconnectWorker(sessionId: string, reason: string): Promise<void> {
+  async function disconnectWorker(
+    sessionId: string,
+    reason: string,
+  ): Promise<void> {
     const rec = sessions.get(sessionId);
     if (!rec?.worker) {
       if (rec) {
@@ -810,19 +878,6 @@ export function createSessionBroker(deps: {
       // ignore
     }
     deps.onSessionWorkerGone?.(sessionId);
-  }
-
-  async function teardownWorker(sessionId: string, code: number | null): Promise<void> {
-    const rec = sessions.get(sessionId);
-    if (!rec) {
-      return;
-    }
-    clearIdleDestroyTimer(rec);
-    stopHeartbeat(rec);
-    if (rec.worker) {
-      rec.worker.kill();
-    }
-    emit({ type: "worker_exit", sessionId, code });
   }
 
   async function closeSession(sessionId: string): Promise<void> {
@@ -866,7 +921,9 @@ export function createSessionBroker(deps: {
     opts?: { coldStart?: boolean },
   ): Promise<unknown | undefined> {
     const coldStart = opts?.coldStart !== false;
-    const rec = coldStart ? await ensureWorker(sessionId) : sessions.get(sessionId);
+    const rec = coldStart
+      ? await ensureWorker(sessionId)
+      : sessions.get(sessionId);
     const worker = rec?.worker;
     if (!worker) {
       if (!coldStart) return undefined;
@@ -982,7 +1039,9 @@ export function createSessionBroker(deps: {
   async function restartWorkersForCwd(cwd: string): Promise<void> {
     const resolved = path.resolve(cwd);
     const ids = [...sessions.entries()]
-      .filter(([, rec]) => path.resolve(rec.cwd) === resolved && rec.worker !== null)
+      .filter(
+        ([, rec]) => path.resolve(rec.cwd) === resolved && rec.worker !== null,
+      )
       .map(([id]) => id);
     for (const id of ids) {
       await restartWorker(id);
@@ -1014,7 +1073,8 @@ export function createSessionBroker(deps: {
       ([, rec]) => path.resolve(rec.cwd) === resolved,
     );
     for (const [id, rec] of live) {
-      if (rec.summary.filePath) invalidateSessionHistoryCache(rec.summary.filePath);
+      if (rec.summary.filePath)
+        invalidateSessionHistoryCache(rec.summary.filePath);
       await disconnectWorker(id, "workspace purged");
       sessions.delete(id);
       emit({ type: "worker_exit", sessionId: id, code: 0 });

@@ -10,18 +10,8 @@ export const en = {
 	models: "Model Settings",
 	sessions: "Sessions",
 	emptySessions: "No sessions yet",
-	filterSessions: "Search sessions…",
-	noMatchSessions: "No matching sessions",
-	filesChanged: (n: number) =>
-		n === 1 ? "Changed 1 file" : `Changed ${n} files`,
-	todoPaused: "Paused",
-	todoResumeTask: "Continue task",
-	todoDeleteList: "Delete list",
-	modelsCustomPickTitle: "Select models to add",
-	modelsCustomPickAdd: (n: number) => `Add selected (${n})`,
-	modelsCustomPickAll: "Select all",
-	modelsCustomPickNone: "Clear",
-	modelsCustomPickEmpty: "No models discovered",
+	showMoreSessions: (n: number) => `Show ${n} more session${n === 1 ? "" : "s"}`,
+	collapseSessions: "Show less",
 	emptyWorkspaces: "No workspaces yet — open a folder above",
 	terminal: "Terminal",
 	preview: "Preview",
@@ -202,8 +192,7 @@ export const en = {
 		"Open a file from the workspace, or click Preview on a tool path in chat",
 	loading: "Loading…",
 	previewUnsupported: "This file type cannot be previewed yet",
-	previewBinary:
-		"This is a binary file and cannot be opened in the text editor",
+	previewBinary: "This is a binary file and cannot be opened in the text editor",
 	previewTruncated: "File truncated to 1.5MB",
 	mdEdit: "Edit",
 	mdPreview: "Preview",
@@ -234,8 +223,7 @@ export const en = {
 	contextUsageSegSummarized: "Summarized conversation",
 	contextUsageSegConversation: "Conversation",
 	contextUsageSegToolResults: "Tool results",
-	contextUsageHint:
-		"Segments are estimates. Before each turn, old tool outputs are pruned (keeps ~40k recent tokens). Auto-compact still at usage > window − 16k (~98%). At 80%, compact manually below.",
+	contextUsageCost: "Cost",
 	contextUsageAutoCompact:
 		"Auto-compact when contextTokens > contextWindow − reserveTokens (default reserveTokens=16384)",
 	sessionStatsTurns: "Turns",
@@ -411,8 +399,19 @@ export const en = {
 	gitErr_git_unavailable:
 		"Embedded Git is missing — Changes cannot read the repository",
 	gitErr_unknown: "Git operation failed",
-	appearance: "Appearance",
+	appearance: "General",
+	showCompactButton: "Show compact button",
+	showCompactButtonHint:
+		"Show the compact-context button and its warning indicator in the context usage panel.",
 	notifyTitle: "Notifications",
+	proxyTitle: "Network proxy",
+	proxyModeOff: "Off",
+	proxyModeSystem: "Auto",
+	proxyModeCustom: "Manual",
+	proxyUrlLabel: "Proxy URL",
+	proxyUrlPlaceholder: "http://127.0.0.1:7890 or socks5://127.0.0.1:1080",
+	proxyApplied: "Proxy settings applied",
+	proxyInvalidUrl: "Invalid proxy URL — use an http / https / socks5 address",
 	notifySound: "Completion sound",
 	notifySoundHint:
 		"Play the built-in chime when a turn finishes (also when focused).",
@@ -494,8 +493,10 @@ export const en = {
 	asrWakeWordsSave: "Save wake words",
 	asrWakeWordsSaved: "Wake words saved",
 	asrWakeListenFail: "Could not start voice wake listening",
-	asrWakeModelNeeded: "Install / prepare the local ASR model first, then enable Voice wake.",
-	asrWakeUnavailable: "Voice wake can't start — check the ASR runtime and microphone.",
+	asrWakeModelNeeded:
+		"Install / prepare the local ASR model first, then enable Voice wake.",
+	asrWakeUnavailable:
+		"Voice wake can't start — check the ASR runtime and microphone.",
 	loadingChatHistory: "Loading chat history…",
 	loadingOlderHistory: "Loading older messages…",
 	scrollForOlderHistory: "Scroll up for older messages",
@@ -639,14 +640,17 @@ export const en = {
 	lanConsoleUsername: "Username",
 	lanConsolePassword: "Password",
 	lanConsoleSaveCreds: "Save",
-	lanConsoleCredsHint: "A 6-hour session token is issued after login; refreshing keeps you logged in.",
+	lanConsoleCredsHint:
+		"A 6-hour session token is issued after login; refreshing keeps you logged in.",
 	lanConsoleCredsRequired: "Username and password required",
 	lanConsoleCredsSaved: "Credentials saved",
 	lanConsoleTitle: "LAN Web Console",
-	lanConsoleEnableHint: "Off by default. When enabled, devices on your LAN can open this machine in a browser to browse workspaces/sessions, chat and use voice recognition (token required).",
+	lanConsoleEnableHint:
+		"Off by default. When enabled, devices on your LAN can open this machine in a browser to browse workspaces/sessions, chat and use voice recognition (token required).",
 	lanConsoleUrl: "Access URL",
 	lanConsoleAddresses: "Addresses",
-	lanConsoleAddressesHint: "This PC may have multiple NICs. If the phone cannot connect, pick the Wi‑Fi / Ethernet 192.168.x.x address.",
+	lanConsoleAddressesHint:
+		"This PC may have multiple NICs. If the phone cannot connect, pick the Wi‑Fi / Ethernet 192.168.x.x address.",
 	lanConsoleRecommended: "Best",
 	lanConsoleToken: "Access token",
 	lanConsoleCopy: "Copy",
@@ -655,7 +659,8 @@ export const en = {
 	lanConsolePort: "Port",
 	lanConsoleSavePort: "Save port",
 	lanConsoleScan: "Scan with your phone",
-	lanConsoleCertHint: "Browsers will warn about the self-signed certificate — choose Continue (HTTPS is required for the microphone).",
+	lanConsoleCertHint:
+		"Browsers will warn about the self-signed certificate — choose Continue (HTTPS is required for the microphone).",
 	lanConsoleDisabledNote: "Disabled. Kept off by default; no port is exposed.",
 	lanConsoleStarted: "LAN web console started",
 	lanConsolePortInvalid: "Invalid port",
@@ -775,9 +780,11 @@ export const en = {
 		"OpenAI-compatible URLs should include /v1 (e.g. https://api.longcat.chat/openai/v1). Do not include /chat/completions.",
 	modelsCustomFetchModels: "Fetch models",
 	modelsCustomFetching: "Fetching…",
-	modelsCustomFetchOk: (n: number) => `Merged ${n} model(s) into draft (not saved yet)`,
+	modelsCustomFetchOk: (n: number) =>
+		`Merged ${n} model(s) into draft (not saved yet)`,
 	modelsCustomFetchFail: "Fetch failed",
-	modelsCustomFetchHint: "Fetch only updates the list below; Save writes to disk.",
+	modelsCustomFetchHint:
+		"Fetch only updates the list below; Save writes to disk.",
 	modelsCustomTest: "Test",
 	modelsCustomTesting: "Testing…",
 	modelsCustomTestOk: (ms: number) => `Connected · ${ms} ms`,
@@ -815,8 +822,7 @@ export const en = {
 		`Delete “${id}” from models.json now? This takes effect immediately.`,
 	modelsCustomDeleted: "Deleted",
 	modelsNeedsKey: "API key required",
-	modelsNothingToAdd:
-		"Nothing to add — all providers may already be configured",
+	modelsNothingToAdd: "Nothing to add — all providers may already be configured",
 	modelsKeyCleared: "API key cleared",
 	modelsSourceEnv: "Environment",
 	modelsSourceRuntime: "Runtime",
@@ -970,8 +976,7 @@ export const en = {
 	sessionIdCopied: "Session ID copied",
 	renameSession: "Rename session",
 	sessionNamePlaceholder: "Session name",
-	selectOrCreateSession:
-		"Select a session on the left, or create one to start.",
+	selectOrCreateSession: "Select a session on the left, or create one to start.",
 	noRecentProjects: "No recent projects",
 
 	// Project trust

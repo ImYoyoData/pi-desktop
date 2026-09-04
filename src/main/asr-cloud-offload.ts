@@ -30,9 +30,10 @@ function workerScriptPath(): string {
 }
 
 function transferablePcm(pcm: Int16Array): ArrayBuffer {
-  return pcm.byteOffset === 0 && pcm.byteLength === pcm.buffer.byteLength
-    ? pcm.buffer
-    : pcm.buffer.slice(pcm.byteOffset, pcm.byteOffset + pcm.byteLength);
+  const buffer = pcm.buffer as ArrayBuffer;
+  return pcm.byteOffset === 0 && pcm.byteLength === buffer.byteLength
+    ? buffer
+    : buffer.slice(pcm.byteOffset, pcm.byteOffset + pcm.byteLength);
 }
 
 function runWorkerJob(payload: Record<string, unknown>, transfer: ArrayBuffer[]): Promise<WorkerReply> {

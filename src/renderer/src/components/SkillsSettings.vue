@@ -99,6 +99,7 @@ function onUninstall(skill: SkillRow): void {
           message.success(t.skillUninstalled);
           if (selected.value === skill.filePath) selected.value = null;
           await load();
+          return true;
         } catch (err) {
           message.error(err instanceof Error ? err.message : String(err));
           d.loading = false;

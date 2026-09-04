@@ -31,6 +31,9 @@ Tool parameters:
 Behavior:
 - The UI blocks until the user answers **every** question and submits once.
 - For \`single\` / \`multi\`, Desktop always offers a free-text “custom input” option (you may also set \`allowCustom\` yourself).
+- An option of **any** type (\`single\` / \`multi\` / \`buttons\`) may set \`allowCustom: true\`; when selected, a free-text box appears for the user’s input.
+- In plan/task confirm dialogs, mark the “adjust/revise” option \`allowCustom: true\` so the user can type adjustment instructions.
+- Option \`label\`s are plain text — no emoji, icons, or decorative symbols.
 - Do **not** invent answers or continue as if defaults were chosen — wait for the tool result.
 - The tool result text starts with \`[ask_user answers]\` listing each choice.
 

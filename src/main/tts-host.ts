@@ -574,7 +574,7 @@ async function speakText(raw: string): Promise<TtsSpeakResult> {
   if (gen !== speakGen) return { ok: false, message: "Stopped" };
   if (synthError) {
     broadcastSpeaking(false);
-    return { ok: false, message: synthError.message };
+    return { ok: false, message: (synthError as Error).message };
   }
   if (!firstWav) {
     broadcastSpeaking(false);
