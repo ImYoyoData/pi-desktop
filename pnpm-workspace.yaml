@@ -1,0 +1,18 @@
+
+# pnpm 11: these live here now, NOT in .npmrc (`.npmrc` pnpm settings are ignored).
+# Do not fail the whole install over a dependency script we deliberately skip —
+# scripts/ensure-dugite-git.mjs + scripts/rebuild-native.mjs do that work instead.
+strictDepBuilds: false
+
+# `pnpm dev` used to spawn a hidden `pnpm install` (deps-status check) whose
+# ERR_PNPM_IGNORED_BUILDS exit code killed the app before Electron even started.
+# Turn the auto-reinstall off; run `pnpm install` explicitly after editing package.json.
+verifyDepsBeforeRun: false
+allowBuilds:
+  '@google/genai': false
+  dugite: false
+  electron: true
+  electron-winstaller: false
+  esbuild: true
+  node-pty: true
+  protobufjs: false

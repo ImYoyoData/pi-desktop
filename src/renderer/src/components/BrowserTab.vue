@@ -165,13 +165,11 @@ function loadUrlWhenReady(url: string): void {
   } catch {
     // not attached yet
   }
-  wv.addEventListener(
-    "dom-ready",
-    () => {
-      void wv.loadURL(target);
-    },
-    { once: true },
-  );
+  const onDomReady = () => {
+    void wv.loadURL(target);
+    wv.removeEventListener("dom-ready", onDomReady);
+  };
+  wv.addEventListener("dom-ready", onDomReady);
 }
 
 function applyPendingNavigate(): void {
@@ -651,8 +649,9 @@ function bindDevtoolsHost(): void {
   if (!dt) return;
   const markReady = () => {
     devtoolsReady.value = true;
+    dt.removeEventListener("dom-ready", markReady);
   };
-  dt.addEventListener("dom-ready", markReady, { once: true });
+  dt.addEventListener("dom-ready", markReady);
   try {
     if (dt.getWebContentsId()) markReady();
   } catch {

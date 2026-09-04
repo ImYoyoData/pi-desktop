@@ -1,0 +1,7 @@
+{
+  "plugins": {
+    "claude-plugins-official/github": {
+      "enabled": true
+    }
+  }
+}

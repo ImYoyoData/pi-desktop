@@ -518,20 +518,6 @@ function onUnstageFile(file: GitFile): void {
   });
 }
 
-function onIgnoreFile(file: GitFile): void {
-  void window.api.git.ignore([file.relativePath]).then(() => {
-    file.ignored = true;
-    message.success(t.changesIgnored);
-  });
-}
-
-function onUnignoreFile(file: GitFile): void {
-  void window.api.git.unignore(file.relativePath).then(() => {
-    file.ignored = false;
-    message.success(t.changesUnignored);
-  });
-}
-
 async function onDiscardFile(relativePath: string): Promise<void> {
   if (!relativePath) return;
   const d = dialog.warning({
@@ -633,7 +619,10 @@ async function showCommitFileDiff(file: { path: string; status: string }): Promi
   commitFileDiff.value = null;
   commitFileDiffLoading.value = true;
   try {
-    const res = await window.api.git.fileDiffAtCommit(file.path, commit.hash);
+    const res = await window.api.git.fileDiffAtCommit({
+      relativePath: file.path,
+      commitHash: commit.hash,
+    });
     commitFileDiff.value = res.supported ? (res.patch ?? null) : null;
   } catch (err) {
     message.error(err instanceof Error ? err.message : String(err));
@@ -658,8 +647,11 @@ function restoreCommitFile(): void {
     negativeText: t.cancel,
     onPositiveClick: () => {
       d.loading = true;
-      return runOp(t.changesRestored, () =>
-        window.api.git.restoreFileToCommit(file.path, commit.hash),
+      return runOp(t.changesRestoredToCommit, () =>
+        window.api.git.restoreFileToCommit({
+          relativePath: file.path,
+          commitHash: commit.hash,
+        }),
       );
     },
   });
@@ -736,6 +728,7 @@ async function onRemoveRemote(remote: GitRemote): Promise<void> {
         try {
           await runOp(t.changesRemoteRemoved, () => window.api.git.removeRemote(remote.name));
           await refreshRemotes();
+          return true;
         } catch (err) {
           message.error(err instanceof Error ? err.message : String(err));
           d.loading = false;

@@ -1,9 +1,13 @@
 import { app, BrowserWindow, utilityProcess } from "electron";
 import path from "node:path";
-import type { WorkerInbound, WorkerOutbound } from "../shared/agent-worker-messages";
+import type {
+  WorkerInbound,
+  WorkerOutbound,
+} from "../shared/agent-worker-messages";
 import type { SpawnWorker, WorkerHandle } from "./session-broker";
 import { getDesktopSecuritySettings } from "./desktop-security-host";
 import { buildAgentWorkerEnv } from "./pi-path-env";
+import { withProxyEnv } from "./proxy-host";
 import {
   PI_DESKTOP_NODE_PATH_ENV,
   PI_DESKTOP_PI_CLI_PATH_ENV,
@@ -21,7 +25,9 @@ function workerScriptPath(): string {
 /** Latest resource summary per session (tools / extensions / skills). */
 const sessionResources = new Map<string, WorkerResourceSummary>();
 
-export function getSessionResources(sessionId: string): WorkerResourceSummary | null {
+export function getSessionResources(
+  sessionId: string,
+): WorkerResourceSummary | null {
   return sessionResources.get(sessionId) ?? null;
 }
 
@@ -31,7 +37,8 @@ export function clearSessionResources(sessionId: string): void {
 
 function broadcastWorkerResourcesReady(sessionId: string): void {
   for (const win of BrowserWindow.getAllWindows()) {
-    if (!win.isDestroyed()) win.webContents.send(IpcChannels.sessions.workerReady, sessionId);
+    if (!win.isDestroyed())
+      win.webContents.send(IpcChannels.sessions.workerReady, sessionId);
   }
 }
 
@@ -67,7 +74,9 @@ function waitForReady(
             `[pi-desktop] worker ready: ${r.extensionCount} extension(s), ${r.skillCount} skill(s), ${r.agentsFileCount ?? 0} agents file(s), ${r.activeTools.length} tool(s)`,
           );
           if (r.agentsFilePaths?.length) {
-            console.info(`[pi-desktop] agents files: ${r.agentsFilePaths.join(" | ")}`);
+            console.info(
+              `[pi-desktop] agents files: ${r.agentsFilePaths.join(" | ")}`,
+            );
           }
           for (const line of r.diagnostics) {
             console.warn(`[pi-desktop] worker resource: ${line}`);
@@ -90,18 +99,20 @@ function waitForReady(
 
 export function createUtilityProcessSpawnWorker(): SpawnWorker {
   return async (cwd, filePath) => {
-    const workerEnv = buildAgentWorkerEnv(
-      { ...process.env },
-      {
-        searchRoots: [
-          app.getAppPath(),
-          path.join(app.getAppPath(), ".."),
-          process.cwd(),
-          // electron-vite: out/main → repo root (dev) / resources (packaged)
-          path.resolve(__dirname, "../.."),
-          path.resolve(__dirname, "../../.."),
-        ],
-      },
+    const workerEnv = withProxyEnv(
+      buildAgentWorkerEnv(
+        { ...process.env },
+        {
+          searchRoots: [
+            app.getAppPath(),
+            path.join(app.getAppPath(), ".."),
+            process.cwd(),
+            // electron-vite: out/main → repo root (dev) / resources (packaged)
+            path.resolve(__dirname, "../.."),
+            path.resolve(__dirname, "../../.."),
+          ],
+        },
+      ),
     );
     const cliForLog = workerEnv[PI_DESKTOP_PI_CLI_PATH_ENV];
     const nodeForLog = workerEnv[PI_DESKTOP_NODE_PATH_ENV];
@@ -129,7 +140,10 @@ export function createUtilityProcessSpawnWorker(): SpawnWorker {
     // prompt() never resolves, and the session looks disconnected with no response.
     // Relay to the main-process console so dev terminals still see worker logs.
     const workerTag = `[worker:${child.pid ?? "?"}]`;
-    const relay = (stream: NodeJS.ReadableStream | null, isErr: boolean): void => {
+    const relay = (
+      stream: NodeJS.ReadableStream | null,
+      isErr: boolean,
+    ): void => {
       stream?.on("data", (chunk: Buffer) => {
         const text = String(chunk).replace(/\r?\n$/, "");
         if (isErr) console.error(workerTag, text);

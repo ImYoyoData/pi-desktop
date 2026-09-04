@@ -109,7 +109,8 @@ export const useWorkspaceStore = defineStore("workspace", () => {
 	async function clearWorkspace(): Promise<null> {
 		await window.api.workspace.clear();
 		pendingTrustPrompt.value = null;
-		return commitWorkspace(null);
+		await commitWorkspace(null);
+		return null;
 	}
 
 	async function getWorkspace(): Promise<string | null> {

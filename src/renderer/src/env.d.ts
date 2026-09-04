@@ -1,14 +1,18 @@
 /// <reference types="vite/client" />
 /// <reference types="electron" />
 
-declare namespace JSX {
-  interface IntrinsicElements {
-    webview: Electron.WebviewHTMLAttributes & {
-      src?: string;
-      allowpopups?: boolean | string;
-      class?: string;
-      ref?: unknown;
-    };
+import type { PiDesktopApi } from "../../preload/index";
+
+declare global {
+  namespace JSX {
+    interface IntrinsicElements {
+      webview: Electron.WebviewHTMLAttributes & {
+        src?: string;
+        allowpopups?: boolean | string;
+        class?: string;
+        ref?: unknown;
+      };
+    }
   }
 }
 

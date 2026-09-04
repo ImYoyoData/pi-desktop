@@ -734,6 +734,7 @@ async function onCtxSelect(key: string | number): Promise<void> {
                 await refreshNode(parentDirOf(target));
                 await refreshGit();
                 selectedKeys.value = selectedKeys.value.filter((k) => k !== target);
+                return true;
               } catch (err) {
                 message.error(err instanceof Error ? err.message : String(err));
                 d.loading = false;

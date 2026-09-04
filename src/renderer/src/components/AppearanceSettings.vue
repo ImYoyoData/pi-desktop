@@ -8,6 +8,7 @@ import {
   NText,
   NButton,
   NDivider,
+  NSwitch,
 } from "naive-ui";
 import {
   useAppearanceStore,
@@ -24,6 +25,11 @@ const props = defineProps<{ open: boolean }>();
 const emit = defineEmits<{ close: [] }>();
 
 const appearance = useAppearanceStore();
+
+const showCompactButton = computed({
+  get: () => appearance.showCompactButton,
+  set: (v: boolean) => appearance.setShowCompactButton(v),
+});
 
 const themeValue = computed({
   get: () => appearance.themePreference,
@@ -92,8 +98,19 @@ function onLocaleUpdate(v: string | number | null): void {
       </NRadioGroup>
     </div>
 
-    
-    
+    <NDivider style="margin: 18px 0" />
+
+    <div class="section">
+      <div class="row">
+        <div class="labels">
+          <NText strong>{{ t.showCompactButton }}</NText>
+          <NText depth="3" style="font-size: 12px; display: block; margin-top: 4px">
+            {{ t.showCompactButtonHint }}
+          </NText>
+        </div>
+        <NSwitch v-model:value="showCompactButton" />
+      </div>
+    </div>
 
     </div>
 <template #footer>
@@ -108,6 +125,17 @@ function onLocaleUpdate(v: string | number | null): void {
 .section {
   display: flex;
   flex-direction: column;
+}
+.row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.labels {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
 }
 .footer {
   display: flex;

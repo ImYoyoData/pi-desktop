@@ -31,11 +31,15 @@ import AsrInstallConfirmModal from "@renderer/components/AsrInstallConfirmModal.
 import VoiceRecordBar, { type VoiceMeter } from "@renderer/components/VoiceRecordBar.vue";
 import SendQueueBar from "@renderer/components/SendQueueBar.vue";
 import { useChatStore } from "@renderer/stores/chat";
-import type { ContextUsageSegmentId } from "../../../shared/protocol";
+import type { ContextUsageSegmentId, ElementCitation } from "../../../shared/protocol";
 import { isHttpUrl, useComposerStore } from "@renderer/stores/composer";
-import { useSendQueueStore } from "@renderer/stores/send-queue";
+import {
+  useSendQueueStore,
+  type QueuedSendItem,
+} from "@renderer/stores/send-queue";
 import { useSessionsStore } from "@renderer/stores/sessions";
 import { useWorkspaceStore } from "@renderer/stores/workspace";
+import { useAppearanceStore } from "@renderer/stores/appearance";
 import { useRightTabsStore } from "@renderer/stores/right-tabs";
 import { formatAsrInstallError, formatAsrRuntimeError, isAsrInstallCancelled, useAsrStore } from "@renderer/stores/asr";
 import { useMediaStore } from "@renderer/stores/media";
@@ -49,11 +53,10 @@ import {
 import { yieldToPaint } from "@renderer/utils/low-power";
 import {
   ASR_VOICE_WAKE_EVENT,
-  stopWakeListen,
   stopPreloadStream,
   suspendWakeListen,
 } from "@renderer/utils/asr-wake-listen";
-import { scrubAsrHallucination, type AsrStreamEvent } from "../../../shared/asr";
+import { scrubAsrHallucination } from "../../../shared/asr";
 import { formatAcceleratorLabel } from "../../../shared/hotkey";
 import {
   composerModePreamble,
@@ -90,6 +93,7 @@ const sessions = useSessionsStore();
 const workspace = useWorkspaceStore();
 const rightTabs = useRightTabsStore();
 const asr = useAsrStore();
+const appearance = useAppearanceStore();
 const media = useMediaStore();
 const messageApi = useMessage();
 let voiceConfirming = false;
@@ -138,7 +142,6 @@ const appliedModelForSession = ref<string | null>(null);
 const modelBySession = ref<Record<string, string>>(loadSessionPrefs().models);
 const thinkingBySession = ref<Record<string, ThinkingLevel>>(loadSessionPrefs().thinking);
 const thinkingLevel = ref<ThinkingLevel>("medium");
-const fileInput = ref<HTMLInputElement | null>(null);
 const richEditor = ref<{
   focus?: () => void;
   focusEnd?: () => void;
@@ -156,12 +159,6 @@ const richEditor = ref<{
 } | null>(null);
 /** Expanded tall editor (hover affordance top-right). */
 const editorExpanded = ref(false);
-/** True while we programmatically move the caret during ASR updates. */
-let asrCaretGuardUntil = 0;
-
-function armAsrCaretGuard(ms = 120): void {
-  asrCaretGuardUntil = Date.now() + ms;
-}
 
 function focusDraft(): void {
   richEditor.value?.focus?.();
@@ -169,7 +166,6 @@ function focusDraft(): void {
 
 /** Keep focus + caret at end of the draft while dictating. */
 function focusDraftAtEnd(): void {
-  armAsrCaretGuard();
   richEditor.value?.focusEnd?.();
   richEditor.value?.scrollToEnd?.();
 }
@@ -576,9 +572,7 @@ function snapshotComposerPayload(): {
   text: string;
   displayText: string;
   imagesToSend: { type: "image"; data: string; mimeType: string; cachePath?: string }[];
-  citationsToSend:
-    | { url: string; selector?: string; text?: string; htmlSnippet?: string }[]
-    | undefined;
+  citationsToSend: ElementCitation[] | undefined;
   tagsToSend:
     | {
         url: string;
@@ -617,14 +611,7 @@ function snapshotComposerPayload(): {
       mimeType: i.mimeType || "image/png",
       ...(i.cachePath ? { cachePath: i.cachePath } : {}),
     }));
-  const citationsToSend = citationList
-    ? citationList.map((c) => ({
-        url: c.url,
-        selector: c.selector,
-        text: c.text,
-        htmlSnippet: c.htmlSnippet,
-      }))
-    : undefined;
+  const citationsToSend = citationList ? citationList.map((c) => ({ ...c })) : undefined;
   // Mode is injected into agentText via preamble — do not show a mode chip on the bubble.
   const tagsToSend = attachmentTags.map((row) => {
     let host = "";
@@ -858,19 +845,7 @@ function beginEditQueueItem(itemId: string): void {
 
 async function dispatchQueuedItem(
   id: string,
-  item: {
-    text: string;
-    agentText?: string;
-    images?: { type: "image"; data: string; mimeType: string }[];
-    citations?: { url: string; selector?: string; text?: string; htmlSnippet?: string }[];
-    elementTags?: {
-      url: string;
-      host: string;
-      label: string;
-      content?: string;
-      kind?: "file" | "url" | "element" | "agent" | "plan" | "ask" | "task";
-    }[];
-  },
+  item: QueuedSendItem,
 ): Promise<void> {
   // Always prompt: Pi followUp only queues during a live turn and will not
   // start a new turn when the agent is already idle (queued items vanished).
@@ -886,27 +861,6 @@ async function dispatchQueuedItem(
     item.elementTags,
     displayText,
   );
-}
-
-function waitUntilIdle(sessionId: string, timeoutMs = 15_000): Promise<void> {
-  return new Promise((resolve) => {
-    const started = Date.now();
-    const tick = () => {
-      const stateRunning = chat.bySession[sessionId]?.running;
-      const statusRunning =
-        sessions.sessions.find((s) => s.id === sessionId)?.status === "running";
-      if (!stateRunning && !statusRunning) {
-        resolve();
-        return;
-      }
-      if (Date.now() - started >= timeoutMs) {
-        resolve();
-        return;
-      }
-      window.setTimeout(tick, 80);
-    };
-    tick();
-  });
 }
 
 function isAgentBusy(targetSessionId?: string): boolean {
@@ -1212,17 +1166,17 @@ const ctxPopoverShow = ref(false);
 const skillsCount = ref<number | null>(null);
 let skillsCountCachedFor: string | null = null;
 /**
- * Cost-health reference: the UI treats this many context tokens as "full".
- * Real model windows are huge (deepseek = 1M), so a window-based % always
- * looks healthy while the bill grows. Show pressure against this budget
- * instead (matches ~30k tokens of a 1M window as the compaction sweet spot).
+ * True context fill as a fraction of the model's real context window.
+ * Ring, tone and the "% Full" label all use this same window-based percent,
+ * matching the stacked bar's widths (tokens / contextWindow).
  */
-const CONTEXT_COST_REFERENCE = 300_000;
-
 const contextPercent = computed(() => {
-  const tokens = contextUsage.value?.tokens;
+  const usage = contextUsage.value;
+  const tokens = usage?.tokens;
+  const window = usage?.contextWindow;
   if (tokens == null || !Number.isFinite(tokens) || tokens <= 0) return null;
-  return Math.max(0, Math.min(100, (tokens / CONTEXT_COST_REFERENCE) * 100));
+  if (!window || !Number.isFinite(window) || window <= 0) return null;
+  return Math.max(0, Math.min(100, (tokens / window) * 100));
 });
 
 const contextTone = computed(() => {
@@ -1257,23 +1211,17 @@ const contextToolCount = computed(() => {
   return messages + streaming;
 });
 
-/**
- * Rough per-turn input cost estimate ($). Uses the DeepSeek-style rate as a
- * sensible default; the point is to surface cost growth, not exact billing.
- */
-const CONTEXT_INPUT_COST_PER_M = 0.14;
+/** Real cumulative session LLM cost in USD (from Pi getSessionStats). */
 const contextCostLabel = computed(() => {
-  const tokens = contextUsage.value?.tokens;
-  if (tokens == null || !Number.isFinite(tokens) || tokens <= 0) return "";
-  const cost = (tokens / 1_000_000) * CONTEXT_INPUT_COST_PER_M;
-  if (cost < 0.01) return "<$0.01";
-  return `${cost.toFixed(2)}`;
+  const cost = contextUsage.value?.costUsd;
+  if (cost == null || !Number.isFinite(cost) || cost <= 0) return "";
+  return `$${cost.toFixed(2)}`;
 });
 
-/** True when the context is past the cost-health reference (needs compaction). */
+/** True when the context is at/past the manual-compact line (70% of the real window). */
 const contextNeedsCompact = computed(() => {
   const pct = contextPercent.value;
-  return pct != null && pct >= 90;
+  return pct != null && pct >= 70;
 });
 
 const contextSegments = computed(() => {
@@ -1517,21 +1465,21 @@ async function runSlashBuiltin(id: string): Promise<void> {
     case "new": {
       const root = workspace.root;
       if (!root) {
-        message.warning(t.slashNeedWorkspace);
+        messageApi.warning(t.slashNeedWorkspace);
         return;
       }
       const created = await sessions.createSession(root);
-      if (created) message.success(t.slashNewDone);
+      if (created) messageApi.success(t.slashNewDone);
       return;
     }
     case "compact": {
       const idSession = sessionId.value;
       if (!idSession) {
-        message.warning(t.slashNeedSession);
+        messageApi.warning(t.slashNeedSession);
         return;
       }
       await sessions.sendCommand(idSession, { type: "compact" });
-      message.success(t.compactDone);
+      messageApi.success(t.compactDone);
       return;
     }
     case "model": {
@@ -1573,42 +1521,107 @@ async function tryConsumeBuiltinSlashDraft(): Promise<boolean> {
 
 /**
  * Session-detail stats shown under the composer: Agent turns, steps, tool
- * calls, duration, TTFT, avg tokens/s, cache hit, input/output tokens.
+ * calls, TTFT, avg tokens/s, cache hit, input/output tokens.
  * Fed by the worker's context_usage event (SessionTimingTracker + Pi stats).
+ *
+ * Only items that actually have data are rendered — a stat with no sample
+ * is omitted instead of showing "label —".
  */
-const sessionStats = computed(() => {
+type SessionStatItem = {
+  key: string;
+  label: string;
+  value: string;
+  title?: string;
+};
+
+const sessionStats = computed<SessionStatItem[] | null>(() => {
   const u = contextUsage.value;
   if (!u) return null;
-  const turns = u.turns ?? null;
-  const steps = u.steps ?? null;
-  const tools = u.toolCalls ?? null;
-  const hasCounts = turns != null || steps != null || tools != null;
-  if (!hasCounts && u.llmDurationMs == null && u.ttftMs == null && u.tokensPerSecond == null) {
-    return null;
-  }
-  return {
-    turns,
-    steps,
-    tools,
-    ttftMs: u.ttftMs ?? null,
-    tps: u.tokensPerSecond ?? null,
-    cacheHitPct:
-      u.cacheReadTokens != null &&
-      u.inputTokens != null &&
-      u.cacheWriteTokens != null &&
-      u.inputTokens + u.cacheReadTokens + u.cacheWriteTokens > 0
-        ? Math.min(
-            100,
-            Math.round(
-              (u.cacheReadTokens /
-                (u.inputTokens + u.cacheReadTokens + u.cacheWriteTokens)) *
-                100,
-            ),
-          )
-        : null,
-    inputTokens: u.inputTokens ?? null,
-    outputTokens: u.outputTokens ?? null,
+  const items: SessionStatItem[] = [];
+  const push = (item: SessionStatItem | null): void => {
+    if (item) items.push(item);
   };
+  push(
+    u.turns != null && u.turns > 0
+      ? {
+          key: "turns",
+          label: t.sessionStatsTurns,
+          value: formatNum(u.turns),
+          title: t.sessionStatsTitle(
+            formatNum(u.turns),
+            formatNum(u.steps ?? null),
+            formatNum(u.toolCalls ?? null),
+          ),
+        }
+      : null,
+  );
+  push(
+    u.steps != null && u.steps > 0
+      ? {
+          key: "steps",
+          label: t.sessionStatsSteps,
+          value: formatNum(u.steps),
+        }
+      : null,
+  );
+  push(
+    u.toolCalls != null && u.toolCalls > 0
+      ? {
+          key: "tools",
+          label: t.sessionStatsToolCalls,
+          value: formatNum(u.toolCalls),
+        }
+      : null,
+  );
+  if (u.ttftMs != null && u.ttftMs > 0) {
+    push({
+      key: "ttft",
+      label: t.sessionStatsTtft,
+      value: formatSessionTtft(u.ttftMs),
+    });
+  }
+  if (u.tokensPerSecond != null && u.tokensPerSecond > 0) {
+    push({
+      key: "tps",
+      label: t.sessionStatsTps,
+      value: formatSessionTps(u.tokensPerSecond),
+    });
+  }
+  if (
+    u.cacheReadTokens != null &&
+    u.inputTokens != null &&
+    u.cacheWriteTokens != null &&
+    u.inputTokens + u.cacheReadTokens + u.cacheWriteTokens > 0
+  ) {
+    const pct = Math.min(
+      100,
+      Math.round(
+        (u.cacheReadTokens /
+          (u.inputTokens + u.cacheReadTokens + u.cacheWriteTokens)) *
+          100,
+      ),
+    );
+    push({
+      key: "cacheHit",
+      label: t.sessionStatsCacheHit,
+      value: formatSessionCacheHit(pct),
+    });
+  }
+  if (u.inputTokens != null && u.inputTokens > 0) {
+    push({
+      key: "input",
+      label: t.sessionStatsInputTokens,
+      value: formatSessionTokens(u.inputTokens),
+    });
+  }
+  if (u.outputTokens != null && u.outputTokens > 0) {
+    push({
+      key: "output",
+      label: t.sessionStatsOutputTokens,
+      value: formatSessionTokens(u.outputTokens),
+    });
+  }
+  return items.length > 0 ? items : null;
 });
 
 
@@ -1645,10 +1658,10 @@ async function onCompactContext(): Promise<void> {
   compactBusy.value = true;
   try {
     await sessions.sendCommand(idSession, { type: "compact" });
-    message.success(t.compactDone);
+    messageApi.success(t.compactDone);
     closeContextPopover();
   } catch (err) {
-    message.error(err instanceof Error ? err.message : String(err));
+    messageApi.error(err instanceof Error ? err.message : String(err));
   } finally {
     compactBusy.value = false;
   }
@@ -1937,7 +1950,7 @@ function onPaste(event: ClipboardEvent): void {
     if (!plain.trim() && !html.trim()) return;
     event.preventDefault();
     if (plain.trim()) {
-      richEditor.value?.insertTextAtCaret(plain);
+      richEditor.value?.insertTextAtCaret?.(plain);
     }
   } catch (err) {
     // Never let a paste handler exception swallow the user's clipboard.
@@ -2089,7 +2102,6 @@ async function confirmVoice(): Promise<void> {
       return;
     }
     // Insert directly at the current caret — do NOT move the cursor.
-    armAsrCaretGuard();
     if (richEditor.value?.insertTextAtCaret) {
       richEditor.value.insertTextAtCaret(text);
     } else {
@@ -2384,7 +2396,6 @@ watch(
         <div class="toolbar" :aria-hidden="voiceActive">
           <div class="toolbar-left">
             <input
-              ref="fileInput"
               type="file"
               accept="image/*"
               multiple
@@ -2551,11 +2562,11 @@ watch(
               </button>
             </template>
             <div ref="ctxPopoverContentRef" class="ctx-popover">
-              <div class="ctx-pop-title">{{ t.contextUsageTitle }}</div>
               <div class="ctx-pop-summary">
                 <span class="ctx-pop-full">{{ contextFullLabel }}</span>
                 <span class="ctx-pop-pair">{{ contextTokensPairLabel }}</span>
                 <span v-if="contextCostLabel" class="ctx-pop-cost">
+                  <span class="ctx-pop-cost-label">{{ t.contextUsageCost }}</span>
                   {{ contextCostLabel }}
                 </span>
               </div>
@@ -2595,8 +2606,8 @@ watch(
                   <strong>{{ skillsCount ?? "—" }}</strong>
                 </div>
               </div>
-              <div class="ctx-pop-hint">{{ t.contextUsageHint }}</div>
               <NButton
+                v-if="appearance.showCompactButton"
                 size="small"
                 type="primary"
                 secondary
@@ -2669,45 +2680,13 @@ watch(
 
     <div class="composer-meta">
       <div v-if="sessionStats" class="session-stats" role="status" aria-label="session statistics">
-        <span class="ss-item" :title="t.sessionStatsTitle(formatNum(sessionStats.turns), formatNum(sessionStats.steps), formatNum(sessionStats.tools))">
-          <span class="ss-label">{{ t.sessionStatsTurns }}</span>
-          <strong>{{ sessionStats.turns ?? "—" }}</strong>
-        </span>
-        <span class="ss-sep" aria-hidden="true" />
-        <span class="ss-item">
-          <span class="ss-label">{{ t.sessionStatsSteps }}</span>
-          <strong>{{ sessionStats.steps ?? "—" }}</strong>
-        </span>
-        <span class="ss-sep" aria-hidden="true" />
-        <span class="ss-item">
-          <span class="ss-label">{{ t.sessionStatsToolCalls }}</span>
-          <strong>{{ sessionStats.tools ?? "—" }}</strong>
-        </span>
-        <span class="ss-sep" aria-hidden="true" />
-        <span class="ss-item">
-          <span class="ss-label">{{ t.sessionStatsTtft }}</span>
-          <strong>{{ formatSessionTtft(sessionStats.ttftMs) }}</strong>
-        </span>
-        <span class="ss-sep" aria-hidden="true" />
-        <span class="ss-item">
-          <span class="ss-label">{{ t.sessionStatsTps }}</span>
-          <strong>{{ formatSessionTps(sessionStats.tps) }}</strong>
-        </span>
-        <span class="ss-sep" aria-hidden="true" />
-        <span class="ss-item">
-          <span class="ss-label">{{ t.sessionStatsCacheHit }}</span>
-          <strong>{{ formatSessionCacheHit(sessionStats.cacheHitPct) }}</strong>
-        </span>
-        <span class="ss-sep" aria-hidden="true" />
-        <span class="ss-item">
-          <span class="ss-label">{{ t.sessionStatsInputTokens }}</span>
-          <strong>{{ formatSessionTokens(sessionStats.inputTokens) }}</strong>
-        </span>
-        <span class="ss-sep" aria-hidden="true" />
-        <span class="ss-item">
-          <span class="ss-label">{{ t.sessionStatsOutputTokens }}</span>
-          <strong>{{ formatSessionTokens(sessionStats.outputTokens) }}</strong>
-        </span>
+        <template v-for="(item, idx) in sessionStats" :key="item.key">
+          <span v-if="idx > 0" class="ss-sep" aria-hidden="true" />
+          <span class="ss-item" :title="item.title">
+            <span class="ss-label">{{ item.label }}</span>
+            <strong>{{ item.value }}</strong>
+          </span>
+        </template>
       </div>
     </div>
 
@@ -3309,12 +3288,6 @@ watch(
   font-size: 12px;
 }
 
-.ctx-pop-title {
-  font-weight: 600;
-  font-size: 13px;
-  color: var(--fg-strong);
-}
-
 .ctx-pop-summary {
   display: flex;
   align-items: baseline;
@@ -3327,6 +3300,12 @@ watch(
   font-weight: 650;
   color: var(--warn, #d97706);
   font-variant-numeric: tabular-nums;
+}
+
+.ctx-pop-cost-label {
+  font-weight: 500;
+  opacity: 0.7;
+  margin-right: 2px;
 }
 
 .ctx-pop-full {

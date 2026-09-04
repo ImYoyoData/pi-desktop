@@ -53,6 +53,7 @@ declare module 'vue' {
     PiCliSetup: typeof import('./src/components/PiCliSetup.vue')['default']
     PreviewTab: typeof import('./src/components/PreviewTab.vue')['default']
     ProviderIcon: typeof import('./src/components/ProviderIcon.vue')['default']
+    ProxySettings: typeof import('./src/components/ProxySettings.vue')['default']
     RightPane: typeof import('./src/components/RightPane.vue')['default']
     RunningTab: typeof import('./src/components/RunningTab.vue')['default']
     SecuritySettings: typeof import('./src/components/SecuritySettings.vue')['default']

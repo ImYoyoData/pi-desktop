@@ -24,8 +24,8 @@ const askUserSchema = Type.Object({
           label: Type.String(),
           allowCustom: Type.Optional(
             Type.Boolean({
-              description:
-                "If true, selecting this option shows a free-text field. Desktop always adds a custom option for single/multi when missing.",
+            description:
+              "If true, selecting this option shows a free-text field. Works for any type (single/multi/buttons). Desktop always adds a custom option for single/multi when missing.",
             }),
           ),
         }),
@@ -68,7 +68,8 @@ export function createAskUserToolDefinition(deps?: {
     promptGuidelines: [
       "Use ask_user instead of only asking clarifying choices in prose when a discrete choice is needed.",
       "Put multiple related questions in one ask_user call; the UI collects all answers before continuing.",
-      "Desktop always offers a custom free-text option for single/multi; you may also set allowCustom on an option.",
+      "Desktop always offers a custom free-text option for single/multi; you may also set allowCustom on any option of any type (single/multi/buttons). In plan/task confirm dialogs, mark the adjust/revise option allowCustom so the user can type adjustment instructions.",
+      "Option labels are plain text — no emoji, icons, or decorative symbols.",
       "Do not invent answers — ask_user blocks until the user submits.",
     ],
     executionMode: "sequential",

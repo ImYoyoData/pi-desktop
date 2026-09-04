@@ -10,6 +10,7 @@ import {
 } from "../shared/model-discover";
 import type { SessionBroker } from "./session-broker";
 import { getModelsConfigService } from "./models-config";
+import type { ModelRuntime } from "@earendil-works/pi-coding-agent";
 
 /** Providers that use OAuth — handled separately (pi-web /api/auth/all-providers) */
 const OAUTH_PROVIDER_IDS = new Set(["anthropic", "github-copilot", "openai-codex"]);

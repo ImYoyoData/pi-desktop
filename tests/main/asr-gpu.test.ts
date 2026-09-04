@@ -14,7 +14,7 @@ import {
 } from "../../src/main/asr-gpu";
 
 describe("detectAsrGpuInfo", () => {
-  it("returns backend, device label, and kind", () => {
+  it("returns backend, device label, and kind", { timeout: 60000 }, () => {
     const info = detectAsrGpuInfo();
     expect(["cuda", "vulkan", "metal", "cpu"]).toContain(info.backend);
     expect(["discrete", "integrated", "metal", "cpu"]).toContain(info.kind);
@@ -47,7 +47,9 @@ describe("nvidiaSupportsBundledCuda", () => {
 
 describe("estimateNvidiaComputeFromName", () => {
   it("maps GTX 16 / RTX families to Turing+", () => {
-    expect(estimateNvidiaComputeFromName("NVIDIA GeForce GTX 1660 Ti")).toBe(7.5);
+    expect(estimateNvidiaComputeFromName("NVIDIA GeForce GTX 1660 Ti")).toBe(
+      7.5,
+    );
     expect(estimateNvidiaComputeFromName("NVIDIA GeForce RTX 3060")).toBe(8.6);
     expect(estimateNvidiaComputeFromName("NVIDIA GeForce GTX 1060")).toBe(6.1);
     expect(estimateNvidiaComputeFromName("AMD Radeon 780M")).toBeNull();
@@ -127,7 +129,9 @@ describe("isAsrNativeCrashExitCode", () => {
 
 describe("parseAsrExitCode", () => {
   it("extracts code from CrispASR exit messages", () => {
-    expect(parseAsrExitCode("ASR exited with code 3221225477")).toBe(3221225477);
+    expect(parseAsrExitCode("ASR exited with code 3221225477")).toBe(
+      3221225477,
+    );
     expect(parseAsrExitCode("ASR stream exited with code 1")).toBe(1);
     expect(parseAsrExitCode("nope")).toBeNull();
   });

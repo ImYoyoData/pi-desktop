@@ -117,30 +117,6 @@ function placeCaretAfter(node: Node): void {
   sel.addRange(range);
 }
 
-function insertNodeAtCaret(node: Node): void {
-  const root = surface.value;
-  if (!root) return;
-  root.focus();
-  const sel = window.getSelection();
-  if (sel && sel.rangeCount > 0) {
-    const range = sel.getRangeAt(0);
-    if (root.contains(range.commonAncestorContainer)) {
-      range.deleteContents();
-      range.insertNode(node);
-      const spacer = document.createTextNode("\u200B");
-      range.setStartAfter(node);
-      range.collapse(true);
-      range.insertNode(spacer);
-      placeCaretAfter(spacer);
-      return;
-    }
-  }
-  root.appendChild(node);
-  const spacer = document.createTextNode("\u200B");
-  root.appendChild(spacer);
-  placeCaretAfter(spacer);
-}
-
 function syncDraftFromDom(): void {
   const root = surface.value;
   if (!root || applyingStore) return;
@@ -451,7 +427,7 @@ function abortVoiceStream(handle: VoiceStreamHandle): void {
   voiceStreams.delete(handle.id);
   const { start, end } = st;
   applyingStore = true;
-  let node: Node | null = start;
+  let node: ChildNode | null = start;
   while (node) {
     const next = node.nextSibling;
     node.remove();
@@ -485,7 +461,7 @@ function isCaretAtVoiceLive(handle: VoiceStreamHandle): boolean {
   }
   // Caret inside a text node between the markers (e.g. mid-partial).
   if (startContainer.nodeType === Node.TEXT_NODE && startContainer.parentNode === parent) {
-    const nodeIndex = children.indexOf(startContainer);
+    const nodeIndex = children.indexOf(startContainer as Text);
     return nodeIndex >= startIndex && nodeIndex <= endIndex;
   }
   // Selection outside the editor — keep streaming (record-bar clicks etc.).
@@ -571,7 +547,7 @@ function chipBeforeCaret(): HTMLElement | null {
   }
 
   if (startContainer === root && startOffset > 0) {
-    let prev = root.childNodes[startOffset - 1] ?? null;
+    let prev: ChildNode | null = root.childNodes[startOffset - 1] ?? null;
     while (prev && prev.nodeType === Node.TEXT_NODE && !(prev.textContent ?? "").replace(/\u200B/g, "")) {
       prev = prev.previousSibling;
     }
