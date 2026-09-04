@@ -30,7 +30,11 @@ function workerScriptPath(): string {
     }
     if (existsSync(p)) return p;
   }
-  return candidates[0]!;
+  return null;
+}
+
+function workerUnavailable(): Error {
+  return new Error("session-history worker not built (run electron-vite build)");
 }
 
 function runHistoryWorker(job: {
@@ -39,9 +43,11 @@ function runHistoryWorker(job: {
   listDir?: string;
   listAllUnder?: string;
 }): Promise<WorkerReply> {
+  const scriptPath = workerScriptPath();
+  if (!scriptPath) return Promise.reject(workerUnavailable());
   return new Promise((resolve, reject) => {
     let settled = false;
-    const worker = new Worker(workerScriptPath());
+    const worker = new Worker(scriptPath);
 
     const finish = (fn: () => void) => {
       if (settled) return;
