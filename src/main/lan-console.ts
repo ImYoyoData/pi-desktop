@@ -10,7 +10,7 @@
  * the browser (localStorage), so a refresh does not require re-login.
  */
 
-import { createServer as createHttpServer, type Server as HttpServer } from "node:http";
+import type { Server as HttpServer } from "node:http";
 import { createServer as createHttpsServer } from "node:https";
 import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { dirname, extname, join, sep } from "node:path";
@@ -188,7 +188,6 @@ async function ensureCertificate(): Promise<{ key: string; cert: string }> {
     return { key: readFileSync(key, "utf8"), cert: readFileSync(cert, "utf8") };
   }
   const pems = await selfsigned.generate([{ name: "commonName", value: "Pi Desktop" }], {
-    days: 365,
     algorithm: "sha256",
     // EC P-256: much faster TLS handshakes than RSA 2048 — matters on phones
     // (esp. iOS) where self-signed cert validation is the slow part.
@@ -200,7 +199,7 @@ async function ensureCertificate(): Promise<{ key: string; cert: string }> {
         altNames: [
           { type: 2, value: "localhost" },
           { type: 7, value: "127.0.0.1" },
-          ...ips.map((ip) => ({ type: 7, value: ip })),
+          ...ips.map((ip) => ({ type: 7 as const, value: ip })),
         ],
       },
     ],
@@ -457,7 +456,7 @@ async function handleMessage(client: WsClient, raw: string): Promise<void> {
   const id = msg.id;
 
   if (type === "hello") {
-    if (isValidSessionToken(msg.token)) {
+    if (isValidSessionToken(typeof msg.token === "string" ? msg.token : null)) {
       client.authed = true;
       reply(client, id, { type: "helloOk" });
     } else {

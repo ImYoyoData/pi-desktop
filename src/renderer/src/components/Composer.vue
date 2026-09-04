@@ -31,9 +31,12 @@ import AsrInstallConfirmModal from "@renderer/components/AsrInstallConfirmModal.
 import VoiceRecordBar, { type VoiceMeter } from "@renderer/components/VoiceRecordBar.vue";
 import SendQueueBar from "@renderer/components/SendQueueBar.vue";
 import { useChatStore } from "@renderer/stores/chat";
-import type { ContextUsageSegmentId } from "../../../shared/protocol";
+import type { ContextUsageSegmentId, ElementCitation } from "../../../shared/protocol";
 import { isHttpUrl, useComposerStore } from "@renderer/stores/composer";
-import { useSendQueueStore } from "@renderer/stores/send-queue";
+import {
+  useSendQueueStore,
+  type QueuedSendItem,
+} from "@renderer/stores/send-queue";
 import { useSessionsStore } from "@renderer/stores/sessions";
 import { useWorkspaceStore } from "@renderer/stores/workspace";
 import { useAppearanceStore } from "@renderer/stores/appearance";
@@ -50,11 +53,10 @@ import {
 import { yieldToPaint } from "@renderer/utils/low-power";
 import {
   ASR_VOICE_WAKE_EVENT,
-  stopWakeListen,
   stopPreloadStream,
   suspendWakeListen,
 } from "@renderer/utils/asr-wake-listen";
-import { scrubAsrHallucination, type AsrStreamEvent } from "../../../shared/asr";
+import { scrubAsrHallucination } from "../../../shared/asr";
 import { formatAcceleratorLabel } from "../../../shared/hotkey";
 import {
   composerModePreamble,
@@ -140,7 +142,6 @@ const appliedModelForSession = ref<string | null>(null);
 const modelBySession = ref<Record<string, string>>(loadSessionPrefs().models);
 const thinkingBySession = ref<Record<string, ThinkingLevel>>(loadSessionPrefs().thinking);
 const thinkingLevel = ref<ThinkingLevel>("medium");
-const fileInput = ref<HTMLInputElement | null>(null);
 const richEditor = ref<{
   focus?: () => void;
   focusEnd?: () => void;
@@ -158,12 +159,6 @@ const richEditor = ref<{
 } | null>(null);
 /** Expanded tall editor (hover affordance top-right). */
 const editorExpanded = ref(false);
-/** True while we programmatically move the caret during ASR updates. */
-let asrCaretGuardUntil = 0;
-
-function armAsrCaretGuard(ms = 120): void {
-  asrCaretGuardUntil = Date.now() + ms;
-}
 
 function focusDraft(): void {
   richEditor.value?.focus?.();
@@ -171,7 +166,6 @@ function focusDraft(): void {
 
 /** Keep focus + caret at end of the draft while dictating. */
 function focusDraftAtEnd(): void {
-  armAsrCaretGuard();
   richEditor.value?.focusEnd?.();
   richEditor.value?.scrollToEnd?.();
 }
@@ -578,9 +572,7 @@ function snapshotComposerPayload(): {
   text: string;
   displayText: string;
   imagesToSend: { type: "image"; data: string; mimeType: string; cachePath?: string }[];
-  citationsToSend:
-    | { url: string; selector?: string; text?: string; htmlSnippet?: string }[]
-    | undefined;
+  citationsToSend: ElementCitation[] | undefined;
   tagsToSend:
     | {
         url: string;
@@ -619,14 +611,7 @@ function snapshotComposerPayload(): {
       mimeType: i.mimeType || "image/png",
       ...(i.cachePath ? { cachePath: i.cachePath } : {}),
     }));
-  const citationsToSend = citationList
-    ? citationList.map((c) => ({
-        url: c.url,
-        selector: c.selector,
-        text: c.text,
-        htmlSnippet: c.htmlSnippet,
-      }))
-    : undefined;
+  const citationsToSend = citationList ? citationList.map((c) => ({ ...c })) : undefined;
   // Mode is injected into agentText via preamble — do not show a mode chip on the bubble.
   const tagsToSend = attachmentTags.map((row) => {
     let host = "";
@@ -860,19 +845,7 @@ function beginEditQueueItem(itemId: string): void {
 
 async function dispatchQueuedItem(
   id: string,
-  item: {
-    text: string;
-    agentText?: string;
-    images?: { type: "image"; data: string; mimeType: string }[];
-    citations?: { url: string; selector?: string; text?: string; htmlSnippet?: string }[];
-    elementTags?: {
-      url: string;
-      host: string;
-      label: string;
-      content?: string;
-      kind?: "file" | "url" | "element" | "agent" | "plan" | "ask" | "task";
-    }[];
-  },
+  item: QueuedSendItem,
 ): Promise<void> {
   // Always prompt: Pi followUp only queues during a live turn and will not
   // start a new turn when the agent is already idle (queued items vanished).
@@ -888,27 +861,6 @@ async function dispatchQueuedItem(
     item.elementTags,
     displayText,
   );
-}
-
-function waitUntilIdle(sessionId: string, timeoutMs = 15_000): Promise<void> {
-  return new Promise((resolve) => {
-    const started = Date.now();
-    const tick = () => {
-      const stateRunning = chat.bySession[sessionId]?.running;
-      const statusRunning =
-        sessions.sessions.find((s) => s.id === sessionId)?.status === "running";
-      if (!stateRunning && !statusRunning) {
-        resolve();
-        return;
-      }
-      if (Date.now() - started >= timeoutMs) {
-        resolve();
-        return;
-      }
-      window.setTimeout(tick, 80);
-    };
-    tick();
-  });
 }
 
 function isAgentBusy(targetSessionId?: string): boolean {
@@ -1513,21 +1465,21 @@ async function runSlashBuiltin(id: string): Promise<void> {
     case "new": {
       const root = workspace.root;
       if (!root) {
-        message.warning(t.slashNeedWorkspace);
+        messageApi.warning(t.slashNeedWorkspace);
         return;
       }
       const created = await sessions.createSession(root);
-      if (created) message.success(t.slashNewDone);
+      if (created) messageApi.success(t.slashNewDone);
       return;
     }
     case "compact": {
       const idSession = sessionId.value;
       if (!idSession) {
-        message.warning(t.slashNeedSession);
+        messageApi.warning(t.slashNeedSession);
         return;
       }
       await sessions.sendCommand(idSession, { type: "compact" });
-      message.success(t.compactDone);
+      messageApi.success(t.compactDone);
       return;
     }
     case "model": {
@@ -1706,10 +1658,10 @@ async function onCompactContext(): Promise<void> {
   compactBusy.value = true;
   try {
     await sessions.sendCommand(idSession, { type: "compact" });
-    message.success(t.compactDone);
+    messageApi.success(t.compactDone);
     closeContextPopover();
   } catch (err) {
-    message.error(err instanceof Error ? err.message : String(err));
+    messageApi.error(err instanceof Error ? err.message : String(err));
   } finally {
     compactBusy.value = false;
   }
@@ -1998,7 +1950,7 @@ function onPaste(event: ClipboardEvent): void {
     if (!plain.trim() && !html.trim()) return;
     event.preventDefault();
     if (plain.trim()) {
-      richEditor.value?.insertTextAtCaret(plain);
+      richEditor.value?.insertTextAtCaret?.(plain);
     }
   } catch (err) {
     // Never let a paste handler exception swallow the user's clipboard.
@@ -2150,7 +2102,6 @@ async function confirmVoice(): Promise<void> {
       return;
     }
     // Insert directly at the current caret — do NOT move the cursor.
-    armAsrCaretGuard();
     if (richEditor.value?.insertTextAtCaret) {
       richEditor.value.insertTextAtCaret(text);
     } else {
@@ -2445,7 +2396,6 @@ watch(
         <div class="toolbar" :aria-hidden="voiceActive">
           <div class="toolbar-left">
             <input
-              ref="fileInput"
               type="file"
               accept="image/*"
               multiple

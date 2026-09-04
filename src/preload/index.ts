@@ -546,19 +546,20 @@ const api = {
 				IpcChannels.git.resetToCommit,
 				commitHash,
 				mode,
-			) as Promise<{ ok: boolean; message?: string; code?: string }>,
+			) as Promise<
+				| { ok: true; message?: string }
+				| { ok: false; message: string; code?: string }
+			>,
 		stage: (paths: string[]) =>
-			ipcRenderer.invoke(IpcChannels.git.stage, paths) as Promise<{
-				ok: boolean;
-				message?: string;
-				code?: string;
-			}>,
+			ipcRenderer.invoke(IpcChannels.git.stage, paths) as Promise<
+				| { ok: true; message?: string }
+				| { ok: false; message: string; code?: string }
+			>,
 		unstage: (paths: string[]) =>
-			ipcRenderer.invoke(IpcChannels.git.unstage, paths) as Promise<{
-				ok: boolean;
-				message?: string;
-				code?: string;
-			}>,
+			ipcRenderer.invoke(IpcChannels.git.unstage, paths) as Promise<
+				| { ok: true; message?: string }
+				| { ok: false; message: string; code?: string }
+			>,
 		ignore: (paths: string[]) =>
 			ipcRenderer.invoke(IpcChannels.git.ignore, paths) as Promise<string[]>,
 		unignore: (path: string) =>
@@ -1304,8 +1305,6 @@ if (process.contextIsolated) {
 		console.error(error);
 	}
 } else {
-	// @ts-expect-error define in dts
 	window.electron = electronAPI;
-	// @ts-expect-error define in dts
 	window.api = api;
 }

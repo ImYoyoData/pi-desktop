@@ -40,7 +40,8 @@ workerSelf.onmessage = (ev: MessageEvent<PcmEncodeRequest>) => {
     const resampled =
       inputRate === targetRate ? merged : downsample(merged, inputRate, targetRate);
     const pcm = floatTo16BitPCM(resampled);
-    workerSelf.postMessage({ id, pcm: pcm.buffer }, [pcm.buffer]);
+    const pcmBuffer = pcm.buffer as ArrayBuffer;
+    workerSelf.postMessage({ id, pcm: pcmBuffer }, [pcmBuffer]);
   } catch (err) {
     workerSelf.postMessage({
       id,
