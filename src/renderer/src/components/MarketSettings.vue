@@ -240,6 +240,7 @@ function uninstallPkg(pkg: PiPackageListItem): void {
           }
           message.success(t.marketUninstalled(pkg.name));
           await loadInstalled();
+          return true;
         } catch (err) {
           message.error(err instanceof Error ? err.message : t.marketUninstallFailed);
           d.loading = false;

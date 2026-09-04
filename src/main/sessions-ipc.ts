@@ -1,5 +1,5 @@
 import { BrowserWindow, ipcMain } from "electron";
-import { existsSync, readFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { basename, join } from "node:path";
 import type { SessionExtensionInfo } from "../shared/protocol";
 import type { AgentCommand } from "../shared/protocol";

@@ -56,6 +56,7 @@ import type {
 	GitConflictContentResult,
 	GitOpResult,
 } from "../shared/git-types";
+import type { ProxySettings } from "../shared/proxy";
 export type AppInfo = {
 	version: string;
 	githubUrl: string;
@@ -85,8 +86,16 @@ declare const api: {
 		getStatus: () => Promise<LanConsoleStatus>;
 		setEnabled: (enabled: boolean) => Promise<LanConsoleStatus>;
 		setPort: (port: number) => Promise<LanConsoleStatus>;
-		setCredentials: (username: string, password: string) => Promise<LanConsoleStatus>;
+		setCredentials: (
+			username: string,
+			password: string,
+		) => Promise<LanConsoleStatus>;
 		setPreferredIp: (ip: string) => Promise<LanConsoleStatus>;
+	};
+	proxy: {
+		get: () => Promise<ProxySettings>;
+		set: (settings: ProxySettings) => Promise<ProxySettings>;
+		onChanged: (callback: (settings: ProxySettings) => void) => () => void;
 	};
 	window: {
 		platform: () => Promise<NodeJS.Platform>;
@@ -175,9 +184,7 @@ declare const api: {
 			ok: boolean;
 			reason?: string;
 		}>;
-		onExtensionUi: (
-			callback: (payload: ExtensionUiEvent) => void,
-		) => () => void;
+		onExtensionUi: (callback: (payload: ExtensionUiEvent) => void) => () => void;
 		extensionUiReply: (payload: ExtensionUiReply) => Promise<{
 			ok: boolean;
 			reason?: string;
@@ -336,13 +343,43 @@ declare const api: {
 		resetToCommit: (
 			commitHash: string,
 			mode: "soft" | "hard",
-		) => Promise<{ ok: boolean; message?: string; code?: string }>;
+		) => Promise<
+			| {
+					ok: true;
+					message?: string;
+			  }
+			| {
+					ok: false;
+					message: string;
+					code?: string;
+			  }
+		>;
 		stage: (
 			paths: string[],
-		) => Promise<{ ok: boolean; message?: string; code?: string }>;
+		) => Promise<
+			| {
+					ok: true;
+					message?: string;
+			  }
+			| {
+					ok: false;
+					message: string;
+					code?: string;
+			  }
+		>;
 		unstage: (
 			paths: string[],
-		) => Promise<{ ok: boolean; message?: string; code?: string }>;
+		) => Promise<
+			| {
+					ok: true;
+					message?: string;
+			  }
+			| {
+					ok: false;
+					message: string;
+					code?: string;
+			  }
+		>;
 		ignore: (paths: string[]) => Promise<string[]>;
 		unignore: (path: string) => Promise<string[]>;
 		ignored: () => Promise<string[]>;
@@ -482,9 +519,7 @@ declare const api: {
 				subject: string;
 			}[];
 		}>;
-		conflictContent: (
-			relativePath: string,
-		) => Promise<GitConflictContentResult>;
+		conflictContent: (relativePath: string) => Promise<GitConflictContentResult>;
 		resolveConflict: (payload: {
 			relativePath: string;
 			content: string;
@@ -651,9 +686,7 @@ declare const api: {
 		streamPush: (pcm: Int16Array) => Promise<void>;
 		streamStop: () => Promise<AsrStatus>;
 		onStreamEvent: (callback: (event: AsrStreamEvent) => void) => () => void;
-		onProgress: (
-			callback: (progress: AsrInstallProgress) => void,
-		) => () => void;
+		onProgress: (callback: (progress: AsrInstallProgress) => void) => () => void;
 		setWakeHotkey: (accel: string) => Promise<AsrStatus>;
 		setResidentModel: (enabled: boolean) => Promise<AsrStatus>;
 		setWakeEnabled: (enabled: boolean) => Promise<AsrStatus>;
@@ -674,9 +707,7 @@ declare const api: {
 		uninstall: () => Promise<TtsStatus>;
 		speak: (text: string) => Promise<TtsSpeakResult>;
 		stop: () => Promise<TtsStatus>;
-		onProgress: (
-			callback: (progress: TtsInstallProgress) => void,
-		) => () => void;
+		onProgress: (callback: (progress: TtsInstallProgress) => void) => () => void;
 		onSpeaking: (
 			callback: (payload: { speaking: boolean }) => void,
 		) => () => void;

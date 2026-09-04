@@ -5,72 +5,75 @@ directories:
   buildResources: build
   output: release
 files:
-  - '!**/.vscode/*'
-  - '!src/*'
-  - '!tests/*'
-  - '!_ev-scaffold2/*'
-  - '!.superpowers/*'
-  - '!docs/*'
-  - '!scripts/*'
-  - '!release/*'
-  - '!**/*.{md,map}'
-  - '!electron.vite.config.{js,ts,mjs,cjs}'
-  - '!{.eslintcache,eslint.config.mjs,.prettierignore,.prettierrc.yaml,dev-app-update.yml,CHANGELOG.md}'
-  - '!{.env,.env.*,.npmrc,pnpm-lock.yaml}'
-  - '!{tsconfig.json,tsconfig.node.json,tsconfig.web.json,tsconfig.*.tsbuildinfo}'
+  - "!**/.vscode/*"
+  - "!src/*"
+  - "!tests/*"
+  - "!_ev-scaffold2/*"
+  - "!.superpowers/*"
+  - "!docs/*"
+  - "!scripts/*"
+  - "!release/*"
+  - "!**/*.{md,map}"
+  - "!electron.vite.config.{js,ts,mjs,cjs}"
+  - "!{.eslintcache,eslint.config.mjs,.prettierignore,.prettierrc.yaml,dev-app-update.yml,CHANGELOG.md}"
+  - "!{.env,.env.*,.npmrc,pnpm-lock.yaml}"
+  - "!{tsconfig.json,tsconfig.node.json,tsconfig.web.json,tsconfig.*.tsbuildinfo}"
   # Renderer-only packages are already bundled into out/ — exclude to cut size hard
-  - '!node_modules/monaco-editor/**'
-  - '!node_modules/naive-ui/**'
-  - '!node_modules/@vicons/**'
-  - '!node_modules/vue/**'
-  - '!node_modules/pinia/**'
-  - '!node_modules/splitpanes/**'
-  - '!node_modules/sortablejs/**'
-  - '!node_modules/@types/**'
-  - '!node_modules/xterm/**'
-  - '!node_modules/@xterm/**'
-  - '!node_modules/xterm-addon-web-links/**'
-  - '!node_modules/mermaid/**'
-  - '!node_modules/katex/**'
-  - '!node_modules/marked-katex-extension/**'
-  - '!node_modules/@viz-js/**'
-  - '!node_modules/dayjs/**'
-  - '!node_modules/cytoscape/**'
-  - '!node_modules/cytoscape-*/**'
-  - '!node_modules/khroma/**'
-  - '!node_modules/d3*/**'
-  - '!node_modules/dagre*/**'
-  - '!node_modules/roughjs/**'
-  - '!node_modules/stylis/**'
+  - "!node_modules/monaco-editor/**"
+  - "!node_modules/naive-ui/**"
+  - "!node_modules/@vicons/**"
+  - "!node_modules/vue/**"
+  - "!node_modules/pinia/**"
+  - "!node_modules/splitpanes/**"
+  - "!node_modules/sortablejs/**"
+  - "!node_modules/@types/**"
+  - "!node_modules/xterm/**"
+  - "!node_modules/@xterm/**"
+  - "!node_modules/xterm-addon-web-links/**"
+  - "!node_modules/mermaid/**"
+  - "!node_modules/katex/**"
+  - "!node_modules/marked-katex-extension/**"
+  - "!node_modules/@viz-js/**"
+  - "!node_modules/dayjs/**"
+  - "!node_modules/cytoscape/**"
+  - "!node_modules/cytoscape-*/**"
+  - "!node_modules/khroma/**"
+  - "!node_modules/d3*/**"
+  - "!node_modules/dagre*/**"
+  - "!node_modules/roughjs/**"
+  - "!node_modules/stylis/**"
   # Keep marked + highlight.js: Pi SDK (agent-worker) requires them at runtime.
-  - '!node_modules/dompurify/**'
-  - '!node_modules/csstype/**'
-  - '!node_modules/seemly/**'
-  - '!node_modules/vooks/**'
-  - '!node_modules/vueuc/**'
-  - '!node_modules/@juggle/**'
-  - '!node_modules/@css-render/**'
-  - '!node_modules/css-render/**'
-  - '!node_modules/evtd/**'
-  - '!node_modules/treemate/**'
-  - '!node_modules/date-fns-tz/**'
-  - '!node_modules/date-fns/**'
-  - '!**/node_modules/*/{CHANGELOG*,README*,readme*,License,LICENSE,LICENCE,*.d.ts}'
-  - '!**/node_modules/*/{test,tests,__tests__,example,examples,doc,docs,coverage,.github}/**'
-  - '!**/node_modules/.bin/**'
+  - "!node_modules/dompurify/**"
+  - "!node_modules/csstype/**"
+  - "!node_modules/seemly/**"
+  - "!node_modules/vooks/**"
+  - "!node_modules/vueuc/**"
+  - "!node_modules/@juggle/**"
+  - "!node_modules/@css-render/**"
+  - "!node_modules/css-render/**"
+  - "!node_modules/evtd/**"
+  - "!node_modules/treemate/**"
+  - "!node_modules/date-fns-tz/**"
+  - "!node_modules/date-fns/**"
+  - "!**/node_modules/*/{CHANGELOG*,README*,readme*,License,LICENSE,LICENCE,*.d.ts}"
+  - "!**/node_modules/*/{test,tests,__tests__,example,examples,doc,docs,coverage,.github}/**"
+  - "!**/node_modules/.bin/**"
 asarUnpack:
-  - '**/*.node'
+  - "**/*.node"
   # dugite embeds a real Git binary (win/mac/linux); must stay outside asar.
   # dugite rewrites app.asar → app.asar.unpacked when resolving git/.
-  - '**/node_modules/dugite/git/**'
+  - "**/node_modules/dugite/git/**"
   # worker_threads cannot load JS from asar (ASR / history offload).
-  - '**/asr-cloud-worker.js'
-  - '**/session-history-worker.js'
+  - "**/asr-cloud-worker.js"
+  - "**/asr-gpu-detect-worker.js"
+  - "**/session-history-worker.js"
+  # Workers require() shared modules chunked beside them — must be unpacked too.
+  - "**/out/main/chunks/**"
 extraResources:
   - from: resources/
     to: resources/
     filter:
-      - '**/*'
+      - "**/*"
 icon: build/icon.png
 compression: normal
 removePackageScripts: true

@@ -2,6 +2,8 @@ import { agentDir } from "./agent-dir";
 import fs from "node:fs";
 import path from "node:path";
 import type { SessionSummary } from "../shared/protocol";
+import { listSessionSummariesOffMain } from "./session-history-offload";
+import type { DiskSessionRow } from "./session-history-worker";
 
 export function resolveAgentDir(): string {
   return agentDir();
@@ -38,8 +40,15 @@ export function workspacePathsEqual(a: string, b: string): boolean {
  * many (or large) session files. The signature below is computed from file
  * sizes + mtimes only (no content reads), so cached results stay fresh cheaply.
  */
-const sessionListCache = new Map<string, { signature: string; sessions: SessionSummary[] }>();
-let piWorkspacesCache: { agentDir: string; signature: string; workspaces: string[] } | null = null;
+const sessionListCache = new Map<
+  string,
+  { signature: string; sessions: SessionSummary[] }
+>();
+let piWorkspacesCache: {
+  agentDir: string;
+  signature: string;
+  workspaces: string[];
+} | null = null;
 
 /** Signature of the .jsonl files in one session dir (sizes + mtimes, no content). */
 async function dirJsonlSignature(dir: string): Promise<string | null> {
@@ -64,7 +73,9 @@ async function dirJsonlSignature(dir: string): Promise<string | null> {
 }
 
 /** Signature across every workspace's session dir (dir name + its file signature). */
-async function sessionsTreeSignature(sessionsDir: string): Promise<string | null> {
+async function sessionsTreeSignature(
+  sessionsDir: string,
+): Promise<string | null> {
   let entries;
   try {
     entries = await fs.promises.readdir(sessionsDir, { withFileTypes: true });
@@ -82,23 +93,156 @@ async function sessionsTreeSignature(sessionsDir: string): Promise<string | null
   return rows.join("|");
 }
 
-function sessionInfoToSummary(info: {
+function diskRowToSummary(row: {
   id: string;
-  path: string;
+  filePath: string;
   cwd: string;
   name?: string;
-  modified: Date;
+  modified: string;
   firstMessage: string;
 }): SessionSummary {
   return {
-    id: info.id,
-    filePath: info.path,
-    cwd: info.cwd,
-    name: info.name,
-    modified: info.modified.toISOString(),
-    firstMessage: info.firstMessage,
+    id: row.id,
+    filePath: row.filePath,
+    cwd: row.cwd,
+    name: row.name,
+    modified: row.modified,
+    firstMessage: row.firstMessage,
     status: "idle",
   };
+}
+
+/** Local fallback when the worker script is not built (tests run from src/). */
+function readSessionSummaryFallback(filePath: string): DiskSessionRow | null {
+  try {
+    const raw = fs.readFileSync(filePath, "utf8");
+    let header: Record<string, unknown> | null = null;
+    let name: string | undefined;
+    let firstMessage = "";
+    let lastActivityTime: number | undefined;
+    for (const line of raw.split("\n")) {
+      const trimmed = line.trim();
+      if (!trimmed) continue;
+      let entry: Record<string, unknown>;
+      try {
+        entry = JSON.parse(trimmed) as Record<string, unknown>;
+      } catch {
+        continue;
+      }
+      if (!header) {
+        if (entry.type !== "session" || typeof entry.id !== "string")
+          return null;
+        header = entry;
+        continue;
+      }
+      if (entry.type === "session_info") {
+        const rawName = (entry as { name?: unknown }).name;
+        name =
+          typeof rawName === "string" && rawName.trim()
+            ? rawName.trim()
+            : undefined;
+        continue;
+      }
+      if (entry.type !== "message") continue;
+      const message = (entry as { message?: unknown }).message;
+      if (!message || typeof message !== "object") continue;
+      const msg = message as {
+        role?: unknown;
+        content?: unknown;
+        timestamp?: unknown;
+      };
+      if (msg.role !== "user" && msg.role !== "assistant") continue;
+      const activityTime =
+        typeof msg.timestamp === "number"
+          ? msg.timestamp
+          : new Date(String(entry.timestamp ?? "")).getTime();
+      if (typeof activityTime === "number" && !Number.isNaN(activityTime)) {
+        lastActivityTime = Math.max(lastActivityTime ?? 0, activityTime);
+      }
+      if (firstMessage || msg.role !== "user") continue;
+      const content = msg.content;
+      if (typeof content === "string") {
+        firstMessage = content;
+      } else if (Array.isArray(content)) {
+        firstMessage = content
+          .filter(
+            (block): block is { type: string; text: string } =>
+              Boolean(block) &&
+              typeof block === "object" &&
+              (block as { type?: unknown }).type === "text" &&
+              typeof (block as { text?: unknown }).text === "string",
+          )
+          .map((block) => block.text)
+          .join(" ");
+      }
+    }
+    if (!header) return null;
+    const headerTime = new Date(String(header.timestamp ?? "")).getTime();
+    const modified =
+      typeof lastActivityTime === "number" && lastActivityTime > 0
+        ? new Date(lastActivityTime)
+        : !Number.isNaN(headerTime)
+          ? new Date(headerTime)
+          : fs.statSync(filePath).mtime;
+    return {
+      id: String(header.id),
+      filePath,
+      cwd: typeof header.cwd === "string" ? header.cwd : "",
+      name,
+      modified: modified.toISOString(),
+      firstMessage: firstMessage || "(no messages)",
+    };
+  } catch {
+    return null;
+  }
+}
+
+/** Fallback for listSessionsForCwd / listPiCliWorkspaces when no worker build. */
+async function listSessionSummariesFallback(
+  dir: string | null,
+  sessionsRoot: string | null,
+): Promise<DiskSessionRow[]> {
+  const dirs: string[] = [];
+  if (dir) {
+    dirs.push(dir);
+  } else if (sessionsRoot) {
+    try {
+      for (const entry of await fs.promises.readdir(sessionsRoot, {
+        withFileTypes: true,
+      })) {
+        if (entry.isDirectory()) dirs.push(path.join(sessionsRoot, entry.name));
+      }
+    } catch {
+      return [];
+    }
+  }
+  const rows: DiskSessionRow[] = [];
+  for (const sessionDir of dirs) {
+    let files: string[];
+    try {
+      files = await fs.promises.readdir(sessionDir);
+    } catch {
+      continue;
+    }
+    for (const file of files) {
+      if (!file.endsWith(".jsonl")) continue;
+      const row = readSessionSummaryFallback(path.join(sessionDir, file));
+      if (row) rows.push(row);
+    }
+  }
+  rows.sort((a, b) => b.modified.localeCompare(a.modified));
+  return rows;
+}
+
+async function listSessionSummariesSafe(job: {
+  dir?: string;
+  allUnder?: string;
+}): Promise<DiskSessionRow[]> {
+  try {
+    return await listSessionSummariesOffMain(job);
+  } catch {
+    return listSessionSummariesFallback(job.dir ?? null, job.allUnder ?? null);
+  }
 }
 
 /** Drop listing caches (after deleting a workspace's Pi sessions). */
@@ -139,7 +283,9 @@ export async function purgeWorkspaceSessionDir(cwd: string): Promise<void> {
   }
 }
 
-export async function listSessionsForCwd(cwd: string): Promise<SessionSummary[]> {
+export async function listSessionsForCwd(
+  cwd: string,
+): Promise<SessionSummary[]> {
   const resolvedCwd = path.resolve(cwd);
   const sessionDir = encodeCwdSessionDir(resolvedCwd);
   const signature = await dirJsonlSignature(sessionDir);
@@ -148,14 +294,13 @@ export async function listSessionsForCwd(cwd: string): Promise<SessionSummary[]>
   const hit = sessionListCache.get(key);
   if (hit && hit.signature === signature) return hit.sessions;
 
-  const { SessionManager } = await import("@earendil-works/pi-coding-agent");
-  const infos = await SessionManager.list(resolvedCwd);
-  const sessions = infos
-    .filter((info) => {
-      const sessionCwd = info.cwd ? path.resolve(info.cwd) : resolvedCwd;
+  const rows = await listSessionSummariesSafe({ dir: sessionDir });
+  const sessions = rows
+    .filter((row) => {
+      const sessionCwd = row.cwd ? path.resolve(row.cwd) : resolvedCwd;
       return workspacePathsEqual(sessionCwd, resolvedCwd);
     })
-    .map(sessionInfoToSummary)
+    .map(diskRowToSummary)
     .sort((a, b) => b.modified.localeCompare(a.modified));
 
   sessionListCache.set(key, { signature, sessions });
@@ -171,6 +316,7 @@ export async function listSessionsForCwd(cwd: string): Promise<SessionSummary[]>
  * Sorted by most recently modified session. Missing folders on disk are skipped.
  */
 export async function listPiCliWorkspaces(): Promise<string[]> {
+  if (process.env.PI_DESKTOP_NO_FULL_RECENT === "1") return [];
   const agentDir = resolveAgentDir();
   const sessionsDir = path.join(agentDir, "sessions");
   const signature = await sessionsTreeSignature(sessionsDir);
@@ -183,16 +329,15 @@ export async function listPiCliWorkspaces(): Promise<string[]> {
     return piWorkspacesCache.workspaces;
   }
 
-  const { SessionManager } = await import("@earendil-works/pi-coding-agent");
-  const infos = await SessionManager.listAll();
+  const rows = await listSessionSummariesSafe({ allUnder: sessionsDir });
   const latestByCwd = new Map<string, { display: string; modified: number }>();
 
-  for (const info of infos) {
-    const raw = typeof info.cwd === "string" ? info.cwd.trim() : "";
+  for (const row of rows) {
+    const raw = typeof row.cwd === "string" ? row.cwd.trim() : "";
     if (!raw) continue;
     const display = path.resolve(raw);
     const key = normalizeWorkspacePath(display);
-    const modified = info.modified instanceof Date ? info.modified.getTime() : 0;
+    const modified = Date.parse(row.modified) || 0;
     const prev = latestByCwd.get(key);
     if (!prev || modified > prev.modified) {
       latestByCwd.set(key, { display, modified });
@@ -202,7 +347,9 @@ export async function listPiCliWorkspaces(): Promise<string[]> {
   const result = [...latestByCwd.values()]
     .filter((row) => {
       try {
-        return fs.existsSync(row.display) && fs.statSync(row.display).isDirectory();
+        return (
+          fs.existsSync(row.display) && fs.statSync(row.display).isDirectory()
+        );
       } catch {
         return false;
       }
@@ -227,7 +374,9 @@ export async function mergeRecentWithPiCliWorkspaces(
   const fromPi = await listPiCliWorkspaces();
   const merged: string[] = [];
   const seen = new Set<string>();
-  const dismissedKeys = new Set(dismissed.map((p) => normalizeWorkspacePath(p)));
+  const dismissedKeys = new Set(
+    dismissed.map((p) => normalizeWorkspacePath(p)),
+  );
 
   const push = (raw: string, allowDismissed: boolean): void => {
     const trimmed = raw.trim();

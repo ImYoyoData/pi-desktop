@@ -29,7 +29,8 @@ function installEditContextMenu(win: BrowserWindow): void {
         },
         {
           label: L.redo,
-          accelerator: process.platform === "darwin" ? "Shift+CmdOrCtrl+Z" : "CmdOrCtrl+Y",
+          accelerator:
+            process.platform === "darwin" ? "Shift+CmdOrCtrl+Z" : "CmdOrCtrl+Y",
           enabled: editFlags.canRedo,
           click: () => {
             if (!win.isDestroyed()) wc.redo();
@@ -149,7 +150,7 @@ export function createMainWindow(): BrowserWindow {
       sandbox: false,
       contextIsolation: true,
       webviewTag: true,
-      spellcheck: true,
+      spellcheck: process.env.PI_DESKTOP_NO_SPELLCHECK !== "1",
     },
   });
 

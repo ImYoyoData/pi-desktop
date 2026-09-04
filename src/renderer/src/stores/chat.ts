@@ -9,12 +9,14 @@ import type {
 	SessionHistoryPage,
 } from "../../../shared/protocol";
 import { toPromptCitations, toPromptImages } from "../../../shared/protocol";
+import { createHiddenEventSink } from "@renderer/utils/hidden-event-buffer";
 import {
 	appendUserMessage,
 	clearPendingAskUser,
 	clearPendingExtensionUi,
 	clearPendingPermission,
 	createChatState,
+	hasLiveTurnState,
 	reduceChatEvent,
 	setPendingAskUser,
 	setPendingExtensionUi,
@@ -84,6 +86,7 @@ export {
 	clearPendingExtensionUi,
 	clearPendingPermission,
 	createChatState,
+	hasLiveTurnState,
 	reduceChatEvent,
 	setPendingAskUser,
 	setPendingExtensionUi,
@@ -133,6 +136,11 @@ export const useChatStore = defineStore("chat", () => {
 	 *  checkpoint (duplicate sends from the queue-edit path caused both). */
 	const promptChain = new Map<string, Promise<unknown>>();
 	let softHangTimer: ReturnType<typeof setInterval> | null = null;
+	const agentEventSink = createHiddenEventSink<AgentEvent>({
+		apply: (event) => applyEvent(event),
+		isHidden: () => document.hidden,
+		onError: (err) => console.error("[chat] buffered event apply failed", err),
+	});
 
 	function noteSecurityRemediation(): void {
 		securityRemediationTick.value += 1;
@@ -602,17 +610,11 @@ export const useChatStore = defineStore("chat", () => {
 	function checkSoftHangSessions(): void {
 		const now = Date.now();
 		for (const [sessionId, state] of Object.entries(bySession)) {
-			if (
-				!state?.running ||
-				state.autoRecovering ||
-				recoveringIds.has(sessionId)
-			)
+			if (!state?.running || state.autoRecovering || recoveringIds.has(sessionId))
 				continue;
 			if (softHangReported.has(sessionId)) continue;
 			const waitingUser = Boolean(
-				state.pendingAskUser ||
-					state.pendingPermission ||
-					state.pendingExtensionUi,
+				state.pendingAskUser || state.pendingPermission || state.pendingExtensionUi,
 			);
 			const outputSilenceMs = agentOutputSilenceMs(state, now);
 			const workerSilenceMs = agentWorkerSilenceMs(state, now);
@@ -688,6 +690,15 @@ export const useChatStore = defineStore("chat", () => {
 		// Restore persisted checkpoint summaries so history keeps its revert
 		// buttons across session switches / restarts.
 		void checkpointStore.loadSessionSummaries(sessionId);
+		const live = bySession[sessionId];
+		if (live && hasLiveTurnState(live)) {
+			// Session already has a live turn in memory (streaming tail / ask_user
+			// / permission / extension strip). The disk page read on session switch
+			// lags the live turn, so replacing state would drop the pending prompt
+			// and any un-flushed stream tail; keep it until the turn settles.
+			softHangReported.delete(sessionId);
+			return;
+		}
 		bySession[sessionId] = {
 			messages: history.map(mapHistoryRow),
 			streamingMessage: null,
@@ -782,8 +793,9 @@ export const useChatStore = defineStore("chat", () => {
 			softHangTimer = setInterval(() => checkSoftHangSessions(), 5_000);
 		}
 		const off = window.api.sessions.onEvent((event) => {
-			applyEvent(event);
+			agentEventSink.push(event);
 		});
+		document.addEventListener("visibilitychange", agentEventSink.flushNow);
 		const offPermission = window.api.sessions.onPermission((req) => {
 			if (isPermissionAskCancelled(req)) {
 				const pending = stateFor(req.sessionId).pendingPermission;
@@ -824,6 +836,8 @@ export const useChatStore = defineStore("chat", () => {
 				clearInterval(softHangTimer);
 				softHangTimer = null;
 			}
+			agentEventSink.dispose();
+			document.removeEventListener("visibilitychange", agentEventSink.flushNow);
 			off();
 			offPermission();
 			offAskUser();

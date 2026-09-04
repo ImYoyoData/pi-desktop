@@ -165,27 +165,52 @@ jobs:
           generate_release_notes: true
           body: |
 
-            ## 主要更新（v0.2.9）
+            ## 主要更新（v0.3.1）
 
-            本版重点：暗色代码高亮与行号对齐；发图/粘贴/Codex OAuth 等稳定性修复。
+            本版重点：全局网络代理；会话排序与折叠；启动提速与恢复旧会话稳定性。
 
-            ### 修复 / 体验 Fixes
-            - 暗色主题代码高亮改用 `github-dark`，不再误用浅色配色（#5）。
-            - 代码块行号与内容对齐：只保留外层滚动，行号 sticky（#6）。
-            - 非视觉模型发图：发送前校验 vision、失败回滚毒化消息，编辑重发真正替换（#7）。
-            - 粘贴 Word/网页富文本时剥离格式，只插入纯文本（#9）。
-            - 打包后 Codex / Anthropic / Copilot 等 OAuth 模块打进 asar，修复缺少 `openai-codex.js`（#10）。
+            ### 新功能 Features
+            - **网络代理**：新增全局代理设置面板，代理注入 agent worker 与 git 操作，支持 http/https，TitleBar 快捷入口（解决 #8）。
+            - **会话排序**：侧栏会话按「置顶 + 最近修改」排序并持久化，新建会话自动置顶。
+            - **会话列表折叠**：会话数超过 7 个自动折叠，显示「查看全部 N 个」展开按钮。
 
-            ## What's New (v0.2.9)
+            ### 修复 Fixes
+            - 修复程序后台运行时 IPC 任务队列积压：会话事件在页面隐藏时合并缓冲，恢复可见后一次性批量消费，避免主进程事件积压导致恢复卡顿。
+            - 修复 `MessageList.vue` 虚拟滚动逻辑：跟随底部判定改为滚动事件同步执行，并回滚用户上滑历史时排队中的自动贴底（不再被强制拽回最新）。
+            - 点击压缩上下文按钮改为默认不显示（通用设置里可重新打开）。
+            - 修复上下文用量百分比估算：改为按模型真实上下文窗口计算（原按 30 万 token 成本线），并用真实会话成本替换估算成本。
+            - 修复打开旧会话加载首 token 慢或偶发失败：上下文用量统计改为 sidecar 落盘（`.timing.json`），恢复旧会话不再重复计算或丢失统计。
+            - 修复侧栏「卡住恢复」按钮不显示：终止/重启按钮原本放在不存在的 footer 插槽永不渲染，已移入默认插槽。
+            - 修复/补全 Vue 类型环境：`env.d.ts` 改为模块增强并引入 `@vue/typescript-plugin`，消除全项目 `vue has no exported member` 假报错。
 
-            Dark code highlighting and line-number alignment; stability fixes for images, paste, and Codex OAuth packaging.
+            ### 性能优化 Performance
+            - 会话列表改为 worker 线程轻量扫描（仅读首行 + 标题 + 首条消息 + mtime），不再整读会话 jsonl，避免阻塞主进程事件循环。
+            - ASR GPU 探测（nvidia-smi / vulkaninfo 等）移入独立 worker 线程，Pi CLI 工作区扫描同样 worker 化。
+            - 新增启动全链路埋点（`PI_DESKTOP_STARTUP_TIMING=1` 输出到 userData/startup-timing.log），便于回归监控。
+            - 运行开关：`PI_DESKTOP_NO_WATCH`（跳过文件监听）、`PI_DESKTOP_NO_SPELLCHECK`、`PI_DESKTOP_USER_DATA`；LAN 控制台延迟启动且可用 `PI_DESKTOP_NO_LAN` 跳过。
+
+            ## What's New (v0.3.1)
+
+            Global HTTP proxy; session pinning & recent-first ordering; startup speedups and more reliable old-session recovery.
+
+            ### Features
+            - Global proxy settings (http/https) applied to agent workers and git operations (closes #8).
+            - Sessions sorted by pinned + recently modified (persisted); new sessions pin to top.
+            - Session list auto-collapses beyond 7 items with a "view all" expander.
 
             ### Fixes
-            - Dark theme code highlight uses `github-dark` instead of light styles (#5).
-            - Code-block line numbers stay aligned: single scrollport + sticky gutters (#6).
-            - Non-vision image sends: gate vision, roll back poisoned messages, edit-resend replaces in place (#7).
-            - Paste from Word/web strips formatting to plain text (#9).
-            - Packaged OAuth flows (Codex / Anthropic / Copilot, …) are statically chunked into asar — no missing `openai-codex.js` (#10).
+            - Hidden-window IPC backlog: session events now buffer while the page is hidden and bulk-flush on restore, so the queue never piles up in the background.
+            - Fixed `MessageList.vue` virtual scrolling: follow-bottom is decided synchronously on scroll and queued auto-snaps are cancelled when you scroll up to read history.
+            - The compact-context button now stays hidden by default (re-enable in General settings).
+            - Context usage percent now measures against the model's real context window (was a flat 300k cost line), with the real session cost shown instead of an estimate.
+            - Old-session open no longer stalls or miscounts: context stats now persist via a sidecar `.timing.json`.
+            - "Recover stuck" buttons now render (moved from a non-existent slot).
+            - Vue type environment fixed via module augmentation + `@vue/typescript-plugin` (no more false `vue has no exported member`).
+
+            ### Performance
+            - Session list summaries built by a worker-thread light scan instead of full jsonl reads.
+            - ASR GPU probes and workspace scans moved off the main event loop.
+            - Startup timing instrumentation behind `PI_DESKTOP_STARTUP_TIMING=1`.
 
             ## 下载 / Downloads
             - **Windows x64**: `Pi Desktop-*-win-x64-setup.exe`
