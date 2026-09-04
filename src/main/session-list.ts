@@ -3,6 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import type { SessionSummary } from "../shared/protocol";
 import { listSessionSummariesOffMain } from "./session-history-offload";
+import type { DiskSessionRow } from "./session-history-worker";
 
 export function resolveAgentDir(): string {
   return agentDir();
@@ -111,6 +112,139 @@ function diskRowToSummary(row: {
   };
 }
 
+/** Local fallback when the worker script is not built (tests run from src/). */
+function readSessionSummaryFallback(filePath: string): DiskSessionRow | null {
+  try {
+    const raw = fs.readFileSync(filePath, "utf8");
+    let header: Record<string, unknown> | null = null;
+    let name: string | undefined;
+    let firstMessage = "";
+    let lastActivityTime: number | undefined;
+    for (const line of raw.split("\n")) {
+      const trimmed = line.trim();
+      if (!trimmed) continue;
+      let entry: Record<string, unknown>;
+      try {
+        entry = JSON.parse(trimmed) as Record<string, unknown>;
+      } catch {
+        continue;
+      }
+      if (!header) {
+        if (entry.type !== "session" || typeof entry.id !== "string")
+          return null;
+        header = entry;
+        continue;
+      }
+      if (entry.type === "session_info") {
+        const rawName = (entry as { name?: unknown }).name;
+        name =
+          typeof rawName === "string" && rawName.trim()
+            ? rawName.trim()
+            : undefined;
+        continue;
+      }
+      if (entry.type !== "message") continue;
+      const message = (entry as { message?: unknown }).message;
+      if (!message || typeof message !== "object") continue;
+      const msg = message as {
+        role?: unknown;
+        content?: unknown;
+        timestamp?: unknown;
+      };
+      if (msg.role !== "user" && msg.role !== "assistant") continue;
+      const activityTime =
+        typeof msg.timestamp === "number"
+          ? msg.timestamp
+          : new Date(String(entry.timestamp ?? "")).getTime();
+      if (typeof activityTime === "number" && !Number.isNaN(activityTime)) {
+        lastActivityTime = Math.max(lastActivityTime ?? 0, activityTime);
+      }
+      if (firstMessage || msg.role !== "user") continue;
+      const content = msg.content;
+      if (typeof content === "string") {
+        firstMessage = content;
+      } else if (Array.isArray(content)) {
+        firstMessage = content
+          .filter(
+            (block): block is { type: string; text: string } =>
+              Boolean(block) &&
+              typeof block === "object" &&
+              (block as { type?: unknown }).type === "text" &&
+              typeof (block as { text?: unknown }).text === "string",
+          )
+          .map((block) => block.text)
+          .join(" ");
+      }
+    }
+    if (!header) return null;
+    const headerTime = new Date(String(header.timestamp ?? "")).getTime();
+    const modified =
+      typeof lastActivityTime === "number" && lastActivityTime > 0
+        ? new Date(lastActivityTime)
+        : !Number.isNaN(headerTime)
+          ? new Date(headerTime)
+          : fs.statSync(filePath).mtime;
+    return {
+      id: String(header.id),
+      filePath,
+      cwd: typeof header.cwd === "string" ? header.cwd : "",
+      name,
+      modified: modified.toISOString(),
+      firstMessage: firstMessage || "(no messages)",
+    };
+  } catch {
+    return null;
+  }
+}
+
+/** Fallback for listSessionsForCwd / listPiCliWorkspaces when no worker build. */
+async function listSessionSummariesFallback(
+  dir: string | null,
+  sessionsRoot: string | null,
+): Promise<DiskSessionRow[]> {
+  const dirs: string[] = [];
+  if (dir) {
+    dirs.push(dir);
+  } else if (sessionsRoot) {
+    try {
+      for (const entry of await fs.promises.readdir(sessionsRoot, {
+        withFileTypes: true,
+      })) {
+        if (entry.isDirectory()) dirs.push(path.join(sessionsRoot, entry.name));
+      }
+    } catch {
+      return [];
+    }
+  }
+  const rows: DiskSessionRow[] = [];
+  for (const sessionDir of dirs) {
+    let files: string[];
+    try {
+      files = await fs.promises.readdir(sessionDir);
+    } catch {
+      continue;
+    }
+    for (const file of files) {
+      if (!file.endsWith(".jsonl")) continue;
+      const row = readSessionSummaryFallback(path.join(sessionDir, file));
+      if (row) rows.push(row);
+    }
+  }
+  rows.sort((a, b) => b.modified.localeCompare(a.modified));
+  return rows;
+}
+
+async function listSessionSummariesSafe(job: {
+  dir?: string;
+  allUnder?: string;
+}): Promise<DiskSessionRow[]> {
+  try {
+    return await listSessionSummariesOffMain(job);
+  } catch {
+    return listSessionSummariesFallback(job.dir ?? null, job.allUnder ?? null);
+  }
+}
+
 /** Drop listing caches (after deleting a workspace's Pi sessions). */
 export function invalidateSessionListCaches(cwd?: string): void {
   if (cwd) {
@@ -160,7 +294,7 @@ export async function listSessionsForCwd(
   const hit = sessionListCache.get(key);
   if (hit && hit.signature === signature) return hit.sessions;
 
-  const rows = await listSessionSummariesOffMain({ dir: sessionDir });
+  const rows = await listSessionSummariesSafe({ dir: sessionDir });
   const sessions = rows
     .filter((row) => {
       const sessionCwd = row.cwd ? path.resolve(row.cwd) : resolvedCwd;
@@ -195,7 +329,7 @@ export async function listPiCliWorkspaces(): Promise<string[]> {
     return piWorkspacesCache.workspaces;
   }
 
-  const rows = await listSessionSummariesOffMain({ allUnder: sessionsDir });
+  const rows = await listSessionSummariesSafe({ allUnder: sessionsDir });
   const latestByCwd = new Map<string, { display: string; modified: number }>();
 
   for (const row of rows) {
