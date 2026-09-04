@@ -165,52 +165,41 @@ jobs:
           generate_release_notes: true
           body: |
 
-            ## 主要更新（v0.3.1）
+            ## 主要更新（v0.3.2）
 
-            本版重点：全局网络代理；会话排序与折叠；启动提速与恢复旧会话稳定性。
+            本版重点：主聊天过程摘要与文件变更卡片；上滑加载更早历史与输入区布局稳定性；对话流样式与动效打磨。
 
             ### 新功能 Features
-            - **网络代理**：新增全局代理设置面板，代理注入 agent worker 与 git 操作，支持 http/https，TitleBar 快捷入口（解决 #8）。
-            - **会话排序**：侧栏会话按「置顶 + 最近修改」排序并持久化，新建会话自动置顶。
-            - **会话列表折叠**：会话数超过 7 个自动折叠，显示「查看全部 N 个」展开按钮。
+            - **过程摘要**：思考与工具调用默认折叠为可展开摘要，摘要挂在过程段末尾并与结论文本交错；支持手动展开保持、点开下一段时收起上一段。
+            - **当前操作行**：过程进行中在摘要下方常驻显示最新操作（读取/编辑/规划等），工具切换间隙不再闪空。
+            - **文件变更卡片**：一轮结束后展示「修改了 N 个文件」卡片（+/- 行数），可点文件预览或「审阅」打开变更面板。
 
             ### 修复 Fixes
-            - 修复程序后台运行时 IPC 任务队列积压：会话事件在页面隐藏时合并缓冲，恢复可见后一次性批量消费，避免主进程事件积压导致恢复卡顿。
-            - 修复 `MessageList.vue` 虚拟滚动逻辑：跟随底部判定改为滚动事件同步执行，并回滚用户上滑历史时排队中的自动贴底（不再被强制拽回最新）。
-            - 点击压缩上下文按钮改为默认不显示（通用设置里可重新打开）。
-            - 修复上下文用量百分比估算：改为按模型真实上下文窗口计算（原按 30 万 token 成本线），并用真实会话成本替换估算成本。
-            - 修复打开旧会话加载首 token 慢或偶发失败：上下文用量统计改为 sidecar 落盘（`.timing.json`），恢复旧会话不再重复计算或丢失统计。
-            - 修复侧栏「卡住恢复」按钮不显示：终止/重启按钮原本放在不存在的 footer 插槽永不渲染，已移入默认插槽。
-            - 修复/补全 Vue 类型环境：`env.d.ts` 改为模块增强并引入 `@vue/typescript-plugin`，消除全项目 `vue has no exported member` 假报错。
+            - 修复上滑「加载更早记录」被阅读历史状态拦截、到顶无法继续加载的问题；提示条可点击加载。
+            - 修复聊天面板把输入框挤出可视区：面板约束高度，消息区内部滚动。
+            - 修复过程行占满虚拟窗口导致输出结论时大片空白；折叠过程行不再占用渲染槽位。
+            - 修复摘要总钉在过程开头、跟底时看不见摘要/当前操作的问题。
 
-            ### 性能优化 Performance
-            - 会话列表改为 worker 线程轻量扫描（仅读首行 + 标题 + 首条消息 + mtime），不再整读会话 jsonl，避免阻塞主进程事件循环。
-            - ASR GPU 探测（nvidia-smi / vulkaninfo 等）移入独立 worker 线程，Pi CLI 工作区扫描同样 worker 化。
-            - 新增启动全链路埋点（`PI_DESKTOP_STARTUP_TIMING=1` 输出到 userData/startup-timing.log），便于回归监控。
-            - 运行开关：`PI_DESKTOP_NO_WATCH`（跳过文件监听）、`PI_DESKTOP_NO_SPELLCHECK`、`PI_DESKTOP_USER_DATA`；LAN 控制台延迟启动且可用 `PI_DESKTOP_NO_LAN` 跳过。
+            ### 体验 Experience
+            - 结论文字略缩小；状态流光对比更清晰；过程摘要字号与颜色微调。
 
-            ## What's New (v0.3.1)
+            ## What's New (v0.3.2)
 
-            Global HTTP proxy; session pinning & recent-first ordering; startup speedups and more reliable old-session recovery.
+            Chat process summaries and turn file-change cards; more reliable older-history loading and composer layout; polish for streaming status and answer typography.
 
             ### Features
-            - Global proxy settings (http/https) applied to agent workers and git operations (closes #8).
-            - Sessions sorted by pinned + recently modified (persisted); new sessions pin to top.
-            - Session list auto-collapses beyond 7 items with a "view all" expander.
+            - **Process summary**: Thinking and tool calls fold into an expandable summary at the end of each process burst, interleaved with answer text. Manual expand stays open; expanding another segment collapses the previous one.
+            - **Live action line**: While a turn is running, the latest action stays under the summary (read / edit / planning) without blinking out between tools.
+            - **Files changed card**: After a turn finishes, show an “N files changed” card with +/- counts; open a file preview or Review in the Changes panel.
 
             ### Fixes
-            - Hidden-window IPC backlog: session events now buffer while the page is hidden and bulk-flush on restore, so the queue never piles up in the background.
-            - Fixed `MessageList.vue` virtual scrolling: follow-bottom is decided synchronously on scroll and queued auto-snaps are cancelled when you scroll up to read history.
-            - The compact-context button now stays hidden by default (re-enable in General settings).
-            - Context usage percent now measures against the model's real context window (was a flat 300k cost line), with the real session cost shown instead of an estimate.
-            - Old-session open no longer stalls or miscounts: context stats now persist via a sidecar `.timing.json`.
-            - "Recover stuck" buttons now render (moved from a non-existent slot).
-            - Vue type environment fixed via module augmentation + `@vue/typescript-plugin` (no more false `vue has no exported member`).
+            - Older-history load no longer blocked while reading history; works at the top of the list and via the banner click.
+            - Chat panel keeps the composer on screen (bounded height, messages scroll inside).
+            - Folded process rows no longer fill the virtual window and blank out the feed while answers stream.
+            - Process summary stays at the end of each burst so it remains visible near the live edge.
 
-            ### Performance
-            - Session list summaries built by a worker-thread light scan instead of full jsonl reads.
-            - ASR GPU probes and workspace scans moved off the main event loop.
-            - Startup timing instrumentation behind `PI_DESKTOP_STARTUP_TIMING=1`.
+            ### Experience
+            - Slightly smaller answer text; clearer status shimmer; tuned summary typography.
 
             ## 下载 / Downloads
             - **Windows x64**: `Pi Desktop-*-win-x64-setup.exe`

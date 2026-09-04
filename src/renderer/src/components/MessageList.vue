@@ -5,7 +5,6 @@ import {
   NEmpty,
   NIcon,
   NSpin,
-  NTag,
   NText,
   NTooltip,
   useDialog,
@@ -30,19 +29,26 @@ const MarkdownView = defineAsyncComponent(
 import ThinkingBlock from "@renderer/components/ThinkingBlock.vue";
 import ToolCallCard from "@renderer/components/ToolCallCard.vue";
 import ToolCallGroup from "@renderer/components/ToolCallGroup.vue";
-import AgentWaitIndicator from "@renderer/components/AgentWaitIndicator.vue";
-import { parseToolCard, isReadTool, type ToolCard } from "@renderer/utils/tool-diff";
+import ProcessSummaryRow from "@renderer/components/ProcessSummaryRow.vue";
+import TurnFilesChangedCard from "@renderer/components/TurnFilesChangedCard.vue";
+import { parseToolCard, type ToolCard } from "@renderer/utils/tool-diff";
 import { buildToolGroupSpans } from "@renderer/utils/tool-group";
-import { agentOutputSilenceMs } from "@renderer/utils/agent-wait";
-import type { ChatState } from "@renderer/stores/chat-reducer";
 import { usePreviewStore } from "@renderer/stores/preview";
 import { useRightTabsStore } from "@renderer/stores/right-tabs";
+import { useLayoutStore } from "@renderer/stores/layout";
 import { t } from "@renderer/i18n";
+import {
+  collectTurnFileChanges,
+  type TurnFileChanges,
+} from "@renderer/utils/turn-file-changes";
+import {
+  collectTurnProcessAnchors,
+  type TurnProcessAnchor,
+} from "@renderer/utils/turn-process-summary";
 import {
   isComposerAgentMode,
   stripComposerModePreamble,
 } from "../../../shared/composer-modes";
-import { ASK_USER_TOOL_NAME } from "../../../shared/ask-user";
 import {
   followBottomVirtualWindow,
   windowAfterHistoryPrepend,
@@ -81,19 +87,13 @@ const props = defineProps<{
 }>();
 
 const chat = useChatStore();
-const waitState = computed(() => chat.activeWaitState);
-/** Keep status visible during long gaps between stream chunks. */
-const showWaitWhileStreaming = computed(() => {
-  const s = waitState.value;
-  if (!s) return false;
-  return agentOutputSilenceMs(s as ChatState) >= 15_000;
-});
 const checkpoints = useCheckpointStore();
 const composer = useComposerStore();
 const sendQueue = useSendQueueStore();
 const sessions = useSessionsStore();
 const previewStore = usePreviewStore();
 const rightTabs = useRightTabsStore();
+const layout = useLayoutStore();
 const tts = useTtsStore();
 const messageApi = useMessage();
 
@@ -169,7 +169,7 @@ const scroller = ref<HTMLElement | null>(null);
 let lastPinnedUserId: string | null = null;
 /** Avoid follow-bottom immediately undoing the post-send card-bottom scroll. */
 let suppressFollowBottomUntil = 0;
-/** Inclusive start / exclusive end of displayMessages currently mounted. */
+/** Inclusive start / exclusive end of feedMessages currently mounted. */
 const renderStart = ref(0);
 const renderEnd = ref(0);
 const heightById = new Map<string, number>();
@@ -201,143 +201,97 @@ const settlingUi = ref(false);
 const showJumpLatest = ref(false);
 let scrollRaf = 0;
 
-const workFolded = ref(true);
-
-/**
- * When the final answer is shown, the whole latest turn's process (all tool
- * calls + thinking-only rows) folds into one compact summary instead of a
- * stack of individually folded cards.
- */
-const latestTurnStart = computed(() => {
-  const list = props.messages;
-  for (let i = list.length - 1; i >= 0; i--) {
-    if (list[i]?.role === "user") return i;
-  }
-  return -1;
-});
-
-const processSummaryCounts = computed(() => {
-  let tools = 0;
-  let thinking = 0;
-  const start = latestTurnStart.value;
-  const list = props.messages;
-  for (let i = start + 1; i < list.length; i++) {
-    const m = list[i]!;
-    if (m.role === "tool") tools += 1;
-    else if (m.role === "assistant" && Boolean(m.thinking) && !m.text) thinking += 1;
-  }
-  return { tools, thinking };
-});
-
-/** True for the synthetic row shown in place of the latest turn's process. */
-function processSummaryLabel(msg: ChatMessage): string {
-  const args = (msg.role === "tool" ? msg.args : undefined) as
-    | { toolCount?: number; thinkingCount?: number }
-    | undefined;
-  return t.processSummary(args?.toolCount ?? 0, args?.thinkingCount ?? 0);
-}
-
-function isProcessSummary(msg: ChatMessage | null | undefined): boolean {
-  return Boolean(msg && msg.role === "tool" && msg.toolName === "process-summary");
-}
-
-function processSummaryExpanded(msg: ChatMessage): boolean {
-  if (msg.role !== "tool") return false;
-  const args = msg.args as { expanded?: boolean } | undefined;
-  return args?.expanded === true;
-}
-
-watch([() => props.running, () => props.streaming], ([running, streaming]) => {
-  // Auto-fold only when the turn is done and there is work to fold.
-  if (running || streaming) {
-    workFolded.value = false;
-  } else {
-    const counts = processSummaryCounts.value;
-    workFolded.value = counts.tools + counts.thinking > 0;
-  }
-}, { immediate: true });
-
-/** Tool rows that must stay visible even in clean history (user questions). */
-function isKeepVisibleTool(msg: ChatMessage): boolean {
-  return msg.role === "tool" && msg.toolName === ASK_USER_TOOL_NAME;
-}
-
+/** Flat message list for the feed — includes process rows before folding. */
 const displayMessages = computed(() => {
   const list = [...props.messages];
   if (props.streaming) list.push(props.streaming);
-  const counts = processSummaryCounts.value;
-  const start = latestTurnStart.value;
-  const out: ChatMessage[] = [];
-  let inserted = false;
-  // Fold the WHOLE latest turn's process — from the user prompt down to the
-  // last tool/thinking row — including any assistant text emitted mid-process.
-  // Only the final assistant answer (text after the last work row) stays out.
-  let lastWorkIndex = -1;
-  for (let i = list.length - 1; i > start; i--) {
-    const m = list[i]!;
-    if (
-      m.role === "tool" ||
-      (m.role === "assistant" && Boolean(m.thinking) && !m.text)
-    ) {
-      lastWorkIndex = i;
-      break;
-    }
-  }
-  for (let i = 0; i < list.length; i++) {
-    const msg = list[i]!;
-    const isLatestTurnWork =
-      i > start &&
-      i <= lastWorkIndex &&
-      (msg.role === "tool" ||
-        (msg.role === "assistant" && Boolean(msg.thinking) && !msg.text));
-    if (isLatestTurnWork) {
-      if (!inserted) {
-        inserted = true;
-        // Folded: one compact summary replaces the whole process.
-        // Expanded: the same bar stays on top so the user can fold again.
-        out.push({
-          id: "__process-summary__",
-          role: "tool",
-          toolCallId: "__process-summary__",
-          toolName: "process-summary",
-          args: {
-            toolCount: counts.tools,
-            thinkingCount: counts.thinking,
-            expanded: !workFolded.value,
-          },
-        } as ChatMessage);
-      }
-      if (!workFolded.value) out.push(msg);
-      continue;
-    }
-    // Mid-process assistant text emitted between tool calls is part of the
-    // latest turn's process — fold it with the tools. Only the text that
-    // follows the last work row (the final answer) is kept visible.
-    if (
-      i > start &&
-      i <= lastWorkIndex &&
-      msg.role === "assistant" &&
-      msg.text
-    ) {
-      if (!workFolded.value) out.push(msg);
-      continue;
-    }
-    // Older, already-finished turns: drop their tool/thinking rows so the
-    // history reads as user messages + final answers only (Codex-like).
-    // Interactive ask_user rows stay visible.
-    if (
-      !isKeepVisibleTool(msg) &&
-      (msg.role === "tool" ||
-        (msg.role === "assistant" && Boolean(msg.thinking) && !msg.text))
-    ) {
-      continue;
-    }
-    out.push(msg);
-  }
-  return out;
+  return list;
 });
 
 type ToolMessage = Extract<ChatMessage, { role: "tool" }>;
+
+/**
+ * Memoize card parsing: the same message object never re-parses its diff.
+ * Write/edit diff synthesis is O(file size) and used to run again on every
+ * unrelated re-render (other tool streams, phase-clock ticks, status flips),
+ * which starved the UI thread while an agent ran bash / edited large files.
+ */
+const toolCardCache = new WeakMap<Extract<ChatMessage, { role: "tool" }>, ToolCard>();
+function toolCard(msg: Extract<ChatMessage, { role: "tool" }>): ToolCard {
+  let card = toolCardCache.get(msg);
+  if (!card) {
+    card = parseToolCard(msg.toolName, msg.args, msg.result, { isError: msg.isError });
+    toolCardCache.set(msg, card);
+  }
+  return card;
+}
+
+/** Cursor process fold — full list first; feed then omits hidden rows. */
+const processStepLabels = {
+  read: t.processStepRead,
+  edited: t.processStepEdited,
+  grepped: t.processStepGrepped,
+  ran: t.processStepRan,
+  used: t.processStepUsed,
+  thought: t.processStepThought,
+  briefly: t.processStepBriefly,
+  reading: t.processStepReading,
+  editing: t.processStepEditing,
+  searching: t.processStepSearching,
+  running: t.processStepRunning,
+  planning: t.processPlanning,
+};
+
+const turnProcessAnchors = computed(() =>
+  collectTurnProcessAnchors(
+    displayMessages.value,
+    toolCard,
+    { trailingLive: props.running },
+    processStepLabels,
+  ),
+);
+
+const hiddenProcessIds = computed(() => {
+  const ids = new Set<string>();
+  for (const anchor of turnProcessAnchors.value.values()) {
+    for (const id of anchor.hiddenIds) ids.add(id);
+  }
+  return ids;
+});
+
+function processAnchorFor(id: string): TurnProcessAnchor | null {
+  return turnProcessAnchors.value.get(id) ?? null;
+}
+
+function isHiddenProcessMsg(id: string): boolean {
+  return hiddenProcessIds.value.has(id);
+}
+
+/**
+ * Kite accordion for process summaries:
+ * - default collapsed
+ * - manual open persists across remounts / next-action updates
+ * - opening another segment collapses the previous one
+ */
+const expandedProcessSegmentId = ref<string | null>(null);
+
+function isProcessExpanded(segmentId: string): boolean {
+  return expandedProcessSegmentId.value === segmentId;
+}
+
+function onProcessExpandToggle(segmentId: string): void {
+  expandedProcessSegmentId.value =
+    expandedProcessSegmentId.value === segmentId ? null : segmentId;
+}
+
+/**
+ * Rows actually mounted in the chat feed. Folded thinking/tool rows are omitted
+ * so they cannot fill the virtual window with display:none blanks (the "whole
+ * page goes empty while the conclusion streams" bug).
+ */
+const feedMessages = computed(() =>
+  displayMessages.value.filter((m) => !hiddenProcessIds.value.has(m.id)),
+);
 
 type ToolGroupMembership = {
   groupId: string;
@@ -348,7 +302,7 @@ type ToolGroupMembership = {
 
 /** Consecutive tool calls (2+) collapse into one Cursor-style group. */
 const toolGroupMembership = computed(() => {
-  const all = displayMessages.value;
+  const all = feedMessages.value;
   const map = new Map<string, ToolGroupMembership>();
   const spans = buildToolGroupSpans(
     all.map((m) => ({
@@ -356,9 +310,8 @@ const toolGroupMembership = computed(() => {
       role: m.role,
       toolName: m.role === "tool" ? m.toolName : "",
     })),
-    // Only collapse consecutive reads; write/edit/bash stay standalone
-    // so their live streaming diffs stay visible.
-    (m) => m.role === "tool" && isReadTool(m.toolName),
+    // Group all consecutive tools — live diffs stay hidden; one shimmer / one summary.
+    (m) => m.role === "tool",
   );
   for (const span of spans) {
     const tools = all.slice(span.start, span.end) as ToolMessage[];
@@ -375,11 +328,14 @@ const toolGroupMembership = computed(() => {
 });
 
 const visibleMessages = computed(() =>
-  displayMessages.value.slice(renderStart.value, renderEnd.value),
+  feedMessages.value.slice(renderStart.value, renderEnd.value),
 );
 
 function estimateMessageHeight(msg: ChatMessage | undefined): number {
   if (!msg) return EST_MSG_HEIGHT;
+  if (processAnchorFor(msg.id) && msg.role === "tool") {
+    return heightById.get(msg.id) || 40;
+  }
   const group = toolGroupMembership.value.get(msg.id);
   if (group) {
     if (!group.isLead) return 0;
@@ -389,7 +345,7 @@ function estimateMessageHeight(msg: ChatMessage | undefined): number {
 }
 
 function estimateRangeHeight(from: number, to: number): number {
-  const all = displayMessages.value;
+  const all = feedMessages.value;
   let h = 0;
   for (let i = from; i < to; i++) {
     h += estimateMessageHeight(all[i]);
@@ -400,7 +356,7 @@ function estimateRangeHeight(from: number, to: number): number {
 const topSpacerPx = computed(() => estimateRangeHeight(0, renderStart.value));
 
 const bottomSpacerPx = computed(() =>
-  estimateRangeHeight(renderEnd.value, displayMessages.value.length),
+  estimateRangeHeight(renderEnd.value, feedMessages.value.length),
 );
 
 const latestUserMessageId = computed(() => {
@@ -412,6 +368,13 @@ const latestUserMessageId = computed(() => {
 });
 
 const sessionId = computed(() => sessions.activeId);
+
+watch(
+  () => sessionId.value,
+  () => {
+    expandedProcessSegmentId.value = null;
+  },
+);
 /**
  * Cursor-like sticky user prompt:
  * Among user messages scrolled fully above the viewport, pin the nearest
@@ -467,7 +430,7 @@ function measureStickyNeedsToggle(naturalHeight: number): void {
  */
 function findStickyUserMessageId(): string | null {
   const sc = scroller.value;
-  const all = displayMessages.value;
+  const all = feedMessages.value;
   if (!sc || all.length === 0) return null;
 
   const viewportTop = sc.scrollTop + 8;
@@ -572,7 +535,7 @@ function isNearBottom(el: HTMLElement): boolean {
 }
 
 function clampRenderWindow(preferBottom: boolean): void {
-  const len = displayMessages.value.length;
+  const len = feedMessages.value.length;
   if (len <= VIRTUAL_WINDOW) {
     renderStart.value = 0;
     renderEnd.value = len;
@@ -601,10 +564,9 @@ function measureVisibleRows(): void {
   for (const row of rows) {
     const id = row.dataset.msgId;
     if (!id) continue;
-    // Use layout height for virtual window estimates.
     const h = row.offsetHeight;
     if (h > 0) heightById.set(id, h);
-    // Real layout offset inside the scroller (rows are flex children of .inner).
+    else heightById.set(id, 0);
     const top = row.offsetTop;
     if (top > 0 || row === rows[0]) topById.set(id, top);
   }
@@ -619,7 +581,7 @@ function restoreScrollAfterMutation(sc: HTMLElement, prevHeight: number, prevTop
 function scheduleWindowPrefetch(): void {
   requestAnimationFrame(() => {
     const sc = scroller.value;
-    if (!sc || adjustingWindow || settlingSession || followBottom || readingHistory) return;
+    if (!sc || adjustingWindow || settlingSession || followBottom) return;
     if (sc.scrollTop < topSpacerPx.value + OVERSCAN_PX) {
       expandHistoryUp();
       return;
@@ -632,7 +594,7 @@ function scheduleWindowPrefetch(): void {
 }
 
 function expandHistoryUp(): void {
-  if (adjustingWindow || loadingOlderPage || readingHistory) return;
+  if (adjustingWindow || loadingOlderPage) return;
   if (renderStart.value <= 0) {
     // At the start of the *loaded* window — fetch an older page from disk if any.
     void loadOlderHistoryPage();
@@ -654,40 +616,39 @@ function expandHistoryUp(): void {
     measureVisibleRows();
     adjustingWindow = false;
     updateStickyPinned();
-    // readingHistory may have latched while we were mutating the window
-    // (mid-await wheel). Prefetch must not run in that state.
-    if (!readingHistory && renderStart.value <= 0) {
+    if (renderStart.value <= 0) {
       void loadOlderHistoryPage();
-    } else if (!readingHistory) {
+    } else {
       scheduleWindowPrefetch();
     }
   });
 }
 
 let loadingOlderPage = false;
+const loadingOlderUi = ref(false);
+
 async function loadOlderHistoryPage(): Promise<void> {
   if (loadingOlderPage || !props.historyHasMore) return;
   const id = sessionId.value;
   if (!id) return;
   const sc = scroller.value;
   if (!sc) return;
-  const wasReading = readingHistory;
   loadingOlderPage = true;
+  loadingOlderUi.value = true;
   adjustingWindow = true;
   const prevHeight = sc.scrollHeight;
   const prevTop = sc.scrollTop;
   try {
-    // If the user wheels up to read history while this fetch is in flight,
-    // abort it — their reads must not wait for (or be shifted by) a prepend.
-    if (readingHistory) return;
+    const prevFeedLen = feedMessages.value.length;
     const added = await chat.loadOlderHistory(id);
     if (added <= 0) return;
-    if (readingHistory) return;
     // Prepend shifts every index — keep the same rows mounted, then peek a chunk older.
+    // Count feed rows (folded process rows are omitted from the mounted list).
+    const feedAdded = Math.max(0, feedMessages.value.length - prevFeedLen);
     const shifted = windowAfterHistoryPrepend(
       { start: renderStart.value, end: renderEnd.value },
-      added,
-      displayMessages.value.length,
+      feedAdded > 0 ? feedAdded : added,
+      feedMessages.value.length,
       VIRTUAL_MAX,
       VIRTUAL_CHUNK,
     );
@@ -697,19 +658,25 @@ async function loadOlderHistoryPage(): Promise<void> {
     restoreScrollAfterMutation(sc, prevHeight, prevTop);
     measureVisibleRows();
     updateStickyPinned();
-    // Even a page that finished loading while the user began reading must not
-    // auto-chain into the next prefetch.
-    if (readingHistory || wasReading) return;
     scheduleWindowPrefetch();
   } finally {
     adjustingWindow = false;
     loadingOlderPage = false;
+    loadingOlderUi.value = false;
   }
 }
 
+function onLoadOlderClick(): void {
+  followBottom = false;
+  userScrolledAway = true;
+  cancelQueuedBottomSnaps();
+  engageHistoryReading();
+  void loadOlderHistoryPage();
+}
+
 function expandHistoryDown(): void {
-  if (adjustingWindow || readingHistory || loadingOlderPage) return;
-  const len = displayMessages.value.length;
+  if (adjustingWindow || loadingOlderPage) return;
+  const len = feedMessages.value.length;
   if (renderEnd.value >= len) return;
   const sc = scroller.value;
   if (!sc) return;
@@ -726,7 +693,6 @@ function expandHistoryDown(): void {
     measureVisibleRows();
     adjustingWindow = false;
     updateStickyPinned();
-    if (readingHistory) return;
     scheduleWindowPrefetch();
   });
 }
@@ -930,6 +896,32 @@ function syncFollowBottomOnScroll(sc: HTMLElement): void {
   showJumpLatest.value = !followBottom && displayMessages.value.length > 0;
 }
 
+/** Heavy virtual-window / prefetch work stays rAF-coalesced (follow already synced). */
+function handleScrollerScroll(): void {
+  const sc = scroller.value;
+  if (!sc || adjustingWindow || settlingSession) return;
+
+  if (followBottom) {
+    const len = feedMessages.value.length;
+    const ideal = followBottomVirtualWindow(len, VIRTUAL_WINDOW);
+    if (renderStart.value !== ideal.start || renderEnd.value !== ideal.end) {
+      renderStart.value = ideal.start;
+      renderEnd.value = ideal.end;
+    }
+    return;
+  }
+
+  // Prefetch above: expand / load older history while the user is reading up.
+  if (sc.scrollTop < topSpacerPx.value + OVERSCAN_PX) {
+    expandHistoryUp();
+  }
+  // Prefetch below: keep continuity when scrolling back toward latest.
+  const bottomEdge = sc.scrollHeight - bottomSpacerPx.value;
+  if (sc.scrollTop + sc.clientHeight > bottomEdge - OVERSCAN_PX) {
+    expandHistoryDown();
+  }
+}
+
 /**
  * Wheel events only fire for real user input (programmatic scrollTop writes do
  * not). One upward tick disengages follow immediately — even inside the
@@ -939,37 +931,16 @@ function syncFollowBottomOnScroll(sc: HTMLElement): void {
 function onScrollerWheel(event: WheelEvent): void {
   if (event.deltaY >= 0 || settlingSession || adjustingWindow) return;
   const sc = scroller.value;
-  if (!sc || sc.scrollTop <= 0) return;
+  if (!sc) return;
   suppressFollowBottomUntil = 0;
   userScrolledAway = true;
   followBottom = false;
   cancelQueuedBottomSnaps();
   engageHistoryReading();
-}
-
-/** Heavy virtual-window / prefetch work stays rAF-coalesced (follow already synced). */
-function handleScrollerScroll(): void {
-  const sc = scroller.value;
-  if (!sc || adjustingWindow || settlingSession || readingHistory) return;
-
-  if (followBottom) {
-    const len = displayMessages.value.length;
-    const ideal = followBottomVirtualWindow(len, VIRTUAL_WINDOW);
-    if (renderStart.value !== ideal.start || renderEnd.value !== ideal.end) {
-      renderStart.value = ideal.start;
-      renderEnd.value = ideal.end;
-    }
-    return;
-  }
-
-  // Prefetch above: expand before the viewport hits blank spacer.
-  if (sc.scrollTop < topSpacerPx.value + OVERSCAN_PX) {
-    expandHistoryUp();
-  }
-  // Prefetch below: keep continuity when scrolling back toward latest.
-  const bottomEdge = sc.scrollHeight - bottomSpacerPx.value;
-  if (sc.scrollTop + sc.clientHeight > bottomEdge - OVERSCAN_PX) {
-    expandHistoryDown();
+  // Already at the top (or content shorter than the viewport): still load older
+  // history — otherwise the banner shows but the list never moves.
+  if (sc.scrollTop <= 0 && props.historyHasMore && renderStart.value <= 0) {
+    void loadOlderHistoryPage();
   }
 }
 
@@ -1015,7 +986,7 @@ watch(
 );
 
 watch(
-  () => displayMessages.value.length,
+  () => feedMessages.value.length,
   (len, prevLen) => {
     // loadOlderHistoryPage owns index shifts while prepending; skip to avoid double-clamp.
     if (loadingOlderPage) return;
@@ -1233,9 +1204,8 @@ onBeforeUnmount(() => {
 });
 
 /**
- * The current round finished (nothing streaming and nothing running): fold all
- * process rows (tools + thinking) so only the user question and final answer
- * stay prominent, Codex-style. Users can still re-expand any row manually.
+ * Round finished: fold finished thinking/tool rows (user can re-expand).
+ * Live steps stay as shimmer only — no process-summary bar / status headers.
  */
 const turnDone = computed(() => !props.running && !props.streaming);
 
@@ -1246,20 +1216,43 @@ function toolGroupStreaming(msg: ToolMessage): boolean {
   );
 }
 
-/**
- * Memoize card parsing: the same message object never re-parses its diff.
- * Write/edit diff synthesis is O(file size) and used to run again on every
- * unrelated re-render (other tool streams, phase-clock ticks, status flips),
- * which starved the UI thread while an agent ran bash / edited large files.
- */
-const toolCardCache = new WeakMap<Extract<ChatMessage, { role: "tool" }>, ToolCard>();
-function toolCard(msg: Extract<ChatMessage, { role: "tool" }>): ToolCard {
-  let card = toolCardCache.get(msg);
-  if (!card) {
-    card = parseToolCard(msg.toolName, msg.args, msg.result, { isError: msg.isError });
-    toolCardCache.set(msg, card);
+/** Default how many changed-file rows to show before "Show more". */
+const TURN_DIFF_PREVIEW = 3;
+
+const turnDiffs = computed(() => {
+  const settled = !props.running && !props.streaming;
+  return collectTurnFileChanges(displayMessages.value, toolCard, settled);
+});
+
+function turnDiffFor(msg: ChatMessage): TurnFileChanges | null {
+  return turnDiffs.value.get(msg.id) ?? null;
+}
+
+/** Resolve diff summary for a rendered row (assistant, or tool-group lead). */
+function turnDiffForRow(msg: ChatMessage): TurnFileChanges | null {
+  const direct = turnDiffFor(msg);
+  if (direct) return direct;
+  if (msg.role !== "tool") return null;
+  const group = toolGroupMembership.value.get(msg.id);
+  if (!group?.isLead) return null;
+  for (let i = group.tools.length - 1; i >= 0; i--) {
+    const d = turnDiffFor(group.tools[i]!);
+    if (d) return d;
   }
-  return card;
+  return null;
+}
+
+const turnDiffShowAll = ref(new Set<string>());
+
+function isTurnDiffShowAll(id: string): boolean {
+  return turnDiffShowAll.value.has(id);
+}
+
+function toggleTurnDiffShowAll(id: string): void {
+  const next = new Set(turnDiffShowAll.value);
+  if (next.has(id)) next.delete(id);
+  else next.add(id);
+  turnDiffShowAll.value = next;
 }
 
 function isModeTagKind(kind: string | undefined): boolean {
@@ -1298,6 +1291,13 @@ function openPreview(filePath: string): void {
     filePath,
     label: filePath.split(/[/\\]/).pop() ?? t.preview,
   });
+  if (layout.rightCollapsed) layout.rightCollapsed = false;
+}
+
+/** Cursor "Review" — open the Changes tab for the turn's diffs. */
+function openTurnReview(): void {
+  rightTabs.addTab("changes");
+  if (layout.rightCollapsed) layout.rightCollapsed = false;
 }
 
 function toolStatus(msg: Extract<ChatMessage, { role: "tool" }>): {
@@ -1507,13 +1507,16 @@ function onRevertUser(msg: Extract<ChatMessage, { role: "user" }>): void {
         style="margin: auto"
       />
 
-      <div
+      <button
         v-if="historyLoadingOlder || (historyHasMore && renderStart === 0 && topSpacerPx < 8)"
+        type="button"
         class="history-older-banner"
+        :disabled="historyLoadingOlder || loadingOlderUi"
         aria-live="polite"
+        @click="onLoadOlderClick"
       >
-        {{ historyLoadingOlder ? t.loadingOlderHistory : t.scrollForOlderHistory }}
-      </div>
+        {{ historyLoadingOlder || loadingOlderUi ? t.loadingOlderHistory : t.scrollForOlderHistory }}
+      </button>
 
       <div
         v-if="topSpacerPx > 0"
@@ -1535,6 +1538,18 @@ function onRevertUser(msg: Extract<ChatMessage, { role: "user" }>): void {
       >
         <template v-if="msg.role === 'user'">
           <div class="bubble-wrap user">
+            <div v-if="visibleUserTags(msg.elementTags).length" class="user-tags">
+              <span
+                v-for="(tag, idx) in visibleUserTags(msg.elementTags)"
+                :key="`${msg.id}-tag-${idx}`"
+                class="user-chip"
+                :class="{ 'user-chip-file': tag.kind === 'file' }"
+                :title="tag.url || tag.label"
+              >
+                <span class="user-chip-at">@</span>
+                <span class="user-chip-label">{{ tag.label || tag.content }}</span>
+              </span>
+            </div>
             <div
               class="bubble user"
               :class="{ 'user-collapsed': !isUserExpanded(msg.id) }"
@@ -1556,23 +1571,6 @@ function onRevertUser(msg: Extract<ChatMessage, { role: "user" }>): void {
                 class="user-plain"
                 :class="{ clamped: !isUserExpanded(msg.id) }"
               >{{ displayUserText(msg.text) }}</div>
-              <div v-if="visibleUserTags(msg.elementTags).length" class="user-tags">
-                <NTag
-                  v-for="(tag, idx) in visibleUserTags(msg.elementTags)"
-                  :key="`${msg.id}-tag-${idx}`"
-                  type="info"
-                  size="small"
-                  round
-                  class="user-tag"
-                  :class="{
-                    'user-tag-file': tag.kind === 'file',
-                  }"
-                  :title="tag.url || tag.label"
-                >
-                  {{ tag.label || tag.content }}
-                </NTag>
-              </div>
-              <!-- Cursor-style: revert lives inside the card, bottom-right -->
               <div
                 v-if="canRevertUser(msg) || isRevertedUser(msg)"
                 class="user-bubble-footer"
@@ -1587,6 +1585,9 @@ function onRevertUser(msg: Extract<ChatMessage, { role: "user" }>): void {
                       @click.stop="onRevertUser(msg)"
                     >
                       <NIcon :component="ArrowUndoOutline" :size="15" />
+                      <span class="bubble-revert-label">{{
+                        isRevertedUser(msg) ? t.reverted : t.revertTurn
+                      }}</span>
                     </button>
                   </template>
                   {{ isRevertedUser(msg) ? t.reverted : t.revertTurn }}
@@ -1606,111 +1607,94 @@ function onRevertUser(msg: Extract<ChatMessage, { role: "user" }>): void {
                 <span>{{ isUserExpanded(msg.id) ? t.userCardCollapse : t.userCardExpand }}</span>
               </button>
             </div>
-            <div v-if="!running" class="actions user-actions">
-              <NTooltip>
-                <template #trigger>
-                  <NButton quaternary circle size="tiny" @click="copyText(displayUserText(msg.text))">
-                    <template #icon>
-                      <NIcon :component="CopyOutline" />
-                    </template>
-                  </NButton>
-                </template>
-                {{ t.copy }}
-              </NTooltip>
-              <NTooltip v-if="msg.text">
-                <template #trigger>
-                  <NButton
-                    quaternary
-                    circle
-                    size="tiny"
-                    @click="onSpeakMessage(msg.id, msg.text)"
-                  >
-                    <template #icon>
-                      <NIcon
-                        :component="isSpeakingMessage(msg.id) ? PauseOutline : VolumeMediumOutline"
-                      />
-                    </template>
-                  </NButton>
-                </template>
-                {{ isSpeakingMessage(msg.id) ? t.ttsStopSpeak : t.ttsSpeak }}
-              </NTooltip>
-              <NTooltip>
-                <template #trigger>
-                  <NButton quaternary circle size="tiny" @click="onEditUser(msg)">
-                    <template #icon>
-                      <NIcon :component="CreateOutline" />
-                    </template>
-                  </NButton>
-                </template>
-                {{ t.reEdit }}
-              </NTooltip>
+            <div v-if="!running" class="actions user-actions feed-actions">
+              <button type="button" class="feed-action" @click="copyText(displayUserText(msg.text))">
+                <NIcon :component="CopyOutline" :size="15" />
+                <span>{{ t.copy }}</span>
+              </button>
+              <button
+                v-if="msg.text"
+                type="button"
+                class="feed-action"
+                @click="onSpeakMessage(msg.id, msg.text)"
+              >
+                <NIcon
+                  :component="isSpeakingMessage(msg.id) ? PauseOutline : VolumeMediumOutline"
+                  :size="15"
+                />
+                <span>{{ isSpeakingMessage(msg.id) ? t.ttsStopSpeak : t.ttsSpeak }}</span>
+              </button>
+              <button type="button" class="feed-action" @click="onEditUser(msg)">
+                <NIcon :component="CreateOutline" :size="15" />
+                <span>{{ t.reEdit }}</span>
+              </button>
             </div>
           </div>
         </template>
 
         <template v-else-if="msg.role === 'assistant'">
           <div
-            v-if="msg.text || msg.thinking || !msg.streaming"
+            v-if="msg.text || msg.thinking || !msg.streaming || processAnchorFor(msg.id)"
             class="bubble-wrap assistant"
           >
+            <!-- Cursor: fold thinking/tools into one summary line -->
+            <ProcessSummaryRow
+              v-if="processAnchorFor(msg.id)"
+              :segment-id="processAnchorFor(msg.id)!.segmentId"
+              :stats="processAnchorFor(msg.id)!.stats"
+              :steps="processAnchorFor(msg.id)!.steps"
+              :live-action="processAnchorFor(msg.id)!.liveAction"
+              :expanded="isProcessExpanded(processAnchorFor(msg.id)!.segmentId)"
+              @toggle="onProcessExpandToggle"
+            />
             <div
-              class="bubble assistant"
-              :class="{ 'think-bottom': msg.streaming && msg.thinking && !msg.text }"
+              v-else-if="
+                !isHiddenProcessMsg(msg.id) &&
+                (msg.thinking || (msg.streaming && !msg.text))
+              "
+              class="feed-process-tree"
+              :class="{
+                'is-live': Boolean(msg.streaming && !msg.text),
+              }"
             >
               <ThinkingBlock
-                v-if="msg.thinking || (msg.streaming && !msg.text)"
                 :thinking="msg.thinking ?? ''"
                 :streaming="Boolean(msg.streaming && !msg.text)"
                 :started-at="msg.thinkingStartedAt"
                 :duration-ms="msg.thinkingDurationMs"
                 :auto-collapse="turnDone || !(msg.streaming && !msg.text)"
               />
-              <MarkdownView
-                v-if="msg.text"
-                :content="msg.text"
-                class="assistant-md"
-                :class="{ 'stream-shimmer': msg.streaming && msg.text }"
-              />
-              <span v-if="msg.streaming && msg.text" class="cursor" aria-hidden="true" />
             </div>
-            <div v-if="!msg.streaming && !running" class="actions">
-              <NTooltip>
-                <template #trigger>
-                  <NButton quaternary circle size="tiny" @click="copyText(msg.text)">
-                    <template #icon>
-                      <NIcon :component="CopyOutline" />
-                    </template>
-                  </NButton>
-                </template>
-                {{ t.copy }}
-              </NTooltip>
-              <NTooltip v-if="msg.text">
-                <template #trigger>
-                  <NButton
-                    quaternary
-                    circle
-                    size="tiny"
-                    @click="onSpeakMessage(msg.id, msg.text)"
-                  >
-                    <template #icon>
-                      <NIcon
-                        :component="isSpeakingMessage(msg.id) ? PauseOutline : VolumeMediumOutline"
-                      />
-                    </template>
-                  </NButton>
-                </template>
-                {{ isSpeakingMessage(msg.id) ? t.ttsStopSpeak : t.ttsSpeak }}
-              </NTooltip>
-              <NTooltip>
-                <template #trigger>
-                  <NButton quaternary circle size="tiny" @click="onRegenerate(msg)">
-                    <template #icon>
-                      <NIcon :component="RefreshOutline" />
-                    </template>
-                  </NButton>
-                </template>
-                {{ t.regenerate }}
-              </NTooltip>
+            <div v-if="msg.text" class="assistant-answer">
+              <MarkdownView :content="msg.text" class="assistant-md" />
+              <span v-if="msg.streaming" class="cursor" aria-hidden="true" />
+            </div>
+            <div
+              v-if="!msg.streaming && !running"
+              class="actions feed-actions assistant-actions"
+            >
+              <div class="feed-actions-left">
+                <button type="button" class="feed-action" @click="copyText(msg.text)">
+                  <NIcon :component="CopyOutline" :size="15" />
+                  <span>{{ t.copy }}</span>
+                </button>
+                <button
+                  v-if="msg.text"
+                  type="button"
+                  class="feed-action"
+                  @click="onSpeakMessage(msg.id, msg.text)"
+                >
+                  <NIcon
+                    :component="isSpeakingMessage(msg.id) ? PauseOutline : VolumeMediumOutline"
+                    :size="15"
+                  />
+                  <span>{{ isSpeakingMessage(msg.id) ? t.ttsStopSpeak : t.ttsSpeak }}</span>
+                </button>
+                <button type="button" class="feed-action" @click="onRegenerate(msg)">
+                  <NIcon :component="RefreshOutline" :size="15" />
+                  <span>{{ t.regenerate }}</span>
+                </button>
+              </div>
               <span
                 v-if="assistantStats(msg)"
                 class="assistant-stats"
@@ -1719,34 +1703,64 @@ function onRevertUser(msg: Extract<ChatMessage, { role: "user" }>): void {
                 {{ assistantStats(msg)!.compact }}
               </span>
             </div>
+            <!-- Cursor: Files Changed card after the answer / actions -->
+            <TurnFilesChangedCard
+              v-if="turnDiffForRow(msg) && !msg.streaming && !running"
+              :changes="turnDiffForRow(msg)!"
+              :preview-count="TURN_DIFF_PREVIEW"
+              :show-all="isTurnDiffShowAll(msg.id)"
+              @open="openPreview"
+              @review="openTurnReview"
+              @toggle-more="toggleTurnDiffShowAll(msg.id)"
+            />
           </div>
         </template>
 
         <template v-else-if="msg.role === 'tool'">
-          <div v-if="isProcessSummary(msg)" class="tool process-summary-row">
-            <button
-              type="button"
-              class="process-summary pi-interactive"
-              :title="processSummaryExpanded(msg) ? t.processCollapse : t.processExpand"
-              @click="processSummaryExpanded(msg) ? (workFolded = true) : (workFolded = false)"
-            >
-              <span class="ps-dot" aria-hidden="true" />
-              <span class="ps-label">{{ processSummaryLabel(msg) }}</span>
-              <NIcon
-                :component="processSummaryExpanded(msg) ? ChevronUpOutline : ChevronDownOutline"
-                :size="14"
-                class="ps-chevron"
-              />
-            </button>
+          <div
+            v-if="processAnchorFor(msg.id)"
+            class="tool feed-timeline"
+            :class="{ 'is-live': processAnchorFor(msg.id)!.stats.live }"
+          >
+            <ProcessSummaryRow
+              :segment-id="processAnchorFor(msg.id)!.segmentId"
+              :stats="processAnchorFor(msg.id)!.stats"
+              :steps="processAnchorFor(msg.id)!.steps"
+              :live-action="processAnchorFor(msg.id)!.liveAction"
+              :expanded="isProcessExpanded(processAnchorFor(msg.id)!.segmentId)"
+              @toggle="onProcessExpandToggle"
+            />
+            <TurnFilesChangedCard
+              v-if="turnDiffForRow(msg) && !processAnchorFor(msg.id)!.stats.live && !running"
+              :changes="turnDiffForRow(msg)!"
+              :preview-count="TURN_DIFF_PREVIEW"
+              :show-all="isTurnDiffShowAll(msg.id)"
+              @open="openPreview"
+              @review="openTurnReview"
+              @toggle-more="toggleTurnDiffShowAll(msg.id)"
+            />
           </div>
-          <div v-else-if="toolGroupMembership.get(msg.id)?.isLead" class="tool">
+          <div
+            v-else-if="
+              !isHiddenProcessMsg(msg.id) &&
+              toolGroupMembership.get(msg.id)?.isLead
+            "
+            class="tool feed-timeline"
+            :class="{ 'is-live': toolGroupStreaming(msg) }"
+          >
             <ToolCallGroup
               :tools="toolGroupMembership.get(msg.id)!.tools"
               :auto-collapse="turnDone || !toolGroupStreaming(msg)"
               @open="openPreview"
             />
           </div>
-          <div v-else-if="!toolGroupMembership.has(msg.id)" class="tool">
+          <div
+            v-else-if="
+              !isHiddenProcessMsg(msg.id) && !toolGroupMembership.has(msg.id)
+            "
+            class="tool feed-timeline"
+            :class="{ 'is-live': Boolean(msg.streaming) }"
+          >
             <ToolCallCard
               :card="toolCard(msg)"
               :tool-name="msg.toolName"
@@ -1754,7 +1768,7 @@ function onRevertUser(msg: Extract<ChatMessage, { role: "user" }>): void {
               :status-label="toolStatus(msg).label"
               :status-type="toolStatus(msg).type"
               :streaming="msg.streaming"
-              :auto-collapse="turnDone || !msg.streaming"
+              :auto-collapse="true"
               @open="openPreview"
             />
           </div>
@@ -1796,7 +1810,7 @@ function onRevertUser(msg: Extract<ChatMessage, { role: "user" }>): void {
         aria-hidden="true"
       />
 
-      <template v-if="renderEnd >= displayMessages.length">
+      <template v-if="renderEnd >= feedMessages.length">
         <div v-if="retryHint" class="running-indicator retry">
           <span class="dot warn" />
           <NText depth="3" style="font-size: 12px">
@@ -1804,10 +1818,7 @@ function onRevertUser(msg: Extract<ChatMessage, { role: "user" }>): void {
             <span v-if="retryHint.message" class="retry-detail"> · {{ retryHint.message }}</span>
           </NText>
         </div>
-        <AgentWaitIndicator
-          v-else-if="waitState && (showWaitWhileStreaming || !streaming)"
-          :state="waitState"
-        />
+        <!-- Cursor: process summary owns status — never show "waiting for model". -->
       </template>
     </div>
     </div>
@@ -1820,42 +1831,40 @@ function onRevertUser(msg: Extract<ChatMessage, { role: "user" }>): void {
       @mouseenter="onStickyUserEnter"
       @mouseleave="onStickyUserLeave"
     >
-      <div
-        class="sticky-pin-body bubble user"
-        :class="{ 'user-collapsed': !stickyExpanded && userCardNeedsToggle(stickyPinMessage) }"
-      >
-        <div v-if="stickyPinMessage.images?.length" class="user-images">
-          <img
-            v-for="(img, idx) in stickyPinMessage.images"
-            :key="`pin-img-${idx}`"
-            class="user-image"
-            :src="img.dataUrl"
-            :alt="t.imageAttachment"
-            loading="lazy"
-            draggable="false"
-            @click.stop="openImagePreview(img)"
-          />
-        </div>
-        <div
-          v-if="displayUserText(stickyPinMessage.text)"
-          class="user-plain"
-          :class="{ clamped: !stickyExpanded && userCardNeedsToggle(stickyPinMessage) }"
-        >{{ displayUserText(stickyPinMessage.text) }}</div>
-        <div v-if="visibleUserTags(stickyPinMessage.elementTags).length" class="user-tags">
-          <NTag
+      <div class="sticky-pin-stack">
+        <div v-if="visibleUserTags(stickyPinMessage.elementTags).length" class="user-tags sticky-tags">
+          <span
             v-for="(tag, idx) in visibleUserTags(stickyPinMessage.elementTags)"
             :key="`pin-tag-${idx}`"
-            type="info"
-            size="small"
-            round
-            class="user-tag"
-            :class="{
-              'user-tag-file': tag.kind === 'file',
-            }"
+            class="user-chip"
+            :class="{ 'user-chip-file': tag.kind === 'file' }"
             :title="tag.url || tag.label"
           >
-            {{ tag.label || tag.content }}
-          </NTag>
+            <span class="user-chip-at">@</span>
+            <span class="user-chip-label">{{ tag.label || tag.content }}</span>
+          </span>
+        </div>
+        <div
+          class="sticky-pin-body bubble user"
+          :class="{ 'user-collapsed': !stickyExpanded && userCardNeedsToggle(stickyPinMessage) }"
+        >
+          <div v-if="stickyPinMessage.images?.length" class="user-images">
+            <img
+              v-for="(img, idx) in stickyPinMessage.images"
+              :key="`pin-img-${idx}`"
+              class="user-image"
+              :src="img.dataUrl"
+              :alt="t.imageAttachment"
+              loading="lazy"
+              draggable="false"
+              @click.stop="openImagePreview(img)"
+            />
+          </div>
+          <div
+            v-if="displayUserText(stickyPinMessage.text)"
+            class="user-plain"
+            :class="{ clamped: !stickyExpanded && userCardNeedsToggle(stickyPinMessage) }"
+          >{{ displayUserText(stickyPinMessage.text) }}</div>
         </div>
       </div>
       <button
@@ -1981,9 +1990,26 @@ function onRevertUser(msg: Extract<ChatMessage, { role: "user" }>): void {
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
+  width: 100%;
+  margin: 0;
   padding: 6px 10px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  font: inherit;
   font-size: 11px;
   color: var(--fg-muted, #888);
+  cursor: pointer;
+}
+
+.history-older-banner:hover:not(:disabled) {
+  color: var(--fg, #333);
+  background: color-mix(in srgb, var(--fg) 5%, transparent);
+}
+
+.history-older-banner:disabled {
+  cursor: default;
+  opacity: 0.75;
 }
 
 .message-list {
@@ -2005,10 +2031,10 @@ function onRevertUser(msg: Extract<ChatMessage, { role: "user" }>): void {
   width: 100%;
   max-width: var(--composer-max, 780px);
   margin: 0 auto;
-  padding: 16px 16px;
+  padding: 20px 16px 28px;
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 10px;
   min-height: 100%;
   box-sizing: border-box;
 }
@@ -2062,35 +2088,39 @@ function onRevertUser(msg: Extract<ChatMessage, { role: "user" }>): void {
   display: flex;
 }
 
-/* DeepSeek Harness: a single uniform column gap spaces every flow item. */
 .row-user {
   justify-content: flex-end;
   width: 100%;
+  margin-top: 8px;
 }
 
 .row-assistant {
-  /* spacing handled by .inner gap */
+  justify-content: flex-start;
 }
 
-/* DeepSeek Harness renders tool calls inline as flow items — no indentation,
-   no left rail; spacing comes from the column gap alone. */
+/* Tool / process-summary rows sit flush under the prior assistant step. */
 .row-tool {
   margin: 0;
   padding-left: 0;
   border-left: none;
 }
 
-.row-tool.process-summary-row {
-  padding-left: 0;
-  border-left: none;
+.row-tool + .row-tool {
+  margin-top: 0;
+}
+
+.row-assistant + .row-tool {
+  margin-top: 2px;
+}
+
+.row-tool + .row-assistant {
+  margin-top: 2px;
 }
 
 .row-error {
   margin: 4px 0;
 }
 
-/* Only the last row of the stream adds bottom padding; the gap already
-   separates — avoid double spacing before the composer. */
 .row:last-child {
   margin-bottom: 4px;
 }
@@ -2136,6 +2166,27 @@ function onRevertUser(msg: Extract<ChatMessage, { role: "user" }>): void {
   width: auto;
   max-width: min(85%, 640px);
   margin-left: auto;
+}
+
+.sticky-pin-stack {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+  width: auto;
+  max-width: min(85%, 640px);
+  margin-left: auto;
+}
+
+.sticky-pin-stack .sticky-pin-body {
+  width: 100%;
+  max-width: 100%;
+  margin-left: 0;
+}
+
+.sticky-tags {
+  justify-content: flex-end;
+  margin-top: 0;
 }
 
 .sticky-toggle {
@@ -2189,7 +2240,8 @@ function onRevertUser(msg: Extract<ChatMessage, { role: "user" }>): void {
 .bubble-wrap.user {
   align-items: flex-end;
   width: auto;
-  max-width: min(82%, 525px);
+  max-width: min(85%, 640px);
+  gap: 8px;
 }
 
 .bubble-wrap.assistant {
@@ -2223,16 +2275,17 @@ function onRevertUser(msg: Extract<ChatMessage, { role: "user" }>): void {
   cursor: text;
 }
 
-/* User prompt: DeepSeek-style soft blue pill, right-aligned, no border. */
+/* User prompt: left accent rail + soft fill (Cursor feed mockup). */
 .bubble.user {
   width: auto;
   max-width: 100%;
   box-sizing: border-box;
-  padding: 10px 16px;
-  border-radius: 22px;
-  background: var(--user-bg, #edf3fe);
+  padding: 8px 10px 8px 14px;
+  border-radius: 0 8px 8px 0;
+  background: color-mix(in srgb, var(--bg) 55%, transparent);
   color: var(--fg-strong);
   border: none;
+  border-left: 2px solid var(--accent, #6366f1);
   box-shadow: none;
   overflow: hidden;
 }
@@ -2267,35 +2320,53 @@ function onRevertUser(msg: Extract<ChatMessage, { role: "user" }>): void {
 
 .bubble.assistant {
   background: transparent;
-  padding: 2px 0;
+  padding: 0;
   width: 100%;
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  font-size: 16px;
-  line-height: 1.75;
+  gap: 0;
+  font-size: 14.5px;
+  line-height: 1.65;
   color: var(--fg, #0f1115);
 }
 
-/* The final answer is the visual anchor of an assistant message — give the
-   markdown body room below the (folded) thinking block and above the actions. */
-.bubble.assistant :deep(.assistant-md) {
-  margin-top: 4px;
+/* Cursor: process/tool rows are flat text — no card rail / left border. */
+.feed-process-tree,
+.feed-timeline,
+.tool.feed-timeline {
+  width: 100%;
+  padding: 2px 0;
+  border: none;
+  box-sizing: border-box;
 }
 
-.bubble.assistant :deep(.assistant-md:first-child) {
-  margin-top: 0;
+.feed-process-tree.is-live,
+.feed-timeline.is-live,
+.tool.feed-timeline.is-live {
+  padding: 1px 0;
 }
 
-/* While thinking with no answer yet: pin the thinking block to the bottom
-   so it follows the "live" edge as thinking text grows. */
-.bubble.assistant.think-bottom {
-  flex-direction: column-reverse;
+.assistant-answer {
+  width: 100%;
+  padding-top: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 13.25px;
+  line-height: 1.62;
+  color: var(--fg-strong, var(--fg));
 }
 
-.bubble.assistant.think-bottom .markdown-view {
-  margin-top: 0;
-  margin-bottom: 0;
+.assistant-answer :deep(.assistant-md) {
+  margin: 0;
+  font-size: inherit;
+  line-height: inherit;
+}
+
+.assistant-answer :deep(.assistant-md p),
+.assistant-answer :deep(.assistant-md li) {
+  font-size: inherit;
+  line-height: inherit;
 }
 
 .bubble.error {
@@ -2337,46 +2408,46 @@ function onRevertUser(msg: Extract<ChatMessage, { role: "user" }>): void {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
-  margin-top: 6px;
 }
 
-.user-tag {
-  max-width: 200px;
-}
-
-.user-tag-file {
+.user-tags {
+  justify-content: flex-end;
+  margin: 0;
   font-family: var(--font-mono);
   font-size: 11px;
 }
 
-.user-tag-mode-plan {
-  --n-color: rgba(234, 179, 8, 0.2) !important;
-  --n-text-color: #a16207 !important;
-  --n-border: rgba(202, 138, 4, 0.45) !important;
+.user-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  max-width: 220px;
+  padding: 2px 6px;
+  border-radius: 5px;
+  border: 1px solid var(--border, #e3e6ec);
+  background: color-mix(in srgb, var(--bg-elevated, var(--bg)) 88%, var(--fg) 4%);
+  color: var(--fg-muted);
+  cursor: default;
 }
 
-.user-tag-mode-agent {
-  --n-color: rgba(113, 113, 122, 0.16) !important;
-  --n-text-color: #3f3f46 !important;
-  --n-border: rgba(113, 113, 122, 0.4) !important;
+.user-chip-at {
+  flex-shrink: 0;
+  color: var(--accent, #4176e6);
+  font-weight: 600;
 }
 
-.user-tag-mode-ask {
-  --n-color: rgba(59, 130, 246, 0.16) !important;
-  --n-text-color: #1d4ed8 !important;
-  --n-border: rgba(37, 99, 235, 0.4) !important;
-}
-
-.user-tag-mode-task {
-  --n-color: rgba(16, 185, 129, 0.16) !important;
-  --n-text-color: #047857 !important;
-  --n-border: rgba(5, 150, 105, 0.4) !important;
-}
-
-.user-tag :deep(.n-tag__content) {
+.user-chip-label {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.user-chip-file {
+  font-family: var(--font-mono);
+}
+
+.user-images {
+  margin-bottom: 6px;
 }
 
 .user-image {
@@ -2397,8 +2468,8 @@ function onRevertUser(msg: Extract<ChatMessage, { role: "user" }>): void {
 .user-plain {
   white-space: pre-wrap;
   word-break: break-word;
-  font-size: 16px;
-  line-height: 1.5;
+  font-size: 13.5px;
+  line-height: 1.55;
   user-select: text;
   -webkit-user-select: text;
 }
@@ -2414,16 +2485,20 @@ function onRevertUser(msg: Extract<ChatMessage, { role: "user" }>): void {
 .bubble-revert {
   display: inline-flex;
   align-items: center;
-  justify-content: center;
-  width: 24px;
+  gap: 4px;
   height: 24px;
-  padding: 0;
+  padding: 0 6px;
   border: none;
   border-radius: 6px;
   background: transparent;
   color: var(--fg-muted, #8a8a8a);
   cursor: pointer;
+  font-size: 11.5px;
   transition: color 0.12s ease, background 0.12s ease;
+}
+
+.bubble-revert-label {
+  line-height: 1;
 }
 
 .bubble-revert:hover:not(:disabled) {
@@ -2444,8 +2519,50 @@ function onRevertUser(msg: Extract<ChatMessage, { role: "user" }>): void {
   transition: opacity 0.12s ease;
 }
 
-/* DeepSeek Harness MessageIconActions: 28px circular, label-tertiary,
-   hover → interactive-bg-hover + label-secondary. */
+.feed-actions {
+  opacity: 0;
+  gap: 4px;
+  flex-wrap: wrap;
+  width: 100%;
+  padding-top: 2px;
+  border-top: 1px solid color-mix(in srgb, var(--border, #ddd) 70%, transparent);
+  margin-top: 2px;
+}
+
+.feed-actions-left {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 10px;
+  flex: 1;
+  min-width: 0;
+}
+
+.feed-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin: 0;
+  padding: 2px 4px;
+  border: none;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--fg-faint, var(--fg-muted));
+  font-size: 12px;
+  line-height: 1.4;
+  cursor: pointer;
+}
+
+.feed-action:hover {
+  color: var(--fg-strong, var(--fg));
+  background: color-mix(in srgb, var(--fg) 5%, transparent);
+}
+
+.assistant-actions {
+  justify-content: space-between;
+}
+
+/* DeepSeek Harness MessageIconActions: 28px circular (legacy error/other). */
 .actions :deep(.n-button) {
   width: 28px;
   height: 28px;
@@ -2457,21 +2574,31 @@ function onRevertUser(msg: Extract<ChatMessage, { role: "user" }>): void {
   color: var(--fg-muted, #61666b) !important;
 }
 
-/* Copy / re-edit under the prompt (hover). Revert is inside the bubble. */
+/* Copy / re-edit under the prompt. */
 .user-actions {
   justify-content: flex-end;
-  margin-top: 2px;
-  padding-right: 2px;
+  width: auto;
+  border-top: none;
+  padding-top: 0;
 }
 
-.bubble-wrap:hover .actions {
+.bubble-wrap:hover .actions:not(.feed-actions) {
   opacity: 1;
 }
 
-/* Turn stats (duration · tokens · tok/s) — muted, right side of the actions. */
+.bubble-wrap:hover .feed-actions {
+  opacity: 1;
+}
+
+.bubble-wrap:hover .user-actions.feed-actions {
+  opacity: 1;
+}
+
+/* Turn stats — muted, right side of the actions. */
 .assistant-stats {
-  margin-left: 8px;
-  font-size: 10.5px;
+  margin-left: auto;
+  font-family: var(--font-mono);
+  font-size: 11px;
   font-variant-numeric: tabular-nums;
   color: var(--fg-faint, var(--fg-muted));
   white-space: nowrap;
@@ -2481,60 +2608,19 @@ function onRevertUser(msg: Extract<ChatMessage, { role: "user" }>): void {
 
 .cursor {
   display: inline-block;
-  width: 6px;
-  height: 14px;
-  margin-left: 2px;
+  width: 7px;
+  height: 1.05em;
+  margin-left: 3px;
   vertical-align: text-bottom;
-  background: var(--accent);
-  animation: blink 1s step-end infinite;
+  border-radius: 1px;
+  background: var(--accent, #4176e6);
+  animation: blink 0.95s step-end infinite;
+  opacity: 0.9;
 }
 
 @keyframes blink {
   50% {
     opacity: 0;
-  }
-}
-
-/*
- * Streaming answer: a soft highlight sweeps across the text to show the
- * model is still producing output (Cursor-style shimmer). A translucent
- * gradient bar sweeps over the block — text colours are left untouched so
- * markdown (code, links) stays readable.
- */
-.stream-shimmer {
-  position: relative;
-  border-radius: 3px;
-}
-
-.stream-shimmer::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  background: linear-gradient(
-    100deg,
-    transparent 30%,
-    color-mix(in srgb, var(--accent, #2563eb) 14%, transparent) 48%,
-    color-mix(in srgb, var(--accent, #2563eb) 14%, transparent) 52%,
-    transparent 70%
-  );
-  background-repeat: no-repeat;
-  background-size: 55% 100%;
-  animation: stream-sweep 1.6s ease-in-out infinite;
-}
-
-@keyframes stream-sweep {
-  from {
-    background-position: -60% 0;
-  }
-  to {
-    background-position: 170% 0;
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .stream-shimmer::after {
-    animation: none;
   }
 }
 
@@ -2696,53 +2782,5 @@ function onRevertUser(msg: Extract<ChatMessage, { role: "user" }>): void {
   .image-preview-overlay {
     animation: none;
   }
-}
-
-/* One-big-group process summary after the final answer — plain text row */
-.process-summary-row {
-  padding: 0 4px 2px;
-}
-
-.process-summary {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  width: 100%;
-  padding: 4px 6px;
-  border: none;
-  border-radius: 5px;
-  background: transparent;
-  color: var(--fg-muted);
-  cursor: pointer;
-  font: inherit;
-  font-size: 12px;
-  transition: background var(--duration-fast, 140ms) var(--ease-out, ease);
-}
-
-.process-summary:hover {
-  background: color-mix(in srgb, var(--fg) 4%, transparent);
-  color: var(--fg);
-}
-
-.ps-dot {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: var(--accent);
-  flex-shrink: 0;
-}
-
-.ps-label {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.ps-chevron {
-  flex-shrink: 0;
-  color: var(--fg-faint, var(--fg-muted));
-  transition: transform var(--duration-fast, 140ms) var(--ease-out, ease);
 }
 </style>

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, ref, watch } from "vue";
+import { computed, nextTick, ref, watch } from "vue";
 import { NButton, NIcon, useMessage } from "naive-ui";
 import {
   CheckmarkCircleOutline,
@@ -34,75 +34,28 @@ const emit = defineEmits<{
   open: [path: string];
 }>();
 
-/** Write / edit / bash / todo expand while live; read stays collapsed by default. */
-function shouldAutoExpand(kind: ToolCard["kind"]): boolean {
-  switch (kind) {
-    case "write":
-    case "edit":
-    case "bash":
-    case "todo":
-      return true;
-    case "read":
-    case "generic":
-    case "other":
-      return false;
-    default: {
-      const _never: never = kind;
-      return Boolean(_never);
-    }
-  }
-}
-
-/** Expanded while streaming for write/edit/bash; stays open after so diffs are visible. */
+/** Expanded only when the user opens a finished tool row. */
 const manuallyOpen = ref<boolean | null>(null);
-const wasStreaming = ref(false);
 const bodyRef = ref<HTMLElement | null>(null);
 /** Follow newest lines unless the user scrolls up inside the card. */
 let stickToBottom = true;
 const NEAR_BOTTOM_PX = 48;
-/**
- * How long a finished tool stays expanded before it folds back into history.
- * The agent usually starts its next step within this window, so the result is
- * visible for a beat, then history collapses (Codex-like).
- */
-const AUTO_COLLAPSE_MS = 1200;
-let finishTimer: ReturnType<typeof setTimeout> | null = null;
-
-function clearFinishTimer(): void {
-  if (finishTimer) {
-    clearTimeout(finishTimer);
-    finishTimer = null;
-  }
-}
 
 const open = computed(() => {
-  // Turn finished: only a user-expanded card stays open; history stays folded.
+  // Cursor: while streaming, never dump tool body — shimmer/label only.
+  if (props.streaming) return false;
+  // Turn finished: only a user-expanded row stays open; history stays folded.
   if (props.autoCollapse) return manuallyOpen.value === true;
   if (manuallyOpen.value !== null) return manuallyOpen.value;
-  if (!shouldAutoExpand(props.card.kind)) return false;
-  return wasStreaming.value || Boolean(props.streaming);
+  return false;
 });
 
 watch(
   () => props.streaming,
-  (streaming, prev) => {
-    if (!shouldAutoExpand(props.card.kind)) return;
+  (streaming) => {
     if (streaming) {
-      // Reset manual override while streaming so it tracks live state.
-      manuallyOpen.value = null;
-      wasStreaming.value = true;
+      manuallyOpen.value = false;
       stickToBottom = true;
-      clearFinishTimer();
-    } else if (prev && !streaming) {
-      // Just finished — keep expanded so the result (diff/output) is visible,
-      // then auto-collapse once the agent moves on / shortly after completion.
-      wasStreaming.value = true;
-      clearFinishTimer();
-      finishTimer = setTimeout(() => {
-        finishTimer = null;
-        // Respect a manual open: only auto-fold cards the user didn't expand.
-        if (manuallyOpen.value === null) manuallyOpen.value = false;
-      }, AUTO_COLLAPSE_MS);
     }
   },
   { immediate: true },
@@ -113,12 +66,9 @@ watch(
   () => props.autoCollapse,
   (v) => {
     if (!v) return;
-    clearFinishTimer();
     manuallyOpen.value = false;
   },
 );
-
-onBeforeUnmount(clearFinishTimer);
 
 function toggleOpen(): void {
   const next = !open.value;
@@ -372,7 +322,11 @@ function onOpenPreview(): void {
       [`kind-${card.kind}`]: true,
     }"
   >
-    <div class="tool-call-head" @click="toggleOpen">
+    <!-- Streaming: one shimmer line only. -->
+    <div v-if="streaming" class="tool-call-head streaming-only">
+      <span class="action chat-shimmer-text">{{ t.toolsRunningHint(toolName) }}</span>
+    </div>
+    <div v-else class="tool-call-head" @click="toggleOpen">
       <button type="button" class="expand-hit" :aria-expanded="open">
         <NIcon
           class="chev"
@@ -395,9 +349,8 @@ function onOpenPreview(): void {
       <span v-if="card.kind === 'read' && card.truncated" class="trunc">{{ t.toolTruncated }}</span>
       <span v-if="card.kind === 'bash' && card.truncated" class="trunc">{{ t.toolTruncated }}</span>
       <span class="status" :class="statusType" :title="statusLabel">
-        <span v-if="streaming" class="spinner" aria-hidden="true" />
         <NIcon
-          v-else-if="statusType === 'error'"
+          v-if="statusType === 'error'"
           :component="CloseCircleOutline"
           :size="14"
         />
@@ -466,14 +419,16 @@ function onOpenPreview(): void {
 <style scoped>
 .tool-call {
   width: 100%;
-  /* Cursor-style: no card chrome — plain text row with a fold chevron. */
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: transparent;
   overflow: hidden;
-  transition: opacity 0.12s ease;
+  font-family: var(--font-ui, inherit);
 }
 
 .tool-call.streaming {
-  /* Slight emphasis while live, no border box. */
-  color: var(--fg);
+  color: var(--fg-muted);
 }
 
 .tool-call.error {
@@ -494,23 +449,38 @@ function onOpenPreview(): void {
 }
 
 .tool-call-head {
-  width: 100%;
-  display: flex;
+  width: auto;
+  max-width: 100%;
+  display: inline-flex;
   align-items: center;
-  gap: 7px;
+  gap: 6px;
   margin: 0;
-  padding: 3px 4px;
+  padding: 2px 0;
   border: none;
-  border-radius: 5px;
+  border-radius: 0;
   background: transparent;
   color: inherit;
   text-align: left;
   cursor: pointer;
   min-width: 0;
+  font-size: 13px;
 }
 
 .tool-call-head:hover {
-  background: color-mix(in srgb, var(--fg) 4%, transparent);
+  background: transparent;
+  color: var(--fg);
+}
+
+.tool-call-head.streaming-only {
+  display: flex;
+  width: 100%;
+  cursor: default;
+  min-height: 22px;
+}
+
+.tool-call-head.streaming-only:hover {
+  background: transparent;
+  color: inherit;
 }
 
 .expand-hit {
@@ -552,10 +522,14 @@ function onOpenPreview(): void {
 /* opencode basic-tool title: medium-weight verb in the base text color. */
 .action {
   flex-shrink: 0;
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--fg, #222);
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--fg-muted, #666);
   letter-spacing: 0.01em;
+}
+
+.tool-call-head.streaming-only .action {
+  font-size: 13px;
 }
 
 .headline {
@@ -676,14 +650,15 @@ function onOpenPreview(): void {
 }
 
 .tool-body {
-  margin: 0;
-  padding: 5px 4px;
-  border-top: 1px solid color-mix(in srgb, var(--border, #ddd) 35%, transparent);
+  margin: 4px 0 0 17px;
+  padding: 2px 0;
+  border: none;
   max-height: 140px;
   overflow: auto;
   font-size: 11.5px;
   line-height: 1.5;
   font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
+  background: transparent;
 }
 
 .tool-body.empty {
@@ -716,9 +691,9 @@ function onOpenPreview(): void {
 
 .todo-body {
   list-style: none;
-  margin: 0;
-  padding: 6px 4px 8px;
-  border-top: 1px solid color-mix(in srgb, var(--border, #ddd) 35%, transparent);
+  margin: 4px 0 0 17px;
+  padding: 2px 0;
+  border: none;
   display: flex;
   flex-direction: column;
   gap: 4px;

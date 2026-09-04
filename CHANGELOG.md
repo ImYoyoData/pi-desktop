@@ -1,5 +1,31 @@
 # Changelog
 
+## v0.3.2 (2026-09-04)
+
+本版重点：主聊天过程摘要与文件变更卡片；上滑加载更早历史与输入区布局稳定性；对话流样式与动效打磨。
+
+### 新功能 Features
+
+- **过程摘要**：思考与工具调用默认折叠为可展开摘要，摘要挂在过程段末尾并与结论文本交错；支持手动展开保持、点开下一段时收起上一段。
+- **当前操作行**：过程进行中在摘要下方常驻显示最新操作（读取/编辑/规划等），工具切换间隙不再闪空。
+- **文件变更卡片**：一轮结束后展示「修改了 N 个文件」卡片（+/- 行数），可点文件预览或「审阅」打开变更面板。
+- Process summary: thinking and tool calls fold into an expandable summary at the end of each process burst, interleaved with answer text. Manual expand stays open; expanding another segment collapses the previous one.
+- Live action line under the summary while a turn runs (read / edit / planning) without blinking out between tools.
+- After a turn finishes, an “N files changed” card with +/- counts; open preview or Review in the Changes panel.
+
+### 修复 / 体验 Fixes
+
+- 修复上滑「加载更早记录」被阅读历史状态拦截、到顶无法继续加载的问题；提示条可点击加载。
+- 修复聊天面板把输入框挤出可视区：面板约束高度，消息区内部滚动。
+- 修复过程行占满虚拟窗口导致输出结论时大片空白；折叠过程行不再占用渲染槽位。
+- 修复摘要总钉在过程开头、跟底时看不见摘要/当前操作的问题。
+- 结论文字略缩小；状态流光对比更清晰；过程摘要字号与颜色微调。
+- Older-history load no longer blocked while reading history; works at the top of the list and via the banner click.
+- Chat panel keeps the composer on screen (bounded height, messages scroll inside).
+- Folded process rows no longer fill the virtual window and blank out the feed while answers stream.
+- Process summary stays at the end of each burst so it remains visible near the live edge.
+- Slightly smaller answer text; clearer status shimmer; tuned summary typography.
+
 ## v0.3.1 (2026-09-04)
 
 本版重点：全局网络代理；会话排序与折叠；启动提速与恢复旧会话稳定性。

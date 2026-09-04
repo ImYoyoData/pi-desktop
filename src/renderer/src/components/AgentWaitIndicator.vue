@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from "vue";
-import { NText } from "naive-ui";
 import type { ChatState } from "@renderer/stores/chat-reducer";
 import {
   agentOutputSilenceMs,
@@ -57,13 +56,13 @@ const elapsedMs = computed(() => {
 const silenceMs = computed(() => agentOutputSilenceMs(props.state as ChatState, now.value));
 const workerSilenceMs = computed(() => agentWorkerSilenceMs(props.state as ChatState, now.value));
 
-/** Local worker answered heartbeat recently during this turn. */
 const workerAlive = computed(
   () =>
     Number.isFinite(workerSilenceMs.value) && workerSilenceMs.value < 20_000,
 );
 
-const phaseLabel = computed(() => {
+/** Primary shimmer line — Cursor-style status, no dump. */
+const shimmerLabel = computed(() => {
   if (recovering.value) return t.autoRecovering;
   switch (phase.value) {
     case "starting":
@@ -71,11 +70,11 @@ const phaseLabel = computed(() => {
     case "waiting_model":
       return t.agentWaitModel;
     case "thinking":
-      return t.agentWaitThinking;
+      return t.thinkingStreaming;
     case "writing":
       return t.agentWaitWriting;
     case "tool":
-      return toolName.value ? t.agentWaitTool(toolName.value) : t.agentWaitToolGeneric;
+      return toolName.value ? t.toolsRunningHint(toolName.value) : t.toolsRunning;
     case "waiting_user":
       return t.agentWaitUser;
     case null:
@@ -91,10 +90,7 @@ const detail = computed(() => {
   if (recovering.value) return "";
   const elapsed = formatElapsedShort(elapsedMs.value);
   const silence = silenceMs.value;
-  // Waiting on the user — no hang warning.
-  if (phase.value === "waiting_user") {
-    return elapsed;
-  }
+  if (phase.value === "waiting_user") return elapsed;
   if (silence >= 120_000 && !workerAlive.value) {
     return t.agentWaitLikelyStuck(formatElapsedShort(silence));
   }
@@ -104,7 +100,7 @@ const detail = computed(() => {
   if (silence >= 45_000) {
     return t.agentWaitSilentUnknown(formatElapsedShort(silence), elapsed);
   }
-  return elapsed;
+  return "";
 });
 
 const tone = computed<"ok" | "warn" | "danger">(() => {
@@ -114,50 +110,63 @@ const tone = computed<"ok" | "warn" | "danger">(() => {
   if (silenceMs.value >= 30_000) return "warn";
   return "ok";
 });
+
+const useShimmer = computed(() => tone.value === "ok" && !recovering.value);
 </script>
 
 <template>
   <div class="agent-wait" :class="`tone-${tone}`">
-    <span class="dot" />
-    <NText depth="3" style="font-size: 12px">
-      {{ phaseLabel }}
-      <span v-if="detail" class="detail"> · {{ detail }}</span>
-    </NText>
+    <div class="wait-head">
+      <span :class="useShimmer ? 'chat-shimmer-text' : 'plain-label'">{{
+        shimmerLabel
+      }}</span>
+    </div>
+    <div v-if="detail" class="wait-detail">{{ detail }}</div>
   </div>
 </template>
 
 <style scoped>
+/* Cursor wait: plain shimmer text — no rail / chevron / card. */
 .agent-wait {
   display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 2px 0 0;
+  padding: 2px 0;
+  border: none;
+  font-family: var(--font-ui, inherit);
+  font-size: 13px;
+  box-sizing: border-box;
+}
+
+.wait-head {
+  display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 4px 2px 8px;
+  min-height: 22px;
+  min-width: 0;
 }
-.dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: var(--success, #18a058);
-  animation: pulse 1.2s ease-in-out infinite;
-  flex-shrink: 0;
+
+.plain-label {
+  font-weight: 500;
+  color: var(--fg-muted);
 }
-.tone-warn .dot {
-  background: var(--warning, #f0a020);
+
+.wait-detail {
+  margin: 0;
+  padding: 0;
+  border: none;
+  color: var(--fg-faint, #8a94aa);
+  font-size: 12px;
+  line-height: 1.4;
 }
-.tone-danger .dot {
-  background: var(--error, #d03050);
-  animation: none;
+
+.tone-warn .plain-label,
+.tone-warn .wait-detail {
+  color: var(--warning, #c9902c);
 }
-.detail {
-  opacity: 0.85;
-}
-@keyframes pulse {
-  0%,
-  100% {
-    opacity: 1;
-  }
-  50% {
-    opacity: 0.35;
-  }
+
+.tone-danger .plain-label,
+.tone-danger .wait-detail {
+  color: var(--error, #d03050);
 }
 </style>

@@ -193,7 +193,9 @@ async function onNewAgent(): Promise<void> {
   display: flex;
   flex-direction: column;
   height: 100%;
+  min-height: 0;
   min-width: 0;
+  overflow: hidden;
   background: var(--bg);
 }
 

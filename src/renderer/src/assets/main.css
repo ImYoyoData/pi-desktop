@@ -416,3 +416,57 @@ button {
 html.platform-darwin .title-bar .n-button {
   --n-height: 28px;
 }
+
+/*
+ * Cursor shimmer — brighter highlight so the live status line is obvious.
+ */
+@keyframes chat-shimmer-sweep {
+  0% {
+    background-position: 120% 0;
+  }
+  100% {
+    background-position: -120% 0;
+  }
+}
+
+.chat-shimmer-text {
+  display: inline-block;
+  font-weight: 500;
+  background: linear-gradient(
+    90deg,
+    rgba(90, 98, 112, 0.42) 0%,
+    rgba(90, 98, 112, 0.42) 38%,
+    rgba(18, 22, 34, 1) 50%,
+    rgba(90, 98, 112, 0.42) 62%,
+    rgba(90, 98, 112, 0.42) 100%
+  );
+  background-size: 240% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation: chat-shimmer-sweep 1.85s infinite linear;
+}
+
+html[data-theme="dark"] .chat-shimmer-text {
+  background: linear-gradient(
+    90deg,
+    rgba(130, 140, 155, 0.4) 0%,
+    rgba(130, 140, 155, 0.4) 38%,
+    rgba(255, 255, 255, 1) 50%,
+    rgba(130, 140, 155, 0.4) 62%,
+    rgba(130, 140, 155, 0.4) 100%
+  );
+  background-size: 240% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chat-shimmer-text {
+    animation: none;
+    -webkit-text-fill-color: unset;
+    color: var(--fg-muted, #8b93a7);
+    background: none;
+  }
+}

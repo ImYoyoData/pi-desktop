@@ -1435,12 +1435,13 @@ onBeforeUnmount(() => {
     white-space: pre-wrap;
   }
   .bubble.user {
-    padding: 10px 14px;
-    border-radius: 14px;
-    background: color-mix(in srgb, var(--accent) 9%, var(--bg-elevated));
+    padding: 8px 10px 8px 14px;
+    border-radius: 0 8px 8px 0;
+    background: color-mix(in srgb, var(--bg-elevated) 72%, var(--accent) 8%);
     color: var(--fg-strong);
-    border: 1px solid color-mix(in srgb, var(--accent) 22%, var(--border));
-    box-shadow: 0 1px 3px color-mix(in srgb, #000 8%, transparent);
+    border: none;
+    border-left: 2px solid var(--accent);
+    box-shadow: none;
   }
   .bubble.assistant {
     background: transparent;
