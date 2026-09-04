@@ -1,7 +1,8 @@
 import { contextBridge, ipcRenderer, webUtils } from "electron";
 import { electronAPI } from "@electron-toolkit/preload";
 import type {
-	AgentCommand, LanConsoleStatus,
+	AgentCommand,
+	LanConsoleStatus,
 	AgentEvent,
 	ElementCitation,
 	SessionHistoryMessage,
@@ -23,6 +24,7 @@ import type {
 } from "../shared/model-discover";
 import type { PreviewResult } from "../shared/preview-types";
 import type {
+	AsrCloudConfig,
 	AsrInstallProgress,
 	AsrStatus,
 	AsrStreamEvent,
@@ -58,6 +60,7 @@ import type {
 	GitConflictContentResult,
 	GitOpResult,
 } from "../shared/git-types";
+import type { ProxySettings } from "../shared/proxy";
 
 export type AppInfo = {
 	version: string;
@@ -91,11 +94,19 @@ const api = {
 	},
 	lanConsole: {
 		getStatus: () =>
-			ipcRenderer.invoke(IpcChannels.lanConsole.getStatus) as Promise<LanConsoleStatus>,
+			ipcRenderer.invoke(
+				IpcChannels.lanConsole.getStatus,
+			) as Promise<LanConsoleStatus>,
 		setEnabled: (enabled: boolean) =>
-			ipcRenderer.invoke(IpcChannels.lanConsole.setEnabled, enabled) as Promise<LanConsoleStatus>,
+			ipcRenderer.invoke(
+				IpcChannels.lanConsole.setEnabled,
+				enabled,
+			) as Promise<LanConsoleStatus>,
 		setPort: (port: number) =>
-			ipcRenderer.invoke(IpcChannels.lanConsole.setPort, port) as Promise<LanConsoleStatus>,
+			ipcRenderer.invoke(
+				IpcChannels.lanConsole.setPort,
+				port,
+			) as Promise<LanConsoleStatus>,
 		setCredentials: (username: string, password: string) =>
 			ipcRenderer.invoke(
 				IpcChannels.lanConsole.setCredentials,
@@ -103,13 +114,33 @@ const api = {
 				String(password ?? ""),
 			) as Promise<LanConsoleStatus>,
 		setPreferredIp: (ip: string) =>
-			ipcRenderer.invoke(IpcChannels.lanConsole.setPreferredIp, String(ip ?? "")) as Promise<LanConsoleStatus>,
+			ipcRenderer.invoke(
+				IpcChannels.lanConsole.setPreferredIp,
+				String(ip ?? ""),
+			) as Promise<LanConsoleStatus>,
+	},
+	proxy: {
+		get: () =>
+			ipcRenderer.invoke(IpcChannels.proxy.get) as Promise<ProxySettings>,
+		set: (settings: ProxySettings) =>
+			ipcRenderer.invoke(
+				IpcChannels.proxy.set,
+				settings,
+			) as Promise<ProxySettings>,
+		onChanged: (callback: (settings: ProxySettings) => void) => {
+			const listener = (
+				_event: Electron.IpcRendererEvent,
+				settings: ProxySettings,
+			) => callback(settings);
+			ipcRenderer.on(IpcChannels.proxy.changed, listener);
+			return () => {
+				ipcRenderer.removeListener(IpcChannels.proxy.changed, listener);
+			};
+		},
 	},
 	window: {
 		platform: () =>
-			ipcRenderer.invoke(
-				IpcChannels.window.platform,
-			) as Promise<NodeJS.Platform>,
+			ipcRenderer.invoke(IpcChannels.window.platform) as Promise<NodeJS.Platform>,
 		minimize: () =>
 			ipcRenderer.invoke(IpcChannels.window.minimize) as Promise<void>,
 		maximize: () =>
@@ -125,15 +156,9 @@ const api = {
 				source,
 			) as Promise<void>,
 		setChromeTheme: (mode: "light" | "dark") =>
-			ipcRenderer.invoke(
-				IpcChannels.window.setChromeTheme,
-				mode,
-			) as Promise<void>,
+			ipcRenderer.invoke(IpcChannels.window.setChromeTheme, mode) as Promise<void>,
 		setUiLocale: (locale: "zh-CN" | "en") =>
-			ipcRenderer.invoke(
-				IpcChannels.window.setUiLocale,
-				locale,
-			) as Promise<void>,
+			ipcRenderer.invoke(IpcChannels.window.setUiLocale, locale) as Promise<void>,
 		requestMediaAccess: (kind: "microphone" | "camera") =>
 			ipcRenderer.invoke(
 				IpcChannels.window.requestMediaAccess,
@@ -182,8 +207,7 @@ const api = {
 			ipcRenderer.invoke(IpcChannels.workspace.openPath, root) as Promise<
 				string | null
 			>,
-		clear: () =>
-			ipcRenderer.invoke(IpcChannels.workspace.clear) as Promise<null>,
+		clear: () => ipcRenderer.invoke(IpcChannels.workspace.clear) as Promise<null>,
 		removeRecent: (root: string) =>
 			ipcRenderer.invoke(IpcChannels.workspace.removeRecent, root) as Promise<{
 				root: string | null;
@@ -221,10 +245,7 @@ const api = {
 				cwd,
 			) as Promise<SessionSummary | null>,
 		close: (sessionId: string) =>
-			ipcRenderer.invoke(
-				IpcChannels.sessions.close,
-				sessionId,
-			) as Promise<void>,
+			ipcRenderer.invoke(IpcChannels.sessions.close, sessionId) as Promise<void>,
 		command: (sessionId: string, command: AgentCommand) =>
 			ipcRenderer.invoke(
 				IpcChannels.sessions.command,
@@ -273,10 +294,7 @@ const api = {
 				text,
 				tags,
 			),
-		cacheImage: (
-			sessionId: string,
-			source: { dataUrl?: string; url?: string },
-		) =>
+		cacheImage: (sessionId: string, source: { dataUrl?: string; url?: string }) =>
 			ipcRenderer.invoke(
 				IpcChannels.sessions.cacheImage,
 				sessionId,
@@ -314,10 +332,8 @@ const api = {
 			};
 		},
 		onEvent: (callback: (event: AgentEvent) => void) => {
-			const listener = (
-				_event: Electron.IpcRendererEvent,
-				payload: AgentEvent,
-			) => callback(payload);
+			const listener = (_event: Electron.IpcRendererEvent, payload: AgentEvent) =>
+				callback(payload);
 			ipcRenderer.on(IpcChannels.sessions.event, listener);
 			return () => {
 				ipcRenderer.removeListener(IpcChannels.sessions.event, listener);
@@ -352,10 +368,7 @@ const api = {
 			};
 		},
 		askUserReply: (payload: AskUserAskReply) =>
-			ipcRenderer.invoke(
-				IpcChannels.sessions.askUserReply,
-				payload,
-			) as Promise<{
+			ipcRenderer.invoke(IpcChannels.sessions.askUserReply, payload) as Promise<{
 				ok: boolean;
 				reason?: string;
 			}>,
@@ -435,15 +448,9 @@ const api = {
 				destRelativeDir,
 			) as Promise<string>,
 		delete: (relativePath: string) =>
-			ipcRenderer.invoke(
-				IpcChannels.files.delete,
-				relativePath,
-			) as Promise<void>,
+			ipcRenderer.invoke(IpcChannels.files.delete, relativePath) as Promise<void>,
 		reveal: (relativePath: string) =>
-			ipcRenderer.invoke(
-				IpcChannels.files.reveal,
-				relativePath,
-			) as Promise<void>,
+			ipcRenderer.invoke(IpcChannels.files.reveal, relativePath) as Promise<void>,
 	},
 	fs: {
 		watch: (root: string) =>
@@ -520,11 +527,7 @@ const api = {
 				| { ok: false; message: string; code: string }
 			>,
 		logFile: (relativePath: string, limit?: number) =>
-			ipcRenderer.invoke(
-				IpcChannels.git.logFile,
-				relativePath,
-				limit,
-			) as Promise<{
+			ipcRenderer.invoke(IpcChannels.git.logFile, relativePath, limit) as Promise<{
 				entries: {
 					hash: string;
 					shortHash: string;
@@ -535,28 +538,28 @@ const api = {
 			}>,
 
 		showCommitFiles: (commitHash: string) =>
-			ipcRenderer.invoke(
-				IpcChannels.git.showCommitFiles,
-				commitHash,
-			) as Promise<{ files: { status: string; path: string }[] }>,
+			ipcRenderer.invoke(IpcChannels.git.showCommitFiles, commitHash) as Promise<{
+				files: { status: string; path: string }[];
+			}>,
 		resetToCommit: (commitHash: string, mode: "soft" | "hard") =>
 			ipcRenderer.invoke(
 				IpcChannels.git.resetToCommit,
 				commitHash,
 				mode,
-			) as Promise<{ ok: boolean; message?: string; code?: string }>,
+			) as Promise<
+				| { ok: true; message?: string }
+				| { ok: false; message: string; code?: string }
+			>,
 		stage: (paths: string[]) =>
-			ipcRenderer.invoke(IpcChannels.git.stage, paths) as Promise<{
-				ok: boolean;
-				message?: string;
-				code?: string;
-			}>,
+			ipcRenderer.invoke(IpcChannels.git.stage, paths) as Promise<
+				| { ok: true; message?: string }
+				| { ok: false; message: string; code?: string }
+			>,
 		unstage: (paths: string[]) =>
-			ipcRenderer.invoke(IpcChannels.git.unstage, paths) as Promise<{
-				ok: boolean;
-				message?: string;
-				code?: string;
-			}>,
+			ipcRenderer.invoke(IpcChannels.git.unstage, paths) as Promise<
+				| { ok: true; message?: string }
+				| { ok: false; message: string; code?: string }
+			>,
 		ignore: (paths: string[]) =>
 			ipcRenderer.invoke(IpcChannels.git.ignore, paths) as Promise<string[]>,
 		unignore: (path: string) =>
@@ -572,10 +575,7 @@ const api = {
 			relativePath: string;
 			commitHash: string;
 		}) =>
-			ipcRenderer.invoke(
-				IpcChannels.git.restoreFileToCommit,
-				payload,
-			) as Promise<
+			ipcRenderer.invoke(IpcChannels.git.restoreFileToCommit, payload) as Promise<
 				| { ok: true; message?: string }
 				| { ok: false; message: string; code: string }
 			>,
@@ -740,10 +740,7 @@ const api = {
 		set: (payload: ModelsSetPayload) =>
 			ipcRenderer.invoke(IpcChannels.models.set, payload) as Promise<void>,
 		clearKey: (provider: string) =>
-			ipcRenderer.invoke(
-				IpcChannels.models.clearKey,
-				provider,
-			) as Promise<void>,
+			ipcRenderer.invoke(IpcChannels.models.clearKey, provider) as Promise<void>,
 		test: () =>
 			ipcRenderer.invoke(IpcChannels.models.test) as Promise<
 				ModelsGetResult["available"]
@@ -778,9 +775,7 @@ const api = {
 				content,
 			) as Promise<void>,
 		pickFile: () =>
-			ipcRenderer.invoke(IpcChannels.preview.pickFile) as Promise<
-				string | null
-			>,
+			ipcRenderer.invoke(IpcChannels.preview.pickFile) as Promise<string | null>,
 	},
 	browser: {
 		startSelect: (webContentsId: number) =>
@@ -840,10 +835,7 @@ const api = {
 				ok: boolean;
 			}>,
 		openExternal: (url: string) =>
-			ipcRenderer.invoke(
-				IpcChannels.browser.openExternal,
-				url,
-			) as Promise<void>,
+			ipcRenderer.invoke(IpcChannels.browser.openExternal, url) as Promise<void>,
 		onOpenTab: (
 			callback: (payload: { requestId: string; url: string | null }) => void,
 		) => {
@@ -873,10 +865,7 @@ const api = {
 			) => callback(payload);
 			ipcRenderer.on(IpcChannels.browser.elementSelected, listener);
 			return () => {
-				ipcRenderer.removeListener(
-					IpcChannels.browser.elementSelected,
-					listener,
-				);
+				ipcRenderer.removeListener(IpcChannels.browser.elementSelected, listener);
 			};
 		},
 		onElementScreenshot: (callback: (dataUrl: string) => void) => {
@@ -886,20 +875,14 @@ const api = {
 			};
 			ipcRenderer.on(IpcChannels.browser.elementScreenshot, listener);
 			return () => {
-				ipcRenderer.removeListener(
-					IpcChannels.browser.elementScreenshot,
-					listener,
-				);
+				ipcRenderer.removeListener(IpcChannels.browser.elementScreenshot, listener);
 			};
 		},
 		onSelectCancelled: (callback: () => void) => {
 			const listener = () => callback();
 			ipcRenderer.on(IpcChannels.browser.selectCancelled, listener);
 			return () => {
-				ipcRenderer.removeListener(
-					IpcChannels.browser.selectCancelled,
-					listener,
-				);
+				ipcRenderer.removeListener(IpcChannels.browser.selectCancelled, listener);
 			};
 		},
 		onToggleEmbeddedDevTools: (callback: () => void) => {
@@ -946,9 +929,7 @@ const api = {
 				filePath,
 			) as Promise<AsrStatus>,
 		reinstallRuntime: () =>
-			ipcRenderer.invoke(
-				IpcChannels.asr.reinstallRuntime,
-			) as Promise<AsrStatus>,
+			ipcRenderer.invoke(IpcChannels.asr.reinstallRuntime) as Promise<AsrStatus>,
 		pickRuntimeArchive: () =>
 			ipcRenderer.invoke(IpcChannels.asr.pickRuntimeArchive) as Promise<
 				string | null
@@ -1015,10 +996,7 @@ const api = {
 				enabled,
 			) as Promise<AsrStatus>,
 		setWakeWords: (raw: string) =>
-			ipcRenderer.invoke(
-				IpcChannels.asr.setWakeWords,
-				raw,
-			) as Promise<AsrStatus>,
+			ipcRenderer.invoke(IpcChannels.asr.setWakeWords, raw) as Promise<AsrStatus>,
 		setBackend: (backend: string) =>
 			ipcRenderer.invoke(
 				IpcChannels.asr.setBackend,
@@ -1060,10 +1038,7 @@ const api = {
 		uninstall: () =>
 			ipcRenderer.invoke(IpcChannels.tts.uninstall) as Promise<TtsStatus>,
 		speak: (text: string) =>
-			ipcRenderer.invoke(
-				IpcChannels.tts.speak,
-				text,
-			) as Promise<TtsSpeakResult>,
+			ipcRenderer.invoke(IpcChannels.tts.speak, text) as Promise<TtsSpeakResult>,
 		stop: () => ipcRenderer.invoke(IpcChannels.tts.stop) as Promise<TtsStatus>,
 		onProgress: (callback: (progress: TtsInstallProgress) => void) => {
 			const listener = (
@@ -1125,9 +1100,7 @@ const api = {
 				skipped: boolean;
 			}>,
 		install: () =>
-			ipcRenderer.invoke(
-				IpcChannels.piCli.install,
-			) as Promise<PiCliInstallResult>,
+			ipcRenderer.invoke(IpcChannels.piCli.install) as Promise<PiCliInstallResult>,
 		skip: () =>
 			ipcRenderer.invoke(IpcChannels.piCli.skip) as Promise<{
 				skipped: boolean;
@@ -1254,6 +1227,14 @@ const api = {
 			};
 		},
 	},
+	startupTiming: {
+		mark: (name: string, detail?: string) =>
+			ipcRenderer.invoke(IpcChannels.startupTiming.mark, {
+				name,
+				atEpochMs: Date.now(),
+				detail,
+			}) as Promise<void>,
+	},
 	notify: {
 		turnComplete: (payload: { title: string; body: string }) =>
 			ipcRenderer.invoke(IpcChannels.notify.turnComplete, payload) as Promise<{
@@ -1324,8 +1305,6 @@ if (process.contextIsolated) {
 		console.error(error);
 	}
 } else {
-	// @ts-expect-error define in dts
 	window.electron = electronAPI;
-	// @ts-expect-error define in dts
 	window.api = api;
 }

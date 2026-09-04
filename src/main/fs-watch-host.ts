@@ -132,6 +132,7 @@ export function stopWorkspaceWatch(): void {
 }
 
 export function startWorkspaceWatch(root: string): void {
+	if (process.env.PI_DESKTOP_NO_WATCH === "1") return;
 	const resolved = normalizeRoot(root);
 	// Already watching this workspace — keep the single watcher
 	if (watchedRoot && rootsEqual(watchedRoot, resolved) && watcher) {
@@ -146,8 +147,7 @@ export function startWorkspaceWatch(root: string): void {
 	try {
 		watcher = fs.watch(resolved, { recursive: true }, (eventType, filename) => {
 			// Guard against late events after switch/stop
-			if (!filename || !watchedRoot || !rootsEqual(watchedRoot, resolved))
-				return;
+			if (!filename || !watchedRoot || !rootsEqual(watchedRoot, resolved)) return;
 			const rel = filename.toString().split(path.sep).join("/");
 			if (!rel || shouldIgnore(rel)) return;
 			const abs = path.join(watchedRoot, filename.toString());

@@ -1,6 +1,6 @@
 {
   "name": "pi-desktop",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "Pi Desktop — Electron + Vue3 Agent Workspace",
   "main": "./out/main/index.js",
   "author": "ImYoyoData",
@@ -71,6 +71,7 @@
     "@types/selfsigned": "^2.0.4",
     "@types/sortablejs": "^1.15.9",
     "@vitejs/plugin-vue": "^6.0.2",
+    "@vue/typescript-plugin": "^3.3.11",
     "electron": "^39.2.6",
     "electron-builder": "^26.0.12",
     "electron-vite": "^5.0.0",

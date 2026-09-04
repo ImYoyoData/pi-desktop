@@ -638,10 +638,6 @@ export function createBrowserAutomationHost(deps: {
         }
         return { tabId: target.tabId, result: serialized.slice(0, 80_000) };
       }
-      case "browser.tabs":
-      case "browser.open_tab":
-      case "browser.close_tab":
-        return null;
       default: {
         const _exhaustive: never = method;
         throw new Error(`unknown browser method: ${String(_exhaustive)}`);

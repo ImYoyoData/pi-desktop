@@ -154,9 +154,8 @@ async function captureElementScreenshot(
     if (full.isEmpty()) return undefined;
 
     const fullSize = full.getSize();
-    const [viewW, viewH] = wc.getSize();
-    const cssW = viewport?.vw && viewport.vw > 0 ? viewport.vw : viewW || fullSize.width;
-    const cssH = viewport?.vh && viewport.vh > 0 ? viewport.vh : viewH || fullSize.height;
+    const cssW = viewport?.vw && viewport.vw > 0 ? viewport.vw : fullSize.width;
+    const cssH = viewport?.vh && viewport.vh > 0 ? viewport.vh : fullSize.height;
 
     let x = Math.max(0, Math.floor(bounds.x));
     let y = Math.max(0, Math.floor(bounds.y));

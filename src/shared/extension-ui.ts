@@ -105,11 +105,37 @@ export function isExtensionUiPending(event: ExtensionUiEvent): event is Extensio
   );
 }
 
+export type ExtensionUiDialogParams =
+  | {
+      requestId: string;
+      method: "select";
+      title: string;
+      options: string[];
+    }
+  | {
+      requestId: string;
+      method: "confirm";
+      title: string;
+      message: string;
+    }
+  | {
+      requestId: string;
+      method: "input";
+      title: string;
+      placeholder?: string;
+    }
+  | {
+      requestId: string;
+      method: "editor";
+      title: string;
+      prefill?: string;
+    };
+
 /** Normalize worker RPC params into a dialog pending payload (without sessionId). */
 export function parseExtensionUiDialogParams(
   params: Record<string, unknown>,
   requestId: string,
-): Omit<ExtensionUiPending, "sessionId"> | null {
+): ExtensionUiDialogParams | null {
   const method = params.method;
   if (!isExtensionUiDialogMethod(method)) return null;
   const title = typeof params.title === "string" ? params.title : "";
