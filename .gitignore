@@ -18,3 +18,5 @@ _ev-scaffold2
 /.idea/pi-desktop.iml
 /.idea/vcs.xml
 /.pi-glla/
+AGENTS.md
+.vscode
