@@ -4,8 +4,10 @@ import {
 	appendUserMessage,
 	clearPendingAskUser,
 	createChatState,
+	hasLiveTurnState,
 	reduceChatEvent,
 	setPendingAskUser,
+	type ChatState,
 } from "../../src/renderer/src/stores/chat-reducer";
 
 describe("reduceChatEvent", () => {
@@ -59,7 +61,8 @@ describe("reduceChatEvent", () => {
 					content: [
 						{
 							type: "text",
-							text: "Context from browser selection:\n\n### Citation 1\n- URL: https://www.baidu.com/\n\n---\n\n这个是？",
+							text:
+								"Context from browser selection:\n\n### Citation 1\n- URL: https://www.baidu.com/\n\n---\n\n这个是？",
 						},
 					],
 				},
@@ -810,4 +813,54 @@ it("captures usage + duration on assistant message_end", () => {
 	if (last?.role !== "assistant") return;
 	expect(last.usage).toEqual({ input: 800, output: 420, totalTokens: 1220 });
 	expect(last.durationMs).toBeGreaterThanOrEqual(12_400);
+});
+
+describe("hasLiveTurnState", () => {
+	function pending(): NonNullable<ChatState["pendingAskUser"]> {
+		return {
+			sessionId: "s1",
+			requestId: "req-1",
+			questions: [
+				{
+					id: "q1",
+					prompt: "Pick",
+					type: "buttons",
+					options: [{ id: "y", label: "Yes" }],
+				},
+			],
+		};
+	}
+
+	it("reports idle chat as not live", () => {
+		expect(hasLiveTurnState(createChatState())).toBe(false);
+	});
+
+	it("reports a session waiting on ask_user as live", () => {
+		const state = setPendingAskUser(createChatState(), pending());
+		expect(hasLiveTurnState(state)).toBe(true);
+	});
+
+	it("reports a running / streaming session as live", () => {
+		expect(hasLiveTurnState({ ...createChatState(), running: true })).toBe(true);
+		expect(
+			hasLiveTurnState({
+				...createChatState(),
+				streamingMessage: {
+					id: "a1",
+					role: "assistant",
+					text: "hi",
+					streaming: true,
+				},
+			}),
+		).toBe(true);
+	});
+
+	it("reports an idle chat with only history as not live", () => {
+		const state = appendUserMessage(createChatState(), "hello");
+		const settled = reduceChatEvent(state, {
+			type: "prompt_done",
+			sessionId: "s1",
+		});
+		expect(hasLiveTurnState(settled)).toBe(false);
+	});
 });

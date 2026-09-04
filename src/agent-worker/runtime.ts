@@ -1,4 +1,5 @@
 import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
+import { readFileSync, writeFileSync } from "node:fs";
 import type { ImageContent } from "@earendil-works/pi-ai/compat";
 import {
 	createAgentSessionFromServices,
@@ -52,7 +53,15 @@ import { createTodoWriteToolDefinition } from "./todo-tool";
 import { commandShouldStartBackground } from "../shared/bash-background";
 import { createTrackedBashOperations } from "./bash-run-tracker";
 import { createBrowserToolDefinitions } from "./browser-tools";
-import { readContextUsage, SessionTimingTracker } from "./context-usage";
+import {
+	readContextUsage,
+	SessionTimingTracker,
+	type SessionTiming,
+} from "./context-usage";
+import {
+	parseSessionTiming,
+	sessionTimingPath,
+} from "../shared/session-timing";
 import { pruneOldToolResults } from "./tool-result-prune";
 import { createDesktopExtensionUIContext } from "./extension-ui-context";
 import { handleRpcResponse, rpcToMain, setRpcWorkspaceRoot } from "./main-rpc";
@@ -70,6 +79,46 @@ let session: AgentSession | null = null;
 let initStarted = false;
 let runTracker: ReturnType<typeof createTrackedBashOperations> | null = null;
 const timingTracker = new SessionTimingTracker();
+let lastPersistedTimingJson = "";
+
+function restoreTimingFromDisk(filePath: string): void {
+	timingTracker.reset();
+	lastPersistedTimingJson = "";
+	try {
+		const raw = readFileSync(sessionTimingPath(filePath), "utf8");
+		const timing = parseSessionTiming(JSON.parse(raw));
+		if (timing) {
+			timingTracker.restore(timing);
+			lastPersistedTimingJson = JSON.stringify(timing);
+		}
+	} catch {
+		// ignore
+	}
+}
+
+function persistTimingToDisk(timing: SessionTiming): void {
+	const filePath = session?.sessionFile;
+	if (!filePath) return;
+	try {
+		const json = JSON.stringify(timing);
+		if (json === lastPersistedTimingJson) return;
+		writeFileSync(sessionTimingPath(filePath), json, "utf8");
+		lastPersistedTimingJson = json;
+	} catch {
+		// ignore
+	}
+}
+
+function timingStats() {
+	const timing = timingTracker.snapshot();
+	return {
+		llmDurationMs: timing.llmMs > 0 ? timing.llmMs : null,
+		ttftMs: timing.ttftSteps > 0 ? timing.ttftMs / timing.ttftSteps : null,
+		ttftSteps: timing.ttftSteps > 0 ? timing.ttftSteps : null,
+		tokensPerSecond:
+			timing.decodeMs > 0 ? timing.outputTokens / (timing.decodeMs / 1000) : null,
+	};
+}
 let desktopSecurity: DesktopSecuritySettings = { ...DEFAULT_DESKTOP_SECURITY };
 const sessionAllows = new Set<SecurityCategory>();
 /** Once unlocked this session, keep browser_* available for follow-up clicks/fills. */
@@ -96,10 +145,7 @@ function syncBuiltinBrowserTools(active: AgentSession, enable: boolean): void {
 		.map((t) => t.name)
 		.filter(isBuiltinBrowserToolName);
 	const next = [...new Set([...withoutBrowser, ...browserNames])];
-	if (
-		next.length !== current.length ||
-		next.some((n) => !current.includes(n))
-	) {
+	if (next.length !== current.length || next.some((n) => !current.includes(n))) {
 		active.setActiveToolsByName(next);
 	}
 }
@@ -160,7 +206,9 @@ async function rollbackUserTurn(
 }
 
 /** Abandon the earliest user turn that still carries image parts (heals poisoned history). */
-async function rollbackFirstImageUserTurn(active: AgentSession): Promise<boolean> {
+async function rollbackFirstImageUserTurn(
+	active: AgentSession,
+): Promise<boolean> {
 	const users = active.getUserMessagesForForking();
 	for (const user of users) {
 		const entry = active.sessionManager.getEntry(user.entryId);
@@ -199,7 +247,11 @@ function lastAssistantErrorMessage(active: AgentSession): string | null {
 			errorMessage?: string;
 		};
 		if (m?.role !== "assistant") continue;
-		if (m.stopReason === "error" && typeof m.errorMessage === "string" && m.errorMessage) {
+		if (
+			m.stopReason === "error" &&
+			typeof m.errorMessage === "string" &&
+			m.errorMessage
+		) {
 			return m.errorMessage;
 		}
 		return null;
@@ -214,8 +266,7 @@ function sanitizeAgentEvent(
 	const type = event.type;
 	if (type === "agent_end") {
 		const messages = Array.isArray(event.messages) ? event.messages : [];
-		const last =
-			messages.length > 0 ? messages[messages.length - 1] : undefined;
+		const last = messages.length > 0 ? messages[messages.length - 1] : undefined;
 		let lastError: string | undefined;
 		if (last && typeof last === "object") {
 			const msg = last as { stopReason?: unknown; errorMessage?: unknown };
@@ -291,14 +342,16 @@ async function initSession(
 		: SessionManager.create(cwd);
 	// New sessions must hit disk before idle-destroy / cold reopen (avoids id mismatch).
 	ensureSessionFileOnDisk(sessionManager);
+	const initialSessionFile = sessionManager.getSessionFile();
+	if (initialSessionFile) {
+		restoreTimingFromDisk(initialSessionFile);
+	}
 	const settingsManager = SettingsManager.create(cwd, agentDir, {
 		projectTrusted: Boolean(projectTrusted),
 	});
 	const builtinBrowserSkillDir = resolveBuiltinBrowserSkillDir(
 		workerDirname(),
-		typeof process.resourcesPath === "string"
-			? process.resourcesPath
-			: undefined,
+		typeof process.resourcesPath === "string" ? process.resourcesPath : undefined,
 	);
 	const services = await createAgentSessionServices({
 		cwd,
@@ -439,7 +492,13 @@ async function initSession(
 		cwd: sessionManager.getCwd(),
 		resources,
 	});
-	// contextUsage is pulled via get_state after attach; emitting here races ready handshake.
+	setTimeout(() => {
+		try {
+			if (session) emitContextUsage(session);
+		} catch {
+			// ignore
+		}
+	}, 0);
 }
 
 function requireSession(): AgentSession {
@@ -473,6 +532,7 @@ function emitContextUsage(active: AgentSession): void {
 	const usage = readContextUsage(active);
 	if (!usage) return;
 	const timing = timingTracker.snapshot();
+	persistTimingToDisk(timing);
 	post({
 		kind: "event",
 		event: {
@@ -488,6 +548,7 @@ function emitContextUsage(active: AgentSession): void {
 			outputTokens: usage.outputTokens,
 			cacheReadTokens: usage.cacheReadTokens,
 			cacheWriteTokens: usage.cacheWriteTokens,
+			costUsd: usage.costUsd,
 			llmDurationMs: timing.llmMs > 0 ? timing.llmMs : null,
 			ttftMs: timing.ttftSteps > 0 ? timing.ttftMs / timing.ttftSteps : null,
 			ttftSteps: timing.ttftSteps > 0 ? timing.ttftSteps : null,
@@ -522,6 +583,7 @@ export async function handleWorkerMessage(msg: WorkerInbound): Promise<void> {
 	}
 	if (msg.kind === "shutdown") {
 		runTracker?.endAllRuns();
+		persistTimingToDisk(timingTracker.snapshot());
 		process.exit(0);
 		return;
 	}
@@ -693,7 +755,10 @@ async function runCommand(id: string, command: AgentCommand): Promise<void> {
 					sessionId: active.sessionId,
 					sessionName: active.sessionName,
 					messageCount: active.messages.length,
-					contextUsage: readContextUsage(active),
+					contextUsage: (() => {
+						const usage = readContextUsage(active);
+						return usage ? { ...usage, ...timingStats() } : null;
+					})(),
 				},
 			});
 			return;

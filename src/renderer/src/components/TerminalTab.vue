@@ -181,7 +181,7 @@ function noteUserInput(data: string): void {
   }
 }
 
-function bindXterm(host: HTMLDivElement): void {
+function bindXterm(host: HTMLDivElement): Terminal {
   term = new Terminal({
     cursorBlink: true,
     fontSize: 13,
@@ -204,6 +204,7 @@ function bindXterm(host: HTMLDivElement): void {
     if (activePtyId.value) void window.api.terminal.write(activePtyId.value, data);
   });
   host.addEventListener("contextmenu", onContextMenu, true);
+  return term;
 }
 
 /** Tear down xterm UI only — keep the pty process running. */
@@ -242,7 +243,7 @@ async function start(): Promise<void> {
   }
 
   activePtyId.value = id;
-  bindXterm(host);
+  term = bindXterm(host);
 
   const history = await window.api.terminal.getScrollback(id);
   if (history && term) {

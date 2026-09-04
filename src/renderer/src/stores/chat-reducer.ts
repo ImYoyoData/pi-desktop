@@ -172,6 +172,18 @@ export function withRunClock(
 	};
 }
 
+/** True when a session still has a live in-memory turn the disk page cannot represent. */
+export function hasLiveTurnState(state: ChatState): boolean {
+	return (
+		state.running ||
+		state.autoRecovering ||
+		state.streamingMessage != null ||
+		state.pendingAskUser != null ||
+		state.pendingPermission != null ||
+		state.pendingExtensionUi != null
+	);
+}
+
 export function clearPendingAskUser(state: ChatState): ChatState {
 	if (!state.pendingAskUser) return state;
 	return { ...state, pendingAskUser: null };
@@ -560,7 +572,7 @@ function imagesFromMessage(
 function assistantFromPartial(
 	msg: Record<string, unknown>,
 	prev: ChatMessage | null,
-): ChatMessage {
+): Extract<ChatMessage, { role: "assistant" }> {
 	const id =
 		typeof msg.id === "string" && msg.id.length > 0
 			? msg.id
@@ -808,9 +820,7 @@ function reduceAgentPayload(
 
 		const msgId = typeof msg.id === "string" ? msg.id : "";
 		const existingAssistantIdx = msgId
-			? state.messages.findIndex(
-					(m) => m.role === "assistant" && m.id === msgId,
-				)
+			? state.messages.findIndex((m) => m.role === "assistant" && m.id === msgId)
 			: -1;
 		if (existingAssistantIdx >= 0) {
 			// Already parked for this turn (tools in progress). Refresh in place only.
@@ -866,10 +876,7 @@ function reduceAgentPayload(
 					{
 						...nextStream,
 						// Never replace a long stream with a short "section title" end payload.
-						thinking: coalesceGrowingText(
-							ev.content,
-							nextStream.thinking ?? "",
-						),
+						thinking: coalesceGrowingText(ev.content, nextStream.thinking ?? ""),
 					},
 					{ finalize: true },
 				);
@@ -910,8 +917,7 @@ function reduceAgentPayload(
 			const rawText = textFromMessage(msg);
 			const text = stripComposerModePreamble(rawText);
 			const fromEvent = imagesFromMessage(msg);
-			const id =
-				typeof msg.id === "string" && msg.id ? msg.id : localId("user");
+			const id = typeof msg.id === "string" && msg.id ? msg.id : localId("user");
 			const last = state.messages.at(-1);
 			if (last?.role === "user") {
 				const sameText = last.text === text || last.text.trim() === text.trim();
@@ -928,8 +934,7 @@ function reduceAgentPayload(
 				const modePreambleEcho =
 					rawText !== text &&
 					Boolean(last.text.trim()) &&
-					(text.trim() === last.text.trim() ||
-						rawText.includes(last.text.trim()));
+					(text.trim() === last.text.trim() || rawText.includes(last.text.trim()));
 				// File/URL chips are path/url *text* for the agent (`@path` / raw url). The bubble
 				// keeps structured tags — never mirror the expanded prompt as another user row.
 				if (
@@ -1164,8 +1169,7 @@ function reduceAgentPayload(
 		const toolCallId = String(payload.toolCallId ?? "");
 		const id = `tool-${toolCallId}`;
 		const stream =
-			state.streamingMessage?.role === "tool" &&
-			state.streamingMessage.id === id
+			state.streamingMessage?.role === "tool" && state.streamingMessage.id === id
 				? state.streamingMessage
 				: null;
 		const existing = state.messages.find((m) => m.id === id);
@@ -1345,6 +1349,9 @@ export function reduceChatEvent(
 			return withRunClock(appendError(state, t.stuckBanner));
 		case "worker_alive":
 			return withRunClock(state, { activity: false, workerAlive: true });
+		case "worker_stall":
+			// Renderer watchdog owns stall recovery (autoRecover) — keep turn running.
+			return state;
 		case "worker_exit":
 			// Non-zero / unexpected exit → show in chat; clean idle-destroy (0/null) is silent.
 			if (event.code !== 0 && event.code != null) {

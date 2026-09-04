@@ -1,15 +1,31 @@
 import fs from "node:fs/promises";
-import type { SessionHistoryMessage, SessionHistoryPage } from "../shared/protocol";
+import { rmSync } from "node:fs";
+import type {
+  SessionHistoryMessage,
+  SessionHistoryPage,
+} from "../shared/protocol";
+import { sessionTimingPath } from "../shared/session-timing";
 import { deleteChatMeta, readChatMeta } from "./session-chat-meta";
 import { deleteImageCache } from "./session-image-cache";
 import {
   parseSessionHistoryJsonl,
   parseSessionHistoryPageFromJsonl,
 } from "./session-history-parse";
-import { parseHistoryOffMain, parseHistoryPageOffMain } from "./session-history-offload";
+import {
+  parseHistoryOffMain,
+  parseHistoryPageOffMain,
+} from "./session-history-offload";
 
 /** Default page size for chat UI history (tail / older pages). Disk jsonl stays full (shared with Pi CLI). */
 export const SESSION_HISTORY_PAGE_SIZE = 30;
+
+function deleteTimingMeta(filePath: string): void {
+  try {
+    rmSync(sessionTimingPath(filePath), { force: true });
+  } catch {
+    // ignore
+  }
+}
 
 type HistoryCacheEntry = {
   mtimeMs: number;
@@ -63,10 +79,10 @@ function writePageCache(
 ): void {
   const key = pageCacheKey(limit, beforeId);
   const rows = pageCache.get(filePath) ?? [];
-  const next = [{ mtimeMs, key, page }, ...rows.filter((r) => r.key !== key)].slice(
-    0,
-    PAGE_CACHE_PER_FILE,
-  );
+  const next = [
+    { mtimeMs, key, page },
+    ...rows.filter((r) => r.key !== key),
+  ].slice(0, PAGE_CACHE_PER_FILE);
   pageCache.set(filePath, next);
   if (pageCache.size > 32) {
     const first = pageCache.keys().next().value;
@@ -74,7 +90,9 @@ function writePageCache(
   }
 }
 
-async function loadAllHistoryMessages(filePath: string): Promise<SessionHistoryMessage[]> {
+async function loadAllHistoryMessages(
+  filePath: string,
+): Promise<SessionHistoryMessage[]> {
   let st: { mtimeMs: number };
   try {
     st = await fs.stat(filePath);
@@ -91,7 +109,10 @@ async function loadAllHistoryMessages(filePath: string): Promise<SessionHistoryM
     // Heavy JSONL parse off the main process (large sessions freeze every window).
     messages = await parseHistoryOffMain(filePath);
   } catch (err) {
-    console.warn("[pi-desktop] history worker failed; falling back on main", err);
+    console.warn(
+      "[pi-desktop] history worker failed; falling back on main",
+      err,
+    );
     let raw: string;
     try {
       raw = await fs.readFile(filePath, "utf8");
@@ -110,7 +131,9 @@ async function loadAllHistoryMessages(filePath: string): Promise<SessionHistoryM
 }
 
 /** Full leaf-path history (tests / callers that need everything). */
-export async function readSessionHistoryMessages(filePath: string): Promise<SessionHistoryMessage[]> {
+export async function readSessionHistoryMessages(
+  filePath: string,
+): Promise<SessionHistoryMessage[]> {
   return loadAllHistoryMessages(filePath);
 }
 
@@ -126,7 +149,10 @@ export async function readSessionHistoryPage(
   filePath: string,
   opts?: { limit?: number; beforeId?: string | null },
 ): Promise<SessionHistoryPage> {
-  const limit = Math.max(1, Math.min(200, opts?.limit ?? SESSION_HISTORY_PAGE_SIZE));
+  const limit = Math.max(
+    1,
+    Math.min(200, opts?.limit ?? SESSION_HISTORY_PAGE_SIZE),
+  );
   const beforeId = opts?.beforeId?.trim() || null;
 
   let st: { mtimeMs: number };
@@ -174,7 +200,10 @@ export async function readSessionHistoryPage(
   try {
     page = await parseHistoryPageOffMain(filePath, { limit, beforeId });
   } catch (err) {
-    console.warn("[pi-desktop] history page worker failed; falling back on main", err);
+    console.warn(
+      "[pi-desktop] history page worker failed; falling back on main",
+      err,
+    );
     let raw: string;
     try {
       raw = await fs.readFile(filePath, "utf8");
@@ -193,8 +222,11 @@ export async function readSessionHistoryPage(
 }
 
 /** Drop conversation entries; keep session header + metadata (name, model, thinking). */
-export async function clearSessionConversation(filePath: string): Promise<void> {
+export async function clearSessionConversation(
+  filePath: string,
+): Promise<void> {
   deleteChatMeta(filePath);
+  deleteTimingMeta(filePath);
   let raw: string;
   try {
     raw = await fs.readFile(filePath, "utf8");
@@ -242,6 +274,7 @@ export async function clearSessionConversation(filePath: string): Promise<void> 
 export async function deleteSessionFile(filePath: string): Promise<void> {
   invalidateSessionHistoryCache(filePath);
   deleteChatMeta(filePath);
+  deleteTimingMeta(filePath);
   deleteImageCache(filePath);
   await fs.unlink(filePath);
 }

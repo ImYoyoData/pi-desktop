@@ -72,7 +72,7 @@ function writeGitignore(filePath: string, rest: string, rules: string[]): void {
     if (trimmed) writeFileSync(filePath, `${trimmed}\n`, "utf8");
     else {
       try {
-        fs.rmSync(filePath, { force: true });
+        rmSync(filePath, { force: true });
       } catch {
         // ignore
       }

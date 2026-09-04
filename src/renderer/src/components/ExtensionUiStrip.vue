@@ -57,9 +57,8 @@ async function onSelect(p: Extract<ExtensionUiPending, { method: "select" }>, va
   await reply({ requestId: p.requestId, value });
 }
 
-async function onSubmitText(
-  p: Extract<ExtensionUiPending, { method: "input" | "editor" }>,
-): Promise<void> {
+async function onSubmitText(p: ExtensionUiPending | null): Promise<void> {
+  if (!p || (p.method !== "input" && p.method !== "editor")) return;
   const value = textDraft.value;
   await reply({ requestId: p.requestId, value });
 }

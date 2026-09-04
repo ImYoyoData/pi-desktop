@@ -1,30 +1,49 @@
 # Changelog
 
-## v0.3.0 (2026-08-23)
+## v0.3.1 (2026-09-04)
+
+本版重点：全局网络代理；会话排序与折叠；启动提速与恢复旧会话稳定性。
 
 ### 新功能 Features
-- 聊天界面全面对齐 opencode：消息时间线（工具调用、思考块全程内联展示，不再折叠成过程卡片）；用户消息改为中性气泡 + 附件 chip + 悬停操作行；助手回复基准字号 14px。
-- 回合结束展示修改文件列表：`修改了 N 个文件  +a −d`，可展开逐文件查看目录/文件名与各自增删行数，点击直接在预览打开。
-- 内置 `todo_write` 待办工具：每次调用**全量替换**列表；系统提示词约束「一次只进行一项、完成立即标记、未开始可自由调整」；面板逐条独立计时（进行中实时跳动、完成即冻结）并显示总用时；进行中的待办有旋转图标与头部呼吸灯。
-- 会话侧栏 opencode 风格：单行紧凑会话行（状态彩点 + 标题 + 右侧相对时间）、顶部会话搜索框（过滤时自动展开工作区、隐藏无匹配项并暂停拖拽排序）、工作区数量徽标与大写间距分区标题。
-- 自定义模型「拉取模型」升级为可勾选的模型列表弹层：支持搜索过滤、全选/清空，确认后才把所选模型写入草稿。
-- opencode-style chat UI: inline tool-call timeline (no more folded process cards), neutral user bubbles with attachment chips and hover actions, 14px assistant base text.
-- Per-turn changed-files summary after each finished turn — `Changed N files +a −d`, expandable per-file list, click opens the file in Preview.
-- Built-in `todo_write` tool: every call fully replaces the list; system-prompt rules enforce one-in-progress-at-a-time; per-item live timers (frozen on completion) plus total round time; animated spinner and pulsing header badge while running.
-- opencode-style session sidebar: compact single-line session rows with status dots, session search box (auto-expands workspaces while filtering), workspace count badges.
-- Custom models "Fetch" now opens a pickable model-list dialog (search / select all / none) before writing selected rows into the draft.
+
+- **网络代理**：新增全局代理设置面板，代理注入 agent worker 与 git 操作，支持 http/https，TitleBar 快捷入口（解决 #8）。
+- **会话排序**：侧栏会话按「置顶 + 最近修改」排序并持久化，新建会话自动置顶。
+- **会话列表折叠**：会话数超过 7 个自动折叠，显示「查看全部 N 个」展开按钮。
+- Global proxy settings (http/https) applied to agent workers and git operations (closes #8).
+- Sessions sorted by pinned + recently modified (persisted); new sessions pin to top.
+- Session list auto-collapses beyond 7 items with a "view all" expander.
 
 ### 修复 / 体验 Fixes
-- 待办数据串台修复：列表更新一律全量替换，旧条目不可能残留；内置工具接管后忽略 pi-deck 扩展的旧推送；新任务自动清空上一轮列表，已完成项不会在下一个任务复活。
-- 停止 Agent 时待办进入「已暂停」而非完成态：可选「继续任务」（保留列表并跳过一次新任务重置）或「删除列表」；只有自然跑完才自动补完结并冻结总用时。
-- 每条待办按文本绑定计时器：跨更新保持计时连续（ID 重排不受影响），移除的条目计时同步清理。
-- Todo lists no longer bleed across tasks: full-replace updates, stale extension re-pushes ignored once the builtin tool owns the list, clean slate on every new task.
-- Stopping the agent now pauses todos instead of completing them — choose Continue task (list survives one reset) or Delete list; natural finishes still auto-close with frozen total time.
-- Per-item todo timers bind by text so they survive id renumbering; removed items are pruned with each replace.
+
+- 修复程序后台运行时 IPC 任务队列积压：会话事件在页面隐藏时合并缓冲、恢复可见后批量消费，避免主进程事件堆积导致卡顿。
+- 修复 `MessageList.vue` 虚拟滚动逻辑：跟随底部改为滚动事件同步判定，上滑读历史时不再被排队中的自动贴底强制拉回。
+- 压缩上下文按钮默认不再显示，可在通用设置中重新开启。
+- 修复上下文用量百分比估算：按模型真实上下文窗口计算，并展示真实会话成本（原为固定成本线估算）。
+- 修复打开旧会话加载首 token 慢或偶发失败：上下文用量统计改为 sidecar 落盘（`.timing.json`），恢复旧会话不再重复计算或丢失统计。
+- 修复侧栏「卡住恢复」按钮不显示：终止/重启按钮原本放在不存在的 footer 插槽永不渲染，已移入默认插槽。
+- 修复/补全 Vue 类型环境：`env.d.ts` 改为模块增强并引入 `@vue/typescript-plugin`，消除全项目 `vue has no exported member` 假报错。
+- Hidden-window IPC backlog: session events now buffer while the page is hidden and bulk-flush on restore, so the queue never piles up in the background.
+- Fixed `MessageList.vue` virtual scrolling: follow-bottom is decided synchronously on scroll and queued auto-snaps are cancelled when you scroll up to read history.
+- The compact-context button now stays hidden by default (re-enable in General settings).
+- Context usage percent now measures against the model's real context window (was a flat 300k cost line), with the real session cost shown instead of an estimate.
+- Old-session open no longer stalls or miscounts: context stats now persist via a sidecar `.timing.json`.
+- "Recover stuck" buttons now render (moved from a non-existent slot).
+- Vue type environment fixed via module augmentation + `@vue/typescript-plugin` (no more false `vue has no exported member`).
+
+### 性能优化 Performance
+
+- 会话列表改为 worker 线程轻量扫描（仅读首行 + 标题 + 首条消息 + mtime），不再整读会话 jsonl，避免阻塞主进程事件循环。
+- ASR GPU 探测（nvidia-smi / vulkaninfo 等）移入独立 worker 线程，Pi CLI 工作区扫描同样 worker 化。
+- 新增启动全链路埋点（`PI_DESKTOP_STARTUP_TIMING=1` 输出到 userData/startup-timing.log），便于回归监控。
+- 运行开关：`PI_DESKTOP_NO_WATCH`（跳过文件监听）、`PI_DESKTOP_NO_SPELLCHECK`、`PI_DESKTOP_USER_DATA`；LAN 控制台延迟启动且可用 `PI_DESKTOP_NO_LAN` 跳过。
+- Session list summaries built by a worker-thread light scan instead of full jsonl reads.
+- ASR GPU probes and workspace scans moved off the main event loop.
+- Startup timing instrumentation behind `PI_DESKTOP_STARTUP_TIMING=1`.
 
 ## v0.2.9 (2026-08-17)
 
 ### 修复 / 体验 Fixes
+
 - 暗色主题代码高亮改用 `github-dark`，不再误用浅色配色（#5）。
 - 代码块行号与内容对齐：只保留外层滚动，行号 sticky，避免双滚动错位（#6）。
 - 非视觉模型发图：发送前校验 vision、失败回滚毒化消息，编辑重发真正替换，避免会话卡死（#7）。
@@ -39,12 +58,14 @@
 ## v0.2.8 (2026-08-09)
 
 ### 新功能 Features
+
 - 自定义模型：拉取模型与保存分离；「测试连接」发极短请求测延迟/连通；删除 Provider 立即写入磁盘。
 - 移除工作区：清除 Pi 会话与配置，**不删除**项目文件夹；关闭仅移入已关闭列表。
 - Custom models: Fetch models vs Save are separate; Test sends a tiny probe for latency; deleting a provider persists immediately.
 - Remove workspace: purge Pi sessions/config without deleting the project folder; Close only dismisses to the closed list.
 
 ### 修复 / 体验 Fixes
+
 - 录音确认与云端 ASR：WAV/base64 与云转写移出主进程，避免整窗冻结；唤醒流改用 Int16 PCM。
 - 启动与切会话：侧栏先出 Desktop 列表、Pi 扫描后台合并；历史分页只物化当前页图片，降低大会话切换成本。
 - 录音波形：接近上下边界 85% 时自动压缩增益，避免顶死、更跟手。
@@ -55,6 +76,7 @@
 ## v0.2.7 (2026-08-09)
 
 ### 新功能 Features
+
 - 局域网网页复用桌面消息组件：思考块、读写文件等工具卡、Markdown/代码高亮；WebSocket 实时推送，边生成边显示。
 - 会话模型与推理强度与桌面端同步；打开会话后读取 worker 状态，网页修改写回桌面。
 - 连接门禁：登录后先显示「正在连接」界面，WS 握手并拿到工作区列表后再进入主界面；断线自动重连。
@@ -67,6 +89,7 @@
 - Smarter LAN IP pick (prefer Wi‑Fi / `192.168`, optional manual IP); gzip for static assets.
 
 ### 修复 / 体验 Fixes
+
 - 桌面端点击录音卡顿：预热 AudioWorklet、点击先出 UI；低性能机关闭重型麦处理、降波形帧率，录音中不再每帧 resample。
 - 桌面启动与侧边栏体感优化：减少启动阻塞、会话列表更轻。
 - Desktop mic-click jank: prewarm AudioWorklet, paint UI first; on low-power machines disable heavy AEC/NS/AGC, lower waveform FPS, and stop per-frame resample while recording.
@@ -75,6 +98,7 @@
 ## v0.2.6 (2026-08-03)
 
 ### 新功能 Features
+
 - 局域网网页控制台（默认关闭）：标题栏左侧远程图标入口，账号密码登录，发放 6 小时会话 token（刷新免重登）。
 - 手机/PC 浏览器访问：响应式界面、Vue + Naive UI（与桌面同款组件库），工作区手风琴展开会话、聊天、发送消息。
 - 语音识别：网页录音 → HTTP 代理 → 桌面配置的识别方式（本地/云端），PC 点击录音、再点识别，含「正在转换」加载效果。

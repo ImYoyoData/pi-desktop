@@ -1,4 +1,5 @@
 <script setup lang="ts">
+// pi-lens-ignore: 2305
 import { computed, h, nextTick, onMounted, onUnmounted, reactive, ref, watch } from "vue";
 import type { DropdownOption } from "naive-ui";
 import {
@@ -11,6 +12,7 @@ import {
   NModal,
   NScrollbar,
   NSpace,
+  NText,
   NTooltip,
   useDialog,
   useMessage,
@@ -23,14 +25,13 @@ import {
   FolderOpenOutline,
   PinOutline,
   RefreshOutline,
-  SearchOutline,
   TrashOutline,
 } from "@vicons/ionicons5";
 import PanelLeftIcon from "@renderer/components/icons/PanelLeftIcon.vue";
 import Sortable from "sortablejs";
 import { Splitpanes, Pane } from "splitpanes";
 import type { SplitpanesResizedPayload } from "splitpanes";
-import type { SessionSummary } from "../../../shared/protocol";
+import type { SessionStatus, SessionSummary } from "../../../shared/protocol";
 import { useLayoutStore } from "@renderer/stores/layout";
 import { useSessionsStore } from "@renderer/stores/sessions";
 import { useChatStore } from "@renderer/stores/chat";
@@ -38,9 +39,11 @@ import { useSendQueueStore } from "@renderer/stores/send-queue";
 import { useWorkspaceStore } from "@renderer/stores/workspace";
 import FilesTab from "@renderer/components/FilesTab.vue";
 import { t } from "@renderer/i18n";
+import { markRendererStartup } from "@renderer/utils/startup-timing";
 
 const PIN_KEY = "session-pins:v1";
-const SESSION_ORDER_KEY = "pi-desktop:session-order:v1";
+const SESSION_ORDER_KEY = "pi-desktop:session-order:v2";
+const SESSION_VISIBLE_LIMIT = 7;
 
 const layout = useLayoutStore();
 const sessionsStore = useSessionsStore();
@@ -54,11 +57,9 @@ const sessionsByRoot = reactive<Record<string, SessionSummary[]>>({});
 const expanded = reactive<Record<string, boolean>>({});
 const pins = reactive<Record<string, string[]>>({});
 const sessionOrders = reactive<Record<string, string[]>>({});
+const sessionListExpanded = reactive<Record<string, boolean>>({});
 const sessionListEls = new Map<string, HTMLElement>();
 const sessionSortables = new Map<string, Sortable>();
-
-/** Sidebar session filter (opencode-style search box). */
-const sessionQuery = ref("");
 
 const renameOpen = ref(false);
 const renameDraft = ref("");
@@ -134,6 +135,7 @@ function confirmPurgeWorkspace(root: string): void {
           d.loading = false;
           return false;
         }
+        return undefined;
       })();
     },
   });
@@ -228,9 +230,11 @@ function bindSessionSortable(root: string): void {
   sessionSortables.get(root)?.destroy();
   const sortable = Sortable.create(el, {
     animation: 150,
-    disabled: hasQuery.value,
     draggable: ".session-row",
-    filter: ".empty-inline",
+    filter: ".empty-inline, .session-expand-row",
+    disabled:
+      !sessionListExpanded[root] &&
+      (sessionsByRoot[root]?.length ?? 0) > SESSION_VISIBLE_LIMIT,
     onEnd: () => {
       const ids = [...el.querySelectorAll<HTMLElement>(".session-row[data-id]")]
         .map((n) => n.dataset.id)
@@ -269,6 +273,7 @@ function togglePin(root: string, id: string): void {
 }
 
 onMounted(async () => {
+  markRendererStartup("renderer:sidebar-mounted");
   loadPins();
   loadSessionOrders();
   sessionsStore.bindEvents();
@@ -370,43 +375,37 @@ function sessionsFor(root: string): SessionSummary[] {
   return list;
 }
 
-/** True when the sidebar filter box has a query — lists flatten & drag pauses. */
-const hasQuery = computed(() => sessionQuery.value.trim().length > 0);
-
-function matchesQuery(session: SessionSummary): boolean {
-  const q = sessionQuery.value.trim().toLowerCase();
-  if (!q) return true;
-  return (
-    (session.name ?? "").toLowerCase().includes(q) ||
-    (session.firstMessage ?? "").toLowerCase().includes(q) ||
-    session.id.toLowerCase().includes(q)
-  );
-}
-
-/** Sorted sessions filtered by the search box. */
 function visibleSessionsFor(root: string): SessionSummary[] {
   const list = sessionsFor(root);
-  return hasQuery.value ? list.filter(matchesQuery) : list;
+  if (sessionListExpanded[root] || list.length <= SESSION_VISIBLE_LIMIT) return list;
+  return list.slice(0, SESSION_VISIBLE_LIMIT);
 }
 
-// Drag-to-reorder only makes sense on the unfiltered list.
-watch(hasQuery, () => {
-  for (const root of [...sessionListEls.keys()]) bindSessionSortable(root);
-});
+function hiddenSessionCount(root: string): number {
+  if (sessionListExpanded[root]) return 0;
+  return Math.max(0, sessionsFor(root).length - SESSION_VISIBLE_LIMIT);
+}
 
-/** Freeze current visual order and append a new session id at the end. */
+function toggleSessionListExpanded(root: string): void {
+  sessionListExpanded[root] = !sessionListExpanded[root];
+  void nextTick(() => bindSessionSortable(root));
+}
+
+/** Freeze current visual order and prepend a new session id at the front. */
 function appendSessionToOrder(root: string, sessionId: string): void {
   const base = sessionsFor(root)
     .map((s) => s.id)
     .filter((id) => id !== sessionId);
-  sessionOrders[root] = [...base, sessionId];
+  sessionOrders[root] = [sessionId, ...base];
   persistSessionOrders();
 }
 
 async function loadSessions(root: string): Promise<void> {
+  markRendererStartup("renderer:sessions-request");
   const list = await window.api.sessions.list(root);
   sessionsByRoot[root] = list;
   if (root === workspace.root) sessionsStore.sessions = list;
+  markRendererStartup("renderer:ready");
 }
 
 async function ensureActiveSession(root: string): Promise<void> {
@@ -529,6 +528,7 @@ function confirmDeleteSession(root: string, sessionId: string): void {
           d.loading = false;
           return false;
         }
+        return undefined;
       })();
     },
   });
@@ -714,6 +714,7 @@ async function onSessionMenu(
       try {
         await onSelectSession(root, session.id);
         await window.api.sessions.clearContext(session.id, root);
+        chatStore.clearSession(session.id);
         chatStore.hydrateFromHistoryPage(session.id, { messages: [], hasMore: false, total: 0 }, session.filePath ?? null);
         await loadSessions(root);
         message.success(t.clearContextDone);
@@ -784,6 +785,10 @@ async function onCtxSelect(key: string | number): Promise<void> {
   }
 }
 
+function isRunning(status: SessionStatus): boolean {
+  return status === "running";
+}
+
 const sessionsPaneSize = computed(() => Math.max(22, 100 - layout.leftFilesSize));
 
 function onLeftSplitResized(payload: SplitpanesResizedPayload): void {
@@ -839,35 +844,19 @@ function onLeftSplitResized(payload: SplitpanesResizedPayload): void {
       </NTooltip>
     </div>
 
-    <div class="filter-wrap">
-      <NInput
-        v-model:value="sessionQuery"
-        size="small"
-        clearable
-        :placeholder="t.filterSessions"
-        class="filter-input"
-      >
-        <template #prefix>
-          <NIcon :component="SearchOutline" :size="13" class="filter-icon" />
-        </template>
-      </NInput>
-    </div>
-
     <NAlert v-if="showStuckRecovery" type="warning" :bordered="false" style="margin: 0 8px 8px">
       {{ t.stuckBanner }}
-      <template #footer>
-        <NSpace>
-          <NButton size="tiny" type="error" @click="onKill">{{ t.terminate }}</NButton>
-          <NButton size="tiny" @click="onRestart">{{ t.restart }}</NButton>
-        </NSpace>
-      </template>
+      <NSpace style="margin-top: 6px">
+        <NButton size="tiny" type="error" @click="onKill">{{ t.terminate }}</NButton>
+        <NButton size="tiny" @click="onRestart">{{ t.restart }}</NButton>
+      </NSpace>
     </NAlert>
 
     <Splitpanes class="left-split" horizontal @resized="onLeftSplitResized">
       <Pane :size="sessionsPaneSize" :min-size="22">
         <div class="sessions-pane">
           <div class="section-head">
-            <span class="section-title">{{ t.workspaces }}</span>
+            <NText depth="3" style="font-size: 12px; font-weight: 600">{{ t.workspaces }}</NText>
             <NTooltip>
               <template #trigger>
                 <NButton quaternary circle size="tiny" @click="onAddWorkspace">
@@ -887,7 +876,6 @@ function onLeftSplitResized(payload: SplitpanesResizedPayload): void {
                 :key="root"
                 class="ws-block"
                 :data-root="root"
-                v-show="!hasQuery || visibleSessionsFor(root).length > 0"
               >
               <div class="ws-row-wrap">
                 <button
@@ -898,15 +886,12 @@ function onLeftSplitResized(payload: SplitpanesResizedPayload): void {
                   @click="onWorkspaceClick(root)"
                   @contextmenu="(e) => openWorkspaceCtx(e, root)"
                 >
-                  <span class="chevron" :class="{ open: expanded[root] || hasQuery }">
-                    <NIcon :component="ChevronForwardOutline" :size="13" />
+                  <span class="chevron" :class="{ open: expanded[root] }">
+                    <NIcon :component="ChevronForwardOutline" :size="14" />
                   </span>
-                  <NEllipsis class="ws-name">{{
+                  <NEllipsis style="font-weight: 600; flex: 1; min-width: 0">{{
                     workspaceName(root)
                   }}</NEllipsis>
-                  <span v-if="sessionsFor(root).length" class="ws-count">{{
-                    sessionsFor(root).length
-                  }}</span>
                 </button>
                 <NTooltip>
                   <template #trigger>
@@ -928,39 +913,47 @@ function onLeftSplitResized(payload: SplitpanesResizedPayload): void {
               </div>
 
               <ul
-                v-show="expanded[root] || hasQuery"
+                v-show="expanded[root]"
                 class="session-list"
-                :class="{ open: expanded[root] || hasQuery }"
+                :class="{ open: expanded[root] }"
                 :ref="(el) => setSessionListRef(root, el)"
               >
                 <li v-if="!sessionsFor(root).length" class="empty-inline">{{ t.emptySessions }}</li>
-                <li v-else-if="!visibleSessionsFor(root).length" class="empty-inline">
-                  {{ t.noMatchSessions }}
-                </li>
                 <li
                   v-for="(session, sIdx) in visibleSessionsFor(root)"
                   :key="session.id"
                   class="session-row"
                   :data-id="session.id"
-                  :class="{ active: sessionsStore.activeId === session.id }"
+                  :class="{
+                    active: sessionsStore.activeId === session.id,
+                    running: isRunning(session.status),
+                  }"
                   :style="{ '--i': String(sIdx) }"
                   @click="onSelectSession(root, session.id)"
                   @contextmenu="(e) => openSessionCtx(e, root, session)"
                 >
                   <div class="session-inner">
-                    <span
-                      class="s-dot"
-                      :class="`st-${session.status || 'idle'}`"
-                      aria-hidden="true"
-                    />
-                    <NIcon
-                      v-if="isPinned(root, session.id)"
-                      class="pin"
-                      :component="PinOutline"
-                      :size="11"
-                    />
-                    <span class="session-label">{{ sessionLabel(session) }}</span>
-                    <span class="time">{{ relativeTime(session.modified) }}</span>
+                    <span class="active-bar" />
+                    <span class="status-mark" :class="`st-${session.status || 'idle'}`" aria-hidden="true">
+                      <i class="status-core" />
+                    </span>
+                    <div class="session-body">
+                      <div class="session-title-row">
+                        <NIcon
+                          v-if="isPinned(root, session.id)"
+                          class="pin"
+                          :component="PinOutline"
+                          :size="11"
+                        />
+                        <span class="session-label">{{ sessionLabel(session) }}</span>
+                      </div>
+                      <div class="session-meta">
+                        <span class="time">{{ relativeTime(session.modified) }}</span>
+                        <span v-if="isRunning(session.status)" class="run-tag">live</span>
+                        <span v-else-if="session.status === 'error'" class="err-tag">err</span>
+                        <span v-else-if="session.status === 'stuck'" class="stuck-tag">stuck</span>
+                      </div>
+                    </div>
                     <NButton
                       class="trash"
                       quaternary
@@ -969,10 +962,34 @@ function onLeftSplitResized(payload: SplitpanesResizedPayload): void {
                       @click.stop="confirmDeleteSession(root, session.id)"
                     >
                       <template #icon>
-                        <NIcon :component="TrashOutline" :size="13" />
+                        <NIcon :component="TrashOutline" :size="14" />
                       </template>
                     </NButton>
                   </div>
+                </li>
+                <li v-if="hiddenSessionCount(root) > 0" class="session-expand-row">
+                  <button
+                    type="button"
+                    class="session-expand-btn"
+                    @click.stop="toggleSessionListExpanded(root)"
+                  >
+                    {{ t.showMoreSessions(hiddenSessionCount(root)) }}
+                  </button>
+                </li>
+                <li
+                  v-else-if="
+                    sessionListExpanded[root] &&
+                    sessionsFor(root).length > SESSION_VISIBLE_LIMIT
+                  "
+                  class="session-expand-row"
+                >
+                  <button
+                    type="button"
+                    class="session-expand-btn"
+                    @click.stop="toggleSessionListExpanded(root)"
+                  >
+                    {{ t.collapseSessions }}
+                  </button>
                 </li>
               </ul>
               </div>
@@ -1118,34 +1135,12 @@ function onLeftSplitResized(payload: SplitpanesResizedPayload): void {
   transform: none !important;
 }
 
-.filter-wrap {
-  padding: 2px 8px 6px;
-  flex-shrink: 0;
-}
-
-.filter-input {
-  --n-border-radius: 8px;
-  font-size: 12px;
-}
-
-.filter-icon {
-  color: var(--fg-faint);
-}
-
 .section-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 4px 12px 4px;
+  padding: 6px 10px 2px;
   flex-shrink: 0;
-}
-
-.section-title {
-  font-size: 10.5px;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--fg-faint);
 }
 
 .tree {
@@ -1283,13 +1278,13 @@ function onLeftSplitResized(payload: SplitpanesResizedPayload): void {
   display: flex;
   align-items: center;
   gap: 4px;
-  height: 28px;
-  padding: 0 6px;
+  height: 32px;
+  padding: 0 8px;
   border: none;
-  border-radius: 8px;
+  border-radius: 9px;
   background: transparent;
-  color: var(--fg);
-  font-size: 12px;
+  color: var(--fg-strong);
+  font-size: 13px;
   font-weight: 650;
   letter-spacing: -0.01em;
   text-align: left;
@@ -1303,21 +1298,6 @@ function onLeftSplitResized(payload: SplitpanesResizedPayload): void {
 
 .ws-row.active {
   background: var(--bg-hover);
-}
-
-.ws-name {
-  font-weight: 650;
-  flex: 1;
-  min-width: 0;
-}
-
-.ws-count {
-  flex-shrink: 0;
-  font-size: 10.5px;
-  font-weight: 500;
-  color: var(--fg-faint);
-  font-variant-numeric: tabular-nums;
-  padding-right: 2px;
 }
 
 .ws-new-session {
@@ -1347,10 +1327,10 @@ function onLeftSplitResized(payload: SplitpanesResizedPayload): void {
 .session-list {
   list-style: none;
   margin: 0 0 8px;
-  padding: 1px 0 0;
+  padding: 2px 0 0;
   display: flex;
   flex-direction: column;
-  gap: 1px;
+  gap: 2px;
 }
 
 .session-row {
@@ -1358,18 +1338,18 @@ function onLeftSplitResized(payload: SplitpanesResizedPayload): void {
   list-style: none;
   margin: 0;
   padding: 0;
-  border-radius: 8px;
-  font-size: 12.5px;
+  border-radius: 10px;
+  font-size: 13px;
   color: var(--fg-muted);
   cursor: pointer;
-  animation: session-row-in 200ms var(--ease-out, cubic-bezier(0.22, 1, 0.36, 1)) both;
-  animation-delay: calc(min(var(--i, 0), 12) * 14ms);
+  animation: session-row-in 220ms var(--ease-out, cubic-bezier(0.22, 1, 0.36, 1)) both;
+  animation-delay: calc(min(var(--i, 0), 12) * 18ms);
 }
 
 @keyframes session-row-in {
   from {
     opacity: 0;
-    transform: translateY(3px);
+    transform: translateY(4px);
   }
   to {
     opacity: 1;
@@ -1378,15 +1358,20 @@ function onLeftSplitResized(payload: SplitpanesResizedPayload): void {
 }
 
 .session-inner {
+  position: relative;
   display: flex;
   align-items: center;
-  gap: 7px;
-  height: 30px;
-  padding: 0 6px 0 10px;
-  border-radius: 8px;
+  gap: 8px;
+  min-height: 44px;
+  padding: 7px 8px 7px 14px;
+  border-radius: 10px;
+  border: 1px solid transparent;
   transition:
     background var(--duration-fast, 140ms) var(--ease-out, ease),
-    color var(--duration-fast, 140ms) var(--ease-out, ease);
+    color var(--duration-fast, 140ms) var(--ease-out, ease),
+    border-color var(--duration-fast, 140ms) var(--ease-out, ease),
+    box-shadow var(--duration-fast, 140ms) var(--ease-out, ease),
+    transform var(--duration-fast, 140ms) var(--ease-out, ease);
 }
 
 .session-row:hover .session-inner {
@@ -1395,45 +1380,95 @@ function onLeftSplitResized(payload: SplitpanesResizedPayload): void {
 }
 
 .session-row:active .session-inner {
-  background: var(--bg-selected);
+  transform: scale(0.992);
 }
 
 .session-row.active .session-inner {
-  background: var(--accent-soft);
+  background: var(--bg-selected);
+  border-color: var(--border);
   color: var(--fg-strong);
+  box-shadow: none;
 }
 
-.s-dot {
+.active-bar {
+  position: absolute;
+  left: 4px;
+  top: 11px;
+  bottom: 11px;
+  width: 2.5px;
+  border-radius: 999px;
+  background: transparent;
+  transition:
+    background var(--duration-fast, 140ms) var(--ease-out, ease),
+    transform var(--duration-fast, 140ms) var(--ease-out, ease);
+  transform: scaleY(0.4);
+}
+
+.session-row.active .active-bar {
+  background: var(--accent);
+  transform: scaleY(1);
+}
+
+.status-mark {
+  width: 8px;
+  height: 8px;
+  flex-shrink: 0;
+  display: grid;
+  place-items: center;
+  margin-left: 2px;
+}
+
+.status-core {
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  flex-shrink: 0;
-  background: color-mix(in srgb, var(--fg-faint) 38%, transparent);
+  background: var(--fg-faint);
+  display: block;
 }
 
-.st-running .s-dot {
+.st-idle .status-core {
+  background: color-mix(in srgb, var(--fg-faint) 55%, transparent);
+}
+
+.st-running .status-core {
   background: var(--green);
-  animation: dot-pulse 1.4s ease-out infinite;
+  box-shadow: 0 0 0 0 color-mix(in srgb, var(--green) 45%, transparent);
+  animation: status-pulse 1.4s ease-out infinite;
 }
 
-.st-error .s-dot {
+.st-error .status-core {
   background: var(--red);
 }
 
-.st-stuck .s-dot {
+.st-stuck .status-core {
   background: #ca8a04;
 }
 
-@keyframes dot-pulse {
+@keyframes status-pulse {
   0% {
     box-shadow: 0 0 0 0 color-mix(in srgb, var(--green) 45%, transparent);
   }
   70% {
-    box-shadow: 0 0 0 5px transparent;
+    box-shadow: 0 0 0 6px transparent;
   }
   100% {
     box-shadow: 0 0 0 0 transparent;
   }
+}
+
+.session-body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.session-title-row {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
 }
 
 .session-label {
@@ -1443,22 +1478,54 @@ function onLeftSplitResized(payload: SplitpanesResizedPayload): void {
   text-overflow: ellipsis;
   white-space: nowrap;
   font-size: 12.5px;
-  font-weight: 500;
+  font-weight: 550;
   letter-spacing: -0.01em;
   line-height: 1.25;
 }
 
-.session-row.active .session-label,
-.session-row:hover .session-label {
-  font-weight: 600;
-  color: var(--fg-strong);
+.session-row.active .session-label {
+  font-weight: 650;
+}
+
+.session-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 14px;
+  padding-left: 1px;
 }
 
 .time {
-  flex-shrink: 0;
   font-size: 10.5px;
   color: var(--fg-faint);
   font-variant-numeric: tabular-nums;
+}
+
+.run-tag,
+.err-tag,
+.stuck-tag {
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  padding: 0 5px;
+  border-radius: 999px;
+  line-height: 14px;
+}
+
+.run-tag {
+  color: var(--green);
+  background: color-mix(in srgb, var(--green) 14%, transparent);
+}
+
+.err-tag {
+  color: var(--red);
+  background: color-mix(in srgb, var(--red) 14%, transparent);
+}
+
+.stuck-tag {
+  color: #ca8a04;
+  background: color-mix(in srgb, #ca8a04 16%, transparent);
 }
 
 .trash {
@@ -1479,7 +1546,7 @@ function onLeftSplitResized(payload: SplitpanesResizedPayload): void {
 
 @media (prefers-reduced-motion: reduce) {
   .session-row,
-  .st-running .s-dot {
+  .st-running .status-core {
     animation: none !important;
   }
 }
@@ -1489,5 +1556,33 @@ function onLeftSplitResized(payload: SplitpanesResizedPayload): void {
   padding: 8px 12px;
   font-size: 12px;
   color: var(--fg-faint);
+}
+
+.session-expand-row {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.session-expand-btn {
+  width: 100%;
+  margin: 0;
+  padding: 5px 8px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--fg-faint);
+  font: inherit;
+  font-size: 11.5px;
+  text-align: center;
+  cursor: pointer;
+  transition:
+    background var(--duration-fast, 140ms) var(--ease-out, ease),
+    color var(--duration-fast, 140ms) var(--ease-out, ease);
+}
+
+.session-expand-btn:hover {
+  background: var(--bg-hover);
+  color: var(--fg);
 }
 </style>

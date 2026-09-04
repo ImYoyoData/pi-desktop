@@ -117,6 +117,7 @@ function onRemove(pkg: PluginRow): void {
           packages.value = data.packages;
           selected.value = packages.value[0] ? keyOf(packages.value[0]) : null;
           message.success(t.extensionUninstalled);
+          return true;
         } catch (err) {
           message.error(err instanceof Error ? err.message : String(err));
           d.loading = false;
