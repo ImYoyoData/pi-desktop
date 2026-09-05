@@ -992,6 +992,9 @@ export const zh = {
 	toolOrderHint: (n: number) => `执行顺序 #${n}`,
 	toolLinesRead: (read: number, total: number) => `${read}/${total} 行`,
 	toolLinesOf: (n: number) => `${n} 行`,
+	/** Copilot-style row meta: ", lines 1 to 250". */
+	toolLinesRange: (read: number, total: number) => `，第 ${read} 至 ${total} 行`,
+	toolLinesCount: (n: number) => `，共 ${n} 行`,
 	toolCommand: "命令",
 	toolTruncated: "已截断",
 	marketTitle: "扩展市场",
