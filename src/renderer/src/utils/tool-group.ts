@@ -128,17 +128,16 @@ export type WorkSectionSummaryStrings = {
   readMany: (count: number) => string;
   /** Same file read and edited, e.g. "Reviewed and updated foo.ts". */
   readAndEdited: (file: string) => string;
-  bash: (count: number) => string;
-  todo: string;
-  tool: (name: string) => string;
   steps: (count: number) => string;
-  join: (parts: string[]) => string;
 };
 
 /**
- * Deterministic past-tense title, following the rules VS Code gives its
- * title-generating model: past-tense verb first, real filename for a single
- * file, "N files" for multiples, read+edit of the same file combined.
+ * Finalized past-tense title, matching Copilot's `finalizeTitleIfDefault`:
+ * - The same file read and edited → "Reviewed and updated <file>".
+ * - A single named file → "<verb> <file>".
+ * - Multiple named files → "<verb> N files" (never "1 file" phrasing).
+ * - Otherwise (commands, todos, generic tools, thinking only) →
+ *   "Finished with N steps" (Copilot's setFallbackTitle).
  */
 export function summarizeWorkSection(
   tools: WorkSectionTool[],
@@ -147,45 +146,20 @@ export function summarizeWorkSection(
 ): string {
   const edits = new Set<string>();
   const reads = new Set<string>();
-  let bash = 0;
-  let todo = false;
-  const generic: string[] = [];
   for (const tool of tools) {
-    switch (tool.kind) {
-      case "edit":
-        edits.add(tool.target);
-        break;
-      case "read":
-        reads.add(tool.target);
-        break;
-      case "bash":
-        bash += 1;
-        break;
-      case "todo":
-        todo = true;
-        break;
-      default:
-        if (!generic.includes(tool.target)) generic.push(tool.target);
-    }
+    if (tool.kind === "edit") edits.add(tool.target);
+    else if (tool.kind === "read") reads.add(tool.target);
   }
-  const parts: string[] = [];
   const overlap = [...reads].filter((f) => edits.has(f));
   if (edits.size === 1 && reads.size === 1 && overlap.length === 1) {
-    parts.push(s.readAndEdited(overlap[0]!));
-  } else {
-    for (const f of overlap) reads.delete(f);
-    if (edits.size === 1) parts.push(s.editOne([...edits][0]!));
-    else if (edits.size > 1) parts.push(s.editMany(edits.size));
-    if (reads.size === 1) parts.push(s.readOne([...reads][0]!));
-    else if (reads.size > 1) parts.push(s.readMany(reads.size));
+    return s.readAndEdited(overlap[0]!);
   }
-  if (bash > 0) parts.push(s.bash(bash));
-  if (todo) parts.push(s.todo);
-  for (const name of generic.slice(0, Math.max(0, 3 - parts.length))) {
-    parts.push(s.tool(name));
-  }
-  if (parts.length === 0) return s.steps(tools.length + thinkingCount);
-  return s.join(parts.slice(0, 3));
+  if (edits.size === 1) return s.editOne([...edits][0]!);
+  if (edits.size > 1) return s.editMany(edits.size);
+  for (const f of overlap) reads.delete(f);
+  if (reads.size === 1) return s.readOne([...reads][0]!);
+  if (reads.size > 1) return s.readMany(reads.size);
+  return s.steps(tools.length + thinkingCount);
 }
 
 /** i18n strings for the live (present-tense) section title while streaming. */
