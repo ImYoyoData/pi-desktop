@@ -3,7 +3,6 @@ import { computed, nextTick, onBeforeUnmount, ref, watch } from "vue";
 import { NButton, NIcon, useMessage } from "naive-ui";
 import {
   CheckmarkCircleOutline,
-  ChevronDownOutline,
   ChevronForwardOutline,
   CloseCircleOutline,
   DocumentTextOutline,
@@ -14,6 +13,7 @@ import {
   TerminalOutline,
 } from "@vicons/ionicons5";
 import type { ToolCard } from "@renderer/utils/tool-diff";
+import FileChip from "@renderer/components/FileChip.vue";
 import { t } from "@renderer/i18n";
 import { useAgentRunsStore } from "@renderer/stores/agent-runs";
 import { useSessionsStore } from "@renderer/stores/sessions";
@@ -28,6 +28,8 @@ const props = defineProps<{
   streaming?: boolean;
   /** True once the whole turn finished: fold finished process rows (Codex-like). */
   autoCollapse?: boolean;
+  /** Rendered as a child of a Copilot tool group: indented under the tree line. */
+  treeItem?: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -196,9 +198,9 @@ const actionLabel = computed(() => {
     case "todo":
       return t.toolTodo;
     case "generic":
-      return isAskUserTool.value ? t.askUserToolLabel : props.toolName;
+      return isAskUserTool.value ? t.askUserToolLabel : `${t.toolBash} ${props.toolName}`;
     case "other":
-      return isAskUserTool.value ? t.askUserToolLabel : props.toolName;
+      return isAskUserTool.value ? t.askUserToolLabel : `${t.toolBash} ${props.toolName}`;
     default: {
       const _never: never = props.card;
       return String(_never);
@@ -229,16 +231,16 @@ const metaLine = computed(() => {
   const card = props.card;
   if (card.kind === "read") {
     if (card.linesRead != null && card.totalLines != null) {
-      return t.toolLinesRead(card.linesRead, card.totalLines);
+      return t.toolLinesRange(card.linesRead, card.totalLines);
     }
-    if (card.linesRead != null) return t.toolLinesOf(card.linesRead);
+    if (card.linesRead != null) return t.toolLinesCount(card.linesRead);
     return null;
   }
   if (card.kind === "bash") {
     if (card.linesRead != null && card.totalLines != null) {
-      return t.toolLinesRead(card.linesRead, card.totalLines);
+      return t.toolLinesRange(card.linesRead, card.totalLines);
     }
-    if (card.linesRead != null) return t.toolLinesOf(card.linesRead);
+    if (card.linesRead != null) return t.toolLinesCount(card.linesRead);
     return null;
   }
   if (card.kind === "todo" && card.summary) return card.summary;
@@ -249,7 +251,7 @@ const headline = computed(() => {
   if (isAskUserTool.value) return "";
   const card = props.card;
   if (card.kind === "bash") return card.command || props.toolName;
-  if (card.kind === "generic") return card.summary || props.toolName;
+  if (card.kind === "generic") return card.summary || "";
   if (card.kind === "todo") {
     if (card.action === "add") return t.toolTodoAdd;
     if (card.action === "toggle") return t.toolTodoToggle;
@@ -261,19 +263,6 @@ const headline = computed(() => {
     ) : props.toolName;
   }
   return fileName.value || props.toolName;
-});
-
-const pathHint = computed(() => {
-  if (
-    props.card.kind === "bash" ||
-    props.card.kind === "generic" ||
-    props.card.kind === "todo"
-  ) {
-    return undefined;
-  }
-  const full = props.card.path;
-  if (!full || full === fileName.value) return undefined;
-  return full;
 });
 
 const body = computed(() => {
@@ -333,6 +322,12 @@ const pathTitle = computed(() => {
   return props.card.path ?? undefined;
 });
 
+/** Rows with nothing to reveal drop the disclosure affordance (VS Code setExpandable). */
+const expandable = computed(() => {
+  if (props.card.kind === "todo") return todoItems.value.length > 0;
+  return Boolean(body.value);
+});
+
 const canPreviewPath = computed(() => {
   const card = props.card;
   return (
@@ -347,18 +342,6 @@ const canPreviewPath = computed(() => {
 const todoItems = computed(() =>
   props.card.kind === "todo" ? props.card.items : [],
 );
-
-function onOpenPreview(): void {
-  const card = props.card;
-  if (
-    card.kind === "read" ||
-    card.kind === "edit" ||
-    card.kind === "write" ||
-    card.kind === "other"
-  ) {
-    if (card.path) emit("open", card.path);
-  }
-}
 </script>
 
 <template>
@@ -368,54 +351,42 @@ function onOpenPreview(): void {
       streaming: Boolean(streaming),
       error: statusType === 'error',
       open,
+      'tree-item': treeItem,
+      'not-expandable': !expandable,
       'ask-user-muted': isAskUserTool,
       [`kind-${card.kind}`]: true,
     }"
   >
-    <div class="tool-call-head" @click="toggleOpen">
-      <button type="button" class="expand-hit" :aria-expanded="open">
+    <div class="tool-call-head" :title="pathTitle" @click="expandable && toggleOpen()">
+      <span class="kind-icon" :class="{ error: statusType === 'error' }" aria-hidden="true">
         <NIcon
-          class="chev"
-          :component="open ? ChevronDownOutline : ChevronForwardOutline"
+          :component="statusType === 'error' ? CloseCircleOutline : kindIcon"
           :size="12"
         />
-      </button>
-      <NIcon class="kind-icon" :component="kindIcon" :size="14" />
-      <span class="action">{{ actionLabel }}</span>
-      <span class="headline" :title="pathTitle || headline">{{ headline }}</span>
-      <span v-if="pathHint" class="path-hint" :title="pathHint">{{ pathHint }}</span>
-      <span v-if="metaLine" class="meta">{{ metaLine }}</span>
-      <span
-        v-if="(card.kind === 'edit' || card.kind === 'write') && card.stats"
-        class="meta stats"
-      >
-        <span class="add">+{{ card.stats.additions }}</span>
-        <span class="del">-{{ card.stats.deletions }}</span>
       </span>
-      <span v-if="card.kind === 'read' && card.truncated" class="trunc">{{ t.toolTruncated }}</span>
-      <span v-if="card.kind === 'bash' && card.truncated" class="trunc">{{ t.toolTruncated }}</span>
-      <span class="status" :class="statusType" :title="statusLabel">
-        <span v-if="streaming" class="spinner" aria-hidden="true" />
-        <NIcon
-          v-else-if="statusType === 'error'"
-          :component="CloseCircleOutline"
-          :size="14"
+      <span class="head-text">
+        <span class="action" :class="{ 'copilot-shimmer': Boolean(streaming) }">{{ actionLabel }}</span>
+        <FileChip
+          v-if="canPreviewPath && card.path"
+          :path="card.path"
+          @open="emit('open', $event)"
         />
-        <NIcon
-          v-else-if="statusType === 'success' || statusType === 'default'"
-          :component="CheckmarkCircleOutline"
-          :size="14"
-        />
+        <code v-else-if="card.kind === 'bash' && card.command" class="cmd-pill">{{
+          card.command
+        }}</code>
+        <span v-else class="headline" :class="{ 'copilot-shimmer': Boolean(streaming) }">{{ headline }}</span>
+        <span v-if="metaLine" class="meta">{{ metaLine }}</span>
+        <span
+          v-if="(card.kind === 'edit' || card.kind === 'write') && card.stats"
+          class="meta stats"
+        >
+          <span class="add">+{{ card.stats.additions }}</span>
+          <span class="del">-{{ card.stats.deletions }}</span>
+        </span>
+        <span v-if="(card.kind === 'read' || card.kind === 'bash') && card.truncated" class="trunc">{{
+          t.toolTruncated
+        }}</span>
       </span>
-      <button
-        v-if="canPreviewPath"
-        type="button"
-        class="open-btn"
-        :title="t.previewFile"
-        @click.stop="onOpenPreview"
-      >
-        <NIcon :component="DocumentTextOutline" :size="13" />
-      </button>
       <NButton
         v-if="canBackground"
         size="tiny"
@@ -427,6 +398,14 @@ function onOpenPreview(): void {
       >
         {{ t.toolMoveToBackground }}
       </NButton>
+      <NIcon
+        v-if="expandable"
+        class="hover-chev"
+        :class="{ expanded: open }"
+        :component="ChevronForwardOutline"
+        :size="12"
+        aria-hidden="true"
+      />
     </div>
     <ul v-if="open && card.kind === 'todo' && todoItems.length" class="todo-body">
       <li
@@ -464,16 +443,13 @@ function onOpenPreview(): void {
 </template>
 
 <style scoped>
+/* 1:1 VS Code Copilot tool row — see chatProgressContentPart / chatThinkingContent.css */
 .tool-call {
   width: 100%;
-  /* Cursor-style: no card chrome — plain text row with a fold chevron. */
   overflow: hidden;
-  transition: opacity 0.12s ease;
-}
-
-.tool-call.streaming {
-  /* Slight emphasis while live, no border box. */
-  color: var(--fg);
+  font-size: var(--chat-font-s, 12px);
+  line-height: 1.5em;
+  color: var(--chat-desc-fg, var(--fg-muted));
 }
 
 .tool-call.error {
@@ -484,22 +460,19 @@ function onOpenPreview(): void {
   opacity: 0.82;
 }
 
-.tool-call.ask-user-muted .action {
-  color: var(--fg-faint, #888);
-  font-weight: 500;
-}
-
 .tool-call.ask-user-muted .headline:empty {
   display: none;
 }
 
 .tool-call-head {
-  width: 100%;
+  position: relative;
+  width: fit-content;
+  max-width: 100%;
   display: flex;
   align-items: center;
-  gap: 7px;
+  gap: 4px;
   margin: 0;
-  padding: 3px 4px;
+  padding: 2px 6px 2px 2px;
   border: none;
   border-radius: 5px;
   background: transparent;
@@ -507,168 +480,133 @@ function onOpenPreview(): void {
   text-align: left;
   cursor: pointer;
   min-width: 0;
+  box-sizing: border-box;
+}
+
+.tool-call.not-expandable .tool-call-head {
+  cursor: default;
 }
 
 .tool-call-head:hover {
-  background: color-mix(in srgb, var(--fg) 4%, transparent);
+  background: var(--chat-hover-bg, color-mix(in srgb, var(--fg) 5%, transparent));
+  color: var(--fg, inherit);
 }
 
-.expand-hit {
-  flex-shrink: 0;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  margin: 0;
-  padding: 0;
-  border: none;
-  background: transparent;
-  color: inherit;
-  cursor: pointer;
-}
-
-.chev {
-  flex-shrink: 0;
-  color: var(--fg-faint, #999);
+/* Tree mode (inside ToolCallGroup): icon hangs on the chain-of-thought line. */
+.tool-call.tree-item .tool-call-head {
+  width: 100%;
+  padding: 4px 12px 4px 24px;
 }
 
 .kind-icon {
   flex-shrink: 0;
-  color: var(--fg-muted, #666);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 12px;
+  height: 12px;
+  color: var(--chat-icon-fg, var(--fg-muted));
 }
 
-.kind-bash .kind-icon {
-  color: color-mix(in srgb, var(--primary, #3b82f6) 70%, var(--fg-muted));
+.kind-icon.error {
+  color: var(--error, #d03050);
 }
 
-.kind-read .kind-icon {
-  color: #6b7280;
+.tool-call.tree-item .kind-icon {
+  position: absolute;
+  left: 5px;
+  top: 8px;
 }
 
-.kind-edit .kind-icon,
-.kind-write .kind-icon {
-  color: #0d9488;
+.head-text {
+  flex: 1;
+  min-width: 0;
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum";
 }
 
-/* opencode basic-tool title: medium-weight verb in the base text color. */
 .action {
-  flex-shrink: 0;
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--fg, #222);
-  letter-spacing: 0.01em;
+  font: inherit;
+  color: inherit;
 }
 
 .headline {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: 12px;
+  font: inherit;
+  color: inherit;
+}
+
+/* bash command / glob pattern pill — VS Code [data-code] inside progress text */
+.cmd-pill {
+  display: inline;
+  max-width: 100%;
+  margin: 0 1px;
+  padding: 1px 3px;
+  border: 1px solid var(--chat-line, var(--border));
+  border-radius: 4px;
+  background: var(--md-inline-code-bg, var(--code-bg));
   font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
-  color: var(--fg-strong, #1a1a1a);
-}
-
-.path-hint {
-  display: none;
-  flex-shrink: 1;
-  min-width: 0;
-  max-width: 40%;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  font-size: var(--chat-font-xs, 11px);
+  color: inherit;
   white-space: nowrap;
-  font-size: 11px;
-  color: var(--fg-faint, #999);
-  font-family: var(--font-mono, ui-monospace, monospace);
-}
-
-@media (min-width: 720px) {
-  .path-hint {
-    display: inline;
-  }
 }
 
 .meta {
-  flex-shrink: 0;
-  font-size: 11px;
-  color: var(--fg-muted);
-  font-variant-numeric: tabular-nums;
+  font: inherit;
+  color: inherit;
+  opacity: 0.85;
 }
 
 .meta.stats {
   display: inline-flex;
   gap: 5px;
+  margin-left: 4px;
   font-family: var(--font-mono, ui-monospace, monospace);
+  opacity: 1;
 }
 
 .add {
-  color: #1a7f37;
+  color: var(--git-u, #1a7f37);
 }
 
 .del {
-  color: #cf222e;
+  color: var(--git-d, #cf222e);
 }
 
 .trunc {
-  flex-shrink: 0;
-  font-size: 10px;
+  margin-left: 4px;
+  font-size: var(--chat-font-xs, 11px);
   color: var(--warning, #9a6700);
 }
 
-.status {
+/* Trailing disclosure chevron — .chat-collapsible-hover-chevron (1:1) */
+.hover-chev {
   flex-shrink: 0;
-  display: inline-flex;
-  align-items: center;
-  color: var(--fg-faint, #999);
+  opacity: 0;
+  transform: rotate(0deg);
+  transform-origin: center;
+  transition:
+    opacity 100ms ease-in-out,
+    transform 180ms cubic-bezier(0.2, 0, 0, 1);
+  color: var(--chat-desc-fg, var(--fg-muted));
 }
 
-.status.success,
-.status.default {
-  color: #1a7f37;
+.hover-chev.expanded {
+  opacity: 1;
+  transform: rotate(90deg);
 }
 
-.status.error {
-  color: #cf222e;
+.tool-call-head:hover .hover-chev {
+  opacity: 1;
 }
 
-.status.info {
-  color: var(--primary, #3b82f6);
-}
-
-.spinner {
-  width: 12px;
-  height: 12px;
-  border: 1.5px solid color-mix(in srgb, var(--primary, #3b82f6) 30%, transparent);
-  border-top-color: var(--primary, #3b82f6);
-  border-radius: 50%;
-  animation: tool-spin 0.7s linear infinite;
-}
-
-@keyframes tool-spin {
-  to {
-    transform: rotate(360deg);
+@media (prefers-reduced-motion: reduce) {
+  .hover-chev {
+    transition: none;
   }
-}
-
-.open-btn {
-  flex-shrink: 0;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 22px;
-  height: 22px;
-  margin: 0;
-  padding: 0;
-  border: none;
-  border-radius: 6px;
-  background: transparent;
-  color: var(--fg-muted);
-  cursor: pointer;
-}
-
-.open-btn:hover {
-  background: var(--bg-hover, rgba(127, 127, 127, 0.1));
-  color: var(--fg-strong);
 }
 
 .bg-btn {
@@ -676,28 +614,35 @@ function onOpenPreview(): void {
 }
 
 .tool-body {
-  margin: 0;
-  padding: 5px 4px;
-  border-top: 1px solid color-mix(in srgb, var(--border, #ddd) 35%, transparent);
-  max-height: 140px;
+  margin: 2px 0 4px;
+  padding: 5px 8px;
+  max-height: 160px;
   overflow: auto;
-  font-size: 11.5px;
+  font-size: var(--chat-font-xs, 11px);
   line-height: 1.5;
   font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
+  border: 1px solid var(--chat-line, var(--border));
+  border-radius: 6px;
+  background: var(--pre-bg, var(--code-bg));
+  color: var(--fg, inherit);
+}
+
+.tool-call.tree-item .tool-body {
+  margin-left: 24px;
 }
 
 .tool-body.empty {
-  padding: 10px 12px;
-  color: var(--fg-muted);
+  padding: 8px 10px;
+  color: var(--chat-desc-fg, var(--fg-muted));
 }
 
 .tool-body-bash .dline {
-  color: var(--fg-strong, #222);
+  color: var(--fg-strong, inherit);
 }
 
 .dline {
   display: block;
-  padding: 0 8px;
+  padding: 0 4px;
   white-space: pre-wrap;
   word-break: break-all;
 }
@@ -716,9 +661,11 @@ function onOpenPreview(): void {
 
 .todo-body {
   list-style: none;
-  margin: 0;
-  padding: 6px 4px 8px;
-  border-top: 1px solid color-mix(in srgb, var(--border, #ddd) 35%, transparent);
+  margin: 2px 0 4px;
+  padding: 6px 8px;
+  border: 1px solid var(--chat-line, var(--border));
+  border-radius: 6px;
+  background: var(--pre-bg, var(--code-bg));
   display: flex;
   flex-direction: column;
   gap: 4px;
@@ -726,11 +673,15 @@ function onOpenPreview(): void {
   overflow: auto;
 }
 
+.tool-call.tree-item .todo-body {
+  margin-left: 24px;
+}
+
 .todo-row {
   display: flex;
   align-items: flex-start;
   gap: 8px;
-  font-size: 12.5px;
+  font-size: var(--chat-font-s, 12px);
   line-height: 1.35;
   color: var(--fg);
 }

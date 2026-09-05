@@ -1,4 +1,4 @@
-@import './base.css';
+@import "./base.css";
 
 /*
  * Design tokens — aligned with the DeepSeek Harness visual language.
@@ -38,10 +38,13 @@
   --blue: #4176e6;
   --green: #22c55e;
   --red: #ef4444;
-  --font-ui: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
-    "Hiragino Sans GB", "Microsoft YaHei", "Helvetica Neue", Helvetica, Arial, sans-serif;
-  --font-mono: "SF Mono", "JetBrains Mono", "Fira Code", Consolas,
-    "Liberation Mono", Menlo, Courier, "PingFang SC", "Microsoft YaHei";
+  --font-ui:
+    -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+    "Hiragino Sans GB", "Microsoft YaHei", "Helvetica Neue", Helvetica, Arial,
+    sans-serif;
+  --font-mono:
+    "SF Mono", "JetBrains Mono", "Fira Code", Consolas, "Liberation Mono",
+    Menlo, Courier, "PingFang SC", "Microsoft YaHei";
   --radius-sm: 6px;
   --radius-md: 12px;
   --radius-lg: 16px;
@@ -53,15 +56,28 @@
   --git-m: #ca8a04;
   --git-u: #22c55e;
   --git-d: #ef4444;
-  --shadow-sm: 0 1px 2px rgba(15, 17, 21, 0.04), 0 0 0 1px rgba(15, 17, 21, 0.02);
-  --shadow-md: 0 4px 18px rgba(15, 17, 21, 0.07), 0 1px 3px rgba(15, 17, 21, 0.04);
-  --shadow-lg: 0 12px 40px rgba(15, 17, 21, 0.1), 0 2px 8px rgba(15, 17, 21, 0.05);
+  --shadow-sm:
+    0 1px 2px rgba(15, 17, 21, 0.04), 0 0 0 1px rgba(15, 17, 21, 0.02);
+  --shadow-md:
+    0 4px 18px rgba(15, 17, 21, 0.07), 0 1px 3px rgba(15, 17, 21, 0.04);
+  --shadow-lg:
+    0 12px 40px rgba(15, 17, 21, 0.1), 0 2px 8px rgba(15, 17, 21, 0.05);
   --ease-out: cubic-bezier(0.4, 0, 0.2, 1);
   --duration-fast: 100ms;
   --duration: 200ms;
   --code-bg: #f5f6f7;
   --pre-bg: #f5f6f7;
   --md-inline-code-bg: #f1f3f5;
+
+  /* Copilot (VS Code) chat tokens — see docs/superpowers/plans/2026-09-05-copilot-style-output.md */
+  --chat-font-m: 13px;
+  --chat-font-s: 12px;
+  --chat-font-xs: 11px;
+  --chat-desc-fg: #6b6f74;
+  --chat-line: #d8dce3;
+  --chat-hover-bg: rgba(15, 17, 21, 0.05);
+  --chat-shimmer: #c3c9d1;
+  --chat-icon-fg: #61666b;
 }
 
 html[data-theme="dark"] {
@@ -96,12 +112,22 @@ html[data-theme="dark"] {
   --blue: #5686fe;
   --green: #4ed17e;
   --red: #f25a5a;
-  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.35), 0 0 0 1px rgba(255, 255, 255, 0.03);
+  --shadow-sm:
+    0 1px 2px rgba(0, 0, 0, 0.35), 0 0 0 1px rgba(255, 255, 255, 0.03);
   --shadow-md: 0 8px 28px rgba(0, 0, 0, 0.45), 0 1px 3px rgba(0, 0, 0, 0.3);
   --shadow-lg: 0 16px 48px rgba(0, 0, 0, 0.55);
   --code-bg: #232324;
   --pre-bg: #0d1117;
   --md-inline-code-bg: #232324;
+
+  --chat-font-m: 13px;
+  --chat-font-s: 12px;
+  --chat-font-xs: 11px;
+  --chat-desc-fg: #9da1a6;
+  --chat-line: #3a3a3b;
+  --chat-hover-bg: rgba(255, 255, 255, 0.06);
+  --chat-shimmer: #6e7276;
+  --chat-icon-fg: #c5c9cd;
 }
 
 * {
@@ -187,7 +213,8 @@ button {
 /* Refined scrollbars */
 * {
   scrollbar-width: thin;
-  scrollbar-color: color-mix(in srgb, var(--fg-faint) 70%, transparent) transparent;
+  scrollbar-color: color-mix(in srgb, var(--fg-faint) 70%, transparent)
+    transparent;
 }
 
 *::-webkit-scrollbar {
@@ -212,6 +239,41 @@ button {
   background: transparent;
 }
 
+@keyframes copilot-shimmer {
+  0% {
+    background-position: 120% 0;
+  }
+  100% {
+    background-position: -120% 0;
+  }
+}
+
+/* Copilot shimmer sweep — replaces spinners on in-progress rows (chat.css#chat-thinking-shimmer) */
+.copilot-shimmer {
+  background: linear-gradient(
+    90deg,
+    var(--chat-desc-fg) 0%,
+    var(--chat-desc-fg) 30%,
+    var(--chat-shimmer) 50%,
+    var(--chat-desc-fg) 70%,
+    var(--chat-desc-fg) 100%
+  );
+  background-size: 400% 100%;
+  background-clip: text;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation: copilot-shimmer 2s linear infinite;
+  will-change: background-position;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .copilot-shimmer {
+    animation: none;
+    background: none;
+    -webkit-text-fill-color: currentColor;
+  }
+}
+
 .md {
   font-size: 16px;
   line-height: 1.75;
@@ -219,12 +281,21 @@ button {
   word-break: break-word;
 }
 
-.md > *:first-child { margin-top: 0; }
-.md > *:last-child { margin-bottom: 0; }
+.md > *:first-child {
+  margin-top: 0;
+}
+.md > *:last-child {
+  margin-bottom: 0;
+}
 
-.md p { margin: 0 0 0.75em; }
+.md p {
+  margin: 0 0 0.75em;
+}
 
-.md h1, .md h2, .md h3, .md h4 {
+.md h1,
+.md h2,
+.md h3,
+.md h4 {
   margin: 1em 0 0.5em;
   font-weight: 650;
   color: var(--fg-strong);
@@ -232,16 +303,25 @@ button {
   letter-spacing: -0.02em;
 }
 
-.md h1 { font-size: 1.35em; }
-.md h2 { font-size: 1.2em; }
-.md h3 { font-size: 1.08em; }
+.md h1 {
+  font-size: 1.35em;
+}
+.md h2 {
+  font-size: 1.2em;
+}
+.md h3 {
+  font-size: 1.08em;
+}
 
-.md ul, .md ol {
+.md ul,
+.md ol {
   margin: 0 0 0.75em;
   padding-left: 1.4em;
 }
 
-.md li { margin: 0.2em 0; }
+.md li {
+  margin: 0.2em 0;
+}
 
 .md code {
   font-family: var(--font-mono);
@@ -275,7 +355,9 @@ button {
   text-decoration: none;
 }
 
-.md a:hover { text-decoration: underline; }
+.md a:hover {
+  text-decoration: underline;
+}
 
 .md blockquote {
   margin: 0.6em 0;

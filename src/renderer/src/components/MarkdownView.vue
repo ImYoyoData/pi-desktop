@@ -19,6 +19,8 @@ import { t } from "@renderer/i18n";
 
 const props = defineProps<{
   content: string;
+  /** "chat" applies the Copilot (VS Code) chat markdown look to the model output area. */
+  variant?: "default" | "chat";
 }>();
 
 const rootEl = ref<HTMLElement | null>(null);
@@ -195,7 +197,12 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div ref="rootEl" class="md" v-html="html" />
+  <div
+    ref="rootEl"
+    class="md"
+    :class="{ 'md-chat': variant === 'chat' }"
+    v-html="html"
+  />
 
   <NModal
     v-model:show="previewOpen"
@@ -475,6 +482,106 @@ onUnmounted(() => {
   padding: 0.1em 0.35em;
   border-radius: 4px;
   background: var(--md-inline-code-bg, rgba(0, 0, 0, 0.06));
+}
+
+/* ============ Copilot (VS Code) chat variant — 1:1 ============
+   Sources: media/chat.css, chatContentParts/media/codeBlockPart.css,
+   chatContentParts/media/chatInlineAnchorWidget.css */
+.md.md-chat {
+  font-size: var(--chat-font-m, 13px);
+  line-height: 1.5em;
+}
+
+.md.md-chat :deep(p) {
+  margin: 0 0 16px 0;
+}
+
+.md.md-chat :deep(h1),
+.md.md-chat :deep(h2),
+.md.md-chat :deep(h3),
+.md.md-chat :deep(h4),
+.md.md-chat :deep(h5),
+.md.md-chat :deep(h6) {
+  line-height: normal;
+}
+
+.md.md-chat :deep(ul) {
+  padding-inline-start: 24px;
+}
+
+.md.md-chat :deep(ol) {
+  padding-inline-start: 28px;
+}
+
+.md.md-chat :deep(li) {
+  margin: 4px 0;
+}
+
+/* Inline code pill — [data-code] in progress/markdown text */
+.md.md-chat :deep(:not(pre) > code) {
+  font-size: 0.9em;
+  padding: 1px 3px;
+  border-radius: 4px;
+  border: 1px solid var(--chat-line, var(--border));
+  background: var(--md-inline-code-bg, rgba(127, 127, 127, 0.1));
+}
+
+/* Code block: headerless, floating copy toolbar on hover (codeBlockPart.css) */
+.md.md-chat :deep(.code-block) {
+  position: relative;
+  margin: 0 0 16px 0;
+  border-radius: 6px;
+  border: 1px solid var(--chat-line, var(--border));
+}
+
+.md.md-chat :deep(.code-head) {
+  position: absolute;
+  top: 4px;
+  right: 8px;
+  z-index: 2;
+  padding: 0;
+  border-bottom: none;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 100ms ease-in-out;
+}
+
+.md.md-chat :deep(.code-block:hover) .code-head,
+.md.md-chat :deep(.code-head:focus-within) {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.md.md-chat :deep(.code-head .lang) {
+  display: none;
+}
+
+.md.md-chat :deep(.code-head .copy-btn) {
+  height: 22px;
+  padding: 0 8px;
+  border: 1px solid var(--chat-line, var(--border));
+  border-radius: 5px;
+  background: var(--bg-elevated, var(--bg));
+  color: var(--chat-desc-fg, var(--fg-muted));
+  font-size: var(--chat-font-xs, 11px);
+}
+
+.md.md-chat :deep(.code-head .copy-btn:hover) {
+  color: var(--fg);
+}
+
+/* VS Code chat code blocks have no gutter line numbers */
+.md.md-chat :deep(.line-nos) {
+  display: none;
+}
+
+.md.md-chat :deep(.code-body > pre) {
+  padding: 8px 12px;
+}
+
+.md.md-chat :deep(code.hljs) {
+  font-size: var(--chat-font-s, 12px);
+  line-height: 1.45;
 }
 
 .md :deep(.md-diagram) {

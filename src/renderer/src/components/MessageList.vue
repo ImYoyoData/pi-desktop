@@ -1668,6 +1668,7 @@ function onRevertUser(msg: Extract<ChatMessage, { role: "user" }>): void {
               <MarkdownView
                 v-if="msg.text"
                 :content="msg.text"
+                variant="chat"
                 class="assistant-md"
                 :class="{ 'stream-shimmer': msg.streaming && msg.text }"
               />
@@ -2272,8 +2273,9 @@ function onRevertUser(msg: Extract<ChatMessage, { role: "user" }>): void {
   display: flex;
   flex-direction: column;
   gap: 6px;
-  font-size: 16px;
-  line-height: 1.75;
+  /* Copilot (VS Code) chat typography: 13px / 1.5em, --vscode-chat-font-size-body-m */
+  font-size: var(--chat-font-m, 13px);
+  line-height: 1.5em;
   color: var(--fg, #0f1115);
 }
 
