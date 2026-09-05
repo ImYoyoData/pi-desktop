@@ -7,9 +7,12 @@ import SessionInfoModal from "@renderer/components/SessionInfoModal.vue";
 import PermissionStrip from "@renderer/components/PermissionStrip.vue";
 import ExtensionUiStrip from "@renderer/components/ExtensionUiStrip.vue";
 import SessionTodoPanel from "@renderer/components/SessionTodoPanel.vue";
+import SessionChangedFiles from "@renderer/components/SessionChangedFiles.vue";
 import { useChatStore } from "@renderer/stores/chat";
 import { useSessionsStore } from "@renderer/stores/sessions";
 import { useWorkspaceStore } from "@renderer/stores/workspace";
+import { useSessionWidgetsStore } from "@renderer/stores/session-widgets";
+import { hasAnyFileChange } from "@renderer/utils/session-file-changes";
 
 /**
  * Heaviest chat chrome — load lazily so first paint / session switch stays
@@ -30,7 +33,15 @@ import { t } from "@renderer/i18n";
 const chat = useChatStore();
 const sessions = useSessionsStore();
 const workspace = useWorkspaceStore();
+const widgets = useSessionWidgetsStore();
 const message = useMessage();
+
+/** Any docked widget (todo / changed files) above the composer? */
+const hasDock = computed(
+  () =>
+    Boolean(widgets.activeTodoList) ||
+    hasAnyFileChange(chat.activeMessages, chat.activeStreaming),
+);
 
 watch(
   () => chat.securityRemediationTick,
@@ -176,9 +187,14 @@ async function onNewAgent(): Promise<void> {
       <AskUserStrip
         v-if="!chat.activePendingPermission && !chat.activePendingExtensionUi"
       />
-      <!-- Todo panel sits right above the input so the message history stays clean. -->
-      <SessionTodoPanel />
-      <Composer />
+      <!-- Docked widgets share one surface with the composer (chat-input-stack). -->
+      <div class="chat-input-stack">
+        <div v-if="hasDock" class="stack-above">
+          <SessionTodoPanel />
+          <SessionChangedFiles />
+        </div>
+        <Composer :docked="hasDock" />
+      </div>
     </template>
     <SessionInfoModal
       :open="sessionInfoOpen"
@@ -218,5 +234,34 @@ async function onNewAgent(): Promise<void> {
   display: grid;
   place-items: center;
   padding: 24px;
+}
+
+/* Chat input stack — docked todo / changed-files share the composer surface. */
+.chat-input-stack {
+  flex-shrink: 0;
+  width: 100%;
+  max-width: var(--composer-max, 748px);
+  margin: 0 auto;
+  padding: 0 var(--chat-pad-x, 12px) 10px;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.stack-above {
+  border: 1px solid var(--border);
+  border-bottom: none;
+  border-radius: var(--radius-lg, 16px) var(--radius-lg, 16px) 0 0;
+  background: var(--tool-bg, #f5f6f7);
+  padding: 3px 3px 0;
+  overflow: hidden;
+  box-shadow: none;
+}
+
+/* Inner vertical hairline between docked members. */
+.stack-above :deep(.todo-dock) + :deep(.files-dock) {
+  border-top: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+  margin-top: 4px;
+  padding-top: 4px;
 }
 </style>
