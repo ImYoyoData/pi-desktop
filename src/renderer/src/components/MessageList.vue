@@ -248,6 +248,12 @@ type WorkSectionMembership = {
   leadId: string;
   isLead: boolean;
   items: ChatMessage[];
+  /**
+   * True once output appeared after this section (an answer text, or the
+   * next work section) — Copilot folds the previous step block as soon as
+   * the next output shows up, not when the whole turn finishes.
+   */
+  settled: boolean;
 };
 
 /**
@@ -268,14 +274,30 @@ const workSectionMembership = computed(() => {
     })),
     (row) => row.toolName === ASK_USER_TOOL_NAME,
   );
-  for (const span of spans) {
+  for (let s = 0; s < spans.length; s++) {
+    const span = spans[s]!;
     const items = all.slice(span.start, span.end);
+    // Fold when the next output arrives: the assistant answer text right
+    // after the section, or another work section starting further down.
+    let settled = false;
+    for (let j = span.end; j < all.length; j++) {
+      const next = all[j]!;
+      if (next.role === "user") break;
+      if (next.role === "assistant" && next.text) {
+        settled = true;
+        break;
+      }
+    }
+    if (!settled && spans[s + 1] && spans[s + 1]!.start >= span.end) {
+      settled = true;
+    }
     for (let i = 0; i < span.ids.length; i++) {
       map.set(span.ids[i]!, {
         groupId: span.groupId,
         leadId: span.ids[0]!,
         isLead: i === 0,
         items,
+        settled,
       });
     }
   }
@@ -1147,14 +1169,6 @@ onBeforeUnmount(() => {
  */
 const turnDone = computed(() => !props.running && !props.streaming);
 
-/** A work section is still live while any member row is streaming. */
-function workSectionStreaming(msg: ChatMessage): boolean {
-  return (
-    workSectionMembership.value.get(msg.id)?.items.some((m) => m.streaming) ??
-    false
-  );
-}
-
 /**
  * Memoize card parsing: the same message object never re-parses its diff.
  * Write/edit diff synthesis is O(file size) and used to run again on every
@@ -1216,6 +1230,25 @@ function toolStatus(msg: Extract<ChatMessage, { role: "tool" }>): {
   if (msg.streaming) return { type: "info", label: t.toolRunning };
   if (msg.isError) return { type: "error", label: t.toolError };
   return { type: "success", label: t.toolDone };
+}
+
+/**
+ * Copilot folding rule (chatProgressContentPart `isHidden`): a standalone
+ * tool card folds once the next output appears after it — an assistant text
+ * or any further process row — rather than when the whole turn finishes.
+ */
+function standaloneToolSettled(msg: Extract<ChatMessage, { role: "tool" }>): boolean {
+  if (msg.streaming) return false;
+  const all = displayMessages.value;
+  const idx = all.findIndex((m) => m.id === msg.id);
+  if (idx < 0) return true;
+  for (let j = idx + 1; j < all.length; j++) {
+    const next = all[j]!;
+    if (next.role === "user") break;
+    if (next.role === "assistant" && next.text) return true;
+    if (next.role === "tool" && next.toolCallId !== msg.toolCallId) return true;
+  }
+  return false;
 }
 
 function isSpeakingMessage(id: string): boolean {
@@ -1446,7 +1479,7 @@ function onRevertUser(msg: Extract<ChatMessage, { role: "user" }>): void {
           <div class="tool">
             <WorkSectionGroup
               :items="workSectionMembership.get(msg.id)!.items"
-              :auto-collapse="turnDone || !workSectionStreaming(msg)"
+              :auto-collapse="workSectionMembership.get(msg.id)!.settled"
               @open="openPreview"
             />
           </div>
@@ -1654,7 +1687,7 @@ function onRevertUser(msg: Extract<ChatMessage, { role: "user" }>): void {
               :status-label="toolStatus(msg).label"
               :status-type="toolStatus(msg).type"
               :streaming="msg.streaming"
-              :auto-collapse="turnDone || !msg.streaming"
+              :auto-collapse="standaloneToolSettled(msg)"
               @open="openPreview"
             />
           </div>
