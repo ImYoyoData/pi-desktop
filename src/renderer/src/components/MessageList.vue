@@ -248,12 +248,6 @@ type WorkSectionMembership = {
   leadId: string;
   isLead: boolean;
   items: ChatMessage[];
-  /**
-   * True once output appeared after this section (an answer text, or the
-   * next work section) — Copilot folds the previous step block as soon as
-   * the next output shows up, not when the whole turn finishes.
-   */
-  settled: boolean;
 };
 
 /**
@@ -274,35 +268,69 @@ const workSectionMembership = computed(() => {
     })),
     (row) => row.toolName === ASK_USER_TOOL_NAME,
   );
-  for (let s = 0; s < spans.length; s++) {
-    const span = spans[s]!;
+  for (const span of spans) {
     const items = all.slice(span.start, span.end);
-    // Fold when the next output arrives: the assistant answer text right
-    // after the section, or another work section starting further down.
-    let settled = false;
-    for (let j = span.end; j < all.length; j++) {
-      const next = all[j]!;
-      if (next.role === "user") break;
-      if (next.role === "assistant" && next.text) {
-        settled = true;
-        break;
-      }
-    }
-    if (!settled && spans[s + 1] && spans[s + 1]!.start >= span.end) {
-      settled = true;
-    }
     for (let i = 0; i < span.ids.length; i++) {
       map.set(span.ids[i]!, {
         groupId: span.groupId,
         leadId: span.ids[0]!,
         isLead: i === 0,
         items,
-        settled,
       });
     }
   }
   return map;
 });
+
+/**
+ * Copilot fold rule (chatProgressContentPart `isHidden`): a process block
+ * folds only once visible output actually renders AFTER it in the stream —
+ * an assistant answer text, or a newer process row (the next section/tool).
+ * Rows fold in strict appearance order: an earlier block never stays open
+ * past a later one that already folded, and nothing folds on a bare agent
+ * response that produced no visible output.
+ */
+const settledRowIds = computed(() => {
+  const all = displayMessages.value;
+  const settled = new Set<string>();
+  const sectionLead = new Map<string, number>();
+  for (const [id, m] of workSectionMembership.value) {
+    if (m.isLead) sectionLead.set(m.groupId, all.findIndex((r) => r.id === id));
+  }
+  for (let i = 0; i < all.length; i++) {
+    const msg = all[i]!;
+    const isProcess =
+      msg.role === "tool" ||
+      (msg.role === "assistant" && Boolean(msg.thinking) && !msg.text);
+    if (!isProcess) continue;
+    // Fold boundary for a group member is the group's END so the whole
+    // section folds together only after output beyond it appears.
+    const membership = workSectionMembership.value.get(msg.id);
+    const boundary = membership
+      ? (sectionLead.get(membership.groupId) ?? i) + membership.items.length
+      : i + 1;
+    for (let j = boundary; j < all.length; j++) {
+      const next = all[j]!;
+      if (next.role === "user") break;
+      if (next.role === "assistant" && next.text) {
+        settled.add(msg.id);
+        break;
+      }
+      const nextIsProcess =
+        next.role === "tool" ||
+        (next.role === "assistant" && Boolean(next.thinking) && !next.text);
+      if (nextIsProcess) {
+        settled.add(msg.id);
+        break;
+      }
+    }
+  }
+  return settled;
+});
+
+function rowSettled(msg: ChatMessage): boolean {
+  return settledRowIds.value.has(msg.id);
+}
 
 const visibleMessages = computed(() =>
   displayMessages.value.slice(renderStart.value, renderEnd.value),
@@ -1232,25 +1260,6 @@ function toolStatus(msg: Extract<ChatMessage, { role: "tool" }>): {
   return { type: "success", label: t.toolDone };
 }
 
-/**
- * Copilot folding rule (chatProgressContentPart `isHidden`): a standalone
- * tool card folds once the next output appears after it — an assistant text
- * or any further process row — rather than when the whole turn finishes.
- */
-function standaloneToolSettled(msg: Extract<ChatMessage, { role: "tool" }>): boolean {
-  if (msg.streaming) return false;
-  const all = displayMessages.value;
-  const idx = all.findIndex((m) => m.id === msg.id);
-  if (idx < 0) return true;
-  for (let j = idx + 1; j < all.length; j++) {
-    const next = all[j]!;
-    if (next.role === "user") break;
-    if (next.role === "assistant" && next.text) return true;
-    if (next.role === "tool" && next.toolCallId !== msg.toolCallId) return true;
-  }
-  return false;
-}
-
 function isSpeakingMessage(id: string): boolean {
   return tts.speakingMessageId === id && tts.status.speaking;
 }
@@ -1479,7 +1488,7 @@ function onRevertUser(msg: Extract<ChatMessage, { role: "user" }>): void {
           <div class="tool">
             <WorkSectionGroup
               :items="workSectionMembership.get(msg.id)!.items"
-              :auto-collapse="workSectionMembership.get(msg.id)!.settled"
+              :auto-collapse="rowSettled(msg)"
               @open="openPreview"
             />
           </div>
@@ -1687,7 +1696,7 @@ function onRevertUser(msg: Extract<ChatMessage, { role: "user" }>): void {
               :status-label="toolStatus(msg).label"
               :status-type="toolStatus(msg).type"
               :streaming="msg.streaming"
-              :auto-collapse="standaloneToolSettled(msg)"
+              :auto-collapse="rowSettled(msg)"
               @open="openPreview"
             />
           </div>
