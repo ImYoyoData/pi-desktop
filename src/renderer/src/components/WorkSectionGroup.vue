@@ -1,21 +1,24 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref, watch } from "vue";
 import { NIcon } from "naive-ui";
-import { ChevronForwardOutline } from "@vicons/ionicons5";
+import { CheckmarkOutline, ChevronForwardOutline } from "@vicons/ionicons5";
 import type { ChatMessage } from "@renderer/stores/chat";
 import ToolCallCard from "@renderer/components/ToolCallCard.vue";
 import { parseToolCard, type ToolCard } from "@renderer/utils/tool-diff";
 import {
-  countToolActivities,
-  formatToolGroupSummary,
+  categorizeToolCall,
+  summarizeWorkSection,
+  workSectionLiveTitle,
+  type WorkSectionTool,
 } from "@renderer/utils/tool-group";
 import { t } from "@renderer/i18n";
 
 type ToolMessage = Extract<ChatMessage, { role: "tool" }>;
 
 const props = defineProps<{
-  tools: ToolMessage[];
-  /** True once the whole turn finished: fold the finished group (Codex-like). */
+  /** Process rows in order: tool calls mixed with thinking-only notes. */
+  items: ChatMessage[];
+  /** True once the section settled (or the whole turn finished): fold + summary title. */
   autoCollapse?: boolean;
 }>();
 
@@ -26,9 +29,11 @@ const emit = defineEmits<{
 const manuallyOpen = ref<boolean | null>(null);
 const wasStreaming = ref(false);
 
-const anyStreaming = computed(() => props.tools.some((m) => m.streaming));
-const anyError = computed(() => props.tools.some((m) => m.isError && !m.streaming));
-/** Collapse the finished group shortly after it stops streaming (Codex-like). */
+const anyStreaming = computed(() => props.items.some((m) => m.streaming));
+const anyError = computed(() =>
+  props.items.some((m) => m.role === "tool" && m.isError && !m.streaming),
+);
+/** Collapse the finished section shortly after it stops streaming. */
 const AUTO_COLLAPSE_MS = 1200;
 let finishTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -40,10 +45,10 @@ function clearFinishTimer(): void {
 }
 
 const open = computed(() => {
-  // Turn finished: only a user-expanded group stays open; history stays folded.
+  // Section settled: only a user-expanded section stays open.
   if (props.autoCollapse) return manuallyOpen.value === true;
   if (manuallyOpen.value !== null) return manuallyOpen.value;
-  // While tools are running (and just after), keep expanded so the latest call is visible.
+  // While steps are running (and just after), keep expanded so the latest step is visible.
   return wasStreaming.value || anyStreaming.value;
 });
 
@@ -53,8 +58,6 @@ watch(anyStreaming, (streaming, prev) => {
     wasStreaming.value = true;
     clearFinishTimer();
   } else if (prev && !streaming) {
-    // Just finished — keep expanded so results are visible, then fold
-    // the history back up as the agent moves on.
     wasStreaming.value = true;
     clearFinishTimer();
     finishTimer = setTimeout(() => {
@@ -64,7 +67,7 @@ watch(anyStreaming, (streaming, prev) => {
   }
 });
 
-// Fold everything as soon as the round finishes; users can re-expand manually.
+// Fold as soon as the round finishes; users can re-expand manually.
 watch(
   () => props.autoCollapse,
   (v) => {
@@ -80,13 +83,51 @@ function toggle(): void {
   manuallyOpen.value = !open.value;
 }
 
-const summary = computed(() =>
-  formatToolGroupSummary(countToolActivities(props.tools), {
-    readTimes: t.toolGroupReadTimes,
-    toolTimes: t.toolGroupToolTimes,
-    join: (parts) => parts.join(t.toolGroupJoin),
+function isToolMessage(msg: ChatMessage): msg is ToolMessage {
+  return msg.role === "tool";
+}
+
+const toolItems = computed(() => props.items.filter(isToolMessage));
+const thinkingCount = computed(() => props.items.length - toolItems.value.length);
+
+const categorized = computed(() =>
+  toolItems.value.map((m) => categorizeToolCall(m.toolName, m.args)),
+);
+
+/** Live title: present-tense label of the latest step (Copilot streaming header). */
+const liveTitle = computed(() => {
+  const last = props.items[props.items.length - 1];
+  if (!last) return t.wsLiveThinking;
+  if (last.role !== "tool") return t.wsLiveThinking;
+  const tools: WorkSectionTool[] = [categorizeToolCall(last.toolName, last.args)];
+  return workSectionLiveTitle(tools, {
+    edit: t.wsLiveEdit,
+    read: t.wsLiveRead,
+    bash: t.wsLiveBash,
+    todo: t.wsLiveTodo,
+    tool: t.wsLiveTool,
+    thinking: t.wsLiveThinking,
+  });
+});
+
+/** Settled title: past-tense natural-language summary (Copilot finalized header). */
+const summaryTitle = computed(() =>
+  summarizeWorkSection(categorized.value, thinkingCount.value, {
+    editOne: t.wsSummaryEditOne,
+    editMany: t.wsSummaryEditMany,
+    readOne: t.wsSummaryReadOne,
+    readMany: t.wsSummaryReadMany,
+    readAndEdited: t.wsSummaryReadEdited,
+    bash: t.wsSummaryBash,
+    todo: t.wsSummaryTodo,
+    tool: t.wsSummaryTool,
+    steps: t.wsSummarySteps,
+    join: t.wsSummaryJoin,
   }),
 );
+
+const settled = computed(() => props.autoCollapse || !anyStreaming.value);
+const title = computed(() => (settled.value ? summaryTitle.value : liveTitle.value));
 
 /** Memoize card parsing per message object (see MessageList.vue). */
 const toolCardCache = new WeakMap<ToolMessage, ToolCard>();
@@ -111,11 +152,19 @@ function toolStatus(msg: ToolMessage): {
 
 <template>
   <div
-    class="tool-group"
+    class="work-section"
     :class="{ open, streaming: anyStreaming, error: anyError }"
   >
-    <button type="button" class="tool-group-head" :aria-expanded="open" @click="toggle">
-      <span class="summary" :class="{ 'copilot-shimmer': anyStreaming }">{{ summary }}</span>
+    <button type="button" class="work-section-head" :aria-expanded="open" @click="toggle">
+      <span v-if="!settled" class="live-dot" aria-hidden="true" />
+      <NIcon
+        v-else
+        class="done-icon"
+        :component="CheckmarkOutline"
+        :size="12"
+        aria-hidden="true"
+      />
+      <span class="summary" :class="{ 'copilot-shimmer': !settled }">{{ title }}</span>
       <NIcon
         class="hover-chev"
         :class="{ expanded: open }"
@@ -125,36 +174,42 @@ function toolStatus(msg: ToolMessage): {
       />
     </button>
 
-    <div v-if="open" class="tool-group-body">
-      <div v-for="msg in tools" :key="msg.id" class="cot-item">
-        <ToolCallCard
-          :card="toolCard(msg)"
-          :tool-name="msg.toolName"
-          :order="msg.order"
-          :status-label="toolStatus(msg).label"
-          :status-type="toolStatus(msg).type"
-          :streaming="msg.streaming"
-          :auto-collapse="props.autoCollapse || !msg.streaming"
-          tree-item
-          @open="emit('open', $event)"
-        />
-      </div>
+    <div v-if="open" class="work-section-body">
+      <template v-for="msg in items" :key="msg.id">
+        <div v-if="isToolMessage(msg)" class="cot-item">
+          <ToolCallCard
+            :card="toolCard(msg)"
+            :tool-name="msg.toolName"
+            :order="msg.order"
+            :status-label="toolStatus(msg).label"
+            :status-type="toolStatus(msg).type"
+            :streaming="msg.streaming"
+            :auto-collapse="props.autoCollapse || !msg.streaming"
+            tree-item
+            @open="emit('open', $event)"
+          />
+        </div>
+        <div v-else-if="msg.role === 'assistant' && msg.thinking" class="cot-item thinking-item">
+          <span class="thinking-dot" aria-hidden="true" />
+          <div class="thinking-text">{{ msg.thinking }}</div>
+        </div>
+      </template>
     </div>
   </div>
 </template>
 
 <style scoped>
-/* 1:1 VS Code Copilot collapsible tool group — chatCollapsibleContentPart + chatThinkingContent.css */
-.tool-group {
+/* 1:1 VS Code Copilot work section — chatThinkingContentPart + chatCollapsibleContentPart */
+.work-section {
   margin: 0 0 2px;
   overflow: hidden;
 }
 
-.tool-group-head {
+.work-section-head {
   position: relative;
   display: inline-flex;
   align-items: center;
-  gap: 2px;
+  gap: 5px;
   width: fit-content;
   max-width: 100%;
   margin: 0 0 0 -2px;
@@ -171,13 +226,46 @@ function toolStatus(msg: ToolMessage): {
   user-select: none;
 }
 
-.tool-group-head:hover {
+.work-section-head:hover {
   color: var(--fg, inherit);
   background: var(--chat-hover-bg, color-mix(in srgb, var(--fg) 5%, transparent));
 }
 
-.tool-group.open > .tool-group-head {
+.work-section.open > .work-section-head {
   color: var(--fg, inherit);
+}
+
+/* Streaming state icon — circle-filled like chatThinkingContentPart */
+.live-dot {
+  flex-shrink: 0;
+  width: 6px;
+  height: 6px;
+  margin: 0 3px;
+  border-radius: 50%;
+  background: currentColor;
+  animation: ws-pulse 1.6s ease-in-out infinite;
+}
+
+.done-icon {
+  flex-shrink: 0;
+  margin: 0 3px;
+  color: var(--chat-icon-fg, var(--fg-muted));
+}
+
+@keyframes ws-pulse {
+  0%,
+  100% {
+    opacity: 0.45;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .live-dot {
+    animation: none;
+  }
 }
 
 .summary {
@@ -206,7 +294,7 @@ function toolStatus(msg: ToolMessage): {
   transform: rotate(90deg);
 }
 
-.tool-group-head:hover .hover-chev {
+.work-section-head:hover .hover-chev {
   opacity: 1;
 }
 
@@ -217,7 +305,7 @@ function toolStatus(msg: ToolMessage): {
 }
 
 /* Curved connector from the header to the first tree item (.chat-used-context-label::after) */
-.tool-group.open > .tool-group-head::after {
+.work-section.open > .work-section-head::after {
   content: "";
   position: absolute;
   left: 3px;
@@ -230,7 +318,7 @@ function toolStatus(msg: ToolMessage): {
   pointer-events: none;
 }
 
-.tool-group-body {
+.work-section-body {
   display: flex;
   flex-direction: column;
   margin-left: 5px;
@@ -270,5 +358,31 @@ function toolStatus(msg: ToolMessage): {
   .cot-item::before {
     mask-image: none;
   }
+}
+
+/* Thinking row inside the section — plain bullet row (chat-thinking-item) */
+.thinking-item {
+  padding: 4px 12px 4px 24px;
+  font-size: var(--chat-font-s, 12px);
+  line-height: 1.5em;
+  color: var(--chat-desc-fg, var(--fg-muted));
+}
+
+.thinking-dot {
+  position: absolute;
+  left: 7.5px;
+  top: 10px;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: currentColor;
+  opacity: 0.6;
+}
+
+.thinking-text {
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 200px;
+  overflow-y: auto;
 }
 </style>

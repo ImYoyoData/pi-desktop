@@ -29,10 +29,10 @@ const MarkdownView = defineAsyncComponent(
 
 import ThinkingBlock from "@renderer/components/ThinkingBlock.vue";
 import ToolCallCard from "@renderer/components/ToolCallCard.vue";
-import ToolCallGroup from "@renderer/components/ToolCallGroup.vue";
+import WorkSectionGroup from "@renderer/components/WorkSectionGroup.vue";
 import AgentWaitIndicator from "@renderer/components/AgentWaitIndicator.vue";
-import { parseToolCard, isReadTool, type ToolCard } from "@renderer/utils/tool-diff";
-import { buildToolGroupSpans } from "@renderer/utils/tool-group";
+import { parseToolCard, type ToolCard } from "@renderer/utils/tool-diff";
+import { buildWorkSectionSpans } from "@renderer/utils/tool-group";
 import { agentOutputSilenceMs } from "@renderer/utils/agent-wait";
 import type { ChatState } from "@renderer/stores/chat-reducer";
 import { usePreviewStore } from "@renderer/stores/preview";
@@ -201,12 +201,11 @@ const settlingUi = ref(false);
 const showJumpLatest = ref(false);
 let scrollRaf = 0;
 
-const workFolded = ref(true);
-
 /**
- * When the final answer is shown, the whole latest turn's process (all tool
- * calls + thinking-only rows) folds into one compact summary instead of a
- * stack of individually folded cards.
+ * VS Code Copilot design (chatThinkingContentPart): the latest turn's process
+ * — every tool call and thinking row between answer texts — stays in the
+ * stream, folded per work section (see WorkSectionGroup). Older turns drop
+ * their process rows so history reads as prompts + final answers only.
  */
 const latestTurnStart = computed(() => {
   const list = props.messages;
@@ -216,47 +215,6 @@ const latestTurnStart = computed(() => {
   return -1;
 });
 
-const processSummaryCounts = computed(() => {
-  let tools = 0;
-  let thinking = 0;
-  const start = latestTurnStart.value;
-  const list = props.messages;
-  for (let i = start + 1; i < list.length; i++) {
-    const m = list[i]!;
-    if (m.role === "tool") tools += 1;
-    else if (m.role === "assistant" && Boolean(m.thinking) && !m.text) thinking += 1;
-  }
-  return { tools, thinking };
-});
-
-/** True for the synthetic row shown in place of the latest turn's process. */
-function processSummaryLabel(msg: ChatMessage): string {
-  const args = (msg.role === "tool" ? msg.args : undefined) as
-    | { toolCount?: number; thinkingCount?: number }
-    | undefined;
-  return t.processSummary(args?.toolCount ?? 0, args?.thinkingCount ?? 0);
-}
-
-function isProcessSummary(msg: ChatMessage | null | undefined): boolean {
-  return Boolean(msg && msg.role === "tool" && msg.toolName === "process-summary");
-}
-
-function processSummaryExpanded(msg: ChatMessage): boolean {
-  if (msg.role !== "tool") return false;
-  const args = msg.args as { expanded?: boolean } | undefined;
-  return args?.expanded === true;
-}
-
-watch([() => props.running, () => props.streaming], ([running, streaming]) => {
-  // Auto-fold only when the turn is done and there is work to fold.
-  if (running || streaming) {
-    workFolded.value = false;
-  } else {
-    const counts = processSummaryCounts.value;
-    workFolded.value = counts.tools + counts.thinking > 0;
-  }
-}, { immediate: true });
-
 /** Tool rows that must stay visible even in clean history (user questions). */
 function isKeepVisibleTool(msg: ChatMessage): boolean {
   return msg.role === "tool" && msg.toolName === ASK_USER_TOOL_NAME;
@@ -265,67 +223,15 @@ function isKeepVisibleTool(msg: ChatMessage): boolean {
 const displayMessages = computed(() => {
   const list = [...props.messages];
   if (props.streaming) list.push(props.streaming);
-  const counts = processSummaryCounts.value;
   const start = latestTurnStart.value;
   const out: ChatMessage[] = [];
-  let inserted = false;
-  // Fold the WHOLE latest turn's process — from the user prompt down to the
-  // last tool/thinking row — including any assistant text emitted mid-process.
-  // Only the final assistant answer (text after the last work row) stays out.
-  let lastWorkIndex = -1;
-  for (let i = list.length - 1; i > start; i--) {
-    const m = list[i]!;
-    if (
-      m.role === "tool" ||
-      (m.role === "assistant" && Boolean(m.thinking) && !m.text)
-    ) {
-      lastWorkIndex = i;
-      break;
-    }
-  }
   for (let i = 0; i < list.length; i++) {
     const msg = list[i]!;
-    const isLatestTurnWork =
-      i > start &&
-      i <= lastWorkIndex &&
-      (msg.role === "tool" ||
-        (msg.role === "assistant" && Boolean(msg.thinking) && !msg.text));
-    if (isLatestTurnWork) {
-      if (!inserted) {
-        inserted = true;
-        // Folded: one compact summary replaces the whole process.
-        // Expanded: the same bar stays on top so the user can fold again.
-        out.push({
-          id: "__process-summary__",
-          role: "tool",
-          toolCallId: "__process-summary__",
-          toolName: "process-summary",
-          args: {
-            toolCount: counts.tools,
-            thinkingCount: counts.thinking,
-            expanded: !workFolded.value,
-          },
-        } as ChatMessage);
-      }
-      if (!workFolded.value) out.push(msg);
-      continue;
-    }
-    // Mid-process assistant text emitted between tool calls is part of the
-    // latest turn's process — fold it with the tools. Only the text that
-    // follows the last work row (the final answer) is kept visible.
-    if (
-      i > start &&
-      i <= lastWorkIndex &&
-      msg.role === "assistant" &&
-      msg.text
-    ) {
-      if (!workFolded.value) out.push(msg);
-      continue;
-    }
     // Older, already-finished turns: drop their tool/thinking rows so the
     // history reads as user messages + final answers only (Codex-like).
     // Interactive ask_user rows stay visible.
     if (
+      i <= start &&
       !isKeepVisibleTool(msg) &&
       (msg.role === "tool" ||
         (msg.role === "assistant" && Boolean(msg.thinking) && !msg.text))
@@ -337,37 +243,39 @@ const displayMessages = computed(() => {
   return out;
 });
 
-type ToolMessage = Extract<ChatMessage, { role: "tool" }>;
-
-type ToolGroupMembership = {
+type WorkSectionMembership = {
   groupId: string;
   leadId: string;
   isLead: boolean;
-  tools: ToolMessage[];
+  items: ChatMessage[];
 };
 
-/** Consecutive tool calls (2+) collapse into one Cursor-style group. */
-const toolGroupMembership = computed(() => {
+/**
+ * Copilot work sections: consecutive process rows (all tool calls + thinking
+ * rows between answer texts) fold into one collapsible WorkSectionGroup.
+ * Interactive ask_user tools break the section and stay standalone.
+ */
+const workSectionMembership = computed(() => {
   const all = displayMessages.value;
-  const map = new Map<string, ToolGroupMembership>();
-  const spans = buildToolGroupSpans(
+  const map = new Map<string, WorkSectionMembership>();
+  const spans = buildWorkSectionSpans(
     all.map((m) => ({
       id: m.id,
       role: m.role,
       toolName: m.role === "tool" ? m.toolName : "",
+      hasText: m.role === "assistant" ? Boolean(m.text) : false,
+      hasThinking: m.role === "assistant" ? Boolean(m.thinking) : false,
     })),
-    // Only collapse consecutive reads; write/edit/bash stay standalone
-    // so their live streaming diffs stay visible.
-    (m) => m.role === "tool" && isReadTool(m.toolName),
+    (row) => row.toolName === ASK_USER_TOOL_NAME,
   );
   for (const span of spans) {
-    const tools = all.slice(span.start, span.end) as ToolMessage[];
+    const items = all.slice(span.start, span.end);
     for (let i = 0; i < span.ids.length; i++) {
       map.set(span.ids[i]!, {
         groupId: span.groupId,
         leadId: span.ids[0]!,
         isLead: i === 0,
-        tools,
+        items,
       });
     }
   }
@@ -380,7 +288,7 @@ const visibleMessages = computed(() =>
 
 function estimateMessageHeight(msg: ChatMessage | undefined): number {
   if (!msg) return EST_MSG_HEIGHT;
-  const group = toolGroupMembership.value.get(msg.id);
+  const group = workSectionMembership.value.get(msg.id);
   if (group) {
     if (!group.isLead) return 0;
     return heightById.get(group.leadId) || EST_TOOL_GROUP_HEIGHT;
@@ -1239,10 +1147,11 @@ onBeforeUnmount(() => {
  */
 const turnDone = computed(() => !props.running && !props.streaming);
 
-/** A tool group is still live while any member tool is streaming. */
-function toolGroupStreaming(msg: ToolMessage): boolean {
+/** A work section is still live while any member row is streaming. */
+function workSectionStreaming(msg: ChatMessage): boolean {
   return (
-    toolGroupMembership.value.get(msg.id)?.tools.some((t) => t.streaming) ?? false
+    workSectionMembership.value.get(msg.id)?.items.some((m) => m.streaming) ??
+    false
   );
 }
 
@@ -1528,12 +1437,25 @@ function onRevertUser(msg: Extract<ChatMessage, { role: "user" }>): void {
         class="row"
         :class="[
           `row-${msg.role}`,
-          toolGroupMembership.get(msg.id)?.isLead === false ? 'row-tool-group-follower' : '',
+          workSectionMembership.get(msg.id)?.isLead === false ? 'row-tool-group-follower' : '',
           sessionId && chat.isPendingEditTail(sessionId, msg.id) ? 'row-edit-tail' : '',
         ]"
         :data-msg-id="msg.id"
       >
-        <template v-if="msg.role === 'user'">
+        <template v-if="workSectionMembership.get(msg.id)?.isLead">
+          <div class="tool">
+            <WorkSectionGroup
+              :items="workSectionMembership.get(msg.id)!.items"
+              :auto-collapse="turnDone || !workSectionStreaming(msg)"
+              @open="openPreview"
+            />
+          </div>
+        </template>
+        <template v-else-if="workSectionMembership.has(msg.id)">
+          <!-- Folded into the work section on the lead row. -->
+        </template>
+
+        <template v-else-if="msg.role === 'user'">
           <div class="bubble-wrap user">
             <div
               class="bubble user"
@@ -1724,30 +1646,7 @@ function onRevertUser(msg: Extract<ChatMessage, { role: "user" }>): void {
         </template>
 
         <template v-else-if="msg.role === 'tool'">
-          <div v-if="isProcessSummary(msg)" class="tool process-summary-row">
-            <button
-              type="button"
-              class="process-summary pi-interactive"
-              :title="processSummaryExpanded(msg) ? t.processCollapse : t.processExpand"
-              @click="processSummaryExpanded(msg) ? (workFolded = true) : (workFolded = false)"
-            >
-              <span class="ps-dot" aria-hidden="true" />
-              <span class="ps-label">{{ processSummaryLabel(msg) }}</span>
-              <NIcon
-                :component="processSummaryExpanded(msg) ? ChevronUpOutline : ChevronDownOutline"
-                :size="14"
-                class="ps-chevron"
-              />
-            </button>
-          </div>
-          <div v-else-if="toolGroupMembership.get(msg.id)?.isLead" class="tool">
-            <ToolCallGroup
-              :tools="toolGroupMembership.get(msg.id)!.tools"
-              :auto-collapse="turnDone || !toolGroupStreaming(msg)"
-              @open="openPreview"
-            />
-          </div>
-          <div v-else-if="!toolGroupMembership.has(msg.id)" class="tool">
+          <div class="tool">
             <ToolCallCard
               :card="toolCard(msg)"
               :tool-name="msg.toolName"
@@ -2081,11 +1980,6 @@ function onRevertUser(msg: Extract<ChatMessage, { role: "user" }>): void {
   border-left: none;
 }
 
-.row-tool.process-summary-row {
-  padding-left: 0;
-  border-left: none;
-}
-
 .row-error {
   margin: 4px 0;
 }
@@ -2175,7 +2069,7 @@ function onRevertUser(msg: Extract<ChatMessage, { role: "user" }>): void {
   justify-content: flex-start;
 }
 
-/* Folded into ToolCallGroup on the lead row — keep DOM for virtual ids, zero layout. */
+/* Folded into the work section on the lead row — keep DOM for virtual ids, zero layout. */
 .row-tool-group-follower {
   display: none;
 }
@@ -2698,53 +2592,5 @@ function onRevertUser(msg: Extract<ChatMessage, { role: "user" }>): void {
   .image-preview-overlay {
     animation: none;
   }
-}
-
-/* One-big-group process summary after the final answer — plain text row */
-.process-summary-row {
-  padding: 0 4px 2px;
-}
-
-.process-summary {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  width: 100%;
-  padding: 4px 6px;
-  border: none;
-  border-radius: 5px;
-  background: transparent;
-  color: var(--fg-muted);
-  cursor: pointer;
-  font: inherit;
-  font-size: 12px;
-  transition: background var(--duration-fast, 140ms) var(--ease-out, ease);
-}
-
-.process-summary:hover {
-  background: color-mix(in srgb, var(--fg) 4%, transparent);
-  color: var(--fg);
-}
-
-.ps-dot {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: var(--accent);
-  flex-shrink: 0;
-}
-
-.ps-label {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.ps-chevron {
-  flex-shrink: 0;
-  color: var(--fg-faint, var(--fg-muted));
-  transition: transform var(--duration-fast, 140ms) var(--ease-out, ease);
 }
 </style>

@@ -119,10 +119,18 @@ function pathFromArgs(args: unknown): string | null {
   return typeof p === "string" && p.trim() ? p.trim() : null;
 }
 
+export function toolPathFromArgs(args: unknown): string | null {
+  return pathFromArgs(args);
+}
+
 function commandFromArgs(args: unknown): string | null {
   if (!isRecord(args)) return null;
   const c = args.command ?? args.cmd;
   return typeof c === "string" && c.trim() ? c.trim() : null;
+}
+
+export function toolCommandFromArgs(args: unknown): string | null {
+  return commandFromArgs(args);
 }
 
 function truncationFromDetails(details: Record<string, unknown> | null): {
