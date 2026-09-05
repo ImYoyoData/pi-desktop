@@ -86,6 +86,18 @@ import { locale, t } from "@renderer/i18n";
 
 type ThinkingLevel = "off" | "minimal" | "low" | "medium" | "high" | "xhigh";
 
+/**
+ * True when docked widgets (todo / changed files) sit directly above the
+ * composer inside the shared chat-input-stack — squares the card's top corners
+ * and drops its top border so the whole stack reads as one Copilot surface.
+ */
+const props = withDefaults(
+  defineProps<{
+    docked?: boolean;
+  }>(),
+  { docked: false },
+);
+
 const chat = useChatStore();
 const composer = useComposerStore();
 const sendQueue = useSendQueueStore();
@@ -2338,6 +2350,7 @@ watch(
         'is-voice-recording': voiceActive,
         'is-editor-expanded': editorExpanded,
         'is-file-drag-over': fileDragOver,
+        docked: props.docked,
       }"
       @dragover="onComposerDragOver"
       @dragleave="onComposerDragLeave"
@@ -2739,9 +2752,9 @@ watch(
 .composer-wrap {
   flex-shrink: 0;
   width: 100%;
-  max-width: var(--composer-max, 780px);
-  margin: 0 auto;
-  padding: 0 var(--chat-pad-x, 10px) 8px;
+  max-width: none;
+  margin: 0;
+  padding: 0;
   display: flex;
   flex-direction: column;
   align-items: stretch;
@@ -2793,6 +2806,13 @@ watch(
   transition:
     border-color var(--duration-fast, 140ms) var(--ease-out, ease),
     box-shadow var(--duration, 180ms) var(--ease-out, ease);
+}
+
+/* Chat-input-stack: docked widgets share the composer surface. */
+.composer-card.docked {
+  border-top: none;
+  border-top-left-radius: 0;
+  border-top-right-radius: 0;
 }
 
 .composer-card.is-file-drag-over {

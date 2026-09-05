@@ -2,25 +2,33 @@
 import { computed, onBeforeUnmount, ref, watch } from "vue";
 import { NIcon } from "naive-ui";
 import {
-  CheckmarkDoneOutline,
   ChevronDownOutline,
   ChevronForwardOutline,
   CloseOutline,
-  ListOutline,
 } from "@vicons/ionicons5";
 import { useSessionWidgetsStore } from "@renderer/stores/session-widgets";
 import { useSessionsStore } from "@renderer/stores/sessions";
 import { t } from "@renderer/i18n";
 
+/**
+ * Copilot chatTodoListWidget — a docked slice on the chat input stack.
+ *
+ * A fresh round (nothing done / nothing in-progress) renders expanded so the
+ * plan is visible; once any item is in-progress or done the list auto-folds to
+ * a compact header showing the current task "<task> (N/M)" with a leading
+ * status dot (Copilot `updateTitleElement`). Manual expand/collapse sticks.
+ */
+
 const widgets = useSessionWidgetsStore();
 const sessions = useSessionsStore();
-const collapsed = ref(false);
 
 const list = computed(() => widgets.activeTodoList);
 const paused = computed(() => Boolean(list.value?.paused));
 
-/** Live tick for in-progress durations — re-renders the panel every second.
- *  A paused round holds its timers (no ticking until resumed). */
+/** User manually opened/closed the list — overrides auto-collapse. */
+const userExpanded = ref<boolean | null>(null);
+
+/** Live tick for in-progress durations — re-renders every second. */
 const nowMs = ref(Date.now());
 let tickTimer: ReturnType<typeof setInterval> | null = null;
 function startTick(): void {
@@ -40,8 +48,6 @@ watch(
   () => {
     const l = widgets.activeTodoList;
     if (!l || l.paused) return false;
-    // Tick only while open items remain, so each in-progress row keeps its
-    // own live timer. Once everything is done the total timer is frozen.
     return l.items.some((i) => !i.done);
   },
   (hasActive) => {
@@ -53,7 +59,6 @@ watch(
 
 onBeforeUnmount(stopTick);
 
-/** "12s" / "1m 23s" / "2h 5m" from ms. */
 function formatDuration(ms: number | undefined): string {
   if (ms == null || !Number.isFinite(ms) || ms < 0) return "";
   const totalSec = Math.round(ms / 1000);
@@ -66,12 +71,10 @@ function formatDuration(ms: number | undefined): string {
   return remMin ? `${hr}h ${remMin}m` : `${hr}h`;
 }
 
-/** 未完成的项：用 startedAt + 本地 tick 实时跳动；已完成用固定时长 */
 function itemDuration(item: {
   durationMs?: number;
   startedAt?: number;
   done: boolean;
-  active?: boolean;
 }): string {
   if (item.durationMs != null) return formatDuration(item.durationMs);
   if (!item.done && item.startedAt != null) {
@@ -86,50 +89,84 @@ const doneCount = computed(
 const total = computed(() => list.value?.items.length ?? 0);
 const openCount = computed(() => Math.max(0, total.value - doneCount.value));
 const allDone = computed(() => total.value > 0 && openCount.value === 0);
-const pct = computed(() =>
-  total.value > 0 ? Math.round((doneCount.value / total.value) * 100) : 0,
+
+const firstInProgress = computed(
+  () => list.value?.items.find((i) => i.active && !i.done) ?? null,
+);
+const firstOpen = computed(
+  () => list.value?.items.find((i) => !i.done) ?? null,
 );
 
-/** Any item actively running right now (drives the live pulse). */
-const hasActive = computed(
-  () => list.value?.items.some((i) => i.active && !i.done) ?? false,
+/** A "fresh" round: nothing completed and nothing currently in-progress. */
+const freshRound = computed(
+  () =>
+    list.value != null &&
+    doneCount.value === 0 &&
+    !firstInProgress.value &&
+    !paused.value,
 );
 
-/** 保持原始添加顺序，已完成与未完成混排在一起 */
-const orderedItems = computed(() => list.value?.items ?? []);
-
-/** 本轮待办总时长：从首次出现到全部完成（完成后冻结，不再走动） */
-const totalDurationMs = computed(() => {
-  const id = sessions.activeId;
-  if (!id || !list.value) return 0;
-  const start = widgets.todoStartedAt(id);
-  if (!start) return 0;
-  // 全部完成：起点 → 最后完成时刻（固定）；未完成：实时流逝时间。
-  const end = widgets.todoCompletedAt(id) || nowMs.value;
-  return Math.max(0, end - start);
+/** Copilot auto-collapse — re-expands fresh rounds unless user overrode. */
+const collapsed = computed(() => {
+  // Paused round: always show the continue/delete actions.
+  if (paused.value) return false;
+  if (userExpanded.value !== null) return !userExpanded.value;
+  if (freshRound.value) return false;
+  // In-progress / completed round folds to the "current task" header.
+  return true;
 });
 
-const headerLabel = computed(() => {
-  if (!list.value) return "";
-  if (allDone.value) {
-    const dur = formatDuration(totalDurationMs.value);
-    return dur ? `${t.todoAllDone(total.value)} · ${dur}` : t.todoAllDone(total.value);
-  }
-  return t.todoProgress(doneCount.value, total.value);
+/** Watch list content to reset the user override on a brand-new round. */
+watch(
+  () => list.value?.items.map((i) => `${i.id}:${i.done}:${i.active}`).join("|"),
+  () => {
+    if (freshRound.value) userExpanded.value = null;
+  },
+);
+
+function toggle(): void {
+  userExpanded.value = collapsed.value;
+}
+
+/** Copilot "current task number": completed+1 while something is in-progress. */
+const currentNumber = computed(() =>
+  Math.max(doneCount.value + (firstInProgress.value ? 1 : 0), 1),
+);
+
+const expandedTitle = computed(() =>
+  total.value > 0
+    ? t.todoProgress(currentNumber.value, total.value)
+    : t.toolTodo,
+);
+
+/** Collapsed header mirrors Copilot: "<current task> (N/M)". */
+const collapsedTitle = computed(() => {
+  const l = list.value;
+  if (!l) return "";
+  const shown = firstInProgress.value ?? firstOpen.value;
+  if (!shown) return expandedTitle.value;
+  return `${shown.text} (${currentNumber.value}/${total.value})`;
 });
+
+const headerLabel = computed(() =>
+  collapsed.value ? collapsedTitle.value : expandedTitle.value,
+);
 
 const subLabel = computed(() => {
-  if (!list.value) return "";
+  if (paused.value) return t.todoPaused;
   if (allDone.value) return t.todoDoneItems;
   return t.todoRemaining(openCount.value);
 });
+
+const hasLive = computed(
+  () => list.value?.items.some((i) => i.active && !i.done) ?? false,
+);
 
 function onDismiss(): void {
   const id = sessions.activeId;
   if (id) widgets.dismissTodoList(id);
 }
 
-/** Paused-round actions: keep the list for the follow-up prompt, or drop it. */
 function onResume(): void {
   const id = sessions.activeId;
   if (id) widgets.resumeTodosForSession(id);
@@ -144,41 +181,43 @@ function onDeleteList(): void {
 <template>
   <div
     v-if="list"
-    class="todo-panel"
+    class="todo-dock"
     role="region"
     :aria-label="headerLabel"
-    :class="{ done: allDone, paused }"
+    :class="{ done: allDone, paused, expanded: !collapsed }"
   >
-    <div class="todo-head">
+    <div class="todo-dock-head">
       <button
         type="button"
-        class="todo-toggle pi-interactive"
+        class="todo-dock-toggle pi-interactive"
         :aria-expanded="!collapsed"
-        @click="collapsed = !collapsed"
+        :aria-label="collapsed ? t.todoExpand : t.todoCollapse"
+        @click="toggle"
       >
         <NIcon
-          :component="collapsed ? ChevronForwardOutline : ChevronDownOutline"
-          :size="14"
           class="chev"
+          :component="collapsed ? ChevronForwardOutline : ChevronDownOutline"
+          :size="13"
+          aria-hidden="true"
         />
-        <span class="badge" :class="{ done: allDone, paused }" aria-hidden="true">
-          <NIcon
-            :component="allDone ? CheckmarkDoneOutline : ListOutline"
-            :size="13"
+        <span v-if="collapsed" class="head-lead" aria-hidden="true">
+          <span
+            class="lead-mark"
+            :class="firstInProgress ? 'in-progress' : allDone ? 'done' : 'open'"
           />
         </span>
-        <span class="title">{{ headerLabel }}</span>
+        <span class="todo-dock-title">{{ headerLabel }}</span>
         <span
-          class="pill"
-          :class="{ open: openCount > 0, done: allDone, live: hasActive && !paused }"
+          class="todo-dock-pill"
+          :class="{ live: hasLive && !paused, paused }"
         >
-          <span v-if="hasActive && !paused" class="live-dot" aria-hidden="true" />
-          {{ paused ? t.todoPaused : subLabel }}
+          {{ subLabel }}
         </span>
       </button>
+
       <button
         type="button"
-        class="dismiss pi-interactive"
+        class="todo-dock-close pi-interactive"
         :aria-label="t.todoDismiss"
         :title="t.todoDismiss"
         @click="onDismiss"
@@ -187,8 +226,8 @@ function onDeleteList(): void {
       </button>
     </div>
 
-    <!-- Paused round: user decides to continue or delete — never auto-done. -->
-    <div v-if="paused" class="todo-paused-actions">
+    <!-- Paused round: continue or delete. -->
+    <div v-if="paused && !collapsed" class="todo-paused-actions">
       <button type="button" class="tp-btn primary pi-interactive" @click="onResume">
         {{ t.todoResumeTask }}
       </button>
@@ -197,233 +236,233 @@ function onDeleteList(): void {
       </button>
     </div>
 
-    <div v-show="!collapsed">
-      <div class="todo-progress" :class="{ done: allDone }">
-        <div class="todo-progress-fill" :style="{ width: pct + '%' }" />
-      </div>
-
-      <TransitionGroup tag="ul" name="todo" class="todo-list">
-        <li
-          v-for="item in orderedItems"
-          :key="item.id"
-          class="todo-item"
-          :class="{
-            done: item.done,
-            active: item.active && !item.done,
-          }"
-        >
-          <span v-if="item.active && !item.done" class="mark active" aria-hidden="true">
-            <span v-if="!paused" class="spinner" />
-            <span v-else class="pause-glyph" />
-          </span>
-          <span v-else class="mark" :class="item.done ? 'done' : 'open'" aria-hidden="true" />
-          <span class="num" aria-hidden="true">{{ item.id }}</span>
-          <span class="text">{{ item.text }}</span>
-          <span
-            v-if="itemDuration(item)"
-            class="dur"
-            :class="{ active: item.active && !item.done }"
+    <Transition name="todo-expand">
+      <div v-show="!collapsed" class="todo-dock-body">
+        <ul class="todo-list" role="list">
+          <li
+            v-for="item in list.items"
+            :key="item.id"
+            class="todo-item"
+            :class="{ done: item.done, live: item.active && !item.done }"
+            role="listitem"
           >
-            {{ itemDuration(item) }}
-          </span>
-        </li>
-      </TransitionGroup>
-    </div>
+            <span class="todo-status" aria-hidden="true">
+              <span
+                class="st-mark"
+                :class="item.done ? 'done' : item.active ? 'in-progress' : 'open'"
+              />
+            </span>
+            <span class="todo-text">{{ item.text }}</span>
+            <span
+              v-if="itemDuration(item)"
+              class="todo-dur"
+              :class="{ live: item.active && !item.done }"
+            >
+              {{ itemDuration(item) }}
+            </span>
+          </li>
+        </ul>
+      </div>
+    </Transition>
   </div>
 </template>
 
 <style scoped>
-.todo-panel {
+/* 1:1 VS Code Copilot chatTodoListWidget — docks flush onto the composer
+   surface. Border/radius are provided by the enclosing .chat-input-stack
+   (each member is a borderless slice). */
+
+.todo-dock {
   flex-shrink: 0;
-  margin: 0 var(--chat-pad-x, 12px) 8px;
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  background: var(--tool-bg, #f5f6f7);
-  box-shadow: none;
-  overflow: hidden;
-  animation: todo-rise 220ms var(--ease-out, ease);
+  min-width: 0;
+  background: transparent;
 }
 
-@keyframes todo-rise {
-  from {
-    opacity: 0;
-    transform: translateY(6px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
-.todo-head {
+.todo-dock-head {
   display: flex;
   align-items: center;
   gap: 2px;
 }
 
-.todo-toggle {
+.todo-dock-toggle {
   display: flex;
   align-items: center;
-  gap: 7px;
+  gap: 5px;
   flex: 1;
   min-width: 0;
-  padding: 8px 6px 8px 9px;
+  height: 24px;
+  padding: 0 6px 0 2px;
   border: 0;
+  border-radius: 5px;
   background: transparent;
   color: var(--fg);
   cursor: pointer;
   text-align: left;
   font: inherit;
+  user-select: none;
 }
 
-.todo-toggle:hover {
-  background: var(--bg-hover, color-mix(in srgb, var(--fg) 4%, transparent));
+.todo-dock-toggle:hover {
+  background: var(--chat-hover-bg, color-mix(in srgb, var(--fg) 5%, transparent));
 }
 
 .chev {
-  color: var(--fg-faint, var(--fg-muted));
   flex-shrink: 0;
+  color: var(--chat-desc-fg, var(--fg-muted));
 }
 
-.badge {
-  width: 22px;
-  height: 22px;
-  border-radius: 7px;
+.head-lead {
+  flex-shrink: 0;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  flex-shrink: 0;
-  color: var(--accent);
-  background: var(--accent-soft);
-  border: 1px solid var(--accent-border);
+  width: 14px;
+  height: 14px;
 }
 
-.badge.done {
-  color: var(--success, var(--green, #16a34a));
-  background: color-mix(in srgb, var(--success, var(--green, #16a34a)) 12%, transparent);
-  border-color: color-mix(in srgb, var(--success, var(--green, #16a34a)) 30%, transparent);
+.lead-mark {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  box-sizing: border-box;
 }
 
-.badge.paused {
-  color: var(--fg-muted);
-  background: color-mix(in srgb, var(--fg-muted) 10%, transparent);
-  border-color: color-mix(in srgb, var(--fg-muted) 25%, transparent);
+.lead-mark.in-progress {
+  background: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+  animation: lead-pulse 1.4s ease-in-out infinite;
 }
 
-.title {
+.lead-mark.open {
+  border: 1.5px solid var(--border-strong, var(--fg-faint));
+}
+
+.lead-mark.done {
+  background: var(--success, var(--green));
+  box-shadow: 0 0 0 3px
+    color-mix(in srgb, var(--success, var(--green)) 18%, transparent);
+}
+
+@keyframes lead-pulse {
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.55;
+    transform: scale(0.88);
+  }
+}
+
+.todo-dock-title {
   flex: 1;
   min-width: 0;
-  font-size: 12.5px;
-  font-weight: 650;
-  letter-spacing: -0.01em;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  font-size: var(--chat-font-s, 12px);
+  font-weight: 500;
+  line-height: 22px;
+  color: var(--fg);
 }
 
-.pill {
+.todo-dock-pill {
   flex-shrink: 0;
-  font-size: 10.5px;
-  font-weight: 650;
+  margin-right: 2px;
+  font-size: var(--chat-font-xs, 11px);
+  font-weight: 500;
   font-variant-numeric: tabular-nums;
-  padding: 2px 8px;
-  border-radius: 999px;
-  color: var(--fg-muted);
-  background: color-mix(in srgb, var(--fg-muted) 10%, transparent);
+  color: var(--chat-desc-fg, var(--fg-muted));
 }
 
-.pill.open {
+.todo-dock-pill.live {
+  color: var(--accent);
+}
+
+.todo-dock-pill.paused {
+  font-style: italic;
+}
+
+.todo-dock-close {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  margin-right: 2px;
+  padding: 0;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--chat-icon-fg, var(--fg-muted));
+  cursor: pointer;
+  opacity: 0;
+  transition:
+    opacity 120ms ease,
+    background 120ms ease,
+    color 120ms ease;
+}
+
+.todo-dock:hover .todo-dock-close,
+.todo-dock:focus-within .todo-dock-close,
+.todo-dock.expanded .todo-dock-close {
+  opacity: 1;
+}
+
+.todo-dock-close:hover {
+  background: var(--chat-hover-bg, color-mix(in srgb, var(--fg) 6%, transparent));
+  color: var(--fg);
+}
+
+.todo-paused-actions {
+  display: flex;
+  gap: 6px;
+  padding: 0 10px 8px;
+}
+
+.tp-btn {
+  padding: 4px 12px;
+  border: none;
+  border-radius: 6px;
+  font: inherit;
+  font-size: var(--chat-font-s, 12px);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.tp-btn.primary {
   color: var(--accent);
   background: var(--accent-soft);
 }
 
-/* Live indicator: breathing dot + soft pulse while an item is running. */
-.pill.live {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  animation: todo-live-pulse 1.6s ease-in-out infinite;
+.tp-btn.primary:hover {
+  background: var(--accent-soft-hover, var(--accent-soft));
 }
 
-.live-dot {
-  width: 5px;
-  height: 5px;
-  border-radius: 50%;
-  background: currentColor;
-  flex-shrink: 0;
+.tp-btn.danger {
+  color: var(--red, var(--fg-muted));
+  background: color-mix(in srgb, var(--red, #ef4444) 10%, transparent);
 }
 
-@keyframes todo-live-pulse {
-  0%,
-  100% {
-    box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent) 30%, transparent);
-  }
-  55% {
-    box-shadow: 0 0 0 4px transparent;
-  }
+.tp-btn.danger:hover {
+  background: color-mix(in srgb, var(--red, #ef4444) 16%, transparent);
 }
 
-.pill.done {
-  color: var(--success, var(--green, #16a34a));
-  background: color-mix(in srgb, var(--success, var(--green, #16a34a)) 12%, transparent);
-}
-
-.dismiss {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 26px;
-  height: 26px;
-  margin-right: 6px;
-  padding: 0;
-  border: 0;
-  border-radius: 7px;
-  background: transparent;
-  color: var(--fg-faint, var(--fg-muted));
-  cursor: pointer;
-  flex-shrink: 0;
-}
-
-.dismiss:hover {
-  background: var(--bg-hover, color-mix(in srgb, var(--fg) 5%, transparent));
-  color: var(--fg);
-}
-
-.todo-progress {
-  height: 3px;
-  margin: 0 10px 7px;
-  border-radius: 2px;
-  background: color-mix(in srgb, var(--fg-muted) 13%, transparent);
-  overflow: hidden;
-}
-
-.todo-progress-fill {
-  height: 100%;
-  border-radius: 2px;
-  background: linear-gradient(
-    90deg,
-    var(--accent),
-    color-mix(in srgb, var(--accent) 55%, #38bdf8)
-  );
-  transition: width 0.3s var(--ease-out, ease);
-}
-
-.todo-progress.done .todo-progress-fill {
-  background: linear-gradient(
-    90deg,
-    var(--success, var(--green, #16a34a)),
-    color-mix(in srgb, var(--success, var(--green, #16a34a)) 60%, #4ade80)
-  );
+.todo-dock-body {
+  min-width: 0;
+  padding: 0 6px 6px;
 }
 
 .todo-list {
   list-style: none;
   margin: 0;
-  padding: 0 8px 8px;
+  padding: 0;
   display: flex;
   flex-direction: column;
-  gap: 2px;
-  max-height: 200px;
+  gap: 1px;
+  max-height: 198px;
   overflow-y: auto;
   scrollbar-width: thin;
   scrollbar-color: var(--border-strong, var(--border)) transparent;
@@ -443,216 +482,130 @@ function onDeleteList(): void {
 .todo-item {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 5px 8px;
-  border-radius: 8px;
-  font-size: 12.5px;
-  line-height: 1.4;
+  gap: 6px;
+  min-height: 22px;
+  padding: 0 6px;
+  border-radius: 5px;
+  font-size: var(--chat-font-m, 13px);
+  line-height: 1.5;
   color: var(--fg);
-  transition: background var(--duration-fast, 140ms) var(--ease-out, ease);
 }
 
 .todo-item:hover {
-  background: var(--bg-hover, color-mix(in srgb, var(--fg) 4%, transparent));
+  background: var(--chat-hover-bg, color-mix(in srgb, var(--fg) 5%, transparent));
 }
 
-.todo-item.done {
-  color: var(--fg-muted);
+.todo-item.live {
+  background: var(--accent-soft);
 }
 
-.todo-item.done .text {
-  text-decoration: line-through;
-  text-decoration-color: color-mix(in srgb, var(--fg-muted) 50%, transparent);
-}
-
-.todo-item.active {
-  background: color-mix(in srgb, var(--accent) 6%, transparent);
-}
-
-.num {
+.todo-status {
   flex-shrink: 0;
-  min-width: 16px;
-  text-align: center;
-  font-size: 10.5px;
-  font-weight: 650;
-  font-variant-numeric: tabular-nums;
-  color: var(--fg-faint, var(--fg-muted));
-  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
-}
-
-.todo-item.done .num {
-  color: color-mix(in srgb, var(--success, var(--green, #16a34a)) 75%, var(--fg-faint));
-}
-
-.todo-item.active .num {
-  color: var(--accent);
-}
-
-.dur {
-  flex-shrink: 0;
-  margin-left: auto;
-  font-size: 10.5px;
-  font-variant-numeric: tabular-nums;
-  color: var(--fg-faint, var(--fg-muted));
-  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
-  white-space: nowrap;
-}
-
-.dur.active {
-  color: var(--accent);
-}
-
-.mark {
-  flex-shrink: 0;
-  width: 14px;
-  height: 14px;
-  margin-top: 0;
-  border-radius: 4px;
-  border: 1.5px solid var(--border-strong, var(--border));
-  box-sizing: border-box;
-  transition:
-    background var(--duration-fast, 140ms) var(--ease-out, ease),
-    border-color var(--duration-fast, 140ms) var(--ease-out, ease),
-    transform var(--duration-fast, 140ms) var(--ease-out, ease);
-}
-
-.todo-item:hover .mark.open {
-  border-color: var(--accent-border);
-}
-
-.mark.active {
-  border-color: transparent;
-  background: transparent;
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  width: 14px;
+  height: 14px;
 }
 
-.mark.active .spinner {
-  width: 12px;
-  height: 12px;
-  border: 1.5px solid color-mix(in srgb, var(--accent) 28%, transparent);
-  border-top-color: var(--accent);
-  border-radius: 50%;
-  animation: todo-spin 0.7s linear infinite;
-}
-
-/* Paused round: static pause bars instead of the spinner; timers hold. */
-.pause-glyph {
-  display: inline-block;
-  width: 8px;
+.st-mark {
+  width: 10px;
   height: 10px;
-  border-left: 2.5px solid var(--fg-muted);
-  border-right: 2.5px solid var(--fg-muted);
-  border-radius: 1px;
+  border-radius: 50%;
+  box-sizing: border-box;
+  flex-shrink: 0;
 }
 
-.todo-paused-actions {
-  display: flex;
-  gap: 6px;
-  padding: 0 10px 9px;
-}
-
-.tp-btn {
-  flex: 1;
-  padding: 4px 10px;
-  border: none;
-  border-radius: 7px;
-  font: inherit;
-  font-size: 11.5px;
-  font-weight: 600;
-  cursor: pointer;
-  transition:
-    background var(--duration-fast, 140ms) var(--ease-out, ease),
-    color var(--duration-fast, 140ms) var(--ease-out, ease);
-}
-
-.tp-btn.primary {
-  color: var(--accent-fg, #fff);
+.st-mark.in-progress {
   background: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-soft);
+  animation: st-pulse 1.1s ease-in-out infinite;
 }
 
-.tp-btn.primary:hover {
-  background: var(--accent-hover, var(--accent));
+.st-mark.open {
+  border: 1.5px solid var(--border-strong, var(--fg-faint));
 }
 
-.tp-btn.danger {
-  color: var(--fg-muted);
-  background: color-mix(in srgb, var(--fg) 7%, transparent);
+.st-mark.done {
+  background: var(--success, var(--green));
+  border: none;
+  position: relative;
 }
 
-.tp-btn.danger:hover {
-  color: var(--red, #ef4444);
-  background: color-mix(in srgb, var(--red, #ef4444) 12%, transparent);
+.st-mark.done::after {
+  content: "";
+  position: absolute;
+  left: 3px;
+  top: 1px;
+  width: 3px;
+  height: 6px;
+  border: solid #fff;
+  border-width: 0 1.5px 1.5px 0;
+  transform: rotate(42deg);
 }
 
-@keyframes todo-spin {
-  to {
-    transform: rotate(360deg);
+@keyframes st-pulse {
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.5;
+    transform: scale(0.86);
   }
 }
 
-.mark.done {
-  position: relative;
-  border-color: var(--success, var(--green, #16a34a));
-  background: var(--success, var(--green, #16a34a));
-}
-
-.mark.done::after {
-  content: "";
-  position: absolute;
-  left: 3.5px;
-  top: 1px;
-  width: 4px;
-  height: 7px;
-  border: solid #fff;
-  border-width: 0 1.8px 1.8px 0;
-  transform: rotate(42deg);
-  border-radius: 1px;
-}
-
-.text {
+.todo-text {
+  flex: 1;
   min-width: 0;
-  word-break: break-word;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
-.todo-enter-active,
-.todo-leave-active {
+.todo-item.done .todo-text {
+  color: var(--chat-desc-fg, var(--fg-muted));
+  text-decoration: line-through;
+  text-decoration-color: color-mix(in srgb, var(--fg-muted) 45%, transparent);
+}
+
+.todo-dur {
+  flex-shrink: 0;
+  margin-left: auto;
+  font-size: var(--chat-font-xs, 11px);
+  font-variant-numeric: tabular-nums;
+  color: var(--chat-icon-fg, var(--fg-muted));
+  white-space: nowrap;
+}
+
+.todo-dur.live {
+  color: var(--accent);
+}
+
+/* Expand/collapse animation */
+.todo-expand-enter-active,
+.todo-expand-leave-active {
   transition:
-    opacity 160ms var(--ease-out, ease),
-    transform 160ms var(--ease-out, ease);
+    opacity 140ms ease,
+    transform 140ms ease;
+  overflow: hidden;
 }
 
-.todo-enter-from {
+.todo-expand-enter-from,
+.todo-expand-leave-to {
   opacity: 0;
-  transform: translateY(-4px);
-}
-
-.todo-leave-to {
-  opacity: 0;
-  transform: translateY(-4px);
-}
-
-.todo-move {
-  transition: transform 180ms var(--ease-out, ease);
+  transform: translateY(-3px);
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .todo-panel {
+  .lead-mark.in-progress,
+  .st-mark.in-progress {
     animation: none;
   }
 
-  .pill.live {
-    animation: none;
-  }
-
-  .mark.active .spinner {
-    animation-duration: 2s;
-  }
-
-  .todo-enter-active,
-  .todo-leave-active,
-  .todo-move {
+  .todo-expand-enter-active,
+  .todo-expand-leave-active {
     transition: none;
   }
 }
