@@ -146,6 +146,59 @@ function scaleMessageSegments(
   return [...fixed, ...scaled].filter((s) => s.tokens > 0);
 }
 
+/**
+ * Count turns/steps/tools on the ACTIVE branch (leaf path) only.
+ *
+ * Pi's `SessionManager.getSessionStats()` iterates EVERY stored entry, so it
+ * double-counts user/assistant messages from abandoned branches (re-edits,
+ * rollbacks, auto-recover re-sends, superseded forks). The chat UI shows the
+ * leaf path, so stats must match that — otherwise "actual 2 rounds" shows as
+ * "round 5" after a few retries left orphan user entries in the session tree.
+ *
+ * Returns null when the branch is unavailable (caller falls back to the SDK).
+ */
+function activeBranchStats(active: AgentSession): {
+  users: number;
+  assistants: number;
+  toolResults: number;
+  toolCalls: number;
+} | null {
+  let users = 0;
+  let assistants = 0;
+  let toolResults = 0;
+  let toolCalls = 0;
+  try {
+    const branch = active.sessionManager?.getBranch?.() ?? [];
+    if (!branch.length) return null;
+    for (const entry of branch) {
+      if (!entry || entry.type !== "message") continue;
+      const message = entry.message as
+        | { role?: unknown; content?: unknown }
+        | undefined;
+      if (!message || typeof message !== "object") continue;
+      const role = message.role;
+      if (role === "user") {
+        users += 1;
+      } else if (role === "toolResult") {
+        toolResults += 1;
+      } else if (role === "assistant") {
+        assistants += 1;
+        if (Array.isArray(message.content)) {
+          toolCalls += message.content.filter(
+            (part) =>
+              Boolean(part) &&
+              typeof part === "object" &&
+              (part as { type?: unknown }).type === "toolCall",
+          ).length;
+        }
+      }
+    }
+  } catch {
+    // best-effort — caller falls back to SDK totals
+  }
+  return { users, assistants, toolResults, toolCalls };
+}
+
 export function readContextUsage(
   active: AgentSession,
 ): SessionContextUsage | null {
@@ -165,14 +218,29 @@ export function readContextUsage(
       if (typeof (stats as { cost?: unknown }).cost === "number") {
         costUsd = (stats as { cost: number }).cost;
       }
+      // Prefer the active-branch counts: orphaned/abandoned branches must not
+      // inflate rounds/steps/tools. Fall back to SDK totals only when the
+      // branch is unavailable (e.g. worker not yet bound to a session).
+      const branchStats = activeBranchStats(active);
       const users =
-        typeof stats.userMessages === "number" ? stats.userMessages : 0;
+        branchStats != null
+          ? branchStats.users
+          : typeof stats.userMessages === "number"
+            ? stats.userMessages
+            : 0;
       const assistants =
-        typeof stats.assistantMessages === "number"
-          ? stats.assistantMessages
-          : 0;
+        branchStats != null
+          ? branchStats.assistants
+          : typeof stats.assistantMessages === "number"
+            ? stats.assistantMessages
+            : 0;
       const toolResults =
-        typeof stats.toolResults === "number" ? stats.toolResults : 0;
+        branchStats != null
+          ? branchStats.toolResults
+          : typeof stats.toolResults === "number"
+            ? stats.toolResults
+            : 0;
+      if (branchStats != null) toolCalls = branchStats.toolCalls;
       messageCount = users + assistants + toolResults;
       turns = users;
       steps = assistants;
