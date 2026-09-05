@@ -60,6 +60,7 @@ declare module 'vue' {
     RunningTab: typeof import('./src/components/RunningTab.vue')['default']
     SecuritySettings: typeof import('./src/components/SecuritySettings.vue')['default']
     SendQueueBar: typeof import('./src/components/SendQueueBar.vue')['default']
+    SessionChangedFiles: typeof import('./src/components/SessionChangedFiles.vue')['default']
     SessionInfoModal: typeof import('./src/components/SessionInfoModal.vue')['default']
     SessionSidebar: typeof import('./src/components/SessionSidebar.vue')['default']
     SessionTodoPanel: typeof import('./src/components/SessionTodoPanel.vue')['default']
