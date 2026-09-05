@@ -32,7 +32,10 @@ import ToolCallCard from "@renderer/components/ToolCallCard.vue";
 import WorkSectionGroup from "@renderer/components/WorkSectionGroup.vue";
 import AgentWaitIndicator from "@renderer/components/AgentWaitIndicator.vue";
 import { parseToolCard, type ToolCard } from "@renderer/utils/tool-diff";
-import { buildWorkSectionSpans } from "@renderer/utils/tool-group";
+import {
+  buildWorkSectionSpans,
+  finalAnswerRowIds,
+} from "@renderer/utils/tool-group";
 import { agentOutputSilenceMs } from "@renderer/utils/agent-wait";
 import type { ChatState } from "@renderer/stores/chat-reducer";
 import { usePreviewStore } from "@renderer/stores/preview";
@@ -335,6 +338,26 @@ const settledRowIds = computed(() => {
 
 function rowSettled(msg: ChatMessage): boolean {
   return settledRowIds.value.has(msg.id);
+}
+
+/**
+ * Assistant rows that ended their user round. Only these show the copy /
+ * speak / regenerate actions — a mid-round narration (text + toolCall, with
+ * more work to follow) must not render like a finished turn.
+ */
+const finalAnswerIds = computed(() => {
+  const rows = displayMessages.value.map((m) => ({
+    id: m.id,
+    role: m.role,
+    toolName: m.role === "tool" ? m.toolName : "",
+    hasText: m.role === "assistant" ? Boolean(m.text) : false,
+    hasThinking: m.role === "assistant" ? Boolean(m.thinking) : false,
+  }));
+  return finalAnswerRowIds(rows);
+});
+
+function isFinalAnswer(msg: ChatMessage): boolean {
+  return msg.role === "assistant" && finalAnswerIds.value.has(msg.id);
 }
 
 const visibleMessages = computed(() =>
@@ -1661,7 +1684,10 @@ function onRevertUser(msg: Extract<ChatMessage, { role: "user" }>): void {
               />
               <span v-if="msg.streaming && msg.text" class="cursor" aria-hidden="true" />
             </div>
-            <div v-if="!msg.streaming && !running" class="actions">
+            <div
+              v-if="!msg.streaming && !running && isFinalAnswer(msg)"
+              class="actions"
+            >
               <NTooltip>
                 <template #trigger>
                   <NButton quaternary circle size="tiny" @click="copyText(msg.text)">

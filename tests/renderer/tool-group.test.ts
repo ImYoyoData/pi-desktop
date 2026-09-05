@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildWorkSectionSpans,
   categorizeToolCall,
+  finalAnswerRowIds,
   summarizeWorkSection,
   workSectionLiveTitle,
   type WorkSectionRow,
@@ -75,6 +76,47 @@ describe("buildWorkSectionSpans", () => {
       row({ id: "th2", role: "assistant", hasThinking: true }),
     ];
     expect(buildWorkSectionSpans(rows, askUser)).toEqual([]);
+  });
+});
+
+describe("finalAnswerRowIds", () => {
+  it("marks only the last assistant text of a round", () => {
+    const rows = [
+      row({ id: "u", role: "user" }),
+      row({ id: "mid", role: "assistant", hasText: true, hasThinking: true }),
+      row({ id: "t1", toolName: "bash" }),
+      row({ id: "final", role: "assistant", hasText: true }),
+    ];
+    expect(finalAnswerRowIds(rows)).toEqual(new Set(["final"]));
+  });
+
+  it("marks a final answer for every user round", () => {
+    const rows = [
+      row({ id: "u1", role: "user" }),
+      row({ id: "a1", role: "assistant", hasText: true }),
+      row({ id: "u2", role: "user" }),
+      row({ id: "a2", role: "assistant", hasText: true }),
+    ];
+    expect(finalAnswerRowIds(rows)).toEqual(new Set(["a1", "a2"]));
+  });
+
+  it("ignores thinking-only and tool rows", () => {
+    const rows = [
+      row({ id: "u", role: "user" }),
+      row({ id: "th", role: "assistant", hasThinking: true }),
+      row({ id: "t1", toolName: "read" }),
+      row({ id: "final", role: "assistant", hasText: true }),
+    ];
+    expect(finalAnswerRowIds(rows)).toEqual(new Set(["final"]));
+  });
+
+  it("returns an empty set when the round ends without a text answer", () => {
+    const rows = [
+      row({ id: "u", role: "user" }),
+      row({ id: "t1", toolName: "bash" }),
+      row({ id: "th", role: "assistant", hasThinking: true }),
+    ];
+    expect(finalAnswerRowIds(rows)).toEqual(new Set());
   });
 });
 

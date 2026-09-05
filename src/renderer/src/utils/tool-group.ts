@@ -80,6 +80,32 @@ export function buildWorkSectionSpans(
   return spans;
 }
 
+/**
+ * Ids of assistant rows that are the FINAL answer of their user round — the
+ * last visible assistant text before the next user message (or the end of the
+ * list). Only these carry copy / speak / regenerate actions.
+ *
+ * Pi emits one assistant message per model step inside a single user round, so
+ * mid-round narration ("I'll check the folder first…" + toolCall) would
+ * otherwise render as a finished turn with actions while the round is still
+ * running. Following VS Code Copilot, per-round tool narration stays a process
+ * row; the actions belong to the round's closing answer only.
+ */
+export function finalAnswerRowIds(rows: WorkSectionRow[]): Set<string> {
+  const out = new Set<string>();
+  let lastTextId: string | null = null;
+  for (const row of rows) {
+    if (row.role === "user") {
+      if (lastTextId != null) out.add(lastTextId);
+      lastTextId = null;
+    } else if (row.role === "assistant" && row.hasText) {
+      lastTextId = row.id;
+    }
+  }
+  if (lastTextId != null) out.add(lastTextId);
+  return out;
+}
+
 export type WorkSectionToolKind = "edit" | "read" | "bash" | "todo" | "tool";
 
 export type WorkSectionTool = {
