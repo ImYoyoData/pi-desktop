@@ -18,7 +18,7 @@ type ToolMessage = Extract<ChatMessage, { role: "tool" }>;
 const props = defineProps<{
   /** Process rows in order: tool calls mixed with thinking-only notes. */
   items: ChatMessage[];
-  /** True once the section settled (or the whole turn finished): fold + summary title. */
+  /** True once the next output appeared after this section: fold + summary title. */
   autoCollapse?: boolean;
 }>();
 
@@ -33,7 +33,7 @@ const anyError = computed(() =>
 );
 
 const open = computed(() => {
-  // Turn finished: only a user-expanded section stays open.
+  // Next output appeared: only a user-expanded section stays open.
   if (props.autoCollapse) return manuallyOpen.value === true;
   if (manuallyOpen.value !== null) return manuallyOpen.value;
   // Live: stay expanded so each step streams in line by line (Copilot
@@ -52,8 +52,8 @@ watch(
   },
 );
 
-// A finished step never folds the section on its own; only the whole turn
-// finishing does (Copilot: completion finalizes the title, not the fold).
+// Copilot folds the block as soon as the next output shows up (the answer
+// text or the next work section), not when the whole turn finishes.
 watch(
   () => props.autoCollapse,
   (v) => {
