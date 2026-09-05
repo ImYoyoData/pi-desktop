@@ -118,12 +118,27 @@ const summaryTitle = computed(() =>
     readOne: t.wsSummaryReadOne,
     readMany: t.wsSummaryReadMany,
     readAndEdited: t.wsSummaryReadEdited,
-    bash: t.wsSummaryBash,
-    todo: t.wsSummaryTodo,
-    tool: t.wsSummaryTool,
     steps: t.wsSummarySteps,
-    join: t.wsSummaryJoin,
   }),
+);
+
+/** Copilot aggregated diff pill: sums diff stats of every edit in the section. */
+const diffTotals = computed(() => {
+  let added = 0;
+  let removed = 0;
+  for (const msg of toolItems.value) {
+    const card = toolCard(msg);
+    if (card.kind === "edit" || card.kind === "write" || card.kind === "other") {
+      if (card.stats) {
+        added += card.stats.additions;
+        removed += card.stats.deletions;
+      }
+    }
+  }
+  return { added, removed };
+});
+const hasDiff = computed(
+  () => diffTotals.value.added > 0 || diffTotals.value.removed > 0,
 );
 
 const settled = computed(() => props.autoCollapse || !anyStreaming.value);
@@ -165,6 +180,14 @@ function toolStatus(msg: ToolMessage): {
         aria-hidden="true"
       />
       <span class="summary" :class="{ 'copilot-shimmer': !settled }">{{ title }}</span>
+      <span
+        v-if="settled && hasDiff"
+        class="diff-pill"
+        :title="t.wsViewChanges"
+      >
+        <span class="label-added">+{{ diffTotals.added }}</span>
+        <span class="label-removed">-{{ diffTotals.removed }}</span>
+      </span>
       <NIcon
         class="hover-chev"
         :class="{ expanded: open }"
@@ -275,6 +298,24 @@ function toolStatus(msg: ToolMessage): {
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
   font-feature-settings: "tnum";
+}
+
+/* Aggregated diff pill next to the finalized title (.chat-thinking-title-diff 1:1) */
+.diff-pill {
+  flex-shrink: 0;
+  display: inline-flex;
+  gap: 4px;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum";
+}
+
+.diff-pill .label-added {
+  color: var(--diff-added, var(--success, #2ea043));
+}
+
+.diff-pill .label-removed {
+  color: var(--diff-removed, var(--error, #d03050));
 }
 
 /* Trailing disclosure chevron — .chat-collapsible-hover-chevron (1:1) */

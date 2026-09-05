@@ -115,11 +115,7 @@ const summaryStrings: WorkSectionSummaryStrings = {
   readOne: (f) => `Reviewed ${f}`,
   readMany: (n) => `Reviewed ${n} files`,
   readAndEdited: (f) => `Reviewed and updated ${f}`,
-  bash: (n) => `Ran ${n} commands`,
-  todo: "Updated todos",
-  tool: (name) => `Used ${name}`,
   steps: (n) => `Finished with ${n} steps`,
-  join: (parts) => parts.join(", "),
 };
 
 function tools(...list: WorkSectionTool[]): WorkSectionTool[] {
@@ -164,32 +160,32 @@ describe("summarizeWorkSection", () => {
     ).toBe("Reviewed 3 files");
   });
 
-  it("mixes edits, reads and commands like the Copilot title rules", () => {
-    expect(
-      summarizeWorkSection(
-        tools(
-          { kind: "edit", target: "App.vue" },
-          { kind: "read", target: "a.ts" },
-          { kind: "read", target: "b.ts" },
-        ),
-        0,
-        summaryStrings,
-      ),
-    ).toBe("Updated App.vue, Reviewed 2 files");
+  it("names a single file even when other step kinds are present", () => {
     expect(
       summarizeWorkSection(
         tools(
           { kind: "edit", target: "App.vue" },
           { kind: "bash", target: "pnpm test" },
-          { kind: "bash", target: "pnpm build" },
+          { kind: "todo", target: "" },
         ),
         0,
         summaryStrings,
       ),
-    ).toBe("Updated App.vue, Ran 2 commands");
+    ).toBe("Updated App.vue");
   });
 
-  it("falls back to a step count when there is nothing to name", () => {
+  it("falls back to a step count when there is no named file (Copilot style)", () => {
+    expect(
+      summarizeWorkSection(
+        tools(
+          { kind: "bash", target: "pnpm test" },
+          { kind: "todo", target: "" },
+          { kind: "tool", target: "mcp_fetch" },
+        ),
+        0,
+        summaryStrings,
+      ),
+    ).toBe("Finished with 3 steps");
     expect(summarizeWorkSection(tools(), 3, summaryStrings)).toBe(
       "Finished with 3 steps",
     );
