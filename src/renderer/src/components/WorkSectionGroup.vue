@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, ref, watch } from "vue";
+import { computed, ref, watch } from "vue";
 import { NIcon } from "naive-ui";
 import { CheckmarkOutline, ChevronForwardOutline } from "@vicons/ionicons5";
 import type { ChatMessage } from "@renderer/stores/chat";
@@ -27,57 +27,39 @@ const emit = defineEmits<{
 }>();
 
 const manuallyOpen = ref<boolean | null>(null);
-const wasStreaming = ref(false);
-
 const anyStreaming = computed(() => props.items.some((m) => m.streaming));
 const anyError = computed(() =>
   props.items.some((m) => m.role === "tool" && m.isError && !m.streaming),
 );
-/** Collapse the finished section shortly after it stops streaming. */
-const AUTO_COLLAPSE_MS = 1200;
-let finishTimer: ReturnType<typeof setTimeout> | null = null;
-
-function clearFinishTimer(): void {
-  if (finishTimer) {
-    clearTimeout(finishTimer);
-    finishTimer = null;
-  }
-}
 
 const open = computed(() => {
-  // Section settled: only a user-expanded section stays open.
+  // Turn finished: only a user-expanded section stays open.
   if (props.autoCollapse) return manuallyOpen.value === true;
   if (manuallyOpen.value !== null) return manuallyOpen.value;
-  // While steps are running (and just after), keep expanded so the latest step is visible.
-  return wasStreaming.value || anyStreaming.value;
+  // Live: stay expanded so each step streams in line by line (Copilot
+  // CollapsedPreview keeps the section open while streaming).
+  return true;
 });
 
-watch(anyStreaming, (streaming, prev) => {
-  if (streaming) {
-    manuallyOpen.value = null;
-    wasStreaming.value = true;
-    clearFinishTimer();
-  } else if (prev && !streaming) {
-    wasStreaming.value = true;
-    clearFinishTimer();
-    finishTimer = setTimeout(() => {
-      finishTimer = null;
-      if (manuallyOpen.value === null) manuallyOpen.value = false;
-    }, AUTO_COLLAPSE_MS);
-  }
-});
-
-// Fold as soon as the round finishes; users can re-expand manually.
+// Copilot appendItem: every new step re-expands the section while streaming,
+// so progress appears incrementally instead of all at once.
 watch(
-  () => props.autoCollapse,
-  (v) => {
-    if (!v) return;
-    clearFinishTimer();
-    manuallyOpen.value = false;
+  () => props.items.length,
+  (len, prev) => {
+    if (len > (prev ?? 0) && !props.autoCollapse && manuallyOpen.value === false) {
+      manuallyOpen.value = null;
+    }
   },
 );
 
-onBeforeUnmount(clearFinishTimer);
+// A finished step never folds the section on its own; only the whole turn
+// finishing does (Copilot: completion finalizes the title, not the fold).
+watch(
+  () => props.autoCollapse,
+  (v) => {
+    if (v) manuallyOpen.value = false;
+  },
+);
 
 function toggle(): void {
   manuallyOpen.value = !open.value;
@@ -207,7 +189,7 @@ function toolStatus(msg: ToolMessage): {
             :status-label="toolStatus(msg).label"
             :status-type="toolStatus(msg).type"
             :streaming="msg.streaming"
-            :auto-collapse="props.autoCollapse || !msg.streaming"
+            :auto-collapse="props.autoCollapse"
             tree-item
             @open="emit('open', $event)"
           />
