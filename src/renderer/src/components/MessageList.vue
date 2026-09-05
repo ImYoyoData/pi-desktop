@@ -389,6 +389,17 @@ const bottomSpacerPx = computed(() =>
   estimateRangeHeight(renderEnd.value, displayMessages.value.length),
 );
 
+/**
+ * Below this estimated total height the whole list mounts without a trailing
+ * window: a windowed head would render as blank spacer (and drop the opening
+ * user prompt from view) even though everything would fit on screen.
+ */
+const FULL_MOUNT_MAX_PX = 2000;
+
+function fitsFullMount(len: number): boolean {
+  return len <= VIRTUAL_WINDOW || estimateRangeHeight(0, len) <= FULL_MOUNT_MAX_PX;
+}
+
 const latestUserMessageId = computed(() => {
   for (let i = displayMessages.value.length - 1; i >= 0; i--) {
     const m = displayMessages.value[i];
@@ -449,7 +460,8 @@ function measureStickyNeedsToggle(naturalHeight: number): void {
  * Nearest user message fully above the viewport top (Cursor behavior).
  * Uses real measured layout offsets when available (the estimate used to
  * over-count the user card height, pinning messages that had only partially
- * scrolled out of view). Falls back to estimate for unmeasured rows.
+ * scrolled out of view). Unmounted rows above the window never render (the
+ * spacer is blank), so the nearest user message up there is always pinnable.
  */
 function findStickyUserMessageId(): string | null {
   const sc = scroller.value;
@@ -457,28 +469,19 @@ function findStickyUserMessageId(): string | null {
   if (!sc || all.length === 0) return null;
 
   const viewportTop = sc.scrollTop + 8;
-  let bestId: string | null = null;
-  let offset = 0;
 
-  for (let i = 0; i < all.length; i++) {
+  for (let i = all.length - 1; i >= 0; i--) {
     const m = all[i]!;
-    const h = estimateMessageHeight(m);
+    if (m.role !== "user") continue;
+    if (i < renderStart.value) return m.id;
     const top = topById.get(m.id);
-    if (top == null) {
-      // Unmeasured rows: fall back to accumulated estimate for the boundary.
-      if (m.role === "user" && offset + h < viewportTop) bestId = m.id;
-      else if (m.role === "user") break;
-    } else {
-      // Real position: pin only when the WHOLE row is above the viewport.
-      if (m.role === "user") {
-        if (top + h < viewportTop) bestId = m.id;
-        else break;
-      }
-    }
-    offset += h;
+    if (top == null) continue;
+    // Real position: pin only when the WHOLE row is above the viewport;
+    // otherwise keep scanning upward for an older fully-scrolled-out prompt.
+    if (top + estimateMessageHeight(m) < viewportTop) return m.id;
   }
 
-  return bestId;
+  return null;
 }
 
 function clearStickyPin(): void {
@@ -557,16 +560,43 @@ function isNearBottom(el: HTMLElement): boolean {
   return el.scrollHeight - el.scrollTop - el.clientHeight < NEAR_BOTTOM_PX;
 }
 
+/**
+ * A work section renders only on its lead row — a window that starts inside a
+ * group would mount followers as empty 0-height rows. Widen the start upward
+ * to the group's lead so the section stays whole.
+ */
+function alignRenderWindowToGroup(start: number, end: number): void {
+  const all = displayMessages.value;
+  const len = all.length;
+  const clampedEnd = Math.max(0, Math.min(end, len));
+  let clampedStart = Math.max(0, Math.min(start, clampedEnd));
+  if (clampedStart > 0 && clampedStart < len) {
+    const m = workSectionMembership.value.get(all[clampedStart]!.id);
+    if (m) {
+      const leadIdx = all.findIndex((r) => r.id === m.leadId);
+      if (leadIdx >= 0 && leadIdx < clampedStart) clampedStart = leadIdx;
+    }
+  }
+  renderStart.value = clampedStart;
+  renderEnd.value = clampedEnd;
+}
+
 function clampRenderWindow(preferBottom: boolean): void {
   const len = displayMessages.value.length;
+  // Mount-all only while pinned to the bottom (callers re-pin after the
+  // clamp); expanding mid-read has no scroll compensation and would jump.
+  if (preferBottom && fitsFullMount(len)) {
+    renderStart.value = 0;
+    renderEnd.value = len;
+    return;
+  }
   if (len <= VIRTUAL_WINDOW) {
     renderStart.value = 0;
     renderEnd.value = len;
     return;
   }
   if (preferBottom) {
-    renderEnd.value = len;
-    renderStart.value = Math.max(0, len - VIRTUAL_WINDOW);
+    alignRenderWindowToGroup(len - VIRTUAL_WINDOW, len);
     return;
   }
   // Keep current window sized and clamped inside [0, len].
@@ -576,8 +606,7 @@ function clampRenderWindow(preferBottom: boolean): void {
     end = Math.min(len, start + VIRTUAL_WINDOW);
     start = Math.max(0, end - VIRTUAL_WINDOW);
   }
-  renderStart.value = start;
-  renderEnd.value = end;
+  alignRenderWindowToGroup(start, end);
 }
 
 function measureVisibleRows(): void {
@@ -647,10 +676,16 @@ function expandHistoryUp(): void {
   const prevHeight = sc.scrollHeight;
   const prevTop = sc.scrollTop;
   const nextStart = Math.max(0, renderStart.value - VIRTUAL_CHUNK);
-  renderStart.value = nextStart;
+  let nextEnd = renderEnd.value;
   // Trim far (bottom) side so mounting stays bounded while scrolling up.
-  if (renderEnd.value - renderStart.value > VIRTUAL_MAX) {
-    renderEnd.value = renderStart.value + VIRTUAL_MAX;
+  if (nextStart + VIRTUAL_MAX < nextEnd) {
+    nextEnd = nextStart + VIRTUAL_MAX;
+  }
+  if (fitsFullMount(displayMessages.value.length)) {
+    renderStart.value = 0;
+    renderEnd.value = displayMessages.value.length;
+  } else {
+    alignRenderWindowToGroup(nextStart, nextEnd);
   }
   void nextTick(() => {
     restoreScrollAfterMutation(sc, prevHeight, prevTop);
@@ -689,8 +724,12 @@ async function loadOlderHistoryPage(): Promise<void> {
       VIRTUAL_MAX,
       VIRTUAL_CHUNK,
     );
-    renderStart.value = shifted.start;
-    renderEnd.value = shifted.end;
+    if (fitsFullMount(displayMessages.value.length)) {
+      renderStart.value = 0;
+      renderEnd.value = displayMessages.value.length;
+    } else {
+      alignRenderWindowToGroup(shifted.start, shifted.end);
+    }
     await nextTick();
     restoreScrollAfterMutation(sc, prevHeight, prevTop);
     measureVisibleRows();
@@ -729,8 +768,15 @@ function expandHistoryDown(): void {
   const prevTop = sc.scrollTop;
   renderEnd.value = Math.min(len, renderEnd.value + VIRTUAL_CHUNK);
   // Trim far (top) side — never grow past VIRTUAL_MAX (sticky is overlay-only).
-  if (renderEnd.value - renderStart.value > VIRTUAL_MAX) {
-    renderStart.value = Math.max(0, renderEnd.value - VIRTUAL_MAX);
+  let nextStart = renderStart.value;
+  if (renderEnd.value - nextStart > VIRTUAL_MAX) {
+    nextStart = renderEnd.value - VIRTUAL_MAX;
+  }
+  if (fitsFullMount(len)) {
+    renderStart.value = 0;
+    renderEnd.value = len;
+  } else {
+    alignRenderWindowToGroup(nextStart, renderEnd.value);
   }
   void nextTick(() => {
     restoreScrollAfterMutation(sc, prevHeight, prevTop);
@@ -975,10 +1021,19 @@ function handleScrollerScroll(): void {
 
   if (followBottom) {
     const len = displayMessages.value.length;
-    const ideal = followBottomVirtualWindow(len, VIRTUAL_WINDOW);
+    const ideal = fitsFullMount(len)
+      ? { start: 0, end: len }
+      : followBottomVirtualWindow(len, VIRTUAL_WINDOW);
     if (renderStart.value !== ideal.start || renderEnd.value !== ideal.end) {
-      renderStart.value = ideal.start;
-      renderEnd.value = ideal.end;
+      alignRenderWindowToGroup(ideal.start, ideal.end);
+      // The clamp changes content above the live edge — re-pin so the
+      // viewport stays on the bottom instead of sliding into the spacer.
+      void nextTick(() => {
+        const el = scroller.value;
+        if (!el || !followBottom || readingHistory || adjustingWindow) return;
+        el.scrollTop = el.scrollHeight;
+        measureVisibleRows();
+      });
     }
     return;
   }
