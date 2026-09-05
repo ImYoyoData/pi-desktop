@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, ref, watch } from "vue";
+import { computed, nextTick, ref, watch } from "vue";
 import { NButton, NIcon, useMessage } from "naive-ui";
 import {
   CheckmarkCircleOutline,
@@ -57,54 +57,28 @@ function shouldAutoExpand(kind: ToolCard["kind"]): boolean {
 
 /** Expanded while streaming for write/edit/bash; stays open after so diffs are visible. */
 const manuallyOpen = ref<boolean | null>(null);
-const wasStreaming = ref(false);
 const bodyRef = ref<HTMLElement | null>(null);
 /** Follow newest lines unless the user scrolls up inside the card. */
 let stickToBottom = true;
 const NEAR_BOTTOM_PX = 48;
-/**
- * How long a finished tool stays expanded before it folds back into history.
- * The agent usually starts its next step within this window, so the result is
- * visible for a beat, then history collapses (Codex-like).
- */
-const AUTO_COLLAPSE_MS = 1200;
-let finishTimer: ReturnType<typeof setTimeout> | null = null;
-
-function clearFinishTimer(): void {
-  if (finishTimer) {
-    clearTimeout(finishTimer);
-    finishTimer = null;
-  }
-}
 
 const open = computed(() => {
   // Turn finished: only a user-expanded card stays open; history stays folded.
   if (props.autoCollapse) return manuallyOpen.value === true;
   if (manuallyOpen.value !== null) return manuallyOpen.value;
   if (!shouldAutoExpand(props.card.kind)) return false;
-  return wasStreaming.value || Boolean(props.streaming);
+  // Copilot: a finished step stays open until the whole turn finishes; the
+  // result (diff/output) keeps streaming in instead of folding after 1.2s.
+  return Boolean(props.streaming);
 });
 
 watch(
   () => props.streaming,
-  (streaming, prev) => {
-    if (!shouldAutoExpand(props.card.kind)) return;
+  (streaming) => {
     if (streaming) {
       // Reset manual override while streaming so it tracks live state.
       manuallyOpen.value = null;
-      wasStreaming.value = true;
       stickToBottom = true;
-      clearFinishTimer();
-    } else if (prev && !streaming) {
-      // Just finished — keep expanded so the result (diff/output) is visible,
-      // then auto-collapse once the agent moves on / shortly after completion.
-      wasStreaming.value = true;
-      clearFinishTimer();
-      finishTimer = setTimeout(() => {
-        finishTimer = null;
-        // Respect a manual open: only auto-fold cards the user didn't expand.
-        if (manuallyOpen.value === null) manuallyOpen.value = false;
-      }, AUTO_COLLAPSE_MS);
     }
   },
   { immediate: true },
@@ -115,12 +89,9 @@ watch(
   () => props.autoCollapse,
   (v) => {
     if (!v) return;
-    clearFinishTimer();
     manuallyOpen.value = false;
   },
 );
-
-onBeforeUnmount(clearFinishTimer);
 
 function toggleOpen(): void {
   const next = !open.value;
