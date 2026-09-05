@@ -289,41 +289,46 @@ const workSectionMembership = computed(() => {
  * Rows fold in strict appearance order: an earlier block never stays open
  * past a later one that already folded, and nothing folds on a bare agent
  * response that produced no visible output.
+ *
+ * Computed in ONE backward pass (O(n)) — this recomputes on every streaming
+ * tick, so it must stay cheap or long turns would jank.
  */
 const settledRowIds = computed(() => {
   const all = displayMessages.value;
+  const membership = workSectionMembership.value;
   const settled = new Set<string>();
-  const sectionLead = new Map<string, number>();
-  for (const [id, m] of workSectionMembership.value) {
-    if (m.isLead) sectionLead.set(m.groupId, all.findIndex((r) => r.id === id));
+  // Track for each message whether anything visible appears after it.
+  // Backward pass: "has later visible output" propagates from the end.
+  const n = all.length;
+  const isProcessRow = (m: ChatMessage): boolean =>
+    m.role === "tool" ||
+    (m.role === "assistant" && Boolean(m.thinking) && !m.text);
+  const isVisible = (m: ChatMessage): boolean =>
+    m.role === "assistant" && Boolean(m.text) ? true : isProcessRow(m);
+  // hasVisibleAfter[i] = any visible row in (i, n).
+  const hasVisibleAfter = new Array<boolean>(n + 1).fill(false);
+  for (let i = n - 1; i >= 0; i--) {
+    hasVisibleAfter[i] = hasVisibleAfter[i + 1] || isVisible(all[i]!);
   }
-  for (let i = 0; i < all.length; i++) {
-    const msg = all[i]!;
-    const isProcess =
-      msg.role === "tool" ||
-      (msg.role === "assistant" && Boolean(msg.thinking) && !msg.text);
-    if (!isProcess) continue;
-    // Fold boundary for a group member is the group's END so the whole
-    // section folds together only after output beyond it appears.
-    const membership = workSectionMembership.value.get(msg.id);
-    const boundary = membership
-      ? (sectionLead.get(membership.groupId) ?? i) + membership.items.length
-      : i + 1;
-    for (let j = boundary; j < all.length; j++) {
-      const next = all[j]!;
-      if (next.role === "user") break;
-      if (next.role === "assistant" && next.text) {
-        settled.add(msg.id);
-        break;
-      }
-      const nextIsProcess =
-        next.role === "tool" ||
-        (next.role === "assistant" && Boolean(next.thinking) && !next.text);
-      if (nextIsProcess) {
-        settled.add(msg.id);
-        break;
-      }
+  // A group settles as a unit once ANY row past its last member is visible.
+  // Compute per-group end boundary once.
+  const groupEndById = new Map<string, number>();
+  for (const [id, m] of membership) {
+    if (m.isLead) {
+      const leadIdx = all.findIndex((r) => r.id === id);
+      groupEndById.set(m.groupId, leadIdx + m.items.length);
     }
+  }
+  for (let i = 0; i < n; i++) {
+    const msg = all[i]!;
+    if (!isProcessRow(msg)) continue;
+    const m = membership.get(msg.id);
+    let boundary = i + 1;
+    if (m) {
+      const end = groupEndById.get(m.groupId);
+      if (end != null) boundary = Math.max(boundary, end);
+    }
+    if (boundary < n && hasVisibleAfter[boundary]) settled.add(msg.id);
   }
   return settled;
 });
@@ -566,6 +571,23 @@ function measureVisibleRows(): void {
     const top = row.offsetTop;
     if (top > 0 || row === rows[0]) topById.set(id, top);
   }
+}
+
+/**
+ * Re-measure a single row after its own content resized (e.g. a work section
+ * finished its fold/unfold animation). Keeps virtual-window heights in sync
+ * without a full relayout — the source of the "janky" fold.
+ */
+function rowResized(id: string): void {
+  if (adjustingWindow || settlingSession) return;
+  const sc = scroller.value;
+  if (!sc) return;
+  const row = sc.querySelector<HTMLElement>(`.row[data-msg-id="${id}"]`);
+  if (!row) return;
+  const h = row.offsetHeight;
+  if (h > 0) heightById.set(id, h);
+  const top = row.offsetTop;
+  if (top > 0) topById.set(id, top);
 }
 
 function restoreScrollAfterMutation(sc: HTMLElement, prevHeight: number, prevTop: number): void {
@@ -1490,6 +1512,7 @@ function onRevertUser(msg: Extract<ChatMessage, { role: "user" }>): void {
               :items="workSectionMembership.get(msg.id)!.items"
               :auto-collapse="rowSettled(msg)"
               @open="openPreview"
+              @resize="rowResized(msg.id)"
             />
           </div>
         </template>

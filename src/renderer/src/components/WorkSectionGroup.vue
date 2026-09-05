@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch } from "vue";
+import { computed, nextTick, onBeforeUnmount, ref, watch } from "vue";
 import { NIcon } from "naive-ui";
 import { CheckmarkOutline, ChevronForwardOutline } from "@vicons/ionicons5";
 import type { ChatMessage } from "@renderer/stores/chat";
@@ -24,9 +24,60 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   open: [path: string];
+  /** Fired once a fold/unfold settled, so the virtual list can re-measure. */
+  resize: [];
 }>();
 
 const manuallyOpen = ref<boolean | null>(null);
+/** Animate folds only after first paint — matches Copilot (transition after mount). */
+const animated = ref(false);
+let animationRaf = 0;
+let resizeTimer: ReturnType<typeof setTimeout> | null = null;
+const prefersReducedMotion =
+  typeof window !== "undefined" &&
+  window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+/** Inner content box — ResizeObserver reports real height changes to the list. */
+const bodyRef = ref<HTMLElement | null>(null);
+let resizeObserver: ResizeObserver | null = null;
+let lastReportedHeight = 0;
+let reportRaf = 0;
+/** Suppress observer reports while a fold/unfold transition is running. */
+let transitioning = false;
+
+function scheduleResize(delayMs: number): void {
+  if (resizeTimer) clearTimeout(resizeTimer);
+  resizeTimer = setTimeout(() => {
+    resizeTimer = null;
+    transitioning = false;
+    emit("resize");
+  }, delayMs);
+}
+
+function reportHeightNow(): void {
+  if (reportRaf) return;
+  reportRaf = requestAnimationFrame(() => {
+    reportRaf = 0;
+    if (transitioning) return;
+    emit("resize");
+  });
+}
+
+watch(bodyRef, (el) => {
+  resizeObserver?.disconnect();
+  resizeObserver = null;
+  if (!el || typeof ResizeObserver === "undefined") return;
+  resizeObserver = new ResizeObserver(() => {
+    if (transitioning) return;
+    const h = el.scrollHeight;
+    if (Math.abs(h - lastReportedHeight) > 1) {
+      lastReportedHeight = h;
+      reportHeightNow();
+    }
+  });
+  resizeObserver.observe(el);
+});
+
 const anyStreaming = computed(() => props.items.some((m) => m.streaming));
 const anyError = computed(() =>
   props.items.some((m) => m.role === "tool" && m.isError && !m.streaming),
@@ -41,29 +92,62 @@ const open = computed(() => {
   return true;
 });
 
-// Copilot appendItem: every new step re-expands the section while streaming,
-// so progress appears incrementally instead of all at once.
+// Copilot folds the block as soon as the next output shows up (the answer
+// text or the next work section), not when the whole turn finishes. We delay
+// the fold slightly so the newly appearing output is visible first, then the
+// earlier block rolls up — no snap on the first token of the next output.
+let collapseTimer: ReturnType<typeof setTimeout> | null = null;
+watch(
+  () => props.autoCollapse,
+  (v, prev) => {
+    if (!v || prev) return;
+    if (collapseTimer) clearTimeout(collapseTimer);
+    collapseTimer = setTimeout(() => {
+      collapseTimer = null;
+      manuallyOpen.value = false;
+    }, 350);
+  },
+);
+
 watch(
   () => props.items.length,
   (len, prev) => {
     if (len > (prev ?? 0) && !props.autoCollapse && manuallyOpen.value === false) {
+      // A new step arrived while we were about to auto-fold — abort the fold.
+      if (collapseTimer) {
+        clearTimeout(collapseTimer);
+        collapseTimer = null;
+      }
       manuallyOpen.value = null;
     }
   },
 );
 
-// Copilot folds the block as soon as the next output shows up (the answer
-// text or the next work section), not when the whole turn finishes.
 watch(
-  () => props.autoCollapse,
-  (v) => {
-    if (v) manuallyOpen.value = false;
+  () => open.value,
+  (nowOpen, wasOpen) => {
+    if (nowOpen === wasOpen) return;
+    transitioning = true;
+    animationRaf = requestAnimationFrame(() => {
+      animated.value = true;
+    });
+    // Let the CSS grid-rows transition run, then tell the list the height moved.
+    scheduleResize(prefersReducedMotion ? 0 : 200);
   },
 );
 
 function toggle(): void {
   manuallyOpen.value = !open.value;
 }
+
+onBeforeUnmount(() => {
+  if (animationRaf) cancelAnimationFrame(animationRaf);
+  if (resizeTimer) clearTimeout(resizeTimer);
+  if (reportRaf) cancelAnimationFrame(reportRaf);
+  if (collapseTimer) clearTimeout(collapseTimer);
+  resizeObserver?.disconnect();
+  resizeObserver = null;
+});
 
 function isToolMessage(msg: ChatMessage): msg is ToolMessage {
   return msg.role === "tool";
@@ -179,26 +263,34 @@ function toolStatus(msg: ToolMessage): {
       />
     </button>
 
-    <div v-if="open" class="work-section-body">
-      <template v-for="msg in items" :key="msg.id">
-        <div v-if="isToolMessage(msg)" class="cot-item">
-          <ToolCallCard
-            :card="toolCard(msg)"
-            :tool-name="msg.toolName"
-            :order="msg.order"
-            :status-label="toolStatus(msg).label"
-            :status-type="toolStatus(msg).type"
-            :streaming="msg.streaming"
-            :auto-collapse="props.autoCollapse"
-            tree-item
-            @open="emit('open', $event)"
-          />
+    <div
+      class="work-section-animation"
+      :class="{ collapsed: !open, animated }"
+      :aria-hidden="!open ? 'true' : undefined"
+    >
+      <div class="work-section-animation-inner" ref="bodyRef">
+        <div class="work-section-body">
+          <template v-for="msg in items" :key="msg.id">
+            <div v-if="isToolMessage(msg)" class="cot-item">
+              <ToolCallCard
+                :card="toolCard(msg)"
+                :tool-name="msg.toolName"
+                :order="msg.order"
+                :status-label="toolStatus(msg).label"
+                :status-type="toolStatus(msg).type"
+                :streaming="msg.streaming"
+                :auto-collapse="props.autoCollapse"
+                tree-item
+                @open="emit('open', $event)"
+              />
+            </div>
+            <div v-else-if="msg.role === 'assistant' && msg.thinking" class="cot-item thinking-item">
+              <span class="thinking-dot" aria-hidden="true" />
+              <div class="thinking-text">{{ msg.thinking }}</div>
+            </div>
+          </template>
         </div>
-        <div v-else-if="msg.role === 'assistant' && msg.thinking" class="cot-item thinking-item">
-          <span class="thinking-dot" aria-hidden="true" />
-          <div class="thinking-text">{{ msg.thinking }}</div>
-        </div>
-      </template>
+      </div>
     </div>
   </div>
 </template>
@@ -207,7 +299,6 @@ function toolStatus(msg: ToolMessage): {
 /* 1:1 VS Code Copilot work section — chatThinkingContentPart + chatCollapsibleContentPart */
 .work-section {
   margin: 0 0 2px;
-  overflow: hidden;
 }
 
 .work-section-head {
@@ -345,6 +436,47 @@ function toolStatus(msg: ToolMessage): {
   display: flex;
   flex-direction: column;
   margin-left: 5px;
+}
+
+/* Copilot collapsible content animation (chatCollapsibleContentPart.css 1:1):
+   keeps the section's DOM mounted and animates height via grid rows, so the
+   virtual list never sees an abrupt unmount/remount jump. */
+.work-section-animation {
+  display: grid;
+  grid-template-rows: 1fr;
+  opacity: 1;
+  visibility: visible;
+}
+
+.work-section-animation-inner {
+  min-height: 0;
+  overflow: hidden;
+}
+
+.work-section-animation.collapsed {
+  grid-template-rows: 0fr;
+  opacity: 0;
+  visibility: hidden;
+}
+
+.work-section-animation.animated {
+  transition:
+    grid-template-rows 180ms cubic-bezier(0.2, 0, 0, 1),
+    opacity 140ms cubic-bezier(0.2, 0, 0, 1),
+    visibility 0s;
+}
+
+.work-section-animation.animated.collapsed {
+  transition:
+    grid-template-rows 180ms cubic-bezier(0.2, 0, 0, 1),
+    opacity 140ms cubic-bezier(0.2, 0, 0, 1),
+    visibility 0s linear 180ms;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .work-section-animation {
+    transition: none !important;
+  }
 }
 
 /* Chain-of-thought tree line per child item (chatThinkingContent.css 1:1) */
