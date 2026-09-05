@@ -622,7 +622,7 @@ function restoreScrollAfterMutation(sc: HTMLElement, prevHeight: number, prevTop
 function scheduleWindowPrefetch(): void {
   requestAnimationFrame(() => {
     const sc = scroller.value;
-    if (!sc || adjustingWindow || settlingSession || followBottom || readingHistory) return;
+    if (!sc || adjustingWindow || settlingSession || followBottom) return;
     if (sc.scrollTop < topSpacerPx.value + OVERSCAN_PX) {
       expandHistoryUp();
       return;
@@ -635,7 +635,7 @@ function scheduleWindowPrefetch(): void {
 }
 
 function expandHistoryUp(): void {
-  if (adjustingWindow || loadingOlderPage || readingHistory) return;
+  if (adjustingWindow || loadingOlderPage) return;
   if (renderStart.value <= 0) {
     // At the start of the *loaded* window — fetch an older page from disk if any.
     void loadOlderHistoryPage();
@@ -657,11 +657,9 @@ function expandHistoryUp(): void {
     measureVisibleRows();
     adjustingWindow = false;
     updateStickyPinned();
-    // readingHistory may have latched while we were mutating the window
-    // (mid-await wheel). Prefetch must not run in that state.
-    if (!readingHistory && renderStart.value <= 0) {
+    if (renderStart.value <= 0) {
       void loadOlderHistoryPage();
-    } else if (!readingHistory) {
+    } else {
       scheduleWindowPrefetch();
     }
   });
@@ -674,19 +672,16 @@ async function loadOlderHistoryPage(): Promise<void> {
   if (!id) return;
   const sc = scroller.value;
   if (!sc) return;
-  const wasReading = readingHistory;
   loadingOlderPage = true;
   adjustingWindow = true;
   const prevHeight = sc.scrollHeight;
   const prevTop = sc.scrollTop;
   try {
-    // If the user wheels up to read history while this fetch is in flight,
-    // abort it — their reads must not wait for (or be shifted by) a prepend.
-    if (readingHistory) return;
     const added = await chat.loadOlderHistory(id);
     if (added <= 0) return;
-    if (readingHistory) return;
     // Prepend shifts every index — keep the same rows mounted, then peek a chunk older.
+    // The viewport stays anchored via restoreScrollAfterMutation, so this is safe
+    // even while the user is mid-read.
     const shifted = windowAfterHistoryPrepend(
       { start: renderStart.value, end: renderEnd.value },
       added,
@@ -700,18 +695,31 @@ async function loadOlderHistoryPage(): Promise<void> {
     restoreScrollAfterMutation(sc, prevHeight, prevTop);
     measureVisibleRows();
     updateStickyPinned();
-    // Even a page that finished loading while the user began reading must not
-    // auto-chain into the next prefetch.
-    if (readingHistory || wasReading) return;
     scheduleWindowPrefetch();
   } finally {
     adjustingWindow = false;
     loadingOlderPage = false;
   }
+  void fillViewportWithHistory();
+}
+
+/**
+ * A fresh history page can fit the viewport entirely (folded rows are short),
+ * leaving no overflow — and therefore no scroll events — so the scroll-driven
+ * prefetch above would never fire and older history becomes unreachable.
+ * Keep prepending pages until the list actually overflows (or history ends).
+ */
+async function fillViewportWithHistory(): Promise<void> {
+  const sc = scroller.value;
+  if (!sc || settlingSession || adjustingWindow || loadingOlderPage) return;
+  if (readingHistory || document.hidden) return;
+  if (!props.historyHasMore || renderStart.value > 0) return;
+  if (sc.scrollHeight > sc.clientHeight + 1) return;
+  await loadOlderHistoryPage();
 }
 
 function expandHistoryDown(): void {
-  if (adjustingWindow || readingHistory || loadingOlderPage) return;
+  if (adjustingWindow || loadingOlderPage) return;
   const len = displayMessages.value.length;
   if (renderEnd.value >= len) return;
   const sc = scroller.value;
@@ -729,7 +737,6 @@ function expandHistoryDown(): void {
     measureVisibleRows();
     adjustingWindow = false;
     updateStickyPinned();
-    if (readingHistory) return;
     scheduleWindowPrefetch();
   });
 }
@@ -878,6 +885,7 @@ async function beginSessionSettle(): Promise<void> {
     // Final snap after reveal (layout may change when visibility returns).
     await nextTick();
     jumpToBottomInstant();
+    void fillViewportWithHistory();
   }
 }
 
@@ -922,11 +930,15 @@ function syncFollowBottomOnScroll(sc: HTMLElement): void {
   if (!followBottom) cancelQueuedBottomSnaps();
   // While a user is reading history (hard latch), every extra list insert /
   // prepend shifts the DOM; synthetic scroll events then fire. Those are not
-  // intent — the state machine must stay fully inert except for a real return
-  // into the live edge, which the user expresses by scrolling all the way down.
+  // intent — the state machine stays inert except for a real return into the
+  // live edge, which releases the latch (decideFollowOnScroll only reports
+  // following=true once the user scrolls back into the near-bottom zone).
   if (readingHistory) {
-    showJumpLatest.value = displayMessages.value.length > 0;
-    return;
+    if (!decision.following) {
+      showJumpLatest.value = displayMessages.value.length > 0;
+      return;
+    }
+    disengageHistoryReading();
   }
   // Return to the live edge = explicit "stop reading history" intent.
   if (!followBottom) engageHistoryReading();
@@ -942,7 +954,13 @@ function syncFollowBottomOnScroll(sc: HTMLElement): void {
 function onScrollerWheel(event: WheelEvent): void {
   if (event.deltaY >= 0 || settlingSession || adjustingWindow) return;
   const sc = scroller.value;
-  if (!sc || sc.scrollTop <= 0) return;
+  if (!sc) return;
+  if (sc.scrollTop <= 0) {
+    // No overflow (or already at the top edge): scroll events can't fire, so
+    // trigger the older-page fetch directly from the wheel gesture.
+    void fillViewportWithHistory();
+    return;
+  }
   suppressFollowBottomUntil = 0;
   userScrolledAway = true;
   followBottom = false;
@@ -953,7 +971,7 @@ function onScrollerWheel(event: WheelEvent): void {
 /** Heavy virtual-window / prefetch work stays rAF-coalesced (follow already synced). */
 function handleScrollerScroll(): void {
   const sc = scroller.value;
-  if (!sc || adjustingWindow || settlingSession || readingHistory) return;
+  if (!sc || adjustingWindow || settlingSession) return;
 
   if (followBottom) {
     const len = displayMessages.value.length;
@@ -1054,6 +1072,7 @@ watch(
         jumpToBottomInstant();
       });
     }
+    void fillViewportWithHistory();
   },
   { immediate: true },
 );
