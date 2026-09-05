@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onUnmounted, ref, watch } from "vue";
 import { NIcon } from "naive-ui";
-import { ChevronDownOutline, ChevronForwardOutline } from "@vicons/ionicons5";
+import { ChevronForwardOutline } from "@vicons/ionicons5";
 import { formatElapsedShort } from "@renderer/utils/agent-wait";
 import { t } from "@renderer/i18n";
 
@@ -123,15 +123,16 @@ watch(
 </script>
 
 <template>
-  <div class="thinking" :class="{ streaming: Boolean(streaming) }">
+  <div class="thinking" :class="{ streaming: Boolean(streaming), open }">
     <button type="button" class="thinking-head" @click="toggleOpen">
+      <span class="label" :class="{ 'copilot-shimmer': Boolean(streaming) }">{{ headLabel }}</span>
       <NIcon
-        class="chev"
-        :component="open ? ChevronDownOutline : ChevronForwardOutline"
+        class="hover-chev"
+        :class="{ expanded: open }"
+        :component="ChevronForwardOutline"
         :size="12"
+        aria-hidden="true"
       />
-      <span class="label">{{ headLabel }}</span>
-      <span v-if="streaming" class="pulse" aria-hidden="true" />
     </button>
     <div
       v-if="open && thinking"
@@ -146,84 +147,92 @@ watch(
 </template>
 
 <style scoped>
+/* 1:1 VS Code Copilot thinking row — chatThinkingContent.css / chatCollapsibleContentPart */
 .thinking {
-  margin: 0 0 4px;
-  /* Cursor-style: no card chrome — muted text row with a fold chevron. */
+  margin: 0 0 2px;
   overflow: hidden;
-}
-
-.thinking.streaming {
-  color: var(--primary, #3b82f6);
+  color: var(--chat-desc-fg, var(--fg-muted));
 }
 
 .thinking-head {
-  width: 100%;
-  display: flex;
+  display: inline-flex;
   align-items: center;
-  gap: 7px;
-  margin: 0;
-  padding: 2px 4px;
+  gap: 2px;
+  width: fit-content;
+  max-width: 100%;
+  margin: 0 0 0 -2px;
+  padding: 2px 6px 2px 2px;
   border: none;
   border-radius: 5px;
   background: transparent;
-  color: var(--fg-muted, #666);
-  font-size: 11.5px;
-  font-weight: 500;
+  color: inherit;
+  font: inherit;
+  font-size: var(--chat-font-s, 12px);
+  line-height: 1.5em;
   text-align: left;
   cursor: pointer;
+  user-select: none;
 }
 
 .thinking-head:hover {
-  background: color-mix(in srgb, var(--fg) 4%, transparent);
-  color: var(--fg-strong, #222);
+  background: var(--chat-hover-bg, color-mix(in srgb, var(--fg) 5%, transparent));
+  color: var(--fg, inherit);
 }
 
-.chev {
-  flex-shrink: 0;
-  opacity: 0.7;
+.thinking.open > .thinking-head {
+  color: var(--fg, inherit);
 }
 
 .label {
-  letter-spacing: 0.01em;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.pulse {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--primary, #3b82f6);
-  animation: think-pulse 1.1s ease-in-out infinite;
+/* Trailing disclosure chevron — .chat-collapsible-hover-chevron (1:1) */
+.hover-chev {
+  flex-shrink: 0;
+  opacity: 0;
+  transform: rotate(0deg);
+  transform-origin: center;
+  transition:
+    opacity 100ms ease-in-out,
+    transform 180ms cubic-bezier(0.2, 0, 0, 1);
+  color: var(--chat-desc-fg, var(--fg-muted));
 }
 
-@keyframes think-pulse {
-  0%,
-  100% {
-    opacity: 0.35;
-    transform: scale(0.85);
-  }
-  50% {
-    opacity: 1;
-    transform: scale(1);
+.hover-chev.expanded {
+  opacity: 1;
+  transform: rotate(90deg);
+}
+
+.thinking-head:hover .hover-chev {
+  opacity: 1;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hover-chev {
+    transition: none;
   }
 }
 
 .thinking-body {
-  margin: 0;
-  padding: 2px 4px 6px 26px;
-  max-height: 160px;
+  margin: 2px 0 6px 10.5px;
+  padding: 2px 0 2px 13px;
+  border-left: 1px solid var(--chat-line, var(--border));
+  max-height: 200px;
   overflow: auto;
   white-space: pre-wrap;
   word-break: break-word;
-  font-size: 12px;
-  line-height: 1.5;
-  color: var(--fg-muted, #666);
-  font-style: italic;
+  font-size: var(--chat-font-s, 12px);
+  line-height: 1.5em;
+  color: var(--chat-desc-fg, var(--fg-muted));
   user-select: text;
   -webkit-user-select: text;
 }
 
 .thinking-body.muted {
-  font-style: normal;
   opacity: 0.75;
 }
 </style>

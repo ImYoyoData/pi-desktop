@@ -1,12 +1,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref, watch } from "vue";
 import { NIcon } from "naive-ui";
-import {
-  CheckmarkCircleOutline,
-  ChevronDownOutline,
-  ChevronForwardOutline,
-  CloseCircleOutline,
-} from "@vicons/ionicons5";
+import { ChevronForwardOutline } from "@vicons/ionicons5";
 import type { ChatMessage } from "@renderer/stores/chat";
 import ToolCallCard from "@renderer/components/ToolCallCard.vue";
 import { parseToolCard, type ToolCard } from "@renderer/utils/tool-diff";
@@ -93,12 +88,6 @@ const summary = computed(() =>
   }),
 );
 
-const statusType = computed<"info" | "error" | "success">(() => {
-  if (anyStreaming.value) return "info";
-  if (anyError.value) return "error";
-  return "success";
-});
-
 /** Memoize card parsing per message object (see MessageList.vue). */
 const toolCardCache = new WeakMap<ToolMessage, ToolCard>();
 function toolCard(msg: ToolMessage): ToolCard {
@@ -123,137 +112,163 @@ function toolStatus(msg: ToolMessage): {
 <template>
   <div
     class="tool-group"
-    :class="{ open, streaming: anyStreaming, error: statusType === 'error' }"
+    :class="{ open, streaming: anyStreaming, error: anyError }"
   >
     <button type="button" class="tool-group-head" :aria-expanded="open" @click="toggle">
+      <span class="summary" :class="{ 'copilot-shimmer': anyStreaming }">{{ summary }}</span>
       <NIcon
-        class="chev"
-        :component="open ? ChevronDownOutline : ChevronForwardOutline"
+        class="hover-chev"
+        :class="{ expanded: open }"
+        :component="ChevronForwardOutline"
         :size="12"
+        aria-hidden="true"
       />
-      <span class="summary">{{ summary }}</span>
-      <span class="count">{{ tools.length }}</span>
-      <span class="status" :class="statusType" aria-hidden="true">
-        <span v-if="anyStreaming" class="spinner" />
-        <NIcon
-          v-else-if="statusType === 'error'"
-          :component="CloseCircleOutline"
-          :size="14"
-        />
-        <NIcon v-else :component="CheckmarkCircleOutline" :size="14" />
-      </span>
     </button>
 
     <div v-if="open" class="tool-group-body">
-      <ToolCallCard
-        v-for="msg in tools"
-        :key="msg.id"
-        :card="toolCard(msg)"
-        :tool-name="msg.toolName"
-        :order="msg.order"
-        :status-label="toolStatus(msg).label"
-        :status-type="toolStatus(msg).type"
-        :streaming="msg.streaming"
-        :auto-collapse="props.autoCollapse || !msg.streaming"
-        @open="emit('open', $event)"
-      />
+      <div v-for="msg in tools" :key="msg.id" class="cot-item">
+        <ToolCallCard
+          :card="toolCard(msg)"
+          :tool-name="msg.toolName"
+          :order="msg.order"
+          :status-label="toolStatus(msg).label"
+          :status-type="toolStatus(msg).type"
+          :streaming="msg.streaming"
+          :auto-collapse="props.autoCollapse || !msg.streaming"
+          tree-item
+          @open="emit('open', $event)"
+        />
+      </div>
     </div>
   </div>
 </template>
 
 <style scoped>
+/* 1:1 VS Code Copilot collapsible tool group — chatCollapsibleContentPart + chatThinkingContent.css */
 .tool-group {
-  margin: 2px 0 6px;
-  /* Cursor-style: plain text rows, no card chrome. */
+  margin: 0 0 2px;
   overflow: hidden;
 }
 
 .tool-group-head {
-  display: flex;
+  position: relative;
+  display: inline-flex;
   align-items: center;
-  gap: 6px;
-  width: 100%;
-  margin: 0;
-  padding: 3px 4px;
+  gap: 2px;
+  width: fit-content;
+  max-width: 100%;
+  margin: 0 0 0 -2px;
+  padding: 2px 6px 2px 2px;
   border: 0;
   border-radius: 5px;
   background: transparent;
-  color: var(--fg-muted);
+  color: var(--chat-desc-fg, var(--fg-muted));
   font: inherit;
-  font-size: 11.5px;
+  font-size: var(--chat-font-s, 12px);
+  line-height: 1.5em;
   text-align: left;
   cursor: pointer;
+  user-select: none;
 }
 
 .tool-group-head:hover {
-  color: var(--fg);
-  background: color-mix(in srgb, var(--fg) 4%, transparent);
+  color: var(--fg, inherit);
+  background: var(--chat-hover-bg, color-mix(in srgb, var(--fg) 5%, transparent));
 }
 
-.chev {
-  flex-shrink: 0;
-  opacity: 0.7;
+.tool-group.open > .tool-group-head {
+  color: var(--fg, inherit);
 }
 
 .summary {
-  flex: 1;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  color: inherit;
-}
-
-.count {
-  flex-shrink: 0;
   font-variant-numeric: tabular-nums;
-  opacity: 0.55;
-  font-size: 11px;
+  font-feature-settings: "tnum";
 }
 
-.status {
+/* Trailing disclosure chevron — .chat-collapsible-hover-chevron (1:1) */
+.hover-chev {
   flex-shrink: 0;
-  display: inline-flex;
-  align-items: center;
-  width: 14px;
-  height: 14px;
+  opacity: 0;
+  transform: rotate(0deg);
+  transform-origin: center;
+  transition:
+    opacity 100ms ease-in-out,
+    transform 180ms cubic-bezier(0.2, 0, 0, 1);
+  color: var(--chat-desc-fg, var(--fg-muted));
 }
 
-.status.success {
-  color: var(--success, #3c9a5f);
+.hover-chev.expanded {
+  opacity: 1;
+  transform: rotate(90deg);
 }
 
-.status.error {
-  color: var(--error, #d94848);
+.tool-group-head:hover .hover-chev {
+  opacity: 1;
 }
 
-.status.info {
-  color: var(--fg-muted);
-}
-
-.spinner {
-  width: 10px;
-  height: 10px;
-  border: 1.5px solid color-mix(in srgb, currentColor 35%, transparent);
-  border-top-color: currentColor;
-  border-radius: 50%;
-  animation: tool-group-spin 0.7s linear infinite;
-}
-
-@keyframes tool-group-spin {
-  to {
-    transform: rotate(360deg);
+@media (prefers-reduced-motion: reduce) {
+  .hover-chev {
+    transition: none;
   }
+}
+
+/* Curved connector from the header to the first tree item (.chat-used-context-label::after) */
+.tool-group.open > .tool-group-head::after {
+  content: "";
+  position: absolute;
+  left: 3px;
+  top: 100%;
+  height: 16px;
+  width: 5px;
+  border-left: 1px solid var(--chat-line, var(--border));
+  border-bottom: 1px solid var(--chat-line, var(--border));
+  border-bottom-left-radius: 5px;
+  pointer-events: none;
 }
 
 .tool-group-body {
   display: flex;
   flex-direction: column;
-  gap: 1px;
-  padding: 0 0 6px;
+  margin-left: 5px;
 }
 
-.tool-group-body :deep(.tool-call) {
-  margin: 0;
+/* Chain-of-thought tree line per child item (chatThinkingContent.css 1:1) */
+.cot-item {
+  position: relative;
+}
+
+.cot-item::before {
+  content: "";
+  position: absolute;
+  left: 10.5px;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  border-radius: 0;
+  background-color: var(--chat-line, var(--border));
+  mask-image: linear-gradient(to bottom, #000 0 5px, transparent 5px 25px, #000 24px 100%);
+}
+
+.cot-item:first-child::before {
+  mask-image: linear-gradient(to bottom, transparent 0 25px, #000 25px 100%);
+}
+
+.cot-item:last-child::before {
+  mask-image: linear-gradient(to bottom, #000 0 5px, transparent 5px 100%);
+}
+
+.cot-item:only-child::before {
+  background: none;
+  mask-image: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cot-item::before {
+    mask-image: none;
+  }
 }
 </style>

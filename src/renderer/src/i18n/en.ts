@@ -1041,6 +1041,9 @@ export const en = {
 	toolOrderHint: (n: number) => `Execution order #${n}`,
 	toolLinesRead: (read: number, total: number) => `${read}/${total} lines`,
 	toolLinesOf: (n: number) => `${n} lines`,
+	/** Copilot-style row meta: ", lines 1 to 250". */
+	toolLinesRange: (read: number, total: number) => `, lines ${read} to ${total}`,
+	toolLinesCount: (n: number) => `, ${n} lines`,
 	toolCommand: "Command",
 	toolTruncated: "Truncated",
 	marketTitle: "Extension market",
