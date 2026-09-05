@@ -492,7 +492,7 @@ const todoItems = computed(() =>
   color: var(--fg, inherit);
 }
 
-/* Tree mode (inside ToolCallGroup): icon hangs on the chain-of-thought line. */
+/* Tree mode (inside WorkSectionGroup): icon hangs on the chain-of-thought line. */
 .tool-call.tree-item .tool-call-head {
   width: 100%;
   padding: 4px 12px 4px 24px;

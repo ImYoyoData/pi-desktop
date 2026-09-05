@@ -69,7 +69,6 @@ declare module 'vue' {
     ThinkingBlock: typeof import('./src/components/ThinkingBlock.vue')['default']
     TitleBar: typeof import('./src/components/TitleBar.vue')['default']
     ToolCallCard: typeof import('./src/components/ToolCallCard.vue')['default']
-    ToolCallGroup: typeof import('./src/components/ToolCallGroup.vue')['default']
     ToolFileCard: typeof import('./src/components/ToolFileCard.vue')['default']
     TopBar: typeof import('./src/components/TopBar.vue')['default']
     TrustDialog: typeof import('./src/components/TrustDialog.vue')['default']
@@ -78,5 +77,6 @@ declare module 'vue' {
     VoiceRecordBar: typeof import('./src/components/VoiceRecordBar.vue')['default']
     VoiceTextField: typeof import('./src/components/VoiceTextField.vue')['default']
     WelcomeView: typeof import('./src/components/WelcomeView.vue')['default']
+    WorkSectionGroup: typeof import('./src/components/WorkSectionGroup.vue')['default']
   }
 }
