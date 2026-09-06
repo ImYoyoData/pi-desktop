@@ -23,6 +23,7 @@ export function toolCardFor(msg: ToolMessage): ToolCard {
   if (!card) {
     card = parseToolCard(msg.toolName, msg.args, msg.result, {
       isError: msg.isError,
+      durationMs: typeof msg.durationMs === "number" ? msg.durationMs : undefined,
     });
     toolCardMemo.set(msg, card);
   }
@@ -56,6 +57,8 @@ export type ReadToolCard = {
   startLine: number | null;
   truncated: boolean;
   preview: string | null;
+  /** Execution duration stamped by the reducer (live turns only). */
+  durationMs?: number | null;
 };
 
 export type BashToolCard = {
@@ -65,6 +68,8 @@ export type BashToolCard = {
   totalLines: number | null;
   truncated: boolean;
   preview: string | null;
+  /** Execution duration stamped by the reducer (live turns only). */
+  durationMs?: number | null;
 };
 
 export type TodoToolCard = {
@@ -389,7 +394,11 @@ export function parseFileToolCard(
   };
 }
 
-export function parseReadToolCard(args: unknown, result: unknown): ReadToolCard {
+export function parseReadToolCard(
+  args: unknown,
+  result: unknown,
+  opts?: { durationMs?: number },
+): ReadToolCard {
   const path = pathFromArgs(args);
   const { details, text } = extractToolResult(result);
   const trunc = truncationFromDetails(details);
@@ -419,12 +428,17 @@ export function parseReadToolCard(args: unknown, result: unknown): ReadToolCard 
     linesRead,
     totalLines,
     startLine: notice.startLine ?? offset,
-    truncated: trunc.truncated || capLines != null,
+    truncated: trunc.truncated,
     preview: text.trim() ? text : null,
+    durationMs: opts?.durationMs ?? null,
   };
 }
 
-export function parseBashToolCard(args: unknown, result: unknown): BashToolCard {
+export function parseBashToolCard(
+  args: unknown,
+  result: unknown,
+  opts?: { durationMs?: number },
+): BashToolCard {
   const { details, text } = extractToolResult(result);
   const trunc = truncationFromDetails(details);
   const notice = parseLineRangeNotice(text);
@@ -437,8 +451,9 @@ export function parseBashToolCard(args: unknown, result: unknown): BashToolCard 
     command: commandFromArgs(args),
     linesRead,
     totalLines: trunc.totalLines ?? notice.totalLines,
-    truncated: trunc.truncated || capLines != null,
+    truncated: trunc.truncated,
     preview: text.trim() ? text : null,
+    durationMs: opts?.durationMs ?? null,
   };
 }
 
@@ -479,17 +494,17 @@ export function parseToolCard(
   toolName: string,
   args: unknown,
   result: unknown,
-  opts?: { isError?: boolean },
+  opts?: { isError?: boolean; durationMs?: number },
 ): ToolCard {
   const name = toolName.toLowerCase();
   if (isFileMutationTool(name)) {
     return parseFileToolCard(toolName, args, result, opts);
   }
   if (name === "read" || name === "read_file") {
-    return parseReadToolCard(args, result);
+    return parseReadToolCard(args, result, opts);
   }
   if (isBashTool(name)) {
-    return parseBashToolCard(args, result);
+    return parseBashToolCard(args, result, opts);
   }
   if (isTodoToolName(toolName)) {
     return parseTodoToolCard(args, result);
