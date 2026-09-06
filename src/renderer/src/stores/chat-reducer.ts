@@ -133,16 +133,21 @@ export function createChatState(): ChatState {
  */
 const STREAM_RESULT_CAP_CHARS = 48 * 1024;
 
+function countResultLines(text: string): number {
+	return text.replace(/\r\n/g, "\n").split("\n").length;
+}
+
 export function capStreamedToolResult(result: unknown): unknown {
 	if (typeof result !== "string" || result.length <= STREAM_RESULT_CAP_CHARS)
 		return result;
-	return `\u2026 (output truncated for display)\n${result.slice(-STREAM_RESULT_CAP_CHARS)}`;
+	return `\u2026 [output truncated, ${countResultLines(result)} lines total]\n${result.slice(-STREAM_RESULT_CAP_CHARS)}`;
 }
 
 /**
  * At-rest cap for finished tool output. Display only needs the head (preview
- * lines + truncation notice) and the tail; multi-megabyte bash dumps otherwise
- * stay pinned in renderer memory for the whole session.
+ * lines) and the tail; multi-megabyte bash dumps otherwise stay pinned in
+ * renderer memory for the whole session. The marker carries the ORIGINAL line
+ * count so tool cards can still show the real "N lines" figure.
  */
 const RESULT_STORE_HEAD_CHARS = 16 * 1024;
 const RESULT_STORE_TAIL_CHARS = 16 * 1024;
@@ -151,8 +156,7 @@ export function capStoredToolResult(result: unknown): unknown {
 	if (typeof result !== "string") return result;
 	const keep = RESULT_STORE_HEAD_CHARS + RESULT_STORE_TAIL_CHARS;
 	if (result.length <= keep) return result;
-	const omitted = result.length - keep;
-	return `${result.slice(0, RESULT_STORE_HEAD_CHARS)}\n\u2026 (${omitted} more chars truncated)\n${result.slice(-RESULT_STORE_TAIL_CHARS)}`;
+	return `${result.slice(0, RESULT_STORE_HEAD_CHARS)}\n\u2026 [output truncated, ${countResultLines(result)} lines total]\n${result.slice(-RESULT_STORE_TAIL_CHARS)}`;
 }
 
 /** Keep / clear turn clocks after a reducer step. */
