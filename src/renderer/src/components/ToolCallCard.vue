@@ -492,9 +492,10 @@ const todoItems = computed(() =>
 .head-text {
   flex: 1;
   min-width: 0;
-  display: block;
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
   overflow: hidden;
-  text-overflow: ellipsis;
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
   font-feature-settings: "tnum";
@@ -503,18 +504,25 @@ const todoItems = computed(() =>
 .action {
   font: inherit;
   color: inherit;
+  flex-shrink: 0;
 }
 
 .headline {
   font: inherit;
   color: inherit;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 /* bash command / glob pattern pill — VS Code [data-code] inside progress text */
 .cmd-pill {
-  display: inline;
+  display: inline-block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
   max-width: 100%;
-  margin: 0 1px;
+  margin: 0;
   padding: 1px 3px;
   border: 1px solid var(--chat-line, var(--border));
   border-radius: 4px;
@@ -525,18 +533,25 @@ const todoItems = computed(() =>
   white-space: nowrap;
 }
 
+/* Long commands/headlines shrink themselves; the line-count meta always stays visible. */
 .meta {
   font: inherit;
   color: inherit;
   opacity: 0.85;
+  flex-shrink: 0;
 }
 
 .meta.stats {
   display: inline-flex;
   gap: 5px;
-  margin-left: 4px;
+  margin-left: 0;
   font-family: var(--font-mono, ui-monospace, monospace);
   opacity: 1;
+  flex-shrink: 0;
+}
+
+.head-text .file-chip {
+  min-width: 0;
 }
 
 .add {
@@ -548,7 +563,8 @@ const todoItems = computed(() =>
 }
 
 .trunc {
-  margin-left: 4px;
+  margin-left: 0;
+  flex-shrink: 0;
   font-size: var(--chat-font-xs, 11px);
   color: var(--warning, #9a6700);
 }
