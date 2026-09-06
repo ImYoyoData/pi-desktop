@@ -1,5 +1,32 @@
 # Changelog
 
+## v0.3.2 (2026-09-07)
+
+本版重点：消息区 UI 与渲染优化；新增待办与文件更改显示。
+
+### 新功能 Features
+
+- 新增待办和文件更改的显示。
+- Added display of todos and file changes in the message area.
+
+### 优化 / 体验 Improvements
+
+- 优化消息区 UI 样式。
+- 优化消息区渲染速度。
+- 移除启动时的加载页和打开会话的加载页。
+- Refined message-area UI styling.
+- Faster message-area rendering.
+- Removed the startup loading page and the session-open loading page.
+
+### 修复 Fixes
+
+- 修复模型输出时向上滚动消息区会被拉回。
+- 修复对话轮数计算。
+- 修复消息区渲染问题。
+- Fixed the message area being pulled back while scrolling during model output.
+- Fixed conversation turn-count calculation.
+- Fixed message-area rendering issues.
+
 ## v0.3.1 (2026-09-04)
 
 本版重点：全局网络代理；会话排序与折叠；启动提速与恢复旧会话稳定性。
