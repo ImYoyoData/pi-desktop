@@ -710,8 +710,24 @@ export const useChatStore = defineStore("chat", () => {
 			softHangReported.delete(sessionId);
 			return;
 		}
+		const mapped = history.map(mapHistoryRow);
+		// Returning to a session we already hold in memory: when the disk page is
+		// the tail of what's already loaded (user visited before / loaded older
+		// pages), keep the existing array — message objects stay identical so
+		// tool-card parse caches and loaded older pages survive the round-trip.
+		if (
+			live &&
+			live.messages.length >= mapped.length &&
+			mapped.length > 0 &&
+			live.messages
+				.slice(-mapped.length)
+				.every((m, i) => m.id === mapped[i]!.id)
+		) {
+			softHangReported.delete(sessionId);
+			return;
+		}
 		bySession[sessionId] = {
-			messages: history.map(mapHistoryRow),
+			messages: mapped,
 			streamingMessage: null,
 			running: false,
 			retryHint: null,

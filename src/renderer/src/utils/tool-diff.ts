@@ -1,11 +1,33 @@
 /** Parse Pi coding-agent tool payloads for Cursor-like tool cards. */
 
+import type { ChatMessage } from "../stores/chat-reducer";
 import {
   isTodoToolName,
   normalizeTodoRows,
   todosFromToolArgs,
   todosFromToolDetails,
 } from "./session-todos";
+
+export type ToolMessage = Extract<ChatMessage, { role: "tool" }>;
+
+/**
+ * Canonical per-message-object memo for tool cards. Committed rows are
+ * immutable, so each parses at most once no matter how many consumers
+ * (message list, work sections, docks, session info) ask for it — write/edit
+ * diff synthesis is O(file size) and must not repeat across those.
+ */
+const toolCardMemo = new WeakMap<ToolMessage, ToolCard>();
+
+export function toolCardFor(msg: ToolMessage): ToolCard {
+  let card = toolCardMemo.get(msg);
+  if (!card) {
+    card = parseToolCard(msg.toolName, msg.args, msg.result, {
+      isError: msg.isError,
+    });
+    toolCardMemo.set(msg, card);
+  }
+  return card;
+}
 
 export type ToolDiffStats = {
   additions: number;

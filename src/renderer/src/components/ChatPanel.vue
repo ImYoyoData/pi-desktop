@@ -37,11 +37,25 @@ const widgets = useSessionWidgetsStore();
 const message = useMessage();
 
 /** Any docked widget (todo / changed files) above the composer? */
-const hasDock = computed(
-  () =>
-    Boolean(widgets.activeTodoList) ||
-    hasAnyFileChange(chat.activeMessages, chat.activeStreaming),
+const hasTodoDock = computed(() => Boolean(widgets.activeTodoList));
+/**
+ * hasAnyFileChange scans every tool row per call; streaming ticks invalidate
+ * it constantly. Throttle to a ~120ms trailing recompute — the dock gate only
+ * needs to track presence, not per-tick truth.
+ */
+const hasFileDock = ref(hasAnyFileChange(chat.activeMessages, chat.activeStreaming));
+let dockScanTimer = 0;
+watch(
+  () => [chat.activeMessages, chat.activeStreaming] as const,
+  () => {
+    if (dockScanTimer) return;
+    dockScanTimer = window.setTimeout(() => {
+      dockScanTimer = 0;
+      hasFileDock.value = hasAnyFileChange(chat.activeMessages, chat.activeStreaming);
+    }, 120);
+  },
 );
+const hasDock = computed(() => hasTodoDock.value || hasFileDock.value);
 
 watch(
   () => chat.securityRemediationTick,
@@ -76,6 +90,8 @@ onMounted(() => {
 onUnmounted(() => {
   if (headerTimer) clearInterval(headerTimer);
   headerTimer = null;
+  if (dockScanTimer) clearTimeout(dockScanTimer);
+  dockScanTimer = 0;
 });
 
 const headerWaitLabel = computed(() => {
