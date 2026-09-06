@@ -473,8 +473,6 @@ export const zh = {
 	asrWakeListenFail: "无法启动语音唤醒监听",
 	asrWakeModelNeeded: "请先安装/准备好本地语音模型，再开启语音唤醒。",
 	asrWakeUnavailable: "语音唤醒无法启动，请检查 ASR 运行环境和麦克风。",
-	loadingOlderHistory: "加载更早的消息…",
-	scrollForOlderHistory: "继续上滑加载更早记录",
 	scrollToLatest: "回到最新",
 	marketLoadMore: "加载更多",
 	marketLoadingMore: "正在加载更多…",
