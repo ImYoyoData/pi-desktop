@@ -4,7 +4,7 @@ import { NIcon } from "naive-ui";
 import { CheckmarkOutline, ChevronForwardOutline } from "@vicons/ionicons5";
 import type { ChatMessage } from "@renderer/stores/chat";
 import ToolCallCard from "@renderer/components/ToolCallCard.vue";
-import { parseToolCard, type ToolCard } from "@renderer/utils/tool-diff";
+import { toolCardFor, type ToolCard } from "@renderer/utils/tool-diff";
 import {
   categorizeToolCall,
   summarizeWorkSection,
@@ -210,15 +210,9 @@ const hasDiff = computed(
 const settled = computed(() => props.autoCollapse || !anyStreaming.value);
 const title = computed(() => (settled.value ? summaryTitle.value : liveTitle.value));
 
-/** Memoize card parsing per message object (see MessageList.vue). */
-const toolCardCache = new WeakMap<ToolMessage, ToolCard>();
+/** Shared memoized card parsing per message object (tool-diff.ts). */
 function toolCard(msg: ToolMessage): ToolCard {
-  let card = toolCardCache.get(msg);
-  if (!card) {
-    card = parseToolCard(msg.toolName, msg.args, msg.result, { isError: msg.isError });
-    toolCardCache.set(msg, card);
-  }
-  return card;
+  return toolCardFor(msg);
 }
 
 function toolStatus(msg: ToolMessage): {

@@ -100,7 +100,7 @@ marked.use({
         highlighted =
           language && hljs.getLanguage(language)
             ? hljs.highlight(text, { language }).value
-            : hljs.highlightAuto(text).value;
+            : highlightAutoCapped(text);
       } catch {
         highlighted = escapeHtml(text);
       }
@@ -129,6 +129,18 @@ function escapeHtml(s: string): string {
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;");
+}
+
+/**
+ * highlightAuto probes every registered language and is the slowest hljs path —
+ * past a size cap it costs more than it's worth, so fall back to plain escaped
+ * text (still perfectly readable).
+ */
+const HIGHLIGHT_AUTO_MAX_CHARS = 8_000;
+
+function highlightAutoCapped(text: string): string {
+  if (text.length > HIGHLIGHT_AUTO_MAX_CHARS) return escapeHtml(text);
+  return hljs.highlightAuto(text).value;
 }
 
 function wrapTables(html: string): string {

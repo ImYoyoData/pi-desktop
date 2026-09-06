@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from "vue";
+import { computed, onUnmounted, ref, watch } from "vue";
 import { NIcon } from "naive-ui";
 import {
   ChevronDownOutline,
@@ -11,7 +11,7 @@ import { useChatStore } from "@renderer/stores/chat";
 import { usePreviewStore } from "@renderer/stores/preview";
 import { useRightTabsStore } from "@renderer/stores/right-tabs";
 import { useLayoutStore } from "@renderer/stores/layout";
-import { aggregateFileChanges } from "@renderer/utils/session-file-changes";
+import { aggregateFileChanges, type SessionFileChange } from "@renderer/utils/session-file-changes";
 import { t } from "@renderer/i18n";
 
 /**
@@ -28,9 +28,33 @@ const previewStore = usePreviewStore();
 const rightTabs = useRightTabsStore();
 const layout = useLayoutStore();
 
-const files = computed(() =>
-  aggregateFileChanges(chat.activeMessages, chat.activeStreaming),
+/**
+ * Streaming ticks recreate the message array every update; re-aggregating per
+ * tick re-parses the live tool row O(content) each frame. Recompute on a
+ * ~120ms trailing throttle instead — committed rows stay memoized anyway.
+ */
+const AGGREGATE_THROTTLE_MS = 120;
+const files = ref<SessionFileChange[]>([]);
+
+function recompute(): void {
+  files.value = aggregateFileChanges(chat.activeMessages, chat.activeStreaming);
+}
+recompute();
+
+let aggregateTimer = 0;
+watch(
+  () => [chat.activeMessages, chat.activeStreaming] as const,
+  () => {
+    if (aggregateTimer) return;
+    aggregateTimer = window.setTimeout(() => {
+      aggregateTimer = 0;
+      recompute();
+    }, AGGREGATE_THROTTLE_MS);
+  },
 );
+onUnmounted(() => {
+  if (aggregateTimer) window.clearTimeout(aggregateTimer);
+});
 
 const collapsed = ref(true);
 

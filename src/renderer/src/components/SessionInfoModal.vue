@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref, watch } from "vue";
+import { onMounted, onUnmounted, ref, watch } from "vue";
 import {
   NButton,
   NIcon,
@@ -11,7 +11,7 @@ import { ChevronDownOutline, ChevronForwardOutline, DocumentOutline, ExtensionPu
 import { useChatStore } from "@renderer/stores/chat";
 import { usePreviewStore } from "@renderer/stores/preview";
 import { useRightTabsStore } from "@renderer/stores/right-tabs";
-import { parseToolCard } from "@renderer/utils/tool-diff";
+import { isReadTool, toolCardFor } from "@renderer/utils/tool-diff";
 import type { WorkerResourceSummary } from "../../../shared/worker-resources";
 import type { SessionExtensionInfo } from "../../../shared/protocol";
 import { t } from "@renderer/i18n";
@@ -37,15 +37,13 @@ function isCollapsed(key: string): boolean {
 }
 
 /** Files the agent read in this session (from read tool calls). */
-const filesRead = computed<string[]>(() => {
+function computeFilesRead(): string[] {
   const seen = new Set<string>();
   const out: string[] = [];
   for (const msg of chat.activeMessages) {
-    if (msg.role !== "tool") continue;
+    if (msg.role !== "tool" || !isReadTool(msg.toolName)) continue;
     try {
-      const card = parseToolCard(msg.toolName, msg.args, msg.result, {
-        isError: msg.isError,
-      });
+      const card = toolCardFor(msg);
       if (card.kind !== "read" || !card.path) continue;
       const p = card.path.replace(/\\/g, "/");
       if (!seen.has(p)) {
@@ -57,7 +55,20 @@ const filesRead = computed<string[]>(() => {
     }
   }
   return out;
-});
+}
+
+const filesRead = ref<string[]>([]);
+let filesReadTimer = 0;
+watch(
+  () => chat.activeMessages,
+  () => {
+    if (!props.open || filesReadTimer) return;
+    filesReadTimer = window.setTimeout(() => {
+      filesReadTimer = 0;
+      filesRead.value = computeFilesRead();
+    }, 120);
+  },
+);
 
 /** Open a read file in the right-side preview tab (same as tool cards). */
 function openReadFile(filePath: string): void {
@@ -87,7 +98,10 @@ async function load(): Promise<void> {
 watch(
   () => props.open,
   (open) => {
-    if (open) void load();
+    if (open) {
+      filesRead.value = computeFilesRead();
+      void load();
+    }
   },
   { immediate: true },
 );
@@ -95,7 +109,10 @@ watch(
 watch(
   () => props.sessionId,
   (id) => {
-    if (props.open && id) void load();
+    if (props.open && id) {
+      filesRead.value = computeFilesRead();
+      void load();
+    }
   },
 );
 
@@ -111,6 +128,7 @@ onMounted(() => {
 
 onUnmounted(() => {
   offWorkerReady?.();
+  if (filesReadTimer) window.clearTimeout(filesReadTimer);
 });
 </script>
 
