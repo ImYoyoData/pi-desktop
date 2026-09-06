@@ -1,6 +1,6 @@
 {
   "name": "pi-desktop",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "description": "Pi Desktop — Electron + Vue3 Agent Workspace",
   "main": "./out/main/index.js",
   "author": "ImYoyoData",
@@ -33,9 +33,9 @@
     "postinstall": "node scripts/ensure-dugite-git.mjs && node scripts/patch-highlightjs-exports.mjs && electron-builder install-app-deps"
   },
   "dependencies": {
-    "@earendil-works/pi-agent-core": "0.83.0",
-    "@earendil-works/pi-ai": "0.83.0",
-    "@earendil-works/pi-coding-agent": "0.83.0",
+    "@earendil-works/pi-agent-core": "0.85.1",
+    "@earendil-works/pi-ai": "0.85.1",
+    "@earendil-works/pi-coding-agent": "0.85.1",
     "@electron-toolkit/preload": "^3.0.2",
     "@electron-toolkit/utils": "^4.0.0",
     "@vicons/ionicons5": "^0.13.0",
