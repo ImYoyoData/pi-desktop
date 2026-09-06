@@ -9,8 +9,8 @@
  * sum of every mutation the agent applied to it so far in this session.
  */
 import type { ChatMessage } from "../stores/chat-reducer";
-import type { ToolCard } from "./tool-diff";
-import { parseToolCard } from "./tool-diff";
+import type { ToolCard, ToolMessage } from "./tool-diff";
+import { toolCardFor } from "./tool-diff";
 
 export type SessionFileChange = {
 	path: string;
@@ -18,21 +18,8 @@ export type SessionFileChange = {
 	deletions: number;
 };
 
-/** Message-object keyed parse cache — immutable rows keep their ToolCard. */
-const toolCardCache = new WeakMap<
-	Extract<ChatMessage, { role: "tool" }>,
-	ToolCard
->();
-
-function toolCard(msg: Extract<ChatMessage, { role: "tool" }>): ToolCard {
-	let card = toolCardCache.get(msg);
-	if (!card) {
-		card = parseToolCard(msg.toolName, msg.args, msg.result, {
-			isError: msg.isError,
-		});
-		toolCardCache.set(msg, card);
-	}
-	return card;
+function toolCard(msg: ToolMessage): ToolCard {
+	return toolCardFor(msg);
 }
 
 /**

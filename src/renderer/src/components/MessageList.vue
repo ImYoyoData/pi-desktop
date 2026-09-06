@@ -30,7 +30,7 @@ import ThinkingBlock from "@renderer/components/ThinkingBlock.vue";
 import ToolCallCard from "@renderer/components/ToolCallCard.vue";
 import WorkSectionGroup from "@renderer/components/WorkSectionGroup.vue";
 import AgentWaitIndicator from "@renderer/components/AgentWaitIndicator.vue";
-import { parseToolCard, type ToolCard } from "@renderer/utils/tool-diff";
+import { toolCardFor as toolCard } from "@renderer/utils/tool-diff";
 import {
   buildWorkSectionSpans,
   finalAnswerRowIds,
@@ -175,6 +175,10 @@ let suppressFollowBottomUntil = 0;
 const renderStart = ref(0);
 const renderEnd = ref(0);
 const heightById = new Map<string, number>();
+/** Heights are session-scoped: switching sessions keeps past measurements usable. */
+function heightKey(id: string): string {
+  return `${sessions.activeId}|${id}`;
+}
 /** Real layout offsetTop of measured rows (for accurate sticky pinning). */
 const topById = new Map<string, number>();
 let adjustingWindow = false;
@@ -313,12 +317,14 @@ const settledRowIds = computed(() => {
     hasVisibleAfter[i] = hasVisibleAfter[i + 1] || isVisible(all[i]!);
   }
   // A group settles as a unit once ANY row past its last member is visible.
-  // Compute per-group end boundary once.
+  // Compute per-group end boundary once (id→index map keeps this O(n)).
+  const indexById = new Map<string, number>();
+  for (let i = 0; i < n; i++) indexById.set(all[i]!.id, i);
   const groupEndById = new Map<string, number>();
   for (const [id, m] of membership) {
     if (m.isLead) {
-      const leadIdx = all.findIndex((r) => r.id === id);
-      groupEndById.set(m.groupId, leadIdx + m.items.length);
+      const leadIdx = indexById.get(id);
+      if (leadIdx != null) groupEndById.set(m.groupId, leadIdx + m.items.length);
     }
   }
   for (let i = 0; i < n; i++) {
@@ -368,9 +374,9 @@ function estimateMessageHeight(msg: ChatMessage | undefined): number {
   const group = workSectionMembership.value.get(msg.id);
   if (group) {
     if (!group.isLead) return 0;
-    return heightById.get(group.leadId) || EST_TOOL_GROUP_HEIGHT;
+    return heightById.get(heightKey(group.leadId)) || EST_TOOL_GROUP_HEIGHT;
   }
-  return heightById.get(msg.id) || EST_MSG_HEIGHT;
+  return heightById.get(heightKey(msg.id)) || EST_MSG_HEIGHT;
 }
 
 function estimateRangeHeight(from: number, to: number): number {
@@ -617,7 +623,7 @@ function measureVisibleRows(): void {
     if (!id) continue;
     // Use layout height for virtual window estimates.
     const h = row.offsetHeight;
-    if (h > 0) heightById.set(id, h);
+    if (h > 0) heightById.set(heightKey(id), h);
     // Real layout offset inside the scroller (rows are flex children of .inner).
     const top = row.offsetTop;
     if (top > 0 || row === rows[0]) topById.set(id, top);
@@ -636,7 +642,7 @@ function rowResized(id: string): void {
   const row = sc.querySelector<HTMLElement>(`.row[data-msg-id="${id}"]`);
   if (!row) return;
   const h = row.offsetHeight;
-  if (h > 0) heightById.set(id, h);
+  if (h > 0) heightById.set(heightKey(id), h);
   const top = row.offsetTop;
   if (top > 0) topById.set(id, top);
 }
@@ -887,7 +893,6 @@ async function beginSessionSettle(): Promise<void> {
   const token = ++sessionJumpToken;
   settlingSession = true;
   settlingUi.value = true;
-  heightById.clear();
   disengageHistoryReading();
   renderStart.value = 0;
   renderEnd.value = 0;
@@ -905,9 +910,10 @@ async function beginSessionSettle(): Promise<void> {
   }
   if (token !== sessionJumpToken) return;
 
-  // Empty brand-new sessions finish quickly; long histories may still be painting.
+  // An empty list after the hydrate frame is final (brand-new session) — don't
+  // burn the old 400ms empty-poll on every fresh chat.
   if (displayMessages.value.length === 0) {
-    const emptyDeadline = Date.now() + 400;
+    const emptyDeadline = Date.now() + 120;
     while (
       token === sessionJumpToken &&
       displayMessages.value.length === 0 &&
@@ -919,6 +925,13 @@ async function beginSessionSettle(): Promise<void> {
   if (token !== sessionJumpToken) return;
 
   await snapSessionToBottom(token);
+  // Land on the bottom BEFORE revealing (the old flow revealed only after all
+  // re-snaps; with early reveal the stale scroll offset would flash otherwise).
+  if (token === sessionJumpToken) {
+    await nextTick();
+    jumpToBottomInstant();
+    settlingUi.value = false;
+  }
   for (const waitMs of [0, 50, 120, 280, 600]) {
     if (waitMs) await new Promise<void>((r) => setTimeout(r, waitMs));
     if (token !== sessionJumpToken) return;
@@ -926,7 +939,6 @@ async function beginSessionSettle(): Promise<void> {
   }
   if (token === sessionJumpToken) {
     settlingSession = false;
-    settlingUi.value = false;
     // Final snap after reveal (layout may change when visibility returns).
     await nextTick();
     jumpToBottomInstant();
@@ -1316,20 +1328,12 @@ onBeforeUnmount(() => {
 const turnDone = computed(() => !props.running && !props.streaming);
 
 /**
- * Memoize card parsing: the same message object never re-parses its diff.
- * Write/edit diff synthesis is O(file size) and used to run again on every
- * unrelated re-render (other tool streams, phase-clock ticks, status flips),
- * which starved the UI thread while an agent ran bash / edited large files.
+ * Memoized card parsing (shared cache `toolCardFor` in tool-diff.ts): the same
+ * message object never re-parses its diff. Write/edit diff synthesis is
+ * O(file size) and used to run again on every unrelated re-render (other tool
+ * streams, phase-clock ticks, status flips), which starved the UI thread while
+ * an agent ran bash / edited large files.
  */
-const toolCardCache = new WeakMap<Extract<ChatMessage, { role: "tool" }>, ToolCard>();
-function toolCard(msg: Extract<ChatMessage, { role: "tool" }>): ToolCard {
-  let card = toolCardCache.get(msg);
-  if (!card) {
-    card = parseToolCard(msg.toolName, msg.args, msg.result, { isError: msg.isError });
-    toolCardCache.set(msg, card);
-  }
-  return card;
-}
 
 function isModeTagKind(kind: string | undefined): boolean {
   return isComposerAgentMode(kind);

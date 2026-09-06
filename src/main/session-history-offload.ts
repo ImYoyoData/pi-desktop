@@ -1,5 +1,9 @@
 /**
  * Off-main session history parsing via worker_threads.
+ *
+ * Uses a small persistent pool (spawn once, reuse across requests) instead of
+ * a throwaway worker per job — thread startup + module load otherwise tax
+ * every history page / dir scan.
  */
 import { existsSync } from "node:fs";
 import { Worker } from "node:worker_threads";
@@ -15,6 +19,18 @@ type WorkerReply =
   | { ok: true; page: SessionHistoryPage }
   | { ok: true; sessions: DiskSessionRow[] }
   | { ok: false; error: string };
+
+type WorkerReplyWithId = WorkerReply & { id?: number };
+
+type PendingJob = {
+  resolve: (msg: WorkerReply) => void;
+  reject: (err: Error) => void;
+};
+
+type PooledWorker = {
+  worker: Worker;
+  pending: Map<number, PendingJob>;
+};
 
 function workerScriptPath(): string {
   // Prefer sibling of this module (packaged / electron-vite out/main).
@@ -37,6 +53,92 @@ function workerUnavailable(): Error {
   return new Error("session-history worker not built (run electron-vite build)");
 }
 
+const MAX_POOL_SIZE = 2;
+const IDLE_TERMINATE_MS = 30_000;
+const pool: PooledWorker[] = [];
+let nextJobId = 1;
+let idleTimer: NodeJS.Timeout | null = null;
+
+function armIdleTimer(): void {
+  if (idleTimer) clearTimeout(idleTimer);
+  idleTimer = setTimeout(() => {
+    idleTimer = null;
+    for (let i = pool.length - 1; i >= 0; i--) {
+      const entry = pool[i]!;
+      if (entry.pending.size === 0) {
+        pool.splice(i, 1);
+        void entry.worker.terminate();
+      }
+    }
+    if (pool.length > 0) armIdleTimer();
+  }, IDLE_TERMINATE_MS);
+  idleTimer.unref?.();
+}
+
+function spawnPooledWorker(scriptPath: string): PooledWorker {
+  const entry: PooledWorker = { worker: new Worker(scriptPath), pending: new Map() };
+  const { worker } = entry;
+  worker.on("message", (msg: WorkerReplyWithId) => {
+    const id = msg && typeof msg === "object" ? msg.id : undefined;
+    let job: PendingJob | undefined;
+    if (typeof id === "number") {
+      job = entry.pending.get(id);
+      if (job) entry.pending.delete(id);
+    } else if (entry.pending.size > 0) {
+      // Stale worker build that doesn't echo ids: jobs run sequentially, so
+      // replies arrive in dispatch order — match FIFO.
+      const oldest = entry.pending.keys().next();
+      if (!oldest.done) {
+        job = entry.pending.get(oldest.value);
+        entry.pending.delete(oldest.value);
+      }
+    }
+    if (!job) return;
+    if (!msg || typeof msg !== "object") {
+      job.reject(new Error("history worker: invalid reply"));
+    } else if (!msg.ok) {
+      job.reject(new Error(msg.error || "history parse failed"));
+    } else {
+      job.resolve(msg);
+    }
+    armIdleTimer();
+  });
+  const failAll = (err: Error): void => {
+    for (const job of entry.pending.values()) job.reject(err);
+    entry.pending.clear();
+    const idx = pool.indexOf(entry);
+    if (idx >= 0) pool.splice(idx, 1);
+    armIdleTimer();
+  };
+  worker.on("error", (err) => {
+    failAll(err instanceof Error ? err : new Error(String(err)));
+  });
+  worker.on("exit", (code) => {
+    if (entry.pending.size === 0) {
+      const idx = pool.indexOf(entry);
+      if (idx >= 0) pool.splice(idx, 1);
+      return;
+    }
+    failAll(new Error(`history worker exited (${code})`));
+  });
+  // Idle pooled workers must not keep the process (or a test run) alive.
+  worker.unref();
+  pool.push(entry);
+  return entry;
+}
+
+function acquireWorker(scriptPath: string): PooledWorker {
+  let idle: PooledWorker | null = null;
+  let busiest: PooledWorker | null = null;
+  for (const entry of pool) {
+    if (!busiest || entry.pending.size < busiest.pending.size) busiest = entry;
+    if (entry.pending.size === 0) idle = entry;
+  }
+  if (idle) return idle;
+  if (pool.length < MAX_POOL_SIZE) return spawnPooledWorker(scriptPath);
+  return busiest!;
+}
+
 function runHistoryWorker(job: {
   filePath?: string;
   page?: { limit?: number; beforeId?: string | null };
@@ -45,38 +147,11 @@ function runHistoryWorker(job: {
 }): Promise<WorkerReply> {
   const scriptPath = workerScriptPath();
   if (!scriptPath) return Promise.reject(workerUnavailable());
+  const entry = acquireWorker(scriptPath);
+  const id = nextJobId++;
   return new Promise((resolve, reject) => {
-    let settled = false;
-    const worker = new Worker(scriptPath);
-
-    const finish = (fn: () => void) => {
-      if (settled) return;
-      settled = true;
-      worker.removeAllListeners();
-      void worker.terminate();
-      fn();
-    };
-
-    worker.on("message", (msg: WorkerReply) => {
-      if (!msg || typeof msg !== "object") {
-        finish(() => reject(new Error("history worker: invalid reply")));
-        return;
-      }
-      if (!msg.ok) {
-        finish(() => reject(new Error(msg.error || "history parse failed")));
-        return;
-      }
-      finish(() => resolve(msg));
-    });
-    worker.on("error", (err) => {
-      finish(() => reject(err instanceof Error ? err : new Error(String(err))));
-    });
-    worker.on("exit", (code) => {
-      if (settled) return;
-      finish(() => reject(new Error(`history worker exited (${code})`)));
-    });
-
-    worker.postMessage(job);
+    entry.pending.set(id, { resolve, reject });
+    entry.worker.postMessage({ ...job, id });
   });
 }
 

@@ -52,6 +52,39 @@ function refreshHtml(content: string): string {
 
 const html = ref(refreshHtml(props.content));
 let diagramTimer = 0;
+/**
+ * Streaming ticks append faster than a full marked+hljs+DOMPurify pass over
+ * the whole accumulated answer should run — render at most every ~90ms with a
+ * trailing catch-up (the last tick always lands a final render).
+ */
+const RENDER_THROTTLE_MS = 90;
+let renderTimer = 0;
+let pendingContent: string | null = null;
+let lastRenderAt = 0;
+
+function renderNow(content: string): void {
+  lastRenderAt = Date.now();
+  html.value = refreshHtml(content);
+  scheduleDiagrams();
+}
+
+function scheduleRender(content: string): void {
+  const elapsed = Date.now() - lastRenderAt;
+  if (elapsed >= RENDER_THROTTLE_MS) {
+    renderNow(content);
+    return;
+  }
+  pendingContent = content;
+  if (!renderTimer) {
+    renderTimer = window.setTimeout(() => {
+      renderTimer = 0;
+      if (pendingContent == null) return;
+      const next = pendingContent;
+      pendingContent = null;
+      renderNow(next);
+    }, RENDER_THROTTLE_MS - elapsed);
+  }
+}
 
 function scheduleDiagrams(): void {
   if (diagramTimer) window.clearTimeout(diagramTimer);
@@ -168,8 +201,7 @@ function downloadPreviewSvg(): void {
 watch(
   () => props.content,
   (c) => {
-    html.value = refreshHtml(c);
-    scheduleDiagrams();
+    scheduleRender(c);
   },
 );
 
@@ -191,6 +223,7 @@ onMounted(() => {
 
 onUnmounted(() => {
   if (diagramTimer) window.clearTimeout(diagramTimer);
+  if (renderTimer) window.clearTimeout(renderTimer);
   rootEl.value?.removeEventListener("click", onRootClick);
   rootEl.value?.removeEventListener("wheel", onRootWheel);
 });

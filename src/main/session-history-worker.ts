@@ -33,6 +33,8 @@ type Job = {
   page?: { limit?: number; beforeId?: string | null };
   listDir?: string;
   listAllUnder?: string;
+  /** Echoed back on the reply so the pooled client can match job → promise. */
+  id?: number;
 };
 
 export type DiskSessionRow = {
@@ -189,13 +191,16 @@ function listAllSessionDirs(sessionsRoot: string): string[] {
 }
 
 parentPort?.on("message", (job: Job) => {
+  const respond = (msg: Reply): void => {
+    reply(job.id == null ? msg : { ...msg, id: job.id });
+  };
   try {
     if (typeof job?.listDir === "string") {
-      reply({ ok: true, sessions: listSessionSummaries([job.listDir]) });
+      respond({ ok: true, sessions: listSessionSummaries([job.listDir]) });
       return;
     }
     if (typeof job?.listAllUnder === "string") {
-      reply({
+      respond({
         ok: true,
         sessions: listSessionSummaries(listAllSessionDirs(job.listAllUnder)),
       });
@@ -216,13 +221,13 @@ parentPort?.on("message", (job: Job) => {
         beforeId: job.page.beforeId,
         chatMeta,
       });
-      reply({ ok: true, page });
+      respond({ ok: true, page });
       return;
     }
     const messages = parseSessionHistoryJsonl(raw, chatMeta);
-    reply({ ok: true, messages });
+    respond({ ok: true, messages });
   } catch (err) {
-    reply({
+    respond({
       ok: false,
       error: err instanceof Error ? err.message : String(err),
     });
