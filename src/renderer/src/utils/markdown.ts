@@ -8,7 +8,11 @@ let copyButtonLabel = "Copy";
 
 /** Update copy button label (i18n). Safe to call from Vue setup. */
 export function setMarkdownCopyLabel(label: string): void {
-  copyButtonLabel = label || "Copy";
+  const next = label || "Copy";
+  if (next === copyButtonLabel) return;
+  copyButtonLabel = next;
+  // Cached HTML bakes the copy-button label in — drop it on locale switch.
+  htmlCache.clear();
 }
 
 marked.setOptions({
@@ -149,7 +153,38 @@ function wrapTables(html: string): string {
   });
 }
 
-/** Parse GFM markdown → sanitized HTML for chat bubbles. */
+/**
+ * Parse GFM markdown → sanitized HTML for chat bubbles.
+ *
+ * Virtual-window remounts re-render the same finished answers on every scroll;
+ * an LRU of rendered HTML keeps those remounts near-free. Streaming renders
+ * pass cacheable=false so intermediate snapshots never pollute the cache.
+ */
+const htmlCache = new Map<string, string>();
+const HTML_CACHE_MAX_ENTRIES = 300;
+const HTML_CACHE_SKIP_CHARS = 120_000;
+
+export function renderMarkdownCached(content: string, cacheable = true): string {
+  const key = content || "";
+  if (key.length > HTML_CACHE_SKIP_CHARS) return renderMarkdown(key);
+  const hit = htmlCache.get(key);
+  if (hit !== undefined) {
+    htmlCache.delete(key);
+    htmlCache.set(key, hit);
+    return hit;
+  }
+  const html = renderMarkdown(key);
+  if (cacheable) {
+    htmlCache.set(key, html);
+    if (htmlCache.size > HTML_CACHE_MAX_ENTRIES) {
+      const oldest = htmlCache.keys().next().value;
+      if (oldest !== undefined) htmlCache.delete(oldest);
+    }
+  }
+  return html;
+}
+
+/** Parse GFM markdown → sanitized HTML for chat bubbles (uncached). */
 export function renderMarkdown(content: string): string {
   const raw = marked.parse(content || "", { async: false }) as string;
   return DOMPurify.sanitize(wrapTables(raw), {

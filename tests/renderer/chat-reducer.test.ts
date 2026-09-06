@@ -245,6 +245,58 @@ describe("reduceChatEvent", () => {
 		});
 	});
 
+	it("caps oversized string tool results stored at execution end", () => {
+		let state = createChatState();
+		const sessionId = "sess-1";
+		const huge = `head-${"x".repeat(40_000)}-tail-${"y".repeat(40_000)}`;
+		state = reduceChatEvent(state, {
+			type: "agent_event",
+			sessionId,
+			event: {
+				type: "tool_execution_end",
+				toolCallId: "tc-big",
+				toolName: "bash",
+				result: huge,
+			},
+		});
+		const stored = state.messages[0];
+		if (stored?.role !== "tool") throw new Error("expected tool row");
+		const text = typeof stored.result === "string" ? stored.result : "";
+		expect(text.length).toBeLessThan(huge.length);
+		expect(text).toContain("truncated");
+		expect(text.startsWith("head-")).toBe(true);
+		expect(text.endsWith("y".repeat(64))).toBe(true);
+	});
+
+	it("keeps small and structured tool results untouched at execution end", () => {
+		let state = createChatState();
+		const sessionId = "sess-1";
+		state = reduceChatEvent(state, {
+			type: "agent_event",
+			sessionId,
+			event: {
+				type: "tool_execution_end",
+				toolCallId: "tc-ok",
+				toolName: "bash",
+				result: "ok",
+			},
+		});
+		state = reduceChatEvent(state, {
+			type: "agent_event",
+			sessionId,
+			event: {
+				type: "tool_execution_end",
+				toolCallId: "tc-obj",
+				toolName: "todo",
+				result: { details: { todos: [] }, text: "ok" },
+			},
+		});
+		expect(state.messages[0]).toMatchObject({ result: "ok" });
+		expect(state.messages[1]).toMatchObject({
+			result: { details: { todos: [] }, text: "ok" },
+		});
+	});
+
 	it("clears running on agent_end when not retrying", () => {
 		let state = createChatState();
 		state = { ...state, running: true };

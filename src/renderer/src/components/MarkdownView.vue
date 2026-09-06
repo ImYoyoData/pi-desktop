@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 import { NModal, NButton, NSpace, useDialog, useMessage } from "naive-ui";
-import { renderMarkdown, setMarkdownCopyLabel } from "@renderer/utils/markdown";
+import { renderMarkdownCached, setMarkdownCopyLabel } from "@renderer/utils/markdown";
 import {
   applyDiagramZoom,
   clampDiagramZoom,
@@ -21,6 +21,8 @@ const props = defineProps<{
   content: string;
   /** "chat" applies the Copilot (VS Code) chat markdown look to the model output area. */
   variant?: "default" | "chat";
+  /** Live stream bubble: growing content must not pollute the render cache. */
+  streaming?: boolean;
 }>();
 
 const rootEl = ref<HTMLElement | null>(null);
@@ -47,7 +49,7 @@ setMarkdownCopyLabel(t.copy);
 
 function refreshHtml(content: string): string {
   setMarkdownCopyLabel(t.copy);
-  return renderMarkdown(content);
+  return renderMarkdownCached(content, !props.streaming);
 }
 
 const html = ref(refreshHtml(props.content));

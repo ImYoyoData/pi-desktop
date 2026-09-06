@@ -179,8 +179,23 @@ const heightById = new Map<string, number>();
 function heightKey(id: string): string {
   return `${sessions.activeId}|${id}`;
 }
-/** Real layout offsetTop of measured rows (for accurate sticky pinning). */
+/**
+ * Real layout offsetTop of measured rows (for accurate sticky pinning). Keyed
+ * per session like heightById — bare message ids repeat across sessions.
+ */
 const topById = new Map<string, number>();
+
+/** Bound measurement-cache growth: sweep other sessions once maps get large. */
+function pruneMeasurementCaches(): void {
+  const prefix = `${sessions.activeId}|`;
+  if (heightById.size < 20_000 && topById.size < 20_000) return;
+  for (const key of heightById.keys()) {
+    if (!key.startsWith(prefix)) heightById.delete(key);
+  }
+  for (const key of topById.keys()) {
+    if (!key.startsWith(prefix)) topById.delete(key);
+  }
+}
 let adjustingWindow = false;
 let followBottom = true;
 /**
@@ -208,46 +223,13 @@ const showJumpLatest = ref(false);
 let scrollRaf = 0;
 
 /**
- * VS Code Copilot design (chatThinkingContentPart): the latest turn's process
- * — every tool call and thinking row between answer texts — stays in the
- * stream, folded per work section (see WorkSectionGroup). Older turns drop
- * their process rows so history reads as prompts + final answers only.
+ * Full conversation: history rows + the live stream bubble. Finished rounds
+ * keep their process rows — work sections fold them into collapsed summaries
+ * (see settledRowIds), so nothing in the transcript becomes unviewable.
  */
-const latestTurnStart = computed(() => {
-  const list = props.messages;
-  for (let i = list.length - 1; i >= 0; i--) {
-    if (list[i]?.role === "user") return i;
-  }
-  return -1;
-});
-
-/** Tool rows that must stay visible even in clean history (user questions). */
-function isKeepVisibleTool(msg: ChatMessage): boolean {
-  return msg.role === "tool" && msg.toolName === ASK_USER_TOOL_NAME;
-}
-
-const displayMessages = computed(() => {
-  const list = [...props.messages];
-  if (props.streaming) list.push(props.streaming);
-  const start = latestTurnStart.value;
-  const out: ChatMessage[] = [];
-  for (let i = 0; i < list.length; i++) {
-    const msg = list[i]!;
-    // Older, already-finished turns: drop their tool/thinking rows so the
-    // history reads as user messages + final answers only (Codex-like).
-    // Interactive ask_user rows stay visible.
-    if (
-      i <= start &&
-      !isKeepVisibleTool(msg) &&
-      (msg.role === "tool" ||
-        (msg.role === "assistant" && Boolean(msg.thinking) && !msg.text))
-    ) {
-      continue;
-    }
-    out.push(msg);
-  }
-  return out;
-});
+const displayMessages = computed<ChatMessage[]>(() =>
+  props.streaming ? [...props.messages, props.streaming] : props.messages,
+);
 
 type WorkSectionMembership = {
   groupId: string;
@@ -479,7 +461,7 @@ function findStickyUserMessageId(): string | null {
     const m = all[i]!;
     if (m.role !== "user") continue;
     if (i < renderStart.value) return m.id;
-    const top = topById.get(m.id);
+    const top = topById.get(heightKey(m.id));
     if (top == null) continue;
     // Real position: pin only when the WHOLE row is above the viewport;
     // otherwise keep scanning upward for an older fully-scrolled-out prompt.
@@ -626,7 +608,7 @@ function measureVisibleRows(): void {
     if (h > 0) heightById.set(heightKey(id), h);
     // Real layout offset inside the scroller (rows are flex children of .inner).
     const top = row.offsetTop;
-    if (top > 0 || row === rows[0]) topById.set(id, top);
+    if (top > 0 || row === rows[0]) topById.set(heightKey(id), top);
   }
 }
 
@@ -644,7 +626,7 @@ function rowResized(id: string): void {
   const h = row.offsetHeight;
   if (h > 0) heightById.set(heightKey(id), h);
   const top = row.offsetTop;
-  if (top > 0) topById.set(id, top);
+  if (top > 0) topById.set(heightKey(id), top);
 }
 
 function restoreScrollAfterMutation(sc: HTMLElement, prevHeight: number, prevTop: number): void {
@@ -1087,6 +1069,7 @@ watch(
   () => sessionId.value,
   () => {
     disengageHistoryReading();
+    pruneMeasurementCaches();
     void beginSessionSettle();
   },
 );
@@ -1318,6 +1301,8 @@ onBeforeUnmount(() => {
     bottomScrollRaf = 0;
   }
   instantSnapToken++;
+  heightById.clear();
+  topById.clear();
 });
 
 /**
@@ -1746,6 +1731,7 @@ function onRevertUser(msg: Extract<ChatMessage, { role: "user" }>): void {
               <MarkdownView
                 v-if="msg.text"
                 :content="msg.text"
+                :streaming="Boolean(msg.streaming)"
                 variant="chat"
                 class="assistant-md"
                 :class="{ 'stream-shimmer': msg.streaming && msg.text }"
