@@ -147,11 +147,76 @@ onBeforeUnmount(() => {
   if (collapseTimer) clearTimeout(collapseTimer);
   resizeObserver?.disconnect();
   resizeObserver = null;
+  liveThinkingEls.clear();
 });
 
 function isToolMessage(msg: ChatMessage): msg is ToolMessage {
   return msg.role === "tool";
 }
+
+/** The live thinking row inside this section (streams into its 200px box). */
+const liveThinkingId = computed<string | null>(() => {
+  for (let i = props.items.length - 1; i >= 0; i--) {
+    const m = props.items[i]!;
+    if (m.role === "assistant" && m.streaming && m.thinking) return m.id;
+  }
+  return null;
+});
+
+/** Follow newest thinking unless the user scrolls up inside the box (ThinkingBlock rule). */
+const liveThinkingEls = new Map<string, HTMLElement>();
+let thinkingStick = true;
+const THINKING_NEAR_BOTTOM_PX = 48;
+
+function refThinkingText(msg: ChatMessage): ((el: unknown) => void) | undefined {
+  if (!(msg.role === "assistant" && msg.streaming && msg.thinking)) return undefined;
+  return (el) => {
+    if (el instanceof HTMLElement) liveThinkingEls.set(msg.id, el);
+    else liveThinkingEls.delete(msg.id);
+  };
+}
+
+function onThinkingScroll(id: string): void {
+  const el = liveThinkingEls.get(id);
+  if (!el) return;
+  thinkingStick =
+    el.scrollHeight - el.scrollTop - el.clientHeight < THINKING_NEAR_BOTTOM_PX;
+}
+
+async function followLiveThinking(): Promise<void> {
+  const id = liveThinkingId.value;
+  if (!id || !thinkingStick || !open.value) return;
+  await nextTick();
+  const el = liveThinkingEls.get(id);
+  if (!el) return;
+  el.scrollTop = el.scrollHeight;
+}
+
+watch(liveThinkingId, () => {
+  thinkingStick = true;
+  void followLiveThinking();
+});
+
+watch(
+  () => {
+    const id = liveThinkingId.value;
+    if (!id) return 0;
+    for (const m of props.items) {
+      if (m.id === id && m.role === "assistant") return m.thinking?.length ?? 0;
+    }
+    return 0;
+  },
+  () => {
+    void followLiveThinking();
+  },
+);
+
+watch(
+  () => [open.value, props.items.length] as const,
+  () => {
+    void followLiveThinking();
+  },
+);
 
 const toolItems = computed(() => props.items.filter(isToolMessage));
 const thinkingCount = computed(() => props.items.length - toolItems.value.length);
@@ -280,7 +345,11 @@ function toolStatus(msg: ToolMessage): {
             </div>
             <div v-else-if="msg.role === 'assistant' && msg.thinking" class="cot-item thinking-item">
               <span class="thinking-dot" aria-hidden="true" />
-              <div class="thinking-text">{{ msg.thinking }}</div>
+              <div
+                class="thinking-text"
+                :ref="refThinkingText(msg)"
+                @scroll="onThinkingScroll(msg.id)"
+              >{{ msg.thinking }}</div>
             </div>
           </template>
         </div>
