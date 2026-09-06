@@ -188,7 +188,12 @@ function parseOutputCapMarker(text: string): number | null {
   return m ? Number(m[1]) : null;
 }
 
-function previewText(text: string, maxLines = 24): string | null {
+/**
+ * Render-time cut for tool text previews (Settings → General switch). Cards
+ * store the full stored text; the 24-line cut with a "N more" suffix applies
+ * only when the user opts into the truncated preview.
+ */
+export function previewText(text: string, maxLines = 24): string | null {
   if (!text.trim()) return null;
   const lines = text.replace(/\r\n/g, "\n").split("\n");
   if (lines.length <= maxLines) return text;
@@ -327,7 +332,7 @@ export function parseFileToolCard(
       kind,
       path,
       stats: null,
-      diff: previewText(text),
+      diff: text.trim() ? text : null,
       patch: null,
     };
   }
@@ -379,7 +384,7 @@ export function parseFileToolCard(
     kind: "other",
     path,
     stats: null,
-    diff: text.trim() ? previewText(text) : null,
+    diff: text.trim() ? text : null,
     patch: null,
   };
 }
@@ -415,7 +420,7 @@ export function parseReadToolCard(args: unknown, result: unknown): ReadToolCard 
     totalLines,
     startLine: notice.startLine ?? offset,
     truncated: trunc.truncated || capLines != null,
-    preview: previewText(text),
+    preview: text.trim() ? text : null,
   };
 }
 
@@ -433,7 +438,7 @@ export function parseBashToolCard(args: unknown, result: unknown): BashToolCard 
     linesRead,
     totalLines: trunc.totalLines ?? notice.totalLines,
     truncated: trunc.truncated || capLines != null,
-    preview: previewText(text),
+    preview: text.trim() ? text : null,
   };
 }
 
@@ -497,7 +502,7 @@ export function parseToolCard(
   return {
     kind: "generic",
     summary,
-    preview: previewText(text || (args != null ? JSON.stringify(args, null, 2) : "")),
+    preview: text.trim() ? text : (args != null ? JSON.stringify(args, null, 2) : null),
   };
 }
 

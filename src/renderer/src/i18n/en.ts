@@ -404,6 +404,9 @@ export const en = {
 	showCompactButton: "Show compact button",
 	showCompactButtonHint:
 		"Show the compact-context button and its warning indicator in the context usage panel.",
+	truncateToolOutput: "Truncate tool output preview",
+	truncateToolOutputHint:
+		"When enabled, tool output inside cards shows only the first 24 lines (the line-count stat is unaffected); when disabled the full output is shown.",
 	notifyTitle: "Notifications",
 	proxyTitle: "Network proxy",
 	proxyModeOff: "Off",
