@@ -4,7 +4,19 @@ import {
   parseReadToolCard,
   parseToolCard,
 } from "../../src/renderer/src/utils/tool-diff";
-import { createChatState, reduceChatEvent } from "../../src/renderer/src/stores/chat-reducer";
+import {
+  capStreamedToolResult,
+  capStoredToolResult,
+  createChatState,
+  reduceChatEvent,
+} from "../../src/renderer/src/stores/chat-reducer";
+
+function oversizedOutput(lines: number): string {
+  return Array.from(
+    { length: lines },
+    (_, i) => `line-${String(i).padStart(6, "0")}-${"x".repeat(20)}`,
+  ).join("\n");
+}
 
 describe("tool cards", () => {
   it("parses read card with lines read / total", () => {
@@ -41,6 +53,29 @@ describe("tool cards", () => {
     expect(card.kind).toBe("bash");
     expect(card.command).toBe("ls -la");
     expect(card.linesRead).toBe(3);
+  });
+
+  it("recovers the real line count from a capped stored bash result", () => {
+    const raw = oversizedOutput(4000);
+    const stored = capStoredToolResult(raw) as string;
+    expect(stored.length).toBeLessThan(raw.length);
+    const card = parseBashToolCard({ command: "npm run build" }, stored);
+    expect(card.linesRead).toBe(4000);
+    expect(card.truncated).toBe(true);
+  });
+
+  it("recovers the real line count from a capped stored read result", () => {
+    const stored = capStoredToolResult(oversizedOutput(3000)) as string;
+    const card = parseReadToolCard({ path: "big.log" }, stored);
+    expect(card.linesRead).toBe(3000);
+    expect(card.truncated).toBe(true);
+  });
+
+  it("recovers the live line count from a capped streaming bash result", () => {
+    const streamed = capStreamedToolResult(oversizedOutput(4000)) as string;
+    const card = parseBashToolCard({ command: "npm run build" }, streamed);
+    expect(card.linesRead).toBe(4000);
+    expect(card.truncated).toBe(true);
   });
 
   it("synthesizes write as an all-additions diff", () => {

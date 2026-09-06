@@ -176,6 +176,18 @@ function countTextLines(text: string): number {
   return text.replace(/\r\n/g, "\n").split("\n").length;
 }
 
+/**
+ * Marker emitted by chat-reducer's display caps on oversized tool output —
+ * the count is the ORIGINAL output's total lines, so cards can still show the
+ * real figure after the middle of the text was trimmed for storage.
+ */
+const OUTPUT_CAP_MARKER_RE = /\u2026 \[output truncated, (\d+) lines total\]/;
+
+function parseOutputCapMarker(text: string): number | null {
+  const m = text.match(OUTPUT_CAP_MARKER_RE);
+  return m ? Number(m[1]) : null;
+}
+
 function previewText(text: string, maxLines = 24): string | null {
   if (!text.trim()) return null;
   const lines = text.replace(/\r\n/g, "\n").split("\n");
@@ -377,19 +389,21 @@ export function parseReadToolCard(args: unknown, result: unknown): ReadToolCard 
   const { details, text } = extractToolResult(result);
   const trunc = truncationFromDetails(details);
   const notice = parseLineRangeNotice(text);
+  const capLines = parseOutputCapMarker(text);
   const offset =
     isRecord(args) && typeof args.offset === "number" ? Math.max(1, args.offset) : null;
   const limit =
     isRecord(args) && typeof args.limit === "number" ? Math.max(0, args.limit) : null;
 
   let linesRead = trunc.linesRead ?? notice.linesRead;
-  let totalLines = trunc.totalLines ?? notice.totalLines;
+  if (linesRead == null && capLines != null) linesRead = capLines;
   if (linesRead == null && text) {
     // Strip trailing truncation notices before counting
     const body = text.replace(/\n\n\[Showing lines[\s\S]*$/i, "").replace(/\n\n\[\d+ more lines[\s\S]*$/i, "");
     linesRead = countTextLines(body);
   }
   if (linesRead == null && limit != null) linesRead = limit;
+  let totalLines = trunc.totalLines ?? notice.totalLines;
   if (totalLines == null && linesRead != null && !trunc.truncated && limit == null && offset == null) {
     totalLines = linesRead;
   }
@@ -400,7 +414,7 @@ export function parseReadToolCard(args: unknown, result: unknown): ReadToolCard 
     linesRead,
     totalLines,
     startLine: notice.startLine ?? offset,
-    truncated: trunc.truncated,
+    truncated: trunc.truncated || capLines != null,
     preview: previewText(text),
   };
 }
@@ -409,14 +423,16 @@ export function parseBashToolCard(args: unknown, result: unknown): BashToolCard 
   const { details, text } = extractToolResult(result);
   const trunc = truncationFromDetails(details);
   const notice = parseLineRangeNotice(text);
+  const capLines = parseOutputCapMarker(text);
   let linesRead = trunc.linesRead ?? notice.linesRead;
+  if (linesRead == null && capLines != null) linesRead = capLines;
   if (linesRead == null && text) linesRead = countTextLines(text);
   return {
     kind: "bash",
     command: commandFromArgs(args),
     linesRead,
     totalLines: trunc.totalLines ?? notice.totalLines,
-    truncated: trunc.truncated,
+    truncated: trunc.truncated || capLines != null,
     preview: previewText(text),
   };
 }
