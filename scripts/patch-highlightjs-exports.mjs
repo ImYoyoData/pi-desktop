@@ -1,9 +1,12 @@
 /**
- * pi-coding-agent imports `highlight.js/lib/index.js` (highlight.js@10 style).
- * highlight.js@11's package "exports" omits that subpath, which crashes Electron main:
- *   ERR_PACKAGE_PATH_NOT_EXPORTED: Package subpath './lib/index.js' is not defined
+ * pi-coding-agent imports highlight.js@10 style subpaths
+ * (`highlight.js/lib/index.js`, `highlight.js/lib/core.js`,
+ * `highlight.js/lib/languages/*.js`). highlight.js@11's package "exports"
+ * omits the `.js`-suffixed forms, which crashes Electron main:
+ *   ERR_PACKAGE_PATH_NOT_EXPORTED: Package subpath './lib/core.js' is not defined
  *
- * Patch every highlight.js@11+ copy under node_modules (npm / pnpm / nested).
+ * Patch every highlight.js@11+ copy under node_modules (npm / pnpm / nested):
+ * expose every file under lib/ (require → lib, import → es mirror).
  */
 import fs from "node:fs";
 import path from "node:path";
@@ -12,7 +15,7 @@ import { fileURLToPath } from "node:url";
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const nodeModules = path.join(root, "node_modules");
 
-const entry = {
+const indexEntry = {
   types: "./types/index.d.ts",
   require: "./lib/index.js",
   import: "./es/index.js",
@@ -45,6 +48,28 @@ function* walkPackageJsons(dir) {
   }
 }
 
+/** All .js files under the package's lib/ dir, as posix subpaths ("lib/core.js"). */
+function libJsSubpaths(pkgDir) {
+  const out = [];
+  const walk = (dir) => {
+    let entries;
+    try {
+      entries = fs.readdirSync(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const ent of entries) {
+      const full = path.join(dir, ent.name);
+      if (ent.isDirectory()) walk(full);
+      else if (ent.isFile() && ent.name.endsWith(".js")) {
+        out.push(path.relative(pkgDir, full).split(path.sep).join("/"));
+      }
+    }
+  };
+  walk(path.join(pkgDir, "lib"));
+  return out;
+}
+
 let patched = 0;
 let skipped = 0;
 
@@ -68,10 +93,21 @@ for (const pkgPath of walkPackageJsons(nodeModules)) {
     continue;
   }
 
-  const before = JSON.stringify(pkg.exports["./lib/index.js"]);
-  pkg.exports["./lib/index.js"] = entry;
-  pkg.exports["./lib/index"] = entry;
-  if (before === JSON.stringify(entry)) {
+  const pkgDir = path.dirname(pkgPath);
+  const before = JSON.stringify(pkg.exports);
+  pkg.exports["./lib/index.js"] = indexEntry;
+  pkg.exports["./lib/index"] = indexEntry;
+  for (const rel of libJsSubpaths(pkgDir)) {
+    const key = `./${rel}`;
+    if (pkg.exports[key]) continue;
+    const esRel = `es/${rel.slice("lib/".length)}`;
+    const hasEsMirror = fs.existsSync(path.join(pkgDir, esRel));
+    pkg.exports[key] = {
+      require: `./${rel}`,
+      import: hasEsMirror ? `./${esRel}` : `./${rel}`,
+    };
+  }
+  if (JSON.stringify(pkg.exports) === before) {
     skipped += 1;
     continue;
   }
