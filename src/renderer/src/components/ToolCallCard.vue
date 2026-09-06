@@ -13,9 +13,11 @@ import {
   TerminalOutline,
 } from "@vicons/ionicons5";
 import type { ToolCard } from "@renderer/utils/tool-diff";
+import { previewText } from "@renderer/utils/tool-diff";
 import FileChip from "@renderer/components/FileChip.vue";
 import { t } from "@renderer/i18n";
 import { useAgentRunsStore } from "@renderer/stores/agent-runs";
+import { useAppearanceStore } from "@renderer/stores/appearance";
 import { useSessionsStore } from "@renderer/stores/sessions";
 import { ASK_USER_TOOL_NAME } from "../../../shared/ask-user";
 
@@ -236,21 +238,32 @@ const headline = computed(() => {
   return fileName.value || props.toolName;
 });
 
+const appearance = useAppearanceStore();
+
+/** Full stored text, or the 24-line cut when Settings → General opts into it. */
+function renderBodyText(text: string | null | undefined): string | null {
+  if (!text) return null;
+  return appearance.truncateToolOutput ? previewText(text) : text;
+}
+
 const body = computed(() => {
   const card = props.card;
   if (card.kind === "todo") return null;
   if (card.kind === "bash") {
     const cmd = card.command?.trim() || "";
-    const out = card.preview?.trim() || "";
+    const out = renderBodyText(card.preview);
     if (cmd && out) return `$ ${cmd}\n\n${out}`;
     if (out) return out;
     if (cmd) return `$ ${cmd}`;
     return null;
   }
-  if (card.kind === "edit" || card.kind === "write" || card.kind === "other") {
+  if (card.kind === "edit" || card.kind === "write") {
     return card.diff;
   }
-  return card.kind === "read" || card.kind === "generic" ? card.preview : null;
+  if (card.kind === "other") return renderBodyText(card.diff);
+  return card.kind === "read" || card.kind === "generic"
+    ? renderBodyText(card.preview)
+    : null;
 });
 
 const stickKinds = computed(

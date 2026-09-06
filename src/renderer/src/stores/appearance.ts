@@ -9,10 +9,19 @@ export type LocalePreference = "system" | "zh-CN" | "en";
 const THEME_KEY = "pi-desktop:theme-preference";
 const LOCALE_KEY = "pi-desktop:locale-preference";
 const COMPACT_BTN_KEY = "pi-desktop:show-compact-button";
+const TRUNCATE_TOOL_OUTPUT_KEY = "pi-desktop:truncate-tool-output";
 
 function readShowCompactButton(): boolean {
   try {
     return localStorage.getItem(COMPACT_BTN_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+function readTruncateToolOutput(): boolean {
+  try {
+    return localStorage.getItem(TRUNCATE_TOOL_OUTPUT_KEY) === "1";
   } catch {
     return false;
   }
@@ -72,6 +81,7 @@ export const useAppearanceStore = defineStore("appearance", () => {
   const localePreference = ref<LocalePreference>(readLocalePreference());
   const systemDark = ref(systemPrefersDark());
   const showCompactButton = ref(readShowCompactButton());
+  const truncateToolOutput = ref(readTruncateToolOutput());
 
   const resolvedTheme = computed<ResolvedTheme>(() =>
     resolveTheme(themePreference.value, systemDark.value),
@@ -107,6 +117,15 @@ export const useAppearanceStore = defineStore("appearance", () => {
     }
   }
 
+  function setTruncateToolOutput(next: boolean): void {
+    truncateToolOutput.value = next;
+    try {
+      localStorage.setItem(TRUNCATE_TOOL_OUTPUT_KEY, next ? "1" : "0");
+    } catch {
+      // ignore
+    }
+  }
+
   function syncSystemListener(): () => void {
     const mq = window.matchMedia("(prefers-color-scheme: dark)");
     const onChange = () => {
@@ -135,9 +154,11 @@ export const useAppearanceStore = defineStore("appearance", () => {
     localePreference,
     resolvedTheme,
     showCompactButton,
+    truncateToolOutput,
     setThemePreference,
     setLocalePreference,
     setShowCompactButton,
+    setTruncateToolOutput,
     init,
   };
 });

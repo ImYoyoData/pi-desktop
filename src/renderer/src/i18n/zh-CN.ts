@@ -389,6 +389,9 @@ export const zh = {
 	showCompactButton: "显示压缩按钮",
 	showCompactButtonHint:
 		"在上下文用量面板中显示“点击压缩上下文”按钮和预警提示。",
+	truncateToolOutput: "截断工具输出预览",
+	truncateToolOutputHint:
+		"开启后，运行命令等工具输出在卡片内只显示前 24 行（行数统计不受影响）；关闭时显示全部输出。",
 	notifyTitle: "通知",
 	proxyTitle: "网络代理",
 	proxyModeOff: "关闭",
