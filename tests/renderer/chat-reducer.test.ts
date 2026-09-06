@@ -297,6 +297,36 @@ describe("reduceChatEvent", () => {
 		});
 	});
 
+	it("stamps tool execution duration at end", () => {
+		let state = createChatState();
+		const sessionId = "sess-1";
+		state = reduceChatEvent(state, {
+			type: "agent_event",
+			sessionId,
+			event: {
+				type: "tool_execution_start",
+				toolCallId: "tc-dur",
+				toolName: "bash",
+				args: { command: "npm test" },
+			},
+		});
+		expect(state.streamingMessage).toMatchObject({ role: "tool", startedAt: expect.any(Number) });
+		state = reduceChatEvent(state, {
+			type: "agent_event",
+			sessionId,
+			event: {
+				type: "tool_execution_end",
+				toolCallId: "tc-dur",
+				toolName: "bash",
+				result: "ok",
+			},
+		});
+		const finished = state.messages[0];
+		if (finished?.role !== "tool") throw new Error("expected tool row");
+		expect(finished.durationMs).toBeGreaterThanOrEqual(0);
+		expect(finished.streaming).toBe(false);
+	});
+
 	it("clears running on agent_end when not retrying", () => {
 		let state = createChatState();
 		state = { ...state, running: true };

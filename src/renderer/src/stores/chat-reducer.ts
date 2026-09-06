@@ -57,6 +57,10 @@ export type ChatMessage =
 			streaming?: boolean;
 			/** 1-based order within the current agent run */
 			order?: number;
+			/** Wall-clock when execution began (live turns only; history rows lack it). */
+			startedAt?: number;
+			/** Execution duration stamped at tool_execution_end. */
+			durationMs?: number;
 	  }
 	| {
 			id: string;
@@ -1066,6 +1070,7 @@ function reduceAgentPayload(
 	if (type === "tool_execution_start") {
 		const toolCallId = String(payload.toolCallId ?? localId("tool"));
 		const id = `tool-${toolCallId}`;
+		const now = Date.now();
 		// Finalize any in-progress assistant text/thinking into history first
 		let next = commitAssistantStream(state);
 		let messages = next.messages;
@@ -1084,6 +1089,7 @@ function reduceAgentPayload(
 					...next.streamingMessage,
 					toolName,
 					args: args ?? next.streamingMessage.args,
+					startedAt: next.streamingMessage.startedAt ?? now,
 					streaming: true,
 				},
 			};
@@ -1098,6 +1104,7 @@ function reduceAgentPayload(
 				...existing,
 				toolName,
 				args: args ?? existing.args,
+				startedAt: existing.startedAt ?? now,
 				streaming: true,
 			};
 			// Promote to streamingMessage for live follow-bottom, but keep any other
@@ -1127,6 +1134,7 @@ function reduceAgentPayload(
 				toolCallId,
 				toolName,
 				args,
+				startedAt: now,
 				streaming: true,
 				order,
 			},
@@ -1204,6 +1212,9 @@ function reduceAgentPayload(
 			isError: Boolean(payload.isError),
 			streaming: false,
 			order: prior?.order,
+			...(prior?.startedAt != null
+				? { durationMs: Math.max(0, Date.now() - prior.startedAt) }
+				: {}),
 		};
 		// The finished tool is the live card: finalize it into history.
 		if (stream) {

@@ -1013,6 +1013,7 @@ export const zh = {
 	/** Copilot-style row meta: ", lines 1 to 250". */
 	toolLinesRange: (read: number, total: number) => `，第 ${read} 至 ${total} 行`,
 	toolLinesCount: (n: number) => `，共 ${n} 行`,
+	toolDuration: (d: string) => `耗时 ${d}`,
 	toolCommand: "命令",
 	toolTruncated: "已截断",
 	marketTitle: "扩展市场",

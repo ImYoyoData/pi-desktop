@@ -61,21 +61,38 @@ describe("tool cards", () => {
     expect(stored.length).toBeLessThan(raw.length);
     const card = parseBashToolCard({ command: "npm run build" }, stored);
     expect(card.linesRead).toBe(4000);
-    expect(card.truncated).toBe(true);
+    expect(card.truncated).toBe(false);
   });
 
   it("recovers the real line count from a capped stored read result", () => {
     const stored = capStoredToolResult(oversizedOutput(3000)) as string;
     const card = parseReadToolCard({ path: "big.log" }, stored);
     expect(card.linesRead).toBe(3000);
-    expect(card.truncated).toBe(true);
+    expect(card.truncated).toBe(false);
   });
 
   it("recovers the live line count from a capped streaming bash result", () => {
     const streamed = capStreamedToolResult(oversizedOutput(4000)) as string;
     const card = parseBashToolCard({ command: "npm run build" }, streamed);
     expect(card.linesRead).toBe(4000);
-    expect(card.truncated).toBe(true);
+    expect(card.truncated).toBe(false);
+  });
+
+  it("carries execution duration into bash/read cards", () => {
+    const bash = parseBashToolCard(
+      { command: "npm test" },
+      "ok\npassed",
+      { durationMs: 3200 },
+    );
+    expect(bash.durationMs).toBe(3200);
+    const read = parseReadToolCard(
+      { path: "a.ts" },
+      "a\nb\nc",
+      { durationMs: 6400 },
+    );
+    expect(read.durationMs).toBe(6400);
+    const noDur = parseBashToolCard({ command: "npm test" }, "ok");
+    expect(noDur.durationMs).toBeNull();
   });
 
   it("synthesizes write as an all-additions diff", () => {
