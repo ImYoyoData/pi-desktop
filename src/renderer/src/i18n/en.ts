@@ -498,7 +498,6 @@ export const en = {
 		"Install / prepare the local ASR model first, then enable Voice wake.",
 	asrWakeUnavailable:
 		"Voice wake can't start — check the ASR runtime and microphone.",
-	loadingChatHistory: "Loading chat history…",
 	loadingOlderHistory: "Loading older messages…",
 	scrollForOlderHistory: "Scroll up for older messages",
 	scrollToLatest: "Jump to latest",
@@ -955,7 +954,6 @@ export const en = {
 	sessionInfoSkills: "Skills",
 	sessionInfoFilesRead: "Files read",
 	sessionInfoEmpty: "None",
-	bootLoading: "Loading…",
 	newSessionAction: "New session",
 	renamed: "Renamed",
 	refreshSessions: "Refresh sessions",

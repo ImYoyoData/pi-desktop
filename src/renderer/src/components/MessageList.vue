@@ -4,7 +4,6 @@ import {
   NButton,
   NEmpty,
   NIcon,
-  NSpin,
   NTag,
   NText,
   NTooltip,
@@ -1560,15 +1559,6 @@ function onRevertUser(msg: Extract<ChatMessage, { role: "user" }>): void {
 
 <template>
   <div class="message-list-root">
-    <div
-      v-if="historyLoading || settlingUi"
-      class="history-loading"
-      aria-live="polite"
-      aria-busy="true"
-    >
-      <NSpin size="small" />
-      <span>{{ t.loadingChatHistory }}</span>
-    </div>
     <div ref="scroller" class="message-list" :class="{ 'is-settling': settlingUi }">
     <div class="inner">
       <NEmpty
@@ -2013,32 +2003,6 @@ function onRevertUser(msg: Extract<ChatMessage, { role: "user" }>): void {
   min-height: 0;
   display: flex;
   flex-direction: column;
-}
-
-.history-loading {
-  position: absolute;
-  inset: 0;
-  z-index: 3;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 10px;
-  color: var(--fg-muted);
-  font-size: 13px;
-  background: color-mix(in srgb, var(--bg) 82%, transparent);
-  backdrop-filter: blur(2px);
-  pointer-events: none;
-  animation: history-fade-in var(--duration, 180ms) var(--ease-out, ease);
-}
-
-@keyframes history-fade-in {
-  from {
-    opacity: 0;
-  }
-  to {
-    opacity: 1;
-  }
 }
 
 .history-older-banner {
