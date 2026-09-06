@@ -1060,6 +1060,7 @@ export const en = {
 	/** Copilot-style row meta: ", lines 1 to 250". */
 	toolLinesRange: (read: number, total: number) => `, lines ${read} to ${total}`,
 	toolLinesCount: (n: number) => `, ${n} lines`,
+	toolDuration: (d: string) => `Took ${d}`,
 	toolCommand: "Command",
 	toolTruncated: "Truncated",
 	marketTitle: "Extension market",

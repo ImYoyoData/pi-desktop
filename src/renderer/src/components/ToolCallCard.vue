@@ -16,6 +16,7 @@ import type { ToolCard } from "@renderer/utils/tool-diff";
 import { previewText } from "@renderer/utils/tool-diff";
 import FileChip from "@renderer/components/FileChip.vue";
 import { t } from "@renderer/i18n";
+import { formatElapsedShort } from "@renderer/utils/agent-wait";
 import { useAgentRunsStore } from "@renderer/stores/agent-runs";
 import { useAppearanceStore } from "@renderer/stores/appearance";
 import { useSessionsStore } from "@renderer/stores/sessions";
@@ -200,21 +201,41 @@ const kindIcon = computed(() => {
   }
 });
 
+/** Sub-second precision for quick commands, coarse units beyond that. */
+function formatDuration(ms: number): string {
+  if (ms < 10_000) return `${(ms / 1000).toFixed(1)}s`;
+  return formatElapsedShort(ms);
+}
+
 const metaLine = computed(() => {
   const card = props.card;
+  const dur =
+    (card.kind === "read" || card.kind === "bash") &&
+    card.durationMs != null &&
+    card.durationMs > 0
+      ? formatDuration(card.durationMs)
+      : null;
+  const appendDuration = (base: string | null): string | null => {
+    if (!base) return dur ? t.toolDuration(dur) : null;
+    return dur ? `${base} · ${dur}` : base;
+  };
   if (card.kind === "read") {
     if (card.linesRead != null && card.totalLines != null) {
-      return t.toolLinesRange(card.linesRead, card.totalLines);
+      return appendDuration(t.toolLinesRange(card.linesRead, card.totalLines));
     }
-    if (card.linesRead != null) return t.toolLinesCount(card.linesRead);
-    return null;
+    if (card.linesRead != null) {
+      return appendDuration(t.toolLinesCount(card.linesRead));
+    }
+    return appendDuration(null);
   }
   if (card.kind === "bash") {
     if (card.linesRead != null && card.totalLines != null) {
-      return t.toolLinesRange(card.linesRead, card.totalLines);
+      return appendDuration(t.toolLinesRange(card.linesRead, card.totalLines));
     }
-    if (card.linesRead != null) return t.toolLinesCount(card.linesRead);
-    return null;
+    if (card.linesRead != null) {
+      return appendDuration(t.toolLinesCount(card.linesRead));
+    }
+    return appendDuration(null);
   }
   if (card.kind === "todo" && card.summary) return card.summary;
   return null;
