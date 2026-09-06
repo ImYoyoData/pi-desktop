@@ -21,7 +21,7 @@ import AsrBackendChooseModal from "@renderer/components/AsrBackendChooseModal.vu
 import { useWorkspaceStore } from "@renderer/stores/workspace";
 import { useAppearanceStore } from "@renderer/stores/appearance";
 import { darkThemeOverrides, lightThemeOverrides } from "@renderer/theme/naive";
-import { locale, t } from "@renderer/i18n";
+import { locale } from "@renderer/i18n";
 import { dismissLocaleReloadSplash } from "@renderer/utils/locale-reload-splash";
 import { dismissStartupSplash } from "@renderer/utils/startup-splash";
 import { markRendererStartup } from "@renderer/utils/startup-timing";
@@ -37,27 +37,15 @@ const SplitRoot = defineAsyncComponent(() => {
 
 const workspace = useWorkspaceStore();
 const appearance = useAppearanceStore();
-/** True once workspace/platform init finished (drives the boot overlay). */
+/** True once workspace/platform init finished (gates shell mounting). */
 const bootInitDone = ref(false);
 /**
  * Failsafe: some init steps (e.g. the trust prompt awaiting user input)
- * can take a while; never leave the boot overlay up forever.
+ * can take a while; never block shell mounting forever.
  */
 const BOOT_MAX_MS = 6000;
-/**
- * Keep the boot overlay visible at least this long after first paint. Without
- * this, a fast workspace IPC resolves init before the first frame, so the
- * overlay never paints and the user sees a plain white flash on startup.
- */
-const BOOT_MIN_MS = 600;
 let bootTimer = 0;
-let bootStartedAt = 0;
 
-/** 0-100 progress for the boot bar — UI mounts as soon as workspace init finishes. */
-const bootProgress = computed(() => (bootInitDone.value ? 100 : 55));
-
-/** Overlay only covers first paint; workspace chrome mounts underneath (no 3s stall). */
-const showBootOverlay = computed(() => !bootInitDone.value);
 /** Shell content can mount once init IPC returns (or failsafe fires). */
 const shellReady = computed(() => bootInitDone.value);
 const naiveLocale = locale === "zh-CN" ? zhCN : enUS;
@@ -81,13 +69,12 @@ watch(
 let stopAppearance: (() => void) | undefined;
 
 onMounted(() => {
-  bootStartedAt = Date.now();
   stopAppearance = appearance.init();
   void window.api.window.setUiLocale(locale === "zh-CN" ? "zh-CN" : "en");
   // Instant open: drop the full-screen splash right after first paint so the
-  // window feels instant; heavy workspace init runs behind a light in-app overlay.
+  // window feels instant; shell content mounts once workspace init finishes.
   void dismissStartupSplash(true);
-  // Hard cap: never leave the overlay up if workspace IPC hangs.
+  // Hard cap: never block shell mounting if workspace IPC hangs.
   bootTimer = window.setTimeout(() => {
     bootInitDone.value = true;
   }, BOOT_MAX_MS);
@@ -104,12 +91,6 @@ onMounted(() => {
       ]);
     } finally {
       await dismissLocaleReloadSplash();
-      // Hold the loading overlay for a minimum time so a fast init still shows
-      // the loader instead of a white flash.
-      const elapsed = Date.now() - bootStartedAt;
-      if (elapsed < BOOT_MIN_MS) {
-        await new Promise<void>((r) => setTimeout(r, BOOT_MIN_MS - elapsed));
-      }
       bootInitDone.value = true;
       markRendererStartup("renderer:shell-ready");
       if (!workspace.root) markRendererStartup("renderer:ready");
@@ -138,22 +119,10 @@ onUnmounted(() => {
         <div class="app-shell" :data-theme="appearance.resolvedTheme">
           <TitleBar />
           <main class="app-main">
-            <div v-if="shellReady" class="app-main-body" :class="{ 'under-boot': showBootOverlay }">
+            <div v-if="shellReady" class="app-main-body">
               <WelcomeView v-if="!workspace.root" />
               <SplitRoot v-else />
             </div>
-            <Transition name="boot-fade">
-              <div v-if="showBootOverlay" class="boot-overlay" role="status">
-                <div class="loader" aria-hidden="true">
-                  <div class="loader-ring" />
-                  <div class="loader-core" />
-                </div>
-                <div class="boot-text">{{ t.bootLoading }}</div>
-                <div class="boot-progress" aria-hidden="true">
-                  <div class="boot-progress-fill" :style="{ width: bootProgress + '%' }" />
-                </div>
-              </div>
-            </Transition>
           </main>
           <PiCliSetup />
           <TrustDialog />
@@ -190,10 +159,6 @@ onUnmounted(() => {
   animation: shell-rise 280ms var(--ease-out, cubic-bezier(0.22, 1, 0.36, 1));
 }
 
-.app-main-body.under-boot {
-  pointer-events: none;
-}
-
 @keyframes shell-rise {
   from {
     opacity: 0.35;
@@ -205,84 +170,8 @@ onUnmounted(() => {
   }
 }
 
-.boot-overlay {
-  position: absolute;
-  inset: 0;
-  /* High enough to sit above any app chrome (titlebar, splitpanes, modals). */
-  z-index: 9999;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 16px;
-  background: var(--bg);
-}
-
-.boot-fade-enter-active,
-.boot-fade-leave-active {
-  transition: opacity 0.32s var(--ease-out, ease);
-}
-
-.boot-fade-enter-from,
-.boot-fade-leave-to {
-  opacity: 0;
-}
-
-.boot-text {
-  font-size: 13px;
-  color: var(--fg-muted, #71717a);
-}
-
-.boot-progress {
-  width: 160px;
-  height: 3px;
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--fg-muted, #71717a) 16%, transparent);
-  overflow: hidden;
-}
-
-.boot-progress-fill {
-  height: 100%;
-  border-radius: inherit;
-  background: linear-gradient(90deg, #ffbf48, #be4a1d);
-  transition: width 0.35s var(--ease-out, ease);
-}
-
-/* Lightweight ring loader — avoids SVG feGaussianBlur jank on Windows. */
-.loader {
-  position: relative;
-  width: 52px;
-  height: 52px;
-}
-
-.loader-ring {
-  position: absolute;
-  inset: 0;
-  border-radius: 50%;
-  border: 2.5px solid color-mix(in srgb, #be4a1d 22%, transparent);
-  border-top-color: #ffbf48;
-  animation: boot-spin 0.75s linear infinite;
-}
-
-.loader-core {
-  position: absolute;
-  inset: 14px;
-  border-radius: 50%;
-  background: radial-gradient(circle at 35% 30%, #ffbf48, #be4a1d);
-  opacity: 0.9;
-}
-
-@keyframes boot-spin {
-  to {
-    transform: rotate(360deg);
-  }
-}
-
 @media (prefers-reduced-motion: reduce) {
-  .app-main-body,
-  .loader-ring,
-  .boot-fade-enter-active,
-  .boot-fade-leave-active {
+  .app-main-body {
     animation: none !important;
     transition: none !important;
   }
