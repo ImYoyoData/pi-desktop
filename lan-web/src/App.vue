@@ -364,11 +364,7 @@ function handle(msg: any): void {
       const id = currentSession.value;
       if (!id) break;
       const page = msg as SessionHistoryPage & { type: string };
-      chatStore.hydrateFromHistoryPage(
-        id,
-        { messages: page.messages || [], hasMore: Boolean(page.hasMore) },
-        currentFilePath.value,
-      );
+      chatStore.hydrateFromHistory(id, page.messages || []);
       chatStore.endHistoryLoad(id);
       break;
     }
@@ -429,7 +425,7 @@ function onAgentEvent(ev: AgentEvent): void {
 }
 
 function loadHistory(): void {
-  if (currentFilePath.value) send({ type: "getHistory", filePath: currentFilePath.value, limit: 80 });
+  if (currentFilePath.value) send({ type: "getHistory", filePath: currentFilePath.value, limit: 1000000 });
 }
 
 function wsName(root: string): string {

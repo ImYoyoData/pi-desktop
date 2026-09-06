@@ -498,8 +498,6 @@ export const en = {
 		"Install / prepare the local ASR model first, then enable Voice wake.",
 	asrWakeUnavailable:
 		"Voice wake can't start — check the ASR runtime and microphone.",
-	loadingOlderHistory: "Loading older messages…",
-	scrollForOlderHistory: "Scroll up for older messages",
 	scrollToLatest: "Jump to latest",
 	marketLoadMore: "Load more",
 	marketLoadingMore: "Loading more…",

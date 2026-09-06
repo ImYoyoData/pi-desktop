@@ -59,7 +59,6 @@ const retryHint = computed(() => {
 const historyLoading = computed(
   () => props.sessionId != null && chat.historyLoadingId === props.sessionId,
 );
-const historyHasMore = computed(() => Boolean(chat.historyHasMore));
 </script>
 
 <template>
@@ -76,8 +75,6 @@ const historyHasMore = computed(() => Boolean(chat.historyHasMore));
           :running="running"
           :retry-hint="retryHint"
           :history-loading="historyLoading"
-          :history-has-more="historyHasMore"
-          :history-loading-older="false"
         />
       </NDialogProvider>
     </NMessageProvider>
