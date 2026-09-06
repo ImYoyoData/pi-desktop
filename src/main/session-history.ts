@@ -149,10 +149,10 @@ export async function readSessionHistoryPage(
   filePath: string,
   opts?: { limit?: number; beforeId?: string | null },
 ): Promise<SessionHistoryPage> {
-  const limit = Math.max(
-    1,
-    Math.min(200, opts?.limit ?? SESSION_HISTORY_PAGE_SIZE),
-  );
+	const limit = Math.max(
+		1,
+		Math.min(1_000_000, opts?.limit ?? SESSION_HISTORY_PAGE_SIZE),
+	);
   const beforeId = opts?.beforeId?.trim() || null;
 
   let st: { mtimeMs: number };

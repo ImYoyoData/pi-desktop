@@ -78,25 +78,3 @@ export function followBottomVirtualWindow(
   const start = Math.max(0, end - size);
   return { start, end };
 }
-
-/**
- * After prepending `added` older rows at index 0, shift the mounted window so the
- * same messages stay mounted, then peek `peekChunk` further into the older slice.
- */
-export function windowAfterHistoryPrepend(
-  window: VirtualWindow,
-  added: number,
-  len: number,
-  maxSize: number,
-  peekChunk: number,
-): VirtualWindow {
-  if (added <= 0 || len <= 0) return clampVirtualWindow(window.start, window.end, len);
-  let start = window.start + added;
-  let end = window.end + added;
-  start = Math.max(0, start - Math.max(0, peekChunk));
-  end = Math.max(start, Math.min(len, end));
-  if (end - start > maxSize) {
-    end = Math.min(len, start + maxSize);
-  }
-  return clampVirtualWindow(start, end, len);
-}

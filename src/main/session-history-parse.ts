@@ -321,7 +321,7 @@ export function parseSessionHistoryPageFromJsonl(
   raw: string,
   opts: ParseSessionHistoryPageOpts,
 ): SessionHistoryPage {
-  const limit = Math.max(1, Math.min(200, opts.limit));
+  const limit = Math.max(1, Math.min(1_000_000, opts.limit));
   const beforeId = opts.beforeId?.trim() || null;
   const imageBudgetBytes =
     typeof opts.imageBudgetBytes === "number" && opts.imageBudgetBytes > 0

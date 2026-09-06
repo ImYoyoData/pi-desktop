@@ -6,7 +6,6 @@ import type {
 	ElementCitation,
 	PromptImageContent,
 	SessionHistoryMessage,
-	SessionHistoryPage,
 } from "../../../shared/protocol";
 import { toPromptCitations, toPromptImages } from "../../../shared/protocol";
 import { createHiddenEventSink } from "@renderer/utils/hidden-event-buffer";
@@ -119,10 +118,6 @@ export const useChatStore = defineStore("chat", () => {
 	const notifyStore = useNotifyStore();
 	const pendingUserEdit = ref<PendingUserEdit | null>(null);
 	const historyLoadingId = ref<string | null>(null);
-	/** Session file path used for older-history pages. */
-	const historyFileBySession = reactive<Record<string, string | null>>({});
-	const historyHasMoreBySession = reactive<Record<string, boolean>>({});
-	const historyLoadingOlderId = ref<string | null>(null);
 	/** Bumped when a permission ask is denied or times out — UI may toast Security remediation. */
 	const securityRemediationTick = ref(0);
 	/** Sessions currently inside autoRecover (restart + resend). */
@@ -165,17 +160,6 @@ export const useChatStore = defineStore("chat", () => {
 	const historyLoading = computed(() => {
 		const id = sessionsStore.activeId;
 		return Boolean(id && historyLoadingId.value === id);
-	});
-
-	const historyHasMore = computed(() => {
-		const id = sessionsStore.activeId;
-		if (!id) return false;
-		return Boolean(historyHasMoreBySession[id]);
-	});
-
-	const historyLoadingOlder = computed(() => {
-		const id = sessionsStore.activeId;
-		return Boolean(id && historyLoadingOlderId.value === id);
 	});
 
 	function beginHistoryLoad(sessionId: string): void {
@@ -743,69 +727,10 @@ export const useChatStore = defineStore("chat", () => {
 			autoRecovering: false,
 		};
 		softHangReported.delete(sessionId);
-		historyFileBySession[sessionId] = historyFileBySession[sessionId] ?? null;
-		if (!history.length) {
-			historyHasMoreBySession[sessionId] = false;
-		}
-	}
-
-	function hydrateFromHistoryPage(
-		sessionId: string,
-		page: SessionHistoryPage,
-		filePath: string | null,
-	): void {
-		historyFileBySession[sessionId] = filePath;
-		historyHasMoreBySession[sessionId] = page.hasMore;
-		hydrateFromHistory(sessionId, page.messages);
-	}
-
-	/** Prepend older page when user scrolls up. Returns how many messages were added. */
-	function prependHistory(
-		sessionId: string,
-		older: SessionHistoryMessage[],
-	): number {
-		if (!older.length) return 0;
-		const state = stateFor(sessionId);
-		const existing = new Set(state.messages.map((m) => m.id));
-		const mapped = older.map(mapHistoryRow).filter((m) => !existing.has(m.id));
-		if (!mapped.length) return 0;
-		setSessionState(sessionId, {
-			...state,
-			messages: [...mapped, ...state.messages],
-		});
-		return mapped.length;
-	}
-
-	async function loadOlderHistory(sessionId: string): Promise<number> {
-		if (historyLoadingOlderId.value === sessionId) return 0;
-		if (!historyHasMoreBySession[sessionId]) return 0;
-		const filePath = historyFileBySession[sessionId];
-		if (!filePath) return 0;
-		const oldest = stateFor(sessionId).messages[0]?.id;
-		if (!oldest) return 0;
-		historyLoadingOlderId.value = sessionId;
-		try {
-			const page = await window.api.sessions.history(filePath, {
-				limit: 30,
-				beforeId: oldest,
-			});
-			const added = prependHistory(sessionId, page.messages);
-			historyHasMoreBySession[sessionId] = page.hasMore;
-			return added;
-		} catch (err) {
-			console.error("load older history failed", err);
-			return 0;
-		} finally {
-			if (historyLoadingOlderId.value === sessionId) {
-				historyLoadingOlderId.value = null;
-			}
-		}
 	}
 
 	function clearSession(sessionId: string): void {
 		delete bySession[sessionId];
-		delete historyFileBySession[sessionId];
-		delete historyHasMoreBySession[sessionId];
 		if (pendingUserEdit.value?.sessionId === sessionId) {
 			pendingUserEdit.value = null;
 		}
@@ -1273,8 +1198,6 @@ export const useChatStore = defineStore("chat", () => {
 		pendingUserEdit,
 		historyLoadingId,
 		historyLoading,
-		historyHasMore,
-		historyLoadingOlder,
 		activeMessages,
 		activeStreaming,
 		activeRunning,
@@ -1293,8 +1216,6 @@ export const useChatStore = defineStore("chat", () => {
 		beginHistoryLoad,
 		endHistoryLoad,
 		hydrateFromHistory,
-		hydrateFromHistoryPage,
-		loadOlderHistory,
 		clearSession,
 		sendPrompt,
 		steer,

@@ -44,6 +44,8 @@ import { markRendererStartup } from "@renderer/utils/startup-timing";
 const PIN_KEY = "session-pins:v1";
 const SESSION_ORDER_KEY = "pi-desktop:session-order:v2";
 const SESSION_VISIBLE_LIMIT = 7;
+/** History loads in full — paging was removed, sessions open complete. */
+const HISTORY_LOAD_LIMIT = 1_000_000;
 
 const layout = useLayoutStore();
 const sessionsStore = useSessionsStore();
@@ -478,13 +480,13 @@ async function onSelectSession(root: string, sessionId: string): Promise<void> {
     // Load history from disk in parallel with opening the session in main:
     // history only needs the file path, so the two round-trips no longer stack.
     const historyPromise = opened?.filePath
-      ? window.api.sessions.history(opened.filePath, { limit: 30 })
+      ? window.api.sessions.history(opened.filePath, { limit: HISTORY_LOAD_LIMIT })
       : Promise.resolve({ messages: [], hasMore: false, total: 0 });
     const [page] = await Promise.all([
       historyPromise,
       sessionsStore.selectSession(sessionId, root),
     ]);
-    chatStore.hydrateFromHistoryPage(sessionId, page, opened?.filePath ?? null);
+    chatStore.hydrateFromHistory(sessionId, page.messages);
   } catch (err) {
     console.error("select session failed", err);
     message.error(err instanceof Error ? err.message : String(err));
@@ -715,7 +717,7 @@ async function onSessionMenu(
         await onSelectSession(root, session.id);
         await window.api.sessions.clearContext(session.id, root);
         chatStore.clearSession(session.id);
-        chatStore.hydrateFromHistoryPage(session.id, { messages: [], hasMore: false, total: 0 }, session.filePath ?? null);
+        chatStore.hydrateFromHistory(session.id, []);
         await loadSessions(root);
         message.success(t.clearContextDone);
       } catch (err) {

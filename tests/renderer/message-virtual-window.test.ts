@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest";
 import {
   ensureIndexInVirtualWindow,
   followBottomVirtualWindow,
-  windowAfterHistoryPrepend,
 } from "../../src/renderer/src/utils/message-virtual-window";
 
 describe("ensureIndexInVirtualWindow", () => {
@@ -38,22 +37,5 @@ describe("followBottomVirtualWindow", () => {
     expect(w.end).toBe(500);
     expect(w.start).toBe(468);
     expect(w.end - w.start).toBe(32);
-  });
-});
-
-describe("windowAfterHistoryPrepend", () => {
-  it("shifts the mounted window instead of jumping to the list head", () => {
-    // Viewing indices 0..48 of the already-loaded tail; 30 older rows prepend.
-    const next = windowAfterHistoryPrepend({ start: 0, end: 48 }, 30, 200, 48, 16);
-    expect(next.start).toBe(14); // 0+30-16
-    expect(next.end).toBe(62); // start+48
-    // Previously-visible first row is now at index 30 — still inside the window.
-    expect(next.start).toBeLessThanOrEqual(30);
-    expect(next.end).toBeGreaterThan(30);
-  });
-
-  it("keeps size within maxSize", () => {
-    const next = windowAfterHistoryPrepend({ start: 10, end: 50 }, 40, 300, 48, 16);
-    expect(next.end - next.start).toBeLessThanOrEqual(48);
   });
 });

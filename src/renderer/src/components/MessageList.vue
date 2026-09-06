@@ -45,10 +45,7 @@ import {
   stripComposerModePreamble,
 } from "../../../shared/composer-modes";
 import { ASK_USER_TOOL_NAME } from "../../../shared/ask-user";
-import {
-  followBottomVirtualWindow,
-  windowAfterHistoryPrepend,
-} from "@renderer/utils/message-virtual-window";
+import { followBottomVirtualWindow } from "@renderer/utils/message-virtual-window";
 import { decideFollowOnScroll } from "@renderer/utils/follow-bottom";
 
 /**
@@ -57,17 +54,18 @@ import { decideFollowOnScroll } from "@renderer/utils/follow-bottom";
  */
 const VIRTUAL_WINDOW = 32;
 /** Soft cap before trimming the far side of the window. */
-const VIRTUAL_MAX = 48;
+const VIRTUAL_MAX = 96;
 const VIRTUAL_CHUNK = 16;
 const EST_MSG_HEIGHT = 120;
 /** Collapsed tool-group summary row (Cursor-style). */
 const EST_TOOL_GROUP_HEIGHT = 40;
 const NEAR_BOTTOM_PX = 120;
 /**
- * Prefetch distance to spacers. Keep modest — large overscan + recursive expand
- * remounted Markdown/tool rows and froze the whole Electron UI while dragging.
+ * Prefetch distance to spacers. Large enough that disk pages usually land
+ * before the user reaches the seam; each expansion stays chunked per frame
+ * and markdown re-renders are cached, so eager prefetch no longer freezes.
  */
-const OVERSCAN_PX = 280;
+const OVERSCAN_PX = 720;
 /** Sticky user card must never cover the whole viewport (agent output would look "stuck"). */
 const STICKY_MAX_VH = 0.16;
 const STICKY_MAX_PX = 110;
@@ -78,8 +76,6 @@ const props = defineProps<{
   running: boolean;
   retryHint?: ChatRetryHint | null;
   historyLoading?: boolean;
-  historyHasMore?: boolean;
-  historyLoadingOlder?: boolean;
 }>();
 
 const chat = useChatStore();
@@ -629,10 +625,13 @@ function rowResized(id: string): void {
   if (top > 0) topById.set(heightKey(id), top);
 }
 
-function restoreScrollAfterMutation(sc: HTMLElement, prevHeight: number, prevTop: number): void {
-  const delta = sc.scrollHeight - prevHeight;
-  sc.scrollTop = prevTop + delta;
-}
+/**
+ * Scroll position keeping after a virtual-window mutation is delegated entirely
+ * to native scroll anchoring (overflow-anchor on .message-list): it compensates
+ * content changes above the viewport at layout time, and correctly does nothing
+ * when the viewport sits inside a spacer. A manual scrollTop restore would use
+ * a stale offset and yank the viewport during fast scrolls.
+ */
 
 /** After a window mutate, continue prefetch on the next frame (yields to paint — no nextTick storm). */
 function scheduleWindowPrefetch(): void {
@@ -651,18 +650,17 @@ function scheduleWindowPrefetch(): void {
 }
 
 function expandHistoryUp(): void {
-  if (adjustingWindow || loadingOlderPage) return;
-  if (renderStart.value <= 0) {
-    // At the start of the *loaded* window — fetch an older page from disk if any.
-    void loadOlderHistoryPage();
-    return;
-  }
+  if (adjustingWindow || renderStart.value <= 0) return;
   const sc = scroller.value;
   if (!sc) return;
   adjustingWindow = true;
-  const prevHeight = sc.scrollHeight;
-  const prevTop = sc.scrollTop;
-  const nextStart = Math.max(0, renderStart.value - VIRTUAL_CHUNK);
+  // Blank already visible above the viewport: slide a whole window up so a
+  // fast scroll refills in one step. The slide (not "grow to cap") guarantees
+  // progress even when the window is already at max size — growing to the cap
+  // is a no-op there and the chain would stall with the gap never filled.
+  const inBlank = sc.scrollTop < topSpacerPx.value;
+  const step = inBlank ? VIRTUAL_MAX : VIRTUAL_CHUNK;
+  const nextStart = Math.max(0, renderStart.value - step);
   let nextEnd = renderEnd.value;
   // Trim far (bottom) side so mounting stays bounded while scrolling up.
   if (nextStart + VIRTUAL_MAX < nextEnd) {
@@ -675,85 +673,32 @@ function expandHistoryUp(): void {
     alignRenderWindowToGroup(nextStart, nextEnd);
   }
   void nextTick(() => {
-    restoreScrollAfterMutation(sc, prevHeight, prevTop);
     measureVisibleRows();
-    adjustingWindow = false;
     updateStickyPinned();
-    if (renderStart.value <= 0) {
-      void loadOlderHistoryPage();
-    } else {
+    // Yield one frame before releasing the guard: scroll events fired by the
+    // mutation (anchoring adjustment) must not reach the follow decision
+    // machine as fake user motion.
+    requestAnimationFrame(() => {
+      adjustingWindow = false;
       scheduleWindowPrefetch();
-    }
+    });
   });
 }
 
-let loadingOlderPage = false;
-async function loadOlderHistoryPage(): Promise<void> {
-  if (loadingOlderPage || !props.historyHasMore) return;
-  const id = sessionId.value;
-  if (!id) return;
-  const sc = scroller.value;
-  if (!sc) return;
-  loadingOlderPage = true;
-  adjustingWindow = true;
-  const prevHeight = sc.scrollHeight;
-  const prevTop = sc.scrollTop;
-  try {
-    const added = await chat.loadOlderHistory(id);
-    if (added <= 0) return;
-    // Prepend shifts every index — keep the same rows mounted, then peek a chunk older.
-    // The viewport stays anchored via restoreScrollAfterMutation, so this is safe
-    // even while the user is mid-read.
-    const shifted = windowAfterHistoryPrepend(
-      { start: renderStart.value, end: renderEnd.value },
-      added,
-      displayMessages.value.length,
-      VIRTUAL_MAX,
-      VIRTUAL_CHUNK,
-    );
-    if (fitsFullMount(displayMessages.value.length)) {
-      renderStart.value = 0;
-      renderEnd.value = displayMessages.value.length;
-    } else {
-      alignRenderWindowToGroup(shifted.start, shifted.end);
-    }
-    await nextTick();
-    restoreScrollAfterMutation(sc, prevHeight, prevTop);
-    measureVisibleRows();
-    updateStickyPinned();
-    scheduleWindowPrefetch();
-  } finally {
-    adjustingWindow = false;
-    loadingOlderPage = false;
-  }
-  void fillViewportWithHistory();
-}
-
-/**
- * A fresh history page can fit the viewport entirely (folded rows are short),
- * leaving no overflow — and therefore no scroll events — so the scroll-driven
- * prefetch above would never fire and older history becomes unreachable.
- * Keep prepending pages until the list actually overflows (or history ends).
- */
-async function fillViewportWithHistory(): Promise<void> {
-  const sc = scroller.value;
-  if (!sc || settlingSession || adjustingWindow || loadingOlderPage) return;
-  if (readingHistory || document.hidden) return;
-  if (!props.historyHasMore || renderStart.value > 0) return;
-  if (sc.scrollHeight > sc.clientHeight + 1) return;
-  await loadOlderHistoryPage();
-}
-
 function expandHistoryDown(): void {
-  if (adjustingWindow || loadingOlderPage) return;
+  if (adjustingWindow) return;
   const len = displayMessages.value.length;
   if (renderEnd.value >= len) return;
   const sc = scroller.value;
   if (!sc) return;
   adjustingWindow = true;
-  const prevHeight = sc.scrollHeight;
-  const prevTop = sc.scrollTop;
-  renderEnd.value = Math.min(len, renderEnd.value + VIRTUAL_CHUNK);
+  // Blank already visible below the viewport: slide a whole window down so a
+  // fast scroll refills in one step (a pure "grow to cap" would no-op once the
+  // window is already at max size and the gap would never fill).
+  const bottomEdge = sc.scrollHeight - bottomSpacerPx.value;
+  const inBlank = sc.scrollTop + sc.clientHeight > bottomEdge;
+  const step = inBlank ? VIRTUAL_MAX : VIRTUAL_CHUNK;
+  renderEnd.value = Math.min(len, renderEnd.value + step);
   // Trim far (top) side — never grow past VIRTUAL_MAX (sticky is overlay-only).
   let nextStart = renderStart.value;
   if (renderEnd.value - nextStart > VIRTUAL_MAX) {
@@ -766,19 +711,20 @@ function expandHistoryDown(): void {
     alignRenderWindowToGroup(nextStart, renderEnd.value);
   }
   void nextTick(() => {
-    restoreScrollAfterMutation(sc, prevHeight, prevTop);
     measureVisibleRows();
-    adjustingWindow = false;
     updateStickyPinned();
-    scheduleWindowPrefetch();
+    requestAnimationFrame(() => {
+      adjustingWindow = false;
+      scheduleWindowPrefetch();
+    });
   });
 }
 
 let instantSnapToken = 0;
 function jumpToBottomInstant(): void {
   // Jump control / settle are the only callers; anything else must not move
-  // the viewport while the user is reading history.
-  if (readingHistory) return;
+  // the viewport while the user is reading history or scrolled away.
+  if (readingHistory || !followBottom) return;
   const sc = scroller.value;
   if (!sc) return;
   const token = ++instantSnapToken;
@@ -924,7 +870,6 @@ async function beginSessionSettle(): Promise<void> {
     // Final snap after reveal (layout may change when visibility returns).
     await nextTick();
     jumpToBottomInstant();
-    void fillViewportWithHistory();
   }
 }
 
@@ -945,10 +890,10 @@ function cancelQueuedBottomSnaps(): void {
 }
 
 function syncFollowBottomOnScroll(sc: HTMLElement): void {
-  // While the virtual window / history loading adjusts the DOM, scroll events
-  // are synthetic — the decision machine must not run at all (a prepend nudge
-  // could otherwise look like the user scrolling back down).
-  if (adjustingWindow || loadingOlderPage || settlingSession) {
+  // While the virtual window adjusts the DOM, scroll events are synthetic —
+  // the decision machine must not run at all (a compensation nudge could
+  // otherwise look like the user scrolling back down).
+  if (adjustingWindow || settlingSession) {
     lastSyncScrollTop = sc.scrollTop;
     return;
   }
@@ -994,12 +939,8 @@ function onScrollerWheel(event: WheelEvent): void {
   if (event.deltaY >= 0 || settlingSession || adjustingWindow) return;
   const sc = scroller.value;
   if (!sc) return;
-  if (sc.scrollTop <= 0) {
-    // No overflow (or already at the top edge): scroll events can't fire, so
-    // trigger the older-page fetch directly from the wheel gesture.
-    void fillViewportWithHistory();
-    return;
-  }
+  // Already at the top edge — no older content exists above.
+  if (sc.scrollTop <= 0) return;
   suppressFollowBottomUntil = 0;
   userScrolledAway = true;
   followBottom = false;
@@ -1021,9 +962,12 @@ function handleScrollerScroll(): void {
       alignRenderWindowToGroup(ideal.start, ideal.end);
       // The clamp changes content above the live edge — re-pin so the
       // viewport stays on the bottom instead of sliding into the spacer.
+      // Skip when the user moved meanwhile (mid-drag): never yank.
+      const topBefore = sc.scrollTop;
       void nextTick(() => {
         const el = scroller.value;
         if (!el || !followBottom || readingHistory || adjustingWindow) return;
+        if (el.scrollTop !== topBefore) return;
         el.scrollTop = el.scrollHeight;
         measureVisibleRows();
       });
@@ -1087,8 +1031,6 @@ watch(
 watch(
   () => displayMessages.value.length,
   (len, prevLen) => {
-    // loadOlderHistoryPage owns index shifts while prepending; skip to avoid double-clamp.
-    if (loadingOlderPage) return;
     const hydratedFromEmpty = (prevLen === 0 || prevLen == null) && len > 0;
     // Only pin the trailing window when the user is following the bottom.
     // (Do NOT yank the window during agent runs if the user scrolled up to read history.)
@@ -1102,7 +1044,6 @@ watch(
       renderStart.value = 0;
       renderEnd.value = len;
     } else {
-      // Prepend path adjusts indices inside loadOlderHistoryPage before length settles.
       clampRenderWindow(false);
     }
     // Critical: hydrate often lands AFTER settle timeouts. Always snap when
@@ -1121,7 +1062,6 @@ watch(
         jumpToBottomInstant();
       });
     }
-    void fillViewportWithHistory();
   },
   { immediate: true },
 );
@@ -1557,14 +1497,6 @@ function onRevertUser(msg: Extract<ChatMessage, { role: "user" }>): void {
       />
 
       <div
-        v-if="historyLoadingOlder || (historyHasMore && renderStart === 0 && topSpacerPx < 8)"
-        class="history-older-banner"
-        aria-live="polite"
-      >
-        {{ historyLoadingOlder ? t.loadingOlderHistory : t.scrollForOlderHistory }}
-      </div>
-
-      <div
         v-if="topSpacerPx > 0"
         class="virtual-spacer"
         :style="{ height: `${topSpacerPx}px` }"
@@ -1995,21 +1927,13 @@ function onRevertUser(msg: Extract<ChatMessage, { role: "user" }>): void {
   flex-direction: column;
 }
 
-.history-older-banner {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-  padding: 6px 10px;
-  font-size: 11px;
-  color: var(--fg-muted, #888);
-}
-
 .message-list {
   flex: 1;
   overflow: auto;
   min-height: 0;
   background: var(--bg);
+  /* Window mutations rely on native scroll anchoring for position keeping. */
+  overflow-anchor: auto;
   /* Body defaults to user-select:none — allow selecting chat text to copy. */
   user-select: text;
   -webkit-user-select: text;
