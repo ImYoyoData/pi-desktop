@@ -31,6 +31,11 @@ const showCompactButton = computed({
   set: (v: boolean) => appearance.setShowCompactButton(v),
 });
 
+const truncateToolOutput = computed({
+  get: () => appearance.truncateToolOutput,
+  set: (v: boolean) => appearance.setTruncateToolOutput(v),
+});
+
 const themeValue = computed({
   get: () => appearance.themePreference,
   set: (v: ThemePreference) => appearance.setThemePreference(v),
@@ -109,6 +114,20 @@ function onLocaleUpdate(v: string | number | null): void {
           </NText>
         </div>
         <NSwitch v-model:value="showCompactButton" />
+      </div>
+    </div>
+
+    <NDivider style="margin: 18px 0" />
+
+    <div class="section">
+      <div class="row">
+        <div class="labels">
+          <NText strong>{{ t.truncateToolOutput }}</NText>
+          <NText depth="3" style="font-size: 12px; display: block; margin-top: 4px">
+            {{ t.truncateToolOutputHint }}
+          </NText>
+        </div>
+        <NSwitch v-model:value="truncateToolOutput" />
       </div>
     </div>
 
