@@ -171,6 +171,7 @@ jobs:
 
             ### 新功能 Features
             - **待办与文件更改**：消息区新增待办和文件更改的显示。
+            - **内置 Pi 更新**：内置 Pi 版本更新至 0.85.1。
 
             ### 修复 Fixes
             - 修复模型输出时向上滚动消息区会被拉回。
@@ -188,6 +189,7 @@ jobs:
 
             ### Features
             - Todos and file changes are now displayed in the message area.
+            - Bundled Pi updated to 0.85.1.
 
             ### Fixes
             - Fixed the message area being pulled back while scrolling during model output.
