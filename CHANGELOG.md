@@ -1,5 +1,28 @@
 # Changelog
 
+## v0.3.3 (2026-09-07)
+
+本版重点：修复长摘要/超大输出卡屏；输入与拖入 URL 显示为纯文本。
+
+### 修复 Fixes
+
+- 修复摘要过长卡屏：超大工具输出/长思考的折叠展开不再逐帧动画（原会对上万个 DOM 节点每帧重排冻结界面），改为直接瞬切，并限制重排范围。
+- 修复旧代码引起的崩溃。
+- Fixed the UI freeze on oversized summaries: fold/unfold of huge tool-output/thinking sections no longer animates grid-rows (which re-laid-out tens of thousands of DOM nodes every frame) — it snaps instantly with relayout contained locally.
+- Fixed a crash triggered by legacy rendering code.
+
+### 优化 / 体验 Improvements
+
+- 输入 URL 显示纯文本：粘贴/拖放的 http(s) URL 直接以纯文本插入光标处，不再自动生成链接卡片。
+- 移除思考块上的耗时显示，过程展示更简洁。
+- Pasting/dropping an http(s) URL now inserts plain text at the caret instead of creating a URL chip.
+- Removed the elapsed-time readout on thinking blocks.
+
+### 新功能 Features
+
+- 离开未使用的空白会话时自动清理：从未聊天也未重命名的「新会话」在切换工作区或关闭窗口时自动删除，不再残留。
+- Blank "新会话" sessions you never chatted in nor renamed are auto-discarded when leaving a workspace or closing the window.
+
 ## v0.3.2 (2026-09-07)
 
 本版重点：消息区 UI 与渲染优化；新增待办与文件更改显示。
