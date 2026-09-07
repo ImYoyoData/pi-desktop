@@ -165,41 +165,35 @@ jobs:
           generate_release_notes: true
           body: |
 
-            ## 主要更新（v0.3.2）
+            ## 主要更新（v0.3.3）
 
-            本版重点：更改了消息区的样式，新增待办与文件修改的显示，修复已知问题。
-
-            ### 新功能 Features
-            - **待办与文件更改**：消息区新增待办和文件更改的显示。
-            - **内置 Pi 更新**：内置 Pi 版本更新至 0.85.1。
+            本版重点：修复长摘要/超大输出卡屏；输入与拖入 URL 显示为纯文本。
 
             ### 修复 Fixes
-            - 修复模型输出时向上滚动消息区会被拉回。
-            - 修复对话轮数计算。
-            - 修复消息区渲染问题。
+            - 修复摘要过长卡屏：超大工具输出/长思考的折叠展开不再逐帧动画（原会对上万个 DOM 节点每帧重排冻结界面），改为直接瞬切。
+            - 修复旧代码引起的崩溃。
 
             ### 优化 / 体验 Improvements
-            - 优化消息区 UI 样式。
-            - 优化消息区渲染速度。
-            - 移除启动时的加载页和打开会话的加载页。
+            - 输入 URL 显示纯文本：粘贴/拖放的 http(s) URL 直接以纯文本插入光标处，不再自动生成链接卡片。
+            - 移除思考块上的耗时显示，过程展示更简洁。
 
-            ## What's New (v0.3.2)
+            ### 新功能 Features
+            - 离开未使用的空白会话时自动清理，不再残留「新会话」。
 
-            Refined message-area UI and rendering; new todo & file-changes display.
+            ## What's New (v0.3.3)
 
-            ### Features
-            - Todos and file changes are now displayed in the message area.
-            - Bundled Pi updated to 0.85.1.
+            Fixed UI freezes on oversized summaries; URLs paste/drop as plain text.
 
             ### Fixes
-            - Fixed the message area being pulled back while scrolling during model output.
-            - Fixed conversation turn-count calculation.
-            - Fixed message-area rendering issues.
+            - Fixed the freeze on oversized summaries: folding huge tool-output/thinking sections snaps instantly instead of animating tens of thousands of DOM nodes per frame.
+            - Fixed a crash triggered by legacy rendering code.
 
             ### Improvements
-            - Refined message-area UI styling.
-            - Faster message-area rendering.
-            - Removed the startup loading page and the session-open loading page.
+            - Pasting/dropping an http(s) URL now inserts plain text at the caret instead of a URL chip.
+            - Removed the elapsed-time readout on thinking blocks.
+
+            ### Features
+            - Blank unstarted "新会话" sessions are auto-discarded when you leave a workspace or close the window.
 
             ## 下载 / Downloads
             - **Windows x64**: `Pi Desktop-*-win-x64-setup.exe`
