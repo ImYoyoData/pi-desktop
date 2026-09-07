@@ -7,7 +7,9 @@
 ### 新功能 Features
 
 - 新增待办和文件更改的显示。
+- 内置 Pi 版本更新至 0.85.1。
 - Added display of todos and file changes in the message area.
+- Bundled Pi updated to 0.85.1.
 
 ### 优化 / 体验 Improvements
 
