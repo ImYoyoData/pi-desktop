@@ -37,6 +37,40 @@ const prefersReducedMotion =
   typeof window !== "undefined" &&
   window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
+/**
+ * Fold/unfold animates grid-rows, which re-layouts the whole expanded subtree
+ * on every frame. When the section holds huge tool outputs (each diff/output
+ * line becomes a DOM node), that freezes the UI thread, so oversized sections
+ * skip the animation and snap instead.
+ */
+const HEAVY_SECTION_CHARS = 60_000;
+
+const heavySection = computed(() => {
+  let chars = 0;
+  for (const msg of props.items) {
+    if (msg.role === "tool") {
+      const card = toolCard(msg);
+      if (
+        card.kind === "bash" ||
+        card.kind === "read" ||
+        card.kind === "generic"
+      ) {
+        chars += card.preview?.length ?? 0;
+      } else if (
+        card.kind === "edit" ||
+        card.kind === "write" ||
+        card.kind === "other"
+      ) {
+        chars += card.diff?.length ?? 0;
+      }
+    } else if (msg.role === "assistant" && msg.thinking) {
+      chars += msg.thinking.length;
+    }
+    if (chars > HEAVY_SECTION_CHARS) return true;
+  }
+  return false;
+});
+
 /** Inner content box — ResizeObserver reports real height changes to the list. */
 const bodyRef = ref<HTMLElement | null>(null);
 let resizeObserver: ResizeObserver | null = null;
@@ -128,6 +162,13 @@ watch(
   (nowOpen, wasOpen) => {
     if (nowOpen === wasOpen) return;
     transitioning = true;
+    // Oversized sections snap instantly: animating grid-rows would re-layout
+    // tens of thousands of DOM nodes every frame and freeze the UI thread.
+    if (heavySection.value) {
+      animated.value = false;
+      scheduleResize(0);
+      return;
+    }
     animationRaf = requestAnimationFrame(() => {
       animated.value = true;
     });
@@ -327,7 +368,7 @@ function toolStatus(msg: ToolMessage): {
       :class="{ collapsed: !open, animated }"
       :aria-hidden="!open ? 'true' : undefined"
     >
-      <div class="work-section-animation-inner" ref="bodyRef">
+      <div class="work-section-animation-inner" ref="bodyRef" :class="{ 'force-hidden': heavySection && !open }">
         <div class="work-section-body">
           <template v-for="msg in items" :key="msg.id">
             <div v-if="isToolMessage(msg)" class="cot-item">
@@ -514,6 +555,16 @@ function toolStatus(msg: ToolMessage): {
 .work-section-animation-inner {
   min-height: 0;
   overflow: hidden;
+  /* Keep the fold animation's per-frame relayout inside this subtree so it
+     never invalidates (and re-layouts) the whole virtual message list. */
+  contain: layout;
+}
+
+/* Oversized sections drop the (still-mounted) content from layout entirely
+   once folded — thousands of hidden output lines would otherwise keep the
+   render tree busy on every scroll / window adjustment. */
+.work-section-animation-inner.force-hidden {
+  display: none;
 }
 
 .work-section-animation.collapsed {
