@@ -438,23 +438,45 @@ function onComposerDrop(event: DragEvent): void {
   fileDragOver.value = false;
   const data = event.dataTransfer;
   if (!data) return;
-  if (ingestTransferData(data)) {
-    event.preventDefault();
-    event.stopPropagation();
+  const outcome = ingestTransferData(data);
+  if (!outcome) return;
+  event.preventDefault();
+  event.stopPropagation();
+  if (outcome.kind === "text") {
+    // Dropped http(s) URLs stay plain text — insert where the user let go.
+    placeDropCaret(event.clientX, event.clientY);
+    richEditor.value?.insertTextAtCaret(outcome.text);
   }
 }
 
+/** Park the caret at the drop point so URL drops insert exactly where released. */
+function placeDropCaret(clientX: number, clientY: number): void {
+  const root = richEditor.value?.getSurface?.() ?? null;
+  if (!root) return;
+  root.focus();
+  const range = document.caretRangeFromPoint(clientX, clientY);
+  if (!range || !root.contains(range.startContainer)) return;
+  const selection = window.getSelection();
+  if (!selection) return;
+  selection.removeAllRanges();
+  selection.addRange(range);
+}
+
 /**
- * Shared paste/drop ingest. Returns true when the event should be consumed
- * (paths/urls/images handled as tags/attachments instead of plain text).
+ * Shared drop ingest. Returns what the caller should do with the event:
+ * - { kind: "files" }: paths/images already became tags & attachments — consume it.
+ * - { kind: "text" }: payload is an http(s) URL — insert as plain text (never a chip).
+ * - null: nothing to handle — leave the browser's default behavior.
  */
-function ingestTransferData(data: DataTransfer): boolean {
+function ingestTransferData(
+  data: DataTransfer,
+): { kind: "files" } | { kind: "text"; text: string } | null {
   const custom = data.getData(PI_WORKSPACE_PATHS_MIME)?.trim() ?? "";
   if (custom) {
     const paths = decodeWorkspacePaths(custom);
     if (paths.length) {
       for (const filePath of paths) composer.addFileTag(filePath);
-      return true;
+      return { kind: "files" };
     }
   }
 
@@ -489,34 +511,31 @@ function ingestTransferData(data: DataTransfer): boolean {
       const filePath = electronFilePath(file);
       if (filePath) composer.addFileTag(filePath);
     }
-    return true;
+    return { kind: "files" };
   }
 
   const uriList = data.getData("text/uri-list")?.trim() ?? "";
   if (uriList) {
-    const paths: string[] = [];
-    let hasHttp = false;
+    const filePaths: string[] = [];
+    const urls: string[] = [];
     for (const line of uriList.split(/\r?\n/)) {
       const trimmed = line.trim();
       if (!trimmed || trimmed.startsWith("#")) continue;
       if (/^https?:\/\//i.test(trimmed)) {
-        hasHttp = true;
-        composer.addUrlTag(trimmed);
+        urls.push(trimmed);
         continue;
       }
       const filePath = coercePathToken(trimmed);
-      if (filePath) paths.push(filePath);
+      if (filePath) filePaths.push(filePath);
     }
-    if (paths.length || hasHttp) {
-      for (const filePath of paths) composer.addFileTag(filePath);
-      return true;
-    }
+    for (const filePath of filePaths) composer.addFileTag(filePath);
+    if (urls.length) return { kind: "text", text: urls.join("\n") };
+    if (filePaths.length) return { kind: "files" };
   }
 
   const text = data.getData("text/plain")?.trim() ?? "";
   if (text && isHttpUrl(text)) {
-    composer.addUrlTag(text);
-    return true;
+    return { kind: "text", text };
   }
 
   if (text) {
@@ -524,11 +543,11 @@ function ingestTransferData(data: DataTransfer): boolean {
     const asPaths = lines.map(coercePathToken).filter((p): p is string => Boolean(p));
     if (asPaths.length && asPaths.length === lines.length) {
       for (const filePath of asPaths) composer.addFileTag(filePath);
-      return true;
+      return { kind: "files" };
     }
   }
 
-  return false;
+  return null;
 }
 
 async function addFiles(files: FileList | File[]): Promise<void> {
@@ -549,17 +568,6 @@ async function addFiles(files: FileList | File[]): Promise<void> {
     }
     const filePath = electronFilePath(file);
     if (filePath) composer.addFileTag(filePath);
-  }
-}
-
-/** Heuristic: does this http(s) URL look like it points at an image file? */
-function looksLikeImageUrl(url: string): boolean {
-  try {
-    const u = new URL(url);
-    if (u.protocol !== "http:" && u.protocol !== "https:") return false;
-    return /\.(png|jpe?g|gif|webp|bmp|avif|svg|ico)([?#]|$)/i.test(u.pathname);
-  } catch {
-    return false;
   }
 }
 
@@ -1886,11 +1894,11 @@ async function onModelChange(value: string | number): Promise<void> {
 }
 
 /**
- * Paste into the composer: only complete URLs (and pasted images) become
- * tags/attachments. File paths and any other text stay plain text — the
- * path→tag behavior is reserved for drag & drop (ingestTransferData), not paste.
- * Rich HTML from Word/browsers is always stripped to plain text so styles
- * cannot leak into the contenteditable surface.
+ * Paste into the composer: only image bitmaps are attached. http(s) URLs,
+ * file paths and any other text stay plain text — the path→tag behavior is
+ * reserved for drag & drop (ingestTransferData), not paste. Rich HTML from
+ * Word/browsers is always stripped to plain text so styles cannot leak into
+ * the contenteditable surface.
  */
 /** Extract the first http(s) <img src> from pasted HTML (web images). */
 function imgUrlFromHtml(html: string): string | null {
@@ -1930,7 +1938,7 @@ function onPaste(event: ClipboardEvent): void {
 
     // Copying an image from a web page often carries an <img> tag in the
     // HTML with no bitmap file — download it into the session cache instead
-    // of showing a raw URL tag.
+    // of leaving an unreadable URL.
     const html = data.getData("text/html") ?? "";
     const htmlImgUrl = html ? imgUrlFromHtml(html) : null;
     if (htmlImgUrl) {
@@ -1938,22 +1946,6 @@ function onPaste(event: ClipboardEvent): void {
       void composer.addImageFromUrl(htmlImgUrl).then((ok) => {
         if (!ok) messageApi.warning(t.pasteImageDownloadFailed);
       });
-      return;
-    }
-
-    const text = data.getData("text/plain")?.trim() ?? "";
-    if (text && isHttpUrl(text) && !/\s/.test(text)) {
-      // Image-looking URLs attach as images (bound to the cached file path);
-      // a failed download shows a message instead of silently becoming a tag.
-      if (looksLikeImageUrl(text)) {
-        event.preventDefault();
-        void composer.addImageFromUrl(text).then((ok) => {
-          if (!ok) messageApi.warning(t.pasteImageDownloadFailed);
-        });
-        return;
-      }
-      event.preventDefault();
-      composer.addUrlTag(text);
       return;
     }
 
