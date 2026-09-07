@@ -37,6 +37,15 @@ async function forceCloseAfterKill(ids: string[]): Promise<void> {
   await window.api.window.forceClose();
 }
 
+/** Discard the active session when it was never used (no messages, no name). */
+async function discardActiveUnstarted(): Promise<void> {
+  try {
+    await sessions.discardActiveIfUnstarted();
+  } catch {
+    // best-effort cleanup before force close
+  }
+}
+
 async function handleCloseRequest(): Promise<void> {
   if (handling) return;
   handling = true;
@@ -44,6 +53,9 @@ async function handleCloseRequest(): Promise<void> {
     const running = runningSessionIds();
     if (!running.length) {
       try {
+        // Close may kill the renderer right after this call, so clean the
+        // abandoned "新会话" before asking the window to close.
+        await discardActiveUnstarted();
         await window.api.window.forceClose();
       } finally {
         handling = false;
