@@ -221,12 +221,12 @@ const metaLine = computed(() => {
   };
   if (card.kind === "read") {
     if (card.linesRead != null && card.totalLines != null) {
-      return appendDuration(t.toolLinesRange(card.linesRead, card.totalLines));
+      return t.toolLinesRange(card.linesRead, card.totalLines);
     }
     if (card.linesRead != null) {
-      return appendDuration(t.toolLinesCount(card.linesRead));
+      return t.toolLinesCount(card.linesRead);
     }
-    return appendDuration(null);
+    return null;
   }
   if (card.kind === "bash") {
     if (card.linesRead != null && card.totalLines != null) {
