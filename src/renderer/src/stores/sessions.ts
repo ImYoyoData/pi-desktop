@@ -9,6 +9,7 @@ import type {
   SessionSummary,
 } from "../../../shared/protocol";
 import { toIpcPlain } from "../../../shared/protocol";
+import { isUnstartedSession } from "@renderer/utils/session-started";
 import { useComposerStore } from "./composer";
 
 const SEGMENT_IDS = new Set<ContextUsageSegmentId>([
@@ -207,10 +208,43 @@ export const useSessionsStore = defineStore("sessions", () => {
     sessions.value = await window.api.sessions.list(cwd);
   }
 
+  /** Drop in-memory state for a session that was deleted (shared cleanup). */
+  function dropSessionState(sessionId: string): void {
+    if (activeId.value === sessionId) {
+      activeId.value = null;
+    }
+    sessions.value = sessions.value.filter((s) => s.id !== sessionId);
+    const next = { ...contextBySession.value };
+    delete next[sessionId];
+    contextBySession.value = next;
+    useComposerStore().dropSession(sessionId);
+  }
+
+  /** Active row when it was never used (no messages, no name) — safe to discard. */
+  function activeIfUnstarted(): SessionSummary | null {
+    const id = activeId.value;
+    if (!id) return null;
+    const row = sessions.value.find((s) => s.id === id) ?? null;
+    return row && isUnstartedSession(row) ? row : null;
+  }
+
   async function createSession(cwd: string): Promise<SessionSummary | null> {
+    // Creating a session abandons an unstarted 新会话 that was still open
+    // (new-session button, /new, empty-state button) instead of leaving it behind.
+    const leaving = activeIfUnstarted();
     const created = await window.api.sessions.create(cwd);
     upsert(created);
     activeId.value = created.id;
+    // Drop the abandoned one only once the new session is active, so the UI
+    // never flashes an empty state between the two IPC round-trips.
+    if (leaving) {
+      try {
+        await window.api.sessions.delete(leaving.id, leaving.cwd);
+      } catch (err) {
+        console.error("discard unstarted session failed", err);
+      }
+      dropSessionState(leaving.id);
+    }
     return created;
   }
 
@@ -223,6 +257,19 @@ export const useSessionsStore = defineStore("sessions", () => {
     }
     upsert(opened);
     activeId.value = sessionId;
+  }
+
+  /** Discard the active session on quit / session-switch when it was never used. */
+  async function discardActiveIfUnstarted(): Promise<boolean> {
+    const leaving = activeIfUnstarted();
+    if (!leaving) return false;
+    try {
+      await window.api.sessions.delete(leaving.id, leaving.cwd);
+    } catch (err) {
+      console.error("discard unstarted session failed", err);
+    }
+    dropSessionState(leaving.id);
+    return true;
   }
 
   async function sendCommand(
@@ -271,14 +318,7 @@ export const useSessionsStore = defineStore("sessions", () => {
 
   async function deleteSession(sessionId: string, cwd: string): Promise<void> {
     await window.api.sessions.delete(sessionId, cwd);
-    if (activeId.value === sessionId) {
-      activeId.value = null;
-    }
-    sessions.value = sessions.value.filter((s) => s.id !== sessionId);
-    const next = { ...contextBySession.value };
-    delete next[sessionId];
-    contextBySession.value = next;
-    useComposerStore().dropSession(sessionId);
+    dropSessionState(sessionId);
   }
 
   async function renameSession(
@@ -326,6 +366,7 @@ export const useSessionsStore = defineStore("sessions", () => {
     refresh,
     createSession,
     selectSession,
+    discardActiveIfUnstarted,
     sendCommand,
     tryCommand,
     killWorker,
