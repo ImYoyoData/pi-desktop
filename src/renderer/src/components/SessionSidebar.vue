@@ -38,6 +38,7 @@ import { useChatStore } from "@renderer/stores/chat";
 import { useSendQueueStore } from "@renderer/stores/send-queue";
 import { useWorkspaceStore } from "@renderer/stores/workspace";
 import FilesTab from "@renderer/components/FilesTab.vue";
+import { isUnstartedSession } from "@renderer/utils/session-started";
 import { t } from "@renderer/i18n";
 import { markRendererStartup } from "@renderer/utils/startup-timing";
 
@@ -93,6 +94,9 @@ const closedPaths = computed(() => {
 });
 
 async function onReopenClosed(root: string): Promise<void> {
+  if (workspace.root && workspace.root !== root) {
+    await discardActiveUnstartedForRoot(workspace.root);
+  }
   const next = await workspace.reopenWorkspace(root);
   if (next) {
     expanded[next] = true;
@@ -330,8 +334,13 @@ watch(
       sessionsByRoot[root] = list.map((s) => ({ ...s }));
       return;
     }
+    // Drop rows the live store no longer knows (deleted elsewhere) — but keep
+    // them while the store list is empty (root not loaded yet).
+    const alive = current.filter(
+      (row) => list.length === 0 || byId.has(row.id),
+    );
     // Update existing rows + append any new ones from the store
-    const next = current.map((row) => {
+    const next = alive.map((row) => {
       const live = byId.get(row.id);
       if (!live) return row;
       return {
@@ -429,6 +438,8 @@ function workspaceName(path: string): string {
 async function onWorkspaceClick(path: string): Promise<void> {
   const wasExpanded = Boolean(expanded[path]);
   if (workspace.root !== path) {
+    // Leaving the current workspace also abandons an unstarted 新会话 there.
+    await discardActiveUnstartedForRoot(workspace.root);
     await workspace.openWorkspacePath(path);
     expanded[path] = true;
     await loadSessions(path);
@@ -450,6 +461,11 @@ async function onNewAgentForWorkspace(root: string, event?: Event): Promise<void
   event?.stopPropagation();
   event?.preventDefault();
   if (workspace.trustDialogOpen) return;
+  // Creating in another workspace abandons the unstarted session open here;
+  // same-root creation is handled inside createSession (no empty-state flash).
+  if (workspace.root && workspace.root !== root) {
+    await discardActiveUnstartedForRoot(workspace.root);
+  }
   if (workspace.root !== root) {
     await workspace.openWorkspacePath(root);
   }
@@ -470,7 +486,72 @@ async function onAddWorkspace(): Promise<void> {
   await loadSessions(root);
 }
 
+/** Discard the active session (of a root) when the user leaves it unstarted. */
+async function discardActiveUnstartedForRoot(root: string | null): Promise<void> {
+  if (!root) return;
+  const id = sessionsStore.activeId;
+  if (!id) return;
+  const row =
+    (sessionsByRoot[root] ?? []).find((s) => s.id === id) ??
+    sessionsStore.sessions.find((s) => s.id === id) ??
+    null;
+  if (row && isUnstartedSession(row)) {
+    await discardUnstartedSession(root, id);
+  }
+}
+
+/** Delete an unstarted (never-chatted, never-renamed) session silently. */
+async function discardUnstartedSession(root: string, sessionId: string): Promise<void> {
+  const stillThere =
+    sessionsStore.sessions.some((s) => s.id === sessionId) ||
+    (sessionsByRoot[root] ?? []).some((s) => s.id === sessionId);
+  if (!stillThere) return;
+  try {
+    await sessionsStore.deleteSession(sessionId, root);
+    chatStore.clearSession(sessionId);
+    sendQueueStore.clearSession(sessionId);
+    pins[root] = (pins[root] ?? []).filter((id) => id !== sessionId);
+    sessionOrders[root] = (sessionOrders[root] ?? []).filter((id) => id !== sessionId);
+    sessionsByRoot[root] = (sessionsByRoot[root] ?? []).filter(
+      (s) => s.id !== sessionId,
+    );
+    persistPins();
+    persistSessionOrders();
+  } catch (err) {
+    console.error("discard unstarted session failed", err);
+  }
+}
+
 async function onSelectSession(root: string, sessionId: string): Promise<void> {
+  // An active 新会话 the user never chatted with is dropped when they leave it
+  // (click another session / switch workspace) instead of lingering on disk.
+  const leavingId = sessionsStore.activeId;
+  let leaving: SessionSummary | null = null;
+  let leavingRoot = "";
+  if (leavingId && leavingId !== sessionId) {
+    // The active row may live in another workspace's cached tree while the
+    // workspace switch is reloading the store list — locate it anywhere.
+    for (const [r, rows] of Object.entries(sessionsByRoot)) {
+      const found = rows.find((s) => s.id === leavingId);
+      if (found) {
+        leaving = found;
+        leavingRoot = r;
+        break;
+      }
+    }
+    if (!leaving) {
+      leaving =
+        sessionsStore.sessions.find((s) => s.id === leavingId) ?? null;
+      leavingRoot = leaving?.cwd || workspace.root || root;
+    }
+  }
+  const discardLeaving = Boolean(leaving && isUnstartedSession(leaving));
+  // Cross-workspace clicks must discard BEFORE the root switch wipes the store
+  // list; same-workspace discards wait until the new session is active so the
+  // UI never flashes an empty state between the two IPC round-trips.
+  if (discardLeaving && workspace.root !== null && workspace.root !== root) {
+    await discardUnstartedSession(leavingRoot, leaving!.id);
+  }
   chatStore.beginHistoryLoad(sessionId);
   try {
     if (workspace.root !== root) await workspace.openWorkspacePath(root);
@@ -487,6 +568,9 @@ async function onSelectSession(root: string, sessionId: string): Promise<void> {
       sessionsStore.selectSession(sessionId, root),
     ]);
     chatStore.hydrateFromHistory(sessionId, page.messages);
+    if (discardLeaving && workspace.root === root) {
+      await discardUnstartedSession(leavingRoot, leaving!.id);
+    }
   } catch (err) {
     console.error("select session failed", err);
     message.error(err instanceof Error ? err.message : String(err));
@@ -658,6 +742,10 @@ async function onWorkspaceMenu(root: string, key: string | number): Promise<void
     case "close": {
       // Close = hide from the main list; the workspace moves to the
       // "Closed workspaces" section and can be reopened later.
+      // An unstarted 新会话 left open there has no value — drop it first.
+      if (sessionsStore.activeId && root === workspace.root) {
+        await discardActiveUnstartedForRoot(root);
+      }
       await workspace.closeWorkspace(root);
       delete sessionsByRoot[root];
       delete expanded[root];
