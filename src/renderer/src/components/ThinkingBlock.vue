@@ -1,18 +1,13 @@
 <script setup lang="ts">
-import { computed, nextTick, onUnmounted, ref, watch } from "vue";
+import { computed, nextTick, ref, watch } from "vue";
 import { NIcon } from "naive-ui";
 import { ChevronForwardOutline } from "@vicons/ionicons5";
-import { formatElapsedShort } from "@renderer/utils/agent-wait";
 import { t } from "@renderer/i18n";
 
 const props = defineProps<{
   thinking: string;
   /** True while the model is still producing thinking (before answer text). */
   streaming?: boolean;
-  /** Epoch ms when thinking started (live timer while streaming). */
-  startedAt?: number;
-  /** Final thinking duration once finished (ms). */
-  durationMs?: number;
   /** True once the whole turn finished: fold finished thinking (Codex-like). */
   autoCollapse?: boolean;
 }>();
@@ -34,55 +29,19 @@ const bodyRef = ref<HTMLElement | null>(null);
 let stickToBottom = true;
 const NEAR_BOTTOM_PX = 48;
 
-const nowMs = ref(Date.now());
-let tickTimer: ReturnType<typeof setInterval> | null = null;
-
-function stopTick(): void {
-  if (tickTimer) clearInterval(tickTimer);
-  tickTimer = null;
-}
-
-function startTick(): void {
-  stopTick();
-  nowMs.value = Date.now();
-  tickTimer = setInterval(() => {
-    nowMs.value = Date.now();
-  }, 250);
-}
-
-const elapsedLabel = computed(() => {
-  if (props.streaming && props.startedAt) {
-    return formatElapsedShort(Math.max(0, nowMs.value - props.startedAt));
-  }
-  if (props.durationMs != null && props.durationMs >= 0) {
-    return formatElapsedShort(props.durationMs);
-  }
-  if (props.streaming && !props.startedAt) {
-    // Clock not stamped yet — still show a live 0s once streaming.
-    return formatElapsedShort(0);
-  }
-  return "";
-});
-
-const headLabel = computed(() => {
-  const base = props.streaming ? t.thinkingStreaming : t.thinking;
-  return elapsedLabel.value ? `${base} · ${elapsedLabel.value}` : base;
-});
+const headLabel = computed(() =>
+  props.streaming ? t.thinkingStreaming : t.thinking,
+);
 
 watch(
-  () => [props.streaming, props.startedAt] as const,
-  ([streaming, startedAt]) => {
+  () => props.streaming,
+  (streaming) => {
     if (streaming) {
       // Let the computed track live state (auto-expands when the turn is open).
       manuallyOpen.value = null;
       stickToBottom = true;
-      if (startedAt) startTick();
-      else stopTick();
-      return;
     }
-    stopTick();
   },
-  { immediate: true },
 );
 
 // Fold everything as soon as the round finishes; users can re-expand manually.
@@ -96,8 +55,6 @@ watch(
 function toggleOpen(): void {
   manuallyOpen.value = !open.value;
 }
-
-onUnmounted(() => stopTick());
 
 function onBodyScroll(): void {
   const el = bodyRef.value;
