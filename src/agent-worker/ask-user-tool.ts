@@ -53,9 +53,11 @@ async function defaultWaitForAnswers(
   signal?: AbortSignal,
 ): Promise<string> {
   // No auto-timeout: the ask waits until the user answers or the turn is
-  // aborted (Stop). Aborting rejects the RPC so the tool returns an error and
-  // the agent turn ends cleanly instead of hanging until a force-kill.
-  const raw = await rpcToMain("desktop.askUser", { questions }, undefined, signal);
+  // aborted (Stop). Passing null (NOT undefined — undefined triggers the
+  // default timeout) disables the RPC timer. Aborting rejects the RPC so the
+  // tool returns an error and the agent turn ends cleanly.
+  const raw = await rpcToMain("desktop.askUser", { questions }, null, signal);
+
   if (typeof raw !== "string" || !raw.trim()) {
     throw new Error("ask_user: no answers from user");
   }

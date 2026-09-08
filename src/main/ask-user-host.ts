@@ -69,6 +69,7 @@ export function cancelAskUserAsk(requestId: string, reason = "ask_user cancelled
   const row = pendingAsks.get(requestId);
   if (!row) return;
   pendingAsks.delete(requestId);
+  console.warn("[ask-user-diag] cancelAskUserAsk", { requestId, sessionId: row.sessionId, reason });
   broadcastCancelled(row.sessionId, requestId);
   row.reject(new Error(reason));
 }
