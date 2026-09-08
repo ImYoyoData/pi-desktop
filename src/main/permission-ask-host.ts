@@ -136,6 +136,17 @@ export function cancelPermissionAsk(requestId: string, reason = "permission ask 
   row.reject(new Error(reason));
 }
 
+/** Cancel every outstanding permission ask for one session (renderer Stop / turn abort). */
+export function cancelPermissionAsksForSession(
+  sessionId: string,
+  reason = "permission ask cancelled",
+): void {
+  for (const [requestId, row] of [...pendingAsks]) {
+    if (row.sessionId !== sessionId) continue;
+    cancelPermissionAsk(requestId, reason);
+  }
+}
+
 /** Test / shutdown helper: reject all outstanding asks. */
 export function clearPendingPermissionAsks(reason = "permission asks cleared"): void {
   for (const id of [...pendingAsks.keys()]) {

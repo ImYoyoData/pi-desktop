@@ -74,6 +74,17 @@ export function cancelAskUserAsk(requestId: string, reason = "ask_user cancelled
   row.reject(new Error(reason));
 }
 
+/** Cancel every outstanding ask for one session (renderer Stop / turn abort). */
+export function cancelAskUserAsksForSession(
+  sessionId: string,
+  reason = "ask_user cancelled",
+): void {
+  for (const [requestId, row] of [...pendingAsks]) {
+    if (row.sessionId !== sessionId) continue;
+    cancelAskUserAsk(requestId, reason);
+  }
+}
+
 export function registerAskUserIpc(): void {
   ipcMain.handle(
     IpcChannels.sessions.askUserReply,
