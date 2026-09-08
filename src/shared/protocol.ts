@@ -139,6 +139,7 @@ export const IpcChannels = {
 		resolveConflict: "git:resolveConflict",
 		checkoutConflictSide: "git:checkoutConflictSide",
 		abortMerge: "git:abortMerge",
+		syncStatus: "git:syncStatus",
 	},
 	skills: {
 		list: "skills:list",

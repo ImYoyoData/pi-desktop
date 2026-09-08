@@ -2,6 +2,7 @@
 import { computed, onMounted, ref, watch } from "vue";
 import {
   NButton,
+  NIcon,
   NInput,
   NModal,
   NScrollbar,
@@ -16,6 +17,7 @@ import {
 import type { ModelsProviderAuth } from "../../../shared/models-settings";
 import ProviderIcon from "@renderer/components/ProviderIcon.vue";
 import CustomModelsPanel from "@renderer/components/CustomModelsPanel.vue";
+import { TrashOutline, RefreshOutline } from "@vicons/ionicons5";
 import { t } from "@renderer/i18n";
 
 const props = defineProps<{
@@ -39,6 +41,8 @@ const mainTab = ref<"auth" | "custom" | "json">("auth");
 const pickerOpen = ref(false);
 const pickerQuery = ref("");
 const customStartAdd = ref(false);
+/** Pulling / refreshing the available-models list for the selected provider. */
+const availableLoading = ref(false);
 
 const configuredProviders = computed(() => providers.value.filter((p) => p.configured));
 
@@ -122,6 +126,23 @@ function selectProvider(id: string): void {
   pickerQuery.value = "";
 }
 
+/** Re-pull the available-models list based on the current config (SDK catalog). */
+async function refreshAvailable(): Promise<void> {
+  if (availableLoading.value) return;
+  availableLoading.value = true;
+  try {
+    const data = await window.api.models.get();
+    modelsText.value = data.modelsText;
+    providers.value = data.providers ?? [];
+    available.value = data.available;
+    message.success(t.modelsAvailable(selectedModels.value.length));
+  } catch (err) {
+    message.error(err instanceof Error ? err.message : String(err));
+  } finally {
+    availableLoading.value = false;
+  }
+}
+
 async function loadQuiet(): Promise<void> {
   try {
     const data = await window.api.models.get();
@@ -183,13 +204,24 @@ async function commitCustom(payload: {
   });
 }
 
-async function clearKey(): Promise<void> {
+async function deleteProvider(): Promise<void> {
   if (!selectedProvider.value) return;
+  const id = selectedProvider.value;
   try {
-    await window.api.models.clearKey(selectedProvider.value);
-    delete apiKeys.value[selectedProvider.value];
-    message.success(t.modelsKeyCleared);
+    await window.api.models.clearKey(id);
+    delete apiKeys.value[id];
+    message.success(t.modelsProviderDeleted);
     await load();
+    // Immediately move the left list selection to the nearest configured
+    // provider (first one, else the provider just before / after the deleted one).
+    const configured = providers.value.filter((p) => p.configured);
+    if (configured.length) {
+      const idx = configured.findIndex((p) => p.id === id);
+      const next = configured[Math.max(0, idx - 1)] ?? configured[0];
+      selectedProvider.value = next?.id ?? configured[0].id;
+    } else {
+      selectedProvider.value = providers.value[0]?.id ?? null;
+    }
     window.dispatchEvent(new CustomEvent("pi-models-changed"));
   } catch (err) {
     message.error(err instanceof Error ? err.message : String(err));
@@ -281,15 +313,6 @@ function goCustomPanel(): void {
                     <div class="field">
                       <div class="field-label">
                         <NText style="font-size: 12px; font-weight: 600">API Key</NText>
-                        <NButton
-                          v-if="selectedMeta.configured && selectedMeta.source === 'stored'"
-                          size="tiny"
-                          quaternary
-                          type="error"
-                          @click="clearKey"
-                        >
-                          {{ t.modelsClearKey }}
-                        </NButton>
                       </div>
                       <NInput
                         v-model:value="apiKeys[selectedMeta.id]"
@@ -310,9 +333,23 @@ function goCustomPanel(): void {
                     </div>
 
                     <div class="models-block">
-                      <NText style="font-size: 12px; font-weight: 600">
-                        {{ t.modelsAvailable(selectedModels.length) }}
-                      </NText>
+                      <div class="models-head">
+                        <NText style="font-size: 12px; font-weight: 600">
+                          {{ t.modelsAvailable(selectedModels.length) }}
+                        </NText>
+                        <NButton
+                          size="tiny"
+                          quaternary
+                          :loading="availableLoading"
+                          :disabled="availableLoading"
+                          @click="refreshAvailable"
+                        >
+                          <template #icon>
+                            <NIcon :component="RefreshOutline" :size="13" />
+                          </template>
+                          {{ t.modelsPullModels }}
+                        </NButton>
+                      </div>
                       <div v-if="!selectedModels.length" class="empty-models">
                         {{ t.modelsNone }}
                       </div>
@@ -326,6 +363,19 @@ function goCustomPanel(): void {
                           {{ m.id }}
                         </NText>
                       </div>
+                      <NButton
+                        v-if="selectedMeta.configured && selectedMeta.source === 'stored'"
+                        size="small"
+                        type="error"
+                        secondary
+                        class="provider-delete-btn"
+                        @click="deleteProvider"
+                      >
+                        <template #icon>
+                          <NIcon :component="TrashOutline" :size="14" />
+                        </template>
+                        {{ t.modelsDeleteProvider }}
+                      </NButton>
                     </div>
                   </template>
                   <div v-else class="empty-right">
@@ -562,6 +612,17 @@ function goCustomPanel(): void {
 
 .models-block {
   margin-top: 4px;
+}
+
+.models-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.provider-delete-btn {
+  margin-top: 14px;
 }
 
 .model-row {

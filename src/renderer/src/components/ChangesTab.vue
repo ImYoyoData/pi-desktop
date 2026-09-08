@@ -72,7 +72,41 @@ const message = useMessage();
 const dialog = useDialog();
 
 const loading = ref(false);
-const busy = ref(false);
+/** Git op currently in flight — only the clicked button shows a spinner. */
+const busyOp = ref<string | null>(null);
+/** Any git op in flight — everything else is disabled. */
+const busy = computed(() => busyOp.value !== null);
+/** A background sync (silent auto-fetch) is running. */
+const syncing = ref(false);
+
+/** Keep remote checks from hammering the network. */
+const AUTO_FETCH_COOLDOWN_MS = 60_000;
+const AUTO_FETCH_TIMEOUT_MS = 30_000;
+let lastAutoFetchAt = 0;
+let silentFetchInFlight = false;
+
+/** Local vs. remote-tracking state for the current branch. */
+const syncState = ref<{
+  upstream: string | null;
+  ahead: number;
+  behind: number;
+}>({ upstream: null, ahead: 0, behind: 0 });
+
+/** Commits waiting on the remote — the pull button's red-dot count. */
+const pullableCount = computed(() =>
+  syncState.value.upstream && syncState.value.behind > 0
+    ? syncState.value.behind
+    : 0,
+);
+
+const pullTitle = computed(() =>
+  pullableCount.value > 0 ? t.changesPullNew(pullableCount.value) : t.changesPull,
+);
+
+/** True when a *different* op is running — keeps the clicked button usable. */
+function busyElsewhere(key: string): boolean {
+  return busyOp.value !== null && busyOp.value !== key;
+}
 const isGit = ref(false);
 const gitUnavailable = ref(false);
 const branch = ref<string | null>(null);
@@ -87,6 +121,8 @@ const conflictPayload = ref<null | {
 const oldContent = ref("");
 const newContent = ref("");
 const diffSupported = ref(true);
+/** Message describing why the diff failed (shown in the no-diff pane). */
+const diffError = ref<string | null>(null);
 const commitMessage = ref("");
 const localBranches = ref<string[]>([]);
 const remoteBranches = ref<string[]>([]);
@@ -141,7 +177,7 @@ const someChecked = computed(
 );
 
 const canCommit = computed(
-  () => Boolean(commitMessage.value.trim()) && checkedPaths.value.length > 0 && !busy.value,
+  () => Boolean(commitMessage.value.trim()) && checkedPaths.value.length > 0,
 );
 
 function isConflictFile(f: GitFile): boolean {
@@ -340,6 +376,44 @@ async function refreshRemotes(): Promise<void> {
   }
 }
 
+/** ahead/behind vs. the upstream branch — cheap local read, no network. */
+async function refreshSync(): Promise<void> {
+  if (!isGit.value || gitUnavailable.value) {
+    syncState.value = { upstream: null, ahead: 0, behind: 0 };
+    return;
+  }
+  try {
+    syncState.value = await window.api.git.syncStatus();
+  } catch {
+    syncState.value = { upstream: null, ahead: 0, behind: 0 };
+  }
+}
+
+/**
+ * Quietly fetch once in a while while the panel is open so the pull indicator
+ * reflects what is actually on the remote. Failures (offline / auth) stay
+ * silent — we simply keep the last known sync state. Never runs while another
+ * git op is in flight.
+ */
+async function maybeAutoFetch(): Promise<void> {
+  if (silentFetchInFlight || !props.visible || busyOp.value) return;
+  if (!isGit.value || gitUnavailable.value || !syncState.value.upstream) return;
+  const now = Date.now();
+  if (now - lastAutoFetchAt < AUTO_FETCH_COOLDOWN_MS) return;
+  lastAutoFetchAt = now;
+  silentFetchInFlight = true;
+  syncing.value = true;
+  try {
+    await window.api.git.fetch({ timeoutMs: AUTO_FETCH_TIMEOUT_MS });
+    await refresh();
+  } catch {
+    // offline / auth hiccup — stay quiet, keep the last known state.
+  } finally {
+    silentFetchInFlight = false;
+    syncing.value = false;
+  }
+}
+
 /**
  * Refresh git status without piling up concurrent calls. Multiple refreshes
  * (fs-watcher bursts + manual refresh + post-op refresh) used to run git
@@ -388,8 +462,11 @@ async function refresh(): Promise<void> {
         conflictPayload.value = null;
         oldContent.value = "";
         newContent.value = "";
+        diffError.value = null;
       }
+      await refreshSync();
       if (selectedPath.value) await loadDiff(selectedPath.value);
+      if (props.visible) void maybeAutoFetch();
     } catch (err) {
       message.error(err instanceof Error ? err.message : String(err));
     } finally {
@@ -408,36 +485,59 @@ async function refresh(): Promise<void> {
 
 async function loadDiff(relativePath: string): Promise<void> {
   selectedPath.value = relativePath;
+  diffError.value = null;
   const file = files.value.find((f) => f.relativePath === relativePath);
   if (file && (file.status === "conflict" || file.code === "C")) {
-    const result = await window.api.git.conflictContent(relativePath);
-    if (result.supported) {
-      conflictPayload.value = { working: result.working, labels: result.labels };
-      patch.value = null;
-      oldContent.value = "";
-      newContent.value = "";
-      diffSupported.value = false;
-      return;
+    try {
+      const result = await window.api.git.conflictContent(relativePath);
+      if (result.supported) {
+        conflictPayload.value = { working: result.working, labels: result.labels };
+        patch.value = null;
+        oldContent.value = "";
+        newContent.value = "";
+        diffSupported.value = false;
+        return;
+      }
+      conflictPayload.value = null;
+    } catch (err) {
+      console.error("[ChangesTab] conflictContent failed", err);
+      conflictPayload.value = null;
     }
-    conflictPayload.value = null;
   } else {
     conflictPayload.value = null;
   }
-  const result = await window.api.git.diff(relativePath);
-  diffSupported.value = result.supported;
-  if (!result.supported) {
+
+  try {
+    const result = await window.api.git.diff(relativePath);
+    diffSupported.value = result.supported;
+    diffError.value = null;
+    if (!result.supported) {
+      patch.value = null;
+      oldContent.value = "";
+      newContent.value = "";
+      return;
+    }
+    patch.value = result.patch ?? null;
+    oldContent.value = result.oldContent ?? "";
+    newContent.value = result.newContent ?? "";
+  } catch (err) {
+    // Never leave the pane in a silent "no diff" state when the IPC throws:
+    // report the real reason so we can fix the underlying cause.
+    console.error("[ChangesTab] git.diff failed", err);
+    diffSupported.value = false;
     patch.value = null;
     oldContent.value = "";
     newContent.value = "";
-    return;
+    diffError.value = err instanceof Error ? err.message : String(err);
   }
-  patch.value = result.patch ?? null;
-  oldContent.value = result.oldContent ?? "";
-  newContent.value = result.newContent ?? "";
 }
 
-async function runOp(labelOk: string, fn: () => Promise<GitOp>): Promise<boolean> {
-  busy.value = true;
+async function runOp(
+  key: string,
+  labelOk: string,
+  fn: () => Promise<GitOp>,
+): Promise<boolean> {
+  busyOp.value = key;
   try {
     const result = await fn();
     if (!result.ok) {
@@ -450,7 +550,7 @@ async function runOp(labelOk: string, fn: () => Promise<GitOp>): Promise<boolean
     await refresh();
     return true;
   } finally {
-    busy.value = false;
+    busyOp.value = null;
   }
 }
 
@@ -458,7 +558,7 @@ async function onCommit(): Promise<void> {
   if (!canCommit.value) return;
   const msg = commitMessage.value.trim();
   const paths = [...checkedPaths.value];
-  busy.value = true;
+  busyOp.value = "commit";
   try {
     const result = await window.api.git.commit({ message: msg, paths });
     if (!result.ok) {
@@ -469,20 +569,23 @@ async function onCommit(): Promise<void> {
     commitMessage.value = "";
     await refresh();
   } finally {
-    busy.value = false;
+    busyOp.value = null;
   }
 }
 
 async function onPull(): Promise<void> {
-  await runOp(t.changesPulled, () => window.api.git.pull());
+  lastAutoFetchAt = Date.now();
+  await runOp("pull", t.changesPulled, () => window.api.git.pull());
 }
 
 async function onPush(): Promise<void> {
-  await runOp(t.changesPushed, () => window.api.git.push());
+  lastAutoFetchAt = Date.now();
+  await runOp("push", t.changesPushed, () => window.api.git.push());
 }
 
 async function onFetch(): Promise<void> {
-  await runOp(t.changesFetched, () => window.api.git.fetch());
+  lastAutoFetchAt = Date.now();
+  await runOp("fetch", t.changesFetched, () => window.api.git.fetch());
 }
 
 async function onDiscardSelected(): Promise<void> {
@@ -495,27 +598,33 @@ async function onDiscardSelected(): Promise<void> {
     negativeText: t.cancel,
     onPositiveClick: () => {
       d.loading = true;
-      return runOp(t.changesDiscarded, () => window.api.git.restore(paths)).then(() => true);
+      return runOp("discard", t.changesDiscarded, () => window.api.git.restore(paths)).then(
+        () => true,
+      );
     },
   });
 }
 
 function onStageFile(file: GitFile): void {
-  void runOp(t.changesStaged, () => window.api.git.stage([file.relativePath])).then((ok) => {
-    if (ok) {
-      file.staged = true;
-      if (selectedPath.value === file.relativePath) void loadDiff(file.relativePath);
-    }
-  });
+  void runOp("stage", t.changesStaged, () => window.api.git.stage([file.relativePath])).then(
+    (ok) => {
+      if (ok) {
+        file.staged = true;
+        if (selectedPath.value === file.relativePath) void loadDiff(file.relativePath);
+      }
+    },
+  );
 }
 
 function onUnstageFile(file: GitFile): void {
-  void runOp(t.changesUnstaged, () => window.api.git.unstage([file.relativePath])).then((ok) => {
-    if (ok) {
-      file.staged = false;
-      if (selectedPath.value === file.relativePath) void loadDiff(file.relativePath);
-    }
-  });
+  void runOp("unstage", t.changesUnstaged, () => window.api.git.unstage([file.relativePath])).then(
+    (ok) => {
+      if (ok) {
+        file.staged = false;
+        if (selectedPath.value === file.relativePath) void loadDiff(file.relativePath);
+      }
+    },
+  );
 }
 
 async function onDiscardFile(relativePath: string): Promise<void> {
@@ -527,23 +636,23 @@ async function onDiscardFile(relativePath: string): Promise<void> {
     negativeText: t.cancel,
     onPositiveClick: () => {
       d.loading = true;
-      return runOp(t.changesDiscarded, () => window.api.git.restore([relativePath])).then(
-        () => true,
-      );
+      return runOp("discard", t.changesDiscarded, () =>
+        window.api.git.restore([relativePath]),
+      ).then(() => true);
     },
   });
 }
 
 async function onConflictResolve(content: string): Promise<void> {
   if (!selectedPath.value) return;
-  await runOp(t.changesConflictResolved, () =>
+  await runOp("resolve", t.changesConflictResolved, () =>
     window.api.git.resolveConflict({ relativePath: selectedPath.value!, content }),
   );
 }
 
 async function onConflictAcceptSide(side: "ours" | "theirs"): Promise<void> {
   if (!selectedPath.value) return;
-  await runOp(t.changesConflictResolved, () =>
+  await runOp("resolve", t.changesConflictResolved, () =>
     window.api.git.checkoutConflictSide({ relativePath: selectedPath.value!, side }),
   );
 }
@@ -556,13 +665,15 @@ async function onAbortMerge(): Promise<void> {
     negativeText: t.cancel,
     onPositiveClick: () => {
       d.loading = true;
-      return runOp(t.changesConflictAborted, () => window.api.git.abortMerge()).then(() => true);
+      return runOp("abort", t.changesConflictAborted, () =>
+        window.api.git.abortMerge(),
+      ).then(() => true);
     },
   });
 }
 
 async function onInitGit(): Promise<void> {
-  await runOp(t.changesGitInitialized, () => window.api.git.init());
+  await runOp("init", t.changesGitInitialized, () => window.api.git.init());
 }
 
 async function openRemotes(): Promise<void> {
@@ -647,7 +758,7 @@ function restoreCommitFile(): void {
     negativeText: t.cancel,
     onPositiveClick: () => {
       d.loading = true;
-      return runOp(t.changesRestoredToCommit, () =>
+      return runOp("restore", t.changesRestoredToCommit, () =>
         window.api.git.restoreFileToCommit({
           relativePath: file.path,
           commitHash: commit.hash,
@@ -669,6 +780,7 @@ function onResetCommit(mode: "soft" | "hard"): void {
       d.loading = true;
       resetting.value = mode;
       return runOp(
+        "reset",
         mode === "soft" ? t.changesResetSoft : t.changesResetHard,
         () => window.api.git.resetToCommit(commit.hash, mode),
       ).finally(() => {
@@ -685,7 +797,7 @@ async function onAddRemote(): Promise<void> {
     message.error(t.gitErr_invalid_args);
     return;
   }
-  const ok = await runOp(t.changesRemoteAdded, () =>
+  const ok = await runOp("addRemote", t.changesRemoteAdded, () =>
     window.api.git.addRemote({ name, url }),
   );
   if (ok) {
@@ -706,7 +818,7 @@ async function submitEditRemote(): Promise<boolean> {
     message.warning(t.changesRemoteUrl);
     return false;
   }
-  const ok = await runOp(t.changesRemoteUpdated, () =>
+  const ok = await runOp("editRemote", t.changesRemoteUpdated, () =>
     window.api.git.setRemoteUrl({ name: editRemoteName.value, url }),
   );
   if (ok) {
@@ -726,7 +838,9 @@ async function onRemoveRemote(remote: GitRemote): Promise<void> {
       d.loading = true;
       return (async () => {
         try {
-          await runOp(t.changesRemoteRemoved, () => window.api.git.removeRemote(remote.name));
+          await runOp("removeRemote", t.changesRemoteRemoved, () =>
+            window.api.git.removeRemote(remote.name),
+          );
           await refreshRemotes();
           return true;
         } catch (err) {
@@ -774,7 +888,7 @@ async function onCommitAndPush(): Promise<void> {
   if (!canCommit.value) return;
   const msg = commitMessage.value.trim();
   const paths = [...checkedPaths.value];
-  busy.value = true;
+  busyOp.value = "commitPush";
   try {
     const commit = await window.api.git.commit({ message: msg, paths });
     if (!commit.ok) {
@@ -791,7 +905,7 @@ async function onCommitAndPush(): Promise<void> {
     message.success(t.changesPushed);
     await refresh();
   } finally {
-    busy.value = false;
+    busyOp.value = null;
   }
 }
 
@@ -820,7 +934,7 @@ function onBranchSelect(key: string | number): void {
   }
   if (k.startsWith("checkout:")) {
     const name = k.slice("checkout:".length);
-    void runOp(t.changesCheckoutOk, () => window.api.git.checkout(name));
+    void runOp("checkout", t.changesCheckoutOk, () => window.api.git.checkout(name));
   }
 }
 
@@ -831,7 +945,7 @@ async function submitRenameBranch(): Promise<boolean> {
     message.warning(t.changesRenameBranchPrompt);
     return false;
   }
-  const ok = await runOp(t.changesBranchRenamed, () =>
+  const ok = await runOp("renameBranch", t.changesBranchRenamed, () =>
     window.api.git.renameBranch({ branch: current, nextName: next }),
   );
   if (ok) showRenameBranch.value = false;
@@ -844,7 +958,9 @@ async function submitDeleteBranch(): Promise<boolean> {
     message.warning(t.changesDeleteBranchPrompt);
     return false;
   }
-  const ok = await runOp(t.changesBranchDeleted, () => window.api.git.deleteBranch(name));
+  const ok = await runOp("deleteBranch", t.changesBranchDeleted, () =>
+    window.api.git.deleteBranch(name),
+  );
   if (ok) showDeleteBranch.value = false;
   return ok;
 }
@@ -939,6 +1055,7 @@ async function submitNewBranch(): Promise<boolean> {
     return false;
   }
   const ok = await runOp(
+    "newBranch",
     t.changesBranchCreated,
     () => window.api.git.createBranch(name, newBranchBase.value ?? undefined),
   );
@@ -952,7 +1069,7 @@ async function submitMerge(): Promise<boolean> {
     message.warning(t.changesMergePrompt);
     return false;
   }
-  const ok = await runOp(t.changesMerged, () => window.api.git.merge(name));
+  const ok = await runOp("merge", t.changesMerged, () => window.api.git.merge(name));
   if (ok) showMerge.value = false;
   return ok;
 }
@@ -1001,7 +1118,9 @@ watch(
 watch(
   () => props.visible,
   (visible) => {
-    if (!visible || !fsRefreshPending) return;
+    // Re-open the panel: re-check the repo (and let maybeAutoFetch refresh
+    // the remote state so the pull indicator is current).
+    if (!visible) return;
     fsRefreshPending = false;
     void refresh();
   },
@@ -1025,8 +1144,8 @@ watch(
         size="tiny"
         quaternary
         circle
-        :disabled="!isGit || busy"
-        :loading="busy"
+        :disabled="!isGit || busyElsewhere('fetch')"
+        :loading="busyOp === 'fetch' || syncing"
         :title="t.changesFetch"
         @click="onFetch"
       >
@@ -1034,27 +1153,34 @@ watch(
           <NIcon :component="CloudDownloadOutline" :size="15" />
         </template>
       </NButton>
+      <span class="pull-wrap">
+        <NButton
+          class="icon-btn"
+          size="tiny"
+          quaternary
+          circle
+          :disabled="!isGit || busyElsewhere('pull')"
+          :loading="busyOp === 'pull'"
+          :title="pullTitle"
+          @click="onPull"
+        >
+          <template #icon>
+            <NIcon :component="ArrowDownOutline" :size="15" />
+          </template>
+        </NButton>
+        <span
+          v-if="pullableCount > 0"
+          class="pull-dot"
+          :title="pullTitle"
+        />
+      </span>
       <NButton
         class="icon-btn"
         size="tiny"
         quaternary
         circle
-        :disabled="!isGit || busy"
-        :loading="busy"
-        :title="t.changesPull"
-        @click="onPull"
-      >
-        <template #icon>
-          <NIcon :component="ArrowDownOutline" :size="15" />
-        </template>
-      </NButton>
-      <NButton
-        class="icon-btn"
-        size="tiny"
-        quaternary
-        circle
-        :disabled="!isGit || busy"
-        :loading="busy"
+        :disabled="!isGit || busyElsewhere('push')"
+        :loading="busyOp === 'push'"
         :title="t.changesPush"
         @click="onPush"
       >
@@ -1106,8 +1232,8 @@ watch(
               <NButton
                 type="primary"
                 size="small"
-                :loading="busy"
-                :disabled="!workspace.root"
+                :loading="busyOp === 'init'"
+                :disabled="!workspace.root || busyElsewhere('init')"
                 @click="onInitGit"
               >
                 {{ t.changesInitGit }}
@@ -1260,9 +1386,12 @@ watch(
             />
             <template v-else>
               <NText v-if="!diffSupported || !patch" depth="3" style="font-size: 12px; padding: 12px">
-                {{ t.changesNoDiff }}
+                {{ diffError || t.changesNoDiff }}
               </NText>
               <div v-else class="diff-editor-wrap">
+                <div v-if="patch && !oldContent && !newContent" class="empty-new-hint">
+                  {{ t.changesNewEmpty }}
+                </div>
                 <ChangesDiffEditor
                   v-if="showDiffEditor && selectedPath"
                   :file-path="selectedPath"
@@ -1306,8 +1435,8 @@ watch(
             class="tool-btn"
             size="tiny"
             type="primary"
-            :disabled="!canCommit"
-            :loading="busy"
+            :disabled="!canCommit || busyElsewhere('commit')"
+            :loading="busyOp === 'commit'"
             @click="onCommit"
           >
             <template #icon>
@@ -1319,8 +1448,8 @@ watch(
             class="tool-btn"
             size="tiny"
             secondary
-            :disabled="!canCommit"
-            :loading="busy"
+            :disabled="!canCommit || busyElsewhere('commitPush')"
+            :loading="busyOp === 'commitPush'"
             @click="onCommitAndPush"
           >
             <template #icon>
@@ -1790,6 +1919,27 @@ watch(
   flex-shrink: 0;
 }
 
+/* Pull button: red dot when the remote has commits we don't have yet. */
+.pull-wrap {
+  position: relative;
+  display: inline-flex;
+  flex-shrink: 0;
+}
+
+.pull-dot {
+  position: absolute;
+  top: -1px;
+  right: -1px;
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: #e5484d;
+  border: 1.5px solid var(--bg);
+  box-shadow: 0 0 0 1px color-mix(in srgb, #e5484d 55%, transparent);
+  pointer-events: none;
+  z-index: 2;
+}
+
 .body {
   flex: 1;
   min-height: 0;
@@ -2034,6 +2184,21 @@ watch(
 .diff-editor-wrap {
   flex: 1;
   min-height: 0;
+  position: relative;
+}
+
+/* Hint chip for brand-new files that are still empty. */
+.empty-new-hint {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  z-index: 3;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 11px;
+  color: var(--fg-faint, #999);
+  background: color-mix(in srgb, var(--fg-muted) 10%, transparent);
+  pointer-events: none;
 }
 
 .remote-form {
