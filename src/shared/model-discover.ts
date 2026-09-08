@@ -81,6 +81,64 @@ function num(v: unknown): number | undefined {
   return undefined;
 }
 
+/** First positive number found among candidate fields (keeps the most specific provider hint). */
+function firstNum(...candidates: unknown[]): number | undefined {
+  for (const c of candidates) {
+    const n = num(c);
+    if (n) return n;
+  }
+  return undefined;
+}
+
+/** Context-window candidates across common OpenAI-compatible / vLLM / OpenRouter / Anthropic shapes. */
+function modelContextWindow(o: Record<string, unknown>): number | undefined {
+  const limits = asRecord(o.limits);
+  return firstNum(
+    o.context_window,
+    o.contextWindow,
+    o.max_context_window,
+    o.maxContextWindow,
+    o.max_model_len,
+    o.maxModelLen,
+    o.max_context_length,
+    o.maxContextLength,
+    o.input_token_limit,
+    o.inputTokenLimit,
+    o.max_input_tokens,
+    o.maxInputTokens,
+    o.tokens_limit,
+    o.tokensLimit,
+    limits?.context_window,
+    limits?.max_context_length,
+    limits?.max_input_tokens,
+    asRecord(o.meta)?.context_window,
+  );
+}
+
+/** Max-output candidates across common OpenAI-compatible / OpenRouter / Anthropic shapes. */
+function modelMaxTokens(o: Record<string, unknown>): number | undefined {
+  const limits = asRecord(o.limits);
+  return firstNum(
+    o.max_tokens,
+    o.maxTokens,
+    o.max_output_tokens,
+    o.maxOutputTokens,
+    o.max_output,
+    o.maxOutput,
+    o.output_token_limit,
+    o.outputTokenLimit,
+    o.max_completion_tokens,
+    o.maxCompletionTokens,
+    o.default_max_tokens,
+    o.defaultMaxTokens,
+    limits?.max_tokens,
+    limits?.max_output_tokens,
+    limits?.max_completion_tokens,
+    asRecord(o.meta)?.max_tokens,
+    asRecord(o.meta)?.max_output_tokens,
+  );
+}
+
 function parseOpenAiModelsPayload(payload: unknown): DiscoveredModel[] {
   const root = asRecord(payload);
   const data = Array.isArray(payload)
@@ -97,12 +155,8 @@ function parseOpenAiModelsPayload(payload: unknown): DiscoveredModel[] {
     if (!o) continue;
     const id = typeof o.id === "string" ? o.id.trim() : typeof o.name === "string" ? o.name.trim() : "";
     if (!id) continue;
-    const contextWindow =
-      num(o.context_window) ??
-      num(o.contextWindow) ??
-      num(o.max_model_len) ??
-      num(asRecord(o.meta)?.context_window);
-    const maxTokens = num(o.max_tokens) ?? num(o.maxTokens) ?? num(o.max_output_tokens);
+    const contextWindow = modelContextWindow(o);
+    const maxTokens = modelMaxTokens(o);
     out.push({
       id,
       name: typeof o.name === "string" && o.name !== id ? o.name : undefined,

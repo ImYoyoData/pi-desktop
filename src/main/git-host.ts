@@ -8,6 +8,7 @@ import type {
   GitLogResult,
   GitOpResult,
   GitRemote,
+  GitSyncResult,
 } from "../shared/git-types";
 import {
   classifyGitFailure,
@@ -363,6 +364,43 @@ export async function getWorkspaceGitStatus(
   return { isGitRepository: true, branch, files };
 }
 
+/**
+ * Local vs. remote-tracking state: how many commits we are behind / ahead of
+ * the branch's upstream. Pure local read (no network); call after a fetch to
+ * learn what the remote actually has.
+ */
+export async function getGitSyncStatus(cwd: string): Promise<GitSyncResult> {
+  const repositoryRoot = await findRepositoryRoot(cwd);
+  if (!repositoryRoot) return { upstream: null, ahead: 0, behind: 0 };
+
+  const upstreamRes = await gitAllowFail(repositoryRoot, [
+    "rev-parse",
+    "--abbrev-ref",
+    "--symbolic-full-name",
+    "@{upstream}",
+  ]);
+  if (!upstreamRes.ok) return { upstream: null, ahead: 0, behind: 0 };
+  const upstream = upstreamRes.stdout.trim() || null;
+  if (!upstream) return { upstream: null, ahead: 0, behind: 0 };
+
+  let ahead = 0;
+  let behind = 0;
+  const counts = await gitAllowFail(repositoryRoot, [
+    "rev-list",
+    "--left-right",
+    "--count",
+    "HEAD...@{upstream}",
+  ]);
+  if (counts.ok) {
+    const parts = counts.stdout.trim().split(/\s+/);
+    // --left-right prints <left> <right>: left = only in HEAD (ahead),
+    // right = only in upstream (behind).
+    ahead = Number.parseInt(parts[0] ?? "0", 10) || 0;
+    behind = Number.parseInt(parts[1] ?? "0", 10) || 0;
+  }
+  return { upstream, ahead, behind };
+}
+
 function hasNullByte(content: Buffer): boolean {
   return content.includes(0);
 }
@@ -493,49 +531,72 @@ export async function getGitFileDiff(
   } catch {
     return { supported: false };
   }
-  if (!stat.isFile() || stat.size > TEXT_PREVIEW_MAX_BYTES)
-    return { supported: false };
+  if (!stat.isFile()) return { supported: false };
+
+  // Brand-new file (nothing of it exists in HEAD yet): its whole content is a
+  // single addition. Always show it as an all-green full-add view instead of
+  // refusing when the file is big — only binary content stays unsupported.
+  const isBrandNew =
+    status === "untracked" ||
+    (status === "added" &&
+      !(await readHeadContent(
+        repositoryRoot,
+        entry.originalPath || repoRelative,
+      )));
+  if (isBrandNew) {
+    let buf: Buffer;
+    try {
+      buf = fs.readFileSync(resolvedFilePath);
+    } catch {
+      return { supported: false };
+    }
+    if (hasNullByte(buf)) return { supported: false };
+
+    let content = buf.toString("utf8");
+    if (buf.length > TEXT_PREVIEW_MAX_BYTES) {
+      content = buf
+        .subarray(0, TEXT_PREVIEW_MAX_BYTES)
+        .toString("utf8");
+      if (!content.endsWith("\n")) content += "\n";
+      content += "… file larger than the preview limit — content truncated";
+    }
+    const patch = createAddedFilePatch(repoRelative, content);
+    return {
+      supported: true,
+      status: "added",
+      patch,
+      oldContent: "",
+      newContent: content,
+    };
+  }
+
+  if (stat.size > TEXT_PREVIEW_MAX_BYTES) return { supported: false };
 
   const currentBuffer = fs.readFileSync(resolvedFilePath);
   if (hasNullByte(currentBuffer)) return { supported: false };
   const newContent = currentBuffer.toString("utf8");
 
-  let patch: string;
-  let oldContent = "";
-  if (status === "untracked") {
-    patch = createAddedFilePatch(repoRelative, newContent);
-  } else {
-    const headPath = entry.originalPath || repoRelative;
-    oldContent = (await readHeadContent(repositoryRoot, headPath)) ?? "";
-    // Brand-new tracked/staged file: treat as full addition (empty at HEAD).
-    if (!oldContent) {
-      patch = createAddedFilePatch(repoRelative, newContent);
-      oldContent = "";
-    } else {
-      const trackedPatch = await createTrackedFilePatch(
-        repositoryRoot,
-        repoRelative,
-        entry.originalPath,
-      );
-      if (
-        trackedPatch === null ||
-        (!trackedPatch.includes("\n@@ ") && !trackedPatch.startsWith("@@ "))
-      ) {
-        if (status === "added") {
-          patch = createAddedFilePatch(repoRelative, newContent);
-          oldContent = "";
-        } else {
-          return { supported: false };
-        }
-      } else {
-        patch = trackedPatch;
-      }
-    }
+  // Tracked file with existing content at HEAD: show a regular diff.
+  const headPath = entry.originalPath || repoRelative;
+  const oldContent = (await readHeadContent(repositoryRoot, headPath)) ?? "";
+  if (!oldContent) {
+    const patch = createAddedFilePatch(repoRelative, newContent);
+    if (!patch.includes("\n@@ ") && !patch.startsWith("@@ "))
+      return { supported: false };
+    return { supported: true, status, patch, oldContent: "", newContent };
   }
-
-  if (!patch.includes("\n@@ ") && !patch.startsWith("@@ "))
+  const trackedPatch = await createTrackedFilePatch(
+    repositoryRoot,
+    repoRelative,
+    entry.originalPath,
+  );
+  if (
+    trackedPatch === null ||
+    (!trackedPatch.includes("\n@@ ") && !trackedPatch.startsWith("@@ "))
+  ) {
     return { supported: false };
-  return { supported: true, status, patch, oldContent, newContent };
+  }
+  return { supported: true, status, patch: trackedPatch, oldContent, newContent };
 }
 
 export async function listBranches(cwd: string): Promise<GitBranchesResult> {
@@ -666,6 +727,7 @@ export async function restorePaths(
 export async function fetchRepo(
   cwd: string,
   remote?: string,
+  timeoutMs?: number,
 ): Promise<GitOpResult> {
   const repositoryRoot = await findRepositoryRoot(cwd);
   if (!repositoryRoot) return fail("not_repo", "Not a git repository");
@@ -687,11 +749,8 @@ export async function fetchRepo(
   const args = name
     ? ["fetch", name, "--prune"]
     : ["fetch", "--all", "--prune"];
-  const result = await gitAllowFail(
-    repositoryRoot,
-    args,
-    GIT_NETWORK_TIMEOUT_MS,
-  );
+  const timeout = Number.isFinite(timeoutMs) && (timeoutMs ?? 0) > 0 ? timeoutMs! : GIT_NETWORK_TIMEOUT_MS;
+  const result = await gitAllowFail(repositoryRoot, args, timeout);
   if (!result.ok) return fail(result.code, result.message);
   return { ok: true, message: result.stdout.trim() || undefined };
 }
