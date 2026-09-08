@@ -10,6 +10,7 @@ import {
   fetchRepo,
   fileDiffAtCommit,
   getGitFileDiff,
+  getGitSyncStatus,
   getWorkspaceGitStatus,
   initRepo,
   listBranches,
@@ -49,6 +50,12 @@ export function registerGitIpc(): void {
     const root = requireRoot();
     if (!root) return { isGitRepository: false, branch: null, files: [] };
     return getWorkspaceGitStatus(root);
+  });
+
+  ipcMain.handle(IpcChannels.git.syncStatus, async () => {
+    const root = requireRoot();
+    if (!root) return { upstream: null, ahead: 0, behind: 0 };
+    return getGitSyncStatus(root);
   });
 
   ipcMain.handle(IpcChannels.git.diff, async (_e, relativePath: string) => {
@@ -148,11 +155,21 @@ export function registerGitIpc(): void {
     return pushRepo(root);
   });
 
-  ipcMain.handle(IpcChannels.git.fetch, async (_e, remote?: string) => {
-    const root = requireRoot();
-    if (!root) return noWorkspace();
-    return fetchRepo(root, typeof remote === "string" ? remote : undefined);
-  });
+  ipcMain.handle(
+    IpcChannels.git.fetch,
+    async (_e, opts?: string | { remote?: string; timeoutMs?: number }) => {
+      const root = requireRoot();
+      if (!root) return noWorkspace();
+      const remote = typeof opts === "string" ? opts : opts?.remote;
+      const timeoutMs =
+        typeof opts === "object" && opts ? opts.timeoutMs : undefined;
+      return fetchRepo(
+        root,
+        typeof remote === "string" ? remote : undefined,
+        timeoutMs,
+      );
+    },
+  );
 
   ipcMain.handle(IpcChannels.git.restore, async (_e, paths: string[]) => {
     const root = requireRoot();
