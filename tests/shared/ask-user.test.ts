@@ -101,18 +101,55 @@ describe("validateAskUserAnswers + formatAskUserAnswers", () => {
 
   it("requires custom text when allowCustom option selected", () => {
     const draft: AskUserAnswerDraft = {
-      env: { optionIds: ["other"], customText: "   " },
-      flags: { optionIds: ["a"], customText: "" },
-      go: { optionIds: ["yes"], customText: "" },
+      env: { optionIds: ["other"], customText: "   ", skipped: false },
+      flags: { optionIds: ["a"], customText: "", skipped: false },
+      go: { optionIds: ["yes"], customText: "", skipped: false },
     };
     expect(validateAskUserAnswers(prompt, draft)).toMatch(/custom/i);
   });
 
+  it("allows skipped questions and formats them as [skipped]", () => {
+    const draft: AskUserAnswerDraft = {
+      env: { optionIds: [], customText: "", skipped: true },
+      flags: { optionIds: ["a"], customText: "", skipped: false },
+      go: { optionIds: ["yes"], customText: "", skipped: false },
+    };
+    expect(validateAskUserAnswers(prompt, draft)).toBeNull();
+    const text = formatAskUserAnswers(prompt, draft);
+    expect(text).toContain("(id=env)");
+    expect(text).toContain("→ [skipped]");
+  });
+
+  it("rejects skipping a question marked skippable:false", () => {
+    const required = parseAskUserArgs({
+      questions: [
+        {
+          id: "go",
+          prompt: "Proceed?",
+          type: "buttons",
+          skippable: false,
+          options: [
+            { id: "yes", label: "Confirm" },
+            { id: "no", label: "Reject" },
+          ],
+        },
+      ],
+    })!;
+    expect(required.questions[0]?.skippable).toBe(false);
+    const draft: AskUserAnswerDraft = {
+      go: { optionIds: [], customText: "", skipped: true },
+    };
+    expect(validateAskUserAnswers(required, draft)).toMatch(/cannot be skipped/i);
+    expect(
+      validateAskUserAnswers(required, { ...draft, go: { optionIds: ["yes"], customText: "", skipped: false } }),
+    ).toBeNull();
+  });
+
   it("formats answers with prefix and ids", () => {
     const draft: AskUserAnswerDraft = {
-      env: { optionIds: ["other"], customText: "canary 10%" },
-      flags: { optionIds: ["a", "c"], customText: "extra" },
-      go: { optionIds: ["no"], customText: "" },
+      env: { optionIds: ["other"], customText: "canary 10%", skipped: false },
+      flags: { optionIds: ["a", "c"], customText: "extra", skipped: false },
+      go: { optionIds: ["no"], customText: "", skipped: false },
     };
     expect(validateAskUserAnswers(prompt, draft)).toBeNull();
     const text = formatAskUserAnswers(prompt, draft);
