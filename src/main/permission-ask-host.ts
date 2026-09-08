@@ -126,12 +126,19 @@ export function registerPermissionAskIpc(broker?: SessionBroker): void {
   );
 }
 
+/** Cancel one outstanding permission ask (worker abort / Stop). Broadcasts a cancel so the strip closes. */
+export function cancelPermissionAsk(requestId: string, reason = "permission ask cancelled"): void {
+  const row = pendingAsks.get(requestId);
+  if (!row) return;
+  pendingAsks.delete(requestId);
+  clearTimeout(row.timer);
+  broadcastCancelled(row.sessionId, requestId);
+  row.reject(new Error(reason));
+}
+
 /** Test / shutdown helper: reject all outstanding asks. */
 export function clearPendingPermissionAsks(reason = "permission asks cleared"): void {
-  for (const [id, row] of pendingAsks) {
-    clearTimeout(row.timer);
-    broadcastCancelled(row.sessionId, id);
-    row.reject(new Error(reason));
-    pendingAsks.delete(id);
+  for (const id of [...pendingAsks.keys()]) {
+    cancelPermissionAsk(id, reason);
   }
 }

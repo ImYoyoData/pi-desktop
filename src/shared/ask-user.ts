@@ -44,9 +44,6 @@ export function questionSkippable(q: AskUserQuestion): boolean {
   return q.skippable !== false;
 }
 
-/** Worker → main RPC wait; long enough for multi-question wizards. */
-export const ASK_USER_TIMEOUT_MS = 30 * 60 * 1000;
-
 /** Main → renderer ask / cancel. */
 export type AskUserAskPrompt = {
   sessionId: string;
