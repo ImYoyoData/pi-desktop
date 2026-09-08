@@ -59,3 +59,13 @@ export type GitConflictContentResult =
       labels: { ours: string; theirs: string };
     }
   | { supported: false; reason?: "too_large" | "binary" | "not_found" | "not_repo" };
+
+/** Local vs. remote-tracking state for the current branch (no network I/O). */
+export type GitSyncResult = {
+  /** Upstream tracking ref, e.g. "origin/main"; null when none / not a repo. */
+  upstream: string | null;
+  /** Commits in upstream not in HEAD — pullable from the remote. */
+  behind: number;
+  /** Commits in HEAD not in upstream — pushable to the remote. */
+  ahead: number;
+};

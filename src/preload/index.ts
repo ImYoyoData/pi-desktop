@@ -487,6 +487,12 @@ const api = {
 				errorCode?: string;
 				errorMessage?: string;
 			}>,
+		syncStatus: () =>
+			ipcRenderer.invoke(IpcChannels.git.syncStatus) as Promise<{
+				upstream: string | null;
+				ahead: number;
+				behind: number;
+			}>,
 		diff: (relativePath: string) =>
 			ipcRenderer.invoke(IpcChannels.git.diff, relativePath) as Promise<{
 				supported: boolean;
@@ -594,8 +600,8 @@ const api = {
 				| { ok: true; message?: string }
 				| { ok: false; message: string; code: string }
 			>,
-		fetch: (remote?: string) =>
-			ipcRenderer.invoke(IpcChannels.git.fetch, remote) as Promise<
+		fetch: (opts?: string | { remote?: string; timeoutMs?: number }) =>
+			ipcRenderer.invoke(IpcChannels.git.fetch, opts) as Promise<
 				| { ok: true; message?: string }
 				| { ok: false; message: string; code: string }
 			>,
