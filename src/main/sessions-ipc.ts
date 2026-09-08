@@ -8,6 +8,9 @@ import type { ChatMessageTag } from "../shared/chat-meta";
 import { IpcChannels } from "../shared/protocol";
 import type { SessionBroker } from "./session-broker";
 import { readSessionHistoryPage } from "./session-history";
+import { cancelAskUserAsksForSession } from "./ask-user-host";
+import { cancelPermissionAsksForSession } from "./permission-ask-host";
+import { cancelExtensionUiAsksForSession } from "./extension-ui-host";
 import {
   clearSessionResources,
   getSessionResources,
@@ -62,6 +65,18 @@ function broadcastEvent(event: unknown): void {
   }
 }
 
+/**
+ * A turn abort (renderer Stop / auto-recover) must also tear down whatever UI
+ * ask this session is blocked on. ask_user / permission / extension-UI dialogs
+ * wait in main, and the worker cannot cancel the ones whose RPCs carry no abort
+ * signal — without this the turn stays "running" until the ask times out.
+ */
+function cancelSessionUiAsks(sessionId: string): void {
+  cancelAskUserAsksForSession(sessionId);
+  cancelPermissionAsksForSession(sessionId);
+  cancelExtensionUiAsksForSession(sessionId);
+}
+
 export function registerSessionsIpc(broker: SessionBroker): void {
   broker.onEvent((event) => {
     broadcastEvent(event);
@@ -77,12 +92,18 @@ export function registerSessionsIpc(broker: SessionBroker): void {
   });
 
   ipcMain.handle(IpcChannels.sessions.close, (_event, sessionId: string) => {
-    clearSessionResources(String(sessionId ?? ""));
-    return broker.closeSession(sessionId);
+    const id = String(sessionId ?? "");
+    cancelSessionUiAsks(id);
+    clearSessionResources(id);
+    return broker.closeSession(id);
   });
 
-  ipcMain.handle(IpcChannels.sessions.command, (_event, sessionId: string, command: AgentCommand) =>
-    broker.send(sessionId, command),
+  ipcMain.handle(
+    IpcChannels.sessions.command,
+    (_event, sessionId: string, command: AgentCommand) => {
+      if (command?.type === "abort") cancelSessionUiAsks(String(sessionId ?? ""));
+      return broker.send(sessionId, command);
+    },
   );
 
   ipcMain.handle(IpcChannels.sessions.tryCommand, (_event, sessionId: string, command: AgentCommand) =>
@@ -113,8 +134,10 @@ export function registerSessionsIpc(broker: SessionBroker): void {
   );
 
   ipcMain.handle(IpcChannels.sessions.delete, (_event, sessionId: string, cwd: string) => {
-    clearSessionResources(String(sessionId ?? ""));
-    return broker.deleteSession(sessionId, cwd);
+    const id = String(sessionId ?? "");
+    cancelSessionUiAsks(id);
+    clearSessionResources(id);
+    return broker.deleteSession(id, cwd);
   });
 
   ipcMain.handle(

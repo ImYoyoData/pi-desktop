@@ -147,3 +147,18 @@ export function clearPendingExtensionUiAsks(reason = "extension UI cleared"): vo
   }
   void reason;
 }
+
+/** Cancel every outstanding dialog for one session (renderer Stop / turn abort). */
+export function cancelExtensionUiAsksForSession(
+  sessionId: string,
+  reason = "extension UI cleared",
+): void {
+  for (const [requestId, row] of [...pendingDialogs]) {
+    if (row.sessionId !== sessionId) continue;
+    pendingDialogs.delete(requestId);
+    clearTimeout(row.timer);
+    broadcastCancelled(sessionId, requestId);
+    row.resolve({ requestId, cancelled: true });
+  }
+  void reason;
+}
