@@ -42,13 +42,15 @@ export function handleRpcResponse(msg: Extract<WorkerInbound, { kind: "rpc_respo
  * cancelled: main is told to drop its pending request and broadcast a cancel
  * to the renderer so the strip closes, then the local promise rejects.
  *
- * `timeoutMs: undefined` disables the auto-timeout — the ask waits until the
- * user answers or the turn is aborted.
+ * `timeoutMs: null` disables the auto-timeout — the ask waits until the user
+ * answers or the turn is aborted. NOTE: pass `null`, not `undefined` —
+ * an explicit `undefined` is replaced by the default (BROWSER_RPC_TIMEOUT_MS)
+ * per JS default-parameter semantics.
  */
 export function rpcToMain(
   method: BrowserRpcMethod | string,
   params: Record<string, unknown> = {},
-  timeoutMs: number | undefined = BROWSER_RPC_TIMEOUT_MS,
+  timeoutMs: number | null = BROWSER_RPC_TIMEOUT_MS,
   signal?: AbortSignal,
 ): Promise<unknown> {
   const id = randomUUID();
@@ -60,6 +62,7 @@ export function rpcToMain(
     const onAbort = (): void => {
       if (rowTimer) clearTimeout(rowTimer);
       cleanup();
+      console.warn(`[ask-user-diag] rpcToMain abort fired for method=${method} id=${id}`);
       // Tell main to tear down the pending UI ask (broadcasts a cancel so the
       // renderer strip closes). The reply to this cancel is intentionally ignored.
       post({
