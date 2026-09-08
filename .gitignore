@@ -1,7 +1,6 @@
 node_modules
 dist
 out
-release
 *.log
 .DS_Store
 Thumbs.db
@@ -18,3 +17,5 @@ _ev-scaffold2
 /.idea/pi-desktop.iml
 /.idea/vcs.xml
 /.pi-glla/
+/release-timing/
+/release/
