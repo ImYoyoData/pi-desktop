@@ -18,3 +18,7 @@ _ev-scaffold2
 /.idea/pi-desktop.iml
 /.idea/vcs.xml
 /.pi-glla/
+
+# >>> pi-desktop filter >>>
+pnpm-lock.yaml
+# <<< pi-desktop filter <<<
