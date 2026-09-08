@@ -11,6 +11,11 @@ export type AskUserQuestion = {
   prompt: string;
   type: AskUserQuestionType;
   options: AskUserOption[];
+  /**
+   * Whether the user may skip this question. Omitted = skippable (default).
+   * Set false for hard requirements (e.g. plan/task confirm/reject gates).
+   */
+  skippable?: boolean;
 };
 
 export type AskUserPrompt = {
@@ -26,11 +31,18 @@ export type AskUserAnswerDraft = Record<
   {
     optionIds: string[];
     customText: string;
+    /** True when the user skipped this question (no option selected). */
+    skipped: boolean;
   }
 >;
 
 /** Injected when the model omitted a free-text option (single/multi). */
 export const ASK_USER_CUSTOM_OPTION_ID = "__custom__";
+
+/** Questions default to skippable; only explicit `skippable:false` forces an answer. */
+export function questionSkippable(q: AskUserQuestion): boolean {
+  return q.skippable !== false;
+}
 
 /** Worker → main RPC wait; long enough for multi-question wizards. */
 export const ASK_USER_TIMEOUT_MS = 30 * 60 * 1000;
@@ -115,7 +127,13 @@ function parseQuestion(raw: unknown): AskUserQuestion | null {
     options.push(opt);
   }
   if (options.length === 0) return null;
-  return withEnsuredCustomOption({ id, prompt, type, options });
+  return withEnsuredCustomOption({
+    id,
+    prompt,
+    type,
+    options,
+    ...(q.skippable === false ? { skippable: false } : {}),
+  });
 }
 
 /** Returns null if args are unusable for UI. */
@@ -141,7 +159,15 @@ export function validateAskUserAnswers(
 ): string | null {
   for (const q of prompt.questions) {
     const ans = draft[q.id];
-    if (!ans || ans.optionIds.length === 0) {
+    if (!ans) {
+      return `Missing answer for: ${q.prompt}`;
+    }
+    // A skipped question is valid unless the model marked it as required.
+    if (ans.skipped) {
+      if (questionSkippable(q)) continue;
+      return `This question cannot be skipped: ${q.prompt}`;
+    }
+    if (ans.optionIds.length === 0) {
       return `Missing answer for: ${q.prompt}`;
     }
     if (q.type === "single" || q.type === "buttons") {
@@ -175,7 +201,13 @@ export function formatAskUserAnswers(
 ): string {
   const lines = ["[ask_user answers]"];
   prompt.questions.forEach((q, i) => {
-    const ans = draft[q.id]!;
+    const ans = draft[q.id];
+    // Skipped questions are still listed so the model knows the user chose
+    // not to answer (option B) and must not silently re-ask.
+    if (!ans || ans.skipped) {
+      lines.push(`${i + 1}. (id=${q.id}) ${q.prompt} → [skipped]`);
+      return;
+    }
     const selected = q.options.filter((o) => ans.optionIds.includes(o.id));
     const labels = selected.map((o) => o.label).join(", ");
     const needsCustom = selected.some((o) => o.allowCustom);

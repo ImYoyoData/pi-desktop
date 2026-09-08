@@ -18,6 +18,12 @@ const askUserSchema = Type.Object({
         Type.Literal("multi"),
         Type.Literal("buttons"),
       ]),
+      skippable: Type.Optional(
+        Type.Boolean({
+          description:
+            "Whether the user may skip this question. Omitted = skippable. Set false only for hard requirements (e.g. a confirm/reject gate) — otherwise users can and often will skip.",
+        }),
+      ),
       options: Type.Array(
         Type.Object({
           id: Type.String(),
@@ -62,15 +68,17 @@ export function createAskUserToolDefinition(deps?: {
     name: ASK_USER_TOOL_NAME,
     label: "Ask user",
     description:
-      "Show an interactive question wizard in Pi Desktop (single-select, multi-select, or buttons). Blocks until the user answers every question. Prefer one call with multiple questions over many sequential calls.",
+      "Show an interactive question wizard in Pi Desktop (single-select, multi-select, or buttons). The user may skip any skippable question. Blocks until the user submits. Prefer one call with multiple questions over many sequential calls.",
     promptSnippet:
       "Ask the user structured single/multi/button questions and wait for all answers",
     promptGuidelines: [
       "Use ask_user instead of only asking clarifying choices in prose when a discrete choice is needed.",
       "Put multiple related questions in one ask_user call; the UI collects all answers before continuing.",
+      "Users can and often will skip questions — questions default to skippable. Set skippable:false only when an answer is a hard requirement (e.g. a confirm/reject gate).",
       "Desktop always offers a custom free-text option for single/multi; you may also set allowCustom on any option of any type (single/multi/buttons). In plan/task confirm dialogs, mark the adjust/revise option allowCustom so the user can type adjustment instructions.",
       "Option labels are plain text — no emoji, icons, or decorative symbols.",
       "Do not invent answers — ask_user blocks until the user submits.",
+      "Answers list every question; skipped ones are marked '[skipped]'. Never re-ask a skipped question on your own — proceed with what you have or state what is missing.",
     ],
     executionMode: "sequential",
     parameters: askUserSchema,
