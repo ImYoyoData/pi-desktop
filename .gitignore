@@ -19,3 +19,7 @@ _ev-scaffold2
 /.pi-glla/
 /release-timing/
 /release/
+
+# >>> pi-desktop filter >>>
+pnpm-lock.yaml
+# <<< pi-desktop filter <<<
