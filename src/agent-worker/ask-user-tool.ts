@@ -1,7 +1,6 @@
 import { Type, type Static } from "typebox";
 import { defineTool } from "@earendil-works/pi-coding-agent";
 import {
-  ASK_USER_TIMEOUT_MS,
   ASK_USER_TOOL_NAME,
   parseAskUserArgs,
   type AskUserQuestion,
@@ -30,8 +29,8 @@ const askUserSchema = Type.Object({
           label: Type.String(),
           allowCustom: Type.Optional(
             Type.Boolean({
-            description:
-              "If true, selecting this option shows a free-text field. Works for any type (single/multi/buttons). Desktop always adds a custom option for single/multi when missing.",
+              description:
+                "If true, selecting this option shows a free-text field. Works for any type (single/multi/buttons). Desktop always adds a custom option for single/multi when missing.",
             }),
           ),
         }),
@@ -46,14 +45,17 @@ export type AskUserToolInput = Static<typeof askUserSchema>;
 
 export type AskUserWaitForAnswers = (
   questions: AskUserQuestion[],
+  signal?: AbortSignal,
 ) => Promise<string>;
 
-async function defaultWaitForAnswers(questions: AskUserQuestion[]): Promise<string> {
-  const raw = await rpcToMain(
-    "desktop.askUser",
-    { questions },
-    ASK_USER_TIMEOUT_MS,
-  );
+async function defaultWaitForAnswers(
+  questions: AskUserQuestion[],
+  signal?: AbortSignal,
+): Promise<string> {
+  // No auto-timeout: the ask waits until the user answers or the turn is
+  // aborted (Stop). Aborting rejects the RPC so the tool returns an error and
+  // the agent turn ends cleanly instead of hanging until a force-kill.
+  const raw = await rpcToMain("desktop.askUser", { questions }, undefined, signal);
   if (typeof raw !== "string" || !raw.trim()) {
     throw new Error("ask_user: no answers from user");
   }
@@ -82,12 +84,12 @@ export function createAskUserToolDefinition(deps?: {
     ],
     executionMode: "sequential",
     parameters: askUserSchema,
-    async execute(_toolCallId, params) {
+    async execute(_toolCallId, params, signal) {
       const parsed = parseAskUserArgs(params);
       if (!parsed) {
         throw new Error("ask_user: invalid or empty questions");
       }
-      const answersText = await waitForAnswers(parsed.questions);
+      const answersText = await waitForAnswers(parsed.questions, signal);
       return {
         content: [{ type: "text" as const, text: answersText }],
         details: {},

@@ -959,10 +959,16 @@ export const useChatStore = defineStore("chat", () => {
 	}
 
 	async function abort(sessionId: string): Promise<void> {
+		// Stop dismisses any pending interactive strip (ask_user / permission /
+		// extension UI) immediately — don't wait for the worker cancel broadcast.
+		setSessionState(
+			sessionId,
+			clearPendingAskUser(clearPendingPermission(clearPendingExtensionUi(stateFor(sessionId)))),
+		);
 		// User-initiated stop: freeze the todo round as paused — the user
 		// decides to continue or delete; never auto-complete it.
 		stopIntentBySession.add(sessionId);
-		useSessionWidgetsStore().pauseTodosForSession(sessionId);
+
 		const row = sessionsStore.sessions.find((s) => s.id === sessionId);
 		if (row?.status === "stuck") {
 			await sessionsStore.killWorker(sessionId, null);
