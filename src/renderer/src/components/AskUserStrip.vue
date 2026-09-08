@@ -173,6 +173,13 @@ async function onConfirm(): Promise<void> {
     confirming.value = false;
   }
 }
+
+/** Copilot-style "dismiss": cancel the pending ask and stop the blocked turn. */
+function onCancelAsk(): void {
+  const p = prompt.value;
+  if (!p) return;
+  void chat.abort(p.sessionId);
+}
 </script>
 
 <template>
@@ -252,9 +259,21 @@ async function onConfirm(): Promise<void> {
       </div>
 
       <footer class="strip-foot">
-        <NText v-if="validationError" type="error" class="err">
-          {{ validationError }}
-        </NText>
+        <div class="foot-left">
+          <NButton
+            quaternary
+            round
+            size="small"
+            class="pi-interactive cancel-btn"
+            :disabled="confirming"
+            @click="onCancelAsk"
+          >
+            {{ t.cancel }}
+          </NButton>
+          <NText v-if="validationError" type="error" class="err">
+            {{ validationError }}
+          </NText>
+        </div>
         <div class="foot-actions">
           <NButton
             v-if="questionSkippable(currentQuestion)"
@@ -539,6 +558,18 @@ async function onConfirm(): Promise<void> {
   gap: 10px;
   padding: 4px 10px 8px;
   flex-shrink: 0;
+}
+
+.foot-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  flex: 1;
+}
+
+.cancel-btn {
+  color: var(--chat-desc-fg, var(--fg-muted));
 }
 
 .err {

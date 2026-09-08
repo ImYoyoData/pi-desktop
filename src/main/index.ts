@@ -51,10 +51,12 @@ import { registerCheckpointIpc } from "./checkpoint-ipc";
 import { registerNotifyIpc } from "./notify-host";
 import {
 	askRendererPermission,
+	cancelPermissionAsk,
 	registerPermissionAskIpc,
 } from "./permission-ask-host";
 import {
 	askRendererAskUser,
+	cancelAskUserAsk,
 	questionsFromAskUserParams,
 	registerAskUserIpc,
 } from "./ask-user-host";
@@ -211,6 +213,17 @@ function boot(): void {
 							requestId: msg.id,
 							questions,
 						});
+					} else if (msg.method === "desktop.rpcCancel") {
+						// Worker aborted the turn (Stop) while blocked on a UI ask —
+						// tear it down and broadcast a cancel so the strip closes.
+						const params = msg.params ?? {};
+						const requestId =
+							typeof params.requestId === "string" ? params.requestId : "";
+						if (requestId) {
+							cancelAskUserAsk(requestId);
+							cancelPermissionAsk(requestId);
+						}
+						result = { ok: true };
 					} else if (msg.method === "desktop.extensionUi") {
 						result = await handleExtensionUiRpc(sessionId, msg.id, msg.params ?? {});
 					} else {

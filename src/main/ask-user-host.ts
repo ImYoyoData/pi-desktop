@@ -1,6 +1,5 @@
 import { BrowserWindow, ipcMain } from "electron";
 import {
-  ASK_USER_TIMEOUT_MS,
   parseAskUserArgs,
   type AskUserAskPrompt,
   type AskUserAskReply,
@@ -13,7 +12,6 @@ type PendingAsk = {
   sessionId: string;
   resolve: (answersText: string) => void;
   reject: (err: Error) => void;
-  timer: ReturnType<typeof setTimeout>;
 };
 
 const pendingAsks = new Map<string, PendingAsk>();
@@ -30,14 +28,15 @@ function broadcastCancelled(sessionId: string, requestId: string): void {
 
 /**
  * Block the worker until the renderer AskUserStrip submits all answers.
+ *
+ * No auto-timeout — the ask waits until the user answers, hits Stop, or the
+ * session tears down (each of those broadcasts a cancel through cancelAskUserAsk).
  */
 export function askRendererAskUser(input: {
   sessionId: string;
   requestId: string;
   questions: AskUserQuestion[];
-  timeoutMs?: number;
 }): Promise<string> {
-  const timeoutMs = input.timeoutMs ?? ASK_USER_TIMEOUT_MS;
   const { requestId, sessionId, questions } = input;
 
   return new Promise((resolve, reject) => {
@@ -54,18 +53,7 @@ export function askRendererAskUser(input: {
       return;
     }
 
-    const timer = setTimeout(() => {
-      pendingAsks.delete(requestId);
-      broadcastCancelled(sessionId, requestId);
-      reject(new Error("ask_user prompt timed out"));
-    }, timeoutMs);
-
-    pendingAsks.set(requestId, {
-      sessionId,
-      resolve,
-      reject,
-      timer,
-    });
+    pendingAsks.set(requestId, { sessionId, resolve, reject });
 
     const payload: AskUserAskPrompt = {
       sessionId,
@@ -74,6 +62,15 @@ export function askRendererAskUser(input: {
     };
     broadcastAskUser(payload);
   });
+}
+
+/** Cancel one outstanding ask (worker abort / Stop). Broadcasts a cancel so the strip closes. */
+export function cancelAskUserAsk(requestId: string, reason = "ask_user cancelled"): void {
+  const row = pendingAsks.get(requestId);
+  if (!row) return;
+  pendingAsks.delete(requestId);
+  broadcastCancelled(row.sessionId, requestId);
+  row.reject(new Error(reason));
 }
 
 export function registerAskUserIpc(): void {
@@ -94,7 +91,6 @@ export function registerAskUserIpc(): void {
         return { ok: false, reason: "unknown_or_expired" as const };
       }
       pendingAsks.delete(requestId);
-      clearTimeout(row.timer);
       if (!answersText) {
         row.reject(new Error("ask_user: empty answers"));
         return { ok: false, reason: "empty_answers" as const };
@@ -106,11 +102,8 @@ export function registerAskUserIpc(): void {
 }
 
 export function clearPendingAskUserAsks(reason = "ask_user asks cleared"): void {
-  for (const [id, row] of pendingAsks) {
-    clearTimeout(row.timer);
-    broadcastCancelled(row.sessionId, id);
-    row.reject(new Error(reason));
-    pendingAsks.delete(id);
+  for (const id of [...pendingAsks.keys()]) {
+    cancelAskUserAsk(id, reason);
   }
 }
 
