@@ -825,6 +825,18 @@ function jumpToBottomInstant(): void {
  * frame is enough; later updates simply re-schedule.
  */
 let bottomScrollRaf = 0;
+/**
+ * 每 tick 同步量高会强制布局（offsetHeight 读取），高 chunk 频率下占满主线程。
+ * 流式期间合并为 ~250ms 尾随测量，滚动 / 窗口调整路径仍各自即时测量。
+ */
+let streamMeasureTimer = 0;
+function scheduleStreamMeasure(): void {
+  if (streamMeasureTimer) return;
+  streamMeasureTimer = window.setTimeout(() => {
+    streamMeasureTimer = 0;
+    measureVisibleRows();
+  }, 250);
+}
 function scheduleBottomScroll(): void {
   // Hard latch first: a reader must never be yanked, even if followBottom is
   // still momentarily true in a state snapshot taken mid-wheel.
@@ -1245,7 +1257,8 @@ watch(
       if (!followBottom) return;
       // Coalesced + re-checked at fire time (never yanks a scrolled-up reader).
       scheduleBottomScroll();
-      measureVisibleRows();
+      if (justFinished) measureVisibleRows();
+      else scheduleStreamMeasure();
       if (justFinished) {
         requestAnimationFrame(() => {
           const sc = scroller.value;
@@ -1316,6 +1329,10 @@ onBeforeUnmount(() => {
   if (bottomScrollRaf) {
     cancelAnimationFrame(bottomScrollRaf);
     bottomScrollRaf = 0;
+  }
+  if (streamMeasureTimer) {
+    clearTimeout(streamMeasureTimer);
+    streamMeasureTimer = 0;
   }
   instantSnapToken++;
 });
@@ -1746,6 +1763,7 @@ function onRevertUser(msg: Extract<ChatMessage, { role: "user" }>): void {
               <MarkdownView
                 v-if="msg.text"
                 :content="msg.text"
+                :streaming="Boolean(msg.streaming)"
                 variant="chat"
                 class="assistant-md"
                 :class="{ 'stream-shimmer': msg.streaming && msg.text }"
