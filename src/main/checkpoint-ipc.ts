@@ -8,7 +8,9 @@ import {
 	initCheckpointPersistence,
 	listSessionCheckpointSummaries,
 	revertCheckpoint,
+	sessionNetFileChanges,
 	type CheckpointSummary,
+	type SessionNetFileStats,
 } from "./checkpoint-host";
 import { getWorkspace } from "./workspace-ipc";
 import { flushPendingFsWatch } from "./fs-watch-host";
@@ -82,6 +84,17 @@ export function registerCheckpointIpc(): void {
 			const summary = getCheckpointSummary(sessionId, userMessageId);
 			if (summary) broadcastUpdated(summary);
 			return result;
+		},
+	);
+
+	ipcMain.handle(
+		IpcChannels.checkpoint.netSessionChanges,
+		(
+			_event,
+			sessionId: string,
+			relativePaths: string[],
+		): Record<string, SessionNetFileStats> => {
+			return sessionNetFileChanges(sessionId, relativePaths);
 		},
 	);
 }

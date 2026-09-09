@@ -803,6 +803,15 @@ declare const api: {
 			skipped: number;
 			error: string | null;
 		}>;
+		netSessionChanges: (
+			sessionId: string,
+			relativePaths: string[],
+		) => Promise<
+			Record<
+				string,
+				{ additions: number; deletions: number; available: boolean }
+			>
+		>;
 		onUpdated: (
 			callback: (summary: {
 				sessionId: string;

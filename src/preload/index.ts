@@ -1208,6 +1208,20 @@ const api = {
 				skipped: number;
 				error: string | null;
 			}>,
+		netSessionChanges: (
+			sessionId: string,
+			relativePaths: string[],
+		) =>
+			ipcRenderer.invoke(
+				IpcChannels.checkpoint.netSessionChanges,
+				sessionId,
+				relativePaths,
+			) as Promise<
+				Record<
+					string,
+					{ additions: number; deletions: number; available: boolean }
+				>
+			>,
 		onUpdated: (
 			callback: (summary: {
 				sessionId: string;
