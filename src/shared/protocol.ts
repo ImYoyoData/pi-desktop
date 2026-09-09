@@ -265,6 +265,7 @@ export const IpcChannels = {
 		get: "checkpoint:get",
 		list: "checkpoint:list",
 		revert: "checkpoint:revert",
+		netSessionChanges: "checkpoint:netSessionChanges",
 		updated: "checkpoint:updated",
 	},
 	notify: {
