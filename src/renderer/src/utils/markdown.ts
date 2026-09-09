@@ -184,6 +184,24 @@ export function renderMarkdownCached(content: string, cacheable = true): string 
   return html;
 }
 
+/**
+ * 流式渲染切分：最后一个空行之前是“已完成段落”，交给 marked 解析；其后的
+ * 未完成尾部按纯文本显示。内容增长时段落边界才会推进，避免每个 chunk 都
+ * 全量重解析不断变长的回答。尾部超长时只保留窗口，防止巨量文本常驻 DOM。
+ */
+export function splitLiveMarkdown(
+	content: string,
+	maxTailChars: number,
+): { prefix: string; tail: string } {
+	const boundary = content.lastIndexOf("\n\n");
+	const prefix = boundary >= 0 ? content.slice(0, boundary + 2) : "";
+	let tail = boundary >= 0 ? content.slice(boundary + 2) : content;
+	if (tail.length > maxTailChars) {
+		tail = `…${tail.slice(-maxTailChars)}`;
+	}
+	return { prefix, tail };
+}
+
 /** Parse GFM markdown → sanitized HTML for chat bubbles (uncached). */
 export function renderMarkdown(content: string): string {
   const raw = marked.parse(content || "", { async: false }) as string;

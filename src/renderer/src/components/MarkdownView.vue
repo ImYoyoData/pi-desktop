@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 import { NModal, NButton, NSpace, useDialog, useMessage } from "naive-ui";
-import { renderMarkdownCached, setMarkdownCopyLabel } from "@renderer/utils/markdown";
+import { renderMarkdownCached, setMarkdownCopyLabel, splitLiveMarkdown } from "@renderer/utils/markdown";
 import {
   applyDiagramZoom,
   clampDiagramZoom,
@@ -47,12 +47,28 @@ const diagramLabels = computed<DiagramToolLabels>(() => ({
 
 setMarkdownCopyLabel(t.copy);
 
-function refreshHtml(content: string): string {
-  setMarkdownCopyLabel(t.copy);
-  return renderMarkdownCached(content, !props.streaming);
+function refreshHtml(content: string): void {
+  if (props.streaming) {
+    // 流式只解析到最后一个已完成段落，未完成尾部按纯文本跟随，避免每个
+    // chunk 都全量重解析不断变长的回答（长输出会拖垮主线程）。
+    const { prefix, tail } = splitLiveMarkdown(content, STREAM_TAIL_MAX_CHARS);
+    if (prefix !== lastStreamPrefix) {
+      lastStreamPrefix = prefix;
+      html.value = prefix ? renderMarkdownCached(prefix, false) : "";
+    }
+    liveTail.value = tail;
+    return;
+  }
+  lastStreamPrefix = "";
+  liveTail.value = "";
+  html.value = renderMarkdownCached(content, true);
 }
 
-const html = ref(refreshHtml(props.content));
+const html = ref("");
+/** 流式期间未完成段落的纯文本尾部（段落推进后并入 html）。 */
+const liveTail = ref("");
+const STREAM_TAIL_MAX_CHARS = 24_000;
+let lastStreamPrefix = "";
 let diagramTimer = 0;
 /**
  * Streaming ticks append faster than a full marked+hljs+DOMPurify pass over
@@ -64,9 +80,11 @@ let renderTimer = 0;
 let pendingContent: string | null = null;
 let lastRenderAt = 0;
 
+refreshHtml(props.content);
+
 function renderNow(content: string): void {
   lastRenderAt = Date.now();
-  html.value = refreshHtml(content);
+  refreshHtml(content);
   scheduleDiagrams();
 }
 
@@ -207,6 +225,15 @@ watch(
   },
 );
 
+// 流结束后整段重新解析一次（此前只渲染已完成段落 + 纯文本尾部），
+// 内容未变时 content watcher 不会触发，这里兜底收尾。
+watch(
+  () => props.streaming,
+  (streaming, wasStreaming) => {
+    if (wasStreaming && !streaming) renderNow(props.content);
+  },
+);
+
 watch(
   () => appearance.resolvedTheme,
   () => {
@@ -236,8 +263,10 @@ onUnmounted(() => {
     ref="rootEl"
     class="md"
     :class="{ 'md-chat': variant === 'chat' }"
-    v-html="html"
-  />
+  >
+    <div v-if="html" v-html="html" />
+    <div v-if="liveTail" class="md-live-tail">{{ liveTail }}</div>
+  </div>
 
   <NModal
     v-model:show="previewOpen"
@@ -328,6 +357,11 @@ onUnmounted(() => {
 .md :deep(h3:first-child),
 .md :deep(h4:first-child) {
   margin-top: 0;
+}
+
+/* 流式纯文本尾部：保留原始换行，直到段落完成被 marked 接管。 */
+.md :deep(.md-live-tail) {
+  white-space: pre-wrap;
 }
 
 .md :deep(strong),

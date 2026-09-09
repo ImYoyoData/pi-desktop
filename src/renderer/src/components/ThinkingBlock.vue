@@ -33,6 +33,14 @@ const headLabel = computed(() =>
   props.streaming ? t.thinkingStreaming : t.thinking,
 );
 
+/** 流式长思考只挂载尾部窗口，防止整段文本常驻 DOM、每 tick 全量布局。 */
+const THINK_LIVE_MAX_CHARS = 16_000;
+const displayThinking = computed(() => {
+  const text = props.thinking;
+  if (!props.streaming || text.length <= THINK_LIVE_MAX_CHARS) return text;
+  return `…\n${text.slice(-THINK_LIVE_MAX_CHARS)}`;
+});
+
 watch(
   () => props.streaming,
   (streaming) => {
@@ -96,7 +104,7 @@ watch(
       ref="bodyRef"
       class="thinking-body"
       @scroll="onBodyScroll"
-    >{{ thinking }}</div>
+    >{{ displayThinking }}</div>
     <div v-else-if="open && streaming && !thinking" class="thinking-body muted">
       {{ headLabel }}
     </div>
