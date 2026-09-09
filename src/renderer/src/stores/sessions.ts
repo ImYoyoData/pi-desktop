@@ -87,6 +87,8 @@ function parseContextUsage(data: unknown): SessionContextUsage | null {
 
 export const useSessionsStore = defineStore("sessions", () => {
   const sessions = ref<SessionSummary[]>([]);
+  /** cwd 当前 sessions 列表所属的工作区（null=未加载/已清空）。 */
+  const listRoot = ref<string | null>(null);
   const activeId = ref<string | null>(null);
   const contextBySession = ref<Record<string, SessionContextUsage>>({});
 
@@ -203,9 +205,11 @@ export const useSessionsStore = defineStore("sessions", () => {
   async function refresh(cwd: string | null): Promise<void> {
     if (!cwd) {
       sessions.value = [];
+      listRoot.value = null;
       return;
     }
     sessions.value = await window.api.sessions.list(cwd);
+    listRoot.value = cwd;
   }
 
   /** Drop in-memory state for a session that was deleted (shared cleanup). */
@@ -359,6 +363,7 @@ export const useSessionsStore = defineStore("sessions", () => {
 
   return {
     sessions,
+    listRoot,
     activeId,
     contextBySession,
     activeContextUsage,
