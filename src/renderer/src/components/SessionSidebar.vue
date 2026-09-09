@@ -97,11 +97,8 @@ async function onReopenClosed(root: string): Promise<void> {
   if (workspace.root && workspace.root !== root) {
     await discardActiveUnstartedForRoot(workspace.root);
   }
-  const next = await workspace.reopenWorkspace(root);
-  if (next) {
-    expanded[next] = true;
-    await loadSessions(next);
-  }
+  // 重新打开成功后由 root watcher 统一加载会话并展开列表
+  await workspace.reopenWorkspace(root);
 }
 
 /** Purge Pi config + sessions for a workspace (keeps project folder). */
@@ -289,8 +286,11 @@ onMounted(async () => {
   if (!workspace.recent.length) boot.push(workspace.listRecentFast());
   await Promise.all(boot);
   if (workspace.root && workspace.sessionsReady) {
-    expanded[workspace.root] = true;
-    await loadSessions(workspace.root);
+    try {
+      await loadSessions(workspace.root);
+    } finally {
+      expanded[workspace.root] = true;
+    }
     await ensureActiveSession(workspace.root);
   }
   void nextTick(() => bindWorkspaceSortable());
@@ -312,8 +312,12 @@ watch(
   () => [workspace.root, workspace.sessionsReady] as const,
   async ([root, ready]) => {
     if (!root || !ready) return;
-    expanded[root] = true;
-    await loadSessions(root);
+    try {
+      // 先加载再展开，避免展开瞬间露出空列表或上一工作区的会话
+      await loadSessions(root);
+    } finally {
+      expanded[root] = true;
+    }
     await ensureActiveSession(root);
   },
 );
@@ -322,11 +326,16 @@ watch(
 watch(
   () =>
     sessionsStore.sessions
-      .map((s) => `${s.id}:${s.status}:${s.name ?? ""}:${s.modified}`)
+      .map(
+        (s) =>
+          `${s.id}:${s.status}:${s.name ?? ""}:${s.modified}:${s.firstMessage ?? ""}`,
+      )
       .join("|"),
   () => {
     const root = workspace.root;
     if (!root) return;
+    // 切换间隙 store 仍是上一工作区的列表，跳过合并以免污染本工作区的缓存
+    if (sessionsStore.listRoot !== root) return;
     const list = sessionsStore.sessions;
     const byId = new Map(list.map((s) => [s.id, s]));
     const current = sessionsByRoot[root] ?? [];
@@ -359,12 +368,9 @@ watch(
 );
 
 function sessionsFor(root: string): SessionSummary[] {
-  // Prefer live store for the active workspace so status dots update immediately
-  const source =
-    root === workspace.root && sessionsStore.sessions.length
-      ? sessionsStore.sessions
-      : (sessionsByRoot[root] ?? []);
-  const list = [...source];
+  // 只渲染各工作区自己的缓存：活跃区的行由下方 watcher 同步 store 的实时更新，
+  // 切换工作区时列表不会先闪现上一个工作区的会话（避免行重建与入场动画闪烁）。
+  const list = [...(sessionsByRoot[root] ?? [])];
   const order = sessionOrders[root];
   if (order?.length) {
     const orderMap = new Map(order.map((id, i) => [id, i]));
@@ -415,7 +421,10 @@ async function loadSessions(root: string): Promise<void> {
   markRendererStartup("renderer:sessions-request");
   const list = await window.api.sessions.list(root);
   sessionsByRoot[root] = list;
-  if (root === workspace.root) sessionsStore.sessions = list;
+  if (root === workspace.root) {
+    sessionsStore.sessions = list;
+    sessionsStore.listRoot = root;
+  }
   markRendererStartup("renderer:ready");
 }
 
@@ -440,7 +449,10 @@ async function onWorkspaceClick(path: string): Promise<void> {
   if (workspace.root !== path) {
     // Leaving the current workspace also abandons an unstarted 新会话 there.
     await discardActiveUnstartedForRoot(workspace.root);
-    await workspace.openWorkspacePath(path);
+    const next = await workspace.openWorkspacePath(path);
+    // 切换成功后由 root watcher 统一加载并展开，避免重复加载造成列表二次渲染；
+    // 未切换（如拒绝信任）时仍允许展开查看列表
+    if (next === path) return;
     expanded[path] = true;
     await loadSessions(path);
     return;
