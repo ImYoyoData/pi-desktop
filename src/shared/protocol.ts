@@ -158,6 +158,8 @@ export const IpcChannels = {
 		test: "models:test",
 		discover: "models:discover",
 		testConnection: "models:testConnection",
+		providerCatalog: "models:providerCatalog",
+		setSelection: "models:setSelection",
 	},
 	terminal: {
 		create: "terminal:create",

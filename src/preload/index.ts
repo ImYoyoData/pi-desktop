@@ -17,7 +17,9 @@ import type { AgentRunEvent, AgentRunSnapshot } from "../shared/agent-runs";
 import type {
 	ModelsGetResult,
 	ModelsSetPayload,
+	ProviderCatalogResult,
 } from "../shared/models-settings";
+import type { ModelSelection } from "../shared/model-selection";
 import type {
 	DiscoverModelsResult,
 	TestModelConnectionResult,
@@ -767,6 +769,16 @@ const api = {
 				IpcChannels.models.testConnection,
 				payload,
 			) as Promise<TestModelConnectionResult>,
+		providerCatalog: (providerId: string) =>
+			ipcRenderer.invoke(
+				IpcChannels.models.providerCatalog,
+				providerId,
+			) as Promise<ProviderCatalogResult>,
+		setSelection: (selection: ModelSelection) =>
+			ipcRenderer.invoke(
+				IpcChannels.models.setSelection,
+				selection,
+			) as Promise<void>,
 	},
 	preview: {
 		read: (filePath: string) =>

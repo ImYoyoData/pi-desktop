@@ -4,8 +4,9 @@ import {
   normalizeProviderBaseUrl,
   testModelConnection,
 } from "../../src/shared/model-discover";
-import { draftToProviderJson, emptyCustomProvider } from "../../src/shared/custom-models";
-import { CUSTOM_PROVIDER_PRESETS } from "../../src/shared/custom-model-presets";
+import { draftToProviderJson, emptyCustomProvider, newModelEntry } from "../../src/shared/custom-models";
+import { DEFAULT_MAX_TOKENS } from "../../src/shared/model-metadata";
+import { findCustomPlatform } from "../../src/shared/provider-catalog";
 
 describe("normalizeProviderBaseUrl", () => {
   it("strips chat completions suffix and trailing slash", () => {
@@ -44,6 +45,43 @@ describe("discoverModels", () => {
       contextWindow: 1_000_000,
       maxTokens: 128_000,
     });
+  });
+
+  it("parses Command Code / OpenRouter style metadata (context_length, top_provider)", async () => {
+    const fetchImpl = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      statusText: "OK",
+      text: async () =>
+        JSON.stringify({
+          object: "list",
+          data: [
+            { id: "claude-sonnet-5", name: "Claude Sonnet 5", context_length: 1000000 },
+            {
+              id: "x/y",
+              top_provider: { context_length: 262144, max_completion_tokens: 64000 },
+            },
+            { id: "vision-model", supports_vision: true },
+          ],
+        }),
+    }));
+    const result = await discoverModels(
+      { baseUrl: "https://api.commandcode.ai/provider/v1" },
+      { fetchImpl: fetchImpl as never },
+    );
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.models[0]).toMatchObject({
+      id: "claude-sonnet-5",
+      name: "Claude Sonnet 5",
+      contextWindow: 1_000_000,
+    });
+    expect(result.models[1]).toMatchObject({
+      id: "x/y",
+      contextWindow: 262_144,
+      maxTokens: 64_000,
+    });
+    expect(result.models[2]?.vision).toBe(true);
   });
 
   it("falls back to Ollama /api/tags", async () => {
@@ -115,17 +153,27 @@ describe("testModelConnection", () => {
   });
 });
 
-describe("longcat preset", () => {
-  it("writes contextWindow into models.json", () => {
-    const preset = CUSTOM_PROVIDER_PRESETS.find((p) => p.id === "longcat");
-    expect(preset).toBeTruthy();
-    const json = draftToProviderJson(preset!.draft);
+describe("catalog platform → models.json", () => {
+  it("writes discovered limits (and the 32K output default) into the provider entry", () => {
+    const spec = findCustomPlatform("longcat");
+    expect(spec).toBeTruthy();
+    const json = draftToProviderJson(
+      emptyCustomProvider({
+        id: spec!.id,
+        name: spec!.name,
+        baseUrl: spec!.baseUrl,
+        api: spec!.api,
+        models: [
+          newModelEntry({ id: "LongCat-2.0", name: "LongCat 2.0", contextWindow: 1_000_000 }),
+        ],
+      }),
+    );
     expect(json.baseUrl).toBe("https://api.longcat.chat/openai/v1");
     const models = json.models as Array<Record<string, unknown>>;
     expect(models[0]).toMatchObject({
       id: "LongCat-2.0",
       contextWindow: 1_000_000,
-      maxTokens: 128_000,
+      maxTokens: DEFAULT_MAX_TOKENS,
     });
     expect(emptyCustomProvider().models[0]?.contextWindow).toBeUndefined();
   });
