@@ -244,20 +244,6 @@ async function onUpdateClick(): Promise<void> {
       <img class="logo-img" :src="logoUrl" alt="" width="18" height="18" />
       <span class="name">{{ t.appName }}</span>
     </div>
-    <NButton
-      v-if="workspace.root && layout.leftCollapsed"
-      class="pane-toggle no-drag"
-      quaternary
-      circle
-      size="small"
-      :title="t.expandLeft"
-      :aria-label="t.expandLeft"
-      @click="layout.toggleLeftCollapsed()"
-    >
-      <template #icon>
-        <PanelLeftIcon :size="16" />
-      </template>
-    </NButton>
     <div class="center drag" />
     <div class="actions no-drag">
       <NSpace :size="4">
@@ -331,21 +317,31 @@ async function onUpdateClick(): Promise<void> {
             </template>
           </NButton>
         </NDropdown>
-        <NButton
-          v-if="workspace.root && layout.rightCollapsed"
-          class="pane-toggle"
-          quaternary
-          circle
-          size="small"
-          :title="t.expandRight"
-          :aria-label="t.expandRight"
+      </NSpace>
+      <div v-if="workspace.root" class="layout-controls">
+        <button
+          type="button"
+          class="layout-btn"
+          :class="{ checked: !layout.leftCollapsed }"
+          :title="layout.leftCollapsed ? t.expandLeft : t.collapseLeft"
+          :aria-label="layout.leftCollapsed ? t.expandLeft : t.collapseLeft"
+          :aria-pressed="!layout.leftCollapsed"
+          @click="layout.toggleLeftCollapsed()"
+        >
+          <PanelLeftIcon :size="16" :off="layout.leftCollapsed" />
+        </button>
+        <button
+          type="button"
+          class="layout-btn"
+          :class="{ checked: !layout.rightCollapsed }"
+          :title="layout.rightCollapsed ? t.expandRight : t.collapseRight"
+          :aria-label="layout.rightCollapsed ? t.expandRight : t.collapseRight"
+          :aria-pressed="!layout.rightCollapsed"
           @click="layout.toggleRightCollapsed()"
         >
-          <template #icon>
-            <PanelRightIcon :size="16" />
-          </template>
-        </NButton>
-      </NSpace>
+          <PanelRightIcon :size="16" :off="layout.rightCollapsed" />
+        </button>
+      </div>
     </div>
     <div v-if="platform !== 'darwin'" class="window-controls no-drag">
       <button type="button" class="wc-btn" :title="t.minimize" :aria-label="t.minimize" @click="onMinimize">
@@ -426,15 +422,38 @@ async function onUpdateClick(): Promise<void> {
   color: var(--fg-strong);
 }
 
-.pane-toggle {
-  flex-shrink: 0;
-  margin-left: 2px;
-  color: var(--fg-muted) !important;
-  transform: none !important;
+.layout-controls {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin-left: 6px;
 }
 
-.pane-toggle:active {
-  transform: none !important;
+/* VSCode 布局控件：图标常驻，区域可见时高亮。 */
+.layout-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: none;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--fg-muted);
+  cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+
+.layout-btn:hover {
+  background: var(--bg-hover, rgba(127, 127, 127, 0.1));
+  color: var(--fg-strong);
+}
+
+.layout-btn.checked,
+.layout-btn.checked:hover {
+  background: var(--bg-active);
+  color: var(--fg-strong);
 }
 
 .logo-img {
@@ -459,6 +478,7 @@ async function onUpdateClick(): Promise<void> {
 .actions {
   display: flex;
   align-items: center;
+  gap: 2px;
 }
 
 .update-btn {
