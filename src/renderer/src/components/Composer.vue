@@ -57,6 +57,7 @@ import {
   suspendWakeListen,
 } from "@renderer/utils/asr-wake-listen";
 import { scrubAsrHallucination } from "../../../shared/asr";
+import { filterAvailableModels } from "../../../shared/model-selection";
 import { formatAcceleratorLabel } from "../../../shared/hotkey";
 import {
   composerModePreamble,
@@ -1749,8 +1750,11 @@ async function onThinkingChange(value: string | number): Promise<void> {
 async function refreshModels(): Promise<void> {
   try {
     const data = await window.api.models.get();
+    // Honour the Settings → Models curation so a 300-model provider does not
+    // flood the menu; providers without a curation pass through untouched.
+    const selected = filterAvailableModels(data.available, data.modelSelection ?? { providers: {} });
     const byProvider = new Map<string, { label: string; value: string }[]>();
-    for (const m of data.available) {
+    for (const m of selected) {
       const list = byProvider.get(m.provider) ?? [];
       const label = (m.name && m.name.trim()) || m.id;
       list.push({ label, value: `${m.provider}/${m.id}` });

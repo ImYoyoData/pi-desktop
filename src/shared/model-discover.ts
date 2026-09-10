@@ -5,6 +5,10 @@ export type DiscoveredModel = {
   name?: string;
   contextWindow?: number;
   maxTokens?: number;
+  /** Endpoint advertises image input. */
+  vision?: boolean;
+  /** Endpoint advertises extended thinking. */
+  reasoning?: boolean;
 };
 
 export type DiscoverModelsInput = {
@@ -93,9 +97,12 @@ function firstNum(...candidates: unknown[]): number | undefined {
 /** Context-window candidates across common OpenAI-compatible / vLLM / OpenRouter / Anthropic shapes. */
 function modelContextWindow(o: Record<string, unknown>): number | undefined {
   const limits = asRecord(o.limits);
+  const topProvider = asRecord(o.top_provider) ?? asRecord(o.topProvider);
   return firstNum(
     o.context_window,
     o.contextWindow,
+    o.context_length,
+    o.contextLength,
     o.max_context_window,
     o.maxContextWindow,
     o.max_model_len,
@@ -111,6 +118,8 @@ function modelContextWindow(o: Record<string, unknown>): number | undefined {
     limits?.context_window,
     limits?.max_context_length,
     limits?.max_input_tokens,
+    topProvider?.context_length,
+    topProvider?.context_window,
     asRecord(o.meta)?.context_window,
   );
 }
@@ -118,6 +127,7 @@ function modelContextWindow(o: Record<string, unknown>): number | undefined {
 /** Max-output candidates across common OpenAI-compatible / OpenRouter / Anthropic shapes. */
 function modelMaxTokens(o: Record<string, unknown>): number | undefined {
   const limits = asRecord(o.limits);
+  const topProvider = asRecord(o.top_provider) ?? asRecord(o.topProvider);
   return firstNum(
     o.max_tokens,
     o.maxTokens,
@@ -134,10 +144,70 @@ function modelMaxTokens(o: Record<string, unknown>): number | undefined {
     limits?.max_tokens,
     limits?.max_output_tokens,
     limits?.max_completion_tokens,
+    topProvider?.max_completion_tokens,
+    topProvider?.max_output_tokens,
     asRecord(o.meta)?.max_tokens,
     asRecord(o.meta)?.max_output_tokens,
   );
 }
+
+/** Read a tri-state boolean, ignoring non-boolean junk. */
+function boolOf(...values: unknown[]): boolean | undefined {
+  for (const v of values) {
+    if (typeof v === "boolean") return v;
+  }
+  return undefined;
+}
+
+/** True when any of the given arrays/lists mentions `needle`. */
+function listsInclude(needle: string, ...values: unknown[]): boolean {
+  return values.some((v) => Array.isArray(v) && v.some((x) => x === needle));
+}
+
+/**
+ * Image-input hint from the endpoint payload, or undefined when the provider
+ * says nothing (the id-based heuristic in `model-metadata` then decides).
+ */
+function modelSupportsVision(o: Record<string, unknown>): boolean | undefined {
+  const architecture = asRecord(o.architecture);
+  const capabilities = asRecord(o.capabilities);
+  const explicit = boolOf(o.supports_vision, o.supportsVision, capabilities?.vision);
+  if (explicit !== undefined) return explicit;
+  if (
+    listsInclude("image", o.input, o.modalities, o.input_modalities, architecture?.input_modalities)
+  ) {
+    return true;
+  }
+  // OpenRouter packs it into a string: "text+image->text".
+  const modality = architecture?.modality ?? o.modality;
+  return typeof modality === "string" ? modality.includes("image") : undefined;
+}
+
+/**
+ * Extended-thinking hint from the endpoint payload, or undefined when silent.
+ * Covers OpenRouter's `supported_parameters` as well as the common flags.
+ */
+function modelSupportsReasoning(o: Record<string, unknown>): boolean | undefined {
+  const capabilities = asRecord(o.capabilities);
+  const explicit = boolOf(o.reasoning, o.supports_reasoning, o.supportsReasoning, capabilities?.reasoning);
+  if (explicit !== undefined) return explicit;
+  if (
+    listsInclude("reasoning", o.supported_parameters, o.supportedParameters) ||
+    listsInclude("include_reasoning", o.supported_parameters) ||
+    listsInclude("reasoning_effort", o.supported_parameters)
+  ) {
+    return true;
+  }
+  // `thinking: {...}` (Anthropic-style) or `{ type: "enabled" }`.
+  const thinking = o.thinking;
+  if (thinking === true) return true;
+  const thinkingRecord = asRecord(thinking);
+  if (thinkingRecord && (thinkingRecord.type === "enabled" || thinkingRecord.type === "adaptive")) {
+    return true;
+  }
+  return undefined;
+}
+
 
 function parseOpenAiModelsPayload(payload: unknown): DiscoveredModel[] {
   const root = asRecord(payload);
@@ -157,11 +227,15 @@ function parseOpenAiModelsPayload(payload: unknown): DiscoveredModel[] {
     if (!id) continue;
     const contextWindow = modelContextWindow(o);
     const maxTokens = modelMaxTokens(o);
+    const vision = modelSupportsVision(o);
+    const reasoning = modelSupportsReasoning(o);
     out.push({
       id,
       name: typeof o.name === "string" && o.name !== id ? o.name : undefined,
       ...(contextWindow ? { contextWindow } : {}),
       ...(maxTokens ? { maxTokens } : {}),
+      ...(vision !== undefined ? { vision } : {}),
+      ...(reasoning !== undefined ? { reasoning } : {}),
     });
   }
   return out;

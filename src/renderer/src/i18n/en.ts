@@ -839,6 +839,94 @@ export const en = {
 	modelsSourceCommand: "models.json command",
 	modelsSourceUnknown: "Unknown",
 
+	// Add-provider platform picker
+	modelsPickerTitle: "Add provider",
+	modelsPickerSubtitle:
+		"Pick a platform and paste its API key, or add an OpenAI-compatible endpoint",
+	modelsSearchPlatform: "Search platform / host…",
+	modelsGroupFeatured: "Popular platforms",
+	modelsGroupChina: "China platforms",
+	modelsGroupGlobal: "More built-in providers",
+	modelsGroupLocal: "Local servers",
+	modelsGroupGeneric: "Custom endpoints",
+	modelsPlatformConfigured: "Configured",
+	modelsPlatformBuiltin: "Built-in",
+	modelsPlatformOauth: "OAuth sign-in",
+	modelsPlatformCompat: "OpenAI compatible",
+	modelsPlatformEmpty: "No matching platform",
+	modelsPlatformCustomSection: "Custom",
+	modelsPlatformOpenDocs: "Get API key",
+	modelsPlatformKeyHint: (name: string) =>
+		`Paste the ${name} API key and save, then use “Fetch models” to pick what you need.`,
+
+	// Model picker (fetch from provider)
+	modelsPickTitle: (provider: string) => `Fetch models from ${provider}`,
+	modelsPickSubtitle: (n: number) => `${n} models found — all selected by default`,
+	modelsPickSearch: "Search models…",
+	modelsPickSelectAll: "Select all",
+	modelsPickSelectNone: "Select none",
+	modelsPickSelected: (n: number, total: number) => `${n} / ${total} selected`,
+	modelsPickConfirm: (n: number) => `Add ${n} model(s)`,
+	modelsPickApplyConfirm: (n: number) => `Apply to ${n} model(s)`,
+	modelsPickEmpty: "No matching models",
+	modelsPickLoading: "Fetching model list…",
+	modelsPickFetchFail: "Could not fetch models",
+	modelsPickNeedKey: "Some endpoints require an API key before listing models",
+	modelsPickColModel: "Model",
+	modelsPickColContext: "Context",
+	modelsPickColMaxTokens: "Max output",
+	modelsPickDefaultMaxHint: "Models without a reported budget default to 32K",
+	modelsPickOverrideHint:
+		"Writes models.json modelOverrides only — built-in pricing and metadata stay intact.",
+	modelsPickDiscoveredHint: "Updated in the draft — click Save to apply.",
+	modelsPickAdded: (n: number) => `Added ${n} model(s)`,
+	modelsPickOverridesApplied: (n: number, pinned?: number) =>
+		pinned
+			? `Kept ${n} model(s); ${pinned} pinned in models.json`
+			: `Kept ${n} model(s)`,
+	modelsPickOverridesFail: "Could not write models.json",
+	modelsPickStatsCtx: (v: string) => `ctx ${v}`,
+	modelsPickStatsMax: (v: string) => `out ${v}`,
+	modelsPickUnknown: "unknown",
+	modelsPickSelectHint:
+		"Check the models to keep; unchecked ones are hidden from the list and the model menu.",
+	modelsPickClearAll: "Clear all",
+	modelsPickClearWarn:
+		"Nothing checked — confirming hides this provider from the model menu",
+
+	// Provider model curation
+	modelsSelectModels: "Select models",
+	modelsSelectReset: "Reset",
+	modelsSelectResetDone: "Showing every model again",
+	modelsSelectConfirm: (n: number) => `Keep ${n} model(s)`,
+	modelsSelectEmpty: "All models hidden for this provider — use “Select models” to pick again.",
+	modelsSelectHintOnly: (shown: number, total: number) =>
+		`${total - shown} of ${total} models hidden by your selection`,
+	modelsHiddenCount: (n: number) => `${n} hidden`,
+	modelsSelectKeepShown: "Keep only these",
+	modelsSelectKept: (n: number) => `Pinned to ${n} model(s)`,
+
+	// Custom model list bulk actions
+	modelsCustomClearAll: "Clear",
+	modelsCustomClearConfirm: (n: number) =>
+		`Clear all ${n} model rows? Nothing is written to disk until you save.`,
+	modelsCustomCleared: "Model list cleared",
+	modelsCustomBulkAdd: "Bulk add",
+	modelsCustomBulkTitle: "Bulk add models",
+	modelsCustomBulkHint:
+		"One model ID per line; commas / spaces / semicolons also work. Use `ID=Display name` to set a label.",
+	modelsCustomBulkPlaceholder: "gpt-5.5\nclaude-sonnet-5=Claude Sonnet 5",
+	modelsCustomBulkApply: (n: number) => `Add ${n}`,
+	modelsCustomBulkEmpty: "No valid model IDs found",
+	modelsCustomBulkAdded: (n: number) => `Added ${n} model(s)`,
+	modelsCustomCapsHint:
+		"“Reasoning / vision” are detected from the provider response or the model id — no manual entry. Click a chip to override.",
+	modelsCustomCapsNeedId: "Enter a model ID to auto-detect capabilities",
+	modelsCustomCapsAuto: (label: string, on: boolean) =>
+		`${label}: auto-detected as ${on ? "supported" : "not supported"} — click to override`,
+	modelsCustomCapsManual: (label: string, on: boolean) =>
+		`${label}: manually set to ${on ? "supported" : "not supported"} — click to change`,
+
 	// Skills settings
 	skillEnabled: "Enabled",
 	skillDisabledManual: "Disabled (manual /skill only)",

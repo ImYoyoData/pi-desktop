@@ -20,6 +20,8 @@
     "typecheck": "vue-tsc --noEmit -p tsconfig.json",
     "start": "electron-vite preview",
     "icons": "node scripts/generate-icons.mjs",
+    "provider-icons": "node scripts/generate-provider-icons.mjs",
+    "provider-icons:check": "node scripts/generate-provider-icons.mjs --check",
     "dugite:git": "node scripts/ensure-dugite-git.mjs",
     "dist": "npm run icons && npm run build && npm run dugite:git && electron-builder",
     "dist:win": "npm run dist:win:x64 && npm run dist:win:arm64",

@@ -2,21 +2,27 @@
 import { computed, ref, watch } from "vue";
 import {
   NButton,
+  NIcon,
   NInput,
   NInputNumber,
+  NModal,
   NSelect,
   NSpace,
   NSwitch,
   NText,
+  NTooltip,
   NScrollbar,
   useDialog,
   useMessage,
 } from "naive-ui";
+import { AddOutline, CloudDownloadOutline, FlashOutline, ImageOutline, ListOutline, SparklesOutline, TrashOutline } from "@vicons/ionicons5";
 import {
   CUSTOM_MODEL_APIS,
   emptyCustomProvider,
   listEditableProviders,
   mergeDiscoveredIntoDraft,
+  newModelEntry,
+  parseBulkModelTokens,
   parseModelsConfigText,
   removeCustomProvider,
   renameCustomProvider,
@@ -27,17 +33,20 @@ import {
   type CustomModelEntry,
   type CustomProviderDraft,
 } from "../../../shared/custom-models";
-import { CUSTOM_PROVIDER_PRESETS } from "../../../shared/custom-model-presets";
-import {
-  normalizeProviderBaseUrl,
-  type DiscoveredModel,
-} from "../../../shared/model-discover";
+import { findCustomPlatform } from "../../../shared/provider-catalog";
+import { DEFAULT_MAX_TOKENS, inferModelCapabilities } from "../../../shared/model-metadata";
+import { normalizeProviderBaseUrl, type DiscoveredModel } from "../../../shared/model-discover";
+import type { PickerRow } from "../../../shared/model-picker";
+import ProviderIcon from "@renderer/components/ProviderIcon.vue";
+import ModelPickerModal from "@renderer/components/ModelPickerModal.vue";
 import { t } from "@renderer/i18n";
 
 const props = defineProps<{
   modelsText: string;
   /** When true, start a blank “add provider” form. */
   startAdd?: boolean;
+  /** Platform id from the catalog to prefill the new draft with. */
+  startPlatformId?: string | null;
   /** Parent is writing models.json / auth.json */
   saving?: boolean;
 }>();
@@ -45,6 +54,7 @@ const props = defineProps<{
 const emit = defineEmits<{
   "update:modelsText": [string];
   "update:startAdd": [boolean];
+  "update:startPlatformId": [string | null];
   /** Persist immediately (Pi-aligned: models.json + auth.json). */
   commit: [
     payload: {
@@ -67,48 +77,20 @@ const formError = ref<string | null>(null);
 const fetching = ref(false);
 const testing = ref(false);
 
-/** 拉起模型列表:discover 结果进入可勾选弹层,确认后才合并进草稿。 */
+/** Fetch-from-provider flow: the picker opens immediately, then fills. */
 const pickOpen = ref(false);
-const pickQuery = ref("");
+const pickLoading = ref(false);
+const pickError = ref<string | null>(null);
 const discovered = ref<DiscoveredModel[]>([]);
-const pickedIds = ref(new Set<string>());
 
-const filteredDiscovered = computed(() => {
-  const q = pickQuery.value.trim().toLowerCase();
-  if (!q) return discovered.value;
-  return discovered.value.filter(
-    (m) =>
-      m.id.toLowerCase().includes(q) ||
-      (m.name ?? "").toLowerCase().includes(q),
-  );
-});
+/**
+ * Per-row manual capability overrides, keyed by the stable row key.
+ *
+ * Declared up here on purpose: `resetModelRowKeys()` runs from an `immediate`
+ * watcher during setup, so this ref must exist before that fires.
+ */
+const manualCaps = ref<Record<string, { reasoning?: boolean; vision?: boolean }>>({});
 
-function togglePick(id: string): void {
-  const next = new Set(pickedIds.value);
-  if (next.has(id)) next.delete(id);
-  else next.add(id);
-  pickedIds.value = next;
-}
-
-function pickAll(): void {
-  pickedIds.value = new Set(discovered.value.map((m) => m.id));
-}
-
-function pickNone(): void {
-  pickedIds.value = new Set<string>();
-}
-
-function confirmPick(): void {
-  const picked = discovered.value.filter((m) => pickedIds.value.has(m.id));
-  if (!picked.length) {
-    pickOpen.value = false;
-    return;
-  }
-  draft.value.models = mergeDiscoveredIntoDraft(draft.value.models, picked);
-  resetModelRowKeys(draft.value.models.length);
-  pickOpen.value = false;
-  message.success(t.modelsCustomFetchOk(picked.length));
-}
 /** Stable keys so deleting a model row updates the UI immediately (not index-based). */
 const modelRowKeys = ref<string[]>([]);
 let rowKeySeq = 0;
@@ -133,11 +115,19 @@ const selected = computed(
   () => docProviders.value.find((p) => p.id === selectedId.value) ?? null,
 );
 
+const filledModels = computed(() => draft.value.models.filter((m) => m.id.trim()).length);
+
+/**
+ * `immediate` matters: the parent may flip `startAdd` while this pane is not yet
+ * mounted (platform picked from another tab), so the flag must be honoured on
+ * mount as well as on change.
+ */
 watch(
   () => props.startAdd,
   (v) => {
-    if (v) beginAdd();
+    if (v) beginAdd(props.startPlatformId ?? null);
   },
+  { immediate: true },
 );
 
 watch(
@@ -155,8 +145,38 @@ function nextRowKey(): string {
   return `m-${rowKeySeq}`;
 }
 
-function resetModelRowKeys(count: number): void {
+/**
+ * Rebuild the stable row keys after the model list changes, then re-run
+ * capability detection. Every rebuild path goes through here, so the
+ * `reasoning` / `vision` flags always end up auto-filled.
+ *
+ * Pass `autoDetect: false` when the caller needs to seed manual overrides from
+ * saved data first (see {@link beginEdit}).
+ */
+function resetModelRowKeys(count: number, opts?: { autoDetect?: boolean }): void {
   modelRowKeys.value = Array.from({ length: count }, () => nextRowKey());
+  resetManualCaps();
+  if (opts?.autoDetect !== false) autoDetectAll();
+}
+
+/**
+ * Treat capabilities a saved provider explicitly turned **on** as manual
+ * overrides, so re-opening the form cannot silently drop them.
+ *
+ * A stored `false`/absent value means "never decided", so detection is free to
+ * fill it in — that is what removes the hand-ticking the form used to require.
+ */
+function seedManualCapsFromStored(): void {
+  const seeded: Record<string, { reasoning?: boolean; vision?: boolean }> = {};
+  draft.value.models.forEach((model, i) => {
+    const key = modelRowKeys.value[i];
+    if (!key) return;
+    const entry: { reasoning?: boolean; vision?: boolean } = {};
+    if (model.reasoning) entry.reasoning = true;
+    if (model.vision) entry.vision = true;
+    if (Object.keys(entry).length) seeded[key] = entry;
+  });
+  manualCaps.value = seeded;
 }
 
 function cloneDraft(src: CustomProviderDraft): CustomProviderDraft {
@@ -166,26 +186,36 @@ function cloneDraft(src: CustomProviderDraft): CustomProviderDraft {
   };
 }
 
-function beginAdd(): void {
+/** Build a draft from a catalog platform (or a blank one when unknown). */
+function platformDraft(platformId: string | null): CustomProviderDraft {
+  const spec = platformId ? findCustomPlatform(platformId) : null;
+  if (!spec) {
+    const blank = emptyCustomProvider();
+    blank.baseUrl = "";
+    blank.apiKey = "";
+    return blank;
+  }
+  return emptyCustomProvider({
+    id: spec.id === "openai-compatible" ? "" : spec.id,
+    name: spec.id === "openai-compatible" ? "" : spec.name,
+    baseUrl: spec.baseUrl,
+    api: spec.api,
+    apiKey: spec.apiKey ?? "",
+    supportsDeveloperRole: spec.supportsDeveloperRole,
+    supportsReasoningEffort: spec.supportsReasoningEffort,
+    models: [newModelEntry()],
+  });
+}
+
+function beginAdd(platformId: string | null = null): void {
   isNew.value = true;
   editing.value = true;
   formError.value = null;
   selectedId.value = null;
-  draft.value = cloneDraft(emptyCustomProvider());
+  draft.value = platformDraft(platformId);
   resetModelRowKeys(draft.value.models.length);
   emit("update:startAdd", false);
-}
-
-function applyPreset(presetId: string): void {
-  const preset = CUSTOM_PROVIDER_PRESETS.find((p) => p.id === presetId);
-  if (!preset) return;
-  const keepKey =
-    draft.value.apiKey.trim() && draft.value.id === preset.draft.id
-      ? draft.value.apiKey
-      : preset.draft.apiKey;
-  draft.value = cloneDraft({ ...preset.draft, apiKey: keepKey });
-  resetModelRowKeys(draft.value.models.length);
-  formError.value = null;
+  emit("update:startPlatformId", null);
 }
 
 function beginEdit(id: string): void {
@@ -196,7 +226,10 @@ function beginEdit(id: string): void {
   editing.value = true;
   formError.value = null;
   draft.value = cloneDraft(row);
-  resetModelRowKeys(draft.value.models.length);
+  // Seed saved "on" flags first, then let detection fill in everything else.
+  resetModelRowKeys(draft.value.models.length, { autoDetect: false });
+  seedManualCapsFromStored();
+  autoDetectAll();
 }
 
 function cancelEdit(): void {
@@ -209,13 +242,118 @@ function cancelEdit(): void {
 }
 
 function addModelRow(): void {
-  draft.value.models.push({ id: "", name: "", reasoning: false });
+  draft.value.models.push(newModelEntry());
   modelRowKeys.value.push(nextRowKey());
+}
+
+/* -------------------------------------------------------------------------- */
+/* Capability auto-detection                                                  */
+/* -------------------------------------------------------------------------- */
+
+function rowKeyAt(index: number): string | undefined {
+  return modelRowKeys.value[index];
+}
+
+function isManual(index: number, flag: "reasoning" | "vision"): boolean {
+  const key = rowKeyAt(index);
+  return Boolean(key && manualCaps.value[key]?.[flag] !== undefined);
+}
+
+/** Re-run detection for every row whose flag the user has not overridden. */
+function autoDetectAll(): void {
+  for (let i = 0; i < draft.value.models.length; i += 1) autoDetectRow(i);
+}
+
+/** Detect capabilities for one row, respecting manual overrides. */
+function autoDetectRow(index: number): void {
+  const model = draft.value.models[index];
+  const key = rowKeyAt(index);
+  if (!model || !key) return;
+  const manual = manualCaps.value[key];
+  const caps = inferModelCapabilities(model.id);
+  if (manual?.reasoning === undefined) model.reasoning = caps.reasoning;
+  if (manual?.vision === undefined) model.vision = caps.vision;
+}
+
+/** Click a chip to override the detected value. */
+function toggleCapability(index: number, flag: "reasoning" | "vision"): void {
+  const model = draft.value.models[index];
+  const key = rowKeyAt(index);
+  if (!model || !key) return;
+  const next = !model[flag];
+  model[flag] = next;
+  manualCaps.value = {
+    ...manualCaps.value,
+    [key]: { ...manualCaps.value[key], [flag]: next },
+  };
+}
+
+/** Drop every override — used when the row list is rebuilt. */
+function resetManualCaps(): void {
+  manualCaps.value = {};
+}
+
+function capTooltip(index: number, flag: "reasoning" | "vision"): string {
+  const model = draft.value.models[index];
+  if (!model?.id.trim()) return t.modelsCustomCapsNeedId;
+  const label = flag === "reasoning" ? t.modelsCustomReasoning : t.modelsCustomVision;
+  if (isManual(index, flag)) {
+    return t.modelsCustomCapsManual(label, model[flag]);
+  }
+  return t.modelsCustomCapsAuto(label, model[flag]);
+}
+
+/** Drop every row, leaving a single blank one — then refetch or bulk-add. */
+function clearModelRows(): void {
+  const filled = draft.value.models.filter((m) => m.id.trim()).length;
+  const apply = (): void => {
+    draft.value.models = [newModelEntry()];
+    resetModelRowKeys(1);
+    message.success(t.modelsCustomCleared);
+  };
+  if (filled <= 1) {
+    apply();
+    return;
+  }
+  dialog.warning({
+    title: t.modelsCustomClearAll,
+    content: t.modelsCustomClearConfirm(draft.value.models.length),
+    positiveText: t.modelsCustomClearAll,
+    negativeText: t.cancel,
+    onPositiveClick: apply,
+  });
+}
+
+/** Bulk-add rows from pasted text (`id` or `id=Display name`). */
+const bulkOpen = ref(false);
+const bulkText = ref("");
+
+function openBulkAdd(): void {
+  bulkText.value = "";
+  bulkOpen.value = true;
+}
+
+const bulkParsed = computed(() => parseBulkModelTokens(bulkText.value));
+
+function applyBulkAdd(): void {
+  const parsed = bulkParsed.value;
+  if (!parsed.length) {
+    message.warning(t.modelsCustomBulkEmpty);
+    return;
+  }
+  // Reuse the merge helper so existing rows keep their manual limits.
+  draft.value.models = mergeDiscoveredIntoDraft(
+    draft.value.models,
+    parsed.map((p) => ({ id: p.id, name: p.name || undefined })),
+  );
+  resetModelRowKeys(draft.value.models.length);
+  bulkOpen.value = false;
+  message.success(t.modelsCustomBulkAdded(parsed.length));
 }
 
 function removeModelRow(index: number): void {
   if (draft.value.models.length <= 1) {
-    draft.value.models = [{ id: "", name: "", reasoning: false }];
+    draft.value.models = [newModelEntry()];
     resetModelRowKeys(1);
     return;
   }
@@ -227,6 +365,7 @@ function firstModelId(models: CustomModelEntry[]): string {
   return models.map((m) => m.id.trim()).find(Boolean) ?? "";
 }
 
+/** Open the picker right away so the click has immediate feedback. */
 async function fetchModels(): Promise<void> {
   if (fetching.value) return;
   draft.value.baseUrl = normalizeProviderBaseUrl(draft.value.baseUrl);
@@ -235,30 +374,36 @@ async function fetchModels(): Promise<void> {
     return;
   }
   fetching.value = true;
+  pickError.value = null;
+  discovered.value = [];
+  pickLoading.value = true;
+  pickOpen.value = true;
   try {
     const result = await window.api.models.discover({
       baseUrl: draft.value.baseUrl,
       apiKey: draft.value.apiKey,
       api: draft.value.api,
     });
-    if (!result.ok) {
-      message.error(`${t.modelsCustomFetchFail}: ${result.error}`, { duration: 7000 });
-      return;
+    if (result.ok && result.models.length) {
+      discovered.value = result.models;
+    } else if (result.ok) {
+      pickError.value = t.modelsCustomPickEmpty;
+    } else {
+      pickError.value = result.error;
     }
-    if (!result.models.length) {
-      message.warning(t.modelsCustomPickEmpty);
-      return;
-    }
-    // 拉起模型列表供用户勾选,而不是静默合并全部。
-    discovered.value = result.models;
-    pickedIds.value = new Set(result.models.map((m) => m.id));
-    pickQuery.value = "";
-    pickOpen.value = true;
   } catch (err) {
-    message.error(err instanceof Error ? err.message : String(err));
+    pickError.value = err instanceof Error ? err.message : String(err);
   } finally {
+    pickLoading.value = false;
     fetching.value = false;
   }
+}
+
+function applyPickedModels(rows: PickerRow[]): void {
+  draft.value.models = mergeDiscoveredIntoDraft(draft.value.models, rows);
+  resetModelRowKeys(draft.value.models.length);
+  pickOpen.value = false;
+  message.success(t.modelsPickAdded(rows.length));
 }
 
 async function testConnection(source: "draft" | "selected"): Promise<void> {
@@ -395,10 +540,6 @@ function selectProvider(id: string): void {
   isNew.value = false;
   formError.value = null;
 }
-
-function modelPlaceholder(_m: CustomModelEntry, i: number): string {
-  return i === 0 ? "LongCat-2.0" : t.modelsCustomModelId;
-}
 </script>
 
 <template>
@@ -406,7 +547,10 @@ function modelPlaceholder(_m: CustomModelEntry, i: number): string {
     <div class="left">
       <div class="left-head">
         <NText class="section-label">{{ t.modelsCustomList }}</NText>
-        <NButton size="tiny" type="primary" secondary class="pi-interactive" @click="beginAdd">
+        <NButton size="tiny" type="primary" secondary class="pi-interactive" @click="beginAdd(null)">
+          <template #icon>
+            <NIcon :component="AddOutline" :size="13" />
+          </template>
           {{ t.modelsAdd }}
         </NButton>
       </div>
@@ -419,10 +563,11 @@ function modelPlaceholder(_m: CustomModelEntry, i: number): string {
           :class="{ active: selectedId === p.id && !editing }"
           @click="selectProvider(p.id)"
         >
+          <ProviderIcon :provider="p.id" :size="24" />
           <div class="meta">
             <div class="name">{{ p.name || p.id }}</div>
             <NText depth="3" style="font-size: 11px">
-              {{ p.id }} · {{ t.modelsAvailableCount(p.models.filter((m) => m.id).length) }}
+              {{ t.modelsAvailableCount(p.models.filter((m) => m.id).length) }}
             </NText>
           </div>
         </button>
@@ -435,30 +580,15 @@ function modelPlaceholder(_m: CustomModelEntry, i: number): string {
     <div class="right">
       <NScrollbar class="right-scroll">
         <template v-if="editing">
-          <div class="form-head">
-            <NText strong style="font-size: 14px">
-              {{ isNew ? t.modelsCustomAddTitle : t.modelsCustomEditTitle }}
-            </NText>
-            <NText depth="3" style="font-size: 12px; display: block; margin-top: 4px">
-              {{ t.modelsCustomFormHint }}
-            </NText>
-          </div>
-
-          <div v-if="isNew" class="presets">
-            <div class="field-label">{{ t.modelsCustomPresets }}</div>
-            <div class="preset-chips">
-              <button
-                v-for="p in CUSTOM_PROVIDER_PRESETS"
-                :key="p.id"
-                type="button"
-                class="preset-chip pi-interactive"
-                @click="applyPreset(p.id)"
-              >
-                <span class="preset-label">{{ p.label }}</span>
-                <span class="preset-hint">{{ p.hint }}</span>
-              </button>
+          <header class="form-hero">
+            <ProviderIcon :provider="draft.id || 'openai-compatible'" :size="40" />
+            <div class="hero-text">
+              <div class="hero-title">
+                {{ isNew ? t.modelsCustomAddTitle : t.modelsCustomEditTitle }}
+              </div>
+              <NText depth="3" style="font-size: 11.5px">{{ t.modelsCustomFormHint }}</NText>
             </div>
-          </div>
+          </header>
 
           <section class="form-section">
             <div class="section-title">{{ t.modelsCustomSectionBasic }}</div>
@@ -522,7 +652,9 @@ function modelPlaceholder(_m: CustomModelEntry, i: number): string {
               <div class="compat-item">
                 <div>
                   <div class="field-label">{{ t.modelsCustomReasoningEffort }}</div>
-                  <NText depth="3" style="font-size: 11px">{{ t.modelsCustomReasoningEffortHint }}</NText>
+                  <NText depth="3" style="font-size: 11px">{{
+                    t.modelsCustomReasoningEffortHint
+                  }}</NText>
                 </div>
                 <NSwitch v-model:value="draft.supportsReasoningEffort" size="small" />
               </div>
@@ -532,86 +664,164 @@ function modelPlaceholder(_m: CustomModelEntry, i: number): string {
           <section class="form-section">
             <div class="models-editor-head">
               <div>
-                <div class="section-title" style="margin-bottom: 2px">{{ t.modelsCustomModels }}</div>
+                <div class="section-title" style="margin-bottom: 2px">
+                  {{ t.modelsCustomModels }}
+                  <span v-if="filledModels" class="count-pill">{{ filledModels }}</span>
+                </div>
                 <NText depth="3" style="font-size: 11px">{{ t.modelsCustomFetchHint }}</NText>
               </div>
               <NSpace :size="6">
                 <NButton
-                  size="tiny"
+                  size="small"
+                  type="primary"
                   secondary
                   class="pi-interactive"
                   :loading="fetching"
                   :disabled="fetching || testing || saving"
                   @click="fetchModels"
                 >
+                  <template #icon>
+                    <NIcon :component="CloudDownloadOutline" :size="14" />
+                  </template>
                   {{ fetching ? t.modelsCustomFetching : t.modelsCustomFetchModels }}
                 </NButton>
                 <NButton
-                  size="tiny"
+                  size="small"
                   secondary
                   class="pi-interactive"
                   :loading="testing"
                   :disabled="testing || fetching || saving"
                   @click="testConnection('draft')"
                 >
+                  <template #icon>
+                    <NIcon :component="FlashOutline" :size="14" />
+                  </template>
                   {{ testing ? t.modelsCustomTesting : t.modelsCustomTest }}
                 </NButton>
-                <NButton size="tiny" quaternary class="pi-interactive" @click="addModelRow">
+                <NButton size="small" quaternary class="pi-interactive" @click="addModelRow">
+                  <template #icon>
+                    <NIcon :component="AddOutline" :size="14" />
+                  </template>
                   {{ t.modelsCustomAddModel }}
+                </NButton>
+                <NButton size="small" quaternary class="pi-interactive" @click="openBulkAdd">
+                  <template #icon>
+                    <NIcon :component="ListOutline" :size="14" />
+                  </template>
+                  {{ t.modelsCustomBulkAdd }}
+                </NButton>
+                <NButton
+                  size="small"
+                  quaternary
+                  class="pi-interactive"
+                  :disabled="!draft.models.some((m) => m.id.trim())"
+                  @click="clearModelRows"
+                >
+                  <template #icon>
+                    <NIcon :component="TrashOutline" :size="14" />
+                  </template>
+                  {{ t.modelsCustomClearAll }}
                 </NButton>
               </NSpace>
             </div>
 
-            <div
-              v-for="(m, i) in draft.models"
-              :key="modelRowKeys[i] ?? `fallback-${i}`"
-              class="model-edit-row"
-            >
-              <NInput
-                v-model:value="m.id"
-                size="small"
-                class="m-id"
-                :placeholder="modelPlaceholder(m, i)"
-              />
-              <NInput
-                v-model:value="m.name"
-                size="small"
-                class="m-name"
-                :placeholder="t.modelsCustomModelName"
-              />
-              <NInputNumber
-                v-model:value="m.contextWindow"
-                size="small"
-                class="m-ctx"
-                :min="1024"
-                :step="1024"
-                :show-button="false"
-                :placeholder="t.modelsCustomContextWindow"
-              />
-              <NInputNumber
-                v-model:value="m.maxTokens"
-                size="small"
-                class="m-max"
-                :min="256"
-                :step="256"
-                :show-button="false"
-                :placeholder="t.modelsCustomMaxTokens"
-              />
-              <div class="m-reason">
-                <NText depth="3" style="font-size: 11px">{{ t.modelsCustomReasoning }}</NText>
-                <NSwitch v-model:value="m.reasoning" size="small" />
+            <div class="model-cards">
+              <div
+                v-for="(m, i) in draft.models"
+                :key="modelRowKeys[i] ?? `fallback-${i}`"
+                class="model-edit-row"
+              >
+                <div class="mer-top">
+                  <NInput
+                    v-model:value="m.id"
+                    size="small"
+                    class="mer-id"
+                    placeholder="LongCat-2.0"
+                    @blur="autoDetectRow(i)"
+                  />
+                  <NInput
+                    v-model:value="m.name"
+                    size="small"
+                    class="mer-name"
+                    :placeholder="t.modelsCustomModelName"
+                  />
+                  <NButton
+                    size="tiny"
+                    quaternary
+                    type="error"
+                    class="mer-del"
+                    @click="removeModelRow(i)"
+                  >
+                    {{ t.delete }}
+                  </NButton>
+                </div>
+                <div class="mer-bottom">
+                  <div class="mer-num">
+                    <span class="mini-label">{{ t.modelsCustomContextWindow }}</span>
+                    <NInputNumber
+                      v-model:value="m.contextWindow"
+                      size="small"
+                      :min="1024"
+                      :step="1024"
+                      :show-button="false"
+                      :placeholder="t.modelsPickUnknown"
+                    />
+                  </div>
+                  <div class="mer-num">
+                    <span class="mini-label">{{ t.modelsCustomMaxTokens }}</span>
+                    <NInputNumber
+                      v-model:value="m.maxTokens"
+                      size="small"
+                      :min="256"
+                      :step="1024"
+                      :show-button="false"
+                      :placeholder="String(DEFAULT_MAX_TOKENS)"
+                    />
+                  </div>
+                  <div class="mer-caps">
+                    <NTooltip trigger="hover" :delay="300">
+                      <template #trigger>
+                        <button
+                          type="button"
+                          class="cap-chip"
+                          :class="{ on: m.reasoning, manual: isManual(i, 'reasoning') }"
+                          @click="toggleCapability(i, 'reasoning')"
+                        >
+                          <NIcon :component="SparklesOutline" :size="11" />
+                          {{ t.modelsCustomReasoning }}
+                        </button>
+                      </template>
+                      {{ capTooltip(i, "reasoning") }}
+                    </NTooltip>
+                    <NTooltip trigger="hover" :delay="300">
+                      <template #trigger>
+                        <button
+                          type="button"
+                          class="cap-chip"
+                          :class="{ on: m.vision, manual: isManual(i, 'vision') }"
+                          @click="toggleCapability(i, 'vision')"
+                        >
+                          <NIcon :component="ImageOutline" :size="11" />
+                          {{ t.modelsCustomVision }}
+                        </button>
+                      </template>
+                      {{ capTooltip(i, "vision") }}
+                    </NTooltip>
+                  </div>
+                </div>
               </div>
-              <div class="m-reason">
-                <NText depth="3" style="font-size: 11px">{{ t.modelsCustomVision }}</NText>
-                <NSwitch v-model:value="m.vision" size="small" />
-              </div>
-              <NButton size="tiny" quaternary type="error" @click="removeModelRow(i)">
-                {{ t.delete }}
-              </NButton>
             </div>
+
+            <NText depth="3" class="caps-note">
+              {{ t.modelsCustomCapsHint }}
+            </NText>
           </section>
 
-          <NText v-if="formError" type="error" style="font-size: 12px; display: block; margin-top: 8px">
+          <NText
+            v-if="formError"
+            type="error"
+            style="font-size: 12px; display: block; margin-top: 8px"
+          >
             {{ formError }}
           </NText>
 
@@ -636,16 +846,17 @@ function modelPlaceholder(_m: CustomModelEntry, i: number): string {
         </template>
 
         <template v-else-if="selected">
-          <div class="detail-head">
-            <div style="min-width: 0; flex: 1">
-              <div class="detail-title">{{ selected.name || selected.id }}</div>
+          <header class="form-hero">
+            <ProviderIcon :provider="selected.id" :size="40" />
+            <div class="hero-text">
+              <div class="hero-title">{{ selected.name || selected.id }}</div>
               <NText depth="3" style="font-size: 11px; font-family: var(--font-mono)">
                 {{ selected.id }} · {{ selected.api }}
               </NText>
             </div>
             <NSpace :size="6">
               <NButton
-                size="tiny"
+                size="small"
                 secondary
                 class="pi-interactive"
                 :loading="testing"
@@ -654,11 +865,11 @@ function modelPlaceholder(_m: CustomModelEntry, i: number): string {
               >
                 {{ testing ? t.modelsCustomTesting : t.modelsCustomTest }}
               </NButton>
-              <NButton size="tiny" secondary class="pi-interactive" @click="beginEdit(selected.id)">
+              <NButton size="small" secondary class="pi-interactive" @click="beginEdit(selected.id)">
                 {{ t.edit }}
               </NButton>
               <NButton
-                size="tiny"
+                size="small"
                 secondary
                 type="error"
                 class="pi-interactive"
@@ -668,19 +879,21 @@ function modelPlaceholder(_m: CustomModelEntry, i: number): string {
                 {{ t.delete }}
               </NButton>
             </NSpace>
-          </div>
+          </header>
 
-          <div class="field">
-            <div class="field-label">{{ t.modelsCustomBaseUrl }}</div>
-            <NText style="font-size: 12.5px; font-family: var(--font-mono); word-break: break-all">
-              {{ selected.baseUrl || "—" }}
-            </NText>
-          </div>
+          <section class="form-section">
+            <div class="field">
+              <div class="field-label">{{ t.modelsCustomBaseUrl }}</div>
+              <NText style="font-size: 12.5px; font-family: var(--font-mono); word-break: break-all">
+                {{ selected.baseUrl || "—" }}
+              </NText>
+            </div>
+          </section>
 
-          <div class="models-block">
-            <NText style="font-size: 12px; font-weight: 600">
+          <section class="form-section models-block">
+            <div class="section-title">
               {{ t.modelsAvailable(selected.models.filter((m) => m.id).length) }}
-            </NText>
+            </div>
             <div
               v-for="m in selected.models.filter((x) => x.id)"
               :key="m.id"
@@ -688,12 +901,15 @@ function modelPlaceholder(_m: CustomModelEntry, i: number): string {
             >
               <span class="model-name">{{ m.name || m.id }}</span>
               <NText depth="3" style="font-size: 11px; font-family: var(--font-mono)">
-                {{ m.id }}{{ m.reasoning ? " · reasoning" : "" }}{{
-                  m.contextWindow ? ` · ctx ${m.contextWindow}` : ""
-                }}{{ m.maxTokens ? ` · max ${m.maxTokens}` : "" }}
+                {{ m.id }}
+              </NText>
+              <NText depth="3" style="font-size: 11px">
+                {{ m.contextWindow ? `ctx ${m.contextWindow}` : "ctx —" }} ·
+                {{ m.maxTokens ? `out ${m.maxTokens}` : "out —" }}
+                {{ m.reasoning ? " · reasoning" : "" }}{{ m.vision ? " · vision" : "" }}
               </NText>
             </div>
-          </div>
+          </section>
         </template>
 
         <div v-else class="empty-right">
@@ -704,7 +920,7 @@ function modelPlaceholder(_m: CustomModelEntry, i: number): string {
             secondary
             style="margin-top: 12px"
             class="pi-interactive"
-            @click="beginAdd"
+            @click="beginAdd(null)"
           >
             {{ t.modelsCustomAddTitle }}
           </NButton>
@@ -712,194 +928,72 @@ function modelPlaceholder(_m: CustomModelEntry, i: number): string {
       </NScrollbar>
     </div>
 
-    <!-- 拉起模型列表:勾选要添加的模型,确认后才写入草稿行 -->
-    <div v-if="pickOpen" class="pick-overlay" @click.self="pickOpen = false">
-      <div class="pick-panel" role="dialog" :aria-label="t.modelsCustomPickTitle">
-        <div class="pick-head">
-          <NText strong style="font-size: 13px">{{ t.modelsCustomPickTitle }}</NText>
-          <NButton size="tiny" quaternary @click="pickOpen = false">
-            {{ t.close }}
+    <ModelPickerModal
+      :show="pickOpen"
+      :provider-id="draft.id"
+      :provider-label="draft.name || draft.id || t.modelsCustomProvider"
+      :models="discovered"
+      :loading="pickLoading"
+      :error="pickError"
+      mode="add"
+      :existing-ids="draft.models.map((m) => m.id).filter(Boolean)"
+      @close="pickOpen = false"
+      @confirm="applyPickedModels"
+    />
+
+    <!-- 批量粘贴模型 ID -->
+    <NModal
+      v-model:show="bulkOpen"
+      preset="card"
+      :title="t.modelsCustomBulkTitle"
+      class="bulk-modal pi-settings-modal"
+      style="width: min(520px, 92vw)"
+      :bordered="false"
+      role="dialog"
+      aria-modal="true"
+    >
+      <NText depth="3" style="font-size: 12px; display: block; margin-bottom: 8px">
+        {{ t.modelsCustomBulkHint }}
+      </NText>
+      <NInput
+        v-model:value="bulkText"
+        type="textarea"
+        :autosize="{ minRows: 6, maxRows: 12 }"
+        :placeholder="t.modelsCustomBulkPlaceholder"
+        style="font-family: var(--font-mono); font-size: 12px"
+      />
+      <template #footer>
+        <NSpace justify="end" align="center">
+          <NButton size="small" class="pi-interactive" @click="bulkOpen = false">
+            {{ t.cancel }}
           </NButton>
-        </div>
-        <NInput
-          v-model:value="pickQuery"
-          size="small"
-          clearable
-          :placeholder="t.modelsSearchProvider"
-          style="margin-bottom: 8px"
-        />
-        <NScrollbar class="pick-scroll">
-          <button
-            v-for="m in filteredDiscovered"
-            :key="m.id"
-            type="button"
-            class="pick-row"
-            :class="{ picked: pickedIds.has(m.id) }"
-            @click="togglePick(m.id)"
-          >
-            <span class="pick-check" aria-hidden="true" />
-            <span class="pick-id">{{ m.id }}</span>
-            <span v-if="m.name && m.name !== m.id" class="pick-name">{{ m.name }}</span>
-          </button>
-          <div v-if="!filteredDiscovered.length" class="pick-empty">
-            {{ t.modelsCustomPickEmpty }}
-          </div>
-        </NScrollbar>
-        <div class="pick-foot">
-          <NSpace :size="6">
-            <NButton size="tiny" quaternary class="pi-interactive" @click="pickAll">
-              {{ t.modelsCustomPickAll }}
-            </NButton>
-            <NButton size="tiny" quaternary class="pi-interactive" @click="pickNone">
-              {{ t.modelsCustomPickNone }}
-            </NButton>
-          </NSpace>
           <NButton
-            size="tiny"
+            size="small"
             type="primary"
             class="pi-interactive"
-            :disabled="pickedIds.size === 0"
-            @click="confirmPick"
+            :disabled="bulkParsed.length === 0"
+            @click="applyBulkAdd"
           >
-            {{ t.modelsCustomPickAdd(pickedIds.size) }}
+            {{ t.modelsCustomBulkApply(bulkParsed.length) }}
           </NButton>
-        </div>
-      </div>
-    </div>
+        </NSpace>
+      </template>
+    </NModal>
   </div>
 </template>
 
 <style scoped>
 .custom-layout {
   display: grid;
-  grid-template-columns: 220px 1fr;
+  grid-template-columns: 236px 1fr;
   gap: 0;
   flex: 1;
   min-height: 0;
   height: 100%;
   border: 1px solid var(--border);
-  border-radius: 10px;
+  border-radius: 12px;
   overflow: hidden;
   background: var(--bg);
-}
-
-/* 模型列表选择弹层(拉取模型后出现) */
-.pick-overlay {
-  position: fixed;
-  inset: 0;
-  z-index: 3000;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: rgba(9, 9, 11, 0.4);
-  backdrop-filter: blur(2px);
-}
-
-.pick-panel {
-  width: min(440px, 92vw);
-  max-height: min(520px, 76vh);
-  display: flex;
-  flex-direction: column;
-  padding: 12px;
-  border-radius: 12px;
-  border: 1px solid var(--border);
-  background: var(--bg-panel, var(--bg));
-  box-shadow: var(--shadow-lg, 0 12px 40px rgba(0, 0, 0, 0.3));
-}
-
-.pick-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 8px;
-}
-
-.pick-scroll {
-  min-height: 120px;
-  max-height: 320px;
-}
-
-.pick-row {
-  display: flex;
-  align-items: center;
-  gap: 9px;
-  width: 100%;
-  padding: 6px 9px;
-  border: none;
-  border-radius: 7px;
-  background: transparent;
-  color: var(--fg);
-  font: inherit;
-  font-size: 12.5px;
-  text-align: left;
-  cursor: pointer;
-}
-
-.pick-row:hover {
-  background: var(--bg-hover);
-}
-
-.pick-check {
-  flex-shrink: 0;
-  width: 14px;
-  height: 14px;
-  box-sizing: border-box;
-  border-radius: 4px;
-  border: 1.5px solid var(--border-strong, var(--border));
-  position: relative;
-  transition:
-    background var(--duration-fast, 140ms) var(--ease-out, ease),
-    border-color var(--duration-fast, 140ms) var(--ease-out, ease);
-}
-
-.pick-row.picked .pick-check {
-  background: var(--accent);
-  border-color: var(--accent);
-}
-
-.pick-row.picked .pick-check::after {
-  content: "";
-  position: absolute;
-  left: 3px;
-  top: 0.5px;
-  width: 4px;
-  height: 7px;
-  border: solid #fff;
-  border-width: 0 1.6px 1.6px 0;
-  transform: rotate(42deg);
-  border-radius: 1px;
-}
-
-.pick-id {
-  font-family: var(--font-mono, ui-monospace, monospace);
-  font-size: 12px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.pick-name {
-  flex-shrink: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  color: var(--fg-faint, var(--fg-muted));
-  font-size: 11.5px;
-}
-
-.pick-empty {
-  padding: 18px 10px;
-  text-align: center;
-  font-size: 12px;
-  color: var(--fg-faint, var(--fg-muted));
-}
-
-.pick-foot {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-top: 10px;
 }
 
 .left {
@@ -915,6 +1009,7 @@ function modelPlaceholder(_m: CustomModelEntry, i: number): string {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 8px;
   padding: 10px 12px;
   flex-shrink: 0;
   border-bottom: 1px solid var(--border);
@@ -936,13 +1031,15 @@ function modelPlaceholder(_m: CustomModelEntry, i: number): string {
   width: 100%;
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 10px 12px;
+  gap: 9px;
+  padding: 9px 12px;
   border: none;
   border-left: 2px solid transparent;
   background: transparent;
   text-align: left;
   cursor: pointer;
+  color: var(--fg);
+  font: inherit;
 }
 
 .provider-row:hover {
@@ -962,6 +1059,9 @@ function modelPlaceholder(_m: CustomModelEntry, i: number): string {
   font-size: 12.5px;
   font-weight: 550;
   color: var(--fg-strong);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .right {
@@ -978,82 +1078,56 @@ function modelPlaceholder(_m: CustomModelEntry, i: number): string {
   padding: 18px 22px 22px;
 }
 
-.form-head {
-  margin-bottom: 12px;
+.form-hero {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.hero-text {
+  min-width: 0;
+  flex: 1;
+}
+
+.hero-title {
+  font-size: 15px;
+  font-weight: 660;
+  color: var(--fg-strong);
+  margin-bottom: 3px;
 }
 
 .form-section {
-  margin-bottom: 16px;
-  padding: 12px 14px;
+  margin-bottom: 14px;
+  padding: 14px 16px;
   border: 1px solid var(--border);
-  border-radius: 10px;
-  background: color-mix(in srgb, var(--bg-panel) 70%, transparent);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--bg-panel) 66%, transparent);
 }
 
 .section-title {
-  font-size: 12px;
+  font-size: 12.5px;
   font-weight: 650;
   color: var(--fg-strong);
   margin-bottom: 10px;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.count-pill {
+  font-size: 10.5px;
+  font-weight: 600;
+  color: var(--accent);
+  background: var(--accent-soft);
+  border-radius: 20px;
+  padding: 1px 7px;
 }
 
 .field-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 10px 12px;
-}
-
-.presets {
-  margin-bottom: 14px;
-}
-
-.preset-chips {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin-top: 6px;
-}
-
-.preset-chip {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 2px;
-  padding: 8px 10px;
-  border-radius: 10px;
-  border: 1px solid var(--border);
-  background: var(--bg-panel);
-  cursor: pointer;
-  text-align: left;
-  min-width: 120px;
-}
-
-.preset-chip:hover {
-  border-color: var(--accent, #5b8def);
-  background: var(--bg-hover);
-}
-
-.preset-label {
-  font-size: 12.5px;
-  font-weight: 600;
-  color: var(--fg-strong);
-}
-
-.preset-hint {
-  font-size: 10.5px;
-  color: var(--fg-faint);
-}
-
-.detail-head {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin-bottom: 14px;
-}
-
-.detail-title {
-  font-size: 14px;
-  font-weight: 600;
 }
 
 .field {
@@ -1087,25 +1161,131 @@ function modelPlaceholder(_m: CustomModelEntry, i: number): string {
   justify-content: space-between;
   gap: 12px;
   margin-bottom: 10px;
+  flex-wrap: wrap;
+}
+
+/*
+ * Model rows are two-line cards rather than one wide grid: the id and display
+ * name get a full line each, so a long model id can no longer squeeze the
+ * context / max-output inputs and the delete button out of view.
+ */
+.model-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
 }
 
 .model-edit-row {
-  display: grid;
-  grid-template-columns: minmax(80px, 1fr) minmax(60px, 0.85fr) 80px 68px auto auto auto;
-  gap: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  padding: 9px 11px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg-elevated, var(--bg));
+}
+
+.model-edit-row:hover,
+.model-edit-row:focus-within {
+  border-color: var(--accent-border, var(--border-strong));
+}
+
+.mer-top {
+  display: flex;
   align-items: center;
-  margin-bottom: 8px;
+  gap: 8px;
+  min-width: 0;
 }
 
-.m-ctx,
-.m-max {
-  width: 100%;
+.mer-id {
+  flex: 1.35 1 0;
+  min-width: 0;
 }
 
-.m-reason {
+.mer-name {
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+.mer-del {
+  flex-shrink: 0;
+}
+
+.mer-bottom {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+.mer-num {
   display: flex;
   align-items: center;
   gap: 6px;
+  min-width: 0;
+}
+
+.mer-num :deep(.n-input-number) {
+  width: 118px;
+}
+
+.mini-label {
+  font-size: 10.5px;
+  color: var(--fg-faint);
+  white-space: nowrap;
+}
+
+.mer-caps {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+}
+
+/*
+ * Capability chips are auto-detected; clicking one records a manual override.
+ * `on` = supported, `manual` = the user set it explicitly.
+ */
+.cap-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 9px;
+  border-radius: 20px;
+  border: 1px dashed var(--border-strong);
+  background: transparent;
+  color: var(--fg-faint);
+  font: inherit;
+  font-size: 10.5px;
+  font-weight: 600;
+  cursor: pointer;
+  transition:
+    border-color var(--duration-fast) var(--ease-out),
+    background var(--duration-fast) var(--ease-out),
+    color var(--duration-fast) var(--ease-out);
+}
+
+.cap-chip:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.cap-chip.on {
+  border-style: solid;
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.cap-chip.manual {
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 35%, transparent);
+}
+
+.caps-note {
+  display: block;
+  margin-top: 8px;
+  font-size: 11px;
 }
 
 .form-actions {
@@ -1122,16 +1302,20 @@ function modelPlaceholder(_m: CustomModelEntry, i: number): string {
 }
 
 .model-row {
-  display: flex;
-  justify-content: space-between;
+  display: grid;
+  grid-template-columns: minmax(80px, 1fr) minmax(120px, 1.3fr) auto;
   gap: 12px;
-  padding: 8px 2px;
+  align-items: center;
+  padding: 7px 2px;
   border-bottom: 1px solid var(--border);
   font-size: 12.5px;
 }
 
 .model-name {
   font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .empty-left,
@@ -1148,16 +1332,21 @@ function modelPlaceholder(_m: CustomModelEntry, i: number): string {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  min-height: 200px;
+  min-height: 220px;
 }
 
-@media (max-width: 720px) {
+@media (max-width: 860px) {
   .field-grid {
     grid-template-columns: 1fr;
   }
 
-  .model-edit-row {
-    grid-template-columns: 1fr 1fr;
+  .mer-top {
+    flex-wrap: wrap;
+  }
+
+  .mer-id,
+  .mer-name {
+    flex: 1 1 100%;
   }
 }
 </style>

@@ -12,6 +12,7 @@ export {}
 declare module 'vue' {
   export interface GlobalComponents {
     AboutSettings: typeof import('./src/components/AboutSettings.vue')['default']
+    AddProviderModal: typeof import('./src/components/AddProviderModal.vue')['default']
     AgentWaitIndicator: typeof import('./src/components/AgentWaitIndicator.vue')['default']
     AppearanceSettings: typeof import('./src/components/AppearanceSettings.vue')['default']
     AskUserStrip: typeof import('./src/components/AskUserStrip.vue')['default']
@@ -45,6 +46,7 @@ declare module 'vue' {
     MarkdownView: typeof import('./src/components/MarkdownView.vue')['default']
     MarketSettings: typeof import('./src/components/MarketSettings.vue')['default']
     MessageList: typeof import('./src/components/MessageList.vue')['default']
+    ModelPickerModal: typeof import('./src/components/ModelPickerModal.vue')['default']
     ModelsSettings: typeof import('./src/components/ModelsSettings.vue')['default']
     NotifySettings: typeof import('./src/components/NotifySettings.vue')['default']
     NPopover: typeof import('naive-ui')['NPopover']

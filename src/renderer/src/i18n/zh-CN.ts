@@ -797,6 +797,90 @@ export const zh = {
 	modelsSourceCommand: "models.json 命令",
 	modelsSourceUnknown: "未知",
 
+	// Add-provider platform picker
+	modelsPickerTitle: "添加提供方",
+	modelsPickerSubtitle: "选择平台后填写 API Key，或添加一个 OpenAI 兼容端点",
+	modelsSearchPlatform: "搜索平台 / 域名…",
+	modelsGroupFeatured: "热门平台",
+	modelsGroupChina: "国内平台",
+	modelsGroupGlobal: "其他内置提供方",
+	modelsGroupLocal: "本地部署",
+	modelsGroupGeneric: "自定义端点",
+	modelsPlatformConfigured: "已配置",
+	modelsPlatformBuiltin: "内置",
+	modelsPlatformOauth: "OAuth 登录",
+	modelsPlatformCompat: "OpenAI 兼容",
+	modelsPlatformEmpty: "没有匹配的平台",
+	modelsPlatformCustomSection: "自定义",
+	modelsPlatformOpenDocs: "获取 API Key",
+	modelsPlatformKeyHint: (name: string) =>
+		`在「${name}」填入 API Key 后保存，再点「获取模型」挑选要用的模型。`,
+
+	// Model picker (fetch from provider)
+	modelsPickTitle: (provider: string) => `从 ${provider} 获取模型`,
+	modelsPickSubtitle: (n: number) => `共发现 ${n} 个模型，默认全部选中`,
+	modelsPickSearch: "搜索模型…",
+	modelsPickSelectAll: "全选",
+	modelsPickSelectNone: "取消全选",
+	modelsPickSelected: (n: number, total: number) => `已选 ${n} / ${total}`,
+	modelsPickConfirm: (n: number) => `添加 ${n} 个模型`,
+	modelsPickApplyConfirm: (n: number) => `应用 ${n} 个模型`,
+	modelsPickEmpty: "没有匹配的模型",
+	modelsPickLoading: "正在获取模型列表…",
+	modelsPickFetchFail: "获取模型列表失败",
+	modelsPickNeedKey: "部分接口需要 API Key 才能返回模型列表",
+	modelsPickColModel: "模型",
+	modelsPickColContext: "上下文",
+	modelsPickColMaxTokens: "最大输出",
+	modelsPickDefaultMaxHint: "未提供最大输出的模型默认使用 32K",
+	modelsPickOverrideHint:
+		"仅写入 models.json 的 modelOverrides，保留内置模型的定价等元数据。",
+	modelsPickDiscoveredHint: "写入当前草稿，点「保存」后才会生效。",
+	modelsPickAdded: (n: number) => `已加入 ${n} 个模型`,
+	modelsPickOverridesApplied: (n: number, pinned?: number) =>
+		pinned
+			? `已保留 ${n} 个模型，其中 ${pinned} 个写入 models.json`
+			: `已保留 ${n} 个模型`,
+	modelsPickOverridesFail: "写入 models.json 失败",
+	modelsPickStatsCtx: (v: string) => `上下文 ${v}`,
+	modelsPickStatsMax: (v: string) => `输出 ${v}`,
+	modelsPickUnknown: "未知",
+	modelsPickSelectHint: "勾选要保留的模型；取消勾选的会从列表和模型菜单里隐藏。",
+	modelsPickClearAll: "全部清空",
+	modelsPickClearWarn: "未勾选任何模型 — 确认后该提供方将不再出现在模型菜单中",
+
+	// Provider model curation
+	modelsSelectModels: "选择模型",
+	modelsSelectReset: "重置",
+	modelsSelectResetDone: "已恢复显示全部模型",
+	modelsSelectConfirm: (n: number) => `保留 ${n} 个模型`,
+	modelsSelectEmpty: "该提供方已隐藏全部模型，点「选择模型」重新勾选。",
+	modelsSelectHintOnly: (shown: number, total: number) =>
+		`已按你的选择隐藏 ${total - shown} 个模型（共 ${total} 个）`,
+	modelsHiddenCount: (n: number) => `已隐藏 ${n}`,
+	modelsSelectKeepShown: "只保留以上模型",
+	modelsSelectKept: (n: number) => `已固定为 ${n} 个模型`,
+
+	// Custom model list bulk actions
+	modelsCustomClearAll: "清空",
+	modelsCustomClearConfirm: (n: number) => `清空当前 ${n} 个模型行？（未保存前不会影响磁盘）`,
+	modelsCustomCleared: "已清空模型列表",
+	modelsCustomBulkAdd: "批量添加",
+	modelsCustomBulkTitle: "批量添加模型",
+	modelsCustomBulkHint:
+		"每行一个模型 ID，也支持用逗号 / 空格 / 分号分隔；支持 `ID=显示名` 形式。",
+	modelsCustomBulkPlaceholder: "gpt-5.5\nclaude-sonnet-5=Claude Sonnet 5",
+	modelsCustomBulkApply: (n: number) => `添加 ${n} 个`,
+	modelsCustomBulkEmpty: "没有解析到有效的模型 ID",
+	modelsCustomBulkAdded: (n: number) => `已添加 ${n} 个模型`,
+	modelsCustomCapsHint:
+		"「推理 / 图片」由提供方返回值或模型名自动识别，无需手填；点一下可手动覆盖。",
+	modelsCustomCapsNeedId: "先填模型 ID，会自动识别能力",
+	modelsCustomCapsAuto: (label: string, on: boolean) =>
+		`${label}：自动识别为${on ? "支持" : "不支持"}，点击可手动覆盖`,
+	modelsCustomCapsManual: (label: string, on: boolean) =>
+		`${label}：已手动设为${on ? "支持" : "不支持"}，点击可改回自动`,
+
 	// Skills settings
 	skillEnabled: "已启用",
 	skillDisabledManual: "已禁用（仅手动 /skill 调用）",

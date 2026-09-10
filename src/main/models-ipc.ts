@@ -1,7 +1,12 @@
 import { ipcMain } from "electron";
 
 import { IpcChannels } from "../shared/protocol";
-import type { ModelsGetResult, ModelsProviderAuth, ModelsSetPayload } from "../shared/models-settings";
+import type {
+  ModelsGetResult,
+  ModelsProviderAuth,
+  ModelsSetPayload,
+  ProviderCatalogResult,
+} from "../shared/models-settings";
 import {
 	discoverModels,
 	testModelConnection,
@@ -10,6 +15,8 @@ import {
 } from "../shared/model-discover";
 import type { SessionBroker } from "./session-broker";
 import { getModelsConfigService } from "./models-config";
+import { readModelSelection, writeModelSelection } from "./models-selection";
+import type { ModelSelection } from "../shared/model-selection";
 import type { ModelRuntime } from "@earendil-works/pi-coding-agent";
 
 /** Providers that use OAuth — handled separately (pi-web /api/auth/all-providers) */
@@ -71,6 +78,8 @@ function listApiKeyProviders(
       source: status.source,
       modelCount: availableCountByProvider.get(provider.id) ?? 0,
       supportsApiKey: true,
+      ...(provider.baseUrl ? { baseUrl: provider.baseUrl } : {}),
+      ...(provider.auth?.oauth ? { oauth: true } : {}),
     });
   }
 
@@ -92,7 +101,19 @@ export function registerModelsIpc(broker: SessionBroker): void {
     ]);
     const providers = listApiKeyProviders(runtime, available);
     const apiKeyConfigured = Object.fromEntries(providers.map((p) => [p.id, p.configured]));
-    return { modelsText, apiKeyConfigured, providers, available };
+    return {
+      modelsText,
+      apiKeyConfigured,
+      providers,
+      available,
+      modelSelection: readModelSelection(),
+    };
+  });
+
+  // Renderer-only curation: never touches models.json / auth.json.
+  ipcMain.handle(IpcChannels.models.setSelection, async (_event, selection: ModelSelection) => {
+    writeModelSelection(selection);
+    await broker.notifyWorkersReloadModels();
   });
 
   ipcMain.handle(IpcChannels.models.set, async (_event, payload: ModelsSetPayload) => {
@@ -119,6 +140,34 @@ export function registerModelsIpc(broker: SessionBroker): void {
     const runtime = await createRuntime();
     return listAvailableModels(runtime);
   });
+
+  ipcMain.handle(
+    IpcChannels.models.providerCatalog,
+    async (_event, providerId: string): Promise<ProviderCatalogResult> => {
+      const id = String(providerId ?? "").trim();
+      const runtime = await createRuntime();
+      const provider = runtime.getProvider(id);
+      if (!provider) {
+        return { providerId: id, api: "", baseUrl: "", models: [] };
+      }
+      const models = provider.getModels().map((m) => ({
+        id: m.id,
+        name: m.name || m.id,
+        api: String(m.api),
+        baseUrl: m.baseUrl ?? provider.baseUrl ?? "",
+        reasoning: Boolean(m.reasoning),
+        vision: Array.isArray(m.input) && m.input.includes("image"),
+        contextWindow: Number(m.contextWindow) || 0,
+        maxTokens: Number(m.maxTokens) || 0,
+      }));
+      return {
+        providerId: id,
+        api: models[0]?.api ?? "",
+        baseUrl: provider.baseUrl ?? models[0]?.baseUrl ?? "",
+        models,
+      };
+    },
+  );
 
   ipcMain.handle(
     IpcChannels.models.discover,

@@ -1,6 +1,11 @@
 /** Helpers for GUI editing of ~/.pi/agent/models.json custom providers (Pi-aligned). */
 
 import { normalizeProviderBaseUrl } from "./model-discover";
+import {
+  DEFAULT_MAX_TOKENS,
+  inferModelCapabilities,
+  resolveContextWindow,
+} from "./model-metadata";
 
 export const CUSTOM_MODEL_APIS = [
   "openai-completions",
@@ -17,11 +22,22 @@ export type CustomModelEntry = {
   reasoning: boolean;
   /** Optional — defaults to SDK 128000 if omitted */
   contextWindow?: number;
-  /** Optional — defaults to SDK 16384 if omitted */
+  /** Optional — defaults to the GUI budget (32768) when omitted */
   maxTokens?: number;
   /** When true, model accepts images (`input: ["text","image"]`). */
   vision?: boolean;
 };
+
+/** A fresh, blank model row. Max output defaults to the GUI budget. */
+export function newModelEntry(partial?: Partial<CustomModelEntry>): CustomModelEntry {
+  return {
+    id: "",
+    name: "",
+    reasoning: false,
+    maxTokens: DEFAULT_MAX_TOKENS,
+    ...partial,
+  };
+}
 
 export type CustomProviderDraft = {
   /** Provider key in models.json */
@@ -59,7 +75,7 @@ export function emptyCustomProvider(partial?: Partial<CustomProviderDraft>): Cus
     apiKey: "",
     supportsDeveloperRole: false,
     supportsReasoningEffort: false,
-    models: [{ id: "", name: "", reasoning: false }],
+    models: [newModelEntry()],
     ...partial,
   };
 }
@@ -158,7 +174,7 @@ export function providerToDraft(id: string, raw: unknown): CustomProviderDraft {
     const m = parseModelEntry(item);
     if (m) models.push(m);
   }
-  if (!models.length) models.push({ id: "", name: "", reasoning: false });
+  if (!models.length) models.push(newModelEntry());
   const localOff = defaultLocalCompatOff(baseUrl);
   return {
     id,
@@ -344,7 +360,50 @@ export function renameCustomProvider(
   return next;
 }
 
-/** Merge discovered models into draft rows (upsert by id, keep manual fields). */
+/** A model row parsed from pasted text. */
+export type BulkModelToken = { id: string; name: string };
+
+/**
+ * Parse pasted model ids for the bulk-add dialog.
+ *
+ * Chunks are split on newlines / commas / semicolons first, so the
+ * `ID=Display name` form survives spaces in the display name; only chunks
+ * *without* `=` are further split on whitespace (so `a b c` yields three ids).
+ * Duplicates are dropped, first occurrence wins.
+ */
+export function parseBulkModelTokens(text: string): BulkModelToken[] {
+  const out: BulkModelToken[] = [];
+  const seen = new Set<string>();
+  const push = (id: string, name: string): void => {
+    const cleanId = id.trim();
+    if (!cleanId || seen.has(cleanId)) return;
+    seen.add(cleanId);
+    out.push({ id: cleanId, name: name.trim() });
+  };
+  for (const chunk of text.split(/[\n\r,;]+/u)) {
+    const trimmed = chunk.trim();
+    if (!trimmed) continue;
+    const eq = trimmed.indexOf("=");
+    if (eq > 0) {
+      push(trimmed.slice(0, eq), trimmed.slice(eq + 1));
+      continue;
+    }
+    for (const token of trimmed.split(/\s+/u)) push(token, "");
+  }
+  return out;
+}
+
+/**
+ * Merge discovered models into draft rows (upsert by id, keep manual fields).
+ *
+ * Discovery rarely reports a max-output budget, so every merged row gets the GUI
+ * default ({@link DEFAULT_MAX_TOKENS}); the context window falls back to the
+ * family heuristic before staying empty.
+ *
+ * Capabilities (`reasoning` / `vision`) always resolve through
+ * {@link inferModelCapabilities}: a provider that reports them wins, otherwise
+ * the model id is classified — so the form never asks the user to tick boxes.
+ */
 export function mergeDiscoveredIntoDraft(
   current: CustomModelEntry[],
   discovered: Array<{
@@ -352,6 +411,8 @@ export function mergeDiscoveredIntoDraft(
     name?: string;
     contextWindow?: number;
     maxTokens?: number;
+    reasoning?: boolean;
+    vision?: boolean;
   }>,
 ): CustomModelEntry[] {
   const byId = new Map<string, CustomModelEntry>();
@@ -363,15 +424,78 @@ export function mergeDiscoveredIntoDraft(
     const id = d.id.trim();
     if (!id) continue;
     const prev = byId.get(id);
+    // A row the user already has keeps the capabilities it was saved with.
+    const caps = inferModelCapabilities(id, {
+      reasoning: d.reasoning ?? prev?.reasoning,
+      vision: d.vision ?? prev?.vision,
+    });
     byId.set(id, {
       id,
       name: prev?.name || d.name || "",
-      reasoning: prev?.reasoning ?? false,
-      vision: prev?.vision,
-      contextWindow: d.contextWindow ?? prev?.contextWindow,
-      maxTokens: d.maxTokens ?? prev?.maxTokens,
+      reasoning: caps.reasoning,
+      vision: caps.vision,
+      contextWindow: resolveContextWindow(d.contextWindow ?? prev?.contextWindow, id),
+      maxTokens: d.maxTokens ?? prev?.maxTokens ?? DEFAULT_MAX_TOKENS,
     });
   }
   const list = [...byId.values()];
-  return list.length ? list : [{ id: "", name: "", reasoning: false }];
+  return list.length ? list : [newModelEntry()];
+}
+
+/** Per-model overrides for a built-in (Pi SDK) provider. */
+export type ProviderModelOverride = {
+  name?: string;
+  contextWindow?: number;
+  maxTokens?: number;
+  reasoning?: boolean;
+  vision?: boolean;
+};
+
+/**
+ * Upsert `providers.<providerId>.modelOverrides` — the Pi-supported way to pin
+ * limits on built-in models: pricing and everything else stay intact.
+ */
+export function applyProviderModelOverrides(
+  doc: ModelsConfigDoc,
+  providerId: string,
+  overrides: Record<string, ProviderModelOverride>,
+): ModelsConfigDoc {
+  const id = providerId.trim();
+  const next: ModelsConfigDoc = { providers: { ...doc.providers }, rest: { ...doc.rest } };
+  const prev = asRecord(next.providers[id]) ?? {};
+  const prevOverrides = asRecord(prev.modelOverrides) ?? {};
+  const merged: Record<string, unknown> = { ...prevOverrides };
+  for (const [modelId, value] of Object.entries(overrides)) {
+    const key = modelId.trim();
+    if (!key) continue;
+    const entry: Record<string, unknown> = { ...(asRecord(merged[key]) ?? {}) };
+    if (value.name?.trim()) entry.name = value.name.trim();
+    if (value.contextWindow && value.contextWindow > 0) {
+      entry.contextWindow = Math.floor(value.contextWindow);
+    }
+    if (value.maxTokens && value.maxTokens > 0) {
+      entry.maxTokens = Math.floor(value.maxTokens);
+    }
+    if (typeof value.reasoning === "boolean") entry.reasoning = value.reasoning;
+    if (value.vision) entry.input = ["text", "image"];
+    merged[key] = entry;
+  }
+  next.providers[id] = { ...prev, modelOverrides: merged };
+  return next;
+}
+
+/** Existing `modelOverrides` entries for a provider (id → override object). */
+export function listProviderModelOverrides(
+  doc: ModelsConfigDoc,
+  providerId: string,
+): Record<string, Record<string, unknown>> {
+  const provider = asRecord(doc.providers[providerId.trim()]);
+  const overrides = asRecord(provider?.modelOverrides);
+  if (!overrides) return {};
+  const out: Record<string, Record<string, unknown>> = {};
+  for (const [id, value] of Object.entries(overrides)) {
+    const o = asRecord(value);
+    if (o) out[id] = o;
+  }
+  return out;
 }

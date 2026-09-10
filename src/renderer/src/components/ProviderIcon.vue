@@ -1,62 +1,69 @@
 <script setup lang="ts">
-/** Lightweight provider badges inspired by pi-web ModelsConfig (no @lobehub/icons dep). */
-const props = defineProps<{
-  provider: string;
-  size?: number;
-}>();
+/**
+ * Brand badge for a model provider.
+ *
+ * Renders the platform's real logo (bundled offline via
+ * `shared/provider-brand-icons`) inside a brand-coloured tile. Providers we have
+ * no mark for fall back to the original letter chip, so nothing regresses.
+ */
+import { computed } from "vue";
+import { brandGlyph, resolveBrandVisual } from "../../../shared/provider-brand-icons";
 
-const meta: Record<string, { label: string; bg: string; fg: string }> = {
-  anthropic: { label: "A", bg: "#d4a574", fg: "#1a1a1a" },
-  openai: { label: "O", bg: "#10a37f", fg: "#fff" },
-  "openai-codex": { label: "O", bg: "#10a37f", fg: "#fff" },
-  google: { label: "G", bg: "#4285f4", fg: "#fff" },
-  "google-vertex": { label: "G", bg: "#4285f4", fg: "#fff" },
-  deepseek: { label: "D", bg: "#4d6bfe", fg: "#fff" },
-  groq: { label: "q", bg: "#f55036", fg: "#fff" },
-  mistral: { label: "M", bg: "#ff7000", fg: "#fff" },
-  moonshot: { label: "K", bg: "#1a1a1a", fg: "#fff" },
-  moonshotai: { label: "K", bg: "#1a1a1a", fg: "#fff" },
-  "moonshotai-cn": { label: "K", bg: "#1a1a1a", fg: "#fff" },
-  openrouter: { label: "R", bg: "#ababab", fg: "#111" },
-  xai: { label: "x", bg: "#111", fg: "#fff" },
-  xiaomi: { label: "米", bg: "#ff6900", fg: "#fff" },
-  "xiaomi-token-plan-cn": { label: "米", bg: "#ff6900", fg: "#fff" },
-  "xiaomi-token-plan-ams": { label: "米", bg: "#ff6900", fg: "#fff" },
-  "xiaomi-token-plan-sgp": { label: "米", bg: "#ff6900", fg: "#fff" },
-  zhipu: { label: "智", bg: "#0f62fe", fg: "#fff" },
-  zai: { label: "Z", bg: "#111", fg: "#fff" },
-  "zai-coding-cn": { label: "Z", bg: "#111", fg: "#fff" },
-  qwen: { label: "Q", bg: "#615ced", fg: "#fff" },
-  minimax: { label: "m", bg: "#e01616", fg: "#fff" },
-  "minimax-cn": { label: "m", bg: "#e01616", fg: "#fff" },
-  "github-copilot": { label: "GH", bg: "#24292f", fg: "#fff" },
-  "azure-openai-responses": { label: "Az", bg: "#0078d4", fg: "#fff" },
-  "amazon-bedrock": { label: "AWS", bg: "#ff9900", fg: "#111" },
-};
+const props = withDefaults(
+  defineProps<{
+    provider: string;
+    size?: number;
+    /** `tile` = coloured rounded square (default); `plain` = bare glyph. */
+    variant?: "tile" | "plain";
+    /** Colour for the `plain` variant; defaults to `currentColor`. */
+    color?: string;
+  }>(),
+  { size: 22, variant: "tile" },
+);
 
-const resolved = (() => {
-  const key = props.provider.toLowerCase();
-  if (meta[key]) return meta[key];
-  const hit = Object.keys(meta).find((k) => key.includes(k) || k.includes(key));
-  if (hit) return meta[hit];
-  const ch = (props.provider[0] ?? "?").toUpperCase();
-  return { label: ch, bg: "#e5e5e5", fg: "#333" };
-})();
+const brand = computed(() => resolveBrandVisual(props.provider));
+
+const glyph = computed(() => (brand.value ? brandGlyph(brand.value.glyph) : null));
+
+const letter = computed(() => {
+  const raw = props.provider.replace(/^[^a-z0-9]+/iu, "").trim();
+  return (raw[0] ?? "?").toUpperCase();
+});
+
+/** Glyphs are drawn at ~72% of the tile so the mark breathes. */
+const glyphSize = computed(() => Math.round(props.size * 0.72));
+
+const tileStyle = computed(() => ({
+  width: `${props.size}px`,
+  height: `${props.size}px`,
+  borderRadius: `${Math.max(5, Math.round(props.size * 0.28))}px`,
+  background: props.variant === "plain" ? "transparent" : (brand.value?.bg ?? "var(--bg-hover)"),
+  color: props.variant === "plain" ? (props.color ?? "currentColor") : (brand.value?.fg ?? "var(--fg-muted)"),
+  fontSize: `${Math.max(9, props.size * 0.42)}px`,
+}));
 </script>
 
 <template>
-  <span
-    class="provider-icon"
-    :style="{
-      width: `${size ?? 22}px`,
-      height: `${size ?? 22}px`,
-      background: resolved.bg,
-      color: resolved.fg,
-      fontSize: `${Math.max(10, (size ?? 22) * 0.42)}px`,
-    }"
-    :title="provider"
-  >
-    {{ resolved.label }}
+  <span class="provider-icon" :style="tileStyle" :title="provider">
+    <svg
+      v-if="glyph"
+      class="glyph"
+      :viewBox="glyph.viewBox"
+      :width="variant === 'plain' ? size : glyphSize"
+      :height="variant === 'plain' ? size : glyphSize"
+      fill="currentColor"
+      fill-rule="evenodd"
+      aria-hidden="true"
+      focusable="false"
+    >
+      <g v-if="glyph.transform" :transform="glyph.transform">
+        <path v-for="(p, i) in glyph.paths" :key="i" :d="p.d" :fill="p.fill" />
+      </g>
+      <template v-else>
+        <path v-for="(p, i) in glyph.paths" :key="i" :d="p.d" :fill="p.fill" />
+      </template>
+    </svg>
+    <template v-else>{{ letter }}</template>
   </span>
 </template>
 
@@ -65,10 +72,14 @@ const resolved = (() => {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  border-radius: 6px;
-  font-weight: 700;
   flex-shrink: 0;
   line-height: 1;
+  font-weight: 700;
   letter-spacing: -0.02em;
+  overflow: hidden;
+}
+
+.glyph {
+  display: block;
 }
 </style>
