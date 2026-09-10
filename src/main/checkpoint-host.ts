@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { countLineDiff } from "../shared/line-diff";
+import { resolveWorkspacePath } from "../shared/path-sandbox";
 
 export const CHECKPOINT_MAX_FILE_BYTES = 2 * 1024 * 1024;
 export const CHECKPOINT_MAX_FILES = 3000;
@@ -525,24 +526,31 @@ export type SessionNetFileStats = {
 /** Cap for reading the current on-disk content of one changed file. */
 const NET_CURRENT_MAX_BYTES = 8 * 1024 * 1024;
 
-/** Normalize a transcript-relative path; null when it escapes the workspace. */
-function normalizeNetRel(raw: string): string | null {
+/**
+ * Normalize a transcript path to a workspace-relative posix path. Tool cards
+ * report either relative paths or absolute ones (the agent is told its working
+ * directory), so both must map onto the baseline keys; null when the path
+ * escapes the workspace.
+ */
+function normalizeNetRel(raw: string, root: string): string | null {
 	if (!raw) return null;
 	const replaced = raw.replace(/\\/g, "/");
-	if (replaced.startsWith("/") || /^[A-Za-z]:/.test(replaced)) return null;
-	const parts: string[] = [];
-	for (const seg of replaced.split("/")) {
-		if (!seg || seg === ".") continue;
-		if (seg === "..") return null;
-		parts.push(seg);
+	if (replaced.split("/").some((seg) => seg === "..")) return null;
+	let abs: string;
+	try {
+		abs = resolveWorkspacePath(root, replaced);
+	} catch {
+		return null;
 	}
-	return parts.length ? parts.join("/") : null;
+	const rel = path.relative(root, abs);
+	return rel ? toPosix(rel) : null;
 }
 
 /**
  * Actual-change stats for paths touched during a session: the session-start
  * checkpoint baseline vs. the current on-disk content. Repeated edits or
  * full-file rewrites therefore count only once (see src/shared/line-diff.ts).
+ * Paths may be workspace-relative or absolute inside the workspace.
  */
 export function sessionNetFileChanges(
 	sessionId: string,
@@ -551,11 +559,10 @@ export function sessionNetFileChanges(
 	const out: Record<string, SessionNetFileStats> = {};
 	const startKey = sessionStartKeyBySession.get(sessionId);
 	const cp = startKey ? byKey.get(startKey) : undefined;
-	const hasBaseline = Boolean(cp?.workspaceRoot);
 
 	for (const raw of relativePaths) {
-		const rel = normalizeNetRel(raw);
-		if (!rel || !hasBaseline || !cp) {
+		const rel = cp ? normalizeNetRel(raw, cp.workspaceRoot) : null;
+		if (!cp || !rel) {
 			out[raw] = { additions: 0, deletions: 0, available: false };
 			continue;
 		}
