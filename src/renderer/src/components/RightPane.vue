@@ -9,7 +9,6 @@ import {
   NInput,
   NModal,
   NSpace,
-  NTooltip,
   useDialog,
 } from "naive-ui";
 import {
@@ -25,7 +24,6 @@ import {
   ChevronBackOutline,
   ChevronForwardOutline,
 } from "@vicons/ionicons5";
-import PanelRightIcon from "@renderer/components/icons/PanelRightIcon.vue";
 import Sortable from "sortablejs";
 import ChangesTab from "@renderer/components/ChangesTab.vue";
 import BrowserTab from "@renderer/components/BrowserTab.vue";
@@ -588,23 +586,6 @@ function submitRenameTab(): void {
           </NButton>
         </NDropdown>
       </div>
-
-      <NTooltip>
-        <template #trigger>
-          <NButton
-            class="collapse-btn"
-            quaternary
-            circle
-            size="tiny"
-            @click="layout.toggleRightCollapsed()"
-          >
-            <template #icon>
-              <PanelRightIcon :size="15" />
-            </template>
-          </NButton>
-        </template>
-        {{ t.collapseRight }}
-      </NTooltip>
     </header>
 
     <div class="body">
@@ -711,16 +692,6 @@ function submitRenameTab(): void {
   flex-shrink: 0;
   position: relative;
   z-index: 6;
-}
-
-.collapse-btn {
-  flex-shrink: 0;
-  position: relative;
-  z-index: 7;
-}
-
-.collapse-btn:active {
-  transform: none !important;
 }
 
 .tabs-row {

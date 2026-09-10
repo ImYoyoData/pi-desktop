@@ -27,7 +27,6 @@ import {
   RefreshOutline,
   TrashOutline,
 } from "@vicons/ionicons5";
-import PanelLeftIcon from "@renderer/components/icons/PanelLeftIcon.vue";
 import Sortable from "sortablejs";
 import { Splitpanes, Pane } from "splitpanes";
 import type { SplitpanesResizedPayload } from "splitpanes";
@@ -929,21 +928,6 @@ function onLeftSplitResized(payload: SplitpanesResizedPayload): void {
         </template>
         <span class="btn-label">{{ t.newSessionAction }}</span>
       </NButton>
-      <NTooltip>
-        <template #trigger>
-          <NButton
-            class="collapse-left-btn"
-            quaternary
-            circle
-            @click="layout.toggleLeftCollapsed()"
-          >
-            <template #icon>
-              <PanelLeftIcon :size="15" />
-            </template>
-          </NButton>
-        </template>
-        {{ t.collapseLeft }}
-      </NTooltip>
     </div>
 
     <NAlert v-if="showStuckRecovery" type="warning" :bordered="false" style="margin: 0 8px 8px">
@@ -1231,10 +1215,6 @@ function onLeftSplitResized(payload: SplitpanesResizedPayload): void {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.collapse-left-btn:active {
-  transform: none !important;
 }
 
 .section-head {
