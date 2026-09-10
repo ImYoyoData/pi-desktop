@@ -270,6 +270,7 @@ export const en = {
 	thinking: "Thought",
 	thinkingStreaming: "Thinking",
 	modelPlaceholder: "Model",
+	composerSettingsLocked: "Model and thinking level cannot be changed while Pi is responding",
 	imageTooLarge: "Images must be under 8MB",
 	pasteImageOk: "Image attached",
 	fileExternallyModified: "File changed externally",

@@ -307,6 +307,8 @@ function activeSessionRunning(): boolean {
   return sessions.sessions.find((s) => s.id === id)?.status === "running";
 }
 
+const settingsLocked = computed(() => running.value);
+
 const hasSendContent = computed(() =>
   Boolean(composer.draft.trim() || composer.images.length || composer.chips.length),
 );
@@ -1513,6 +1515,10 @@ async function runSlashBuiltin(id: string): Promise<void> {
       return;
     }
     case "model": {
+      if (settingsLocked.value) {
+        messageApi.warning(t.composerSettingsLocked);
+        return;
+      }
       await nextTick();
       modelMenuRef.value?.focus?.();
       return;
@@ -1738,6 +1744,7 @@ function closeContextPopover(): void {
   document.removeEventListener("pointerdown", onContextOutside, true);
 }
 async function onThinkingChange(value: string | number): Promise<void> {
+  if (settingsLocked.value) return;
   const id = sessionId.value;
   const level = String(value) as ThinkingLevel;
   thinkingLevel.value = level;
@@ -1895,6 +1902,7 @@ async function applySelectedModel(opts?: { allowStart?: boolean }): Promise<void
 }
 
 async function onModelChange(value: string | number): Promise<void> {
+  if (settingsLocked.value) return;
   const key = String(value);
   selectedModelKey.value = key;
   appliedModelForSession.value = null;
@@ -2496,15 +2504,15 @@ watch(
             ref="modelMenuRef"
             trigger="click"
             :options="modelMenu"
-            :disabled="voiceActive || voicePending"
+            :disabled="voiceActive || voicePending || settingsLocked"
             @select="onModelChange"
           >
             <NButton
               quaternary
               size="tiny"
               class="model-btn"
-              :disabled="voiceActive || voicePending"
-              :title="t.modelPlaceholder"
+              :disabled="voiceActive || voicePending || settingsLocked"
+              :title="settingsLocked ? t.composerSettingsLocked : t.modelPlaceholder"
             >
               <span class="model-label">{{ modelLabel }}</span>
             </NButton>
@@ -2513,15 +2521,15 @@ watch(
           <NDropdown
             trigger="click"
             :options="thinkingMenu"
-            :disabled="voiceActive || voicePending"
+            :disabled="voiceActive || voicePending || settingsLocked"
             @select="onThinkingChange"
           >
             <NButton
               quaternary
               size="tiny"
               class="think-btn"
-              :disabled="voiceActive || voicePending"
-              :title="t.thinkingLevel"
+              :disabled="voiceActive || voicePending || settingsLocked"
+              :title="settingsLocked ? t.composerSettingsLocked : t.thinkingLevel"
             >
               <template #icon>
                 <NIcon :component="FlashOutline" :size="14" />
