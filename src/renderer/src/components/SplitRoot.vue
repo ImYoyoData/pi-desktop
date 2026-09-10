@@ -19,11 +19,18 @@ const ChatPanel = defineAsyncComponent(
 const RightPane = defineAsyncComponent(
   () => import("@renderer/components/RightPane.vue"),
 );
+const BottomPanel = defineAsyncComponent(
+  () => import("@renderer/components/BottomPanel.vue"),
+);
 
-/** Nested splits: outer left↔main, inner chat↔right — sides never fight each other. */
+/** Nested splits: outer left↔main, inner chat↔right, chat area chat↔bottom panel. */
 const PANE_MIN = 15;
 const CHAT_MIN = 12;
 const PANE_MAX = 70;
+/** Chat area (top) vs bottom panel share the centre column. */
+const CHAT_TOP_MIN = 25;
+const PANEL_MIN = 18;
+const PANEL_MAX = 75;
 
 const workspace = useWorkspaceStore();
 const layout = useLayoutStore();
@@ -71,6 +78,13 @@ function onInnerResized(payload: SplitpanesResizedPayload): void {
   const right = (rightOfMain / 100) * mainPct;
   layout.setPaneSizes(layout.leftSize, center, right);
 }
+
+/** Bottom panel height is relative to the centre column. */
+function onChatResized(payload: SplitpanesResizedPayload): void {
+  if (layout.bottomCollapsed || payload.panes.length < 2) return;
+  const bottomOfColumn = payload.panes[1].size;
+  layout.setBottomSize(bottomOfColumn);
+}
 </script>
 
 <template>
@@ -95,7 +109,28 @@ function onInnerResized(payload: SplitpanesResizedPayload): void {
             :min-size="CHAT_MIN"
             :max-size="layout.rightCollapsed ? 100 : PANE_MAX"
           >
-            <ChatPanel />
+            <Splitpanes
+              horizontal
+              class="panes chat-split"
+              :class="{ 'panel-collapsed': layout.bottomCollapsed }"
+              @resized="onChatResized"
+            >
+              <Pane
+                :size="layout.bottomCollapsed ? 100 : 100 - layout.bottomSize"
+                :min-size="CHAT_TOP_MIN"
+                :max-size="layout.bottomCollapsed ? 100 : 100 - PANEL_MIN"
+              >
+                <ChatPanel />
+              </Pane>
+              <Pane
+                :size="layout.bottomCollapsed ? 0 : layout.bottomSize"
+                :min-size="layout.bottomCollapsed ? 0 : PANEL_MIN"
+                :max-size="layout.bottomCollapsed ? 0 : PANEL_MAX"
+                :class="{ 'pane-collapsed': layout.bottomCollapsed }"
+              >
+                <BottomPanel />
+              </Pane>
+            </Splitpanes>
           </Pane>
           <Pane
             :size="layout.rightCollapsed ? 0 : innerPair.right"
@@ -144,5 +179,9 @@ function onInnerResized(payload: SplitpanesResizedPayload): void {
   overflow: hidden !important;
   pointer-events: none;
   visibility: hidden;
+}
+
+.chat-split.panel-collapsed :deep(.splitpanes__splitter) {
+  display: none;
 }
 </style>

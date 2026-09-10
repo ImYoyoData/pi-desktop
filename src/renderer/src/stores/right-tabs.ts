@@ -76,10 +76,16 @@ function normalizeRoot(root: string): string {
 type ParkedWorkspace = {
   tabs: RightTab[];
   activeId: string;
+  panelActiveId: string;
 };
 
 /** In-memory park so terminal PTYs stay alive across workspace switches. */
 const parkedByRoot = new Map<string, ParkedWorkspace>();
+
+/** Bottom panel hosts terminals (VSCode 面板); the right pane hosts the rest. */
+function isPanelTab(tab: RightTab): boolean {
+  return tab.kind === "terminal";
+}
 
 function cloneTabs(list: RightTab[]): RightTab[] {
   return list.map((tab) => ({ ...tab }));
@@ -100,13 +106,35 @@ function syncLocalizedLabels(list: RightTab[]): void {
 export const useRightTabsStore = defineStore("rightTabs", () => {
   const tabs = ref<RightTab[]>(defaultTabs());
   const activeId = ref("changes-0");
+  const panelActiveId = ref("");
   const saveHandlers = new Map<string, SaveHandler>();
   let persistReady = false;
 
-  const activeTab = computed(() => tabs.value.find((t) => t.id === activeId.value) ?? null);
+  /** Right-dock tabs — everything except the panel's terminals. */
+  const dockTabs = computed(() => tabs.value.filter((tab) => !isPanelTab(tab)));
+  const panelTabs = computed(() => tabs.value.filter(isPanelTab));
+
+  const activeTab = computed(
+    () => dockTabs.value.find((tab) => tab.id === activeId.value) ?? null,
+  );
+  const activePanelTab = computed(
+    () => panelTabs.value.find((tab) => tab.id === panelActiveId.value) ?? null,
+  );
 
   function selectTab(id: string): void {
     activeId.value = id;
+  }
+
+  function selectPanelTab(id: string): void {
+    panelActiveId.value = id;
+  }
+
+  /** Nearest remaining tab of the same dock after the tab at `removedIdx` went away. */
+  function nextDockId(removedIdx: number, panel: boolean): string {
+    const matches = (tab: RightTab) => isPanelTab(tab) === panel;
+    const after = tabs.value.slice(removedIdx).find(matches);
+    const before = [...tabs.value.slice(0, removedIdx)].reverse().find(matches);
+    return (after ?? before)?.id ?? "";
   }
 
   function closeTab(id: string): void {
@@ -124,9 +152,12 @@ export const useRightTabsStore = defineStore("rightTabs", () => {
     const wasPreview = tab.kind === "preview";
     tabs.value.splice(idx, 1);
     saveHandlers.delete(id);
-    if (activeId.value === id) {
-      const next = tabs.value[idx] ?? tabs.value[idx - 1] ?? null;
-      activeId.value = next?.id ?? "";
+    if (isPanelTab(tab)) {
+      if (panelActiveId.value === id) {
+        panelActiveId.value = nextDockId(idx, true);
+      }
+    } else if (activeId.value === id) {
+      activeId.value = nextDockId(idx, false);
     }
     if (wasPreview) refreshPreviewTabLabels();
   }
@@ -198,18 +229,19 @@ export const useRightTabsStore = defineStore("rightTabs", () => {
     tabs.value.splice(toIndex, 0, item);
   }
 
-  /** Reorder by full id list from drag UI (preferred over index math). */
-  function reorderByIds(ids: string[]): void {
-    if (ids.length !== tabs.value.length) return;
-    const byId = new Map(tabs.value.map((tab) => [tab.id, tab]));
+  /** Reorder the right dock from drag UI; panel terminals keep their slots. */
+  function reorderDock(ids: string[]): void {
+    const dock = dockTabs.value;
+    if (ids.length !== dock.length || new Set(ids).size !== dock.length) return;
+    const byId = new Map(dock.map((tab) => [tab.id, tab]));
     const next: RightTab[] = [];
     for (const id of ids) {
       const tab = byId.get(id);
       if (!tab) return;
       next.push(tab);
     }
-    if (next.length !== tabs.value.length) return;
-    tabs.value = next;
+    let i = 0;
+    tabs.value = tabs.value.map((tab) => (isPanelTab(tab) ? tab : next[i++]!));
   }
 
   function addTab(kind: RightTabKind, opts?: { label?: string; filePath?: string; cwd?: string }): RightTab {
@@ -309,7 +341,8 @@ export const useRightTabsStore = defineStore("rightTabs", () => {
     };
     // Always append at the end — never insert after the active tab / at the front.
     tabs.value = [...tabs.value, tab];
-    activeId.value = tab.id;
+    if (isPanelTab(tab)) panelActiveId.value = tab.id;
+    else activeId.value = tab.id;
     if (kind === "preview") refreshPreviewTabLabels();
     return tab;
   }
@@ -374,6 +407,7 @@ export const useRightTabsStore = defineStore("rightTabs", () => {
     if (!root) {
       tabs.value = defaultTabs();
       activeId.value = "";
+      panelActiveId.value = "";
       persistReady = true;
       return;
     }
@@ -390,6 +424,7 @@ export const useRightTabsStore = defineStore("rightTabs", () => {
     if (!restored?.tabs?.length) {
       tabs.value = defaultTabs();
       activeId.value = "";
+      panelActiveId.value = "";
       persistReady = true;
       return;
     }
@@ -432,10 +467,13 @@ export const useRightTabsStore = defineStore("rightTabs", () => {
     refreshPreviewTabLabels();
     const preferredIdx = Math.min(Math.max(0, restored.activeIndex), next.length - 1);
     const preferredId = next[preferredIdx]?.id;
+    const dock = next.filter((tab) => !isPanelTab(tab));
     activeId.value =
-      preferredId && tabs.value.some((tab) => tab.id === preferredId)
+      preferredId && dock.some((tab) => tab.id === preferredId)
         ? preferredId
-        : "";
+        : (dock[0]?.id ?? "");
+    const restoredPanel = next.filter(isPanelTab);
+    panelActiveId.value = restoredPanel[restoredPanel.length - 1]?.id ?? "";
     persistReady = true;
   }
 
@@ -448,6 +486,7 @@ export const useRightTabsStore = defineStore("rightTabs", () => {
       parkedByRoot.set(key, {
         tabs: cloneTabs(tabs.value),
         activeId: activeId.value,
+        panelActiveId: panelActiveId.value,
       });
       persistTabs(prev);
     }
@@ -456,6 +495,7 @@ export const useRightTabsStore = defineStore("rightTabs", () => {
     if (!next) {
       tabs.value = defaultTabs();
       activeId.value = "";
+      panelActiveId.value = "";
       persistReady = true;
       return;
     }
@@ -464,8 +504,14 @@ export const useRightTabsStore = defineStore("rightTabs", () => {
     if (parked?.tabs?.length) {
       tabs.value = cloneTabs(parked.tabs);
       syncLocalizedLabels(tabs.value);
-      const stillThere = tabs.value.some((tab) => tab.id === parked.activeId);
-      activeId.value = stillThere ? parked.activeId : (tabs.value[0]?.id ?? "");
+      const dock = tabs.value.filter((tab) => !isPanelTab(tab));
+      const dockActive = dock.some((tab) => tab.id === parked.activeId);
+      activeId.value = dockActive ? parked.activeId : (dock[0]?.id ?? "");
+      const parkedPanel = tabs.value.filter(isPanelTab);
+      const panelStillThere = parkedPanel.some((tab) => tab.id === parked.panelActiveId);
+      panelActiveId.value = panelStillThere
+        ? parked.panelActiveId
+        : (parkedPanel[parkedPanel.length - 1]?.id ?? "");
       refreshPreviewTabLabels();
       persistReady = true;
       return;
@@ -476,9 +522,14 @@ export const useRightTabsStore = defineStore("rightTabs", () => {
 
   return {
     tabs,
+    dockTabs,
+    panelTabs,
     activeId,
+    panelActiveId,
     activeTab,
+    activePanelTab,
     selectTab,
+    selectPanelTab,
     closeTab,
     closeAllPreviewTabs,
     patchTab,
@@ -491,7 +542,7 @@ export const useRightTabsStore = defineStore("rightTabs", () => {
     saveTab,
     refreshPreviewGitMeta,
     reorderTabs,
-    reorderByIds,
+    reorderDock,
     persistTabs,
     restoreTabs,
     switchWorkspace,
