@@ -23,6 +23,7 @@ import {
 import PanelLeftIcon from "@renderer/components/icons/PanelLeftIcon.vue";
 import LanRemoteIcon from "@renderer/components/icons/LanRemoteIcon.vue";
 import PanelRightIcon from "@renderer/components/icons/PanelRightIcon.vue";
+import PanelBottomIcon from "@renderer/components/icons/PanelBottomIcon.vue";
 
 /**
  * Settings modals are only opened on demand — load their code lazily so
@@ -329,6 +330,17 @@ async function onUpdateClick(): Promise<void> {
           @click="layout.toggleLeftCollapsed()"
         >
           <PanelLeftIcon :size="16" :off="layout.leftCollapsed" />
+        </button>
+        <button
+          type="button"
+          class="layout-btn"
+          :class="{ checked: !layout.bottomCollapsed }"
+          :title="layout.bottomCollapsed ? t.expandBottom : t.collapseBottom"
+          :aria-label="layout.bottomCollapsed ? t.expandBottom : t.collapseBottom"
+          :aria-pressed="!layout.bottomCollapsed"
+          @click="layout.toggleBottomCollapsed()"
+        >
+          <PanelBottomIcon :size="16" :off="layout.bottomCollapsed" />
         </button>
         <button
           type="button"

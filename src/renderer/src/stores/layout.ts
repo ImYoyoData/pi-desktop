@@ -2,6 +2,7 @@ import { defineStore } from "pinia";
 import { ref } from "vue";
 import {
   clampPanePercent,
+  clampPanelHeight,
   clampPercent,
   DEFAULT_LAYOUT,
   readLayout,
@@ -9,6 +10,7 @@ import {
 } from "@renderer/stores/layout-utils";
 
 export {
+  clampPanelHeight,
   clampPanelWidth,
   clampPanePercent,
   readLayout,
@@ -24,6 +26,8 @@ export const useLayoutStore = defineStore("layout", () => {
   const leftCollapsed = ref(false);
   const rightCollapsed = ref(false);
   const leftFilesSize = ref(DEFAULT_LAYOUT.leftFilesSize);
+  const bottomSize = ref(DEFAULT_LAYOUT.bottomSize);
+  const bottomCollapsed = ref(DEFAULT_LAYOUT.bottomCollapsed);
 
   function persist(): void {
     if (!workspaceRoot.value) {
@@ -36,6 +40,8 @@ export const useLayoutStore = defineStore("layout", () => {
       leftCollapsed: leftCollapsed.value,
       rightCollapsed: rightCollapsed.value,
       leftFilesSize: leftFilesSize.value,
+      bottomSize: bottomSize.value,
+      bottomCollapsed: bottomCollapsed.value,
     });
   }
 
@@ -48,6 +54,8 @@ export const useLayoutStore = defineStore("layout", () => {
     leftCollapsed.value = data.leftCollapsed;
     rightCollapsed.value = data.rightCollapsed;
     leftFilesSize.value = data.leftFilesSize;
+    bottomSize.value = data.bottomSize;
+    bottomCollapsed.value = data.bottomCollapsed;
   }
 
   function setLeftSize(pct: number): void {
@@ -87,6 +95,18 @@ export const useLayoutStore = defineStore("layout", () => {
     persist();
   }
 
+  /** Dragging the splitter implies a visible panel. */
+  function setBottomSize(percent: number): void {
+    bottomSize.value = clampPanelHeight(percent);
+    bottomCollapsed.value = false;
+    persist();
+  }
+
+  function toggleBottomCollapsed(): void {
+    bottomCollapsed.value = !bottomCollapsed.value;
+    persist();
+  }
+
   return {
     workspaceRoot,
     leftSize,
@@ -95,13 +115,17 @@ export const useLayoutStore = defineStore("layout", () => {
     leftCollapsed,
     rightCollapsed,
     leftFilesSize,
+    bottomSize,
+    bottomCollapsed,
     loadForWorkspace,
     setLeftSize,
     setCenterSize,
     setRightSize,
     setPaneSizes,
     setLeftFilesSize,
+    setBottomSize,
     toggleLeftCollapsed,
     toggleRightCollapsed,
+    toggleBottomCollapsed,
   };
 });

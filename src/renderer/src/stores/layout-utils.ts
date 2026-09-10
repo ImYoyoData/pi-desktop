@@ -12,6 +12,12 @@ export function clampPercent(value: number, min = 22, max = 78): number {
   return Math.min(max, Math.max(min, value));
 }
 
+/** Bottom panel height as % of the chat column. */
+export function clampPanelHeight(value: number, min = 18, max = 75): number {
+  if (!Number.isFinite(value)) return min;
+  return Math.min(max, Math.max(min, value));
+}
+
 export interface PersistedLayout {
   leftSize: number;
   centerSize: number;
@@ -20,6 +26,9 @@ export interface PersistedLayout {
   rightCollapsed: boolean;
   /** Height % of the files pane within the left sidebar (sessions take the rest). */
   leftFilesSize: number;
+  /** Height % of the bottom terminal panel within the chat column. */
+  bottomSize: number;
+  bottomCollapsed: boolean;
 }
 
 export const DEFAULT_LAYOUT: PersistedLayout = {
@@ -29,6 +38,8 @@ export const DEFAULT_LAYOUT: PersistedLayout = {
   leftCollapsed: false,
   rightCollapsed: false,
   leftFilesSize: 42,
+  bottomSize: 30,
+  bottomCollapsed: true,
 };
 
 export function layoutStorageKey(workspaceRoot: string): string {
@@ -52,6 +63,8 @@ function normalizeSizes(partial: Partial<PersistedLayout>): PersistedLayout {
     leftCollapsed: partial.leftCollapsed === true,
     rightCollapsed: partial.rightCollapsed === true,
     leftFilesSize: clampPercent(partial.leftFilesSize ?? DEFAULT_LAYOUT.leftFilesSize),
+    bottomSize: clampPanelHeight(partial.bottomSize ?? DEFAULT_LAYOUT.bottomSize),
+    bottomCollapsed: partial.bottomCollapsed !== false,
   };
 }
 
@@ -82,6 +95,7 @@ export function readLayout(workspaceRoot: string): PersistedLayout {
       leftCollapsed: parsed.leftCollapsed === true,
       rightCollapsed: parsed.rightCollapsed === true,
       leftFilesSize: clampPercent(parsed.leftFilesSize ?? DEFAULT_LAYOUT.leftFilesSize),
+      bottomCollapsed: parsed.bottomCollapsed !== false,
     };
   } catch {
     return { ...DEFAULT_LAYOUT };

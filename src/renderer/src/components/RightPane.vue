@@ -28,7 +28,6 @@ import Sortable from "sortablejs";
 import ChangesTab from "@renderer/components/ChangesTab.vue";
 import BrowserTab from "@renderer/components/BrowserTab.vue";
 import RunningTab from "@renderer/components/RunningTab.vue";
-import TerminalTab from "@renderer/components/TerminalTab.vue";
 import PreviewTab from "@renderer/components/PreviewTab.vue";
 import { useAgentRunsStore } from "@renderer/stores/agent-runs";
 import { useBrowserNavStore } from "@renderer/stores/browser-nav";
@@ -116,7 +115,7 @@ function destroyTabsSortable(): void {
 function bindTabsSortable(): void {
   destroyTabsSortable();
   const el = tabsBarRef.value;
-  if (!el || rightTabs.tabs.length < 2) return;
+  if (!el || rightTabs.dockTabs.length < 2) return;
   tabsSortable = Sortable.create(el, {
     animation: 150,
     direction: "horizontal",
@@ -129,10 +128,10 @@ function bindTabsSortable(): void {
       const ids = [...el.querySelectorAll<HTMLElement>(".tab-item[data-id]")]
         .map((n) => n.dataset.id)
         .filter((id): id is string => Boolean(id));
-      if (ids.length !== rightTabs.tabs.length) return;
-      const same = ids.every((id, i) => rightTabs.tabs[i]?.id === id);
+      if (ids.length !== rightTabs.dockTabs.length) return;
+      const same = ids.every((id, i) => rightTabs.dockTabs[i]?.id === id);
       if (same) return;
-      rightTabs.reorderByIds(ids);
+      rightTabs.reorderDock(ids);
       rightTabs.persistTabs(workspace.root);
       // Pin may reshuffle store order vs Sortable DOM — rebind after paint.
       void nextTick(() => bindTabsSortable());
@@ -211,7 +210,7 @@ watch(
 );
 
 watch(
-  () => rightTabs.tabs.map((tab) => tab.id).join("|"),
+  () => rightTabs.dockTabs.map((tab) => tab.id).join("|"),
   () => {
     void nextTick(() => {
       bindTabsSortable();
@@ -281,11 +280,6 @@ function tabLabelStyle(tab: RightTab): Record<string, string> | undefined {
 
 const addOptions: DropdownOption[] = [
   {
-    label: t.terminal,
-    key: "terminal",
-    icon: () => h(NIcon, null, { default: () => h(TerminalOutline) }),
-  },
-  {
     label: t.browser,
     key: "browser",
     icon: () => h(NIcon, null, { default: () => h(GlobeOutline) }),
@@ -303,12 +297,7 @@ const addOptions: DropdownOption[] = [
 ];
 
 async function onAddSelect(key: string | number): Promise<void> {
-  const kind = String(key) as RightTabKind;
-  if (kind === "terminal") {
-    rightTabs.addTab("terminal", { cwd: workspace.root ?? undefined });
-    return;
-  }
-  rightTabs.addTab(kind);
+  rightTabs.addTab(String(key) as RightTabKind);
 }
 
 const active = computed(() => rightTabs.activeTab);
@@ -530,7 +519,7 @@ function submitRenameTab(): void {
           @wheel="onTabsWheel"
         >
           <div
-            v-for="tab in rightTabs.tabs"
+            v-for="tab in rightTabs.dockTabs"
             :key="tab.id"
             class="tab-item"
             :class="{
@@ -589,7 +578,7 @@ function submitRenameTab(): void {
     </header>
 
     <div class="body">
-      <template v-for="tab in rightTabs.tabs" :key="tab.id">
+      <template v-for="tab in rightTabs.dockTabs" :key="tab.id">
         <RunningTab
           v-if="tab.kind === 'running'"
           v-show="active?.id === tab.id"
@@ -610,15 +599,6 @@ function submitRenameTab(): void {
           :initial-url="tab.url ?? null"
           :visible="active?.id === tab.id && !layout.rightCollapsed"
         />
-        <TerminalTab
-          v-if="tab.kind === 'terminal'"
-          v-show="active?.id === tab.id"
-          class="tab-panel"
-          :instance-id="tab.id"
-          :pty-id="tab.ptyId ?? null"
-          :cwd="tab.cwd ?? null"
-          :visible="active?.id === tab.id && !layout.rightCollapsed"
-        />
         <PreviewTab
           v-if="tab.kind === 'preview'"
           v-show="active?.id === tab.id"
@@ -630,7 +610,7 @@ function submitRenameTab(): void {
       </template>
       <NEmpty
         v-if="!active"
-        :description="rightTabs.tabs.length ? t.selectTabHint : t.clickToAddTab"
+        :description="rightTabs.dockTabs.length ? t.selectTabHint : t.clickToAddTab"
         class="empty"
         size="small"
       />
