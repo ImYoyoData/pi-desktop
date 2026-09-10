@@ -130,7 +130,17 @@ const currentFilePath = ref<string | null>(null);
 const models = ref<{ provider: string; id: string; name?: string }[]>([]);
 const selectedModel = ref("");
 const thinking = ref("medium");
-const THINKING_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh"];
+/** Pi 思考级别：pi-ai ThinkingLevel + off（与 pi-coding-agent THINKING_LEVEL_OPTIONS 一致） */
+const THINKING_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh", "max"];
+const THINKING_LEVEL_LABELS: Record<string, string> = {
+  off: "Off",
+  minimal: "Minimal",
+  low: "Low",
+  medium: "Medium",
+  high: "High",
+  xhigh: "XHigh",
+  max: "Max",
+};
 const modelGroups = computed(() => {
   const byProvider = new Map<string, { label: string; value: string }[]>();
   for (const m of models.value) {
@@ -456,12 +466,6 @@ function relativeTime(iso: string | undefined): string {
 
 function isRunning(status: string | undefined): boolean {
   return status === "running";
-}
-
-function cycleThinking(): void {
-  const idx = THINKING_LEVELS.indexOf(thinking.value);
-  const next = THINKING_LEVELS[(idx + 1) % THINKING_LEVELS.length] || "medium";
-  onThinkingSelect(next);
 }
 
 function autoGrow(ev: Event): void {
@@ -991,10 +995,19 @@ onBeforeUnmount(() => {
               </div>
             </div>
             <div class="composer-meta">
-              <button type="button" class="think-btn" :title="T.thinkLevel" @click="cycleThinking">
+              <label class="think-field" :title="T.thinkLevel">
                 <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path fill="currentColor" d="M7 2v11h3v9l7-12h-4l4-8z"/></svg>
-                <span>{{ thinking }}</span>
-              </button>
+                <select
+                  v-model="thinking"
+                  class="think-select"
+                  :aria-label="T.thinkLevel"
+                  @change="onThinkingSelect(thinking)"
+                >
+                  <option v-for="lv in THINKING_LEVELS" :key="lv" :value="lv">
+                    {{ THINKING_LEVEL_LABELS[lv] }}
+                  </option>
+                </select>
+              </label>
             </div>
           </div>
         </main>
@@ -1614,21 +1627,26 @@ onBeforeUnmount(() => {
     gap: 6px;
     padding: 0 2px;
   }
-  .think-btn {
+  .think-field {
     display: inline-flex;
     align-items: center;
     gap: 4px;
-    margin: 0;
-    padding: 2px 8px;
-    border: none;
+    padding: 2px 6px;
     border-radius: 6px;
-    background: transparent;
     color: var(--muted);
+  }
+  .think-field:hover { background: var(--bg-hover); color: var(--fg); }
+  .think-field:focus-within { background: var(--bg-hover); color: var(--fg); }
+  .think-select {
+    border: none;
+    background: transparent;
+    color: inherit;
     font: inherit;
     font-size: 11.5px;
+    padding: 0;
     cursor: pointer;
+    outline: none;
   }
-  .think-btn:hover { background: var(--bg-hover); color: var(--fg); }
   @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: .65; } }
 
   .convert-overlay {

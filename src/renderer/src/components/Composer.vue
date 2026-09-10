@@ -84,7 +84,8 @@ import {
 } from "@renderer/utils/workspace-path-dnd";
 import { locale, t } from "@renderer/i18n";
 
-type ThinkingLevel = "off" | "minimal" | "low" | "medium" | "high" | "xhigh";
+/** Pi 思考级别（pi-ai ThinkingLevel + off） */
+type ThinkingLevel = "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
 
 /**
  * True when docked widgets (todo / changed files) sit directly above the
@@ -216,7 +217,15 @@ function thinkingFromState(data: unknown): ThinkingLevel | null {
   if (!data || typeof data !== "object") return null;
   const level = (data as { thinkingLevel?: unknown }).thinkingLevel;
   if (typeof level !== "string") return null;
-  const allowed: ThinkingLevel[] = ["off", "minimal", "low", "medium", "high", "xhigh"];
+  const allowed: ThinkingLevel[] = [
+    "off",
+    "minimal",
+    "low",
+    "medium",
+    "high",
+    "xhigh",
+    "max",
+  ];
   return (allowed as string[]).includes(level) ? (level as ThinkingLevel) : null;
 }
 
@@ -237,6 +246,7 @@ const thinkingOptions = [
   { label: "Medium", value: "medium" },
   { label: "High", value: "high" },
   { label: "XHigh", value: "xhigh" },
+  { label: "Max", value: "max" },
 ];
 
 const thinkingMenu = computed<DropdownOption[]>(() =>
