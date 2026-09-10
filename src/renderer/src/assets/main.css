@@ -198,6 +198,13 @@ button {
   background: var(--border) !important;
 }
 
+.splitpanes--horizontal > .splitpanes__splitter {
+  height: 1px !important;
+  min-height: 1px !important;
+  margin: 0 !important;
+  background: var(--border) !important;
+}
+
 .splitpanes__splitter:hover,
 .splitpanes__splitter:active {
   background: var(--accent) !important;
