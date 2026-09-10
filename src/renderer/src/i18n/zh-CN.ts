@@ -262,6 +262,7 @@ export const zh = {
 	thinking: "思考",
 	thinkingStreaming: "思考中",
 	modelPlaceholder: "模型",
+	composerSettingsLocked: "Pi 回复期间不可修改模型或思考级别",
 	imageTooLarge: "图片不能超过 8MB",
 	pasteImageOk: "已添加图片",
 	fileExternallyModified: "文件已在外部修改",
