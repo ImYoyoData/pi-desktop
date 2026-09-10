@@ -1831,11 +1831,11 @@ async function syncSessionModelAndThinking(): Promise<void> {
     selectedModelKey.value = flat[0]?.value ?? null;
   }
 
-  if (workerThinking) {
+  if (rememberedThinking) {
+    thinkingLevel.value = rememberedThinking;
+  } else if (workerThinking) {
     thinkingLevel.value = workerThinking;
     rememberThinking(id, workerThinking);
-  } else if (rememberedThinking) {
-    thinkingLevel.value = rememberedThinking;
   }
 
   // Only push model/thinking to a live worker — first prompt cold-starts the agent.
