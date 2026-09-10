@@ -14,7 +14,9 @@ import type { AgentRunEvent, AgentRunSnapshot } from "../shared/agent-runs";
 import type {
 	ModelsGetResult,
 	ModelsSetPayload,
+	ProviderCatalogResult,
 } from "../shared/models-settings";
+import type { ModelSelection } from "../shared/model-selection";
 import type {
 	DiscoverModelsResult,
 	TestModelConnectionResult,
@@ -604,6 +606,8 @@ declare const api: {
 			modelId: string;
 			providerId?: string;
 		}) => Promise<TestModelConnectionResult>;
+		providerCatalog: (providerId: string) => Promise<ProviderCatalogResult>;
+		setSelection: (selection: ModelSelection) => Promise<void>;
 	};
 	preview: {
 		read: (filePath: string) => Promise<PreviewResult>;
