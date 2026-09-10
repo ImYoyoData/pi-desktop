@@ -23,3 +23,6 @@ _ev-scaffold2
 # >>> pi-desktop filter >>>
 pnpm-lock.yaml
 # <<< pi-desktop filter <<<
+/.codegraph
+/.pi-subagents
+/pnpm-lock.yaml
