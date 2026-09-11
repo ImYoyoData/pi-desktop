@@ -24,7 +24,7 @@ export const useLayoutStore = defineStore("layout", () => {
   const centerSize = ref(DEFAULT_LAYOUT.centerSize);
   const rightSize = ref(DEFAULT_LAYOUT.rightSize);
   const leftCollapsed = ref(false);
-  const rightCollapsed = ref(false);
+  const rightCollapsed = ref(DEFAULT_LAYOUT.rightCollapsed);
   const leftFilesSize = ref(DEFAULT_LAYOUT.leftFilesSize);
   const bottomSize = ref(DEFAULT_LAYOUT.bottomSize);
   const bottomCollapsed = ref(DEFAULT_LAYOUT.bottomCollapsed);
