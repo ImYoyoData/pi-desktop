@@ -27,15 +27,6 @@ watch(
     if (!collapsed && !rightTabs.panelTabs.length) newTerminal();
   },
 );
-
-// 工作区恢复的终端原本挂在右栏，底栏收起时需自动展开，避免终端“消失”
-watch(
-  () => rightTabs.panelTabs.length,
-  (count) => {
-    if (count > 0 && layout.bottomCollapsed) layout.toggleBottomCollapsed();
-  },
-  { immediate: true },
-);
 </script>
 
 <template>
