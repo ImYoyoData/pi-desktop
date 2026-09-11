@@ -38,6 +38,8 @@ export type RightTab = {
   ptyId?: string;
   /** Terminal: cwd used when the pty was created (restored after restart). */
   cwd?: string;
+  /** Terminal: shell id chosen for this tab (empty = default shell). */
+  shellId?: string;
   /** Browser: last address-bar URL (restored after restart). */
   url?: string;
 };
@@ -58,6 +60,7 @@ type PersistedTabs = {
     transient?: boolean;
     labelLocked?: boolean;
     cwd?: string;
+    shellId?: string;
     url?: string;
   }>;
   activeIndex: number;
@@ -244,7 +247,10 @@ export const useRightTabsStore = defineStore("rightTabs", () => {
     tabs.value = tabs.value.map((tab) => (isPanelTab(tab) ? tab : next[i++]!));
   }
 
-  function addTab(kind: RightTabKind, opts?: { label?: string; filePath?: string; cwd?: string }): RightTab {
+  function addTab(
+    kind: RightTabKind,
+    opts?: { label?: string; filePath?: string; cwd?: string; shellId?: string },
+  ): RightTab {
     const counts = tabs.value.filter((t) => t.kind === kind).length;
     let label = opts?.label;
     if (!label) {
@@ -338,6 +344,7 @@ export const useRightTabsStore = defineStore("rightTabs", () => {
       missing: false,
       transient: kind === "preview",
       cwd: kind === "terminal" ? opts?.cwd : undefined,
+      shellId: kind === "terminal" ? opts?.shellId : undefined,
     };
     // Always append at the end — never insert after the active tab / at the front.
     tabs.value = [...tabs.value, tab];
@@ -388,6 +395,7 @@ export const useRightTabsStore = defineStore("rightTabs", () => {
           labelLocked: tab.labelLocked,
           // ptyId is session-only — never write to localStorage
           cwd: tab.kind === "terminal" ? tab.cwd : undefined,
+          shellId: tab.kind === "terminal" ? tab.shellId : undefined,
           url: tab.kind === "browser" ? tab.url : undefined,
         })),
       activeIndex: Math.max(
@@ -452,6 +460,7 @@ export const useRightTabsStore = defineStore("rightTabs", () => {
         labelLocked: row.labelLocked === true,
         transient: row.kind === "preview" ? row.transient !== false : undefined,
         cwd: row.kind === "terminal" ? row.cwd || root : undefined,
+        shellId: row.kind === "terminal" ? row.shellId : undefined,
         url,
       });
     }

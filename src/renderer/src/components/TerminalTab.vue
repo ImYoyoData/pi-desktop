@@ -22,6 +22,8 @@ const props = defineProps<{
   ptyId?: string | null;
   /** Cwd used when the pty was created. */
   cwd?: string | null;
+  /** Shell id chosen for this tab (empty = default shell). */
+  shellId?: string | null;
 }>();
 
 const workspace = useWorkspaceStore();
@@ -236,9 +238,13 @@ async function start(): Promise<void> {
 
   if (!id) {
     if (!preferredCwd) return;
-    id = await window.api.terminal.create(preferredCwd);
+    id = await window.api.terminal.create(preferredCwd, props.shellId || undefined);
     if (props.instanceId) {
-      rightTabs.patchTab(props.instanceId, { ptyId: id, cwd: preferredCwd });
+      rightTabs.patchTab(props.instanceId, {
+        ptyId: id,
+        cwd: preferredCwd,
+        shellId: props.shellId || undefined,
+      });
     }
   }
 

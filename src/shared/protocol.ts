@@ -163,6 +163,7 @@ export const IpcChannels = {
 	},
 	terminal: {
 		create: "terminal:create",
+		listShells: "terminal:listShells",
 		write: "terminal:write",
 		resize: "terminal:resize",
 		data: "terminal:data",
@@ -295,6 +296,14 @@ export const IpcChannels = {
 		changed: "proxy:changed",
 	},
 } as const;
+
+/** 内嵌终端可选的 shell，由主进程检测后提供给底栏 "+" 菜单。 */
+export type TerminalShellOption = {
+	/** terminal.create 传入的标识：Windows 为固定 id，类 Unix 为可执行文件名。 */
+	id: string;
+	file: string;
+	args: string[];
+};
 
 export type TrustPromptKind = "none" | "ask";
 

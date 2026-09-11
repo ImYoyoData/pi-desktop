@@ -1,7 +1,9 @@
 <script setup lang="ts">
-import { computed, watch } from "vue";
-import { NButton, NEmpty, NIcon } from "naive-ui";
+import { computed, onMounted, ref, watch } from "vue";
+import type { DropdownOption } from "naive-ui";
+import { NButton, NDropdown, NEmpty, NIcon } from "naive-ui";
 import { AddOutline, ChevronDownOutline, CloseOutline, TerminalOutline } from "@vicons/ionicons5";
+import type { TerminalShellOption } from "../../../shared/protocol";
 import TerminalTab from "@renderer/components/TerminalTab.vue";
 import { useLayoutStore } from "@renderer/stores/layout";
 import { useRightTabsStore } from "@renderer/stores/right-tabs";
@@ -14,11 +16,40 @@ const rightTabs = useRightTabsStore();
 const workspace = useWorkspaceStore();
 
 const active = computed(() => rightTabs.activePanelTab);
+const shells = ref<TerminalShellOption[]>([]);
 
-function newTerminal(): void {
-  if (layout.bottomCollapsed) layout.toggleBottomCollapsed();
-  rightTabs.addTab("terminal", { cwd: workspace.root ?? undefined });
+const shellOptions = computed<DropdownOption[]>(() => {
+  if (shells.value.length < 2) return [];
+  return shells.value.map((shell, index) => ({
+    key: shell.id,
+    label: shellLabel(shell, index),
+  }));
+});
+
+function shellLabel(shell: TerminalShellOption, index: number): string {
+  const name = shell.file.replace(/\\/g, "/").split("/").pop() ?? shell.file;
+  return index === 0 ? `${name} · ${t.terminalShellDefault}` : name;
 }
+
+function newTerminal(shellId?: string): void {
+  if (layout.bottomCollapsed) layout.toggleBottomCollapsed();
+  rightTabs.addTab("terminal", {
+    cwd: workspace.root ?? undefined,
+    shellId,
+  });
+}
+
+function onShellSelect(key: string | number): void {
+  newTerminal(String(key));
+}
+
+onMounted(async () => {
+  try {
+    shells.value = await window.api.terminal.listShells();
+  } catch {
+    shells.value = [];
+  }
+});
 
 // 展开底栏时确保至少有一个终端
 watch(
@@ -56,13 +87,32 @@ watch(
         </div>
       </div>
 
+      <NDropdown
+        v-if="shellOptions.length"
+        trigger="click"
+        :options="shellOptions"
+        @select="onShellSelect"
+      >
+        <NButton
+          quaternary
+          circle
+          size="tiny"
+          class="pi-interactive"
+          :title="t.terminalPickShell"
+        >
+          <template #icon>
+            <NIcon :component="AddOutline" :size="14" />
+          </template>
+        </NButton>
+      </NDropdown>
       <NButton
+        v-else
         quaternary
         circle
         size="tiny"
         class="pi-interactive"
         :title="t.newTerminal"
-        @click="newTerminal"
+        @click="newTerminal()"
       >
         <template #icon>
           <NIcon :component="AddOutline" :size="14" />
@@ -91,6 +141,7 @@ watch(
         :instance-id="tab.id"
         :pty-id="tab.ptyId ?? null"
         :cwd="tab.cwd ?? null"
+        :shell-id="tab.shellId ?? null"
         :visible="tab.id === active?.id && !layout.bottomCollapsed"
       />
       <NEmpty
@@ -100,7 +151,7 @@ watch(
         :description="t.terminalEmptyHint"
       >
         <template #extra>
-          <NButton size="tiny" class="pi-interactive" @click="newTerminal">
+          <NButton size="tiny" class="pi-interactive" @click="newTerminal()">
             <template #icon>
               <NIcon :component="AddOutline" :size="14" />
             </template>
