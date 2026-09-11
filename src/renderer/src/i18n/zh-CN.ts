@@ -195,6 +195,8 @@ export const zh = {
 	mdPreview: "预览",
 	mdSplit: "分栏",
 	newTerminal: "新建终端",
+	terminalPickShell: "选择终端类型",
+	terminalShellDefault: "默认",
 	closeTab: "关闭",
 	terminalEmpty: "打开工作区后即可使用终端",
 	terminalEmptyHint: "暂无终端",

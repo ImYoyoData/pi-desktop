@@ -11,6 +11,7 @@ import type {
 	SessionInfoResult,
 	SessionStatus,
 	SessionSummary,
+	TerminalShellOption,
 } from "../shared/protocol";
 import { IpcChannels } from "../shared/protocol";
 import type { AgentRunEvent, AgentRunSnapshot } from "../shared/agent-runs";
@@ -1295,8 +1296,16 @@ const api = {
 			ipcRenderer.invoke(IpcChannels.security.set, settings) as Promise<void>,
 	},
 	terminal: {
-		create: (cwd?: string) =>
-			ipcRenderer.invoke(IpcChannels.terminal.create, cwd) as Promise<string>,
+		create: (cwd?: string, shellId?: string) =>
+			ipcRenderer.invoke(
+				IpcChannels.terminal.create,
+				cwd,
+				shellId,
+			) as Promise<string>,
+		listShells: () =>
+			ipcRenderer.invoke(IpcChannels.terminal.listShells) as Promise<
+				TerminalShellOption[]
+			>,
 		write: (id: string, data: string) =>
 			ipcRenderer.invoke(IpcChannels.terminal.write, id, data) as Promise<void>,
 		resize: (id: string, cols: number, rows: number) =>

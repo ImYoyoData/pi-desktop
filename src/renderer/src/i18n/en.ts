@@ -203,6 +203,8 @@ export const en = {
 	mdPreview: "Preview",
 	mdSplit: "Split",
 	newTerminal: "New terminal",
+	terminalPickShell: "Select terminal type",
+	terminalShellDefault: "Default",
 	closeTab: "Close",
 	terminalEmpty: "Open a workspace to use the terminal",
 	terminalEmptyHint: "No terminals open",

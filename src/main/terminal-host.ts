@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import * as pty from "node-pty";
 import { IpcChannels } from "../shared/protocol";
 import { getWorkspace } from "./workspace-ipc";
-import { resolveTerminalShell } from "./terminal-shell";
+import { resolveTerminalShell, findTerminalShells } from "./terminal-shell";
 import { isWindowHidden, onWindowShown } from "./window-visibility";
 
 const terminals = new Map<string, pty.IPty>();
@@ -99,13 +99,15 @@ export function registerTerminalIpc(): void {
     }
   });
 
-  ipcMain.handle(IpcChannels.terminal.create, (_event, cwd?: string) => {
+  ipcMain.handle(IpcChannels.terminal.listShells, () => findTerminalShells());
+
+  ipcMain.handle(IpcChannels.terminal.create, (_event, cwd?: string, shellId?: string) => {
     const root = cwd?.trim() || getWorkspace();
     if (!root) {
       throw new Error("workspace required to create terminal");
     }
     const id = randomUUID();
-    const shell = resolveTerminalShell();
+    const shell = resolveTerminalShell(shellId);
     const term = pty.spawn(shell.file, shell.args, {
       name: "xterm-color",
       cwd: root,
