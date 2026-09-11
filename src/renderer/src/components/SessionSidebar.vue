@@ -43,7 +43,7 @@ import { markRendererStartup } from "@renderer/utils/startup-timing";
 
 const PIN_KEY = "session-pins:v1";
 const SESSION_ORDER_KEY = "pi-desktop:session-order:v2";
-const SESSION_VISIBLE_LIMIT = 7;
+const SESSION_VISIBLE_LIMIT = 5;
 /** History loads in full — paging was removed, sessions open complete. */
 const HISTORY_LOAD_LIMIT = 1_000_000;
 
