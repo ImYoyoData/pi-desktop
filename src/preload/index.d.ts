@@ -9,6 +9,7 @@ import type {
 	SessionInfoResult,
 	SessionStatus,
 	SessionSummary,
+	TerminalShellOption,
 } from "../shared/protocol";
 import type { AgentRunEvent, AgentRunSnapshot } from "../shared/agent-runs";
 import type {
@@ -845,7 +846,8 @@ declare const api: {
 		set: (settings: DesktopSecuritySettings) => Promise<void>;
 	};
 	terminal: {
-		create: (cwd?: string) => Promise<string>;
+		create: (cwd?: string, shellId?: string) => Promise<string>;
+		listShells: () => Promise<TerminalShellOption[]>;
 		write: (id: string, data: string) => Promise<void>;
 		resize: (id: string, cols: number, rows: number) => Promise<void>;
 		dispose: (id: string) => Promise<void>;
