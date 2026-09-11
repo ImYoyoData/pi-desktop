@@ -44,6 +44,36 @@ function readEtcShells(): string[] {
   }
 }
 
+/**
+ * Git for Windows 自带 bash。System32/SysWOW64 下的 bash.exe 是 WSL 启动器，
+ * 不是 Git Bash，按目录整段排除以免误报。
+ */
+function gitBashCandidates(env: NodeJS.ProcessEnv): string[] {
+  const installs = [
+    env.ProgramFiles ? win32.join(env.ProgramFiles, "Git", "bin", "bash.exe") : "",
+    env["ProgramFiles(x86)"] ? win32.join(env["ProgramFiles(x86)"], "Git", "bin", "bash.exe") : "",
+    env.LOCALAPPDATA
+      ? win32.join(env.LOCALAPPDATA, "Programs", "Git", "bin", "bash.exe")
+      : "",
+    env.USERPROFILE
+      ? win32.join(env.USERPROFILE, "scoop", "apps", "git", "current", "bin", "bash.exe")
+      : "",
+    env.USERPROFILE ? win32.join(env.USERPROFILE, "scoop", "shims", "bash.exe") : "",
+  ];
+
+  const wslDirs = [
+    env.SystemRoot ? win32.join(env.SystemRoot, "System32") : "",
+    env.SystemRoot ? win32.join(env.SystemRoot, "SysWOW64") : "",
+  ]
+    .filter(Boolean)
+    .map((dir) => dir.toLowerCase());
+  const onPath = pathDirs(env.PATH, ";")
+    .filter((dir) => !wslDirs.includes(dir.toLowerCase()))
+    .map((dir) => win32.join(dir, "bash.exe"));
+
+  return [...installs, ...onPath].filter(Boolean);
+}
+
 function windowsShells(
   env: NodeJS.ProcessEnv,
   exists: (file: string) => boolean,
@@ -79,6 +109,10 @@ function windowsShells(
     exists,
   );
   if (powershell) shells.push({ id: "powershell", file: powershell, args: [] });
+
+  // --login 才会加载 Git Bash 的 /etc/profile，PATH 里才有 mingw64 工具链。
+  const gitBash = firstExecutable(gitBashCandidates(env), exists);
+  if (gitBash) shells.push({ id: "git-bash", file: gitBash, args: ["--login", "-i"] });
 
   const cmd = firstExecutable(
     [
