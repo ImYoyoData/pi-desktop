@@ -61,6 +61,7 @@ type PersistedTabs = {
     labelLocked?: boolean;
     cwd?: string;
     shellId?: string;
+    ptyId?: string;
     url?: string;
   }>;
   activeIndex: number;
@@ -393,7 +394,9 @@ export const useRightTabsStore = defineStore("rightTabs", () => {
           filePath: tab.filePath,
           transient: tab.transient,
           labelLocked: tab.labelLocked,
-          // ptyId is session-only — never write to localStorage
+          // 渲染进程重载后主进程的 pty 仍在运行，靠这个 id 重连才能回放 scrollback。
+          // 应用重启后 id 失效，由 TerminalTab 的 isAlive 校验丢弃并新建。
+          ptyId: tab.kind === "terminal" ? tab.ptyId : undefined,
           cwd: tab.kind === "terminal" ? tab.cwd : undefined,
           shellId: tab.kind === "terminal" ? tab.shellId : undefined,
           url: tab.kind === "browser" ? tab.url : undefined,
@@ -444,6 +447,10 @@ export const useRightTabsStore = defineStore("rightTabs", () => {
         row.kind === "browser" && typeof row.url === "string" && row.url.trim()
           ? row.url.trim()
           : undefined;
+      const ptyId =
+        row.kind === "terminal" && typeof row.ptyId === "string" && row.ptyId.trim()
+          ? row.ptyId
+          : undefined;
       next.push({
         id: nextTabId(row.kind),
         kind: row.kind,
@@ -461,6 +468,7 @@ export const useRightTabsStore = defineStore("rightTabs", () => {
         transient: row.kind === "preview" ? row.transient !== false : undefined,
         cwd: row.kind === "terminal" ? row.cwd || root : undefined,
         shellId: row.kind === "terminal" ? row.shellId : undefined,
+        ptyId,
         url,
       });
     }
