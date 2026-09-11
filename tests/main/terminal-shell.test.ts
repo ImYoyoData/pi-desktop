@@ -42,7 +42,10 @@ describe("findTerminalShells (Windows)", () => {
     const shells = findTerminalShells(
       "win32",
       winEnv,
-      (file) => !file.toLowerCase().endsWith("pwsh.exe"),
+      onlyFiles(
+        "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+        "C:\\Windows\\System32\\cmd.exe",
+      ),
     );
     expect(shells.map((shell) => shell.id)).toEqual(["powershell", "cmd"]);
   });
@@ -52,6 +55,52 @@ describe("findTerminalShells (Windows)", () => {
     for (const shell of shells) {
       expect(shell.file).not.toContain("/");
     }
+  });
+});
+
+const gitBash = "C:\\Program Files\\Git\\bin\\bash.exe";
+
+describe("findTerminalShells (Git Bash)", () => {
+  it("detects Git Bash from its install directory with login args", () => {
+    // --login 才会加载 /etc/profile；-i 让交互式 shell 读到 ~/.bashrc。
+    expect(findTerminalShells("win32", winEnv, onlyFiles(gitBash))).toEqual([
+      { id: "git-bash", file: gitBash, args: ["--login", "-i"] },
+    ]);
+  });
+
+  it("sits between Windows PowerShell and cmd", () => {
+    const shells = findTerminalShells(
+      "win32",
+      winEnv,
+      onlyFiles(
+        "C:\\Program Files\\PowerShell\\7\\pwsh.exe",
+        "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+        gitBash,
+        "C:\\Windows\\System32\\cmd.exe",
+      ),
+    );
+    expect(shells.map((shell) => shell.id)).toEqual([
+      "pwsh",
+      "powershell",
+      "git-bash",
+      "cmd",
+    ]);
+  });
+
+  it("ignores the WSL bash.exe launcher in System32", () => {
+    const wslBash = "C:\\Windows\\System32\\bash.exe";
+    const shells = findTerminalShells("win32", winEnv, onlyFiles(wslBash));
+    expect(shells.map((shell) => shell.id)).not.toContain("git-bash");
+  });
+
+  it("detects a portable Git Bash from PATH", () => {
+    const portable = "D:\\Git\\bin\\bash.exe";
+    const shells = findTerminalShells(
+      "win32",
+      { ...winEnv, PATH: `D:\\Git\\bin;${winEnv.PATH}` },
+      onlyFiles(portable),
+    );
+    expect(shells.find((shell) => shell.id === "git-bash")?.file).toBe(portable);
   });
 });
 

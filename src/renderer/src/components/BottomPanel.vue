@@ -9,6 +9,7 @@ import { useLayoutStore } from "@renderer/stores/layout";
 import { useRightTabsStore } from "@renderer/stores/right-tabs";
 import { useWorkspaceStore } from "@renderer/stores/workspace";
 import { localizedTabLabel } from "@renderer/utils/right-tab-labels";
+import { terminalShellLabel } from "@renderer/utils/terminal-shell-labels";
 import { t } from "@renderer/i18n";
 
 const layout = useLayoutStore();
@@ -20,16 +21,11 @@ const shells = ref<TerminalShellOption[]>([]);
 
 const shellOptions = computed<DropdownOption[]>(() => {
   if (shells.value.length < 2) return [];
-  return shells.value.map((shell, index) => ({
+  return shells.value.map((shell) => ({
     key: shell.id,
-    label: shellLabel(shell, index),
+    label: terminalShellLabel(shell),
   }));
 });
-
-function shellLabel(shell: TerminalShellOption, index: number): string {
-  const name = shell.file.replace(/\\/g, "/").split("/").pop() ?? shell.file;
-  return index === 0 ? `${name} · ${t.terminalShellDefault}` : name;
-}
 
 function newTerminal(shellId?: string): void {
   if (layout.bottomCollapsed) layout.toggleBottomCollapsed();
