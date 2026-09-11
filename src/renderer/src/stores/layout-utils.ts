@@ -36,7 +36,7 @@ export const DEFAULT_LAYOUT: PersistedLayout = {
   centerSize: 30,
   rightSize: 50,
   leftCollapsed: false,
-  rightCollapsed: false,
+  rightCollapsed: true,
   leftFilesSize: 42,
   bottomSize: 30,
   bottomCollapsed: true,
