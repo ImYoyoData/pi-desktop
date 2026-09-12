@@ -14,10 +14,13 @@ import {
 import {
   AddOutline,
   CloseOutline,
+  ContractOutline,
   CreateOutline,
   DocumentTextOutline,
+  ExpandOutline,
   GitCompareOutline,
   GlobeOutline,
+  ListOutline,
   PlayCircleOutline,
   TerminalOutline,
   TrashOutline,
@@ -25,7 +28,7 @@ import {
   ChevronForwardOutline,
 } from "@vicons/ionicons5";
 import Sortable from "sortablejs";
-import ChangesTab from "@renderer/components/ChangesTab.vue";
+import DiffTab from "@renderer/components/DiffTab.vue";
 import BrowserTab from "@renderer/components/BrowserTab.vue";
 import RunningTab from "@renderer/components/RunningTab.vue";
 import PreviewTab from "@renderer/components/PreviewTab.vue";
@@ -50,11 +53,20 @@ const browserNav = useBrowserNavStore();
 const dialog = useDialog();
 
 /**
- * Dock views — the VS Code Agents window side panel: 文件 browses the
- * workspace tree, 更改 lists changes by scope. Tabs stay mounted underneath
- * (v-show), so selecting a tab temporarily covers the dock view.
+ * Side pane — the VS Code Agents window side pane: an editor group (tabs)
+ * plus the Files/Changes detail column, both visible at once. Clicking a
+ * file in the Changes column opens its diff as a tab BESIDE the column
+ * (VS Code opens diffs in an editor next to the view, list stays put).
+ * The header's layout cluster mirrors the agents editor title: Maximize
+ * Editor Area (Ctrl+Alt+E — the right pane hosts the editors, so maximizing
+ * collapses the left sidebar, chat column and bottom panel) and Toggle
+ * Details (Ctrl+Alt+L, shows/hides the detail column).
  */
 const DOCK_VIEW_KEY = "pi-desktop:right-dock-view:v1";
+const DOCK_DETAILS_KEY = "pi-desktop:right-dock-details:v1";
+const DOCK_WIDTH_KEY = "pi-desktop:right-dock-width:v1";
+const DOCK_MIN_WIDTH = 110;
+const DOCK_MAX_WIDTH = 480;
 
 const dockView = ref<"files" | "changes" | null>(readDockView());
 
@@ -77,14 +89,89 @@ watch(dockView, (v) => {
   }
 });
 
-// A dock Changes row opens the right-pane Changes tab at that diff — surface
-// the tab above the dock view.
-watch(
-  () => rightTabs.changesRevealTick,
-  () => {
-    if (rightTabs.changesRevealPath) dockView.value = null;
-  },
-);
+/* ---- Toggle Details — detail column visibility (aux bar in VS Code) ---- */
+
+const detailsVisible = ref(readFlag(DOCK_DETAILS_KEY, true));
+
+function readFlag(key: string, fallback: boolean): boolean {
+  try {
+    const raw = localStorage.getItem(key);
+    if (raw === "1") return true;
+    if (raw === "0") return false;
+  } catch {
+    // ignore
+  }
+  return fallback;
+}
+
+watch(detailsVisible, (v) => {
+  try {
+    localStorage.setItem(DOCK_DETAILS_KEY, v ? "1" : "0");
+  } catch {
+    // ignore
+  }
+});
+
+function toggleDetails(): void {
+  detailsVisible.value = !detailsVisible.value;
+}
+
+/* ---- dock column width (aux bar sash) ---- */
+
+const dockWidth = ref(readDockWidth());
+
+function readDockWidth(): number {
+  try {
+    const n = Number(localStorage.getItem(DOCK_WIDTH_KEY));
+    if (Number.isFinite(n)) return Math.min(DOCK_MAX_WIDTH, Math.max(DOCK_MIN_WIDTH, n));
+  } catch {
+    // ignore
+  }
+  return 180;
+}
+
+watch(dockWidth, (v) => {
+  try {
+    localStorage.setItem(DOCK_WIDTH_KEY, String(v));
+  } catch {
+    // ignore
+  }
+});
+
+function onDividerDown(ev: MouseEvent): void {
+  ev.preventDefault();
+  const startX = ev.clientX;
+  const startWidth = dockWidth.value;
+  const onMove = (e: MouseEvent): void => {
+    const next = startWidth - (e.clientX - startX);
+    dockWidth.value = Math.min(DOCK_MAX_WIDTH, Math.max(DOCK_MIN_WIDTH, next));
+  };
+  const onUp = (): void => {
+    window.removeEventListener("mousemove", onMove);
+    window.removeEventListener("mouseup", onUp);
+  };
+  window.addEventListener("mousemove", onMove);
+  window.addEventListener("mouseup", onUp);
+}
+
+/* ---- Maximize Editor Area — collapse left sidebar + chat column + bottom
+   panel so the right (editor) pane takes over; restore replays the saved
+   layout (workbench.action.agentSessions.maximizeMainEditorPart) ---- */
+
+function toggleMaximizeEditor(): void {
+  layout.toggleEditorMaximized();
+}
+
+function onLayoutKeydown(ev: KeyboardEvent): void {
+  if (!ev.ctrlKey || !ev.altKey || ev.shiftKey || ev.metaKey) return;
+  if (ev.code === "KeyE") {
+    ev.preventDefault();
+    toggleMaximizeEditor();
+  } else if (ev.code === "KeyL") {
+    ev.preventDefault();
+    toggleDetails();
+  }
+}
 
 const tabsBarRef = ref<HTMLElement | null>(null);
 const canScrollTabsLeft = ref(false);
@@ -182,7 +269,6 @@ watch(
   () => previewStore.openSignal,
   () => {
     if (previewStore.filePath) {
-      dockView.value = null;
       rightTabs.addTab("preview", {
         filePath: previewStore.filePath,
         label: previewStore.filePath.split(/[/\\]/).pop() ?? t.preview,
@@ -198,6 +284,11 @@ onMounted(() => {
   for (const tab of [...rightTabs.tabs]) {
     if (tab.kind === "files") rightTabs.closeTab(tab.id);
   }
+  // Legacy git-panel Changes tabs carried no filePath — diff tabs always do.
+  for (const tab of [...rightTabs.tabs]) {
+    if (tab.kind === "changes" && !tab.filePath) rightTabs.closeTab(tab.id);
+  }
+  window.addEventListener("keydown", onLayoutKeydown);
   void rightTabs.refreshPreviewGitMeta();
   void nextTick(() => {
     bindTabsSortable();
@@ -240,6 +331,7 @@ onUnmounted(() => {
   offOpenBrowserTab = null;
   offCloseBrowserTab?.();
   offCloseBrowserTab = null;
+  window.removeEventListener("keydown", onLayoutKeydown);
 });
 
 watch(
@@ -328,11 +420,6 @@ const addOptions: DropdownOption[] = [
     label: t.runningTab,
     key: "running",
     icon: () => h(NIcon, null, { default: () => h(PlayCircleOutline) }),
-  },
-  {
-    label: t.changesTab,
-    key: "changes",
-    icon: () => h(NIcon, null, { default: () => h(GitCompareOutline) }),
   },
 ];
 
@@ -435,7 +522,6 @@ function onTabClose(name: string | number): void {
 }
 
 function onTabChange(id: string): void {
-  dockView.value = null;
   rightTabs.selectTab(id);
 }
 
@@ -460,8 +546,7 @@ function canRenameTab(tab: RightTab): boolean {
     tab.kind === "browser" ||
     tab.kind === "terminal" ||
     tab.kind === "preview" ||
-    tab.kind === "running" ||
-    tab.kind === "changes"
+    tab.kind === "running"
   );
 }
 
@@ -534,28 +619,6 @@ function submitRenameTab(): void {
 <template>
   <aside class="right-pane">
     <header class="head">
-      <div class="dock-switch" role="tablist">
-        <button
-          type="button"
-          role="tab"
-          class="dock-tab"
-          :class="{ active: dockView === 'files' }"
-          :aria-selected="dockView === 'files'"
-          @click="dockView = 'files'"
-        >
-          {{ t.filesTab }}
-        </button>
-        <button
-          type="button"
-          role="tab"
-          class="dock-tab"
-          :class="{ active: dockView === 'changes' }"
-          :aria-selected="dockView === 'changes'"
-          @click="dockView = 'changes'"
-        >
-          {{ t.changesTab }}
-        </button>
-      </div>
       <div class="tabs-row">
         <NButton
           class="tabs-scroll-btn pi-interactive"
@@ -598,7 +661,11 @@ function submitRenameTab(): void {
             <NIcon :component="iconFor(tab.kind)" :size="12" :style="tabLabelStyle(tab)" />
             <span
               class="tab-label"
-              :class="{ transient: tab.kind === 'preview' && tab.transient !== false && !tab.dirty }"
+              :class="{
+                transient:
+                  tab.kind === 'changes' ||
+                  (tab.kind === 'preview' && tab.transient !== false && !tab.dirty),
+              }"
               :style="tabLabelStyle(tab)"
             >{{ tabDisplayLabel(tab) }}</span>
             <span
@@ -637,11 +704,30 @@ function submitRenameTab(): void {
             </template>
           </NButton>
         </NDropdown>
+
+        <button
+          type="button"
+          class="layout-btn pi-interactive"
+          :class="{ toggled: detailsVisible }"
+          :title="t.toggleDetails"
+          :aria-pressed="detailsVisible"
+          @click="toggleDetails"
+        >
+          <NIcon :component="ListOutline" :size="14" />
+        </button>
+        <button
+          type="button"
+          class="layout-btn pi-interactive"
+          :title="layout.editorMaximized ? t.restoreEditorArea : t.maximizeEditorArea"
+          @click="toggleMaximizeEditor"
+        >
+          <NIcon :component="layout.editorMaximized ? ContractOutline : ExpandOutline" :size="14" />
+        </button>
       </div>
     </header>
 
     <div class="body">
-      <div v-show="!dockView" class="tab-panels">
+      <div class="tab-panels">
         <template v-for="tab in rightTabs.dockTabs" :key="tab.id">
           <RunningTab
             v-if="tab.kind === 'running'"
@@ -649,10 +735,11 @@ function submitRenameTab(): void {
             class="tab-panel"
             :visible="active?.id === tab.id && !layout.rightCollapsed"
           />
-          <ChangesTab
+          <DiffTab
             v-if="tab.kind === 'changes'"
             v-show="active?.id === tab.id"
             class="tab-panel"
+            :file-path="tab.filePath ?? null"
             :visible="active?.id === tab.id && !layout.rightCollapsed"
           />
           <BrowserTab
@@ -679,9 +766,40 @@ function submitRenameTab(): void {
           size="small"
         />
       </div>
-      <div v-if="dockView" class="dock-view">
-        <FilesTab v-if="dockView === 'files'" embedded />
-        <RightDockChanges v-else :visible="!layout.rightCollapsed" />
+
+      <div
+        v-if="detailsVisible"
+        class="dock-divider"
+        aria-hidden="true"
+        @mousedown="onDividerDown"
+      />
+      <div v-show="detailsVisible" class="dock-col" :style="{ width: `${dockWidth}px` }">
+        <div class="dock-col-head" role="tablist">
+          <button
+            type="button"
+            role="tab"
+            class="dock-tab"
+            :class="{ active: dockView === 'files' }"
+            :aria-selected="dockView === 'files'"
+            @click="dockView = 'files'"
+          >
+            {{ t.filesTab }}
+          </button>
+          <button
+            type="button"
+            role="tab"
+            class="dock-tab"
+            :class="{ active: dockView === 'changes' }"
+            :aria-selected="dockView === 'changes'"
+            @click="dockView = 'changes'"
+          >
+            {{ t.changesTab }}
+          </button>
+        </div>
+        <div class="dock-col-body">
+          <FilesTab v-if="dockView === 'files'" embedded />
+          <RightDockChanges v-else :visible="!layout.rightCollapsed && detailsVisible" />
+        </div>
       </div>
     </div>
 
@@ -753,15 +871,48 @@ function submitRenameTab(): void {
   height: 100%;
 }
 
-.dock-switch {
+.dock-divider {
+  flex-shrink: 0;
+  width: 5px;
+  margin: 0 -2px;
+  cursor: col-resize;
+  position: relative;
+  z-index: 5;
+}
+
+.dock-divider::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 2px;
+  width: 1px;
+  background: var(--border);
+}
+
+.dock-col {
+  flex-shrink: 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+}
+
+.dock-col-head {
   display: flex;
   align-items: center;
   gap: 2px;
-  height: 100%;
-  padding-right: 6px;
-  margin-right: 4px;
-  border-right: 1px solid var(--border);
+  height: 34px;
+  padding: 0 6px;
+  border-bottom: 1px solid var(--border);
+  background: color-mix(in srgb, var(--bg-panel) 92%, var(--bg-elevated));
   flex-shrink: 0;
+}
+
+.dock-col-body {
+  flex: 1;
+  min-height: 0;
+  position: relative;
 }
 
 .dock-tab {
@@ -787,6 +938,37 @@ function submitRenameTab(): void {
 }
 
 .dock-tab.active {
+  background: var(--bg-active, var(--bg-hover));
+  color: var(--fg-strong);
+}
+
+.layout-btn {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  margin: 0;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--fg-muted);
+  font: inherit;
+  cursor: pointer;
+  transition:
+    background var(--duration-fast, 140ms) var(--ease-out, ease),
+    color var(--duration-fast, 140ms) var(--ease-out, ease);
+}
+
+.layout-btn:hover {
+  background: var(--bg-hover);
+  color: var(--fg);
+}
+
+/* VS Code toggled-action background while the detail column is visible */
+.layout-btn.toggled {
   background: var(--bg-active, var(--bg-hover));
   color: var(--fg-strong);
 }
@@ -956,23 +1138,16 @@ function submitRenameTab(): void {
 .body {
   flex: 1;
   min-height: 0;
-  position: relative;
+  display: flex;
+  flex-direction: row;
   overflow: hidden;
 }
 
 .tab-panels {
-  position: absolute;
-  inset: 0;
+  flex: 1;
+  min-width: 0;
   min-height: 0;
-}
-
-.dock-view {
-  position: absolute;
-  inset: 0;
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
-  background: var(--bg);
+  position: relative;
 }
 
 .tab-panel {

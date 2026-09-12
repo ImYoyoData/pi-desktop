@@ -283,14 +283,7 @@ export const useRightTabsStore = defineStore("rightTabs", () => {
         }
       }
     }
-    // Running and Changes are mutually exclusive — only one may be open.
-    if (kind === "running" || kind === "changes") {
-      const other = kind === "running" ? "changes" : "running";
-      for (const t of [...tabs.value]) {
-        if (t.kind === other) closeTab(t.id);
-      }
-    }
-    if (kind === "running" || kind === "changes" || kind === "files") {
+    if (kind === "running" || kind === "files") {
       const existing = tabs.value.find((t) => t.kind === kind);
       if (existing) {
         activeId.value = existing.id;
@@ -358,11 +351,19 @@ export const useRightTabsStore = defineStore("rightTabs", () => {
     return tab;
   }
 
-  /** Open (or focus) the Changes tab and reveal `path` in its diff pane. */
+  /** Open (or focus) the singleton diff tab at `path`'s diff. */
   function revealInChanges(path: string): void {
-    changesRevealPath.value = path.replace(/\\/g, "/");
+    const normalized = path.replace(/\\/g, "/");
+    changesRevealPath.value = normalized;
     changesRevealTick.value += 1;
-    addTab("changes");
+    const label = normalized.split("/").pop() ?? normalized;
+    const existing = tabs.value.find((tab) => tab.kind === "changes");
+    if (existing) {
+      patchTab(existing.id, { filePath: normalized, label });
+      activeId.value = existing.id;
+      return;
+    }
+    addTab("changes", { filePath: normalized, label });
   }
 
   function closeAllPreviewTabs(): void {
@@ -452,6 +453,8 @@ export const useRightTabsStore = defineStore("rightTabs", () => {
     const next: RightTab[] = [];
     for (const row of restored.tabs) {
       if (row.kind === "files") continue;
+      // Diff views are transient — reopen them from the dock Changes view.
+      if (row.kind === "changes") continue;
       if (row.kind === "preview" && !row.filePath) continue;
       const url =
         row.kind === "browser" && typeof row.url === "string" && row.url.trim()
@@ -466,11 +469,7 @@ export const useRightTabsStore = defineStore("rightTabs", () => {
         kind: row.kind,
         label:
           row.label ||
-          (row.kind === "running"
-            ? t.runningTab
-            : row.kind === "changes"
-              ? t.changesTab
-              : row.kind),
+          (row.kind === "running" ? t.runningTab : row.kind),
         filePath: row.filePath,
         dirty: false,
         missing: false,
@@ -481,13 +480,6 @@ export const useRightTabsStore = defineStore("rightTabs", () => {
         ptyId,
         url,
       });
-    }
-    // Running and Changes are mutually exclusive — keep whichever was active.
-    if (next.some((t) => t.kind === "running") && next.some((t) => t.kind === "changes")) {
-      const activeKind = next[Math.min(restored.activeIndex, next.length - 1)]?.kind;
-      const dropKind = activeKind === "changes" ? "running" : "changes";
-      const dropIdx = next.findIndex((t) => t.kind === dropKind);
-      if (dropIdx >= 0) next.splice(dropIdx, 1);
     }
     syncLocalizedLabels(next);
     tabs.value = next;
