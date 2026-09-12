@@ -28,13 +28,16 @@ function firstUserText(path: SessionEntry[]): string {
 	return "";
 }
 
-/** 派生会话标题：始终带 `Forked: ` 前缀，派生自派生时不重复叠加。 */
-function forkTitleFor(title: string): string | null {
-	const clean = title.replace(/\s+/g, " ").trim().slice(0, FORK_TITLE_MAX);
-	if (!clean) return null;
-	return clean.startsWith(FORK_TITLE_PREFIX)
-		? clean
-		: `${FORK_TITLE_PREFIX}${clean}`;
+/** 派生会话标题：取分叉点消息文本，为空时回退为 `Forked: ` + 源会话名。 */
+function forkTitleFor(turnText: string, sourceName: string | null): string | null {
+	const clean = stripComposerModePreamble(stripAttachedImagesBlock(turnText))
+		.replace(/\s+/g, " ")
+		.trim()
+		.slice(0, FORK_TITLE_MAX);
+	if (clean) return clean;
+	if (!sourceName) return null;
+	const src = sourceName.replace(/\s+/g, " ").trim().slice(0, FORK_TITLE_MAX);
+	return src ? `${FORK_TITLE_PREFIX}${src}` : null;
 }
 
 /**
@@ -75,7 +78,7 @@ export async function forkSessionAtUserTurn(
 		throw new Error("nothing to fork before this turn");
 	}
 	const sourceName = manager.getSessionName() ?? firstUserText(branch);
-	const forkTitle = forkTitleFor(sourceName);
+	const forkTitle = forkTitleFor(targetText, sourceName || null);
 	const forkedFile = manager.createBranchedSession(leafId);
 	if (!forkedFile || !existsSync(forkedFile)) {
 		throw new Error("the turn before this one has no reply yet — nothing to fork");
