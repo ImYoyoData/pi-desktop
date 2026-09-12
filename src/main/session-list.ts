@@ -50,8 +50,7 @@ let piWorkspacesCache: {
   workspaces: string[];
 } | null = null;
 
-/** Signature of the .jsonl files in one session dir (sizes + mtimes, no content). */
-async function dirJsonlSignature(dir: string): Promise<string | null> {
+/** Signature of the .jsonl files in one session dir (sizes + mtimes, no content). */async function dirJsonlSignature(dir: string): Promise<string | null> {
   let entries;
   try {
     entries = await fs.promises.readdir(dir, { withFileTypes: true });
@@ -70,6 +69,33 @@ async function dirJsonlSignature(dir: string): Promise<string | null> {
   }
   rows.sort();
   return rows.join("|");
+}
+
+/** 从会话文件首行 header 读 id，用于解析派生会话的父级（按小写路径缓存）。 */
+const parentHeaderIdCache = new Map<string, string | undefined>();
+
+function readSessionHeaderId(filePath: string): string | undefined {
+  const key = filePath.toLowerCase();
+  if (parentHeaderIdCache.has(key)) return parentHeaderIdCache.get(key);
+  let id: string | undefined;
+  try {
+    const fd = fs.openSync(filePath, "r");
+    try {
+      const buf = Buffer.alloc(16 * 1024);
+      const n = fs.readSync(fd, buf, 0, buf.length, 0);
+      const firstLine = buf.toString("utf8", 0, n).split("\n")[0] ?? "";
+      const parsed = JSON.parse(firstLine) as { type?: unknown; id?: unknown };
+      if (parsed.type === "session" && typeof parsed.id === "string") {
+        id = parsed.id;
+      }
+    } finally {
+      fs.closeSync(fd);
+    }
+  } catch {
+    id = undefined;
+  }
+  parentHeaderIdCache.set(key, id);
+  return id;
 }
 
 /** Signature across every workspace's session dir (dir name + its file signature). */
@@ -177,6 +203,9 @@ function readSessionSummaryFallback(filePath: string): DiskSessionRow | null {
       }
     }
     if (!header) return null;
+    const parentRaw = (header as { parentSession?: unknown }).parentSession;
+    const parentSessionPath =
+      typeof parentRaw === "string" && parentRaw.trim() ? parentRaw : undefined;
     const headerTime = new Date(String(header.timestamp ?? "")).getTime();
     const modified =
       typeof lastActivityTime === "number" && lastActivityTime > 0
@@ -191,6 +220,7 @@ function readSessionSummaryFallback(filePath: string): DiskSessionRow | null {
       name,
       modified: modified.toISOString(),
       firstMessage: firstMessage || "(no messages)",
+      parentSessionPath,
     };
   } catch {
     return null;
@@ -295,13 +325,26 @@ export async function listSessionsForCwd(
   if (hit && hit.signature === signature) return hit.sessions;
 
   const rows = await listSessionSummariesSafe({ dir: sessionDir });
-  const sessions = rows
-    .filter((row) => {
-      const sessionCwd = row.cwd ? path.resolve(row.cwd) : resolvedCwd;
-      return workspacePathsEqual(sessionCwd, resolvedCwd);
-    })
+  const workspaceRows = rows.filter((row) => {
+    const sessionCwd = row.cwd ? path.resolve(row.cwd) : resolvedCwd;
+    return workspacePathsEqual(sessionCwd, resolvedCwd);
+  });
+  const sessions = workspaceRows
     .map(diskRowToSummary)
     .sort((a, b) => b.modified.localeCompare(a.modified));
+
+  // 派生会话的 parentSession 是父文件路径，这里解析成父会话 id。
+  const idByPath = new Map(workspaceRows.map((r) => [r.filePath.toLowerCase(), r.id]));
+  for (let i = 0; i < sessions.length; i++) {
+    const parentPath = workspaceRows[i]?.parentSessionPath?.trim();
+    if (!parentPath) continue;
+    const resolvedParent = path.resolve(parentPath);
+    const parentId =
+      idByPath.get(resolvedParent.toLowerCase()) ?? readSessionHeaderId(resolvedParent);
+    if (parentId && parentId !== sessions[i]!.id) {
+      sessions[i]!.parentSessionId = parentId;
+    }
+  }
 
   sessionListCache.set(key, { signature, sessions });
   if (sessionListCache.size > 64) {

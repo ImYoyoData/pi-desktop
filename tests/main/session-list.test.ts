@@ -13,13 +13,20 @@ import {
 
 const CURRENT_SESSION_VERSION = 3;
 
-function writeSessionHeader(filePath: string, id: string, cwd: string, modifiedIso?: string): void {
+function writeSessionHeader(
+  filePath: string,
+  id: string,
+  cwd: string,
+  modifiedIso?: string,
+  parentSession?: string,
+): void {
   const line = JSON.stringify({
     type: "session",
     version: CURRENT_SESSION_VERSION,
     id,
     timestamp: modifiedIso ?? "2026-01-15T12:00:00.000Z",
     cwd,
+    ...(parentSession ? { parentSession } : {}),
   });
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
   fs.writeFileSync(filePath, `${line}\n`, "utf8");
@@ -65,6 +72,64 @@ describe("session-list", () => {
     expect(listed).toHaveLength(1);
     expect(listed[0]?.id).toBe("session-a");
     expect(path.resolve(listed[0]!.cwd)).toBe(path.resolve(cwdA));
+  });
+
+  it("resolves parentSessionId from a parent listed in the same workspace", async () => {
+    const cwd = path.join(tempRoot, "project-fork");
+    fs.mkdirSync(cwd, { recursive: true });
+    const dir = encodeCwdSessionDir(cwd);
+    const parentFile = path.join(dir, "2026-01-15T12-00-00-000Z_parent.jsonl");
+    const forkFile = path.join(dir, "2026-01-16T12-00-00-000Z_fork.jsonl");
+    writeSessionHeader(parentFile, "parent-session", cwd);
+    writeSessionHeader(forkFile, "fork-session", cwd, undefined, parentFile);
+
+    const listed = await listSessionsForCwd(cwd);
+
+    expect(listed.find((s) => s.id === "fork-session")?.parentSessionId).toBe(
+      "parent-session",
+    );
+    expect(
+      listed.find((s) => s.id === "parent-session")?.parentSessionId,
+    ).toBeUndefined();
+  });
+
+  it("resolves parentSessionId from the parent file header when not listed", async () => {
+    const cwd = path.join(tempRoot, "project-fork-cross");
+    const otherCwd = path.join(tempRoot, "project-other");
+    fs.mkdirSync(cwd, { recursive: true });
+    fs.mkdirSync(otherCwd, { recursive: true });
+    const otherDir = encodeCwdSessionDir(otherCwd);
+    const parentFile = path.join(otherDir, "2026-01-15T12-00-00-000Z_parent.jsonl");
+    writeSessionHeader(parentFile, "parent-elsewhere", otherCwd);
+    const dir = encodeCwdSessionDir(cwd);
+    const forkFile = path.join(dir, "2026-01-16T12-00-00-000Z_fork.jsonl");
+    writeSessionHeader(forkFile, "fork-session", cwd, undefined, parentFile);
+
+    const listed = await listSessionsForCwd(cwd);
+
+    expect(listed.find((s) => s.id === "fork-session")?.parentSessionId).toBe(
+      "parent-elsewhere",
+    );
+  });
+
+  it("omits parentSessionId when the parent file is missing", async () => {
+    const cwd = path.join(tempRoot, "project-fork-gone");
+    fs.mkdirSync(cwd, { recursive: true });
+    const dir = encodeCwdSessionDir(cwd);
+    const forkFile = path.join(dir, "2026-01-16T12-00-00-000Z_fork.jsonl");
+    writeSessionHeader(
+      forkFile,
+      "fork-session",
+      cwd,
+      undefined,
+      path.join(dir, "gone.jsonl"),
+    );
+
+    const listed = await listSessionsForCwd(cwd);
+
+    expect(
+      listed.find((s) => s.id === "fork-session")?.parentSessionId,
+    ).toBeUndefined();
   });
 
   it("lists workspaces discovered from Pi CLI sessions", async () => {
