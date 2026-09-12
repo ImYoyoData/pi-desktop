@@ -285,11 +285,6 @@ export const zh = {
 	changesSwitchBranch: "切换分支",
 	changesWelcomeTitle: "更改",
 	changesWelcomeEmpty: "没有更改的文件",
-	changesOpenFile: "打开文件",
-	changesOpenDiff: "打开更改",
-	changesFilesCount: (n: number) => (n === 1 ? "1 个文件" : `${n} 个文件`),
-	changesDiffStats: (files: string, added: number, deleted: number) =>
-		`${files}，${added} 处添加，${deleted} 处删除`,
 	changesNoDiff: "无法显示此文件的 diff",
 	changesRemoteAdd: "添加远端",
 	changesIgnore: "过滤此文件",
