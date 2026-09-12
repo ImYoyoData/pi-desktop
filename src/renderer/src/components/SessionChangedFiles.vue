@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onUnmounted, ref, watch } from "vue";
+import { computed, ref } from "vue";
 import { NIcon } from "naive-ui";
 import {
   ChevronDownOutline,
@@ -7,13 +7,10 @@ import {
   CreateOutline,
   DocumentTextOutline,
 } from "@vicons/ionicons5";
-import { useChatStore } from "@renderer/stores/chat";
-import { useCheckpointStore } from "@renderer/stores/checkpoint";
-import { useSessionsStore } from "@renderer/stores/sessions";
 import { usePreviewStore } from "@renderer/stores/preview";
 import { useRightTabsStore } from "@renderer/stores/right-tabs";
 import { useLayoutStore } from "@renderer/stores/layout";
-import { aggregateFileChanges, type SessionFileChange } from "@renderer/utils/session-file-changes";
+import { useSessionFileChanges } from "@renderer/utils/use-session-file-changes";
 import { t } from "@renderer/i18n";
 
 /**
@@ -23,132 +20,16 @@ import { t } from "@renderer/i18n";
  * + `.working-set-line-counts`); expanding lists every path with its own
  * +/- counts; clicking a row previews the file.
  *
- * Counts are the ACTUAL net change of each file (session-start baseline vs
- * its current on-disk content), so editing the same lines repeatedly or
- * rewriting a whole file does not inflate the totals. The transcript sums
- * (`aggregateFileChanges`) only stand in until the net stats arrive and when
- * no session-start baseline exists (e.g. history sessions loaded after a
- * restart).
+ * Row data (transcript aggregate merged with the real net per-file stats)
+ * comes from `useSessionFileChanges`, shared with the right-pane Changes
+ * dock view.
  */
 
-const chat = useChatStore();
-const sessions = useSessionsStore();
 const previewStore = usePreviewStore();
 const rightTabs = useRightTabsStore();
 const layout = useLayoutStore();
 
-type NetStats = { additions: number; deletions: number };
-
-/**
- * Streaming ticks recreate the message array every update; re-aggregating per
- * tick re-parses the live tool row O(content) each frame. Recompute on a
- * ~120ms trailing throttle instead — committed rows stay memoized anyway.
- */
-const AGGREGATE_THROTTLE_MS = 120;
-const files = ref<SessionFileChange[]>([]);
-/** Actual-change stats already fetched from main (path → counts). */
-const netStats = ref<Record<string, NetStats>>({});
-
-function merged(list: SessionFileChange[]): SessionFileChange[] {
-  const net = netStats.value;
-  return list.map((f) => {
-    const s = net[f.path];
-    if (!s) return f;
-    return { path: f.path, additions: s.additions, deletions: s.deletions };
-  });
-}
-
-/**
- * Transcript totals gate which rows exist and provide the fallback numbers.
- * Prune net stats whose path vanished (e.g. history truncation) so stale
- * counts never resurface.
- */
-function recompute(): void {
-  const activeId = sessions.activeId;
-  if (activeId !== lastActiveId) {
-    lastActiveId = activeId;
-    netStats.value = {};
-    lastFetchKey = "";
-  }
-  const list = aggregateFileChanges(chat.activeMessages, chat.activeStreaming);
-  const keep: Record<string, NetStats> = {};
-  for (const f of list) {
-    const s = netStats.value[f.path];
-    if (s) keep[f.path] = s;
-  }
-  netStats.value = keep;
-  files.value = merged(list);
-  void refreshNetIfNeeded(list);
-}
-
-let lastCommitted: readonly unknown[] | null = null;
-let lastFetchKey = "";
-let fetchSeq = 0;
-let lastActiveId: string | null = null;
-
-/**
- * Reverting a turn restores files without touching the transcript; bump this
- * tick so the dock re-reads the disk state after any checkpoint lifecycle
- * event (begin / finish / revert).
- */
-const checkpoint = useCheckpointStore();
-let checkpointTick = 0;
-
-/**
- * Fetch the real per-file change counts from main. Skipped while only the
- * streaming row mutates (its identity is stable) so a long-running turn does
- * not hammer IPC on every token tick.
- */
-async function refreshNetIfNeeded(list: SessionFileChange[]): Promise<void> {
-  const sessionId = sessions.activeId;
-  if (!list.length || !sessionId) return;
-  const committed = chat.activeMessages;
-  const paths = list.map((f) => f.path);
-  const key = `${sessionId}|${checkpointTick}|${committed === lastCommitted ? "s" : "c"}|${paths.join("\u0000")}`;
-  lastCommitted = committed;
-  if (key === lastFetchKey) return;
-  lastFetchKey = key;
-  const seq = ++fetchSeq;
-  try {
-    const res = await window.api.checkpoint.netSessionChanges(sessionId, paths);
-    if (seq !== fetchSeq) return;
-    const next: Record<string, NetStats> = {};
-    for (const p of paths) {
-      const s = res[p];
-      if (s?.available) next[p] = { additions: s.additions, deletions: s.deletions };
-    }
-    netStats.value = next;
-    files.value = merged(aggregateFileChanges(chat.activeMessages, chat.activeStreaming));
-  } catch {
-    // IPC hiccup — keep the transcript fallback until the next change.
-  }
-}
-
-let aggregateTimer = 0;
-function scheduleRecompute(): void {
-  if (aggregateTimer) return;
-  aggregateTimer = window.setTimeout(() => {
-    aggregateTimer = 0;
-    recompute();
-  }, AGGREGATE_THROTTLE_MS);
-}
-watch(
-  () => [chat.activeMessages, chat.activeStreaming] as const,
-  () => scheduleRecompute(),
-);
-watch(
-  () => checkpoint.byKey,
-  () => {
-    checkpointTick += 1;
-    scheduleRecompute();
-  },
-  { deep: true },
-);
-onUnmounted(() => {
-  if (aggregateTimer) window.clearTimeout(aggregateTimer);
-  fetchSeq += 1;
-});
-recompute();
+const { files } = useSessionFileChanges();
 
 const collapsed = ref(true);
 

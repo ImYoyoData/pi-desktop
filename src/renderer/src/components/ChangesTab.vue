@@ -35,6 +35,7 @@ import {
 } from "@vicons/ionicons5";
 import { t } from "@renderer/i18n";
 import { useWorkspaceStore } from "@renderer/stores/workspace";
+import { useRightTabsStore } from "@renderer/stores/right-tabs";
 import { countDiffStats } from "@renderer/utils/tool-diff";
 import ChangesDiffEditor from "@renderer/components/ChangesDiffEditor.vue";
 import ChangesConflictResolve from "@renderer/components/ChangesConflictResolve.vue";
@@ -70,6 +71,7 @@ type GitOp =
 const workspace = useWorkspaceStore();
 const message = useMessage();
 const dialog = useDialog();
+const rightTabs = useRightTabsStore();
 
 const loading = ref(false);
 /** Git op currently in flight — only the clicked button shows a spinner. */
@@ -1123,6 +1125,15 @@ watch(
     if (!visible) return;
     fsRefreshPending = false;
     void refresh();
+  },
+);
+
+// Right-pane Changes dock view asks this tab to jump to a file's diff.
+watch(
+  () => rightTabs.changesRevealTick,
+  () => {
+    const path = rightTabs.changesRevealPath;
+    if (path) void loadDiff(path);
   },
 );
 </script>

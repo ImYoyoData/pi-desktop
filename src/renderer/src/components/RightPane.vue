@@ -29,6 +29,8 @@ import ChangesTab from "@renderer/components/ChangesTab.vue";
 import BrowserTab from "@renderer/components/BrowserTab.vue";
 import RunningTab from "@renderer/components/RunningTab.vue";
 import PreviewTab from "@renderer/components/PreviewTab.vue";
+import FilesTab from "@renderer/components/FilesTab.vue";
+import RightDockChanges from "@renderer/components/RightDockChanges.vue";
 import { useAgentRunsStore } from "@renderer/stores/agent-runs";
 import { useBrowserNavStore } from "@renderer/stores/browser-nav";
 import { useLayoutStore } from "@renderer/stores/layout";
@@ -46,6 +48,43 @@ const workspace = useWorkspaceStore();
 const agentRuns = useAgentRunsStore();
 const browserNav = useBrowserNavStore();
 const dialog = useDialog();
+
+/**
+ * Dock views — the VS Code Agents window side panel: 文件 browses the
+ * workspace tree, 更改 lists changes by scope. Tabs stay mounted underneath
+ * (v-show), so selecting a tab temporarily covers the dock view.
+ */
+const DOCK_VIEW_KEY = "pi-desktop:right-dock-view:v1";
+
+const dockView = ref<"files" | "changes" | null>(readDockView());
+
+function readDockView(): "files" | "changes" | null {
+  try {
+    const raw = localStorage.getItem(DOCK_VIEW_KEY);
+    if (raw === "files" || raw === "changes") return raw;
+  } catch {
+    // ignore
+  }
+  return "changes";
+}
+
+watch(dockView, (v) => {
+  if (!v) return;
+  try {
+    localStorage.setItem(DOCK_VIEW_KEY, v);
+  } catch {
+    // ignore
+  }
+});
+
+// A dock Changes row opens the right-pane Changes tab at that diff — surface
+// the tab above the dock view.
+watch(
+  () => rightTabs.changesRevealTick,
+  () => {
+    if (rightTabs.changesRevealPath) dockView.value = null;
+  },
+);
 
 const tabsBarRef = ref<HTMLElement | null>(null);
 const canScrollTabsLeft = ref(false);
@@ -143,6 +182,7 @@ watch(
   () => previewStore.openSignal,
   () => {
     if (previewStore.filePath) {
+      dockView.value = null;
       rightTabs.addTab("preview", {
         filePath: previewStore.filePath,
         label: previewStore.filePath.split(/[/\\]/).pop() ?? t.preview,
@@ -395,6 +435,7 @@ function onTabClose(name: string | number): void {
 }
 
 function onTabChange(id: string): void {
+  dockView.value = null;
   rightTabs.selectTab(id);
 }
 
@@ -493,6 +534,28 @@ function submitRenameTab(): void {
 <template>
   <aside class="right-pane">
     <header class="head">
+      <div class="dock-switch" role="tablist">
+        <button
+          type="button"
+          role="tab"
+          class="dock-tab"
+          :class="{ active: dockView === 'files' }"
+          :aria-selected="dockView === 'files'"
+          @click="dockView = 'files'"
+        >
+          {{ t.filesTab }}
+        </button>
+        <button
+          type="button"
+          role="tab"
+          class="dock-tab"
+          :class="{ active: dockView === 'changes' }"
+          :aria-selected="dockView === 'changes'"
+          @click="dockView = 'changes'"
+        >
+          {{ t.changesTab }}
+        </button>
+      </div>
       <div class="tabs-row">
         <NButton
           class="tabs-scroll-btn pi-interactive"
@@ -578,42 +641,48 @@ function submitRenameTab(): void {
     </header>
 
     <div class="body">
-      <template v-for="tab in rightTabs.dockTabs" :key="tab.id">
-        <RunningTab
-          v-if="tab.kind === 'running'"
-          v-show="active?.id === tab.id"
-          class="tab-panel"
-          :visible="active?.id === tab.id && !layout.rightCollapsed"
+      <div v-show="!dockView" class="tab-panels">
+        <template v-for="tab in rightTabs.dockTabs" :key="tab.id">
+          <RunningTab
+            v-if="tab.kind === 'running'"
+            v-show="active?.id === tab.id"
+            class="tab-panel"
+            :visible="active?.id === tab.id && !layout.rightCollapsed"
+          />
+          <ChangesTab
+            v-if="tab.kind === 'changes'"
+            v-show="active?.id === tab.id"
+            class="tab-panel"
+            :visible="active?.id === tab.id && !layout.rightCollapsed"
+          />
+          <BrowserTab
+            v-if="tab.kind === 'browser'"
+            v-show="active?.id === tab.id"
+            class="tab-panel"
+            :tab-id="tab.id"
+            :initial-url="tab.url ?? null"
+            :visible="active?.id === tab.id && !layout.rightCollapsed"
+          />
+          <PreviewTab
+            v-if="tab.kind === 'preview'"
+            v-show="active?.id === tab.id"
+            class="tab-panel"
+            :tab-id="tab.id"
+            :file-path="tab.filePath ?? null"
+            :active="active?.id === tab.id"
+          />
+        </template>
+        <NEmpty
+          v-if="!active"
+          :description="rightTabs.dockTabs.length ? t.selectTabHint : t.clickToAddTab"
+          class="empty"
+          size="small"
         />
-        <ChangesTab
-          v-if="tab.kind === 'changes'"
-          v-show="active?.id === tab.id"
-          class="tab-panel"
-          :visible="active?.id === tab.id && !layout.rightCollapsed"
-        />
-        <BrowserTab
-          v-if="tab.kind === 'browser'"
-          v-show="active?.id === tab.id"
-          class="tab-panel"
-          :tab-id="tab.id"
-          :initial-url="tab.url ?? null"
-          :visible="active?.id === tab.id && !layout.rightCollapsed"
-        />
-        <PreviewTab
-          v-if="tab.kind === 'preview'"
-          v-show="active?.id === tab.id"
-          class="tab-panel"
-          :tab-id="tab.id"
-          :file-path="tab.filePath ?? null"
-          :active="active?.id === tab.id"
-        />
-      </template>
-      <NEmpty
-        v-if="!active"
-        :description="rightTabs.dockTabs.length ? t.selectTabHint : t.clickToAddTab"
-        class="empty"
-        size="small"
-      />
+      </div>
+      <div v-if="dockView" class="dock-view">
+        <FilesTab v-if="dockView === 'files'" embedded />
+        <RightDockChanges v-else :visible="!layout.rightCollapsed" />
+      </div>
     </div>
 
     <NDropdown
@@ -682,6 +751,44 @@ function submitRenameTab(): void {
   gap: 2px;
   overflow: hidden;
   height: 100%;
+}
+
+.dock-switch {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  height: 100%;
+  padding-right: 6px;
+  margin-right: 4px;
+  border-right: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.dock-tab {
+  height: 22px;
+  margin: 0;
+  padding: 0 8px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--fg-muted);
+  font: inherit;
+  font-size: 11.5px;
+  font-weight: 600;
+  cursor: pointer;
+  transition:
+    background var(--duration-fast, 140ms) var(--ease-out, ease),
+    color var(--duration-fast, 140ms) var(--ease-out, ease);
+}
+
+.dock-tab:hover {
+  background: var(--bg-hover);
+  color: var(--fg);
+}
+
+.dock-tab.active {
+  background: var(--bg-active, var(--bg-hover));
+  color: var(--fg-strong);
 }
 
 .tabs-scroll-btn {
@@ -851,6 +958,21 @@ function submitRenameTab(): void {
   min-height: 0;
   position: relative;
   overflow: hidden;
+}
+
+.tab-panels {
+  position: absolute;
+  inset: 0;
+  min-height: 0;
+}
+
+.dock-view {
+  position: absolute;
+  inset: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
 }
 
 .tab-panel {

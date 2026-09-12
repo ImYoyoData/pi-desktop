@@ -110,6 +110,9 @@ function syncLocalizedLabels(list: RightTab[]): void {
 export const useRightTabsStore = defineStore("rightTabs", () => {
   const tabs = ref<RightTab[]>(defaultTabs());
   const activeId = ref("changes-0");
+  /** Right-pane Changes dock view asks the Changes tab to open this file's diff. */
+  const changesRevealPath = ref("");
+  const changesRevealTick = ref(0);
   const panelActiveId = ref("");
   const saveHandlers = new Map<string, SaveHandler>();
   let persistReady = false;
@@ -355,6 +358,13 @@ export const useRightTabsStore = defineStore("rightTabs", () => {
     return tab;
   }
 
+  /** Open (or focus) the Changes tab and reveal `path` in its diff pane. */
+  function revealInChanges(path: string): void {
+    changesRevealPath.value = path.replace(/\\/g, "/");
+    changesRevealTick.value += 1;
+    addTab("changes");
+  }
+
   function closeAllPreviewTabs(): void {
     const ids = tabs.value.filter((t) => t.kind === "preview").map((t) => t.id);
     for (const id of ids) closeTab(id);
@@ -545,6 +555,8 @@ export const useRightTabsStore = defineStore("rightTabs", () => {
     panelActiveId,
     activeTab,
     activePanelTab,
+    changesRevealPath,
+    changesRevealTick,
     selectTab,
     selectPanelTab,
     closeTab,
@@ -553,6 +565,7 @@ export const useRightTabsStore = defineStore("rightTabs", () => {
     autoTitleTab,
     renameTab,
     addTab,
+    revealInChanges,
     addPreviewFromPicker,
     registerSaveHandler,
     unregisterSaveHandler,
