@@ -740,6 +740,7 @@ export function createSessionBroker(deps: {
               existing?.modified ??
               new Date().toISOString()),
         status: rec.summary.status,
+        parentSessionId: rec.summary.parentSessionId ?? existing?.parentSessionId,
       });
     }
     return [...merged.values()].sort((a, b) =>

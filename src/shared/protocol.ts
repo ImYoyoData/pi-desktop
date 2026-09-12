@@ -592,6 +592,8 @@ export type SessionSummary = {
 	modified: string;
 	firstMessage?: string;
 	status: SessionStatus;
+	/** 派生会话的父会话 id（由 header.parentSession 路径解析）。 */
+	parentSessionId?: string;
 };
 
 /** 到某一轮 user 消息为止派生出的新会话。 */
