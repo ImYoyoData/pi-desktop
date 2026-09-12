@@ -600,6 +600,8 @@ export const zh = {
 	regenerate: "重新生成",
 	assistantStatsTitle: (dur: string, tok: string, perSec: string) =>
 		`用时 ${dur} · 总 token ${tok} · ${perSec} token/s`,
+	assistantModelTitle: (model: string, level: string) =>
+		`模型 ${model} · 思考 ${level}`,
 	userCardExpand: "展开",
 	userCardCollapse: "收起",
 	stickyExpand: "展开",
@@ -612,6 +614,18 @@ export const zh = {
 		`已撤回：还原 ${restored} 个文件，删除 ${deleted} 个新建文件`,
 	revertTurnEmpty: "本轮没有可撤回的文件变更",
 	revertTurnFail: (err: string) => `撤回失败：${err}`,
+	restoreCheckpoint: "还原检查点",
+	restoreCheckpointConfirm:
+		"将删除本轮及之后的所有对话，撤销本轮的文件修改，并把该条消息放回输入框。是否继续？",
+	restoreCheckpointDone: (files: number) =>
+		`已还原检查点：恢复 ${files} 个文件，并回退对话`,
+	restoreCheckpointChatOnly: "已回退对话 — 本轮没有文件快照，文件保持原样",
+	restoreCheckpointFilesSkipped: (err: string) => `已回退对话，但文件未还原：${err}`,
+	restoreCheckpointFail: (err: string) => `还原检查点失败：${err}`,
+	turnMismatch: "对话状态与 Agent 不一致，无法定位该轮",
+	forkConversation: "派生对话",
+	forkConversationDone: "已派生为新对话",
+	forkConversationFail: (err: string) => `派生失败：${err}`,
 	loadedForReEdit: "已载入到输入框 — 发送后从此处重新开始；取消编辑可还原",
 	editingPublishedHint: "正在编辑已发送的消息 — 发送后将替换该条及之后的内容",
 	discardPublishedEdit: "取消编辑",

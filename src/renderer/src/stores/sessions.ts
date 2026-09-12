@@ -22,13 +22,19 @@ const SEGMENT_IDS = new Set<ContextUsageSegmentId>([
 
 function parseContextUsage(data: unknown): SessionContextUsage | null {
   if (!data || typeof data !== "object") return null;
-  const raw = data as { contextUsage?: unknown };
+  const raw = data as {
+    contextUsage?: unknown;
+    model?: unknown;
+    thinkingLevel?: unknown;
+  };
   const usage = raw.contextUsage ?? data;
   if (!usage || typeof usage !== "object") return null;
   const u = usage as {
     tokens?: unknown;
     contextWindow?: unknown;
     percent?: unknown;
+    model?: unknown;
+    thinkingLevel?: unknown;
     toolCalls?: unknown;
     messageCount?: unknown;
     turns?: unknown;
@@ -61,10 +67,21 @@ function parseContextUsage(data: unknown): SessionContextUsage | null {
         })
         .filter((s): s is ContextUsageSegment => Boolean(s))
     : null;
+  // get_state 把两者放在 contextUsage 同级，usage 事件则放在其内部。
+  const model = (u.model ?? raw.model) as
+    | { provider?: unknown; id?: unknown }
+    | null
+    | undefined;
+  const thinkingLevel = u.thinkingLevel ?? raw.thinkingLevel;
   return {
     tokens: typeof u.tokens === "number" ? u.tokens : null,
     contextWindow: u.contextWindow,
     percent: typeof u.percent === "number" ? u.percent : null,
+    model:
+      model && typeof model.provider === "string" && typeof model.id === "string"
+        ? { provider: model.provider, id: model.id }
+        : null,
+    thinkingLevel: typeof thinkingLevel === "string" ? thinkingLevel : null,
     toolCalls: typeof u.toolCalls === "number" ? u.toolCalls : null,
     messageCount: typeof u.messageCount === "number" ? u.messageCount : null,
     turns: typeof u.turns === "number" ? u.turns : null,

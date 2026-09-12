@@ -10,7 +10,7 @@ import {
   useDialog,
   useMessage,
 } from "naive-ui";
-import { ArrowDownOutline, ArrowUndoOutline, ChevronDownOutline, ChevronUpOutline, CopyOutline, CreateOutline, PauseOutline, RefreshOutline, VolumeMediumOutline } from "@vicons/ionicons5";
+import { ArrowDownOutline, ArrowUndoOutline, ChevronDownOutline, ChevronUpOutline, CopyOutline, CreateOutline, GitBranchOutline, PauseOutline, RefreshOutline, VolumeMediumOutline } from "@vicons/ionicons5";
 import type { ChatMessage, ChatRetryHint } from "@renderer/stores/chat";
 import { useChatStore } from "@renderer/stores/chat";
 import { useCheckpointStore } from "@renderer/stores/checkpoint";
@@ -50,6 +50,7 @@ import {
   windowAfterHistoryPrepend,
 } from "@renderer/utils/message-virtual-window";
 import { decideFollowOnScroll } from "@renderer/utils/follow-bottom";
+import { thinkingLevelLabel } from "@renderer/utils/thinking-level";
 
 /**
  * Sliding virtual window: mount a modest range around the viewport so
@@ -1316,6 +1317,7 @@ onMounted(() => {
   // Auto-load on startup mounts MessageList *after* activeId is set, so the
   // sessionId watcher may not re-fire — settle here or the spacer looks blank.
   void beginSessionSettle();
+  void loadModelNames();
 });
 
 onBeforeUnmount(() => {
@@ -1433,6 +1435,42 @@ function assistantStats(
   return { compact, detail };
 }
 
+/** `provider/id` → 模型目录中的显示名。 */
+const modelNames = ref<Record<string, string>>({});
+
+async function loadModelNames(): Promise<void> {
+  try {
+    const data = await window.api.models.get();
+    modelNames.value = Object.fromEntries(
+      data.available.map((m) => [`${m.provider}/${m.id}`, m.name]),
+    );
+  } catch {
+    // 取不到目录时退回原始 model id
+  }
+}
+
+/**
+ * "Claude Sonnet 4.5 · High"：本轮结束使用的模型与思考级别。
+ * 思考为 off 时不展示级别；模型名缺失时退回 model id。
+ */
+function assistantModelDetail(): { compact: string; detail: string } | null {
+  const usage = sessions.activeContextUsage;
+  if (!usage) return null;
+  const model = usage.model;
+  const name = model
+    ? (modelNames.value[`${model.provider}/${model.id}`] ?? model.id)
+    : null;
+  const level =
+    usage.thinkingLevel && usage.thinkingLevel !== "off"
+      ? thinkingLevelLabel(usage.thinkingLevel)
+      : null;
+  if (!name && !level) return null;
+  return {
+    compact: [name, level].filter(Boolean).join(" · "),
+    detail: t.assistantModelTitle(name ?? "—", level ?? "—"),
+  };
+}
+
 function formatElapsedMs(ms: number): string {
   const sec = ms / 1000;
   if (sec < 60) return `${sec.toFixed(1)}s`;
@@ -1488,18 +1526,14 @@ async function copyText(text: string): Promise<void> {
   messageApi.success(t.copied);
 }
 
-function onEditUser(msg: Extract<ChatMessage, { role: "user" }>): void {
-  const id = sessionId.value;
-  if (!id || props.running) return;
-  const edited = chat.beginEditUser(id, msg.id);
-  if (!edited) return;
-  if (sendQueue.editingId) sendQueue.setEditing(id, null);
+/** 把一条 user 气泡放回输入框（重新编辑或还原检查点后用）。 */
+function loadComposerFromUser(msg: Extract<ChatMessage, { role: "user" }>): void {
   composer.clear();
-  composer.draft = displayUserText(edited.text);
-  for (const img of edited.images ?? []) {
+  composer.draft = displayUserText(msg.text);
+  for (const img of msg.images ?? []) {
     composer.addImageFromDataUrl(img.dataUrl);
   }
-  for (const tag of visibleUserTags(edited.elementTags)) {
+  for (const tag of visibleUserTags(msg.elementTags)) {
     if (tag.kind === "file") {
       composer.addFileTag(tag.content || tag.label || tag.url);
     } else if (tag.kind === "url" || (!tag.kind && /^https?:\/\//i.test(tag.url))) {
@@ -1513,7 +1547,80 @@ function onEditUser(msg: Extract<ChatMessage, { role: "user" }>): void {
       });
     }
   }
+}
+
+function onEditUser(msg: Extract<ChatMessage, { role: "user" }>): void {
+  const id = sessionId.value;
+  if (!id || props.running) return;
+  const edited = chat.beginEditUser(id, msg.id);
+  if (!edited) return;
+  if (sendQueue.editingId) sendQueue.setEditing(id, null);
+  loadComposerFromUser(edited);
   messageApi.info(t.loadedForReEdit);
+}
+
+/**
+ * VS Code Copilot 的 Restore Checkpoint：回退对话（本轮及之后），
+ * 还原本轮改动的文件，并把该条消息放回输入框。
+ */
+function onRestoreCheckpoint(msg: Extract<ChatMessage, { role: "user" }>): void {
+  const id = sessionId.value;
+  if (!id || props.running) return;
+  const d = dialog.warning({
+    title: t.restoreCheckpoint,
+    content: t.restoreCheckpointConfirm,
+    positiveText: t.confirm,
+    negativeText: t.cancel,
+    onPositiveClick: () => {
+      d.loading = true;
+      return (async () => {
+        try {
+          const restored = await chat.restoreTurn(id, msg.id);
+          if (!restored.ok) {
+            messageApi.error(t.restoreCheckpointFail(t.turnMismatch));
+            d.loading = false;
+            return false;
+          }
+          const files = checkpoints.canRevert(id, msg.id)
+            ? await checkpoints.revert(id, msg.id)
+            : null;
+          loadComposerFromUser(restored.message);
+          if (files && !files.ok) {
+            messageApi.warning(t.restoreCheckpointFilesSkipped(files.error || "unknown"));
+          } else if (files) {
+            messageApi.success(t.restoreCheckpointDone(files.restored + files.deleted));
+          } else {
+            messageApi.success(t.restoreCheckpointChatOnly);
+          }
+          return true;
+        } catch (err) {
+          messageApi.error(
+            t.restoreCheckpointFail(err instanceof Error ? err.message : String(err)),
+          );
+          d.loading = false;
+          return false;
+        }
+      })();
+    },
+  });
+}
+
+/** VS Code Copilot 的 Fork Conversation：把到本轮为止的对话复制成新会话。 */
+async function onForkConversation(msg: Extract<ChatMessage, { role: "user" }>): Promise<void> {
+  const id = sessionId.value;
+  if (!id || props.running) return;
+  try {
+    const forkedId = await chat.forkConversation(id, msg.id);
+    if (!forkedId) {
+      messageApi.error(t.forkConversationFail(t.turnMismatch));
+      return;
+    }
+    messageApi.success(t.forkConversationDone);
+  } catch (err) {
+    messageApi.error(
+      t.forkConversationFail(err instanceof Error ? err.message : String(err)),
+    );
+  }
 }
 
 async function onRegenerate(msg: Extract<ChatMessage, { role: "assistant" }>): Promise<void> {
@@ -1739,6 +1846,26 @@ function onRevertUser(msg: Extract<ChatMessage, { role: "user" }>): void {
                 </template>
                 {{ t.reEdit }}
               </NTooltip>
+              <NTooltip>
+                <template #trigger>
+                  <NButton quaternary circle size="tiny" @click="onRestoreCheckpoint(msg)">
+                    <template #icon>
+                      <NIcon :component="ArrowUndoOutline" />
+                    </template>
+                  </NButton>
+                </template>
+                {{ t.restoreCheckpoint }}
+              </NTooltip>
+              <NTooltip>
+                <template #trigger>
+                  <NButton quaternary circle size="tiny" @click="onForkConversation(msg)">
+                    <template #icon>
+                      <NIcon :component="GitBranchOutline" />
+                    </template>
+                  </NButton>
+                </template>
+                {{ t.forkConversation }}
+              </NTooltip>
             </div>
           </div>
         </template>
@@ -1817,6 +1944,13 @@ function onRevertUser(msg: Extract<ChatMessage, { role: "user" }>): void {
                 :title="assistantStats(msg)!.detail"
               >
                 {{ assistantStats(msg)!.compact }}
+              </span>
+              <span
+                v-if="assistantModelDetail()"
+                class="assistant-model"
+                :title="assistantModelDetail()!.detail"
+              >
+                {{ assistantModelDetail()!.compact }}
               </span>
             </div>
           </div>
@@ -2520,6 +2654,18 @@ function onRevertUser(msg: Extract<ChatMessage, { role: "user" }>): void {
   margin-left: 8px;
   font-size: 10.5px;
   font-variant-numeric: tabular-nums;
+  color: var(--fg-faint, var(--fg-muted));
+  white-space: nowrap;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+/* 本轮结束时的模型与思考级别。 */
+.assistant-model {
+  margin-left: 8px;
+  padding-left: 8px;
+  border-left: 1px solid var(--border);
+  font-size: 10.5px;
   color: var(--fg-faint, var(--fg-muted));
   white-space: nowrap;
   user-select: none;

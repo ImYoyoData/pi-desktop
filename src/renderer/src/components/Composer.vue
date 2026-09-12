@@ -84,9 +84,12 @@ import {
   PI_WORKSPACE_PATHS_MIME,
 } from "@renderer/utils/workspace-path-dnd";
 import { locale, t } from "@renderer/i18n";
-
-/** Pi 思考级别（pi-ai ThinkingLevel + off） */
-type ThinkingLevel = "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
+import {
+  THINKING_LEVELS,
+  isThinkingLevel,
+  thinkingLevelLabel,
+  type ThinkingLevel,
+} from "@renderer/utils/thinking-level";
 
 /**
  * True when docked widgets (todo / changed files) sit directly above the
@@ -217,17 +220,7 @@ function modelKeyFromState(data: unknown): string | null {
 function thinkingFromState(data: unknown): ThinkingLevel | null {
   if (!data || typeof data !== "object") return null;
   const level = (data as { thinkingLevel?: unknown }).thinkingLevel;
-  if (typeof level !== "string") return null;
-  const allowed: ThinkingLevel[] = [
-    "off",
-    "minimal",
-    "low",
-    "medium",
-    "high",
-    "xhigh",
-    "max",
-  ];
-  return (allowed as string[]).includes(level) ? (level as ThinkingLevel) : null;
+  return isThinkingLevel(level) ? level : null;
 }
 
 function rememberModel(sessionId: string, key: string): void {
@@ -240,18 +233,8 @@ function rememberThinking(sessionId: string, level: ThinkingLevel): void {
   persistSessionPrefs();
 }
 
-const thinkingOptions = [
-  { label: "Off", value: "off" },
-  { label: "Minimal", value: "minimal" },
-  { label: "Low", value: "low" },
-  { label: "Medium", value: "medium" },
-  { label: "High", value: "high" },
-  { label: "XHigh", value: "xhigh" },
-  { label: "Max", value: "max" },
-];
-
 const thinkingMenu = computed<DropdownOption[]>(() =>
-  thinkingOptions.map((o) => ({
+  THINKING_LEVELS.map((o) => ({
     label: o.label,
     key: o.value,
     props:
@@ -262,7 +245,7 @@ const thinkingMenu = computed<DropdownOption[]>(() =>
 );
 
 const thinkingLabel = computed(
-  () => thinkingOptions.find((o) => o.value === thinkingLevel.value)?.label ?? "Medium",
+  () => thinkingLevelLabel(thinkingLevel.value) ?? "Medium",
 );
 
 const modelMenu = computed<DropdownOption[]>(() =>

@@ -67,6 +67,15 @@ const CONTEXT_SEGMENT_IDS = new Set<ContextUsageSegmentId>([
   "toolResults",
 ]);
 
+/** 会话模型 `{ provider, id }`，转发给界面用于标注已结束的轮次。 */
+function modelRef(value: unknown): { provider: string; id: string } | null {
+  if (!value || typeof value !== "object") return null;
+  const m = value as { provider?: unknown; id?: unknown };
+  return typeof m.provider === "string" && typeof m.id === "string"
+    ? { provider: m.provider, id: m.id }
+    : null;
+}
+
 export type WorkerHandle = {
   send: (msg: WorkerInbound) => Promise<WorkerOutbound | null>;
   kill: () => void;
@@ -489,6 +498,8 @@ export function createSessionBroker(deps: {
           tokens?: unknown;
           contextWindow?: unknown;
           percent?: unknown;
+          model?: unknown;
+          thinkingLevel?: unknown;
           toolCalls?: unknown;
           messageCount?: unknown;
           segments?: unknown;
@@ -536,6 +547,9 @@ export function createSessionBroker(deps: {
               tokens: typeof ev.tokens === "number" ? ev.tokens : null,
               contextWindow: ev.contextWindow,
               percent: typeof ev.percent === "number" ? ev.percent : null,
+              model: modelRef(ev.model),
+              thinkingLevel:
+                typeof ev.thinkingLevel === "string" ? ev.thinkingLevel : null,
               toolCalls: typeof ev.toolCalls === "number" ? ev.toolCalls : null,
               messageCount:
                 typeof ev.messageCount === "number" ? ev.messageCount : null,

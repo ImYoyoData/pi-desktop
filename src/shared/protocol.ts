@@ -57,6 +57,8 @@ export const IpcChannels = {
 		delete: "sessions:delete",
 		history: "sessions:history",
 		rename: "sessions:rename",
+		/** 把到某一轮 user 消息为止的对话复制成新会话文件。 */
+		fork: "sessions:fork",
 		/** Clear conversation messages on disk and restart the worker (keeps session id). */
 		clearContext: "sessions:clearContext",
 		/** Main → renderer: permission strip ask */
@@ -356,6 +358,10 @@ export type SessionContextUsage = {
 	tokens: number | null;
 	contextWindow: number;
 	percent: number | null;
+	/** 会话当前模型，用于给结束的轮次标注模型名。 */
+	model?: { provider: string; id: string } | null;
+	/** 会话当前思考级别（Pi `ThinkingLevel`）。 */
+	thinkingLevel?: string | null;
 	/** Tool calls across the session (from Pi `getSessionStats`). */
 	toolCalls?: number | null;
 	/** User + assistant + toolResult messages (from Pi `getSessionStats`). */
@@ -575,6 +581,9 @@ export type SessionHistoryQuery = {
 	beforeId?: string | null;
 };
 
+/** 聊天界面一次性加载全部尾部历史，分页只用于上滑加载更早的消息。 */
+export const SESSION_HISTORY_LOAD_LIMIT = 1_000_000;
+
 export type SessionSummary = {
 	id: string;
 	filePath: string;
@@ -583,4 +592,11 @@ export type SessionSummary = {
 	modified: string;
 	firstMessage?: string;
 	status: SessionStatus;
+};
+
+/** 到某一轮 user 消息为止派生出的新会话。 */
+export type SessionForkResult = {
+	id: string;
+	filePath: string;
+	cwd: string;
 };

@@ -69,6 +69,9 @@ export function installLanWindowApi(): void {
       command: async () => ({}),
       tryCommand: async () => undefined,
       history: async () => ({ messages: [], hasMore: false }),
+      fork: async () => {
+        throw new Error("unavailable on LAN web");
+      },
       killWorker: asyncNull,
       restartWorker: asyncNull,
       delete: asyncNull,

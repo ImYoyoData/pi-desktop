@@ -186,22 +186,33 @@ function messageContentHasImage(content: unknown): boolean {
 }
 
 /**
- * Navigate the session tree to abandon a user turn (leaf → parent of that entry).
- * `userIndex` is 0-based among user messages on the current fork list.
+ * 当前分支（root → leaf）上的 user 轮次 entry id。
+ * 排除早期重新编辑留下的废弃分支，使渲染端统计的轮次下标与这里一致。
+ */
+function branchUserEntryIds(active: AgentSession): string[] {
+	return active.sessionManager
+		.getBranch()
+		.filter((entry) => entry.type === "message" && entry.message.role === "user")
+		.map((entry) => entry.id);
+}
+
+/**
+ * 放弃某一轮 user 对话（leaf 移到该 entry 的父节点）。
+ * `userIndex` 为当前分支上 user 消息的 0 基下标。
  */
 async function rollbackUserTurn(
 	active: AgentSession,
 	userIndex?: number,
 ): Promise<boolean> {
-	const users = active.getUserMessagesForForking();
-	if (!users.length) return false;
-	const idx = userIndex == null ? users.length - 1 : userIndex;
-	// Out of range means the UI bubble never landed in the agent tree (e.g. rejected
-	// before prompt) — do not clamp onto an older successful turn.
-	if (idx < 0 || idx >= users.length) return false;
-	const target = users[idx];
+	const entryIds = branchUserEntryIds(active);
+	if (!entryIds.length) return false;
+	const idx = userIndex == null ? entryIds.length - 1 : userIndex;
+	// 越界说明该气泡从未进入 Agent 会话树（例如 prompt 前就被拒绝），
+	// 此时不要顺延到更早的一轮。
+	if (idx < 0 || idx >= entryIds.length) return false;
+	const target = entryIds[idx];
 	if (!target) return false;
-	await active.navigateTree(target.entryId, { summarize: false });
+	await active.navigateTree(target, { summarize: false });
 	return true;
 }
 
@@ -209,13 +220,12 @@ async function rollbackUserTurn(
 async function rollbackFirstImageUserTurn(
 	active: AgentSession,
 ): Promise<boolean> {
-	const users = active.getUserMessagesForForking();
-	for (const user of users) {
-		const entry = active.sessionManager.getEntry(user.entryId);
+	for (const entryId of branchUserEntryIds(active)) {
+		const entry = active.sessionManager.getEntry(entryId);
 		if (!entry || entry.type !== "message") continue;
 		const content = (entry.message as { content?: unknown }).content;
 		if (!messageContentHasImage(content)) continue;
-		await active.navigateTree(user.entryId, { summarize: false });
+		await active.navigateTree(entryId, { summarize: false });
 		return true;
 	}
 	return false;
@@ -533,6 +543,7 @@ function emitContextUsage(active: AgentSession): void {
 	if (!usage) return;
 	const timing = timingTracker.snapshot();
 	persistTimingToDisk(timing);
+	const model = active.model;
 	post({
 		kind: "event",
 		event: {
@@ -540,6 +551,8 @@ function emitContextUsage(active: AgentSession): void {
 			tokens: usage.tokens,
 			contextWindow: usage.contextWindow,
 			percent: usage.percent,
+			model: model ? { provider: model.provider, id: model.id } : null,
+			thinkingLevel: active.thinkingLevel,
 			toolCalls: usage.toolCalls,
 			messageCount: usage.messageCount,
 			turns: usage.turns,
