@@ -48,6 +48,7 @@ declare module 'vue' {
     MessageList: typeof import('./src/components/MessageList.vue')['default']
     ModelPickerModal: typeof import('./src/components/ModelPickerModal.vue')['default']
     ModelsSettings: typeof import('./src/components/ModelsSettings.vue')['default']
+    NDropdown: typeof import('naive-ui')['NDropdown']
     NotifySettings: typeof import('./src/components/NotifySettings.vue')['default']
     NPopover: typeof import('naive-ui')['NPopover']
     PanelBottomIcon: typeof import('./src/components/icons/PanelBottomIcon.vue')['default']
