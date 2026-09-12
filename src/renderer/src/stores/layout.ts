@@ -28,6 +28,24 @@ export const useLayoutStore = defineStore("layout", () => {
   const leftFilesSize = ref(DEFAULT_LAYOUT.leftFilesSize);
   const bottomSize = ref(DEFAULT_LAYOUT.bottomSize);
   const bottomCollapsed = ref(DEFAULT_LAYOUT.bottomCollapsed);
+  /**
+   * Maximize Editor Area — the right pane hosts the editors (diffs, previews),
+   * so maximizing collapses the left sidebar + chat column + bottom panel and
+   * lets the right pane take over the window; restoring replays the exact
+   * pre-maximize layout.
+   */
+  const editorMaximized = ref(false);
+
+  type PreMaximizeState = {
+    leftCollapsed: boolean;
+    rightCollapsed: boolean;
+    bottomCollapsed: boolean;
+    leftSize: number;
+    centerSize: number;
+    rightSize: number;
+    bottomSize: number;
+  };
+  let preMaximizeState: PreMaximizeState | null = null;
 
   function persist(): void {
     if (!workspaceRoot.value) {
@@ -107,6 +125,39 @@ export const useLayoutStore = defineStore("layout", () => {
     persist();
   }
 
+  function toggleEditorMaximized(): void {
+    if (!editorMaximized.value) {
+      preMaximizeState = {
+        leftCollapsed: leftCollapsed.value,
+        rightCollapsed: rightCollapsed.value,
+        bottomCollapsed: bottomCollapsed.value,
+        leftSize: leftSize.value,
+        centerSize: centerSize.value,
+        rightSize: rightSize.value,
+        bottomSize: bottomSize.value,
+      };
+      leftCollapsed.value = true;
+      rightCollapsed.value = false;
+      bottomCollapsed.value = true;
+      editorMaximized.value = true;
+      persist();
+      return;
+    }
+    const pre = preMaximizeState;
+    editorMaximized.value = false;
+    preMaximizeState = null;
+    if (pre) {
+      leftCollapsed.value = pre.leftCollapsed;
+      rightCollapsed.value = pre.rightCollapsed;
+      bottomCollapsed.value = pre.bottomCollapsed;
+      leftSize.value = pre.leftSize;
+      centerSize.value = pre.centerSize;
+      rightSize.value = pre.rightSize;
+      bottomSize.value = pre.bottomSize;
+    }
+    persist();
+  }
+
   return {
     workspaceRoot,
     leftSize,
@@ -117,6 +168,7 @@ export const useLayoutStore = defineStore("layout", () => {
     leftFilesSize,
     bottomSize,
     bottomCollapsed,
+    editorMaximized,
     loadForWorkspace,
     setLeftSize,
     setCenterSize,
@@ -127,5 +179,6 @@ export const useLayoutStore = defineStore("layout", () => {
     toggleLeftCollapsed,
     toggleRightCollapsed,
     toggleBottomCollapsed,
+    toggleEditorMaximized,
   };
 });

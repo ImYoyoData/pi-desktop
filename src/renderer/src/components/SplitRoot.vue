@@ -47,6 +47,11 @@ watch(
 const outerLeftSize = computed(() => layout.leftSize);
 const outerMainSize = computed(() => 100 - layout.leftSize);
 
+/** While the editor is maximized the sidebar is forced hidden. */
+const effectiveLeftCollapsed = computed(
+  () => layout.leftCollapsed || layout.editorMaximized,
+);
+
 /** Inner sizes as % of main (chat + right). */
 const innerPair = computed(() => {
   const c = layout.centerSize;
@@ -56,8 +61,19 @@ const innerPair = computed(() => {
   return { chat: (c / sum) * 100, right: (r / sum) * 100 };
 });
 
+/**
+ * Maximized: the chat column is fully hidden and the right (editor) pane
+ * covers the window. Normal: the persisted chat/right ratio.
+ */
+const chatPaneSize = computed(() =>
+  layout.editorMaximized ? 0 : innerPair.value.chat,
+);
+const rightPaneSize = computed(() =>
+  layout.editorMaximized ? 100 : innerPair.value.right,
+);
+
 function onOuterResized(payload: SplitpanesResizedPayload): void {
-  if (layout.leftCollapsed || payload.panes.length < 2) return;
+  if (effectiveLeftCollapsed.value || payload.panes.length < 2) return;
   const leftPct = payload.panes[0].size;
   const mainPct = 100 - leftPct;
   const ratio =
@@ -70,7 +86,7 @@ function onOuterResized(payload: SplitpanesResizedPayload): void {
 }
 
 function onInnerResized(payload: SplitpanesResizedPayload): void {
-  if (layout.rightCollapsed || payload.panes.length < 2) return;
+  if (layout.rightCollapsed || layout.editorMaximized || payload.panes.length < 2) return;
   const chatOfMain = payload.panes[0].size;
   const rightOfMain = payload.panes[1].size;
   const mainPct = layout.leftCollapsed ? 100 : 100 - layout.leftSize;
@@ -91,22 +107,22 @@ function onChatResized(payload: SplitpanesResizedPayload): void {
   <div class="split-root">
     <Splitpanes class="panes" @resized="onOuterResized">
       <Pane
-        :size="layout.leftCollapsed ? 0 : outerLeftSize"
-        :min-size="layout.leftCollapsed ? 0 : PANE_MIN"
-        :max-size="layout.leftCollapsed ? 0 : PANE_MAX"
-        :class="{ 'pane-collapsed': layout.leftCollapsed }"
+        :size="effectiveLeftCollapsed ? 0 : outerLeftSize"
+        :min-size="effectiveLeftCollapsed ? 0 : PANE_MIN"
+        :max-size="effectiveLeftCollapsed ? 0 : PANE_MAX"
+        :class="{ 'pane-collapsed': effectiveLeftCollapsed }"
       >
         <SessionSidebar />
       </Pane>
 
       <Pane
-        :size="layout.leftCollapsed ? 100 : outerMainSize"
-        :min-size="layout.leftCollapsed ? 100 : 100 - PANE_MAX"
+        :size="effectiveLeftCollapsed ? 100 : outerMainSize"
+        :min-size="effectiveLeftCollapsed ? 100 : 100 - PANE_MAX"
       >
         <Splitpanes class="panes inner" @resized="onInnerResized">
           <Pane
-            :size="layout.rightCollapsed ? 100 : innerPair.chat"
-            :min-size="CHAT_MIN"
+            :size="layout.rightCollapsed ? 100 : chatPaneSize"
+            :min-size="layout.editorMaximized ? 0 : CHAT_MIN"
             :max-size="layout.rightCollapsed ? 100 : PANE_MAX"
           >
             <Splitpanes
@@ -133,9 +149,9 @@ function onChatResized(payload: SplitpanesResizedPayload): void {
             </Splitpanes>
           </Pane>
           <Pane
-            :size="layout.rightCollapsed ? 0 : innerPair.right"
+            :size="layout.rightCollapsed ? 0 : rightPaneSize"
             :min-size="layout.rightCollapsed ? 0 : PANE_MIN"
-            :max-size="layout.rightCollapsed ? 0 : PANE_MAX"
+            :max-size="layout.rightCollapsed ? 0 : layout.editorMaximized ? 100 : PANE_MAX"
             :class="{ 'pane-collapsed': layout.rightCollapsed }"
           >
             <RightPane />

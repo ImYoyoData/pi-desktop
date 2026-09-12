@@ -6,10 +6,9 @@ export function fixedKindLabel(kind: RightTabKind): string | null {
   switch (kind) {
     case "running":
       return t.runningTab;
-    case "changes":
-      return t.changesTab;
     case "files":
       return t.filesTab;
+    case "changes":
     case "browser":
     case "terminal":
     case "preview":
