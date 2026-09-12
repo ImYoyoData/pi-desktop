@@ -17,7 +17,6 @@ import {
 } from "naive-ui";
 import {
   ChatbubbleEllipsesOutline,
-  DocumentOutline,
   FolderOutline,
   RefreshOutline,
   DocumentAttachOutline,
@@ -31,6 +30,7 @@ import { useRightTabsStore } from "@renderer/stores/right-tabs";
 import { useLayoutStore } from "@renderer/stores/layout";
 import { useComposerStore } from "@renderer/stores/composer";
 import { gitCodeColor } from "@renderer/utils/editor-lang";
+import { fileIcon } from "@renderer/utils/file-icon";
 import { matchesGitIgnorePatterns } from "../../../shared/git-ignore";
 import { ancestorChain, nextExpandedKeys } from "@renderer/utils/files-tree-expand";
 import {
@@ -231,11 +231,26 @@ const promptRenamePath = ref("");
 
 function renderPrefix({ option }: { option: TreeOption }) {
   const isDir = option.isLeaf === false;
-  return h(NIcon, {
-    component: isDir ? FolderOutline : DocumentOutline,
-    size: 13,
-    style: { color: labelColor(String(option.key), isDir) },
-  });
+  if (isDir) {
+    return h(
+      "span",
+      {
+        class: "seti-tree-icon",
+        style: { color: labelColor(String(option.key), true) },
+      },
+      [h(NIcon, { component: FolderOutline, size: 13 })],
+    );
+  }
+  const icon = fileIcon(String(option.key));
+  return h(
+    "span",
+    {
+      class: "seti-tree-icon",
+      style: icon.color ? { color: icon.color } : undefined,
+      "aria-hidden": "true",
+    },
+    icon.glyph,
+  );
 }
 
 function labelColor(key: string, isDir: boolean): string | undefined {
@@ -1030,5 +1045,20 @@ watch(
   /* Muted grey + subtle underline (still readable, clearly de-emphasized). */
   font-style: italic;
   opacity: 0.75;
+}
+</style>
+
+<style>
+/* renderPrefix 以 h() 渲染在 NTree 内部，组件 scoped 样式覆盖不到 */
+.seti-tree-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  margin-right: 4px;
+  flex-shrink: 0;
+  font-family: "seti";
+  font-size: 150%;
+  line-height: 1;
 }
 </style>
