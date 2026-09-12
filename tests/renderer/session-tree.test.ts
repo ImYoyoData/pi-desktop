@@ -29,6 +29,10 @@ describe("buildSessionTree", () => {
       ["c2", 1],
       ["c1", 1],
     ]);
+    expect(items[0]?.hasChildren).toBe(true);
+    expect(items[1]?.parentId).toBe("p");
+    expect(items[1]?.hasChildren).toBe(false);
+    expect(items[0]?.parentId).toBeUndefined();
   });
 
   it("marks only the last displayed child's guide as half", () => {
