@@ -47,6 +47,14 @@ const composer = useComposerStore();
 const message = useMessage();
 const dialog = useDialog();
 
+const props = withDefaults(
+  defineProps<{
+    /** True inside the sidebar dock whose switcher already shows the title. */
+    embedded?: boolean;
+  }>(),
+  { embedded: false },
+);
+
 let offFs: (() => void) | null = null;
 /** Match main `fs-watch-host` rootsEqual: only Windows folds case. */
 let pathCaseInsensitive = false;
@@ -846,9 +854,10 @@ watch(
 <template>
   <div class="files-tab">
     <div class="head">
-      <NText class="title" :title="workspace.root ?? undefined">
+      <NText v-if="!props.embedded" class="title" :title="workspace.root ?? undefined">
         {{ t.filesTab }}
       </NText>
+      <span v-else class="title" :title="workspace.root ?? undefined" />
       <NSpace :size="2">
         <NButton quaternary circle size="tiny" :title="t.filesRefresh" @click="refreshRoot">
           <template #icon>
