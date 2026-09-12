@@ -631,6 +631,8 @@ export const en = {
 	regenerate: "Regenerate",
 	assistantStatsTitle: (dur: string, tok: string, perSec: string) =>
 		`Duration ${dur} · ${tok} tokens total · ${perSec} tokens/s`,
+	assistantModelTitle: (model: string, level: string) =>
+		`Model ${model} · Thinking ${level}`,
 	userCardExpand: "Expand",
 	userCardCollapse: "Collapse",
 	stickyExpand: "Expand",
@@ -643,6 +645,20 @@ export const en = {
 		`Reverted: restored ${restored} file(s), removed ${deleted} new file(s)`,
 	revertTurnEmpty: "No file changes to revert for this turn",
 	revertTurnFail: (err: string) => `Revert failed: ${err}`,
+	restoreCheckpoint: "Restore checkpoint",
+	restoreCheckpointConfirm:
+		"This removes this turn and every later turn, undoes this turn's file edits, and puts the prompt back in the composer.",
+	restoreCheckpointDone: (files: number) =>
+		`Checkpoint restored: ${files} file(s) put back, chat rewound`,
+	restoreCheckpointChatOnly:
+		"Chat rewound — no file baseline is available for this turn, files were left as they are",
+	restoreCheckpointFilesSkipped: (err: string) =>
+		`Chat rewound, but files were not restored: ${err}`,
+	restoreCheckpointFail: (err: string) => `Restore checkpoint failed: ${err}`,
+	turnMismatch: "the agent session is out of sync with this turn",
+	forkConversation: "Fork conversation",
+	forkConversationDone: "Forked into a new session",
+	forkConversationFail: (err: string) => `Fork failed: ${err}`,
 	loadedForReEdit:
 		"Loaded into the composer — send to restart from here; cancel restores the chat",
 	editingPublishedHint:

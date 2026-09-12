@@ -16,6 +16,7 @@ import {
   getSessionResources,
 } from "./agent-worker-host";
 import { renameSessionFile } from "./session-rename";
+import { forkSessionAtUserTurn } from "./session-fork";
 
 /**
  * Enrich an extension entry path with a readable name + brief description.
@@ -188,6 +189,18 @@ export function registerSessionsIpc(broker: SessionBroker): void {
         modified: new Date().toISOString(),
       });
       return patched ?? (await broker.listSessions(cwd)).find((s) => s.id === sessionId) ?? null;
+    },
+  );
+
+  ipcMain.handle(
+    IpcChannels.sessions.fork,
+    async (_event, sessionId: string, cwd: string, userIndex: number) => {
+      const list = await broker.listSessions(cwd);
+      const target = list.find((s) => s.id === sessionId);
+      if (!target?.filePath) {
+        throw new Error("session not found");
+      }
+      return forkSessionAtUserTurn(target.filePath, Number(userIndex));
     },
   );
 }

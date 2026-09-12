@@ -31,6 +31,7 @@ import Sortable from "sortablejs";
 import { Splitpanes, Pane } from "splitpanes";
 import type { SplitpanesResizedPayload } from "splitpanes";
 import type { SessionStatus, SessionSummary } from "../../../shared/protocol";
+import { SESSION_HISTORY_LOAD_LIMIT } from "../../../shared/protocol";
 import { useLayoutStore } from "@renderer/stores/layout";
 import { useSessionsStore } from "@renderer/stores/sessions";
 import { useChatStore } from "@renderer/stores/chat";
@@ -44,8 +45,6 @@ import { markRendererStartup } from "@renderer/utils/startup-timing";
 const PIN_KEY = "session-pins:v1";
 const SESSION_ORDER_KEY = "pi-desktop:session-order:v2";
 const SESSION_VISIBLE_LIMIT = 5;
-/** History loads in full — paging was removed, sessions open complete. */
-const HISTORY_LOAD_LIMIT = 1_000_000;
 
 const layout = useLayoutStore();
 const sessionsStore = useSessionsStore();
@@ -572,7 +571,7 @@ async function onSelectSession(root: string, sessionId: string): Promise<void> {
     // Load history from disk in parallel with opening the session in main:
     // history only needs the file path, so the two round-trips no longer stack.
     const historyPromise = opened?.filePath
-      ? window.api.sessions.history(opened.filePath, { limit: HISTORY_LOAD_LIMIT })
+      ? window.api.sessions.history(opened.filePath, { limit: SESSION_HISTORY_LOAD_LIMIT })
       : Promise.resolve({ messages: [], hasMore: false, total: 0 });
     const [page] = await Promise.all([
       historyPromise,
