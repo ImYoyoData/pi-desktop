@@ -623,7 +623,7 @@ export const zh = {
 	restoreCheckpointFilesSkipped: (err: string) => `已回退对话，但文件未还原：${err}`,
 	restoreCheckpointFail: (err: string) => `还原检查点失败：${err}`,
 	turnMismatch: "对话状态与 Agent 不一致，无法定位该轮",
-	forkConversation: "派生对话",
+	forkConversation: "派生对话（从此轮之前分叉）",
 	forkConversationDone: "已派生为新对话",
 	forkConversationFail: (err: string) => `派生失败：${err}`,
 	loadedForReEdit: "已载入到输入框 — 发送后从此处重新开始；取消编辑可还原",

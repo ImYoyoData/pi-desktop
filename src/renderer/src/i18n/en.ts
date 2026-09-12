@@ -656,7 +656,7 @@ export const en = {
 		`Chat rewound, but files were not restored: ${err}`,
 	restoreCheckpointFail: (err: string) => `Restore checkpoint failed: ${err}`,
 	turnMismatch: "the agent session is out of sync with this turn",
-	forkConversation: "Fork conversation",
+	forkConversation: "Fork conversation (branch before this turn)",
 	forkConversationDone: "Forked into a new session",
 	forkConversationFail: (err: string) => `Fork failed: ${err}`,
 	loadedForReEdit:

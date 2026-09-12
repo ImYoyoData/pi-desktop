@@ -1605,6 +1605,11 @@ function onRestoreCheckpoint(msg: Extract<ChatMessage, { role: "user" }>): void 
   });
 }
 
+/** 第一轮之前没有可继承的历史，与 Copilot 一致：第一轮不提供派生。 */
+function canForkTurn(msg: Extract<ChatMessage, { role: "user" }>): boolean {
+  return props.messages.some((m) => m.role === "user" && m.id !== msg.id);
+}
+
 /** VS Code Copilot 的 Fork Conversation：把到本轮为止的对话复制成新会话。 */
 async function onForkConversation(msg: Extract<ChatMessage, { role: "user" }>): Promise<void> {
   const id = sessionId.value;
@@ -1736,6 +1741,31 @@ function onRevertUser(msg: Extract<ChatMessage, { role: "user" }>): void {
         </template>
 
         <template v-else-if="msg.role === 'user'">
+          <!-- Copilot 式检查点操作：悬停本轮时在本轮上方显示分隔线上的操作 -->
+          <div v-if="!running" class="checkpoint-bar">
+            <span class="checkpoint-line" />
+            <NTooltip>
+              <template #trigger>
+                <NButton quaternary circle size="tiny" @click="onRestoreCheckpoint(msg)">
+                  <template #icon>
+                    <NIcon :component="ArrowUndoOutline" />
+                  </template>
+                </NButton>
+              </template>
+              {{ t.restoreCheckpoint }}
+            </NTooltip>
+            <NTooltip v-if="canForkTurn(msg)">
+              <template #trigger>
+                <NButton quaternary circle size="tiny" @click="onForkConversation(msg)">
+                  <template #icon>
+                    <NIcon :component="GitBranchOutline" />
+                  </template>
+                </NButton>
+              </template>
+              {{ t.forkConversation }}
+            </NTooltip>
+            <span class="checkpoint-line" />
+          </div>
           <div class="bubble-wrap user">
             <div
               class="bubble user"
@@ -1845,26 +1875,6 @@ function onRevertUser(msg: Extract<ChatMessage, { role: "user" }>): void {
                   </NButton>
                 </template>
                 {{ t.reEdit }}
-              </NTooltip>
-              <NTooltip>
-                <template #trigger>
-                  <NButton quaternary circle size="tiny" @click="onRestoreCheckpoint(msg)">
-                    <template #icon>
-                      <NIcon :component="ArrowUndoOutline" />
-                    </template>
-                  </NButton>
-                </template>
-                {{ t.restoreCheckpoint }}
-              </NTooltip>
-              <NTooltip>
-                <template #trigger>
-                  <NButton quaternary circle size="tiny" @click="onForkConversation(msg)">
-                    <template #icon>
-                      <NIcon :component="GitBranchOutline" />
-                    </template>
-                  </NButton>
-                </template>
-                {{ t.forkConversation }}
               </NTooltip>
             </div>
           </div>
@@ -2249,8 +2259,51 @@ function onRevertUser(msg: Extract<ChatMessage, { role: "user" }>): void {
 
 /* DeepSeek Harness: a single uniform column gap spaces every flow item. */
 .row-user {
-  justify-content: flex-end;
+  flex-direction: column;
+  align-items: flex-end;
   width: 100%;
+}
+
+/* Copilot 检查点分隔线：悬停本轮时显示，占位常驻以免悬停时跳动。 */
+.checkpoint-bar {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  width: 100%;
+  height: 24px;
+  margin-bottom: 4px;
+  opacity: 0;
+  transition: opacity 0.12s ease;
+}
+
+.row-user:hover .checkpoint-bar,
+.checkpoint-bar:focus-within {
+  opacity: 1;
+}
+
+.checkpoint-line {
+  flex: 1;
+  height: 1px;
+  background: var(--border);
+}
+
+.checkpoint-line:first-child {
+  -webkit-mask-image: linear-gradient(to right, transparent, black);
+  mask-image: linear-gradient(to right, transparent, black);
+}
+
+.checkpoint-line:last-child {
+  -webkit-mask-image: linear-gradient(to left, transparent, black);
+  mask-image: linear-gradient(to left, transparent, black);
+}
+
+.checkpoint-bar :deep(.n-button) {
+  color: var(--fg-faint, #81858c);
+}
+
+.checkpoint-bar :deep(.n-button:hover:not(.n-button--disabled)) {
+  background: var(--bg-hover, #f1f3f5) !important;
+  color: var(--fg-muted, #61666b) !important;
 }
 
 .row-assistant {

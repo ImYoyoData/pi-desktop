@@ -432,7 +432,7 @@ export type AgentCommand =
 	 * Used when re-editing a published bubble, or to heal after a rejected
 	 * image turn that would otherwise poison every subsequent prompt.
 	 */
-	| { type: "rollback_user"; userIndex?: number };
+	| { type: "rollback_user"; userIndex?: number; expectText?: string };
 
 export type ElementCitation = {
 	url: string;

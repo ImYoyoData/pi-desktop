@@ -1097,7 +1097,7 @@ export const useChatStore = defineStore("chat", () => {
 
 	/**
 	 * 还原到某一轮之前：UI 截断该气泡及其之后的消息，并把 Agent leaf 回退到该轮的父节点。
-	 * Agent 无法回退时不做任何改动，由调用方报错。
+	 * Agent 无法回退（越界或该下标已指向别的轮次）时不做任何改动，由调用方报错。
 	 */
 	async function restoreTurn(
 		sessionId: string,
@@ -1112,6 +1112,7 @@ export const useChatStore = defineStore("chat", () => {
 			const result = await sessionsStore.sendCommand(sessionId, {
 				type: "rollback_user",
 				userIndex: located.userIndex,
+				expectText: located.message.text,
 			});
 			rolledBack = Boolean((result as { ok?: unknown } | null)?.ok);
 		} catch {
@@ -1122,13 +1123,12 @@ export const useChatStore = defineStore("chat", () => {
 		// 被还原的轮次已消失，其 todo 不能继续留在界面上。
 		useSessionWidgetsStore().resetTodosForSession(sessionId);
 		const state = stateFor(sessionId);
-		const cutIdx = state.messages.findIndex((m) => m.id === messageId);
-		if (cutIdx >= 0) {
+		if (located.cutIdx <= state.messages.length) {
 			setSessionState(
 				sessionId,
 				withRunClock({
 					...state,
-					messages: state.messages.slice(0, cutIdx),
+					messages: state.messages.slice(0, located.cutIdx),
 					streamingMessage: null,
 					running: false,
 					retryHint: null,
@@ -1150,6 +1150,7 @@ export const useChatStore = defineStore("chat", () => {
 			sessionId,
 			root,
 			located.userIndex,
+			located.message.text,
 		);
 		await sessionsStore.refresh(root);
 		beginHistoryLoad(forked.id);
@@ -1164,6 +1165,12 @@ export const useChatStore = defineStore("chat", () => {
 		} finally {
 			endHistoryLoad(forked.id);
 		}
+		// 侧栏把新会话排到最前，否则它会落在「展开其余 N 个会话」折叠之下，看起来像没反应。
+		window.dispatchEvent(
+			new CustomEvent("pi-session-created", {
+				detail: { root, sessionId: forked.id },
+			}),
+		);
 		return forked.id;
 	}
 

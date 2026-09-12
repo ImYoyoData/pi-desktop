@@ -291,12 +291,13 @@ const api = {
 				filePath,
 				query,
 			) as Promise<SessionHistoryPage>,
-		fork: (sessionId: string, cwd: string, userIndex: number) =>
+		fork: (sessionId: string, cwd: string, userIndex: number, expectText?: string) =>
 			ipcRenderer.invoke(
 				IpcChannels.sessions.fork,
 				sessionId,
 				cwd,
 				userIndex,
+				expectText,
 			) as Promise<SessionForkResult>,
 		setUserMessageMeta: (sessionId: string, text: string, tags: unknown[]) =>
 			ipcRenderer.invoke(
