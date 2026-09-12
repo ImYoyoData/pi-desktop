@@ -4,26 +4,19 @@
  * on the VS Code Agents window Changes view pane
  * (src/vs/sessions/contrib/changes/browser/changesView.ts).
  *
- * Header = the right-aligned diff stats (+A −D, tooltip "{N files}, A
- * additions, D deletions", click = View All Changes). Rows are VS Code
- * changes-tree file items: file icon + name + muted relative-dir description
- * (name gets the space first; strikethrough when deleted), +N −N counts that
- * hide on hover when the inline action bar has actions, a hover toolbar
- * (Open File, Alt = Open Changes; discard) and the rightmost A/M/D
- * decoration badge. Empty state is the uniform "Changes / No changed files"
- * welcome.
+ * 每行 = VS Code changes-tree 文件项：VS Code 同款文件类型图标（Seti 主题）
+ * + 文件名 + 灰化目录描述（空间不足时目录先省略；删除的文件名加删除线），
+ * 右侧 +N −N 行数（悬停时让位给操作栏）、悬停操作栏（还原）以及最右的
+ * A/M/D 徽标。空状态为统一的“更改 / 没有更改的文件”欢迎页。
  */
 import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import { NIcon, useDialog, useMessage } from "naive-ui";
-import {
-  ArrowUndoOutline,
-  DocumentOutline,
-  OpenOutline,
-} from "@vicons/ionicons5";
+import { ArrowUndoOutline } from "@vicons/ionicons5";
 import { useLayoutStore } from "@renderer/stores/layout";
-import { usePreviewStore } from "@renderer/stores/preview";
 import { useRightTabsStore } from "@renderer/stores/right-tabs";
 import { useWorkspaceStore } from "@renderer/stores/workspace";
+import { fileIcon } from "@renderer/utils/file-icon";
+import type { FileIcon } from "@renderer/utils/file-icon";
 import { t } from "@renderer/i18n";
 
 const props = withDefaults(
@@ -39,7 +32,6 @@ type ChangeType = "added" | "modified" | "deleted";
 const workspace = useWorkspaceStore();
 const layout = useLayoutStore();
 const rightTabs = useRightTabsStore();
-const previewStore = usePreviewStore();
 const message = useMessage();
 const dialog = useDialog();
 
@@ -120,6 +112,7 @@ function changeTypeForCode(code: string | null | undefined): ChangeType {
 interface ChangeRow {
   path: string;
   changeType: ChangeType;
+  icon: FileIcon;
   additions: number | null;
   deletions: number | null;
 }
@@ -129,25 +122,11 @@ const rows = computed<ChangeRow[]>(() => {
   return gitFiles.value.map((f) => ({
     path: f.relativePath,
     changeType: changeTypeForCode(f.code),
+    icon: fileIcon(f.relativePath),
     additions: stats.get(f.relativePath)?.additions ?? null,
     deletions: stats.get(f.relativePath)?.deletions ?? null,
   }));
 });
-
-const totalAdditions = computed(() =>
-  rows.value.reduce((n, r) => n + (r.additions ?? 0), 0),
-);
-const totalDeletions = computed(() =>
-  rows.value.reduce((n, r) => n + (r.deletions ?? 0), 0),
-);
-
-const diffStatsTooltip = computed(() =>
-  t.changesDiffStats(
-    t.changesFilesCount(rows.value.length),
-    totalAdditions.value,
-    totalDeletions.value,
-  ),
-);
 
 function fileName(p: string): string {
   return p.split("/").pop() ?? p;
@@ -165,25 +144,6 @@ function badgeLetter(changeType: ChangeType): string {
 function openDiff(row: ChangeRow): void {
   rightTabs.revealInChanges(row.path);
   if (layout.rightCollapsed) layout.toggleRightCollapsed();
-}
-
-/** VS Code's row toolbar primary is Open File; holding Alt inverts to Open Changes. */
-function onOpenFile(row: ChangeRow, ev: MouseEvent): void {
-  if (ev.altKey) {
-    openDiff(row);
-    return;
-  }
-  previewStore.openPreview(row.path);
-  rightTabs.addTab("preview", {
-    filePath: row.path,
-    label: fileName(row.path),
-  });
-}
-
-/** ChangesDiffStatsAction — View All Changes. */
-function openAllChanges(): void {
-  const first = rows.value[0];
-  if (first) openDiff(first);
 }
 
 function formatGitError(result: { message: string; code?: string }): string {
@@ -261,24 +221,6 @@ watch(
 
 <template>
   <div class="changes-view-body">
-    <div class="changes-files-header">
-      <div class="changes-files-header-toolbar" />
-      <div class="changes-files-header-right-toolbar">
-        <button
-          v-if="rows.length"
-          type="button"
-          class="changes-diff-stats"
-          :title="diffStatsTooltip"
-          @click="openAllChanges"
-        >
-          <span class="changes-summary-widget">
-            <span class="lines-added">+{{ totalAdditions }}</span>
-            <span class="lines-removed">-{{ totalDeletions }}</span>
-          </span>
-        </button>
-      </div>
-    </div>
-
     <div v-if="gitLoading" class="changes-progress" aria-hidden="true" />
 
     <div v-if="!rows.length" class="changes-welcome">
@@ -294,7 +236,12 @@ watch(
         :title="row.path"
         @click="openDiff(row)"
       >
-        <NIcon :component="DocumentOutline" :size="14" class="file-icon" />
+        <span
+          class="file-icon"
+          :style="row.icon.color ? { color: row.icon.color } : undefined"
+          aria-hidden="true"
+          >{{ row.icon.glyph }}</span
+        >
         <span class="label">
           <span class="name" :class="{ strike: row.changeType === 'deleted' }">{{
             fileName(row.path)
@@ -306,14 +253,6 @@ watch(
           <span class="lines-removed">-{{ row.deletions }}</span>
         </span>
         <span class="chat-collapsible-list-action-bar">
-          <button
-            type="button"
-            class="action"
-            :title="t.changesOpenFile"
-            @click.stop="onOpenFile(row, $event)"
-          >
-            <NIcon :component="OpenOutline" :size="13" />
-          </button>
           <button
             type="button"
             class="action"
@@ -342,51 +281,6 @@ watch(
   padding: 4px 8px;
   box-sizing: border-box;
   background: var(--bg-panel);
-}
-
-.changes-files-header {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 2px 0;
-  min-height: 22px;
-  font-weight: 600;
-  font-size: 11.5px;
-  flex-shrink: 0;
-}
-
-.changes-files-header-toolbar {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-}
-
-.changes-files-header-right-toolbar {
-  flex-shrink: 0;
-  display: flex;
-  align-items: center;
-}
-
-.changes-diff-stats {
-  display: inline-flex;
-  align-items: center;
-  padding: 2px 4px;
-  border: none;
-  border-radius: 4px;
-  background: transparent;
-  color: var(--fg);
-  font: inherit;
-  cursor: pointer;
-}
-
-.changes-diff-stats:hover {
-  background: var(--bg-hover);
-}
-
-.changes-summary-widget {
-  display: inline-flex;
-  gap: 4px;
-  font-variant-numeric: tabular-nums;
 }
 
 .lines-added {
@@ -473,10 +367,15 @@ watch(
   background: var(--bg-hover);
 }
 
+/* VS Code Seti 主题图标 —— 主题字体声明的字号为 150% */
 .file-icon {
   flex-shrink: 0;
+  width: 20px;
   margin-right: 4px;
-  color: var(--fg-muted);
+  text-align: center;
+  font-family: "seti";
+  font-size: 150%;
+  line-height: 1;
 }
 
 .label {

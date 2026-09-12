@@ -293,11 +293,6 @@ export const en = {
 	changesSwitchBranch: "Switch branch",
 	changesWelcomeTitle: "Changes",
 	changesWelcomeEmpty: "No changed files",
-	changesOpenFile: "Open File",
-	changesOpenDiff: "Open Changes",
-	changesFilesCount: (n: number) => (n === 1 ? "1 file" : `${n} files`),
-	changesDiffStats: (files: string, added: number, deleted: number) =>
-		`${files}, ${added} additions, ${deleted} deletions`,
 	changesNoDiff: "Diff unavailable for this file",
 	changesRemoteAdd: "Add remote",
 	changesIgnore: "Filter this file",
