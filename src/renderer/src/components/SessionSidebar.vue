@@ -1111,6 +1111,7 @@ function onLeftSplitResized(payload: SplitpanesResizedPayload): void {
                           :size="11"
                         />
                         <span class="session-label">{{ sessionLabel(item.session) }}</span>
+                        <span v-if="item.hasChildren" class="session-count">{{ item.childCount }}</span>
                       </div>
                       <div class="session-meta">
                         <span class="time">{{ relativeTime(item.session.modified) }}</span>
@@ -1604,6 +1605,15 @@ function onLeftSplitResized(payload: SplitpanesResizedPayload): void {
   background: transparent;
   color: var(--fg-faint);
   cursor: pointer;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--duration-fast, 140ms) var(--ease-out, ease);
+}
+
+.session-row:hover .tree-toggle,
+.tree-toggle:focus-visible {
+  opacity: 1;
+  pointer-events: auto;
 }
 
 .tree-toggle:hover {
@@ -1613,6 +1623,18 @@ function onLeftSplitResized(payload: SplitpanesResizedPayload): void {
 
 .tree-toggle.spacer {
   pointer-events: none;
+}
+
+.session-count {
+  flex-shrink: 0;
+  font-size: 10.5px;
+  color: var(--fg-faint);
+  opacity: 0.7;
+  font-variant-numeric: tabular-nums;
+}
+
+.session-row:hover .session-count {
+  display: none;
 }
 
 .session-row.active .active-bar {
