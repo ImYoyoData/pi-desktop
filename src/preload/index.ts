@@ -8,6 +8,7 @@ import type {
 	SessionHistoryMessage,
 	SessionHistoryPage,
 	SessionHistoryQuery,
+	SessionForkResult,
 	SessionInfoResult,
 	SessionStatus,
 	SessionSummary,
@@ -290,6 +291,13 @@ const api = {
 				filePath,
 				query,
 			) as Promise<SessionHistoryPage>,
+		fork: (sessionId: string, cwd: string, userIndex: number) =>
+			ipcRenderer.invoke(
+				IpcChannels.sessions.fork,
+				sessionId,
+				cwd,
+				userIndex,
+			) as Promise<SessionForkResult>,
 		setUserMessageMeta: (sessionId: string, text: string, tags: unknown[]) =>
 			ipcRenderer.invoke(
 				IpcChannels.sessions.setUserMessageMeta,

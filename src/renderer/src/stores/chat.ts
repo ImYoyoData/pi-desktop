@@ -7,7 +7,7 @@ import type {
 	PromptImageContent,
 	SessionHistoryMessage,
 } from "../../../shared/protocol";
-import { toPromptCitations, toPromptImages } from "../../../shared/protocol";
+import { toPromptCitations, toPromptImages, SESSION_HISTORY_LOAD_LIMIT } from "../../../shared/protocol";
 import { createHiddenEventSink } from "@renderer/utils/hidden-event-buffer";
 import {
 	appendUserMessage,
@@ -33,6 +33,7 @@ import { useComposerStore } from "./composer";
 import { useNotifyStore } from "./notify";
 import { useTtsStore } from "./tts";
 import { useSessionWidgetsStore } from "./session-widgets";
+import { useWorkspaceStore } from "./workspace";
 import { extractToolResult } from "../utils/tool-diff";
 import { isTodoToolName } from "../utils/session-todos";
 import {
@@ -116,6 +117,7 @@ export const useChatStore = defineStore("chat", () => {
 	const sessionsStore = useSessionsStore();
 	const checkpointStore = useCheckpointStore();
 	const notifyStore = useNotifyStore();
+	const workspaceStore = useWorkspaceStore();
 	const pendingUserEdit = ref<PendingUserEdit | null>(null);
 	const historyLoadingId = ref<string | null>(null);
 	/** Bumped when a permission ask is denied or times out — UI may toast Security remediation. */
@@ -857,35 +859,22 @@ export const useChatStore = defineStore("chat", () => {
 		pendingUserEdit.value = null;
 		if (edit?.sessionId === sessionId) {
 			const before = stateFor(sessionId);
-			let userIndex = -1;
-			let found = false;
-			for (const m of before.messages) {
-				if (m.role !== "user") continue;
-				userIndex += 1;
-				if (m.id === edit.messageId) {
-					found = true;
-					break;
-				}
-			}
-			if (!found) userIndex = -1;
-			const cutIdx = before.messages.findIndex((m) => m.id === edit.messageId);
-			if (cutIdx >= 0) {
+			const located = locateUserTurn(before, edit.messageId);
+			if (located) {
 				setSessionState(
 					sessionId,
 					withRunClock({
 						...before,
-						messages: before.messages.slice(0, cutIdx),
+						messages: before.messages.slice(0, located.cutIdx),
 						streamingMessage: null,
 						running: false,
 						retryHint: null,
 					}),
 				);
-			}
-			if (userIndex >= 0) {
 				try {
 					await sessionsStore.sendCommand(sessionId, {
 						type: "rollback_user",
-						userIndex,
+						userIndex: located.userIndex,
 					});
 				} catch {
 					// Agent may already be past that leaf — continue with the new prompt.
@@ -1091,6 +1080,93 @@ export const useChatStore = defineStore("chat", () => {
 		);
 	}
 
+	/** 按消息 id 定位用户气泡：消息下标 + 在用户消息中的轮次下标。 */
+	function locateUserTurn(
+		state: ChatState,
+		messageId: string,
+	): { cutIdx: number; userIndex: number; message: Extract<ChatMessage, { role: "user" }> } | null {
+		let userIndex = -1;
+		for (let i = 0; i < state.messages.length; i++) {
+			const m = state.messages[i];
+			if (!m || m.role !== "user") continue;
+			userIndex += 1;
+			if (m.id === messageId) return { cutIdx: i, userIndex, message: m };
+		}
+		return null;
+	}
+
+	/**
+	 * 还原到某一轮之前：UI 截断该气泡及其之后的消息，并把 Agent leaf 回退到该轮的父节点。
+	 * Agent 无法回退时不做任何改动，由调用方报错。
+	 */
+	async function restoreTurn(
+		sessionId: string,
+		messageId: string,
+	): Promise<
+		{ ok: true; message: Extract<ChatMessage, { role: "user" }> } | { ok: false }
+	> {
+		const located = locateUserTurn(stateFor(sessionId), messageId);
+		if (!located) return { ok: false };
+		let rolledBack = false;
+		try {
+			const result = await sessionsStore.sendCommand(sessionId, {
+				type: "rollback_user",
+				userIndex: located.userIndex,
+			});
+			rolledBack = Boolean((result as { ok?: unknown } | null)?.ok);
+		} catch {
+			// 命令失败按回退失败处理
+		}
+		if (!rolledBack) return { ok: false };
+		if (pendingUserEdit.value?.sessionId === sessionId) pendingUserEdit.value = null;
+		// 被还原的轮次已消失，其 todo 不能继续留在界面上。
+		useSessionWidgetsStore().resetTodosForSession(sessionId);
+		const state = stateFor(sessionId);
+		const cutIdx = state.messages.findIndex((m) => m.id === messageId);
+		if (cutIdx >= 0) {
+			setSessionState(
+				sessionId,
+				withRunClock({
+					...state,
+					messages: state.messages.slice(0, cutIdx),
+					streamingMessage: null,
+					running: false,
+					retryHint: null,
+				}),
+			);
+		}
+		return { ok: true, message: located.message };
+	}
+
+	/** 把到某一轮为止的对话复制成新会话并切换过去；源会话保持完整。 */
+	async function forkConversation(
+		sessionId: string,
+		messageId: string,
+	): Promise<string | null> {
+		const root = workspaceStore.root;
+		const located = locateUserTurn(stateFor(sessionId), messageId);
+		if (!root || !located) return null;
+		const forked = await window.api.sessions.fork(
+			sessionId,
+			root,
+			located.userIndex,
+		);
+		await sessionsStore.refresh(root);
+		beginHistoryLoad(forked.id);
+		try {
+			const [page] = await Promise.all([
+				window.api.sessions.history(forked.filePath, {
+					limit: SESSION_HISTORY_LOAD_LIMIT,
+				}),
+				sessionsStore.selectSession(forked.id, root),
+			]);
+			hydrateFromHistory(forked.id, page.messages);
+		} finally {
+			endHistoryLoad(forked.id);
+		}
+		return forked.id;
+	}
+
 	/**
 	 * Retry after an error bubble: keep prior user/assistant/tool history and continue.
 	 * Does not wipe the failed turn's AI replies (unlike regenerate).
@@ -1242,6 +1318,8 @@ export const useChatStore = defineStore("chat", () => {
 		isPendingEditTail,
 		regenerate,
 		retryFromError,
+		restoreTurn,
+		forkConversation,
 		autoRecover,
 	};
 });
