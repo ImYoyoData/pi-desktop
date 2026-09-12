@@ -10,6 +10,8 @@ export type SessionTreeItem = {
   /** 父会话 id（顶层为 undefined）。 */
   parentId?: string;
   hasChildren: boolean;
+  /** 直接子会话数量。 */
+  childCount: number;
 };
 
 /**
@@ -68,7 +70,14 @@ export function buildSessionTree(
       }
       guides.push(half && leaf ? "half" : "full");
     }
-    items.push({ session: node, depth, guides, parentId, hasChildren: !leaf });
+    items.push({
+      session: node,
+      depth,
+      guides,
+      parentId,
+      hasChildren: !leaf,
+      childCount: kids.length,
+    });
     const sortedKids = kids.slice().sort(compare);
     sortedKids.forEach((kid, idx) => {
       visit(kid, depth + 1, [...pathLast, idx === sortedKids.length - 1], node.id);
