@@ -30,6 +30,7 @@ describe("buildSessionTree", () => {
       ["c1", 1],
     ]);
     expect(items[0]?.hasChildren).toBe(true);
+    expect(items[0]?.childCount).toBe(2);
     expect(items[1]?.parentId).toBe("p");
     expect(items[1]?.hasChildren).toBe(false);
     expect(items[0]?.parentId).toBeUndefined();
