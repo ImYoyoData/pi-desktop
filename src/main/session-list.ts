@@ -329,22 +329,23 @@ export async function listSessionsForCwd(
     const sessionCwd = row.cwd ? path.resolve(row.cwd) : resolvedCwd;
     return workspacePathsEqual(sessionCwd, resolvedCwd);
   });
-  const sessions = workspaceRows
-    .map(diskRowToSummary)
-    .sort((a, b) => b.modified.localeCompare(a.modified));
+  const entries = workspaceRows
+    .map((row) => ({ row, summary: diskRowToSummary(row) }))
+    .sort((a, b) => b.summary.modified.localeCompare(a.summary.modified));
 
   // 派生会话的 parentSession 是父文件路径，这里解析成父会话 id。
   const idByPath = new Map(workspaceRows.map((r) => [r.filePath.toLowerCase(), r.id]));
-  for (let i = 0; i < sessions.length; i++) {
-    const parentPath = workspaceRows[i]?.parentSessionPath?.trim();
+  for (const { row, summary } of entries) {
+    const parentPath = row.parentSessionPath?.trim();
     if (!parentPath) continue;
     const resolvedParent = path.resolve(parentPath);
     const parentId =
       idByPath.get(resolvedParent.toLowerCase()) ?? readSessionHeaderId(resolvedParent);
-    if (parentId && parentId !== sessions[i]!.id) {
-      sessions[i]!.parentSessionId = parentId;
+    if (parentId && parentId !== summary.id) {
+      summary.parentSessionId = parentId;
     }
   }
+  const sessions = entries.map((entry) => entry.summary);
 
   sessionListCache.set(key, { signature, sessions });
   if (sessionListCache.size > 64) {
