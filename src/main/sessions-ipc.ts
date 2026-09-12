@@ -194,13 +194,19 @@ export function registerSessionsIpc(broker: SessionBroker): void {
 
   ipcMain.handle(
     IpcChannels.sessions.fork,
-    async (_event, sessionId: string, cwd: string, userIndex: number) => {
+    async (
+      _event,
+      sessionId: string,
+      cwd: string,
+      userIndex: number,
+      expectText?: string,
+    ) => {
       const list = await broker.listSessions(cwd);
       const target = list.find((s) => s.id === sessionId);
       if (!target?.filePath) {
         throw new Error("session not found");
       }
-      return forkSessionAtUserTurn(target.filePath, Number(userIndex));
+      return forkSessionAtUserTurn(target.filePath, Number(userIndex), expectText);
     },
   );
 }

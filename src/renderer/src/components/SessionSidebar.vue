@@ -278,6 +278,8 @@ onMounted(async () => {
   loadPins();
   loadSessionOrders();
   sessionsStore.bindEvents();
+  // 派生会话等由其他组件新建的会话：排到最前，避免被折叠到「展开其余 N 个」之下。
+  window.addEventListener("pi-session-created", onSessionCreated);
   // App.vue already loads workspace/recent — skip duplicate IPC on cold start.
   const boot: Promise<unknown>[] = [workspace.listClosed()];
   if (!workspace.root) boot.push(workspace.getWorkspace());
@@ -295,6 +297,7 @@ onMounted(async () => {
 });
 
 onUnmounted(() => {
+  window.removeEventListener("pi-session-created", onSessionCreated);
   destroyWorkspaceSortable();
   destroySessionSortables();
 });
@@ -413,6 +416,15 @@ function appendSessionToOrder(root: string, sessionId: string): void {
     .filter((id) => id !== sessionId);
   sessionOrders[root] = [sessionId, ...base];
   persistSessionOrders();
+}
+
+/** 其他组件（如派生对话）建出的会话：置顶显示，折叠状态下也能看到。 */
+function onSessionCreated(event: Event): void {
+  const detail = (event as CustomEvent<{ root?: unknown; sessionId?: unknown }>).detail;
+  const root = typeof detail?.root === "string" ? detail.root : "";
+  const sessionId = typeof detail?.sessionId === "string" ? detail.sessionId : "";
+  if (!root || !sessionId) return;
+  appendSessionToOrder(root, sessionId);
 }
 
 async function loadSessions(root: string): Promise<void> {
