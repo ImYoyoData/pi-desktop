@@ -39,6 +39,7 @@ import { useSendQueueStore } from "@renderer/stores/send-queue";
 import { useWorkspaceStore } from "@renderer/stores/workspace";
 import FilesTab from "@renderer/components/FilesTab.vue";
 import { isUnstartedSession } from "@renderer/utils/session-started";
+import { buildSessionTree, type SessionTreeItem } from "@renderer/utils/session-tree";
 import { t } from "@renderer/i18n";
 import { markRendererStartup } from "@renderer/utils/startup-timing";
 
@@ -368,35 +369,47 @@ watch(
   },
 );
 
-function sessionsFor(root: string): SessionSummary[] {
-  // 只渲染各工作区自己的缓存：活跃区的行由下方 watcher 同步 store 的实时更新，
-  // 切换工作区时列表不会先闪现上一个工作区的会话（避免行重建与入场动画闪烁）。
-  const list = [...(sessionsByRoot[root] ?? [])];
+function compareSessions(
+  root: string,
+): (a: SessionSummary, b: SessionSummary) => number {
   const order = sessionOrders[root];
-  if (order?.length) {
-    const orderMap = new Map(order.map((id, i) => [id, i]));
-    list.sort((a, b) => {
-      const ai = orderMap.has(a.id) ? (orderMap.get(a.id) as number) : Number.MAX_SAFE_INTEGER;
-      const bi = orderMap.has(b.id) ? (orderMap.get(b.id) as number) : Number.MAX_SAFE_INTEGER;
+  const orderMap = order?.length ? new Map(order.map((id, i) => [id, i])) : null;
+  const pinned = new Set(pins[root] ?? []);
+  return (a, b) => {
+    if (orderMap) {
+      const ai = orderMap.get(a.id) ?? Number.MAX_SAFE_INTEGER;
+      const bi = orderMap.get(b.id) ?? Number.MAX_SAFE_INTEGER;
       if (ai !== bi) return ai - bi;
       return b.modified.localeCompare(a.modified);
-    });
-    return list;
-  }
-  const pinned = new Set(pins[root] ?? []);
-  list.sort((a, b) => {
+    }
     const ap = pinned.has(a.id) ? 0 : 1;
     const bp = pinned.has(b.id) ? 0 : 1;
     if (ap !== bp) return ap - bp;
     return b.modified.localeCompare(a.modified);
-  });
-  return list;
+  };
 }
 
-function visibleSessionsFor(root: string): SessionSummary[] {
-  const list = sessionsFor(root);
-  if (sessionListExpanded[root] || list.length <= SESSION_VISIBLE_LIMIT) return list;
-  return list.slice(0, SESSION_VISIBLE_LIMIT);
+function sessionsFor(root: string): SessionSummary[] {
+  // 只渲染各工作区自己的缓存：活跃区的行由下方 watcher 同步 store 的实时更新，
+  // 切换工作区时列表不会先闪现上一个工作区的会话（避免行重建与入场动画闪烁）。
+  const list = [...(sessionsByRoot[root] ?? [])];
+  return buildSessionTree(list, compareSessions(root))
+    .filter((item) => item.depth === 0)
+    .map((item) => item.session);
+}
+
+function visibleTreeItemsFor(root: string): SessionTreeItem[] {
+  const items = buildSessionTree(
+    [...(sessionsByRoot[root] ?? [])],
+    compareSessions(root),
+  );
+  const rootCount = items.reduce((n, item) => (item.depth === 0 ? n + 1 : n), 0);
+  if (sessionListExpanded[root] || rootCount <= SESSION_VISIBLE_LIMIT) return items;
+  let seenRoots = 0;
+  return items.filter((item) => {
+    if (item.depth === 0) seenRoots += 1;
+    return seenRoots <= SESSION_VISIBLE_LIMIT;
+  });
 }
 
 function hiddenSessionCount(root: string): number {
@@ -1017,38 +1030,46 @@ function onLeftSplitResized(payload: SplitpanesResizedPayload): void {
               >
                 <li v-if="!sessionsFor(root).length" class="empty-inline">{{ t.emptySessions }}</li>
                 <li
-                  v-for="(session, sIdx) in visibleSessionsFor(root)"
-                  :key="session.id"
+                  v-for="(item, sIdx) in visibleTreeItemsFor(root)"
+                  :key="item.session.id"
                   class="session-row"
-                  :data-id="session.id"
+                  :data-id="item.session.id"
                   :class="{
-                    active: sessionsStore.activeId === session.id,
-                    running: isRunning(session.status),
+                    active: sessionsStore.activeId === item.session.id,
+                    running: isRunning(item.session.status),
                   }"
-                  :style="{ '--i': String(sIdx) }"
-                  @click="onSelectSession(root, session.id)"
-                  @contextmenu="(e) => openSessionCtx(e, root, session)"
+                  :style="{ '--i': String(sIdx), '--depth': item.depth }"
+                  @click="onSelectSession(root, item.session.id)"
+                  @contextmenu="(e) => openSessionCtx(e, root, item.session)"
                 >
                   <div class="session-inner">
+                    <span
+                      v-for="(guide, gi) in item.guides"
+                      :key="gi"
+                      class="tree-guide"
+                      :class="[guide, { last: gi === item.guides.length - 1 }]"
+                      :style="{ '--g': gi }"
+                      aria-hidden="true"
+                    />
                     <span class="active-bar" />
-                    <span class="status-mark" :class="`st-${session.status || 'idle'}`" aria-hidden="true">
+                    <span class="status-mark" :class="`st-${item.session.status || 'idle'}`" aria-hidden="true">
                       <i class="status-core" />
                     </span>
                     <div class="session-body">
                       <div class="session-title-row">
                         <NIcon
-                          v-if="isPinned(root, session.id)"
+                          v-if="isPinned(root, item.session.id)"
                           class="pin"
                           :component="PinOutline"
                           :size="11"
                         />
-                        <span class="session-label">{{ sessionLabel(session) }}</span>
+                        <span class="session-label">{{ sessionLabel(item.session) }}</span>
                       </div>
                       <div class="session-meta">
-                        <span class="time">{{ relativeTime(session.modified) }}</span>
-                        <span v-if="isRunning(session.status)" class="run-tag">live</span>
-                        <span v-else-if="session.status === 'error'" class="err-tag">err</span>
-                        <span v-else-if="session.status === 'stuck'" class="stuck-tag">stuck</span>
+                        <span class="time">{{ relativeTime(item.session.modified) }}</span>
+                        <span v-if="isRunning(item.session.status)" class="run-tag">live</span>
+                        <span v-else-if="item.session.status === 'error'" class="err-tag">err</span>
+                        <span v-else-if="item.session.status === 'stuck'" class="stuck-tag">stuck</span>
                       </div>
                     </div>
                     <NButton
@@ -1056,7 +1077,7 @@ function onLeftSplitResized(payload: SplitpanesResizedPayload): void {
                       quaternary
                       circle
                       size="tiny"
-                      @click.stop="confirmDeleteSession(root, session.id)"
+                      @click.stop="confirmDeleteSession(root, item.session.id)"
                     >
                       <template #icon>
                         <NIcon :component="TrashOutline" :size="14" />
@@ -1456,7 +1477,8 @@ function onLeftSplitResized(payload: SplitpanesResizedPayload): void {
   align-items: center;
   gap: 8px;
   min-height: 44px;
-  padding: 7px 8px 7px 14px;
+  padding: 7px 8px;
+  padding-left: calc(14px + var(--depth, 0) * 16px);
   border-radius: 10px;
   border: 1px solid transparent;
   transition:
@@ -1485,7 +1507,7 @@ function onLeftSplitResized(payload: SplitpanesResizedPayload): void {
 
 .active-bar {
   position: absolute;
-  left: 4px;
+  left: calc(4px + var(--depth, 0) * 16px);
   top: 11px;
   bottom: 11px;
   width: 2.5px;
@@ -1495,6 +1517,30 @@ function onLeftSplitResized(payload: SplitpanesResizedPayload): void {
     background var(--duration-fast, 140ms) var(--ease-out, ease),
     transform var(--duration-fast, 140ms) var(--ease-out, ease);
   transform: scaleY(0.4);
+}
+
+.tree-guide {
+  position: absolute;
+  top: -1px;
+  bottom: -1px;
+  left: calc(10px + var(--g, 0) * 16px);
+  width: 1px;
+  background: var(--border);
+  pointer-events: none;
+}
+
+.tree-guide.half {
+  bottom: 50%;
+}
+
+.tree-guide.last::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 0;
+  width: 8px;
+  height: 1px;
+  background: var(--border);
 }
 
 .session-row.active .active-bar {
