@@ -60,6 +60,7 @@ const expanded = reactive<Record<string, boolean>>({});
 const pins = reactive<Record<string, string[]>>({});
 const sessionOrders = reactive<Record<string, string[]>>({});
 const sessionListExpanded = reactive<Record<string, boolean>>({});
+const treeCollapsed = reactive<Record<string, Record<string, boolean>>>({});
 const sessionListEls = new Map<string, HTMLElement>();
 const sessionSortables = new Map<string, Sortable>();
 
@@ -403,13 +404,44 @@ function visibleTreeItemsFor(root: string): SessionTreeItem[] {
     [...(sessionsByRoot[root] ?? [])],
     compareSessions(root),
   );
-  const rootCount = items.reduce((n, item) => (item.depth === 0 ? n + 1 : n), 0);
-  if (sessionListExpanded[root] || rootCount <= SESSION_VISIBLE_LIMIT) return items;
+  let visible = items;
+  const collapsed = treeCollapsed[root];
+  if (collapsed && Object.keys(collapsed).length) {
+    const parentOf = new Map(items.map((i) => [i.session.id, i.parentId]));
+    const isHidden = (item: SessionTreeItem): boolean => {
+      let pid = item.parentId;
+      for (let hops = 0; pid && hops < items.length; hops++) {
+        if (collapsed[pid]) return true;
+        pid = parentOf.get(pid);
+      }
+      return false;
+    };
+    visible = items.filter((item) => !isHidden(item));
+  }
+  const rootCount = visible.reduce((n, item) => (item.depth === 0 ? n + 1 : n), 0);
+  if (sessionListExpanded[root] || rootCount <= SESSION_VISIBLE_LIMIT) return visible;
   let seenRoots = 0;
-  return items.filter((item) => {
+  return visible.filter((item) => {
     if (item.depth === 0) seenRoots += 1;
     return seenRoots <= SESSION_VISIBLE_LIMIT;
   });
+}
+
+/** 该工作区是否存在派生关系（决定是否显示树箭头占位）。 */
+function treeActiveFor(root: string): boolean {
+  const list = sessionsByRoot[root] ?? [];
+  if (!list.length) return false;
+  const ids = new Set(list.map((s) => s.id));
+  return list.some((s) => s.parentSessionId && ids.has(s.parentSessionId));
+}
+
+function isTreeNodeCollapsed(root: string, sessionId: string): boolean {
+  return Boolean(treeCollapsed[root]?.[sessionId]);
+}
+
+function toggleTreeNode(root: string, sessionId: string): void {
+  const map = (treeCollapsed[root] ??= {});
+  map[sessionId] = !map[sessionId];
 }
 
 function hiddenSessionCount(root: string): number {
@@ -1052,6 +1084,21 @@ function onLeftSplitResized(payload: SplitpanesResizedPayload): void {
                       aria-hidden="true"
                     />
                     <span class="active-bar" />
+                    <button
+                      v-if="item.hasChildren"
+                      type="button"
+                      class="tree-toggle"
+                      :aria-expanded="!isTreeNodeCollapsed(root, item.session.id)"
+                      @click.stop="toggleTreeNode(root, item.session.id)"
+                    >
+                      <span
+                        class="chevron"
+                        :class="{ open: !isTreeNodeCollapsed(root, item.session.id) }"
+                      >
+                        <NIcon :component="ChevronForwardOutline" :size="12" />
+                      </span>
+                    </button>
+                    <span v-else-if="treeActiveFor(root)" class="tree-toggle spacer" />
                     <span class="status-mark" :class="`st-${item.session.status || 'idle'}`" aria-hidden="true">
                       <i class="status-core" />
                     </span>
@@ -1538,9 +1585,34 @@ function onLeftSplitResized(payload: SplitpanesResizedPayload): void {
   position: absolute;
   top: 50%;
   left: 0;
-  width: 8px;
+  width: 20px;
   height: 1px;
   background: var(--border);
+}
+
+.tree-toggle {
+  flex-shrink: 0;
+  width: 14px;
+  height: 14px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0;
+  padding: 0;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--fg-faint);
+  cursor: pointer;
+}
+
+.tree-toggle:hover {
+  color: var(--fg);
+  background: var(--bg-hover);
+}
+
+.tree-toggle.spacer {
+  pointer-events: none;
 }
 
 .session-row.active .active-bar {

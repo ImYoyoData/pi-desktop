@@ -7,6 +7,9 @@ export type SessionTreeItem = {
   depth: number;
   /** 每个祖先层级一条竖向导线，长度等于 depth。 */
   guides: SessionTreeGuide[];
+  /** 父会话 id（顶层为 undefined）。 */
+  parentId?: string;
+  hasChildren: boolean;
 };
 
 /**
@@ -53,8 +56,10 @@ export function buildSessionTree(
     node: SessionSummary,
     depth: number,
     pathLast: boolean[],
+    parentId: string | undefined,
   ): void => {
-    const leaf = !childrenOf.get(node.id)?.length;
+    const kids = childrenOf.get(node.id) ?? [];
+    const leaf = !kids.length;
     const guides: SessionTreeGuide[] = [];
     for (let i = 0; i < depth; i++) {
       let half = pathLast[i] ?? false;
@@ -63,12 +68,12 @@ export function buildSessionTree(
       }
       guides.push(half && leaf ? "half" : "full");
     }
-    items.push({ session: node, depth, guides });
-    const kids = (childrenOf.get(node.id) ?? []).slice().sort(compare);
-    kids.forEach((kid, idx) => {
-      visit(kid, depth + 1, [...pathLast, idx === kids.length - 1]);
+    items.push({ session: node, depth, guides, parentId, hasChildren: !leaf });
+    const sortedKids = kids.slice().sort(compare);
+    sortedKids.forEach((kid, idx) => {
+      visit(kid, depth + 1, [...pathLast, idx === sortedKids.length - 1], node.id);
     });
   };
-  for (const root of roots) visit(root, 0, []);
+  for (const root of roots) visit(root, 0, [], undefined);
   return items;
 }
