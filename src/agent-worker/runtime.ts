@@ -14,6 +14,7 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import type { AgentCommand, ElementCitation } from "../shared/protocol";
 import { toPromptImages } from "../shared/protocol";
+import { messageContentText, turnTextMatches } from "../shared/turn-match";
 import {
 	formatNoVisionModelError,
 	isImageSchemaPromptError,
@@ -196,13 +197,22 @@ function branchUserEntryIds(active: AgentSession): string[] {
 		.map((entry) => entry.id);
 }
 
+/** 分支上某个 user entry 的提示词文本。 */
+function userEntryText(active: AgentSession, entryId: string): string {
+	const entry = active.sessionManager.getEntry(entryId);
+	if (!entry || entry.type !== "message") return "";
+	return messageContentText((entry.message as { content?: unknown }).content);
+}
+
 /**
  * 放弃某一轮 user 对话（leaf 移到该 entry 的父节点）。
- * `userIndex` 为当前分支上 user 消息的 0 基下标。
+ * `userIndex` 为当前分支上 user 消息的 0 基下标；`expectText` 用于确认该下标
+ * 仍指向界面上的那一轮，避免界面与分支不同步时回退到别的轮次。
  */
 async function rollbackUserTurn(
 	active: AgentSession,
 	userIndex?: number,
+	expectText?: string,
 ): Promise<boolean> {
 	const entryIds = branchUserEntryIds(active);
 	if (!entryIds.length) return false;
@@ -212,7 +222,18 @@ async function rollbackUserTurn(
 	if (idx < 0 || idx >= entryIds.length) return false;
 	const target = entryIds[idx];
 	if (!target) return false;
+	if (expectText && !turnTextMatches(userEntryText(active, target), expectText)) {
+		return false;
+	}
 	await active.navigateTree(target, { summarize: false });
+	// leaf 位置只由文件末尾隐含表示：不落一条标记，重开会话时被放弃的轮次会重新成为 leaf。
+	try {
+		active.sessionManager.appendCustomEntry("desktop-turn-rollback", {
+			rolledBackEntryId: target,
+		});
+	} catch {
+		// 标记失败不影响回退本身
+	}
 	return true;
 }
 
@@ -707,7 +728,7 @@ async function runCommand(id: string, command: AgentCommand): Promise<void> {
 		}
 		case "rollback_user": {
 			const active = requireSession();
-			const ok = await rollbackUserTurn(active, command.userIndex);
+			const ok = await rollbackUserTurn(active, command.userIndex, command.expectText);
 			post({ kind: "result", id, data: { ok } });
 			return;
 		}
@@ -742,10 +763,14 @@ async function runCommand(id: string, command: AgentCommand): Promise<void> {
 			post({ kind: "result", id, data: { ok: true } });
 			return;
 		}
-		case "set_thinking_level":
-			requireSession().setThinkingLevel(command.level as ThinkingLevel);
+		case "set_thinking_level": {
+			// 重新广播一次，界面上的模型/思考标注立即跟上选择器。
+			const active = requireSession();
+			active.setThinkingLevel(command.level as ThinkingLevel);
+			emitContextUsage(active);
 			post({ kind: "result", id, data: { ok: true } });
 			return;
+		}
 		case "compact": {
 			const active = requireSession();
 			// Light prune first so the summarizer sees less tool noise / fewer tokens.
