@@ -36,28 +36,28 @@ describe("buildSessionTree", () => {
     expect(items[0]?.parentId).toBeUndefined();
   });
 
-  it("marks only the last displayed child's guide as half", () => {
+  it("marks each level's last-child flag along the path", () => {
     const parent = s("p");
     const c1 = s("c1", "p");
     const c2 = s("c2", "p");
     const items = buildSessionTree([parent, c1, c2], byModifiedDesc);
-    // byModifiedDesc 下新会话在前，c1 排在最后（拐角收尾）。
-    expect(items.find((i) => i.session.id === "c1")?.guides).toEqual(["half"]);
-    expect(items.find((i) => i.session.id === "c2")?.guides).toEqual(["full"]);
+    // byModifiedDesc 下新会话在前，c1 排在最后。
+    expect(items.find((i) => i.session.id === "c1")?.lastFlags).toEqual([true]);
+    expect(items.find((i) => i.session.id === "c2")?.lastFlags).toEqual([false]);
   });
 
-  it("draws full guides until the last leaf of a last-child subtree", () => {
+  it("propagates last-child flags down the subtree", () => {
     const p = s("p");
     const c = s("c", "p");
     const d1 = s("d1", "c");
     const d2 = s("d2", "c");
     const items = buildSessionTree([p, c, d1, d2], byModifiedDesc);
-    const guidesOf = (id: string) =>
-      items.find((i) => i.session.id === id)?.guides;
+    const flagsOf = (id: string) =>
+      items.find((i) => i.session.id === id)?.lastFlags;
     expect(items.find((i) => i.session.id === "c")?.depth).toBe(1);
-    expect(guidesOf("c")).toEqual(["full"]);
-    expect(guidesOf("d2")).toEqual(["full", "full"]);
-    expect(guidesOf("d1")).toEqual(["half", "half"]);
+    expect(flagsOf("c")).toEqual([true]);
+    expect(flagsOf("d2")).toEqual([true, false]);
+    expect(flagsOf("d1")).toEqual([true, true]);
   });
 
   it("keeps orphans and cycles at the top level", () => {

@@ -1,12 +1,10 @@
 import type { SessionSummary } from "../../../shared/protocol";
 
-export type SessionTreeGuide = "full" | "half";
-
 export type SessionTreeItem = {
   session: SessionSummary;
   depth: number;
-  /** 每个祖先层级一条竖向导线，长度等于 depth。 */
-  guides: SessionTreeGuide[];
+  /** 逐层标记深度 i+1 的祖先（末位为自身）是否为父级最后一个子会话，长度等于 depth。 */
+  lastFlags: boolean[];
   /** 父会话 id（顶层为 undefined）。 */
   parentId?: string;
   hasChildren: boolean;
@@ -61,21 +59,12 @@ export function buildSessionTree(
     parentId: string | undefined,
   ): void => {
     const kids = childrenOf.get(node.id) ?? [];
-    const leaf = !kids.length;
-    const guides: SessionTreeGuide[] = [];
-    for (let i = 0; i < depth; i++) {
-      let half = pathLast[i] ?? false;
-      for (let j = i + 1; j < depth && half; j++) {
-        half = half && (pathLast[j] ?? false);
-      }
-      guides.push(half && leaf ? "half" : "full");
-    }
     items.push({
       session: node,
       depth,
-      guides,
+      lastFlags: pathLast,
       parentId,
-      hasChildren: !leaf,
+      hasChildren: kids.length > 0,
       childCount: kids.length,
     });
     const sortedKids = kids.slice().sort(compare);
