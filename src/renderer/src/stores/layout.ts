@@ -109,6 +109,14 @@ export const useLayoutStore = defineStore("layout", () => {
   }
 
   function toggleRightCollapsed(): void {
+    if (editorMaximized.value) {
+      toggleEditorMaximized();
+      if (!rightCollapsed.value) {
+        rightCollapsed.value = true;
+        persist();
+      }
+      return;
+    }
     rightCollapsed.value = !rightCollapsed.value;
     persist();
   }
