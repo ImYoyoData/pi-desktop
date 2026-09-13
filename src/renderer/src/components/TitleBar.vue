@@ -65,12 +65,17 @@ const aboutOpen = ref(false);
 const proxyOpen = ref(false);
 const lanConsoleOpen = ref(false);
 const lanConsoleEnabled = ref(false);
+/** Public (Cloudflare tunnel) URL is live — shown as a second dot colour. */
+const lanConsolePublic = ref(false);
 
 async function refreshLanConsoleStatus(): Promise<void> {
   try {
-    lanConsoleEnabled.value = (await window.api.lanConsole.getStatus()).enabled;
+    const status = await window.api.lanConsole.getStatus();
+    lanConsoleEnabled.value = status.enabled;
+    lanConsolePublic.value = Boolean(status.tunnel.url);
   } catch {
     lanConsoleEnabled.value = false;
+    lanConsolePublic.value = false;
   }
 }
 const platform = ref<NodeJS.Platform>("win32");
@@ -78,6 +83,7 @@ const isMaximized = ref(false);
 let offUpdateProgress: (() => void) | undefined;
 let offMaximized: (() => void) | undefined;
 let offUnmaximized: (() => void) | undefined;
+let offTunnelStatus: (() => void) | undefined;
 
 async function onMinimize(): Promise<void> {
   await window.api.window.minimize();
@@ -93,6 +99,9 @@ async function onClose(): Promise<void> {
 
 onMounted(async () => {
   void refreshLanConsoleStatus();
+  offTunnelStatus = window.api.lanConsole.onTunnelStatus((status) => {
+    lanConsolePublic.value = Boolean(status.url);
+  });
   platform.value = await window.api.window.platform();
   if (platform.value !== "darwin") {
     isMaximized.value = await window.api.window.isMaximized();
@@ -114,6 +123,7 @@ onUnmounted(() => {
   offUpdateProgress?.();
   offMaximized?.();
   offUnmaximized?.();
+  offTunnelStatus?.();
 });
 
 function openFolder(): void {
@@ -290,7 +300,8 @@ async function onUpdateClick(): Promise<void> {
           <span
             v-if="lanConsoleEnabled"
             class="lan-console-dot"
-            :title="t.lanConsoleOn"
+            :class="{ public: lanConsolePublic }"
+            :title="lanConsolePublic ? t.lanPublicTitle : t.lanConsoleOn"
           />
         </NButton>
       </template>
@@ -561,5 +572,9 @@ async function onUpdateClick(): Promise<void> {
   border-radius: 50%;
   background: #22c55e;
   box-shadow: 0 0 0 1.5px var(--bg-title, var(--bg));
+}
+/* Public access rides a Cloudflare tunnel — flag it with the Cloudflare orange. */
+.lan-console-dot.public {
+  background: #f38020;
 }
 </style>

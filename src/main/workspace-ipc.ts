@@ -40,9 +40,15 @@ export function listRecentDesktop(): string[] {
 /**
  * Instant: Desktop-pinned recent only (no SessionManager.listAll scan).
  * Used on cold start so the shell paints before Pi CLI discovery finishes.
+ *
+ * Blank entries are filtered: the sidebar renders `basename(root)`, so a blank
+ * root shows up as a nameless extra workspace.
  */
 export function listRecentDesktopOnly(): string[] {
-	return listRecentDesktop().map((p) => path.resolve(p));
+	return listRecentDesktop()
+		.map((p) => p.trim())
+		.filter((p) => p.length > 0)
+		.map((p) => path.resolve(p));
 }
 
 /** Desktop recent + workspaces discovered from Pi CLI session store. */

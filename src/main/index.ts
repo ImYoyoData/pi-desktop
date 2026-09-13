@@ -66,6 +66,7 @@ import {
 } from "./extension-ui-host";
 import { registerSecurityTrustIpc } from "./security-trust-ipc";
 import {
+	disposeLanConsole,
 	ensureLanConsoleFromSettings,
 	registerLanConsoleIpc,
 } from "./lan-console";
@@ -453,8 +454,8 @@ function boot(): void {
 			registerPiCliIpc();
 			registerMarketIpc(broker);
 			markStartup("main:defer:hosts");
-			// LAN cert generation can briefly block the event loop — wait until
-			// the window has had a chance to paint and hydrate.
+			// Remote control serves the built web panel right away; give the
+			// window a chance to paint and hydrate before it starts listening.
 			setTimeout(() => {
 				markStartup("main:defer:lan-start");
 				if (process.env.PI_DESKTOP_NO_LAN !== "1") {
@@ -477,5 +478,10 @@ function boot(): void {
 		if (process.platform !== "darwin") {
 			app.quit();
 		}
+	});
+
+	// Never leave the remote-control listeners or a cloudflared tunnel behind.
+	app.on("will-quit", () => {
+		disposeLanConsole();
 	});
 }
