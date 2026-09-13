@@ -67,3 +67,6 @@ _ev-scaffold2
 pnpm-lock.yaml
 # <<< pi-desktop filter <<<
 /pnpm-lock.yaml
+/promo-video
+/.cursor
+/.claude
