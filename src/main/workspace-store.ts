@@ -14,17 +14,41 @@ const DEFAULT_STATE: WorkspacePersistedState = {
   dismissedPi: [],
 };
 
+/**
+ * Trimmed stored form of a workspace path, or null when the input is not usable.
+ *
+ * This guard matters because paths are resolved against the process cwd all over
+ * the app: a blank entry used to survive as `""` and then become
+ * `path.resolve("")` — i.e. the app's own working directory — which the sidebar
+ * rendered as an extra, nameless workspace. Rejecting blanks here stops them
+ * entering the store and purges the ones older builds left behind.
+ *
+ * The path itself is stored verbatim (not resolved): the store keeps the
+ * caller's spelling, and callers/resolvers normalise for comparison.
+ */
+export function normalizeStoredWorkspacePath(input: unknown): string | null {
+  if (typeof input !== "string") return null;
+  const trimmed = input.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
 function readState(statePath: string): WorkspacePersistedState {
   try {
     const raw = fs.readFileSync(statePath, "utf8");
     const parsed = JSON.parse(raw) as Partial<WorkspacePersistedState>;
     return {
-      root: typeof parsed.root === "string" ? parsed.root : null,
+      root: normalizeStoredWorkspacePath(parsed.root),
+      // Drop non-strings AND blanks left behind by older builds, which used to
+      // surface as a duplicate blank workspace once resolved against the cwd.
       recent: Array.isArray(parsed.recent)
-        ? parsed.recent.filter((entry): entry is string => typeof entry === "string")
+        ? parsed.recent
+            .map((entry) => normalizeStoredWorkspacePath(entry))
+            .filter((entry): entry is string => entry !== null)
         : [],
       dismissedPi: Array.isArray(parsed.dismissedPi)
-        ? parsed.dismissedPi.filter((entry): entry is string => typeof entry === "string")
+        ? parsed.dismissedPi
+            .map((entry) => normalizeStoredWorkspacePath(entry))
+            .filter((entry): entry is string => entry !== null)
         : [],
     };
   } catch {
@@ -58,7 +82,7 @@ export function createWorkspaceStore(statePath: string) {
     },
 
     setRoot(root: string | null): void {
-      state = { ...state, root };
+      state = { ...state, root: normalizeStoredWorkspacePath(root) };
       persist();
     },
 
@@ -67,8 +91,10 @@ export function createWorkspaceStore(statePath: string) {
      * root does NOT move it — order is fixed until reorderRecent / remove.
      */
     addRecent(root: string): void {
-      const dismissedPi = state.dismissedPi.filter((entry) => pathKey(entry) !== pathKey(root));
-      if (state.recent.some((entry) => pathKey(entry) === pathKey(root))) {
+      const stored = normalizeStoredWorkspacePath(root);
+      if (!stored) return;
+      const dismissedPi = state.dismissedPi.filter((entry) => pathKey(entry) !== pathKey(stored));
+      if (state.recent.some((entry) => pathKey(entry) === pathKey(stored))) {
         if (dismissedPi.length !== state.dismissedPi.length) {
           state = { ...state, dismissedPi };
           persist();
@@ -77,7 +103,7 @@ export function createWorkspaceStore(statePath: string) {
       }
       state = {
         ...state,
-        recent: [...state.recent, root],
+        recent: [...state.recent, stored],
         dismissedPi,
       };
       persist();
@@ -110,11 +136,13 @@ export function createWorkspaceStore(statePath: string) {
      * workspace can be reopened from "Closed workspaces".
      */
     removeRecent(root: string): void {
-      const recent = state.recent.filter((entry) => pathKey(entry) !== pathKey(root));
-      const nextRoot = state.root && pathKey(state.root) === pathKey(root) ? (recent[0] ?? null) : state.root;
-      const dismissedPi = state.dismissedPi.some((entry) => pathKey(entry) === pathKey(root))
+      const stored = normalizeStoredWorkspacePath(root) ?? root;
+      const recent = state.recent.filter((entry) => pathKey(entry) !== pathKey(stored));
+      const nextRoot =
+        state.root && pathKey(state.root) === pathKey(stored) ? (recent[0] ?? null) : state.root;
+      const dismissedPi = state.dismissedPi.some((entry) => pathKey(entry) === pathKey(stored))
         ? state.dismissedPi
-        : [...state.dismissedPi, path.resolve(root)];
+        : [...state.dismissedPi, stored];
       state = { ...state, recent, root: nextRoot, dismissedPi };
       persist();
     },

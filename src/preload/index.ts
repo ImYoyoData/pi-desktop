@@ -2,6 +2,7 @@ import { contextBridge, ipcRenderer, webUtils } from "electron";
 import { electronAPI } from "@electron-toolkit/preload";
 import type {
 	AgentCommand,
+	CloudflareTunnelStatus,
 	LanConsoleStatus,
 	AgentEvent,
 	ElementCitation,
@@ -106,22 +107,37 @@ const api = {
 				IpcChannels.lanConsole.setEnabled,
 				enabled,
 			) as Promise<LanConsoleStatus>,
+		setPublicAccess: (enabled: boolean) =>
+			ipcRenderer.invoke(
+				IpcChannels.lanConsole.setPublicAccess,
+				enabled,
+			) as Promise<LanConsoleStatus>,
 		setPort: (port: number) =>
 			ipcRenderer.invoke(
 				IpcChannels.lanConsole.setPort,
 				port,
 			) as Promise<LanConsoleStatus>,
-		setCredentials: (username: string, password: string) =>
+		rotatePin: () =>
 			ipcRenderer.invoke(
-				IpcChannels.lanConsole.setCredentials,
-				String(username ?? ""),
-				String(password ?? ""),
+				IpcChannels.lanConsole.rotatePin,
 			) as Promise<LanConsoleStatus>,
 		setPreferredIp: (ip: string) =>
 			ipcRenderer.invoke(
 				IpcChannels.lanConsole.setPreferredIp,
 				String(ip ?? ""),
 			) as Promise<LanConsoleStatus>,
+		onTunnelStatus: (callback: (status: CloudflareTunnelStatus) => void) => {
+			const listener = (
+				_event: unknown,
+				status: CloudflareTunnelStatus,
+			): void => callback(status);
+			ipcRenderer.on(IpcChannels.lanConsole.tunnelStatus, listener);
+			return () =>
+				ipcRenderer.removeListener(
+					IpcChannels.lanConsole.tunnelStatus,
+					listener,
+				);
+		},
 	},
 	proxy: {
 		get: () =>

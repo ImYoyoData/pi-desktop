@@ -13,7 +13,7 @@ const sessionsStore = useSessionsStore();
 
 const T: Record<string, string> = {
   title: "Pi Desktop",
-  subtitle: "局域网控制台",
+  subtitle: "远程控制",
   menu: "菜单",
   connecting: "连接中…",
   connectingTitle: "正在连接桌面端",
@@ -22,8 +22,6 @@ const T: Record<string, string> = {
   backToLogin: "重新登录",
   workspaces: "工作区",
   emptyChat: "从左侧选择工作区和会话开始对话",
-  voicePc: "点击说话，再次点击结束",
-  voiceMobile: "点击说话，再次点击结束",
   placeholder: "输入消息，Enter 发送",
   send: "发送",
   notConnected: "未连接",
@@ -41,24 +39,16 @@ const T: Record<string, string> = {
   assistant: "助手",
   toolFail: "（失败）",
   err: "错误",
-  micFail: "无法录音：",
-  micUnsecure: "浏览器禁止麦克风：请使用 https 地址访问并允许麦克风权限。",
-  recording: "录音中…",
-  release: "松开结束",
-  clickStop: "点击结束",
-  converting: "正在识别…",
-  cancelAsr: "取消",
   thinking: "思考中",
   model: "模型",
   thinkLevel: "推理",
-  noAudio: "没有录到声音",
   loadingSessions: "加载会话…",
   loginTitle: "Pi Desktop",
-  user: "用户名",
-  pass: "密码",
+  pin: "9 位数字访问密码",
+  pinInvalid: "请输入 9 位数字密码",
   login: "登录",
   loginFail: "登录失败：",
-  loginHint: "使用桌面端「局域网网页控制台」中设置的账号密码。",
+  loginHint: "输入桌面端「远程控制」面板里显示的 9 位数字密码。",
   tool: "工具",
   newSession: "新会话",
   enterToSend: "Enter 发送",
@@ -73,8 +63,7 @@ const mql = window.matchMedia ? window.matchMedia("(prefers-color-scheme: dark)"
 // ---------- auth / ws ----------
 const TOKEN_KEY = "piLanToken";
 const token = ref(localStorage.getItem(TOKEN_KEY) || "");
-const loginUser = ref("");
-const loginPass = ref("");
+const loginPin = ref("");
 const loginMsg = ref("");
 const loginBusy = ref(false);
 const statusText = ref(T.connecting);
@@ -160,26 +149,6 @@ const chatEmpty = computed(() => {
   return !s || (!s.messages.length && !s.streamingMessage && !s.running);
 });
 
-// ---------- voice ----------
-const recording = ref(false);
-const converting = ref(false);
-const showAsrCancel = ref(false);
-const voiceLabel = ref("");
-
-let audioCtx: AudioContext | null = null;
-let workletNode: AudioWorkletNode | null = null;
-let stream: MediaStream | null = null;
-let chunks: Float32Array[] = [];
-let inputRate = 48000;
-let voiceInitializing = false;
-let voiceInitCancelled = false;
-let asrAbort: AbortController | null = null;
-let asrCancelTimer: number | undefined;
-let asrGen = 0;
-
-const WORKLET =
-  "class P extends AudioWorkletProcessor{process(i){const c=i[0]&&i[0][0];if(c&&c.length)this.port.postMessage(c.slice(0));return true}}registerProcessor('pi-lan-capture',P);";
-
 // ---------- toast ----------
 const toastText = ref("");
 const toastVisible = ref(false);
@@ -225,19 +194,24 @@ function showLogin(): void {
 
 async function doLogin(): Promise<void> {
   if (loginBusy.value) return;
+  const pin = loginPin.value.replace(/\D/gu, "");
+  if (pin.length !== 9) {
+    loginMsg.value = T.pinInvalid;
+    return;
+  }
   loginBusy.value = true;
   loginMsg.value = "";
   try {
     const res = await fetch("/api/login", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ username: loginUser.value.trim(), password: loginPass.value }),
+      body: JSON.stringify({ pin }),
     });
     const data = await res.json();
     if (data.ok && data.token) {
       token.value = data.token;
       localStorage.setItem(TOKEN_KEY, data.token);
-      loginPass.value = "";
+      loginPin.value = "";
       connect();
     } else {
       loginMsg.value = T.loginFail + " " + (data.message || "");
@@ -330,7 +304,10 @@ function handle(msg: any): void {
       }
       break;
     case "workspaces":
-      workspaces.value = msg.recent || [];
+      // Blank roots would render as a nameless extra workspace row — drop them.
+      workspaces.value = Array.isArray(msg.recent)
+        ? msg.recent.filter((root: unknown): root is string => typeof root === "string" && root.trim().length > 0)
+        : [];
       renderSidebar(msg.current);
       // Prefetch session lists for all workspaces so the drawer opens instantly.
       for (const root of workspaces.value) {
@@ -567,185 +544,6 @@ function sendPrompt(): void {
   patchSessionStatus(sessionId, "running");
 }
 
-// ---------- voice ----------
-function linearDownsample(input: Float32Array, fromRate: number, toRate: number): Float32Array {
-  if (toRate >= fromRate) return input;
-  const ratio = fromRate / toRate;
-  const out = new Float32Array(Math.max(1, Math.floor(input.length / ratio)));
-  for (let i = 0; i < out.length; i++) {
-    const pos = i * ratio;
-    const idx = Math.floor(pos);
-    const frac = pos - idx;
-    const a = input[idx] || 0;
-    const b = input[idx + 1] === undefined ? a : input[idx + 1];
-    out[i] = a + (b - a) * frac;
-  }
-  return out;
-}
-function floatToInt16(input: Float32Array): Int16Array {
-  const out = new Int16Array(input.length);
-  for (let i = 0; i < input.length; i++) {
-    const v = Math.max(-1, Math.min(1, input[i]));
-    out[i] = v < 0 ? Math.round(v * 0x8000) : Math.round(v * 0x7fff);
-  }
-  return out;
-}
-function pcmToWav(pcm: Int16Array, sampleRate: number): ArrayBuffer {
-  const dataSize = pcm.byteLength;
-  const buffer = new ArrayBuffer(44 + dataSize);
-  const view = new DataView(buffer);
-  const ws = (off: number, s: string): void => { for (let i = 0; i < s.length; i++) view.setUint8(off + i, s.charCodeAt(i)); };
-  ws(0, "RIFF"); view.setUint32(4, 36 + dataSize, true); ws(8, "WAVE");
-  ws(12, "fmt "); view.setUint32(16, 16, true); view.setUint16(20, 1, true); view.setUint16(22, 1, true);
-  view.setUint32(24, sampleRate, true); view.setUint32(28, sampleRate * 2, true); view.setUint16(32, 2, true); view.setUint16(34, 16, true);
-  ws(36, "data"); view.setUint32(40, dataSize, true);
-  new Uint8Array(buffer, 44).set(new Uint8Array(pcm.buffer, pcm.byteOffset, pcm.byteLength));
-  return buffer;
-}
-async function transcribeViaProxy(pcm: Int16Array, sampleRate: number, signal?: AbortSignal): Promise<string> {
-  // Upload the recorded audio as a WAV file body (not base64).
-  const wav = pcmToWav(pcm, sampleRate);
-  const res = await fetch("/api/transcribe", {
-    method: "POST",
-    headers: { "Content-Type": "audio/wav", Authorization: "Bearer " + token.value },
-    body: new Uint8Array(wav),
-    signal,
-  });
-  const data = await res.json();
-  if (!res.ok || !data.ok) {
-    if (res.status === 401) {
-      showLogin();
-      throw new Error("unauthorized");
-    }
-    throw new Error((data && data.message) || "failed");
-  }
-  return data.text || "";
-}
-
-function cancelAsr(): void {
-  asrGen += 1;
-  clearTimeout(asrCancelTimer);
-  showAsrCancel.value = false;
-  converting.value = false;
-  try {
-    asrAbort?.abort();
-  } catch {
-    /* ignore */
-  }
-  asrAbort = null;
-}
-async function startVoice(): Promise<void> {
-  if (!currentSession.value) {
-    toast(T.pickSession);
-    return;
-  }
-  if (voiceInitializing || recording.value || converting.value) return;
-  voiceInitializing = true;
-  voiceInitCancelled = false;
-  try {
-    const s = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
-    const ctx = new AudioContext();
-    await ctx.resume();
-    await ctx.audioWorklet.addModule(URL.createObjectURL(new Blob([WORKLET], { type: "application/javascript" })));
-    inputRate = ctx.sampleRate || 48000;
-    if (voiceInitCancelled) {
-      s.getTracks().forEach((t) => t.stop());
-      void ctx.close().catch(() => undefined);
-      return;
-    }
-    const src = ctx.createMediaStreamSource(s);
-    const node = new AudioWorkletNode(ctx, "pi-lan-capture", { numberOfInputs: 1, numberOfOutputs: 1, channelCount: 1 });
-    node.port.onmessage = (ev) => {
-      if (recording.value) chunks.push(ev.data as Float32Array);
-    };
-    src.connect(node);
-    node.connect(ctx.destination);
-    audioCtx = ctx;
-    stream = s;
-    workletNode = node;
-    chunks = [];
-    recording.value = true;
-    voiceLabel.value = T.clickStop;
-    toast(T.recording);
-  } catch (err) {
-    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-      toast(T.micUnsecure);
-    } else {
-      toast(T.micFail + ((err as Error)?.message || String(err)));
-    }
-  } finally {
-    voiceInitializing = false;
-  }
-}
-async function stopVoice(): Promise<void> {
-  if (voiceInitializing) {
-    voiceInitCancelled = true;
-    return;
-  }
-  if (!recording.value) return;
-  recording.value = false;
-  voiceLabel.value = "";
-  try {
-    if (workletNode) {
-      workletNode.port.onmessage = null;
-      workletNode.disconnect();
-    }
-    if (stream) stream.getTracks().forEach((t) => t.stop());
-    if (audioCtx) await audioCtx.close();
-  } catch {
-    /* ignore */
-  }
-  workletNode = null;
-  stream = null;
-  audioCtx = null;
-  if (!chunks.length) {
-    toast(T.noAudio);
-    return;
-  }
-  let total = chunks.reduce((n, c) => n + c.length, 0);
-  const merged = new Float32Array(total);
-  let off = 0;
-  for (const c of chunks) {
-    merged.set(c, off);
-    off += c.length;
-  }
-  const resampled = linearDownsample(merged, inputRate, 16000);
-  const pcm = floatToInt16(resampled);
-  chunks = [];
-  const gen = ++asrGen;
-  converting.value = true;
-  showAsrCancel.value = false;
-  clearTimeout(asrCancelTimer);
-  asrCancelTimer = window.setTimeout(() => {
-    if (converting.value && asrGen === gen) showAsrCancel.value = true;
-  }, 4000);
-  asrAbort = new AbortController();
-  try {
-    const text = await transcribeViaProxy(pcm, 16000, asrAbort.signal);
-    if (asrGen !== gen) return;
-    if (text) {
-      draft.value = (draft.value ? draft.value + " " : "") + text;
-    } else {
-      toast(T.noAudio);
-    }
-  } catch (err) {
-    if (asrGen !== gen) return;
-    if ((err as Error)?.name === "AbortError") return;
-    toast((err as Error)?.message || T.error);
-  } finally {
-    if (asrGen === gen) {
-      converting.value = false;
-      showAsrCancel.value = false;
-      clearTimeout(asrCancelTimer);
-      asrAbort = null;
-    }
-  }
-}
-function onVoiceClick(): void {
-  if (recording.value) void stopVoice();
-  else void startVoice();
-}
-
 const uiReady = ref(false);
 
 onMounted(() => {
@@ -769,7 +567,6 @@ onBeforeUnmount(() => {
   clearInterval(keepaliveTimer);
   clearTimeout(reconnectTimer);
   clearTimeout(historyReconcileTimer);
-  clearTimeout(asrCancelTimer);
   clearTimeout(toastTimer);
   if (mql && (window as any).__lanMqlHandler) {
     mql.removeEventListener("change", (window as any).__lanMqlHandler);
@@ -794,13 +591,14 @@ onBeforeUnmount(() => {
         <div class="login-title">{{ T.loginTitle }}</div>
         <div class="login-sub">{{ T.subtitle }}</div>
         <div class="login-hint">{{ T.loginHint }}</div>
-        <input v-model="loginUser" class="field" :placeholder="T.user" autocomplete="username" />
         <input
-          v-model="loginPass"
-          class="field"
-          type="password"
-          :placeholder="T.pass"
-          autocomplete="current-password"
+          v-model="loginPin"
+          class="field field-pin"
+          type="text"
+          inputmode="numeric"
+          maxlength="9"
+          :placeholder="T.pin"
+          autocomplete="one-time-code"
           @keydown.enter="doLogin"
         />
         <button type="button" class="btn-primary" :disabled="loginBusy" @click="doLogin">
@@ -947,13 +745,12 @@ onBeforeUnmount(() => {
           </div>
 
           <div class="composer-wrap">
-            <div class="composer-card" :class="{ 'is-voice-recording': recording }">
+            <div class="composer-card">
               <textarea
                 v-model="draft"
                 class="composer-textarea"
                 rows="1"
                 :placeholder="T.placeholder"
-                :disabled="converting"
                 @keydown.enter.exact.prevent="sendPrompt"
                 @input="autoGrow"
               />
@@ -974,18 +771,8 @@ onBeforeUnmount(() => {
                 <div class="toolbar-right">
                   <button
                     type="button"
-                    class="mic-btn"
-                    :class="{ rec: recording, busy: converting }"
-                    :title="T.voicePc"
-                    :aria-label="T.voicePc"
-                    @click="onVoiceClick"
-                  >
-                    <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path fill="currentColor" d="M12 14a3 3 0 0 0 3-3V5a3 3 0 1 0-6 0v6a3 3 0 0 0 3 3zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.9V21h2v-3.1A7 7 0 0 0 19 11h-2z"/></svg>
-                  </button>
-                  <button
-                    type="button"
                     class="send-circle"
-                    :disabled="!draft.trim() || !currentSession || converting"
+                    :disabled="!draft.trim() || !currentSession"
                     :title="T.enterToSend"
                     @click="sendPrompt"
                   >
@@ -1013,16 +800,6 @@ onBeforeUnmount(() => {
         </main>
       </div>
     </template>
-
-    <div v-if="converting" class="convert-overlay">
-      <div class="convert-card">
-        <div class="convert-spinner"></div>
-        <div class="convert-text">{{ T.converting }}</div>
-        <button v-if="showAsrCancel" type="button" class="convert-cancel" @click="cancelAsr">
-          {{ T.cancelAsr }}
-        </button>
-      </div>
-    </div>
 
     <div v-if="toastVisible" class="toast">{{ toastText }}</div>
   </div>
@@ -1538,9 +1315,6 @@ onBeforeUnmount(() => {
     border-color: var(--accent-border);
     box-shadow: 0 0 0 3px var(--accent-soft);
   }
-  .composer-card.is-voice-recording {
-    border-color: color-mix(in srgb, var(--err) 45%, var(--border));
-  }
   .composer-textarea {
     display: block;
     width: 100%;
@@ -1601,26 +1375,6 @@ onBeforeUnmount(() => {
     opacity: .4;
     cursor: default;
   }
-  .mic-btn {
-    width: 30px;
-    height: 30px;
-    border-radius: 999px;
-    border: none;
-    background: transparent;
-    color: var(--fg);
-    cursor: pointer;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    transition: background var(--duration-fast) var(--ease-out), color var(--duration-fast) var(--ease-out);
-  }
-  .mic-btn:hover { background: var(--bg-hover); }
-  .mic-btn.rec {
-    background: var(--err);
-    color: #fff;
-    animation: pulse 1.1s ease-in-out infinite;
-  }
-  .mic-btn.busy { opacity: .55; pointer-events: none; }
   .composer-meta {
     display: flex;
     align-items: center;
@@ -1649,48 +1403,6 @@ onBeforeUnmount(() => {
   }
   @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: .65; } }
 
-  .convert-overlay {
-    position: fixed;
-    inset: 0;
-    z-index: 60;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    background: rgba(0,0,0,.28);
-    backdrop-filter: blur(3px);
-  }
-  .convert-card {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 14px;
-    padding: 26px 34px;
-    background: var(--bg2);
-    border: 1px solid var(--border);
-    border-radius: 18px;
-    box-shadow: var(--shadow);
-  }
-  .convert-spinner {
-    width: 34px;
-    height: 34px;
-    border-radius: 50%;
-    border: 3px solid color-mix(in srgb, var(--fg) 14%, transparent);
-    border-top-color: var(--fg);
-    animation: spin .7s linear infinite;
-  }
-  @keyframes spin { to { transform: rotate(360deg); } }
-  .convert-text { font-size: 13.5px; font-weight: 600; }
-  .convert-cancel {
-    margin-top: 2px;
-    border: 1px solid var(--border);
-    background: var(--bg-hover);
-    color: var(--fg);
-    border-radius: 999px;
-    padding: 7px 16px;
-    font-size: 13px;
-    font-weight: 600;
-    cursor: pointer;
-  }
   .toast {
     position: fixed;
     left: 50%;
@@ -1768,6 +1480,13 @@ onBeforeUnmount(() => {
     outline: none;
   }
   .field:focus { border-color: var(--accent-border); box-shadow: 0 0 0 3px var(--accent-soft); }
+  .field-pin {
+    text-align: center;
+    font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
+    font-size: 20px;
+    letter-spacing: 0.28em;
+    text-indent: 0.28em;
+  }
   .btn-primary {
     width: 100%;
     height: 42px;

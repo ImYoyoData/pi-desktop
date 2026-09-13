@@ -1,76 +1,122 @@
 /**
- * LAN web console ? a lightweight responsive web control panel for Pi
- * Desktop. Default OFF. When enabled it serves a small static page over
- * HTTP and exposes a WebSocket (session-token authenticated) that can
- * list/switch workspaces and sessions, read chat history and send prompts.
- * Voice recorded in the browser is proxied through HTTP (/api/transcribe)
- * and recognized by the desktop's configured ASR backend (local or cloud).
+ * 远程控制 (Remote Control) — the former "局域网网页控制台".
  *
- * Auth: username + password login issues a 6-hour session token stored in
- * the browser (localStorage), so a refresh does not require re-login.
+ * A lightweight responsive web panel for Pi Desktop:
+ *
+ * - **LAN access (default ON)** — a plain HTTP listener on 0.0.0.0:<port> serving
+ *   the built `lan-web` page plus a WebSocket that can list/switch workspaces and
+ *   sessions, read chat history and send prompts. Plain HTTP keeps phone setup
+ *   free of certificate warnings; the trade-off is that LAN traffic is not
+ *   encrypted, so the panel is meant for a trusted local network.
+ * - **Public access (default OFF, opt-in)** — a Cloudflare quick tunnel publishes
+ *   a `https://<words>.trycloudflare.com` address whose TLS terminates at
+ *   Cloudflare's edge, forwarding to the same loopback-only HTTP entry.
+ *
+ * Login is a single 9-digit numeric PIN shown in the desktop panel; a correct
+ * PIN issues a 6-hour session token kept in the browser's localStorage, so a
+ * refresh does not require re-entry. Failed attempts are rate limited per client
+ * (tightly for tunnel traffic, where guessing is remotely reachable).
  */
 
 import type { Server as HttpServer } from "node:http";
-import { createServer as createHttpsServer } from "node:https";
+import { createServer as createHttpServer } from "node:http";
 import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { dirname, extname, join, sep } from "node:path";
 import { randomBytes } from "node:crypto";
 import { networkInterfaces } from "node:os";
 import { gzipSync } from "node:zlib";
-import { app, ipcMain } from "electron";
-import selfsigned from "selfsigned";
+import { app, BrowserWindow, ipcMain } from "electron";
 import { WebSocket, WebSocketServer } from "ws";
 import type { SessionBroker } from "./session-broker";
 import { readSessionHistoryPage } from "./session-history";
 import { getSessionResources } from "./agent-worker-host";
 import { listAvailableModels } from "./models-ipc";
-import { transcribePcm } from "./asr-host";
 import { getWorkspace, listRecent } from "./workspace-ipc";
+import { deriveAccessPin, isAccessPin, isValidPinSecret, parseQuickTunnelHost } from "../shared/cloudflare-tunnel";
+import {
+  applyTunnelOptions,
+  disposeTunnel,
+  getTunnelStatus,
+  onTunnelStatusChange,
+  startTunnel,
+  stopTunnel,
+} from "./cloudflare-tunnel";
 import { IpcChannels } from "../shared/protocol";
 import type { LanConsoleStatus } from "../shared/protocol";
 import type { AgentEvent, SessionHistoryQuery } from "../shared/protocol";
 
 const DEFAULT_PORT = 18700;
 const SESSION_TTL_MS = 6 * 60 * 60 * 1000; // 6h
+/** A client that lands through the tunnel is remotely reachable — lock harder. */
+const LOGIN_MAX_FAILURES = 6;
+const LOGIN_LOCK_MS = 10 * 60 * 1000;
 
-type LanConsoleSettings = {
+type RemoteSettings = {
+  /** LAN access switch (default on). */
   enabled: boolean;
   port: number;
-  username: string;
-  password: string;
   /** User-picked LAN IPv4 for QR / copy URL (may be stale until validated). */
   preferredIp: string;
+  /** Public access via Cloudflare tunnel (default off). */
+  publicAccess: boolean;
+  /** 32-byte hex secret the 9-digit PIN is derived from. */
+  pinSecret: string;
+  /** Manual cloudflared path; empty ⇒ managed binary under userData. */
+  cloudflaredPath: string;
+  /** Allow downloading cloudflared automatically. */
+  autoDownload: boolean;
 };
 
 /** Active web sessions: token -> expiry epoch ms. */
 const authSessions = new Map<string, number>();
 
+/** Per-client failed login attempts: client key -> { count, lockedUntil }. */
+const loginFailures = new Map<string, { count: number; lockedUntil: number }>();
+
+/** Cached tunnel host so login rate limiting can tell public traffic apart. */
+let tunnelHost: string | null = null;
+
 function settingsPath(): string {
   return join(app.getPath("userData"), "lan-console.json");
 }
 
-function randomToken(): string {
-  return randomBytes(24).toString("hex");
+function newPinSecret(): string {
+  return randomBytes(32).toString("hex");
 }
 
-function readSettings(): LanConsoleSettings {
+function readSettings(): RemoteSettings {
+  let raw: Partial<RemoteSettings> = {};
   try {
-    const raw = JSON.parse(readFileSync(settingsPath(), "utf8")) as Partial<LanConsoleSettings>;
-    return {
-      enabled: raw.enabled === true,
-      port: typeof raw.port === "number" && raw.port > 0 && raw.port < 65536 ? raw.port : DEFAULT_PORT,
-      username: typeof raw.username === "string" ? raw.username : "",
-      password: typeof raw.password === "string" ? raw.password : "",
-      preferredIp: typeof raw.preferredIp === "string" ? raw.preferredIp.trim() : "",
-    };
+    raw = JSON.parse(readFileSync(settingsPath(), "utf8")) as Partial<RemoteSettings>;
   } catch {
-    return { enabled: false, port: DEFAULT_PORT, username: "", password: "", preferredIp: "" };
+    raw = {};
   }
+  const settings: RemoteSettings = {
+    // LAN access is on by default; an explicit false (user turned it off) sticks.
+    enabled: raw.enabled !== false,
+    port: typeof raw.port === "number" && raw.port > 0 && raw.port < 65536 ? Math.floor(raw.port) : DEFAULT_PORT,
+    preferredIp: typeof raw.preferredIp === "string" ? raw.preferredIp.trim() : "",
+    publicAccess: raw.publicAccess === true,
+    pinSecret: isValidPinSecret(raw.pinSecret) ? raw.pinSecret : "",
+    cloudflaredPath: typeof raw.cloudflaredPath === "string" ? raw.cloudflaredPath.trim() : "",
+    autoDownload: raw.autoDownload !== false,
+  };
+  if (!settings.pinSecret) {
+    // First run (or an upgraded install with username/password): mint the secret
+    // once and persist it so the PIN survives restarts.
+    settings.pinSecret = newPinSecret();
+    writeSettings(settings);
+  }
+  return settings;
 }
 
-function writeSettings(s: LanConsoleSettings): void {
+function writeSettings(s: RemoteSettings): void {
   mkdirSync(dirname(settingsPath()), { recursive: true });
   writeFileSync(settingsPath(), `${JSON.stringify(s, null, 2)}\n`, "utf8");
+}
+
+function accessPin(settings: RemoteSettings): string {
+  return deriveAccessPin(settings.pinSecret);
 }
 
 function pruneSessions(now = Date.now()): void {
@@ -93,9 +139,49 @@ function isValidSessionToken(token: string | null | undefined): boolean {
 
 function issueSessionToken(): string {
   pruneSessions();
-  const token = randomToken();
+  const token = randomBytes(24).toString("hex");
   authSessions.set(token, Date.now() + SESSION_TTL_MS);
   return token;
+}
+
+function clientKey(req: import("node:http").IncomingMessage): string {
+  const socketAddress = req.socket.remoteAddress ?? "";
+  const forwarded =
+    String(req.headers["cf-connecting-ip"] ?? "").trim() ||
+    String(req.headers["x-forwarded-for"] ?? "").split(",")[0]?.trim() ||
+    "";
+  // Only trust a forwarded address when the request really came from a tunnel
+  // (localhost origin) — otherwise a LAN client could spoof its way past the
+  // per-client lockout.
+  if (forwarded && isLoopback(socketAddress)) return `tunnel:${forwarded}`;
+  return `local:${socketAddress}`;
+}
+
+function isLoopback(address: string): boolean {
+  return address === "127.0.0.1" || address === "::1" || address === "::ffff:127.0.0.1";
+}
+
+function loginLockRemainingMs(key: string, now = Date.now()): number {
+  const row = loginFailures.get(key);
+  if (!row) return 0;
+  if (row.lockedUntil > now) return row.lockedUntil - now;
+  if (row.lockedUntil && row.lockedUntil <= now && row.count < LOGIN_MAX_FAILURES) loginFailures.delete(key);
+  return 0;
+}
+
+function noteLoginFailure(key: string): void {
+  const now = Date.now();
+  const row = loginFailures.get(key) ?? { count: 0, lockedUntil: 0 };
+  row.count += 1;
+  if (row.count >= LOGIN_MAX_FAILURES) {
+    row.lockedUntil = now + LOGIN_LOCK_MS;
+    row.count = 0;
+  }
+  loginFailures.set(key, row);
+}
+
+function clearLoginFailures(key: string): void {
+  loginFailures.delete(key);
 }
 
 /** Virtual / VPN adapters that often win Object.values() order but are unreachable from phones. */
@@ -143,72 +229,16 @@ function lanIPv4s(): string[] {
   return rows.map((r) => r.address);
 }
 
-function resolvePreferredIp(settings: LanConsoleSettings): string {
+function resolvePreferredIp(settings: RemoteSettings): string {
   const ips = lanIPv4s();
   if (settings.preferredIp && ips.includes(settings.preferredIp)) return settings.preferredIp;
   return ips[0] ?? "127.0.0.1";
 }
 
 function buildLanUrl(ip: string, port: number): string {
-  return `https://${ip}:${port}`;
-}
-
-function certPaths(): { key: string; cert: string; meta: string } {
-  const dir = app.getPath("userData");
-  return {
-    key: join(dir, "lan-console.key"),
-    cert: join(dir, "lan-console.crt"),
-    meta: join(dir, "lan-console-cert-meta.json"),
-  };
-}
-
-/**
- * Self-signed certificate for HTTPS (mic requires a secure context).
- * Regenerated when the set of LAN IPs changes so the SAN covers the
- * address the phone/PC connects to.
- */
-async function ensureCertificate(): Promise<{ key: string; cert: string }> {
-  const { key, cert, meta } = certPaths();
-  const ips = lanIPv4s();
-  // v2: IP SANs use type 7 (iPAddress). Older certs used type 2 (DNS) for IPs
-  // which breaks hostname checks when phones open https://192.168.x.x.
-  const CERT_ALG = "ec-p256-san-ip7";
-  let stored = { alg: "", ips: [] as string[] };
-  try {
-    stored = JSON.parse(readFileSync(meta, "utf8")) as { alg: string; ips: string[] };
-  } catch {
-    stored = { alg: "", ips: [] };
-  }
-  const sameIps =
-    Array.isArray(stored.ips) &&
-    stored.ips.length === ips.length &&
-    stored.ips.every((ip, i) => ip === ips[i]);
-  const sameAlg = stored.alg === CERT_ALG;
-  if (existsSync(key) && existsSync(cert) && sameIps && sameAlg) {
-    return { key: readFileSync(key, "utf8"), cert: readFileSync(cert, "utf8") };
-  }
-  const pems = await selfsigned.generate([{ name: "commonName", value: "Pi Desktop" }], {
-    algorithm: "sha256",
-    // EC P-256: much faster TLS handshakes than RSA 2048 — matters on phones
-    // (esp. iOS) where self-signed cert validation is the slow part.
-    keyType: "ec",
-    curve: "P-256",
-    extensions: [
-      {
-        name: "subjectAltName",
-        altNames: [
-          { type: 2, value: "localhost" },
-          { type: 7, value: "127.0.0.1" },
-          ...ips.map((ip) => ({ type: 7 as const, value: ip })),
-        ],
-      },
-    ],
-  });
-  mkdirSync(dirname(key), { recursive: true });
-  writeFileSync(key, pems.private, "utf8");
-  writeFileSync(cert, pems.cert, "utf8");
-  writeFileSync(meta, JSON.stringify({ alg: CERT_ALG, ips }), "utf8");
-  return { key: pems.private, cert: pems.cert };
+  // Plain HTTP on purpose: no certificate warning on phones. The public side
+  // (Cloudflare tunnel) is the one that gets real HTTPS.
+  return `http://${ip}:${port}`;
 }
 
 function lanWebDir(): string {
@@ -247,10 +277,17 @@ function readCachedAsset(file: string): CachedAsset {
   return row;
 }
 
-let httpServer: HttpServer | null = null;
-let wss: WebSocketServer | null = null;
+/** LAN listener (plain HTTP) + loopback HTTP listener used as the tunnel origin. */
+let lanServer: HttpServer | null = null;
+let originServer: HttpServer | null = null;
+let originPort = 0;
+/** One WebSocket server per listener (LAN + tunnel origin). */
+const wssServers = new Set<WebSocketServer>();
+let lanWss: WebSocketServer | null = null;
+let originWss: WebSocketServer | null = null;
 let brokerRef: SessionBroker | null = null;
 let offEvents: (() => void) | null = null;
+let offTunnelStatus: (() => void) | null = null;
 
 type WsClient = {
   ws: WebSocket;
@@ -311,48 +348,28 @@ function readJsonBody(req: import("node:http").IncomingMessage): Promise<Record<
   });
 }
 
-/** Read a raw binary request body (bounded to 20 MB) — for audio file uploads. */
-function readRawBody(req: import("node:http").IncomingMessage): Promise<Buffer> {
-  return new Promise((resolve, reject) => {
-    const chunks: Buffer[] = [];
-    let size = 0;
-    req.on("data", (c: Buffer) => {
-      size += c.length;
-      if (size > 20 * 1024 * 1024) {
-        reject(new Error("body too large"));
-        req.destroy();
-        return;
-      }
-      chunks.push(c);
-    });
-    req.on("end", () => resolve(Buffer.concat(chunks)));
-    req.on("error", reject);
-  });
+/** Baseline hardening applied to every panel response. */
+function baseHeaders(): Record<string, string> {
+  return {
+    "X-Content-Type-Options": "nosniff",
+    "X-Frame-Options": "DENY",
+    "Referrer-Policy": "no-referrer",
+  };
 }
 
-/** Parse a 16-bit PCM WAV file: returns raw samples + sample rate. */
-function parseWav(buf: Buffer): { pcm: Int16Array; sampleRate: number } {
-  if (buf.length < 44 || buf.toString("ascii", 0, 4) !== "RIFF" || buf.toString("ascii", 8, 12) !== "WAVE") {
-    throw new Error("invalid WAV file");
-  }
-  const sampleRate = buf.readUInt32LE(24);
-  let offset = 12;
-  let dataOffset = -1;
-  let dataLen = 0;
-  while (offset + 8 <= buf.length) {
-    const id = buf.toString("ascii", offset, offset + 4);
-    const len = buf.readUInt32LE(offset + 4);
-    if (id === "data") {
-      dataOffset = offset + 8;
-      dataLen = len;
-      break;
-    }
-    offset += 8 + len + (len % 2);
-  }
-  if (dataOffset < 0) throw new Error("WAV has no data chunk");
-  const end = Math.min(buf.length, dataOffset + dataLen);
-  const pcm = new Int16Array(buf.buffer, buf.byteOffset + dataOffset, Math.floor((end - dataOffset) / 2));
-  return { pcm, sampleRate };
+function jsonResponse(
+  res: import("node:http").ServerResponse,
+  status: number,
+  payload: Record<string, unknown>,
+): void {
+  const body = Buffer.from(JSON.stringify(payload), "utf8");
+  res.writeHead(status, {
+    ...baseHeaders(),
+    "Content-Type": "application/json",
+    "Cache-Control": "no-store",
+    "Content-Length": body.length,
+  });
+  res.end(body);
 }
 
 async function handleHttp(
@@ -361,6 +378,9 @@ async function handleHttp(
 ): Promise<void> {
   const url = (req.url ?? "/").split("?")[0] ?? "/";
   const method = req.method ?? "GET";
+  // Requests whose body nobody reads (e.g. form posts) would otherwise stall the
+  // socket until the client gives up.
+  req.resume();
 
   if (method === "GET") {
     const rel = (url === "/" ? "index.html" : url).replace(/^\/+/, "");
@@ -376,10 +396,10 @@ async function handleHttp(
       const wantGzip = asset.gzip !== asset.raw && /\bgzip\b/i.test(accept);
       const body = wantGzip ? asset.gzip : asset.raw;
       const headers: Record<string, string | number> = {
+        ...baseHeaders(),
         "Content-Type": ct,
         "Cache-Control": cache,
         "Content-Length": body.length,
-        "X-Content-Type-Options": "nosniff",
       };
       if (wantGzip) {
         headers["Content-Encoding"] = "gzip";
@@ -389,59 +409,42 @@ async function handleHttp(
       res.end(body);
       return;
     }
-    res.writeHead(404, { "Content-Type": "application/json" });
-    res.end(JSON.stringify({ ok: false, message: "not found" }));
+    jsonResponse(res, 404, { ok: false, message: "not found" });
     return;
   }
 
   if (method === "POST" && url === "/api/login") {
     const settings = readSettings();
-    try {
-      const body = await readJsonBody(req);
-      if (body.username === settings.username && body.password === settings.password) {
-        const token = issueSessionToken();
-        res.writeHead(200, { "Content-Type": "application/json" });
-        res.end(JSON.stringify({ ok: true, token }));
-      } else {
-        res.writeHead(401, { "Content-Type": "application/json" });
-        res.end(JSON.stringify({ ok: false, message: "invalid credentials" }));
-      }
-    } catch (err) {
-      res.writeHead(400, { "Content-Type": "application/json" });
-      res.end(JSON.stringify({ ok: false, message: err instanceof Error ? err.message : String(err) }));
-    }
-    return;
-  }
-
-  if (method === "POST" && url === "/api/transcribe") {
-    const auth = (req.headers.authorization ?? "").replace(/^Bearer\s+/i, "");
-    if (!isValidSessionToken(auth)) {
-      res.writeHead(401, { "Content-Type": "application/json" });
-      res.end(JSON.stringify({ ok: false, message: "unauthorized" }));
+    const key = clientKey(req);
+    const lockedMs = loginLockRemainingMs(key);
+    if (lockedMs > 0) {
+      jsonResponse(res, 429, {
+        ok: false,
+        message: `尝试次数过多，请 ${Math.ceil(lockedMs / 60000)} 分钟后再试`,
+      });
       return;
     }
     try {
-      // The web page uploads the recorded audio as a raw WAV file body
-      // (not base64) — parsed here and handed to the desktop ASR backend.
-      const body = await readRawBody(req);
-      const { pcm, sampleRate } = parseWav(body);
-      if (!pcm || pcm.length === 0) {
-        res.writeHead(400, { "Content-Type": "application/json" });
-        res.end(JSON.stringify({ ok: false, message: "empty audio" }));
-        return;
+      const body = await readJsonBody(req);
+      const pin = typeof body.pin === "string" ? body.pin.trim() : "";
+      if (isAccessPin(pin) && pin === accessPin(settings)) {
+        clearLoginFailures(key);
+        jsonResponse(res, 200, { ok: true, token: issueSessionToken() });
+      } else {
+        noteLoginFailure(key);
+        const left = Math.max(0, LOGIN_MAX_FAILURES - (loginFailures.get(key)?.count ?? 0));
+        jsonResponse(res, 401, {
+          ok: false,
+          message: left > 0 ? `密码不正确（还可尝试 ${left} 次）` : "尝试次数过多，已暂时锁定",
+        });
       }
-      const text = await transcribePcm(pcm, sampleRate);
-      res.writeHead(200, { "Content-Type": "application/json" });
-      res.end(JSON.stringify({ ok: true, text }));
     } catch (err) {
-      res.writeHead(400, { "Content-Type": "application/json" });
-      res.end(JSON.stringify({ ok: false, message: err instanceof Error ? err.message : String(err) }));
+      jsonResponse(res, 400, { ok: false, message: err instanceof Error ? err.message : String(err) });
     }
     return;
   }
 
-  res.writeHead(404, { "Content-Type": "application/json" });
-  res.end(JSON.stringify({ ok: false, message: "not found" }));
+  jsonResponse(res, 404, { ok: false, message: "not found" });
 }
 
 async function handleMessage(client: WsClient, raw: string): Promise<void> {
@@ -609,66 +612,21 @@ async function handleMessage(client: WsClient, raw: string): Promise<void> {
       }
       return;
     }
-    case "transcribe": {
-      // Kept for backward compatibility; the web page uses the HTTP proxy.
-      const b64 = typeof msg.pcmBase64 === "string" ? msg.pcmBase64 : "";
-      const sampleRate = typeof msg.sampleRate === "number" ? msg.sampleRate : 16000;
-      if (!b64) {
-        fail(client, id, "pcmBase64 required");
-        return;
-      }
-      try {
-        const buf = Buffer.from(b64, "base64");
-        const pcm = new Int16Array(buf.buffer, buf.byteOffset, Math.floor(buf.byteLength / 2));
-        const text = await transcribePcm(pcm, sampleRate);
-        reply(client, id, { type: "transcript", text });
-      } catch (err) {
-        fail(client, id, err instanceof Error ? err.message : String(err));
-      }
-      return;
-    }
     default:
       fail(client, id, `unsupported message type: ${type}`);
   }
 }
 
-async function startLanConsole(): Promise<{ ok: boolean; message: string }> {
-  if (httpServer) return { ok: true, message: "already running" };
-  const settings = readSettings();
-  if (!settings.username || !settings.password) {
-    return { ok: false, message: "set username and password in settings first" };
-  }
-  if (!existsSync(join(lanWebDir(), "index.html"))) {
-    return { ok: false, message: "LAN web page missing (run npm run build)" };
-  }
-
-  let tls: { key: string; cert: string };
-  try {
-    tls = await ensureCertificate();
-  } catch (err) {
-    return {
-      ok: false,
-      message: `failed to create HTTPS certificate: ${err instanceof Error ? err.message : String(err)}`,
-    };
-  }
-  const server = createHttpsServer(
-    { key: tls.key, cert: tls.cert },
-    (req, res) => {
-      void handleHttp(req, res).catch(() => {
-        if (!res.headersSent) {
-          res.writeHead(500, { "Content-Type": "application/json" });
-        }
-        res.end(JSON.stringify({ ok: false, message: "internal error" }));
-      });
-    },
-  );
-
+function attachWebSocket(server: HttpServer): WebSocketServer {
   const ws = new WebSocketServer({ server, path: "/ws" });
   ws.on("connection", (socket) => {
     const client: WsClient = { ws: socket, authed: false };
     clients.add(client);
     socket.on("message", (data) => {
-      void handleMessage(client, String(data));
+      // A malformed frame must never take the panel down with it.
+      void handleMessage(client, String(data)).catch((err) => {
+        console.error("[remote-control] message failed:", err instanceof Error ? err.message : String(err));
+      });
     });
     socket.on("close", () => {
       clients.delete(client);
@@ -677,54 +635,214 @@ async function startLanConsole(): Promise<{ ok: boolean; message: string }> {
       clients.delete(client);
     });
   });
+  return ws;
+}
 
+function detachWebSocket(ws: WebSocketServer): void {
+  try {
+    ws.close();
+  } catch {
+    // ignore
+  }
+}
+
+/** Close every WebSocket server and drop all panel clients (used on shutdown). */
+function closeAllWebSockets(): void {
+  for (const ws of wssServers) detachWebSocket(ws);
+  wssServers.clear();
+  lanWss = null;
+  originWss = null;
+  for (const c of clients) {
+    try {
+      c.ws.terminate();
+    } catch {
+      // ignore
+    }
+  }
+  clients.clear();
+}
+
+function requestHandler(
+  req: import("node:http").IncomingMessage,
+  res: import("node:http").ServerResponse,
+): void {
+  void handleHttp(req, res).catch(() => {
+    if (!res.headersSent) res.writeHead(500, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ ok: false, message: "internal error" }));
+  });
+}
+
+/**
+ * Start the LAN listener (plain HTTP, all interfaces). Returns `{ ok, message }`
+ * instead of throwing so the settings UI can show the reason (port in use,
+ * missing build, …).
+ */
+async function startLanListener(settings: RemoteSettings): Promise<{ ok: boolean; message: string }> {
+  if (lanServer) return { ok: true, message: "already running" };
+  if (!existsSync(join(lanWebDir(), "index.html"))) {
+    return { ok: false, message: "远程控制页面缺失（请先执行 npm run build）" };
+  }
+
+  const server = createHttpServer(requestHandler);
+  // Attach a WebSocket server to EACH listener. Wiring it to the LAN listener
+  // only meant wss://<tunnel-host>/ws fell through to the plain HTTP handler and
+  // answered 404 — the public page could load and log in but never stay connected.
+  lanWss = attachWebSocket(server);
+  wssServers.add(lanWss);
   try {
     await new Promise<void>((resolve, reject) => {
       server.once("error", reject);
       server.listen(settings.port, "0.0.0.0", () => resolve());
     });
   } catch (err) {
-    ws.close();
+    detachWebSocket(lanWss);
+    wssServers.delete(lanWss);
+    lanWss = null;
     server.close();
     const detail = err instanceof Error ? err.message : String(err);
-    return { ok: false, message: `failed to listen on ${settings.port}: ${detail}` };
+    return { ok: false, message: `端口 ${settings.port} 监听失败：${detail}` };
   }
 
-  if (brokerRef) {
-    offEvents = brokerRef.onEvent((event: AgentEvent) => {
-      broadcast({ type: "event", event });
-    });
-  }
-
-  httpServer = server;
-  wss = ws;
-  return { ok: true, message: `listening on ${getLanConsoleStatus().baseUrl}` };
+  lanServer = server;
+  return { ok: true, message: `listening on ${buildLanUrl(resolvePreferredIp(settings), settings.port)}` };
 }
 
-function stopLanConsole(): void {
-  offEvents?.();
-  offEvents = null;
+function stopLanListener(): void {
+  if (lanWss) {
+    detachWebSocket(lanWss);
+    wssServers.delete(lanWss);
+    lanWss = null;
+  }
+  // Every open socket belongs to the LAN listener unless the tunnel is up, so
+  // drop the sessions that were authenticated on the LAN side too.
   for (const c of clients) {
     try {
-      c.ws.close();
+      c.ws.terminate();
     } catch {
       // ignore
     }
   }
   clients.clear();
   try {
-    wss?.close();
+    lanServer?.close();
   } catch {
     // ignore
   }
-  wss = null;
-  try {
-    httpServer?.close();
-  } catch {
-    // ignore
-  }
-  httpServer = null;
+  lanServer = null;
   authSessions.clear();
+}
+
+/**
+ * Loopback-only plain-HTTP entry used as the Cloudflare tunnel origin. It is
+ * never bound to a public interface: the tunnel connects to 127.0.0.1.
+ */
+async function startOriginListener(): Promise<number> {
+  if (originServer) return originPort;
+  const server = createHttpServer(requestHandler);
+  // WebSocket must be wired here too, otherwise the public wss:// upgrade is
+  // answered by the plain HTTP handler with a 404.
+  originWss = attachWebSocket(server);
+  wssServers.add(originWss);
+  try {
+    await new Promise<void>((resolve, reject) => {
+      server.once("error", reject);
+      server.listen(0, "127.0.0.1", () => resolve());
+    });
+  } catch (err) {
+    detachWebSocket(originWss);
+    wssServers.delete(originWss);
+    originWss = null;
+    throw err;
+  }
+  const address = server.address();
+  originPort = typeof address === "object" && address ? address.port : 0;
+  originServer = server;
+  return originPort;
+}
+
+function stopOriginListener(): void {
+  if (originWss) {
+    detachWebSocket(originWss);
+    wssServers.delete(originWss);
+    originWss = null;
+  }
+  try {
+    originServer?.close();
+  } catch {
+    // ignore
+  }
+  originServer = null;
+  originPort = 0;
+}
+
+/** Wire agent events + tunnel status once, so both listeners share one feed. */
+function attachEventBridges(): void {
+  if (!offEvents && brokerRef) {
+    offEvents = brokerRef.onEvent((event: AgentEvent) => {
+      broadcast({ type: "event", event });
+    });
+  }
+  if (!offTunnelStatus) {
+    offTunnelStatus = onTunnelStatusChange((status) => {
+      tunnelHost = status.url ? parseQuickTunnelHost(status.url) : null;
+      // The public URL appears (and disappears) long after boot, so log every
+      // transition — from a log file this is the only way to diagnose a tunnel.
+      console.info(
+        `[remote-control] tunnel=${status.phase}${status.url ? ` url=${status.url}` : ""}${
+          status.error ? ` error=${status.error}` : ""
+        }`,
+      );
+      broadcastTunnelStatus();
+    });
+  }
+}
+
+function broadcastTunnelStatus(): void {
+  const status = getTunnelStatus();
+  for (const win of BrowserWindow.getAllWindows()) {
+    win.webContents.send(IpcChannels.lanConsole.tunnelStatus, status);
+  }
+}
+
+/** Apply the current public-access preference (download + run cloudflared). */
+async function syncPublicAccess(settings: RemoteSettings): Promise<void> {
+  applyTunnelOptions({
+    customPath: settings.cloudflaredPath,
+    autoDownload: settings.autoDownload,
+  });
+  if (!settings.publicAccess) {
+    stopTunnel();
+    stopOriginListener();
+    tunnelHost = null;
+    return;
+  }
+  let port: number;
+  try {
+    port = await startOriginListener();
+  } catch (err) {
+    console.error("[remote-control] tunnel origin failed:", err instanceof Error ? err.message : String(err));
+    return;
+  }
+  await startTunnel(port, {
+    customPath: settings.cloudflaredPath,
+    autoDownload: settings.autoDownload,
+  });
+  tunnelHost = getTunnelStatus().url ? parseQuickTunnelHost(getTunnelStatus().url ?? "") : null;
+}
+
+/** Bring the remote control up according to settings (non-fatal on failure). */
+async function applySettings(settings: RemoteSettings): Promise<void> {
+  if (!settings.enabled) {
+    stopLanListener();
+    stopTunnel();
+    stopOriginListener();
+    tunnelHost = null;
+    return;
+  }
+  const lan = await startLanListener(settings);
+  if (!lan.ok) console.error(`[remote-control] LAN: ${lan.message}`);
+  attachEventBridges();
+  await syncPublicAccess(settings);
 }
 
 export function getLanConsoleStatus(): LanConsoleStatus {
@@ -732,16 +850,20 @@ export function getLanConsoleStatus(): LanConsoleStatus {
   const addresses = lanIPv4s();
   const preferredIp = resolvePreferredIp(settings);
   const baseUrl = buildLanUrl(preferredIp, settings.port);
+  const tunnel = getTunnelStatus();
   return {
-    enabled: settings.enabled && Boolean(httpServer),
+    enabled: settings.enabled,
+    listening: Boolean(lanServer),
+    publicAccess: settings.publicAccess,
     port: settings.port,
-    username: settings.username,
-    hasCredentials: Boolean(settings.username && settings.password),
+    pin: accessPin(settings),
     preferredIp,
     addresses,
     urls: addresses.map((ip) => buildLanUrl(ip, settings.port)),
     baseUrl,
     url: baseUrl,
+    publicUrl: tunnel.url,
+    tunnel,
   };
 }
 
@@ -750,58 +872,83 @@ export function registerLanConsoleIpc(broker: SessionBroker): void {
 
   ipcMain.handle(IpcChannels.lanConsole.getStatus, () => getLanConsoleStatus());
 
-  ipcMain.handle(IpcChannels.lanConsole.setCredentials, async (_e, username: unknown, password: unknown) => {
-    const u = typeof username === "string" ? username.trim() : "";
-    const p = typeof password === "string" ? password : "";
-    if (!u || !p) throw new Error("username and password required");
+  ipcMain.handle(IpcChannels.lanConsole.setEnabled, async (_e, enabled: boolean) => {
     const settings = readSettings();
-    const wasEnabled = settings.enabled;
-    if (wasEnabled) stopLanConsole();
-    settings.username = u;
-    settings.password = p;
+    settings.enabled = enabled === true;
     writeSettings(settings);
-    if (wasEnabled) {
-      const result = await startLanConsole();
-      if (!result.ok) throw new Error(result.message);
+    if (settings.enabled) {
+      const lan = await startLanListener(settings);
+      if (!lan.ok && !lanServer) {
+        // Keep the switch on: the port may free up later (see retryLanOnce).
+        console.error(`[remote-control] LAN start failed: ${lan.message}`);
+      }
+      attachEventBridges();
+      scheduleLanRetry();
+    } else {
+      stopLanListener();
+      stopTunnel();
+      stopOriginListener();
+      tunnelHost = null;
     }
     return getLanConsoleStatus();
   });
 
-  ipcMain.handle(IpcChannels.lanConsole.setEnabled, async (_e, enabled: boolean) => {
+  ipcMain.handle(IpcChannels.lanConsole.setPublicAccess, async (_e, enabled: boolean) => {
     const settings = readSettings();
-    if (enabled && (!settings.username || !settings.password)) {
-      throw new Error("set username and password in settings first");
-    }
-    settings.enabled = enabled === true;
+    settings.publicAccess = enabled === true;
     writeSettings(settings);
-    if (settings.enabled) {
-      const result = await startLanConsole();
-      if (!result.ok && !httpServer) {
-        settings.enabled = false;
-        writeSettings(settings);
-        throw new Error(result.message);
-      }
-    } else {
-      stopLanConsole();
+    if (!settings.enabled && settings.publicAccess) {
+      // Public access needs the panel served somewhere; the LAN listener is the
+      // natural host, so enabling the tunnel turns LAN access back on too.
+      settings.enabled = true;
+      writeSettings(settings);
+      const lan = await startLanListener(settings);
+      if (!lan.ok) console.error(`[remote-control] LAN start failed: ${lan.message}`);
     }
+    await syncPublicAccess(settings);
+    attachEventBridges();
     return getLanConsoleStatus();
   });
 
   ipcMain.handle(IpcChannels.lanConsole.setPort, async (_e, port: unknown) => {
     const p = typeof port === "number" && port > 0 && port < 65536 ? Math.floor(port) : DEFAULT_PORT;
     const settings = readSettings();
-    const wasEnabled = settings.enabled;
-    if (wasEnabled) stopLanConsole();
+    const previousPort = settings.port;
     settings.port = p;
     writeSettings(settings);
-    if (wasEnabled) {
-      const result = await startLanConsole();
-      if (!result.ok) throw new Error(result.message);
+    stopLanListener();
+    if (settings.enabled) {
+      const lan = await startLanListener(settings);
+      if (!lan.ok) {
+        // Roll back to the port that was working before so the panel stays reachable.
+        settings.port = previousPort;
+        writeSettings(settings);
+        await startLanListener(settings);
+        throw new Error(lan.message);
+      }
     }
     return getLanConsoleStatus();
   });
 
-  ipcMain.handle(IpcChannels.lanConsole.setPreferredIp, async (_e, ip: unknown) => {
+  ipcMain.handle(IpcChannels.lanConsole.rotatePin, () => {
+    const settings = readSettings();
+    settings.pinSecret = newPinSecret();
+    writeSettings(settings);
+    // Everyone who logged in with the old PIN loses access immediately.
+    authSessions.clear();
+    for (const c of clients) {
+      try {
+        c.ws.close();
+      } catch {
+        // ignore
+      }
+    }
+    clients.clear();
+    loginFailures.clear();
+    return getLanConsoleStatus();
+  });
+
+  ipcMain.handle(IpcChannels.lanConsole.setPreferredIp, (_e, ip: unknown) => {
     const next = typeof ip === "string" ? ip.trim() : "";
     const ips = lanIPv4s();
     if (next && !ips.includes(next)) {
@@ -814,14 +961,62 @@ export function registerLanConsoleIpc(broker: SessionBroker): void {
   });
 }
 
-/** Start the console at boot when the setting is enabled (non-fatal on failure). */
+/** One delayed retry when the LAN port was busy at boot (e.g. a restart race). */
+let lanRetryTimer: NodeJS.Timeout | null = null;
+function scheduleLanRetry(delayMs = 20_000): void {
+  if (lanRetryTimer || lanServer) return;
+  lanRetryTimer = setTimeout(() => {
+    lanRetryTimer = null;
+    const settings = readSettings();
+    if (!settings.enabled || lanServer) return;
+    void startLanListener(settings).then((r) => {
+      console.info(`[remote-control] LAN retry: ${r.ok ? "OK" : "FAIL"} ${r.message}`);
+    });
+  }, delayMs);
+}
+
+/** Start the remote control at boot according to settings (non-fatal on failure). */
 export function ensureLanConsoleFromSettings(): void {
   const settings = readSettings();
   console.info(
-    `[lan-console] settings: enabled=${settings.enabled} port=${settings.port} credentials=${Boolean(settings.username && settings.password)}`,
+    `[remote-control] settings: lan=${settings.enabled} port=${settings.port} public=${settings.publicAccess}`,
   );
-  if (!settings.enabled) return;
-  void startLanConsole()
-    .then((r) => console.info(`[lan-console] start: ${r.ok ? "OK" : "FAIL"} ${r.message}`))
-    .catch((err) => console.error("[lan-console] start error:", err instanceof Error ? err.message : String(err)));
+  void applySettings(settings)
+    .then(() => {
+      const status = getLanConsoleStatus();
+      console.info(
+        `[remote-control] lan=${status.listening ? "ON" : "OFF"} public=${status.tunnel.phase}${
+          status.tunnel.url ? ` url=${status.tunnel.url}` : ""
+        }${status.tunnel.error ? ` error=${status.tunnel.error}` : ""}`,
+      );
+      scheduleLanRetry();
+    })
+    .catch((err) =>
+      console.error("[remote-control] start error:", err instanceof Error ? err.message : String(err)),
+    );
 }
+
+/** App quit / reload: drop listeners, sessions and any cloudflared process. */
+export function disposeLanConsole(): void {
+  if (lanRetryTimer) {
+    clearTimeout(lanRetryTimer);
+    lanRetryTimer = null;
+  }
+  offTunnelStatus?.();
+  offTunnelStatus = null;
+  offEvents?.();
+  offEvents = null;
+  disposeTunnel();
+  stopOriginListener();
+  closeAllWebSockets();
+  try {
+    lanServer?.close();
+  } catch {
+    // ignore
+  }
+  lanServer = null;
+  authSessions.clear();
+  loginFailures.clear();
+}
+
+

@@ -72,6 +72,7 @@ export type { UpdateProgress };
 export type {
 	AgentCommand,
 	AgentEvent,
+	CloudflareTunnelStatus,
 	ElementCitation,
 	LanConsoleStatus,
 	SessionHistoryMessage,
@@ -88,12 +89,13 @@ declare const api: {
 	lanConsole: {
 		getStatus: () => Promise<LanConsoleStatus>;
 		setEnabled: (enabled: boolean) => Promise<LanConsoleStatus>;
+		setPublicAccess: (enabled: boolean) => Promise<LanConsoleStatus>;
 		setPort: (port: number) => Promise<LanConsoleStatus>;
-		setCredentials: (
-			username: string,
-			password: string,
-		) => Promise<LanConsoleStatus>;
+		rotatePin: () => Promise<LanConsoleStatus>;
 		setPreferredIp: (ip: string) => Promise<LanConsoleStatus>;
+		onTunnelStatus: (
+			callback: (status: CloudflareTunnelStatus) => void,
+		) => () => void;
 	};
 	proxy: {
 		get: () => Promise<ProxySettings>;

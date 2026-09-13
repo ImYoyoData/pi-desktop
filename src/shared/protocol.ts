@@ -96,16 +96,20 @@ export const IpcChannels = {
 		changed: "fs:changed",
 	},
 	lanConsole: {
-		/** Renderer → main: current LAN console status (enabled / port / token / url). */
+		/** Renderer → main: current remote-control status (enabled / port / pin / urls). */
 		getStatus: "lanConsole:getStatus",
-		/** Renderer → main: enable or disable the LAN web console. */
+		/** Renderer → main: enable or disable LAN (local network) access. */
 		setEnabled: "lanConsole:setEnabled",
+		/** Renderer → main: enable or disable public access via a Cloudflare tunnel. */
+		setPublicAccess: "lanConsole:setPublicAccess",
 		/** Renderer → main: change the LAN port. */
 		setPort: "lanConsole:setPort",
-		/** Renderer → main: set the username/password used to log into the console. */
-		setCredentials: "lanConsole:setCredentials",
+		/** Renderer → main: issue a new 9-digit access PIN. */
+		rotatePin: "lanConsole:rotatePin",
 		/** Renderer → main: pick which LAN IPv4 to show in QR / copy URL. */
 		setPreferredIp: "lanConsole:setPreferredIp",
+		/** Main → renderer: public-access (cloudflared) state changed. */
+		tunnelStatus: "lanConsole:tunnelStatus",
 	},
 	git: {
 		status: "git:status",
@@ -318,24 +322,59 @@ export type TrustState = {
 
 export type SessionStatus = "idle" | "running" | "error" | "stuck";
 
-/** LAN web console status exposed to the settings UI. */
-export type LanConsoleStatus = {
+/** Public-access (Cloudflare quick tunnel) state, mirrored from the main process. */
+export type CloudflareTunnelStatus = {
+	/** User wants public access; install/start may still be in flight. */
 	enabled: boolean;
+	/** cloudflared binary present and ready. */
+	installed: boolean;
+	/** cloudflared process running. */
+	running: boolean;
+	/** Current step while bringing the tunnel up. */
+	phase: "off" | "downloading" | "starting" | "on" | "error";
+	/** Public trycloudflare URL once the tunnel is up (changes every start). */
+	url: string | null;
+	/** Last failure message, shown in the remote-control panel. */
+	error: string | null;
+	/** Loopback origin the tunnel forwards to. */
+	origin: string | null;
+	/** Where the cloudflared binary lives. */
+	binaryPath: string;
+	/** True when the user supplied their own cloudflared build. */
+	customBinary: boolean;
+};
+
+/**
+ * Remote-control (formerly "LAN web console") status exposed to the settings UI.
+ *
+ * Login is a single 9-digit numeric PIN. The LAN side is plain HTTP (no
+ * certificate warnings on phones) while public access rides a Cloudflare tunnel
+ * that terminates TLS at the edge.
+ */
+export type LanConsoleStatus = {
+	/** LAN access switch (default on). */
+	enabled: boolean;
+	/** HTTPS listener is actually accepting connections. */
+	listening: boolean;
+	/** Public access via Cloudflare tunnel (default off). */
+	publicAccess: boolean;
 	port: number;
-	/** Configured login username (empty until set). */
-	username: string;
-	/** True once both username and password are configured. */
-	hasCredentials: boolean;
+	/** 9-digit access PIN shown in the panel and used to log in. */
+	pin: string;
 	/** Selected LAN IPv4 used for QR / copy (best-effort ranked when unset). */
 	preferredIp: string;
 	/** All candidate LAN IPv4s, preferred/best-ranked first. */
 	addresses: string[];
 	/** HTTPS URLs for each address (same order as `addresses`). */
 	urls: string[];
-	/** Preferred access URL, e.g. https://192.168.1.5:18700. */
+	/** Preferred LAN access URL, e.g. https://192.168.1.5:18700. */
 	baseUrl: string;
-	/** Full URL for opening the console (login is username/password based). */
+	/** Full LAN URL for opening the console (PIN login). */
 	url: string;
+	/** Public tunnel URL when public access is up, else null. */
+	publicUrl: string | null;
+	/** Cloudflare tunnel detail for the panel. */
+	tunnel: CloudflareTunnelStatus;
 };
 
 /** Tools / extensions / skills loaded into a session worker (null while booting). */
