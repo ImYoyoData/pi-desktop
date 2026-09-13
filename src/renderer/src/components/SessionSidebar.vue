@@ -19,6 +19,7 @@ import {
 } from "naive-ui";
 import {
   AddOutline,
+  ChevronDownOutline,
   ChevronForwardOutline,
   CloseOutline,
   CopyOutline,
@@ -399,7 +400,16 @@ function sessionsFor(root: string): SessionSummary[] {
     .map((item) => item.session);
 }
 
-function visibleTreeItemsFor(root: string): SessionTreeItem[] {
+type VisibleSessionItem = SessionTreeItem & {
+  /** 所属顶层会话 id：悬停任一层级时整组显示导线。 */
+  topId: string | null;
+  /** 每个祖先层级：该层级导线是否贯穿整行（否则止于行中部）。 */
+  guideFull: boolean[];
+  /** 是否为父级下最后一个可见子会话（导线带圆角弯头）。 */
+  isLastSibling: boolean;
+};
+
+function visibleTreeItemsFor(root: string): VisibleSessionItem[] {
   const items = buildSessionTree(
     [...(sessionsByRoot[root] ?? [])],
     compareSessions(root),
@@ -419,20 +429,34 @@ function visibleTreeItemsFor(root: string): SessionTreeItem[] {
     visible = items.filter((item) => !isHidden(item));
   }
   const rootCount = visible.reduce((n, item) => (item.depth === 0 ? n + 1 : n), 0);
-  if (sessionListExpanded[root] || rootCount <= SESSION_VISIBLE_LIMIT) return visible;
-  let seenRoots = 0;
-  return visible.filter((item) => {
-    if (item.depth === 0) seenRoots += 1;
-    return seenRoots <= SESSION_VISIBLE_LIMIT;
+  if (!sessionListExpanded[root] && rootCount > SESSION_VISIBLE_LIMIT) {
+    let seenRoots = 0;
+    visible = visible.filter((item) => {
+      if (item.depth === 0) seenRoots += 1;
+      return seenRoots <= SESSION_VISIBLE_LIMIT;
+    });
+  }
+  const parentOf = new Map(visible.map((i) => [i.session.id, i.parentId]));
+  const topIdOf = (id: string): string | null => {
+    let top: string | null = null;
+    let cur: string | null | undefined = id;
+    for (let hops = 0; cur && hops <= visible.length; hops++) {
+      top = cur;
+      cur = parentOf.get(cur);
+    }
+    return top;
+  };
+  return visible.map((item, idx) => {
+    const next = visible[idx + 1];
+    return {
+      ...item,
+      topId: topIdOf(item.session.id),
+      guideFull: Array.from({ length: item.depth }, (_, i) =>
+        Boolean(next && next.depth > i),
+      ),
+      isLastSibling: !next || next.depth < item.depth,
+    };
   });
-}
-
-/** 该工作区是否存在派生关系（决定是否显示树箭头占位）。 */
-function treeActiveFor(root: string): boolean {
-  const list = sessionsByRoot[root] ?? [];
-  if (!list.length) return false;
-  const ids = new Set(list.map((s) => s.id));
-  return list.some((s) => s.parentSessionId && ids.has(s.parentSessionId));
 }
 
 function isTreeNodeCollapsed(root: string, sessionId: string): boolean {
@@ -442,6 +466,39 @@ function isTreeNodeCollapsed(root: string, sessionId: string): boolean {
 function toggleTreeNode(root: string, sessionId: string): void {
   const map = (treeCollapsed[root] ??= {});
   map[sessionId] = !map[sessionId];
+}
+
+/** 悬停中的会话层级（按工作区记录顶层会话 id），驱动层级导线的显隐。 */
+const hoverGuides = reactive<Record<string, string | null>>({});
+
+function onSessionRowEnter(root: string, item: VisibleSessionItem): void {
+  if (item.topId) hoverGuides[root] = item.topId;
+}
+
+function onSessionRowLeave(root: string): void {
+  hoverGuides[root] = null;
+}
+
+/** 会话 id 归并到所属顶层会话（选中会话常驻显示其层级导线）。 */
+function topIdOfSession(root: string, sessionId: string | null): string | null {
+  if (!sessionId) return null;
+  const list = sessionsByRoot[root] ?? [];
+  const parentOf = new Map(list.map((s) => [s.id, s.parentSessionId]));
+  let top: string | null = null;
+  let cur: string | null | undefined = sessionId;
+  for (let hops = 0; cur && hops <= list.length; hops++) {
+    top = cur;
+    cur = parentOf.get(cur);
+  }
+  return top;
+}
+
+function guidesVisibleFor(root: string, item: VisibleSessionItem): boolean {
+  if (!item.topId) return false;
+  return (
+    hoverGuides[root] === item.topId ||
+    topIdOfSession(root, sessionsStore.activeId) === item.topId
+  );
 }
 
 function hiddenSessionCount(root: string): number {
@@ -1069,39 +1126,57 @@ function onLeftSplitResized(payload: SplitpanesResizedPayload): void {
                   :class="{
                     active: sessionsStore.activeId === item.session.id,
                     running: isRunning(item.session.status),
+                    'guides-visible': guidesVisibleFor(root, item),
                   }"
                   :style="{ '--i': String(sIdx), '--depth': item.depth }"
+                  :aria-expanded="
+                    item.hasChildren
+                      ? String(!isTreeNodeCollapsed(root, item.session.id))
+                      : null
+                  "
                   @click="onSelectSession(root, item.session.id)"
                   @contextmenu="(e) => openSessionCtx(e, root, item.session)"
+                  @mouseenter="onSessionRowEnter(root, item)"
+                  @mouseleave="onSessionRowLeave(root)"
                 >
                   <div class="session-inner">
                     <span
-                      v-for="(guide, gi) in item.guides"
+                      v-for="(full, gi) in item.guideFull"
                       :key="gi"
                       class="tree-guide"
-                      :class="[guide, { last: gi === item.guides.length - 1 }]"
+                      :class="{
+                        full,
+                        elbow: !full && gi === item.guideFull.length - 1,
+                        ended: !full && gi < item.guideFull.length - 1,
+                      }"
                       :style="{ '--g': gi }"
                       aria-hidden="true"
                     />
+                    <span
+                      v-if="item.depth > 0 && !item.isLastSibling"
+                      class="tree-connector"
+                      :style="{ '--g': item.depth - 1 }"
+                      aria-hidden="true"
+                    />
+                    <span
+                      v-if="item.hasChildren && !isTreeNodeCollapsed(root, item.session.id)"
+                      class="tree-descender"
+                      :style="{ '--g': item.depth }"
+                      aria-hidden="true"
+                    />
                     <span class="active-bar" />
-                    <button
-                      v-if="item.hasChildren"
-                      type="button"
-                      class="tree-toggle"
-                      :aria-expanded="!isTreeNodeCollapsed(root, item.session.id)"
-                      @click.stop="toggleTreeNode(root, item.session.id)"
-                    >
-                      <span
-                        class="chevron"
-                        :class="{ open: !isTreeNodeCollapsed(root, item.session.id) }"
-                      >
-                        <NIcon :component="ChevronForwardOutline" :size="12" />
-                      </span>
-                    </button>
-                    <span v-else-if="treeActiveFor(root)" class="tree-toggle spacer" />
                     <span class="status-mark" :class="`st-${item.session.status || 'idle'}`" aria-hidden="true">
                       <i class="status-core" />
                     </span>
+                    <button
+                      v-if="item.hasChildren"
+                      type="button"
+                      class="tree-twistie"
+                      :class="{ collapsed: isTreeNodeCollapsed(root, item.session.id) }"
+                      @click.stop="toggleTreeNode(root, item.session.id)"
+                    >
+                      <NIcon :component="ChevronDownOutline" :size="16" />
+                    </button>
                     <div class="session-body">
                       <div class="session-title-row">
                         <NIcon
@@ -1111,7 +1186,6 @@ function onLeftSplitResized(payload: SplitpanesResizedPayload): void {
                           :size="11"
                         />
                         <span class="session-label">{{ sessionLabel(item.session) }}</span>
-                        <span v-if="item.hasChildren" class="session-count">{{ item.childCount }}</span>
                       </div>
                       <div class="session-meta">
                         <span class="time">{{ relativeTime(item.session.modified) }}</span>
@@ -1526,7 +1600,7 @@ function onLeftSplitResized(payload: SplitpanesResizedPayload): void {
   gap: 8px;
   min-height: 44px;
   padding: 7px 8px;
-  padding-left: calc(14px + var(--depth, 0) * 16px);
+  padding-left: calc(8px + var(--depth, 0) * 24px);
   border-radius: 10px;
   border: 1px solid transparent;
   transition:
@@ -1555,7 +1629,7 @@ function onLeftSplitResized(payload: SplitpanesResizedPayload): void {
 
 .active-bar {
   position: absolute;
-  left: calc(4px + var(--depth, 0) * 16px);
+  left: calc(2px + var(--depth, 0) * 24px);
   top: 11px;
   bottom: 11px;
   width: 2.5px;
@@ -1570,71 +1644,56 @@ function onLeftSplitResized(payload: SplitpanesResizedPayload): void {
 .tree-guide {
   position: absolute;
   top: -1px;
-  bottom: -1px;
-  left: calc(10px + var(--g, 0) * 16px);
-  width: 1px;
-  background: var(--border);
-  pointer-events: none;
-}
-
-.tree-guide.half {
   bottom: 50%;
-}
-
-.tree-guide.last::after {
-  content: "";
-  position: absolute;
-  top: 50%;
-  left: 0;
-  width: 20px;
-  height: 1px;
-  background: var(--border);
-}
-
-.tree-toggle {
-  flex-shrink: 0;
-  width: 14px;
-  height: 14px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  margin: 0;
-  padding: 0;
-  border: none;
-  border-radius: 4px;
-  background: transparent;
-  color: var(--fg-faint);
-  cursor: pointer;
+  left: calc(16px + var(--g, 0) * 24px);
+  width: 0;
+  border-left: 1px solid color-mix(in srgb, var(--fg-faint) 40%, transparent);
+  pointer-events: none;
   opacity: 0;
-  pointer-events: none;
-  transition: opacity var(--duration-fast, 140ms) var(--ease-out, ease);
+  transition: opacity 0.1s linear;
 }
 
-.session-row:hover .tree-toggle,
-.tree-toggle:focus-visible {
-  opacity: 1;
-  pointer-events: auto;
+.tree-guide.full {
+  bottom: -1px;
 }
 
-.tree-toggle:hover {
-  color: var(--fg);
-  background: var(--bg-hover);
+.tree-guide.elbow {
+  width: 12px;
+  border-bottom: 1px solid color-mix(in srgb, var(--fg-faint) 40%, transparent);
+  border-bottom-left-radius: 4px;
 }
 
-.tree-toggle.spacer {
-  pointer-events: none;
-}
-
-.session-count {
-  flex-shrink: 0;
-  font-size: 10.5px;
-  color: var(--fg-faint);
-  opacity: 0.7;
-  font-variant-numeric: tabular-nums;
-}
-
-.session-row:hover .session-count {
+.tree-guide.ended {
   display: none;
+}
+
+.tree-connector {
+  position: absolute;
+  top: calc(50% - 0.5px);
+  left: calc(16px + var(--g, 0) * 24px);
+  width: 12px;
+  border-top: 1px solid color-mix(in srgb, var(--fg-faint) 40%, transparent);
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.1s linear;
+}
+
+.tree-descender {
+  position: absolute;
+  top: calc(50% + 12px);
+  bottom: -2px;
+  left: calc(16px + var(--g, 0) * 24px);
+  width: 0;
+  border-left: 1px solid color-mix(in srgb, var(--fg-faint) 40%, transparent);
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.1s linear;
+}
+
+.session-row.guides-visible .tree-guide,
+.session-row.guides-visible .tree-connector,
+.session-row.guides-visible .tree-descender {
+  opacity: 1;
 }
 
 .session-row.active .active-bar {
@@ -1643,12 +1702,46 @@ function onLeftSplitResized(payload: SplitpanesResizedPayload): void {
 }
 
 .status-mark {
-  width: 8px;
-  height: 8px;
+  width: 16px;
+  height: 16px;
   flex-shrink: 0;
   display: grid;
   place-items: center;
-  margin-left: 2px;
+}
+
+.tree-twistie {
+  position: absolute;
+  top: 50%;
+  left: calc(8px + var(--depth, 0) * 24px);
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--fg);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(-50%);
+  z-index: 1;
+}
+
+.tree-twistie.collapsed {
+  transform: translateY(-50%) rotate(-90deg);
+}
+
+.session-row:hover .tree-twistie,
+.tree-twistie:focus-visible {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.session-row:hover[aria-expanded] .status-mark {
+  visibility: hidden;
 }
 
 .status-core {
