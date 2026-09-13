@@ -13,6 +13,16 @@ files:
   - "!docs/*"
   - "!scripts/*"
   - "!release/*"
+  # Dev scratch that used to be packaged as-is — promo-video alone added ~172 MB
+  # to the installed payload, and the rest is graph/cache/log noise.
+  - "!promo-video/**"
+  - "!_pi-web-ref/**"
+  - "!_qs-vue-ts/**"
+  - "!.codegraph/**"
+  - "!.pi-subagents/**"
+  - "!.cursor/**"
+  - "!.tmp-shots/**"
+  - "!**/*.log"
   - "!**/*.{md,map}"
   - "!electron.vite.config.{js,ts,mjs,cjs}"
   - "!{.eslintcache,eslint.config.mjs,.prettierignore,.prettierrc.yaml,dev-app-update.yml,CHANGELOG.md}"

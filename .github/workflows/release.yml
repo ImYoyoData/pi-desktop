@@ -165,35 +165,57 @@ jobs:
           generate_release_notes: true
           body: |
 
-            ## 主要更新（v0.3.3）
+            ## 主要更新（v0.3.4）
 
-            本版重点：修复长摘要/超大输出卡屏；输入与拖入 URL 显示为纯文本。
-
-            ### 修复 Fixes
-            - 修复摘要过长卡屏：超大工具输出/长思考的折叠展开不再逐帧动画（原会对上万个 DOM 节点每帧重排冻结界面），改为直接瞬切。
-            - 修复旧代码引起的崩溃。
-
-            ### 优化 / 体验 Improvements
-            - 输入 URL 显示纯文本：粘贴/拖放的 http(s) URL 直接以纯文本插入光标处，不再自动生成链接卡片。
-            - 移除思考块上的耗时显示，过程展示更简洁。
+            本版重点：「局域网网页控制台」改名为**远程控制**并默认开启局域网访问（普通 HTTP，无证书警告），公网访问改为 Cloudflare 隧道按需打开；网页版移除语音输入。
 
             ### 新功能 Features
-            - 离开未使用的空白会话时自动清理，不再残留「新会话」。
+            - 「远程控制」取代原「局域网网页控制台」：标题栏入口、设置面板与网页端标题统一更名。
+            - 局域网访问**默认开启**：启动即监听 http://本机IP:18700，同一局域网内手机/平板/电脑用浏览器直接可用。
+            - 登录方式简化为 **9 位数字访问密码**：首次运行自动生成，面板内可查看、复制、一键更换，不再需要用户名密码。
+            - 新增「公网访问」开关（默认关闭）：打开后自动下载并运行 cloudflared 快速隧道，生成 https 公网地址；TLS 由 Cloudflare 边缘终结，隧道只转发到 127.0.0.1 的本地端口，不影响局域网本地访问。
+            - 登录失败按来源限速：公网来源 6 次失败锁定 10 分钟，局域网来源独立计数，防止爆破。
 
-            ## What's New (v0.3.3)
+            ### 变更 Changes
+            - 局域网改为普通 HTTP：不再生成自签名证书，手机首次打开没有「证书不受信任」警告；代价是局域网内不加密，请只在可信的家庭/办公网络使用。公网地址仍为 HTTPS。
+            - 网页版移除录音/语音输入（麦克风按钮、PCM 采集、转写代理与桌面 ASR 调用），桌面端语音输入不受影响。
+            - 移除 selfsigned 依赖；安装包不再打包开发目录（promo-video 等约 120MB），体积减半。
 
-            Fixed UI freezes on oversized summaries; URLs paste/drop as plain text.
+            ### 修复 Fixes
+            - 修复公网访问「页面能打开、密码能登录，却一直显示已断开/正在连接」：隧道入口未挂载 WebSocket，公网 wss 请求被当成普通 HTTP 处理返回 404，导致页面登录后无法保持长连接。
+            - 修复开启公网访问时看门狗在 cloudflared 下载途中误判「未在运行」并重试，导致下载被中断、二进制残缺；同时修正重试退避被重置成固定 5 秒的问题。
+            - 修复侧栏偶尔多出一个「空白工作区」：空白路径被解析成应用自身的工作目录，变成一个没有名字的工作区条目。
 
-            ### Fixes
-            - Fixed the freeze on oversized summaries: folding huge tool-output/thinking sections snaps instantly instead of animating tens of thousands of DOM nodes per frame.
-            - Fixed a crash triggered by legacy rendering code.
+            ### 优化 / 体验 Improvements
+            - 端口被占用、页面未构建等启动失败会在面板内说明原因，并在 20 秒后自动重试一次。
+            - 面板新增公网地址状态（下载中/连接中/已就绪/失败原因与重试按钮），标题栏用颜色区分「仅局域网」与「已开公网」。
+            - cloudflared 下载走 Electron 网络栈（自动使用系统代理），并按官方 SHA-256 校验后再执行；隧道状态变化与公网地址写入日志，便于排查。
 
-            ### Improvements
-            - Pasting/dropping an http(s) URL now inserts plain text at the caret instead of a URL chip.
-            - Removed the elapsed-time readout on thinking blocks.
+            ## What's New (v0.3.4)
+
+            The LAN web console is now **Remote Control**, LAN access is on by default (plain HTTP, no certificate warning), public access is an opt-in Cloudflare tunnel, and voice input was removed from the web console.
 
             ### Features
-            - Blank unstarted "新会话" sessions are auto-discarded when you leave a workspace or close the window.
+            - Renamed the LAN web console to **Remote Control** across the titlebar entry, settings panel and web page title.
+            - **LAN access is on by default**: the panel listens on http://your-pc-ip:18700 so a phone, tablet or PC on the same network works out of the box.
+            - Login is a single **9-digit access PIN**, auto-generated on first run and viewable, copyable and rotatable in the panel — no username/password needed.
+            - New **Public access** switch (off by default): downloads and runs a cloudflared quick tunnel and publishes an https URL. TLS terminates at Cloudflare's edge and the tunnel only ever forwards to a loopback port, so local LAN access is unaffected.
+            - Failed logins are rate limited per client — 6 attempts then a 10-minute lock, counted separately for tunnel traffic.
+
+            ### Changes
+            - The LAN side now uses plain HTTP: no self-signed certificate and no certificate warning on phones. The trade-off is unencrypted LAN traffic, so use it on a trusted home/office network; the public URL is still HTTPS.
+            - Removed voice recording from the web console (mic button, PCM capture, transcription proxy and the desktop ASR call). Desktop voice input is unchanged.
+            - Dropped the selfsigned dependency, and development folders (promo-video and friends, ~120MB) are no longer packaged — the installer is about half the size.
+
+            ### Fixes
+            - Fixed public access getting stuck on "disconnected / reconnecting" after a successful login: the tunnel origin listener had no WebSocket server attached, so a wss request was answered by the plain HTTP handler with 404 and the public page could never hold a connection.
+            - Fixed the watchdog declaring cloudflared "not running" while it was still downloading, which aborted the download and left a broken binary; retry backoff no longer collapses into a fixed 5-second loop.
+            - Fixed the sidebar occasionally showing an extra blank workspace: a blank path resolved to the app's own working directory and rendered as a nameless workspace entry.
+
+            ### Improvements
+            - Startup failures (busy port, missing build) now explain themselves in the panel and retry once after 20 seconds.
+            - The panel shows the public URL state (downloading / connecting / ready / error with retry); the titlebar dot distinguishes LAN-only from public.
+            - cloudflared downloads use Electron's network stack (system proxy aware) and are verified against the official SHA-256 before being executed; tunnel transitions and the public URL are logged for diagnosis.
 
             ## 下载 / Downloads
             - **Windows x64**: `Pi Desktop-*-win-x64-setup.exe`
@@ -203,8 +225,10 @@ jobs:
 
             ## 说明 / Notes
             - 本版本为**正式稳定版**（非 prerelease）
+            - 远程控制默认开启局域网访问，可在标题栏「远程控制」面板中关闭
             - macOS 未公证：首次打开可能需要右键 → 打开
             - This is a **stable** release
+            - Remote Control enables LAN access by default; turn it off from the Remote Control panel in the titlebar
             - macOS is unsigned/notarization off — first open may need right-click — Open
 
           files: upload/*
