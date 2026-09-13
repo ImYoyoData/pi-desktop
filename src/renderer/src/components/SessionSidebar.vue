@@ -72,8 +72,9 @@ const renameTarget = ref<{ root: string; id: string } | null>(null);
 const workspacePaths = computed(() => {
   const paths = [...workspace.recent];
   // Safety: active root missing from list — append, never promote to front.
+  // A blank root is skipped: it would render as an extra nameless workspace.
   if (
-    workspace.root &&
+    workspace.root?.trim() &&
     !paths.some((p) => p.toLowerCase() === workspace.root!.toLowerCase())
   ) {
     paths.push(workspace.root);

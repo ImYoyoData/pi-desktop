@@ -8,6 +8,20 @@ function normalizeCwd(cwd: string): string {
 	return cwd.replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
 }
 
+/**
+ * Blank roots resolve to the app's own directory further down the line and the
+ * sidebar renders `basename(root)`, so they surface as an extra nameless
+ * workspace. Never let one reach the UI.
+ */
+function sanitizeRoots(list: unknown): string[] {
+	return Array.isArray(list)
+		? list.filter(
+				(entry): entry is string =>
+					typeof entry === "string" && entry.trim().length > 0,
+			)
+		: [];
+}
+
 export const useWorkspaceStore = defineStore("workspace", () => {
 	const root = ref<string | null>(null);
 	const recent = ref<string[]>([]);
@@ -153,7 +167,7 @@ export const useWorkspaceStore = defineStore("workspace", () => {
 		 * Full recent list (Desktop + Pi-discovered). Prefer listRecentFast on boot.
 		 */
 		async function listRecent(): Promise<string[]> {
-			recent.value = await window.api.workspace.listRecent();
+			recent.value = sanitizeRoots(await window.api.workspace.listRecent());
 			return recent.value;
 		}
 
@@ -162,7 +176,7 @@ export const useWorkspaceStore = defineStore("workspace", () => {
 		 * Keeps startup / first paint snappy when ~/.pi/agent/sessions is large.
 		 */
 		async function listRecentFast(): Promise<string[]> {
-			recent.value = await window.api.workspace.listRecentDesktop();
+			recent.value = sanitizeRoots(await window.api.workspace.listRecentDesktop());
 			void listRecent().catch(() => {
 				/* background merge best-effort */
 			});
@@ -170,7 +184,7 @@ export const useWorkspaceStore = defineStore("workspace", () => {
 		}
 
 	async function listClosed(): Promise<string[]> {
-		closed.value = await window.api.workspace.listClosed();
+		closed.value = sanitizeRoots(await window.api.workspace.listClosed());
 		return closed.value;
 	}
 
@@ -178,7 +192,7 @@ export const useWorkspaceStore = defineStore("workspace", () => {
 		root: string | null;
 		recent: string[];
 	}): Promise<void> {
-		recent.value = next.recent;
+		recent.value = sanitizeRoots(next.recent);
 		if (next.root) {
 			const accepted = await requestTrustToOpen(next.root);
 			if (!accepted) {
@@ -224,7 +238,7 @@ export const useWorkspaceStore = defineStore("workspace", () => {
 	}
 
 	async function reorderRecent(order: string[]): Promise<string[]> {
-		recent.value = await window.api.workspace.reorderRecent(order);
+		recent.value = sanitizeRoots(await window.api.workspace.reorderRecent(order));
 		return recent.value;
 	}
 

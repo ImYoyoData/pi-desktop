@@ -76,6 +76,7 @@ Pi is a powerful coding agent. Pi Desktop wraps it in a **product-grade workbenc
 - **Embedded browser & element picker** — open web pages, select elements/screenshots and feed them to the agent as citations and images.
 - **Terminal, Preview & Running** — node-pty terminal, file preview with Monaco diffs, and a Running panel for background processes.
 - **Flexible voice input** — dictation and wake-word listening backed by either on-device **CrispASR** (offline, private) or an **OpenAI-compatible cloud ASR API** of your choice.
+- **Remote Control** — LAN access is on by default: open `http://<this-pc-ip>:18700` on a phone or tablet (plain HTTP, so no certificate warning) and continue the conversation with a 9-digit access PIN. For access from outside your network, flip the **Public access** switch and a Cloudflare tunnel (cloudflared is downloaded automatically) publishes an HTTPS URL. The web console has no voice input.
 - **Images in context** — paste images or image URLs; they are cached per session and sent to the model as base64 with a file path text-only models can locate.
 - **Trust & safety** — per-workspace trust gate, bash/write permission prompts, and an allowlist.
 - **Fast & light on slow machines** — lazy-loaded UI, off-main-thread PCM encoding, and no Pi SDK import in the main-process boot path.
