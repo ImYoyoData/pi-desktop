@@ -403,9 +403,9 @@ function sessionsFor(root: string): SessionSummary[] {
 type VisibleSessionItem = SessionTreeItem & {
   /** 所属顶层会话 id：悬停任一层级时整组显示导线。 */
   topId: string | null;
-  /** 每个祖先层级：该层级导线是否贯穿整行（否则止于行中部）。 */
+  /** 每个祖先层级：竖线是否贯穿整行（末级否则画弯头，中间级否则不画）。 */
   guideFull: boolean[];
-  /** 是否为父级下最后一个可见子会话（导线带圆角弯头）。 */
+  /** 是否为父级的最后一个子会话（末级导线以圆角弯头收尾）。 */
   isLastSibling: boolean;
 };
 
@@ -446,17 +446,12 @@ function visibleTreeItemsFor(root: string): VisibleSessionItem[] {
     }
     return top;
   };
-  return visible.map((item, idx) => {
-    const next = visible[idx + 1];
-    return {
-      ...item,
-      topId: topIdOf(item.session.id),
-      guideFull: Array.from({ length: item.depth }, (_, i) =>
-        Boolean(next && next.depth > i),
-      ),
-      isLastSibling: !next || next.depth < item.depth,
-    };
-  });
+  return visible.map((item) => ({
+    ...item,
+    topId: topIdOf(item.session.id),
+    guideFull: item.lastFlags.map((last) => !last),
+    isLastSibling: item.lastFlags[item.depth - 1] ?? false,
+  }));
 }
 
 function isTreeNodeCollapsed(root: string, sessionId: string): boolean {
