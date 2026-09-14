@@ -38,6 +38,7 @@ export const zh = {
 	todoDoneItems: "已完成",
 	todoPaused: "已暂停",
 	todoResumeTask: "继续任务",
+	todoContinuePrompt: "继续执行待办列表中未完成的任务。",
 	todoDeleteList: "删除列表",
 	todoExpand: "展开待办",
 	todoCollapse: "收起待办",
