@@ -293,11 +293,11 @@ function resetManualCaps(): void {
   manualCaps.value = {};
 }
 
-/** XHigh / Max 是手动附加项：Pi 只有在 thinkingLevelMap 映射了它们时才提供。 */
+/** XHigh / Max 默认开启；点击一次写 false（保存时落成 null）即关闭。 */
 function toggleExtendedThinking(index: number, flag: "thinkingXhigh" | "thinkingMax"): void {
   const model = draft.value.models[index];
   if (!model) return;
-  model[flag] = !model[flag];
+  model[flag] = model[flag] === false;
 }
 
 function capTooltip(index: number, flag: "reasoning" | "vision"): string {
@@ -819,7 +819,7 @@ function selectProvider(id: string): void {
                         <button
                           type="button"
                           class="cap-chip"
-                          :class="{ on: m.thinkingXhigh }"
+                          :class="{ on: m.thinkingXhigh !== false }"
                           @click="toggleExtendedThinking(i, 'thinkingXhigh')"
                         >
                           {{ t.modelsCustomThinkingXhigh }}
@@ -832,7 +832,7 @@ function selectProvider(id: string): void {
                         <button
                           type="button"
                           class="cap-chip"
-                          :class="{ on: m.thinkingMax }"
+                          :class="{ on: m.thinkingMax !== false }"
                           @click="toggleExtendedThinking(i, 'thinkingMax')"
                         >
                           {{ t.modelsCustomThinkingMax }}
@@ -940,8 +940,8 @@ function selectProvider(id: string): void {
                 {{ m.contextWindow ? `ctx ${m.contextWindow}` : "ctx —" }} ·
                 {{ m.maxTokens ? `out ${m.maxTokens}` : "out —" }}
                 {{ m.reasoning ? " · reasoning" : "" }}{{ m.vision ? " · vision" : "" }}{{
-                  m.thinkingXhigh ? " · xhigh" : ""
-                }}{{ m.thinkingMax ? " · max" : "" }}
+                  m.thinkingXhigh !== false ? " · xhigh" : ""
+                }}{{ m.thinkingMax !== false ? " · max" : "" }}
               </NText>
             </div>
           </section>

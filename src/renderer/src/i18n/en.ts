@@ -795,9 +795,9 @@ export const en = {
 	modelsCustomReasoning: "Reasoning",
 	modelsCustomThinkingXhigh: "XHigh",
 	modelsCustomThinkingXhighHint:
-		"Sets thinkingLevelMap.xhigh so Pi offers the XHigh level",
+		"On by default (sets thinkingLevelMap.xhigh) — click to disable",
 	modelsCustomThinkingMax: "Max",
-	modelsCustomThinkingMaxHint: "Sets thinkingLevelMap.max so Pi offers the Max level",
+	modelsCustomThinkingMaxHint: "On by default (sets thinkingLevelMap.max) — click to disable",
 	modelsCustomApply: "Apply to config",
 	modelsCustomApplied: "Updated in-memory models.json — click Save to apply",
 	modelsCustomDelete: "Delete custom provider",
@@ -897,7 +897,7 @@ export const en = {
 	modelsCustomBulkEmpty: "No valid model IDs found",
 	modelsCustomBulkAdded: (n: number) => `Added ${n} model(s)`,
 	modelsCustomCapsHint:
-		"“Reasoning / vision” are detected from the provider response or the model id — no manual entry. Click a chip to override. XHigh / Max must be ticked on a reasoning model, otherwise Pi will not offer them.",
+		"“Reasoning / vision” are detected from the provider response or the model id — no manual entry. Click a chip to override. Reasoning models enable XHigh / Max by default; click to disable.",
 	modelsCustomCapsNeedId: "Enter a model ID to auto-detect capabilities",
 	modelsCustomCapsAuto: (label: string, on: boolean) =>
 		`${label}: auto-detected as ${on ? "supported" : "not supported"} — click to override`,
