@@ -59,7 +59,7 @@ export const en = {
 	slashSkillFallbackDesc: "Invoke this skill",
 	slashNeedWorkspace: "Open a workspace first",
 	slashNeedSession: "Select or create a session first",
-	slashNewDone: "New session created",
+	slashNewDone: "Switched to a new session",
 	atFileMenuLabel: "Mention file",
 	atFileEmpty: "No matches — try a name, path fragment, or camelCase acronym",
 	atFileSearching: "Searching…",
