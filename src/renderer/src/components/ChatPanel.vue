@@ -36,6 +36,9 @@ const workspace = useWorkspaceStore();
 const widgets = useSessionWidgetsStore();
 const message = useMessage();
 
+/** 面板被折叠/让位给编辑器区域时不参与可见性：消息区据此暂停测量与贴底。 */
+const props = defineProps<{ visible?: boolean }>();
+
 /** Any docked widget (todo / changed files) above the composer? */
 const hasTodoDock = computed(() => Boolean(widgets.activeTodoList));
 /**
@@ -193,6 +196,7 @@ async function onNewAgent(): Promise<void> {
         :running="running"
         :retry-hint="chat.activeRetryHint"
         :history-loading="chat.historyLoading"
+        :visible="props.visible !== false"
       />
       <!-- Permission blocks the tool; when both pending, show permission first. -->
       <PermissionStrip />
