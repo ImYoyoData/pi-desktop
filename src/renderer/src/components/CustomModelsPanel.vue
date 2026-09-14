@@ -293,6 +293,13 @@ function resetManualCaps(): void {
   manualCaps.value = {};
 }
 
+/** XHigh / Max 是手动附加项：Pi 只有在 thinkingLevelMap 映射了它们时才提供。 */
+function toggleExtendedThinking(index: number, flag: "thinkingXhigh" | "thinkingMax"): void {
+  const model = draft.value.models[index];
+  if (!model) return;
+  model[flag] = !model[flag];
+}
+
 function capTooltip(index: number, flag: "reasoning" | "vision"): string {
   const model = draft.value.models[index];
   if (!model?.id.trim()) return t.modelsCustomCapsNeedId;
@@ -807,6 +814,32 @@ function selectProvider(id: string): void {
                       </template>
                       {{ capTooltip(i, "vision") }}
                     </NTooltip>
+                    <NTooltip v-if="m.reasoning" trigger="hover" :delay="300">
+                      <template #trigger>
+                        <button
+                          type="button"
+                          class="cap-chip"
+                          :class="{ on: m.thinkingXhigh }"
+                          @click="toggleExtendedThinking(i, 'thinkingXhigh')"
+                        >
+                          {{ t.modelsCustomThinkingXhigh }}
+                        </button>
+                      </template>
+                      {{ t.modelsCustomThinkingXhighHint }}
+                    </NTooltip>
+                    <NTooltip v-if="m.reasoning" trigger="hover" :delay="300">
+                      <template #trigger>
+                        <button
+                          type="button"
+                          class="cap-chip"
+                          :class="{ on: m.thinkingMax }"
+                          @click="toggleExtendedThinking(i, 'thinkingMax')"
+                        >
+                          {{ t.modelsCustomThinkingMax }}
+                        </button>
+                      </template>
+                      {{ t.modelsCustomThinkingMaxHint }}
+                    </NTooltip>
                   </div>
                 </div>
               </div>
@@ -906,7 +939,9 @@ function selectProvider(id: string): void {
               <NText depth="3" style="font-size: 11px">
                 {{ m.contextWindow ? `ctx ${m.contextWindow}` : "ctx —" }} ·
                 {{ m.maxTokens ? `out ${m.maxTokens}` : "out —" }}
-                {{ m.reasoning ? " · reasoning" : "" }}{{ m.vision ? " · vision" : "" }}
+                {{ m.reasoning ? " · reasoning" : "" }}{{ m.vision ? " · vision" : "" }}{{
+                  m.thinkingXhigh ? " · xhigh" : ""
+                }}{{ m.thinkingMax ? " · max" : "" }}
               </NText>
             </div>
           </section>

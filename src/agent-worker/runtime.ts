@@ -806,10 +806,11 @@ async function runCommand(id: string, command: AgentCommand): Promise<void> {
 		}
 		case "set_thinking_level": {
 			// 重新广播一次，界面上的模型/思考标注立即跟上选择器。
+			// 返回 Pi 钳制后的实际等级，供界面回显。
 			const active = requireSession();
 			active.setThinkingLevel(command.level as ThinkingLevel);
 			emitContextUsage(active);
-			post({ kind: "result", id, data: { ok: true } });
+			post({ kind: "result", id, data: { ok: true, level: active.thinkingLevel } });
 			return;
 		}
 		case "compact": {
