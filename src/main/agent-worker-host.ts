@@ -7,7 +7,7 @@ import type {
 import type { SpawnWorker, WorkerHandle } from "./session-broker";
 import { getDesktopSecuritySettings } from "./desktop-security-host";
 import { buildAgentWorkerEnv } from "./pi-path-env";
-import { withProxyEnv } from "./proxy-host";
+import { withProxyEnv, refreshSystemProxy } from "./proxy-host";
 import {
   PI_DESKTOP_NODE_PATH_ENV,
   PI_DESKTOP_PI_CLI_PATH_ENV,
@@ -99,6 +99,7 @@ function waitForReady(
 
 export function createUtilityProcessSpawnWorker(): SpawnWorker {
   return async (cwd, filePath) => {
+    await refreshSystemProxy();
     const workerEnv = withProxyEnv(
       buildAgentWorkerEnv(
         { ...process.env },

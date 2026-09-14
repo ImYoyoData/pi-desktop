@@ -66,6 +66,7 @@ import {
   normalizeAccelerator,
 } from "../shared/hotkey";
 import { DEFAULT_ASR_WAKE_WORDS } from "../shared/asr-wake";
+import { netFetch } from "./net-fetch";
 import {
   transcribeViaCloudOffMain,
   writeWavOffMain,
@@ -798,7 +799,7 @@ async function downloadOnce(
       }
     }, DOWNLOAD_SLOW_CHECK_MS);
 
-    const res = await fetch(url, {
+    const res = await netFetch(url, {
       signal: local.signal,
       redirect: "follow",
       headers: {
