@@ -34,6 +34,7 @@ declare module 'vue' {
     ComposerSlashMenu: typeof import('./src/components/ComposerSlashMenu.vue')['default']
     CustomModelsPanel: typeof import('./src/components/CustomModelsPanel.vue')['default']
     DiffTab: typeof import('./src/components/DiffTab.vue')['default']
+    DraftContextBar: typeof import('./src/components/DraftContextBar.vue')['default']
     ExtensionsSettings: typeof import('./src/components/ExtensionsSettings.vue')['default']
     ExtensionUiStrip: typeof import('./src/components/ExtensionUiStrip.vue')['default']
     FieldVoiceButton: typeof import('./src/components/FieldVoiceButton.vue')['default']

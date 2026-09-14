@@ -30,6 +30,7 @@ import AsrInstallProgress from "@renderer/components/AsrInstallProgress.vue";
 import AsrInstallConfirmModal from "@renderer/components/AsrInstallConfirmModal.vue";
 import VoiceRecordBar, { type VoiceMeter } from "@renderer/components/VoiceRecordBar.vue";
 import SendQueueBar from "@renderer/components/SendQueueBar.vue";
+import DraftContextBar from "@renderer/components/DraftContextBar.vue";
 import { useChatStore } from "@renderer/stores/chat";
 import type { ContextUsageSegmentId, ElementCitation } from "../../../shared/protocol";
 import { isHttpUrl, useComposerStore } from "@renderer/stores/composer";
@@ -2450,6 +2451,9 @@ watch(
       >
         <NIcon :component="editorExpanded ? ContractOutline : ExpandOutline" :size="14" />
       </button>
+
+      <!-- 草稿态：在输入框左上方选择新会话的工作区与（若有）Git 分支。 -->
+      <DraftContextBar v-if="isDraftSession" />
 
       <!-- Images are separate attachments (sent as model images), not part of the rich text surface -->
       <div v-if="composer.images.length" class="image-attachments">

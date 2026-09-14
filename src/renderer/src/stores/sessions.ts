@@ -253,13 +253,18 @@ export const useSessionsStore = defineStore("sessions", () => {
     return row && isUnstartedSession(row) ? row : null;
   }
 
+  /** 仅改变草稿归属的工作区，保留已输入的草稿内容。 */
+  function setDraftRoot(cwd: string): void {
+    draftRoot.value = cwd;
+    activeId.value = null;
+  }
+
   /**
    * 打开空白的新会话输入界面但不落盘。会话文件只在首次发送消息时创建，
    * 因此被放弃的草稿既不会出现在侧栏，也不会在磁盘留下空会话。
    */
   function beginDraft(cwd: string): void {
-    draftRoot.value = cwd;
-    activeId.value = null;
+    setDraftRoot(cwd);
     // 新建即空白：清掉上一个草稿残留在无会话缓冲里的内容。
     const composer = useComposerStore();
     composer.bindSession(null);
@@ -403,6 +408,7 @@ export const useSessionsStore = defineStore("sessions", () => {
     applyContextFromState,
     refresh,
     beginDraft,
+    setDraftRoot,
     commitDraft,
     selectSession,
     discardActiveIfUnstarted,
