@@ -45,6 +45,10 @@ export type ChatMessage =
 			thinkingDurationMs?: number;
 			usage?: { input?: number; output?: number; totalTokens?: number } | null;
 			durationMs?: number;
+			/** 本轮使用的模型（服务端 responseModel 优先）。 */
+			model?: { provider: string; id: string } | null;
+			/** 本轮实际生效的思考档位。 */
+			thinkingLevel?: string;
 	  }
 	| {
 			id: string;
@@ -299,6 +303,18 @@ export function coalesceGrowingText(
 	if (!previous) return snapshot;
 	if (snapshot.length >= previous.length) return snapshot;
 	return previous;
+}
+
+/** 助手消息本轮使用的模型：优先服务端返回的 responseModel，其次请求的 model。 */
+function messageModel(msg: Record<string, unknown>): { provider: string; id: string } | null {
+	const id =
+		typeof msg.responseModel === "string" && msg.responseModel
+			? msg.responseModel
+			: typeof msg.model === "string" && msg.model
+				? msg.model
+				: "";
+	const provider = typeof msg.provider === "string" ? msg.provider : "";
+	return id && provider ? { provider, id } : null;
 }
 
 /** Extract {input, output, totalTokens} from an assistant message's usage. */
@@ -667,6 +683,8 @@ export function stampThinkingClock(
 	if (thinkingDurationMs != null) next.thinkingDurationMs = thinkingDurationMs;
 	if (msg.usage != null) next.usage = msg.usage;
 	if (msg.durationMs != null) next.durationMs = msg.durationMs;
+	if (msg.model) next.model = msg.model;
+	if (msg.thinkingLevel) next.thinkingLevel = msg.thinkingLevel;
 	return next;
 }
 
@@ -1032,6 +1050,9 @@ function reduceAgentPayload(
 					stream?.role === "assistant" ? stream.thinkingDurationMs : undefined;
 				const usage = parseMessageUsage(msg);
 				const dur = usageDurationMs(state, duration);
+				const model = messageModel(msg);
+				const thinkingLevel =
+					typeof msg.thinkingLevel === "string" ? msg.thinkingLevel : undefined;
 				next = upsertAssistantMessage(next, {
 					id,
 					role: "assistant",
@@ -1041,6 +1062,8 @@ function reduceAgentPayload(
 					...(duration != null ? { thinkingDurationMs: duration } : {}),
 					...(usage ? { usage } : {}),
 					...(dur != null ? { durationMs: dur } : {}),
+					...(model ? { model } : {}),
+					...(thinkingLevel ? { thinkingLevel } : {}),
 					streaming: false,
 				});
 			}

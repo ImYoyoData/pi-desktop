@@ -1,6 +1,9 @@
-import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
-import { readFileSync, writeFileSync } from "node:fs";
 import type { ImageContent } from "@earendil-works/pi-ai/compat";
+import { readFileSync, writeFileSync } from "node:fs";
+import {
+	routedThinkingLevel,
+	type ThinkingLevel,
+} from "../shared/thinking-level";
 import {
 	createAgentSessionFromServices,
 	createAgentSessionServices,
@@ -327,6 +330,19 @@ function sanitizeAgentEvent(
 	return event;
 }
 
+/** 实时消息附上本轮实际生效的思考档，供消息底部标注（历史消息由 transcript 还原）。 */
+function withEffectiveThinkingLevel(
+	event: Record<string, unknown>,
+	active: AgentSession,
+): Record<string, unknown> {
+	if (event.type !== "message_end") return event;
+	const message = event.message;
+	if (!message || typeof message !== "object") return event;
+	const msg = message as Record<string, unknown>;
+	if (msg.role !== "assistant") return event;
+	return { ...event, message: { ...msg, thinkingLevel: active.thinkingLevel } };
+}
+
 const CONTEXT_USAGE_EVENT_TYPES = new Set([
 	"agent_end",
 	"agent_settled",
@@ -420,6 +436,7 @@ async function initSession(
 				: {}),
 		},
 	});
+	forceDefaultThinkingLevels(services.modelRuntime);
 	let assertBashExecAllowed: ((command: string) => void) | null = null;
 	let takeBashBackgroundFlag: ((command: string) => boolean) | null = null;
 	runTracker = createTrackedBashOperations(undefined, {
@@ -528,7 +545,10 @@ async function initSession(
 		const raw = event as Record<string, unknown>;
 		timingTracker.observe(event);
 		try {
-			post({ kind: "event", event: sanitizeAgentEvent(raw) });
+			post({
+				kind: "event",
+				event: sanitizeAgentEvent(withEffectiveThinkingLevel(raw, created)),
+			});
 		} catch {
 			// Last-resort: always deliver a lightweight lifecycle signal so UI can leave "running".
 			const type = typeof raw.type === "string" ? raw.type : "unknown";
@@ -595,8 +615,48 @@ async function refreshSessionModel(active: AgentSession): Promise<void> {
 	if (!current) return;
 	const next = active.modelRuntime.getModel(current.provider, current.id);
 	if (next && next !== current) {
-		await active.setModel(next);
+		await setModelPreservingThinking(active, next);
 	}
+}
+
+/**
+ * Pi 切模型会把思考级别重置为默认值；这里保留切换前的实际等级（并套用界面路由），
+ * 避免“选 Medium、实际又被重置回默认值”。
+ */
+async function setModelPreservingThinking(
+	active: AgentSession,
+	model: SessionModel,
+): Promise<void> {
+	const level = routedThinkingLevel(active.thinkingLevel);
+	await active.setModel(model);
+	if (active.thinkingLevel !== level) active.setThinkingLevel(level);
+}
+
+type SessionModel = NonNullable<ReturnType<AgentSession["modelRuntime"]["getModel"]>>;
+
+/** Pi 只在 thinkingLevelMap 显式映射时才提供 XHigh/Max；完全未配置时按支持处理。 */
+function withDefaultThinkingLevels(model: SessionModel): SessionModel {
+	if (!model.reasoning) return model;
+	// 用户（或目录）已配置映射就尊重，保留 Pi 的档位回退（如 xhigh 不支持→max）。
+	if (model.thinkingLevelMap !== undefined) return model;
+	return { ...model, thinkingLevelMap: { xhigh: "xhigh", max: "max" } };
+}
+
+/** 在 ModelRuntime 上补默认思考等级，不改写 models.json。 */
+function forceDefaultThinkingLevels(runtime: AgentSession["modelRuntime"]): void {
+	const getModel = runtime.getModel.bind(runtime);
+	const getModels = runtime.getModels.bind(runtime);
+	const getAvailable = runtime.getAvailable.bind(runtime);
+	const getAvailableSnapshot = runtime.getAvailableSnapshot.bind(runtime);
+	runtime.getModel = (providerId, modelId) => {
+		const model = getModel(providerId, modelId);
+		return model ? withDefaultThinkingLevels(model) : undefined;
+	};
+	runtime.getModels = (providerId) => getModels(providerId).map(withDefaultThinkingLevels);
+	runtime.getAvailable = async (providerId, options) =>
+		(await getAvailable(providerId, options)).map(withDefaultThinkingLevels);
+	runtime.getAvailableSnapshot = () =>
+		getAvailableSnapshot().map(withDefaultThinkingLevels);
 }
 
 function emitContextUsage(active: AgentSession): void {
@@ -799,16 +859,16 @@ async function runCommand(id: string, command: AgentCommand): Promise<void> {
 				});
 				return;
 			}
-			await active.setModel(model);
+			await setModelPreservingThinking(active, model);
 			emitContextUsage(active);
 			post({ kind: "result", id, data: { ok: true } });
 			return;
 		}
 		case "set_thinking_level": {
 			// 重新广播一次，界面上的模型/思考标注立即跟上选择器。
-			// 返回 Pi 钳制后的实际等级，供界面回显。
+			// 界面档位静默路由（Minimal→Low、Medium→High），返回值是实际生效等级。
 			const active = requireSession();
-			active.setThinkingLevel(command.level as ThinkingLevel);
+			active.setThinkingLevel(routedThinkingLevel(command.level as ThinkingLevel));
 			emitContextUsage(active);
 			post({ kind: "result", id, data: { ok: true, level: active.thinkingLevel } });
 			return;

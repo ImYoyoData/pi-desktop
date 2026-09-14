@@ -89,6 +89,7 @@ import { locale, t } from "@renderer/i18n";
 import {
   THINKING_LEVELS,
   isThinkingLevel,
+  routedThinkingLevel,
   thinkingLevelLabel,
   type ThinkingLevel,
 } from "@renderer/utils/thinking-level";
@@ -227,14 +228,7 @@ function thinkingFromState(data: unknown): ThinkingLevel | null {
   return isThinkingLevel(level) ? level : null;
 }
 
-/** `set_thinking_level` 返回的实际生效等级（Pi 会按模型能力钳制）。 */
-function effectiveThinking(data: unknown): ThinkingLevel | null {
-  if (!data || typeof data !== "object") return null;
-  const level = (data as { level?: unknown }).level;
-  return isThinkingLevel(level) ? level : null;
-}
-
-/** 把实际生效的等级回显到界面并写入偏好，保证显示与实际一致。 */
+/** 界面档位写入偏好；实际发送的值由 routedThinkingLevel 决定，不回写界面。 */
 function adoptThinking(level: ThinkingLevel, key: string | null = prefsKey.value): void {
   thinkingLevel.value = level;
   if (key) rememberThinking(key, level);
@@ -312,19 +306,6 @@ function activeSessionRunning(): boolean {
   if (!id) return false;
   return sessions.sessions.find((s) => s.id === id)?.status === "running";
 }
-
-/**
- * Whether the session is mid-answer.
- *
- * Only the live per-session state counts, deliberately NOT the broker's summary
- * `status` field: that field can sit at "running" for a session the agent has
- * already finished with (and for a brand-new session that never sent anything),
- * which used to lock the model picker for no reason.
- */
-const turnActive = computed(() => chat.activeRunning);
-
-/** Thinking level stays locked mid-answer; the model picker does not (see below). */
-const settingsLocked = computed(() => turnActive.value);
 
 const hasSendContent = computed(() =>
   Boolean(composer.draft.trim() || composer.images.length || composer.chips.length),
@@ -1102,8 +1083,11 @@ async function submit(mode: "prompt" | "steer" | "follow_up"): Promise<void> {
     await applySelectedModel({ allowStart: true });
     const level = thinkingLevel.value;
     try {
-      const result = await sessions.sendCommand(id, { type: "set_thinking_level", level });
-      adoptThinking(effectiveThinking(result) ?? level, id);
+      await sessions.sendCommand(id, {
+        type: "set_thinking_level",
+        level: routedThinkingLevel(level),
+      });
+      rememberThinking(id, level);
     } catch {
       // ignore — prompt may still proceed with worker default
     }
@@ -1581,7 +1565,7 @@ async function runSlashBuiltin(id: string): Promise<void> {
     }
     case "model": {
       // Model switching stays available while Pi is replying (the worker applies
-      // it to the live session), so no settingsLocked guard here.
+      // it to the live session) — no lock guard here.
       await nextTick();
       modelMenuRef.value?.focus?.();
       return;
@@ -1807,15 +1791,16 @@ function closeContextPopover(): void {
   document.removeEventListener("pointerdown", onContextOutside, true);
 }
 async function onThinkingChange(value: string | number): Promise<void> {
-  if (settingsLocked.value) return;
   const level = String(value) as ThinkingLevel;
   thinkingLevel.value = level;
   const key = prefsKey.value;
   if (key) rememberThinking(key, level);
   const id = sessionId.value;
   if (!id) return;
-  const result = await sessions.sendCommand(id, { type: "set_thinking_level", level });
-  adoptThinking(effectiveThinking(result) ?? level);
+  await sessions.sendCommand(id, {
+    type: "set_thinking_level",
+    level: routedThinkingLevel(level),
+  });
 }
 
 async function refreshModels(): Promise<void> {
@@ -1920,11 +1905,19 @@ async function syncSessionModelAndThinking(): Promise<void> {
     }
   }
 
-  // Worker 等级是唯一事实来源：Pi 会按模型能力钳制，界面不能停留在用户请求值。
-  if (workerThinking) {
-    adoptThinking(workerThinking, realId);
-  } else if (rememberedThinking) {
+  // 界面保留用户选择的档位；worker 里存的是路由后的实际档位。
+  if (rememberedThinking) {
     thinkingLevel.value = rememberedThinking;
+  } else if (workerThinking) {
+    adoptThinking(workerThinking, realId);
+  }
+  const routed = routedThinkingLevel(thinkingLevel.value);
+  if (workerThinking !== null && workerThinking !== routed) {
+    try {
+      await sessions.tryCommand(realId, { type: "set_thinking_level", level: routed });
+    } catch {
+      // ignore thinking sync failures
+    }
   }
 }
 
@@ -1967,10 +1960,10 @@ async function applySelectedModel(opts?: { allowStart?: boolean }): Promise<void
 }
 
 async function onModelChange(value: string | number): Promise<void> {
-  // Deliberately NOT gated on settingsLocked: switching models while Pi is
-  // replying is allowed. The worker applies it to the live session immediately
-  // (and when no worker is warm the choice is remembered for the next prompt),
-  // so the picker must not silently swallow the click.
+  // Switching models while Pi is replying is allowed. The worker applies it to
+  // the live session immediately (and when no worker is warm the choice is
+  // remembered for the next prompt), so the picker must not silently swallow
+  // the click.
   const key = String(value);
   selectedModelKey.value = key;
   appliedModelForSession.value = null;
@@ -2603,15 +2596,15 @@ watch(
           <NDropdown
             trigger="click"
             :options="thinkingMenu"
-            :disabled="voiceActive || voicePending || settingsLocked"
+            :disabled="voiceActive || voicePending"
             @select="onThinkingChange"
           >
             <NButton
               quaternary
               size="tiny"
               class="think-btn"
-              :disabled="voiceActive || voicePending || settingsLocked"
-              :title="settingsLocked ? t.composerSettingsLocked : t.thinkingLevel"
+              :disabled="voiceActive || voicePending"
+              :title="t.thinkingLevel"
             >
               <template #icon>
                 <NIcon :component="FlashOutline" :size="14" />

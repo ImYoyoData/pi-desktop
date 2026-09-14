@@ -1468,17 +1468,16 @@ async function loadModelNames(): Promise<void> {
  * "Claude Sonnet 4.5 · High"：本轮结束使用的模型与思考级别。
  * 思考为 off 时不展示级别；模型名缺失时退回 model id。
  */
-function assistantModelDetail(): { compact: string; detail: string } | null {
+function assistantModelDetail(
+  msg: Extract<ChatMessage, { role: "assistant" }>,
+): { compact: string; detail: string } | null {
   const usage = sessions.activeContextUsage;
-  if (!usage) return null;
-  const model = usage.model;
+  const model = msg.model ?? usage?.model ?? null;
+  const rawLevel = msg.thinkingLevel ?? usage?.thinkingLevel ?? null;
   const name = model
     ? (modelNames.value[`${model.provider}/${model.id}`] ?? model.id)
     : null;
-  const level =
-    usage.thinkingLevel && usage.thinkingLevel !== "off"
-      ? thinkingLevelLabel(usage.thinkingLevel)
-      : null;
+  const level = rawLevel && rawLevel !== "off" ? thinkingLevelLabel(rawLevel) : null;
   if (!name && !level) return null;
   return {
     compact: [name, level].filter(Boolean).join(" · "),
@@ -1971,11 +1970,11 @@ function onRevertUser(msg: Extract<ChatMessage, { role: "user" }>): void {
                 {{ assistantStats(msg)!.compact }}
               </span>
               <span
-                v-if="assistantModelDetail()"
+                v-if="assistantModelDetail(msg)"
                 class="assistant-model"
-                :title="assistantModelDetail()!.detail"
+                :title="assistantModelDetail(msg)!.detail"
               >
-                {{ assistantModelDetail()!.compact }}
+                {{ assistantModelDetail(msg)!.compact }}
               </span>
             </div>
           </div>

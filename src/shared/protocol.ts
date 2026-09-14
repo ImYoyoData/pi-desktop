@@ -614,6 +614,10 @@ export type SessionHistoryMessage =
 			text: string;
 			/** Model reasoning / thinking block when present. */
 			thinking?: string;
+			/** 本轮使用的模型（服务端 responseModel 优先）。 */
+			model?: { provider: string; id: string } | null;
+			/** 本轮实际生效的思考档位。 */
+			thinkingLevel?: string;
 	  }
 	| {
 			id: string;
