@@ -8,6 +8,7 @@ import {
 } from "@vicons/ionicons5";
 import { useSessionWidgetsStore } from "@renderer/stores/session-widgets";
 import { useSessionsStore } from "@renderer/stores/sessions";
+import { useChatStore } from "@renderer/stores/chat";
 import { t } from "@renderer/i18n";
 
 /**
@@ -21,6 +22,7 @@ import { t } from "@renderer/i18n";
 
 const widgets = useSessionWidgetsStore();
 const sessions = useSessionsStore();
+const chat = useChatStore();
 
 const list = computed(() => widgets.activeTodoList);
 const paused = computed(() => Boolean(list.value?.paused));
@@ -169,7 +171,17 @@ function onDismiss(): void {
 
 function onResume(): void {
   const id = sessions.activeId;
-  if (id) widgets.resumeTodosForSession(id);
+  if (!id) return;
+  // 先解除暂停：本次 sendPrompt 的新任务重置由 skipNextReset 跳过，列表得以保留。
+  widgets.resumeTodosForSession(id);
+  void chat.sendPrompt(
+    id,
+    t.todoContinuePrompt,
+    undefined,
+    undefined,
+    undefined,
+    t.todoResumeTask,
+  );
 }
 
 function onDeleteList(): void {
