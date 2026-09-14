@@ -8,9 +8,18 @@ import type { ChatMessageTag } from "../shared/chat-meta";
 import { IpcChannels } from "../shared/protocol";
 import type { SessionBroker } from "./session-broker";
 import { readSessionHistoryPage } from "./session-history";
-import { cancelAskUserAsksForSession } from "./ask-user-host";
-import { cancelPermissionAsksForSession } from "./permission-ask-host";
-import { cancelExtensionUiAsksForSession } from "./extension-ui-host";
+import {
+  cancelAskUserAsksForSession,
+  snapshotPendingAskUserAsks,
+} from "./ask-user-host";
+import {
+  cancelPermissionAsksForSession,
+  snapshotPendingPermissionAsks,
+} from "./permission-ask-host";
+import {
+  cancelExtensionUiAsksForSession,
+  snapshotPendingExtensionUiDialogs,
+} from "./extension-ui-host";
 import {
   clearSessionResources,
   getSessionResources,
@@ -167,6 +176,16 @@ export function registerSessionsIpc(broker: SessionBroker): void {
       query?: { limit?: number; beforeId?: string | null },
     ) => readSessionHistoryPage(filePath, query),
   );
+
+  // Renderer boots (initial load / reload / language switch) with empty
+  // in-memory chat state; main still holds the pending asks, so hand them
+  // back for re-display. Replies still go through the normal reply channels
+  // with the original requestId, so a recovered strip stays submittable.
+  ipcMain.handle(IpcChannels.sessions.pendingUi, () => ({
+    asks: snapshotPendingAskUserAsks(),
+    permissions: snapshotPendingPermissionAsks(),
+    extensionDialogs: snapshotPendingExtensionUiDialogs(),
+  }));
 
   ipcMain.handle(
     IpcChannels.sessions.clearContext,
