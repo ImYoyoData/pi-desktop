@@ -227,6 +227,19 @@ function thinkingFromState(data: unknown): ThinkingLevel | null {
   return isThinkingLevel(level) ? level : null;
 }
 
+/** `set_thinking_level` 返回的实际生效等级（Pi 会按模型能力钳制）。 */
+function effectiveThinking(data: unknown): ThinkingLevel | null {
+  if (!data || typeof data !== "object") return null;
+  const level = (data as { level?: unknown }).level;
+  return isThinkingLevel(level) ? level : null;
+}
+
+/** 把实际生效的等级回显到界面并写入偏好，保证显示与实际一致。 */
+function adoptThinking(level: ThinkingLevel, key: string | null = prefsKey.value): void {
+  thinkingLevel.value = level;
+  if (key) rememberThinking(key, level);
+}
+
 function rememberModel(sessionId: string, key: string): void {
   modelBySession.value = { ...modelBySession.value, [sessionId]: key };
   persistSessionPrefs();
@@ -1089,8 +1102,8 @@ async function submit(mode: "prompt" | "steer" | "follow_up"): Promise<void> {
     await applySelectedModel({ allowStart: true });
     const level = thinkingLevel.value;
     try {
-      await sessions.sendCommand(id, { type: "set_thinking_level", level });
-      rememberThinking(id, level);
+      const result = await sessions.sendCommand(id, { type: "set_thinking_level", level });
+      adoptThinking(effectiveThinking(result) ?? level, id);
     } catch {
       // ignore — prompt may still proceed with worker default
     }
@@ -1801,7 +1814,8 @@ async function onThinkingChange(value: string | number): Promise<void> {
   if (key) rememberThinking(key, level);
   const id = sessionId.value;
   if (!id) return;
-  await sessions.sendCommand(id, { type: "set_thinking_level", level });
+  const result = await sessions.sendCommand(id, { type: "set_thinking_level", level });
+  adoptThinking(effectiveThinking(result) ?? level);
 }
 
 async function refreshModels(): Promise<void> {
@@ -1894,14 +1908,7 @@ async function syncSessionModelAndThinking(): Promise<void> {
     selectedModelKey.value = flat[0]?.value ?? null;
   }
 
-  if (rememberedThinking) {
-    thinkingLevel.value = rememberedThinking;
-  } else if (workerThinking) {
-    thinkingLevel.value = workerThinking;
-    rememberThinking(realId, workerThinking);
-  }
-
-  // Only push model/thinking to a live worker — first prompt cold-starts the agent.
+  // Only push model to a live worker — first prompt cold-starts the agent.
   if (selectedModelKey.value && workerKey !== null) {
     const token = `${realId}::${selectedModelKey.value}`;
     if (workerKey !== selectedModelKey.value || appliedModelForSession.value !== token) {
@@ -1913,16 +1920,11 @@ async function syncSessionModelAndThinking(): Promise<void> {
     }
   }
 
-  if (workerThinking !== null && (rememberedThinking || thinkingLevel.value)) {
-    const level = thinkingLevel.value;
-    if (workerThinking !== level) {
-      try {
-        await sessions.tryCommand(realId, { type: "set_thinking_level", level });
-        rememberThinking(realId, level);
-      } catch {
-        // ignore thinking sync failures
-      }
-    }
+  // Worker 等级是唯一事实来源：Pi 会按模型能力钳制，界面不能停留在用户请求值。
+  if (workerThinking) {
+    adoptThinking(workerThinking, realId);
+  } else if (rememberedThinking) {
+    thinkingLevel.value = rememberedThinking;
   }
 }
 
