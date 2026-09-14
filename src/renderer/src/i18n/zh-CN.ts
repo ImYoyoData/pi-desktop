@@ -344,11 +344,6 @@ export const zh = {
 	themeDark: "暗色",
 	language: "语言",
 	languageHint: "更改语言后会短暂加载并刷新界面。",
-	answerLanguage: "回答语言",
-	answerLanguageHint:
-		"Pi 回复你时使用的语言，与界面语言相互独立。「跟随设备」按系统语言自动判断。",
-	answerLanguageAuto: "跟随设备",
-	answerLanguageApplies: "对之后启动的会话生效；正在进行的会话需新开会话或重启会话。",
 	voiceInput: "语音输入",
 	voiceListening: "正在录音…",
 	voiceRecording: "语音录音",

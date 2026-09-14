@@ -6,9 +6,6 @@ import type {
 } from "../shared/agent-worker-messages";
 import type { SpawnWorker, WorkerHandle } from "./session-broker";
 import { getDesktopSecuritySettings } from "./desktop-security-host";
-import { getResponseLanguageSettings } from "./response-language-host";
-import { getDeviceLanguage } from "./response-language-ipc";
-import { resolveResponseLanguage } from "../shared/response-language";
 import { buildAgentWorkerEnv } from "./pi-path-env";
 import { withProxyEnv } from "./proxy-host";
 import {
@@ -196,19 +193,12 @@ export function createUtilityProcessSpawnWorker(): SpawnWorker {
     const readyPromise = waitForReady(child);
     const projectTrusted = resolveTrustState(cwd).projectTrusted;
     const desktopSecurity = await getDesktopSecuritySettings();
-    // Answer language is baked into the system prompt at init, so it is resolved
-    // here (never `auto`) using the renderer's device language when unset.
-    const responseLanguage = resolveResponseLanguage(
-      getResponseLanguageSettings(),
-      getDeviceLanguage(),
-    );
     child.postMessage({
       kind: "init",
       cwd,
       filePath,
       projectTrusted,
       desktopSecurity,
-      responseLanguage,
     } satisfies WorkerInbound);
     const ready = await readyPromise;
 

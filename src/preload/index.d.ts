@@ -60,10 +60,6 @@ import type {
 	GitOpResult,
 } from "../shared/git-types";
 import type { ProxySettings } from "../shared/proxy";
-import type {
-	ResponseLanguageSettings,
-	ResponseLanguageState,
-} from "../shared/response-language";
 export type AppInfo = {
 	version: string;
 	githubUrl: string;
@@ -79,8 +75,6 @@ export type {
 	CloudflareTunnelStatus,
 	ElementCitation,
 	LanConsoleStatus,
-	ResponseLanguageSettings,
-	ResponseLanguageState,
 	SessionHistoryMessage,
 	SessionHistoryPage,
 	SessionHistoryQuery,
@@ -91,13 +85,6 @@ export type {
 declare const api: {
 	clipboard: {
 		writeImage: (dataUrl: string) => Promise<void>;
-	};
-	responseLanguage: {
-		get: () => Promise<ResponseLanguageState>;
-		set: (
-			settings: ResponseLanguageSettings,
-			deviceLanguage?: string,
-		) => Promise<ResponseLanguageState>;
 	};
 	lanConsole: {
 		getStatus: () => Promise<LanConsoleStatus>;
