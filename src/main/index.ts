@@ -65,7 +65,6 @@ import {
 	registerExtensionUiIpc,
 } from "./extension-ui-host";
 import { registerSecurityTrustIpc } from "./security-trust-ipc";
-import { registerResponseLanguageIpc } from "./response-language-ipc";
 import {
 	disposeLanConsole,
 	ensureLanConsoleFromSettings,
@@ -344,7 +343,6 @@ function boot(): void {
 		registerAskUserIpc();
 		registerExtensionUiIpc();
 		registerSecurityTrustIpc(broker);
-		registerResponseLanguageIpc();
 		registerLanConsoleIpc(broker);
 		registerPreviewIpc();
 		registerFilesIpc();

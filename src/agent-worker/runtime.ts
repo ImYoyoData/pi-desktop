@@ -52,7 +52,6 @@ import {
 	DESKTOP_BASH_BACKGROUND_PROMPT,
 	DESKTOP_PROJECT_ORIENTATION_PROMPT,
 	DESKTOP_TODO_PROMPT,
-	desktopResponseLanguagePrompt,
 } from "../shared/desktop-system-prompt";
 import { createAskUserToolDefinition } from "./ask-user-tool";
 import { createTodoWriteToolDefinition } from "./todo-tool";
@@ -380,7 +379,6 @@ async function initSession(
 	filePath: string | undefined,
 	projectTrusted: boolean,
 	securitySnapshot?: DesktopSecuritySettings,
-	responseLanguage?: string,
 ): Promise<void> {
 	if (initStarted) {
 		return;
@@ -408,11 +406,6 @@ async function initSession(
 		workerDirname(),
 		typeof process.resourcesPath === "string" ? process.resourcesPath : undefined,
 	);
-	// Answers follow the configured language (Settings → 回答语言); empty when the
-	// user picked the device language and it could not be resolved.
-	const responseLanguagePrompt = desktopResponseLanguagePrompt(
-		String(responseLanguage ?? "").trim(),
-	);
 	// Which command shell this machine can actually run (see command-shell.ts).
 	const commandShell = detectCommandShell();
 	const commandShellPromptText = commandShellPrompt(commandShell);
@@ -428,7 +421,6 @@ async function initSession(
 				DESKTOP_TODO_PROMPT,
 				DESKTOP_BASH_BACKGROUND_PROMPT,
 				DESKTOP_COMPOSER_MODES_PROMPT,
-				...(responseLanguagePrompt ? [responseLanguagePrompt] : []),
 				...(commandShellPromptText ? [commandShellPromptText] : []),
 			],
 			...(builtinBrowserSkillDir
@@ -739,7 +731,6 @@ export async function handleWorkerMessage(msg: WorkerInbound): Promise<void> {
 			msg.filePath,
 			msg.projectTrusted,
 			msg.desktopSecurity,
-			msg.responseLanguage,
 		);
 		return;
 	}
