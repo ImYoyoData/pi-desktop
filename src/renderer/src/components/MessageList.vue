@@ -78,7 +78,14 @@ const props = defineProps<{
   historyLoading?: boolean;
   historyHasMore?: boolean;
   historyLoadingOlder?: boolean;
+  /** 面板被折叠/让位给编辑器区域时为 false。 */
+  visible?: boolean;
 }>();
+
+/** 面板不可见时内容会被跳过渲染，任何读量高都会强制布局，必须停掉追踪。 */
+function paneHidden(): boolean {
+  return props.visible === false;
+}
 
 const chat = useChatStore();
 const waitState = computed(() => chat.activeWaitState);
@@ -656,7 +663,7 @@ function clampRenderWindow(preferBottom: boolean): void {
 
 function measureVisibleRows(): void {
   const sc = scroller.value;
-  if (!sc) return;
+  if (!sc || paneHidden()) return;
   const rows = sc.querySelectorAll<HTMLElement>(".row[data-msg-id]");
   for (const row of rows) {
     const id = row.dataset.msgId;
@@ -674,18 +681,30 @@ function measureVisibleRows(): void {
  * Re-measure a single row after its own content resized (e.g. a work section
  * finished its fold/unfold animation). Keeps virtual-window heights in sync
  * without a full relayout — the source of the "janky" fold.
+ * 拖动分隔条 / 缩放窗口时每帧会收到多个分组的高度变化，按帧合并成一次测量。
  */
+let resizedRowRaf = 0;
+const resizedRowIds = new Set<string>();
 function rowResized(id: string): void {
-  if (adjustingWindow || settlingSession) return;
-  const sc = scroller.value;
-  if (!sc) return;
-  const row = sc.querySelector<HTMLElement>(`.row[data-msg-id="${id}"]`);
-  if (!row) return;
-  const h = row.offsetHeight;
-  if (h > 0) heightById.set(heightKey(id), h);
-  const top = row.offsetTop;
-  if (top > 0) topById.set(id, top);
-  ensureViewportCovered();
+  if (adjustingWindow || settlingSession || paneHidden()) return;
+  resizedRowIds.add(id);
+  if (resizedRowRaf) return;
+  resizedRowRaf = requestAnimationFrame(() => {
+    resizedRowRaf = 0;
+    const ids = [...resizedRowIds];
+    resizedRowIds.clear();
+    const sc = scroller.value;
+    if (!sc) return;
+    for (const rowId of ids) {
+      const row = sc.querySelector<HTMLElement>(`.row[data-msg-id="${rowId}"]`);
+      if (!row) continue;
+      const h = row.offsetHeight;
+      if (h > 0) heightById.set(heightKey(rowId), h);
+      const top = row.offsetTop;
+      if (top > 0) topById.set(rowId, top);
+    }
+    ensureViewportCovered();
+  });
 }
 
 /**
@@ -694,6 +713,7 @@ function rowResized(id: string): void {
  */
 function ensureViewportCovered(): void {
   if (adjustingWindow || settlingSession || loadingOlderPage || document.hidden) return;
+  if (paneHidden()) return;
   const sc = scroller.value;
   if (!sc) return;
   // 已挂载内容不足一屏且确实有 spacer：行高可能在被卸载期间变化过，先量一次再判断。
@@ -922,7 +942,7 @@ let instantSnapToken = 0;
 function jumpToBottomInstant(): void {
   // Jump control / settle are the only callers; anything else must not move
   // the viewport while the user is reading history.
-  if (readingHistory) return;
+  if (readingHistory || paneHidden()) return;
   const sc = scroller.value;
   if (!sc) return;
   const token = ++instantSnapToken;
@@ -968,7 +988,7 @@ function scheduleBottomScroll(): void {
   // still momentarily true in a state snapshot taken mid-wheel.
   if (readingHistory) return;
   // Minimized / hidden: no layout work until the window is restored.
-  if (document.hidden) return;
+  if (document.hidden || paneHidden()) return;
   if (bottomScrollRaf) return;
   bottomScrollRaf = requestAnimationFrame(() => {
     bottomScrollRaf = 0;
@@ -976,7 +996,7 @@ function scheduleBottomScroll(): void {
     // Re-check at fire time, not just schedule time: the user may have scrolled
     // up after the snap was queued (the follow decision is sync, this rAF is
     // not) — never yank the viewport back down while they read history.
-    if (!sc || document.hidden || !followBottom) return;
+    if (!sc || document.hidden || paneHidden() || !followBottom) return;
     // Even when a prior state sample left follow=true (samples are not atomic
     // with a mid-await wheel), the hard reading latch still wins at fire time.
     if (readingHistory) return;
@@ -984,9 +1004,9 @@ function scheduleBottomScroll(): void {
   });
 }
 
-/** Restored from minimized: land at the live edge without a big re-measure. */
-function onVisibilityChange(): void {
-  if (document.hidden) return;
+/** 面板 / 窗口重新可见：贴底收敛一次，不重新量全部行高。 */
+function onBecameVisible(): void {
+  if (paneHidden() || document.hidden) return;
   if (!followBottom || readingHistory) return;
   clampRenderWindow(true);
   scheduleBottomScroll();
@@ -995,6 +1015,19 @@ function onVisibilityChange(): void {
     scheduleBottomScroll();
   });
 }
+
+/** Restored from minimized: land at the live edge without a big re-measure. */
+function onVisibilityChange(): void {
+  if (document.hidden) return;
+  onBecameVisible();
+}
+
+watch(
+  () => props.visible,
+  (visible) => {
+    if (visible !== false) onBecameVisible();
+  },
+);
 
 function jumpToLatest(): void {
   disengageHistoryReading();
@@ -1245,6 +1278,7 @@ function handleScrollerScroll(): void {
 }
 
 function onScrollerScroll(): void {
+  if (paneHidden()) return;
   const sc = scroller.value;
   if (sc) syncFollowBottomOnScroll(sc);
   if (scrollRaf) return;
@@ -1515,6 +1549,11 @@ onBeforeUnmount(() => {
     clearTimeout(streamMeasureTimer);
     streamMeasureTimer = 0;
   }
+  if (resizedRowRaf) {
+    cancelAnimationFrame(resizedRowRaf);
+    resizedRowRaf = 0;
+  }
+  resizedRowIds.clear();
   instantSnapToken++;
 });
 

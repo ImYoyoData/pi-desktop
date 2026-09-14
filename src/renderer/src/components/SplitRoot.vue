@@ -56,6 +56,9 @@ const innerPair = computed(() => {
   return { chat: (c / sum) * 100, right: (r / sum) * 100 };
 });
 
+/** 聊天列（消息区）是否可见：最大化时整列让给编辑器区域。 */
+const chatVisible = computed(() => !layout.editorMaximized);
+
 /** 最大化时聊天列默认隐藏；底栏展开时仅用该列承载面板。 */
 const chatPaneSize = computed(() =>
   layout.editorMaximized
@@ -138,6 +141,7 @@ function onChatResized(payload: SplitpanesResizedPayload): void {
             :size="chatPaneSize"
             :min-size="layout.editorMaximized ? 0 : CHAT_MIN"
             :max-size="layout.editorMaximized || layout.rightCollapsed ? 100 : PANE_MAX"
+            :class="{ 'pane-collapsed': layout.editorMaximized && layout.bottomCollapsed }"
           >
             <Splitpanes
               horizontal
@@ -151,7 +155,7 @@ function onChatResized(payload: SplitpanesResizedPayload): void {
                 :max-size="layout.editorMaximized || layout.bottomCollapsed ? 100 : 100 - PANEL_MIN"
                 :class="{ 'pane-collapsed': layout.editorMaximized }"
               >
-                <ChatPanel />
+                <ChatPanel :visible="chatVisible" />
               </Pane>
               <Pane
                 :size="bottomPanelSize"
@@ -193,11 +197,15 @@ function onChatResized(payload: SplitpanesResizedPayload): void {
   height: 100%;
 }
 
-:deep(.splitpanes__pane) {
+.split-root :deep(.splitpanes__pane) {
   overflow: hidden;
   background: var(--bg);
   display: flex;
   flex-direction: column;
+  /* splitpanes 默认给面板宽高加 0.2s 过渡，折叠/最大化会逐帧重排重内容区；
+     展开收起瞬时生效，一次布局代替十几帧。 */
+  transition: none;
+  will-change: auto;
 }
 
 :deep(.splitpanes__pane > *) {
@@ -210,6 +218,8 @@ function onChatResized(payload: SplitpanesResizedPayload): void {
   overflow: hidden !important;
   pointer-events: none;
   visibility: hidden;
+  /* 隐藏面板整棵子树跳过布局/绘制（保留 DOM 与组件状态）。 */
+  content-visibility: hidden;
 }
 
 .chat-split.panel-collapsed :deep(.splitpanes__splitter) {
