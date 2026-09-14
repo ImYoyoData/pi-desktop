@@ -536,10 +536,16 @@ async function loadSessions(root: string): Promise<void> {
   markRendererStartup("renderer:ready");
 }
 
+function sameWorkspacePath(a: string, b: string): boolean {
+  const norm = (p: string) =>
+    p.replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
+  return norm(a) === norm(b);
+}
+
 async function ensureActiveSession(root: string): Promise<void> {
   // 草稿态没有真实会话：同一工作区保留，切到别的目录则放弃。
   if (sessionsStore.draftRoot) {
-    if (sessionsStore.draftRoot === root) return;
+    if (sameWorkspacePath(sessionsStore.draftRoot, root)) return;
     sessionsStore.draftRoot = null;
   }
   const list = sessionsByRoot[root] ?? [];
