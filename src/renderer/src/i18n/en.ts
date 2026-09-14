@@ -732,6 +732,12 @@ export const en = {
 	modelsSelectHint: "Select a provider on the left, or click “+ Add”",
 	modelsJsonHint:
 		"Edit ~/.pi/agent/models.json (custom providers / baseUrl / models)",
+	thinkingLanguage: "Thinking language",
+	thinkingLanguageHint:
+		"Affects visible reasoning text only. Auto: injects a Chinese reasoning instruction when the UI is Chinese; Off: never injects.",
+	thinkingLanguageOff: "Off",
+	thinkingLanguageAuto: "Auto",
+	thinkingLanguageZh: "Chinese",
 	modelsAddProvider: "Add provider",
 	modelsSearchProvider: "Search providers…",
 	modelsCustomProvider: "Custom (OpenAI / Anthropic compatible)",
