@@ -190,7 +190,11 @@ export const useComposerStore = defineStore("composer", () => {
    */
   async function addPastedImage(dataUrl: string): Promise<void> {
     const sessionId = activeSessionId.value;
-    if (!sessionId) return;
+    // 草稿（未创建会话）没有附件目录可缓存，先内联保存，发送时再随消息带走。
+    if (!sessionId) {
+      addImageFromDataUrl(dataUrl);
+      return;
+    }
     try {
       const cached = await window.api.sessions.cacheImage(sessionId, { dataUrl });
       // The cached file path stays bound to the image (hidden in the editor,
@@ -338,11 +342,21 @@ export const useComposerStore = defineStore("composer", () => {
     b.chips = b.chips.filter((c) => c.id !== id);
   }
 
-  function clear(): void {
-    const b = bucket();
+  /** 清空指定会话（草稿传 null）的输入缓冲；与当前活动会话无关。 */
+  function clearSession(sessionId: string | null): void {
+    const key = keyFor(sessionId);
+    const b = bySession[key];
+    if (!b) return;
     b.draft = "";
     b.chips = [];
-    clearImages();
+    for (const img of b.images) {
+      if (img.previewUrl.startsWith("blob:")) URL.revokeObjectURL(img.previewUrl);
+    }
+    b.images = [];
+  }
+
+  function clear(): void {
+    clearSession(activeSessionId.value);
   }
 
   /** Legacy name — now adds a file tag chip instead of plain text. */
@@ -470,6 +484,7 @@ export const useComposerStore = defineStore("composer", () => {
     activeMode,
     removeChip,
     clear,
+    clearSession,
     insertPathRef,
     formatChipsForMessage,
   };

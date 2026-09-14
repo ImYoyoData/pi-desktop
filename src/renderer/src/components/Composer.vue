@@ -129,6 +129,8 @@ type ModelSelectOption =
   | { label: string; value: string };
 
 const SESSION_PREFS_KEY = "pi-desktop:session-model-prefs";
+/** 未创建的新会话草稿用稳定键记住模型/思考等级，发送后自动沿用到真实会话。 */
+const DRAFT_PREF_KEY = "__draft__";
 
 type SessionPrefs = {
   models: Record<string, string>;
@@ -234,6 +236,21 @@ function rememberThinking(sessionId: string, level: ThinkingLevel): void {
   persistSessionPrefs();
 }
 
+/** 草稿正在被 commitDraft 转正——watcher 借此区分手工选中会话的情形。 */
+let draftCommitPending = false;
+
+/** 清掉某个记忆键，避免草稿转正后残留悬挂偏好。 */
+function forgetPrefs(key: string): void {
+  if (!(key in modelBySession.value) && !(key in thinkingBySession.value)) return;
+  const models = { ...modelBySession.value };
+  const thinking = { ...thinkingBySession.value };
+  delete models[key];
+  delete thinking[key];
+  modelBySession.value = models;
+  thinkingBySession.value = thinking;
+  persistSessionPrefs();
+}
+
 const thinkingMenu = computed<DropdownOption[]>(() =>
   THINKING_LEVELS.map((o) => ({
     label: o.label,
@@ -267,6 +284,13 @@ const modelLabel = computed(
 );
 
 const sessionId = computed(() => sessions.activeId);
+const isDraftSession = computed(
+  () => !sessions.activeId && Boolean(sessions.draftRoot),
+);
+/** 模型/思考等级的记忆键：草稿用固定键，未选会话时为 null。 */
+const prefsKey = computed(
+  () => sessionId.value ?? (isDraftSession.value ? DRAFT_PREF_KEY : null),
+);
 const running = computed(() => chat.activeRunning || activeSessionRunning());
 
 function activeSessionRunning(): boolean {
@@ -300,8 +324,10 @@ const isEditingPublished = computed(
     chat.pendingUserEdit?.sessionId === sessionId.value,
 );
 
-/** Show stop while running; show send whenever there is a session (empty → disabled). */
-const showPrimaryAction = computed(() => Boolean(sessionId.value));
+/** Show stop while running; show send whenever there is a session or a draft. */
+const showPrimaryAction = computed(
+  () => Boolean(sessionId.value) || isDraftSession.value,
+);
 /** Stop when running with empty composer; otherwise send/queue. */
 const primaryIsStop = computed(() => running.value && !hasSendContent.value);
 
@@ -1010,9 +1036,6 @@ async function submit(mode: "prompt" | "steer" | "follow_up"): Promise<void> {
   if (voiceActive.value) cancelVoice();
   if (voicePending.value) return;
 
-  const id = sessionId.value;
-  if (!id) return;
-
   // Editing a queued message: commit back into the queue
   if (sendQueue.editingId) {
     saveEditingToQueue();
@@ -1032,6 +1055,26 @@ async function submit(mode: "prompt" | "steer" | "follow_up"): Promise<void> {
   const snap = snapshotComposerPayload();
   if (!snap) return;
 
+  // 草稿态在此刻才真正建会话（首条消息触发），失败则保留输入待重试。
+  const sourceId = sessionId.value;
+  if (!sourceId && !sessions.draftRoot) return;
+  let id = sourceId;
+  if (!id) {
+    draftCommitPending = true;
+    try {
+      const created = await sessions.commitDraft();
+      if (!created) {
+        draftCommitPending = false;
+        return;
+      }
+      id = created.id;
+    } catch (err) {
+      draftCommitPending = false;
+      messageApi.error(err instanceof Error ? err.message : String(err));
+      return;
+    }
+  }
+
   // Re-editing a published user bubble: commit replaces that message and
   // everything after it (see chat.sendPromptSerial + agent rollback_user).
   // `pendingUserEdit` is cleared once the send lands (in chat.sendPrompt).
@@ -1039,7 +1082,7 @@ async function submit(mode: "prompt" | "steer" | "follow_up"): Promise<void> {
   const displayText = snap.displayText;
   const agentText = snap.text || " ";
   const titleSeed = displayText || snap.tagsToSend?.[0]?.content || snap.tagsToSend?.[0]?.label || "";
-  composer.clear();
+  composer.clearSession(sourceId);
   // First message (or any send) activates the Pi agent worker and applies model.
   if (mode === "prompt" || mode === "steer" || mode === "follow_up") {
     await applySelectedModel({ allowStart: true });
@@ -1508,8 +1551,8 @@ async function runSlashBuiltin(id: string): Promise<void> {
         messageApi.warning(t.slashNeedWorkspace);
         return;
       }
-      const created = await sessions.createSession(root);
-      if (created) messageApi.success(t.slashNewDone);
+      sessions.beginDraft(root);
+      messageApi.success(t.slashNewDone);
       return;
     }
     case "compact": {
@@ -1751,11 +1794,12 @@ function closeContextPopover(): void {
 }
 async function onThinkingChange(value: string | number): Promise<void> {
   if (settingsLocked.value) return;
-  const id = sessionId.value;
   const level = String(value) as ThinkingLevel;
   thinkingLevel.value = level;
+  const key = prefsKey.value;
+  if (key) rememberThinking(key, level);
+  const id = sessionId.value;
   if (!id) return;
-  rememberThinking(id, level);
   await sessions.sendCommand(id, { type: "set_thinking_level", level });
 }
 
@@ -1786,19 +1830,20 @@ async function refreshModels(): Promise<void> {
 }
 
 async function syncSessionModelAndThinking(): Promise<void> {
-  const id = sessionId.value;
+  const realId = sessionId.value;
+  const key = prefsKey.value;
   const flat = flatModelOptions(availableModels.value);
-  if (!id) {
+  if (!key) {
     selectedModelKey.value = flat[0]?.value ?? null;
     return;
   }
 
-  // Instant UI from per-session memory
-  const remembered = modelBySession.value[id];
+  // Instant UI from per-session (or draft) memory
+  const remembered = modelBySession.value[key];
   if (remembered && flat.some((o) => o.value === remembered)) {
     selectedModelKey.value = remembered;
   }
-  const rememberedThinking = thinkingBySession.value[id];
+  const rememberedThinking = thinkingBySession.value[key];
   if (rememberedThinking) {
     thinkingLevel.value = rememberedThinking;
   }
@@ -1807,7 +1852,7 @@ async function syncSessionModelAndThinking(): Promise<void> {
   // workspace's first session (sidebar top) so new chats match the user's setup.
   if (!remembered && !rememberedThinking) {
     const first = sessions.sessions[0];
-    if (first && first.id !== id) {
+    if (first && first.id !== realId) {
       const firstModel = modelBySession.value[first.id];
       const firstThinking = thinkingBySession.value[first.id];
       if (firstModel && flat.some((o) => o.value === firstModel)) {
@@ -1817,15 +1862,23 @@ async function syncSessionModelAndThinking(): Promise<void> {
     }
   }
 
+  // 草稿没有 worker 可查，选定模型/等级就位后直接返回。
+  if (!realId) {
+    if (!selectedModelKey.value || !flat.some((o) => o.value === selectedModelKey.value)) {
+      selectedModelKey.value = flat[0]?.value ?? null;
+    }
+    return;
+  }
+
   // Prefer live worker state when agent is already running (never cold-start here).
   let workerKey: string | null = null;
   let workerThinking: ThinkingLevel | null = null;
   try {
-    const state = await sessions.tryCommand(id, { type: "get_state" });
+    const state = await sessions.tryCommand(realId, { type: "get_state" });
     if (state !== undefined) {
       workerKey = modelKeyFromState(state);
       workerThinking = thinkingFromState(state);
-      sessions.applyContextFromState(id, state);
+      sessions.applyContextFromState(realId, state);
     }
   } catch {
     // ignore sync failures
@@ -1833,7 +1886,7 @@ async function syncSessionModelAndThinking(): Promise<void> {
 
   if (workerKey && flat.some((o) => o.value === workerKey)) {
     selectedModelKey.value = workerKey;
-    rememberModel(id, workerKey);
+    rememberModel(realId, workerKey);
   } else if (remembered && flat.some((o) => o.value === remembered)) {
     selectedModelKey.value = remembered;
   } else if (!selectedModelKey.value || !flat.some((o) => o.value === selectedModelKey.value)) {
@@ -1844,18 +1897,18 @@ async function syncSessionModelAndThinking(): Promise<void> {
     thinkingLevel.value = rememberedThinking;
   } else if (workerThinking) {
     thinkingLevel.value = workerThinking;
-    rememberThinking(id, workerThinking);
+    rememberThinking(realId, workerThinking);
   }
 
   // Only push model/thinking to a live worker — first prompt cold-starts the agent.
   if (selectedModelKey.value && workerKey !== null) {
-    const token = `${id}::${selectedModelKey.value}`;
+    const token = `${realId}::${selectedModelKey.value}`;
     if (workerKey !== selectedModelKey.value || appliedModelForSession.value !== token) {
       appliedModelForSession.value = null;
       await applySelectedModel({ allowStart: false });
     } else {
       appliedModelForSession.value = token;
-      rememberModel(id, selectedModelKey.value);
+      rememberModel(realId, selectedModelKey.value);
     }
   }
 
@@ -1863,8 +1916,8 @@ async function syncSessionModelAndThinking(): Promise<void> {
     const level = thinkingLevel.value;
     if (workerThinking !== level) {
       try {
-        await sessions.tryCommand(id, { type: "set_thinking_level", level });
-        rememberThinking(id, level);
+        await sessions.tryCommand(realId, { type: "set_thinking_level", level });
+        rememberThinking(realId, level);
       } catch {
         // ignore thinking sync failures
       }
@@ -1918,8 +1971,8 @@ async function onModelChange(value: string | number): Promise<void> {
   const key = String(value);
   selectedModelKey.value = key;
   appliedModelForSession.value = null;
-  const id = sessionId.value;
-  if (id && key) rememberModel(id, key);
+  const prefs = prefsKey.value;
+  if (prefs && key) rememberModel(prefs, key);
   await applySelectedModel({ allowStart: false });
 }
 
@@ -2295,6 +2348,16 @@ watch(sessionId, (id, prev) => {
   if (voiceActive.value || voicePending.value) cancelVoice();
   if (chat.pendingUserEdit) chat.cancelEditUser();
   composer.bindSession(id);
+
+  // 草稿首次发送成功建出真实会话：把草稿的模型/思考选择迁移过去。
+  if (id && !prev && draftCommitPending) {
+    draftCommitPending = false;
+    const draftModel = modelBySession.value[DRAFT_PREF_KEY];
+    const draftThinking = thinkingBySession.value[DRAFT_PREF_KEY];
+    if (draftModel) rememberModel(id, draftModel);
+    if (draftThinking) rememberThinking(id, draftThinking);
+    forgetPrefs(DRAFT_PREF_KEY);
+  }
 
   if (prev && selectedModelKey.value) {
     rememberModel(prev, selectedModelKey.value);

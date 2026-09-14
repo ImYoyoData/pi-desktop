@@ -65,7 +65,8 @@ watch(
     }
   },
 );
-const hasSession = computed(() => Boolean(sessions.activeId));
+const isDraft = computed(() => !sessions.activeId && Boolean(sessions.draftRoot));
+const hasSession = computed(() => Boolean(sessions.activeId) || isDraft.value);
 
 const canCreateSession = computed(
   () => !workspace.trustDialogOpen && (!workspace.root || workspace.sessionsReady),
@@ -111,6 +112,7 @@ const showHeaderRunning = computed(
 );
 
 const title = computed(() => {
+  if (isDraft.value) return t.newSession;
   if (!sessions.activeId) return "";
   const row = sessions.sessions.find((s) => s.id === sessions.activeId);
   if (row?.name?.trim()) return row.name.trim();
@@ -128,10 +130,7 @@ async function onNewAgent(): Promise<void> {
   if (!root) root = await workspace.openWorkspace();
   if (!root) return;
   if (workspace.trustDialogOpen || !workspace.sessionsReady) return;
-  const created = await sessions.createSession(root);
-  if (created) {
-    chat.hydrateFromHistory(created.id, []);
-  }
+  sessions.beginDraft(root);
 }
 </script>
 
