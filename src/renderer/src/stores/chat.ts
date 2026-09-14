@@ -253,6 +253,8 @@ export const useChatStore = defineStore("chat", () => {
 			...(row.thinking ? { thinking: row.thinking } : {}),
 			...(row.model ? { model: row.model } : {}),
 			...(row.thinkingLevel ? { thinkingLevel: row.thinkingLevel } : {}),
+			...(row.usage ? { usage: row.usage } : {}),
+			...(row.durationMs != null ? { durationMs: row.durationMs } : {}),
 		};
 	}
 

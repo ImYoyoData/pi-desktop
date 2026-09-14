@@ -89,6 +89,28 @@ function messageModel(
   return { provider, id };
 }
 
+/** Extract {input, output, totalTokens} from a persisted assistant usage object. */
+function usageFromAgentMessage(message: Record<string, unknown>): {
+  input?: number;
+  output?: number;
+  totalTokens?: number;
+} | null {
+  const usage = message.usage;
+  if (!usage || typeof usage !== "object") return null;
+  const u = usage as Record<string, unknown>;
+  const num = (v: unknown): number | undefined =>
+    typeof v === "number" && Number.isFinite(v) ? v : undefined;
+  const input = num(u.input);
+  const output = num(u.output);
+  const total = num(u.totalTokens) ?? num(u.total);
+  if (input == null && output == null && total == null) return null;
+  return {
+    ...(input != null ? { input } : {}),
+    ...(output != null ? { output } : {}),
+    ...(total != null ? { totalTokens: total } : {}),
+  };
+}
+
 function imagesFromAgentMessage(message: Record<string, unknown>): HistoryImage[] {
   const content = message.content;
   if (!Array.isArray(content)) return [];
@@ -228,6 +250,8 @@ function buildMessagesFromEntries(
   let metaCursor = 0;
   let currentModel: { provider: string; id: string } | null = null;
   let currentThinkingLevel: string | null = null;
+  // 当前轮起点（user 消息发出的时刻）；工具循环内多步 assistant 共用同一起点。
+  let turnStartMs: number | null = null;
   for (const id of pathIds) {
     const entry = byId.get(id);
     if (!entry) continue;
@@ -264,6 +288,10 @@ function buildMessagesFromEntries(
           }
         }
       }
+      const ts = entry.message.timestamp;
+      if (typeof ts === "number" && Number.isFinite(ts) && ts > 0) {
+        turnStartMs = ts;
+      }
       if (cleanText || hasImages || elementTags) {
         messages.push({
           id: entry.id,
@@ -280,6 +308,12 @@ function buildMessagesFromEntries(
       const thinking = thinkingFromAgentMessage(entry.message);
       if (text || thinking) {
         const model = messageModel(entry.message, currentModel);
+        const usage = usageFromAgentMessage(entry.message);
+        const ts = entry.message.timestamp;
+        const durationMs =
+          turnStartMs != null && typeof ts === "number" && Number.isFinite(ts)
+            ? Math.max(0, ts - turnStartMs)
+            : null;
         messages.push({
           id: entry.id,
           role: "assistant",
@@ -287,6 +321,8 @@ function buildMessagesFromEntries(
           ...(thinking ? { thinking: truncateForUi(thinking, 16_000) } : {}),
           ...(model ? { model } : {}),
           ...(currentThinkingLevel ? { thinkingLevel: currentThinkingLevel } : {}),
+          ...(usage ? { usage } : {}),
+          ...(durationMs != null && durationMs > 0 ? { durationMs } : {}),
         });
       }
     } else if (role === "toolResult") {
