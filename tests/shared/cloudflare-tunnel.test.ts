@@ -1,10 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
-  cloudflaredArchiveKind,
-  cloudflaredAsset,
   cloudflaredDownloadUrl,
   deriveAccessPin,
-  findAssetSha256,
   isAccessPin,
   isValidPinSecret,
   parseQuickTunnelHost,
@@ -49,82 +46,6 @@ describe("parseQuickTunnelUrl", () => {
   it("rejects other hosts", () => {
     expect(parseQuickTunnelUrl("https://example.com")).toBeNull();
     expect(parseQuickTunnelUrl("no url here")).toBeNull();
-  });
-});
-
-describe("cloudflaredAsset", () => {
-  it("maps windows x64/arm64 to the raw exe assets", () => {
-    expect(cloudflaredAsset("win32", "x64")).toEqual({
-      asset: "cloudflared-windows-amd64.exe",
-      executable: "cloudflared.exe",
-    });
-    expect(cloudflaredAsset("win32", "arm64")).toEqual({
-      asset: "cloudflared-windows-arm64.exe",
-      executable: "cloudflared.exe",
-    });
-  });
-
-  it("maps mac to a tarball and linux to the raw binary", () => {
-    expect(cloudflaredAsset("darwin", "arm64")).toEqual({
-      asset: "cloudflared-darwin-arm64.tgz",
-      executable: "cloudflared",
-    });
-    expect(cloudflaredAsset("linux", "x64")).toEqual({
-      asset: "cloudflared-linux-amd64",
-      executable: "cloudflared",
-    });
-  });
-
-  it("returns null for unsupported platforms and architectures", () => {
-    expect(cloudflaredAsset("win32", "ia32")).toBeNull();
-    expect(cloudflaredAsset("freebsd", "x64")).toBeNull();
-  });
-
-  it("builds release download URLs with the bare (v-less) tag", () => {
-    expect(cloudflaredDownloadUrl("cloudflared-windows-amd64.exe", "2026.9.1")).toBe(
-      "https://github.com/cloudflare/cloudflared/releases/download/2026.9.1/cloudflared-windows-amd64.exe",
-    );
-    expect(cloudflaredDownloadUrl("cloudflared-linux-amd64", "v2026.9.1")).toBe(
-      "https://github.com/cloudflare/cloudflared/releases/download/2026.9.1/cloudflared-linux-amd64",
-    );
-  });
-});
-
-describe("cloudflaredArchiveKind", () => {
-  it("detects raw binaries, zips and tarballs", () => {
-    expect(cloudflaredArchiveKind("cloudflared-windows-amd64.exe")).toBe("none");
-    expect(cloudflaredArchiveKind("cloudflared-linux-amd64")).toBe("none");
-    expect(cloudflaredArchiveKind("cloudflared-darwin-arm64.tgz")).toBe("tar.gz");
-    expect(cloudflaredArchiveKind("cloudflared-windows-amd64.zip")).toBe("zip");
-  });
-});
-
-describe("findAssetSha256", () => {
-  const body = [
-    "### SHA256 Checksums:",
-    "```",
-    "cloudflared-linux-amd64: 03f1f25d1cc93b9ad6c60569d44060bc4f17ed97075760ed8cfca4b12dcd68cc",
-    "cloudflared-windows-amd64.exe: 2837888CC0F5D58F15B6DC478376DE90B4D3BA5241C7947455D1E0A0DF429712",
-    "```",
-  ].join("\n");
-
-  it("matches the exact asset line and lowercases the digest", () => {
-    expect(findAssetSha256(body, "cloudflared-windows-amd64.exe")).toBe(
-      "2837888cc0f5d58f15b6dc478376de90b4d3ba5241c7947455d1e0a0df429712",
-    );
-    expect(findAssetSha256(body, "cloudflared-linux-amd64")).toBe(
-      "03f1f25d1cc93b9ad6c60569d44060bc4f17ed97075760ed8cfca4b12dcd68cc",
-    );
-  });
-
-  it("does not confuse similar asset names", () => {
-    expect(findAssetSha256(body, "cloudflared-windows-amd64")).toBeNull();
-    expect(findAssetSha256(body, "cloudflared-linux-amd64.deb")).toBeNull();
-  });
-
-  it("returns null without a checksum or body", () => {
-    expect(findAssetSha256("no checksums here", "cloudflared-linux-amd64")).toBeNull();
-    expect(findAssetSha256("", "cloudflared-linux-amd64")).toBeNull();
   });
 });
 

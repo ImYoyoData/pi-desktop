@@ -72,3 +72,28 @@ When a command is backgrounded, the tool returns immediately; follow logs / stop
 `;
 
 export { DESKTOP_COMPOSER_MODES_PROMPT } from "./composer-modes";
+
+/**
+ * Response-language instruction.
+ *
+ * The interface language and the answer language are separate settings, so this
+ * is always explicit: without it the model mirrors whatever language the last
+ * message happened to be in, which drifts mid-conversation.
+ *
+ * @param language resolved language, or empty when nothing could be resolved.
+ */
+export function desktopResponseLanguagePrompt(language: string): string {
+  const value = String(language ?? "").trim();
+  if (!value || value === "auto") return "";
+  return `## Response language (Pi Desktop)
+
+Answer in **${value}**, regardless of the language of this instruction or of the system prompt.
+
+- Keep code, identifiers, file paths, shell commands, commit messages and error
+  output in their original form — translate only your own prose.
+- If the user explicitly asks for another language for a specific reply, follow
+  that request for that reply.
+- Stay consistent for the whole session; do not drift because a tool result or a
+  file happens to be in another language.
+`;
+}

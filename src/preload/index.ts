@@ -16,6 +16,10 @@ import type {
 	TerminalShellOption,
 } from "../shared/protocol";
 import { IpcChannels } from "../shared/protocol";
+import type {
+	ResponseLanguageSettings,
+	ResponseLanguageState,
+} from "../shared/response-language";
 import type { AgentRunEvent, AgentRunSnapshot } from "../shared/agent-runs";
 import type {
 	ModelsGetResult,
@@ -97,6 +101,18 @@ const api = {
 				dataUrl,
 			) as Promise<void>,
 	},
+	responseLanguage: {
+		get: () =>
+			ipcRenderer.invoke(
+				IpcChannels.responseLanguage.get,
+			) as Promise<ResponseLanguageState>,
+		set: (settings: ResponseLanguageSettings, deviceLanguage?: string) =>
+			ipcRenderer.invoke(
+				IpcChannels.responseLanguage.set,
+				settings,
+				String(deviceLanguage ?? ""),
+			) as Promise<ResponseLanguageState>,
+	},
 	lanConsole: {
 		getStatus: () =>
 			ipcRenderer.invoke(
@@ -120,6 +136,12 @@ const api = {
 		rotatePin: () =>
 			ipcRenderer.invoke(
 				IpcChannels.lanConsole.rotatePin,
+			) as Promise<LanConsoleStatus>,
+		setTunnelConfig: (token: string, publicUrl: string) =>
+			ipcRenderer.invoke(
+				IpcChannels.lanConsole.setTunnelConfig,
+				String(token ?? ""),
+				String(publicUrl ?? ""),
 			) as Promise<LanConsoleStatus>,
 		setPreferredIp: (ip: string) =>
 			ipcRenderer.invoke(

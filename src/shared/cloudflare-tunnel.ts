@@ -1,9 +1,9 @@
 /**
- * Pure helpers for the Cloudflare quick tunnel ("远程控制" public access).
+ * Pure helpers for "远程控制" public access (Cloudflare tunnels).
  *
  * Kept free of Electron APIs so the logic can be unit tested:
- * - trycloudflare public URL parsing (cloudflared prints it on stderr)
- * - cloudflared release asset naming per platform/arch
+ * - trycloudflare public URL parsing (the quick-tunnel hostname the CLI prints)
+ * - cloudflared release asset/URL naming for the binary fetch
  * - the 9-digit numeric access PIN and its derived-key inputs
  */
 
@@ -11,6 +11,37 @@ import { createHmac } from "node:crypto";
 
 /** Cloudflare quick tunnel hostnames, e.g. https://calm-river-1234.trycloudflare.com */
 const TRYCLOUDFLARE_HOST_RE = /([a-z0-9][a-z0-9-]*\.trycloudflare\.com)/i;
+
+/**
+ * Flags every tunnel mode shares.
+ *
+ * `--no-autoupdate`: the binary must never upgrade itself out from under the
+ * managed lifecycle.
+ *
+ * Protocol is deliberately LEFT AT cloudflared's default (`auto`). A widely
+ * copied recipe forces `--protocol http2` to dodge QUIC problems on TUN proxies,
+ * but it was measured here and does the opposite: with `auto` the quick tunnel is
+ * reachable in ~8s (HTTP 200 from the origin), while `--protocol http2` never
+ * became reachable across 15 probes over 60s. `auto` also negotiates down on its
+ * own when QUIC is unavailable, so forcing a transport only removes that fallback.
+ */
+export const SHARED_TUNNEL_FLAGS = { "--no-autoupdate": true } as const;
+
+/** Options for a quick (accountless) tunnel. */
+export function quickTunnelFlags(): Record<string, string | boolean> {
+  return { ...SHARED_TUNNEL_FLAGS };
+}
+
+/**
+ * Arguments for a named tunnel.
+ *
+ * `--no-autoupdate` is a flag of the `tunnel` command and MUST come BEFORE the
+ * `run` subcommand; after it, cloudflared exits immediately with
+ * "flag provided but not defined: -no-autoupdate".
+ */
+export function namedTunnelArgs(token: string): string[] {
+  return ["tunnel", "--no-autoupdate", "run", "--token", token];
+}
 
 export function parseQuickTunnelHost(text: string): string | null {
   if (typeof text !== "string" || !text) return null;
@@ -37,46 +68,9 @@ export function parseQuickTunnelUrl(text: string): string | null {
   }
 }
 
-export type CloudflaredAsset = { asset: string; executable: string };
-
 /**
- * GitHub release asset for cloudflared. Returns null for platforms without an
- * official build (the caller reports a clear error instead of downloading junk).
- *
- * Release layout (as of the 2026.x line): windows assets are raw `.exe` files,
- * macOS ships a `.tgz` containing `cloudflared`, and Linux ships the raw binary.
- */
-export function cloudflaredAsset(
-  platform: string = process.platform,
-  arch: string = process.arch,
-): CloudflaredAsset | null {
-  const a = arch === "arm64" ? "arm64" : arch === "x64" ? "amd64" : "";
-  if (!a) return null;
-  if (platform === "win32") {
-    return { asset: `cloudflared-windows-${a}.exe`, executable: "cloudflared.exe" };
-  }
-  if (platform === "darwin") {
-    return { asset: `cloudflared-darwin-${a}.tgz`, executable: "cloudflared" };
-  }
-  if (platform === "linux") {
-    return {
-      asset: a === "arm64" ? "cloudflared-linux-arm64" : `cloudflared-linux-${a}`,
-      executable: "cloudflared",
-    };
-  }
-  return null;
-}
-
-/** True when the downloaded asset is an archive that has to be unpacked. */
-export function cloudflaredArchiveKind(asset: string): "none" | "zip" | "tar.gz" {
-  if (/\.zip$/i.test(asset)) return "zip";
-  if (/\.tgz$|\.tar\.gz$/i.test(asset)) return "tar.gz";
-  return "none";
-}
-
-/**
- * cloudflared release tags carry no `v` prefix (e.g. `2026.9.1`), so the version
- * is used verbatim — a `v` would 404.
+ * cloudflared release tags carry no `v` prefix (e.g. `2026.9.1`), so a version is
+ * used verbatim — a leading `v` would 404.
  */
 export function cloudflaredDownloadUrl(asset: string, version: string): string {
   const tag = String(version).replace(/^v/iu, "");
