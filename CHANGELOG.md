@@ -47,6 +47,8 @@
 - 修复打包版找不到内置 cloudflared：asar 归档内的路径会被判断为"存在"却无法执行，且打包会压平按架构分的目录；现在同时兼容两种布局，并在使用前实际执行 `--version` 验证。
 - 修复开启公网访问时看门狗在 cloudflared 下载途中误判「未在运行」并重试，导致下载被中断、二进制残缺；同时修正重试退避被重置成固定 5 秒的问题。
 - 修复中英语言包里重复定义的文案键（构建告警，且重复项会静默覆盖原值），并加上自动化校验防止再犯。
+- 修复虚拟滚动**上滑读历史时被自动拉回底部**：窗口变更后的位置补偿原本用「总高度差」，会把窗口内其它行的内容增长（流式输出、异步 Markdown）和 spacer 高度估算误差一起算进来，于是每展开一段历史、每来一段输出，视口就往下漂一段。现在按视口内首/尾锚点行的真实位移补偿，实测零漂移；同时上滑意图覆盖滚轮、键盘、触摸和拖动滚动条，会话切换的自动贴底在用户上滑时整体取消。
+- Fixed virtual scrolling **yanking the viewport back to the bottom while reading history**: window mutations were compensated from the total scrollHeight delta, which folds in unrelated height changes inside the window (streaming output, async markdown) plus spacer estimate errors — so every expansion and every streamed chunk pushed the viewport further down. Compensation now follows the first/last visible row's real displacement (measured zero drift); the scroll-up intent now covers wheel, keyboard, touch and scrollbar drags, and a session's auto bottom-snap is cancelled when the user scrolls up.
 - Fixed the **bash tool being unusable on Windows** (`execvpe(/bin/bash) failed: No such file or directory`): its shell fallback picked `bash.exe` from PATH, which is the WSL launcher. A real bash (Git Bash) is now preferred; otherwise the app switches to the built-in PowerShell tool and denies the broken `bash` tool.
 - Fixed the model picker being locked in a **brand-new session that had sent nothing**: it trusted a session-summary status field that can lag; it now follows the live streaming state only.
 - Fixed a message sent during a reply appearing to vanish from the UI: it now shows as a pending card until the agent takes it.
