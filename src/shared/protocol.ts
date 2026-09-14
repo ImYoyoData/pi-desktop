@@ -620,6 +620,10 @@ export type SessionHistoryMessage =
 			model?: { provider: string; id: string } | null;
 			/** 本轮实际生效的思考档位。 */
 			thinkingLevel?: string;
+			/** Token 用量（恢复历史时从会话文件还原）。 */
+			usage?: { input?: number; output?: number; totalTokens?: number } | null;
+			/** 本轮耗时毫秒（恢复历史时从时间戳还原）。 */
+			durationMs?: number;
 	  }
 	| {
 			id: string;
