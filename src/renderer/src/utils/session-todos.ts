@@ -357,6 +357,86 @@ export function filterBaselineItems(
 	return { items: kept, baselineCleared: false };
 }
 
+export type TodoListSnapshot = {
+	version: 1;
+	sessionId: string;
+	savedAt: number;
+	list: SessionTodoList;
+	startedAt: number;
+	completedAt: number;
+	toolOwned: boolean;
+	timings: Record<string, { startedAt: number; completedAt?: number }>;
+};
+
+const TODO_SNAPSHOT_VERSION = 1;
+
+export function todoSnapshotKey(sessionId: string): string {
+	return `pi-desktop:todo-snapshot:v1:${sessionId}`;
+}
+
+export function serializeTodoSnapshot(
+	sessionId: string,
+	list: SessionTodoList,
+	startedAt: number,
+	completedAt: number,
+	toolOwned: boolean,
+	timings: Record<string, { startedAt: number; completedAt?: number }>,
+): TodoListSnapshot {
+	return {
+		version: TODO_SNAPSHOT_VERSION,
+		sessionId,
+		savedAt: Date.now(),
+		list: JSON.parse(JSON.stringify(list)) as SessionTodoList,
+		startedAt,
+		completedAt,
+		toolOwned,
+		timings: JSON.parse(JSON.stringify(timings ?? {})) as TodoListSnapshot["timings"],
+	};
+}
+
+export function parseTodoSnapshot(raw: unknown): TodoListSnapshot | null {
+	if (!raw || typeof raw !== "object") return null;
+	const s = raw as Partial<TodoListSnapshot> & { list?: unknown };
+	if (s.version !== TODO_SNAPSHOT_VERSION) return null;
+	if (typeof s.sessionId !== "string" || !s.sessionId) return null;
+	const list = s.list as Partial<SessionTodoList> | null | undefined;
+	if (!list || !Array.isArray(list.items) || !list.items.length) return null;
+	const items = normalizeTodoRows(list.items);
+	if (!items.length) return null;
+	for (const item of items) {
+		const src = list.items.find(
+			(r) => r && typeof r === "object" && String((r as { text?: unknown }).text ?? "").trim() === item.text,
+		) as { startedAt?: unknown; durationMs?: unknown } | undefined;
+		const startedAt =
+			typeof src?.startedAt === "number" && Number.isFinite(src.startedAt) ? src.startedAt : undefined;
+		const durationMs =
+			typeof src?.durationMs === "number" && Number.isFinite(src.durationMs) && src.durationMs >= 0
+				? src.durationMs
+				: undefined;
+		if (startedAt != null) item.startedAt = startedAt;
+		if (durationMs != null) item.durationMs = durationMs;
+	}
+	return {
+		version: 1,
+		sessionId: s.sessionId,
+		savedAt: typeof s.savedAt === "number" ? s.savedAt : 0,
+		list: {
+			key: typeof list.key === "string" ? list.key : "pi-deck-todo",
+			title: typeof list.title === "string" ? list.title : "Todos",
+			items,
+			dismissed: list.dismissed === true,
+			...(list.paused === true ? { paused: true as const } : {}),
+		},
+		startedAt: typeof s.startedAt === "number" ? s.startedAt : 0,
+		completedAt: typeof s.completedAt === "number" ? s.completedAt : 0,
+		toolOwned: s.toolOwned === true,
+		timings:
+			s.timings && typeof s.timings === "object" && !Array.isArray(s.timings)
+				? (s.timings as TodoListSnapshot["timings"])
+				: {},
+	};
+}
+
 export function todoListVisible(
 	list: SessionTodoList | null | undefined,
 ): boolean {

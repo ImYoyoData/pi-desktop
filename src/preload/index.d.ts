@@ -54,7 +54,10 @@ import type {
 	ExtensionUiEvent,
 	ExtensionUiReply,
 } from "../shared/extension-ui";
-import type { TrustState } from "../shared/protocol";
+import type {
+	PendingUiSnapshotRequest,
+	TrustState,
+} from "../shared/protocol";
 import type {
 	GitConflictContentResult,
 	GitOpResult,
@@ -199,6 +202,7 @@ declare const api: {
 			ok: boolean;
 			reason?: string;
 		}>;
+		pendingUi: () => Promise<PendingUiSnapshotRequest>;
 	};
 	runs: {
 		list: (workspaceRoot: string) => Promise<AgentRunSnapshot[]>;

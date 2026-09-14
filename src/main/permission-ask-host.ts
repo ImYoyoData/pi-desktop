@@ -9,12 +9,14 @@ import {
   type SecurityCategory,
 } from "../shared/desktop-security";
 import { IpcChannels } from "../shared/protocol";
+import type { PermissionAskPrompt } from "../shared/desktop-security";
 import { appendBashAllowlistEntry } from "./desktop-security-host";
 import type { SessionBroker } from "./session-broker";
 
 type PendingAsk = {
   sessionId: string;
   category: SecurityCategory;
+  toolName: string;
   summary: string;
   resolve: (decision: PermissionDecision) => void;
   reject: (err: Error) => void;
@@ -23,6 +25,21 @@ type PendingAsk = {
 
 const pendingAsks = new Map<string, PendingAsk>();
 let securityBroker: SessionBroker | undefined;
+
+/** Re-send every outstanding permission ask to a freshly loaded renderer. */
+export function snapshotPendingPermissionAsks(): PermissionAskPrompt[] {
+  const out: PermissionAskPrompt[] = [];
+  for (const [requestId, row] of pendingAsks) {
+    out.push({
+      sessionId: row.sessionId,
+      requestId,
+      category: row.category,
+      toolName: row.toolName,
+      summary: row.summary,
+    });
+  }
+  return out;
+}
 
 function broadcastPermission(payload: PermissionAskRequest): void {
   for (const win of BrowserWindow.getAllWindows()) {
@@ -69,6 +86,7 @@ export function askRendererPermission(input: {
     pendingAsks.set(requestId, {
       sessionId,
       category: input.category,
+      toolName: input.toolName,
       summary: input.summary,
       resolve,
       reject,

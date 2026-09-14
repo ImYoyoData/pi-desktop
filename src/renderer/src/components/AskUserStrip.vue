@@ -47,9 +47,18 @@ watch(
       draft.value = {};
       return;
     }
+    const saved = p.requestId ? chat.readAskDraft(p.requestId) : null;
     const next: AskUserAnswerDraft = {};
     for (const q of p.questions) {
-      next[q.id] = { optionIds: [], customText: "", skipped: false };
+      const row = saved?.[q.id];
+      const optionIds = Array.isArray(row?.optionIds)
+        ? row.optionIds.filter((id): id is string => typeof id === "string" && q.options.some((o) => o.id === id))
+        : [];
+      next[q.id] = {
+        optionIds,
+        customText: typeof row?.customText === "string" ? row.customText : "",
+        skipped: row?.skipped === true && optionIds.length === 0,
+      };
     }
     draft.value = next;
   },
@@ -58,8 +67,10 @@ watch(
 
 watch(
   draft,
-  () => {
+  (d) => {
     validationError.value = null;
+    const p = prompt.value;
+    if (p?.requestId) chat.writeAskDraft(p.requestId, d);
   },
   { deep: true },
 );
@@ -169,6 +180,8 @@ async function onConfirm(): Promise<void> {
       requestId: p.requestId,
       answersText,
     });
+  } catch (err) {
+    validationError.value = err instanceof Error ? err.message : String(err);
   } finally {
     confirming.value = false;
   }

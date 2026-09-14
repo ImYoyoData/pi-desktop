@@ -32,6 +32,7 @@ import Sortable from "sortablejs";
 import type { SessionStatus, SessionSummary } from "../../../shared/protocol";
 import { SESSION_HISTORY_LOAD_LIMIT } from "../../../shared/protocol";
 import { useSessionsStore } from "@renderer/stores/sessions";
+import { useSessionWidgetsStore } from "@renderer/stores/session-widgets";
 import { useChatStore } from "@renderer/stores/chat";
 import { useSendQueueStore } from "@renderer/stores/send-queue";
 import { useWorkspaceStore } from "@renderer/stores/workspace";
@@ -528,6 +529,9 @@ async function loadSessions(root: string): Promise<void> {
     sessionsStore.sessions = list;
     sessionsStore.listRoot = root;
   }
+  useSessionWidgetsStore().pruneStaleTodoSnapshots(
+    new Set(list.map((s) => s.id)),
+  );
   markRendererStartup("renderer:ready");
 }
 

@@ -34,6 +34,8 @@ const chat = useChatStore();
 const sessions = useSessionsStore();
 const workspace = useWorkspaceStore();
 const widgets = useSessionWidgetsStore();
+
+widgets.restoreTodoSnapshots();
 const message = useMessage();
 
 /** 面板被折叠/让位给编辑器区域时不参与可见性：消息区据此暂停测量与贴底。 */

@@ -56,10 +56,12 @@ import {
 import { t } from "../i18n";
 import {
 	isPermissionAskCancelled,
+	type PermissionAskPrompt,
 	type PermissionDecision,
 } from "../../../shared/desktop-security";
 import {
 	isAskUserAskCancelled,
+	type AskUserAnswerDraft,
 	type AskUserAskReply,
 	type AskUserPrompt,
 } from "../../../shared/ask-user";
@@ -122,6 +124,54 @@ export const useChatStore = defineStore("chat", () => {
 	const historyLoadingId = ref<string | null>(null);
 	/** Bumped when a permission ask is denied or times out — UI may toast Security remediation. */
 	const securityRemediationTick = ref(0);
+	/** requestId → UI draft kept across renderer reloads (恢复后可继续提交). */
+	const askUserDrafts = new Map<string, AskUserAnswerDraft>();
+	let pendingUiRecovered = false;
+	const ASK_DRAFT_KEY = "pi-desktop:ask-user-drafts:v1";
+
+	function readAskDraft(requestId: string): AskUserAnswerDraft | null {
+		const mem = askUserDrafts.get(requestId);
+		if (mem) return mem;
+		try {
+			const raw = sessionStorage.getItem(ASK_DRAFT_KEY);
+			if (!raw) return null;
+			const parsed = JSON.parse(raw) as Record<string, AskUserAnswerDraft>;
+			const draft = parsed?.[requestId];
+			return draft && typeof draft === "object" ? draft : null;
+		} catch {
+			return null;
+		}
+	}
+
+	function writeAskDraft(requestId: string, draft: AskUserAnswerDraft): void {
+		askUserDrafts.set(requestId, draft);
+		try {
+			const raw = sessionStorage.getItem(ASK_DRAFT_KEY);
+			const parsed = (raw ? JSON.parse(raw) : {}) as Record<string, AskUserAnswerDraft>;
+			parsed[requestId] = draft;
+			const keys = Object.keys(parsed).slice(-8);
+		const trimmed: Record<string, AskUserAnswerDraft> = {};
+			for (const k of keys) trimmed[k] = parsed[k]!;
+			sessionStorage.setItem(ASK_DRAFT_KEY, JSON.stringify(trimmed));
+		} catch {
+			// ignore — best effort only
+		}
+	}
+
+	function clearAskUserDraft(requestId: string): void {
+		askUserDrafts.delete(requestId);
+		try {
+			const raw = sessionStorage.getItem(ASK_DRAFT_KEY);
+			if (!raw) return;
+			const parsed = JSON.parse(raw) as Record<string, unknown>;
+			delete parsed[requestId];
+		sessionStorage.setItem(ASK_DRAFT_KEY, JSON.stringify(parsed));
+		} catch {
+			// ignore
+		}
+	}
+
+
 	/** Sessions currently inside autoRecover (restart + resend). */
 	const recoveringIds = new Set<string>();
 	/** Soft-hang timeout already reported for this turn (avoid repeat errors). */
@@ -275,10 +325,55 @@ export const useChatStore = defineStore("chat", () => {
 
 	function setPendingAskUserFor(prompt: AskUserPrompt): void {
 		if (!prompt.sessionId) return;
+		const cur = stateFor(prompt.sessionId).pendingAskUser;
+		if (cur?.requestId === prompt.requestId) return;
 		setSessionState(
 			prompt.sessionId,
 			setPendingAskUser(stateFor(prompt.sessionId), prompt),
 		);
+	}
+
+	/**
+	 * Reload / language-switch wipes renderer memory while main keeps the
+	 * pending asks. Pull them back so strips reappear; replies reuse the
+	 * original requestId so recovered strips stay submittable. Ask drafts
+	 * stored in sessionStorage survive reload; when main no longer holds a
+	 * request (e.g. app restart) its strip is gone for good — the worker turn
+	 * already failed, so just surface that instead of a dead prompt.
+	 */
+	async function recoverPendingUi(): Promise<void> {
+		if (pendingUiRecovered) return;
+		pendingUiRecovered = true;
+		let snapshot;
+		try {
+			snapshot = await window.api.sessions.pendingUi();
+		} catch {
+			return;
+		}
+		if (!snapshot) return;
+		for (const ask of snapshot.asks ?? []) {
+			if (!ask?.requestId || !ask?.sessionId || !ask?.questions?.length) continue;
+			setPendingAskUserFor({
+				sessionId: ask.sessionId,
+				requestId: ask.requestId,
+				questions: ask.questions,
+			});
+		}
+		for (const perm of snapshot.permissions ?? []) {
+			if (!perm?.requestId || !perm?.sessionId) continue;
+			if (stateFor(perm.sessionId).pendingPermission?.requestId === perm.requestId) continue;
+			setPendingPermissionFor(perm as PermissionAskPrompt);
+		}
+		for (const dialog of snapshot.extensionDialogs ?? []) {
+			if (!dialog || !("requestId" in dialog) || !dialog.requestId) continue;
+			if (stateFor(dialog.sessionId).pendingExtensionUi?.requestId === dialog.requestId) continue;
+			setPendingExtensionUiFor(dialog);
+		}
+		if (snapshot.asks?.length || snapshot.permissions?.length || snapshot.extensionDialogs?.length) {
+			if (notifyStore.soundEnabled) {
+				void notifyStore.playChime();
+			}
+		}
 	}
 
 	function setPendingPermissionFor(req: PendingPermission): void {
@@ -318,7 +413,9 @@ export const useChatStore = defineStore("chat", () => {
 	async function replyAskUser(payload: AskUserAskReply): Promise<void> {
 		const id = sessionsStore.activeId;
 		if (id) clearPendingAskUserFor(id);
-		await window.api.sessions.askUserReply(payload);
+		clearAskUserDraft(payload.requestId);
+		const res = await window.api.sessions.askUserReply(payload);
+		if (!res?.ok) throw new Error(res?.reason ?? "ask_user reply rejected");
 	}
 
 	async function replyExtensionUi(reply: ExtensionUiReply): Promise<void> {
@@ -786,6 +883,7 @@ export const useChatStore = defineStore("chat", () => {
 		const offExtensionUi = window.api.sessions.onExtensionUi((event) => {
 			handleExtensionUiEvent(event);
 		});
+		void recoverPendingUi();
 		onScopeDispose(() => {
 			eventsBound = false;
 			if (softHangTimer) {
@@ -1309,6 +1407,8 @@ export const useChatStore = defineStore("chat", () => {
 		bindEvents,
 		applyLanEvent,
 		clearPendingAskUserFor,
+		readAskDraft,
+		writeAskDraft,
 		replyPermission,
 		replyAskUser,
 		replyExtensionUi,

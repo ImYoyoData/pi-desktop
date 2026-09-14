@@ -8,12 +8,18 @@ import {
   type ExtensionUiReply,
 } from "../shared/extension-ui";
 import { IpcChannels } from "../shared/protocol";
+import type { ExtensionUiPending } from "../shared/extension-ui";
 
 type PendingDialog = {
   sessionId: string;
+  dialog: ExtensionUiPending;
   resolve: (reply: ExtensionUiReply) => void;
   timer: ReturnType<typeof setTimeout>;
 };
+
+export function snapshotPendingExtensionUiDialogs(): ExtensionUiPending[] {
+  return [...pendingDialogs.values()].map((row) => row.dialog);
+}
 
 const pendingDialogs = new Map<string, PendingDialog>();
 
@@ -66,8 +72,9 @@ export async function handleExtensionUiRpc(
         reject(new Error("extension UI prompt timed out"));
       }, timeoutMs);
 
-      pendingDialogs.set(requestId, { sessionId, resolve, timer });
-      broadcast({ sessionId, ...dialog });
+      const pending: ExtensionUiPending = { sessionId, ...dialog };
+      pendingDialogs.set(requestId, { sessionId, dialog: pending, resolve, timer });
+      broadcast(pending);
     });
   }
 

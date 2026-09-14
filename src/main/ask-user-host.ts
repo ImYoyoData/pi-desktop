@@ -10,15 +10,31 @@ import { IpcChannels } from "../shared/protocol";
 
 type PendingAsk = {
   sessionId: string;
+  questions: AskUserQuestion[];
   resolve: (answersText: string) => void;
   reject: (err: Error) => void;
 };
 
 const pendingAsks = new Map<string, PendingAsk>();
 
+function snapshotAskUser(): AskUserAskPrompt[] {
+  const out: AskUserAskPrompt[] = [];
+  for (const [requestId, row] of pendingAsks) {
+    out.push({ sessionId: row.sessionId, requestId, questions: row.questions });
+  }
+  return out;
+}
+
 function broadcastAskUser(payload: AskUserAskRequest): void {
   for (const win of BrowserWindow.getAllWindows()) {
     win.webContents.send(IpcChannels.sessions.askUser, payload);
+  }
+}
+
+/** Re-send every outstanding ask to a freshly loaded renderer (reload / language switch). */
+export function resendPendingAskUserAsks(webContents: Electron.WebContents): void {
+  for (const payload of snapshotAskUser()) {
+    webContents.send(IpcChannels.sessions.askUser, payload);
   }
 }
 
@@ -53,7 +69,7 @@ export function askRendererAskUser(input: {
       return;
     }
 
-    pendingAsks.set(requestId, { sessionId, resolve, reject });
+    pendingAsks.set(requestId, { sessionId, questions, resolve, reject });
 
     const payload: AskUserAskPrompt = {
       sessionId,
@@ -83,6 +99,14 @@ export function cancelAskUserAsksForSession(
     if (row.sessionId !== sessionId) continue;
     cancelAskUserAsk(requestId, reason);
   }
+}
+
+export function snapshotPendingAskUserAsks(): AskUserAskPrompt[] {
+  const out: AskUserAskPrompt[] = [];
+  for (const [requestId, row] of pendingAsks) {
+    out.push({ sessionId: row.sessionId, requestId, questions: row.questions });
+  }
+  return out;
 }
 
 export function registerAskUserIpc(): void {
