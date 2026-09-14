@@ -45,10 +45,7 @@ import {
   stripComposerModePreamble,
 } from "../../../shared/composer-modes";
 import { ASK_USER_TOOL_NAME } from "../../../shared/ask-user";
-import {
-  followBottomVirtualWindow,
-  windowAfterHistoryPrepend,
-} from "@renderer/utils/message-virtual-window";
+import { windowAfterHistoryPrepend } from "@renderer/utils/message-virtual-window";
 import { decideFollowOnScroll } from "@renderer/utils/follow-bottom";
 import { thinkingLevelLabel } from "@renderer/utils/thinking-level";
 
@@ -586,20 +583,46 @@ function isNearBottom(el: HTMLElement): boolean {
  * group would mount followers as empty 0-height rows. Widen the start upward
  * to the group's lead so the section stays whole.
  */
-function alignRenderWindowToGroup(start: number, end: number): void {
+function groupAlignedStart(start: number, end: number): number {
   const all = displayMessages.value;
-  const len = all.length;
+  if (start <= 0 || start >= all.length || start >= end) return start;
+  const m = workSectionMembership.value.get(all[start]!.id);
+  if (!m) return start;
+  const leadIdx = all.findIndex((r) => r.id === m.leadId);
+  return leadIdx >= 0 && leadIdx < start ? leadIdx : start;
+}
+
+function alignRenderWindowToGroup(start: number, end: number): void {
+  const len = displayMessages.value.length;
   const clampedEnd = Math.max(0, Math.min(end, len));
-  let clampedStart = Math.max(0, Math.min(start, clampedEnd));
-  if (clampedStart > 0 && clampedStart < len) {
-    const m = workSectionMembership.value.get(all[clampedStart]!.id);
-    if (m) {
-      const leadIdx = all.findIndex((r) => r.id === m.leadId);
-      if (leadIdx >= 0 && leadIdx < clampedStart) clampedStart = leadIdx;
-    }
-  }
+  const clampedStart = groupAlignedStart(Math.max(0, Math.min(start, clampedEnd)), clampedEnd);
   renderStart.value = clampedStart;
   renderEnd.value = clampedEnd;
+}
+
+/**
+ * 贴底窗口：从尾部向上累加估算高度，直到能盖住视口（至少 VIRTUAL_WINDOW 行）。
+ * 长摘要折叠后尾部只剩一行表头，固定行数的尾窗会让视口落进顶部 spacer，
+ * 看起来就是一大片空白。
+ */
+function tailWindowForViewport(len: number): { start: number; end: number } {
+  const all = displayMessages.value;
+  const need = (scroller.value?.clientHeight ?? 0) + OVERSCAN_PX;
+  const minStart = Math.max(0, len - VIRTUAL_WINDOW);
+  let start = minStart;
+  let height = 0;
+  for (let i = len - 1; i >= 0; i--) {
+    height += estimateMessageHeight(all[i]);
+    if (height >= need && i <= minStart) {
+      start = i;
+      break;
+    }
+    if (i === 0) {
+      start = 0;
+      break;
+    }
+  }
+  return { start: groupAlignedStart(start, len), end: len };
 }
 
 function clampRenderWindow(preferBottom: boolean): void {
@@ -617,7 +640,8 @@ function clampRenderWindow(preferBottom: boolean): void {
     return;
   }
   if (preferBottom) {
-    alignRenderWindowToGroup(len - VIRTUAL_WINDOW, len);
+    const tail = tailWindowForViewport(len);
+    alignRenderWindowToGroup(tail.start, tail.end);
     return;
   }
   // Keep current window sized and clamped inside [0, len].
@@ -661,6 +685,33 @@ function rowResized(id: string): void {
   if (h > 0) heightById.set(heightKey(id), h);
   const top = row.offsetTop;
   if (top > 0) topById.set(id, top);
+  ensureViewportCovered();
+}
+
+/**
+ * 行高变化（长摘要折叠/展开）后视口可能落进 spacer 覆盖的未挂载区域 ——
+ * 屏幕上就只剩一片空白。这里就地补挂对应方向的行，让视口重新被真实内容盖住。
+ */
+function ensureViewportCovered(): void {
+  if (adjustingWindow || settlingSession || loadingOlderPage || document.hidden) return;
+  const sc = scroller.value;
+  if (!sc) return;
+  // 已挂载内容不足一屏且确实有 spacer：行高可能在被卸载期间变化过，先量一次再判断。
+  const mountedHeight = sc.scrollHeight - topSpacerPx.value - bottomSpacerPx.value;
+  if (mountedHeight < sc.clientHeight && (topSpacerPx.value > 0 || bottomSpacerPx.value > 0)) {
+    measureVisibleRows();
+  }
+  if (renderStart.value > 0 && sc.scrollTop < topSpacerPx.value + OVERSCAN_PX) {
+    expandHistoryUp();
+    return;
+  }
+  const len = displayMessages.value.length;
+  if (
+    renderEnd.value < len &&
+    sc.scrollTop + sc.clientHeight > sc.scrollHeight - bottomSpacerPx.value - OVERSCAN_PX
+  ) {
+    expandHistoryDown();
+  }
 }
 
 /** 视口内首/尾两条可见行，作为窗口变更后的位置基准。 */
@@ -715,11 +766,16 @@ function restoreScrollAnchor(
 function scheduleWindowPrefetch(): void {
   requestAnimationFrame(() => {
     const sc = scroller.value;
-    if (!sc || adjustingWindow || settlingSession || followBottom) return;
+    if (!sc || adjustingWindow || settlingSession) return;
     if (sc.scrollTop < topSpacerPx.value + OVERSCAN_PX) {
-      expandHistoryUp();
-      return;
+      if (renderStart.value > 0) {
+        expandHistoryUp();
+        return;
+      }
+      // 窗口已到头部且视口仍在顶部：向上没有可补挂的行，改从磁盘补一页历史。
+      if (!followBottom) void loadOlderHistoryPage();
     }
+    if (followBottom) return;
     const bottomEdge = sc.scrollHeight - bottomSpacerPx.value;
     if (sc.scrollTop + sc.clientHeight > bottomEdge - OVERSCAN_PX) {
       expandHistoryDown();
@@ -743,7 +799,8 @@ function expandHistoryUp(): void {
   const nextStart = Math.max(0, renderStart.value - VIRTUAL_CHUNK);
   let nextEnd = renderEnd.value;
   // Trim far (bottom) side so mounting stays bounded while scrolling up.
-  if (nextStart + VIRTUAL_MAX < nextEnd) {
+  // 贴底补挂时不能裁尾：尾部被裁掉会让底部 spacer 顶进视口。
+  if (!followBottom && nextStart + VIRTUAL_MAX < nextEnd) {
     nextEnd = nextStart + VIRTUAL_MAX;
   }
   if (fitsFullMount(displayMessages.value.length)) {
@@ -1147,9 +1204,7 @@ function handleScrollerScroll(): void {
 
   if (followBottom) {
     const len = displayMessages.value.length;
-    const ideal = fitsFullMount(len)
-      ? { start: 0, end: len }
-      : followBottomVirtualWindow(len, VIRTUAL_WINDOW);
+    const ideal = fitsFullMount(len) ? { start: 0, end: len } : tailWindowForViewport(len);
     if (renderStart.value !== ideal.start || renderEnd.value !== ideal.end) {
       alignRenderWindowToGroup(ideal.start, ideal.end);
       // The clamp changes content above the live edge — re-pin so the
@@ -1159,14 +1214,21 @@ function handleScrollerScroll(): void {
         if (!el || !followBottom || readingHistory || adjustingWindow) return;
         el.scrollTop = el.scrollHeight;
         measureVisibleRows();
+        ensureViewportCovered();
       });
+    } else {
+      ensureViewportCovered();
     }
     return;
   }
 
   // Prefetch above: expand before the viewport hits blank spacer.
   if (sc.scrollTop < topSpacerPx.value + OVERSCAN_PX) {
-    expandHistoryUp();
+    if (renderStart.value > 0) {
+      expandHistoryUp();
+    } else {
+      void loadOlderHistoryPage();
+    }
   }
   // Prefetch below: keep continuity when scrolling back toward latest.
   const bottomEdge = sc.scrollHeight - bottomSpacerPx.value;
