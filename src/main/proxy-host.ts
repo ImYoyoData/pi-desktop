@@ -90,14 +90,21 @@ export function getProxySettings(): ProxySettings {
 	return { ...currentSettings };
 }
 
-/** Explicit app setting wins: clear inherited proxy vars, then re-add per mode. */
+/** 应用设置优先：先清除继承的代理变量，再按模式注入。
+ *  NODE_USE_ENV_PROXY 让 Node 内置 fetch（undici）遵循这些变量。 */
 export function withProxyEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
 	const next = { ...env };
 	for (const key of PROXY_ENV_KEYS) delete next[key];
+	delete next.NODE_USE_ENV_PROXY;
+	let proxyEnv: Record<string, string> = {};
 	if (currentSettings.mode === "custom") {
-		Object.assign(next, proxyEnvFromUrl(currentSettings.url));
+		proxyEnv = proxyEnvFromUrl(currentSettings.url);
 	} else if (currentSettings.mode === "system") {
-		Object.assign(next, systemProxyEnv);
+		proxyEnv = systemProxyEnv;
+	}
+	if (Object.keys(proxyEnv).length > 0) {
+		Object.assign(next, proxyEnv);
+		next.NODE_USE_ENV_PROXY = "1";
 	}
 	return next;
 }
@@ -113,7 +120,15 @@ export async function initProxy(): Promise<void> {
 	}
 }
 
-export function registerProxyIpc(): void {
+/** 启动依赖环境的进程前重新探测系统代理。 */
+export async function refreshSystemProxy(): Promise<void> {
+	if (currentSettings.mode !== "system") return;
+	await refreshSystemProxyEnv();
+}
+
+export function registerProxyIpc(opts?: {
+	onChanged?: (settings: ProxySettings) => void;
+}): void {
 	ipcMain.handle(IpcChannels.proxy.get, () => getProxySettings());
 
 	ipcMain.handle(
@@ -139,6 +154,7 @@ export function registerProxyIpc(): void {
 			await applyProxySettings(next);
 			await refreshSystemProxyEnv();
 			broadcastChanged(next);
+			opts?.onChanged?.(next);
 			return getProxySettings();
 		},
 	);

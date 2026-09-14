@@ -431,7 +431,7 @@ function boot(): void {
 		// Show UI as soon as possible — defer agent env setup and non-critical
 		// hosts (ASR / update / market / CLI) so the window paints first.
 		void initProxy();
-		registerProxyIpc();
+		registerProxyIpc({ onChanged: () => broker.recycleWorkers() });
 		const mainWindow = createMainWindow();
 		markStartup("main:window-created");
 		mainWindow.webContents.once("did-finish-load", () => {

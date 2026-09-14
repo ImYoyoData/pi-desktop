@@ -136,6 +136,8 @@ export type SessionBroker = {
   restartWorker: (sessionId: string) => Promise<void>;
   /** Restart live workers for a workspace so `projectTrusted` / init snapshot reloads. */
   restartWorkersForCwd: (cwd: string) => Promise<void>;
+  /** 回收所有存活 worker，使下次启动读取新的环境变量（如代理变更）。 */
+  recycleWorkers: () => void;
   deleteSession: (sessionId: string, cwd: string) => Promise<void>;
   /**
    * Remove all Pi sessions for a workspace (workers + `~/.pi/agent/sessions/...`).
@@ -184,6 +186,8 @@ type SessionRecord = {
   idleDestroyTimer: ReturnType<typeof setTimeout> | null;
   /** True once worker_stall was emitted for the current silence episode. */
   stallEmitted: boolean;
+  /** 代理等环境变更后，待空闲时重建该 worker。 */
+  restartOnIdle: boolean;
   pendingCommands: Map<
     string,
     {
@@ -226,6 +230,10 @@ export function createSessionBroker(deps: {
       clearIdleDestroyTimer(rec);
     }
     emit({ type: "session_status", sessionId, status });
+    if (status === "idle" && rec.restartOnIdle) {
+      rec.restartOnIdle = false;
+      destroyIdleWorker(sessionId);
+    }
   }
 
   function rejectPendingCommands(rec: SessionRecord, message: string): void {
@@ -410,6 +418,7 @@ export function createSessionBroker(deps: {
     }
     rec.worker = spawned.worker;
     rec.spawnedAt = Date.now();
+    rec.restartOnIdle = false;
     rec.summary.filePath = spawned.filePath;
     attachWorker(sessionId, spawned.worker);
     startHeartbeat(sessionId);
@@ -701,6 +710,7 @@ export function createSessionBroker(deps: {
       heartbeatTimer: null,
       idleDestroyTimer: null,
       stallEmitted: false,
+      restartOnIdle: false,
       pendingCommands: new Map(),
     });
     return { ...summary };
@@ -1074,6 +1084,18 @@ export function createSessionBroker(deps: {
     setStatus(sessionId, "idle");
   }
 
+  /** 环境变量变更（代理设置）需要重建 worker：空闲的立即销毁，忙碌的等本轮结束。 */
+  function recycleWorkers(): void {
+    for (const [id, rec] of sessions) {
+      if (!rec.worker) continue;
+      if (rec.summary.status === "idle") {
+        destroyIdleWorker(id);
+      } else {
+        rec.restartOnIdle = true;
+      }
+    }
+  }
+
   async function restartWorkersForCwd(cwd: string): Promise<void> {
     const resolved = path.resolve(cwd);
     const ids = [...sessions.entries()]
@@ -1182,6 +1204,7 @@ export function createSessionBroker(deps: {
     killWorker,
     restartWorker,
     restartWorkersForCwd,
+    recycleWorkers,
     deleteSession,
     purgeWorkspace,
     clearContext,
