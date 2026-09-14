@@ -12,6 +12,7 @@
 - 新增「公网访问」开关（默认关闭）：打开后由内置 cloudflared 建立 Cloudflare 隧道，生成 `https://<随机名>.trycloudflare.com` 公网地址；TLS 由 Cloudflare 边缘终结，隧道仅转发到 127.0.0.1 的本地端口，并带自动重试与看门狗。
 - **支持绑定自己的域名**：填入 Cloudflare 隧道 Token 与公网地址后改用命名隧道，地址固定不变、重启也无需重新分享链接；面板内提供「打开 Cloudflare 隧道页面」按钮与 Token 粘贴，并给出配置步骤。
 - 网页版朗读改用**浏览器原生语音合成**（Web Speech API）：零安装、零下载，不占用桌面端语音模型。
+- 新增「**思考语言**」设置（设置 → 通用）：关闭 / 自动 / 中文 / English，只影响可见思考文本。默认「自动」按界面语言判断——中文界面注入中文思考指令，英文界面不注入；「关闭」不注入。指令作为每轮用户消息的临时块注入，不改动系统提示词。
 - 登录失败按来源限速：公网来源 6 次失败锁定 10 分钟，局域网来源独立计数，防止爆破。
 - Renamed the LAN web console to **Remote Control**; the titlebar entry, panel copy and web page title follow.
 - LAN access now defaults to **on** (`http://<pc-ip>:18700`), so a phone on the same network works out of the box.
@@ -19,6 +20,7 @@
 - New **Public access** switch (off by default): the bundled cloudflared opens a Cloudflare tunnel on demand, publishing a `https://<random>.trycloudflare.com` URL (TLS terminated at Cloudflare's edge). The tunnel only ever forwards to a loopback port, with automatic retry and a watchdog.
 - **Bring your own domain**: a Cloudflare tunnel token plus hostname switches to a named tunnel with a fixed address, so nothing has to be re-shared after a restart. The panel links to the Cloudflare tunnels page, offers token paste, and spells out the steps.
 - Read-aloud in the web console uses the **browser's own speech synthesis** (Web Speech API) — nothing to install or download, and the desktop voice model is untouched.
+- New **Thinking language** setting (Settings → General): Off / Auto / Chinese / English, affecting visible reasoning text only. "Auto" follows the UI language — a Chinese UI injects a Chinese reasoning instruction, an English UI injects nothing; "Off" never injects. The instruction is sent as a transient per-turn user-message block; the system prompt is untouched.
 - Failed logins are rate limited per client — 6 attempts then a 10-minute lock, counted separately for tunnel traffic.
 
 ### 变更 Changes

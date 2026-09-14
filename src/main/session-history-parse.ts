@@ -7,6 +7,7 @@
  * huge sessions does not ship megabytes of unused base64 over IPC.
  */
 import { stripComposerModePreamble } from "../shared/composer-modes";
+import { stripThinkingLanguageBlock } from "../shared/thinking-language";
 import {
   stripAttachedImagesBlock,
   stripSelectionCitationsBlock,
@@ -251,10 +252,12 @@ function buildMessagesFromEntries(
         stripSelectionCitationsBlock(stripAttachedImagesBlock(rawText)),
       );
       const agentText = stripSelectionCitationsBlock(rawText);
+      // 附件 chips 的 sidecar 按发送时文本（无思考语言块）写入，匹配前先剥离注入块。
+      const metaText = stripThinkingLanguageBlock(agentText);
       let elementTags: ChatMessageTag[] | undefined;
       if (chatMeta && chatMeta.length > 0) {
         for (let i = metaCursor; i < chatMeta.length; i++) {
-          if (chatMeta[i]!.text === agentText) {
+          if (stripThinkingLanguageBlock(chatMeta[i]!.text) === metaText) {
             elementTags = chatMeta[i]!.tags;
             metaCursor = i + 1;
             break;

@@ -66,6 +66,7 @@ import type {
 	GitOpResult,
 } from "../shared/git-types";
 import type { ProxySettings } from "../shared/proxy";
+import type { ThinkingLanguageSettings } from "../shared/thinking-language";
 
 export type AppInfo = {
 	version: string;
@@ -1325,6 +1326,17 @@ const api = {
 			) as Promise<DesktopSecuritySettings>,
 		set: (settings: DesktopSecuritySettings) =>
 			ipcRenderer.invoke(IpcChannels.security.set, settings) as Promise<void>,
+	},
+	thinkingLanguage: {
+		get: () =>
+			ipcRenderer.invoke(
+				IpcChannels.thinkingLanguage.get,
+			) as Promise<ThinkingLanguageSettings>,
+		set: (settings: ThinkingLanguageSettings) =>
+			ipcRenderer.invoke(
+				IpcChannels.thinkingLanguage.set,
+				settings,
+			) as Promise<ThinkingLanguageSettings>,
 	},
 	terminal: {
 		create: (cwd?: string, shellId?: string) =>

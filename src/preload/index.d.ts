@@ -60,6 +60,7 @@ import type {
 	GitOpResult,
 } from "../shared/git-types";
 import type { ProxySettings } from "../shared/proxy";
+import type { ThinkingLanguageSettings } from "../shared/thinking-language";
 export type AppInfo = {
 	version: string;
 	githubUrl: string;
@@ -850,6 +851,10 @@ declare const api: {
 	security: {
 		get: () => Promise<DesktopSecuritySettings>;
 		set: (settings: DesktopSecuritySettings) => Promise<void>;
+	};
+	thinkingLanguage: {
+		get: () => Promise<ThinkingLanguageSettings>;
+		set: (settings: ThinkingLanguageSettings) => Promise<ThinkingLanguageSettings>;
 	};
 	terminal: {
 		create: (cwd?: string, shellId?: string) => Promise<string>;

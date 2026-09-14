@@ -28,6 +28,12 @@ import type { ChatMessageTag } from "../shared/chat-meta";
 import { downloadImageToCache, saveImageDataUrl } from "./session-image-cache";
 import { deleteImageFile } from "./session-image-cache";
 import { allocateSessionOnDisk } from "./session-allocate";
+import {
+  hasThinkingLanguageBlock,
+  thinkingLanguageBlock,
+} from "../shared/thinking-language";
+import { getThinkingLanguageSettings } from "./thinking-language-host";
+import { getUiLocale } from "./ui-locale";
 
 const HEARTBEAT_INTERVAL_MS = 5_000;
 /**
@@ -905,6 +911,21 @@ export function createSessionBroker(deps: {
     emit({ type: "worker_exit", sessionId, code: 0 });
   }
 
+  /** 用户轮次统一注入思考语言块（Reasonix reasoning_language）；已带块时不重复注入。 */
+  function withThinkingLanguage(command: AgentCommand): AgentCommand {
+    if (
+      command.type !== "prompt" &&
+      command.type !== "steer" &&
+      command.type !== "follow_up"
+    ) {
+      return command;
+    }
+    if (hasThinkingLanguageBlock(command.message)) return command;
+    const block = thinkingLanguageBlock(getThinkingLanguageSettings().language, getUiLocale());
+    if (!block) return command;
+    return { ...command, message: `${block}\n\n${command.message}` };
+  }
+
   async function sendRaw(
     sessionId: string,
     msg: WorkerInbound,
@@ -935,6 +956,7 @@ export function createSessionBroker(deps: {
     command: AgentCommand,
     opts?: { coldStart?: boolean },
   ): Promise<unknown | undefined> {
+    command = withThinkingLanguage(command);
     const coldStart = opts?.coldStart !== false;
     const rec = coldStart
       ? await ensureWorker(sessionId)
