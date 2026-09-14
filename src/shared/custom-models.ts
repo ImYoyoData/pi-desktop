@@ -26,6 +26,10 @@ export type CustomModelEntry = {
   maxTokens?: number;
   /** When true, model accepts images (`input: ["text","image"]`). */
   vision?: boolean;
+  /** When true, `thinkingLevelMap.xhigh` is set so Pi offers the XHigh level. */
+  thinkingXhigh?: boolean;
+  /** When true, `thinkingLevelMap.max` is set so Pi offers the Max level. */
+  thinkingMax?: boolean;
 };
 
 /** A fresh, blank model row. Max output defaults to the GUI budget. */
@@ -123,6 +127,7 @@ function parseModelEntry(raw: unknown): CustomModelEntry | null {
   if (!id) return null;
   const contextWindow = parsePositiveInt(o.contextWindow);
   const maxTokens = parsePositiveInt(o.maxTokens);
+  const levelMap = asRecord(o.thinkingLevelMap) ?? {};
   return {
     id,
     name: typeof o.name === "string" ? o.name : "",
@@ -130,6 +135,8 @@ function parseModelEntry(raw: unknown): CustomModelEntry | null {
     ...(contextWindow ? { contextWindow } : {}),
     ...(maxTokens ? { maxTokens } : {}),
     ...(modelHasVision(o.input) ? { vision: true } : {}),
+    ...(typeof levelMap.xhigh === "string" ? { thinkingXhigh: true } : {}),
+    ...(typeof levelMap.max === "string" ? { thinkingMax: true } : {}),
   };
 }
 
@@ -239,6 +246,17 @@ function mergeModelJson(
     const next = (base.input as unknown[]).filter((x) => x !== "image");
     base.input = next.length ? next : ["text"];
   }
+
+  // Pi only offers XHigh/Max when thinkingLevelMap explicitly maps them; the
+  // toggle is gated on `reasoning` because non-reasoning models ignore the map.
+  const prevMap = asRecord(base.thinkingLevelMap) ?? {};
+  const levelMap: Record<string, unknown> = { ...prevMap };
+  delete levelMap.xhigh;
+  delete levelMap.max;
+  if (draft.reasoning && draft.thinkingXhigh) levelMap.xhigh = "xhigh";
+  if (draft.reasoning && draft.thinkingMax) levelMap.max = "max";
+  if (Object.keys(levelMap).length) base.thinkingLevelMap = levelMap;
+  else delete base.thinkingLevelMap;
 
   return base;
 }
@@ -436,6 +454,8 @@ export function mergeDiscoveredIntoDraft(
       vision: caps.vision,
       contextWindow: resolveContextWindow(d.contextWindow ?? prev?.contextWindow, id),
       maxTokens: d.maxTokens ?? prev?.maxTokens ?? DEFAULT_MAX_TOKENS,
+      thinkingXhigh: prev?.thinkingXhigh,
+      thinkingMax: prev?.thinkingMax,
     });
   }
   const list = [...byId.values()];
