@@ -663,9 +663,52 @@ function rowResized(id: string): void {
   if (top > 0) topById.set(id, top);
 }
 
-function restoreScrollAfterMutation(sc: HTMLElement, prevHeight: number, prevTop: number): void {
-  const delta = sc.scrollHeight - prevHeight;
-  sc.scrollTop = prevTop + delta;
+/** 视口内首/尾两条可见行，作为窗口变更后的位置基准。 */
+type ScrollAnchor = { id: string; viewportTop: number };
+type ScrollAnchors = { first: ScrollAnchor | null; last: ScrollAnchor | null };
+
+function captureScrollAnchors(): ScrollAnchors {
+  const anchors: ScrollAnchors = { first: null, last: null };
+  const sc = scroller.value;
+  if (!sc) return anchors;
+  const scRect = sc.getBoundingClientRect();
+  for (const row of sc.querySelectorAll<HTMLElement>(".row[data-msg-id]")) {
+    const id = row.dataset.msgId;
+    if (!id) continue;
+    const rect = row.getBoundingClientRect();
+    if (rect.bottom <= scRect.top || rect.top >= scRect.bottom) continue;
+    const anchor = { id, viewportTop: rect.top - scRect.top };
+    if (!anchors.first) anchors.first = anchor;
+    anchors.last = anchor;
+  }
+  return anchors;
+}
+
+/**
+ * 窗口变更后把锚点行放回原视口位置，按行的真实位移补偿。
+ * 不能用整体高度差：它把窗口内其它行的内容变化（流式输出、异步 Markdown）
+ * 和 spacer 估算误差一并算进去，等于每次调整都把视图往底部推。
+ * 向上扩展裁尾部、向下扩展裁头部，所以首/尾锚点至少有一个还在。
+ */
+function restoreScrollAnchor(
+  anchors: ScrollAnchors,
+  prevHeight: number,
+  prevTop: number,
+): void {
+  const sc = scroller.value;
+  if (!sc) return;
+  const scTop = sc.getBoundingClientRect().top;
+  for (const anchor of [anchors.first, anchors.last]) {
+    if (!anchor) continue;
+    const row = sc.querySelector<HTMLElement>(
+      `.row[data-msg-id="${CSS.escape(anchor.id)}"]`,
+    );
+    if (!row) continue;
+    sc.scrollTop += row.getBoundingClientRect().top - scTop - anchor.viewportTop;
+    return;
+  }
+  // 两个锚点都被卸载（历史前插）时退回高度差补偿。
+  sc.scrollTop = prevTop + (sc.scrollHeight - prevHeight);
 }
 
 /** After a window mutate, continue prefetch on the next frame (yields to paint — no nextTick storm). */
@@ -696,6 +739,7 @@ function expandHistoryUp(): void {
   adjustingWindow = true;
   const prevHeight = sc.scrollHeight;
   const prevTop = sc.scrollTop;
+  const anchor = captureScrollAnchors();
   const nextStart = Math.max(0, renderStart.value - VIRTUAL_CHUNK);
   let nextEnd = renderEnd.value;
   // Trim far (bottom) side so mounting stays bounded while scrolling up.
@@ -709,7 +753,7 @@ function expandHistoryUp(): void {
     alignRenderWindowToGroup(nextStart, nextEnd);
   }
   void nextTick(() => {
-    restoreScrollAfterMutation(sc, prevHeight, prevTop);
+    restoreScrollAnchor(anchor, prevHeight, prevTop);
     measureVisibleRows();
     adjustingWindow = false;
     updateStickyPinned();
@@ -732,11 +776,12 @@ async function loadOlderHistoryPage(): Promise<void> {
   adjustingWindow = true;
   const prevHeight = sc.scrollHeight;
   const prevTop = sc.scrollTop;
+  const anchor = captureScrollAnchors();
   try {
     const added = await chat.loadOlderHistory(id);
     if (added <= 0) return;
     // Prepend shifts every index — keep the same rows mounted, then peek a chunk older.
-    // The viewport stays anchored via restoreScrollAfterMutation, so this is safe
+    // The viewport stays anchored via restoreScrollAnchor, so this is safe
     // even while the user is mid-read.
     const shifted = windowAfterHistoryPrepend(
       { start: renderStart.value, end: renderEnd.value },
@@ -752,7 +797,7 @@ async function loadOlderHistoryPage(): Promise<void> {
       alignRenderWindowToGroup(shifted.start, shifted.end);
     }
     await nextTick();
-    restoreScrollAfterMutation(sc, prevHeight, prevTop);
+    restoreScrollAnchor(anchor, prevHeight, prevTop);
     measureVisibleRows();
     updateStickyPinned();
     scheduleWindowPrefetch();
@@ -787,6 +832,7 @@ function expandHistoryDown(): void {
   adjustingWindow = true;
   const prevHeight = sc.scrollHeight;
   const prevTop = sc.scrollTop;
+  const anchor = captureScrollAnchors();
   renderEnd.value = Math.min(len, renderEnd.value + VIRTUAL_CHUNK);
   // Trim far (top) side — never grow past VIRTUAL_MAX (sticky is overlay-only).
   let nextStart = renderStart.value;
@@ -800,7 +846,7 @@ function expandHistoryDown(): void {
     alignRenderWindowToGroup(nextStart, renderEnd.value);
   }
   void nextTick(() => {
-    restoreScrollAfterMutation(sc, prevHeight, prevTop);
+    restoreScrollAnchor(anchor, prevHeight, prevTop);
     measureVisibleRows();
     adjustingWindow = false;
     updateStickyPinned();
@@ -990,6 +1036,27 @@ function cancelQueuedBottomSnaps(): void {
   instantSnapToken++;
 }
 
+/** 用户明确开始读历史：立即脱离贴底，不再被任何排队中的贴底拉回。 */
+function engageUserHistoryScroll(): void {
+  if (readingHistory && !followBottom) return;
+  const sc = scroller.value;
+  if (!sc || sc.scrollHeight <= sc.clientHeight + 1) return;
+  cancelSessionSettle();
+  suppressFollowBottomUntil = 0;
+  userScrolledAway = true;
+  followBottom = false;
+  cancelQueuedBottomSnaps();
+  engageHistoryReading();
+}
+
+/** 会话贴底是多段异步快照，用户中途上滑时整体取消。 */
+function cancelSessionSettle(): void {
+  if (!settlingSession) return;
+  sessionJumpToken++;
+  settlingSession = false;
+  settlingUi.value = false;
+}
+
 function syncFollowBottomOnScroll(sc: HTMLElement): void {
   // While the virtual window / history loading adjusts the DOM, scroll events
   // are synthetic — the decision machine must not run at all (a prepend nudge
@@ -1037,20 +1104,40 @@ function syncFollowBottomOnScroll(sc: HTMLElement): void {
  * user's scroll progress every chunk and they could never escape.
  */
 function onScrollerWheel(event: WheelEvent): void {
-  if (event.deltaY >= 0 || settlingSession || adjustingWindow) return;
+  if (event.deltaY >= 0) return;
   const sc = scroller.value;
   if (!sc) return;
+  engageUserHistoryScroll();
   if (sc.scrollTop <= 0) {
-    // No overflow (or already at the top edge): scroll events can't fire, so
-    // trigger the older-page fetch directly from the wheel gesture.
+    // Already at the top edge: scroll events can't fire, so trigger the
+    // older-page fetch directly from the wheel gesture.
     void fillViewportWithHistory();
-    return;
   }
-  suppressFollowBottomUntil = 0;
-  userScrolledAway = true;
-  followBottom = false;
-  cancelQueuedBottomSnaps();
-  engageHistoryReading();
+}
+
+function onScrollerKeydown(event: KeyboardEvent): void {
+  if (event.key !== "ArrowUp" && event.key !== "PageUp" && event.key !== "Home") return;
+  engageUserHistoryScroll();
+}
+
+let touchStartY = -1;
+function onScrollerTouchStart(event: TouchEvent): void {
+  touchStartY = event.touches[0]?.clientY ?? -1;
+}
+
+/** 手指下移 = 内容上滚 = 回看更早的消息（触摸屏 / 手机网页端没有 wheel 事件）。 */
+function onScrollerTouchMove(event: TouchEvent): void {
+  const y = event.touches[0]?.clientY;
+  if (y == null || touchStartY < 0 || y <= touchStartY + 8) return;
+  engageUserHistoryScroll();
+}
+
+/** 指针落在滚动条区域（元素内容区右侧）时同样视为主动滚动。 */
+function onScrollerPointerDown(event: PointerEvent): void {
+  const sc = scroller.value;
+  if (!sc) return;
+  if (event.clientX < sc.getBoundingClientRect().left + sc.clientWidth) return;
+  engageUserHistoryScroll();
 }
 
 /** Heavy virtual-window / prefetch work stays rAF-coalesced (follow already synced). */
@@ -1328,6 +1415,10 @@ onMounted(() => {
   const sc = scroller.value;
   sc?.addEventListener("scroll", onScrollerScroll, { passive: true });
   sc?.addEventListener("wheel", onScrollerWheel, { passive: true });
+  sc?.addEventListener("keydown", onScrollerKeydown);
+  sc?.addEventListener("touchstart", onScrollerTouchStart, { passive: true });
+  sc?.addEventListener("touchmove", onScrollerTouchMove, { passive: true });
+  sc?.addEventListener("pointerdown", onScrollerPointerDown, { passive: true });
   document.addEventListener("visibilitychange", onVisibilityChange);
   // Auto-load on startup mounts MessageList *after* activeId is set, so the
   // sessionId watcher may not re-fire — settle here or the spacer looks blank.
@@ -1338,6 +1429,10 @@ onMounted(() => {
 onBeforeUnmount(() => {
   scroller.value?.removeEventListener("scroll", onScrollerScroll);
   scroller.value?.removeEventListener("wheel", onScrollerWheel);
+  scroller.value?.removeEventListener("keydown", onScrollerKeydown);
+  scroller.value?.removeEventListener("touchstart", onScrollerTouchStart);
+  scroller.value?.removeEventListener("touchmove", onScrollerTouchMove);
+  scroller.value?.removeEventListener("pointerdown", onScrollerPointerDown);
   document.removeEventListener("visibilitychange", onVisibilityChange);
   if (scrollRaf) {
     cancelAnimationFrame(scrollRaf);
