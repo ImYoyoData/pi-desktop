@@ -79,6 +79,8 @@ export const IpcChannels = {
 		extensionUi: "sessions:extensionUi",
 		/** Renderer → main: extension UI dialog reply */
 		extensionUiReply: "sessions:extensionUiReply",
+		/** Renderer → main: pending interaction prompts still awaiting a reply */
+		pendingUi: "sessions:pendingUi",
 		/** Renderer → main: persist attachment tags for a sent user message. */
 		setUserMessageMeta: "sessions:setUserMessageMeta",
 		/** Renderer → main: cache a pasted/URL image into the session attachment folder. */
@@ -664,3 +666,14 @@ export type SessionForkResult = {
 	filePath: string;
 	cwd: string;
 };
+
+/** Renderer asks main for interaction prompts still awaiting a reply (post-reload recovery). */
+export type PendingUiSnapshotRequest = {
+	asks: import("./ask-user").AskUserAskPrompt[];
+	permissions: PendingUiPermissionSnapshot[];
+	extensionDialogs: PendingUiExtensionSnapshot[];
+};
+
+export type PendingUiPermissionSnapshot = import("./desktop-security").PermissionAskPrompt;
+
+export type PendingUiExtensionSnapshot = import("./extension-ui").ExtensionUiPending;
