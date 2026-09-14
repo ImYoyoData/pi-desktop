@@ -201,6 +201,8 @@ export const useChatStore = defineStore("chat", () => {
 			role: "assistant" as const,
 			text: row.text,
 			...(row.thinking ? { thinking: row.thinking } : {}),
+			...(row.model ? { model: row.model } : {}),
+			...(row.thinkingLevel ? { thinkingLevel: row.thinkingLevel } : {}),
 		};
 	}
 

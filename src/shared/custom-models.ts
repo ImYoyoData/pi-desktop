@@ -135,8 +135,8 @@ function parseModelEntry(raw: unknown): CustomModelEntry | null {
     ...(contextWindow ? { contextWindow } : {}),
     ...(maxTokens ? { maxTokens } : {}),
     ...(modelHasVision(o.input) ? { vision: true } : {}),
-    ...(typeof levelMap.xhigh === "string" ? { thinkingXhigh: true } : {}),
-    ...(typeof levelMap.max === "string" ? { thinkingMax: true } : {}),
+    ...(levelMap.xhigh === null ? { thinkingXhigh: false } : {}),
+    ...(levelMap.max === null ? { thinkingMax: false } : {}),
   };
 }
 
@@ -247,14 +247,17 @@ function mergeModelJson(
     base.input = next.length ? next : ["text"];
   }
 
-  // Pi only offers XHigh/Max when thinkingLevelMap explicitly maps them; the
-  // toggle is gated on `reasoning` because non-reasoning models ignore the map.
+  // 自定义推理模型默认支持 XHigh/Max：Pi 只在 thinkingLevelMap 显式映射时才提供这两档，
+  // 所以未明确关闭（false）就写入映射；关闭时写 null。
   const prevMap = asRecord(base.thinkingLevelMap) ?? {};
   const levelMap: Record<string, unknown> = { ...prevMap };
-  delete levelMap.xhigh;
-  delete levelMap.max;
-  if (draft.reasoning && draft.thinkingXhigh) levelMap.xhigh = "xhigh";
-  if (draft.reasoning && draft.thinkingMax) levelMap.max = "max";
+  if (draft.reasoning) {
+    levelMap.xhigh = draft.thinkingXhigh === false ? null : "xhigh";
+    levelMap.max = draft.thinkingMax === false ? null : "max";
+  } else {
+    delete levelMap.xhigh;
+    delete levelMap.max;
+  }
   if (Object.keys(levelMap).length) base.thinkingLevelMap = levelMap;
   else delete base.thinkingLevelMap;
 

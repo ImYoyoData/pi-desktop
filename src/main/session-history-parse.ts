@@ -20,6 +20,12 @@ type ParsedEntry = {
   timestamp: string;
   type: string;
   message?: Record<string, unknown>;
+  /** model_change entries. */
+  provider?: string;
+  /** model_change entries. */
+  modelId?: string;
+  /** thinking_level_change entries. */
+  thinkingLevel?: string;
 };
 
 type HistoryImage = { mimeType: string; dataUrl: string };
@@ -61,6 +67,25 @@ function textFromAgentMessage(message: Record<string, unknown>): string {
     })
     .map((part) => part.text)
     .join("");
+}
+
+/** 助手消息本轮使用的模型：优先服务端返回的 responseModel，其次请求的 model。 */
+function messageModel(
+  message: Record<string, unknown>,
+  fallback: { provider: string; id: string } | null,
+): { provider: string; id: string } | null {
+  const id =
+    typeof message.responseModel === "string" && message.responseModel
+      ? message.responseModel
+      : typeof message.model === "string" && message.model
+        ? message.model
+        : "";
+  const provider =
+    typeof message.provider === "string" && message.provider
+      ? message.provider
+      : (fallback?.provider ?? "");
+  if (!id || !provider) return fallback;
+  return { provider, id };
 }
 
 function imagesFromAgentMessage(message: Record<string, unknown>): HistoryImage[] {
@@ -171,6 +196,11 @@ function collectEntries(raw: string): {
       timestamp: typeof parsed.timestamp === "string" ? parsed.timestamp : "",
       type: parsed.type,
       message,
+      ...(typeof parsed.provider === "string" ? { provider: parsed.provider } : {}),
+      ...(typeof parsed.modelId === "string" ? { modelId: parsed.modelId } : {}),
+      ...(typeof parsed.thinkingLevel === "string"
+        ? { thinkingLevel: parsed.thinkingLevel }
+        : {}),
     });
   }
   return { entries, pendingImages };
@@ -195,9 +225,22 @@ function buildMessagesFromEntries(
   const messages: SessionHistoryMessage[] = [];
   const toolCallArgsById = new Map<string, unknown>();
   let metaCursor = 0;
+  let currentModel: { provider: string; id: string } | null = null;
+  let currentThinkingLevel: string | null = null;
   for (const id of pathIds) {
     const entry = byId.get(id);
-    if (!entry || entry.type !== "message" || !entry.message) {
+    if (!entry) continue;
+    if (entry.type === "model_change") {
+      if (entry.provider && entry.modelId) {
+        currentModel = { provider: entry.provider, id: entry.modelId };
+      }
+      continue;
+    }
+    if (entry.type === "thinking_level_change") {
+      if (entry.thinkingLevel) currentThinkingLevel = entry.thinkingLevel;
+      continue;
+    }
+    if (entry.type !== "message" || !entry.message) {
       continue;
     }
     const role = entry.message.role;
@@ -233,11 +276,14 @@ function buildMessagesFromEntries(
       const text = textFromAgentMessage(entry.message);
       const thinking = thinkingFromAgentMessage(entry.message);
       if (text || thinking) {
+        const model = messageModel(entry.message, currentModel);
         messages.push({
           id: entry.id,
           role: "assistant",
           text: truncateForUi(text),
           ...(thinking ? { thinking: truncateForUi(thinking, 16_000) } : {}),
+          ...(model ? { model } : {}),
+          ...(currentThinkingLevel ? { thinkingLevel: currentThinkingLevel } : {}),
         });
       }
     } else if (role === "toolResult") {

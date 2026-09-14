@@ -752,9 +752,9 @@ export const zh = {
 	modelsCustomModelName: "显示名（可选）",
 	modelsCustomReasoning: "推理",
 	modelsCustomThinkingXhigh: "XHigh",
-	modelsCustomThinkingXhighHint: "写入 thinkingLevelMap.xhigh，Pi 才会提供 XHigh 档",
+	modelsCustomThinkingXhighHint: "默认开启（写入 thinkingLevelMap.xhigh）；点一下关闭",
 	modelsCustomThinkingMax: "Max",
-	modelsCustomThinkingMaxHint: "写入 thinkingLevelMap.max，Pi 才会提供 Max 档",
+	modelsCustomThinkingMaxHint: "默认开启（写入 thinkingLevelMap.max）；点一下关闭",
 	modelsCustomApply: "应用到配置",
 	modelsCustomApplied: "已写入编辑中的 models.json，请点保存生效",
 	modelsCustomDelete: "删除自定义 Provider",
@@ -850,7 +850,7 @@ export const zh = {
 	modelsCustomBulkEmpty: "没有解析到有效的模型 ID",
 	modelsCustomBulkAdded: (n: number) => `已添加 ${n} 个模型`,
 	modelsCustomCapsHint:
-		"「推理 / 图片」由提供方返回值或模型名自动识别，无需手填；点一下可手动覆盖。XHigh / Max 需在推理模型上手动勾选，否则 Pi 不支持这两档。",
+		"「推理 / 图片」由提供方返回值或模型名自动识别，无需手填；点一下可手动覆盖。推理模型默认开启 XHigh / Max，点一下可关闭。",
 	modelsCustomCapsNeedId: "先填模型 ID，会自动识别能力",
 	modelsCustomCapsAuto: (label: string, on: boolean) =>
 		`${label}：自动识别为${on ? "支持" : "不支持"}，点击可手动覆盖`,
