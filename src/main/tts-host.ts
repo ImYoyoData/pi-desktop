@@ -1,4 +1,5 @@
 import { app, BrowserWindow, ipcMain } from "electron";
+import { netFetch } from "./net-fetch";
 import {
   createWriteStream,
   existsSync,
@@ -223,7 +224,7 @@ async function downloadOnce(
     totalBytes: phase === "model" ? TTS_VOICE_DISK_MB * 1024 * 1024 : TTS_RUNTIME_DISK_MB * 1024 * 1024,
     message: phase === "model" ? "Downloading TTS voice…" : "Downloading Piper runtime…",
   });
-  const res = await fetch(url, {
+  const res = await netFetch(url, {
     signal,
     redirect: "follow",
     headers: {

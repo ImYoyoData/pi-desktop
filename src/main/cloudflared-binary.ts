@@ -20,7 +20,7 @@
 import { spawn } from "node:child_process";
 import { chmodSync, mkdirSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { app, net } from "electron";
+import { app } from "electron";
 import { bin as packageBin, use as usePackageBinary } from "cloudflared";
 import {
   type BinaryLayout,
@@ -28,6 +28,7 @@ import {
   isSpawnablePath,
   pickCloudflaredPath,
 } from "../shared/cloudflared-path";
+import { netFetch } from "./net-fetch";
 
 /** cloudflared release the build prefetches. Keep in sync with the fetch script. */
 export const CLOUDFLARED_VERSION = "2026.9.1";
@@ -75,18 +76,8 @@ function userDataBinaryPath(): string {
   return join(app.getPath("userData"), "cloudflared", CLOUDFLARED_VERSION, binaryFileName());
 }
 
-/** Chromium's stack honours the system proxy; Node's bare https does not. */
-async function netFetch(url: string): Promise<Response> {
-  const init: RequestInit = { redirect: "follow", headers: { "User-Agent": "pi-desktop" } };
-  try {
-    return await net.fetch(url, init);
-  } catch (err) {
-    try {
-      return await fetch(url, init);
-    } catch {
-      throw err;
-    }
-  }
+async function fetchCloudflaredAsset(url: string): Promise<Response> {
+  return netFetch(url, { redirect: "follow", headers: { "User-Agent": "pi-desktop" } });
 }
 
 /** Release asset name for this platform/arch. */
@@ -99,16 +90,9 @@ function assetName(): string {
   throw new Error(`不支持的系统：${process.platform}`);
 }
 
-/**
- * Proxy-aware download of the cloudflared release asset.
- *
- * Needed because the package's own `install()` uses bare `node:https`, which
- * ignores system proxies — on a proxied/mirrored machine that download just
- * times out, which is exactly what we saw here.
- */
 async function downloadBinary(dest: string): Promise<void> {
   const url = `https://github.com/cloudflare/cloudflared/releases/download/${CLOUDFLARED_VERSION}/${assetName()}`;
-  const res = await netFetch(url);
+  const res = await fetchCloudflaredAsset(url);
   if (!res.ok || !res.body) throw new Error(`下载 cloudflared 失败（HTTP ${res.status}）`);
   const buffer = Buffer.from(await res.arrayBuffer());
   if (buffer.length < 1_000_000) throw new Error(`下载内容过小（${buffer.length} bytes）`);

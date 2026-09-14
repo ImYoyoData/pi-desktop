@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, net, shell } from "electron";
+import { app, BrowserWindow, ipcMain, shell } from "electron";
 import { createWriteStream, existsSync, mkdirSync, renameSync, rmSync } from "fs";
 import { join } from "path";
 import { pipeline } from "stream/promises";
@@ -20,6 +20,7 @@ import {
   type UpdateCheckResult,
   type UpdateProgress,
 } from "../shared/update";
+import { netFetch } from "./net-fetch";
 
 let checking = false;
 let downloading = false;
@@ -47,27 +48,10 @@ function releaseMeta(release: GhRelease): Pick<
   };
 }
 
-/** Prefer Chromium network stack — better proxy/TLS than Node fetch in Electron. */
-async function electronFetch(
-  url: string,
-  init?: RequestInit,
-): Promise<Response> {
-  try {
-    return await net.fetch(url, init);
-  } catch (err) {
-    // Fall back to global fetch if net.fetch is unavailable / blocked.
-    try {
-      return await fetch(url, init);
-    } catch {
-      throw err;
-    }
-  }
-}
-
 async function fetchLatestRelease(): Promise<GhRelease> {
   // Prefer releases list: GitHub `/releases/latest` excludes prereleases and
   // returns 404 when the newest (or only) release is marked prerelease.
-  const res = await electronFetch(APP_GITHUB_API_RELEASES, {
+  const res = await netFetch(APP_GITHUB_API_RELEASES, {
     headers: {
       Accept: "application/vnd.github+json",
       "User-Agent": `pi-desktop/${currentVersion()}`,
@@ -97,7 +81,7 @@ async function downloadAsset(
   const tmp = `${dest}.part`;
   rmSync(tmp, { force: true });
 
-  const res = await electronFetch(url, {
+  const res = await netFetch(url, {
     redirect: "follow",
     headers: {
       "User-Agent": `pi-desktop/${currentVersion()}`,
