@@ -799,9 +799,11 @@ function expandHistoryUp(): void {
   const nextStart = Math.max(0, renderStart.value - VIRTUAL_CHUNK);
   let nextEnd = renderEnd.value;
   // Trim far (bottom) side so mounting stays bounded while scrolling up.
-  // 贴底补挂时不能裁尾：尾部被裁掉会让底部 spacer 顶进视口。
-  if (!followBottom && nextStart + VIRTUAL_MAX < nextEnd) {
-    nextEnd = nextStart + VIRTUAL_MAX;
+  // 被裁掉的行必须在视口下方，否则底部 spacer 会顶进视口（露出空白）。
+  const trimEnd = nextStart + VIRTUAL_MAX;
+  if (!followBottom && trimEnd < nextEnd) {
+    const trimTop = sc.scrollHeight - bottomSpacerPx.value - estimateRangeHeight(trimEnd, nextEnd);
+    if (trimTop > sc.scrollTop + sc.clientHeight + OVERSCAN_PX) nextEnd = trimEnd;
   }
   if (fitsFullMount(displayMessages.value.length)) {
     renderStart.value = 0;
@@ -819,6 +821,7 @@ function expandHistoryUp(): void {
     } else {
       scheduleWindowPrefetch();
     }
+    ensureViewportCovered();
   });
 }
 
@@ -892,9 +895,12 @@ function expandHistoryDown(): void {
   const anchor = captureScrollAnchors();
   renderEnd.value = Math.min(len, renderEnd.value + VIRTUAL_CHUNK);
   // Trim far (top) side — never grow past VIRTUAL_MAX (sticky is overlay-only).
+  // 被裁掉的行必须完全在视口上方，否则顶部 spacer 会露进视口（“到最顶上大片空白”）。
   let nextStart = renderStart.value;
-  if (renderEnd.value - nextStart > VIRTUAL_MAX) {
-    nextStart = renderEnd.value - VIRTUAL_MAX;
+  const trimStart = renderEnd.value - VIRTUAL_MAX;
+  if (trimStart > nextStart) {
+    const trimBottom = topSpacerPx.value + estimateRangeHeight(nextStart, trimStart);
+    if (sc.scrollTop > trimBottom + OVERSCAN_PX) nextStart = trimStart;
   }
   if (fitsFullMount(len)) {
     renderStart.value = 0;
@@ -908,6 +914,7 @@ function expandHistoryDown(): void {
     adjustingWindow = false;
     updateStickyPinned();
     scheduleWindowPrefetch();
+    ensureViewportCovered();
   });
 }
 
