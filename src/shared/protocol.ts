@@ -23,6 +23,12 @@ export const IpcChannels = {
 		/** Renderer → main: copy a data-URL image onto the system clipboard. */
 		writeImage: "clipboard:writeImage",
 	},
+	thinkingLanguage: {
+		/** Renderer → main: 读取「思考语言」设置。 */
+		get: "thinkingLanguage:get",
+		/** Renderer → main: 保存「思考语言」设置。 */
+		set: "thinkingLanguage:set",
+	},
 	workspace: {
 		get: "workspace:get",
 		open: "workspace:open",
