@@ -12,6 +12,12 @@ export type WorkerInbound =
       filePath?: string;
       projectTrusted: boolean;
       desktopSecurity?: DesktopSecuritySettings;
+      /**
+       * Language the assistant should answer in, already resolved (never `auto`).
+       * Baked into the system prompt, so it applies to sessions started after the
+       * setting changed.
+       */
+      responseLanguage?: string;
     }
   | { kind: "command"; id: string; command: AgentCommand }
   | { kind: "reload_models" }

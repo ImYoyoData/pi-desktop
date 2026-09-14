@@ -23,6 +23,12 @@ export const IpcChannels = {
 		/** Renderer → main: copy a data-URL image onto the system clipboard. */
 		writeImage: "clipboard:writeImage",
 	},
+	responseLanguage: {
+		/** Renderer → main: current "answer in which language" setting. */
+		get: "responseLanguage:get",
+		/** Renderer → main: save it (also reports the device language for `auto`). */
+		set: "responseLanguage:set",
+	},
 	workspace: {
 		get: "workspace:get",
 		open: "workspace:open",
@@ -106,6 +112,8 @@ export const IpcChannels = {
 		setPort: "lanConsole:setPort",
 		/** Renderer → main: issue a new 9-digit access PIN. */
 		rotatePin: "lanConsole:rotatePin",
+		/** Renderer → main: save the optional named-tunnel token + public hostname. */
+		setTunnelConfig: "lanConsole:setTunnelConfig",
 		/** Renderer → main: pick which LAN IPv4 to show in QR / copy URL. */
 		setPreferredIp: "lanConsole:setPreferredIp",
 		/** Main → renderer: public-access (cloudflared) state changed. */
@@ -322,22 +330,27 @@ export type TrustState = {
 
 export type SessionStatus = "idle" | "running" | "error" | "stuck";
 
-/** Public-access (Cloudflare quick tunnel) state, mirrored from the main process. */
+/** Public-access (Cloudflare tunnel) state, mirrored from the main process. */
 export type CloudflareTunnelStatus = {
-	/** User wants public access; install/start may still be in flight. */
+	/** User wants public access; binary resolve/start may still be in flight. */
 	enabled: boolean;
-	/** cloudflared binary present and ready. */
+	/** A runnable cloudflared executable was resolved. */
 	installed: boolean;
 	/** cloudflared process running. */
 	running: boolean;
 	/** Current step while bringing the tunnel up. */
 	phase: "off" | "downloading" | "starting" | "on" | "error";
-	/** Public trycloudflare URL once the tunnel is up (changes every start). */
+	/**
+	 * Public URL once the tunnel is up. Quick mode: a trycloudflare hostname
+	 * minted per start. Named mode: the user's fixed hostname.
+	 */
 	url: string | null;
 	/** Last failure message, shown in the remote-control panel. */
 	error: string | null;
 	/** Loopback origin the tunnel forwards to. */
 	origin: string | null;
+	/** Which mode is running (or about to run). */
+	mode: "quick" | "named";
 	/** Where the cloudflared binary lives. */
 	binaryPath: string;
 	/** True when the user supplied their own cloudflared build. */
@@ -373,6 +386,12 @@ export type LanConsoleStatus = {
 	url: string;
 	/** Public tunnel URL when public access is up, else null. */
 	publicUrl: string | null;
+	/** Which tunnel mode is configured: accountless quick, or the user's own. */
+	tunnelMode: "quick" | "named";
+	/** True once a Cloudflare tunnel token was saved (named mode). */
+	tunnelTokenSet: boolean;
+	/** Public hostname the user configured for their own named tunnel. */
+	tunnelPublicUrl: string;
 	/** Cloudflare tunnel detail for the panel. */
 	tunnel: CloudflareTunnelStatus;
 };

@@ -5,6 +5,7 @@ import {
 	createAgentSessionFromServices,
 	createAgentSessionServices,
 	createBashToolDefinition,
+	createPowerShellToolDefinition,
 	defineTool,
 	getAgentDir,
 	SessionManager,
@@ -48,11 +49,17 @@ import {
 	DESKTOP_BASH_BACKGROUND_PROMPT,
 	DESKTOP_PROJECT_ORIENTATION_PROMPT,
 	DESKTOP_TODO_PROMPT,
+	desktopResponseLanguagePrompt,
 } from "../shared/desktop-system-prompt";
 import { createAskUserToolDefinition } from "./ask-user-tool";
 import { createTodoWriteToolDefinition } from "./todo-tool";
 import { commandShouldStartBackground } from "../shared/bash-background";
 import { createTrackedBashOperations } from "./bash-run-tracker";
+import {
+	commandShellPrompt,
+	describeCommandShell,
+	detectCommandShell,
+} from "./command-shell";
 import { createBrowserToolDefinitions } from "./browser-tools";
 import {
 	readContextUsage,
@@ -357,6 +364,7 @@ async function initSession(
 	filePath: string | undefined,
 	projectTrusted: boolean,
 	securitySnapshot?: DesktopSecuritySettings,
+	responseLanguage?: string,
 ): Promise<void> {
 	if (initStarted) {
 		return;
@@ -384,6 +392,15 @@ async function initSession(
 		workerDirname(),
 		typeof process.resourcesPath === "string" ? process.resourcesPath : undefined,
 	);
+	// Answers follow the configured language (Settings → 回答语言); empty when the
+	// user picked the device language and it could not be resolved.
+	const responseLanguagePrompt = desktopResponseLanguagePrompt(
+		String(responseLanguage ?? "").trim(),
+	);
+	// Which command shell this machine can actually run (see command-shell.ts).
+	const commandShell = detectCommandShell();
+	const commandShellPromptText = commandShellPrompt(commandShell);
+	console.info(`[pi-desktop] command shell: ${describeCommandShell(commandShell)}`);
 	const services = await createAgentSessionServices({
 		cwd,
 		agentDir,
@@ -395,6 +412,8 @@ async function initSession(
 				DESKTOP_TODO_PROMPT,
 				DESKTOP_BASH_BACKGROUND_PROMPT,
 				DESKTOP_COMPOSER_MODES_PROMPT,
+				...(responseLanguagePrompt ? [responseLanguagePrompt] : []),
+				...(commandShellPromptText ? [commandShellPromptText] : []),
 			],
 			...(builtinBrowserSkillDir
 				? { additionalSkillPaths: [builtinBrowserSkillDir] }
@@ -419,12 +438,33 @@ async function initSession(
 		await createAgentSessionFromServices({
 			services,
 			sessionManager,
+			// With no usable bash, the SDK's `bash` tool would otherwise be active and
+			// every call would fail with "execvpe(/bin/bash) failed". Deny it and let
+			// the PowerShell tool take over — the tool registry activates every
+			// sibling of the tools that are active, so `powershell` comes on by
+			// itself while `ask_user` / `todo_write` stay active too. (An allowlist
+			// (`tools`) would drop those custom tools, hence the denylist only.)
+			...(commandShell.kind === "powershell" ? { excludeTools: ["bash"] } : {}),
 			customTools: [
-				defineTool(
-					createBashToolDefinition(cwd, {
-						operations: runTracker.operations,
-					}),
-				),
+				// Command tool. On Windows the SDK's own shell fallback picks
+				// `where bash.exe`, i.e. the WSL launcher, which fails with
+				// "execvpe(/bin/bash) failed" whenever no WSL distro is installed.
+				// Hand the bash tool a REAL bash when one exists; otherwise expose
+				// the SDK's PowerShell tool instead of a bash that cannot run.
+				commandShell.kind === "powershell"
+					? defineTool(
+							createPowerShellToolDefinition(cwd, {
+								operations: runTracker.operations,
+							}),
+						)
+					: defineTool(
+							createBashToolDefinition(cwd, {
+								operations: runTracker.operations,
+								...(commandShell.kind === "bash"
+									? { shellPath: commandShell.shellPath }
+									: {}),
+							}),
+						),
 				createAskUserToolDefinition(),
 				createTodoWriteToolDefinition(),
 				...createBrowserToolDefinitions(),
@@ -639,6 +679,7 @@ export async function handleWorkerMessage(msg: WorkerInbound): Promise<void> {
 			msg.filePath,
 			msg.projectTrusted,
 			msg.desktopSecurity,
+			msg.responseLanguage,
 		);
 		return;
 	}
