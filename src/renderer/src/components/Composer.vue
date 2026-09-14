@@ -1063,6 +1063,7 @@ async function submit(mode: "prompt" | "steer" | "follow_up"): Promise<void> {
         return;
       }
       id = created.id;
+      composer.transferDraftMode(id);
     } catch (err) {
       draftCommitPending = false;
       messageApi.error(err instanceof Error ? err.message : String(err));
