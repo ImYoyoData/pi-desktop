@@ -537,6 +537,11 @@ async function loadSessions(root: string): Promise<void> {
 }
 
 async function ensureActiveSession(root: string): Promise<void> {
+  // 草稿态没有真实会话：同一工作区保留，切到别的目录则放弃。
+  if (sessionsStore.draftRoot) {
+    if (sessionsStore.draftRoot === root) return;
+    sessionsStore.draftRoot = null;
+  }
   const list = sessionsByRoot[root] ?? [];
   if (sessionsStore.activeId && list.some((s) => s.id === sessionsStore.activeId)) {
     // Re-open so main-process broker always has the session (cold start / HMR).
@@ -581,8 +586,7 @@ async function onNewAgentForWorkspace(root: string, event?: Event): Promise<void
   event?.stopPropagation();
   event?.preventDefault();
   if (workspace.trustDialogOpen) return;
-  // Creating in another workspace abandons the unstarted session open here;
-  // same-root creation is handled inside createSession (no empty-state flash).
+  // 在别的目录新建会放弃当前未使用的空会话。
   if (workspace.root && workspace.root !== root) {
     await discardActiveUnstartedForRoot(workspace.root);
   }
@@ -591,12 +595,7 @@ async function onNewAgentForWorkspace(root: string, event?: Event): Promise<void
   }
   if (workspace.trustDialogOpen || !workspace.sessionsReady) return;
   expanded[root] = true;
-  const created = await sessionsStore.createSession(root);
-  await loadSessions(root);
-  if (created) {
-    appendSessionToOrder(root, created.id);
-    await onSelectSession(root, created.id);
-  }
+  sessionsStore.beginDraft(root);
 }
 
 async function onAddWorkspace(): Promise<void> {
@@ -839,12 +838,7 @@ async function onWorkspaceMenu(root: string, key: string | number): Promise<void
       if (workspace.root !== root) await workspace.openWorkspacePath(root);
       if (workspace.trustDialogOpen || !workspace.sessionsReady) return;
       expanded[root] = true;
-      const created = await sessionsStore.createSession(root);
-      await loadSessions(root);
-      if (created) {
-        appendSessionToOrder(root, created.id);
-        await onSelectSession(root, created.id);
-      }
+      sessionsStore.beginDraft(root);
       break;
     }
     case "refresh":

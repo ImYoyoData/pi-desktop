@@ -57,7 +57,7 @@ export const zh = {
 	slashSkillFallbackDesc: "调用该 Skill",
 	slashNeedWorkspace: "请先打开工作区",
 	slashNeedSession: "请先选择或新建会话",
-	slashNewDone: "已创建新会话",
+	slashNewDone: "已切换到新会话",
 	atFileMenuLabel: "引用文件",
 	atFileEmpty: "没有匹配的文件 — 试试文件名、路径片段或驼峰缩写",
 	atFileSearching: "正在搜索…",

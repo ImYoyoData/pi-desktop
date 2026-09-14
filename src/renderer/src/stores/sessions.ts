@@ -107,6 +107,8 @@ export const useSessionsStore = defineStore("sessions", () => {
   /** cwd 当前 sessions 列表所属的工作区（null=未加载/已清空）。 */
   const listRoot = ref<string | null>(null);
   const activeId = ref<string | null>(null);
+  /** 未创建的新会话草稿所属工作区（null=不处于草稿态）。 */
+  const draftRoot = ref<string | null>(null);
   const contextBySession = ref<Record<string, SessionContextUsage>>({});
 
   const activeContextUsage = computed(() => {
@@ -223,8 +225,10 @@ export const useSessionsStore = defineStore("sessions", () => {
     if (!cwd) {
       sessions.value = [];
       listRoot.value = null;
+      draftRoot.value = null;
       return;
     }
+    if (draftRoot.value && draftRoot.value !== cwd) draftRoot.value = null;
     sessions.value = await window.api.sessions.list(cwd);
     listRoot.value = cwd;
   }
@@ -249,23 +253,33 @@ export const useSessionsStore = defineStore("sessions", () => {
     return row && isUnstartedSession(row) ? row : null;
   }
 
-  async function createSession(cwd: string): Promise<SessionSummary | null> {
-    // Creating a session abandons an unstarted 新会话 that was still open
-    // (new-session button, /new, empty-state button) instead of leaving it behind.
-    const leaving = activeIfUnstarted();
+  /**
+   * 打开空白的新会话输入界面但不落盘。会话文件只在首次发送消息时创建，
+   * 因此被放弃的草稿既不会出现在侧栏，也不会在磁盘留下空会话。
+   */
+  function beginDraft(cwd: string): void {
+    draftRoot.value = cwd;
+    activeId.value = null;
+    // 新建即空白：清掉上一个草稿残留在无会话缓冲里的内容。
+    const composer = useComposerStore();
+    composer.bindSession(null);
+    composer.clear();
+  }
+
+  /** 草稿首次发送：创建会话文件并切换为活动会话。 */
+  async function commitDraft(): Promise<SessionSummary | null> {
+    const cwd = draftRoot.value;
+    if (!cwd) return null;
     const created = await window.api.sessions.create(cwd);
     upsert(created);
     activeId.value = created.id;
-    // Drop the abandoned one only once the new session is active, so the UI
-    // never flashes an empty state between the two IPC round-trips.
-    if (leaving) {
-      try {
-        await window.api.sessions.delete(leaving.id, leaving.cwd);
-      } catch (err) {
-        console.error("discard unstarted session failed", err);
-      }
-      dropSessionState(leaving.id);
-    }
+    draftRoot.value = null;
+    // 侧栏把新会话排到最前，否则它会落在折叠的旧会话之下。
+    window.dispatchEvent(
+      new CustomEvent("pi-session-created", {
+        detail: { root: created.cwd, sessionId: created.id },
+      }),
+    );
     return created;
   }
 
@@ -277,6 +291,7 @@ export const useSessionsStore = defineStore("sessions", () => {
       throw new Error(`failed to open session: ${sessionId}`);
     }
     upsert(opened);
+    draftRoot.value = null;
     activeId.value = sessionId;
   }
 
@@ -382,11 +397,13 @@ export const useSessionsStore = defineStore("sessions", () => {
     sessions,
     listRoot,
     activeId,
+    draftRoot,
     contextBySession,
     activeContextUsage,
     applyContextFromState,
     refresh,
-    createSession,
+    beginDraft,
+    commitDraft,
     selectSession,
     discardActiveIfUnstarted,
     sendCommand,
