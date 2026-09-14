@@ -2,47 +2,73 @@
 
 ## 未发布 / Unreleased
 
-本版重点：局域网网页控制台改名为「远程控制」，默认开启局域网访问（普通 HTTP，无证书警告），公网访问改为 Cloudflare 隧道按需打开；网页版移除语音输入。
+本版重点：局域网网页控制台改名为「远程控制」，默认开启局域网访问（普通 HTTP，无证书警告），公网访问改为 Cloudflare 隧道按需打开并支持绑定自己的域名；网页版移除语音输入但补上浏览器原生朗读；新增回答语言设置；修复 Windows 上 bash 工具不可用。
 
 ### 新功能 Features
 
 - 「远程控制」取代原「局域网网页控制台」；标题栏图标、面板文案与网页端标题统一更名。
 - 局域网访问默认开启：启动即监听 `http://<本机IP>:18700`，手机/平板浏览器直接可用。
 - 登录方式简化为 **9 位数字访问密码**（首次运行自动生成，面板内可查看/复制/一键更换），不再需要用户名密码。
-- 新增「公网访问」开关（默认关闭）：打开后自动下载并运行 cloudflared 快速隧道，生成 `https://<随机名>.trycloudflare.com` 公网地址；TLS 由 Cloudflare 边缘终结，隧道仅转发到 127.0.0.1 的本地端口，并带自动重试与看门狗。
+- 新增「公网访问」开关（默认关闭）：打开后由内置 cloudflared 建立 Cloudflare 隧道，生成 `https://<随机名>.trycloudflare.com` 公网地址；TLS 由 Cloudflare 边缘终结，隧道仅转发到 127.0.0.1 的本地端口，并带自动重试与看门狗。
+- **支持绑定自己的域名**：填入 Cloudflare 隧道 Token 与公网地址后改用命名隧道，地址固定不变、重启也无需重新分享链接；面板内提供「打开 Cloudflare 隧道页面」按钮与 Token 粘贴，并给出配置步骤。
+- 网页版朗读改用**浏览器原生语音合成**（Web Speech API）：零安装、零下载，不占用桌面端语音模型。
+- 新增「**回答语言**」设置（设置 → 外观）：20 种语言可选，默认「跟随设备」按系统语言判断；与界面语言相互独立。语言写入系统提示词，避免模型跟着上一条消息的语言漂移。
 - 登录失败按来源限速：公网来源 6 次失败锁定 10 分钟，局域网来源独立计数，防止爆破。
 - Renamed the LAN web console to **Remote Control**; the titlebar entry, panel copy and web page title follow.
 - LAN access now defaults to **on** (`http://<pc-ip>:18700`), so a phone on the same network works out of the box.
 - Login is a single **9-digit access PIN** (auto-generated on first run, visible/copyable/rotatable in the panel) instead of username + password.
-- New **Public access** switch (off by default): downloads and runs a cloudflared quick tunnel on demand, publishing a `https://<random>.trycloudflare.com` URL (TLS terminated at Cloudflare's edge). The tunnel only ever forwards to a loopback port, with automatic retry and a watchdog.
+- New **Public access** switch (off by default): the bundled cloudflared opens a Cloudflare tunnel on demand, publishing a `https://<random>.trycloudflare.com` URL (TLS terminated at Cloudflare's edge). The tunnel only ever forwards to a loopback port, with automatic retry and a watchdog.
+- **Bring your own domain**: a Cloudflare tunnel token plus hostname switches to a named tunnel with a fixed address, so nothing has to be re-shared after a restart. The panel links to the Cloudflare tunnels page, offers token paste, and spells out the steps.
+- Read-aloud in the web console uses the **browser's own speech synthesis** (Web Speech API) — nothing to install or download, and the desktop voice model is untouched.
+- New **Answer language** setting (Settings → Appearance): 20 languages with "Follow device" as the default; independent of the interface language and written into the system prompt so the model does not drift.
 - Failed logins are rate limited per client — 6 attempts then a 10-minute lock, counted separately for tunnel traffic.
 
 ### 变更 Changes
 
 - 局域网改为普通 HTTP：不再生成自签名证书，手机首次打开没有「证书不受信任」警告；代价是局域网内不加密，请只在可信网络使用。公网地址仍为 HTTPS。
-- 网页版移除录音/语音输入（麦克风按钮、PCM 采集、`/api/transcribe` 代理与桌面 ASR 调用），桌面端语音输入不受影响。
+- 隧道进程改由官方 `cloudflared` npm 包托管（二进制仍由应用自行获取并实跑校验），删掉手写的下载/解压逻辑。
+- 网页版移除录音/语音输入（麦克风按钮、PCM 采集、`/api/transcribe` 代理与桌面 ASR 调用），桌面端语音输入不受影响；朗读改为浏览器实现保留。
+- **回复中发送的内容改为「引导」语义**：不再排队等下一轮，而是立即注入当前这轮，Pi 会在下一个 LLM 调用前看到它并据此继续推理。
 - 移除 `selfsigned` 依赖（其 v5 在当前依赖树中无法生成证书）。
 - The LAN side now uses plain HTTP: no self-signed certificate is generated and phones see no certificate warning. The trade-off is unencrypted LAN traffic, so use it on a trusted network; the public URL is still HTTPS.
-- Removed voice recording from the web console (mic button, PCM capture, the `/api/transcribe` proxy and the desktop ASR call). Desktop voice input is unchanged.
+- The tunnel process is now driven by the official `cloudflared` npm package (the app still obtains and executes the binary to verify it), replacing hand-written download/unpack code.
+- Removed voice recording from the web console (mic button, PCM capture, the `/api/transcribe` proxy and the desktop ASR call). Desktop voice input is unchanged; read-aloud is kept via the browser.
+- Messages sent **while Pi is replying** are now delivered as guidance into the running turn instead of waiting for the next one.
 - Dropped the `selfsigned` dependency (its v5 build cannot issue certificates in this dependency tree).
 
 ### 修复 Fixes
 
+- **修复 Windows 上 bash 工具完全不可用**（`execvpe(/bin/bash) failed: No such file or directory`）：工具原本退回到 PATH 上的 `bash.exe`，而那其实是 WSL 启动器，未安装 WSL 发行版时必然失败。现在优先寻找真正的 bash（Git Bash 等），找不到就改用内置 PowerShell 工具，并禁止调用不可用的 bash，避免模型反复撞错。
+- 修复模型选择器在**新建会话（未发送任何消息）时就被锁死**：判断依据误用了会话摘要里的状态字段，该字段可能滞后残留；现在只依据当前真实的流式状态。
+- 修复回复期间发送的内容会从界面"消失"：发送后立即显示为待发送卡片并保留到被处理。
+- 修复模型切换下拉框**无法滚动**：模型上百个时菜单撑出窗口，下方模型点不到；现在限制高度（60vh/460px）并内部滚动。
 - 修复侧栏偶尔多出一个「空白工作区」：空白路径被 `path.resolve("")` 解析成应用自身的工作目录，于是变成一个没有名字的工作区条目。现在空白/纯空格路径在写入与读取工作区状态时都会被拒绝（同时清理旧版本留下的脏数据），IPC 边界、渲染层 store、局域网网页端与侧栏各自独立过滤，任一层都不再可能渲染出空白工作区。
 - 修复公网访问「页面能打开、密码能登录，却一直显示已断开 / 正在连接」：隧道入口没挂 WebSocket，公网 `wss://xxx.trycloudflare.com/ws` 被当成普通 HTTP 请求返回 404。现在局域网与隧道入口两个监听各自挂载 WebSocket，公网长连接正常。
+- 修复打包版找不到内置 cloudflared：asar 归档内的路径会被判断为"存在"却无法执行，且打包会压平按架构分的目录；现在同时兼容两种布局，并在使用前实际执行 `--version` 验证。
 - 修复开启公网访问时看门狗在 cloudflared 下载途中误判「未在运行」并重试，导致下载被中断、二进制残缺；同时修正重试退避被重置成固定 5 秒的问题。
+- 修复中英语言包里重复定义的文案键（构建告警，且重复项会静默覆盖原值），并加上自动化校验防止再犯。
+- Fixed the **bash tool being unusable on Windows** (`execvpe(/bin/bash) failed: No such file or directory`): its shell fallback picked `bash.exe` from PATH, which is the WSL launcher. A real bash (Git Bash) is now preferred; otherwise the app switches to the built-in PowerShell tool and denies the broken `bash` tool.
+- Fixed the model picker being locked in a **brand-new session that had sent nothing**: it trusted a session-summary status field that can lag; it now follows the live streaming state only.
+- Fixed a message sent during a reply appearing to vanish from the UI: it now shows as a pending card until the agent takes it.
+- Fixed the model switcher dropdown **not scrolling**: with hundreds of models the menu grew past the window and lower models were unclickable; it is now height-capped (60vh/460px) and scrolls internally.
 - Fixed the sidebar occasionally showing an extra blank workspace: a blank path resolved via `path.resolve("")` becomes the app's own working directory, i.e. a nameless workspace entry. Blank/whitespace-only paths are now rejected both when reading and writing workspace state (which also purges leftovers from older builds), and the IPC boundary, renderer store, LAN web panel and sidebar each filter independently, so no layer can render a blank workspace.
 - Fixed public access getting stuck on "disconnected / reconnecting" after a successful login: the tunnel origin listener had no WebSocket server attached, so `wss://xxx.trycloudflare.com/ws` fell through to the plain HTTP handler and returned 404. Both listeners (LAN and tunnel origin) now mount their own WebSocket server, so the public connection stays up.
+- Fixed packaged builds failing to find the bundled cloudflared: paths inside the app archive report as existing yet cannot be executed, and packaging flattens the per-arch directory. Both layouts are handled and the binary is executed (`--version`) before use.
 - Fixed the watchdog declaring cloudflared "not running" while it was still downloading, which aborted the download and left a broken binary; retry backoff no longer collapses into a fixed 5-second loop.
+- Fixed duplicated message keys in the locale files (a build warning whose duplicate silently overrode the original) and added automated checks so it cannot come back.
 
 ### 优化 / 体验 Improvements
 
 - 端口被占用、页面未构建等启动失败会在面板内说明原因，并在 20 秒后自动重试一次。
-- 面板新增公网地址状态（下载中/连接中/已就绪/失败原因与重试按钮），标题栏用颜色区分「仅局域网」与「已开公网」。
-- cloudflared 下载走 Electron 网络栈（自动使用系统代理），并按官方 SHA-256 校验后再执行；隧道状态变化（上线/断开/报错及公网地址）写入日志便于排查。
+- 面板新增公网地址状态（连接中/已就绪/失败原因与重试按钮），标题栏用颜色区分「仅局域网」与「已开公网」；短时间来回开关会保留同一地址。
+- 隧道沿用 cloudflared 默认传输协议：实测强制 `--protocol http2` 会让临时地址持续不可达，因此不强制。
+- 隧道状态变化（上线/断开/报错及公网地址）写入日志便于排查。
+- 启动日志会打印本机实际使用的命令 shell，便于排查命令执行问题。
 - Startup failures (busy port, missing build) now explain themselves in the panel and retry once after 20 seconds.
-- The panel shows the public URL state (downloading / connecting / ready / error with retry); the titlebar dot distinguishes LAN-only from public.
-- cloudflared downloads use Electron's network stack (system proxy aware) and are verified against the official SHA-256 before being executed; tunnel transitions (up / down / error, with the public URL) are logged for diagnosis.
+- The panel shows the public URL state (connecting / ready / error with retry); the titlebar dot distinguishes LAN-only from public, and toggling off/on quickly keeps the same address.
+- Tunnel traffic uses cloudflared's default transport: forcing `--protocol http2` was measured to make the temporary address unreachable, so it is not forced.
+- Tunnel transitions (up / down / error, with the public URL) are logged for diagnosis.
+- The startup log prints which command shell was chosen, making shell problems diagnosable.
 
 ## v0.3.3 (2026-09-07)
 

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from "vue";
-import { NButton, NInputNumber, NSpace, NSwitch, NText, useMessage } from "naive-ui";
+import { NButton, NInput, NInputNumber, NSpace, NSwitch, NText, useMessage } from "naive-ui";
 import QRCode from "qrcode";
 import type { CloudflareTunnelStatus, LanConsoleStatus } from "../../../shared/protocol";
 import { t } from "@renderer/i18n";
@@ -13,6 +13,10 @@ const togglingPublic = ref(false);
 const rotatingPin = ref(false);
 const savingPort = ref(false);
 const savingIp = ref(false);
+const savingTunnel = ref(false);
+const showOwnDomain = ref(false);
+const tokenDraft = ref("");
+const domainDraft = ref("");
 const portDraft = ref(18700);
 const qrDataUrl = ref<string | null>(null);
 let offTunnelStatus: (() => void) | null = null;
@@ -24,6 +28,8 @@ const tunnelBusy = computed(() =>
 );
 const tunnelError = computed(() => status.value?.tunnel.error ?? null);
 const lanBroken = computed(() => Boolean(status.value?.enabled) && !status.value?.listening);
+/** Named mode = the user configured their own Cloudflare tunnel. */
+const usingOwnDomain = computed(() => Boolean(status.value?.tunnelTokenSet));
 
 async function updateQr(): Promise<void> {
   const url = status.value?.listening ? status.value?.url : null;
@@ -42,6 +48,47 @@ function applyStatus(next: LanConsoleStatus): void {
   status.value = next;
   tunnel.value = next.tunnel;
   portDraft.value = next.port;
+  domainDraft.value = next.tunnelPublicUrl;
+  showOwnDomain.value = next.tunnelTokenSet;
+}
+
+async function onSaveTunnel(): Promise<void> {
+  savingTunnel.value = true;
+  try {
+    const next = await window.api.lanConsole.setTunnelConfig(tokenDraft.value, domainDraft.value);
+    applyStatus(next);
+    tokenDraft.value = "";
+    message.success(next.tunnelTokenSet ? t.lanTunnelSaved : t.lanTunnelCleared);
+  } catch (err) {
+    message.error(err instanceof Error ? err.message : String(err));
+  } finally {
+    savingTunnel.value = false;
+  }
+}
+
+/**
+ * Cloudflare Zero Trust dashboard, tunnels list — the place a token comes from.
+ * Opened in the system browser so the user can sign in and copy a token.
+ */
+const CLOUDFLARE_TUNNELS_URL = "https://one.dash.cloudflare.com/?to=/:account/tunnels";
+
+function openCloudflareDashboard(): void {
+  void window.api.browser.openExternal(CLOUDFLARE_TUNNELS_URL);
+}
+
+/** Pull a token straight from the clipboard instead of retyping it. */
+async function pasteToken(): Promise<void> {
+  try {
+    const text = (await navigator.clipboard.readText()).trim();
+    if (!text) return;
+    tokenDraft.value = text;
+    // Cloudflare tokens are base64 JSON with a scheme prefix; extract the part
+    // after the last "eyJ" when the user copied a whole install command.
+    const marker = text.lastIndexOf("eyJ");
+    if (marker > 0) tokenDraft.value = text.slice(marker).replace(/[^\w=+/-]/gu, "");
+  } catch {
+    message.warning(t.lanConsoleCopyFailed);
+  }
 }
 
 async function refresh(): Promise<void> {
@@ -242,6 +289,47 @@ onUnmounted(() => {
         </div>
         <NText depth="3" class="hint tight">{{ t.lanPublicHint }}</NText>
 
+        <!-- Optional: the user's own Cloudflare tunnel (fixed hostname) -->
+        <div class="own-domain">
+          <NSwitch v-model:value="showOwnDomain" size="small">
+            <template #checked>{{ t.lanTunnelOwnDomain }}</template>
+            <template #unchecked>{{ t.lanTunnelOwnDomain }}</template>
+          </NSwitch>
+          <template v-if="showOwnDomain">
+            <NText depth="3" class="hint tight">{{ t.lanTunnelOwnDomainHint }}</NText>
+            <NSpace :size="6" class="row">
+              <NButton size="tiny" secondary @click="openCloudflareDashboard">
+                {{ t.lanTunnelOpenDashboard }}
+              </NButton>
+            </NSpace>
+            <div class="token-row">
+              <NInput
+                v-model:value="tokenDraft"
+                size="small"
+                type="password"
+                show-password-on="click"
+                :placeholder="usingOwnDomain ? '•••••••（已保存，留空则不变）' : t.lanTunnelTokenPlaceholder"
+              />
+              <NButton size="tiny" secondary @click="pasteToken">{{ t.lanTunnelPasteToken }}</NButton>
+            </div>
+            <NInput
+              v-model:value="domainDraft"
+              size="small"
+              :placeholder="t.lanTunnelDomainPlaceholder"
+              class="own-input"
+            />
+            <NSpace :size="6" class="row">
+              <NButton size="tiny" type="primary" secondary :loading="savingTunnel" @click="onSaveTunnel">
+                {{ t.lanTunnelSave }}
+              </NButton>
+              <span class="mode-tag">
+                {{ usingOwnDomain ? t.lanTunnelModeNamed : t.lanTunnelModeQuick }}
+              </span>
+            </NSpace>
+            <NText depth="3" class="hint tight">{{ t.lanTunnelHowTo }}</NText>
+          </template>
+        </div>
+
         <template v-if="status.publicAccess">
           <div v-if="tunnelBusy" class="hint tight pending">
             {{ status.tunnel.phase === "downloading" ? t.lanPublicDownloading : t.lanPublicStarting }}
@@ -371,6 +459,30 @@ onUnmounted(() => {
 }
 .retry {
   margin-left: 6px;
+}
+.own-domain {
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px dashed var(--border, #e6e8ec);
+}
+.own-input {
+  margin-top: 6px;
+}
+.token-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px;
+}
+.token-row > :first-child {
+  flex: 1;
+  min-width: 0;
+}
+.mode-tag {
+  font-size: 11px;
+  color: var(--accent, #2563eb);
+  font-weight: 600;
+  align-self: center;
 }
 .pin-row {
   display: flex;

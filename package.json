@@ -43,6 +43,7 @@
     "@vicons/ionicons5": "^0.13.0",
     "@viz-js/viz": "^3.30.0",
     "@xterm/addon-fit": "^0.10.0",
+    "cloudflared": "0.7.3",
     "dompurify": "^3.4.12",
     "dugite": "^3.2.3",
     "highlight.js": "^11.12.0",

@@ -50,6 +50,13 @@ const SESSION_TTL_MS = 6 * 60 * 60 * 1000; // 6h
 /** A client that lands through the tunnel is remotely reachable — lock harder. */
 const LOGIN_MAX_FAILURES = 6;
 const LOGIN_LOCK_MS = 10 * 60 * 1000;
+/**
+ * How long a stopped public tunnel is kept alive before it is really torn down.
+ * Restarting cloudflared always yields a NEW random trycloudflare hostname, so a
+ * quick off→on toggle inside this window reuses the same URL instead of burning
+ * a domain the user would have to re-share.
+ */
+const TUNNEL_GRACE_MS = 90_000;
 
 type RemoteSettings = {
   /** LAN access switch (default on). */
@@ -61,10 +68,17 @@ type RemoteSettings = {
   publicAccess: boolean;
   /** 32-byte hex secret the 9-digit PIN is derived from. */
   pinSecret: string;
-  /** Manual cloudflared path; empty ⇒ managed binary under userData. */
+  /** Manual cloudflared path; empty ⇒ bundled binary / managed copy. */
   cloudflaredPath: string;
   /** Allow downloading cloudflared automatically. */
   autoDownload: boolean;
+  /**
+   * Cloudflare named-tunnel token. When set the tunnel runs in named mode, whose
+   * public hostname is fixed — the only way to keep one bookmark across restarts.
+   */
+  tunnelToken: string;
+  /** Public hostname the user configured for that named tunnel. */
+  tunnelPublicUrl: string;
 };
 
 /** Active web sessions: token -> expiry epoch ms. */
@@ -75,6 +89,9 @@ const loginFailures = new Map<string, { count: number; lockedUntil: number }>();
 
 /** Cached tunnel host so login rate limiting can tell public traffic apart. */
 let tunnelHost: string | null = null;
+
+/** Pending teardown of a just-disabled public tunnel (see TUNNEL_GRACE_MS). */
+let publicGraceTimer: NodeJS.Timeout | null = null;
 
 function settingsPath(): string {
   return join(app.getPath("userData"), "lan-console.json");
@@ -100,6 +117,8 @@ function readSettings(): RemoteSettings {
     pinSecret: isValidPinSecret(raw.pinSecret) ? raw.pinSecret : "",
     cloudflaredPath: typeof raw.cloudflaredPath === "string" ? raw.cloudflaredPath.trim() : "",
     autoDownload: raw.autoDownload !== false,
+    tunnelToken: typeof raw.tunnelToken === "string" ? raw.tunnelToken.trim() : "",
+    tunnelPublicUrl: typeof raw.tunnelPublicUrl === "string" ? raw.tunnelPublicUrl.trim() : "",
   };
   if (!settings.pinSecret) {
     // First run (or an upgraded install with username/password): mint the secret
@@ -804,17 +823,49 @@ function broadcastTunnelStatus(): void {
   }
 }
 
-/** Apply the current public-access preference (download + run cloudflared). */
-async function syncPublicAccess(settings: RemoteSettings): Promise<void> {
-  applyTunnelOptions({
-    customPath: settings.cloudflaredPath,
-    autoDownload: settings.autoDownload,
-  });
-  if (!settings.publicAccess) {
+/**
+ * Tear the public tunnel down after a grace window.
+ *
+ * Starting cloudflared again always yields a NEW random trycloudflare hostname
+ * (quick tunnels cannot request a specific one), so a quick off→on toggle inside
+ * this window reuses the same URL instead of burning a domain the user would have
+ * to re-share. `immediate` is for shutdown, where nothing must be left running.
+ */
+function scheduleTunnelTeardown(immediate = false): void {
+  if (publicGraceTimer) {
+    clearTimeout(publicGraceTimer);
+    publicGraceTimer = null;
+  }
+  if (immediate) {
     stopTunnel();
     stopOriginListener();
     tunnelHost = null;
     return;
+  }
+  publicGraceTimer = setTimeout(() => {
+    publicGraceTimer = null;
+    stopTunnel();
+    stopOriginListener();
+    tunnelHost = null;
+  }, TUNNEL_GRACE_MS);
+}
+
+/** Apply the current public-access preference (start / stop the tunnel). */
+async function syncPublicAccess(settings: RemoteSettings): Promise<void> {
+  const tunnelOptions = {
+    customPath: settings.cloudflaredPath,
+    autoDownload: settings.autoDownload,
+    tunnelToken: settings.tunnelToken,
+    publicUrl: settings.tunnelPublicUrl,
+  };
+  applyTunnelOptions(tunnelOptions);
+  if (!settings.publicAccess) {
+    scheduleTunnelTeardown();
+    return;
+  }
+  if (publicGraceTimer) {
+    clearTimeout(publicGraceTimer);
+    publicGraceTimer = null;
   }
   let port: number;
   try {
@@ -823,10 +874,7 @@ async function syncPublicAccess(settings: RemoteSettings): Promise<void> {
     console.error("[remote-control] tunnel origin failed:", err instanceof Error ? err.message : String(err));
     return;
   }
-  await startTunnel(port, {
-    customPath: settings.cloudflaredPath,
-    autoDownload: settings.autoDownload,
-  });
+  await startTunnel(port, tunnelOptions);
   tunnelHost = getTunnelStatus().url ? parseQuickTunnelHost(getTunnelStatus().url ?? "") : null;
 }
 
@@ -834,15 +882,16 @@ async function syncPublicAccess(settings: RemoteSettings): Promise<void> {
 async function applySettings(settings: RemoteSettings): Promise<void> {
   if (!settings.enabled) {
     stopLanListener();
-    stopTunnel();
-    stopOriginListener();
-    tunnelHost = null;
+    scheduleTunnelTeardown(true);
     return;
   }
   const lan = await startLanListener(settings);
   if (!lan.ok) console.error(`[remote-control] LAN: ${lan.message}`);
   attachEventBridges();
-  await syncPublicAccess(settings);
+  // Public access is lazy: it only starts when the user asks for it (see
+  // setPublicAccess). Starting it at boot would consume a trycloudflare hostname
+  // that changes on every restart, for a feature most sessions never use.
+  if (settings.publicAccess) await syncPublicAccess(settings);
 }
 
 export function getLanConsoleStatus(): LanConsoleStatus {
@@ -863,6 +912,9 @@ export function getLanConsoleStatus(): LanConsoleStatus {
     baseUrl,
     url: baseUrl,
     publicUrl: tunnel.url,
+    tunnelMode: settings.tunnelToken ? "named" : "quick",
+    tunnelTokenSet: Boolean(settings.tunnelToken),
+    tunnelPublicUrl: settings.tunnelPublicUrl,
     tunnel,
   };
 }
@@ -886,9 +938,7 @@ export function registerLanConsoleIpc(broker: SessionBroker): void {
       scheduleLanRetry();
     } else {
       stopLanListener();
-      stopTunnel();
-      stopOriginListener();
-      tunnelHost = null;
+      scheduleTunnelTeardown();
     }
     return getLanConsoleStatus();
   });
@@ -909,6 +959,33 @@ export function registerLanConsoleIpc(broker: SessionBroker): void {
     attachEventBridges();
     return getLanConsoleStatus();
   });
+
+  /**
+   * Save the optional named-tunnel configuration (own Cloudflare tunnel token +
+   * the public hostname it is bound to). A token switches the tunnel to the
+   * named mode, whose address is fixed across restarts.
+   */
+  ipcMain.handle(
+    IpcChannels.lanConsole.setTunnelConfig,
+    async (_e, token: unknown, publicUrl: unknown) => {
+      const settings = readSettings();
+      const nextToken = typeof token === "string" ? token.trim() : "";
+      const nextUrl = typeof publicUrl === "string" ? publicUrl.trim() : "";
+      if (nextUrl && !/^https?:\/\/[^\s]+$/iu.test(nextUrl)) {
+        throw new Error("公网地址需要是 http(s):// 开头的完整地址");
+      }
+      settings.tunnelToken = nextToken;
+      settings.tunnelPublicUrl = nextUrl;
+      writeSettings(settings);
+      if (settings.publicAccess) {
+        // Restart the tunnel so the new mode/target takes effect immediately
+        // (the target check in startTunnel makes this a no-op when unchanged).
+        stopTunnel();
+        await syncPublicAccess(settings);
+      }
+      return getLanConsoleStatus();
+    },
+  );
 
   ipcMain.handle(IpcChannels.lanConsole.setPort, async (_e, port: unknown) => {
     const p = typeof port === "number" && port > 0 && port < 65536 ? Math.floor(port) : DEFAULT_PORT;
@@ -1006,6 +1083,10 @@ export function disposeLanConsole(): void {
   offTunnelStatus = null;
   offEvents?.();
   offEvents = null;
+  if (publicGraceTimer) {
+    clearTimeout(publicGraceTimer);
+    publicGraceTimer = null;
+  }
   disposeTunnel();
   stopOriginListener();
   closeAllWebSockets();

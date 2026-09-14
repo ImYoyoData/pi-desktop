@@ -95,6 +95,21 @@ const checkpoints = useCheckpointStore();
 const composer = useComposerStore();
 const sendQueue = useSendQueueStore();
 const sessions = useSessionsStore();
+
+/**
+ * Queued sends still waiting for their turn, shown as cards at the tail so the
+ * message never appears to vanish while the agent finishes what it is doing.
+ */
+const pendingQueueCards = computed(() => sendQueue.activeItems);
+
+/** One-line preview for a queued card (mirrors SendQueueBar). */
+function queuePreview(item: { text: string; images?: unknown[]; elementTags?: { label?: string }[] }): string {
+  const raw = item.text.replace(/\s+/gu, " ").trim();
+  if (raw) return raw;
+  if (item.images?.length) return `[${item.images.length} image(s)]`;
+  if (item.elementTags?.length) return item.elementTags[0]?.label || "[attachment]";
+  return "…";
+}
 const previewStore = usePreviewStore();
 const rightTabs = useRightTabsStore();
 const tts = useTtsStore();
@@ -2030,6 +2045,18 @@ function onRevertUser(msg: Extract<ChatMessage, { role: "user" }>): void {
           :state="waitState"
         />
       </template>
+
+      <!--
+        Guidance that is waiting its turn. Without this the message vanished from
+        the UI the moment it was queued (it only came back as a bubble when the
+        agent got to it), which read as "my message was lost".
+      -->
+      <div v-if="pendingQueueCards.length" class="steer-cards" aria-live="polite">
+        <div v-for="item in pendingQueueCards" :key="item.id" class="steer-card">
+          <span class="steer-card-tag">{{ t.steerPendingTag }}</span>
+          <span class="steer-card-text">{{ queuePreview(item) }}</span>
+        </div>
+      </div>
     </div>
     </div>
 
@@ -2811,6 +2838,41 @@ function onRevertUser(msg: Extract<ChatMessage, { role: "user" }>): void {
 
 .retry-detail {
   opacity: 0.8;
+}
+
+/* Queued-guidance cards: the message stays visible until the agent takes it. */
+.steer-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 8px;
+}
+
+.steer-card {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border: 1px dashed color-mix(in srgb, var(--accent, #2563eb) 45%, var(--border, #e6e8ec));
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--accent, #2563eb) 6%, transparent);
+}
+
+.steer-card-tag {
+  flex-shrink: 0;
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--accent, #2563eb);
+}
+
+.steer-card-text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  opacity: 0.9;
 }
 
 @keyframes pulse {

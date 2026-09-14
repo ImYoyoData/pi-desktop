@@ -1,76 +1,85 @@
 /**
- * Cloudflare quick tunnel ("远程控制" — 公网访问).
+ * Public access for "远程控制" (Remote Control) — Cloudflare tunnels.
  *
- * Public access is opt-in: when the user flips the switch on, we make sure a
- * cloudflared binary is available (downloaded once into userData), then run a
- * zero-config quick tunnel pointing at the desktop's loopback-only HTTP entry:
+ * The tunnel process itself is owned by the `cloudflared` npm package (its
+ * `Tunnel` class is a thin, well-tested spawn wrapper); this module owns the
+ * lifecycle policy around it: binary readiness, the URL/connection timeout,
+ * crash-restart backoff, a watchdog, and the grace window that keeps a stopped
+ * tunnel alive so a quick off→on toggle reuses the same public hostname.
  *
- *   cloudflared tunnel --url http://127.0.0.1:<originPort>
+ * Two modes, picked by the caller (see lan-console):
+ * - **quick** — accountless `https://<words>.trycloudflare.com`, whose hostname is
+ *   minted per start and therefore changes on every restart.
+ * - **named** — the user's own Cloudflare tunnel token plus the public hostname
+ *   they configured in the Cloudflare dashboard. The hostname is FIXED, which is
+ *   the only way to keep one bookmark across restarts.
  *
- * The result is a random https://<words>.trycloudflare.com URL that is valid
- * until the tunnel stops, so the URL is never persisted — it is reported
- * through the status object and re-created on every start.
+ * Both leave cloudflared's transport protocol at its default (`auto`): forcing
+ * `--protocol http2` was measured to make quick tunnels unreachable on this
+ * network while `auto` connected in seconds. See SHARED_TUNNEL_FLAGS.
  */
 
-import { execFile, spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
-import { createHash } from "node:crypto";
-import { chmodSync, createWriteStream, existsSync, mkdirSync, renameSync, rmSync, statSync } from "node:fs";
-import { join } from "node:path";
-import { Readable } from "node:stream";
-import { pipeline } from "node:stream/promises";
-import { promisify } from "node:util";
-import { app, net } from "electron";
+import { Tunnel } from "cloudflared";
+import { parseQuickTunnelUrl } from "../shared/cloudflare-tunnel";
 import {
-  cloudflaredArchiveKind,
-  cloudflaredAsset,
-  cloudflaredDownloadUrl,
-  findAssetSha256,
-  parseQuickTunnelUrl,
-} from "../shared/cloudflare-tunnel";
+  CLOUDFLARED_VERSION,
+  applyBinaryToPackage,
+  bundledCandidates,
+  ensureRunnableBinary,
+  namedTunnelArgs,
+  quickTunnelFlags,
+} from "./cloudflared-binary";
 
-const execFileAsync = promisify(execFile);
-
-/** Bump together with the release the asset names/checksums were taken from. */
-export const CLOUDFLARED_VERSION = "2026.9.1";
-const CLOUDFLARED_RELEASE_API = `https://api.github.com/repos/cloudflare/cloudflared/releases/tags/${CLOUDFLARED_VERSION}`;
-
-/** Give up on a start attempt that never prints a URL. */
+/** Give up on a start attempt that never reports a URL / connection. */
 const START_TIMEOUT_MS = 45_000;
 /** Watchdog interval while the tunnel is supposed to be up. */
 const WATCH_INTERVAL_MS = 15_000;
 const RETRY_BASE_MS = 5_000;
 const RETRY_MAX_MS = 120_000;
 
+export type TunnelMode = "quick" | "named";
+
 export type CloudflareTunnelStatus = {
   /** User wants public access; install/start may still be in flight. */
   enabled: boolean;
-  /** cloudflared binary present and executable-ready. */
+  /** A usable cloudflared executable was resolved. */
   installed: boolean;
   /** cloudflared process running. */
   running: boolean;
   /** Current step while bringing the tunnel up. */
   phase: "off" | "downloading" | "starting" | "on" | "error";
-  /** Public trycloudflare URL once the tunnel is up. */
+  /** Public URL (quick: minted by Cloudflare; named: the configured hostname). */
   url: string | null;
   /** Last failure, kept so the settings panel can explain what went wrong. */
   error: string | null;
   /** The loopback origin the tunnel forwards to. */
   origin: string | null;
+  /** Which mode is running (or about to run). */
+  mode: TunnelMode;
   /** Where the binary lives (or is expected to live). */
   binaryPath: string;
   /** True when the user pointed us at their own cloudflared build. */
   customBinary: boolean;
 };
 
+export type TunnelTarget =
+  | { kind: "quick"; targetUrl: string }
+  | { kind: "named"; token: string; publicUrl: string };
+
 type Options = {
-  /** Manual cloudflared path from settings; empty ⇒ managed download. */
+  /** Manual cloudflared path from settings; empty ⇒ bundled / userData / download. */
   customPath?: string;
-  /** Managed download allowed (settings default true). */
+  /** Managed download allowed when nothing usable is bundled. */
   autoDownload?: boolean;
+  /** Cloudflare tunnel token; non-empty switches to the named-tunnel mode. */
+  tunnelToken?: string;
+  /** Public hostname to advertise for a named tunnel (from settings). */
+  publicUrl?: string;
 };
 
-let child: ChildProcessWithoutNullStreams | null = null;
-let opts: Required<Options> = { customPath: "", autoDownload: true };
+let current: Tunnel | null = null;
+let target: TunnelTarget | null = null;
+let opts: Required<Options> = { customPath: "", autoDownload: true, tunnelToken: "", publicUrl: "" };
 let origin: string | null = null;
 let publicUrl: string | null = null;
 let stopped = true;
@@ -81,13 +90,22 @@ let retryAttempt = 0;
 let retryTimer: NodeJS.Timeout | null = null;
 let watchdog: NodeJS.Timeout | null = null;
 let startTimer: NodeJS.Timeout | null = null;
-let downloading: Promise<string> | null = null;
+let ensureInFlight: Promise<{ path: string }> | null = null;
 /** Origin port of the current attempt, reused by automatic retries. */
 let originPortRef: number | null = null;
-/** True once cloudflared actually spawned during the current attempt. */
+/** True once a tunnel process actually spawned during the current attempt. */
 let everSpawned = false;
+let binaryPathCache = "";
+let binaryCustom = false;
 
 const listeners = new Set<(status: CloudflareTunnelStatus) => void>();
+
+export function onTunnelStatusChange(cb: (status: CloudflareTunnelStatus) => void): () => void {
+  listeners.add(cb);
+  return () => {
+    listeners.delete(cb);
+  };
+}
 
 function notify(): void {
   const snapshot = getTunnelStatus();
@@ -100,176 +118,72 @@ function notify(): void {
   }
 }
 
-export function onTunnelStatusChange(cb: (status: CloudflareTunnelStatus) => void): () => void {
-  listeners.add(cb);
-  return () => {
-    listeners.delete(cb);
+/** Compare two targets for the start-idempotence check. */
+function sameTarget(a: TunnelTarget | null, b: TunnelTarget): boolean {
+  return a !== null && JSON.stringify(a) === JSON.stringify(b);
+}
+
+export function getTunnelStatus(): CloudflareTunnelStatus {
+  return {
+    enabled: !stopped || starting,
+    installed: Boolean(binaryPathCache),
+    running: current !== null,
+    phase,
+    url: publicUrl,
+    error: lastError,
+    origin,
+    mode: target?.kind ?? "quick",
+    binaryPath: binaryPathCache || bundledCandidates()[0] || "",
+    customBinary: binaryCustom,
   };
 }
 
-function binaryDir(): string {
-  return join(app.getPath("userData"), "cloudflared", CLOUDFLARED_VERSION);
-}
-
-function managedBinaryPath(): string {
-  return join(binaryDir(), process.platform === "win32" ? "cloudflared.exe" : "cloudflared");
-}
-
-/** Resolve which cloudflared to use: the manual override wins when it exists. */
-export function resolveCloudflaredPath(options: Options = {}): string | null {
-  const custom = String(options.customPath ?? opts.customPath ?? "").trim();
-  if (custom && existsSync(custom)) return custom;
-  const managed = managedBinaryPath();
-  return existsSync(managed) ? managed : null;
+export function isTunnelInstalled(): boolean {
+  return Boolean(binaryPathCache);
 }
 
 export function applyTunnelOptions(options: Options): void {
   opts = {
     customPath: String(options.customPath ?? "").trim(),
     autoDownload: options.autoDownload !== false,
+    tunnelToken: String(options.tunnelToken ?? "").trim(),
+    publicUrl: String(options.publicUrl ?? "").trim(),
   };
-}
-
-export function isTunnelInstalled(): boolean {
-  return resolveCloudflaredPath() !== null;
-}
-
-export function getTunnelStatus(): CloudflareTunnelStatus {
-  const binary = resolveCloudflaredPath();
-  return {
-    enabled: !stopped || starting,
-    installed: binary !== null,
-    running: Boolean(child) && child?.killed !== true,
-    phase,
-    url: publicUrl,
-    error: lastError,
-    origin,
-    binaryPath: binary ?? managedBinaryPath(),
-    customBinary: Boolean(opts.customPath) && binary === opts.customPath,
-  };
-}
-
-/** Prefer Chromium's stack (proxy/TLS aware), fall back to plain fetch. */
-async function netFetch(url: string): Promise<Response> {
-  const init: RequestInit = {
-    redirect: "follow",
-    headers: { "User-Agent": `pi-desktop/${app.getVersion()}` },
-  };
-  try {
-    return await net.fetch(url, init);
-  } catch (err) {
-    try {
-      return await fetch(url, init);
-    } catch {
-      throw err;
-    }
-  }
-}
-
-/** Streaming download that returns the SHA-256 of what landed on disk. */
-async function downloadFile(url: string, dest: string): Promise<string> {
-  const tmp = `${dest}.part`;
-  rmSync(tmp, { force: true });
-  const res = await netFetch(url);
-  if (!res.ok || !res.body) throw new Error(`下载 cloudflared 失败（HTTP ${res.status}）`);
-  const hash = createHash("sha256");
-  const stream = Readable.fromWeb(res.body as import("stream/web").ReadableStream);
-  stream.on("data", (chunk: Buffer) => hash.update(chunk));
-  await pipeline(stream, createWriteStream(tmp));
-  if (statSync(tmp).size < 1_000_000) {
-    rmSync(tmp, { force: true });
-    throw new Error("下载的 cloudflared 文件不完整");
-  }
-  rmSync(dest, { force: true });
-  renameSync(tmp, dest);
-  return hash.digest("hex");
 }
 
 /**
- * Official SHA-256 for the asset, read from the release notes. A missing
- * checksum is not fatal (Cloudflare could reformat the notes), but a *mismatch*
- * always is.
+ * Decide what to run. A named tunnel wins whenever a token is configured: it is
+ * the only mode with a stable public hostname, which is the whole point of
+ * configuring one. Otherwise the accountless quick tunnel runs.
  */
-async function fetchExpectedSha256(asset: string): Promise<string | null> {
-  try {
-    const res = await netFetch(CLOUDFLARED_RELEASE_API);
-    if (!res.ok) return null;
-    const release = (await res.json()) as { body?: string };
-    return findAssetSha256(release.body ?? "", asset);
-  } catch {
-    return null;
+export function tunnelTargetOf(options: {
+  tunnelToken?: string;
+  publicUrl?: string;
+  originPort: number;
+}): TunnelTarget {
+  const token = String(options.tunnelToken ?? "").trim();
+  if (token) {
+    return { kind: "named", token, publicUrl: String(options.publicUrl ?? "").trim() };
   }
+  return { kind: "quick", targetUrl: `http://127.0.0.1:${options.originPort}` };
 }
 
-async function extractArchive(
-  archivePath: string,
-  destDir: string,
-  kind: "zip" | "tar.gz",
-): Promise<void> {
-  mkdirSync(destDir, { recursive: true });
-  if (process.platform === "win32" && kind === "zip") {
-    await execFileAsync(
-      "powershell.exe",
-      [
-        "-NoProfile",
-        "-Command",
-        `Expand-Archive -LiteralPath '${archivePath.replace(/'/g, "''")}' -DestinationPath '${destDir.replace(/'/g, "''")}' -Force`,
-      ],
-      { windowsHide: true },
-    );
-    return;
+/** Resolve + validate the binary once, then point the package at it. */
+async function ensureBinary(): Promise<string> {
+  if (binaryPathCache) return binaryPathCache;
+  if (!ensureInFlight) {
+    ensureInFlight = ensureRunnableBinary(opts.customPath, opts.autoDownload)
+      .then((resolved) => {
+        binaryPathCache = resolved.path;
+        binaryCustom = Boolean(opts.customPath) && resolved.path === opts.customPath;
+        return { path: resolved.path };
+      })
+      .finally(() => {
+        ensureInFlight = null;
+      });
   }
-  await execFileAsync("tar", [kind === "tar.gz" ? "-xzf" : "-xf", archivePath, "-C", destDir]);
-}
-
-/** Download + unpack cloudflared once (concurrent callers share one promise). */
-export async function ensureCloudflaredInstalled(): Promise<string> {
-  const existing = resolveCloudflaredPath();
-  if (existing) return existing;
-  if (!opts.autoDownload) throw new Error("未找到 cloudflared，请手动指定路径或允许自动下载");
-  if (downloading) return downloading;
-
-  const asset = cloudflaredAsset();
-  if (!asset) {
-    throw new Error(`当前平台不支持自动安装 cloudflared（${process.platform}/${process.arch}）`);
-  }
-
-  downloading = (async (): Promise<string> => {
-    const dir = binaryDir();
-    mkdirSync(dir, { recursive: true });
-    const kind = cloudflaredArchiveKind(asset.asset);
-    const downloadPath = join(dir, kind === "none" ? "cloudflared.download" : `cloudflared.${kind === "zip" ? "zip" : "tgz"}`);
-    const expected = await fetchExpectedSha256(asset.asset);
-    phase = "downloading";
-    lastError = null;
-    notify();
-    try {
-      const actual = await downloadFile(cloudflaredDownloadUrl(asset.asset, CLOUDFLARED_VERSION), downloadPath);
-      if (expected && expected !== actual) {
-        rmSync(downloadPath, { force: true });
-        throw new Error(`cloudflared 校验失败（期望 ${expected.slice(0, 12)}…，实际 ${actual.slice(0, 12)}…）`);
-      }
-      rmSync(managedBinaryPath(), { force: true });
-      if (kind === "none") {
-        renameSync(downloadPath, managedBinaryPath());
-      } else {
-        await extractArchive(downloadPath, dir, kind);
-      }
-      const bin = managedBinaryPath();
-      if (!existsSync(bin)) throw new Error("解压后未找到 cloudflared 可执行文件");
-      try {
-        chmodSync(bin, 0o755);
-      } catch {
-        // Windows: no-op
-      }
-      return bin;
-    } finally {
-      rmSync(downloadPath, { force: true });
-      downloading = null;
-    }
-  })();
-
-  return downloading;
+  const resolved = await ensureInFlight;
+  return resolved.path;
 }
 
 function clearStartTimer(): void {
@@ -279,7 +193,7 @@ function clearStartTimer(): void {
 
 /** Startup errors worth retrying on a timer; user-fixable ones are not. */
 function isTransientStartError(message: string): boolean {
-  return !/未找到 cloudflared|不支持自动安装|下载 cloudflared 失败|文件不完整|校验失败/u.test(message);
+  return !/未找到|不支持|校验失败|does not run|无法运行/u.test(message);
 }
 
 function scheduleRetry(reason: string): void {
@@ -292,19 +206,28 @@ function scheduleRetry(reason: string): void {
   const port = originPortRef;
   retryTimer = setTimeout(() => {
     retryTimer = null;
-    if (port) void startTunnel(port, {});
+    if (port) void startTunnel(port, opts.publicUrl ? opts : opts);
   }, delay);
 }
 
-/** Spawn cloudflared and resolve once it prints its public URL. */
-async function spawnTunnel(bin: string, originUrl: string): Promise<void> {
-  const proc = spawn(bin, ["tunnel", "--url", originUrl, "--no-autoupdate"], {
-    windowsHide: true,
-    stdio: ["ignore", "pipe", "pipe"],
-  });
-  child = proc;
+/** Build the spawn invocation for a target through the cloudflared package. */
+function spawnTunnelProcess(next: TunnelTarget): Tunnel {
+  if (next.kind === "quick") {
+    // quickTunnelFlags carries --no-autoupdate (protocol stays `auto`).
+    return Tunnel.quick(next.targetUrl, quickTunnelFlags());
+  }
+  // Named tunnels need the flags BEFORE the `run` subcommand, which is why the
+  // package's withToken() (which appends --token to a plain options object) is
+  // not used here; the package still spawns and streams the process.
+  return new Tunnel(namedTunnelArgs(next.token));
+}
+
+/** Spawn the tunnel and resolve once it is reachable (URL or first connection). */
+async function spawnTunnel(next: TunnelTarget): Promise<void> {
+  const proc = spawnTunnelProcess(next);
+  current = proc;
   everSpawned = true;
-  origin = originUrl;
+  origin = next.kind === "quick" ? next.targetUrl : origin;
   phase = "starting";
   notify();
 
@@ -314,13 +237,15 @@ async function spawnTunnel(bin: string, originUrl: string): Promise<void> {
       if (settled) return;
       settled = true;
       clearStartTimer();
+      resolve0(err);
+    };
+    const resolve0 = (err?: Error): void => {
       if (err) reject(err);
       else resolve();
     };
 
-    const onChunk = (chunk: Buffer): void => {
-      const url = parseQuickTunnelUrl(chunk.toString("utf8"));
-      if (!url) return;
+    const markUp = (url: string): void => {
+      if (current !== proc) return;
       publicUrl = url;
       phase = "on";
       retryAttempt = 0;
@@ -329,31 +254,50 @@ async function spawnTunnel(bin: string, originUrl: string): Promise<void> {
       finish();
     };
 
-    proc.stderr.on("data", onChunk);
-    proc.stdout.on("data", onChunk);
-    proc.once("error", (err) => finish(err instanceof Error ? err : new Error(String(err))));
-    proc.once("exit", (code) => {
-      if (child === proc) {
-        child = null;
+    const onUrl = (url: string): void => {
+      markUp(url);
+    };
+    const onConnected = (): void => {
+      // Named tunnels have no minted URL: the hostname comes from the user's
+      // Cloudflare config, and the first edge connection means it is reachable.
+      const advertised = next.kind === "named" ? next.publicUrl : null;
+      if (advertised) markUp(advertised);
+    };
+    const onStderr = (chunk: string): void => {
+      // The package re-emits raw output; keep the quick-tunnel banner as a
+      // fallback in case the `url` event never fires for a given build.
+      if (next.kind !== "quick" || publicUrl) return;
+      const parsed = parseQuickTunnelUrl(chunk);
+      if (parsed) markUp(parsed);
+    };
+
+    proc.on("url", onUrl);
+    proc.on("connected", onConnected);
+    proc.on("stderr", onStderr);
+    proc.on("error", (err: Error) => finish(err));
+    proc.on("exit", (code) => {
+      if (current === proc) {
+        current = null;
         publicUrl = null;
       }
       finish(new Error(`cloudflared 已退出（code ${code ?? "null"}）`));
     });
 
     startTimer = setTimeout(() => {
-      finish(new Error("cloudflared 启动超时，未获取到公网地址"));
+      finish(new Error("cloudflared 启动超时，未获得公网地址"));
     }, START_TIMEOUT_MS);
   });
 }
 
-function killChild(): void {
-  const proc = child;
-  child = null;
+function killTunnelProcess(): void {
+  const proc = current;
+  current = null;
   publicUrl = null;
   if (!proc) return;
   try {
     proc.removeAllListeners("exit");
-    proc.kill();
+    proc.removeAllListeners("error");
+    proc.stop();
   } catch {
     // ignore
   }
@@ -361,25 +305,22 @@ function killChild(): void {
 
 /**
  * Watchdog for a tunnel that silently dies after a successful start.
- *
- * It must NOT fire before the process has ever been spawned: installing
- * cloudflared can take minutes on a slow link, and the earlier "no child ⇒
- * retry" version aborted the download mid-flight and left no binary behind.
- * `everSpawned` records that cloudflared really ran for this attempt, so a
- * vanished process afterwards is a genuine failure worth retrying.
+ * It must not fire before the process has ever been spawned: resolving the
+ * binary can take minutes on a slow link, and a premature retry used to abort
+ * that work mid-flight.
  */
 function startWatchdog(): void {
   if (watchdog) return;
   watchdog = setInterval(() => {
-    if (stopped || retryTimer || downloading || !everSpawned) return;
-    if (!child) scheduleRetry("cloudflared 未在运行");
+    if (stopped || retryTimer || ensureInFlight || !everSpawned) return;
+    if (!current) scheduleRetry("cloudflared 未在运行");
   }, WATCH_INTERVAL_MS);
 }
 
 /**
- * Turn public access on. `originPort` is the loopback-only HTTP port served by
- * the remote-control host; the tunnel is what gives that plain-HTTP origin a
- * real HTTPS address, with TLS terminated at Cloudflare's edge.
+ * Turn public access on. `originPort` is the loopback-only HTTP port served by the
+ * remote-control host; the tunnel is what gives that plain-HTTP origin a real
+ * public address, with TLS terminated at Cloudflare's edge.
  */
 export async function startTunnel(
   originPort: number,
@@ -387,8 +328,6 @@ export async function startTunnel(
 ): Promise<CloudflareTunnelStatus> {
   applyTunnelOptions(options);
   originPortRef = Number.isInteger(originPort) && originPort > 0 ? originPort : null;
-  const originUrl = `http://127.0.0.1:${originPort}`;
-  if (child && origin === originUrl && phase === "on") return getTunnelStatus();
   if (!originPortRef) {
     stopped = true;
     phase = "error";
@@ -397,32 +336,48 @@ export async function startTunnel(
     return getTunnelStatus();
   }
 
+  const next = tunnelTargetOf({
+    tunnelToken: opts.tunnelToken,
+    publicUrl: opts.publicUrl,
+    originPort,
+  });
+
+  if (next.kind === "named" && !next.token) {
+    stopped = true;
+    phase = "error";
+    lastError = "未配置隧道 Token";
+    notify();
+    return getTunnelStatus();
+  }
+  if (current && sameTarget(target, next) && phase === "on") return getTunnelStatus();
+
   stopped = false;
   starting = true;
   lastError = null;
   phase = "starting";
   // NOTE: retryAttempt is deliberately NOT reset here — startTunnel is itself
   // called by the retry timer, and resetting it would turn the exponential
-  // backoff into a 5-second loop. It resets on a successful start.
+  // backoff into a fixed 5-second loop. It resets on a successful start.
   everSpawned = false;
+  target = next;
   notify();
   startWatchdog();
 
-  // A previous attempt (or a different origin) must not linger.
   if (retryTimer) {
     clearTimeout(retryTimer);
     retryTimer = null;
   }
-  killChild();
+  killTunnelProcess();
 
   try {
-    const bin = await ensureCloudflaredInstalled();
-    await spawnTunnel(bin, originUrl);
+    binaryPathCache = await ensureBinary();
+    applyBinaryToPackage(binaryPathCache);
+    await spawnTunnel(next);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     lastError = msg;
     phase = "error";
-    killChild();
+    killTunnelProcess();
     notify();
     if (isTransientStartError(msg)) scheduleRetry(msg);
   } finally {
@@ -439,6 +394,7 @@ export function stopTunnel(): void {
   phase = "off";
   publicUrl = null;
   origin = null;
+  target = null;
   retryAttempt = 0;
   originPortRef = null;
   if (retryTimer) {
@@ -446,7 +402,7 @@ export function stopTunnel(): void {
     retryTimer = null;
   }
   clearStartTimer();
-  killChild();
+  killTunnelProcess();
   notify();
 }
 
@@ -459,3 +415,6 @@ export function disposeTunnel(): void {
   }
   listeners.clear();
 }
+
+/** Name of the cloudflared release the app expects (diagnostics / UI copy). */
+export const EXPECTED_CLOUDFLARED_VERSION = CLOUDFLARED_VERSION;

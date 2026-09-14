@@ -58,6 +58,7 @@ import {
 } from "@renderer/utils/asr-wake-listen";
 import { scrubAsrHallucination } from "../../../shared/asr";
 import { filterAvailableModels } from "../../../shared/model-selection";
+import { MODEL_MENU_PROPS, buildModelMenu } from "@renderer/model-menu";
 import { formatAcceleratorLabel } from "../../../shared/hotkey";
 import {
   composerModePreamble,
@@ -248,33 +249,16 @@ const thinkingLabel = computed(
   () => thinkingLevelLabel(thinkingLevel.value) ?? "Medium",
 );
 
-const modelMenu = computed<DropdownOption[]>(() =>
-  availableModels.value.map((group) => {
-    if ("children" in group) {
-      return {
-        type: "group" as const,
-        label: group.label,
-        key: group.key,
-        children: group.children.map((o) => ({
-          label: o.label,
-          key: o.value,
-          props:
-            o.value === selectedModelKey.value
-              ? { style: "font-weight: 600; color: var(--accent)" }
-              : undefined,
-        })),
-      };
-    }
-    return {
-      label: group.label,
-      key: group.value,
-      props:
-        group.value === selectedModelKey.value
-          ? { style: "font-weight: 600; color: var(--accent)" }
-          : undefined,
-    };
-  }),
+const modelMenu = computed(() =>
+  buildModelMenu(availableModels.value, selectedModelKey.value),
 );
+
+/**
+ * A naive-ui dropdown does not scroll on its own, so a long model list grew past
+ * the window and the lower entries became unclickable. See MODEL_MENU_PROPS —
+ * note it must stay a FUNCTION: `menu-props` is called, not read.
+ */
+const modelMenuProps = MODEL_MENU_PROPS;
 
 const modelLabel = computed(
   () =>
@@ -291,7 +275,18 @@ function activeSessionRunning(): boolean {
   return sessions.sessions.find((s) => s.id === id)?.status === "running";
 }
 
-const settingsLocked = computed(() => running.value);
+/**
+ * Whether the session is mid-answer.
+ *
+ * Only the live per-session state counts, deliberately NOT the broker's summary
+ * `status` field: that field can sit at "running" for a session the agent has
+ * already finished with (and for a brand-new session that never sent anything),
+ * which used to lock the model picker for no reason.
+ */
+const turnActive = computed(() => chat.activeRunning);
+
+/** Thinking level stays locked mid-answer; the model picker does not (see below). */
+const settingsLocked = computed(() => turnActive.value);
 
 const hasSendContent = computed(() =>
   Boolean(composer.draft.trim() || composer.images.length || composer.chips.length),
@@ -738,6 +733,34 @@ function enqueueFromComposer(): boolean {
   return true;
 }
 
+/**
+ * Guidance sent while Pi is replying.
+ *
+ * Sending mid-turn goes through steering rather than the idle queue: the SDK
+ * delivers a steering message after the current assistant turn finishes its tool
+ * calls and BEFORE the next LLM call, so the model re-reasons with it — waiting
+ * for the turn to end would silently postpone the user's correction by a whole
+ * turn. `submit("prompt")` routes here; queued items keep draining on idle.
+ */
+async function steerFromComposer(): Promise<boolean> {
+  const id = sessionId.value;
+  if (!id) return false;
+  const snap = snapshotComposerPayload();
+  if (!snap) return false;
+  const hasVisual = Boolean(snap.imagesToSend.length || snap.tagsToSend?.length);
+  const steerText = steerTextWithCitations({
+    agentText: snap.text || (hasVisual ? " " : ""),
+    text: snap.text || (hasVisual ? " " : ""),
+    citations: snap.citationsToSend,
+  });
+  if (!steerText.trim()) return false;
+  composer.clear();
+  await applySelectedModel({ allowStart: true });
+  await chat.steer(id, steerText, snap.imagesToSend.length ? snap.imagesToSend : undefined);
+  messageApi.success(t.steerSent, { duration: 1400 });
+  return true;
+}
+
 /** Persist main-composer contents back onto the queue item being edited. */
 function saveEditingToQueue(): boolean {
   const id = sessionId.value;
@@ -996,9 +1019,10 @@ async function submit(mode: "prompt" | "steer" | "follow_up"): Promise<void> {
     return;
   }
 
-  // While agent is running, new sends go to the queue
+  // While agent is running, a plain send becomes guidance for the running turn
+  // (steer) instead of waiting for the next turn.
   if (running.value && mode === "prompt") {
-    enqueueFromComposer();
+    await steerFromComposer();
     return;
   }
 
@@ -1499,10 +1523,8 @@ async function runSlashBuiltin(id: string): Promise<void> {
       return;
     }
     case "model": {
-      if (settingsLocked.value) {
-        messageApi.warning(t.composerSettingsLocked);
-        return;
-      }
+      // Model switching stays available while Pi is replying (the worker applies
+      // it to the live session), so no settingsLocked guard here.
       await nextTick();
       modelMenuRef.value?.focus?.();
       return;
@@ -1889,7 +1911,10 @@ async function applySelectedModel(opts?: { allowStart?: boolean }): Promise<void
 }
 
 async function onModelChange(value: string | number): Promise<void> {
-  if (settingsLocked.value) return;
+  // Deliberately NOT gated on settingsLocked: switching models while Pi is
+  // replying is allowed. The worker applies it to the live session immediately
+  // (and when no worker is warm the choice is remembered for the next prompt),
+  // so the picker must not silently swallow the click.
   const key = String(value);
   selectedModelKey.value = key;
   appliedModelForSession.value = null;
@@ -2491,15 +2516,16 @@ watch(
             ref="modelMenuRef"
             trigger="click"
             :options="modelMenu"
-            :disabled="voiceActive || voicePending || settingsLocked"
+            :menu-props="modelMenuProps"
+            :disabled="voiceActive || voicePending"
             @select="onModelChange"
           >
             <NButton
               quaternary
               size="tiny"
               class="model-btn"
-              :disabled="voiceActive || voicePending || settingsLocked"
-              :title="settingsLocked ? t.composerSettingsLocked : t.modelPlaceholder"
+              :disabled="voiceActive || voicePending"
+              :title="t.modelPlaceholder"
             >
               <span class="model-label">{{ modelLabel }}</span>
             </NButton>
