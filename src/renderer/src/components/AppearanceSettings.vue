@@ -1,16 +1,14 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from "vue";
+import { computed } from "vue";
 import {
   NModal,
   NRadioGroup,
   NRadioButton,
-  NSelect,
   NSpace,
   NText,
   NButton,
   NDivider,
   NSwitch,
-  useMessage,
 } from "naive-ui";
 import {
   useAppearanceStore,
@@ -22,67 +20,11 @@ import {
   markLocaleReloading,
   showLocaleReloadSplash,
 } from "@renderer/utils/locale-reload-splash";
-import {
-  RESPONSE_LANGUAGE_AUTO,
-  type ResponseLanguageState,
-} from "../../../shared/response-language";
 
 const props = defineProps<{ open: boolean }>();
 const emit = defineEmits<{ close: [] }>();
 
 const appearance = useAppearanceStore();
-const message = useMessage();
-
-/**
- * Answer language. Independent of the UI language above: the interface can stay
- * English while Pi answers in Chinese. `auto` follows the device language, which
- * is resolved in the main process (it receives `navigator.language` on save).
- */
-const answerLanguage = ref<ResponseLanguageState | null>(null);
-const savingLanguage = ref(false);
-
-const answerOptions = computed(() => {
-  const state = answerLanguage.value;
-  if (!state) return [];
-  const effective = state.effective;
-  return state.options.map((o) =>
-    o.value === RESPONSE_LANGUAGE_AUTO
-      ? { value: o.value, label: `${t.answerLanguageAuto}（${effective || "?"}）` }
-      : { value: o.value, label: o.label },
-  );
-});
-
-const answerValue = computed({
-  get: () => answerLanguage.value?.settings.language ?? RESPONSE_LANGUAGE_AUTO,
-  set: (value: string) => void saveAnswerLanguage(value),
-});
-
-async function saveAnswerLanguage(language: string): Promise<void> {
-  savingLanguage.value = true;
-  try {
-    answerLanguage.value = await window.api.responseLanguage.set(
-      { language },
-      navigator.language,
-    );
-  } catch (err) {
-    message.error(err instanceof Error ? err.message : String(err));
-  } finally {
-    savingLanguage.value = false;
-  }
-}
-
-onMounted(async () => {
-  try {
-    // Report the device language on load so `auto` resolves correctly even before
-    // the user ever touches this setting.
-    answerLanguage.value = await window.api.responseLanguage.set(
-      (await window.api.responseLanguage.get()).settings,
-      navigator.language,
-    );
-  } catch {
-    answerLanguage.value = null;
-  }
-});
 
 const showCompactButton = computed({
   get: () => appearance.showCompactButton,
@@ -159,30 +101,6 @@ function onLocaleUpdate(v: string | number | null): void {
           <NRadioButton value="en">English</NRadioButton>
         </NSpace>
       </NRadioGroup>
-    </div>
-
-    <NDivider style="margin: 18px 0" />
-
-    <div class="section">
-      <NText strong>{{ t.answerLanguage }}</NText>
-      <NText depth="3" style="font-size: 12px; display: block; margin: 4px 0 10px">
-        {{ t.answerLanguageHint }}
-      </NText>
-      <NSelect
-        v-model:value="answerValue"
-        size="small"
-        :options="answerOptions"
-        :loading="savingLanguage"
-        :consistent-menu-width="false"
-        style="max-width: 260px"
-      />
-      <NText
-        v-if="answerLanguage && answerValue !== RESPONSE_LANGUAGE_AUTO"
-        depth="3"
-        style="font-size: 11.5px; display: block; margin-top: 6px"
-      >
-        {{ t.answerLanguageApplies }}
-      </NText>
     </div>
 
     <NDivider style="margin: 18px 0" />

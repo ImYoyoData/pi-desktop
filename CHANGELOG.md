@@ -2,7 +2,7 @@
 
 ## 未发布 / Unreleased
 
-本版重点：局域网网页控制台改名为「远程控制」，默认开启局域网访问（普通 HTTP，无证书警告），公网访问改为 Cloudflare 隧道按需打开并支持绑定自己的域名；网页版移除语音输入但补上浏览器原生朗读；新增回答语言设置；修复 Windows 上 bash 工具不可用。
+本版重点：局域网网页控制台改名为「远程控制」，默认开启局域网访问（普通 HTTP，无证书警告），公网访问改为 Cloudflare 隧道按需打开并支持绑定自己的域名；网页版移除语音输入但补上浏览器原生朗读；修复 Windows 上 bash 工具不可用。
 
 ### 新功能 Features
 
@@ -12,7 +12,6 @@
 - 新增「公网访问」开关（默认关闭）：打开后由内置 cloudflared 建立 Cloudflare 隧道，生成 `https://<随机名>.trycloudflare.com` 公网地址；TLS 由 Cloudflare 边缘终结，隧道仅转发到 127.0.0.1 的本地端口，并带自动重试与看门狗。
 - **支持绑定自己的域名**：填入 Cloudflare 隧道 Token 与公网地址后改用命名隧道，地址固定不变、重启也无需重新分享链接；面板内提供「打开 Cloudflare 隧道页面」按钮与 Token 粘贴，并给出配置步骤。
 - 网页版朗读改用**浏览器原生语音合成**（Web Speech API）：零安装、零下载，不占用桌面端语音模型。
-- 新增「**回答语言**」设置（设置 → 外观）：20 种语言可选，默认「跟随设备」按系统语言判断；与界面语言相互独立。语言写入系统提示词，避免模型跟着上一条消息的语言漂移。
 - 登录失败按来源限速：公网来源 6 次失败锁定 10 分钟，局域网来源独立计数，防止爆破。
 - Renamed the LAN web console to **Remote Control**; the titlebar entry, panel copy and web page title follow.
 - LAN access now defaults to **on** (`http://<pc-ip>:18700`), so a phone on the same network works out of the box.
@@ -20,7 +19,6 @@
 - New **Public access** switch (off by default): the bundled cloudflared opens a Cloudflare tunnel on demand, publishing a `https://<random>.trycloudflare.com` URL (TLS terminated at Cloudflare's edge). The tunnel only ever forwards to a loopback port, with automatic retry and a watchdog.
 - **Bring your own domain**: a Cloudflare tunnel token plus hostname switches to a named tunnel with a fixed address, so nothing has to be re-shared after a restart. The panel links to the Cloudflare tunnels page, offers token paste, and spells out the steps.
 - Read-aloud in the web console uses the **browser's own speech synthesis** (Web Speech API) — nothing to install or download, and the desktop voice model is untouched.
-- New **Answer language** setting (Settings → Appearance): 20 languages with "Follow device" as the default; independent of the interface language and written into the system prompt so the model does not drift.
 - Failed logins are rate limited per client — 6 attempts then a 10-minute lock, counted separately for tunnel traffic.
 
 ### 变更 Changes

@@ -16,10 +16,6 @@ import type {
 	TerminalShellOption,
 } from "../shared/protocol";
 import { IpcChannels } from "../shared/protocol";
-import type {
-	ResponseLanguageSettings,
-	ResponseLanguageState,
-} from "../shared/response-language";
 import type { AgentRunEvent, AgentRunSnapshot } from "../shared/agent-runs";
 import type {
 	ModelsGetResult,
@@ -100,18 +96,6 @@ const api = {
 				IpcChannels.clipboard.writeImage,
 				dataUrl,
 			) as Promise<void>,
-	},
-	responseLanguage: {
-		get: () =>
-			ipcRenderer.invoke(
-				IpcChannels.responseLanguage.get,
-			) as Promise<ResponseLanguageState>,
-		set: (settings: ResponseLanguageSettings, deviceLanguage?: string) =>
-			ipcRenderer.invoke(
-				IpcChannels.responseLanguage.set,
-				settings,
-				String(deviceLanguage ?? ""),
-			) as Promise<ResponseLanguageState>,
 	},
 	lanConsole: {
 		getStatus: () =>

@@ -359,12 +359,6 @@ export const en = {
 	language: "Language",
 	languageHint:
 		"Changing language briefly reloads the UI with a loading screen.",
-	answerLanguage: "Answer language",
-	answerLanguageHint:
-		"Language Pi replies in. Independent of the interface language; \"Follow device\" detects it from your system language.",
-	answerLanguageAuto: "Follow device",
-	answerLanguageApplies:
-		"Applies to sessions started afterwards; an active session needs a new or restarted session.",
 	voiceInput: "Voice input",
 	voiceListening: "Recording…",
 	voiceRecording: "Voice recording",

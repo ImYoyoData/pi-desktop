@@ -23,12 +23,6 @@ export const IpcChannels = {
 		/** Renderer → main: copy a data-URL image onto the system clipboard. */
 		writeImage: "clipboard:writeImage",
 	},
-	responseLanguage: {
-		/** Renderer → main: current "answer in which language" setting. */
-		get: "responseLanguage:get",
-		/** Renderer → main: save it (also reports the device language for `auto`). */
-		set: "responseLanguage:set",
-	},
 	workspace: {
 		get: "workspace:get",
 		open: "workspace:open",
