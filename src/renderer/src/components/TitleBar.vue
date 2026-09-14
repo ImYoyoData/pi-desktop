@@ -1,24 +1,20 @@
 <script setup lang="ts">
-import { computed, defineAsyncComponent, h, onMounted, onUnmounted, ref } from "vue";
+import { defineAsyncComponent, h, onMounted, onUnmounted, ref } from "vue";
 import type { DropdownOption } from "naive-ui";
 import { NButton, NDropdown, NIcon, NSpace } from "naive-ui";
 import {
   ArrowUpCircleOutline,
-  ColorPaletteOutline,
   ExtensionPuzzleOutline,
-  FolderOpenOutline,
   GlobeOutline,
   InformationCircleOutline,
   LogoGithub,
   MicOutline,
-  MoonOutline,
   NotificationsOutline,
   OptionsOutline,
   SettingsOutline,
   ShieldCheckmarkOutline,
   SparklesOutline,
   StorefrontOutline,
-  SunnyOutline,
 } from "@vicons/ionicons5";
 import PanelLeftIcon from "@renderer/components/icons/PanelLeftIcon.vue";
 import LanRemoteIcon from "@renderer/components/icons/LanRemoteIcon.vue";
@@ -43,14 +39,12 @@ const ProxySettings = defineAsyncComponent(() => import("@renderer/components/Pr
 
 import UpdateCard from "@renderer/components/UpdateCard.vue";
 import { useWorkspaceStore } from "@renderer/stores/workspace";
-import { useAppearanceStore } from "@renderer/stores/appearance";
 import { useUpdateStore } from "@renderer/stores/update";
 import { useLayoutStore } from "@renderer/stores/layout";
 import { t } from "@renderer/i18n";
 import logoUrl from "@renderer/assets/logo.svg";
 
 const workspace = useWorkspaceStore();
-const appearance = useAppearanceStore();
 const updateStore = useUpdateStore();
 const layout = useLayoutStore();
 const modelsOpen = ref(false);
@@ -125,10 +119,6 @@ onUnmounted(() => {
   offUnmaximized?.();
   offTunnelStatus?.();
 });
-
-function openFolder(): void {
-  void workspace.openWorkspace();
-}
 
 const settingsOptions: DropdownOption[] = [
   {
@@ -224,18 +214,6 @@ function onSettingsSelect(key: string | number): void {
   }
 }
 
-function cycleTheme(): void {
-  const order = ["system", "light", "dark"] as const;
-  const idx = order.indexOf(appearance.themePreference);
-  appearance.setThemePreference(order[(idx + 1) % order.length]);
-}
-
-const themeIcon = computed(() => {
-  if (appearance.themePreference === "light") return SunnyOutline;
-  if (appearance.themePreference === "dark") return MoonOutline;
-  return ColorPaletteOutline;
-});
-
 async function openGithub(): Promise<void> {
   await window.api.update.openGithub();
 }
@@ -307,16 +285,6 @@ async function onUpdateClick(): Promise<void> {
       </template>
       <LanConsoleSettings @close="lanConsoleOpen = false" />
     </NPopover>
-        <NButton quaternary circle size="small" @click="cycleTheme">
-          <template #icon>
-            <NIcon :component="themeIcon" />
-          </template>
-        </NButton>
-        <NButton quaternary circle size="small" @click="openFolder">
-          <template #icon>
-            <NIcon :component="FolderOpenOutline" />
-          </template>
-        </NButton>
         <NButton quaternary circle size="small" @click="openGithub">
           <template #icon>
             <NIcon :component="LogoGithub" />
