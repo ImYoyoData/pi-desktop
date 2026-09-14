@@ -29,16 +29,12 @@ import {
   TrashOutline,
 } from "@vicons/ionicons5";
 import Sortable from "sortablejs";
-import { Splitpanes, Pane } from "splitpanes";
-import type { SplitpanesResizedPayload } from "splitpanes";
 import type { SessionStatus, SessionSummary } from "../../../shared/protocol";
 import { SESSION_HISTORY_LOAD_LIMIT } from "../../../shared/protocol";
-import { useLayoutStore } from "@renderer/stores/layout";
 import { useSessionsStore } from "@renderer/stores/sessions";
 import { useChatStore } from "@renderer/stores/chat";
 import { useSendQueueStore } from "@renderer/stores/send-queue";
 import { useWorkspaceStore } from "@renderer/stores/workspace";
-import FilesTab from "@renderer/components/FilesTab.vue";
 import { isUnstartedSession } from "@renderer/utils/session-started";
 import { buildSessionTree, type SessionTreeItem } from "@renderer/utils/session-tree";
 import { t } from "@renderer/i18n";
@@ -48,7 +44,6 @@ const PIN_KEY = "session-pins:v1";
 const SESSION_ORDER_KEY = "pi-desktop:session-order:v2";
 const SESSION_VISIBLE_LIMIT = 5;
 
-const layout = useLayoutStore();
 const sessionsStore = useSessionsStore();
 const chatStore = useChatStore();
 const sendQueueStore = useSendQueueStore();
@@ -998,14 +993,6 @@ async function onCtxSelect(key: string | number): Promise<void> {
 function isRunning(status: SessionStatus): boolean {
   return status === "running";
 }
-
-const sessionsPaneSize = computed(() => Math.max(22, 100 - layout.leftFilesSize));
-
-function onLeftSplitResized(payload: SplitpanesResizedPayload): void {
-  if (payload.panes.length < 2) return;
-  const filesPane = payload.panes[1];
-  if (filesPane?.size > 0) layout.setLeftFilesSize(filesPane.size);
-}
 </script>
 
 <template>
@@ -1047,248 +1034,238 @@ function onLeftSplitResized(payload: SplitpanesResizedPayload): void {
       </NSpace>
     </NAlert>
 
-    <Splitpanes class="left-split" horizontal @resized="onLeftSplitResized">
-      <Pane :size="sessionsPaneSize" :min-size="22">
-        <div class="sessions-pane">
-          <div class="section-head">
-            <NText depth="3" style="font-size: 12px; font-weight: 600">{{ t.workspaces }}</NText>
+    <div class="sessions-pane">
+      <div class="section-head">
+        <NText depth="3" style="font-size: 12px; font-weight: 600">{{ t.workspaces }}</NText>
+        <NTooltip>
+          <template #trigger>
+            <NButton quaternary circle size="tiny" @click="onAddWorkspace">
+              <template #icon>
+                <NIcon :component="FolderOpenOutline" :size="14" />
+              </template>
+            </NButton>
+          </template>
+          {{ t.addWorkspace }}
+        </NTooltip>
+      </div>
+
+      <NScrollbar v-if="workspacePaths.length" class="tree">
+        <div ref="workspaceTreeEl" class="ws-tree">
+          <div
+            v-for="root in workspacePaths"
+            :key="root"
+            class="ws-block"
+            :data-root="root"
+          >
+          <div class="ws-row-wrap">
+            <button
+              type="button"
+              class="ws-row"
+              :class="{ active: workspace.root === root && !sessionsStore.activeId }"
+              :title="root"
+              @click="onWorkspaceClick(root)"
+              @contextmenu="(e) => openWorkspaceCtx(e, root)"
+            >
+              <span class="chevron" :class="{ open: expanded[root] }">
+                <NIcon :component="ChevronForwardOutline" :size="14" />
+              </span>
+              <NEllipsis style="font-weight: 600; flex: 1; min-width: 0">{{
+                workspaceName(root)
+              }}</NEllipsis>
+            </button>
             <NTooltip>
               <template #trigger>
-                <NButton quaternary circle size="tiny" @click="onAddWorkspace">
+                <NButton
+                  class="ws-new-session"
+                  quaternary
+                  circle
+                  size="tiny"
+                  :disabled="workspace.trustDialogOpen"
+                  @click="(e) => void onNewAgentForWorkspace(root, e)"
+                >
                   <template #icon>
-                    <NIcon :component="FolderOpenOutline" :size="14" />
+                    <NIcon :component="AddOutline" :size="14" />
                   </template>
                 </NButton>
               </template>
-              {{ t.addWorkspace }}
+              {{ t.newSessionAction }}
             </NTooltip>
           </div>
 
-          <NScrollbar v-if="workspacePaths.length" class="tree">
-            <div ref="workspaceTreeEl" class="ws-tree">
-              <div
-                v-for="root in workspacePaths"
-                :key="root"
-                class="ws-block"
-                :data-root="root"
-              >
-              <div class="ws-row-wrap">
-                <button
-                  type="button"
-                  class="ws-row"
-                  :class="{ active: workspace.root === root && !sessionsStore.activeId }"
-                  :title="root"
-                  @click="onWorkspaceClick(root)"
-                  @contextmenu="(e) => openWorkspaceCtx(e, root)"
-                >
-                  <span class="chevron" :class="{ open: expanded[root] }">
-                    <NIcon :component="ChevronForwardOutline" :size="14" />
-                  </span>
-                  <NEllipsis style="font-weight: 600; flex: 1; min-width: 0">{{
-                    workspaceName(root)
-                  }}</NEllipsis>
-                </button>
-                <NTooltip>
-                  <template #trigger>
-                    <NButton
-                      class="ws-new-session"
-                      quaternary
-                      circle
-                      size="tiny"
-                      :disabled="workspace.trustDialogOpen"
-                      @click="(e) => void onNewAgentForWorkspace(root, e)"
-                    >
-                      <template #icon>
-                        <NIcon :component="AddOutline" :size="14" />
-                      </template>
-                    </NButton>
-                  </template>
-                  {{ t.newSessionAction }}
-                </NTooltip>
-              </div>
-
-              <ul
-                v-show="expanded[root]"
-                class="session-list"
-                :class="{ open: expanded[root] }"
-                :ref="(el) => setSessionListRef(root, el)"
-              >
-                <li v-if="!sessionsFor(root).length" class="empty-inline">{{ t.emptySessions }}</li>
-                <li
-                  v-for="(item, sIdx) in visibleTreeItemsFor(root)"
-                  :key="item.session.id"
-                  class="session-row"
-                  :data-id="item.session.id"
-                  :class="{
-                    active: sessionsStore.activeId === item.session.id,
-                    running: isRunning(item.session.status),
-                    'guides-visible': guidesVisibleFor(root, item),
-                  }"
-                  :style="{ '--i': String(sIdx), '--depth': item.depth }"
-                  :aria-expanded="
-                    item.hasChildren
-                      ? String(!isTreeNodeCollapsed(root, item.session.id))
-                      : null
-                  "
-                  @click="onSelectSession(root, item.session.id)"
-                  @contextmenu="(e) => openSessionCtx(e, root, item.session)"
-                  @mouseenter="onSessionRowEnter(root, item)"
-                  @mouseleave="onSessionRowLeave(root)"
-                >
-                  <div class="session-inner">
-                    <span
-                      v-for="(full, gi) in item.guideFull"
-                      :key="gi"
-                      class="tree-guide"
-                      :class="{
-                        full,
-                        elbow: !full && gi === item.guideFull.length - 1,
-                        ended: !full && gi < item.guideFull.length - 1,
-                      }"
-                      :style="{ '--g': gi }"
-                      aria-hidden="true"
-                    />
-                    <span
-                      v-if="item.depth > 0 && !item.isLastSibling"
-                      class="tree-connector"
-                      :style="{ '--g': item.depth - 1 }"
-                      aria-hidden="true"
-                    />
-                    <span
-                      v-if="item.hasChildren && !isTreeNodeCollapsed(root, item.session.id)"
-                      class="tree-descender"
-                      :style="{ '--g': item.depth }"
-                      aria-hidden="true"
-                    />
-                    <span class="active-bar" />
-                    <span class="status-mark" :class="`st-${item.session.status || 'idle'}`" aria-hidden="true">
-                      <i class="status-core" />
-                    </span>
-                    <button
-                      v-if="item.hasChildren"
-                      type="button"
-                      class="tree-twistie"
-                      :class="{ collapsed: isTreeNodeCollapsed(root, item.session.id) }"
-                      @click.stop="toggleTreeNode(root, item.session.id)"
-                    >
-                      <NIcon :component="ChevronDownOutline" :size="16" />
-                    </button>
-                    <div class="session-body">
-                      <div class="session-title-row">
-                        <NIcon
-                          v-if="isPinned(root, item.session.id)"
-                          class="pin"
-                          :component="PinOutline"
-                          :size="11"
-                        />
-                        <span class="session-label">{{ sessionLabel(item.session) }}</span>
-                      </div>
-                      <div class="session-meta">
-                        <span class="time">{{ relativeTime(item.session.modified) }}</span>
-                        <span v-if="isRunning(item.session.status)" class="run-tag">live</span>
-                        <span v-else-if="item.session.status === 'error'" class="err-tag">err</span>
-                        <span v-else-if="item.session.status === 'stuck'" class="stuck-tag">stuck</span>
-                      </div>
-                    </div>
-                    <NButton
-                      class="trash"
-                      quaternary
-                      circle
-                      size="tiny"
-                      @click.stop="confirmDeleteSession(root, item.session.id)"
-                    >
-                      <template #icon>
-                        <NIcon :component="TrashOutline" :size="14" />
-                      </template>
-                    </NButton>
-                  </div>
-                </li>
-                <li v-if="hiddenSessionCount(root) > 0" class="session-expand-row">
-                  <button
-                    type="button"
-                    class="session-expand-btn"
-                    @click.stop="toggleSessionListExpanded(root)"
-                  >
-                    {{ t.showMoreSessions(hiddenSessionCount(root)) }}
-                  </button>
-                </li>
-                <li
-                  v-else-if="
-                    sessionListExpanded[root] &&
-                    sessionsFor(root).length > SESSION_VISIBLE_LIMIT
-                  "
-                  class="session-expand-row"
-                >
-                  <button
-                    type="button"
-                    class="session-expand-btn"
-                    @click.stop="toggleSessionListExpanded(root)"
-                  >
-                    {{ t.collapseSessions }}
-                  </button>
-                </li>
-              </ul>
-              </div>
-            </div>
-          </NScrollbar>
-          <div v-else class="empty">{{ t.emptyWorkspaces }}</div>
-
-          <!-- Closed workspaces (collapsed section, re-openable) -->
-          <div v-if="closedPaths.length" class="closed-ws">
-            <button
-              type="button"
-              class="closed-ws-head"
-              :aria-expanded="closedExpanded"
-              @click="toggleClosed"
+          <ul
+            v-show="expanded[root]"
+            class="session-list"
+            :class="{ open: expanded[root] }"
+            :ref="(el) => setSessionListRef(root, el)"
+          >
+            <li v-if="!sessionsFor(root).length" class="empty-inline">{{ t.emptySessions }}</li>
+            <li
+              v-for="(item, sIdx) in visibleTreeItemsFor(root)"
+              :key="item.session.id"
+              class="session-row"
+              :data-id="item.session.id"
+              :class="{
+                active: sessionsStore.activeId === item.session.id,
+                running: isRunning(item.session.status),
+                'guides-visible': guidesVisibleFor(root, item),
+              }"
+              :style="{ '--i': String(sIdx), '--depth': item.depth }"
+              :aria-expanded="
+                item.hasChildren
+                  ? String(!isTreeNodeCollapsed(root, item.session.id))
+                  : null
+              "
+              @click="onSelectSession(root, item.session.id)"
+              @contextmenu="(e) => openSessionCtx(e, root, item.session)"
+              @mouseenter="onSessionRowEnter(root, item)"
+              @mouseleave="onSessionRowLeave(root)"
             >
-              <span class="chevron" :class="{ open: closedExpanded }">
-                <NIcon :component="ChevronForwardOutline" :size="13" />
-              </span>
-              <span class="closed-ws-title">{{ t.closedWorkspaces }}</span>
-              <span class="closed-ws-count">{{ closedPaths.length }}</span>
-            </button>
-            <div v-if="closedExpanded" class="closed-ws-list">
-              <div
-                v-for="root in closedPaths"
-                :key="root"
-                class="closed-ws-row"
-                :title="root"
-              >
+              <div class="session-inner">
+                <span
+                  v-for="(full, gi) in item.guideFull"
+                  :key="gi"
+                  class="tree-guide"
+                  :class="{
+                    full,
+                    elbow: !full && gi === item.guideFull.length - 1,
+                    ended: !full && gi < item.guideFull.length - 1,
+                  }"
+                  :style="{ '--g': gi }"
+                  aria-hidden="true"
+                />
+                <span
+                  v-if="item.depth > 0 && !item.isLastSibling"
+                  class="tree-connector"
+                  :style="{ '--g': item.depth - 1 }"
+                  aria-hidden="true"
+                />
+                <span
+                  v-if="item.hasChildren && !isTreeNodeCollapsed(root, item.session.id)"
+                  class="tree-descender"
+                  :style="{ '--g': item.depth }"
+                  aria-hidden="true"
+                />
+                <span class="active-bar" />
+                <span class="status-mark" :class="`st-${item.session.status || 'idle'}`" aria-hidden="true">
+                  <i class="status-core" />
+                </span>
                 <button
+                  v-if="item.hasChildren"
                   type="button"
-                  class="closed-ws-open"
-                  @click="() => void onReopenClosed(root)"
+                  class="tree-twistie"
+                  :class="{ collapsed: isTreeNodeCollapsed(root, item.session.id) }"
+                  @click.stop="toggleTreeNode(root, item.session.id)"
                 >
-                  <span class="closed-ws-name">{{ workspaceName(root) }}</span>
+                  <NIcon :component="ChevronDownOutline" :size="16" />
                 </button>
-                <NTooltip>
-                  <template #trigger>
-                    <NButton
-                      quaternary
-                      size="tiny"
-                      class="closed-ws-remove"
-                      :aria-label="t.removeFromList"
-                      @click.stop="confirmPurgeWorkspace(root)"
-                    >
-                      <template #icon>
-                        <NIcon :component="TrashOutline" :size="13" />
-                      </template>
-                    </NButton>
+                <div class="session-body">
+                  <div class="session-title-row">
+                    <NIcon
+                      v-if="isPinned(root, item.session.id)"
+                      class="pin"
+                      :component="PinOutline"
+                      :size="11"
+                    />
+                    <span class="session-label">{{ sessionLabel(item.session) }}</span>
+                  </div>
+                  <div class="session-meta">
+                    <span class="time">{{ relativeTime(item.session.modified) }}</span>
+                    <span v-if="isRunning(item.session.status)" class="run-tag">live</span>
+                    <span v-else-if="item.session.status === 'error'" class="err-tag">err</span>
+                    <span v-else-if="item.session.status === 'stuck'" class="stuck-tag">stuck</span>
+                  </div>
+                </div>
+                <NButton
+                  class="trash"
+                  quaternary
+                  circle
+                  size="tiny"
+                  @click.stop="confirmDeleteSession(root, item.session.id)"
+                >
+                  <template #icon>
+                    <NIcon :component="TrashOutline" :size="14" />
                   </template>
-                  {{ t.removeFromList }}
-                </NTooltip>
+                </NButton>
               </div>
-            </div>
+            </li>
+            <li v-if="hiddenSessionCount(root) > 0" class="session-expand-row">
+              <button
+                type="button"
+                class="session-expand-btn"
+                @click.stop="toggleSessionListExpanded(root)"
+              >
+                {{ t.showMoreSessions(hiddenSessionCount(root)) }}
+              </button>
+            </li>
+            <li
+              v-else-if="
+                sessionListExpanded[root] &&
+                sessionsFor(root).length > SESSION_VISIBLE_LIMIT
+              "
+              class="session-expand-row"
+            >
+              <button
+                type="button"
+                class="session-expand-btn"
+                @click.stop="toggleSessionListExpanded(root)"
+              >
+                {{ t.collapseSessions }}
+              </button>
+            </li>
+          </ul>
           </div>
         </div>
-      </Pane>
+      </NScrollbar>
+      <div v-else class="empty">{{ t.emptyWorkspaces }}</div>
 
-      <Pane :size="layout.leftFilesSize" :min-size="22">
-        <div class="files-pane">
-          <FilesTab />
+      <!-- Closed workspaces (collapsed section, re-openable) -->
+      <div v-if="closedPaths.length" class="closed-ws">
+        <button
+          type="button"
+          class="closed-ws-head"
+          :aria-expanded="closedExpanded"
+          @click="toggleClosed"
+        >
+          <span class="chevron" :class="{ open: closedExpanded }">
+            <NIcon :component="ChevronForwardOutline" :size="13" />
+          </span>
+          <span class="closed-ws-title">{{ t.closedWorkspaces }}</span>
+          <span class="closed-ws-count">{{ closedPaths.length }}</span>
+        </button>
+        <div v-if="closedExpanded" class="closed-ws-list">
+          <div
+            v-for="root in closedPaths"
+            :key="root"
+            class="closed-ws-row"
+            :title="root"
+          >
+            <button
+              type="button"
+              class="closed-ws-open"
+              @click="() => void onReopenClosed(root)"
+            >
+              <span class="closed-ws-name">{{ workspaceName(root) }}</span>
+            </button>
+            <NTooltip>
+              <template #trigger>
+                <NButton
+                  quaternary
+                  size="tiny"
+                  class="closed-ws-remove"
+                  :aria-label="t.removeFromList"
+                  @click.stop="confirmPurgeWorkspace(root)"
+                >
+                  <template #icon>
+                    <NIcon :component="TrashOutline" :size="13" />
+                  </template>
+                </NButton>
+              </template>
+              {{ t.removeFromList }}
+            </NTooltip>
+          </div>
         </div>
-      </Pane>
-    </Splitpanes>
+      </div>
+    </div>
 
     <NModal
       v-model:show="renameOpen"
@@ -1324,22 +1301,12 @@ function onLeftSplitResized(payload: SplitpanesResizedPayload): void {
   border-right: 1px solid var(--border);
 }
 
-.left-split {
+.sessions-pane {
   flex: 1;
-  min-height: 0;
-}
-
-.sessions-pane,
-.files-pane {
-  height: 100%;
   min-height: 0;
   display: flex;
   flex-direction: column;
   overflow: hidden;
-}
-
-.files-pane {
-  border-top: none;
 }
 
 .top-actions {
@@ -1478,17 +1445,6 @@ function onLeftSplitResized(payload: SplitpanesResizedPayload): void {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.left-split :deep(.splitpanes__splitter) {
-  height: 4px !important;
-  min-height: 4px !important;
-  background: var(--border) !important;
-  cursor: row-resize;
-}
-
-.left-split :deep(.splitpanes__splitter:hover) {
-  background: var(--accent-border, #93c5fd) !important;
 }
 
 .ws-row-wrap {

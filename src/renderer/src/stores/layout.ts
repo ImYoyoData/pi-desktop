@@ -3,7 +3,6 @@ import { ref } from "vue";
 import {
   clampPanePercent,
   clampPanelHeight,
-  clampPercent,
   DEFAULT_LAYOUT,
   readLayout,
   writeLayout,
@@ -25,7 +24,6 @@ export const useLayoutStore = defineStore("layout", () => {
   const rightSize = ref(DEFAULT_LAYOUT.rightSize);
   const leftCollapsed = ref(false);
   const rightCollapsed = ref(DEFAULT_LAYOUT.rightCollapsed);
-  const leftFilesSize = ref(DEFAULT_LAYOUT.leftFilesSize);
   const bottomSize = ref(DEFAULT_LAYOUT.bottomSize);
   const bottomCollapsed = ref(DEFAULT_LAYOUT.bottomCollapsed);
   /**
@@ -57,7 +55,6 @@ export const useLayoutStore = defineStore("layout", () => {
       rightSize: rightSize.value,
       leftCollapsed: leftCollapsed.value,
       rightCollapsed: rightCollapsed.value,
-      leftFilesSize: leftFilesSize.value,
       bottomSize: bottomSize.value,
       bottomCollapsed: bottomCollapsed.value,
     });
@@ -71,7 +68,6 @@ export const useLayoutStore = defineStore("layout", () => {
     rightSize.value = data.rightSize;
     leftCollapsed.value = data.leftCollapsed;
     rightCollapsed.value = data.rightCollapsed;
-    leftFilesSize.value = data.leftFilesSize;
     bottomSize.value = data.bottomSize;
     bottomCollapsed.value = data.bottomCollapsed;
   }
@@ -95,11 +91,6 @@ export const useLayoutStore = defineStore("layout", () => {
     leftSize.value = clampPanePercent(left);
     centerSize.value = clampPanePercent(center);
     rightSize.value = clampPanePercent(right);
-    persist();
-  }
-
-  function setLeftFilesSize(percent: number): void {
-    leftFilesSize.value = clampPercent(percent);
     persist();
   }
 
@@ -173,7 +164,6 @@ export const useLayoutStore = defineStore("layout", () => {
     rightSize,
     leftCollapsed,
     rightCollapsed,
-    leftFilesSize,
     bottomSize,
     bottomCollapsed,
     editorMaximized,
@@ -182,7 +172,6 @@ export const useLayoutStore = defineStore("layout", () => {
     setCenterSize,
     setRightSize,
     setPaneSizes,
-    setLeftFilesSize,
     setBottomSize,
     toggleLeftCollapsed,
     toggleRightCollapsed,
