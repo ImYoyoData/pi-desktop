@@ -26,10 +26,24 @@ export function sameWorkspaceRoot(a: string, b: string): boolean {
   return normalizeFsPath(a) === normalizeFsPath(b);
 }
 
+/** 路径是否位于工作区内（含根目录本身）。 */
+export function isInsideWorkspace(root: string, p: string): boolean {
+  if (!root) return false;
+  const base = normalizeFsPath(root);
+  const abs = normalizeFsPath(absoluteWorkspacePath(root, p));
+  return abs === base || abs.startsWith(`${base}/`);
+}
+
+/** 是否为绝对路径（Windows 盘符或 POSIX 根）。 */
+export function isAbsoluteFsPath(p: string): boolean {
+  const raw = p.replace(/\\/g, "/");
+  return raw.startsWith("/") || /^[a-zA-Z]:\//.test(raw);
+}
+
 /** fs 事件是工作区相对路径，标签页可能存绝对路径——统一成绝对路径再比较。 */
 export function absoluteWorkspacePath(root: string, p: string): string {
   const raw = p.replace(/\\/g, "/");
-  if (raw.startsWith("/") || /^[a-zA-Z]:\//.test(raw)) return raw;
+  if (isAbsoluteFsPath(raw)) return raw;
   return `${root.replace(/\\/g, "/").replace(/\/+$/, "")}/${raw}`;
 }
 

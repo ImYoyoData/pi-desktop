@@ -658,6 +658,9 @@ declare const api: {
 		read: (filePath: string) => Promise<PreviewResult>;
 		write: (filePath: string, content: string) => Promise<void>;
 		pickFile: () => Promise<string | null>;
+		watch: (filePath: string) => Promise<{ ok: boolean }>;
+		unwatch: (filePath: string) => Promise<{ ok: boolean }>;
+		onChanged: (callback: (payload: { paths: string[] }) => void) => () => void;
 	};
 	browser: {
 		startSelect: (webContentsId: number) => Promise<
