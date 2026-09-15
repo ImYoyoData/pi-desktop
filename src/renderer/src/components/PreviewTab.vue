@@ -296,7 +296,6 @@ async function ensureEditor(content: string, language: string): Promise<void> {
     editor = monaco.editor.create(editorHost.value, {
       value: content,
       language,
-      theme: appearance.resolvedTheme === "dark" ? "vs-dark" : "vs",
       automaticLayout: true,
       fontSize: 12.5,
       fontFamily: 'var(--font-mono), "Cascadia Code", Consolas, monospace',
