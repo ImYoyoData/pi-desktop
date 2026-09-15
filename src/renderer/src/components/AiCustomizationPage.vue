@@ -63,7 +63,9 @@ const active = ref(props.section || "general");
 const modal = ref<string | null>(null);
 const width = ref(readWidth());
 /** 页内打开的定制项文件（VS Code 内嵌编辑器形态）。 */
-const editing = ref<{ filePath: string; name: string } | null>(null);
+const editing = ref<{ filePath: string; title: string } | null>(null);
+const editorRef = ref<InstanceType<typeof PreviewTab> | null>(null);
+const editorDirty = computed(() => editorRef.value?.dirty === true);
 
 const current = computed(
   () => SECTIONS.find((entry) => entry.id === active.value) ?? SECTIONS[0],
@@ -117,8 +119,12 @@ function selectSection(id: string): void {
   layout.setCustomizeSection(id);
 }
 
-function openInPage(payload: { filePath: string; name: string }): void {
+function openInPage(payload: { filePath: string; title: string }): void {
   editing.value = payload;
+}
+
+function saveEditingFile(): void {
+  void editorRef.value?.save();
 }
 
 function closeEditor(): void {
@@ -210,20 +216,33 @@ onUnmounted(() => {
 
     <section class="management-content">
       <div v-if="editing" class="content-inner editor-inner">
-        <div class="section-back-bar">
+        <header class="editor-page-header">
           <button
             type="button"
-            class="section-back-arrow-button"
+            class="editor-back-button"
             :title="t.customizeBackToList"
             :aria-label="t.customizeBackToList"
             @click="closeEditor"
           >
             <CodiconIcon name="back" :size="16" />
           </button>
-          <span class="editor-file-name">{{ editing.name }}</span>
-        </div>
+          <div class="editor-heading">
+            <h2 class="editor-heading-title">{{ editing.title }}</h2>
+            <p class="editor-heading-path" :title="editing.filePath">{{ editing.filePath }}</p>
+          </div>
+          <button
+            type="button"
+            class="editor-save-button"
+            :class="{ dirty: editorDirty }"
+            :title="t.saveShortcut"
+            :aria-label="t.save"
+            @click="saveEditingFile"
+          >
+            <CodiconIcon name="check" :size="16" />
+          </button>
+        </header>
         <div class="embedded-editor">
-          <PreviewTab :file-path="editing.filePath" :active="true" embedded />
+          <PreviewTab ref="editorRef" :file-path="editing.filePath" :active="true" embedded />
         </div>
       </div>
 
@@ -413,26 +432,29 @@ onUnmounted(() => {
   overflow-y: auto;
 }
 
-.content-inner > :not(.content-error):not(.content-spin):not(.embedded-editor) {
+.content-inner > :not(.content-error):not(.content-spin):not(.embedded-editor):not(.editor-page-header) {
   width: min(calc(100% - 80px), 840px);
   margin-inline: auto;
 }
 
 /* 页内编辑器（点击「打开」后在页面内打开，不占用侧栏） */
 .editor-inner {
+  padding: 0;
   overflow: hidden;
-  padding-bottom: 0;
 }
 
-.section-back-bar {
+.editor-page-header {
   flex-shrink: 0;
-  display: flex;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
-  gap: 8px;
-  margin-bottom: 8px;
+  gap: 10px;
+  padding: 14px 14px 14px 6px;
+  border-bottom: 1px solid var(--border);
 }
 
-.section-back-arrow-button {
+.editor-back-button,
+.editor-save-button {
   flex-shrink: 0;
   display: inline-flex;
   align-items: center;
@@ -444,25 +466,49 @@ onUnmounted(() => {
   border-radius: 4px;
   background: transparent;
   color: var(--fg);
+  opacity: 0.6;
   cursor: pointer;
-  opacity: 0.8;
-  transition: background-color 0.1s ease, opacity 0.1s ease;
+  transition: background-color 0.1s ease, color 0.1s ease, opacity 0.1s ease;
 }
 
-.section-back-arrow-button:hover {
+.editor-back-button:hover,
+.editor-save-button:hover {
   background-color: var(--bg-hover);
   opacity: 1;
 }
 
-.section-back-arrow-button:focus-visible {
+.editor-save-button.dirty {
+  color: var(--accent);
+  opacity: 1;
+}
+
+.editor-back-button:focus-visible,
+.editor-save-button:focus-visible {
   outline: 1px solid var(--accent);
   outline-offset: -1px;
 }
 
-.editor-file-name {
+.editor-heading {
+  min-width: 0;
+}
+
+.editor-heading-title {
+  margin: 0;
+  overflow: hidden;
+  color: var(--fg);
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 22px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.editor-heading-path {
+  margin: 2px 0 0;
   overflow: hidden;
   color: var(--fg-muted);
-  font-size: 12px;
+  font-size: 11.5px;
+  line-height: 16px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
