@@ -70,33 +70,172 @@ function buildEntry(): Record<string, unknown> {
   return entry;
 }
 
-function parseJsonServers(text: string): Record<string, unknown> {
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function looksLikeEntry(value: Record<string, unknown>): boolean {
+  return value.command !== undefined || value.url !== undefined || value.socket !== undefined;
+}
+
+/** 归一化外部格式：VS Code/Cursor 的 type、opencode 的数组 command 与 environment。 */
+function normalizeEntry(entry: Record<string, unknown>): Record<string, unknown> {
+  const next = { ...entry };
+  const type = next.type;
+  delete next.type;
+  if (type === "sse" && next.httpTransport === undefined) next.httpTransport = "sse";
+  if (next.env === undefined && isRecord(next.environment)) {
+    next.env = next.environment;
+    delete next.environment;
+  }
+  if (
+    Array.isArray(next.command) &&
+    next.command.length > 0 &&
+    next.command.every((part) => typeof part === "string")
+  ) {
+    const [command, ...args] = next.command as string[];
+    next.command = command;
+    if (next.args === undefined && args.length) next.args = args;
+  }
+  return next;
+}
+
+/** 名称 → 服务器定义的映射；不是映射时返回 null。 */
+function mapServers(source: Record<string, unknown>): Record<string, unknown> | null {
+  const entries = Object.entries(source);
+  if (entries.length === 0) return null;
+  if (!entries.every(([, value]) => isRecord(value))) return null;
+  return Object.fromEntries(
+    entries.map(([key, value]) => [key, normalizeEntry(value as Record<string, unknown>)]),
+  );
+}
+
+/** 剥离行注释与块注释，保护字符串字面量。 */
+function stripJsonComments(text: string): string {
+  let out = "";
+  let inString = false;
+  let escaped = false;
+  for (let i = 0; i < text.length; i += 1) {
+    const char = text.charAt(i);
+    if (inString) {
+      out += char;
+      if (escaped) escaped = false;
+      else if (char === "\\") escaped = true;
+      else if (char === '"') inString = false;
+      continue;
+    }
+    if (char === '"') {
+      inString = true;
+      out += char;
+      continue;
+    }
+    if (char === "/" && text.charAt(i + 1) === "/") {
+      while (i < text.length && text.charAt(i) !== "\n") i += 1;
+      out += "\n";
+      continue;
+    }
+    if (char === "/" && text.charAt(i + 1) === "*") {
+      i += 2;
+      while (i < text.length && !(text.charAt(i) === "*" && text.charAt(i + 1) === "/")) i += 1;
+      i += 1;
+      continue;
+    }
+    out += char;
+  }
+  return out;
+}
+
+/** 去掉对象/数组末尾多余的逗号，保护字符串字面量。 */
+function stripTrailingCommas(text: string): string {
+  let out = "";
+  let inString = false;
+  let escaped = false;
+  for (let i = 0; i < text.length; i += 1) {
+    const char = text.charAt(i);
+    if (inString) {
+      out += char;
+      if (escaped) escaped = false;
+      else if (char === "\\") escaped = true;
+      else if (char === '"') inString = false;
+      continue;
+    }
+    if (char === '"') {
+      inString = true;
+      out += char;
+      continue;
+    }
+    if (char === ",") {
+      let j = i + 1;
+      while (j < text.length && /\s/.test(text.charAt(j))) j += 1;
+      if (text.charAt(j) === "}" || text.charAt(j) === "]") continue;
+    }
+    out += char;
+  }
+  return out;
+}
+
+/** 容忍从编辑器复制的 JSONC（注释与尾逗号）。 */
+function parseLooseJson(text: string): unknown {
+  return JSON.parse(stripTrailingCommas(stripJsonComments(text)));
+}
+
+/** 拆分「名称 + JSON 对象」片段，如 `playwright { ... }` 或 `"playwright": { ... }`。 */
+function splitNamedEntry(text: string): { name: string; json: string } | null {
+  const start = text.indexOf("{");
+  if (start <= 0) return null;
+  const name = text
+    .slice(0, start)
+    .trim()
+    .replace(/[:=]\s*$/, "")
+    .trim()
+    .replace(/^["']+/, "")
+    .replace(/["']+$/, "")
+    .trim();
+  if (!name || /[\s{}[\]]/.test(name)) return null;
+  return { name, json: text.slice(start).replace(/,\s*$/, "") };
+}
+
+function parseJsonServers(text: string, fallbackName: string): Record<string, unknown> {
+  const trimmed = text.trim();
   let parsed: unknown;
   try {
-    parsed = JSON.parse(text);
+    parsed = parseLooseJson(trimmed);
   } catch {
-    throw new Error(t.customizeMcpJsonInvalid);
-  }
-  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-    throw new Error(t.customizeMcpJsonInvalid);
-  }
-  const record = parsed as Record<string, unknown>;
-  const source = record.mcpServers ?? record["mcp-servers"] ?? record;
-  if (!source || typeof source !== "object" || Array.isArray(source)) {
-    throw new Error(t.customizeMcpJsonInvalid);
-  }
-  const entries = Object.entries(source as Record<string, unknown>);
-  if (entries.length === 0) throw new Error(t.customizeMcpJsonInvalid);
-  for (const [, value] of entries) {
-    if (!value || typeof value !== "object" || Array.isArray(value)) {
+    const named = splitNamedEntry(trimmed);
+    if (!named) throw new Error(t.customizeMcpJsonInvalid);
+    let entry: unknown;
+    try {
+      entry = parseLooseJson(named.json);
+    } catch {
       throw new Error(t.customizeMcpJsonInvalid);
     }
+    if (!isRecord(entry) || !looksLikeEntry(entry)) throw new Error(t.customizeMcpJsonInvalid);
+    return { [named.name]: normalizeEntry(entry) };
   }
-  return source as Record<string, unknown>;
+  if (!isRecord(parsed)) throw new Error(t.customizeMcpJsonInvalid);
+
+  const nested =
+    parsed.mcpServers ?? parsed["mcp-servers"] ?? parsed.mcp_servers ?? parsed.servers;
+  if (nested !== undefined) {
+    const servers = isRecord(nested) ? mapServers(nested) : null;
+    if (!servers) throw new Error(t.customizeMcpJsonInvalid);
+    return servers;
+  }
+
+  const servers = mapServers(parsed);
+  if (servers) return servers;
+
+  if (looksLikeEntry(parsed)) {
+    const serverName = fallbackName.trim();
+    if (!serverName) throw new Error(t.customizeMcpNameRequired);
+    return { [serverName]: normalizeEntry(parsed) };
+  }
+
+  throw new Error(t.customizeMcpJsonInvalid);
 }
 
 function buildServers(): Record<string, unknown> {
-  if (method.value === "json") return parseJsonServers(json.value);
+  if (method.value === "json") return parseJsonServers(json.value, name.value);
   const serverName = name.value.trim();
   if (!serverName) throw new Error(t.customizeMcpNameRequired);
   if (transport.value === "command" && !command.value.trim()) {
@@ -216,14 +355,15 @@ async function submit(): Promise<void> {
       </template>
 
       <div v-else class="field">
-        <NText strong class="field-label">{{ t.customizeMcpAddJson }}</NText>
+        <NText strong class="field-label">{{ t.customizeMcpName }}</NText>
+        <NInput v-model:value="name" size="small" :placeholder="t.customizeMcpJsonNameHint" />
+        <NText depth="3" class="field-hint">{{ t.customizeMcpJsonHint }}</NText>
         <NInput
           v-model:value="json"
           type="textarea"
           :autosize="{ minRows: 5, maxRows: 10 }"
           placeholder='{"mcpServers": { "name": { "command": "npx", "args": ["-y", "pkg"] } }}'
         />
-        <NText depth="3" class="field-hint">{{ t.customizeMcpJsonHint }}</NText>
       </div>
 
       <NText v-if="error" class="form-error">{{ error }}</NText>
