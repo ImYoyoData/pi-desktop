@@ -30,6 +30,7 @@ import { useRightTabsStore } from "@renderer/stores/right-tabs";
 import { useLayoutStore } from "@renderer/stores/layout";
 import { useComposerStore } from "@renderer/stores/composer";
 import { gitCodeColor } from "@renderer/utils/editor-lang";
+import type { FsChangedPayload } from "@renderer/utils/fs-changed-bus";
 import { fileIcon } from "@renderer/utils/file-icon";
 import { matchesGitIgnorePatterns } from "../../../shared/git-ignore";
 import { ancestorChain, nextExpandedKeys } from "@renderer/utils/files-tree-expand";
@@ -54,13 +55,6 @@ const props = withDefaults(
   }>(),
   { embedded: false },
 );
-
-let offFs: (() => void) | null = null;
-/** Match main `fs-watch-host` rootsEqual: only Windows folds case. */
-let pathCaseInsensitive = false;
-void window.api.window.platform().then((p) => {
-  pathCaseInsensitive = p === "win32";
-});
 
 /** Drag source for move-into-folder (not sibling reorder). */
 const dragSrcPath = ref<string | null>(null);
@@ -192,17 +186,6 @@ function onTreeDrop(info: {
   if (info.dropPosition !== "inside") return;
   if (!canMoveInto(src, dest)) return;
   void moveIntoFolder(src, dest);
-}
-
-function sameWorkspaceRoot(a: string, b: string): boolean {
-  const fold = (p: string) => {
-    const n = p.replace(/\\/g, "/").replace(/\/+$/, "");
-    // Only Windows folds case (macOS APFS may be case-sensitive).
-    return pathCaseInsensitive ? n.toLowerCase() : n;
-  };
-  const na = fold(a);
-  const nb = fold(b);
-  return na === nb;
 }
 
 const loading = ref(false);
@@ -826,18 +809,18 @@ function toolbarNewDir(): void {
   openPrompt("dir", dir);
 }
 
+function onWorkspaceFsChanged(event: Event): void {
+  const detail = (event as CustomEvent<FsChangedPayload>).detail;
+  scheduleFsRefresh(detail?.events ?? []);
+}
+
 onMounted(() => {
   void refreshRoot();
-  offFs = window.api.fs.onChanged((payload) => {
-    // Ignore events from a previous workspace (stale watch race)
-    if (!workspace.root || !sameWorkspaceRoot(payload.root, workspace.root)) return;
-    scheduleFsRefresh(payload.events ?? []);
-    window.dispatchEvent(new CustomEvent("pi-fs-changed", { detail: payload }));
-  });
+  window.addEventListener("pi-fs-changed", onWorkspaceFsChanged);
 });
 
 onUnmounted(() => {
-  offFs?.();
+  window.removeEventListener("pi-fs-changed", onWorkspaceFsChanged);
   if (fsRefreshTimer) clearTimeout(fsRefreshTimer);
   clearDragState();
   // Do NOT unwatch here — watcher is owned by workspace switch lifecycle in main/store

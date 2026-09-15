@@ -1,11 +1,16 @@
 <script setup lang="ts">
 import type { PreviewResult } from "../../../shared/preview-types";
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
-import { NAlert, NButton, NEmpty, NIcon, NSpin, NText, useDialog, useMessage } from "naive-ui";
+import { NAlert, NButton, NEmpty, NIcon, NSpin, NText, useMessage } from "naive-ui";
 import { ChatbubbleEllipsesOutline, FolderOpenOutline, SaveOutline } from "@vicons/ionicons5";
 import type * as Monaco from "monaco-editor";
 import MarkdownView from "@renderer/components/MarkdownView.vue";
 import { breadcrumbs, languageFromPath } from "@renderer/utils/editor-lang";
+import {
+  absoluteWorkspacePath,
+  normalizeFsPath,
+  type FsChangedPayload,
+} from "@renderer/utils/fs-changed-bus";
 import { loadMonaco } from "@renderer/utils/monaco-loader";
 import { applyMonacoColorTheme, monacoThemeName } from "@renderer/utils/monaco-theme";
 import { useRightTabsStore } from "@renderer/stores/right-tabs";
@@ -27,7 +32,6 @@ const props = defineProps<{
 }>();
 
 const message = useMessage();
-const dialog = useDialog();
 const rightTabs = useRightTabsStore();
 const appearance = useAppearanceStore();
 const layout = useLayoutStore();
@@ -47,11 +51,6 @@ let selectionDebounce: ReturnType<typeof setTimeout> | null = null;
 /** Last pointer inside the Monaco surface (viewport coords for fixed floater). */
 let lastPointerClient = { x: 0, y: 0, at: 0 };
 let detachEditorPointer: (() => void) | null = null;
-/** Match main `fs-watch-host` rootsEqual: only Windows folds case. */
-let pathCaseInsensitive = false;
-void window.api.window.platform().then((p) => {
-  pathCaseInsensitive = p === "win32";
-});
 const currentPath = ref<string | null>(props.filePath ?? null);
 const result = ref<PreviewResult | null>(null);
 const loading = ref(false);
@@ -67,10 +66,11 @@ let monacoApi: typeof Monaco | null = null;
 let editor: Monaco.editor.IStandaloneCodeEditor | null = null;
 /** Bumps on every loadPath to ignore stale async reads when switching files quickly. */
 let loadGen = 0;
-/** Content fingerprint last loaded from disk (for external-change detection). */
-let diskFingerprint = "";
-let reloadPromptOpen = false;
+/** 最近一次从磁盘读到的内容 —— 与它不一致即视为外部改动。 */
+let diskContent: string | null = null;
 let applyingExternal = false;
+/** 丢弃过期的读盘结果（外部连续写入时事件可能乱序返回）。 */
+let fsGen = 0;
 let unregisterVideo: (() => void) | undefined;
 let unregisterAudio: (() => void) | undefined;
 
@@ -109,10 +109,6 @@ function syncMediaRegistration(): void {
 function syncTabMeta(patch: { dirty?: boolean; missing?: boolean; gitCode?: string }): void {
   if (!props.tabId) return;
   rightTabs.patchTab(props.tabId, patch);
-}
-
-function fingerprint(content: string): string {
-  return `${content.length}:${content.slice(0, 64)}:${content.slice(-64)}`;
 }
 
 function disposeEditor(): void {
@@ -273,7 +269,7 @@ async function ensureEditor(content: string, language: string): Promise<void> {
   await nextTick();
   if (!editorHost.value) {
     liveContent.value = content;
-    diskFingerprint = fingerprint(content);
+    diskContent = content;
     dirty.value = false;
     missing.value = false;
     syncTabMeta({ dirty: false, missing: false });
@@ -338,7 +334,7 @@ async function ensureEditor(content: string, language: string): Promise<void> {
     }
   }
   liveContent.value = content;
-  diskFingerprint = fingerprint(content);
+  diskContent = content;
   dirty.value = false;
   missing.value = false;
   syncTabMeta({ dirty: false, missing: false });
@@ -358,7 +354,8 @@ watch(
 async function refreshGitForFile(path: string): Promise<void> {
   try {
     const status = await window.api.git.status();
-    const hit = status.files.find((f) => f.relativePath === path);
+    const rel = normalizeFsPath(workspaceRelativePath(path));
+    const hit = status.files.find((f) => normalizeFsPath(f.relativePath) === rel);
     syncTabMeta({ gitCode: hit?.code });
   } catch {
     // ignore
@@ -367,10 +364,11 @@ async function refreshGitForFile(path: string): Promise<void> {
 
 async function loadPath(path: string | null): Promise<void> {
   const gen = ++loadGen;
+  fsGen += 1;
   currentPath.value = path;
   dirty.value = false;
   missing.value = false;
-  diskFingerprint = "";
+  diskContent = null;
   if (!path) {
     result.value = null;
     liveContent.value = "";
@@ -477,40 +475,40 @@ watch([videoRef, audioRef, () => result.value?.kind, () => props.tabId], () => {
   void nextTick(() => syncMediaRegistration());
 });
 
-function promptReloadFromDisk(): void {
-  if (reloadPromptOpen || !currentPath.value) return;
-  reloadPromptOpen = true;
-  dialog.warning({
-    title: t.fileExternallyModified,
-    content: t.externalChangedDirty,
-    positiveText: t.reloadFromDisk,
-    negativeText: t.keepCurrent,
-    onPositiveClick: () => {
-      reloadPromptOpen = false;
-      void loadPath(currentPath.value);
-    },
-    onNegativeClick: () => {
-      reloadPromptOpen = false;
-    },
-    onClose: () => {
-      reloadPromptOpen = false;
-    },
-  });
+/** 用磁盘内容整体替换模型：保留撤销栈，外部改动可 Ctrl+Z 回退。 */
+function applyExternalContent(content: string): void {
+  if (!editor || !monacoApi) return;
+  const model = editor.getModel();
+  if (!model || model.getValue() === content) return;
+  const selection = editor.getSelection();
+  editor.pushUndoStop();
+  editor.executeEdits("external", [{ range: model.getFullModelRange(), text: content }]);
+  editor.pushUndoStop();
+  if (selection) {
+    const start = clampPosition(model, selection.getStartPosition());
+    const end = clampPosition(model, selection.getEndPosition());
+    editor.setSelection(
+      new monacoApi.Selection(start.lineNumber, start.column, end.lineNumber, end.column),
+    );
+  }
+}
+
+function clampPosition(
+  model: Monaco.editor.ITextModel,
+  pos: Monaco.IPosition,
+): Monaco.IPosition {
+  const lineNumber = Math.min(Math.max(1, pos.lineNumber), model.getLineCount());
+  return { lineNumber, column: Math.min(pos.column, model.getLineMaxColumn(lineNumber)) };
 }
 
 async function applyDiskContentSilently(path: string, content: string): Promise<void> {
   applyingExternal = true;
   try {
     if (editor && editorHostIsLive()) {
-      const model = editor.getModel();
-      if (model && model.getValue() !== content) {
-        editor.pushUndoStop();
-        model.setValue(content);
-        editor.pushUndoStop();
-      }
+      applyExternalContent(content);
     }
     liveContent.value = content;
-    diskFingerprint = fingerprint(content);
+    diskContent = content;
     dirty.value = false;
     missing.value = false;
     if (result.value?.kind === "text" || result.value?.kind === "markdown") {
@@ -524,27 +522,12 @@ async function applyDiskContentSilently(path: string, content: string): Promise<
 }
 
 function onFsChanged(event: Event): void {
-  const detail = (event as CustomEvent<{
-    root: string;
-    events: { path: string; kind: "add" | "change" | "unlink" }[];
-  }>).detail;
+  const detail = (event as CustomEvent<FsChangedPayload>).detail;
   if (!detail || !currentPath.value) return;
-  // Ignore events from a previous workspace watcher
-  const wsRoot = useWorkspaceStore().root;
-  if (!wsRoot) return;
-  const normalizeCmp = (p: string) => {
-    const n = p.replace(/\\/g, "/").replace(/\/+$/, "");
-    return pathCaseInsensitive ? n.toLowerCase() : n;
-  };
-  const rootA = normalizeCmp(detail.root);
-  const rootB = normalizeCmp(wsRoot);
-  if (rootA !== rootB) return;
-
-  const path = currentPath.value.replace(/\\/g, "/");
-  const hit = detail.events.find((e) => {
-    const ep = e.path.replace(/\\/g, "/");
-    return pathCaseInsensitive ? ep.toLowerCase() === path.toLowerCase() : ep === path;
-  });
+  const target = normalizeFsPath(absoluteWorkspacePath(detail.root, currentPath.value));
+  const hit = detail.events.find(
+    (e) => normalizeFsPath(absoluteWorkspacePath(detail.root, e.path)) === target,
+  );
   if (!hit) return;
 
   if (hit.kind === "unlink") {
@@ -555,7 +538,10 @@ function onFsChanged(event: Event): void {
 
   if (hit.kind === "add" || hit.kind === "change") {
     void (async () => {
+      const path = currentPath.value!;
+      const gen = ++fsGen;
       const res = await window.api.preview.read(path);
+      if (gen !== fsGen) return;
       if (res.kind === "error") {
         missing.value = true;
         syncTabMeta({ missing: true });
@@ -566,22 +552,16 @@ function onFsChanged(event: Event): void {
         syncTabMeta({ missing: false });
       }
       if (res.kind !== "text" && res.kind !== "markdown") return;
-      const nextFp = fingerprint(res.content);
-      if (nextFp === diskFingerprint) return;
-      // Our own save also triggers fs watch — skip if editor matches disk
+      if (diskContent !== null && diskContent === res.content) return;
+      // 自己的保存也会触发 fs watch —— 编辑器与磁盘一致时只同步状态
       const editorValue = editor?.getValue() ?? liveContent.value;
       if (editorValue === res.content) {
-        diskFingerprint = nextFp;
+        diskContent = res.content;
         dirty.value = false;
         syncTabMeta({ dirty: false });
         return;
       }
-      // No local edits → silently take disk content (no prompt).
-      if (!dirty.value) {
-        await applyDiskContentSilently(path, res.content);
-        return;
-      }
-      promptReloadFromDisk();
+      await applyDiskContentSilently(path, res.content);
     })();
   }
 }
@@ -616,7 +596,7 @@ async function save(): Promise<boolean> {
     if (wasMissing || !editor) {
       await loadPath(currentPath.value);
     } else {
-      diskFingerprint = fingerprint(content);
+      diskContent = content;
       dirty.value = false;
       missing.value = false;
       syncTabMeta({ dirty: false, missing: false });

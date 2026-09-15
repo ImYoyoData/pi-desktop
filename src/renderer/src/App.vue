@@ -25,6 +25,7 @@ import { locale } from "@renderer/i18n";
 import { dismissLocaleReloadSplash } from "@renderer/utils/locale-reload-splash";
 import { dismissStartupSplash } from "@renderer/utils/startup-splash";
 import { markRendererStartup } from "@renderer/utils/startup-timing";
+import { startFsChangedBus } from "@renderer/utils/fs-changed-bus";
 
 /** Heavy workspace chrome — load after first paint when a folder is open. */
 const SplitRoot = defineAsyncComponent(() => {
@@ -70,9 +71,11 @@ watch(
 );
 
 let stopAppearance: (() => void) | undefined;
+let stopFsChangedBus: (() => void) | undefined;
 
 onMounted(() => {
   stopAppearance = appearance.init();
+  stopFsChangedBus = startFsChangedBus();
   void window.api.window.setUiLocale(locale === "zh-CN" ? "zh-CN" : "en");
   // Instant open: drop the full-screen splash right after first paint so the
   // window feels instant; shell content mounts once workspace init finishes.
@@ -104,6 +107,7 @@ onMounted(() => {
 onUnmounted(() => {
   window.clearTimeout(bootTimer);
   stopAppearance?.();
+  stopFsChangedBus?.();
 });
 </script>
 
