@@ -62,8 +62,14 @@ export function piInstallCommand(packageName: string): string {
   return `pi install npm:${name}`;
 }
 
-/** 有可用更新的插件（按 source 与 scope 定位插件列表行）。 */
-export type PluginUpdateInfo = {
+/** 插件的本地/最新版本与可更新状态（按 source 与 scope 定位插件列表行）。 */
+export type PluginVersionInfo = {
   source: string;
   scope: "global" | "project";
+  /** 本地安装版本（未知时为 null）。 */
+  currentVersion: string | null;
+  /** npm 最新版本（未知或非 npm 源时为 null）。 */
+  latestVersion: string | null;
+  /** 是否有可用更新。 */
+  hasUpdate: boolean;
 };
