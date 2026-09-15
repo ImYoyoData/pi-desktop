@@ -10,7 +10,6 @@ const rows = [
   { id: "security", icon: "security", label: t.securityTitle, description: t.customizeSecurityDesc },
   { id: "proxy", icon: "proxy", label: t.proxyTitle, description: t.customizeProxyDesc },
   { id: "lan", icon: "lan", label: t.lanConsoleTitle, description: t.customizeLanDesc },
-  { id: "about", icon: "about", label: t.aboutTitle, description: t.customizeAboutDesc },
 ] as const;
 </script>
 
