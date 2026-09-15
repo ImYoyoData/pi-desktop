@@ -24,7 +24,7 @@ const props = defineProps<{
 const emit = defineEmits<{
   refresh: [];
   market: [];
-  open: [payload: { filePath: string; name: string }];
+  open: [payload: { filePath: string; title: string }];
 }>();
 
 const workspace = useWorkspaceStore();
@@ -141,6 +141,14 @@ function toggleGroup(scope: CustomizationScope): void {
   else collapsed.add(scope);
 }
 
+/** 新建或配置文件的名字：技能取父目录名，其余取去掉扩展名的文件名。 */
+function titleFromPath(filePath: string): string {
+  const parts = filePath.split(/[/\\]/);
+  const file = (parts.pop() ?? filePath).replace(/\.disabled$/i, "");
+  const stem = file.replace(/\.[^.]+$/, "");
+  return stem.toLowerCase() === "skill" ? (parts.pop() ?? stem) : stem;
+}
+
 function openItem(item: CustomizationItem): void {
   if (props.kind === "plugins") {
     if (!item.filePath) {
@@ -153,7 +161,7 @@ function openItem(item: CustomizationItem): void {
     return;
   }
   if (!item.filePath) return;
-  emit("open", { filePath: item.filePath, name: item.name });
+  emit("open", { filePath: item.filePath, title: item.name });
 }
 
 async function copyPath(item: CustomizationItem): Promise<void> {
@@ -172,7 +180,7 @@ async function onCreate(): Promise<void> {
   try {
     const { filePath } = await window.api.customizations.create(kind);
     emit("refresh");
-    emit("open", { filePath, name: filePath.split(/[/\\]/).pop() ?? filePath });
+    emit("open", { filePath, title: titleFromPath(filePath) });
   } catch (err) {
     message.error(err instanceof Error ? err.message : String(err));
   }
@@ -295,7 +303,7 @@ async function onEditConfigSelect(key: string | number): Promise<void> {
       isProject ? "project" : "user",
       isProject ? target : undefined,
     );
-    emit("open", { filePath, name: filePath.split(/[/\\]/).pop() ?? "mcp.json" });
+    emit("open", { filePath, title: titleFromPath(filePath) });
   } catch (err) {
     message.error(err instanceof Error ? err.message : String(err));
   }
