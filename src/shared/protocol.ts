@@ -190,6 +190,11 @@ export const IpcChannels = {
 		testConnection: "models:testConnection",
 		providerCatalog: "models:providerCatalog",
 		setSelection: "models:setSelection",
+		oauthLogin: "models:oauthLogin",
+		oauthLogout: "models:oauthLogout",
+		oauthPrompt: "models:oauthPrompt",
+		oauthCancel: "models:oauthCancel",
+		oauthEvent: "models:oauthEvent",
 	},
 	terminal: {
 		create: "terminal:create",

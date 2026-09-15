@@ -56,6 +56,41 @@ export type ModelsSetPayload = {
   apiKeys?: Record<string, string>;
 };
 
+/** Prompt the OAuth flow asks the renderer to answer. */
+export type ModelsOAuthPrompt =
+  | { type: "text" | "secret" | "manual_code"; message: string; placeholder?: string }
+  | {
+      type: "select";
+      message: string;
+      options: { id: string; label: string; description?: string }[];
+    };
+
+/** Progress pushed to the renderer while a provider login is running. */
+export type ModelsOAuthEvent =
+  | { type: "info"; message: string; links?: { url: string; label?: string }[] }
+  | { type: "auth_url"; url: string; instructions?: string }
+  | {
+      type: "device_code";
+      userCode: string;
+      verificationUri: string;
+      intervalSeconds?: number;
+      expiresInSeconds?: number;
+    }
+  | { type: "progress"; message: string }
+  | { type: "prompt"; promptId: number; prompt: ModelsOAuthPrompt };
+
+export type ModelsOAuthEventPayload = {
+  providerId: string;
+  event: ModelsOAuthEvent;
+};
+
+export type ModelsOAuthPromptReply = {
+  providerId: string;
+  promptId: number;
+  value?: string;
+  cancelled?: boolean;
+};
+
 /** @deprecated Unused for listing — providers come from Pi SDK ModelRuntime.getProviders() */
 export const COMMON_API_KEY_PROVIDERS = [
   "anthropic",

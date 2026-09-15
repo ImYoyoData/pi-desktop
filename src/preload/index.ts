@@ -20,6 +20,8 @@ import type { AgentRunEvent, AgentRunSnapshot } from "../shared/agent-runs";
 import type { CustomizationsSnapshot, CustomizationCreateKind, McpTestResult, McpTestTarget } from "../shared/customizations";
 import type {
 	ModelsGetResult,
+	ModelsOAuthEventPayload,
+	ModelsOAuthPromptReply,
 	ModelsSetPayload,
 	ProviderCatalogResult,
 } from "../shared/models-settings";
@@ -885,7 +887,7 @@ const api = {
 			ipcRenderer.invoke(IpcChannels.models.test) as Promise<
 				ModelsGetResult["available"]
 			>,
-		discover: (payload: { baseUrl: string; apiKey?: string; api?: string }) =>
+		discover: (payload: { baseUrl: string; apiKey?: string; api?: string; providerId?: string }) =>
 			ipcRenderer.invoke(
 				IpcChannels.models.discover,
 				payload,
@@ -911,6 +913,21 @@ const api = {
 				IpcChannels.models.setSelection,
 				selection,
 			) as Promise<void>,
+		oauthLogin: (providerId: string) =>
+			ipcRenderer.invoke(IpcChannels.models.oauthLogin, providerId) as Promise<void>,
+		oauthLogout: (providerId: string) =>
+			ipcRenderer.invoke(IpcChannels.models.oauthLogout, providerId) as Promise<void>,
+		oauthPrompt: (reply: ModelsOAuthPromptReply) =>
+			ipcRenderer.invoke(IpcChannels.models.oauthPrompt, reply) as Promise<void>,
+		oauthCancel: () => ipcRenderer.invoke(IpcChannels.models.oauthCancel) as Promise<void>,
+		onOauthEvent: (callback: (payload: ModelsOAuthEventPayload) => void) => {
+			const listener = (_event: Electron.IpcRendererEvent, payload: ModelsOAuthEventPayload) =>
+				callback(payload);
+			ipcRenderer.on(IpcChannels.models.oauthEvent, listener);
+			return () => {
+				ipcRenderer.removeListener(IpcChannels.models.oauthEvent, listener);
+			};
+		},
 	},
 	preview: {
 		read: (filePath: string) =>
