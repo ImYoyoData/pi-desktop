@@ -14,7 +14,6 @@ import type { DropdownOption } from "naive-ui";
 import {
   AddOutline,
   CheckmarkOutline,
-  ChevronDownOutline,
   ContractOutline,
   DocumentOutline,
   ExpandOutline,
@@ -2532,17 +2531,17 @@ watch(
             raw
           >
             <template #trigger>
-              <button
-                type="button"
-                class="mode-trigger pi-interactive"
+              <NButton
+                quaternary
+                size="tiny"
+                class="mode-btn"
                 :disabled="voiceActive || voicePending"
                 :title="t.composerModeHint"
                 :aria-expanded="modeBubbleShow"
                 :aria-haspopup="true"
               >
-                <span class="mode-trigger-label">{{ activeModeLabel }}</span>
-                <NIcon :component="ChevronDownOutline" :size="12" />
-              </button>
+                <span class="mode-label">{{ activeModeLabel }}</span>
+              </NButton>
             </template>
             <div class="mode-bubble" role="listbox" :aria-label="t.composerModeHint">
               <button
@@ -3153,37 +3152,16 @@ watch(
   margin-left: 1px;
 }
 
-.mode-trigger {
-  display: inline-flex;
-  align-items: center;
-  gap: 2px;
-  flex: 0 0 auto;
-  height: 22px;
-  max-width: 72px;
-  padding: 0 6px 0 8px;
-  border: 1px solid color-mix(in srgb, var(--border, #ddd) 85%, transparent);
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--bg-elevated, #fff) 92%, transparent);
-  color: var(--fg, #222);
-  font-size: 11px;
-  font-weight: 550;
-  cursor: pointer;
+.mode-btn {
+  flex-shrink: 0;
+  padding: 0 4px !important;
+}
+
+.mode-label {
+  display: inline-block;
   white-space: nowrap;
-}
-
-.mode-trigger:disabled {
-  opacity: 0.55;
-  cursor: not-allowed;
-}
-
-.mode-trigger:hover:not(:disabled) {
-  border-color: color-mix(in srgb, var(--primary, #3b82f6) 45%, var(--border));
-  color: var(--fg-strong, #111);
-}
-
-.mode-trigger-label {
-  overflow: hidden;
-  text-overflow: ellipsis;
+  font-size: 11px;
+  margin-left: 1px;
 }
 
 .mode-bubble {
@@ -3522,9 +3500,8 @@ watch(
 }
 
 @media (max-width: 900px) {
-  .mode-trigger {
-    max-width: 64px;
-    padding: 0 5px 0 7px;
+  .mode-label {
+    display: none;
   }
 
   .model-label {
