@@ -2,7 +2,7 @@ import { ipcMain } from "electron";
 import { IpcChannels } from "../shared/protocol";
 import { emptyCustomizations, type CustomizationCreateKind } from "../shared/customizations";
 import { getWorkspace } from "./workspace-ipc";
-import { createCustomization, listCustomizations, setMcpServerEnabled, addMcpServers, ensureMcpConfig } from "./customizations-host";
+import { createCustomization, listCustomizations, setMcpServerEnabled, addMcpServers, ensureMcpConfig, removeMcpServer } from "./customizations-host";
 
 export function registerCustomizationsIpc(broker?: {
 	notifyWorkersReloadResources: (cwd: string) => Promise<void>;
@@ -44,6 +44,17 @@ export function registerCustomizationsIpc(broker?: {
 			const root = cwd || getWorkspace();
 			if (scope === "project" && !root) throw new Error("workspace required");
 			return ensureMcpConfig(scope, root ?? undefined);
+		},
+	);
+
+	ipcMain.handle(
+		IpcChannels.customizations.removeMcpServer,
+		async (_event, name: string, scope: "user" | "project", cwd?: string) => {
+			const root = cwd || getWorkspace();
+			if (scope === "project" && !root) throw new Error("workspace required");
+			const result = removeMcpServer(name, scope, root ?? undefined);
+			if (root) await broker?.notifyWorkersReloadResources(root);
+			return result;
 		},
 	);
 }

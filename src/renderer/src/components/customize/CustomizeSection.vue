@@ -233,14 +233,23 @@ function onMcpAdded(): void {
 
 function canRemove(item: CustomizationItem): boolean {
   if (props.kind === "skills") return Boolean(item.filePath);
+  if (props.kind === "mcp") return true;
   return props.kind === "plugins" && Boolean(item.source);
+}
+
+function removeLabel(): string {
+  if (props.kind === "mcp") return t.customizeMcpRemove;
+  return props.kind === "plugins" ? t.customizeUninstallPlugin : t.customizeUninstall;
 }
 
 function confirmRemove(item: CustomizationItem): void {
   dialog.warning({
-    title: props.kind === "plugins" ? t.customizeUninstallPlugin : t.customizeUninstall,
-    content: t.customizeUninstallConfirm(item.name),
-    positiveText: t.customizeUninstall,
+    title: removeLabel(),
+    content:
+      props.kind === "mcp"
+        ? t.customizeMcpRemoveConfirm(item.name)
+        : t.customizeUninstallConfirm(item.name),
+    positiveText: removeLabel(),
     negativeText: t.cancel,
     onPositiveClick: async () => {
       try {
@@ -252,6 +261,14 @@ function confirmRemove(item: CustomizationItem): void {
             pluginScope(item),
             workspace.root ?? undefined,
           );
+        } else if (props.kind === "mcp") {
+          await window.api.customizations.removeMcpServer(
+            item.name,
+            item.scope === "project" ? "project" : "user",
+            workspace.root ?? undefined,
+          );
+          store.removeMcp(item.id);
+          return;
         }
         emit("refresh");
       } catch (err) {
@@ -269,6 +286,15 @@ function openContextMenu(event: MouseEvent, item: CustomizationItem): void {
   ctx.show = true;
 }
 
+/** 左键菜单：以按钮位置为锚点弹出与右键一致的菜单。 */
+function openItemMenu(event: MouseEvent, item: CustomizationItem): void {
+  const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
+  ctx.item = item;
+  ctx.x = rect.left;
+  ctx.y = rect.bottom + 4;
+  ctx.show = true;
+}
+
 const ctxOptions = computed<DropdownOption[]>(() => {
   const item = ctx.item;
   if (!item) return [];
@@ -283,10 +309,7 @@ const ctxOptions = computed<DropdownOption[]>(() => {
     });
   }
   if (canRemove(item)) {
-    options.push({
-      label: props.kind === "plugins" ? t.customizeUninstallPlugin : t.customizeUninstall,
-      key: "remove",
-    });
+    options.push({ label: removeLabel(), key: "remove" });
   }
   return options;
 });
@@ -413,13 +436,22 @@ function onCtxSelect(key: string | number): void {
                 <CodiconIcon name="copy" :size="15" />
               </button>
               <button
-                v-if="canRemove(item)"
+                v-if="kind !== 'mcp' && canRemove(item)"
                 type="button"
                 class="item-action"
                 :title="kind === 'plugins' ? t.customizeUninstallPlugin : t.customizeUninstall"
                 @click.stop="confirmRemove(item)"
               >
                 <CodiconIcon name="remove" :size="15" />
+              </button>
+              <button
+                v-if="kind === 'mcp'"
+                type="button"
+                class="item-action"
+                :title="t.customizeMoreActions"
+                @click.stop="openItemMenu($event, item)"
+              >
+                <CodiconIcon name="more" :size="15" />
               </button>
             </div>
           </div>

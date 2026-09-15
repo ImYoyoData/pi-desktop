@@ -740,6 +740,13 @@ const api = {
 				scope,
 				cwd,
 			) as Promise<{ filePath: string }>,
+		removeMcpServer: (name: string, scope: "user" | "project", cwd?: string) =>
+			ipcRenderer.invoke(
+				IpcChannels.customizations.removeMcpServer,
+				name,
+				scope,
+				cwd,
+			) as Promise<{ filePath: string }>,
 	},
 	skills: {
 		list: (cwd?: string) =>
