@@ -102,7 +102,7 @@ const actionLabel = computed(() => {
 .tool-file {
   width: 100%;
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: 4px;
   background: var(--tool-bg, var(--bg-elevated));
   overflow: hidden;
 }
@@ -160,11 +160,11 @@ const actionLabel = computed(() => {
 }
 
 .add {
-  color: #16a34a;
+  color: var(--diff-added);
 }
 
 .del {
-  color: #dc2626;
+  color: var(--diff-removed);
 }
 
 .open-btn {
@@ -197,13 +197,13 @@ const actionLabel = computed(() => {
 }
 
 .dline.add {
-  background: rgba(22, 163, 74, 0.12);
-  color: #15803d;
+  background: color-mix(in srgb, var(--diff-added) 12%, transparent);
+  color: var(--diff-added);
 }
 
 .dline.del {
-  background: rgba(220, 38, 38, 0.1);
-  color: #b91c1c;
+  background: color-mix(in srgb, var(--diff-removed) 10%, transparent);
+  color: var(--diff-removed);
 }
 
 .dline.meta {

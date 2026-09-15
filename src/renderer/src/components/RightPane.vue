@@ -1030,7 +1030,7 @@ function submitRenameTab(): void {
   height: 24px;
   padding: 0 6px 0 8px;
   border: 1px solid transparent;
-  border-radius: 7px;
+  border-radius: 4px;
   background: transparent;
   color: var(--fg-muted);
   font-size: 11.5px;
@@ -1054,20 +1054,20 @@ function submitRenameTab(): void {
 }
 
 .tab-item.has-runs {
-  background: color-mix(in srgb, #eab308 22%, var(--bg));
-  border-color: color-mix(in srgb, #eab308 40%, var(--border));
-  color: color-mix(in srgb, #854d0e 55%, var(--fg));
+  background: color-mix(in srgb, var(--warning) 22%, var(--bg));
+  border-color: color-mix(in srgb, var(--warning) 40%, var(--border));
+  color: color-mix(in srgb, var(--warning) 60%, var(--fg));
 }
 
 .tab-item.has-runs:hover {
-  background: color-mix(in srgb, #eab308 30%, var(--bg-hover));
-  color: color-mix(in srgb, #854d0e 45%, var(--fg));
+  background: color-mix(in srgb, var(--warning) 30%, var(--bg-hover));
+  color: color-mix(in srgb, var(--warning) 50%, var(--fg));
 }
 
 .tab-item.has-runs.active {
-  background: color-mix(in srgb, #eab308 34%, var(--bg-elevated));
-  border-color: color-mix(in srgb, #eab308 50%, var(--border));
-  color: color-mix(in srgb, #713f12 40%, var(--fg-strong));
+  background: color-mix(in srgb, var(--warning) 34%, var(--bg-elevated));
+  border-color: color-mix(in srgb, var(--warning) 50%, var(--border));
+  color: color-mix(in srgb, var(--warning) 45%, var(--fg-strong));
   box-shadow: var(--shadow-sm);
 }
 
@@ -1076,7 +1076,7 @@ function submitRenameTab(): void {
   min-width: 14px;
   padding: 0 4px;
   border-radius: 999px;
-  background: color-mix(in srgb, #ca8a04 28%, transparent);
+  background: color-mix(in srgb, var(--warning) 28%, transparent);
   color: inherit;
   font-size: 10px;
   font-weight: 650;

@@ -424,13 +424,13 @@ onUnmounted(() => {
 }
 .hint.err {
   margin-top: 8px;
-  color: #d03050;
+  color: var(--error);
   word-break: break-word;
 }
 .warn {
   font-size: 11.5px;
   line-height: 1.45;
-  color: #d97706;
+  color: var(--warning);
   display: block;
   margin-top: 6px;
 }
@@ -519,7 +519,7 @@ onUnmounted(() => {
   gap: 8px;
   width: 100%;
   padding: 8px 10px;
-  border-radius: 8px;
+  border-radius: 4px;
   border: 1px solid var(--border, #e6e8ec);
   background: var(--bg, #f4f6f8);
   color: var(--fg, #1f2328);
@@ -557,7 +557,7 @@ onUnmounted(() => {
 .qr {
   width: 110px;
   height: 110px;
-  border-radius: 8px;
+  border-radius: 4px;
   background: #fff;
   padding: 5px;
 }

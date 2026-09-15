@@ -186,7 +186,7 @@ function badgeOf(platform: ProviderPlatform): string | null {
   display: flex;
   flex-direction: column;
   min-height: 0;
-  border-radius: 16px;
+  border-radius: 6px;
   border: 1px solid var(--border);
   background: var(--bg-elevated, var(--bg));
   box-shadow: var(--shadow-lg, 0 24px 70px rgba(0, 0, 0, 0.32));
@@ -283,7 +283,7 @@ function badgeOf(platform: ProviderPlatform): string | null {
   gap: 11px;
   padding: 10px 12px;
   border: 1px solid var(--border);
-  border-radius: 12px;
+  border-radius: 6px;
   background: var(--bg-panel);
   text-align: left;
   cursor: pointer;

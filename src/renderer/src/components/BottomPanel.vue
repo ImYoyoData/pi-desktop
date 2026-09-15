@@ -205,7 +205,7 @@ watch(
   height: 24px;
   padding: 0 4px 0 8px;
   border: 1px solid transparent;
-  border-radius: 7px;
+  border-radius: 4px;
   background: transparent;
   color: var(--fg-muted);
   font-size: 11.5px;

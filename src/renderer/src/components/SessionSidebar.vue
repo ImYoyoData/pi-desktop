@@ -1487,7 +1487,7 @@ function isRunning(status: SessionStatus): boolean {
   align-items: center;
   gap: 2px;
   width: 100%;
-  border-radius: var(--radius-sm, 7px);
+  border-radius: var(--radius-sm, 4px);
 }
 
 .ws-row-wrap:hover,
@@ -1504,7 +1504,7 @@ function isRunning(status: SessionStatus): boolean {
   height: 32px;
   padding: 0 8px;
   border: none;
-  border-radius: 9px;
+  border-radius: 4px;
   background: transparent;
   color: var(--fg-strong);
   font-size: 13px;
@@ -1561,7 +1561,7 @@ function isRunning(status: SessionStatus): boolean {
   list-style: none;
   margin: 0;
   padding: 0;
-  border-radius: 10px;
+  border-radius: 6px;
   font-size: 13px;
   color: var(--fg-muted);
   cursor: pointer;
@@ -1588,7 +1588,7 @@ function isRunning(status: SessionStatus): boolean {
   min-height: 44px;
   padding: 7px 8px;
   padding-left: calc(8px + var(--depth, 0) * 24px);
-  border-radius: 10px;
+  border-radius: 6px;
   border: 1px solid transparent;
   transition:
     background var(--duration-fast, 140ms) var(--ease-out, ease),
@@ -1754,7 +1754,7 @@ function isRunning(status: SessionStatus): boolean {
 }
 
 .st-stuck .status-core {
-  background: #ca8a04;
+  background: var(--warning);
 }
 
 @keyframes status-pulse {
@@ -1837,8 +1837,8 @@ function isRunning(status: SessionStatus): boolean {
 }
 
 .stuck-tag {
-  color: #ca8a04;
-  background: color-mix(in srgb, #ca8a04 16%, transparent);
+  color: var(--warning);
+  background: color-mix(in srgb, var(--warning) 16%, transparent);
 }
 
 .trash {
@@ -1882,7 +1882,7 @@ function isRunning(status: SessionStatus): boolean {
   margin: 0;
   padding: 5px 8px;
   border: none;
-  border-radius: 8px;
+  border-radius: 4px;
   background: transparent;
   color: var(--fg-faint);
   font: inherit;

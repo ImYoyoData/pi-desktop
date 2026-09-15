@@ -510,7 +510,7 @@ watch(
 }
 .card {
   border: 1px solid var(--border, rgba(128, 128, 128, 0.25));
-  border-radius: 10px;
+  border-radius: 6px;
   padding: 10px 12px;
   background: var(--bg-elevated, transparent);
 }

@@ -174,7 +174,7 @@ async function onSubmitText(p: ExtensionUiPending | null): Promise<void> {
 
 .ext-ui-card {
   border: 1px solid color-mix(in srgb, var(--primary, #3b82f6) 28%, var(--border, #ddd));
-  border-radius: 12px;
+  border-radius: 6px;
   background: color-mix(in srgb, var(--bg-elevated, #fff) 94%, var(--primary, #3b82f6) 6%);
   overflow: hidden;
 }
@@ -192,7 +192,7 @@ async function onSubmitText(p: ExtensionUiPending | null): Promise<void> {
   justify-content: center;
   width: 28px;
   height: 28px;
-  border-radius: 8px;
+  border-radius: 4px;
   background: color-mix(in srgb, var(--primary, #3b82f6) 16%, transparent);
   color: var(--primary, #3b82f6);
 }

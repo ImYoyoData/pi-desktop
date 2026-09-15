@@ -270,7 +270,7 @@ async function onNewAgent(): Promise<void> {
 .stack-above {
   border: 1px solid var(--border);
   border-bottom: none;
-  border-radius: var(--radius-lg, 16px) var(--radius-lg, 16px) 0 0;
+  border-radius: var(--radius-lg, 8px) var(--radius-lg, 8px) 0 0;
   background: var(--tool-bg, #f5f6f7);
   padding: 3px 3px 0;
   overflow: hidden;

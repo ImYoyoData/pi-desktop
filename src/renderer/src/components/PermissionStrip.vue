@@ -124,7 +124,7 @@ async function reply(decision: PermissionDecision): Promise<void> {
   flex-direction: column;
   min-height: 0;
   max-height: inherit;
-  border-radius: 18px;
+  border-radius: 6px;
   border: 1px solid color-mix(in srgb, var(--accent-border, var(--border)) 55%, var(--border));
   background:
     linear-gradient(
@@ -149,7 +149,7 @@ async function reply(decision: PermissionDecision): Promise<void> {
 .head-badge {
   width: 34px;
   height: 34px;
-  border-radius: 12px;
+  border-radius: 6px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -195,7 +195,7 @@ async function reply(decision: PermissionDecision): Promise<void> {
   max-height: 6em;
   overflow: auto;
   padding: 10px 12px;
-  border-radius: 12px;
+  border-radius: 6px;
   border: 1px solid var(--border);
   background: color-mix(in srgb, var(--bg-elevated) 70%, var(--bg));
 }

@@ -207,7 +207,7 @@ function onUninstall(skill: SkillRow): void {
   grid-template-columns: 240px 1fr;
   height: 100%;
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: 4px;
   overflow: hidden;
 }
 .left {

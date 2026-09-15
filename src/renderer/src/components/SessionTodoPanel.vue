@@ -486,7 +486,7 @@ function onDeleteList(): void {
 
 .todo-list::-webkit-scrollbar-thumb {
   background: var(--border-strong, var(--border));
-  border-radius: 8px;
+  border-radius: 4px;
   border: 2px solid transparent;
   background-clip: content-box;
 }

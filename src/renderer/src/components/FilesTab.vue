@@ -1036,7 +1036,7 @@ watch(
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  background: #ca8a04;
+  background: var(--git-m);
   display: inline-block;
   margin-left: 6px;
 }
