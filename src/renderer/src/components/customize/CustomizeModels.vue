@@ -51,7 +51,8 @@ const savedDraft = ref<CustomProviderDraft | null>(null);
 const keyVisible = ref(false);
 const saving = ref(false);
 const discovering = ref(false);
-const testing = ref(false);
+/** 正在测试的模型行 key（同时只测一个）。 */
+const testingRow = ref<string | null>(null);
 const formError = ref("");
 
 /** 「拉取模型」结果弹窗：手动勾选后再合并进模型列表。 */
@@ -70,10 +71,6 @@ const dirty = computed(() => {
 });
 
 const keyMasked = computed(() => "*".repeat(draft.value?.apiKey.length ?? 0));
-
-const modelCount = computed(
-  () => draft.value?.models.filter((model) => model.id.trim()).length ?? 0,
-);
 
 const existingModelIds = computed(
   () => draft.value?.models.map((model) => model.id.trim()).filter(Boolean) ?? [],
@@ -374,26 +371,26 @@ function notifyModelsChanged(): void {
   window.dispatchEvent(new CustomEvent("pi-models-changed"));
 }
 
-async function testConnection(): Promise<void> {
+async function testModel(rowKey: string, modelId: string): Promise<void> {
   const current = draft.value;
-  if (!current || testing.value) return;
+  if (!current || testingRow.value) return;
   current.baseUrl = normalizeProviderBaseUrl(current.baseUrl);
   if (!current.baseUrl.trim()) {
     message.warning(t.modelsCustomTestNoBaseUrl);
     return;
   }
-  const modelId = current.models.map((model) => model.id.trim()).find(Boolean) ?? "";
-  if (!modelId) {
+  const id = modelId.trim();
+  if (!id) {
     message.warning(t.modelsCustomTestNoModel);
     return;
   }
-  testing.value = true;
+  testingRow.value = rowKey;
   try {
     const result = await window.api.models.testConnection({
       baseUrl: current.baseUrl,
       apiKey: current.apiKey.trim() || undefined,
       api: current.api,
-      modelId,
+      modelId: id,
       providerId: current.id.trim() || undefined,
     });
     if (result.ok) message.success(t.modelsCustomTestOk(result.latencyMs));
@@ -401,7 +398,7 @@ async function testConnection(): Promise<void> {
   } catch (err) {
     message.error(err instanceof Error ? err.message : String(err));
   } finally {
-    testing.value = false;
+    testingRow.value = null;
   }
 }
 </script>
@@ -598,7 +595,21 @@ async function testConnection(): Promise<void> {
                     />
                     <button
                       type="button"
-                      class="model-remove"
+                      class="model-action"
+                      :class="{ testing: testingRow === modelRowKeys[index] }"
+                      :disabled="testingRow !== null"
+                      :title="
+                        testingRow === modelRowKeys[index]
+                          ? t.modelsCustomTesting
+                          : t.modelsCustomTest
+                      "
+                      @click="testModel(modelRowKeys[index] ?? '', model.id)"
+                    >
+                      <CodiconIcon name="run" :size="14" />
+                    </button>
+                    <button
+                      type="button"
+                      class="model-action model-remove"
                       :title="t.customizeDelete"
                       @click="removeModelRow(index)"
                     >
@@ -650,14 +661,6 @@ async function testConnection(): Promise<void> {
           </div>
 
           <footer class="detail-footer">
-            <NButton
-              size="small"
-              :loading="testing"
-              :disabled="modelCount === 0"
-              @click="testConnection"
-            >
-              {{ testing ? t.modelsCustomTesting : t.modelsCustomTest }}
-            </NButton>
             <NButton size="small" :loading="discovering" @click="discover">
               {{ discovering ? t.modelsCustomDiscovering : t.modelsCustomDiscover }}
             </NButton>
@@ -968,7 +971,7 @@ async function testConnection(): Promise<void> {
   min-width: 0;
 }
 
-.model-remove {
+.model-action {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -983,9 +986,32 @@ async function testConnection(): Promise<void> {
   cursor: pointer;
 }
 
-.model-remove:hover {
+.model-action:hover:not(:disabled) {
   background: var(--bg-active);
+  color: var(--fg);
+}
+
+.model-action:disabled {
+  cursor: default;
+  opacity: 0.4;
+}
+
+.model-remove:hover {
   color: var(--error);
+}
+
+.model-action.testing {
+  color: var(--accent);
+}
+
+.model-action.testing svg {
+  animation: model-test-spin 0.9s linear infinite;
+}
+
+@keyframes model-test-spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .model-row-meta {

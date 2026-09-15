@@ -81,7 +81,7 @@ export const en = {
 	modelsCustomPickEmpty: "No matching models",
 	modelsCustomPickSelected: (n: number) => `${n} selected`,
 	modelsCustomPickAdd: "Add",
-	modelsCustomTest: "Test Connection",
+	modelsCustomTest: "Test Model",
 	modelsCustomTesting: "Testing…",
 	modelsCustomTestOk: (ms: number) => `Connected · ${ms} ms`,
 	modelsCustomTestFail: "Test failed",
