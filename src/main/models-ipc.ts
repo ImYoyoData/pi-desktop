@@ -14,8 +14,10 @@ import type {
 import {
 	discoverModels,
 	testModelConnection,
+	testProviderBaseUrl,
 	type DiscoverModelsResult,
 	type TestModelConnectionResult,
+	type TestProviderBaseUrlResult,
 } from "../shared/model-discover";
 import type { SessionBroker } from "./session-broker";
 import { getModelsConfigService } from "./models-config";
@@ -270,6 +272,20 @@ export function registerModelsIpc(broker: SessionBroker): void {
         baseUrl: provider.baseUrl ?? models[0]?.baseUrl ?? "",
         models,
       };
+    },
+  );
+
+  ipcMain.handle(
+    IpcChannels.models.testBaseUrl,
+    async (
+      _event,
+      payload: { baseUrl: string; apiKey?: string; api?: string },
+    ): Promise<TestProviderBaseUrlResult> => {
+      return testProviderBaseUrl({
+        baseUrl: String(payload?.baseUrl ?? ""),
+        apiKey: typeof payload?.apiKey === "string" ? payload.apiKey : undefined,
+        api: typeof payload?.api === "string" ? payload.api : undefined,
+      });
     },
   );
 

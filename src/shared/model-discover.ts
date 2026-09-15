@@ -44,6 +44,19 @@ export type TestModelConnectionInput = {
   api?: string;
   modelId: string;
 };
+export type TestProviderBaseUrlInput = {
+  baseUrl: string;
+  apiKey?: string;
+  api?: string;
+};
+
+/**
+ * 地址可达性/测速结果：`responded` 为 true 表示拿到了 HTTP 响应
+ * （状态码不一定是 2xx），false 表示网络层失败。
+ */
+export type TestProviderBaseUrlResult =
+  | { responded: true; latencyMs: number; status: number; url: string }
+  | { responded: false; error: string; latencyMs: number };
 
 export type TestModelConnectionResult =
   | { ok: true; latencyMs: number; status: number }
@@ -407,6 +420,58 @@ export async function discoverModels(
     ok: false,
     error: `Could not fetch models.\n${errors.join("\n")}`,
   };
+}
+
+/**
+ * 测速提供商地址：请求模型列表端点，返回首个 2xx 响应；
+ * 全部非 2xx 时返回最后一次响应，网络错误立即失败。
+ */
+export async function testProviderBaseUrl(
+  input: TestProviderBaseUrlInput,
+  opts?: { fetchImpl?: FetchLike; signal?: AbortSignal },
+): Promise<TestProviderBaseUrlResult> {
+  const baseUrl = normalizeProviderBaseUrl(input.baseUrl);
+  if (!baseUrl) return { responded: false, error: "Base URL is required", latencyMs: 0 };
+  try {
+    // eslint-disable-next-line no-new
+    new URL(baseUrl);
+  } catch {
+    return { responded: false, error: "Base URL is invalid", latencyMs: 0 };
+  }
+
+  const fetchImpl = opts?.fetchImpl ?? (globalThis.fetch as FetchLike);
+  const api = (input.api ?? "").trim();
+  const headers = discoverHeaders(api, input.apiKey);
+  const keyQuery =
+    api === "google-generative-ai" && input.apiKey?.trim()
+      ? `?key=${encodeURIComponent(input.apiKey.trim())}`
+      : "";
+
+  const urls = versionedUrls(baseUrl, "/models");
+  let fallback: TestProviderBaseUrlResult | null = null;
+  for (let i = 0; i < urls.length; i += 1) {
+    const target = `${urls[i]}${keyQuery}`;
+    const started = Date.now();
+    try {
+      const res = await fetchImpl(target, { method: "GET", headers, signal: opts?.signal });
+      await res.text();
+      const result: TestProviderBaseUrlResult = {
+        responded: true,
+        latencyMs: Date.now() - started,
+        status: res.status,
+        url: target,
+      };
+      if (res.ok || i === urls.length - 1) return result;
+      fallback = result;
+    } catch (err) {
+      return {
+        responded: false,
+        error: err instanceof Error ? err.message : String(err),
+        latencyMs: Date.now() - started,
+      };
+    }
+  }
+  return fallback ?? { responded: false, error: "Request failed", latencyMs: 0 };
 }
 
 function defaultTestSignal(signal?: AbortSignal): AbortSignal | undefined {
