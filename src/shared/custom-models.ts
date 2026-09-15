@@ -354,10 +354,14 @@ export function validateCustomProvider(
   return null;
 }
 
-export function upsertCustomProvider(doc: ModelsConfigDoc, draft: CustomProviderDraft): ModelsConfigDoc {
+export function upsertCustomProvider(
+  doc: ModelsConfigDoc,
+  draft: CustomProviderDraft,
+  opts?: { omitApiKey?: boolean },
+): ModelsConfigDoc {
   const id = draft.id.trim();
   const next = { providers: { ...doc.providers }, rest: { ...doc.rest } };
-  next.providers[id] = draftToProviderJson(draft, doc.providers[id]);
+  next.providers[id] = draftToProviderJson(draft, doc.providers[id], opts);
   return next;
 }
 
@@ -371,13 +375,14 @@ export function renameCustomProvider(
   doc: ModelsConfigDoc,
   fromId: string,
   draft: CustomProviderDraft,
+  opts?: { omitApiKey?: boolean },
 ): ModelsConfigDoc {
   const next = { providers: { ...doc.providers }, rest: { ...doc.rest } };
   const existing = fromId ? next.providers[fromId] : next.providers[draft.id.trim()];
   if (fromId && fromId !== draft.id.trim()) {
     delete next.providers[fromId];
   }
-  next.providers[draft.id.trim()] = draftToProviderJson(draft, existing);
+  next.providers[draft.id.trim()] = draftToProviderJson(draft, existing, opts);
   return next;
 }
 
