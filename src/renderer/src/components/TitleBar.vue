@@ -1,12 +1,10 @@
 <script setup lang="ts">
 import { onMounted, onUnmounted, ref } from "vue";
-import { NButton, NIcon, NPopover, NSpace } from "naive-ui";
+import { NButton, NIcon, NSpace } from "naive-ui";
 import { ArrowUpCircleOutline, LogoGithub } from "@vicons/ionicons5";
 import PanelLeftIcon from "@renderer/components/icons/PanelLeftIcon.vue";
-import LanRemoteIcon from "@renderer/components/icons/LanRemoteIcon.vue";
 import PanelRightIcon from "@renderer/components/icons/PanelRightIcon.vue";
 import PanelBottomIcon from "@renderer/components/icons/PanelBottomIcon.vue";
-import LanConsoleSettings from "@renderer/components/LanConsoleSettings.vue";
 import UpdateCard from "@renderer/components/UpdateCard.vue";
 import { useWorkspaceStore } from "@renderer/stores/workspace";
 import { useUpdateStore } from "@renderer/stores/update";
@@ -17,27 +15,11 @@ import logoUrl from "@renderer/assets/logo.svg";
 const workspace = useWorkspaceStore();
 const updateStore = useUpdateStore();
 const layout = useLayoutStore();
-const lanConsoleOpen = ref(false);
-const lanConsoleEnabled = ref(false);
-/** Public (Cloudflare tunnel) URL is live — shown as a second dot colour. */
-const lanConsolePublic = ref(false);
-
-async function refreshLanConsoleStatus(): Promise<void> {
-  try {
-    const status = await window.api.lanConsole.getStatus();
-    lanConsoleEnabled.value = status.enabled;
-    lanConsolePublic.value = Boolean(status.tunnel.url);
-  } catch {
-    lanConsoleEnabled.value = false;
-    lanConsolePublic.value = false;
-  }
-}
 const platform = ref<NodeJS.Platform>("win32");
 const isMaximized = ref(false);
 let offUpdateProgress: (() => void) | undefined;
 let offMaximized: (() => void) | undefined;
 let offUnmaximized: (() => void) | undefined;
-let offTunnelStatus: (() => void) | undefined;
 
 async function onMinimize(): Promise<void> {
   await window.api.window.minimize();
@@ -52,10 +34,6 @@ async function onClose(): Promise<void> {
 }
 
 onMounted(async () => {
-  void refreshLanConsoleStatus();
-  offTunnelStatus = window.api.lanConsole.onTunnelStatus((status) => {
-    lanConsolePublic.value = Boolean(status.url);
-  });
   platform.value = await window.api.window.platform();
   if (platform.value !== "darwin") {
     isMaximized.value = await window.api.window.isMaximized();
@@ -77,7 +55,6 @@ onUnmounted(() => {
   offUpdateProgress?.();
   offMaximized?.();
   offUnmaximized?.();
-  offTunnelStatus?.();
 });
 
 async function openGithub(): Promise<void> {
@@ -116,41 +93,6 @@ async function onUpdateClick(): Promise<void> {
           </template>
           <span v-if="updateStore.available" class="update-dot" aria-hidden="true" />
         </NButton>
-        <NPopover
-          trigger="click"
-          placement="bottom-end"
-          :show="lanConsoleOpen"
-          :width="360"
-          :show-arrow="false"
-          style="padding: 0"
-          @update:show="(v) => (lanConsoleOpen = v)"
-        >
-          <template #trigger>
-            <NButton
-              class="no-drag"
-              quaternary
-              circle
-              size="small"
-              :title="t.lanConsoleTitle"
-              :aria-label="t.lanConsoleTitle"
-              @click.stop="
-                lanConsoleOpen = true;
-                void refreshLanConsoleStatus();
-              "
-            >
-              <template #icon>
-                <LanRemoteIcon :size="16" />
-              </template>
-              <span
-                v-if="lanConsoleEnabled"
-                class="lan-console-dot"
-                :class="{ public: lanConsolePublic }"
-                :title="lanConsolePublic ? t.lanPublicTitle : t.lanConsoleOn"
-              />
-            </NButton>
-          </template>
-          <LanConsoleSettings @close="lanConsoleOpen = false" />
-        </NPopover>
         <NButton quaternary circle size="small" @click="openGithub">
           <template #icon>
             <NIcon :component="LogoGithub" />
@@ -377,21 +319,5 @@ async function onUpdateClick(): Promise<void> {
   width: 10px;
   height: 10px;
   flex-shrink: 0;
-}
-/* LAN console titlebar entry (left, after the app name) - same visual
-   language as the right-side titlebar buttons. */
-.lan-console-dot {
-  position: absolute;
-  top: 4px;
-  right: 4px;
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: var(--success);
-  box-shadow: 0 0 0 1.5px var(--bg-title, var(--bg));
-}
-/* Public access rides a Cloudflare tunnel — flag it with the Cloudflare orange. */
-.lan-console-dot.public {
-  background: #f38020;
 }
 </style>
