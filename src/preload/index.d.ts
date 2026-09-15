@@ -548,6 +548,21 @@ declare const api: {
 	customizations: {
 		list: (cwd?: string) => Promise<CustomizationsSnapshot>;
 		create: (kind: CustomizationCreateKind) => Promise<{ filePath: string }>;
+		setMcpEnabled: (
+			name: string,
+			scope: "user" | "project",
+			enabled: boolean,
+			cwd?: string,
+		) => Promise<void>;
+		addMcpServers: (
+			scope: "user" | "project",
+			servers: Record<string, unknown>,
+			cwd?: string,
+		) => Promise<{ filePath: string; names: string[] }>;
+		ensureMcpConfig: (
+			scope: "user" | "project",
+			cwd?: string,
+		) => Promise<{ filePath: string }>;
 	};
 	skills: {
 		list: (cwd?: string) => Promise<{

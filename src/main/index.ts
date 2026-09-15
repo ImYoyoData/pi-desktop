@@ -349,7 +349,7 @@ function boot(): void {
 		registerLanConsoleIpc(broker);
 		registerPreviewIpc();
 		registerFilesIpc();
-		registerCustomizationsIpc();
+		registerCustomizationsIpc(broker);
 		registerFsWatchIpc();
 		registerGitIpc();
 		registerSkillsIpc(broker);

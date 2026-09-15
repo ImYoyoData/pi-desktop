@@ -715,6 +715,31 @@ const api = {
 			ipcRenderer.invoke(IpcChannels.customizations.create, kind) as Promise<{
 				filePath: string;
 			}>,
+		setMcpEnabled: (name: string, scope: "user" | "project", enabled: boolean, cwd?: string) =>
+			ipcRenderer.invoke(
+				IpcChannels.customizations.setMcpEnabled,
+				name,
+				scope,
+				enabled,
+				cwd,
+			) as Promise<void>,
+		addMcpServers: (
+			scope: "user" | "project",
+			servers: Record<string, unknown>,
+			cwd?: string,
+		) =>
+			ipcRenderer.invoke(
+				IpcChannels.customizations.addMcpServers,
+				scope,
+				servers,
+				cwd,
+			) as Promise<{ filePath: string; names: string[] }>,
+		ensureMcpConfig: (scope: "user" | "project", cwd?: string) =>
+			ipcRenderer.invoke(
+				IpcChannels.customizations.ensureMcpConfig,
+				scope,
+				cwd,
+			) as Promise<{ filePath: string }>,
 	},
 	skills: {
 		list: (cwd?: string) =>

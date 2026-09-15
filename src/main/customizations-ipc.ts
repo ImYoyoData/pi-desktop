@@ -2,9 +2,11 @@ import { ipcMain } from "electron";
 import { IpcChannels } from "../shared/protocol";
 import { emptyCustomizations, type CustomizationCreateKind } from "../shared/customizations";
 import { getWorkspace } from "./workspace-ipc";
-import { createCustomization, listCustomizations } from "./customizations-host";
+import { createCustomization, listCustomizations, setMcpServerEnabled, addMcpServers, ensureMcpConfig } from "./customizations-host";
 
-export function registerCustomizationsIpc(): void {
+export function registerCustomizationsIpc(broker?: {
+	notifyWorkersReloadResources: (cwd: string) => Promise<void>;
+}): void {
 	ipcMain.handle(IpcChannels.customizations.list, async (_event, cwd?: string) => {
 		const root = cwd || getWorkspace();
 		if (!root) return emptyCustomizations(null);
@@ -13,5 +15,35 @@ export function registerCustomizationsIpc(): void {
 
 	ipcMain.handle(IpcChannels.customizations.create, (_event, kind: CustomizationCreateKind) =>
 		createCustomization(kind),
+	);
+
+	ipcMain.handle(
+		IpcChannels.customizations.setMcpEnabled,
+		async (_event, name: string, scope: "user" | "project", enabled: boolean, cwd?: string) => {
+			const root = cwd || getWorkspace();
+			if (scope === "project" && !root) throw new Error("workspace required");
+			setMcpServerEnabled(name, scope, enabled, root ?? undefined);
+			if (root) await broker?.notifyWorkersReloadResources(root);
+		},
+	);
+
+	ipcMain.handle(
+		IpcChannels.customizations.addMcpServers,
+		async (_event, scope: "user" | "project", servers: Record<string, unknown>, cwd?: string) => {
+			const root = cwd || getWorkspace();
+			if (scope === "project" && !root) throw new Error("workspace required");
+			const result = addMcpServers(scope, servers, root ?? undefined);
+			if (root) await broker?.notifyWorkersReloadResources(root);
+			return result;
+		},
+	);
+
+	ipcMain.handle(
+		IpcChannels.customizations.ensureMcpConfig,
+		(_event, scope: "user" | "project", cwd?: string) => {
+			const root = cwd || getWorkspace();
+			if (scope === "project" && !root) throw new Error("workspace required");
+			return ensureMcpConfig(scope, root ?? undefined);
+		},
 	);
 }

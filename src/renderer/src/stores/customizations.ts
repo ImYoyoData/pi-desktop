@@ -27,5 +27,15 @@ export const useCustomizationsStore = defineStore("customizations", () => {
     }
   }
 
-  return { snapshot, loading, error, load };
+  /** 本地更新 MCP 开关状态，避免重新加载整份快照。 */
+  function setMcpEnabled(id: string, enabled: boolean): void {
+    snapshot.value = {
+      ...snapshot.value,
+      mcp: snapshot.value.mcp.map((item) =>
+        item.id === id ? { ...item, enabled } : item,
+      ),
+    };
+  }
+
+  return { snapshot, loading, error, load, setMcpEnabled };
 });

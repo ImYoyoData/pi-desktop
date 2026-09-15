@@ -721,6 +721,16 @@ export async function handleWorkerMessage(msg: WorkerInbound): Promise<void> {
 		}
 		return;
 	}
+	if (msg.kind === "reload_resources") {
+		// 重新加载设置与扩展（含 MCP），让配置变更在现有会话中生效。
+		try {
+			await session?.reload();
+		} catch (err) {
+			const message = err instanceof Error ? err.message : String(err);
+			console.error(`[pi-desktop] reload resources failed: ${message}`);
+		}
+		return;
+	}
 	if (msg.kind === "reload_security") {
 		desktopSecurity = parseDesktopSecurity(msg.desktopSecurity);
 		return;

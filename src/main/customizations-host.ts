@@ -109,6 +109,14 @@ function describeMcp(entry: unknown): string {
 	return [command, ...args].join(" ").trim();
 }
 
+function isMcpDisabled(entry: unknown): boolean {
+	return (
+		Boolean(entry) &&
+		typeof entry === "object" &&
+		(entry as { disabled?: unknown }).disabled === true
+	);
+}
+
 function readMcpFile(file: string, scope: CustomizationScope): CustomizationItem[] {
 	if (!fs.existsSync(file)) return [];
 	let parsed: { mcpServers?: Record<string, unknown> };
@@ -125,7 +133,83 @@ function readMcpFile(file: string, scope: CustomizationScope): CustomizationItem
 		description: describeMcp(entry),
 		filePath: file,
 		scope,
+		enabled: !isMcpDisabled(entry),
 	}));
+}
+
+/** MCP 配置只读写用户级或工作区级的 pi 配置文件。 */
+function mcpConfigPath(scope: "user" | "project", root?: string): string {
+	if (scope === "user") return path.join(agentDir(), "mcp.json");
+	if (root) return path.join(root, ".pi", "mcp.json");
+	throw new Error("MCP servers can only be edited in the user or workspace config");
+}
+
+function readMcpRaw(file: string): Record<string, unknown> {
+	if (!fs.existsSync(file)) return {};
+	try {
+		return JSON.parse(fs.readFileSync(file, "utf8")) as Record<string, unknown>;
+	} catch {
+		throw new Error(`Cannot read MCP config ${file}`);
+	}
+}
+
+function writeMcpRaw(file: string, raw: Record<string, unknown>): void {
+	fs.mkdirSync(path.dirname(file), { recursive: true });
+	fs.writeFileSync(file, `${JSON.stringify(raw, null, 2)}\n`, "utf8");
+}
+
+function mcpServersObject(raw: Record<string, unknown>): Record<string, unknown> {
+	const servers = raw.mcpServers;
+	return servers && typeof servers === "object" && !Array.isArray(servers)
+		? (servers as Record<string, unknown>)
+		: {};
+}
+
+function isMcpEntry(value: unknown): value is Record<string, unknown> {
+	return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+/** 通过 `disabled` 字段启停 MCP 服务器（pi-mcp-adapter 读取该字段）。 */
+export function setMcpServerEnabled(
+	name: string,
+	scope: "user" | "project",
+	enabled: boolean,
+	root?: string,
+): void {
+	const file = mcpConfigPath(scope, root);
+	const raw = readMcpRaw(file);
+	const entry = mcpServersObject(raw)[name];
+	if (!isMcpEntry(entry)) {
+		throw new Error(`MCP server "${name}" not found in ${file}`);
+	}
+	if (enabled) delete entry.disabled;
+	else entry.disabled = true;
+	writeMcpRaw(file, raw);
+}
+
+/** 添加/覆盖 MCP 服务器定义，同名直接覆盖。 */
+export function addMcpServers(
+	scope: "user" | "project",
+	servers: Record<string, unknown>,
+	root?: string,
+): { filePath: string; names: string[] } {
+	const names = Object.keys(servers);
+	if (names.length === 0) throw new Error("No MCP servers to add");
+	for (const name of names) {
+		if (!isMcpEntry(servers[name])) throw new Error(`Invalid MCP server "${name}"`);
+	}
+	const file = mcpConfigPath(scope, root);
+	const raw = readMcpRaw(file);
+	raw.mcpServers = { ...mcpServersObject(raw), ...servers };
+	writeMcpRaw(file, raw);
+	return { filePath: file, names };
+}
+
+/** 确保 MCP 配置文件可用于手动编辑，不存在时写入空骨架。 */
+export function ensureMcpConfig(scope: "user" | "project", root?: string): { filePath: string } {
+	const file = mcpConfigPath(scope, root);
+	if (!fs.existsSync(file)) writeMcpRaw(file, { mcpServers: {} });
+	return { filePath: file };
 }
 
 function extensionLabel(ext: ExtensionLike): string {
