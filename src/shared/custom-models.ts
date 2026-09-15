@@ -26,10 +26,6 @@ export type CustomModelEntry = {
   maxTokens?: number;
   /** When true, model accepts images (`input: ["text","image"]`). */
   vision?: boolean;
-  /** When true, `thinkingLevelMap.xhigh` is set so Pi offers the XHigh level. */
-  thinkingXhigh?: boolean;
-  /** When true, `thinkingLevelMap.max` is set so Pi offers the Max level. */
-  thinkingMax?: boolean;
 };
 
 /** A fresh, blank model row. Max output defaults to the GUI budget. */
@@ -50,9 +46,7 @@ export type CustomProviderDraft = {
   baseUrl: string;
   api: CustomModelApi;
   /**
-   * UI field for the API key.
-   * Remote keys are saved to auth.json (Pi `/login` style).
-   * Local placeholders / `$ENV` / `!cmd` stay in models.json.
+   * UI field for the API key. Written to `providers.<id>.apiKey` in models.json.
    */
   apiKey: string;
   supportsDeveloperRole: boolean;
@@ -127,7 +121,6 @@ function parseModelEntry(raw: unknown): CustomModelEntry | null {
   if (!id) return null;
   const contextWindow = parsePositiveInt(o.contextWindow);
   const maxTokens = parsePositiveInt(o.maxTokens);
-  const levelMap = asRecord(o.thinkingLevelMap) ?? {};
   return {
     id,
     name: typeof o.name === "string" ? o.name : "",
@@ -135,28 +128,7 @@ function parseModelEntry(raw: unknown): CustomModelEntry | null {
     ...(contextWindow ? { contextWindow } : {}),
     ...(maxTokens ? { maxTokens } : {}),
     ...(modelHasVision(o.input) ? { vision: true } : {}),
-    ...(levelMap.xhigh === null ? { thinkingXhigh: false } : {}),
-    ...(levelMap.max === null ? { thinkingMax: false } : {}),
   };
-}
-
-/**
- * Keys that belong in models.json per Pi docs (literal local placeholder, $ENV, !command).
- * Real remote secrets should go to auth.json instead.
- */
-export function shouldStoreApiKeyInModelsJson(apiKey: string, baseUrl: string): boolean {
-  const key = apiKey.trim();
-  if (!key) return false;
-  if (key.startsWith("$") || key.startsWith("!")) return true;
-  try {
-    const host = new URL(normalizeProviderBaseUrl(baseUrl) || baseUrl).hostname.toLowerCase();
-    if (host === "localhost" || host === "127.0.0.1" || host === "::1" || host.endsWith(".local")) {
-      return true;
-    }
-  } catch {
-    // fall through
-  }
-  return false;
 }
 
 function defaultLocalCompatOff(baseUrl: string): boolean {
@@ -247,20 +219,6 @@ function mergeModelJson(
     base.input = next.length ? next : ["text"];
   }
 
-  // 自定义推理模型默认支持 XHigh/Max：Pi 只在 thinkingLevelMap 显式映射时才提供这两档，
-  // 所以未明确关闭（false）就写入映射；关闭时写 null。
-  const prevMap = asRecord(base.thinkingLevelMap) ?? {};
-  const levelMap: Record<string, unknown> = { ...prevMap };
-  if (draft.reasoning) {
-    levelMap.xhigh = draft.thinkingXhigh === false ? null : "xhigh";
-    levelMap.max = draft.thinkingMax === false ? null : "max";
-  } else {
-    delete levelMap.xhigh;
-    delete levelMap.max;
-  }
-  if (Object.keys(levelMap).length) base.thinkingLevelMap = levelMap;
-  else delete base.thinkingLevelMap;
-
   return base;
 }
 
@@ -271,7 +229,6 @@ function mergeModelJson(
 export function draftToProviderJson(
   draft: CustomProviderDraft,
   existing?: unknown,
-  opts?: { omitApiKey?: boolean },
 ): Record<string, unknown> {
   const prev = asRecord(existing) ?? {};
   const prevModels = Array.isArray(prev.models) ? prev.models : [];
@@ -298,18 +255,8 @@ export function draftToProviderJson(
   if (draft.name.trim()) out.name = draft.name.trim();
   else delete out.name;
 
-  const inlineKey = shouldStoreApiKeyInModelsJson(draft.apiKey, draft.baseUrl);
-  if (opts?.omitApiKey) {
-    delete out.apiKey;
-  } else if (inlineKey) {
-    out.apiKey = draft.apiKey.trim();
-  } else if (!draft.apiKey.trim()) {
-    // Keep existing models.json key (e.g. $ENV) if user cleared the UI field.
-    // If there was none, leave omitted (auth.json can supply it).
-  } else {
-    // Remote secret → auth.json; remove plaintext from models.json if present.
-    delete out.apiKey;
-  }
+  if (draft.apiKey.trim()) out.apiKey = draft.apiKey.trim();
+  else delete out.apiKey;
 
   const prevCompat = asRecord(prev.compat) ?? {};
   const compat: Record<string, unknown> = { ...prevCompat };
@@ -354,14 +301,10 @@ export function validateCustomProvider(
   return null;
 }
 
-export function upsertCustomProvider(
-  doc: ModelsConfigDoc,
-  draft: CustomProviderDraft,
-  opts?: { omitApiKey?: boolean },
-): ModelsConfigDoc {
+export function upsertCustomProvider(doc: ModelsConfigDoc, draft: CustomProviderDraft): ModelsConfigDoc {
   const id = draft.id.trim();
   const next = { providers: { ...doc.providers }, rest: { ...doc.rest } };
-  next.providers[id] = draftToProviderJson(draft, doc.providers[id], opts);
+  next.providers[id] = draftToProviderJson(draft, doc.providers[id]);
   return next;
 }
 
@@ -375,14 +318,13 @@ export function renameCustomProvider(
   doc: ModelsConfigDoc,
   fromId: string,
   draft: CustomProviderDraft,
-  opts?: { omitApiKey?: boolean },
 ): ModelsConfigDoc {
   const next = { providers: { ...doc.providers }, rest: { ...doc.rest } };
   const existing = fromId ? next.providers[fromId] : next.providers[draft.id.trim()];
   if (fromId && fromId !== draft.id.trim()) {
     delete next.providers[fromId];
   }
-  next.providers[draft.id.trim()] = draftToProviderJson(draft, existing, opts);
+  next.providers[draft.id.trim()] = draftToProviderJson(draft, existing);
   return next;
 }
 
@@ -462,8 +404,6 @@ export function mergeDiscoveredIntoDraft(
       vision: caps.vision,
       contextWindow: resolveContextWindow(d.contextWindow ?? prev?.contextWindow, id),
       maxTokens: d.maxTokens ?? prev?.maxTokens ?? DEFAULT_MAX_TOKENS,
-      thinkingXhigh: prev?.thinkingXhigh,
-      thinkingMax: prev?.thinkingMax,
     });
   }
   const list = [...byId.values()];
