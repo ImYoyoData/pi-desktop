@@ -279,6 +279,7 @@ async function listPluginItems(root: string): Promise<CustomizationItem[]> {
 		id: `${entry.scope}:${entry.source}`,
 		name: entry.source,
 		description: entry.installedPath ?? entry.source,
+		filePath: entry.installedPath,
 		scope: entry.scope === "project" ? "project" : "user",
 		source: entry.source,
 		detail: entry.status,

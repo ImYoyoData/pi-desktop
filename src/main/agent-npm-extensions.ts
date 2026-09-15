@@ -16,6 +16,14 @@ export function npmExtensionsPackagePath(): string {
 
 export type AgentNpmExtension = { name: string; version: string };
 
+/** Installed folder of an npm extension (scoped packages live under @scope/name). */
+export function agentNpmExtensionDir(name: string): string {
+  const nodeModules = path.join(agentDir(), "npm", "node_modules");
+  return name.startsWith("@")
+    ? path.join(nodeModules, ...name.split("/"))
+    : path.join(nodeModules, name);
+}
+
 /** Read the deps of the auto-loaded pi-extensions package ([] when missing). */
 export function listAgentNpmExtensions(): AgentNpmExtension[] {
   try {
@@ -70,11 +78,7 @@ export function removeAgentNpmExtension(name: string): boolean {
   delete deps[name];
   pkg.dependencies = deps;
   writeFileSync(pkgPath, `${JSON.stringify(pkg, null, 2)}\n`, "utf8");
-  // Remove the installed folder (scoped packages live under @scope/name).
-  const nodeModules = path.join(agentDir(), "npm", "node_modules");
-  const targets = name.startsWith("@")
-    ? [path.join(nodeModules, ...name.split("/"))]
-    : [path.join(nodeModules, name)];
+  const targets = [agentNpmExtensionDir(name)];
   for (const target of targets) {
     try {
       rmSync(target, { recursive: true, force: true });

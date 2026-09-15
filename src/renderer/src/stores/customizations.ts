@@ -45,5 +45,15 @@ export const useCustomizationsStore = defineStore("customizations", () => {
     };
   }
 
-  return { snapshot, loading, error, load, setMcpEnabled, removeMcp };
+  /** 本地更新插件启用状态，避免重新加载整份快照。 */
+  function setPluginEnabled(id: string, enabled: boolean): void {
+    snapshot.value = {
+      ...snapshot.value,
+      plugins: snapshot.value.plugins.map((item) =>
+        item.id === id ? { ...item, enabled } : item,
+      ),
+    };
+  }
+
+  return { snapshot, loading, error, load, setMcpEnabled, removeMcp, setPluginEnabled };
 });

@@ -139,14 +139,28 @@ function toggleGroup(scope: CustomizationScope): void {
 }
 
 function openItem(item: CustomizationItem): void {
+  if (props.kind === "plugins") {
+    if (!item.filePath) {
+      message.error(t.customizePluginPathMissing);
+      return;
+    }
+    void window.api.workspace.revealInFolder(item.filePath).catch((err) => {
+      message.error(err instanceof Error ? err.message : String(err));
+    });
+    return;
+  }
   if (!item.filePath) return;
   emit("open", { filePath: item.filePath, name: item.name });
 }
 
 async function copyPath(item: CustomizationItem): Promise<void> {
   if (!item.filePath) return;
-  await navigator.clipboard.writeText(item.filePath);
-  message.success(t.customizePathCopied);
+  try {
+    await navigator.clipboard.writeText(item.filePath);
+    message.success(t.customizePathCopied);
+  } catch (err) {
+    message.error(err instanceof Error ? err.message : String(err));
+  }
 }
 
 async function onCreate(): Promise<void> {
@@ -170,12 +184,20 @@ async function setEnabled(item: CustomizationItem, enabled: boolean): Promise<vo
     if (props.kind === "skills" && item.filePath) {
       await window.api.skills.setDisabled(item.filePath, !enabled);
     } else if (props.kind === "plugins" && item.source) {
-      await window.api.plugins.setEnabled(
-        item.source,
-        pluginScope(item),
-        enabled,
-        workspace.root ?? undefined,
-      );
+      // 先本地生效，写入失败再回滚，避免列表整表刷新。
+      store.setPluginEnabled(item.id, enabled);
+      try {
+        await window.api.plugins.setEnabled(
+          item.source,
+          pluginScope(item),
+          enabled,
+          workspace.root ?? undefined,
+        );
+      } catch (err) {
+        store.setPluginEnabled(item.id, !enabled);
+        throw err;
+      }
+      return;
     } else if (props.kind === "mcp") {
       // 先本地生效，写入失败再回滚，避免列表整表刷新。
       store.setMcpEnabled(item.id, enabled);
@@ -298,10 +320,10 @@ function openItemMenu(event: MouseEvent, item: CustomizationItem): void {
 const ctxOptions = computed<DropdownOption[]>(() => {
   const item = ctx.item;
   if (!item) return [];
-  const options: DropdownOption[] = [
-    { label: t.customizeOpen, key: "open", disabled: !item.filePath },
-    { label: t.customizeCopyPath, key: "copy", disabled: !item.filePath },
-  ];
+  const options: DropdownOption[] = [{ label: t.customizeOpen, key: "open", disabled: !item.filePath }];
+  if (props.kind !== "plugins") {
+    options.push({ label: t.customizeCopyPath, key: "copy", disabled: !item.filePath });
+  }
   if (canToggle(item)) {
     options.push({
       label: item.enabled === false ? t.customizeEnable : t.customizeDisable,
@@ -416,7 +438,7 @@ function onCtxSelect(key: string | number): void {
                 <div v-if="item.description" class="item-description">{{ item.description }}</div>
               </div>
             </div>
-            <div class="item-right" :class="{ 'item-right-pinned': kind === 'mcp' }">
+            <div class="item-right" :class="{ 'item-right-pinned': kind === 'mcp' || kind === 'plugins' }">
               <NSwitch
                 v-if="kind === 'mcp' && canToggle(item)"
                 class="item-switch"
@@ -427,7 +449,7 @@ function onCtxSelect(key: string | number): void {
                 @update:value="(value: boolean) => setEnabled(item, value)"
               />
               <button
-                v-if="item.filePath"
+                v-if="item.filePath && kind !== 'plugins'"
                 type="button"
                 class="item-action"
                 :title="t.customizeCopyPath"
@@ -435,6 +457,15 @@ function onCtxSelect(key: string | number): void {
               >
                 <CodiconIcon name="copy" :size="15" />
               </button>
+              <NSwitch
+                v-if="kind === 'plugins' && canToggle(item)"
+                class="item-switch"
+                size="small"
+                :value="item.enabled !== false"
+                :title="item.enabled === false ? t.customizeEnable : t.customizeDisable"
+                @click.stop
+                @update:value="(value: boolean) => setEnabled(item, value)"
+              />
               <button
                 v-if="kind !== 'mcp' && canRemove(item)"
                 type="button"
