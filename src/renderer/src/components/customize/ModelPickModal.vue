@@ -49,6 +49,29 @@ const allVisibleSelected = computed(
     selectableVisible.value.every((model) => selected.value.has(model.id)),
 );
 
+function describeModel(model: DiscoveredModel): string {
+  const parts: string[] = [];
+  if (model.name && model.name !== model.id) parts.push(model.name);
+  if (model.contextWindow) {
+    parts.push(`${t.modelsCustomContextWindow} ${model.contextWindow.toLocaleString()}`);
+  }
+  if (model.maxTokens) {
+    parts.push(`${t.modelsCustomMaxTokens} ${model.maxTokens.toLocaleString()}`);
+  }
+  return parts.join(" · ");
+}
+
+/** 行数据：把自动获取到的能力信息一并展示出来。 */
+const displayRows = computed(() =>
+  filtered.value.map((model) => ({
+    id: model.id,
+    meta: describeModel(model),
+    reasoning: model.reasoning === true,
+    vision: model.vision === true,
+    existing: existing.value.has(model.id),
+  })),
+);
+
 function toggle(id: string): void {
   if (existing.value.has(id)) return;
   const next = new Set(selected.value);
@@ -105,24 +128,28 @@ function confirmPick(): void {
     </div>
 
     <div class="pick-list">
-      <p v-if="!filtered.length" class="pick-empty">{{ t.modelsCustomPickEmpty }}</p>
+      <p v-if="!displayRows.length" class="pick-empty">{{ t.modelsCustomPickEmpty }}</p>
       <label
-        v-for="model in filtered"
-        :key="model.id"
+        v-for="row in displayRows"
+        :key="row.id"
         class="pick-row"
-        :class="{ existing: existing.has(model.id) }"
+        :class="{ existing: row.existing }"
       >
         <NCheckbox
-          :checked="selected.has(model.id)"
-          :disabled="existing.has(model.id)"
-          @update:checked="toggle(model.id)"
+          class="pick-check"
+          :checked="selected.has(row.id)"
+          :disabled="row.existing"
+          @update:checked="toggle(row.id)"
         />
-        <span class="pick-id">{{ model.id }}</span>
-        <span v-if="model.name" class="pick-name">{{ model.name }}</span>
-        <span v-if="model.contextWindow" class="pick-context">
-          {{ model.contextWindow.toLocaleString() }}
+        <span class="pick-main">
+          <span class="pick-head">
+            <span class="pick-id">{{ row.id }}</span>
+            <span v-if="row.reasoning" class="pick-tag">{{ t.modelsCustomReasoning }}</span>
+            <span v-if="row.vision" class="pick-tag">{{ t.modelsCustomVision }}</span>
+          </span>
+          <span v-if="row.meta" class="pick-sub">{{ row.meta }}</span>
         </span>
-        <span v-if="existing.has(model.id)" class="pick-badge">
+        <span v-if="row.existing" class="pick-badge">
           {{ t.modelsCustomPickExisting }}
         </span>
       </label>
@@ -181,9 +208,9 @@ function confirmPick(): void {
 
 .pick-row {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 8px;
-  padding: 6px 10px;
+  padding: 7px 10px;
   cursor: pointer;
 }
 
@@ -196,6 +223,25 @@ function confirmPick(): void {
   opacity: 0.55;
 }
 
+.pick-check {
+  margin-top: 1px;
+}
+
+.pick-main {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  gap: 2px;
+  min-width: 0;
+}
+
+.pick-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
 .pick-id {
   overflow: hidden;
   color: var(--fg);
@@ -204,24 +250,27 @@ function confirmPick(): void {
   white-space: nowrap;
 }
 
-.pick-name {
-  flex: 1;
-  min-width: 0;
+.pick-tag {
+  flex-shrink: 0;
+  padding: 0 5px;
+  border-radius: 3px;
+  background: var(--bg-active);
+  color: var(--fg-muted);
+  font-size: 10px;
+  line-height: 15px;
+}
+
+.pick-sub {
   overflow: hidden;
   color: var(--fg-muted);
-  font-size: 12px;
+  font-size: 11px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.pick-context {
-  flex-shrink: 0;
-  color: var(--fg-muted);
-  font-size: 11px;
-}
-
 .pick-badge {
   flex-shrink: 0;
+  margin-top: 1px;
   padding: 0 6px;
   border-radius: 4px;
   background: var(--bg-active);
