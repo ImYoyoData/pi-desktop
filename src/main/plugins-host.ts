@@ -12,7 +12,7 @@ import {
 } from "./agent-npm-extensions";
 import { resolveNpmRunner } from "./bundled-npm";
 import { isNewerVersion } from "../shared/update";
-import type { PluginUpdateInfo } from "../shared/pi-market";
+import type { PluginVersionInfo } from "../shared/pi-market";
 import type { PackageSource, SettingsManager } from "@earendil-works/pi-coding-agent";
 
 export type PluginScope = "global" | "project";
@@ -312,8 +312,8 @@ async function fetchLatestNpmVersion(
 	return null;
 }
 
-/** 检查可更新插件：settings 中的包交给 SDK（npm/git），自动加载的 npm 扩展单独比对。 */
-export async function checkPluginUpdates(cwd: string): Promise<PluginUpdateInfo[]> {
+/** 检查所有插件的版本信息：npm 包比对本地/最新版本，git 包沿用 SDK 的更新检查。 */
+export async function checkPluginUpdates(cwd: string): Promise<PluginVersionInfo[]> {
 	if (isOfflineMode()) return [];
 	const { DefaultPackageManager } = await import(
 		"@earendil-works/pi-coding-agent"
@@ -324,31 +324,66 @@ export async function checkPluginUpdates(cwd: string): Promise<PluginUpdateInfo[
 		agentDir: agentDir(),
 		settingsManager,
 	});
-	const updates = await packageManager.checkForAvailableUpdates();
-	const result: PluginUpdateInfo[] = updates.map((entry) => ({
-		source: entry.source,
-		scope: entry.scope === "project" ? "project" : "global",
-	}));
-	const known = new Set(result.map((entry) => `${entry.scope}\0${entry.source}`));
-
+	const { packages } = await listPlugins(cwd);
+	const sdkUpdates = await packageManager.checkForAvailableUpdates();
+	const sdkKeys = new Set(
+		sdkUpdates.map(
+			(entry) => `${entry.scope === "project" ? "project" : "global"}\0${entry.source}`,
+		),
+	);
+	const configuredKeys = new Set(
+		packageManager
+			.listConfiguredPackages()
+			.map((pkg) => `${pkg.scope === "project" ? "project" : "global"}\0${pkg.source}`),
+	);
 	const runner = npmRunnerFromSettings(settingsManager);
-	if (!runner) return result;
-	for (const ext of listAgentNpmExtensions()) {
-		const source = `npm:${ext.name}`;
-		const key = `global\0${source}`;
-		if (known.has(key)) continue;
-		const current = readPackageVersion(agentNpmExtensionDir(ext.name));
-		if (!current) continue;
-		const latest = await fetchLatestNpmVersion(runner, ext.name);
-		if (!latest || !isNewerVersion(latest, current)) continue;
-		known.add(key);
-		result.push({ source, scope: "global" });
+
+	const result: PluginVersionInfo[] = [];
+	for (const pkg of packages) {
+		const key = `${pkg.scope}\0${pkg.source}`;
+		const currentVersion = readPackageVersion(pkg.installedPath);
+		const npmName = npmNameFromSource(pkg.source);
+		let latestVersion: string | null = null;
+		let hasUpdate = sdkKeys.has(key);
+
+		if (npmName && runner) {
+			if (hasUpdate) {
+				latestVersion = await fetchLatestNpmVersion(runner, npmName);
+			} else if (!configuredKeys.has(key)) {
+				// 自动加载的 npm 扩展不在包管理器管辖内，单独比对版本。
+				const latest = await fetchLatestNpmVersion(runner, npmName);
+				latestVersion = latest;
+				hasUpdate = Boolean(currentVersion && latest && isNewerVersion(latest, currentVersion));
+			} else {
+				latestVersion = currentVersion;
+			}
+		}
+		result.push({
+			source: pkg.source,
+			scope: pkg.scope,
+			currentVersion,
+			latestVersion,
+			hasUpdate,
+		});
 	}
 	return result;
 }
 
+let updateQueue: Promise<unknown> = Promise.resolve();
+
+/** 更新单个插件：多个请求排队执行，避免并发写入同一安装目录。 */
+export function updatePlugin(
+	cwd: string,
+	source: string,
+	scope: PluginScope,
+): Promise<void> {
+	const task = updateQueue.then(() => runPluginUpdate(cwd, source, scope));
+	updateQueue = task.catch(() => undefined);
+	return task;
+}
+
 /** 更新单个插件：settings 内的包走 SDK 的 update，自动加载的 npm 扩展就地装最新版。 */
-export async function updatePlugin(
+async function runPluginUpdate(
 	cwd: string,
 	source: string,
 	scope: PluginScope,

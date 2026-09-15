@@ -12,7 +12,7 @@ import type {
   CustomizationScope,
   McpTestResult,
 } from "../../../../shared/customizations";
-import type { PluginUpdateInfo } from "../../../../shared/pi-market";
+import type { PluginVersionInfo } from "../../../../shared/pi-market";
 import { t } from "@renderer/i18n";
 
 type SectionKind = "agents" | "skills" | "instructions" | "prompts" | "mcp" | "plugins";
@@ -38,8 +38,8 @@ const addOpen = ref(false);
 const mcpTesting = ref(false);
 const mcpTestResults = ref<Record<string, McpTestResult>>({});
 const checkingUpdates = ref(false);
-const pluginUpdates = ref<Record<string, PluginUpdateInfo>>({});
-const updatingPlugin = ref<string | null>(null);
+const pluginVersions = ref<Record<string, PluginVersionInfo>>({});
+const upgradingPlugins = ref(new Set<string>());
 const collapsed = reactive(new Set<CustomizationScope>());
 
 /** 右键菜单（对应 VS Code 的行上下文菜单）。 */
@@ -267,16 +267,16 @@ function canToggle(item: CustomizationItem): boolean {
   return props.kind === "plugins" && Boolean(item.source);
 }
 
-/** 检查已安装插件是否有新版本，结果按行 id 缓存供升级按钮使用。 */
+/** 检查插件版本，结果按行 id 缓存供版本徽标与升级按钮使用。 */
 async function checkPluginUpdateState(): Promise<void> {
   if (checkingUpdates.value) return;
   checkingUpdates.value = true;
   try {
     const list = await window.api.plugins.checkUpdates(workspace.root ?? undefined);
-    const next: Record<string, PluginUpdateInfo> = {};
+    const next: Record<string, PluginVersionInfo> = {};
     for (const info of list) next[`${info.scope}:${info.source}`] = info;
-    pluginUpdates.value = next;
-    const count = props.items.filter((item) => item.source && next[item.id]).length;
+    pluginVersions.value = next;
+    const count = list.filter((info) => info.hasUpdate).length;
     if (count > 0) message.success(t.customizeUpdatesFound(count));
     else message.success(t.customizeNoUpdates);
   } catch (err) {
@@ -286,25 +286,53 @@ async function checkPluginUpdateState(): Promise<void> {
   }
 }
 
-function updateInfoOf(item: CustomizationItem): PluginUpdateInfo | undefined {
-  return item.source ? pluginUpdates.value[item.id] : undefined;
+function versionInfoOf(item: CustomizationItem): PluginVersionInfo | undefined {
+  return item.source ? pluginVersions.value[item.id] : undefined;
 }
 
-/** 升级单个插件：完成后刷新列表并清掉该行的更新标记。 */
+/** 行内版本文案：有更新时显示「本地 → 最新」，否则只显示本地版本。 */
+function versionLabel(item: CustomizationItem): string {
+  const info = versionInfoOf(item);
+  if (!info?.currentVersion) return "";
+  if (info.hasUpdate && info.latestVersion) {
+    return `${info.currentVersion} → ${info.latestVersion}`;
+  }
+  return info.currentVersion;
+}
+
+function isUpgrading(id: string): boolean {
+  return upgradingPlugins.value.has(id);
+}
+
+function setUpgrading(id: string, upgrading: boolean): void {
+  const next = new Set(upgradingPlugins.value);
+  if (upgrading) next.add(id);
+  else next.delete(id);
+  upgradingPlugins.value = next;
+}
+
+/** 升级单个插件：就地更新该行版本，不整页刷新，也不影响其他行的按钮。 */
 async function upgradePlugin(item: CustomizationItem): Promise<void> {
-  if (!item.source || updatingPlugin.value) return;
-  updatingPlugin.value = item.id;
+  const info = versionInfoOf(item);
+  if (!item.source || !info?.hasUpdate || isUpgrading(item.id)) return;
+  setUpgrading(item.id, true);
   try {
     await window.api.plugins.update(item.source, pluginScope(item), workspace.root ?? undefined);
     message.success(t.customizeUpdated(item.name));
-    const next = { ...pluginUpdates.value };
-    delete next[item.id];
-    pluginUpdates.value = next;
-    emit("refresh");
+    const currentVersion = info.latestVersion ?? info.currentVersion;
+    pluginVersions.value = {
+      ...pluginVersions.value,
+      [item.id]: {
+        ...info,
+        currentVersion,
+        latestVersion: currentVersion,
+        hasUpdate: false,
+      },
+    };
   } catch (err) {
     message.error(err instanceof Error ? err.message : String(err));
   } finally {
-    updatingPlugin.value = null;
+    setUpgrading(item.id, false);
   }
 }
 
@@ -613,6 +641,9 @@ function onCtxSelect(key: string | number): void {
               <div class="item-text">
                 <div class="item-name-row">
                   <span class="item-name">{{ item.name }}</span>
+                  <span v-if="versionLabel(item)" class="inline-badge version-badge">
+                    {{ versionLabel(item) }}
+                  </span>
                   <span v-if="item.enabled === false" class="inline-badge item-badge">
                     {{ t.customizeDisabled }}
                   </span>
@@ -632,13 +663,12 @@ function onCtxSelect(key: string | number): void {
               :class="{ 'item-right-pinned': canToggle(item) }"
             >
               <NButton
-                v-if="updateInfoOf(item)"
+                v-if="versionInfoOf(item)?.hasUpdate"
                 class="item-update-button"
                 size="tiny"
                 type="primary"
                 secondary
-                :loading="updatingPlugin === item.id"
-                :disabled="updatingPlugin !== null && updatingPlugin !== item.id"
+                :loading="isUpgrading(item.id)"
                 @click.stop="upgradePlugin(item)"
               >
                 {{ t.customizeUpdate }}
@@ -898,6 +928,10 @@ function onCtxSelect(key: string | number): void {
 
 .item-update-button {
   flex-shrink: 0;
+}
+
+.version-badge {
+  font-family: var(--font-mono, ui-monospace, monospace);
 }
 
 .ai-customization-list-item:hover .item-right,
