@@ -103,7 +103,10 @@ const SNIFF_BYTES = 8192;
 
 function displayPath(root: string, absolute: string): string {
   const rel = path.relative(root, absolute);
-  return rel.split(path.sep).join("/");
+  if (rel && !rel.startsWith("..") && !path.isAbsolute(rel)) {
+    return rel.split(path.sep).join("/");
+  }
+  return absolute.split(path.sep).join("/");
 }
 
 function mimeForImage(ext: string): string {
