@@ -46,11 +46,16 @@ watch(
   (p) => {
     validationError.value = null;
     confirming.value = false;
-    currentIndex.value = 0;
     if (!p) {
+      currentIndex.value = 0;
       draft.value = {};
       return;
     }
+    const savedStep = p.requestId ? chat.readAskStep(p.requestId) : null;
+    currentIndex.value = Math.max(
+      0,
+      Math.min(savedStep ?? 0, p.questions.length - 1),
+    );
     const saved = p.requestId ? chat.readAskDraft(p.requestId) : null;
     const next: AskUserAnswerDraft = {};
     for (const q of p.questions) {
@@ -78,6 +83,11 @@ watch(
   },
   { deep: true },
 );
+
+function persistStep(): void {
+  const p = prompt.value;
+  if (p?.requestId) chat.writeAskStep(p.requestId, currentIndex.value);
+}
 
 function optionLabel(opt: { id: string; label: string }): string {
   if (opt.id === ASK_USER_CUSTOM_OPTION_ID) return t.askUserCustomOption;
@@ -118,6 +128,7 @@ function skipCurrentQuestion(): void {
   validationError.value = null;
   // Advance past skipped questions when possible.
   if (!isLast.value) currentIndex.value += 1;
+  persistStep();
 }
 
 function customModel(q: AskUserQuestion): string {
@@ -161,6 +172,7 @@ function goPrev(): void {
   if (isFirst.value) return;
   validationError.value = null;
   currentIndex.value -= 1;
+  persistStep();
 }
 
 function goNext(): void {
@@ -173,6 +185,7 @@ function goNext(): void {
   }
   validationError.value = null;
   if (!isLast.value) currentIndex.value += 1;
+  persistStep();
 }
 
 async function onConfirm(): Promise<void> {
@@ -194,6 +207,7 @@ async function onConfirm(): Promise<void> {
       (q) => validateAskUserQuestionAnswer(q, draft.value) != null,
     );
     if (idx >= 0) currentIndex.value = idx;
+    persistStep();
     return;
   }
   validationError.value = null;
