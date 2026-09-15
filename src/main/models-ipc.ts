@@ -19,6 +19,7 @@ import {
 } from "../shared/model-discover";
 import type { SessionBroker } from "./session-broker";
 import { getModelsConfigService } from "./models-config";
+import { buildCatalogIndex, enrichDiscoveredModels } from "./model-catalog";
 import { readModelSelection, writeModelSelection } from "./models-selection";
 import type { ModelSelection } from "../shared/model-selection";
 import type { AuthEvent, AuthInteraction, AuthPrompt, ModelRuntime } from "@earendil-works/pi-coding-agent";
@@ -278,11 +279,21 @@ export function registerModelsIpc(broker: SessionBroker): void {
       _event,
       payload: { baseUrl: string; apiKey?: string; api?: string },
     ): Promise<DiscoverModelsResult> => {
-      return discoverModels({
+      const result = await discoverModels({
         baseUrl: String(payload?.baseUrl ?? ""),
         apiKey: typeof payload?.apiKey === "string" ? payload.apiKey : undefined,
         api: typeof payload?.api === "string" ? payload.api : undefined,
       });
+      if (!result.ok) return result;
+      try {
+        const config = await getModelsConfigService().readModelsConfig();
+        const runtime = await createRuntime();
+        const index = buildCatalogIndex(runtime, new Set(Object.keys(config.providers ?? {})));
+        return { ...result, models: enrichDiscoveredModels(result.models, index) };
+      } catch {
+        // 内置目录不可用时保留端点原始结果
+        return result;
+      }
     },
   );
 
