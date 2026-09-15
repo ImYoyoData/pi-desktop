@@ -15,6 +15,8 @@ import type { AgentRunEvent, AgentRunSnapshot } from "../shared/agent-runs";
 import type { CustomizationsSnapshot, CustomizationCreateKind, McpTestResult, McpTestTarget } from "../shared/customizations";
 import type {
 	ModelsGetResult,
+	ModelsOAuthEventPayload,
+	ModelsOAuthPromptReply,
 	ModelsSetPayload,
 	ProviderCatalogResult,
 } from "../shared/models-settings";
@@ -662,6 +664,7 @@ declare const api: {
 			baseUrl: string;
 			apiKey?: string;
 			api?: string;
+			providerId?: string;
 		}) => Promise<DiscoverModelsResult>;
 		testConnection: (payload: {
 			baseUrl: string;
@@ -672,6 +675,11 @@ declare const api: {
 		}) => Promise<TestModelConnectionResult>;
 		providerCatalog: (providerId: string) => Promise<ProviderCatalogResult>;
 		setSelection: (selection: ModelSelection) => Promise<void>;
+		oauthLogin: (providerId: string) => Promise<void>;
+		oauthLogout: (providerId: string) => Promise<void>;
+		oauthPrompt: (reply: ModelsOAuthPromptReply) => Promise<void>;
+		oauthCancel: () => Promise<void>;
+		onOauthEvent: (callback: (payload: ModelsOAuthEventPayload) => void) => () => void;
 	};
 	preview: {
 		read: (filePath: string) => Promise<PreviewResult>;
