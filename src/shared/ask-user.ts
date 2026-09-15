@@ -150,35 +150,45 @@ export function parseAskUserArgs(args: unknown): AskUserPrompt | null {
   return { questions };
 }
 
+/** 校验失败原因码，由渲染层翻译成界面语言。 */
+export type AskUserValidationError =
+  | "missing-answer"
+  | "cannot-skip"
+  | "select-one"
+  | "invalid-option"
+  | "custom-required";
+
 export function validateAskUserAnswers(
   prompt: AskUserPrompt,
   draft: AskUserAnswerDraft,
-): string | null {
+): AskUserValidationError | null {
   for (const q of prompt.questions) {
     const ans = draft[q.id];
     if (!ans) {
-      return `Missing answer for: ${q.prompt}`;
+      return "missing-answer";
     }
     // A skipped question is valid unless the model marked it as required.
     if (ans.skipped) {
       if (questionSkippable(q)) continue;
-      return `This question cannot be skipped: ${q.prompt}`;
+      return "cannot-skip";
     }
     if (ans.optionIds.length === 0) {
-      return `Missing answer for: ${q.prompt}`;
+      return "missing-answer";
     }
     if (q.type === "single" || q.type === "buttons") {
       if (ans.optionIds.length !== 1) {
-        return `Select exactly one option for: ${q.prompt}`;
+        return "select-one";
       }
     }
     const selected = q.options.filter((o) => ans.optionIds.includes(o.id));
     if (selected.length !== ans.optionIds.length) {
-      return `Invalid option for: ${q.prompt}`;
+      return "invalid-option";
     }
-    const needsCustom = selected.some((o) => o.allowCustom);
+    // 只有自动追加的“自定义输入”项必须填写文本；模型自带 allowCustom 的选项
+    // 只是可选补充说明，避免用户被看不见的必填规则卡住。
+    const needsCustom = selected.some((o) => o.id === ASK_USER_CUSTOM_OPTION_ID);
     if (needsCustom && !ans.customText.trim()) {
-      return `Custom text required for: ${q.prompt}`;
+      return "custom-required";
     }
   }
   return null;
@@ -188,7 +198,7 @@ export function validateAskUserAnswers(
 export function validateAskUserQuestionAnswer(
   q: AskUserQuestion,
   draft: AskUserAnswerDraft,
-): string | null {
+): AskUserValidationError | null {
   return validateAskUserAnswers({ questions: [q] }, draft);
 }
 
