@@ -302,6 +302,7 @@ function canRemove(item: CustomizationItem): boolean {
   display: flex;
   flex-direction: column;
   flex: 1;
+  min-width: 0;
   min-height: 0;
 }
 
@@ -309,6 +310,7 @@ function canRemove(item: CustomizationItem): boolean {
   display: flex;
   align-items: center;
   flex-shrink: 0;
+  min-width: 0;
   gap: 8px;
   padding-top: 16px;
   margin-bottom: 16px;

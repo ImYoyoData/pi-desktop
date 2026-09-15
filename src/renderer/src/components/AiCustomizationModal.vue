@@ -249,6 +249,7 @@ onUnmounted(() => {
 
 .modal-editor-content > :deep(.ai-customization-management-editor) {
   flex: 1;
+  min-width: 0;
   min-height: 0;
 }
 </style>

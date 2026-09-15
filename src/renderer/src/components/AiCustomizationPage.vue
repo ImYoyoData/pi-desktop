@@ -252,6 +252,7 @@ onUnmounted(() => {
 .ai-customization-management-editor {
   display: flex;
   height: 100%;
+  min-width: 0;
   min-height: 0;
   background: var(--bg);
   color: var(--fg);
@@ -365,8 +366,10 @@ onUnmounted(() => {
 }
 
 .content-inner {
+  width: 100%;
   height: 100%;
   box-sizing: border-box;
+  min-width: 0;
   padding-right: 16px;
   padding-bottom: 16px;
   display: flex;
