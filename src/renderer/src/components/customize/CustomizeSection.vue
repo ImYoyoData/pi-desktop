@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, reactive, ref } from "vue";
+import { computed, onMounted, onUnmounted, reactive, ref } from "vue";
 import { NButton, NDropdown, NInput, NSwitch, useDialog, useMessage } from "naive-ui";
 import type { DropdownOption } from "naive-ui";
 import CodiconIcon from "@renderer/components/icons/CodiconIcon.vue";
@@ -12,7 +12,7 @@ import type {
   CustomizationScope,
   McpTestResult,
 } from "../../../../shared/customizations";
-import type { PluginVersionInfo } from "../../../../shared/pi-market";
+import type { PluginUpdateProgress, PluginVersionInfo } from "../../../../shared/pi-market";
 import { t } from "@renderer/i18n";
 
 type SectionKind = "agents" | "skills" | "instructions" | "prompts" | "mcp" | "plugins";
@@ -39,7 +39,9 @@ const mcpTesting = ref(false);
 const mcpTestResults = ref<Record<string, McpTestResult>>({});
 const checkingUpdates = ref(false);
 const pluginVersions = ref<Record<string, PluginVersionInfo>>({});
+const pluginProgress = ref<Record<string, PluginUpdateProgress>>({});
 const upgradingPlugins = ref(new Set<string>());
+let disposeProgress: (() => void) | null = null;
 const collapsed = reactive(new Set<CustomizationScope>());
 
 /** 右键菜单（对应 VS Code 的行上下文菜单）。 */
@@ -299,6 +301,42 @@ function versionLabel(item: CustomizationItem): string {
   }
   return info.currentVersion;
 }
+
+function progressOf(item: CustomizationItem): PluginUpdateProgress | undefined {
+  return item.source ? pluginProgress.value[item.id] : undefined;
+}
+
+/** 进度文案：git 显示真实百分比，npm 显示正在获取的包名。 */
+function progressLabel(progress: PluginUpdateProgress): string {
+  if (progress.phase === "fetch") {
+    if (progress.percent !== undefined) return t.pluginUpdateDownloading(progress.percent);
+    if (progress.packageName) return t.pluginUpdateFetching(progress.packageName);
+  }
+  return t.pluginUpdatePreparing;
+}
+
+function progressLabelOf(item: CustomizationItem): string {
+  const progress = progressOf(item);
+  return progress ? progressLabel(progress) : "";
+}
+
+onMounted(() => {
+  disposeProgress = window.api.plugins.onUpdateProgress((progress) => {
+    const id = `${progress.scope}:${progress.source}`;
+    if (progress.phase === "done" || progress.phase === "error") {
+      const next = { ...pluginProgress.value };
+      delete next[id];
+      pluginProgress.value = next;
+      return;
+    }
+    pluginProgress.value = { ...pluginProgress.value, [id]: progress };
+  });
+});
+
+onUnmounted(() => {
+  disposeProgress?.();
+  disposeProgress = null;
+});
 
 function isUpgrading(id: string): boolean {
   return upgradingPlugins.value.has(id);
@@ -641,7 +679,10 @@ function onCtxSelect(key: string | number): void {
               <div class="item-text">
                 <div class="item-name-row">
                   <span class="item-name">{{ item.name }}</span>
-                  <span v-if="versionLabel(item)" class="inline-badge version-badge">
+                  <span v-if="progressOf(item)" class="inline-badge progress-badge">
+                    {{ progressLabelOf(item) }}
+                  </span>
+                  <span v-else-if="versionLabel(item)" class="inline-badge version-badge">
                     {{ versionLabel(item) }}
                   </span>
                   <span v-if="item.enabled === false" class="inline-badge item-badge">
@@ -932,6 +973,10 @@ function onCtxSelect(key: string | number): void {
 
 .version-badge {
   font-family: var(--font-mono, ui-monospace, monospace);
+}
+
+.progress-badge {
+  color: var(--accent);
 }
 
 .ai-customization-list-item:hover .item-right,

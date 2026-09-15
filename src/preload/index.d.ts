@@ -44,6 +44,7 @@ import type {
 	PiPackageInstallResult,
 	PiPackageListResult,
 	PiPackageType,
+	PluginUpdateProgress,
 	PluginVersionInfo,
 } from "../shared/pi-market";
 import type {
@@ -635,6 +636,9 @@ declare const api: {
 			}[];
 		}>;
 		checkUpdates: (cwd?: string) => Promise<PluginVersionInfo[]>;
+		onUpdateProgress: (
+			callback: (progress: PluginUpdateProgress) => void,
+		) => () => void;
 		update: (
 			source: string,
 			scope: "global" | "project",

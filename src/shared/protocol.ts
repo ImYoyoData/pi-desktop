@@ -179,6 +179,7 @@ export const IpcChannels = {
 		remove: "plugins:remove",
 		checkUpdates: "plugins:checkUpdates",
 		update: "plugins:update",
+		updateProgress: "plugins:updateProgress",
 	},
 	models: {
 		get: "models:get",
