@@ -96,8 +96,8 @@ describe("model selection", () => {
   });
 
   it("parses junk on disk into a valid selection", () => {
-    expect(parseModelSelection(null)).toEqual({ providers: {} });
-    expect(parseModelSelection({ providers: "nope" })).toEqual({ providers: {} });
+    expect(parseModelSelection(null)).toEqual({ providers: {}, disabled: [] });
+    expect(parseModelSelection({ providers: "nope" })).toEqual({ providers: {}, disabled: [] });
     expect(
       parseModelSelection({
         providers: {
@@ -105,8 +105,9 @@ describe("model selection", () => {
           b: "not-an-array",
           "": ["x"],
         },
+        disabled: ["openrouter", "openrouter", "  ", 9],
       }),
-    ).toEqual({ providers: { a: ["m1", "m2"] } });
+    ).toEqual({ providers: { a: ["m1", "m2"] }, disabled: ["openrouter"] });
   });
 
   it("round-trips through JSON", () => {
