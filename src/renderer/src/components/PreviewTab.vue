@@ -75,6 +75,9 @@ let unregisterVideo: (() => void) | undefined;
 let unregisterAudio: (() => void) | undefined;
 
 const crumbs = computed(() => (currentPath.value ? breadcrumbs(currentPath.value) : []));
+const errorText = computed(() =>
+  result.value?.kind === "error" ? result.value.message : t.fileDeletedHint,
+);
 const isMarkdown = computed(() => result.value?.kind === "markdown");
 const showEditor = computed(
   () =>
@@ -436,7 +439,8 @@ async function loadPath(path: string | null): Promise<void> {
 }
 
 watch(mdViewMode, async () => {
-  if (!isMarkdown.value || !currentPath.value) return;
+  // loadPath 内部会切模式并自行装载内容，避免用尚未就绪的 liveContent 覆盖
+  if (loading.value || !isMarkdown.value || !currentPath.value) return;
   await nextTick();
   if (!editor && showEditor.value) {
     await ensureEditor(liveContent.value, languageFromPath(currentPath.value));
@@ -751,7 +755,7 @@ onBeforeUnmount(() => {
             :bordered="false"
             style="margin: 4px 8px"
           >
-            {{ t.fileDeletedHint }}
+            {{ errorText }}
           </NAlert>
           <NAlert
             v-else-if="result.kind === 'unsupported'"
