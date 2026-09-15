@@ -50,6 +50,7 @@ import type {
 	PiPackageInstallResult,
 	PiPackageListResult,
 	PiPackageType,
+	PluginUpdateInfo,
 } from "../shared/pi-market";
 import type {
 	DesktopSecuritySettings,
@@ -829,6 +830,26 @@ const api = {
 		remove: (source: string, scope: "global" | "project", cwd?: string) =>
 			ipcRenderer.invoke(
 				IpcChannels.plugins.remove,
+				source,
+				scope,
+				cwd,
+			) as Promise<{
+				packages: {
+					source: string;
+					scope: "global" | "project";
+					disabled: boolean;
+					installedPath?: string;
+					status: "loaded" | "installed" | "missing" | "disabled";
+				}[];
+			}>,
+		checkUpdates: (cwd?: string) =>
+			ipcRenderer.invoke(
+				IpcChannels.plugins.checkUpdates,
+				cwd,
+			) as Promise<PluginUpdateInfo[]>,
+		update: (source: string, scope: "global" | "project", cwd?: string) =>
+			ipcRenderer.invoke(
+				IpcChannels.plugins.update,
 				source,
 				scope,
 				cwd,

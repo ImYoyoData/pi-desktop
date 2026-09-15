@@ -61,3 +61,9 @@ export function piInstallCommand(packageName: string): string {
   const name = packageName.trim();
   return `pi install npm:${name}`;
 }
+
+/** 有可用更新的插件（按 source 与 scope 定位插件列表行）。 */
+export type PluginUpdateInfo = {
+  source: string;
+  scope: "global" | "project";
+};
