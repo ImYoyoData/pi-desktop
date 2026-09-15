@@ -1,6 +1,8 @@
+import { existsSync } from "node:fs";
 import { agentDir } from "./agent-dir";
 import { resolveTrustState } from "./project-trust";
 import {
+	agentNpmExtensionDir,
 	listAgentNpmExtensions,
 	npmNameFromSource,
 	removeAgentNpmExtension,
@@ -146,11 +148,14 @@ export async function listPlugins(
 		const source = `npm:${ext.name}`;
 		if (known.has(source)) continue;
 		known.add(source);
+		const installedPath = agentNpmExtensionDir(ext.name);
+		const installed = existsSync(installedPath);
 		packages.push({
 			source,
 			scope: "global",
 			disabled: false,
-			status: "installed",
+			installedPath: installed ? installedPath : undefined,
+			status: installed ? "installed" : "missing",
 		});
 	}
 
