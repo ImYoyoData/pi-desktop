@@ -33,6 +33,12 @@ import {
   normalizeProviderBaseUrl,
   type DiscoveredModel,
 } from "../../../../shared/model-discover";
+import {
+  EMPTY_MODEL_SELECTION,
+  isProviderDisabled,
+  withProviderDisabled,
+  type ModelSelection,
+} from "../../../../shared/model-selection";
 import { t } from "@renderer/i18n";
 
 const message = useMessage();
@@ -42,6 +48,8 @@ const loading = ref(true);
 const loadError = ref("");
 const modelsText = ref("");
 const providers = ref<CustomProviderDraft[]>([]);
+/** 桌面端策展状态：仅存于本地配置，不写 models.json。 */
+const modelSelection = ref<ModelSelection>(EMPTY_MODEL_SELECTION);
 
 const selectedId = ref<string | null>(null);
 const isNew = ref(false);
@@ -78,6 +86,11 @@ const existingModelIds = computed(
   () => draft.value?.models.map((model) => model.id.trim()).filter(Boolean) ?? [],
 );
 
+const providerDisabled = computed(() => {
+  const id = selectedId.value ?? draft.value?.id.trim() ?? "";
+  return Boolean(id) && isProviderDisabled(modelSelection.value, id);
+});
+
 onMounted(() => {
   void load();
 });
@@ -101,6 +114,7 @@ async function load(preferId?: string | null): Promise<void> {
   try {
     const data = await window.api.models.get();
     modelsText.value = data.modelsText;
+    modelSelection.value = data.modelSelection ?? EMPTY_MODEL_SELECTION;
     providers.value = listEditableProviders(parseModelsConfigText(data.modelsText));
     const nextId =
       (preferId && providers.value.some((p) => p.id === preferId) ? preferId : null) ??
@@ -220,6 +234,24 @@ function setCompat(
   value: boolean,
 ): void {
   if (draft.value) draft.value[key] = value;
+}
+
+/** 开关桌面端的提供商禁用状态（只影响本应用，不写 models.json）。 */
+async function setProviderDisabled(value: boolean): Promise<void> {
+  const id = (selectedId.value ?? draft.value?.id.trim() ?? "").trim();
+  if (!id) {
+    message.warning(t.modelsCustomIdRequired);
+    return;
+  }
+  const next = withProviderDisabled(modelSelection.value, id, value);
+  modelSelection.value = next;
+  try {
+    await window.api.models.setSelection(next);
+    message.success(value ? t.modelsCustomDisabled : t.modelsCustomEnable);
+  } catch (err) {
+    modelSelection.value = withProviderDisabled(modelSelection.value, id, !value);
+    message.error(err instanceof Error ? err.message : String(err));
+  }
 }
 
 function providerHint(provider: CustomProviderDraft): string {
@@ -464,10 +496,21 @@ async function testModel(rowKey: string, modelId: string): Promise<void> {
             :key="provider.id"
             type="button"
             class="provider-item"
-            :class="{ selected: provider.id === selectedId && !isNew }"
+            :class="{
+              selected: provider.id === selectedId && !isNew,
+              disabled: isProviderDisabled(modelSelection, provider.id),
+            }"
             @click="onSelectProvider(provider.id)"
           >
-            <span class="provider-name">{{ provider.name || provider.id }}</span>
+            <span class="provider-head">
+              <span class="provider-name">{{ provider.name || provider.id }}</span>
+              <span
+                v-if="isProviderDisabled(modelSelection, provider.id)"
+                class="provider-badge"
+              >
+                {{ t.modelsCustomDisabled }}
+              </span>
+            </span>
             <span class="provider-sub">
               {{ providerHint(provider) }}
               <template v-if="providerModelCount(provider)">
@@ -488,6 +531,19 @@ async function testModel(rowKey: string, modelId: string): Promise<void> {
             <h3 class="detail-title">{{ isNew ? t.modelsCustomNew : draft.name || draft.id }}</h3>
             <span v-if="dirty" class="inline-badge">{{ t.modelsCustomDirty }}</span>
             <span class="detail-spacer" />
+            <label
+              class="disable-toggle"
+              :class="{ on: providerDisabled }"
+              :title="t.modelsCustomDisabledHint"
+            >
+              <NSwitch
+                size="small"
+                :value="providerDisabled"
+                :disabled="!draft.id.trim()"
+                @update:value="setProviderDisabled"
+              />
+              <span>{{ providerDisabled ? t.modelsCustomDisabled : t.modelsCustomDisable }}</span>
+            </label>
             <NButton v-if="!isNew" size="tiny" quaternary type="error" @click="confirmDelete">
               <template #icon><CodiconIcon name="remove" :size="13" /></template>
               {{ t.modelsCustomDelete }}
@@ -804,6 +860,13 @@ async function testModel(rowKey: string, modelId: string): Promise<void> {
   background-color: var(--bg-active);
 }
 
+.provider-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
 .provider-name {
   overflow: hidden;
   color: var(--fg);
@@ -811,6 +874,21 @@ async function testModel(rowKey: string, modelId: string): Promise<void> {
   line-height: 17px;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.provider-badge {
+  flex-shrink: 0;
+  padding: 0 5px;
+  border-radius: 3px;
+  background: var(--bg-active);
+  color: var(--fg-muted);
+  font-size: 10px;
+  line-height: 15px;
+}
+
+.provider-item.disabled .provider-name,
+.provider-item.disabled .provider-sub {
+  opacity: 0.55;
 }
 
 .provider-sub {
@@ -875,6 +953,24 @@ async function testModel(rowKey: string, modelId: string): Promise<void> {
   color: var(--fg-muted);
   font-size: 10px;
   line-height: 16px;
+}
+
+.disable-toggle {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+  gap: 6px;
+  color: var(--fg-muted);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.disable-toggle:hover {
+  color: var(--fg);
+}
+
+.disable-toggle.on {
+  color: var(--error);
 }
 
 .detail-scroll {

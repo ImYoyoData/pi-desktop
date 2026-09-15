@@ -18,9 +18,11 @@ import type { ModelsAvailableEntry } from "./models-settings";
 export type ModelSelection = {
   /** providerId → curated model ids. */
   providers: Record<string, string[]>;
+  /** 桌面端禁用的提供商；只影响 GUI，不改 models.json。 */
+  disabled: string[];
 };
 
-export const EMPTY_MODEL_SELECTION: ModelSelection = { providers: {} };
+export const EMPTY_MODEL_SELECTION: ModelSelection = { providers: {}, disabled: [] };
 
 function asRecord(v: unknown): Record<string, unknown> | null {
   return v && typeof v === "object" && !Array.isArray(v) ? (v as Record<string, unknown>) : null;
@@ -30,20 +32,29 @@ function asRecord(v: unknown): Record<string, unknown> | null {
 export function parseModelSelection(raw: unknown): ModelSelection {
   const root = asRecord(raw);
   const providersRaw = asRecord(root?.providers);
-  if (!providersRaw) return { providers: {} };
   const providers: Record<string, string[]> = {};
-  for (const [providerId, value] of Object.entries(providersRaw)) {
-    const id = providerId.trim();
-    if (!id || !Array.isArray(value)) continue;
-    const ids: string[] = [];
-    for (const item of value) {
-      if (typeof item !== "string") continue;
-      const modelId = item.trim();
-      if (modelId && !ids.includes(modelId)) ids.push(modelId);
+  if (providersRaw) {
+    for (const [providerId, value] of Object.entries(providersRaw)) {
+      const id = providerId.trim();
+      if (!id || !Array.isArray(value)) continue;
+      const ids: string[] = [];
+      for (const item of value) {
+        if (typeof item !== "string") continue;
+        const modelId = item.trim();
+        if (modelId && !ids.includes(modelId)) ids.push(modelId);
+      }
+      providers[id] = ids;
     }
-    providers[id] = ids;
   }
-  return { providers };
+  const disabled: string[] = [];
+  if (Array.isArray(root?.disabled)) {
+    for (const item of root.disabled) {
+      if (typeof item !== "string") continue;
+      const id = item.trim();
+      if (id && !disabled.includes(id)) disabled.push(id);
+    }
+  }
+  return { providers, disabled };
 }
 
 /** True when the provider has an explicit curated list. */
@@ -81,7 +92,24 @@ export function withProviderSelection(
     }
     providers[key] = next;
   }
-  return { providers };
+  return { ...selection, providers };
+}
+
+/** 提供商是否已在桌面端禁用。 */
+export function isProviderDisabled(selection: ModelSelection, providerId: string): boolean {
+  return selection.disabled.includes(providerId.trim());
+}
+
+/** 开关桌面端的提供商禁用状态。 */
+export function withProviderDisabled(
+  selection: ModelSelection,
+  providerId: string,
+  disabled: boolean,
+): ModelSelection {
+  const key = providerId.trim();
+  if (!key) return selection;
+  const rest = selection.disabled.filter((id) => id !== key);
+  return { ...selection, disabled: disabled ? [...rest, key] : rest };
 }
 
 /** Keep only the available models the user selected (uncurated providers pass through). */
@@ -90,6 +118,7 @@ export function filterAvailableModels<T extends Pick<ModelsAvailableEntry, "prov
   selection: ModelSelection,
 ): T[] {
   return available.filter((m) => {
+    if (selection.disabled.includes(m.provider)) return false;
     const curated = selection.providers[m.provider];
     if (curated === undefined) return true;
     return curated.includes(m.id);
@@ -114,5 +143,5 @@ export function pruneModelSelection(
     if (!live) continue;
     providers[providerId] = ids.filter((id) => live.has(id));
   }
-  return { providers };
+  return { providers, disabled: [...selection.disabled] };
 }
