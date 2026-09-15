@@ -79,6 +79,12 @@ export const zh = {
 	modelsCustomPickAdd: "添加",
 	modelsCustomTest: "测试模型",
 	modelsCustomTesting: "测试中…",
+	modelsCustomBaseUrlTest: "测试连接",
+	modelsCustomBaseUrlTesting: "测速中…",
+	modelsCustomBaseUrlTestOk: (ms: number, status: number) => `HTTP ${status} · ${ms} ms`,
+	modelsCustomBaseUrlTestWarn: (ms: number, status: number) =>
+		`地址可达，但返回 HTTP ${status} · ${ms} ms`,
+	modelsCustomBaseUrlTestFail: "连接失败",
 	modelsCustomTestOk: (ms: number) => `连接正常 · ${ms} ms`,
 	modelsCustomTestFail: "测试失败",
 	modelsCustomTestNoModel: "请先填写至少一个模型 ID",
