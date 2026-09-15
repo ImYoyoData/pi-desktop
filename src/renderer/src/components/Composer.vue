@@ -57,7 +57,7 @@ import {
   suspendWakeListen,
 } from "@renderer/utils/asr-wake-listen";
 import { scrubAsrHallucination } from "../../../shared/asr";
-import { filterAvailableModels } from "../../../shared/model-selection";
+import { EMPTY_MODEL_SELECTION, filterAvailableModels } from "../../../shared/model-selection";
 import { MODEL_MENU_PROPS, buildModelMenu } from "@renderer/model-menu";
 import { formatAcceleratorLabel } from "../../../shared/hotkey";
 import {
@@ -1808,7 +1808,10 @@ async function refreshModels(): Promise<void> {
     const data = await window.api.models.get();
     // Honour the Settings → Models curation so a 300-model provider does not
     // flood the menu; providers without a curation pass through untouched.
-    const selected = filterAvailableModels(data.available, data.modelSelection ?? { providers: {} });
+    const selected = filterAvailableModels(
+      data.available,
+      data.modelSelection ?? EMPTY_MODEL_SELECTION,
+    );
     const byProvider = new Map<string, { label: string; value: string }[]>();
     for (const m of selected) {
       const list = byProvider.get(m.provider) ?? [];

@@ -109,6 +109,11 @@ export const en = {
 	modelsCustomDeleteConfirm: (id: string) =>
 		`Delete “${id}” from models.json and clear its saved API key?`,
 	modelsCustomDeleted: "Deleted",
+	modelsCustomDisable: "Disable",
+	modelsCustomDisabled: "Disabled",
+	modelsCustomEnable: "Enabled",
+	modelsCustomDisabledHint:
+		"Hide this provider's models in this app only; models.json stays unchanged",
 	modelsCustomIdRequired: "Provider ID is required",
 	modelsCustomIdInvalid:
 		"Provider ID must start with a letter and use only letters, digits, _ and -",
@@ -893,7 +898,7 @@ export const en = {
 		`Chat rewound, but files were not restored: ${err}`,
 	restoreCheckpointFail: (err: string) => `Restore checkpoint failed: ${err}`,
 	turnMismatch: "the agent session is out of sync with this turn",
-	forkConversation: "Fork conversation (branch before this turn)",
+	forkConversation: "Fork conversation",
 	forkConversationDone: "Forked into a new session",
 	forkConversationFail: (err: string) => `Fork failed: ${err}`,
 	loadedForReEdit:

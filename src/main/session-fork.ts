@@ -41,8 +41,8 @@ function forkTitleFor(turnText: string, sourceName: string | null): string | nul
 }
 
 /**
- * 把某一轮 user 消息**之前**的对话复制成一个新会话文件（与界面上的分隔线一致：
- * 还原检查点也是在这条线上截断）。源会话不变，新会话 header 以源文件作为 parentSession。
+ * 把到某一轮结束（本轮提问 + 本轮回复）为止的对话复制成一个新会话文件。
+ * 源会话不变，新会话 header 以源文件作为 parentSession。
  * `expectText` 用于确认该下标仍指向界面上的那一轮，避免复制错轮次。
  */
 export async function forkSessionAtUserTurn(
@@ -54,14 +54,11 @@ export async function forkSessionAtUserTurn(
 	if (!source || !existsSync(source)) {
 		throw new Error("session file not found");
 	}
-	// 第一轮之前没有可继承的历史，Copilot 同样不在第一轮提供派生。
-	if (userIndex <= 0) {
-		throw new Error("cannot fork before the first turn — pick a later turn");
-	}
 	const { SessionManager } = await import("@earendil-works/pi-coding-agent");
 	const manager = SessionManager.open(source);
 	const branch = manager.getBranch();
-	const targetId = userEntryIdsOnBranch(branch)[userIndex];
+	const userIds = userEntryIdsOnBranch(branch);
+	const targetId = userIds[userIndex];
 	if (!targetId) {
 		throw new Error(`fork target turn not found: ${userIndex}`);
 	}
@@ -73,15 +70,21 @@ export async function forkSessionAtUserTurn(
 	if (expectText && !turnTextMatches(targetText, expectText)) {
 		throw new Error("this turn no longer matches the conversation — reopen the session and retry");
 	}
-	const leafId = target?.parentId;
+	// 本轮范围 = 该 user entry 到下一个 user entry 之前，leaf 取本轮最后一条 entry，
+	// 新会话因此包含本轮的提问与回复。
+	const nextUserId = userIds[userIndex + 1];
+	const nextIdx = nextUserId
+		? branch.findIndex((entry) => entry.id === nextUserId)
+		: -1;
+	const leafId = branch[(nextIdx === -1 ? branch.length : nextIdx) - 1]?.id;
 	if (!leafId) {
-		throw new Error("nothing to fork before this turn");
+		throw new Error(`fork target turn not found: ${userIndex}`);
 	}
 	const sourceName = manager.getSessionName() ?? firstUserText(branch);
 	const forkTitle = forkTitleFor(targetText, sourceName || null);
 	const forkedFile = manager.createBranchedSession(leafId);
 	if (!forkedFile || !existsSync(forkedFile)) {
-		throw new Error("the turn before this one has no reply yet — nothing to fork");
+		throw new Error("could not write the forked session");
 	}
 	if (forkTitle) {
 		manager.appendSessionInfo(forkTitle);
