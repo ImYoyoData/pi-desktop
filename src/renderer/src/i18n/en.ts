@@ -60,6 +60,7 @@ export const en = {
 	customizeUninstallPlugin: "Uninstall Plugin",
 	customizeCopyPath: "Copy Path",
 	customizePathCopied: "Path copied",
+	customizePluginPathMissing: "Plugin install path not found",
 	customizeUninstallConfirm: (name: string) => `Uninstall "${name}"?`,
 	customizeSearchPlaceholder: "Search",
 	customizeEmpty: (label: string) => `No ${label}`,

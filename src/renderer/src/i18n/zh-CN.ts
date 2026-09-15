@@ -60,6 +60,7 @@ export const zh = {
 	customizeUninstallPlugin: "卸载插件",
 	customizeCopyPath: "复制路径",
 	customizePathCopied: "路径已复制",
+	customizePluginPathMissing: "插件安装路径不存在",
 	customizeUninstallConfirm: (name: string) => `确定卸载「${name}」？`,
 	customizeSearchPlaceholder: "搜索",
 	customizeEmpty: (label: string) => `暂无${label}`,
