@@ -50,6 +50,7 @@ import type {
 	PiPackageInstallResult,
 	PiPackageListResult,
 	PiPackageType,
+	PluginUpdateProgress,
 	PluginVersionInfo,
 } from "../shared/pi-market";
 import type {
@@ -862,6 +863,16 @@ const api = {
 					status: "loaded" | "installed" | "missing" | "disabled";
 				}[];
 			}>,
+		onUpdateProgress: (callback: (progress: PluginUpdateProgress) => void) => {
+			const listener = (
+				_event: Electron.IpcRendererEvent,
+				progress: PluginUpdateProgress,
+			) => callback(progress);
+			ipcRenderer.on(IpcChannels.plugins.updateProgress, listener);
+			return () => {
+				ipcRenderer.removeListener(IpcChannels.plugins.updateProgress, listener);
+			};
+		},
 	},
 	models: {
 		get: () =>

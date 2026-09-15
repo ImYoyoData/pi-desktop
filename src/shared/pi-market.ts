@@ -73,3 +73,16 @@ export type PluginVersionInfo = {
   /** 是否有可用更新。 */
   hasUpdate: boolean;
 };
+
+/** 插件升级进度（主进程 → 渲染端单向事件）。 */
+export type PluginUpdateProgress = {
+  source: string;
+  scope: "global" | "project";
+  phase: "prepare" | "fetch" | "done" | "error";
+  /** 正在获取的包名（npm 源）。 */
+  packageName?: string;
+  /** 0-100，仅 git fetch 能提供真实百分比。 */
+  percent?: number;
+  /** 失败原因（phase 为 error 时）。 */
+  error?: string;
+};
