@@ -39,11 +39,22 @@ import { useWorkspaceStore } from "@renderer/stores/workspace";
 import { isUnstartedSession } from "@renderer/utils/session-started";
 import { buildSessionTree, type SessionTreeItem } from "@renderer/utils/session-tree";
 import { t } from "@renderer/i18n";
+import CodiconIcon from "@renderer/components/icons/CodiconIcon.vue";
 import { markRendererStartup } from "@renderer/utils/startup-timing";
 
 const PIN_KEY = "session-pins:v1";
 const SESSION_ORDER_KEY = "pi-desktop:session-order:v2";
 const SESSION_VISIBLE_LIMIT = 5;
+
+/** 左下角定制入口，自下而上依次：设置、挂钩、工具、智能体、指令、技能。 */
+const customizeEntries = [
+  { name: "skills", label: t.customizeSkills },
+  { name: "instructions", label: t.customizeInstructions },
+  { name: "agents", label: t.customizeAgents },
+  { name: "tools", label: t.customizeTools },
+  { name: "hooks", label: t.customizeHooks },
+  { name: "settings", label: t.customizeSettings },
+] as const;
 
 const sessionsStore = useSessionsStore();
 const chatStore = useChatStore();
@@ -1271,6 +1282,19 @@ function isRunning(status: SessionStatus): boolean {
       </div>
     </div>
 
+    <div class="customize-bar">
+      <button
+        v-for="entry in customizeEntries"
+        :key="entry.name"
+        type="button"
+        class="customize-btn"
+        :title="entry.label"
+      >
+        <CodiconIcon :name="entry.name" :size="16" />
+        <span class="customize-label">{{ entry.label }}</span>
+      </button>
+    </div>
+
     <NModal
       v-model:show="renameOpen"
       preset="dialog"
@@ -1866,5 +1890,50 @@ function isRunning(status: SessionStatus): boolean {
 .session-expand-btn:hover {
   background: var(--bg-hover);
   color: var(--fg);
+}
+
+.customize-bar {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  flex-shrink: 0;
+  padding: 4px 6px 6px;
+  border-top: 1px solid var(--border, rgba(128, 128, 128, 0.15));
+}
+
+.customize-btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  margin: 0;
+  padding: 4px 8px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--fg-muted, #888);
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+  transition:
+    background var(--duration-fast, 140ms) var(--ease-out, ease),
+    color var(--duration-fast, 140ms) var(--ease-out, ease);
+}
+
+.customize-btn:hover {
+  background: var(--bg-hover, rgba(127, 127, 127, 0.07));
+  color: var(--fg);
+}
+
+.customize-btn:focus-visible {
+  outline: 1px solid var(--border-strong, rgba(128, 128, 128, 0.4));
+  outline-offset: -1px;
+}
+
+.customize-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 </style>
