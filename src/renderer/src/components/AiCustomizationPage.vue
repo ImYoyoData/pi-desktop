@@ -14,7 +14,6 @@ import NotifySettings from "@renderer/components/NotifySettings.vue";
 import AsrSettings from "@renderer/components/AsrSettings.vue";
 import SecuritySettings from "@renderer/components/SecuritySettings.vue";
 import ProxySettings from "@renderer/components/ProxySettings.vue";
-import ModelsSettings from "@renderer/components/ModelsSettings.vue";
 import MarketSettings from "@renderer/components/MarketSettings.vue";
 import LanConsoleSettings from "@renderer/components/LanConsoleSettings.vue";
 import { useCustomizationsStore } from "@renderer/stores/customizations";
@@ -266,7 +265,7 @@ onUnmounted(() => {
 
         <AboutPanel v-else-if="active === 'about'" />
 
-        <CustomizeModels v-else-if="active === 'models'" @configure="modal = 'models'" />
+        <CustomizeModels v-else-if="active === 'models'" />
 
         <CustomizeHooks v-else-if="active === 'hooks'" :hooks="store.snapshot.hooks" />
 
@@ -287,7 +286,6 @@ onUnmounted(() => {
     <AsrSettings :open="modal === 'voice'" @close="modal = null" />
     <SecuritySettings :open="modal === 'security'" @close="modal = null" />
     <ProxySettings :open="modal === 'proxy'" @close="modal = null" />
-    <ModelsSettings :open="modal === 'models'" @close="modal = null" />
     <MarketSettings :open="modal === 'market'" @close="modal = null" />
     <NModal
       :show="modal === 'lan'"
