@@ -177,6 +177,8 @@ export const IpcChannels = {
 		list: "plugins:list",
 		setEnabled: "plugins:setEnabled",
 		remove: "plugins:remove",
+		checkUpdates: "plugins:checkUpdates",
+		update: "plugins:update",
 	},
 	models: {
 		get: "models:get",

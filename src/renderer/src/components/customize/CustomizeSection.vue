@@ -12,6 +12,7 @@ import type {
   CustomizationScope,
   McpTestResult,
 } from "../../../../shared/customizations";
+import type { PluginUpdateInfo } from "../../../../shared/pi-market";
 import { t } from "@renderer/i18n";
 
 type SectionKind = "agents" | "skills" | "instructions" | "prompts" | "mcp" | "plugins";
@@ -36,6 +37,9 @@ const query = ref("");
 const addOpen = ref(false);
 const mcpTesting = ref(false);
 const mcpTestResults = ref<Record<string, McpTestResult>>({});
+const checkingUpdates = ref(false);
+const pluginUpdates = ref<Record<string, PluginUpdateInfo>>({});
+const updatingPlugin = ref<string | null>(null);
 const collapsed = reactive(new Set<CustomizationScope>());
 
 /** 右键菜单（对应 VS Code 的行上下文菜单）。 */
@@ -261,6 +265,47 @@ function canToggle(item: CustomizationItem): boolean {
   if (props.kind === "mcp") return item.enabled !== undefined;
   if (props.kind === "agents" || props.kind === "prompts") return isEditableItem(item);
   return props.kind === "plugins" && Boolean(item.source);
+}
+
+/** 检查已安装插件是否有新版本，结果按行 id 缓存供升级按钮使用。 */
+async function checkPluginUpdateState(): Promise<void> {
+  if (checkingUpdates.value) return;
+  checkingUpdates.value = true;
+  try {
+    const list = await window.api.plugins.checkUpdates(workspace.root ?? undefined);
+    const next: Record<string, PluginUpdateInfo> = {};
+    for (const info of list) next[`${info.scope}:${info.source}`] = info;
+    pluginUpdates.value = next;
+    const count = props.items.filter((item) => item.source && next[item.id]).length;
+    if (count > 0) message.success(t.customizeUpdatesFound(count));
+    else message.success(t.customizeNoUpdates);
+  } catch (err) {
+    message.error(err instanceof Error ? err.message : String(err));
+  } finally {
+    checkingUpdates.value = false;
+  }
+}
+
+function updateInfoOf(item: CustomizationItem): PluginUpdateInfo | undefined {
+  return item.source ? pluginUpdates.value[item.id] : undefined;
+}
+
+/** 升级单个插件：完成后刷新列表并清掉该行的更新标记。 */
+async function upgradePlugin(item: CustomizationItem): Promise<void> {
+  if (!item.source || updatingPlugin.value) return;
+  updatingPlugin.value = item.id;
+  try {
+    await window.api.plugins.update(item.source, pluginScope(item), workspace.root ?? undefined);
+    message.success(t.customizeUpdated(item.name));
+    const next = { ...pluginUpdates.value };
+    delete next[item.id];
+    pluginUpdates.value = next;
+    emit("refresh");
+  } catch (err) {
+    message.error(err instanceof Error ? err.message : String(err));
+  } finally {
+    updatingPlugin.value = null;
+  }
 }
 
 /** 可选工作区：最近工作区 + 当前工作区（去重）。 */
@@ -493,6 +538,15 @@ function onCtxSelect(key: string | number): void {
         <NButton v-if="kind === 'plugins'" class="list-add-button" size="small" @click="emit('market')">
           {{ t.customizeBrowseMarket }}
         </NButton>
+        <NButton
+          v-if="kind === 'plugins'"
+          class="list-add-button"
+          size="small"
+          :loading="checkingUpdates"
+          @click="checkPluginUpdateState"
+        >
+          {{ t.customizeCheckUpdates }}
+        </NButton>
         <NButton v-if="kind === 'mcp'" class="list-add-button" size="small" @click="addOpen = true">
           {{ t.customizeMcpAdd }}
         </NButton>
@@ -577,6 +631,18 @@ function onCtxSelect(key: string | number): void {
               class="item-right"
               :class="{ 'item-right-pinned': canToggle(item) }"
             >
+              <NButton
+                v-if="updateInfoOf(item)"
+                class="item-update-button"
+                size="tiny"
+                type="primary"
+                secondary
+                :loading="updatingPlugin === item.id"
+                :disabled="updatingPlugin !== null && updatingPlugin !== item.id"
+                @click.stop="upgradePlugin(item)"
+              >
+                {{ t.customizeUpdate }}
+              </NButton>
               <NSwitch
                 v-if="canToggle(item)"
                 class="item-switch"
@@ -827,6 +893,10 @@ function onCtxSelect(key: string | number): void {
 }
 
 .item-switch {
+  flex-shrink: 0;
+}
+
+.item-update-button {
   flex-shrink: 0;
 }
 

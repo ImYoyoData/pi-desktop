@@ -44,6 +44,7 @@ import type {
 	PiPackageInstallResult,
 	PiPackageListResult,
 	PiPackageType,
+	PluginUpdateInfo,
 } from "../shared/pi-market";
 import type {
 	DesktopSecuritySettings,
@@ -621,6 +622,20 @@ declare const api: {
 			}[];
 		}>;
 		remove: (
+			source: string,
+			scope: "global" | "project",
+			cwd?: string,
+		) => Promise<{
+			packages: {
+				source: string;
+				scope: "global" | "project";
+				disabled: boolean;
+				installedPath?: string;
+				status: "loaded" | "installed" | "missing" | "disabled";
+			}[];
+		}>;
+		checkUpdates: (cwd?: string) => Promise<PluginUpdateInfo[]>;
+		update: (
 			source: string,
 			scope: "global" | "project",
 			cwd?: string,
