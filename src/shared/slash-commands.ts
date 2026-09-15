@@ -11,15 +11,16 @@ export type SlashItem = {
   description: string;
 };
 
-export type SlashBuiltinId = "new" | "compact";
+export type SlashBuiltinId = "new" | "compact" | "model";
 
 export const SLASH_BUILTIN_IDS: readonly SlashBuiltinId[] = [
   "new",
   "compact",
+  "model",
 ] as const;
 
 export function isSlashBuiltinId(v: string): v is SlashBuiltinId {
-  return v === "new" || v === "compact";
+  return v === "new" || v === "compact" || v === "model";
 }
 
 /** Active `/query` on the last line of the composer draft. */

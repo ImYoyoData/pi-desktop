@@ -58,6 +58,8 @@ import {
   suspendWakeListen,
 } from "@renderer/utils/asr-wake-listen";
 import { scrubAsrHallucination } from "../../../shared/asr";
+import { filterAvailableModels } from "../../../shared/model-selection";
+import { MODEL_MENU_PROPS, buildModelMenu } from "@renderer/model-menu";
 import { formatAcceleratorLabel } from "../../../shared/hotkey";
 import {
   composerModePreamble,
@@ -77,12 +79,13 @@ import {
   replaceAtFileMention,
   type AtFileItem,
 } from "../../../shared/at-file-mention";
+import { formatLlmError } from "@renderer/utils/llm-error";
 import {
   decodeWorkspacePaths,
   looksLikeWorkspaceRelPath,
   PI_WORKSPACE_PATHS_MIME,
 } from "@renderer/utils/workspace-path-dnd";
-import { t } from "@renderer/i18n";
+import { locale, t } from "@renderer/i18n";
 import {
   THINKING_LEVELS,
   isThinkingLevel,
@@ -123,31 +126,42 @@ const voiceMeter: VoiceMeter = { level: 0 };
 /** True from confirm until transcription finishes — send button loading. */
 const voicePending = ref(false);
 let voiceSession: VoiceRecordSession | null = null;
-const SESSION_PREFS_KEY = "pi-desktop:session-thinking-prefs";
-/** 未创建的新会话草稿用稳定键记住思考等级，发送后自动沿用到真实会话。 */
+type ModelSelectOption =
+  | { type: "group"; label: string; key: string; children: { label: string; value: string }[] }
+  | { label: string; value: string };
+
+const SESSION_PREFS_KEY = "pi-desktop:session-model-prefs";
+/** 未创建的新会话草稿用稳定键记住模型/思考等级，发送后自动沿用到真实会话。 */
 const DRAFT_PREF_KEY = "__draft__";
 
 type SessionPrefs = {
+  models: Record<string, string>;
   thinking: Record<string, ThinkingLevel>;
 };
 
 function loadSessionPrefs(): SessionPrefs {
   try {
     const raw = localStorage.getItem(SESSION_PREFS_KEY);
-    if (!raw) return { thinking: {} };
+    if (!raw) return { models: {}, thinking: {} };
     const parsed = JSON.parse(raw) as Partial<SessionPrefs>;
     return {
+      models: parsed.models && typeof parsed.models === "object" ? parsed.models : {},
       thinking:
         parsed.thinking && typeof parsed.thinking === "object"
           ? (parsed.thinking as Record<string, ThinkingLevel>)
           : {},
     };
   } catch {
-    return { thinking: {} };
+    return { models: {}, thinking: {} };
   }
 }
 
-/** Per-session remembered thinking level. */
+const availableModels = ref<ModelSelectOption[]>([]);
+const selectedModelKey = ref<string | null>(null);
+/** Last applied model key for the active session (`sessionId::provider/id`). */
+const appliedModelForSession = ref<string | null>(null);
+/** Per-session remembered model (`provider/id`) and thinking level. */
+const modelBySession = ref<Record<string, string>>(loadSessionPrefs().models);
 const thinkingBySession = ref<Record<string, ThinkingLevel>>(loadSessionPrefs().thinking);
 const thinkingLevel = ref<ThinkingLevel>("medium");
 const richEditor = ref<{
@@ -187,8 +201,25 @@ function focusDraftAtEnd(): void {
 function persistSessionPrefs(): void {
   localStorage.setItem(
     SESSION_PREFS_KEY,
-    JSON.stringify({ thinking: thinkingBySession.value }),
+    JSON.stringify({
+      models: modelBySession.value,
+      thinking: thinkingBySession.value,
+    }),
   );
+}
+
+function flatModelOptions(groups: ModelSelectOption[]): { label: string; value: string }[] {
+  return groups.flatMap((g) => ("children" in g ? g.children : [g]));
+}
+
+function modelKeyFromState(data: unknown): string | null {
+  if (!data || typeof data !== "object") return null;
+  const model = (data as { model?: unknown }).model;
+  if (!model || typeof model !== "object") return null;
+  const m = model as { provider?: unknown; id?: unknown };
+  if (typeof m.provider !== "string" || typeof m.id !== "string") return null;
+  if (!m.provider || !m.id) return null;
+  return `${m.provider}/${m.id}`;
 }
 
 function thinkingFromState(data: unknown): ThinkingLevel | null {
@@ -203,6 +234,11 @@ function adoptThinking(level: ThinkingLevel, key: string | null = prefsKey.value
   if (key) rememberThinking(key, level);
 }
 
+function rememberModel(sessionId: string, key: string): void {
+  modelBySession.value = { ...modelBySession.value, [sessionId]: key };
+  persistSessionPrefs();
+}
+
 function rememberThinking(sessionId: string, level: ThinkingLevel): void {
   thinkingBySession.value = { ...thinkingBySession.value, [sessionId]: level };
   persistSessionPrefs();
@@ -213,9 +249,12 @@ let draftCommitPending = false;
 
 /** 清掉某个记忆键，避免草稿转正后残留悬挂偏好。 */
 function forgetPrefs(key: string): void {
-  if (!(key in thinkingBySession.value)) return;
+  if (!(key in modelBySession.value) && !(key in thinkingBySession.value)) return;
+  const models = { ...modelBySession.value };
   const thinking = { ...thinkingBySession.value };
+  delete models[key];
   delete thinking[key];
+  modelBySession.value = models;
   thinkingBySession.value = thinking;
   persistSessionPrefs();
 }
@@ -235,11 +274,28 @@ const thinkingLabel = computed(
   () => thinkingLevelLabel(thinkingLevel.value) ?? "Medium",
 );
 
+const modelMenu = computed(() =>
+  buildModelMenu(availableModels.value, selectedModelKey.value),
+);
+
+/**
+ * A naive-ui dropdown does not scroll on its own, so a long model list grew past
+ * the window and the lower entries became unclickable. See MODEL_MENU_PROPS —
+ * note it must stay a FUNCTION: `menu-props` is called, not read.
+ */
+const modelMenuProps = MODEL_MENU_PROPS;
+
+const modelLabel = computed(
+  () =>
+    flatModelOptions(availableModels.value).find((o) => o.value === selectedModelKey.value)
+      ?.label ?? t.modelPlaceholder,
+);
+
 const sessionId = computed(() => sessions.activeId);
 const isDraftSession = computed(
   () => !sessions.activeId && Boolean(sessions.draftRoot),
 );
-/** 思考等级的记忆键：草稿用固定键，未选会话时为 null。 */
+/** 模型/思考等级的记忆键：草稿用固定键，未选会话时为 null。 */
 const prefsKey = computed(
   () => sessionId.value ?? (isDraftSession.value ? DRAFT_PREF_KEY : null),
 );
@@ -720,6 +776,7 @@ async function steerFromComposer(): Promise<boolean> {
   });
   if (!steerText.trim()) return false;
   composer.clear();
+  await applySelectedModel({ allowStart: true });
   await chat.steer(id, steerText, snap.imagesToSend.length ? snap.imagesToSend : undefined);
   messageApi.success(t.steerSent, { duration: 1400 });
   return true;
@@ -853,6 +910,7 @@ async function dispatchQueuedItem(
   // Always prompt: Pi followUp only queues during a live turn and will not
   // start a new turn when the agent is already idle (queued items vanished).
   // Cold session: spawn worker on first real dispatch (not on create/open).
+  await applySelectedModel({ allowStart: true });
   const agentText = item.agentText || item.text || " ";
   const displayText = item.text === " " ? "" : item.text;
   await chat.sendPrompt(
@@ -958,6 +1016,7 @@ async function sendQueuedNow(itemId: string): Promise<void> {
     if (isAgentBusy(id)) {
       // Codex-style steer: queue the message as guidance for the running turn
       // WITHOUT aborting it. The model processes it after the current output.
+      await applySelectedModel({ allowStart: true });
       await chat.steer(id, steerTextWithCitations(item), item.images);
     } else {
       await dispatchQueuedItem(id, item);
@@ -1020,8 +1079,9 @@ async function submit(mode: "prompt" | "steer" | "follow_up"): Promise<void> {
   const agentText = snap.text || " ";
   const titleSeed = displayText || snap.tagsToSend?.[0]?.content || snap.tagsToSend?.[0]?.label || "";
   composer.clearSession(sourceId);
-  // First message (or any send) activates the Pi agent worker.
+  // First message (or any send) activates the Pi agent worker and applies model.
   if (mode === "prompt" || mode === "steer" || mode === "follow_up") {
+    await applySelectedModel({ allowStart: true });
     const level = thinkingLevel.value;
     try {
       await sessions.sendCommand(id, {
@@ -1288,6 +1348,7 @@ const contextTokensPairLabel = computed(() => {
 });
 const slashMenuRef = ref<{ move: (d: number) => void; confirm: () => boolean } | null>(null);
 const atFileMenuRef = ref<{ move: (d: number) => void; confirm: () => boolean } | null>(null);
+const modelMenuRef = ref<{ focus?: () => void } | null>(null);
 const slashSkills = ref<{ name: string; description: string }[]>([]);
 let slashSkillsCachedFor: string | null = null;
 let slashSkillsLoading = false;
@@ -1309,6 +1370,13 @@ const slashBuiltins = computed<SlashItem[]>(() => [
     command: "compact",
     title: "/compact",
     description: t.slashCompactDesc,
+  },
+  {
+    id: "model",
+    kind: "builtin",
+    command: "model",
+    title: "/model",
+    description: t.slashModelDesc,
   },
 ]);
 
@@ -1494,6 +1562,13 @@ async function runSlashBuiltin(id: string): Promise<void> {
       }
       await sessions.sendCommand(idSession, { type: "compact" });
       messageApi.success(t.compactDone);
+      return;
+    }
+    case "model": {
+      // Model switching stays available while Pi is replying (the worker applies
+      // it to the live session) — no lock guard here.
+      await nextTick();
+      modelMenuRef.value?.focus?.();
       return;
     }
     default: {
@@ -1729,40 +1804,106 @@ async function onThinkingChange(value: string | number): Promise<void> {
   });
 }
 
-async function syncSessionThinking(): Promise<void> {
+async function refreshModels(): Promise<void> {
+  try {
+    const data = await window.api.models.get();
+    // Honour the Settings → Models curation so a 300-model provider does not
+    // flood the menu; providers without a curation pass through untouched.
+    const selected = filterAvailableModels(data.available, data.modelSelection ?? { providers: {} });
+    const byProvider = new Map<string, { label: string; value: string }[]>();
+    for (const m of selected) {
+      const list = byProvider.get(m.provider) ?? [];
+      const label = (m.name && m.name.trim()) || m.id;
+      list.push({ label, value: `${m.provider}/${m.id}` });
+      byProvider.set(m.provider, list);
+    }
+    const groups: ModelSelectOption[] = [...byProvider.entries()].map(([provider, children]) => ({
+      type: "group",
+      label: provider,
+      key: provider,
+      children,
+    }));
+    availableModels.value = groups;
+    await syncSessionModelAndThinking();
+  } catch {
+    availableModels.value = [];
+  }
+}
+
+async function syncSessionModelAndThinking(): Promise<void> {
   const realId = sessionId.value;
   const key = prefsKey.value;
-  if (!key) return;
+  const flat = flatModelOptions(availableModels.value);
+  if (!key) {
+    selectedModelKey.value = flat[0]?.value ?? null;
+    return;
+  }
 
   // Instant UI from per-session (or draft) memory
+  const remembered = modelBySession.value[key];
+  if (remembered && flat.some((o) => o.value === remembered)) {
+    selectedModelKey.value = remembered;
+  }
   const rememberedThinking = thinkingBySession.value[key];
   if (rememberedThinking) {
     thinkingLevel.value = rememberedThinking;
   }
 
-  // New session with no saved prefs: inherit the thinking level from the
+  // New session with no saved prefs: inherit model + thinking level from the
   // workspace's first session (sidebar top) so new chats match the user's setup.
-  if (!rememberedThinking) {
+  if (!remembered && !rememberedThinking) {
     const first = sessions.sessions[0];
     if (first && first.id !== realId) {
+      const firstModel = modelBySession.value[first.id];
       const firstThinking = thinkingBySession.value[first.id];
+      if (firstModel && flat.some((o) => o.value === firstModel)) {
+        selectedModelKey.value = firstModel;
+      }
       if (firstThinking) thinkingLevel.value = firstThinking;
     }
   }
 
-  // 草稿没有 worker 可查，等级就位后直接返回。
-  if (!realId) return;
+  // 草稿没有 worker 可查，选定模型/等级就位后直接返回。
+  if (!realId) {
+    if (!selectedModelKey.value || !flat.some((o) => o.value === selectedModelKey.value)) {
+      selectedModelKey.value = flat[0]?.value ?? null;
+    }
+    return;
+  }
 
   // Prefer live worker state when agent is already running (never cold-start here).
+  let workerKey: string | null = null;
   let workerThinking: ThinkingLevel | null = null;
   try {
     const state = await sessions.tryCommand(realId, { type: "get_state" });
     if (state !== undefined) {
+      workerKey = modelKeyFromState(state);
       workerThinking = thinkingFromState(state);
       sessions.applyContextFromState(realId, state);
     }
   } catch {
     // ignore sync failures
+  }
+
+  if (workerKey && flat.some((o) => o.value === workerKey)) {
+    selectedModelKey.value = workerKey;
+    rememberModel(realId, workerKey);
+  } else if (remembered && flat.some((o) => o.value === remembered)) {
+    selectedModelKey.value = remembered;
+  } else if (!selectedModelKey.value || !flat.some((o) => o.value === selectedModelKey.value)) {
+    selectedModelKey.value = flat[0]?.value ?? null;
+  }
+
+  // Only push model to a live worker — first prompt cold-starts the agent.
+  if (selectedModelKey.value && workerKey !== null) {
+    const token = `${realId}::${selectedModelKey.value}`;
+    if (workerKey !== selectedModelKey.value || appliedModelForSession.value !== token) {
+      appliedModelForSession.value = null;
+      await applySelectedModel({ allowStart: false });
+    } else {
+      appliedModelForSession.value = token;
+      rememberModel(realId, selectedModelKey.value);
+    }
   }
 
   // 界面保留用户选择的档位；worker 里存的是路由后的实际档位。
@@ -1779,6 +1920,57 @@ async function syncSessionThinking(): Promise<void> {
       // ignore thinking sync failures
     }
   }
+}
+
+async function applySelectedModel(opts?: { allowStart?: boolean }): Promise<void> {
+  const id = sessionId.value;
+  const value = selectedModelKey.value;
+  if (!id || !value) return;
+  // Session must be registered in the broker (present in live sessions list).
+  if (!sessions.sessions.some((s) => s.id === id)) return;
+  const slash = value.indexOf("/");
+  if (slash <= 0) return;
+  const token = `${id}::${value}`;
+  if (appliedModelForSession.value === token) return;
+  const allowStart = opts?.allowStart === true;
+  try {
+    const command = {
+      type: "set_model" as const,
+      provider: value.slice(0, slash),
+      modelId: value.slice(slash + 1),
+    };
+    if (allowStart) {
+      await sessions.sendCommand(id, command);
+    } else {
+      const applied = await sessions.tryCommand(id, command);
+      if (applied === undefined) {
+        // No live worker yet — keep UI selection; first prompt will apply.
+        rememberModel(id, value);
+        return;
+      }
+    }
+    appliedModelForSession.value = token;
+    rememberModel(id, value);
+  } catch (err) {
+    appliedModelForSession.value = null;
+    const text = err instanceof Error ? err.message : String(err);
+    // Startup race / cold worker / post-auth reload: don't toast transient noise.
+    if (/unknown session|Model not found/i.test(text)) return;
+    messageApi.error(formatLlmError(text, locale === "zh-CN" ? "zh-CN" : "en"));
+  }
+}
+
+async function onModelChange(value: string | number): Promise<void> {
+  // Switching models while Pi is replying is allowed. The worker applies it to
+  // the live session immediately (and when no worker is warm the choice is
+  // remembered for the next prompt), so the picker must not silently swallow
+  // the click.
+  const key = String(value);
+  selectedModelKey.value = key;
+  appliedModelForSession.value = null;
+  const prefs = prefsKey.value;
+  if (prefs && key) rememberModel(prefs, key);
+  await applySelectedModel({ allowStart: false });
 }
 
 /**
@@ -2109,12 +2301,13 @@ let offAsrWake: (() => void) | undefined;
 
 onMounted(() => {
   composer.bindSession(sessionId.value);
-  void syncSessionThinking();
+  void refreshModels();
   void asr.refresh();
   offAsrProgress = asr.bindProgress();
   offAsrWake = window.api.asr.onWake(onAsrWake);
   window.addEventListener(ASR_VOICE_WAKE_EVENT, onAsrWake);
   window.addEventListener("keydown", onVoiceSessionKeydown, true);
+  window.addEventListener("pi-models-changed", onModelsChanged);
   // Warm AudioWorklet + mic permission off the click path (idle so boot stays light).
   const ric =
     typeof window.requestIdleCallback === "function"
@@ -2126,6 +2319,7 @@ onMounted(() => {
 });
 
 onUnmounted(() => {
+  window.removeEventListener("pi-models-changed", onModelsChanged);
   window.removeEventListener("keydown", onVoiceSessionKeydown, true);
   window.removeEventListener(ASR_VOICE_WAKE_EVENT, onAsrWake);
   document.removeEventListener("pointerdown", onContextOutside, true);
@@ -2134,6 +2328,10 @@ onUnmounted(() => {
   // Do not stop App-level wake listen — only clear dictation pause if we held it.
   cancelVoice({ resumeWake: true });
 });
+
+function onModelsChanged(): void {
+  void refreshModels();
+}
 
 watch(
   () => asr.recording,
@@ -2148,22 +2346,31 @@ watch(sessionId, (id, prev) => {
   if (chat.pendingUserEdit) chat.cancelEditUser();
   composer.bindSession(id);
 
-  // 草稿首次发送成功建出真实会话：把草稿的思考选择迁移过去。
+  // 草稿首次发送成功建出真实会话：把草稿的模型/思考选择迁移过去。
   if (id && !prev && draftCommitPending) {
     draftCommitPending = false;
+    const draftModel = modelBySession.value[DRAFT_PREF_KEY];
     const draftThinking = thinkingBySession.value[DRAFT_PREF_KEY];
+    if (draftModel) rememberModel(id, draftModel);
     if (draftThinking) rememberThinking(id, draftThinking);
     forgetPrefs(DRAFT_PREF_KEY);
   }
 
+  if (prev && selectedModelKey.value) {
+    rememberModel(prev, selectedModelKey.value);
+  }
   if (prev) {
     rememberThinking(prev, thinkingLevel.value);
   }
+  appliedModelForSession.value = null;
   // Restore remembered UI immediately before async sync
+  if (id && modelBySession.value[id]) {
+    selectedModelKey.value = modelBySession.value[id];
+  }
   if (id && thinkingBySession.value[id]) {
     thinkingLevel.value = thinkingBySession.value[id];
   }
-  void syncSessionThinking();
+  void refreshModels();
 });
 
 watch(
@@ -2367,6 +2574,25 @@ watch(
               </button>
             </div>
           </NPopover>
+
+          <NDropdown
+            ref="modelMenuRef"
+            trigger="click"
+            :options="modelMenu"
+            :menu-props="modelMenuProps"
+            :disabled="voiceActive || voicePending"
+            @select="onModelChange"
+          >
+            <NButton
+              quaternary
+              size="tiny"
+              class="model-btn"
+              :disabled="voiceActive || voicePending"
+              :title="t.modelPlaceholder"
+            >
+              <span class="model-label">{{ modelLabel }}</span>
+            </NButton>
+          </NDropdown>
 
           <NDropdown
             trigger="click"
@@ -2915,6 +3141,18 @@ watch(
   }
 }
 
+.model-btn {
+  flex-shrink: 0;
+  padding: 0 4px !important;
+}
+
+.model-label {
+  display: inline-block;
+  white-space: nowrap;
+  font-size: 11px;
+  margin-left: 1px;
+}
+
 .mode-trigger {
   display: inline-flex;
   align-items: center;
@@ -3287,6 +3525,10 @@ watch(
   .mode-trigger {
     max-width: 64px;
     padding: 0 5px 0 7px;
+  }
+
+  .model-label {
+    display: none;
   }
 
   .think-label {

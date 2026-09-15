@@ -249,6 +249,8 @@ export const en = {
 		"Describe a task, or paste context… (/ commands, @ files)",
 	slashNewDesc: "Start a new session",
 	slashCompactDesc: "Compact session context",
+	slashModelDesc: "Focus the model picker",
+	modelPlaceholder: "Model",
 	slashSkillFallbackDesc: "Invoke this skill",
 	slashNeedWorkspace: "Open a workspace first",
 	slashNeedSession: "Select or create a session first",
