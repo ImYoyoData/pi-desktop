@@ -147,6 +147,8 @@ const VISION_PATTERNS: RegExp[] = [
   // Llama 3.2 vision / Llama 4 are multimodal.
   /llama-3\.2.*vision|llama-4/iu,
   /pixtral/iu,
+  // DeepSeek V4.1 起多模态转正（V4 仅 vision-exp 预览版支持）。
+  /deepseek-v4[.-]1/iu,
   // Grok 2+ ships vision.
   /grok-[2-9]/iu,
   /mimo.*vl|doubao.*vision|hunyuan.*vision|ernie.*vl|step-1v/iu,
