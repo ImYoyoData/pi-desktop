@@ -242,6 +242,8 @@ export const zh = {
 	composerPlaceholder: "描述任务，或粘贴上下文…（/ 命令，@ 引用文件）",
 	slashNewDesc: "新建会话",
 	slashCompactDesc: "压缩会话上下文",
+	slashModelDesc: "聚焦模型选择器",
+	modelPlaceholder: "模型",
 	slashSkillFallbackDesc: "调用该 Skill",
 	slashNeedWorkspace: "请先打开工作区",
 	slashNeedSession: "请先选择或新建会话",

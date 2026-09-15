@@ -290,6 +290,7 @@ async function save(): Promise<void> {
     });
     await load(id);
     formError.value = "";
+    notifyModelsChanged();
     message.success(t.modelsCustomSaved);
   } catch (err) {
     const text = err instanceof Error ? err.message : String(err);
@@ -320,6 +321,7 @@ function confirmDelete(): void {
         });
         selectedId.value = null;
         await load(null);
+        notifyModelsChanged();
         message.success(t.modelsCustomDeleted);
       } catch (err) {
         message.error(err instanceof Error ? err.message : String(err));
@@ -365,6 +367,11 @@ function applyPickedModels(picked: DiscoveredModel[]): void {
   resetRowKeys(current.models.length);
   pickOpen.value = false;
   message.success(t.modelsCustomDiscoverOk(picked.length));
+}
+
+/** 通知 Composer 刷新模型选择器（models.json 已变化）。 */
+function notifyModelsChanged(): void {
+  window.dispatchEvent(new CustomEvent("pi-models-changed"));
 }
 
 async function testConnection(): Promise<void> {
