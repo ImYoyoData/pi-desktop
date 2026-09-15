@@ -1192,6 +1192,20 @@ export function createSessionBroker(deps: {
     }
   }
 
+  /** 空闲 worker 在进程内重载资源（扩展/MCP 配置），忙碌的等空闲后销毁重建。 */
+  async function notifyWorkersReloadResources(cwd: string): Promise<void> {
+    const resolved = path.resolve(cwd);
+    for (const [id, rec] of sessions.entries()) {
+      if (!rec.worker) continue;
+      if (path.resolve(rec.cwd) !== resolved) continue;
+      if (rec.summary.status !== "idle") {
+        rec.restartOnIdle = true;
+        continue;
+      }
+      await sendRawIfAlive(id, { kind: "reload_resources" });
+    }
+  }
+
   return {
     createSession,
     listSessions,
@@ -1210,6 +1224,7 @@ export function createSessionBroker(deps: {
     clearContext,
     notifyWorkersReloadModels,
     notifyWorkersReloadSecurity,
+    notifyWorkersReloadResources,
     patchSummary,
     persistUserMessageMeta,
     cacheImage,
