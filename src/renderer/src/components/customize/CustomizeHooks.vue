@@ -1,5 +1,4 @@
 <script setup lang="ts">
-import CodiconIcon from "@renderer/components/icons/CodiconIcon.vue";
 import type { CustomizationHook } from "../../../../shared/customizations";
 import { t } from "@renderer/i18n";
 

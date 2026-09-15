@@ -83,6 +83,7 @@ declare module 'vue' {
     ToolCallCard: typeof import('./src/components/ToolCallCard.vue')['default']
     ToolFileCard: typeof import('./src/components/ToolFileCard.vue')['default']
     TrustDialog: typeof import('./src/components/TrustDialog.vue')['default']
+    TurnDiffSummary: typeof import('./src/components/TurnDiffSummary.vue')['default']
     UpdateCard: typeof import('./src/components/UpdateCard.vue')['default']
     Versions: typeof import('./src/components/Versions.vue')['default']
     VoiceRecordBar: typeof import('./src/components/VoiceRecordBar.vue')['default']

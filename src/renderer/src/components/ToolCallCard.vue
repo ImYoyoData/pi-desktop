@@ -333,15 +333,18 @@ const expandable = computed(() => {
   return Boolean(body.value);
 });
 
-const canPreviewPath = computed(() => {
+/** 可预览的文件路径（read / edit / write / other 卡才有）。 */
+const previewPath = computed<string | null>(() => {
   const card = props.card;
-  return (
-    (card.kind === "read" ||
-      card.kind === "edit" ||
-      card.kind === "write" ||
-      card.kind === "other") &&
-    Boolean(card.path)
-  );
+  if (
+    card.kind === "read" ||
+    card.kind === "edit" ||
+    card.kind === "write" ||
+    card.kind === "other"
+  ) {
+    return card.path ?? null;
+  }
+  return null;
 });
 
 const todoItems = computed(() =>
@@ -372,8 +375,8 @@ const todoItems = computed(() =>
       <span class="head-text">
         <span class="action" :class="{ 'copilot-shimmer': Boolean(streaming) }">{{ actionLabel }}</span>
         <FileChip
-          v-if="canPreviewPath && card.path"
-          :path="card.path"
+          v-if="previewPath"
+          :path="previewPath"
           @open="emit('open', $event)"
         />
         <code v-else-if="card.kind === 'bash' && card.command" class="cmd-pill">{{
