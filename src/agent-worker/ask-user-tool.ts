@@ -30,7 +30,7 @@ const askUserSchema = Type.Object({
           allowCustom: Type.Optional(
             Type.Boolean({
               description:
-                "If true, selecting this option shows a free-text field. Works for any type (single/multi/buttons). Desktop always adds a custom option for single/multi when missing.",
+                "If true, selecting this option shows an optional free-text field for extra detail. Works for any type (single/multi/buttons). Desktop always adds a custom option for single/multi when missing; that custom row requires text.",
             }),
           ),
         }),
@@ -79,7 +79,7 @@ export function createAskUserToolDefinition(deps?: {
       "Use ask_user instead of only asking clarifying choices in prose when a discrete choice is needed.",
       "Put multiple related questions in one ask_user call; the UI collects all answers before continuing.",
       "Users can and often will skip questions — questions default to skippable. Set skippable:false only when an answer is a hard requirement (e.g. a confirm/reject gate).",
-      "Desktop always offers a custom free-text option for single/multi; you may also set allowCustom on any option of any type (single/multi/buttons). In plan/task confirm dialogs, mark the adjust/revise option allowCustom so the user can type adjustment instructions.",
+      "Desktop always offers a custom free-text option for single/multi; you may also set allowCustom on any option of any type (single/multi/buttons) to let the user add optional detail. In plan/task confirm dialogs, mark the adjust/revise option allowCustom so the user can type adjustment instructions.",
       "Option labels are plain text — no emoji, icons, or decorative symbols.",
       "Do not invent answers — ask_user blocks until the user submits.",
       "Answers list every question; skipped ones are marked '[skipped]'. Never re-ask a skipped question on your own — proceed with what you have or state what is missing.",
