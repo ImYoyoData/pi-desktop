@@ -31,6 +31,8 @@ const props = defineProps<{
   filePath?: string | null;
   tabId?: string;
   active?: boolean;
+  /** 智能体设置页内嵌：隐藏「打开文件」等非编辑器控件，markdown 直接以编辑器打开。 */
+  embedded?: boolean;
 }>();
 
 const message = useMessage();
@@ -422,7 +424,7 @@ async function loadPath(path: string | null): Promise<void> {
 
     if (next.kind === "text" || next.kind === "markdown") {
       if (next.kind === "markdown") {
-        mdViewMode.value = "preview";
+        mdViewMode.value = props.embedded ? "edit" : "preview";
       } else {
         mdViewMode.value = "edit";
       }
@@ -685,7 +687,7 @@ onBeforeUnmount(() => {
         <NText v-else depth="3" style="font-size: 11px">{{ t.noFileOpen }}</NText>
       </div>
       <div class="actions">
-        <div v-if="isMarkdown" class="md-modes" role="group" :aria-label="t.mdPreview">
+        <div v-if="isMarkdown && !embedded" class="md-modes" role="group" :aria-label="t.mdPreview">
           <button
             type="button"
             class="md-mode"
@@ -725,7 +727,7 @@ onBeforeUnmount(() => {
           </template>
           {{ missing ? t.saveAsNew : t.save }}
         </NButton>
-        <NButton size="tiny" quaternary @click="pickFile">
+        <NButton v-if="!embedded" size="tiny" quaternary @click="pickFile">
           <template #icon>
             <NIcon :component="FolderOpenOutline" :size="14" />
           </template>
