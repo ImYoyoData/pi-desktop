@@ -2,6 +2,7 @@
 import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import { NModal, NSpin } from "naive-ui";
 import CodiconIcon from "@renderer/components/icons/CodiconIcon.vue";
+import PreviewTab from "@renderer/components/PreviewTab.vue";
 import AppearancePanel from "@renderer/components/AppearancePanel.vue";
 import AboutPanel from "@renderer/components/AboutPanel.vue";
 import CustomizeGeneral from "@renderer/components/customize/CustomizeGeneral.vue";
@@ -61,6 +62,8 @@ const workspace = useWorkspaceStore();
 const active = ref(props.section || "general");
 const modal = ref<string | null>(null);
 const width = ref(readWidth());
+/** 页内打开的定制项文件（VS Code 内嵌编辑器形态）。 */
+const editing = ref<{ filePath: string; name: string } | null>(null);
 
 const current = computed(
   () => SECTIONS.find((entry) => entry.id === active.value) ?? SECTIONS[0],
@@ -109,8 +112,17 @@ function readWidth(): number {
 }
 
 function selectSection(id: string): void {
+  editing.value = null;
   active.value = id;
   layout.setCustomizeSection(id);
+}
+
+function openInPage(payload: { filePath: string; name: string }): void {
+  editing.value = payload;
+}
+
+function closeEditor(): void {
+  editing.value = null;
 }
 
 function onResizeStart(event: MouseEvent): void {
@@ -134,7 +146,10 @@ function onResizeStart(event: MouseEvent): void {
 watch(
   () => props.section,
   (value) => {
-    if (value && value !== active.value) active.value = value;
+    if (value && value !== active.value) {
+      editing.value = null;
+      active.value = value;
+    }
   },
 );
 
@@ -194,7 +209,25 @@ onUnmounted(() => {
     />
 
     <section class="management-content">
-      <div class="content-inner">
+      <div v-if="editing" class="content-inner editor-inner">
+        <div class="section-back-bar">
+          <button
+            type="button"
+            class="section-back-arrow-button"
+            :title="t.customizeBackToList"
+            :aria-label="t.customizeBackToList"
+            @click="closeEditor"
+          >
+            <CodiconIcon name="back" :size="16" />
+          </button>
+          <span class="editor-file-name">{{ editing.name }}</span>
+        </div>
+        <div class="embedded-editor">
+          <PreviewTab :file-path="editing.filePath" :active="true" embedded />
+        </div>
+      </div>
+
+      <div v-else class="content-inner">
         <div class="section-title-header">
           <div class="section-title-row">
             <h2 class="section-title">{{ current.label }}</h2>
@@ -226,6 +259,7 @@ onUnmounted(() => {
           :items="listItems"
           @refresh="store.load(true)"
           @market="modal = 'market'"
+          @open="openInPage"
         />
       </div>
     </section>
@@ -379,9 +413,72 @@ onUnmounted(() => {
   overflow-y: auto;
 }
 
-.content-inner > :not(.content-error):not(.content-spin) {
+.content-inner > :not(.content-error):not(.content-spin):not(.embedded-editor) {
   width: min(calc(100% - 80px), 840px);
   margin-inline: auto;
+}
+
+/* 页内编辑器（点击「打开」后在页面内打开，不占用侧栏） */
+.editor-inner {
+  overflow: hidden;
+  padding-bottom: 0;
+}
+
+.section-back-bar {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.section-back-arrow-button {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--fg);
+  cursor: pointer;
+  opacity: 0.8;
+  transition: background-color 0.1s ease, opacity 0.1s ease;
+}
+
+.section-back-arrow-button:hover {
+  background-color: var(--bg-hover);
+  opacity: 1;
+}
+
+.section-back-arrow-button:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: -1px;
+}
+
+.editor-file-name {
+  overflow: hidden;
+  color: var(--fg-muted);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.embedded-editor {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  overflow: hidden;
+}
+
+.embedded-editor > :deep(.preview-tab) {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
 }
 
 .section-title-header {

@@ -1,11 +1,14 @@
 <script setup lang="ts">
 import { computed, reactive, ref } from "vue";
-import { NButton, NInput, NSwitch, useDialog, useMessage } from "naive-ui";
+import { NButton, NDropdown, NInput, useDialog, useMessage } from "naive-ui";
+import type { DropdownOption } from "naive-ui";
 import CodiconIcon from "@renderer/components/icons/CodiconIcon.vue";
-import { usePreviewStore } from "@renderer/stores/preview";
-import { useRightTabsStore } from "@renderer/stores/right-tabs";
 import { useWorkspaceStore } from "@renderer/stores/workspace";
-import type { CustomizationCreateKind, CustomizationItem, CustomizationScope } from "../../../../shared/customizations";
+import type {
+  CustomizationCreateKind,
+  CustomizationItem,
+  CustomizationScope,
+} from "../../../../shared/customizations";
 import { t } from "@renderer/i18n";
 
 type SectionKind = "agents" | "skills" | "instructions" | "prompts" | "mcp" | "plugins";
@@ -15,16 +18,26 @@ const props = defineProps<{
   items: CustomizationItem[];
 }>();
 
-const emit = defineEmits<{ refresh: []; market: [] }>();
+const emit = defineEmits<{
+  refresh: [];
+  market: [];
+  open: [payload: { filePath: string; name: string }];
+}>();
 
-const previewStore = usePreviewStore();
-const rightTabs = useRightTabsStore();
 const workspace = useWorkspaceStore();
 const dialog = useDialog();
 const message = useMessage();
 
 const query = ref("");
 const collapsed = reactive(new Set<CustomizationScope>());
+
+/** 右键菜单（对应 VS Code 的行上下文菜单）。 */
+const ctx = reactive<{
+  show: boolean;
+  x: number;
+  y: number;
+  item: CustomizationItem | null;
+}>({ show: false, x: 0, y: 0, item: null });
 
 const GROUP_ORDER: CustomizationScope[] = ["project", "user", "builtin", "extension"];
 
@@ -121,13 +134,15 @@ function toggleGroup(scope: CustomizationScope): void {
   else collapsed.add(scope);
 }
 
-function openFile(filePath: string | undefined): void {
-  if (!filePath) return;
-  previewStore.openPreview(filePath);
-  rightTabs.addTab("preview", {
-    filePath,
-    label: filePath.split(/[/\\]/).pop() || t.preview,
-  });
+function openItem(item: CustomizationItem): void {
+  if (!item.filePath) return;
+  emit("open", { filePath: item.filePath, name: item.name });
+}
+
+async function copyPath(item: CustomizationItem): Promise<void> {
+  if (!item.filePath) return;
+  await navigator.clipboard.writeText(item.filePath);
+  message.success(t.customizePathCopied);
 }
 
 async function onCreate(): Promise<void> {
@@ -136,7 +151,7 @@ async function onCreate(): Promise<void> {
   try {
     const { filePath } = await window.api.customizations.create(kind);
     emit("refresh");
-    openFile(filePath);
+    emit("open", { filePath, name: filePath.split(/[/\\]/).pop() ?? filePath });
   } catch (err) {
     message.error(err instanceof Error ? err.message : String(err));
   }
@@ -169,9 +184,14 @@ function canToggle(item: CustomizationItem): boolean {
   return props.kind === "plugins" && Boolean(item.source);
 }
 
+function canRemove(item: CustomizationItem): boolean {
+  if (props.kind === "skills") return Boolean(item.filePath);
+  return props.kind === "plugins" && Boolean(item.source);
+}
+
 function confirmRemove(item: CustomizationItem): void {
   dialog.warning({
-    title: t.customizeUninstall,
+    title: props.kind === "plugins" ? t.customizeUninstallPlugin : t.customizeUninstall,
     content: t.customizeUninstallConfirm(item.name),
     positiveText: t.customizeUninstall,
     negativeText: t.cancel,
@@ -194,9 +214,54 @@ function confirmRemove(item: CustomizationItem): void {
   });
 }
 
-function canRemove(item: CustomizationItem): boolean {
-  if (props.kind === "skills") return Boolean(item.filePath);
-  return props.kind === "plugins" && Boolean(item.source);
+function openContextMenu(event: MouseEvent, item: CustomizationItem): void {
+  event.preventDefault();
+  ctx.item = item;
+  ctx.x = event.clientX;
+  ctx.y = event.clientY;
+  ctx.show = true;
+}
+
+const ctxOptions = computed<DropdownOption[]>(() => {
+  const item = ctx.item;
+  if (!item) return [];
+  const options: DropdownOption[] = [
+    { label: t.customizeOpen, key: "open", disabled: !item.filePath },
+    { label: t.customizeCopyPath, key: "copy", disabled: !item.filePath },
+  ];
+  if (canToggle(item)) {
+    options.push({
+      label: item.enabled === false ? t.customizeEnable : t.customizeDisable,
+      key: "toggle",
+    });
+  }
+  if (canRemove(item)) {
+    options.push({
+      label: props.kind === "plugins" ? t.customizeUninstallPlugin : t.customizeUninstall,
+      key: "remove",
+    });
+  }
+  return options;
+});
+
+function onCtxSelect(key: string | number): void {
+  const item = ctx.item;
+  ctx.show = false;
+  if (!item) return;
+  switch (String(key)) {
+    case "open":
+      openItem(item);
+      break;
+    case "copy":
+      void copyPath(item);
+      break;
+    case "toggle":
+      void setEnabled(item, item.enabled === false);
+      break;
+    case "remove":
+      confirmRemove(item);
+      break;
+  }
 }
 </script>
 
@@ -252,7 +317,13 @@ function canRemove(item: CustomizationItem): boolean {
         </button>
 
         <template v-if="!collapsed.has(group.scope)">
-          <div v-for="item in group.items" :key="item.id" class="ai-customization-list-item">
+          <div
+            v-for="item in group.items"
+            :key="item.id"
+            class="ai-customization-list-item"
+            @click="openItem(item)"
+            @contextmenu="openContextMenu($event, item)"
+          >
             <div class="item-left">
               <div class="item-text">
                 <div class="item-name-row">
@@ -265,27 +336,21 @@ function canRemove(item: CustomizationItem): boolean {
               </div>
             </div>
             <div class="item-right">
-              <NSwitch
-                v-if="canToggle(item)"
-                size="small"
-                :value="item.enabled !== false"
-                @update:value="(value) => void setEnabled(item, value)"
-              />
               <button
                 v-if="item.filePath"
                 type="button"
                 class="item-action"
-                :title="t.customizeOpen"
-                @click="openFile(item.filePath)"
+                :title="t.customizeCopyPath"
+                @click.stop="copyPath(item)"
               >
-                <CodiconIcon name="open" :size="15" />
+                <CodiconIcon name="copy" :size="15" />
               </button>
               <button
                 v-if="canRemove(item)"
                 type="button"
                 class="item-action"
-                :title="t.customizeUninstall"
-                @click="confirmRemove(item)"
+                :title="kind === 'plugins' ? t.customizeUninstallPlugin : t.customizeUninstall"
+                @click.stop="confirmRemove(item)"
               >
                 <CodiconIcon name="remove" :size="15" />
               </button>
@@ -294,6 +359,17 @@ function canRemove(item: CustomizationItem): boolean {
         </template>
       </div>
     </div>
+
+    <NDropdown
+      placement="bottom-start"
+      trigger="manual"
+      :x="ctx.x"
+      :y="ctx.y"
+      :show="ctx.show"
+      :options="ctxOptions"
+      @clickoutside="ctx.show = false"
+      @select="onCtxSelect"
+    />
   </div>
 </template>
 
