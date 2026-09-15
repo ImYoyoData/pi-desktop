@@ -747,6 +747,19 @@ const api = {
 				scope,
 				cwd,
 			) as Promise<{ filePath: string }>,
+		setItemEnabled: (filePath: string, enabled: boolean, cwd?: string) =>
+			ipcRenderer.invoke(
+				IpcChannels.customizations.setItemEnabled,
+				filePath,
+				enabled,
+				cwd,
+			) as Promise<{ filePath: string }>,
+		removeItem: (filePath: string, cwd?: string) =>
+			ipcRenderer.invoke(
+				IpcChannels.customizations.removeItem,
+				filePath,
+				cwd,
+			) as Promise<{ filePath: string }>,
 		testMcpServers: (targets: McpTestTarget[]) =>
 			ipcRenderer.invoke(
 				IpcChannels.customizations.testMcpServers,
@@ -767,11 +780,12 @@ const api = {
 				}[];
 				diagnostics: string[];
 			}>,
-		setDisabled: (filePath: string, disableModelInvocation: boolean) =>
+		setDisabled: (filePath: string, disableModelInvocation: boolean, cwd?: string) =>
 			ipcRenderer.invoke(
 				IpcChannels.skills.setDisabled,
 				filePath,
 				disableModelInvocation,
+				cwd,
 			) as Promise<void>,
 		uninstall: (filePath: string, cwd?: string) =>
 			ipcRenderer.invoke(

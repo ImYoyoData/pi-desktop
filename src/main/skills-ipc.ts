@@ -4,7 +4,10 @@ import { listSkills, setSkillDisabled, uninstallSkill } from "./skills-host";
 import { listPlugins, removePlugin, setPluginEnabled, type PluginScope } from "./plugins-host";
 import { getWorkspace } from "./workspace-ipc";
 
-export function registerSkillsIpc(broker?: { restartWorkersForCwd: (cwd: string) => Promise<void> }): void {
+export function registerSkillsIpc(broker?: {
+  restartWorkersForCwd: (cwd: string) => Promise<void>;
+  notifyWorkersReloadResources?: (cwd: string) => Promise<void>;
+}): void {
   ipcMain.handle(IpcChannels.skills.list, async (_event, cwd?: string) => {
     const root = cwd || getWorkspace();
     if (!root) return { skills: [], diagnostics: ["open a workspace first"] };
@@ -13,14 +16,17 @@ export function registerSkillsIpc(broker?: { restartWorkersForCwd: (cwd: string)
 
   ipcMain.handle(
     IpcChannels.skills.setDisabled,
-    (_event, filePath: string, disableModelInvocation: boolean) => {
-      setSkillDisabled(filePath, disableModelInvocation);
+    async (_event, filePath: string, disableModelInvocation: boolean, cwd?: string) => {
+      await setSkillDisabled(filePath, disableModelInvocation);
+      const root = cwd || getWorkspace() || undefined;
+      if (root) await broker?.notifyWorkersReloadResources?.(root);
     },
   );
 
-  ipcMain.handle(IpcChannels.skills.uninstall, (_event, filePath: string, cwd?: string) => {
+  ipcMain.handle(IpcChannels.skills.uninstall, async (_event, filePath: string, cwd?: string) => {
     const root = cwd || getWorkspace() || undefined;
-    uninstallSkill(filePath, root);
+    await uninstallSkill(filePath, root);
+    if (root) await broker?.notifyWorkersReloadResources?.(root);
   });
 
   ipcMain.handle(IpcChannels.plugins.list, async (_event, cwd?: string) => {

@@ -185,7 +185,27 @@ function pluginScope(item: CustomizationItem): "global" | "project" {
 async function setEnabled(item: CustomizationItem, enabled: boolean): Promise<void> {
   try {
     if (props.kind === "skills" && item.filePath) {
-      await window.api.skills.setDisabled(item.filePath, !enabled);
+      // 先本地生效，写入失败再回滚，避免列表整表刷新。
+      store.setSkillEnabled(item.id, enabled);
+      try {
+        await window.api.skills.setDisabled(
+          item.filePath,
+          !enabled,
+          workspace.root ?? undefined,
+        );
+      } catch (err) {
+        store.setSkillEnabled(item.id, !enabled);
+        throw err;
+      }
+      return;
+    } else if ((props.kind === "agents" || props.kind === "prompts") && item.filePath) {
+      const { filePath } = await window.api.customizations.setItemEnabled(
+        item.filePath,
+        enabled,
+        workspace.root ?? undefined,
+      );
+      store.setFileItemEnabled(props.kind, item.id, enabled, filePath);
+      return;
     } else if (props.kind === "plugins" && item.source) {
       // 先本地生效，写入失败再回滚，避免列表整表刷新。
       store.setPluginEnabled(item.id, enabled);
@@ -223,9 +243,15 @@ async function setEnabled(item: CustomizationItem, enabled: boolean): Promise<vo
   }
 }
 
+/** 用户级与工作区级的智能体/提示文件可启停、可删除。 */
+function isEditableItem(item: CustomizationItem): boolean {
+  return (item.scope === "user" || item.scope === "project") && Boolean(item.filePath);
+}
+
 function canToggle(item: CustomizationItem): boolean {
   if (props.kind === "skills") return Boolean(item.filePath) && item.enabled !== undefined;
   if (props.kind === "mcp") return item.enabled !== undefined;
+  if (props.kind === "agents" || props.kind === "prompts") return isEditableItem(item);
   return props.kind === "plugins" && Boolean(item.source);
 }
 
@@ -336,11 +362,13 @@ function testBadge(item: CustomizationItem): { text: string; className: string }
 function canRemove(item: CustomizationItem): boolean {
   if (props.kind === "skills") return Boolean(item.filePath);
   if (props.kind === "mcp") return true;
+  if (props.kind === "agents" || props.kind === "prompts") return isEditableItem(item);
   return props.kind === "plugins" && Boolean(item.source);
 }
 
 function removeLabel(): string {
   if (props.kind === "mcp") return t.customizeMcpRemove;
+  if (props.kind === "agents" || props.kind === "prompts") return t.customizeDelete;
   return props.kind === "plugins" ? t.customizeUninstallPlugin : t.customizeUninstall;
 }
 
@@ -350,13 +378,24 @@ function confirmRemove(item: CustomizationItem): void {
     content:
       props.kind === "mcp"
         ? t.customizeMcpRemoveConfirm(item.name)
-        : t.customizeUninstallConfirm(item.name),
+        : props.kind === "agents" || props.kind === "prompts"
+          ? t.customizeDeleteConfirm(item.name)
+          : t.customizeUninstallConfirm(item.name),
     positiveText: removeLabel(),
     negativeText: t.cancel,
     onPositiveClick: async () => {
       try {
         if (props.kind === "skills" && item.filePath) {
           await window.api.skills.uninstall(item.filePath, workspace.root ?? undefined);
+          store.removeFileItem(props.kind, item.id);
+          return;
+        } else if ((props.kind === "agents" || props.kind === "prompts") && item.filePath) {
+          await window.api.customizations.removeItem(
+            item.filePath,
+            workspace.root ?? undefined,
+          );
+          store.removeFileItem(props.kind, item.id);
+          return;
         } else if (props.kind === "plugins" && item.source) {
           await window.api.plugins.remove(
             item.source,
@@ -385,15 +424,6 @@ function openContextMenu(event: MouseEvent, item: CustomizationItem): void {
   ctx.item = item;
   ctx.x = event.clientX;
   ctx.y = event.clientY;
-  ctx.show = true;
-}
-
-/** 左键菜单：以按钮位置为锚点弹出与右键一致的菜单。 */
-function openItemMenu(event: MouseEvent, item: CustomizationItem): void {
-  const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
-  ctx.item = item;
-  ctx.x = rect.left;
-  ctx.y = rect.bottom + 4;
   ctx.show = true;
 }
 
@@ -535,9 +565,12 @@ function onCtxSelect(key: string | number): void {
                 <div v-if="item.description" class="item-description">{{ item.description }}</div>
               </div>
             </div>
-            <div class="item-right" :class="{ 'item-right-pinned': kind === 'mcp' || kind === 'plugins' }">
+            <div
+              class="item-right"
+              :class="{ 'item-right-pinned': canToggle(item) }"
+            >
               <NSwitch
-                v-if="kind === 'mcp' && canToggle(item)"
+                v-if="canToggle(item)"
                 class="item-switch"
                 size="small"
                 :value="item.enabled !== false"
@@ -546,40 +579,13 @@ function onCtxSelect(key: string | number): void {
                 @update:value="(value: boolean) => setEnabled(item, value)"
               />
               <button
-                v-if="item.filePath && kind !== 'plugins'"
+                v-if="canRemove(item)"
                 type="button"
                 class="item-action"
-                :title="t.customizeCopyPath"
-                @click.stop="copyPath(item)"
-              >
-                <CodiconIcon name="copy" :size="15" />
-              </button>
-              <NSwitch
-                v-if="kind === 'plugins' && canToggle(item)"
-                class="item-switch"
-                size="small"
-                :value="item.enabled !== false"
-                :title="item.enabled === false ? t.customizeEnable : t.customizeDisable"
-                @click.stop
-                @update:value="(value: boolean) => setEnabled(item, value)"
-              />
-              <button
-                v-if="kind !== 'mcp' && canRemove(item)"
-                type="button"
-                class="item-action"
-                :title="kind === 'plugins' ? t.customizeUninstallPlugin : t.customizeUninstall"
+                :title="removeLabel()"
                 @click.stop="confirmRemove(item)"
               >
                 <CodiconIcon name="remove" :size="15" />
-              </button>
-              <button
-                v-if="kind === 'mcp'"
-                type="button"
-                class="item-action"
-                :title="t.customizeMoreActions"
-                @click.stop="openItemMenu($event, item)"
-              >
-                <CodiconIcon name="more" :size="15" />
               </button>
             </div>
           </div>
@@ -807,7 +813,7 @@ function onCtxSelect(key: string | number): void {
   transition: opacity 0.1s ease;
 }
 
-/* MCP 开关需常显，便于直接切换启停状态 */
+/* 带启停开关的行常显操作区，便于直接切换启停状态。 */
 .item-right-pinned {
   opacity: 1;
 }

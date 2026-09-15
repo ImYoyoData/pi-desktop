@@ -568,6 +568,12 @@ declare const api: {
 			scope: "user" | "project",
 			cwd?: string,
 		) => Promise<{ filePath: string }>;
+		setItemEnabled: (
+			filePath: string,
+			enabled: boolean,
+			cwd?: string,
+		) => Promise<{ filePath: string }>;
+		removeItem: (filePath: string, cwd?: string) => Promise<{ filePath: string }>;
 		testMcpServers: (targets: McpTestTarget[]) => Promise<McpTestResult[]>;
 	};
 	skills: {
@@ -586,6 +592,7 @@ declare const api: {
 		setDisabled: (
 			filePath: string,
 			disableModelInvocation: boolean,
+			cwd?: string,
 		) => Promise<void>;
 		uninstall: (filePath: string, cwd?: string) => Promise<void>;
 	};

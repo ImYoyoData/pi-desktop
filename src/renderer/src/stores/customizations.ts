@@ -55,5 +55,53 @@ export const useCustomizationsStore = defineStore("customizations", () => {
     };
   }
 
-  return { snapshot, loading, error, load, setMcpEnabled, removeMcp, setPluginEnabled };
+  /** 本地更新技能启用状态，避免重新加载整份快照。 */
+  function setSkillEnabled(id: string, enabled: boolean): void {
+    snapshot.value = {
+      ...snapshot.value,
+      skills: snapshot.value.skills.map((item) =>
+        item.id === id ? { ...item, enabled } : item,
+      ),
+    };
+  }
+
+  /** 本地更新智能体/提示的启停状态与重命名后的路径，避免重新加载整份快照。 */
+  function setFileItemEnabled(
+    kind: "agents" | "prompts",
+    id: string,
+    enabled: boolean,
+    filePath: string,
+  ): void {
+    const items = snapshot.value[kind].map((item) =>
+      item.id === id ? { ...item, id: filePath, filePath, enabled } : item,
+    );
+    snapshot.value =
+      kind === "agents"
+        ? { ...snapshot.value, agents: items }
+        : { ...snapshot.value, prompts: items };
+  }
+
+  /** 从本地快照中移除已删除的技能/智能体/提示。 */
+  function removeFileItem(kind: "skills" | "agents" | "prompts", id: string): void {
+    const items = snapshot.value[kind].filter((item) => item.id !== id);
+    snapshot.value =
+      kind === "skills"
+        ? { ...snapshot.value, skills: items }
+        : kind === "agents"
+          ? { ...snapshot.value, agents: items }
+          : { ...snapshot.value, prompts: items };
+  }
+
+  return {
+    snapshot,
+    loading,
+    error,
+    load,
+    setMcpEnabled,
+    removeMcp,
+    setPluginEnabled,
+    setSkillEnabled,
+    setFileItemEnabled,
+    removeFileItem,
+  };
 });
