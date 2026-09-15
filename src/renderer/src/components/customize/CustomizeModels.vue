@@ -2,6 +2,7 @@
 import { computed, onMounted, ref } from "vue";
 import {
   NButton,
+  NIcon,
   NInput,
   NInputNumber,
   NSelect,
@@ -10,7 +11,9 @@ import {
   useDialog,
   useMessage,
 } from "naive-ui";
+import { EyeOffOutline, EyeOutline } from "@vicons/ionicons5";
 import CodiconIcon from "@renderer/components/icons/CodiconIcon.vue";
+import ModelPickModal from "@renderer/components/customize/ModelPickModal.vue";
 import {
   CUSTOM_MODEL_APIS,
   emptyCustomProvider,
@@ -20,14 +23,16 @@ import {
   parseModelsConfigText,
   removeCustomProvider,
   renameCustomProvider,
-  shouldStoreApiKeyInModelsJson,
   stringifyModelsConfig,
   upsertCustomProvider,
   validateCustomProvider,
   type CustomModelEntry,
   type CustomProviderDraft,
 } from "../../../../shared/custom-models";
-import { normalizeProviderBaseUrl } from "../../../../shared/model-discover";
+import {
+  normalizeProviderBaseUrl,
+  type DiscoveredModel,
+} from "../../../../shared/model-discover";
 import { t } from "@renderer/i18n";
 
 const message = useMessage();
@@ -36,19 +41,22 @@ const dialog = useDialog();
 const loading = ref(true);
 const loadError = ref("");
 const modelsText = ref("");
-const apiKeyConfigured = ref<Record<string, boolean>>({});
 const providers = ref<CustomProviderDraft[]>([]);
 
 const selectedId = ref<string | null>(null);
 const isNew = ref(false);
 const draft = ref<CustomProviderDraft | null>(null);
 const savedDraft = ref<CustomProviderDraft | null>(null);
-/** 用户点了「清除密钥」：保存时从 models.json 与 auth.json 中一起移除。 */
-const clearingKey = ref(false);
+/** API Key 默认以等长 * 掩码展示，点眼睛才显示明文。 */
+const keyVisible = ref(false);
 const saving = ref(false);
 const discovering = ref(false);
 const testing = ref(false);
 const formError = ref("");
+
+/** 「拉取模型」结果弹窗：手动勾选后再合并进模型列表。 */
+const pickOpen = ref(false);
+const pickRows = ref<DiscoveredModel[]>([]);
 
 /** 模型行用稳定 key，删除行时不串输入框。 */
 const modelRowKeys = ref<string[]>([]);
@@ -61,13 +69,14 @@ const dirty = computed(() => {
   return JSON.stringify(draft.value) !== JSON.stringify(savedDraft.value);
 });
 
-const keySaved = computed(() => {
-  const id = selectedId.value ?? draft.value?.id.trim() ?? "";
-  return Boolean(id) && apiKeyConfigured.value[id] === true;
-});
+const keyMasked = computed(() => "*".repeat(draft.value?.apiKey.length ?? 0));
 
 const modelCount = computed(
   () => draft.value?.models.filter((model) => model.id.trim()).length ?? 0,
+);
+
+const existingModelIds = computed(
+  () => draft.value?.models.map((model) => model.id.trim()).filter(Boolean) ?? [],
 );
 
 onMounted(() => {
@@ -93,7 +102,6 @@ async function load(preferId?: string | null): Promise<void> {
   try {
     const data = await window.api.models.get();
     modelsText.value = data.modelsText;
-    apiKeyConfigured.value = data.apiKeyConfigured;
     providers.value = listEditableProviders(parseModelsConfigText(data.modelsText));
     const nextId =
       (preferId && providers.value.some((p) => p.id === preferId) ? preferId : null) ??
@@ -114,7 +122,7 @@ async function load(preferId?: string | null): Promise<void> {
 function clearDraft(): void {
   selectedId.value = null;
   isNew.value = false;
-  clearingKey.value = false;
+  keyVisible.value = false;
   formError.value = "";
   draft.value = null;
   savedDraft.value = null;
@@ -126,7 +134,7 @@ function selectProvider(id: string): void {
   if (!row) return;
   selectedId.value = id;
   isNew.value = false;
-  clearingKey.value = false;
+  keyVisible.value = false;
   formError.value = "";
   draft.value = cloneDraft(row);
   savedDraft.value = cloneDraft(row);
@@ -137,7 +145,7 @@ function beginAdd(): void {
   const blank = emptyCustomProvider({ baseUrl: "" });
   selectedId.value = null;
   isNew.value = true;
-  clearingKey.value = false;
+  keyVisible.value = false;
   formError.value = "";
   draft.value = cloneDraft(blank);
   savedDraft.value = cloneDraft(blank);
@@ -172,7 +180,7 @@ function resetDraft(): void {
   if (!draft.value || !savedDraft.value) return;
   const count = savedDraft.value.models.length;
   draft.value = cloneDraft(savedDraft.value);
-  clearingKey.value = false;
+  keyVisible.value = false;
   formError.value = "";
   resetRowKeys(count);
 }
@@ -203,29 +211,9 @@ function setModelNumber(
   else model[key] = Math.floor(value);
 }
 
-/** XHigh / Max 默认开启（不写 false 即落成映射），开关仅控制是否关闭。 */
-function isThinkingLevelOn(model: CustomModelEntry, key: "thinkingXhigh" | "thinkingMax"): boolean {
-  return model[key] !== false;
-}
-
-function setThinkingLevel(
-  model: CustomModelEntry,
-  key: "thinkingXhigh" | "thinkingMax",
-  value: boolean,
-): void {
-  model[key] = value ? undefined : false;
-}
-
 function onApiKeyInput(value: string): void {
   if (!draft.value) return;
   draft.value.apiKey = value;
-  if (value.trim()) clearingKey.value = false;
-}
-
-function onClearKey(): void {
-  if (!draft.value) return;
-  draft.value.apiKey = "";
-  clearingKey.value = true;
 }
 
 function setCompat(
@@ -279,9 +267,6 @@ async function save(): Promise<void> {
     return;
   }
   const id = current.id.trim();
-  const key = current.apiKey.trim();
-  const inlineKey = shouldStoreApiKeyInModelsJson(key, current.baseUrl);
-  const wasKeyCleared = clearingKey.value;
   saving.value = true;
   try {
     const doc = parseModelsConfigText(modelsText.value);
@@ -294,16 +279,15 @@ async function save(): Promise<void> {
       message.error(invalid);
       return;
     }
+    const previousId = isNew.value ? "" : (selectedId.value ?? id).trim();
     const next = isNew.value
-      ? upsertCustomProvider(doc, current, { omitApiKey: wasKeyCleared })
-      : renameCustomProvider(doc, selectedId.value ?? id, current, {
-          omitApiKey: wasKeyCleared,
-        });
+      ? upsertCustomProvider(doc, current)
+      : renameCustomProvider(doc, previousId, current);
     await window.api.models.set({
       modelsText: stringifyModelsConfig(next),
-      ...(key && !inlineKey ? { apiKeys: { [id]: key } } : {}),
+      // 旧 auth.json 凭据优先于 models.json，同名条目必须一并清除。
+      clearAuth: [...new Set([id, previousId].filter(Boolean))],
     });
-    if (wasKeyCleared) await window.api.models.clearKey(id);
     await load(id);
     formError.value = "";
     message.success(t.modelsCustomSaved);
@@ -330,8 +314,10 @@ function confirmDelete(): void {
       try {
         const doc = parseModelsConfigText(modelsText.value);
         const next = removeCustomProvider(doc, id);
-        await window.api.models.set({ modelsText: stringifyModelsConfig(next) });
-        await window.api.models.clearKey(id);
+        await window.api.models.set({
+          modelsText: stringifyModelsConfig(next),
+          clearAuth: [id],
+        });
         selectedId.value = null;
         await load(null);
         message.success(t.modelsCustomDeleted);
@@ -356,12 +342,10 @@ async function discover(): Promise<void> {
       baseUrl: current.baseUrl,
       apiKey: current.apiKey.trim() || undefined,
       api: current.api,
-      providerId: current.id.trim() || undefined,
     });
     if (result.ok && result.models.length) {
-      current.models = mergeDiscoveredIntoDraft(current.models, result.models);
-      resetRowKeys(current.models.length);
-      message.success(t.modelsCustomDiscoverOk(result.models.length));
+      pickRows.value = result.models;
+      pickOpen.value = true;
     } else if (result.ok) {
       message.warning(t.modelsCustomDiscoverEmpty);
     } else {
@@ -372,6 +356,15 @@ async function discover(): Promise<void> {
   } finally {
     discovering.value = false;
   }
+}
+
+function applyPickedModels(picked: DiscoveredModel[]): void {
+  const current = draft.value;
+  if (!current || !picked.length) return;
+  current.models = mergeDiscoveredIntoDraft(current.models, picked);
+  resetRowKeys(current.models.length);
+  pickOpen.value = false;
+  message.success(t.modelsCustomDiscoverOk(picked.length));
 }
 
 async function testConnection(): Promise<void> {
@@ -514,27 +507,28 @@ async function testConnection(): Promise<void> {
 
               <div class="field">
                 <label class="field-label">{{ t.modelsCustomApiKey }}</label>
-                <div class="field-control key-control">
+                <div class="field-control">
                   <NInput
-                    :value="draft.apiKey"
+                    :value="keyVisible ? draft.apiKey : keyMasked"
                     size="small"
-                    type="password"
-                    show-password-on="click"
-                    :placeholder="
-                      keySaved && !clearingKey
-                        ? t.modelsCustomApiKeySaved
-                        : t.modelsCustomApiKeyPlaceholder
-                    "
+                    :readonly="!keyVisible"
+                    :placeholder="t.modelsCustomApiKeyPlaceholder"
                     @update:value="onApiKeyInput"
-                  />
-                  <NButton
-                    v-if="keySaved || draft.apiKey"
-                    size="small"
-                    secondary
-                    @click="onClearKey"
                   >
-                    {{ t.modelsCustomKeyClear }}
-                  </NButton>
+                    <template #suffix>
+                      <button
+                        type="button"
+                        class="key-eye"
+                        :title="keyVisible ? t.modelsCustomKeyHide : t.modelsCustomKeyShow"
+                        @click="keyVisible = !keyVisible"
+                      >
+                        <NIcon
+                          :component="keyVisible ? EyeOffOutline : EyeOutline"
+                          :size="14"
+                        />
+                      </button>
+                    </template>
+                  </NInput>
                 </div>
               </div>
 
@@ -642,28 +636,6 @@ async function testConnection(): Promise<void> {
                       />
                       <span>{{ t.modelsCustomVision }}</span>
                     </label>
-                    <template v-if="model.reasoning">
-                      <label class="cap-toggle" :title="t.modelsCustomThinkingHint">
-                        <NSwitch
-                          size="small"
-                          :value="isThinkingLevelOn(model, 'thinkingXhigh')"
-                          @update:value="
-                            (value: boolean) => setThinkingLevel(model, 'thinkingXhigh', value)
-                          "
-                        />
-                        <span>{{ t.modelsCustomThinkingXhigh }}</span>
-                      </label>
-                      <label class="cap-toggle" :title="t.modelsCustomThinkingHint">
-                        <NSwitch
-                          size="small"
-                          :value="isThinkingLevelOn(model, 'thinkingMax')"
-                          @update:value="
-                            (value: boolean) => setThinkingLevel(model, 'thinkingMax', value)
-                          "
-                        />
-                        <span>{{ t.modelsCustomThinkingMax }}</span>
-                      </label>
-                    </template>
                   </div>
                 </div>
               </div>
@@ -693,6 +665,14 @@ async function testConnection(): Promise<void> {
         </template>
       </section>
     </div>
+
+    <ModelPickModal
+      :show="pickOpen"
+      :models="pickRows"
+      :existing-ids="existingModelIds"
+      @close="pickOpen = false"
+      @confirm="applyPickedModels"
+    />
   </div>
 </template>
 
@@ -906,15 +886,23 @@ async function testConnection(): Promise<void> {
   min-width: 0;
 }
 
-.key-control {
-  display: flex;
+.key-eye {
+  display: inline-flex;
   align-items: center;
-  gap: 8px;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: none;
+  border-radius: 3px;
+  background: transparent;
+  color: var(--fg-muted);
+  cursor: pointer;
 }
 
-.key-control > :first-child {
-  flex: 1;
-  min-width: 0;
+.key-eye:hover {
+  background: var(--bg-active);
+  color: var(--fg);
 }
 
 .field-hint {

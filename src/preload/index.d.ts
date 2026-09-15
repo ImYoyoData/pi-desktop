@@ -664,7 +664,6 @@ declare const api: {
 			baseUrl: string;
 			apiKey?: string;
 			api?: string;
-			providerId?: string;
 		}) => Promise<DiscoverModelsResult>;
 		testConnection: (payload: {
 			baseUrl: string;

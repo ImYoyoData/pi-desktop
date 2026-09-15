@@ -9,7 +9,6 @@ import {
   newModelEntry,
   parseBulkModelTokens,
   parseModelsConfigText,
-  shouldStoreApiKeyInModelsJson,
   stringifyModelsConfig,
   upsertCustomProvider,
   validateCustomProvider,
@@ -87,27 +86,21 @@ describe("custom-models helpers", () => {
     expect(models[0]?.cost).toEqual({ input: 0, output: 0, cacheRead: 0, cacheWrite: 0 });
     expect(models[0]?.thinkingLevelMap).toEqual({ off: null });
     expect(models[0]?.contextWindow).toBe(1_000_000);
-    // Remote secret must not be inlined into models.json
-    expect(parsed.providers.longcat.apiKey).toBeUndefined();
+    expect(parsed.providers.longcat.apiKey).toBe("sk-secret");
   });
 
-  it("keeps local placeholder keys in models.json", () => {
-    expect(shouldStoreApiKeyInModelsJson("ollama", "http://localhost:11434/v1")).toBe(true);
-    expect(shouldStoreApiKeyInModelsJson("$MY_KEY", "https://api.example.com/v1")).toBe(true);
-    expect(shouldStoreApiKeyInModelsJson("sk-live", "https://api.longcat.chat/openai/v1")).toBe(
-      false,
-    );
+  it("writes the API key into models.json", () => {
     const json = draftToProviderJson(
       emptyCustomProvider({
-        id: "ollama",
-        baseUrl: "http://localhost:11434/v1",
-        apiKey: "ollama",
+        id: "longcat",
+        baseUrl: "https://api.longcat.chat/openai/v1",
+        apiKey: "sk-live",
         supportsDeveloperRole: false,
         supportsReasoningEffort: false,
         models: [{ id: "m", name: "", reasoning: false }],
       }),
     );
-    expect(json.apiKey).toBe("ollama");
+    expect(json.apiKey).toBe("sk-live");
   });
 
   it("validates required fields", () => {
