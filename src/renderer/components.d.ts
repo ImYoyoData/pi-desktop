@@ -28,6 +28,7 @@ declare module 'vue' {
     ChatPanel: typeof import('./src/components/ChatPanel.vue')['default']
     CitationCard: typeof import('./src/components/CitationCard.vue')['default']
     CloseGuard: typeof import('./src/components/CloseGuard.vue')['default']
+    CodiconIcon: typeof import('./src/components/icons/CodiconIcon.vue')['default']
     Composer: typeof import('./src/components/Composer.vue')['default']
     ComposerAtFileMenu: typeof import('./src/components/ComposerAtFileMenu.vue')['default']
     ComposerRichEditor: typeof import('./src/components/ComposerRichEditor.vue')['default']
