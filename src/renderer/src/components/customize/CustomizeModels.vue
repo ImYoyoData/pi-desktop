@@ -511,8 +511,8 @@ async function testConnection(): Promise<void> {
                   <NInput
                     :value="keyVisible ? draft.apiKey : keyMasked"
                     size="small"
-                    :readonly="!keyVisible"
                     :placeholder="t.modelsCustomApiKeyPlaceholder"
+                    @focus="keyVisible = true"
                     @update:value="onApiKeyInput"
                   >
                     <template #suffix>
