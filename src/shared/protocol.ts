@@ -202,6 +202,9 @@ export const IpcChannels = {
 		read: "preview:read",
 		write: "preview:write",
 		pickFile: "preview:pickFile",
+		watch: "preview:watch",
+		unwatch: "preview:unwatch",
+		changed: "preview:changed",
 	},
 	browser: {
 		startSelect: "browser:startSelect",

@@ -8,6 +8,8 @@ import MarkdownView from "@renderer/components/MarkdownView.vue";
 import { breadcrumbs, languageFromPath } from "@renderer/utils/editor-lang";
 import {
   absoluteWorkspacePath,
+  isAbsoluteFsPath,
+  isInsideWorkspace,
   normalizeFsPath,
   type FsChangedPayload,
 } from "@renderer/utils/fs-changed-bus";
@@ -71,6 +73,9 @@ let diskContent: string | null = null;
 let applyingExternal = false;
 /** 丢弃过期的读盘结果（外部连续写入时事件可能乱序返回）。 */
 let fsGen = 0;
+/** 工作区外文件需单独订阅：主进程目录 watcher 只覆盖工作区。 */
+let watchedExternalPath: string | null = null;
+let stopPreviewWatch: (() => void) | null = null;
 let unregisterVideo: (() => void) | undefined;
 let unregisterAudio: (() => void) | undefined;
 
@@ -521,50 +526,66 @@ async function applyDiskContentSilently(path: string, content: string): Promise<
   await refreshGitForFile(path);
 }
 
+/** 读盘比对后刷新编辑器：工作区内外的变更都走这里。 */
+function refreshFromDisk(path: string): void {
+  void (async () => {
+    const gen = ++fsGen;
+    const res = await window.api.preview.read(path);
+    if (gen !== fsGen) return;
+    if (res.kind === "error") {
+      missing.value = true;
+      syncTabMeta({ missing: true });
+      return;
+    }
+    if (missing.value) {
+      missing.value = false;
+      syncTabMeta({ missing: false });
+    }
+    if (res.kind !== "text" && res.kind !== "markdown") return;
+    if (diskContent !== null && diskContent === res.content) return;
+    // 自己的保存也会触发 fs watch —— 编辑器与磁盘一致时只同步状态
+    const editorValue = editor?.getValue() ?? liveContent.value;
+    if (editorValue === res.content) {
+      diskContent = res.content;
+      dirty.value = false;
+      syncTabMeta({ dirty: false });
+      return;
+    }
+    await applyDiskContentSilently(path, res.content);
+  })();
+}
+
 function onFsChanged(event: Event): void {
   const detail = (event as CustomEvent<FsChangedPayload>).detail;
-  if (!detail || !currentPath.value) return;
-  const target = normalizeFsPath(absoluteWorkspacePath(detail.root, currentPath.value));
+  const path = currentPath.value;
+  if (!detail || !path) return;
+  const target = normalizeFsPath(absoluteWorkspacePath(detail.root, path));
   const hit = detail.events.find(
     (e) => normalizeFsPath(absoluteWorkspacePath(detail.root, e.path)) === target,
   );
-  if (!hit) return;
-
-  if (hit.kind === "unlink") {
-    missing.value = true;
-    syncTabMeta({ missing: true });
-    return;
-  }
-
-  if (hit.kind === "add" || hit.kind === "change") {
-    void (async () => {
-      const path = currentPath.value!;
-      const gen = ++fsGen;
-      const res = await window.api.preview.read(path);
-      if (gen !== fsGen) return;
-      if (res.kind === "error") {
-        missing.value = true;
-        syncTabMeta({ missing: true });
-        return;
-      }
-      if (missing.value) {
-        missing.value = false;
-        syncTabMeta({ missing: false });
-      }
-      if (res.kind !== "text" && res.kind !== "markdown") return;
-      if (diskContent !== null && diskContent === res.content) return;
-      // 自己的保存也会触发 fs watch —— 编辑器与磁盘一致时只同步状态
-      const editorValue = editor?.getValue() ?? liveContent.value;
-      if (editorValue === res.content) {
-        diskContent = res.content;
-        dirty.value = false;
-        syncTabMeta({ dirty: false });
-        return;
-      }
-      await applyDiskContentSilently(path, res.content);
-    })();
-  }
+  if (hit) refreshFromDisk(path);
 }
+
+/** 工作区外文件不在全局 watcher 范围内，按标签页订阅其所在目录。 */
+function syncExternalFileWatch(): void {
+  const root = workspace.root ?? "";
+  const path = currentPath.value;
+  const next =
+    path && isAbsoluteFsPath(path) && !isInsideWorkspace(root, path) ? path : null;
+  if (next === watchedExternalPath) return;
+  if (watchedExternalPath) void window.api.preview.unwatch(watchedExternalPath);
+  watchedExternalPath = next;
+  if (next) void window.api.preview.watch(next);
+}
+
+function onExternalWatchChanged(payload: { paths: string[] }): void {
+  const path = currentPath.value;
+  if (!path || !payload?.paths?.length) return;
+  const target = normalizeFsPath(path);
+  if (payload.paths.some((p) => normalizeFsPath(p) === target)) refreshFromDisk(path);
+}
+
+watch(currentPath, () => syncExternalFileWatch());
 
 watch(
   () => props.filePath,
@@ -633,12 +654,19 @@ onMounted(() => {
     rightTabs.registerSaveHandler(props.tabId, save);
   }
   window.addEventListener("pi-fs-changed", onFsChanged);
+  stopPreviewWatch = window.api.preview.onChanged(onExternalWatchChanged);
   window.addEventListener("keydown", onPreviewKeydown, true);
 });
 
 onBeforeUnmount(() => {
   if (props.tabId) rightTabs.unregisterSaveHandler(props.tabId);
   window.removeEventListener("pi-fs-changed", onFsChanged);
+  stopPreviewWatch?.();
+  stopPreviewWatch = null;
+  if (watchedExternalPath) {
+    void window.api.preview.unwatch(watchedExternalPath);
+    watchedExternalPath = null;
+  }
   window.removeEventListener("keydown", onPreviewKeydown, true);
   if (selectionDebounce) clearTimeout(selectionDebounce);
   stopMedia();
