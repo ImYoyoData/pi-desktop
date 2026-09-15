@@ -5,8 +5,8 @@ import {
   ChevronDownOutline,
   ChevronForwardOutline,
   CreateOutline,
-  DocumentTextOutline,
 } from "@vicons/ionicons5";
+import { fileIcon } from "@renderer/utils/file-icon";
 import { usePreviewStore } from "@renderer/stores/preview";
 import { useRightTabsStore } from "@renderer/stores/right-tabs";
 import { useLayoutStore } from "@renderer/stores/layout";
@@ -30,6 +30,11 @@ const rightTabs = useRightTabsStore();
 const layout = useLayoutStore();
 
 const { files } = useSessionFileChanges();
+
+/** 行数据 + VS Code Seti 文件类型图标（与文件树、右侧 Changes 面板一致）。 */
+const rows = computed(() =>
+  files.value.map((f) => ({ ...f, icon: fileIcon(f.path) })),
+);
 
 const collapsed = ref(true);
 
@@ -114,18 +119,17 @@ function openFile(p: string): void {
       <div v-show="!collapsed" class="files-dock-body">
         <ul class="files-list" role="list">
           <li
-            v-for="f in files"
+            v-for="f in rows"
             :key="f.path"
             class="files-item"
             role="listitem"
             @click="openFile(f.path)"
           >
-            <NIcon
+            <span
               class="file-glyph"
-              :component="DocumentTextOutline"
-              :size="14"
+              :style="f.icon.color ? { color: f.icon.color } : undefined"
               aria-hidden="true"
-            />
+            >{{ f.icon.glyph }}</span>
             <span class="file-path" :title="f.path">{{ basename(f.path) }}</span>
             <span class="files-item-counts">
               <span v-if="f.additions" class="lines-added">+{{ f.additions }}</span>
@@ -254,8 +258,14 @@ function openFile(p: string): void {
   background: var(--chat-hover-bg, color-mix(in srgb, var(--fg) 5%, transparent));
 }
 
+/* VS Code Seti 主题图标 —— 主题字体声明的字号为 150% */
 .file-glyph {
   flex-shrink: 0;
+  width: 20px;
+  text-align: center;
+  font-family: "seti";
+  font-size: 150%;
+  line-height: 1;
   color: var(--chat-icon-fg, var(--fg-muted));
 }
 
