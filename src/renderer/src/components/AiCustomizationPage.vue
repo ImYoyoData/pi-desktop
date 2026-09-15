@@ -3,6 +3,7 @@ import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import { NModal, NSpin } from "naive-ui";
 import CodiconIcon from "@renderer/components/icons/CodiconIcon.vue";
 import AppearancePanel from "@renderer/components/AppearancePanel.vue";
+import AboutPanel from "@renderer/components/AboutPanel.vue";
 import CustomizeGeneral from "@renderer/components/customize/CustomizeGeneral.vue";
 import CustomizeSection from "@renderer/components/customize/CustomizeSection.vue";
 import CustomizeHooks from "@renderer/components/customize/CustomizeHooks.vue";
@@ -12,7 +13,6 @@ import NotifySettings from "@renderer/components/NotifySettings.vue";
 import AsrSettings from "@renderer/components/AsrSettings.vue";
 import SecuritySettings from "@renderer/components/SecuritySettings.vue";
 import ProxySettings from "@renderer/components/ProxySettings.vue";
-import AboutSettings from "@renderer/components/AboutSettings.vue";
 import ModelsSettings from "@renderer/components/ModelsSettings.vue";
 import MarketSettings from "@renderer/components/MarketSettings.vue";
 import LanConsoleSettings from "@renderer/components/LanConsoleSettings.vue";
@@ -40,6 +40,7 @@ const SECTIONS = [
   { id: "mcp", icon: "mcp", label: t.customizeMcp, description: t.customizeMcpDesc },
   { id: "plugins", icon: "plugins", label: t.customizePlugins, description: t.customizePluginsDesc },
   { id: "tools", icon: "tools", label: t.customizeTools, description: t.customizeToolsDesc },
+  { id: "about", icon: "about", label: t.aboutTitle, description: t.customizeAboutDesc },
 ] as const satisfies ReadonlyArray<{
   id: string;
   icon: CodiconName;
@@ -211,6 +212,8 @@ onUnmounted(() => {
 
         <AppearancePanel v-else-if="active === 'appearance'" />
 
+        <AboutPanel v-else-if="active === 'about'" />
+
         <CustomizeModels v-else-if="active === 'models'" @configure="modal = 'models'" />
 
         <CustomizeHooks v-else-if="active === 'hooks'" :hooks="store.snapshot.hooks" />
@@ -231,7 +234,6 @@ onUnmounted(() => {
     <AsrSettings :open="modal === 'voice'" @close="modal = null" />
     <SecuritySettings :open="modal === 'security'" @close="modal = null" />
     <ProxySettings :open="modal === 'proxy'" @close="modal = null" />
-    <AboutSettings :open="modal === 'about'" @close="modal = null" />
     <ModelsSettings :open="modal === 'models'" @close="modal = null" />
     <MarketSettings :open="modal === 'market'" @close="modal = null" />
     <NModal
