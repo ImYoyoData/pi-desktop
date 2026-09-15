@@ -2,7 +2,7 @@ import { ipcMain } from "electron";
 import { IpcChannels } from "../shared/protocol";
 import { emptyCustomizations, type CustomizationCreateKind, type McpTestResult, type McpTestTarget } from "../shared/customizations";
 import { getWorkspace } from "./workspace-ipc";
-import { createCustomization, listCustomizations, setMcpServerEnabled, addMcpServers, ensureMcpConfig, removeMcpServer, readMcpEntry } from "./customizations-host";
+import { createCustomization, listCustomizations, setMcpServerEnabled, addMcpServers, ensureMcpConfig, removeMcpServer, readMcpEntry, setCustomizationItemEnabled, removeCustomizationItem } from "./customizations-host";
 import { testMcpServer } from "./mcp-test";
 
 export function registerCustomizationsIpc(broker?: {
@@ -54,6 +54,26 @@ export function registerCustomizationsIpc(broker?: {
 			const root = cwd || getWorkspace();
 			if (scope === "project" && !root) throw new Error("workspace required");
 			const result = removeMcpServer(name, scope, root ?? undefined);
+			if (root) await broker?.notifyWorkersReloadResources(root);
+			return result;
+		},
+	);
+
+	ipcMain.handle(
+		IpcChannels.customizations.setItemEnabled,
+		async (_event, filePath: string, enabled: boolean, cwd?: string) => {
+			const root = cwd || getWorkspace() || undefined;
+			const result = setCustomizationItemEnabled(filePath, enabled, root);
+			if (root) await broker?.notifyWorkersReloadResources(root);
+			return result;
+		},
+	);
+
+	ipcMain.handle(
+		IpcChannels.customizations.removeItem,
+		async (_event, filePath: string, cwd?: string) => {
+			const root = cwd || getWorkspace() || undefined;
+			const result = removeCustomizationItem(filePath, root);
 			if (root) await broker?.notifyWorkersReloadResources(root);
 			return result;
 		},
