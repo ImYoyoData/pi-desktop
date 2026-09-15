@@ -889,13 +889,8 @@ export const en = {
 	revertTurnFail: (err: string) => `Revert failed: ${err}`,
 	restoreCheckpoint: "Restore checkpoint",
 	restoreCheckpointConfirm:
-		"This removes this turn and every later turn, undoes this turn's file edits, and puts the prompt back in the composer.",
-	restoreCheckpointDone: (files: number) =>
-		`Checkpoint restored: ${files} file(s) put back, chat rewound`,
-	restoreCheckpointChatOnly:
-		"Chat rewound — no file baseline is available for this turn, files were left as they are",
-	restoreCheckpointFilesSkipped: (err: string) =>
-		`Chat rewound, but files were not restored: ${err}`,
+		"This keeps this turn's Q&A and removes every later turn; files are left as they are.",
+	restoreCheckpointDone: "Rewound to the end of this turn",
 	restoreCheckpointFail: (err: string) => `Restore checkpoint failed: ${err}`,
 	turnMismatch: "the agent session is out of sync with this turn",
 	forkConversation: "Fork conversation",
