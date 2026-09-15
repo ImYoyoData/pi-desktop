@@ -1,8 +1,9 @@
 import { ipcMain } from "electron";
 import { IpcChannels } from "../shared/protocol";
-import { emptyCustomizations, type CustomizationCreateKind } from "../shared/customizations";
+import { emptyCustomizations, type CustomizationCreateKind, type McpTestResult, type McpTestTarget } from "../shared/customizations";
 import { getWorkspace } from "./workspace-ipc";
-import { createCustomization, listCustomizations, setMcpServerEnabled, addMcpServers, ensureMcpConfig, removeMcpServer } from "./customizations-host";
+import { createCustomization, listCustomizations, setMcpServerEnabled, addMcpServers, ensureMcpConfig, removeMcpServer, readMcpEntry } from "./customizations-host";
+import { testMcpServer } from "./mcp-test";
 
 export function registerCustomizationsIpc(broker?: {
 	notifyWorkersReloadResources: (cwd: string) => Promise<void>;
@@ -55,6 +56,26 @@ export function registerCustomizationsIpc(broker?: {
 			const result = removeMcpServer(name, scope, root ?? undefined);
 			if (root) await broker?.notifyWorkersReloadResources(root);
 			return result;
+		},
+	);
+
+	ipcMain.handle(
+		IpcChannels.customizations.testMcpServers,
+		async (_event, targets: McpTestTarget[]): Promise<McpTestResult[]> => {
+			const results: McpTestResult[] = [];
+			for (const target of targets) {
+				const entry = readMcpEntry(target.name, target.scope, target.workspace);
+				if (!entry) {
+					results.push({ ...target, ok: false, error: "server not found", durationMs: 0 });
+					continue;
+				}
+				if (entry.disabled === true) {
+					results.push({ ...target, ok: false, error: "disabled", durationMs: 0 });
+					continue;
+				}
+				results.push({ ...target, ...(await testMcpServer(entry)) });
+			}
+			return results;
 		},
 	);
 }

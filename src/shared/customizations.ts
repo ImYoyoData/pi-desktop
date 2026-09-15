@@ -39,6 +39,22 @@ export type CustomizationsSnapshot = {
 	diagnostics: string[];
 };
 
+/** MCP 可用性测试的输入目标。 */
+export type McpTestTarget = {
+	name: string;
+	scope: "user" | "project";
+	/** 项目级服务器对应的具体工作区路径。 */
+	workspace?: string;
+};
+
+export type McpTestResult = McpTestTarget & {
+	ok: boolean;
+	/** 服务器返回的工具数量（未获取到时为 undefined）。 */
+	toolCount?: number;
+	error?: string;
+	durationMs: number;
+};
+
 export function emptyCustomizations(root: string | null): CustomizationsSnapshot {
 	return {
 		root,

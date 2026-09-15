@@ -205,6 +205,21 @@ export function addMcpServers(
 	return { filePath: file, names };
 }
 
+/** 读取指定配置文件中某个 MCP 服务器的定义。 */
+export function readMcpEntry(
+	name: string,
+	scope: "user" | "project",
+	root?: string,
+): Record<string, unknown> | null {
+	try {
+		const raw = readMcpRaw(mcpConfigPath(scope, root));
+		const entry = mcpServersObject(raw)[name];
+		return isMcpEntry(entry) ? entry : null;
+	} catch {
+		return null;
+	}
+}
+
 /** 从配置文件中删除 MCP 服务器。 */
 export function removeMcpServer(
 	name: string,

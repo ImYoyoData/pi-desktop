@@ -103,6 +103,12 @@ export const zh = {
 	customizeMcpTargetRequired: "请填写命令或 URL",
 	customizeMcpJsonInvalid: "JSON 格式无效或未包含服务器定义",
 	customizeMcpSave: "保存",
+	customizeMcpTest: "测试",
+	customizeMcpTesting: "测试中…",
+	customizeMcpTestTimeout: "连接超时",
+	customizeMcpTestOk: (count: number | undefined, seconds: string) =>
+		count === undefined ? `可用 · ${seconds}s` : `可用 · ${count} 个工具 · ${seconds}s`,
+	customizeMcpTestFailed: (error: string) => `失败：${error}`,
 	customizeMcpRemove: "删除",
 	customizeMcpRemoveConfirm: (name: string) => `确定删除 MCP 服务器「${name}」？`,
 	customizeMoreActions: "更多操作",

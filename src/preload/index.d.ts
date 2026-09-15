@@ -12,7 +12,7 @@ import type {
 	TerminalShellOption,
 } from "../shared/protocol";
 import type { AgentRunEvent, AgentRunSnapshot } from "../shared/agent-runs";
-import type { CustomizationsSnapshot, CustomizationCreateKind } from "../shared/customizations";
+import type { CustomizationsSnapshot, CustomizationCreateKind, McpTestResult, McpTestTarget } from "../shared/customizations";
 import type {
 	ModelsGetResult,
 	ModelsSetPayload,
@@ -568,6 +568,7 @@ declare const api: {
 			scope: "user" | "project",
 			cwd?: string,
 		) => Promise<{ filePath: string }>;
+		testMcpServers: (targets: McpTestTarget[]) => Promise<McpTestResult[]>;
 	};
 	skills: {
 		list: (cwd?: string) => Promise<{
