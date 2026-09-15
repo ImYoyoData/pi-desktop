@@ -137,7 +137,6 @@ function onLocaleUpdate(v: string | number | null): void {
         @update:value="saveThinkingLanguage"
       >
         <NSpace>
-          <NRadioButton value="off">{{ t.thinkingLanguageOff }}</NRadioButton>
           <NRadioButton value="auto">{{ t.thinkingLanguageAuto }}</NRadioButton>
           <NRadioButton value="zh">{{ t.thinkingLanguageZh }}</NRadioButton>
           <NRadioButton value="en">English</NRadioButton>

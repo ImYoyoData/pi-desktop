@@ -2,12 +2,12 @@
  * 思考语言（移植 Reasonix 的 reasoning_language）：只约束可见思考/推理文本。
  *
  * 以临时用户消息块注入，不写入系统提示词，保持缓存前缀稳定；
- * auto 档按界面语言决定：中文界面注入中文块，英文界面不注入；off 档不注入。
+ * auto 档按界面语言决定：中文界面注入中文块，英文界面不注入。
  */
 
-export type ThinkingLanguage = "off" | "auto" | "zh" | "en";
+export type ThinkingLanguage = "auto" | "zh" | "en";
 
-export const THINKING_LANGUAGES: readonly ThinkingLanguage[] = ["off", "auto", "zh", "en"];
+export const THINKING_LANGUAGES: readonly ThinkingLanguage[] = ["auto", "zh", "en"];
 
 export type ThinkingLanguageSettings = {
   language: ThinkingLanguage;
@@ -29,17 +29,11 @@ Visible reasoning/thinking text preference: use English when the provider expose
 ${REASONING_LANGUAGE_CLOSE}`;
 
 export function isThinkingLanguage(value: unknown): value is ThinkingLanguage {
-  return value === "off" || value === "auto" || value === "zh" || value === "en";
+  return value === "auto" || value === "zh" || value === "en";
 }
 
 export function normalizeThinkingLanguage(value: unknown): ThinkingLanguage {
   switch (String(value ?? "").trim().toLowerCase()) {
-    case "off":
-    case "none":
-    case "disabled":
-    case "关闭":
-    case "关":
-      return "off";
     case "zh":
     case "cn":
     case "chinese":
@@ -61,18 +55,17 @@ export function parseThinkingLanguageSettings(raw: unknown): ThinkingLanguageSet
   return { language: normalizeThinkingLanguage((raw as { language?: unknown }).language) };
 }
 
-/** auto：中文界面注入中文，其余界面不注入；off：永不注入；显式档位直接返回。 */
+/** auto：中文界面注入中文，其余界面不注入；显式档位直接返回。 */
 export function resolveThinkingLanguage(
   setting: unknown,
   uiLocale: string,
 ): "zh" | "en" | null {
   const mode = normalizeThinkingLanguage(setting);
-  if (mode === "off") return null;
   if (mode !== "auto") return mode;
   return String(uiLocale ?? "").trim().toLowerCase().startsWith("zh") ? "zh" : null;
 }
 
-/** 可见思考语言指令块；off 或 auto+英文界面时返回空串。 */
+/** 可见思考语言指令块；auto + 英文界面时返回空串。 */
 export function thinkingLanguageBlock(setting: unknown, uiLocale: string): string {
   switch (resolveThinkingLanguage(setting, uiLocale)) {
     case "zh":
