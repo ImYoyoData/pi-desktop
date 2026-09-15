@@ -50,7 +50,7 @@ import type {
 	PiPackageInstallResult,
 	PiPackageListResult,
 	PiPackageType,
-	PluginUpdateInfo,
+	PluginVersionInfo,
 } from "../shared/pi-market";
 import type {
 	DesktopSecuritySettings,
@@ -846,7 +846,7 @@ const api = {
 			ipcRenderer.invoke(
 				IpcChannels.plugins.checkUpdates,
 				cwd,
-			) as Promise<PluginUpdateInfo[]>,
+			) as Promise<PluginVersionInfo[]>,
 		update: (source: string, scope: "global" | "project", cwd?: string) =>
 			ipcRenderer.invoke(
 				IpcChannels.plugins.update,
