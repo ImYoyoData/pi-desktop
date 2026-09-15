@@ -1,15 +1,25 @@
 import type * as Monaco from "monaco-editor";
 
-const DARK_THEME = "pi-2026-dark";
-const LIGHT_THEME = "pi-2026-light";
+export const MONACO_DARK_THEME = "pi-2026-dark";
+export const MONACO_LIGHT_THEME = "pi-2026-light";
 
-let defined = false;
+/**
+ * Tracks which monaco instances already have the themes registered.
+ * Monaco silently falls back to the built-in `vs` (white) theme when
+ * `setTheme` receives an unknown name, so registration must be guaranteed.
+ */
+const definedFor = new WeakSet<object>();
 
-/** Monaco themes are global — define once, then switch per mode. */
-function defineThemes(monaco: typeof Monaco): void {
-  monaco.editor.defineTheme(DARK_THEME, {
+export function monacoThemeName(dark: boolean): string {
+  return dark ? MONACO_DARK_THEME : MONACO_LIGHT_THEME;
+}
+
+export function defineMonacoThemes(monaco: typeof Monaco): void {
+  if (definedFor.has(monaco)) return;
+  monaco.editor.defineTheme(MONACO_DARK_THEME, {
     base: "vs-dark",
     inherit: true,
+    rules: [],
     colors: {
       "editor.background": "#121314",
       "editor.foreground": "#f5f6f7",
@@ -32,9 +42,10 @@ function defineThemes(monaco: typeof Monaco): void {
       "diffEditor.removedTextBackground": "#f470674d",
     },
   });
-  monaco.editor.defineTheme(LIGHT_THEME, {
+  monaco.editor.defineTheme(MONACO_LIGHT_THEME, {
     base: "vs",
     inherit: true,
+    rules: [],
     colors: {
       "editor.background": "#ffffff",
       "editor.foreground": "#202020",
@@ -55,13 +66,11 @@ function defineThemes(monaco: typeof Monaco): void {
       "diffEditor.removedTextBackground": "#ad070726",
     },
   });
+  definedFor.add(monaco);
 }
 
+/** Register (if needed) then activate the theme. Safe to call repeatedly. */
 export function applyMonacoColorTheme(monaco: typeof Monaco, dark: boolean): void {
-  if (!defined) {
-    defineThemes(monaco);
-    defined = true;
-  }
-  // Always set: editor construction options can reset the global theme.
-  monaco.editor.setTheme(dark ? DARK_THEME : LIGHT_THEME);
+  defineMonacoThemes(monaco);
+  monaco.editor.setTheme(monacoThemeName(dark));
 }
