@@ -6,7 +6,11 @@ import {
   NText,
 } from "naive-ui";
 import { ChatbubbleEllipsesOutline, CheckmarkCircle } from "@vicons/ionicons5";
-import type { AskUserAnswerDraft, AskUserQuestion } from "../../../shared/ask-user";
+import type {
+  AskUserAnswerDraft,
+  AskUserQuestion,
+  AskUserValidationError,
+} from "../../../shared/ask-user";
 import {
   ASK_USER_CUSTOM_OPTION_ID,
   formatAskUserAnswers,
@@ -126,11 +130,31 @@ function setCustom(q: AskUserQuestion, text: string): void {
   row.customText = text;
 }
 
-function needsCustomInput(q: AskUserQuestion): boolean {
+type CustomInputMode = "none" | "required" | "optional";
+
+function customInputMode(q: AskUserQuestion): CustomInputMode {
   const row = draft.value[q.id];
-  if (!row) return false;
+  if (!row) return "none";
   const selected = q.options.filter((o) => row.optionIds.includes(o.id));
-  return selected.some((o) => o.allowCustom);
+  if (selected.some((o) => o.id === ASK_USER_CUSTOM_OPTION_ID)) return "required";
+  return selected.some((o) => o.allowCustom) ? "optional" : "none";
+}
+
+function errorText(code: string): string {
+  switch (code as AskUserValidationError) {
+    case "missing-answer":
+      return t.askUserErrMissingAnswer;
+    case "cannot-skip":
+      return t.askUserErrCannotSkip;
+    case "select-one":
+      return t.askUserErrSelectOne;
+    case "invalid-option":
+      return t.askUserErrInvalidOption;
+    case "custom-required":
+      return t.askUserErrCustomRequired;
+    default:
+      return code;
+  }
 }
 
 function goPrev(): void {
@@ -259,11 +283,15 @@ function onCancelAsk(): void {
           </div>
 
           <VoiceTextField
-            v-if="needsCustomInput(currentQuestion) && !isSkipped(currentQuestion)"
+            v-if="customInputMode(currentQuestion) !== 'none' && !isSkipped(currentQuestion)"
             class="custom-input"
             :value="customModel(currentQuestion)"
             type="textarea"
-            :placeholder="t.askUserCustomPlaceholder"
+            :placeholder="
+              customInputMode(currentQuestion) === 'required'
+                ? t.askUserCustomPlaceholder
+                : t.askUserCustomOptionalPlaceholder
+            "
             :autosize="{ minRows: 2, maxRows: 4 }"
             round
             @update:value="(v) => setCustom(currentQuestion, v)"
@@ -284,7 +312,7 @@ function onCancelAsk(): void {
             {{ t.cancel }}
           </NButton>
           <NText v-if="validationError" type="error" class="err">
-            {{ validationError }}
+            {{ errorText(validationError) }}
           </NText>
         </div>
         <div class="foot-actions">

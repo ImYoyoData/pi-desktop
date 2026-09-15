@@ -33,8 +33,9 @@ Behavior:
 - The UI blocks until the user answers and submits once.
 - **Users can and often will skip questions** — questions default to skippable. Expect skipped answers and never re-ask them on your own.
 - For \`single\` / \`multi\`, Desktop always offers a free-text “custom input” option (you may also set \`allowCustom\` yourself).
-- An option of **any** type (\`single\` / \`multi\` / \`buttons\`) may set \`allowCustom: true\`; when selected, a free-text box appears for the user’s input.
+- An option of **any** type (\`single\` / \`multi\` / \`buttons\`) may set \`allowCustom: true\`; when selected, an optional free-text box appears for the user’s input.
 - In plan/task confirm dialogs, mark the “adjust/revise” option \`allowCustom: true\` so the user can type adjustment instructions. Keep those gates \`skippable: false\` when confirmation is mandatory.
+- Options with \`allowCustom: true\` only offer an optional detail box; the desktop-provided “custom input” row is the one that requires text.
 - Option \`label\`s are plain text — no emoji, icons, or decorative symbols.
 - Do **not** invent answers or continue as if defaults were chosen — wait for the tool result.
 - The tool result text starts with \`[ask_user answers]\` and lists every question; skipped ones are marked \`→ [skipped]\`. Proceed with what you have or state what is missing.
