@@ -226,22 +226,45 @@ function canToggle(item: CustomizationItem): boolean {
   return props.kind === "plugins" && Boolean(item.source);
 }
 
+/** 可选工作区：最近工作区 + 当前工作区（去重）。 */
+const mcpWorkspaces = computed(() => {
+  const paths = [...workspace.recent];
+  const root = workspace.root?.trim();
+  if (root && !paths.some((p) => p.toLowerCase() === root.toLowerCase())) {
+    paths.push(root);
+  }
+  return paths;
+});
+
+function baseName(target: string): string {
+  return target.split(/[\\/]/).filter(Boolean).pop() ?? target;
+}
+
+/** 工作区重名时显示完整路径以便区分。 */
+function workspaceLabel(target: string): string {
+  const base = baseName(target);
+  const duplicated = mcpWorkspaces.value.filter((p) => baseName(p) === base).length > 1;
+  return duplicated ? target : base;
+}
+
 const editConfigOptions = computed<DropdownOption[]>(() => [
   { label: t.customizeGroupUser, key: "user" },
-  { label: t.customizeGroupProject, key: "project", disabled: !workspace.root },
+  ...mcpWorkspaces.value.map((target) => ({ label: workspaceLabel(target), key: `project:${target}` })),
 ]);
 
 /** 打开 MCP 配置文件供手动编辑，不存在时由主进程写入空骨架。 */
 async function onEditConfigSelect(key: string | number): Promise<void> {
-  const scope = key === "project" ? "project" : "user";
-  if (scope === "project" && !workspace.root) {
+  const raw = String(key);
+  const isProject = raw.startsWith("project:");
+  const target = isProject ? raw.slice("project:".length) : "";
+  if (isProject && !target) {
     message.error(t.slashNeedWorkspace);
     return;
   }
   try {
     const { filePath } = await window.api.customizations.ensureMcpConfig(
-      scope,
-      workspace.root ?? undefined,
+      isProject ? "project" : "user",
+      isProject ? target : undefined,
     );
     emit("open", { filePath, name: filePath.split(/[/\\]/).pop() ?? "mcp.json" });
   } catch (err) {
@@ -503,7 +526,7 @@ function onCtxSelect(key: string | number): void {
 
     <McpAddModal
       :show="addOpen"
-      :project-root="workspace.root ?? null"
+      :workspaces="mcpWorkspaces"
       @close="addOpen = false"
       @added="onMcpAdded"
     />
