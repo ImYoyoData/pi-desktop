@@ -17,7 +17,6 @@ import {
   ContractOutline,
   DocumentOutline,
   ExpandOutline,
-  FlashOutline,
   MicOutline,
   SendOutline,
   StopOutline,
@@ -2609,9 +2608,6 @@ watch(
               :disabled="voiceActive || voicePending"
               :title="t.thinkingLevel"
             >
-              <template #icon>
-                <NIcon :component="FlashOutline" :size="14" />
-              </template>
               <span class="think-label">{{ thinkingLabel }}</span>
             </NButton>
           </NDropdown>
@@ -3254,7 +3250,6 @@ watch(
   display: inline-block;
   white-space: nowrap;
   font-size: 11px;
-  margin-left: 1px;
 }
 
 .session-stats {
@@ -3508,10 +3503,6 @@ watch(
   }
 
   .model-label {
-    display: none;
-  }
-
-  .think-label {
     display: none;
   }
 
