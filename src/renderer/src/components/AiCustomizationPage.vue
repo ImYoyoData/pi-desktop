@@ -509,7 +509,7 @@ onUnmounted(() => {
 
 .content-error {
   margin: 0;
-  color: #e5484d;
+  color: var(--error);
   font-size: 12px;
 }
 

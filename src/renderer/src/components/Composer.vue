@@ -1237,11 +1237,11 @@ const SEGMENT_META: Record<
   ContextUsageSegmentId,
   { color: string; label: () => string }
 > = {
-  system: { color: "#8b8b8b", label: () => t.contextUsageSegSystem },
-  tools: { color: "#a855f7", label: () => t.contextUsageSegTools },
-  summarized: { color: "#b91c1c", label: () => t.contextUsageSegSummarized },
-  conversation: { color: "#ef4444", label: () => t.contextUsageSegConversation },
-  toolResults: { color: "#db2777", label: () => t.contextUsageSegToolResults },
+  system: { color: "var(--ctx-system)", label: () => t.contextUsageSegSystem },
+  tools: { color: "var(--ctx-tools)", label: () => t.contextUsageSegTools },
+  summarized: { color: "var(--ctx-summarized)", label: () => t.contextUsageSegSummarized },
+  conversation: { color: "var(--ctx-conversation)", label: () => t.contextUsageSegConversation },
+  toolResults: { color: "var(--ctx-tool-results)", label: () => t.contextUsageSegToolResults },
 };
 
 const ctxPopoverShow = ref(false);
@@ -1317,7 +1317,7 @@ const contextSegments = computed(() => {
       id: s.id,
       tokens: s.tokens,
       label: meta?.label() ?? s.id,
-      color: meta?.color ?? "#888",
+      color: meta?.color ?? "var(--fg-faint)",
       widthPct: Math.max(0.4, (s.tokens / window) * 100),
       tokensLabel: formatTokens(s.tokens),
     };
@@ -2882,9 +2882,9 @@ watch(
   position: relative;
   width: 100%;
   max-width: none;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg, 14px);
-  background: var(--tool-bg, #f5f6f7);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-lg, 8px);
+  background: var(--bg-input);
   box-shadow: none;
   padding: 6px 8px 6px;
   min-width: 0;
@@ -2956,7 +2956,7 @@ watch(
   min-width: 0;
   padding: 6px 28px 6px 8px;
   cursor: text;
-  border-radius: 8px;
+  border-radius: 4px;
   background: transparent;
 }
 
@@ -2988,7 +2988,7 @@ watch(
   overflow: hidden;
   background: var(--bg-elevated, #fff);
   border-top: 1px solid color-mix(in srgb, var(--border, #e5e7eb) 55%, transparent);
-  border-radius: 0 0 calc(var(--radius-lg, 14px) - 6px) calc(var(--radius-lg, 14px) - 6px);
+  border-radius: 0 0 calc(var(--radius-lg, 8px) - 6px) calc(var(--radius-lg, 8px) - 6px);
 }
 
 .voice-row .voice-attach {
@@ -2998,8 +2998,8 @@ watch(
   min-width: 22px;
   min-height: 22px;
   padding: 0;
-  color: #9aa0a6;
-  background: rgba(0, 0, 0, 0.05);
+  color: var(--fg-faint);
+  background: var(--bg-hover);
 }
 
 .voice-row .voice-attach :deep(.n-icon) {
@@ -3008,18 +3008,12 @@ watch(
 
 .voice-row .voice-attach:disabled {
   opacity: 1;
-  color: #9aa0a6;
+  color: var(--fg-faint);
 }
 
 .voice-row :deep(.voice-bar) {
   flex: 1;
   min-width: 0;
-}
-
-:root.dark .voice-row .voice-attach,
-.dark .voice-row .voice-attach {
-  background: rgba(255, 255, 255, 0.08);
-  color: #9aa0a6;
 }
 
 .image-attachments {
@@ -3034,7 +3028,7 @@ watch(
   position: relative;
   width: 56px;
   height: 56px;
-  border-radius: 8px;
+  border-radius: 4px;
   overflow: hidden;
   border: 1px solid var(--border-strong, var(--border));
   background: var(--bg-panel);
@@ -3126,8 +3120,8 @@ watch(
 }
 
 .mic-btn.recording {
-  color: #ef4444;
-  background: rgba(239, 68, 68, 0.12);
+  color: var(--error);
+  background: color-mix(in srgb, var(--error) 12%, transparent);
   animation: mic-pulse 1.2s ease-in-out infinite;
 }
 
@@ -3197,7 +3191,7 @@ watch(
   max-width: min(360px, 92vw);
   padding: 6px;
   border: 1px solid color-mix(in srgb, var(--border, #ddd) 80%, transparent);
-  border-radius: 14px;
+  border-radius: 6px;
   background: color-mix(in srgb, var(--bg-panel, var(--bg-elevated, #fff)) 96%, transparent);
   box-shadow: 0 10px 28px color-mix(in srgb, #000 16%, transparent);
   backdrop-filter: blur(10px);
@@ -3211,7 +3205,7 @@ watch(
   margin: 0;
   padding: 8px 10px;
   border: none;
-  border-radius: 10px;
+  border-radius: 6px;
   background: transparent;
   color: inherit;
   text-align: left;
@@ -3321,18 +3315,6 @@ watch(
   flex-shrink: 0;
 }
 
-:root.dark .ss-item strong {
-  color: #e6edf3;
-}
-
-:root.dark .ss-label {
-  color: #8b949e;
-}
-
-:root.dark .ss-sep {
-  background: color-mix(in srgb, #30363d 70%, transparent);
-}
-
 .ctx-meter {
   display: inline-grid;
   place-items: center;
@@ -3361,28 +3343,28 @@ watch(
 }
 
 .ctx-ring-track {
-  stroke: rgba(0, 0, 0, 0.12);
+  stroke: var(--border-strong);
 }
 
 .ctx-ring-fill {
-  stroke: #5c5c5c;
+  stroke: var(--fg-muted);
   transition: stroke-dashoffset 0.2s ease;
 }
 
 .ctx-ok .ctx-ring-fill {
-  stroke: #5c5c5c;
+  stroke: var(--fg-muted);
 }
 
 .ctx-warn .ctx-ring-fill {
-  stroke: #d97706;
+  stroke: var(--warning);
 }
 
 .ctx-danger .ctx-ring-fill {
-  stroke: #dc2626;
+  stroke: var(--error);
 }
 
 .ctx-muted .ctx-ring-fill {
-  stroke: #8a8a8a;
+  stroke: var(--fg-faint);
 }
 
 .ctx-popover {
@@ -3442,7 +3424,7 @@ watch(
 }
 
 .ctx-bar-seg.free {
-  background: color-mix(in srgb, var(--bg-elevated, #f4f4f5) 70%, #d4d4d8);
+  background: color-mix(in srgb, var(--bg-elevated) 70%, var(--border-strong));
   flex-shrink: 1;
   min-width: 0;
 }

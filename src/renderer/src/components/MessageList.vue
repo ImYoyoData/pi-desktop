@@ -2676,7 +2676,7 @@ function onRevertUser(msg: Extract<ChatMessage, { role: "user" }>): void {
 
 .bubble {
   padding: 9px 13px;
-  border-radius: var(--radius-md, 11px);
+  border-radius: var(--radius-md, 6px);
   font-size: 16px;
   line-height: 1.6;
   word-break: break-word;
@@ -2691,7 +2691,7 @@ function onRevertUser(msg: Extract<ChatMessage, { role: "user" }>): void {
   max-width: 100%;
   box-sizing: border-box;
   padding: 10px 16px;
-  border-radius: 22px;
+  border-radius: 6px;
   background: var(--user-bg, #edf3fe);
   color: var(--fg-strong);
   border: none;
@@ -2813,27 +2813,27 @@ function onRevertUser(msg: Extract<ChatMessage, { role: "user" }>): void {
 }
 
 .user-tag-mode-plan {
-  --n-color: rgba(234, 179, 8, 0.2) !important;
-  --n-text-color: #a16207 !important;
-  --n-border: rgba(202, 138, 4, 0.45) !important;
+  --n-color: color-mix(in srgb, var(--warning) 20%, transparent) !important;
+  --n-text-color: var(--warning) !important;
+  --n-border: color-mix(in srgb, var(--warning) 45%, transparent) !important;
 }
 
 .user-tag-mode-agent {
-  --n-color: rgba(113, 113, 122, 0.16) !important;
-  --n-text-color: #3f3f46 !important;
-  --n-border: rgba(113, 113, 122, 0.4) !important;
+  --n-color: color-mix(in srgb, var(--fg-muted) 16%, transparent) !important;
+  --n-text-color: var(--fg-muted) !important;
+  --n-border: color-mix(in srgb, var(--fg-muted) 40%, transparent) !important;
 }
 
 .user-tag-mode-ask {
-  --n-color: rgba(59, 130, 246, 0.16) !important;
-  --n-text-color: #1d4ed8 !important;
-  --n-border: rgba(37, 99, 235, 0.4) !important;
+  --n-color: color-mix(in srgb, var(--accent) 16%, transparent) !important;
+  --n-text-color: var(--accent) !important;
+  --n-border: color-mix(in srgb, var(--accent) 40%, transparent) !important;
 }
 
 .user-tag-mode-task {
-  --n-color: rgba(16, 185, 129, 0.16) !important;
-  --n-text-color: #047857 !important;
-  --n-border: rgba(5, 150, 105, 0.4) !important;
+  --n-color: color-mix(in srgb, var(--success) 16%, transparent) !important;
+  --n-text-color: var(--success) !important;
+  --n-border: color-mix(in srgb, var(--success) 40%, transparent) !important;
 }
 
 .user-tag :deep(.n-tag__content) {
@@ -2845,7 +2845,7 @@ function onRevertUser(msg: Extract<ChatMessage, { role: "user" }>): void {
 .user-image {
   width: 72px;
   height: 72px;
-  border-radius: 8px;
+  border-radius: 4px;
   overflow: hidden;
   object-fit: cover;
   cursor: zoom-in;
@@ -3035,7 +3035,7 @@ function onRevertUser(msg: Extract<ChatMessage, { role: "user" }>): void {
 }
 
 .dot.warn {
-  background: #f0a020;
+  background: var(--warning);
 }
 
 .retry-detail {
@@ -3056,7 +3056,7 @@ function onRevertUser(msg: Extract<ChatMessage, { role: "user" }>): void {
   gap: 8px;
   padding: 6px 10px;
   border: 1px dashed color-mix(in srgb, var(--accent, #2563eb) 45%, var(--border, #e6e8ec));
-  border-radius: 8px;
+  border-radius: 4px;
   background: color-mix(in srgb, var(--accent, #2563eb) 6%, transparent);
 }
 
@@ -3119,7 +3119,7 @@ function onRevertUser(msg: Extract<ChatMessage, { role: "user" }>): void {
   justify-content: space-between;
   gap: 12px;
   padding: 8px 10px;
-  border-radius: 10px;
+  border-radius: 6px;
   background: rgba(24, 24, 27, 0.72);
   border: 1px solid rgba(255, 255, 255, 0.12);
   color: #fafafa;
@@ -3140,7 +3140,7 @@ function onRevertUser(msg: Extract<ChatMessage, { role: "user" }>): void {
 
 .preview-btn {
   padding: 4px 10px;
-  border-radius: 7px;
+  border-radius: 4px;
   border: 1px solid rgba(255, 255, 255, 0.18);
   background: rgba(255, 255, 255, 0.08);
   color: #fafafa;
@@ -3165,7 +3165,7 @@ function onRevertUser(msg: Extract<ChatMessage, { role: "user" }>): void {
   max-width: calc(100vw - 80px);
   max-height: calc(100vh - 80px);
   object-fit: contain;
-  border-radius: 8px;
+  border-radius: 4px;
   box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
   cursor: zoom-out;
   user-select: none;
@@ -3177,7 +3177,7 @@ function onRevertUser(msg: Extract<ChatMessage, { role: "user" }>): void {
   z-index: 2147483645;
   min-width: 150px;
   padding: 4px;
-  border-radius: 10px;
+  border-radius: 6px;
   background: var(--bg-elevated, #1c1c22);
   border: 1px solid var(--border);
   box-shadow: var(--shadow-lg, 0 12px 40px rgba(0, 0, 0, 0.3));
@@ -3189,7 +3189,7 @@ function onRevertUser(msg: Extract<ChatMessage, { role: "user" }>): void {
   width: 100%;
   padding: 7px 10px;
   border: 0;
-  border-radius: 7px;
+  border-radius: 4px;
   background: transparent;
   color: var(--fg);
   text-align: left;

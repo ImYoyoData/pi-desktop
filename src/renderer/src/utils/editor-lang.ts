@@ -82,16 +82,17 @@ export function languageFromPath(filePath: string): string {
 export function gitCodeColor(code: string): string {
   switch (code as GitStatusCode) {
     case "M":
-      return "#ca8a04";
+      return "var(--git-m)";
     case "A":
+      return "var(--git-a)";
     case "U":
-      return "#16a34a";
+      return "var(--git-u)";
     case "D":
-      return "#dc2626";
+      return "var(--git-d)";
     case "R":
-      return "#2563eb";
+      return "var(--git-r)";
     case "C":
-      return "#ea580c";
+      return "var(--accent)";
     default:
       return "var(--fg-faint)";
   }

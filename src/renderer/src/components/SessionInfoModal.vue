@@ -293,7 +293,7 @@ onUnmounted(() => {
 
 .card {
   border: 1px solid var(--border, rgba(128, 128, 128, 0.22));
-  border-radius: 10px;
+  border-radius: 6px;
   padding: 12px 14px;
   margin-bottom: 12px;
   background: var(--bg-elevated, transparent);
@@ -348,7 +348,7 @@ onUnmounted(() => {
   gap: 3px;
   padding: 9px 11px;
   border: 1px solid var(--border, rgba(128, 128, 128, 0.2));
-  border-radius: 9px;
+  border-radius: 4px;
   background: var(--bg-hover, rgba(127, 127, 127, 0.05));
   min-width: 0;
 }
@@ -412,7 +412,7 @@ onUnmounted(() => {
   margin: 0;
   padding: 7px 8px;
   border: none;
-  border-radius: 8px;
+  border-radius: 4px;
   background: transparent;
   color: inherit;
   font: inherit;
@@ -447,13 +447,5 @@ onUnmounted(() => {
 .footer {
   display: flex;
   justify-content: flex-end;
-}
-
-:root.dark .card-title {
-  color: #e6edf3;
-}
-
-:root.dark .item-name {
-  color: #e6edf3;
 }
 </style>

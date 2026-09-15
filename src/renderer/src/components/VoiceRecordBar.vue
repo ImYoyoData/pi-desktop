@@ -233,7 +233,7 @@ onUnmounted(() => {
   height: 100%;
   padding: 0;
   box-sizing: border-box;
-  --voice-wave: #9aa0a6;
+  --voice-wave: var(--fg-faint);
 }
 
 .wave {
@@ -248,7 +248,7 @@ onUnmounted(() => {
   font-variant-numeric: tabular-nums;
   font-size: 12px;
   font-weight: 500;
-  color: #9aa0a6;
+  color: var(--fg-faint);
   min-width: 2.3em;
   text-align: right;
   user-select: none;
@@ -266,15 +266,15 @@ onUnmounted(() => {
   border: none;
   border-radius: 50%;
   background: transparent;
-  color: #9aa0a6;
+  color: var(--fg-faint);
   cursor: pointer;
   padding: 0;
   flex-shrink: 0;
 }
 
 .icon-btn:hover:not(:disabled) {
-  background: rgba(0, 0, 0, 0.06);
-  color: #5f6368;
+  background: var(--bg-hover);
+  color: var(--fg-muted);
 }
 
 .icon-btn:disabled {
@@ -283,19 +283,19 @@ onUnmounted(() => {
 }
 
 .icon-btn.confirm {
-  color: #5f6368;
+  color: var(--fg-muted);
 }
 
 .stop-btn {
   width: 20px;
   height: 20px;
-  border: 1px solid color-mix(in srgb, #9aa0a6 75%, transparent);
-  color: #5f6368;
+  border: 1px solid color-mix(in srgb, var(--fg-faint) 75%, transparent);
+  color: var(--fg-muted);
 }
 
 .stop-btn:hover:not(:disabled) {
-  border-color: #5f6368;
-  background: rgba(0, 0, 0, 0.04);
+  border-color: var(--fg-muted);
+  background: var(--bg-hover);
 }
 
 .stop-square {
@@ -304,23 +304,6 @@ onUnmounted(() => {
   height: 6px;
   border-radius: 1px;
   background: currentColor;
-}
-
-:root.dark .voice-bar,
-.dark .voice-bar {
-  --voice-wave: #9aa0a6;
-}
-
-:root.dark .icon-btn:hover:not(:disabled),
-.dark .icon-btn:hover:not(:disabled) {
-  background: rgba(255, 255, 255, 0.08);
-  color: #dadce0;
-}
-
-:root.dark .stop-btn,
-.dark .stop-btn {
-  border-color: #9aa0a6;
-  color: #dadce0;
 }
 
 .live.starting {

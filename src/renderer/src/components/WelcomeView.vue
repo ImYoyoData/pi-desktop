@@ -86,7 +86,7 @@ function workspaceName(path: string): string {
 .logo {
   width: 56px;
   height: 56px;
-  border-radius: 14px;
+  border-radius: 6px;
   display: block;
   margin-bottom: 4px;
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.08);

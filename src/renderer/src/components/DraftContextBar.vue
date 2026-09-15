@@ -356,7 +356,7 @@ watch(branchPanelOpen, (open) => {
   flex-direction: column;
   gap: 6px;
   border: 1px solid color-mix(in srgb, var(--border, #ddd) 80%, transparent);
-  border-radius: 12px;
+  border-radius: 6px;
   background: color-mix(in srgb, var(--bg-panel, var(--bg-elevated, #fff)) 96%, transparent);
   box-shadow: 0 10px 28px color-mix(in srgb, #000 16%, transparent);
   backdrop-filter: blur(10px);

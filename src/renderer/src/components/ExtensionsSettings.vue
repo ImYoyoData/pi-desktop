@@ -235,7 +235,7 @@ function onRemove(pkg: PluginRow): void {
   grid-template-columns: 260px 1fr;
   height: 100%;
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: 4px;
   overflow: hidden;
 }
 .left {

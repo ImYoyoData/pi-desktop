@@ -335,7 +335,7 @@ function formatTokens(value: number | null): string {
   display: flex;
   flex-direction: column;
   min-height: 0;
-  border-radius: 16px;
+  border-radius: 6px;
   border: 1px solid var(--border);
   background: var(--bg-elevated, var(--bg));
   box-shadow: var(--shadow-lg, 0 24px 70px rgba(0, 0, 0, 0.32));

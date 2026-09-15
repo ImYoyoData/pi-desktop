@@ -409,7 +409,7 @@ function onCancelAsk(): void {
   display: flex;
   flex-direction: column;
   min-height: 0;
-  border-radius: 8px;
+  border-radius: 4px;
   border: 1px solid var(--chat-line, var(--border));
   background: var(--bg-elevated, #fff);
   box-shadow: none;
