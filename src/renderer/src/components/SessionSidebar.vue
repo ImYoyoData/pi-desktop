@@ -1133,8 +1133,8 @@ function isRunning(status: SessionStatus): boolean {
               :style="{ '--i': String(sIdx), '--depth': item.depth }"
               :aria-expanded="
                 item.hasChildren
-                  ? String(!isTreeNodeCollapsed(root, item.session.id))
-                  : null
+                  ? !isTreeNodeCollapsed(root, item.session.id)
+                  : undefined
               "
               @click="onSelectSession(root, item.session.id)"
               @contextmenu="(e) => openSessionCtx(e, root, item.session)"

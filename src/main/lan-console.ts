@@ -32,7 +32,7 @@ import { readSessionHistoryPage } from "./session-history";
 import { getSessionResources } from "./agent-worker-host";
 import { listAvailableModels } from "./models-ipc";
 import { getWorkspace, listRecent } from "./workspace-ipc";
-import { deriveAccessPin, isAccessPin, isValidPinSecret, parseQuickTunnelHost } from "../shared/cloudflare-tunnel";
+import { deriveAccessPin, isAccessPin, isValidPinSecret } from "../shared/cloudflare-tunnel";
 import {
   applyTunnelOptions,
   disposeTunnel,
@@ -86,9 +86,6 @@ const authSessions = new Map<string, number>();
 
 /** Per-client failed login attempts: client key -> { count, lockedUntil }. */
 const loginFailures = new Map<string, { count: number; lockedUntil: number }>();
-
-/** Cached tunnel host so login rate limiting can tell public traffic apart. */
-let tunnelHost: string | null = null;
 
 /** Pending teardown of a just-disabled public tunnel (see TUNNEL_GRACE_MS). */
 let publicGraceTimer: NodeJS.Timeout | null = null;
@@ -803,7 +800,6 @@ function attachEventBridges(): void {
   }
   if (!offTunnelStatus) {
     offTunnelStatus = onTunnelStatusChange((status) => {
-      tunnelHost = status.url ? parseQuickTunnelHost(status.url) : null;
       // The public URL appears (and disappears) long after boot, so log every
       // transition — from a log file this is the only way to diagnose a tunnel.
       console.info(
@@ -839,14 +835,12 @@ function scheduleTunnelTeardown(immediate = false): void {
   if (immediate) {
     stopTunnel();
     stopOriginListener();
-    tunnelHost = null;
     return;
   }
   publicGraceTimer = setTimeout(() => {
     publicGraceTimer = null;
     stopTunnel();
     stopOriginListener();
-    tunnelHost = null;
   }, TUNNEL_GRACE_MS);
 }
 
@@ -875,7 +869,6 @@ async function syncPublicAccess(settings: RemoteSettings): Promise<void> {
     return;
   }
   await startTunnel(port, tunnelOptions);
-  tunnelHost = getTunnelStatus().url ? parseQuickTunnelHost(getTunnelStatus().url ?? "") : null;
 }
 
 /** Bring the remote control up according to settings (non-fatal on failure). */

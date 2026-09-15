@@ -24,7 +24,8 @@ import { getModelsConfigService } from "./models-config";
 import { buildCatalogIndex, enrichDiscoveredModels, resolveDiscoveredModels } from "./model-catalog";
 import { readModelSelection, writeModelSelection } from "./models-selection";
 import type { ModelSelection } from "../shared/model-selection";
-import type { AuthEvent, AuthInteraction, AuthPrompt, ModelRuntime } from "@earendil-works/pi-coding-agent";
+import type { AuthEvent, AuthInteraction, AuthPrompt } from "@earendil-works/pi-ai";
+import type { ModelRuntime } from "@earendil-works/pi-coding-agent";
 
 async function createRuntime(): Promise<import("@earendil-works/pi-coding-agent").ModelRuntime> {
   const { ModelRuntime } = await import("@earendil-works/pi-coding-agent");

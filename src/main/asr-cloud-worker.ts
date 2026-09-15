@@ -26,7 +26,7 @@ type Job = EncodeWavJob | WriteWavJob;
 
 type Reply = { ok: true; wav?: ArrayBuffer } | { ok: false; error: string };
 
-function wavBytesFromPcm(pcm: Int16Array, sampleRate: number): Buffer {
+function wavBytesFromPcm(pcm: Int16Array, sampleRate: number): Buffer<ArrayBuffer> {
   const dataSize = pcm.byteLength;
   const buffer = Buffer.alloc(44 + dataSize);
   buffer.write("RIFF", 0);

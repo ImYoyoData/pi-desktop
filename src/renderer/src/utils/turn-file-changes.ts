@@ -8,7 +8,7 @@
  */
 import type { ChatMessage } from "../stores/chat-reducer";
 import type { ToolCard } from "./tool-diff";
-import { parseToolCard } from "./tool-diff";
+import { toolCardFor } from "./tool-diff";
 
 export type TurnFileChange = {
 	path: string;
@@ -50,7 +50,7 @@ function mergeInto(
  */
 export function collectTurnFileChanges(
 	messages: ChatMessage[],
-	parseTool: ParseTool = parseToolCard,
+	parseTool: ParseTool = toolCardFor,
 	includeTrailing = false,
 ): Map<string, TurnFileChanges> {
 	const out = new Map<string, TurnFileChanges>();

@@ -151,6 +151,8 @@ export type SessionBroker = {
   notifyWorkersReloadSecurity: (
     desktopSecurity: DesktopSecuritySettings,
   ) => Promise<void>;
+  /** 热重载某工作区的扩展/MCP 资源（空闲 worker 立即重载，忙碌的等空闲）。 */
+  notifyWorkersReloadResources: (cwd: string) => Promise<void>;
   /** Delete one cached image file (user removed it from the editor). */
   deleteCachedImage: (sessionId: string, cachePath: string) => void;
   /** Cache a pasted / URL image into the session's attachment folder. */
