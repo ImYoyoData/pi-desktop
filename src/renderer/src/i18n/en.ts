@@ -103,6 +103,12 @@ export const en = {
 	customizeMcpTargetRequired: "Command or URL is required",
 	customizeMcpJsonInvalid: "Invalid JSON or no server definition found",
 	customizeMcpSave: "Save",
+	customizeMcpTest: "Test",
+	customizeMcpTesting: "Testing…",
+	customizeMcpTestTimeout: "Connection timed out",
+	customizeMcpTestOk: (count: number | undefined, seconds: string) =>
+		count === undefined ? `Available · ${seconds}s` : `Available · ${count} tools · ${seconds}s`,
+	customizeMcpTestFailed: (error: string) => `Failed: ${error}`,
 	customizeMcpRemove: "Remove",
 	customizeMcpRemoveConfirm: (name: string) => `Remove MCP server "${name}"?`,
 	customizeMoreActions: "More Actions",

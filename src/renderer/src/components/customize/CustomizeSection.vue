@@ -10,6 +10,7 @@ import type {
   CustomizationCreateKind,
   CustomizationItem,
   CustomizationScope,
+  McpTestResult,
 } from "../../../../shared/customizations";
 import { t } from "@renderer/i18n";
 
@@ -33,6 +34,8 @@ const message = useMessage();
 
 const query = ref("");
 const addOpen = ref(false);
+const mcpTesting = ref(false);
+const mcpTestResults = ref<Record<string, McpTestResult>>({});
 const collapsed = reactive(new Set<CustomizationScope>());
 
 /** 右键菜单（对应 VS Code 的行上下文菜单）。 */
@@ -276,6 +279,60 @@ function onMcpAdded(): void {
   emit("refresh");
 }
 
+const enabledMcpItems = computed(() => props.items.filter((item) => item.enabled !== false));
+
+/** 从 `<workspace>/.pi/mcp.json` 反推出工作区路径。 */
+function workspaceOf(item: CustomizationItem): string | undefined {
+  if (item.scope !== "project" || !item.filePath) return undefined;
+  return item.filePath.replace(/[\\/]\.pi[\\/][^\\/]+$/, "");
+}
+
+/** 逐一测试已启用的 MCP 服务器可用性（initialize 握手 + tools/list）。 */
+async function testMcpServers(): Promise<void> {
+  const items = enabledMcpItems.value;
+  if (items.length === 0 || mcpTesting.value) return;
+  mcpTesting.value = true;
+  mcpTestResults.value = {};
+  try {
+    const results = await window.api.customizations.testMcpServers(
+      items.map((item) => ({
+        name: item.name,
+        scope: item.scope === "project" ? ("project" as const) : ("user" as const),
+        workspace: workspaceOf(item),
+      })),
+    );
+    const next: Record<string, McpTestResult> = {};
+    for (const result of results) {
+      const item = items.find(
+        (entry) =>
+          entry.name === result.name &&
+          (entry.scope === "project" ? "project" : "user") === result.scope,
+      );
+      if (item) next[item.id] = result;
+    }
+    mcpTestResults.value = next;
+  } catch (err) {
+    message.error(err instanceof Error ? err.message : String(err));
+  } finally {
+    mcpTesting.value = false;
+  }
+}
+
+function testBadge(item: CustomizationItem): { text: string; className: string } | null {
+  if (item.enabled === false) return null;
+  if (mcpTesting.value) return { text: t.customizeMcpTesting, className: "is-pending" };
+  const result = mcpTestResults.value[item.id];
+  if (!result) return null;
+  if (result.ok) {
+    return {
+      text: t.customizeMcpTestOk(result.toolCount, (result.durationMs / 1000).toFixed(1)),
+      className: "is-ok",
+    };
+  }
+  const error = result.error === "timeout" ? t.customizeMcpTestTimeout : (result.error ?? "");
+  return { text: t.customizeMcpTestFailed(error), className: "is-fail" };
+}
+
 function canRemove(item: CustomizationItem): boolean {
   if (props.kind === "skills") return Boolean(item.filePath);
   if (props.kind === "mcp") return true;
@@ -409,6 +466,16 @@ function onCtxSelect(key: string | number): void {
         >
           <NButton class="list-add-button" size="small">{{ t.customizeMcpEditConfig }}</NButton>
         </NDropdown>
+        <NButton
+          v-if="kind === 'mcp'"
+          class="list-add-button"
+          size="small"
+          :loading="mcpTesting"
+          :disabled="enabledMcpItems.length === 0"
+          @click="testMcpServers"
+        >
+          {{ t.customizeMcpTest }}
+        </NButton>
       </div>
     </div>
 
@@ -456,6 +523,13 @@ function onCtxSelect(key: string | number): void {
                   <span class="item-name">{{ item.name }}</span>
                   <span v-if="item.enabled === false" class="inline-badge item-badge">
                     {{ t.customizeDisabled }}
+                  </span>
+                  <span
+                    v-if="testBadge(item)"
+                    class="inline-badge test-badge"
+                    :class="testBadge(item)?.className"
+                  >
+                    {{ testBadge(item)?.text }}
                   </span>
                 </div>
                 <div v-if="item.description" class="item-description">{{ item.description }}</div>
@@ -694,6 +768,14 @@ function onCtxSelect(key: string | number): void {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.test-badge.is-ok {
+  color: var(--success);
+}
+
+.test-badge.is-fail {
+  color: var(--error);
 }
 
 .inline-badge {

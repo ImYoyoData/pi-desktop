@@ -17,7 +17,7 @@ import type {
 } from "../shared/protocol";
 import { IpcChannels } from "../shared/protocol";
 import type { AgentRunEvent, AgentRunSnapshot } from "../shared/agent-runs";
-import type { CustomizationsSnapshot, CustomizationCreateKind } from "../shared/customizations";
+import type { CustomizationsSnapshot, CustomizationCreateKind, McpTestResult, McpTestTarget } from "../shared/customizations";
 import type {
 	ModelsGetResult,
 	ModelsSetPayload,
@@ -747,6 +747,11 @@ const api = {
 				scope,
 				cwd,
 			) as Promise<{ filePath: string }>,
+		testMcpServers: (targets: McpTestTarget[]) =>
+			ipcRenderer.invoke(
+				IpcChannels.customizations.testMcpServers,
+				targets,
+			) as Promise<McpTestResult[]>,
 	},
 	skills: {
 		list: (cwd?: string) =>
