@@ -4,11 +4,10 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue"
 import { NAlert, NButton, NEmpty, NIcon, NSpin, NText, useDialog, useMessage } from "naive-ui";
 import { ChatbubbleEllipsesOutline, FolderOpenOutline, SaveOutline } from "@vicons/ionicons5";
 import type * as Monaco from "monaco-editor";
-import monacoCssUrl from "../../../../node_modules/monaco-editor/min/vs/editor/editor.main.css?url";
 import MarkdownView from "@renderer/components/MarkdownView.vue";
 import { breadcrumbs, languageFromPath } from "@renderer/utils/editor-lang";
 import { loadMonaco } from "@renderer/utils/monaco-loader";
-import { applyMonacoColorTheme } from "@renderer/utils/monaco-theme";
+import { applyMonacoColorTheme, monacoThemeName } from "@renderer/utils/monaco-theme";
 import { useRightTabsStore } from "@renderer/stores/right-tabs";
 import { useWorkspaceStore } from "@renderer/stores/workspace";
 import { useAppearanceStore } from "@renderer/stores/appearance";
@@ -18,14 +17,6 @@ import { useComposerStore } from "@renderer/stores/composer";
 import { t } from "@renderer/i18n";
 
 type MdViewMode = "edit" | "preview" | "split";
-
-if (!document.getElementById("monaco-editor-css")) {
-  const link = document.createElement("link");
-  link.id = "monaco-editor-css";
-  link.rel = "stylesheet";
-  link.href = monacoCssUrl;
-  document.head.appendChild(link);
-}
 
 const props = defineProps<{
   filePath?: string | null;
@@ -293,9 +284,12 @@ async function ensureEditor(content: string, language: string): Promise<void> {
   const monaco = monacoApi;
   applyingExternal = true;
   if (!editor) {
+    const dark = appearance.resolvedTheme === "dark";
+    applyMonacoColorTheme(monaco, dark);
     editor = monaco.editor.create(editorHost.value, {
       value: content,
       language,
+      theme: monacoThemeName(dark),
       automaticLayout: true,
       fontSize: 12.5,
       fontFamily: 'var(--font-mono), "Cascadia Code", Consolas, monospace',
@@ -313,7 +307,6 @@ async function ensureEditor(content: string, language: string): Promise<void> {
       // Needed so json / json5 validation messages are readable on hover.
       hover: { enabled: "on" },
     });
-    applyMonacoColorTheme(monaco, appearance.resolvedTheme === "dark");
     editor.onDidChangeModelContent(() => {
       liveContent.value = editor?.getValue() ?? "";
       if (applyingExternal) return;

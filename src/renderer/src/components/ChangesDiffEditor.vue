@@ -1,19 +1,10 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, ref, watch } from "vue";
 import type * as Monaco from "monaco-editor";
-import monacoCssUrl from "../../../../node_modules/monaco-editor/min/vs/editor/editor.main.css?url";
 import { languageFromPath } from "@renderer/utils/editor-lang";
 import { loadMonaco } from "@renderer/utils/monaco-loader";
-import { applyMonacoColorTheme } from "@renderer/utils/monaco-theme";
+import { applyMonacoColorTheme, monacoThemeName } from "@renderer/utils/monaco-theme";
 import { useAppearanceStore } from "@renderer/stores/appearance";
-
-if (!document.getElementById("monaco-editor-css")) {
-  const link = document.createElement("link");
-  link.id = "monaco-editor-css";
-  link.rel = "stylesheet";
-  link.href = monacoCssUrl;
-  document.head.appendChild(link);
-}
 
 const props = defineProps<{
   filePath: string;
@@ -77,10 +68,12 @@ async function ensureDiffEditor(): Promise<void> {
   if (!monacoApi) monacoApi = await loadMonaco();
   if (myGen !== gen) return;
   const monaco = monacoApi;
-  applyMonacoColorTheme(monaco, appearance.resolvedTheme === "dark");
+  const dark = appearance.resolvedTheme === "dark";
+  applyMonacoColorTheme(monaco, dark);
 
   if (!diffEditor) {
     diffEditor = monaco.editor.createDiffEditor(host.value, {
+      theme: monacoThemeName(dark),
       automaticLayout: true,
       readOnly: true,
       renderSideBySide: false,
