@@ -77,7 +77,7 @@ export const zh = {
 	modelsCustomPickEmpty: "没有匹配的模型",
 	modelsCustomPickSelected: (n: number) => `已选 ${n} 个`,
 	modelsCustomPickAdd: "添加",
-	modelsCustomTest: "测试连接",
+	modelsCustomTest: "测试模型",
 	modelsCustomTesting: "测试中…",
 	modelsCustomTestOk: (ms: number) => `连接正常 · ${ms} ms`,
 	modelsCustomTestFail: "测试失败",
