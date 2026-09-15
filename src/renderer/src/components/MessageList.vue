@@ -1777,8 +1777,7 @@ function onEditUser(msg: Extract<ChatMessage, { role: "user" }>): void {
 }
 
 /**
- * VS Code Copilot 的 Restore Checkpoint：回退对话（本轮及之后），
- * 还原本轮改动的文件，并把该条消息放回输入框。
+ * 回退到本轮结束：保留本轮问答，丢弃之后的全部轮次；文件保持现状。
  */
 function onRestoreCheckpoint(msg: Extract<ChatMessage, { role: "user" }>): void {
   const id = sessionId.value;
@@ -1798,17 +1797,7 @@ function onRestoreCheckpoint(msg: Extract<ChatMessage, { role: "user" }>): void 
             d.loading = false;
             return false;
           }
-          const files = checkpoints.canRevert(id, msg.id)
-            ? await checkpoints.revert(id, msg.id)
-            : null;
-          loadComposerFromUser(restored.message);
-          if (files && !files.ok) {
-            messageApi.warning(t.restoreCheckpointFilesSkipped(files.error || "unknown"));
-          } else if (files) {
-            messageApi.success(t.restoreCheckpointDone(files.restored + files.deleted));
-          } else {
-            messageApi.success(t.restoreCheckpointChatOnly);
-          }
+          messageApi.success(t.restoreCheckpointDone);
           return true;
         } catch (err) {
           messageApi.error(
@@ -1835,6 +1824,11 @@ const roundUserByRow = computed(() => {
 
 function roundUserOf(msg: ChatMessage): Extract<ChatMessage, { role: "user" }> | null {
   return roundUserByRow.value.get(msg.id) ?? null;
+}
+
+/** 最后一轮没有可丢弃的后续轮次，还原检查点不适用（文件撤回仍可用）。 */
+function isLatestRound(msg: ChatMessage): boolean {
+  return roundUserOf(msg)?.id === latestUserMessageId.value;
 }
 
 /** VS Code Copilot 的 Fork Conversation：把到本轮为止的对话复制成新会话。 */
@@ -2151,7 +2145,7 @@ function onRevertUser(msg: Extract<ChatMessage, { role: "user" }>): void {
                 {{ t.regenerate }}
               </NTooltip>
               <template v-if="roundUserOf(msg)">
-                <NTooltip>
+                <NTooltip v-if="!isLatestRound(msg)">
                   <template #trigger>
                     <NButton
                       quaternary

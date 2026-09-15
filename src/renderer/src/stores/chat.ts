@@ -1223,21 +1223,16 @@ export const useChatStore = defineStore("chat", () => {
 	}
 
 	/**
-	 * 还原到某一轮之前：UI 截断该气泡及其之后的消息，并把 Agent leaf 回退到该轮的父节点。
+	 * 回退到某一轮结束：保留本轮问答，丢弃之后的全部轮次；文件保持现状。
 	 * Agent 无法回退（越界或该下标已指向别的轮次）时不做任何改动，由调用方报错。
 	 */
-	async function restoreTurn(
-		sessionId: string,
-		messageId: string,
-	): Promise<
-		{ ok: true; message: Extract<ChatMessage, { role: "user" }> } | { ok: false }
-	> {
+	async function restoreTurn(sessionId: string, messageId: string): Promise<{ ok: boolean }> {
 		const located = locateUserTurn(stateFor(sessionId), messageId);
 		if (!located) return { ok: false };
 		let rolledBack = false;
 		try {
 			const result = await sessionsStore.sendCommand(sessionId, {
-				type: "rollback_user",
+				type: "rollback_turn_end",
 				userIndex: located.userIndex,
 				expectText: located.message.text,
 			});
@@ -1247,22 +1242,26 @@ export const useChatStore = defineStore("chat", () => {
 		}
 		if (!rolledBack) return { ok: false };
 		if (pendingUserEdit.value?.sessionId === sessionId) pendingUserEdit.value = null;
-		// 被还原的轮次已消失，其 todo 不能继续留在界面上。
+		// 被丢弃的轮次已消失，其 todo 不能继续留在界面上。
 		useSessionWidgetsStore().resetTodosForSession(sessionId);
 		const state = stateFor(sessionId);
-		if (located.cutIdx <= state.messages.length) {
+		const nextUserIdx = state.messages.findIndex(
+			(m, i) => i > located.cutIdx && m.role === "user",
+		);
+		const endIdx = nextUserIdx === -1 ? state.messages.length : nextUserIdx;
+		if (endIdx > located.cutIdx) {
 			setSessionState(
 				sessionId,
 				withRunClock({
 					...state,
-					messages: state.messages.slice(0, located.cutIdx),
+					messages: state.messages.slice(0, endIdx),
 					streamingMessage: null,
 					running: false,
 					retryHint: null,
 				}),
 			);
 		}
-		return { ok: true, message: located.message };
+		return { ok: true };
 	}
 
 	/** 把到某一轮为止的对话复制成新会话并切换过去；源会话保持完整。 */

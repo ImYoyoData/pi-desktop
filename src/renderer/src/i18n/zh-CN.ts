@@ -851,11 +851,8 @@ export const zh = {
 	revertTurnFail: (err: string) => `撤回失败：${err}`,
 	restoreCheckpoint: "还原检查点",
 	restoreCheckpointConfirm:
-		"将删除本轮及之后的所有对话，撤销本轮的文件修改，并把该条消息放回输入框。是否继续？",
-	restoreCheckpointDone: (files: number) =>
-		`已还原检查点：恢复 ${files} 个文件，并回退对话`,
-	restoreCheckpointChatOnly: "已回退对话 — 本轮没有文件快照，文件保持原样",
-	restoreCheckpointFilesSkipped: (err: string) => `已回退对话，但文件未还原：${err}`,
+		"将保留本轮问答，删除之后的所有轮次；文件保持现状。是否继续？",
+	restoreCheckpointDone: "已回退到本轮结束",
 	restoreCheckpointFail: (err: string) => `还原检查点失败：${err}`,
 	turnMismatch: "对话状态与 Agent 不一致，无法定位该轮",
 	forkConversation: "派生对话",

@@ -990,6 +990,7 @@ export function createSessionBroker(deps: {
       command.type === "steer" ||
       command.type === "follow_up" ||
       command.type === "rollback_user" ||
+      command.type === "rollback_turn_end" ||
       command.type === "abort" ||
       command.type === "get_state";
     const outbound = { kind: "command" as const, id: cmdId, command };
