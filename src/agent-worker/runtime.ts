@@ -246,6 +246,52 @@ async function rollbackUserTurn(
 	return true;
 }
 
+/**
+ * 回退到某一轮结束：保留该轮问答，丢弃其后所有轮次（leaf 移到本轮最后一条消息）。
+ * `userIndex` 为当前分支上 user 消息的 0 基下标；`expectText` 用于确认该下标
+ * 仍指向界面上的那一轮。
+ */
+async function rollbackTurnEnd(
+	active: AgentSession,
+	userIndex?: number,
+	expectText?: string,
+): Promise<boolean> {
+	const branch = active.sessionManager.getBranch();
+	const userIds = branch
+		.filter((entry) => entry.type === "message" && entry.message.role === "user")
+		.map((entry) => entry.id);
+	if (!userIds.length) return false;
+	const idx = userIndex == null ? userIds.length - 1 : userIndex;
+	if (idx < 0 || idx >= userIds.length) return false;
+	const target = userIds[idx];
+	if (!target) return false;
+	if (expectText && !turnTextMatches(userEntryText(active, target), expectText)) {
+		return false;
+	}
+	const nextUserId = userIds[idx + 1];
+	const nextIdx = nextUserId
+		? branch.findIndex((entry) => entry.id === nextUserId)
+		: -1;
+	const endIdx = nextIdx === -1 ? branch.length : nextIdx;
+	const startIdx = branch.findIndex((entry) => entry.id === target);
+	let leafId = target;
+	for (let i = startIdx + 1; i < endIdx; i += 1) {
+		const entry = branch[i];
+		if (entry?.type === "message") leafId = entry.id;
+	}
+	if (leafId === active.sessionManager.getLeafId()) return true;
+	await active.navigateTree(leafId, { summarize: false });
+	// leaf 位置只由文件末尾隐含表示：不落一条标记，重开会话时被丢弃的轮次会重新成为 leaf。
+	try {
+		active.sessionManager.appendCustomEntry("desktop-turn-rollback", {
+			rolledBackEntryId: leafId,
+		});
+	} catch {
+		// 标记失败不影响回退本身
+	}
+	return true;
+}
+
 /** Abandon the earliest user turn that still carries image parts (heals poisoned history). */
 async function rollbackFirstImageUserTurn(
 	active: AgentSession,
@@ -831,6 +877,12 @@ async function runCommand(id: string, command: AgentCommand): Promise<void> {
 		case "rollback_user": {
 			const active = requireSession();
 			const ok = await rollbackUserTurn(active, command.userIndex, command.expectText);
+			post({ kind: "result", id, data: { ok } });
+			return;
+		}
+		case "rollback_turn_end": {
+			const active = requireSession();
+			const ok = await rollbackTurnEnd(active, command.userIndex, command.expectText);
 			post({ kind: "result", id, data: { ok } });
 			return;
 		}
