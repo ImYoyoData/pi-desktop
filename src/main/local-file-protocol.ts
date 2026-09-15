@@ -1,4 +1,5 @@
 import { protocol, net } from "electron";
+import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { resolveWorkspacePath } from "../shared/path-sandbox";
 import { getWorkspace } from "./workspace-ipc";
@@ -33,7 +34,10 @@ export function installLocalFileProtocol(): void {
       if (!root) {
         return new Response("No workspace", { status: 404 });
       }
-      const absolute = resolveWorkspacePath(root, decodeURIComponent(rel));
+      const target = decodeURIComponent(rel);
+      const absolute = path.isAbsolute(target)
+        ? path.normalize(target)
+        : resolveWorkspacePath(root, target);
       return net.fetch(pathToFileURL(absolute).href);
     } catch (err) {
       return new Response(err instanceof Error ? err.message : String(err), { status: 400 });
