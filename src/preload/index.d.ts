@@ -12,6 +12,7 @@ import type {
 	TerminalShellOption,
 } from "../shared/protocol";
 import type { AgentRunEvent, AgentRunSnapshot } from "../shared/agent-runs";
+import type { CustomizationsSnapshot, CustomizationCreateKind } from "../shared/customizations";
 import type {
 	ModelsGetResult,
 	ModelsSetPayload,
@@ -543,6 +544,10 @@ declare const api: {
 			side: "ours" | "theirs";
 		}) => Promise<GitOpResult>;
 		abortMerge: () => Promise<GitOpResult>;
+	};
+	customizations: {
+		list: (cwd?: string) => Promise<CustomizationsSnapshot>;
+		create: (kind: CustomizationCreateKind) => Promise<{ filePath: string }>;
 	};
 	skills: {
 		list: (cwd?: string) => Promise<{
