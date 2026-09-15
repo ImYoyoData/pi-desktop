@@ -563,6 +563,11 @@ declare const api: {
 			scope: "user" | "project",
 			cwd?: string,
 		) => Promise<{ filePath: string }>;
+		removeMcpServer: (
+			name: string,
+			scope: "user" | "project",
+			cwd?: string,
+		) => Promise<{ filePath: string }>;
 	};
 	skills: {
 		list: (cwd?: string) => Promise<{
