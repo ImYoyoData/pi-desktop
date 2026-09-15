@@ -438,34 +438,25 @@ export async function listCustomizations(root: string): Promise<CustomizationsSn
 type CreateTemplate = {
 	base: string;
 	relative: (name: string) => string;
-	content: (name: string) => string;
 };
 
-/** 新建定制项的用户级目录与模板（对应 pi 的 agentDir 约定）。 */
+/** 新建定制项的用户级目录（对应 pi 的 agentDir 约定），文件内容留空由用户填写。 */
 const CREATE_TEMPLATES: Record<CustomizationCreateKind, CreateTemplate> = {
 	agents: {
 		base: "new-agent",
 		relative: (name) => path.join("agents", `${name}.md`),
-		content: () =>
-			"---\ndescription: Describe when to use this agent.\n---\n\n# New Agent\n\nDescribe the persona, tool access and instructions for this agent.\n",
 	},
 	skills: {
 		base: "new-skill",
 		relative: (name) => path.join("skills", name, "SKILL.md"),
-		content: (name) =>
-			`---\nname: ${name}\ndescription: Describe what this skill does and when to use it.\n---\n\n# New Skill\n\nWrite the skill instructions here.\n`,
 	},
 	instructions: {
 		base: "AGENTS",
 		relative: () => "AGENTS.md",
-		content: () =>
-			"# Instructions\n\nAlways-on instructions that guide the agent in every session.\n",
 	},
 	prompts: {
 		base: "new-prompt",
 		relative: (name) => path.join("prompts", `${name}.md`),
-		content: () =>
-			"---\ndescription: Describe what this prompt does.\n---\n\nWrite the prompt template here. Use $ARGUMENTS for all arguments and $1, $2 for positional ones.\n",
 	},
 };
 
@@ -478,14 +469,14 @@ function availableName(base: string, exists: (name: string) => boolean): string 
 	throw new Error(`No available name for ${base}`);
 }
 
-/** 在用户目录创建模板文件，返回供编辑器打开的路径。 */
+/** 在用户目录创建空文件，返回供编辑器打开的路径。 */
 export function createCustomization(kind: CustomizationCreateKind): { filePath: string } {
 	const dir = agentDir();
 	const template = CREATE_TEMPLATES[kind];
 	if (kind === "instructions") {
 		const filePath = path.join(dir, template.relative(""));
 		if (!fs.existsSync(filePath)) {
-			fs.writeFileSync(filePath, template.content(""), "utf8");
+			fs.writeFileSync(filePath, "", "utf8");
 		}
 		return { filePath };
 	}
@@ -494,7 +485,7 @@ export function createCustomization(kind: CustomizationCreateKind): { filePath: 
 	);
 	const filePath = path.join(dir, template.relative(name));
 	fs.mkdirSync(path.dirname(filePath), { recursive: true });
-	fs.writeFileSync(filePath, template.content(name), "utf8");
+	fs.writeFileSync(filePath, "", "utf8");
 	return { filePath };
 }
 
