@@ -126,6 +126,8 @@ export const useChatStore = defineStore("chat", () => {
 	const securityRemediationTick = ref(0);
 	/** requestId → UI draft kept across renderer reloads (恢复后可继续提交). */
 	const askUserDrafts = new Map<string, AskUserAnswerDraft>();
+	/** requestId → 当前题号，会话切换回来后仍停在原来那一题。 */
+	const askUserSteps = new Map<string, number>();
 	let pendingUiRecovered = false;
 	const ASK_DRAFT_KEY = "pi-desktop:ask-user-drafts:v1";
 
@@ -158,8 +160,17 @@ export const useChatStore = defineStore("chat", () => {
 		}
 	}
 
+	function readAskStep(requestId: string): number | null {
+		return askUserSteps.get(requestId) ?? null;
+	}
+
+	function writeAskStep(requestId: string, step: number): void {
+		askUserSteps.set(requestId, step);
+	}
+
 	function clearAskUserDraft(requestId: string): void {
 		askUserDrafts.delete(requestId);
+		askUserSteps.delete(requestId);
 		try {
 			const raw = sessionStorage.getItem(ASK_DRAFT_KEY);
 			if (!raw) return;
@@ -1411,6 +1422,8 @@ export const useChatStore = defineStore("chat", () => {
 		clearPendingAskUserFor,
 		readAskDraft,
 		writeAskDraft,
+		readAskStep,
+		writeAskStep,
 		replyPermission,
 		replyAskUser,
 		replyExtensionUi,
