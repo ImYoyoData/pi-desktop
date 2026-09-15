@@ -6,6 +6,7 @@ import {
   DEFAULT_LAYOUT,
   readLayout,
   writeLayout,
+  type CenterView,
 } from "@renderer/stores/layout-utils";
 
 export {
@@ -15,7 +16,7 @@ export {
   readLayout,
   writeLayout,
 } from "@renderer/stores/layout-utils";
-export type { PersistedLayout } from "@renderer/stores/layout-utils";
+export type { CenterView, PersistedLayout } from "@renderer/stores/layout-utils";
 
 export const useLayoutStore = defineStore("layout", () => {
   const workspaceRoot = ref<string | null>(null);
@@ -33,6 +34,9 @@ export const useLayoutStore = defineStore("layout", () => {
    * pre-maximize layout.
    */
   const editorMaximized = ref(false);
+  /** 中央区域当前视图及智能体设置页状态。 */
+  const centerView = ref<CenterView>(DEFAULT_LAYOUT.centerView);
+  const customizeSection = ref(DEFAULT_LAYOUT.customizeSection);
 
   type PreMaximizeState = {
     leftCollapsed: boolean;
@@ -57,6 +61,8 @@ export const useLayoutStore = defineStore("layout", () => {
       rightCollapsed: rightCollapsed.value,
       bottomSize: bottomSize.value,
       bottomCollapsed: bottomCollapsed.value,
+      centerView: centerView.value,
+      customizeSection: customizeSection.value,
     });
   }
 
@@ -70,6 +76,8 @@ export const useLayoutStore = defineStore("layout", () => {
     rightCollapsed.value = data.rightCollapsed;
     bottomSize.value = data.bottomSize;
     bottomCollapsed.value = data.bottomCollapsed;
+    centerView.value = data.centerView;
+    customizeSection.value = data.customizeSection;
   }
 
   function setLeftSize(pct: number): void {
@@ -109,6 +117,25 @@ export const useLayoutStore = defineStore("layout", () => {
       return;
     }
     rightCollapsed.value = !rightCollapsed.value;
+    persist();
+  }
+
+  /** 在中央区域打开智能体设置页（退出编辑器区最大化）。 */
+  function openCustomize(section: string): void {
+    if (editorMaximized.value) toggleEditorMaximized();
+    if (section) customizeSection.value = section;
+    centerView.value = "customize";
+    persist();
+  }
+
+  /** 返回聊天视图。 */
+  function showChat(): void {
+    centerView.value = "chat";
+    persist();
+  }
+
+  function setCustomizeSection(section: string): void {
+    customizeSection.value = section;
     persist();
   }
 
@@ -167,6 +194,8 @@ export const useLayoutStore = defineStore("layout", () => {
     bottomSize,
     bottomCollapsed,
     editorMaximized,
+    centerView,
+    customizeSection,
     loadForWorkspace,
     setLeftSize,
     setCenterSize,
@@ -177,5 +206,8 @@ export const useLayoutStore = defineStore("layout", () => {
     toggleRightCollapsed,
     toggleBottomCollapsed,
     toggleEditorMaximized,
+    openCustomize,
+    showChat,
+    setCustomizeSection,
   };
 });

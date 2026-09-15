@@ -157,6 +157,10 @@ export const IpcChannels = {
 		abortMerge: "git:abortMerge",
 		syncStatus: "git:syncStatus",
 	},
+	customizations: {
+		list: "customizations:list",
+		create: "customizations:create",
+	},
 	skills: {
 		list: "skills:list",
 		setDisabled: "skills:setDisabled",
