@@ -54,6 +54,12 @@ export type ModelsGetResult = {
 export type ModelsSetPayload = {
   modelsText: string;
   apiKeys?: Record<string, string>;
+  /**
+   * Provider ids whose auth.json entry must be dropped: models.json is the
+   * source of truth for custom providers, and Pi prefers a stored credential
+   * over the inline `apiKey`.
+   */
+  clearAuth?: string[];
 };
 
 /** Prompt the OAuth flow asks the renderer to answer. */

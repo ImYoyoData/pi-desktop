@@ -217,6 +217,19 @@ export function registerModelsIpc(broker: SessionBroker): void {
         }
       }
     }
+    if (payload.clearAuth?.length) {
+      const auth = await service.readAuthConfig();
+      const next = { ...auth };
+      let changed = false;
+      for (const provider of payload.clearAuth) {
+        const id = String(provider ?? "").trim();
+        if (id && next[id] !== undefined) {
+          delete next[id];
+          changed = true;
+        }
+      }
+      if (changed) await service.writeAuthConfig(next);
+    }
     await broker.notifyWorkersReloadModels();
   });
 
@@ -263,24 +276,11 @@ export function registerModelsIpc(broker: SessionBroker): void {
     IpcChannels.models.discover,
     async (
       _event,
-      payload: { baseUrl: string; apiKey?: string; api?: string; providerId?: string },
+      payload: { baseUrl: string; apiKey?: string; api?: string },
     ): Promise<DiscoverModelsResult> => {
-      let apiKey =
-        typeof payload?.apiKey === "string" && payload.apiKey.trim()
-          ? payload.apiKey.trim()
-          : undefined;
-      const providerId =
-        typeof payload?.providerId === "string" ? payload.providerId.trim() : "";
-      if (!apiKey && providerId) {
-        const auth = await getModelsConfigService().readAuthConfig();
-        const cred = auth[providerId];
-        if (cred && cred.type === "api_key" && typeof cred.key === "string" && cred.key.trim()) {
-          apiKey = cred.key.trim();
-        }
-      }
       return discoverModels({
         baseUrl: String(payload?.baseUrl ?? ""),
-        apiKey,
+        apiKey: typeof payload?.apiKey === "string" ? payload.apiKey : undefined,
         api: typeof payload?.api === "string" ? payload.api : undefined,
       });
     },

@@ -887,7 +887,7 @@ const api = {
 			ipcRenderer.invoke(IpcChannels.models.test) as Promise<
 				ModelsGetResult["available"]
 			>,
-		discover: (payload: { baseUrl: string; apiKey?: string; api?: string; providerId?: string }) =>
+		discover: (payload: { baseUrl: string; apiKey?: string; api?: string }) =>
 			ipcRenderer.invoke(
 				IpcChannels.models.discover,
 				payload,

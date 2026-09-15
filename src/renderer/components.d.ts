@@ -55,6 +55,7 @@ declare module 'vue' {
     MarketSettings: typeof import('./src/components/MarketSettings.vue')['default']
     McpAddModal: typeof import('./src/components/customize/McpAddModal.vue')['default']
     MessageList: typeof import('./src/components/MessageList.vue')['default']
+    ModelPickModal: typeof import('./src/components/customize/ModelPickModal.vue')['default']
     NotifySettings: typeof import('./src/components/NotifySettings.vue')['default']
     NSpin: typeof import('naive-ui')['NSpin']
     PanelBottomIcon: typeof import('./src/components/icons/PanelBottomIcon.vue')['default']
