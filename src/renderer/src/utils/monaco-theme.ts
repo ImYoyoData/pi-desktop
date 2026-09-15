@@ -3,7 +3,7 @@ import type * as Monaco from "monaco-editor";
 const DARK_THEME = "pi-2026-dark";
 const LIGHT_THEME = "pi-2026-light";
 
-let applied: "dark" | "light" | null = null;
+let defined = false;
 
 /** Monaco themes are global — define once, then switch per mode. */
 function defineThemes(monaco: typeof Monaco): void {
@@ -58,9 +58,10 @@ function defineThemes(monaco: typeof Monaco): void {
 }
 
 export function applyMonacoColorTheme(monaco: typeof Monaco, dark: boolean): void {
-  if (applied === null) defineThemes(monaco);
-  const next = dark ? "dark" : "light";
-  if (applied === next) return;
-  applied = next;
+  if (!defined) {
+    defineThemes(monaco);
+    defined = true;
+  }
+  // Always set: editor construction options can reset the global theme.
   monaco.editor.setTheme(dark ? DARK_THEME : LIGHT_THEME);
 }

@@ -77,12 +77,10 @@ async function ensureDiffEditor(): Promise<void> {
   if (!monacoApi) monacoApi = await loadMonaco();
   if (myGen !== gen) return;
   const monaco = monacoApi;
-  const theme = appearance.resolvedTheme === "dark" ? "vs-dark" : "vs";
   applyMonacoColorTheme(monaco, appearance.resolvedTheme === "dark");
 
   if (!diffEditor) {
     diffEditor = monaco.editor.createDiffEditor(host.value, {
-      theme,
       automaticLayout: true,
       readOnly: true,
       renderSideBySide: false,
