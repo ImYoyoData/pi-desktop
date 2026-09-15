@@ -83,6 +83,12 @@ export const en = {
 	modelsCustomPickAdd: "Add",
 	modelsCustomTest: "Test Model",
 	modelsCustomTesting: "Testing…",
+	modelsCustomBaseUrlTest: "Test Connection",
+	modelsCustomBaseUrlTesting: "Testing…",
+	modelsCustomBaseUrlTestOk: (ms: number, status: number) => `HTTP ${status} · ${ms} ms`,
+	modelsCustomBaseUrlTestWarn: (ms: number, status: number) =>
+		`Reachable, but HTTP ${status} · ${ms} ms`,
+	modelsCustomBaseUrlTestFail: "Connection failed",
 	modelsCustomTestOk: (ms: number) => `Connected · ${ms} ms`,
 	modelsCustomTestFail: "Test failed",
 	modelsCustomTestNoModel: "Add at least one model ID first",

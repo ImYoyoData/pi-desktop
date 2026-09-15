@@ -29,6 +29,7 @@ import type { ModelSelection } from "../shared/model-selection";
 import type {
 	DiscoverModelsResult,
 	TestModelConnectionResult,
+	TestProviderBaseUrlResult,
 } from "../shared/model-discover";
 import type { PreviewResult } from "../shared/preview-types";
 import type {
@@ -892,6 +893,11 @@ const api = {
 				IpcChannels.models.discover,
 				payload,
 			) as Promise<DiscoverModelsResult>,
+		testBaseUrl: (payload: { baseUrl: string; apiKey?: string; api?: string }) =>
+			ipcRenderer.invoke(
+				IpcChannels.models.testBaseUrl,
+				payload,
+			) as Promise<TestProviderBaseUrlResult>,
 		testConnection: (payload: {
 			baseUrl: string;
 			apiKey?: string;

@@ -24,6 +24,7 @@ import type { ModelSelection } from "../shared/model-selection";
 import type {
 	DiscoverModelsResult,
 	TestModelConnectionResult,
+	TestProviderBaseUrlResult,
 } from "../shared/model-discover";
 import type { PreviewResult } from "../shared/preview-types";
 import type {
@@ -665,6 +666,11 @@ declare const api: {
 			apiKey?: string;
 			api?: string;
 		}) => Promise<DiscoverModelsResult>;
+		testBaseUrl: (payload: {
+			baseUrl: string;
+			apiKey?: string;
+			api?: string;
+		}) => Promise<TestProviderBaseUrlResult>;
 		testConnection: (payload: {
 			baseUrl: string;
 			apiKey?: string;

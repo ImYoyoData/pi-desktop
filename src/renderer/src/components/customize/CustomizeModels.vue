@@ -53,6 +53,8 @@ const saving = ref(false);
 const discovering = ref(false);
 /** 正在测试的模型行 key（同时只测一个）。 */
 const testingRow = ref<string | null>(null);
+/** 正在测试提供商地址连通性/延迟。 */
+const testingBaseUrl = ref(false);
 const formError = ref("");
 
 /** 「拉取模型」结果弹窗：手动勾选后再合并进模型列表。 */
@@ -371,6 +373,37 @@ function notifyModelsChanged(): void {
   window.dispatchEvent(new CustomEvent("pi-models-changed"));
 }
 
+async function testBaseUrl(): Promise<void> {
+  const current = draft.value;
+  if (!current || testingBaseUrl.value) return;
+  current.baseUrl = normalizeProviderBaseUrl(current.baseUrl);
+  if (!current.baseUrl.trim()) {
+    message.warning(t.modelsCustomTestNoBaseUrl);
+    return;
+  }
+  testingBaseUrl.value = true;
+  try {
+    const result = await window.api.models.testBaseUrl({
+      baseUrl: current.baseUrl,
+      apiKey: current.apiKey.trim() || undefined,
+      api: current.api,
+    });
+    if (!result.responded) {
+      message.error(`${t.modelsCustomBaseUrlTestFail}: ${result.error}`, { duration: 8000 });
+    } else if (result.status >= 200 && result.status < 300) {
+      message.success(t.modelsCustomBaseUrlTestOk(result.latencyMs, result.status));
+    } else {
+      message.warning(t.modelsCustomBaseUrlTestWarn(result.latencyMs, result.status), {
+        duration: 8000,
+      });
+    }
+  } catch (err) {
+    message.error(err instanceof Error ? err.message : String(err));
+  } finally {
+    testingBaseUrl.value = false;
+  }
+}
+
 async function testModel(rowKey: string, modelId: string): Promise<void> {
   const current = draft.value;
   if (!current || testingRow.value) return;
@@ -663,6 +696,9 @@ async function testModel(rowKey: string, modelId: string): Promise<void> {
           <footer class="detail-footer">
             <NButton size="small" :loading="discovering" @click="discover">
               {{ discovering ? t.modelsCustomDiscovering : t.modelsCustomDiscover }}
+            </NButton>
+            <NButton size="small" :loading="testingBaseUrl" @click="testBaseUrl">
+              {{ testingBaseUrl ? t.modelsCustomBaseUrlTesting : t.modelsCustomBaseUrlTest }}
             </NButton>
             <span class="detail-spacer" />
             <NButton size="small" :disabled="!dirty" @click="resetDraft">

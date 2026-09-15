@@ -187,6 +187,7 @@ export const IpcChannels = {
 		clearKey: "models:clearKey",
 		test: "models:test",
 		discover: "models:discover",
+		testBaseUrl: "models:testBaseUrl",
 		testConnection: "models:testConnection",
 		providerCatalog: "models:providerCatalog",
 		setSelection: "models:setSelection",
