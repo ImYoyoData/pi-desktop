@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { agentDir } from "./agent-dir";
+import { isPathInsideRoot } from "../shared/path-sandbox";
 import { resolveTrustState } from "./project-trust";
 import { listPlugins } from "./plugins-host";
 import type {
@@ -14,6 +15,17 @@ import type {
 type Sdk = typeof import("@earendil-works/pi-coding-agent");
 
 type SourceInfoLike = { scope?: string; origin?: string; source?: string };
+
+/** 禁用标记后缀：`foo.md` → `foo.md.disabled`（pi 只加载 .md，禁用后不再生效）。 */
+const DISABLED_EXT = ".disabled";
+
+type PromptLike = {
+	name: string;
+	description: string;
+	argumentHint?: string;
+	filePath: string;
+	sourceInfo?: SourceInfoLike;
+};
 
 type ExtensionLike = {
 	path: string;
@@ -66,11 +78,25 @@ function formatTools(value: unknown): string | undefined {
 	return typeof value === "string" && value.trim() ? value.trim() : undefined;
 }
 
+function isDisabledFile(name: string): boolean {
+	return name.endsWith(DISABLED_EXT);
+}
+
+/** 定制文件名去掉 `.md.disabled` 或 `.md` 后的基名。 */
+function baseNameWithoutExtension(name: string): string {
+	const base = isDisabledFile(name) ? name.slice(0, -DISABLED_EXT.length) : name;
+	return base.replace(/\.md$/, "");
+}
+
+function isCustomizationFile(name: string): boolean {
+	return name.endsWith(".md") || name.endsWith(`.md${DISABLED_EXT}`);
+}
+
 function readAgentDir(directory: string, scope: CustomizationScope, sdk: Sdk): CustomizationItem[] {
 	if (!fs.existsSync(directory)) return [];
 	return fs
 		.readdirSync(directory)
-		.filter((name) => name.endsWith(".md"))
+		.filter(isCustomizationFile)
 		.map((name) => {
 			const filePath = path.join(directory, name);
 			const content = fs.readFileSync(filePath, "utf8");
@@ -80,7 +106,7 @@ function readAgentDir(directory: string, scope: CustomizationScope, sdk: Sdk): C
 				name:
 					typeof frontmatter.name === "string" && frontmatter.name.trim()
 						? frontmatter.name
-						: name.replace(/\.md$/, ""),
+						: baseNameWithoutExtension(name),
 				description:
 					typeof frontmatter.description === "string"
 						? frontmatter.description
@@ -88,8 +114,63 @@ function readAgentDir(directory: string, scope: CustomizationScope, sdk: Sdk): C
 				filePath,
 				scope,
 				detail: formatTools(frontmatter.tools),
+				enabled: !isDisabledFile(name),
 			};
 		});
+}
+
+/** 已禁用的提示模板：loader 不会加载它们，需要单独扫描目录补齐列表。 */
+function readDisabledPromptDir(
+	directory: string,
+	scope: CustomizationScope,
+	sdk: Sdk,
+): CustomizationItem[] {
+	if (!fs.existsSync(directory)) return [];
+	return fs
+		.readdirSync(directory)
+		.filter(isDisabledFile)
+		.map((name) => {
+			const filePath = path.join(directory, name);
+			const content = fs.readFileSync(filePath, "utf8");
+			const { frontmatter } = sdk.parseFrontmatter<Record<string, unknown>>(content);
+			return {
+				id: filePath,
+				name: baseNameWithoutExtension(name),
+				description:
+					typeof frontmatter.description === "string"
+						? frontmatter.description
+						: firstLine(content),
+				filePath,
+				scope,
+				detail:
+					typeof frontmatter["argument-hint"] === "string"
+						? frontmatter["argument-hint"]
+						: undefined,
+				enabled: false,
+			};
+		});
+}
+
+function listPrompts(
+	root: string,
+	dir: string,
+	sdk: Sdk,
+	prompts: readonly PromptLike[],
+): CustomizationItem[] {
+	return [
+		...prompts.map((prompt) => ({
+			id: prompt.filePath,
+			name: prompt.name,
+			description: prompt.description,
+			filePath: prompt.filePath,
+			scope: scopeOf(prompt.sourceInfo),
+			source: packageSource(prompt.sourceInfo),
+			detail: prompt.argumentHint,
+			enabled: true,
+		})),
+		...readDisabledPromptDir(path.join(dir, "prompts"), "user", sdk),
+		...readDisabledPromptDir(path.join(root, ".pi", "prompts"), "project", sdk),
+	];
 }
 
 function listAgents(root: string, dir: string, sdk: Sdk): CustomizationItem[] {
@@ -338,15 +419,7 @@ export async function listCustomizations(root: string): Promise<CustomizationsSn
 				? "project"
 				: "user",
 		})),
-		prompts: prompts.prompts.map((prompt) => ({
-			id: prompt.filePath,
-			name: prompt.name,
-			description: prompt.description,
-			filePath: prompt.filePath,
-			scope: scopeOf(prompt.sourceInfo),
-			source: packageSource(prompt.sourceInfo),
-			detail: prompt.argumentHint,
-		})),
+		prompts: listPrompts(root, dir, sdk, prompts.prompts),
 		hooks: collectHooks(extensionList),
 		mcp: [
 			...readMcpFile(path.join(dir, "mcp.json"), "user"),
@@ -423,4 +496,47 @@ export function createCustomization(kind: CustomizationCreateKind): { filePath: 
 	fs.mkdirSync(path.dirname(filePath), { recursive: true });
 	fs.writeFileSync(filePath, template.content(name), "utf8");
 	return { filePath };
+}
+
+/** 允许启停与删除的定制文件目录：用户级与工作区级的 agents/prompts。 */
+function editableRoots(root?: string): string[] {
+	const dir = agentDir();
+	const roots = [path.join(dir, "agents"), path.join(dir, "prompts")];
+	if (root) roots.push(path.join(root, ".pi", "agents"), path.join(root, ".pi", "prompts"));
+	return roots;
+}
+
+function resolveEditableFile(filePath: string, root?: string): string {
+	const target = path.resolve(filePath);
+	if (!isCustomizationFile(path.basename(target))) {
+		throw new Error(`Not an agent/prompt file: ${filePath}`);
+	}
+	if (!editableRoots(root).some((base) => isPathInsideRoot(base, target))) {
+		throw new Error(`Only user and workspace agents/prompts can be changed: ${filePath}`);
+	}
+	if (!fs.existsSync(target)) throw new Error(`File not found: ${filePath}`);
+	return target;
+}
+
+/** 启停定制文件：重命名为 `*.md.disabled`，恢复时去掉后缀。 */
+export function setCustomizationItemEnabled(
+	filePath: string,
+	enabled: boolean,
+	root?: string,
+): { filePath: string } {
+	const target = resolveEditableFile(filePath, root);
+	const disabled = target.endsWith(DISABLED_EXT);
+	if (enabled && !disabled) return { filePath: target };
+	if (!enabled && disabled) return { filePath: target };
+	const next = enabled ? target.slice(0, -DISABLED_EXT.length) : `${target}${DISABLED_EXT}`;
+	if (fs.existsSync(next)) throw new Error(`File already exists: ${next}`);
+	fs.renameSync(target, next);
+	return { filePath: next };
+}
+
+/** 删除定制文件（已禁用的文件同样可删）。 */
+export function removeCustomizationItem(filePath: string, root?: string): { filePath: string } {
+	const target = resolveEditableFile(filePath, root);
+	fs.rmSync(target, { force: false });
+	return { filePath: target };
 }
