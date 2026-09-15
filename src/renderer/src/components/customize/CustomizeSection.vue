@@ -1,11 +1,12 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, reactive, ref } from "vue";
+import { computed, reactive, ref } from "vue";
 import { NButton, NDropdown, NInput, NSwitch, useDialog, useMessage } from "naive-ui";
 import type { DropdownOption } from "naive-ui";
 import CodiconIcon from "@renderer/components/icons/CodiconIcon.vue";
 import McpAddModal from "@renderer/components/customize/McpAddModal.vue";
 import { useWorkspaceStore } from "@renderer/stores/workspace";
 import { useCustomizationsStore } from "@renderer/stores/customizations";
+import { usePluginUpdatesStore } from "@renderer/stores/plugin-updates";
 import type {
   CustomizationCreateKind,
   CustomizationItem,
@@ -37,11 +38,7 @@ const query = ref("");
 const addOpen = ref(false);
 const mcpTesting = ref(false);
 const mcpTestResults = ref<Record<string, McpTestResult>>({});
-const checkingUpdates = ref(false);
-const pluginVersions = ref<Record<string, PluginVersionInfo>>({});
-const pluginProgress = ref<Record<string, PluginUpdateProgress>>({});
-const upgradingPlugins = ref(new Set<string>());
-let disposeProgress: (() => void) | null = null;
+const pluginUpdates = usePluginUpdatesStore();
 const collapsed = reactive(new Set<CustomizationScope>());
 
 /** 右键菜单（对应 VS Code 的行上下文菜单）。 */
@@ -269,27 +266,21 @@ function canToggle(item: CustomizationItem): boolean {
   return props.kind === "plugins" && Boolean(item.source);
 }
 
-/** 检查插件版本，结果按行 id 缓存供版本徽标与升级按钮使用。 */
+/** 检查插件版本，结果缓存到 store，切换设置页后仍显示版本徽标与升级按钮。 */
 async function checkPluginUpdateState(): Promise<void> {
-  if (checkingUpdates.value) return;
-  checkingUpdates.value = true;
   try {
-    const list = await window.api.plugins.checkUpdates(workspace.root ?? undefined);
-    const next: Record<string, PluginVersionInfo> = {};
-    for (const info of list) next[`${info.scope}:${info.source}`] = info;
-    pluginVersions.value = next;
+    const list = await pluginUpdates.check(workspace.root ?? undefined);
+    if (!list) return;
     const count = list.filter((info) => info.hasUpdate).length;
     if (count > 0) message.success(t.customizeUpdatesFound(count));
     else message.success(t.customizeNoUpdates);
   } catch (err) {
     message.error(err instanceof Error ? err.message : String(err));
-  } finally {
-    checkingUpdates.value = false;
   }
 }
 
 function versionInfoOf(item: CustomizationItem): PluginVersionInfo | undefined {
-  return item.source ? pluginVersions.value[item.id] : undefined;
+  return item.source ? pluginUpdates.versions[item.id] : undefined;
 }
 
 /** 行内版本文案：有更新时显示「本地 → 最新」，否则只显示本地版本。 */
@@ -303,7 +294,7 @@ function versionLabel(item: CustomizationItem): string {
 }
 
 function progressOf(item: CustomizationItem): PluginUpdateProgress | undefined {
-  return item.source ? pluginProgress.value[item.id] : undefined;
+  return item.source ? pluginUpdates.progress[item.id] : undefined;
 }
 
 /** 进度文案：git 显示真实百分比，npm 显示正在获取的包名。 */
@@ -320,57 +311,23 @@ function progressLabelOf(item: CustomizationItem): string {
   return progress ? progressLabel(progress) : "";
 }
 
-onMounted(() => {
-  disposeProgress = window.api.plugins.onUpdateProgress((progress) => {
-    const id = `${progress.scope}:${progress.source}`;
-    if (progress.phase === "done" || progress.phase === "error") {
-      const next = { ...pluginProgress.value };
-      delete next[id];
-      pluginProgress.value = next;
-      return;
-    }
-    pluginProgress.value = { ...pluginProgress.value, [id]: progress };
-  });
-});
-
-onUnmounted(() => {
-  disposeProgress?.();
-  disposeProgress = null;
-});
-
 function isUpgrading(id: string): boolean {
-  return upgradingPlugins.value.has(id);
-}
-
-function setUpgrading(id: string, upgrading: boolean): void {
-  const next = new Set(upgradingPlugins.value);
-  if (upgrading) next.add(id);
-  else next.delete(id);
-  upgradingPlugins.value = next;
+  return pluginUpdates.upgrading.has(id);
 }
 
 /** 升级单个插件：就地更新该行版本，不整页刷新，也不影响其他行的按钮。 */
 async function upgradePlugin(item: CustomizationItem): Promise<void> {
-  const info = versionInfoOf(item);
-  if (!item.source || !info?.hasUpdate || isUpgrading(item.id)) return;
-  setUpgrading(item.id, true);
+  if (!item.source) return;
   try {
-    await window.api.plugins.update(item.source, pluginScope(item), workspace.root ?? undefined);
-    message.success(t.customizeUpdated(item.name));
-    const currentVersion = info.latestVersion ?? info.currentVersion;
-    pluginVersions.value = {
-      ...pluginVersions.value,
-      [item.id]: {
-        ...info,
-        currentVersion,
-        latestVersion: currentVersion,
-        hasUpdate: false,
-      },
-    };
+    const done = await pluginUpdates.upgrade(
+      item.id,
+      item.source,
+      pluginScope(item),
+      workspace.root ?? undefined,
+    );
+    if (done) message.success(t.customizeUpdated(item.name));
   } catch (err) {
     message.error(err instanceof Error ? err.message : String(err));
-  } finally {
-    setUpgrading(item.id, false);
   }
 }
 
@@ -608,7 +565,7 @@ function onCtxSelect(key: string | number): void {
           v-if="kind === 'plugins'"
           class="list-add-button"
           size="small"
-          :loading="checkingUpdates"
+          :loading="pluginUpdates.checking"
           @click="checkPluginUpdateState"
         >
           {{ t.customizeCheckUpdates }}
