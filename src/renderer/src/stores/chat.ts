@@ -791,6 +791,18 @@ export const useChatStore = defineStore("chat", () => {
 		}
 	}
 
+	/**
+	 * 会话重新载入时用主进程的会话状态校准 running：
+	 * 事件丢失（renderer 重载、HMR、断线）不应让 UI 永远停在「运行中」，
+	 * 否则检查点分隔线与派生/还原按钮会一直不显示。
+	 */
+	function reconcileRunning(sessionId: string, state: ChatState): ChatState {
+		if (!state.running) return state;
+		const row = sessionsStore.sessions.find((s) => s.id === sessionId);
+		if (!row || row.status === "running" || row.status === "stuck") return state;
+		return { ...state, running: false, streamingMessage: null, retryHint: null };
+	}
+
 	function hydrateFromHistory(
 		sessionId: string,
 		history: SessionHistoryMessage[],
@@ -806,6 +818,7 @@ export const useChatStore = defineStore("chat", () => {
 			// lags the live turn, so replacing state would drop the pending prompt
 			// and any un-flushed stream tail; keep it until the turn settles.
 			softHangReported.delete(sessionId);
+			bySession[sessionId] = reconcileRunning(sessionId, live);
 			return;
 		}
 		const mapped = history.map(mapHistoryRow);
@@ -822,6 +835,7 @@ export const useChatStore = defineStore("chat", () => {
 				.every((m, i) => m.id === mapped[i]!.id)
 		) {
 			softHangReported.delete(sessionId);
+			bySession[sessionId] = reconcileRunning(sessionId, live);
 			return;
 		}
 		bySession[sessionId] = {
