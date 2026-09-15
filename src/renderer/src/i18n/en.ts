@@ -808,8 +808,7 @@ export const en = {
 		"Edit ~/.pi/agent/models.json (custom providers / baseUrl / models)",
 	thinkingLanguage: "Thinking language",
 	thinkingLanguageHint:
-		"Affects visible reasoning text only. Auto: injects a Chinese reasoning instruction when the UI is Chinese; Off: never injects.",
-	thinkingLanguageOff: "Off",
+		"Affects visible reasoning text only. Auto: injects a Chinese reasoning instruction when the UI is Chinese, nothing when the UI is English; Chinese / English always injects that language.",
 	thinkingLanguageAuto: "Auto",
 	thinkingLanguageZh: "Chinese",
 	modelsAddProvider: "Add provider",

@@ -770,8 +770,7 @@ export const zh = {
 		"编辑 ~/.pi/agent/models.json（自定义 Provider / baseUrl / 模型）",
 	thinkingLanguage: "思考语言",
 	thinkingLanguageHint:
-		"只影响可见思考文本。自动：界面为中文时注入中文思考指令，界面为英文时不注入；关闭：不注入。",
-	thinkingLanguageOff: "关闭",
+		"只影响可见思考文本。自动：界面为中文时注入中文思考指令，界面为英文时不注入；中文 / 英文：始终注入对应语言的指令。",
 	thinkingLanguageAuto: "自动",
 	thinkingLanguageZh: "中文",
 	modelsAddProvider: "添加 Provider",
