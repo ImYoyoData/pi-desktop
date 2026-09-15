@@ -70,7 +70,9 @@ function readChatMetaEntries(filePath: string): SessionChatMetaEntry[] {
   }
 }
 
-function reply(msg: Reply): void {
+type ReplyWithId = Reply & { id?: number };
+
+function reply(msg: ReplyWithId): void {
   parentPort?.postMessage(msg);
 }
 

@@ -455,7 +455,7 @@ function onComposerDrop(event: DragEvent): void {
   if (outcome.kind === "text") {
     // Dropped http(s) URLs stay plain text — insert where the user let go.
     placeDropCaret(event.clientX, event.clientY);
-    richEditor.value?.insertTextAtCaret(outcome.text);
+    richEditor.value?.insertTextAtCaret?.(outcome.text);
   }
 }
 

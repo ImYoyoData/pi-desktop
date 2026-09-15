@@ -28,6 +28,7 @@ const MarkdownView = defineAsyncComponent(
 
 import ThinkingBlock from "@renderer/components/ThinkingBlock.vue";
 import ToolCallCard from "@renderer/components/ToolCallCard.vue";
+import TurnDiffSummary from "@renderer/components/TurnDiffSummary.vue";
 import WorkSectionGroup from "@renderer/components/WorkSectionGroup.vue";
 import AgentWaitIndicator from "@renderer/components/AgentWaitIndicator.vue";
 import { toolCardFor as toolCard } from "@renderer/utils/tool-diff";
@@ -45,7 +46,10 @@ import {
   stripComposerModePreamble,
 } from "../../../shared/composer-modes";
 import { ASK_USER_TOOL_NAME } from "../../../shared/ask-user";
-import { windowAfterHistoryPrepend } from "@renderer/utils/message-virtual-window";
+import {
+  collectTurnFileChanges,
+  type TurnFileChanges,
+} from "@renderer/utils/turn-file-changes";
 import { decideFollowOnScroll } from "@renderer/utils/follow-bottom";
 import { thinkingLevelLabel } from "@renderer/utils/thinking-level";
 
@@ -76,8 +80,6 @@ const props = defineProps<{
   running: boolean;
   retryHint?: ChatRetryHint | null;
   historyLoading?: boolean;
-  historyHasMore?: boolean;
-  historyLoadingOlder?: boolean;
   /** 面板被折叠/让位给编辑器区域时为 false。 */
   visible?: boolean;
 }>();
@@ -246,9 +248,15 @@ function isKeepVisibleTool(msg: ChatMessage): boolean {
   return msg.role === "tool" && msg.toolName === ASK_USER_TOOL_NAME;
 }
 
-const displayMessages = computed(() => {
+/** 完整消息序列（含 streaming）：改动统计需要历史轮被裁剪掉的工具行。 */
+const allMessages = computed<ChatMessage[]>(() => {
   const list = [...props.messages];
   if (props.streaming) list.push(props.streaming);
+  return list;
+});
+
+const displayMessages = computed(() => {
+  const list = allMessages.value;
   const start = latestTurnStart.value;
   const out: ChatMessage[] = [];
   for (let i = 0; i < list.length; i++) {
@@ -712,7 +720,7 @@ function rowResized(id: string): void {
  * 屏幕上就只剩一片空白。这里就地补挂对应方向的行，让视口重新被真实内容盖住。
  */
 function ensureViewportCovered(): void {
-  if (adjustingWindow || settlingSession || loadingOlderPage || document.hidden) return;
+  if (adjustingWindow || settlingSession || document.hidden) return;
   if (paneHidden()) return;
   const sc = scroller.value;
   if (!sc) return;
@@ -778,7 +786,7 @@ function restoreScrollAnchor(
     sc.scrollTop += row.getBoundingClientRect().top - scTop - anchor.viewportTop;
     return;
   }
-  // 两个锚点都被卸载（历史前插）时退回高度差补偿。
+  // 两个锚点都被卸载时退回高度差补偿。
   sc.scrollTop = prevTop + (sc.scrollHeight - prevHeight);
 }
 
@@ -787,13 +795,9 @@ function scheduleWindowPrefetch(): void {
   requestAnimationFrame(() => {
     const sc = scroller.value;
     if (!sc || adjustingWindow || settlingSession) return;
-    if (sc.scrollTop < topSpacerPx.value + OVERSCAN_PX) {
-      if (renderStart.value > 0) {
-        expandHistoryUp();
-        return;
-      }
-      // 窗口已到头部且视口仍在顶部：向上没有可补挂的行，改从磁盘补一页历史。
-      if (!followBottom) void loadOlderHistoryPage();
+    if (renderStart.value > 0 && sc.scrollTop < topSpacerPx.value + OVERSCAN_PX) {
+      expandHistoryUp();
+      return;
     }
     if (followBottom) return;
     const bottomEdge = sc.scrollHeight - bottomSpacerPx.value;
@@ -804,12 +808,8 @@ function scheduleWindowPrefetch(): void {
 }
 
 function expandHistoryUp(): void {
-  if (adjustingWindow || loadingOlderPage) return;
-  if (renderStart.value <= 0) {
-    // At the start of the *loaded* window — fetch an older page from disk if any.
-    void loadOlderHistoryPage();
-    return;
-  }
+  if (adjustingWindow) return;
+  if (renderStart.value <= 0) return;
   const sc = scroller.value;
   if (!sc) return;
   adjustingWindow = true;
@@ -836,75 +836,13 @@ function expandHistoryUp(): void {
     measureVisibleRows();
     adjustingWindow = false;
     updateStickyPinned();
-    if (renderStart.value <= 0) {
-      void loadOlderHistoryPage();
-    } else {
-      scheduleWindowPrefetch();
-    }
+    scheduleWindowPrefetch();
     ensureViewportCovered();
   });
 }
 
-let loadingOlderPage = false;
-async function loadOlderHistoryPage(): Promise<void> {
-  if (loadingOlderPage || !props.historyHasMore) return;
-  const id = sessionId.value;
-  if (!id) return;
-  const sc = scroller.value;
-  if (!sc) return;
-  loadingOlderPage = true;
-  adjustingWindow = true;
-  const prevHeight = sc.scrollHeight;
-  const prevTop = sc.scrollTop;
-  const anchor = captureScrollAnchors();
-  try {
-    const added = await chat.loadOlderHistory(id);
-    if (added <= 0) return;
-    // Prepend shifts every index — keep the same rows mounted, then peek a chunk older.
-    // The viewport stays anchored via restoreScrollAnchor, so this is safe
-    // even while the user is mid-read.
-    const shifted = windowAfterHistoryPrepend(
-      { start: renderStart.value, end: renderEnd.value },
-      added,
-      displayMessages.value.length,
-      VIRTUAL_MAX,
-      VIRTUAL_CHUNK,
-    );
-    if (fitsFullMount(displayMessages.value.length)) {
-      renderStart.value = 0;
-      renderEnd.value = displayMessages.value.length;
-    } else {
-      alignRenderWindowToGroup(shifted.start, shifted.end);
-    }
-    await nextTick();
-    restoreScrollAnchor(anchor, prevHeight, prevTop);
-    measureVisibleRows();
-    updateStickyPinned();
-    scheduleWindowPrefetch();
-  } finally {
-    adjustingWindow = false;
-    loadingOlderPage = false;
-  }
-  void fillViewportWithHistory();
-}
-
-/**
- * A fresh history page can fit the viewport entirely (folded rows are short),
- * leaving no overflow — and therefore no scroll events — so the scroll-driven
- * prefetch above would never fire and older history becomes unreachable.
- * Keep prepending pages until the list actually overflows (or history ends).
- */
-async function fillViewportWithHistory(): Promise<void> {
-  const sc = scroller.value;
-  if (!sc || settlingSession || adjustingWindow || loadingOlderPage) return;
-  if (readingHistory || document.hidden) return;
-  if (!props.historyHasMore || renderStart.value > 0) return;
-  if (sc.scrollHeight > sc.clientHeight + 1) return;
-  await loadOlderHistoryPage();
-}
-
 function expandHistoryDown(): void {
-  if (adjustingWindow || loadingOlderPage) return;
+  if (adjustingWindow) return;
   const len = displayMessages.value.length;
   if (renderEnd.value >= len) return;
   const sc = scroller.value;
@@ -1113,7 +1051,6 @@ async function beginSessionSettle(): Promise<void> {
     // Final snap after reveal (layout may change when visibility returns).
     await nextTick();
     jumpToBottomInstant();
-    void fillViewportWithHistory();
   }
 }
 
@@ -1155,10 +1092,10 @@ function cancelSessionSettle(): void {
 }
 
 function syncFollowBottomOnScroll(sc: HTMLElement): void {
-  // While the virtual window / history loading adjusts the DOM, scroll events
-  // are synthetic — the decision machine must not run at all (a prepend nudge
-  // could otherwise look like the user scrolling back down).
-  if (adjustingWindow || loadingOlderPage || settlingSession) {
+  // While the virtual window adjusts the DOM, scroll events are synthetic — the
+  // decision machine must not run at all (a synthetic nudge could otherwise
+  // look like the user scrolling back down).
+  if (adjustingWindow || settlingSession) {
     lastSyncScrollTop = sc.scrollTop;
     return;
   }
@@ -1177,8 +1114,8 @@ function syncFollowBottomOnScroll(sc: HTMLElement): void {
   suppressFollowBottomUntil = decision.suppressUntil;
   followBottom = decision.following;
   if (!followBottom) cancelQueuedBottomSnaps();
-  // While a user is reading history (hard latch), every extra list insert /
-  // prepend shifts the DOM; synthetic scroll events then fire. Those are not
+  // While a user is reading history (hard latch), every extra list insert
+  // shifts the DOM; synthetic scroll events then fire. Those are not
   // intent — the state machine stays inert except for a real return into the
   // live edge, which releases the latch (decideFollowOnScroll only reports
   // following=true once the user scrolls back into the near-bottom zone).
@@ -1205,11 +1142,6 @@ function onScrollerWheel(event: WheelEvent): void {
   const sc = scroller.value;
   if (!sc) return;
   engageUserHistoryScroll();
-  if (sc.scrollTop <= 0) {
-    // Already at the top edge: scroll events can't fire, so trigger the
-    // older-page fetch directly from the wheel gesture.
-    void fillViewportWithHistory();
-  }
 }
 
 function onScrollerKeydown(event: KeyboardEvent): void {
@@ -1263,12 +1195,8 @@ function handleScrollerScroll(): void {
   }
 
   // Prefetch above: expand before the viewport hits blank spacer.
-  if (sc.scrollTop < topSpacerPx.value + OVERSCAN_PX) {
-    if (renderStart.value > 0) {
-      expandHistoryUp();
-    } else {
-      void loadOlderHistoryPage();
-    }
+  if (renderStart.value > 0 && sc.scrollTop < topSpacerPx.value + OVERSCAN_PX) {
+    expandHistoryUp();
   }
   // Prefetch below: keep continuity when scrolling back toward latest.
   const bottomEdge = sc.scrollHeight - bottomSpacerPx.value;
@@ -1322,8 +1250,6 @@ watch(
 watch(
   () => displayMessages.value.length,
   (len, prevLen) => {
-    // loadOlderHistoryPage owns index shifts while prepending; skip to avoid double-clamp.
-    if (loadingOlderPage) return;
     const hydratedFromEmpty = (prevLen === 0 || prevLen == null) && len > 0;
     // Only pin the trailing window when the user is following the bottom.
     // (Do NOT yank the window during agent runs if the user scrolled up to read history.)
@@ -1337,7 +1263,6 @@ watch(
       renderStart.value = 0;
       renderEnd.value = len;
     } else {
-      // Prepend path adjusts indices inside loadOlderHistoryPage before length settles.
       clampRenderWindow(false);
     }
     // Critical: hydrate often lands AFTER settle timeouts. Always snap when
@@ -1356,7 +1281,6 @@ watch(
         jumpToBottomInstant();
       });
     }
-    void fillViewportWithHistory();
   },
   { immediate: true },
 );
@@ -1563,6 +1487,64 @@ onBeforeUnmount(() => {
  * stay prominent, Codex-style. Users can still re-expand any row manually.
  */
 const turnDone = computed(() => !props.running && !props.streaming);
+
+/**
+ * opencode DiffSummary：每轮（user 行分隔）的文件改动汇总，挂在轮末最终回答
+ * 下方。统计用完整消息 — 历史轮的工具行在渲染时被裁剪，计数仍要算上它们。
+ */
+const turnDiffsByRow = computed(() => {
+  const out = new Map<string, TurnFileChanges>();
+  const stats = collectTurnFileChanges(allMessages.value, toolCard, turnDone.value);
+  if (!stats.size) return out;
+  const sourceIds = lastIdPerRound(allMessages.value, (msg) => msg.role !== "user");
+  const answerIds = lastIdPerRound(
+    displayMessages.value,
+    (msg) => msg.role === "assistant" && Boolean(msg.text),
+  );
+  for (let i = 0; i < sourceIds.length; i++) {
+    const sourceId = sourceIds[i];
+    const rowId = answerIds[i];
+    const changes = sourceId ? stats.get(sourceId) : undefined;
+    if (changes && rowId) out.set(rowId, changes);
+  }
+  return out;
+});
+
+function turnDiffFor(msg: ChatMessage): TurnFileChanges | null {
+  return turnDiffsByRow.value.get(msg.id) ?? null;
+}
+
+/** 每轮（user 行分隔）最后一个命中行的 id；null 表示该轮没有命中行。 */
+function lastIdPerRound(
+  msgs: readonly ChatMessage[],
+  match: (msg: ChatMessage) => boolean,
+): (string | null)[] {
+  const ids: (string | null)[] = [];
+  let last: string | null = null;
+  for (const msg of msgs) {
+    if (msg.role === "user") {
+      ids.push(last);
+      last = null;
+      continue;
+    }
+    if (match(msg)) last = msg.id;
+  }
+  ids.push(last);
+  return ids;
+}
+
+const openTurnDiffs = ref(new Set<string>());
+
+function isTurnDiffOpen(id: string): boolean {
+  return openTurnDiffs.value.has(id);
+}
+
+function toggleTurnDiff(id: string): void {
+  const next = new Set(openTurnDiffs.value);
+  if (next.has(id)) next.delete(id);
+  else next.add(id);
+  openTurnDiffs.value = next;
+}
 
 /**
  * Memoized card parsing (shared cache `toolCardFor` in tool-diff.ts): the same
@@ -1922,14 +1904,6 @@ function onRevertUser(msg: Extract<ChatMessage, { role: "user" }>): void {
       />
 
       <div
-        v-if="historyLoadingOlder || (historyHasMore && renderStart === 0 && topSpacerPx < 8)"
-        class="history-older-banner"
-        aria-live="polite"
-      >
-        {{ historyLoadingOlder ? t.loadingOlderHistory : t.scrollForOlderHistory }}
-      </div>
-
-      <div
         v-if="topSpacerPx > 0"
         class="virtual-spacer"
         :style="{ height: `${topSpacerPx}px` }"
@@ -2191,6 +2165,14 @@ function onRevertUser(msg: Extract<ChatMessage, { role: "user" }>): void {
                 {{ assistantModelDetail(msg)!.compact }}
               </span>
             </div>
+
+            <TurnDiffSummary
+              v-if="turnDiffFor(msg)"
+              :changes="turnDiffFor(msg)!"
+              :open="isTurnDiffOpen(msg.id)"
+              @toggle="toggleTurnDiff(msg.id)"
+              @open-file="openPreview"
+            />
           </div>
         </template>
 
@@ -2409,16 +2391,6 @@ function onRevertUser(msg: Extract<ChatMessage, { role: "user" }>): void {
   min-height: 0;
   display: flex;
   flex-direction: column;
-}
-
-.history-older-banner {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-  padding: 6px 10px;
-  font-size: 11px;
-  color: var(--fg-muted, #888);
 }
 
 .message-list {

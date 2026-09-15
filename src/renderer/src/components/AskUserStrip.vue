@@ -228,7 +228,7 @@ async function onConfirm(): Promise<void> {
 /** Copilot-style "dismiss": cancel the pending ask and stop the blocked turn. */
 function onCancelAsk(): void {
   const p = prompt.value;
-  if (!p) return;
+  if (!p?.sessionId) return;
   void chat.abort(p.sessionId);
 }
 </script>
