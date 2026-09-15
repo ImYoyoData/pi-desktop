@@ -463,7 +463,7 @@ onUnmounted(() => {
 
 .md :deep(.code-block) {
   margin: 0.75em 0;
-  border-radius: 8px;
+  border-radius: 4px;
   border: 1px solid var(--border-subtle, rgba(127, 127, 127, 0.25));
   overflow: hidden;
   background: var(--pre-bg, var(--code-bg, var(--bg-elevated, transparent)));
@@ -655,7 +655,7 @@ onUnmounted(() => {
 
 .md :deep(.md-diagram) {
   margin: 0.75em 0;
-  border-radius: 8px;
+  border-radius: 4px;
   border: 1px solid var(--border-subtle, rgba(127, 127, 127, 0.25));
   background: var(--bg-elevated, transparent);
   overflow: hidden;
@@ -793,7 +793,7 @@ onUnmounted(() => {
   min-height: min(78vh, 820px);
   max-height: min(82vh, 880px);
   padding: 20px;
-  border-radius: 8px;
+  border-radius: 4px;
   border: 1px solid var(--border-subtle, rgba(127, 127, 127, 0.25));
   background: var(--bg-elevated, transparent);
   cursor: grab;

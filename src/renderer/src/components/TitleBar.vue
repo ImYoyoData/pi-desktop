@@ -334,7 +334,7 @@ async function onUpdateClick(): Promise<void> {
   width: 7px;
   height: 7px;
   border-radius: 50%;
-  background: #e5484d;
+  background: var(--accent);
   box-shadow: 0 0 0 1.5px var(--bg-title, var(--bg));
   pointer-events: none;
 }
@@ -368,7 +368,7 @@ async function onUpdateClick(): Promise<void> {
 }
 
 .wc-btn.close-btn:hover {
-  background: #e5484d;
+  background: #c42b1c;
   color: #fff;
 }
 
@@ -387,7 +387,7 @@ async function onUpdateClick(): Promise<void> {
   width: 7px;
   height: 7px;
   border-radius: 50%;
-  background: #22c55e;
+  background: var(--success);
   box-shadow: 0 0 0 1.5px var(--bg-title, var(--bg));
 }
 /* Public access rides a Cloudflare tunnel — flag it with the Cloudflare orange. */

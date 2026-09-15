@@ -322,7 +322,7 @@ onBeforeUnmount(() => {
   min-height: 0;
   min-width: 0;
   overflow: hidden;
-  background: var(--bg-elevated);
+  background: var(--bg-panel);
 }
 
 .term-host {

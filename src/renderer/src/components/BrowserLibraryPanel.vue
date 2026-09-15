@@ -191,7 +191,7 @@ function faviconSrc(entry: { favicon?: string }): string | null {
   background: transparent;
   text-align: left;
   padding: 9px 10px;
-  border-radius: 8px;
+  border-radius: 4px;
   cursor: pointer;
   color: var(--fg);
   font-size: 13px;

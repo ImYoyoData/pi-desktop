@@ -826,7 +826,7 @@ onUnmounted(() => {
 
 .card {
   border: 1px solid var(--border, rgba(128, 128, 128, 0.25));
-  border-radius: 10px;
+  border-radius: 6px;
   padding: 14px;
   background: var(--bg-elevated, transparent);
   display: flex;
@@ -862,7 +862,7 @@ onUnmounted(() => {
   gap: 6px;
   padding: 8px 10px;
   border: 1px solid var(--border, rgba(128, 128, 128, 0.3));
-  border-radius: 8px;
+  border-radius: 4px;
   background: transparent;
   color: var(--fg-muted, #57606a);
   font: inherit;
@@ -1008,23 +1008,5 @@ onUnmounted(() => {
   display: flex;
   justify-content: flex-end;
   margin-top: 8px;
-}
-
-:root.dark .card {
-  border-color: rgba(255, 255, 255, 0.14);
-}
-
-:root.dark .card-title,
-:root.dark .setting-name,
-:root.dark .sub-title {
-  color: #e6edf3;
-}
-
-:root.dark .seg-btn {
-  color: #8b949e;
-}
-
-:root.dark .seg-btn.on {
-  background: rgba(79, 110, 247, 0.18);
 }
 </style>

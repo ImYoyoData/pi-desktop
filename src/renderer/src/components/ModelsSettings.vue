@@ -789,7 +789,7 @@ async function applyPickedOverrides(rows: PickerRow[]): Promise<void> {
   min-height: 0;
   height: 100%;
   border: 1px solid var(--border);
-  border-radius: 10px;
+  border-radius: 6px;
   overflow: hidden;
 }
 
@@ -927,7 +927,7 @@ async function applyPickedOverrides(rows: PickerRow[]): Promise<void> {
 .selection-note {
   margin-bottom: 8px;
   padding: 6px 9px;
-  border-radius: 8px;
+  border-radius: 4px;
   font-size: 11px;
   color: var(--fg-muted);
   background: var(--accent-soft);

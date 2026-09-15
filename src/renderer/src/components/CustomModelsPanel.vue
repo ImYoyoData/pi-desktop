@@ -1026,7 +1026,7 @@ function selectProvider(id: string): void {
   min-height: 0;
   height: 100%;
   border: 1px solid var(--border);
-  border-radius: 12px;
+  border-radius: 6px;
   overflow: hidden;
   background: var(--bg);
 }
@@ -1136,7 +1136,7 @@ function selectProvider(id: string): void {
   margin-bottom: 14px;
   padding: 14px 16px;
   border: 1px solid var(--border);
-  border-radius: 12px;
+  border-radius: 6px;
   background: color-mix(in srgb, var(--bg-panel) 66%, transparent);
 }
 
@@ -1216,7 +1216,7 @@ function selectProvider(id: string): void {
   gap: 7px;
   padding: 9px 11px;
   border: 1px solid var(--border);
-  border-radius: 10px;
+  border-radius: 6px;
   background: var(--bg-elevated, var(--bg));
 }
 

@@ -3,6 +3,7 @@ import { createPinia } from "pinia";
 // pi-lens-ignore: 2307
 import App from "./App.vue";
 import "./assets/main.css";
+import "./assets/vscode-syntax.css";
 import {
   isLocaleReloading,
   showLocaleReloadSplash,

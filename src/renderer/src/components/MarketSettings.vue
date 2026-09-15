@@ -517,7 +517,7 @@ watch(query, () => {
   justify-content: space-between;
   padding: 12px;
   border: 1px solid var(--border);
-  border-radius: 12px;
+  border-radius: 6px;
   background: var(--bg-elevated, #fff);
   box-shadow: var(--shadow-sm, none);
   transition:

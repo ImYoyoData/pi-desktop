@@ -126,7 +126,7 @@ onMounted(() => {
   height: 6px;
   margin-left: 6px;
   border-radius: 50%;
-  background: #e5484d;
+  background: var(--accent);
   vertical-align: middle;
 }
 </style>

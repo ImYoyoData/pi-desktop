@@ -539,7 +539,7 @@ function onCtxSelect(key: string | number): void {
 .inline-badge {
   flex-shrink: 0;
   padding: 0 6px;
-  border-radius: 8px;
+  border-radius: 4px;
   background: var(--bg-active);
   color: var(--fg-muted);
   font-size: 10px;
