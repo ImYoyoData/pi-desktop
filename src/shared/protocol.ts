@@ -160,6 +160,9 @@ export const IpcChannels = {
 	customizations: {
 		list: "customizations:list",
 		create: "customizations:create",
+		setMcpEnabled: "customizations:setMcpEnabled",
+		addMcpServers: "customizations:addMcpServers",
+		ensureMcpConfig: "customizations:ensureMcpConfig",
 	},
 	skills: {
 		list: "skills:list",

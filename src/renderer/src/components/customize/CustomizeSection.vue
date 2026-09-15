@@ -1,9 +1,11 @@
 <script setup lang="ts">
 import { computed, reactive, ref } from "vue";
-import { NButton, NDropdown, NInput, useDialog, useMessage } from "naive-ui";
+import { NButton, NDropdown, NInput, NSwitch, useDialog, useMessage } from "naive-ui";
 import type { DropdownOption } from "naive-ui";
 import CodiconIcon from "@renderer/components/icons/CodiconIcon.vue";
+import McpAddModal from "@renderer/components/customize/McpAddModal.vue";
 import { useWorkspaceStore } from "@renderer/stores/workspace";
+import { useCustomizationsStore } from "@renderer/stores/customizations";
 import type {
   CustomizationCreateKind,
   CustomizationItem,
@@ -25,10 +27,12 @@ const emit = defineEmits<{
 }>();
 
 const workspace = useWorkspaceStore();
+const store = useCustomizationsStore();
 const dialog = useDialog();
 const message = useMessage();
 
 const query = ref("");
+const addOpen = ref(false);
 const collapsed = reactive(new Set<CustomizationScope>());
 
 /** 右键菜单（对应 VS Code 的行上下文菜单）。 */
@@ -172,6 +176,21 @@ async function setEnabled(item: CustomizationItem, enabled: boolean): Promise<vo
         enabled,
         workspace.root ?? undefined,
       );
+    } else if (props.kind === "mcp") {
+      // 先本地生效，写入失败再回滚，避免列表整表刷新。
+      store.setMcpEnabled(item.id, enabled);
+      try {
+        await window.api.customizations.setMcpEnabled(
+          item.name,
+          item.scope === "project" ? "project" : "user",
+          enabled,
+          workspace.root ?? undefined,
+        );
+      } catch (err) {
+        store.setMcpEnabled(item.id, !enabled);
+        throw err;
+      }
+      return;
     }
     emit("refresh");
   } catch (err) {
@@ -181,7 +200,35 @@ async function setEnabled(item: CustomizationItem, enabled: boolean): Promise<vo
 
 function canToggle(item: CustomizationItem): boolean {
   if (props.kind === "skills") return Boolean(item.filePath) && item.enabled !== undefined;
+  if (props.kind === "mcp") return item.enabled !== undefined;
   return props.kind === "plugins" && Boolean(item.source);
+}
+
+const editConfigOptions = computed<DropdownOption[]>(() => [
+  { label: t.customizeGroupUser, key: "user" },
+  { label: t.customizeGroupProject, key: "project", disabled: !workspace.root },
+]);
+
+/** 打开 MCP 配置文件供手动编辑，不存在时由主进程写入空骨架。 */
+async function onEditConfigSelect(key: string | number): Promise<void> {
+  const scope = key === "project" ? "project" : "user";
+  if (scope === "project" && !workspace.root) {
+    message.error(t.slashNeedWorkspace);
+    return;
+  }
+  try {
+    const { filePath } = await window.api.customizations.ensureMcpConfig(
+      scope,
+      workspace.root ?? undefined,
+    );
+    emit("open", { filePath, name: filePath.split(/[/\\]/).pop() ?? "mcp.json" });
+  } catch (err) {
+    message.error(err instanceof Error ? err.message : String(err));
+  }
+}
+
+function onMcpAdded(): void {
+  emit("refresh");
 }
 
 function canRemove(item: CustomizationItem): boolean {
@@ -283,6 +330,17 @@ function onCtxSelect(key: string | number): void {
         <NButton v-if="kind === 'plugins'" class="list-add-button" size="small" @click="emit('market')">
           {{ t.customizeBrowseMarket }}
         </NButton>
+        <NButton v-if="kind === 'mcp'" class="list-add-button" size="small" @click="addOpen = true">
+          {{ t.customizeMcpAdd }}
+        </NButton>
+        <NDropdown
+          v-if="kind === 'mcp'"
+          trigger="click"
+          :options="editConfigOptions"
+          @select="onEditConfigSelect"
+        >
+          <NButton class="list-add-button" size="small">{{ t.customizeMcpEditConfig }}</NButton>
+        </NDropdown>
       </div>
     </div>
 
@@ -335,7 +393,16 @@ function onCtxSelect(key: string | number): void {
                 <div v-if="item.description" class="item-description">{{ item.description }}</div>
               </div>
             </div>
-            <div class="item-right">
+            <div class="item-right" :class="{ 'item-right-pinned': kind === 'mcp' }">
+              <NSwitch
+                v-if="kind === 'mcp' && canToggle(item)"
+                class="item-switch"
+                size="small"
+                :value="item.enabled !== false"
+                :title="item.enabled === false ? t.customizeEnable : t.customizeDisable"
+                @click.stop
+                @update:value="(value: boolean) => setEnabled(item, value)"
+              />
               <button
                 v-if="item.filePath"
                 type="button"
@@ -369,6 +436,13 @@ function onCtxSelect(key: string | number): void {
       :options="ctxOptions"
       @clickoutside="ctx.show = false"
       @select="onCtxSelect"
+    />
+
+    <McpAddModal
+      :show="addOpen"
+      :project-root="workspace.root ?? null"
+      @close="addOpen = false"
+      @added="onMcpAdded"
     />
   </div>
 </template>
@@ -563,6 +637,15 @@ function onCtxSelect(key: string | number): void {
   margin-left: 16px;
   opacity: 0;
   transition: opacity 0.1s ease;
+}
+
+/* MCP 开关需常显，便于直接切换启停状态 */
+.item-right-pinned {
+  opacity: 1;
+}
+
+.item-switch {
+  flex-shrink: 0;
 }
 
 .ai-customization-list-item:hover .item-right,

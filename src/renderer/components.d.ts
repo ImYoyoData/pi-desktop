@@ -55,6 +55,7 @@ declare module 'vue' {
     LanRemoteIcon: typeof import('./src/components/icons/LanRemoteIcon.vue')['default']
     MarkdownView: typeof import('./src/components/MarkdownView.vue')['default']
     MarketSettings: typeof import('./src/components/MarketSettings.vue')['default']
+    McpAddModal: typeof import('./src/components/customize/McpAddModal.vue')['default']
     MessageList: typeof import('./src/components/MessageList.vue')['default']
     ModelPickerModal: typeof import('./src/components/ModelPickerModal.vue')['default']
     ModelsSettings: typeof import('./src/components/ModelsSettings.vue')['default']

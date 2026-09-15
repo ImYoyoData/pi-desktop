@@ -15,6 +15,7 @@ export type WorkerInbound =
     }
   | { kind: "command"; id: string; command: AgentCommand }
   | { kind: "reload_models" }
+  | { kind: "reload_resources" }
   | { kind: "reload_security"; desktopSecurity: DesktopSecuritySettings }
   | { kind: "shutdown" }
   | { kind: "ping" }
