@@ -205,6 +205,24 @@ export function addMcpServers(
 	return { filePath: file, names };
 }
 
+/** 从配置文件中删除 MCP 服务器。 */
+export function removeMcpServer(
+	name: string,
+	scope: "user" | "project",
+	root?: string,
+): { filePath: string } {
+	const file = mcpConfigPath(scope, root);
+	const raw = readMcpRaw(file);
+	const servers = mcpServersObject(raw);
+	if (!isMcpEntry(servers[name])) {
+		throw new Error(`MCP server "${name}" not found in ${file}`);
+	}
+	delete servers[name];
+	raw.mcpServers = servers;
+	writeMcpRaw(file, raw);
+	return { filePath: file };
+}
+
 /** 确保 MCP 配置文件可用于手动编辑，不存在时写入空骨架。 */
 export function ensureMcpConfig(scope: "user" | "project", root?: string): { filePath: string } {
 	const file = mcpConfigPath(scope, root);

@@ -37,5 +37,13 @@ export const useCustomizationsStore = defineStore("customizations", () => {
     };
   }
 
-  return { snapshot, loading, error, load, setMcpEnabled };
+  /** 从本地快照中移除已删除的 MCP 服务器。 */
+  function removeMcp(id: string): void {
+    snapshot.value = {
+      ...snapshot.value,
+      mcp: snapshot.value.mcp.filter((item) => item.id !== id),
+    };
+  }
+
+  return { snapshot, loading, error, load, setMcpEnabled, removeMcp };
 });
