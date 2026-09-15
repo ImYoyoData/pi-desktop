@@ -35,6 +35,7 @@ import type { BrowserRpcMethod } from "../shared/browser-automation";
 import type { WorkerOutbound } from "../shared/agent-worker-messages";
 import type { SecurityCategory } from "../shared/desktop-security";
 import { registerPreviewIpc } from "./preview-ipc";
+import { registerPreviewWatchIpc } from "./preview-watch-host";
 import { registerTerminalIpc } from "./terminal-host";
 import { registerWorkspaceIpc } from "./workspace-ipc";
 import { registerFilesIpc } from "./files-ipc";
@@ -348,6 +349,7 @@ function boot(): void {
 		registerThinkingLanguageIpc();
 		registerLanConsoleIpc(broker);
 		registerPreviewIpc();
+		registerPreviewWatchIpc();
 		registerFilesIpc();
 		registerCustomizationsIpc(broker);
 		registerFsWatchIpc();

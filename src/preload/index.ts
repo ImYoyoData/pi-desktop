@@ -894,6 +894,18 @@ const api = {
 			) as Promise<void>,
 		pickFile: () =>
 			ipcRenderer.invoke(IpcChannels.preview.pickFile) as Promise<string | null>,
+		watch: (filePath: string) =>
+			ipcRenderer.invoke(IpcChannels.preview.watch, filePath) as Promise<{ ok: boolean }>,
+		unwatch: (filePath: string) =>
+			ipcRenderer.invoke(IpcChannels.preview.unwatch, filePath) as Promise<{ ok: boolean }>,
+		onChanged: (callback: (payload: { paths: string[] }) => void) => {
+			const listener = (_event: Electron.IpcRendererEvent, payload: { paths: string[] }) =>
+				callback(payload);
+			ipcRenderer.on(IpcChannels.preview.changed, listener);
+			return () => {
+				ipcRenderer.removeListener(IpcChannels.preview.changed, listener);
+			};
+		},
 	},
 	browser: {
 		startSelect: (webContentsId: number) =>
