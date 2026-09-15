@@ -207,11 +207,8 @@ function appendTextAtEnd(text: string): void {
   scrollToEnd();
 }
 
-function scrollToEnd(): void {
-  const root = surface.value;
-  if (!root) return;
-  root.scrollTop = root.scrollHeight;
-  // Ensure last caret line is visible inside the scrollport
+function scrollCaretIntoView(): void {
+  // Ensure the caret line is visible inside the scrollport
   try {
     const sel = window.getSelection();
     if (sel && sel.rangeCount > 0) {
@@ -227,11 +224,19 @@ function scrollToEnd(): void {
   }
 }
 
+function scrollToEnd(): void {
+  const root = surface.value;
+  if (!root) return;
+  root.scrollTop = root.scrollHeight;
+  scrollCaretIntoView();
+}
+
 /**
- * Insert plain text at the current caret; falls back to the end of the
- * editor when there is no caret inside the surface (e.g. dictation finished
- * while the editor lost focus). A zero-width spacer keeps the caret parked
- * right after the inserted text.
+ * Insert plain text at the current selection; a highlighted range inside the
+ * surface is replaced in place. Falls back to the end of the editor when no
+ * selection lives inside the surface (e.g. dictation finished while the
+ * editor lost focus). A zero-width spacer keeps the caret parked right after
+ * the inserted text.
  */
 function insertTextAtCaret(text: string): void {
   const root = surface.value;
@@ -244,18 +249,18 @@ function insertTextAtCaret(text: string): void {
 
   root.focus();
   const sel = window.getSelection();
-  const caretInside =
+  const range =
     sel &&
     sel.rangeCount > 0 &&
-    sel.isCollapsed &&
-    root.contains(sel.getRangeAt(0).commonAncestorContainer);
+    root.contains(sel.getRangeAt(0).commonAncestorContainer)
+      ? sel.getRangeAt(0)
+      : null;
 
-  if (!caretInside) {
+  if (!range) {
     appendTextAtEnd(next);
     return;
   }
 
-  const range = sel!.getRangeAt(0);
   const before = (range.startContainer.textContent ?? "").slice(0, range.startOffset);
   const needSpace =
     Boolean(before.replace(/\s+$/u, "")) &&
@@ -302,7 +307,8 @@ function insertTextAtCaret(text: string): void {
   placeCaretAfter(spacer);
   applyingStore = false;
   syncDraftFromDom();
-  scrollToEnd();
+  // In-place paste must keep the view at the insertion point, not the bottom.
+  scrollCaretIntoView();
 }
 
 
