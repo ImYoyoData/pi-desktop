@@ -1,11 +1,21 @@
 <script setup lang="ts">
-import { ref, watch } from "vue";
-import { NButton, NInput, NModal, NRadio, NRadioGroup, NSpace, NText } from "naive-ui";
+import { computed, ref, watch } from "vue";
+import {
+  NButton,
+  NInput,
+  NModal,
+  NRadioButton,
+  NRadioGroup,
+  NSelect,
+  NSpace,
+  NText,
+} from "naive-ui";
+import CodiconIcon from "@renderer/components/icons/CodiconIcon.vue";
 import { t } from "@renderer/i18n";
 
 const props = defineProps<{
   show: boolean;
-  projectRoot: string | null;
+  workspaces: string[];
 }>();
 
 const emit = defineEmits<{
@@ -13,11 +23,11 @@ const emit = defineEmits<{
   added: [];
 }>();
 
-type Scope = "user" | "project";
 type Method = "form" | "json";
-type Transport = "command" | "url";
+type Transport = "command" | "url" | "sse";
+type Protocol = "auto" | "2026-07-28" | "legacy";
 
-const scope = ref<Scope>("user");
+const scope = ref<string>("user");
 const method = ref<Method>("form");
 const transport = ref<Transport>("command");
 const name = ref("");
@@ -25,6 +35,10 @@ const command = ref("");
 const args = ref("");
 const url = ref("");
 const env = ref("");
+const timeout = ref("");
+const protocol = ref<Protocol>("auto");
+const headers = ref("");
+const headersOpen = ref(false);
 const json = ref("");
 const error = ref("");
 const saving = ref(false);
@@ -41,11 +55,43 @@ watch(
     args.value = "";
     url.value = "";
     env.value = "";
+    timeout.value = "";
+    protocol.value = "auto";
+    headers.value = "";
+    headersOpen.value = false;
     json.value = "";
     error.value = "";
     saving.value = false;
   },
 );
+
+function baseName(target: string): string {
+  return target.split(/[\\/]/).filter(Boolean).pop() ?? target;
+}
+
+/** 工作区重名时显示完整路径以便区分。 */
+function workspaceLabel(target: string): string {
+  const base = baseName(target);
+  const duplicated = props.workspaces.filter((p) => baseName(p) === base).length > 1;
+  return duplicated ? target : base;
+}
+
+const scopeOptions = computed(() => [
+  { label: t.customizeGroupUser, value: "user" },
+  ...props.workspaces.map((target) => ({ label: workspaceLabel(target), value: target })),
+]);
+
+const transportOptions = computed(() => [
+  { label: t.customizeMcpTransportCommand, value: "command" },
+  { label: t.customizeMcpTransportUrl, value: "url" },
+  { label: t.customizeMcpTransportSse, value: "sse" },
+]);
+
+const protocolOptions = computed(() => [
+  { label: t.customizeMcpProtocolAuto, value: "auto" },
+  { label: t.customizeMcpProtocolNew, value: "2026-07-28" },
+  { label: t.customizeMcpProtocolLegacy, value: "legacy" },
+]);
 
 function parseEnv(text: string): Record<string, string> | undefined {
   const entries = text
@@ -60,13 +106,40 @@ function parseEnv(text: string): Record<string, string> | undefined {
   return entries.length ? Object.fromEntries(entries) : undefined;
 }
 
+function parseHeaders(text: string): Record<string, string> | undefined {
+  const entries = text
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => {
+      const index = line.indexOf(":");
+      if (index <= 0) throw new Error(t.customizeMcpHeadersInvalid);
+      return [line.slice(0, index).trim(), line.slice(index + 1).trim()] as const;
+    });
+  return entries.length ? Object.fromEntries(entries) : undefined;
+}
+
 function buildEntry(): Record<string, unknown> {
-  if (transport.value === "url") return { url: url.value.trim() };
-  const entry: Record<string, unknown> = { command: command.value.trim() };
-  const list = args.value.trim() ? args.value.trim().split(/\s+/) : [];
-  if (list.length) entry.args = list;
-  const envMap = parseEnv(env.value);
-  if (envMap) entry.env = envMap;
+  const entry: Record<string, unknown> = {};
+  if (transport.value === "command") {
+    entry.command = command.value.trim();
+    const list = args.value.trim() ? args.value.trim().split(/\s+/) : [];
+    if (list.length) entry.args = list;
+    const envMap = parseEnv(env.value);
+    if (envMap) entry.env = envMap;
+  } else {
+    entry.url = url.value.trim();
+    if (transport.value === "sse") entry.httpTransport = "sse";
+    entry.protocolVersion = protocol.value;
+    const headerMap = parseHeaders(headers.value);
+    if (headerMap) entry.headers = headerMap;
+  }
+  const rawTimeout = timeout.value.trim();
+  if (rawTimeout) {
+    const ms = Number(rawTimeout);
+    if (!Number.isInteger(ms) || ms <= 0) throw new Error(t.customizeMcpTimeoutInvalid);
+    entry.requestTimeoutMs = ms;
+  }
   return entry;
 }
 
@@ -241,7 +314,7 @@ function buildServers(): Record<string, unknown> {
   if (transport.value === "command" && !command.value.trim()) {
     throw new Error(t.customizeMcpTargetRequired);
   }
-  if (transport.value === "url" && !url.value.trim()) {
+  if (transport.value !== "command" && !url.value.trim()) {
     throw new Error(t.customizeMcpTargetRequired);
   }
   return { [serverName]: buildEntry() };
@@ -258,10 +331,11 @@ async function submit(): Promise<void> {
   }
   saving.value = true;
   try {
+    const userScope = scope.value === "user";
     await window.api.customizations.addMcpServers(
-      scope.value,
+      userScope ? "user" : "project",
       servers,
-      props.projectRoot ?? undefined,
+      userScope ? undefined : scope.value,
     );
     emit("added");
     emit("close");
@@ -277,56 +351,98 @@ async function submit(): Promise<void> {
   <NModal
     :show="show"
     preset="card"
-    class="pi-settings-modal"
-    style="width: min(520px, 92vw)"
-    :title="t.customizeMcpAddTitle"
+    class="pi-settings-modal mcp-add-modal"
+    style="width: min(600px, 92vw)"
     :bordered="false"
     :mask-closable="false"
     @close="emit('close')"
     @update:show="(value: boolean) => !value && emit('close')"
   >
-    <div class="mcp-add-form">
-      <div class="field">
-        <NText strong class="field-label">{{ t.customizeMcpAddScope }}</NText>
-        <NRadioGroup v-model:value="scope" name="mcp-add-scope">
-          <NSpace :size="16">
-            <NRadio value="user">{{ t.customizeGroupUser }}</NRadio>
-            <NRadio value="project" :disabled="!projectRoot">
-              {{ t.customizeGroupProject }}
-            </NRadio>
-          </NSpace>
-        </NRadioGroup>
+    <template #header>
+      <div class="modal-title-block">
+        <div class="modal-title">{{ t.customizeMcpAddTitle }}</div>
+        <div class="modal-subtitle">{{ t.customizeMcpAddSubtitle }}</div>
       </div>
+    </template>
 
-      <div class="field">
-        <NText strong class="field-label">{{ t.customizeMcpAddMethod }}</NText>
-        <NRadioGroup v-model:value="method" name="mcp-add-method">
-          <NSpace :size="16">
-            <NRadio value="form">{{ t.customizeMcpAddForm }}</NRadio>
-            <NRadio value="json">{{ t.customizeMcpAddJson }}</NRadio>
-          </NSpace>
-        </NRadioGroup>
+    <template #header-extra>
+      <NRadioGroup v-model:value="method" size="small" name="mcp-add-method">
+        <NRadioButton value="form">{{ t.customizeMcpAddForm }}</NRadioButton>
+        <NRadioButton value="json">{{ t.customizeMcpAddJson }}</NRadioButton>
+      </NRadioGroup>
+    </template>
+
+    <div class="section mcp-form-card">
+      <div class="field-row">
+        <div class="field name-field">
+          <span class="field-label">{{ t.customizeMcpName }}</span>
+          <NInput
+            v-model:value="name"
+            size="small"
+            :placeholder="method === 'form' ? t.customizeMcpNameExample : t.customizeMcpJsonNameHint"
+          />
+        </div>
+        <div class="scope-field">
+          <span class="field-label">{{ t.customizeMcpAddScope }}</span>
+          <NSelect
+            v-model:value="scope"
+            size="small"
+            class="scope-select"
+            :options="scopeOptions"
+          />
+        </div>
       </div>
 
       <template v-if="method === 'form'">
         <div class="field">
-          <NText strong class="field-label">{{ t.customizeMcpName }}</NText>
-          <NInput v-model:value="name" size="small" :placeholder="t.customizeMcpNameExample" />
+          <span class="field-label">{{ t.customizeMcpTransport }}</span>
+          <NSelect
+            v-model:value="transport"
+            size="small"
+            class="narrow-select"
+            :options="transportOptions"
+          />
         </div>
 
         <div class="field">
-          <NText strong class="field-label">{{ t.customizeMcpTransport }}</NText>
-          <NRadioGroup v-model:value="transport" name="mcp-add-transport">
-            <NSpace :size="16">
-              <NRadio value="command">{{ t.customizeMcpTransportCommand }}</NRadio>
-              <NRadio value="url">{{ t.customizeMcpTransportUrl }}</NRadio>
-            </NSpace>
-          </NRadioGroup>
+          <span class="field-label">{{ t.customizeMcpTimeout }}</span>
+          <NInput v-model:value="timeout" size="small" class="narrow-input" placeholder="30000" />
         </div>
 
-        <template v-if="transport === 'command'">
+        <template v-if="transport !== 'command'">
           <div class="field">
-            <NText strong class="field-label">{{ t.customizeMcpCommand }}</NText>
+            <span class="field-label">{{ t.customizeMcpProtocol }}</span>
+            <NSelect
+              v-model:value="protocol"
+              size="small"
+              class="narrow-select"
+              :options="protocolOptions"
+            />
+          </div>
+
+          <div class="field">
+            <span class="field-label">{{ t.customizeMcpUrl }}</span>
+            <NInput v-model:value="url" size="small" :placeholder="t.customizeMcpUrlExample" />
+          </div>
+
+          <div class="field">
+            <button type="button" class="collapse-toggle" @click="headersOpen = !headersOpen">
+              <CodiconIcon :name="headersOpen ? 'chevronDown' : 'chevronRight'" :size="14" />
+              <span>{{ t.customizeMcpHeaders }}</span>
+            </button>
+            <NInput
+              v-if="headersOpen"
+              v-model:value="headers"
+              type="textarea"
+              :autosize="{ minRows: 2, maxRows: 5 }"
+              :placeholder="t.customizeMcpHeadersHint"
+            />
+          </div>
+        </template>
+
+        <template v-else>
+          <div class="field">
+            <span class="field-label">{{ t.customizeMcpCommand }}</span>
             <NInput
               v-model:value="command"
               size="small"
@@ -334,11 +450,11 @@ async function submit(): Promise<void> {
             />
           </div>
           <div class="field">
-            <NText strong class="field-label">{{ t.customizeMcpArgs }}</NText>
+            <span class="field-label">{{ t.customizeMcpArgs }}</span>
             <NInput v-model:value="args" size="small" :placeholder="t.customizeMcpArgsExample" />
           </div>
           <div class="field">
-            <NText strong class="field-label">{{ t.customizeMcpEnv }}</NText>
+            <span class="field-label">{{ t.customizeMcpEnv }}</span>
             <NInput
               v-model:value="env"
               type="textarea"
@@ -347,44 +463,62 @@ async function submit(): Promise<void> {
             />
           </div>
         </template>
-
-        <div v-else class="field">
-          <NText strong class="field-label">{{ t.customizeMcpUrl }}</NText>
-          <NInput v-model:value="url" size="small" :placeholder="t.customizeMcpUrlExample" />
-        </div>
       </template>
 
-      <div v-else class="field">
-        <NText strong class="field-label">{{ t.customizeMcpName }}</NText>
-        <NInput v-model:value="name" size="small" :placeholder="t.customizeMcpJsonNameHint" />
-        <NText depth="3" class="field-hint">{{ t.customizeMcpJsonHint }}</NText>
-        <NInput
-          v-model:value="json"
-          type="textarea"
-          :autosize="{ minRows: 5, maxRows: 10 }"
-          placeholder='{"mcpServers": { "name": { "command": "npx", "args": ["-y", "pkg"] } }}'
-        />
-      </div>
-
-      <NText v-if="error" class="form-error">{{ error }}</NText>
+      <template v-else>
+        <div class="field">
+          <span class="field-label">JSON</span>
+          <NInput
+            v-model:value="json"
+            type="textarea"
+            :autosize="{ minRows: 8, maxRows: 14 }"
+            placeholder='{"mcpServers": { "name": { "command": "npx", "args": ["-y", "pkg"] } }}'
+          />
+          <NText depth="3" class="field-hint">{{ t.customizeMcpJsonHint }}</NText>
+        </div>
+      </template>
     </div>
+
+    <NText v-if="error" class="form-error">{{ error }}</NText>
 
     <template #footer>
       <NSpace justify="end">
-        <NButton :disabled="saving" @click="emit('close')">{{ t.cancel }}</NButton>
         <NButton type="primary" :loading="saving" @click="submit">
-          {{ t.customizeMcpAddConfirm }}
+          {{ t.customizeMcpSave }}
         </NButton>
+        <NButton :disabled="saving" @click="emit('close')">{{ t.cancel }}</NButton>
       </NSpace>
     </template>
   </NModal>
 </template>
 
 <style scoped>
-.mcp-add-form {
+.mcp-add-modal :deep(.n-card-header) {
+  align-items: flex-start;
+}
+
+.modal-title-block {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 4px;
+}
+
+.modal-title {
+  font-size: 15px;
+  font-weight: 650;
+  color: var(--fg-strong);
+}
+
+.modal-subtitle {
+  font-size: 12px;
+  color: var(--fg-muted);
+}
+
+.mcp-form-card {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 16px;
 }
 
 .field {
@@ -393,8 +527,53 @@ async function submit(): Promise<void> {
   gap: 6px;
 }
 
+.field-row {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.name-field {
+  flex: 0 1 280px;
+  min-width: 0;
+}
+
+.scope-field {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.scope-select {
+  width: 150px;
+}
+
 .field-label {
   font-size: 12px;
+  color: var(--fg-muted);
+}
+
+.narrow-select,
+.narrow-input {
+  width: 220px;
+}
+
+.collapse-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--fg-muted);
+  font-size: 12.5px;
+  cursor: pointer;
+}
+
+.collapse-toggle:hover {
+  color: var(--fg-strong);
 }
 
 .field-hint {
@@ -405,5 +584,6 @@ async function submit(): Promise<void> {
 .form-error {
   color: var(--error);
   font-size: 12px;
+  margin-top: 10px;
 }
 </style>
