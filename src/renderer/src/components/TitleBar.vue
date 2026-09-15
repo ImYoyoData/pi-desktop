@@ -1,42 +1,12 @@
 <script setup lang="ts">
-import { defineAsyncComponent, h, onMounted, onUnmounted, ref } from "vue";
-import type { DropdownOption } from "naive-ui";
-import { NButton, NDropdown, NIcon, NSpace } from "naive-ui";
-import {
-  ArrowUpCircleOutline,
-  ExtensionPuzzleOutline,
-  GlobeOutline,
-  InformationCircleOutline,
-  LogoGithub,
-  MicOutline,
-  NotificationsOutline,
-  OptionsOutline,
-  SettingsOutline,
-  ShieldCheckmarkOutline,
-  SparklesOutline,
-  StorefrontOutline,
-} from "@vicons/ionicons5";
+import { onMounted, onUnmounted, ref } from "vue";
+import { NButton, NIcon, NPopover, NSpace } from "naive-ui";
+import { ArrowUpCircleOutline, LogoGithub } from "@vicons/ionicons5";
 import PanelLeftIcon from "@renderer/components/icons/PanelLeftIcon.vue";
 import LanRemoteIcon from "@renderer/components/icons/LanRemoteIcon.vue";
 import PanelRightIcon from "@renderer/components/icons/PanelRightIcon.vue";
 import PanelBottomIcon from "@renderer/components/icons/PanelBottomIcon.vue";
-
-/**
- * Settings modals are only opened on demand — load their code lazily so
- * startup stays light on slower CPUs.
- */
-const ModelsSettings = defineAsyncComponent(() => import("@renderer/components/ModelsSettings.vue"));
-const SkillsSettings = defineAsyncComponent(() => import("@renderer/components/SkillsSettings.vue"));
-const ExtensionsSettings = defineAsyncComponent(() => import("@renderer/components/ExtensionsSettings.vue"));
-const MarketSettings = defineAsyncComponent(() => import("@renderer/components/MarketSettings.vue"));
-const AppearanceSettings = defineAsyncComponent(() => import("@renderer/components/AppearanceSettings.vue"));
-const NotifySettings = defineAsyncComponent(() => import("@renderer/components/NotifySettings.vue"));
-const AsrSettings = defineAsyncComponent(() => import("@renderer/components/AsrSettings.vue"));
-const SecuritySettings = defineAsyncComponent(() => import("@renderer/components/SecuritySettings.vue"));
-const AboutSettings = defineAsyncComponent(() => import("@renderer/components/AboutSettings.vue"));
-const LanConsoleSettings = defineAsyncComponent(() => import("@renderer/components/LanConsoleSettings.vue"));
-const ProxySettings = defineAsyncComponent(() => import("@renderer/components/ProxySettings.vue"));
-
+import LanConsoleSettings from "@renderer/components/LanConsoleSettings.vue";
 import UpdateCard from "@renderer/components/UpdateCard.vue";
 import { useWorkspaceStore } from "@renderer/stores/workspace";
 import { useUpdateStore } from "@renderer/stores/update";
@@ -47,16 +17,6 @@ import logoUrl from "@renderer/assets/logo.svg";
 const workspace = useWorkspaceStore();
 const updateStore = useUpdateStore();
 const layout = useLayoutStore();
-const modelsOpen = ref(false);
-const skillsOpen = ref(false);
-const extensionsOpen = ref(false);
-const marketOpen = ref(false);
-const appearanceOpen = ref(false);
-const notifyOpen = ref(false);
-const asrOpen = ref(false);
-const securityOpen = ref(false);
-const aboutOpen = ref(false);
-const proxyOpen = ref(false);
 const lanConsoleOpen = ref(false);
 const lanConsoleEnabled = ref(false);
 /** Public (Cloudflare tunnel) URL is live — shown as a second dot colour. */
@@ -120,100 +80,6 @@ onUnmounted(() => {
   offTunnelStatus?.();
 });
 
-const settingsOptions: DropdownOption[] = [
-  {
-    label: t.appearance,
-    key: "appearance",
-    icon: () => h(NIcon, null, { default: () => h(OptionsOutline) }),
-  },
-  {
-    label: t.notifyTitle,
-    key: "notify",
-    icon: () => h(NIcon, null, { default: () => h(NotificationsOutline) }),
-  },
-  {
-    label: t.voiceTitle,
-    key: "asr",
-    icon: () => h(NIcon, null, { default: () => h(MicOutline) }),
-  },
-  {
-    label: t.securityTitle,
-    key: "security",
-    icon: () => h(NIcon, null, { default: () => h(ShieldCheckmarkOutline) }),
-  },
-  {
-    label: t.modelsMenu,
-    key: "models",
-    icon: () => h(NIcon, null, { default: () => h(SettingsOutline) }),
-  },
-  {
-    label: t.skillsTitle,
-    key: "skills",
-    icon: () => h(NIcon, null, { default: () => h(SparklesOutline) }),
-  },
-  {
-    label: t.extensionsTitle,
-    key: "extensions",
-    icon: () => h(NIcon, null, { default: () => h(ExtensionPuzzleOutline) }),
-  },
-  {
-    label: t.marketTitle,
-    key: "market",
-    icon: () => h(NIcon, null, { default: () => h(StorefrontOutline) }),
-  },
-  {
-    label: t.proxyTitle,
-    key: "proxy",
-    icon: () => h(NIcon, null, { default: () => h(GlobeOutline) }),
-  },
-  {
-    type: "divider",
-    key: "d-about",
-  },
-  {
-    label: t.aboutTitle,
-    key: "about",
-    icon: () => h(NIcon, null, { default: () => h(InformationCircleOutline) }),
-  },
-];
-
-function onSettingsSelect(key: string | number): void {
-  switch (String(key)) {
-    case "appearance":
-      appearanceOpen.value = true;
-      break;
-    case "notify":
-      notifyOpen.value = true;
-      break;
-    case "asr":
-      asrOpen.value = true;
-      break;
-    case "security":
-      securityOpen.value = true;
-      break;
-    case "models":
-      modelsOpen.value = true;
-      break;
-    case "skills":
-      skillsOpen.value = true;
-      break;
-    case "extensions":
-      extensionsOpen.value = true;
-      break;
-    case "market":
-      marketOpen.value = true;
-      break;
-    case "proxy":
-      proxyOpen.value = true;
-      break;
-    case "about":
-      aboutOpen.value = true;
-      break;
-    default:
-      break;
-  }
-}
-
 async function openGithub(): Promise<void> {
   await window.api.update.openGithub();
 }
@@ -250,53 +116,46 @@ async function onUpdateClick(): Promise<void> {
           </template>
           <span v-if="updateStore.available" class="update-dot" aria-hidden="true" />
         </NButton>
-    <NPopover
-      trigger="click"
-      placement="bottom-end"
-      :show="lanConsoleOpen"
-      :width="360"
-      :show-arrow="false"
-      style="padding: 0"
-      @update:show="(v) => (lanConsoleOpen = v)"
-    >
-      <template #trigger>
-        <NButton
-          class="no-drag"
-          quaternary
-          circle
-          size="small"
-          :title="t.lanConsoleTitle"
-          :aria-label="t.lanConsoleTitle"
-          @click.stop="
-            lanConsoleOpen = true;
-            void refreshLanConsoleStatus();
-          "
+        <NPopover
+          trigger="click"
+          placement="bottom-end"
+          :show="lanConsoleOpen"
+          :width="360"
+          :show-arrow="false"
+          style="padding: 0"
+          @update:show="(v) => (lanConsoleOpen = v)"
         >
-          <template #icon>
-            <LanRemoteIcon :size="16" />
+          <template #trigger>
+            <NButton
+              class="no-drag"
+              quaternary
+              circle
+              size="small"
+              :title="t.lanConsoleTitle"
+              :aria-label="t.lanConsoleTitle"
+              @click.stop="
+                lanConsoleOpen = true;
+                void refreshLanConsoleStatus();
+              "
+            >
+              <template #icon>
+                <LanRemoteIcon :size="16" />
+              </template>
+              <span
+                v-if="lanConsoleEnabled"
+                class="lan-console-dot"
+                :class="{ public: lanConsolePublic }"
+                :title="lanConsolePublic ? t.lanPublicTitle : t.lanConsoleOn"
+              />
+            </NButton>
           </template>
-          <span
-            v-if="lanConsoleEnabled"
-            class="lan-console-dot"
-            :class="{ public: lanConsolePublic }"
-            :title="lanConsolePublic ? t.lanPublicTitle : t.lanConsoleOn"
-          />
-        </NButton>
-      </template>
-      <LanConsoleSettings @close="lanConsoleOpen = false" />
-    </NPopover>
+          <LanConsoleSettings @close="lanConsoleOpen = false" />
+        </NPopover>
         <NButton quaternary circle size="small" @click="openGithub">
           <template #icon>
             <NIcon :component="LogoGithub" />
           </template>
         </NButton>
-        <NDropdown trigger="click" :options="settingsOptions" @select="onSettingsSelect">
-          <NButton quaternary circle size="small">
-            <template #icon>
-              <NIcon :component="SettingsOutline" />
-            </template>
-          </NButton>
-        </NDropdown>
       </NSpace>
       <div v-if="workspace.root" class="layout-controls">
         <button
@@ -358,16 +217,6 @@ async function onUpdateClick(): Promise<void> {
     </div>
   </header>
   <UpdateCard />
-  <AppearanceSettings :open="appearanceOpen" @close="appearanceOpen = false" />
-  <NotifySettings :open="notifyOpen" @close="notifyOpen = false" />
-  <AsrSettings :open="asrOpen" @close="asrOpen = false" />
-  <SecuritySettings :open="securityOpen" @close="securityOpen = false" />
-  <ModelsSettings :open="modelsOpen" @close="modelsOpen = false" />
-  <SkillsSettings :open="skillsOpen" @close="skillsOpen = false" />
-  <ExtensionsSettings :open="extensionsOpen" @close="extensionsOpen = false" />
-  <MarketSettings :open="marketOpen" @close="marketOpen = false" />
-  <AboutSettings :open="aboutOpen" @close="aboutOpen = false" />
-  <ProxySettings :open="proxyOpen" @close="proxyOpen = false" />
 </template>
 
 <style scoped>

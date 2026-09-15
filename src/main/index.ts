@@ -38,6 +38,7 @@ import { registerPreviewIpc } from "./preview-ipc";
 import { registerTerminalIpc } from "./terminal-host";
 import { registerWorkspaceIpc } from "./workspace-ipc";
 import { registerFilesIpc } from "./files-ipc";
+import { registerCustomizationsIpc } from "./customizations-ipc";
 import { registerSkillsIpc } from "./skills-ipc";
 import { registerGitIpc } from "./git-ipc";
 import { registerFsWatchIpc } from "./fs-watch-host";
@@ -348,6 +349,7 @@ function boot(): void {
 		registerLanConsoleIpc(broker);
 		registerPreviewIpc();
 		registerFilesIpc();
+		registerCustomizationsIpc();
 		registerFsWatchIpc();
 		registerGitIpc();
 		registerSkillsIpc(broker);

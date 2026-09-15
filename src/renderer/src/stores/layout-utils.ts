@@ -23,7 +23,14 @@ export interface PersistedLayout {
   /** Height % of the bottom terminal panel within the chat column. */
   bottomSize: number;
   bottomCollapsed: boolean;
+  /** 中央区域活动视图：聊天 / 智能体设置（整页）。 */
+  centerView: CenterView;
+  /** 智能体设置当前分类。 */
+  customizeSection: string;
 }
+
+/** 中央区域视图：聊天 / 智能体设置整页。 */
+export type CenterView = "chat" | "customize";
 
 export const DEFAULT_LAYOUT: PersistedLayout = {
   leftSize: 20,
@@ -33,6 +40,8 @@ export const DEFAULT_LAYOUT: PersistedLayout = {
   rightCollapsed: true,
   bottomSize: 30,
   bottomCollapsed: true,
+  centerView: "chat",
+  customizeSection: "general",
 };
 
 export function layoutStorageKey(workspaceRoot: string): string {
@@ -57,6 +66,11 @@ function normalizeSizes(partial: Partial<PersistedLayout>): PersistedLayout {
     rightCollapsed: partial.rightCollapsed === true,
     bottomSize: clampPanelHeight(partial.bottomSize ?? DEFAULT_LAYOUT.bottomSize),
     bottomCollapsed: partial.bottomCollapsed !== false,
+    centerView: partial.centerView === "customize" ? "customize" : "chat",
+    customizeSection:
+      typeof partial.customizeSection === "string" && partial.customizeSection
+        ? partial.customizeSection
+        : DEFAULT_LAYOUT.customizeSection,
   };
 }
 
@@ -87,6 +101,11 @@ export function readLayout(workspaceRoot: string): PersistedLayout {
       leftCollapsed: parsed.leftCollapsed === true,
       rightCollapsed: parsed.rightCollapsed === true,
       bottomCollapsed: parsed.bottomCollapsed !== false,
+      centerView: parsed.centerView === "customize" ? "customize" : "chat",
+      customizeSection:
+        typeof parsed.customizeSection === "string" && parsed.customizeSection
+          ? parsed.customizeSection
+          : DEFAULT_LAYOUT.customizeSection,
     };
   } catch {
     return { ...DEFAULT_LAYOUT };

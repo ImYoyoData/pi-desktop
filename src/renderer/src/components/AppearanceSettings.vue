@@ -1,97 +1,10 @@
 <script setup lang="ts">
-import { computed, ref, watch } from "vue";
-import {
-  NModal,
-  NRadioGroup,
-  NRadioButton,
-  NSpace,
-  NText,
-  NButton,
-  NDivider,
-  NSwitch,
-  useMessage,
-} from "naive-ui";
-import {
-  useAppearanceStore,
-  type LocalePreference,
-  type ThemePreference,
-} from "@renderer/stores/appearance";
-import {
-  normalizeThinkingLanguage,
-  type ThinkingLanguage,
-} from "../../../shared/thinking-language";
+import { NButton, NModal } from "naive-ui";
+import AppearancePanel from "@renderer/components/AppearancePanel.vue";
 import { t } from "@renderer/i18n";
-import {
-  markLocaleReloading,
-  showLocaleReloadSplash,
-} from "@renderer/utils/locale-reload-splash";
 
 const props = defineProps<{ open: boolean }>();
 const emit = defineEmits<{ close: [] }>();
-
-const appearance = useAppearanceStore();
-const message = useMessage();
-
-/** 思考语言：只影响可见思考文本。 */
-const thinkingLanguage = ref<ThinkingLanguage>("auto");
-const thinkingLanguageSaving = ref(false);
-
-watch(
-  () => props.open,
-  (isOpen) => {
-    if (isOpen) void loadThinkingLanguage();
-  },
-);
-
-async function loadThinkingLanguage(): Promise<void> {
-  try {
-    const settings = await window.api.thinkingLanguage.get();
-    thinkingLanguage.value = settings.language;
-  } catch {
-    // 读取失败时保留当前值
-  }
-}
-
-async function saveThinkingLanguage(value: string | number): Promise<void> {
-  const language = normalizeThinkingLanguage(value);
-  thinkingLanguage.value = language;
-  thinkingLanguageSaving.value = true;
-  try {
-    const settings = await window.api.thinkingLanguage.set({ language });
-    thinkingLanguage.value = settings.language;
-  } catch (err) {
-    message.error(err instanceof Error ? err.message : String(err));
-  } finally {
-    thinkingLanguageSaving.value = false;
-  }
-}
-
-const showCompactButton = computed({
-  get: () => appearance.showCompactButton,
-  set: (v: boolean) => appearance.setShowCompactButton(v),
-});
-
-const truncateToolOutput = computed({
-  get: () => appearance.truncateToolOutput,
-  set: (v: boolean) => appearance.setTruncateToolOutput(v),
-});
-
-const themeValue = computed({
-  get: () => appearance.themePreference,
-  set: (v: ThemePreference) => appearance.setThemePreference(v),
-});
-
-function onLocaleUpdate(v: string | number | null): void {
-  if (v !== "system" && v !== "zh-CN" && v !== "en") return;
-  if (v === appearance.localePreference) return;
-  appearance.setLocalePreference(v as LocalePreference);
-  markLocaleReloading(v);
-  // Paint overlay in the outgoing page so reload never shows a blank window.
-  showLocaleReloadSplash(v);
-  window.setTimeout(() => {
-    window.location.reload();
-  }, 40);
-}
 </script>
 
 <template>
@@ -103,98 +16,12 @@ function onLocaleUpdate(v: string | number | null): void {
     :title="t.appearance"
     :bordered="false"
     size="huge"
-    @update:show="(v) =>
-    
- !v && emit('close')"
+    @update:show="(v) => !v && emit('close')"
   >
     <div class="modal-scroll">
-
-    <div class="section">
-      <NText strong>{{ t.theme }}</NText>
-      <NText depth="3" style="font-size: 12px; display: block; margin: 4px 0 10px">
-        {{ t.themeHint }}
-      </NText>
-      <NRadioGroup v-model:value="themeValue" size="small">
-        <NSpace>
-          <NRadioButton value="system">{{ t.themeSystem }}</NRadioButton>
-          <NRadioButton value="light">{{ t.themeLight }}</NRadioButton>
-          <NRadioButton value="dark">{{ t.themeDark }}</NRadioButton>
-        </NSpace>
-      </NRadioGroup>
+      <AppearancePanel />
     </div>
-
-    <NDivider style="margin: 18px 0" />
-
-    <div class="section">
-      <NText strong>{{ t.language }}</NText>
-      <NText depth="3" style="font-size: 12px; display: block; margin: 4px 0 10px">
-        {{ t.languageHint }}
-      </NText>
-      <NRadioGroup
-        :value="appearance.localePreference"
-        size="small"
-        @update:value="onLocaleUpdate"
-      >
-        <NSpace>
-          <NRadioButton value="system">{{ t.themeSystem }}</NRadioButton>
-          <NRadioButton value="zh-CN">中文</NRadioButton>
-          <NRadioButton value="en">English</NRadioButton>
-        </NSpace>
-      </NRadioGroup>
-    </div>
-
-    <NDivider style="margin: 18px 0" />
-
-    <div class="section">
-      <NText strong>{{ t.thinkingLanguage }}</NText>
-      <NText depth="3" style="font-size: 12px; display: block; margin: 4px 0 10px">
-        {{ t.thinkingLanguageHint }}
-      </NText>
-      <NRadioGroup
-        :value="thinkingLanguage"
-        size="small"
-        :disabled="thinkingLanguageSaving"
-        @update:value="saveThinkingLanguage"
-      >
-        <NSpace>
-          <NRadioButton value="off">{{ t.thinkingLanguageOff }}</NRadioButton>
-          <NRadioButton value="auto">{{ t.thinkingLanguageAuto }}</NRadioButton>
-          <NRadioButton value="zh">{{ t.thinkingLanguageZh }}</NRadioButton>
-          <NRadioButton value="en">English</NRadioButton>
-        </NSpace>
-      </NRadioGroup>
-    </div>
-
-    <NDivider style="margin: 18px 0" />
-
-    <div class="section">
-      <div class="row">
-        <div class="labels">
-          <NText strong>{{ t.showCompactButton }}</NText>
-          <NText depth="3" style="font-size: 12px; display: block; margin-top: 4px">
-            {{ t.showCompactButtonHint }}
-          </NText>
-        </div>
-        <NSwitch v-model:value="showCompactButton" />
-      </div>
-    </div>
-
-    <NDivider style="margin: 18px 0" />
-
-    <div class="section">
-      <div class="row">
-        <div class="labels">
-          <NText strong>{{ t.truncateToolOutput }}</NText>
-          <NText depth="3" style="font-size: 12px; display: block; margin-top: 4px">
-            {{ t.truncateToolOutputHint }}
-          </NText>
-        </div>
-        <NSwitch v-model:value="truncateToolOutput" />
-      </div>
-    </div>
-
-    </div>
-<template #footer>
+    <template #footer>
       <div class="footer">
         <NButton @click="emit('close')">{{ t.close }}</NButton>
       </div>
@@ -203,21 +30,6 @@ function onLocaleUpdate(v: string | number | null): void {
 </template>
 
 <style scoped>
-.section {
-  display: flex;
-  flex-direction: column;
-}
-.row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-}
-.labels {
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-}
 .footer {
   display: flex;
   justify-content: flex-end;

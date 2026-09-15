@@ -36,6 +36,7 @@ import { useSessionWidgetsStore } from "@renderer/stores/session-widgets";
 import { useChatStore } from "@renderer/stores/chat";
 import { useSendQueueStore } from "@renderer/stores/send-queue";
 import { useWorkspaceStore } from "@renderer/stores/workspace";
+import { useLayoutStore } from "@renderer/stores/layout";
 import { isUnstartedSession } from "@renderer/utils/session-started";
 import { buildSessionTree, type SessionTreeItem } from "@renderer/utils/session-tree";
 import { t } from "@renderer/i18n";
@@ -48,18 +49,19 @@ const SESSION_VISIBLE_LIMIT = 5;
 
 /** 左下角定制入口，自下而上依次：设置、挂钩、工具、智能体、指令、技能。 */
 const customizeEntries = [
-  { name: "skills", label: t.customizeSkills },
-  { name: "instructions", label: t.customizeInstructions },
-  { name: "agents", label: t.customizeAgents },
-  { name: "tools", label: t.customizeTools },
-  { name: "hooks", label: t.customizeHooks },
-  { name: "settings", label: t.customizeSettings },
+  { name: "skills", section: "skills", label: t.customizeSkills },
+  { name: "instructions", section: "instructions", label: t.customizeInstructions },
+  { name: "agents", section: "agents", label: t.customizeAgents },
+  { name: "tools", section: "tools", label: t.customizeTools },
+  { name: "hooks", section: "hooks", label: t.customizeHooks },
+  { name: "settings", section: "general", label: t.customizeSettings },
 ] as const;
 
 const sessionsStore = useSessionsStore();
 const chatStore = useChatStore();
 const sendQueueStore = useSendQueueStore();
 const workspace = useWorkspaceStore();
+const layout = useLayoutStore();
 const dialog = useDialog();
 const message = useMessage();
 
@@ -91,6 +93,10 @@ const workspacePaths = computed(() => {
 
 /** Closed-workspace section collapsed state (default: expanded). */
 const closedExpanded = ref(true);
+
+function openCustomize(section: string): void {
+  layout.openCustomize(section);
+}
 
 function toggleClosed(): void {
   closedExpanded.value = !closedExpanded.value;
@@ -1289,6 +1295,7 @@ function isRunning(status: SessionStatus): boolean {
         type="button"
         class="customize-btn"
         :title="entry.label"
+        @click="openCustomize(entry.section)"
       >
         <CodiconIcon :name="entry.name" :size="16" />
         <span class="customize-label">{{ entry.label }}</span>

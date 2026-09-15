@@ -17,6 +17,7 @@ import type {
 } from "../shared/protocol";
 import { IpcChannels } from "../shared/protocol";
 import type { AgentRunEvent, AgentRunSnapshot } from "../shared/agent-runs";
+import type { CustomizationsSnapshot, CustomizationCreateKind } from "../shared/customizations";
 import type {
 	ModelsGetResult,
 	ModelsSetPayload,
@@ -703,6 +704,17 @@ const api = {
 			) as Promise<GitOpResult>,
 		abortMerge: () =>
 			ipcRenderer.invoke(IpcChannels.git.abortMerge) as Promise<GitOpResult>,
+	},
+	customizations: {
+		list: (cwd?: string) =>
+			ipcRenderer.invoke(
+				IpcChannels.customizations.list,
+				cwd,
+			) as Promise<CustomizationsSnapshot>,
+		create: (kind: CustomizationCreateKind) =>
+			ipcRenderer.invoke(IpcChannels.customizations.create, kind) as Promise<{
+				filePath: string;
+			}>,
 	},
 	skills: {
 		list: (cwd?: string) =>

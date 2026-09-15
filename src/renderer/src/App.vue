@@ -34,6 +34,9 @@ const SplitRoot = defineAsyncComponent(() => {
     return m;
   });
 });
+const AiCustomizationModal = defineAsyncComponent(
+  () => import("@renderer/components/AiCustomizationModal.vue"),
+);
 
 const workspace = useWorkspaceStore();
 const appearance = useAppearanceStore();
@@ -125,6 +128,7 @@ onUnmounted(() => {
             </div>
           </main>
           <PiCliSetup />
+          <AiCustomizationModal v-if="workspace.root" />
           <TrustDialog />
           <AsrBackendChooseModal />
         </div>
