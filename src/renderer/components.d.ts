@@ -11,7 +11,7 @@ export {}
 /* prettier-ignore */
 declare module 'vue' {
   export interface GlobalComponents {
-    AboutSettings: typeof import('./src/components/AboutSettings.vue')['default']
+    AboutPanel: typeof import('./src/components/AboutPanel.vue')['default']
     AddProviderModal: typeof import('./src/components/AddProviderModal.vue')['default']
     AgentWaitIndicator: typeof import('./src/components/AgentWaitIndicator.vue')['default']
     AiCustomizationModal: typeof import('./src/components/AiCustomizationModal.vue')['default']
