@@ -632,6 +632,8 @@ async function save(): Promise<boolean> {
   }
 }
 
+defineExpose({ save, dirty });
+
 function onPreviewKeydown(event: KeyboardEvent): void {
   if (props.active === false) return;
   if (!(event.ctrlKey || event.metaKey) || event.altKey) return;
@@ -670,7 +672,7 @@ onBeforeUnmount(() => {
 
 <template>
   <div class="preview-tab">
-    <div class="toolbar">
+    <div v-if="!embedded" class="toolbar">
       <div class="crumbs" :title="currentPath ?? undefined">
         <template v-if="crumbs.length">
           <span v-for="(part, i) in crumbs" :key="`${part}-${i}`" class="crumb">
