@@ -5,6 +5,8 @@
  * (extensions/theme-defaults/themes/2026-light.json).
  */
 :root {
+  /* 编辑器当前行高亮的背景（跨 shadow DOM 传递给 Monaco） */
+  --pi-editor-line-highlight: rgba(0, 0, 0, 0.05);
   --bg: #ffffff;
   --bg-title: #fafafd;
   --bg-sidebar: #fafafd;
@@ -100,6 +102,7 @@
  * (extensions/theme-defaults/themes/2026-dark.json).
  */
 html[data-theme="dark"] {
+  --pi-editor-line-highlight: rgba(255, 255, 255, 0.08);
   --bg: #121314;
   --bg-title: #191a1b;
   --bg-sidebar: #191a1b;
@@ -549,4 +552,26 @@ button {
 /* macOS: slightly denser titlebar hit targets feel closer to native */
 html.platform-darwin .title-bar .n-button {
   --n-height: 28px;
+}
+
+/*
+ * Monaco 给光标所在行画 2px 描边（currentLineHighlight.js 运行时注入
+ * `.monaco-editor .view-overlays .current-line-exact { border: 2px solid … }`），
+ * 在透明编辑区上很突兀，这里用同选择器 + !important 压掉。
+ */
+.monaco-editor .view-overlays .current-line,
+.monaco-editor .view-overlays .current-line-exact,
+.monaco-editor .margin-view-overlays .current-line-margin,
+.monaco-editor .margin-view-overlays .current-line-exact-margin,
+.monaco-editor .view-overlays [class^="current-line"],
+.monaco-editor .margin-view-overlays [class^="current-line"] {
+  border: none !important;
+  outline: none !important;
+}
+
+.monaco-editor .inputarea,
+.monaco-editor textarea.inputarea,
+.monaco-editor .native-edit-context,
+.monaco-editor .ime-text-area {
+  outline: none !important;
 }

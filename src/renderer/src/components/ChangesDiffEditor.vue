@@ -3,7 +3,11 @@ import { computed, nextTick, onBeforeUnmount, ref, watch } from "vue";
 import type * as Monaco from "monaco-editor";
 import { languageFromPath } from "@renderer/utils/editor-lang";
 import { loadMonaco } from "@renderer/utils/monaco-loader";
-import { applyMonacoColorTheme, monacoThemeName } from "@renderer/utils/monaco-theme";
+import {
+  applyMonacoColorTheme,
+  injectEditorStyleOverrides,
+  monacoThemeName,
+} from "@renderer/utils/monaco-theme";
 import { useAppearanceStore } from "@renderer/stores/appearance";
 
 const props = defineProps<{
@@ -108,6 +112,7 @@ async function ensureDiffEditor(): Promise<void> {
       },
       diffAlgorithm: "advanced",
     });
+    injectEditorStyleOverrides(diffEditor.getModifiedEditor().getDomNode());
     applyInlineEditorOptions();
   } else {
     applyMonacoColorTheme(monaco, appearance.resolvedTheme === "dark");
