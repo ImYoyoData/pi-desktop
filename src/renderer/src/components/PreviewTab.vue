@@ -14,7 +14,11 @@ import {
   type FsChangedPayload,
 } from "@renderer/utils/fs-changed-bus";
 import { loadMonaco } from "@renderer/utils/monaco-loader";
-import { applyMonacoColorTheme, monacoThemeName } from "@renderer/utils/monaco-theme";
+import {
+  applyMonacoColorTheme,
+  injectEditorStyleOverrides,
+  monacoThemeName,
+} from "@renderer/utils/monaco-theme";
 import { useRightTabsStore } from "@renderer/stores/right-tabs";
 import { useWorkspaceStore } from "@renderer/stores/workspace";
 import { useAppearanceStore } from "@renderer/stores/appearance";
@@ -319,6 +323,7 @@ async function ensureEditor(content: string, language: string): Promise<void> {
       // Needed so json / json5 validation messages are readable on hover.
       hover: { enabled: "on" },
     });
+    injectEditorStyleOverrides(editor.getDomNode());
     editor.onDidChangeModelContent(() => {
       liveContent.value = editor?.getValue() ?? "";
       if (applyingExternal) return;
