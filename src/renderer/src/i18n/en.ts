@@ -989,8 +989,8 @@ export const en = {
 	extensionsTitle: "Extensions / Plugins",
 
 	thinkingLanguage: "Thinking language",
-	thinkingLanguageAuto: "Auto",
 	thinkingLanguageZh: "Chinese",
+	thinkingLanguageEn: "English",
 	skillEnabled: "Enabled",
 	skillDisabledManual: "Disabled (manual /skill only)",
 	skillUninstallTitle: "Uninstall skill",
