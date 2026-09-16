@@ -6,7 +6,6 @@ import {
   NRadioGroup,
   NSelect,
   NSpace,
-  NSwitch,
   NText,
   useMessage,
 } from "naive-ui";
@@ -171,7 +170,12 @@ function onMessageWidthChange(value: string | number | null): void {
         <div class="switch-labels">
           <NText strong>{{ t.showCompactButton }}</NText>
         </div>
-        <NSwitch v-model:value="showCompactButton" />
+        <NRadioGroup v-model:value="showCompactButton" size="small">
+          <NSpace>
+            <NRadioButton :value="true">{{ t.showCompactButtonOn }}</NRadioButton>
+            <NRadioButton :value="false">{{ t.showCompactButtonOff }}</NRadioButton>
+          </NSpace>
+        </NRadioGroup>
       </div>
 
       <NDivider style="margin: 0" />
