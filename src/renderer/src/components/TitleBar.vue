@@ -10,7 +10,6 @@ import { useWorkspaceStore } from "@renderer/stores/workspace";
 import { useUpdateStore } from "@renderer/stores/update";
 import { useLayoutStore } from "@renderer/stores/layout";
 import { t } from "@renderer/i18n";
-import logoUrl from "@renderer/assets/logo.svg";
 
 const workspace = useWorkspaceStore();
 const updateStore = useUpdateStore();
@@ -73,7 +72,6 @@ async function onUpdateClick(): Promise<void> {
   >
     <div class="drag traffic-space" aria-hidden="true" />
     <div class="brand">
-      <img class="logo-img" :src="logoUrl" alt="" width="18" height="18" />
       <span class="name">{{ t.appName }}</span>
     </div>
     <div class="center drag" />
@@ -199,9 +197,14 @@ async function onUpdateClick(): Promise<void> {
 .brand {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
   padding-left: 4px;
   color: var(--fg-strong);
+}
+
+.name {
+  font-weight: 600;
+  font-size: 12.5px;
+  letter-spacing: -0.01em;
 }
 
 .layout-controls {
@@ -236,20 +239,6 @@ async function onUpdateClick(): Promise<void> {
 .layout-btn.checked:hover {
   background: var(--bg-active);
   color: var(--fg-strong);
-}
-
-.logo-img {
-  width: 18px;
-  height: 18px;
-  border-radius: 5px;
-  display: block;
-  flex-shrink: 0;
-}
-
-.name {
-  font-weight: 600;
-  font-size: 12.5px;
-  letter-spacing: -0.01em;
 }
 
 .center {

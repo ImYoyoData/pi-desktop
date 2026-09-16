@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed } from "vue";
-import { NModal, NSwitch, NText, NButton, NDivider, useMessage } from "naive-ui";
+import { NModal, NText, NButton, NDivider, useMessage } from "naive-ui";
+import ToggleButton from "@renderer/components/ToggleButton.vue";
 import { useNotifyStore } from "@renderer/stores/notify";
 import { t } from "@renderer/i18n";
 
@@ -49,7 +50,7 @@ async function onPreview(): Promise<void> {
             {{ t.notifySoundHint }}
           </NText>
         </div>
-        <NSwitch v-model:value="soundOn" />
+        <ToggleButton v-model:value="soundOn" />
       </div>
       <NButton size="small" secondary style="align-self: flex-start; margin-top: 10px" @click="onPreview">
         {{ t.notifyPreview }}
@@ -66,7 +67,7 @@ async function onPreview(): Promise<void> {
             {{ t.notifySystemHint }}
           </NText>
         </div>
-        <NSwitch v-model:value="notifyOn" />
+        <ToggleButton v-model:value="notifyOn" />
       </div>
     </div>
 

@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import { computed, reactive, ref } from "vue";
-import { NButton, NDropdown, NInput, NSwitch, useDialog, useMessage } from "naive-ui";
+import { NButton, NDropdown, NInput, useDialog, useMessage } from "naive-ui";
 import type { DropdownOption } from "naive-ui";
 import CodiconIcon from "@renderer/components/icons/CodiconIcon.vue";
+import ToggleButton from "@renderer/components/ToggleButton.vue";
 import McpAddModal from "@renderer/components/customize/McpAddModal.vue";
 import { useWorkspaceStore } from "@renderer/stores/workspace";
 import { useScopedWorkspaces } from "@renderer/utils/scoped-workspaces";
@@ -504,6 +505,11 @@ function removeLabel(): string {
   return props.kind === "plugins" ? t.customizeUninstallPlugin : t.customizeUninstall;
 }
 
+/** 行内按钮用短文案，避免「卸载插件」撑宽操作区。 */
+function removeButtonLabel(): string {
+  return props.kind === "plugins" ? t.customizeUninstall : removeLabel();
+}
+
 function confirmRemove(item: CustomizationItem): void {
   dialog.warning({
     title: removeLabel(),
@@ -759,10 +765,9 @@ function onCtxSelect(key: string | number): void {
               >
                 {{ t.customizeUpdate }}
               </NButton>
-              <NSwitch
+              <ToggleButton
                 v-if="canToggle(item)"
                 class="item-switch"
-                size="small"
                 :value="item.enabled !== false"
                 :title="item.enabled === false ? t.customizeEnable : t.customizeDisable"
                 @click.stop
@@ -775,7 +780,7 @@ function onCtxSelect(key: string | number): void {
                 :title="removeLabel()"
                 @click.stop="confirmRemove(item)"
               >
-                <CodiconIcon name="remove" :size="15" />
+                {{ removeButtonLabel() }}
               </button>
             </div>
           </div>
@@ -1037,19 +1042,22 @@ function onCtxSelect(key: string | number): void {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 24px;
+  flex-shrink: 0;
   height: 24px;
-  padding: 0;
-  border: none;
+  padding: 0 10px;
+  border: 1px solid var(--border);
   border-radius: 4px;
   background: transparent;
   color: var(--fg-muted);
+  font-size: 11.5px;
+  line-height: 1;
+  white-space: nowrap;
   cursor: pointer;
   transition: background-color 0.1s ease, color 0.1s ease;
 }
 
 .item-action:hover {
-  background: var(--bg-active);
+  background: color-mix(in srgb, var(--error) 14%, transparent);
   color: var(--fg);
 }
 

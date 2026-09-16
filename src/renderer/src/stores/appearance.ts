@@ -27,6 +27,7 @@ export type SurfaceAlphaKey = keyof SurfaceAlphaSettings;
 const THEME_KEY = "pi-desktop:theme-preference";
 const LOCALE_KEY = "pi-desktop:locale-preference";
 const COMPACT_BTN_KEY = "pi-desktop:show-compact-button";
+const PANEL_DIVIDERS_KEY = "pi-desktop:panel-dividers";
 const TRUNCATE_TOOL_OUTPUT_KEY = "pi-desktop:truncate-tool-output";
 
 /** 工具输出预览的可选截断行数；0 表示不截断。 */
@@ -43,6 +44,14 @@ function readShowCompactButton(): boolean {
     return localStorage.getItem(COMPACT_BTN_KEY) === "1";
   } catch {
     return false;
+  }
+}
+
+function readPanelDividers(): boolean {
+  try {
+    return localStorage.getItem(PANEL_DIVIDERS_KEY) !== "0";
+  } catch {
+    return true;
   }
 }
 
@@ -159,6 +168,7 @@ export const useAppearanceStore = defineStore("appearance", () => {
   const localePreference = ref<LocalePreference>(readLocalePreference());
   const systemDark = ref(systemPrefersDark());
   const showCompactButton = ref(readShowCompactButton());
+  const showPanelDividers = ref(readPanelDividers());
   const truncateToolOutputLines = ref(readTruncateToolOutputLines());
   const customAppearance = ref<CustomAppearanceSettings>(readCustomAppearance());
   const wallpaperBroken = ref(false);
@@ -209,6 +219,15 @@ export const useAppearanceStore = defineStore("appearance", () => {
     showCompactButton.value = next;
     try {
       localStorage.setItem(COMPACT_BTN_KEY, next ? "1" : "0");
+    } catch {
+      // ignore
+    }
+  }
+
+  function setShowPanelDividers(next: boolean): void {
+    showPanelDividers.value = next;
+    try {
+      localStorage.setItem(PANEL_DIVIDERS_KEY, next ? "1" : "0");
     } catch {
       // ignore
     }
@@ -311,6 +330,7 @@ export const useAppearanceStore = defineStore("appearance", () => {
     resolvedUiLocale,
     resolvedTheme,
     showCompactButton,
+    showPanelDividers,
     truncateToolOutputLines,
     wallpaper,
     surfaces,
@@ -319,6 +339,7 @@ export const useAppearanceStore = defineStore("appearance", () => {
     setThemePreference,
     setLocalePreference,
     setShowCompactButton,
+    setShowPanelDividers,
     setTruncateToolOutputLines,
     setWallpaperFile,
     clearWallpaper,
