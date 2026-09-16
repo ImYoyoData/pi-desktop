@@ -67,15 +67,7 @@ type EditingTarget =
   | { kind: "file"; filePath: string; title: string; rename: boolean }
   | { kind: "skill-draft"; scope: "user" | "project"; workspace: string | null };
 
-const SKILL_DRAFT_TEMPLATE = [
-  "---",
-  "name: new-skill",
-  "description: 待补充：说明该技能做什么、何时使用",
-  "---",
-  "",
-  "# new-skill",
-  "",
-].join("\n");
+const SKILL_DRAFT_TEMPLATE = ["---", "name: ", 'description: ""', "---", ""].join("\n");
 
 const editing = ref<EditingTarget | null>(null);
 const editorRef = ref<InstanceType<typeof PreviewTab> | null>(null);
@@ -197,7 +189,7 @@ function openInPage(payload: { filePath: string; title: string; rename: boolean 
 }
 
 function openSkillDraft(payload: { scope: "user" | "project"; workspace: string | null }): void {
-  editorName.value = "new-skill";
+  editorName.value = "";
   editing.value = { kind: "skill-draft", scope: payload.scope, workspace: payload.workspace };
   void nextTick(() => nameInput.value?.focus());
 }
