@@ -160,6 +160,9 @@ export const IpcChannels = {
 	customizations: {
 		list: "customizations:list",
 		create: "customizations:create",
+		createAgentFromDraft: "customizations:createAgentFromDraft",
+		saveAgent: "customizations:saveAgent",
+		createInstructionsFromDraft: "customizations:createInstructionsFromDraft",
 		setMcpEnabled: "customizations:setMcpEnabled",
 		addMcpServers: "customizations:addMcpServers",
 		ensureMcpConfig: "customizations:ensureMcpConfig",

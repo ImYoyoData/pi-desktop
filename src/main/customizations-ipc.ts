@@ -2,6 +2,7 @@ import { ipcMain } from "electron";
 import { IpcChannels } from "../shared/protocol";
 import { emptyCustomizations, type CustomizationCreateKind, type McpTestResult, type McpTestTarget } from "../shared/customizations";
 import { getWorkspace } from "./workspace-ipc";
+import { createAgentFromDraft, createInstructionsFromDraft, saveAgentContent } from "./agent-host";
 import { createCustomization, listCustomizations, setMcpServerEnabled, addMcpServers, ensureMcpConfig, removeMcpServer, readMcpEntry, setCustomizationItemEnabled, removeCustomizationItem } from "./customizations-host";
 import { testMcpServer } from "./mcp-test";
 
@@ -16,6 +17,47 @@ export function registerCustomizationsIpc(broker?: {
 
 	ipcMain.handle(IpcChannels.customizations.create, (_event, kind: CustomizationCreateKind) =>
 		createCustomization(kind),
+	);
+
+	ipcMain.handle(
+		IpcChannels.customizations.createAgentFromDraft,
+		async (_event, content: string, scope: "user" | "project", workspace?: string) => {
+			const { parseFrontmatter } = await import("@earendil-works/pi-coding-agent");
+			const { frontmatter } = parseFrontmatter<Record<string, unknown>>(content);
+			const name = typeof frontmatter.name === "string" ? frontmatter.name.trim() : "";
+			return createAgentFromDraft(
+				content,
+				name,
+				scope,
+				workspace?.trim() || getWorkspace() || undefined,
+			);
+		},
+	);
+
+	ipcMain.handle(
+		IpcChannels.customizations.saveAgent,
+		async (_event, filePath: string, content: string, renameName?: string, cwd?: string) => {
+			const { parseFrontmatter } = await import("@earendil-works/pi-coding-agent");
+			const { frontmatter } = parseFrontmatter<Record<string, unknown>>(content);
+			const name = typeof frontmatter.name === "string" ? frontmatter.name.trim() : "";
+			return saveAgentContent(
+				filePath,
+				content,
+				name,
+				renameName,
+				cwd?.trim() || getWorkspace() || undefined,
+			);
+		},
+	);
+
+	ipcMain.handle(
+		IpcChannels.customizations.createInstructionsFromDraft,
+		async (_event, content: string, scope: "user" | "project", workspace?: string) =>
+			createInstructionsFromDraft(
+				content,
+				scope,
+				workspace?.trim() || getWorkspace() || undefined,
+			),
 	);
 
 	ipcMain.handle(
