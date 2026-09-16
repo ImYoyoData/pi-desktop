@@ -18,6 +18,10 @@ export const IpcChannels = {
 		requestMediaAccess: "window:requestMediaAccess",
 		setUiLocale: "window:setUiLocale",
 		openDevTools: "window:openDevTools",
+		/** Main → renderer: 右键编辑菜单（自绘）。 */
+		contextMenu: "window:contextMenu",
+		/** Renderer → main: 执行右键菜单选中的编辑命令。 */
+		contextMenuAction: "window:contextMenuAction",
 	},
 	clipboard: {
 		/** Renderer → main: copy a data-URL image onto the system clipboard. */

@@ -1,110 +1,35 @@
-import { BrowserWindow, Menu, nativeImage, shell } from "electron";
+import { BrowserWindow, nativeImage, shell } from "electron";
 import { join } from "path";
 import { existsSync } from "fs";
 import { is } from "@electron-toolkit/utils";
 import { IpcChannels } from "../shared/protocol";
+import type { EditContextMenuPayload } from "../shared/context-menu";
 import { editMenuLabels } from "../shared/edit-menu-i18n";
 import { getUiLocale, setUiLocale } from "./ui-locale";
 import { bindWindowVisibility } from "./window-visibility";
 
 export { getUiLocale, setUiLocale };
 
-/** Standard cut/copy/paste/select-all context menu for editable fields and selections. */
+/** 可编辑字段与文本选区的右键菜单：转发给渲染进程自绘，命令仍由主进程执行。 */
 function installEditContextMenu(win: BrowserWindow): void {
   win.webContents.on("context-menu", (_event, params) => {
     const { editFlags, isEditable, selectionText } = params;
-    const L = editMenuLabels(getUiLocale());
-    const wc = win.webContents;
-    const items: Electron.MenuItemConstructorOptions[] = [];
-
-    if (isEditable) {
-      items.push(
-        {
-          label: L.undo,
-          accelerator: "CmdOrCtrl+Z",
-          enabled: editFlags.canUndo,
-          click: () => {
-            if (!win.isDestroyed()) wc.undo();
-          },
-        },
-        {
-          label: L.redo,
-          accelerator:
-            process.platform === "darwin" ? "Shift+CmdOrCtrl+Z" : "CmdOrCtrl+Y",
-          enabled: editFlags.canRedo,
-          click: () => {
-            if (!win.isDestroyed()) wc.redo();
-          },
-        },
-        { type: "separator" },
-        {
-          label: L.cut,
-          accelerator: "CmdOrCtrl+X",
-          enabled: editFlags.canCut,
-          click: () => {
-            if (!win.isDestroyed()) wc.cut();
-          },
-        },
-        {
-          label: L.copy,
-          accelerator: "CmdOrCtrl+C",
-          enabled: editFlags.canCopy,
-          click: () => {
-            if (!win.isDestroyed()) wc.copy();
-          },
-        },
-        {
-          label: L.paste,
-          accelerator: "CmdOrCtrl+V",
-          enabled: editFlags.canPaste,
-          click: () => {
-            if (!win.isDestroyed()) wc.paste();
-          },
-        },
-        {
-          label: L.delete,
-          enabled: editFlags.canDelete,
-          click: () => {
-            if (!win.isDestroyed()) wc.delete();
-          },
-        },
-        { type: "separator" },
-        {
-          label: L.selectAll,
-          accelerator: "CmdOrCtrl+A",
-          enabled: editFlags.canSelectAll,
-          click: () => {
-            if (!win.isDestroyed()) wc.selectAll();
-          },
-        },
-      );
-    } else if (selectionText?.trim()) {
-      items.push({
-        label: L.copy,
-        accelerator: "CmdOrCtrl+C",
-        enabled: editFlags.canCopy,
-        click: () => {
-          if (!win.isDestroyed()) wc.copy();
-        },
-      });
-      if (editFlags.canSelectAll) {
-        items.push(
-          { type: "separator" },
-          {
-            label: L.selectAll,
-            accelerator: "CmdOrCtrl+A",
-            enabled: true,
-            click: () => {
-              if (!win.isDestroyed()) wc.selectAll();
-            },
-          },
-        );
-      }
-    } else {
-      return;
-    }
-
-    Menu.buildFromTemplate(items).popup({ window: win });
+    if (!isEditable && !selectionText?.trim()) return;
+    if (win.isDestroyed()) return;
+    const payload: EditContextMenuPayload = {
+      x: params.x,
+      y: params.y,
+      isEditable,
+      labels: editMenuLabels(getUiLocale()),
+      canUndo: editFlags.canUndo,
+      canRedo: editFlags.canRedo,
+      canCut: editFlags.canCut,
+      canCopy: editFlags.canCopy,
+      canPaste: editFlags.canPaste,
+      canDelete: editFlags.canDelete,
+      canSelectAll: editFlags.canSelectAll,
+    };
+    win.webContents.send(IpcChannels.window.contextMenu, payload);
   });
 }
 

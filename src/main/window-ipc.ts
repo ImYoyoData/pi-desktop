@@ -1,8 +1,19 @@
 import { BrowserWindow, clipboard, ipcMain, nativeTheme, systemPreferences } from "electron";
 import { nativeImage } from "electron";
 import { IpcChannels } from "../shared/protocol";
+import type { EditContextMenuAction } from "../shared/context-menu";
 import type { EditMenuLocale } from "../shared/edit-menu-i18n";
 import { allowWindowClose, setUiLocale } from "./window";
+
+const EDIT_COMMANDS: Record<EditContextMenuAction, (wc: Electron.WebContents) => void> = {
+  undo: (wc) => wc.undo(),
+  redo: (wc) => wc.redo(),
+  cut: (wc) => wc.cut(),
+  copy: (wc) => wc.copy(),
+  paste: (wc) => wc.paste(),
+  delete: (wc) => wc.delete(),
+  selectAll: (wc) => wc.selectAll(),
+};
 
 type ThemeSource = "system" | "light" | "dark";
 type ChromeTheme = "light" | "dark";
@@ -94,5 +105,11 @@ export function registerWindowIpc(): void {
       return;
     }
     wc.openDevTools({ mode: "detach" });
+  });
+
+  ipcMain.handle(IpcChannels.window.contextMenuAction, (event, action: EditContextMenuAction) => {
+    const run = EDIT_COMMANDS[action];
+    if (!run || event.sender.isDestroyed()) return;
+    run(event.sender);
   });
 }

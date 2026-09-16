@@ -30,6 +30,9 @@ html[data-theme][data-wallpaper="on"] {
   --bg-elevated: var(--w-elevated-surface);
   --bg-input: var(--w-input-surface);
   --tool-bg: var(--w-elevated-surface);
+  --pre-bg: var(--w-elevated-surface);
+  --code-bg: var(--w-elevated-surface);
+  --md-inline-code-bg: var(--w-elevated-surface);
 }
 
 html[data-theme="dark"][data-wallpaper="on"] {
@@ -65,6 +68,30 @@ html[data-theme][data-wallpaper="on"] .modal-editor-panel {
   );
   background: var(--w-settings-surface);
   --n-color: var(--w-settings-surface) !important;
+}
+
+/* naive-ui 浮层（右键菜单、下拉、气泡）跟随抬升表面，并模糊其下的壁纸 */
+/* naive-ui 浮层（右键菜单、下拉、气泡）跟随抬升表面，并模糊其下的壁纸 */
+html[data-theme][data-wallpaper="on"] .n-popover,
+html[data-theme][data-wallpaper="on"] .n-dropdown-menu,
+html[data-theme][data-wallpaper="on"] .n-base-select-menu {
+  background-color: var(--w-elevated-surface) !important;
+  --n-color: var(--w-elevated-surface) !important;
+  backdrop-filter: blur(14px) saturate(1.15);
+}
+
+html[data-theme][data-wallpaper="on"] .preview-context-menu,
+html[data-theme][data-wallpaper="on"] .app-context-menu {
+  backdrop-filter: blur(14px) saturate(1.15);
+}
+
+/* Monaco 编辑器右键菜单 */
+html[data-theme][data-wallpaper="on"] .monaco-menu,
+html[data-theme][data-wallpaper="on"] .monaco-menu .monaco-action-bar.vertical,
+html[data-theme][data-wallpaper="on"] .context-view .monaco-menu {
+  background-color: var(--w-elevated-surface) !important;
+  --vscode-menu-background: var(--w-elevated-surface) !important;
+  backdrop-filter: blur(14px) saturate(1.15);
 }
 
 /* naive-ui 输入控件跟随输入框透明度 */

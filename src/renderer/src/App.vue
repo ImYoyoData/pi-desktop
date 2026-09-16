@@ -13,6 +13,7 @@ import {
 } from "naive-ui";
 import TitleBar from "@renderer/components/TitleBar.vue";
 import AppWallpaper from "@renderer/components/AppWallpaper.vue";
+import AppContextMenu from "@renderer/components/AppContextMenu.vue";
 import WelcomeView from "@renderer/components/WelcomeView.vue";
 import PiCliSetup from "@renderer/components/PiCliSetup.vue";
 import CloseGuard from "@renderer/components/CloseGuard.vue";
@@ -138,6 +139,7 @@ onUnmounted(() => {
           <TrustDialog />
           <AsrBackendChooseModal />
         </div>
+        <AppContextMenu />
       </NDialogProvider>
     </NMessageProvider>
   </NConfigProvider>

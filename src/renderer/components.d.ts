@@ -15,6 +15,7 @@ declare module 'vue' {
     AgentWaitIndicator: typeof import('./src/components/AgentWaitIndicator.vue')['default']
     AiCustomizationModal: typeof import('./src/components/AiCustomizationModal.vue')['default']
     AiCustomizationPage: typeof import('./src/components/AiCustomizationPage.vue')['default']
+    AppContextMenu: typeof import('./src/components/AppContextMenu.vue')['default']
     AppearancePanel: typeof import('./src/components/AppearancePanel.vue')['default']
     AppearanceSettings: typeof import('./src/components/AppearanceSettings.vue')['default']
     AppearanceSliderRow: typeof import('./src/components/customize/AppearanceSliderRow.vue')['default']
