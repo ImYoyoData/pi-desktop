@@ -20,7 +20,6 @@ import {
   normalizeThinkingLanguage,
   type ThinkingLanguage,
 } from "../../../shared/thinking-language";
-import AppearancePresetList from "@renderer/components/customize/AppearancePresetList.vue";
 import AppearanceWallpaperCard from "@renderer/components/customize/AppearanceWallpaperCard.vue";
 import AppearanceSurfaceCard from "@renderer/components/customize/AppearanceSurfaceCard.vue";
 import { t } from "@renderer/i18n";
@@ -110,11 +109,8 @@ function onTruncateChange(value: string | number | null): void {
 
     <template v-if="tab === 'theme'">
       <div class="custom-appearance">
-        <AppearancePresetList />
-        <div class="custom-main">
-          <AppearanceWallpaperCard />
-          <AppearanceSurfaceCard />
-        </div>
+        <AppearanceWallpaperCard />
+        <AppearanceSurfaceCard />
       </div>
 
       <div class="section">
@@ -197,23 +193,9 @@ function onTruncateChange(value: string | number | null): void {
 }
 
 .custom-appearance {
-  display: grid;
-  grid-template-columns: minmax(0, 190px) minmax(0, 1fr);
-  gap: 12px;
-  align-items: start;
-}
-
-.custom-main {
   display: flex;
   flex-direction: column;
   gap: 12px;
-  min-width: 0;
-}
-
-@container (max-width: 620px) {
-  .custom-appearance {
-    grid-template-columns: minmax(0, 1fr);
-  }
 }
 
 .section {

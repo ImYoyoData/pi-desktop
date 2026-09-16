@@ -16,7 +16,6 @@ declare module 'vue' {
     AiCustomizationModal: typeof import('./src/components/AiCustomizationModal.vue')['default']
     AiCustomizationPage: typeof import('./src/components/AiCustomizationPage.vue')['default']
     AppearancePanel: typeof import('./src/components/AppearancePanel.vue')['default']
-    AppearancePresetList: typeof import('./src/components/customize/AppearancePresetList.vue')['default']
     AppearanceSettings: typeof import('./src/components/AppearanceSettings.vue')['default']
     AppearanceSliderRow: typeof import('./src/components/customize/AppearanceSliderRow.vue')['default']
     AppearanceSurfaceCard: typeof import('./src/components/customize/AppearanceSurfaceCard.vue')['default']
