@@ -1514,6 +1514,12 @@ const api = {
 				settings,
 			) as Promise<ThinkingLanguageSettings>,
 	},
+	appearance: {
+		pickWallpaper: () =>
+			ipcRenderer.invoke(IpcChannels.appearance.pickWallpaper) as Promise<
+				string | null
+			>,
+	},
 	terminal: {
 		create: (cwd?: string, shellId?: string) =>
 			ipcRenderer.invoke(

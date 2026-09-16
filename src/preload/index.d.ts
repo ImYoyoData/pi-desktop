@@ -960,6 +960,9 @@ declare const api: {
 		get: () => Promise<ThinkingLanguageSettings>;
 		set: (settings: ThinkingLanguageSettings) => Promise<ThinkingLanguageSettings>;
 	};
+	appearance: {
+		pickWallpaper: () => Promise<string | null>;
+	};
 	terminal: {
 		create: (cwd?: string, shellId?: string) => Promise<string>;
 		listShells: () => Promise<TerminalShellOption[]>;

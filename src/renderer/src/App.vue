@@ -12,6 +12,7 @@ import {
   dateEnUS,
 } from "naive-ui";
 import TitleBar from "@renderer/components/TitleBar.vue";
+import AppWallpaper from "@renderer/components/AppWallpaper.vue";
 import WelcomeView from "@renderer/components/WelcomeView.vue";
 import PiCliSetup from "@renderer/components/PiCliSetup.vue";
 import CloseGuard from "@renderer/components/CloseGuard.vue";
@@ -124,6 +125,7 @@ onUnmounted(() => {
         <CloseGuard />
         <AsrWakeGuard />
         <div class="app-shell" :data-theme="appearance.resolvedTheme">
+          <AppWallpaper />
           <TitleBar />
           <main class="app-main">
             <div v-if="shellReady" class="app-main-body">

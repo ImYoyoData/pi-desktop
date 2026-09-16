@@ -20,6 +20,9 @@ import {
   normalizeThinkingLanguage,
   type ThinkingLanguage,
 } from "../../../shared/thinking-language";
+import AppearancePresetList from "@renderer/components/customize/AppearancePresetList.vue";
+import AppearanceWallpaperCard from "@renderer/components/customize/AppearanceWallpaperCard.vue";
+import AppearanceSurfaceCard from "@renderer/components/customize/AppearanceSurfaceCard.vue";
 import { t } from "@renderer/i18n";
 
 /** 外观设置：主题与界面两个子页；设置模态与智能体设置页共用。 */
@@ -106,6 +109,14 @@ function onTruncateChange(value: string | number | null): void {
     </NRadioGroup>
 
     <template v-if="tab === 'theme'">
+      <div class="custom-appearance">
+        <AppearancePresetList />
+        <div class="custom-main">
+          <AppearanceWallpaperCard />
+          <AppearanceSurfaceCard />
+        </div>
+      </div>
+
       <div class="section">
         <NText strong>{{ t.theme }}</NText>
         <NRadioGroup v-model:value="themeValue" size="small">
@@ -116,8 +127,6 @@ function onTruncateChange(value: string | number | null): void {
           </NSpace>
         </NRadioGroup>
       </div>
-
-      <NDivider style="margin: 0" />
 
       <div class="section">
         <NText strong>{{ t.language }}</NText>
@@ -184,6 +193,27 @@ function onTruncateChange(value: string | number | null): void {
   display: flex;
   flex-direction: column;
   gap: 16px;
+  container-type: inline-size;
+}
+
+.custom-appearance {
+  display: grid;
+  grid-template-columns: minmax(0, 190px) minmax(0, 1fr);
+  gap: 12px;
+  align-items: start;
+}
+
+.custom-main {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+}
+
+@container (max-width: 620px) {
+  .custom-appearance {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 
 .section {

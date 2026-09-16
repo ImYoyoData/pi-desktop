@@ -29,6 +29,10 @@ export const IpcChannels = {
 		/** Renderer → main: 保存「思考语言」设置。 */
 		set: "thinkingLanguage:set",
 	},
+	appearance: {
+		/** Renderer → main: 选择壁纸文件（图片/动图/视频）。 */
+		pickWallpaper: "appearance:pickWallpaper",
+	},
 	workspace: {
 		get: "workspace:get",
 		open: "workspace:open",

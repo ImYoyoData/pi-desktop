@@ -4,6 +4,7 @@ import { createPinia } from "pinia";
 import App from "./App.vue";
 import "./assets/main.css";
 import "./assets/vscode-syntax.css";
+import "./assets/wallpaper.css";
 import { markRendererStartup } from "./utils/startup-timing";
 
 markRendererStartup("renderer:entry");
