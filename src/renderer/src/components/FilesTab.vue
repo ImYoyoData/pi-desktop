@@ -228,7 +228,7 @@ function renderPrefix({ option }: { option: TreeOption }) {
   return h(
     "span",
     {
-      class: "seti-tree-icon",
+      class: "seti-tree-icon seti-file-glyph",
       style: icon.color ? { color: icon.color } : undefined,
       "aria-hidden": "true",
     },
@@ -1043,5 +1043,10 @@ watch(
   font-family: "seti";
   font-size: 150%;
   line-height: 1;
+}
+
+/* Seti 字形居中于行盒，文字视觉中心偏下约 2px，下移对齐 */
+.seti-file-glyph {
+  transform: translateY(2px);
 }
 </style>

@@ -1097,6 +1097,8 @@ function submitRenameTab(): void {
   font-family: "seti";
   font-size: 15px;
   line-height: 1;
+  /* Seti 字形居中于行盒，文字视觉中心偏下约 2px，下移对齐 */
+  transform: translateY(2px);
 }
 
 .tab-run-count {
