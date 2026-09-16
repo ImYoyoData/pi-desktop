@@ -17,6 +17,8 @@ export type CustomizationItem = {
 	enabled?: boolean;
 	/** 技能规范校验问题（仅技能使用） */
 	warning?: SkillWarningCode;
+	/** 允许在设置页删除（全局或工作区根目录下的指令文件） */
+	removable?: boolean;
 };
 
 /** 技能不符合 pi 规范的常见问题。 */

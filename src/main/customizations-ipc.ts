@@ -1,8 +1,9 @@
 import { ipcMain } from "electron";
 import { IpcChannels } from "../shared/protocol";
 import { emptyCustomizations, type CustomizationCreateKind, type McpTestResult, type McpTestTarget } from "../shared/customizations";
-import { getWorkspace } from "./workspace-ipc";
+import { getWorkspace, listRecentDesktop } from "./workspace-ipc";
 import { createAgentFromDraft, createInstructionsFromDraft, saveAgentContent } from "./agent-host";
+import { frontmatterText } from "./frontmatter";
 import { createCustomization, listCustomizations, setMcpServerEnabled, addMcpServers, ensureMcpConfig, removeMcpServer, readMcpEntry, setCustomizationItemEnabled, removeCustomizationItem } from "./customizations-host";
 import { testMcpServer } from "./mcp-test";
 
@@ -12,7 +13,7 @@ export function registerCustomizationsIpc(broker?: {
 	ipcMain.handle(IpcChannels.customizations.list, async (_event, cwd?: string) => {
 		const root = cwd || getWorkspace();
 		if (!root) return emptyCustomizations(null);
-		return listCustomizations(root);
+		return listCustomizations(root, listRecentDesktop());
 	});
 
 	ipcMain.handle(IpcChannels.customizations.create, (_event, kind: CustomizationCreateKind) =>
@@ -24,7 +25,7 @@ export function registerCustomizationsIpc(broker?: {
 		async (_event, content: string, scope: "user" | "project", workspace?: string) => {
 			const { parseFrontmatter } = await import("@earendil-works/pi-coding-agent");
 			const { frontmatter } = parseFrontmatter<Record<string, unknown>>(content);
-			const name = typeof frontmatter.name === "string" ? frontmatter.name.trim() : "";
+			const name = frontmatterText(frontmatter.name);
 			return createAgentFromDraft(
 				content,
 				name,
@@ -39,7 +40,7 @@ export function registerCustomizationsIpc(broker?: {
 		async (_event, filePath: string, content: string, renameName?: string, cwd?: string) => {
 			const { parseFrontmatter } = await import("@earendil-works/pi-coding-agent");
 			const { frontmatter } = parseFrontmatter<Record<string, unknown>>(content);
-			const name = typeof frontmatter.name === "string" ? frontmatter.name.trim() : "";
+			const name = frontmatterText(frontmatter.name);
 			return saveAgentContent(
 				filePath,
 				content,
@@ -115,7 +116,7 @@ export function registerCustomizationsIpc(broker?: {
 		IpcChannels.customizations.removeItem,
 		async (_event, filePath: string, cwd?: string) => {
 			const root = cwd || getWorkspace() || undefined;
-			const result = removeCustomizationItem(filePath, root);
+			const result = removeCustomizationItem(filePath, root, listRecentDesktop());
 			if (root) await broker?.notifyWorkersReloadResources(root);
 			return result;
 		},
