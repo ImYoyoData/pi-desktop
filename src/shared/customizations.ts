@@ -21,8 +21,6 @@ export type CustomizationItem = {
 	removable?: boolean;
 	/** 是否属于当前打开的工作区 */
 	current?: boolean;
-	/** 是否属于其它最近工作区（只读展示） */
-	otherWorkspace?: boolean;
 };
 
 /** 技能不符合 pi 规范的常见问题。 */

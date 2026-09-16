@@ -202,7 +202,7 @@ function listAgents(root: string, dir: string, sdk: Sdk): CustomizationItem[] {
 	);
 }
 
-/** 其它最近工作区的智能体文件（只读展示）。 */
+/** 其它最近工作区的智能体文件。 */
 function otherWorkspaceAgents(
 	root: string,
 	workspaces: readonly string[],
@@ -217,13 +217,13 @@ function otherWorkspaceAgents(
 			const key = path.resolve(item.filePath ?? "").toLowerCase();
 			if (seen.has(key)) continue;
 			seen.add(key);
-			items.push({ ...item, otherWorkspace: true });
+			items.push(item);
 		}
 	}
 	return items;
 }
 
-/** 其它最近工作区的技能文件（只读展示）。 */
+/** 其它最近工作区的技能文件。 */
 function otherWorkspaceSkillItems(
 	root: string,
 	workspaces: readonly string[],
@@ -242,7 +242,7 @@ function otherWorkspaceSkillItems(
 			if (seen.has(key)) continue;
 			seen.add(key);
 			const item = unloadedSkillItem(entry.filePath, entry.scope, sdk);
-			if (item) items.push({ ...item, otherWorkspace: true });
+			if (item) items.push(item);
 		}
 	}
 	return items;
@@ -695,19 +695,26 @@ export function createCustomization(kind: CustomizationCreateKind): { filePath: 
 }
 
 /** 允许启停与删除的定制文件目录：用户级与工作区级的 agents/prompts。 */
-function editableRoots(root?: string): string[] {
+function editableRoots(root?: string, workspaces: readonly string[] = []): string[] {
 	const dir = agentDir();
 	const roots = [path.join(dir, "agents"), path.join(dir, "prompts")];
-	if (root) roots.push(path.join(root, ".pi", "agents"), path.join(root, ".pi", "prompts"));
+	const bases = [...(root ? [root] : []), ...workspaces];
+	for (const base of bases) {
+		roots.push(path.join(base, ".pi", "agents"), path.join(base, ".pi", "prompts"));
+	}
 	return roots;
 }
 
-function resolveEditableFile(filePath: string, root?: string): string {
+function resolveEditableFile(
+	filePath: string,
+	root?: string,
+	workspaces: readonly string[] = [],
+): string {
 	const target = path.resolve(filePath);
 	if (!isCustomizationFile(path.basename(target))) {
 		throw new Error(`Not an agent/prompt file: ${filePath}`);
 	}
-	if (!editableRoots(root).some((base) => isPathInsideRoot(base, target))) {
+	if (!editableRoots(root, workspaces).some((base) => isPathInsideRoot(base, target))) {
 		throw new Error(`Only user and workspace agents/prompts can be changed: ${filePath}`);
 	}
 	if (!fs.existsSync(target)) throw new Error(`File not found: ${filePath}`);
@@ -719,8 +726,9 @@ export function setCustomizationItemEnabled(
 	filePath: string,
 	enabled: boolean,
 	root?: string,
+	workspaces: readonly string[] = [],
 ): { filePath: string } {
-	const target = resolveEditableFile(filePath, root);
+	const target = resolveEditableFile(filePath, root, workspaces);
 	const disabled = target.endsWith(DISABLED_EXT);
 	if (enabled && !disabled) return { filePath: target };
 	if (!enabled && disabled) return { filePath: target };
@@ -743,7 +751,7 @@ export function removeCustomizationItem(
 		fs.rmSync(target, { force: false });
 		return { filePath: target };
 	}
-	const target = resolveEditableFile(filePath, root);
+	const target = resolveEditableFile(filePath, root, workspaces);
 	fs.rmSync(target, { force: false });
 	return { filePath: target };
 }

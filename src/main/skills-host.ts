@@ -97,17 +97,29 @@ export async function setSkillDisabled(filePath: string, disableModelInvocation:
 }
 
 /** 可改动的技能根：用户级（pi/agents）与当前工作区，用于改名或删除。 */
-function skillActionRoots(agentSkills: string, cwd?: string): string[] {
+function skillActionRoots(
+  agentSkills: string,
+  cwd?: string,
+  workspaces: readonly string[] = [],
+): string[] {
   const roots = [agentSkills, path.resolve(homeDir(), ".agents", "skills")];
-  const projectSkills = cwd?.trim() ? path.resolve(cwd.trim(), ".pi", "skills") : null;
-  if (projectSkills) roots.push(projectSkills);
+  const bases = [...(cwd?.trim() ? [cwd.trim()] : []), ...workspaces];
+  for (const base of bases) {
+    const projectSkills = path.resolve(base, ".pi", "skills");
+    if (!roots.includes(projectSkills)) roots.push(projectSkills);
+  }
   return roots;
 }
 
 /** 写入技能文件内容（只允许用户级/工作区级技能目录下的文件）。 */
-export function writeSkillContent(filePath: string, content: string, cwd?: string): void {
+export function writeSkillContent(
+  filePath: string,
+  content: string,
+  cwd?: string,
+  workspaces: readonly string[] = [],
+): void {
   const skillDir = path.resolve(path.dirname(filePath));
-  const roots = skillActionRoots(path.resolve(agentDir(), "skills"), cwd);
+  const roots = skillActionRoots(path.resolve(agentDir(), "skills"), cwd, workspaces);
   if (!roots.some((base) => isPathInsideRoot(base, skillDir))) {
     throw new Error("Only user and workspace skills can be edited");
   }
@@ -121,11 +133,12 @@ export function saveSkillContent(
   name: string,
   renameName: string | undefined,
   cwd?: string,
+  workspaces: readonly string[] = [],
 ): { filePath: string; name: string } {
-  writeSkillContent(filePath, content, cwd);
+  writeSkillContent(filePath, content, cwd, workspaces);
   const currentDir = path.basename(path.dirname(path.resolve(filePath)));
   if (!renameName || renameName === currentDir) return { filePath, name };
-  return renameSkill(filePath, renameName, cwd);
+  return renameSkill(filePath, renameName, cwd, workspaces);
 }
 
 /** 重命名技能：目录改名并同步 frontmatter 的 name，只允许用户级与工作区级技能。 */
@@ -133,13 +146,14 @@ export function renameSkill(
   filePath: string,
   name: string,
   cwd?: string,
+  workspaces: readonly string[] = [],
 ): { filePath: string; name: string } {
   if (name.length > 64 || !SKILL_NAME_PATTERN.test(name)) {
     throw new Error(`Invalid skill name: ${name}`);
   }
   if (!fs.existsSync(filePath)) throw new Error("Skill not found");
   const skillDir = path.resolve(path.dirname(filePath));
-  const roots = skillActionRoots(path.resolve(agentDir(), "skills"), cwd);
+  const roots = skillActionRoots(path.resolve(agentDir(), "skills"), cwd, workspaces);
   if (!roots.some((base) => isPathInsideRoot(base, skillDir))) {
     throw new Error("Only user and workspace skills can be renamed");
   }
@@ -157,11 +171,15 @@ export function renameSkill(
 }
 
 /** Remove a skill directory (SKILL.md parent). Allowed under agent/project skills roots. */
-export async function uninstallSkill(filePath: string, cwd?: string): Promise<void> {
+export async function uninstallSkill(
+  filePath: string,
+  cwd?: string,
+  workspaces: readonly string[] = [],
+): Promise<void> {
   if (!fs.existsSync(filePath)) throw new Error("Skill not found");
   const skillDir = path.resolve(path.dirname(filePath));
   const { getAgentDir } = await import("@earendil-works/pi-coding-agent");
-  const roots = skillActionRoots(path.resolve(getAgentDir(), "skills"), cwd);
+  const roots = skillActionRoots(path.resolve(getAgentDir(), "skills"), cwd, workspaces);
   if (!roots.some((base) => isPathInsideRoot(base, skillDir))) {
     throw new Error(
       "Can only uninstall skills under ~/.pi/agent/skills, ~/.agents/skills or project .pi/skills (remove package skills from Extensions)",
