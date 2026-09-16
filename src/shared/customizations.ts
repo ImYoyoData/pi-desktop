@@ -35,6 +35,19 @@ export type SkillSaveResult =
 	| { ok: true; filePath: string; name: string }
 	| { ok: false; issues: SkillIssueCode[] };
 
+/** 智能体名称在文件系统层面不可用的原因。 */
+export type AgentIssueCode = "name-required" | "name-invalid" | "exists";
+
+/** 智能体草稿创建/保存的结果。 */
+export type AgentSaveResult =
+	| { ok: true; filePath: string; name: string }
+	| { ok: false; code: AgentIssueCode };
+
+/** 指令（AGENTS.md）草稿创建的结果。 */
+export type InstructionsSaveResult =
+	| { ok: true; filePath: string }
+	| { ok: false; code: "exists" };
+
 /** 已被扩展订阅的 pi 生命周期事件。 */
 export type CustomizationHook = {
 	event: string;

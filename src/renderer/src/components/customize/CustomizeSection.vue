@@ -28,7 +28,13 @@ const emit = defineEmits<{
   refresh: [];
   market: [];
   open: [payload: { filePath: string; title: string; rename: boolean }];
-  newSkill: [payload: { scope: "user" | "project"; workspace: string | null }];
+  newDraft: [
+    payload: {
+      kind: "skills" | "agents" | "instructions";
+      scope: "user" | "project";
+      workspace: string | null;
+    },
+  ];
 }>();
 
 const workspace = useWorkspaceStore();
@@ -169,7 +175,9 @@ function openItem(item: CustomizationItem): void {
   emit("open", {
     filePath: item.filePath,
     title: item.name,
-    rename: props.kind === "skills" && (item.scope === "user" || item.scope === "project"),
+    rename:
+      (props.kind === "skills" || props.kind === "agents") &&
+      (item.scope === "user" || item.scope === "project"),
   });
 }
 
@@ -343,8 +351,8 @@ async function upgradePlugin(item: CustomizationItem): Promise<void> {
 
 const { paths: scopedWorkspaces, label: workspaceLabel } = useScopedWorkspaces();
 
-/** 新建技能时先选择保存位置：用户级或某个工作区。 */
-const skillScopeOptions = computed<DropdownOption[]>(() => [
+/** 新建技能/智能体/指令时先选择保存位置：用户级或某个工作区。 */
+const draftScopeOptions = computed<DropdownOption[]>(() => [
   { label: t.customizeGroupUser, key: "user" },
   ...scopedWorkspaces.value.map((target) => ({
     label: workspaceLabel(target),
@@ -352,13 +360,23 @@ const skillScopeOptions = computed<DropdownOption[]>(() => [
   })),
 ]);
 
-function onSkillScopeSelect(key: string | number): void {
+type DraftKind = "skills" | "agents" | "instructions";
+
+/** 需要先选作用域的定制项；提示模板仍直接创建。 */
+const draftKind = computed<DraftKind | null>(() => {
+  const kind = createKind.value;
+  return kind === "skills" || kind === "agents" || kind === "instructions" ? kind : null;
+});
+
+function onDraftScopeSelect(key: string | number): void {
+  const kind = draftKind.value;
+  if (!kind) return;
   const raw = String(key);
   if (raw.startsWith("project:")) {
-    emit("newSkill", { scope: "project", workspace: raw.slice("project:".length) });
+    emit("newDraft", { kind, scope: "project", workspace: raw.slice("project:".length) });
     return;
   }
-  emit("newSkill", { scope: "user", workspace: null });
+  emit("newDraft", { kind, scope: "user", workspace: null });
 }
 
 const editConfigOptions = computed<DropdownOption[]>(() => [
@@ -590,11 +608,11 @@ function onCtxSelect(key: string | number): void {
           {{ t.reload }}
         </NButton>
         <NDropdown
-          v-if="createKind === 'skills'"
+          v-if="draftKind"
           trigger="click"
           size="small"
-          :options="skillScopeOptions"
-          @select="onSkillScopeSelect"
+          :options="draftScopeOptions"
+          @select="onDraftScopeSelect"
         >
           <NButton class="list-add-button" size="small">{{ createLabel }}</NButton>
         </NDropdown>

@@ -17,7 +17,7 @@ import type {
 } from "../shared/protocol";
 import { IpcChannels } from "../shared/protocol";
 import type { AgentRunEvent, AgentRunSnapshot } from "../shared/agent-runs";
-import type { CustomizationsSnapshot, CustomizationCreateKind, McpTestResult, McpTestTarget, SkillSaveResult } from "../shared/customizations";
+import type { AgentSaveResult, CustomizationsSnapshot, CustomizationCreateKind, InstructionsSaveResult, McpTestResult, McpTestTarget, SkillSaveResult } from "../shared/customizations";
 import type {
 	ModelsGetResult,
 	ModelsOAuthEventPayload,
@@ -720,6 +720,28 @@ const api = {
 			ipcRenderer.invoke(IpcChannels.customizations.create, kind) as Promise<{
 				filePath: string;
 			}>,
+		createAgentFromDraft: (content: string, scope: "user" | "project", cwd?: string) =>
+			ipcRenderer.invoke(
+				IpcChannels.customizations.createAgentFromDraft,
+				content,
+				scope,
+				cwd,
+			) as Promise<AgentSaveResult>,
+		saveAgent: (filePath: string, content: string, renameName?: string, cwd?: string) =>
+			ipcRenderer.invoke(
+				IpcChannels.customizations.saveAgent,
+				filePath,
+				content,
+				renameName,
+				cwd,
+			) as Promise<AgentSaveResult>,
+		createInstructionsFromDraft: (content: string, scope: "user" | "project", cwd?: string) =>
+			ipcRenderer.invoke(
+				IpcChannels.customizations.createInstructionsFromDraft,
+				content,
+				scope,
+				cwd,
+			) as Promise<InstructionsSaveResult>,
 		setMcpEnabled: (name: string, scope: "user" | "project", enabled: boolean, cwd?: string) =>
 			ipcRenderer.invoke(
 				IpcChannels.customizations.setMcpEnabled,

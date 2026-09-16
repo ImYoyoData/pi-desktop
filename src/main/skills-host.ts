@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { agentDir, homeDir } from "./agent-dir";
+import { withFrontmatterName } from "./frontmatter";
 import { SKILL_NAME_PATTERN } from "./skill-validate";
 import { isPathInsideRoot } from "../shared/path-sandbox";
 import { resolveTrustState } from "./project-trust";
@@ -71,20 +72,28 @@ export async function setSkillDisabled(filePath: string, disableModelInvocation:
   }
   const content = fs.readFileSync(filePath, "utf8");
   const key = "disable-model-invocation";
-  const { parseFrontmatter } = await import("@earendil-works/pi-coding-agent");
-  const { frontmatter } = parseFrontmatter<Record<string, unknown>>(content);
-  const alreadySet = Boolean(frontmatter[key]);
+  const linePattern = new RegExp(`^${key}\\s*:[^\\n]*(\\r?\\n|$)`, "m");
+  const frontmatter = /^\uFEFF?---\r?\n[\s\S]*?\r?\n---(?=\r?\n|$)/.exec(content);
+  const head = frontmatter ? frontmatter[0] : "";
+  const body = content.slice(head.length);
 
-  let updated = content;
-  if (disableModelInvocation && !alreadySet) {
-    updated = content.replace(/^---\r?\n/, `---\n${key}: true\n`);
-    if (updated === content) {
-      updated = `---\n${key}: true\n---\n${content}`;
+  let nextHead: string;
+  if (disableModelInvocation) {
+    if (linePattern.test(head)) {
+      nextHead = head.replace(linePattern, `${key}: true$1`);
+    } else if (head) {
+      nextHead = head.replace(/^\uFEFF?---\r?\n/, `$&${key}: true\n`);
+    } else {
+      nextHead = `---\n${key}: true\n---\n`;
     }
-  } else if (!disableModelInvocation && alreadySet) {
-    updated = content.replace(new RegExp(`^${key}\\s*:.*\\r?\\n`, "m"), "");
+  } else {
+    nextHead = head.replace(linePattern, "");
   }
-  fs.writeFileSync(filePath, updated, "utf8");
+
+  const updated = nextHead + body;
+  if (updated !== content) {
+    fs.writeFileSync(filePath, updated, "utf8");
+  }
 }
 
 /** 可改动的技能根：用户级（pi/agents）与当前工作区，用于改名或删除。 */
@@ -142,10 +151,7 @@ export function renameSkill(
   if (path.resolve(nextDir) === skillDir) return { filePath, name };
   if (fs.existsSync(nextDir)) throw new Error(`Skill already exists: ${name}`);
   const content = fs.readFileSync(filePath, "utf8");
-  const updated = /^name:\s*/m.test(content)
-    ? content.replace(/^(name:\s*).*$/m, `$1${name}`)
-    : `---\nname: ${name}\n---\n\n${content}`;
-  fs.writeFileSync(filePath, updated, "utf8");
+  fs.writeFileSync(filePath, withFrontmatterName(content, name), "utf8");
   fs.renameSync(skillDir, nextDir);
   return { filePath: path.join(nextDir, fileName), name };
 }
