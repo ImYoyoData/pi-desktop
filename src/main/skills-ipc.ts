@@ -12,7 +12,7 @@ import {
   updatePlugin,
   type PluginScope,
 } from "./plugins-host";
-import { getWorkspace } from "./workspace-ipc";
+import { getWorkspace, listRecentDesktop } from "./workspace-ipc";
 
 export function registerSkillsIpc(broker?: {
   restartWorkersForCwd: (cwd: string) => Promise<void>;
@@ -35,7 +35,7 @@ export function registerSkillsIpc(broker?: {
 
   ipcMain.handle(IpcChannels.skills.uninstall, async (_event, filePath: string, cwd?: string) => {
     const root = cwd || getWorkspace() || undefined;
-    await uninstallSkill(filePath, root);
+    await uninstallSkill(filePath, root, listRecentDesktop());
     if (root) await broker?.notifyWorkersReloadResources?.(root);
   });
 
@@ -72,7 +72,7 @@ export function registerSkillsIpc(broker?: {
       const issues = validateSkillMeta(name, description);
       if (issues.length > 0) return { ok: false, issues };
       const root = cwd || getWorkspace() || undefined;
-      const result = saveSkillContent(filePath, content, name, renameName, root);
+      const result = saveSkillContent(filePath, content, name, renameName, root, listRecentDesktop());
       if (root) await broker?.notifyWorkersReloadResources?.(root);
       return { ok: true, filePath: result.filePath, name: result.name };
     },
@@ -82,7 +82,7 @@ export function registerSkillsIpc(broker?: {
     IpcChannels.skills.rename,
     async (_event, filePath: string, name: string, cwd?: string) => {
       const root = cwd || getWorkspace() || undefined;
-      const result = renameSkill(filePath, name, root);
+      const result = renameSkill(filePath, name, root, listRecentDesktop());
       if (root) await broker?.notifyWorkersReloadResources?.(root);
       return result;
     },

@@ -278,13 +278,9 @@ function isEditableItem(item: CustomizationItem): boolean {
 }
 
 function canToggle(item: CustomizationItem): boolean {
-  if (props.kind === "skills") {
-    return Boolean(item.filePath) && item.enabled !== undefined && !item.otherWorkspace;
-  }
+  if (props.kind === "skills") return Boolean(item.filePath) && item.enabled !== undefined;
   if (props.kind === "mcp") return item.enabled !== undefined;
-  if (props.kind === "agents" || props.kind === "prompts") {
-    return isEditableItem(item) && !item.otherWorkspace;
-  }
+  if (props.kind === "agents" || props.kind === "prompts") return isEditableItem(item);
   return props.kind === "plugins" && Boolean(item.source);
 }
 
@@ -489,11 +485,9 @@ function skillWarning(item: CustomizationItem): { text: string; hint: string } |
 }
 
 function canRemove(item: CustomizationItem): boolean {
-  if (props.kind === "skills") return Boolean(item.filePath) && !item.otherWorkspace;
+  if (props.kind === "skills") return Boolean(item.filePath);
   if (props.kind === "mcp") return true;
-  if (props.kind === "agents" || props.kind === "prompts") {
-    return isEditableItem(item) && !item.otherWorkspace;
-  }
+  if (props.kind === "agents" || props.kind === "prompts") return isEditableItem(item);
   if (props.kind === "instructions") return item.removable === true;
   return props.kind === "plugins" && Boolean(item.source);
 }
@@ -516,11 +510,9 @@ function confirmRemove(item: CustomizationItem): void {
     content:
       props.kind === "mcp"
         ? t.customizeMcpRemoveConfirm(item.name)
-        : props.kind === "instructions"
+        : props.kind === "instructions" || props.kind === "agents" || props.kind === "prompts"
           ? t.customizeDeleteConfirm(item.description || item.name)
-          : props.kind === "agents" || props.kind === "prompts"
-            ? t.customizeDeleteConfirm(item.name)
-            : t.customizeUninstallConfirm(item.name),
+          : t.customizeUninstallConfirm(item.name),
     positiveText: removeLabel(),
     negativeText: t.cancel,
     onPositiveClick: async () => {

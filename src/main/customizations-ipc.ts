@@ -106,7 +106,7 @@ export function registerCustomizationsIpc(broker?: {
 		IpcChannels.customizations.setItemEnabled,
 		async (_event, filePath: string, enabled: boolean, cwd?: string) => {
 			const root = cwd || getWorkspace() || undefined;
-			const result = setCustomizationItemEnabled(filePath, enabled, root);
+			const result = setCustomizationItemEnabled(filePath, enabled, root, listRecentDesktop());
 			if (root) await broker?.notifyWorkersReloadResources(root);
 			return result;
 		},
