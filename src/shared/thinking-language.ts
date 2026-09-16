@@ -1,20 +1,19 @@
 /**
  * 思考语言（移植 Reasonix 的 reasoning_language）：只约束可见思考/推理文本。
  *
- * 以临时用户消息块注入，不写入系统提示词，保持缓存前缀稳定；
- * auto 档按界面语言决定：中文界面注入中文块，英文界面不注入。
+ * 以临时用户消息块注入，不写入系统提示词，保持缓存前缀稳定。
  */
 
-export type ThinkingLanguage = "auto" | "zh" | "en";
+export type ThinkingLanguage = "zh" | "en";
 
-export const THINKING_LANGUAGES: readonly ThinkingLanguage[] = ["auto", "zh", "en"];
+export const THINKING_LANGUAGES: readonly ThinkingLanguage[] = ["zh", "en"];
 
 export type ThinkingLanguageSettings = {
   language: ThinkingLanguage;
 };
 
 export const DEFAULT_THINKING_LANGUAGE_SETTINGS: ThinkingLanguageSettings = {
-  language: "auto",
+  language: "en",
 };
 
 const REASONING_LANGUAGE_OPEN = "<reasoning-language>";
@@ -29,9 +28,10 @@ Visible reasoning/thinking text preference: use English when the provider expose
 ${REASONING_LANGUAGE_CLOSE}`;
 
 export function isThinkingLanguage(value: unknown): value is ThinkingLanguage {
-  return value === "auto" || value === "zh" || value === "en";
+  return value === "zh" || value === "en";
 }
 
+/** 容错解析档位；未知值（含旧版 auto）回退英文。 */
 export function normalizeThinkingLanguage(value: unknown): ThinkingLanguage {
   switch (String(value ?? "").trim().toLowerCase()) {
     case "zh":
@@ -39,15 +39,12 @@ export function normalizeThinkingLanguage(value: unknown): ThinkingLanguage {
     case "chinese":
     case "中文":
       return "zh";
-    case "en":
-    case "english":
-      return "en";
     default:
-      return "auto";
+      return "en";
   }
 }
 
-/** 容错解析设置文件；损坏或未知值回退 auto。 */
+/** 容错解析设置文件；损坏或未知值回退英文。 */
 export function parseThinkingLanguageSettings(raw: unknown): ThinkingLanguageSettings {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
     return { ...DEFAULT_THINKING_LANGUAGE_SETTINGS };
@@ -55,26 +52,11 @@ export function parseThinkingLanguageSettings(raw: unknown): ThinkingLanguageSet
   return { language: normalizeThinkingLanguage((raw as { language?: unknown }).language) };
 }
 
-/** auto：中文界面注入中文，其余界面不注入；显式档位直接返回。 */
-export function resolveThinkingLanguage(
-  setting: unknown,
-  uiLocale: string,
-): "zh" | "en" | null {
-  const mode = normalizeThinkingLanguage(setting);
-  if (mode !== "auto") return mode;
-  return String(uiLocale ?? "").trim().toLowerCase().startsWith("zh") ? "zh" : null;
-}
-
-/** 可见思考语言指令块；auto + 英文界面时返回空串。 */
-export function thinkingLanguageBlock(setting: unknown, uiLocale: string): string {
-  switch (resolveThinkingLanguage(setting, uiLocale)) {
-    case "zh":
-      return ZH_THINKING_LANGUAGE_BLOCK;
-    case "en":
-      return EN_THINKING_LANGUAGE_BLOCK;
-    default:
-      return "";
-  }
+/** 可见思考语言指令块。 */
+export function thinkingLanguageBlock(setting: unknown): string {
+  return normalizeThinkingLanguage(setting) === "zh"
+    ? ZH_THINKING_LANGUAGE_BLOCK
+    : EN_THINKING_LANGUAGE_BLOCK;
 }
 
 /** 消息是否已经以思考语言块开头。 */
