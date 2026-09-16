@@ -41,7 +41,7 @@ const entries = computed<(MenuEntry | "separator")[]>(() => {
     { action: "cut", label: labels.cut, accel: key("Ctrl+X", "⌘X"), enabled: payload.canCut },
     { action: "copy", label: labels.copy, accel: key("Ctrl+C", "⌘C"), enabled: payload.canCopy },
     { action: "paste", label: labels.paste, accel: key("Ctrl+V", "⌘V"), enabled: payload.canPaste },
-    { action: "delete", label: labels.delete, accel: "", enabled: payload.canDelete },
+    { action: "delete", label: labels.delete, accel: key("Delete", "⌫"), enabled: payload.canDelete },
     "separator",
     {
       action: "selectAll",
@@ -113,6 +113,7 @@ onUnmounted(() => {
       class="app-context-menu"
       :style="{ left: `${pos.x}px`, top: `${pos.y}px` }"
       @contextmenu.prevent
+      @mousedown.prevent
     >
       <template v-for="(entry, index) in entries" :key="index">
         <div v-if="entry === 'separator'" class="menu-separator" />
