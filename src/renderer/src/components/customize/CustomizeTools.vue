@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from "vue";
+import { computed, reactive } from "vue";
 import CodiconIcon from "@renderer/components/icons/CodiconIcon.vue";
 import type { CustomizationItem, CustomizationScope } from "../../../../shared/customizations";
 import { t } from "@renderer/i18n";
@@ -13,6 +13,13 @@ function localizeDescription(tool: CustomizationItem): CustomizationItem {
 }
 
 const GROUP_ORDER: CustomizationScope[] = ["builtin", "desktop", "extension"];
+
+const collapsed = reactive(new Set<CustomizationScope>());
+
+function toggleGroup(scope: CustomizationScope): void {
+  if (collapsed.has(scope)) collapsed.delete(scope);
+  else collapsed.add(scope);
+}
 
 function groupLabel(scope: CustomizationScope): string {
   switch (scope) {
@@ -57,7 +64,12 @@ const groups = computed(() =>
 
     <div v-else class="list-container">
       <div v-for="group in groups" :key="group.scope" class="group-block">
-        <div class="ai-customization-group-header">
+        <button
+          type="button"
+          class="ai-customization-group-header"
+          :class="{ collapsed: collapsed.has(group.scope) }"
+          @click="toggleGroup(group.scope)"
+        >
           <span class="group-label-group">
             <span class="group-label">{{ group.label }}</span>
           </span>
@@ -65,20 +77,28 @@ const groups = computed(() =>
           <span class="group-info" :title="group.description">
             <CodiconIcon name="about" :size="14" />
           </span>
-        </div>
-        <div v-for="tool in group.items" :key="tool.id" class="ai-customization-list-item">
-          <div class="item-left">
-            <div class="item-text">
-              <div class="item-name-row">
-                <span class="item-name">{{ tool.name }}</span>
+          <span class="group-chevron">
+            <CodiconIcon
+              :name="collapsed.has(group.scope) ? 'chevronRight' : 'chevronDown'"
+              :size="14"
+            />
+          </span>
+        </button>
+        <template v-if="!collapsed.has(group.scope)">
+          <div v-for="tool in group.items" :key="tool.id" class="ai-customization-list-item">
+            <div class="item-left">
+              <div class="item-text">
+                <div class="item-name-row">
+                  <span class="item-name">{{ tool.name }}</span>
+                </div>
+                <div v-if="tool.description" class="item-description">{{ tool.description }}</div>
               </div>
-              <div v-if="tool.description" class="item-description">{{ tool.description }}</div>
+            </div>
+            <div class="item-right">
+              <span v-if="tool.source" class="inline-badge item-badge">{{ tool.source }}</span>
             </div>
           </div>
-          <div class="item-right">
-            <span v-if="tool.source" class="inline-badge item-badge">{{ tool.source }}</span>
-          </div>
-        </div>
+        </template>
       </div>
     </div>
   </div>
@@ -108,9 +128,22 @@ const groups = computed(() =>
   display: flex;
   align-items: center;
   gap: 8px;
+  width: 100%;
   min-height: 36px;
+  margin: 0;
   padding: 4px 8px;
+  border: none;
   border-radius: 4px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  user-select: none;
+}
+
+.ai-customization-group-header:hover {
+  background-color: var(--bg-hover);
 }
 
 .group-label-group {
@@ -151,6 +184,21 @@ const groups = computed(() =>
 
 .ai-customization-group-header:hover .group-info {
   opacity: 0.8;
+}
+
+.group-info:hover {
+  opacity: 1;
+}
+
+.group-chevron {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  margin-left: auto;
+  opacity: 0.7;
 }
 
 .ai-customization-list-item {

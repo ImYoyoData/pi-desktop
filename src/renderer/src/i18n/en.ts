@@ -193,7 +193,7 @@ export const en = {
 	customizeToolsDesc: "Language model tools: built-in and extension-provided.",
 	customizeGroupUser: "User",
 	customizeGroupProject: "Workspace",
-	customizeGroupBuiltin: "Built-in",
+	customizeGroupBuiltin: "Pi Built-in",
 	customizeGroupDesktop: "Pi Desktop Built-in",
 	customizeGroupExtension: "Extension",
 	customizeOpen: "Open",
