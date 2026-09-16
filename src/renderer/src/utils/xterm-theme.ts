@@ -2,7 +2,8 @@
 export function xtermTheme(dark: boolean) {
   return dark
     ? {
-        background: "#191a1b",
+        // 透明背景：终端底色由容器（自定义外观的半透明面板）提供
+        background: "rgba(0, 0, 0, 0)",
         foreground: "#cccccc",
         cursor: "#bfbfbf",
         cursorAccent: "#191a1b",
@@ -25,7 +26,7 @@ export function xtermTheme(dark: boolean) {
         brightWhite: "#e5e5e5",
       }
     : {
-        background: "#ffffff",
+        background: "rgba(0, 0, 0, 0)",
         foreground: "#3b3b3b",
         cursor: "#202020",
         cursorAccent: "#ffffff",

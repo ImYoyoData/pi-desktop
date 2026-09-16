@@ -71,7 +71,6 @@ html[data-theme][data-wallpaper="on"] .modal-editor-panel {
 }
 
 /* naive-ui 浮层（右键菜单、下拉、气泡）跟随抬升表面，并模糊其下的壁纸 */
-/* naive-ui 浮层（右键菜单、下拉、气泡）跟随抬升表面，并模糊其下的壁纸 */
 html[data-theme][data-wallpaper="on"] .n-popover,
 html[data-theme][data-wallpaper="on"] .n-dropdown-menu,
 html[data-theme][data-wallpaper="on"] .n-base-select-menu {
@@ -91,6 +90,25 @@ html[data-theme][data-wallpaper="on"] .monaco-menu .monaco-action-bar.vertical,
 html[data-theme][data-wallpaper="on"] .context-view .monaco-menu {
   background-color: var(--w-elevated-surface) !important;
   --vscode-menu-background: var(--w-elevated-surface) !important;
+  backdrop-filter: blur(14px) saturate(1.15);
+}
+
+/* Monaco 编辑器跟随自定义外观：编辑区底色透出界面 */
+html[data-theme][data-wallpaper="on"] .monaco-editor,
+html[data-theme][data-wallpaper="on"] .monaco-editor .monaco-editor-background,
+html[data-theme][data-wallpaper="on"] .monaco-editor .margin,
+html[data-theme][data-wallpaper="on"] .monaco-editor .minimap,
+html[data-theme][data-wallpaper="on"] .monaco-editor .decorationsOverviewRuler,
+html[data-theme][data-wallpaper="on"] .monaco-diff-editor .diffOverview {
+  background-color: transparent !important;
+}
+
+/* Monaco 浮层（补全、悬浮提示、参数提示）半透明 */
+html[data-theme][data-wallpaper="on"] .monaco-editor .suggest-widget,
+html[data-theme][data-wallpaper="on"] .monaco-editor .parameter-hints-widget,
+html[data-theme][data-wallpaper="on"] .monaco-editor .find-widget,
+html[data-theme][data-wallpaper="on"] .monaco-hover {
+  background-color: var(--w-elevated-surface) !important;
   backdrop-filter: blur(14px) saturate(1.15);
 }
 
