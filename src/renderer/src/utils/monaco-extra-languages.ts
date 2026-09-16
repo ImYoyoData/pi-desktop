@@ -12,6 +12,7 @@ export function ensureMonacoExtraLanguages(monaco: typeof Monaco): void {
   registerDotenv(monaco);
   registerJson5(monaco);
   configureJsonDiagnostics(monaco);
+  configureTypeScriptDiagnostics(monaco);
   wireJson5Validation(monaco);
 }
 
@@ -135,6 +136,18 @@ function configureJsonDiagnostics(_monaco: typeof Monaco): void {
     schemaValidation: "error",
     comments: "error",
     trailingCommas: "error",
+  });
+}
+
+/**
+ * Monaco 的 tsserver 跑在 Worker 内，读不到项目 tsconfig / node_modules / @types，
+ * 语义诊断必然全是误报，因此只保留语法检查；工程级检查交给 typecheck 脚本。
+ */
+function configureTypeScriptDiagnostics(monaco: typeof Monaco): void {
+  monaco.typescript.typescriptDefaults.setDiagnosticsOptions({
+    noSemanticValidation: true,
+    noSyntaxValidation: false,
+    onlyVisible: false,
   });
 }
 
