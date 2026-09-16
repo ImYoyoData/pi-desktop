@@ -601,10 +601,6 @@ export const zh = {
 	appearanceVeilOpacityTip: "遮罩越不透明，壁纸越淡，界面文字越清晰。",
 	appearanceVeilBlur: "遮罩模糊",
 	appearanceVeilBlurTip: "柔化壁纸细节，减少对界面文字的干扰。",
-	appearanceSurfaces: "界面透明度",
-	appearanceSurfacesDesc:
-		"与背景遮罩独立计算。输入框按滑块值生效；卡片和设置页有 20% 保底，不会全透明。",
-	appearanceSurfacesDisabled: "先设置背景图或纯色背景，再调整界面透明度。",
 	appearanceSurfaceInput: "输入框透明度",
 	appearanceSurfaceCard: "卡片透明度",
 	appearanceSurfaceCardTip: "同时控制界面底色的半透明程度，卡片会在此基础上稍实一档。",

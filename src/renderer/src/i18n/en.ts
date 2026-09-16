@@ -626,11 +626,6 @@ export const en = {
 		"The more opaque the overlay, the dimmer the wallpaper and the clearer the text.",
 	appearanceVeilBlur: "Overlay blur",
 	appearanceVeilBlurTip: "Softens wallpaper details behind the interface.",
-	appearanceSurfaces: "Interface opacity",
-	appearanceSurfacesDesc:
-		"Computed independently of the wallpaper overlay. Inputs follow the slider; cards and settings keep a 20% floor.",
-	appearanceSurfacesDisabled:
-		"Set a wallpaper or solid background first, then adjust interface opacity.",
 	appearanceSurfaceInput: "Input opacity",
 	appearanceSurfaceCard: "Card opacity",
 	appearanceSurfaceCardTip:
