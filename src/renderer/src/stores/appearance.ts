@@ -6,15 +6,30 @@ import {
   resolveUiLocale,
   type UiLocale,
 } from "@renderer/i18n";
+import {
+  PRESET_NAME_MAX_LENGTH,
+  VEIL_BLUR_MAX_PX,
+  createDefaultCustomAppearance,
+  newPresetId,
+  normalizeCustomAppearance,
+  normalizeHexColor,
+  wallpaperKindForPath,
+  type AppearancePreset,
+  type CustomAppearanceSettings,
+  type SurfaceAlphaSettings,
+  type WallpaperSettings,
+} from "../../../shared/appearance";
 
 export type ThemePreference = "system" | "light" | "dark";
 export type ResolvedTheme = "light" | "dark";
 export type LocalePreference = "system" | "zh-CN" | "en";
+export type SurfaceAlphaKey = keyof SurfaceAlphaSettings;
 
 const THEME_KEY = "pi-desktop:theme-preference";
 const LOCALE_KEY = "pi-desktop:locale-preference";
 const COMPACT_BTN_KEY = "pi-desktop:show-compact-button";
 const TRUNCATE_TOOL_OUTPUT_KEY = "pi-desktop:truncate-tool-output";
+const CUSTOM_APPEARANCE_KEY = "pi-desktop:appearance-custom:v1";
 
 /** 工具输出预览的可选截断行数；0 表示不截断。 */
 export const TRUNCATE_TOOL_OUTPUT_CHOICES = [0, 10, 24, 50, 100] as const;
@@ -42,6 +57,42 @@ function readTruncateToolOutputLines(): number {
   } catch {
     return TRUNCATE_TOOL_OUTPUT_FALLBACK;
   }
+}
+
+function readCustomAppearance(): CustomAppearanceSettings {
+  try {
+    const raw = localStorage.getItem(CUSTOM_APPEARANCE_KEY);
+    return raw ? normalizeCustomAppearance(JSON.parse(raw)) : createDefaultCustomAppearance();
+  } catch {
+    return createDefaultCustomAppearance();
+  }
+}
+
+/** 壁纸启用时界面改为半透明，同时把滑杆值写进 CSS 变量。 */
+function applyCustomAppearance(settings: CustomAppearanceSettings, broken: boolean): void {
+  const root = document.documentElement;
+  const { wallpaper, surfaces } = settings;
+  if (wallpaper.kind === "none" || broken) {
+    delete root.dataset.wallpaper;
+  } else {
+    root.dataset.wallpaper = "on";
+  }
+  root.style.setProperty("--pi-alpha-input", `${percent(surfaces.input)}%`);
+  root.style.setProperty("--pi-alpha-card", `${percent(surfaces.card)}%`);
+  root.style.setProperty("--pi-alpha-settings", `${percent(surfaces.settings)}%`);
+  root.style.setProperty("--pi-veil-opacity", `${percent(wallpaper.veilOpacity)}%`);
+  root.style.setProperty(
+    "--pi-veil-blur",
+    `${Math.round(wallpaper.veilBlur * VEIL_BLUR_MAX_PX)}px`,
+  );
+}
+
+function percent(value: number): number {
+  return Math.round(value * 100);
+}
+
+function clampAlpha(value: number): number {
+  return Math.min(1, Math.max(0, Math.round(value * 100) / 100));
 }
 
 function readThemePreference(): ThemePreference {
@@ -98,6 +149,13 @@ export const useAppearanceStore = defineStore("appearance", () => {
   const systemDark = ref(systemPrefersDark());
   const showCompactButton = ref(readShowCompactButton());
   const truncateToolOutputLines = ref(readTruncateToolOutputLines());
+  const customAppearance = ref<CustomAppearanceSettings>(readCustomAppearance());
+  const activePresetId = ref<string | null>(null);
+  const wallpaperBroken = ref(false);
+
+  const wallpaper = computed(() => customAppearance.value.wallpaper);
+  const surfaces = computed(() => customAppearance.value.surfaces);
+  const presets = computed(() => customAppearance.value.presets);
 
   const resolvedTheme = computed<ResolvedTheme>(() =>
     resolveTheme(themePreference.value, systemDark.value),
@@ -152,6 +210,103 @@ export const useAppearanceStore = defineStore("appearance", () => {
     }
   }
 
+  function persistCustom(next: CustomAppearanceSettings): void {
+    customAppearance.value = next;
+    try {
+      localStorage.setItem(CUSTOM_APPEARANCE_KEY, JSON.stringify(next));
+    } catch {
+      // ignore
+    }
+    applyCustomAppearance(next, wallpaperBroken.value);
+  }
+
+  /** 手动改外观后当前激活的预设不再等价，取消高亮。 */
+  function commitCustom(next: CustomAppearanceSettings): void {
+    activePresetId.value = null;
+    persistCustom(next);
+  }
+
+  function updateWallpaper(patch: Partial<WallpaperSettings>): void {
+    if ("kind" in patch || "path" in patch) wallpaperBroken.value = false;
+    commitCustom({
+      ...customAppearance.value,
+      wallpaper: { ...customAppearance.value.wallpaper, ...patch },
+    });
+  }
+
+  /** 壁纸文件缺失或无法解码：保持设置但暂时恢复不透明界面。 */
+  function setWallpaperBroken(broken: boolean): void {
+    if (wallpaperBroken.value === broken) return;
+    wallpaperBroken.value = broken;
+    applyCustomAppearance(customAppearance.value, broken);
+  }
+
+  function setWallpaperFile(path: string): void {
+    const kind = wallpaperKindForPath(path);
+    if (!kind) return;
+    updateWallpaper({ kind, path });
+  }
+
+  function setWallpaperColor(color: string): void {
+    const hex = normalizeHexColor(color);
+    if (!hex) return;
+    updateWallpaper({ kind: "color", color: hex });
+  }
+
+  function clearWallpaper(): void {
+    updateWallpaper({ kind: "none", path: "" });
+  }
+
+  function setVeilOpacity(value: number): void {
+    updateWallpaper({ veilOpacity: clampAlpha(value) });
+  }
+
+  function setVeilBlur(value: number): void {
+    updateWallpaper({ veilBlur: clampAlpha(value) });
+  }
+
+  function setSurfaceAlpha(key: SurfaceAlphaKey, value: number): void {
+    commitCustom({
+      ...customAppearance.value,
+      surfaces: { ...customAppearance.value.surfaces, [key]: clampAlpha(value) },
+    });
+  }
+
+  function savePreset(name: string): void {
+    const trimmed = name.trim().slice(0, PRESET_NAME_MAX_LENGTH);
+    if (!trimmed) return;
+    const preset: AppearancePreset = {
+      id: newPresetId(),
+      name: trimmed,
+      wallpaper: { ...customAppearance.value.wallpaper },
+      surfaces: { ...customAppearance.value.surfaces },
+    };
+    persistCustom({
+      ...customAppearance.value,
+      presets: [...customAppearance.value.presets, preset],
+    });
+    activePresetId.value = preset.id;
+  }
+
+  function applyPreset(id: string): void {
+    const preset = customAppearance.value.presets.find((item) => item.id === id);
+    if (!preset) return;
+    wallpaperBroken.value = false;
+    persistCustom({
+      ...customAppearance.value,
+      wallpaper: { ...preset.wallpaper },
+      surfaces: { ...preset.surfaces },
+    });
+    activePresetId.value = id;
+  }
+
+  function removePreset(id: string): void {
+    commitCustom({
+      ...customAppearance.value,
+      presets: customAppearance.value.presets.filter((item) => item.id !== id),
+    });
+  }
+
   function syncSystemListener(): () => void {
     const mq = window.matchMedia("(prefers-color-scheme: dark)");
     const onChange = () => {
@@ -170,6 +325,7 @@ export const useAppearanceStore = defineStore("appearance", () => {
 
   function init(): () => void {
     applyDomTheme(resolvedTheme.value);
+    applyCustomAppearance(customAppearance.value, false);
     void window.api.window.setThemeSource(themePreference.value);
     void window.api.window.setChromeTheme(resolvedTheme.value);
     return syncSystemListener();
@@ -182,10 +338,25 @@ export const useAppearanceStore = defineStore("appearance", () => {
     resolvedTheme,
     showCompactButton,
     truncateToolOutputLines,
+    wallpaper,
+    surfaces,
+    presets,
+    activePresetId,
+    wallpaperBroken,
     setThemePreference,
     setLocalePreference,
     setShowCompactButton,
     setTruncateToolOutputLines,
+    setWallpaperFile,
+    setWallpaperColor,
+    clearWallpaper,
+    setVeilOpacity,
+    setVeilBlur,
+    setSurfaceAlpha,
+    setWallpaperBroken,
+    savePreset,
+    applyPreset,
+    removePreset,
     init,
   };
 });
