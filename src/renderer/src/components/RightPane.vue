@@ -41,6 +41,7 @@ import { usePreviewStore } from "@renderer/stores/preview";
 import { useRightTabsStore, type RightTab, type RightTabKind } from "@renderer/stores/right-tabs";
 import { useWorkspaceStore } from "@renderer/stores/workspace";
 import { gitCodeColor } from "@renderer/utils/editor-lang";
+import { fileIcon, type FileIcon } from "@renderer/utils/file-icon";
 import { localizedTabLabel } from "@renderer/utils/right-tab-labels";
 import { t } from "@renderer/i18n";
 
@@ -410,6 +411,18 @@ function tabLabelStyle(tab: RightTab): Record<string, string> | undefined {
   return undefined;
 }
 
+/** 预览标签的 Seti 文件图标：git/脏状态色优先于主题类型色。 */
+const tabIcons = computed(() => {
+  const icons = new Map<string, FileIcon>();
+  for (const tab of rightTabs.dockTabs) {
+    if (tab.kind !== "preview" || !tab.filePath) continue;
+    const icon = fileIcon(tab.filePath);
+    const statusColor = tabLabelStyle(tab)?.color;
+    icons.set(tab.id, statusColor ? { ...icon, color: statusColor } : icon);
+  }
+  return icons;
+});
+
 const addOptions = computed<DropdownOption[]>(() => [
   {
     label: t.browser,
@@ -658,7 +671,13 @@ function submitRenameTab(): void {
             @click="onTabChange(tab.id)"
             @contextmenu.prevent="openTabContextMenu($event, tab)"
           >
-            <NIcon :component="iconFor(tab.kind)" :size="12" :style="tabLabelStyle(tab)" />
+            <span
+              v-if="tabIcons.get(tab.id)"
+              class="tab-file-glyph"
+              :style="tabIcons.get(tab.id)?.color ? { color: tabIcons.get(tab.id)?.color } : undefined"
+              aria-hidden="true"
+            >{{ tabIcons.get(tab.id)?.glyph }}</span>
+            <NIcon v-else :component="iconFor(tab.kind)" :size="12" :style="tabLabelStyle(tab)" />
             <span
               class="tab-label"
               :class="{
@@ -1069,6 +1088,15 @@ function submitRenameTab(): void {
   border-color: color-mix(in srgb, var(--warning) 50%, var(--border));
   color: color-mix(in srgb, var(--warning) 45%, var(--fg-strong));
   box-shadow: var(--shadow-sm);
+}
+
+.tab-file-glyph {
+  flex-shrink: 0;
+  width: 14px;
+  text-align: center;
+  font-family: "seti";
+  font-size: 15px;
+  line-height: 1;
 }
 
 .tab-run-count {
