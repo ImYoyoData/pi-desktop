@@ -41,6 +41,10 @@ export const en = {
 	skillIssueDescriptionRequired:
 		"description is required (pi will not load a skill without it)",
 	skillIssueDescriptionTooLong: "description must not exceed 1024 characters",
+	agentNameRequired: "name is required (agent name cannot be empty)",
+	agentNameInvalid: "name cannot contain path separators or reserved characters",
+	agentAlreadyExists: "An agent with this name already exists",
+	instructionsExists: "AGENTS.md already exists here; edit it from the list",
 	customizeGroupUserHint: "User level: ~/.pi/agent",
 	customizeGroupProjectHint: "Workspace level: .pi",
 	customizeGroupBuiltinHint: "Provided by pi",

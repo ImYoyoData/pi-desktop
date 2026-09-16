@@ -20,7 +20,7 @@ import { useCustomizationsStore } from "@renderer/stores/customizations";
 import { useLayoutStore } from "@renderer/stores/layout";
 import { useWorkspaceStore } from "@renderer/stores/workspace";
 import { t } from "@renderer/i18n";
-import type { SkillIssueCode } from "../../../shared/customizations";
+import type { AgentIssueCode, SkillIssueCode } from "../../../shared/customizations";
 
 const props = defineProps<{
   section: string;
@@ -62,12 +62,18 @@ const workspace = useWorkspaceStore();
 const active = ref(props.section || "general");
 const modal = ref<string | null>(null);
 const width = ref(readWidth());
-/** 页内编辑目标：已有文件或未落盘的技能草稿。 */
+/** 页内编辑目标：已有文件或未落盘的草稿（技能/智能体/指令）。 */
+type DraftKind = "skills" | "agents" | "instructions";
 type EditingTarget =
   | { kind: "file"; filePath: string; title: string; rename: boolean }
-  | { kind: "skill-draft"; scope: "user" | "project"; workspace: string | null };
+  | { kind: "draft"; draftKind: DraftKind; scope: "user" | "project"; workspace: string | null };
 
-const SKILL_DRAFT_TEMPLATE = ["---", "name: ", 'description: ""', "---", ""].join("\n");
+/** 各类草稿的初始内容：指令是纯 markdown，技能与智能体带 frontmatter。 */
+const DRAFT_TEMPLATES: Record<DraftKind, string> = {
+  skills: ["---", "name: ", 'description: ""', "---", ""].join("\n"),
+  agents: ["---", "name: ", 'description: ""', "---", ""].join("\n"),
+  instructions: "",
+};
 
 const editing = ref<EditingTarget | null>(null);
 const editorRef = ref<InstanceType<typeof PreviewTab> | null>(null);
@@ -77,21 +83,25 @@ const dialog = useDialog();
 const editorName = ref("");
 const nameInput = ref<InstanceType<typeof NInput> | null>(null);
 
-const draftTarget = computed(() =>
-  editing.value?.kind === "skill-draft" ? editing.value : null,
-);
-const editorTitle = computed(() => (editing.value?.kind === "file" ? editing.value.title : ""));
-/** 标题可编辑：技能草稿始终可改，已保存技能按列表来源可改名。 */
+const draftTarget = computed(() => (editing.value?.kind === "draft" ? editing.value : null));
+const editorTitle = computed(() => {
+  const target = editing.value;
+  if (!target) return "";
+  if (target.kind === "file") return target.title;
+  return target.draftKind === "instructions" ? t.customizeNewInstructions : "";
+});
+/** 标题可编辑：技能/智能体草稿可改名，指令文件名固定；已保存技能/智能体按列表来源可改名。 */
 const nameEditable = computed(() => {
   const target = editing.value;
   if (!target) return false;
-  return target.kind === "skill-draft" || target.rename;
+  if (target.kind === "draft") return target.draftKind !== "instructions";
+  return target.rename;
 });
 const editorFilePath = computed(() =>
   editing.value?.kind === "file" ? editing.value.filePath : null,
 );
 const editorDraftContent = computed(() =>
-  editing.value?.kind === "skill-draft" ? SKILL_DRAFT_TEMPLATE : null,
+  draftTarget.value ? DRAFT_TEMPLATES[draftTarget.value.draftKind] : null,
 );
 /** 重命名预览：路径行实时显示改名后的完整路径，保存后才真正生效。 */
 const editorFilePathPreview = computed(() => {
@@ -100,6 +110,12 @@ const editorFilePathPreview = computed(() => {
   const next = editorName.value.trim();
   if (!target.rename || !next || next === target.title) return target.filePath;
   const sep = target.filePath.includes("\\") ? "\\" : "/";
+  if (listKind.value === "agents") {
+    const file = `${sep}${target.title}.md`;
+    return target.filePath.includes(file)
+      ? target.filePath.replace(file, `${sep}${next}.md`)
+      : target.filePath;
+  }
   const marker = `${sep}${target.title}${sep}`;
   return target.filePath.includes(marker)
     ? target.filePath.replace(marker, `${sep}${next}${sep}`)
@@ -117,11 +133,23 @@ const editorDirtyTotal = computed(() => editorDirty.value || nameChanged.value);
 const draftLocation = computed(() => {
   const draft = draftTarget.value;
   if (!draft) return "";
-  const name = editorName.value.trim() || "new-skill";
   if (draft.scope === "project" && draft.workspace) {
     const sep = draft.workspace.includes("\\") ? "\\" : "/";
-    return `${draft.workspace}${sep}.pi${sep}skills${sep}${name}${sep}SKILL.md`;
+    const base = `${draft.workspace}${sep}.pi`;
+    if (draft.draftKind === "instructions") return `${base}${sep}AGENTS.md`;
+    if (draft.draftKind === "agents") {
+      const name = editorName.value.trim() || "new-agent";
+      return `${base}${sep}agents${sep}${name}.md`;
+    }
+    const name = editorName.value.trim() || "new-skill";
+    return `${base}${sep}skills${sep}${name}${sep}SKILL.md`;
   }
+  if (draft.draftKind === "instructions") return "~/.pi/agent/AGENTS.md";
+  if (draft.draftKind === "agents") {
+    const name = editorName.value.trim() || "new-agent";
+    return `~/.pi/agent/agents/${name}.md`;
+  }
+  const name = editorName.value.trim() || "new-skill";
   return `~/.pi/agent/skills/${name}/SKILL.md`;
 });
 
@@ -188,15 +216,38 @@ function openInPage(payload: { filePath: string; title: string; rename: boolean 
   };
 }
 
-function openSkillDraft(payload: { scope: "user" | "project"; workspace: string | null }): void {
+function openDraft(payload: {
+  kind: DraftKind;
+  scope: "user" | "project";
+  workspace: string | null;
+}): void {
   editorName.value = "";
-  editing.value = { kind: "skill-draft", scope: payload.scope, workspace: payload.workspace };
-  void nextTick(() => nameInput.value?.focus());
+  editing.value = {
+    kind: "draft",
+    draftKind: payload.kind,
+    scope: payload.scope,
+    workspace: payload.workspace,
+  };
+  if (payload.kind !== "instructions") {
+    void nextTick(() => nameInput.value?.focus());
+  }
 }
 
-/** 草稿态：标题即技能名，实时同步正文 frontmatter 的 name 行。 */
+function draftTitle(kind: DraftKind): string {
+  switch (kind) {
+    case "agents":
+      return t.customizeNewAgent;
+    case "instructions":
+      return t.customizeNewInstructions;
+    default:
+      return t.customizeNewSkill;
+  }
+}
+
+/** 草稿态：标题即名称，实时同步正文 frontmatter 的 name 行（指令无 frontmatter）。 */
 function onEditorNameInput(value: string): void {
-  if (!draftTarget.value) return;
+  const draft = draftTarget.value;
+  if (!draft || draft.draftKind === "instructions") return;
   const editor = editorRef.value;
   if (!editor) return;
   const content = editor.getContent();
@@ -232,15 +283,87 @@ async function saveSkillDraft(content: string): Promise<boolean> {
   }
 }
 
-/** 已保存文件落盘：技能走 skills.save（规范校验 + 可选重命名），其他文件直接写盘。 */
-async function saveSkillFile(
+async function saveAgentDraft(content: string): Promise<boolean> {
+  const draft = draftTarget.value;
+  if (!draft) return false;
+  try {
+    const saved = await window.api.customizations.createAgentFromDraft(
+      content,
+      draft.scope,
+      draft.scope === "project" ? draft.workspace ?? undefined : undefined,
+    );
+    if (!saved.ok) {
+      message.error(agentIssueText(saved.code));
+      return false;
+    }
+    await store.load(true);
+    editing.value = { kind: "file", filePath: saved.filePath, title: saved.name, rename: true };
+    editorName.value = saved.name;
+    message.success(t.saved);
+    return true;
+  } catch (err) {
+    message.error(err instanceof Error ? err.message : String(err));
+    return false;
+  }
+}
+
+async function saveInstructionsDraft(content: string): Promise<boolean> {
+  const draft = draftTarget.value;
+  if (!draft) return false;
+  try {
+    const saved = await window.api.customizations.createInstructionsFromDraft(
+      content,
+      draft.scope,
+      draft.scope === "project" ? draft.workspace ?? undefined : undefined,
+    );
+    if (!saved.ok) {
+      message.error(t.instructionsExists);
+      return false;
+    }
+    await store.load(true);
+    editing.value = { kind: "file", filePath: saved.filePath, title: "AGENTS.md", rename: false };
+    message.success(t.saved);
+    return true;
+  } catch (err) {
+    message.error(err instanceof Error ? err.message : String(err));
+    return false;
+  }
+}
+
+function agentIssueText(code: AgentIssueCode): string {
+  switch (code) {
+    case "name-required":
+      return t.agentNameRequired;
+    case "name-invalid":
+      return t.agentNameInvalid;
+    default:
+      return t.agentAlreadyExists;
+  }
+}
+
+/** 已保存文件落盘：技能走 skills.save（校验 + 改名），智能体走 saveAgent，其余直接写盘。 */
+async function saveFileTarget(
   target: Extract<EditingTarget, { kind: "file" }>,
   content: string,
 ): Promise<boolean> {
-  if (!target.rename) {
+  const kind = listKind.value;
+  const nextName = editorName.value.trim();
+  const shouldRename = Boolean(nextName) && nextName !== target.title;
+  if (kind === "skills" && target.rename) {
     try {
-      await window.api.preview.write(target.filePath, content);
+      const saved = await window.api.skills.save(
+        target.filePath,
+        content,
+        shouldRename ? nextName : undefined,
+        workspace.root ?? undefined,
+      );
+      if (!saved.ok) {
+        message.error(skillIssuesText(saved.issues));
+        return false;
+      }
       await store.load(true);
+      editing.value = { kind: "file", filePath: saved.filePath, title: saved.name, rename: true };
+      editorName.value = saved.name;
       message.success(t.saved);
       return true;
     } catch (err) {
@@ -248,27 +371,31 @@ async function saveSkillFile(
       return false;
     }
   }
-  const nextName = editorName.value.trim();
-  const shouldRename = Boolean(nextName) && nextName !== target.title;
-  try {
-    const saved = await window.api.skills.save(
-      target.filePath,
-      content,
-      shouldRename ? nextName : undefined,
-      workspace.root ?? undefined,
-    );
-    if (!saved.ok) {
-      message.error(skillIssuesText(saved.issues));
+  if (kind === "agents" && target.rename) {
+    try {
+      const saved = await window.api.customizations.saveAgent(
+        target.filePath,
+        content,
+        shouldRename ? nextName : undefined,
+        workspace.root ?? undefined,
+      );
+      if (!saved.ok) {
+        message.error(agentIssueText(saved.code));
+        return false;
+      }
+      await store.load(true);
+      editing.value = { kind: "file", filePath: saved.filePath, title: saved.name, rename: true };
+      editorName.value = saved.name;
+      message.success(t.saved);
+      return true;
+    } catch (err) {
+      message.error(err instanceof Error ? err.message : String(err));
       return false;
     }
+  }
+  try {
+    await window.api.preview.write(target.filePath, content);
     await store.load(true);
-    editing.value = {
-      kind: "file",
-      filePath: saved.filePath,
-      title: saved.name,
-      rename: true,
-    };
-    editorName.value = saved.name;
     message.success(t.saved);
     return true;
   } catch (err) {
@@ -301,8 +428,17 @@ function skillIssuesText(issues: SkillIssueCode[]): string {
 async function saveEditorContent(content: string): Promise<boolean> {
   const target = editing.value;
   if (!target) return false;
-  if (target.kind === "skill-draft") return saveSkillDraft(content);
-  return saveSkillFile(target, content);
+  if (target.kind === "draft") {
+    switch (target.draftKind) {
+      case "skills":
+        return saveSkillDraft(content);
+      case "agents":
+        return saveAgentDraft(content);
+      default:
+        return saveInstructionsDraft(content);
+    }
+  }
+  return saveFileTarget(target, content);
 }
 
 function saveEditingFile(): void {
@@ -322,7 +458,7 @@ function leaveEditor(onLeave: () => void): void {
     return;
   }
   const label =
-    target.kind === "file" ? target.title : editorName.value.trim() || t.customizeNewSkill;
+    target.kind === "file" ? target.title : editorName.value.trim() || draftTitle(target.draftKind);
   const d = dialog.create({
     type: "warning",
     title: t.unsavedChangesTitle,
@@ -380,7 +516,7 @@ function closeEditor(): void {
 const canDeleteEditing = computed(() => {
   const target = editing.value;
   if (!target) return false;
-  if (target.kind === "skill-draft") return true;
+  if (target.kind === "draft") return true;
   return (
     listKind.value === "skills" || listKind.value === "agents" || listKind.value === "prompts"
   );
@@ -389,7 +525,7 @@ const canDeleteEditing = computed(() => {
 function deleteEditing(): void {
   const target = editing.value;
   if (!target) return;
-  if (target.kind === "skill-draft") {
+  if (target.kind === "draft") {
     dialog.warning({
       title: t.customizeDelete,
       content: t.customizeDiscardDraftConfirm,
@@ -612,7 +748,7 @@ onUnmounted(() => {
           @refresh="store.load(true)"
           @market="modal = 'market'"
           @open="openInPage"
-          @new-skill="openSkillDraft"
+          @new-draft="openDraft"
         />
       </div>
     </section>
