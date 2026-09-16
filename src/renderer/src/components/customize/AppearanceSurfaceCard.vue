@@ -29,6 +29,7 @@ const floorPercent = Math.round(SURFACE_ALPHA_FLOOR * 100);
         :label="t.appearanceSurfaceCard"
         :value="appearance.surfaces.card"
         :min="floorPercent"
+        :tip="t.appearanceSurfaceCardTip"
         :disabled="!enabled"
         @update:value="(value) => appearance.setSurfaceAlpha('card', value)"
       />

@@ -616,6 +616,7 @@ export const zh = {
 	appearanceSurfacesDisabled: "先设置背景图或纯色背景，再调整界面透明度。",
 	appearanceSurfaceInput: "输入框透明度",
 	appearanceSurfaceCard: "卡片透明度",
+	appearanceSurfaceCardTip: "同时控制界面底色的半透明程度，卡片会在此基础上稍实一档。",
 	appearanceSurfaceSettings: "设置页透明度",
 	voiceInput: "语音输入",
 	voiceListening: "正在录音…",

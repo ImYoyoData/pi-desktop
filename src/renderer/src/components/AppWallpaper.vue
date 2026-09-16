@@ -3,7 +3,7 @@ import { computed } from "vue";
 import { useAppearanceStore } from "@renderer/stores/appearance";
 import { wallpaperMediaSrc } from "../../../shared/appearance";
 
-/** 全局背景层：图片/动图/视频壁纸 + 遮罩；样式见 assets/wallpaper.css。 */
+/** 全局背景层：壁纸 + 遮罩 + 界面底色；界面底色只在这一层合成一次。 */
 const appearance = useAppearanceStore();
 
 const kind = computed(() => appearance.wallpaper.kind);
@@ -45,6 +45,7 @@ const mediaSrc = computed(() =>
       </div>
       <div class="app-wallpaper-veil" />
     </template>
+    <div class="app-wallpaper-ui" />
   </div>
 </template>
 
@@ -56,10 +57,12 @@ const mediaSrc = computed(() =>
   overflow: hidden;
   pointer-events: none;
   --pi-wallpaper-veil-color: #ffffff;
+  --pi-wallpaper-ui-color: #ffffff;
 }
 
 html[data-theme="dark"] .app-wallpaper {
   --pi-wallpaper-veil-color: #121314;
+  --pi-wallpaper-ui-color: #121314;
 }
 
 .app-wallpaper-solid {
@@ -88,6 +91,17 @@ html[data-theme="dark"] .app-wallpaper {
   background: color-mix(
     in srgb,
     var(--pi-wallpaper-veil-color) var(--pi-veil-opacity, 0%),
+    transparent
+  );
+}
+
+/* 界面底色只绘制这一次，避免各容器嵌套叠加后深浅不一 */
+.app-wallpaper-ui {
+  position: absolute;
+  inset: 0;
+  background: color-mix(
+    in srgb,
+    var(--pi-wallpaper-ui-color) var(--pi-alpha-card, 52%),
     transparent
   );
 }

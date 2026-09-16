@@ -1,63 +1,70 @@
 /*
- * 自定义外观：启用背景（图片/视频/纯色）后，界面面板、输入框、设置页改为半透明，
- * 透出下方的背景层。变量由 appearance store 写入 html 的内联样式。
+ * 自定义外观：启用背景（图片/视频/纯色）后，界面改为半透明并透出背景。
+ * 界面底色由 AppWallpaper 的 .app-wallpaper-ui 一次性绘制，各容器背景因此改为透明，
+ * 否则嵌套的 --bg-* 会层层叠加，同一界面不同区域深浅不一。
+ * 变量由 appearance store 写入 html 的内联样式。
  * 选择器带 [data-theme] 以提高特异性，避免被 main.css 的主题变量覆盖。
  */
 
 html[data-theme][data-wallpaper="on"] {
   --w-solid-bg: #ffffff;
-  --w-solid-sidebar: #fafafd;
-  --w-solid-panel: #fafafd;
   --w-solid-elevated: #fafafd;
   --w-solid-input: #f7f7fa;
 
+  /* 抬升表面：卡片、浮层、头栏、选中态，统一叠在界面底色之上 */
+  --w-elevated-surface: color-mix(
+    in srgb,
+    var(--w-solid-elevated) var(--pi-alpha-card, 52%),
+    transparent
+  );
   --w-input-surface: color-mix(
     in srgb,
     var(--w-solid-input) var(--pi-alpha-input, 20%),
     transparent
   );
 
-  --bg: color-mix(in srgb, var(--w-solid-bg) var(--pi-alpha-card, 52%), transparent);
-  --bg-title: color-mix(in srgb, var(--w-solid-sidebar) var(--pi-alpha-card, 52%), transparent);
-  --bg-sidebar: color-mix(in srgb, var(--w-solid-sidebar) var(--pi-alpha-card, 52%), transparent);
-  --bg-panel: color-mix(in srgb, var(--w-solid-panel) var(--pi-alpha-card, 52%), transparent);
-  --bg-elevated: color-mix(
-    in srgb,
-    var(--w-solid-elevated) var(--pi-alpha-card, 52%),
-    transparent
-  );
+  --bg: transparent;
+  --bg-title: transparent;
+  --bg-sidebar: transparent;
+  --bg-panel: transparent;
+  --bg-elevated: var(--w-elevated-surface);
   --bg-input: var(--w-input-surface);
+  --tool-bg: var(--w-elevated-surface);
 }
 
 html[data-theme="dark"][data-wallpaper="on"] {
   --w-solid-bg: #121314;
-  --w-solid-sidebar: #191a1b;
-  --w-solid-panel: #191a1b;
   --w-solid-elevated: #202122;
   --w-solid-input: #202122;
 }
 
-/* 外框让位给壁纸层，避免半透明面板与外壳叠加后过实 */
+/* 外框让位给壁纸层 */
 html[data-theme][data-wallpaper="on"] .app-shell {
   background: transparent;
+}
+
+/* 原本用 --bg-panel 的小元素需要自己的背景 */
+html[data-theme][data-wallpaper="on"] .jump-latest,
+html[data-theme][data-wallpaper="on"] .run-row.active,
+html[data-theme][data-wallpaper="on"] .img-chip {
+  background: var(--w-elevated-surface);
+}
+
+/* naive-ui 卡片跟随抬升表面 */
+html[data-theme][data-wallpaper="on"] .n-card {
+  --n-color: var(--w-elevated-surface) !important;
 }
 
 /* 设置页整体使用独立的透明度档位 */
 html[data-theme][data-wallpaper="on"] .pi-settings-modal,
 html[data-theme][data-wallpaper="on"] .modal-editor-panel {
-  --bg: color-mix(in srgb, var(--w-solid-bg) var(--pi-alpha-settings, 72%), transparent);
-  --bg-sidebar: color-mix(
+  --w-settings-surface: color-mix(
     in srgb,
-    var(--w-solid-sidebar) var(--pi-alpha-settings, 72%),
+    var(--w-solid-bg) var(--pi-alpha-settings, 72%),
     transparent
   );
-  --bg-panel: color-mix(in srgb, var(--w-solid-panel) var(--pi-alpha-settings, 72%), transparent);
-  --bg-elevated: color-mix(
-    in srgb,
-    var(--w-solid-elevated) var(--pi-alpha-settings, 72%),
-    transparent
-  );
-  --n-color: var(--bg) !important;
+  background: var(--w-settings-surface);
+  --n-color: var(--w-settings-surface) !important;
 }
 
 /* naive-ui 输入控件跟随输入框透明度 */

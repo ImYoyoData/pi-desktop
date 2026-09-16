@@ -642,6 +642,8 @@ export const en = {
 		"Set a wallpaper or solid background first, then adjust interface opacity.",
 	appearanceSurfaceInput: "Input opacity",
 	appearanceSurfaceCard: "Card opacity",
+	appearanceSurfaceCardTip:
+		"Also sets the base interface opacity; cards sit one step more solid on top of it.",
 	appearanceSurfaceSettings: "Settings opacity",
 	voiceInput: "Voice input",
 	voiceListening: "Recording…",
