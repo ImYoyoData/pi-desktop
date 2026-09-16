@@ -882,6 +882,10 @@ async function runCommand(id: string, command: AgentCommand): Promise<void> {
 		}
 		case "rollback_turn_end": {
 			const active = requireSession();
+			// 运行中先停下当前轮：会话树正在追加，直接回退会与流式输出争用。
+			if (!active.isIdle) {
+				await active.abort();
+			}
 			const ok = await rollbackTurnEnd(active, command.userIndex, command.expectText);
 			post({ kind: "result", id, data: { ok } });
 			return;
