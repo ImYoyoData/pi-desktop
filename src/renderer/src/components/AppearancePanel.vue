@@ -34,9 +34,6 @@ function onLocaleUpdate(v: string | number | null): void {
   <div class="appearance-panel">
     <div class="section">
       <NText strong>{{ t.theme }}</NText>
-      <NText depth="3" style="font-size: 12px; display: block; margin: 4px 0 10px">
-        {{ t.themeHint }}
-      </NText>
       <NRadioGroup v-model:value="themeValue" size="small">
         <NSpace>
           <NRadioButton value="system">{{ t.themeSystem }}</NRadioButton>
@@ -50,9 +47,6 @@ function onLocaleUpdate(v: string | number | null): void {
 
     <div class="section">
       <NText strong>{{ t.language }}</NText>
-      <NText depth="3" style="font-size: 12px; display: block; margin: 4px 0 10px">
-        {{ t.languageHint }}
-      </NText>
       <NRadioGroup
         :value="appearance.localePreference"
         size="small"
@@ -76,5 +70,6 @@ function onLocaleUpdate(v: string | number | null): void {
 .section {
   display: flex;
   flex-direction: column;
+  gap: 10px;
 }
 </style>

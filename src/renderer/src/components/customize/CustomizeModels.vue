@@ -624,8 +624,6 @@ async function testModel(rowKey: string, modelId: string): Promise<void> {
                   </NInput>
                 </div>
               </div>
-
-              <p class="field-hint">{{ t.modelsCustomApiKeyHint }}</p>
             </div>
 
             <div class="form-section">
@@ -1045,13 +1043,6 @@ async function testModel(rowKey: string, modelId: string): Promise<void> {
 .key-eye:hover {
   background: var(--bg-active);
   color: var(--fg);
-}
-
-.field-hint {
-  margin: 0;
-  color: var(--fg-muted);
-  font-size: 11px;
-  line-height: 1.45;
 }
 
 .toggle-row {
