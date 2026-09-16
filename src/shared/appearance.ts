@@ -33,9 +33,9 @@ export const CUSTOM_APPEARANCE_LEGACY_KEY = "pi-desktop:appearance-custom:v1";
 
 export const VEIL_BLUR_MAX_PX = 40;
 /** 消息区宽度档位：占聊天面板宽度的比例。 */
-export const MESSAGE_WIDTH_CHOICES = [0.5, 0.6, 0.75, 1] as const;
-/** 默认档位，视觉上接近改动前的固定列宽。 */
-export const MESSAGE_WIDTH_DEFAULT = 0.6;
+export const MESSAGE_WIDTH_CHOICES = [0.6, 0.75, 0.8, 0.85, 1] as const;
+/** 默认档位。 */
+export const MESSAGE_WIDTH_DEFAULT = 0.75;
 
 export const WALLPAPER_IMAGE_EXTENSIONS = [
   "png",
