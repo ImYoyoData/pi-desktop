@@ -85,6 +85,11 @@ const showCompactButton = computed({
   set: (value: boolean) => appearance.setShowCompactButton(value),
 });
 
+const showPanelDividers = computed({
+  get: () => appearance.showPanelDividers,
+  set: (value: boolean) => appearance.setShowPanelDividers(value),
+});
+
 const truncateOptions = computed(() =>
   TRUNCATE_TOOL_OUTPUT_CHOICES.map((lines) => ({
     label: lines === 0 ? t.truncateToolOutputOff : t.truncateToolOutputLines(lines),
@@ -168,13 +173,31 @@ function onMessageWidthChange(value: string | number | null): void {
 
       <div class="switch-row">
         <div class="switch-labels">
+          <NText strong>{{ t.showPanelDividers }}</NText>
+        </div>
+        <NRadioGroup
+          v-model:value="showPanelDividers"
+          size="small"
+          class="setting-radio-group"
+        >
+          <NRadioButton :value="true">{{ t.showCompactButtonOn }}</NRadioButton>
+          <NRadioButton :value="false">{{ t.showCompactButtonOff }}</NRadioButton>
+        </NRadioGroup>
+      </div>
+
+      <NDivider style="margin: 0" />
+
+      <div class="switch-row">
+        <div class="switch-labels">
           <NText strong>{{ t.showCompactButton }}</NText>
         </div>
-        <NRadioGroup v-model:value="showCompactButton" size="small">
-          <NSpace>
-            <NRadioButton :value="true">{{ t.showCompactButtonOn }}</NRadioButton>
-            <NRadioButton :value="false">{{ t.showCompactButtonOff }}</NRadioButton>
-          </NSpace>
+        <NRadioGroup
+          v-model:value="showCompactButton"
+          size="small"
+          class="setting-radio-group"
+        >
+          <NRadioButton :value="true">{{ t.showCompactButtonOn }}</NRadioButton>
+          <NRadioButton :value="false">{{ t.showCompactButtonOff }}</NRadioButton>
         </NRadioGroup>
       </div>
 
@@ -242,5 +265,17 @@ function onMessageWidthChange(value: string | number | null): void {
 .setting-select {
   flex-shrink: 0;
   width: 120px;
+}
+
+.setting-radio-group {
+  flex-shrink: 0;
+  width: 120px;
+  display: inline-flex;
+}
+
+.setting-radio-group :deep(.n-radio-button) {
+  flex: 1;
+  padding: 0;
+  text-align: center;
 }
 </style>

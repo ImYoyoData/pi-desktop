@@ -83,6 +83,7 @@ declare module 'vue' {
     TerminalTab: typeof import('./src/components/TerminalTab.vue')['default']
     ThinkingBlock: typeof import('./src/components/ThinkingBlock.vue')['default']
     TitleBar: typeof import('./src/components/TitleBar.vue')['default']
+    ToggleButton: typeof import('./src/components/ToggleButton.vue')['default']
     ToolCallCard: typeof import('./src/components/ToolCallCard.vue')['default']
     ToolFileCard: typeof import('./src/components/ToolFileCard.vue')['default']
     TrustDialog: typeof import('./src/components/TrustDialog.vue')['default']

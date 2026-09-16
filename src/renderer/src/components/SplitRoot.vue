@@ -122,7 +122,7 @@ function onChatResized(payload: SplitpanesResizedPayload): void {
 
 <template>
   <div class="split-root">
-    <Splitpanes class="panes" @resized="onOuterResized">
+    <Splitpanes class="panes outer" @resized="onOuterResized">
       <Pane
         :size="layout.leftCollapsed ? 0 : outerLeftSize"
         :min-size="layout.leftCollapsed ? 0 : PANE_MIN"

@@ -5,7 +5,6 @@ import {
   NSpace,
   NText,
   NButton,
-  NSwitch,
   NInput,
   NSelect,
   NTabs,
@@ -19,6 +18,7 @@ import { CloudOutline, HardwareChipOutline } from "@vicons/ionicons5";
 import { formatAsrInstallError, isAsrInstallCancelled, useAsrStore } from "@renderer/stores/asr";
 import { useTtsStore } from "@renderer/stores/tts";
 import AsrInstallProgress from "@renderer/components/AsrInstallProgress.vue";
+import ToggleButton from "@renderer/components/ToggleButton.vue";
 import AsrInstallConfirmModal from "@renderer/components/AsrInstallConfirmModal.vue";
 import { formatAcceleratorLabel, keyboardEventToAccelerator } from "../../../shared/hotkey";
 import type { AsrDownloadMirror } from "../../../shared/asr";
@@ -599,7 +599,7 @@ onUnmounted(() => {
               <div class="setting-info">
                 <div class="setting-name">{{ t.asrEnable }}</div>
               </div>
-              <NSwitch v-model:value="asrEnabled" size="small" :disabled="!asr.status.supported" />
+              <ToggleButton v-model:value="asrEnabled" :disabled="!asr.status.supported" />
             </div>
             <div class="setting-row">
               <div class="setting-info">
@@ -622,14 +622,20 @@ onUnmounted(() => {
                 <div class="setting-name">{{ t.asrResidentModel }}</div>
                 <NText depth="3" class="setting-hint">{{ t.asrResidentHint }}</NText>
               </div>
-              <NSwitch v-model:value="residentModel" size="small" :disabled="!asr.status.supported || !asr.status.enabled" />
+              <ToggleButton
+                v-model:value="residentModel"
+                :disabled="!asr.status.supported || !asr.status.enabled"
+              />
             </div>
             <div class="setting-row">
               <div class="setting-info">
                 <div class="setting-name">{{ t.asrWakeEnabled }}</div>
                 <NText depth="3" class="setting-hint">{{ t.asrWakeEnabledHint }}</NText>
               </div>
-              <NSwitch v-model:value="wakeEnabled" size="small" :disabled="!asr.status.supported || !asr.status.enabled" />
+              <ToggleButton
+                v-model:value="wakeEnabled"
+                :disabled="!asr.status.supported || !asr.status.enabled"
+              />
             </div>
             <div class="setting-block">
               <div class="setting-name">{{ t.asrWakeWords }}</div>
@@ -685,9 +691,8 @@ onUnmounted(() => {
                 {{ t.ttsEnableHint }}
               </NText>
             </div>
-            <NSwitch
+            <ToggleButton
               v-model:value="ttsEnabled"
-              size="small"
               :disabled="!tts.status.supported || !tts.status.installed"
             />
           </div>

@@ -125,7 +125,11 @@ onUnmounted(() => {
       <NDialogProvider>
         <CloseGuard />
         <AsrWakeGuard />
-        <div class="app-shell" :data-theme="appearance.resolvedTheme">
+        <div
+          class="app-shell"
+          :data-theme="appearance.resolvedTheme"
+          :class="{ 'panel-dividers-off': !appearance.showPanelDividers }"
+        >
           <AppWallpaper />
           <TitleBar />
           <main class="app-main">
