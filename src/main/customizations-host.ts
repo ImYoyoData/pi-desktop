@@ -8,7 +8,6 @@ import { scanUnloadedSkills, type LocalSkillScope } from "./skill-scan";
 import { skillWarningOf } from "./skill-validate";
 import type {
 	CustomizationCreateKind,
-	CustomizationHook,
 	CustomizationItem,
 	CustomizationScope,
 	CustomizationsSnapshot,
@@ -32,7 +31,6 @@ type PromptLike = {
 type ExtensionLike = {
 	path: string;
 	sourceInfo?: SourceInfoLike;
-	handlers: Map<string, unknown>;
 	tools: Map<string, { definition?: { label?: string; description?: string } }>;
 };
 
@@ -361,23 +359,9 @@ export function ensureMcpConfig(scope: "user" | "project", root?: string): { fil
 
 function extensionLabel(ext: ExtensionLike): string {
 	const source = ext.sourceInfo?.source;
-	if (source && source !== "path" && source !== "top-level") return source;
-	return path.basename(ext.path).replace(/\.[a-z]+$/i, "");
-}
-
-function collectHooks(extensions: readonly ExtensionLike[]): CustomizationHook[] {
-	const byEvent = new Map<string, string[]>();
-	for (const ext of extensions) {
-		const label = extensionLabel(ext);
-		for (const event of ext.handlers.keys()) {
-			const list = byEvent.get(event) ?? [];
-			if (!list.includes(label)) list.push(label);
-			byEvent.set(event, list);
-		}
-	}
-	return [...byEvent.entries()]
-		.map(([event, subscribers]) => ({ event, subscribers }))
-		.sort((a, b) => a.event.localeCompare(b.event));
+	if (source?.startsWith("npm:")) return source;
+	const file = path.basename(ext.path).replace(/\.[a-z]+$/i, "");
+	return file || source || "extension";
 }
 
 function toolItems(
@@ -513,7 +497,7 @@ export async function listCustomizations(root: string): Promise<CustomizationsSn
 				: "user",
 		})),
 		prompts: listPrompts(root, dir, sdk, prompts.prompts),
-		hooks: collectHooks(extensionList),
+		hooks: [],
 		mcp: [
 			...readMcpFile(path.join(dir, "mcp.json"), "user"),
 			...readMcpFile(path.join(root, ".pi", "mcp.json"), "project"),

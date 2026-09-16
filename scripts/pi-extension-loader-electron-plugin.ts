@@ -18,7 +18,7 @@ export function piExtensionLoaderElectronPlugin(): Plugin {
     if (!code.includes("isBunBinary")) return null;
 
     let next = code.replace(
-      /\.\.\.\s*\(\s*isBunBinary\s*\?\s*\{\s*virtualModules:\s*VIRTUAL_MODULES\s*,\s*tryNative:\s*false\s*\}\s*:\s*\{\s*alias:\s*getAliases\(\)\s*\}\s*\)/g,
+      /\.\.\.\s*\(?\s*isBunBinary[\s\S]*?\{\s*alias:\s*getAliases\(\)\s*\}\s*\)?/g,
       propertyReplacement,
     );
     // Safety: import.meta.resolve → require.resolve (returns a filesystem path).
