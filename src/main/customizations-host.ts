@@ -5,10 +5,9 @@ import { isPathInsideRoot } from "../shared/path-sandbox";
 import { resolveTrustState } from "./project-trust";
 import { listPlugins } from "./plugins-host";
 import { scanUnloadedSkills, type LocalSkillScope } from "./skill-scan";
-import { SKILL_NAME_PATTERN, skillWarningOf } from "./skill-validate";
+import { skillWarningOf } from "./skill-validate";
 import type {
 	CustomizationCreateKind,
-	CustomizationCreateOptions,
 	CustomizationHook,
 	CustomizationItem,
 	CustomizationScope,
@@ -518,43 +517,11 @@ function availableName(base: string, exists: (name: string) => boolean): string 
 	throw new Error(`No available name for ${base}`);
 }
 
-/** 技能根目录：用户级 ~/.pi/agent/skills，工作区级 <workspace>/.pi/skills。 */
-function skillRoot(scope: "user" | "project", workspace?: string): string {
-	if (scope === "project") {
-		const root = workspace?.trim();
-		if (!root) throw new Error("workspace required");
-		return path.join(root, ".pi", "skills");
+/** 在用户目录创建空文件，返回供编辑器打开的路径。 */
+export function createCustomization(kind: CustomizationCreateKind): { filePath: string } {
+	if (kind === "skills") {
+		throw new Error("Create skills from the editor draft instead");
 	}
-	return path.join(agentDir(), "skills");
-}
-
-/**
- * 新建技能目录：写入带 name/description 的 SKILL.md。
- * description 是 pi 加载技能的必需字段，留空时回退为名称，避免新技能不出现在列表中。
- */
-function createSkill(options: CustomizationCreateOptions): { filePath: string } {
-	const name = (options.name ?? "").trim();
-	if (name.length > 64 || !SKILL_NAME_PATTERN.test(name)) {
-		throw new Error(`Invalid skill name: ${name}`);
-	}
-	const filePath = path.join(skillRoot(options.scope ?? "user", options.workspace), name, "SKILL.md");
-	if (fs.existsSync(filePath)) throw new Error(`Skill already exists: ${name}`);
-	const description = (options.description ?? "").trim() || name;
-	fs.mkdirSync(path.dirname(filePath), { recursive: true });
-	fs.writeFileSync(
-		filePath,
-		`---\nname: ${name}\ndescription: ${JSON.stringify(description)}\n---\n\n# ${name}\n`,
-		"utf8",
-	);
-	return { filePath };
-}
-
-/** 在用户目录创建空文件（技能走 createSkill），返回供编辑器打开的路径。 */
-export function createCustomization(
-	kind: CustomizationCreateKind,
-	options: CustomizationCreateOptions = {},
-): { filePath: string } {
-	if (kind === "skills") return createSkill(options);
 	const dir = agentDir();
 	const template = CREATE_TEMPLATES[kind];
 	if (kind === "instructions") {

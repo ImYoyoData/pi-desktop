@@ -12,7 +12,7 @@ import type {
 	TerminalShellOption,
 } from "../shared/protocol";
 import type { AgentRunEvent, AgentRunSnapshot } from "../shared/agent-runs";
-import type { CustomizationsSnapshot, CustomizationCreateKind, CustomizationCreateOptions, McpTestResult, McpTestTarget } from "../shared/customizations";
+import type { CustomizationsSnapshot, CustomizationCreateKind, McpTestResult, McpTestTarget } from "../shared/customizations";
 import type {
 	ModelsGetResult,
 	ModelsOAuthEventPayload,
@@ -552,10 +552,7 @@ declare const api: {
 	};
 	customizations: {
 		list: (cwd?: string) => Promise<CustomizationsSnapshot>;
-		create: (
-			kind: CustomizationCreateKind,
-			options?: CustomizationCreateOptions,
-		) => Promise<{ filePath: string }>;
+		create: (kind: CustomizationCreateKind) => Promise<{ filePath: string }>;
 		setMcpEnabled: (
 			name: string,
 			scope: "user" | "project",
@@ -603,6 +600,16 @@ declare const api: {
 			cwd?: string,
 		) => Promise<void>;
 		uninstall: (filePath: string, cwd?: string) => Promise<void>;
+		createFromDraft: (
+			content: string,
+			scope: "user" | "project",
+			cwd?: string,
+		) => Promise<{ filePath: string; name: string }>;
+		rename: (
+			filePath: string,
+			name: string,
+			cwd?: string,
+		) => Promise<{ filePath: string; name: string }>;
 	};
 	plugins: {
 		list: (cwd?: string) => Promise<{
