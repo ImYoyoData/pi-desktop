@@ -1957,7 +1957,7 @@ async function applySelectedModel(opts?: { allowStart?: boolean }): Promise<void
     const text = err instanceof Error ? err.message : String(err);
     // Startup race / cold worker / post-auth reload: don't toast transient noise.
     if (/unknown session|Model not found/i.test(text)) return;
-    messageApi.error(formatLlmError(text, locale === "zh-CN" ? "zh-CN" : "en"));
+    messageApi.error(formatLlmError(text, locale.value));
   }
 }
 

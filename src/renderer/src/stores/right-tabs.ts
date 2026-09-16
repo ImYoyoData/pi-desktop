@@ -1,6 +1,6 @@
 import { defineStore } from "pinia";
-import { computed, ref } from "vue";
-import { t } from "@renderer/i18n";
+import { computed, ref, watch } from "vue";
+import { locale, t } from "@renderer/i18n";
 import { clearTabHistory } from "@renderer/stores/browser-library";
 import { uniquePreviewTabLabel } from "@renderer/utils/preview-tab-label";
 import { localizedTabLabel } from "@renderer/utils/right-tab-labels";
@@ -99,7 +99,7 @@ function defaultTabs(): RightTab[] {
   return [];
 }
 
-/** Re-apply active-locale labels after restore / language switch reload. */
+/** Re-apply active-locale labels after restore / language switch. */
 function syncLocalizedLabels(list: RightTab[]): void {
   for (const tab of list) {
     const next = localizedTabLabel(tab);
@@ -538,6 +538,11 @@ export const useRightTabsStore = defineStore("rightTabs", () => {
 
     restoreTabs(next);
   }
+
+  // 切换界面语言后，固定标签（运行/文件/浏览器/终端）就地换成新语言。
+  watch(locale, () => {
+    syncLocalizedLabels(tabs.value);
+  });
 
   return {
     tabs,

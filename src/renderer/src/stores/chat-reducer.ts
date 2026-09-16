@@ -10,7 +10,7 @@ import {
 } from "../../../shared/composer-modes";
 
 function uiLocale(): "zh-CN" | "en" {
-	return uiLocalePref === "zh-CN" ? "zh-CN" : "en";
+	return uiLocalePref.value;
 }
 
 export type ChatUserImage = {
