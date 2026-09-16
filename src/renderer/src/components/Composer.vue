@@ -669,13 +669,13 @@ function snapshotComposerPayload(): {
   };
 }
 
-const attachMenu: DropdownOption[] = [
+const attachMenu = computed<DropdownOption[]>(() => [
   {
     label: t.composerAttachFile,
     key: "file",
     icon: () => h(NIcon, null, { default: () => h(DocumentOutline) }),
   },
-];
+]);
 
 type ModeMenuItem = {
   value: ComposerAgentMode;
@@ -684,7 +684,7 @@ type ModeMenuItem = {
   hint: string;
 };
 
-const modeMenuItems: ModeMenuItem[] = [
+const modeMenuItems = computed<ModeMenuItem[]>(() => [
   {
     value: "agent",
     label: t.composerModeAgent,
@@ -709,7 +709,7 @@ const modeMenuItems: ModeMenuItem[] = [
     tag: t.composerModeTaskTag,
     hint: t.composerModeTaskHint,
   },
-];
+]);
 
 const modeBubbleShow = ref(false);
 

@@ -56,13 +56,13 @@ const listEl = ref<HTMLElement | null>(null);
 let searchTimer: ReturnType<typeof setTimeout> | null = null;
 let loadSeq = 0;
 
-const typeOptions = [
+const typeOptions = computed(() => [
   { label: t.marketTypeAll, value: "" },
   { label: t.marketTypeExtension, value: "extension" },
   { label: t.marketTypeSkill, value: "skill" },
   { label: t.marketTypeTheme, value: "theme" },
   { label: t.marketTypePrompt, value: "prompt" },
-];
+]);
 
 const filteredEmpty = computed(() => !loading.value && !error.value && items.value.length === 0);
 

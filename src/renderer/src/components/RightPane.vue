@@ -410,7 +410,7 @@ function tabLabelStyle(tab: RightTab): Record<string, string> | undefined {
   return undefined;
 }
 
-const addOptions: DropdownOption[] = [
+const addOptions = computed<DropdownOption[]>(() => [
   {
     label: t.browser,
     key: "browser",
@@ -421,7 +421,7 @@ const addOptions: DropdownOption[] = [
     key: "running",
     icon: () => h(NIcon, null, { default: () => h(PlayCircleOutline) }),
   },
-];
+]);
 
 async function onAddSelect(key: string | number): Promise<void> {
   rightTabs.addTab(String(key) as RightTabKind);
@@ -844,7 +844,7 @@ function submitRenameTab(): void {
   height: 100%;
   min-width: 0;
   background: var(--bg);
-  border-left: 1px solid var(--border);
+  /* 左侧分栏线由 splitter 提供，再描边会叠成 2px */
 }
 
 .head {

@@ -29,7 +29,14 @@ const props = defineProps<{
 
 type CodiconName = InstanceType<typeof CodiconIcon>["$props"]["name"];
 
-const SECTIONS = [
+interface CustomizeSectionEntry {
+  id: string;
+  icon: CodiconName;
+  label: string;
+  description: string;
+}
+
+const sections = computed<CustomizeSectionEntry[]>(() => [
   { id: "general", icon: "settings", label: t.customizeGeneral, description: t.customizeGeneralDesc },
   { id: "appearance", icon: "appearance", label: t.customizeAppearance, description: t.customizeAppearanceDesc },
   { id: "models", icon: "models", label: t.customizeModels, description: t.customizeModelsDesc },
@@ -42,12 +49,7 @@ const SECTIONS = [
   { id: "plugins", icon: "plugins", label: t.customizePlugins, description: t.customizePluginsDesc },
   { id: "tools", icon: "tools", label: t.customizeTools, description: t.customizeToolsDesc },
   { id: "about", icon: "about", label: t.aboutTitle, description: t.customizeAboutDesc },
-] as const satisfies ReadonlyArray<{
-  id: string;
-  icon: CodiconName;
-  label: string;
-  description: string;
-}>;
+]);
 
 /** VS Code 侧栏常量：默认 200px，可拖拽 150–350。 */
 const SIDEBAR_DEFAULT_WIDTH = 200;
@@ -154,7 +156,7 @@ const draftLocation = computed(() => {
 });
 
 const current = computed(
-  () => SECTIONS.find((entry) => entry.id === active.value) ?? SECTIONS[0],
+  () => sections.value.find((entry) => entry.id === active.value) ?? sections.value[0],
 );
 
 const LIST_KINDS = ["agents", "skills", "instructions", "prompts", "mcp", "plugins"] as const;
@@ -624,7 +626,7 @@ onUnmounted(() => {
       <div class="sidebar-content">
         <div class="sidebar-sections-list" role="tablist">
           <button
-            v-for="entry in SECTIONS"
+            v-for="entry in sections"
             :key="entry.id"
             type="button"
             role="tab"

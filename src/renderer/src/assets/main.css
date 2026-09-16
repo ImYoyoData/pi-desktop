@@ -233,15 +233,15 @@ button {
 }
 
 .splitpanes--vertical > .splitpanes__splitter {
-  width: 1px !important;
-  min-width: 1px !important;
+  width: 0.5px !important;
+  min-width: 0.5px !important;
   margin: 0 !important;
   background: var(--border) !important;
 }
 
 .splitpanes--horizontal > .splitpanes__splitter {
-  height: 1px !important;
-  min-height: 1px !important;
+  height: 0.5px !important;
+  min-height: 0.5px !important;
   margin: 0 !important;
   background: var(--border) !important;
 }

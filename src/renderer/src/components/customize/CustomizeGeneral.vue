@@ -1,16 +1,17 @@
 <script setup lang="ts">
+import { computed } from "vue";
 import CodiconIcon from "@renderer/components/icons/CodiconIcon.vue";
 import { t } from "@renderer/i18n";
 
 const emit = defineEmits<{ open: [id: string] }>();
 
-const rows = [
+const rows = computed(() => [
   { id: "notify", icon: "notify", label: t.notifyTitle },
   { id: "voice", icon: "voice", label: t.voiceTitle },
   { id: "security", icon: "security", label: t.securityTitle },
   { id: "proxy", icon: "proxy", label: t.proxyTitle },
   { id: "lan", icon: "lan", label: t.lanConsoleTitle },
-] as const;
+] as const);
 </script>
 
 <template>
