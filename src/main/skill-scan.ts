@@ -75,7 +75,7 @@ function collectSkillFiles(
 }
 
 /** 本地技能目录中未被 pi 加载的技能文件（如缺少 description），供设置页展示与修复。 */
-export function scanUnloadedSkills(root: string, dir: string, loaded: Set<string>): LocalSkillFile[] {
+export function scanUnloadedSkills(root: string, dir: string, loaded: ReadonlySet<string>): LocalSkillFile[] {
   const found: LocalSkillFile[] = [];
   for (const { base, scope, mode } of skillRoots(root, dir)) {
     const files: string[] = [];

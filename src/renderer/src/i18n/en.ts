@@ -195,6 +195,7 @@ export const en = {
 	customizeGroupProject: "Workspace",
 	customizeGroupBuiltin: "Pi Built-in",
 	customizeGroupDesktop: "Pi Desktop Built-in",
+	customizeCurrentWorkspace: "Current workspace",
 	customizeGroupExtension: "Extension",
 	customizeOpen: "Open",
 	customizeEnable: "Enable",
