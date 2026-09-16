@@ -1,6 +1,6 @@
 /** 智能体设置页的定制项数据模型（渲染端与主进程共用）。 */
 
-export type CustomizationScope = "user" | "project" | "builtin" | "extension";
+export type CustomizationScope = "user" | "project" | "builtin" | "desktop" | "extension";
 
 export type CustomizationItem = {
 	/** 稳定 id（文件路径或来源标识） */

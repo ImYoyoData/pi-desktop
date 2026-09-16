@@ -6,15 +6,43 @@ import { t } from "@renderer/i18n";
 
 const props = defineProps<{ tools: CustomizationItem[] }>();
 
+function localizeDescription(tool: CustomizationItem): CustomizationItem {
+  if (tool.scope !== "builtin" && tool.scope !== "desktop") return tool;
+  const description = t.customizeToolDescription(tool.name) || tool.description;
+  return { ...tool, description };
+}
+
+const GROUP_ORDER: CustomizationScope[] = ["builtin", "desktop", "extension"];
+
+function groupLabel(scope: CustomizationScope): string {
+  switch (scope) {
+    case "builtin":
+      return t.customizeGroupBuiltin;
+    case "desktop":
+      return t.customizeGroupDesktop;
+    default:
+      return t.customizeGroupExtension;
+  }
+}
+
+function groupHint(scope: CustomizationScope): string {
+  switch (scope) {
+    case "builtin":
+      return t.customizeGroupBuiltinHint;
+    case "desktop":
+      return t.customizeGroupDesktopHint;
+    default:
+      return t.customizeGroupExtensionHint;
+  }
+}
+
 const groups = computed(() =>
-  (["builtin", "extension"] as CustomizationScope[])
-    .map((scope) => ({
-      scope,
-      label: scope === "builtin" ? t.customizeGroupBuiltin : t.customizeGroupExtension,
-      description: scope === "builtin" ? t.customizeGroupBuiltinHint : t.customizeGroupExtensionHint,
-      items: props.tools.filter((tool) => tool.scope === scope),
-    }))
-    .filter((group) => group.items.length > 0),
+  GROUP_ORDER.map((scope) => ({
+    scope,
+    label: groupLabel(scope),
+    description: groupHint(scope),
+    items: props.tools.filter((tool) => tool.scope === scope).map(localizeDescription),
+  })).filter((group) => group.items.length > 0),
 );
 </script>
 
