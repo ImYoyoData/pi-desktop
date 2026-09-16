@@ -74,7 +74,6 @@ declare module 'vue' {
     SessionInfoModal: typeof import('./src/components/SessionInfoModal.vue')['default']
     SessionSidebar: typeof import('./src/components/SessionSidebar.vue')['default']
     SessionTodoPanel: typeof import('./src/components/SessionTodoPanel.vue')['default']
-    SkillAddModal: typeof import('./src/components/customize/SkillAddModal.vue')['default']
     SkillsSettings: typeof import('./src/components/SkillsSettings.vue')['default']
     SplitRoot: typeof import('./src/components/SplitRoot.vue')['default']
     TerminalTab: typeof import('./src/components/TerminalTab.vue')['default']

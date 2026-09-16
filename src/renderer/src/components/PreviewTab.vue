@@ -31,6 +31,10 @@ const props = defineProps<{
   active?: boolean;
   /** 智能体设置页内嵌：隐藏「打开文件」等非编辑器控件，markdown 直接以编辑器打开。 */
   embedded?: boolean;
+  /** 未落盘的草稿内容（与 filePath 互斥）。 */
+  draftContent?: string | null;
+  /** 自定义保存：提供后保存按钮与 Ctrl+S 都交给外部处理（内容由外部落盘）。 */
+  saveHandler?: (content: string) => Promise<boolean> | boolean;
 }>();
 
 const message = useMessage();
@@ -89,6 +93,8 @@ const showEditor = computed(
     (result.value?.kind === "text" || result.value?.kind === "markdown") &&
     (!isMarkdown.value || mdViewMode.value !== "preview"),
 );
+/** 未落盘草稿：没有磁盘路径但仍需渲染编辑器。 */
+const isDraft = computed(() => !props.filePath && props.draftContent != null);
 const showMdPreview = computed(() => isMarkdown.value && mdViewMode.value !== "edit");
 const mediaVisible = computed(() => Boolean(props.active) && !layout.rightCollapsed);
 const mediaIdPrefix = computed(() => `preview:${props.tabId ?? "anon"}:`);
@@ -367,6 +373,20 @@ async function refreshGitForFile(path: string): Promise<void> {
   }
 }
 
+/** 加载未落盘草稿：无磁盘路径，始终视为未保存。 */
+async function loadDraft(content: string): Promise<void> {
+  loadGen += 1;
+  fsGen += 1;
+  currentPath.value = null;
+  result.value = { kind: "markdown", path: "", content };
+  liveContent.value = content;
+  missing.value = false;
+  mdViewMode.value = "edit";
+  await ensureEditor(content, "markdown");
+  dirty.value = true;
+  syncTabMeta({ dirty: true });
+}
+
 async function loadPath(path: string | null): Promise<void> {
   const gen = ++loadGen;
   fsGen += 1;
@@ -588,9 +608,13 @@ function onExternalWatchChanged(payload: { paths: string[] }): void {
 watch(currentPath, () => syncExternalFileWatch());
 
 watch(
-  () => props.filePath,
-  (path) => {
-    void loadPath(path ?? null);
+  [() => props.filePath, () => props.draftContent],
+  () => {
+    if (!props.filePath && props.draftContent != null) {
+      void loadDraft(props.draftContent);
+      return;
+    }
+    void loadPath(props.filePath ?? null);
   },
   { immediate: true },
 );
@@ -601,6 +625,28 @@ async function pickFile(): Promise<void> {
 }
 
 async function save(): Promise<boolean> {
+  if (saving.value) return false;
+  if (props.saveHandler) {
+    const content =
+      editor?.getValue() ??
+      (liveContent.value ||
+        (result.value?.kind === "text" || result.value?.kind === "markdown"
+          ? result.value.content
+          : ""));
+    saving.value = true;
+    try {
+      const ok = await props.saveHandler(content);
+      if (ok) {
+        diskContent = content;
+        dirty.value = false;
+        missing.value = false;
+        syncTabMeta({ dirty: false, missing: false });
+      }
+      return ok;
+    } finally {
+      saving.value = false;
+    }
+  }
   if (!currentPath.value) return false;
   const wasMissing = missing.value;
   const content =
@@ -633,10 +679,29 @@ async function save(): Promise<boolean> {
   }
 }
 
-defineExpose({ save, dirty });
+function getContent(): string {
+  return editor?.getValue() ?? liveContent.value ?? "";
+}
+
+function setContent(content: string): void {
+  const model = editor?.getModel();
+  if (model && model.getValue() !== content) {
+    editor?.pushUndoStop();
+    model.setValue(content);
+    editor?.pushUndoStop();
+  }
+  liveContent.value = content;
+}
+
+defineExpose({ save, dirty, getContent, setContent });
+
+/** Ctrl+S 按住期间只保存一次（不依赖系统 repeat 标记）。 */
+let saveShortcutHeld = false;
 
 function onPreviewKeydown(event: KeyboardEvent): void {
   if (props.active === false) return;
+  // 右侧面板被折起或被设置页覆盖时，不参与全局快捷键
+  if (!props.embedded && (layout.rightCollapsed || layout.centerView === "customize")) return;
   if (!(event.ctrlKey || event.metaKey) || event.altKey) return;
   if (event.key.toLowerCase() !== "s") return;
   if (event.isComposing) return;
@@ -646,7 +711,18 @@ function onPreviewKeydown(event: KeyboardEvent): void {
   }
   event.preventDefault();
   event.stopPropagation();
+  // 长按不重复触发保存
+  if (event.repeat || saveShortcutHeld) return;
+  saveShortcutHeld = true;
   void save();
+}
+
+function onPreviewKeyup(event: KeyboardEvent): void {
+  if (event.key.toLowerCase() === "s") saveShortcutHeld = false;
+}
+
+function onWindowBlur(): void {
+  saveShortcutHeld = false;
 }
 
 onMounted(() => {
@@ -656,6 +732,8 @@ onMounted(() => {
   window.addEventListener("pi-fs-changed", onFsChanged);
   stopPreviewWatch = window.api.preview.onChanged(onExternalWatchChanged);
   window.addEventListener("keydown", onPreviewKeydown, true);
+  window.addEventListener("keyup", onPreviewKeyup, true);
+  window.addEventListener("blur", onWindowBlur);
 });
 
 onBeforeUnmount(() => {
@@ -668,6 +746,8 @@ onBeforeUnmount(() => {
     watchedExternalPath = null;
   }
   window.removeEventListener("keydown", onPreviewKeydown, true);
+  window.removeEventListener("keyup", onPreviewKeyup, true);
+  window.removeEventListener("blur", onWindowBlur);
   if (selectionDebounce) clearTimeout(selectionDebounce);
   stopMedia();
   unregisterVideo?.();
@@ -756,7 +836,7 @@ onBeforeUnmount(() => {
           <span>{{ t.selectionAddToChat }}</span>
         </button>
       </Teleport>
-      <NEmpty v-if="!currentPath" :description="t.previewHint" size="small" />
+      <NEmpty v-if="!currentPath && !isDraft" :description="t.previewHint" size="small" />
       <NSpin v-else :show="loading" class="spin">
         <template v-if="result">
           <NAlert

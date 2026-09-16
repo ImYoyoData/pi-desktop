@@ -14,7 +14,8 @@ export const useCustomizationsStore = defineStore("customizations", () => {
     const workspace = useWorkspaceStore();
     const root = workspace.root ?? undefined;
     if (!force && loadedRoot === (root ?? null)) return;
-    loading.value = true;
+    const initial = loadedRoot !== (root ?? null);
+    if (initial) loading.value = true;
     error.value = "";
     try {
       const data = await window.api.customizations.list(root);

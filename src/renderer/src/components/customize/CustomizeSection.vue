@@ -4,8 +4,8 @@ import { NButton, NDropdown, NInput, NSwitch, useDialog, useMessage } from "naiv
 import type { DropdownOption } from "naive-ui";
 import CodiconIcon from "@renderer/components/icons/CodiconIcon.vue";
 import McpAddModal from "@renderer/components/customize/McpAddModal.vue";
-import SkillAddModal from "@renderer/components/customize/SkillAddModal.vue";
 import { useWorkspaceStore } from "@renderer/stores/workspace";
+import { useScopedWorkspaces } from "@renderer/utils/scoped-workspaces";
 import { useCustomizationsStore } from "@renderer/stores/customizations";
 import { usePluginUpdatesStore } from "@renderer/stores/plugin-updates";
 import type {
@@ -27,7 +27,8 @@ const props = defineProps<{
 const emit = defineEmits<{
   refresh: [];
   market: [];
-  open: [payload: { filePath: string; title: string }];
+  open: [payload: { filePath: string; title: string; rename: boolean }];
+  newSkill: [payload: { scope: "user" | "project"; workspace: string | null }];
 }>();
 
 const workspace = useWorkspaceStore();
@@ -37,7 +38,6 @@ const message = useMessage();
 
 const query = ref("");
 const addOpen = ref(false);
-const skillAddOpen = ref(false);
 const mcpTesting = ref(false);
 const mcpTestResults = ref<Record<string, McpTestResult>>({});
 const pluginUpdates = usePluginUpdatesStore();
@@ -166,7 +166,11 @@ function openItem(item: CustomizationItem): void {
     return;
   }
   if (!item.filePath) return;
-  emit("open", { filePath: item.filePath, title: item.name });
+  emit("open", {
+    filePath: item.filePath,
+    title: item.name,
+    rename: props.kind === "skills" && (item.scope === "user" || item.scope === "project"),
+  });
 }
 
 async function copyPath(item: CustomizationItem): Promise<void> {
@@ -185,23 +189,14 @@ async function onCreate(): Promise<void> {
   try {
     const { filePath } = await window.api.customizations.create(kind);
     emit("refresh");
-    emit("open", { filePath, title: titleFromPath(filePath) });
+    emit("open", { filePath, title: titleFromPath(filePath), rename: false });
   } catch (err) {
     message.error(err instanceof Error ? err.message : String(err));
   }
 }
 
 function onAddClick(): void {
-  if (props.kind === "skills") {
-    skillAddOpen.value = true;
-    return;
-  }
   void onCreate();
-}
-
-function onSkillAdded(payload: { filePath: string; name: string }): void {
-  emit("refresh");
-  emit("open", { filePath: payload.filePath, title: payload.name });
 }
 
 function pluginScope(item: CustomizationItem): "global" | "project" {
@@ -346,25 +341,24 @@ async function upgradePlugin(item: CustomizationItem): Promise<void> {
   }
 }
 
-/** 可选工作区：最近工作区 + 当前工作区（去重）。 */
-const scopedWorkspaces = computed(() => {
-  const paths = [...workspace.recent];
-  const root = workspace.root?.trim();
-  if (root && !paths.some((p) => p.toLowerCase() === root.toLowerCase())) {
-    paths.push(root);
+const { paths: scopedWorkspaces, label: workspaceLabel } = useScopedWorkspaces();
+
+/** 新建技能时先选择保存位置：用户级或某个工作区。 */
+const skillScopeOptions = computed<DropdownOption[]>(() => [
+  { label: t.customizeGroupUser, key: "user" },
+  ...scopedWorkspaces.value.map((target) => ({
+    label: workspaceLabel(target),
+    key: `project:${target}`,
+  })),
+]);
+
+function onSkillScopeSelect(key: string | number): void {
+  const raw = String(key);
+  if (raw.startsWith("project:")) {
+    emit("newSkill", { scope: "project", workspace: raw.slice("project:".length) });
+    return;
   }
-  return paths;
-});
-
-function baseName(target: string): string {
-  return target.split(/[\\/]/).filter(Boolean).pop() ?? target;
-}
-
-/** 工作区重名时显示完整路径以便区分。 */
-function workspaceLabel(target: string): string {
-  const base = baseName(target);
-  const duplicated = scopedWorkspaces.value.filter((p) => baseName(p) === base).length > 1;
-  return duplicated ? target : base;
+  emit("newSkill", { scope: "user", workspace: null });
 }
 
 const editConfigOptions = computed<DropdownOption[]>(() => [
@@ -386,7 +380,7 @@ async function onEditConfigSelect(key: string | number): Promise<void> {
       isProject ? "project" : "user",
       isProject ? target : undefined,
     );
-    emit("open", { filePath, title: titleFromPath(filePath) });
+    emit("open", { filePath, title: titleFromPath(filePath), rename: false });
   } catch (err) {
     message.error(err instanceof Error ? err.message : String(err));
   }
@@ -592,7 +586,24 @@ function onCtxSelect(key: string | number): void {
         />
       </div>
       <div class="list-add-button-container">
-        <NButton v-if="createKind" class="list-add-button" size="small" @click="onAddClick">
+        <NButton class="list-add-button" size="small" @click="emit('refresh')">
+          {{ t.reload }}
+        </NButton>
+        <NDropdown
+          v-if="createKind === 'skills'"
+          trigger="click"
+          size="small"
+          :options="skillScopeOptions"
+          @select="onSkillScopeSelect"
+        >
+          <NButton class="list-add-button" size="small">{{ createLabel }}</NButton>
+        </NDropdown>
+        <NButton
+          v-else-if="createKind"
+          class="list-add-button"
+          size="small"
+          @click="onAddClick"
+        >
           {{ createLabel }}
         </NButton>
         <NButton v-if="kind === 'plugins'" class="list-add-button" size="small" @click="emit('market')">
@@ -755,13 +766,6 @@ function onCtxSelect(key: string | number): void {
       :workspaces="scopedWorkspaces"
       @close="addOpen = false"
       @added="onMcpAdded"
-    />
-
-    <SkillAddModal
-      :show="skillAddOpen"
-      :workspaces="scopedWorkspaces"
-      @close="skillAddOpen = false"
-      @added="onSkillAdded"
     />
   </div>
 </template>

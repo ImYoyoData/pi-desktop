@@ -1,6 +1,6 @@
 import { ipcMain } from "electron";
 import { IpcChannels } from "../shared/protocol";
-import { emptyCustomizations, type CustomizationCreateKind, type CustomizationCreateOptions, type McpTestResult, type McpTestTarget } from "../shared/customizations";
+import { emptyCustomizations, type CustomizationCreateKind, type McpTestResult, type McpTestTarget } from "../shared/customizations";
 import { getWorkspace } from "./workspace-ipc";
 import { createCustomization, listCustomizations, setMcpServerEnabled, addMcpServers, ensureMcpConfig, removeMcpServer, readMcpEntry, setCustomizationItemEnabled, removeCustomizationItem } from "./customizations-host";
 import { testMcpServer } from "./mcp-test";
@@ -14,14 +14,8 @@ export function registerCustomizationsIpc(broker?: {
 		return listCustomizations(root);
 	});
 
-	ipcMain.handle(
-		IpcChannels.customizations.create,
-		async (_event, kind: CustomizationCreateKind, options: CustomizationCreateOptions = {}) => {
-			const root = options.workspace?.trim() || getWorkspace() || undefined;
-			const result = createCustomization(kind, { ...options, workspace: root });
-			if (kind === "skills" && root) await broker?.notifyWorkersReloadResources(root);
-			return result;
-		},
+	ipcMain.handle(IpcChannels.customizations.create, (_event, kind: CustomizationCreateKind) =>
+		createCustomization(kind),
 	);
 
 	ipcMain.handle(
