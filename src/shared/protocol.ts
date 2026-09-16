@@ -174,6 +174,7 @@ export const IpcChannels = {
 		uninstall: "skills:uninstall",
 		createFromDraft: "skills:createFromDraft",
 		rename: "skills:rename",
+		save: "skills:save",
 	},
 	plugins: {
 		list: "plugins:list",
