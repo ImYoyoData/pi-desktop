@@ -4,6 +4,7 @@ import { NButton, NDropdown, NInput, NSwitch, useDialog, useMessage } from "naiv
 import type { DropdownOption } from "naive-ui";
 import CodiconIcon from "@renderer/components/icons/CodiconIcon.vue";
 import McpAddModal from "@renderer/components/customize/McpAddModal.vue";
+import SkillAddModal from "@renderer/components/customize/SkillAddModal.vue";
 import { useWorkspaceStore } from "@renderer/stores/workspace";
 import { useCustomizationsStore } from "@renderer/stores/customizations";
 import { usePluginUpdatesStore } from "@renderer/stores/plugin-updates";
@@ -36,6 +37,7 @@ const message = useMessage();
 
 const query = ref("");
 const addOpen = ref(false);
+const skillAddOpen = ref(false);
 const mcpTesting = ref(false);
 const mcpTestResults = ref<Record<string, McpTestResult>>({});
 const pluginUpdates = usePluginUpdatesStore();
@@ -189,6 +191,19 @@ async function onCreate(): Promise<void> {
   }
 }
 
+function onAddClick(): void {
+  if (props.kind === "skills") {
+    skillAddOpen.value = true;
+    return;
+  }
+  void onCreate();
+}
+
+function onSkillAdded(payload: { filePath: string; name: string }): void {
+  emit("refresh");
+  emit("open", { filePath: payload.filePath, title: payload.name });
+}
+
 function pluginScope(item: CustomizationItem): "global" | "project" {
   return item.scope === "project" ? "project" : "global";
 }
@@ -332,7 +347,7 @@ async function upgradePlugin(item: CustomizationItem): Promise<void> {
 }
 
 /** 可选工作区：最近工作区 + 当前工作区（去重）。 */
-const mcpWorkspaces = computed(() => {
+const scopedWorkspaces = computed(() => {
   const paths = [...workspace.recent];
   const root = workspace.root?.trim();
   if (root && !paths.some((p) => p.toLowerCase() === root.toLowerCase())) {
@@ -348,13 +363,13 @@ function baseName(target: string): string {
 /** 工作区重名时显示完整路径以便区分。 */
 function workspaceLabel(target: string): string {
   const base = baseName(target);
-  const duplicated = mcpWorkspaces.value.filter((p) => baseName(p) === base).length > 1;
+  const duplicated = scopedWorkspaces.value.filter((p) => baseName(p) === base).length > 1;
   return duplicated ? target : base;
 }
 
 const editConfigOptions = computed<DropdownOption[]>(() => [
   { label: t.customizeGroupUser, key: "user" },
-  ...mcpWorkspaces.value.map((target) => ({ label: workspaceLabel(target), key: `project:${target}` })),
+  ...scopedWorkspaces.value.map((target) => ({ label: workspaceLabel(target), key: `project:${target}` })),
 ]);
 
 /** 打开 MCP 配置文件供手动编辑，不存在时由主进程写入空骨架。 */
@@ -433,6 +448,28 @@ function testBadge(item: CustomizationItem): { text: string; className: string }
   }
   const error = result.error === "timeout" ? t.customizeMcpTestTimeout : (result.error ?? "");
   return { text: t.customizeMcpTestFailed(error), className: "is-fail" };
+}
+
+/** 技能规范校验问题标签（仅技能列表显示）。 */
+function skillWarning(item: CustomizationItem): { text: string; hint: string } | null {
+  if (props.kind !== "skills" || !item.warning) return null;
+  switch (item.warning) {
+    case "missing-description":
+      return {
+        text: t.customizeSkillIssueMissingDescription,
+        hint: t.customizeSkillIssueMissingDescriptionHint,
+      };
+    case "description-too-long":
+      return {
+        text: t.customizeSkillIssueLongDescription,
+        hint: t.customizeSkillIssueLongDescriptionHint,
+      };
+    default:
+      return {
+        text: t.customizeSkillIssueInvalidName,
+        hint: t.customizeSkillIssueInvalidNameHint,
+      };
+  }
 }
 
 function canRemove(item: CustomizationItem): boolean {
@@ -555,7 +592,7 @@ function onCtxSelect(key: string | number): void {
         />
       </div>
       <div class="list-add-button-container">
-        <NButton v-if="createKind" class="list-add-button" size="small" @click="onCreate">
+        <NButton v-if="createKind" class="list-add-button" size="small" @click="onAddClick">
           {{ createLabel }}
         </NButton>
         <NButton v-if="kind === 'plugins'" class="list-add-button" size="small" @click="emit('market')">
@@ -652,6 +689,13 @@ function onCtxSelect(key: string | number): void {
                   >
                     {{ testBadge(item)?.text }}
                   </span>
+                  <span
+                    v-if="skillWarning(item)"
+                    class="inline-badge warning-badge"
+                    :title="skillWarning(item)?.hint"
+                  >
+                    {{ skillWarning(item)?.text }}
+                  </span>
                 </div>
                 <div v-if="item.description" class="item-description">{{ item.description }}</div>
               </div>
@@ -708,9 +752,16 @@ function onCtxSelect(key: string | number): void {
 
     <McpAddModal
       :show="addOpen"
-      :workspaces="mcpWorkspaces"
+      :workspaces="scopedWorkspaces"
       @close="addOpen = false"
       @added="onMcpAdded"
+    />
+
+    <SkillAddModal
+      :show="skillAddOpen"
+      :workspaces="scopedWorkspaces"
+      @close="skillAddOpen = false"
+      @added="onSkillAdded"
     />
   </div>
 </template>
@@ -884,6 +935,10 @@ function onCtxSelect(key: string | number): void {
 
 .test-badge.is-fail {
   color: var(--error);
+}
+
+.warning-badge {
+  color: var(--warning);
 }
 
 .inline-badge {
