@@ -48,6 +48,37 @@ const BUILTIN_TOOLS: ReadonlyArray<{ name: string; description: string }> = [
 	{ name: "ls", description: "List directory contents" },
 ];
 
+/** Pi Desktop 自身注入的工具与简介，文案取自 agent-worker 各工具定义的 promptSnippet。 */
+const DESKTOP_TOOLS: ReadonlyArray<{ name: string; description: string }> = [
+	{ name: "ask_user", description: "Ask the user structured single/multi/button questions and wait for all answers" },
+	{ name: "todo_write", description: "Maintain a visible todo checklist that fully replaces on every call" },
+	{ name: "browser_tabs", description: "List built-in browser tabs" },
+	{ name: "browser_open_tab", description: "Open a new built-in browser tab" },
+	{ name: "browser_close_tab", description: "Close a built-in browser tab" },
+	{ name: "browser_navigate", description: "Navigate the built-in browser" },
+	{ name: "browser_back", description: "Browser history back" },
+	{ name: "browser_forward", description: "Browser history forward" },
+	{ name: "browser_reload", description: "Reload built-in browser" },
+	{ name: "browser_url", description: "Get built-in browser URL/title" },
+	{ name: "browser_snapshot", description: "Snapshot interactive DOM elements" },
+	{ name: "browser_find", description: "Find elements by text, id, role, css, etc." },
+	{ name: "browser_query", description: "Query DOM via CSS selector" },
+	{ name: "browser_click", description: "Click a DOM element (flexible locator)" },
+	{ name: "browser_hover", description: "Hover a DOM element" },
+	{ name: "browser_type", description: "Type into a DOM element" },
+	{ name: "browser_fill", description: "Fill a form field" },
+	{ name: "browser_press", description: "Press a key in the built-in browser" },
+	{ name: "browser_select", description: "Select a dropdown option" },
+	{ name: "browser_check", description: "Toggle checkbox/radio" },
+	{ name: "browser_scroll", description: "Scroll the built-in browser" },
+	{ name: "browser_wait_for", description: "Wait for a DOM element" },
+	{ name: "browser_get_text", description: "Read text from the built-in browser" },
+	{ name: "browser_get_html", description: "Read HTML from the built-in browser" },
+	{ name: "browser_get_attribute", description: "Read a DOM attribute" },
+	{ name: "browser_get_value", description: "Read input value" },
+	{ name: "browser_evaluate", description: "Evaluate JS in the built-in browser" },
+];
+
 /** 全局智能体文件（pi-subagents 同款目录）。 */
 function agentDirs(root: string, dir: string): Array<[string, CustomizationScope]> {
 	return [
@@ -349,13 +380,23 @@ function collectHooks(extensions: readonly ExtensionLike[]): CustomizationHook[]
 		.sort((a, b) => a.event.localeCompare(b.event));
 }
 
-function collectTools(extensions: readonly ExtensionLike[]): CustomizationItem[] {
-	const items: CustomizationItem[] = BUILTIN_TOOLS.map((tool) => ({
-		id: `builtin:${tool.name}`,
+function toolItems(
+	scope: "builtin" | "desktop",
+	tools: ReadonlyArray<{ name: string; description: string }>,
+): CustomizationItem[] {
+	return tools.map((tool) => ({
+		id: `${scope}:${tool.name}`,
 		name: tool.name,
 		description: tool.description,
-		scope: "builtin",
+		scope,
 	}));
+}
+
+function collectTools(extensions: readonly ExtensionLike[]): CustomizationItem[] {
+	const items: CustomizationItem[] = [
+		...toolItems("builtin", BUILTIN_TOOLS),
+		...toolItems("desktop", DESKTOP_TOOLS),
+	];
 	for (const ext of extensions) {
 		const label = extensionLabel(ext);
 		for (const [name, tool] of ext.tools) {
