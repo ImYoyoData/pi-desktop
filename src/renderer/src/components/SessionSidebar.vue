@@ -48,14 +48,14 @@ const SESSION_ORDER_KEY = "pi-desktop:session-order:v2";
 const SESSION_VISIBLE_LIMIT = 5;
 
 /** 左下角快捷入口，自上而下依次：外观、模型、MCP、技能、插件、设置。 */
-const customizeEntries = [
+const customizeEntries = computed(() => [
   { name: "appearance", section: "appearance", label: t.customizeAppearance },
   { name: "models", section: "models", label: t.customizeModels },
   { name: "mcp", section: "mcp", label: t.customizeMcp },
   { name: "skills", section: "skills", label: t.customizeSkills },
   { name: "plugins", section: "plugins", label: t.customizePlugins },
   { name: "settings", section: "general", label: t.customizeSettings },
-] as const;
+] as const);
 
 const sessionsStore = useSessionsStore();
 const chatStore = useChatStore();
@@ -1323,7 +1323,7 @@ function isRunning(status: SessionStatus): boolean {
   height: 100%;
   background: var(--bg-sidebar);
   min-width: 0;
-  border-right: 1px solid var(--border);
+  /* 右侧分栏线由 splitter 提供，再描边会叠成 2px */
 }
 
 .sessions-pane {
