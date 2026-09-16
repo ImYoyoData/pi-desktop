@@ -134,10 +134,11 @@ html[data-theme][data-wallpaper="on"] .monaco-hover {
   backdrop-filter: blur(14px) saturate(1.15);
 }
 
-/* naive-ui 输入控件跟随输入框透明度 */
+/* naive-ui 输入控件跟随输入框透明度（hover 背景默认是实色 inputColor，必须一并覆盖） */
 html[data-theme][data-wallpaper="on"] .n-input,
 html[data-theme][data-wallpaper="on"] .n-base-selection {
   --n-color: var(--w-input-surface) !important;
+  --n-color-hover: var(--w-input-surface) !important;
   --n-color-focus: var(--w-input-surface) !important;
   --n-color-disabled: var(--w-input-surface) !important;
 }
