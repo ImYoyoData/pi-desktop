@@ -5,11 +5,11 @@ import { t } from "@renderer/i18n";
 const emit = defineEmits<{ open: [id: string] }>();
 
 const rows = [
-  { id: "notify", icon: "notify", label: t.notifyTitle, description: t.customizeNotifyDesc },
-  { id: "voice", icon: "voice", label: t.voiceTitle, description: t.customizeVoiceDesc },
-  { id: "security", icon: "security", label: t.securityTitle, description: t.customizeSecurityDesc },
-  { id: "proxy", icon: "proxy", label: t.proxyTitle, description: t.customizeProxyDesc },
-  { id: "lan", icon: "lan", label: t.lanConsoleTitle, description: t.customizeLanDesc },
+  { id: "notify", icon: "notify", label: t.notifyTitle },
+  { id: "voice", icon: "voice", label: t.voiceTitle },
+  { id: "security", icon: "security", label: t.securityTitle },
+  { id: "proxy", icon: "proxy", label: t.proxyTitle },
+  { id: "lan", icon: "lan", label: t.lanConsoleTitle },
 ] as const;
 </script>
 
@@ -28,7 +28,6 @@ const rows = [
           <div class="item-name-row">
             <span class="item-name">{{ row.label }}</span>
           </div>
-          <div class="item-description">{{ row.description }}</div>
         </div>
       </div>
       <div class="item-right">
@@ -107,15 +106,6 @@ const rows = [
   color: var(--fg);
   font-size: 13px;
   line-height: 18px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.item-description {
-  color: var(--fg-muted);
-  font-size: 11px;
-  line-height: 14px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
