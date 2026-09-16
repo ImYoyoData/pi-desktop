@@ -203,11 +203,6 @@ export const zh = {
 	customizeReload: "重新加载",
 	customizeDiagnostics: "诊断",
 	customizeToolsBuiltinNote: "内置工具由 pi 提供。",
-	customizeNotifyDesc: "回合结束提醒、声音与通知方式。",
-	customizeVoiceDesc: "语音输入与识别引擎设置。",
-	customizeSecurityDesc: "工具权限、bash 白名单与工作区信任。",
-	customizeProxyDesc: "模型请求与下载使用的网络代理。",
-	customizeLanDesc: "局域网访问与 Cloudflare 隧道。",
 	customizeAboutDesc: "版本信息、更新与开源许可。",
 	terminal: "终端",
 	preview: "预览",
@@ -513,11 +508,7 @@ export const zh = {
 	gitErr_unknown: "Git 操作失败",
 	appearance: "通用",
 	showCompactButton: "显示压缩按钮",
-	showCompactButtonHint:
-		"在上下文用量面板中显示“点击压缩上下文”按钮和预警提示。",
 	truncateToolOutput: "截断工具输出预览",
-	truncateToolOutputHint:
-		"开启后，运行命令等工具输出在卡片内只显示前 24 行（行数统计不受影响）；关闭时显示全部输出。",
 	notifyTitle: "通知",
 	proxyTitle: "网络代理",
 	proxyModeOff: "关闭",
@@ -869,8 +860,6 @@ export const zh = {
 	extensionsTitle: "扩展 / Plugins",
 
 	thinkingLanguage: "思考语言",
-	thinkingLanguageHint:
-		"只影响可见思考文本。自动：界面为中文时注入中文思考指令，界面为英文时不注入；中文 / 英文：始终注入对应语言的指令。",
 	thinkingLanguageAuto: "自动",
 	thinkingLanguageZh: "中文",
 	skillEnabled: "已启用",

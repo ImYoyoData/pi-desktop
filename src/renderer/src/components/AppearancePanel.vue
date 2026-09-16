@@ -130,7 +130,6 @@ const truncateToolOutput = computed({
     <template v-else>
       <div class="section">
         <NText strong>{{ t.thinkingLanguage }}</NText>
-        <NText depth="3" class="hint">{{ t.thinkingLanguageHint }}</NText>
         <NRadioGroup
           :value="thinkingLanguage"
           size="small"
@@ -150,15 +149,15 @@ const truncateToolOutput = computed({
       <div class="switch-row">
         <div class="switch-labels">
           <NText strong>{{ t.showCompactButton }}</NText>
-          <NText depth="3" class="hint">{{ t.showCompactButtonHint }}</NText>
         </div>
         <NSwitch v-model:value="showCompactButton" />
       </div>
 
+      <NDivider style="margin: 0" />
+
       <div class="switch-row">
         <div class="switch-labels">
           <NText strong>{{ t.truncateToolOutput }}</NText>
-          <NText depth="3" class="hint">{{ t.truncateToolOutputHint }}</NText>
         </div>
         <NSwitch v-model:value="truncateToolOutput" />
       </div>
@@ -191,9 +190,5 @@ const truncateToolOutput = computed({
   flex-direction: column;
   gap: 4px;
   min-width: 0;
-}
-
-.hint {
-  font-size: 12px;
 }
 </style>
