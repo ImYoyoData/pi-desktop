@@ -21,18 +21,18 @@ html[data-theme][data-wallpaper="on"] {
   /* 抬升表面：卡片、浮层、头栏、选中态，统一叠在界面底色之上 */
   --w-elevated-surface: color-mix(
     in srgb,
-    var(--w-solid-elevated) var(--pi-alpha-card, 30%),
+    var(--w-solid-elevated) var(--pi-alpha-card, 0%),
     transparent
   );
   --w-input-surface: color-mix(
     in srgb,
-    var(--w-solid-input) var(--pi-alpha-input, 85%),
+    var(--w-solid-input) var(--pi-alpha-input, 0%),
     transparent
   );
   /* 工具调用卡片（命令、输出、差异块）自带一档透明度 */
   --w-tool-surface: color-mix(
     in srgb,
-    var(--w-solid-elevated) var(--pi-alpha-tool, 60%),
+    var(--w-solid-elevated) var(--pi-alpha-tool, 0%),
     transparent
   );
 
@@ -81,7 +81,7 @@ html[data-theme][data-wallpaper="on"] .pi-settings-modal,
 html[data-theme][data-wallpaper="on"] .modal-editor-panel {
   --w-settings-surface: color-mix(
     in srgb,
-    var(--w-solid-bg) var(--pi-alpha-settings, 85%),
+    var(--w-solid-bg) var(--pi-alpha-settings, 0%),
     transparent
   );
   background: var(--w-settings-surface);
