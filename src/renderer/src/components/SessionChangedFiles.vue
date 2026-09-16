@@ -4,7 +4,6 @@ import { NIcon } from "naive-ui";
 import {
   ChevronDownOutline,
   ChevronForwardOutline,
-  CreateOutline,
 } from "@vicons/ionicons5";
 import { fileIcon } from "@renderer/utils/file-icon";
 import { usePreviewStore } from "@renderer/stores/preview";
@@ -93,13 +92,6 @@ function openFile(p: string): void {
           :size="13"
           aria-hidden="true"
         />
-        <NIcon
-          v-if="!collapsed"
-          class="files-head-icon"
-          :component="CreateOutline"
-          :size="13"
-          aria-hidden="true"
-        />
         <span class="files-title">{{ title }}</span>
         <span
           v-if="totalAdditions || totalDeletions"
@@ -180,11 +172,6 @@ function openFile(p: string): void {
 }
 
 .chev {
-  flex-shrink: 0;
-  color: var(--chat-desc-fg, var(--fg-muted));
-}
-
-.files-head-icon {
   flex-shrink: 0;
   color: var(--chat-desc-fg, var(--fg-muted));
 }
