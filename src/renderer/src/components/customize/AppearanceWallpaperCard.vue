@@ -3,10 +3,13 @@ import { computed } from "vue";
 import { NTooltip } from "naive-ui";
 import AppearanceSliderRow from "@renderer/components/customize/AppearanceSliderRow.vue";
 import { useAppearanceStore } from "@renderer/stores/appearance";
-import { wallpaperMediaSrc } from "../../../../shared/appearance";
+import {
+  SURFACE_ALPHA_FLOOR,
+  wallpaperMediaSrc,
+} from "../../../../shared/appearance";
 import { t } from "@renderer/i18n";
 
-/** 背景图卡片：点击预览选择/更换壁纸，右侧调整遮罩透明度与模糊。 */
+/** 背景图卡片：点击预览选择/更换壁纸；右侧调整遮罩与界面透明度。 */
 const appearance = useAppearanceStore();
 
 const kind = computed(() => appearance.wallpaper.kind);
@@ -14,6 +17,7 @@ const isMedia = computed(() => kind.value === "image" || kind.value === "video")
 const mediaSrc = computed(() =>
   appearance.wallpaper.path ? wallpaperMediaSrc(appearance.wallpaper.path) : "",
 );
+const floorPercent = Math.round(SURFACE_ALPHA_FLOOR * 100);
 
 async function pickWallpaper(): Promise<void> {
   const path = await window.api.appearance.pickWallpaper();
@@ -91,6 +95,30 @@ async function pickWallpaper(): Promise<void> {
           :disabled="!isMedia"
           @update:value="appearance.setVeilBlur"
         />
+
+        <div class="controls-divider" />
+
+        <AppearanceSliderRow
+          :label="t.appearanceSurfaceInput"
+          :value="appearance.surfaces.input"
+          :disabled="!isMedia"
+          @update:value="(value) => appearance.setSurfaceAlpha('input', value)"
+        />
+        <AppearanceSliderRow
+          :label="t.appearanceSurfaceCard"
+          :value="appearance.surfaces.card"
+          :min="floorPercent"
+          :tip="t.appearanceSurfaceCardTip"
+          :disabled="!isMedia"
+          @update:value="(value) => appearance.setSurfaceAlpha('card', value)"
+        />
+        <AppearanceSliderRow
+          :label="t.appearanceSurfaceSettings"
+          :value="appearance.surfaces.settings"
+          :min="floorPercent"
+          :disabled="!isMedia"
+          @update:value="(value) => appearance.setSurfaceAlpha('settings', value)"
+        />
       </div>
     </div>
   </section>
@@ -135,21 +163,22 @@ async function pickWallpaper(): Promise<void> {
 
 .wallpaper-body {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(180px, 240px);
+  grid-template-columns: minmax(0, 1fr) minmax(220px, 300px);
   gap: 12px;
-  align-items: start;
+  align-items: stretch;
 }
 
 .preview-wrap {
   position: relative;
+  display: flex;
   min-width: 0;
 }
 
 .preview-hit {
   display: block;
   width: 100%;
+  min-height: 220px;
   padding: 0;
-  aspect-ratio: 16 / 9;
   overflow: hidden;
   border: 1px solid var(--border);
   border-radius: var(--radius-md, 6px);
@@ -232,13 +261,23 @@ async function pickWallpaper(): Promise<void> {
 .wallpaper-controls {
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 12px;
   min-width: 0;
+}
+
+.controls-divider {
+  height: 1px;
+  background: var(--border);
 }
 
 @container (max-width: 560px) {
   .wallpaper-body {
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  .preview-hit {
+    aspect-ratio: 16 / 9;
+    min-height: 0;
   }
 }
 </style>

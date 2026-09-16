@@ -18,7 +18,6 @@ declare module 'vue' {
     AppearancePanel: typeof import('./src/components/AppearancePanel.vue')['default']
     AppearanceSettings: typeof import('./src/components/AppearanceSettings.vue')['default']
     AppearanceSliderRow: typeof import('./src/components/customize/AppearanceSliderRow.vue')['default']
-    AppearanceSurfaceCard: typeof import('./src/components/customize/AppearanceSurfaceCard.vue')['default']
     AppearanceWallpaperCard: typeof import('./src/components/customize/AppearanceWallpaperCard.vue')['default']
     AppWallpaper: typeof import('./src/components/AppWallpaper.vue')['default']
     AskUserStrip: typeof import('./src/components/AskUserStrip.vue')['default']

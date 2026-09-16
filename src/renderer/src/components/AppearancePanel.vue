@@ -21,7 +21,6 @@ import {
   type ThinkingLanguage,
 } from "../../../shared/thinking-language";
 import AppearanceWallpaperCard from "@renderer/components/customize/AppearanceWallpaperCard.vue";
-import AppearanceSurfaceCard from "@renderer/components/customize/AppearanceSurfaceCard.vue";
 import { t } from "@renderer/i18n";
 
 /** 外观设置：主题与界面两个子页；设置模态与智能体设置页共用。 */
@@ -108,10 +107,7 @@ function onTruncateChange(value: string | number | null): void {
     </NRadioGroup>
 
     <template v-if="tab === 'theme'">
-      <div class="custom-appearance">
-        <AppearanceWallpaperCard />
-        <AppearanceSurfaceCard />
-      </div>
+      <AppearanceWallpaperCard />
 
       <div class="section">
         <NText strong>{{ t.theme }}</NText>
@@ -190,12 +186,6 @@ function onTruncateChange(value: string | number | null): void {
   flex-direction: column;
   gap: 16px;
   container-type: inline-size;
-}
-
-.custom-appearance {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
 }
 
 .section {
