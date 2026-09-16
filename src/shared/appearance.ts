@@ -16,16 +16,24 @@ export interface SurfaceAlphaSettings {
   input: number;
   card: number;
   settings: number;
+  /** 工具调用卡片（命令与输出块）底色透明度。 */
+  tool: number;
 }
 
 export interface CustomAppearanceSettings {
   wallpaper: WallpaperSettings;
   surfaces: SurfaceAlphaSettings;
+  /** 消息区最大宽度：占聊天面板宽度的比例。 */
+  messageWidth: number;
 }
 
 /** 卡片与设置页的透明度保底：滑到 0 也不会全透明。 */
 export const SURFACE_ALPHA_FLOOR = 0.2;
 export const VEIL_BLUR_MAX_PX = 40;
+/** 消息区宽度档位：占聊天面板宽度的比例。 */
+export const MESSAGE_WIDTH_CHOICES = [0.5, 0.6, 0.75, 1] as const;
+/** 默认档位，视觉上接近改动前的固定列宽。 */
+export const MESSAGE_WIDTH_DEFAULT = 0.6;
 
 export const WALLPAPER_IMAGE_EXTENSIONS = [
   "png",
@@ -45,11 +53,23 @@ export function createDefaultWallpaper(): WallpaperSettings {
 }
 
 export function createDefaultSurfaces(): SurfaceAlphaSettings {
-  return { input: 0.2, card: 0.52, settings: 0.72 };
+  return { input: 0.2, card: 0.52, settings: 0.72, tool: 0.52 };
 }
 
 export function createDefaultCustomAppearance(): CustomAppearanceSettings {
-  return { wallpaper: createDefaultWallpaper(), surfaces: createDefaultSurfaces() };
+  return {
+    wallpaper: createDefaultWallpaper(),
+    surfaces: createDefaultSurfaces(),
+    messageWidth: MESSAGE_WIDTH_DEFAULT,
+  };
+}
+
+export function normalizeMessageWidth(value: unknown): number {
+  const n = typeof value === "number" ? value : Number(value);
+  if (!Number.isFinite(n)) return MESSAGE_WIDTH_DEFAULT;
+  return MESSAGE_WIDTH_CHOICES.reduce((best, choice) =>
+    Math.abs(choice - n) < Math.abs(best - n) ? choice : best,
+  );
 }
 
 function clamp01(value: unknown, fallback: number): number {
@@ -100,6 +120,7 @@ function normalizeSurfaces(raw: unknown): SurfaceAlphaSettings {
     input: clamp01(input.input, base.input),
     card: floorAlpha(input.card, base.card),
     settings: floorAlpha(input.settings, base.settings),
+    tool: floorAlpha(input.tool, base.tool),
   };
 }
 
@@ -109,5 +130,6 @@ export function normalizeCustomAppearance(raw: unknown): CustomAppearanceSetting
   return {
     wallpaper: normalizeWallpaper(input.wallpaper),
     surfaces: normalizeSurfaces(input.surfaces),
+    messageWidth: normalizeMessageWidth(input.messageWidth),
   };
 }

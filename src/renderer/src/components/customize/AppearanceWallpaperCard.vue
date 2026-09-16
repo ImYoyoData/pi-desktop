@@ -96,8 +96,6 @@ async function pickWallpaper(): Promise<void> {
           @update:value="appearance.setVeilBlur"
         />
 
-        <div class="controls-divider" />
-
         <AppearanceSliderRow
           :label="t.appearanceSurfaceInput"
           :value="appearance.surfaces.input"
@@ -118,6 +116,14 @@ async function pickWallpaper(): Promise<void> {
           :min="floorPercent"
           :disabled="!isMedia"
           @update:value="(value) => appearance.setSurfaceAlpha('settings', value)"
+        />
+        <AppearanceSliderRow
+          :label="t.appearanceSurfaceTool"
+          :value="appearance.surfaces.tool"
+          :min="floorPercent"
+          :tip="t.appearanceSurfaceToolTip"
+          :disabled="!isMedia"
+          @update:value="(value) => appearance.setSurfaceAlpha('tool', value)"
         />
       </div>
     </div>
@@ -263,11 +269,6 @@ async function pickWallpaper(): Promise<void> {
   flex-direction: column;
   gap: 12px;
   min-width: 0;
-}
-
-.controls-divider {
-  height: 1px;
-  background: var(--border);
 }
 
 @container (max-width: 560px) {

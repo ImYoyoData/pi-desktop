@@ -564,7 +564,7 @@ const todoItems = computed(() =>
   padding: 1px 3px;
   border: 1px solid var(--chat-line, var(--border));
   border-radius: 4px;
-  background: var(--md-inline-code-bg, var(--code-bg));
+  background: var(--w-tool-surface, var(--md-inline-code-bg, var(--code-bg)));
   font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
   font-size: var(--chat-font-xs, 11px);
   color: inherit;
@@ -648,7 +648,7 @@ const todoItems = computed(() =>
   font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
   border: 1px solid var(--chat-line, var(--border));
   border-radius: 6px;
-  background: var(--pre-bg, var(--code-bg));
+  background: var(--w-tool-surface, var(--pre-bg, var(--code-bg)));
   color: var(--fg, inherit);
 }
 
@@ -690,7 +690,7 @@ const todoItems = computed(() =>
   padding: 6px 8px;
   border: 1px solid var(--chat-line, var(--border));
   border-radius: 6px;
-  background: var(--pre-bg, var(--code-bg));
+  background: var(--w-tool-surface, var(--pre-bg, var(--code-bg)));
   display: flex;
   flex-direction: column;
   gap: 4px;
