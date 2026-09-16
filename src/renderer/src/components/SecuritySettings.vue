@@ -48,10 +48,10 @@ const loading = ref(false);
 const saving = ref(false);
 const trustBusy = ref(false);
 
-const modeOptions: { value: SecurityMode; label: string }[] = [
+const modeOptions = computed<{ value: SecurityMode; label: string }[]>(() => [
   { value: "ask", label: t.securityModeAsk },
   { value: "allow", label: t.securityModeAllow },
-];
+]);
 
 const trustStatusLabel = computed(() => {
   if (!workspace.root) return t.securityTrustNoWorkspace;
