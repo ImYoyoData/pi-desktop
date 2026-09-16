@@ -250,7 +250,9 @@ function buildMessagesFromEntries(
   let metaCursor = 0;
   let currentModel: { provider: string; id: string } | null = null;
   let currentThinkingLevel: string | null = null;
-  // 当前轮起点（user 消息发出的时刻）；工具循环内多步 assistant 共用同一起点。
+  // 当前轮起点（user 落盘时刻）；工具循环内多步 assistant 共用同一起点。
+  // 用 entry 落盘时间而非 message.timestamp：后者在不同 SDK 版本里语义不一
+  // （旧会话里会等于 user 时刻），会让历史轮的耗时显示成「0.0s」。
   let turnStartMs: number | null = null;
   for (const id of pathIds) {
     const entry = byId.get(id);
@@ -288,9 +290,9 @@ function buildMessagesFromEntries(
           }
         }
       }
-      const ts = entry.message.timestamp;
-      if (typeof ts === "number" && Number.isFinite(ts) && ts > 0) {
-        turnStartMs = ts;
+      const startMs = Date.parse(entry.timestamp);
+      if (Number.isFinite(startMs) && startMs > 0) {
+        turnStartMs = startMs;
       }
       if (cleanText || hasImages || elementTags) {
         messages.push({
@@ -309,10 +311,11 @@ function buildMessagesFromEntries(
       if (text || thinking) {
         const model = messageModel(entry.message, currentModel);
         const usage = usageFromAgentMessage(entry.message);
-        const ts = entry.message.timestamp;
+        // 轮时长 = 本轮最终回答落盘 - 本轮 user 落盘（含工具调用与等待耗时）。
+        const doneMs = Date.parse(entry.timestamp);
         const durationMs =
-          turnStartMs != null && typeof ts === "number" && Number.isFinite(ts)
-            ? Math.max(0, ts - turnStartMs)
+          turnStartMs != null && Number.isFinite(doneMs)
+            ? Math.max(0, doneMs - turnStartMs)
             : null;
         messages.push({
           id: entry.id,
