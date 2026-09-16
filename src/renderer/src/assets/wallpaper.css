@@ -42,6 +42,8 @@ html[data-theme][data-wallpaper="on"] {
   --bg-panel: transparent;
   --bg-elevated: var(--w-elevated-surface);
   --bg-input: var(--w-input-surface);
+  /* 暗色主题的激活底色是实色，玻璃下换成半透明白，避免实心色块 */
+  --bg-active: rgba(255, 255, 255, 0.16);
   --tool-bg: var(--w-elevated-surface);
   --pre-bg: var(--w-elevated-surface);
   --code-bg: var(--w-elevated-surface);
