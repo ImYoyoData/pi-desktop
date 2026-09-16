@@ -12,6 +12,7 @@ import type {
 	TerminalShellOption,
 } from "../shared/protocol";
 import type { AgentRunEvent, AgentRunSnapshot } from "../shared/agent-runs";
+import type { EditContextMenuAction, EditContextMenuPayload } from "../shared/context-menu";
 import type { AgentSaveResult, CustomizationsSnapshot, CustomizationCreateKind, InstructionsSaveResult, McpTestResult, McpTestTarget, SkillSaveResult } from "../shared/customizations";
 import type {
 	ModelsGetResult,
@@ -128,6 +129,10 @@ declare const api: {
 		setUiLocale: (locale: "zh-CN" | "en") => Promise<void>;
 		requestMediaAccess: (kind: "microphone" | "camera") => Promise<boolean>;
 		openDevTools: () => Promise<void>;
+		onContextMenu: (
+			callback: (payload: EditContextMenuPayload) => void,
+		) => () => void;
+		runContextMenuAction: (action: EditContextMenuAction) => Promise<void>;
 		onCloseRequest: (callback: () => void) => () => void;
 		onMaximized: (callback: () => void) => () => void;
 		onUnmaximized: (callback: () => void) => () => void;
