@@ -185,6 +185,7 @@ export const zh = {
 	customizeGroupProject: "工作区",
 	customizeGroupBuiltin: "PI 内置",
 	customizeGroupDesktop: "Pi Desktop 内置",
+	customizeCurrentWorkspace: "当前工作区",
 	customizeGroupExtension: "扩展",
 	customizeOpen: "打开",
 	customizeEnable: "启用",
