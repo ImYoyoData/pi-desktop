@@ -123,7 +123,7 @@ export const en = {
 	modelsCustomModelsDuplicate: "Duplicate model IDs",
 	customizePrompts: "Prompts",
 	customizePromptsDesc: "Prompt templates invoked as slash commands.",
-	customizeMcp: "MCP Servers",
+	customizeMcp: "MCP",
 	customizeMcpDesc: "Connect external tool servers that extend AI capabilities.",
 	customizePlugins: "Plugins",
 	customizePluginsDesc: "Install and manage pi extension packages.",
