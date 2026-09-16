@@ -1,8 +1,13 @@
 <script setup lang="ts">
+import { computed } from "vue";
+import { NDivider, NSwitch, NText } from "naive-ui";
 import CodiconIcon from "@renderer/components/icons/CodiconIcon.vue";
+import { useAppearanceStore } from "@renderer/stores/appearance";
 import { t } from "@renderer/i18n";
 
 const emit = defineEmits<{ open: [id: string] }>();
+
+const appearance = useAppearanceStore();
 
 const rows = [
   { id: "notify", icon: "notify", label: t.notifyTitle, description: t.customizeNotifyDesc },
@@ -11,6 +16,16 @@ const rows = [
   { id: "proxy", icon: "proxy", label: t.proxyTitle, description: t.customizeProxyDesc },
   { id: "lan", icon: "lan", label: t.lanConsoleTitle, description: t.customizeLanDesc },
 ] as const;
+
+const showCompactButton = computed({
+  get: () => appearance.showCompactButton,
+  set: (value: boolean) => appearance.setShowCompactButton(value),
+});
+
+const truncateToolOutput = computed({
+  get: () => appearance.truncateToolOutput,
+  set: (value: boolean) => appearance.setTruncateToolOutput(value),
+});
 </script>
 
 <template>
@@ -35,6 +50,28 @@ const rows = [
         <span class="item-chevron"><CodiconIcon name="chevronRight" :size="14" /></span>
       </div>
     </button>
+
+    <NDivider style="margin: 14px 0" />
+
+    <div class="general-switch-row">
+      <div class="switch-labels">
+        <NText strong>{{ t.showCompactButton }}</NText>
+        <NText depth="3" style="font-size: 12px; display: block; margin-top: 4px">
+          {{ t.showCompactButtonHint }}
+        </NText>
+      </div>
+      <NSwitch v-model:value="showCompactButton" />
+    </div>
+
+    <div class="general-switch-row">
+      <div class="switch-labels">
+        <NText strong>{{ t.truncateToolOutput }}</NText>
+        <NText depth="3" style="font-size: 12px; display: block; margin-top: 4px">
+          {{ t.truncateToolOutputHint }}
+        </NText>
+      </div>
+      <NSwitch v-model:value="truncateToolOutput" />
+    </div>
   </div>
 </template>
 
@@ -132,6 +169,21 @@ const rows = [
 
 .ai-customization-list-item:hover .item-right {
   opacity: 1;
+}
+
+.general-switch-row {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 16px;
+}
+
+.switch-labels {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
 }
 
 .item-chevron {
