@@ -19,10 +19,6 @@ import {
   type ThinkingLanguage,
 } from "../../../shared/thinking-language";
 import { t } from "@renderer/i18n";
-import {
-  markLocaleReloading,
-  showLocaleReloadSplash,
-} from "@renderer/utils/locale-reload-splash";
 
 /** 外观设置表单；设置模态与智能体设置页共用。 */
 const appearance = useAppearanceStore();
@@ -74,16 +70,11 @@ const themeValue = computed({
   set: (v: ThemePreference) => appearance.setThemePreference(v),
 });
 
+/** 切换语言：原地替换界面文案，不刷页、不显示加载页。 */
 function onLocaleUpdate(v: string | number | null): void {
   if (v !== "system" && v !== "zh-CN" && v !== "en") return;
   if (v === appearance.localePreference) return;
   appearance.setLocalePreference(v as LocalePreference);
-  markLocaleReloading(v);
-  // Paint overlay in the outgoing page so reload never shows a blank window.
-  showLocaleReloadSplash(v);
-  window.setTimeout(() => {
-    window.location.reload();
-  }, 40);
 }
 </script>
 

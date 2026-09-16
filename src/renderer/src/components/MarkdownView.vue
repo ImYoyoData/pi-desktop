@@ -15,7 +15,7 @@ import { mountDotIn } from "@renderer/utils/dot-render";
 import { mountMermaidIn, resetMermaidForTheme } from "@renderer/utils/mermaid-render";
 import { handleAppLinkClick } from "@renderer/utils/open-link";
 import { useAppearanceStore } from "@renderer/stores/appearance";
-import { t } from "@renderer/i18n";
+import { locale, t } from "@renderer/i18n";
 
 const props = defineProps<{
   content: string;
@@ -243,6 +243,12 @@ watch(
     scheduleDiagrams();
   },
 );
+
+watch(locale, () => {
+  // 复制按钮文案烘焙在 HTML 里，切语言后重渲染当前 markdown。
+  setMarkdownCopyLabel(t.copy);
+  renderNow(props.content);
+});
 
 onMounted(() => {
   rootEl.value?.addEventListener("click", onRootClick);

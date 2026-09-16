@@ -1058,16 +1058,6 @@ function isRunning(status: SessionStatus): boolean {
     <div class="sessions-pane">
       <div class="section-head">
         <NText depth="3" style="font-size: 12px; font-weight: 600">{{ t.workspaces }}</NText>
-        <NTooltip>
-          <template #trigger>
-            <NButton quaternary circle size="tiny" @click="onAddWorkspace">
-              <template #icon>
-                <NIcon :component="FolderOpenOutline" :size="14" />
-              </template>
-            </NButton>
-          </template>
-          {{ t.addWorkspace }}
-        </NTooltip>
       </div>
 
       <NScrollbar v-if="workspacePaths.length" class="tree">

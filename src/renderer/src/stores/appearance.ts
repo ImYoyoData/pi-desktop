@@ -1,5 +1,11 @@
 import { defineStore } from "pinia";
 import { computed, ref } from "vue";
+import {
+  applyUiLocale,
+  detectSystemLanguage,
+  resolveUiLocale,
+  type UiLocale,
+} from "@renderer/i18n";
 
 export type ThemePreference = "system" | "light" | "dark";
 export type ResolvedTheme = "light" | "dark";
@@ -85,6 +91,13 @@ export const useAppearanceStore = defineStore("appearance", () => {
     resolveTheme(themePreference.value, systemDark.value),
   );
 
+  /** 当前生效的界面语言（system 偏好跟随系统语言）。 */
+  const resolvedUiLocale = computed<UiLocale>(() =>
+    localePreference.value === "system"
+      ? resolveUiLocale(detectSystemLanguage())
+      : localePreference.value,
+  );
+
   function setThemePreference(next: ThemePreference): void {
     const after = resolveTheme(next, systemDark.value);
     themePreference.value = next;
@@ -104,6 +117,8 @@ export const useAppearanceStore = defineStore("appearance", () => {
     } catch {
       // ignore
     }
+    applyUiLocale(resolvedUiLocale.value);
+    void window.api.window.setUiLocale(resolvedUiLocale.value);
   }
 
   function setShowCompactButton(next: boolean): void {
@@ -150,6 +165,7 @@ export const useAppearanceStore = defineStore("appearance", () => {
   return {
     themePreference,
     localePreference,
+    resolvedUiLocale,
     resolvedTheme,
     showCompactButton,
     truncateToolOutput,
