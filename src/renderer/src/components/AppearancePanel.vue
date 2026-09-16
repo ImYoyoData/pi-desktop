@@ -1,58 +1,21 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from "vue";
+import { computed } from "vue";
 import {
   NRadioGroup,
   NRadioButton,
   NSpace,
   NText,
   NDivider,
-  useMessage,
 } from "naive-ui";
 import {
   useAppearanceStore,
   type LocalePreference,
   type ThemePreference,
 } from "@renderer/stores/appearance";
-import {
-  normalizeThinkingLanguage,
-  type ThinkingLanguage,
-} from "../../../shared/thinking-language";
 import { t } from "@renderer/i18n";
 
 /** 外观设置表单；设置模态与智能体设置页共用。 */
 const appearance = useAppearanceStore();
-const message = useMessage();
-
-/** 思考语言：只影响可见思考文本。 */
-const thinkingLanguage = ref<ThinkingLanguage>("auto");
-const thinkingLanguageSaving = ref(false);
-
-onMounted(() => {
-  void loadThinkingLanguage();
-});
-
-async function loadThinkingLanguage(): Promise<void> {
-  try {
-    const settings = await window.api.thinkingLanguage.get();
-    thinkingLanguage.value = settings.language;
-  } catch {
-    // 读取失败时保留当前值
-  }
-}
-
-async function saveThinkingLanguage(value: string | number): Promise<void> {
-  const language = normalizeThinkingLanguage(value);
-  thinkingLanguage.value = language;
-  thinkingLanguageSaving.value = true;
-  try {
-    const settings = await window.api.thinkingLanguage.set({ language });
-    thinkingLanguage.value = settings.language;
-  } catch (err) {
-    message.error(err instanceof Error ? err.message : String(err));
-  } finally {
-    thinkingLanguageSaving.value = false;
-  }
-}
 
 const themeValue = computed({
   get: () => appearance.themePreference,
@@ -98,27 +61,6 @@ function onLocaleUpdate(v: string | number | null): void {
         <NSpace>
           <NRadioButton value="system">{{ t.themeSystem }}</NRadioButton>
           <NRadioButton value="zh-CN">中文</NRadioButton>
-          <NRadioButton value="en">English</NRadioButton>
-        </NSpace>
-      </NRadioGroup>
-    </div>
-
-    <NDivider style="margin: 18px 0" />
-
-    <div class="section">
-      <NText strong>{{ t.thinkingLanguage }}</NText>
-      <NText depth="3" style="font-size: 12px; display: block; margin: 4px 0 10px">
-        {{ t.thinkingLanguageHint }}
-      </NText>
-      <NRadioGroup
-        :value="thinkingLanguage"
-        size="small"
-        :disabled="thinkingLanguageSaving"
-        @update:value="saveThinkingLanguage"
-      >
-        <NSpace>
-          <NRadioButton value="auto">{{ t.thinkingLanguageAuto }}</NRadioButton>
-          <NRadioButton value="zh">{{ t.thinkingLanguageZh }}</NRadioButton>
           <NRadioButton value="en">English</NRadioButton>
         </NSpace>
       </NRadioGroup>
