@@ -300,6 +300,8 @@ async function ensureEditor(content: string, language: string): Promise<void> {
       value: content,
       language,
       theme: monacoThemeName(dark),
+      // 关闭 shadow DOM，让右键菜单/滚动区域进入文档流，自定义外观的半透明样式才能生效
+      useShadowDOM: false,
       automaticLayout: true,
       fontSize: 12.5,
       fontFamily: 'var(--font-mono), "Cascadia Code", Consolas, monospace',
