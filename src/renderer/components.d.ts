@@ -57,7 +57,6 @@ declare module 'vue' {
     MessageList: typeof import('./src/components/MessageList.vue')['default']
     ModelPickModal: typeof import('./src/components/customize/ModelPickModal.vue')['default']
     NotifySettings: typeof import('./src/components/NotifySettings.vue')['default']
-    NSpin: typeof import('naive-ui')['NSpin']
     PanelBottomIcon: typeof import('./src/components/icons/PanelBottomIcon.vue')['default']
     PanelLeftIcon: typeof import('./src/components/icons/PanelLeftIcon.vue')['default']
     PanelRightIcon: typeof import('./src/components/icons/PanelRightIcon.vue')['default']
