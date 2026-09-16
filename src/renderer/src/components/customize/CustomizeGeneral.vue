@@ -1,57 +1,8 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from "vue";
-import {
-  NDivider,
-  NRadioButton,
-  NRadioGroup,
-  NSpace,
-  NSwitch,
-  NText,
-  useMessage,
-} from "naive-ui";
 import CodiconIcon from "@renderer/components/icons/CodiconIcon.vue";
-import { useAppearanceStore } from "@renderer/stores/appearance";
-import {
-  normalizeThinkingLanguage,
-  type ThinkingLanguage,
-} from "../../../../shared/thinking-language";
 import { t } from "@renderer/i18n";
 
 const emit = defineEmits<{ open: [id: string] }>();
-
-const appearance = useAppearanceStore();
-const message = useMessage();
-
-/** 思考语言：只影响可见思考文本。 */
-const thinkingLanguage = ref<ThinkingLanguage>("auto");
-const thinkingLanguageSaving = ref(false);
-
-onMounted(() => {
-  void loadThinkingLanguage();
-});
-
-async function loadThinkingLanguage(): Promise<void> {
-  try {
-    const settings = await window.api.thinkingLanguage.get();
-    thinkingLanguage.value = settings.language;
-  } catch {
-    // 读取失败时保留当前值
-  }
-}
-
-async function saveThinkingLanguage(value: string | number): Promise<void> {
-  const language = normalizeThinkingLanguage(value);
-  thinkingLanguage.value = language;
-  thinkingLanguageSaving.value = true;
-  try {
-    const settings = await window.api.thinkingLanguage.set({ language });
-    thinkingLanguage.value = settings.language;
-  } catch (err) {
-    message.error(err instanceof Error ? err.message : String(err));
-  } finally {
-    thinkingLanguageSaving.value = false;
-  }
-}
 
 const rows = [
   { id: "notify", icon: "notify", label: t.notifyTitle, description: t.customizeNotifyDesc },
@@ -60,16 +11,6 @@ const rows = [
   { id: "proxy", icon: "proxy", label: t.proxyTitle, description: t.customizeProxyDesc },
   { id: "lan", icon: "lan", label: t.lanConsoleTitle, description: t.customizeLanDesc },
 ] as const;
-
-const showCompactButton = computed({
-  get: () => appearance.showCompactButton,
-  set: (value: boolean) => appearance.setShowCompactButton(value),
-});
-
-const truncateToolOutput = computed({
-  get: () => appearance.truncateToolOutput,
-  set: (value: boolean) => appearance.setTruncateToolOutput(value),
-});
 </script>
 
 <template>
@@ -94,47 +35,6 @@ const truncateToolOutput = computed({
         <span class="item-chevron"><CodiconIcon name="chevronRight" :size="14" /></span>
       </div>
     </button>
-
-    <NDivider style="margin: 14px 0" />
-
-    <div class="general-block">
-      <NText strong>{{ t.thinkingLanguage }}</NText>
-      <NText depth="3" style="font-size: 12px; display: block; margin: 4px 0 10px">
-        {{ t.thinkingLanguageHint }}
-      </NText>
-      <NRadioGroup
-        :value="thinkingLanguage"
-        size="small"
-        :disabled="thinkingLanguageSaving"
-        @update:value="saveThinkingLanguage"
-      >
-        <NSpace>
-          <NRadioButton value="auto">{{ t.thinkingLanguageAuto }}</NRadioButton>
-          <NRadioButton value="zh">{{ t.thinkingLanguageZh }}</NRadioButton>
-          <NRadioButton value="en">English</NRadioButton>
-        </NSpace>
-      </NRadioGroup>
-    </div>
-
-    <div class="general-switch-row">
-      <div class="switch-labels">
-        <NText strong>{{ t.showCompactButton }}</NText>
-        <NText depth="3" style="font-size: 12px; display: block; margin-top: 4px">
-          {{ t.showCompactButtonHint }}
-        </NText>
-      </div>
-      <NSwitch v-model:value="showCompactButton" />
-    </div>
-
-    <div class="general-switch-row">
-      <div class="switch-labels">
-        <NText strong>{{ t.truncateToolOutput }}</NText>
-        <NText depth="3" style="font-size: 12px; display: block; margin-top: 4px">
-          {{ t.truncateToolOutputHint }}
-        </NText>
-      </div>
-      <NSwitch v-model:value="truncateToolOutput" />
-    </div>
   </div>
 </template>
 
@@ -232,28 +132,6 @@ const truncateToolOutput = computed({
 
 .ai-customization-list-item:hover .item-right {
   opacity: 1;
-}
-
-.general-switch-row {
-  display: flex;
-  flex-shrink: 0;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 8px 16px;
-}
-
-.general-block {
-  display: flex;
-  flex-direction: column;
-  flex-shrink: 0;
-  padding: 8px 16px;
-}
-
-.switch-labels {
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
 }
 
 .item-chevron {

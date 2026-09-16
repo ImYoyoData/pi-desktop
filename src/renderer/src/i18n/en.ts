@@ -559,6 +559,7 @@ export const en = {
 	themeLight: "Light",
 	themeDark: "Dark",
 	language: "Language",
+	appearanceInterface: "Interface",
 	voiceInput: "Voice input",
 	voiceListening: "Recording…",
 	voiceRecording: "Voice recording",

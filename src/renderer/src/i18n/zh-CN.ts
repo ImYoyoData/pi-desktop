@@ -539,6 +539,7 @@ export const zh = {
 	themeLight: "亮色",
 	themeDark: "暗色",
 	language: "语言",
+	appearanceInterface: "界面",
 	voiceInput: "语音输入",
 	voiceListening: "正在录音…",
 	voiceRecording: "语音录音",
