@@ -18,3 +18,8 @@ export function agentDir(): string {
   }
   return path.join(homedir(), ".pi", "agent");
 }
+
+/** pi 解析 ~/.agents 等路径时使用的用户主目录。 */
+export function homeDir(): string {
+  return process.env.HOME || homedir();
+}
