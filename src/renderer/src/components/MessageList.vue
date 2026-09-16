@@ -2421,7 +2421,7 @@ function onRevertUser(msg: Extract<ChatMessage, { role: "user" }>): void {
 
 .inner {
   width: 100%;
-  max-width: var(--composer-max, 780px);
+  max-width: var(--pi-message-max, 60%);
   margin: 0 auto;
   padding: 16px 16px;
   display: flex;
@@ -2450,17 +2450,17 @@ function onRevertUser(msg: Extract<ChatMessage, { role: "user" }>): void {
   padding: 7px 14px;
   border: 1px solid color-mix(in srgb, var(--border, #ddd) 80%, transparent);
   border-radius: 999px;
-  background: color-mix(in srgb, var(--bg-panel, var(--bg)) 92%, transparent);
+  background: var(--bg-elevated, #ffffff);
   color: var(--fg, #222);
   font-size: 12px;
   font-weight: 600;
   box-shadow: 0 6px 20px rgba(0, 0, 0, 0.12);
-  backdrop-filter: blur(8px);
+  backdrop-filter: blur(14px) saturate(1.15);
   cursor: pointer;
 }
 
 .jump-latest:hover {
-  background: var(--bg-panel, var(--bg));
+  background: color-mix(in srgb, var(--bg-elevated, #ffffff) 88%, var(--fg, #222) 12%);
 }
 
 .jump-latest-enter-active,

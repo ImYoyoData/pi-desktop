@@ -8,6 +8,7 @@ import {
 } from "@renderer/i18n";
 import {
   VEIL_BLUR_MAX_PX,
+  normalizeMessageWidth,
   createDefaultCustomAppearance,
   normalizeCustomAppearance,
   wallpaperKindForPath,
@@ -76,6 +77,8 @@ function applyCustomAppearance(settings: CustomAppearanceSettings, broken: boole
   root.style.setProperty("--pi-alpha-input", `${percent(surfaces.input)}%`);
   root.style.setProperty("--pi-alpha-card", `${percent(surfaces.card)}%`);
   root.style.setProperty("--pi-alpha-settings", `${percent(surfaces.settings)}%`);
+  root.style.setProperty("--pi-alpha-tool", `${percent(surfaces.tool)}%`);
+  root.style.setProperty("--pi-message-max", `${percent(settings.messageWidth)}%`);
   root.style.setProperty("--pi-veil-opacity", `${percent(wallpaper.veilOpacity)}%`);
   root.style.setProperty(
     "--pi-veil-blur",
@@ -150,6 +153,7 @@ export const useAppearanceStore = defineStore("appearance", () => {
 
   const wallpaper = computed(() => customAppearance.value.wallpaper);
   const surfaces = computed(() => customAppearance.value.surfaces);
+  const messageWidth = computed(() => customAppearance.value.messageWidth);
 
   const resolvedTheme = computed<ResolvedTheme>(() =>
     resolveTheme(themePreference.value, systemDark.value),
@@ -254,6 +258,10 @@ export const useAppearanceStore = defineStore("appearance", () => {
     });
   }
 
+  function setMessageWidth(value: number): void {
+    persistCustom({ ...customAppearance.value, messageWidth: normalizeMessageWidth(value) });
+  }
+
   function syncSystemListener(): () => void {
     const mq = window.matchMedia("(prefers-color-scheme: dark)");
     const onChange = () => {
@@ -287,6 +295,7 @@ export const useAppearanceStore = defineStore("appearance", () => {
     truncateToolOutputLines,
     wallpaper,
     surfaces,
+    messageWidth,
     wallpaperBroken,
     setThemePreference,
     setLocalePreference,
@@ -297,6 +306,7 @@ export const useAppearanceStore = defineStore("appearance", () => {
     setVeilOpacity,
     setVeilBlur,
     setSurfaceAlpha,
+    setMessageWidth,
     setWallpaperBroken,
     init,
   };

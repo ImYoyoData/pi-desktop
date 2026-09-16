@@ -22,6 +22,12 @@ html[data-theme][data-wallpaper="on"] {
     var(--w-solid-input) var(--pi-alpha-input, 20%),
     transparent
   );
+  /* 工具调用卡片（命令、输出、差异块）自带一档透明度 */
+  --w-tool-surface: color-mix(
+    in srgb,
+    var(--w-solid-elevated) var(--pi-alpha-tool, 52%),
+    transparent
+  );
 
   --bg: transparent;
   --bg-title: transparent;
@@ -51,8 +57,7 @@ html[data-theme][data-wallpaper="on"] .stack-above {
   background: transparent;
 }
 
-/* 原本用 --bg-panel 的小元素需要自己的背景 */
-html[data-theme][data-wallpaper="on"] .jump-latest,
+/* 原本用 --bg-panel 的小元素需要自己的背景（“回到最新”已改用 --bg-elevated） */
 html[data-theme][data-wallpaper="on"] .run-row.active,
 html[data-theme][data-wallpaper="on"] .img-chip {
   background: var(--w-elevated-surface);

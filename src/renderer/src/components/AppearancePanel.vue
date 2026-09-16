@@ -20,6 +20,7 @@ import {
   normalizeThinkingLanguage,
   type ThinkingLanguage,
 } from "../../../shared/thinking-language";
+import { MESSAGE_WIDTH_CHOICES } from "../../../shared/appearance";
 import AppearanceWallpaperCard from "@renderer/components/customize/AppearanceWallpaperCard.vue";
 import { t } from "@renderer/i18n";
 
@@ -92,8 +93,19 @@ const truncateOptions = computed(() =>
   })),
 );
 
+const messageWidthOptions = computed(() =>
+  MESSAGE_WIDTH_CHOICES.map((value) => ({
+    label: t.appearanceMessageWidthValue(Math.round(value * 100)),
+    value,
+  })),
+);
+
 function onTruncateChange(value: string | number | null): void {
   if (typeof value === "number") appearance.setTruncateToolOutputLines(value);
+}
+
+function onMessageWidthChange(value: string | number | null): void {
+  if (typeof value === "number") appearance.setMessageWidth(value);
 }
 </script>
 
@@ -172,8 +184,23 @@ function onTruncateChange(value: string | number | null): void {
           :value="appearance.truncateToolOutputLines"
           :options="truncateOptions"
           size="small"
-          class="truncate-select"
+          class="setting-select"
           @update:value="onTruncateChange"
+        />
+      </div>
+
+      <NDivider style="margin: 0" />
+
+      <div class="switch-row">
+        <div class="switch-labels">
+          <NText strong>{{ t.appearanceMessageWidth }}</NText>
+        </div>
+        <NSelect
+          :value="appearance.messageWidth"
+          :options="messageWidthOptions"
+          size="small"
+          class="setting-select"
+          @update:value="onMessageWidthChange"
         />
       </div>
     </template>
@@ -208,7 +235,7 @@ function onTruncateChange(value: string | number | null): void {
   min-width: 0;
 }
 
-.truncate-select {
+.setting-select {
   flex-shrink: 0;
   width: 120px;
 }
