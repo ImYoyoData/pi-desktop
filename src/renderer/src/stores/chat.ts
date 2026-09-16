@@ -803,6 +803,36 @@ export const useChatStore = defineStore("chat", () => {
 		return { ...state, running: false, streamingMessage: null, retryHint: null };
 	}
 
+	/**
+	 * 磁盘历史 + 内存 live 尾部：会话运行中重载 renderer 时事件先于 hydrate 到达，
+	 * live 里只有流式事件、没有历史，直接采用 live 会丢掉整段磁盘历史。
+	 * live 带有磁盘历史锚点时按锚点拼接更新尾部；否则用 live 的当前轮
+	 * （最后一条 user 起）覆盖磁盘历史的尾部，前段历史始终保留。
+	 */
+	function mergeHistoryWithLive(
+		mapped: ChatMessage[],
+		liveMessages: ChatMessage[],
+	): ChatMessage[] {
+		if (!liveMessages.length) return mapped;
+		if (!mapped.length) return liveMessages;
+		const diskTailId = mapped.at(-1)!.id;
+		const anchorIdx = liveMessages.findIndex((m) => m.id === diskTailId);
+		if (anchorIdx >= 0) {
+			// live 由同一份磁盘历史 hydrate 而来：保留对象身份，只追加更新的尾部。
+			if (anchorIdx === liveMessages.length - 1) return liveMessages;
+			return [...mapped, ...liveMessages.slice(anchorIdx + 1)];
+		}
+		const liveUser = liveMessages.findLastIndex((m) => m.role === "user");
+		const liveUserMsg = liveUser >= 0 ? liveMessages[liveUser] : undefined;
+		if (liveUserMsg?.role !== "user") return mapped;
+		const text = liveUserMsg.text;
+		const diskUser = mapped.findLastIndex(
+			(m) => m.role === "user" && m.text === text,
+		);
+		const head = diskUser >= 0 ? mapped.slice(0, diskUser) : mapped;
+		return [...head, ...liveMessages.slice(liveUser)];
+	}
+
 	function hydrateFromHistory(
 		sessionId: string,
 		history: SessionHistoryMessage[],
@@ -811,6 +841,7 @@ export const useChatStore = defineStore("chat", () => {
 		// Restore persisted checkpoint summaries so history keeps its revert
 		// buttons across session switches / restarts.
 		void checkpointStore.loadSessionSummaries(sessionId);
+		const mapped = history.map(mapHistoryRow);
 		const live = bySession[sessionId];
 		if (live && hasLiveTurnState(live)) {
 			// Session already has a live turn in memory (streaming tail / ask_user
@@ -818,10 +849,12 @@ export const useChatStore = defineStore("chat", () => {
 			// lags the live turn, so replacing state would drop the pending prompt
 			// and any un-flushed stream tail; keep it until the turn settles.
 			softHangReported.delete(sessionId);
-			bySession[sessionId] = reconcileRunning(sessionId, live);
+			bySession[sessionId] = reconcileRunning(sessionId, {
+				...live,
+				messages: mergeHistoryWithLive(mapped, live.messages),
+			});
 			return;
 		}
-		const mapped = history.map(mapHistoryRow);
 		// Returning to a session we already hold in memory: when the disk page is
 		// the tail of what's already loaded (user visited before / loaded older
 		// pages), keep the existing array — message objects stay identical so
@@ -1165,6 +1198,19 @@ export const useChatStore = defineStore("chat", () => {
 		return editIdx >= 0 && msgIdx >= editIdx;
 	}
 
+	/** 运行中执行会截断会话的操作前先停下当前轮（abort 内部等 agent 退出）。 */
+	async function stopRunBeforeMutation(
+		sessionId: string,
+		timeoutMs = 10_000,
+	): Promise<void> {
+		if (!stateFor(sessionId).running) return;
+		await abort(sessionId);
+		const deadline = Date.now() + timeoutMs;
+		while (stateFor(sessionId).running && Date.now() < deadline) {
+			await new Promise((resolve) => setTimeout(resolve, 100));
+		}
+	}
+
 	/** Regenerate from an assistant message by re-sending the preceding user prompt. */
 	async function regenerate(
 		sessionId: string,
@@ -1184,10 +1230,12 @@ export const useChatStore = defineStore("chat", () => {
 		if (userIdx < 0) return;
 		const userMsg = state.messages[userIdx];
 		if (userMsg.role !== "user") return;
+		// 运行中重新生成：先停下当前轮，避免两次生成互相抢会话树。
+		await stopRunBeforeMutation(sessionId);
 		setSessionState(
 			sessionId,
 			withRunClock({
-				...state,
+				...stateFor(sessionId),
 				messages: state.messages.slice(0, userIdx),
 				streamingMessage: null,
 				running: false,

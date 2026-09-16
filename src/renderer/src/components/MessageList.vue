@@ -1763,7 +1763,7 @@ function onEditUser(msg: Extract<ChatMessage, { role: "user" }>): void {
  */
 function onRestoreCheckpoint(msg: Extract<ChatMessage, { role: "user" }>): void {
   const id = sessionId.value;
-  if (!id || props.running) return;
+  if (!id) return;
   const d = dialog.warning({
     title: t.restoreCheckpoint,
     content: t.restoreCheckpointConfirm,
@@ -1813,10 +1813,16 @@ function isLatestRound(msg: ChatMessage): boolean {
   return roundUserOf(msg)?.id === latestUserMessageId.value;
 }
 
+/** 历史轮的助手回答在会话运行中也要显示操作栏；当前轮等本轮结束。 */
+function canShowAssistantActions(msg: ChatMessage): boolean {
+  if (msg.role !== "assistant" || msg.streaming || !isFinalAnswer(msg)) return false;
+  return !props.running || !isLatestRound(msg);
+}
+
 /** VS Code Copilot 的 Fork Conversation：把到本轮为止的对话复制成新会话。 */
 async function onForkConversation(msg: Extract<ChatMessage, { role: "user" }>): Promise<void> {
   const id = sessionId.value;
-  if (!id || props.running) return;
+  if (!id) return;
   try {
     const forkedId = await chat.forkConversation(id, msg.id);
     if (!forkedId) {
@@ -1833,7 +1839,7 @@ async function onForkConversation(msg: Extract<ChatMessage, { role: "user" }>): 
 
 async function onRegenerate(msg: Extract<ChatMessage, { role: "assistant" }>): Promise<void> {
   const id = sessionId.value;
-  if (!id || props.running) return;
+  if (!id) return;
   await chat.regenerate(id, msg.id);
 }
 
@@ -2078,7 +2084,7 @@ function onRevertUser(msg: Extract<ChatMessage, { role: "user" }>): void {
               <span v-if="msg.streaming && msg.text" class="cursor" aria-hidden="true" />
             </div>
             <div
-              v-if="!msg.streaming && !running && isFinalAnswer(msg)"
+              v-if="canShowAssistantActions(msg)"
               class="actions"
             >
               <NTooltip>
@@ -2110,7 +2116,12 @@ function onRevertUser(msg: Extract<ChatMessage, { role: "user" }>): void {
               </NTooltip>
               <NTooltip>
                 <template #trigger>
-                  <NButton quaternary circle size="tiny" @click="onRegenerate(msg)">
+                  <NButton
+                    quaternary
+                    circle
+                    size="tiny"
+                    @click="onRegenerate(msg)"
+                  >
                     <template #icon>
                       <NIcon :component="RefreshOutline" />
                     </template>
