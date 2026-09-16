@@ -27,6 +27,10 @@ export interface CustomAppearanceSettings {
   messageWidth: number;
 }
 
+/** 自定义外观设置在 localStorage 的键；v2 起壁纸模式固定为深色玻璃。 */
+export const CUSTOM_APPEARANCE_KEY = "pi-desktop:appearance-custom:v2";
+export const CUSTOM_APPEARANCE_LEGACY_KEY = "pi-desktop:appearance-custom:v1";
+
 /** 卡片与设置页的透明度保底：滑到 0 也不会全透明。 */
 export const SURFACE_ALPHA_FLOOR = 0.2;
 export const VEIL_BLUR_MAX_PX = 40;
@@ -53,7 +57,7 @@ export function createDefaultWallpaper(): WallpaperSettings {
 }
 
 export function createDefaultSurfaces(): SurfaceAlphaSettings {
-  return { input: 0.2, card: 0.52, settings: 0.72, tool: 0.52 };
+  return { input: 0.85, card: 0.3, settings: 0.85, tool: 0.6 };
 }
 
 export function createDefaultCustomAppearance(): CustomAppearanceSettings {
