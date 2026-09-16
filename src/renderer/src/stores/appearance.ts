@@ -7,14 +7,10 @@ import {
   type UiLocale,
 } from "@renderer/i18n";
 import {
-  PRESET_NAME_MAX_LENGTH,
   VEIL_BLUR_MAX_PX,
   createDefaultCustomAppearance,
-  newPresetId,
   normalizeCustomAppearance,
-  normalizeHexColor,
   wallpaperKindForPath,
-  type AppearancePreset,
   type CustomAppearanceSettings,
   type SurfaceAlphaSettings,
   type WallpaperSettings,
@@ -150,12 +146,10 @@ export const useAppearanceStore = defineStore("appearance", () => {
   const showCompactButton = ref(readShowCompactButton());
   const truncateToolOutputLines = ref(readTruncateToolOutputLines());
   const customAppearance = ref<CustomAppearanceSettings>(readCustomAppearance());
-  const activePresetId = ref<string | null>(null);
   const wallpaperBroken = ref(false);
 
   const wallpaper = computed(() => customAppearance.value.wallpaper);
   const surfaces = computed(() => customAppearance.value.surfaces);
-  const presets = computed(() => customAppearance.value.presets);
 
   const resolvedTheme = computed<ResolvedTheme>(() =>
     resolveTheme(themePreference.value, systemDark.value),
@@ -220,15 +214,9 @@ export const useAppearanceStore = defineStore("appearance", () => {
     applyCustomAppearance(next, wallpaperBroken.value);
   }
 
-  /** 手动改外观后当前激活的预设不再等价，取消高亮。 */
-  function commitCustom(next: CustomAppearanceSettings): void {
-    activePresetId.value = null;
-    persistCustom(next);
-  }
-
   function updateWallpaper(patch: Partial<WallpaperSettings>): void {
     if ("kind" in patch || "path" in patch) wallpaperBroken.value = false;
-    commitCustom({
+    persistCustom({
       ...customAppearance.value,
       wallpaper: { ...customAppearance.value.wallpaper, ...patch },
     });
@@ -247,12 +235,6 @@ export const useAppearanceStore = defineStore("appearance", () => {
     updateWallpaper({ kind, path });
   }
 
-  function setWallpaperColor(color: string): void {
-    const hex = normalizeHexColor(color);
-    if (!hex) return;
-    updateWallpaper({ kind: "color", color: hex });
-  }
-
   function clearWallpaper(): void {
     updateWallpaper({ kind: "none", path: "" });
   }
@@ -266,44 +248,9 @@ export const useAppearanceStore = defineStore("appearance", () => {
   }
 
   function setSurfaceAlpha(key: SurfaceAlphaKey, value: number): void {
-    commitCustom({
+    persistCustom({
       ...customAppearance.value,
       surfaces: { ...customAppearance.value.surfaces, [key]: clampAlpha(value) },
-    });
-  }
-
-  function savePreset(name: string): void {
-    const trimmed = name.trim().slice(0, PRESET_NAME_MAX_LENGTH);
-    if (!trimmed) return;
-    const preset: AppearancePreset = {
-      id: newPresetId(),
-      name: trimmed,
-      wallpaper: { ...customAppearance.value.wallpaper },
-      surfaces: { ...customAppearance.value.surfaces },
-    };
-    persistCustom({
-      ...customAppearance.value,
-      presets: [...customAppearance.value.presets, preset],
-    });
-    activePresetId.value = preset.id;
-  }
-
-  function applyPreset(id: string): void {
-    const preset = customAppearance.value.presets.find((item) => item.id === id);
-    if (!preset) return;
-    wallpaperBroken.value = false;
-    persistCustom({
-      ...customAppearance.value,
-      wallpaper: { ...preset.wallpaper },
-      surfaces: { ...preset.surfaces },
-    });
-    activePresetId.value = id;
-  }
-
-  function removePreset(id: string): void {
-    commitCustom({
-      ...customAppearance.value,
-      presets: customAppearance.value.presets.filter((item) => item.id !== id),
     });
   }
 
@@ -340,23 +287,17 @@ export const useAppearanceStore = defineStore("appearance", () => {
     truncateToolOutputLines,
     wallpaper,
     surfaces,
-    presets,
-    activePresetId,
     wallpaperBroken,
     setThemePreference,
     setLocalePreference,
     setShowCompactButton,
     setTruncateToolOutputLines,
     setWallpaperFile,
-    setWallpaperColor,
     clearWallpaper,
     setVeilOpacity,
     setVeilBlur,
     setSurfaceAlpha,
     setWallpaperBroken,
-    savePreset,
-    applyPreset,
-    removePreset,
     init,
   };
 });

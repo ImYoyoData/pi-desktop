@@ -18,33 +18,26 @@ const mediaSrc = computed(() =>
     class="app-wallpaper"
     aria-hidden="true"
   >
-    <div
-      v-if="kind === 'color'"
-      class="app-wallpaper-solid"
-      :style="{ background: appearance.wallpaper.color }"
-    />
-    <template v-else>
-      <div class="app-wallpaper-media">
-        <img
-          v-if="kind === 'image'"
-          :src="mediaSrc"
-          alt=""
-          draggable="false"
-          @error="appearance.setWallpaperBroken(true)"
-        />
-        <video
-          v-else
-          :src="mediaSrc"
-          autoplay
-          loop
-          muted
-          playsinline
-          preload="auto"
-          @error="appearance.setWallpaperBroken(true)"
-        />
-      </div>
-      <div class="app-wallpaper-veil" />
-    </template>
+    <div class="app-wallpaper-media">
+      <img
+        v-if="kind === 'image'"
+        :src="mediaSrc"
+        alt=""
+        draggable="false"
+        @error="appearance.setWallpaperBroken(true)"
+      />
+      <video
+        v-else
+        :src="mediaSrc"
+        autoplay
+        loop
+        muted
+        playsinline
+        preload="auto"
+        @error="appearance.setWallpaperBroken(true)"
+      />
+    </div>
+    <div class="app-wallpaper-veil" />
     <div class="app-wallpaper-ui" />
   </div>
 </template>
@@ -65,12 +58,6 @@ html[data-theme="dark"] .app-wallpaper {
   --pi-wallpaper-ui-color: #121314;
 }
 
-.app-wallpaper-solid {
-  position: absolute;
-  inset: 0;
-}
-
-/* 外扩避免模糊后边缘透出底色 */
 .app-wallpaper-media {
   position: absolute;
   inset: calc(var(--pi-veil-blur, 0px) * -3);
