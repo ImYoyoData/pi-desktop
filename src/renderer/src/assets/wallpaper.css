@@ -46,6 +46,11 @@ html[data-theme][data-wallpaper="on"] .app-shell {
   background: transparent;
 }
 
+/* 输入框上方的待办 / 更改文件列表与聊天区同底，不再叠加抬升表面 */
+html[data-theme][data-wallpaper="on"] .stack-above {
+  background: transparent;
+}
+
 /* 原本用 --bg-panel 的小元素需要自己的背景 */
 html[data-theme][data-wallpaper="on"] .jump-latest,
 html[data-theme][data-wallpaper="on"] .run-row.active,
@@ -84,9 +89,11 @@ html[data-theme][data-wallpaper="on"] .app-context-menu {
   backdrop-filter: blur(14px) saturate(1.15);
 }
 
-/* Monaco 编辑器右键菜单 */
+/* Monaco 编辑器右键菜单与子菜单：背景内联在滚动元素上，需直接覆盖 background-color */
+html[data-theme][data-wallpaper="on"] .monaco-menu-container,
+html[data-theme][data-wallpaper="on"] .monaco-menu-container .monaco-scrollable-element,
 html[data-theme][data-wallpaper="on"] .monaco-menu,
-html[data-theme][data-wallpaper="on"] .monaco-menu .monaco-action-bar.vertical,
+html[data-theme][data-wallpaper="on"] .context-view .monaco-scrollable-element,
 html[data-theme][data-wallpaper="on"] .context-view .monaco-menu {
   background-color: var(--w-elevated-surface) !important;
   --vscode-menu-background: var(--w-elevated-surface) !important;

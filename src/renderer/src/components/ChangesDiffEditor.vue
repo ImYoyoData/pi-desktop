@@ -74,6 +74,8 @@ async function ensureDiffEditor(): Promise<void> {
   if (!diffEditor) {
     diffEditor = monaco.editor.createDiffEditor(host.value, {
       theme: monacoThemeName(dark),
+      // 关闭 shadow DOM，让右键菜单/滚动区域进入文档流，自定义外观的半透明样式才能生效
+      useShadowDOM: false,
       automaticLayout: true,
       readOnly: true,
       renderSideBySide: false,
