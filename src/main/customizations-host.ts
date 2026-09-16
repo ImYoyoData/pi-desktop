@@ -202,6 +202,52 @@ function listAgents(root: string, dir: string, sdk: Sdk): CustomizationItem[] {
 	);
 }
 
+/** 其它最近工作区的智能体文件（只读展示）。 */
+function otherWorkspaceAgents(
+	root: string,
+	workspaces: readonly string[],
+	sdk: Sdk,
+): CustomizationItem[] {
+	const items: CustomizationItem[] = [];
+	const seen = new Set<string>();
+	for (const workspace of workspaces) {
+		const ws = path.resolve(workspace);
+		if (ws.toLowerCase() === path.resolve(root).toLowerCase()) continue;
+		for (const item of readAgentDir(path.join(ws, ".pi", "agents"), "project", sdk)) {
+			const key = path.resolve(item.filePath ?? "").toLowerCase();
+			if (seen.has(key)) continue;
+			seen.add(key);
+			items.push({ ...item, otherWorkspace: true });
+		}
+	}
+	return items;
+}
+
+/** 其它最近工作区的技能文件（只读展示）。 */
+function otherWorkspaceSkillItems(
+	root: string,
+	workspaces: readonly string[],
+	dir: string,
+	loaded: ReadonlySet<string>,
+	sdk: Sdk,
+): CustomizationItem[] {
+	const items: CustomizationItem[] = [];
+	const seen = new Set<string>();
+	for (const workspace of workspaces) {
+		const ws = path.resolve(workspace);
+		if (ws.toLowerCase() === path.resolve(root).toLowerCase()) continue;
+		for (const entry of scanUnloadedSkills(ws, dir, loaded)) {
+			if (entry.scope !== "project") continue;
+			const key = path.resolve(entry.filePath).toLowerCase();
+			if (seen.has(key)) continue;
+			seen.add(key);
+			const item = unloadedSkillItem(entry.filePath, entry.scope, sdk);
+			if (item) items.push({ ...item, otherWorkspace: true });
+		}
+	}
+	return items;
+}
+
 function describeMcp(entry: unknown): string {
 	if (!entry || typeof entry !== "object") return "";
 	const record = entry as { command?: unknown; args?: unknown; url?: unknown };
@@ -539,22 +585,30 @@ export async function listCustomizations(
 	const loadedInstructionPaths = new Set(
 		agentsFiles.map((file) => path.resolve(file.path).toLowerCase()),
 	);
+	const markCurrent = (item: CustomizationItem): CustomizationItem =>
+		item.filePath && isPathInsideRoot(root, item.filePath) ? { ...item, current: true } : item;
 
 	return {
 		root,
-		agents: listAgents(root, dir, sdk),
-			skills: [
-			...skills.skills.map((skill) => ({
-				id: skill.filePath,
-				name: skill.name,
-				description: skill.filePath,
-				filePath: skill.filePath,
-				scope: scopeOf(skill.sourceInfo),
-				source: packageSource(skill.sourceInfo),
-				enabled: !skill.disableModelInvocation,
-				warning: skillWarningOf(skill.name, skill.description),
-			})),
-			...unloadedSkills,
+		agents: [
+			...listAgents(root, dir, sdk).map(markCurrent),
+			...otherWorkspaceAgents(root, workspaces, sdk),
+		],
+		skills: [
+			...skills.skills
+				.map((skill) => ({
+					id: skill.filePath,
+					name: skill.name,
+					description: skill.filePath,
+					filePath: skill.filePath,
+					scope: scopeOf(skill.sourceInfo),
+					source: packageSource(skill.sourceInfo),
+					enabled: !skill.disableModelInvocation,
+					warning: skillWarningOf(skill.name, skill.description),
+				}))
+				.map(markCurrent),
+			...unloadedSkills.map(markCurrent),
+			...otherWorkspaceSkillItems(root, workspaces, dir, loadedSkillPaths, sdk),
 		],
 		instructions: [
 			...agentsFiles.map((file): CustomizationItem => {
@@ -566,6 +620,7 @@ export async function listCustomizations(
 					filePath: file.path,
 					scope: isUser ? "user" : "project",
 					removable: isUser || isWorkspaceRootFile(file.path, workspaces),
+					current: isWorkspaceRootFile(file.path, [root]),
 				};
 			}),
 			...workspaceInstructionItems(workspaces, loadedInstructionPaths),

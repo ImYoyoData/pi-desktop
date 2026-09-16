@@ -278,9 +278,13 @@ function isEditableItem(item: CustomizationItem): boolean {
 }
 
 function canToggle(item: CustomizationItem): boolean {
-  if (props.kind === "skills") return Boolean(item.filePath) && item.enabled !== undefined;
+  if (props.kind === "skills") {
+    return Boolean(item.filePath) && item.enabled !== undefined && !item.otherWorkspace;
+  }
   if (props.kind === "mcp") return item.enabled !== undefined;
-  if (props.kind === "agents" || props.kind === "prompts") return isEditableItem(item);
+  if (props.kind === "agents" || props.kind === "prompts") {
+    return isEditableItem(item) && !item.otherWorkspace;
+  }
   return props.kind === "plugins" && Boolean(item.source);
 }
 
@@ -485,9 +489,11 @@ function skillWarning(item: CustomizationItem): { text: string; hint: string } |
 }
 
 function canRemove(item: CustomizationItem): boolean {
-  if (props.kind === "skills") return Boolean(item.filePath);
+  if (props.kind === "skills") return Boolean(item.filePath) && !item.otherWorkspace;
   if (props.kind === "mcp") return true;
-  if (props.kind === "agents" || props.kind === "prompts") return isEditableItem(item);
+  if (props.kind === "agents" || props.kind === "prompts") {
+    return isEditableItem(item) && !item.otherWorkspace;
+  }
   if (props.kind === "instructions") return item.removable === true;
   return props.kind === "plugins" && Boolean(item.source);
 }
@@ -716,6 +722,9 @@ function onCtxSelect(key: string | number): void {
               <div class="item-text">
                 <div class="item-name-row">
                   <span class="item-name">{{ item.name }}</span>
+                  <span v-if="item.current" class="inline-badge item-badge">
+                    {{ t.customizeCurrentWorkspace }}
+                  </span>
                   <span v-if="progressOf(item)" class="inline-badge progress-badge">
                     {{ progressLabelOf(item) }}
                   </span>

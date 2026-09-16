@@ -19,6 +19,10 @@ export type CustomizationItem = {
 	warning?: SkillWarningCode;
 	/** 允许在设置页删除（全局或工作区根目录下的指令文件） */
 	removable?: boolean;
+	/** 是否属于当前打开的工作区 */
+	current?: boolean;
+	/** 是否属于其它最近工作区（只读展示） */
+	otherWorkspace?: boolean;
 };
 
 /** 技能不符合 pi 规范的常见问题。 */
