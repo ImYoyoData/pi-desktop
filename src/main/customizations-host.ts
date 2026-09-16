@@ -4,8 +4,11 @@ import { agentDir } from "./agent-dir";
 import { isPathInsideRoot } from "../shared/path-sandbox";
 import { resolveTrustState } from "./project-trust";
 import { listPlugins } from "./plugins-host";
+import { scanUnloadedSkills, type LocalSkillScope } from "./skill-scan";
+import { SKILL_NAME_PATTERN, skillWarningOf } from "./skill-validate";
 import type {
 	CustomizationCreateKind,
+	CustomizationCreateOptions,
 	CustomizationHook,
 	CustomizationItem,
 	CustomizationScope,
@@ -383,6 +386,45 @@ async function listPluginItems(root: string): Promise<CustomizationItem[]> {
 	}));
 }
 
+/** 未被 pi 加载的本地技能条目：名称与描述按 frontmatter、正文回退，保证设置页可见可编辑。 */
+function unloadedSkillItem(
+	filePath: string,
+	scope: LocalSkillScope,
+	sdk: Sdk,
+): CustomizationItem | null {
+	let content: string;
+	try {
+		content = fs.readFileSync(filePath, "utf8");
+	} catch {
+		return null;
+	}
+	let frontmatter: Record<string, unknown> = {};
+	try {
+		frontmatter = sdk.parseFrontmatter<Record<string, unknown>>(content).frontmatter ?? {};
+	} catch {
+		// YAML 解析失败时按无 frontmatter 处理
+	}
+	const isDeclared = path.basename(filePath).toLowerCase() === "skill.md";
+	const rawName = frontmatter.name;
+	const rawDescription = frontmatter.description;
+	const description = typeof rawDescription === "string" ? rawDescription.trim() : "";
+	// pi 对非 SKILL.md 文件要求 description，否则不会当作技能
+	if (!isDeclared && !description) return null;
+	const fallback = isDeclared
+		? path.basename(path.dirname(filePath))
+		: path.basename(filePath, path.extname(filePath));
+	const name = typeof rawName === "string" && rawName.trim() ? rawName.trim() : fallback;
+	return {
+		id: filePath,
+		name,
+		description: description || firstLine(content),
+		filePath,
+		scope,
+		enabled: frontmatter["disable-model-invocation"] !== true,
+		warning: skillWarningOf(name, description),
+	};
+}
+
 export async function listCustomizations(root: string): Promise<CustomizationsSnapshot> {
 	const sdk = await import("@earendil-works/pi-coding-agent");
 	const dir = sdk.getAgentDir();
@@ -398,18 +440,29 @@ export async function listCustomizations(root: string): Promise<CustomizationsSn
 	const agentsFiles = loader.getAgentsFiles().agentsFiles;
 	const extensionList: ExtensionLike[] = extensions.extensions;
 
+	const loadedSkillPaths = new Set(
+		skills.skills.map((skill) => path.resolve(skill.filePath).toLowerCase()),
+	);
+	const unloadedSkills = scanUnloadedSkills(root, dir, loadedSkillPaths)
+		.map((entry) => unloadedSkillItem(entry.filePath, entry.scope, sdk))
+		.filter((item): item is CustomizationItem => item !== null);
+
 	return {
 		root,
 		agents: listAgents(root, dir, sdk),
-		skills: skills.skills.map((skill) => ({
-			id: skill.filePath,
-			name: skill.name,
-			description: skill.description,
-			filePath: skill.filePath,
-			scope: scopeOf(skill.sourceInfo),
-			source: packageSource(skill.sourceInfo),
-			enabled: !skill.disableModelInvocation,
-		})),
+			skills: [
+			...skills.skills.map((skill) => ({
+				id: skill.filePath,
+				name: skill.name,
+				description: skill.description,
+				filePath: skill.filePath,
+				scope: scopeOf(skill.sourceInfo),
+				source: packageSource(skill.sourceInfo),
+				enabled: !skill.disableModelInvocation,
+				warning: skillWarningOf(skill.name, skill.description),
+			})),
+			...unloadedSkills,
+		],
 		instructions: agentsFiles.map((file) => ({
 			id: file.path,
 			name: path.basename(file.path),
@@ -441,14 +494,10 @@ type CreateTemplate = {
 };
 
 /** 新建定制项的用户级目录（对应 pi 的 agentDir 约定），文件内容留空由用户填写。 */
-const CREATE_TEMPLATES: Record<CustomizationCreateKind, CreateTemplate> = {
+const CREATE_TEMPLATES: Record<Exclude<CustomizationCreateKind, "skills">, CreateTemplate> = {
 	agents: {
 		base: "new-agent",
 		relative: (name) => path.join("agents", `${name}.md`),
-	},
-	skills: {
-		base: "new-skill",
-		relative: (name) => path.join("skills", name, "SKILL.md"),
 	},
 	instructions: {
 		base: "AGENTS",
@@ -469,8 +518,43 @@ function availableName(base: string, exists: (name: string) => boolean): string 
 	throw new Error(`No available name for ${base}`);
 }
 
-/** 在用户目录创建空文件，返回供编辑器打开的路径。 */
-export function createCustomization(kind: CustomizationCreateKind): { filePath: string } {
+/** 技能根目录：用户级 ~/.pi/agent/skills，工作区级 <workspace>/.pi/skills。 */
+function skillRoot(scope: "user" | "project", workspace?: string): string {
+	if (scope === "project") {
+		const root = workspace?.trim();
+		if (!root) throw new Error("workspace required");
+		return path.join(root, ".pi", "skills");
+	}
+	return path.join(agentDir(), "skills");
+}
+
+/**
+ * 新建技能目录：写入带 name/description 的 SKILL.md。
+ * description 是 pi 加载技能的必需字段，留空时回退为名称，避免新技能不出现在列表中。
+ */
+function createSkill(options: CustomizationCreateOptions): { filePath: string } {
+	const name = (options.name ?? "").trim();
+	if (name.length > 64 || !SKILL_NAME_PATTERN.test(name)) {
+		throw new Error(`Invalid skill name: ${name}`);
+	}
+	const filePath = path.join(skillRoot(options.scope ?? "user", options.workspace), name, "SKILL.md");
+	if (fs.existsSync(filePath)) throw new Error(`Skill already exists: ${name}`);
+	const description = (options.description ?? "").trim() || name;
+	fs.mkdirSync(path.dirname(filePath), { recursive: true });
+	fs.writeFileSync(
+		filePath,
+		`---\nname: ${name}\ndescription: ${JSON.stringify(description)}\n---\n\n# ${name}\n`,
+		"utf8",
+	);
+	return { filePath };
+}
+
+/** 在用户目录创建空文件（技能走 createSkill），返回供编辑器打开的路径。 */
+export function createCustomization(
+	kind: CustomizationCreateKind,
+	options: CustomizationCreateOptions = {},
+): { filePath: string } {
+	if (kind === "skills") return createSkill(options);
 	const dir = agentDir();
 	const template = CREATE_TEMPLATES[kind];
 	if (kind === "instructions") {

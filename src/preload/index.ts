@@ -17,7 +17,7 @@ import type {
 } from "../shared/protocol";
 import { IpcChannels } from "../shared/protocol";
 import type { AgentRunEvent, AgentRunSnapshot } from "../shared/agent-runs";
-import type { CustomizationsSnapshot, CustomizationCreateKind, McpTestResult, McpTestTarget } from "../shared/customizations";
+import type { CustomizationsSnapshot, CustomizationCreateKind, CustomizationCreateOptions, McpTestResult, McpTestTarget } from "../shared/customizations";
 import type {
 	ModelsGetResult,
 	ModelsOAuthEventPayload,
@@ -716,8 +716,8 @@ const api = {
 				IpcChannels.customizations.list,
 				cwd,
 			) as Promise<CustomizationsSnapshot>,
-		create: (kind: CustomizationCreateKind) =>
-			ipcRenderer.invoke(IpcChannels.customizations.create, kind) as Promise<{
+		create: (kind: CustomizationCreateKind, options?: CustomizationCreateOptions) =>
+			ipcRenderer.invoke(IpcChannels.customizations.create, kind, options) as Promise<{
 				filePath: string;
 			}>,
 		setMcpEnabled: (name: string, scope: "user" | "project", enabled: boolean, cwd?: string) =>

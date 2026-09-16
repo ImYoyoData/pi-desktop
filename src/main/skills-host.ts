@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import { homeDir } from "./agent-dir";
 import { isPathInsideRoot } from "../shared/path-sandbox";
 import { resolveTrustState } from "./project-trust";
 
@@ -68,16 +69,15 @@ export async function uninstallSkill(filePath: string, cwd?: string): Promise<vo
   const skillDir = path.resolve(path.dirname(filePath));
   const { getAgentDir } = await import("@earendil-works/pi-coding-agent");
   const agentSkills = path.resolve(getAgentDir(), "skills");
+  const userAgentsSkills = path.resolve(homeDir(), ".agents", "skills");
   const projectSkills = cwd ? path.resolve(cwd, ".pi", "skills") : null;
-  const allowed =
-    isPathInsideRoot(agentSkills, skillDir) ||
-    (projectSkills !== null && isPathInsideRoot(projectSkills, skillDir));
-  if (!allowed) {
+  const roots = [agentSkills, userAgentsSkills, ...(projectSkills ? [projectSkills] : [])];
+  if (!roots.some((base) => isPathInsideRoot(base, skillDir))) {
     throw new Error(
-      "Can only uninstall skills under ~/.pi/agent/skills or project .pi/skills (remove package skills from Extensions)",
+      "Can only uninstall skills under ~/.pi/agent/skills, ~/.agents/skills or project .pi/skills (remove package skills from Extensions)",
     );
   }
-  if (skillDir === agentSkills || (projectSkills && skillDir === projectSkills)) {
+  if (roots.includes(skillDir)) {
     throw new Error("Refusing to delete the skills root directory");
   }
   fs.rmSync(skillDir, { recursive: true, force: false });

@@ -25,6 +25,27 @@ export const en = {
 	customizeNewSkill: "New Skill",
 	customizeNewInstructions: "New Instructions",
 	customizeNewPrompt: "New Prompt",
+	customizeSkillAddTitle: "New Skill",
+	customizeSkillAddSubtitle:
+		"Enter a skill name and choose a scope; you can refine it in the editor after saving.",
+	customizeSkillName: "Name",
+	customizeSkillNameExample: "e.g. code-review",
+	customizeSkillNameHint: "Lowercase letters, digits and hyphens only",
+	customizeSkillNameRequired: "Skill name is required",
+	customizeSkillNameInvalid: "Use lowercase letters, digits and hyphens only (e.g. code-review)",
+	customizeSkillDescription: "Description",
+	customizeSkillDescriptionExample:
+		"What the skill does and when to use it; defaults to the name when empty",
+	customizeSkillScope: "Scope",
+	customizeSkillSave: "Create",
+	customizeSkillIssueMissingDescription: "Missing description",
+	customizeSkillIssueMissingDescriptionHint:
+		"No description field, so pi will not load this skill",
+	customizeSkillIssueInvalidName: "Invalid name",
+	customizeSkillIssueInvalidNameHint:
+		"Name must use lowercase letters, digits and hyphens only (e.g. cpp-solution-compilation)",
+	customizeSkillIssueLongDescription: "Description too long",
+	customizeSkillIssueLongDescriptionHint: "description exceeds 1024 characters",
 	customizeGroupUserHint: "User level: ~/.pi/agent",
 	customizeGroupProjectHint: "Workspace level: .pi",
 	customizeGroupBuiltinHint: "Provided by pi",
