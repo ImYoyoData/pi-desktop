@@ -136,7 +136,7 @@ const draftLocation = computed(() => {
   if (draft.scope === "project" && draft.workspace) {
     const sep = draft.workspace.includes("\\") ? "\\" : "/";
     const base = `${draft.workspace}${sep}.pi`;
-    if (draft.draftKind === "instructions") return `${base}${sep}AGENTS.md`;
+    if (draft.draftKind === "instructions") return `${draft.workspace}${sep}AGENTS.md`;
     if (draft.draftKind === "agents") {
       const name = editorName.value.trim() || "new-agent";
       return `${base}${sep}agents${sep}${name}.md`;
@@ -251,7 +251,7 @@ function onEditorNameInput(value: string): void {
   const editor = editorRef.value;
   if (!editor) return;
   const content = editor.getContent();
-  const updated = content.replace(/^(name:\s*).*$/m, `$1${value}`);
+  const updated = content.replace(/^(name:[ \t]*).*$/m, `$1${value}`);
   if (updated !== content) editor.setContent(updated);
 }
 
@@ -597,7 +597,7 @@ watch(
 watch(
   () => props.visible,
   (value) => {
-    if (value) void store.load();
+    if (value) void store.load(true);
     else modal.value = null;
   },
 );
@@ -610,7 +610,7 @@ watch(
 );
 
 onMounted(() => {
-  if (props.visible) void store.load();
+  if (props.visible) void store.load(true);
 });
 
 onUnmounted(() => {

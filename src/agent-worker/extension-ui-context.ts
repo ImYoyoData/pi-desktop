@@ -15,6 +15,13 @@ import { rpcToMain } from "./main-rpc";
 /** Same global key the package uses for its Theme singleton (not in public exports). */
 const THEME_KEY = Symbol.for("@earendil-works/pi-coding-agent:theme");
 
+/** 资源热重载时扩展会重跑 session_start，这个阶段的 info 提示属于重复噪音。 */
+let muteInfoNotifications = false;
+
+export function setExtensionInfoNotificationsMuted(muted: boolean): void {
+  muteInfoNotifications = muted;
+}
+
 function ensureTheme(): Theme {
   const existing = (globalThis as Record<PropertyKey, unknown>)[THEME_KEY];
   if (existing instanceof Theme) return existing;
@@ -110,9 +117,11 @@ export function createDesktopExtensionUIContext(): ExtensionUIContext {
       return typeof result === "string" ? result : undefined;
     },
     notify: (message, type) => {
+      const notifyType = type ?? "info";
+      if (muteInfoNotifications && notifyType === "info") return;
       fireAndForget("notify", {
         message,
-        notifyType: type ?? "info",
+        notifyType,
       });
     },
     setStatus: (key, text) => {

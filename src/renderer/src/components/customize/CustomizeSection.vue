@@ -488,12 +488,19 @@ function canRemove(item: CustomizationItem): boolean {
   if (props.kind === "skills") return Boolean(item.filePath);
   if (props.kind === "mcp") return true;
   if (props.kind === "agents" || props.kind === "prompts") return isEditableItem(item);
+  if (props.kind === "instructions") return item.removable === true;
   return props.kind === "plugins" && Boolean(item.source);
 }
 
 function removeLabel(): string {
   if (props.kind === "mcp") return t.customizeMcpRemove;
-  if (props.kind === "agents" || props.kind === "prompts") return t.customizeDelete;
+  if (
+    props.kind === "agents" ||
+    props.kind === "prompts" ||
+    props.kind === "instructions"
+  ) {
+    return t.customizeDelete;
+  }
   return props.kind === "plugins" ? t.customizeUninstallPlugin : t.customizeUninstall;
 }
 
@@ -503,9 +510,11 @@ function confirmRemove(item: CustomizationItem): void {
     content:
       props.kind === "mcp"
         ? t.customizeMcpRemoveConfirm(item.name)
-        : props.kind === "agents" || props.kind === "prompts"
-          ? t.customizeDeleteConfirm(item.name)
-          : t.customizeUninstallConfirm(item.name),
+        : props.kind === "instructions"
+          ? t.customizeDeleteConfirm(item.description || item.name)
+          : props.kind === "agents" || props.kind === "prompts"
+            ? t.customizeDeleteConfirm(item.name)
+            : t.customizeUninstallConfirm(item.name),
     positiveText: removeLabel(),
     negativeText: t.cancel,
     onPositiveClick: async () => {
@@ -521,6 +530,11 @@ function confirmRemove(item: CustomizationItem): void {
           );
           store.removeFileItem(props.kind, item.id);
           return;
+        } else if (props.kind === "instructions" && item.filePath) {
+          await window.api.customizations.removeItem(
+            item.filePath,
+            workspace.root ?? undefined,
+          );
         } else if (props.kind === "plugins" && item.source) {
           await window.api.plugins.remove(
             item.source,

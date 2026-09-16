@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { agentDir } from "./agent-dir";
+import { frontmatterText } from "./frontmatter";
 import { isPathInsideRoot } from "../shared/path-sandbox";
 import { resolveTrustState } from "./project-trust";
 import { listPlugins } from "./plugins-host";
@@ -134,14 +135,8 @@ function readAgentDir(directory: string, scope: CustomizationScope, sdk: Sdk): C
 			const { frontmatter } = sdk.parseFrontmatter<Record<string, unknown>>(content);
 			return {
 				id: filePath,
-				name:
-					typeof frontmatter.name === "string" && frontmatter.name.trim()
-						? frontmatter.name
-						: baseNameWithoutExtension(name),
-				description:
-					typeof frontmatter.description === "string"
-						? frontmatter.description
-						: firstLine(content),
+				name: frontmatterText(frontmatter.name) || baseNameWithoutExtension(name),
+				description: filePath,
 				filePath,
 				scope,
 				detail: formatTools(frontmatter.tools),
@@ -167,10 +162,7 @@ function readDisabledPromptDir(
 			return {
 				id: filePath,
 				name: baseNameWithoutExtension(name),
-				description:
-					typeof frontmatter.description === "string"
-						? frontmatter.description
-						: firstLine(content),
+				description: frontmatterText(frontmatter.description) || firstLine(content),
 				filePath,
 				scope,
 				detail:
@@ -429,19 +421,17 @@ function unloadedSkillItem(
 		// YAML 解析失败时按无 frontmatter 处理
 	}
 	const isDeclared = path.basename(filePath).toLowerCase() === "skill.md";
-	const rawName = frontmatter.name;
-	const rawDescription = frontmatter.description;
-	const description = typeof rawDescription === "string" ? rawDescription.trim() : "";
+	const description = frontmatterText(frontmatter.description);
 	// pi 对非 SKILL.md 文件要求 description，否则不会当作技能
 	if (!isDeclared && !description) return null;
 	const fallback = isDeclared
 		? path.basename(path.dirname(filePath))
 		: path.basename(filePath, path.extname(filePath));
-	const name = typeof rawName === "string" && rawName.trim() ? rawName.trim() : fallback;
+	const name = frontmatterText(frontmatter.name) || fallback;
 	return {
 		id: filePath,
 		name,
-		description: description || firstLine(content),
+		description: filePath,
 		filePath,
 		scope,
 		enabled: frontmatter["disable-model-invocation"] !== true,
@@ -449,7 +439,83 @@ function unloadedSkillItem(
 	};
 }
 
-export async function listCustomizations(root: string): Promise<CustomizationsSnapshot> {
+/** pi 查找工作区指令文件的候选名与优先级。 */
+const CONTEXT_FILE_NAMES = ["AGENTS.override.md", "AGENTS.md", "AGENTS.MD", "CLAUDE.md", "CLAUDE.MD"];
+
+function contextFilePath(dir: string): string | null {
+	for (const name of CONTEXT_FILE_NAMES) {
+		const filePath = path.join(dir, name);
+		try {
+			if (fs.statSync(filePath).isFile()) return filePath;
+		} catch {
+			// 文件不存在时继续尝试下一个候选名
+		}
+	}
+	return null;
+}
+
+function isInstructionFile(filePath: string): boolean {
+	const name = path.basename(filePath).toLowerCase();
+	return CONTEXT_FILE_NAMES.some((candidate) => candidate.toLowerCase() === name);
+}
+
+/** 删除时仅允许全局 agentDir 或已知工作区根目录下的指令文件。 */
+function removableInstructionPath(
+	filePath: string,
+	root: string | undefined,
+	workspaces: readonly string[],
+): string | null {
+	if (!isInstructionFile(filePath)) return null;
+	const target = path.resolve(filePath);
+	const dir = path.dirname(target).toLowerCase();
+	const bases = [
+		path.resolve(agentDir()),
+		...(root ? [path.resolve(root)] : []),
+		...workspaces.map((entry) => path.resolve(entry)),
+	];
+	return bases.some((base) => base.toLowerCase() === dir) ? target : null;
+}
+
+function isWorkspaceRootFile(filePath: string, workspaces: readonly string[]): boolean {
+	const dir = path.dirname(path.resolve(filePath)).toLowerCase();
+	return workspaces.some((entry) => path.resolve(entry).toLowerCase() === dir);
+}
+
+/** 工作区条目用所在目录名做标题，盘根等无名情况回退到完整路径。 */
+function workspaceTitle(filePath: string): string {
+	const dir = path.dirname(path.resolve(filePath));
+	return path.basename(dir) || dir;
+}
+
+/** 其它最近工作区里的指令文件；skipPaths 用于跳过 pi 已加载的文件。 */
+function workspaceInstructionItems(
+	workspaces: readonly string[],
+	skipPaths: ReadonlySet<string>,
+): CustomizationItem[] {
+	const items: CustomizationItem[] = [];
+	const seen = new Set(skipPaths);
+	for (const workspace of workspaces) {
+		const filePath = contextFilePath(path.resolve(workspace));
+		if (!filePath) continue;
+		const key = path.resolve(filePath).toLowerCase();
+		if (seen.has(key)) continue;
+		seen.add(key);
+		items.push({
+			id: filePath,
+			name: workspaceTitle(filePath),
+			description: filePath,
+			filePath,
+			scope: "project",
+			removable: true,
+		});
+	}
+	return items;
+}
+
+export async function listCustomizations(
+	root: string,
+	workspaces: readonly string[] = [],
+): Promise<CustomizationsSnapshot> {
 	const sdk = await import("@earendil-works/pi-coding-agent");
 	const dir = sdk.getAgentDir();
 	const settingsManager = sdk.SettingsManager.create(root, dir, {
@@ -470,6 +536,9 @@ export async function listCustomizations(root: string): Promise<CustomizationsSn
 	const unloadedSkills = scanUnloadedSkills(root, dir, loadedSkillPaths)
 		.map((entry) => unloadedSkillItem(entry.filePath, entry.scope, sdk))
 		.filter((item): item is CustomizationItem => item !== null);
+	const loadedInstructionPaths = new Set(
+		agentsFiles.map((file) => path.resolve(file.path).toLowerCase()),
+	);
 
 	return {
 		root,
@@ -478,7 +547,7 @@ export async function listCustomizations(root: string): Promise<CustomizationsSn
 			...skills.skills.map((skill) => ({
 				id: skill.filePath,
 				name: skill.name,
-				description: skill.description,
+				description: skill.filePath,
 				filePath: skill.filePath,
 				scope: scopeOf(skill.sourceInfo),
 				source: packageSource(skill.sourceInfo),
@@ -487,15 +556,20 @@ export async function listCustomizations(root: string): Promise<CustomizationsSn
 			})),
 			...unloadedSkills,
 		],
-		instructions: agentsFiles.map((file) => ({
-			id: file.path,
-			name: path.basename(file.path),
-			description: firstLine(file.content),
-			filePath: file.path,
-			scope: path.resolve(file.path).toLowerCase().startsWith(path.resolve(root).toLowerCase())
-				? "project"
-				: "user",
-		})),
+		instructions: [
+			...agentsFiles.map((file): CustomizationItem => {
+				const isUser = isPathInsideRoot(dir, file.path);
+				return {
+					id: file.path,
+					name: isUser ? path.basename(file.path) : workspaceTitle(file.path),
+					description: file.path,
+					filePath: file.path,
+					scope: isUser ? "user" : "project",
+					removable: isUser || isWorkspaceRootFile(file.path, workspaces),
+				};
+			}),
+			...workspaceInstructionItems(workspaces, loadedInstructionPaths),
+		],
 		prompts: listPrompts(root, dir, sdk, prompts.prompts),
 		hooks: [],
 		mcp: [
@@ -602,7 +676,18 @@ export function setCustomizationItemEnabled(
 }
 
 /** 删除定制文件（已禁用的文件同样可删）。 */
-export function removeCustomizationItem(filePath: string, root?: string): { filePath: string } {
+export function removeCustomizationItem(
+	filePath: string,
+	root?: string,
+	workspaces: readonly string[] = [],
+): { filePath: string } {
+	if (isInstructionFile(filePath)) {
+		const target = removableInstructionPath(filePath, root, workspaces);
+		if (!target) throw new Error(`Instruction file cannot be removed: ${filePath}`);
+		if (!fs.existsSync(target)) throw new Error(`File not found: ${filePath}`);
+		fs.rmSync(target, { force: false });
+		return { filePath: target };
+	}
 	const target = resolveEditableFile(filePath, root);
 	fs.rmSync(target, { force: false });
 	return { filePath: target };
