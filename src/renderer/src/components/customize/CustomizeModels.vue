@@ -725,22 +725,24 @@ async function testModel(rowKey: string, modelId: string): Promise<void> {
                       :placeholder="t.modelsCustomMaxTokens"
                       @update:value="(value: number | null) => setModelNumber(model, 'maxTokens', value)"
                     />
-                    <label class="cap-toggle">
-                      <NSwitch
-                        size="small"
-                        :value="model.reasoning"
-                        @update:value="(value: boolean) => (model.reasoning = value)"
-                      />
-                      <span>{{ t.modelsCustomReasoning }}</span>
-                    </label>
-                    <label class="cap-toggle">
-                      <NSwitch
-                        size="small"
-                        :value="model.vision === true"
-                        @update:value="(value: boolean) => (model.vision = value)"
-                      />
-                      <span>{{ t.modelsCustomVision }}</span>
-                    </label>
+                    <button
+                      type="button"
+                      class="cap-button"
+                      :class="{ checked: model.reasoning }"
+                      :aria-pressed="model.reasoning === true"
+                      @click="model.reasoning = !model.reasoning"
+                    >
+                      {{ t.modelsCustomReasoning }}
+                    </button>
+                    <button
+                      type="button"
+                      class="cap-button"
+                      :class="{ checked: model.vision === true }"
+                      :aria-pressed="model.vision === true"
+                      @click="model.vision = model.vision !== true"
+                    >
+                      {{ t.modelsCustomVision }}
+                    </button>
                   </div>
                 </div>
               </div>
@@ -1148,13 +1150,28 @@ async function testModel(rowKey: string, modelId: string): Promise<void> {
   width: 118px;
 }
 
-.cap-toggle {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
+.cap-button {
+  height: 24px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: transparent;
   color: var(--fg-muted);
   font-size: 11.5px;
+  line-height: 1;
   cursor: pointer;
+}
+
+.cap-button:hover {
+  background: var(--bg-active);
+  color: var(--fg);
+}
+
+.cap-button.checked,
+.cap-button.checked:hover {
+  border-color: var(--accent-border);
+  background: var(--accent-soft);
+  color: var(--fg-strong);
 }
 
 .detail-footer {
