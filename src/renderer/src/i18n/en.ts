@@ -631,6 +631,12 @@ export const en = {
 	appearanceSurfaceCardTip:
 		"Also sets the base interface opacity; cards sit one step more solid on top of it.",
 	appearanceSurfaceSettings: "Settings opacity",
+	appearanceSurfaceTool: "Tool card opacity",
+	appearanceSurfaceToolTip:
+		"Sets the background opacity of tool-call command and output blocks in the chat.",
+	appearanceMessageWidth: "Message width",
+	appearanceMessageWidthValue: (percent: number) =>
+		percent >= 100 ? "Full width" : `${percent}%`,
 	voiceInput: "Voice input",
 	voiceListening: "Recording…",
 	voiceRecording: "Voice recording",
