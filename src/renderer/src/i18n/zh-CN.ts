@@ -566,6 +566,8 @@ export const zh = {
 	gitErr_unknown: "Git 操作失败",
 	appearance: "通用",
 	showCompactButton: "显示上下文压缩按钮",
+	showCompactButtonOn: "显示",
+	showCompactButtonOff: "隐藏",
 	truncateToolOutput: "截断工具输出预览",
 	truncateToolOutputOff: "不截断",
 	truncateToolOutputLines: (n: number) => `${n} 行`,

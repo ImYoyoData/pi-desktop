@@ -588,6 +588,8 @@ export const en = {
 	gitErr_unknown: "Git operation failed",
 	appearance: "General",
 	showCompactButton: "Show compact-context button",
+	showCompactButtonOn: "Show",
+	showCompactButtonOff: "Hide",
 	truncateToolOutput: "Truncate tool output preview",
 	truncateToolOutputOff: "Off",
 	truncateToolOutputLines: (n: number) => `${n} lines`,
