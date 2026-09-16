@@ -261,10 +261,11 @@ const headline = computed(() => {
 
 const appearance = useAppearanceStore();
 
-/** Full stored text, or the 24-line cut when Settings → General opts into it. */
+/** 按用户设定的截断行数渲染工具输出；0 表示不截断。 */
 function renderBodyText(text: string | null | undefined): string | null {
   if (!text) return null;
-  return appearance.truncateToolOutput ? previewText(text) : text;
+  const maxLines = appearance.truncateToolOutputLines;
+  return maxLines > 0 ? previewText(text, maxLines) : text;
 }
 
 const body = computed(() => {

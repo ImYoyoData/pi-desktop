@@ -4,12 +4,14 @@ import {
   NDivider,
   NRadioButton,
   NRadioGroup,
+  NSelect,
   NSpace,
   NSwitch,
   NText,
   useMessage,
 } from "naive-ui";
 import {
+  TRUNCATE_TOOL_OUTPUT_CHOICES,
   useAppearanceStore,
   type LocalePreference,
   type ThemePreference,
@@ -82,10 +84,16 @@ const showCompactButton = computed({
   set: (value: boolean) => appearance.setShowCompactButton(value),
 });
 
-const truncateToolOutput = computed({
-  get: () => appearance.truncateToolOutput,
-  set: (value: boolean) => appearance.setTruncateToolOutput(value),
-});
+const truncateOptions = computed(() =>
+  TRUNCATE_TOOL_OUTPUT_CHOICES.map((lines) => ({
+    label: lines === 0 ? t.truncateToolOutputOff : t.truncateToolOutputLines(lines),
+    value: lines,
+  })),
+);
+
+function onTruncateChange(value: string | number | null): void {
+  if (typeof value === "number") appearance.setTruncateToolOutputLines(value);
+}
 </script>
 
 <template>
@@ -159,7 +167,13 @@ const truncateToolOutput = computed({
         <div class="switch-labels">
           <NText strong>{{ t.truncateToolOutput }}</NText>
         </div>
-        <NSwitch v-model:value="truncateToolOutput" />
+        <NSelect
+          :value="appearance.truncateToolOutputLines"
+          :options="truncateOptions"
+          size="small"
+          class="truncate-select"
+          @update:value="onTruncateChange"
+        />
       </div>
     </template>
   </div>
@@ -190,5 +204,10 @@ const truncateToolOutput = computed({
   flex-direction: column;
   gap: 4px;
   min-width: 0;
+}
+
+.truncate-select {
+  flex-shrink: 0;
+  width: 120px;
 }
 </style>
