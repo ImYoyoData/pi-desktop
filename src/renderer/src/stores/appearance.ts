@@ -16,6 +16,15 @@ const LOCALE_KEY = "pi-desktop:locale-preference";
 const COMPACT_BTN_KEY = "pi-desktop:show-compact-button";
 const TRUNCATE_TOOL_OUTPUT_KEY = "pi-desktop:truncate-tool-output";
 
+/** 工具输出预览的可选截断行数；0 表示不截断。 */
+export const TRUNCATE_TOOL_OUTPUT_CHOICES = [0, 10, 24, 50, 100] as const;
+
+const TRUNCATE_TOOL_OUTPUT_FALLBACK = 0;
+
+function isTruncateToolOutputChoice(value: number): boolean {
+  return (TRUNCATE_TOOL_OUTPUT_CHOICES as readonly number[]).includes(value);
+}
+
 function readShowCompactButton(): boolean {
   try {
     return localStorage.getItem(COMPACT_BTN_KEY) === "1";
@@ -24,11 +33,14 @@ function readShowCompactButton(): boolean {
   }
 }
 
-function readTruncateToolOutput(): boolean {
+function readTruncateToolOutputLines(): number {
   try {
-    return localStorage.getItem(TRUNCATE_TOOL_OUTPUT_KEY) === "1";
+    const raw = localStorage.getItem(TRUNCATE_TOOL_OUTPUT_KEY);
+    if (raw === "1") return 24; // 旧版开关：开启时按 24 行截断
+    const value = Number(raw);
+    return isTruncateToolOutputChoice(value) ? value : TRUNCATE_TOOL_OUTPUT_FALLBACK;
   } catch {
-    return false;
+    return TRUNCATE_TOOL_OUTPUT_FALLBACK;
   }
 }
 
@@ -85,7 +97,7 @@ export const useAppearanceStore = defineStore("appearance", () => {
   const localePreference = ref<LocalePreference>(readLocalePreference());
   const systemDark = ref(systemPrefersDark());
   const showCompactButton = ref(readShowCompactButton());
-  const truncateToolOutput = ref(readTruncateToolOutput());
+  const truncateToolOutputLines = ref(readTruncateToolOutputLines());
 
   const resolvedTheme = computed<ResolvedTheme>(() =>
     resolveTheme(themePreference.value, systemDark.value),
@@ -130,10 +142,11 @@ export const useAppearanceStore = defineStore("appearance", () => {
     }
   }
 
-  function setTruncateToolOutput(next: boolean): void {
-    truncateToolOutput.value = next;
+  function setTruncateToolOutputLines(next: number): void {
+    const value = isTruncateToolOutputChoice(next) ? next : TRUNCATE_TOOL_OUTPUT_FALLBACK;
+    truncateToolOutputLines.value = value;
     try {
-      localStorage.setItem(TRUNCATE_TOOL_OUTPUT_KEY, next ? "1" : "0");
+      localStorage.setItem(TRUNCATE_TOOL_OUTPUT_KEY, String(value));
     } catch {
       // ignore
     }
@@ -168,11 +181,11 @@ export const useAppearanceStore = defineStore("appearance", () => {
     resolvedUiLocale,
     resolvedTheme,
     showCompactButton,
-    truncateToolOutput,
+    truncateToolOutputLines,
     setThemePreference,
     setLocalePreference,
     setShowCompactButton,
-    setTruncateToolOutput,
+    setTruncateToolOutputLines,
     init,
   };
 });
