@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref, watch } from "vue";
-import { NModal, NSpin } from "naive-ui";
+import { computed, h, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
+import { NButton, NInput, NModal, NSpin, NSpace, useDialog, useMessage } from "naive-ui";
 import CodiconIcon from "@renderer/components/icons/CodiconIcon.vue";
 import PreviewTab from "@renderer/components/PreviewTab.vue";
 import AppearancePanel from "@renderer/components/AppearancePanel.vue";
@@ -61,10 +61,76 @@ const workspace = useWorkspaceStore();
 const active = ref(props.section || "general");
 const modal = ref<string | null>(null);
 const width = ref(readWidth());
-/** 页内打开的定制项文件（VS Code 内嵌编辑器形态）。 */
-const editing = ref<{ filePath: string; title: string } | null>(null);
+/** 页内编辑目标：已有文件或未落盘的技能草稿。 */
+type EditingTarget =
+  | { kind: "file"; filePath: string; title: string; rename: boolean }
+  | { kind: "skill-draft"; scope: "user" | "project"; workspace: string | null };
+
+const SKILL_DRAFT_TEMPLATE = [
+  "---",
+  "name: new-skill",
+  "description: 待补充：说明该技能做什么、何时使用",
+  "---",
+  "",
+  "# new-skill",
+  "",
+].join("\n");
+
+const editing = ref<EditingTarget | null>(null);
 const editorRef = ref<InstanceType<typeof PreviewTab> | null>(null);
 const editorDirty = computed(() => editorRef.value?.dirty === true);
+const message = useMessage();
+const dialog = useDialog();
+const editorName = ref("");
+const nameInput = ref<InstanceType<typeof NInput> | null>(null);
+
+const draftTarget = computed(() =>
+  editing.value?.kind === "skill-draft" ? editing.value : null,
+);
+const editorTitle = computed(() => (editing.value?.kind === "file" ? editing.value.title : ""));
+/** 标题可编辑：技能草稿始终可改，已保存技能按列表来源可改名。 */
+const nameEditable = computed(() => {
+  const target = editing.value;
+  if (!target) return false;
+  return target.kind === "skill-draft" || target.rename;
+});
+const editorFilePath = computed(() =>
+  editing.value?.kind === "file" ? editing.value.filePath : null,
+);
+const editorDraftContent = computed(() =>
+  editing.value?.kind === "skill-draft" ? SKILL_DRAFT_TEMPLATE : null,
+);
+/** 重命名预览：路径行实时显示改名后的完整路径，保存后才真正生效。 */
+const editorFilePathPreview = computed(() => {
+  const target = editing.value;
+  if (!target || target.kind !== "file") return null;
+  const next = editorName.value.trim();
+  if (!target.rename || !next || next === target.title) return target.filePath;
+  const sep = target.filePath.includes("\\") ? "\\" : "/";
+  const marker = `${sep}${target.title}${sep}`;
+  return target.filePath.includes(marker)
+    ? target.filePath.replace(marker, `${sep}${next}${sep}`)
+    : target.filePath;
+});
+/** 标题改名也算未保存改动，保存按钮一并高亮。 */
+const nameChanged = computed(() => {
+  const target = editing.value;
+  if (!target || target.kind !== "file" || !target.rename) return false;
+  const next = editorName.value.trim();
+  return Boolean(next) && next !== target.title;
+});
+const editorDirtyTotal = computed(() => editorDirty.value || nameChanged.value);
+/** 草稿创建后的完整路径（页头路径行展示，跟随名称输入实时变化）。 */
+const draftLocation = computed(() => {
+  const draft = draftTarget.value;
+  if (!draft) return "";
+  const name = editorName.value.trim() || "new-skill";
+  if (draft.scope === "project" && draft.workspace) {
+    const sep = draft.workspace.includes("\\") ? "\\" : "/";
+    return `${draft.workspace}${sep}.pi${sep}skills${sep}${name}${sep}SKILL.md`;
+  }
+  return `~/.pi/agent/skills/${name}/SKILL.md`;
+});
 
 const current = computed(
   () => SECTIONS.find((entry) => entry.id === active.value) ?? SECTIONS[0],
@@ -113,21 +179,234 @@ function readWidth(): number {
 }
 
 function selectSection(id: string): void {
-  editing.value = null;
-  active.value = id;
-  layout.setCustomizeSection(id);
+  leaveEditor(() => {
+    active.value = id;
+    layout.setCustomizeSection(id);
+  });
 }
 
-function openInPage(payload: { filePath: string; title: string }): void {
-  editing.value = payload;
+function openInPage(payload: { filePath: string; title: string; rename: boolean }): void {
+  editorName.value = payload.title;
+  editing.value = {
+    kind: "file",
+    filePath: payload.filePath,
+    title: payload.title,
+    rename: payload.rename,
+  };
+}
+
+function openSkillDraft(payload: { scope: "user" | "project"; workspace: string | null }): void {
+  editorName.value = "new-skill";
+  editing.value = { kind: "skill-draft", scope: payload.scope, workspace: payload.workspace };
+  void nextTick(() => nameInput.value?.focus());
+}
+
+/** 草稿态：标题即技能名，实时同步正文 frontmatter 的 name 行。 */
+function onEditorNameInput(value: string): void {
+  if (!draftTarget.value) return;
+  const editor = editorRef.value;
+  if (!editor) return;
+  const content = editor.getContent();
+  const updated = content.replace(/^(name:\s*).*$/m, `$1${value}`);
+  if (updated !== content) editor.setContent(updated);
+}
+
+async function saveSkillDraft(content: string): Promise<boolean> {
+  const draft = draftTarget.value;
+  if (!draft) return false;
+  if (draft.scope === "project" && !draft.workspace) {
+    message.error(t.slashNeedWorkspace);
+    return false;
+  }
+  try {
+    const saved = await window.api.skills.createFromDraft(
+      content,
+      draft.scope,
+      draft.scope === "project" ? draft.workspace ?? undefined : undefined,
+    );
+    await store.load(true);
+    editing.value = { kind: "file", filePath: saved.filePath, title: saved.name, rename: true };
+    editorName.value = saved.name;
+    message.success(t.saved);
+    return true;
+  } catch (err) {
+    message.error(err instanceof Error ? err.message : String(err));
+    return false;
+  }
+}
+
+/** 已保存文件落盘；技能标题改名时先写内容，再重命名目录。 */
+async function saveSkillFile(
+  target: Extract<EditingTarget, { kind: "file" }>,
+  content: string,
+): Promise<boolean> {
+  const nextName = editorName.value.trim();
+  const shouldRename = target.rename && Boolean(nextName) && nextName !== target.title;
+  try {
+    await window.api.preview.write(target.filePath, content);
+  } catch (err) {
+    message.error(err instanceof Error ? err.message : String(err));
+    return false;
+  }
+  if (!shouldRename) {
+    await store.load(true);
+    message.success(t.saved);
+    return true;
+  }
+  try {
+    const renamed = await window.api.skills.rename(
+      target.filePath,
+      nextName,
+      workspace.root ?? undefined,
+    );
+    await store.load(true);
+    editing.value = {
+      kind: "file",
+      filePath: renamed.filePath,
+      title: renamed.name,
+      rename: true,
+    };
+    editorName.value = renamed.name;
+    message.success(t.saved);
+  } catch (err) {
+    // 内容已保存，只是改名失败：回滚标题并单独提示
+    editorName.value = target.title;
+    message.error(err instanceof Error ? err.message : String(err));
+  }
+  return true;
+}
+
+/** 保存按钮与 Ctrl+S 统一入口。 */
+async function saveEditorContent(content: string): Promise<boolean> {
+  const target = editing.value;
+  if (!target) return false;
+  if (target.kind === "skill-draft") return saveSkillDraft(content);
+  return saveSkillFile(target, content);
 }
 
 function saveEditingFile(): void {
   void editorRef.value?.save();
 }
 
+/** 离开编辑器前：有未保存改动时询问保存 / 不保存 / 取消。 */
+function leaveEditor(onLeave: () => void): void {
+  const target = editing.value;
+  if (!target) {
+    onLeave();
+    return;
+  }
+  if (!editorDirtyTotal.value) {
+    editing.value = null;
+    onLeave();
+    return;
+  }
+  const label =
+    target.kind === "file" ? target.title : editorName.value.trim() || t.customizeNewSkill;
+  const d = dialog.create({
+    type: "warning",
+    title: t.unsavedChangesTitle,
+    content: t.unsavedChangesClose(label),
+    closable: true,
+    maskClosable: false,
+    closeOnEsc: true,
+    action: () =>
+      h(
+        NSpace,
+        { justify: "end", size: 8 },
+        {
+          default: () => [
+            h(NButton, { size: "small", onClick: () => d.destroy() }, { default: () => t.cancel }),
+            h(
+              NButton,
+              {
+                size: "small",
+                onClick: () => {
+                  d.destroy();
+                  editing.value = null;
+                  onLeave();
+                },
+              },
+              { default: () => t.dontSave },
+            ),
+            h(
+              NButton,
+              {
+                size: "small",
+                type: "primary",
+                onClick: () => {
+                  void (async () => {
+                    const ok = await editorRef.value?.save();
+                    if (!ok) return;
+                    d.destroy();
+                    editing.value = null;
+                    onLeave();
+                  })();
+                },
+              },
+              { default: () => t.save },
+            ),
+          ],
+        },
+      ),
+  });
+}
+
 function closeEditor(): void {
-  editing.value = null;
+  leaveEditor(() => {});
+}
+
+/** 编辑器页头删除：草稿直接丢弃，文件按当前列表类型删除。 */
+const canDeleteEditing = computed(() => {
+  const target = editing.value;
+  if (!target) return false;
+  if (target.kind === "skill-draft") return true;
+  return (
+    listKind.value === "skills" || listKind.value === "agents" || listKind.value === "prompts"
+  );
+});
+
+function deleteEditing(): void {
+  const target = editing.value;
+  if (!target) return;
+  if (target.kind === "skill-draft") {
+    dialog.warning({
+      title: t.customizeDelete,
+      content: t.customizeDiscardDraftConfirm,
+      positiveText: t.customizeDelete,
+      negativeText: t.cancel,
+      onPositiveClick: () => {
+        editing.value = null;
+      },
+    });
+    return;
+  }
+  if (!canDeleteEditing.value) return;
+  const kind = listKind.value;
+  dialog.warning({
+    title: t.customizeDelete,
+    content:
+      kind === "agents" || kind === "prompts"
+        ? t.customizeDeleteConfirm(target.title)
+        : t.customizeUninstallConfirm(target.title),
+    positiveText: t.customizeDelete,
+    negativeText: t.cancel,
+    onPositiveClick: async () => {
+      try {
+        if (kind === "skills") {
+          await window.api.skills.uninstall(target.filePath, workspace.root ?? undefined);
+        } else {
+          await window.api.customizations.removeItem(
+            target.filePath,
+            workspace.root ?? undefined,
+          );
+        }
+        await store.load(true);
+        editing.value = null;
+      } catch (err) {
+        message.error(err instanceof Error ? err.message : String(err));
+      }
+    },
+  });
 }
 
 function onResizeStart(event: MouseEvent): void {
@@ -226,22 +505,57 @@ onUnmounted(() => {
             <CodiconIcon name="back" :size="16" />
           </button>
           <div class="editor-heading">
-            <h2 class="editor-heading-title">{{ editing.title }}</h2>
-            <p class="editor-heading-path" :title="editing.filePath">{{ editing.filePath }}</p>
+            <NInput
+              v-if="nameEditable"
+              ref="nameInput"
+              v-model:value="editorName"
+              size="small"
+              class="editor-name-input"
+              :placeholder="t.customizeNewSkill"
+              @update:value="onEditorNameInput"
+            />
+            <h2 v-else class="editor-heading-title">{{ editorTitle }}</h2>
+            <p
+              v-if="editorFilePathPreview"
+              class="editor-heading-path"
+              :title="editorFilePathPreview"
+            >
+              {{ editorFilePathPreview }}
+            </p>
+            <p v-else class="editor-heading-path" :title="draftLocation">{{ draftLocation }}</p>
           </div>
-          <button
-            type="button"
-            class="editor-save-button"
-            :class="{ dirty: editorDirty }"
-            :title="t.saveShortcut"
-            :aria-label="t.save"
-            @click="saveEditingFile"
-          >
-            <CodiconIcon name="check" :size="16" />
-          </button>
+          <div class="editor-actions">
+            <button
+              type="button"
+              class="editor-save-button"
+              :class="{ dirty: editorDirtyTotal }"
+              :title="t.saveShortcut"
+              :aria-label="t.save"
+              @click="saveEditingFile"
+            >
+              <CodiconIcon name="check" :size="16" />
+            </button>
+            <button
+              v-if="canDeleteEditing"
+              type="button"
+              class="editor-delete-button"
+              :title="t.customizeDelete"
+              :aria-label="t.customizeDelete"
+              @click="deleteEditing"
+            >
+              <CodiconIcon name="remove" :size="16" />
+            </button>
+          </div>
         </header>
         <div class="embedded-editor">
-          <PreviewTab ref="editorRef" :file-path="editing.filePath" :active="true" embedded />
+          <PreviewTab
+            ref="editorRef"
+            :file-path="editorFilePath"
+            :draft-content="editorDraftContent"
+            :save-handler="saveEditorContent"
+            :active="true"
+            embedded
+          />
         </div>
       </div>
 
@@ -277,6 +591,7 @@ onUnmounted(() => {
           @refresh="store.load(true)"
           @market="modal = 'market'"
           @open="openInPage"
+          @new-skill="openSkillDraft"
         />
       </div>
     </section>
@@ -450,8 +765,15 @@ onUnmounted(() => {
   border-bottom: 1px solid var(--border);
 }
 
+.editor-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
 .editor-back-button,
-.editor-save-button {
+.editor-save-button,
+.editor-delete-button {
   flex-shrink: 0;
   display: inline-flex;
   align-items: center;
@@ -469,9 +791,14 @@ onUnmounted(() => {
 }
 
 .editor-back-button:hover,
-.editor-save-button:hover {
+.editor-save-button:hover,
+.editor-delete-button:hover {
   background-color: var(--bg-hover);
   opacity: 1;
+}
+
+.editor-delete-button:hover {
+  color: var(--error);
 }
 
 .editor-save-button.dirty {
@@ -480,7 +807,8 @@ onUnmounted(() => {
 }
 
 .editor-back-button:focus-visible,
-.editor-save-button:focus-visible {
+.editor-save-button:focus-visible,
+.editor-delete-button:focus-visible {
   outline: 1px solid var(--accent);
   outline-offset: -1px;
 }
@@ -508,6 +836,10 @@ onUnmounted(() => {
   line-height: 16px;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.editor-name-input {
+  max-width: 320px;
 }
 
 .embedded-editor {
