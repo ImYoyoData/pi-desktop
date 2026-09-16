@@ -179,6 +179,7 @@ function bindXterm(host: HTMLDivElement): void {
     fontFamily: "Cascadia Code, Consolas, Menlo, monospace",
     rightClickSelectsWord: false,
     scrollback: 5000,
+    allowTransparency: true,
     theme: xtermTheme(appearance.resolvedTheme === "dark"),
   });
   fit = new FitAddon();
