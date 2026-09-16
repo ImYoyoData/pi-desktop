@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from "vue";
+import { computed, onMounted, ref, shallowRef } from "vue";
 import {
   NButton,
   NIcon,
@@ -48,8 +48,8 @@ const loading = ref(true);
 const loadError = ref("");
 const modelsText = ref("");
 const providers = ref<CustomProviderDraft[]>([]);
-/** 桌面端策展状态：仅存于本地配置，不写 models.json。 */
-const modelSelection = ref<ModelSelection>(EMPTY_MODEL_SELECTION);
+/** 桌面端策展状态：仅存于本地配置，不写 models.json。shallowRef 保持纯数据，避免 IPC 克隆 Proxy 失败。 */
+const modelSelection = shallowRef<ModelSelection>(EMPTY_MODEL_SELECTION);
 
 const selectedId = ref<string | null>(null);
 const isNew = ref(false);
