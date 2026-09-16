@@ -3,10 +3,7 @@ import { computed } from "vue";
 import { NTooltip } from "naive-ui";
 import AppearanceSliderRow from "@renderer/components/customize/AppearanceSliderRow.vue";
 import { useAppearanceStore } from "@renderer/stores/appearance";
-import {
-  SURFACE_ALPHA_FLOOR,
-  wallpaperMediaSrc,
-} from "../../../../shared/appearance";
+import { wallpaperMediaSrc } from "../../../../shared/appearance";
 import { t } from "@renderer/i18n";
 
 /** 背景图卡片：点击预览选择/更换壁纸；右侧调整遮罩与界面透明度。 */
@@ -17,7 +14,6 @@ const isMedia = computed(() => kind.value === "image" || kind.value === "video")
 const mediaSrc = computed(() =>
   appearance.wallpaper.path ? wallpaperMediaSrc(appearance.wallpaper.path) : "",
 );
-const floorPercent = Math.round(SURFACE_ALPHA_FLOOR * 100);
 
 async function pickWallpaper(): Promise<void> {
   const path = await window.api.appearance.pickWallpaper();
@@ -105,7 +101,6 @@ async function pickWallpaper(): Promise<void> {
         <AppearanceSliderRow
           :label="t.appearanceSurfaceCard"
           :value="appearance.surfaces.card"
-          :min="floorPercent"
           :tip="t.appearanceSurfaceCardTip"
           :disabled="!isMedia"
           @update:value="(value) => appearance.setSurfaceAlpha('card', value)"
@@ -113,7 +108,6 @@ async function pickWallpaper(): Promise<void> {
         <AppearanceSliderRow
           :label="t.appearanceSurfaceSettings"
           :value="appearance.surfaces.settings"
-          :min="floorPercent"
           :disabled="!isMedia"
           @update:value="(value) => appearance.setSurfaceAlpha('settings', value)"
         />

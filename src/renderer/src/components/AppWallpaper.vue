@@ -88,7 +88,7 @@ html[data-theme="dark"] .app-wallpaper {
   inset: 0;
   background: color-mix(
     in srgb,
-    var(--pi-wallpaper-ui-color) var(--pi-alpha-card, 52%),
+    var(--pi-wallpaper-ui-color) var(--pi-alpha-card, 0%),
     transparent
   );
 }

@@ -31,8 +31,6 @@ export interface CustomAppearanceSettings {
 export const CUSTOM_APPEARANCE_KEY = "pi-desktop:appearance-custom:v2";
 export const CUSTOM_APPEARANCE_LEGACY_KEY = "pi-desktop:appearance-custom:v1";
 
-/** 卡片与设置页的透明度保底：滑到 0 也不会全透明。 */
-export const SURFACE_ALPHA_FLOOR = 0.2;
 export const VEIL_BLUR_MAX_PX = 40;
 /** 消息区宽度档位：占聊天面板宽度的比例。 */
 export const MESSAGE_WIDTH_CHOICES = [0.5, 0.6, 0.75, 1] as const;
@@ -57,7 +55,7 @@ export function createDefaultWallpaper(): WallpaperSettings {
 }
 
 export function createDefaultSurfaces(): SurfaceAlphaSettings {
-  return { input: 0.85, card: 0.3, settings: 0.85, tool: 0.6 };
+  return { input: 0, card: 0, settings: 0, tool: 0 };
 }
 
 export function createDefaultCustomAppearance(): CustomAppearanceSettings {
@@ -80,10 +78,6 @@ function clamp01(value: unknown, fallback: number): number {
   const n = typeof value === "number" ? value : Number(value);
   if (!Number.isFinite(n)) return fallback;
   return Math.min(1, Math.max(0, n));
-}
-
-function floorAlpha(value: unknown, fallback: number): number {
-  return Math.max(SURFACE_ALPHA_FLOOR, clamp01(value, fallback));
 }
 
 export function wallpaperKindForPath(filePath: string): "image" | "video" | null {
@@ -122,8 +116,8 @@ function normalizeSurfaces(raw: unknown): SurfaceAlphaSettings {
   const input = raw as Record<string, unknown>;
   return {
     input: clamp01(input.input, base.input),
-    card: floorAlpha(input.card, base.card),
-    settings: floorAlpha(input.settings, base.settings),
+    card: clamp01(input.card, base.card),
+    settings: clamp01(input.settings, base.settings),
     tool: clamp01(input.tool, base.tool),
   };
 }

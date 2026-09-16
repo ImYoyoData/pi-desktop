@@ -11,7 +11,6 @@ import {
   CUSTOM_APPEARANCE_LEGACY_KEY,
   VEIL_BLUR_MAX_PX,
   createDefaultCustomAppearance,
-  createDefaultSurfaces,
   normalizeCustomAppearance,
   normalizeMessageWidth,
   wallpaperKindForPath,
@@ -64,8 +63,15 @@ function readCustomAppearance(): CustomAppearanceSettings {
     const raw = current ?? localStorage.getItem(CUSTOM_APPEARANCE_LEGACY_KEY);
     if (!raw) return createDefaultCustomAppearance();
     const parsed = normalizeCustomAppearance(JSON.parse(raw));
-    // v1 的透明度是按浅色玻璃调的，沿用会让深色玻璃几乎透明，改用新默认档
-    return current ? parsed : { ...parsed, surfaces: createDefaultSurfaces() };
+    // 从 v1 迁移：保留用户已调好的值，补全后才写回新键，避免每次启动重新迁移
+    if (!current) {
+      try {
+        localStorage.setItem(CUSTOM_APPEARANCE_KEY, JSON.stringify(parsed));
+      } catch {
+        // ignore
+      }
+    }
+    return parsed;
   } catch {
     return createDefaultCustomAppearance();
   }
