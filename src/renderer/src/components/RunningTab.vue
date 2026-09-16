@@ -397,7 +397,7 @@ function onRowKeydown(e: KeyboardEvent, runId: string): void {
   min-height: 0;
   min-width: 0;
   overflow: hidden;
-  background: var(--bg-elevated);
+  background: var(--bg-panel);
 }
 
 .term-host {
@@ -434,7 +434,7 @@ function onRowKeydown(e: KeyboardEvent, runId: string): void {
   display: grid;
   place-items: center;
   padding: 12px;
-  background: var(--bg-elevated);
+  background: var(--bg-panel);
   z-index: 1;
 }
 </style>
