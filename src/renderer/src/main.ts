@@ -4,11 +4,6 @@ import { createPinia } from "pinia";
 import App from "./App.vue";
 import "./assets/main.css";
 import "./assets/vscode-syntax.css";
-import {
-  isLocaleReloading,
-  showLocaleReloadSplash,
-} from "./utils/locale-reload-splash";
-import { hideStartupSplashInstantly } from "./utils/startup-splash";
 import { markRendererStartup } from "./utils/startup-timing";
 
 markRendererStartup("renderer:entry");
@@ -24,13 +19,6 @@ try {
   document.documentElement.style.colorScheme = dark ? "dark" : "light";
 } catch {
   // ignore
-}
-
-// Cover the white reload flash when switching UI language.
-if (isLocaleReloading()) {
-  showLocaleReloadSplash();
-  // The locale splash already covers the window; drop the startup splash.
-  hideStartupSplashInstantly();
 }
 
 createApp(App).use(createPinia()).mount("#app");

@@ -22,7 +22,6 @@ import { useWorkspaceStore } from "@renderer/stores/workspace";
 import { useAppearanceStore } from "@renderer/stores/appearance";
 import { darkThemeOverrides, lightThemeOverrides } from "@renderer/theme/naive";
 import { locale } from "@renderer/i18n";
-import { dismissLocaleReloadSplash } from "@renderer/utils/locale-reload-splash";
 import { dismissStartupSplash } from "@renderer/utils/startup-splash";
 import { markRendererStartup } from "@renderer/utils/startup-timing";
 import { startFsChangedBus } from "@renderer/utils/fs-changed-bus";
@@ -52,8 +51,10 @@ let bootTimer = 0;
 
 /** Shell content can mount once init IPC returns (or failsafe fires). */
 const shellReady = computed(() => bootInitDone.value);
-const naiveLocale = locale === "zh-CN" ? zhCN : enUS;
-const naiveDateLocale = locale === "zh-CN" ? dateZhCN : dateEnUS;
+const naiveLocale = computed(() => (locale.value === "zh-CN" ? zhCN : enUS));
+const naiveDateLocale = computed(() =>
+  locale.value === "zh-CN" ? dateZhCN : dateEnUS,
+);
 
 const naiveTheme = computed(() =>
   appearance.resolvedTheme === "dark" ? darkTheme : null,
@@ -76,7 +77,7 @@ let stopFsChangedBus: (() => void) | undefined;
 onMounted(() => {
   stopAppearance = appearance.init();
   stopFsChangedBus = startFsChangedBus();
-  void window.api.window.setUiLocale(locale === "zh-CN" ? "zh-CN" : "en");
+  void window.api.window.setUiLocale(locale.value);
   // Instant open: drop the full-screen splash right after first paint so the
   // window feels instant; shell content mounts once workspace init finishes.
   void dismissStartupSplash(true);
@@ -96,7 +97,6 @@ onMounted(() => {
         }),
       ]);
     } finally {
-      await dismissLocaleReloadSplash();
       bootInitDone.value = true;
       markRendererStartup("renderer:shell-ready");
       if (!workspace.root) markRendererStartup("renderer:ready");
