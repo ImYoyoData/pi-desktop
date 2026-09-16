@@ -6,51 +6,68 @@ import { t } from "@renderer/i18n";
 
 const props = defineProps<{ tools: CustomizationItem[] }>();
 
+type ToolGroup = {
+  key: string;
+  label: string;
+  hint: string;
+  items: CustomizationItem[];
+};
+
 function localizeDescription(tool: CustomizationItem): CustomizationItem {
   if (tool.scope !== "builtin" && tool.scope !== "desktop") return tool;
   const description = t.customizeToolDescription(tool.name) || tool.description;
   return { ...tool, description };
 }
 
-const GROUP_ORDER: CustomizationScope[] = ["builtin", "desktop", "extension"];
+const collapsed = reactive(new Set<string>());
 
-const collapsed = reactive(new Set<CustomizationScope>());
-
-function toggleGroup(scope: CustomizationScope): void {
-  if (collapsed.has(scope)) collapsed.delete(scope);
-  else collapsed.add(scope);
+function toggleGroup(key: string): void {
+  if (collapsed.has(key)) collapsed.delete(key);
+  else collapsed.add(key);
 }
 
-function groupLabel(scope: CustomizationScope): string {
-  switch (scope) {
-    case "builtin":
-      return t.customizeGroupBuiltin;
-    case "desktop":
-      return t.customizeGroupDesktop;
-    default:
-      return t.customizeGroupExtension;
+function scopeGroup(
+  scope: CustomizationScope,
+  label: string,
+  hint: string,
+  items: CustomizationItem[],
+): ToolGroup {
+  return { key: scope, label, hint, items: items.filter((tool) => tool.scope === scope) };
+}
+
+function pluginLabel(source: string): string {
+  return source.startsWith("npm:") ? source.slice(4) : source;
+}
+
+function pluginGroups(items: CustomizationItem[]): ToolGroup[] {
+  const order: string[] = [];
+  const byPlugin = new Map<string, CustomizationItem[]>();
+  for (const tool of items) {
+    if (tool.scope !== "extension") continue;
+    const source = tool.source ?? t.customizeGroupExtension;
+    const list = byPlugin.get(source);
+    if (list) list.push(tool);
+    else {
+      byPlugin.set(source, [tool]);
+      order.push(source);
+    }
   }
+  return order.map((source) => ({
+    key: `extension:${source}`,
+    label: pluginLabel(source),
+    hint: t.customizeGroupExtensionHint,
+    items: byPlugin.get(source) ?? [],
+  }));
 }
 
-function groupHint(scope: CustomizationScope): string {
-  switch (scope) {
-    case "builtin":
-      return t.customizeGroupBuiltinHint;
-    case "desktop":
-      return t.customizeGroupDesktopHint;
-    default:
-      return t.customizeGroupExtensionHint;
-  }
-}
-
-const groups = computed(() =>
-  GROUP_ORDER.map((scope) => ({
-    scope,
-    label: groupLabel(scope),
-    description: groupHint(scope),
-    items: props.tools.filter((tool) => tool.scope === scope).map(localizeDescription),
-  })).filter((group) => group.items.length > 0),
-);
+const groups = computed<ToolGroup[]>(() => {
+  const items = props.tools.map(localizeDescription);
+  return [
+    scopeGroup("builtin", t.customizeGroupBuiltin, t.customizeGroupBuiltinHint, items),
+    scopeGroup("desktop", t.customizeGroupDesktop, t.customizeGroupDesktopHint, items),
+    ...pluginGroups(items),
+  ].filter((group) => group.items.length > 0);
+});
 </script>
 
 <template>
@@ -63,28 +80,28 @@ const groups = computed(() =>
     </div>
 
     <div v-else class="list-container">
-      <div v-for="group in groups" :key="group.scope" class="group-block">
+      <div v-for="group in groups" :key="group.key" class="group-block">
         <button
           type="button"
           class="ai-customization-group-header"
-          :class="{ collapsed: collapsed.has(group.scope) }"
-          @click="toggleGroup(group.scope)"
+          :class="{ collapsed: collapsed.has(group.key) }"
+          @click="toggleGroup(group.key)"
         >
           <span class="group-label-group">
             <span class="group-label">{{ group.label }}</span>
           </span>
           <span class="group-count">{{ group.items.length }}</span>
-          <span class="group-info" :title="group.description">
+          <span class="group-info" :title="group.hint">
             <CodiconIcon name="about" :size="14" />
           </span>
           <span class="group-chevron">
             <CodiconIcon
-              :name="collapsed.has(group.scope) ? 'chevronRight' : 'chevronDown'"
+              :name="collapsed.has(group.key) ? 'chevronRight' : 'chevronDown'"
               :size="14"
             />
           </span>
         </button>
-        <template v-if="!collapsed.has(group.scope)">
+        <template v-if="!collapsed.has(group.key)">
           <div v-for="tool in group.items" :key="tool.id" class="ai-customization-list-item">
             <div class="item-left">
               <div class="item-text">
@@ -93,9 +110,6 @@ const groups = computed(() =>
                 </div>
                 <div v-if="tool.description" class="item-description">{{ tool.description }}</div>
               </div>
-            </div>
-            <div class="item-right">
-              <span v-if="tool.source" class="inline-badge item-badge">{{ tool.source }}</span>
             </div>
           </div>
         </template>
@@ -251,30 +265,6 @@ const groups = computed(() =>
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.item-right {
-  display: flex;
-  align-items: center;
-  flex-shrink: 0;
-  gap: 4px;
-  margin-left: 16px;
-  opacity: 0;
-  transition: opacity 0.1s ease;
-}
-
-.ai-customization-list-item:hover .item-right {
-  opacity: 1;
-}
-
-.inline-badge {
-  flex-shrink: 0;
-  padding: 0 6px;
-  border-radius: 4px;
-  background: var(--bg-active);
-  color: var(--fg-muted);
-  font-size: 10px;
-  line-height: 16px;
 }
 
 .list-empty-state {
