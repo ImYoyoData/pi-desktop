@@ -261,6 +261,23 @@ button {
   inset: -3px;
 }
 
+/* 「界面分隔线」关闭：隐藏顶栏、聊天标题栏、左下快捷入口与侧栏分栏线 */
+.app-shell.panel-dividers-off .title-bar {
+  border-bottom-color: transparent;
+}
+
+.app-shell.panel-dividers-off .chat-panel .head {
+  border-bottom-color: transparent;
+}
+
+.app-shell.panel-dividers-off .customize-bar {
+  border-top-color: transparent;
+}
+
+.app-shell.panel-dividers-off .splitpanes.outer > .splitpanes__splitter {
+  background: transparent !important;
+}
+
 /* Refined scrollbars */
 * {
   scrollbar-width: thin;
@@ -501,6 +518,52 @@ button {
 
 .pi-settings-modal .section:last-child {
   margin-bottom: 0;
+}
+
+/*
+ * 设置页内的 naive-ui 控件描边统一跟随 --border（玻璃下为白色半透明描边），
+ * 与自绘按钮（ToggleButton、item-action）保持一致；
+ * naive-ui 把主题变量内联在组件根元素上，必须 !important 才能覆盖。
+ */
+.pi-settings-modal .n-radio-group,
+.modal-editor-panel .n-radio-group {
+  --n-button-border-color: var(--border) !important;
+  --n-button-border-color-active: var(--border) !important;
+}
+
+.pi-settings-modal .n-base-selection,
+.modal-editor-panel .n-base-selection,
+.pi-settings-modal .n-input,
+.modal-editor-panel .n-input {
+  --n-border: 1px solid var(--border) !important;
+  --n-border-hover: 1px solid var(--border) !important;
+  --n-border-focus: 1px solid var(--border) !important;
+  --n-border-active: 1px solid var(--border) !important;
+  --n-border-disabled: 1px solid var(--border) !important;
+}
+
+/* 按钮的实际描边在 __border / __state-border 上，text 按钮的 border-style 为 none 不受影响 */
+.pi-settings-modal .n-button__border,
+.pi-settings-modal .n-button__state-border,
+.modal-editor-panel .n-button__border,
+.modal-editor-panel .n-button__state-border {
+  border-color: var(--border) !important;
+}
+
+.pi-settings-modal .n-checkbox-box,
+.modal-editor-panel .n-checkbox-box {
+  --n-border: 1px solid var(--border) !important;
+  --n-border-disabled: 1px solid var(--border) !important;
+}
+
+.pi-settings-modal .n-tabs,
+.modal-editor-panel .n-tabs {
+  --n-tab-border-color: var(--border) !important;
+}
+
+.pi-settings-modal .n-divider,
+.modal-editor-panel .n-divider {
+  --n-color: var(--border) !important;
 }
 
 .pi-settings-modal .section-label {

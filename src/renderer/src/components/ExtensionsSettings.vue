@@ -7,13 +7,13 @@ import {
   NScrollbar,
   NSpace,
   NSpin,
-  NSwitch,
   NTag,
   NText,
   useDialog,
   useMessage,
 } from "naive-ui";
 import { useWorkspaceStore } from "@renderer/stores/workspace";
+import ToggleButton from "@renderer/components/ToggleButton.vue";
 import { t } from "@renderer/i18n";
 
 type PluginRow = {
@@ -175,14 +175,11 @@ function onRemove(pkg: PluginRow): void {
                     <NTag size="tiny" :bordered="false">{{ selectedPkg()!.scope }}</NTag>
                   </NSpace>
                 </div>
-                <NSpace align="center">
-                  <NText style="font-size: 12px">{{ t.enable }}</NText>
-                  <NSwitch
-                    :value="!selectedPkg()!.disabled"
-                    :loading="toggling === keyOf(selectedPkg()!)"
-                    @update:value="(v) => onToggle(selectedPkg()!, v)"
-                  />
-                </NSpace>
+                <ToggleButton
+                  :value="!selectedPkg()!.disabled"
+                  :loading="toggling === keyOf(selectedPkg()!)"
+                  @update:value="(v) => onToggle(selectedPkg()!, v)"
+                />
               </div>
               <NText v-if="selectedPkg()!.installedPath" depth="3" style="font-size: 12px">
                 {{ selectedPkg()!.installedPath }}

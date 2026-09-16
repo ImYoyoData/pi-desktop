@@ -7,12 +7,12 @@ import {
   NInputNumber,
   NSelect,
   NSpin,
-  NSwitch,
   useDialog,
   useMessage,
 } from "naive-ui";
 import { EyeOffOutline, EyeOutline } from "@vicons/ionicons5";
 import CodiconIcon from "@renderer/components/icons/CodiconIcon.vue";
+import ToggleButton from "@renderer/components/ToggleButton.vue";
 import ModelPickModal from "@renderer/components/customize/ModelPickModal.vue";
 import {
   CUSTOM_MODEL_APIS,
@@ -531,23 +531,22 @@ async function testModel(rowKey: string, modelId: string): Promise<void> {
             <h3 class="detail-title">{{ isNew ? t.modelsCustomNew : draft.name || draft.id }}</h3>
             <span v-if="dirty" class="inline-badge">{{ t.modelsCustomDirty }}</span>
             <span class="detail-spacer" />
-            <label
-              class="disable-toggle"
-              :class="{ on: providerDisabled }"
+            <ToggleButton
+              :label="t.modelsCustomDisable"
+              :value="providerDisabled"
+              :disabled="!draft.id.trim()"
               :title="t.modelsCustomDisabledHint"
+              @update:value="setProviderDisabled"
+            />
+            <button
+              v-if="!isNew"
+              type="button"
+              class="detail-remove"
+              :title="t.modelsCustomDelete"
+              @click="confirmDelete"
             >
-              <NSwitch
-                size="small"
-                :value="providerDisabled"
-                :disabled="!draft.id.trim()"
-                @update:value="setProviderDisabled"
-              />
-              <span>{{ providerDisabled ? t.modelsCustomDisabled : t.modelsCustomDisable }}</span>
-            </label>
-            <NButton v-if="!isNew" size="tiny" quaternary type="error" @click="confirmDelete">
-              <template #icon><CodiconIcon name="remove" :size="13" /></template>
-              {{ t.modelsCustomDelete }}
-            </NButton>
+              {{ t.customizeDelete }}
+            </button>
           </header>
 
           <div class="detail-scroll">
@@ -629,29 +628,27 @@ async function testModel(rowKey: string, modelId: string): Promise<void> {
             <div class="form-section">
               <div class="form-section-title">{{ t.modelsCustomSectionCompat }}</div>
 
-              <label class="toggle-row">
-                <NSwitch
-                  size="small"
+              <div class="toggle-row">
+                <ToggleButton
+                  :label="t.modelsCustomDevRole"
                   :value="draft.supportsDeveloperRole"
                   @update:value="
                     (value: boolean) => setCompat('supportsDeveloperRole', value)
                   "
                 />
-                <span class="toggle-text">{{ t.modelsCustomDevRole }}</span>
                 <span class="toggle-hint">{{ t.modelsCustomDevRoleHint }}</span>
-              </label>
+              </div>
 
-              <label class="toggle-row">
-                <NSwitch
-                  size="small"
+              <div class="toggle-row">
+                <ToggleButton
+                  :label="t.modelsCustomReasoningEffort"
                   :value="draft.supportsReasoningEffort"
                   @update:value="
                     (value: boolean) => setCompat('supportsReasoningEffort', value)
                   "
                 />
-                <span class="toggle-text">{{ t.modelsCustomReasoningEffort }}</span>
                 <span class="toggle-hint">{{ t.modelsCustomReasoningEffortHint }}</span>
-              </label>
+              </div>
             </div>
 
             <div class="form-section">
@@ -725,24 +722,16 @@ async function testModel(rowKey: string, modelId: string): Promise<void> {
                       :placeholder="t.modelsCustomMaxTokens"
                       @update:value="(value: number | null) => setModelNumber(model, 'maxTokens', value)"
                     />
-                    <button
-                      type="button"
-                      class="cap-button"
-                      :class="{ checked: model.reasoning }"
-                      :aria-pressed="model.reasoning === true"
-                      @click="model.reasoning = !model.reasoning"
-                    >
-                      {{ t.modelsCustomReasoning }}
-                    </button>
-                    <button
-                      type="button"
-                      class="cap-button"
-                      :class="{ checked: model.vision === true }"
-                      :aria-pressed="model.vision === true"
-                      @click="model.vision = model.vision !== true"
-                    >
-                      {{ t.modelsCustomVision }}
-                    </button>
+                    <ToggleButton
+                      :label="t.modelsCustomReasoning"
+                      :value="model.reasoning === true"
+                      @update:value="(value: boolean) => (model.reasoning = value)"
+                    />
+                    <ToggleButton
+                      :label="t.modelsCustomVision"
+                      :value="model.vision === true"
+                      @update:value="(value: boolean) => (model.vision = value)"
+                    />
                   </div>
                 </div>
               </div>
@@ -930,6 +919,28 @@ async function testModel(rowKey: string, modelId: string): Promise<void> {
   border-bottom: 1px solid var(--border);
 }
 
+.detail-remove {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  height: 24px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--fg-muted);
+  font-size: 11.5px;
+  line-height: 1;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.detail-remove:hover {
+  background: color-mix(in srgb, var(--error) 14%, transparent);
+  color: var(--fg);
+}
+
 .detail-title {
   margin: 0;
   overflow: hidden;
@@ -953,24 +964,6 @@ async function testModel(rowKey: string, modelId: string): Promise<void> {
   color: var(--fg-muted);
   font-size: 10px;
   line-height: 16px;
-}
-
-.disable-toggle {
-  display: inline-flex;
-  align-items: center;
-  flex-shrink: 0;
-  gap: 6px;
-  color: var(--fg-muted);
-  font-size: 12px;
-  cursor: pointer;
-}
-
-.disable-toggle:hover {
-  color: var(--fg);
-}
-
-.disable-toggle.on {
-  color: var(--error);
 }
 
 .detail-scroll {
@@ -1052,12 +1045,6 @@ async function testModel(rowKey: string, modelId: string): Promise<void> {
   align-items: center;
   gap: 8px;
   margin-bottom: 8px;
-  cursor: pointer;
-}
-
-.toggle-text {
-  color: var(--fg);
-  font-size: 12px;
 }
 
 .toggle-hint {
@@ -1121,7 +1108,8 @@ async function testModel(rowKey: string, modelId: string): Promise<void> {
   opacity: 0.4;
 }
 
-.model-remove:hover {
+.model-remove:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--error) 14%, transparent);
   color: var(--error);
 }
 
@@ -1148,30 +1136,6 @@ async function testModel(rowKey: string, modelId: string): Promise<void> {
 
 .model-number {
   width: 118px;
-}
-
-.cap-button {
-  height: 24px;
-  padding: 0 10px;
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  background: transparent;
-  color: var(--fg-muted);
-  font-size: 11.5px;
-  line-height: 1;
-  cursor: pointer;
-}
-
-.cap-button:hover {
-  background: var(--bg-active);
-  color: var(--fg);
-}
-
-.cap-button.checked,
-.cap-button.checked:hover {
-  border-color: var(--accent-border);
-  background: var(--accent-soft);
-  color: var(--fg-strong);
 }
 
 .detail-footer {

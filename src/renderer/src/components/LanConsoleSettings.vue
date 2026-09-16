@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from "vue";
-import { NButton, NInput, NInputNumber, NSpace, NSwitch, NText, useMessage } from "naive-ui";
+import { NButton, NInput, NInputNumber, NSpace, NText, useMessage } from "naive-ui";
 import QRCode from "qrcode";
 import type { CloudflareTunnelStatus, LanConsoleStatus } from "../../../shared/protocol";
+import ToggleButton from "@renderer/components/ToggleButton.vue";
 import { t } from "@renderer/i18n";
 
 const message = useMessage();
@@ -214,9 +215,8 @@ onUnmounted(() => {
           {{ status?.listening ? t.lanConsoleOn : "" }}
         </span>
       </div>
-      <NSwitch
+      <ToggleButton
         :value="Boolean(status?.enabled)"
-        size="small"
         :loading="loading"
         @update:value="(v) => void onToggleLan(Boolean(v))"
       />
@@ -280,9 +280,8 @@ onUnmounted(() => {
       <div class="block public">
         <div class="head">
           <span class="label">{{ t.lanPublicTitle }}</span>
-          <NSwitch
+          <ToggleButton
             :value="Boolean(status.publicAccess)"
-            size="small"
             :loading="togglingPublic"
             @update:value="(v) => void onTogglePublic(Boolean(v))"
           />
@@ -291,10 +290,7 @@ onUnmounted(() => {
 
         <!-- Optional: the user's own Cloudflare tunnel (fixed hostname) -->
         <div class="own-domain">
-          <NSwitch v-model:value="showOwnDomain" size="small">
-            <template #checked>{{ t.lanTunnelOwnDomain }}</template>
-            <template #unchecked>{{ t.lanTunnelOwnDomain }}</template>
-          </NSwitch>
+          <ToggleButton v-model:value="showOwnDomain" :label="t.lanTunnelOwnDomain" />
           <template v-if="showOwnDomain">
             <NText depth="3" class="hint tight">{{ t.lanTunnelOwnDomainHint }}</NText>
             <NSpace :size="6" class="row">
