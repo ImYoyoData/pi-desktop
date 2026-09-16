@@ -50,7 +50,7 @@ function onLocaleUpdate(v: string | number | null): void {
   appearance.setLocalePreference(v as LocalePreference);
 }
 
-const thinkingLanguage = ref<ThinkingLanguage>("auto");
+const thinkingLanguage = ref<ThinkingLanguage>("en");
 const thinkingLanguageSaving = ref(false);
 
 onMounted(() => {
@@ -153,19 +153,19 @@ function onMessageWidthChange(value: string | number | null): void {
     </template>
 
     <template v-else>
-      <div class="section">
-        <NText strong>{{ t.thinkingLanguage }}</NText>
+      <div class="switch-row">
+        <div class="switch-labels">
+          <NText strong>{{ t.thinkingLanguage }}</NText>
+        </div>
         <NRadioGroup
           :value="thinkingLanguage"
           size="small"
           :disabled="thinkingLanguageSaving"
+          class="setting-radio-group"
           @update:value="saveThinkingLanguage"
         >
-          <NSpace>
-            <NRadioButton value="auto">{{ t.thinkingLanguageAuto }}</NRadioButton>
-            <NRadioButton value="zh">{{ t.thinkingLanguageZh }}</NRadioButton>
-            <NRadioButton value="en">English</NRadioButton>
-          </NSpace>
+          <NRadioButton value="zh">{{ t.thinkingLanguageZh }}</NRadioButton>
+          <NRadioButton value="en">{{ t.thinkingLanguageEn }}</NRadioButton>
         </NRadioGroup>
       </div>
 

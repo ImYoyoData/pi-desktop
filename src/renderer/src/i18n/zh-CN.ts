@@ -942,8 +942,8 @@ export const zh = {
 	extensionsTitle: "扩展 / Plugins",
 
 	thinkingLanguage: "思考语言",
-	thinkingLanguageAuto: "自动",
 	thinkingLanguageZh: "中文",
+	thinkingLanguageEn: "英文",
 	skillEnabled: "已启用",
 	skillDisabledManual: "已禁用（仅手动 /skill 调用）",
 	skillUninstallTitle: "卸载 Skill",

@@ -33,7 +33,6 @@ import {
   thinkingLanguageBlock,
 } from "../shared/thinking-language";
 import { getThinkingLanguageSettings } from "./thinking-language-host";
-import { getUiLocale } from "./ui-locale";
 
 const HEARTBEAT_INTERVAL_MS = 5_000;
 /**
@@ -933,8 +932,7 @@ export function createSessionBroker(deps: {
       return command;
     }
     if (hasThinkingLanguageBlock(command.message)) return command;
-    const block = thinkingLanguageBlock(getThinkingLanguageSettings().language, getUiLocale());
-    if (!block) return command;
+    const block = thinkingLanguageBlock(getThinkingLanguageSettings().language);
     return { ...command, message: `${block}\n\n${command.message}` };
   }
 
