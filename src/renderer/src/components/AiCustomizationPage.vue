@@ -250,7 +250,6 @@ onUnmounted(() => {
           <div class="section-title-row">
             <h2 class="section-title">{{ current.label }}</h2>
           </div>
-          <p class="section-title-description">{{ current.description }}</p>
         </div>
 
         <p v-if="store.error" class="content-error">
@@ -534,7 +533,7 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   gap: 6px;
-  margin: 0 0 6px;
+  margin: 0 0 12px;
 }
 
 .section-title {
@@ -542,13 +541,6 @@ onUnmounted(() => {
   color: var(--fg);
   font-size: 18px;
   font-weight: 600;
-}
-
-.section-title-description {
-  margin: 0 0 8px;
-  color: var(--fg-muted);
-  font-size: 13px;
-  line-height: 1.45;
 }
 
 .content-error {

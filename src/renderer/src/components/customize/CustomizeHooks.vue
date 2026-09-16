@@ -7,8 +7,6 @@ defineProps<{ hooks: CustomizationHook[] }>();
 
 <template>
   <div class="customize-hooks">
-    <p class="section-note">{{ t.customizeHooksNote }}</p>
-
     <div v-if="!hooks.length" class="list-empty-state">
       <div class="empty-state-header">
         <span class="empty-state-text">{{ t.customizeEmpty(t.customizeHooks) }}</span>
@@ -38,14 +36,6 @@ defineProps<{ hooks: CustomizationHook[] }>();
   flex: 1;
   min-width: 0;
   min-height: 0;
-}
-
-.section-note {
-  flex-shrink: 0;
-  margin: 16px 0;
-  color: var(--fg-muted);
-  font-size: 13px;
-  line-height: 1.45;
 }
 
 .list-container {
