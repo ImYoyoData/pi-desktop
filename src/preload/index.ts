@@ -16,6 +16,7 @@ import type {
 	TerminalShellOption,
 } from "../shared/protocol";
 import { IpcChannels } from "../shared/protocol";
+import type { EditContextMenuAction, EditContextMenuPayload } from "../shared/context-menu";
 import type { AgentRunEvent, AgentRunSnapshot } from "../shared/agent-runs";
 import type { AgentSaveResult, CustomizationsSnapshot, CustomizationCreateKind, InstructionsSaveResult, McpTestResult, McpTestTarget, SkillSaveResult } from "../shared/customizations";
 import type {
@@ -199,6 +200,19 @@ const api = {
 			) as Promise<boolean>,
 		openDevTools: () =>
 			ipcRenderer.invoke(IpcChannels.window.openDevTools) as Promise<void>,
+		onContextMenu: (callback: (payload: EditContextMenuPayload) => void) => {
+			const listener = (_event: unknown, payload: EditContextMenuPayload) =>
+				callback(payload);
+			ipcRenderer.on(IpcChannels.window.contextMenu, listener);
+			return () => {
+				ipcRenderer.removeListener(IpcChannels.window.contextMenu, listener);
+			};
+		},
+		runContextMenuAction: (action: EditContextMenuAction) =>
+			ipcRenderer.invoke(
+				IpcChannels.window.contextMenuAction,
+				action,
+			) as Promise<void>,
 		onCloseRequest: (callback: () => void) => {
 			const listener = () => callback();
 			ipcRenderer.on(IpcChannels.window.closeRequest, listener);
