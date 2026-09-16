@@ -267,6 +267,8 @@ function openFile(p: string): void {
   font-size: 150%;
   line-height: 1;
   color: var(--chat-icon-fg, var(--fg-muted));
+  /* Seti 字形居中于行盒，文字视觉中心偏下约 2px，下移对齐 */
+  transform: translateY(2px);
 }
 
 .file-path {
