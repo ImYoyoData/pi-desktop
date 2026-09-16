@@ -191,6 +191,7 @@ function bindXterm(host: HTMLDivElement): Terminal {
     rightClickSelectsWord: false,
     scrollback: 5000,
     windowOptions: {},
+    allowTransparency: true,
     theme: xtermTheme(appearance.resolvedTheme === "dark"),
   });
   fit = new FitAddon();
