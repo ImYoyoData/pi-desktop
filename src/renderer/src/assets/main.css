@@ -453,6 +453,16 @@ button {
 }
 
 /*
+ * 设置页内的自绘按钮统一键盘焦点样式：Chromium 默认白色焦点环在深色玻璃上
+ * 过于突兀（点击按钮后的 Esc 等键盘操作会触发 :focus-visible）。
+ */
+.pi-settings-modal button:not(.n-button):focus-visible,
+.modal-editor-panel button:not(.n-button):focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: -1px;
+}
+
+/*
  * Internal scroll container for modal bodies: each modal wraps its content
  * in <div class="modal-scroll"> so a tall dialog scrolls inside instead of
  * overflowing the window (keeps header + footer fixed).
