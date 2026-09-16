@@ -2421,7 +2421,7 @@ function onRevertUser(msg: Extract<ChatMessage, { role: "user" }>): void {
 
 .inner {
   width: 100%;
-  max-width: var(--pi-message-max, 60%);
+  max-width: var(--pi-message-max, 75%);
   margin: 0 auto;
   padding: 16px 16px;
   display: flex;
