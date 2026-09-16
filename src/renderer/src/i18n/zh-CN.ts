@@ -117,7 +117,7 @@ export const zh = {
 	modelsCustomModelsDuplicate: "模型 ID 重复",
 	customizePrompts: "提示",
 	customizePromptsDesc: "提示模板，可作为斜杠命令调用。",
-	customizeMcp: "MCP 服务器",
+	customizeMcp: "MCP",
 	customizeMcpDesc: "连接外部工具服务器，扩展 AI 能力。",
 	customizePlugins: "插件",
 	customizePluginsDesc: "安装与管理 pi 扩展包，添加工具、技能与集成。",
