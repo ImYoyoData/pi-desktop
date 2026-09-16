@@ -120,7 +120,7 @@ function normalizeSurfaces(raw: unknown): SurfaceAlphaSettings {
     input: clamp01(input.input, base.input),
     card: floorAlpha(input.card, base.card),
     settings: floorAlpha(input.settings, base.settings),
-    tool: floorAlpha(input.tool, base.tool),
+    tool: clamp01(input.tool, base.tool),
   };
 }
 

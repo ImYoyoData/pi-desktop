@@ -120,7 +120,6 @@ async function pickWallpaper(): Promise<void> {
         <AppearanceSliderRow
           :label="t.appearanceSurfaceTool"
           :value="appearance.surfaces.tool"
-          :min="floorPercent"
           :tip="t.appearanceSurfaceToolTip"
           :disabled="!isMedia"
           @update:value="(value) => appearance.setSurfaceAlpha('tool', value)"
