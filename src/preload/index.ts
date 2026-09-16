@@ -17,7 +17,7 @@ import type {
 } from "../shared/protocol";
 import { IpcChannels } from "../shared/protocol";
 import type { AgentRunEvent, AgentRunSnapshot } from "../shared/agent-runs";
-import type { CustomizationsSnapshot, CustomizationCreateKind, McpTestResult, McpTestTarget } from "../shared/customizations";
+import type { CustomizationsSnapshot, CustomizationCreateKind, McpTestResult, McpTestTarget, SkillSaveResult } from "../shared/customizations";
 import type {
 	ModelsGetResult,
 	ModelsOAuthEventPayload,
@@ -804,7 +804,15 @@ const api = {
 				content,
 				scope,
 				cwd,
-			) as Promise<{ filePath: string; name: string }>,
+			) as Promise<SkillSaveResult>,
+		save: (filePath: string, content: string, renameName?: string, cwd?: string) =>
+			ipcRenderer.invoke(
+				IpcChannels.skills.save,
+				filePath,
+				content,
+				renameName,
+				cwd,
+			) as Promise<SkillSaveResult>,
 		rename: (filePath: string, name: string, cwd?: string) =>
 			ipcRenderer.invoke(IpcChannels.skills.rename, filePath, name, cwd) as Promise<{
 				filePath: string;

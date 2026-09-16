@@ -34,6 +34,13 @@ export const en = {
 	customizeSkillIssueLongDescription: "Description too long",
 	customizeSkillIssueLongDescriptionHint: "description exceeds 1024 characters",
 	customizeDiscardDraftConfirm: "Discard the unsaved skill draft?",
+	skillIssueNameRequired: "name is required",
+	skillIssueNameInvalid:
+		"name must use lowercase letters, digits and hyphens only (e.g. my-skill), without leading/trailing or consecutive hyphens",
+	skillIssueNameTooLong: "name must not exceed 64 characters",
+	skillIssueDescriptionRequired:
+		"description is required (pi will not load a skill without it)",
+	skillIssueDescriptionTooLong: "description must not exceed 1024 characters",
 	customizeGroupUserHint: "User level: ~/.pi/agent",
 	customizeGroupProjectHint: "Workspace level: .pi",
 	customizeGroupBuiltinHint: "Provided by pi",

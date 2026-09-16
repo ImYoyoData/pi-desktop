@@ -20,6 +20,7 @@ import { useCustomizationsStore } from "@renderer/stores/customizations";
 import { useLayoutStore } from "@renderer/stores/layout";
 import { useWorkspaceStore } from "@renderer/stores/workspace";
 import { t } from "@renderer/i18n";
+import type { SkillIssueCode } from "../../../shared/customizations";
 
 const props = defineProps<{
   section: string;
@@ -224,6 +225,10 @@ async function saveSkillDraft(content: string): Promise<boolean> {
       draft.scope,
       draft.scope === "project" ? draft.workspace ?? undefined : undefined,
     );
+    if (!saved.ok) {
+      message.error(skillIssuesText(saved.issues));
+      return false;
+    }
     await store.load(true);
     editing.value = { kind: "file", filePath: saved.filePath, title: saved.name, rename: true };
     editorName.value = saved.name;
@@ -235,45 +240,69 @@ async function saveSkillDraft(content: string): Promise<boolean> {
   }
 }
 
-/** 已保存文件落盘；技能标题改名时先写内容，再重命名目录。 */
+/** 已保存文件落盘：技能走 skills.save（规范校验 + 可选重命名），其他文件直接写盘。 */
 async function saveSkillFile(
   target: Extract<EditingTarget, { kind: "file" }>,
   content: string,
 ): Promise<boolean> {
+  if (!target.rename) {
+    try {
+      await window.api.preview.write(target.filePath, content);
+      await store.load(true);
+      message.success(t.saved);
+      return true;
+    } catch (err) {
+      message.error(err instanceof Error ? err.message : String(err));
+      return false;
+    }
+  }
   const nextName = editorName.value.trim();
-  const shouldRename = target.rename && Boolean(nextName) && nextName !== target.title;
+  const shouldRename = Boolean(nextName) && nextName !== target.title;
   try {
-    await window.api.preview.write(target.filePath, content);
+    const saved = await window.api.skills.save(
+      target.filePath,
+      content,
+      shouldRename ? nextName : undefined,
+      workspace.root ?? undefined,
+    );
+    if (!saved.ok) {
+      message.error(skillIssuesText(saved.issues));
+      return false;
+    }
+    await store.load(true);
+    editing.value = {
+      kind: "file",
+      filePath: saved.filePath,
+      title: saved.name,
+      rename: true,
+    };
+    editorName.value = saved.name;
+    message.success(t.saved);
+    return true;
   } catch (err) {
     message.error(err instanceof Error ? err.message : String(err));
     return false;
   }
-  if (!shouldRename) {
-    await store.load(true);
-    message.success(t.saved);
-    return true;
+}
+
+function skillIssueText(code: SkillIssueCode): string {
+  switch (code) {
+    case "name-required":
+      return t.skillIssueNameRequired;
+    case "name-invalid":
+      return t.skillIssueNameInvalid;
+    case "name-too-long":
+      return t.skillIssueNameTooLong;
+    case "description-required":
+      return t.skillIssueDescriptionRequired;
+    default:
+      return t.skillIssueDescriptionTooLong;
   }
-  try {
-    const renamed = await window.api.skills.rename(
-      target.filePath,
-      nextName,
-      workspace.root ?? undefined,
-    );
-    await store.load(true);
-    editing.value = {
-      kind: "file",
-      filePath: renamed.filePath,
-      title: renamed.name,
-      rename: true,
-    };
-    editorName.value = renamed.name;
-    message.success(t.saved);
-  } catch (err) {
-    // 内容已保存，只是改名失败：回滚标题并单独提示
-    editorName.value = target.title;
-    message.error(err instanceof Error ? err.message : String(err));
-  }
-  return true;
+}
+
+/** 多条规范问题合并提示。 */
+function skillIssuesText(issues: SkillIssueCode[]): string {
+  return issues.map(skillIssueText).join("；");
 }
 
 /** 保存按钮与 Ctrl+S 统一入口。 */

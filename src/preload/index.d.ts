@@ -12,7 +12,7 @@ import type {
 	TerminalShellOption,
 } from "../shared/protocol";
 import type { AgentRunEvent, AgentRunSnapshot } from "../shared/agent-runs";
-import type { CustomizationsSnapshot, CustomizationCreateKind, McpTestResult, McpTestTarget } from "../shared/customizations";
+import type { CustomizationsSnapshot, CustomizationCreateKind, McpTestResult, McpTestTarget, SkillSaveResult } from "../shared/customizations";
 import type {
 	ModelsGetResult,
 	ModelsOAuthEventPayload,
@@ -604,7 +604,13 @@ declare const api: {
 			content: string,
 			scope: "user" | "project",
 			cwd?: string,
-		) => Promise<{ filePath: string; name: string }>;
+		) => Promise<SkillSaveResult>;
+		save: (
+			filePath: string,
+			content: string,
+			renameName?: string,
+			cwd?: string,
+		) => Promise<SkillSaveResult>;
 		rename: (
 			filePath: string,
 			name: string,

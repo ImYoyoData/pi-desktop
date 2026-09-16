@@ -22,6 +22,19 @@ export type CustomizationItem = {
 /** 技能不符合 pi 规范的常见问题。 */
 export type SkillWarningCode = "missing-description" | "invalid-name" | "description-too-long";
 
+/** 保存技能时的规范校验问题（可同时返回多条）。 */
+export type SkillIssueCode =
+	| "name-required"
+	| "name-invalid"
+	| "name-too-long"
+	| "description-required"
+	| "description-too-long";
+
+/** 技能创建/保存的结构化结果：失败时返回全部规范问题。 */
+export type SkillSaveResult =
+	| { ok: true; filePath: string; name: string }
+	| { ok: false; issues: SkillIssueCode[] };
+
 /** 已被扩展订阅的 pi 生命周期事件。 */
 export type CustomizationHook = {
 	event: string;

@@ -1,6 +1,8 @@
 import { ipcMain } from "electron";
 import { IpcChannels } from "../shared/protocol";
-import { createSkillFromDraft, listSkills, renameSkill, setSkillDisabled, uninstallSkill } from "./skills-host";
+import { createSkillFromDraft, listSkills, renameSkill, saveSkillContent, setSkillDisabled, uninstallSkill } from "./skills-host";
+import { validateSkillMeta } from "./skill-validate";
+import type { SkillSaveResult } from "../shared/customizations";
 import {
   listPlugins,
   checkPluginUpdates,
@@ -38,7 +40,7 @@ export function registerSkillsIpc(broker?: {
 
   ipcMain.handle(
     IpcChannels.skills.createFromDraft,
-    async (_event, content: string, scope: "user" | "project", cwd?: string) => {
+    async (_event, content: string, scope: "user" | "project", cwd?: string): Promise<SkillSaveResult> => {
       const workspacePath = cwd?.trim() || getWorkspace() || undefined;
       if (scope === "project" && !workspacePath) throw new Error("workspace required");
       const { parseFrontmatter } = await import("@earendil-works/pi-coding-agent");
@@ -46,9 +48,34 @@ export function registerSkillsIpc(broker?: {
       const name = typeof frontmatter.name === "string" ? frontmatter.name.trim() : "";
       const description =
         typeof frontmatter.description === "string" ? frontmatter.description.trim() : "";
+      const issues = validateSkillMeta(name, description);
+      if (issues.length > 0) return { ok: false, issues };
       const result = createSkillFromDraft(content, name, description, scope, workspacePath);
       if (workspacePath) await broker?.notifyWorkersReloadResources?.(workspacePath);
-      return { ...result, name };
+      return { ok: true, filePath: result.filePath, name };
+    },
+  );
+
+  ipcMain.handle(
+    IpcChannels.skills.save,
+    async (
+      _event,
+      filePath: string,
+      content: string,
+      renameName?: string,
+      cwd?: string,
+    ): Promise<SkillSaveResult> => {
+      const { parseFrontmatter } = await import("@earendil-works/pi-coding-agent");
+      const { frontmatter } = parseFrontmatter<Record<string, unknown>>(content);
+      const name = typeof frontmatter.name === "string" ? frontmatter.name.trim() : "";
+      const description =
+        typeof frontmatter.description === "string" ? frontmatter.description.trim() : "";
+      const issues = validateSkillMeta(name, description);
+      if (issues.length > 0) return { ok: false, issues };
+      const root = cwd || getWorkspace() || undefined;
+      const result = saveSkillContent(filePath, content, name, renameName, root);
+      if (root) await broker?.notifyWorkersReloadResources?.(root);
+      return { ok: true, filePath: result.filePath, name: result.name };
     },
   );
 

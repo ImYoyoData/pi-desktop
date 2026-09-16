@@ -95,6 +95,30 @@ function skillActionRoots(agentSkills: string, cwd?: string): string[] {
   return roots;
 }
 
+/** 写入技能文件内容（只允许用户级/工作区级技能目录下的文件）。 */
+export function writeSkillContent(filePath: string, content: string, cwd?: string): void {
+  const skillDir = path.resolve(path.dirname(filePath));
+  const roots = skillActionRoots(path.resolve(agentDir(), "skills"), cwd);
+  if (!roots.some((base) => isPathInsideRoot(base, skillDir))) {
+    throw new Error("Only user and workspace skills can be edited");
+  }
+  fs.writeFileSync(filePath, content, "utf8");
+}
+
+/** 保存技能：先写内容，再按需重命名目录并同步 frontmatter。 */
+export function saveSkillContent(
+  filePath: string,
+  content: string,
+  name: string,
+  renameName: string | undefined,
+  cwd?: string,
+): { filePath: string; name: string } {
+  writeSkillContent(filePath, content, cwd);
+  const currentDir = path.basename(path.dirname(path.resolve(filePath)));
+  if (!renameName || renameName === currentDir) return { filePath, name };
+  return renameSkill(filePath, renameName, cwd);
+}
+
 /** 重命名技能：目录改名并同步 frontmatter 的 name，只允许用户级与工作区级技能。 */
 export function renameSkill(
   filePath: string,
