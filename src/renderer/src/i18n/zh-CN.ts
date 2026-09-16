@@ -183,7 +183,7 @@ export const zh = {
 	customizeToolsDesc: "AI 可调用的语言模型工具：内置工具与扩展工具。",
 	customizeGroupUser: "用户",
 	customizeGroupProject: "工作区",
-	customizeGroupBuiltin: "内置",
+	customizeGroupBuiltin: "PI 内置",
 	customizeGroupDesktop: "Pi Desktop 内置",
 	customizeGroupExtension: "扩展",
 	customizeOpen: "打开",
