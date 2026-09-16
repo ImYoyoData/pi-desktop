@@ -209,11 +209,6 @@ export const en = {
 	customizeReload: "Reload",
 	customizeDiagnostics: "Diagnostics",
 	customizeToolsBuiltinNote: "Built-in tools are provided by pi.",
-	customizeNotifyDesc: "Turn completion alerts, sounds and delivery.",
-	customizeVoiceDesc: "Voice input and recognition engine.",
-	customizeSecurityDesc: "Tool permissions, bash allowlist and workspace trust.",
-	customizeProxyDesc: "Network proxy used for model requests and downloads.",
-	customizeLanDesc: "LAN access and Cloudflare tunnel.",
 	customizeAboutDesc: "Version, updates and open-source licenses.",
 	terminal: "Terminal",
 	preview: "Preview",
@@ -531,11 +526,7 @@ export const en = {
 	gitErr_unknown: "Git operation failed",
 	appearance: "General",
 	showCompactButton: "Show compact button",
-	showCompactButtonHint:
-		"Show the compact-context button and its warning indicator in the context usage panel.",
 	truncateToolOutput: "Truncate tool output preview",
-	truncateToolOutputHint:
-		"When enabled, tool output inside cards shows only the first 24 lines (the line-count stat is unaffected); when disabled the full output is shown.",
 	notifyTitle: "Notifications",
 	proxyTitle: "Network proxy",
 	proxyModeOff: "Off",
@@ -909,8 +900,6 @@ export const en = {
 	extensionsTitle: "Extensions / Plugins",
 
 	thinkingLanguage: "Thinking language",
-	thinkingLanguageHint:
-		"Affects visible reasoning text only. Auto: injects a Chinese reasoning instruction when the UI is Chinese, nothing when the UI is English; Chinese / English always injects that language.",
 	thinkingLanguageAuto: "Auto",
 	thinkingLanguageZh: "Chinese",
 	skillEnabled: "Enabled",
