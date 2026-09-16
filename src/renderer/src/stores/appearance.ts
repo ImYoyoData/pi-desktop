@@ -7,10 +7,13 @@ import {
   type UiLocale,
 } from "@renderer/i18n";
 import {
+  CUSTOM_APPEARANCE_KEY,
+  CUSTOM_APPEARANCE_LEGACY_KEY,
   VEIL_BLUR_MAX_PX,
-  normalizeMessageWidth,
   createDefaultCustomAppearance,
+  createDefaultSurfaces,
   normalizeCustomAppearance,
+  normalizeMessageWidth,
   wallpaperKindForPath,
   type CustomAppearanceSettings,
   type SurfaceAlphaSettings,
@@ -26,7 +29,6 @@ const THEME_KEY = "pi-desktop:theme-preference";
 const LOCALE_KEY = "pi-desktop:locale-preference";
 const COMPACT_BTN_KEY = "pi-desktop:show-compact-button";
 const TRUNCATE_TOOL_OUTPUT_KEY = "pi-desktop:truncate-tool-output";
-const CUSTOM_APPEARANCE_KEY = "pi-desktop:appearance-custom:v1";
 
 /** 工具输出预览的可选截断行数；0 表示不截断。 */
 export const TRUNCATE_TOOL_OUTPUT_CHOICES = [0, 10, 24, 50, 100] as const;
@@ -58,14 +60,18 @@ function readTruncateToolOutputLines(): number {
 
 function readCustomAppearance(): CustomAppearanceSettings {
   try {
-    const raw = localStorage.getItem(CUSTOM_APPEARANCE_KEY);
-    return raw ? normalizeCustomAppearance(JSON.parse(raw)) : createDefaultCustomAppearance();
+    const current = localStorage.getItem(CUSTOM_APPEARANCE_KEY);
+    const raw = current ?? localStorage.getItem(CUSTOM_APPEARANCE_LEGACY_KEY);
+    if (!raw) return createDefaultCustomAppearance();
+    const parsed = normalizeCustomAppearance(JSON.parse(raw));
+    // v1 的透明度是按浅色玻璃调的，沿用会让深色玻璃几乎透明，改用新默认档
+    return current ? parsed : { ...parsed, surfaces: createDefaultSurfaces() };
   } catch {
     return createDefaultCustomAppearance();
   }
 }
 
-/** 壁纸启用时界面改为半透明，同时把滑杆值写进 CSS 变量。 */
+/** 壁纸启用时界面改为深色玻璃，同时把滑杆值写进 CSS 变量。 */
 function applyCustomAppearance(settings: CustomAppearanceSettings, broken: boolean): void {
   const root = document.documentElement;
   const { wallpaper, surfaces } = settings;
@@ -155,8 +161,13 @@ export const useAppearanceStore = defineStore("appearance", () => {
   const surfaces = computed(() => customAppearance.value.surfaces);
   const messageWidth = computed(() => customAppearance.value.messageWidth);
 
+  /** 壁纸生效时界面固定为深色玻璃：底色、文字、naive-ui 与编辑器一起走暗色。 */
+  const glassSurface = computed(
+    () => customAppearance.value.wallpaper.kind !== "none" && !wallpaperBroken.value,
+  );
+
   const resolvedTheme = computed<ResolvedTheme>(() =>
-    resolveTheme(themePreference.value, systemDark.value),
+    glassSurface.value ? "dark" : resolveTheme(themePreference.value, systemDark.value),
   );
 
   /** 当前生效的界面语言（system 偏好跟随系统语言）。 */
@@ -167,15 +178,14 @@ export const useAppearanceStore = defineStore("appearance", () => {
   );
 
   function setThemePreference(next: ThemePreference): void {
-    const after = resolveTheme(next, systemDark.value);
     themePreference.value = next;
     try {
       localStorage.setItem(THEME_KEY, next);
     } catch {
       // ignore
     }
-    applyDomTheme(after);
-    scheduleChromeSync(next, after);
+    applyDomTheme(resolvedTheme.value);
+    scheduleChromeSync(next, resolvedTheme.value);
   }
 
   function setLocalePreference(next: LocalePreference): void {
@@ -208,6 +218,13 @@ export const useAppearanceStore = defineStore("appearance", () => {
     }
   }
 
+  /** 壁纸开合会切换整套配色，玻璃相关的 DOM 变量与暗色文字一起刷新。 */
+  function syncGlassShell(): void {
+    applyCustomAppearance(customAppearance.value, wallpaperBroken.value);
+    applyDomTheme(resolvedTheme.value);
+    scheduleChromeSync(themePreference.value, resolvedTheme.value);
+  }
+
   function persistCustom(next: CustomAppearanceSettings): void {
     customAppearance.value = next;
     try {
@@ -215,7 +232,7 @@ export const useAppearanceStore = defineStore("appearance", () => {
     } catch {
       // ignore
     }
-    applyCustomAppearance(next, wallpaperBroken.value);
+    syncGlassShell();
   }
 
   function updateWallpaper(patch: Partial<WallpaperSettings>): void {
@@ -230,7 +247,7 @@ export const useAppearanceStore = defineStore("appearance", () => {
   function setWallpaperBroken(broken: boolean): void {
     if (wallpaperBroken.value === broken) return;
     wallpaperBroken.value = broken;
-    applyCustomAppearance(customAppearance.value, broken);
+    syncGlassShell();
   }
 
   function setWallpaperFile(path: string): void {
@@ -268,10 +285,9 @@ export const useAppearanceStore = defineStore("appearance", () => {
       const before = resolvedTheme.value;
       systemDark.value = mq.matches;
       if (themePreference.value !== "system") return;
-      const after = resolveTheme("system", systemDark.value);
-      if (before === after) return;
-      applyDomTheme(after);
-      scheduleChromeSync("system", after);
+      if (before === resolvedTheme.value) return;
+      applyDomTheme(resolvedTheme.value);
+      scheduleChromeSync("system", resolvedTheme.value);
     };
     onChange();
     mq.addEventListener("change", onChange);
@@ -279,10 +295,7 @@ export const useAppearanceStore = defineStore("appearance", () => {
   }
 
   function init(): () => void {
-    applyDomTheme(resolvedTheme.value);
-    applyCustomAppearance(customAppearance.value, false);
-    void window.api.window.setThemeSource(themePreference.value);
-    void window.api.window.setChromeTheme(resolvedTheme.value);
+    syncGlassShell();
     return syncSystemListener();
   }
 

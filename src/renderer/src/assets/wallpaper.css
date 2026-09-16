@@ -7,25 +7,32 @@
  */
 
 html[data-theme][data-wallpaper="on"] {
-  --w-solid-bg: #ffffff;
-  --w-solid-elevated: #fafafd;
-  --w-solid-input: #f7f7fa;
+  /* 深色玻璃：基色固定为 VS Code 2026 Dark 的中性灰，不随主题切换 */
+  --w-solid-bg: #121314;
+  --w-solid-elevated: #202122;
+  --w-solid-input: #202122;
+
+  /* 半透明白描边：让玻璃在任何壁纸上保持同一质感 */
+  --border: rgba(255, 255, 255, 0.07);
+  --border-strong: rgba(255, 255, 255, 0.13);
+  --border-subtle: rgba(255, 255, 255, 0.05);
+  --chat-line: rgba(255, 255, 255, 0.07);
 
   /* 抬升表面：卡片、浮层、头栏、选中态，统一叠在界面底色之上 */
   --w-elevated-surface: color-mix(
     in srgb,
-    var(--w-solid-elevated) var(--pi-alpha-card, 52%),
+    var(--w-solid-elevated) var(--pi-alpha-card, 30%),
     transparent
   );
   --w-input-surface: color-mix(
     in srgb,
-    var(--w-solid-input) var(--pi-alpha-input, 20%),
+    var(--w-solid-input) var(--pi-alpha-input, 85%),
     transparent
   );
   /* 工具调用卡片（命令、输出、差异块）自带一档透明度 */
   --w-tool-surface: color-mix(
     in srgb,
-    var(--w-solid-elevated) var(--pi-alpha-tool, 52%),
+    var(--w-solid-elevated) var(--pi-alpha-tool, 60%),
     transparent
   );
 
@@ -39,12 +46,6 @@ html[data-theme][data-wallpaper="on"] {
   --pre-bg: var(--w-elevated-surface);
   --code-bg: var(--w-elevated-surface);
   --md-inline-code-bg: var(--w-elevated-surface);
-}
-
-html[data-theme="dark"][data-wallpaper="on"] {
-  --w-solid-bg: #121314;
-  --w-solid-elevated: #202122;
-  --w-solid-input: #202122;
 }
 
 /* 外框让位给壁纸层 */
@@ -68,12 +69,19 @@ html[data-theme][data-wallpaper="on"] .n-card {
   --n-color: var(--w-elevated-surface) !important;
 }
 
+/* 输入框与设置页叠自己的磨砂层，浮层与右键菜单已统一带 backdrop-filter */
+html[data-theme][data-wallpaper="on"] .composer-card,
+html[data-theme][data-wallpaper="on"] .pi-settings-modal,
+html[data-theme][data-wallpaper="on"] .modal-editor-panel {
+  backdrop-filter: blur(24px) saturate(1.3);
+}
+
 /* 设置页整体使用独立的透明度档位 */
 html[data-theme][data-wallpaper="on"] .pi-settings-modal,
 html[data-theme][data-wallpaper="on"] .modal-editor-panel {
   --w-settings-surface: color-mix(
     in srgb,
-    var(--w-solid-bg) var(--pi-alpha-settings, 72%),
+    var(--w-solid-bg) var(--pi-alpha-settings, 85%),
     transparent
   );
   background: var(--w-settings-surface);
