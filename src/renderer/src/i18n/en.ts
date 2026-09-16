@@ -31,9 +31,10 @@ export const en = {
 	customizeGroupExtensionHint: "Provided by extension packages",
 	customizeTitle: "Agent Settings",
 	customizeGeneral: "General",
-	customizeGeneralDesc: "App settings: chat display, notifications, voice, security, proxy and remote.",
+	customizeGeneralDesc:
+		"App settings: chat display, thinking language, notifications, voice, security, proxy and remote.",
 	customizeAppearance: "Appearance",
-	customizeAppearanceDesc: "Theme, language and thinking language.",
+	customizeAppearanceDesc: "Theme and interface language.",
 	customizeModels: "Models",
 	customizeModelsDesc: "Manage custom providers in models.json: connection, API keys and models.",
 	modelsCustomList: "Custom Providers",
