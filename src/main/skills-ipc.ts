@@ -1,6 +1,7 @@
 import { ipcMain } from "electron";
 import { IpcChannels } from "../shared/protocol";
 import { createSkillFromDraft, listSkills, renameSkill, saveSkillContent, setSkillDisabled, uninstallSkill } from "./skills-host";
+import { frontmatterText } from "./frontmatter";
 import { validateSkillMeta } from "./skill-validate";
 import type { SkillSaveResult } from "../shared/customizations";
 import {
@@ -45,9 +46,8 @@ export function registerSkillsIpc(broker?: {
       if (scope === "project" && !workspacePath) throw new Error("workspace required");
       const { parseFrontmatter } = await import("@earendil-works/pi-coding-agent");
       const { frontmatter } = parseFrontmatter<Record<string, unknown>>(content);
-      const name = typeof frontmatter.name === "string" ? frontmatter.name.trim() : "";
-      const description =
-        typeof frontmatter.description === "string" ? frontmatter.description.trim() : "";
+      const name = frontmatterText(frontmatter.name);
+      const description = frontmatterText(frontmatter.description);
       const issues = validateSkillMeta(name, description);
       if (issues.length > 0) return { ok: false, issues };
       const result = createSkillFromDraft(content, name, description, scope, workspacePath);
@@ -67,9 +67,8 @@ export function registerSkillsIpc(broker?: {
     ): Promise<SkillSaveResult> => {
       const { parseFrontmatter } = await import("@earendil-works/pi-coding-agent");
       const { frontmatter } = parseFrontmatter<Record<string, unknown>>(content);
-      const name = typeof frontmatter.name === "string" ? frontmatter.name.trim() : "";
-      const description =
-        typeof frontmatter.description === "string" ? frontmatter.description.trim() : "";
+      const name = frontmatterText(frontmatter.name);
+      const description = frontmatterText(frontmatter.description);
       const issues = validateSkillMeta(name, description);
       if (issues.length > 0) return { ok: false, issues };
       const root = cwd || getWorkspace() || undefined;
