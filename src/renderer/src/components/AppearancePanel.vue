@@ -125,29 +125,26 @@ function onMessageWidthChange(value: string | number | null): void {
     <template v-if="tab === 'theme'">
       <AppearanceWallpaperCard />
 
-      <div class="section">
+      <div class="theme-locale-grid">
         <NText strong>{{ t.theme }}</NText>
-        <NRadioGroup v-model:value="themeValue" size="small">
-          <NSpace>
-            <NRadioButton value="system">{{ t.themeSystem }}</NRadioButton>
-            <NRadioButton value="light">{{ t.themeLight }}</NRadioButton>
-            <NRadioButton value="dark">{{ t.themeDark }}</NRadioButton>
-          </NSpace>
+        <NRadioGroup v-model:value="themeValue" size="small" class="theme-locale-radio">
+          <NRadioButton value="system">{{ t.themeSystem }}</NRadioButton>
+          <NRadioButton value="light">{{ t.themeLight }}</NRadioButton>
+          <NRadioButton value="dark">{{ t.themeDark }}</NRadioButton>
         </NRadioGroup>
-      </div>
 
-      <div class="section">
+        <NDivider style="margin: 0" class="theme-locale-divider" />
+
         <NText strong>{{ t.language }}</NText>
         <NRadioGroup
           :value="appearance.localePreference"
           size="small"
+          class="theme-locale-radio"
           @update:value="onLocaleUpdate"
         >
-          <NSpace>
-            <NRadioButton value="system">{{ t.themeSystem }}</NRadioButton>
-            <NRadioButton value="zh-CN">中文</NRadioButton>
-            <NRadioButton value="en">English</NRadioButton>
-          </NSpace>
+          <NRadioButton value="system">{{ t.themeSystem }}</NRadioButton>
+          <NRadioButton value="zh-CN">中文</NRadioButton>
+          <NRadioButton value="en">English</NRadioButton>
         </NRadioGroup>
       </div>
     </template>
@@ -242,12 +239,6 @@ function onMessageWidthChange(value: string | number | null): void {
   container-type: inline-size;
 }
 
-.section {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-
 .switch-row {
   display: flex;
   align-items: center;
@@ -271,6 +262,26 @@ function onMessageWidthChange(value: string | number | null): void {
   flex-shrink: 0;
   width: 120px;
   display: inline-flex;
+}
+
+.theme-locale-grid {
+  display: grid;
+  grid-template-columns: 1fr max-content;
+  align-items: center;
+  gap: 16px 12px;
+}
+
+.theme-locale-divider {
+  grid-column: 1 / -1;
+}
+
+.theme-locale-radio {
+  display: flex;
+}
+
+.theme-locale-radio :deep(.n-radio-button) {
+  flex: 1;
+  text-align: center;
 }
 
 .setting-radio-group :deep(.n-radio-button) {
