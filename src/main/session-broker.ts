@@ -189,6 +189,8 @@ type SessionRecord = {
   stallEmitted: boolean;
   /** 代理等环境变更后，待空闲时重建该 worker。 */
   restartOnIdle: boolean;
+  /** 设置类命令（模型/思考档位）的串行链；prompt 必须等它落地。 */
+  settingsGate: Promise<void>;
   pendingCommands: Map<
     string,
     {
@@ -267,6 +269,11 @@ export function createSessionBroker(deps: {
     }
     // Defer destroy while Running-panel still tracks bash (incl. background survivors).
     if (deps.hasActiveRuns?.(sessionId)) {
+      scheduleIdleDestroy(sessionId);
+      return;
+    }
+    // 有命令在等结果时销毁会让它永久挂起（如设置类命令），同样延后。
+    if (rec.pendingCommands.size > 0) {
       scheduleIdleDestroy(sessionId);
       return;
     }
@@ -712,6 +719,7 @@ export function createSessionBroker(deps: {
       idleDestroyTimer: null,
       stallEmitted: false,
       restartOnIdle: false,
+      settingsGate: Promise.resolve(),
       pendingCommands: new Map(),
     });
     return { ...summary };
@@ -976,6 +984,20 @@ export function createSessionBroker(deps: {
       if (!coldStart) return undefined;
       throw new Error(`session worker unavailable: ${sessionId}`);
     }
+    // 设置类命令串行下发（worker 并发处理时 set_model 会把刚设的思考档位回退），
+    // 且 prompt 必须等设置落地，否则首条消息会带旧模型/旧档位开跑。
+    const isSetting =
+      command.type === "set_model" || command.type === "set_thinking_level";
+    const gate: { release: (() => void) | null } = { release: null };
+    if (isSetting) {
+      const prev = rec!.settingsGate;
+      rec!.settingsGate = prev.then(
+        () => new Promise<void>((resolve) => (gate.release = resolve)),
+      );
+      await prev;
+    } else if (command.type === "prompt") {
+      await rec!.settingsGate;
+    }
     if (command.type === "prompt" || command.type === "hang") {
       setStatus(sessionId, "running");
     }
@@ -997,10 +1019,11 @@ export function createSessionBroker(deps: {
 
     if (!awaitsResult) {
       await worker.send(outbound);
+      gate.release?.();
       return undefined;
     }
 
-    return await new Promise<unknown>((resolve, reject) => {
+    const settled = new Promise<unknown>((resolve, reject) => {
       let forceTimer: ReturnType<typeof setTimeout> | null = null;
       const clearForce = (): void => {
         if (forceTimer) {
@@ -1056,6 +1079,11 @@ export function createSessionBroker(deps: {
         }
       });
     });
+    void settled.then(
+      () => gate.release?.(),
+      () => gate.release?.(),
+    );
+    return await settled;
   }
 
   async function trySend(
