@@ -1067,6 +1067,7 @@ export const zh = {
 	sessionInfoFilesRead: "读取的文件",
 	sessionInfoEmpty: "暂无",
 	newSessionAction: "新建会话",
+	moreActions: "更多操作",
 	renamed: "已重命名",
 	refreshSessions: "刷新会话",
 	revealInExplorer: "在资源管理器中打开",
