@@ -106,7 +106,7 @@ const archivedOpen = ref(false);
 const archivedRows = ref<ArchivedRow[]>([]);
 
 const ARCHIVE_KEY_PREFIX = "archive:";
-const ARCHIVE_DAY_STEPS = [7, 30, 90];
+const ARCHIVE_DAY_STEPS = [3, 7, 30, 90];
 
 type ArchivedRow = {
   id: string;
