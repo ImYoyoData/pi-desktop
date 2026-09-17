@@ -247,6 +247,8 @@ export const zh = {
 	customizeMcpTargetRequired: "请填写命令或 URL",
 	customizeMcpJsonInvalid: "JSON 格式无效或未包含服务器定义",
 	customizeMcpSave: "保存",
+	customizeMcpAdapterMissing: "MCP 由 pi-mcp-adapter 插件提供，当前未安装，MCP 服务器的配置不会生效。",
+	customizeMcpAdapterInstall: "安装插件",
 	customizeMcpTest: "测试",
 	customizeMcpTesting: "测试中…",
 	customizeMcpTestTimeout: "连接超时",

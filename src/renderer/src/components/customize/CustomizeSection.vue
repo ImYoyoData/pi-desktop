@@ -46,6 +46,39 @@ const query = ref("");
 const addOpen = ref(false);
 const mcpTesting = ref(false);
 const mcpTestResults = ref<Record<string, McpTestResult>>({});
+const installingMcpAdapter = ref(false);
+
+const MCP_ADAPTER_PACKAGE = "pi-mcp-adapter";
+
+/** MCP 服务器由 pi-mcp-adapter 插件提供，未安装时该页配置不会生效。 */
+const mcpAdapterMissing = computed(
+  () =>
+    props.kind === "mcp" &&
+    Boolean(store.snapshot.root) &&
+    !store.snapshot.plugins.some(
+      (item) =>
+        (item.source ?? item.name).replace(/^npm:/, "") === MCP_ADAPTER_PACKAGE &&
+        item.detail !== "missing",
+    ),
+);
+
+async function installMcpAdapter(): Promise<void> {
+  if (installingMcpAdapter.value) return;
+  installingMcpAdapter.value = true;
+  try {
+    const result = await window.api.market.install(MCP_ADAPTER_PACKAGE);
+    if (!result.ok) {
+      message.error(result.error || t.marketInstallFailed);
+      return;
+    }
+    message.success(t.marketInstalled(MCP_ADAPTER_PACKAGE));
+    await store.load(true);
+  } catch (err) {
+    message.error(err instanceof Error ? err.message : String(err));
+  } finally {
+    installingMcpAdapter.value = false;
+  }
+}
 const pluginUpdates = usePluginUpdatesStore();
 const collapsed = reactive(new Set<CustomizationScope>());
 
@@ -575,6 +608,18 @@ function onCtxSelect(key: string | number): void {
 
 <template>
   <div class="customize-list">
+    <div v-if="mcpAdapterMissing" class="mcp-adapter-warning">
+      <span class="mcp-adapter-warning-text">{{ t.customizeMcpAdapterMissing }}</span>
+      <NButton
+        size="tiny"
+        type="primary"
+        :loading="installingMcpAdapter"
+        @click="installMcpAdapter"
+      >
+        {{ t.customizeMcpAdapterInstall }}
+      </NButton>
+    </div>
+
     <div class="list-search-and-button-container">
       <div class="list-search-container">
         <NInput
@@ -770,6 +815,26 @@ function onCtxSelect(key: string | number): void {
   flex: 1;
   min-width: 0;
   min-height: 0;
+}
+
+.mcp-adapter-warning {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+  margin-top: 16px;
+  padding: 8px 10px;
+  border: 1px solid color-mix(in srgb, var(--error) 45%, transparent);
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--error) 12%, transparent);
+  font-size: 12px;
+  line-height: 16px;
+}
+
+.mcp-adapter-warning-text {
+  flex: 1;
+  min-width: 0;
+  color: var(--fg);
 }
 
 .list-search-and-button-container {
