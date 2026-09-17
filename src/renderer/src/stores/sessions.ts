@@ -265,10 +265,8 @@ export const useSessionsStore = defineStore("sessions", () => {
    */
   function beginDraft(cwd: string): void {
     setDraftRoot(cwd);
-    // 新建即空白：清掉上一个草稿残留在无会话缓冲里的内容。
-    const composer = useComposerStore();
-    composer.bindSession(null);
-    composer.clear();
+    // 保留草稿缓冲：反复新建或切走再回来都不丢已输入内容（发送成功才清空）。
+    useComposerStore().bindSession(null);
   }
 
   /** 草稿首次发送：创建会话文件并切换为活动会话。 */
