@@ -382,9 +382,10 @@ async function runCloudTest(): Promise<void> {
 }
 
 onMounted(() => {
-  void loadCloudDraft();
   offProgress = asr.bindProgress();
   offTtsProgress = tts.bindProgress();
+  if (!props.open) return;
+  void loadCloudDraft();
   void asr.refresh();
   void tts.refresh();
 });

@@ -600,7 +600,7 @@ watch(
 watch(
   () => props.visible,
   (value) => {
-    if (value) void store.load(true);
+    if (value) void store.load();
     else modal.value = null;
   },
 );
@@ -608,12 +608,12 @@ watch(
 watch(
   () => workspace.root,
   () => {
-    if (props.visible) void store.load(true);
+    if (props.visible) void store.load();
   },
 );
 
 onMounted(() => {
-  if (props.visible) void store.load(true);
+  if (props.visible) void store.load();
 });
 
 onUnmounted(() => {

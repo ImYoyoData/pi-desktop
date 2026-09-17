@@ -725,10 +725,11 @@ const api = {
 			ipcRenderer.invoke(IpcChannels.git.abortMerge) as Promise<GitOpResult>,
 	},
 	customizations: {
-		list: (cwd?: string) =>
+		list: (cwd?: string, force?: boolean) =>
 			ipcRenderer.invoke(
 				IpcChannels.customizations.list,
 				cwd,
+				force,
 			) as Promise<CustomizationsSnapshot>,
 		create: (kind: CustomizationCreateKind) =>
 			ipcRenderer.invoke(IpcChannels.customizations.create, kind) as Promise<{
@@ -806,6 +807,16 @@ const api = {
 				IpcChannels.customizations.testMcpServers,
 				targets,
 			) as Promise<McpTestResult[]>,
+		onUpdated: (callback: (snapshot: CustomizationsSnapshot) => void) => {
+			const listener = (
+				_event: Electron.IpcRendererEvent,
+				snapshot: CustomizationsSnapshot,
+			): void => callback(snapshot);
+			ipcRenderer.on(IpcChannels.customizations.updated, listener);
+			return () => {
+				ipcRenderer.removeListener(IpcChannels.customizations.updated, listener);
+			};
+		},
 	},
 	skills: {
 		list: (cwd?: string) =>
