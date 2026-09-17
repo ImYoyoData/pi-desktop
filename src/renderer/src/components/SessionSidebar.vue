@@ -510,9 +510,13 @@ function guidesVisibleFor(root: string, item: VisibleSessionItem): boolean {
   );
 }
 
+function collapsibleSessionCount(root: string): number {
+  return Math.max(0, sessionsFor(root).length - SESSION_VISIBLE_LIMIT);
+}
+
 function hiddenSessionCount(root: string): number {
   if (sessionListExpanded[root]) return 0;
-  return Math.max(0, sessionsFor(root).length - SESSION_VISIBLE_LIMIT);
+  return collapsibleSessionCount(root);
 }
 
 function toggleSessionListExpanded(root: string): void {
@@ -1214,7 +1218,7 @@ function isRunning(status: SessionStatus): boolean {
                 class="session-expand-btn"
                 @click.stop="toggleSessionListExpanded(root)"
               >
-                {{ t.collapseSessions }}
+                {{ t.collapseSessions(collapsibleSessionCount(root)) }}
               </button>
             </li>
           </ul>
@@ -1855,10 +1859,25 @@ function isRunning(status: SessionStatus): boolean {
   color: var(--fg-faint);
 }
 
+/* 不占布局高度：固定在列表可视底部，悬停才浮现 */
+/* 悬停才占位展开：非悬停时零行高，悬停时撑开并把下方内容下推 */
 .session-expand-row {
   list-style: none;
   margin: 0;
   padding: 0;
+  height: 0;
+  min-height: 0;
+  overflow: hidden;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--duration-fast, 140ms) var(--ease-out, ease);
+}
+
+.session-list:hover .session-expand-row,
+.session-list:focus-within .session-expand-row {
+  height: auto;
+  opacity: 1;
+  pointer-events: auto;
 }
 
 .session-expand-btn {
