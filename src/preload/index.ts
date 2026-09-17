@@ -267,6 +267,20 @@ const api = {
 			ipcRenderer.invoke(IpcChannels.workspace.reorderRecent, order) as Promise<
 				string[]
 			>,
+		listAliases: () =>
+			ipcRenderer.invoke(IpcChannels.workspace.listAliases) as Promise<
+				Record<string, string>
+			>,
+		setAlias: (root: string, name: string | null) =>
+			ipcRenderer.invoke(IpcChannels.workspace.setAlias, root, name) as Promise<
+				Record<string, string>
+			>,
+		relocate: (root: string, next: string) =>
+			ipcRenderer.invoke(IpcChannels.workspace.relocate, root, next) as Promise<{
+				root: string | null;
+				recent: string[];
+				aliases: Record<string, string>;
+			}>,
 		revealInFolder: (root: string) =>
 			ipcRenderer.invoke(
 				IpcChannels.workspace.revealInFolder,

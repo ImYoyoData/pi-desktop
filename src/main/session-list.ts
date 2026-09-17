@@ -313,6 +313,80 @@ export async function purgeWorkspaceSessionDir(cwd: string): Promise<void> {
   }
 }
 
+/** 只改第一行 header：cwd 指向新路径，parentSession 指向搬移后的父文件。 */
+async function moveSessionFile(
+  src: string,
+  dest: string,
+  newCwd: string,
+  fromDir: string,
+  toDir: string,
+): Promise<void> {
+  const raw = await fs.promises.readFile(src, "utf8");
+  const lineEnd = raw.indexOf("\n");
+  const headRaw = lineEnd < 0 ? raw : raw.slice(0, lineEnd);
+  const cr = headRaw.endsWith("\r") ? "\r" : "";
+  const head = cr ? headRaw.slice(0, -1) : headRaw;
+  const rest = lineEnd < 0 ? "" : raw.slice(lineEnd);
+  let next = raw;
+  try {
+    const parsed = JSON.parse(head) as {
+      type?: unknown;
+      cwd?: unknown;
+      parentSession?: unknown;
+    };
+    if (parsed.type === "session") {
+      parsed.cwd = newCwd;
+      const parent = parsed.parentSession;
+      if (typeof parent === "string" && workspacePathsEqual(path.dirname(parent), fromDir)) {
+        parsed.parentSession = path.join(toDir, path.basename(parent));
+      }
+      next = JSON.stringify(parsed) + cr + rest;
+    }
+  } catch {
+    // header 解析失败时保留原文
+  }
+  await fs.promises.writeFile(dest, next, "utf8");
+  await fs.promises.rm(src, { force: true });
+}
+
+/**
+ * 工作区重新定位：把旧 cwd 的会话目录搬到新 cwd 目录，会话目录是按 cwd 编码的，
+ * 因此文件要搬家且 header 的 cwd 要跟着改，否则新路径下看不到这些会话。
+ */
+export async function migrateWorkspaceSessionDir(
+  oldCwd: string,
+  newCwd: string,
+): Promise<void> {
+  const resolvedOld = path.resolve(oldCwd);
+  const resolvedNew = path.resolve(newCwd);
+  if (workspacePathsEqual(resolvedOld, resolvedNew)) return;
+  const fromDir = encodeCwdSessionDir(resolvedOld);
+  const toDir = encodeCwdSessionDir(resolvedNew);
+  let files: string[];
+  try {
+    files = await fs.promises.readdir(fromDir);
+  } catch {
+    invalidateSessionListCaches(resolvedOld);
+    return;
+  }
+  await fs.promises.mkdir(toDir, { recursive: true });
+  for (const file of files) {
+    if (!file.endsWith(".jsonl")) continue;
+    const src = path.join(fromDir, file);
+    const dest = path.join(toDir, file);
+    if (fs.existsSync(dest)) continue;
+    await moveSessionFile(src, dest, resolvedNew, fromDir, toDir);
+  }
+  try {
+    const rest = await fs.promises.readdir(fromDir);
+    if (rest.length === 0) await fs.promises.rmdir(fromDir);
+  } catch {
+    // 旧目录残留不影响迁移结果
+  }
+  invalidateSessionListCaches(resolvedOld);
+  invalidateSessionListCaches(resolvedNew);
+}
+
 export async function listSessionsForCwd(
   cwd: string,
 ): Promise<SessionSummary[]> {

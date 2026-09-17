@@ -12,7 +12,6 @@ import {
   NModal,
   NScrollbar,
   NSpace,
-  NText,
   NTooltip,
   useDialog,
   useMessage,
@@ -25,8 +24,8 @@ import {
   CreateOutline,
   EllipsisHorizontalOutline,
   FolderOpenOutline,
+  FolderOutline,
   PinOutline,
-  RefreshOutline,
   TrashOutline,
 } from "@vicons/ionicons5";
 import Sortable from "sortablejs";
@@ -80,6 +79,9 @@ const sessionSortables = new Map<string, Sortable>();
 const renameOpen = ref(false);
 const renameDraft = ref("");
 const renameTarget = ref<{ root: string; id: string } | null>(null);
+const wsRenameOpen = ref(false);
+const wsRenameDraft = ref("");
+const wsRenameRoot = ref<string | null>(null);
 
 const workspacePaths = computed(() => {
   const paths = [...workspace.recent];
@@ -280,7 +282,7 @@ onMounted(async () => {
   // 派生会话等由其他组件新建的会话：排到最前，避免被折叠到「展开其余 N 个」之下。
   window.addEventListener("pi-session-created", onSessionCreated);
   // App.vue already loads workspace/recent — skip duplicate IPC on cold start.
-  const boot: Promise<unknown>[] = [];
+  const boot: Promise<unknown>[] = [workspace.refreshAliases()];
   if (!workspace.root) boot.push(workspace.getWorkspace());
   if (!workspace.recent.length) boot.push(workspace.listRecentFast());
   await Promise.all(boot);
@@ -572,6 +574,8 @@ async function ensureActiveSession(
 let skipAutoSelectRoot: string | null = null;
 
 function workspaceName(path: string): string {
+  const alias = workspace.aliases[path]?.trim();
+  if (alias) return alias;
   const parts = path.replace(/\\/g, "/").split("/");
   return parts.filter(Boolean).pop() ?? path;
 }
@@ -778,6 +782,25 @@ async function submitRename(): Promise<void> {
   }
 }
 
+function openWorkspaceRename(root: string): void {
+  wsRenameRoot.value = root;
+  wsRenameDraft.value = workspaceName(root);
+  wsRenameOpen.value = true;
+}
+
+async function submitWorkspaceRename(): Promise<void> {
+  const root = wsRenameRoot.value;
+  if (!root) return;
+  try {
+    // 清空输入即恢复成文件夹名
+    await workspace.renameWorkspace(root, wsRenameDraft.value.trim() || null);
+    wsRenameOpen.value = false;
+    message.success(t.renamed);
+  } catch (err) {
+    message.error(err instanceof Error ? err.message : String(err));
+  }
+}
+
 function sessionLabel(session: { name?: string; firstMessage?: string; id: string }): string {
   if (session.name?.trim()) return session.name.trim();
   if (session.firstMessage?.trim() && session.firstMessage !== "(no messages)") {
@@ -807,11 +830,6 @@ function workspaceMenuOptions(): DropdownOption[] {
       icon: () => h(NIcon, null, { default: () => h(AddOutline) }),
     },
     {
-      label: t.refreshSessions,
-      key: "refresh",
-      icon: () => h(NIcon, null, { default: () => h(RefreshOutline) }),
-    },
-    {
       label: t.revealInExplorer,
       key: "reveal",
       icon: () => h(NIcon, null, { default: () => h(FolderOpenOutline) }),
@@ -820,6 +838,16 @@ function workspaceMenuOptions(): DropdownOption[] {
       label: t.copyPath,
       key: "copy",
       icon: () => h(NIcon, null, { default: () => h(CopyOutline) }),
+    },
+    {
+      label: t.relocateWorkspace,
+      key: "relocate",
+      icon: () => h(NIcon, null, { default: () => h(FolderOutline) }),
+    },
+    {
+      label: t.renameProject,
+      key: "rename-project",
+      icon: () => h(NIcon, null, { default: () => h(CreateOutline) }),
     },
     { type: "divider", key: "d1" },
     {
@@ -841,17 +869,18 @@ async function onWorkspaceMenu(root: string, key: string | number): Promise<void
       sessionsStore.beginDraft(root);
       break;
     }
-    case "refresh":
-      expanded[root] = true;
-      await loadSessions(root);
-      message.success(t.refreshed);
-      break;
     case "reveal":
       await workspace.revealInFolder(root);
       break;
     case "copy":
       await navigator.clipboard.writeText(root);
       message.success(t.pathCopied);
+      break;
+    case "relocate":
+      await workspace.relocateWorkspace(root);
+      break;
+    case "rename-project":
+      openWorkspaceRename(root);
       break;
     case "remove": {
       confirmPurgeWorkspace(root);
@@ -1060,10 +1089,6 @@ watch(
     </NAlert>
 
     <div class="sessions-pane">
-      <div class="section-head">
-        <NText depth="3" style="font-size: 12px; font-weight: 600">{{ t.workspaces }}</NText>
-      </div>
-
       <NScrollbar v-if="workspacePaths.length" class="tree">
         <div ref="workspaceTreeEl" class="ws-tree">
           <div
@@ -1285,6 +1310,17 @@ watch(
       <NInput v-model:value="renameDraft" :placeholder="t.sessionNamePlaceholder" @keydown.enter.prevent="submitRename" />
     </NModal>
 
+    <NModal
+      v-model:show="wsRenameOpen"
+      preset="dialog"
+      :title="t.renameProject"
+      :positive-text="t.save"
+      :negative-text="t.cancel"
+      @positive-click="submitWorkspaceRename"
+    >
+      <NInput v-model:value="wsRenameDraft" :placeholder="t.renameProjectPlaceholder" @keydown.enter.prevent="submitWorkspaceRename" />
+    </NModal>
+
     <NDropdown
       placement="bottom-start"
       trigger="manual"
@@ -1354,14 +1390,6 @@ watch(
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.section-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 6px 10px 2px;
-  flex-shrink: 0;
 }
 
 .tree {

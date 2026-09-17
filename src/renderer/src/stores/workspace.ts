@@ -19,6 +19,8 @@ function sanitizeRoots(list: unknown): string[] {
 export const useWorkspaceStore = defineStore("workspace", () => {
 	const root = ref<string | null>(null);
 	const recent = ref<string[]>([]);
+	/** 绝对路径 → 用户自定义显示名。 */
+	const aliases = ref<Record<string, string>>({});
 	/**
 	 * True once the current `root` is ready for session hydrate / worker spawn.
 	 */
@@ -140,9 +142,34 @@ export const useWorkspaceStore = defineStore("workspace", () => {
 		await window.api.workspace.revealInFolder(workspaceRoot);
 	}
 
+	async function refreshAliases(): Promise<void> {
+		aliases.value = await window.api.workspace.listAliases();
+	}
+
+	/** 重命名工作区显示名（磁盘目录不变）；name 为空即清除。 */
+	async function renameWorkspace(
+		workspaceRoot: string,
+		name: string | null,
+	): Promise<void> {
+		aliases.value = await window.api.workspace.setAlias(workspaceRoot, name);
+	}
+
+	/** 重新定位：选新目录接管该工作区，Pi 会话一起迁过去。取消时返回 null。 */
+	async function relocateWorkspace(
+		workspaceRoot: string,
+	): Promise<string | null> {
+		const picked = await window.api.workspace.pick();
+		if (!picked) return null;
+		const next = await window.api.workspace.relocate(workspaceRoot, picked);
+		aliases.value = next.aliases;
+		await applyWorkspaceSwitch(next);
+		return next.root;
+	}
+
 	return {
 		root,
 		recent,
+		aliases,
 		sessionsReady,
 		getWorkspace,
 		openWorkspace,
@@ -154,5 +181,8 @@ export const useWorkspaceStore = defineStore("workspace", () => {
 		purgeWorkspace,
 		reorderRecent,
 		revealInFolder,
+		refreshAliases,
+		renameWorkspace,
+		relocateWorkspace,
 	};
 });

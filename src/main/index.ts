@@ -340,6 +340,7 @@ function boot(): void {
 		registerWindowIpc();
 		registerWorkspaceIpc({
 			purgeWorkspaceSessions: (cwd) => broker.purgeWorkspace(cwd),
+			stopWorkspaceSessions: (cwd) => broker.stopWorkspaceSessions(cwd),
 		});
 		registerSessionsIpc(broker);
 		registerAgentRunsIpc(registryHolder.current!);
