@@ -20,12 +20,14 @@ import {
   AddOutline,
   ChevronDownOutline,
   ChevronForwardOutline,
+  ContractOutline,
   CopyOutline,
   CreateOutline,
   EllipsisHorizontalOutline,
   FolderOpenOutline,
   FolderOutline,
   PinOutline,
+  SwapHorizontalOutline,
   TrashOutline,
 } from "@vicons/ionicons5";
 import Sortable from "sortablejs";
@@ -83,7 +85,46 @@ const wsRenameOpen = ref(false);
 const wsRenameDraft = ref("");
 const wsRenameRoot = ref<string | null>(null);
 
-const workspacePaths = computed(() => {
+/** 侧栏分类：空串表示“全部项目”，GROUP_DEFAULT 是内置的“默认”。 */
+const GROUP_ALL = "";
+const GROUP_DEFAULT = "\u0000default";
+const GROUP_KEY_PREFIX = "group:";
+const selectedGroup = ref<string>(GROUP_ALL);
+const groupDialogOpen = ref(false);
+const groupDraft = ref("");
+const groupDialogMode = ref<"create" | "rename">("create");
+
+/** 选中的分类被删除或改名后落回“全部项目”。 */
+const activeGroup = computed(() => {
+  const name = selectedGroup.value;
+  if (!name || name === GROUP_DEFAULT) return name;
+  return workspace.groups.includes(name) ? name : GROUP_ALL;
+});
+
+function groupNameOf(root: string): string {
+  return workspace.groupOf[root]?.trim() || GROUP_DEFAULT;
+}
+
+function groupOptionKey(name: string): string {
+  if (name === GROUP_ALL) return "group-all";
+  if (name === GROUP_DEFAULT) return "group-default";
+  return `${GROUP_KEY_PREFIX}${name}`;
+}
+
+function groupNameFromKey(key: string): string | null {
+  if (key === "group-all") return GROUP_ALL;
+  if (key === "group-default") return GROUP_DEFAULT;
+  if (key.startsWith(GROUP_KEY_PREFIX)) return key.slice(GROUP_KEY_PREFIX.length);
+  return null;
+}
+
+function groupCount(name: string): number {
+  if (name === GROUP_ALL) return allWorkspacePaths.value.length;
+  return allWorkspacePaths.value.filter((root) => groupNameOf(root) === name).length;
+}
+
+/** 最近列表 + 活动工作区兜底，未经分类过滤。 */
+const allWorkspacePaths = computed(() => {
   const paths = [...workspace.recent];
   // Safety: active root missing from list — append, never promote to front.
   // A blank root is skipped: it would render as an extra nameless workspace.
@@ -95,6 +136,106 @@ const workspacePaths = computed(() => {
   }
   return paths;
 });
+
+/** 侧栏实际展示的工作区（按选中分类过滤）。 */
+const workspacePaths = computed(() => {
+  const name = activeGroup.value;
+  if (!name) return allWorkspacePaths.value;
+  return allWorkspacePaths.value.filter((root) => groupNameOf(root) === name);
+});
+
+function groupMenuLabel(name: string, text: string): string {
+  const mark = name === activeGroup.value ? "✓ " : "";
+  return `${mark}${text}   ${groupCount(name)}`;
+}
+
+function groupMenuOptions(): DropdownOption[] {
+  const items: DropdownOption[] = [
+    {
+      label: groupMenuLabel(GROUP_ALL, t.groupAllProjects),
+      key: groupOptionKey(GROUP_ALL),
+    },
+    {
+      label: groupMenuLabel(GROUP_DEFAULT, t.groupDefault),
+      key: groupOptionKey(GROUP_DEFAULT),
+    },
+  ];
+  for (const name of workspace.groups) {
+    items.push({ label: groupMenuLabel(name, name), key: groupOptionKey(name) });
+  }
+  items.push({ type: "divider", key: "group-divider" });
+  items.push({ label: t.groupNew, key: "group-new" });
+  return items;
+}
+
+function onGroupMenuSelect(key: string | number): void {
+  const k = String(key);
+  if (k === "group-new") {
+    openGroupCreate();
+    return;
+  }
+  const name = groupNameFromKey(k);
+  if (name !== null) selectedGroup.value = name;
+}
+
+function groupAdminOptions(): DropdownOption[] {
+  const current = activeGroup.value;
+  if (!current || current === GROUP_DEFAULT) {
+    return [{ label: t.groupNew, key: "group-new" }];
+  }
+  return [
+    { label: t.groupNew, key: "group-new" },
+    { label: t.groupRename, key: "group-rename" },
+    { label: t.groupRemove, key: "group-remove" },
+  ];
+}
+
+async function onGroupAdminSelect(key: string | number): Promise<void> {
+  const k = String(key);
+  if (k === "group-new") openGroupCreate();
+  else if (k === "group-rename") openGroupRename();
+  else if (k === "group-remove") await removeCurrentGroup();
+}
+
+function openGroupCreate(): void {
+  groupDialogMode.value = "create";
+  groupDraft.value = "";
+  groupDialogOpen.value = true;
+}
+
+function openGroupRename(): void {
+  groupDialogMode.value = "rename";
+  groupDraft.value = activeGroup.value;
+  groupDialogOpen.value = true;
+}
+
+async function submitGroupDialog(): Promise<void> {
+  const name = groupDraft.value.trim();
+  if (!name) return;
+  try {
+    if (groupDialogMode.value === "create") await workspace.addGroup(name);
+    else await workspace.renameGroup(activeGroup.value, name);
+    selectedGroup.value = name;
+    groupDialogOpen.value = false;
+  } catch (err) {
+    message.error(err instanceof Error ? err.message : String(err));
+  }
+}
+
+async function removeCurrentGroup(): Promise<void> {
+  const name = activeGroup.value;
+  if (!name || name === GROUP_DEFAULT) return;
+  try {
+    await workspace.removeGroup(name);
+    selectedGroup.value = GROUP_ALL;
+  } catch (err) {
+    message.error(err instanceof Error ? err.message : String(err));
+  }
+}
+
+function collapseAllWorkspaces(): void {
+  for (const root of Object.keys(expanded)) expanded[root] = false;
+}
 
 function openCustomize(section: string): void {
   layout.openCustomize(section);
@@ -155,6 +296,8 @@ function bindWorkspaceSortable(): void {
   destroyWorkspaceSortable();
   const el = workspaceTreeEl.value;
   if (!el || workspacePaths.value.length < 2) return;
+  // 分类视图下拖拽只会重排可见项，会把其它分类的工作区挤到后面，直接不启用。
+  if (activeGroup.value) return;
   workspaceSortable = Sortable.create(el, {
     animation: 150,
     draggable: ".ws-block",
@@ -282,7 +425,10 @@ onMounted(async () => {
   // 派生会话等由其他组件新建的会话：排到最前，避免被折叠到「展开其余 N 个」之下。
   window.addEventListener("pi-session-created", onSessionCreated);
   // App.vue already loads workspace/recent — skip duplicate IPC on cold start.
-  const boot: Promise<unknown>[] = [workspace.refreshAliases()];
+  const boot: Promise<unknown>[] = [
+    workspace.refreshAliases(),
+    workspace.refreshGroups(),
+  ];
   if (!workspace.root) boot.push(workspace.getWorkspace());
   if (!workspace.recent.length) boot.push(workspace.listRecentFast());
   await Promise.all(boot);
@@ -849,6 +995,18 @@ function workspaceMenuOptions(): DropdownOption[] {
       key: "rename-project",
       icon: () => h(NIcon, null, { default: () => h(CreateOutline) }),
     },
+    {
+      label: t.moveToGroup,
+      key: "move-group",
+      icon: () => h(NIcon, null, { default: () => h(FolderOutline) }),
+      children: [
+        { label: t.groupDefault, key: groupOptionKey(GROUP_DEFAULT) },
+        ...workspace.groups.map((name) => ({
+          label: name,
+          key: groupOptionKey(name),
+        })),
+      ],
+    },
     { type: "divider", key: "d1" },
     {
       label: t.removeFromList,
@@ -882,6 +1040,11 @@ async function onWorkspaceMenu(root: string, key: string | number): Promise<void
     case "rename-project":
       openWorkspaceRename(root);
       break;
+    case "move-group": {
+      const name = groupNameFromKey(k);
+      if (name !== null) await workspace.setGroupOf(root, name === GROUP_DEFAULT ? null : name);
+      break;
+    }
     case "remove": {
       confirmPurgeWorkspace(root);
       break;
@@ -1089,6 +1252,41 @@ watch(
     </NAlert>
 
     <div class="sessions-pane">
+      <div class="ws-tools">
+        <NDropdown
+          trigger="click"
+          :options="groupMenuOptions()"
+          @select="onGroupMenuSelect"
+        >
+          <NButton quaternary size="tiny" :title="t.groupAllProjects">
+            <template #icon>
+              <NIcon :component="SwapHorizontalOutline" :size="14" />
+            </template>
+          </NButton>
+        </NDropdown>
+        <NButton
+          quaternary
+          size="tiny"
+          :title="t.collapseAllWorkspaces"
+          @click="collapseAllWorkspaces"
+        >
+          <template #icon>
+            <NIcon :component="ContractOutline" :size="14" />
+          </template>
+        </NButton>
+        <NDropdown
+          trigger="click"
+          :options="groupAdminOptions()"
+          @select="onGroupAdminSelect"
+        >
+          <NButton quaternary size="tiny" :title="t.moreActions">
+            <template #icon>
+              <NIcon :component="EllipsisHorizontalOutline" :size="14" />
+            </template>
+          </NButton>
+        </NDropdown>
+      </div>
+
       <NScrollbar v-if="workspacePaths.length" class="tree">
         <div ref="workspaceTreeEl" class="ws-tree">
           <div
@@ -1321,6 +1519,17 @@ watch(
       <NInput v-model:value="wsRenameDraft" :placeholder="t.renameProjectPlaceholder" @keydown.enter.prevent="submitWorkspaceRename" />
     </NModal>
 
+    <NModal
+      v-model:show="groupDialogOpen"
+      preset="dialog"
+      :title="groupDialogMode === 'create' ? t.groupNew : t.groupRename"
+      :positive-text="t.save"
+      :negative-text="t.cancel"
+      @positive-click="submitGroupDialog"
+    >
+      <NInput v-model:value="groupDraft" :placeholder="t.groupNamePlaceholder" @keydown.enter.prevent="submitGroupDialog" />
+    </NModal>
+
     <NDropdown
       placement="bottom-start"
       trigger="manual"
@@ -1350,6 +1559,15 @@ watch(
   display: flex;
   flex-direction: column;
   overflow: hidden;
+}
+
+.ws-tools {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 2px;
+  padding: 4px 8px 2px;
+  flex-shrink: 0;
 }
 
 .top-actions {

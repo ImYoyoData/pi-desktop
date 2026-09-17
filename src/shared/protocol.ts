@@ -55,8 +55,14 @@ export const IpcChannels = {
 		listAliases: "workspace:listAliases",
 		/** Renderer → main：设置某工作区显示名（null 清除）。 */
 		setAlias: "workspace:setAlias",
-		/** Renderer → main：重新定位工作区到新目录，Pi 会话目录随之迁移。 */
+		/** 重新定位工作区到新目录，Pi 会话目录随之迁移。 */
 		relocate: "workspace:relocate",
+		/** Renderer → main：工作区分类（自定义分组）。 */
+		listGroups: "workspace:listGroups",
+		addGroup: "workspace:addGroup",
+		renameGroup: "workspace:renameGroup",
+		removeGroup: "workspace:removeGroup",
+		setGroupOf: "workspace:setGroupOf",
 	},
 	sessions: {
 		list: "sessions:list",
@@ -356,6 +362,12 @@ export type TerminalShellOption = {
 	id: string;
 	file: string;
 	args: string[];
+};
+
+/** 工作区分类：自定义分组名（顺序即菜单顺序）+ 工作区归属（绝对路径 → 分类名）。 */
+export type WorkspaceGroups = {
+  groups: string[];
+  groupOf: Record<string, string>;
 };
 
 export type SessionStatus = "idle" | "running" | "error" | "stuck";
