@@ -96,6 +96,8 @@ const selectedGroup = ref<string>(GROUP_ALL);
 const groupDialogOpen = ref(false);
 const groupDraft = ref("");
 const groupDialogMode = ref<"create" | "rename">("create");
+/** 工作区列表面板的折叠状态，只在本次运行内有效。 */
+const workspaceCollapsed = ref(false);
 
 /** 会话多选模式：工具条切换为 取消 / 归档 / 删除。 */
 const selectMode = ref(false);
@@ -104,6 +106,10 @@ const selectedSessionIds = ref<string[]>([]);
 const selectAnchorId = ref<string | null>(null);
 const archivedOpen = ref(false);
 const archivedRows = ref<ArchivedRow[]>([]);
+const archivedQuery = ref("");
+const archivedSelected = ref<string[]>([]);
+/** 已归档列表 Shift 范围选择的锚点。 */
+const archivedAnchorId = ref<string | null>(null);
 
 const ARCHIVE_KEY_PREFIX = "archive:";
 const ARCHIVE_DAY_STEPS = [3, 7, 30, 90];
@@ -127,6 +133,13 @@ const activeGroup = computed(() => {
 function groupNameOf(root: string): string {
   return workspace.groupOf[root]?.trim() || GROUP_DEFAULT;
 }
+
+const workspacePanelLabel = computed(() => {
+  const name = activeGroup.value;
+  if (name === GROUP_ALL) return t.workspacePanelProjects;
+  if (name === GROUP_DEFAULT) return t.groupDefault;
+  return name;
+});
 
 function groupOptionKey(name: string): string {
   if (name === GROUP_ALL) return "group-all";
@@ -418,15 +431,103 @@ async function openArchivedList(): Promise<void> {
   });
 }
 
-async function restoreArchivedSession(id: string): Promise<void> {
+const archivedFilteredRows = computed(() => {
+  const q = archivedQuery.value.trim().toLowerCase();
+  if (!q) return archivedRows.value;
+  return archivedRows.value.filter(
+    (row) =>
+      row.label.toLowerCase().includes(q) ||
+      row.workspace.toLowerCase().includes(q),
+  );
+});
+
+watch(archivedOpen, (open) => {
+  if (open) return;
+  archivedQuery.value = "";
+  archivedSelected.value = [];
+  archivedAnchorId.value = null;
+});
+
+function isArchivedSelected(id: string): boolean {
+  return archivedSelected.value.includes(id);
+}
+
+function toggleArchivedSelect(id: string): void {
+  const next = new Set(archivedSelected.value);
+  if (next.has(id)) next.delete(id);
+  else next.add(id);
+  archivedSelected.value = [...next];
+  archivedAnchorId.value = id;
+}
+
+/** Shift 点击：选中锚点到当前项之间的全部归档项。 */
+function onArchivedRowClick(id: string, shiftKey: boolean): void {
+  const anchor = archivedAnchorId.value;
+  const ids = archivedFilteredRows.value.map((row) => row.id);
+  const from = anchor ? ids.indexOf(anchor) : -1;
+  const to = ids.indexOf(id);
+  if (!shiftKey || from < 0 || to < 0) {
+    toggleArchivedSelect(id);
+    return;
+  }
+  const [start, end] = from <= to ? [from, to] : [to, from];
+  archivedSelected.value = ids.slice(start, end + 1);
+}
+
+function dropArchivedRows(ids: string[]): void {
+  archivedRows.value = archivedRows.value.filter((row) => !ids.includes(row.id));
+  archivedSelected.value = archivedSelected.value.filter((id) => !ids.includes(id));
+}
+
+async function restoreSelectedArchived(): Promise<void> {
+  const ids = [...archivedSelected.value];
+  if (!ids.length) return;
   try {
     await workspace.setArchivedSessions(
-      workspace.archivedSessions.filter((entry) => entry !== id),
+      workspace.archivedSessions.filter((entry) => !ids.includes(entry)),
     );
-    archivedRows.value = archivedRows.value.filter((row) => row.id !== id);
+    dropArchivedRows(ids);
   } catch (err) {
     message.error(err instanceof Error ? err.message : String(err));
   }
+}
+
+function deleteSelectedArchived(): void {
+  const ids = [...archivedSelected.value];
+  if (!ids.length) return;
+  const d = dialog.warning({
+    title: t.delete,
+    content: t.deleteSelectedConfirm(ids.length),
+    positiveText: t.delete,
+    negativeText: t.cancel,
+    onPositiveClick: () => {
+      d.loading = true;
+      return (async () => {
+        try {
+          const touched = new Set<string>();
+          for (const id of ids) {
+            const root = rootOfSession(id);
+            if (!root) continue;
+            await sessionsStore.deleteSession(id, root);
+            chatStore.clearSession(id);
+            sendQueueStore.clearSession(id);
+            touched.add(root);
+          }
+          await workspace.setArchivedSessions(
+            workspace.archivedSessions.filter((entry) => !ids.includes(entry)),
+          );
+          dropArchivedRows(ids);
+          for (const root of touched) await loadSessions(root);
+          if (workspace.root) await ensureActiveSession(workspace.root);
+        } catch (err) {
+          message.error(err instanceof Error ? err.message : String(err));
+          d.loading = false;
+          return false;
+        }
+        return undefined;
+      })();
+    },
+  });
 }
 
 function rootOfSession(id: string): string | null {
@@ -1539,6 +1640,22 @@ watch(
             {{ t.delete }}
           </NButton>
         </div>
+        <NButton
+          v-if="!selectMode"
+          quaternary
+          size="small"
+          class="pi-interactive ws-panel-toggle"
+          :title="workspacePanelLabel"
+          @click="workspaceCollapsed = !workspaceCollapsed"
+        >
+          <span class="btn-content">
+            <NIcon
+              :component="workspaceCollapsed ? ChevronForwardOutline : ChevronDownOutline"
+              :size="14"
+            />
+            <span class="ws-panel-label">{{ workspacePanelLabel }}</span>
+          </span>
+        </NButton>
         <div class="ws-tool-icons">
           <NDropdown
             trigger="click"
@@ -1576,7 +1693,7 @@ watch(
         </div>
       </div>
 
-      <NScrollbar v-if="workspacePaths.length" class="tree">
+      <NScrollbar v-if="workspacePaths.length && !workspaceCollapsed" class="tree">
         <div ref="workspaceTreeEl" class="ws-tree">
           <div
             v-for="root in workspacePaths"
@@ -1782,7 +1899,7 @@ watch(
           </div>
         </div>
       </NScrollbar>
-      <div v-else class="empty">{{ t.emptyWorkspaces }}</div>
+      <div v-else-if="!workspaceCollapsed" class="empty">{{ t.emptyWorkspaces }}</div>
     </div>
 
     <div class="customize-bar">
@@ -1835,12 +1952,37 @@ watch(
     <NModal
       v-model:show="archivedOpen"
       preset="card"
+      class="pi-settings-modal"
+      :bordered="false"
+      :mask-closable="false"
+      size="huge"
       :title="t.archivedSessions"
-      style="width: 460px"
+      style="width: min(520px, 92vw)"
     >
-      <div v-if="!archivedRows.length" class="archived-empty">{{ t.archiveEmpty }}</div>
+      <NInput
+        v-model:value="archivedQuery"
+        class="archived-search"
+        size="small"
+        clearable
+        :placeholder="t.archiveSearchPlaceholder"
+      />
+      <div v-if="!archivedFilteredRows.length" class="archived-empty">
+        {{ archivedQuery.trim() ? t.archiveNoMatch : t.archiveEmpty }}
+      </div>
       <ul v-else class="archived-list">
-        <li v-for="row in archivedRows" :key="row.id" class="archived-row">
+        <li
+          v-for="row in archivedFilteredRows"
+          :key="row.id"
+          class="archived-row"
+          :class="{ selected: isArchivedSelected(row.id) }"
+          @click="onArchivedRowClick(row.id, $event.shiftKey)"
+        >
+          <NCheckbox
+            class="archived-check"
+            :checked="isArchivedSelected(row.id)"
+            @click.stop
+            @update:checked="toggleArchivedSelect(row.id)"
+          />
           <div class="archived-meta">
             <span class="archived-label">{{ row.label }}</span>
             <span class="archived-sub">
@@ -1848,11 +1990,32 @@ watch(
               }}<template v-if="row.modified"> · {{ relativeTime(row.modified) }}</template>
             </span>
           </div>
-          <NButton size="tiny" quaternary @click="restoreArchivedSession(row.id)">
-            {{ t.archiveRestore }}
-          </NButton>
         </li>
       </ul>
+      <template #footer>
+        <div class="archived-actions">
+          <NButton quaternary size="small" @click="archivedOpen = false">
+            {{ t.cancel }}
+          </NButton>
+          <NButton
+            quaternary
+            size="small"
+            :disabled="!archivedSelected.length"
+            @click="restoreSelectedArchived"
+          >
+            {{ t.archiveRestore }}
+          </NButton>
+          <NButton
+            quaternary
+            size="small"
+            type="error"
+            :disabled="!archivedSelected.length"
+            @click="deleteSelectedArchived"
+          >
+            {{ t.delete }}
+          </NButton>
+        </div>
+      </template>
     </NModal>
 
     <NDropdown
@@ -1906,6 +2069,25 @@ watch(
   align-items: center;
   gap: 2px;
   margin-left: auto;
+}
+
+.ws-panel-toggle {
+  flex: 1;
+  min-width: 0;
+  justify-content: flex-start;
+  padding: 0 12px;
+  height: 24px;
+  border-radius: 6px;
+  font-size: 12.5px;
+  /* 点击后不再保留 focus 底色，只留悬停高亮 */
+  --n-color-focus: transparent !important;
+}
+
+.ws-panel-label {
+  max-width: 140px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .top-actions {
@@ -2471,16 +2653,35 @@ watch(
   overflow: auto;
 }
 
+.archived-search {
+  margin-bottom: 8px;
+}
+
 .archived-row {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 10px;
   padding: 6px 4px 6px 8px;
   border-radius: 6px;
+  cursor: pointer;
 }
 
 .archived-row:hover {
   background: var(--bg-hover);
+}
+
+.archived-row.selected {
+  background: var(--bg-selected);
+}
+
+.archived-check {
+  flex-shrink: 0;
+}
+
+.archived-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
 }
 
 .archived-meta {
