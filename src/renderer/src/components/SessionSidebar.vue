@@ -144,24 +144,34 @@ const workspacePaths = computed(() => {
   return allWorkspacePaths.value.filter((root) => groupNameOf(root) === name);
 });
 
-function groupMenuLabel(name: string, text: string): string {
-  const mark = name === activeGroup.value ? "✓ " : "";
-  return `${mark}${text}   ${groupCount(name)}`;
+function renderGroupLabel(option: DropdownOption) {
+  const label = typeof option.label === "string" ? option.label : "";
+  const name = groupNameFromKey(String(option.key));
+  if (name === null) return label;
+  return h(
+    "div",
+    {
+      style:
+        "display:flex;align-items:center;justify-content:space-between;gap:24px;min-width:132px",
+    },
+    [
+      h("span", null, label),
+      h(
+        "span",
+        { style: "opacity:0.55;font-variant-numeric:tabular-nums" },
+        String(groupCount(name)),
+      ),
+    ],
+  );
 }
 
 function groupMenuOptions(): DropdownOption[] {
   const items: DropdownOption[] = [
-    {
-      label: groupMenuLabel(GROUP_ALL, t.groupAllProjects),
-      key: groupOptionKey(GROUP_ALL),
-    },
-    {
-      label: groupMenuLabel(GROUP_DEFAULT, t.groupDefault),
-      key: groupOptionKey(GROUP_DEFAULT),
-    },
+    { label: t.groupAllProjects, key: groupOptionKey(GROUP_ALL) },
+    { label: t.groupDefault, key: groupOptionKey(GROUP_DEFAULT) },
   ];
   for (const name of workspace.groups) {
-    items.push({ label: groupMenuLabel(name, name), key: groupOptionKey(name) });
+    items.push({ label: name, key: groupOptionKey(name) });
   }
   items.push({ type: "divider", key: "group-divider" });
   items.push({ label: t.groupNew, key: "group-new" });
@@ -1254,6 +1264,7 @@ watch(
         <NDropdown
           trigger="click"
           :options="groupMenuOptions()"
+          :render-label="renderGroupLabel"
           @select="onGroupMenuSelect"
         >
           <NButton quaternary size="tiny" :title="t.groupAllProjects">
