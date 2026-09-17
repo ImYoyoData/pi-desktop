@@ -462,7 +462,6 @@ function leaveEditor(onLeave: () => void): void {
   const label =
     target.kind === "file" ? target.title : editorName.value.trim() || draftTitle(target.draftKind);
   const d = dialog.create({
-    type: "warning",
     title: t.unsavedChangesTitle,
     content: t.unsavedChangesClose(label),
     closable: true,
@@ -541,7 +540,7 @@ function deleteEditing(): void {
   }
   if (!canDeleteEditing.value) return;
   const kind = listKind.value;
-  dialog.warning({
+  dialog.create({
     title: t.customizeDelete,
     content:
       kind === "agents" || kind === "prompts"
@@ -549,6 +548,7 @@ function deleteEditing(): void {
         : t.customizeUninstallConfirm(target.title),
     positiveText: t.customizeDelete,
     negativeText: t.cancel,
+    positiveButtonProps: { type: "primary" },
     onPositiveClick: async () => {
       try {
         if (kind === "skills") {
@@ -686,23 +686,23 @@ onUnmounted(() => {
           <div class="editor-actions">
             <button
               type="button"
-              class="editor-save-button"
-              :class="{ dirty: editorDirtyTotal }"
+              class="editor-action"
+              :class="{ primary: editorDirtyTotal }"
               :title="t.saveShortcut"
               :aria-label="t.save"
               @click="saveEditingFile"
             >
-              <CodiconIcon name="check" :size="16" />
+              {{ t.save }}
             </button>
             <button
               v-if="canDeleteEditing"
               type="button"
-              class="editor-delete-button"
+              class="editor-action remove"
               :title="t.customizeDelete"
               :aria-label="t.customizeDelete"
               @click="deleteEditing"
             >
-              <CodiconIcon name="remove" :size="16" />
+              {{ t.customizeDelete }}
             </button>
           </div>
         </header>
@@ -927,12 +927,10 @@ onUnmounted(() => {
 .editor-actions {
   display: flex;
   align-items: center;
-  gap: 2px;
+  gap: 8px;
 }
 
-.editor-back-button,
-.editor-save-button,
-.editor-delete-button {
+.editor-back-button {
   flex-shrink: 0;
   display: inline-flex;
   align-items: center;
@@ -943,33 +941,61 @@ onUnmounted(() => {
   border: none;
   border-radius: 4px;
   background: transparent;
-  color: var(--fg);
-  opacity: 0.6;
+  color: var(--fg-muted);
   cursor: pointer;
-  transition: background-color 0.1s ease, color 0.1s ease, opacity 0.1s ease;
+  transition: background-color 0.1s ease, color 0.1s ease;
 }
 
-.editor-back-button:hover,
-.editor-save-button:hover,
-.editor-delete-button:hover {
+.editor-back-button:hover {
   background-color: var(--bg-hover);
-  opacity: 1;
-}
-
-.editor-delete-button:hover {
-  color: var(--error);
-}
-
-.editor-save-button.dirty {
-  color: var(--accent);
-  opacity: 1;
+  color: var(--fg);
 }
 
 .editor-back-button:focus-visible,
-.editor-save-button:focus-visible,
-.editor-delete-button:focus-visible {
+.editor-action:focus-visible {
   outline: 1px solid var(--accent);
   outline-offset: -1px;
+}
+
+/* 描边小按钮：与模型设置页的「启用 / 删除」同款 */
+.editor-action {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 24px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--fg-muted);
+  font: inherit;
+  font-size: 11.5px;
+  line-height: 1;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background-color 0.1s ease, color 0.1s ease, border-color 0.1s ease;
+}
+
+.editor-action:hover {
+  background: var(--bg-active);
+  color: var(--fg);
+}
+
+.editor-action.primary,
+.editor-action.primary:hover {
+  border-color: var(--accent-border);
+  background: var(--accent-soft);
+  color: var(--fg-strong);
+}
+
+.editor-action.primary:hover {
+  background: var(--accent-soft-hover);
+}
+
+.editor-action.remove:hover {
+  background: color-mix(in srgb, var(--error) 14%, transparent);
+  color: var(--fg);
 }
 
 .editor-heading {
