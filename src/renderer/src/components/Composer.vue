@@ -937,7 +937,8 @@ async function dispatchQueuedItem(
   // Always prompt: Pi followUp only queues during a live turn and will not
   // start a new turn when the agent is already idle (queued items vanished).
   // Cold session: spawn worker on first real dispatch (not on create/open).
-  await applySelectedModel({ allowStart: true });
+  // 不等待：队列气泡先上屏，不被 worker 往返挡住。
+  void applySelectedModel({ allowStart: true });
   const agentText = item.agentText || item.text || " ";
   const displayText = item.text === " " ? "" : item.text;
   await chat.sendPrompt(
@@ -1043,7 +1044,7 @@ async function sendQueuedNow(itemId: string): Promise<void> {
     if (isAgentBusy(id)) {
       // Codex-style steer: queue the message as guidance for the running turn
       // WITHOUT aborting it. The model processes it after the current output.
-      await applySelectedModel({ allowStart: true });
+      void applySelectedModel({ allowStart: true });
       await chat.steer(id, steerTextWithCitations(item), item.images);
     } else {
       await dispatchQueuedItem(id, item);
@@ -1108,17 +1109,19 @@ async function submit(mode: "prompt" | "steer" | "follow_up"): Promise<void> {
   composer.clearSession(sourceId);
   // First message (or any send) activates the Pi agent worker and applies model.
   if (mode === "prompt" || mode === "steer" || mode === "follow_up") {
-    await applySelectedModel({ allowStart: true });
+    // 不等 worker 冷启动：设置与 prompt 依次下发，主进程保证设置先落地，
+    // 用户气泡因此立即上屏。
+    void applySelectedModel({ allowStart: true });
     const level = thinkingLevel.value;
-    try {
-      await sessions.sendCommand(id, {
+    void sessions
+      .sendCommand(id, {
         type: "set_thinking_level",
         level: routedThinkingLevel(level),
+      })
+      .then(() => rememberThinking(id, level))
+      .catch(() => {
+        // ignore — prompt may still proceed with worker default
       });
-      rememberThinking(id, level);
-    } catch {
-      // ignore — prompt may still proceed with worker default
-    }
   }
   if (mode === "prompt") {
     const root = workspace.root;
