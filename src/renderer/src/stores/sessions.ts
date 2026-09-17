@@ -459,8 +459,6 @@ export const useSessionsStore = defineStore("sessions", () => {
     refresh,
     beginDraft,
     setDraftRoot,
-    prepareDraft,
-    releasePreparedDraft,
     commitDraft,
     selectSession,
     discardActiveIfUnstarted,
