@@ -141,7 +141,6 @@ declare const api: {
 		listRecent: () => Promise<string[]>;
 		/** Fast path: Desktop recent only (no Pi CLI scan). */
 		listRecentDesktop: () => Promise<string[]>;
-		listClosed: () => Promise<string[]>;
 		openPath: (root: string) => Promise<string | null>;
 		clear: () => Promise<null>;
 		removeRecent: (root: string) => Promise<{

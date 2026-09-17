@@ -1125,9 +1125,6 @@ export const en = {
 	copyPath: "Copy path",
 	pathCopied: "Path copied",
 	removeFromList: "Remove workspace",
-	closeWorkspace: "Close workspace",
-	closedWorkspaces: "Closed workspaces",
-	reopenWorkspace: "Reopen",
 	removeWorkspaceTitle: "Remove workspace",
 	removeWorkspaceConfirm: (name: string) =>
 		`Remove “${name}” from Pi? This clears workspace config and sessions. The project folder on disk is kept.`,
