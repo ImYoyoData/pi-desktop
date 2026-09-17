@@ -1029,6 +1029,38 @@ async function onCtxSelect(key: string | number): Promise<void> {
 function isRunning(status: SessionStatus): boolean {
   return status === "running";
 }
+
+function hasPendingAsk(sessionId: string): boolean {
+  const state = chatStore.bySession[sessionId];
+  return Boolean(
+    state?.pendingAskUser ||
+      state?.pendingPermission ||
+      state?.pendingExtensionUi,
+  );
+}
+
+const justEnded = reactive(new Set<string>());
+let prevStatuses = new Map<string, SessionStatus>();
+
+watch(
+  () => sessionsStore.sessions,
+  (rows) => {
+    for (const row of rows) {
+      const was = prevStatuses.get(row.id);
+      if (!was || was === "idle" || row.status !== "idle") continue;
+      if (row.id !== sessionsStore.activeId) justEnded.add(row.id);
+    }
+    prevStatuses = new Map(rows.map((row) => [row.id, row.status]));
+  },
+  { immediate: true },
+);
+
+watch(
+  () => sessionsStore.activeId,
+  (id) => {
+    if (id) justEnded.delete(id);
+  },
+);
 </script>
 
 <template>
@@ -1196,9 +1228,15 @@ function isRunning(status: SessionStatus): boolean {
                   </div>
                   <div class="session-meta">
                     <span class="time">{{ relativeTime(item.session.modified) }}</span>
-                    <span v-if="isRunning(item.session.status)" class="run-tag">live</span>
+                    <span
+                      v-if="isRunning(item.session.status)"
+                      class="run-tag"
+                      :class="{ 'run-tag-ask': hasPendingAsk(item.session.id) }"
+                      >{{ hasPendingAsk(item.session.id) ? "ask" : "live" }}</span
+                    >
                     <span v-else-if="item.session.status === 'error'" class="err-tag">err</span>
                     <span v-else-if="item.session.status === 'stuck'" class="stuck-tag">stuck</span>
+                    <span v-else-if="justEnded.has(item.session.id)" class="done-tag">done</span>
                   </div>
                 </div>
                 <NButton
@@ -1821,7 +1859,8 @@ function isRunning(status: SessionStatus): boolean {
 
 .run-tag,
 .err-tag,
-.stuck-tag {
+.stuck-tag,
+.done-tag {
   font-size: 9.5px;
   font-weight: 700;
   letter-spacing: 0.04em;
@@ -1834,6 +1873,16 @@ function isRunning(status: SessionStatus): boolean {
 .run-tag {
   color: var(--green);
   background: color-mix(in srgb, var(--green) 14%, transparent);
+}
+
+.run-tag-ask {
+  color: var(--warning);
+  background: color-mix(in srgb, var(--warning) 16%, transparent);
+}
+
+.done-tag {
+  color: var(--fg);
+  background: color-mix(in srgb, var(--fg) 12%, transparent);
 }
 
 .err-tag {
