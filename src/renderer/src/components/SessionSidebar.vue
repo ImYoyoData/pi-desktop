@@ -100,6 +100,8 @@ const groupDialogMode = ref<"create" | "rename">("create");
 /** 会话多选模式：工具条切换为 取消 / 归档 / 删除。 */
 const selectMode = ref(false);
 const selectedSessionIds = ref<string[]>([]);
+/** Shift 范围选择的锚点：区间始终从它算起。 */
+const selectAnchorId = ref<string | null>(null);
 const archivedOpen = ref(false);
 const archivedRows = ref<ArchivedRow[]>([]);
 
@@ -296,11 +298,13 @@ async function removeCurrentGroup(): Promise<void> {
 function enterSelectMode(): void {
   selectMode.value = true;
   selectedSessionIds.value = [];
+  selectAnchorId.value = null;
 }
 
 function exitSelectMode(): void {
   selectMode.value = false;
   selectedSessionIds.value = [];
+  selectAnchorId.value = null;
 }
 
 function isSessionSelected(id: string): boolean {
@@ -312,6 +316,21 @@ function toggleSessionSelect(id: string): void {
   if (next.has(id)) next.delete(id);
   else next.add(id);
   selectedSessionIds.value = [...next];
+  selectAnchorId.value = id;
+}
+
+/** Shift 点击：选中锚点到当前项之间的全部会话（含两端）。 */
+function onSessionRowClick(id: string, shiftKey: boolean): void {
+  const anchor = selectAnchorId.value;
+  const ids = visibleSessionIds.value;
+  const from = anchor ? ids.indexOf(anchor) : -1;
+  const to = ids.indexOf(id);
+  if (!shiftKey || from < 0 || to < 0) {
+    toggleSessionSelect(id);
+    return;
+  }
+  const [start, end] = from <= to ? [from, to] : [to, from];
+  selectedSessionIds.value = ids.slice(start, end + 1);
 }
 
 async function ensureSessionsLoaded(root: string): Promise<void> {
@@ -784,6 +803,15 @@ function visibleSessions(root: string): SessionSummary[] {
   };
   return list.filter((s) => !isArchived(s));
 }
+
+/** 侧栏可见会话的渲染顺序，Shift 范围选择按它取区间。 */
+const visibleSessionIds = computed(() => {
+  const ids: string[] = [];
+  for (const root of workspacePaths.value) {
+    for (const item of visibleTreeItemsFor(root)) ids.push(item.session.id);
+  }
+  return ids;
+});
 
 function sessionsFor(root: string): SessionSummary[] {
   // 只渲染各工作区自己的缓存：活跃区的行由下方 watcher 同步 store 的实时更新，
@@ -1637,7 +1665,7 @@ watch(
               "
               @click="
                 selectMode
-                  ? toggleSessionSelect(item.session.id)
+                  ? onSessionRowClick(item.session.id, $event.shiftKey)
                   : onSelectSession(root, item.session.id)
               "
               @contextmenu="(e) => openSessionCtx(e, root, item.session)"
