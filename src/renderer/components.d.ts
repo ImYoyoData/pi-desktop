@@ -51,7 +51,6 @@ declare module 'vue' {
     FieldVoiceButton: typeof import('./src/components/FieldVoiceButton.vue')['default']
     FileChip: typeof import('./src/components/FileChip.vue')['default']
     FilesTab: typeof import('./src/components/FilesTab.vue')['default']
-    FileTypeIcon: typeof import('./src/components/FileTypeIcon.vue')['default']
     Icon: typeof import('./src/components/Icon.vue')['default']
     LanConsoleSettings: typeof import('./src/components/LanConsoleSettings.vue')['default']
     LanRemoteIcon: typeof import('./src/components/icons/LanRemoteIcon.vue')['default']
