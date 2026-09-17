@@ -1,7 +1,7 @@
 import { app, BrowserWindow, dialog, ipcMain, shell } from "electron";
 import fs from "node:fs";
 import path from "node:path";
-import { IpcChannels } from "../shared/protocol";
+import { IpcChannels, type WorkspaceGroups } from "../shared/protocol";
 import { createWorkspaceStore, type WorkspaceStore } from "./workspace-store";
 import { startWorkspaceWatch, stopWorkspaceWatch } from "./fs-watch-host";
 import {
@@ -126,6 +126,10 @@ function listAliases(): Record<string, string> {
   return getStore().listAliases();
 }
 
+function groupsSnapshot(): WorkspaceGroups {
+  return getStore().listGroups();
+}
+
 /** 设置工作区显示名；name 为 null / 空串时清除。 */
 function setWorkspaceAlias(
   root: string,
@@ -245,5 +249,33 @@ export function registerWorkspaceIpc(nextDeps: WorkspaceIpcDeps = {}): void {
 	ipcMain.handle(
 		IpcChannels.workspace.relocate,
 		(_event, root: string, next: string) => relocateWorkspace(root, next),
+	);
+
+	ipcMain.handle(IpcChannels.workspace.listGroups, () => groupsSnapshot());
+
+	ipcMain.handle(IpcChannels.workspace.addGroup, (_event, name: string) => {
+		getStore().addGroup(name);
+		return groupsSnapshot();
+	});
+
+	ipcMain.handle(
+		IpcChannels.workspace.renameGroup,
+		(_event, from: string, to: string) => {
+			getStore().renameGroup(from, to);
+			return groupsSnapshot();
+		},
+	);
+
+	ipcMain.handle(IpcChannels.workspace.removeGroup, (_event, name: string) => {
+		getStore().removeGroup(name);
+		return groupsSnapshot();
+	});
+
+	ipcMain.handle(
+		IpcChannels.workspace.setGroupOf,
+		(_event, root: string, group: string | null) => {
+			getStore().setGroupOf(root, group);
+			return groupsSnapshot();
+		},
 	);
 }

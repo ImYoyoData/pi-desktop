@@ -14,6 +14,7 @@ import type {
 	SessionStatus,
 	SessionSummary,
 	TerminalShellOption,
+	WorkspaceGroups,
 } from "../shared/protocol";
 import { IpcChannels } from "../shared/protocol";
 import type { EditContextMenuAction, EditContextMenuPayload } from "../shared/context-menu";
@@ -281,6 +282,27 @@ const api = {
 				recent: string[];
 				aliases: Record<string, string>;
 			}>,
+		listGroups: () =>
+			ipcRenderer.invoke(IpcChannels.workspace.listGroups) as Promise<WorkspaceGroups>,
+		addGroup: (name: string) =>
+			ipcRenderer.invoke(IpcChannels.workspace.addGroup, name) as Promise<WorkspaceGroups>,
+		renameGroup: (from: string, to: string) =>
+			ipcRenderer.invoke(
+				IpcChannels.workspace.renameGroup,
+				from,
+				to,
+			) as Promise<WorkspaceGroups>,
+		removeGroup: (name: string) =>
+			ipcRenderer.invoke(
+				IpcChannels.workspace.removeGroup,
+				name,
+			) as Promise<WorkspaceGroups>,
+		setGroupOf: (root: string, group: string | null) =>
+			ipcRenderer.invoke(
+				IpcChannels.workspace.setGroupOf,
+				root,
+				group,
+			) as Promise<WorkspaceGroups>,
 		revealInFolder: (root: string) =>
 			ipcRenderer.invoke(
 				IpcChannels.workspace.revealInFolder,

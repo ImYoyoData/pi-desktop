@@ -169,6 +169,15 @@ declare const api: {
 			recent: string[];
 			aliases: Record<string, string>;
 		}>;
+		/** 工作区分类（自定义分组）。 */
+		listGroups: () => Promise<WorkspaceGroups>;
+		addGroup: (name: string) => Promise<WorkspaceGroups>;
+		renameGroup: (from: string, to: string) => Promise<WorkspaceGroups>;
+		removeGroup: (name: string) => Promise<WorkspaceGroups>;
+		setGroupOf: (
+			root: string,
+			group: string | null,
+		) => Promise<WorkspaceGroups>;
 	};
 	sessions: {
 		list: (cwd: string) => Promise<SessionSummary[]>;
