@@ -278,4 +278,14 @@ export function registerWorkspaceIpc(nextDeps: WorkspaceIpcDeps = {}): void {
 			return groupsSnapshot();
 		},
 	);
+
+	ipcMain.handle(IpcChannels.workspace.listArchivedSessions, () =>
+		getStore().listArchivedSessions(),
+	);
+
+	ipcMain.handle(
+		IpcChannels.workspace.setArchivedSessions,
+		(_event, ids: string[]) =>
+			getStore().setArchivedSessions(Array.isArray(ids) ? ids : []),
+	);
 }

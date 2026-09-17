@@ -303,6 +303,16 @@ const api = {
 				root,
 				group,
 			) as Promise<WorkspaceGroups>,
+		/** 已归档会话 id 列表：读取与覆写（恢复会话即从列表移除该 id）。 */
+		listArchivedSessions: () =>
+			ipcRenderer.invoke(
+				IpcChannels.workspace.listArchivedSessions,
+			) as Promise<string[]>,
+		setArchivedSessions: (ids: string[]) =>
+			ipcRenderer.invoke(
+				IpcChannels.workspace.setArchivedSessions,
+				ids,
+			) as Promise<string[]>,
 		revealInFolder: (root: string) =>
 			ipcRenderer.invoke(
 				IpcChannels.workspace.revealInFolder,

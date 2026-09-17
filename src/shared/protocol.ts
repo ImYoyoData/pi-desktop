@@ -63,6 +63,9 @@ export const IpcChannels = {
 		renameGroup: "workspace:renameGroup",
 		removeGroup: "workspace:removeGroup",
 		setGroupOf: "workspace:setGroupOf",
+		/** 已归档会话 id 列表：读取与覆写。 */
+		listArchivedSessions: "workspace:listArchivedSessions",
+		setArchivedSessions: "workspace:setArchivedSessions",
 	},
 	sessions: {
 		list: "sessions:list",

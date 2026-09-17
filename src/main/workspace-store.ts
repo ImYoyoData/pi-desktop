@@ -12,6 +12,8 @@ export type WorkspacePersistedState = {
   groups: string[];
   /** 绝对路径 → 分类名。 */
   groupOf: Record<string, string>;
+  /** 已归档的会话 id：从侧栏隐藏，可恢复。 */
+  archivedSessions: string[];
 };
 
 const DEFAULT_STATE: WorkspacePersistedState = {
@@ -21,6 +23,7 @@ const DEFAULT_STATE: WorkspacePersistedState = {
   aliases: {},
   groups: [],
   groupOf: {},
+  archivedSessions: [],
 };
 
 /**
@@ -61,6 +64,16 @@ function readNames(input: unknown): string[] {
   return out;
 }
 
+function readIdList(input: unknown): string[] {
+  if (!Array.isArray(input)) return [];
+  const out: string[] = [];
+  for (const entry of input) {
+    const id = typeof entry === "string" ? entry.trim() : "";
+    if (id && !out.includes(id)) out.push(id);
+  }
+  return out;
+}
+
 function readGroupOf(input: unknown): Record<string, string> {
   if (!input || typeof input !== "object") return {};
   const out: Record<string, string> = {};
@@ -93,6 +106,7 @@ function readState(statePath: string): WorkspacePersistedState {
       aliases: readAliases(parsed.aliases),
       groups: readNames(parsed.groups),
       groupOf: readGroupOf(parsed.groupOf),
+      archivedSessions: readIdList(parsed.archivedSessions),
     };
   } catch {
     return { ...DEFAULT_STATE };
@@ -213,6 +227,18 @@ export function createWorkspaceStore(statePath: string) {
       else delete groupOf[key];
       state = { ...state, groupOf };
       persist();
+    },
+
+    listArchivedSessions(): string[] {
+      return [...state.archivedSessions];
+    },
+
+    /** 覆写整个归档列表（恢复会话即从列表移除该 id）。 */
+    setArchivedSessions(ids: string[]): string[] {
+      const next = readIdList(ids);
+      state = { ...state, archivedSessions: next };
+      persist();
+      return [...next];
     },
 
     setAlias(root: string, name: string | null): void {

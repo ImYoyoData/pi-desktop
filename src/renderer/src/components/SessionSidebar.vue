@@ -5,6 +5,7 @@ import type { DropdownOption } from "naive-ui";
 import {
   NAlert,
   NButton,
+  NCheckbox,
   NDropdown,
   NEllipsis,
   NIcon,
@@ -17,15 +18,18 @@ import {
   useMessage,
 } from "naive-ui";
 import {
+  ArchiveOutline,
   ChatboxOutline,
   ChevronDownOutline,
   ChevronForwardOutline,
+  CloseOutline,
   ContractOutline,
   CopyOutline,
   CreateOutline,
   EllipsisHorizontalOutline,
   FolderOpenOutline,
   FolderOutline,
+  ListOutline,
   PinOutline,
   SwapHorizontalOutline,
   TrashOutline,
@@ -93,6 +97,24 @@ const selectedGroup = ref<string>(GROUP_ALL);
 const groupDialogOpen = ref(false);
 const groupDraft = ref("");
 const groupDialogMode = ref<"create" | "rename">("create");
+
+/** 会话多选模式：工具条切换为 取消 / 归档 / 删除。 */
+const selectMode = ref(false);
+const selectedSessionIds = ref<string[]>([]);
+const archivedOpen = ref(false);
+const archivedRows = ref<ArchivedRow[]>([]);
+
+const ARCHIVE_KEY_PREFIX = "archive:";
+const ARCHIVE_DAY_STEPS = [7, 30, 90];
+
+type ArchivedRow = {
+  id: string;
+  label: string;
+  workspace: string;
+  modified: string;
+};
+
+const archivedIds = computed(() => new Set(workspace.archivedSessions));
 
 /** 选中的分类被删除或改名后落回“全部项目”。 */
 const activeGroup = computed(() => {
@@ -188,23 +210,52 @@ function onGroupMenuSelect(key: string | number): void {
   if (name !== null) selectedGroup.value = name;
 }
 
+function archiveDayOptions(): DropdownOption[] {
+  return ARCHIVE_DAY_STEPS.map((days) => ({
+    label: t.archiveOlderThan(days),
+    key: `${ARCHIVE_KEY_PREFIX}${days}`,
+  }));
+}
+
+function menuIcon(component: typeof ListOutline) {
+  return () => h(NIcon, null, { default: () => h(component) });
+}
+
 function groupAdminOptions(): DropdownOption[] {
-  const current = activeGroup.value;
-  if (!current || current === GROUP_DEFAULT) {
-    return [{ label: t.groupNew, key: "group-new" }];
-  }
-  return [
+  const items: DropdownOption[] = [
+    { label: t.selectSessions, key: "select-mode", icon: menuIcon(ListOutline) },
+    {
+      label: t.archiveMenu,
+      key: "archive-menu",
+      icon: menuIcon(ArchiveOutline),
+      children: archiveDayOptions(),
+    },
+    {
+      label: t.archivedSessions,
+      key: "archived-list",
+      icon: menuIcon(ArchiveOutline),
+    },
+    { type: "divider", key: "session-divider" },
     { label: t.groupNew, key: "group-new" },
-    { label: t.groupRename, key: "group-rename" },
-    { label: t.groupRemove, key: "group-remove" },
   ];
+  const current = activeGroup.value;
+  if (current && current !== GROUP_DEFAULT) {
+    items.push(
+      { label: t.groupRename, key: "group-rename" },
+      { label: t.groupRemove, key: "group-remove" },
+    );
+  }
+  return items;
 }
 
 async function onGroupAdminSelect(key: string | number): Promise<void> {
   const k = String(key);
-  if (k === "group-new") openGroupCreate();
+  if (k === "select-mode") enterSelectMode();
+  else if (k === "archived-list") await openArchivedList();
+  else if (k === "group-new") openGroupCreate();
   else if (k === "group-rename") openGroupRename();
   else if (k === "group-remove") await removeCurrentGroup();
+  else await onArchiveSelect(k);
 }
 
 function openGroupCreate(): void {
@@ -241,6 +292,159 @@ async function removeCurrentGroup(): Promise<void> {
   } catch (err) {
     message.error(err instanceof Error ? err.message : String(err));
   }
+}
+
+function enterSelectMode(): void {
+  selectMode.value = true;
+  selectedSessionIds.value = [];
+}
+
+function exitSelectMode(): void {
+  selectMode.value = false;
+  selectedSessionIds.value = [];
+}
+
+function isSessionSelected(id: string): boolean {
+  return selectedSessionIds.value.includes(id);
+}
+
+function toggleSessionSelect(id: string): void {
+  const next = new Set(selectedSessionIds.value);
+  if (next.has(id)) next.delete(id);
+  else next.add(id);
+  selectedSessionIds.value = [...next];
+}
+
+async function ensureSessionsLoaded(root: string): Promise<void> {
+  if (sessionsByRoot[root]?.length) return;
+  await loadSessions(root);
+}
+
+function archiveDaysFromKey(key: string): number | null {
+  if (!key.startsWith(ARCHIVE_KEY_PREFIX)) return null;
+  const days = Number(key.slice(ARCHIVE_KEY_PREFIX.length));
+  return Number.isFinite(days) && days > 0 ? days : null;
+}
+
+async function onArchiveSelect(key: string | number): Promise<void> {
+  const days = archiveDaysFromKey(String(key));
+  if (days !== null) await archiveSessionsOlderThan(days);
+}
+
+/** 归档超过 N 天未活动的会话：有勾选时只处理勾选项，否则作用于当前分类。 */
+async function archiveSessionsOlderThan(days: number): Promise<void> {
+  const cutoff = Date.now() - days * 24 * 60 * 60 * 1000;
+  const picked = selectedSessionIds.value.length
+    ? new Set(selectedSessionIds.value)
+    : null;
+  const targets: string[] = [];
+  try {
+    for (const root of workspacePaths.value) {
+      await ensureSessionsLoaded(root);
+      for (const s of sessionsByRoot[root] ?? []) {
+        if (picked && !picked.has(s.id)) continue;
+        if (archivedIds.value.has(s.id)) continue;
+        if (s.id === sessionsStore.activeId) continue;
+        if (isRunning(s.status)) continue;
+        if (new Date(s.modified).getTime() > cutoff) continue;
+        targets.push(s.id);
+      }
+    }
+    if (!targets.length) {
+      message.info(t.archiveNone);
+      return;
+    }
+    await workspace.setArchivedSessions([...archivedIds.value, ...targets]);
+    message.success(t.archiveDone(targets.length));
+    exitSelectMode();
+  } catch (err) {
+    message.error(err instanceof Error ? err.message : String(err));
+  }
+}
+
+async function openArchivedList(): Promise<void> {
+  archivedOpen.value = true;
+  archivedRows.value = [];
+  try {
+    for (const root of allWorkspacePaths.value) await ensureSessionsLoaded(root);
+  } catch (err) {
+    message.error(err instanceof Error ? err.message : String(err));
+    return;
+  }
+  const byId = new Map<string, { root: string; session: SessionSummary }>();
+  for (const root of allWorkspacePaths.value) {
+    for (const s of sessionsByRoot[root] ?? []) byId.set(s.id, { root, session: s });
+  }
+  archivedRows.value = workspace.archivedSessions.map((id) => {
+    const hit = byId.get(id);
+    return {
+      id,
+      label: hit ? sessionLabel(hit.session) : id,
+      workspace: hit ? workspaceName(hit.root) : "",
+      modified: hit?.session.modified ?? "",
+    };
+  });
+}
+
+async function restoreArchivedSession(id: string): Promise<void> {
+  try {
+    await workspace.setArchivedSessions(
+      workspace.archivedSessions.filter((entry) => entry !== id),
+    );
+    archivedRows.value = archivedRows.value.filter((row) => row.id !== id);
+  } catch (err) {
+    message.error(err instanceof Error ? err.message : String(err));
+  }
+}
+
+function rootOfSession(id: string): string | null {
+  for (const [root, list] of Object.entries(sessionsByRoot)) {
+    if (list.some((s) => s.id === id)) return root;
+  }
+  return null;
+}
+
+function deleteSelectedSessions(): void {
+  const ids = [...selectedSessionIds.value];
+  if (!ids.length) return;
+  const d = dialog.warning({
+    title: t.delete,
+    content: t.deleteSelectedConfirm(ids.length),
+    positiveText: t.delete,
+    negativeText: t.cancel,
+    onPositiveClick: () => {
+      d.loading = true;
+      return (async () => {
+        try {
+          const touched = new Set<string>();
+          for (const id of ids) {
+            const root = rootOfSession(id);
+            if (!root) continue;
+            await sessionsStore.deleteSession(id, root);
+            chatStore.clearSession(id);
+            sendQueueStore.clearSession(id);
+            pins[root] = (pins[root] ?? []).filter((pid) => pid !== id);
+            touched.add(root);
+          }
+          persistPins();
+          const archivedNext = workspace.archivedSessions.filter(
+            (entry) => !ids.includes(entry),
+          );
+          if (archivedNext.length !== workspace.archivedSessions.length) {
+            await workspace.setArchivedSessions(archivedNext);
+          }
+          for (const root of touched) await loadSessions(root);
+          if (workspace.root) await ensureActiveSession(workspace.root);
+          exitSelectMode();
+        } catch (err) {
+          message.error(err instanceof Error ? err.message : String(err));
+          d.loading = false;
+          return false;
+        }
+        return undefined;
+      })();
+    },
+  });
 }
 
 function collapseAllWorkspaces(): void {
@@ -386,7 +590,7 @@ function bindSessionSortable(root: string): void {
   const sortable = Sortable.create(el, {
     animation: 150,
     draggable: ".session-row",
-    filter: ".empty-inline, .session-expand-row",
+    filter: ".empty-inline, .session-expand-row, .session-check",
     disabled:
       !sessionListExpanded[root] &&
       (sessionsByRoot[root]?.length ?? 0) > SESSION_VISIBLE_LIMIT,
@@ -438,6 +642,7 @@ onMounted(async () => {
   const boot: Promise<unknown>[] = [
     workspace.refreshAliases(),
     workspace.refreshGroups(),
+    workspace.refreshArchivedSessions(),
   ];
   if (!workspace.root) boot.push(workspace.getWorkspace());
   if (!workspace.recent.length) boot.push(workspace.listRecentFast());
@@ -550,11 +755,27 @@ function compareSessions(
   };
 }
 
+/** 剔除已归档会话：父会话归档时其派生会话一并隐藏，保持树完整。 */
+function visibleSessions(root: string): SessionSummary[] {
+  const list = [...(sessionsByRoot[root] ?? [])];
+  const archived = archivedIds.value;
+  if (!archived.size) return list;
+  const byId = new Map(list.map((s) => [s.id, s]));
+  const isArchived = (start: SessionSummary): boolean => {
+    let cur: SessionSummary | undefined = start;
+    for (let hops = 0; cur && hops <= list.length; hops++) {
+      if (archived.has(cur.id)) return true;
+      cur = cur.parentSessionId ? byId.get(cur.parentSessionId) : undefined;
+    }
+    return false;
+  };
+  return list.filter((s) => !isArchived(s));
+}
+
 function sessionsFor(root: string): SessionSummary[] {
   // 只渲染各工作区自己的缓存：活跃区的行由下方 watcher 同步 store 的实时更新，
   // 切换工作区时列表不会先闪现上一个工作区的会话（避免行重建与入场动画闪烁）。
-  const list = [...(sessionsByRoot[root] ?? [])];
-  return buildSessionTree(list, compareSessions(root))
+  return buildSessionTree(visibleSessions(root), compareSessions(root))
     .filter((item) => item.depth === 0)
     .map((item) => item.session);
 }
@@ -569,10 +790,7 @@ type VisibleSessionItem = SessionTreeItem & {
 };
 
 function visibleTreeItemsFor(root: string): VisibleSessionItem[] {
-  const items = buildSessionTree(
-    [...(sessionsByRoot[root] ?? [])],
-    compareSessions(root),
-  );
+  const items = buildSessionTree(visibleSessions(root), compareSessions(root));
   let visible = items;
   const collapsed = treeCollapsed[root];
   if (collapsed && Object.keys(collapsed).length) {
@@ -1261,39 +1479,70 @@ watch(
 
     <div class="sessions-pane">
       <div class="ws-tools">
-        <NDropdown
-          trigger="click"
-          :options="groupMenuOptions()"
-          :render-label="renderGroupLabel"
-          @select="onGroupMenuSelect"
-        >
-          <NButton quaternary size="tiny" :title="t.groupAllProjects">
+        <template v-if="selectMode">
+          <NButton quaternary size="tiny" :title="t.cancel" @click="exitSelectMode">
             <template #icon>
-              <NIcon :component="SwapHorizontalOutline" :size="14" />
+              <NIcon :component="CloseOutline" :size="14" />
             </template>
           </NButton>
-        </NDropdown>
-        <NButton
-          quaternary
-          size="tiny"
-          :title="t.collapseAllWorkspaces"
-          @click="collapseAllWorkspaces"
-        >
-          <template #icon>
-            <NIcon :component="ContractOutline" :size="14" />
-          </template>
-        </NButton>
-        <NDropdown
-          trigger="click"
-          :options="groupAdminOptions()"
-          @select="onGroupAdminSelect"
-        >
-          <NButton quaternary size="tiny" :title="t.moreActions">
+          <NDropdown
+            trigger="hover"
+            :options="archiveDayOptions()"
+            @select="onArchiveSelect"
+          >
+            <NButton quaternary size="tiny" :title="t.archiveMenu">
+              <template #icon>
+                <NIcon :component="ArchiveOutline" :size="14" />
+              </template>
+            </NButton>
+          </NDropdown>
+          <NButton
+            quaternary
+            size="tiny"
+            :title="t.delete"
+            :disabled="!selectedSessionIds.length"
+            @click="deleteSelectedSessions"
+          >
             <template #icon>
-              <NIcon :component="EllipsisHorizontalOutline" :size="14" />
+              <NIcon :component="TrashOutline" :size="14" />
             </template>
           </NButton>
-        </NDropdown>
+        </template>
+        <template v-else>
+          <NDropdown
+            trigger="click"
+            :options="groupMenuOptions()"
+            :render-label="renderGroupLabel"
+            @select="onGroupMenuSelect"
+          >
+            <NButton quaternary size="tiny" :title="t.groupAllProjects">
+              <template #icon>
+                <NIcon :component="SwapHorizontalOutline" :size="14" />
+              </template>
+            </NButton>
+          </NDropdown>
+          <NButton
+            quaternary
+            size="tiny"
+            :title="t.collapseAllWorkspaces"
+            @click="collapseAllWorkspaces"
+          >
+            <template #icon>
+              <NIcon :component="ContractOutline" :size="14" />
+            </template>
+          </NButton>
+          <NDropdown
+            trigger="click"
+            :options="groupAdminOptions()"
+            @select="onGroupAdminSelect"
+          >
+            <NButton quaternary size="tiny" :title="t.moreActions">
+              <template #icon>
+                <NIcon :component="EllipsisHorizontalOutline" :size="14" />
+              </template>
+            </NButton>
+          </NDropdown>
+        </template>
       </div>
 
       <NScrollbar v-if="workspacePaths.length" class="tree">
@@ -1375,6 +1624,7 @@ watch(
                 active: sessionsStore.activeId === item.session.id,
                 running: isRunning(item.session.status),
                 'guides-visible': guidesVisibleFor(root, item),
+                selected: selectMode && isSessionSelected(item.session.id),
               }"
               :style="{ '--i': String(sIdx), '--depth': item.depth }"
               :aria-expanded="
@@ -1382,7 +1632,11 @@ watch(
                   ? !isTreeNodeCollapsed(root, item.session.id)
                   : undefined
               "
-              @click="onSelectSession(root, item.session.id)"
+              @click="
+                selectMode
+                  ? toggleSessionSelect(item.session.id)
+                  : onSelectSession(root, item.session.id)
+              "
               @contextmenu="(e) => openSessionCtx(e, root, item.session)"
               @mouseenter="onSessionRowEnter(root, item)"
               @mouseleave="onSessionRowLeave(root)"
@@ -1448,7 +1702,15 @@ watch(
                     <span v-else-if="justEnded.has(item.session.id)" class="done-tag">done</span>
                   </div>
                 </div>
+                <NCheckbox
+                  v-if="selectMode"
+                  class="session-check"
+                  :checked="isSessionSelected(item.session.id)"
+                  @click.stop
+                  @update:checked="toggleSessionSelect(item.session.id)"
+                />
                 <NButton
+                  v-else
                   class="trash"
                   quaternary
                   circle
@@ -1537,6 +1799,29 @@ watch(
       @positive-click="submitGroupDialog"
     >
       <NInput v-model:value="groupDraft" :placeholder="t.groupNamePlaceholder" @keydown.enter.prevent="submitGroupDialog" />
+    </NModal>
+
+    <NModal
+      v-model:show="archivedOpen"
+      preset="card"
+      :title="t.archivedSessions"
+      style="width: 460px"
+    >
+      <div v-if="!archivedRows.length" class="archived-empty">{{ t.archiveEmpty }}</div>
+      <ul v-else class="archived-list">
+        <li v-for="row in archivedRows" :key="row.id" class="archived-row">
+          <div class="archived-meta">
+            <span class="archived-label">{{ row.label }}</span>
+            <span class="archived-sub">
+              {{ row.workspace
+              }}<template v-if="row.modified"> · {{ relativeTime(row.modified) }}</template>
+            </span>
+          </div>
+          <NButton size="tiny" quaternary @click="restoreArchivedSession(row.id)">
+            {{ t.archiveRestore }}
+          </NButton>
+        </li>
+      </ul>
     </NModal>
 
     <NDropdown
@@ -2109,6 +2394,70 @@ watch(
 }
 
 .customize-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.session-check {
+  flex-shrink: 0;
+}
+
+.session-row.selected .session-inner {
+  background: var(--bg-selected);
+  border-color: var(--border);
+  color: var(--fg-strong);
+}
+
+.archived-empty {
+  padding: 18px 0;
+  text-align: center;
+  color: var(--fg-muted);
+  font-size: 13px;
+}
+
+.archived-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 46vh;
+  overflow: auto;
+}
+
+.archived-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 6px 4px 6px 8px;
+  border-radius: 6px;
+}
+
+.archived-row:hover {
+  background: var(--bg-hover);
+}
+
+.archived-meta {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.archived-label {
+  font-size: 13px;
+  color: var(--fg);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.archived-sub {
+  font-size: 11.5px;
+  color: var(--fg-muted);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
