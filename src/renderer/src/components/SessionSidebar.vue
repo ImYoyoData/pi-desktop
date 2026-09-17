@@ -23,6 +23,8 @@ import {
   ChevronForwardOutline,
   CloseOutline,
   CopyOutline,
+  CreateOutline,
+  EllipsisHorizontalOutline,
   FolderOpenOutline,
   PinOutline,
   RefreshOutline,
@@ -177,7 +179,7 @@ function bindWorkspaceSortable(): void {
     animation: 150,
     draggable: ".ws-block",
     handle: ".ws-row",
-    filter: ".session-list, .session-row, .trash, .ws-new-session",
+    filter: ".session-list, .session-row, .trash, .ws-action",
     preventOnFilter: false,
     onEnd: () => {
       const paths = [...el.querySelectorAll<HTMLElement>(".ws-block[data-root]")]
@@ -1003,6 +1005,21 @@ function openWorkspaceCtx(e: MouseEvent, root: string): void {
   };
 }
 
+/** 省略号按钮打开工作区菜单：延后一拍，避免同一次点击冒泡到 document 被 clickoutside 立即关掉。 */
+function onWorkspaceMore(e: MouseEvent, root: string): void {
+  const { clientX, clientY } = e;
+  void nextTick(() => {
+    ctx.value = {
+      show: true,
+      x: clientX,
+      y: clientY,
+      kind: "workspace",
+      root,
+      session: null,
+    };
+  });
+}
+
 function openSessionCtx(e: MouseEvent, root: string, session: SessionSummary): void {
   e.preventDefault();
   e.stopPropagation();
@@ -1113,11 +1130,13 @@ watch(
             class="ws-block"
             :data-root="root"
           >
-          <div class="ws-row-wrap">
+          <div
+            class="ws-row-wrap"
+            :class="{ active: workspace.root === root && !sessionsStore.activeId }"
+          >
             <button
               type="button"
               class="ws-row"
-              :class="{ active: workspace.root === root && !sessionsStore.activeId }"
               :title="root"
               @click="onWorkspaceClick(root)"
               @contextmenu="(e) => openWorkspaceCtx(e, root)"
@@ -1132,18 +1151,34 @@ watch(
             <NTooltip>
               <template #trigger>
                 <NButton
-                  class="ws-new-session"
+                  class="ws-action"
                   quaternary
                   circle
                   size="tiny"
                   @click="(e) => void onNewAgentForWorkspace(root, e)"
                 >
                   <template #icon>
-                    <NIcon :component="AddOutline" :size="14" />
+                    <NIcon :component="CreateOutline" :size="14" />
                   </template>
                 </NButton>
               </template>
               {{ t.newSessionAction }}
+            </NTooltip>
+            <NTooltip>
+              <template #trigger>
+                <NButton
+                  class="ws-action"
+                  quaternary
+                  circle
+                  size="tiny"
+                  @click="(e) => onWorkspaceMore(e, root)"
+                >
+                  <template #icon>
+                    <NIcon :component="EllipsisHorizontalOutline" :size="14" />
+                  </template>
+                </NButton>
+              </template>
+              {{ t.moreActions }}
             </NTooltip>
           </div>
 
@@ -1548,8 +1583,11 @@ watch(
   border-radius: var(--radius-sm, 4px);
 }
 
+/* 当前工作区与悬停共用同一层背景，避免行内再叠一层出现双层色块；
+   鼠标点击后不保留高亮，仅键盘聚焦（focus-visible）时显示。 */
 .ws-row-wrap:hover,
-.ws-row-wrap:focus-within {
+.ws-row-wrap.active,
+.ws-row-wrap:has(:focus-visible) {
   background: var(--bg-hover);
 }
 
@@ -1577,11 +1615,7 @@ watch(
   cursor: grabbing;
 }
 
-.ws-row.active {
-  background: var(--bg-hover);
-}
-
-.ws-new-session {
+.ws-action {
   flex-shrink: 0;
   margin-right: 4px;
   opacity: 0;
@@ -1589,8 +1623,8 @@ watch(
   transition: opacity var(--duration-fast, 140ms) var(--ease-out, ease);
 }
 
-.ws-row-wrap:hover .ws-new-session,
-.ws-row-wrap:focus-within .ws-new-session {
+.ws-row-wrap:hover .ws-action,
+.ws-row-wrap:focus-within .ws-action {
   opacity: 1;
   pointer-events: auto;
 }
