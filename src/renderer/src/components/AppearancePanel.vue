@@ -95,6 +95,16 @@ const showSessionDetails = computed({
   set: (value: boolean) => appearance.setShowSessionDetails(value),
 });
 
+const showMessagePreview = computed({
+  get: () => appearance.showMessagePreview,
+  set: (value: boolean) => appearance.setShowMessagePreview(value),
+});
+
+const showMessagePreviewImage = computed({
+  get: () => appearance.showMessagePreviewImage,
+  set: (value: boolean) => appearance.setShowMessagePreviewImage(value),
+});
+
 const truncateOptions = computed(() =>
   TRUNCATE_TOOL_OUTPUT_CHOICES.map((lines) => ({
     label: lines === 0 ? t.truncateToolOutputOff : t.truncateToolOutputLines(lines),
@@ -243,6 +253,37 @@ function onMessageWidthChange(value: string | number | null): void {
           v-model:value="showSessionDetails"
           size="small"
           class="setting-radio-group"
+        >
+          <NRadioButton :value="true">{{ t.showCompactButtonOn }}</NRadioButton>
+          <NRadioButton :value="false">{{ t.showCompactButtonOff }}</NRadioButton>
+        </NRadioGroup>
+      </div>
+
+      <NDivider style="margin: 0" />
+
+      <div class="switch-row">
+        <div class="switch-labels">
+          <NText strong>{{ t.messagePreview }}</NText>
+        </div>
+        <NRadioGroup
+          v-model:value="showMessagePreview"
+          size="small"
+          class="setting-radio-group"
+        >
+          <NRadioButton :value="true">{{ t.showCompactButtonOn }}</NRadioButton>
+          <NRadioButton :value="false">{{ t.showCompactButtonOff }}</NRadioButton>
+        </NRadioGroup>
+      </div>
+
+      <div class="switch-row">
+        <div class="switch-labels">
+          <NText strong>{{ t.messagePreviewImage }}</NText>
+        </div>
+        <NRadioGroup
+          v-model:value="showMessagePreviewImage"
+          size="small"
+          class="setting-radio-group"
+          :disabled="!appearance.showMessagePreview"
         >
           <NRadioButton :value="true">{{ t.showCompactButtonOn }}</NRadioButton>
           <NRadioButton :value="false">{{ t.showCompactButtonOff }}</NRadioButton>

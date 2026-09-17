@@ -12,6 +12,7 @@ import {
 } from "naive-ui";
 import { ArrowDownOutline, ArrowUndoOutline, ChevronDownOutline, ChevronUpOutline, CopyOutline, CreateOutline, GitBranchOutline, PauseOutline, RefreshOutline, VolumeMediumOutline } from "@vicons/ionicons5";
 import type { ChatMessage, ChatRetryHint } from "@renderer/stores/chat";
+import { useAppearanceStore } from "@renderer/stores/appearance";
 import { useChatStore } from "@renderer/stores/chat";
 import { useCheckpointStore } from "@renderer/stores/checkpoint";
 import { useComposerStore } from "@renderer/stores/composer";
@@ -476,6 +477,19 @@ const stickyPinMessage = computed(() => {
   return msg?.role === "user" ? msg : null;
 });
 
+const appearance = useAppearanceStore();
+
+/** 置顶预览条：关闭预览、或内容全被开关隐藏（如纯图片消息）时不显示。 */
+const stickyPreviewMessage = computed(() => {
+  if (!appearance.showMessagePreview) return null;
+  const msg = stickyPinMessage.value;
+  if (!msg) return null;
+  const hasImages = (msg.images?.length ?? 0) > 0 && appearance.showMessagePreviewImage;
+  const hasText = !!displayUserText(msg.text);
+  const hasTags = visibleUserTags(msg.elementTags).length > 0;
+  return hasImages || hasText || hasTags ? msg : null;
+});
+
 function stickyCapPx(sc: HTMLElement): number {
   return Math.min(Math.round(sc.clientHeight * STICKY_MAX_VH), STICKY_MAX_PX);
 }
@@ -528,7 +542,7 @@ function clearStickyPin(): void {
 /** Pin overlay for the nearest user message scrolled above the viewport. */
 function updateStickyPinned(): void {
   const sc = scroller.value;
-  if (!sc) {
+  if (!sc || !appearance.showMessagePreview) {
     clearStickyPin();
     return;
   }
@@ -2267,7 +2281,7 @@ function onRevertUser(msg: Extract<ChatMessage, { role: "user" }>): void {
     </div>
 
     <div
-      v-if="stickyPinned && stickyPinMessage"
+      v-if="stickyPreviewMessage"
       ref="stickyPinEl"
       class="user-sticky-pin"
       :class="{ 'is-expanded': stickyExpanded }"
@@ -2276,11 +2290,14 @@ function onRevertUser(msg: Extract<ChatMessage, { role: "user" }>): void {
     >
       <div
         class="sticky-pin-body bubble user"
-        :class="{ 'user-collapsed': !stickyExpanded && userCardNeedsToggle(stickyPinMessage) }"
+        :class="{ 'user-collapsed': !stickyExpanded && userCardNeedsToggle(stickyPreviewMessage) }"
       >
-        <div v-if="stickyPinMessage.images?.length" class="user-images">
+        <div
+          v-if="stickyPreviewMessage.images?.length && appearance.showMessagePreviewImage"
+          class="user-images"
+        >
           <img
-            v-for="(img, idx) in stickyPinMessage.images"
+            v-for="(img, idx) in stickyPreviewMessage.images"
             :key="`pin-img-${idx}`"
             class="user-image"
             :src="img.dataUrl"
@@ -2291,13 +2308,16 @@ function onRevertUser(msg: Extract<ChatMessage, { role: "user" }>): void {
           />
         </div>
         <div
-          v-if="displayUserText(stickyPinMessage.text)"
+          v-if="displayUserText(stickyPreviewMessage.text)"
           class="user-plain"
-          :class="{ clamped: !stickyExpanded && userCardNeedsToggle(stickyPinMessage) }"
-        >{{ displayUserText(stickyPinMessage.text) }}</div>
-        <div v-if="visibleUserTags(stickyPinMessage.elementTags).length" class="user-tags">
+          :class="{ clamped: !stickyExpanded && userCardNeedsToggle(stickyPreviewMessage) }"
+        >{{ displayUserText(stickyPreviewMessage.text) }}</div>
+        <div
+          v-if="visibleUserTags(stickyPreviewMessage.elementTags).length"
+          class="user-tags"
+        >
           <NTag
-            v-for="(tag, idx) in visibleUserTags(stickyPinMessage.elementTags)"
+            v-for="(tag, idx) in visibleUserTags(stickyPreviewMessage.elementTags)"
             :key="`pin-tag-${idx}`"
             type="info"
             size="small"

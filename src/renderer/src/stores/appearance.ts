@@ -29,6 +29,8 @@ const LOCALE_KEY = "pi-desktop:locale-preference";
 const COMPACT_BTN_KEY = "pi-desktop:show-compact-button";
 const PANEL_DIVIDERS_KEY = "pi-desktop:panel-dividers";
 const SESSION_DETAILS_KEY = "pi-desktop:session-details";
+const MESSAGE_PREVIEW_KEY = "pi-desktop:message-preview";
+const MESSAGE_PREVIEW_IMAGE_KEY = "pi-desktop:message-preview-image";
 const TRUNCATE_TOOL_OUTPUT_KEY = "pi-desktop:truncate-tool-output";
 
 /** 工具输出预览的可选截断行数；0 表示不截断。 */
@@ -61,6 +63,22 @@ function readSessionDetails(): boolean {
     return localStorage.getItem(SESSION_DETAILS_KEY) !== "0";
   } catch {
     return true;
+  }
+}
+
+function readMessagePreview(): boolean {
+  try {
+    return localStorage.getItem(MESSAGE_PREVIEW_KEY) !== "0";
+  } catch {
+    return true;
+  }
+}
+
+function readMessagePreviewImage(): boolean {
+  try {
+    return localStorage.getItem(MESSAGE_PREVIEW_IMAGE_KEY) === "1";
+  } catch {
+    return false;
   }
 }
 
@@ -179,6 +197,8 @@ export const useAppearanceStore = defineStore("appearance", () => {
   const showCompactButton = ref(readShowCompactButton());
   const showPanelDividers = ref(readPanelDividers());
   const showSessionDetails = ref(readSessionDetails());
+  const showMessagePreview = ref(readMessagePreview());
+  const showMessagePreviewImage = ref(readMessagePreviewImage());
   const truncateToolOutputLines = ref(readTruncateToolOutputLines());
   const customAppearance = ref<CustomAppearanceSettings>(readCustomAppearance());
   const wallpaperBroken = ref(false);
@@ -247,6 +267,24 @@ export const useAppearanceStore = defineStore("appearance", () => {
     showSessionDetails.value = next;
     try {
       localStorage.setItem(SESSION_DETAILS_KEY, next ? "1" : "0");
+    } catch {
+      // ignore
+    }
+  }
+
+  function setShowMessagePreview(next: boolean): void {
+    showMessagePreview.value = next;
+    try {
+      localStorage.setItem(MESSAGE_PREVIEW_KEY, next ? "1" : "0");
+    } catch {
+      // ignore
+    }
+  }
+
+  function setShowMessagePreviewImage(next: boolean): void {
+    showMessagePreviewImage.value = next;
+    try {
+      localStorage.setItem(MESSAGE_PREVIEW_IMAGE_KEY, next ? "1" : "0");
     } catch {
       // ignore
     }
@@ -351,6 +389,8 @@ export const useAppearanceStore = defineStore("appearance", () => {
     showCompactButton,
     showPanelDividers,
     showSessionDetails,
+    showMessagePreview,
+    showMessagePreviewImage,
     truncateToolOutputLines,
     wallpaper,
     surfaces,
@@ -361,6 +401,8 @@ export const useAppearanceStore = defineStore("appearance", () => {
     setShowCompactButton,
     setShowPanelDividers,
     setShowSessionDetails,
+    setShowMessagePreview,
+    setShowMessagePreviewImage,
     setTruncateToolOutputLines,
     setWallpaperFile,
     clearWallpaper,
