@@ -565,6 +565,7 @@ export const zh = {
 	appearance: "通用",
 	showCompactButton: "显示上下文压缩按钮",
 	showPanelDividers: "界面分隔线",
+	showSessionTitle: "会话标题",
 	showSessionDetails: "会话详细显示",
 	sessionHoverActions: "会话展开/收起按钮悬停显示",
 	messagePreview: "消息预览",

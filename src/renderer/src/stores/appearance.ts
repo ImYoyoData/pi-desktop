@@ -29,6 +29,7 @@ const LOCALE_KEY = "pi-desktop:locale-preference";
 const COMPACT_BTN_KEY = "pi-desktop:show-compact-button";
 const PANEL_DIVIDERS_KEY = "pi-desktop:panel-dividers";
 const SESSION_DETAILS_KEY = "pi-desktop:session-details";
+const SESSION_TITLE_KEY = "pi-desktop:session-title";
 const MESSAGE_PREVIEW_KEY = "pi-desktop:message-preview";
 const MESSAGE_PREVIEW_IMAGE_KEY = "pi-desktop:message-preview-image";
 const SESSION_HOVER_ACTIONS_KEY = "pi-desktop:session-hover-actions";
@@ -62,6 +63,14 @@ function readPanelDividers(): boolean {
 function readSessionDetails(): boolean {
   try {
     return localStorage.getItem(SESSION_DETAILS_KEY) !== "0";
+  } catch {
+    return true;
+  }
+}
+
+function readSessionTitle(): boolean {
+  try {
+    return localStorage.getItem(SESSION_TITLE_KEY) !== "0";
   } catch {
     return true;
   }
@@ -206,6 +215,7 @@ export const useAppearanceStore = defineStore("appearance", () => {
   const showCompactButton = ref(readShowCompactButton());
   const showPanelDividers = ref(readPanelDividers());
   const showSessionDetails = ref(readSessionDetails());
+  const showSessionTitle = ref(readSessionTitle());
   const showMessagePreview = ref(readMessagePreview());
   const showMessagePreviewImage = ref(readMessagePreviewImage());
   const showSessionHoverActions = ref(readSessionHoverActions());
@@ -277,6 +287,15 @@ export const useAppearanceStore = defineStore("appearance", () => {
     showSessionDetails.value = next;
     try {
       localStorage.setItem(SESSION_DETAILS_KEY, next ? "1" : "0");
+    } catch {
+      // ignore
+    }
+  }
+
+  function setShowSessionTitle(next: boolean): void {
+    showSessionTitle.value = next;
+    try {
+      localStorage.setItem(SESSION_TITLE_KEY, next ? "1" : "0");
     } catch {
       // ignore
     }
@@ -408,6 +427,7 @@ export const useAppearanceStore = defineStore("appearance", () => {
     showCompactButton,
     showPanelDividers,
     showSessionDetails,
+    showSessionTitle,
     showMessagePreview,
     showMessagePreviewImage,
     showSessionHoverActions,
@@ -421,6 +441,7 @@ export const useAppearanceStore = defineStore("appearance", () => {
     setShowCompactButton,
     setShowPanelDividers,
     setShowSessionDetails,
+    setShowSessionTitle,
     setShowMessagePreview,
     setShowMessagePreviewImage,
     setSessionHoverActions,
