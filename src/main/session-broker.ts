@@ -133,7 +133,7 @@ export type SessionBroker = {
   sendRawIfAlive: (sessionId: string, msg: WorkerInbound) => Promise<boolean>;
   killWorker: (sessionId: string) => Promise<void>;
   restartWorker: (sessionId: string) => Promise<void>;
-  /** Restart live workers for a workspace so `projectTrusted` / init snapshot reloads. */
+  /** Restart live workers for a workspace so settings / init snapshot reloads. */
   restartWorkersForCwd: (cwd: string) => Promise<void>;
   /** 回收所有存活 worker，使下次启动读取新的环境变量（如代理变更）。 */
   recycleWorkers: () => void;

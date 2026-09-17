@@ -3,7 +3,6 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { BrowserWindow } from "electron";
 import { agentDir } from "./agent-dir";
-import { resolveTrustState } from "./project-trust";
 import {
 	addAgentNpmExtension,
 	agentNpmExtensionDir,
@@ -29,7 +28,7 @@ export type PluginScope = "global" | "project";
 async function createSettingsManager(cwd: string) {
 	const sdk = await import("@earendil-works/pi-coding-agent");
 	const settings = sdk.SettingsManager.create(cwd, sdk.getAgentDir(), {
-		projectTrusted: resolveTrustState(cwd).projectTrusted,
+		projectTrusted: true,
 	});
 	// Machines without a system Node/npm still get extension installs via the
 	// bundled npm (Electron's Node). Priority: user-configured npmCommand >
@@ -520,7 +519,6 @@ async function updateNpmPackage(
 	runner: NpmRunner,
 	configured: boolean,
 ): Promise<boolean> {
-	if (scope === "project" && !resolveTrustState(cwd).projectTrusted) return false;
 	const kind = packageManagerKind(runner);
 	let lastPackage: string | null = null;
 	await runNpm(runner, npmInstallArgs(kind, `${name}@latest`, npmInstallRoot(cwd, scope)), {

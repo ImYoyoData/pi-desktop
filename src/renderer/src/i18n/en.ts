@@ -423,7 +423,6 @@ export const en = {
 	permissionAllowOnce: "Allow once",
 	permissionAllowBackground: "Run in background",
 	permissionAllowSession: "Allow this category for session",
-	permissionAllowWhitelist: "Add to allowlist",
 	permissionCategoryBash: "Shell",
 	permissionCategoryWrite: "File write",
 	extensionUiTitle: "Extension request",
@@ -1142,55 +1141,26 @@ export const en = {
 	selectOrCreateSession: "Select a session on the left, or create one to start.",
 	noRecentProjects: "No recent projects",
 
-	// Project trust
-	trustDialogTitle: "Trust this project?",
-	trustDialogBody:
-		"You must trust a project before opening it as a workspace. Trusting loads project `.pi` resources (settings, skills, extensions). Choosing not to trust cancels opening. Only trust projects you trust.",
-	trustDialogTrust: "Trust and open",
-	trustDialogDontTrust: "Don't trust (cancel)",
-
 	// Security settings
 	securityTitle: "Security",
-	securityTrustSection: "Workspace trust",
-	securityTrustHint:
-		"Trusted workspaces load project `.pi` resources. Untrusting closes the current workspace.",
-	securityTrustNoWorkspace: "Open a workspace to manage trust.",
-	securityTrustUnknown: "Trust status unknown",
-	securityTrustNoResources: "No project `.pi` resources",
-	securityTrustTrusted: "Trusted",
-	securityTrustUntrusted: "Not trusted",
-	securityTrustPending: "Not decided yet",
-	securityTrustAction: "Trust",
-	securityUntrustAction: "Untrust",
-	securityTrustSetTrusted: "Workspace trusted",
-	securityTrustSetUntrusted: "Workspace untrusted",
-	securityTrustSetUntrustedClosed: "Untrusted — workspace closed",
-	securityWorkspacePermissionsSection: "This workspace — tool permissions",
-	securityWorkspacePermissionsHint:
-		"Applies only to the current trusted workspace. Falls back to global defaults below when unset.",
-	securityWorkspacePermissionsNeedTrust:
-		"Trust this workspace to set tool permissions for it separately.",
-	securityTrustedListHint: "Trusted workspaces:",
-	securityTrustedCurrent: "Current",
-	securityGlobalCategoriesSection: "Global tool permissions",
-	securityGlobalCategoriesHint:
-		"Global defaults for workspaces without their own overrides. Workspace permissions above take priority.",
-	securityCategoriesSection: "Tool permissions",
-	securityCategoriesHint:
-		"Ask prompts before tools run, or allow a category by default.",
-	securityModeAsk: "Ask",
-	securityModeAllow: "Allow",
-	securityAskAll: "Ask all",
-	securityAllowAll: "Allow all",
-	securityBashAllowlist: "Bash allowlist",
-	securityBashAllowlistHint:
-		"Prefix match: an entry allows commands that start with it (e.g. git status matches git status --short). “Add to allowlist” stores a command prefix, not the full line.",
-	securityBashAllowlistPlaceholder: "e.g. git status / docker compose",
+	securityPermissionMode: "Permission mode",
+	securityPermissionModeHint:
+		"Ask prompts for every action; Edits auto-applies file writes; Auto also runs commands but still confirms dangerous ones; YOLO allows everything without asking.",
 	securityToolDeniedToast:
-		"Tool blocked by security settings. Open Settings → Security to allow, adjust the bash allowlist, or trust the workspace.",
+		"Tool blocked by the current permission mode. Change it from the composer toolbar and retry.",
 	securityOpenDevTools: "Open DevTools",
 	securityOpenDevToolsHint:
 		"Open this app window’s developer tools (for troubleshooting)",
+	permissionProfileAsk: "Ask",
+	permissionProfileAskHint: "Prompt before writing files or running commands",
+	permissionProfileEdits: "Edits",
+	permissionProfileEditsHint: "Auto-apply file writes; commands still need confirmation",
+	permissionProfileAuto: "Auto",
+	permissionProfileAutoHint:
+		"Auto-apply edits and run commands; dangerous commands still confirm",
+	permissionProfileYolo: "YOLO",
+	permissionProfileYoloHint: "Allow everything without asking",
+	permissionDangerWarning: "Dangerous command — confirm to run it",
 
 	// Tool cards / market (forward-looking)
 	toolRead: "Read",

@@ -10,7 +10,6 @@ export type WorkerInbound =
       kind: "init";
       cwd: string;
       filePath?: string;
-      projectTrusted: boolean;
       desktopSecurity?: DesktopSecuritySettings;
     }
   | { kind: "command"; id: string; command: AgentCommand }
