@@ -553,7 +553,7 @@ declare const api: {
 		abortMerge: () => Promise<GitOpResult>;
 	};
 	customizations: {
-		list: (cwd?: string) => Promise<CustomizationsSnapshot>;
+		list: (cwd?: string, force?: boolean) => Promise<CustomizationsSnapshot>;
 		create: (kind: CustomizationCreateKind) => Promise<{ filePath: string }>;
 		createAgentFromDraft: (
 			content: string,
@@ -598,6 +598,7 @@ declare const api: {
 		) => Promise<{ filePath: string }>;
 		removeItem: (filePath: string, cwd?: string) => Promise<{ filePath: string }>;
 		testMcpServers: (targets: McpTestTarget[]) => Promise<McpTestResult[]>;
+		onUpdated: (callback: (snapshot: CustomizationsSnapshot) => void) => () => void;
 	};
 	skills: {
 		list: (cwd?: string) => Promise<{

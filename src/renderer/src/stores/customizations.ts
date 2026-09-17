@@ -18,7 +18,7 @@ export const useCustomizationsStore = defineStore("customizations", () => {
     if (initial) loading.value = true;
     error.value = "";
     try {
-      const data = await window.api.customizations.list(root);
+      const data = await window.api.customizations.list(root, force);
       snapshot.value = data;
       loadedRoot = data.root;
     } catch (err) {
@@ -26,6 +26,16 @@ export const useCustomizationsStore = defineStore("customizations", () => {
     } finally {
       loading.value = false;
     }
+  }
+
+  /** 订阅主进程推送的最新快照：后台重扫完成后自动替换本地数据。 */
+  function init(): () => void {
+    return window.api.customizations.onUpdated((data) => {
+      const workspace = useWorkspaceStore();
+      if ((data.root ?? null)?.toLowerCase() !== (workspace.root ?? null)?.toLowerCase()) return;
+      snapshot.value = data;
+      loadedRoot = data.root;
+    });
   }
 
   /** 本地更新 MCP 开关状态，避免重新加载整份快照。 */
@@ -98,6 +108,7 @@ export const useCustomizationsStore = defineStore("customizations", () => {
     loading,
     error,
     load,
+    init,
     setMcpEnabled,
     removeMcp,
     setPluginEnabled,

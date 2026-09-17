@@ -21,6 +21,7 @@ import AsrWakeGuard from "@renderer/components/AsrWakeGuard.vue";
 import AsrBackendChooseModal from "@renderer/components/AsrBackendChooseModal.vue";
 import { useWorkspaceStore } from "@renderer/stores/workspace";
 import { useAppearanceStore } from "@renderer/stores/appearance";
+import { useCustomizationsStore } from "@renderer/stores/customizations";
 import { darkThemeOverrides, lightThemeOverrides } from "@renderer/theme/naive";
 import { locale } from "@renderer/i18n";
 import { dismissStartupSplash } from "@renderer/utils/startup-splash";
@@ -41,6 +42,7 @@ const AiCustomizationModal = defineAsyncComponent(
 
 const workspace = useWorkspaceStore();
 const appearance = useAppearanceStore();
+const customizations = useCustomizationsStore();
 /** True once workspace/platform init finished (gates shell mounting). */
 const bootInitDone = ref(false);
 /**
@@ -48,6 +50,8 @@ const bootInitDone = ref(false);
  * can take a while; never block shell mounting forever.
  */
 const BOOT_MAX_MS = 6000;
+/** 首屏就绪后延迟预热设置页快照的时长，避开启用初期的其它启动任务。 */
+const CUSTOMIZATIONS_PREWARM_MS = 1200;
 let bootTimer = 0;
 
 /** Shell content can mount once init IPC returns (or failsafe fires). */
@@ -66,10 +70,13 @@ const themeOverrides = computed(() =>
 
 let stopAppearance: (() => void) | undefined;
 let stopFsChangedBus: (() => void) | undefined;
+let stopCustomizations: (() => void) | undefined;
+let customizationsWarmTimer = 0;
 
 onMounted(() => {
   stopAppearance = appearance.init();
   stopFsChangedBus = startFsChangedBus();
+  stopCustomizations = customizations.init();
   void window.api.window.setUiLocale(locale.value);
   // Instant open: drop the full-screen splash right after first paint so the
   // window feels instant; shell content mounts once workspace init finishes.
@@ -93,14 +100,20 @@ onMounted(() => {
       bootInitDone.value = true;
       markRendererStartup("renderer:shell-ready");
       if (!workspace.root) markRendererStartup("renderer:ready");
+      // 后台预热设置页快照：冷启动首次扫描不挡首屏，之后打开设置页直接命中缓存。
+      customizationsWarmTimer = window.setTimeout(() => {
+        if (workspace.root) void customizations.load();
+      }, CUSTOMIZATIONS_PREWARM_MS);
     }
   })();
 });
 
 onUnmounted(() => {
   window.clearTimeout(bootTimer);
+  window.clearTimeout(customizationsWarmTimer);
   stopAppearance?.();
   stopFsChangedBus?.();
+  stopCustomizations?.();
 });
 </script>
 
