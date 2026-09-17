@@ -90,6 +90,11 @@ const showPanelDividers = computed({
   set: (value: boolean) => appearance.setShowPanelDividers(value),
 });
 
+const showSessionDetails = computed({
+  get: () => appearance.showSessionDetails,
+  set: (value: boolean) => appearance.setShowSessionDetails(value),
+});
+
 const truncateOptions = computed(() =>
   TRUNCATE_TOOL_OUTPUT_CHOICES.map((lines) => ({
     label: lines === 0 ? t.truncateToolOutputOff : t.truncateToolOutputLines(lines),
@@ -226,6 +231,22 @@ function onMessageWidthChange(value: string | number | null): void {
           class="setting-select"
           @update:value="onMessageWidthChange"
         />
+      </div>
+
+      <NDivider style="margin: 0" />
+
+      <div class="switch-row">
+        <div class="switch-labels">
+          <NText strong>{{ t.showSessionDetails }}</NText>
+        </div>
+        <NRadioGroup
+          v-model:value="showSessionDetails"
+          size="small"
+          class="setting-radio-group"
+        >
+          <NRadioButton :value="true">{{ t.showCompactButtonOn }}</NRadioButton>
+          <NRadioButton :value="false">{{ t.showCompactButtonOff }}</NRadioButton>
+        </NRadioGroup>
       </div>
     </template>
   </div>

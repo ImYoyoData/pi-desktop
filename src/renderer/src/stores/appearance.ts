@@ -28,6 +28,7 @@ const THEME_KEY = "pi-desktop:theme-preference";
 const LOCALE_KEY = "pi-desktop:locale-preference";
 const COMPACT_BTN_KEY = "pi-desktop:show-compact-button";
 const PANEL_DIVIDERS_KEY = "pi-desktop:panel-dividers";
+const SESSION_DETAILS_KEY = "pi-desktop:session-details";
 const TRUNCATE_TOOL_OUTPUT_KEY = "pi-desktop:truncate-tool-output";
 
 /** 工具输出预览的可选截断行数；0 表示不截断。 */
@@ -50,6 +51,14 @@ function readShowCompactButton(): boolean {
 function readPanelDividers(): boolean {
   try {
     return localStorage.getItem(PANEL_DIVIDERS_KEY) !== "0";
+  } catch {
+    return true;
+  }
+}
+
+function readSessionDetails(): boolean {
+  try {
+    return localStorage.getItem(SESSION_DETAILS_KEY) !== "0";
   } catch {
     return true;
   }
@@ -169,6 +178,7 @@ export const useAppearanceStore = defineStore("appearance", () => {
   const systemDark = ref(systemPrefersDark());
   const showCompactButton = ref(readShowCompactButton());
   const showPanelDividers = ref(readPanelDividers());
+  const showSessionDetails = ref(readSessionDetails());
   const truncateToolOutputLines = ref(readTruncateToolOutputLines());
   const customAppearance = ref<CustomAppearanceSettings>(readCustomAppearance());
   const wallpaperBroken = ref(false);
@@ -228,6 +238,15 @@ export const useAppearanceStore = defineStore("appearance", () => {
     showPanelDividers.value = next;
     try {
       localStorage.setItem(PANEL_DIVIDERS_KEY, next ? "1" : "0");
+    } catch {
+      // ignore
+    }
+  }
+
+  function setShowSessionDetails(next: boolean): void {
+    showSessionDetails.value = next;
+    try {
+      localStorage.setItem(SESSION_DETAILS_KEY, next ? "1" : "0");
     } catch {
       // ignore
     }
@@ -331,6 +350,7 @@ export const useAppearanceStore = defineStore("appearance", () => {
     resolvedTheme,
     showCompactButton,
     showPanelDividers,
+    showSessionDetails,
     truncateToolOutputLines,
     wallpaper,
     surfaces,
@@ -340,6 +360,7 @@ export const useAppearanceStore = defineStore("appearance", () => {
     setLocalePreference,
     setShowCompactButton,
     setShowPanelDividers,
+    setShowSessionDetails,
     setTruncateToolOutputLines,
     setWallpaperFile,
     clearWallpaper,
