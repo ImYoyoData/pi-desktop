@@ -1,5 +1,6 @@
 import { defineStore } from "pinia";
 import { ref, watch } from "vue";
+import type { WorkspaceGroups } from "../../../shared/protocol";
 import { useRightTabsStore } from "@renderer/stores/right-tabs";
 
 /**
@@ -21,6 +22,10 @@ export const useWorkspaceStore = defineStore("workspace", () => {
 	const recent = ref<string[]>([]);
 	/** 绝对路径 → 用户自定义显示名。 */
 	const aliases = ref<Record<string, string>>({});
+	/** 自定义分类名（顺序即菜单顺序）；未归类的工作区归入内置“默认”。 */
+	const groups = ref<string[]>([]);
+	/** 绝对路径 → 分类名。 */
+	const groupOf = ref<Record<string, string>>({});
 	/**
 	 * True once the current `root` is ready for session hydrate / worker spawn.
 	 */
@@ -166,10 +171,41 @@ export const useWorkspaceStore = defineStore("workspace", () => {
 		return next.root;
 	}
 
+	function applyGroups(next: WorkspaceGroups): void {
+		groups.value = next.groups;
+		groupOf.value = next.groupOf;
+	}
+
+	async function refreshGroups(): Promise<void> {
+		applyGroups(await window.api.workspace.listGroups());
+	}
+
+	async function addGroup(name: string): Promise<void> {
+		applyGroups(await window.api.workspace.addGroup(name));
+	}
+
+	async function renameGroup(from: string, to: string): Promise<void> {
+		applyGroups(await window.api.workspace.renameGroup(from, to));
+	}
+
+	async function removeGroup(name: string): Promise<void> {
+		applyGroups(await window.api.workspace.removeGroup(name));
+	}
+
+	/** 把工作区归入分类；group 为空即回到内置“默认”。 */
+	async function setGroupOf(
+		workspaceRoot: string,
+		group: string | null,
+	): Promise<void> {
+		applyGroups(await window.api.workspace.setGroupOf(workspaceRoot, group));
+	}
+
 	return {
 		root,
 		recent,
 		aliases,
+		groups,
+		groupOf,
 		sessionsReady,
 		getWorkspace,
 		openWorkspace,
@@ -184,5 +220,10 @@ export const useWorkspaceStore = defineStore("workspace", () => {
 		refreshAliases,
 		renameWorkspace,
 		relocateWorkspace,
+		refreshGroups,
+		addGroup,
+		renameGroup,
+		removeGroup,
+		setGroupOf,
 	};
 });

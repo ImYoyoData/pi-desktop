@@ -6,8 +6,12 @@ export type WorkspacePersistedState = {
   recent: string[];
   /** Pi-discovered workspaces the user removed from the sidebar. */
   dismissedPi: string[];
-  /** pathKey(root) → 用户自定义的工作区显示名。 */
+  /** 绝对路径 → 用户自定义的工作区显示名。 */
   aliases: Record<string, string>;
+  /** 自定义分类名，顺序即菜单顺序；未归类的工作区归入内置“默认”。 */
+  groups: string[];
+  /** 绝对路径 → 分类名。 */
+  groupOf: Record<string, string>;
 };
 
 const DEFAULT_STATE: WorkspacePersistedState = {
@@ -15,6 +19,8 @@ const DEFAULT_STATE: WorkspacePersistedState = {
   recent: [],
   dismissedPi: [],
   aliases: {},
+  groups: [],
+  groupOf: {},
 };
 
 /**
@@ -45,6 +51,27 @@ function readAliases(input: unknown): Record<string, string> {
   return out;
 }
 
+function readNames(input: unknown): string[] {
+  if (!Array.isArray(input)) return [];
+  const out: string[] = [];
+  for (const entry of input) {
+    const name = typeof entry === "string" ? entry.trim() : "";
+    if (name && !out.includes(name)) out.push(name);
+  }
+  return out;
+}
+
+function readGroupOf(input: unknown): Record<string, string> {
+  if (!input || typeof input !== "object") return {};
+  const out: Record<string, string> = {};
+  for (const [key, value] of Object.entries(input as Record<string, unknown>)) {
+    const name = typeof value === "string" ? value.trim() : "";
+    const target = normalizeStoredWorkspacePath(key);
+    if (target && name) out[target] = name;
+  }
+  return out;
+}
+
 function readState(statePath: string): WorkspacePersistedState {
   try {
     const raw = fs.readFileSync(statePath, "utf8");
@@ -64,9 +91,11 @@ function readState(statePath: string): WorkspacePersistedState {
             .filter((entry): entry is string => entry !== null)
         : [],
       aliases: readAliases(parsed.aliases),
+      groups: readNames(parsed.groups),
+      groupOf: readGroupOf(parsed.groupOf),
     };
   } catch {
-    return { ...DEFAULT_STATE, recent: [], dismissedPi: [], aliases: {} };
+    return { ...DEFAULT_STATE };
   }
 }
 
@@ -140,6 +169,52 @@ export function createWorkspaceStore(statePath: string) {
       return { ...state.aliases };
     },
 
+    listGroups(): { groups: string[]; groupOf: Record<string, string> } {
+      return { groups: [...state.groups], groupOf: { ...state.groupOf } };
+    },
+
+    addGroup(name: string): void {
+      const trimmed = name.trim();
+      if (!trimmed || state.groups.includes(trimmed)) return;
+      state = { ...state, groups: [...state.groups, trimmed] };
+      persist();
+    },
+
+    renameGroup(from: string, to: string): void {
+      const next = to.trim();
+      if (!next || next === from || !state.groups.includes(from)) return;
+      const groups = [...new Set(state.groups.map((g) => (g === from ? next : g)))];
+      const groupOf: Record<string, string> = {};
+      for (const [key, value] of Object.entries(state.groupOf)) {
+        groupOf[key] = value === from ? next : value;
+      }
+      state = { ...state, groups, groupOf };
+      persist();
+    },
+
+    /** 删除分类，其中的工作区回到内置“默认”。 */
+    removeGroup(name: string): void {
+      if (!state.groups.includes(name)) return;
+      const groups = state.groups.filter((g) => g !== name);
+      const groupOf: Record<string, string> = {};
+      for (const [key, value] of Object.entries(state.groupOf)) {
+        if (value !== name) groupOf[key] = value;
+      }
+      state = { ...state, groups, groupOf };
+      persist();
+    },
+
+    /** group 为 null / 空串时回到内置“默认”。 */
+    setGroupOf(root: string, group: string | null): void {
+      const key = aliasKey(root);
+      const trimmed = group?.trim();
+      const groupOf = { ...state.groupOf };
+      if (trimmed) groupOf[key] = trimmed;
+      else delete groupOf[key];
+      state = { ...state, groupOf };
+      persist();
+    },
+
     setAlias(root: string, name: string | null): void {
       const key = aliasKey(root);
       const trimmed = name?.trim();
@@ -172,11 +247,16 @@ export function createWorkspaceStore(statePath: string) {
       for (const [key, name] of Object.entries(state.aliases)) {
         aliases[pathKey(key) === fromKey ? aliasKey(stored) : key] = name;
       }
+      const groupOf: Record<string, string> = {};
+      for (const [key, name] of Object.entries(state.groupOf)) {
+        groupOf[pathKey(key) === fromKey ? aliasKey(stored) : key] = name;
+      }
       state = {
         ...state,
         recent,
         dismissedPi,
         aliases,
+        groupOf,
         root:
           state.root && pathKey(state.root) === fromKey ? stored : state.root,
       };
@@ -223,8 +303,10 @@ export function createWorkspaceStore(statePath: string) {
       const dismissedPi = state.dismissedPi.filter((entry) => pathKey(entry) !== key);
       const aliases = { ...state.aliases };
       for (const k of Object.keys(aliases)) if (pathKey(k) === key) delete aliases[k];
+      const groupOf = { ...state.groupOf };
+      for (const k of Object.keys(groupOf)) if (pathKey(k) === key) delete groupOf[k];
       const nextRoot = state.root && pathKey(state.root) === key ? (recent[0] ?? null) : state.root;
-      state = { ...state, recent, dismissedPi, aliases, root: nextRoot };
+      state = { ...state, recent, dismissedPi, aliases, groupOf, root: nextRoot };
       persist();
     },
   };
