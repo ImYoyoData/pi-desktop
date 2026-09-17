@@ -17,7 +17,7 @@ import {
   useMessage,
 } from "naive-ui";
 import {
-  AddOutline,
+  ChatboxOutline,
   ChevronDownOutline,
   ChevronForwardOutline,
   ContractOutline,
@@ -973,7 +973,7 @@ function workspaceMenuOptions(): DropdownOption[] {
     {
       label: t.newSessionAction,
       key: "new-session",
-      icon: () => h(NIcon, null, { default: () => h(AddOutline) }),
+      icon: () => h(NIcon, null, { default: () => h(ChatboxOutline) }),
     },
     {
       label: t.revealInExplorer,
@@ -1218,8 +1218,7 @@ watch(
   <aside class="sidebar">
     <div class="top-actions">
       <NButton
-        secondary
-        strong
+        quaternary
         size="small"
         class="pi-interactive top-btn"
         @click="onAddWorkspace"
@@ -1230,14 +1229,13 @@ watch(
         </span>
       </NButton>
       <NButton
-        secondary
-        strong
+        quaternary
         size="small"
         class="pi-interactive top-btn"
         @click="onNewAgent"
       >
         <span class="btn-content">
-          <NIcon :component="AddOutline" :size="15" />
+          <NIcon :component="ChatboxOutline" :size="15" />
           <span class="btn-label">{{ t.newSessionAction }}</span>
         </span>
       </NButton>
@@ -1323,7 +1321,7 @@ watch(
                   @click="(e) => void onNewAgentForWorkspace(root, e)"
                 >
                   <template #icon>
-                    <NIcon :component="CreateOutline" :size="14" />
+                    <NIcon :component="ChatboxOutline" :size="14" />
                   </template>
                 </NButton>
               </template>
