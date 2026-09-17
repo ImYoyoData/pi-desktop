@@ -102,6 +102,15 @@ html[data-theme][data-wallpaper="on"] .n-notification {
   backdrop-filter: blur(14px) saturate(1.15);
 }
 
+/* 子菜单嵌在父菜单的 backdrop-filter 内，模糊不会生效，需自带底色保底 */
+html[data-theme][data-wallpaper="on"] .n-dropdown-menu-wrapper > .n-dropdown-menu {
+  background-color: color-mix(
+    in srgb,
+    var(--w-solid-elevated) max(60%, var(--pi-alpha-card, 0%)),
+    transparent
+  ) !important;
+}
+
 html[data-theme][data-wallpaper="on"] .preview-context-menu,
 html[data-theme][data-wallpaper="on"] .app-context-menu {
   backdrop-filter: blur(14px) saturate(1.15);
