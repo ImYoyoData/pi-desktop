@@ -90,10 +90,13 @@ html[data-theme][data-wallpaper="on"] .modal-editor-panel {
   --n-color: var(--w-settings-surface) !important;
 }
 
-/* naive-ui 浮层（右键菜单、下拉、气泡）跟随抬升表面，并模糊其下的壁纸 */
+/* naive-ui 浮层（右键菜单、下拉、气泡、消息、对话框）跟随抬升表面，并模糊其下的壁纸 */
 html[data-theme][data-wallpaper="on"] .n-popover,
 html[data-theme][data-wallpaper="on"] .n-dropdown-menu,
-html[data-theme][data-wallpaper="on"] .n-base-select-menu {
+html[data-theme][data-wallpaper="on"] .n-base-select-menu,
+html[data-theme][data-wallpaper="on"] .n-dialog,
+html[data-theme][data-wallpaper="on"] .n-message,
+html[data-theme][data-wallpaper="on"] .n-notification {
   background-color: var(--w-elevated-surface) !important;
   --n-color: var(--w-elevated-surface) !important;
   backdrop-filter: blur(14px) saturate(1.15);
