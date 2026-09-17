@@ -85,8 +85,10 @@ export const useWorkspaceStore = defineStore("workspace", () => {
 
 	async function openWorkspacePath(workspaceRoot: string): Promise<string | null> {
 		const next = await window.api.workspace.openPath(workspaceRoot);
-		await listRecent();
-		return commitWorkspace(next);
+		const committed = commitWorkspace(next);
+		// 最近工作区列表只喂侧栏，列表刷新不能拖住工作区切换。
+		void listRecentFast().catch(() => {});
+		return committed;
 	}
 
 	/**
