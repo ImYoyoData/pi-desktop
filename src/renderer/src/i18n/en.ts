@@ -257,6 +257,8 @@ export const en = {
 	customizeMcpTargetRequired: "Command or URL is required",
 	customizeMcpJsonInvalid: "Invalid JSON or no server definition found",
 	customizeMcpSave: "Save",
+	customizeMcpAdapterMissing: "MCP is provided by the pi-mcp-adapter plugin. It is not installed, so MCP server entries have no effect.",
+	customizeMcpAdapterInstall: "Install plugin",
 	customizeMcpTest: "Test",
 	customizeMcpTesting: "Testing…",
 	customizeMcpTestTimeout: "Connection timed out",
