@@ -48,7 +48,7 @@ export const zh = {
 	sessions: "会话",
 	emptySessions: "暂无会话",
 	showMoreSessions: (n: number) => `展开其余 ${n} 个会话`,
-	collapseSessions: "收起会话",
+	collapseSessions: (n: number) => `收起 ${n} 个会话`,
 	emptyWorkspaces: "还没有工作区，点击上方打开文件夹",
 	customizeSkills: "技能",
 	customizeInstructions: "指令",

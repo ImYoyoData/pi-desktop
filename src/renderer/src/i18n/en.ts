@@ -48,7 +48,7 @@ export const en = {
 	sessions: "Sessions",
 	emptySessions: "No sessions yet",
 	showMoreSessions: (n: number) => `Show ${n} more session${n === 1 ? "" : "s"}`,
-	collapseSessions: "Show less",
+	collapseSessions: (n: number) => `Hide ${n} more session${n === 1 ? "" : "s"}`,
 	emptyWorkspaces: "No workspaces yet — open a folder above",
 	customizeSkills: "Skills",
 	customizeInstructions: "Instructions",
