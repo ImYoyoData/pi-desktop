@@ -1145,7 +1145,7 @@ export const en = {
 	securityTitle: "Security",
 	securityPermissionMode: "Permission mode",
 	securityPermissionModeHint:
-		"Ask prompts for every action; Edits auto-applies file writes; Auto also runs commands but still confirms dangerous ones; YOLO allows everything without asking.",
+		"Ask prompts for every action; Edits auto-applies file writes; Auto also runs commands but still confirms dangerous ones; Yolo allows everything without asking.",
 	securityToolDeniedToast:
 		"Tool blocked by the current permission mode. Change it from the composer toolbar and retry.",
 	securityOpenDevTools: "Open DevTools",
@@ -1158,7 +1158,7 @@ export const en = {
 	permissionProfileAuto: "Auto",
 	permissionProfileAutoHint:
 		"Auto-apply edits and run commands; dangerous commands still confirm",
-	permissionProfileYolo: "YOLO",
+	permissionProfileYolo: "Yolo",
 	permissionProfileYoloHint: "Allow everything without asking",
 	permissionDangerWarning: "Dangerous command — confirm to run it",
 
