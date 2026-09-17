@@ -1591,22 +1591,22 @@ watch(
         quaternary
         size="small"
         class="pi-interactive top-btn"
-        @click="onAddWorkspace"
+        @click="onNewAgent"
       >
         <span class="btn-content">
-          <NIcon :component="FolderOpenOutline" :size="15" />
-          <span class="btn-label">{{ t.openWorkspace }}</span>
+          <NIcon :component="ChatboxOutline" :size="15" />
+          <span class="btn-label">{{ t.newSessionAction }}</span>
         </span>
       </NButton>
       <NButton
         quaternary
         size="small"
         class="pi-interactive top-btn"
-        @click="onNewAgent"
+        @click="onAddWorkspace"
       >
         <span class="btn-content">
-          <NIcon :component="ChatboxOutline" :size="15" />
-          <span class="btn-label">{{ t.newSessionAction }}</span>
+          <NIcon :component="FolderOpenOutline" :size="15" />
+          <span class="btn-label">{{ t.openWorkspace }}</span>
         </span>
       </NButton>
     </div>
@@ -2109,6 +2109,8 @@ watch(
   height: 28px;
   border-radius: 6px;
   font-size: 12.5px;
+  /* 点击后不再保留 focus 底色，只留悬停高亮 */
+  --n-color-focus: transparent !important;
 }
 
 .top-btn :deep(.n-button__content) {
