@@ -567,6 +567,8 @@ export const zh = {
 	showCompactButton: "显示上下文压缩按钮",
 	showPanelDividers: "界面分隔线",
 	showSessionDetails: "会话详细显示",
+	messagePreview: "消息预览",
+	messagePreviewImage: "消息预览图片",
 	showCompactButtonOn: "显示",
 	showCompactButtonOff: "隐藏",
 	truncateToolOutput: "截断工具输出预览",

@@ -589,6 +589,8 @@ export const en = {
 	showCompactButton: "Show compact-context button",
 	showPanelDividers: "Interface dividers",
 	showSessionDetails: "Session details",
+	messagePreview: "Message preview",
+	messagePreviewImage: "Preview images",
 	showCompactButtonOn: "Show",
 	showCompactButtonOff: "Hide",
 	truncateToolOutput: "Truncate tool output preview",
