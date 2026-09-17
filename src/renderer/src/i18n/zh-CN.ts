@@ -1094,7 +1094,7 @@ export const zh = {
 	securityTitle: "安全",
 	securityPermissionMode: "权限模式",
 	securityPermissionModeHint:
-		"Ask 每次操作都询问；Edits 自动写文件；Auto 自动执行但危险命令仍需确认；YOLO 全部放行。",
+		"Ask 每次操作都询问；Edits 自动写文件；Auto 自动执行但危险命令仍需确认；Yolo 全部放行。",
 	securityToolDeniedToast:
 		"工具已被当前权限模式拦截。请在输入框底部的权限模式中调整后重试。",
 	securityOpenDevTools: "打开开发者工具",
@@ -1105,7 +1105,7 @@ export const zh = {
 	permissionProfileEditsHint: "自动写文件，执行命令仍需确认",
 	permissionProfileAuto: "Auto",
 	permissionProfileAutoHint: "自动写文件并执行命令，危险命令仍需确认",
-	permissionProfileYolo: "YOLO",
+	permissionProfileYolo: "Yolo",
 	permissionProfileYoloHint: "全部放行，不再询问",
 	permissionDangerWarning: "危险命令：确认后才会执行",
 
