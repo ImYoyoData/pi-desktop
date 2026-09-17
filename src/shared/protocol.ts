@@ -178,6 +178,7 @@ export const IpcChannels = {
 		setItemEnabled: "customizations:setItemEnabled",
 		removeItem: "customizations:removeItem",
 		testMcpServers: "customizations:testMcpServers",
+		updated: "customizations:updated",
 	},
 	skills: {
 		list: "skills:list",
