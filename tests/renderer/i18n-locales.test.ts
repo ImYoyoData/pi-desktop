@@ -19,7 +19,9 @@ const dir = path.resolve(
  * That is exactly how a duplicated `lanPublicCopyUrl` shipped.
  */
 function topLevelKeys(file: string): string[] {
-  const text = fs.readFileSync(path.join(dir, file), "utf8");
+  const source = fs.readFileSync(path.join(dir, file), "utf8");
+  // 只扫描导出的 locale 对象；文件顶部的辅助常量（TOOL_DESCRIPTIONS）不是 locale 键。
+  const text = source.slice(source.indexOf("export const"));
   const keys: string[] = [];
   let depth = 0;
   for (const line of text.split(/\r?\n/u)) {
