@@ -22,7 +22,6 @@ import {
   ChatboxOutline,
   ChevronDownOutline,
   ChevronForwardOutline,
-  CloseOutline,
   ContractOutline,
   CopyOutline,
   CreateOutline,
@@ -331,18 +330,32 @@ async function onArchiveSelect(key: string | number): Promise<void> {
   if (days !== null) await archiveSessionsOlderThan(days);
 }
 
-/** 归档超过 N 天未活动的会话：有勾选时只处理勾选项，否则作用于当前分类。 */
+/** 归档勾选的会话（不按时间过滤）。 */
+async function archiveSelectedSessions(): Promise<void> {
+  const targets = selectedSessionIds.value.filter(
+    (id) => !archivedIds.value.has(id),
+  );
+  if (!targets.length) {
+    message.info(t.archiveNone);
+    return;
+  }
+  try {
+    await workspace.setArchivedSessions([...archivedIds.value, ...targets]);
+    message.success(t.archiveDone(targets.length));
+    exitSelectMode();
+  } catch (err) {
+    message.error(err instanceof Error ? err.message : String(err));
+  }
+}
+
+/** 归档当前分类下超过 N 天未活动的会话（菜单里的时间归档）。 */
 async function archiveSessionsOlderThan(days: number): Promise<void> {
   const cutoff = Date.now() - days * 24 * 60 * 60 * 1000;
-  const picked = selectedSessionIds.value.length
-    ? new Set(selectedSessionIds.value)
-    : null;
   const targets: string[] = [];
   try {
     for (const root of workspacePaths.value) {
       await ensureSessionsLoaded(root);
       for (const s of sessionsByRoot[root] ?? []) {
-        if (picked && !picked.has(s.id)) continue;
         if (archivedIds.value.has(s.id)) continue;
         if (s.id === sessionsStore.activeId) continue;
         if (isRunning(s.status)) continue;
@@ -1479,36 +1492,26 @@ watch(
 
     <div class="sessions-pane">
       <div class="ws-tools">
-        <template v-if="selectMode">
-          <NButton quaternary size="tiny" :title="t.cancel" @click="exitSelectMode">
-            <template #icon>
-              <NIcon :component="CloseOutline" :size="14" />
-            </template>
-          </NButton>
-          <NDropdown
-            trigger="hover"
-            :options="archiveDayOptions()"
-            @select="onArchiveSelect"
-          >
-            <NButton quaternary size="tiny" :title="t.archiveMenu">
-              <template #icon>
-                <NIcon :component="ArchiveOutline" :size="14" />
-              </template>
-            </NButton>
-          </NDropdown>
+        <div v-if="selectMode" class="ws-select-actions">
+          <NButton quaternary size="small" @click="exitSelectMode">{{ t.cancel }}</NButton>
           <NButton
             quaternary
-            size="tiny"
-            :title="t.delete"
+            size="small"
+            :disabled="!selectedSessionIds.length"
+            @click="archiveSelectedSessions"
+          >
+            {{ t.archiveMenu }}
+          </NButton>
+          <NButton
+            quaternary
+            size="small"
             :disabled="!selectedSessionIds.length"
             @click="deleteSelectedSessions"
           >
-            <template #icon>
-              <NIcon :component="TrashOutline" :size="14" />
-            </template>
+            {{ t.delete }}
           </NButton>
-        </template>
-        <template v-else>
+        </div>
+        <div class="ws-tool-icons">
           <NDropdown
             trigger="click"
             :options="groupMenuOptions()"
@@ -1542,7 +1545,7 @@ watch(
               </template>
             </NButton>
           </NDropdown>
-        </template>
+        </div>
       </div>
 
       <NScrollbar v-if="workspacePaths.length" class="tree">
@@ -1858,10 +1861,23 @@ watch(
 .ws-tools {
   display: flex;
   align-items: center;
-  justify-content: flex-end;
-  gap: 2px;
+  gap: 6px;
   padding: 4px 8px 2px;
   flex-shrink: 0;
+}
+
+.ws-select-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+
+.ws-tool-icons {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin-left: auto;
 }
 
 .top-actions {
