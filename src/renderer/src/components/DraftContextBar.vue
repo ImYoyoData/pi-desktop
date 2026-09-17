@@ -9,7 +9,6 @@ import {
   useMessage,
 } from "naive-ui";
 import {
-  CheckmarkOutline,
   ChevronDownOutline,
   FolderOpenOutline,
   GitBranchOutline,
@@ -212,11 +211,6 @@ watch(branchPanelOpen, (open) => {
             :disabled="busy"
             @click="void onPickWorkspace(path)"
           >
-            <NIcon
-              v-if="workspace.root && samePath(path, workspace.root)"
-              :component="CheckmarkOutline"
-              :size="12"
-            />
             <span class="ctx-item-main">
               <span class="ctx-item-name">{{ baseName(path) }}</span>
               <span class="ctx-item-path">{{ path }}</span>
@@ -263,11 +257,6 @@ watch(branchPanelOpen, (open) => {
             :disabled="busy"
             @click="void onCheckout(name)"
           >
-            <NIcon
-              v-if="name === currentBranch"
-              :component="CheckmarkOutline"
-              :size="12"
-            />
             <span class="ctx-item-main">
               <span class="ctx-item-name">{{ name }}</span>
             </span>
