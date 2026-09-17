@@ -2775,7 +2775,7 @@ watch(
       </div>
     </div>
 
-    <div class="composer-meta">
+    <div v-if="appearance.showSessionDetails" class="composer-meta">
       <div v-if="sessionStats" class="session-stats" role="status" aria-label="session statistics">
         <template v-for="(item, idx) in sessionStats" :key="item.key">
           <span v-if="idx > 0" class="ss-sep" aria-hidden="true" />

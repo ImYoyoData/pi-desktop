@@ -589,6 +589,7 @@ export const en = {
 	appearance: "General",
 	showCompactButton: "Show compact-context button",
 	showPanelDividers: "Interface dividers",
+	showSessionDetails: "Session details",
 	showCompactButtonOn: "Show",
 	showCompactButtonOff: "Hide",
 	truncateToolOutput: "Truncate tool output preview",
