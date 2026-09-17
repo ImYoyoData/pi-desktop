@@ -67,7 +67,7 @@ import type {
 	ExtensionUiEvent,
 	ExtensionUiReply,
 } from "../shared/extension-ui";
-import type { PendingUiSnapshotRequest, TrustState } from "../shared/protocol";
+import type { PendingUiSnapshotRequest } from "../shared/protocol";
 import type {
 	GitConflictContentResult,
 	GitOpResult,
@@ -1498,16 +1498,6 @@ const api = {
 				focused: boolean;
 				error?: string;
 			}>,
-	},
-	trust: {
-		get: (cwd: string) =>
-			ipcRenderer.invoke(IpcChannels.trust.get, cwd) as Promise<TrustState>,
-		set: (cwd: string, trusted: boolean) =>
-			ipcRenderer.invoke(IpcChannels.trust.set, cwd, trusted) as Promise<void>,
-		clear: (cwd: string) =>
-			ipcRenderer.invoke(IpcChannels.trust.clear, cwd) as Promise<void>,
-		listTrusted: () =>
-			ipcRenderer.invoke(IpcChannels.trust.listTrusted) as Promise<string[]>,
 	},
 	security: {
 		get: () =>

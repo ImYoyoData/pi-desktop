@@ -1,29 +1,41 @@
-export type SecurityMode = "ask" | "allow";
+/**
+ * 权限档位（全局唯一真源，设置面板与输入框选择器同源）。
+ * - ask：一律询问，忽略其它放行机制
+ * - edits：写文件自动放行，终端命令仍询问
+ * - auto：编辑与命令自动放行，危险命令仍弹确认
+ * - yolo：全部放行，不做任何检查
+ */
+export type PermissionProfile = "ask" | "edits" | "auto" | "yolo";
+
 export type SecurityCategory = "bash" | "write";
+
 export type PermissionDecision =
   | "allow_once"
   | "allow_once_background"
   | "allow_session_category"
-  | "allow_whitelist"
   | "deny";
 
-/** Worker → main RPC + main → renderer wait; long enough for interactive strip. */
+/** Worker → main RPC + main → renderer wait；够用户看清交互条。 */
 export const PERMISSION_ASK_TIMEOUT_MS = 10 * 60 * 1000;
 
-export const PERMISSION_DECISIONS: readonly PermissionDecision[] = [
-  "allow_once",
-  "allow_once_background",
-  "allow_session_category",
-  "allow_whitelist",
-  "deny",
+export const PERMISSION_PROFILES: readonly PermissionProfile[] = [
+  "ask",
+  "edits",
+  "auto",
+  "yolo",
 ] as const;
+
+export const DEFAULT_PERMISSION_PROFILE: PermissionProfile = "ask";
+
+export function isPermissionProfile(v: unknown): v is PermissionProfile {
+  return v === "ask" || v === "edits" || v === "auto" || v === "yolo";
+}
 
 export function isPermissionDecision(v: unknown): v is PermissionDecision {
   return (
     v === "allow_once" ||
     v === "allow_once_background" ||
     v === "allow_session_category" ||
-    v === "allow_whitelist" ||
     v === "deny"
   );
 }
@@ -35,6 +47,8 @@ export type PermissionAskPrompt = {
   category: SecurityCategory;
   toolName: string;
   summary: string;
+  /** Auto 档命中危险命令，弹窗需要给出警示。 */
+  danger?: boolean;
 };
 
 /** Main timed out / cleared the ask — renderer should dismiss the strip. */
@@ -57,48 +71,25 @@ export type PermissionAskReply = {
   decision: PermissionDecision;
 };
 
-/** Per-workspace overrides for tool categories (global allowlist still applies). */
-export type WorkspaceToolPermissions = {
-  bash: SecurityMode;
-  write: SecurityMode;
-};
-
 export type DesktopSecuritySettings = {
-  /** Global defaults when a workspace has no override. */
-  bash: SecurityMode;
-  write: SecurityMode;
-  bashAllowlist: string[];
-  /**
-   * Per-trusted-workspace tool modes, keyed by normalized absolute path.
-   * Lookup walks ancestors (same idea as project trust).
-   */
-  workspacePermissions: Record<string, WorkspaceToolPermissions>;
+  profile: PermissionProfile;
 };
 
 export const DEFAULT_DESKTOP_SECURITY: DesktopSecuritySettings = {
-  bash: "ask",
-  write: "ask",
-  bashAllowlist: [],
-  workspacePermissions: {},
+  profile: DEFAULT_PERMISSION_PROFILE,
 };
 
-function asMode(v: unknown): SecurityMode {
-  return v === "allow" || v === "ask" ? v : "ask";
+function legacyMode(v: unknown): "ask" | "allow" {
+  return v === "allow" ? "allow" : "ask";
 }
 
-function parseWorkspacePermissions(raw: unknown): Record<string, WorkspaceToolPermissions> {
-  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
-  const out: Record<string, WorkspaceToolPermissions> = {};
-  for (const [key, value] of Object.entries(raw as Record<string, unknown>)) {
-    const pathKey = key.trim();
-    if (!pathKey || !value || typeof value !== "object" || Array.isArray(value)) continue;
-    const row = value as Record<string, unknown>;
-    out[pathKey] = {
-      bash: asMode(row.bash),
-      write: asMode(row.write),
-    };
-  }
-  return out;
+/** 兼容旧设置文件：由 bash/write 两档推导档位。 */
+function profileFromLegacy(ds: Record<string, unknown>): PermissionProfile {
+  const bash = legacyMode(ds.bash);
+  const write = legacyMode(ds.write);
+  if (bash === "allow" && write === "allow") return "auto";
+  if (bash === "ask" && write === "allow") return "edits";
+  return "ask";
 }
 
 export function parseDesktopSecurity(raw: unknown): DesktopSecuritySettings {
@@ -107,120 +98,11 @@ export function parseDesktopSecurity(raw: unknown): DesktopSecuritySettings {
     root.desktopSecurity && typeof root.desktopSecurity === "object"
       ? (root.desktopSecurity as Record<string, unknown>)
       : root;
-  const list = Array.isArray(ds.bashAllowlist)
-    ? ds.bashAllowlist.filter((x): x is string => typeof x === "string" && x.trim().length > 0)
-    : [];
-  return {
-    bash: asMode(ds.bash),
-    write: asMode(ds.write),
-    bashAllowlist: list.map((s) => s.trim()),
-    workspacePermissions: parseWorkspacePermissions(ds.workspacePermissions),
-  };
+  if (isPermissionProfile(ds.profile)) return { profile: ds.profile };
+  return { profile: profileFromLegacy(ds) };
 }
 
-/** Normalize path keys so Win/macOS lookups stay stable (resolve + Win case-fold). */
-export function normalizeSecurityPathKey(input: string): string {
-  const trimmed = input.trim();
-  if (!trimmed) return "";
-  // Avoid importing node:path here — shared module is also used in renderer.
-  let s = trimmed.replace(/\\/g, "/");
-  // Collapse duplicate slashes except leading UNC //
-  s = s.replace(/([^:])\/{2,}/g, "$1/");
-  if (/^[A-Za-z]:\//.test(s)) {
-    s = s.charAt(0).toUpperCase() + s.slice(1);
-  }
-  // Windows paths are case-insensitive; fold for map keys.
-  if (/^[A-Za-z]:\//.test(s) || s.startsWith("//")) {
-    return s.toLowerCase();
-  }
-  return s;
-}
-
-function pathKeyEquals(a: string, b: string): boolean {
-  return normalizeSecurityPathKey(a) === normalizeSecurityPathKey(b);
-}
-
-function parentPathKey(p: string): string | null {
-  const n = normalizeSecurityPathKey(p);
-  if (!n || n === "/") return null;
-  // Windows drive root e.g. c:/
-  if (/^[a-z]:\/$/i.test(n)) return null;
-  const idx = n.lastIndexOf("/");
-  if (idx <= 0) return null;
-  if (/^[a-z]:\//i.test(n) && idx === 2) return n.slice(0, 3); // c:/
-  return n.slice(0, idx) || null;
-}
-
-export function findWorkspacePermissions(
-  settings: DesktopSecuritySettings,
-  cwd: string | null | undefined,
-): WorkspaceToolPermissions | null {
-  if (!cwd?.trim()) return null;
-  let current = cwd.trim();
-  const map = settings.workspacePermissions;
-  const entries = Object.entries(map);
-  if (!entries.length) return null;
-
-  while (current) {
-    for (const [key, value] of entries) {
-      if (pathKeyEquals(key, current)) return value;
-    }
-    const parent = parentPathKey(current);
-    if (!parent || pathKeyEquals(parent, current)) break;
-    current = parent;
-  }
-  return null;
-}
-
-/** Resolve effective bash/write modes for a workspace (override → global). */
-export function resolveEffectiveSecurity(
-  settings: DesktopSecuritySettings,
-  cwd?: string | null,
-): Pick<DesktopSecuritySettings, "bash" | "write" | "bashAllowlist"> {
-  const override = findWorkspacePermissions(settings, cwd);
-  return {
-    bash: override?.bash ?? settings.bash,
-    write: override?.write ?? settings.write,
-    bashAllowlist: settings.bashAllowlist,
-  };
-}
-
-export function bashAllowlistMatches(command: string, allowlist: string[]): boolean {
-  const cmd = command.trim();
-  if (!cmd) return false;
-  return allowlist.some((entry) => {
-    const e = entry.trim();
-    return e.length > 0 && (cmd === e || cmd.startsWith(`${e} `) || cmd.startsWith(`${e}\t`));
-  });
-}
-
-const COMPOUND_FIRST = new Set([
-  "git",
-  "npm",
-  "pnpm",
-  "yarn",
-  "bun",
-  "docker",
-  "podman",
-  "cargo",
-  "go",
-  "pip",
-  "pip3",
-  "poetry",
-  "uv",
-  "composer",
-  "kubectl",
-  "gh",
-  "aws",
-  "az",
-  "gcloud",
-  "dotnet",
-  "swift",
-  "flutter",
-  "expo",
-]);
-
-/** Tokenize a shell fragment (handles simple quotes; good enough for allowlist stems). */
+/** Tokenize a shell fragment (handles simple quotes; good enough for detection). */
 export function tokenizeShellFragment(input: string): string[] {
   const tokens: string[] = [];
   let cur = "";
@@ -253,8 +135,8 @@ export function tokenizeShellFragment(input: string): string[] {
 }
 
 /**
- * First top-level shell segment (split on && || ; | outside quotes).
- * For chained commands we prefer the *last* segment as the primary action.
+ * Last top-level shell segment (split on && || ; | outside quotes).
+ * 链式命令取最后一段：那才是实际动作。
  */
 export function primaryShellSegment(command: string): string {
   const s = command.trim();
@@ -307,33 +189,57 @@ export function commandBasename(token: string): string {
   return base.replace(/\.(exe|cmd|bat|ps1)$/i, "");
 }
 
+/** 破坏性系统命令：命中即视为危险。 */
+const DANGEROUS_STEMS = new Set([
+  "fdisk",
+  "sfdisk",
+  "diskpart",
+  "format",
+  "shutdown",
+  "reboot",
+  "poweroff",
+  "halt",
+]);
+
+/** 根/家目录/盘根/通配这类"删了就完蛋"的目标。 */
+const ROOT_LIKE_TARGET =
+  /^(?:[/\\]|[/\\]\*|\*|\.\*|\.\.?|~[/\\]?|\$HOME[/\\]?\*?|\$\{HOME\}[/\\]?\*?|[A-Za-z]:[/\\]?\*?)$/;
+
+const FORK_BOMB = /:\(\)\s*\{\s*:\s*\|\s*:\s*&\s*\}\s*;?\s*:/;
+
+function hasRecursiveFlag(args: string[]): boolean {
+  return args.some((a) => a === "--recursive" || /^-[a-zA-Z]*[rR]/.test(a));
+}
+
 /**
- * Normalize a bash command into a durable allowlist *prefix* (not the full line).
- * Examples:
- * - `git status --short` → `git status`
- * - `cd "x" && docker compose -f f.yml up` → `docker compose`
- * - `npm test --coverage` → `npm test`
+ * Auto 档仍会弹确认的危险命令检测（保守规则，宁可少拦也不误伤日常工作）。
+ * 新增规则时保持同样的克制：只拦不可逆的系统级破坏。
  */
-export function bashAllowlistEntryFromCommand(command: string): string {
+export function isDangerousBashCommand(command: string): boolean {
   const segment = primaryShellSegment(command);
+  if (!segment) return false;
   const tokens = tokenizeShellFragment(segment);
-  if (!tokens.length) return "";
-  const first = commandBasename(tokens[0]!);
-  if (!first) return "";
-  const second = tokens[1];
-  if (
-    second &&
-    !second.startsWith("-") &&
-    COMPOUND_FIRST.has(first.toLowerCase())
-  ) {
-    return `${first} ${second}`;
+  if (!tokens.length) return false;
+  const stem = commandBasename(tokens[0]!).toLowerCase();
+  const args = tokens.slice(1);
+
+  if (DANGEROUS_STEMS.has(stem) || /^mkfs(\.|$)/.test(stem)) return true;
+  if (stem === "dd" && args.some((a) => /^of=(?:\/dev\/|\\|\/\/)/i.test(a))) {
+    return true;
   }
-  return first;
+  if (
+    (stem === "rm" || stem === "chmod" || stem === "chown") &&
+    hasRecursiveFlag(args) &&
+    args.some((a) => ROOT_LIKE_TARGET.test(a))
+  ) {
+    return true;
+  }
+  return FORK_BOMB.test(command);
 }
 
 export type PermissionEval =
-  | { action: "allow"; reason: "mode_allow" | "allowlist" | "session" }
-  | { action: "ask" }
+  | { action: "allow"; reason: "profile" | "session" }
+  | { action: "ask"; danger?: boolean }
   | { action: "deny"; reason: string };
 
 export function evaluatePermission(input: {
@@ -341,29 +247,34 @@ export function evaluatePermission(input: {
   settings: DesktopSecuritySettings;
   command?: string;
   sessionAllows: Set<SecurityCategory>;
-  /** When set, workspace-specific modes override global bash/write. */
-  cwd?: string | null;
 }): PermissionEval {
   const { category, settings, sessionAllows } = input;
-  const effective = resolveEffectiveSecurity(settings, input.cwd);
 
+  // 用户在本会话弹窗里显式点过"本会话允许"，优先级高于档位。
   if (sessionAllows.has(category)) {
     return { action: "allow", reason: "session" };
   }
 
-  if (effective[category] === "allow") {
-    return { action: "allow", reason: "mode_allow" };
+  switch (settings.profile) {
+    case "yolo":
+      return { action: "allow", reason: "profile" };
+    case "ask":
+      return { action: "ask" };
+    case "edits":
+      return category === "write"
+        ? { action: "allow", reason: "profile" }
+        : { action: "ask" };
+    case "auto": {
+      if (category === "bash" && input.command && isDangerousBashCommand(input.command)) {
+        return { action: "ask", danger: true };
+      }
+      return { action: "allow", reason: "profile" };
+    }
+    default: {
+      const _exhaustive: never = settings.profile;
+      return _exhaustive;
+    }
   }
-
-  if (
-    category === "bash" &&
-    input.command !== undefined &&
-    bashAllowlistMatches(input.command, effective.bashAllowlist)
-  ) {
-    return { action: "allow", reason: "allowlist" };
-  }
-
-  return { action: "ask" };
 }
 
 export function classifyToolName(toolName: string): SecurityCategory | null {

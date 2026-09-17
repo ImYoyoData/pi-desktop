@@ -61,10 +61,7 @@ import type {
 	ExtensionUiEvent,
 	ExtensionUiReply,
 } from "../shared/extension-ui";
-import type {
-	PendingUiSnapshotRequest,
-	TrustState,
-} from "../shared/protocol";
+import type { PendingUiSnapshotRequest } from "../shared/protocol";
 import type {
 	GitConflictContentResult,
 	GitOpResult,
@@ -950,12 +947,6 @@ declare const api: {
 			focused: boolean;
 			error?: string;
 		}>;
-	};
-	trust: {
-		get: (cwd: string) => Promise<TrustState>;
-		set: (cwd: string, trusted: boolean) => Promise<void>;
-		clear: (cwd: string) => Promise<void>;
-		listTrusted: () => Promise<string[]>;
 	};
 	security: {
 		get: () => Promise<DesktopSecuritySettings>;

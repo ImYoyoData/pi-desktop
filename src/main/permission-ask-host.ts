@@ -1,42 +1,41 @@
 import { BrowserWindow, ipcMain } from "electron";
 import {
-  bashAllowlistEntryFromCommand,
   isPermissionDecision,
   PERMISSION_ASK_TIMEOUT_MS,
+  type PermissionAskPrompt,
   type PermissionAskReply,
   type PermissionAskRequest,
   type PermissionDecision,
   type SecurityCategory,
 } from "../shared/desktop-security";
 import { IpcChannels } from "../shared/protocol";
-import type { PermissionAskPrompt } from "../shared/desktop-security";
-import { appendBashAllowlistEntry } from "./desktop-security-host";
-import type { SessionBroker } from "./session-broker";
 
 type PendingAsk = {
   sessionId: string;
   category: SecurityCategory;
   toolName: string;
   summary: string;
+  danger: boolean;
   resolve: (decision: PermissionDecision) => void;
   reject: (err: Error) => void;
   timer: ReturnType<typeof setTimeout>;
 };
 
 const pendingAsks = new Map<string, PendingAsk>();
-let securityBroker: SessionBroker | undefined;
 
 /** Re-send every outstanding permission ask to a freshly loaded renderer. */
 export function snapshotPendingPermissionAsks(): PermissionAskPrompt[] {
   const out: PermissionAskPrompt[] = [];
   for (const [requestId, row] of pendingAsks) {
-    out.push({
+    const prompt: PermissionAskPrompt = {
       sessionId: row.sessionId,
       requestId,
       category: row.category,
       toolName: row.toolName,
       summary: row.summary,
-    });
+    };
+    if (row.danger) prompt.danger = true;
+    out.push(prompt);
   }
   return out;
 }
@@ -61,6 +60,7 @@ export function askRendererPermission(input: {
   category: SecurityCategory;
   toolName: string;
   summary: string;
+  danger?: boolean;
   timeoutMs?: number;
 }): Promise<PermissionDecision> {
   const timeoutMs = input.timeoutMs ?? PERMISSION_ASK_TIMEOUT_MS;
@@ -88,22 +88,24 @@ export function askRendererPermission(input: {
       category: input.category,
       toolName: input.toolName,
       summary: input.summary,
+      danger: input.danger === true,
       resolve,
       reject,
       timer,
     });
-    broadcastPermission({
+    const prompt: PermissionAskPrompt = {
       sessionId,
       requestId,
       category: input.category,
       toolName: input.toolName,
       summary: input.summary,
-    });
+    };
+    if (input.danger) prompt.danger = true;
+    broadcastPermission(prompt);
   });
 }
 
-export function registerPermissionAskIpc(broker?: SessionBroker): void {
-  securityBroker = broker;
+export function registerPermissionAskIpc(): void {
   ipcMain.handle(
     IpcChannels.sessions.permissionReply,
     async (_event, body: PermissionAskReply) => {
@@ -125,20 +127,7 @@ export function registerPermissionAskIpc(broker?: SessionBroker): void {
         return { ok: true };
       }
 
-      let decision = body.decision;
-      if (decision === "allow_whitelist") {
-        if (row.category === "bash") {
-          const entry = bashAllowlistEntryFromCommand(row.summary);
-          if (entry) {
-            const next = await appendBashAllowlistEntry(entry);
-            await securityBroker?.notifyWorkersReloadSecurity(next);
-          }
-        }
-        // Still allow this invocation even if category wasn't bash.
-        decision = "allow_whitelist";
-      }
-
-      row.resolve(decision);
+      row.resolve(body.decision);
       return { ok: true };
     },
   );

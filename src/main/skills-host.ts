@@ -4,7 +4,6 @@ import { agentDir, homeDir } from "./agent-dir";
 import { withFrontmatterName } from "./frontmatter";
 import { SKILL_NAME_PATTERN } from "./skill-validate";
 import { isPathInsideRoot } from "../shared/path-sandbox";
-import { resolveTrustState } from "./project-trust";
 
 export type SkillDto = {
   name: string;
@@ -24,7 +23,7 @@ export async function listSkills(cwd: string): Promise<{ skills: SkillDto[]; dia
   } = await import("@earendil-works/pi-coding-agent");
   const agentDir = getAgentDir();
   const settingsManager = SettingsManager.create(cwd, agentDir, {
-    projectTrusted: resolveTrustState(cwd, agentDir).projectTrusted,
+    projectTrusted: true,
   });
   const loader = new DefaultResourceLoader({ cwd, agentDir, settingsManager });
   await loader.reload();

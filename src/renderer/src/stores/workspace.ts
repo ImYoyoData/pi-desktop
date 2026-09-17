@@ -1,12 +1,6 @@
 import { defineStore } from "pinia";
-import { computed, ref, watch } from "vue";
+import { ref, watch } from "vue";
 import { useRightTabsStore } from "@renderer/stores/right-tabs";
-
-export type TrustPromptChoice = "trust" | "dont_trust";
-
-function normalizeCwd(cwd: string): string {
-	return cwd.replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
-}
 
 /**
  * Blank roots resolve to the app's own directory further down the line and the
@@ -27,16 +21,10 @@ export const useWorkspaceStore = defineStore("workspace", () => {
 	const recent = ref<string[]>([]);
 	/** Workspaces the user closed (hidden from the main list, re-openable). */
 	const closed = ref<string[]>([]);
-	/** Absolute path awaiting Trust / Don't trust (must trust to open). */
-	const pendingTrustPrompt = ref<string | null>(null);
 	/**
-	 * True once trust is resolved for the current `root`.
-	 * Session hydrate / worker spawn should wait on this.
+	 * True once the current `root` is ready for session hydrate / worker spawn.
 	 */
 	const sessionsReady = ref(false);
-
-	const trustPromptWaiters = new Map<string, Promise<boolean>>();
-	let trustAnswerResolve: ((accepted: boolean) => void) | null = null;
 
 	/**
 	 * Watcher lifecycle is owned by main (workspace-ipc).
@@ -66,77 +54,22 @@ export const useWorkspaceStore = defineStore("workspace", () => {
 		{ deep: true },
 	);
 
-	/** Returns true only when the user trusts (or already trusted) the path. */
-	async function requestTrustToOpen(cwd: string): Promise<boolean> {
-		const key = normalizeCwd(cwd);
-		const inflight = trustPromptWaiters.get(key);
-		if (inflight) return inflight;
-
-		const state = await window.api.trust.get(cwd);
-		if (state.decision === true) {
-			pendingTrustPrompt.value = null;
-			return true;
-		}
-
-		const wait = new Promise<boolean>((resolve) => {
-			pendingTrustPrompt.value = cwd;
-			trustAnswerResolve = resolve;
-		}).finally(() => {
-			trustPromptWaiters.delete(key);
-		});
-		trustPromptWaiters.set(key, wait);
-		return wait;
-	}
-
-	async function answerTrustPrompt(choice: TrustPromptChoice): Promise<void> {
-		const cwd = pendingTrustPrompt.value;
-		if (!cwd) return;
-
-		if (choice === "trust") {
-			await window.api.trust.set(cwd, true);
-			pendingTrustPrompt.value = null;
-			const resolve = trustAnswerResolve;
-			trustAnswerResolve = null;
-			resolve?.(true);
-			return;
-		}
-
-		await window.api.trust.set(cwd, false);
-		pendingTrustPrompt.value = null;
-		const resolve = trustAnswerResolve;
-		trustAnswerResolve = null;
-		resolve?.(false);
-	}
-
 	async function commitWorkspace(next: string | null): Promise<string | null> {
 		sessionsReady.value = false;
 		root.value = next;
-		if (next) {
-			sessionsReady.value = true;
-		} else {
-			sessionsReady.value = true;
-		}
+		sessionsReady.value = true;
 		return root.value;
 	}
 
-	/** Close the active workspace (e.g. after untrust from settings). */
 	async function clearWorkspace(): Promise<null> {
 		await window.api.workspace.clear();
-		pendingTrustPrompt.value = null;
 		await commitWorkspace(null);
 		return null;
 	}
 
 	async function getWorkspace(): Promise<string | null> {
 		const next = await window.api.workspace.get();
-		if (!next) {
-			return commitWorkspace(null);
-		}
-		const accepted = await requestTrustToOpen(next);
-		if (!accepted) {
-			await window.api.workspace.clear();
-			return commitWorkspace(null);
-		}
+		if (!next) return commitWorkspace(null);
 		return commitWorkspace(next);
 	}
 
@@ -145,43 +78,36 @@ export const useWorkspaceStore = defineStore("workspace", () => {
 		const picked = await window.api.workspace.pick();
 		await listRecent();
 		if (!picked) return previous;
-		const accepted = await requestTrustToOpen(picked);
-		if (!accepted) return previous;
 		const next = await window.api.workspace.openPath(picked);
 		await listRecent();
 		return commitWorkspace(next);
 	}
 
-	async function openWorkspacePath(
-		workspaceRoot: string,
-	): Promise<string | null> {
-		const previous = root.value;
-		const accepted = await requestTrustToOpen(workspaceRoot);
-		if (!accepted) return previous;
+	async function openWorkspacePath(workspaceRoot: string): Promise<string | null> {
 		const next = await window.api.workspace.openPath(workspaceRoot);
 		await listRecent();
 		return commitWorkspace(next);
 	}
 
-		/**
-		 * Full recent list (Desktop + Pi-discovered). Prefer listRecentFast on boot.
-		 */
-		async function listRecent(): Promise<string[]> {
-			recent.value = sanitizeRoots(await window.api.workspace.listRecent());
-			return recent.value;
-		}
+	/**
+	 * Full recent list (Desktop + Pi-discovered). Prefer listRecentFast on boot.
+	 */
+	async function listRecent(): Promise<string[]> {
+		recent.value = sanitizeRoots(await window.api.workspace.listRecent());
+		return recent.value;
+	}
 
-		/**
-		 * Instant Desktop-only list, then refresh with Pi discovery in the background.
-		 * Keeps startup / first paint snappy when ~/.pi/agent/sessions is large.
-		 */
-		async function listRecentFast(): Promise<string[]> {
-			recent.value = sanitizeRoots(await window.api.workspace.listRecentDesktop());
-			void listRecent().catch(() => {
-				/* background merge best-effort */
-			});
-			return recent.value;
-		}
+	/**
+	 * Instant Desktop-only list, then refresh with Pi discovery in the background.
+	 * Keeps startup / first paint snappy when ~/.pi/agent/sessions is large.
+	 */
+	async function listRecentFast(): Promise<string[]> {
+		recent.value = sanitizeRoots(await window.api.workspace.listRecentDesktop());
+		void listRecent().catch(() => {
+			/* background merge best-effort */
+		});
+		return recent.value;
+	}
 
 	async function listClosed(): Promise<string[]> {
 		closed.value = sanitizeRoots(await window.api.workspace.listClosed());
@@ -193,17 +119,7 @@ export const useWorkspaceStore = defineStore("workspace", () => {
 		recent: string[];
 	}): Promise<void> {
 		recent.value = sanitizeRoots(next.recent);
-		if (next.root) {
-			const accepted = await requestTrustToOpen(next.root);
-			if (!accepted) {
-				await window.api.workspace.clear();
-				await commitWorkspace(null);
-				return;
-			}
-			await commitWorkspace(next.root);
-			return;
-		}
-		await commitWorkspace(null);
+		await commitWorkspace(next.root);
 	}
 
 	async function removeRecent(workspaceRoot: string): Promise<void> {
@@ -212,7 +128,7 @@ export const useWorkspaceStore = defineStore("workspace", () => {
 	}
 
 	/**
-	 * Remove workspace from Pi Desktop: drop config/trust + delete Pi sessions.
+	 * Remove workspace from Pi Desktop: drop config + delete Pi sessions.
 	 * Does not delete the project directory on disk.
 	 */
 	async function purgeWorkspace(workspaceRoot: string): Promise<void> {
@@ -228,9 +144,7 @@ export const useWorkspaceStore = defineStore("workspace", () => {
 	}
 
 	/** Re-open a closed workspace (moves it back to the main list). */
-	async function reopenWorkspace(
-		workspaceRoot: string,
-	): Promise<string | null> {
+	async function reopenWorkspace(workspaceRoot: string): Promise<string | null> {
 		const next = await openWorkspacePath(workspaceRoot);
 		await listRecent();
 		await listClosed();
@@ -246,15 +160,11 @@ export const useWorkspaceStore = defineStore("workspace", () => {
 		await window.api.workspace.revealInFolder(workspaceRoot);
 	}
 
-	const trustDialogOpen = computed(() => Boolean(pendingTrustPrompt.value));
-
 	return {
 		root,
 		recent,
 		closed,
-		pendingTrustPrompt,
 		sessionsReady,
-		trustDialogOpen,
 		getWorkspace,
 		openWorkspace,
 		openWorkspacePath,
@@ -268,6 +178,5 @@ export const useWorkspaceStore = defineStore("workspace", () => {
 		reopenWorkspace,
 		reorderRecent,
 		revealInFolder,
-		answerTrustPrompt,
 	};
 });

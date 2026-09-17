@@ -1,6 +1,6 @@
 <script setup lang="ts">
 // pi-lens-ignore: 2305
-import { computed, defineAsyncComponent, onMounted, onUnmounted, ref, watch } from "vue";
+import { computed, defineAsyncComponent, onMounted, onUnmounted, ref } from "vue";
 import {
   NConfigProvider,
   NMessageProvider,
@@ -18,7 +18,6 @@ import WelcomeView from "@renderer/components/WelcomeView.vue";
 import PiCliSetup from "@renderer/components/PiCliSetup.vue";
 import CloseGuard from "@renderer/components/CloseGuard.vue";
 import AsrWakeGuard from "@renderer/components/AsrWakeGuard.vue";
-import TrustDialog from "@renderer/components/TrustDialog.vue";
 import AsrBackendChooseModal from "@renderer/components/AsrBackendChooseModal.vue";
 import { useWorkspaceStore } from "@renderer/stores/workspace";
 import { useAppearanceStore } from "@renderer/stores/appearance";
@@ -63,14 +62,6 @@ const naiveTheme = computed(() =>
 );
 const themeOverrides = computed(() =>
   appearance.resolvedTheme === "dark" ? darkThemeOverrides : lightThemeOverrides,
-);
-
-// The trust prompt is a modal that must be clickable: drop the splash fast.
-watch(
-  () => workspace.trustDialogOpen,
-  (open) => {
-    if (open) void dismissStartupSplash(true);
-  },
 );
 
 let stopAppearance: (() => void) | undefined;
@@ -140,7 +131,6 @@ onUnmounted(() => {
           </main>
           <PiCliSetup />
           <AiCustomizationModal v-if="workspace.root" />
-          <TrustDialog />
           <AsrBackendChooseModal />
         </div>
         <AppContextMenu />

@@ -406,7 +406,6 @@ export const zh = {
 	permissionAllowOnce: "仅允许一次",
 	permissionAllowBackground: "后台运行",
 	permissionAllowSession: "本会话允许此类操作",
-	permissionAllowWhitelist: "加入白名单",
 	permissionCategoryBash: "终端",
 	permissionCategoryWrite: "写文件",
 	extensionUiTitle: "扩展请求",
@@ -1091,53 +1090,24 @@ export const zh = {
 	selectOrCreateSession: "在左侧选择会话，或新建一个来开始。",
 	noRecentProjects: "暂无最近项目",
 
-	// Project trust
-	trustDialogTitle: "信任此项目？",
-	trustDialogBody:
-		"打开工作区前必须先信任该项目。信任后才会加载项目级 `.pi` 资源（设置、Skills、扩展等）。不信任将取消打开。请只信任你信任的项目。",
-	trustDialogTrust: "信任并打开",
-	trustDialogDontTrust: "不信任（取消打开）",
-
 	// Security settings
 	securityTitle: "安全",
-	securityTrustSection: "工作区信任",
-	securityTrustHint:
-		"受信任的工作区会加载项目 `.pi` 资源。取消信任将关闭当前工作区。",
-	securityTrustNoWorkspace: "请先打开工作区以管理信任。",
-	securityTrustUnknown: "信任状态未知",
-	securityTrustNoResources: "无项目 `.pi` 资源",
-	securityTrustTrusted: "已信任",
-	securityTrustUntrusted: "未信任",
-	securityTrustPending: "尚未决定",
-	securityTrustAction: "信任",
-	securityUntrustAction: "取消信任",
-	securityTrustSetTrusted: "已信任此工作区",
-	securityTrustSetUntrusted: "已取消信任此工作区",
-	securityTrustSetUntrustedClosed: "已取消信任并关闭工作区",
-	securityWorkspacePermissionsSection: "当前工作区工具权限",
-	securityWorkspacePermissionsHint:
-		"仅作用于当前已信任工作区；未单独配置时沿用下方全局默认。",
-	securityWorkspacePermissionsNeedTrust:
-		"信任当前工作区后，可为其单独设置工具权限。",
-	securityTrustedListHint: "已信任的工作区：",
-	securityTrustedCurrent: "当前",
-	securityGlobalCategoriesSection: "全局工具权限",
-	securityGlobalCategoriesHint:
-		"全局默认，适用于未单独配置的工作区。上方「当前工作区工具权限」优先。",
-	securityCategoriesSection: "工具权限",
-	securityCategoriesHint: "工具运行前询问，或默认允许某一类操作。",
-	securityModeAsk: "询问",
-	securityModeAllow: "允许",
-	securityAskAll: "全部询问",
-	securityAllowAll: "全部允许",
-	securityBashAllowlist: "Bash 白名单",
-	securityBashAllowlistHint:
-		"按命令前缀匹配：条目匹配命令开头（如 git status 可匹配 git status --short）。加入白名单时只保存命令前缀，不是整行。",
-	securityBashAllowlistPlaceholder: "例如 git status / docker compose",
+	securityPermissionMode: "权限模式",
+	securityPermissionModeHint:
+		"Ask 每次操作都询问；Edits 自动写文件；Auto 自动执行但危险命令仍需确认；YOLO 全部放行。",
 	securityToolDeniedToast:
-		"工具已被安全设置拦截。请打开「设置 → 安全」以允许、调整 bash 白名单，或信任工作区。",
+		"工具已被当前权限模式拦截。请在输入框底部的权限模式中调整后重试。",
 	securityOpenDevTools: "打开开发者工具",
 	securityOpenDevToolsHint: "打开本应用窗口的开发者工具（排查问题用）",
+	permissionProfileAsk: "Ask",
+	permissionProfileAskHint: "写文件与执行命令前都先询问",
+	permissionProfileEdits: "Edits",
+	permissionProfileEditsHint: "自动写文件，执行命令仍需确认",
+	permissionProfileAuto: "Auto",
+	permissionProfileAutoHint: "自动写文件并执行命令，危险命令仍需确认",
+	permissionProfileYolo: "YOLO",
+	permissionProfileYoloHint: "全部放行，不再询问",
+	permissionDangerWarning: "危险命令：确认后才会执行",
 
 	// Tool cards / market (forward-looking)
 	toolRead: "已读取",
