@@ -1387,14 +1387,11 @@ watch(
   overflow: hidden;
 }
 
-/* 顶部留出与右侧标题栏（.head 36px）等高的空段，分隔线与右侧标题栏下边线同高。 */
 .top-actions {
   display: flex;
   flex-direction: column;
   align-items: stretch;
   gap: 6px;
-  margin-top: 35px;
-  border-top: 1px solid var(--border, rgba(128, 128, 128, 0.15));
   padding: 10px 8px 8px;
   flex-shrink: 0;
   position: relative;
