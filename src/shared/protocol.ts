@@ -51,6 +51,12 @@ export const IpcChannels = {
 		purge: "workspace:purge",
 		reorderRecent: "workspace:reorderRecent",
 		revealInFolder: "workspace:revealInFolder",
+		/** Renderer → main：工作区自定义显示名（路径 → 名称）。 */
+		listAliases: "workspace:listAliases",
+		/** Renderer → main：设置某工作区显示名（null 清除）。 */
+		setAlias: "workspace:setAlias",
+		/** Renderer → main：重新定位工作区到新目录，Pi 会话目录随之迁移。 */
+		relocate: "workspace:relocate",
 	},
 	sessions: {
 		list: "sessions:list",

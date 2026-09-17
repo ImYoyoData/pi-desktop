@@ -138,6 +138,8 @@ export type SessionBroker = {
   /** 回收所有存活 worker，使下次启动读取新的环境变量（如代理变更）。 */
   recycleWorkers: () => void;
   deleteSession: (sessionId: string, cwd: string) => Promise<void>;
+  /** 关掉某工作区下的会话 worker（只断连接，不删会话文件）。 */
+  stopWorkspaceSessions: (cwd: string) => Promise<void>;
   /**
    * Remove all Pi sessions for a workspace (workers + `~/.pi/agent/sessions/...`).
    * Does not delete the project directory on disk.
@@ -1158,7 +1160,8 @@ export function createSessionBroker(deps: {
     }
   }
 
-  async function purgeWorkspace(cwd: string): Promise<void> {
+  /** 关掉某工作区下的会话 worker（只断连接，不删会话文件）。 */
+  async function stopWorkspaceSessions(cwd: string): Promise<void> {
     const resolved = path.resolve(cwd);
     const live = [...sessions.entries()].filter(
       ([, rec]) => path.resolve(rec.cwd) === resolved,
@@ -1166,10 +1169,15 @@ export function createSessionBroker(deps: {
     for (const [id, rec] of live) {
       if (rec.summary.filePath)
         invalidateSessionHistoryCache(rec.summary.filePath);
-      await disconnectWorker(id, "workspace purged");
+      await disconnectWorker(id, "workspace switched");
       sessions.delete(id);
       emit({ type: "worker_exit", sessionId: id, code: 0 });
     }
+  }
+
+  async function purgeWorkspace(cwd: string): Promise<void> {
+    const resolved = path.resolve(cwd);
+    await stopWorkspaceSessions(resolved);
     // Removes ~/.pi/agent/sessions/<encoded-cwd>/ only — never the project folder.
     await purgeWorkspaceSessionDir(resolved);
   }
@@ -1251,6 +1259,7 @@ export function createSessionBroker(deps: {
     restartWorkersForCwd,
     recycleWorkers,
     deleteSession,
+    stopWorkspaceSessions,
     purgeWorkspace,
     clearContext,
     notifyWorkersReloadModels,
