@@ -455,7 +455,6 @@ function onTabClose(name: string | number): void {
   // Deleted on disk — ask whether to recreate via save
   if (tab.kind === "preview" && tab.missing) {
     const d = dialog.create({
-      type: "warning",
       title: t.fileDeletedTitle,
       content: t.fileDeletedSavePrompt,
       closable: true,
@@ -513,11 +512,12 @@ function onTabClose(name: string | number): void {
   }
 
   if (tab.kind === "preview" && tab.dirty && !tab.missing) {
-    dialog.warning({
+    dialog.create({
       title: t.unsavedChangesTitle,
       content: t.unsavedChangesClose(tab.label),
       positiveText: t.save,
       negativeText: t.dontSave,
+      positiveButtonProps: { type: "primary" },
       closable: true,
       maskClosable: true,
       onPositiveClick: async () => {
