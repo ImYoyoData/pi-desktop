@@ -91,42 +91,10 @@ async function listDirectChildren(pid: number): Promise<number[]> {
 	if (!Number.isFinite(pid) || pid <= 0) return [];
 	try {
 		if (process.platform === "win32") {
-			// Prefer CIM — `wmic` is removed on many Win11 installs.
-			try {
-				const { stdout } = await execFileAsync(
-					"powershell.exe",
-					[
-						"-NoProfile",
-						"-Command",
-						`(Get-CimInstance Win32_Process -Filter "ParentProcessId=${pid}").ProcessId`,
-					],
-					{ windowsHide: true, timeout: 4_000 },
-				);
-				return stdout
-					.split(/\s+/)
-					.map((s) => Number(s.trim()))
-					.filter((n) => Number.isFinite(n) && n > 0);
-			} catch {
-				// fall through to wmic
-			}
-			const { stdout } = await execFileAsync(
-				"wmic",
-				[
-					"process",
-					"where",
-					`ParentProcessId=${pid}`,
-					"get",
-					"ProcessId",
-					"/value",
-				],
-				{ windowsHide: true, timeout: 3_000 },
-			);
-			const ids: number[] = [];
-			for (const line of stdout.split(/\r?\n/)) {
-				const m = /^ProcessId=(\d+)\s*$/i.exec(line.trim());
-				if (m) ids.push(Number(m[1]));
-			}
-			return ids.filter((n) => Number.isFinite(n) && n > 0);
+			// 一次快照全表再内存过滤：比 per-pid 的 Get-CimInstance -Filter 便宜约一个数量级
+			//（前者约 800ms/次，后者每次约 200ms 且 BFS 层数×子进程数线性放大）。
+			const kids = await winChildMap().then((m) => m.get(pid));
+			return kids ? [...kids] : [];
 		}
 		const { stdout } = await execFileAsync("pgrep", ["-P", String(pid)], {
 			timeout: 3_000,
@@ -138,6 +106,88 @@ async function listDirectChildren(pid: number): Promise<number[]> {
 	} catch {
 		return [];
 	}
+}
+
+/** Windows 子进程表快照：多次查询复用一次 powershell 全表快照。 */
+let winChildSnapshot: { at: number; map: Map<number, number[]> } | null = null;
+let winChildInflight: Promise<Map<number, number[]>> | null = null;
+const WIN_CHILD_SNAPSHOT_TTL_MS = 2_000;
+
+async function winChildMap(): Promise<Map<number, number[]>> {
+	const now = Date.now();
+	if (winChildSnapshot && now - winChildSnapshot.at < WIN_CHILD_SNAPSHOT_TTL_MS) {
+		return winChildSnapshot.map;
+	}
+	winChildInflight ??= snapshotWinChildMap().then((map) => {
+		winChildSnapshot = { at: Date.now(), map };
+		winChildInflight = null;
+		return map;
+	}).catch((err: unknown) => {
+		winChildInflight = null;
+		throw err;
+	});
+	return winChildInflight;
+}
+
+async function snapshotWinChildMap(): Promise<Map<number, number[]>> {
+	const map = new Map<number, number[]>();
+	const add = (pid: number, ppid: number) => {
+		if (!Number.isFinite(pid) || pid <= 0 || !Number.isFinite(ppid) || ppid < 0) return;
+		let kids = map.get(ppid);
+		if (!kids) {
+			kids = [];
+			map.set(ppid, kids);
+		}
+		if (kids.length < 256 && !kids.includes(pid)) kids.push(pid);
+	};
+	try {
+		const { stdout } = await execFileAsync(
+			"powershell.exe",
+			[
+				"-NoProfile",
+				"-Command",
+				"Get-CimInstance Win32_Process | ForEach-Object { $_.ProcessId.ToString() + ' ' + $_.ParentProcessId.ToString() }",
+			],
+			{ windowsHide: true, timeout: 8_000 },
+		);
+		for (const line of stdout.split(/\r?\n/)) {
+			const m = /^\s*(\d+)\s+(\d+)\s*$/.exec(line);
+			if (m) add(Number(m[1]), Number(m[2]));
+		}
+		if (map.size) return map;
+	} catch {
+		// fall through to wmic
+	}
+	try {
+		// `wmic` 在部分 Win11 已移除，仅作回退。`where` 形式在某些版本解析失败，改用 get 全表。
+		const { stdout } = await execFileAsync(
+			"wmic",
+			["process", "get", "ProcessId,ParentProcessId", "/value"],
+			{ windowsHide: true, timeout: 8_000 },
+		);
+		let pid = 0;
+		let ppid = 0;
+		for (const line of stdout.split(/\r?\n/)) {
+			const text = line.trim();
+			if (!text) {
+				add(pid, ppid);
+				pid = 0;
+				ppid = 0;
+				continue;
+			}
+			let m = /^ProcessId=(\d+)\s*$/.exec(text);
+			if (m) {
+				pid = Number(m[1]);
+				continue;
+			}
+			m = /^ParentProcessId=(\d+)\s*$/.exec(text);
+			if (m) ppid = Number(m[1]);
+		}
+		add(pid, ppid);
+	} catch {
+		// ignore
+	}
+	return map;
 }
 
 async function collectDescendants(
@@ -456,7 +506,7 @@ export function createTrackedBashOperations(
 						void collectDescendants(child.pid).then((kids) => {
 							for (const kid of kids) row.survivors.add(kid);
 						});
-					}, 750);
+					}, 3_000);
 
 					if (startBg) {
 						detachTool(row, id, true);

@@ -112,7 +112,9 @@ watch(bodyRef, (el) => {
   resizeObserver.observe(el);
 });
 
-const anyStreaming = computed(() => props.items.some((m) => m.streaming));
+const anyStreaming = computed(() =>
+  props.items.some((m) => "streaming" in m && Boolean(m.streaming)),
+);
 const anyError = computed(() =>
   props.items.some((m) => m.role === "tool" && m.isError && !m.streaming),
 );

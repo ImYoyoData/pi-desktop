@@ -6,10 +6,15 @@ import {
   NText,
 } from "naive-ui";
 import { ChatbubbleEllipsesOutline, CheckmarkCircle } from "@vicons/ionicons5";
-import type { AskUserAnswerDraft, AskUserQuestion } from "../../../shared/ask-user";
+import type {
+  AskUserAnswerDraft,
+  AskUserQuestion,
+  AskUserValidationError,
+} from "../../../shared/ask-user";
 import {
   ASK_USER_CUSTOM_OPTION_ID,
   formatAskUserAnswers,
+  questionSkippable,
   validateAskUserAnswers,
   validateAskUserQuestionAnswer,
 } from "../../../shared/ask-user";
@@ -41,14 +46,28 @@ watch(
   (p) => {
     validationError.value = null;
     confirming.value = false;
-    currentIndex.value = 0;
     if (!p) {
+      currentIndex.value = 0;
       draft.value = {};
       return;
     }
+    const savedStep = p.requestId ? chat.readAskStep(p.requestId) : null;
+    currentIndex.value = Math.max(
+      0,
+      Math.min(savedStep ?? 0, p.questions.length - 1),
+    );
+    const saved = p.requestId ? chat.readAskDraft(p.requestId) : null;
     const next: AskUserAnswerDraft = {};
     for (const q of p.questions) {
-      next[q.id] = { optionIds: [], customText: "" };
+      const row = saved?.[q.id];
+      const optionIds = Array.isArray(row?.optionIds)
+        ? row.optionIds.filter((id): id is string => typeof id === "string" && q.options.some((o) => o.id === id))
+        : [];
+      next[q.id] = {
+        optionIds,
+        customText: typeof row?.customText === "string" ? row.customText : "",
+        skipped: row?.skipped === true && optionIds.length === 0,
+      };
     }
     draft.value = next;
   },
@@ -57,11 +76,18 @@ watch(
 
 watch(
   draft,
-  () => {
+  (d) => {
     validationError.value = null;
+    const p = prompt.value;
+    if (p?.requestId) chat.writeAskDraft(p.requestId, d);
   },
   { deep: true },
 );
+
+function persistStep(): void {
+  const p = prompt.value;
+  if (p?.requestId) chat.writeAskStep(p.requestId, currentIndex.value);
+}
 
 function optionLabel(opt: { id: string; label: string }): string {
   if (opt.id === ASK_USER_CUSTOM_OPTION_ID) return t.askUserCustomOption;
@@ -72,9 +98,15 @@ function isSelected(q: AskUserQuestion, optionId: string): boolean {
   return (draft.value[q.id]?.optionIds ?? []).includes(optionId);
 }
 
+function isSkipped(q: AskUserQuestion): boolean {
+  return Boolean(draft.value[q.id]?.skipped);
+}
+
 function toggleOption(q: AskUserQuestion, optionId: string): void {
   const row = draft.value[q.id];
   if (!row) return;
+  // Selecting a real option un-skips the question.
+  row.skipped = false;
   if (q.type === "multi") {
     const set = new Set(row.optionIds);
     if (set.has(optionId)) set.delete(optionId);
@@ -83,6 +115,20 @@ function toggleOption(q: AskUserQuestion, optionId: string): void {
     return;
   }
   row.optionIds = [optionId];
+}
+
+function skipCurrentQuestion(): void {
+  const q = currentQuestion.value;
+  if (!q) return;
+  const row = draft.value[q.id];
+  if (!row) return;
+  row.skipped = true;
+  row.optionIds = [];
+  row.customText = "";
+  validationError.value = null;
+  // Advance past skipped questions when possible.
+  if (!isLast.value) currentIndex.value += 1;
+  persistStep();
 }
 
 function customModel(q: AskUserQuestion): string {
@@ -95,17 +141,38 @@ function setCustom(q: AskUserQuestion, text: string): void {
   row.customText = text;
 }
 
-function needsCustomInput(q: AskUserQuestion): boolean {
+type CustomInputMode = "none" | "required" | "optional";
+
+function customInputMode(q: AskUserQuestion): CustomInputMode {
   const row = draft.value[q.id];
-  if (!row) return false;
+  if (!row) return "none";
   const selected = q.options.filter((o) => row.optionIds.includes(o.id));
-  return selected.some((o) => o.allowCustom);
+  if (selected.some((o) => o.id === ASK_USER_CUSTOM_OPTION_ID)) return "required";
+  return selected.some((o) => o.allowCustom) ? "optional" : "none";
+}
+
+function errorText(code: string): string {
+  switch (code as AskUserValidationError) {
+    case "missing-answer":
+      return t.askUserErrMissingAnswer;
+    case "cannot-skip":
+      return t.askUserErrCannotSkip;
+    case "select-one":
+      return t.askUserErrSelectOne;
+    case "invalid-option":
+      return t.askUserErrInvalidOption;
+    case "custom-required":
+      return t.askUserErrCustomRequired;
+    default:
+      return code;
+  }
 }
 
 function goPrev(): void {
   if (isFirst.value) return;
   validationError.value = null;
   currentIndex.value -= 1;
+  persistStep();
 }
 
 function goNext(): void {
@@ -118,6 +185,7 @@ function goNext(): void {
   }
   validationError.value = null;
   if (!isLast.value) currentIndex.value += 1;
+  persistStep();
 }
 
 async function onConfirm(): Promise<void> {
@@ -139,6 +207,7 @@ async function onConfirm(): Promise<void> {
       (q) => validateAskUserQuestionAnswer(q, draft.value) != null,
     );
     if (idx >= 0) currentIndex.value = idx;
+    persistStep();
     return;
   }
   validationError.value = null;
@@ -149,9 +218,18 @@ async function onConfirm(): Promise<void> {
       requestId: p.requestId,
       answersText,
     });
+  } catch (err) {
+    validationError.value = err instanceof Error ? err.message : String(err);
   } finally {
     confirming.value = false;
   }
+}
+
+/** Copilot-style "dismiss": cancel the pending ask and stop the blocked turn. */
+function onCancelAsk(): void {
+  const p = prompt.value;
+  if (!p?.sessionId) return;
+  void chat.abort(p.sessionId);
 }
 </script>
 
@@ -166,7 +244,7 @@ async function onConfirm(): Promise<void> {
           <div class="head-title">{{ t.askUserToolLabel }}</div>
           <div class="head-sub">{{ t.askUserTitle }}</div>
         </div>
-        <div v-if="total > 0" class="head-progress" :title="progressLabel">
+        <div v-if="total > 1" class="head-progress" :title="progressLabel">
           {{ progressLabel }}
         </div>
       </header>
@@ -175,6 +253,12 @@ async function onConfirm(): Promise<void> {
         <section class="question">
           <div class="q-prompt">
             <NText strong class="q-text">{{ currentQuestion.prompt }}</NText>
+            <span
+              v-if="isSkipped(currentQuestion)"
+              class="skip-tag"
+            >
+              {{ t.askUserSkipped }}
+            </span>
           </div>
 
           <div
@@ -182,6 +266,7 @@ async function onConfirm(): Promise<void> {
             :class="{
               'opt-grid-wrap': currentQuestion.type === 'buttons',
               'opt-grid-stack': currentQuestion.type !== 'buttons',
+              'opt-grid-dim': isSkipped(currentQuestion),
             }"
           >
             <button
@@ -212,11 +297,15 @@ async function onConfirm(): Promise<void> {
           </div>
 
           <VoiceTextField
-            v-if="needsCustomInput(currentQuestion)"
+            v-if="customInputMode(currentQuestion) !== 'none' && !isSkipped(currentQuestion)"
             class="custom-input"
             :value="customModel(currentQuestion)"
             type="textarea"
-            :placeholder="t.askUserCustomPlaceholder"
+            :placeholder="
+              customInputMode(currentQuestion) === 'required'
+                ? t.askUserCustomPlaceholder
+                : t.askUserCustomOptionalPlaceholder
+            "
             :autosize="{ minRows: 2, maxRows: 4 }"
             round
             @update:value="(v) => setCustom(currentQuestion, v)"
@@ -225,10 +314,32 @@ async function onConfirm(): Promise<void> {
       </div>
 
       <footer class="strip-foot">
-        <NText v-if="validationError" type="error" class="err">
-          {{ validationError }}
-        </NText>
+        <div class="foot-left">
+          <NButton
+            quaternary
+            round
+            size="small"
+            class="pi-interactive cancel-btn"
+            :disabled="confirming"
+            @click="onCancelAsk"
+          >
+            {{ t.cancel }}
+          </NButton>
+          <NText v-if="validationError" type="error" class="err">
+            {{ errorText(validationError) }}
+          </NText>
+        </div>
         <div class="foot-actions">
+          <NButton
+            v-if="questionSkippable(currentQuestion)"
+            quaternary
+            round
+            class="pi-interactive skip-btn"
+            :disabled="confirming"
+            @click="skipCurrentQuestion"
+          >
+            {{ t.askUserSkip }}
+          </NButton>
           <NButton
             v-if="total > 1"
             quaternary
@@ -266,20 +377,25 @@ async function onConfirm(): Promise<void> {
 </template>
 
 <style scoped>
+/* Column geometry matches the composer's chat-input-stack so the card lines
+   up edge-to-edge with the message list and the input box (Copilot style:
+   the clarification card shares the chat column). */
 .ask-user-wrap {
   flex-shrink: 0;
-  padding: 0 10px 6px;
-  max-height: min(28vh, 280px);
+  width: 100%;
+  max-width: var(--composer-max, 748px);
+  margin: 0 auto;
+  padding: 0 var(--chat-pad-x, 12px) 8px;
   display: flex;
   flex-direction: column;
   min-height: 0;
-  animation: ask-rise 240ms var(--ease-out, ease);
+  animation: ask-rise 160ms var(--ease-out, ease);
 }
 
 @keyframes ask-rise {
   from {
     opacity: 0;
-    transform: translateY(8px);
+    transform: translateY(4px);
   }
   to {
     opacity: 1;
@@ -287,43 +403,37 @@ async function onConfirm(): Promise<void> {
   }
 }
 
+/* Copilot-style clarification card: flat elevated surface, hairline border,
+   small radius, restrained type — no accent gradient / glow. */
 .ask-user-card {
   display: flex;
   flex-direction: column;
   min-height: 0;
-  max-height: inherit;
-  border-radius: 12px;
-  border: 1px solid color-mix(in srgb, var(--accent-border, var(--border)) 55%, var(--border));
-  background:
-    linear-gradient(
-      165deg,
-      color-mix(in srgb, var(--accent-soft, transparent) 70%, var(--bg-elevated)) 0%,
-      var(--bg-elevated, #fff) 42%
-    );
-  box-shadow:
-    var(--shadow-sm, 0 1px 2px rgba(0, 0, 0, 0.06)),
-    0 0 0 1px color-mix(in srgb, var(--accent) 6%, transparent);
+  border-radius: 4px;
+  border: 1px solid var(--chat-line, var(--border));
+  background: var(--bg-elevated, #fff);
+  box-shadow: none;
   overflow: hidden;
 }
 
+/* Header row reads like a chat participant label: icon + name + subtle hint. */
 .strip-head {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 8px 12px 6px;
+  padding: 8px 10px 2px;
   flex-shrink: 0;
 }
 
 .head-badge {
-  width: 26px;
-  height: 26px;
-  border-radius: 8px;
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  color: var(--accent);
-  background: var(--accent-soft);
-  border: 1px solid var(--accent-border);
+  color: var(--chat-icon-fg, var(--fg-muted));
+  background: var(--chat-hover-bg, rgba(127, 127, 127, 0.12));
   flex-shrink: 0;
 }
 
@@ -332,102 +442,132 @@ async function onConfirm(): Promise<void> {
   flex: 1;
   display: flex;
   flex-direction: column;
-  gap: 0;
+  gap: 1px;
 }
 
 .head-title {
-  font-size: 12.5px;
-  font-weight: 650;
-  letter-spacing: -0.02em;
+  font-size: var(--chat-font-s, 12px);
+  font-weight: 600;
+  letter-spacing: 0;
   color: var(--fg-strong);
+  white-space: nowrap;
 }
 
 .head-sub {
-  display: none;
+  font-size: var(--chat-font-xs, 11px);
+  color: var(--chat-desc-fg, var(--fg-muted));
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .head-progress {
   flex-shrink: 0;
-  font-size: 11px;
-  font-weight: 650;
+  font-size: var(--chat-font-xs, 11px);
+  font-weight: 500;
   font-variant-numeric: tabular-nums;
-  color: var(--accent);
-  background: var(--accent-soft);
-  border: 1px solid var(--accent-border);
-  border-radius: 999px;
-  padding: 2px 8px;
+  color: var(--chat-desc-fg, var(--fg-muted));
 }
 
 .strip-body {
   overflow-y: auto;
-  padding: 2px 12px 6px;
+  padding: 6px 10px 8px;
   flex: 1;
   min-height: 0;
 }
 
+.question {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
 .q-prompt {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   gap: 8px;
-  margin-bottom: 6px;
+  min-width: 0;
 }
 
 .q-text {
-  font-size: 12.5px;
-  line-height: 1.35;
-  letter-spacing: -0.01em;
+  font-size: var(--chat-font-m, 13px);
+  line-height: 1.45;
+  letter-spacing: 0;
+  font-weight: 500;
+  color: var(--fg);
+}
+
+.skip-tag {
+  flex-shrink: 0;
+  font-size: var(--chat-font-xs, 11px);
+  font-weight: 500;
+  color: var(--chat-desc-fg, var(--fg-muted));
+  padding: 1px 7px;
+  border: 1px solid var(--chat-line, var(--border));
+  border-radius: 999px;
 }
 
 .opt-grid {
   display: flex;
-  gap: 6px;
+  flex-direction: column;
+  gap: 2px;
 }
 
 .opt-grid-wrap {
   flex-wrap: wrap;
+  flex-direction: row;
+  gap: 6px;
 }
 
-.opt-grid-stack {
-  flex-direction: column;
+.opt-grid-dim {
+  opacity: 0.5;
 }
 
+/* Copilot response-style choice rows: quiet checkbox list, hover highlight,
+   selected gets a subtle checked state instead of a loud filled pill. */
 .opt-chip {
   display: flex;
   align-items: center;
   gap: 8px;
   width: 100%;
   margin: 0;
-  padding: 6px 10px;
-  border-radius: 8px;
-  border: 1px solid var(--border);
-  background: color-mix(in srgb, var(--bg-elevated) 70%, var(--bg));
+  padding: 5px 8px;
+  border-radius: 6px;
+  border: none;
+  background: transparent;
   color: var(--fg);
   text-align: left;
   cursor: pointer;
-  transition:
-    border-color var(--duration-fast, 140ms) var(--ease-out, ease),
-    background var(--duration-fast, 140ms) var(--ease-out, ease),
-    box-shadow var(--duration-fast, 140ms) var(--ease-out, ease),
-    transform var(--duration-fast, 140ms) var(--ease-out, ease);
+  font-size: var(--chat-font-s, 12px);
+  line-height: 1.4;
+  transition: background var(--duration-fast, 100ms) var(--ease-out, ease);
 }
 
 .opt-chip.compact {
   width: auto;
   max-width: 100%;
-  padding: 5px 10px;
+  padding: 4px 10px;
+  border: 1px solid var(--chat-line, var(--border));
   border-radius: 999px;
+  background: transparent;
 }
 
 .opt-chip:hover {
-  border-color: var(--accent-border);
-  background: var(--accent-soft);
+  background: var(--chat-hover-bg, rgba(127, 127, 127, 0.12));
+}
+
+.opt-chip.compact:hover {
+  border-color: var(--chat-line, var(--border));
+  background: var(--chat-hover-bg, rgba(127, 127, 127, 0.12));
 }
 
 .opt-chip.selected {
-  border-color: var(--accent);
-  background: var(--accent-soft);
-  box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 28%, transparent);
-  color: var(--fg-strong);
+  background: var(--accent-soft, rgba(65, 118, 230, 0.08));
+}
+
+.opt-chip.selected.compact {
+  border-color: var(--accent-border, rgba(65, 118, 230, 0.32));
+  background: var(--accent-soft, rgba(65, 118, 230, 0.08));
 }
 
 .opt-check {
@@ -444,7 +584,7 @@ async function onConfirm(): Promise<void> {
   width: 14px;
   height: 14px;
   border-radius: 999px;
-  border: 1.5px solid var(--border-strong);
+  border: 1.5px solid var(--chat-line, var(--border-strong));
   box-sizing: border-box;
 }
 
@@ -453,41 +593,55 @@ async function onConfirm(): Promise<void> {
 }
 
 .opt-label {
-  font-size: 12.5px;
-  line-height: 1.3;
-  font-weight: 500;
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .custom-input {
-  margin-top: 6px;
+  margin-top: 4px;
 }
 
+.skip-btn {
+  color: var(--chat-desc-fg, var(--fg-muted));
+}
+
+/* Footer keeps only quiet actions — borderless, no stacked tint bar. */
 .strip-foot {
   display: flex;
   align-items: center;
-  justify-content: flex-end;
+  justify-content: space-between;
   gap: 10px;
-  padding: 6px 12px 8px;
+  padding: 4px 10px 8px;
   flex-shrink: 0;
-  border-top: 1px solid color-mix(in srgb, var(--border) 75%, transparent);
-  background: color-mix(in srgb, var(--bg-elevated) 88%, transparent);
+}
+
+.foot-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  flex: 1;
+}
+
+.cancel-btn {
+  color: var(--chat-desc-fg, var(--fg-muted));
 }
 
 .err {
-  flex: 1;
   min-width: 0;
-  font-size: 12px;
+  font-size: var(--chat-font-xs, 11px);
 }
 
 .foot-actions {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 4px;
   flex-shrink: 0;
+  margin-left: auto;
 }
 
 .confirm-btn {
-  min-width: 96px;
+  min-width: 84px;
   font-weight: 600;
 }
 

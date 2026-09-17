@@ -12,6 +12,13 @@ import { toIpcPlain } from "../../../shared/protocol";
 import { isUnstartedSession } from "@renderer/utils/session-started";
 import { useComposerStore } from "./composer";
 
+/** 工作区路径比较（分隔符与大小写无关）。 */
+function sameWorkspacePath(a: string, b: string): boolean {
+  const norm = (p: string) =>
+    p.replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
+  return norm(a) === norm(b);
+}
+
 const SEGMENT_IDS = new Set<ContextUsageSegmentId>([
   "system",
   "tools",
@@ -22,13 +29,19 @@ const SEGMENT_IDS = new Set<ContextUsageSegmentId>([
 
 function parseContextUsage(data: unknown): SessionContextUsage | null {
   if (!data || typeof data !== "object") return null;
-  const raw = data as { contextUsage?: unknown };
+  const raw = data as {
+    contextUsage?: unknown;
+    model?: unknown;
+    thinkingLevel?: unknown;
+  };
   const usage = raw.contextUsage ?? data;
   if (!usage || typeof usage !== "object") return null;
   const u = usage as {
     tokens?: unknown;
     contextWindow?: unknown;
     percent?: unknown;
+    model?: unknown;
+    thinkingLevel?: unknown;
     toolCalls?: unknown;
     messageCount?: unknown;
     turns?: unknown;
@@ -61,10 +74,21 @@ function parseContextUsage(data: unknown): SessionContextUsage | null {
         })
         .filter((s): s is ContextUsageSegment => Boolean(s))
     : null;
+  // get_state 把两者放在 contextUsage 同级，usage 事件则放在其内部。
+  const model = (u.model ?? raw.model) as
+    | { provider?: unknown; id?: unknown }
+    | null
+    | undefined;
+  const thinkingLevel = u.thinkingLevel ?? raw.thinkingLevel;
   return {
     tokens: typeof u.tokens === "number" ? u.tokens : null,
     contextWindow: u.contextWindow,
     percent: typeof u.percent === "number" ? u.percent : null,
+    model:
+      model && typeof model.provider === "string" && typeof model.id === "string"
+        ? { provider: model.provider, id: model.id }
+        : null,
+    thinkingLevel: typeof thinkingLevel === "string" ? thinkingLevel : null,
     toolCalls: typeof u.toolCalls === "number" ? u.toolCalls : null,
     messageCount: typeof u.messageCount === "number" ? u.messageCount : null,
     turns: typeof u.turns === "number" ? u.turns : null,
@@ -87,7 +111,11 @@ function parseContextUsage(data: unknown): SessionContextUsage | null {
 
 export const useSessionsStore = defineStore("sessions", () => {
   const sessions = ref<SessionSummary[]>([]);
+  /** cwd 当前 sessions 列表所属的工作区（null=未加载/已清空）。 */
+  const listRoot = ref<string | null>(null);
   const activeId = ref<string | null>(null);
+  /** 未创建的新会话草稿所属工作区（null=不处于草稿态）。 */
+  const draftRoot = ref<string | null>(null);
   const contextBySession = ref<Record<string, SessionContextUsage>>({});
 
   const activeContextUsage = computed(() => {
@@ -203,9 +231,17 @@ export const useSessionsStore = defineStore("sessions", () => {
   async function refresh(cwd: string | null): Promise<void> {
     if (!cwd) {
       sessions.value = [];
+      listRoot.value = null;
+      draftRoot.value = null;
       return;
     }
-    sessions.value = await window.api.sessions.list(cwd);
+    if (draftRoot.value && draftRoot.value !== cwd) draftRoot.value = null;
+    // 预热草稿与崩溃残留的空会话不上侧栏；活动会话始终保留。
+    const rows = await window.api.sessions.list(cwd);
+    sessions.value = rows.filter(
+      (row) => row.id === activeId.value || !isUnstartedSession(row),
+    );
+    listRoot.value = cwd;
   }
 
   /** Drop in-memory state for a session that was deleted (shared cleanup). */
@@ -228,27 +264,81 @@ export const useSessionsStore = defineStore("sessions", () => {
     return row && isUnstartedSession(row) ? row : null;
   }
 
-  async function createSession(cwd: string): Promise<SessionSummary | null> {
-    // Creating a session abandons an unstarted 新会话 that was still open
-    // (new-session button, /new, empty-state button) instead of leaving it behind.
-    const leaving = activeIfUnstarted();
-    const created = await window.api.sessions.create(cwd);
+  /** 草稿预热会话：已落盘并预热 worker，但尚未进入侧栏。 */
+  let preparedDraft: { cwd: string; summary: SessionSummary } | null = null;
+
+  /** 释放未使用的预热会话；已被认领时不动。 */
+  async function releasePreparedDraft(): Promise<void> {
+    const pending = preparedDraft;
+    preparedDraft = null;
+    if (!pending || activeId.value === pending.summary.id) return;
+    try {
+      await window.api.sessions.delete(pending.summary.id, pending.summary.cwd);
+    } catch {
+      // 未使用的空会话不上侧栏，残留无害
+    }
+  }
+
+  /** 草稿开始输入时调用：后台建会话并预热 worker，冷启动挪到打字期间。 */
+  async function prepareDraft(cwd: string): Promise<void> {
+    if (!cwd) return;
+    if (preparedDraft && sameWorkspacePath(preparedDraft.cwd, cwd)) return;
+    await releasePreparedDraft();
+    try {
+      const created = await window.api.sessions.create(cwd);
+      preparedDraft = { cwd, summary: created };
+    } catch {
+      // 预热失败时仍走发送时建会话的老路
+    }
+  }
+
+  /** 仅改变草稿归属的工作区，保留已输入的草稿内容。 */
+  function setDraftRoot(cwd: string): void {
+    if (preparedDraft && !sameWorkspacePath(preparedDraft.cwd, cwd)) {
+      void releasePreparedDraft();
+    }
+    draftRoot.value = cwd;
+    activeId.value = null;
+    // 进入草稿即后台预热会话与 worker（点新建会话/应用启动就开跑），首条消息不再等冷启动。
+    void prepareDraft(cwd);
+  }
+
+  /**
+   * 打开空白的新会话输入界面但不落盘。会话文件只在首次发送消息时创建，
+   * 因此被放弃的草稿既不会出现在侧栏，也不会在磁盘留下空会话。
+   */
+  function beginDraft(cwd: string): void {
+    setDraftRoot(cwd);
+    // 保留草稿缓冲：反复新建或切走再回来都不丢已输入内容（发送成功才清空）。
+    useComposerStore().bindSession(null);
+  }
+
+  /** 草稿首次发送：创建会话文件并切换为活动会话（复用预热会话）。 */
+  async function commitDraft(): Promise<SessionSummary | null> {
+    const cwd = draftRoot.value;
+    if (!cwd) return null;
+    const prepared =
+      preparedDraft && sameWorkspacePath(preparedDraft.cwd, cwd)
+        ? preparedDraft
+        : null;
+    if (!prepared) await releasePreparedDraft();
+    const created = prepared?.summary ?? (await window.api.sessions.create(cwd));
+    preparedDraft = null;
     upsert(created);
     activeId.value = created.id;
-    // Drop the abandoned one only once the new session is active, so the UI
-    // never flashes an empty state between the two IPC round-trips.
-    if (leaving) {
-      try {
-        await window.api.sessions.delete(leaving.id, leaving.cwd);
-      } catch (err) {
-        console.error("discard unstarted session failed", err);
-      }
-      dropSessionState(leaving.id);
-    }
+    draftRoot.value = null;
+    // 侧栏把新会话排到最前，否则它会落在折叠的旧会话之下。
+    window.dispatchEvent(
+      new CustomEvent("pi-session-created", {
+        detail: { root: created.cwd, sessionId: created.id },
+      }),
+    );
     return created;
   }
 
   async function selectSession(sessionId: string, cwd: string): Promise<void> {
+    // 切到历史会话即放弃草稿，顺带释放预热出来的空会话。
+    await releasePreparedDraft();
     // Open/register in the broker BEFORE flipping activeId.
     // Otherwise Composer watches activeId and races sessions:command → unknown session.
     const opened = await window.api.sessions.open(sessionId, cwd);
@@ -256,6 +346,7 @@ export const useSessionsStore = defineStore("sessions", () => {
       throw new Error(`failed to open session: ${sessionId}`);
     }
     upsert(opened);
+    draftRoot.value = null;
     activeId.value = sessionId;
   }
 
@@ -359,12 +450,16 @@ export const useSessionsStore = defineStore("sessions", () => {
 
   return {
     sessions,
+    listRoot,
     activeId,
+    draftRoot,
     contextBySession,
     activeContextUsage,
     applyContextFromState,
     refresh,
-    createSession,
+    beginDraft,
+    setDraftRoot,
+    commitDraft,
     selectSession,
     discardActiveIfUnstarted,
     sendCommand,

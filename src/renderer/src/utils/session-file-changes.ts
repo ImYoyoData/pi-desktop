@@ -1,12 +1,14 @@
 /**
- * Cumulative per-session changed-file summary for the docked chat input
- * stack (Copilot "working set" equivalent).
+ * Changed-file summary of the docked chat input stack (Copilot "working set"
+ * equivalent).
  *
- * Unlike the turn-scoped `turn-file-changes.ts`, this walks the WHOLE active
- * session transcript (committed rows + the in-flight streaming tool) and
- * aggregates every edit/write tool card into one per-path +/- line count.
- * Because the transcript only grows, each file's additions/deletions are the
- * sum of every mutation the agent applied to it so far in this session.
+ * The dock prefers the REAL net change per file (session-start baseline vs
+ * current on-disk content, via `checkpoint.netSessionChanges`); the helpers
+ * here drive which rows exist and act as the fallback until those stats
+ * arrive / when no baseline is available. Because the transcript only grows,
+ * each file's additions/deletions sum every mutation the agent applied to it
+ * so far — repeated edits of the same lines thus over-count, which is why
+ * the net path exists.
  */
 import type { ChatMessage } from "../stores/chat-reducer";
 import type { ToolCard, ToolMessage } from "./tool-diff";

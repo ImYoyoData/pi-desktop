@@ -93,7 +93,7 @@ defineExpose({
   max-height: 240px;
   overflow: auto;
   border: 1px solid var(--border, #ddd);
-  border-radius: 10px;
+  border-radius: 6px;
   background: var(--bg-elevated, #fff);
   box-shadow: 0 8px 28px rgba(0, 0, 0, 0.12);
   padding: 4px;
@@ -108,7 +108,7 @@ defineExpose({
   margin: 0;
   padding: 7px 9px;
   border: none;
-  border-radius: 7px;
+  border-radius: 4px;
   background: transparent;
   color: inherit;
   text-align: left;

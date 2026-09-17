@@ -99,20 +99,81 @@ describe("validateAskUserAnswers + formatAskUserAnswers", () => {
     ],
   })!;
 
-  it("requires custom text when allowCustom option selected", () => {
+  it("requires custom text for the injected custom-input row", () => {
+    const withCustomRow = parseAskUserArgs({
+      questions: [
+        {
+          id: "env",
+          prompt: "Deploy where?",
+          type: "single",
+          options: [{ id: "prod", label: "production" }],
+        },
+      ],
+    })!;
+    expect(
+      validateAskUserAnswers(withCustomRow, {
+        env: { optionIds: [ASK_USER_CUSTOM_OPTION_ID], customText: "   ", skipped: false },
+      }),
+    ).toBe("custom-required");
+    expect(
+      validateAskUserAnswers(withCustomRow, {
+        env: { optionIds: [ASK_USER_CUSTOM_OPTION_ID], customText: "staging", skipped: false },
+      }),
+    ).toBeNull();
+  });
+
+  it("treats a model-authored allowCustom option as optional detail", () => {
     const draft: AskUserAnswerDraft = {
-      env: { optionIds: ["other"], customText: "   " },
-      flags: { optionIds: ["a"], customText: "" },
-      go: { optionIds: ["yes"], customText: "" },
+      env: { optionIds: ["other"], customText: "   ", skipped: false },
+      flags: { optionIds: ["a"], customText: "", skipped: false },
+      go: { optionIds: ["yes"], customText: "", skipped: false },
     };
-    expect(validateAskUserAnswers(prompt, draft)).toMatch(/custom/i);
+    expect(validateAskUserAnswers(prompt, draft)).toBeNull();
+    expect(formatAskUserAnswers(prompt, draft)).not.toContain("custom:");
+  });
+
+  it("allows skipped questions and formats them as [skipped]", () => {
+    const draft: AskUserAnswerDraft = {
+      env: { optionIds: [], customText: "", skipped: true },
+      flags: { optionIds: ["a"], customText: "", skipped: false },
+      go: { optionIds: ["yes"], customText: "", skipped: false },
+    };
+    expect(validateAskUserAnswers(prompt, draft)).toBeNull();
+    const text = formatAskUserAnswers(prompt, draft);
+    expect(text).toContain("(id=env)");
+    expect(text).toContain("→ [skipped]");
+  });
+
+  it("rejects skipping a question marked skippable:false", () => {
+    const required = parseAskUserArgs({
+      questions: [
+        {
+          id: "go",
+          prompt: "Proceed?",
+          type: "buttons",
+          skippable: false,
+          options: [
+            { id: "yes", label: "Confirm" },
+            { id: "no", label: "Reject" },
+          ],
+        },
+      ],
+    })!;
+    expect(required.questions[0]?.skippable).toBe(false);
+    const draft: AskUserAnswerDraft = {
+      go: { optionIds: [], customText: "", skipped: true },
+    };
+    expect(validateAskUserAnswers(required, draft)).toBe("cannot-skip");
+    expect(
+      validateAskUserAnswers(required, { ...draft, go: { optionIds: ["yes"], customText: "", skipped: false } }),
+    ).toBeNull();
   });
 
   it("formats answers with prefix and ids", () => {
     const draft: AskUserAnswerDraft = {
-      env: { optionIds: ["other"], customText: "canary 10%" },
-      flags: { optionIds: ["a", "c"], customText: "extra" },
-      go: { optionIds: ["no"], customText: "" },
+      env: { optionIds: ["other"], customText: "canary 10%", skipped: false },
+      flags: { optionIds: ["a", "c"], customText: "extra", skipped: false },
+      go: { optionIds: ["no"], customText: "", skipped: false },
     };
     expect(validateAskUserAnswers(prompt, draft)).toBeNull();
     const text = formatAskUserAnswers(prompt, draft);

@@ -32,7 +32,7 @@ type PooledWorker = {
   pending: Map<number, PendingJob>;
 };
 
-function workerScriptPath(): string {
+function workerScriptPath(): string | null {
   // Prefer sibling of this module (packaged / electron-vite out/main).
   // Vitest runs from src/ — fall back to the built out/main worker when present.
   const candidates = [

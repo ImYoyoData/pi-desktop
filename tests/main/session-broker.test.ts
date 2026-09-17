@@ -46,7 +46,7 @@ function spawnEcho(): SpawnWorker {
 }
 
 describe("session-broker", () => {
-  it("creates a disk session without spawning the agent worker", async () => {
+  it("creates a disk session and prewarms the agent worker", async () => {
     let spawnCount = 0;
     const broker = createSessionBroker({
       allocateSession: allocateFixed("session-a"),
@@ -66,7 +66,8 @@ describe("session-broker", () => {
     });
     const created = await broker.createSession("/tmp/a");
     expect(created.id).toBe("session-a");
-    expect(spawnCount).toBe(0);
+    // 预热是后台异步的：createSession 不等它完成。
+    await vi.waitFor(() => expect(spawnCount).toBe(1));
     await broker.send(created.id, { type: "ping" });
     expect(spawnCount).toBe(1);
   });
@@ -134,7 +135,8 @@ describe("session-broker", () => {
       },
     });
     const session = await broker.createSession("/tmp/a");
-    expect(spawnCount).toBe(0);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(spawnCount).toBe(1);
     await broker.send(session.id, { type: "ping" });
     expect(spawnCount).toBe(1);
     await vi.advanceTimersByTimeAsync(60_000);
@@ -521,7 +523,7 @@ describe("session-broker", () => {
       },
     });
     const session = await broker.createSession("/tmp/a");
-    expect(spawnCount).toBe(0);
+    await vi.waitFor(() => expect(spawnCount).toBe(1));
     await broker.send(session.id, { type: "ping" });
     expect(spawnCount).toBe(1);
     await broker.notifyWorkersReloadModels();
@@ -547,10 +549,12 @@ describe("session-broker", () => {
         };
       },
     });
-    const session = await broker.createSession("/tmp/a");
-    const result = await broker.trySend(session.id, { type: "get_state" });
+    await broker.createSession("/tmp/a");
+    await vi.waitFor(() => expect(spawnCount).toBe(1));
+    // trySend 只为已存在的 worker 发送：未知会话不会冷启动。
+    const result = await broker.trySend("no-such-session", { type: "get_state" });
     expect(result).toBeUndefined();
-    expect(spawnCount).toBe(0);
+    expect(spawnCount).toBe(1);
   });
 
   it("exposes renamed title on live sessions without waiting for a switch (#3)", async () => {

@@ -11,6 +11,11 @@ export type AskUserQuestion = {
   prompt: string;
   type: AskUserQuestionType;
   options: AskUserOption[];
+  /**
+   * Whether the user may skip this question. Omitted = skippable (default).
+   * Set false for hard requirements (e.g. plan/task confirm/reject gates).
+   */
+  skippable?: boolean;
 };
 
 export type AskUserPrompt = {
@@ -26,14 +31,18 @@ export type AskUserAnswerDraft = Record<
   {
     optionIds: string[];
     customText: string;
+    /** True when the user skipped this question (no option selected). */
+    skipped: boolean;
   }
 >;
 
 /** Injected when the model omitted a free-text option (single/multi). */
 export const ASK_USER_CUSTOM_OPTION_ID = "__custom__";
 
-/** Worker → main RPC wait; long enough for multi-question wizards. */
-export const ASK_USER_TIMEOUT_MS = 30 * 60 * 1000;
+/** Questions default to skippable; only explicit `skippable:false` forces an answer. */
+export function questionSkippable(q: AskUserQuestion): boolean {
+  return q.skippable !== false;
+}
 
 /** Main → renderer ask / cancel. */
 export type AskUserAskPrompt = {
@@ -115,7 +124,13 @@ function parseQuestion(raw: unknown): AskUserQuestion | null {
     options.push(opt);
   }
   if (options.length === 0) return null;
-  return withEnsuredCustomOption({ id, prompt, type, options });
+  return withEnsuredCustomOption({
+    id,
+    prompt,
+    type,
+    options,
+    ...(q.skippable === false ? { skippable: false } : {}),
+  });
 }
 
 /** Returns null if args are unusable for UI. */
@@ -135,27 +150,45 @@ export function parseAskUserArgs(args: unknown): AskUserPrompt | null {
   return { questions };
 }
 
+/** 校验失败原因码，由渲染层翻译成界面语言。 */
+export type AskUserValidationError =
+  | "missing-answer"
+  | "cannot-skip"
+  | "select-one"
+  | "invalid-option"
+  | "custom-required";
+
 export function validateAskUserAnswers(
   prompt: AskUserPrompt,
   draft: AskUserAnswerDraft,
-): string | null {
+): AskUserValidationError | null {
   for (const q of prompt.questions) {
     const ans = draft[q.id];
-    if (!ans || ans.optionIds.length === 0) {
-      return `Missing answer for: ${q.prompt}`;
+    if (!ans) {
+      return "missing-answer";
+    }
+    // A skipped question is valid unless the model marked it as required.
+    if (ans.skipped) {
+      if (questionSkippable(q)) continue;
+      return "cannot-skip";
+    }
+    if (ans.optionIds.length === 0) {
+      return "missing-answer";
     }
     if (q.type === "single" || q.type === "buttons") {
       if (ans.optionIds.length !== 1) {
-        return `Select exactly one option for: ${q.prompt}`;
+        return "select-one";
       }
     }
     const selected = q.options.filter((o) => ans.optionIds.includes(o.id));
     if (selected.length !== ans.optionIds.length) {
-      return `Invalid option for: ${q.prompt}`;
+      return "invalid-option";
     }
-    const needsCustom = selected.some((o) => o.allowCustom);
+    // 只有自动追加的“自定义输入”项必须填写文本；模型自带 allowCustom 的选项
+    // 只是可选补充说明，避免用户被看不见的必填规则卡住。
+    const needsCustom = selected.some((o) => o.id === ASK_USER_CUSTOM_OPTION_ID);
     if (needsCustom && !ans.customText.trim()) {
-      return `Custom text required for: ${q.prompt}`;
+      return "custom-required";
     }
   }
   return null;
@@ -165,7 +198,7 @@ export function validateAskUserAnswers(
 export function validateAskUserQuestionAnswer(
   q: AskUserQuestion,
   draft: AskUserAnswerDraft,
-): string | null {
+): AskUserValidationError | null {
   return validateAskUserAnswers({ questions: [q] }, draft);
 }
 
@@ -175,7 +208,13 @@ export function formatAskUserAnswers(
 ): string {
   const lines = ["[ask_user answers]"];
   prompt.questions.forEach((q, i) => {
-    const ans = draft[q.id]!;
+    const ans = draft[q.id];
+    // Skipped questions are still listed so the model knows the user chose
+    // not to answer (option B) and must not silently re-ask.
+    if (!ans || ans.skipped) {
+      lines.push(`${i + 1}. (id=${q.id}) ${q.prompt} → [skipped]`);
+      return;
+    }
     const selected = q.options.filter((o) => ans.optionIds.includes(o.id));
     const labels = selected.map((o) => o.label).join(", ");
     const needsCustom = selected.some((o) => o.allowCustom);

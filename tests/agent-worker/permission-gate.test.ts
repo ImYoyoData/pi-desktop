@@ -32,12 +32,9 @@ describe("createPermissionGate", () => {
     expect(askUser).not.toHaveBeenCalled();
   });
 
-  it("allows without ask when mode is allow", async () => {
+  it("allows without ask in auto profile", async () => {
     const askUser = vi.fn();
-    const settings: DesktopSecuritySettings = {
-      ...DEFAULT_DESKTOP_SECURITY,
-      bash: "allow",
-    };
+    const settings: DesktopSecuritySettings = { profile: "auto" };
     const { gate, assertBashExecAllowed } = createPermissionGate({
       getSettings: () => settings,
       sessionAllows: new Set(),
@@ -48,23 +45,6 @@ describe("createPermissionGate", () => {
     ).resolves.toBeUndefined();
     expect(askUser).not.toHaveBeenCalled();
     expect(() => assertBashExecAllowed("ls")).not.toThrow();
-  });
-
-  it("allows bash via allowlist without ask", async () => {
-    const askUser = vi.fn();
-    const settings: DesktopSecuritySettings = {
-      ...DEFAULT_DESKTOP_SECURITY,
-      bashAllowlist: ["git status"],
-    };
-    const gate = createPermissionGate({
-      getSettings: () => settings,
-      sessionAllows: new Set(),
-      askUser,
-    }).gate;
-    await expect(
-      gate(ctx("bash", { command: "git status --short" })),
-    ).resolves.toBeUndefined();
-    expect(askUser).not.toHaveBeenCalled();
   });
 
   it("asks and allows once", async () => {
@@ -99,20 +79,6 @@ describe("createPermissionGate", () => {
     expect(takeBashBackgroundFlag("npm run dev")).toBe(true);
     expect(takeBashBackgroundFlag("npm run dev")).toBe(false);
     expect(() => assertBashExecAllowed("npm run dev")).not.toThrow();
-  });
-
-  it("allow_whitelist behaves like allow once for the current command", async () => {
-    const askUser = vi.fn(async (): Promise<PermissionDecision> => "allow_whitelist");
-    const { gate, assertBashExecAllowed } = createPermissionGate({
-      getSettings: () => DEFAULT_DESKTOP_SECURITY,
-      sessionAllows: new Set(),
-      askUser,
-    });
-    await expect(
-      gate(ctx("bash", { command: "git status" })),
-    ).resolves.toBeUndefined();
-    expect(() => assertBashExecAllowed("git status")).not.toThrow();
-    expect(() => assertBashExecAllowed("git status")).toThrow(/security settings/i);
   });
 
   it("assertBashExecAllowed blocks exec bypass", () => {

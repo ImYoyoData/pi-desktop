@@ -5,6 +5,7 @@ import type { DropdownOption } from "naive-ui";
 import {
   NAlert,
   NButton,
+  NCheckbox,
   NDropdown,
   NEllipsis,
   NIcon,
@@ -12,47 +13,62 @@ import {
   NModal,
   NScrollbar,
   NSpace,
-  NText,
   NTooltip,
   useDialog,
   useMessage,
 } from "naive-ui";
 import {
-  AddOutline,
+  ArchiveOutline,
+  ChatboxOutline,
+  ChevronDownOutline,
   ChevronForwardOutline,
-  CloseOutline,
+  ContractOutline,
   CopyOutline,
+  CreateOutline,
+  EllipsisHorizontalOutline,
   FolderOpenOutline,
+  FolderOutline,
+  ListOutline,
   PinOutline,
-  RefreshOutline,
+  SwapHorizontalOutline,
   TrashOutline,
 } from "@vicons/ionicons5";
-import PanelLeftIcon from "@renderer/components/icons/PanelLeftIcon.vue";
 import Sortable from "sortablejs";
-import { Splitpanes, Pane } from "splitpanes";
-import type { SplitpanesResizedPayload } from "splitpanes";
 import type { SessionStatus, SessionSummary } from "../../../shared/protocol";
-import { useLayoutStore } from "@renderer/stores/layout";
+import { SESSION_HISTORY_LOAD_LIMIT } from "../../../shared/protocol";
 import { useSessionsStore } from "@renderer/stores/sessions";
+import { useSessionWidgetsStore } from "@renderer/stores/session-widgets";
 import { useChatStore } from "@renderer/stores/chat";
 import { useSendQueueStore } from "@renderer/stores/send-queue";
 import { useWorkspaceStore } from "@renderer/stores/workspace";
-import FilesTab from "@renderer/components/FilesTab.vue";
+import { useLayoutStore } from "@renderer/stores/layout";
+import { useAppearanceStore } from "@renderer/stores/appearance";
 import { isUnstartedSession } from "@renderer/utils/session-started";
+import { buildSessionTree, type SessionTreeItem } from "@renderer/utils/session-tree";
 import { t } from "@renderer/i18n";
+import CodiconIcon from "@renderer/components/icons/CodiconIcon.vue";
 import { markRendererStartup } from "@renderer/utils/startup-timing";
 
 const PIN_KEY = "session-pins:v1";
 const SESSION_ORDER_KEY = "pi-desktop:session-order:v2";
-const SESSION_VISIBLE_LIMIT = 7;
-/** History loads in full — paging was removed, sessions open complete. */
-const HISTORY_LOAD_LIMIT = 1_000_000;
+const SESSION_VISIBLE_LIMIT = 5;
 
-const layout = useLayoutStore();
+/** 左下角快捷入口，自上而下依次：外观、模型、MCP、技能、插件、设置。 */
+const customizeEntries = computed(() => [
+  { name: "appearance", section: "appearance", label: t.customizeAppearance },
+  { name: "models", section: "models", label: t.customizeModels },
+  { name: "mcp", section: "mcp", label: t.customizeMcp },
+  { name: "skills", section: "skills", label: t.customizeSkills },
+  { name: "plugins", section: "plugins", label: t.customizePlugins },
+  { name: "settings", section: "general", label: t.customizeSettings },
+] as const);
+
 const sessionsStore = useSessionsStore();
 const chatStore = useChatStore();
 const sendQueueStore = useSendQueueStore();
 const workspace = useWorkspaceStore();
+const layout = useLayoutStore();
+const appearance = useAppearanceStore();
 const dialog = useDialog();
 const message = useMessage();
 
@@ -61,18 +77,95 @@ const expanded = reactive<Record<string, boolean>>({});
 const pins = reactive<Record<string, string[]>>({});
 const sessionOrders = reactive<Record<string, string[]>>({});
 const sessionListExpanded = reactive<Record<string, boolean>>({});
+const treeCollapsed = reactive<Record<string, Record<string, boolean>>>({});
 const sessionListEls = new Map<string, HTMLElement>();
 const sessionSortables = new Map<string, Sortable>();
 
 const renameOpen = ref(false);
 const renameDraft = ref("");
 const renameTarget = ref<{ root: string; id: string } | null>(null);
+const wsRenameOpen = ref(false);
+const wsRenameDraft = ref("");
+const wsRenameRoot = ref<string | null>(null);
 
-const workspacePaths = computed(() => {
+/** 侧栏分类：空串表示“全部项目”，GROUP_DEFAULT 是内置的“默认”。 */
+const GROUP_ALL = "";
+const GROUP_DEFAULT = "\u0000default";
+const GROUP_KEY_PREFIX = "group:";
+const selectedGroup = ref<string>(GROUP_ALL);
+const groupDialogOpen = ref(false);
+const groupDraft = ref("");
+const groupDialogMode = ref<"create" | "rename">("create");
+/** 工作区列表面板的折叠状态，只在本次运行内有效。 */
+const workspaceCollapsed = ref(false);
+
+/** 会话多选模式：工具条切换为 取消 / 归档 / 删除。 */
+const selectMode = ref(false);
+const selectedSessionIds = ref<string[]>([]);
+/** Shift 范围选择的锚点：区间始终从它算起。 */
+const selectAnchorId = ref<string | null>(null);
+const archivedOpen = ref(false);
+const archivedRows = ref<ArchivedRow[]>([]);
+const archivedQuery = ref("");
+const archivedSelected = ref<string[]>([]);
+/** 已归档列表 Shift 范围选择的锚点。 */
+const archivedAnchorId = ref<string | null>(null);
+
+const ARCHIVE_KEY_PREFIX = "archive:";
+const ARCHIVE_DAY_STEPS = [3, 7, 30, 90];
+
+type ArchivedRow = {
+  id: string;
+  label: string;
+  workspace: string;
+  modified: string;
+};
+
+const archivedIds = computed(() => new Set(workspace.archivedSessions));
+
+/** 选中的分类被删除或改名后落回“全部项目”。 */
+const activeGroup = computed(() => {
+  const name = selectedGroup.value;
+  if (!name || name === GROUP_DEFAULT) return name;
+  return workspace.groups.includes(name) ? name : GROUP_ALL;
+});
+
+function groupNameOf(root: string): string {
+  return workspace.groupOf[root]?.trim() || GROUP_DEFAULT;
+}
+
+const workspacePanelLabel = computed(() => {
+  const name = activeGroup.value;
+  if (name === GROUP_ALL) return t.workspacePanelProjects;
+  if (name === GROUP_DEFAULT) return t.groupDefault;
+  return name;
+});
+
+function groupOptionKey(name: string): string {
+  if (name === GROUP_ALL) return "group-all";
+  if (name === GROUP_DEFAULT) return "group-default";
+  return `${GROUP_KEY_PREFIX}${name}`;
+}
+
+function groupNameFromKey(key: string): string | null {
+  if (key === "group-all") return GROUP_ALL;
+  if (key === "group-default") return GROUP_DEFAULT;
+  if (key.startsWith(GROUP_KEY_PREFIX)) return key.slice(GROUP_KEY_PREFIX.length);
+  return null;
+}
+
+function groupCount(name: string): number {
+  if (name === GROUP_ALL) return allWorkspacePaths.value.length;
+  return allWorkspacePaths.value.filter((root) => groupNameOf(root) === name).length;
+}
+
+/** 最近列表 + 活动工作区兜底，未经分类过滤。 */
+const allWorkspacePaths = computed(() => {
   const paths = [...workspace.recent];
   // Safety: active root missing from list — append, never promote to front.
+  // A blank root is skipped: it would render as an extra nameless workspace.
   if (
-    workspace.root &&
+    workspace.root?.trim() &&
     !paths.some((p) => p.toLowerCase() === workspace.root!.toLowerCase())
   ) {
     paths.push(workspace.root);
@@ -80,28 +173,419 @@ const workspacePaths = computed(() => {
   return paths;
 });
 
-/** Closed-workspace section collapsed state (default: expanded). */
-const closedExpanded = ref(true);
-
-function toggleClosed(): void {
-  closedExpanded.value = !closedExpanded.value;
-}
-
-/** Closed workspace paths not currently in the main list. */
-const closedPaths = computed(() => {
-  const keys = new Set(workspacePaths.value.map((p) => p.toLowerCase()));
-  return workspace.closed.filter((p) => !keys.has(p.toLowerCase()));
+/** 侧栏实际展示的工作区（按选中分类过滤）。 */
+const workspacePaths = computed(() => {
+  const name = activeGroup.value;
+  if (!name) return allWorkspacePaths.value;
+  return allWorkspacePaths.value.filter((root) => groupNameOf(root) === name);
 });
 
-async function onReopenClosed(root: string): Promise<void> {
-  if (workspace.root && workspace.root !== root) {
-    await discardActiveUnstartedForRoot(workspace.root);
+function renderGroupLabel(option: DropdownOption) {
+  const label = typeof option.label === "string" ? option.label : "";
+  const name = groupNameFromKey(String(option.key));
+  if (name === null) return label;
+  return h(
+    "div",
+    {
+      style:
+        "display:flex;align-items:center;justify-content:space-between;gap:24px;min-width:132px",
+    },
+    [
+      h("span", null, label),
+      h(
+        "span",
+        { style: "opacity:0.55;font-variant-numeric:tabular-nums" },
+        String(groupCount(name)),
+      ),
+    ],
+  );
+}
+
+function groupMenuOptions(): DropdownOption[] {
+  const items: DropdownOption[] = [
+    { label: t.groupAllProjects, key: groupOptionKey(GROUP_ALL) },
+    { label: t.groupDefault, key: groupOptionKey(GROUP_DEFAULT) },
+  ];
+  for (const name of workspace.groups) {
+    items.push({ label: name, key: groupOptionKey(name) });
   }
-  const next = await workspace.reopenWorkspace(root);
-  if (next) {
-    expanded[next] = true;
-    await loadSessions(next);
+  items.push({ type: "divider", key: "group-divider" });
+  items.push({ label: t.groupNew, key: "group-new" });
+  return items;
+}
+
+function onGroupMenuSelect(key: string | number): void {
+  const k = String(key);
+  if (k === "group-new") {
+    openGroupCreate();
+    return;
   }
+  const name = groupNameFromKey(k);
+  if (name !== null) selectedGroup.value = name;
+}
+
+function archiveDayOptions(): DropdownOption[] {
+  return ARCHIVE_DAY_STEPS.map((days) => ({
+    label: t.archiveOlderThan(days),
+    key: `${ARCHIVE_KEY_PREFIX}${days}`,
+  }));
+}
+
+function menuIcon(component: typeof ListOutline) {
+  return () => h(NIcon, null, { default: () => h(component) });
+}
+
+function groupAdminOptions(): DropdownOption[] {
+  const items: DropdownOption[] = [
+    { label: t.selectSessions, key: "select-mode", icon: menuIcon(ListOutline) },
+    {
+      label: t.archiveMenu,
+      key: "archive-menu",
+      icon: menuIcon(ArchiveOutline),
+      children: archiveDayOptions(),
+    },
+    {
+      label: t.archivedSessions,
+      key: "archived-list",
+      icon: menuIcon(ArchiveOutline),
+    },
+    { type: "divider", key: "session-divider" },
+    { label: t.groupNew, key: "group-new" },
+  ];
+  const current = activeGroup.value;
+  if (current && current !== GROUP_DEFAULT) {
+    items.push(
+      { label: t.groupRename, key: "group-rename" },
+      { label: t.groupRemove, key: "group-remove" },
+    );
+  }
+  return items;
+}
+
+async function onGroupAdminSelect(key: string | number): Promise<void> {
+  const k = String(key);
+  if (k === "select-mode") enterSelectMode();
+  else if (k === "archived-list") await openArchivedList();
+  else if (k === "group-new") openGroupCreate();
+  else if (k === "group-rename") openGroupRename();
+  else if (k === "group-remove") await removeCurrentGroup();
+  else await onArchiveSelect(k);
+}
+
+function openGroupCreate(): void {
+  groupDialogMode.value = "create";
+  groupDraft.value = "";
+  groupDialogOpen.value = true;
+}
+
+function openGroupRename(): void {
+  groupDialogMode.value = "rename";
+  groupDraft.value = activeGroup.value;
+  groupDialogOpen.value = true;
+}
+
+async function submitGroupDialog(): Promise<void> {
+  const name = groupDraft.value.trim();
+  if (!name) return;
+  try {
+    if (groupDialogMode.value === "create") await workspace.addGroup(name);
+    else await workspace.renameGroup(activeGroup.value, name);
+    selectedGroup.value = name;
+    groupDialogOpen.value = false;
+  } catch (err) {
+    message.error(err instanceof Error ? err.message : String(err));
+  }
+}
+
+async function removeCurrentGroup(): Promise<void> {
+  const name = activeGroup.value;
+  if (!name || name === GROUP_DEFAULT) return;
+  try {
+    await workspace.removeGroup(name);
+    selectedGroup.value = GROUP_ALL;
+  } catch (err) {
+    message.error(err instanceof Error ? err.message : String(err));
+  }
+}
+
+function enterSelectMode(): void {
+  selectMode.value = true;
+  selectedSessionIds.value = [];
+  selectAnchorId.value = null;
+}
+
+function exitSelectMode(): void {
+  selectMode.value = false;
+  selectedSessionIds.value = [];
+  selectAnchorId.value = null;
+}
+
+function isSessionSelected(id: string): boolean {
+  return selectedSessionIds.value.includes(id);
+}
+
+function toggleSessionSelect(id: string): void {
+  const next = new Set(selectedSessionIds.value);
+  if (next.has(id)) next.delete(id);
+  else next.add(id);
+  selectedSessionIds.value = [...next];
+  selectAnchorId.value = id;
+}
+
+/** Shift 点击：选中锚点到当前项之间的全部会话（含两端）。 */
+function onSessionRowClick(id: string, shiftKey: boolean): void {
+  const anchor = selectAnchorId.value;
+  const ids = visibleSessionIds.value;
+  const from = anchor ? ids.indexOf(anchor) : -1;
+  const to = ids.indexOf(id);
+  if (!shiftKey || from < 0 || to < 0) {
+    toggleSessionSelect(id);
+    return;
+  }
+  const [start, end] = from <= to ? [from, to] : [to, from];
+  selectedSessionIds.value = ids.slice(start, end + 1);
+}
+
+async function ensureSessionsLoaded(root: string): Promise<void> {
+  if (sessionsByRoot[root]?.length) return;
+  await loadSessions(root);
+}
+
+function archiveDaysFromKey(key: string): number | null {
+  if (!key.startsWith(ARCHIVE_KEY_PREFIX)) return null;
+  const days = Number(key.slice(ARCHIVE_KEY_PREFIX.length));
+  return Number.isFinite(days) && days > 0 ? days : null;
+}
+
+async function onArchiveSelect(key: string | number): Promise<void> {
+  const days = archiveDaysFromKey(String(key));
+  if (days !== null) await archiveSessionsOlderThan(days);
+}
+
+/** 归档勾选的会话（不按时间过滤）。 */
+async function archiveSelectedSessions(): Promise<void> {
+  const targets = selectedSessionIds.value.filter(
+    (id) => !archivedIds.value.has(id),
+  );
+  if (!targets.length) {
+    message.info(t.archiveNone);
+    return;
+  }
+  try {
+    await workspace.setArchivedSessions([...archivedIds.value, ...targets]);
+    message.success(t.archiveDone(targets.length));
+    exitSelectMode();
+  } catch (err) {
+    message.error(err instanceof Error ? err.message : String(err));
+  }
+}
+
+/** 归档当前分类下超过 N 天未活动的会话（菜单里的时间归档）。 */
+async function archiveSessionsOlderThan(days: number): Promise<void> {
+  const cutoff = Date.now() - days * 24 * 60 * 60 * 1000;
+  const targets: string[] = [];
+  try {
+    for (const root of workspacePaths.value) {
+      await ensureSessionsLoaded(root);
+      for (const s of sessionsByRoot[root] ?? []) {
+        if (archivedIds.value.has(s.id)) continue;
+        if (s.id === sessionsStore.activeId) continue;
+        if (isRunning(s.status)) continue;
+        if (new Date(s.modified).getTime() > cutoff) continue;
+        targets.push(s.id);
+      }
+    }
+    if (!targets.length) {
+      message.info(t.archiveNone);
+      return;
+    }
+    await workspace.setArchivedSessions([...archivedIds.value, ...targets]);
+    message.success(t.archiveDone(targets.length));
+    exitSelectMode();
+  } catch (err) {
+    message.error(err instanceof Error ? err.message : String(err));
+  }
+}
+
+async function openArchivedList(): Promise<void> {
+  archivedOpen.value = true;
+  archivedRows.value = [];
+  try {
+    for (const root of allWorkspacePaths.value) await ensureSessionsLoaded(root);
+  } catch (err) {
+    message.error(err instanceof Error ? err.message : String(err));
+    return;
+  }
+  const byId = new Map<string, { root: string; session: SessionSummary }>();
+  for (const root of allWorkspacePaths.value) {
+    for (const s of sessionsByRoot[root] ?? []) byId.set(s.id, { root, session: s });
+  }
+  archivedRows.value = workspace.archivedSessions.map((id) => {
+    const hit = byId.get(id);
+    return {
+      id,
+      label: hit ? sessionLabel(hit.session) : id,
+      workspace: hit ? workspaceName(hit.root) : "",
+      modified: hit?.session.modified ?? "",
+    };
+  });
+}
+
+const archivedFilteredRows = computed(() => {
+  const q = archivedQuery.value.trim().toLowerCase();
+  if (!q) return archivedRows.value;
+  return archivedRows.value.filter(
+    (row) =>
+      row.label.toLowerCase().includes(q) ||
+      row.workspace.toLowerCase().includes(q),
+  );
+});
+
+watch(archivedOpen, (open) => {
+  if (open) return;
+  archivedQuery.value = "";
+  archivedSelected.value = [];
+  archivedAnchorId.value = null;
+});
+
+function isArchivedSelected(id: string): boolean {
+  return archivedSelected.value.includes(id);
+}
+
+function toggleArchivedSelect(id: string): void {
+  const next = new Set(archivedSelected.value);
+  if (next.has(id)) next.delete(id);
+  else next.add(id);
+  archivedSelected.value = [...next];
+  archivedAnchorId.value = id;
+}
+
+/** Shift 点击：选中锚点到当前项之间的全部归档项。 */
+function onArchivedRowClick(id: string, shiftKey: boolean): void {
+  const anchor = archivedAnchorId.value;
+  const ids = archivedFilteredRows.value.map((row) => row.id);
+  const from = anchor ? ids.indexOf(anchor) : -1;
+  const to = ids.indexOf(id);
+  if (!shiftKey || from < 0 || to < 0) {
+    toggleArchivedSelect(id);
+    return;
+  }
+  const [start, end] = from <= to ? [from, to] : [to, from];
+  archivedSelected.value = ids.slice(start, end + 1);
+}
+
+function dropArchivedRows(ids: string[]): void {
+  archivedRows.value = archivedRows.value.filter((row) => !ids.includes(row.id));
+  archivedSelected.value = archivedSelected.value.filter((id) => !ids.includes(id));
+}
+
+async function restoreSelectedArchived(): Promise<void> {
+  const ids = [...archivedSelected.value];
+  if (!ids.length) return;
+  try {
+    await workspace.setArchivedSessions(
+      workspace.archivedSessions.filter((entry) => !ids.includes(entry)),
+    );
+    dropArchivedRows(ids);
+  } catch (err) {
+    message.error(err instanceof Error ? err.message : String(err));
+  }
+}
+
+function deleteSelectedArchived(): void {
+  const ids = [...archivedSelected.value];
+  if (!ids.length) return;
+  const d = dialog.warning({
+    title: t.delete,
+    content: t.deleteSelectedConfirm(ids.length),
+    positiveText: t.delete,
+    negativeText: t.cancel,
+    onPositiveClick: () => {
+      d.loading = true;
+      return (async () => {
+        try {
+          const touched = new Set<string>();
+          for (const id of ids) {
+            const root = rootOfSession(id);
+            if (!root) continue;
+            await sessionsStore.deleteSession(id, root);
+            chatStore.clearSession(id);
+            sendQueueStore.clearSession(id);
+            touched.add(root);
+          }
+          await workspace.setArchivedSessions(
+            workspace.archivedSessions.filter((entry) => !ids.includes(entry)),
+          );
+          dropArchivedRows(ids);
+          for (const root of touched) await loadSessions(root);
+          if (workspace.root) await ensureActiveSession(workspace.root);
+        } catch (err) {
+          message.error(err instanceof Error ? err.message : String(err));
+          d.loading = false;
+          return false;
+        }
+        return undefined;
+      })();
+    },
+  });
+}
+
+function rootOfSession(id: string): string | null {
+  for (const [root, list] of Object.entries(sessionsByRoot)) {
+    if (list.some((s) => s.id === id)) return root;
+  }
+  return null;
+}
+
+function deleteSelectedSessions(): void {
+  const ids = [...selectedSessionIds.value];
+  if (!ids.length) return;
+  const d = dialog.warning({
+    title: t.delete,
+    content: t.deleteSelectedConfirm(ids.length),
+    positiveText: t.delete,
+    negativeText: t.cancel,
+    onPositiveClick: () => {
+      d.loading = true;
+      return (async () => {
+        try {
+          const touched = new Set<string>();
+          for (const id of ids) {
+            const root = rootOfSession(id);
+            if (!root) continue;
+            await sessionsStore.deleteSession(id, root);
+            chatStore.clearSession(id);
+            sendQueueStore.clearSession(id);
+            pins[root] = (pins[root] ?? []).filter((pid) => pid !== id);
+            touched.add(root);
+          }
+          persistPins();
+          const archivedNext = workspace.archivedSessions.filter(
+            (entry) => !ids.includes(entry),
+          );
+          if (archivedNext.length !== workspace.archivedSessions.length) {
+            await workspace.setArchivedSessions(archivedNext);
+          }
+          for (const root of touched) await loadSessions(root);
+          if (workspace.root) await ensureActiveSession(workspace.root);
+          exitSelectMode();
+        } catch (err) {
+          message.error(err instanceof Error ? err.message : String(err));
+          d.loading = false;
+          return false;
+        }
+        return undefined;
+      })();
+    },
+  });
+}
+
+function collapseAllWorkspaces(): void {
+  for (const root of Object.keys(expanded)) expanded[root] = false;
+}
+
+function openCustomize(section: string): void {
+  layout.openCustomize(section);
 }
 
 /** Purge Pi config + sessions for a workspace (keeps project folder). */
@@ -159,11 +643,13 @@ function bindWorkspaceSortable(): void {
   destroyWorkspaceSortable();
   const el = workspaceTreeEl.value;
   if (!el || workspacePaths.value.length < 2) return;
+  // 分类视图下拖拽只会重排可见项，会把其它分类的工作区挤到后面，直接不启用。
+  if (activeGroup.value) return;
   workspaceSortable = Sortable.create(el, {
     animation: 150,
     draggable: ".ws-block",
     handle: ".ws-row",
-    filter: ".session-list, .session-row, .trash, .ws-new-session",
+    filter: ".session-list, .session-row, .trash, .ws-action",
     preventOnFilter: false,
     onEnd: () => {
       const paths = [...el.querySelectorAll<HTMLElement>(".ws-block[data-root]")]
@@ -237,7 +723,7 @@ function bindSessionSortable(root: string): void {
   const sortable = Sortable.create(el, {
     animation: 150,
     draggable: ".session-row",
-    filter: ".empty-inline, .session-expand-row",
+    filter: ".empty-inline, .session-expand-row, .session-check",
     disabled:
       !sessionListExpanded[root] &&
       (sessionsByRoot[root]?.length ?? 0) > SESSION_VISIBLE_LIMIT,
@@ -283,20 +769,30 @@ onMounted(async () => {
   loadPins();
   loadSessionOrders();
   sessionsStore.bindEvents();
+  // 派生会话等由其他组件新建的会话：排到最前，避免被折叠到「展开其余 N 个」之下。
+  window.addEventListener("pi-session-created", onSessionCreated);
   // App.vue already loads workspace/recent — skip duplicate IPC on cold start.
-  const boot: Promise<unknown>[] = [workspace.listClosed()];
+  const boot: Promise<unknown>[] = [
+    workspace.refreshAliases(),
+    workspace.refreshGroups(),
+    workspace.refreshArchivedSessions(),
+  ];
   if (!workspace.root) boot.push(workspace.getWorkspace());
   if (!workspace.recent.length) boot.push(workspace.listRecentFast());
   await Promise.all(boot);
   if (workspace.root && workspace.sessionsReady) {
-    expanded[workspace.root] = true;
-    await loadSessions(workspace.root);
+    try {
+      await loadSessions(workspace.root);
+    } finally {
+      expanded[workspace.root] = true;
+    }
     await ensureActiveSession(workspace.root);
   }
   void nextTick(() => bindWorkspaceSortable());
 });
 
 onUnmounted(() => {
+  window.removeEventListener("pi-session-created", onSessionCreated);
   destroyWorkspaceSortable();
   destroySessionSortables();
 });
@@ -312,9 +808,18 @@ watch(
   () => [workspace.root, workspace.sessionsReady] as const,
   async ([root, ready]) => {
     if (!root || !ready) return;
-    expanded[root] = true;
-    await loadSessions(root);
-    await ensureActiveSession(root);
+    try {
+      // 先加载再展开，避免展开瞬间露出空列表或上一工作区的会话
+      await loadSessions(root);
+    } finally {
+      expanded[root] = true;
+    }
+    const skipRoot = skipAutoSelectRoot;
+    skipAutoSelectRoot = null;
+    await ensureActiveSession(
+      root,
+      !(skipRoot && sameWorkspacePath(skipRoot, root)),
+    );
   },
 );
 
@@ -322,11 +827,16 @@ watch(
 watch(
   () =>
     sessionsStore.sessions
-      .map((s) => `${s.id}:${s.status}:${s.name ?? ""}:${s.modified}`)
+      .map(
+        (s) =>
+          `${s.id}:${s.status}:${s.name ?? ""}:${s.modified}:${s.firstMessage ?? ""}`,
+      )
       .join("|"),
   () => {
     const root = workspace.root;
     if (!root) return;
+    // 切换间隙 store 仍是上一工作区的列表，跳过合并以免污染本工作区的缓存
+    if (sessionsStore.listRoot !== root) return;
     const list = sessionsStore.sessions;
     const byId = new Map(list.map((s) => [s.id, s]));
     const current = sessionsByRoot[root] ?? [];
@@ -358,43 +868,160 @@ watch(
   },
 );
 
-function sessionsFor(root: string): SessionSummary[] {
-  // Prefer live store for the active workspace so status dots update immediately
-  const source =
-    root === workspace.root && sessionsStore.sessions.length
-      ? sessionsStore.sessions
-      : (sessionsByRoot[root] ?? []);
-  const list = [...source];
+function compareSessions(
+  root: string,
+): (a: SessionSummary, b: SessionSummary) => number {
   const order = sessionOrders[root];
-  if (order?.length) {
-    const orderMap = new Map(order.map((id, i) => [id, i]));
-    list.sort((a, b) => {
-      const ai = orderMap.has(a.id) ? (orderMap.get(a.id) as number) : Number.MAX_SAFE_INTEGER;
-      const bi = orderMap.has(b.id) ? (orderMap.get(b.id) as number) : Number.MAX_SAFE_INTEGER;
+  const orderMap = order?.length ? new Map(order.map((id, i) => [id, i])) : null;
+  const pinned = new Set(pins[root] ?? []);
+  return (a, b) => {
+    if (orderMap) {
+      const ai = orderMap.get(a.id) ?? Number.MAX_SAFE_INTEGER;
+      const bi = orderMap.get(b.id) ?? Number.MAX_SAFE_INTEGER;
       if (ai !== bi) return ai - bi;
       return b.modified.localeCompare(a.modified);
-    });
-    return list;
-  }
-  const pinned = new Set(pins[root] ?? []);
-  list.sort((a, b) => {
+    }
     const ap = pinned.has(a.id) ? 0 : 1;
     const bp = pinned.has(b.id) ? 0 : 1;
     if (ap !== bp) return ap - bp;
     return b.modified.localeCompare(a.modified);
-  });
-  return list;
+  };
 }
 
-function visibleSessionsFor(root: string): SessionSummary[] {
-  const list = sessionsFor(root);
-  if (sessionListExpanded[root] || list.length <= SESSION_VISIBLE_LIMIT) return list;
-  return list.slice(0, SESSION_VISIBLE_LIMIT);
+/** 剔除已归档会话：父会话归档时其派生会话一并隐藏，保持树完整。 */
+function visibleSessions(root: string): SessionSummary[] {
+  const list = [...(sessionsByRoot[root] ?? [])];
+  const archived = archivedIds.value;
+  if (!archived.size) return list;
+  const byId = new Map(list.map((s) => [s.id, s]));
+  const isArchived = (start: SessionSummary): boolean => {
+    let cur: SessionSummary | undefined = start;
+    for (let hops = 0; cur && hops <= list.length; hops++) {
+      if (archived.has(cur.id)) return true;
+      cur = cur.parentSessionId ? byId.get(cur.parentSessionId) : undefined;
+    }
+    return false;
+  };
+  return list.filter((s) => !isArchived(s));
+}
+
+/** 侧栏可见会话的渲染顺序，Shift 范围选择按它取区间。 */
+const visibleSessionIds = computed(() => {
+  const ids: string[] = [];
+  for (const root of workspacePaths.value) {
+    for (const item of visibleTreeItemsFor(root)) ids.push(item.session.id);
+  }
+  return ids;
+});
+
+function sessionsFor(root: string): SessionSummary[] {
+  // 只渲染各工作区自己的缓存：活跃区的行由下方 watcher 同步 store 的实时更新，
+  // 切换工作区时列表不会先闪现上一个工作区的会话（避免行重建与入场动画闪烁）。
+  return buildSessionTree(visibleSessions(root), compareSessions(root))
+    .filter((item) => item.depth === 0)
+    .map((item) => item.session);
+}
+
+type VisibleSessionItem = SessionTreeItem & {
+  /** 所属顶层会话 id：悬停任一层级时整组显示导线。 */
+  topId: string | null;
+  /** 每个祖先层级：竖线是否贯穿整行（末级否则画弯头，中间级否则不画）。 */
+  guideFull: boolean[];
+  /** 是否为父级的最后一个子会话（末级导线以圆角弯头收尾）。 */
+  isLastSibling: boolean;
+};
+
+function visibleTreeItemsFor(root: string): VisibleSessionItem[] {
+  const items = buildSessionTree(visibleSessions(root), compareSessions(root));
+  let visible = items;
+  const collapsed = treeCollapsed[root];
+  if (collapsed && Object.keys(collapsed).length) {
+    const parentOf = new Map(items.map((i) => [i.session.id, i.parentId]));
+    const isHidden = (item: SessionTreeItem): boolean => {
+      let pid = item.parentId;
+      for (let hops = 0; pid && hops < items.length; hops++) {
+        if (collapsed[pid]) return true;
+        pid = parentOf.get(pid);
+      }
+      return false;
+    };
+    visible = items.filter((item) => !isHidden(item));
+  }
+  const rootCount = visible.reduce((n, item) => (item.depth === 0 ? n + 1 : n), 0);
+  if (!sessionListExpanded[root] && rootCount > SESSION_VISIBLE_LIMIT) {
+    let seenRoots = 0;
+    visible = visible.filter((item) => {
+      if (item.depth === 0) seenRoots += 1;
+      return seenRoots <= SESSION_VISIBLE_LIMIT;
+    });
+  }
+  const parentOf = new Map(visible.map((i) => [i.session.id, i.parentId]));
+  const topIdOf = (id: string): string | null => {
+    let top: string | null = null;
+    let cur: string | null | undefined = id;
+    for (let hops = 0; cur && hops <= visible.length; hops++) {
+      top = cur;
+      cur = parentOf.get(cur);
+    }
+    return top;
+  };
+  return visible.map((item) => ({
+    ...item,
+    topId: topIdOf(item.session.id),
+    guideFull: item.lastFlags.map((last) => !last),
+    isLastSibling: item.lastFlags[item.depth - 1] ?? false,
+  }));
+}
+
+function isTreeNodeCollapsed(root: string, sessionId: string): boolean {
+  return Boolean(treeCollapsed[root]?.[sessionId]);
+}
+
+function toggleTreeNode(root: string, sessionId: string): void {
+  const map = (treeCollapsed[root] ??= {});
+  map[sessionId] = !map[sessionId];
+}
+
+/** 悬停中的会话层级（按工作区记录顶层会话 id），驱动层级导线的显隐。 */
+const hoverGuides = reactive<Record<string, string | null>>({});
+
+function onSessionRowEnter(root: string, item: VisibleSessionItem): void {
+  if (item.topId) hoverGuides[root] = item.topId;
+}
+
+function onSessionRowLeave(root: string): void {
+  hoverGuides[root] = null;
+}
+
+/** 会话 id 归并到所属顶层会话（选中会话常驻显示其层级导线）。 */
+function topIdOfSession(root: string, sessionId: string | null): string | null {
+  if (!sessionId) return null;
+  const list = sessionsByRoot[root] ?? [];
+  const parentOf = new Map(list.map((s) => [s.id, s.parentSessionId]));
+  let top: string | null = null;
+  let cur: string | null | undefined = sessionId;
+  for (let hops = 0; cur && hops <= list.length; hops++) {
+    top = cur;
+    cur = parentOf.get(cur);
+  }
+  return top;
+}
+
+function guidesVisibleFor(root: string, item: VisibleSessionItem): boolean {
+  if (!item.topId) return false;
+  return (
+    hoverGuides[root] === item.topId ||
+    topIdOfSession(root, sessionsStore.activeId) === item.topId
+  );
+}
+
+function collapsibleSessionCount(root: string): number {
+  return Math.max(0, sessionsFor(root).length - SESSION_VISIBLE_LIMIT);
 }
 
 function hiddenSessionCount(root: string): number {
   if (sessionListExpanded[root]) return 0;
-  return Math.max(0, sessionsFor(root).length - SESSION_VISIBLE_LIMIT);
+  return collapsibleSessionCount(root);
 }
 
 function toggleSessionListExpanded(root: string): void {
@@ -411,26 +1038,60 @@ function appendSessionToOrder(root: string, sessionId: string): void {
   persistSessionOrders();
 }
 
+/** 其他组件（如派生对话）建出的会话：置顶显示，折叠状态下也能看到。 */
+function onSessionCreated(event: Event): void {
+  const detail = (event as CustomEvent<{ root?: unknown; sessionId?: unknown }>).detail;
+  const root = typeof detail?.root === "string" ? detail.root : "";
+  const sessionId = typeof detail?.sessionId === "string" ? detail.sessionId : "";
+  if (!root || !sessionId) return;
+  appendSessionToOrder(root, sessionId);
+}
+
 async function loadSessions(root: string): Promise<void> {
   markRendererStartup("renderer:sessions-request");
   const list = await window.api.sessions.list(root);
   sessionsByRoot[root] = list;
-  if (root === workspace.root) sessionsStore.sessions = list;
+  if (root === workspace.root) {
+    sessionsStore.sessions = list;
+    sessionsStore.listRoot = root;
+  }
+  useSessionWidgetsStore().pruneStaleTodoSnapshots(
+    new Set(list.map((s) => s.id)),
+  );
   markRendererStartup("renderer:ready");
 }
 
-async function ensureActiveSession(root: string): Promise<void> {
+function sameWorkspacePath(a: string, b: string): boolean {
+  const norm = (p: string) =>
+    p.replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
+  return norm(a) === norm(b);
+}
+
+async function ensureActiveSession(
+  root: string,
+  autoOpenFirst = true,
+): Promise<void> {
+  // 草稿态没有真实会话：同一工作区保留，切到别的目录则放弃。
+  if (sessionsStore.draftRoot) {
+    if (sameWorkspacePath(sessionsStore.draftRoot, root)) return;
+    sessionsStore.draftRoot = null;
+  }
   const list = sessionsByRoot[root] ?? [];
   if (sessionsStore.activeId && list.some((s) => s.id === sessionsStore.activeId)) {
     // Re-open so main-process broker always has the session (cold start / HMR).
     await onSelectSession(root, sessionsStore.activeId);
     return;
   }
+  if (!autoOpenFirst) return;
   const first = sessionsFor(root)[0];
   if (first) await onSelectSession(root, first.id);
 }
 
+let skipAutoSelectRoot: string | null = null;
+
 function workspaceName(path: string): string {
+  const alias = workspace.aliases[path]?.trim();
+  if (alias) return alias;
   const parts = path.replace(/\\/g, "/").split("/");
   return parts.filter(Boolean).pop() ?? path;
 }
@@ -440,7 +1101,11 @@ async function onWorkspaceClick(path: string): Promise<void> {
   if (workspace.root !== path) {
     // Leaving the current workspace also abandons an unstarted 新会话 there.
     await discardActiveUnstartedForRoot(workspace.root);
-    await workspace.openWorkspacePath(path);
+    skipAutoSelectRoot = path;
+    const next = await workspace.openWorkspacePath(path);
+    // 切换成功后由 root watcher 统一加载并展开，避免重复加载造成列表二次渲染；
+    // 未切换（如拒绝信任）时仍允许展开查看列表
+    if (next === path) return;
     expanded[path] = true;
     await loadSessions(path);
     return;
@@ -450,7 +1115,6 @@ async function onWorkspaceClick(path: string): Promise<void> {
 }
 
 async function onNewAgent(): Promise<void> {
-  if (workspace.trustDialogOpen) return;
   let root = workspace.root;
   if (!root) root = await workspace.openWorkspace();
   if (!root) return;
@@ -460,23 +1124,16 @@ async function onNewAgent(): Promise<void> {
 async function onNewAgentForWorkspace(root: string, event?: Event): Promise<void> {
   event?.stopPropagation();
   event?.preventDefault();
-  if (workspace.trustDialogOpen) return;
-  // Creating in another workspace abandons the unstarted session open here;
-  // same-root creation is handled inside createSession (no empty-state flash).
+  // 在别的目录新建会放弃当前未使用的空会话。
   if (workspace.root && workspace.root !== root) {
     await discardActiveUnstartedForRoot(workspace.root);
   }
   if (workspace.root !== root) {
     await workspace.openWorkspacePath(root);
   }
-  if (workspace.trustDialogOpen || !workspace.sessionsReady) return;
+  if (!workspace.sessionsReady) return;
   expanded[root] = true;
-  const created = await sessionsStore.createSession(root);
-  await loadSessions(root);
-  if (created) {
-    appendSessionToOrder(root, created.id);
-    await onSelectSession(root, created.id);
-  }
+  sessionsStore.beginDraft(root);
 }
 
 async function onAddWorkspace(): Promise<void> {
@@ -561,7 +1218,7 @@ async function onSelectSession(root: string, sessionId: string): Promise<void> {
     // Load history from disk in parallel with opening the session in main:
     // history only needs the file path, so the two round-trips no longer stack.
     const historyPromise = opened?.filePath
-      ? window.api.sessions.history(opened.filePath, { limit: HISTORY_LOAD_LIMIT })
+      ? window.api.sessions.history(opened.filePath, { limit: SESSION_HISTORY_LOAD_LIMIT })
       : Promise.resolve({ messages: [], hasMore: false, total: 0 });
     const [page] = await Promise.all([
       historyPromise,
@@ -641,6 +1298,25 @@ async function submitRename(): Promise<void> {
   }
 }
 
+function openWorkspaceRename(root: string): void {
+  wsRenameRoot.value = root;
+  wsRenameDraft.value = workspaceName(root);
+  wsRenameOpen.value = true;
+}
+
+async function submitWorkspaceRename(): Promise<void> {
+  const root = wsRenameRoot.value;
+  if (!root) return;
+  try {
+    // 清空输入即恢复成文件夹名
+    await workspace.renameWorkspace(root, wsRenameDraft.value.trim() || null);
+    wsRenameOpen.value = false;
+    message.success(t.renamed);
+  } catch (err) {
+    message.error(err instanceof Error ? err.message : String(err));
+  }
+}
+
 function sessionLabel(session: { name?: string; firstMessage?: string; id: string }): string {
   if (session.name?.trim()) return session.name.trim();
   if (session.firstMessage?.trim() && session.firstMessage !== "(no messages)") {
@@ -665,19 +1341,9 @@ function relativeTime(iso: string): string {
 function workspaceMenuOptions(): DropdownOption[] {
   return [
     {
-      label: t.openFolder,
-      key: "open",
-      icon: () => h(NIcon, null, { default: () => h(FolderOpenOutline) }),
-    },
-    {
       label: t.newSessionAction,
       key: "new-session",
-      icon: () => h(NIcon, null, { default: () => h(AddOutline) }),
-    },
-    {
-      label: t.refreshSessions,
-      key: "refresh",
-      icon: () => h(NIcon, null, { default: () => h(RefreshOutline) }),
+      icon: () => h(NIcon, null, { default: () => h(ChatboxOutline) }),
     },
     {
       label: t.revealInExplorer,
@@ -689,12 +1355,29 @@ function workspaceMenuOptions(): DropdownOption[] {
       key: "copy",
       icon: () => h(NIcon, null, { default: () => h(CopyOutline) }),
     },
-    { type: "divider", key: "d1" },
     {
-      label: t.closeWorkspace,
-      key: "close",
-      icon: () => h(NIcon, null, { default: () => h(CloseOutline) }),
+      label: t.relocateWorkspace,
+      key: "relocate",
+      icon: () => h(NIcon, null, { default: () => h(FolderOutline) }),
     },
+    {
+      label: t.renameProject,
+      key: "rename-project",
+      icon: () => h(NIcon, null, { default: () => h(CreateOutline) }),
+    },
+    {
+      label: t.moveToGroup,
+      key: "move-group",
+      icon: () => h(NIcon, null, { default: () => h(FolderOutline) }),
+      children: [
+        { label: t.groupDefault, key: groupOptionKey(GROUP_DEFAULT) },
+        ...workspace.groups.map((name) => ({
+          label: name,
+          key: groupOptionKey(name),
+        })),
+      ],
+    },
+    { type: "divider", key: "d1" },
     {
       label: t.removeFromList,
       key: "remove",
@@ -707,31 +1390,13 @@ async function onWorkspaceMenu(root: string, key: string | number): Promise<void
   closeCtx();
   const k = String(key);
   switch (k) {
-    case "open":
-      await onWorkspaceClick(root);
-      if (!expanded[root]) {
-        expanded[root] = true;
-        await loadSessions(root);
-      }
-      break;
     case "new-session": {
-      if (workspace.trustDialogOpen) return;
       if (workspace.root !== root) await workspace.openWorkspacePath(root);
-      if (workspace.trustDialogOpen || !workspace.sessionsReady) return;
+      if (!workspace.sessionsReady) return;
       expanded[root] = true;
-      const created = await sessionsStore.createSession(root);
-      await loadSessions(root);
-      if (created) {
-        appendSessionToOrder(root, created.id);
-        await onSelectSession(root, created.id);
-      }
+      sessionsStore.beginDraft(root);
       break;
     }
-    case "refresh":
-      expanded[root] = true;
-      await loadSessions(root);
-      message.success(t.refreshed);
-      break;
     case "reveal":
       await workspace.revealInFolder(root);
       break;
@@ -739,23 +1404,15 @@ async function onWorkspaceMenu(root: string, key: string | number): Promise<void
       await navigator.clipboard.writeText(root);
       message.success(t.pathCopied);
       break;
-    case "close": {
-      // Close = hide from the main list; the workspace moves to the
-      // "Closed workspaces" section and can be reopened later.
-      // An unstarted 新会话 left open there has no value — drop it first.
-      if (sessionsStore.activeId && root === workspace.root) {
-        await discardActiveUnstartedForRoot(root);
-      }
-      await workspace.closeWorkspace(root);
-      delete sessionsByRoot[root];
-      delete expanded[root];
-      if (workspace.root) {
-        expanded[workspace.root] = true;
-        await loadSessions(workspace.root);
-        await ensureActiveSession(workspace.root);
-      } else {
-        sessionsStore.activeId = null;
-      }
+    case "relocate":
+      await workspace.relocateWorkspace(root);
+      break;
+    case "rename-project":
+      openWorkspaceRename(root);
+      break;
+    case "move-group": {
+      const name = groupNameFromKey(k);
+      if (name !== null) await workspace.setGroupOf(root, name === GROUP_DEFAULT ? null : name);
       break;
     }
     case "remove": {
@@ -852,6 +1509,21 @@ function openWorkspaceCtx(e: MouseEvent, root: string): void {
   };
 }
 
+/** 省略号按钮打开工作区菜单：延后一拍，避免同一次点击冒泡到 document 被 clickoutside 立即关掉。 */
+function onWorkspaceMore(e: MouseEvent, root: string): void {
+  const { clientX, clientY } = e;
+  void nextTick(() => {
+    ctx.value = {
+      show: true,
+      x: clientX,
+      y: clientY,
+      kind: "workspace",
+      root,
+      session: null,
+    };
+  });
+}
+
 function openSessionCtx(e: MouseEvent, root: string, session: SessionSummary): void {
   e.preventDefault();
   e.stopPropagation();
@@ -879,59 +1551,64 @@ function isRunning(status: SessionStatus): boolean {
   return status === "running";
 }
 
-const sessionsPaneSize = computed(() => Math.max(22, 100 - layout.leftFilesSize));
-
-function onLeftSplitResized(payload: SplitpanesResizedPayload): void {
-  if (payload.panes.length < 2) return;
-  const filesPane = payload.panes[1];
-  if (filesPane?.size > 0) layout.setLeftFilesSize(filesPane.size);
+function hasPendingAsk(sessionId: string): boolean {
+  const state = chatStore.bySession[sessionId];
+  return Boolean(
+    state?.pendingAskUser ||
+      state?.pendingPermission ||
+      state?.pendingExtensionUi,
+  );
 }
+
+const justEnded = reactive(new Set<string>());
+let prevStatuses = new Map<string, SessionStatus>();
+
+watch(
+  () => sessionsStore.sessions,
+  (rows) => {
+    for (const row of rows) {
+      const was = prevStatuses.get(row.id);
+      if (!was || was === "idle" || row.status !== "idle") continue;
+      if (row.id !== sessionsStore.activeId) justEnded.add(row.id);
+    }
+    prevStatuses = new Map(rows.map((row) => [row.id, row.status]));
+  },
+  { immediate: true },
+);
+
+watch(
+  () => sessionsStore.activeId,
+  (id) => {
+    if (id) justEnded.delete(id);
+  },
+);
 </script>
 
 <template>
   <aside class="sidebar">
     <div class="top-actions">
       <NButton
-        secondary
-        strong
+        quaternary
         size="small"
         class="pi-interactive top-btn"
-        :disabled="workspace.trustDialogOpen"
-        @click="onAddWorkspace"
-      >
-        <template #icon>
-          <NIcon :component="FolderOpenOutline" :size="14" />
-        </template>
-        <span class="btn-label">{{ t.openWorkspace }}</span>
-      </NButton>
-      <NButton
-        secondary
-        strong
-        size="small"
-        class="pi-interactive top-btn"
-        :disabled="workspace.trustDialogOpen"
         @click="onNewAgent"
       >
-        <template #icon>
-          <NIcon :component="AddOutline" :size="14" />
-        </template>
-        <span class="btn-label">{{ t.newSessionAction }}</span>
+        <span class="btn-content">
+          <NIcon :component="ChatboxOutline" :size="15" />
+          <span class="btn-label">{{ t.newSessionAction }}</span>
+        </span>
       </NButton>
-      <NTooltip>
-        <template #trigger>
-          <NButton
-            class="collapse-left-btn"
-            quaternary
-            circle
-            @click="layout.toggleLeftCollapsed()"
-          >
-            <template #icon>
-              <PanelLeftIcon :size="15" />
-            </template>
-          </NButton>
-        </template>
-        {{ t.collapseLeft }}
-      </NTooltip>
+      <NButton
+        quaternary
+        size="small"
+        class="pi-interactive top-btn"
+        @click="onAddWorkspace"
+      >
+        <span class="btn-content">
+          <NIcon :component="FolderOpenOutline" :size="15" />
+          <span class="btn-label">{{ t.openWorkspace }}</span>
+        </span>
+      </NButton>
     </div>
 
     <NAlert v-if="showStuckRecovery" type="warning" :bordered="false" style="margin: 0 8px 8px">
@@ -942,207 +1619,302 @@ function onLeftSplitResized(payload: SplitpanesResizedPayload): void {
       </NSpace>
     </NAlert>
 
-    <Splitpanes class="left-split" horizontal @resized="onLeftSplitResized">
-      <Pane :size="sessionsPaneSize" :min-size="22">
-        <div class="sessions-pane">
-          <div class="section-head">
-            <NText depth="3" style="font-size: 12px; font-weight: 600">{{ t.workspaces }}</NText>
+    <div class="sessions-pane">
+      <div class="ws-tools">
+        <div v-if="selectMode" class="ws-select-actions">
+          <NButton quaternary size="small" @click="exitSelectMode">{{ t.cancel }}</NButton>
+          <NButton
+            quaternary
+            size="small"
+            :disabled="!selectedSessionIds.length"
+            @click="archiveSelectedSessions"
+          >
+            {{ t.archiveMenu }}
+          </NButton>
+          <NButton
+            quaternary
+            size="small"
+            :disabled="!selectedSessionIds.length"
+            @click="deleteSelectedSessions"
+          >
+            {{ t.delete }}
+          </NButton>
+        </div>
+        <NButton
+          v-if="!selectMode"
+          quaternary
+          size="small"
+          class="pi-interactive ws-panel-toggle"
+          :title="workspacePanelLabel"
+          @click="workspaceCollapsed = !workspaceCollapsed"
+        >
+          <span class="btn-content">
+            <NIcon
+              :component="workspaceCollapsed ? ChevronForwardOutline : ChevronDownOutline"
+              :size="14"
+            />
+            <span class="ws-panel-label">{{ workspacePanelLabel }}</span>
+          </span>
+        </NButton>
+        <div class="ws-tool-icons">
+          <NDropdown
+            trigger="click"
+            :options="groupMenuOptions()"
+            :render-label="renderGroupLabel"
+            @select="onGroupMenuSelect"
+          >
+            <NButton quaternary size="tiny" :title="t.groupAllProjects">
+              <template #icon>
+                <NIcon :component="SwapHorizontalOutline" :size="14" />
+              </template>
+            </NButton>
+          </NDropdown>
+          <NButton
+            quaternary
+            size="tiny"
+            :title="t.collapseAllWorkspaces"
+            @click="collapseAllWorkspaces"
+          >
+            <template #icon>
+              <NIcon :component="ContractOutline" :size="14" />
+            </template>
+          </NButton>
+          <NDropdown
+            trigger="click"
+            :options="groupAdminOptions()"
+            @select="onGroupAdminSelect"
+          >
+            <NButton quaternary size="tiny" :title="t.moreActions">
+              <template #icon>
+                <NIcon :component="EllipsisHorizontalOutline" :size="14" />
+              </template>
+            </NButton>
+          </NDropdown>
+        </div>
+      </div>
+
+      <NScrollbar v-if="workspacePaths.length && !workspaceCollapsed" class="tree">
+        <div ref="workspaceTreeEl" class="ws-tree">
+          <div
+            v-for="root in workspacePaths"
+            :key="root"
+            class="ws-block"
+            :data-root="root"
+          >
+          <div
+            class="ws-row-wrap"
+            :class="{ active: workspace.root === root && !sessionsStore.activeId }"
+          >
+            <button
+              type="button"
+              class="ws-row"
+              :title="root"
+              @click="onWorkspaceClick(root)"
+              @contextmenu="(e) => openWorkspaceCtx(e, root)"
+            >
+              <span class="chevron" :class="{ open: expanded[root] }">
+                <NIcon :component="ChevronForwardOutline" :size="14" />
+              </span>
+              <NEllipsis style="font-weight: 600; flex: 1; min-width: 0">{{
+                workspaceName(root)
+              }}</NEllipsis>
+            </button>
             <NTooltip>
               <template #trigger>
-                <NButton quaternary circle size="tiny" @click="onAddWorkspace">
+                <NButton
+                  class="ws-action"
+                  quaternary
+                  circle
+                  size="tiny"
+                  @click="(e) => void onNewAgentForWorkspace(root, e)"
+                >
                   <template #icon>
-                    <NIcon :component="FolderOpenOutline" :size="14" />
+                    <NIcon :component="ChatboxOutline" :size="14" />
                   </template>
                 </NButton>
               </template>
-              {{ t.addWorkspace }}
+              {{ t.newSessionAction }}
+            </NTooltip>
+            <NTooltip>
+              <template #trigger>
+                <NButton
+                  class="ws-action"
+                  quaternary
+                  circle
+                  size="tiny"
+                  @click="(e) => onWorkspaceMore(e, root)"
+                >
+                  <template #icon>
+                    <NIcon :component="EllipsisHorizontalOutline" :size="14" />
+                  </template>
+                </NButton>
+              </template>
+              {{ t.moreActions }}
             </NTooltip>
           </div>
 
-          <NScrollbar v-if="workspacePaths.length" class="tree">
-            <div ref="workspaceTreeEl" class="ws-tree">
-              <div
-                v-for="root in workspacePaths"
-                :key="root"
-                class="ws-block"
-                :data-root="root"
-              >
-              <div class="ws-row-wrap">
-                <button
-                  type="button"
-                  class="ws-row"
-                  :class="{ active: workspace.root === root && !sessionsStore.activeId }"
-                  :title="root"
-                  @click="onWorkspaceClick(root)"
-                  @contextmenu="(e) => openWorkspaceCtx(e, root)"
-                >
-                  <span class="chevron" :class="{ open: expanded[root] }">
-                    <NIcon :component="ChevronForwardOutline" :size="14" />
-                  </span>
-                  <NEllipsis style="font-weight: 600; flex: 1; min-width: 0">{{
-                    workspaceName(root)
-                  }}</NEllipsis>
-                </button>
-                <NTooltip>
-                  <template #trigger>
-                    <NButton
-                      class="ws-new-session"
-                      quaternary
-                      circle
-                      size="tiny"
-                      :disabled="workspace.trustDialogOpen"
-                      @click="(e) => void onNewAgentForWorkspace(root, e)"
-                    >
-                      <template #icon>
-                        <NIcon :component="AddOutline" :size="14" />
-                      </template>
-                    </NButton>
-                  </template>
-                  {{ t.newSessionAction }}
-                </NTooltip>
-              </div>
-
-              <ul
-                v-show="expanded[root]"
-                class="session-list"
-                :class="{ open: expanded[root] }"
-                :ref="(el) => setSessionListRef(root, el)"
-              >
-                <li v-if="!sessionsFor(root).length" class="empty-inline">{{ t.emptySessions }}</li>
-                <li
-                  v-for="(session, sIdx) in visibleSessionsFor(root)"
-                  :key="session.id"
-                  class="session-row"
-                  :data-id="session.id"
-                  :class="{
-                    active: sessionsStore.activeId === session.id,
-                    running: isRunning(session.status),
-                  }"
-                  :style="{ '--i': String(sIdx) }"
-                  @click="onSelectSession(root, session.id)"
-                  @contextmenu="(e) => openSessionCtx(e, root, session)"
-                >
-                  <div class="session-inner">
-                    <span class="active-bar" />
-                    <span class="status-mark" :class="`st-${session.status || 'idle'}`" aria-hidden="true">
-                      <i class="status-core" />
-                    </span>
-                    <div class="session-body">
-                      <div class="session-title-row">
-                        <NIcon
-                          v-if="isPinned(root, session.id)"
-                          class="pin"
-                          :component="PinOutline"
-                          :size="11"
-                        />
-                        <span class="session-label">{{ sessionLabel(session) }}</span>
-                      </div>
-                      <div class="session-meta">
-                        <span class="time">{{ relativeTime(session.modified) }}</span>
-                        <span v-if="isRunning(session.status)" class="run-tag">live</span>
-                        <span v-else-if="session.status === 'error'" class="err-tag">err</span>
-                        <span v-else-if="session.status === 'stuck'" class="stuck-tag">stuck</span>
-                      </div>
-                    </div>
-                    <NButton
-                      class="trash"
-                      quaternary
-                      circle
-                      size="tiny"
-                      @click.stop="confirmDeleteSession(root, session.id)"
-                    >
-                      <template #icon>
-                        <NIcon :component="TrashOutline" :size="14" />
-                      </template>
-                    </NButton>
-                  </div>
-                </li>
-                <li v-if="hiddenSessionCount(root) > 0" class="session-expand-row">
-                  <button
-                    type="button"
-                    class="session-expand-btn"
-                    @click.stop="toggleSessionListExpanded(root)"
-                  >
-                    {{ t.showMoreSessions(hiddenSessionCount(root)) }}
-                  </button>
-                </li>
-                <li
-                  v-else-if="
-                    sessionListExpanded[root] &&
-                    sessionsFor(root).length > SESSION_VISIBLE_LIMIT
-                  "
-                  class="session-expand-row"
-                >
-                  <button
-                    type="button"
-                    class="session-expand-btn"
-                    @click.stop="toggleSessionListExpanded(root)"
-                  >
-                    {{ t.collapseSessions }}
-                  </button>
-                </li>
-              </ul>
-              </div>
-            </div>
-          </NScrollbar>
-          <div v-else class="empty">{{ t.emptyWorkspaces }}</div>
-
-          <!-- Closed workspaces (collapsed section, re-openable) -->
-          <div v-if="closedPaths.length" class="closed-ws">
-            <button
-              type="button"
-              class="closed-ws-head"
-              :aria-expanded="closedExpanded"
-              @click="toggleClosed"
+          <ul
+            v-show="expanded[root]"
+            class="session-list"
+            :class="{
+              open: expanded[root],
+              'hover-actions': appearance.showSessionHoverActions,
+            }"
+            :ref="(el) => setSessionListRef(root, el)"
+          >
+            <li v-if="!sessionsFor(root).length" class="empty-inline">{{ t.emptySessions }}</li>
+            <li
+              v-for="(item, sIdx) in visibleTreeItemsFor(root)"
+              :key="item.session.id"
+              class="session-row"
+              :data-id="item.session.id"
+              :class="{
+                active: sessionsStore.activeId === item.session.id,
+                running: isRunning(item.session.status),
+                'guides-visible': guidesVisibleFor(root, item),
+                selected: selectMode && isSessionSelected(item.session.id),
+              }"
+              :style="{ '--i': String(sIdx), '--depth': item.depth }"
+              :aria-expanded="
+                item.hasChildren
+                  ? !isTreeNodeCollapsed(root, item.session.id)
+                  : undefined
+              "
+              @click="
+                selectMode
+                  ? onSessionRowClick(item.session.id, $event.shiftKey)
+                  : onSelectSession(root, item.session.id)
+              "
+              @contextmenu="(e) => openSessionCtx(e, root, item.session)"
+              @mouseenter="onSessionRowEnter(root, item)"
+              @mouseleave="onSessionRowLeave(root)"
             >
-              <span class="chevron" :class="{ open: closedExpanded }">
-                <NIcon :component="ChevronForwardOutline" :size="13" />
-              </span>
-              <span class="closed-ws-title">{{ t.closedWorkspaces }}</span>
-              <span class="closed-ws-count">{{ closedPaths.length }}</span>
-            </button>
-            <div v-if="closedExpanded" class="closed-ws-list">
-              <div
-                v-for="root in closedPaths"
-                :key="root"
-                class="closed-ws-row"
-                :title="root"
-              >
+              <div class="session-inner">
+                <span
+                  v-for="(full, gi) in item.guideFull"
+                  :key="gi"
+                  class="tree-guide"
+                  :class="{
+                    full,
+                    elbow: !full && gi === item.guideFull.length - 1,
+                    ended: !full && gi < item.guideFull.length - 1,
+                  }"
+                  :style="{ '--g': gi }"
+                  aria-hidden="true"
+                />
+                <span
+                  v-if="item.depth > 0 && !item.isLastSibling"
+                  class="tree-connector"
+                  :style="{ '--g': item.depth - 1 }"
+                  aria-hidden="true"
+                />
+                <span
+                  v-if="item.hasChildren && !isTreeNodeCollapsed(root, item.session.id)"
+                  class="tree-descender"
+                  :style="{ '--g': item.depth }"
+                  aria-hidden="true"
+                />
+                <span class="active-bar" />
+                <span class="status-mark" :class="`st-${item.session.status || 'idle'}`" aria-hidden="true">
+                  <i class="status-core" />
+                </span>
                 <button
+                  v-if="item.hasChildren"
                   type="button"
-                  class="closed-ws-open"
-                  @click="() => void onReopenClosed(root)"
+                  class="tree-twistie"
+                  :class="{ collapsed: isTreeNodeCollapsed(root, item.session.id) }"
+                  @click.stop="toggleTreeNode(root, item.session.id)"
                 >
-                  <span class="closed-ws-name">{{ workspaceName(root) }}</span>
+                  <NIcon :component="ChevronDownOutline" :size="16" />
                 </button>
-                <NTooltip>
-                  <template #trigger>
-                    <NButton
-                      quaternary
-                      size="tiny"
-                      class="closed-ws-remove"
-                      :aria-label="t.removeFromList"
-                      @click.stop="confirmPurgeWorkspace(root)"
+                <div class="session-body">
+                  <div class="session-title-row">
+                    <NIcon
+                      v-if="isPinned(root, item.session.id)"
+                      class="pin"
+                      :component="PinOutline"
+                      :size="11"
+                    />
+                    <span class="session-label">{{ sessionLabel(item.session) }}</span>
+                  </div>
+                  <div class="session-meta">
+                    <span class="time">{{ relativeTime(item.session.modified) }}</span>
+                    <span
+                      v-if="isRunning(item.session.status)"
+                      class="run-tag"
+                      :class="{ 'run-tag-ask': hasPendingAsk(item.session.id) }"
+                      >{{ hasPendingAsk(item.session.id) ? "ask" : "live" }}</span
                     >
-                      <template #icon>
-                        <NIcon :component="TrashOutline" :size="13" />
-                      </template>
-                    </NButton>
+                    <span v-else-if="item.session.status === 'error'" class="err-tag">err</span>
+                    <span v-else-if="item.session.status === 'stuck'" class="stuck-tag">stuck</span>
+                    <span v-else-if="justEnded.has(item.session.id)" class="done-tag">done</span>
+                  </div>
+                </div>
+                <NCheckbox
+                  v-if="selectMode"
+                  class="session-check"
+                  :checked="isSessionSelected(item.session.id)"
+                  @click.stop
+                  @update:checked="toggleSessionSelect(item.session.id)"
+                />
+                <NButton
+                  v-else
+                  class="trash"
+                  quaternary
+                  circle
+                  size="tiny"
+                  @click.stop="confirmDeleteSession(root, item.session.id)"
+                >
+                  <template #icon>
+                    <NIcon :component="TrashOutline" :size="14" />
                   </template>
-                  {{ t.removeFromList }}
-                </NTooltip>
+                </NButton>
               </div>
-            </div>
+            </li>
+            <li v-if="hiddenSessionCount(root) > 0" class="session-expand-row">
+              <button
+                type="button"
+                class="session-expand-btn"
+                @click.stop="toggleSessionListExpanded(root)"
+              >
+                {{ t.showMoreSessions(hiddenSessionCount(root)) }}
+              </button>
+            </li>
+            <li
+              v-else-if="
+                sessionListExpanded[root] &&
+                sessionsFor(root).length > SESSION_VISIBLE_LIMIT
+              "
+              class="session-expand-row"
+            >
+              <button
+                type="button"
+                class="session-expand-btn"
+                @click.stop="toggleSessionListExpanded(root)"
+              >
+                {{ t.collapseSessions(collapsibleSessionCount(root)) }}
+              </button>
+            </li>
+          </ul>
           </div>
         </div>
-      </Pane>
+      </NScrollbar>
+      <div v-else-if="!workspaceCollapsed" class="empty">{{ t.emptyWorkspaces }}</div>
+    </div>
 
-      <Pane :size="layout.leftFilesSize" :min-size="22">
-        <div class="files-pane">
-          <FilesTab />
-        </div>
-      </Pane>
-    </Splitpanes>
+    <div class="customize-bar">
+      <button
+        v-for="entry in customizeEntries"
+        :key="entry.name"
+        type="button"
+        class="customize-btn"
+        :title="entry.label"
+        @click="openCustomize(entry.section)"
+      >
+        <CodiconIcon :name="entry.name" :size="16" />
+        <span class="customize-label">{{ entry.label }}</span>
+      </button>
+    </div>
 
     <NModal
       v-model:show="renameOpen"
@@ -1153,6 +1925,97 @@ function onLeftSplitResized(payload: SplitpanesResizedPayload): void {
       @positive-click="submitRename"
     >
       <NInput v-model:value="renameDraft" :placeholder="t.sessionNamePlaceholder" @keydown.enter.prevent="submitRename" />
+    </NModal>
+
+    <NModal
+      v-model:show="wsRenameOpen"
+      preset="dialog"
+      :title="t.renameProject"
+      :positive-text="t.save"
+      :negative-text="t.cancel"
+      @positive-click="submitWorkspaceRename"
+    >
+      <NInput v-model:value="wsRenameDraft" :placeholder="t.renameProjectPlaceholder" @keydown.enter.prevent="submitWorkspaceRename" />
+    </NModal>
+
+    <NModal
+      v-model:show="groupDialogOpen"
+      preset="dialog"
+      :title="groupDialogMode === 'create' ? t.groupNew : t.groupRename"
+      :positive-text="t.save"
+      :negative-text="t.cancel"
+      @positive-click="submitGroupDialog"
+    >
+      <NInput v-model:value="groupDraft" :placeholder="t.groupNamePlaceholder" @keydown.enter.prevent="submitGroupDialog" />
+    </NModal>
+
+    <NModal
+      v-model:show="archivedOpen"
+      preset="card"
+      class="pi-settings-modal"
+      :bordered="false"
+      :mask-closable="false"
+      size="huge"
+      :title="t.archivedSessions"
+      style="width: min(520px, 92vw)"
+    >
+      <NInput
+        v-model:value="archivedQuery"
+        class="archived-search"
+        size="small"
+        clearable
+        :placeholder="t.archiveSearchPlaceholder"
+      />
+      <div v-if="!archivedFilteredRows.length" class="archived-empty">
+        {{ archivedQuery.trim() ? t.archiveNoMatch : t.archiveEmpty }}
+      </div>
+      <ul v-else class="archived-list">
+        <li
+          v-for="row in archivedFilteredRows"
+          :key="row.id"
+          class="archived-row"
+          :class="{ selected: isArchivedSelected(row.id) }"
+          @click="onArchivedRowClick(row.id, $event.shiftKey)"
+        >
+          <NCheckbox
+            class="archived-check"
+            :checked="isArchivedSelected(row.id)"
+            @click.stop
+            @update:checked="toggleArchivedSelect(row.id)"
+          />
+          <div class="archived-meta">
+            <span class="archived-label">{{ row.label }}</span>
+            <span class="archived-sub">
+              {{ row.workspace
+              }}<template v-if="row.modified"> · {{ relativeTime(row.modified) }}</template>
+            </span>
+          </div>
+        </li>
+      </ul>
+      <template #footer>
+        <div class="archived-actions">
+          <NButton quaternary size="small" @click="archivedOpen = false">
+            {{ t.cancel }}
+          </NButton>
+          <NButton
+            quaternary
+            size="small"
+            :disabled="!archivedSelected.length"
+            @click="restoreSelectedArchived"
+          >
+            {{ t.archiveRestore }}
+          </NButton>
+          <NButton
+            quaternary
+            size="small"
+            type="error"
+            :disabled="!archivedSelected.length"
+            @click="deleteSelectedArchived"
+          >
+            {{ t.delete }}
+          </NButton>
+        </div>
+      </template>
     </NModal>
 
     <NDropdown
@@ -1175,32 +2038,64 @@ function onLeftSplitResized(payload: SplitpanesResizedPayload): void {
   height: 100%;
   background: var(--bg-sidebar);
   min-width: 0;
-  border-right: 1px solid var(--border);
+  /* 右侧分栏线由 splitter 提供，再描边会叠成 2px */
 }
 
-.left-split {
+.sessions-pane {
   flex: 1;
-  min-height: 0;
-}
-
-.sessions-pane,
-.files-pane {
-  height: 100%;
   min-height: 0;
   display: flex;
   flex-direction: column;
   overflow: hidden;
 }
 
-.files-pane {
-  border-top: none;
+.ws-tools {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px 2px;
+  flex-shrink: 0;
+}
+
+.ws-select-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+
+.ws-tool-icons {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin-left: auto;
+}
+
+.ws-panel-toggle {
+  flex: 1;
+  min-width: 0;
+  justify-content: flex-start;
+  padding: 0 12px;
+  height: 24px;
+  border-radius: 6px;
+  font-size: 12.5px;
+  /* 点击后不再保留 focus 底色，只留悬停高亮 */
+  --n-color-focus: transparent !important;
+}
+
+.ws-panel-label {
+  max-width: 140px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .top-actions {
   display: flex;
-  align-items: center;
-  gap: 4px;
-  padding: 8px 6px 4px;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
+  padding: 10px 8px 8px;
   flex-shrink: 0;
   position: relative;
   z-index: 6;
@@ -1208,29 +2103,33 @@ function onLeftSplitResized(payload: SplitpanesResizedPayload): void {
 }
 
 .top-btn {
-  flex: 1;
+  width: 100%;
   min-width: 0;
-  padding: 0 6px;
-  height: 26px;
-  font-size: 12px;
+  padding: 0 10px;
+  height: 28px;
+  border-radius: 6px;
+  font-size: 12.5px;
+  /* 点击后不再保留 focus 底色，只留悬停高亮 */
+  --n-color-focus: transparent !important;
+}
+
+.top-btn :deep(.n-button__content) {
+  width: 100%;
+  justify-content: flex-start;
+}
+
+.btn-content {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
 }
 
 .top-btn .btn-label {
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.collapse-left-btn:active {
-  transform: none !important;
-}
-
-.section-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 6px 10px 2px;
-  flex-shrink: 0;
 }
 
 .tree {
@@ -1239,126 +2138,19 @@ function onLeftSplitResized(payload: SplitpanesResizedPayload): void {
   padding: 0 6px 8px;
 }
 
-/* Closed workspaces section (collapsed, re-openable). */
-.closed-ws {
-  border-top: 1px solid var(--border, rgba(128, 128, 128, 0.15));
-  padding: 6px;
-}
-
-.closed-ws-head {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  width: 100%;
-  margin: 0;
-  padding: 3px 4px;
-  border: none;
-  border-radius: 6px;
-  background: transparent;
-  color: var(--fg-muted, #888);
-  font: inherit;
-  font-size: 11.5px;
-  font-weight: 600;
-  text-align: left;
-  cursor: pointer;
-}
-
-.closed-ws-head:hover {
-  background: var(--bg-hover, rgba(127, 127, 127, 0.07));
-}
-
-.closed-ws-title {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.closed-ws-count {
-  font-size: 10.5px;
-  color: var(--fg-faint, #999);
-  background: var(--bg-hover, rgba(127, 127, 127, 0.1));
-  border-radius: 999px;
-  padding: 0 7px;
-}
-
-.closed-ws-list {
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-  margin-top: 3px;
-}
-
-.closed-ws-row {
-  display: flex;
-  align-items: center;
-  gap: 2px;
-  width: 100%;
-  padding: 1px 4px 1px 18px;
-  border-radius: 6px;
-}
-
-.closed-ws-row:hover {
-  background: var(--bg-hover, rgba(127, 127, 127, 0.07));
-}
-
-.closed-ws-open {
-  flex: 1;
-  min-width: 0;
-  margin: 0;
-  padding: 4px 4px;
-  border: none;
-  border-radius: 4px;
-  background: transparent;
-  color: var(--fg-muted, #888);
-  font: inherit;
-  font-size: 12px;
-  text-align: left;
-  cursor: pointer;
-}
-
-.closed-ws-open:hover {
-  color: var(--fg, #ddd);
-}
-
-.closed-ws-remove {
-  flex-shrink: 0;
-  opacity: 0.55;
-}
-
-.closed-ws-row:hover .closed-ws-remove {
-  opacity: 1;
-}
-
-.closed-ws-name {
-  display: block;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.left-split :deep(.splitpanes__splitter) {
-  height: 4px !important;
-  min-height: 4px !important;
-  background: var(--border) !important;
-  cursor: row-resize;
-}
-
-.left-split :deep(.splitpanes__splitter:hover) {
-  background: var(--accent-border, #93c5fd) !important;
-}
-
 .ws-row-wrap {
   display: flex;
   align-items: center;
   gap: 2px;
   width: 100%;
-  border-radius: var(--radius-sm, 7px);
+  border-radius: var(--radius-sm, 4px);
 }
 
+/* 当前工作区与悬停共用同一层背景，避免行内再叠一层出现双层色块；
+   鼠标点击后不保留高亮，仅键盘聚焦（focus-visible）时显示。 */
 .ws-row-wrap:hover,
-.ws-row-wrap:focus-within {
+.ws-row-wrap.active,
+.ws-row-wrap:has(:focus-visible) {
   background: var(--bg-hover);
 }
 
@@ -1371,7 +2163,7 @@ function onLeftSplitResized(payload: SplitpanesResizedPayload): void {
   height: 32px;
   padding: 0 8px;
   border: none;
-  border-radius: 9px;
+  border-radius: 4px;
   background: transparent;
   color: var(--fg-strong);
   font-size: 13px;
@@ -1386,11 +2178,7 @@ function onLeftSplitResized(payload: SplitpanesResizedPayload): void {
   cursor: grabbing;
 }
 
-.ws-row.active {
-  background: var(--bg-hover);
-}
-
-.ws-new-session {
+.ws-action {
   flex-shrink: 0;
   margin-right: 4px;
   opacity: 0;
@@ -1398,8 +2186,8 @@ function onLeftSplitResized(payload: SplitpanesResizedPayload): void {
   transition: opacity var(--duration-fast, 140ms) var(--ease-out, ease);
 }
 
-.ws-row-wrap:hover .ws-new-session,
-.ws-row-wrap:focus-within .ws-new-session {
+.ws-row-wrap:hover .ws-action,
+.ws-row-wrap:focus-within .ws-action {
   opacity: 1;
   pointer-events: auto;
 }
@@ -1428,7 +2216,7 @@ function onLeftSplitResized(payload: SplitpanesResizedPayload): void {
   list-style: none;
   margin: 0;
   padding: 0;
-  border-radius: 10px;
+  border-radius: 6px;
   font-size: 13px;
   color: var(--fg-muted);
   cursor: pointer;
@@ -1453,8 +2241,9 @@ function onLeftSplitResized(payload: SplitpanesResizedPayload): void {
   align-items: center;
   gap: 8px;
   min-height: 44px;
-  padding: 7px 8px 7px 14px;
-  border-radius: 10px;
+  padding: 7px 8px;
+  padding-left: calc(8px + var(--depth, 0) * 24px);
+  border-radius: 6px;
   border: 1px solid transparent;
   transition:
     background var(--duration-fast, 140ms) var(--ease-out, ease),
@@ -1482,7 +2271,7 @@ function onLeftSplitResized(payload: SplitpanesResizedPayload): void {
 
 .active-bar {
   position: absolute;
-  left: 4px;
+  left: calc(2px + var(--depth, 0) * 24px);
   top: 11px;
   bottom: 11px;
   width: 2.5px;
@@ -1494,18 +2283,107 @@ function onLeftSplitResized(payload: SplitpanesResizedPayload): void {
   transform: scaleY(0.4);
 }
 
+.tree-guide {
+  position: absolute;
+  top: -1px;
+  bottom: 50%;
+  left: calc(16px + var(--g, 0) * 24px);
+  width: 0;
+  border-left: 1px solid color-mix(in srgb, var(--fg-faint) 40%, transparent);
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.1s linear;
+}
+
+.tree-guide.full {
+  bottom: -1px;
+}
+
+.tree-guide.elbow {
+  width: 12px;
+  border-bottom: 1px solid color-mix(in srgb, var(--fg-faint) 40%, transparent);
+  border-bottom-left-radius: 4px;
+}
+
+.tree-guide.ended {
+  display: none;
+}
+
+.tree-connector {
+  position: absolute;
+  top: calc(50% - 0.5px);
+  left: calc(16px + var(--g, 0) * 24px);
+  width: 12px;
+  border-top: 1px solid color-mix(in srgb, var(--fg-faint) 40%, transparent);
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.1s linear;
+}
+
+.tree-descender {
+  position: absolute;
+  top: calc(50% + 12px);
+  bottom: -2px;
+  left: calc(16px + var(--g, 0) * 24px);
+  width: 0;
+  border-left: 1px solid color-mix(in srgb, var(--fg-faint) 40%, transparent);
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.1s linear;
+}
+
+.session-row.guides-visible .tree-guide,
+.session-row.guides-visible .tree-connector,
+.session-row.guides-visible .tree-descender {
+  opacity: 1;
+}
+
 .session-row.active .active-bar {
   background: var(--accent);
   transform: scaleY(1);
 }
 
 .status-mark {
-  width: 8px;
-  height: 8px;
+  width: 16px;
+  height: 16px;
   flex-shrink: 0;
   display: grid;
   place-items: center;
-  margin-left: 2px;
+}
+
+.tree-twistie {
+  position: absolute;
+  top: 50%;
+  left: calc(8px + var(--depth, 0) * 24px);
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--fg);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(-50%);
+  z-index: 1;
+}
+
+.tree-twistie.collapsed {
+  transform: translateY(-50%) rotate(-90deg);
+}
+
+.session-row:hover .tree-twistie,
+.tree-twistie:focus-visible {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.session-row:hover[aria-expanded] .status-mark {
+  visibility: hidden;
 }
 
 .status-core {
@@ -1531,7 +2409,7 @@ function onLeftSplitResized(payload: SplitpanesResizedPayload): void {
 }
 
 .st-stuck .status-core {
-  background: #ca8a04;
+  background: var(--warning);
 }
 
 @keyframes status-pulse {
@@ -1593,7 +2471,8 @@ function onLeftSplitResized(payload: SplitpanesResizedPayload): void {
 
 .run-tag,
 .err-tag,
-.stuck-tag {
+.stuck-tag,
+.done-tag {
   font-size: 9.5px;
   font-weight: 700;
   letter-spacing: 0.04em;
@@ -1608,14 +2487,24 @@ function onLeftSplitResized(payload: SplitpanesResizedPayload): void {
   background: color-mix(in srgb, var(--green) 14%, transparent);
 }
 
+.run-tag-ask {
+  color: var(--warning);
+  background: color-mix(in srgb, var(--warning) 16%, transparent);
+}
+
+.done-tag {
+  color: var(--fg);
+  background: color-mix(in srgb, var(--fg) 12%, transparent);
+}
+
 .err-tag {
   color: var(--red);
   background: color-mix(in srgb, var(--red) 14%, transparent);
 }
 
 .stuck-tag {
-  color: #ca8a04;
-  background: color-mix(in srgb, #ca8a04 16%, transparent);
+  color: var(--warning);
+  background: color-mix(in srgb, var(--warning) 16%, transparent);
 }
 
 .trash {
@@ -1654,12 +2543,29 @@ function onLeftSplitResized(payload: SplitpanesResizedPayload): void {
   padding: 0;
 }
 
+/* 悬停占位：默认零行高，悬停时才撑开把下方内容下推 */
+.session-list.hover-actions .session-expand-row {
+  height: 0;
+  min-height: 0;
+  overflow: hidden;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--duration-fast, 140ms) var(--ease-out, ease);
+}
+
+.session-list.hover-actions:hover .session-expand-row,
+.session-list.hover-actions:focus-within .session-expand-row {
+  height: auto;
+  opacity: 1;
+  pointer-events: auto;
+}
+
 .session-expand-btn {
   width: 100%;
   margin: 0;
   padding: 5px 8px;
   border: none;
-  border-radius: 8px;
+  border-radius: 4px;
   background: transparent;
   color: var(--fg-faint);
   font: inherit;
@@ -1674,5 +2580,133 @@ function onLeftSplitResized(payload: SplitpanesResizedPayload): void {
 .session-expand-btn:hover {
   background: var(--bg-hover);
   color: var(--fg);
+}
+
+.customize-bar {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  flex-shrink: 0;
+  padding: 4px 6px 6px;
+  border-top: 1px solid var(--border, rgba(128, 128, 128, 0.15));
+}
+
+.customize-btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  margin: 0;
+  padding: 4px 8px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--fg-muted, #888);
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+  transition:
+    background var(--duration-fast, 140ms) var(--ease-out, ease),
+    color var(--duration-fast, 140ms) var(--ease-out, ease);
+}
+
+.customize-btn:hover {
+  background: var(--bg-hover, rgba(127, 127, 127, 0.07));
+  color: var(--fg);
+}
+
+.customize-btn:focus-visible {
+  outline: 1px solid var(--border-strong, rgba(128, 128, 128, 0.4));
+  outline-offset: -1px;
+}
+
+.customize-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.session-check {
+  flex-shrink: 0;
+}
+
+.session-row.selected .session-inner {
+  background: var(--bg-selected);
+  border-color: var(--border);
+  color: var(--fg-strong);
+}
+
+.archived-empty {
+  padding: 18px 0;
+  text-align: center;
+  color: var(--fg-muted);
+  font-size: 13px;
+}
+
+.archived-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 46vh;
+  overflow: auto;
+}
+
+.archived-search {
+  margin-bottom: 8px;
+}
+
+.archived-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 4px 6px 8px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.archived-row:hover {
+  background: var(--bg-hover);
+}
+
+.archived-row.selected {
+  background: var(--bg-selected);
+}
+
+.archived-check {
+  flex-shrink: 0;
+}
+
+.archived-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.archived-meta {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.archived-label {
+  font-size: 13px;
+  color: var(--fg);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.archived-sub {
+  font-size: 11.5px;
+  color: var(--fg-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 </style>

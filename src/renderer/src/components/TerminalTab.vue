@@ -22,6 +22,8 @@ const props = defineProps<{
   ptyId?: string | null;
   /** Cwd used when the pty was created. */
   cwd?: string | null;
+  /** Shell id chosen for this tab (empty = default shell). */
+  shellId?: string | null;
 }>();
 
 const workspace = useWorkspaceStore();
@@ -189,6 +191,7 @@ function bindXterm(host: HTMLDivElement): Terminal {
     rightClickSelectsWord: false,
     scrollback: 5000,
     windowOptions: {},
+    allowTransparency: true,
     theme: xtermTheme(appearance.resolvedTheme === "dark"),
   });
   fit = new FitAddon();
@@ -236,9 +239,13 @@ async function start(): Promise<void> {
 
   if (!id) {
     if (!preferredCwd) return;
-    id = await window.api.terminal.create(preferredCwd);
+    id = await window.api.terminal.create(preferredCwd, props.shellId || undefined);
     if (props.instanceId) {
-      rightTabs.patchTab(props.instanceId, { ptyId: id, cwd: preferredCwd });
+      rightTabs.patchTab(props.instanceId, {
+        ptyId: id,
+        cwd: preferredCwd,
+        shellId: props.shellId || undefined,
+      });
     }
   }
 
@@ -316,7 +323,7 @@ onBeforeUnmount(() => {
   min-height: 0;
   min-width: 0;
   overflow: hidden;
-  background: var(--bg-elevated);
+  background: var(--bg-panel);
 }
 
 .term-host {

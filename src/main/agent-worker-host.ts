@@ -7,12 +7,11 @@ import type {
 import type { SpawnWorker, WorkerHandle } from "./session-broker";
 import { getDesktopSecuritySettings } from "./desktop-security-host";
 import { buildAgentWorkerEnv } from "./pi-path-env";
-import { withProxyEnv } from "./proxy-host";
+import { withProxyEnv, refreshSystemProxy } from "./proxy-host";
 import {
   PI_DESKTOP_NODE_PATH_ENV,
   PI_DESKTOP_PI_CLI_PATH_ENV,
 } from "../shared/pi-subagent-env";
-import { resolveTrustState } from "./project-trust";
 import type { WorkerResourceSummary } from "../shared/worker-resources";
 import { IpcChannels } from "../shared/protocol";
 
@@ -99,6 +98,7 @@ function waitForReady(
 
 export function createUtilityProcessSpawnWorker(): SpawnWorker {
   return async (cwd, filePath) => {
+    await refreshSystemProxy();
     const workerEnv = withProxyEnv(
       buildAgentWorkerEnv(
         { ...process.env },
@@ -191,13 +191,11 @@ export function createUtilityProcessSpawnWorker(): SpawnWorker {
     };
 
     const readyPromise = waitForReady(child);
-    const projectTrusted = resolveTrustState(cwd).projectTrusted;
     const desktopSecurity = await getDesktopSecuritySettings();
     child.postMessage({
       kind: "init",
       cwd,
       filePath,
-      projectTrusted,
       desktopSecurity,
     } satisfies WorkerInbound);
     const ready = await readyPromise;

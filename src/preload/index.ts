@@ -2,25 +2,36 @@ import { contextBridge, ipcRenderer, webUtils } from "electron";
 import { electronAPI } from "@electron-toolkit/preload";
 import type {
 	AgentCommand,
+	CloudflareTunnelStatus,
 	LanConsoleStatus,
 	AgentEvent,
 	ElementCitation,
 	SessionHistoryMessage,
 	SessionHistoryPage,
 	SessionHistoryQuery,
+	SessionForkResult,
 	SessionInfoResult,
 	SessionStatus,
 	SessionSummary,
+	TerminalShellOption,
+	WorkspaceGroups,
 } from "../shared/protocol";
 import { IpcChannels } from "../shared/protocol";
+import type { EditContextMenuAction, EditContextMenuPayload } from "../shared/context-menu";
 import type { AgentRunEvent, AgentRunSnapshot } from "../shared/agent-runs";
+import type { AgentSaveResult, CustomizationsSnapshot, CustomizationCreateKind, InstructionsSaveResult, McpTestResult, McpTestTarget, SkillSaveResult } from "../shared/customizations";
 import type {
 	ModelsGetResult,
+	ModelsOAuthEventPayload,
+	ModelsOAuthPromptReply,
 	ModelsSetPayload,
+	ProviderCatalogResult,
 } from "../shared/models-settings";
+import type { ModelSelection } from "../shared/model-selection";
 import type {
 	DiscoverModelsResult,
 	TestModelConnectionResult,
+	TestProviderBaseUrlResult,
 } from "../shared/model-discover";
 import type { PreviewResult } from "../shared/preview-types";
 import type {
@@ -44,6 +55,8 @@ import type {
 	PiPackageInstallResult,
 	PiPackageListResult,
 	PiPackageType,
+	PluginUpdateProgress,
+	PluginVersionInfo,
 } from "../shared/pi-market";
 import type {
 	DesktopSecuritySettings,
@@ -55,12 +68,13 @@ import type {
 	ExtensionUiEvent,
 	ExtensionUiReply,
 } from "../shared/extension-ui";
-import type { TrustState } from "../shared/protocol";
+import type { PendingUiSnapshotRequest } from "../shared/protocol";
 import type {
 	GitConflictContentResult,
 	GitOpResult,
 } from "../shared/git-types";
 import type { ProxySettings } from "../shared/proxy";
+import type { ThinkingLanguageSettings } from "../shared/thinking-language";
 
 export type AppInfo = {
 	version: string;
@@ -102,22 +116,43 @@ const api = {
 				IpcChannels.lanConsole.setEnabled,
 				enabled,
 			) as Promise<LanConsoleStatus>,
+		setPublicAccess: (enabled: boolean) =>
+			ipcRenderer.invoke(
+				IpcChannels.lanConsole.setPublicAccess,
+				enabled,
+			) as Promise<LanConsoleStatus>,
 		setPort: (port: number) =>
 			ipcRenderer.invoke(
 				IpcChannels.lanConsole.setPort,
 				port,
 			) as Promise<LanConsoleStatus>,
-		setCredentials: (username: string, password: string) =>
+		rotatePin: () =>
 			ipcRenderer.invoke(
-				IpcChannels.lanConsole.setCredentials,
-				String(username ?? ""),
-				String(password ?? ""),
+				IpcChannels.lanConsole.rotatePin,
+			) as Promise<LanConsoleStatus>,
+		setTunnelConfig: (token: string, publicUrl: string) =>
+			ipcRenderer.invoke(
+				IpcChannels.lanConsole.setTunnelConfig,
+				String(token ?? ""),
+				String(publicUrl ?? ""),
 			) as Promise<LanConsoleStatus>,
 		setPreferredIp: (ip: string) =>
 			ipcRenderer.invoke(
 				IpcChannels.lanConsole.setPreferredIp,
 				String(ip ?? ""),
 			) as Promise<LanConsoleStatus>,
+		onTunnelStatus: (callback: (status: CloudflareTunnelStatus) => void) => {
+			const listener = (
+				_event: unknown,
+				status: CloudflareTunnelStatus,
+			): void => callback(status);
+			ipcRenderer.on(IpcChannels.lanConsole.tunnelStatus, listener);
+			return () =>
+				ipcRenderer.removeListener(
+					IpcChannels.lanConsole.tunnelStatus,
+					listener,
+				);
+		},
 	},
 	proxy: {
 		get: () =>
@@ -166,6 +201,19 @@ const api = {
 			) as Promise<boolean>,
 		openDevTools: () =>
 			ipcRenderer.invoke(IpcChannels.window.openDevTools) as Promise<void>,
+		onContextMenu: (callback: (payload: EditContextMenuPayload) => void) => {
+			const listener = (_event: unknown, payload: EditContextMenuPayload) =>
+				callback(payload);
+			ipcRenderer.on(IpcChannels.window.contextMenu, listener);
+			return () => {
+				ipcRenderer.removeListener(IpcChannels.window.contextMenu, listener);
+			};
+		},
+		runContextMenuAction: (action: EditContextMenuAction) =>
+			ipcRenderer.invoke(
+				IpcChannels.window.contextMenuAction,
+				action,
+			) as Promise<void>,
 		onCloseRequest: (callback: () => void) => {
 			const listener = () => callback();
 			ipcRenderer.on(IpcChannels.window.closeRequest, listener);
@@ -201,8 +249,6 @@ const api = {
 			ipcRenderer.invoke(IpcChannels.workspace.listRecentDesktop) as Promise<
 				string[]
 			>,
-		listClosed: () =>
-			ipcRenderer.invoke(IpcChannels.workspace.listClosed) as Promise<string[]>,
 		openPath: (root: string) =>
 			ipcRenderer.invoke(IpcChannels.workspace.openPath, root) as Promise<
 				string | null
@@ -222,6 +268,51 @@ const api = {
 			ipcRenderer.invoke(IpcChannels.workspace.reorderRecent, order) as Promise<
 				string[]
 			>,
+		listAliases: () =>
+			ipcRenderer.invoke(IpcChannels.workspace.listAliases) as Promise<
+				Record<string, string>
+			>,
+		setAlias: (root: string, name: string | null) =>
+			ipcRenderer.invoke(IpcChannels.workspace.setAlias, root, name) as Promise<
+				Record<string, string>
+			>,
+		relocate: (root: string, next: string) =>
+			ipcRenderer.invoke(IpcChannels.workspace.relocate, root, next) as Promise<{
+				root: string | null;
+				recent: string[];
+				aliases: Record<string, string>;
+			}>,
+		listGroups: () =>
+			ipcRenderer.invoke(IpcChannels.workspace.listGroups) as Promise<WorkspaceGroups>,
+		addGroup: (name: string) =>
+			ipcRenderer.invoke(IpcChannels.workspace.addGroup, name) as Promise<WorkspaceGroups>,
+		renameGroup: (from: string, to: string) =>
+			ipcRenderer.invoke(
+				IpcChannels.workspace.renameGroup,
+				from,
+				to,
+			) as Promise<WorkspaceGroups>,
+		removeGroup: (name: string) =>
+			ipcRenderer.invoke(
+				IpcChannels.workspace.removeGroup,
+				name,
+			) as Promise<WorkspaceGroups>,
+		setGroupOf: (root: string, group: string | null) =>
+			ipcRenderer.invoke(
+				IpcChannels.workspace.setGroupOf,
+				root,
+				group,
+			) as Promise<WorkspaceGroups>,
+		/** 已归档会话 id 列表：读取与覆写（恢复会话即从列表移除该 id）。 */
+		listArchivedSessions: () =>
+			ipcRenderer.invoke(
+				IpcChannels.workspace.listArchivedSessions,
+			) as Promise<string[]>,
+		setArchivedSessions: (ids: string[]) =>
+			ipcRenderer.invoke(
+				IpcChannels.workspace.setArchivedSessions,
+				ids,
+			) as Promise<string[]>,
 		revealInFolder: (root: string) =>
 			ipcRenderer.invoke(
 				IpcChannels.workspace.revealInFolder,
@@ -287,6 +378,14 @@ const api = {
 				filePath,
 				query,
 			) as Promise<SessionHistoryPage>,
+		fork: (sessionId: string, cwd: string, userIndex: number, expectText?: string) =>
+			ipcRenderer.invoke(
+				IpcChannels.sessions.fork,
+				sessionId,
+				cwd,
+				userIndex,
+				expectText,
+			) as Promise<SessionForkResult>,
 		setUserMessageMeta: (sessionId: string, text: string, tags: unknown[]) =>
 			ipcRenderer.invoke(
 				IpcChannels.sessions.setUserMessageMeta,
@@ -390,6 +489,10 @@ const api = {
 				ok: boolean;
 				reason?: string;
 			}>,
+		pendingUi: () =>
+			ipcRenderer.invoke(
+				IpcChannels.sessions.pendingUi,
+			) as Promise<PendingUiSnapshotRequest>,
 	},
 	runs: {
 		list: (workspaceRoot: string) =>
@@ -486,6 +589,12 @@ const api = {
 				files: { relativePath: string; status: string; code: string }[];
 				errorCode?: string;
 				errorMessage?: string;
+			}>,
+		syncStatus: () =>
+			ipcRenderer.invoke(IpcChannels.git.syncStatus) as Promise<{
+				upstream: string | null;
+				ahead: number;
+				behind: number;
 			}>,
 		diff: (relativePath: string) =>
 			ipcRenderer.invoke(IpcChannels.git.diff, relativePath) as Promise<{
@@ -594,8 +703,8 @@ const api = {
 				| { ok: true; message?: string }
 				| { ok: false; message: string; code: string }
 			>,
-		fetch: (remote?: string) =>
-			ipcRenderer.invoke(IpcChannels.git.fetch, remote) as Promise<
+		fetch: (opts?: string | { remote?: string; timeoutMs?: number }) =>
+			ipcRenderer.invoke(IpcChannels.git.fetch, opts) as Promise<
 				| { ok: true; message?: string }
 				| { ok: false; message: string; code: string }
 			>,
@@ -659,6 +768,100 @@ const api = {
 		abortMerge: () =>
 			ipcRenderer.invoke(IpcChannels.git.abortMerge) as Promise<GitOpResult>,
 	},
+	customizations: {
+		list: (cwd?: string, force?: boolean) =>
+			ipcRenderer.invoke(
+				IpcChannels.customizations.list,
+				cwd,
+				force,
+			) as Promise<CustomizationsSnapshot>,
+		create: (kind: CustomizationCreateKind) =>
+			ipcRenderer.invoke(IpcChannels.customizations.create, kind) as Promise<{
+				filePath: string;
+			}>,
+		createAgentFromDraft: (content: string, scope: "user" | "project", cwd?: string) =>
+			ipcRenderer.invoke(
+				IpcChannels.customizations.createAgentFromDraft,
+				content,
+				scope,
+				cwd,
+			) as Promise<AgentSaveResult>,
+		saveAgent: (filePath: string, content: string, renameName?: string, cwd?: string) =>
+			ipcRenderer.invoke(
+				IpcChannels.customizations.saveAgent,
+				filePath,
+				content,
+				renameName,
+				cwd,
+			) as Promise<AgentSaveResult>,
+		createInstructionsFromDraft: (content: string, scope: "user" | "project", cwd?: string) =>
+			ipcRenderer.invoke(
+				IpcChannels.customizations.createInstructionsFromDraft,
+				content,
+				scope,
+				cwd,
+			) as Promise<InstructionsSaveResult>,
+		setMcpEnabled: (name: string, scope: "user" | "project", enabled: boolean, cwd?: string) =>
+			ipcRenderer.invoke(
+				IpcChannels.customizations.setMcpEnabled,
+				name,
+				scope,
+				enabled,
+				cwd,
+			) as Promise<void>,
+		addMcpServers: (
+			scope: "user" | "project",
+			servers: Record<string, unknown>,
+			cwd?: string,
+		) =>
+			ipcRenderer.invoke(
+				IpcChannels.customizations.addMcpServers,
+				scope,
+				servers,
+				cwd,
+			) as Promise<{ filePath: string; names: string[] }>,
+		ensureMcpConfig: (scope: "user" | "project", cwd?: string) =>
+			ipcRenderer.invoke(
+				IpcChannels.customizations.ensureMcpConfig,
+				scope,
+				cwd,
+			) as Promise<{ filePath: string }>,
+		removeMcpServer: (name: string, scope: "user" | "project", cwd?: string) =>
+			ipcRenderer.invoke(
+				IpcChannels.customizations.removeMcpServer,
+				name,
+				scope,
+				cwd,
+			) as Promise<{ filePath: string }>,
+		setItemEnabled: (filePath: string, enabled: boolean, cwd?: string) =>
+			ipcRenderer.invoke(
+				IpcChannels.customizations.setItemEnabled,
+				filePath,
+				enabled,
+				cwd,
+			) as Promise<{ filePath: string }>,
+		removeItem: (filePath: string, cwd?: string) =>
+			ipcRenderer.invoke(
+				IpcChannels.customizations.removeItem,
+				filePath,
+				cwd,
+			) as Promise<{ filePath: string }>,
+		testMcpServers: (targets: McpTestTarget[]) =>
+			ipcRenderer.invoke(
+				IpcChannels.customizations.testMcpServers,
+				targets,
+			) as Promise<McpTestResult[]>,
+		onUpdated: (callback: (snapshot: CustomizationsSnapshot) => void) => {
+			const listener = (
+				_event: Electron.IpcRendererEvent,
+				snapshot: CustomizationsSnapshot,
+			): void => callback(snapshot);
+			ipcRenderer.on(IpcChannels.customizations.updated, listener);
+			return () => {
+				ipcRenderer.removeListener(IpcChannels.customizations.updated, listener);
+			};
+		},
+	},
 	skills: {
 		list: (cwd?: string) =>
 			ipcRenderer.invoke(IpcChannels.skills.list, cwd) as Promise<{
@@ -673,11 +876,12 @@ const api = {
 				}[];
 				diagnostics: string[];
 			}>,
-		setDisabled: (filePath: string, disableModelInvocation: boolean) =>
+		setDisabled: (filePath: string, disableModelInvocation: boolean, cwd?: string) =>
 			ipcRenderer.invoke(
 				IpcChannels.skills.setDisabled,
 				filePath,
 				disableModelInvocation,
+				cwd,
 			) as Promise<void>,
 		uninstall: (filePath: string, cwd?: string) =>
 			ipcRenderer.invoke(
@@ -685,6 +889,26 @@ const api = {
 				filePath,
 				cwd,
 			) as Promise<void>,
+		createFromDraft: (content: string, scope: "user" | "project", cwd?: string) =>
+			ipcRenderer.invoke(
+				IpcChannels.skills.createFromDraft,
+				content,
+				scope,
+				cwd,
+			) as Promise<SkillSaveResult>,
+		save: (filePath: string, content: string, renameName?: string, cwd?: string) =>
+			ipcRenderer.invoke(
+				IpcChannels.skills.save,
+				filePath,
+				content,
+				renameName,
+				cwd,
+			) as Promise<SkillSaveResult>,
+		rename: (filePath: string, name: string, cwd?: string) =>
+			ipcRenderer.invoke(IpcChannels.skills.rename, filePath, name, cwd) as Promise<{
+				filePath: string;
+				name: string;
+			}>,
 	},
 	plugins: {
 		list: (cwd?: string) =>
@@ -733,6 +957,36 @@ const api = {
 					status: "loaded" | "installed" | "missing" | "disabled";
 				}[];
 			}>,
+		checkUpdates: (cwd?: string) =>
+			ipcRenderer.invoke(
+				IpcChannels.plugins.checkUpdates,
+				cwd,
+			) as Promise<PluginVersionInfo[]>,
+		update: (source: string, scope: "global" | "project", cwd?: string) =>
+			ipcRenderer.invoke(
+				IpcChannels.plugins.update,
+				source,
+				scope,
+				cwd,
+			) as Promise<{
+				packages: {
+					source: string;
+					scope: "global" | "project";
+					disabled: boolean;
+					installedPath?: string;
+					status: "loaded" | "installed" | "missing" | "disabled";
+				}[];
+			}>,
+		onUpdateProgress: (callback: (progress: PluginUpdateProgress) => void) => {
+			const listener = (
+				_event: Electron.IpcRendererEvent,
+				progress: PluginUpdateProgress,
+			) => callback(progress);
+			ipcRenderer.on(IpcChannels.plugins.updateProgress, listener);
+			return () => {
+				ipcRenderer.removeListener(IpcChannels.plugins.updateProgress, listener);
+			};
+		},
 	},
 	models: {
 		get: () =>
@@ -750,6 +1004,11 @@ const api = {
 				IpcChannels.models.discover,
 				payload,
 			) as Promise<DiscoverModelsResult>,
+		testBaseUrl: (payload: { baseUrl: string; apiKey?: string; api?: string }) =>
+			ipcRenderer.invoke(
+				IpcChannels.models.testBaseUrl,
+				payload,
+			) as Promise<TestProviderBaseUrlResult>,
 		testConnection: (payload: {
 			baseUrl: string;
 			apiKey?: string;
@@ -761,6 +1020,31 @@ const api = {
 				IpcChannels.models.testConnection,
 				payload,
 			) as Promise<TestModelConnectionResult>,
+		providerCatalog: (providerId: string) =>
+			ipcRenderer.invoke(
+				IpcChannels.models.providerCatalog,
+				providerId,
+			) as Promise<ProviderCatalogResult>,
+		setSelection: (selection: ModelSelection) =>
+			ipcRenderer.invoke(
+				IpcChannels.models.setSelection,
+				selection,
+			) as Promise<void>,
+		oauthLogin: (providerId: string) =>
+			ipcRenderer.invoke(IpcChannels.models.oauthLogin, providerId) as Promise<void>,
+		oauthLogout: (providerId: string) =>
+			ipcRenderer.invoke(IpcChannels.models.oauthLogout, providerId) as Promise<void>,
+		oauthPrompt: (reply: ModelsOAuthPromptReply) =>
+			ipcRenderer.invoke(IpcChannels.models.oauthPrompt, reply) as Promise<void>,
+		oauthCancel: () => ipcRenderer.invoke(IpcChannels.models.oauthCancel) as Promise<void>,
+		onOauthEvent: (callback: (payload: ModelsOAuthEventPayload) => void) => {
+			const listener = (_event: Electron.IpcRendererEvent, payload: ModelsOAuthEventPayload) =>
+				callback(payload);
+			ipcRenderer.on(IpcChannels.models.oauthEvent, listener);
+			return () => {
+				ipcRenderer.removeListener(IpcChannels.models.oauthEvent, listener);
+			};
+		},
 	},
 	preview: {
 		read: (filePath: string) =>
@@ -776,6 +1060,18 @@ const api = {
 			) as Promise<void>,
 		pickFile: () =>
 			ipcRenderer.invoke(IpcChannels.preview.pickFile) as Promise<string | null>,
+		watch: (filePath: string) =>
+			ipcRenderer.invoke(IpcChannels.preview.watch, filePath) as Promise<{ ok: boolean }>,
+		unwatch: (filePath: string) =>
+			ipcRenderer.invoke(IpcChannels.preview.unwatch, filePath) as Promise<{ ok: boolean }>,
+		onChanged: (callback: (payload: { paths: string[] }) => void) => {
+			const listener = (_event: Electron.IpcRendererEvent, payload: { paths: string[] }) =>
+				callback(payload);
+			ipcRenderer.on(IpcChannels.preview.changed, listener);
+			return () => {
+				ipcRenderer.removeListener(IpcChannels.preview.changed, listener);
+			};
+		},
 	},
 	browser: {
 		startSelect: (webContentsId: number) =>
@@ -1202,6 +1498,20 @@ const api = {
 				skipped: number;
 				error: string | null;
 			}>,
+		netSessionChanges: (
+			sessionId: string,
+			relativePaths: string[],
+		) =>
+			ipcRenderer.invoke(
+				IpcChannels.checkpoint.netSessionChanges,
+				sessionId,
+				relativePaths,
+			) as Promise<
+				Record<
+					string,
+					{ additions: number; deletions: number; available: boolean }
+				>
+			>,
 		onUpdated: (
 			callback: (summary: {
 				sessionId: string;
@@ -1244,16 +1554,6 @@ const api = {
 				error?: string;
 			}>,
 	},
-	trust: {
-		get: (cwd: string) =>
-			ipcRenderer.invoke(IpcChannels.trust.get, cwd) as Promise<TrustState>,
-		set: (cwd: string, trusted: boolean) =>
-			ipcRenderer.invoke(IpcChannels.trust.set, cwd, trusted) as Promise<void>,
-		clear: (cwd: string) =>
-			ipcRenderer.invoke(IpcChannels.trust.clear, cwd) as Promise<void>,
-		listTrusted: () =>
-			ipcRenderer.invoke(IpcChannels.trust.listTrusted) as Promise<string[]>,
-	},
 	security: {
 		get: () =>
 			ipcRenderer.invoke(
@@ -1262,9 +1562,34 @@ const api = {
 		set: (settings: DesktopSecuritySettings) =>
 			ipcRenderer.invoke(IpcChannels.security.set, settings) as Promise<void>,
 	},
+	thinkingLanguage: {
+		get: () =>
+			ipcRenderer.invoke(
+				IpcChannels.thinkingLanguage.get,
+			) as Promise<ThinkingLanguageSettings>,
+		set: (settings: ThinkingLanguageSettings) =>
+			ipcRenderer.invoke(
+				IpcChannels.thinkingLanguage.set,
+				settings,
+			) as Promise<ThinkingLanguageSettings>,
+	},
+	appearance: {
+		pickWallpaper: () =>
+			ipcRenderer.invoke(IpcChannels.appearance.pickWallpaper) as Promise<
+				string | null
+			>,
+	},
 	terminal: {
-		create: (cwd?: string) =>
-			ipcRenderer.invoke(IpcChannels.terminal.create, cwd) as Promise<string>,
+		create: (cwd?: string, shellId?: string) =>
+			ipcRenderer.invoke(
+				IpcChannels.terminal.create,
+				cwd,
+				shellId,
+			) as Promise<string>,
+		listShells: () =>
+			ipcRenderer.invoke(IpcChannels.terminal.listShells) as Promise<
+				TerminalShellOption[]
+			>,
 		write: (id: string, data: string) =>
 			ipcRenderer.invoke(IpcChannels.terminal.write, id, data) as Promise<void>,
 		resize: (id: string, cols: number, rows: number) =>

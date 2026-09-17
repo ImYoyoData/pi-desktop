@@ -3,9 +3,12 @@ import { computed, ref } from "vue";
 import { useSessionsStore } from "./sessions";
 import {
 	isTodoWidgetKey,
+	parseTodoSnapshot,
 	parseTodoWidgetLines,
+	serializeTodoSnapshot,
 	todoListAllDone,
 	todoListVisible,
+	todoSnapshotKey,
 	todosFromToolArgs,
 	todosFromToolDetails,
 	type SessionTodoList,
@@ -45,6 +48,7 @@ export const useSessionWidgetsStore = defineStore("session-widgets", () => {
 	 * paused list must survive the follow-up prompt instead of being wiped.
 	 */
 	const skipNextResetBySession = ref<Record<string, boolean>>({});
+	let todoSnapshotRestored = false;
 
 	const sessions = useSessionsStore();
 
@@ -209,6 +213,7 @@ export const useSessionWidgetsStore = defineStore("session-widgets", () => {
 				paused: hasOpen ? false : todosBySession.value[sessionId]?.paused,
 			},
 		};
+		persistTodoSnapshot(sessionId);
 	}
 
 	/**
@@ -223,6 +228,7 @@ export const useSessionWidgetsStore = defineStore("session-widgets", () => {
 			...todosBySession.value,
 			[sessionId]: { ...list, paused: true },
 		};
+		persistTodoSnapshot(sessionId);
 	}
 
 	/**
@@ -242,6 +248,27 @@ export const useSessionWidgetsStore = defineStore("session-widgets", () => {
 		};
 	}
 
+	function pruneStaleTodoSnapshots(knownSessionIds: Set<string>): void {
+		let keys: string[] = [];
+		try {
+			keys = Object.keys(localStorage).filter((k) =>
+				k.startsWith("pi-desktop:todo-snapshot:v1:"),
+			);
+		} catch {
+			return;
+		}
+		for (const key of keys) {
+			const id = key.slice("pi-desktop:todo-snapshot:v1:".length);
+			if (!knownSessionIds.has(id)) {
+				try {
+					localStorage.removeItem(key);
+				} catch {
+					// ignore
+				}
+			}
+		}
+	}
+
 	/** User chose DELETE on a paused list: drop it entirely. */
 	function deleteTodoList(sessionId: string): void {
 		const next = { ...todosBySession.value };
@@ -259,6 +286,7 @@ export const useSessionWidgetsStore = defineStore("session-widgets", () => {
 		const owned = { ...toolOwnedBySession.value };
 		delete owned[sessionId];
 		toolOwnedBySession.value = owned;
+		dropTodoSnapshot(sessionId);
 	}
 
 	/**
@@ -290,6 +318,7 @@ export const useSessionWidgetsStore = defineStore("session-widgets", () => {
 					...todoCompletedAtBySession.value,
 					[sessionId]: now,
 				};
+				persistTodoSnapshot(sessionId);
 			}
 			return;
 		}
@@ -305,6 +334,7 @@ export const useSessionWidgetsStore = defineStore("session-widgets", () => {
 			...todosBySession.value,
 			[sessionId]: { ...list, items, dismissed: false },
 		};
+		persistTodoSnapshot(sessionId);
 	}
 
 	/**
@@ -339,6 +369,7 @@ export const useSessionWidgetsStore = defineStore("session-widgets", () => {
 		const skips = { ...skipNextResetBySession.value };
 		delete skips[sessionId];
 		skipNextResetBySession.value = skips;
+		dropTodoSnapshot(sessionId);
 		const widgets = { ...widgetsBySession.value };
 		const row = widgets[sessionId];
 		if (row) {
@@ -361,6 +392,81 @@ export const useSessionWidgetsStore = defineStore("session-widgets", () => {
 		};
 	}
 
+	function persistTodoSnapshot(sessionId: string): void {
+		try {
+			const list = todosBySession.value[sessionId];
+			if (!list || !list.items.length) {
+				localStorage.removeItem(todoSnapshotKey(sessionId));
+				return;
+			}
+			const snapshot = serializeTodoSnapshot(
+				sessionId,
+				list,
+				todoStartedAtBySession.value[sessionId] ?? 0,
+				todoCompletedAtBySession.value[sessionId] ?? 0,
+				Boolean(toolOwnedBySession.value[sessionId]),
+				itemTimingBySession.value[sessionId] ?? {},
+			);
+			localStorage.setItem(todoSnapshotKey(sessionId), JSON.stringify(snapshot));
+		} catch {
+			// ignore — best effort only
+		}
+	}
+
+	function dropTodoSnapshot(sessionId: string): void {
+		try {
+			localStorage.removeItem(todoSnapshotKey(sessionId));
+		} catch {
+		// ignore
+		}
+	}
+
+	/**
+	 * Reload / language-switch / app restart wipe renderer memory. Restore the
+	 * last visible todo list per session from localStorage; live updates keep
+	 * replacing it afterwards. Timers re-anchor to persisted start clocks.
+	 */
+	function restoreTodoSnapshots(): void {
+		if (todoSnapshotRestored) return;
+		todoSnapshotRestored = true;
+		let keys: string[] = [];
+		try {
+			keys = Object.keys(localStorage).filter((k) =>
+				k.startsWith("pi-desktop:todo-snapshot:v1:"),
+			);
+		} catch {
+			return;
+		}
+		for (const key of keys) {
+			let parsed: unknown = null;
+			try {
+				parsed = JSON.parse(localStorage.getItem(key) ?? "null");
+			} catch {
+				continue;
+			}
+			const snapshot = parseTodoSnapshot(parsed);
+			if (!snapshot) continue;
+			const sessionId = snapshot.sessionId;
+			if (todosBySession.value[sessionId]) continue;
+			todosBySession.value = { ...todosBySession.value, [sessionId]: snapshot.list };
+			if (snapshot.startedAt) {
+				todoStartedAtBySession.value = { ...todoStartedAtBySession.value, [sessionId]: snapshot.startedAt };
+			}
+			if (snapshot.completedAt) {
+				todoCompletedAtBySession.value = {
+					...todoCompletedAtBySession.value,
+					[sessionId]: snapshot.completedAt,
+				};
+			}
+			if (snapshot.toolOwned) {
+				toolOwnedBySession.value = { ...toolOwnedBySession.value, [sessionId]: true };
+			}
+			if (snapshot.timings && Object.keys(snapshot.timings).length) {
+				itemTimingBySession.value = { ...itemTimingBySession.value, [sessionId]: snapshot.timings };
+			}
+		}
+	}
+
 	/** Hide completed list when the user starts the next task. */
 	function dismissCompletedOnNewTask(sessionId: string): void {
 		const list = todosBySession.value[sessionId];
@@ -369,6 +475,7 @@ export const useSessionWidgetsStore = defineStore("session-widgets", () => {
 			...todosBySession.value,
 			[sessionId]: { ...list, dismissed: true },
 		};
+		persistTodoSnapshot(sessionId);
 	}
 
 	function clearSession(sessionId: string): void {
@@ -384,6 +491,7 @@ export const useSessionWidgetsStore = defineStore("session-widgets", () => {
 		todoCompletedAtBySession.value = restE;
 		toolOwnedBySession.value = restO;
 		itemTimingBySession.value = restM;
+		dropTodoSnapshot(sessionId);
 	}
 
 	return {
@@ -402,6 +510,8 @@ export const useSessionWidgetsStore = defineStore("session-widgets", () => {
 		dismissCompletedOnNewTask,
 		dismissTodoList,
 		resetTodosForSession,
+		restoreTodoSnapshots,
+		pruneStaleTodoSnapshots,
 		clearSession,
 	};
 });

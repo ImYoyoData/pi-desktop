@@ -7,6 +7,7 @@
  * huge sessions does not ship megabytes of unused base64 over IPC.
  */
 import { stripComposerModePreamble } from "../shared/composer-modes";
+import { stripThinkingLanguageBlock } from "../shared/thinking-language";
 import {
   stripAttachedImagesBlock,
   stripSelectionCitationsBlock,
@@ -20,6 +21,12 @@ type ParsedEntry = {
   timestamp: string;
   type: string;
   message?: Record<string, unknown>;
+  /** model_change entries. */
+  provider?: string;
+  /** model_change entries. */
+  modelId?: string;
+  /** thinking_level_change entries. */
+  thinkingLevel?: string;
 };
 
 type HistoryImage = { mimeType: string; dataUrl: string };
@@ -61,6 +68,47 @@ function textFromAgentMessage(message: Record<string, unknown>): string {
     })
     .map((part) => part.text)
     .join("");
+}
+
+/** 助手消息本轮使用的模型：优先服务端返回的 responseModel，其次请求的 model。 */
+function messageModel(
+  message: Record<string, unknown>,
+  fallback: { provider: string; id: string } | null,
+): { provider: string; id: string } | null {
+  const id =
+    typeof message.responseModel === "string" && message.responseModel
+      ? message.responseModel
+      : typeof message.model === "string" && message.model
+        ? message.model
+        : "";
+  const provider =
+    typeof message.provider === "string" && message.provider
+      ? message.provider
+      : (fallback?.provider ?? "");
+  if (!id || !provider) return fallback;
+  return { provider, id };
+}
+
+/** Extract {input, output, totalTokens} from a persisted assistant usage object. */
+function usageFromAgentMessage(message: Record<string, unknown>): {
+  input?: number;
+  output?: number;
+  totalTokens?: number;
+} | null {
+  const usage = message.usage;
+  if (!usage || typeof usage !== "object") return null;
+  const u = usage as Record<string, unknown>;
+  const num = (v: unknown): number | undefined =>
+    typeof v === "number" && Number.isFinite(v) ? v : undefined;
+  const input = num(u.input);
+  const output = num(u.output);
+  const total = num(u.totalTokens) ?? num(u.total);
+  if (input == null && output == null && total == null) return null;
+  return {
+    ...(input != null ? { input } : {}),
+    ...(output != null ? { output } : {}),
+    ...(total != null ? { totalTokens: total } : {}),
+  };
 }
 
 function imagesFromAgentMessage(message: Record<string, unknown>): HistoryImage[] {
@@ -171,6 +219,11 @@ function collectEntries(raw: string): {
       timestamp: typeof parsed.timestamp === "string" ? parsed.timestamp : "",
       type: parsed.type,
       message,
+      ...(typeof parsed.provider === "string" ? { provider: parsed.provider } : {}),
+      ...(typeof parsed.modelId === "string" ? { modelId: parsed.modelId } : {}),
+      ...(typeof parsed.thinkingLevel === "string"
+        ? { thinkingLevel: parsed.thinkingLevel }
+        : {}),
     });
   }
   return { entries, pendingImages };
@@ -195,9 +248,26 @@ function buildMessagesFromEntries(
   const messages: SessionHistoryMessage[] = [];
   const toolCallArgsById = new Map<string, unknown>();
   let metaCursor = 0;
+  let currentModel: { provider: string; id: string } | null = null;
+  let currentThinkingLevel: string | null = null;
+  // 当前轮起点（user 落盘时刻）；工具循环内多步 assistant 共用同一起点。
+  // 用 entry 落盘时间而非 message.timestamp：后者在不同 SDK 版本里语义不一
+  // （旧会话里会等于 user 时刻），会让历史轮的耗时显示成「0.0s」。
+  let turnStartMs: number | null = null;
   for (const id of pathIds) {
     const entry = byId.get(id);
-    if (!entry || entry.type !== "message" || !entry.message) {
+    if (!entry) continue;
+    if (entry.type === "model_change") {
+      if (entry.provider && entry.modelId) {
+        currentModel = { provider: entry.provider, id: entry.modelId };
+      }
+      continue;
+    }
+    if (entry.type === "thinking_level_change") {
+      if (entry.thinkingLevel) currentThinkingLevel = entry.thinkingLevel;
+      continue;
+    }
+    if (entry.type !== "message" || !entry.message) {
       continue;
     }
     const role = entry.message.role;
@@ -208,15 +278,21 @@ function buildMessagesFromEntries(
         stripSelectionCitationsBlock(stripAttachedImagesBlock(rawText)),
       );
       const agentText = stripSelectionCitationsBlock(rawText);
+      // 附件 chips 的 sidecar 按发送时文本（无思考语言块）写入，匹配前先剥离注入块。
+      const metaText = stripThinkingLanguageBlock(agentText);
       let elementTags: ChatMessageTag[] | undefined;
       if (chatMeta && chatMeta.length > 0) {
         for (let i = metaCursor; i < chatMeta.length; i++) {
-          if (chatMeta[i]!.text === agentText) {
+          if (stripThinkingLanguageBlock(chatMeta[i]!.text) === metaText) {
             elementTags = chatMeta[i]!.tags;
             metaCursor = i + 1;
             break;
           }
         }
+      }
+      const startMs = Date.parse(entry.timestamp);
+      if (Number.isFinite(startMs) && startMs > 0) {
+        turnStartMs = startMs;
       }
       if (cleanText || hasImages || elementTags) {
         messages.push({
@@ -233,11 +309,23 @@ function buildMessagesFromEntries(
       const text = textFromAgentMessage(entry.message);
       const thinking = thinkingFromAgentMessage(entry.message);
       if (text || thinking) {
+        const model = messageModel(entry.message, currentModel);
+        const usage = usageFromAgentMessage(entry.message);
+        // 轮时长 = 本轮最终回答落盘 - 本轮 user 落盘（含工具调用与等待耗时）。
+        const doneMs = Date.parse(entry.timestamp);
+        const durationMs =
+          turnStartMs != null && Number.isFinite(doneMs)
+            ? Math.max(0, doneMs - turnStartMs)
+            : null;
         messages.push({
           id: entry.id,
           role: "assistant",
           text: truncateForUi(text),
           ...(thinking ? { thinking: truncateForUi(thinking, 16_000) } : {}),
+          ...(model ? { model } : {}),
+          ...(currentThinkingLevel ? { thinkingLevel: currentThinkingLevel } : {}),
+          ...(usage ? { usage } : {}),
+          ...(durationMs != null && durationMs > 0 ? { durationMs } : {}),
         });
       }
     } else if (role === "toolResult") {

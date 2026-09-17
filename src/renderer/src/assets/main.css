@@ -1,43 +1,58 @@
 @import "./base.css";
 
 /*
- * Design tokens — aligned with the DeepSeek Harness visual language.
- * Neutral-bluish grays on a pure-white base, near-black primary text and the
- * DeepSeek blue (#4176E6) as the single accent.
+ * Design tokens — aligned with the VS Code "2026 Light" theme
+ * (extensions/theme-defaults/themes/2026-light.json).
  */
 :root {
+  /* 编辑器当前行高亮的背景（跨 shadow DOM 传递给 Monaco） */
+  --pi-editor-line-highlight: rgba(0, 0, 0, 0.05);
   --bg: #ffffff;
-  --bg-title: #f9fafb;
-  --bg-sidebar: #f9fafb;
-  --bg-panel: #f9fafb;
-  --bg-elevated: #ffffff;
-  --bg-input: #ffffff;
-  --bg-hover: #f1f3f5;
-  --bg-active: #ebeff2;
-  --bg-selected: #ebeff2;
-  --bg-user-bubble: #edf3fe;
-  --user-bg: #edf3fe;
+  --bg-title: #fafafd;
+  --bg-sidebar: #fafafd;
+  --bg-panel: #fafafd;
+  --bg-elevated: #fafafd;
+  --bg-input: #f7f7fa;
+  --bg-hover: #00000014;
+  --bg-active: #dadada99;
+  --bg-selected: #00000025;
+  --bg-user-bubble: #0069cc12;
+  --user-bg: #0069cc12;
   --assistant-bg: #ffffff;
-  --tool-bg: #f5f6f7;
-  --border: #e3e6ec;
-  --border-strong: #d5d9e1;
-  --fg: #0f1115;
-  --fg-strong: #0f1115;
-  --fg-muted: #61666b;
-  --fg-faint: #81858c;
-  --text: #0f1115;
-  --text-muted: #61666b;
-  --text-dim: #81858c;
-  --accent: #4176e6;
-  --accent-hover: #5686fe;
+  --tool-bg: #fafafd;
+  --border: #f0f1f2;
+  --border-strong: #d8d8d8;
+  --fg: #202020;
+  --fg-strong: #202020;
+  --fg-muted: #606060;
+  --fg-faint: #606060;
+  --text: #202020;
+  --text-muted: #606060;
+  --text-dim: #606060;
+  --accent: #0069cc;
+  --accent-hover: #0063c1;
   --accent-fg: #ffffff;
-  --accent-soft: rgba(65, 118, 230, 0.08);
-  --accent-soft-hover: rgba(65, 118, 230, 0.14);
-  --accent-border: rgba(65, 118, 230, 0.32);
+  --accent-soft: rgba(0, 105, 204, 0.12);
+  --accent-soft-hover: rgba(0, 105, 204, 0.2);
+  --accent-border: rgba(0, 105, 204, 0.5);
   --primary: var(--accent);
-  --blue: #4176e6;
-  --green: #22c55e;
-  --red: #ef4444;
+  --blue: #0069cc;
+  --green: #587c0c;
+  --red: #ad0707;
+  --success: #587c0c;
+  --warning: #bf8803;
+  --warn: #667309;
+  --error: #ad0707;
+  --muted: #606060;
+  --fg-secondary: #202020;
+  --border-subtle: #f0f1f2;
+  --diff-added: #587c0c;
+  --diff-removed: #ad0707;
+  --ctx-system: #606060;
+  --ctx-tools: #652d90;
+  --ctx-summarized: #d18616;
+  --ctx-conversation: #ad0707;
+  --ctx-tool-results: #1a5cff;
   --font-ui:
     -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
     "Hiragino Sans GB", "Microsoft YaHei", "Helvetica Neue", Helvetica, Arial,
@@ -45,57 +60,64 @@
   --font-mono:
     "SF Mono", "JetBrains Mono", "Fira Code", Consolas, "Liberation Mono",
     Menlo, Courier, "PingFang SC", "Microsoft YaHei";
-  --radius-sm: 6px;
-  --radius-md: 12px;
-  --radius-lg: 16px;
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
   --composer-max: 748px;
   --chat-pad-x: 12px;
   --space-1: 4px;
   --space-2: 8px;
   --space-3: 12px;
-  --git-m: #ca8a04;
-  --git-u: #22c55e;
-  --git-d: #ef4444;
-  --shadow-sm:
-    0 1px 2px rgba(15, 17, 21, 0.04), 0 0 0 1px rgba(15, 17, 21, 0.02);
-  --shadow-md:
-    0 4px 18px rgba(15, 17, 21, 0.07), 0 1px 3px rgba(15, 17, 21, 0.04);
-  --shadow-lg:
-    0 12px 40px rgba(15, 17, 21, 0.1), 0 2px 8px rgba(15, 17, 21, 0.05);
+  --git-m: #667309;
+  --git-a: #587c0c;
+  --git-u: #587c0c;
+  --git-r: #007100;
+  --git-d: #ad0707;
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.06), 0 0 0 1px rgba(0, 0, 0, 0.04);
+  --shadow-md: 0 0 8px 2px rgba(0, 0, 0, 0.12);
+  --shadow-lg: 0 0 8px 2px rgba(0, 0, 0, 0.16);
   --ease-out: cubic-bezier(0.4, 0, 0.2, 1);
   --duration-fast: 100ms;
   --duration: 200ms;
-  --code-bg: #f5f6f7;
-  --pre-bg: #f5f6f7;
-  --md-inline-code-bg: #f1f3f5;
+  --code-bg: #eaeaea;
+  --pre-bg: #eaeaea;
+  --md-inline-code-bg: #ececec;
+  --scrollbar: rgba(100, 100, 100, 0.75);
+  --scrollbar-hover: rgba(100, 100, 100, 0.82);
+  --scrollbar-active: rgba(100, 100, 100, 0.88);
 
   /* Copilot (VS Code) chat tokens — see docs/superpowers/plans/2026-09-05-copilot-style-output.md */
   --chat-font-m: 13px;
   --chat-font-s: 12px;
   --chat-font-xs: 11px;
-  --chat-desc-fg: #6b6f74;
-  --chat-line: #d8dce3;
-  --chat-hover-bg: rgba(15, 17, 21, 0.05);
-  --chat-shimmer: #c3c9d1;
-  --chat-icon-fg: #61666b;
+  --chat-desc-fg: #606060;
+  --chat-line: #e2e2e5;
+  --chat-hover-bg: #00000014;
+  --chat-shimmer: #606060;
+  --chat-icon-fg: #606060;
 }
 
+/*
+ * Dark tokens — aligned with the VS Code "2026 Dark" theme
+ * (extensions/theme-defaults/themes/2026-dark.json).
+ */
 html[data-theme="dark"] {
-  --bg: #151517;
-  --bg-title: #1b1b1c;
-  --bg-sidebar: #1b1b1c;
-  --bg-panel: #1b1b1c;
-  --bg-elevated: #232324;
-  --bg-input: #232324;
-  --bg-hover: #2c2c2d;
-  --bg-active: #353536;
-  --bg-selected: #353536;
-  --bg-user-bubble: #2c2c2d;
-  --user-bg: #2c2c2d;
+  --pi-editor-line-highlight: rgba(255, 255, 255, 0.08);
+  --bg: #121314;
+  --bg-title: #191a1b;
+  --bg-sidebar: #191a1b;
+  --bg-panel: #191a1b;
+  --bg-elevated: #202122;
+  --bg-input: #202122;
+  --bg-hover: #ffffff14;
+  --bg-active: #2c2d2e;
+  --bg-selected: #ffffff22;
+  --bg-user-bubble: #ffffff13;
+  --user-bg: #ffffff13;
   --assistant-bg: transparent;
-  --tool-bg: #1b1b1c;
-  --border: #2c2c2d;
-  --border-strong: #3a3a3b;
+  --tool-bg: #202122;
+  --border: #2a2b2c;
+  --border-strong: #333536;
   --fg: #f5f6f7;
   --fg-strong: #f9fafb;
   --fg-muted: #cfd3d6;
@@ -103,29 +125,51 @@ html[data-theme="dark"] {
   --text: #f5f6f7;
   --text-muted: #cfd3d6;
   --text-dim: #adb2b8;
-  --accent: #5686fe;
-  --accent-hover: #679efe;
+  --accent: #297aa0;
+  --accent-hover: #2b7da3;
   --accent-fg: #ffffff;
-  --accent-soft: rgba(86, 134, 254, 0.16);
-  --accent-soft-hover: rgba(86, 134, 254, 0.24);
-  --accent-border: rgba(86, 134, 254, 0.4);
-  --blue: #5686fe;
-  --green: #4ed17e;
-  --red: #f25a5a;
-  --shadow-sm:
-    0 1px 2px rgba(0, 0, 0, 0.35), 0 0 0 1px rgba(255, 255, 255, 0.03);
-  --shadow-md: 0 8px 28px rgba(0, 0, 0, 0.45), 0 1px 3px rgba(0, 0, 0, 0.3);
-  --shadow-lg: 0 16px 48px rgba(0, 0, 0, 0.55);
-  --code-bg: #232324;
-  --pre-bg: #0d1117;
-  --md-inline-code-bg: #232324;
+  --accent-soft: rgba(57, 148, 188, 0.16);
+  --accent-soft-hover: rgba(57, 148, 188, 0.24);
+  --accent-border: rgba(57, 148, 188, 0.7);
+  --blue: #297aa0;
+  --green: #72c892;
+  --red: #f48771;
+  --primary: var(--accent);
+  --success: #72c892;
+  --warning: #cca700;
+  --warn: #e5ba7d;
+  --error: #f48771;
+  --muted: #cfd3d6;
+  --fg-secondary: #cfd3d6;
+  --border-subtle: #2a2b2c;
+  --diff-added: #73c991;
+  --diff-removed: #f48771;
+  --ctx-system: #8c8c8c;
+  --ctx-tools: #ad80d7;
+  --ctx-summarized: #cd861a;
+  --ctx-conversation: #ef8773;
+  --ctx-tool-results: #57a3f8;
+  --git-m: #e5ba7d;
+  --git-a: #73c991;
+  --git-u: #73c991;
+  --git-r: #73c991;
+  --git-d: #f48771;
+  --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.36), 0 0 0 1px rgba(0, 0, 0, 0.16);
+  --shadow-md: 0 4px 16px rgba(0, 0, 0, 0.44);
+  --shadow-lg: 0 8px 32px rgba(0, 0, 0, 0.52);
+  --code-bg: #242526;
+  --pre-bg: #242526;
+  --md-inline-code-bg: #262626;
+  --scrollbar: rgba(168, 169, 170, 0.52);
+  --scrollbar-hover: rgba(168, 169, 170, 0.56);
+  --scrollbar-active: rgba(168, 169, 170, 0.61);
 
   --chat-font-m: 13px;
   --chat-font-s: 12px;
   --chat-font-xs: 11px;
   --chat-desc-fg: #9da1a6;
-  --chat-line: #3a3a3b;
-  --chat-hover-bg: rgba(255, 255, 255, 0.06);
+  --chat-line: #2a2b2c;
+  --chat-hover-bg: #ffffff14;
   --chat-shimmer: #6e7276;
   --chat-icon-fg: #c5c9cd;
 }
@@ -192,8 +236,15 @@ button {
 }
 
 .splitpanes--vertical > .splitpanes__splitter {
-  width: 1px !important;
-  min-width: 1px !important;
+  width: 0.5px !important;
+  min-width: 0.5px !important;
+  margin: 0 !important;
+  background: var(--border) !important;
+}
+
+.splitpanes--horizontal > .splitpanes__splitter {
+  height: 0.5px !important;
+  min-height: 0.5px !important;
   margin: 0 !important;
   background: var(--border) !important;
 }
@@ -210,27 +261,48 @@ button {
   inset: -3px;
 }
 
+/* 「界面分隔线」关闭：隐藏顶栏、聊天标题栏、左下快捷入口与侧栏分栏线 */
+.app-shell.panel-dividers-off .title-bar {
+  border-bottom-color: transparent;
+}
+
+.app-shell.panel-dividers-off .chat-panel .head {
+  border-bottom-color: transparent;
+}
+
+.app-shell.panel-dividers-off .customize-bar {
+  border-top-color: transparent;
+}
+
+.app-shell.panel-dividers-off .splitpanes.outer > .splitpanes__splitter {
+  background: transparent !important;
+}
+
 /* Refined scrollbars */
 * {
   scrollbar-width: thin;
-  scrollbar-color: color-mix(in srgb, var(--fg-faint) 70%, transparent)
-    transparent;
+  scrollbar-color: var(--scrollbar, rgba(100, 100, 100, 0.4)) transparent;
 }
 
 *::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
+  width: 10px;
+  height: 10px;
 }
 
 *::-webkit-scrollbar-thumb {
-  background: color-mix(in srgb, var(--fg-faint) 55%, transparent);
-  border-radius: 8px;
+  background: var(--scrollbar, rgba(100, 100, 100, 0.4));
   border: 2px solid transparent;
   background-clip: padding-box;
 }
 
 *::-webkit-scrollbar-thumb:hover {
-  background: color-mix(in srgb, var(--fg-muted) 70%, transparent);
+  background: var(--scrollbar-hover, rgba(100, 100, 100, 0.7));
+  background-clip: padding-box;
+  border: 2px solid transparent;
+}
+
+*::-webkit-scrollbar-thumb:active {
+  background: var(--scrollbar-active, rgba(0, 0, 0, 0.6));
   background-clip: padding-box;
   border: 2px solid transparent;
 }
@@ -328,7 +400,7 @@ button {
   font-size: 0.88em;
   background: var(--md-inline-code-bg);
   border: 1px solid var(--border);
-  border-radius: 5px;
+  border-radius: var(--radius-sm, 4px);
   padding: 0.1em 0.35em;
 }
 
@@ -398,6 +470,16 @@ button {
 }
 
 /*
+ * 设置页内的自绘按钮统一键盘焦点样式：Chromium 默认白色焦点环在深色玻璃上
+ * 过于突兀（点击按钮后的 Esc 等键盘操作会触发 :focus-visible）。
+ */
+.pi-settings-modal button:not(.n-button):focus-visible,
+.modal-editor-panel button:not(.n-button):focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: -1px;
+}
+
+/*
  * Internal scroll container for modal bodies: each modal wraps its content
  * in <div class="modal-scroll"> so a tall dialog scrolls inside instead of
  * overflowing the window (keeps header + footer fixed).
@@ -430,12 +512,58 @@ button {
   padding: 14px 16px;
   margin: 0 0 12px;
   border: 1px solid var(--border);
-  border-radius: var(--radius-md, 10px);
+  border-radius: var(--radius-md, 6px);
   background: var(--bg-elevated, var(--bg));
 }
 
 .pi-settings-modal .section:last-child {
   margin-bottom: 0;
+}
+
+/*
+ * 设置页内的 naive-ui 控件描边统一跟随 --border（玻璃下为白色半透明描边），
+ * 与自绘按钮（ToggleButton、item-action）保持一致；
+ * naive-ui 把主题变量内联在组件根元素上，必须 !important 才能覆盖。
+ */
+.pi-settings-modal .n-radio-group,
+.modal-editor-panel .n-radio-group {
+  --n-button-border-color: var(--border) !important;
+  --n-button-border-color-active: var(--border) !important;
+}
+
+.pi-settings-modal .n-base-selection,
+.modal-editor-panel .n-base-selection,
+.pi-settings-modal .n-input,
+.modal-editor-panel .n-input {
+  --n-border: 1px solid var(--border) !important;
+  --n-border-hover: 1px solid var(--border) !important;
+  --n-border-focus: 1px solid var(--border) !important;
+  --n-border-active: 1px solid var(--border) !important;
+  --n-border-disabled: 1px solid var(--border) !important;
+}
+
+/* 按钮的实际描边在 __border / __state-border 上，text 按钮的 border-style 为 none 不受影响 */
+.pi-settings-modal .n-button__border,
+.pi-settings-modal .n-button__state-border,
+.modal-editor-panel .n-button__border,
+.modal-editor-panel .n-button__state-border {
+  border-color: var(--border) !important;
+}
+
+.pi-settings-modal .n-checkbox-box,
+.modal-editor-panel .n-checkbox-box {
+  --n-border: 1px solid var(--border) !important;
+  --n-border-disabled: 1px solid var(--border) !important;
+}
+
+.pi-settings-modal .n-tabs,
+.modal-editor-panel .n-tabs {
+  --n-tab-border-color: var(--border) !important;
+}
+
+.pi-settings-modal .n-divider,
+.modal-editor-panel .n-divider {
+  --n-color: var(--border) !important;
 }
 
 .pi-settings-modal .section-label {
@@ -497,4 +625,26 @@ button {
 /* macOS: slightly denser titlebar hit targets feel closer to native */
 html.platform-darwin .title-bar .n-button {
   --n-height: 28px;
+}
+
+/*
+ * Monaco 给光标所在行画 2px 描边（currentLineHighlight.js 运行时注入
+ * `.monaco-editor .view-overlays .current-line-exact { border: 2px solid … }`），
+ * 在透明编辑区上很突兀，这里用同选择器 + !important 压掉。
+ */
+.monaco-editor .view-overlays .current-line,
+.monaco-editor .view-overlays .current-line-exact,
+.monaco-editor .margin-view-overlays .current-line-margin,
+.monaco-editor .margin-view-overlays .current-line-exact-margin,
+.monaco-editor .view-overlays [class^="current-line"],
+.monaco-editor .margin-view-overlays [class^="current-line"] {
+  border: none !important;
+  outline: none !important;
+}
+
+.monaco-editor .inputarea,
+.monaco-editor textarea.inputarea,
+.monaco-editor .native-edit-context,
+.monaco-editor .ime-text-area {
+  outline: none !important;
 }

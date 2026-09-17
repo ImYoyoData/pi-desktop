@@ -14,12 +14,12 @@ export type PermissionAskPayload = {
   category: SecurityCategory;
   toolName: string;
   summary: string;
+  /** Auto 档命中危险命令，弹窗需要给出警示。 */
+  danger?: boolean;
 };
 
 export type PermissionGateOptions = {
   getSettings: () => DesktopSecuritySettings;
-  /** Workspace cwd — used for per-workspace tool permission overrides. */
-  getCwd?: () => string | null | undefined;
   sessionAllows: Set<SecurityCategory>;
   askUser: (req: PermissionAskPayload) => Promise<PermissionDecision>;
   /** Test hook — defaults to shared `evaluatePermission`. */
@@ -27,7 +27,7 @@ export type PermissionGateOptions = {
 };
 
 const DENY_REASON =
-  "Blocked by Pi Desktop security settings. Open Settings → Security to allow, add a bash allowlist entry, or trust the workspace.";
+  "Blocked by Pi Desktop security settings. Switch the permission mode in the composer to allow this action.";
 
 const TIMEOUT_REASON =
   "Permission prompt timed out or UI unavailable — denied.";
@@ -39,7 +39,7 @@ export type PermissionGateHandle = {
     ctx: BeforeToolCallContext,
     signal?: AbortSignal,
   ) => Promise<BeforeToolCallResult | undefined>;
-  /** Second line for bash exec — blocks if settings/session do not allow and gate did not grant once. */
+  /** Second line for bash exec — blocks if the current profile never granted it. */
   assertBashExecAllowed: (command: string) => void;
   /** Consume one-shot "start as background" flag from allow_once_background. */
   takeBashBackgroundFlag: (command: string) => boolean;
@@ -61,7 +61,6 @@ export function createPermissionGate(opts: PermissionGateOptions): PermissionGat
       settings: opts.getSettings(),
       command: key,
       sessionAllows: opts.sessionAllows,
-      cwd: opts.getCwd?.(),
     });
     if (ev.action === "allow") return;
     if (bashAllowOnce.delete(key)) return;
@@ -94,7 +93,6 @@ export function createPermissionGate(opts: PermissionGateOptions): PermissionGat
       settings: opts.getSettings(),
       command,
       sessionAllows: opts.sessionAllows,
-      cwd: opts.getCwd?.(),
     });
 
     switch (ev.action) {
@@ -110,9 +108,11 @@ export function createPermissionGate(opts: PermissionGateOptions): PermissionGat
       }
     }
 
+    const payload: PermissionAskPayload = { category, toolName, summary };
+    if (ev.danger) payload.danger = true;
     let decision: PermissionDecision;
     try {
-      decision = await opts.askUser({ category, toolName, summary });
+      decision = await opts.askUser(payload);
     } catch {
       return { block: true, reason: TIMEOUT_REASON };
     }
@@ -123,8 +123,7 @@ export function createPermissionGate(opts: PermissionGateOptions): PermissionGat
     }
     if (
       decision === "allow_once" ||
-      decision === "allow_once_background" ||
-      decision === "allow_whitelist"
+      decision === "allow_once_background"
     ) {
       if (category === "bash" && command) {
         const key = bashCommandKey(command);

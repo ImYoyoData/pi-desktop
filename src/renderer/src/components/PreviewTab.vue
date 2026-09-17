@@ -1,14 +1,24 @@
 <script setup lang="ts">
 import type { PreviewResult } from "../../../shared/preview-types";
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
-import { NAlert, NButton, NEmpty, NIcon, NSpin, NText, useDialog, useMessage } from "naive-ui";
+import { NAlert, NButton, NEmpty, NIcon, NSpin, NText, useMessage } from "naive-ui";
 import { ChatbubbleEllipsesOutline, FolderOpenOutline, SaveOutline } from "@vicons/ionicons5";
 import type * as Monaco from "monaco-editor";
-import monacoCssUrl from "../../../../node_modules/monaco-editor/min/vs/editor/editor.main.css?url";
 import MarkdownView from "@renderer/components/MarkdownView.vue";
 import { breadcrumbs, languageFromPath } from "@renderer/utils/editor-lang";
+import {
+  absoluteWorkspacePath,
+  isAbsoluteFsPath,
+  isInsideWorkspace,
+  normalizeFsPath,
+  type FsChangedPayload,
+} from "@renderer/utils/fs-changed-bus";
 import { loadMonaco } from "@renderer/utils/monaco-loader";
-import { applyMonacoColorTheme } from "@renderer/utils/monaco-theme";
+import {
+  applyMonacoColorTheme,
+  injectEditorStyleOverrides,
+  monacoThemeName,
+} from "@renderer/utils/monaco-theme";
 import { useRightTabsStore } from "@renderer/stores/right-tabs";
 import { useWorkspaceStore } from "@renderer/stores/workspace";
 import { useAppearanceStore } from "@renderer/stores/appearance";
@@ -19,22 +29,19 @@ import { t } from "@renderer/i18n";
 
 type MdViewMode = "edit" | "preview" | "split";
 
-if (!document.getElementById("monaco-editor-css")) {
-  const link = document.createElement("link");
-  link.id = "monaco-editor-css";
-  link.rel = "stylesheet";
-  link.href = monacoCssUrl;
-  document.head.appendChild(link);
-}
-
 const props = defineProps<{
   filePath?: string | null;
   tabId?: string;
   active?: boolean;
+  /** 智能体设置页内嵌：隐藏「打开文件」等非编辑器控件，markdown 直接以编辑器打开。 */
+  embedded?: boolean;
+  /** 未落盘的草稿内容（与 filePath 互斥）。 */
+  draftContent?: string | null;
+  /** 自定义保存：提供后保存按钮与 Ctrl+S 都交给外部处理（内容由外部落盘）。 */
+  saveHandler?: (content: string) => Promise<boolean> | boolean;
 }>();
 
 const message = useMessage();
-const dialog = useDialog();
 const rightTabs = useRightTabsStore();
 const appearance = useAppearanceStore();
 const layout = useLayoutStore();
@@ -54,11 +61,6 @@ let selectionDebounce: ReturnType<typeof setTimeout> | null = null;
 /** Last pointer inside the Monaco surface (viewport coords for fixed floater). */
 let lastPointerClient = { x: 0, y: 0, at: 0 };
 let detachEditorPointer: (() => void) | null = null;
-/** Match main `fs-watch-host` rootsEqual: only Windows folds case. */
-let pathCaseInsensitive = false;
-void window.api.window.platform().then((p) => {
-  pathCaseInsensitive = p === "win32";
-});
 const currentPath = ref<string | null>(props.filePath ?? null);
 const result = ref<PreviewResult | null>(null);
 const loading = ref(false);
@@ -74,20 +76,29 @@ let monacoApi: typeof Monaco | null = null;
 let editor: Monaco.editor.IStandaloneCodeEditor | null = null;
 /** Bumps on every loadPath to ignore stale async reads when switching files quickly. */
 let loadGen = 0;
-/** Content fingerprint last loaded from disk (for external-change detection). */
-let diskFingerprint = "";
-let reloadPromptOpen = false;
+/** 最近一次从磁盘读到的内容 —— 与它不一致即视为外部改动。 */
+let diskContent: string | null = null;
 let applyingExternal = false;
+/** 丢弃过期的读盘结果（外部连续写入时事件可能乱序返回）。 */
+let fsGen = 0;
+/** 工作区外文件需单独订阅：主进程目录 watcher 只覆盖工作区。 */
+let watchedExternalPath: string | null = null;
+let stopPreviewWatch: (() => void) | null = null;
 let unregisterVideo: (() => void) | undefined;
 let unregisterAudio: (() => void) | undefined;
 
 const crumbs = computed(() => (currentPath.value ? breadcrumbs(currentPath.value) : []));
+const errorText = computed(() =>
+  result.value?.kind === "error" ? result.value.message : t.fileDeletedHint,
+);
 const isMarkdown = computed(() => result.value?.kind === "markdown");
 const showEditor = computed(
   () =>
     (result.value?.kind === "text" || result.value?.kind === "markdown") &&
     (!isMarkdown.value || mdViewMode.value !== "preview"),
 );
+/** 未落盘草稿：没有磁盘路径但仍需渲染编辑器。 */
+const isDraft = computed(() => !props.filePath && props.draftContent != null);
 const showMdPreview = computed(() => isMarkdown.value && mdViewMode.value !== "edit");
 const mediaVisible = computed(() => Boolean(props.active) && !layout.rightCollapsed);
 const mediaIdPrefix = computed(() => `preview:${props.tabId ?? "anon"}:`);
@@ -113,10 +124,6 @@ function syncMediaRegistration(): void {
 function syncTabMeta(patch: { dirty?: boolean; missing?: boolean; gitCode?: string }): void {
   if (!props.tabId) return;
   rightTabs.patchTab(props.tabId, patch);
-}
-
-function fingerprint(content: string): string {
-  return `${content.length}:${content.slice(0, 64)}:${content.slice(-64)}`;
 }
 
 function disposeEditor(): void {
@@ -277,7 +284,7 @@ async function ensureEditor(content: string, language: string): Promise<void> {
   await nextTick();
   if (!editorHost.value) {
     liveContent.value = content;
-    diskFingerprint = fingerprint(content);
+    diskContent = content;
     dirty.value = false;
     missing.value = false;
     syncTabMeta({ dirty: false, missing: false });
@@ -291,10 +298,14 @@ async function ensureEditor(content: string, language: string): Promise<void> {
   const monaco = monacoApi;
   applyingExternal = true;
   if (!editor) {
+    const dark = appearance.resolvedTheme === "dark";
+    applyMonacoColorTheme(monaco, dark);
     editor = monaco.editor.create(editorHost.value, {
       value: content,
       language,
-      theme: appearance.resolvedTheme === "dark" ? "vs-dark" : "vs",
+      theme: monacoThemeName(dark),
+      // 关闭 shadow DOM，让右键菜单/滚动区域进入文档流，自定义外观的半透明样式才能生效
+      useShadowDOM: false,
       automaticLayout: true,
       fontSize: 12.5,
       fontFamily: 'var(--font-mono), "Cascadia Code", Consolas, monospace',
@@ -312,7 +323,7 @@ async function ensureEditor(content: string, language: string): Promise<void> {
       // Needed so json / json5 validation messages are readable on hover.
       hover: { enabled: "on" },
     });
-    applyMonacoColorTheme(monaco, appearance.resolvedTheme === "dark");
+    injectEditorStyleOverrides(editor.getDomNode());
     editor.onDidChangeModelContent(() => {
       liveContent.value = editor?.getValue() ?? "";
       if (applyingExternal) return;
@@ -341,7 +352,7 @@ async function ensureEditor(content: string, language: string): Promise<void> {
     }
   }
   liveContent.value = content;
-  diskFingerprint = fingerprint(content);
+  diskContent = content;
   dirty.value = false;
   missing.value = false;
   syncTabMeta({ dirty: false, missing: false });
@@ -361,19 +372,35 @@ watch(
 async function refreshGitForFile(path: string): Promise<void> {
   try {
     const status = await window.api.git.status();
-    const hit = status.files.find((f) => f.relativePath === path);
+    const rel = normalizeFsPath(workspaceRelativePath(path));
+    const hit = status.files.find((f) => normalizeFsPath(f.relativePath) === rel);
     syncTabMeta({ gitCode: hit?.code });
   } catch {
     // ignore
   }
 }
 
+/** 加载未落盘草稿：无磁盘路径，始终视为未保存。 */
+async function loadDraft(content: string): Promise<void> {
+  loadGen += 1;
+  fsGen += 1;
+  currentPath.value = null;
+  result.value = { kind: "markdown", path: "", content };
+  liveContent.value = content;
+  missing.value = false;
+  mdViewMode.value = "edit";
+  await ensureEditor(content, "markdown");
+  dirty.value = true;
+  syncTabMeta({ dirty: true });
+}
+
 async function loadPath(path: string | null): Promise<void> {
   const gen = ++loadGen;
+  fsGen += 1;
   currentPath.value = path;
   dirty.value = false;
   missing.value = false;
-  diskFingerprint = "";
+  diskContent = null;
   if (!path) {
     result.value = null;
     liveContent.value = "";
@@ -422,7 +449,7 @@ async function loadPath(path: string | null): Promise<void> {
 
     if (next.kind === "text" || next.kind === "markdown") {
       if (next.kind === "markdown") {
-        mdViewMode.value = "preview";
+        mdViewMode.value = props.embedded ? "edit" : "preview";
       } else {
         mdViewMode.value = "edit";
       }
@@ -442,7 +469,8 @@ async function loadPath(path: string | null): Promise<void> {
 }
 
 watch(mdViewMode, async () => {
-  if (!isMarkdown.value || !currentPath.value) return;
+  // loadPath 内部会切模式并自行装载内容，避免用尚未就绪的 liveContent 覆盖
+  if (loading.value || !isMarkdown.value || !currentPath.value) return;
   await nextTick();
   if (!editor && showEditor.value) {
     await ensureEditor(liveContent.value, languageFromPath(currentPath.value));
@@ -479,40 +507,40 @@ watch([videoRef, audioRef, () => result.value?.kind, () => props.tabId], () => {
   void nextTick(() => syncMediaRegistration());
 });
 
-function promptReloadFromDisk(): void {
-  if (reloadPromptOpen || !currentPath.value) return;
-  reloadPromptOpen = true;
-  dialog.warning({
-    title: t.fileExternallyModified,
-    content: t.externalChangedDirty,
-    positiveText: t.reloadFromDisk,
-    negativeText: t.keepCurrent,
-    onPositiveClick: () => {
-      reloadPromptOpen = false;
-      void loadPath(currentPath.value);
-    },
-    onNegativeClick: () => {
-      reloadPromptOpen = false;
-    },
-    onClose: () => {
-      reloadPromptOpen = false;
-    },
-  });
+/** 用磁盘内容整体替换模型：保留撤销栈，外部改动可 Ctrl+Z 回退。 */
+function applyExternalContent(content: string): void {
+  if (!editor || !monacoApi) return;
+  const model = editor.getModel();
+  if (!model || model.getValue() === content) return;
+  const selection = editor.getSelection();
+  editor.pushUndoStop();
+  editor.executeEdits("external", [{ range: model.getFullModelRange(), text: content }]);
+  editor.pushUndoStop();
+  if (selection) {
+    const start = clampPosition(model, selection.getStartPosition());
+    const end = clampPosition(model, selection.getEndPosition());
+    editor.setSelection(
+      new monacoApi.Selection(start.lineNumber, start.column, end.lineNumber, end.column),
+    );
+  }
+}
+
+function clampPosition(
+  model: Monaco.editor.ITextModel,
+  pos: Monaco.IPosition,
+): Monaco.IPosition {
+  const lineNumber = Math.min(Math.max(1, pos.lineNumber), model.getLineCount());
+  return { lineNumber, column: Math.min(pos.column, model.getLineMaxColumn(lineNumber)) };
 }
 
 async function applyDiskContentSilently(path: string, content: string): Promise<void> {
   applyingExternal = true;
   try {
     if (editor && editorHostIsLive()) {
-      const model = editor.getModel();
-      if (model && model.getValue() !== content) {
-        editor.pushUndoStop();
-        model.setValue(content);
-        editor.pushUndoStop();
-      }
+      applyExternalContent(content);
     }
     liveContent.value = content;
-    diskFingerprint = fingerprint(content);
+    diskContent = content;
     dirty.value = false;
     missing.value = false;
     if (result.value?.kind === "text" || result.value?.kind === "markdown") {
@@ -525,73 +553,75 @@ async function applyDiskContentSilently(path: string, content: string): Promise<
   await refreshGitForFile(path);
 }
 
-function onFsChanged(event: Event): void {
-  const detail = (event as CustomEvent<{
-    root: string;
-    events: { path: string; kind: "add" | "change" | "unlink" }[];
-  }>).detail;
-  if (!detail || !currentPath.value) return;
-  // Ignore events from a previous workspace watcher
-  const wsRoot = useWorkspaceStore().root;
-  if (!wsRoot) return;
-  const normalizeCmp = (p: string) => {
-    const n = p.replace(/\\/g, "/").replace(/\/+$/, "");
-    return pathCaseInsensitive ? n.toLowerCase() : n;
-  };
-  const rootA = normalizeCmp(detail.root);
-  const rootB = normalizeCmp(wsRoot);
-  if (rootA !== rootB) return;
-
-  const path = currentPath.value.replace(/\\/g, "/");
-  const hit = detail.events.find((e) => {
-    const ep = e.path.replace(/\\/g, "/");
-    return pathCaseInsensitive ? ep.toLowerCase() === path.toLowerCase() : ep === path;
-  });
-  if (!hit) return;
-
-  if (hit.kind === "unlink") {
-    missing.value = true;
-    syncTabMeta({ missing: true });
-    return;
-  }
-
-  if (hit.kind === "add" || hit.kind === "change") {
-    void (async () => {
-      const res = await window.api.preview.read(path);
-      if (res.kind === "error") {
-        missing.value = true;
-        syncTabMeta({ missing: true });
-        return;
-      }
-      if (missing.value) {
-        missing.value = false;
-        syncTabMeta({ missing: false });
-      }
-      if (res.kind !== "text" && res.kind !== "markdown") return;
-      const nextFp = fingerprint(res.content);
-      if (nextFp === diskFingerprint) return;
-      // Our own save also triggers fs watch — skip if editor matches disk
-      const editorValue = editor?.getValue() ?? liveContent.value;
-      if (editorValue === res.content) {
-        diskFingerprint = nextFp;
-        dirty.value = false;
-        syncTabMeta({ dirty: false });
-        return;
-      }
-      // No local edits → silently take disk content (no prompt).
-      if (!dirty.value) {
-        await applyDiskContentSilently(path, res.content);
-        return;
-      }
-      promptReloadFromDisk();
-    })();
-  }
+/** 读盘比对后刷新编辑器：工作区内外的变更都走这里。 */
+function refreshFromDisk(path: string): void {
+  void (async () => {
+    const gen = ++fsGen;
+    const res = await window.api.preview.read(path);
+    if (gen !== fsGen) return;
+    if (res.kind === "error") {
+      missing.value = true;
+      syncTabMeta({ missing: true });
+      return;
+    }
+    if (missing.value) {
+      missing.value = false;
+      syncTabMeta({ missing: false });
+    }
+    if (res.kind !== "text" && res.kind !== "markdown") return;
+    if (diskContent !== null && diskContent === res.content) return;
+    // 自己的保存也会触发 fs watch —— 编辑器与磁盘一致时只同步状态
+    const editorValue = editor?.getValue() ?? liveContent.value;
+    if (editorValue === res.content) {
+      diskContent = res.content;
+      dirty.value = false;
+      syncTabMeta({ dirty: false });
+      return;
+    }
+    await applyDiskContentSilently(path, res.content);
+  })();
 }
 
+function onFsChanged(event: Event): void {
+  const detail = (event as CustomEvent<FsChangedPayload>).detail;
+  const path = currentPath.value;
+  if (!detail || !path) return;
+  const target = normalizeFsPath(absoluteWorkspacePath(detail.root, path));
+  const hit = detail.events.find(
+    (e) => normalizeFsPath(absoluteWorkspacePath(detail.root, e.path)) === target,
+  );
+  if (hit) refreshFromDisk(path);
+}
+
+/** 工作区外文件不在全局 watcher 范围内，按标签页订阅其所在目录。 */
+function syncExternalFileWatch(): void {
+  const root = workspace.root ?? "";
+  const path = currentPath.value;
+  const next =
+    path && isAbsoluteFsPath(path) && !isInsideWorkspace(root, path) ? path : null;
+  if (next === watchedExternalPath) return;
+  if (watchedExternalPath) void window.api.preview.unwatch(watchedExternalPath);
+  watchedExternalPath = next;
+  if (next) void window.api.preview.watch(next);
+}
+
+function onExternalWatchChanged(payload: { paths: string[] }): void {
+  const path = currentPath.value;
+  if (!path || !payload?.paths?.length) return;
+  const target = normalizeFsPath(path);
+  if (payload.paths.some((p) => normalizeFsPath(p) === target)) refreshFromDisk(path);
+}
+
+watch(currentPath, () => syncExternalFileWatch());
+
 watch(
-  () => props.filePath,
-  (path) => {
-    void loadPath(path ?? null);
+  [() => props.filePath, () => props.draftContent],
+  () => {
+    if (!props.filePath && props.draftContent != null) {
+      void loadDraft(props.draftContent);
+      return;
+    }
+    void loadPath(props.filePath ?? null);
   },
   { immediate: true },
 );
@@ -602,6 +632,28 @@ async function pickFile(): Promise<void> {
 }
 
 async function save(): Promise<boolean> {
+  if (saving.value) return false;
+  if (props.saveHandler) {
+    const content =
+      editor?.getValue() ??
+      (liveContent.value ||
+        (result.value?.kind === "text" || result.value?.kind === "markdown"
+          ? result.value.content
+          : ""));
+    saving.value = true;
+    try {
+      const ok = await props.saveHandler(content);
+      if (ok) {
+        diskContent = content;
+        dirty.value = false;
+        missing.value = false;
+        syncTabMeta({ dirty: false, missing: false });
+      }
+      return ok;
+    } finally {
+      saving.value = false;
+    }
+  }
   if (!currentPath.value) return false;
   const wasMissing = missing.value;
   const content =
@@ -618,7 +670,7 @@ async function save(): Promise<boolean> {
     if (wasMissing || !editor) {
       await loadPath(currentPath.value);
     } else {
-      diskFingerprint = fingerprint(content);
+      diskContent = content;
       dirty.value = false;
       missing.value = false;
       syncTabMeta({ dirty: false, missing: false });
@@ -634,8 +686,29 @@ async function save(): Promise<boolean> {
   }
 }
 
+function getContent(): string {
+  return editor?.getValue() ?? liveContent.value ?? "";
+}
+
+function setContent(content: string): void {
+  const model = editor?.getModel();
+  if (model && model.getValue() !== content) {
+    editor?.pushUndoStop();
+    model.setValue(content);
+    editor?.pushUndoStop();
+  }
+  liveContent.value = content;
+}
+
+defineExpose({ save, dirty, getContent, setContent });
+
+/** Ctrl+S 按住期间只保存一次（不依赖系统 repeat 标记）。 */
+let saveShortcutHeld = false;
+
 function onPreviewKeydown(event: KeyboardEvent): void {
   if (props.active === false) return;
+  // 右侧面板被折起或被设置页覆盖时，不参与全局快捷键
+  if (!props.embedded && (layout.rightCollapsed || layout.centerView === "customize")) return;
   if (!(event.ctrlKey || event.metaKey) || event.altKey) return;
   if (event.key.toLowerCase() !== "s") return;
   if (event.isComposing) return;
@@ -645,7 +718,18 @@ function onPreviewKeydown(event: KeyboardEvent): void {
   }
   event.preventDefault();
   event.stopPropagation();
+  // 长按不重复触发保存
+  if (event.repeat || saveShortcutHeld) return;
+  saveShortcutHeld = true;
   void save();
+}
+
+function onPreviewKeyup(event: KeyboardEvent): void {
+  if (event.key.toLowerCase() === "s") saveShortcutHeld = false;
+}
+
+function onWindowBlur(): void {
+  saveShortcutHeld = false;
 }
 
 onMounted(() => {
@@ -653,13 +737,24 @@ onMounted(() => {
     rightTabs.registerSaveHandler(props.tabId, save);
   }
   window.addEventListener("pi-fs-changed", onFsChanged);
+  stopPreviewWatch = window.api.preview.onChanged(onExternalWatchChanged);
   window.addEventListener("keydown", onPreviewKeydown, true);
+  window.addEventListener("keyup", onPreviewKeyup, true);
+  window.addEventListener("blur", onWindowBlur);
 });
 
 onBeforeUnmount(() => {
   if (props.tabId) rightTabs.unregisterSaveHandler(props.tabId);
   window.removeEventListener("pi-fs-changed", onFsChanged);
+  stopPreviewWatch?.();
+  stopPreviewWatch = null;
+  if (watchedExternalPath) {
+    void window.api.preview.unwatch(watchedExternalPath);
+    watchedExternalPath = null;
+  }
   window.removeEventListener("keydown", onPreviewKeydown, true);
+  window.removeEventListener("keyup", onPreviewKeyup, true);
+  window.removeEventListener("blur", onWindowBlur);
   if (selectionDebounce) clearTimeout(selectionDebounce);
   stopMedia();
   unregisterVideo?.();
@@ -672,7 +767,7 @@ onBeforeUnmount(() => {
 
 <template>
   <div class="preview-tab">
-    <div class="toolbar">
+    <div v-if="!embedded" class="toolbar">
       <div class="crumbs" :title="currentPath ?? undefined">
         <template v-if="crumbs.length">
           <span v-for="(part, i) in crumbs" :key="`${part}-${i}`" class="crumb">
@@ -685,7 +780,7 @@ onBeforeUnmount(() => {
         <NText v-else depth="3" style="font-size: 11px">{{ t.noFileOpen }}</NText>
       </div>
       <div class="actions">
-        <div v-if="isMarkdown" class="md-modes" role="group" :aria-label="t.mdPreview">
+        <div v-if="isMarkdown && !embedded" class="md-modes" role="group" :aria-label="t.mdPreview">
           <button
             type="button"
             class="md-mode"
@@ -725,7 +820,7 @@ onBeforeUnmount(() => {
           </template>
           {{ missing ? t.saveAsNew : t.save }}
         </NButton>
-        <NButton size="tiny" quaternary @click="pickFile">
+        <NButton v-if="!embedded" size="tiny" quaternary @click="pickFile">
           <template #icon>
             <NIcon :component="FolderOpenOutline" :size="14" />
           </template>
@@ -748,7 +843,7 @@ onBeforeUnmount(() => {
           <span>{{ t.selectionAddToChat }}</span>
         </button>
       </Teleport>
-      <NEmpty v-if="!currentPath" :description="t.previewHint" size="small" />
+      <NEmpty v-if="!currentPath && !isDraft" :description="t.previewHint" size="small" />
       <NSpin v-else :show="loading" class="spin">
         <template v-if="result">
           <NAlert
@@ -757,7 +852,7 @@ onBeforeUnmount(() => {
             :bordered="false"
             style="margin: 4px 8px"
           >
-            {{ t.fileDeletedHint }}
+            {{ errorText }}
           </NAlert>
           <NAlert
             v-else-if="result.kind === 'unsupported'"

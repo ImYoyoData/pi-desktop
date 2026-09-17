@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
 import { NButton, NIcon, NTag, NText } from "naive-ui";
-import { ChevronDownOutline, ChevronForwardOutline, DocumentTextOutline } from "@vicons/ionicons5";
+import { ChevronDownOutline, ChevronForwardOutline } from "@vicons/ionicons5";
 import type { FileToolCard } from "@renderer/utils/tool-diff";
+import { fileIcon } from "@renderer/utils/file-icon";
 import { t } from "@renderer/i18n";
 
 const props = defineProps<{
@@ -54,6 +55,10 @@ const actionLabel = computed(() => {
   if (props.card.kind === "edit") return t.toolEdit;
   return props.toolName;
 });
+
+const fileGlyph = computed(() =>
+  props.card.path ? fileIcon(props.card.path) : null,
+);
 </script>
 
 <template>
@@ -80,7 +85,12 @@ const actionLabel = computed(() => {
         @click.stop="emit('open', card.path!)"
       >
         <template #icon>
-          <NIcon :component="DocumentTextOutline" :size="12" />
+          <span
+            v-if="fileGlyph"
+            class="file-glyph"
+            :style="fileGlyph.color ? { color: fileGlyph.color } : undefined"
+            aria-hidden="true"
+          >{{ fileGlyph.glyph }}</span>
         </template>
       </NButton>
     </button>
@@ -102,7 +112,7 @@ const actionLabel = computed(() => {
 .tool-file {
   width: 100%;
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: 4px;
   background: var(--tool-bg, var(--bg-elevated));
   overflow: hidden;
 }
@@ -160,11 +170,11 @@ const actionLabel = computed(() => {
 }
 
 .add {
-  color: #16a34a;
+  color: var(--diff-added);
 }
 
 .del {
-  color: #dc2626;
+  color: var(--diff-removed);
 }
 
 .open-btn {
@@ -172,6 +182,16 @@ const actionLabel = computed(() => {
   height: 22px !important;
   min-width: 22px !important;
   padding: 0 !important;
+}
+
+.file-glyph {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-family: "seti";
+  font-size: 14px;
+  line-height: 1;
+  transform: translateY(1px);
 }
 
 .tool-diff {
@@ -197,13 +217,13 @@ const actionLabel = computed(() => {
 }
 
 .dline.add {
-  background: rgba(22, 163, 74, 0.12);
-  color: #15803d;
+  background: color-mix(in srgb, var(--diff-added) 12%, transparent);
+  color: var(--diff-added);
 }
 
 .dline.del {
-  background: rgba(220, 38, 38, 0.1);
-  color: #b91c1c;
+  background: color-mix(in srgb, var(--diff-removed) 10%, transparent);
+  color: var(--diff-removed);
 }
 
 .dline.meta {

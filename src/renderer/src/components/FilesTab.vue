@@ -17,7 +17,6 @@ import {
 } from "naive-ui";
 import {
   ChatbubbleEllipsesOutline,
-  DocumentOutline,
   FolderOutline,
   RefreshOutline,
   DocumentAttachOutline,
@@ -31,6 +30,8 @@ import { useRightTabsStore } from "@renderer/stores/right-tabs";
 import { useLayoutStore } from "@renderer/stores/layout";
 import { useComposerStore } from "@renderer/stores/composer";
 import { gitCodeColor } from "@renderer/utils/editor-lang";
+import type { FsChangedPayload } from "@renderer/utils/fs-changed-bus";
+import { fileIcon } from "@renderer/utils/file-icon";
 import { matchesGitIgnorePatterns } from "../../../shared/git-ignore";
 import { ancestorChain, nextExpandedKeys } from "@renderer/utils/files-tree-expand";
 import {
@@ -47,12 +48,13 @@ const composer = useComposerStore();
 const message = useMessage();
 const dialog = useDialog();
 
-let offFs: (() => void) | null = null;
-/** Match main `fs-watch-host` rootsEqual: only Windows folds case. */
-let pathCaseInsensitive = false;
-void window.api.window.platform().then((p) => {
-  pathCaseInsensitive = p === "win32";
-});
+const props = withDefaults(
+  defineProps<{
+    /** True inside the sidebar dock whose switcher already shows the title. */
+    embedded?: boolean;
+  }>(),
+  { embedded: false },
+);
 
 /** Drag source for move-into-folder (not sibling reorder). */
 const dragSrcPath = ref<string | null>(null);
@@ -186,17 +188,6 @@ function onTreeDrop(info: {
   void moveIntoFolder(src, dest);
 }
 
-function sameWorkspaceRoot(a: string, b: string): boolean {
-  const fold = (p: string) => {
-    const n = p.replace(/\\/g, "/").replace(/\/+$/, "");
-    // Only Windows folds case (macOS APFS may be case-sensitive).
-    return pathCaseInsensitive ? n.toLowerCase() : n;
-  };
-  const na = fold(a);
-  const nb = fold(b);
-  return na === nb;
-}
-
 const loading = ref(false);
 const treeData = ref<TreeOption[]>([]);
 const expandedKeys = ref<string[]>([]);
@@ -223,11 +214,26 @@ const promptRenamePath = ref("");
 
 function renderPrefix({ option }: { option: TreeOption }) {
   const isDir = option.isLeaf === false;
-  return h(NIcon, {
-    component: isDir ? FolderOutline : DocumentOutline,
-    size: 13,
-    style: { color: labelColor(String(option.key), isDir) },
-  });
+  if (isDir) {
+    return h(
+      "span",
+      {
+        class: "seti-tree-icon",
+        style: { color: labelColor(String(option.key), true) },
+      },
+      [h(NIcon, { component: FolderOutline, size: 13 })],
+    );
+  }
+  const icon = fileIcon(String(option.key));
+  return h(
+    "span",
+    {
+      class: "seti-tree-icon seti-file-glyph",
+      style: icon.color ? { color: icon.color } : undefined,
+      "aria-hidden": "true",
+    },
+    icon.glyph,
+  );
 }
 
 function labelColor(key: string, isDir: boolean): string | undefined {
@@ -803,18 +809,18 @@ function toolbarNewDir(): void {
   openPrompt("dir", dir);
 }
 
+function onWorkspaceFsChanged(event: Event): void {
+  const detail = (event as CustomEvent<FsChangedPayload>).detail;
+  scheduleFsRefresh(detail?.events ?? []);
+}
+
 onMounted(() => {
   void refreshRoot();
-  offFs = window.api.fs.onChanged((payload) => {
-    // Ignore events from a previous workspace (stale watch race)
-    if (!workspace.root || !sameWorkspaceRoot(payload.root, workspace.root)) return;
-    scheduleFsRefresh(payload.events ?? []);
-    window.dispatchEvent(new CustomEvent("pi-fs-changed", { detail: payload }));
-  });
+  window.addEventListener("pi-fs-changed", onWorkspaceFsChanged);
 });
 
 onUnmounted(() => {
-  offFs?.();
+  window.removeEventListener("pi-fs-changed", onWorkspaceFsChanged);
   if (fsRefreshTimer) clearTimeout(fsRefreshTimer);
   clearDragState();
   // Do NOT unwatch here — watcher is owned by workspace switch lifecycle in main/store
@@ -846,9 +852,10 @@ watch(
 <template>
   <div class="files-tab">
     <div class="head">
-      <NText class="title" :title="workspace.root ?? undefined">
+      <NText v-if="!props.embedded" class="title" :title="workspace.root ?? undefined">
         {{ t.filesTab }}
       </NText>
+      <span v-else class="title" :title="workspace.root ?? undefined" />
       <NSpace :size="2">
         <NButton quaternary circle size="tiny" :title="t.filesRefresh" @click="refreshRoot">
           <template #icon>
@@ -1012,7 +1019,7 @@ watch(
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  background: #ca8a04;
+  background: var(--git-m);
   display: inline-block;
   margin-left: 6px;
 }
@@ -1021,5 +1028,25 @@ watch(
   /* Muted grey + subtle underline (still readable, clearly de-emphasized). */
   font-style: italic;
   opacity: 0.75;
+}
+</style>
+
+<style>
+/* renderPrefix 以 h() 渲染在 NTree 内部，组件 scoped 样式覆盖不到 */
+.seti-tree-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  margin-right: 4px;
+  flex-shrink: 0;
+  font-family: "seti";
+  font-size: 150%;
+  line-height: 1;
+}
+
+/* Seti 字形居中于行盒，文字视觉中心偏下约 2px，下移对齐 */
+.seti-file-glyph {
+  transform: translateY(2px);
 }
 </style>

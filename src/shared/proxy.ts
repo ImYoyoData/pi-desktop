@@ -54,9 +54,15 @@ export function normalizeProxyUrl(raw: string): string | null {
 	return out.endsWith("/") ? out.slice(0, -1) : out;
 }
 
+/** Node 侧 fetch（EnvHttpProxyAgent）仅支持 http/https 代理，socks 需排除。 */
+const NODE_PROXY_PROTOCOLS = /^(http:|https:)$/;
+
+const NODE_NO_PROXY = "localhost,127.0.0.1,::1";
+
 export function proxyEnvFromUrl(url: string): Record<string, string> {
 	const normalized = normalizeProxyUrl(url);
-	if (!normalized) return {};
+	if (!normalized || !NODE_PROXY_PROTOCOLS.test(new URL(normalized).protocol))
+		return {};
 	return {
 		HTTP_PROXY: normalized,
 		HTTPS_PROXY: normalized,
@@ -64,16 +70,16 @@ export function proxyEnvFromUrl(url: string): Record<string, string> {
 		http_proxy: normalized,
 		https_proxy: normalized,
 		all_proxy: normalized,
+		NO_PROXY: NODE_NO_PROXY,
+		no_proxy: NODE_NO_PROXY,
 	};
 }
 
-/** Parse a `session.resolveProxy` result like "PROXY host:port; DIRECT". */
+/** Parse a `session.resolveProxy` result like "PROXY host:port; DIRECT".
+ *  Prefer HTTP(S) entries — Node-side fetch cannot use SOCKS proxies. */
 export function proxyEnvFromPacResult(
 	pacResult: string,
 ): Record<string, string> {
-	const first = pacResult.split(";")[0]?.trim() ?? "";
-	const match = /^(PROXY|HTTPS|SOCKS|SOCKS4|SOCKS5)\s+(\S+)$/i.exec(first);
-	if (!match) return {};
 	const schemeByToken: Record<string, string> = {
 		proxy: "http",
 		https: "https",
@@ -81,9 +87,17 @@ export function proxyEnvFromPacResult(
 		socks4: "socks4",
 		socks5: "socks5",
 	};
-	const scheme = schemeByToken[match[1].toLowerCase()];
-	if (!scheme) return {};
-	return proxyEnvFromUrl(`${scheme}://${match[2]}`);
+	for (const entry of pacResult.split(";")) {
+		const match = /^(PROXY|HTTPS|SOCKS|SOCKS4|SOCKS5)\s+(\S+)$/i.exec(
+			entry.trim(),
+		);
+		if (!match) continue;
+		const scheme = schemeByToken[match[1].toLowerCase()];
+		if (scheme && NODE_PROXY_PROTOCOLS.test(`${scheme}:`)) {
+			return proxyEnvFromUrl(`${scheme}://${match[2]}`);
+		}
+	}
+	return {};
 }
 
 export function isProxyActive(settings: ProxySettings): boolean {

@@ -159,7 +159,7 @@ function onClose(): void {
   gap: 6px;
   padding: 14px;
   border: 1px solid var(--border);
-  border-radius: 12px;
+  border-radius: 6px;
   background: var(--bg-elevated);
   color: var(--fg);
   text-align: left;

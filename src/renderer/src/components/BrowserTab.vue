@@ -986,7 +986,7 @@ watch(
   min-width: 0;
   min-height: 0;
   height: 100%;
-  background: #fff;
+  background: var(--bg);
   flex-shrink: 0;
 }
 
@@ -1014,7 +1014,7 @@ watch(
 
 .devtools-handle:hover,
 .devtools-handle:active {
-  background: #cfcfcf;
+  background: var(--border-strong);
 }
 
 .devtools-handle::before {

@@ -137,7 +137,7 @@ function previewText(item: QueuedSendItem): string {
   padding: 4px 6px;
   margin: 0;
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: 4px;
   background: var(--bg-panel, var(--bg-elevated));
 }
 

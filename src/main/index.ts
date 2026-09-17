@@ -35,9 +35,11 @@ import type { BrowserRpcMethod } from "../shared/browser-automation";
 import type { WorkerOutbound } from "../shared/agent-worker-messages";
 import type { SecurityCategory } from "../shared/desktop-security";
 import { registerPreviewIpc } from "./preview-ipc";
+import { registerPreviewWatchIpc } from "./preview-watch-host";
 import { registerTerminalIpc } from "./terminal-host";
 import { registerWorkspaceIpc } from "./workspace-ipc";
 import { registerFilesIpc } from "./files-ipc";
+import { registerCustomizationsIpc } from "./customizations-ipc";
 import { registerSkillsIpc } from "./skills-ipc";
 import { registerGitIpc } from "./git-ipc";
 import { registerFsWatchIpc } from "./fs-watch-host";
@@ -51,10 +53,12 @@ import { registerCheckpointIpc } from "./checkpoint-ipc";
 import { registerNotifyIpc } from "./notify-host";
 import {
 	askRendererPermission,
+	cancelPermissionAsk,
 	registerPermissionAskIpc,
 } from "./permission-ask-host";
 import {
 	askRendererAskUser,
+	cancelAskUserAsk,
 	questionsFromAskUserParams,
 	registerAskUserIpc,
 } from "./ask-user-host";
@@ -62,8 +66,11 @@ import {
 	handleExtensionUiRpc,
 	registerExtensionUiIpc,
 } from "./extension-ui-host";
-import { registerSecurityTrustIpc } from "./security-trust-ipc";
+import { registerSecurityIpc } from "./security-ipc";
+import { registerThinkingLanguageIpc } from "./thinking-language-ipc";
+import { registerAppearanceIpc } from "./appearance-ipc";
 import {
+	disposeLanConsole,
 	ensureLanConsoleFromSettings,
 	registerLanConsoleIpc,
 } from "./lan-console";
@@ -200,6 +207,7 @@ function boot(): void {
 							category: category as SecurityCategory,
 							toolName,
 							summary,
+							danger: params.danger === true,
 						});
 					} else if (msg.method === "desktop.askUser") {
 						const questions = questionsFromAskUserParams(msg.params ?? {});
@@ -211,6 +219,17 @@ function boot(): void {
 							requestId: msg.id,
 							questions,
 						});
+					} else if (msg.method === "desktop.rpcCancel") {
+						// Worker aborted the turn (Stop) while blocked on a UI ask —
+						// tear it down and broadcast a cancel so the strip closes.
+						const params = msg.params ?? {};
+						const requestId =
+							typeof params.requestId === "string" ? params.requestId : "";
+						if (requestId) {
+							cancelAskUserAsk(requestId);
+							cancelPermissionAsk(requestId);
+						}
+						result = { ok: true };
 					} else if (msg.method === "desktop.extensionUi") {
 						result = await handleExtensionUiRpc(sessionId, msg.id, msg.params ?? {});
 					} else {
@@ -321,17 +340,22 @@ function boot(): void {
 		registerWindowIpc();
 		registerWorkspaceIpc({
 			purgeWorkspaceSessions: (cwd) => broker.purgeWorkspace(cwd),
+			stopWorkspaceSessions: (cwd) => broker.stopWorkspaceSessions(cwd),
 		});
 		registerSessionsIpc(broker);
 		registerAgentRunsIpc(registryHolder.current!);
 		registerModelsIpc(broker);
-		registerPermissionAskIpc(broker);
+		registerPermissionAskIpc();
 		registerAskUserIpc();
 		registerExtensionUiIpc();
-		registerSecurityTrustIpc(broker);
+		registerSecurityIpc(broker);
+		registerThinkingLanguageIpc();
+		registerAppearanceIpc();
 		registerLanConsoleIpc(broker);
 		registerPreviewIpc();
+		registerPreviewWatchIpc();
 		registerFilesIpc();
+		registerCustomizationsIpc(broker);
 		registerFsWatchIpc();
 		registerGitIpc();
 		registerSkillsIpc(broker);
@@ -415,7 +439,7 @@ function boot(): void {
 		// Show UI as soon as possible — defer agent env setup and non-critical
 		// hosts (ASR / update / market / CLI) so the window paints first.
 		void initProxy();
-		registerProxyIpc();
+		registerProxyIpc({ onChanged: () => broker.recycleWorkers() });
 		const mainWindow = createMainWindow();
 		markStartup("main:window-created");
 		mainWindow.webContents.once("did-finish-load", () => {
@@ -440,8 +464,8 @@ function boot(): void {
 			registerPiCliIpc();
 			registerMarketIpc(broker);
 			markStartup("main:defer:hosts");
-			// LAN cert generation can briefly block the event loop — wait until
-			// the window has had a chance to paint and hydrate.
+			// Remote control serves the built web panel right away; give the
+			// window a chance to paint and hydrate before it starts listening.
 			setTimeout(() => {
 				markStartup("main:defer:lan-start");
 				if (process.env.PI_DESKTOP_NO_LAN !== "1") {
@@ -464,5 +488,10 @@ function boot(): void {
 		if (process.platform !== "darwin") {
 			app.quit();
 		}
+	});
+
+	// Never leave the remote-control listeners or a cloudflared tunnel behind.
+	app.on("will-quit", () => {
+		disposeLanConsole();
 	});
 }

@@ -9,10 +9,23 @@ import { IpcChannels } from "../shared/protocol";
 import type { SessionBroker } from "./session-broker";
 import { readSessionHistoryPage } from "./session-history";
 import {
+  cancelAskUserAsksForSession,
+  snapshotPendingAskUserAsks,
+} from "./ask-user-host";
+import {
+  cancelPermissionAsksForSession,
+  snapshotPendingPermissionAsks,
+} from "./permission-ask-host";
+import {
+  cancelExtensionUiAsksForSession,
+  snapshotPendingExtensionUiDialogs,
+} from "./extension-ui-host";
+import {
   clearSessionResources,
   getSessionResources,
 } from "./agent-worker-host";
 import { renameSessionFile } from "./session-rename";
+import { forkSessionAtUserTurn } from "./session-fork";
 
 /**
  * Enrich an extension entry path with a readable name + brief description.
@@ -62,6 +75,18 @@ function broadcastEvent(event: unknown): void {
   }
 }
 
+/**
+ * A turn abort (renderer Stop / auto-recover) must also tear down whatever UI
+ * ask this session is blocked on. ask_user / permission / extension-UI dialogs
+ * wait in main, and the worker cannot cancel the ones whose RPCs carry no abort
+ * signal — without this the turn stays "running" until the ask times out.
+ */
+function cancelSessionUiAsks(sessionId: string): void {
+  cancelAskUserAsksForSession(sessionId);
+  cancelPermissionAsksForSession(sessionId);
+  cancelExtensionUiAsksForSession(sessionId);
+}
+
 export function registerSessionsIpc(broker: SessionBroker): void {
   broker.onEvent((event) => {
     broadcastEvent(event);
@@ -77,12 +102,18 @@ export function registerSessionsIpc(broker: SessionBroker): void {
   });
 
   ipcMain.handle(IpcChannels.sessions.close, (_event, sessionId: string) => {
-    clearSessionResources(String(sessionId ?? ""));
-    return broker.closeSession(sessionId);
+    const id = String(sessionId ?? "");
+    cancelSessionUiAsks(id);
+    clearSessionResources(id);
+    return broker.closeSession(id);
   });
 
-  ipcMain.handle(IpcChannels.sessions.command, (_event, sessionId: string, command: AgentCommand) =>
-    broker.send(sessionId, command),
+  ipcMain.handle(
+    IpcChannels.sessions.command,
+    (_event, sessionId: string, command: AgentCommand) => {
+      if (command?.type === "abort") cancelSessionUiAsks(String(sessionId ?? ""));
+      return broker.send(sessionId, command);
+    },
   );
 
   ipcMain.handle(IpcChannels.sessions.tryCommand, (_event, sessionId: string, command: AgentCommand) =>
@@ -113,8 +144,10 @@ export function registerSessionsIpc(broker: SessionBroker): void {
   );
 
   ipcMain.handle(IpcChannels.sessions.delete, (_event, sessionId: string, cwd: string) => {
-    clearSessionResources(String(sessionId ?? ""));
-    return broker.deleteSession(sessionId, cwd);
+    const id = String(sessionId ?? "");
+    cancelSessionUiAsks(id);
+    clearSessionResources(id);
+    return broker.deleteSession(id, cwd);
   });
 
   ipcMain.handle(
@@ -144,6 +177,16 @@ export function registerSessionsIpc(broker: SessionBroker): void {
     ) => readSessionHistoryPage(filePath, query),
   );
 
+  // Renderer boots (initial load / reload / language switch) with empty
+  // in-memory chat state; main still holds the pending asks, so hand them
+  // back for re-display. Replies still go through the normal reply channels
+  // with the original requestId, so a recovered strip stays submittable.
+  ipcMain.handle(IpcChannels.sessions.pendingUi, () => ({
+    asks: snapshotPendingAskUserAsks(),
+    permissions: snapshotPendingPermissionAsks(),
+    extensionDialogs: snapshotPendingExtensionUiDialogs(),
+  }));
+
   ipcMain.handle(
     IpcChannels.sessions.clearContext,
     (_event, sessionId: string, cwd: string) => broker.clearContext(sessionId, cwd),
@@ -165,6 +208,24 @@ export function registerSessionsIpc(broker: SessionBroker): void {
         modified: new Date().toISOString(),
       });
       return patched ?? (await broker.listSessions(cwd)).find((s) => s.id === sessionId) ?? null;
+    },
+  );
+
+  ipcMain.handle(
+    IpcChannels.sessions.fork,
+    async (
+      _event,
+      sessionId: string,
+      cwd: string,
+      userIndex: number,
+      expectText?: string,
+    ) => {
+      const list = await broker.listSessions(cwd);
+      const target = list.find((s) => s.id === sessionId);
+      if (!target?.filePath) {
+        throw new Error("session not found");
+      }
+      return forkSessionAtUserTurn(target.filePath, Number(userIndex), expectText);
     },
   );
 }

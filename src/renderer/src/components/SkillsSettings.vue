@@ -7,12 +7,12 @@ import {
   NScrollbar,
   NSpace,
   NSpin,
-  NSwitch,
   NText,
   useDialog,
   useMessage,
 } from "naive-ui";
 import { useWorkspaceStore } from "@renderer/stores/workspace";
+import ToggleButton from "@renderer/components/ToggleButton.vue";
 import { t } from "@renderer/i18n";
 
 type SkillRow = {
@@ -152,14 +152,11 @@ function onUninstall(skill: SkillRow): void {
                   <div class="title">{{ selectedSkill()!.name }}</div>
                   <NText depth="3" style="font-size: 12px">{{ sourceLabel(selectedSkill()!) }}</NText>
                 </div>
-                <NSpace align="center">
-                  <NText style="font-size: 12px">{{ t.enable }}</NText>
-                  <NSwitch
-                    :value="!selectedSkill()!.disableModelInvocation"
-                    :loading="toggling === selectedSkill()!.filePath"
-                    @update:value="(v) => onToggle(selectedSkill()!, v)"
-                  />
-                </NSpace>
+                <ToggleButton
+                  :value="!selectedSkill()!.disableModelInvocation"
+                  :loading="toggling === selectedSkill()!.filePath"
+                  @update:value="(v) => onToggle(selectedSkill()!, v)"
+                />
               </div>
               <NText depth="3" style="font-size: 12px; display: block; margin-bottom: 10px">
                 {{ selectedSkill()!.filePath }}
@@ -207,7 +204,7 @@ function onUninstall(skill: SkillRow): void {
   grid-template-columns: 240px 1fr;
   height: 100%;
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: 4px;
   overflow: hidden;
 }
 .left {

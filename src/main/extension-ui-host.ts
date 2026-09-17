@@ -8,12 +8,18 @@ import {
   type ExtensionUiReply,
 } from "../shared/extension-ui";
 import { IpcChannels } from "../shared/protocol";
+import type { ExtensionUiPending } from "../shared/extension-ui";
 
 type PendingDialog = {
   sessionId: string;
+  dialog: ExtensionUiPending;
   resolve: (reply: ExtensionUiReply) => void;
   timer: ReturnType<typeof setTimeout>;
 };
+
+export function snapshotPendingExtensionUiDialogs(): ExtensionUiPending[] {
+  return [...pendingDialogs.values()].map((row) => row.dialog);
+}
 
 const pendingDialogs = new Map<string, PendingDialog>();
 
@@ -66,8 +72,9 @@ export async function handleExtensionUiRpc(
         reject(new Error("extension UI prompt timed out"));
       }, timeoutMs);
 
-      pendingDialogs.set(requestId, { sessionId, resolve, timer });
-      broadcast({ sessionId, ...dialog });
+      const pending: ExtensionUiPending = { sessionId, ...dialog };
+      pendingDialogs.set(requestId, { sessionId, dialog: pending, resolve, timer });
+      broadcast(pending);
     });
   }
 
@@ -144,6 +151,21 @@ export function clearPendingExtensionUiAsks(reason = "extension UI cleared"): vo
     broadcastCancelled(row.sessionId, id);
     row.resolve({ requestId: id, cancelled: true });
     pendingDialogs.delete(id);
+  }
+  void reason;
+}
+
+/** Cancel every outstanding dialog for one session (renderer Stop / turn abort). */
+export function cancelExtensionUiAsksForSession(
+  sessionId: string,
+  reason = "extension UI cleared",
+): void {
+  for (const [requestId, row] of [...pendingDialogs]) {
+    if (row.sessionId !== sessionId) continue;
+    pendingDialogs.delete(requestId);
+    clearTimeout(row.timer);
+    broadcastCancelled(sessionId, requestId);
+    row.resolve({ requestId, cancelled: true });
   }
   void reason;
 }

@@ -5,6 +5,10 @@ export type DiscoveredModel = {
   name?: string;
   contextWindow?: number;
   maxTokens?: number;
+  /** Endpoint advertises image input. */
+  vision?: boolean;
+  /** Endpoint advertises extended thinking. */
+  reasoning?: boolean;
 };
 
 export type DiscoverModelsInput = {
@@ -40,6 +44,19 @@ export type TestModelConnectionInput = {
   api?: string;
   modelId: string;
 };
+export type TestProviderBaseUrlInput = {
+  baseUrl: string;
+  apiKey?: string;
+  api?: string;
+};
+
+/**
+ * 地址可达性/测速结果：`responded` 为 true 表示拿到了 HTTP 响应
+ * （状态码不一定是 2xx），false 表示网络层失败。
+ */
+export type TestProviderBaseUrlResult =
+  | { responded: true; latencyMs: number; status: number; url: string }
+  | { responded: false; error: string; latencyMs: number };
 
 export type TestModelConnectionResult =
   | { ok: true; latencyMs: number; status: number }
@@ -68,6 +85,52 @@ function authHeaders(apiKey?: string): Record<string, string> {
   return headers;
 }
 
+/**
+ * Anthropic 端点（含兼容代理）用 `x-api-key`，其余用 Bearer；
+ * Google 的密钥走 `?key=`，带上 Authorization 会被当作 OAuth 令牌拒绝。
+ */
+function discoverHeaders(api: string | undefined, apiKey?: string): Record<string, string> {
+  const kind = (api ?? "").trim();
+  if (kind === "google-generative-ai") return { Accept: "application/json" };
+  const headers = authHeaders(apiKey);
+  if (kind === "anthropic-messages") {
+    const key = apiKey?.trim();
+    if (key) headers["x-api-key"] = key;
+    headers["anthropic-version"] = "2023-06-01";
+  }
+  return headers;
+}
+
+/** base 未带版本段时额外尝试 `{base}/v1{path}`（Anthropic / OpenAI 兼容代理常见填法）。 */
+function versionedUrls(baseUrl: string, path: string): string[] {
+  const urls = [`${baseUrl}${path}`];
+  if (!/\/v\d+[a-z]*$/iu.test(baseUrl)) urls.push(`${baseUrl}/v1${path}`);
+  return urls;
+}
+
+/** Gemini 的版本段是 `/v1beta` / `/v1alpha`；缺省时依次尝试。 */
+function googleBaseUrls(baseUrl: string): string[] {
+  if (/\/v\d+(?:beta|alpha)$/iu.test(baseUrl)) return [baseUrl];
+  return [`${baseUrl}/v1beta`, `${baseUrl}/v1alpha`, baseUrl];
+}
+
+/** 模型列表候选 URL，按协议选择版本段风格。 */
+function modelListUrls(baseUrl: string, api: string): string[] {
+  if (api === "google-generative-ai") {
+    return googleBaseUrls(baseUrl).map((base) => `${base}/models`);
+  }
+  return versionedUrls(baseUrl, "/models");
+}
+
+/** Gemini 的密钥与分页参数（pageSize 上限 1000），其它协议不带 query。 */
+function discoverQuery(api: string, apiKey?: string): string {
+  if (api !== "google-generative-ai") return "";
+  const params = new URLSearchParams({ pageSize: "1000" });
+  const key = apiKey?.trim();
+  if (key) params.set("key", key);
+  return `?${params.toString()}`;
+}
+
 function asRecord(v: unknown): Record<string, unknown> | null {
   return v && typeof v === "object" && !Array.isArray(v) ? (v as Record<string, unknown>) : null;
 }
@@ -80,6 +143,132 @@ function num(v: unknown): number | undefined {
   }
   return undefined;
 }
+
+/** First positive number found among candidate fields (keeps the most specific provider hint). */
+function firstNum(...candidates: unknown[]): number | undefined {
+  for (const c of candidates) {
+    const n = num(c);
+    if (n) return n;
+  }
+  return undefined;
+}
+
+/** Context-window candidates across common OpenAI-compatible / vLLM / OpenRouter / Anthropic shapes. */
+function modelContextWindow(o: Record<string, unknown>): number | undefined {
+  const limits = asRecord(o.limits);
+  const topProvider = asRecord(o.top_provider) ?? asRecord(o.topProvider);
+  return firstNum(
+    o.context_window,
+    o.contextWindow,
+    o.context_length,
+    o.contextLength,
+    o.max_context_window,
+    o.maxContextWindow,
+    o.max_model_len,
+    o.maxModelLen,
+    o.max_context_length,
+    o.maxContextLength,
+    o.input_token_limit,
+    o.inputTokenLimit,
+    o.max_input_tokens,
+    o.maxInputTokens,
+    o.input_token_limit,
+    o.inputTokenLimit,
+    o.tokens_limit,
+    o.tokensLimit,
+    limits?.context_window,
+    limits?.max_context_length,
+    limits?.max_input_tokens,
+    topProvider?.context_length,
+    topProvider?.context_window,
+    asRecord(o.meta)?.context_window,
+  );
+}
+
+/** Max-output candidates across common OpenAI-compatible / OpenRouter / Anthropic shapes. */
+function modelMaxTokens(o: Record<string, unknown>): number | undefined {
+  const limits = asRecord(o.limits);
+  const topProvider = asRecord(o.top_provider) ?? asRecord(o.topProvider);
+  return firstNum(
+    o.max_tokens,
+    o.maxTokens,
+    o.max_output_tokens,
+    o.maxOutputTokens,
+    o.max_output,
+    o.maxOutput,
+    o.output_token_limit,
+    o.outputTokenLimit,
+    o.max_completion_tokens,
+    o.maxCompletionTokens,
+    o.default_max_tokens,
+    o.defaultMaxTokens,
+    limits?.max_tokens,
+    limits?.max_output_tokens,
+    limits?.max_completion_tokens,
+    topProvider?.max_completion_tokens,
+    topProvider?.max_output_tokens,
+    asRecord(o.meta)?.max_tokens,
+    asRecord(o.meta)?.max_output_tokens,
+  );
+}
+
+/** Read a tri-state boolean, ignoring non-boolean junk. */
+function boolOf(...values: unknown[]): boolean | undefined {
+  for (const v of values) {
+    if (typeof v === "boolean") return v;
+  }
+  return undefined;
+}
+
+/** True when any of the given arrays/lists mentions `needle`. */
+function listsInclude(needle: string, ...values: unknown[]): boolean {
+  return values.some((v) => Array.isArray(v) && v.some((x) => x === needle));
+}
+
+/**
+ * Image-input hint from the endpoint payload, or undefined when the provider
+ * says nothing (the id-based heuristic in `model-metadata` then decides).
+ */
+function modelSupportsVision(o: Record<string, unknown>): boolean | undefined {
+  const architecture = asRecord(o.architecture);
+  const capabilities = asRecord(o.capabilities);
+  const explicit = boolOf(o.supports_vision, o.supportsVision, capabilities?.vision);
+  if (explicit !== undefined) return explicit;
+  if (
+    listsInclude("image", o.input, o.modalities, o.input_modalities, architecture?.input_modalities)
+  ) {
+    return true;
+  }
+  // OpenRouter packs it into a string: "text+image->text".
+  const modality = architecture?.modality ?? o.modality;
+  return typeof modality === "string" ? modality.includes("image") : undefined;
+}
+
+/**
+ * Extended-thinking hint from the endpoint payload, or undefined when silent.
+ * Covers OpenRouter's `supported_parameters` as well as the common flags.
+ */
+function modelSupportsReasoning(o: Record<string, unknown>): boolean | undefined {
+  const capabilities = asRecord(o.capabilities);
+  const explicit = boolOf(o.reasoning, o.supports_reasoning, o.supportsReasoning, capabilities?.reasoning);
+  if (explicit !== undefined) return explicit;
+  if (
+    listsInclude("reasoning", o.supported_parameters, o.supportedParameters) ||
+    listsInclude("include_reasoning", o.supported_parameters) ||
+    listsInclude("reasoning_effort", o.supported_parameters)
+  ) {
+    return true;
+  }
+  // `thinking: {...}` (Anthropic-style) or `{ type: "enabled" }`.
+  const thinking = o.thinking;
+  if (thinking === true) return true;
+  const thinkingRecord = asRecord(thinking);
+  if (thinkingRecord && (thinkingRecord.type === "enabled" || thinkingRecord.type === "adaptive")) {
+    return true;
+  }
+  return undefined;
+}
+
 
 function parseOpenAiModelsPayload(payload: unknown): DiscoveredModel[] {
   const root = asRecord(payload);
@@ -95,19 +284,41 @@ function parseOpenAiModelsPayload(payload: unknown): DiscoveredModel[] {
   for (const item of data) {
     const o = asRecord(item);
     if (!o) continue;
-    const id = typeof o.id === "string" ? o.id.trim() : typeof o.name === "string" ? o.name.trim() : "";
+    // Gemini 列表里含 embedContent / predict 等非对话模型，跳过。
+    if (
+      Array.isArray(o.supportedGenerationMethods) &&
+      !o.supportedGenerationMethods.includes("generateContent")
+    ) {
+      continue;
+    }
+    const rawId =
+      typeof o.id === "string"
+        ? o.id.trim()
+        : typeof o.name === "string"
+          ? o.name.trim()
+          : "";
+    // Gemini 的 `models/gemini-…`：去掉前缀后与其他目录可比。
+    const id = rawId.replace(/^models\//u, "");
     if (!id) continue;
-    const contextWindow =
-      num(o.context_window) ??
-      num(o.contextWindow) ??
-      num(o.max_model_len) ??
-      num(asRecord(o.meta)?.context_window);
-    const maxTokens = num(o.max_tokens) ?? num(o.maxTokens) ?? num(o.max_output_tokens);
+    const rawName =
+      typeof o.display_name === "string"
+        ? o.display_name
+        : typeof o.displayName === "string"
+          ? o.displayName
+          : typeof o.name === "string"
+            ? o.name
+            : "";
+    const contextWindow = modelContextWindow(o);
+    const maxTokens = modelMaxTokens(o);
+    const vision = modelSupportsVision(o);
+    const reasoning = modelSupportsReasoning(o);
     out.push({
       id,
-      name: typeof o.name === "string" && o.name !== id ? o.name : undefined,
+      name: rawName.trim() && rawName.trim() !== id ? rawName.trim() : undefined,
       ...(contextWindow ? { contextWindow } : {}),
       ...(maxTokens ? { maxTokens } : {}),
+      ...(vision !== undefined ? { vision } : {}),
+      ...(reasoning !== undefined ? { reasoning } : {}),
     });
   }
   return out;
@@ -174,17 +385,21 @@ export async function discoverModels(
   }
 
   const fetchImpl = opts?.fetchImpl ?? (globalThis.fetch as FetchLike);
-  const headers = authHeaders(input.apiKey);
+  const api = (input.api ?? "").trim();
+  const headers = discoverHeaders(api, input.apiKey);
   const errors: string[] = [];
+  const query = discoverQuery(api, input.apiKey);
 
-  const openAiUrl = `${baseUrl}/models`;
-  const openAi = await getJson(fetchImpl, openAiUrl, headers, opts?.signal);
-  if (openAi.ok) {
-    const models = parseOpenAiModelsPayload(openAi.json);
-    if (models.length) return { ok: true, models, source: openAiUrl };
-    errors.push(`${openAiUrl}: empty model list`);
-  } else {
-    errors.push(`${openAiUrl}: ${openAi.error}`);
+  for (const url of modelListUrls(baseUrl, api)) {
+    const target = `${url}${query}`;
+    const res = await getJson(fetchImpl, target, headers, opts?.signal);
+    if (res.ok) {
+      const models = parseOpenAiModelsPayload(res.json);
+      if (models.length) return { ok: true, models, source: target };
+      errors.push(`${target}: empty model list`);
+    } else {
+      errors.push(`${target}: ${res.error}`);
+    }
   }
 
   // Ollama native tags (base often …/v1 — try host root)
@@ -205,6 +420,58 @@ export async function discoverModels(
     ok: false,
     error: `Could not fetch models.\n${errors.join("\n")}`,
   };
+}
+
+/**
+ * 测速提供商地址：请求模型列表端点，返回首个 2xx 响应；
+ * 全部非 2xx 时返回最后一次响应，网络错误立即失败。
+ */
+export async function testProviderBaseUrl(
+  input: TestProviderBaseUrlInput,
+  opts?: { fetchImpl?: FetchLike; signal?: AbortSignal },
+): Promise<TestProviderBaseUrlResult> {
+  const baseUrl = normalizeProviderBaseUrl(input.baseUrl);
+  if (!baseUrl) return { responded: false, error: "Base URL is required", latencyMs: 0 };
+  try {
+    // eslint-disable-next-line no-new
+    new URL(baseUrl);
+  } catch {
+    return { responded: false, error: "Base URL is invalid", latencyMs: 0 };
+  }
+
+  const fetchImpl = opts?.fetchImpl ?? (globalThis.fetch as FetchLike);
+  const api = (input.api ?? "").trim();
+  const headers = discoverHeaders(api, input.apiKey);
+  const keyQuery =
+    api === "google-generative-ai" && input.apiKey?.trim()
+      ? `?key=${encodeURIComponent(input.apiKey.trim())}`
+      : "";
+
+  const urls = versionedUrls(baseUrl, "/models");
+  let fallback: TestProviderBaseUrlResult | null = null;
+  for (let i = 0; i < urls.length; i += 1) {
+    const target = `${urls[i]}${keyQuery}`;
+    const started = Date.now();
+    try {
+      const res = await fetchImpl(target, { method: "GET", headers, signal: opts?.signal });
+      await res.text();
+      const result: TestProviderBaseUrlResult = {
+        responded: true,
+        latencyMs: Date.now() - started,
+        status: res.status,
+        url: target,
+      };
+      if (res.ok || i === urls.length - 1) return result;
+      fallback = result;
+    } catch (err) {
+      return {
+        responded: false,
+        error: err instanceof Error ? err.message : String(err),
+        latencyMs: Date.now() - started,
+      };
+    }
+  }
+  return fallback ?? { responded: false, error: "Request failed", latencyMs: 0 };
 }
 
 function defaultTestSignal(signal?: AbortSignal): AbortSignal | undefined {
@@ -245,12 +512,12 @@ export async function testModelConnection(
   const signal = defaultTestSignal(opts?.signal);
   const started = Date.now();
 
-  let url: string;
+  let urls: string[];
   let headers: Record<string, string>;
   let body: string;
 
   if (api === "anthropic-messages") {
-    url = `${baseUrl}/messages`;
+    urls = versionedUrls(baseUrl, "/messages");
     headers = {
       Accept: "application/json",
       "Content-Type": "application/json",
@@ -267,7 +534,9 @@ export async function testModelConnection(
     });
   } else if (api === "google-generative-ai") {
     const qs = key ? `?key=${encodeURIComponent(key)}` : "";
-    url = `${baseUrl}/models/${encodeURIComponent(modelId)}:generateContent${qs}`;
+    urls = googleBaseUrls(baseUrl).map(
+      (base) => `${base}/models/${encodeURIComponent(modelId)}:generateContent${qs}`,
+    );
     headers = {
       Accept: "application/json",
       "Content-Type": "application/json",
@@ -277,7 +546,7 @@ export async function testModelConnection(
       generationConfig: { maxOutputTokens: 1 },
     });
   } else if (api === "openai-responses") {
-    url = `${baseUrl}/responses`;
+    urls = versionedUrls(baseUrl, "/responses");
     headers = {
       Accept: "application/json",
       "Content-Type": "application/json",
@@ -290,7 +559,7 @@ export async function testModelConnection(
     });
   } else {
     // openai-completions and unknown → chat completions
-    url = `${baseUrl}/chat/completions`;
+    urls = versionedUrls(baseUrl, "/chat/completions");
     headers = {
       Accept: "application/json",
       "Content-Type": "application/json",
@@ -304,25 +573,33 @@ export async function testModelConnection(
     });
   }
 
-  try {
-    const res = await fetchImpl(url, { method: "POST", headers, body, signal });
-    const latencyMs = Date.now() - started;
-    const text = await res.text();
-    if (!res.ok) {
-      const snippet = text.replace(/\s+/gu, " ").slice(0, 180);
+  let lastFailure: TestModelConnectionResult = { ok: false, error: "Request failed" };
+  for (const url of urls) {
+    try {
+      const res = await fetchImpl(url, { method: "POST", headers, body, signal });
+      const latencyMs = Date.now() - started;
+      const text = await res.text();
+      if (!res.ok) {
+        const snippet = text.replace(/\s+/gu, " ").slice(0, 180);
+        const failure: TestModelConnectionResult = {
+          ok: false,
+          error: `HTTP ${res.status} ${res.statusText}${snippet ? `: ${snippet}` : ""}`,
+          latencyMs,
+          status: res.status,
+        };
+        lastFailure = failure;
+        // 路径带错版本段时会 404/405，换下一个候选。
+        if ((res.status === 404 || res.status === 405) && url !== urls[urls.length - 1]) continue;
+        return failure;
+      }
+      return { ok: true, latencyMs, status: res.status };
+    } catch (err) {
       return {
         ok: false,
-        error: `HTTP ${res.status} ${res.statusText}${snippet ? `: ${snippet}` : ""}`,
-        latencyMs,
-        status: res.status,
+        error: err instanceof Error ? err.message : String(err),
+        latencyMs: Date.now() - started,
       };
     }
-    return { ok: true, latencyMs, status: res.status };
-  } catch (err) {
-    return {
-      ok: false,
-      error: err instanceof Error ? err.message : String(err),
-      latencyMs: Date.now() - started,
-    };
   }
+  return lastFailure;
 }

@@ -18,10 +18,24 @@ export const IpcChannels = {
 		requestMediaAccess: "window:requestMediaAccess",
 		setUiLocale: "window:setUiLocale",
 		openDevTools: "window:openDevTools",
+		/** Main → renderer: 右键编辑菜单（自绘）。 */
+		contextMenu: "window:contextMenu",
+		/** Renderer → main: 执行右键菜单选中的编辑命令。 */
+		contextMenuAction: "window:contextMenuAction",
 	},
 	clipboard: {
 		/** Renderer → main: copy a data-URL image onto the system clipboard. */
 		writeImage: "clipboard:writeImage",
+	},
+	thinkingLanguage: {
+		/** Renderer → main: 读取「思考语言」设置。 */
+		get: "thinkingLanguage:get",
+		/** Renderer → main: 保存「思考语言」设置。 */
+		set: "thinkingLanguage:set",
+	},
+	appearance: {
+		/** Renderer → main: 选择壁纸文件（图片/动图/视频）。 */
+		pickWallpaper: "appearance:pickWallpaper",
 	},
 	workspace: {
 		get: "workspace:get",
@@ -32,12 +46,26 @@ export const IpcChannels = {
 		listRecent: "workspace:listRecent",
 		/** Instant Desktop-only recent (no Pi CLI session scan). */
 		listRecentDesktop: "workspace:listRecentDesktop",
-		listClosed: "workspace:listClosed",
 		removeRecent: "workspace:removeRecent",
 		/** Forget workspace config + delete Pi sessions (not the project folder). */
 		purge: "workspace:purge",
 		reorderRecent: "workspace:reorderRecent",
 		revealInFolder: "workspace:revealInFolder",
+		/** Renderer → main：工作区自定义显示名（路径 → 名称）。 */
+		listAliases: "workspace:listAliases",
+		/** Renderer → main：设置某工作区显示名（null 清除）。 */
+		setAlias: "workspace:setAlias",
+		/** 重新定位工作区到新目录，Pi 会话目录随之迁移。 */
+		relocate: "workspace:relocate",
+		/** Renderer → main：工作区分类（自定义分组）。 */
+		listGroups: "workspace:listGroups",
+		addGroup: "workspace:addGroup",
+		renameGroup: "workspace:renameGroup",
+		removeGroup: "workspace:removeGroup",
+		setGroupOf: "workspace:setGroupOf",
+		/** 已归档会话 id 列表：读取与覆写。 */
+		listArchivedSessions: "workspace:listArchivedSessions",
+		setArchivedSessions: "workspace:setArchivedSessions",
 	},
 	sessions: {
 		list: "sessions:list",
@@ -57,6 +85,8 @@ export const IpcChannels = {
 		delete: "sessions:delete",
 		history: "sessions:history",
 		rename: "sessions:rename",
+		/** 把到某一轮 user 消息为止的对话复制成新会话文件。 */
+		fork: "sessions:fork",
 		/** Clear conversation messages on disk and restart the worker (keeps session id). */
 		clearContext: "sessions:clearContext",
 		/** Main → renderer: permission strip ask */
@@ -71,6 +101,8 @@ export const IpcChannels = {
 		extensionUi: "sessions:extensionUi",
 		/** Renderer → main: extension UI dialog reply */
 		extensionUiReply: "sessions:extensionUiReply",
+		/** Renderer → main: pending interaction prompts still awaiting a reply */
+		pendingUi: "sessions:pendingUi",
 		/** Renderer → main: persist attachment tags for a sent user message. */
 		setUserMessageMeta: "sessions:setUserMessageMeta",
 		/** Renderer → main: cache a pasted/URL image into the session attachment folder. */
@@ -94,16 +126,22 @@ export const IpcChannels = {
 		changed: "fs:changed",
 	},
 	lanConsole: {
-		/** Renderer → main: current LAN console status (enabled / port / token / url). */
+		/** Renderer → main: current remote-control status (enabled / port / pin / urls). */
 		getStatus: "lanConsole:getStatus",
-		/** Renderer → main: enable or disable the LAN web console. */
+		/** Renderer → main: enable or disable LAN (local network) access. */
 		setEnabled: "lanConsole:setEnabled",
+		/** Renderer → main: enable or disable public access via a Cloudflare tunnel. */
+		setPublicAccess: "lanConsole:setPublicAccess",
 		/** Renderer → main: change the LAN port. */
 		setPort: "lanConsole:setPort",
-		/** Renderer → main: set the username/password used to log into the console. */
-		setCredentials: "lanConsole:setCredentials",
+		/** Renderer → main: issue a new 9-digit access PIN. */
+		rotatePin: "lanConsole:rotatePin",
+		/** Renderer → main: save the optional named-tunnel token + public hostname. */
+		setTunnelConfig: "lanConsole:setTunnelConfig",
 		/** Renderer → main: pick which LAN IPv4 to show in QR / copy URL. */
 		setPreferredIp: "lanConsole:setPreferredIp",
+		/** Main → renderer: public-access (cloudflared) state changed. */
+		tunnelStatus: "lanConsole:tunnelStatus",
 	},
 	git: {
 		status: "git:status",
@@ -139,16 +177,38 @@ export const IpcChannels = {
 		resolveConflict: "git:resolveConflict",
 		checkoutConflictSide: "git:checkoutConflictSide",
 		abortMerge: "git:abortMerge",
+		syncStatus: "git:syncStatus",
+	},
+	customizations: {
+		list: "customizations:list",
+		create: "customizations:create",
+		createAgentFromDraft: "customizations:createAgentFromDraft",
+		saveAgent: "customizations:saveAgent",
+		createInstructionsFromDraft: "customizations:createInstructionsFromDraft",
+		setMcpEnabled: "customizations:setMcpEnabled",
+		addMcpServers: "customizations:addMcpServers",
+		ensureMcpConfig: "customizations:ensureMcpConfig",
+		removeMcpServer: "customizations:removeMcpServer",
+		setItemEnabled: "customizations:setItemEnabled",
+		removeItem: "customizations:removeItem",
+		testMcpServers: "customizations:testMcpServers",
+		updated: "customizations:updated",
 	},
 	skills: {
 		list: "skills:list",
 		setDisabled: "skills:setDisabled",
 		uninstall: "skills:uninstall",
+		createFromDraft: "skills:createFromDraft",
+		rename: "skills:rename",
+		save: "skills:save",
 	},
 	plugins: {
 		list: "plugins:list",
 		setEnabled: "plugins:setEnabled",
 		remove: "plugins:remove",
+		checkUpdates: "plugins:checkUpdates",
+		update: "plugins:update",
+		updateProgress: "plugins:updateProgress",
 	},
 	models: {
 		get: "models:get",
@@ -156,10 +216,19 @@ export const IpcChannels = {
 		clearKey: "models:clearKey",
 		test: "models:test",
 		discover: "models:discover",
+		testBaseUrl: "models:testBaseUrl",
 		testConnection: "models:testConnection",
+		providerCatalog: "models:providerCatalog",
+		setSelection: "models:setSelection",
+		oauthLogin: "models:oauthLogin",
+		oauthLogout: "models:oauthLogout",
+		oauthPrompt: "models:oauthPrompt",
+		oauthCancel: "models:oauthCancel",
+		oauthEvent: "models:oauthEvent",
 	},
 	terminal: {
 		create: "terminal:create",
+		listShells: "terminal:listShells",
 		write: "terminal:write",
 		resize: "terminal:resize",
 		data: "terminal:data",
@@ -171,6 +240,9 @@ export const IpcChannels = {
 		read: "preview:read",
 		write: "preview:write",
 		pickFile: "preview:pickFile",
+		watch: "preview:watch",
+		unwatch: "preview:unwatch",
+		changed: "preview:changed",
 	},
 	browser: {
 		startSelect: "browser:startSelect",
@@ -264,6 +336,7 @@ export const IpcChannels = {
 		get: "checkpoint:get",
 		list: "checkpoint:list",
 		revert: "checkpoint:revert",
+		netSessionChanges: "checkpoint:netSessionChanges",
 		updated: "checkpoint:updated",
 	},
 	notify: {
@@ -274,12 +347,6 @@ export const IpcChannels = {
 		terminate: "runs:terminate",
 		background: "runs:background",
 		event: "runs:event",
-	},
-	trust: {
-		get: "trust:get",
-		set: "trust:set",
-		clear: "trust:clear",
-		listTrusted: "trust:listTrusted",
 	},
 	security: {
 		get: "security:get",
@@ -292,35 +359,86 @@ export const IpcChannels = {
 	},
 } as const;
 
-export type TrustPromptKind = "none" | "ask";
+/** 内嵌终端可选的 shell，由主进程检测后提供给底栏 "+" 菜单。 */
+export type TerminalShellOption = {
+	/** terminal.create 传入的标识：Windows 为固定 id，类 Unix 为可执行文件名。 */
+	id: string;
+	file: string;
+	args: string[];
+};
 
-export type TrustState = {
-	decision: boolean | null;
-	needsResources: boolean;
-	prompt: TrustPromptKind;
-	projectTrusted: boolean;
+/** 工作区分类：自定义分组名（顺序即菜单顺序）+ 工作区归属（绝对路径 → 分类名）。 */
+export type WorkspaceGroups = {
+  groups: string[];
+  groupOf: Record<string, string>;
 };
 
 export type SessionStatus = "idle" | "running" | "error" | "stuck";
 
-/** LAN web console status exposed to the settings UI. */
-export type LanConsoleStatus = {
+/** Public-access (Cloudflare tunnel) state, mirrored from the main process. */
+export type CloudflareTunnelStatus = {
+	/** User wants public access; binary resolve/start may still be in flight. */
 	enabled: boolean;
+	/** A runnable cloudflared executable was resolved. */
+	installed: boolean;
+	/** cloudflared process running. */
+	running: boolean;
+	/** Current step while bringing the tunnel up. */
+	phase: "off" | "downloading" | "starting" | "on" | "error";
+	/**
+	 * Public URL once the tunnel is up. Quick mode: a trycloudflare hostname
+	 * minted per start. Named mode: the user's fixed hostname.
+	 */
+	url: string | null;
+	/** Last failure message, shown in the remote-control panel. */
+	error: string | null;
+	/** Loopback origin the tunnel forwards to. */
+	origin: string | null;
+	/** Which mode is running (or about to run). */
+	mode: "quick" | "named";
+	/** Where the cloudflared binary lives. */
+	binaryPath: string;
+	/** True when the user supplied their own cloudflared build. */
+	customBinary: boolean;
+};
+
+/**
+ * Remote-control (formerly "LAN web console") status exposed to the settings UI.
+ *
+ * Login is a single 9-digit numeric PIN. The LAN side is plain HTTP (no
+ * certificate warnings on phones) while public access rides a Cloudflare tunnel
+ * that terminates TLS at the edge.
+ */
+export type LanConsoleStatus = {
+	/** LAN access switch (default on). */
+	enabled: boolean;
+	/** HTTPS listener is actually accepting connections. */
+	listening: boolean;
+	/** Public access via Cloudflare tunnel (default off). */
+	publicAccess: boolean;
 	port: number;
-	/** Configured login username (empty until set). */
-	username: string;
-	/** True once both username and password are configured. */
-	hasCredentials: boolean;
+	/** 9-digit access PIN shown in the panel and used to log in. */
+	pin: string;
 	/** Selected LAN IPv4 used for QR / copy (best-effort ranked when unset). */
 	preferredIp: string;
 	/** All candidate LAN IPv4s, preferred/best-ranked first. */
 	addresses: string[];
 	/** HTTPS URLs for each address (same order as `addresses`). */
 	urls: string[];
-	/** Preferred access URL, e.g. https://192.168.1.5:18700. */
+	/** Preferred LAN access URL, e.g. https://192.168.1.5:18700. */
 	baseUrl: string;
-	/** Full URL for opening the console (login is username/password based). */
+	/** Full LAN URL for opening the console (PIN login). */
 	url: string;
+	/** Public tunnel URL when public access is up, else null. */
+	publicUrl: string | null;
+	/** Which tunnel mode is configured: accountless quick, or the user's own. */
+	tunnelMode: "quick" | "named";
+	/** True once a Cloudflare tunnel token was saved (named mode). */
+	tunnelTokenSet: boolean;
+	/** Public hostname the user configured for their own named tunnel. */
+	tunnelPublicUrl: string;
+	/** Cloudflare tunnel detail for the panel. */
+	tunnel: CloudflareTunnelStatus;
 };
 
 /** Tools / extensions / skills loaded into a session worker (null while booting). */
@@ -343,6 +461,10 @@ export type SessionContextUsage = {
 	tokens: number | null;
 	contextWindow: number;
 	percent: number | null;
+	/** 会话当前模型，用于给结束的轮次标注模型名。 */
+	model?: { provider: string; id: string } | null;
+	/** 会话当前思考级别（Pi `ThinkingLevel`）。 */
+	thinkingLevel?: string | null;
 	/** Tool calls across the session (from Pi `getSessionStats`). */
 	toolCalls?: number | null;
 	/** User + assistant + toolResult messages (from Pi `getSessionStats`). */
@@ -413,7 +535,12 @@ export type AgentCommand =
 	 * Used when re-editing a published bubble, or to heal after a rejected
 	 * image turn that would otherwise poison every subsequent prompt.
 	 */
-	| { type: "rollback_user"; userIndex?: number };
+	| { type: "rollback_user"; userIndex?: number; expectText?: string }
+	/**
+	 * Rewind to the end of a user turn: keep that turn's Q&A and drop every
+	 * later turn (leaf moves to the turn's last message).
+	 */
+	| { type: "rollback_turn_end"; userIndex?: number; expectText?: string };
 
 export type ElementCitation = {
 	url: string;
@@ -537,6 +664,14 @@ export type SessionHistoryMessage =
 			text: string;
 			/** Model reasoning / thinking block when present. */
 			thinking?: string;
+			/** 本轮使用的模型（服务端 responseModel 优先）。 */
+			model?: { provider: string; id: string } | null;
+			/** 本轮实际生效的思考档位。 */
+			thinkingLevel?: string;
+			/** Token 用量（恢复历史时从会话文件还原）。 */
+			usage?: { input?: number; output?: number; totalTokens?: number } | null;
+			/** 本轮耗时毫秒（恢复历史时从时间戳还原）。 */
+			durationMs?: number;
 	  }
 	| {
 			id: string;
@@ -562,6 +697,9 @@ export type SessionHistoryQuery = {
 	beforeId?: string | null;
 };
 
+/** 聊天界面一次性加载全部尾部历史，分页只用于上滑加载更早的消息。 */
+export const SESSION_HISTORY_LOAD_LIMIT = 1_000_000;
+
 export type SessionSummary = {
 	id: string;
 	filePath: string;
@@ -570,4 +708,24 @@ export type SessionSummary = {
 	modified: string;
 	firstMessage?: string;
 	status: SessionStatus;
+	/** 派生会话的父会话 id（由 header.parentSession 路径解析）。 */
+	parentSessionId?: string;
 };
+
+/** 到某一轮 user 消息为止派生出的新会话。 */
+export type SessionForkResult = {
+	id: string;
+	filePath: string;
+	cwd: string;
+};
+
+/** Renderer asks main for interaction prompts still awaiting a reply (post-reload recovery). */
+export type PendingUiSnapshotRequest = {
+	asks: import("./ask-user").AskUserAskPrompt[];
+	permissions: PendingUiPermissionSnapshot[];
+	extensionDialogs: PendingUiExtensionSnapshot[];
+};
+
+export type PendingUiPermissionSnapshot = import("./desktop-security").PermissionAskPrompt;
+
+export type PendingUiExtensionSnapshot = import("./extension-ui").ExtensionUiPending;
