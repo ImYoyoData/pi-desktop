@@ -167,79 +167,171 @@ jobs:
 
             ## 主要更新（v0.3.4）
 
-            本版重点：「局域网网页控制台」改名为**远程控制**并默认开启局域网访问（普通 HTTP，无证书警告）；公网访问改用 Cloudflare 隧道按需打开，**并支持绑定你自己的域名让地址固定不变**；网页版移除语音输入但补上浏览器原生朗读；修复 Windows 上 bash 工具不可用的问题。
+            本版重点：设置页全面重做（通用 / 外观 / 模型 / 智能体 / 技能 / 指令 / 挂钩 / MCP / 插件 / 工具 / 关于）；「局域网网页控制台」改名「远程控制」并默认开启局域网访问，公网访问改用 Cloudflare 隧道且支持绑定自己的域名；新增底部多标签终端、派生对话会话树、四档权限模式与自定义外观（背景图 / 透明度 / 消息区宽度）；修复 Windows 上 bash 工具不可用、虚拟滚动错位等一系列问题。
 
             ### 新功能 Features
-            - 「远程控制」取代原「局域网网页控制台」：标题栏入口、设置面板与网页端标题统一更名。
-            - 局域网访问**默认开启**：启动即监听 http://本机IP:18700，同一局域网内手机/平板/电脑用浏览器直接可用。
-            - 登录方式简化为 **9 位数字访问密码**：首次运行自动生成，面板内可查看、复制、一键更换，不再需要用户名密码。
-            - 新增「公网访问」开关（默认关闭）：打开后由内置 cloudflared 建立 Cloudflare 隧道，生成 https 公网地址；TLS 由 Cloudflare 边缘终结，隧道只转发到 127.0.0.1 的本地端口，不影响局域网本地访问。
-            - **支持绑定自己的域名**：填入 Cloudflare 隧道 Token + 公网地址后改用命名隧道，地址**固定不变**，重启也不用重新发链接（临时 trycloudflare 地址每次重启都会变）。面板内附「打开 Cloudflare 隧道页面」按钮与 Token 粘贴，不用自己找入口。
-            - 网页版朗读改用**浏览器原生语音合成**（Web Speech API）：点消息朗读即可发声，零安装、零下载，不占用桌面端的语音模型。
+
+            - **「远程控制」取代原「局域网网页控制台」**：入口移入 设置 → 通用，标题栏图标、面板文案与网页端标题统一更名。
+            - 局域网访问**默认开启**：启动即监听 `http://<本机IP>:18700`，手机/平板浏览器直接可用。
+            - 登录方式简化为 **9 位数字访问密码**（首次运行自动生成，面板内可查看/复制/一键更换），不再需要用户名密码。
+            - 新增「公网访问」开关（默认关闭）：打开后由内置 cloudflared 建立 Cloudflare 隧道，生成 `https://<随机名>.trycloudflare.com` 公网地址；TLS 由 Cloudflare 边缘终结，隧道仅转发到 127.0.0.1 的本地端口，并带自动重试与看门狗。
+            - **支持绑定自己的域名**：填入 Cloudflare 隧道 Token 与公网地址后改用命名隧道，地址固定不变、重启也无需重新分享链接；面板内提供「打开 Cloudflare 隧道页面」按钮与 Token 粘贴，并给出配置步骤。
+            - 网页版朗读改用**浏览器原生语音合成**（Web Speech API）：零安装、零下载，不占用桌面端语音模型。
+            - 新增「**思考语言**」设置（设置 → 通用）：自动 / 中文 / 英文，只影响可见思考文本。默认「自动」按界面语言判断——中文界面注入中文思考指令，英文界面不注入。指令作为每轮用户消息的临时块注入，不改动系统提示词。
             - 登录失败按来源限速：公网来源 6 次失败锁定 10 分钟，局域网来源独立计数，防止爆破。
+            - **底部终端面板**：新增底部多标签终端，可选 PowerShell / bash / zsh 等本机 shell，支持新建、切换与关闭标签；已打开的终端在面板折叠与会话切换之间保持，不再每次重开。
+            - **派生对话**：可从任一用户消息派生出新会话，侧栏以树状嵌套展示父子对话（带连接线与子会话计数，可收起展开），派生标题取自分叉点消息。
+            - **设置页重做**：分为 通用 / 外观 / 模型 / 智能体 / 技能 / 指令 / 挂钩 / MCP / 插件 / 工具 / 关于；主界面左下角新增外观、模型、MCP、技能、插件、设置快捷入口。
+            - **定制项编辑**：技能、智能体、指令与提示按空模板新建，支持改名、删除、启停与保存，未保存时给出提示；技能保存前校验 `name` / `description` 写法，不合规直接报错；指令文件支持删除与热重载静音；智能体与技能列表标记当前工作区并列出最近工作区。
+            - **模型管理**：提供商与模型设置重做并内置平台图标，「挑选模型」弹窗支持点击整行勾选/取消，支持从提供商拉取模型列表与测速，思考等级新增 max 档。
+            - **MCP 与插件管理**：MCP 服务器支持新增、编辑、删除与可用性测试（含 SSE）；插件页显示本地与最新版本，支持检查更新、并发升级（带进度）、启停开关与打开安装目录，并兼容 npm 12 的 URL 依赖与安装脚本策略。
+            - **自定义外观**：新增自定义背景图（图片 / GIF / WebP / 视频）、遮罩透明度与模糊、输入框 / 卡片 / 设置页 / 工具卡片透明度、消息区宽度档位（默认 75%）；配色对齐 VS Code 2026 Dark/Light。
+            - **四档权限模式**：输入框底部在 **Ask / Edits / Auto / Yolo** 间切换，取代旧的权限设置与工作区信任对话框；危险命令仍需确认，工具被拦截时给出可读提示。
+            - **工作区分类与会话归档**：工作区支持自定义分类（新建 / 重命名 / 删除 / 移动到分类）；会话支持归档（含「超过 N 天」批量归档）与已归档列表（可搜索、可恢复）；会话列表支持多选与 Shift 范围选择，可批量删除。
+            - **草稿模式**：新建会话进入草稿即后台预热 worker，首条消息不再等冷启动；草稿在切换会话或反复新建后保留，草稿上下文栏可切换工作区与分支。
+            - **每轮文件改动汇总**：每轮对话结束展示本轮实际改动的文件与数量，更改面板拆分为独立更改页签与 diff 编辑器。
+            - 问答（ask_user）改为对话内问答卡片：单选 / 多选 / 按钮与可选自定义输入，切换会话再回来保持答题进度。
+            - 外观新增「会话详细显示」「消息预览」「消息预览图片」开关；工具输出预览截断可选行数。
+            - 编辑器与预览跟随工作区外文件实时刷新，Monaco 增加当前行高亮与右键菜单。
 
             ### 变更 Changes
-            - 局域网改为普通 HTTP：不再生成自签名证书，手机首次打开没有「证书不受信任」警告；代价是局域网内不加密，请只在可信的家庭/办公网络使用。公网地址仍为 HTTPS。
-            - 隧道进程改由官方 `cloudflared` npm 包托管（二进制仍由应用自行校验/获取），删掉了手写的下载与解压逻辑。
-            - 网页版移除录音/语音输入（麦克风按钮、PCM 采集、转写代理与桌面 ASR 调用），桌面端语音输入不受影响；朗读功能保留并改为浏览器实现。
-            - **回复中发送的内容改为「引导」语义**：不再排队等下一轮，而是立即注入当前这轮，Pi 会在下一个 LLM 调用前看到它并据此继续推理（对应此前只能等本轮结束的行为）。
-            - 移除 selfsigned 依赖；安装包不再打包开发目录（promo-video 等约 120MB），体积减半。
+
+            - 局域网改为普通 HTTP：不再生成自签名证书，手机首次打开没有「证书不受信任」警告；代价是局域网内不加密，请只在可信网络使用。公网地址仍为 HTTPS。
+            - 隧道进程改由官方 `cloudflared` npm 包托管（二进制仍由应用自行获取并实跑校验），删掉手写的下载/解压逻辑。
+            - 网页版移除录音/语音输入（麦克风按钮、PCM 采集、`/api/transcribe` 代理与桌面 ASR 调用），桌面端语音输入不受影响；朗读改为浏览器实现保留。
+            - **回复中发送的内容改为「引导」语义**：不再排队等下一轮，而是立即注入当前这轮，Pi 会在下一个 LLM 调用前看到它并据此继续推理。
+            - 移除 `selfsigned` 依赖（其 v5 在当前依赖树中无法生成证书）。
+            - 移除「回答语言」设置，只保留「思考语言」。
+            - 移除工作区「关闭」功能：菜单项、已关闭工作区区块与相关状态一并删除；工作区菜单去掉「打开文件夹」，改为「重新定位」与「重命名项目」。
+            - 移除标题栏的远程控制、打开工作区与主题切换按钮，移除侧栏左下角文件列表与添加工作区按钮。
+            - 底部终端面板不再默认打开。
+            - 移除设置中的提示页与部分说明文案，精简关于面板（移除作者信息与更新入口）。
+            - 文件图标改用字形映射，移除独立的文件类型图标组件。
+            - 切换界面语言改为静默切换，不再显示加载页。
 
             ### 修复 Fixes
-            - **修复 Windows 上 bash 工具完全不可用**（报错 execvpe(/bin/bash) failed: No such file or directory）：工具原本会退回到 PATH 上的 bash.exe，而那其实是 WSL 启动器，未安装 WSL 发行版时必然失败。现在会先找真正的 bash（Git Bash 等），找不到就改用内置的 PowerShell 工具，并禁止调用不可用的 bash，避免模型反复撞错。
+
+            - **修复 Windows 上 bash 工具完全不可用**（`execvpe(/bin/bash) failed: No such file or directory`）：工具原本退回到 PATH 上的 `bash.exe`，而那其实是 WSL 启动器，未安装 WSL 发行版时必然失败。现在优先寻找真正的 bash（Git Bash 等），找不到就改用内置 PowerShell 工具，并禁止调用不可用的 bash，避免模型反复撞错。
             - 修复模型选择器在**新建会话（未发送任何消息）时就被锁死**：判断依据误用了会话摘要里的状态字段，该字段可能滞后残留；现在只依据当前真实的流式状态。
-            - 修复回复期间发送的内容会从界面上"消失"：发送后立即显示为待发送卡片并保留到被处理，不再让人以为消息丢了。
-            - 修复模型切换下拉框**无法滚动**：模型上百个时菜单会撑出窗口，下面的模型点不到；现在限制高度并内部滚动。
-            - 修复公网访问「页面能打开、密码能登录，却一直显示已断开/正在连接」：隧道入口未挂载 WebSocket，公网 wss 请求被当成普通 HTTP 处理返回 404，导致页面登录后无法保持长连接。
+            - 修复回复期间发送的内容会从界面"消失"：发送后立即显示为待发送卡片并保留到被处理。
+            - 修复模型切换下拉框**无法滚动**：模型上百个时菜单撑出窗口，下方模型点不到；现在限制高度（60vh/460px）并内部滚动。
+            - 修复侧栏偶尔多出一个「空白工作区」：空白路径被 `path.resolve("")` 解析成应用自身的工作目录，于是变成一个没有名字的工作区条目。现在空白/纯空格路径在写入与读取工作区状态时都会被拒绝（同时清理旧版本留下的脏数据），IPC 边界、渲染层 store、局域网网页端与侧栏各自独立过滤，任一层都不再可能渲染出空白工作区。
+            - 修复公网访问「页面能打开、密码能登录，却一直显示已断开 / 正在连接」：隧道入口没挂 WebSocket，公网 `wss://xxx.trycloudflare.com/ws` 被当成普通 HTTP 请求返回 404。现在局域网与隧道入口两个监听各自挂载 WebSocket，公网长连接正常。
+            - 修复打包版找不到内置 cloudflared：asar 归档内的路径会被判断为"存在"却无法执行，且打包会压平按架构分的目录；现在同时兼容两种布局，并在使用前实际执行 `--version` 验证。
             - 修复开启公网访问时看门狗在 cloudflared 下载途中误判「未在运行」并重试，导致下载被中断、二进制残缺；同时修正重试退避被重置成固定 5 秒的问题。
-            - 修复打包版找不到内置 cloudflared：应用归档(asar)内的路径会被认为"存在"却无法执行，且打包会压平按架构分的目录，现已同时兼容两种布局并提前实跑验证二进制可用。
-            - 修复侧栏偶尔多出一个「空白工作区」：空白路径被解析成应用自身的工作目录，变成一个没有名字的工作区条目。
-            - 修复中英语言包中重复定义的文案键（构建时会告警，且会静默覆盖），并加上自动化校验防止再犯。
+            - 修复中英语言包里重复定义的文案键（构建告警，且重复项会静默覆盖原值），并加上自动化校验防止再犯。
+            - 修复长「摘要/工作过程折叠块」**收起后原地留下一大片空白**（长摘要尾部折叠后渲染高度骤降，虚拟滚动把视口留在了 spacer 估算出的空白区，严重时整屏发白）：贴底挂载窗口现在按估算高度一直向上补到能盖住视口，行高变化（折叠/展开）后立即把视口所在的 spacer 区域补挂成真实行；收起后**滑到消息区最顶部不再被 spacer 空白顶住**（窗口裁剪只在被裁的行完全离开视口时才执行，且每次窗口变化后都继续补挂到视口被真实内容盖住）。
+            - 修复虚拟滚动**上滑读历史时被自动拉回底部**：窗口变更后的位置补偿原本用「总高度差」，会把窗口内其它行的内容增长（流式输出、异步 Markdown）和 spacer 高度估算误差一起算进来，于是每展开一段历史、每来一段输出，视口就往下漂一段。现在按视口内首/尾锚点行的真实位移补偿，实测零漂移；同时上滑意图覆盖滚轮、键盘、触摸和拖动滚动条，会话切换的自动贴底在用户上滑时整体取消。
+            - 修复派生对话：父子关系与分叉内容取错，且对话进行中无法派生；现在可从任一用户消息派生，派生标题取自分叉点消息，还原检查点改为回退到本轮结束。
+            - 修复思考程度切换后会自动改回 high；修复会话 running 卡死导致检查点 / 派生按钮消失（重载时用主进程状态校准）。
+            - 修复「等待模型响应…」状态下停止按钮无法点击，以及模型思考/输出过长时会话卡顿、界面无法交互。
+            - 修复历史消息耗时显示 0.0s 与 token/s 异常：改用落盘时间为账号计算轮次时长，重启后耗时与 token 统计不再丢失。
+            - 修复文件更改数据显示不准确：改为展示本轮实际更改数而非累计值。
+            - 修复输入框选中文本后粘贴无法替换选区，以及隐藏 API Key 时无法输入。
+            - 修复 Monaco 主题未生效导致编辑器回退白色、编辑器背景未应用主题。
+            - 修复设置页打开文件显示为空，以及智能体设置页列表被撑出窗口后整页空白。
+            - 修复问答卡片普通选项被强制填写自定义内容、切换会话再回来进度重置为第 1 题，以及待办「继续任务」点击后不生效。
+            - 修复插件检查更新状态在切换页面或退出设置后丢失，以及升级后整页刷新、列表加载报错。
+            - 修复代理未生效：Node 侧 fetch 与下载请求统一走代理，代理变更后回收 worker。
+            - 修复禁用提供商无效；修复 Ctrl+Z 对 Ctrl+V 粘贴内容无效。
 
             ### 优化 / 体验 Improvements
+
             - 端口被占用、页面未构建等启动失败会在面板内说明原因，并在 20 秒后自动重试一次。
-            - 面板新增公网地址状态（连接中/已就绪/失败原因与重试按钮），标题栏用颜色区分「仅局域网」与「已开公网」；短时间来回开关会保留同一地址。
-            - 隧道访问使用 cloudflared 默认传输协议：实测强制 http2 反而会让临时地址不可达，故不强制。
-            - 隧道状态变化与公网地址写入日志，便于排查。
+            - 面板新增公网地址状态（连接中/已就绪/失败原因与重试按钮）；短时间来回开关会保留同一地址。
+            - 隧道沿用 cloudflared 默认传输协议：实测强制 `--protocol http2` 会让临时地址持续不可达，因此不强制。
+            - 隧道状态变化（上线/断开/报错及公网地址）写入日志便于排查。
             - 启动日志会打印本机实际使用的命令 shell，便于排查命令执行问题。
+            - 新会话不再被 worker 冷启动阻塞：进入草稿即后台预热，模型解析走可用快照，扩展钩子提前预热。
+            - 切换工作区不再卡顿：工作区根目录先切换，最近工作区列表改为后台刷新。
+            - 设置页加载优化：快照磁盘缓存 + 启动预热。
+            - 侧栏会话标签用颜色区分运行 / 等待回答 / 刚结束三态；展开收起按钮改为悬停时占位显示并带会话数；点击工作区文件夹不再自动打开第一个会话。
+            - 更改列表文件名优先展示；压缩按钮文案改为「显示上下文压缩按钮」。
+            - 壁纸模式下终端区、编辑器区域与运行面板输出区跟随面板色透明，下拉浮层模糊改由伪元素承担。
 
             ## What's New (v0.3.4)
 
-            The LAN web console is now **Remote Control** with LAN access on by default (plain HTTP, no certificate warning); public access is an opt-in Cloudflare tunnel that can also serve **your own fixed domain**; the web console lost voice input but gained browser-native read-aloud. This release also fixes the broken bash tool on Windows.
+            The settings page is rebuilt around General / Appearance / Models / Agents / Skills / Instructions / Hooks / MCP / Plugins / Tools / About; the LAN web console is now **Remote Control** with LAN access on by default and public access over a Cloudflare tunnel that can serve **your own fixed domain**; the release adds a bottom terminal, a forked-conversation tree, four permission modes and a customizable appearance (wallpaper, transparency, message width), and fixes the broken bash tool on Windows plus virtual-scroll drift and more.
 
             ### Features
-            - Renamed the LAN web console to **Remote Control** across the titlebar entry, settings panel and web page title.
-            - **LAN access is on by default**: the panel listens on http://your-pc-ip:18700 so a phone, tablet or PC on the same network works out of the box.
-            - Login is a single **9-digit access PIN**, auto-generated on first run and viewable, copyable and rotatable in the panel — no username/password needed.
-            - New **Public access** switch (off by default): the bundled cloudflared opens a Cloudflare tunnel and publishes an https URL. TLS terminates at Cloudflare's edge and the tunnel only ever forwards to a loopback port, so local LAN access is unaffected.
-            - **Bring your own domain**: enter a Cloudflare tunnel token plus your public hostname to switch to a named tunnel whose address never changes, so nothing has to be re-shared after a restart (the temporary trycloudflare address changes every restart). The panel includes a shortcut to the Cloudflare tunnels page and a token paste button.
-            - **Read-aloud in the web console now uses the browser's own speech synthesis** (Web Speech API): tap speak on a message and it talks, with nothing to install or download and no desktop voice model involved.
+
+            - Renamed the LAN web console to **Remote Control**, now living under Settings → General; the panel copy and web page title follow.
+            - LAN access now defaults to **on** (`http://<pc-ip>:18700`), so a phone on the same network works out of the box.
+            - Login is a single **9-digit access PIN** (auto-generated on first run, visible/copyable/rotatable in the panel) instead of username + password.
+            - New **Public access** switch (off by default): the bundled cloudflared opens a Cloudflare tunnel on demand, publishing a `https://<random>.trycloudflare.com` URL (TLS terminated at Cloudflare's edge). The tunnel only ever forwards to a loopback port, with automatic retry and a watchdog.
+            - **Bring your own domain**: a Cloudflare tunnel token plus hostname switches to a named tunnel with a fixed address, so nothing has to be re-shared after a restart. The panel links to the Cloudflare tunnels page, offers token paste, and spells out the steps.
+            - Read-aloud in the web console uses the **browser's own speech synthesis** (Web Speech API) — nothing to install or download, and the desktop voice model is untouched.
+            - New **Thinking language** setting (Settings → General): Auto / Chinese / English, affecting visible reasoning text only. "Auto" follows the UI language — a Chinese UI injects a Chinese reasoning instruction, an English UI injects nothing. The instruction is sent as a transient per-turn user-message block; the system prompt is untouched.
             - Failed logins are rate limited per client — 6 attempts then a 10-minute lock, counted separately for tunnel traffic.
+            - **Bottom terminal panel**: a multi-tab terminal with PowerShell / bash / zsh and friends, supporting new / switch / close tabs; open terminals survive collapsing the panel and switching sessions instead of being recreated.
+            - **Forked conversations**: fork a new session from any user message; the sidebar nests parent and child conversations as a tree (connector lines, child counts, collapse/expand), and the fork title comes from the branching message.
+            - **Rebuilt settings**: General / Appearance / Models / Agents / Skills / Instructions / Hooks / MCP / Plugins / Tools / About, plus quick entries for appearance, models, MCP, skills, plugins and settings in the bottom-left corner.
+            - **Editable customizations**: skills, agents, instructions and prompts start from a blank template, with rename, delete, enable/disable and save plus an unsaved-changes hint; skill saves validate the `name` / `description` format and report errors instead of writing garbage; instruction files can be deleted and hot-reloaded silently; agent and skill lists mark the current workspace and list recent workspaces.
+            - **Model management**: provider and model settings rebuilt with built-in platform icons, a model picker that toggles by clicking the whole row, model fetching from the provider, latency/speed probes, and a new `max` thinking level.
+            - **MCP and plugin management**: MCP servers can be added, edited, deleted and tested for availability (including SSE); the plugin page shows local vs latest version, supports update checks, concurrent upgrades with progress, enable/disable switches and opening the install directory, and works with npm 12's URL dependency and install-script policy.
+            - **Custom appearance**: background image (picture / GIF / WebP / video), veil opacity and blur, input / card / settings / tool-card transparency and message-area width presets (75% default); colors follow VS Code 2026 Dark/Light.
+            - **Four permission modes**: pick **Ask / Edits / Auto / Yolo** at the bottom of the composer, replacing the old permission settings and workspace trust dialog; dangerous commands still need confirmation and blocked tools explain themselves.
+            - **Workspace groups and session archiving**: workspaces support custom groups (create / rename / delete / move), sessions can be archived (including "older than N days" in bulk) and reviewed in an archived list with search and restore, and the session list supports multi-select with Shift ranges for bulk delete.
+            - **Draft mode**: a brand-new session pre-warms its worker while still a draft, so the first message no longer waits for a cold start; drafts survive session switches and repeated new-session clicks, and the draft context bar switches workspace and branch.
+            - **Per-turn change summary**: every finished turn lists the files it actually changed, and the changes panel is split into its own tab with a diff editor.
+            - The ask_user prompt is now a card inside the conversation (single / multi / button choices plus optional custom input) and keeps its progress across session switches.
+            - New "session details", "message preview" and "preview images" switches in appearance; tool-output preview truncation takes a configurable line count.
+            - Editors and the preview pane follow external file changes live, and Monaco gains current-line highlight and a context menu.
 
             ### Changes
-            - The LAN side now uses plain HTTP: no self-signed certificate and no certificate warning on phones. The trade-off is unencrypted LAN traffic, so use it on a trusted home/office network; the public URL is still HTTPS.
-            - The tunnel process is now driven by the official `cloudflared` npm package (the app still verifies and obtains the binary itself), replacing hand-written download/unpack logic.
-            - Removed voice recording from the web console (mic button, PCM capture, transcription proxy and the desktop ASR call); desktop voice input is unchanged and read-aloud is kept via the browser.
-            - Messages sent **while Pi is replying** are now delivered as guidance into the running turn (Pi sees them before its next LLM call) instead of being queued for the following turn.
-            - Dropped the selfsigned dependency, and development folders (promo-video and friends, ~120MB) are no longer packaged — the installer is about half the size.
+
+            - The LAN side now uses plain HTTP: no self-signed certificate is generated and phones see no certificate warning. The trade-off is unencrypted LAN traffic, so use it on a trusted network; the public URL is still HTTPS.
+            - The tunnel process is now driven by the official `cloudflared` npm package (the app still obtains and executes the binary to verify it), replacing hand-written download/unpack code.
+            - Removed voice recording from the web console (mic button, PCM capture, the `/api/transcribe` proxy and the desktop ASR call). Desktop voice input is unchanged; read-aloud is kept via the browser.
+            - Messages sent **while Pi is replying** are now delivered as guidance into the running turn instead of waiting for the next one.
+            - Dropped the `selfsigned` dependency (its v5 build cannot issue certificates in this dependency tree).
+            - Removed the "response language" setting; only "thinking language" remains.
+            - Removed the workspace "close" feature (menu item, closed-workspace section and state); the workspace menu drops "open folder" in favor of "relocate" and "rename project".
+            - Removed the titlebar remote-control, open-workspace and theme buttons, and the file list plus add-workspace button in the sidebar footer.
+            - The bottom terminal panel no longer opens by default.
+            - Removed the settings hint page and several explanatory blurbs, and trimmed the About panel (no author info or update entry).
+            - File icons come from a glyph map instead of a dedicated file-type icon component.
+            - Switching the UI language is now silent — no loading page.
 
             ### Fixes
-            - **Fixed the bash tool being unusable on Windows** ("execvpe(/bin/bash) failed: No such file or directory"): its shell fallback picked `bash.exe` from PATH, which is the WSL launcher and fails whenever no WSL distribution is installed. The app now looks for a real bash (Git Bash and friends) first, and otherwise switches to the built-in PowerShell tool while denying the broken `bash` tool so the model cannot keep hitting the error.
-            - Fixed the model picker being locked in a **brand-new session that had sent nothing**: it trusted a session-summary status field that can lag behind; it now follows the live streaming state only.
+
+            - Fixed the **bash tool being unusable on Windows** (`execvpe(/bin/bash) failed: No such file or directory`): its shell fallback picked `bash.exe` from PATH, which is the WSL launcher. A real bash (Git Bash) is now preferred; otherwise the app switches to the built-in PowerShell tool and denies the broken `bash` tool.
+            - Fixed the model picker being locked in a **brand-new session that had sent nothing**: it trusted a session-summary status field that can lag; it now follows the live streaming state only.
             - Fixed a message sent during a reply appearing to vanish from the UI: it now shows as a pending card until the agent takes it.
-            - Fixed the model switcher dropdown **not scrolling**: with hundreds of models the menu grew past the window and the lower models were unclickable; it is now height-capped and scrolls internally.
-            - Fixed public access getting stuck on "disconnected / reconnecting" after a successful login: the tunnel origin listener had no WebSocket server attached, so a wss request was answered by the plain HTTP handler with 404 and the public page could never hold a connection.
+            - Fixed the model switcher dropdown **not scrolling**: with hundreds of models the menu grew past the window and lower models were unclickable; it is now height-capped (60vh/460px) and scrolls internally.
+            - Fixed the sidebar occasionally showing an extra blank workspace: a blank path resolved via `path.resolve("")` becomes the app's own working directory, i.e. a nameless workspace entry. Blank/whitespace-only paths are now rejected both when reading and writing workspace state (which also purges leftovers from older builds), and the IPC boundary, renderer store, LAN web panel and sidebar each filter independently, so no layer can render a blank workspace.
+            - Fixed public access getting stuck on "disconnected / reconnecting" after a successful login: the tunnel origin listener had no WebSocket server attached, so `wss://xxx.trycloudflare.com/ws` fell through to the plain HTTP handler and returned 404. Both listeners (LAN and tunnel origin) now mount their own WebSocket server, so the public connection stays up.
+            - Fixed packaged builds failing to find the bundled cloudflared: paths inside the app archive report as existing yet cannot be executed, and packaging flattens the per-arch directory. Both layouts are handled and the binary is executed (`--version`) before use.
             - Fixed the watchdog declaring cloudflared "not running" while it was still downloading, which aborted the download and left a broken binary; retry backoff no longer collapses into a fixed 5-second loop.
-            - Fixed packaged builds failing to find the bundled cloudflared: paths inside the app archive report as existing but cannot be executed, and packaging flattens the per-arch directory — both layouts are now handled and the binary is actually executed to verify it before use.
-            - Fixed the sidebar occasionally showing an extra blank workspace: a blank path resolved to the app's own working directory and rendered as a nameless workspace entry.
-            - Fixed duplicated message keys in the locale files (a build warning, and the duplicate silently overrode the original) and added automated checks so it cannot come back.
+            - Fixed duplicated message keys in the locale files (a build warning whose duplicate silently overrode the original) and added automated checks so it cannot come back.
+            - Fixed a long work-section summary leaving **a large blank area after collapsing** (a folded long section drops most of its rendered height, and the virtual scroller left the viewport inside a spacer-sized gap — sometimes the whole view). The bottom-pinned window now mounts rows upward until it covers the viewport, and any row-height change (fold/unfold) immediately backfills the spacer region the viewport sits in. Scrolling to the **very top after collapsing no longer parks the viewport on a spacer**: the window only trims rows that are fully outside the viewport, and every window mutation keeps backfilling until real rows cover the view.
+            - Fixed virtual scrolling **yanking the viewport back to the bottom while reading history**: window mutations were compensated from the total scrollHeight delta, which folds in unrelated height changes inside the window (streaming output, async markdown) plus spacer estimate errors — so every expansion and every streamed chunk pushed the viewport further down. Compensation now follows the first/last visible row's real displacement (measured zero drift); the scroll-up intent now covers wheel, keyboard, touch and scrollbar drags, and a session's auto bottom-snap is cancelled when the user scrolls up.
+            - Fixed forked conversations: parent/child links and the forked content were resolved incorrectly and forking was blocked mid-turn; forking now works from any user message, the fork title comes from the branching message, and restoring a checkpoint rewinds to the end of that turn.
+            - Fixed a thinking-level change silently snapping back to high, and sessions stuck in `running` making the checkpoint / fork buttons disappear (state is calibrated against the main process on reload).
+            - Fixed the stop button being unclickable while "waiting for the model", and the UI freezing when the model reasons or streams an unusually long answer.
+            - Fixed history showing `0.0s` duration and wrong tokens/sec: turn duration now derives from persisted timestamps, and duration/token stats survive restarts.
+            - Fixed inaccurate file-change counts: the turn's actual changed files are shown instead of a running total.
+            - Fixed paste not replacing the selected text in the composer, and the API key field refusing input while the key is hidden.
+            - Fixed the Monaco editor falling back to a white background because the theme was not applied.
+            - Fixed the settings file viewer opening empty, and the agent settings page rendering blank after its list grew past the window.
+            - Fixed ask_user forcing custom input for plain options, the card resetting to question 1 after a session switch, and the todo "continue task" button not driving the agent.
+            - Fixed plugin update state being lost when leaving the settings page, and a whole-page refresh plus list-loading error after upgrading.
+            - Fixed the proxy not taking effect: Node-side fetch and download requests now both honour it, and the worker is recycled when the proxy changes.
+            - Fixed disabling a provider having no effect, and Ctrl+Z not undoing pasted content.
 
             ### Improvements
+
             - Startup failures (busy port, missing build) now explain themselves in the panel and retry once after 20 seconds.
-            - The panel shows the public URL state (connecting / ready / error with retry); the titlebar dot distinguishes LAN-only from public, and toggling off/on quickly keeps the same address.
-            - Tunnel traffic uses cloudflared's default transport: forcing http2 was measured to make the temporary address unreachable, so it is not forced.
-            - Tunnel transitions and the public URL are logged for diagnosis.
-            - The startup log now prints which command shell was chosen, making shell problems diagnosable.
+            - The panel shows the public URL state (connecting / ready / error with retry), and toggling off/on quickly keeps the same address.
+            - Tunnel traffic uses cloudflared's default transport: forcing `--protocol http2` was measured to make the temporary address unreachable, so it is not forced.
+            - Tunnel transitions (up / down / error, with the public URL) are logged for diagnosis.
+            - The startup log prints which command shell was chosen, making shell problems diagnosable.
+            - New sessions are no longer blocked by a cold worker: the draft pre-warms in the background, model resolution uses an available snapshot, and extension hooks pre-warm early.
+            - Switching workspaces no longer stutters: the workspace root switches first and the recent-workspace list refreshes in the background.
+            - The settings page loads faster thanks to a cached snapshot plus startup pre-warming.
+            - Sidebar session chips are colour-coded for running / waiting-for-answer / just-finished; the expand-collapse button only takes space on hover and shows the session count; clicking a workspace folder no longer auto-opens its first session.
+            - The changes list leads with the file name, and the compact button is labelled "show context compact button".
+            - With a wallpaper the terminal, editor and running-panel output follow the panel colour and go transparent, and dropdown blur moved onto a pseudo-element.
 
             ## 下载 / Downloads
             - **Windows x64**: `Pi Desktop-*-win-x64-setup.exe`
@@ -249,11 +341,11 @@ jobs:
 
             ## 说明 / Notes
             - 本版本为**正式稳定版**（非 prerelease）
-            - 远程控制默认开启局域网访问，可在标题栏「远程控制」面板中关闭
+            - 远程控制默认开启局域网访问，可在 设置 → 通用 → 远程控制 中关闭或改用公网访问
             - 需要固定公网地址时，请在面板中填入自己的 Cloudflare 隧道 Token 与域名
             - macOS 未公证：首次打开可能需要右键 → 打开
             - This is a **stable** release
-            - Remote Control enables LAN access by default; turn it off from the Remote Control panel in the titlebar
+            - Remote Control enables LAN access by default; switch it off (or enable public access) under Settings → General → Remote Control
             - For a fixed public address, add your own Cloudflare tunnel token and hostname in the panel
             - macOS is unsigned/notarization off — first open may need right-click — Open
 
