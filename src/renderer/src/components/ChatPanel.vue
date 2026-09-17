@@ -128,7 +128,7 @@ const title = computed(() => {
   }
   // 会话行不在当前工作区列表里（侧栏折叠/切换后保留旧会话）时用首条消息兜底。
   const firstUser = chat.activeMessages.find((m) => m.role === "user" && m.text.trim());
-  if (firstUser) {
+  if (firstUser?.role === "user") {
     const text = heuristicSessionTitle(firstUser.text, 56);
     if (text) return text;
   }
