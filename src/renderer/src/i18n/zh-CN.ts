@@ -867,11 +867,6 @@ export const zh = {
 	lanTunnelModeQuick: "临时地址",
 	aboutTitle: "关于",
 	aboutVersion: "版本",
-	aboutAuthor: "作者",
-	aboutQq: "QQ",
-	aboutEmail: "邮箱",
-	aboutOpenGithub: "打开项目主页",
-	aboutOpenReleases: "查看 Releases",
 	piCliMissingTitle: "未检测到 Pi 命令行",
 	piCliMissingBody: (platform: string) =>
 		`当前系统（${platform}）未找到可用的 pi 命令，说明尚未安装 Pi CLI。桌面端可继续使用，但终端扩展与 \`pi install\` 等能力需要 CLI。可参考 pi.dev 官方说明安装。`,
