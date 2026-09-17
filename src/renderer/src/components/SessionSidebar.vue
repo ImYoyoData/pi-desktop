@@ -802,11 +802,6 @@ function relativeTime(iso: string): string {
 function workspaceMenuOptions(): DropdownOption[] {
   return [
     {
-      label: t.openFolder,
-      key: "open",
-      icon: () => h(NIcon, null, { default: () => h(FolderOpenOutline) }),
-    },
-    {
       label: t.newSessionAction,
       key: "new-session",
       icon: () => h(NIcon, null, { default: () => h(AddOutline) }),
@@ -839,13 +834,6 @@ async function onWorkspaceMenu(root: string, key: string | number): Promise<void
   closeCtx();
   const k = String(key);
   switch (k) {
-    case "open":
-      await onWorkspaceClick(root);
-      if (!expanded[root]) {
-        expanded[root] = true;
-        await loadSessions(root);
-      }
-      break;
     case "new-session": {
       if (workspace.root !== root) await workspace.openWorkspacePath(root);
       if (!workspace.sessionsReady) return;
