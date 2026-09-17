@@ -48,15 +48,60 @@ export function layoutStorageKey(workspaceRoot: string): string {
   return `layout:v4:${workspaceRoot}`;
 }
 
+/** 左栏宽度与折叠状态跨工作区共享，切换工作区时侧栏宽度保持不变。 */
+const SHARED_LEFT_KEY = "layout:left:v1";
+
+interface SharedLeftState {
+  leftSize: number;
+  leftCollapsed: boolean;
+}
+
+function readSharedLeft(): SharedLeftState | null {
+  try {
+    const raw = localStorage.getItem(SHARED_LEFT_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as Partial<SharedLeftState>;
+    if (typeof parsed.leftSize !== "number" || !Number.isFinite(parsed.leftSize)) {
+      return null;
+    }
+    return {
+      leftSize: clampPanePercent(parsed.leftSize),
+      leftCollapsed: parsed.leftCollapsed === true,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function writeSharedLeft(state: SharedLeftState): void {
+  localStorage.setItem(
+    SHARED_LEFT_KEY,
+    JSON.stringify({
+      leftSize: clampPanePercent(state.leftSize),
+      leftCollapsed: state.leftCollapsed === true,
+    }),
+  );
+}
+
+/** 共享值缺失时，把本次读到的左栏状态记为初值，后续所有工作区读同一份。 */
+function applySharedLeft(layout: PersistedLayout): PersistedLayout {
+  const shared = readSharedLeft();
+  if (!shared) {
+    writeSharedLeft(layout);
+    return layout;
+  }
+  return { ...layout, leftSize: shared.leftSize, leftCollapsed: shared.leftCollapsed };
+}
+
 function normalizeSizes(partial: Partial<PersistedLayout>): PersistedLayout {
-  let left = clampPanePercent(partial.leftSize ?? DEFAULT_LAYOUT.leftSize);
+  const left = clampPanePercent(partial.leftSize ?? DEFAULT_LAYOUT.leftSize);
+  const rest = 100 - left;
   let center = clampPanePercent(partial.centerSize ?? DEFAULT_LAYOUT.centerSize);
   let right = clampPanePercent(partial.rightSize ?? DEFAULT_LAYOUT.rightSize);
-  const sum = left + center + right;
-  if (sum > 0 && Math.abs(sum - 100) > 0.5) {
-    left = clampPanePercent((left / sum) * 100);
-    center = clampPanePercent((center / sum) * 100);
-    right = clampPanePercent(100 - left - center);
+  const pair = center + right;
+  if (pair > 0 && Math.abs(pair - rest) > 0.5) {
+    center = clampPanePercent((center / pair) * rest);
+    right = clampPanePercent(rest - center);
   }
   return {
     leftSize: left,
@@ -81,7 +126,7 @@ export function readLayout(workspaceRoot: string): PersistedLayout {
       localStorage.getItem(`layout:v3:${workspaceRoot}`) ??
       localStorage.getItem(`layout:v2:${workspaceRoot}`);
     if (!raw) {
-      return { ...DEFAULT_LAYOUT };
+      return applySharedLeft({ ...DEFAULT_LAYOUT });
     }
     const parsed = JSON.parse(raw) as Partial<PersistedLayout> & {
       leftWidth?: number;
@@ -93,10 +138,10 @@ export function readLayout(workspaceRoot: string): PersistedLayout {
       typeof parsed.centerSize === "number" ||
       typeof parsed.rightSize === "number"
     ) {
-      return normalizeSizes(parsed);
+      return applySharedLeft(normalizeSizes(parsed));
     }
     // Legacy px layout — fall back to defaults (avoid bad ratios without container width)
-    return {
+    return applySharedLeft({
       ...DEFAULT_LAYOUT,
       leftCollapsed: parsed.leftCollapsed === true,
       rightCollapsed: parsed.rightCollapsed === true,
@@ -106,12 +151,14 @@ export function readLayout(workspaceRoot: string): PersistedLayout {
         typeof parsed.customizeSection === "string" && parsed.customizeSection
           ? parsed.customizeSection
           : DEFAULT_LAYOUT.customizeSection,
-    };
+    });
   } catch {
-    return { ...DEFAULT_LAYOUT };
+    return applySharedLeft({ ...DEFAULT_LAYOUT });
   }
 }
 
 export function writeLayout(workspaceRoot: string, state: PersistedLayout): void {
-  localStorage.setItem(layoutStorageKey(workspaceRoot), JSON.stringify(normalizeSizes(state)));
+  const normalized = normalizeSizes(state);
+  writeSharedLeft(normalized);
+  localStorage.setItem(layoutStorageKey(workspaceRoot), JSON.stringify(normalized));
 }
