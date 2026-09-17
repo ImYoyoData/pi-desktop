@@ -9,7 +9,6 @@ import {
   useMessage,
 } from "naive-ui";
 import {
-  ChevronDownOutline,
   FolderOpenOutline,
   GitBranchOutline,
 } from "@vicons/ionicons5";
@@ -196,7 +195,6 @@ watch(branchPanelOpen, (open) => {
         >
           <NIcon :component="FolderOpenOutline" :size="13" />
           <span class="ctx-label">{{ workspaceLabel }}</span>
-          <NIcon :component="ChevronDownOutline" :size="11" />
         </button>
       </template>
       <div class="ctx-panel">
@@ -243,7 +241,6 @@ watch(branchPanelOpen, (open) => {
         >
           <NIcon :component="GitBranchOutline" :size="13" />
           <span class="ctx-label">{{ currentBranch || t.draftBranch }}</span>
-          <NIcon :component="ChevronDownOutline" :size="11" />
         </button>
       </template>
       <div class="ctx-panel branch-panel">
