@@ -154,6 +154,21 @@ declare const api: {
 		}>;
 		reorderRecent: (order: string[]) => Promise<string[]>;
 		revealInFolder: (root: string) => Promise<void>;
+		/** 工作区自定义显示名（绝对路径 → 名称）。 */
+		listAliases: () => Promise<Record<string, string>>;
+		setAlias: (
+			root: string,
+			name: string | null,
+		) => Promise<Record<string, string>>;
+		/** 重新定位工作区到新目录，Pi 会话目录随之迁移。 */
+		relocate: (
+			root: string,
+			next: string,
+		) => Promise<{
+			root: string | null;
+			recent: string[];
+			aliases: Record<string, string>;
+		}>;
 	};
 	sessions: {
 		list: (cwd: string) => Promise<SessionSummary[]>;

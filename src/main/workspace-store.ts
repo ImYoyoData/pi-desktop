@@ -6,12 +6,15 @@ export type WorkspacePersistedState = {
   recent: string[];
   /** Pi-discovered workspaces the user removed from the sidebar. */
   dismissedPi: string[];
+  /** pathKey(root) → 用户自定义的工作区显示名。 */
+  aliases: Record<string, string>;
 };
 
 const DEFAULT_STATE: WorkspacePersistedState = {
   root: null,
   recent: [],
   dismissedPi: [],
+  aliases: {},
 };
 
 /**
@@ -32,6 +35,16 @@ export function normalizeStoredWorkspacePath(input: unknown): string | null {
   return trimmed.length > 0 ? trimmed : null;
 }
 
+function readAliases(input: unknown): Record<string, string> {
+  if (!input || typeof input !== "object") return {};
+  const out: Record<string, string> = {};
+  for (const [key, value] of Object.entries(input as Record<string, unknown>)) {
+    const name = typeof value === "string" ? value.trim() : "";
+    if (key.trim() && name) out[key] = name;
+  }
+  return out;
+}
+
 function readState(statePath: string): WorkspacePersistedState {
   try {
     const raw = fs.readFileSync(statePath, "utf8");
@@ -50,9 +63,10 @@ function readState(statePath: string): WorkspacePersistedState {
             .map((entry) => normalizeStoredWorkspacePath(entry))
             .filter((entry): entry is string => entry !== null)
         : [],
+      aliases: readAliases(parsed.aliases),
     };
   } catch {
-    return { ...DEFAULT_STATE, recent: [], dismissedPi: [] };
+    return { ...DEFAULT_STATE, recent: [], dismissedPi: [], aliases: {} };
   }
 }
 
@@ -67,6 +81,11 @@ function pathKey(input: string): string {
   return process.platform === "win32" || process.platform === "darwin"
     ? resolved.toLowerCase()
     : resolved;
+}
+
+/** 别名键用原样绝对路径，方便渲染进程直接按 root 查表。 */
+function aliasKey(input: string): string {
+  return path.resolve(input.trim());
 }
 
 export function createWorkspaceStore(statePath: string) {
@@ -117,6 +136,53 @@ export function createWorkspaceStore(statePath: string) {
       return [...state.dismissedPi];
     },
 
+    listAliases(): Record<string, string> {
+      return { ...state.aliases };
+    },
+
+    setAlias(root: string, name: string | null): void {
+      const key = aliasKey(root);
+      const trimmed = name?.trim();
+      const aliases = { ...state.aliases };
+      if (trimmed) aliases[key] = trimmed;
+      else for (const k of Object.keys(aliases)) if (pathKey(k) === pathKey(root)) delete aliases[k];
+      state = { ...state, aliases };
+      persist();
+    },
+
+    /** 重新定位：旧路径的整体记录（root / recent / dismissedPi / 别名）换成新路径。 */
+    replacePath(from: string, to: string): void {
+      const fromKey = pathKey(from);
+      const stored = normalizeStoredWorkspacePath(to);
+      if (!stored) return;
+      const swap = (entry: string): string =>
+        pathKey(entry) === fromKey ? stored : entry;
+      const seen = new Set<string>();
+      const dedupe = (list: string[]): string[] =>
+        list.filter((entry) => {
+          const key = pathKey(entry);
+          if (seen.has(key)) return false;
+          seen.add(key);
+          return true;
+        });
+      const recent = dedupe(state.recent.map(swap));
+      seen.clear();
+      const dismissedPi = dedupe(state.dismissedPi.map(swap));
+      const aliases: Record<string, string> = {};
+      for (const [key, name] of Object.entries(state.aliases)) {
+        aliases[pathKey(key) === fromKey ? aliasKey(stored) : key] = name;
+      }
+      state = {
+        ...state,
+        recent,
+        dismissedPi,
+        aliases,
+        root:
+          state.root && pathKey(state.root) === fromKey ? stored : state.root,
+      };
+      persist();
+    },
+
     /** Persist a user-defined order (e.g. drag-and-drop). */
     reorderRecent(order: string[]): void {
       const known = new Set(state.recent.map(pathKey));
@@ -155,8 +221,10 @@ export function createWorkspaceStore(statePath: string) {
       const key = pathKey(root);
       const recent = state.recent.filter((entry) => pathKey(entry) !== key);
       const dismissedPi = state.dismissedPi.filter((entry) => pathKey(entry) !== key);
+      const aliases = { ...state.aliases };
+      for (const k of Object.keys(aliases)) if (pathKey(k) === key) delete aliases[k];
       const nextRoot = state.root && pathKey(state.root) === key ? (recent[0] ?? null) : state.root;
-      state = { ...state, recent, dismissedPi, root: nextRoot };
+      state = { ...state, recent, dismissedPi, aliases, root: nextRoot };
       persist();
     },
   };
