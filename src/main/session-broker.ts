@@ -726,13 +726,15 @@ export function createSessionBroker(deps: {
   }
 
   async function createSession(cwd: string): Promise<SessionSummary> {
-    // Fast path: disk session only. Pi agent worker starts on first send/command.
+    // 草稿预热：落盘后立即后台启动 worker，首条消息不必再等冷启动。
     const allocated = await allocateSession(cwd);
-    return registerSessionShell(
+    const summary = registerSessionShell(
       allocated.id,
       allocated.cwd,
       allocated.filePath,
     );
+    prewarmWorker(summary.id);
+    return summary;
   }
 
   async function listSessions(cwd: string): Promise<SessionSummary[]> {

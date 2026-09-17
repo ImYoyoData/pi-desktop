@@ -12,6 +12,13 @@ import { toIpcPlain } from "../../../shared/protocol";
 import { isUnstartedSession } from "@renderer/utils/session-started";
 import { useComposerStore } from "./composer";
 
+/** 工作区路径比较（分隔符与大小写无关）。 */
+function sameWorkspacePath(a: string, b: string): boolean {
+  const norm = (p: string) =>
+    p.replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
+  return norm(a) === norm(b);
+}
+
 const SEGMENT_IDS = new Set<ContextUsageSegmentId>([
   "system",
   "tools",
@@ -229,7 +236,11 @@ export const useSessionsStore = defineStore("sessions", () => {
       return;
     }
     if (draftRoot.value && draftRoot.value !== cwd) draftRoot.value = null;
-    sessions.value = await window.api.sessions.list(cwd);
+    // 预热草稿与崩溃残留的空会话不上侧栏；活动会话始终保留。
+    const rows = await window.api.sessions.list(cwd);
+    sessions.value = rows.filter(
+      (row) => row.id === activeId.value || !isUnstartedSession(row),
+    );
     listRoot.value = cwd;
   }
 
@@ -253,10 +264,43 @@ export const useSessionsStore = defineStore("sessions", () => {
     return row && isUnstartedSession(row) ? row : null;
   }
 
+  /** 草稿预热会话：已落盘并预热 worker，但尚未进入侧栏。 */
+  let preparedDraft: { cwd: string; summary: SessionSummary } | null = null;
+
+  /** 释放未使用的预热会话；已被认领时不动。 */
+  async function releasePreparedDraft(): Promise<void> {
+    const pending = preparedDraft;
+    preparedDraft = null;
+    if (!pending || activeId.value === pending.summary.id) return;
+    try {
+      await window.api.sessions.delete(pending.summary.id, pending.summary.cwd);
+    } catch {
+      // 未使用的空会话不上侧栏，残留无害
+    }
+  }
+
+  /** 草稿开始输入时调用：后台建会话并预热 worker，冷启动挪到打字期间。 */
+  async function prepareDraft(cwd: string): Promise<void> {
+    if (!cwd) return;
+    if (preparedDraft && sameWorkspacePath(preparedDraft.cwd, cwd)) return;
+    await releasePreparedDraft();
+    try {
+      const created = await window.api.sessions.create(cwd);
+      preparedDraft = { cwd, summary: created };
+    } catch {
+      // 预热失败时仍走发送时建会话的老路
+    }
+  }
+
   /** 仅改变草稿归属的工作区，保留已输入的草稿内容。 */
   function setDraftRoot(cwd: string): void {
+    if (preparedDraft && !sameWorkspacePath(preparedDraft.cwd, cwd)) {
+      void releasePreparedDraft();
+    }
     draftRoot.value = cwd;
     activeId.value = null;
+    // 进入草稿即后台预热会话与 worker（点新建会话/应用启动就开跑），首条消息不再等冷启动。
+    void prepareDraft(cwd);
   }
 
   /**
@@ -269,11 +313,17 @@ export const useSessionsStore = defineStore("sessions", () => {
     useComposerStore().bindSession(null);
   }
 
-  /** 草稿首次发送：创建会话文件并切换为活动会话。 */
+  /** 草稿首次发送：创建会话文件并切换为活动会话（复用预热会话）。 */
   async function commitDraft(): Promise<SessionSummary | null> {
     const cwd = draftRoot.value;
     if (!cwd) return null;
-    const created = await window.api.sessions.create(cwd);
+    const prepared =
+      preparedDraft && sameWorkspacePath(preparedDraft.cwd, cwd)
+        ? preparedDraft
+        : null;
+    if (!prepared) await releasePreparedDraft();
+    const created = prepared?.summary ?? (await window.api.sessions.create(cwd));
+    preparedDraft = null;
     upsert(created);
     activeId.value = created.id;
     draftRoot.value = null;
@@ -287,6 +337,8 @@ export const useSessionsStore = defineStore("sessions", () => {
   }
 
   async function selectSession(sessionId: string, cwd: string): Promise<void> {
+    // 切到历史会话即放弃草稿，顺带释放预热出来的空会话。
+    await releasePreparedDraft();
     // Open/register in the broker BEFORE flipping activeId.
     // Otherwise Composer watches activeId and races sessions:command → unknown session.
     const opened = await window.api.sessions.open(sessionId, cwd);
@@ -407,6 +459,8 @@ export const useSessionsStore = defineStore("sessions", () => {
     refresh,
     beginDraft,
     setDraftRoot,
+    prepareDraft,
+    releasePreparedDraft,
     commitDraft,
     selectSession,
     discardActiveIfUnstarted,
