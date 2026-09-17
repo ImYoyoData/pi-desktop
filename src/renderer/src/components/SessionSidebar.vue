@@ -21,7 +21,6 @@ import {
   AddOutline,
   ChevronDownOutline,
   ChevronForwardOutline,
-  CloseOutline,
   CopyOutline,
   CreateOutline,
   EllipsisHorizontalOutline,
@@ -95,29 +94,8 @@ const workspacePaths = computed(() => {
   return paths;
 });
 
-/** Closed-workspace section collapsed state (default: expanded). */
-const closedExpanded = ref(true);
-
 function openCustomize(section: string): void {
   layout.openCustomize(section);
-}
-
-function toggleClosed(): void {
-  closedExpanded.value = !closedExpanded.value;
-}
-
-/** Closed workspace paths not currently in the main list. */
-const closedPaths = computed(() => {
-  const keys = new Set(workspacePaths.value.map((p) => p.toLowerCase()));
-  return workspace.closed.filter((p) => !keys.has(p.toLowerCase()));
-});
-
-async function onReopenClosed(root: string): Promise<void> {
-  if (workspace.root && workspace.root !== root) {
-    await discardActiveUnstartedForRoot(workspace.root);
-  }
-  // 重新打开成功后由 root watcher 统一加载会话并展开列表
-  await workspace.reopenWorkspace(root);
 }
 
 /** Purge Pi config + sessions for a workspace (keeps project folder). */
@@ -302,7 +280,7 @@ onMounted(async () => {
   // 派生会话等由其他组件新建的会话：排到最前，避免被折叠到「展开其余 N 个」之下。
   window.addEventListener("pi-session-created", onSessionCreated);
   // App.vue already loads workspace/recent — skip duplicate IPC on cold start.
-  const boot: Promise<unknown>[] = [workspace.listClosed()];
+  const boot: Promise<unknown>[] = [];
   if (!workspace.root) boot.push(workspace.getWorkspace());
   if (!workspace.recent.length) boot.push(workspace.listRecentFast());
   await Promise.all(boot);
@@ -850,11 +828,6 @@ function workspaceMenuOptions(): DropdownOption[] {
     },
     { type: "divider", key: "d1" },
     {
-      label: t.closeWorkspace,
-      key: "close",
-      icon: () => h(NIcon, null, { default: () => h(CloseOutline) }),
-    },
-    {
       label: t.removeFromList,
       key: "remove",
       icon: () => h(NIcon, null, { default: () => h(TrashOutline) }),
@@ -892,25 +865,6 @@ async function onWorkspaceMenu(root: string, key: string | number): Promise<void
       await navigator.clipboard.writeText(root);
       message.success(t.pathCopied);
       break;
-    case "close": {
-      // Close = hide from the main list; the workspace moves to the
-      // "Closed workspaces" section and can be reopened later.
-      // An unstarted 新会话 left open there has no value — drop it first.
-      if (sessionsStore.activeId && root === workspace.root) {
-        await discardActiveUnstartedForRoot(root);
-      }
-      await workspace.closeWorkspace(root);
-      delete sessionsByRoot[root];
-      delete expanded[root];
-      if (workspace.root) {
-        expanded[workspace.root] = true;
-        await loadSessions(workspace.root);
-        await ensureActiveSession(workspace.root);
-      } else {
-        sessionsStore.activeId = null;
-      }
-      break;
-    }
     case "remove": {
       confirmPurgeWorkspace(root);
       break;
@@ -1316,54 +1270,6 @@ watch(
         </div>
       </NScrollbar>
       <div v-else class="empty">{{ t.emptyWorkspaces }}</div>
-
-      <!-- Closed workspaces (collapsed section, re-openable) -->
-      <div v-if="closedPaths.length" class="closed-ws">
-        <button
-          type="button"
-          class="closed-ws-head"
-          :aria-expanded="closedExpanded"
-          @click="toggleClosed"
-        >
-          <span class="chevron" :class="{ open: closedExpanded }">
-            <NIcon :component="ChevronForwardOutline" :size="13" />
-          </span>
-          <span class="closed-ws-title">{{ t.closedWorkspaces }}</span>
-          <span class="closed-ws-count">{{ closedPaths.length }}</span>
-        </button>
-        <div v-if="closedExpanded" class="closed-ws-list">
-          <div
-            v-for="root in closedPaths"
-            :key="root"
-            class="closed-ws-row"
-            :title="root"
-          >
-            <button
-              type="button"
-              class="closed-ws-open"
-              @click="() => void onReopenClosed(root)"
-            >
-              <span class="closed-ws-name">{{ workspaceName(root) }}</span>
-            </button>
-            <NTooltip>
-              <template #trigger>
-                <NButton
-                  quaternary
-                  size="tiny"
-                  class="closed-ws-remove"
-                  :aria-label="t.removeFromList"
-                  @click.stop="confirmPurgeWorkspace(root)"
-                >
-                  <template #icon>
-                    <NIcon :component="TrashOutline" :size="13" />
-                  </template>
-                </NButton>
-              </template>
-              {{ t.removeFromList }}
-            </NTooltip>
-          </div>
-        </div>
-      </div>
     </div>
 
     <div class="customize-bar">
@@ -1474,105 +1380,6 @@ watch(
   flex: 1;
   min-height: 0;
   padding: 0 6px 8px;
-}
-
-/* Closed workspaces section (collapsed, re-openable). */
-.closed-ws {
-  border-top: 1px solid var(--border, rgba(128, 128, 128, 0.15));
-  padding: 6px;
-}
-
-.closed-ws-head {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  width: 100%;
-  margin: 0;
-  padding: 3px 4px;
-  border: none;
-  border-radius: 6px;
-  background: transparent;
-  color: var(--fg-muted, #888);
-  font: inherit;
-  font-size: 11.5px;
-  font-weight: 600;
-  text-align: left;
-  cursor: pointer;
-}
-
-.closed-ws-head:hover {
-  background: var(--bg-hover, rgba(127, 127, 127, 0.07));
-}
-
-.closed-ws-title {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.closed-ws-count {
-  font-size: 10.5px;
-  color: var(--fg-faint, #999);
-  background: var(--bg-hover, rgba(127, 127, 127, 0.1));
-  border-radius: 999px;
-  padding: 0 7px;
-}
-
-.closed-ws-list {
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-  margin-top: 3px;
-}
-
-.closed-ws-row {
-  display: flex;
-  align-items: center;
-  gap: 2px;
-  width: 100%;
-  padding: 1px 4px 1px 18px;
-  border-radius: 6px;
-}
-
-.closed-ws-row:hover {
-  background: var(--bg-hover, rgba(127, 127, 127, 0.07));
-}
-
-.closed-ws-open {
-  flex: 1;
-  min-width: 0;
-  margin: 0;
-  padding: 4px 4px;
-  border: none;
-  border-radius: 4px;
-  background: transparent;
-  color: var(--fg-muted, #888);
-  font: inherit;
-  font-size: 12px;
-  text-align: left;
-  cursor: pointer;
-}
-
-.closed-ws-open:hover {
-  color: var(--fg, #ddd);
-}
-
-.closed-ws-remove {
-  flex-shrink: 0;
-  opacity: 0.55;
-}
-
-.closed-ws-row:hover .closed-ws-remove {
-  opacity: 1;
-}
-
-.closed-ws-name {
-  display: block;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .ws-row-wrap {

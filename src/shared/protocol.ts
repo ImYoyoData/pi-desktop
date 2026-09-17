@@ -46,7 +46,6 @@ export const IpcChannels = {
 		listRecent: "workspace:listRecent",
 		/** Instant Desktop-only recent (no Pi CLI session scan). */
 		listRecentDesktop: "workspace:listRecentDesktop",
-		listClosed: "workspace:listClosed",
 		removeRecent: "workspace:removeRecent",
 		/** Forget workspace config + delete Pi sessions (not the project folder). */
 		purge: "workspace:purge",

@@ -19,8 +19,6 @@ function sanitizeRoots(list: unknown): string[] {
 export const useWorkspaceStore = defineStore("workspace", () => {
 	const root = ref<string | null>(null);
 	const recent = ref<string[]>([]);
-	/** Workspaces the user closed (hidden from the main list, re-openable). */
-	const closed = ref<string[]>([]);
 	/**
 	 * True once the current `root` is ready for session hydrate / worker spawn.
 	 */
@@ -111,11 +109,6 @@ export const useWorkspaceStore = defineStore("workspace", () => {
 		return recent.value;
 	}
 
-	async function listClosed(): Promise<string[]> {
-		closed.value = sanitizeRoots(await window.api.workspace.listClosed());
-		return closed.value;
-	}
-
 	async function applyWorkspaceSwitch(next: {
 		root: string | null;
 		recent: string[];
@@ -136,21 +129,6 @@ export const useWorkspaceStore = defineStore("workspace", () => {
 	async function purgeWorkspace(workspaceRoot: string): Promise<void> {
 		const next = await window.api.workspace.purge(workspaceRoot);
 		await applyWorkspaceSwitch(next);
-		await listClosed();
-	}
-
-	/** Close a workspace: hide from the main list but keep it re-openable. */
-	async function closeWorkspace(workspaceRoot: string): Promise<void> {
-		await removeRecent(workspaceRoot);
-		await listClosed();
-	}
-
-	/** Re-open a closed workspace (moves it back to the main list). */
-	async function reopenWorkspace(workspaceRoot: string): Promise<string | null> {
-		const next = await openWorkspacePath(workspaceRoot);
-		await listRecent();
-		await listClosed();
-		return next;
 	}
 
 	async function reorderRecent(order: string[]): Promise<string[]> {
@@ -165,7 +143,6 @@ export const useWorkspaceStore = defineStore("workspace", () => {
 	return {
 		root,
 		recent,
-		closed,
 		sessionsReady,
 		getWorkspace,
 		openWorkspace,
@@ -173,11 +150,8 @@ export const useWorkspaceStore = defineStore("workspace", () => {
 		clearWorkspace,
 		listRecent,
 		listRecentFast,
-		listClosed,
 		removeRecent,
 		purgeWorkspace,
-		closeWorkspace,
-		reopenWorkspace,
 		reorderRecent,
 		revealInFolder,
 	};

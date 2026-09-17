@@ -132,11 +132,6 @@ export function registerWorkspaceIpc(nextDeps: WorkspaceIpcDeps = {}): void {
 
 	ipcMain.handle(IpcChannels.workspace.listRecentDesktop, () => listRecentDesktopOnly());
 
-	/** Closed (dismissed) workspaces still known to Desktop — re-openable. */
-	ipcMain.handle(IpcChannels.workspace.listClosed, () => {
-		return getStore().listDismissedPi();
-	});
-
 	ipcMain.handle(IpcChannels.workspace.openPath, (_event, root: string) =>
 		openWorkspacePath(root),
 	);
