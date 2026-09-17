@@ -10,7 +10,6 @@ import { useScopedWorkspaces } from "@renderer/utils/scoped-workspaces";
 import { useCustomizationsStore } from "@renderer/stores/customizations";
 import { usePluginUpdatesStore } from "@renderer/stores/plugin-updates";
 import type {
-  CustomizationCreateKind,
   CustomizationItem,
   CustomizationScope,
   McpTestResult,
@@ -18,7 +17,7 @@ import type {
 import type { PluginUpdateProgress, PluginVersionInfo } from "../../../../shared/pi-market";
 import { t } from "@renderer/i18n";
 
-type SectionKind = "agents" | "skills" | "instructions" | "prompts" | "mcp" | "plugins";
+type SectionKind = "agents" | "skills" | "instructions" | "mcp" | "plugins";
 
 const props = defineProps<{
   kind: SectionKind;
@@ -114,24 +113,10 @@ const emptyLabel = computed(() => {
       return t.customizeSkills;
     case "instructions":
       return t.customizeInstructions;
-    case "prompts":
-      return t.customizePrompts;
     case "mcp":
       return t.customizeMcp;
     default:
       return t.customizePlugins;
-  }
-});
-
-const createKind = computed<CustomizationCreateKind | null>(() => {
-  switch (props.kind) {
-    case "agents":
-    case "skills":
-    case "instructions":
-    case "prompts":
-      return props.kind;
-    default:
-      return null;
   }
 });
 
@@ -141,10 +126,8 @@ const createLabel = computed(() => {
       return t.customizeNewAgent;
     case "skills":
       return t.customizeNewSkill;
-    case "instructions":
-      return t.customizeNewInstructions;
     default:
-      return t.customizeNewPrompt;
+      return t.customizeNewInstructions;
   }
 });
 
@@ -192,22 +175,6 @@ async function copyPath(item: CustomizationItem): Promise<void> {
   }
 }
 
-async function onCreate(): Promise<void> {
-  const kind = createKind.value;
-  if (!kind) return;
-  try {
-    const { filePath } = await window.api.customizations.create(kind);
-    emit("refresh");
-    emit("open", { filePath, title: titleFromPath(filePath), rename: false });
-  } catch (err) {
-    message.error(err instanceof Error ? err.message : String(err));
-  }
-}
-
-function onAddClick(): void {
-  void onCreate();
-}
-
 function pluginScope(item: CustomizationItem): "global" | "project" {
   return item.scope === "project" ? "project" : "global";
 }
@@ -228,7 +195,7 @@ async function setEnabled(item: CustomizationItem, enabled: boolean): Promise<vo
         throw err;
       }
       return;
-    } else if ((props.kind === "agents" || props.kind === "prompts") && item.filePath) {
+    } else if (props.kind === "agents" && item.filePath) {
       const { filePath } = await window.api.customizations.setItemEnabled(
         item.filePath,
         enabled,
@@ -273,7 +240,7 @@ async function setEnabled(item: CustomizationItem, enabled: boolean): Promise<vo
   }
 }
 
-/** 用户级与工作区级的智能体/提示文件可启停、可删除。 */
+/** 用户级与工作区级的智能体文件可启停、可删除。 */
 function isEditableItem(item: CustomizationItem): boolean {
   return (item.scope === "user" || item.scope === "project") && Boolean(item.filePath);
 }
@@ -281,7 +248,7 @@ function isEditableItem(item: CustomizationItem): boolean {
 function canToggle(item: CustomizationItem): boolean {
   if (props.kind === "skills") return Boolean(item.filePath) && item.enabled !== undefined;
   if (props.kind === "mcp") return item.enabled !== undefined;
-  if (props.kind === "agents" || props.kind === "prompts") return isEditableItem(item);
+  if (props.kind === "agents") return isEditableItem(item);
   return props.kind === "plugins" && Boolean(item.source);
 }
 
@@ -363,9 +330,9 @@ const draftScopeOptions = computed<DropdownOption[]>(() => [
 
 type DraftKind = "skills" | "agents" | "instructions";
 
-/** 需要先选作用域的定制项；提示模板仍直接创建。 */
+/** 需要先选作用域的定制项。 */
 const draftKind = computed<DraftKind | null>(() => {
-  const kind = createKind.value;
+  const kind = props.kind;
   return kind === "skills" || kind === "agents" || kind === "instructions" ? kind : null;
 });
 
@@ -488,18 +455,14 @@ function skillWarning(item: CustomizationItem): { text: string; hint: string } |
 function canRemove(item: CustomizationItem): boolean {
   if (props.kind === "skills") return Boolean(item.filePath);
   if (props.kind === "mcp") return true;
-  if (props.kind === "agents" || props.kind === "prompts") return isEditableItem(item);
+  if (props.kind === "agents") return isEditableItem(item);
   if (props.kind === "instructions") return item.removable === true;
   return props.kind === "plugins" && Boolean(item.source);
 }
 
 function removeLabel(): string {
   if (props.kind === "mcp") return t.customizeMcpRemove;
-  if (
-    props.kind === "agents" ||
-    props.kind === "prompts" ||
-    props.kind === "instructions"
-  ) {
+  if (props.kind === "agents" || props.kind === "instructions") {
     return t.customizeDelete;
   }
   return props.kind === "plugins" ? t.customizeUninstallPlugin : t.customizeUninstall;
@@ -516,7 +479,7 @@ function confirmRemove(item: CustomizationItem): void {
     content:
       props.kind === "mcp"
         ? t.customizeMcpRemoveConfirm(item.name)
-        : props.kind === "instructions" || props.kind === "agents" || props.kind === "prompts"
+        : props.kind === "instructions" || props.kind === "agents"
           ? t.customizeDeleteConfirm(item.description || item.name)
           : t.customizeUninstallConfirm(item.name),
     positiveText: removeLabel(),
@@ -527,7 +490,7 @@ function confirmRemove(item: CustomizationItem): void {
           await window.api.skills.uninstall(item.filePath, workspace.root ?? undefined);
           store.removeFileItem(props.kind, item.id);
           return;
-        } else if ((props.kind === "agents" || props.kind === "prompts") && item.filePath) {
+        } else if (props.kind === "agents" && item.filePath) {
           await window.api.customizations.removeItem(
             item.filePath,
             workspace.root ?? undefined,
@@ -634,14 +597,6 @@ function onCtxSelect(key: string | number): void {
         >
           <NButton class="list-add-button" size="small">{{ createLabel }}</NButton>
         </NDropdown>
-        <NButton
-          v-else-if="createKind"
-          class="list-add-button"
-          size="small"
-          @click="onAddClick"
-        >
-          {{ createLabel }}
-        </NButton>
         <NButton v-if="kind === 'plugins'" class="list-add-button" size="small" @click="emit('market')">
           {{ t.customizeBrowseMarket }}
         </NButton>

@@ -43,7 +43,6 @@ const sections = computed<CustomizeSectionEntry[]>(() => [
   { id: "agents", icon: "agents", label: t.customizeAgents, description: t.customizeAgentsDesc },
   { id: "skills", icon: "skills", label: t.customizeSkills, description: t.customizeSkillsDesc },
   { id: "instructions", icon: "instructions", label: t.customizeInstructions, description: t.customizeInstructionsDesc },
-  { id: "prompts", icon: "prompts", label: t.customizePrompts, description: t.customizePromptsDesc },
   { id: "hooks", icon: "hooks", label: t.customizeHooks, description: t.customizeHooksDesc },
   { id: "mcp", icon: "mcp", label: t.customizeMcp, description: t.customizeMcpDesc },
   { id: "plugins", icon: "plugins", label: t.customizePlugins, description: t.customizePluginsDesc },
@@ -61,7 +60,12 @@ const store = useCustomizationsStore();
 const layout = useLayoutStore();
 const workspace = useWorkspaceStore();
 
-const active = ref(props.section || "general");
+/** 旧版本持久化的失效页签（如已移除的「提示」）回落到常规页。 */
+function resolveSection(id: string): string {
+  return sections.value.some((entry) => entry.id === id) ? id : "general";
+}
+
+const active = ref(resolveSection(props.section));
 const modal = ref<string | null>(null);
 const width = ref(readWidth());
 /** 页内编辑目标：已有文件或未落盘的草稿（技能/智能体/指令）。 */
@@ -159,7 +163,7 @@ const current = computed(
   () => sections.value.find((entry) => entry.id === active.value) ?? sections.value[0],
 );
 
-const LIST_KINDS = ["agents", "skills", "instructions", "prompts", "mcp", "plugins"] as const;
+const LIST_KINDS = ["agents", "skills", "instructions", "mcp", "plugins"] as const;
 type ListKind = (typeof LIST_KINDS)[number];
 
 const listKind = computed<ListKind>(() =>
@@ -173,8 +177,6 @@ const listItems = computed(() => {
       return snapshot.skills;
     case "instructions":
       return snapshot.instructions;
-    case "prompts":
-      return snapshot.prompts;
     case "mcp":
       return snapshot.mcp;
     case "plugins":
@@ -188,7 +190,6 @@ const counts = computed<Record<string, number>>(() => ({
   agents: store.snapshot.agents.length,
   skills: store.snapshot.skills.length,
   instructions: store.snapshot.instructions.length,
-  prompts: store.snapshot.prompts.length,
   hooks: store.snapshot.hooks.length,
   mcp: store.snapshot.mcp.length,
   plugins: store.snapshot.plugins.length,
@@ -518,9 +519,7 @@ const canDeleteEditing = computed(() => {
   const target = editing.value;
   if (!target) return false;
   if (target.kind === "draft") return true;
-  return (
-    listKind.value === "skills" || listKind.value === "agents" || listKind.value === "prompts"
-  );
+  return listKind.value === "skills" || listKind.value === "agents";
 });
 
 function deleteEditing(): void {
@@ -543,7 +542,7 @@ function deleteEditing(): void {
   dialog.create({
     title: t.customizeDelete,
     content:
-      kind === "agents" || kind === "prompts"
+      kind === "agents"
         ? t.customizeDeleteConfirm(target.title)
         : t.customizeUninstallConfirm(target.title),
     positiveText: t.customizeDelete,
@@ -589,9 +588,11 @@ function onResizeStart(event: MouseEvent): void {
 watch(
   () => props.section,
   (value) => {
-    if (value && value !== active.value) {
+    if (!value) return;
+    const next = resolveSection(value);
+    if (next !== active.value) {
       editing.value = null;
-      active.value = value;
+      active.value = next;
     }
   },
 );
