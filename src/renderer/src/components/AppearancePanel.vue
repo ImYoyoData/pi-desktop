@@ -95,6 +95,11 @@ const showSessionDetails = computed({
   set: (value: boolean) => appearance.setShowSessionDetails(value),
 });
 
+const showSessionHoverActions = computed({
+  get: () => appearance.showSessionHoverActions,
+  set: (value: boolean) => appearance.setSessionHoverActions(value),
+});
+
 const showMessagePreview = computed({
   get: () => appearance.showMessagePreview,
   set: (value: boolean) => appearance.setShowMessagePreview(value),
@@ -287,6 +292,22 @@ function onMessageWidthChange(value: string | number | null): void {
         >
           <NRadioButton :value="true">{{ t.showCompactButtonOn }}</NRadioButton>
           <NRadioButton :value="false">{{ t.showCompactButtonOff }}</NRadioButton>
+        </NRadioGroup>
+      </div>
+
+      <NDivider style="margin: 0" />
+
+      <div class="switch-row">
+        <div class="switch-labels">
+          <NText strong>{{ t.sessionHoverActions }}</NText>
+        </div>
+        <NRadioGroup
+          v-model:value="showSessionHoverActions"
+          size="small"
+          class="setting-radio-group"
+        >
+          <NRadioButton :value="true">{{ t.switchOn }}</NRadioButton>
+          <NRadioButton :value="false">{{ t.switchOff }}</NRadioButton>
         </NRadioGroup>
       </div>
     </template>

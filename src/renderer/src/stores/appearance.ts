@@ -31,6 +31,7 @@ const PANEL_DIVIDERS_KEY = "pi-desktop:panel-dividers";
 const SESSION_DETAILS_KEY = "pi-desktop:session-details";
 const MESSAGE_PREVIEW_KEY = "pi-desktop:message-preview";
 const MESSAGE_PREVIEW_IMAGE_KEY = "pi-desktop:message-preview-image";
+const SESSION_HOVER_ACTIONS_KEY = "pi-desktop:session-hover-actions";
 const TRUNCATE_TOOL_OUTPUT_KEY = "pi-desktop:truncate-tool-output";
 
 /** 工具输出预览的可选截断行数；0 表示不截断。 */
@@ -77,6 +78,14 @@ function readMessagePreview(): boolean {
 function readMessagePreviewImage(): boolean {
   try {
     return localStorage.getItem(MESSAGE_PREVIEW_IMAGE_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+function readSessionHoverActions(): boolean {
+  try {
+    return localStorage.getItem(SESSION_HOVER_ACTIONS_KEY) === "1";
   } catch {
     return false;
   }
@@ -199,6 +208,7 @@ export const useAppearanceStore = defineStore("appearance", () => {
   const showSessionDetails = ref(readSessionDetails());
   const showMessagePreview = ref(readMessagePreview());
   const showMessagePreviewImage = ref(readMessagePreviewImage());
+  const showSessionHoverActions = ref(readSessionHoverActions());
   const truncateToolOutputLines = ref(readTruncateToolOutputLines());
   const customAppearance = ref<CustomAppearanceSettings>(readCustomAppearance());
   const wallpaperBroken = ref(false);
@@ -285,6 +295,15 @@ export const useAppearanceStore = defineStore("appearance", () => {
     showMessagePreviewImage.value = next;
     try {
       localStorage.setItem(MESSAGE_PREVIEW_IMAGE_KEY, next ? "1" : "0");
+    } catch {
+      // ignore
+    }
+  }
+
+  function setSessionHoverActions(next: boolean): void {
+    showSessionHoverActions.value = next;
+    try {
+      localStorage.setItem(SESSION_HOVER_ACTIONS_KEY, next ? "1" : "0");
     } catch {
       // ignore
     }
@@ -391,6 +410,7 @@ export const useAppearanceStore = defineStore("appearance", () => {
     showSessionDetails,
     showMessagePreview,
     showMessagePreviewImage,
+    showSessionHoverActions,
     truncateToolOutputLines,
     wallpaper,
     surfaces,
@@ -403,6 +423,7 @@ export const useAppearanceStore = defineStore("appearance", () => {
     setShowSessionDetails,
     setShowMessagePreview,
     setShowMessagePreviewImage,
+    setSessionHoverActions,
     setTruncateToolOutputLines,
     setWallpaperFile,
     clearWallpaper,
