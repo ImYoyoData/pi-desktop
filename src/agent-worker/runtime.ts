@@ -14,6 +14,7 @@ import {
 	SessionManager,
 	SettingsManager,
 	type AgentSession,
+	type BuildSystemPromptOptions,
 	type ExtensionError,
 } from "@earendil-works/pi-coding-agent";
 import type { AgentCommand, ElementCitation } from "../shared/protocol";
@@ -631,6 +632,26 @@ async function initSession(
 			// ignore
 		}
 	}, 0);
+	void warmExtensionHooks(created);
+}
+
+/**
+ * 后台触发一次 before_agent_start：部分扩展（如 context-mode）在此懒启动
+ * MCP 桥接/索引，提前跑可让首条消息不再白等数秒；空 prompt 不写用户事件。
+ */
+async function warmExtensionHooks(active: AgentSession): Promise<void> {
+	try {
+		const runner = active.extensionRunner;
+		if (!runner.hasHandlers("before_agent_start")) return;
+		await runner.emitBeforeAgentStart(
+			"",
+			undefined,
+			active.systemPrompt,
+			{} as BuildSystemPromptOptions,
+		);
+	} catch {
+		// 预热失败不影响正常会话
+	}
 }
 
 function requireSession(): AgentSession {
@@ -675,6 +696,27 @@ async function setModelPreservingThinking(
 }
 
 type SessionModel = NonNullable<ReturnType<AgentSession["modelRuntime"]["getModel"]>>;
+
+/**
+ * 解析待设置模型：优先内存可用快照，未命中只查该 provider。
+ * 无参 getAvailable() 会刷新全部 provider 的授权（含网络校验），
+ * 新会话首条/切模型时要白等它几秒。
+ */
+async function resolveSelectableModel(
+	active: AgentSession,
+	provider: string,
+	modelId: string,
+): Promise<SessionModel | undefined> {
+	const matches = (m: SessionModel): boolean =>
+		m.provider === provider && m.id === modelId;
+	const cached = active.modelRuntime.getAvailableSnapshot().find(matches);
+	if (cached) return cached;
+	try {
+		return (await active.modelRuntime.getAvailable(provider)).find(matches);
+	} catch {
+		return undefined;
+	}
+}
 
 /** Pi 只在 thinkingLevelMap 显式映射时才提供 XHigh/Max；完全未配置时按支持处理。 */
 function withDefaultThinkingLevels(model: SessionModel): SessionModel {
@@ -911,9 +953,10 @@ async function runCommand(id: string, command: AgentCommand): Promise<void> {
 			return;
 		case "set_model": {
 			const active = requireSession();
-			const models = await active.modelRuntime.getAvailable();
-			const model = models.find(
-				(m) => m.provider === command.provider && m.id === command.modelId,
+			const model = await resolveSelectableModel(
+				active,
+				command.provider,
+				command.modelId,
 			);
 			if (!model) {
 				post({
