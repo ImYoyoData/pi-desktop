@@ -2,19 +2,34 @@
 
 ## 未发布 / Unreleased
 
-本版重点：局域网网页控制台改名为「远程控制」，默认开启局域网访问（普通 HTTP，无证书警告），公网访问改为 Cloudflare 隧道按需打开并支持绑定自己的域名；网页版移除语音输入但补上浏览器原生朗读；修复 Windows 上 bash 工具不可用。
+本版重点：设置页全面重做（通用 / 外观 / 模型 / 智能体 / 技能 / 指令 / 挂钩 / MCP / 插件 / 工具 / 关于）；「局域网网页控制台」改名「远程控制」并默认开启局域网访问，公网访问改用 Cloudflare 隧道且支持绑定自己的域名；新增底部多标签终端、派生对话会话树、四档权限模式与自定义外观（背景图 / 透明度 / 消息区宽度）；修复 Windows 上 bash 工具不可用、虚拟滚动错位等一系列问题。
 
 ### 新功能 Features
 
-- 「远程控制」取代原「局域网网页控制台」；标题栏图标、面板文案与网页端标题统一更名。
-- 局域网访问默认开启：启动即监听 `http://<本机IP>:18700`，手机/平板浏览器直接可用。
+- **「远程控制」取代原「局域网网页控制台」**：入口移入 设置 → 通用，标题栏图标、面板文案与网页端标题统一更名。
+- 局域网访问**默认开启**：启动即监听 `http://<本机IP>:18700`，手机/平板浏览器直接可用。
 - 登录方式简化为 **9 位数字访问密码**（首次运行自动生成，面板内可查看/复制/一键更换），不再需要用户名密码。
 - 新增「公网访问」开关（默认关闭）：打开后由内置 cloudflared 建立 Cloudflare 隧道，生成 `https://<随机名>.trycloudflare.com` 公网地址；TLS 由 Cloudflare 边缘终结，隧道仅转发到 127.0.0.1 的本地端口，并带自动重试与看门狗。
 - **支持绑定自己的域名**：填入 Cloudflare 隧道 Token 与公网地址后改用命名隧道，地址固定不变、重启也无需重新分享链接；面板内提供「打开 Cloudflare 隧道页面」按钮与 Token 粘贴，并给出配置步骤。
 - 网页版朗读改用**浏览器原生语音合成**（Web Speech API）：零安装、零下载，不占用桌面端语音模型。
 - 新增「**思考语言**」设置（设置 → 通用）：自动 / 中文 / 英文，只影响可见思考文本。默认「自动」按界面语言判断——中文界面注入中文思考指令，英文界面不注入。指令作为每轮用户消息的临时块注入，不改动系统提示词。
 - 登录失败按来源限速：公网来源 6 次失败锁定 10 分钟，局域网来源独立计数，防止爆破。
-- Renamed the LAN web console to **Remote Control**; the titlebar entry, panel copy and web page title follow.
+- **底部终端面板**：新增底部多标签终端，可选 PowerShell / bash / zsh 等本机 shell，支持新建、切换与关闭标签；已打开的终端在面板折叠与会话切换之间保持，不再每次重开。
+- **派生对话**：可从任一用户消息派生出新会话，侧栏以树状嵌套展示父子对话（带连接线与子会话计数，可收起展开），派生标题取自分叉点消息。
+- **设置页重做**：分为 通用 / 外观 / 模型 / 智能体 / 技能 / 指令 / 挂钩 / MCP / 插件 / 工具 / 关于；主界面左下角新增外观、模型、MCP、技能、插件、设置快捷入口。
+- **定制项编辑**：技能、智能体、指令与提示按空模板新建，支持改名、删除、启停与保存，未保存时给出提示；技能保存前校验 `name` / `description` 写法，不合规直接报错；指令文件支持删除与热重载静音；智能体与技能列表标记当前工作区并列出最近工作区。
+- **模型管理**：提供商与模型设置重做并内置平台图标，「挑选模型」弹窗支持点击整行勾选/取消，支持从提供商拉取模型列表与测速，思考等级新增 max 档。
+- **MCP 与插件管理**：MCP 服务器支持新增、编辑、删除与可用性测试（含 SSE）；插件页显示本地与最新版本，支持检查更新、并发升级（带进度）、启停开关与打开安装目录，并兼容 npm 12 的 URL 依赖与安装脚本策略。
+- **自定义外观**：新增自定义背景图（图片 / GIF / WebP / 视频）、遮罩透明度与模糊、输入框 / 卡片 / 设置页 / 工具卡片透明度、消息区宽度档位（默认 75%）；配色对齐 VS Code 2026 Dark/Light。
+- **四档权限模式**：输入框底部在 **Ask / Edits / Auto / Yolo** 间切换，取代旧的权限设置与工作区信任对话框；危险命令仍需确认，工具被拦截时给出可读提示。
+- **工作区分类与会话归档**：工作区支持自定义分类（新建 / 重命名 / 删除 / 移动到分类）；会话支持归档（含「超过 N 天」批量归档）与已归档列表（可搜索、可恢复）；会话列表支持多选与 Shift 范围选择，可批量删除。
+- **草稿模式**：新建会话进入草稿即后台预热 worker，首条消息不再等冷启动；草稿在切换会话或反复新建后保留，草稿上下文栏可切换工作区与分支。
+- **每轮文件改动汇总**：每轮对话结束展示本轮实际改动的文件与数量，更改面板拆分为独立更改页签与 diff 编辑器。
+- 问答（ask_user）改为对话内问答卡片：单选 / 多选 / 按钮与可选自定义输入，切换会话再回来保持答题进度。
+- 外观新增「会话详细显示」「消息预览」「消息预览图片」开关；工具输出预览截断可选行数。
+- 编辑器与预览跟随工作区外文件实时刷新，Monaco 增加当前行高亮与右键菜单。
+
+- Renamed the LAN web console to **Remote Control**, now living under Settings → General; the panel copy and web page title follow.
 - LAN access now defaults to **on** (`http://<pc-ip>:18700`), so a phone on the same network works out of the box.
 - Login is a single **9-digit access PIN** (auto-generated on first run, visible/copyable/rotatable in the panel) instead of username + password.
 - New **Public access** switch (off by default): the bundled cloudflared opens a Cloudflare tunnel on demand, publishing a `https://<random>.trycloudflare.com` URL (TLS terminated at Cloudflare's edge). The tunnel only ever forwards to a loopback port, with automatic retry and a watchdog.
@@ -22,6 +37,20 @@
 - Read-aloud in the web console uses the **browser's own speech synthesis** (Web Speech API) — nothing to install or download, and the desktop voice model is untouched.
 - New **Thinking language** setting (Settings → General): Auto / Chinese / English, affecting visible reasoning text only. "Auto" follows the UI language — a Chinese UI injects a Chinese reasoning instruction, an English UI injects nothing. The instruction is sent as a transient per-turn user-message block; the system prompt is untouched.
 - Failed logins are rate limited per client — 6 attempts then a 10-minute lock, counted separately for tunnel traffic.
+- **Bottom terminal panel**: a multi-tab terminal with PowerShell / bash / zsh and friends, supporting new / switch / close tabs; open terminals survive collapsing the panel and switching sessions instead of being recreated.
+- **Forked conversations**: fork a new session from any user message; the sidebar nests parent and child conversations as a tree (connector lines, child counts, collapse/expand), and the fork title comes from the branching message.
+- **Rebuilt settings**: General / Appearance / Models / Agents / Skills / Instructions / Hooks / MCP / Plugins / Tools / About, plus quick entries for appearance, models, MCP, skills, plugins and settings in the bottom-left corner.
+- **Editable customizations**: skills, agents, instructions and prompts start from a blank template, with rename, delete, enable/disable and save plus an unsaved-changes hint; skill saves validate the `name` / `description` format and report errors instead of writing garbage; instruction files can be deleted and hot-reloaded silently; agent and skill lists mark the current workspace and list recent workspaces.
+- **Model management**: provider and model settings rebuilt with built-in platform icons, a model picker that toggles by clicking the whole row, model fetching from the provider, latency/speed probes, and a new `max` thinking level.
+- **MCP and plugin management**: MCP servers can be added, edited, deleted and tested for availability (including SSE); the plugin page shows local vs latest version, supports update checks, concurrent upgrades with progress, enable/disable switches and opening the install directory, and works with npm 12's URL dependency and install-script policy.
+- **Custom appearance**: background image (picture / GIF / WebP / video), veil opacity and blur, input / card / settings / tool-card transparency and message-area width presets (75% default); colors follow VS Code 2026 Dark/Light.
+- **Four permission modes**: pick **Ask / Edits / Auto / Yolo** at the bottom of the composer, replacing the old permission settings and workspace trust dialog; dangerous commands still need confirmation and blocked tools explain themselves.
+- **Workspace groups and session archiving**: workspaces support custom groups (create / rename / delete / move), sessions can be archived (including "older than N days" in bulk) and reviewed in an archived list with search and restore, and the session list supports multi-select with Shift ranges for bulk delete.
+- **Draft mode**: a brand-new session pre-warms its worker while still a draft, so the first message no longer waits for a cold start; drafts survive session switches and repeated new-session clicks, and the draft context bar switches workspace and branch.
+- **Per-turn change summary**: every finished turn lists the files it actually changed, and the changes panel is split into its own tab with a diff editor.
+- The ask_user prompt is now a card inside the conversation (single / multi / button choices plus optional custom input) and keeps its progress across session switches.
+- New "session details", "message preview" and "preview images" switches in appearance; tool-output preview truncation takes a configurable line count.
+- Editors and the preview pane follow external file changes live, and Monaco gains current-line highlight and a context menu.
 
 ### 变更 Changes
 
@@ -30,11 +59,26 @@
 - 网页版移除录音/语音输入（麦克风按钮、PCM 采集、`/api/transcribe` 代理与桌面 ASR 调用），桌面端语音输入不受影响；朗读改为浏览器实现保留。
 - **回复中发送的内容改为「引导」语义**：不再排队等下一轮，而是立即注入当前这轮，Pi 会在下一个 LLM 调用前看到它并据此继续推理。
 - 移除 `selfsigned` 依赖（其 v5 在当前依赖树中无法生成证书）。
+- 移除「回答语言」设置，只保留「思考语言」。
+- 移除工作区「关闭」功能：菜单项、已关闭工作区区块与相关状态一并删除；工作区菜单去掉「打开文件夹」，改为「重新定位」与「重命名项目」。
+- 移除标题栏的远程控制、打开工作区与主题切换按钮，移除侧栏左下角文件列表与添加工作区按钮。
+- 底部终端面板不再默认打开。
+- 移除设置中的提示页与部分说明文案，精简关于面板（移除作者信息与更新入口）。
+- 文件图标改用字形映射，移除独立的文件类型图标组件。
+- 切换界面语言改为静默切换，不再显示加载页。
+
 - The LAN side now uses plain HTTP: no self-signed certificate is generated and phones see no certificate warning. The trade-off is unencrypted LAN traffic, so use it on a trusted network; the public URL is still HTTPS.
 - The tunnel process is now driven by the official `cloudflared` npm package (the app still obtains and executes the binary to verify it), replacing hand-written download/unpack code.
 - Removed voice recording from the web console (mic button, PCM capture, the `/api/transcribe` proxy and the desktop ASR call). Desktop voice input is unchanged; read-aloud is kept via the browser.
 - Messages sent **while Pi is replying** are now delivered as guidance into the running turn instead of waiting for the next one.
 - Dropped the `selfsigned` dependency (its v5 build cannot issue certificates in this dependency tree).
+- Removed the "response language" setting; only "thinking language" remains.
+- Removed the workspace "close" feature (menu item, closed-workspace section and state); the workspace menu drops "open folder" in favor of "relocate" and "rename project".
+- Removed the titlebar remote-control, open-workspace and theme buttons, and the file list plus add-workspace button in the sidebar footer.
+- The bottom terminal panel no longer opens by default.
+- Removed the settings hint page and several explanatory blurbs, and trimmed the About panel (no author info or update entry).
+- File icons come from a glyph map instead of a dedicated file-type icon component.
+- Switching the UI language is now silent — no loading page.
 
 ### 修复 Fixes
 
@@ -49,7 +93,19 @@
 - 修复中英语言包里重复定义的文案键（构建告警，且重复项会静默覆盖原值），并加上自动化校验防止再犯。
 - 修复长「摘要/工作过程折叠块」**收起后原地留下一大片空白**（长摘要尾部折叠后渲染高度骤降，虚拟滚动把视口留在了 spacer 估算出的空白区，严重时整屏发白）：贴底挂载窗口现在按估算高度一直向上补到能盖住视口，行高变化（折叠/展开）后立即把视口所在的 spacer 区域补挂成真实行；收起后**滑到消息区最顶部不再被 spacer 空白顶住**（窗口裁剪只在被裁的行完全离开视口时才执行，且每次窗口变化后都继续补挂到视口被真实内容盖住）。
 - 修复虚拟滚动**上滑读历史时被自动拉回底部**：窗口变更后的位置补偿原本用「总高度差」，会把窗口内其它行的内容增长（流式输出、异步 Markdown）和 spacer 高度估算误差一起算进来，于是每展开一段历史、每来一段输出，视口就往下漂一段。现在按视口内首/尾锚点行的真实位移补偿，实测零漂移；同时上滑意图覆盖滚轮、键盘、触摸和拖动滚动条，会话切换的自动贴底在用户上滑时整体取消。
-- Fixed virtual scrolling **yanking the viewport back to the bottom while reading history**: window mutations were compensated from the total scrollHeight delta, which folds in unrelated height changes inside the window (streaming output, async markdown) plus spacer estimate errors — so every expansion and every streamed chunk pushed the viewport further down. Compensation now follows the first/last visible row's real displacement (measured zero drift); the scroll-up intent now covers wheel, keyboard, touch and scrollbar drags, and a session's auto bottom-snap is cancelled when the user scrolls up.
+- 修复派生对话：父子关系与分叉内容取错，且对话进行中无法派生；现在可从任一用户消息派生，派生标题取自分叉点消息，还原检查点改为回退到本轮结束。
+- 修复思考程度切换后会自动改回 high；修复会话 running 卡死导致检查点 / 派生按钮消失（重载时用主进程状态校准）。
+- 修复「等待模型响应…」状态下停止按钮无法点击，以及模型思考/输出过长时会话卡顿、界面无法交互。
+- 修复历史消息耗时显示 0.0s 与 token/s 异常：改用落盘时间为账号计算轮次时长，重启后耗时与 token 统计不再丢失。
+- 修复文件更改数据显示不准确：改为展示本轮实际更改数而非累计值。
+- 修复输入框选中文本后粘贴无法替换选区，以及隐藏 API Key 时无法输入。
+- 修复 Monaco 主题未生效导致编辑器回退白色、编辑器背景未应用主题。
+- 修复设置页打开文件显示为空，以及智能体设置页列表被撑出窗口后整页空白。
+- 修复问答卡片普通选项被强制填写自定义内容、切换会话再回来进度重置为第 1 题，以及待办「继续任务」点击后不生效。
+- 修复插件检查更新状态在切换页面或退出设置后丢失，以及升级后整页刷新、列表加载报错。
+- 修复代理未生效：Node 侧 fetch 与下载请求统一走代理，代理变更后回收 worker。
+- 修复禁用提供商无效；修复 Ctrl+Z 对 Ctrl+V 粘贴内容无效。
+
 - Fixed the **bash tool being unusable on Windows** (`execvpe(/bin/bash) failed: No such file or directory`): its shell fallback picked `bash.exe` from PATH, which is the WSL launcher. A real bash (Git Bash) is now preferred; otherwise the app switches to the built-in PowerShell tool and denies the broken `bash` tool.
 - Fixed the model picker being locked in a **brand-new session that had sent nothing**: it trusted a session-summary status field that can lag; it now follows the live streaming state only.
 - Fixed a message sent during a reply appearing to vanish from the UI: it now shows as a pending card until the agent takes it.
@@ -60,19 +116,45 @@
 - Fixed the watchdog declaring cloudflared "not running" while it was still downloading, which aborted the download and left a broken binary; retry backoff no longer collapses into a fixed 5-second loop.
 - Fixed duplicated message keys in the locale files (a build warning whose duplicate silently overrode the original) and added automated checks so it cannot come back.
 - Fixed a long work-section summary leaving **a large blank area after collapsing** (a folded long section drops most of its rendered height, and the virtual scroller left the viewport inside a spacer-sized gap — sometimes the whole view). The bottom-pinned window now mounts rows upward until it covers the viewport, and any row-height change (fold/unfold) immediately backfills the spacer region the viewport sits in. Scrolling to the **very top after collapsing no longer parks the viewport on a spacer**: the window only trims rows that are fully outside the viewport, and every window mutation keeps backfilling until real rows cover the view.
+- Fixed virtual scrolling **yanking the viewport back to the bottom while reading history**: window mutations were compensated from the total scrollHeight delta, which folds in unrelated height changes inside the window (streaming output, async markdown) plus spacer estimate errors — so every expansion and every streamed chunk pushed the viewport further down. Compensation now follows the first/last visible row's real displacement (measured zero drift); the scroll-up intent now covers wheel, keyboard, touch and scrollbar drags, and a session's auto bottom-snap is cancelled when the user scrolls up.
+- Fixed forked conversations: parent/child links and the forked content were resolved incorrectly and forking was blocked mid-turn; forking now works from any user message, the fork title comes from the branching message, and restoring a checkpoint rewinds to the end of that turn.
+- Fixed a thinking-level change silently snapping back to high, and sessions stuck in `running` making the checkpoint / fork buttons disappear (state is calibrated against the main process on reload).
+- Fixed the stop button being unclickable while "waiting for the model", and the UI freezing when the model reasons or streams an unusually long answer.
+- Fixed history showing `0.0s` duration and wrong tokens/sec: turn duration now derives from persisted timestamps, and duration/token stats survive restarts.
+- Fixed inaccurate file-change counts: the turn's actual changed files are shown instead of a running total.
+- Fixed paste not replacing the selected text in the composer, and the API key field refusing input while the key is hidden.
+- Fixed the Monaco editor falling back to a white background because the theme was not applied.
+- Fixed the settings file viewer opening empty, and the agent settings page rendering blank after its list grew past the window.
+- Fixed ask_user forcing custom input for plain options, the card resetting to question 1 after a session switch, and the todo "continue task" button not driving the agent.
+- Fixed plugin update state being lost when leaving the settings page, and a whole-page refresh plus list-loading error after upgrading.
+- Fixed the proxy not taking effect: Node-side fetch and download requests now both honour it, and the worker is recycled when the proxy changes.
+- Fixed disabling a provider having no effect, and Ctrl+Z not undoing pasted content.
 
 ### 优化 / 体验 Improvements
 
 - 端口被占用、页面未构建等启动失败会在面板内说明原因，并在 20 秒后自动重试一次。
-- 面板新增公网地址状态（连接中/已就绪/失败原因与重试按钮），标题栏用颜色区分「仅局域网」与「已开公网」；短时间来回开关会保留同一地址。
+- 面板新增公网地址状态（连接中/已就绪/失败原因与重试按钮）；短时间来回开关会保留同一地址。
 - 隧道沿用 cloudflared 默认传输协议：实测强制 `--protocol http2` 会让临时地址持续不可达，因此不强制。
 - 隧道状态变化（上线/断开/报错及公网地址）写入日志便于排查。
 - 启动日志会打印本机实际使用的命令 shell，便于排查命令执行问题。
+- 新会话不再被 worker 冷启动阻塞：进入草稿即后台预热，模型解析走可用快照，扩展钩子提前预热。
+- 切换工作区不再卡顿：工作区根目录先切换，最近工作区列表改为后台刷新。
+- 设置页加载优化：快照磁盘缓存 + 启动预热。
+- 侧栏会话标签用颜色区分运行 / 等待回答 / 刚结束三态；展开收起按钮改为悬停时占位显示并带会话数；点击工作区文件夹不再自动打开第一个会话。
+- 更改列表文件名优先展示；压缩按钮文案改为「显示上下文压缩按钮」。
+- 壁纸模式下终端区、编辑器区域与运行面板输出区跟随面板色透明，下拉浮层模糊改由伪元素承担。
+
 - Startup failures (busy port, missing build) now explain themselves in the panel and retry once after 20 seconds.
-- The panel shows the public URL state (connecting / ready / error with retry); the titlebar dot distinguishes LAN-only from public, and toggling off/on quickly keeps the same address.
+- The panel shows the public URL state (connecting / ready / error with retry), and toggling off/on quickly keeps the same address.
 - Tunnel traffic uses cloudflared's default transport: forcing `--protocol http2` was measured to make the temporary address unreachable, so it is not forced.
 - Tunnel transitions (up / down / error, with the public URL) are logged for diagnosis.
 - The startup log prints which command shell was chosen, making shell problems diagnosable.
+- New sessions are no longer blocked by a cold worker: the draft pre-warms in the background, model resolution uses an available snapshot, and extension hooks pre-warm early.
+- Switching workspaces no longer stutters: the workspace root switches first and the recent-workspace list refreshes in the background.
+- The settings page loads faster thanks to a cached snapshot plus startup pre-warming.
+- Sidebar session chips are colour-coded for running / waiting-for-answer / just-finished; the expand-collapse button only takes space on hover and shows the session count; clicking a workspace folder no longer auto-opens its first session.
+- The changes list leads with the file name, and the compact button is labelled "show context compact button".
+- With a wallpaper the terminal, editor and running-panel output follow the panel colour and go transparent, and dropdown blur moved onto a pseudo-element.
 
 ## v0.3.3 (2026-09-07)
 
