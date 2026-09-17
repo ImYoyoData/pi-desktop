@@ -37,6 +37,7 @@ import { useChatStore } from "@renderer/stores/chat";
 import { useSendQueueStore } from "@renderer/stores/send-queue";
 import { useWorkspaceStore } from "@renderer/stores/workspace";
 import { useLayoutStore } from "@renderer/stores/layout";
+import { useAppearanceStore } from "@renderer/stores/appearance";
 import { isUnstartedSession } from "@renderer/utils/session-started";
 import { buildSessionTree, type SessionTreeItem } from "@renderer/utils/session-tree";
 import { t } from "@renderer/i18n";
@@ -62,6 +63,7 @@ const chatStore = useChatStore();
 const sendQueueStore = useSendQueueStore();
 const workspace = useWorkspaceStore();
 const layout = useLayoutStore();
+const appearance = useAppearanceStore();
 const dialog = useDialog();
 const message = useMessage();
 
@@ -1104,7 +1106,10 @@ function isRunning(status: SessionStatus): boolean {
           <ul
             v-show="expanded[root]"
             class="session-list"
-            :class="{ open: expanded[root] }"
+            :class="{
+              open: expanded[root],
+              'hover-actions': appearance.showSessionHoverActions,
+            }"
             :ref="(el) => setSessionListRef(root, el)"
           >
             <li v-if="!sessionsFor(root).length" class="empty-inline">{{ t.emptySessions }}</li>
@@ -1859,12 +1864,14 @@ function isRunning(status: SessionStatus): boolean {
   color: var(--fg-faint);
 }
 
-/* 不占布局高度：固定在列表可视底部，悬停才浮现 */
-/* 悬停才占位展开：非悬停时零行高，悬停时撑开并把下方内容下推 */
 .session-expand-row {
   list-style: none;
   margin: 0;
   padding: 0;
+}
+
+/* 悬停占位：默认零行高，悬停时才撑开把下方内容下推 */
+.session-list.hover-actions .session-expand-row {
   height: 0;
   min-height: 0;
   overflow: hidden;
@@ -1873,8 +1880,8 @@ function isRunning(status: SessionStatus): boolean {
   transition: opacity var(--duration-fast, 140ms) var(--ease-out, ease);
 }
 
-.session-list:hover .session-expand-row,
-.session-list:focus-within .session-expand-row {
+.session-list.hover-actions:hover .session-expand-row,
+.session-list.hover-actions:focus-within .session-expand-row {
   height: auto;
   opacity: 1;
   pointer-events: auto;
