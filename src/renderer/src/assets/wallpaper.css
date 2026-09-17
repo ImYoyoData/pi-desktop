@@ -90,9 +90,7 @@ html[data-theme][data-wallpaper="on"] .modal-editor-panel {
   --n-color: var(--w-settings-surface) !important;
 }
 
-/* naive-ui 浮层（右键菜单、下拉、气泡、消息、对话框）跟随抬升表面，并模糊其下的壁纸 */
-html[data-theme][data-wallpaper="on"] .n-popover,
-html[data-theme][data-wallpaper="on"] .n-dropdown-menu,
+/* naive-ui 浮层（选择菜单、对话框、消息、通知）跟随抬升表面，并模糊其下的壁纸 */
 html[data-theme][data-wallpaper="on"] .n-base-select-menu,
 html[data-theme][data-wallpaper="on"] .n-dialog,
 html[data-theme][data-wallpaper="on"] .n-message,
@@ -102,13 +100,33 @@ html[data-theme][data-wallpaper="on"] .n-notification {
   backdrop-filter: blur(14px) saturate(1.15);
 }
 
-/* 子菜单嵌在父菜单的 backdrop-filter 内，模糊不会生效，需自带底色保底 */
+/* 浮层玻璃的模糊改由 ::before 承担：元素自身带 backdrop-filter 会形成 backdrop root，
+   root 内的后代（下拉子菜单）就无法再模糊其下的背景，只能靠实色保底而发黑。 */
+html[data-theme][data-wallpaper="on"] .n-popover,
+html[data-theme][data-wallpaper="on"] .n-dropdown-menu {
+  background-color: var(--w-elevated-surface) !important;
+  --n-color: var(--w-elevated-surface) !important;
+}
+
+html[data-theme][data-wallpaper="on"] .n-popover::before,
+html[data-theme][data-wallpaper="on"] .n-dropdown-menu::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  backdrop-filter: blur(14px) saturate(1.15);
+  pointer-events: none;
+}
+
+/* 子菜单与父菜单同底，并自带模糊（父菜单已改由伪元素模糊，不再形成 backdrop root） */
 html[data-theme][data-wallpaper="on"] .n-dropdown-menu-wrapper > .n-dropdown-menu {
-  background-color: color-mix(
-    in srgb,
-    var(--w-solid-elevated) max(60%, var(--pi-alpha-card, 0%)),
-    transparent
-  ) !important;
+  background-color: var(--w-elevated-surface) !important;
+  backdrop-filter: blur(14px) saturate(1.15);
+}
+
+/* 子菜单自身就是玻璃层，不再叠伪元素模糊 */
+html[data-theme][data-wallpaper="on"] .n-dropdown-menu-wrapper > .n-dropdown-menu::before {
+  content: none;
 }
 
 html[data-theme][data-wallpaper="on"] .preview-context-menu,
