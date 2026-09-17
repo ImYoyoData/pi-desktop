@@ -129,16 +129,18 @@ function confirmPick(): void {
 
     <div class="pick-list">
       <p v-if="!displayRows.length" class="pick-empty">{{ t.modelsCustomPickEmpty }}</p>
-      <label
+      <div
         v-for="row in displayRows"
         :key="row.id"
         class="pick-row"
         :class="{ existing: row.existing }"
+        @click="toggle(row.id)"
       >
         <NCheckbox
           class="pick-check"
           :checked="selected.has(row.id)"
           :disabled="row.existing"
+          @click.stop
           @update:checked="toggle(row.id)"
         />
         <span class="pick-main">
@@ -152,7 +154,7 @@ function confirmPick(): void {
         <span v-if="row.existing" class="pick-badge">
           {{ t.modelsCustomPickExisting }}
         </span>
-      </label>
+      </div>
     </div>
 
     <template #footer>
