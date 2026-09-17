@@ -13,6 +13,7 @@ import { useSessionsStore } from "@renderer/stores/sessions";
 import { useWorkspaceStore } from "@renderer/stores/workspace";
 import { useSessionWidgetsStore } from "@renderer/stores/session-widgets";
 import { hasAnyFileChange } from "@renderer/utils/session-file-changes";
+import { heuristicSessionTitle } from "@renderer/utils/session-title";
 
 /**
  * Heaviest chat chrome — load lazily so first paint / session switch stays
@@ -124,6 +125,12 @@ const title = computed(() => {
   if (row?.firstMessage?.trim() && row.firstMessage !== "(no messages)") {
     const text = row.firstMessage.trim();
     return text.length > 56 ? `${text.slice(0, 53)}…` : text;
+  }
+  // 会话行不在当前工作区列表里（侧栏折叠/切换后保留旧会话）时用首条消息兜底。
+  const firstUser = chat.activeMessages.find((m) => m.role === "user" && m.text.trim());
+  if (firstUser) {
+    const text = heuristicSessionTitle(firstUser.text, 56);
+    if (text) return text;
   }
   return t.newSession;
 });

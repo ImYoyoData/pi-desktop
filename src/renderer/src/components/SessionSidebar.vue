@@ -338,7 +338,12 @@ watch(
     } finally {
       expanded[root] = true;
     }
-    await ensureActiveSession(root);
+    const skipRoot = skipAutoSelectRoot;
+    skipAutoSelectRoot = null;
+    await ensureActiveSession(
+      root,
+      !(skipRoot && sameWorkspacePath(skipRoot, root)),
+    );
   },
 );
 
@@ -564,7 +569,10 @@ function sameWorkspacePath(a: string, b: string): boolean {
   return norm(a) === norm(b);
 }
 
-async function ensureActiveSession(root: string): Promise<void> {
+async function ensureActiveSession(
+  root: string,
+  autoOpenFirst = true,
+): Promise<void> {
   // 草稿态没有真实会话：同一工作区保留，切到别的目录则放弃。
   if (sessionsStore.draftRoot) {
     if (sameWorkspacePath(sessionsStore.draftRoot, root)) return;
@@ -576,9 +584,12 @@ async function ensureActiveSession(root: string): Promise<void> {
     await onSelectSession(root, sessionsStore.activeId);
     return;
   }
+  if (!autoOpenFirst) return;
   const first = sessionsFor(root)[0];
   if (first) await onSelectSession(root, first.id);
 }
+
+let skipAutoSelectRoot: string | null = null;
 
 function workspaceName(path: string): string {
   const parts = path.replace(/\\/g, "/").split("/");
@@ -590,6 +601,7 @@ async function onWorkspaceClick(path: string): Promise<void> {
   if (workspace.root !== path) {
     // Leaving the current workspace also abandons an unstarted 新会话 there.
     await discardActiveUnstartedForRoot(workspace.root);
+    skipAutoSelectRoot = path;
     const next = await workspace.openWorkspacePath(path);
     // 切换成功后由 root watcher 统一加载并展开，避免重复加载造成列表二次渲染；
     // 未切换（如拒绝信任）时仍允许展开查看列表
