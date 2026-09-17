@@ -910,11 +910,6 @@ export const en = {
 	lanTunnelModeQuick: "Temporary",
 	aboutTitle: "About",
 	aboutVersion: "Version",
-	aboutAuthor: "Author",
-	aboutQq: "QQ",
-	aboutEmail: "Email",
-	aboutOpenGithub: "Open project page",
-	aboutOpenReleases: "View Releases",
 	piCliMissingTitle: "Pi CLI not found",
 	piCliMissingBody: (platform: string) =>
 		`No working \`pi\` command was found on ${platform}. The desktop app can still run, but terminal extensions and \`pi install\` need the CLI. Install it using the official guide on pi.dev.`,
