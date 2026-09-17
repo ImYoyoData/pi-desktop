@@ -587,6 +587,7 @@ export const en = {
 	appearance: "General",
 	showCompactButton: "Show compact-context button",
 	showPanelDividers: "Interface dividers",
+	showSessionTitle: "Session title",
 	showSessionDetails: "Session details",
 	sessionHoverActions: "Session expand/collapse button on hover",
 	messagePreview: "Message preview",

@@ -8,6 +8,7 @@ import PermissionStrip from "@renderer/components/PermissionStrip.vue";
 import ExtensionUiStrip from "@renderer/components/ExtensionUiStrip.vue";
 import SessionTodoPanel from "@renderer/components/SessionTodoPanel.vue";
 import SessionChangedFiles from "@renderer/components/SessionChangedFiles.vue";
+import { useAppearanceStore } from "@renderer/stores/appearance";
 import { useChatStore } from "@renderer/stores/chat";
 import { useSessionsStore } from "@renderer/stores/sessions";
 import { useWorkspaceStore } from "@renderer/stores/workspace";
@@ -32,6 +33,7 @@ import {
 import { t } from "@renderer/i18n";
 
 const chat = useChatStore();
+const appearance = useAppearanceStore();
 const sessions = useSessionsStore();
 const workspace = useWorkspaceStore();
 const widgets = useSessionWidgetsStore();
@@ -171,7 +173,9 @@ async function onNewAgent(): Promise<void> {
 
     <template v-else>
       <header class="head">
-        <NText strong style="flex: 1; min-width: 0" class="title">{{ title }}</NText>
+        <NText v-if="appearance.showSessionTitle" strong style="flex: 1; min-width: 0" class="title">
+          {{ title }}
+        </NText>
         <NTag v-if="chat.activeRetryHint" type="warning" size="small" round :bordered="false">
           {{
             t.retrying(
@@ -241,6 +245,7 @@ async function onNewAgent(): Promise<void> {
 .head {
   display: flex;
   align-items: center;
+  justify-content: flex-end;
   gap: 8px;
   height: 36px;
   padding: 0 var(--chat-pad-x, 10px);

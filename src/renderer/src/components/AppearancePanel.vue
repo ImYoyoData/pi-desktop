@@ -95,6 +95,11 @@ const showSessionDetails = computed({
   set: (value: boolean) => appearance.setShowSessionDetails(value),
 });
 
+const showSessionTitle = computed({
+  get: () => appearance.showSessionTitle,
+  set: (value: boolean) => appearance.setShowSessionTitle(value),
+});
+
 const showSessionHoverActions = computed({
   get: () => appearance.showSessionHoverActions,
   set: (value: boolean) => appearance.setSessionHoverActions(value),
@@ -194,6 +199,20 @@ function onMessageWidthChange(value: string | number | null): void {
         </div>
         <NRadioGroup
           v-model:value="showPanelDividers"
+          size="small"
+          class="setting-radio-group"
+        >
+          <NRadioButton :value="true">{{ t.showCompactButtonOn }}</NRadioButton>
+          <NRadioButton :value="false">{{ t.showCompactButtonOff }}</NRadioButton>
+        </NRadioGroup>
+      </div>
+
+      <div class="switch-row">
+        <div class="switch-labels">
+          <NText strong>{{ t.showSessionTitle }}</NText>
+        </div>
+        <NRadioGroup
+          v-model:value="showSessionTitle"
           size="small"
           class="setting-radio-group"
         >
