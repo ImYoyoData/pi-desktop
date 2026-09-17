@@ -1,19 +1,25 @@
-import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
-import { readFileSync, writeFileSync } from "node:fs";
 import type { ImageContent } from "@earendil-works/pi-ai/compat";
+import { readFileSync, writeFileSync } from "node:fs";
+import {
+	routedThinkingLevel,
+	type ThinkingLevel,
+} from "../shared/thinking-level";
 import {
 	createAgentSessionFromServices,
 	createAgentSessionServices,
 	createBashToolDefinition,
+	createPowerShellToolDefinition,
 	defineTool,
 	getAgentDir,
 	SessionManager,
 	SettingsManager,
 	type AgentSession,
+	type BuildSystemPromptOptions,
 	type ExtensionError,
 } from "@earendil-works/pi-coding-agent";
 import type { AgentCommand, ElementCitation } from "../shared/protocol";
 import { toPromptImages } from "../shared/protocol";
+import { messageContentText, turnTextMatches } from "../shared/turn-match";
 import {
 	formatNoVisionModelError,
 	isImageSchemaPromptError,
@@ -52,6 +58,11 @@ import { createAskUserToolDefinition } from "./ask-user-tool";
 import { createTodoWriteToolDefinition } from "./todo-tool";
 import { commandShouldStartBackground } from "../shared/bash-background";
 import { createTrackedBashOperations } from "./bash-run-tracker";
+import {
+	commandShellPrompt,
+	describeCommandShell,
+	detectCommandShell,
+} from "./command-shell";
 import { createBrowserToolDefinitions } from "./browser-tools";
 import {
 	readContextUsage,
@@ -63,7 +74,10 @@ import {
 	sessionTimingPath,
 } from "../shared/session-timing";
 import { pruneOldToolResults } from "./tool-result-prune";
-import { createDesktopExtensionUIContext } from "./extension-ui-context";
+import {
+	createDesktopExtensionUIContext,
+	setExtensionInfoNotificationsMuted,
+} from "./extension-ui-context";
 import { handleRpcResponse, rpcToMain, setRpcWorkspaceRoot } from "./main-rpc";
 import { createPermissionGate } from "./permission-gate";
 import {
@@ -186,22 +200,99 @@ function messageContentHasImage(content: unknown): boolean {
 }
 
 /**
- * Navigate the session tree to abandon a user turn (leaf → parent of that entry).
- * `userIndex` is 0-based among user messages on the current fork list.
+ * 当前分支（root → leaf）上的 user 轮次 entry id。
+ * 排除早期重新编辑留下的废弃分支，使渲染端统计的轮次下标与这里一致。
+ */
+function branchUserEntryIds(active: AgentSession): string[] {
+	return active.sessionManager
+		.getBranch()
+		.filter((entry) => entry.type === "message" && entry.message.role === "user")
+		.map((entry) => entry.id);
+}
+
+/** 分支上某个 user entry 的提示词文本。 */
+function userEntryText(active: AgentSession, entryId: string): string {
+	const entry = active.sessionManager.getEntry(entryId);
+	if (!entry || entry.type !== "message") return "";
+	return messageContentText((entry.message as { content?: unknown }).content);
+}
+
+/**
+ * 放弃某一轮 user 对话（leaf 移到该 entry 的父节点）。
+ * `userIndex` 为当前分支上 user 消息的 0 基下标；`expectText` 用于确认该下标
+ * 仍指向界面上的那一轮，避免界面与分支不同步时回退到别的轮次。
  */
 async function rollbackUserTurn(
 	active: AgentSession,
 	userIndex?: number,
+	expectText?: string,
 ): Promise<boolean> {
-	const users = active.getUserMessagesForForking();
-	if (!users.length) return false;
-	const idx = userIndex == null ? users.length - 1 : userIndex;
-	// Out of range means the UI bubble never landed in the agent tree (e.g. rejected
-	// before prompt) — do not clamp onto an older successful turn.
-	if (idx < 0 || idx >= users.length) return false;
-	const target = users[idx];
+	const entryIds = branchUserEntryIds(active);
+	if (!entryIds.length) return false;
+	const idx = userIndex == null ? entryIds.length - 1 : userIndex;
+	// 越界说明该气泡从未进入 Agent 会话树（例如 prompt 前就被拒绝），
+	// 此时不要顺延到更早的一轮。
+	if (idx < 0 || idx >= entryIds.length) return false;
+	const target = entryIds[idx];
 	if (!target) return false;
-	await active.navigateTree(target.entryId, { summarize: false });
+	if (expectText && !turnTextMatches(userEntryText(active, target), expectText)) {
+		return false;
+	}
+	await active.navigateTree(target, { summarize: false });
+	// leaf 位置只由文件末尾隐含表示：不落一条标记，重开会话时被放弃的轮次会重新成为 leaf。
+	try {
+		active.sessionManager.appendCustomEntry("desktop-turn-rollback", {
+			rolledBackEntryId: target,
+		});
+	} catch {
+		// 标记失败不影响回退本身
+	}
+	return true;
+}
+
+/**
+ * 回退到某一轮结束：保留该轮问答，丢弃其后所有轮次（leaf 移到本轮最后一条消息）。
+ * `userIndex` 为当前分支上 user 消息的 0 基下标；`expectText` 用于确认该下标
+ * 仍指向界面上的那一轮。
+ */
+async function rollbackTurnEnd(
+	active: AgentSession,
+	userIndex?: number,
+	expectText?: string,
+): Promise<boolean> {
+	const branch = active.sessionManager.getBranch();
+	const userIds = branch
+		.filter((entry) => entry.type === "message" && entry.message.role === "user")
+		.map((entry) => entry.id);
+	if (!userIds.length) return false;
+	const idx = userIndex == null ? userIds.length - 1 : userIndex;
+	if (idx < 0 || idx >= userIds.length) return false;
+	const target = userIds[idx];
+	if (!target) return false;
+	if (expectText && !turnTextMatches(userEntryText(active, target), expectText)) {
+		return false;
+	}
+	const nextUserId = userIds[idx + 1];
+	const nextIdx = nextUserId
+		? branch.findIndex((entry) => entry.id === nextUserId)
+		: -1;
+	const endIdx = nextIdx === -1 ? branch.length : nextIdx;
+	const startIdx = branch.findIndex((entry) => entry.id === target);
+	let leafId = target;
+	for (let i = startIdx + 1; i < endIdx; i += 1) {
+		const entry = branch[i];
+		if (entry?.type === "message") leafId = entry.id;
+	}
+	if (leafId === active.sessionManager.getLeafId()) return true;
+	await active.navigateTree(leafId, { summarize: false });
+	// leaf 位置只由文件末尾隐含表示：不落一条标记，重开会话时被丢弃的轮次会重新成为 leaf。
+	try {
+		active.sessionManager.appendCustomEntry("desktop-turn-rollback", {
+			rolledBackEntryId: leafId,
+		});
+	} catch {
+		// 标记失败不影响回退本身
+	}
 	return true;
 }
 
@@ -209,13 +300,12 @@ async function rollbackUserTurn(
 async function rollbackFirstImageUserTurn(
 	active: AgentSession,
 ): Promise<boolean> {
-	const users = active.getUserMessagesForForking();
-	for (const user of users) {
-		const entry = active.sessionManager.getEntry(user.entryId);
+	for (const entryId of branchUserEntryIds(active)) {
+		const entry = active.sessionManager.getEntry(entryId);
 		if (!entry || entry.type !== "message") continue;
 		const content = (entry.message as { content?: unknown }).content;
 		if (!messageContentHasImage(content)) continue;
-		await active.navigateTree(user.entryId, { summarize: false });
+		await active.navigateTree(entryId, { summarize: false });
 		return true;
 	}
 	return false;
@@ -289,6 +379,19 @@ function sanitizeAgentEvent(
 	return event;
 }
 
+/** 实时消息附上本轮实际生效的思考档，供消息底部标注（历史消息由 transcript 还原）。 */
+function withEffectiveThinkingLevel(
+	event: Record<string, unknown>,
+	active: AgentSession,
+): Record<string, unknown> {
+	if (event.type !== "message_end") return event;
+	const message = event.message;
+	if (!message || typeof message !== "object") return event;
+	const msg = message as Record<string, unknown>;
+	if (msg.role !== "assistant") return event;
+	return { ...event, message: { ...msg, thinkingLevel: active.thinkingLevel } };
+}
+
 const CONTEXT_USAGE_EVENT_TYPES = new Set([
 	"agent_end",
 	"agent_settled",
@@ -324,7 +427,6 @@ function formatCitationsBlock(citations: ElementCitation[]): string {
 async function initSession(
 	cwd: string,
 	filePath: string | undefined,
-	projectTrusted: boolean,
 	securitySnapshot?: DesktopSecuritySettings,
 ): Promise<void> {
 	if (initStarted) {
@@ -346,13 +448,18 @@ async function initSession(
 	if (initialSessionFile) {
 		restoreTimingFromDisk(initialSessionFile);
 	}
+	// 打开的工作区一律视为已信任（信任机制已移除）。
 	const settingsManager = SettingsManager.create(cwd, agentDir, {
-		projectTrusted: Boolean(projectTrusted),
+		projectTrusted: true,
 	});
 	const builtinBrowserSkillDir = resolveBuiltinBrowserSkillDir(
 		workerDirname(),
 		typeof process.resourcesPath === "string" ? process.resourcesPath : undefined,
 	);
+	// Which command shell this machine can actually run (see command-shell.ts).
+	const commandShell = detectCommandShell();
+	const commandShellPromptText = commandShellPrompt(commandShell);
+	console.info(`[pi-desktop] command shell: ${describeCommandShell(commandShell)}`);
 	const services = await createAgentSessionServices({
 		cwd,
 		agentDir,
@@ -364,12 +471,14 @@ async function initSession(
 				DESKTOP_TODO_PROMPT,
 				DESKTOP_BASH_BACKGROUND_PROMPT,
 				DESKTOP_COMPOSER_MODES_PROMPT,
+				...(commandShellPromptText ? [commandShellPromptText] : []),
 			],
 			...(builtinBrowserSkillDir
 				? { additionalSkillPaths: [builtinBrowserSkillDir] }
 				: {}),
 		},
 	});
+	forceDefaultThinkingLevels(services.modelRuntime);
 	let assertBashExecAllowed: ((command: string) => void) | null = null;
 	let takeBashBackgroundFlag: ((command: string) => boolean) | null = null;
 	runTracker = createTrackedBashOperations(undefined, {
@@ -388,12 +497,33 @@ async function initSession(
 		await createAgentSessionFromServices({
 			services,
 			sessionManager,
+			// With no usable bash, the SDK's `bash` tool would otherwise be active and
+			// every call would fail with "execvpe(/bin/bash) failed". Deny it and let
+			// the PowerShell tool take over — the tool registry activates every
+			// sibling of the tools that are active, so `powershell` comes on by
+			// itself while `ask_user` / `todo_write` stay active too. (An allowlist
+			// (`tools`) would drop those custom tools, hence the denylist only.)
+			...(commandShell.kind === "powershell" ? { excludeTools: ["bash"] } : {}),
 			customTools: [
-				defineTool(
-					createBashToolDefinition(cwd, {
-						operations: runTracker.operations,
-					}),
-				),
+				// Command tool. On Windows the SDK's own shell fallback picks
+				// `where bash.exe`, i.e. the WSL launcher, which fails with
+				// "execvpe(/bin/bash) failed" whenever no WSL distro is installed.
+				// Hand the bash tool a REAL bash when one exists; otherwise expose
+				// the SDK's PowerShell tool instead of a bash that cannot run.
+				commandShell.kind === "powershell"
+					? defineTool(
+							createPowerShellToolDefinition(cwd, {
+								operations: runTracker.operations,
+							}),
+						)
+					: defineTool(
+							createBashToolDefinition(cwd, {
+								operations: runTracker.operations,
+								...(commandShell.kind === "bash"
+									? { shellPath: commandShell.shellPath }
+									: {}),
+							}),
+						),
 				createAskUserToolDefinition(),
 				createTodoWriteToolDefinition(),
 				...createBrowserToolDefinitions(),
@@ -426,7 +556,6 @@ async function initSession(
 		takeBashBackgroundFlag: takeBg,
 	} = createPermissionGate({
 		getSettings: () => desktopSecurity,
-		getCwd: () => cwd,
 		sessionAllows,
 		askUser: async (req) => {
 			const raw = await rpcToMain(
@@ -435,6 +564,7 @@ async function initSession(
 					category: req.category,
 					toolName: req.toolName,
 					summary: req.summary,
+					danger: req.danger === true,
 				},
 				PERMISSION_ASK_TIMEOUT_MS,
 			);
@@ -457,7 +587,10 @@ async function initSession(
 		const raw = event as Record<string, unknown>;
 		timingTracker.observe(event);
 		try {
-			post({ kind: "event", event: sanitizeAgentEvent(raw) });
+			post({
+				kind: "event",
+				event: sanitizeAgentEvent(withEffectiveThinkingLevel(raw, created)),
+			});
 		} catch {
 			// Last-resort: always deliver a lightweight lifecycle signal so UI can leave "running".
 			const type = typeof raw.type === "string" ? raw.type : "unknown";
@@ -499,6 +632,26 @@ async function initSession(
 			// ignore
 		}
 	}, 0);
+	void warmExtensionHooks(created);
+}
+
+/**
+ * 后台触发一次 before_agent_start：部分扩展（如 context-mode）在此懒启动
+ * MCP 桥接/索引，提前跑可让首条消息不再白等数秒；空 prompt 不写用户事件。
+ */
+async function warmExtensionHooks(active: AgentSession): Promise<void> {
+	try {
+		const runner = active.extensionRunner;
+		if (!runner.hasHandlers("before_agent_start")) return;
+		await runner.emitBeforeAgentStart(
+			"",
+			undefined,
+			active.systemPrompt,
+			{} as BuildSystemPromptOptions,
+		);
+	} catch {
+		// 预热失败不影响正常会话
+	}
 }
 
 function requireSession(): AgentSession {
@@ -513,6 +666,7 @@ function requireSession(): AgentSession {
  * in-memory snapshot of auth.json from worker start. Re-read disk before refresh.
  */
 function reloadAuthStorageCache(active: AgentSession): void {
+	// SAFETY: SDK 未导出 ModelRuntime 的凭据类型，这里按内部结构读取 auth 缓存。
 	const runtime = active.modelRuntime as unknown as {
 		credentials?: { store?: { reload?: () => void } };
 	};
@@ -524,8 +678,69 @@ async function refreshSessionModel(active: AgentSession): Promise<void> {
 	if (!current) return;
 	const next = active.modelRuntime.getModel(current.provider, current.id);
 	if (next && next !== current) {
-		await active.setModel(next);
+		await setModelPreservingThinking(active, next);
 	}
+}
+
+/**
+ * Pi 切模型会把思考级别重置为默认值；这里保留切换前的实际等级（并套用界面路由），
+ * 避免“选 Medium、实际又被重置回默认值”。
+ */
+async function setModelPreservingThinking(
+	active: AgentSession,
+	model: SessionModel,
+): Promise<void> {
+	const level = routedThinkingLevel(active.thinkingLevel);
+	await active.setModel(model);
+	if (active.thinkingLevel !== level) active.setThinkingLevel(level);
+}
+
+type SessionModel = NonNullable<ReturnType<AgentSession["modelRuntime"]["getModel"]>>;
+
+/**
+ * 解析待设置模型：优先内存可用快照，未命中只查该 provider。
+ * 无参 getAvailable() 会刷新全部 provider 的授权（含网络校验），
+ * 新会话首条/切模型时要白等它几秒。
+ */
+async function resolveSelectableModel(
+	active: AgentSession,
+	provider: string,
+	modelId: string,
+): Promise<SessionModel | undefined> {
+	const matches = (m: SessionModel): boolean =>
+		m.provider === provider && m.id === modelId;
+	const cached = active.modelRuntime.getAvailableSnapshot().find(matches);
+	if (cached) return cached;
+	try {
+		return (await active.modelRuntime.getAvailable(provider)).find(matches);
+	} catch {
+		return undefined;
+	}
+}
+
+/** Pi 只在 thinkingLevelMap 显式映射时才提供 XHigh/Max；完全未配置时按支持处理。 */
+function withDefaultThinkingLevels(model: SessionModel): SessionModel {
+	if (!model.reasoning) return model;
+	// 用户（或目录）已配置映射就尊重，保留 Pi 的档位回退（如 xhigh 不支持→max）。
+	if (model.thinkingLevelMap !== undefined) return model;
+	return { ...model, thinkingLevelMap: { xhigh: "xhigh", max: "max" } };
+}
+
+/** 在 ModelRuntime 上补默认思考等级，不改写 models.json。 */
+function forceDefaultThinkingLevels(runtime: AgentSession["modelRuntime"]): void {
+	const getModel = runtime.getModel.bind(runtime);
+	const getModels = runtime.getModels.bind(runtime);
+	const getAvailable = runtime.getAvailable.bind(runtime);
+	const getAvailableSnapshot = runtime.getAvailableSnapshot.bind(runtime);
+	runtime.getModel = (providerId, modelId) => {
+		const model = getModel(providerId, modelId);
+		return model ? withDefaultThinkingLevels(model) : undefined;
+	};
+	runtime.getModels = (providerId) => getModels(providerId).map(withDefaultThinkingLevels);
+	runtime.getAvailable = async (providerId, options) =>
+		(await getAvailable(providerId, options)).map(withDefaultThinkingLevels);
+	runtime.getAvailableSnapshot = () =>
+		getAvailableSnapshot().map(withDefaultThinkingLevels);
 }
 
 function emitContextUsage(active: AgentSession): void {
@@ -533,6 +748,7 @@ function emitContextUsage(active: AgentSession): void {
 	if (!usage) return;
 	const timing = timingTracker.snapshot();
 	persistTimingToDisk(timing);
+	const model = active.model;
 	post({
 		kind: "event",
 		event: {
@@ -540,6 +756,8 @@ function emitContextUsage(active: AgentSession): void {
 			tokens: usage.tokens,
 			contextWindow: usage.contextWindow,
 			percent: usage.percent,
+			model: model ? { provider: model.provider, id: model.id } : null,
+			thinkingLevel: active.thinkingLevel,
 			toolCalls: usage.toolCalls,
 			messageCount: usage.messageCount,
 			turns: usage.turns,
@@ -566,6 +784,7 @@ function emitContextUsage(active: AgentSession): void {
 function pruneAgentToolResults(active: AgentSession): void {
 	try {
 		const result = pruneOldToolResults(
+			// SAFETY: 修剪函数只读取消息的公共字段，与 SDK 消息结构兼容。
 			active.messages as unknown as Parameters<typeof pruneOldToolResults>[0],
 		);
 		if (result.changed) {
@@ -595,6 +814,19 @@ export async function handleWorkerMessage(msg: WorkerInbound): Promise<void> {
 		}
 		return;
 	}
+	if (msg.kind === "reload_resources") {
+		// 重新加载设置与扩展（含 MCP），让配置变更在现有会话中生效。
+		try {
+			setExtensionInfoNotificationsMuted(true);
+			await session?.reload();
+		} catch (err) {
+			const message = err instanceof Error ? err.message : String(err);
+			console.error(`[pi-desktop] reload resources failed: ${message}`);
+		} finally {
+			setExtensionInfoNotificationsMuted(false);
+		}
+		return;
+	}
 	if (msg.kind === "reload_security") {
 		desktopSecurity = parseDesktopSecurity(msg.desktopSecurity);
 		return;
@@ -603,7 +835,6 @@ export async function handleWorkerMessage(msg: WorkerInbound): Promise<void> {
 		await initSession(
 			msg.cwd,
 			msg.filePath,
-			msg.projectTrusted,
 			msg.desktopSecurity,
 		);
 		return;
@@ -694,7 +925,17 @@ async function runCommand(id: string, command: AgentCommand): Promise<void> {
 		}
 		case "rollback_user": {
 			const active = requireSession();
-			const ok = await rollbackUserTurn(active, command.userIndex);
+			const ok = await rollbackUserTurn(active, command.userIndex, command.expectText);
+			post({ kind: "result", id, data: { ok } });
+			return;
+		}
+		case "rollback_turn_end": {
+			const active = requireSession();
+			// 运行中先停下当前轮：会话树正在追加，直接回退会与流式输出争用。
+			if (!active.isIdle) {
+				await active.abort();
+			}
+			const ok = await rollbackTurnEnd(active, command.userIndex, command.expectText);
 			post({ kind: "result", id, data: { ok } });
 			return;
 		}
@@ -712,9 +953,10 @@ async function runCommand(id: string, command: AgentCommand): Promise<void> {
 			return;
 		case "set_model": {
 			const active = requireSession();
-			const models = await active.modelRuntime.getAvailable();
-			const model = models.find(
-				(m) => m.provider === command.provider && m.id === command.modelId,
+			const model = await resolveSelectableModel(
+				active,
+				command.provider,
+				command.modelId,
 			);
 			if (!model) {
 				post({
@@ -724,15 +966,20 @@ async function runCommand(id: string, command: AgentCommand): Promise<void> {
 				});
 				return;
 			}
-			await active.setModel(model);
+			await setModelPreservingThinking(active, model);
 			emitContextUsage(active);
 			post({ kind: "result", id, data: { ok: true } });
 			return;
 		}
-		case "set_thinking_level":
-			requireSession().setThinkingLevel(command.level as ThinkingLevel);
-			post({ kind: "result", id, data: { ok: true } });
+		case "set_thinking_level": {
+			// 重新广播一次，界面上的模型/思考标注立即跟上选择器。
+			// 界面档位静默路由（Minimal→Low、Medium→High），返回值是实际生效等级。
+			const active = requireSession();
+			active.setThinkingLevel(routedThinkingLevel(command.level as ThinkingLevel));
+			emitContextUsage(active);
+			post({ kind: "result", id, data: { ok: true, level: active.thinkingLevel } });
 			return;
+		}
 		case "compact": {
 			const active = requireSession();
 			// Light prune first so the summarizer sees less tool noise / fewer tokens.

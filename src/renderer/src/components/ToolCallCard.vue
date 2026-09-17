@@ -261,10 +261,11 @@ const headline = computed(() => {
 
 const appearance = useAppearanceStore();
 
-/** Full stored text, or the 24-line cut when Settings → General opts into it. */
+/** 按用户设定的截断行数渲染工具输出；0 表示不截断。 */
 function renderBodyText(text: string | null | undefined): string | null {
   if (!text) return null;
-  return appearance.truncateToolOutput ? previewText(text) : text;
+  const maxLines = appearance.truncateToolOutputLines;
+  return maxLines > 0 ? previewText(text, maxLines) : text;
 }
 
 const body = computed(() => {
@@ -333,15 +334,18 @@ const expandable = computed(() => {
   return Boolean(body.value);
 });
 
-const canPreviewPath = computed(() => {
+/** 可预览的文件路径（read / edit / write / other 卡才有）。 */
+const previewPath = computed<string | null>(() => {
   const card = props.card;
-  return (
-    (card.kind === "read" ||
-      card.kind === "edit" ||
-      card.kind === "write" ||
-      card.kind === "other") &&
-    Boolean(card.path)
-  );
+  if (
+    card.kind === "read" ||
+    card.kind === "edit" ||
+    card.kind === "write" ||
+    card.kind === "other"
+  ) {
+    return card.path ?? null;
+  }
+  return null;
 });
 
 const todoItems = computed(() =>
@@ -372,8 +376,8 @@ const todoItems = computed(() =>
       <span class="head-text">
         <span class="action" :class="{ 'copilot-shimmer': Boolean(streaming) }">{{ actionLabel }}</span>
         <FileChip
-          v-if="canPreviewPath && card.path"
-          :path="card.path"
+          v-if="previewPath"
+          :path="previewPath"
           @open="emit('open', $event)"
         />
         <code v-else-if="card.kind === 'bash' && card.command" class="cmd-pill">{{
@@ -560,7 +564,7 @@ const todoItems = computed(() =>
   padding: 1px 3px;
   border: 1px solid var(--chat-line, var(--border));
   border-radius: 4px;
-  background: var(--md-inline-code-bg, var(--code-bg));
+  background: var(--w-tool-surface, var(--md-inline-code-bg, var(--code-bg)));
   font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
   font-size: var(--chat-font-xs, 11px);
   color: inherit;
@@ -644,7 +648,7 @@ const todoItems = computed(() =>
   font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
   border: 1px solid var(--chat-line, var(--border));
   border-radius: 6px;
-  background: var(--pre-bg, var(--code-bg));
+  background: var(--w-tool-surface, var(--pre-bg, var(--code-bg)));
   color: var(--fg, inherit);
 }
 
@@ -686,7 +690,7 @@ const todoItems = computed(() =>
   padding: 6px 8px;
   border: 1px solid var(--chat-line, var(--border));
   border-radius: 6px;
-  background: var(--pre-bg, var(--code-bg));
+  background: var(--w-tool-surface, var(--pre-bg, var(--code-bg)));
   display: flex;
   flex-direction: column;
   gap: 4px;

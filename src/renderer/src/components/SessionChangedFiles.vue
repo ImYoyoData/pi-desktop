@@ -1,60 +1,39 @@
 <script setup lang="ts">
-import { computed, onUnmounted, ref, watch } from "vue";
+import { computed, ref } from "vue";
 import { NIcon } from "naive-ui";
 import {
   ChevronDownOutline,
   ChevronForwardOutline,
-  CreateOutline,
-  DocumentTextOutline,
 } from "@vicons/ionicons5";
-import { useChatStore } from "@renderer/stores/chat";
+import { fileIcon } from "@renderer/utils/file-icon";
 import { usePreviewStore } from "@renderer/stores/preview";
 import { useRightTabsStore } from "@renderer/stores/right-tabs";
 import { useLayoutStore } from "@renderer/stores/layout";
-import { aggregateFileChanges, type SessionFileChange } from "@renderer/utils/session-file-changes";
+import { useSessionFileChanges } from "@renderer/utils/use-session-file-changes";
 import { t } from "@renderer/i18n";
 
 /**
- * Copilot chat-editing "working set" — cumulative changed files for the whole
- * active session, docked on the chat input stack above the composer.
+ * Copilot chat-editing "working set" — files the agent touched this session,
+ * docked on the chat input stack above the composer. Header shows "<N> files
+ * changed" + an aggregate +added/-removed pill (Copilot `.working-set-title`
+ * + `.working-set-line-counts`); expanding lists every path with its own
+ * +/- counts; clicking a row previews the file.
  *
- * Header shows "<N> files changed" + an aggregate +added/-removed pill
- * (Copilot `.working-set-title` + `.working-set-line-counts`). Expanding lists
- * every path with its own +/- counts; clicking a row previews the file.
+ * Row data (transcript aggregate merged with the real net per-file stats)
+ * comes from `useSessionFileChanges`, shared with the right-pane Changes
+ * dock view.
  */
 
-const chat = useChatStore();
 const previewStore = usePreviewStore();
 const rightTabs = useRightTabsStore();
 const layout = useLayoutStore();
 
-/**
- * Streaming ticks recreate the message array every update; re-aggregating per
- * tick re-parses the live tool row O(content) each frame. Recompute on a
- * ~120ms trailing throttle instead — committed rows stay memoized anyway.
- */
-const AGGREGATE_THROTTLE_MS = 120;
-const files = ref<SessionFileChange[]>([]);
+const { files } = useSessionFileChanges();
 
-function recompute(): void {
-  files.value = aggregateFileChanges(chat.activeMessages, chat.activeStreaming);
-}
-recompute();
-
-let aggregateTimer = 0;
-watch(
-  () => [chat.activeMessages, chat.activeStreaming] as const,
-  () => {
-    if (aggregateTimer) return;
-    aggregateTimer = window.setTimeout(() => {
-      aggregateTimer = 0;
-      recompute();
-    }, AGGREGATE_THROTTLE_MS);
-  },
+/** 行数据 + VS Code Seti 文件类型图标（与文件树、右侧 Changes 面板一致）。 */
+const rows = computed(() =>
+  files.value.map((f) => ({ ...f, icon: fileIcon(f.path) })),
 );
-onUnmounted(() => {
-  if (aggregateTimer) window.clearTimeout(aggregateTimer);
-});
 
 const collapsed = ref(true);
 
@@ -113,13 +92,6 @@ function openFile(p: string): void {
           :size="13"
           aria-hidden="true"
         />
-        <NIcon
-          v-if="!collapsed"
-          class="files-head-icon"
-          :component="CreateOutline"
-          :size="13"
-          aria-hidden="true"
-        />
         <span class="files-title">{{ title }}</span>
         <span
           v-if="totalAdditions || totalDeletions"
@@ -139,18 +111,17 @@ function openFile(p: string): void {
       <div v-show="!collapsed" class="files-dock-body">
         <ul class="files-list" role="list">
           <li
-            v-for="f in files"
+            v-for="f in rows"
             :key="f.path"
             class="files-item"
             role="listitem"
             @click="openFile(f.path)"
           >
-            <NIcon
+            <span
               class="file-glyph"
-              :component="DocumentTextOutline"
-              :size="14"
+              :style="f.icon.color ? { color: f.icon.color } : undefined"
               aria-hidden="true"
-            />
+            >{{ f.icon.glyph }}</span>
             <span class="file-path" :title="f.path">{{ basename(f.path) }}</span>
             <span class="files-item-counts">
               <span v-if="f.additions" class="lines-added">+{{ f.additions }}</span>
@@ -201,11 +172,6 @@ function openFile(p: string): void {
 }
 
 .chev {
-  flex-shrink: 0;
-  color: var(--chat-desc-fg, var(--fg-muted));
-}
-
-.files-head-icon {
   flex-shrink: 0;
   color: var(--chat-desc-fg, var(--fg-muted));
 }
@@ -279,9 +245,17 @@ function openFile(p: string): void {
   background: var(--chat-hover-bg, color-mix(in srgb, var(--fg) 5%, transparent));
 }
 
+/* VS Code Seti 主题图标 —— 主题字体声明的字号为 150% */
 .file-glyph {
   flex-shrink: 0;
+  width: 20px;
+  text-align: center;
+  font-family: "seti";
+  font-size: 150%;
+  line-height: 1;
   color: var(--chat-icon-fg, var(--fg-muted));
+  /* Seti 字形居中于行盒，文字视觉中心偏下约 2px，下移对齐 */
+  transform: translateY(2px);
 }
 
 .file-path {

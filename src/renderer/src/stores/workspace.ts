@@ -1,28 +1,37 @@
 import { defineStore } from "pinia";
-import { computed, ref, watch } from "vue";
+import { ref, watch } from "vue";
+import type { WorkspaceGroups } from "../../../shared/protocol";
 import { useRightTabsStore } from "@renderer/stores/right-tabs";
 
-export type TrustPromptChoice = "trust" | "dont_trust";
-
-function normalizeCwd(cwd: string): string {
-	return cwd.replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
+/**
+ * Blank roots resolve to the app's own directory further down the line and the
+ * sidebar renders `basename(root)`, so they surface as an extra nameless
+ * workspace. Never let one reach the UI.
+ */
+function sanitizeRoots(list: unknown): string[] {
+	return Array.isArray(list)
+		? list.filter(
+				(entry): entry is string =>
+					typeof entry === "string" && entry.trim().length > 0,
+			)
+		: [];
 }
 
 export const useWorkspaceStore = defineStore("workspace", () => {
 	const root = ref<string | null>(null);
 	const recent = ref<string[]>([]);
-	/** Workspaces the user closed (hidden from the main list, re-openable). */
-	const closed = ref<string[]>([]);
-	/** Absolute path awaiting Trust / Don't trust (must trust to open). */
-	const pendingTrustPrompt = ref<string | null>(null);
+	/** 绝对路径 → 用户自定义显示名。 */
+	const aliases = ref<Record<string, string>>({});
+	/** 自定义分类名（顺序即菜单顺序）；未归类的工作区归入内置“默认”。 */
+	const groups = ref<string[]>([]);
+	/** 绝对路径 → 分类名。 */
+	const groupOf = ref<Record<string, string>>({});
+	/** 已归档的会话 id（从侧栏隐藏，可恢复）。 */
+	const archivedSessions = ref<string[]>([]);
 	/**
-	 * True once trust is resolved for the current `root`.
-	 * Session hydrate / worker spawn should wait on this.
+	 * True once the current `root` is ready for session hydrate / worker spawn.
 	 */
 	const sessionsReady = ref(false);
-
-	const trustPromptWaiters = new Map<string, Promise<boolean>>();
-	let trustAnswerResolve: ((accepted: boolean) => void) | null = null;
 
 	/**
 	 * Watcher lifecycle is owned by main (workspace-ipc).
@@ -52,77 +61,22 @@ export const useWorkspaceStore = defineStore("workspace", () => {
 		{ deep: true },
 	);
 
-	/** Returns true only when the user trusts (or already trusted) the path. */
-	async function requestTrustToOpen(cwd: string): Promise<boolean> {
-		const key = normalizeCwd(cwd);
-		const inflight = trustPromptWaiters.get(key);
-		if (inflight) return inflight;
-
-		const state = await window.api.trust.get(cwd);
-		if (state.decision === true) {
-			pendingTrustPrompt.value = null;
-			return true;
-		}
-
-		const wait = new Promise<boolean>((resolve) => {
-			pendingTrustPrompt.value = cwd;
-			trustAnswerResolve = resolve;
-		}).finally(() => {
-			trustPromptWaiters.delete(key);
-		});
-		trustPromptWaiters.set(key, wait);
-		return wait;
-	}
-
-	async function answerTrustPrompt(choice: TrustPromptChoice): Promise<void> {
-		const cwd = pendingTrustPrompt.value;
-		if (!cwd) return;
-
-		if (choice === "trust") {
-			await window.api.trust.set(cwd, true);
-			pendingTrustPrompt.value = null;
-			const resolve = trustAnswerResolve;
-			trustAnswerResolve = null;
-			resolve?.(true);
-			return;
-		}
-
-		await window.api.trust.set(cwd, false);
-		pendingTrustPrompt.value = null;
-		const resolve = trustAnswerResolve;
-		trustAnswerResolve = null;
-		resolve?.(false);
-	}
-
 	async function commitWorkspace(next: string | null): Promise<string | null> {
 		sessionsReady.value = false;
 		root.value = next;
-		if (next) {
-			sessionsReady.value = true;
-		} else {
-			sessionsReady.value = true;
-		}
+		sessionsReady.value = true;
 		return root.value;
 	}
 
-	/** Close the active workspace (e.g. after untrust from settings). */
 	async function clearWorkspace(): Promise<null> {
 		await window.api.workspace.clear();
-		pendingTrustPrompt.value = null;
 		await commitWorkspace(null);
 		return null;
 	}
 
 	async function getWorkspace(): Promise<string | null> {
 		const next = await window.api.workspace.get();
-		if (!next) {
-			return commitWorkspace(null);
-		}
-		const accepted = await requestTrustToOpen(next);
-		if (!accepted) {
-			await window.api.workspace.clear();
-			return commitWorkspace(null);
-		}
+		if (!next) return commitWorkspace(null);
 		return commitWorkspace(next);
 	}
 
@@ -131,65 +85,45 @@ export const useWorkspaceStore = defineStore("workspace", () => {
 		const picked = await window.api.workspace.pick();
 		await listRecent();
 		if (!picked) return previous;
-		const accepted = await requestTrustToOpen(picked);
-		if (!accepted) return previous;
 		const next = await window.api.workspace.openPath(picked);
 		await listRecent();
 		return commitWorkspace(next);
 	}
 
-	async function openWorkspacePath(
-		workspaceRoot: string,
-	): Promise<string | null> {
-		const previous = root.value;
-		const accepted = await requestTrustToOpen(workspaceRoot);
-		if (!accepted) return previous;
+	async function openWorkspacePath(workspaceRoot: string): Promise<string | null> {
 		const next = await window.api.workspace.openPath(workspaceRoot);
-		await listRecent();
-		return commitWorkspace(next);
+		const committed = commitWorkspace(next);
+		// 最近工作区列表只喂侧栏，列表刷新不能拖住工作区切换。
+		void listRecentFast().catch(() => {});
+		return committed;
 	}
 
-		/**
-		 * Full recent list (Desktop + Pi-discovered). Prefer listRecentFast on boot.
-		 */
-		async function listRecent(): Promise<string[]> {
-			recent.value = await window.api.workspace.listRecent();
-			return recent.value;
-		}
+	/**
+	 * Full recent list (Desktop + Pi-discovered). Prefer listRecentFast on boot.
+	 */
+	async function listRecent(): Promise<string[]> {
+		recent.value = sanitizeRoots(await window.api.workspace.listRecent());
+		return recent.value;
+	}
 
-		/**
-		 * Instant Desktop-only list, then refresh with Pi discovery in the background.
-		 * Keeps startup / first paint snappy when ~/.pi/agent/sessions is large.
-		 */
-		async function listRecentFast(): Promise<string[]> {
-			recent.value = await window.api.workspace.listRecentDesktop();
-			void listRecent().catch(() => {
-				/* background merge best-effort */
-			});
-			return recent.value;
-		}
-
-	async function listClosed(): Promise<string[]> {
-		closed.value = await window.api.workspace.listClosed();
-		return closed.value;
+	/**
+	 * Instant Desktop-only list, then refresh with Pi discovery in the background.
+	 * Keeps startup / first paint snappy when ~/.pi/agent/sessions is large.
+	 */
+	async function listRecentFast(): Promise<string[]> {
+		recent.value = sanitizeRoots(await window.api.workspace.listRecentDesktop());
+		void listRecent().catch(() => {
+			/* background merge best-effort */
+		});
+		return recent.value;
 	}
 
 	async function applyWorkspaceSwitch(next: {
 		root: string | null;
 		recent: string[];
 	}): Promise<void> {
-		recent.value = next.recent;
-		if (next.root) {
-			const accepted = await requestTrustToOpen(next.root);
-			if (!accepted) {
-				await window.api.workspace.clear();
-				await commitWorkspace(null);
-				return;
-			}
-			await commitWorkspace(next.root);
-			return;
-		}
-		await commitWorkspace(null);
+		recent.value = sanitizeRoots(next.recent);
+		await commitWorkspace(next.root);
 	}
 
 	async function removeRecent(workspaceRoot: string): Promise<void> {
@@ -198,33 +132,16 @@ export const useWorkspaceStore = defineStore("workspace", () => {
 	}
 
 	/**
-	 * Remove workspace from Pi Desktop: drop config/trust + delete Pi sessions.
+	 * Remove workspace from Pi Desktop: drop config + delete Pi sessions.
 	 * Does not delete the project directory on disk.
 	 */
 	async function purgeWorkspace(workspaceRoot: string): Promise<void> {
 		const next = await window.api.workspace.purge(workspaceRoot);
 		await applyWorkspaceSwitch(next);
-		await listClosed();
-	}
-
-	/** Close a workspace: hide from the main list but keep it re-openable. */
-	async function closeWorkspace(workspaceRoot: string): Promise<void> {
-		await removeRecent(workspaceRoot);
-		await listClosed();
-	}
-
-	/** Re-open a closed workspace (moves it back to the main list). */
-	async function reopenWorkspace(
-		workspaceRoot: string,
-	): Promise<string | null> {
-		const next = await openWorkspacePath(workspaceRoot);
-		await listRecent();
-		await listClosed();
-		return next;
 	}
 
 	async function reorderRecent(order: string[]): Promise<string[]> {
-		recent.value = await window.api.workspace.reorderRecent(order);
+		recent.value = sanitizeRoots(await window.api.workspace.reorderRecent(order));
 		return recent.value;
 	}
 
@@ -232,28 +149,94 @@ export const useWorkspaceStore = defineStore("workspace", () => {
 		await window.api.workspace.revealInFolder(workspaceRoot);
 	}
 
-	const trustDialogOpen = computed(() => Boolean(pendingTrustPrompt.value));
+	async function refreshAliases(): Promise<void> {
+		aliases.value = await window.api.workspace.listAliases();
+	}
+
+	/** 重命名工作区显示名（磁盘目录不变）；name 为空即清除。 */
+	async function renameWorkspace(
+		workspaceRoot: string,
+		name: string | null,
+	): Promise<void> {
+		aliases.value = await window.api.workspace.setAlias(workspaceRoot, name);
+	}
+
+	/** 重新定位：选新目录接管该工作区，Pi 会话一起迁过去。取消时返回 null。 */
+	async function relocateWorkspace(
+		workspaceRoot: string,
+	): Promise<string | null> {
+		const picked = await window.api.workspace.pick();
+		if (!picked) return null;
+		const next = await window.api.workspace.relocate(workspaceRoot, picked);
+		aliases.value = next.aliases;
+		await applyWorkspaceSwitch(next);
+		return next.root;
+	}
+
+	function applyGroups(next: WorkspaceGroups): void {
+		groups.value = next.groups;
+		groupOf.value = next.groupOf;
+	}
+
+	async function refreshGroups(): Promise<void> {
+		applyGroups(await window.api.workspace.listGroups());
+	}
+
+	async function addGroup(name: string): Promise<void> {
+		applyGroups(await window.api.workspace.addGroup(name));
+	}
+
+	async function renameGroup(from: string, to: string): Promise<void> {
+		applyGroups(await window.api.workspace.renameGroup(from, to));
+	}
+
+	async function removeGroup(name: string): Promise<void> {
+		applyGroups(await window.api.workspace.removeGroup(name));
+	}
+
+	/** 把工作区归入分类；group 为空即回到内置“默认”。 */
+	async function setGroupOf(
+		workspaceRoot: string,
+		group: string | null,
+	): Promise<void> {
+		applyGroups(await window.api.workspace.setGroupOf(workspaceRoot, group));
+	}
+
+	async function refreshArchivedSessions(): Promise<void> {
+		archivedSessions.value = await window.api.workspace.listArchivedSessions();
+	}
+
+	async function setArchivedSessions(ids: string[]): Promise<void> {
+		archivedSessions.value = await window.api.workspace.setArchivedSessions(ids);
+	}
 
 	return {
 		root,
 		recent,
-		closed,
-		pendingTrustPrompt,
+		aliases,
+		groups,
+		groupOf,
+		archivedSessions,
 		sessionsReady,
-		trustDialogOpen,
 		getWorkspace,
 		openWorkspace,
 		openWorkspacePath,
 		clearWorkspace,
 		listRecent,
 		listRecentFast,
-		listClosed,
 		removeRecent,
 		purgeWorkspace,
-		closeWorkspace,
-		reopenWorkspace,
 		reorderRecent,
 		revealInFolder,
-		answerTrustPrompt,
+		refreshAliases,
+		renameWorkspace,
+		relocateWorkspace,
+		refreshGroups,
+		addGroup,
+		renameGroup,
+		removeGroup,
+		setGroupOf,
+		refreshArchivedSessions,
+		setArchivedSessions,
 	};
 });

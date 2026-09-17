@@ -1,0 +1,186 @@
+/*
+ * highlight.js tokens mapped to the VS Code "2026 Dark"/"2026 Light" themes.
+ * Values come from extensions/theme-defaults/themes/2026-dark.json and
+ * 2026-light.json tokenColors (unlisted scopes inherit Dark+/Light+).
+ */
+:root {
+  --hl-fg: #202020;
+  --hl-comment: #6e7781;
+  --hl-keyword: #cf222e;
+  --hl-literal: #0550ae;
+  --hl-number: #0550ae;
+  --hl-string: #0a3069;
+  --hl-regexp: #0a3069;
+  --hl-builtin: #0550ae;
+  --hl-class: #0550ae;
+  --hl-function: #8250df;
+  --hl-variable: #953800;
+  --hl-parameter: #1f2328;
+  --hl-selector: #116329;
+  --hl-tag: #116329;
+  --hl-attr: #1f2328;
+  --hl-property: #0550ae;
+  --hl-bullet: #953800;
+  --hl-symbol: #0550ae;
+  --hl-meta: #0550ae;
+  --hl-section: #0550ae;
+  --hl-link: #0069cc;
+  --hl-ins: #116329;
+  --hl-del: #82071e;
+  --hl-operator: #1f2328;
+  --hl-escape: #116329;
+}
+
+html[data-theme="dark"] {
+  --hl-fg: #f5f6f7;
+  --hl-comment: #8b949e;
+  --hl-keyword: #ff7b72;
+  --hl-literal: #79c0ff;
+  --hl-number: #79c0ff;
+  --hl-string: #a5d6ff;
+  --hl-regexp: #a5d6ff;
+  --hl-builtin: #79c0ff;
+  --hl-class: #79c0ff;
+  --hl-function: #d2a8ff;
+  --hl-variable: #ffa657;
+  --hl-parameter: #c9d1d9;
+  --hl-selector: #7ee787;
+  --hl-tag: #7ee787;
+  --hl-attr: #c9d1d9;
+  --hl-property: #79c0ff;
+  --hl-bullet: #ffa657;
+  --hl-symbol: #79c0ff;
+  --hl-meta: #79c0ff;
+  --hl-section: #79c0ff;
+  --hl-link: #48a0c7;
+  --hl-ins: #7ee787;
+  --hl-del: #ffa198;
+  --hl-operator: #d4d4d4;
+  --hl-escape: #7ee787;
+}
+
+.hljs {
+  color: var(--hl-fg);
+}
+
+.hljs-comment,
+.hljs-quote,
+.hljs-doctag {
+  color: var(--hl-comment);
+  font-style: italic;
+}
+
+.hljs-keyword,
+.hljs-selector-tag,
+.hljs-template-tag {
+  color: var(--hl-keyword);
+}
+
+.hljs-literal,
+.hljs-name {
+  color: var(--hl-literal);
+}
+
+.hljs-number,
+.hljs-symbol {
+  color: var(--hl-number);
+}
+
+.hljs-string,
+.hljs-code,
+.hljs-formula {
+  color: var(--hl-string);
+}
+
+.hljs-regexp {
+  color: var(--hl-regexp);
+}
+
+.hljs-built_in,
+.hljs-type,
+.hljs-title.class_ {
+  color: var(--hl-builtin);
+}
+
+.hljs-title,
+.hljs-title.function_ {
+  color: var(--hl-function);
+}
+
+.hljs-variable,
+.hljs-template-variable {
+  color: var(--hl-variable);
+}
+
+.hljs-params {
+  color: var(--hl-parameter);
+}
+
+.hljs-property,
+.hljs-attribute {
+  color: var(--hl-property);
+}
+
+.hljs-attr {
+  color: var(--hl-attr);
+}
+
+.hljs-selector-id,
+.hljs-selector-class,
+.hljs-selector-attr,
+.hljs-selector-pseudo {
+  color: var(--hl-selector);
+}
+
+.hljs-tag {
+  color: var(--hl-tag);
+}
+
+.hljs-bullet {
+  color: var(--hl-bullet);
+}
+
+.hljs-meta,
+.hljs-meta .hljs-keyword {
+  color: var(--hl-meta);
+}
+
+.hljs-meta .hljs-string {
+  color: var(--hl-string);
+}
+
+.hljs-section {
+  color: var(--hl-section);
+  font-weight: bold;
+}
+
+.hljs-link {
+  color: var(--hl-link);
+  text-decoration: underline;
+}
+
+.hljs-addition {
+  color: var(--hl-ins);
+}
+
+.hljs-deletion {
+  color: var(--hl-del);
+}
+
+.hljs-operator,
+.hljs-punctuation,
+.hljs-subst {
+  color: var(--hl-operator);
+}
+
+.hljs-char.escape_ {
+  color: var(--hl-escape);
+}
+
+.hljs-emphasis {
+  font-style: italic;
+}
+
+.hljs-strong {
+  font-weight: bold;
+}

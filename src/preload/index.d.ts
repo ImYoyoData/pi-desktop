@@ -9,15 +9,23 @@ import type {
 	SessionInfoResult,
 	SessionStatus,
 	SessionSummary,
+	TerminalShellOption,
 } from "../shared/protocol";
 import type { AgentRunEvent, AgentRunSnapshot } from "../shared/agent-runs";
+import type { EditContextMenuAction, EditContextMenuPayload } from "../shared/context-menu";
+import type { AgentSaveResult, CustomizationsSnapshot, CustomizationCreateKind, InstructionsSaveResult, McpTestResult, McpTestTarget, SkillSaveResult } from "../shared/customizations";
 import type {
 	ModelsGetResult,
+	ModelsOAuthEventPayload,
+	ModelsOAuthPromptReply,
 	ModelsSetPayload,
+	ProviderCatalogResult,
 } from "../shared/models-settings";
+import type { ModelSelection } from "../shared/model-selection";
 import type {
 	DiscoverModelsResult,
 	TestModelConnectionResult,
+	TestProviderBaseUrlResult,
 } from "../shared/model-discover";
 import type { PreviewResult } from "../shared/preview-types";
 import type {
@@ -40,6 +48,8 @@ import type {
 	PiPackageInstallResult,
 	PiPackageListResult,
 	PiPackageType,
+	PluginUpdateProgress,
+	PluginVersionInfo,
 } from "../shared/pi-market";
 import type {
 	DesktopSecuritySettings,
@@ -51,12 +61,13 @@ import type {
 	ExtensionUiEvent,
 	ExtensionUiReply,
 } from "../shared/extension-ui";
-import type { TrustState } from "../shared/protocol";
+import type { PendingUiSnapshotRequest } from "../shared/protocol";
 import type {
 	GitConflictContentResult,
 	GitOpResult,
 } from "../shared/git-types";
 import type { ProxySettings } from "../shared/proxy";
+import type { ThinkingLanguageSettings } from "../shared/thinking-language";
 export type AppInfo = {
 	version: string;
 	githubUrl: string;
@@ -69,6 +80,7 @@ export type { UpdateProgress };
 export type {
 	AgentCommand,
 	AgentEvent,
+	CloudflareTunnelStatus,
 	ElementCitation,
 	LanConsoleStatus,
 	SessionHistoryMessage,
@@ -85,12 +97,17 @@ declare const api: {
 	lanConsole: {
 		getStatus: () => Promise<LanConsoleStatus>;
 		setEnabled: (enabled: boolean) => Promise<LanConsoleStatus>;
+		setPublicAccess: (enabled: boolean) => Promise<LanConsoleStatus>;
 		setPort: (port: number) => Promise<LanConsoleStatus>;
-		setCredentials: (
-			username: string,
-			password: string,
+		rotatePin: () => Promise<LanConsoleStatus>;
+		setTunnelConfig: (
+			token: string,
+			publicUrl: string,
 		) => Promise<LanConsoleStatus>;
 		setPreferredIp: (ip: string) => Promise<LanConsoleStatus>;
+		onTunnelStatus: (
+			callback: (status: CloudflareTunnelStatus) => void,
+		) => () => void;
 	};
 	proxy: {
 		get: () => Promise<ProxySettings>;
@@ -109,6 +126,10 @@ declare const api: {
 		setUiLocale: (locale: "zh-CN" | "en") => Promise<void>;
 		requestMediaAccess: (kind: "microphone" | "camera") => Promise<boolean>;
 		openDevTools: () => Promise<void>;
+		onContextMenu: (
+			callback: (payload: EditContextMenuPayload) => void,
+		) => () => void;
+		runContextMenuAction: (action: EditContextMenuAction) => Promise<void>;
 		onCloseRequest: (callback: () => void) => () => void;
 		onMaximized: (callback: () => void) => () => void;
 		onUnmaximized: (callback: () => void) => () => void;
@@ -120,7 +141,6 @@ declare const api: {
 		listRecent: () => Promise<string[]>;
 		/** Fast path: Desktop recent only (no Pi CLI scan). */
 		listRecentDesktop: () => Promise<string[]>;
-		listClosed: () => Promise<string[]>;
 		openPath: (root: string) => Promise<string | null>;
 		clear: () => Promise<null>;
 		removeRecent: (root: string) => Promise<{
@@ -134,6 +154,33 @@ declare const api: {
 		}>;
 		reorderRecent: (order: string[]) => Promise<string[]>;
 		revealInFolder: (root: string) => Promise<void>;
+		/** 工作区自定义显示名（绝对路径 → 名称）。 */
+		listAliases: () => Promise<Record<string, string>>;
+		setAlias: (
+			root: string,
+			name: string | null,
+		) => Promise<Record<string, string>>;
+		/** 重新定位工作区到新目录，Pi 会话目录随之迁移。 */
+		relocate: (
+			root: string,
+			next: string,
+		) => Promise<{
+			root: string | null;
+			recent: string[];
+			aliases: Record<string, string>;
+		}>;
+		/** 工作区分类（自定义分组）。 */
+		listGroups: () => Promise<WorkspaceGroups>;
+		addGroup: (name: string) => Promise<WorkspaceGroups>;
+		renameGroup: (from: string, to: string) => Promise<WorkspaceGroups>;
+		removeGroup: (name: string) => Promise<WorkspaceGroups>;
+		setGroupOf: (
+			root: string,
+			group: string | null,
+		) => Promise<WorkspaceGroups>;
+		/** 已归档会话 id 列表：读取与覆写（恢复会话即从列表移除该 id）。 */
+		listArchivedSessions: () => Promise<string[]>;
+		setArchivedSessions: (ids: string[]) => Promise<string[]>;
 	};
 	sessions: {
 		list: (cwd: string) => Promise<SessionSummary[]>;
@@ -189,6 +236,7 @@ declare const api: {
 			ok: boolean;
 			reason?: string;
 		}>;
+		pendingUi: () => Promise<PendingUiSnapshotRequest>;
 	};
 	runs: {
 		list: (workspaceRoot: string) => Promise<AgentRunSnapshot[]>;
@@ -530,6 +578,54 @@ declare const api: {
 		}) => Promise<GitOpResult>;
 		abortMerge: () => Promise<GitOpResult>;
 	};
+	customizations: {
+		list: (cwd?: string, force?: boolean) => Promise<CustomizationsSnapshot>;
+		create: (kind: CustomizationCreateKind) => Promise<{ filePath: string }>;
+		createAgentFromDraft: (
+			content: string,
+			scope: "user" | "project",
+			cwd?: string,
+		) => Promise<AgentSaveResult>;
+		saveAgent: (
+			filePath: string,
+			content: string,
+			renameName?: string,
+			cwd?: string,
+		) => Promise<AgentSaveResult>;
+		createInstructionsFromDraft: (
+			content: string,
+			scope: "user" | "project",
+			cwd?: string,
+		) => Promise<InstructionsSaveResult>;
+		setMcpEnabled: (
+			name: string,
+			scope: "user" | "project",
+			enabled: boolean,
+			cwd?: string,
+		) => Promise<void>;
+		addMcpServers: (
+			scope: "user" | "project",
+			servers: Record<string, unknown>,
+			cwd?: string,
+		) => Promise<{ filePath: string; names: string[] }>;
+		ensureMcpConfig: (
+			scope: "user" | "project",
+			cwd?: string,
+		) => Promise<{ filePath: string }>;
+		removeMcpServer: (
+			name: string,
+			scope: "user" | "project",
+			cwd?: string,
+		) => Promise<{ filePath: string }>;
+		setItemEnabled: (
+			filePath: string,
+			enabled: boolean,
+			cwd?: string,
+		) => Promise<{ filePath: string }>;
+		removeItem: (filePath: string, cwd?: string) => Promise<{ filePath: string }>;
+		testMcpServers: (targets: McpTestTarget[]) => Promise<McpTestResult[]>;
+		onUpdated: (callback: (snapshot: CustomizationsSnapshot) => void) => () => void;
+	};
 	skills: {
 		list: (cwd?: string) => Promise<{
 			skills: {
@@ -546,8 +642,25 @@ declare const api: {
 		setDisabled: (
 			filePath: string,
 			disableModelInvocation: boolean,
+			cwd?: string,
 		) => Promise<void>;
 		uninstall: (filePath: string, cwd?: string) => Promise<void>;
+		createFromDraft: (
+			content: string,
+			scope: "user" | "project",
+			cwd?: string,
+		) => Promise<SkillSaveResult>;
+		save: (
+			filePath: string,
+			content: string,
+			renameName?: string,
+			cwd?: string,
+		) => Promise<SkillSaveResult>;
+		rename: (
+			filePath: string,
+			name: string,
+			cwd?: string,
+		) => Promise<{ filePath: string; name: string }>;
 	};
 	plugins: {
 		list: (cwd?: string) => Promise<{
@@ -586,6 +699,23 @@ declare const api: {
 				status: "loaded" | "installed" | "missing" | "disabled";
 			}[];
 		}>;
+		checkUpdates: (cwd?: string) => Promise<PluginVersionInfo[]>;
+		onUpdateProgress: (
+			callback: (progress: PluginUpdateProgress) => void,
+		) => () => void;
+		update: (
+			source: string,
+			scope: "global" | "project",
+			cwd?: string,
+		) => Promise<{
+			packages: {
+				source: string;
+				scope: "global" | "project";
+				disabled: boolean;
+				installedPath?: string;
+				status: "loaded" | "installed" | "missing" | "disabled";
+			}[];
+		}>;
 	};
 	models: {
 		get: () => Promise<ModelsGetResult>;
@@ -597,6 +727,11 @@ declare const api: {
 			apiKey?: string;
 			api?: string;
 		}) => Promise<DiscoverModelsResult>;
+		testBaseUrl: (payload: {
+			baseUrl: string;
+			apiKey?: string;
+			api?: string;
+		}) => Promise<TestProviderBaseUrlResult>;
 		testConnection: (payload: {
 			baseUrl: string;
 			apiKey?: string;
@@ -604,11 +739,21 @@ declare const api: {
 			modelId: string;
 			providerId?: string;
 		}) => Promise<TestModelConnectionResult>;
+		providerCatalog: (providerId: string) => Promise<ProviderCatalogResult>;
+		setSelection: (selection: ModelSelection) => Promise<void>;
+		oauthLogin: (providerId: string) => Promise<void>;
+		oauthLogout: (providerId: string) => Promise<void>;
+		oauthPrompt: (reply: ModelsOAuthPromptReply) => Promise<void>;
+		oauthCancel: () => Promise<void>;
+		onOauthEvent: (callback: (payload: ModelsOAuthEventPayload) => void) => () => void;
 	};
 	preview: {
 		read: (filePath: string) => Promise<PreviewResult>;
 		write: (filePath: string, content: string) => Promise<void>;
 		pickFile: () => Promise<string | null>;
+		watch: (filePath: string) => Promise<{ ok: boolean }>;
+		unwatch: (filePath: string) => Promise<{ ok: boolean }>;
+		onChanged: (callback: (payload: { paths: string[] }) => void) => () => void;
 	};
 	browser: {
 		startSelect: (webContentsId: number) => Promise<
@@ -803,6 +948,15 @@ declare const api: {
 			skipped: number;
 			error: string | null;
 		}>;
+		netSessionChanges: (
+			sessionId: string,
+			relativePaths: string[],
+		) => Promise<
+			Record<
+				string,
+				{ additions: number; deletions: number; available: boolean }
+			>
+		>;
 		onUpdated: (
 			callback: (summary: {
 				sessionId: string;
@@ -821,18 +975,20 @@ declare const api: {
 			error?: string;
 		}>;
 	};
-	trust: {
-		get: (cwd: string) => Promise<TrustState>;
-		set: (cwd: string, trusted: boolean) => Promise<void>;
-		clear: (cwd: string) => Promise<void>;
-		listTrusted: () => Promise<string[]>;
-	};
 	security: {
 		get: () => Promise<DesktopSecuritySettings>;
 		set: (settings: DesktopSecuritySettings) => Promise<void>;
 	};
+	thinkingLanguage: {
+		get: () => Promise<ThinkingLanguageSettings>;
+		set: (settings: ThinkingLanguageSettings) => Promise<ThinkingLanguageSettings>;
+	};
+	appearance: {
+		pickWallpaper: () => Promise<string | null>;
+	};
 	terminal: {
-		create: (cwd?: string) => Promise<string>;
+		create: (cwd?: string, shellId?: string) => Promise<string>;
+		listShells: () => Promise<TerminalShellOption[]>;
 		write: (id: string, data: string) => Promise<void>;
 		resize: (id: string, cols: number, rows: number) => Promise<void>;
 		dispose: (id: string) => Promise<void>;

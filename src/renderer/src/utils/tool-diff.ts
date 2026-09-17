@@ -194,11 +194,11 @@ function parseOutputCapMarker(text: string): number | null {
 }
 
 /**
- * Render-time cut for tool text previews (Settings → General switch). Cards
- * store the full stored text; the 24-line cut with a "N more" suffix applies
- * only when the user opts into the truncated preview.
+ * Render-time cut for tool text previews (Appearance → Interface line-number choice).
+ * Cards keep the full stored text; the cut with an "N more" suffix applies only
+ * when the user picks a line limit.
  */
-export function previewText(text: string, maxLines = 24): string | null {
+export function previewText(text: string, maxLines: number): string | null {
   if (!text.trim()) return null;
   const lines = text.replace(/\r\n/g, "\n").split("\n");
   if (lines.length <= maxLines) return text;

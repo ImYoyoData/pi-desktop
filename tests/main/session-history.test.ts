@@ -53,7 +53,7 @@ describe("session-history", () => {
 
     expect(messages).toEqual([
       { id: "m1", role: "user", text: "Hello" },
-      { id: "m2", role: "assistant", text: "Hi there" },
+      { id: "m2", role: "assistant", text: "Hi there", durationMs: 1000 },
     ]);
   });
 

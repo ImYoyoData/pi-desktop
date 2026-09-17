@@ -14,11 +14,9 @@ import type { DropdownOption } from "naive-ui";
 import {
   AddOutline,
   CheckmarkOutline,
-  ChevronDownOutline,
   ContractOutline,
   DocumentOutline,
   ExpandOutline,
-  FlashOutline,
   MicOutline,
   SendOutline,
   StopOutline,
@@ -30,6 +28,7 @@ import AsrInstallProgress from "@renderer/components/AsrInstallProgress.vue";
 import AsrInstallConfirmModal from "@renderer/components/AsrInstallConfirmModal.vue";
 import VoiceRecordBar, { type VoiceMeter } from "@renderer/components/VoiceRecordBar.vue";
 import SendQueueBar from "@renderer/components/SendQueueBar.vue";
+import DraftContextBar from "@renderer/components/DraftContextBar.vue";
 import { useChatStore } from "@renderer/stores/chat";
 import type { ContextUsageSegmentId, ElementCitation } from "../../../shared/protocol";
 import { isHttpUrl, useComposerStore } from "@renderer/stores/composer";
@@ -38,6 +37,11 @@ import {
   type QueuedSendItem,
 } from "@renderer/stores/send-queue";
 import { useSessionsStore } from "@renderer/stores/sessions";
+import {
+  permissionProfileLabel,
+  permissionProfileOptions,
+  useSecurityStore,
+} from "@renderer/stores/security";
 import { useWorkspaceStore } from "@renderer/stores/workspace";
 import { useAppearanceStore } from "@renderer/stores/appearance";
 import { useRightTabsStore } from "@renderer/stores/right-tabs";
@@ -57,12 +61,15 @@ import {
   suspendWakeListen,
 } from "@renderer/utils/asr-wake-listen";
 import { scrubAsrHallucination } from "../../../shared/asr";
+import { EMPTY_MODEL_SELECTION, filterAvailableModels } from "../../../shared/model-selection";
+import { MODEL_MENU_PROPS, buildModelMenu } from "@renderer/model-menu";
 import { formatAcceleratorLabel } from "../../../shared/hotkey";
 import {
   composerModePreamble,
   isComposerAgentMode,
   type ComposerAgentMode,
 } from "../../../shared/composer-modes";
+import type { PermissionProfile } from "../../../shared/desktop-security";
 import {
   filterSlashItems,
   isSlashBuiltinId,
@@ -83,8 +90,13 @@ import {
   PI_WORKSPACE_PATHS_MIME,
 } from "@renderer/utils/workspace-path-dnd";
 import { locale, t } from "@renderer/i18n";
-
-type ThinkingLevel = "off" | "minimal" | "low" | "medium" | "high" | "xhigh";
+import {
+  THINKING_LEVELS,
+  isThinkingLevel,
+  routedThinkingLevel,
+  thinkingLevelLabel,
+  type ThinkingLevel,
+} from "@renderer/utils/thinking-level";
 
 /**
  * True when docked widgets (todo / changed files) sit directly above the
@@ -123,6 +135,8 @@ type ModelSelectOption =
   | { label: string; value: string };
 
 const SESSION_PREFS_KEY = "pi-desktop:session-model-prefs";
+/** 未创建的新会话草稿用稳定键记住模型/思考等级，发送后自动沿用到真实会话。 */
+const DRAFT_PREF_KEY = "__draft__";
 
 type SessionPrefs = {
   models: Record<string, string>;
@@ -215,9 +229,13 @@ function modelKeyFromState(data: unknown): string | null {
 function thinkingFromState(data: unknown): ThinkingLevel | null {
   if (!data || typeof data !== "object") return null;
   const level = (data as { thinkingLevel?: unknown }).thinkingLevel;
-  if (typeof level !== "string") return null;
-  const allowed: ThinkingLevel[] = ["off", "minimal", "low", "medium", "high", "xhigh"];
-  return (allowed as string[]).includes(level) ? (level as ThinkingLevel) : null;
+  return isThinkingLevel(level) ? level : null;
+}
+
+/** 界面档位写入偏好；实际发送的值由 routedThinkingLevel 决定，不回写界面。 */
+function adoptThinking(level: ThinkingLevel, key: string | null = prefsKey.value): void {
+  thinkingLevel.value = level;
+  if (key) rememberThinking(key, level);
 }
 
 function rememberModel(sessionId: string, key: string): void {
@@ -230,17 +248,23 @@ function rememberThinking(sessionId: string, level: ThinkingLevel): void {
   persistSessionPrefs();
 }
 
-const thinkingOptions = [
-  { label: "Off", value: "off" },
-  { label: "Minimal", value: "minimal" },
-  { label: "Low", value: "low" },
-  { label: "Medium", value: "medium" },
-  { label: "High", value: "high" },
-  { label: "XHigh", value: "xhigh" },
-];
+/** 草稿正在被 commitDraft 转正——watcher 借此区分手工选中会话的情形。 */
+let draftCommitPending = false;
+
+/** 清掉某个记忆键，避免草稿转正后残留悬挂偏好。 */
+function forgetPrefs(key: string): void {
+  if (!(key in modelBySession.value) && !(key in thinkingBySession.value)) return;
+  const models = { ...modelBySession.value };
+  const thinking = { ...thinkingBySession.value };
+  delete models[key];
+  delete thinking[key];
+  modelBySession.value = models;
+  thinkingBySession.value = thinking;
+  persistSessionPrefs();
+}
 
 const thinkingMenu = computed<DropdownOption[]>(() =>
-  thinkingOptions.map((o) => ({
+  THINKING_LEVELS.map((o) => ({
     label: o.label,
     key: o.value,
     props:
@@ -251,36 +275,19 @@ const thinkingMenu = computed<DropdownOption[]>(() =>
 );
 
 const thinkingLabel = computed(
-  () => thinkingOptions.find((o) => o.value === thinkingLevel.value)?.label ?? "Medium",
+  () => thinkingLevelLabel(thinkingLevel.value) ?? "Medium",
 );
 
-const modelMenu = computed<DropdownOption[]>(() =>
-  availableModels.value.map((group) => {
-    if ("children" in group) {
-      return {
-        type: "group" as const,
-        label: group.label,
-        key: group.key,
-        children: group.children.map((o) => ({
-          label: o.label,
-          key: o.value,
-          props:
-            o.value === selectedModelKey.value
-              ? { style: "font-weight: 600; color: var(--accent)" }
-              : undefined,
-        })),
-      };
-    }
-    return {
-      label: group.label,
-      key: group.value,
-      props:
-        group.value === selectedModelKey.value
-          ? { style: "font-weight: 600; color: var(--accent)" }
-          : undefined,
-    };
-  }),
+const modelMenu = computed(() =>
+  buildModelMenu(availableModels.value, selectedModelKey.value),
 );
+
+/**
+ * A naive-ui dropdown does not scroll on its own, so a long model list grew past
+ * the window and the lower entries became unclickable. See MODEL_MENU_PROPS —
+ * note it must stay a FUNCTION: `menu-props` is called, not read.
+ */
+const modelMenuProps = MODEL_MENU_PROPS;
 
 const modelLabel = computed(
   () =>
@@ -289,6 +296,13 @@ const modelLabel = computed(
 );
 
 const sessionId = computed(() => sessions.activeId);
+const isDraftSession = computed(
+  () => !sessions.activeId && Boolean(sessions.draftRoot),
+);
+/** 模型/思考等级的记忆键：草稿用固定键，未选会话时为 null。 */
+const prefsKey = computed(
+  () => sessionId.value ?? (isDraftSession.value ? DRAFT_PREF_KEY : null),
+);
 const running = computed(() => chat.activeRunning || activeSessionRunning());
 
 function activeSessionRunning(): boolean {
@@ -309,8 +323,10 @@ const isEditingPublished = computed(
     chat.pendingUserEdit?.sessionId === sessionId.value,
 );
 
-/** Show stop while running; show send whenever there is a session (empty → disabled). */
-const showPrimaryAction = computed(() => Boolean(sessionId.value));
+/** Show stop while running; show send whenever there is a session or a draft. */
+const showPrimaryAction = computed(
+  () => Boolean(sessionId.value) || isDraftSession.value,
+);
 /** Stop when running with empty composer; otherwise send/queue. */
 const primaryIsStop = computed(() => running.value && !hasSendContent.value);
 
@@ -445,7 +461,7 @@ function onComposerDrop(event: DragEvent): void {
   if (outcome.kind === "text") {
     // Dropped http(s) URLs stay plain text — insert where the user let go.
     placeDropCaret(event.clientX, event.clientY);
-    richEditor.value?.insertTextAtCaret(outcome.text);
+    richEditor.value?.insertTextAtCaret?.(outcome.text);
   }
 }
 
@@ -659,13 +675,13 @@ function snapshotComposerPayload(): {
   };
 }
 
-const attachMenu: DropdownOption[] = [
+const attachMenu = computed<DropdownOption[]>(() => [
   {
     label: t.composerAttachFile,
     key: "file",
     icon: () => h(NIcon, null, { default: () => h(DocumentOutline) }),
   },
-];
+]);
 
 type ModeMenuItem = {
   value: ComposerAgentMode;
@@ -674,7 +690,7 @@ type ModeMenuItem = {
   hint: string;
 };
 
-const modeMenuItems: ModeMenuItem[] = [
+const modeMenuItems = computed<ModeMenuItem[]>(() => [
   {
     value: "agent",
     label: t.composerModeAgent,
@@ -699,9 +715,32 @@ const modeMenuItems: ModeMenuItem[] = [
     tag: t.composerModeTaskTag,
     hint: t.composerModeTaskHint,
   },
-];
+]);
 
 const modeBubbleShow = ref(false);
+
+const security = useSecurityStore();
+const permBubbleShow = ref(false);
+const permissionOptions = computed(() => permissionProfileOptions());
+const activePermissionLabel = computed(() =>
+  permissionProfileLabel(security.profile),
+);
+
+/** 打开气泡时重新拉取，其它入口的改动不会漏。 */
+function onPermBubbleShow(show: boolean): void {
+  permBubbleShow.value = show;
+  if (show) void security.load().catch(() => {});
+}
+
+async function onPermissionPick(value: PermissionProfile): Promise<void> {
+  permBubbleShow.value = false;
+  if (security.profile === value) return;
+  try {
+    await security.setProfile(value);
+  } catch (err) {
+    messageApi.error(err instanceof Error ? err.message : String(err));
+  }
+}
 
 const activeModeLabel = computed(() => modeTagLabel(composer.mode));
 
@@ -739,6 +778,34 @@ function enqueueFromComposer(): boolean {
   if (!isAgentBusy(id)) {
     void drainQueueIfIdle(id);
   }
+  return true;
+}
+
+/**
+ * Guidance sent while Pi is replying.
+ *
+ * Sending mid-turn goes through steering rather than the idle queue: the SDK
+ * delivers a steering message after the current assistant turn finishes its tool
+ * calls and BEFORE the next LLM call, so the model re-reasons with it — waiting
+ * for the turn to end would silently postpone the user's correction by a whole
+ * turn. `submit("prompt")` routes here; queued items keep draining on idle.
+ */
+async function steerFromComposer(): Promise<boolean> {
+  const id = sessionId.value;
+  if (!id) return false;
+  const snap = snapshotComposerPayload();
+  if (!snap) return false;
+  const hasVisual = Boolean(snap.imagesToSend.length || snap.tagsToSend?.length);
+  const steerText = steerTextWithCitations({
+    agentText: snap.text || (hasVisual ? " " : ""),
+    text: snap.text || (hasVisual ? " " : ""),
+    citations: snap.citationsToSend,
+  });
+  if (!steerText.trim()) return false;
+  composer.clear();
+  await applySelectedModel({ allowStart: true });
+  await chat.steer(id, steerText, snap.imagesToSend.length ? snap.imagesToSend : undefined);
+  messageApi.success(t.steerSent, { duration: 1400 });
   return true;
 }
 
@@ -870,7 +937,8 @@ async function dispatchQueuedItem(
   // Always prompt: Pi followUp only queues during a live turn and will not
   // start a new turn when the agent is already idle (queued items vanished).
   // Cold session: spawn worker on first real dispatch (not on create/open).
-  await applySelectedModel({ allowStart: true });
+  // 不等待：队列气泡先上屏，不被 worker 往返挡住。
+  void applySelectedModel({ allowStart: true });
   const agentText = item.agentText || item.text || " ";
   const displayText = item.text === " " ? "" : item.text;
   await chat.sendPrompt(
@@ -976,7 +1044,7 @@ async function sendQueuedNow(itemId: string): Promise<void> {
     if (isAgentBusy(id)) {
       // Codex-style steer: queue the message as guidance for the running turn
       // WITHOUT aborting it. The model processes it after the current output.
-      await applySelectedModel({ allowStart: true });
+      void applySelectedModel({ allowStart: true });
       await chat.steer(id, steerTextWithCitations(item), item.images);
     } else {
       await dispatchQueuedItem(id, item);
@@ -991,18 +1059,16 @@ async function submit(mode: "prompt" | "steer" | "follow_up"): Promise<void> {
   if (voiceActive.value) cancelVoice();
   if (voicePending.value) return;
 
-  const id = sessionId.value;
-  if (!id) return;
-
   // Editing a queued message: commit back into the queue
   if (sendQueue.editingId) {
     saveEditingToQueue();
     return;
   }
 
-  // While agent is running, new sends go to the queue
+  // While agent is running, a plain send becomes guidance for the running turn
+  // (steer) instead of waiting for the next turn.
   if (running.value && mode === "prompt") {
-    enqueueFromComposer();
+    await steerFromComposer();
     return;
   }
 
@@ -1012,6 +1078,27 @@ async function submit(mode: "prompt" | "steer" | "follow_up"): Promise<void> {
   const snap = snapshotComposerPayload();
   if (!snap) return;
 
+  // 草稿态在此刻才真正建会话（首条消息触发），失败则保留输入待重试。
+  const sourceId = sessionId.value;
+  if (!sourceId && !sessions.draftRoot) return;
+  let id = sourceId;
+  if (!id) {
+    draftCommitPending = true;
+    try {
+      const created = await sessions.commitDraft();
+      if (!created) {
+        draftCommitPending = false;
+        return;
+      }
+      id = created.id;
+      composer.transferDraftMode(id);
+    } catch (err) {
+      draftCommitPending = false;
+      messageApi.error(err instanceof Error ? err.message : String(err));
+      return;
+    }
+  }
+
   // Re-editing a published user bubble: commit replaces that message and
   // everything after it (see chat.sendPromptSerial + agent rollback_user).
   // `pendingUserEdit` is cleared once the send lands (in chat.sendPrompt).
@@ -1019,17 +1106,22 @@ async function submit(mode: "prompt" | "steer" | "follow_up"): Promise<void> {
   const displayText = snap.displayText;
   const agentText = snap.text || " ";
   const titleSeed = displayText || snap.tagsToSend?.[0]?.content || snap.tagsToSend?.[0]?.label || "";
-  composer.clear();
+  composer.clearSession(sourceId);
   // First message (or any send) activates the Pi agent worker and applies model.
   if (mode === "prompt" || mode === "steer" || mode === "follow_up") {
-    await applySelectedModel({ allowStart: true });
+    // 不等 worker 冷启动：设置与 prompt 依次下发，主进程保证设置先落地，
+    // 用户气泡因此立即上屏。
+    void applySelectedModel({ allowStart: true });
     const level = thinkingLevel.value;
-    try {
-      await sessions.sendCommand(id, { type: "set_thinking_level", level });
-      rememberThinking(id, level);
-    } catch {
-      // ignore — prompt may still proceed with worker default
-    }
+    void sessions
+      .sendCommand(id, {
+        type: "set_thinking_level",
+        level: routedThinkingLevel(level),
+      })
+      .then(() => rememberThinking(id, level))
+      .catch(() => {
+        // ignore — prompt may still proceed with worker default
+      });
   }
   if (mode === "prompt") {
     const root = workspace.root;
@@ -1175,11 +1267,11 @@ const SEGMENT_META: Record<
   ContextUsageSegmentId,
   { color: string; label: () => string }
 > = {
-  system: { color: "#8b8b8b", label: () => t.contextUsageSegSystem },
-  tools: { color: "#a855f7", label: () => t.contextUsageSegTools },
-  summarized: { color: "#b91c1c", label: () => t.contextUsageSegSummarized },
-  conversation: { color: "#ef4444", label: () => t.contextUsageSegConversation },
-  toolResults: { color: "#db2777", label: () => t.contextUsageSegToolResults },
+  system: { color: "var(--ctx-system)", label: () => t.contextUsageSegSystem },
+  tools: { color: "var(--ctx-tools)", label: () => t.contextUsageSegTools },
+  summarized: { color: "var(--ctx-summarized)", label: () => t.contextUsageSegSummarized },
+  conversation: { color: "var(--ctx-conversation)", label: () => t.contextUsageSegConversation },
+  toolResults: { color: "var(--ctx-tool-results)", label: () => t.contextUsageSegToolResults },
 };
 
 const ctxPopoverShow = ref(false);
@@ -1255,7 +1347,7 @@ const contextSegments = computed(() => {
       id: s.id,
       tokens: s.tokens,
       label: meta?.label() ?? s.id,
-      color: meta?.color ?? "#888",
+      color: meta?.color ?? "var(--fg-faint)",
       widthPct: Math.max(0.4, (s.tokens / window) * 100),
       tokensLabel: formatTokens(s.tokens),
     };
@@ -1488,8 +1580,8 @@ async function runSlashBuiltin(id: string): Promise<void> {
         messageApi.warning(t.slashNeedWorkspace);
         return;
       }
-      const created = await sessions.createSession(root);
-      if (created) messageApi.success(t.slashNewDone);
+      sessions.beginDraft(root);
+      messageApi.success(t.slashNewDone);
       return;
     }
     case "compact": {
@@ -1503,6 +1595,8 @@ async function runSlashBuiltin(id: string): Promise<void> {
       return;
     }
     case "model": {
+      // Model switching stays available while Pi is replying (the worker applies
+      // it to the live session) — no lock guard here.
       await nextTick();
       modelMenuRef.value?.focus?.();
       return;
@@ -1728,19 +1822,29 @@ function closeContextPopover(): void {
   document.removeEventListener("pointerdown", onContextOutside, true);
 }
 async function onThinkingChange(value: string | number): Promise<void> {
-  const id = sessionId.value;
   const level = String(value) as ThinkingLevel;
   thinkingLevel.value = level;
+  const key = prefsKey.value;
+  if (key) rememberThinking(key, level);
+  const id = sessionId.value;
   if (!id) return;
-  rememberThinking(id, level);
-  await sessions.sendCommand(id, { type: "set_thinking_level", level });
+  await sessions.sendCommand(id, {
+    type: "set_thinking_level",
+    level: routedThinkingLevel(level),
+  });
 }
 
 async function refreshModels(): Promise<void> {
   try {
     const data = await window.api.models.get();
+    // Honour the Settings → Models curation so a 300-model provider does not
+    // flood the menu; providers without a curation pass through untouched.
+    const selected = filterAvailableModels(
+      data.available,
+      data.modelSelection ?? EMPTY_MODEL_SELECTION,
+    );
     const byProvider = new Map<string, { label: string; value: string }[]>();
-    for (const m of data.available) {
+    for (const m of selected) {
       const list = byProvider.get(m.provider) ?? [];
       const label = (m.name && m.name.trim()) || m.id;
       list.push({ label, value: `${m.provider}/${m.id}` });
@@ -1760,19 +1864,20 @@ async function refreshModels(): Promise<void> {
 }
 
 async function syncSessionModelAndThinking(): Promise<void> {
-  const id = sessionId.value;
+  const realId = sessionId.value;
+  const key = prefsKey.value;
   const flat = flatModelOptions(availableModels.value);
-  if (!id) {
+  if (!key) {
     selectedModelKey.value = flat[0]?.value ?? null;
     return;
   }
 
-  // Instant UI from per-session memory
-  const remembered = modelBySession.value[id];
+  // Instant UI from per-session (or draft) memory
+  const remembered = modelBySession.value[key];
   if (remembered && flat.some((o) => o.value === remembered)) {
     selectedModelKey.value = remembered;
   }
-  const rememberedThinking = thinkingBySession.value[id];
+  const rememberedThinking = thinkingBySession.value[key];
   if (rememberedThinking) {
     thinkingLevel.value = rememberedThinking;
   }
@@ -1781,7 +1886,7 @@ async function syncSessionModelAndThinking(): Promise<void> {
   // workspace's first session (sidebar top) so new chats match the user's setup.
   if (!remembered && !rememberedThinking) {
     const first = sessions.sessions[0];
-    if (first && first.id !== id) {
+    if (first && first.id !== realId) {
       const firstModel = modelBySession.value[first.id];
       const firstThinking = thinkingBySession.value[first.id];
       if (firstModel && flat.some((o) => o.value === firstModel)) {
@@ -1791,15 +1896,23 @@ async function syncSessionModelAndThinking(): Promise<void> {
     }
   }
 
+  // 草稿没有 worker 可查，选定模型/等级就位后直接返回。
+  if (!realId) {
+    if (!selectedModelKey.value || !flat.some((o) => o.value === selectedModelKey.value)) {
+      selectedModelKey.value = flat[0]?.value ?? null;
+    }
+    return;
+  }
+
   // Prefer live worker state when agent is already running (never cold-start here).
   let workerKey: string | null = null;
   let workerThinking: ThinkingLevel | null = null;
   try {
-    const state = await sessions.tryCommand(id, { type: "get_state" });
+    const state = await sessions.tryCommand(realId, { type: "get_state" });
     if (state !== undefined) {
       workerKey = modelKeyFromState(state);
       workerThinking = thinkingFromState(state);
-      sessions.applyContextFromState(id, state);
+      sessions.applyContextFromState(realId, state);
     }
   } catch {
     // ignore sync failures
@@ -1807,41 +1920,37 @@ async function syncSessionModelAndThinking(): Promise<void> {
 
   if (workerKey && flat.some((o) => o.value === workerKey)) {
     selectedModelKey.value = workerKey;
-    rememberModel(id, workerKey);
+    rememberModel(realId, workerKey);
   } else if (remembered && flat.some((o) => o.value === remembered)) {
     selectedModelKey.value = remembered;
   } else if (!selectedModelKey.value || !flat.some((o) => o.value === selectedModelKey.value)) {
     selectedModelKey.value = flat[0]?.value ?? null;
   }
 
-  if (workerThinking) {
-    thinkingLevel.value = workerThinking;
-    rememberThinking(id, workerThinking);
-  } else if (rememberedThinking) {
-    thinkingLevel.value = rememberedThinking;
-  }
-
-  // Only push model/thinking to a live worker — first prompt cold-starts the agent.
+  // Only push model to a live worker — first prompt cold-starts the agent.
   if (selectedModelKey.value && workerKey !== null) {
-    const token = `${id}::${selectedModelKey.value}`;
+    const token = `${realId}::${selectedModelKey.value}`;
     if (workerKey !== selectedModelKey.value || appliedModelForSession.value !== token) {
       appliedModelForSession.value = null;
       await applySelectedModel({ allowStart: false });
     } else {
       appliedModelForSession.value = token;
-      rememberModel(id, selectedModelKey.value);
+      rememberModel(realId, selectedModelKey.value);
     }
   }
 
-  if (workerThinking !== null && (rememberedThinking || thinkingLevel.value)) {
-    const level = thinkingLevel.value;
-    if (workerThinking !== level) {
-      try {
-        await sessions.tryCommand(id, { type: "set_thinking_level", level });
-        rememberThinking(id, level);
-      } catch {
-        // ignore thinking sync failures
-      }
+  // 界面保留用户选择的档位；worker 里存的是路由后的实际档位。
+  if (rememberedThinking) {
+    thinkingLevel.value = rememberedThinking;
+  } else if (workerThinking) {
+    adoptThinking(workerThinking, realId);
+  }
+  const routed = routedThinkingLevel(thinkingLevel.value);
+  if (workerThinking !== null && workerThinking !== routed) {
+    try {
+      await sessions.tryCommand(realId, { type: "set_thinking_level", level: routed });
+    } catch {
+      // ignore thinking sync failures
     }
   }
 }
@@ -1880,16 +1989,20 @@ async function applySelectedModel(opts?: { allowStart?: boolean }): Promise<void
     const text = err instanceof Error ? err.message : String(err);
     // Startup race / cold worker / post-auth reload: don't toast transient noise.
     if (/unknown session|Model not found/i.test(text)) return;
-    messageApi.error(formatLlmError(text, locale === "zh-CN" ? "zh-CN" : "en"));
+    messageApi.error(formatLlmError(text, locale.value));
   }
 }
 
 async function onModelChange(value: string | number): Promise<void> {
+  // Switching models while Pi is replying is allowed. The worker applies it to
+  // the live session immediately (and when no worker is warm the choice is
+  // remembered for the next prompt), so the picker must not silently swallow
+  // the click.
   const key = String(value);
   selectedModelKey.value = key;
   appliedModelForSession.value = null;
-  const id = sessionId.value;
-  if (id && key) rememberModel(id, key);
+  const prefs = prefsKey.value;
+  if (prefs && key) rememberModel(prefs, key);
   await applySelectedModel({ allowStart: false });
 }
 
@@ -2222,6 +2335,7 @@ let offAsrWake: (() => void) | undefined;
 onMounted(() => {
   composer.bindSession(sessionId.value);
   void refreshModels();
+  void security.load().catch(() => {});
   void asr.refresh();
   offAsrProgress = asr.bindProgress();
   offAsrWake = window.api.asr.onWake(onAsrWake);
@@ -2265,6 +2379,16 @@ watch(sessionId, (id, prev) => {
   if (voiceActive.value || voicePending.value) cancelVoice();
   if (chat.pendingUserEdit) chat.cancelEditUser();
   composer.bindSession(id);
+
+  // 草稿首次发送成功建出真实会话：把草稿的模型/思考选择迁移过去。
+  if (id && !prev && draftCommitPending) {
+    draftCommitPending = false;
+    const draftModel = modelBySession.value[DRAFT_PREF_KEY];
+    const draftThinking = thinkingBySession.value[DRAFT_PREF_KEY];
+    if (draftModel) rememberModel(id, draftModel);
+    if (draftThinking) rememberThinking(id, draftThinking);
+    forgetPrefs(DRAFT_PREF_KEY);
+  }
 
   if (prev && selectedModelKey.value) {
     rememberModel(prev, selectedModelKey.value);
@@ -2358,6 +2482,9 @@ watch(
         <NIcon :component="editorExpanded ? ContractOutline : ExpandOutline" :size="14" />
       </button>
 
+      <!-- 草稿态：在输入框左上方选择新会话的工作区与（若有）Git 分支。 -->
+      <DraftContextBar v-if="isDraftSession" />
+
       <!-- Images are separate attachments (sent as model images), not part of the rich text surface -->
       <div v-if="composer.images.length" class="image-attachments">
         <div v-for="img in composer.images" :key="img.id" class="img-chip">
@@ -2439,17 +2566,17 @@ watch(
             raw
           >
             <template #trigger>
-              <button
-                type="button"
-                class="mode-trigger pi-interactive"
+              <NButton
+                quaternary
+                size="tiny"
+                class="mode-btn"
                 :disabled="voiceActive || voicePending"
                 :title="t.composerModeHint"
                 :aria-expanded="modeBubbleShow"
                 :aria-haspopup="true"
               >
-                <span class="mode-trigger-label">{{ activeModeLabel }}</span>
-                <NIcon :component="ChevronDownOutline" :size="12" />
-              </button>
+                <span class="mode-label">{{ activeModeLabel }}</span>
+              </NButton>
             </template>
             <div class="mode-bubble" role="listbox" :aria-label="t.composerModeHint">
               <button
@@ -2486,6 +2613,7 @@ watch(
             ref="modelMenuRef"
             trigger="click"
             :options="modelMenu"
+            :menu-props="modelMenuProps"
             :disabled="voiceActive || voicePending"
             @select="onModelChange"
           >
@@ -2513,12 +2641,60 @@ watch(
               :disabled="voiceActive || voicePending"
               :title="t.thinkingLevel"
             >
-              <template #icon>
-                <NIcon :component="FlashOutline" :size="14" />
-              </template>
               <span class="think-label">{{ thinkingLabel }}</span>
             </NButton>
           </NDropdown>
+
+          <NPopover
+            trigger="click"
+            placement="top-end"
+            :show-arrow="true"
+            :disabled="voiceActive || voicePending"
+            :show="permBubbleShow"
+            raw
+            @update:show="onPermBubbleShow"
+          >
+            <template #trigger>
+              <NButton
+                quaternary
+                size="tiny"
+                class="mode-btn"
+                :disabled="voiceActive || voicePending"
+                :title="t.securityPermissionMode"
+                :aria-expanded="permBubbleShow"
+                :aria-haspopup="true"
+              >
+                <span class="mode-label">{{ activePermissionLabel }}</span>
+              </NButton>
+            </template>
+            <div
+              class="mode-bubble"
+              role="listbox"
+              :aria-label="t.securityPermissionMode"
+            >
+              <button
+                v-for="item in permissionOptions"
+                :key="item.value"
+                type="button"
+                class="mode-option"
+                role="option"
+                :aria-selected="security.profile === item.value"
+                :class="{ active: security.profile === item.value }"
+                @click="onPermissionPick(item.value)"
+              >
+                <div class="mode-option-main">
+                  <span class="mode-option-name">{{ item.label }}</span>
+                  <span class="mode-option-hint">{{ item.hint }}</span>
+                </div>
+                <NIcon
+                  v-if="security.profile === item.value"
+                  class="mode-option-check"
+                  :component="CheckmarkOutline"
+                  :size="14"
+                />
+              </button>
+            </div>
+          </NPopover>
         </div>
 
         <div class="toolbar-right">
@@ -2683,7 +2859,7 @@ watch(
       </div>
     </div>
 
-    <div class="composer-meta">
+    <div v-if="appearance.showSessionDetails" class="composer-meta">
       <div v-if="sessionStats" class="session-stats" role="status" aria-label="session statistics">
         <template v-for="(item, idx) in sessionStats" :key="item.key">
           <span v-if="idx > 0" class="ss-sep" aria-hidden="true" />
@@ -2788,9 +2964,9 @@ watch(
   position: relative;
   width: 100%;
   max-width: none;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg, 14px);
-  background: var(--tool-bg, #f5f6f7);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-lg, 8px);
+  background: var(--bg-input);
   box-shadow: none;
   padding: 6px 8px 6px;
   min-width: 0;
@@ -2862,7 +3038,7 @@ watch(
   min-width: 0;
   padding: 6px 28px 6px 8px;
   cursor: text;
-  border-radius: 8px;
+  border-radius: 4px;
   background: transparent;
 }
 
@@ -2894,7 +3070,7 @@ watch(
   overflow: hidden;
   background: var(--bg-elevated, #fff);
   border-top: 1px solid color-mix(in srgb, var(--border, #e5e7eb) 55%, transparent);
-  border-radius: 0 0 calc(var(--radius-lg, 14px) - 6px) calc(var(--radius-lg, 14px) - 6px);
+  border-radius: 0 0 calc(var(--radius-lg, 8px) - 6px) calc(var(--radius-lg, 8px) - 6px);
 }
 
 .voice-row .voice-attach {
@@ -2904,8 +3080,8 @@ watch(
   min-width: 22px;
   min-height: 22px;
   padding: 0;
-  color: #9aa0a6;
-  background: rgba(0, 0, 0, 0.05);
+  color: var(--fg-faint);
+  background: var(--bg-hover);
 }
 
 .voice-row .voice-attach :deep(.n-icon) {
@@ -2914,18 +3090,12 @@ watch(
 
 .voice-row .voice-attach:disabled {
   opacity: 1;
-  color: #9aa0a6;
+  color: var(--fg-faint);
 }
 
 .voice-row :deep(.voice-bar) {
   flex: 1;
   min-width: 0;
-}
-
-:root.dark .voice-row .voice-attach,
-.dark .voice-row .voice-attach {
-  background: rgba(255, 255, 255, 0.08);
-  color: #9aa0a6;
 }
 
 .image-attachments {
@@ -2940,7 +3110,7 @@ watch(
   position: relative;
   width: 56px;
   height: 56px;
-  border-radius: 8px;
+  border-radius: 4px;
   overflow: hidden;
   border: 1px solid var(--border-strong, var(--border));
   background: var(--bg-panel);
@@ -3032,8 +3202,8 @@ watch(
 }
 
 .mic-btn.recording {
-  color: #ef4444;
-  background: rgba(239, 68, 68, 0.12);
+  color: var(--error);
+  background: color-mix(in srgb, var(--error) 12%, transparent);
   animation: mic-pulse 1.2s ease-in-out infinite;
 }
 
@@ -3065,37 +3235,16 @@ watch(
   margin-left: 1px;
 }
 
-.mode-trigger {
-  display: inline-flex;
-  align-items: center;
-  gap: 2px;
-  flex: 0 0 auto;
-  height: 22px;
-  max-width: 72px;
-  padding: 0 6px 0 8px;
-  border: 1px solid color-mix(in srgb, var(--border, #ddd) 85%, transparent);
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--bg-elevated, #fff) 92%, transparent);
-  color: var(--fg, #222);
-  font-size: 11px;
-  font-weight: 550;
-  cursor: pointer;
+.mode-btn {
+  flex-shrink: 0;
+  padding: 0 4px !important;
+}
+
+.mode-label {
+  display: inline-block;
   white-space: nowrap;
-}
-
-.mode-trigger:disabled {
-  opacity: 0.55;
-  cursor: not-allowed;
-}
-
-.mode-trigger:hover:not(:disabled) {
-  border-color: color-mix(in srgb, var(--primary, #3b82f6) 45%, var(--border));
-  color: var(--fg-strong, #111);
-}
-
-.mode-trigger-label {
-  overflow: hidden;
-  text-overflow: ellipsis;
+  font-size: 11px;
+  margin-left: 1px;
 }
 
 .mode-bubble {
@@ -3103,7 +3252,7 @@ watch(
   max-width: min(360px, 92vw);
   padding: 6px;
   border: 1px solid color-mix(in srgb, var(--border, #ddd) 80%, transparent);
-  border-radius: 14px;
+  border-radius: 6px;
   background: color-mix(in srgb, var(--bg-panel, var(--bg-elevated, #fff)) 96%, transparent);
   box-shadow: 0 10px 28px color-mix(in srgb, #000 16%, transparent);
   backdrop-filter: blur(10px);
@@ -3117,7 +3266,7 @@ watch(
   margin: 0;
   padding: 8px 10px;
   border: none;
-  border-radius: 10px;
+  border-radius: 6px;
   background: transparent;
   color: inherit;
   text-align: left;
@@ -3185,7 +3334,6 @@ watch(
   display: inline-block;
   white-space: nowrap;
   font-size: 11px;
-  margin-left: 1px;
 }
 
 .session-stats {
@@ -3227,18 +3375,6 @@ watch(
   flex-shrink: 0;
 }
 
-:root.dark .ss-item strong {
-  color: #e6edf3;
-}
-
-:root.dark .ss-label {
-  color: #8b949e;
-}
-
-:root.dark .ss-sep {
-  background: color-mix(in srgb, #30363d 70%, transparent);
-}
-
 .ctx-meter {
   display: inline-grid;
   place-items: center;
@@ -3267,28 +3403,28 @@ watch(
 }
 
 .ctx-ring-track {
-  stroke: rgba(0, 0, 0, 0.12);
+  stroke: var(--border-strong);
 }
 
 .ctx-ring-fill {
-  stroke: #5c5c5c;
+  stroke: var(--fg-muted);
   transition: stroke-dashoffset 0.2s ease;
 }
 
 .ctx-ok .ctx-ring-fill {
-  stroke: #5c5c5c;
+  stroke: var(--fg-muted);
 }
 
 .ctx-warn .ctx-ring-fill {
-  stroke: #d97706;
+  stroke: var(--warning);
 }
 
 .ctx-danger .ctx-ring-fill {
-  stroke: #dc2626;
+  stroke: var(--error);
 }
 
 .ctx-muted .ctx-ring-fill {
-  stroke: #8a8a8a;
+  stroke: var(--fg-faint);
 }
 
 .ctx-popover {
@@ -3348,7 +3484,7 @@ watch(
 }
 
 .ctx-bar-seg.free {
-  background: color-mix(in srgb, var(--bg-elevated, #f4f4f5) 70%, #d4d4d8);
+  background: color-mix(in srgb, var(--bg-elevated) 70%, var(--border-strong));
   flex-shrink: 1;
   min-width: 0;
 }
@@ -3446,16 +3582,11 @@ watch(
 }
 
 @media (max-width: 900px) {
-  .mode-trigger {
-    max-width: 64px;
-    padding: 0 5px 0 7px;
-  }
-
-  .model-label {
+  .mode-label {
     display: none;
   }
 
-  .think-label {
+  .model-label {
     display: none;
   }
 

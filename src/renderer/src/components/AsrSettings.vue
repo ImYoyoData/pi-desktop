@@ -5,7 +5,6 @@ import {
   NSpace,
   NText,
   NButton,
-  NSwitch,
   NInput,
   NSelect,
   NTabs,
@@ -19,6 +18,7 @@ import { CloudOutline, HardwareChipOutline } from "@vicons/ionicons5";
 import { formatAsrInstallError, isAsrInstallCancelled, useAsrStore } from "@renderer/stores/asr";
 import { useTtsStore } from "@renderer/stores/tts";
 import AsrInstallProgress from "@renderer/components/AsrInstallProgress.vue";
+import ToggleButton from "@renderer/components/ToggleButton.vue";
 import AsrInstallConfirmModal from "@renderer/components/AsrInstallConfirmModal.vue";
 import { formatAcceleratorLabel, keyboardEventToAccelerator } from "../../../shared/hotkey";
 import type { AsrDownloadMirror } from "../../../shared/asr";
@@ -382,9 +382,10 @@ async function runCloudTest(): Promise<void> {
 }
 
 onMounted(() => {
-  void loadCloudDraft();
   offProgress = asr.bindProgress();
   offTtsProgress = tts.bindProgress();
+  if (!props.open) return;
+  void loadCloudDraft();
   void asr.refresh();
   void tts.refresh();
 });
@@ -599,7 +600,7 @@ onUnmounted(() => {
               <div class="setting-info">
                 <div class="setting-name">{{ t.asrEnable }}</div>
               </div>
-              <NSwitch v-model:value="asrEnabled" size="small" :disabled="!asr.status.supported" />
+              <ToggleButton v-model:value="asrEnabled" :disabled="!asr.status.supported" />
             </div>
             <div class="setting-row">
               <div class="setting-info">
@@ -622,14 +623,20 @@ onUnmounted(() => {
                 <div class="setting-name">{{ t.asrResidentModel }}</div>
                 <NText depth="3" class="setting-hint">{{ t.asrResidentHint }}</NText>
               </div>
-              <NSwitch v-model:value="residentModel" size="small" :disabled="!asr.status.supported || !asr.status.enabled" />
+              <ToggleButton
+                v-model:value="residentModel"
+                :disabled="!asr.status.supported || !asr.status.enabled"
+              />
             </div>
             <div class="setting-row">
               <div class="setting-info">
                 <div class="setting-name">{{ t.asrWakeEnabled }}</div>
                 <NText depth="3" class="setting-hint">{{ t.asrWakeEnabledHint }}</NText>
               </div>
-              <NSwitch v-model:value="wakeEnabled" size="small" :disabled="!asr.status.supported || !asr.status.enabled" />
+              <ToggleButton
+                v-model:value="wakeEnabled"
+                :disabled="!asr.status.supported || !asr.status.enabled"
+              />
             </div>
             <div class="setting-block">
               <div class="setting-name">{{ t.asrWakeWords }}</div>
@@ -685,9 +692,8 @@ onUnmounted(() => {
                 {{ t.ttsEnableHint }}
               </NText>
             </div>
-            <NSwitch
+            <ToggleButton
               v-model:value="ttsEnabled"
-              size="small"
               :disabled="!tts.status.supported || !tts.status.installed"
             />
           </div>
@@ -826,7 +832,7 @@ onUnmounted(() => {
 
 .card {
   border: 1px solid var(--border, rgba(128, 128, 128, 0.25));
-  border-radius: 10px;
+  border-radius: 6px;
   padding: 14px;
   background: var(--bg-elevated, transparent);
   display: flex;
@@ -862,7 +868,7 @@ onUnmounted(() => {
   gap: 6px;
   padding: 8px 10px;
   border: 1px solid var(--border, rgba(128, 128, 128, 0.3));
-  border-radius: 8px;
+  border-radius: 4px;
   background: transparent;
   color: var(--fg-muted, #57606a);
   font: inherit;
@@ -1008,23 +1014,5 @@ onUnmounted(() => {
   display: flex;
   justify-content: flex-end;
   margin-top: 8px;
-}
-
-:root.dark .card {
-  border-color: rgba(255, 255, 255, 0.14);
-}
-
-:root.dark .card-title,
-:root.dark .setting-name,
-:root.dark .sub-title {
-  color: #e6edf3;
-}
-
-:root.dark .seg-btn {
-  color: #8b949e;
-}
-
-:root.dark .seg-btn.on {
-  background: rgba(79, 110, 247, 0.18);
 }
 </style>

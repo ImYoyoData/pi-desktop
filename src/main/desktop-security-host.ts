@@ -2,7 +2,6 @@ import fs from "node:fs";
 import path from "node:path";
 import { agentDir } from "./agent-dir";
 import {
-  bashAllowlistEntryFromCommand,
   DEFAULT_DESKTOP_SECURITY,
   parseDesktopSecurity,
   type DesktopSecuritySettings,
@@ -64,25 +63,6 @@ export async function setDesktopSecuritySettings(
     writeJsonAtomic(settingsPath, { ...existing, desktopSecurity: sanitized });
   });
   return sanitized;
-}
-
-/** Append a bash allowlist entry (no-op if empty or already present). */
-export async function appendBashAllowlistEntry(
-  command: string,
-  agentDirOverride?: string,
-): Promise<DesktopSecuritySettings> {
-  // Accept either a stem (`git status`) or a full command line.
-  const entry = bashAllowlistEntryFromCommand(command) || command.trim();
-  const current = await getDesktopSecuritySettings(agentDirOverride);
-  if (!entry) return current;
-  if (current.bashAllowlist.includes(entry)) return current;
-  return setDesktopSecuritySettings(
-    {
-      ...current,
-      bashAllowlist: [...current.bashAllowlist, entry],
-    },
-    agentDirOverride,
-  );
 }
 
 export { DEFAULT_DESKTOP_SECURITY };

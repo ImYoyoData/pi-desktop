@@ -49,4 +49,46 @@ describe("workspace-store", () => {
     expect(store.listRecent()).toEqual([]);
     expect(store.getRoot()).toBeNull();
   });
+
+  /**
+   * A blank path resolved against the process cwd becomes the app's own working
+   * directory, which the sidebar painted as an extra nameless workspace.
+   */
+  it("never stores a blank root", () => {
+    const store = createWorkspaceStore(path.join(dir, "state.json"));
+    store.addRecent("");
+    store.addRecent("   ");
+    store.addRecent("\t\n");
+    expect(store.listRecent()).toEqual([]);
+
+    store.setRoot("");
+    expect(store.getRoot()).toBeNull();
+
+    store.addRecent("   ");
+    expect(store.getRoot()).toBeNull();
+  });
+
+  it("trims entries and keeps the rest of a mixed list", () => {
+    const store = createWorkspaceStore(path.join(dir, "state.json"));
+    store.addRecent(" ");
+    store.addRecent("  /proj  ");
+    expect(store.listRecent()).toEqual(["/proj"]);
+  });
+
+  it("drops blanks left in an existing state file", () => {
+    const statePath = path.join(dir, "state.json");
+    fs.writeFileSync(
+      statePath,
+      JSON.stringify({
+        root: "",
+        recent: ["", "   ", "/keep-me"],
+        dismissedPi: ["", "/closed"],
+      }),
+      "utf8",
+    );
+    const store = createWorkspaceStore(statePath);
+    expect(store.listRecent()).toEqual(["/keep-me"]);
+    expect(store.listDismissedPi()).toEqual(["/closed"]);
+    expect(store.getRoot()).toBeNull();
+  });
 });

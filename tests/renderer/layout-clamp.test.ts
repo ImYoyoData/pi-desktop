@@ -82,13 +82,11 @@ describe("layout v4 defaults", () => {
       rightSize: 50,
       leftCollapsed: false,
       rightCollapsed: true,
-      leftFilesSize: 40,
     });
     const got = readLayout(key);
     expect(got.leftSize).toBe(18);
     expect(got.centerSize).toBe(32);
     expect(got.rightSize).toBe(50);
     expect(got.rightCollapsed).toBe(true);
-    expect(got.leftFilesSize).toBe(40);
   });
 });

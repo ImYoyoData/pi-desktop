@@ -28,6 +28,11 @@ import type { ChatMessageTag } from "../shared/chat-meta";
 import { downloadImageToCache, saveImageDataUrl } from "./session-image-cache";
 import { deleteImageFile } from "./session-image-cache";
 import { allocateSessionOnDisk } from "./session-allocate";
+import {
+  hasThinkingLanguageBlock,
+  thinkingLanguageBlock,
+} from "../shared/thinking-language";
+import { getThinkingLanguageSettings } from "./thinking-language-host";
 
 const HEARTBEAT_INTERVAL_MS = 5_000;
 /**
@@ -66,6 +71,15 @@ const CONTEXT_SEGMENT_IDS = new Set<ContextUsageSegmentId>([
   "conversation",
   "toolResults",
 ]);
+
+/** 会话模型 `{ provider, id }`，转发给界面用于标注已结束的轮次。 */
+function modelRef(value: unknown): { provider: string; id: string } | null {
+  if (!value || typeof value !== "object") return null;
+  const m = value as { provider?: unknown; id?: unknown };
+  return typeof m.provider === "string" && typeof m.id === "string"
+    ? { provider: m.provider, id: m.id }
+    : null;
+}
 
 export type WorkerHandle = {
   send: (msg: WorkerInbound) => Promise<WorkerOutbound | null>;
@@ -119,9 +133,13 @@ export type SessionBroker = {
   sendRawIfAlive: (sessionId: string, msg: WorkerInbound) => Promise<boolean>;
   killWorker: (sessionId: string) => Promise<void>;
   restartWorker: (sessionId: string) => Promise<void>;
-  /** Restart live workers for a workspace so `projectTrusted` / init snapshot reloads. */
+  /** Restart live workers for a workspace so settings / init snapshot reloads. */
   restartWorkersForCwd: (cwd: string) => Promise<void>;
+  /** 回收所有存活 worker，使下次启动读取新的环境变量（如代理变更）。 */
+  recycleWorkers: () => void;
   deleteSession: (sessionId: string, cwd: string) => Promise<void>;
+  /** 关掉某工作区下的会话 worker（只断连接，不删会话文件）。 */
+  stopWorkspaceSessions: (cwd: string) => Promise<void>;
   /**
    * Remove all Pi sessions for a workspace (workers + `~/.pi/agent/sessions/...`).
    * Does not delete the project directory on disk.
@@ -134,6 +152,8 @@ export type SessionBroker = {
   notifyWorkersReloadSecurity: (
     desktopSecurity: DesktopSecuritySettings,
   ) => Promise<void>;
+  /** 热重载某工作区的扩展/MCP 资源（空闲 worker 立即重载，忙碌的等空闲）。 */
+  notifyWorkersReloadResources: (cwd: string) => Promise<void>;
   /** Delete one cached image file (user removed it from the editor). */
   deleteCachedImage: (sessionId: string, cachePath: string) => void;
   /** Cache a pasted / URL image into the session's attachment folder. */
@@ -169,6 +189,10 @@ type SessionRecord = {
   idleDestroyTimer: ReturnType<typeof setTimeout> | null;
   /** True once worker_stall was emitted for the current silence episode. */
   stallEmitted: boolean;
+  /** 代理等环境变更后，待空闲时重建该 worker。 */
+  restartOnIdle: boolean;
+  /** 设置类命令（模型/思考档位）的串行链；prompt 必须等它落地。 */
+  settingsGate: Promise<void>;
   pendingCommands: Map<
     string,
     {
@@ -211,6 +235,10 @@ export function createSessionBroker(deps: {
       clearIdleDestroyTimer(rec);
     }
     emit({ type: "session_status", sessionId, status });
+    if (status === "idle" && rec.restartOnIdle) {
+      rec.restartOnIdle = false;
+      destroyIdleWorker(sessionId);
+    }
   }
 
   function rejectPendingCommands(rec: SessionRecord, message: string): void {
@@ -243,6 +271,11 @@ export function createSessionBroker(deps: {
     }
     // Defer destroy while Running-panel still tracks bash (incl. background survivors).
     if (deps.hasActiveRuns?.(sessionId)) {
+      scheduleIdleDestroy(sessionId);
+      return;
+    }
+    // 有命令在等结果时销毁会让它永久挂起（如设置类命令），同样延后。
+    if (rec.pendingCommands.size > 0) {
       scheduleIdleDestroy(sessionId);
       return;
     }
@@ -395,6 +428,7 @@ export function createSessionBroker(deps: {
     }
     rec.worker = spawned.worker;
     rec.spawnedAt = Date.now();
+    rec.restartOnIdle = false;
     rec.summary.filePath = spawned.filePath;
     attachWorker(sessionId, spawned.worker);
     startHeartbeat(sessionId);
@@ -489,6 +523,8 @@ export function createSessionBroker(deps: {
           tokens?: unknown;
           contextWindow?: unknown;
           percent?: unknown;
+          model?: unknown;
+          thinkingLevel?: unknown;
           toolCalls?: unknown;
           messageCount?: unknown;
           segments?: unknown;
@@ -536,6 +572,9 @@ export function createSessionBroker(deps: {
               tokens: typeof ev.tokens === "number" ? ev.tokens : null,
               contextWindow: ev.contextWindow,
               percent: typeof ev.percent === "number" ? ev.percent : null,
+              model: modelRef(ev.model),
+              thinkingLevel:
+                typeof ev.thinkingLevel === "string" ? ev.thinkingLevel : null,
               toolCalls: typeof ev.toolCalls === "number" ? ev.toolCalls : null,
               messageCount:
                 typeof ev.messageCount === "number" ? ev.messageCount : null,
@@ -681,19 +720,23 @@ export function createSessionBroker(deps: {
       heartbeatTimer: null,
       idleDestroyTimer: null,
       stallEmitted: false,
+      restartOnIdle: false,
+      settingsGate: Promise.resolve(),
       pendingCommands: new Map(),
     });
     return { ...summary };
   }
 
   async function createSession(cwd: string): Promise<SessionSummary> {
-    // Fast path: disk session only. Pi agent worker starts on first send/command.
+    // 草稿预热：落盘后立即后台启动 worker，首条消息不必再等冷启动。
     const allocated = await allocateSession(cwd);
-    return registerSessionShell(
+    const summary = registerSessionShell(
       allocated.id,
       allocated.cwd,
       allocated.filePath,
     );
+    prewarmWorker(summary.id);
+    return summary;
   }
 
   async function listSessions(cwd: string): Promise<SessionSummary[]> {
@@ -726,6 +769,7 @@ export function createSessionBroker(deps: {
               existing?.modified ??
               new Date().toISOString()),
         status: rec.summary.status,
+        parentSessionId: rec.summary.parentSessionId ?? existing?.parentSessionId,
       });
     }
     return [...merged.values()].sort((a, b) =>
@@ -890,6 +934,20 @@ export function createSessionBroker(deps: {
     emit({ type: "worker_exit", sessionId, code: 0 });
   }
 
+  /** 用户轮次统一注入思考语言块（Reasonix reasoning_language）；已带块时不重复注入。 */
+  function withThinkingLanguage(command: AgentCommand): AgentCommand {
+    if (
+      command.type !== "prompt" &&
+      command.type !== "steer" &&
+      command.type !== "follow_up"
+    ) {
+      return command;
+    }
+    if (hasThinkingLanguageBlock(command.message)) return command;
+    const block = thinkingLanguageBlock(getThinkingLanguageSettings().language);
+    return { ...command, message: `${block}\n\n${command.message}` };
+  }
+
   async function sendRaw(
     sessionId: string,
     msg: WorkerInbound,
@@ -920,6 +978,7 @@ export function createSessionBroker(deps: {
     command: AgentCommand,
     opts?: { coldStart?: boolean },
   ): Promise<unknown | undefined> {
+    command = withThinkingLanguage(command);
     const coldStart = opts?.coldStart !== false;
     const rec = coldStart
       ? await ensureWorker(sessionId)
@@ -928,6 +987,20 @@ export function createSessionBroker(deps: {
     if (!worker) {
       if (!coldStart) return undefined;
       throw new Error(`session worker unavailable: ${sessionId}`);
+    }
+    // 设置类命令串行下发（worker 并发处理时 set_model 会把刚设的思考档位回退），
+    // 且 prompt 必须等设置落地，否则首条消息会带旧模型/旧档位开跑。
+    const isSetting =
+      command.type === "set_model" || command.type === "set_thinking_level";
+    const gate: { release: (() => void) | null } = { release: null };
+    if (isSetting) {
+      const prev = rec!.settingsGate;
+      rec!.settingsGate = prev.then(
+        () => new Promise<void>((resolve) => (gate.release = resolve)),
+      );
+      await prev;
+    } else if (command.type === "prompt") {
+      await rec!.settingsGate;
     }
     if (command.type === "prompt" || command.type === "hang") {
       setStatus(sessionId, "running");
@@ -942,16 +1015,19 @@ export function createSessionBroker(deps: {
       command.type === "compact" ||
       command.type === "steer" ||
       command.type === "follow_up" ||
+      command.type === "rollback_user" ||
+      command.type === "rollback_turn_end" ||
       command.type === "abort" ||
       command.type === "get_state";
     const outbound = { kind: "command" as const, id: cmdId, command };
 
     if (!awaitsResult) {
       await worker.send(outbound);
+      gate.release?.();
       return undefined;
     }
 
-    return await new Promise<unknown>((resolve, reject) => {
+    const settled = new Promise<unknown>((resolve, reject) => {
       let forceTimer: ReturnType<typeof setTimeout> | null = null;
       const clearForce = (): void => {
         if (forceTimer) {
@@ -1007,6 +1083,11 @@ export function createSessionBroker(deps: {
         }
       });
     });
+    void settled.then(
+      () => gate.release?.(),
+      () => gate.release?.(),
+    );
+    return await settled;
   }
 
   async function trySend(
@@ -1034,6 +1115,18 @@ export function createSessionBroker(deps: {
     await disconnectWorker(sessionId, "worker restarted");
     await spawnWorkerForRecord(sessionId, rec);
     setStatus(sessionId, "idle");
+  }
+
+  /** 环境变量变更（代理设置）需要重建 worker：空闲的立即销毁，忙碌的等本轮结束。 */
+  function recycleWorkers(): void {
+    for (const [id, rec] of sessions) {
+      if (!rec.worker) continue;
+      if (rec.summary.status === "idle") {
+        destroyIdleWorker(id);
+      } else {
+        rec.restartOnIdle = true;
+      }
+    }
   }
 
   async function restartWorkersForCwd(cwd: string): Promise<void> {
@@ -1067,7 +1160,8 @@ export function createSessionBroker(deps: {
     }
   }
 
-  async function purgeWorkspace(cwd: string): Promise<void> {
+  /** 关掉某工作区下的会话 worker（只断连接，不删会话文件）。 */
+  async function stopWorkspaceSessions(cwd: string): Promise<void> {
     const resolved = path.resolve(cwd);
     const live = [...sessions.entries()].filter(
       ([, rec]) => path.resolve(rec.cwd) === resolved,
@@ -1075,10 +1169,15 @@ export function createSessionBroker(deps: {
     for (const [id, rec] of live) {
       if (rec.summary.filePath)
         invalidateSessionHistoryCache(rec.summary.filePath);
-      await disconnectWorker(id, "workspace purged");
+      await disconnectWorker(id, "workspace switched");
       sessions.delete(id);
       emit({ type: "worker_exit", sessionId: id, code: 0 });
     }
+  }
+
+  async function purgeWorkspace(cwd: string): Promise<void> {
+    const resolved = path.resolve(cwd);
+    await stopWorkspaceSessions(resolved);
     // Removes ~/.pi/agent/sessions/<encoded-cwd>/ only — never the project folder.
     await purgeWorkspaceSessionDir(resolved);
   }
@@ -1132,6 +1231,20 @@ export function createSessionBroker(deps: {
     }
   }
 
+  /** 空闲 worker 在进程内重载资源（扩展/MCP 配置），忙碌的等空闲后销毁重建。 */
+  async function notifyWorkersReloadResources(cwd: string): Promise<void> {
+    const resolved = path.resolve(cwd);
+    for (const [id, rec] of sessions.entries()) {
+      if (!rec.worker) continue;
+      if (path.resolve(rec.cwd) !== resolved) continue;
+      if (rec.summary.status !== "idle") {
+        rec.restartOnIdle = true;
+        continue;
+      }
+      await sendRawIfAlive(id, { kind: "reload_resources" });
+    }
+  }
+
   return {
     createSession,
     listSessions,
@@ -1144,11 +1257,14 @@ export function createSessionBroker(deps: {
     killWorker,
     restartWorker,
     restartWorkersForCwd,
+    recycleWorkers,
     deleteSession,
+    stopWorkspaceSessions,
     purgeWorkspace,
     clearContext,
     notifyWorkersReloadModels,
     notifyWorkersReloadSecurity,
+    notifyWorkersReloadResources,
     patchSummary,
     persistUserMessageMeta,
     cacheImage,

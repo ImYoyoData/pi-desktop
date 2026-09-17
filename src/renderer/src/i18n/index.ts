@@ -1,3 +1,4 @@
+import { reactive, ref } from "vue";
 import { en } from "./en";
 import { zh } from "./zh-CN";
 import { detectSystemLanguage, resolveUiLocale, type UiLocale } from "./locale";
@@ -20,10 +21,24 @@ function resolveActiveLocale(): UiLocale {
   return resolveUiLocale(detectSystemLanguage());
 }
 
-const locale: UiLocale = resolveActiveLocale();
+function messagesFor(next: UiLocale): Messages {
+  return (next === "zh-CN" ? zh : en) as Messages;
+}
+
+/** 当前界面语言；切换语言时实时更新，无需重载页面。 */
+const locale = ref<UiLocale>(resolveActiveLocale());
 
 /** Active UI strings — Chinese when zh*, otherwise English (or user override). */
-export const t = (locale === "zh-CN" ? zh : en) as Messages;
+export const t = reactive({
+  ...messagesFor(locale.value),
+}) as Messages;
+
+/** 运行时切换界面语言：替换文案，模板立即跟随，不出现加载页。 */
+export function applyUiLocale(next: UiLocale): void {
+  if (next === locale.value) return;
+  locale.value = next;
+  Object.assign(t, messagesFor(next));
+}
 
 /** Compile-time guard: en must stay key-compatible with zh. */
 type _AssertSameKeys<A, B> = [keyof A] extends [keyof B]

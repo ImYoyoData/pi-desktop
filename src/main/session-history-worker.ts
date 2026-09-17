@@ -44,6 +44,8 @@ export type DiskSessionRow = {
   name?: string;
   modified: string;
   firstMessage: string;
+  /** header.parentSession：父会话文件路径。 */
+  parentSessionPath?: string;
 };
 
 type Reply =
@@ -68,7 +70,9 @@ function readChatMetaEntries(filePath: string): SessionChatMetaEntry[] {
   }
 }
 
-function reply(msg: Reply): void {
+type ReplyWithId = Reply & { id?: number };
+
+function reply(msg: ReplyWithId): void {
   parentPort?.postMessage(msg);
 }
 
@@ -140,6 +144,9 @@ function summarizeSessionFile(filePath: string): DiskSessionRow | null {
       }
     }
     if (!header) return null;
+    const parentRaw = (header as { parentSession?: unknown }).parentSession;
+    const parentSessionPath =
+      typeof parentRaw === "string" && parentRaw.trim() ? parentRaw : undefined;
     const headerTime = new Date(String(header.timestamp ?? "")).getTime();
     const modified =
       typeof lastActivityTime === "number" && lastActivityTime > 0
@@ -154,6 +161,7 @@ function summarizeSessionFile(filePath: string): DiskSessionRow | null {
       name,
       modified: modified.toISOString(),
       firstMessage: firstMessage || "(no messages)",
+      parentSessionPath,
     };
   } catch {
     return null;

@@ -179,6 +179,7 @@ function bindXterm(host: HTMLDivElement): void {
     fontFamily: "Cascadia Code, Consolas, Menlo, monospace",
     rightClickSelectsWord: false,
     scrollback: 5000,
+    allowTransparency: true,
     theme: xtermTheme(appearance.resolvedTheme === "dark"),
   });
   fit = new FitAddon();
@@ -396,7 +397,7 @@ function onRowKeydown(e: KeyboardEvent, runId: string): void {
   min-height: 0;
   min-width: 0;
   overflow: hidden;
-  background: var(--bg-elevated);
+  background: var(--bg-panel);
 }
 
 .term-host {
@@ -433,7 +434,7 @@ function onRowKeydown(e: KeyboardEvent, runId: string): void {
   display: grid;
   place-items: center;
   padding: 12px;
-  background: var(--bg-elevated);
+  background: var(--bg-panel);
   z-index: 1;
 }
 </style>

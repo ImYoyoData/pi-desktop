@@ -165,14 +165,28 @@ function rebuildFromStore(): void {
   applyingStore = false;
 }
 
-/** Append plain text after chips / existing content, sync draft, scroll into view. */
-function appendTextAtEnd(text: string): void {
-  const root = surface.value;
-  const next = text
+/** 插入前统一清理：去掉零宽占位符，换行为 \n，去掉首尾空白。 */
+function normalizeInsertedText(text: string): string {
+  return text
     .replace(/\u200B/g, "")
     .replace(/\r\n/g, "\n")
     .replace(/\r/g, "\n")
     .trim();
+}
+
+/** 插入点前若已有非空白文本，且新内容不是标点开头，则补一个空格。 */
+function needsLeadingSpace(before: string, next: string): boolean {
+  return (
+    Boolean(before.replace(/\s+$/u, "")) &&
+    !/[\s\u3000]$/u.test(before) &&
+    !/^[,.!?;:\uFF0C\u3002\uFF01\uFF1F\u3001\uFF1B\uFF1A]/.test(next)
+  );
+}
+
+/** Append plain text after chips / existing content, sync draft, scroll into view. */
+function appendTextAtEnd(text: string): void {
+  const root = surface.value;
+  const next = normalizeInsertedText(text);
   if (!root || !next) return;
 
   applyingStore = true;
@@ -207,11 +221,8 @@ function appendTextAtEnd(text: string): void {
   scrollToEnd();
 }
 
-function scrollToEnd(): void {
-  const root = surface.value;
-  if (!root) return;
-  root.scrollTop = root.scrollHeight;
-  // Ensure last caret line is visible inside the scrollport
+function scrollCaretIntoView(): void {
+  // Ensure the caret line is visible inside the scrollport
   try {
     const sel = window.getSelection();
     if (sel && sel.rangeCount > 0) {
@@ -227,54 +238,42 @@ function scrollToEnd(): void {
   }
 }
 
-/**
- * Insert plain text at the current caret; falls back to the end of the
- * editor when there is no caret inside the surface (e.g. dictation finished
- * while the editor lost focus). A zero-width spacer keeps the caret parked
- * right after the inserted text.
- */
-function insertTextAtCaret(text: string): void {
+function scrollToEnd(): void {
   const root = surface.value;
-  const next = text
-    .replace(/\u200B/g, "")
-    .replace(/\r\n/g, "\n")
-    .replace(/\r/g, "\n")
-    .trim();
-  if (!root || !next) return;
+  if (!root) return;
+  root.scrollTop = root.scrollHeight;
+  scrollCaretIntoView();
+}
 
-  root.focus();
-  const sel = window.getSelection();
-  const caretInside =
-    sel &&
-    sel.rangeCount > 0 &&
-    sel.isCollapsed &&
-    root.contains(sel.getRangeAt(0).commonAncestorContainer);
+function escapeHtml(text: string): string {
+  return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
 
-  if (!caretInside) {
-    appendTextAtEnd(next);
-    return;
+/**
+ * 走原生 insertHTML 命令插入纯文本，浏览器才会把它记进 undo 栈，
+ * Ctrl+Z 因而能撤回粘贴内容；命令不可用时返回 false，由调用方退回 DOM 拼接。
+ */
+function insertTextViaCommand(next: string, before: string): boolean {
+  const payload = needsLeadingSpace(before, next) ? ` ${next}` : next;
+  const html = escapeHtml(payload).replace(/\n/g, "<br>");
+  try {
+    return document.execCommand("insertHTML", false, html);
+  } catch {
+    return false;
   }
+}
 
-  const range = sel!.getRangeAt(0);
-  const before = (range.startContainer.textContent ?? "").slice(0, range.startOffset);
-  const needSpace =
-    Boolean(before.replace(/\s+$/u, "")) &&
-    !/[\s\u3000]$/u.test(before) &&
-    !/^[,.!?;:\uFF0C\u3002\uFF01\uFF1F\u3001\uFF1B\uFF1A]/.test(next);
-
-  applyingStore = true;
+/** 程序化 DOM 拼接：多行必须拆成真实 <br>，否则 contenteditable 会吞掉 \n。 */
+function insertTextViaDom(range: Range, next: string, before: string): void {
   range.deleteContents();
-  if (needSpace) {
+  if (needsLeadingSpace(before, next)) {
     range.insertNode(document.createTextNode(" "));
-    // Move the caret past the inserted space before inserting the text.
     const sp = document.createTextNode("\u200B");
     range.insertNode(sp);
     range.setStartAfter(sp);
     range.collapse(true);
     sp.remove();
   }
-  // Split on newlines so paste/dictation multiline text becomes real <br>
-  // nodes (contenteditable often collapses bare \n in a text node).
   const lines = next.split("\n");
   let lastInserted: Node | null = null;
   for (let i = 0; i < lines.length; i++) {
@@ -300,9 +299,42 @@ function insertTextAtCaret(text: string): void {
   }
   range.insertNode(spacer);
   placeCaretAfter(spacer);
+}
+
+/**
+ * Insert plain text at the current selection; a highlighted range inside the
+ * surface is replaced in place. Falls back to the end of the editor when no
+ * selection lives inside the surface (e.g. dictation finished while the
+ * editor lost focus).
+ */
+function insertTextAtCaret(text: string): void {
+  const root = surface.value;
+  const next = normalizeInsertedText(text);
+  if (!root || !next) return;
+
+  root.focus();
+  const sel = window.getSelection();
+  const range =
+    sel &&
+    sel.rangeCount > 0 &&
+    root.contains(sel.getRangeAt(0).commonAncestorContainer)
+      ? sel.getRangeAt(0)
+      : null;
+
+  if (!range) {
+    appendTextAtEnd(next);
+    return;
+  }
+
+  const before = (range.startContainer.textContent ?? "").slice(0, range.startOffset);
+  applyingStore = true;
+  if (!insertTextViaCommand(next, before)) {
+    insertTextViaDom(range, next, before);
+  }
   applyingStore = false;
   syncDraftFromDom();
-  scrollToEnd();
+  // 就地粘贴要把视图留在插入点，不要跳到底部。
+  scrollCaretIntoView();
 }
 
 

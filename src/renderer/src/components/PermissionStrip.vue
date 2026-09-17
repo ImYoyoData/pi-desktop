@@ -52,6 +52,10 @@ async function reply(decision: PermissionDecision): Promise<void> {
         </div>
       </header>
 
+      <div v-if="prompt.danger" class="danger-note">
+        {{ t.permissionDangerWarning }}
+      </div>
+
       <div v-if="prompt.summary" class="strip-body">
         <NText depth="3" class="summary">{{ prompt.summary }}</NText>
       </div>
@@ -72,15 +76,6 @@ async function reply(decision: PermissionDecision): Promise<void> {
           @click="reply('allow_session_category')"
         >
           {{ t.permissionAllowSession }}
-        </NButton>
-        <NButton
-          v-if="prompt.category === 'bash' && prompt.summary.trim()"
-          round
-          class="pi-interactive"
-          :disabled="replying"
-          @click="reply('allow_whitelist')"
-        >
-          {{ t.permissionAllowWhitelist }}
         </NButton>
         <NButton
           type="primary"
@@ -124,7 +119,7 @@ async function reply(decision: PermissionDecision): Promise<void> {
   flex-direction: column;
   min-height: 0;
   max-height: inherit;
-  border-radius: 18px;
+  border-radius: 6px;
   border: 1px solid color-mix(in srgb, var(--accent-border, var(--border)) 55%, var(--border));
   background:
     linear-gradient(
@@ -149,7 +144,7 @@ async function reply(decision: PermissionDecision): Promise<void> {
 .head-badge {
   width: 34px;
   height: 34px;
-  border-radius: 12px;
+  border-radius: 6px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -178,6 +173,17 @@ async function reply(decision: PermissionDecision): Promise<void> {
   color: var(--fg-muted);
 }
 
+.danger-note {
+  margin: 0 16px 8px;
+  padding: 6px 10px;
+  border-radius: 6px;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--error, #d03050);
+  background: color-mix(in srgb, var(--error, #d03050) 10%, transparent);
+  border: 1px solid color-mix(in srgb, var(--error, #d03050) 35%, transparent);
+}
+
 .strip-body {
   overflow-y: auto;
   padding: 4px 16px 8px;
@@ -195,7 +201,7 @@ async function reply(decision: PermissionDecision): Promise<void> {
   max-height: 6em;
   overflow: auto;
   padding: 10px 12px;
-  border-radius: 12px;
+  border-radius: 6px;
   border: 1px solid var(--border);
   background: color-mix(in srgb, var(--bg-elevated) 70%, var(--bg));
 }

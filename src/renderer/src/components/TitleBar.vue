@@ -1,77 +1,19 @@
 <script setup lang="ts">
-import { computed, defineAsyncComponent, h, onMounted, onUnmounted, ref } from "vue";
-import type { DropdownOption } from "naive-ui";
-import { NButton, NDropdown, NIcon, NSpace } from "naive-ui";
-import {
-  ArrowUpCircleOutline,
-  ColorPaletteOutline,
-  ExtensionPuzzleOutline,
-  FolderOpenOutline,
-  GlobeOutline,
-  InformationCircleOutline,
-  LogoGithub,
-  MicOutline,
-  MoonOutline,
-  NotificationsOutline,
-  OptionsOutline,
-  SettingsOutline,
-  ShieldCheckmarkOutline,
-  SparklesOutline,
-  StorefrontOutline,
-  SunnyOutline,
-} from "@vicons/ionicons5";
+import { onMounted, onUnmounted, ref } from "vue";
+import { NButton, NIcon, NSpace } from "naive-ui";
+import { ArrowUpCircleOutline, LogoGithub } from "@vicons/ionicons5";
 import PanelLeftIcon from "@renderer/components/icons/PanelLeftIcon.vue";
-import LanRemoteIcon from "@renderer/components/icons/LanRemoteIcon.vue";
 import PanelRightIcon from "@renderer/components/icons/PanelRightIcon.vue";
-
-/**
- * Settings modals are only opened on demand — load their code lazily so
- * startup stays light on slower CPUs.
- */
-const ModelsSettings = defineAsyncComponent(() => import("@renderer/components/ModelsSettings.vue"));
-const SkillsSettings = defineAsyncComponent(() => import("@renderer/components/SkillsSettings.vue"));
-const ExtensionsSettings = defineAsyncComponent(() => import("@renderer/components/ExtensionsSettings.vue"));
-const MarketSettings = defineAsyncComponent(() => import("@renderer/components/MarketSettings.vue"));
-const AppearanceSettings = defineAsyncComponent(() => import("@renderer/components/AppearanceSettings.vue"));
-const NotifySettings = defineAsyncComponent(() => import("@renderer/components/NotifySettings.vue"));
-const AsrSettings = defineAsyncComponent(() => import("@renderer/components/AsrSettings.vue"));
-const SecuritySettings = defineAsyncComponent(() => import("@renderer/components/SecuritySettings.vue"));
-const AboutSettings = defineAsyncComponent(() => import("@renderer/components/AboutSettings.vue"));
-const LanConsoleSettings = defineAsyncComponent(() => import("@renderer/components/LanConsoleSettings.vue"));
-const ProxySettings = defineAsyncComponent(() => import("@renderer/components/ProxySettings.vue"));
-
+import PanelBottomIcon from "@renderer/components/icons/PanelBottomIcon.vue";
 import UpdateCard from "@renderer/components/UpdateCard.vue";
 import { useWorkspaceStore } from "@renderer/stores/workspace";
-import { useAppearanceStore } from "@renderer/stores/appearance";
 import { useUpdateStore } from "@renderer/stores/update";
 import { useLayoutStore } from "@renderer/stores/layout";
 import { t } from "@renderer/i18n";
-import logoUrl from "@renderer/assets/logo.svg";
 
 const workspace = useWorkspaceStore();
-const appearance = useAppearanceStore();
 const updateStore = useUpdateStore();
 const layout = useLayoutStore();
-const modelsOpen = ref(false);
-const skillsOpen = ref(false);
-const extensionsOpen = ref(false);
-const marketOpen = ref(false);
-const appearanceOpen = ref(false);
-const notifyOpen = ref(false);
-const asrOpen = ref(false);
-const securityOpen = ref(false);
-const aboutOpen = ref(false);
-const proxyOpen = ref(false);
-const lanConsoleOpen = ref(false);
-const lanConsoleEnabled = ref(false);
-
-async function refreshLanConsoleStatus(): Promise<void> {
-  try {
-    lanConsoleEnabled.value = (await window.api.lanConsole.getStatus()).enabled;
-  } catch {
-    lanConsoleEnabled.value = false;
-  }
-}
 const platform = ref<NodeJS.Platform>("win32");
 const isMaximized = ref(false);
 let offUpdateProgress: (() => void) | undefined;
@@ -91,7 +33,6 @@ async function onClose(): Promise<void> {
 }
 
 onMounted(async () => {
-  void refreshLanConsoleStatus();
   platform.value = await window.api.window.platform();
   if (platform.value !== "darwin") {
     isMaximized.value = await window.api.window.isMaximized();
@@ -115,116 +56,6 @@ onUnmounted(() => {
   offUnmaximized?.();
 });
 
-function openFolder(): void {
-  void workspace.openWorkspace();
-}
-
-const settingsOptions: DropdownOption[] = [
-  {
-    label: t.appearance,
-    key: "appearance",
-    icon: () => h(NIcon, null, { default: () => h(OptionsOutline) }),
-  },
-  {
-    label: t.notifyTitle,
-    key: "notify",
-    icon: () => h(NIcon, null, { default: () => h(NotificationsOutline) }),
-  },
-  {
-    label: t.voiceTitle,
-    key: "asr",
-    icon: () => h(NIcon, null, { default: () => h(MicOutline) }),
-  },
-  {
-    label: t.securityTitle,
-    key: "security",
-    icon: () => h(NIcon, null, { default: () => h(ShieldCheckmarkOutline) }),
-  },
-  {
-    label: t.modelsMenu,
-    key: "models",
-    icon: () => h(NIcon, null, { default: () => h(SettingsOutline) }),
-  },
-  {
-    label: t.skillsTitle,
-    key: "skills",
-    icon: () => h(NIcon, null, { default: () => h(SparklesOutline) }),
-  },
-  {
-    label: t.extensionsTitle,
-    key: "extensions",
-    icon: () => h(NIcon, null, { default: () => h(ExtensionPuzzleOutline) }),
-  },
-  {
-    label: t.marketTitle,
-    key: "market",
-    icon: () => h(NIcon, null, { default: () => h(StorefrontOutline) }),
-  },
-  {
-    label: t.proxyTitle,
-    key: "proxy",
-    icon: () => h(NIcon, null, { default: () => h(GlobeOutline) }),
-  },
-  {
-    type: "divider",
-    key: "d-about",
-  },
-  {
-    label: t.aboutTitle,
-    key: "about",
-    icon: () => h(NIcon, null, { default: () => h(InformationCircleOutline) }),
-  },
-];
-
-function onSettingsSelect(key: string | number): void {
-  switch (String(key)) {
-    case "appearance":
-      appearanceOpen.value = true;
-      break;
-    case "notify":
-      notifyOpen.value = true;
-      break;
-    case "asr":
-      asrOpen.value = true;
-      break;
-    case "security":
-      securityOpen.value = true;
-      break;
-    case "models":
-      modelsOpen.value = true;
-      break;
-    case "skills":
-      skillsOpen.value = true;
-      break;
-    case "extensions":
-      extensionsOpen.value = true;
-      break;
-    case "market":
-      marketOpen.value = true;
-      break;
-    case "proxy":
-      proxyOpen.value = true;
-      break;
-    case "about":
-      aboutOpen.value = true;
-      break;
-    default:
-      break;
-  }
-}
-
-function cycleTheme(): void {
-  const order = ["system", "light", "dark"] as const;
-  const idx = order.indexOf(appearance.themePreference);
-  appearance.setThemePreference(order[(idx + 1) % order.length]);
-}
-
-const themeIcon = computed(() => {
-  if (appearance.themePreference === "light") return SunnyOutline;
-  if (appearance.themePreference === "dark") return MoonOutline;
-  return ColorPaletteOutline;
-});
-
 async function openGithub(): Promise<void> {
   await window.api.update.openGithub();
 }
@@ -241,23 +72,8 @@ async function onUpdateClick(): Promise<void> {
   >
     <div class="drag traffic-space" aria-hidden="true" />
     <div class="brand">
-      <img class="logo-img" :src="logoUrl" alt="" width="18" height="18" />
       <span class="name">{{ t.appName }}</span>
     </div>
-    <NButton
-      v-if="workspace.root && layout.leftCollapsed"
-      class="pane-toggle no-drag"
-      quaternary
-      circle
-      size="small"
-      :title="t.expandLeft"
-      :aria-label="t.expandLeft"
-      @click="layout.toggleLeftCollapsed()"
-    >
-      <template #icon>
-        <PanelLeftIcon :size="16" />
-      </template>
-    </NButton>
     <div class="center drag" />
     <div class="actions no-drag">
       <NSpace :size="4">
@@ -275,77 +91,47 @@ async function onUpdateClick(): Promise<void> {
           </template>
           <span v-if="updateStore.available" class="update-dot" aria-hidden="true" />
         </NButton>
-    <NPopover
-      trigger="click"
-      placement="bottom-end"
-      :show="lanConsoleOpen"
-      :width="360"
-      :show-arrow="false"
-      style="padding: 0"
-      @update:show="(v) => (lanConsoleOpen = v)"
-    >
-      <template #trigger>
-        <NButton
-          class="no-drag"
-          quaternary
-          circle
-          size="small"
-          :title="t.lanConsoleTitle"
-          :aria-label="t.lanConsoleTitle"
-          @click.stop="
-            lanConsoleOpen = true;
-            void refreshLanConsoleStatus();
-          "
-        >
-          <template #icon>
-            <LanRemoteIcon :size="16" />
-          </template>
-          <span
-            v-if="lanConsoleEnabled"
-            class="lan-console-dot"
-            :title="t.lanConsoleOn"
-          />
-        </NButton>
-      </template>
-      <LanConsoleSettings @close="lanConsoleOpen = false" />
-    </NPopover>
-        <NButton quaternary circle size="small" @click="cycleTheme">
-          <template #icon>
-            <NIcon :component="themeIcon" />
-          </template>
-        </NButton>
-        <NButton quaternary circle size="small" @click="openFolder">
-          <template #icon>
-            <NIcon :component="FolderOpenOutline" />
-          </template>
-        </NButton>
         <NButton quaternary circle size="small" @click="openGithub">
           <template #icon>
             <NIcon :component="LogoGithub" />
           </template>
         </NButton>
-        <NDropdown trigger="click" :options="settingsOptions" @select="onSettingsSelect">
-          <NButton quaternary circle size="small">
-            <template #icon>
-              <NIcon :component="SettingsOutline" />
-            </template>
-          </NButton>
-        </NDropdown>
-        <NButton
-          v-if="workspace.root && layout.rightCollapsed"
-          class="pane-toggle"
-          quaternary
-          circle
-          size="small"
-          :title="t.expandRight"
-          :aria-label="t.expandRight"
+      </NSpace>
+      <div v-if="workspace.root" class="layout-controls">
+        <button
+          type="button"
+          class="layout-btn"
+          :class="{ checked: !layout.leftCollapsed }"
+          :title="layout.leftCollapsed ? t.expandLeft : t.collapseLeft"
+          :aria-label="layout.leftCollapsed ? t.expandLeft : t.collapseLeft"
+          :aria-pressed="!layout.leftCollapsed"
+          @click="layout.toggleLeftCollapsed()"
+        >
+          <PanelLeftIcon :size="16" :off="layout.leftCollapsed" />
+        </button>
+        <button
+          type="button"
+          class="layout-btn"
+          :class="{ checked: !layout.bottomCollapsed }"
+          :title="layout.bottomCollapsed ? t.expandBottom : t.collapseBottom"
+          :aria-label="layout.bottomCollapsed ? t.expandBottom : t.collapseBottom"
+          :aria-pressed="!layout.bottomCollapsed"
+          @click="layout.toggleBottomCollapsed()"
+        >
+          <PanelBottomIcon :size="16" :off="layout.bottomCollapsed" />
+        </button>
+        <button
+          type="button"
+          class="layout-btn"
+          :class="{ checked: !layout.rightCollapsed }"
+          :title="layout.rightCollapsed ? t.expandRight : t.collapseRight"
+          :aria-label="layout.rightCollapsed ? t.expandRight : t.collapseRight"
+          :aria-pressed="!layout.rightCollapsed"
           @click="layout.toggleRightCollapsed()"
         >
-          <template #icon>
-            <PanelRightIcon :size="16" />
-          </template>
-        </NButton>
-      </NSpace>
+          <PanelRightIcon :size="16" :off="layout.rightCollapsed" />
+        </button>
+      </div>
     </div>
     <div v-if="platform !== 'darwin'" class="window-controls no-drag">
       <button type="button" class="wc-btn" :title="t.minimize" :aria-label="t.minimize" @click="onMinimize">
@@ -371,16 +157,6 @@ async function onUpdateClick(): Promise<void> {
     </div>
   </header>
   <UpdateCard />
-  <AppearanceSettings :open="appearanceOpen" @close="appearanceOpen = false" />
-  <NotifySettings :open="notifyOpen" @close="notifyOpen = false" />
-  <AsrSettings :open="asrOpen" @close="asrOpen = false" />
-  <SecuritySettings :open="securityOpen" @close="securityOpen = false" />
-  <ModelsSettings :open="modelsOpen" @close="modelsOpen = false" />
-  <SkillsSettings :open="skillsOpen" @close="skillsOpen = false" />
-  <ExtensionsSettings :open="extensionsOpen" @close="extensionsOpen = false" />
-  <MarketSettings :open="marketOpen" @close="marketOpen = false" />
-  <AboutSettings :open="aboutOpen" @close="aboutOpen = false" />
-  <ProxySettings :open="proxyOpen" @close="proxyOpen = false" />
 </template>
 
 <style scoped>
@@ -421,34 +197,48 @@ async function onUpdateClick(): Promise<void> {
 .brand {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
   padding-left: 4px;
   color: var(--fg-strong);
-}
-
-.pane-toggle {
-  flex-shrink: 0;
-  margin-left: 2px;
-  color: var(--fg-muted) !important;
-  transform: none !important;
-}
-
-.pane-toggle:active {
-  transform: none !important;
-}
-
-.logo-img {
-  width: 18px;
-  height: 18px;
-  border-radius: 5px;
-  display: block;
-  flex-shrink: 0;
 }
 
 .name {
   font-weight: 600;
   font-size: 12.5px;
   letter-spacing: -0.01em;
+}
+
+.layout-controls {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin-left: 6px;
+}
+
+/* VSCode 布局控件：图标常驻，区域可见时高亮。 */
+.layout-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: none;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--fg-muted);
+  cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+
+.layout-btn:hover {
+  background: var(--bg-hover, rgba(127, 127, 127, 0.1));
+  color: var(--fg-strong);
+}
+
+.layout-btn.checked,
+.layout-btn.checked:hover {
+  background: var(--bg-active);
+  color: var(--fg-strong);
 }
 
 .center {
@@ -459,6 +249,7 @@ async function onUpdateClick(): Promise<void> {
 .actions {
   display: flex;
   align-items: center;
+  gap: 2px;
 }
 
 .update-btn {
@@ -474,7 +265,7 @@ async function onUpdateClick(): Promise<void> {
   width: 7px;
   height: 7px;
   border-radius: 50%;
-  background: #e5484d;
+  background: var(--accent);
   box-shadow: 0 0 0 1.5px var(--bg-title, var(--bg));
   pointer-events: none;
 }
@@ -508,7 +299,7 @@ async function onUpdateClick(): Promise<void> {
 }
 
 .wc-btn.close-btn:hover {
-  background: #e5484d;
+  background: #c42b1c;
   color: #fff;
 }
 
@@ -517,17 +308,5 @@ async function onUpdateClick(): Promise<void> {
   width: 10px;
   height: 10px;
   flex-shrink: 0;
-}
-/* LAN console titlebar entry (left, after the app name) - same visual
-   language as the right-side titlebar buttons. */
-.lan-console-dot {
-  position: absolute;
-  top: 4px;
-  right: 4px;
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: #22c55e;
-  box-shadow: 0 0 0 1.5px var(--bg-title, var(--bg));
 }
 </style>

@@ -10,8 +10,9 @@ import {
   useDialog,
   useMessage,
 } from "naive-ui";
-import { ArrowDownOutline, ArrowUndoOutline, ChevronDownOutline, ChevronUpOutline, CopyOutline, CreateOutline, PauseOutline, RefreshOutline, VolumeMediumOutline } from "@vicons/ionicons5";
+import { ArrowDownOutline, ArrowUndoOutline, ChevronDownOutline, ChevronUpOutline, CopyOutline, CreateOutline, GitBranchOutline, PauseOutline, RefreshOutline, VolumeMediumOutline } from "@vicons/ionicons5";
 import type { ChatMessage, ChatRetryHint } from "@renderer/stores/chat";
+import { useAppearanceStore } from "@renderer/stores/appearance";
 import { useChatStore } from "@renderer/stores/chat";
 import { useCheckpointStore } from "@renderer/stores/checkpoint";
 import { useComposerStore } from "@renderer/stores/composer";
@@ -28,6 +29,7 @@ const MarkdownView = defineAsyncComponent(
 
 import ThinkingBlock from "@renderer/components/ThinkingBlock.vue";
 import ToolCallCard from "@renderer/components/ToolCallCard.vue";
+import TurnDiffSummary from "@renderer/components/TurnDiffSummary.vue";
 import WorkSectionGroup from "@renderer/components/WorkSectionGroup.vue";
 import AgentWaitIndicator from "@renderer/components/AgentWaitIndicator.vue";
 import { toolCardFor as toolCard } from "@renderer/utils/tool-diff";
@@ -46,10 +48,11 @@ import {
 } from "../../../shared/composer-modes";
 import { ASK_USER_TOOL_NAME } from "../../../shared/ask-user";
 import {
-  followBottomVirtualWindow,
-  windowAfterHistoryPrepend,
-} from "@renderer/utils/message-virtual-window";
+  collectTurnFileChanges,
+  type TurnFileChanges,
+} from "@renderer/utils/turn-file-changes";
 import { decideFollowOnScroll } from "@renderer/utils/follow-bottom";
+import { thinkingLevelLabel } from "@renderer/utils/thinking-level";
 
 /**
  * Sliding virtual window: mount a modest range around the viewport so
@@ -78,9 +81,14 @@ const props = defineProps<{
   running: boolean;
   retryHint?: ChatRetryHint | null;
   historyLoading?: boolean;
-  historyHasMore?: boolean;
-  historyLoadingOlder?: boolean;
+  /** 面板被折叠/让位给编辑器区域时为 false。 */
+  visible?: boolean;
 }>();
+
+/** 面板不可见时内容会被跳过渲染，任何读量高都会强制布局，必须停掉追踪。 */
+function paneHidden(): boolean {
+  return props.visible === false;
+}
 
 const chat = useChatStore();
 const waitState = computed(() => chat.activeWaitState);
@@ -94,6 +102,21 @@ const checkpoints = useCheckpointStore();
 const composer = useComposerStore();
 const sendQueue = useSendQueueStore();
 const sessions = useSessionsStore();
+
+/**
+ * Queued sends still waiting for their turn, shown as cards at the tail so the
+ * message never appears to vanish while the agent finishes what it is doing.
+ */
+const pendingQueueCards = computed(() => sendQueue.activeItems);
+
+/** One-line preview for a queued card (mirrors SendQueueBar). */
+function queuePreview(item: { text: string; images?: unknown[]; elementTags?: { label?: string }[] }): string {
+  const raw = item.text.replace(/\s+/gu, " ").trim();
+  if (raw) return raw;
+  if (item.images?.length) return `[${item.images.length} image(s)]`;
+  if (item.elementTags?.length) return item.elementTags[0]?.label || "[attachment]";
+  return "…";
+}
 const previewStore = usePreviewStore();
 const rightTabs = useRightTabsStore();
 const tts = useTtsStore();
@@ -226,9 +249,15 @@ function isKeepVisibleTool(msg: ChatMessage): boolean {
   return msg.role === "tool" && msg.toolName === ASK_USER_TOOL_NAME;
 }
 
-const displayMessages = computed(() => {
+/** 完整消息序列（含 streaming）：改动统计需要历史轮被裁剪掉的工具行。 */
+const allMessages = computed<ChatMessage[]>(() => {
   const list = [...props.messages];
   if (props.streaming) list.push(props.streaming);
+  return list;
+});
+
+const displayMessages = computed(() => {
+  const list = allMessages.value;
   const start = latestTurnStart.value;
   const out: ChatMessage[] = [];
   for (let i = 0; i < list.length; i++) {
@@ -448,6 +477,19 @@ const stickyPinMessage = computed(() => {
   return msg?.role === "user" ? msg : null;
 });
 
+const appearance = useAppearanceStore();
+
+/** 置顶预览条：关闭预览、或内容全被开关隐藏（如纯图片消息）时不显示。 */
+const stickyPreviewMessage = computed(() => {
+  if (!appearance.showMessagePreview) return null;
+  const msg = stickyPinMessage.value;
+  if (!msg) return null;
+  const hasImages = (msg.images?.length ?? 0) > 0 && appearance.showMessagePreviewImage;
+  const hasText = !!displayUserText(msg.text);
+  const hasTags = visibleUserTags(msg.elementTags).length > 0;
+  return hasImages || hasText || hasTags ? msg : null;
+});
+
 function stickyCapPx(sc: HTMLElement): number {
   return Math.min(Math.round(sc.clientHeight * STICKY_MAX_VH), STICKY_MAX_PX);
 }
@@ -500,7 +542,7 @@ function clearStickyPin(): void {
 /** Pin overlay for the nearest user message scrolled above the viewport. */
 function updateStickyPinned(): void {
   const sc = scroller.value;
-  if (!sc) {
+  if (!sc || !appearance.showMessagePreview) {
     clearStickyPin();
     return;
   }
@@ -570,20 +612,46 @@ function isNearBottom(el: HTMLElement): boolean {
  * group would mount followers as empty 0-height rows. Widen the start upward
  * to the group's lead so the section stays whole.
  */
-function alignRenderWindowToGroup(start: number, end: number): void {
+function groupAlignedStart(start: number, end: number): number {
   const all = displayMessages.value;
-  const len = all.length;
+  if (start <= 0 || start >= all.length || start >= end) return start;
+  const m = workSectionMembership.value.get(all[start]!.id);
+  if (!m) return start;
+  const leadIdx = all.findIndex((r) => r.id === m.leadId);
+  return leadIdx >= 0 && leadIdx < start ? leadIdx : start;
+}
+
+function alignRenderWindowToGroup(start: number, end: number): void {
+  const len = displayMessages.value.length;
   const clampedEnd = Math.max(0, Math.min(end, len));
-  let clampedStart = Math.max(0, Math.min(start, clampedEnd));
-  if (clampedStart > 0 && clampedStart < len) {
-    const m = workSectionMembership.value.get(all[clampedStart]!.id);
-    if (m) {
-      const leadIdx = all.findIndex((r) => r.id === m.leadId);
-      if (leadIdx >= 0 && leadIdx < clampedStart) clampedStart = leadIdx;
-    }
-  }
+  const clampedStart = groupAlignedStart(Math.max(0, Math.min(start, clampedEnd)), clampedEnd);
   renderStart.value = clampedStart;
   renderEnd.value = clampedEnd;
+}
+
+/**
+ * 贴底窗口：从尾部向上累加估算高度，直到能盖住视口（至少 VIRTUAL_WINDOW 行）。
+ * 长摘要折叠后尾部只剩一行表头，固定行数的尾窗会让视口落进顶部 spacer，
+ * 看起来就是一大片空白。
+ */
+function tailWindowForViewport(len: number): { start: number; end: number } {
+  const all = displayMessages.value;
+  const need = (scroller.value?.clientHeight ?? 0) + OVERSCAN_PX;
+  const minStart = Math.max(0, len - VIRTUAL_WINDOW);
+  let start = minStart;
+  let height = 0;
+  for (let i = len - 1; i >= 0; i--) {
+    height += estimateMessageHeight(all[i]);
+    if (height >= need && i <= minStart) {
+      start = i;
+      break;
+    }
+    if (i === 0) {
+      start = 0;
+      break;
+    }
+  }
+  return { start: groupAlignedStart(start, len), end: len };
 }
 
 function clampRenderWindow(preferBottom: boolean): void {
@@ -601,7 +669,8 @@ function clampRenderWindow(preferBottom: boolean): void {
     return;
   }
   if (preferBottom) {
-    alignRenderWindowToGroup(len - VIRTUAL_WINDOW, len);
+    const tail = tailWindowForViewport(len);
+    alignRenderWindowToGroup(tail.start, tail.end);
     return;
   }
   // Keep current window sized and clamped inside [0, len].
@@ -616,7 +685,7 @@ function clampRenderWindow(preferBottom: boolean): void {
 
 function measureVisibleRows(): void {
   const sc = scroller.value;
-  if (!sc) return;
+  if (!sc || paneHidden()) return;
   const rows = sc.querySelectorAll<HTMLElement>(".row[data-msg-id]");
   for (const row of rows) {
     const id = row.dataset.msgId;
@@ -634,33 +703,117 @@ function measureVisibleRows(): void {
  * Re-measure a single row after its own content resized (e.g. a work section
  * finished its fold/unfold animation). Keeps virtual-window heights in sync
  * without a full relayout — the source of the "janky" fold.
+ * 拖动分隔条 / 缩放窗口时每帧会收到多个分组的高度变化，按帧合并成一次测量。
  */
+let resizedRowRaf = 0;
+const resizedRowIds = new Set<string>();
 function rowResized(id: string): void {
-  if (adjustingWindow || settlingSession) return;
-  const sc = scroller.value;
-  if (!sc) return;
-  const row = sc.querySelector<HTMLElement>(`.row[data-msg-id="${id}"]`);
-  if (!row) return;
-  const h = row.offsetHeight;
-  if (h > 0) heightById.set(heightKey(id), h);
-  const top = row.offsetTop;
-  if (top > 0) topById.set(id, top);
+  if (adjustingWindow || settlingSession || paneHidden()) return;
+  resizedRowIds.add(id);
+  if (resizedRowRaf) return;
+  resizedRowRaf = requestAnimationFrame(() => {
+    resizedRowRaf = 0;
+    const ids = [...resizedRowIds];
+    resizedRowIds.clear();
+    const sc = scroller.value;
+    if (!sc) return;
+    for (const rowId of ids) {
+      const row = sc.querySelector<HTMLElement>(`.row[data-msg-id="${rowId}"]`);
+      if (!row) continue;
+      const h = row.offsetHeight;
+      if (h > 0) heightById.set(heightKey(rowId), h);
+      const top = row.offsetTop;
+      if (top > 0) topById.set(rowId, top);
+    }
+    ensureViewportCovered();
+  });
 }
 
-function restoreScrollAfterMutation(sc: HTMLElement, prevHeight: number, prevTop: number): void {
-  const delta = sc.scrollHeight - prevHeight;
-  sc.scrollTop = prevTop + delta;
+/**
+ * 行高变化（长摘要折叠/展开）后视口可能落进 spacer 覆盖的未挂载区域 ——
+ * 屏幕上就只剩一片空白。这里就地补挂对应方向的行，让视口重新被真实内容盖住。
+ */
+function ensureViewportCovered(): void {
+  if (adjustingWindow || settlingSession || document.hidden) return;
+  if (paneHidden()) return;
+  const sc = scroller.value;
+  if (!sc) return;
+  // 已挂载内容不足一屏且确实有 spacer：行高可能在被卸载期间变化过，先量一次再判断。
+  const mountedHeight = sc.scrollHeight - topSpacerPx.value - bottomSpacerPx.value;
+  if (mountedHeight < sc.clientHeight && (topSpacerPx.value > 0 || bottomSpacerPx.value > 0)) {
+    measureVisibleRows();
+  }
+  if (renderStart.value > 0 && sc.scrollTop < topSpacerPx.value + OVERSCAN_PX) {
+    expandHistoryUp();
+    return;
+  }
+  const len = displayMessages.value.length;
+  if (
+    renderEnd.value < len &&
+    sc.scrollTop + sc.clientHeight > sc.scrollHeight - bottomSpacerPx.value - OVERSCAN_PX
+  ) {
+    expandHistoryDown();
+  }
+}
+
+/** 视口内首/尾两条可见行，作为窗口变更后的位置基准。 */
+type ScrollAnchor = { id: string; viewportTop: number };
+type ScrollAnchors = { first: ScrollAnchor | null; last: ScrollAnchor | null };
+
+function captureScrollAnchors(): ScrollAnchors {
+  const anchors: ScrollAnchors = { first: null, last: null };
+  const sc = scroller.value;
+  if (!sc) return anchors;
+  const scRect = sc.getBoundingClientRect();
+  for (const row of sc.querySelectorAll<HTMLElement>(".row[data-msg-id]")) {
+    const id = row.dataset.msgId;
+    if (!id) continue;
+    const rect = row.getBoundingClientRect();
+    if (rect.bottom <= scRect.top || rect.top >= scRect.bottom) continue;
+    const anchor = { id, viewportTop: rect.top - scRect.top };
+    if (!anchors.first) anchors.first = anchor;
+    anchors.last = anchor;
+  }
+  return anchors;
+}
+
+/**
+ * 窗口变更后把锚点行放回原视口位置，按行的真实位移补偿。
+ * 不能用整体高度差：它把窗口内其它行的内容变化（流式输出、异步 Markdown）
+ * 和 spacer 估算误差一并算进去，等于每次调整都把视图往底部推。
+ * 向上扩展裁尾部、向下扩展裁头部，所以首/尾锚点至少有一个还在。
+ */
+function restoreScrollAnchor(
+  anchors: ScrollAnchors,
+  prevHeight: number,
+  prevTop: number,
+): void {
+  const sc = scroller.value;
+  if (!sc) return;
+  const scTop = sc.getBoundingClientRect().top;
+  for (const anchor of [anchors.first, anchors.last]) {
+    if (!anchor) continue;
+    const row = sc.querySelector<HTMLElement>(
+      `.row[data-msg-id="${CSS.escape(anchor.id)}"]`,
+    );
+    if (!row) continue;
+    sc.scrollTop += row.getBoundingClientRect().top - scTop - anchor.viewportTop;
+    return;
+  }
+  // 两个锚点都被卸载时退回高度差补偿。
+  sc.scrollTop = prevTop + (sc.scrollHeight - prevHeight);
 }
 
 /** After a window mutate, continue prefetch on the next frame (yields to paint — no nextTick storm). */
 function scheduleWindowPrefetch(): void {
   requestAnimationFrame(() => {
     const sc = scroller.value;
-    if (!sc || adjustingWindow || settlingSession || followBottom) return;
-    if (sc.scrollTop < topSpacerPx.value + OVERSCAN_PX) {
+    if (!sc || adjustingWindow || settlingSession) return;
+    if (renderStart.value > 0 && sc.scrollTop < topSpacerPx.value + OVERSCAN_PX) {
       expandHistoryUp();
       return;
     }
+    if (followBottom) return;
     const bottomEdge = sc.scrollHeight - bottomSpacerPx.value;
     if (sc.scrollTop + sc.clientHeight > bottomEdge - OVERSCAN_PX) {
       expandHistoryDown();
@@ -669,22 +822,22 @@ function scheduleWindowPrefetch(): void {
 }
 
 function expandHistoryUp(): void {
-  if (adjustingWindow || loadingOlderPage) return;
-  if (renderStart.value <= 0) {
-    // At the start of the *loaded* window — fetch an older page from disk if any.
-    void loadOlderHistoryPage();
-    return;
-  }
+  if (adjustingWindow) return;
+  if (renderStart.value <= 0) return;
   const sc = scroller.value;
   if (!sc) return;
   adjustingWindow = true;
   const prevHeight = sc.scrollHeight;
   const prevTop = sc.scrollTop;
+  const anchor = captureScrollAnchors();
   const nextStart = Math.max(0, renderStart.value - VIRTUAL_CHUNK);
   let nextEnd = renderEnd.value;
   // Trim far (bottom) side so mounting stays bounded while scrolling up.
-  if (nextStart + VIRTUAL_MAX < nextEnd) {
-    nextEnd = nextStart + VIRTUAL_MAX;
+  // 被裁掉的行必须在视口下方，否则底部 spacer 会顶进视口（露出空白）。
+  const trimEnd = nextStart + VIRTUAL_MAX;
+  if (!followBottom && trimEnd < nextEnd) {
+    const trimTop = sc.scrollHeight - bottomSpacerPx.value - estimateRangeHeight(trimEnd, nextEnd);
+    if (trimTop > sc.scrollTop + sc.clientHeight + OVERSCAN_PX) nextEnd = trimEnd;
   }
   if (fitsFullMount(displayMessages.value.length)) {
     renderStart.value = 0;
@@ -693,77 +846,17 @@ function expandHistoryUp(): void {
     alignRenderWindowToGroup(nextStart, nextEnd);
   }
   void nextTick(() => {
-    restoreScrollAfterMutation(sc, prevHeight, prevTop);
+    restoreScrollAnchor(anchor, prevHeight, prevTop);
     measureVisibleRows();
     adjustingWindow = false;
     updateStickyPinned();
-    if (renderStart.value <= 0) {
-      void loadOlderHistoryPage();
-    } else {
-      scheduleWindowPrefetch();
-    }
+    scheduleWindowPrefetch();
+    ensureViewportCovered();
   });
 }
 
-let loadingOlderPage = false;
-async function loadOlderHistoryPage(): Promise<void> {
-  if (loadingOlderPage || !props.historyHasMore) return;
-  const id = sessionId.value;
-  if (!id) return;
-  const sc = scroller.value;
-  if (!sc) return;
-  loadingOlderPage = true;
-  adjustingWindow = true;
-  const prevHeight = sc.scrollHeight;
-  const prevTop = sc.scrollTop;
-  try {
-    const added = await chat.loadOlderHistory(id);
-    if (added <= 0) return;
-    // Prepend shifts every index — keep the same rows mounted, then peek a chunk older.
-    // The viewport stays anchored via restoreScrollAfterMutation, so this is safe
-    // even while the user is mid-read.
-    const shifted = windowAfterHistoryPrepend(
-      { start: renderStart.value, end: renderEnd.value },
-      added,
-      displayMessages.value.length,
-      VIRTUAL_MAX,
-      VIRTUAL_CHUNK,
-    );
-    if (fitsFullMount(displayMessages.value.length)) {
-      renderStart.value = 0;
-      renderEnd.value = displayMessages.value.length;
-    } else {
-      alignRenderWindowToGroup(shifted.start, shifted.end);
-    }
-    await nextTick();
-    restoreScrollAfterMutation(sc, prevHeight, prevTop);
-    measureVisibleRows();
-    updateStickyPinned();
-    scheduleWindowPrefetch();
-  } finally {
-    adjustingWindow = false;
-    loadingOlderPage = false;
-  }
-  void fillViewportWithHistory();
-}
-
-/**
- * A fresh history page can fit the viewport entirely (folded rows are short),
- * leaving no overflow — and therefore no scroll events — so the scroll-driven
- * prefetch above would never fire and older history becomes unreachable.
- * Keep prepending pages until the list actually overflows (or history ends).
- */
-async function fillViewportWithHistory(): Promise<void> {
-  const sc = scroller.value;
-  if (!sc || settlingSession || adjustingWindow || loadingOlderPage) return;
-  if (readingHistory || document.hidden) return;
-  if (!props.historyHasMore || renderStart.value > 0) return;
-  if (sc.scrollHeight > sc.clientHeight + 1) return;
-  await loadOlderHistoryPage();
-}
-
 function expandHistoryDown(): void {
-  if (adjustingWindow || loadingOlderPage) return;
+  if (adjustingWindow) return;
   const len = displayMessages.value.length;
   if (renderEnd.value >= len) return;
   const sc = scroller.value;
@@ -771,11 +864,15 @@ function expandHistoryDown(): void {
   adjustingWindow = true;
   const prevHeight = sc.scrollHeight;
   const prevTop = sc.scrollTop;
+  const anchor = captureScrollAnchors();
   renderEnd.value = Math.min(len, renderEnd.value + VIRTUAL_CHUNK);
   // Trim far (top) side — never grow past VIRTUAL_MAX (sticky is overlay-only).
+  // 被裁掉的行必须完全在视口上方，否则顶部 spacer 会露进视口（“到最顶上大片空白”）。
   let nextStart = renderStart.value;
-  if (renderEnd.value - nextStart > VIRTUAL_MAX) {
-    nextStart = renderEnd.value - VIRTUAL_MAX;
+  const trimStart = renderEnd.value - VIRTUAL_MAX;
+  if (trimStart > nextStart) {
+    const trimBottom = topSpacerPx.value + estimateRangeHeight(nextStart, trimStart);
+    if (sc.scrollTop > trimBottom + OVERSCAN_PX) nextStart = trimStart;
   }
   if (fitsFullMount(len)) {
     renderStart.value = 0;
@@ -784,11 +881,12 @@ function expandHistoryDown(): void {
     alignRenderWindowToGroup(nextStart, renderEnd.value);
   }
   void nextTick(() => {
-    restoreScrollAfterMutation(sc, prevHeight, prevTop);
+    restoreScrollAnchor(anchor, prevHeight, prevTop);
     measureVisibleRows();
     adjustingWindow = false;
     updateStickyPinned();
     scheduleWindowPrefetch();
+    ensureViewportCovered();
   });
 }
 
@@ -796,7 +894,7 @@ let instantSnapToken = 0;
 function jumpToBottomInstant(): void {
   // Jump control / settle are the only callers; anything else must not move
   // the viewport while the user is reading history.
-  if (readingHistory) return;
+  if (readingHistory || paneHidden()) return;
   const sc = scroller.value;
   if (!sc) return;
   const token = ++instantSnapToken;
@@ -825,12 +923,24 @@ function jumpToBottomInstant(): void {
  * frame is enough; later updates simply re-schedule.
  */
 let bottomScrollRaf = 0;
+/**
+ * 每 tick 同步量高会强制布局（offsetHeight 读取），高 chunk 频率下占满主线程。
+ * 流式期间合并为 ~250ms 尾随测量，滚动 / 窗口调整路径仍各自即时测量。
+ */
+let streamMeasureTimer = 0;
+function scheduleStreamMeasure(): void {
+  if (streamMeasureTimer) return;
+  streamMeasureTimer = window.setTimeout(() => {
+    streamMeasureTimer = 0;
+    measureVisibleRows();
+  }, 250);
+}
 function scheduleBottomScroll(): void {
   // Hard latch first: a reader must never be yanked, even if followBottom is
   // still momentarily true in a state snapshot taken mid-wheel.
   if (readingHistory) return;
   // Minimized / hidden: no layout work until the window is restored.
-  if (document.hidden) return;
+  if (document.hidden || paneHidden()) return;
   if (bottomScrollRaf) return;
   bottomScrollRaf = requestAnimationFrame(() => {
     bottomScrollRaf = 0;
@@ -838,7 +948,7 @@ function scheduleBottomScroll(): void {
     // Re-check at fire time, not just schedule time: the user may have scrolled
     // up after the snap was queued (the follow decision is sync, this rAF is
     // not) — never yank the viewport back down while they read history.
-    if (!sc || document.hidden || !followBottom) return;
+    if (!sc || document.hidden || paneHidden() || !followBottom) return;
     // Even when a prior state sample left follow=true (samples are not atomic
     // with a mid-await wheel), the hard reading latch still wins at fire time.
     if (readingHistory) return;
@@ -846,9 +956,9 @@ function scheduleBottomScroll(): void {
   });
 }
 
-/** Restored from minimized: land at the live edge without a big re-measure. */
-function onVisibilityChange(): void {
-  if (document.hidden) return;
+/** 面板 / 窗口重新可见：贴底收敛一次，不重新量全部行高。 */
+function onBecameVisible(): void {
+  if (paneHidden() || document.hidden) return;
   if (!followBottom || readingHistory) return;
   clampRenderWindow(true);
   scheduleBottomScroll();
@@ -857,6 +967,19 @@ function onVisibilityChange(): void {
     scheduleBottomScroll();
   });
 }
+
+/** Restored from minimized: land at the live edge without a big re-measure. */
+function onVisibilityChange(): void {
+  if (document.hidden) return;
+  onBecameVisible();
+}
+
+watch(
+  () => props.visible,
+  (visible) => {
+    if (visible !== false) onBecameVisible();
+  },
+);
 
 function jumpToLatest(): void {
   disengageHistoryReading();
@@ -942,7 +1065,6 @@ async function beginSessionSettle(): Promise<void> {
     // Final snap after reveal (layout may change when visibility returns).
     await nextTick();
     jumpToBottomInstant();
-    void fillViewportWithHistory();
   }
 }
 
@@ -962,11 +1084,32 @@ function cancelQueuedBottomSnaps(): void {
   instantSnapToken++;
 }
 
+/** 用户明确开始读历史：立即脱离贴底，不再被任何排队中的贴底拉回。 */
+function engageUserHistoryScroll(): void {
+  if (readingHistory && !followBottom) return;
+  const sc = scroller.value;
+  if (!sc || sc.scrollHeight <= sc.clientHeight + 1) return;
+  cancelSessionSettle();
+  suppressFollowBottomUntil = 0;
+  userScrolledAway = true;
+  followBottom = false;
+  cancelQueuedBottomSnaps();
+  engageHistoryReading();
+}
+
+/** 会话贴底是多段异步快照，用户中途上滑时整体取消。 */
+function cancelSessionSettle(): void {
+  if (!settlingSession) return;
+  sessionJumpToken++;
+  settlingSession = false;
+  settlingUi.value = false;
+}
+
 function syncFollowBottomOnScroll(sc: HTMLElement): void {
-  // While the virtual window / history loading adjusts the DOM, scroll events
-  // are synthetic — the decision machine must not run at all (a prepend nudge
-  // could otherwise look like the user scrolling back down).
-  if (adjustingWindow || loadingOlderPage || settlingSession) {
+  // While the virtual window adjusts the DOM, scroll events are synthetic — the
+  // decision machine must not run at all (a synthetic nudge could otherwise
+  // look like the user scrolling back down).
+  if (adjustingWindow || settlingSession) {
     lastSyncScrollTop = sc.scrollTop;
     return;
   }
@@ -985,8 +1128,8 @@ function syncFollowBottomOnScroll(sc: HTMLElement): void {
   suppressFollowBottomUntil = decision.suppressUntil;
   followBottom = decision.following;
   if (!followBottom) cancelQueuedBottomSnaps();
-  // While a user is reading history (hard latch), every extra list insert /
-  // prepend shifts the DOM; synthetic scroll events then fire. Those are not
+  // While a user is reading history (hard latch), every extra list insert
+  // shifts the DOM; synthetic scroll events then fire. Those are not
   // intent — the state machine stays inert except for a real return into the
   // live edge, which releases the latch (decideFollowOnScroll only reports
   // following=true once the user scrolls back into the near-bottom zone).
@@ -1009,20 +1152,35 @@ function syncFollowBottomOnScroll(sc: HTMLElement): void {
  * user's scroll progress every chunk and they could never escape.
  */
 function onScrollerWheel(event: WheelEvent): void {
-  if (event.deltaY >= 0 || settlingSession || adjustingWindow) return;
+  if (event.deltaY >= 0) return;
   const sc = scroller.value;
   if (!sc) return;
-  if (sc.scrollTop <= 0) {
-    // No overflow (or already at the top edge): scroll events can't fire, so
-    // trigger the older-page fetch directly from the wheel gesture.
-    void fillViewportWithHistory();
-    return;
-  }
-  suppressFollowBottomUntil = 0;
-  userScrolledAway = true;
-  followBottom = false;
-  cancelQueuedBottomSnaps();
-  engageHistoryReading();
+  engageUserHistoryScroll();
+}
+
+function onScrollerKeydown(event: KeyboardEvent): void {
+  if (event.key !== "ArrowUp" && event.key !== "PageUp" && event.key !== "Home") return;
+  engageUserHistoryScroll();
+}
+
+let touchStartY = -1;
+function onScrollerTouchStart(event: TouchEvent): void {
+  touchStartY = event.touches[0]?.clientY ?? -1;
+}
+
+/** 手指下移 = 内容上滚 = 回看更早的消息（触摸屏 / 手机网页端没有 wheel 事件）。 */
+function onScrollerTouchMove(event: TouchEvent): void {
+  const y = event.touches[0]?.clientY;
+  if (y == null || touchStartY < 0 || y <= touchStartY + 8) return;
+  engageUserHistoryScroll();
+}
+
+/** 指针落在滚动条区域（元素内容区右侧）时同样视为主动滚动。 */
+function onScrollerPointerDown(event: PointerEvent): void {
+  const sc = scroller.value;
+  if (!sc) return;
+  if (event.clientX < sc.getBoundingClientRect().left + sc.clientWidth) return;
+  engageUserHistoryScroll();
 }
 
 /** Heavy virtual-window / prefetch work stays rAF-coalesced (follow already synced). */
@@ -1032,9 +1190,7 @@ function handleScrollerScroll(): void {
 
   if (followBottom) {
     const len = displayMessages.value.length;
-    const ideal = fitsFullMount(len)
-      ? { start: 0, end: len }
-      : followBottomVirtualWindow(len, VIRTUAL_WINDOW);
+    const ideal = fitsFullMount(len) ? { start: 0, end: len } : tailWindowForViewport(len);
     if (renderStart.value !== ideal.start || renderEnd.value !== ideal.end) {
       alignRenderWindowToGroup(ideal.start, ideal.end);
       // The clamp changes content above the live edge — re-pin so the
@@ -1044,13 +1200,16 @@ function handleScrollerScroll(): void {
         if (!el || !followBottom || readingHistory || adjustingWindow) return;
         el.scrollTop = el.scrollHeight;
         measureVisibleRows();
+        ensureViewportCovered();
       });
+    } else {
+      ensureViewportCovered();
     }
     return;
   }
 
   // Prefetch above: expand before the viewport hits blank spacer.
-  if (sc.scrollTop < topSpacerPx.value + OVERSCAN_PX) {
+  if (renderStart.value > 0 && sc.scrollTop < topSpacerPx.value + OVERSCAN_PX) {
     expandHistoryUp();
   }
   // Prefetch below: keep continuity when scrolling back toward latest.
@@ -1061,6 +1220,7 @@ function handleScrollerScroll(): void {
 }
 
 function onScrollerScroll(): void {
+  if (paneHidden()) return;
   const sc = scroller.value;
   if (sc) syncFollowBottomOnScroll(sc);
   if (scrollRaf) return;
@@ -1104,8 +1264,6 @@ watch(
 watch(
   () => displayMessages.value.length,
   (len, prevLen) => {
-    // loadOlderHistoryPage owns index shifts while prepending; skip to avoid double-clamp.
-    if (loadingOlderPage) return;
     const hydratedFromEmpty = (prevLen === 0 || prevLen == null) && len > 0;
     // Only pin the trailing window when the user is following the bottom.
     // (Do NOT yank the window during agent runs if the user scrolled up to read history.)
@@ -1119,7 +1277,6 @@ watch(
       renderStart.value = 0;
       renderEnd.value = len;
     } else {
-      // Prepend path adjusts indices inside loadOlderHistoryPage before length settles.
       clampRenderWindow(false);
     }
     // Critical: hydrate often lands AFTER settle timeouts. Always snap when
@@ -1138,7 +1295,6 @@ watch(
         jumpToBottomInstant();
       });
     }
-    void fillViewportWithHistory();
   },
   { immediate: true },
 );
@@ -1245,7 +1401,8 @@ watch(
       if (!followBottom) return;
       // Coalesced + re-checked at fire time (never yanks a scrolled-up reader).
       scheduleBottomScroll();
-      measureVisibleRows();
+      if (justFinished) measureVisibleRows();
+      else scheduleStreamMeasure();
       if (justFinished) {
         requestAnimationFrame(() => {
           const sc = scroller.value;
@@ -1299,15 +1456,24 @@ onMounted(() => {
   const sc = scroller.value;
   sc?.addEventListener("scroll", onScrollerScroll, { passive: true });
   sc?.addEventListener("wheel", onScrollerWheel, { passive: true });
+  sc?.addEventListener("keydown", onScrollerKeydown);
+  sc?.addEventListener("touchstart", onScrollerTouchStart, { passive: true });
+  sc?.addEventListener("touchmove", onScrollerTouchMove, { passive: true });
+  sc?.addEventListener("pointerdown", onScrollerPointerDown, { passive: true });
   document.addEventListener("visibilitychange", onVisibilityChange);
   // Auto-load on startup mounts MessageList *after* activeId is set, so the
   // sessionId watcher may not re-fire — settle here or the spacer looks blank.
   void beginSessionSettle();
+  void loadModelNames();
 });
 
 onBeforeUnmount(() => {
   scroller.value?.removeEventListener("scroll", onScrollerScroll);
   scroller.value?.removeEventListener("wheel", onScrollerWheel);
+  scroller.value?.removeEventListener("keydown", onScrollerKeydown);
+  scroller.value?.removeEventListener("touchstart", onScrollerTouchStart);
+  scroller.value?.removeEventListener("touchmove", onScrollerTouchMove);
+  scroller.value?.removeEventListener("pointerdown", onScrollerPointerDown);
   document.removeEventListener("visibilitychange", onVisibilityChange);
   if (scrollRaf) {
     cancelAnimationFrame(scrollRaf);
@@ -1317,6 +1483,15 @@ onBeforeUnmount(() => {
     cancelAnimationFrame(bottomScrollRaf);
     bottomScrollRaf = 0;
   }
+  if (streamMeasureTimer) {
+    clearTimeout(streamMeasureTimer);
+    streamMeasureTimer = 0;
+  }
+  if (resizedRowRaf) {
+    cancelAnimationFrame(resizedRowRaf);
+    resizedRowRaf = 0;
+  }
+  resizedRowIds.clear();
   instantSnapToken++;
 });
 
@@ -1326,6 +1501,64 @@ onBeforeUnmount(() => {
  * stay prominent, Codex-style. Users can still re-expand any row manually.
  */
 const turnDone = computed(() => !props.running && !props.streaming);
+
+/**
+ * opencode DiffSummary：每轮（user 行分隔）的文件改动汇总，挂在轮末最终回答
+ * 下方。统计用完整消息 — 历史轮的工具行在渲染时被裁剪，计数仍要算上它们。
+ */
+const turnDiffsByRow = computed(() => {
+  const out = new Map<string, TurnFileChanges>();
+  const stats = collectTurnFileChanges(allMessages.value, toolCard, turnDone.value);
+  if (!stats.size) return out;
+  const sourceIds = lastIdPerRound(allMessages.value, (msg) => msg.role !== "user");
+  const answerIds = lastIdPerRound(
+    displayMessages.value,
+    (msg) => msg.role === "assistant" && Boolean(msg.text),
+  );
+  for (let i = 0; i < sourceIds.length; i++) {
+    const sourceId = sourceIds[i];
+    const rowId = answerIds[i];
+    const changes = sourceId ? stats.get(sourceId) : undefined;
+    if (changes && rowId) out.set(rowId, changes);
+  }
+  return out;
+});
+
+function turnDiffFor(msg: ChatMessage): TurnFileChanges | null {
+  return turnDiffsByRow.value.get(msg.id) ?? null;
+}
+
+/** 每轮（user 行分隔）最后一个命中行的 id；null 表示该轮没有命中行。 */
+function lastIdPerRound(
+  msgs: readonly ChatMessage[],
+  match: (msg: ChatMessage) => boolean,
+): (string | null)[] {
+  const ids: (string | null)[] = [];
+  let last: string | null = null;
+  for (const msg of msgs) {
+    if (msg.role === "user") {
+      ids.push(last);
+      last = null;
+      continue;
+    }
+    if (match(msg)) last = msg.id;
+  }
+  ids.push(last);
+  return ids;
+}
+
+const openTurnDiffs = ref(new Set<string>());
+
+function isTurnDiffOpen(id: string): boolean {
+  return openTurnDiffs.value.has(id);
+}
+
+function toggleTurnDiff(id: string): void {
+  const next = new Set(openTurnDiffs.value);
+  if (next.has(id)) next.delete(id);
+  else next.add(id);
+  openTurnDiffs.value = next;
+}
 
 /**
  * Memoized card parsing (shared cache `toolCardFor` in tool-diff.ts): the same
@@ -1416,6 +1649,41 @@ function assistantStats(
   return { compact, detail };
 }
 
+/** `provider/id` → 模型目录中的显示名。 */
+const modelNames = ref<Record<string, string>>({});
+
+async function loadModelNames(): Promise<void> {
+  try {
+    const data = await window.api.models.get();
+    modelNames.value = Object.fromEntries(
+      data.available.map((m) => [`${m.provider}/${m.id}`, m.name]),
+    );
+  } catch {
+    // 取不到目录时退回原始 model id
+  }
+}
+
+/**
+ * "Claude Sonnet 4.5 · High"：本轮结束使用的模型与思考级别。
+ * 思考为 off 时不展示级别；模型名缺失时退回 model id。
+ */
+function assistantModelDetail(
+  msg: Extract<ChatMessage, { role: "assistant" }>,
+): { compact: string; detail: string } | null {
+  const usage = sessions.activeContextUsage;
+  const model = msg.model ?? usage?.model ?? null;
+  const rawLevel = msg.thinkingLevel ?? usage?.thinkingLevel ?? null;
+  const name = model
+    ? (modelNames.value[`${model.provider}/${model.id}`] ?? model.id)
+    : null;
+  const level = rawLevel && rawLevel !== "off" ? thinkingLevelLabel(rawLevel) : null;
+  if (!name && !level) return null;
+  return {
+    compact: [name, level].filter(Boolean).join(" · "),
+    detail: t.assistantModelTitle(name ?? "—", level ?? "—"),
+  };
+}
+
 function formatElapsedMs(ms: number): string {
   const sec = ms / 1000;
   if (sec < 60) return `${sec.toFixed(1)}s`;
@@ -1471,18 +1739,14 @@ async function copyText(text: string): Promise<void> {
   messageApi.success(t.copied);
 }
 
-function onEditUser(msg: Extract<ChatMessage, { role: "user" }>): void {
-  const id = sessionId.value;
-  if (!id || props.running) return;
-  const edited = chat.beginEditUser(id, msg.id);
-  if (!edited) return;
-  if (sendQueue.editingId) sendQueue.setEditing(id, null);
+/** 把一条 user 气泡放回输入框（重新编辑或还原检查点后用）。 */
+function loadComposerFromUser(msg: Extract<ChatMessage, { role: "user" }>): void {
   composer.clear();
-  composer.draft = displayUserText(edited.text);
-  for (const img of edited.images ?? []) {
+  composer.draft = displayUserText(msg.text);
+  for (const img of msg.images ?? []) {
     composer.addImageFromDataUrl(img.dataUrl);
   }
-  for (const tag of visibleUserTags(edited.elementTags)) {
+  for (const tag of visibleUserTags(msg.elementTags)) {
     if (tag.kind === "file") {
       composer.addFileTag(tag.content || tag.label || tag.url);
     } else if (tag.kind === "url" || (!tag.kind && /^https?:\/\//i.test(tag.url))) {
@@ -1496,12 +1760,100 @@ function onEditUser(msg: Extract<ChatMessage, { role: "user" }>): void {
       });
     }
   }
+}
+
+function onEditUser(msg: Extract<ChatMessage, { role: "user" }>): void {
+  const id = sessionId.value;
+  if (!id || props.running) return;
+  const edited = chat.beginEditUser(id, msg.id);
+  if (!edited) return;
+  if (sendQueue.editingId) sendQueue.setEditing(id, null);
+  loadComposerFromUser(edited);
   messageApi.info(t.loadedForReEdit);
+}
+
+/**
+ * 回退到本轮结束：保留本轮问答，丢弃之后的全部轮次；文件保持现状。
+ */
+function onRestoreCheckpoint(msg: Extract<ChatMessage, { role: "user" }>): void {
+  const id = sessionId.value;
+  if (!id) return;
+  const d = dialog.warning({
+    title: t.restoreCheckpoint,
+    content: t.restoreCheckpointConfirm,
+    positiveText: t.confirm,
+    negativeText: t.cancel,
+    onPositiveClick: () => {
+      d.loading = true;
+      return (async () => {
+        try {
+          const restored = await chat.restoreTurn(id, msg.id);
+          if (!restored.ok) {
+            messageApi.error(t.restoreCheckpointFail(t.turnMismatch));
+            d.loading = false;
+            return false;
+          }
+          messageApi.success(t.restoreCheckpointDone);
+          return true;
+        } catch (err) {
+          messageApi.error(
+            t.restoreCheckpointFail(err instanceof Error ? err.message : String(err)),
+          );
+          d.loading = false;
+          return false;
+        }
+      })();
+    },
+  });
+}
+
+/** assistant 行归属到本轮最近的 user 消息，操作行的检查点/派生按钮需要它。 */
+const roundUserByRow = computed(() => {
+  const map = new Map<string, Extract<ChatMessage, { role: "user" }>>();
+  let current: Extract<ChatMessage, { role: "user" }> | null = null;
+  for (const m of props.messages) {
+    if (m.role === "user") current = m;
+    else if (current) map.set(m.id, current);
+  }
+  return map;
+});
+
+function roundUserOf(msg: ChatMessage): Extract<ChatMessage, { role: "user" }> | null {
+  return roundUserByRow.value.get(msg.id) ?? null;
+}
+
+/** 最后一轮没有可丢弃的后续轮次，还原检查点不适用（文件撤回仍可用）。 */
+function isLatestRound(msg: ChatMessage): boolean {
+  return roundUserOf(msg)?.id === latestUserMessageId.value;
+}
+
+/** 历史轮的助手回答在会话运行中也要显示操作栏；当前轮等本轮结束。 */
+function canShowAssistantActions(msg: ChatMessage): boolean {
+  if (msg.role !== "assistant" || msg.streaming || !isFinalAnswer(msg)) return false;
+  return !props.running || !isLatestRound(msg);
+}
+
+/** VS Code Copilot 的 Fork Conversation：把到本轮为止的对话复制成新会话。 */
+async function onForkConversation(msg: Extract<ChatMessage, { role: "user" }>): Promise<void> {
+  const id = sessionId.value;
+  if (!id) return;
+  try {
+    const forkedId = await chat.forkConversation(id, msg.id);
+    if (!forkedId) {
+      messageApi.error(t.forkConversationFail(t.turnMismatch));
+      return;
+    }
+    messageApi.success(t.forkConversationDone);
+  } catch (err) {
+    messageApi.error(
+      t.forkConversationFail(err instanceof Error ? err.message : String(err)),
+    );
+  }
 }
 
 async function onRegenerate(msg: Extract<ChatMessage, { role: "assistant" }>): Promise<void> {
   const id = sessionId.value;
-  if (!id || props.running) return;
+  if (!id) return;
   await chat.regenerate(id, msg.id);
 }
 
@@ -1570,14 +1922,6 @@ function onRevertUser(msg: Extract<ChatMessage, { role: "user" }>): void {
         :description="t.emptyChat"
         style="margin: auto"
       />
-
-      <div
-        v-if="historyLoadingOlder || (historyHasMore && renderStart === 0 && topSpacerPx < 8)"
-        class="history-older-banner"
-        aria-live="polite"
-      >
-        {{ historyLoadingOlder ? t.loadingOlderHistory : t.scrollForOlderHistory }}
-      </div>
 
       <div
         v-if="topSpacerPx > 0"
@@ -1746,6 +2090,7 @@ function onRevertUser(msg: Extract<ChatMessage, { role: "user" }>): void {
               <MarkdownView
                 v-if="msg.text"
                 :content="msg.text"
+                :streaming="Boolean(msg.streaming)"
                 variant="chat"
                 class="assistant-md"
                 :class="{ 'stream-shimmer': msg.streaming && msg.text }"
@@ -1753,7 +2098,7 @@ function onRevertUser(msg: Extract<ChatMessage, { role: "user" }>): void {
               <span v-if="msg.streaming && msg.text" class="cursor" aria-hidden="true" />
             </div>
             <div
-              v-if="!msg.streaming && !running && isFinalAnswer(msg)"
+              v-if="canShowAssistantActions(msg)"
               class="actions"
             >
               <NTooltip>
@@ -1785,7 +2130,12 @@ function onRevertUser(msg: Extract<ChatMessage, { role: "user" }>): void {
               </NTooltip>
               <NTooltip>
                 <template #trigger>
-                  <NButton quaternary circle size="tiny" @click="onRegenerate(msg)">
+                  <NButton
+                    quaternary
+                    circle
+                    size="tiny"
+                    @click="onRegenerate(msg)"
+                  >
                     <template #icon>
                       <NIcon :component="RefreshOutline" />
                     </template>
@@ -1793,6 +2143,38 @@ function onRevertUser(msg: Extract<ChatMessage, { role: "user" }>): void {
                 </template>
                 {{ t.regenerate }}
               </NTooltip>
+              <template v-if="roundUserOf(msg)">
+                <NTooltip v-if="!isLatestRound(msg)">
+                  <template #trigger>
+                    <NButton
+                      quaternary
+                      circle
+                      size="tiny"
+                      @click="onRestoreCheckpoint(roundUserOf(msg)!)"
+                    >
+                      <template #icon>
+                        <NIcon :component="ArrowUndoOutline" />
+                      </template>
+                    </NButton>
+                  </template>
+                  {{ t.restoreCheckpoint }}
+                </NTooltip>
+                <NTooltip>
+                  <template #trigger>
+                    <NButton
+                      quaternary
+                      circle
+                      size="tiny"
+                      @click="onForkConversation(roundUserOf(msg)!)"
+                    >
+                      <template #icon>
+                        <NIcon :component="GitBranchOutline" />
+                      </template>
+                    </NButton>
+                  </template>
+                  {{ t.forkConversation }}
+                </NTooltip>
+              </template>
               <span
                 v-if="assistantStats(msg)"
                 class="assistant-stats"
@@ -1800,7 +2182,22 @@ function onRevertUser(msg: Extract<ChatMessage, { role: "user" }>): void {
               >
                 {{ assistantStats(msg)!.compact }}
               </span>
+              <span
+                v-if="assistantModelDetail(msg)"
+                class="assistant-model"
+                :title="assistantModelDetail(msg)!.detail"
+              >
+                {{ assistantModelDetail(msg)!.compact }}
+              </span>
             </div>
+
+            <TurnDiffSummary
+              v-if="turnDiffFor(msg)"
+              :changes="turnDiffFor(msg)!"
+              :open="isTurnDiffOpen(msg.id)"
+              @toggle="toggleTurnDiff(msg.id)"
+              @open-file="openPreview"
+            />
           </div>
         </template>
 
@@ -1868,11 +2265,23 @@ function onRevertUser(msg: Extract<ChatMessage, { role: "user" }>): void {
           :state="waitState"
         />
       </template>
+
+      <!--
+        Guidance that is waiting its turn. Without this the message vanished from
+        the UI the moment it was queued (it only came back as a bubble when the
+        agent got to it), which read as "my message was lost".
+      -->
+      <div v-if="pendingQueueCards.length" class="steer-cards" aria-live="polite">
+        <div v-for="item in pendingQueueCards" :key="item.id" class="steer-card">
+          <span class="steer-card-tag">{{ t.steerPendingTag }}</span>
+          <span class="steer-card-text">{{ queuePreview(item) }}</span>
+        </div>
+      </div>
     </div>
     </div>
 
     <div
-      v-if="stickyPinned && stickyPinMessage"
+      v-if="stickyPreviewMessage"
       ref="stickyPinEl"
       class="user-sticky-pin"
       :class="{ 'is-expanded': stickyExpanded }"
@@ -1881,11 +2290,14 @@ function onRevertUser(msg: Extract<ChatMessage, { role: "user" }>): void {
     >
       <div
         class="sticky-pin-body bubble user"
-        :class="{ 'user-collapsed': !stickyExpanded && userCardNeedsToggle(stickyPinMessage) }"
+        :class="{ 'user-collapsed': !stickyExpanded && userCardNeedsToggle(stickyPreviewMessage) }"
       >
-        <div v-if="stickyPinMessage.images?.length" class="user-images">
+        <div
+          v-if="stickyPreviewMessage.images?.length && appearance.showMessagePreviewImage"
+          class="user-images"
+        >
           <img
-            v-for="(img, idx) in stickyPinMessage.images"
+            v-for="(img, idx) in stickyPreviewMessage.images"
             :key="`pin-img-${idx}`"
             class="user-image"
             :src="img.dataUrl"
@@ -1896,13 +2308,16 @@ function onRevertUser(msg: Extract<ChatMessage, { role: "user" }>): void {
           />
         </div>
         <div
-          v-if="displayUserText(stickyPinMessage.text)"
+          v-if="displayUserText(stickyPreviewMessage.text)"
           class="user-plain"
-          :class="{ clamped: !stickyExpanded && userCardNeedsToggle(stickyPinMessage) }"
-        >{{ displayUserText(stickyPinMessage.text) }}</div>
-        <div v-if="visibleUserTags(stickyPinMessage.elementTags).length" class="user-tags">
+          :class="{ clamped: !stickyExpanded && userCardNeedsToggle(stickyPreviewMessage) }"
+        >{{ displayUserText(stickyPreviewMessage.text) }}</div>
+        <div
+          v-if="visibleUserTags(stickyPreviewMessage.elementTags).length"
+          class="user-tags"
+        >
           <NTag
-            v-for="(tag, idx) in visibleUserTags(stickyPinMessage.elementTags)"
+            v-for="(tag, idx) in visibleUserTags(stickyPreviewMessage.elementTags)"
             :key="`pin-tag-${idx}`"
             type="info"
             size="small"
@@ -2009,16 +2424,6 @@ function onRevertUser(msg: Extract<ChatMessage, { role: "user" }>): void {
   flex-direction: column;
 }
 
-.history-older-banner {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-  padding: 6px 10px;
-  font-size: 11px;
-  color: var(--fg-muted, #888);
-}
-
 .message-list {
   flex: 1;
   overflow: auto;
@@ -2036,7 +2441,7 @@ function onRevertUser(msg: Extract<ChatMessage, { role: "user" }>): void {
 
 .inner {
   width: 100%;
-  max-width: var(--composer-max, 780px);
+  max-width: var(--pi-message-max, 75%);
   margin: 0 auto;
   padding: 16px 16px;
   display: flex;
@@ -2065,17 +2470,17 @@ function onRevertUser(msg: Extract<ChatMessage, { role: "user" }>): void {
   padding: 7px 14px;
   border: 1px solid color-mix(in srgb, var(--border, #ddd) 80%, transparent);
   border-radius: 999px;
-  background: color-mix(in srgb, var(--bg-panel, var(--bg)) 92%, transparent);
+  background: var(--bg-elevated, #ffffff);
   color: var(--fg, #222);
   font-size: 12px;
   font-weight: 600;
   box-shadow: 0 6px 20px rgba(0, 0, 0, 0.12);
-  backdrop-filter: blur(8px);
+  backdrop-filter: blur(14px) saturate(1.15);
   cursor: pointer;
 }
 
 .jump-latest:hover {
-  background: var(--bg-panel, var(--bg));
+  background: color-mix(in srgb, var(--bg-elevated, #ffffff) 88%, var(--fg, #222) 12%);
 }
 
 .jump-latest-enter-active,
@@ -2097,7 +2502,8 @@ function onRevertUser(msg: Extract<ChatMessage, { role: "user" }>): void {
 
 /* DeepSeek Harness: a single uniform column gap spaces every flow item. */
 .row-user {
-  justify-content: flex-end;
+  flex-direction: column;
+  align-items: flex-end;
   width: 100%;
 }
 
@@ -2242,7 +2648,7 @@ function onRevertUser(msg: Extract<ChatMessage, { role: "user" }>): void {
 
 .bubble {
   padding: 9px 13px;
-  border-radius: var(--radius-md, 11px);
+  border-radius: var(--radius-md, 6px);
   font-size: 16px;
   line-height: 1.6;
   word-break: break-word;
@@ -2257,7 +2663,7 @@ function onRevertUser(msg: Extract<ChatMessage, { role: "user" }>): void {
   max-width: 100%;
   box-sizing: border-box;
   padding: 10px 16px;
-  border-radius: 22px;
+  border-radius: 6px;
   background: var(--user-bg, #edf3fe);
   color: var(--fg-strong);
   border: none;
@@ -2379,27 +2785,27 @@ function onRevertUser(msg: Extract<ChatMessage, { role: "user" }>): void {
 }
 
 .user-tag-mode-plan {
-  --n-color: rgba(234, 179, 8, 0.2) !important;
-  --n-text-color: #a16207 !important;
-  --n-border: rgba(202, 138, 4, 0.45) !important;
+  --n-color: color-mix(in srgb, var(--warning) 20%, transparent) !important;
+  --n-text-color: var(--warning) !important;
+  --n-border: color-mix(in srgb, var(--warning) 45%, transparent) !important;
 }
 
 .user-tag-mode-agent {
-  --n-color: rgba(113, 113, 122, 0.16) !important;
-  --n-text-color: #3f3f46 !important;
-  --n-border: rgba(113, 113, 122, 0.4) !important;
+  --n-color: color-mix(in srgb, var(--fg-muted) 16%, transparent) !important;
+  --n-text-color: var(--fg-muted) !important;
+  --n-border: color-mix(in srgb, var(--fg-muted) 40%, transparent) !important;
 }
 
 .user-tag-mode-ask {
-  --n-color: rgba(59, 130, 246, 0.16) !important;
-  --n-text-color: #1d4ed8 !important;
-  --n-border: rgba(37, 99, 235, 0.4) !important;
+  --n-color: color-mix(in srgb, var(--accent) 16%, transparent) !important;
+  --n-text-color: var(--accent) !important;
+  --n-border: color-mix(in srgb, var(--accent) 40%, transparent) !important;
 }
 
 .user-tag-mode-task {
-  --n-color: rgba(16, 185, 129, 0.16) !important;
-  --n-text-color: #047857 !important;
-  --n-border: rgba(5, 150, 105, 0.4) !important;
+  --n-color: color-mix(in srgb, var(--success) 16%, transparent) !important;
+  --n-text-color: var(--success) !important;
+  --n-border: color-mix(in srgb, var(--success) 40%, transparent) !important;
 }
 
 .user-tag :deep(.n-tag__content) {
@@ -2411,7 +2817,7 @@ function onRevertUser(msg: Extract<ChatMessage, { role: "user" }>): void {
 .user-image {
   width: 72px;
   height: 72px;
-  border-radius: 8px;
+  border-radius: 4px;
   overflow: hidden;
   object-fit: cover;
   cursor: zoom-in;
@@ -2508,6 +2914,18 @@ function onRevertUser(msg: Extract<ChatMessage, { role: "user" }>): void {
   -webkit-user-select: none;
 }
 
+/* 本轮结束时的模型与思考级别。 */
+.assistant-model {
+  margin-left: 8px;
+  padding-left: 8px;
+  border-left: 1px solid var(--border);
+  font-size: 10.5px;
+  color: var(--fg-faint, var(--fg-muted));
+  white-space: nowrap;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
 .cursor {
   display: inline-block;
   width: 6px;
@@ -2589,11 +3007,46 @@ function onRevertUser(msg: Extract<ChatMessage, { role: "user" }>): void {
 }
 
 .dot.warn {
-  background: #f0a020;
+  background: var(--warning);
 }
 
 .retry-detail {
   opacity: 0.8;
+}
+
+/* Queued-guidance cards: the message stays visible until the agent takes it. */
+.steer-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 8px;
+}
+
+.steer-card {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border: 1px dashed color-mix(in srgb, var(--accent, #2563eb) 45%, var(--border, #e6e8ec));
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--accent, #2563eb) 6%, transparent);
+}
+
+.steer-card-tag {
+  flex-shrink: 0;
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--accent, #2563eb);
+}
+
+.steer-card-text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  opacity: 0.9;
 }
 
 @keyframes pulse {
@@ -2638,7 +3091,7 @@ function onRevertUser(msg: Extract<ChatMessage, { role: "user" }>): void {
   justify-content: space-between;
   gap: 12px;
   padding: 8px 10px;
-  border-radius: 10px;
+  border-radius: 6px;
   background: rgba(24, 24, 27, 0.72);
   border: 1px solid rgba(255, 255, 255, 0.12);
   color: #fafafa;
@@ -2659,7 +3112,7 @@ function onRevertUser(msg: Extract<ChatMessage, { role: "user" }>): void {
 
 .preview-btn {
   padding: 4px 10px;
-  border-radius: 7px;
+  border-radius: 4px;
   border: 1px solid rgba(255, 255, 255, 0.18);
   background: rgba(255, 255, 255, 0.08);
   color: #fafafa;
@@ -2684,7 +3137,7 @@ function onRevertUser(msg: Extract<ChatMessage, { role: "user" }>): void {
   max-width: calc(100vw - 80px);
   max-height: calc(100vh - 80px);
   object-fit: contain;
-  border-radius: 8px;
+  border-radius: 4px;
   box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
   cursor: zoom-out;
   user-select: none;
@@ -2696,7 +3149,7 @@ function onRevertUser(msg: Extract<ChatMessage, { role: "user" }>): void {
   z-index: 2147483645;
   min-width: 150px;
   padding: 4px;
-  border-radius: 10px;
+  border-radius: 6px;
   background: var(--bg-elevated, #1c1c22);
   border: 1px solid var(--border);
   box-shadow: var(--shadow-lg, 0 12px 40px rgba(0, 0, 0, 0.3));
@@ -2708,7 +3161,7 @@ function onRevertUser(msg: Extract<ChatMessage, { role: "user" }>): void {
   width: 100%;
   padding: 7px 10px;
   border: 0;
-  border-radius: 7px;
+  border-radius: 4px;
   background: transparent;
   color: var(--fg);
   text-align: left;

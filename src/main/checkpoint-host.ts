@@ -1,6 +1,8 @@
 import fs from "node:fs";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
+import { countLineDiff } from "../shared/line-diff";
+import { resolveWorkspacePath } from "../shared/path-sandbox";
 
 export const CHECKPOINT_MAX_FILE_BYTES = 2 * 1024 * 1024;
 export const CHECKPOINT_MAX_FILES = 3000;
@@ -48,6 +50,12 @@ type TurnCheckpoint = {
 const byKey = new Map<string, TurnCheckpoint>();
 /** sessionId → active capturing checkpoint key */
 const activeBySession = new Map<string, string>();
+/**
+ * sessionId → key of the FIRST checkpoint captured for the session. Its
+ * baseline is the workspace state before the session's first agent run, i.e.
+ * the "actual-change" reference point for the changed-files dock.
+ */
+const sessionStartKeyBySession = new Map<string, string>();
 /** Persisted summaries (status/fileCount) keyed by sessionId → summary[].
  *  Keeps the revert button visible for history after a session reload — the
  *  baseline/touched payloads stay in memory, so revert still only works for
@@ -259,6 +267,9 @@ export function beginCheckpoint(
 	const key = keyOf(sessionId, userMessageId);
 	byKey.set(key, cp);
 	activeBySession.set(sessionId, key);
+	if (!sessionStartKeyBySession.has(sessionId)) {
+		sessionStartKeyBySession.set(sessionId, key);
+	}
 	return toSummary(cp);
 }
 
@@ -499,7 +510,95 @@ function toSummary(cp: TurnCheckpoint): CheckpointSummary {
 export function _resetCheckpointsForTests(): void {
 	byKey.clear();
 	activeBySession.clear();
+	sessionStartKeyBySession.clear();
 	persistedBySession.clear();
 	persistDir = null;
 	persistDirty = false;
+}
+
+export type SessionNetFileStats = {
+	additions: number;
+	deletions: number;
+	/** false = no session-start baseline / unreadable file — caller falls back. */
+	available: boolean;
+};
+
+/** Cap for reading the current on-disk content of one changed file. */
+const NET_CURRENT_MAX_BYTES = 8 * 1024 * 1024;
+
+/**
+ * Normalize a transcript path to a workspace-relative posix path. Tool cards
+ * report either relative paths or absolute ones (the agent is told its working
+ * directory), so both must map onto the baseline keys; null when the path
+ * escapes the workspace.
+ */
+function normalizeNetRel(raw: string, root: string): string | null {
+	if (!raw) return null;
+	const replaced = raw.replace(/\\/g, "/");
+	if (replaced.split("/").some((seg) => seg === "..")) return null;
+	let abs: string;
+	try {
+		abs = resolveWorkspacePath(root, replaced);
+	} catch {
+		return null;
+	}
+	const rel = path.relative(root, abs);
+	return rel ? toPosix(rel) : null;
+}
+
+/**
+ * Actual-change stats for paths touched during a session: the session-start
+ * checkpoint baseline vs. the current on-disk content. Repeated edits or
+ * full-file rewrites therefore count only once (see src/shared/line-diff.ts).
+ * Paths may be workspace-relative or absolute inside the workspace.
+ */
+export function sessionNetFileChanges(
+	sessionId: string,
+	relativePaths: string[],
+): Record<string, SessionNetFileStats> {
+	const out: Record<string, SessionNetFileStats> = {};
+	const startKey = sessionStartKeyBySession.get(sessionId);
+	const cp = startKey ? byKey.get(startKey) : undefined;
+
+	for (const raw of relativePaths) {
+		const rel = cp ? normalizeNetRel(raw, cp.workspaceRoot) : null;
+		if (!cp || !rel) {
+			out[raw] = { additions: 0, deletions: 0, available: false };
+			continue;
+		}
+		const base = cp.baseline.get(rel);
+		const abs = path.join(cp.workspaceRoot, ...rel.split("/"));
+
+		let current: string | null = null;
+		let ok = true;
+		try {
+			if (fs.existsSync(abs)) {
+				const st = fs.statSync(abs);
+				if (!st.isFile() || st.size > NET_CURRENT_MAX_BYTES) {
+					ok = false;
+				} else {
+					const buf = fs.readFileSync(abs);
+					if (hasNullByte(buf)) {
+						ok = false;
+					} else {
+						current = buf.toString("utf8");
+					}
+				}
+			}
+		} catch {
+			ok = false;
+		}
+		if (!ok) {
+			out[raw] = { additions: 0, deletions: 0, available: false };
+			continue;
+		}
+
+		const counts = countLineDiff(base ?? "", current ?? "");
+		out[raw] = {
+			additions: counts.additions,
+			deletions: counts.deletions,
+			available: true,
+		};
+	}
+	return out;
 }

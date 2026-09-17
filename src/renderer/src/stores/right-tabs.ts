@@ -1,6 +1,6 @@
 import { defineStore } from "pinia";
-import { computed, ref } from "vue";
-import { t } from "@renderer/i18n";
+import { computed, ref, watch } from "vue";
+import { locale, t } from "@renderer/i18n";
 import { clearTabHistory } from "@renderer/stores/browser-library";
 import { uniquePreviewTabLabel } from "@renderer/utils/preview-tab-label";
 import { localizedTabLabel } from "@renderer/utils/right-tab-labels";
@@ -38,6 +38,8 @@ export type RightTab = {
   ptyId?: string;
   /** Terminal: cwd used when the pty was created (restored after restart). */
   cwd?: string;
+  /** Terminal: shell id chosen for this tab (empty = default shell). */
+  shellId?: string;
   /** Browser: last address-bar URL (restored after restart). */
   url?: string;
 };
@@ -58,6 +60,8 @@ type PersistedTabs = {
     transient?: boolean;
     labelLocked?: boolean;
     cwd?: string;
+    shellId?: string;
+    ptyId?: string;
     url?: string;
   }>;
   activeIndex: number;
@@ -76,10 +80,16 @@ function normalizeRoot(root: string): string {
 type ParkedWorkspace = {
   tabs: RightTab[];
   activeId: string;
+  panelActiveId: string;
 };
 
 /** In-memory park so terminal PTYs stay alive across workspace switches. */
 const parkedByRoot = new Map<string, ParkedWorkspace>();
+
+/** Bottom panel hosts terminals (VSCode 面板); the right pane hosts the rest. */
+function isPanelTab(tab: RightTab): boolean {
+  return tab.kind === "terminal";
+}
 
 function cloneTabs(list: RightTab[]): RightTab[] {
   return list.map((tab) => ({ ...tab }));
@@ -89,7 +99,7 @@ function defaultTabs(): RightTab[] {
   return [];
 }
 
-/** Re-apply active-locale labels after restore / language switch reload. */
+/** Re-apply active-locale labels after restore / language switch. */
 function syncLocalizedLabels(list: RightTab[]): void {
   for (const tab of list) {
     const next = localizedTabLabel(tab);
@@ -100,13 +110,38 @@ function syncLocalizedLabels(list: RightTab[]): void {
 export const useRightTabsStore = defineStore("rightTabs", () => {
   const tabs = ref<RightTab[]>(defaultTabs());
   const activeId = ref("changes-0");
+  /** Right-pane Changes dock view asks the Changes tab to open this file's diff. */
+  const changesRevealPath = ref("");
+  const changesRevealTick = ref(0);
+  const panelActiveId = ref("");
   const saveHandlers = new Map<string, SaveHandler>();
   let persistReady = false;
 
-  const activeTab = computed(() => tabs.value.find((t) => t.id === activeId.value) ?? null);
+  /** Right-dock tabs — everything except the panel's terminals. */
+  const dockTabs = computed(() => tabs.value.filter((tab) => !isPanelTab(tab)));
+  const panelTabs = computed(() => tabs.value.filter(isPanelTab));
+
+  const activeTab = computed(
+    () => dockTabs.value.find((tab) => tab.id === activeId.value) ?? null,
+  );
+  const activePanelTab = computed(
+    () => panelTabs.value.find((tab) => tab.id === panelActiveId.value) ?? null,
+  );
 
   function selectTab(id: string): void {
     activeId.value = id;
+  }
+
+  function selectPanelTab(id: string): void {
+    panelActiveId.value = id;
+  }
+
+  /** Nearest remaining tab of the same dock after the tab at `removedIdx` went away. */
+  function nextDockId(removedIdx: number, panel: boolean): string {
+    const matches = (tab: RightTab) => isPanelTab(tab) === panel;
+    const after = tabs.value.slice(removedIdx).find(matches);
+    const before = [...tabs.value.slice(0, removedIdx)].reverse().find(matches);
+    return (after ?? before)?.id ?? "";
   }
 
   function closeTab(id: string): void {
@@ -124,9 +159,12 @@ export const useRightTabsStore = defineStore("rightTabs", () => {
     const wasPreview = tab.kind === "preview";
     tabs.value.splice(idx, 1);
     saveHandlers.delete(id);
-    if (activeId.value === id) {
-      const next = tabs.value[idx] ?? tabs.value[idx - 1] ?? null;
-      activeId.value = next?.id ?? "";
+    if (isPanelTab(tab)) {
+      if (panelActiveId.value === id) {
+        panelActiveId.value = nextDockId(idx, true);
+      }
+    } else if (activeId.value === id) {
+      activeId.value = nextDockId(idx, false);
     }
     if (wasPreview) refreshPreviewTabLabels();
   }
@@ -198,21 +236,25 @@ export const useRightTabsStore = defineStore("rightTabs", () => {
     tabs.value.splice(toIndex, 0, item);
   }
 
-  /** Reorder by full id list from drag UI (preferred over index math). */
-  function reorderByIds(ids: string[]): void {
-    if (ids.length !== tabs.value.length) return;
-    const byId = new Map(tabs.value.map((tab) => [tab.id, tab]));
+  /** Reorder the right dock from drag UI; panel terminals keep their slots. */
+  function reorderDock(ids: string[]): void {
+    const dock = dockTabs.value;
+    if (ids.length !== dock.length || new Set(ids).size !== dock.length) return;
+    const byId = new Map(dock.map((tab) => [tab.id, tab]));
     const next: RightTab[] = [];
     for (const id of ids) {
       const tab = byId.get(id);
       if (!tab) return;
       next.push(tab);
     }
-    if (next.length !== tabs.value.length) return;
-    tabs.value = next;
+    let i = 0;
+    tabs.value = tabs.value.map((tab) => (isPanelTab(tab) ? tab : next[i++]!));
   }
 
-  function addTab(kind: RightTabKind, opts?: { label?: string; filePath?: string; cwd?: string }): RightTab {
+  function addTab(
+    kind: RightTabKind,
+    opts?: { label?: string; filePath?: string; cwd?: string; shellId?: string },
+  ): RightTab {
     const counts = tabs.value.filter((t) => t.kind === kind).length;
     let label = opts?.label;
     if (!label) {
@@ -241,14 +283,7 @@ export const useRightTabsStore = defineStore("rightTabs", () => {
         }
       }
     }
-    // Running and Changes are mutually exclusive — only one may be open.
-    if (kind === "running" || kind === "changes") {
-      const other = kind === "running" ? "changes" : "running";
-      for (const t of [...tabs.value]) {
-        if (t.kind === other) closeTab(t.id);
-      }
-    }
-    if (kind === "running" || kind === "changes" || kind === "files") {
+    if (kind === "running" || kind === "files") {
       const existing = tabs.value.find((t) => t.kind === kind);
       if (existing) {
         activeId.value = existing.id;
@@ -306,12 +341,29 @@ export const useRightTabsStore = defineStore("rightTabs", () => {
       missing: false,
       transient: kind === "preview",
       cwd: kind === "terminal" ? opts?.cwd : undefined,
+      shellId: kind === "terminal" ? opts?.shellId : undefined,
     };
     // Always append at the end — never insert after the active tab / at the front.
     tabs.value = [...tabs.value, tab];
-    activeId.value = tab.id;
+    if (isPanelTab(tab)) panelActiveId.value = tab.id;
+    else activeId.value = tab.id;
     if (kind === "preview") refreshPreviewTabLabels();
     return tab;
+  }
+
+  /** Open (or focus) the singleton diff tab at `path`'s diff. */
+  function revealInChanges(path: string): void {
+    const normalized = path.replace(/\\/g, "/");
+    changesRevealPath.value = normalized;
+    changesRevealTick.value += 1;
+    const label = normalized.split("/").pop() ?? normalized;
+    const existing = tabs.value.find((tab) => tab.kind === "changes");
+    if (existing) {
+      patchTab(existing.id, { filePath: normalized, label });
+      activeId.value = existing.id;
+      return;
+    }
+    addTab("changes", { filePath: normalized, label });
   }
 
   function closeAllPreviewTabs(): void {
@@ -353,8 +405,11 @@ export const useRightTabsStore = defineStore("rightTabs", () => {
           filePath: tab.filePath,
           transient: tab.transient,
           labelLocked: tab.labelLocked,
-          // ptyId is session-only — never write to localStorage
+          // 渲染进程重载后主进程的 pty 仍在运行，靠这个 id 重连才能回放 scrollback。
+          // 应用重启后 id 失效，由 TerminalTab 的 isAlive 校验丢弃并新建。
+          ptyId: tab.kind === "terminal" ? tab.ptyId : undefined,
           cwd: tab.kind === "terminal" ? tab.cwd : undefined,
+          shellId: tab.kind === "terminal" ? tab.shellId : undefined,
           url: tab.kind === "browser" ? tab.url : undefined,
         })),
       activeIndex: Math.max(
@@ -374,6 +429,7 @@ export const useRightTabsStore = defineStore("rightTabs", () => {
     if (!root) {
       tabs.value = defaultTabs();
       activeId.value = "";
+      panelActiveId.value = "";
       persistReady = true;
       return;
     }
@@ -390,52 +446,53 @@ export const useRightTabsStore = defineStore("rightTabs", () => {
     if (!restored?.tabs?.length) {
       tabs.value = defaultTabs();
       activeId.value = "";
+      panelActiveId.value = "";
       persistReady = true;
       return;
     }
     const next: RightTab[] = [];
     for (const row of restored.tabs) {
       if (row.kind === "files") continue;
+      // Diff views are transient — reopen them from the dock Changes view.
+      if (row.kind === "changes") continue;
       if (row.kind === "preview" && !row.filePath) continue;
       const url =
         row.kind === "browser" && typeof row.url === "string" && row.url.trim()
           ? row.url.trim()
+          : undefined;
+      const ptyId =
+        row.kind === "terminal" && typeof row.ptyId === "string" && row.ptyId.trim()
+          ? row.ptyId
           : undefined;
       next.push({
         id: nextTabId(row.kind),
         kind: row.kind,
         label:
           row.label ||
-          (row.kind === "running"
-            ? t.runningTab
-            : row.kind === "changes"
-              ? t.changesTab
-              : row.kind),
+          (row.kind === "running" ? t.runningTab : row.kind),
         filePath: row.filePath,
         dirty: false,
         missing: false,
         labelLocked: row.labelLocked === true,
         transient: row.kind === "preview" ? row.transient !== false : undefined,
         cwd: row.kind === "terminal" ? row.cwd || root : undefined,
+        shellId: row.kind === "terminal" ? row.shellId : undefined,
+        ptyId,
         url,
       });
-    }
-    // Running and Changes are mutually exclusive — keep whichever was active.
-    if (next.some((t) => t.kind === "running") && next.some((t) => t.kind === "changes")) {
-      const activeKind = next[Math.min(restored.activeIndex, next.length - 1)]?.kind;
-      const dropKind = activeKind === "changes" ? "running" : "changes";
-      const dropIdx = next.findIndex((t) => t.kind === dropKind);
-      if (dropIdx >= 0) next.splice(dropIdx, 1);
     }
     syncLocalizedLabels(next);
     tabs.value = next;
     refreshPreviewTabLabels();
     const preferredIdx = Math.min(Math.max(0, restored.activeIndex), next.length - 1);
     const preferredId = next[preferredIdx]?.id;
+    const dock = next.filter((tab) => !isPanelTab(tab));
     activeId.value =
-      preferredId && tabs.value.some((tab) => tab.id === preferredId)
+      preferredId && dock.some((tab) => tab.id === preferredId)
         ? preferredId
-        : "";
+        : (dock[0]?.id ?? "");
+    const restoredPanel = next.filter(isPanelTab);
+    panelActiveId.value = restoredPanel[restoredPanel.length - 1]?.id ?? "";
     persistReady = true;
   }
 
@@ -448,6 +505,7 @@ export const useRightTabsStore = defineStore("rightTabs", () => {
       parkedByRoot.set(key, {
         tabs: cloneTabs(tabs.value),
         activeId: activeId.value,
+        panelActiveId: panelActiveId.value,
       });
       persistTabs(prev);
     }
@@ -456,6 +514,7 @@ export const useRightTabsStore = defineStore("rightTabs", () => {
     if (!next) {
       tabs.value = defaultTabs();
       activeId.value = "";
+      panelActiveId.value = "";
       persistReady = true;
       return;
     }
@@ -464,8 +523,14 @@ export const useRightTabsStore = defineStore("rightTabs", () => {
     if (parked?.tabs?.length) {
       tabs.value = cloneTabs(parked.tabs);
       syncLocalizedLabels(tabs.value);
-      const stillThere = tabs.value.some((tab) => tab.id === parked.activeId);
-      activeId.value = stillThere ? parked.activeId : (tabs.value[0]?.id ?? "");
+      const dock = tabs.value.filter((tab) => !isPanelTab(tab));
+      const dockActive = dock.some((tab) => tab.id === parked.activeId);
+      activeId.value = dockActive ? parked.activeId : (dock[0]?.id ?? "");
+      const parkedPanel = tabs.value.filter(isPanelTab);
+      const panelStillThere = parkedPanel.some((tab) => tab.id === parked.panelActiveId);
+      panelActiveId.value = panelStillThere
+        ? parked.panelActiveId
+        : (parkedPanel[parkedPanel.length - 1]?.id ?? "");
       refreshPreviewTabLabels();
       persistReady = true;
       return;
@@ -474,24 +539,37 @@ export const useRightTabsStore = defineStore("rightTabs", () => {
     restoreTabs(next);
   }
 
+  // 切换界面语言后，固定标签（运行/文件/浏览器/终端）就地换成新语言。
+  watch(locale, () => {
+    syncLocalizedLabels(tabs.value);
+  });
+
   return {
     tabs,
+    dockTabs,
+    panelTabs,
     activeId,
+    panelActiveId,
     activeTab,
+    activePanelTab,
+    changesRevealPath,
+    changesRevealTick,
     selectTab,
+    selectPanelTab,
     closeTab,
     closeAllPreviewTabs,
     patchTab,
     autoTitleTab,
     renameTab,
     addTab,
+    revealInChanges,
     addPreviewFromPicker,
     registerSaveHandler,
     unregisterSaveHandler,
     saveTab,
     refreshPreviewGitMeta,
     reorderTabs,
-    reorderByIds,
+    reorderDock,
     persistTabs,
     restoreTabs,
     switchWorkspace,

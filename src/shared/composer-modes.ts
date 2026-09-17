@@ -3,6 +3,8 @@
  * Injected into the agent prompt when sending.
  */
 
+import { stripThinkingLanguageBlock } from "./thinking-language";
+
 export type ComposerAgentMode = "agent" | "ask" | "plan" | "task";
 
 export const COMPOSER_MODE_MARKER_PREFIX = "[pi-desktop mode:";
@@ -21,9 +23,10 @@ export function isComposerAgentMode(value: unknown): value is ComposerAgentMode 
 /**
  * Remove the injected mode marker + instructions from user-visible message text.
  * Agent still receives the full preamble; the chat bubble should not.
+ * 思考语言块先于模式前言注入，一并剥离。
  */
 export function stripComposerModePreamble(text: string): string {
-  const raw = text ?? "";
+  const raw = stripThinkingLanguageBlock(text ?? "");
   if (!raw.startsWith(COMPOSER_MODE_MARKER_PREFIX)) return raw;
   const sep = raw.indexOf("\n\n");
   if (sep < 0) return "";

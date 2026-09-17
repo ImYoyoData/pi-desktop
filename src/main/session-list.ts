@@ -50,8 +50,7 @@ let piWorkspacesCache: {
   workspaces: string[];
 } | null = null;
 
-/** Signature of the .jsonl files in one session dir (sizes + mtimes, no content). */
-async function dirJsonlSignature(dir: string): Promise<string | null> {
+/** Signature of the .jsonl files in one session dir (sizes + mtimes, no content). */async function dirJsonlSignature(dir: string): Promise<string | null> {
   let entries;
   try {
     entries = await fs.promises.readdir(dir, { withFileTypes: true });
@@ -70,6 +69,33 @@ async function dirJsonlSignature(dir: string): Promise<string | null> {
   }
   rows.sort();
   return rows.join("|");
+}
+
+/** 从会话文件首行 header 读 id，用于解析派生会话的父级（按小写路径缓存）。 */
+const parentHeaderIdCache = new Map<string, string | undefined>();
+
+function readSessionHeaderId(filePath: string): string | undefined {
+  const key = filePath.toLowerCase();
+  if (parentHeaderIdCache.has(key)) return parentHeaderIdCache.get(key);
+  let id: string | undefined;
+  try {
+    const fd = fs.openSync(filePath, "r");
+    try {
+      const buf = Buffer.alloc(16 * 1024);
+      const n = fs.readSync(fd, buf, 0, buf.length, 0);
+      const firstLine = buf.toString("utf8", 0, n).split("\n")[0] ?? "";
+      const parsed = JSON.parse(firstLine) as { type?: unknown; id?: unknown };
+      if (parsed.type === "session" && typeof parsed.id === "string") {
+        id = parsed.id;
+      }
+    } finally {
+      fs.closeSync(fd);
+    }
+  } catch {
+    id = undefined;
+  }
+  parentHeaderIdCache.set(key, id);
+  return id;
 }
 
 /** Signature across every workspace's session dir (dir name + its file signature). */
@@ -177,6 +203,9 @@ function readSessionSummaryFallback(filePath: string): DiskSessionRow | null {
       }
     }
     if (!header) return null;
+    const parentRaw = (header as { parentSession?: unknown }).parentSession;
+    const parentSessionPath =
+      typeof parentRaw === "string" && parentRaw.trim() ? parentRaw : undefined;
     const headerTime = new Date(String(header.timestamp ?? "")).getTime();
     const modified =
       typeof lastActivityTime === "number" && lastActivityTime > 0
@@ -191,6 +220,7 @@ function readSessionSummaryFallback(filePath: string): DiskSessionRow | null {
       name,
       modified: modified.toISOString(),
       firstMessage: firstMessage || "(no messages)",
+      parentSessionPath,
     };
   } catch {
     return null;
@@ -283,6 +313,80 @@ export async function purgeWorkspaceSessionDir(cwd: string): Promise<void> {
   }
 }
 
+/** 只改第一行 header：cwd 指向新路径，parentSession 指向搬移后的父文件。 */
+async function moveSessionFile(
+  src: string,
+  dest: string,
+  newCwd: string,
+  fromDir: string,
+  toDir: string,
+): Promise<void> {
+  const raw = await fs.promises.readFile(src, "utf8");
+  const lineEnd = raw.indexOf("\n");
+  const headRaw = lineEnd < 0 ? raw : raw.slice(0, lineEnd);
+  const cr = headRaw.endsWith("\r") ? "\r" : "";
+  const head = cr ? headRaw.slice(0, -1) : headRaw;
+  const rest = lineEnd < 0 ? "" : raw.slice(lineEnd);
+  let next = raw;
+  try {
+    const parsed = JSON.parse(head) as {
+      type?: unknown;
+      cwd?: unknown;
+      parentSession?: unknown;
+    };
+    if (parsed.type === "session") {
+      parsed.cwd = newCwd;
+      const parent = parsed.parentSession;
+      if (typeof parent === "string" && workspacePathsEqual(path.dirname(parent), fromDir)) {
+        parsed.parentSession = path.join(toDir, path.basename(parent));
+      }
+      next = JSON.stringify(parsed) + cr + rest;
+    }
+  } catch {
+    // header 解析失败时保留原文
+  }
+  await fs.promises.writeFile(dest, next, "utf8");
+  await fs.promises.rm(src, { force: true });
+}
+
+/**
+ * 工作区重新定位：把旧 cwd 的会话目录搬到新 cwd 目录，会话目录是按 cwd 编码的，
+ * 因此文件要搬家且 header 的 cwd 要跟着改，否则新路径下看不到这些会话。
+ */
+export async function migrateWorkspaceSessionDir(
+  oldCwd: string,
+  newCwd: string,
+): Promise<void> {
+  const resolvedOld = path.resolve(oldCwd);
+  const resolvedNew = path.resolve(newCwd);
+  if (workspacePathsEqual(resolvedOld, resolvedNew)) return;
+  const fromDir = encodeCwdSessionDir(resolvedOld);
+  const toDir = encodeCwdSessionDir(resolvedNew);
+  let files: string[];
+  try {
+    files = await fs.promises.readdir(fromDir);
+  } catch {
+    invalidateSessionListCaches(resolvedOld);
+    return;
+  }
+  await fs.promises.mkdir(toDir, { recursive: true });
+  for (const file of files) {
+    if (!file.endsWith(".jsonl")) continue;
+    const src = path.join(fromDir, file);
+    const dest = path.join(toDir, file);
+    if (fs.existsSync(dest)) continue;
+    await moveSessionFile(src, dest, resolvedNew, fromDir, toDir);
+  }
+  try {
+    const rest = await fs.promises.readdir(fromDir);
+    if (rest.length === 0) await fs.promises.rmdir(fromDir);
+  } catch {
+    // 旧目录残留不影响迁移结果
+  }
+  invalidateSessionListCaches(resolvedOld);
+  invalidateSessionListCaches(resolvedNew);
+}
+
 export async function listSessionsForCwd(
   cwd: string,
 ): Promise<SessionSummary[]> {
@@ -295,13 +399,27 @@ export async function listSessionsForCwd(
   if (hit && hit.signature === signature) return hit.sessions;
 
   const rows = await listSessionSummariesSafe({ dir: sessionDir });
-  const sessions = rows
-    .filter((row) => {
-      const sessionCwd = row.cwd ? path.resolve(row.cwd) : resolvedCwd;
-      return workspacePathsEqual(sessionCwd, resolvedCwd);
-    })
-    .map(diskRowToSummary)
-    .sort((a, b) => b.modified.localeCompare(a.modified));
+  const workspaceRows = rows.filter((row) => {
+    const sessionCwd = row.cwd ? path.resolve(row.cwd) : resolvedCwd;
+    return workspacePathsEqual(sessionCwd, resolvedCwd);
+  });
+  const entries = workspaceRows
+    .map((row) => ({ row, summary: diskRowToSummary(row) }))
+    .sort((a, b) => b.summary.modified.localeCompare(a.summary.modified));
+
+  // 派生会话的 parentSession 是父文件路径，这里解析成父会话 id。
+  const idByPath = new Map(workspaceRows.map((r) => [r.filePath.toLowerCase(), r.id]));
+  for (const { row, summary } of entries) {
+    const parentPath = row.parentSessionPath?.trim();
+    if (!parentPath) continue;
+    const resolvedParent = path.resolve(parentPath);
+    const parentId =
+      idByPath.get(resolvedParent.toLowerCase()) ?? readSessionHeaderId(resolvedParent);
+    if (parentId && parentId !== summary.id) {
+      summary.parentSessionId = parentId;
+    }
+  }
+  const sessions = entries.map((entry) => entry.summary);
 
   sessionListCache.set(key, { signature, sessions });
   if (sessionListCache.size > 64) {

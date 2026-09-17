@@ -1,7 +1,9 @@
 import fs from "node:fs";
 import path from "node:path";
+import { agentDir, homeDir } from "./agent-dir";
+import { withFrontmatterName } from "./frontmatter";
+import { SKILL_NAME_PATTERN } from "./skill-validate";
 import { isPathInsideRoot } from "../shared/path-sandbox";
-import { resolveTrustState } from "./project-trust";
 
 export type SkillDto = {
   name: string;
@@ -21,7 +23,7 @@ export async function listSkills(cwd: string): Promise<{ skills: SkillDto[]; dia
   } = await import("@earendil-works/pi-coding-agent");
   const agentDir = getAgentDir();
   const settingsManager = SettingsManager.create(cwd, agentDir, {
-    projectTrusted: resolveTrustState(cwd, agentDir).projectTrusted,
+    projectTrusted: true,
   });
   const loader = new DefaultResourceLoader({ cwd, agentDir, settingsManager });
   await loader.reload();
@@ -40,44 +42,149 @@ export async function listSkills(cwd: string): Promise<{ skills: SkillDto[]; dia
   };
 }
 
+/** 按编辑器草稿创建技能：内容原样写入，名称与描述由 frontmatter 解析后校验。 */
+export function createSkillFromDraft(
+  content: string,
+  name: string,
+  description: string,
+  scope: "user" | "project",
+  cwd?: string,
+): { filePath: string } {
+  if (name.length > 64 || !SKILL_NAME_PATTERN.test(name)) {
+    throw new Error(`Invalid skill name: ${name}`);
+  }
+  if (!description) throw new Error("Skill description is required in frontmatter");
+  const root = cwd?.trim() || null;
+  if (scope === "project" && !root) throw new Error("workspace required");
+  const skillsRoot =
+    scope === "project" && root ? path.join(root, ".pi", "skills") : path.join(agentDir(), "skills");
+  const filePath = path.join(skillsRoot, name, "SKILL.md");
+  if (fs.existsSync(filePath)) throw new Error(`Skill already exists: ${name}`);
+  fs.mkdirSync(path.dirname(filePath), { recursive: true });
+  fs.writeFileSync(filePath, content, "utf8");
+  return { filePath };
+}
+
 export async function setSkillDisabled(filePath: string, disableModelInvocation: boolean): Promise<void> {
   if (!fs.existsSync(filePath)) {
     throw new Error("skill file not found");
   }
   const content = fs.readFileSync(filePath, "utf8");
   const key = "disable-model-invocation";
-  const { parseFrontmatter } = await import("@earendil-works/pi-coding-agent");
-  const { frontmatter } = parseFrontmatter<Record<string, unknown>>(content);
-  const alreadySet = Boolean(frontmatter[key]);
+  const linePattern = new RegExp(`^${key}\\s*:[^\\n]*(\\r?\\n|$)`, "m");
+  const frontmatter = /^\uFEFF?---\r?\n[\s\S]*?\r?\n---(?=\r?\n|$)/.exec(content);
+  const head = frontmatter ? frontmatter[0] : "";
+  const body = content.slice(head.length);
 
-  let updated = content;
-  if (disableModelInvocation && !alreadySet) {
-    updated = content.replace(/^---\r?\n/, `---\n${key}: true\n`);
-    if (updated === content) {
-      updated = `---\n${key}: true\n---\n${content}`;
+  let nextHead: string;
+  if (disableModelInvocation) {
+    if (linePattern.test(head)) {
+      nextHead = head.replace(linePattern, `${key}: true$1`);
+    } else if (head) {
+      nextHead = head.replace(/^\uFEFF?---\r?\n/, `$&${key}: true\n`);
+    } else {
+      nextHead = `---\n${key}: true\n---\n`;
     }
-  } else if (!disableModelInvocation && alreadySet) {
-    updated = content.replace(new RegExp(`^${key}\\s*:.*\\r?\\n`, "m"), "");
+  } else {
+    nextHead = head.replace(linePattern, "");
   }
-  fs.writeFileSync(filePath, updated, "utf8");
+
+  const updated = nextHead + body;
+  if (updated !== content) {
+    fs.writeFileSync(filePath, updated, "utf8");
+  }
+}
+
+/** 可改动的技能根：用户级（pi/agents）与当前工作区，用于改名或删除。 */
+function skillActionRoots(
+  agentSkills: string,
+  cwd?: string,
+  workspaces: readonly string[] = [],
+): string[] {
+  const roots = [agentSkills, path.resolve(homeDir(), ".agents", "skills")];
+  const bases = [...(cwd?.trim() ? [cwd.trim()] : []), ...workspaces];
+  for (const base of bases) {
+    const projectSkills = path.resolve(base, ".pi", "skills");
+    if (!roots.includes(projectSkills)) roots.push(projectSkills);
+  }
+  return roots;
+}
+
+/** 写入技能文件内容（只允许用户级/工作区级技能目录下的文件）。 */
+export function writeSkillContent(
+  filePath: string,
+  content: string,
+  cwd?: string,
+  workspaces: readonly string[] = [],
+): void {
+  const skillDir = path.resolve(path.dirname(filePath));
+  const roots = skillActionRoots(path.resolve(agentDir(), "skills"), cwd, workspaces);
+  if (!roots.some((base) => isPathInsideRoot(base, skillDir))) {
+    throw new Error("Only user and workspace skills can be edited");
+  }
+  fs.writeFileSync(filePath, content, "utf8");
+}
+
+/** 保存技能：先写内容，再按需重命名目录并同步 frontmatter。 */
+export function saveSkillContent(
+  filePath: string,
+  content: string,
+  name: string,
+  renameName: string | undefined,
+  cwd?: string,
+  workspaces: readonly string[] = [],
+): { filePath: string; name: string } {
+  writeSkillContent(filePath, content, cwd, workspaces);
+  const currentDir = path.basename(path.dirname(path.resolve(filePath)));
+  if (!renameName || renameName === currentDir) return { filePath, name };
+  return renameSkill(filePath, renameName, cwd, workspaces);
+}
+
+/** 重命名技能：目录改名并同步 frontmatter 的 name，只允许用户级与工作区级技能。 */
+export function renameSkill(
+  filePath: string,
+  name: string,
+  cwd?: string,
+  workspaces: readonly string[] = [],
+): { filePath: string; name: string } {
+  if (name.length > 64 || !SKILL_NAME_PATTERN.test(name)) {
+    throw new Error(`Invalid skill name: ${name}`);
+  }
+  if (!fs.existsSync(filePath)) throw new Error("Skill not found");
+  const skillDir = path.resolve(path.dirname(filePath));
+  const roots = skillActionRoots(path.resolve(agentDir(), "skills"), cwd, workspaces);
+  if (!roots.some((base) => isPathInsideRoot(base, skillDir))) {
+    throw new Error("Only user and workspace skills can be renamed");
+  }
+  if (roots.includes(skillDir)) {
+    throw new Error("Refusing to rename the skills root directory");
+  }
+  const fileName = path.basename(filePath);
+  const nextDir = path.join(path.dirname(skillDir), name);
+  if (path.resolve(nextDir) === skillDir) return { filePath, name };
+  if (fs.existsSync(nextDir)) throw new Error(`Skill already exists: ${name}`);
+  const content = fs.readFileSync(filePath, "utf8");
+  fs.writeFileSync(filePath, withFrontmatterName(content, name), "utf8");
+  fs.renameSync(skillDir, nextDir);
+  return { filePath: path.join(nextDir, fileName), name };
 }
 
 /** Remove a skill directory (SKILL.md parent). Allowed under agent/project skills roots. */
-export async function uninstallSkill(filePath: string, cwd?: string): Promise<void> {
+export async function uninstallSkill(
+  filePath: string,
+  cwd?: string,
+  workspaces: readonly string[] = [],
+): Promise<void> {
   if (!fs.existsSync(filePath)) throw new Error("Skill not found");
   const skillDir = path.resolve(path.dirname(filePath));
   const { getAgentDir } = await import("@earendil-works/pi-coding-agent");
-  const agentSkills = path.resolve(getAgentDir(), "skills");
-  const projectSkills = cwd ? path.resolve(cwd, ".pi", "skills") : null;
-  const allowed =
-    isPathInsideRoot(agentSkills, skillDir) ||
-    (projectSkills !== null && isPathInsideRoot(projectSkills, skillDir));
-  if (!allowed) {
+  const roots = skillActionRoots(path.resolve(getAgentDir(), "skills"), cwd, workspaces);
+  if (!roots.some((base) => isPathInsideRoot(base, skillDir))) {
     throw new Error(
-      "Can only uninstall skills under ~/.pi/agent/skills or project .pi/skills (remove package skills from Extensions)",
+      "Can only uninstall skills under ~/.pi/agent/skills, ~/.agents/skills or project .pi/skills (remove package skills from Extensions)",
     );
   }
-  if (skillDir === agentSkills || (projectSkills && skillDir === projectSkills)) {
+  if (roots.includes(skillDir)) {
     throw new Error("Refusing to delete the skills root directory");
   }
   fs.rmSync(skillDir, { recursive: true, force: false });

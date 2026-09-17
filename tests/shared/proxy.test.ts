@@ -47,7 +47,7 @@ describe("normalizeProxyUrl", () => {
 });
 
 describe("proxyEnvFromUrl", () => {
-  it("produces upper- and lowercase env vars", () => {
+  it("produces upper- and lowercase env vars with localhost exclusions", () => {
     const env = proxyEnvFromUrl("http://127.0.0.1:7890");
     expect(env.HTTP_PROXY).toBe("http://127.0.0.1:7890");
     expect(env.HTTPS_PROXY).toBe("http://127.0.0.1:7890");
@@ -55,10 +55,16 @@ describe("proxyEnvFromUrl", () => {
     expect(env.http_proxy).toBe("http://127.0.0.1:7890");
     expect(env.https_proxy).toBe("http://127.0.0.1:7890");
     expect(env.all_proxy).toBe("http://127.0.0.1:7890");
+    expect(env.NO_PROXY).toContain("127.0.0.1");
+    expect(env.no_proxy).toContain("localhost");
   });
 
   it("returns an empty object for invalid URLs", () => {
     expect(proxyEnvFromUrl("not a url")).toEqual({});
+  });
+
+  it("returns an empty object for socks URLs (Node fetch cannot use them)", () => {
+    expect(proxyEnvFromUrl("socks5://127.0.0.1:1080")).toEqual({});
   });
 
   it("PROXY_ENV_KEYS covers every key proxyEnvFromUrl sets (plus NO_PROXY)", () => {
@@ -76,9 +82,13 @@ describe("proxyEnvFromPacResult", () => {
     expect(env.HTTP_PROXY).toBe("http://192.168.1.10:8080");
   });
 
-  it("maps SOCKS5 entries to socks5:// env vars", () => {
-    const env = proxyEnvFromPacResult("SOCKS5 127.0.0.1:1080");
-    expect(env.ALL_PROXY).toBe("socks5://127.0.0.1:1080");
+  it("prefers HTTP(S) entries over SOCKS entries", () => {
+    const env = proxyEnvFromPacResult("SOCKS5 127.0.0.1:1080; PROXY 192.168.1.10:8080");
+    expect(env.HTTP_PROXY).toBe("http://192.168.1.10:8080");
+  });
+
+  it("returns {} for SOCKS-only results (Node-side fetch cannot use them)", () => {
+    expect(proxyEnvFromPacResult("SOCKS5 127.0.0.1:1080")).toEqual({});
   });
 
   it("returns {} for DIRECT and garbage", () => {

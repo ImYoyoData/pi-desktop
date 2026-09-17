@@ -8,11 +8,13 @@ import PermissionStrip from "@renderer/components/PermissionStrip.vue";
 import ExtensionUiStrip from "@renderer/components/ExtensionUiStrip.vue";
 import SessionTodoPanel from "@renderer/components/SessionTodoPanel.vue";
 import SessionChangedFiles from "@renderer/components/SessionChangedFiles.vue";
+import { useAppearanceStore } from "@renderer/stores/appearance";
 import { useChatStore } from "@renderer/stores/chat";
 import { useSessionsStore } from "@renderer/stores/sessions";
 import { useWorkspaceStore } from "@renderer/stores/workspace";
 import { useSessionWidgetsStore } from "@renderer/stores/session-widgets";
 import { hasAnyFileChange } from "@renderer/utils/session-file-changes";
+import { heuristicSessionTitle } from "@renderer/utils/session-title";
 
 /**
  * Heaviest chat chrome — load lazily so first paint / session switch stays
@@ -31,10 +33,16 @@ import {
 import { t } from "@renderer/i18n";
 
 const chat = useChatStore();
+const appearance = useAppearanceStore();
 const sessions = useSessionsStore();
 const workspace = useWorkspaceStore();
 const widgets = useSessionWidgetsStore();
+
+widgets.restoreTodoSnapshots();
 const message = useMessage();
+
+/** 面板被折叠/让位给编辑器区域时不参与可见性：消息区据此暂停测量与贴底。 */
+const props = defineProps<{ visible?: boolean }>();
 
 /** Any docked widget (todo / changed files) above the composer? */
 const hasTodoDock = computed(() => Boolean(widgets.activeTodoList));
@@ -65,10 +73,11 @@ watch(
     }
   },
 );
-const hasSession = computed(() => Boolean(sessions.activeId));
+const isDraft = computed(() => !sessions.activeId && Boolean(sessions.draftRoot));
+const hasSession = computed(() => Boolean(sessions.activeId) || isDraft.value);
 
 const canCreateSession = computed(
-  () => !workspace.trustDialogOpen && (!workspace.root || workspace.sessionsReady),
+  () => !workspace.root || workspace.sessionsReady,
 );
 
 const running = computed(() => {
@@ -111,6 +120,7 @@ const showHeaderRunning = computed(
 );
 
 const title = computed(() => {
+  if (isDraft.value) return t.newSession;
   if (!sessions.activeId) return "";
   const row = sessions.sessions.find((s) => s.id === sessions.activeId);
   if (row?.name?.trim()) return row.name.trim();
@@ -118,20 +128,22 @@ const title = computed(() => {
     const text = row.firstMessage.trim();
     return text.length > 56 ? `${text.slice(0, 53)}…` : text;
   }
+  // 会话行不在当前工作区列表里（侧栏折叠/切换后保留旧会话）时用首条消息兜底。
+  const firstUser = chat.activeMessages.find((m) => m.role === "user" && m.text.trim());
+  if (firstUser?.role === "user") {
+    const text = heuristicSessionTitle(firstUser.text, 56);
+    if (text) return text;
+  }
   return t.newSession;
 });
 
 async function onNewAgent(): Promise<void> {
   if (!canCreateSession.value && workspace.root) return;
-  if (workspace.trustDialogOpen) return;
   let root = workspace.root;
   if (!root) root = await workspace.openWorkspace();
   if (!root) return;
-  if (workspace.trustDialogOpen || !workspace.sessionsReady) return;
-  const created = await sessions.createSession(root);
-  if (created) {
-    chat.hydrateFromHistory(created.id, []);
-  }
+  if (!workspace.sessionsReady) return;
+  sessions.beginDraft(root);
 }
 </script>
 
@@ -161,7 +173,9 @@ async function onNewAgent(): Promise<void> {
 
     <template v-else>
       <header class="head">
-        <NText strong style="flex: 1; min-width: 0" class="title">{{ title }}</NText>
+        <NText v-if="appearance.showSessionTitle" strong style="flex: 1; min-width: 0" class="title">
+          {{ title }}
+        </NText>
         <NTag v-if="chat.activeRetryHint" type="warning" size="small" round :bordered="false">
           {{
             t.retrying(
@@ -194,6 +208,7 @@ async function onNewAgent(): Promise<void> {
         :running="running"
         :retry-hint="chat.activeRetryHint"
         :history-loading="chat.historyLoading"
+        :visible="props.visible !== false"
       />
       <!-- Permission blocks the tool; when both pending, show permission first. -->
       <PermissionStrip />
@@ -230,6 +245,7 @@ async function onNewAgent(): Promise<void> {
 .head {
   display: flex;
   align-items: center;
+  justify-content: flex-end;
   gap: 8px;
   height: 36px;
   padding: 0 var(--chat-pad-x, 10px);
@@ -265,7 +281,7 @@ async function onNewAgent(): Promise<void> {
 .stack-above {
   border: 1px solid var(--border);
   border-bottom: none;
-  border-radius: var(--radius-lg, 16px) var(--radius-lg, 16px) 0 0;
+  border-radius: var(--radius-lg, 8px) var(--radius-lg, 8px) 0 0;
   background: var(--tool-bg, #f5f6f7);
   padding: 3px 3px 0;
   overflow: hidden;

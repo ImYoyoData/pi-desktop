@@ -10,6 +10,7 @@ import {
 	npmNameFromSource,
 } from "./agent-npm-extensions";
 import { resolveNpmRunner } from "./bundled-npm";
+import { netFetch } from "./net-fetch";
 import {
 	PI_PACKAGES_CATALOG_URL,
 	piInstallCommand,
@@ -117,7 +118,7 @@ export async function listPiPackages(opts?: {
 		: PI_PACKAGES_CATALOG_URL;
 
 	try {
-		const res = await fetch(sourceUrl, {
+		const res = await netFetch(sourceUrl, {
 			headers: {
 				Accept: "text/html",
 				"User-Agent": "pi-desktop",

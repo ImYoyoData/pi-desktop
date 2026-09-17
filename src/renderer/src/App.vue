@@ -1,6 +1,6 @@
 <script setup lang="ts">
 // pi-lens-ignore: 2305
-import { computed, defineAsyncComponent, onMounted, onUnmounted, ref, watch } from "vue";
+import { computed, defineAsyncComponent, onMounted, onUnmounted, ref } from "vue";
 import {
   NConfigProvider,
   NMessageProvider,
@@ -12,19 +12,21 @@ import {
   dateEnUS,
 } from "naive-ui";
 import TitleBar from "@renderer/components/TitleBar.vue";
+import AppWallpaper from "@renderer/components/AppWallpaper.vue";
+import AppContextMenu from "@renderer/components/AppContextMenu.vue";
 import WelcomeView from "@renderer/components/WelcomeView.vue";
 import PiCliSetup from "@renderer/components/PiCliSetup.vue";
 import CloseGuard from "@renderer/components/CloseGuard.vue";
 import AsrWakeGuard from "@renderer/components/AsrWakeGuard.vue";
-import TrustDialog from "@renderer/components/TrustDialog.vue";
 import AsrBackendChooseModal from "@renderer/components/AsrBackendChooseModal.vue";
 import { useWorkspaceStore } from "@renderer/stores/workspace";
 import { useAppearanceStore } from "@renderer/stores/appearance";
+import { useCustomizationsStore } from "@renderer/stores/customizations";
 import { darkThemeOverrides, lightThemeOverrides } from "@renderer/theme/naive";
 import { locale } from "@renderer/i18n";
-import { dismissLocaleReloadSplash } from "@renderer/utils/locale-reload-splash";
 import { dismissStartupSplash } from "@renderer/utils/startup-splash";
 import { markRendererStartup } from "@renderer/utils/startup-timing";
+import { startFsChangedBus } from "@renderer/utils/fs-changed-bus";
 
 /** Heavy workspace chrome — load after first paint when a folder is open. */
 const SplitRoot = defineAsyncComponent(() => {
@@ -34,9 +36,13 @@ const SplitRoot = defineAsyncComponent(() => {
     return m;
   });
 });
+const AiCustomizationModal = defineAsyncComponent(
+  () => import("@renderer/components/AiCustomizationModal.vue"),
+);
 
 const workspace = useWorkspaceStore();
 const appearance = useAppearanceStore();
+const customizations = useCustomizationsStore();
 /** True once workspace/platform init finished (gates shell mounting). */
 const bootInitDone = ref(false);
 /**
@@ -44,12 +50,16 @@ const bootInitDone = ref(false);
  * can take a while; never block shell mounting forever.
  */
 const BOOT_MAX_MS = 6000;
+/** 首屏就绪后延迟预热设置页快照的时长，避开启用初期的其它启动任务。 */
+const CUSTOMIZATIONS_PREWARM_MS = 1200;
 let bootTimer = 0;
 
 /** Shell content can mount once init IPC returns (or failsafe fires). */
 const shellReady = computed(() => bootInitDone.value);
-const naiveLocale = locale === "zh-CN" ? zhCN : enUS;
-const naiveDateLocale = locale === "zh-CN" ? dateZhCN : dateEnUS;
+const naiveLocale = computed(() => (locale.value === "zh-CN" ? zhCN : enUS));
+const naiveDateLocale = computed(() =>
+  locale.value === "zh-CN" ? dateZhCN : dateEnUS,
+);
 
 const naiveTheme = computed(() =>
   appearance.resolvedTheme === "dark" ? darkTheme : null,
@@ -58,19 +68,16 @@ const themeOverrides = computed(() =>
   appearance.resolvedTheme === "dark" ? darkThemeOverrides : lightThemeOverrides,
 );
 
-// The trust prompt is a modal that must be clickable: drop the splash fast.
-watch(
-  () => workspace.trustDialogOpen,
-  (open) => {
-    if (open) void dismissStartupSplash(true);
-  },
-);
-
 let stopAppearance: (() => void) | undefined;
+let stopFsChangedBus: (() => void) | undefined;
+let stopCustomizations: (() => void) | undefined;
+let customizationsWarmTimer = 0;
 
 onMounted(() => {
   stopAppearance = appearance.init();
-  void window.api.window.setUiLocale(locale === "zh-CN" ? "zh-CN" : "en");
+  stopFsChangedBus = startFsChangedBus();
+  stopCustomizations = customizations.init();
+  void window.api.window.setUiLocale(locale.value);
   // Instant open: drop the full-screen splash right after first paint so the
   // window feels instant; shell content mounts once workspace init finishes.
   void dismissStartupSplash(true);
@@ -90,17 +97,23 @@ onMounted(() => {
         }),
       ]);
     } finally {
-      await dismissLocaleReloadSplash();
       bootInitDone.value = true;
       markRendererStartup("renderer:shell-ready");
       if (!workspace.root) markRendererStartup("renderer:ready");
+      // 后台预热设置页快照：冷启动首次扫描不挡首屏，之后打开设置页直接命中缓存。
+      customizationsWarmTimer = window.setTimeout(() => {
+        if (workspace.root) void customizations.load();
+      }, CUSTOMIZATIONS_PREWARM_MS);
     }
   })();
 });
 
 onUnmounted(() => {
   window.clearTimeout(bootTimer);
+  window.clearTimeout(customizationsWarmTimer);
   stopAppearance?.();
+  stopFsChangedBus?.();
+  stopCustomizations?.();
 });
 </script>
 
@@ -116,7 +129,12 @@ onUnmounted(() => {
       <NDialogProvider>
         <CloseGuard />
         <AsrWakeGuard />
-        <div class="app-shell" :data-theme="appearance.resolvedTheme">
+        <div
+          class="app-shell"
+          :data-theme="appearance.resolvedTheme"
+          :class="{ 'panel-dividers-off': !appearance.showPanelDividers }"
+        >
+          <AppWallpaper />
           <TitleBar />
           <main class="app-main">
             <div v-if="shellReady" class="app-main-body">
@@ -125,9 +143,10 @@ onUnmounted(() => {
             </div>
           </main>
           <PiCliSetup />
-          <TrustDialog />
+          <AiCustomizationModal v-if="workspace.root" />
           <AsrBackendChooseModal />
         </div>
+        <AppContextMenu />
       </NDialogProvider>
     </NMessageProvider>
   </NConfigProvider>

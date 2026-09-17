@@ -7,7 +7,7 @@ import type {
 	PromptImageContent,
 	SessionHistoryMessage,
 } from "../../../shared/protocol";
-import { toPromptCitations, toPromptImages } from "../../../shared/protocol";
+import { toPromptCitations, toPromptImages, SESSION_HISTORY_LOAD_LIMIT } from "../../../shared/protocol";
 import { createHiddenEventSink } from "@renderer/utils/hidden-event-buffer";
 import {
 	appendUserMessage,
@@ -33,6 +33,7 @@ import { useComposerStore } from "./composer";
 import { useNotifyStore } from "./notify";
 import { useTtsStore } from "./tts";
 import { useSessionWidgetsStore } from "./session-widgets";
+import { useWorkspaceStore } from "./workspace";
 import { extractToolResult } from "../utils/tool-diff";
 import { isTodoToolName } from "../utils/session-todos";
 import {
@@ -55,10 +56,12 @@ import {
 import { t } from "../i18n";
 import {
 	isPermissionAskCancelled,
+	type PermissionAskPrompt,
 	type PermissionDecision,
 } from "../../../shared/desktop-security";
 import {
 	isAskUserAskCancelled,
+	type AskUserAnswerDraft,
 	type AskUserAskReply,
 	type AskUserPrompt,
 } from "../../../shared/ask-user";
@@ -116,10 +119,70 @@ export const useChatStore = defineStore("chat", () => {
 	const sessionsStore = useSessionsStore();
 	const checkpointStore = useCheckpointStore();
 	const notifyStore = useNotifyStore();
+	const workspaceStore = useWorkspaceStore();
 	const pendingUserEdit = ref<PendingUserEdit | null>(null);
 	const historyLoadingId = ref<string | null>(null);
 	/** Bumped when a permission ask is denied or times out — UI may toast Security remediation. */
 	const securityRemediationTick = ref(0);
+	/** requestId → UI draft kept across renderer reloads (恢复后可继续提交). */
+	const askUserDrafts = new Map<string, AskUserAnswerDraft>();
+	/** requestId → 当前题号，会话切换回来后仍停在原来那一题。 */
+	const askUserSteps = new Map<string, number>();
+	let pendingUiRecovered = false;
+	const ASK_DRAFT_KEY = "pi-desktop:ask-user-drafts:v1";
+
+	function readAskDraft(requestId: string): AskUserAnswerDraft | null {
+		const mem = askUserDrafts.get(requestId);
+		if (mem) return mem;
+		try {
+			const raw = sessionStorage.getItem(ASK_DRAFT_KEY);
+			if (!raw) return null;
+			const parsed = JSON.parse(raw) as Record<string, AskUserAnswerDraft>;
+			const draft = parsed?.[requestId];
+			return draft && typeof draft === "object" ? draft : null;
+		} catch {
+			return null;
+		}
+	}
+
+	function writeAskDraft(requestId: string, draft: AskUserAnswerDraft): void {
+		askUserDrafts.set(requestId, draft);
+		try {
+			const raw = sessionStorage.getItem(ASK_DRAFT_KEY);
+			const parsed = (raw ? JSON.parse(raw) : {}) as Record<string, AskUserAnswerDraft>;
+			parsed[requestId] = draft;
+			const keys = Object.keys(parsed).slice(-8);
+		const trimmed: Record<string, AskUserAnswerDraft> = {};
+			for (const k of keys) trimmed[k] = parsed[k]!;
+			sessionStorage.setItem(ASK_DRAFT_KEY, JSON.stringify(trimmed));
+		} catch {
+			// ignore — best effort only
+		}
+	}
+
+	function readAskStep(requestId: string): number | null {
+		return askUserSteps.get(requestId) ?? null;
+	}
+
+	function writeAskStep(requestId: string, step: number): void {
+		askUserSteps.set(requestId, step);
+	}
+
+	function clearAskUserDraft(requestId: string): void {
+		askUserDrafts.delete(requestId);
+		askUserSteps.delete(requestId);
+		try {
+			const raw = sessionStorage.getItem(ASK_DRAFT_KEY);
+			if (!raw) return;
+			const parsed = JSON.parse(raw) as Record<string, unknown>;
+			delete parsed[requestId];
+		sessionStorage.setItem(ASK_DRAFT_KEY, JSON.stringify(parsed));
+		} catch {
+			// ignore
+		}
+	}
+
+
 	/** Sessions currently inside autoRecover (restart + resend). */
 	const recoveringIds = new Set<string>();
 	/** Soft-hang timeout already reported for this turn (avoid repeat errors). */
@@ -199,6 +262,10 @@ export const useChatStore = defineStore("chat", () => {
 			role: "assistant" as const,
 			text: row.text,
 			...(row.thinking ? { thinking: row.thinking } : {}),
+			...(row.model ? { model: row.model } : {}),
+			...(row.thinkingLevel ? { thinkingLevel: row.thinkingLevel } : {}),
+			...(row.usage ? { usage: row.usage } : {}),
+			...(row.durationMs != null ? { durationMs: row.durationMs } : {}),
 		};
 	}
 
@@ -271,10 +338,55 @@ export const useChatStore = defineStore("chat", () => {
 
 	function setPendingAskUserFor(prompt: AskUserPrompt): void {
 		if (!prompt.sessionId) return;
+		const cur = stateFor(prompt.sessionId).pendingAskUser;
+		if (cur?.requestId === prompt.requestId) return;
 		setSessionState(
 			prompt.sessionId,
 			setPendingAskUser(stateFor(prompt.sessionId), prompt),
 		);
+	}
+
+	/**
+	 * Reload / language-switch wipes renderer memory while main keeps the
+	 * pending asks. Pull them back so strips reappear; replies reuse the
+	 * original requestId so recovered strips stay submittable. Ask drafts
+	 * stored in sessionStorage survive reload; when main no longer holds a
+	 * request (e.g. app restart) its strip is gone for good — the worker turn
+	 * already failed, so just surface that instead of a dead prompt.
+	 */
+	async function recoverPendingUi(): Promise<void> {
+		if (pendingUiRecovered) return;
+		pendingUiRecovered = true;
+		let snapshot;
+		try {
+			snapshot = await window.api.sessions.pendingUi();
+		} catch {
+			return;
+		}
+		if (!snapshot) return;
+		for (const ask of snapshot.asks ?? []) {
+			if (!ask?.requestId || !ask?.sessionId || !ask?.questions?.length) continue;
+			setPendingAskUserFor({
+				sessionId: ask.sessionId,
+				requestId: ask.requestId,
+				questions: ask.questions,
+			});
+		}
+		for (const perm of snapshot.permissions ?? []) {
+			if (!perm?.requestId || !perm?.sessionId) continue;
+			if (stateFor(perm.sessionId).pendingPermission?.requestId === perm.requestId) continue;
+			setPendingPermissionFor(perm as PermissionAskPrompt);
+		}
+		for (const dialog of snapshot.extensionDialogs ?? []) {
+			if (!dialog || !("requestId" in dialog) || !dialog.requestId) continue;
+			if (stateFor(dialog.sessionId).pendingExtensionUi?.requestId === dialog.requestId) continue;
+			setPendingExtensionUiFor(dialog);
+		}
+		if (snapshot.asks?.length || snapshot.permissions?.length || snapshot.extensionDialogs?.length) {
+			if (notifyStore.soundEnabled) {
+				void notifyStore.playChime();
+			}
+		}
 	}
 
 	function setPendingPermissionFor(req: PendingPermission): void {
@@ -314,7 +426,9 @@ export const useChatStore = defineStore("chat", () => {
 	async function replyAskUser(payload: AskUserAskReply): Promise<void> {
 		const id = sessionsStore.activeId;
 		if (id) clearPendingAskUserFor(id);
-		await window.api.sessions.askUserReply(payload);
+		clearAskUserDraft(payload.requestId);
+		const res = await window.api.sessions.askUserReply(payload);
+		if (!res?.ok) throw new Error(res?.reason ?? "ask_user reply rejected");
 	}
 
 	async function replyExtensionUi(reply: ExtensionUiReply): Promise<void> {
@@ -677,6 +791,48 @@ export const useChatStore = defineStore("chat", () => {
 		}
 	}
 
+	/**
+	 * 会话重新载入时用主进程的会话状态校准 running：
+	 * 事件丢失（renderer 重载、HMR、断线）不应让 UI 永远停在「运行中」，
+	 * 否则检查点分隔线与派生/还原按钮会一直不显示。
+	 */
+	function reconcileRunning(sessionId: string, state: ChatState): ChatState {
+		if (!state.running) return state;
+		const row = sessionsStore.sessions.find((s) => s.id === sessionId);
+		if (!row || row.status === "running" || row.status === "stuck") return state;
+		return { ...state, running: false, streamingMessage: null, retryHint: null };
+	}
+
+	/**
+	 * 磁盘历史 + 内存 live 尾部：会话运行中重载 renderer 时事件先于 hydrate 到达，
+	 * live 里只有流式事件、没有历史，直接采用 live 会丢掉整段磁盘历史。
+	 * live 带有磁盘历史锚点时按锚点拼接更新尾部；否则用 live 的当前轮
+	 * （最后一条 user 起）覆盖磁盘历史的尾部，前段历史始终保留。
+	 */
+	function mergeHistoryWithLive(
+		mapped: ChatMessage[],
+		liveMessages: ChatMessage[],
+	): ChatMessage[] {
+		if (!liveMessages.length) return mapped;
+		if (!mapped.length) return liveMessages;
+		const diskTailId = mapped.at(-1)!.id;
+		const anchorIdx = liveMessages.findIndex((m) => m.id === diskTailId);
+		if (anchorIdx >= 0) {
+			// live 由同一份磁盘历史 hydrate 而来：保留对象身份，只追加更新的尾部。
+			if (anchorIdx === liveMessages.length - 1) return liveMessages;
+			return [...mapped, ...liveMessages.slice(anchorIdx + 1)];
+		}
+		const liveUser = liveMessages.findLastIndex((m) => m.role === "user");
+		const liveUserMsg = liveUser >= 0 ? liveMessages[liveUser] : undefined;
+		if (liveUserMsg?.role !== "user") return mapped;
+		const text = liveUserMsg.text;
+		const diskUser = mapped.findLastIndex(
+			(m) => m.role === "user" && m.text === text,
+		);
+		const head = diskUser >= 0 ? mapped.slice(0, diskUser) : mapped;
+		return [...head, ...liveMessages.slice(liveUser)];
+	}
+
 	function hydrateFromHistory(
 		sessionId: string,
 		history: SessionHistoryMessage[],
@@ -685,6 +841,7 @@ export const useChatStore = defineStore("chat", () => {
 		// Restore persisted checkpoint summaries so history keeps its revert
 		// buttons across session switches / restarts.
 		void checkpointStore.loadSessionSummaries(sessionId);
+		const mapped = history.map(mapHistoryRow);
 		const live = bySession[sessionId];
 		if (live && hasLiveTurnState(live)) {
 			// Session already has a live turn in memory (streaming tail / ask_user
@@ -692,9 +849,12 @@ export const useChatStore = defineStore("chat", () => {
 			// lags the live turn, so replacing state would drop the pending prompt
 			// and any un-flushed stream tail; keep it until the turn settles.
 			softHangReported.delete(sessionId);
+			bySession[sessionId] = reconcileRunning(sessionId, {
+				...live,
+				messages: mergeHistoryWithLive(mapped, live.messages),
+			});
 			return;
 		}
-		const mapped = history.map(mapHistoryRow);
 		// Returning to a session we already hold in memory: when the disk page is
 		// the tail of what's already loaded (user visited before / loaded older
 		// pages), keep the existing array — message objects stay identical so
@@ -708,6 +868,7 @@ export const useChatStore = defineStore("chat", () => {
 				.every((m, i) => m.id === mapped[i]!.id)
 		) {
 			softHangReported.delete(sessionId);
+			bySession[sessionId] = reconcileRunning(sessionId, live);
 			return;
 		}
 		bySession[sessionId] = {
@@ -782,6 +943,7 @@ export const useChatStore = defineStore("chat", () => {
 		const offExtensionUi = window.api.sessions.onExtensionUi((event) => {
 			handleExtensionUiEvent(event);
 		});
+		void recoverPendingUi();
 		onScopeDispose(() => {
 			eventsBound = false;
 			if (softHangTimer) {
@@ -857,35 +1019,22 @@ export const useChatStore = defineStore("chat", () => {
 		pendingUserEdit.value = null;
 		if (edit?.sessionId === sessionId) {
 			const before = stateFor(sessionId);
-			let userIndex = -1;
-			let found = false;
-			for (const m of before.messages) {
-				if (m.role !== "user") continue;
-				userIndex += 1;
-				if (m.id === edit.messageId) {
-					found = true;
-					break;
-				}
-			}
-			if (!found) userIndex = -1;
-			const cutIdx = before.messages.findIndex((m) => m.id === edit.messageId);
-			if (cutIdx >= 0) {
+			const located = locateUserTurn(before, edit.messageId);
+			if (located) {
 				setSessionState(
 					sessionId,
 					withRunClock({
 						...before,
-						messages: before.messages.slice(0, cutIdx),
+						messages: before.messages.slice(0, located.cutIdx),
 						streamingMessage: null,
 						running: false,
 						retryHint: null,
 					}),
 				);
-			}
-			if (userIndex >= 0) {
 				try {
 					await sessionsStore.sendCommand(sessionId, {
 						type: "rollback_user",
-						userIndex,
+						userIndex: located.userIndex,
 					});
 				} catch {
 					// Agent may already be past that leaf — continue with the new prompt.
@@ -959,10 +1108,24 @@ export const useChatStore = defineStore("chat", () => {
 	}
 
 	async function abort(sessionId: string): Promise<void> {
+		// TEMP-DIAG: find who auto-aborts while ask_user is pending.
+		if (stateFor(sessionId).pendingAskUser) {
+			console.warn("[ask-user-diag] abort() called while pendingAskUser present", {
+				sessionId,
+				stack: new Error().stack,
+			});
+		}
+		// Stop dismisses any pending interactive strip (ask_user / permission /
+		// extension UI) immediately — don't wait for the worker cancel broadcast.
+		setSessionState(
+			sessionId,
+			clearPendingAskUser(clearPendingPermission(clearPendingExtensionUi(stateFor(sessionId)))),
+		);
+
 		// User-initiated stop: freeze the todo round as paused — the user
 		// decides to continue or delete; never auto-complete it.
 		stopIntentBySession.add(sessionId);
-		useSessionWidgetsStore().pauseTodosForSession(sessionId);
+
 		const row = sessionsStore.sessions.find((s) => s.id === sessionId);
 		if (row?.status === "stuck") {
 			await sessionsStore.killWorker(sessionId, null);
@@ -1035,6 +1198,19 @@ export const useChatStore = defineStore("chat", () => {
 		return editIdx >= 0 && msgIdx >= editIdx;
 	}
 
+	/** 运行中执行会截断会话的操作前先停下当前轮（abort 内部等 agent 退出）。 */
+	async function stopRunBeforeMutation(
+		sessionId: string,
+		timeoutMs = 10_000,
+	): Promise<void> {
+		if (!stateFor(sessionId).running) return;
+		await abort(sessionId);
+		const deadline = Date.now() + timeoutMs;
+		while (stateFor(sessionId).running && Date.now() < deadline) {
+			await new Promise((resolve) => setTimeout(resolve, 100));
+		}
+	}
+
 	/** Regenerate from an assistant message by re-sending the preceding user prompt. */
 	async function regenerate(
 		sessionId: string,
@@ -1054,10 +1230,12 @@ export const useChatStore = defineStore("chat", () => {
 		if (userIdx < 0) return;
 		const userMsg = state.messages[userIdx];
 		if (userMsg.role !== "user") return;
+		// 运行中重新生成：先停下当前轮，避免两次生成互相抢会话树。
+		await stopRunBeforeMutation(sessionId);
 		setSessionState(
 			sessionId,
 			withRunClock({
-				...state,
+				...stateFor(sessionId),
 				messages: state.messages.slice(0, userIdx),
 				streamingMessage: null,
 				running: false,
@@ -1075,6 +1253,99 @@ export const useChatStore = defineStore("chat", () => {
 			images,
 			userMsg.elementTags,
 		);
+	}
+
+	/** 按消息 id 定位用户气泡：消息下标 + 在用户消息中的轮次下标。 */
+	function locateUserTurn(
+		state: ChatState,
+		messageId: string,
+	): { cutIdx: number; userIndex: number; message: Extract<ChatMessage, { role: "user" }> } | null {
+		let userIndex = -1;
+		for (let i = 0; i < state.messages.length; i++) {
+			const m = state.messages[i];
+			if (!m || m.role !== "user") continue;
+			userIndex += 1;
+			if (m.id === messageId) return { cutIdx: i, userIndex, message: m };
+		}
+		return null;
+	}
+
+	/**
+	 * 回退到某一轮结束：保留本轮问答，丢弃之后的全部轮次；文件保持现状。
+	 * Agent 无法回退（越界或该下标已指向别的轮次）时不做任何改动，由调用方报错。
+	 */
+	async function restoreTurn(sessionId: string, messageId: string): Promise<{ ok: boolean }> {
+		const located = locateUserTurn(stateFor(sessionId), messageId);
+		if (!located) return { ok: false };
+		let rolledBack = false;
+		try {
+			const result = await sessionsStore.sendCommand(sessionId, {
+				type: "rollback_turn_end",
+				userIndex: located.userIndex,
+				expectText: located.message.text,
+			});
+			rolledBack = Boolean((result as { ok?: unknown } | null)?.ok);
+		} catch {
+			// 命令失败按回退失败处理
+		}
+		if (!rolledBack) return { ok: false };
+		if (pendingUserEdit.value?.sessionId === sessionId) pendingUserEdit.value = null;
+		// 被丢弃的轮次已消失，其 todo 不能继续留在界面上。
+		useSessionWidgetsStore().resetTodosForSession(sessionId);
+		const state = stateFor(sessionId);
+		const nextUserIdx = state.messages.findIndex(
+			(m, i) => i > located.cutIdx && m.role === "user",
+		);
+		const endIdx = nextUserIdx === -1 ? state.messages.length : nextUserIdx;
+		if (endIdx > located.cutIdx) {
+			setSessionState(
+				sessionId,
+				withRunClock({
+					...state,
+					messages: state.messages.slice(0, endIdx),
+					streamingMessage: null,
+					running: false,
+					retryHint: null,
+				}),
+			);
+		}
+		return { ok: true };
+	}
+
+	/** 把到某一轮为止的对话复制成新会话并切换过去；源会话保持完整。 */
+	async function forkConversation(
+		sessionId: string,
+		messageId: string,
+	): Promise<string | null> {
+		const root = workspaceStore.root;
+		const located = locateUserTurn(stateFor(sessionId), messageId);
+		if (!root || !located) return null;
+		const forked = await window.api.sessions.fork(
+			sessionId,
+			root,
+			located.userIndex,
+			located.message.text,
+		);
+		await sessionsStore.refresh(root);
+		beginHistoryLoad(forked.id);
+		try {
+			const [page] = await Promise.all([
+				window.api.sessions.history(forked.filePath, {
+					limit: SESSION_HISTORY_LOAD_LIMIT,
+				}),
+				sessionsStore.selectSession(forked.id, root),
+			]);
+			hydrateFromHistory(forked.id, page.messages);
+		} finally {
+			endHistoryLoad(forked.id);
+		}
+		// 侧栏把新会话排到最前，否则它会落在「展开其余 N 个会话」折叠之下，看起来像没反应。
+		window.dispatchEvent(
+			new CustomEvent("pi-session-created", {
+				detail: { root, sessionId: forked.id },
+			}),
+		);
+		return forked.id;
 	}
 
 	/**
@@ -1210,6 +1481,10 @@ export const useChatStore = defineStore("chat", () => {
 		bindEvents,
 		applyLanEvent,
 		clearPendingAskUserFor,
+		readAskDraft,
+		writeAskDraft,
+		readAskStep,
+		writeAskStep,
 		replyPermission,
 		replyAskUser,
 		replyExtensionUi,
@@ -1228,6 +1503,8 @@ export const useChatStore = defineStore("chat", () => {
 		isPendingEditTail,
 		regenerate,
 		retryFromError,
+		restoreTurn,
+		forkConversation,
 		autoRecover,
 	};
 });

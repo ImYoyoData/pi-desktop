@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
+import { netFetch } from "./net-fetch";
 
 /**
  * Per-session image cache. Every pasted / dropped / URL image attached to a
@@ -106,7 +107,7 @@ export async function downloadImageToCache(
   const timer = setTimeout(() => controller.abort(), 30_000);
   let resp: Response;
   try {
-    resp = await fetch(url, {
+    resp = await netFetch(url, {
       signal: controller.signal,
       redirect: "follow",
       headers: { accept: "image/avif,image/webp,image/png,image/jpeg,image/gif,image/*;q=0.8,*/*;q=0.1" },

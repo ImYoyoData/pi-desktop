@@ -1,6 +1,5 @@
 import fs from "node:fs";
 import path from "node:path";
-import { resolveWorkspacePath } from "../shared/path-sandbox";
 import type { PreviewResult } from "../shared/preview-types";
 import { localMediaSrc } from "./local-file-protocol";
 
@@ -104,7 +103,10 @@ const SNIFF_BYTES = 8192;
 
 function displayPath(root: string, absolute: string): string {
   const rel = path.relative(root, absolute);
-  return rel.split(path.sep).join("/");
+  if (rel && !rel.startsWith("..") && !path.isAbsolute(rel)) {
+    return rel.split(path.sep).join("/");
+  }
+  return absolute.split(path.sep).join("/");
 }
 
 function mimeForImage(ext: string): string {
@@ -180,19 +182,8 @@ function tryAsTextFile(absolute: string, relPath: string): PreviewResult {
   return { kind: "text", path: relPath, content, truncated: truncated || undefined };
 }
 
-export function readPreview(workspaceRoot: string, relativeOrAbsolute: string): PreviewResult {
-  const normalizedInput = relativeOrAbsolute.replace(/\\/g, "/");
-  let absolute: string;
-  try {
-    absolute = resolveWorkspacePath(workspaceRoot, relativeOrAbsolute);
-  } catch (err) {
-    return {
-      kind: "error",
-      path: normalizedInput,
-      message: err instanceof Error ? err.message : String(err),
-    };
-  }
-
+/** 读取已解析的绝对路径（调用方已做路径允许校验）。 */
+export function readPreviewAt(workspaceRoot: string, absolute: string): PreviewResult {
   const relPath = displayPath(path.resolve(workspaceRoot), absolute);
 
   if (!fs.existsSync(absolute)) {

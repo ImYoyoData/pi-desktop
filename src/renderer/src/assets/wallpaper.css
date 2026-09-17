@@ -1,0 +1,174 @@
+/*
+ * 自定义外观：启用背景（图片/视频/纯色）后，界面改为半透明并透出背景。
+ * 界面底色由 AppWallpaper 的 .app-wallpaper-ui 一次性绘制，各容器背景因此改为透明，
+ * 否则嵌套的 --bg-* 会层层叠加，同一界面不同区域深浅不一。
+ * 变量由 appearance store 写入 html 的内联样式。
+ * 选择器带 [data-theme] 以提高特异性，避免被 main.css 的主题变量覆盖。
+ */
+
+html[data-theme][data-wallpaper="on"] {
+  /* 深色玻璃：基色固定为 VS Code 2026 Dark 的中性灰，不随主题切换 */
+  --w-solid-bg: #121314;
+  --w-solid-elevated: #202122;
+  --w-solid-input: #202122;
+
+  /* 半透明白描边：让玻璃在任何壁纸上保持同一质感 */
+  --border: rgba(255, 255, 255, 0.07);
+  --border-strong: rgba(255, 255, 255, 0.13);
+  --border-subtle: rgba(255, 255, 255, 0.05);
+  --chat-line: rgba(255, 255, 255, 0.07);
+
+  /* 抬升表面：卡片、浮层、头栏、选中态，统一叠在界面底色之上 */
+  --w-elevated-surface: color-mix(
+    in srgb,
+    var(--w-solid-elevated) var(--pi-alpha-card, 0%),
+    transparent
+  );
+  --w-input-surface: color-mix(
+    in srgb,
+    var(--w-solid-input) var(--pi-alpha-input, 0%),
+    transparent
+  );
+  /* 工具调用卡片（命令、输出、差异块）自带一档透明度 */
+  --w-tool-surface: color-mix(
+    in srgb,
+    var(--w-solid-elevated) var(--pi-alpha-tool, 0%),
+    transparent
+  );
+
+  --bg: transparent;
+  --bg-title: transparent;
+  --bg-sidebar: transparent;
+  --bg-panel: transparent;
+  --bg-elevated: var(--w-elevated-surface);
+  --bg-input: var(--w-input-surface);
+  /* 暗色主题的激活底色是实色，玻璃下换成半透明白，避免实心色块 */
+  --bg-active: rgba(255, 255, 255, 0.16);
+  --tool-bg: var(--w-elevated-surface);
+  --pre-bg: var(--w-elevated-surface);
+  --code-bg: var(--w-elevated-surface);
+  --md-inline-code-bg: var(--w-elevated-surface);
+}
+
+/* 外框让位给壁纸层 */
+html[data-theme][data-wallpaper="on"] .app-shell {
+  background: transparent;
+}
+
+/* 输入框上方的待办 / 更改文件列表与聊天区同底，不再叠加抬升表面 */
+html[data-theme][data-wallpaper="on"] .stack-above {
+  background: transparent;
+}
+
+/* 原本用 --bg-panel 的小元素需要自己的背景（“回到最新”已改用 --bg-elevated） */
+html[data-theme][data-wallpaper="on"] .run-row.active,
+html[data-theme][data-wallpaper="on"] .img-chip {
+  background: var(--w-elevated-surface);
+}
+
+/* naive-ui 卡片跟随抬升表面 */
+html[data-theme][data-wallpaper="on"] .n-card {
+  --n-color: var(--w-elevated-surface) !important;
+}
+
+/* 输入框与设置页叠自己的磨砂层，浮层与右键菜单已统一带 backdrop-filter */
+html[data-theme][data-wallpaper="on"] .composer-card,
+html[data-theme][data-wallpaper="on"] .pi-settings-modal,
+html[data-theme][data-wallpaper="on"] .modal-editor-panel {
+  backdrop-filter: blur(24px) saturate(1.3);
+}
+
+/* 设置页整体使用独立的透明度档位 */
+html[data-theme][data-wallpaper="on"] .pi-settings-modal,
+html[data-theme][data-wallpaper="on"] .modal-editor-panel {
+  --w-settings-surface: color-mix(
+    in srgb,
+    var(--w-solid-bg) var(--pi-alpha-settings, 0%),
+    transparent
+  );
+  background: var(--w-settings-surface);
+  --n-color: var(--w-settings-surface) !important;
+}
+
+/* naive-ui 浮层（选择菜单、对话框、消息、通知）跟随抬升表面，并模糊其下的壁纸 */
+html[data-theme][data-wallpaper="on"] .n-base-select-menu,
+html[data-theme][data-wallpaper="on"] .n-dialog,
+html[data-theme][data-wallpaper="on"] .n-message,
+html[data-theme][data-wallpaper="on"] .n-notification {
+  background-color: var(--w-elevated-surface) !important;
+  --n-color: var(--w-elevated-surface) !important;
+  backdrop-filter: blur(14px) saturate(1.15);
+}
+
+/* 浮层玻璃的模糊改由 ::before 承担：元素自身带 backdrop-filter 会形成 backdrop root，
+   root 内的后代（下拉子菜单）就无法再模糊其下的背景，只能靠实色保底而发黑。 */
+html[data-theme][data-wallpaper="on"] .n-popover,
+html[data-theme][data-wallpaper="on"] .n-dropdown-menu {
+  background-color: var(--w-elevated-surface) !important;
+  --n-color: var(--w-elevated-surface) !important;
+}
+
+html[data-theme][data-wallpaper="on"] .n-popover::before,
+html[data-theme][data-wallpaper="on"] .n-dropdown-menu::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  backdrop-filter: blur(14px) saturate(1.15);
+  pointer-events: none;
+}
+
+/* 子菜单与父菜单同底，并自带模糊（父菜单已改由伪元素模糊，不再形成 backdrop root） */
+html[data-theme][data-wallpaper="on"] .n-dropdown-menu-wrapper > .n-dropdown-menu {
+  background-color: var(--w-elevated-surface) !important;
+  backdrop-filter: blur(14px) saturate(1.15);
+}
+
+/* 子菜单自身就是玻璃层，不再叠伪元素模糊 */
+html[data-theme][data-wallpaper="on"] .n-dropdown-menu-wrapper > .n-dropdown-menu::before {
+  content: none;
+}
+
+html[data-theme][data-wallpaper="on"] .preview-context-menu,
+html[data-theme][data-wallpaper="on"] .app-context-menu {
+  backdrop-filter: blur(14px) saturate(1.15);
+}
+
+/* Monaco 编辑器右键菜单与子菜单：背景内联在滚动元素上，需直接覆盖 background-color */
+html[data-theme][data-wallpaper="on"] .monaco-menu-container,
+html[data-theme][data-wallpaper="on"] .monaco-menu-container .monaco-scrollable-element,
+html[data-theme][data-wallpaper="on"] .monaco-menu,
+html[data-theme][data-wallpaper="on"] .context-view .monaco-scrollable-element,
+html[data-theme][data-wallpaper="on"] .context-view .monaco-menu {
+  background-color: var(--w-elevated-surface) !important;
+  --vscode-menu-background: var(--w-elevated-surface) !important;
+  backdrop-filter: blur(14px) saturate(1.15);
+}
+
+/* Monaco 编辑器跟随自定义外观：编辑区底色透出界面 */
+html[data-theme][data-wallpaper="on"] .monaco-editor,
+html[data-theme][data-wallpaper="on"] .monaco-editor .monaco-editor-background,
+html[data-theme][data-wallpaper="on"] .monaco-editor .margin,
+html[data-theme][data-wallpaper="on"] .monaco-editor .minimap,
+html[data-theme][data-wallpaper="on"] .monaco-editor .decorationsOverviewRuler,
+html[data-theme][data-wallpaper="on"] .monaco-diff-editor .diffOverview {
+  background-color: transparent !important;
+}
+
+/* Monaco 浮层（补全、悬浮提示、参数提示）半透明 */
+html[data-theme][data-wallpaper="on"] .monaco-editor .suggest-widget,
+html[data-theme][data-wallpaper="on"] .monaco-editor .parameter-hints-widget,
+html[data-theme][data-wallpaper="on"] .monaco-editor .find-widget,
+html[data-theme][data-wallpaper="on"] .monaco-hover {
+  background-color: var(--w-elevated-surface) !important;
+  backdrop-filter: blur(14px) saturate(1.15);
+}
+
+/* naive-ui 输入控件跟随输入框透明度（hover 背景默认是实色 inputColor，必须一并覆盖） */
+html[data-theme][data-wallpaper="on"] .n-input,
+html[data-theme][data-wallpaper="on"] .n-base-selection {
+  --n-color: var(--w-input-surface) !important;
+  --n-color-hover: var(--w-input-surface) !important;
+  --n-color-focus: var(--w-input-surface) !important;
+  --n-color-disabled: var(--w-input-surface) !important;
+}

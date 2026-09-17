@@ -184,7 +184,7 @@ async function onRefresh(): Promise<void> {
   overflow: auto;
   padding: 10px 12px;
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: 4px;
   background: var(--bg-elevated, var(--bg));
   font-size: 13px;
 }

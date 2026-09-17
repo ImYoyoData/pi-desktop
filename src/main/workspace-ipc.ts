@@ -1,19 +1,22 @@
 import { app, BrowserWindow, dialog, ipcMain, shell } from "electron";
+import fs from "node:fs";
 import path from "node:path";
-import { IpcChannels } from "../shared/protocol";
+import { IpcChannels, type WorkspaceGroups } from "../shared/protocol";
 import { createWorkspaceStore, type WorkspaceStore } from "./workspace-store";
 import { startWorkspaceWatch, stopWorkspaceWatch } from "./fs-watch-host";
 import {
 	mergeRecentWithPiCliWorkspaces,
+	migrateWorkspaceSessionDir,
 	workspacePathsEqual,
 } from "./session-list";
-import { clearProjectTrust } from "./project-trust";
 
 let store: WorkspaceStore | null = null;
 
 export type WorkspaceIpcDeps = {
 	/** Kill workers + delete Pi session files for a workspace (not the project dir). */
 	purgeWorkspaceSessions?: (cwd: string) => Promise<void>;
+	/** Close workers of a workspace without touching its session files. */
+	stopWorkspaceSessions?: (cwd: string) => Promise<void>;
 };
 
 let deps: WorkspaceIpcDeps = {};
@@ -40,9 +43,15 @@ export function listRecentDesktop(): string[] {
 /**
  * Instant: Desktop-pinned recent only (no SessionManager.listAll scan).
  * Used on cold start so the shell paints before Pi CLI discovery finishes.
+ *
+ * Blank entries are filtered: the sidebar renders `basename(root)`, so a blank
+ * root shows up as a nameless extra workspace.
  */
 export function listRecentDesktopOnly(): string[] {
-	return listRecentDesktop().map((p) => path.resolve(p));
+	return listRecentDesktop()
+		.map((p) => p.trim())
+		.filter((p) => p.length > 0)
+		.map((p) => path.resolve(p));
 }
 
 /** Desktop recent + workspaces discovered from Pi CLI session store. */
@@ -107,19 +116,68 @@ export async function purgeWorkspace(root: string): Promise<{
 		console.error("[pi-desktop] purge workspace sessions failed", err);
 		throw err;
 	}
-	try {
-		clearProjectTrust(cwd);
-	} catch {
-		// trust store optional
-	}
 	getStore().forget(cwd);
 	const next = getStore().getRoot();
 	syncWorkspaceWatch(next);
 	return { root: next, recent: await listRecent() };
 }
 
+function listAliases(): Record<string, string> {
+  return getStore().listAliases();
+}
+
+function groupsSnapshot(): WorkspaceGroups {
+  return getStore().listGroups();
+}
+
+/** 设置工作区显示名；name 为 null / 空串时清除。 */
+function setWorkspaceAlias(
+  root: string,
+  name: string | null,
+): Record<string, string> {
+  getStore().setAlias(root, name);
+  return getStore().listAliases();
+}
+
+function isDirectory(target: string): boolean {
+  try {
+    return fs.statSync(target).isDirectory();
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * 重新定位：新目录接管旧工作区的配置记录与 Pi 会话。
+ * 先断开旧工作区的 worker，避免会话文件被搬移时还有写入。
+ */
+async function relocateWorkspace(
+  root: string,
+  next: string,
+): Promise<{
+  root: string | null;
+  recent: string[];
+  aliases: Record<string, string>;
+}> {
+  const from = path.resolve(root);
+  const to = path.resolve(next);
+  if (!workspacePathsEqual(from, to)) {
+    if (!isDirectory(to)) throw new Error("target folder not found");
+    await deps.stopWorkspaceSessions?.(from);
+    await migrateWorkspaceSessionDir(from, to);
+    getStore().replacePath(from, to);
+  }
+  const active = getStore().getRoot();
+  syncWorkspaceWatch(active);
+  return {
+    root: active,
+    recent: await listRecent(),
+    aliases: getStore().listAliases(),
+  };
+}
+
 export function registerWorkspaceIpc(nextDeps: WorkspaceIpcDeps = {}): void {
-	deps = nextDeps;
+  deps = nextDeps;
 
 	ipcMain.handle(IpcChannels.workspace.get, () => {
 		const root = getWorkspace();
@@ -131,11 +189,6 @@ export function registerWorkspaceIpc(nextDeps: WorkspaceIpcDeps = {}): void {
 	ipcMain.handle(IpcChannels.workspace.listRecent, () => listRecent());
 
 	ipcMain.handle(IpcChannels.workspace.listRecentDesktop, () => listRecentDesktopOnly());
-
-	/** Closed (dismissed) workspaces still known to Desktop — re-openable. */
-	ipcMain.handle(IpcChannels.workspace.listClosed, () => {
-		return getStore().listDismissedPi();
-	});
 
 	ipcMain.handle(IpcChannels.workspace.openPath, (_event, root: string) =>
 		openWorkspacePath(root),
@@ -184,5 +237,55 @@ export function registerWorkspaceIpc(nextDeps: WorkspaceIpcDeps = {}): void {
 			if (!root?.trim()) return;
 			await shell.openPath(root);
 		},
+	);
+
+	ipcMain.handle(IpcChannels.workspace.listAliases, () => listAliases());
+
+	ipcMain.handle(
+		IpcChannels.workspace.setAlias,
+		(_event, root: string, name: string | null) => setWorkspaceAlias(root, name),
+	);
+
+	ipcMain.handle(
+		IpcChannels.workspace.relocate,
+		(_event, root: string, next: string) => relocateWorkspace(root, next),
+	);
+
+	ipcMain.handle(IpcChannels.workspace.listGroups, () => groupsSnapshot());
+
+	ipcMain.handle(IpcChannels.workspace.addGroup, (_event, name: string) => {
+		getStore().addGroup(name);
+		return groupsSnapshot();
+	});
+
+	ipcMain.handle(
+		IpcChannels.workspace.renameGroup,
+		(_event, from: string, to: string) => {
+			getStore().renameGroup(from, to);
+			return groupsSnapshot();
+		},
+	);
+
+	ipcMain.handle(IpcChannels.workspace.removeGroup, (_event, name: string) => {
+		getStore().removeGroup(name);
+		return groupsSnapshot();
+	});
+
+	ipcMain.handle(
+		IpcChannels.workspace.setGroupOf,
+		(_event, root: string, group: string | null) => {
+			getStore().setGroupOf(root, group);
+			return groupsSnapshot();
+		},
+	);
+
+	ipcMain.handle(IpcChannels.workspace.listArchivedSessions, () =>
+		getStore().listArchivedSessions(),
+	);
+
+	ipcMain.handle(
+		IpcChannels.workspace.setArchivedSessions,
+		(_event, ids: string[]) =>
+			getStore().setArchivedSessions(Array.isArray(ids) ? ids : []),
 	);
 }
