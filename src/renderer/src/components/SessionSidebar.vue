@@ -1073,10 +1073,10 @@ watch(
         class="pi-interactive top-btn"
         @click="onAddWorkspace"
       >
-        <template #icon>
-          <NIcon :component="FolderOpenOutline" :size="14" />
-        </template>
-        <span class="btn-label">{{ t.openWorkspace }}</span>
+        <span class="btn-content">
+          <NIcon :component="FolderOpenOutline" :size="15" />
+          <span class="btn-label">{{ t.openWorkspace }}</span>
+        </span>
       </NButton>
       <NButton
         secondary
@@ -1085,10 +1085,10 @@ watch(
         class="pi-interactive top-btn"
         @click="onNewAgent"
       >
-        <template #icon>
-          <NIcon :component="AddOutline" :size="14" />
-        </template>
-        <span class="btn-label">{{ t.newSessionAction }}</span>
+        <span class="btn-content">
+          <NIcon :component="AddOutline" :size="15" />
+          <span class="btn-label">{{ t.newSessionAction }}</span>
+        </span>
       </NButton>
     </div>
 
@@ -1387,11 +1387,15 @@ watch(
   overflow: hidden;
 }
 
+/* 顶部留出与右侧标题栏（.head 36px）等高的空段，分隔线与右侧标题栏下边线同高。 */
 .top-actions {
   display: flex;
-  align-items: center;
-  gap: 4px;
-  padding: 8px 6px 4px;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
+  margin-top: 35px;
+  border-top: 1px solid var(--border, rgba(128, 128, 128, 0.15));
+  padding: 10px 8px 8px;
   flex-shrink: 0;
   position: relative;
   z-index: 6;
@@ -1399,14 +1403,28 @@ watch(
 }
 
 .top-btn {
-  flex: 1;
+  width: 100%;
   min-width: 0;
-  padding: 0 6px;
-  height: 26px;
-  font-size: 12px;
+  padding: 0 10px;
+  height: 28px;
+  border-radius: 6px;
+  font-size: 12.5px;
+}
+
+.top-btn :deep(.n-button__content) {
+  width: 100%;
+  justify-content: flex-start;
+}
+
+.btn-content {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
 }
 
 .top-btn .btn-label {
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
