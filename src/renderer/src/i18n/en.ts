@@ -1118,6 +1118,7 @@ export const en = {
 	sessionInfoFilesRead: "Files read",
 	sessionInfoEmpty: "None",
 	newSessionAction: "New session",
+	moreActions: "More actions",
 	renamed: "Renamed",
 	refreshSessions: "Refresh sessions",
 	revealInExplorer: "Reveal in file manager",
