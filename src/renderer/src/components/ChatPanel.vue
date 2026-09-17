@@ -74,7 +74,7 @@ const isDraft = computed(() => !sessions.activeId && Boolean(sessions.draftRoot)
 const hasSession = computed(() => Boolean(sessions.activeId) || isDraft.value);
 
 const canCreateSession = computed(
-  () => !workspace.trustDialogOpen && (!workspace.root || workspace.sessionsReady),
+  () => !workspace.root || workspace.sessionsReady,
 );
 
 const running = computed(() => {
@@ -130,11 +130,10 @@ const title = computed(() => {
 
 async function onNewAgent(): Promise<void> {
   if (!canCreateSession.value && workspace.root) return;
-  if (workspace.trustDialogOpen) return;
   let root = workspace.root;
   if (!root) root = await workspace.openWorkspace();
   if (!root) return;
-  if (workspace.trustDialogOpen || !workspace.sessionsReady) return;
+  if (!workspace.sessionsReady) return;
   sessions.beginDraft(root);
 }
 </script>

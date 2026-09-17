@@ -1,97 +1,75 @@
 import { describe, expect, it } from "vitest";
 import {
-  bashAllowlistEntryFromCommand,
-  bashAllowlistMatches,
   classifyToolName,
   evaluatePermission,
-  normalizeSecurityPathKey,
+  isDangerousBashCommand,
   parseDesktopSecurity,
   primaryShellSegment,
-  resolveEffectiveSecurity,
   DEFAULT_DESKTOP_SECURITY,
+  type PermissionProfile,
+  type SecurityCategory,
 } from "../../src/shared/desktop-security";
-import type { SecurityCategory } from "../../src/shared/desktop-security";
 
 describe("parseDesktopSecurity", () => {
   it("defaults when missing", () => {
     expect(parseDesktopSecurity(undefined)).toEqual(DEFAULT_DESKTOP_SECURITY);
   });
-  it("reads nested desktopSecurity object and ignores network", () => {
+
+  it("keeps an explicit profile and ignores legacy fields", () => {
     expect(
       parseDesktopSecurity({
-        desktopSecurity: {
-          bash: "allow",
-          write: "ask",
-          network: "allow",
-          bashAllowlist: ["git status"],
-          workspacePermissions: {
-            "/tmp/ws": { bash: "allow", write: "ask" },
-          },
-        },
+        desktopSecurity: { profile: "yolo", bash: "ask", write: "ask" },
       }),
-    ).toEqual({
-      bash: "allow",
-      write: "ask",
-      bashAllowlist: ["git status"],
-      workspacePermissions: {
-        "/tmp/ws": { bash: "allow", write: "ask" },
-      },
-    });
+    ).toEqual({ profile: "yolo" });
   });
-  it("ignores invalid modes", () => {
-    expect(parseDesktopSecurity({ desktopSecurity: { bash: "nope" } }).bash).toBe("ask");
-  });
-});
 
-describe("bashAllowlistMatches", () => {
-  it("prefix matches after trim", () => {
-    expect(bashAllowlistMatches("  git status --short ", ["git status"])).toBe(true);
-    expect(bashAllowlistMatches("git push", ["git status"])).toBe(false);
-  });
-});
-
-describe("bashAllowlistEntryFromCommand", () => {
-  it("keeps compound command stems, not full lines", () => {
-    expect(bashAllowlistEntryFromCommand("git status --short")).toBe("git status");
-    expect(bashAllowlistEntryFromCommand("npm test --coverage")).toBe("npm test");
+  it("derives a profile from legacy bash/write modes", () => {
     expect(
-      bashAllowlistEntryFromCommand(
-        'cd "C:\\MyCode\\Node\\app" && docker compose -f docker-compose.dev.yml up -d 2>&1',
-      ),
-    ).toBe("docker compose");
+      parseDesktopSecurity({ desktopSecurity: { bash: "ask", write: "ask" } }).profile,
+    ).toBe("ask");
+    expect(
+      parseDesktopSecurity({ desktopSecurity: { bash: "ask", write: "allow" } }).profile,
+    ).toBe("edits");
+    expect(
+      parseDesktopSecurity({ desktopSecurity: { bash: "allow", write: "allow" } }).profile,
+    ).toBe("auto");
   });
 
-  it("strips executable path and .exe on Windows-style tokens", () => {
-    expect(bashAllowlistEntryFromCommand("C:\\\\git\\\\cmd\\\\git.exe status -sb")).toBe(
-      "git status",
+  it("falls back to ask for unknown values", () => {
+    expect(parseDesktopSecurity({ desktopSecurity: { profile: "nope" } }).profile).toBe(
+      "ask",
     );
-  });
-
-  it("uses primary (last) shell segment", () => {
-    expect(primaryShellSegment("cd /tmp && ls -la")).toBe("ls -la");
-    expect(bashAllowlistEntryFromCommand("cd /tmp && ls -la")).toBe("ls");
   });
 });
 
-describe("resolveEffectiveSecurity", () => {
-  it("prefers workspace override over global", () => {
-    const settings = parseDesktopSecurity({
-      desktopSecurity: {
-        bash: "ask",
-        write: "ask",
-        workspacePermissions: {
-          "C:/Work/App": { bash: "allow", write: "ask" },
-        },
-      },
-    });
-    expect(resolveEffectiveSecurity(settings, "C:\\Work\\App").bash).toBe("allow");
-    expect(resolveEffectiveSecurity(settings, "C:\\Other").bash).toBe("ask");
+describe("primaryShellSegment", () => {
+  it("uses the last top-level segment", () => {
+    expect(primaryShellSegment("cd /tmp && ls -la")).toBe("ls -la");
+    expect(
+      primaryShellSegment('cd "C:\\MyCode\\Node\\app" && docker compose up'),
+    ).toBe("docker compose up");
+  });
+});
+
+describe("isDangerousBashCommand", () => {
+  it("flags destructive system commands", () => {
+    expect(isDangerousBashCommand("rm -rf /")).toBe(true);
+    expect(isDangerousBashCommand("rm -rf ~/")).toBe(true);
+    expect(isDangerousBashCommand("rm -r -f .")).toBe(true);
+    expect(isDangerousBashCommand("mkfs.ext4 /dev/sda1")).toBe(true);
+    expect(isDangerousBashCommand("dd if=/dev/zero of=/dev/sda")).toBe(true);
+    expect(isDangerousBashCommand("shutdown -h now")).toBe(true);
+    expect(isDangerousBashCommand(":(){ :|:& };:")).toBe(true);
   });
 
-  it("normalizes Win path keys case-insensitively", () => {
-    expect(normalizeSecurityPathKey("C:\\Work\\App")).toBe(
-      normalizeSecurityPathKey("c:/work/app"),
-    );
+  it("leaves ordinary commands alone", () => {
+    expect(isDangerousBashCommand("rm -rf node_modules")).toBe(false);
+    expect(isDangerousBashCommand("rm dist/app.js")).toBe(false);
+    expect(isDangerousBashCommand("rm -rf build/")).toBe(false);
+    expect(
+      isDangerousBashCommand("dd if=/dev/zero of=./disk.img bs=1m count=10"),
+    ).toBe(false);
+    expect(isDangerousBashCommand("git status")).toBe(false);
   });
 });
 
@@ -107,100 +85,53 @@ describe("classifyToolName", () => {
 
 function evalPerm(
   category: SecurityCategory,
-  settings: typeof DEFAULT_DESKTOP_SECURITY,
+  profile: PermissionProfile,
   sessionAllows: SecurityCategory[] = [],
   command?: string,
-  cwd?: string,
 ) {
   return evaluatePermission({
     category,
-    settings,
+    settings: { profile },
     command,
     sessionAllows: new Set(sessionAllows),
-    cwd,
   });
 }
 
 describe("evaluatePermission", () => {
-  it("allows when category is in sessionAllows (session)", () => {
-    expect(evalPerm("write", DEFAULT_DESKTOP_SECURITY, ["write"])).toEqual({
-      action: "allow",
-      reason: "session",
-    });
+  it("asks for everything in ask profile", () => {
+    expect(evalPerm("bash", "ask", [], "ls")).toEqual({ action: "ask" });
+    expect(evalPerm("write", "ask")).toEqual({ action: "ask" });
   });
 
-  it("session wins over ask mode", () => {
-    expect(evalPerm("bash", DEFAULT_DESKTOP_SECURITY, ["bash"], "rm -rf /")).toEqual({
-      action: "allow",
-      reason: "session",
-    });
+  it("allows writes but still asks for commands in edits profile", () => {
+    expect(evalPerm("write", "edits")).toEqual({ action: "allow", reason: "profile" });
+    expect(evalPerm("bash", "edits", [], "ls")).toEqual({ action: "ask" });
   });
 
-  it("allows when settings category is allow (mode_allow)", () => {
-    const settings = { ...DEFAULT_DESKTOP_SECURITY, bash: "allow" as const };
-    expect(evalPerm("bash", settings)).toEqual({ action: "allow", reason: "mode_allow" });
-  });
-
-  it("allows bash when command matches allowlist", () => {
-    const settings = { ...DEFAULT_DESKTOP_SECURITY, bashAllowlist: ["git status"] };
-    expect(evalPerm("bash", settings, [], "git status --short")).toEqual({
+  it("allows in auto profile but keeps dangerous commands behind a confirm", () => {
+    expect(evalPerm("bash", "auto", [], "npm test")).toEqual({
       action: "allow",
-      reason: "allowlist",
+      reason: "profile",
     });
-  });
-
-  it("uses workspace override modes", () => {
-    const settings = parseDesktopSecurity({
-      desktopSecurity: {
-        bash: "ask",
-        write: "ask",
-        workspacePermissions: {
-          "/tmp/trusted": { bash: "allow", write: "ask" },
-        },
-      },
-    });
-    expect(evalPerm("bash", settings, [], "rm -rf /", "/tmp/trusted")).toEqual({
-      action: "allow",
-      reason: "mode_allow",
-    });
-    expect(evalPerm("bash", settings, [], "rm -rf /", "/tmp/other")).toEqual({
+    expect(evalPerm("write", "auto")).toEqual({ action: "allow", reason: "profile" });
+    expect(evalPerm("bash", "auto", [], "rm -rf /")).toEqual({
       action: "ask",
+      danger: true,
     });
   });
 
-  it("does not use allowlist for non-bash categories", () => {
-    const settings = {
-      ...DEFAULT_DESKTOP_SECURITY,
-      write: "ask" as const,
-      bashAllowlist: ["git status"],
-    };
-    expect(evalPerm("write", settings)).toEqual({ action: "ask" });
-  });
-
-  it("asks when no rule matches", () => {
-    expect(evalPerm("bash", DEFAULT_DESKTOP_SECURITY, [], "npm install")).toEqual({
-      action: "ask",
+  it("allows everything in yolo profile", () => {
+    expect(evalPerm("bash", "yolo", [], "rm -rf /")).toEqual({
+      action: "allow",
+      reason: "profile",
     });
-    expect(evalPerm("write", DEFAULT_DESKTOP_SECURITY)).toEqual({ action: "ask" });
+    expect(evalPerm("write", "yolo")).toEqual({ action: "allow", reason: "profile" });
   });
 
-  it("session checked before mode_allow", () => {
-    const settings = { ...DEFAULT_DESKTOP_SECURITY, write: "allow" as const };
-    expect(evalPerm("write", settings, ["write"])).toEqual({
+  it("session allow wins over ask profile", () => {
+    expect(evalPerm("bash", "ask", ["bash"], "rm -rf /")).toEqual({
       action: "allow",
       reason: "session",
-    });
-  });
-
-  it("mode_allow checked before allowlist", () => {
-    const settings = {
-      ...DEFAULT_DESKTOP_SECURITY,
-      bash: "allow" as const,
-      bashAllowlist: ["git status"],
-    };
-    expect(evalPerm("bash", settings, [], "git push")).toEqual({
-      action: "allow",
-      reason: "mode_allow",
     });
   });
 });

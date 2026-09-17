@@ -7,7 +7,6 @@ import {
 	mergeRecentWithPiCliWorkspaces,
 	workspacePathsEqual,
 } from "./session-list";
-import { clearProjectTrust } from "./project-trust";
 
 let store: WorkspaceStore | null = null;
 
@@ -112,11 +111,6 @@ export async function purgeWorkspace(root: string): Promise<{
 	} catch (err) {
 		console.error("[pi-desktop] purge workspace sessions failed", err);
 		throw err;
-	}
-	try {
-		clearProjectTrust(cwd);
-	} catch {
-		// trust store optional
 	}
 	getStore().forget(cwd);
 	const next = getStore().getRoot();

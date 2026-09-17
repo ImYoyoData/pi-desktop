@@ -12,7 +12,6 @@ import {
   PI_DESKTOP_NODE_PATH_ENV,
   PI_DESKTOP_PI_CLI_PATH_ENV,
 } from "../shared/pi-subagent-env";
-import { resolveTrustState } from "./project-trust";
 import type { WorkerResourceSummary } from "../shared/worker-resources";
 import { IpcChannels } from "../shared/protocol";
 
@@ -192,13 +191,11 @@ export function createUtilityProcessSpawnWorker(): SpawnWorker {
     };
 
     const readyPromise = waitForReady(child);
-    const projectTrusted = resolveTrustState(cwd).projectTrusted;
     const desktopSecurity = await getDesktopSecuritySettings();
     child.postMessage({
       kind: "init",
       cwd,
       filePath,
-      projectTrusted,
       desktopSecurity,
     } satisfies WorkerInbound);
     const ready = await readyPromise;

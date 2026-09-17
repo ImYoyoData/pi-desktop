@@ -66,7 +66,7 @@ import {
 	handleExtensionUiRpc,
 	registerExtensionUiIpc,
 } from "./extension-ui-host";
-import { registerSecurityTrustIpc } from "./security-trust-ipc";
+import { registerSecurityIpc } from "./security-ipc";
 import { registerThinkingLanguageIpc } from "./thinking-language-ipc";
 import { registerAppearanceIpc } from "./appearance-ipc";
 import {
@@ -207,6 +207,7 @@ function boot(): void {
 							category: category as SecurityCategory,
 							toolName,
 							summary,
+							danger: params.danger === true,
 						});
 					} else if (msg.method === "desktop.askUser") {
 						const questions = questionsFromAskUserParams(msg.params ?? {});
@@ -343,10 +344,10 @@ function boot(): void {
 		registerSessionsIpc(broker);
 		registerAgentRunsIpc(registryHolder.current!);
 		registerModelsIpc(broker);
-		registerPermissionAskIpc(broker);
+		registerPermissionAskIpc();
 		registerAskUserIpc();
 		registerExtensionUiIpc();
-		registerSecurityTrustIpc(broker);
+		registerSecurityIpc(broker);
 		registerThinkingLanguageIpc();
 		registerAppearanceIpc();
 		registerLanConsoleIpc(broker);

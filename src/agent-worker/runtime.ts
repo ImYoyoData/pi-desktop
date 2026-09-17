@@ -426,7 +426,6 @@ function formatCitationsBlock(citations: ElementCitation[]): string {
 async function initSession(
 	cwd: string,
 	filePath: string | undefined,
-	projectTrusted: boolean,
 	securitySnapshot?: DesktopSecuritySettings,
 ): Promise<void> {
 	if (initStarted) {
@@ -448,8 +447,9 @@ async function initSession(
 	if (initialSessionFile) {
 		restoreTimingFromDisk(initialSessionFile);
 	}
+	// 打开的工作区一律视为已信任（信任机制已移除）。
 	const settingsManager = SettingsManager.create(cwd, agentDir, {
-		projectTrusted: Boolean(projectTrusted),
+		projectTrusted: true,
 	});
 	const builtinBrowserSkillDir = resolveBuiltinBrowserSkillDir(
 		workerDirname(),
@@ -555,7 +555,6 @@ async function initSession(
 		takeBashBackgroundFlag: takeBg,
 	} = createPermissionGate({
 		getSettings: () => desktopSecurity,
-		getCwd: () => cwd,
 		sessionAllows,
 		askUser: async (req) => {
 			const raw = await rpcToMain(
@@ -564,6 +563,7 @@ async function initSession(
 					category: req.category,
 					toolName: req.toolName,
 					summary: req.summary,
+					danger: req.danger === true,
 				},
 				PERMISSION_ASK_TIMEOUT_MS,
 			);
@@ -645,6 +645,7 @@ function requireSession(): AgentSession {
  * in-memory snapshot of auth.json from worker start. Re-read disk before refresh.
  */
 function reloadAuthStorageCache(active: AgentSession): void {
+	// SAFETY: SDK 未导出 ModelRuntime 的凭据类型，这里按内部结构读取 auth 缓存。
 	const runtime = active.modelRuntime as unknown as {
 		credentials?: { store?: { reload?: () => void } };
 	};
@@ -741,6 +742,7 @@ function emitContextUsage(active: AgentSession): void {
 function pruneAgentToolResults(active: AgentSession): void {
 	try {
 		const result = pruneOldToolResults(
+			// SAFETY: 修剪函数只读取消息的公共字段，与 SDK 消息结构兼容。
 			active.messages as unknown as Parameters<typeof pruneOldToolResults>[0],
 		);
 		if (result.changed) {
@@ -791,7 +793,6 @@ export async function handleWorkerMessage(msg: WorkerInbound): Promise<void> {
 		await initSession(
 			msg.cwd,
 			msg.filePath,
-			msg.projectTrusted,
 			msg.desktopSecurity,
 		);
 		return;

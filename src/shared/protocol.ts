@@ -333,12 +333,6 @@ export const IpcChannels = {
 		background: "runs:background",
 		event: "runs:event",
 	},
-	trust: {
-		get: "trust:get",
-		set: "trust:set",
-		clear: "trust:clear",
-		listTrusted: "trust:listTrusted",
-	},
 	security: {
 		get: "security:get",
 		set: "security:set",
@@ -356,15 +350,6 @@ export type TerminalShellOption = {
 	id: string;
 	file: string;
 	args: string[];
-};
-
-export type TrustPromptKind = "none" | "ask";
-
-export type TrustState = {
-	decision: boolean | null;
-	needsResources: boolean;
-	prompt: TrustPromptKind;
-	projectTrusted: boolean;
 };
 
 export type SessionStatus = "idle" | "running" | "error" | "stuck";

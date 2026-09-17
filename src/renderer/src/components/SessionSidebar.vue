@@ -597,7 +597,6 @@ async function onWorkspaceClick(path: string): Promise<void> {
 }
 
 async function onNewAgent(): Promise<void> {
-  if (workspace.trustDialogOpen) return;
   let root = workspace.root;
   if (!root) root = await workspace.openWorkspace();
   if (!root) return;
@@ -607,7 +606,6 @@ async function onNewAgent(): Promise<void> {
 async function onNewAgentForWorkspace(root: string, event?: Event): Promise<void> {
   event?.stopPropagation();
   event?.preventDefault();
-  if (workspace.trustDialogOpen) return;
   // 在别的目录新建会放弃当前未使用的空会话。
   if (workspace.root && workspace.root !== root) {
     await discardActiveUnstartedForRoot(workspace.root);
@@ -615,7 +613,7 @@ async function onNewAgentForWorkspace(root: string, event?: Event): Promise<void
   if (workspace.root !== root) {
     await workspace.openWorkspacePath(root);
   }
-  if (workspace.trustDialogOpen || !workspace.sessionsReady) return;
+  if (!workspace.sessionsReady) return;
   expanded[root] = true;
   sessionsStore.beginDraft(root);
 }
@@ -856,9 +854,8 @@ async function onWorkspaceMenu(root: string, key: string | number): Promise<void
       }
       break;
     case "new-session": {
-      if (workspace.trustDialogOpen) return;
       if (workspace.root !== root) await workspace.openWorkspacePath(root);
-      if (workspace.trustDialogOpen || !workspace.sessionsReady) return;
+      if (!workspace.sessionsReady) return;
       expanded[root] = true;
       sessionsStore.beginDraft(root);
       break;
@@ -1024,7 +1021,6 @@ function isRunning(status: SessionStatus): boolean {
         strong
         size="small"
         class="pi-interactive top-btn"
-        :disabled="workspace.trustDialogOpen"
         @click="onAddWorkspace"
       >
         <template #icon>
@@ -1037,7 +1033,6 @@ function isRunning(status: SessionStatus): boolean {
         strong
         size="small"
         class="pi-interactive top-btn"
-        :disabled="workspace.trustDialogOpen"
         @click="onNewAgent"
       >
         <template #icon>
@@ -1091,7 +1086,6 @@ function isRunning(status: SessionStatus): boolean {
                   quaternary
                   circle
                   size="tiny"
-                  :disabled="workspace.trustDialogOpen"
                   @click="(e) => void onNewAgentForWorkspace(root, e)"
                 >
                   <template #icon>

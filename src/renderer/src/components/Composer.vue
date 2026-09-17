@@ -37,6 +37,11 @@ import {
   type QueuedSendItem,
 } from "@renderer/stores/send-queue";
 import { useSessionsStore } from "@renderer/stores/sessions";
+import {
+  permissionProfileLabel,
+  permissionProfileOptions,
+  useSecurityStore,
+} from "@renderer/stores/security";
 import { useWorkspaceStore } from "@renderer/stores/workspace";
 import { useAppearanceStore } from "@renderer/stores/appearance";
 import { useRightTabsStore } from "@renderer/stores/right-tabs";
@@ -64,6 +69,7 @@ import {
   isComposerAgentMode,
   type ComposerAgentMode,
 } from "../../../shared/composer-modes";
+import type { PermissionProfile } from "../../../shared/desktop-security";
 import {
   filterSlashItems,
   isSlashBuiltinId,
@@ -712,6 +718,29 @@ const modeMenuItems = computed<ModeMenuItem[]>(() => [
 ]);
 
 const modeBubbleShow = ref(false);
+
+const security = useSecurityStore();
+const permBubbleShow = ref(false);
+const permissionOptions = computed(() => permissionProfileOptions());
+const activePermissionLabel = computed(() =>
+  permissionProfileLabel(security.profile),
+);
+
+/** 打开气泡时重新拉取，其它入口的改动不会漏。 */
+function onPermBubbleShow(show: boolean): void {
+  permBubbleShow.value = show;
+  if (show) void security.load().catch(() => {});
+}
+
+async function onPermissionPick(value: PermissionProfile): Promise<void> {
+  permBubbleShow.value = false;
+  if (security.profile === value) return;
+  try {
+    await security.setProfile(value);
+  } catch (err) {
+    messageApi.error(err instanceof Error ? err.message : String(err));
+  }
+}
 
 const activeModeLabel = computed(() => modeTagLabel(composer.mode));
 
@@ -2303,6 +2332,7 @@ let offAsrWake: (() => void) | undefined;
 onMounted(() => {
   composer.bindSession(sessionId.value);
   void refreshModels();
+  void security.load().catch(() => {});
   void asr.refresh();
   offAsrProgress = asr.bindProgress();
   offAsrWake = window.api.asr.onWake(onAsrWake);
@@ -2611,6 +2641,57 @@ watch(
               <span class="think-label">{{ thinkingLabel }}</span>
             </NButton>
           </NDropdown>
+
+          <NPopover
+            trigger="click"
+            placement="top-end"
+            :show-arrow="true"
+            :disabled="voiceActive || voicePending"
+            :show="permBubbleShow"
+            raw
+            @update:show="onPermBubbleShow"
+          >
+            <template #trigger>
+              <NButton
+                quaternary
+                size="tiny"
+                class="mode-btn"
+                :disabled="voiceActive || voicePending"
+                :title="t.securityPermissionMode"
+                :aria-expanded="permBubbleShow"
+                :aria-haspopup="true"
+              >
+                <span class="mode-label">{{ activePermissionLabel }}</span>
+              </NButton>
+            </template>
+            <div
+              class="mode-bubble"
+              role="listbox"
+              :aria-label="t.securityPermissionMode"
+            >
+              <button
+                v-for="item in permissionOptions"
+                :key="item.value"
+                type="button"
+                class="mode-option"
+                role="option"
+                :aria-selected="security.profile === item.value"
+                :class="{ active: security.profile === item.value }"
+                @click="onPermissionPick(item.value)"
+              >
+                <div class="mode-option-main">
+                  <span class="mode-option-name">{{ item.label }}</span>
+                  <span class="mode-option-hint">{{ item.hint }}</span>
+                </div>
+                <NIcon
+                  v-if="security.profile === item.value"
+                  class="mode-option-check"
+                  :component="CheckmarkOutline"
+                  :size="14"
+                />
+              </button>
+            </div>
+          </NPopover>
         </div>
 
         <div class="toolbar-right">

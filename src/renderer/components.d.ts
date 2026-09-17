@@ -86,7 +86,6 @@ declare module 'vue' {
     ToggleButton: typeof import('./src/components/ToggleButton.vue')['default']
     ToolCallCard: typeof import('./src/components/ToolCallCard.vue')['default']
     ToolFileCard: typeof import('./src/components/ToolFileCard.vue')['default']
-    TrustDialog: typeof import('./src/components/TrustDialog.vue')['default']
     TurnDiffSummary: typeof import('./src/components/TurnDiffSummary.vue')['default']
     UpdateCard: typeof import('./src/components/UpdateCard.vue')['default']
     Versions: typeof import('./src/components/Versions.vue')['default']

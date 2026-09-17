@@ -3,7 +3,6 @@ import path from "node:path";
 import { agentDir } from "./agent-dir";
 import { frontmatterText } from "./frontmatter";
 import { isPathInsideRoot } from "../shared/path-sandbox";
-import { resolveTrustState } from "./project-trust";
 import { listPlugins } from "./plugins-host";
 import { scanUnloadedSkills, type LocalSkillScope } from "./skill-scan";
 import { skillWarningOf } from "./skill-validate";
@@ -565,7 +564,7 @@ export async function listCustomizations(
 	const sdk = await import("@earendil-works/pi-coding-agent");
 	const dir = sdk.getAgentDir();
 	const settingsManager = sdk.SettingsManager.create(root, dir, {
-		projectTrusted: resolveTrustState(root, dir).projectTrusted,
+		projectTrusted: true,
 	});
 	const loader = new sdk.DefaultResourceLoader({ cwd: root, agentDir: dir, settingsManager });
 	await loader.reload();
