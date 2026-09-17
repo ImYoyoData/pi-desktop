@@ -26,6 +26,8 @@ export const useWorkspaceStore = defineStore("workspace", () => {
 	const groups = ref<string[]>([]);
 	/** 绝对路径 → 分类名。 */
 	const groupOf = ref<Record<string, string>>({});
+	/** 已归档的会话 id（从侧栏隐藏，可恢复）。 */
+	const archivedSessions = ref<string[]>([]);
 	/**
 	 * True once the current `root` is ready for session hydrate / worker spawn.
 	 */
@@ -200,12 +202,21 @@ export const useWorkspaceStore = defineStore("workspace", () => {
 		applyGroups(await window.api.workspace.setGroupOf(workspaceRoot, group));
 	}
 
+	async function refreshArchivedSessions(): Promise<void> {
+		archivedSessions.value = await window.api.workspace.listArchivedSessions();
+	}
+
+	async function setArchivedSessions(ids: string[]): Promise<void> {
+		archivedSessions.value = await window.api.workspace.setArchivedSessions(ids);
+	}
+
 	return {
 		root,
 		recent,
 		aliases,
 		groups,
 		groupOf,
+		archivedSessions,
 		sessionsReady,
 		getWorkspace,
 		openWorkspace,
@@ -225,5 +236,7 @@ export const useWorkspaceStore = defineStore("workspace", () => {
 		renameGroup,
 		removeGroup,
 		setGroupOf,
+		refreshArchivedSessions,
+		setArchivedSessions,
 	};
 });

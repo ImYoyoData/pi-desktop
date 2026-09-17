@@ -178,6 +178,9 @@ declare const api: {
 			root: string,
 			group: string | null,
 		) => Promise<WorkspaceGroups>;
+		/** 已归档会话 id 列表：读取与覆写（恢复会话即从列表移除该 id）。 */
+		listArchivedSessions: () => Promise<string[]>;
+		setArchivedSessions: (ids: string[]) => Promise<string[]>;
 	};
 	sessions: {
 		list: (cwd: string) => Promise<SessionSummary[]>;
