@@ -299,7 +299,6 @@ export const en = {
 	todoDoneItems: "Completed",
 	todoPaused: "Paused",
 	todoResumeTask: "Continue task",
-	todoContinuePrompt: "Continue with the remaining items in the todo list.",
 	todoDeleteList: "Delete list",
 	todoExpand: "Expand Todos",
 	todoCollapse: "Collapse Todos",

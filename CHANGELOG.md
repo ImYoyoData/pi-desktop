@@ -18,6 +18,12 @@
 - Streaming answers now use **incremental block rendering**: finished paragraphs are parsed once and only the last paragraph is re-parsed as it grows, instead of re-running markdown + syntax highlighting + sanitizing over the whole answer on every tick. The rendered range matches the legacy behaviour frame by frame.
 - Session workers **coalesce streaming snapshots** (when the switch is on): only the newest frame is sent every 40 ms, instead of shipping the whole accumulated message across process boundaries for every token.
 
+### 修复 Fixes
+
+- 修复待办面板点「继续任务」后聊天里出现两条提示词：按钮现在直接把「继续任务」四个字发给 agent，不再额外构造一段独立指令——气泡与 agent 实收内容一致，回显不会再重复成第二条。
+
+- Fixed the todo panel's "Continue task" button producing two prompts: it now sends the "Continue task" text itself instead of a separately built instruction, so the bubble matches what the agent receives and the echo is no longer duplicated as a second message.
+
 ## v0.3.4-rc.1 (2026-09-18)
 
 本版重点：界面上的悬停提示统一改由应用内浮层渲染（不再使用系统原生 `title`），并修复壁纸模式下浮层文字被磨砂层糊掉、下拉菜单先闪一帧清晰背景的问题。
