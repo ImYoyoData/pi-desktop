@@ -224,16 +224,7 @@ jobs:
             - **Windows ARM64**: `Pi Desktop-*-win-arm64-setup.exe`
             - **macOS Apple Silicon**: `Pi Desktop-*-mac-arm64.dmg`
             - **macOS Intel**: `Pi Desktop-*-mac-x64.dmg`
-
-            ## 说明 / Notes
-            - 本版本为**正式稳定版**（非 prerelease）
-            - 远程控制默认开启局域网访问，可在 设置 → 通用 → 远程控制 中关闭或改用公网访问
-            - 需要固定公网地址时，请在面板中填入自己的 Cloudflare 隧道 Token 与域名
-            - macOS 未公证：首次打开可能需要右键 → 打开
-            - This is a **stable** release
-            - Remote Control enables LAN access by default; switch it off (or enable public access) under Settings → General → Remote Control
-            - For a fixed public address, add your own Cloudflare tunnel token and hostname in the panel
-            - macOS is unsigned/notarization off — first open may need right-click — Open
+            
 
           files: upload/*
           fail_on_unmatched_files: false
