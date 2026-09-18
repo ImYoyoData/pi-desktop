@@ -1,6 +1,23 @@
 # Changelog
 
-## 未发布 / Unreleased
+## v0.3.4-r1 (2026-09-18)
+
+本版重点：界面上的悬停提示统一改由应用内浮层渲染（不再使用系统原生 `title`），并修复壁纸模式下浮层文字被磨砂层糊掉、下拉菜单先闪一帧清晰背景的问题。
+
+### 新功能 Features
+
+- **统一悬停提示**：新增全局 `AppHoverTip`，接管控件上的 `title` 并改由应用内浮层显示——跟随元素定位、350ms 延迟（贴近系统原生节奏），指针移出或元素消失时把 `title` 原样还原。
+
+- **Unified hover tips**: a new global `AppHoverTip` takes over `title` attributes and renders them through one in-app tooltip — anchored to the element, shown after a 350 ms delay (matching the native feel), and restored untouched when the pointer leaves.
+
+### 修复 Fixes
+
+- 修复壁纸模式下提示 / 下拉菜单 / 选择菜单的文字被磨砂层一起糊掉：模糊伪元素现在落在文本之下（`z-index: -1` 配合 `isolation: isolate`）。
+- 修复壁纸模式下浮层先闪一帧清晰壁纸再变磨砂：浮层的淡入与缩放过渡在壁纸模式下直接以最终形态出现。
+
+- Fixed wallpaper mode blurring the text of tooltips, dropdown menus and select menus: the blur pseudo-element now sits below the content (`z-index: -1` with `isolation: isolate`).
+- Fixed popovers in wallpaper mode flashing a clear wallpaper frame before the frosted layer landed: their fade/scale transitions now start at the final state.
+## v0.3.4 (2026-09-18)
 
 本版重点：设置页全面重做（通用 / 外观 / 模型 / 智能体 / 技能 / 指令 / 挂钩 / MCP / 插件 / 工具 / 关于）；「局域网网页控制台」改名「远程控制」并默认开启局域网访问，公网访问改用 Cloudflare 隧道且支持绑定自己的域名；新增底部多标签终端、派生对话会话树、四档权限模式与自定义外观（背景图 / 透明度 / 消息区宽度）；修复 Windows 上 bash 工具不可用、虚拟滚动错位等一系列问题。
 
