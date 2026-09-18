@@ -14,6 +14,7 @@ import {
 import TitleBar from "@renderer/components/TitleBar.vue";
 import AppWallpaper from "@renderer/components/AppWallpaper.vue";
 import AppContextMenu from "@renderer/components/AppContextMenu.vue";
+import AppHoverTip from "@renderer/components/AppHoverTip.vue";
 import WelcomeView from "@renderer/components/WelcomeView.vue";
 import PiCliSetup from "@renderer/components/PiCliSetup.vue";
 import CloseGuard from "@renderer/components/CloseGuard.vue";
@@ -147,6 +148,7 @@ onUnmounted(() => {
           <AsrBackendChooseModal />
         </div>
         <AppContextMenu />
+        <AppHoverTip />
       </NDialogProvider>
     </NMessageProvider>
   </NConfigProvider>
