@@ -1,8 +1,8 @@
 import { app, BrowserWindow, ipcMain, shell } from "electron";
-import { createWriteStream, existsSync, mkdirSync, renameSync, rmSync } from "fs";
+import { existsSync, mkdirSync, renameSync, rmSync } from "fs";
+import { open, type FileHandle } from "fs/promises";
 import { join } from "path";
-import { pipeline } from "stream/promises";
-import { Readable } from "stream";
+import { Agent, ProxyAgent, fetch as nodeFetch, type Dispatcher } from "undici";
 import { IpcChannels } from "../shared/protocol";
 import {
   APP_AUTHOR,
@@ -21,10 +21,13 @@ import {
   type UpdateProgress,
 } from "../shared/update";
 import { netFetch } from "./net-fetch";
+import { getNodeProxyMode } from "./proxy-host";
+import type { NodeProxyMode } from "../shared/proxy";
 
 let checking = false;
 let downloading = false;
 let cachedRelease: GhRelease | null = null;
+let downloadAbort: AbortController | null = null;
 
 function currentVersion(): string {
   return app.getVersion();
@@ -73,35 +76,208 @@ async function fetchLatestRelease(): Promise<GhRelease> {
   return release;
 }
 
-async function downloadAsset(
-  url: string,
-  dest: string,
-  onProgress?: (received: number, total: number | null) => void,
-): Promise<void> {
-  const tmp = `${dest}.part`;
-  rmSync(tmp, { force: true });
+const PARALLEL_SEGMENTS = 32;
+const MIN_SEGMENT_BYTES = 1024 * 1024;
 
-  const res = await netFetch(url, {
+type Segment = { start: number; end: number };
+
+type SegmentContext = {
+  url: string;
+  tmp: string;
+  dispatcher: Dispatcher;
+  signal?: AbortSignal;
+};
+
+function downloadHeaders(extra?: Record<string, string>): Record<string, string> {
+  return {
+    "User-Agent": `pi-desktop/${currentVersion()}`,
+    Accept: "application/octet-stream",
+    ...extra,
+  };
+}
+
+/** 分片数上限 32，每片不小于 1MB（小文件自动减少分片）。 */
+function splitSegments(total: number): Segment[] {
+  const count = Math.max(
+    1,
+    Math.min(PARALLEL_SEGMENTS, Math.ceil(total / MIN_SEGMENT_BYTES)),
+  );
+  const span = Math.ceil(total / count);
+  const segments: Segment[] = [];
+  for (let start = 0; start < total; start += span) {
+    segments.push({ start, end: Math.min(start + span, total) - 1 });
+  }
+  return segments;
+}
+
+function contentRangeTotal(header: string | null): number | null {
+  const match = /\/(\d+)\s*$/.exec(header ?? "");
+  const total = match ? Number(match[1]) : 0;
+  return total > 0 ? total : null;
+}
+
+type BodySink = {
+  file: FileHandle;
+  start: number;
+  onBytes: (bytes: number) => void;
+  signal?: AbortSignal;
+};
+
+/** 把响应体从 start 偏移起顺序写入句柄，返回已写入字节数。
+ *  Chromium 与 undici 的 body 均可异步入送；中止时立即停写，不再消耗已缓冲数据。 */
+async function writeBody(body: AsyncIterable<Uint8Array>, sink: BodySink): Promise<number> {
+  let position = sink.start;
+  for await (const chunk of body) {
+    sink.signal?.throwIfAborted();
+    const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+    await sink.file.write(buffer, 0, buffer.length, position);
+    position += buffer.length;
+    sink.onBytes(buffer.length);
+  }
+  return position - sink.start;
+}
+
+/** 单个分片：独立连接请求，只写自己的区间。 */
+async function downloadSegment(
+  ctx: SegmentContext,
+  segment: Segment,
+  onBytes: (bytes: number) => void,
+): Promise<void> {
+  const res = await nodeFetch(ctx.url, {
+    dispatcher: ctx.dispatcher,
     redirect: "follow",
-    headers: {
-      "User-Agent": `pi-desktop/${currentVersion()}`,
-      Accept: "application/octet-stream",
-    },
+    signal: ctx.signal,
+    headers: downloadHeaders({
+      Range: `bytes=${segment.start}-${segment.end}`,
+    }),
   });
+  if (res.status !== 206 || !res.body) {
+    throw new Error(`Download failed (HTTP ${res.status})`);
+  }
+  const expected = segment.end - segment.start + 1;
+  const file = await open(ctx.tmp, "r+");
+  try {
+    const written = await writeBody(res.body, {
+      file,
+      start: segment.start,
+      onBytes,
+      signal: ctx.signal,
+    });
+    if (written !== expected) {
+      throw new Error(`Incomplete segment (${written}/${expected} bytes)`);
+    }
+  } finally {
+    await file.close();
+  }
+}
+
+/** 分片请求走 Node fetch（undici）：Chromium 对同一域名复用单条连接，无法并行提速。 */
+function createDispatcher(proxy: NodeProxyMode): Dispatcher {
+  return proxy.kind === "http" ? new ProxyAgent(proxy.url) : new Agent();
+}
+
+/** 32 路并行分片：先按总大小预分配文件，每条连接写自己的偏移。
+ *  中止时立即断开所有连接并等分片收尾，避免句柄未关就删 .part。 */
+async function downloadInSegments(
+  total: number,
+  ctx: SegmentContext,
+  onBytes: (bytes: number, total: number | null) => void,
+): Promise<void> {
+  const seed = await open(ctx.tmp, "w");
+  try {
+    await seed.truncate(total);
+  } finally {
+    await seed.close();
+  }
+
+  const jobs = splitSegments(total).map((segment) =>
+    downloadSegment(ctx, segment, (bytes) => onBytes(bytes, total)),
+  );
+  const abort = (): void => void ctx.dispatcher.destroy();
+  ctx.signal?.addEventListener("abort", abort, { once: true });
+  try {
+    const results = await Promise.allSettled(jobs);
+    const failed = results.find((result) => result.status === "rejected");
+    if (failed?.status === "rejected") throw failed.reason;
+  } finally {
+    ctx.signal?.removeEventListener("abort", abort);
+    await ctx.dispatcher.destroy();
+  }
+}
+
+/** 服务端不支持 Range（含 socks 代理）时的单连接回退。 */
+async function downloadWhole(
+  res: Response,
+  tmp: string,
+  onBytes: (bytes: number, total: number | null) => void,
+  signal?: AbortSignal,
+): Promise<void> {
   if (!res.ok || !res.body) {
     throw new Error(`Download failed (HTTP ${res.status})`);
   }
   const total = Number(res.headers.get("content-length") || 0) || null;
-  let received = 0;
-  const reader = Readable.fromWeb(res.body as import("stream/web").ReadableStream);
-  const out = createWriteStream(tmp);
-  reader.on("data", (chunk: Buffer) => {
-    received += chunk.length;
-    onProgress?.(received, total);
-  });
-  await pipeline(reader, out);
-  rmSync(dest, { force: true });
-  renameSync(tmp, dest);
+  const file = await open(tmp, "w");
+  try {
+    await writeBody(res.body, {
+      file,
+      start: 0,
+      onBytes: (bytes) => onBytes(bytes, total),
+      signal,
+    });
+  } finally {
+    await file.close();
+  }
+}
+
+async function downloadAsset(
+  url: string,
+  dest: string,
+  onProgress?: (received: number, total: number | null) => void,
+  signal?: AbortSignal,
+): Promise<void> {
+  const tmp = `${dest}.part`;
+  rmSync(tmp, { force: true });
+
+  try {
+    const proxy = getNodeProxyMode();
+    // socks 无法走 undici 分片，直接整体下载，不做 Range 探测。
+    const probeRange = proxy.kind === "socks" ? null : "bytes=0-0";
+    const probe = await netFetch(url, {
+      redirect: "follow",
+      signal,
+      headers: downloadHeaders(probeRange ? { Range: probeRange } : undefined),
+    });
+    const total =
+      probeRange && probe.status === 206
+        ? contentRangeTotal(probe.headers.get("content-range"))
+        : null;
+    if (probeRange && probe.status === 206 && !total) {
+      throw new Error("Download failed (missing content-range)");
+    }
+
+    let received = 0;
+    const onBytes = (bytes: number, size: number | null): void => {
+      received += bytes;
+      onProgress?.(received, size);
+    };
+
+    if (total && probe.body) {
+      await probe.body.cancel();
+      await downloadInSegments(
+        total,
+        { url, tmp, dispatcher: createDispatcher(proxy), signal },
+        onBytes,
+      );
+    } else {
+      await downloadWhole(probe, tmp, onBytes, signal);
+    }
+
+    rmSync(dest, { force: true });
+    renameSync(tmp, dest);
+  } catch (err) {
+    rmSync(tmp, { force: true });
+    throw err;
+  }
 }
 
 function broadcastUpdateProgress(payload: UpdateProgress): void {
@@ -200,6 +376,8 @@ export async function downloadAppUpdate(): Promise<UpdateCheckResult> {
   }
 
   downloading = true;
+  const controller = new AbortController();
+  downloadAbort = controller;
   broadcastUpdateProgress({
     phase: "download",
     receivedBytes: 0,
@@ -209,15 +387,32 @@ export async function downloadAppUpdate(): Promise<UpdateCheckResult> {
 
   const dest = join(downloadDir(), asset.name);
   try {
-    await downloadAsset(asset.browser_download_url, dest, (received, total) => {
-      broadcastUpdateProgress({
-        phase: "download",
-        receivedBytes: received,
-        totalBytes: total ?? asset.size ?? null,
-        message: `Downloading ${asset.name}…`,
-      });
-    });
+    await downloadAsset(
+      asset.browser_download_url,
+      dest,
+      (received, total) => {
+        broadcastUpdateProgress({
+          phase: "download",
+          receivedBytes: received,
+          totalBytes: total ?? asset.size ?? null,
+          message: `Downloading ${asset.name}…`,
+        });
+      },
+      controller.signal,
+    );
   } catch (err) {
+    if (controller.signal.aborted) {
+      broadcastUpdateProgress({
+        phase: "cancelled",
+        receivedBytes: 0,
+        totalBytes: null,
+        message: "Download cancelled",
+      });
+      return emptyUpdateResult("cancelled", cur, `Cancelled v${latest} download`, {
+        ...meta,
+        assetName: asset.name,
+      });
+    }
     const msg = err instanceof Error ? err.message : String(err);
     broadcastUpdateProgress({
       phase: "error",
@@ -226,7 +421,6 @@ export async function downloadAppUpdate(): Promise<UpdateCheckResult> {
       message: msg,
     });
     await openReleaseInBrowser(release.html_url);
-    downloading = false;
     return emptyUpdateResult(
       "openedBrowser",
       cur,
@@ -234,6 +428,7 @@ export async function downloadAppUpdate(): Promise<UpdateCheckResult> {
       { ...meta, assetName: asset.name },
     );
   } finally {
+    downloadAbort = null;
     downloading = false;
   }
 
@@ -271,6 +466,13 @@ export async function downloadAppUpdate(): Promise<UpdateCheckResult> {
     `Downloaded and opened v${latest} installer`,
     { ...meta, assetName: asset.name },
   );
+}
+
+/** 中止正在进行的安装包下载；无下载时返回 false。 */
+export function cancelAppUpdate(): boolean {
+  if (!downloadAbort) return false;
+  downloadAbort.abort();
+  return true;
 }
 
 /** @deprecated Prefer checkForAppUpdate + downloadAppUpdate. */
@@ -318,4 +520,6 @@ export function registerUpdateIpc(): void {
   ipcMain.handle(IpcChannels.update.download, async () => {
     return downloadAppUpdate();
   });
+
+  ipcMain.handle(IpcChannels.update.cancel, () => cancelAppUpdate());
 }

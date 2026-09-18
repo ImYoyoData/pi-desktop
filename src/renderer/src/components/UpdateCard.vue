@@ -34,6 +34,8 @@ async function onDownload(): Promise<void> {
   if (!result) return;
   if (result.status === "downloaded") {
     message.success(t.updateDownloaded, { duration: 5000 });
+  } else if (result.status === "cancelled") {
+    message.info(t.updateCancelled, { duration: 3000 });
   } else if (result.status === "openedBrowser") {
     message.info(result.message, { duration: 5000 });
   } else if (result.status === "error") {
@@ -88,9 +90,14 @@ async function onRefresh(): Promise<void> {
 
         <div v-if="update.downloading || update.progress" class="progress-block">
           <div class="progress-msg">
-            {{ update.progress?.message || t.updateDownloading }}
+            {{
+              update.progress?.phase === "cancelled"
+                ? t.updateCancelled
+                : update.progress?.message || t.updateDownloading
+            }}
           </div>
           <NProgress
+            v-if="update.progress?.phase !== 'cancelled'"
             type="line"
             :percentage="update.progressPercent ?? (update.downloading ? 0 : 100)"
             indicator-placement="inside"
@@ -137,13 +144,21 @@ async function onRefresh(): Promise<void> {
             {{ t.updateOpenRelease }}
           </NButton>
           <NButton
-            v-if="update.available"
+            v-if="update.available && !update.downloading"
             type="primary"
-            :loading="update.downloading"
             :disabled="update.checking"
             @click="onDownload"
           >
             {{ t.updateDownload }}
+          </NButton>
+          <NButton
+            v-else-if="update.downloading"
+            type="error"
+            secondary
+            :loading="update.cancelling"
+            @click="update.cancel()"
+          >
+            {{ t.updateCancel }}
           </NButton>
         </NSpace>
       </NSpace>

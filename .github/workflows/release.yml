@@ -195,70 +195,43 @@ jobs:
           generate_release_notes: true
           body: |
 
-            ## 主要更新（v0.3.4-rc.2）
+            ## 主要更新（v0.3.4-rc.3）
 
-            本版重点：流式输出链路优化——回答渲染改为增量分块、会话事件按帧合并，长回答不再越写越卡；并新增「流式渲染」设置（设置 → 外观 → 界面），可开关该优化并单独调节渲染节流间隔。
+            本版重点：更新下载改为并行分片，安装包下载速度提升一个量级并支持随时取消；同时补齐代理设置的生效范围——主进程派生的 npm / git / Pi CLI 等子进程此前会绕过代理直连。
 
             ### 新功能 Features
 
-            - **新增「流式渲染」设置**（设置 → 外观 → 界面）：开关默认关闭（关闭时完全走旧版渲染路径），并可单独调节 markdown 渲染节流间隔（40 / 60 / 90 / 120 / 200 毫秒，默认 90）。开关与参数改完即时生效，已打开的会话无需重启。
-
-            - **问答卡片支持折叠**：agent 的「向用户提问」卡片头部改为可点击的折叠开关，右侧箭头指示展开状态；收起后只保留标题栏与进度，问题选项与操作按钮一并隐藏，新的提问到来时会自动展开。
-
-            - **标题栏显示运行身份**：设置 → 界面新增「显示权限级别」开关（仅 Windows 显示，默认关闭）。开启后标题栏在应用名后显示当前进程的运行身份：普通用户为系统账户名（如 `(MIAN)`），管理员为 `(Admin)`，SYSTEM 账户为 `(System)`。
+            - **更新下载可以取消**：下载中「下载并安装」按钮变为「取消下载」，点击后立即中止（实测 26 毫秒返回），未完成的 `.part` 文件自动清理；取消后按钮回到可重新下载的状态。
 
             ### 性能优化 Performance
 
-            - 流式回答改为**增量分块渲染**：已完成的段落只解析一次，仅最后一段随内容增长重解析，不再每次刷新都对整篇回答重跑 markdown + 代码高亮 + 消毒；渲染范围与旧版逐帧一致，所见内容不变。
-            - 会话 worker 的流式快照**按帧合并**（开关开启时生效）：每 40ms 只发最新一帧，不再每个 token 都把整段累积内容跨进程传输三遍。
+            - 安装包下载改为 **32 路并行分片**（HTTP Range）：各连接写入自己的文件偏移、逐片校验长度，小文件自动减少分片；实测 138 MB 安装包从单连接的 0.7 MB/s 提升到 15 MB/s 左右。
 
             ### 修复 Fixes
 
-            - 修复待办面板点「继续任务」后聊天里出现两条提示词：按钮现在直接把「继续任务」四个字发给 agent，不再额外构造一段独立指令——气泡与 agent 实收内容一致，回显不会再重复成第二条。
+            - 修复代理设置对部分请求不生效：此前只有 Chromium 侧的请求和会话 worker 走代理，主进程派生的 npm / git / Pi CLI / 插件安装等子进程会直连；现在启动与设置变更时都会把代理写入主进程环境、子进程直接继承，MCP 连接测试也改走 Chromium 网络栈。
+            - 修复更新下载取消后卡住数秒：中止时立即停止写盘与进度广播、立刻断开所有分片连接，等分片收尾后再清理临时文件（取消耗时实测从约 3 秒降到 26 毫秒）。
+            - 修复取消后进度条显示成 100%：取消后不再渲染进度条与字节数，只保留「已取消下载」提示。
+            - 更新下载的 Node 侧分片请求同样遵循代理设置，socks 代理自动回退为单连接下载。
 
-            ### 打包与体积 Packaging
+            ## What's New (v0.3.4-rc.3)
 
-            - 修复安装包夹带本地文件：`.pi-glla`（会话与 owner 数据）、`scratch_*`、自定义打包输出目录、工作区源码等此前会被打进 `app.asar`，现已全部排除。
-            - 安装包瘦身：剔除仅供渲染进程使用、且已随前端一并打包的重复依赖（mermaid 的传递依赖，约 14 MB）；编辑器内置语言定义只保留实际用到的 21 种。
-            - 新增快速打包命令：`npm run dist:win:x64:fast`（低压缩出包，明显更快）与 `npm run pack:win:x64`（跳过重新构建，仅打包）。
-            - 修复打包时 `release/**/app.asar` 被运行中的应用锁住导致 EBUSY：工作区扫描、每轮对话的检查点快照、
-              文件预览、Git 面板与编辑器保存此前都会让 Electron 打开并缓存这些 asar 归档的句柄，
-              现在工作区文件访问一律绕过 asar 层，打包输出目录 `release/` 不再参与文件树、搜索、文件监听与检查点，
-              构建产物不再被锁定。
+            The updater is the focus this time: installer downloads now run as parallel range requests, roughly an order of magnitude faster and cancellable at any moment. Proxy settings also now cover the subprocesses the app spawns (npm, git, the Pi CLI), which used to bypass the proxy and go direct.
 
-            ## What's New (v0.3.4-rc.2)
+            ### New Features
 
-            Streaming output got a faster path: answers render in incremental blocks and session events are coalesced per frame, so long answers no longer stutter while streaming. A new "Streaming render" setting (Settings → Appearance → Interface) lets you switch that path on or off and tune the render throttle.
-
-            ### Features
-
-            - **New "Streaming render" settings** (Settings → Appearance → Interface): the switch is off by default (off keeps the legacy render path), with a separate markdown render throttle (40 / 60 / 90 / 120 / 200 ms, default 90). Both apply immediately, including to sessions that are already open.
-
-            - **Collapsible "Ask user" card**: the clarification card header is now a clickable toggle with a chevron; collapsing it keeps only the title bar and progress, hiding the question and its buttons, and the card expands again automatically when a new question arrives.
-
-            - **Run identity in the title bar**: a new "Show privilege level" switch in Settings → Interface (Windows only, off by default). When enabled, the title bar shows the current process identity after the app name: the system account name for a standard user (like `(MIAN)`), `(Admin)` when elevated, or `(System)` under the SYSTEM account.
+            - **Cancel an in-flight update download**: while downloading, "Download & install" turns into "Cancel download". Clicking it aborts immediately (measured 26 ms), the partial `.part` file is removed automatically, and the button returns to a fresh download.
 
             ### Performance
 
-            - Streaming answers now use **incremental block rendering**: finished paragraphs are parsed once and only the last paragraph is re-parsed as it grows, instead of re-running markdown + syntax highlighting + sanitizing over the whole answer on every tick. The rendered range matches the legacy behaviour frame by frame.
-            - Session workers **coalesce streaming snapshots** (when the switch is on): only the newest frame is sent every 40 ms, instead of shipping the whole accumulated message across process boundaries for every token.
+            - Installer downloads now use **32 parallel range requests**: each connection writes its own offset, every segment is length-checked, and small files automatically use fewer segments. A real 138 MB package measured about 15 MB/s, up from 0.7 MB/s on a single connection.
 
             ### Fixes
 
-            - Fixed the todo panel's "Continue task" button producing two prompts: it now sends the "Continue task" text itself instead of a separately built instruction, so the bubble matches what the agent receives and the echo is no longer duplicated as a second message.
-
-            ### Packaging
-
-            - Fixed the installer shipping local files: `.pi-glla` (session and owner data), `scratch_*`, custom packaging output directories and workspace sources used to be packed into `app.asar`; all of them are excluded now.
-            - Smaller installer: duplicated dependencies used only by the renderer (mermaid's transitive deps, about 14 MB) are gone, and the editor ships only the 21 built-in languages it actually maps.
-            - New fast packaging commands: `npm run dist:win:x64:fast` (low-compression, much faster) and `npm run pack:win:x64` (packaging only, no rebuild).
-            - Fixed packaging failing with EBUSY on `release/**/app.asar`:
-              workspace scans, per-turn checkpoint snapshots, file previews,
-              the Git panel and editor saves used to make Electron open and
-              cache handles on those archives. Workspace file access now
-              bypasses the asar layer, so build outputs are no longer locked.
-              The packaging output directory `release/` takes no part in the
-              file tree, search, watcher or checkpoints either.
+            - Fixed proxy settings not covering every request: only Chromium-side requests and session workers used to honor the proxy, while subprocesses spawned by the main process (npm, git, the Pi CLI, plugin installs) went direct. The proxy is now written into the main process environment on startup and on every change so subprocesses inherit it, and the MCP connection test goes through the Chromium network stack.
+            - Fixed the update download hanging for seconds after cancellation: aborting now stops disk writes and progress broadcasts at once, tears the segment connections down immediately, and waits for segments to settle before removing the temporary file (about 3 s down to 26 ms).
+            - Fixed the progress bar jumping to 100% after cancelling: the bar and byte counter are no longer rendered once cancelled, only the "Download cancelled" line remains.
+            - Node-side segment requests for the updater now honor the proxy too, with socks proxies falling back to a single-connection download.
 
             ## 下载 / Downloads
             - **Windows x64**: `Pi Desktop-*-win-x64-setup.exe`

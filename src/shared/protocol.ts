@@ -318,6 +318,7 @@ export const IpcChannels = {
 		openAuthorEmail: "update:openAuthorEmail",
 		check: "update:check",
 		download: "update:download",
+		cancel: "update:cancel",
 		progress: "update:progress",
 	},
 	piCli: {

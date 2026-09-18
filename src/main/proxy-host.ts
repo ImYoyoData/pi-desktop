@@ -9,6 +9,8 @@ import {
 	proxyEnvFromPacResult,
 	proxyEnvFromUrl,
 	PROXY_MODES,
+	resolveNodeProxyMode,
+	type NodeProxyMode,
 	type ProxySettings,
 } from "../shared/proxy";
 
@@ -90,6 +92,11 @@ export function getProxySettings(): ProxySettings {
 	return { ...currentSettings };
 }
 
+/** 主进程 Node fetch（undici）当前应使用的代理形态。 */
+export function getNodeProxyMode(): NodeProxyMode {
+	return resolveNodeProxyMode(currentSettings, systemProxyEnv);
+}
+
 /** 应用设置优先：先清除继承的代理变量，再按模式注入。
  *  NODE_USE_ENV_PROXY 让 Node 内置 fetch（undici）遵循这些变量。 */
 export function withProxyEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
@@ -109,6 +116,14 @@ export function withProxyEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
 	return next;
 }
 
+/** 同步到主进程 env：主进程及其 spawn 的子进程（npm / git / pi CLI / SDK）都继承它。
+ *  主进程自身的 fetch 不受影响，仍须走 netFetch。 */
+function applyHostProxyEnv(): void {
+	for (const key of PROXY_ENV_KEYS) delete process.env[key];
+	delete process.env.NODE_USE_ENV_PROXY;
+	Object.assign(process.env, withProxyEnv({}));
+}
+
 /** Load persisted settings and apply them; call once after app ready. */
 export async function initProxy(): Promise<void> {
 	currentSettings = readSettingsFromDisk();
@@ -117,6 +132,8 @@ export async function initProxy(): Promise<void> {
 		await refreshSystemProxyEnv();
 	} catch (err) {
 		console.warn("[proxy] failed to apply settings on startup", err);
+	} finally {
+		applyHostProxyEnv();
 	}
 }
 
@@ -153,6 +170,7 @@ export function registerProxyIpc(opts?: {
 			}
 			await applyProxySettings(next);
 			await refreshSystemProxyEnv();
+			applyHostProxyEnv();
 			broadcastChanged(next);
 			opts?.onChanged?.(next);
 			return getProxySettings();

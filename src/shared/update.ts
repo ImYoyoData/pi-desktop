@@ -4,6 +4,7 @@ export type UpdateCheckStatus =
   | "upToDate"
   | "available"
   | "downloaded"
+  | "cancelled"
   | "openedBrowser"
   | "error";
 
@@ -19,7 +20,7 @@ export type UpdateCheckResult = {
 };
 
 export type UpdateProgress = {
-  phase: "download" | "done" | "error";
+  phase: "download" | "done" | "cancelled" | "error";
   receivedBytes: number;
   totalBytes: number | null;
   message: string;
