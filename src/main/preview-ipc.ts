@@ -6,6 +6,7 @@ import { isPathInsideRoot, resolveWorkspacePath } from "../shared/path-sandbox";
 import { readPreviewAt } from "./preview-host";
 import { agentDir } from "./agent-dir";
 import { getWorkspace } from "./workspace-ipc";
+import { withoutAsar } from "./workspace-fs";
 
 function dialogParent(): BrowserWindow | undefined {
   return BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0];
@@ -56,8 +57,10 @@ export function registerPreviewIpc(): void {
     const root = getWorkspace();
     if (!root) throw new Error("Open a workspace folder first");
     const absolute = resolvePreviewWritePath(root, filePath);
-    fs.mkdirSync(path.dirname(absolute), { recursive: true });
-    fs.writeFileSync(absolute, content, "utf8");
+    withoutAsar(() => {
+      fs.mkdirSync(path.dirname(absolute), { recursive: true });
+      fs.writeFileSync(absolute, content, "utf8");
+    });
   });
 
   ipcMain.handle(IpcChannels.preview.pickFile, async () => {

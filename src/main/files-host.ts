@@ -5,7 +5,11 @@ import {
 	rankFuzzyPathEntries,
 	scoreFuzzyPathQuery,
 } from "../shared/fuzzy-path";
-import { workspaceEntryKind } from "./fs-entry-kind";
+import {
+	withoutAsar,
+	workspaceEntryKind,
+	workspaceExists,
+} from "./workspace-fs";
 
 const SKIP = new Set([
 	"node_modules",
@@ -34,7 +38,7 @@ export function listWorkspaceDir(
 	const abs = relative
 		? resolveWorkspacePath(root, relative)
 		: path.resolve(root);
-	if (!fs.existsSync(abs) || !fs.statSync(abs).isDirectory()) {
+	if (workspaceEntryKind(abs) !== "dir") {
 		return [];
 	}
 	const names = fs.readdirSync(abs);
@@ -78,9 +82,9 @@ export function createWorkspaceFile(
 	fs.mkdirSync(dirAbs, { recursive: true });
 	const abs = path.join(dirAbs, safe);
 	resolveWorkspacePath(root, path.relative(root, abs));
-	if (fs.existsSync(abs))
+	if (workspaceExists(abs))
 		throw new Error("A file with that name already exists");
-	fs.writeFileSync(abs, "", "utf8");
+	withoutAsar(() => fs.writeFileSync(abs, "", "utf8"));
 	return toRel(relativeDir, safe);
 }
 
@@ -96,9 +100,9 @@ export function createWorkspaceDir(
 	fs.mkdirSync(dirAbs, { recursive: true });
 	const abs = path.join(dirAbs, safe);
 	resolveWorkspacePath(root, path.relative(root, abs));
-	if (fs.existsSync(abs))
+	if (workspaceExists(abs))
 		throw new Error("A folder with that name already exists");
-	fs.mkdirSync(abs);
+	withoutAsar(() => fs.mkdirSync(abs));
 	return toRel(relativeDir, safe);
 }
 
@@ -112,8 +116,8 @@ export function renameWorkspaceEntry(
 	const parent = path.dirname(abs);
 	const nextAbs = path.join(parent, safe);
 	resolveWorkspacePath(root, path.relative(root, nextAbs));
-	if (fs.existsSync(nextAbs)) throw new Error("That name already exists");
-	fs.renameSync(abs, nextAbs);
+	if (workspaceExists(nextAbs)) throw new Error("That name already exists");
+	withoutAsar(() => fs.renameSync(abs, nextAbs));
 	const parentRel = path.dirname(relativePath.replace(/\\/g, "/"));
 	const parentKey = parentRel === "." ? "" : parentRel;
 	return toRel(parentKey, safe);
@@ -137,21 +141,21 @@ export function moveWorkspaceEntry(
 	const destDirAbs = destNorm
 		? resolveWorkspacePath(root, destNorm)
 		: path.resolve(root);
-	if (!fs.existsSync(destDirAbs) || !fs.statSync(destDirAbs).isDirectory()) {
+	if (workspaceEntryKind(destDirAbs) !== "dir") {
 		throw new Error("Destination folder does not exist");
 	}
 	const nextAbs = path.join(destDirAbs, base);
 	resolveWorkspacePath(root, path.relative(root, nextAbs));
 	if (path.resolve(abs) === path.resolve(nextAbs)) return fromNorm;
-	if (fs.existsSync(nextAbs))
+	if (workspaceExists(nextAbs))
 		throw new Error("An item with that name already exists there");
-	fs.renameSync(abs, nextAbs);
+	withoutAsar(() => fs.renameSync(abs, nextAbs));
 	return toRel(destNorm, base);
 }
 
 export function deleteWorkspaceEntry(root: string, relativePath: string): void {
 	const abs = resolveWorkspacePath(root, relativePath);
-	fs.rmSync(abs, { recursive: true, force: false });
+	withoutAsar(() => fs.rmSync(abs, { recursive: true, force: false }));
 }
 
 const SEARCH_SKIP = new Set([
@@ -188,21 +192,16 @@ function searchAbsolutePath(query: string, limit: number): WorkspaceDirEntry[] {
 	let probe = q;
 	let dir = "";
 	while (probe.length > 0) {
-		try {
-			const st = fs.statSync(probe);
-			if (st.isDirectory()) {
-				dir = probe;
-			} else {
-				dir = path.dirname(probe);
-			}
+		const kind = workspaceEntryKind(probe);
+		if (kind !== "none") {
+			dir = kind === "dir" ? probe : path.dirname(probe);
 			break;
-		} catch {
-			const next = path.dirname(probe);
-			if (next === probe) return [];
-			probe = next;
 		}
+		const next = path.dirname(probe);
+		if (next === probe) return [];
+		probe = next;
 	}
-	if (!dir || !fs.existsSync(dir)) return [];
+	if (!dir || !workspaceExists(dir)) return [];
 	const entries = listWorkspaceDir(dir, "").map((e) => ({
 		name: e.name,
 		path: `${dir.replace(/\\/g, "/")}/${e.name}`,

@@ -4,6 +4,7 @@ import path from "node:path";
 import type { SessionSummary } from "../shared/protocol";
 import { listSessionSummariesOffMain } from "./session-history-offload";
 import type { DiskSessionRow } from "./session-history-worker";
+import { workspaceEntryKind } from "./workspace-fs";
 
 export function resolveAgentDir(): string {
   return agentDir();
@@ -463,15 +464,7 @@ export async function listPiCliWorkspaces(): Promise<string[]> {
   }
 
   const result = [...latestByCwd.values()]
-    .filter((row) => {
-      try {
-        return (
-          fs.existsSync(row.display) && fs.statSync(row.display).isDirectory()
-        );
-      } catch {
-        return false;
-      }
-    })
+    .filter((row) => workspaceEntryKind(row.display) === "dir")
     .sort((a, b) => b.modified - a.modified)
     .map((row) => row.display);
 

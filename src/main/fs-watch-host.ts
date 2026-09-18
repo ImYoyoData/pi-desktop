@@ -3,7 +3,7 @@ import path from "node:path";
 import { BrowserWindow, ipcMain } from "electron";
 import { IpcChannels } from "../shared/protocol";
 import { noteCheckpointFsChange } from "./checkpoint-host";
-import { workspaceEntryKind } from "./fs-entry-kind";
+import { workspaceEntryKind, workspaceStat } from "./workspace-fs";
 
 export type FsChangeKind = "add" | "change" | "unlink";
 
@@ -141,7 +141,7 @@ export function startWorkspaceWatch(root: string): void {
 	}
 	// Always drop the previous workspace watcher before attaching a new one
 	stopWorkspaceWatch();
-	if (!fs.existsSync(resolved) || !fs.statSync(resolved).isDirectory()) {
+	if (workspaceEntryKind(resolved) !== "dir") {
 		return;
 	}
 	watchedRoot = resolved;
@@ -151,15 +151,19 @@ export function startWorkspaceWatch(root: string): void {
 			if (!filename || !watchedRoot || !rootsEqual(watchedRoot, resolved)) return;
 			const rel = filename.toString().split(path.sep).join("/");
 			if (!rel || shouldIgnore(rel)) return;
-			const kind = workspaceEntryKind(path.join(watchedRoot, filename.toString()));
-			if (kind === "none") {
+			const abs = path.join(watchedRoot, filename.toString());
+			let st: fs.Stats | null;
+			try {
+				st = workspaceStat(abs);
+			} catch {
+				// 暂时读不到（被占用 / 无权限）：保持现状，不能当成删除
+				return;
+			}
+			if (!st) {
 				queueChange(rel, "unlink");
 				return;
 			}
-			queueChange(
-				rel,
-				kind === "file" && eventType === "change" ? "change" : "add",
-			);
+			queueChange(rel, st.isFile() && eventType === "change" ? "change" : "add");
 		});
 		watcher.on("error", () => {
 			stopWorkspaceWatch();
