@@ -29,7 +29,7 @@ jobs:
   check:
     name: Typecheck & tests
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -40,9 +40,43 @@ jobs:
       - run: npm run typecheck
       - run: npm test
 
+  version:
+    name: Check version
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      changed: ${{ steps.v.outputs.changed }}
+      tag: ${{ steps.v.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+
+      # 同一版本号只发布一次：tag 已存在就跳过整条发布链；手动 dispatch 时强制重发。
+      - name: Detect version tag
+        id: v
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="v$(node -p "require('./package.json').version")"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          REF="repos/$GITHUB_REPOSITORY/git/ref/tags/$TAG"
+          if STATUS=$(gh api "$REF" 2>&1 >/dev/null); then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          elif [[ "$STATUS" == *"HTTP 404"* ]]; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag lookup failed: $STATUS" >&2
+            exit 1
+          fi
+
   build:
     name: Build (${{ matrix.name }})
-    needs: check
+    needs: [check, version]
+    if: needs.version.outputs.changed == 'true'
     runs-on: ${{ matrix.os }}
     # Fail fast instead of sitting in a scarce-runner void for hours.
     timeout-minutes: 90
@@ -116,11 +150,12 @@ jobs:
 
   release:
     name: GitHub Release
-    needs: [check, build]
+    needs: [check, version, build]
     # Publish whatever arch artifacts succeeded (don't block the whole release on one matrix cell).
     if: >
       always() &&
       needs.check.result == 'success' &&
+      needs.version.outputs.changed == 'true' &&
       (github.event_name == 'workflow_dispatch' ||
        (github.event_name == 'push' && github.ref == 'refs/heads/main'))
     runs-on: ubuntu-latest
@@ -148,25 +183,17 @@ jobs:
             exit 1
           fi
 
-      - name: Read version
-        id: ver
-        shell: bash
-        run: |
-          VERSION=$(node -p "require('./package.json').version")
-          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-          echo "tag=v$VERSION" >> "$GITHUB_OUTPUT"
-
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ steps.ver.outputs.tag }}
-          name: Pi Desktop ${{ steps.ver.outputs.tag }}
+          tag_name: ${{ needs.version.outputs.tag }}
+          name: Pi Desktop ${{ needs.version.outputs.tag }}
           draft: false
           prerelease: false
           generate_release_notes: true
           body: |
 
-            ## 主要更新（v0.3.4-r1）
+            ## 主要更新（v0.3.4-rc.1）
 
             本版重点：界面上的悬停提示统一改由应用内浮层渲染（不再使用系统原生 `title`），并修复壁纸模式下浮层文字被磨砂层糊掉、下拉菜单先闪一帧清晰背景的问题。
 
@@ -179,7 +206,7 @@ jobs:
             - 修复壁纸模式下提示 / 下拉菜单 / 选择菜单的文字被磨砂层一起糊掉：模糊伪元素现在落在文本之下（`z-index: -1` 配合 `isolation: isolate`）。
             - 修复壁纸模式下浮层先闪一帧清晰壁纸再变磨砂：浮层的淡入与缩放过渡在壁纸模式下直接以最终形态出现。
 
-            ## What's New (v0.3.4-r1)
+            ## What's New (v0.3.4-rc.1)
 
             Hover hints across the UI now render through one in-app tooltip instead of the native `title`, and wallpaper mode no longer blurs the text of its popovers or flashes a clear background before the frosted layer lands.
 
