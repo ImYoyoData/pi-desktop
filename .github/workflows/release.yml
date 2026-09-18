@@ -193,31 +193,31 @@ jobs:
           generate_release_notes: true
           body: |
 
-            ## 主要更新（v0.3.4-rc.1）
+            ## 主要更新（v0.3.4-rc.2）
 
-            本版重点：界面上的悬停提示统一改由应用内浮层渲染（不再使用系统原生 `title`），并修复壁纸模式下浮层文字被磨砂层糊掉、下拉菜单先闪一帧清晰背景的问题。
+            本版重点：流式输出链路优化——回答渲染改为增量分块、会话事件按帧合并，长回答不再越写越卡；并新增「流式渲染」设置（设置 → 外观 → 界面），可开关该优化并单独调节渲染节流间隔。
 
             ### 新功能 Features
 
-            - **统一悬停提示**：新增全局 `AppHoverTip`，接管控件上的 `title` 并改由应用内浮层显示——跟随元素定位、350ms 延迟（贴近系统原生节奏），指针移出或元素消失时把 `title` 原样还原。
+            - **新增「流式渲染」设置**（设置 → 外观 → 界面）：开关默认关闭（关闭时完全走旧版渲染路径），并可单独调节 markdown 渲染节流间隔（40 / 60 / 90 / 120 / 200 毫秒，默认 90）。开关与参数改完即时生效，已打开的会话无需重启。
 
-            ### 修复 Fixes
+            ### 性能优化 Performance
 
-            - 修复壁纸模式下提示 / 下拉菜单 / 选择菜单的文字被磨砂层一起糊掉：模糊伪元素现在落在文本之下（`z-index: -1` 配合 `isolation: isolate`）。
-            - 修复壁纸模式下浮层先闪一帧清晰壁纸再变磨砂：浮层的淡入与缩放过渡在壁纸模式下直接以最终形态出现。
+            - 流式回答改为**增量分块渲染**：已完成的段落只解析一次，仅最后一段随内容增长重解析，不再每次刷新都对整篇回答重跑 markdown + 代码高亮 + 消毒；渲染范围与旧版逐帧一致，所见内容不变。
+            - 会话 worker 的流式快照**按帧合并**（开关开启时生效）：每 40ms 只发最新一帧，不再每个 token 都把整段累积内容跨进程传输三遍。
 
-            ## What's New (v0.3.4-rc.1)
+            ## What's New (v0.3.4-rc.2)
 
-            Hover hints across the UI now render through one in-app tooltip instead of the native `title`, and wallpaper mode no longer blurs the text of its popovers or flashes a clear background before the frosted layer lands.
+            Streaming output got a faster path: answers render in incremental blocks and session events are coalesced per frame, so long answers no longer stutter while streaming. A new "Streaming render" setting (Settings → Appearance → Interface) lets you switch that path on or off and tune the render throttle.
 
             ### Features
 
-            - **Unified hover tips**: a new global `AppHoverTip` takes over `title` attributes and renders them through one in-app tooltip — anchored to the element, shown after a 350 ms delay (matching the native feel), and restored untouched when the pointer leaves.
+            - **New "Streaming render" settings** (Settings → Appearance → Interface): the switch is off by default (off keeps the legacy render path), with a separate markdown render throttle (40 / 60 / 90 / 120 / 200 ms, default 90). Both apply immediately, including to sessions that are already open.
 
-            ### Fixes
+            ### Performance
 
-            - Fixed wallpaper mode blurring the text of tooltips, dropdown menus and select menus: the blur pseudo-element now sits below the content (`z-index: -1` with `isolation: isolate`).
-            - Fixed popovers in wallpaper mode flashing a clear wallpaper frame before the frosted layer landed: their fade/scale transitions now start at the final state.
+            - Streaming answers now use **incremental block rendering**: finished paragraphs are parsed once and only the last paragraph is re-parsed as it grows, instead of re-running markdown + syntax highlighting + sanitizing over the whole answer on every tick. The rendered range matches the legacy behaviour frame by frame.
+            - Session workers **coalesce streaming snapshots** (when the switch is on): only the newest frame is sent every 40 ms, instead of shipping the whole accumulated message across process boundaries for every token.
 
             ## 下载 / Downloads
             - **Windows x64**: `Pi Desktop-*-win-x64-setup.exe`
