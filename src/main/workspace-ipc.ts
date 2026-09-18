@@ -1,5 +1,4 @@
 import { app, BrowserWindow, dialog, ipcMain, shell } from "electron";
-import fs from "node:fs";
 import path from "node:path";
 import { IpcChannels, type WorkspaceGroups } from "../shared/protocol";
 import { createWorkspaceStore, type WorkspaceStore } from "./workspace-store";
@@ -9,6 +8,7 @@ import {
 	migrateWorkspaceSessionDir,
 	workspacePathsEqual,
 } from "./session-list";
+import { workspaceEntryKind } from "./workspace-fs";
 
 let store: WorkspaceStore | null = null;
 
@@ -140,11 +140,7 @@ function setWorkspaceAlias(
 }
 
 function isDirectory(target: string): boolean {
-  try {
-    return fs.statSync(target).isDirectory();
-  } catch {
-    return false;
-  }
+  return workspaceEntryKind(target) === "dir";
 }
 
 /**

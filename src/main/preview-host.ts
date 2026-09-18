@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import type { PreviewResult } from "../shared/preview-types";
 import { localMediaSrc } from "./local-file-protocol";
+import { withoutAsar } from "./workspace-fs";
 
 export type { PreviewResult };
 
@@ -184,49 +185,51 @@ function tryAsTextFile(absolute: string, relPath: string): PreviewResult {
 
 /** 读取已解析的绝对路径（调用方已做路径允许校验）。 */
 export function readPreviewAt(workspaceRoot: string, absolute: string): PreviewResult {
-  const relPath = displayPath(path.resolve(workspaceRoot), absolute);
+  return withoutAsar(() => {
+    const relPath = displayPath(path.resolve(workspaceRoot), absolute);
 
-  if (!fs.existsSync(absolute)) {
-    return { kind: "error", path: relPath, message: "File not found" };
-  }
-
-  const stat = fs.statSync(absolute);
-  if (!stat.isFile()) {
-    return { kind: "error", path: relPath, message: "Not a file" };
-  }
-
-  const ext = path.extname(absolute).toLowerCase();
-
-  if (IMAGE_EXTENSIONS.has(ext)) {
-    // Prefer streaming URL for large assets; keep dataUrl for small compatibility.
-    const mediaSrc = localMediaSrc(relPath);
-    if (stat.size <= 2 * 1024 * 1024) {
-      const buffer = fs.readFileSync(absolute);
-      const mime = mimeForImage(ext);
-      const dataUrl = `data:${mime};base64,${buffer.toString("base64")}`;
-      return { kind: "image", path: relPath, dataUrl, mediaSrc };
+    if (!fs.existsSync(absolute)) {
+      return { kind: "error", path: relPath, message: "File not found" };
     }
-    return { kind: "image", path: relPath, dataUrl: mediaSrc, mediaSrc };
-  }
 
-  if (VIDEO_EXTENSIONS.has(ext)) {
-    return { kind: "video", path: relPath, mediaSrc: localMediaSrc(relPath) };
-  }
+    const stat = fs.statSync(absolute);
+    if (!stat.isFile()) {
+      return { kind: "error", path: relPath, message: "Not a file" };
+    }
 
-  if (AUDIO_EXTENSIONS.has(ext)) {
-    return { kind: "audio", path: relPath, mediaSrc: localMediaSrc(relPath) };
-  }
+    const ext = path.extname(absolute).toLowerCase();
 
-  if (MARKDOWN_EXTENSIONS.has(ext)) {
-    const { content, truncated } = readTextFile(absolute, MAX_TEXT_BYTES);
-    return { kind: "markdown", path: relPath, content, truncated: truncated || undefined };
-  }
+    if (IMAGE_EXTENSIONS.has(ext)) {
+      // Prefer streaming URL for large assets; keep dataUrl for small compatibility.
+      const mediaSrc = localMediaSrc(relPath);
+      if (stat.size <= 2 * 1024 * 1024) {
+        const buffer = fs.readFileSync(absolute);
+        const mime = mimeForImage(ext);
+        const dataUrl = `data:${mime};base64,${buffer.toString("base64")}`;
+        return { kind: "image", path: relPath, dataUrl, mediaSrc };
+      }
+      return { kind: "image", path: relPath, dataUrl: mediaSrc, mediaSrc };
+    }
 
-  if (TEXT_EXTENSIONS.has(ext)) {
-    const { content, truncated } = readTextFile(absolute, MAX_TEXT_BYTES);
-    return { kind: "text", path: relPath, content, truncated: truncated || undefined };
-  }
+    if (VIDEO_EXTENSIONS.has(ext)) {
+      return { kind: "video", path: relPath, mediaSrc: localMediaSrc(relPath) };
+    }
 
-  // Unknown extension → text editor if it looks like text, else binary prompt
-  return tryAsTextFile(absolute, relPath);
+    if (AUDIO_EXTENSIONS.has(ext)) {
+      return { kind: "audio", path: relPath, mediaSrc: localMediaSrc(relPath) };
+    }
+
+    if (MARKDOWN_EXTENSIONS.has(ext)) {
+      const { content, truncated } = readTextFile(absolute, MAX_TEXT_BYTES);
+      return { kind: "markdown", path: relPath, content, truncated: truncated || undefined };
+    }
+
+    if (TEXT_EXTENSIONS.has(ext)) {
+      const { content, truncated } = readTextFile(absolute, MAX_TEXT_BYTES);
+      return { kind: "text", path: relPath, content, truncated: truncated || undefined };
+    }
+
+    // Unknown extension → text editor if it looks like text, else binary prompt
+    return tryAsTextFile(absolute, relPath);
+  });
 }

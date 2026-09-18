@@ -3,6 +3,7 @@ import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { countLineDiff } from "../shared/line-diff";
 import { resolveWorkspacePath } from "../shared/path-sandbox";
+import { withoutAsar } from "./workspace-fs";
 
 export const CHECKPOINT_MAX_FILE_BYTES = 2 * 1024 * 1024;
 export const CHECKPOINT_MAX_FILES = 3000;
@@ -224,7 +225,7 @@ export function snapshotWorkspaceBaseline(
 		}
 	};
 
-	walk(rootResolved, "");
+	withoutAsar(() => walk(rootResolved, ""));
 	return { baseline, skipped };
 }
 
@@ -372,7 +373,7 @@ function reconcileTouchedFromDisk(cp: TurnCheckpoint): void {
 		}
 	};
 
-	walk(rootResolved, "");
+	withoutAsar(() => walk(rootResolved, ""));
 
 	// Files present at begin but missing now → deleted during turn
 	for (const rel of cp.baseline.keys()) {
@@ -467,30 +468,32 @@ export function revertCheckpoint(
 	let deleted = 0;
 	let skipped = 0;
 
-	for (const rel of cp.touched) {
-		const abs = path.join(cp.workspaceRoot, ...rel.split("/"));
-		const baseline = cp.baseline.get(rel);
-		try {
-			if (baseline === undefined) {
-				// Created during turn → remove
-				if (fs.existsSync(abs)) {
-					const st = fs.statSync(abs);
-					if (st.isFile()) {
-						fs.unlinkSync(abs);
-						deleted += 1;
-					} else {
-						skipped += 1;
+	withoutAsar(() => {
+		for (const rel of cp.touched) {
+			const abs = path.join(cp.workspaceRoot, ...rel.split("/"));
+			const baseline = cp.baseline.get(rel);
+			try {
+				if (baseline === undefined) {
+					// Created during turn → remove
+					if (fs.existsSync(abs)) {
+						const st = fs.statSync(abs);
+						if (st.isFile()) {
+							fs.unlinkSync(abs);
+							deleted += 1;
+						} else {
+							skipped += 1;
+						}
 					}
+				} else {
+					fs.mkdirSync(path.dirname(abs), { recursive: true });
+					fs.writeFileSync(abs, baseline, "utf8");
+					restored += 1;
 				}
-			} else {
-				fs.mkdirSync(path.dirname(abs), { recursive: true });
-				fs.writeFileSync(abs, baseline, "utf8");
-				restored += 1;
+			} catch {
+				skipped += 1;
 			}
-		} catch {
-			skipped += 1;
 		}
-	}
+	});
 
 	cp.status = "reverted";
 	return { ok: true, restored, deleted, skipped, error: null };
@@ -560,45 +563,47 @@ export function sessionNetFileChanges(
 	const startKey = sessionStartKeyBySession.get(sessionId);
 	const cp = startKey ? byKey.get(startKey) : undefined;
 
-	for (const raw of relativePaths) {
-		const rel = cp ? normalizeNetRel(raw, cp.workspaceRoot) : null;
-		if (!cp || !rel) {
-			out[raw] = { additions: 0, deletions: 0, available: false };
-			continue;
-		}
-		const base = cp.baseline.get(rel);
-		const abs = path.join(cp.workspaceRoot, ...rel.split("/"));
+	withoutAsar(() => {
+		for (const raw of relativePaths) {
+			const rel = cp ? normalizeNetRel(raw, cp.workspaceRoot) : null;
+			if (!cp || !rel) {
+				out[raw] = { additions: 0, deletions: 0, available: false };
+				continue;
+			}
+			const base = cp.baseline.get(rel);
+			const abs = path.join(cp.workspaceRoot, ...rel.split("/"));
 
-		let current: string | null = null;
-		let ok = true;
-		try {
-			if (fs.existsSync(abs)) {
-				const st = fs.statSync(abs);
-				if (!st.isFile() || st.size > NET_CURRENT_MAX_BYTES) {
-					ok = false;
-				} else {
-					const buf = fs.readFileSync(abs);
-					if (hasNullByte(buf)) {
+			let current: string | null = null;
+			let ok = true;
+			try {
+				if (fs.existsSync(abs)) {
+					const st = fs.statSync(abs);
+					if (!st.isFile() || st.size > NET_CURRENT_MAX_BYTES) {
 						ok = false;
 					} else {
-						current = buf.toString("utf8");
+						const buf = fs.readFileSync(abs);
+						if (hasNullByte(buf)) {
+							ok = false;
+						} else {
+							current = buf.toString("utf8");
+						}
 					}
 				}
+			} catch {
+				ok = false;
 			}
-		} catch {
-			ok = false;
-		}
-		if (!ok) {
-			out[raw] = { additions: 0, deletions: 0, available: false };
-			continue;
-		}
+			if (!ok) {
+				out[raw] = { additions: 0, deletions: 0, available: false };
+				continue;
+			}
 
-		const counts = countLineDiff(base ?? "", current ?? "");
-		out[raw] = {
-			additions: counts.additions,
-			deletions: counts.deletions,
-			available: true,
-		};
-	}
+			const counts = countLineDiff(base ?? "", current ?? "");
+			out[raw] = {
+				additions: counts.additions,
+				deletions: counts.deletions,
+				available: true,
+			};
+		}
+	});
 	return out;
 }

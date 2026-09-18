@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { ExecError, exec } from "dugite";
+import { withoutAsar } from "./workspace-fs";
 import type {
   GitConflictContentResult,
   GitErrorCode,
@@ -527,7 +528,7 @@ export async function getGitFileDiff(
 
   let stat: fs.Stats;
   try {
-    stat = fs.lstatSync(resolvedFilePath);
+    stat = withoutAsar(() => fs.lstatSync(resolvedFilePath));
   } catch {
     return { supported: false };
   }
@@ -546,7 +547,7 @@ export async function getGitFileDiff(
   if (isBrandNew) {
     let buf: Buffer;
     try {
-      buf = fs.readFileSync(resolvedFilePath);
+      buf = withoutAsar(() => fs.readFileSync(resolvedFilePath));
     } catch {
       return { supported: false };
     }
@@ -572,7 +573,7 @@ export async function getGitFileDiff(
 
   if (stat.size > TEXT_PREVIEW_MAX_BYTES) return { supported: false };
 
-  const currentBuffer = fs.readFileSync(resolvedFilePath);
+  const currentBuffer = withoutAsar(() => fs.readFileSync(resolvedFilePath));
   if (hasNullByte(currentBuffer)) return { supported: false };
   const newContent = currentBuffer.toString("utf8");
 
@@ -1438,7 +1439,7 @@ export async function getConflictContent(
 
   let stat: fs.Stats;
   try {
-    stat = fs.lstatSync(resolvedFilePath);
+    stat = withoutAsar(() => fs.lstatSync(resolvedFilePath));
   } catch {
     return { supported: false, reason: "not_found" };
   }
@@ -1446,7 +1447,7 @@ export async function getConflictContent(
   if (stat.size > TEXT_PREVIEW_MAX_BYTES)
     return { supported: false, reason: "too_large" };
 
-  const currentBuffer = fs.readFileSync(resolvedFilePath);
+  const currentBuffer = withoutAsar(() => fs.readFileSync(resolvedFilePath));
   if (hasNullByte(currentBuffer)) return { supported: false, reason: "binary" };
 
   const working = currentBuffer.toString("utf8");
@@ -1480,7 +1481,7 @@ export async function resolveConflictPath(
   const repoRelative = toGitPath(
     path.relative(repositoryRoot, resolvedFilePath),
   );
-  fs.writeFileSync(resolvedFilePath, content, "utf8");
+  withoutAsar(() => fs.writeFileSync(resolvedFilePath, content, "utf8"));
 
   const add = await gitAllowFail(repositoryRoot, ["add", "--", repoRelative]);
   if (!add.ok) return fail(add.code, add.message);
