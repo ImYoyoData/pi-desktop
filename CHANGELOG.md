@@ -8,7 +8,11 @@
 
 - **新增「流式渲染」设置**（设置 → 外观 → 界面）：开关默认关闭（关闭时完全走旧版渲染路径），并可单独调节 markdown 渲染节流间隔（40 / 60 / 90 / 120 / 200 毫秒，默认 90）。开关与参数改完即时生效，已打开的会话无需重启。
 
+- **问答卡片支持折叠**：agent 的「向用户提问」卡片头部改为可点击的折叠开关，右侧箭头指示展开状态；收起后只保留标题栏与进度，问题选项与操作按钮一并隐藏，新的提问到来时会自动展开。
+
 - **New "Streaming render" settings** (Settings → Appearance → Interface): the switch is off by default (off keeps the legacy render path), with a separate markdown render throttle (40 / 60 / 90 / 120 / 200 ms, default 90). Both apply immediately, including to sessions that are already open.
+
+- **Collapsible "Ask user" card**: the clarification card header is now a clickable toggle with a chevron; collapsing it keeps only the title bar and progress, hiding the question and its buttons, and the card expands again automatically when a new question arrives.
 
 ### 性能优化 Performance
 
