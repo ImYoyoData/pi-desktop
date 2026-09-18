@@ -68,6 +68,7 @@ import {
 } from "./extension-ui-host";
 import { registerSecurityIpc } from "./security-ipc";
 import { registerThinkingLanguageIpc } from "./thinking-language-ipc";
+import { registerStreamRenderIpc } from "./stream-render-ipc";
 import { registerAppearanceIpc } from "./appearance-ipc";
 import {
 	disposeLanConsole,
@@ -350,6 +351,7 @@ function boot(): void {
 		registerExtensionUiIpc();
 		registerSecurityIpc(broker);
 		registerThinkingLanguageIpc();
+		registerStreamRenderIpc(broker);
 		registerAppearanceIpc();
 		registerLanConsoleIpc(broker);
 		registerPreviewIpc();

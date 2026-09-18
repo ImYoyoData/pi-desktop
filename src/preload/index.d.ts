@@ -68,6 +68,7 @@ import type {
 } from "../shared/git-types";
 import type { ProxySettings } from "../shared/proxy";
 import type { ThinkingLanguageSettings } from "../shared/thinking-language";
+import type { StreamRenderSettings } from "../shared/stream-render";
 export type AppInfo = {
 	version: string;
 	githubUrl: string;
@@ -982,6 +983,10 @@ declare const api: {
 	thinkingLanguage: {
 		get: () => Promise<ThinkingLanguageSettings>;
 		set: (settings: ThinkingLanguageSettings) => Promise<ThinkingLanguageSettings>;
+	};
+	streamRender: {
+		get: () => Promise<StreamRenderSettings>;
+		set: (settings: StreamRenderSettings) => Promise<StreamRenderSettings>;
 	};
 	appearance: {
 		pickWallpaper: () => Promise<string | null>;

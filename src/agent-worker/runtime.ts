@@ -48,14 +48,18 @@ import {
 	type SecurityCategory,
 } from "../shared/desktop-security";
 import {
+	DEFAULT_STREAM_RENDER_SETTINGS,
+	parseStreamRenderSettings,
+	type StreamRenderSettings,
+} from "../shared/stream-render";
+import {
 	DESKTOP_ASK_USER_PROMPT,
 	DESKTOP_COMPOSER_MODES_PROMPT,
 	DESKTOP_BASH_BACKGROUND_PROMPT,
 	DESKTOP_PROJECT_ORIENTATION_PROMPT,
 	DESKTOP_TODO_PROMPT,
 } from "../shared/desktop-system-prompt";
-import { createAskUserToolDefinition } from "./ask-user-tool";
-import { createTodoWriteToolDefinition } from "./todo-tool";
+import { createAskUserToolDefinition } from "./ask-user-tool";import { createTodoWriteToolDefinition } from "./todo-tool";
 import { commandShouldStartBackground } from "../shared/bash-background";
 import { createTrackedBashOperations } from "./bash-run-tracker";
 import {
@@ -116,7 +120,8 @@ function createSnapshotThrottle(send: (event: Record<string, unknown>) => void):
 	return {
 		push(event: Record<string, unknown>): void {
 			const type = event.type;
-			if (type !== "message_update" && type !== "tool_execution_update") {
+			const snapshot = type === "message_update" || type === "tool_execution_update";
+			if (!streamRenderSettings.enabled || !snapshot) {
 				flush();
 				send(event);
 				return;
@@ -172,6 +177,7 @@ function timingStats() {
 	};
 }
 let desktopSecurity: DesktopSecuritySettings = { ...DEFAULT_DESKTOP_SECURITY };
+let streamRenderSettings: StreamRenderSettings = { ...DEFAULT_STREAM_RENDER_SETTINGS };
 const sessionAllows = new Set<SecurityCategory>();
 /** Once unlocked this session, keep browser_* available for follow-up clicks/fills. */
 let browserToolsUnlocked = false;
@@ -466,6 +472,7 @@ async function initSession(
 	cwd: string,
 	filePath: string | undefined,
 	securitySnapshot?: DesktopSecuritySettings,
+	streamRenderSnapshot?: StreamRenderSettings,
 ): Promise<void> {
 	if (initStarted) {
 		return;
@@ -475,6 +482,9 @@ async function initSession(
 	setRpcWorkspaceRoot(cwd);
 	if (securitySnapshot) {
 		desktopSecurity = parseDesktopSecurity(securitySnapshot);
+	}
+	if (streamRenderSnapshot) {
+		streamRenderSettings = parseStreamRenderSettings(streamRenderSnapshot);
 	}
 	const agentDir = getAgentDir();
 	const sessionManager = filePath
@@ -878,11 +888,16 @@ export async function handleWorkerMessage(msg: WorkerInbound): Promise<void> {
 		desktopSecurity = parseDesktopSecurity(msg.desktopSecurity);
 		return;
 	}
+	if (msg.kind === "reload_stream_render") {
+		streamRenderSettings = parseStreamRenderSettings(msg.streamRender);
+		return;
+	}
 	if (msg.kind === "init") {
 		await initSession(
 			msg.cwd,
 			msg.filePath,
 			msg.desktopSecurity,
+			msg.streamRender,
 		);
 		return;
 	}

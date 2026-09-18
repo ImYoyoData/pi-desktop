@@ -15,6 +15,8 @@ import {
   type LocalePreference,
   type ThemePreference,
 } from "@renderer/stores/appearance";
+import { useStreamRenderStore } from "@renderer/stores/stream-render";
+import { STREAM_RENDER_THROTTLE_CHOICES } from "../../../shared/stream-render";
 import {
   normalizeThinkingLanguage,
   type ThinkingLanguage,
@@ -25,6 +27,8 @@ import { t } from "@renderer/i18n";
 
 /** 外观设置：主题与界面两个子页；设置模态与智能体设置页共用。 */
 const appearance = useAppearanceStore();
+const streamRender = useStreamRenderStore();
+void streamRender.load();
 const message = useMessage();
 
 type AppearanceTab = "theme" | "ui";
@@ -131,6 +135,22 @@ const messageWidthOptions = computed(() =>
 
 function onTruncateChange(value: string | number | null): void {
   if (typeof value === "number") appearance.setTruncateToolOutputLines(value);
+}
+
+const streamRenderEnabled = computed({
+  get: () => streamRender.enabled,
+  set: (value: boolean) => void streamRender.update({ enabled: value }),
+});
+
+const streamRenderThrottleOptions = computed(() =>
+  STREAM_RENDER_THROTTLE_CHOICES.map((ms) => ({
+    label: t.streamRenderThrottleValue(ms),
+    value: ms,
+  })),
+);
+
+function onStreamRenderThrottleChange(value: string | number | null): void {
+  if (typeof value === "number") void streamRender.update({ throttleMs: value });
 }
 
 function onMessageWidthChange(value: string | number | null): void {
@@ -249,6 +269,36 @@ function onMessageWidthChange(value: string | number | null): void {
           size="small"
           class="setting-select"
           @update:value="onTruncateChange"
+        />
+      </div>
+
+      <NDivider style="margin: 0" />
+
+      <div class="switch-row">
+        <div class="switch-labels">
+          <NText strong>{{ t.streamRender }}</NText>
+        </div>
+        <NRadioGroup
+          v-model:value="streamRenderEnabled"
+          size="small"
+          class="setting-radio-group"
+        >
+          <NRadioButton :value="true">{{ t.switchOn }}</NRadioButton>
+          <NRadioButton :value="false">{{ t.switchOff }}</NRadioButton>
+        </NRadioGroup>
+      </div>
+
+      <div class="switch-row">
+        <div class="switch-labels">
+          <NText strong>{{ t.streamRenderThrottle }}</NText>
+        </div>
+        <NSelect
+          :value="streamRender.throttleMs"
+          :options="streamRenderThrottleOptions"
+          size="small"
+          class="setting-select"
+          :disabled="!streamRender.enabled"
+          @update:value="onStreamRenderThrottleChange"
         />
       </div>
 
