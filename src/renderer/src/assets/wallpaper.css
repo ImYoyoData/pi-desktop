@@ -106,20 +106,21 @@ html[data-theme][data-wallpaper="on"] .n-popover,
 html[data-theme][data-wallpaper="on"] .n-dropdown-menu {
   background-color: var(--w-elevated-surface) !important;
   --n-color: var(--w-elevated-surface) !important;
+  /* 伪元素模糊层必须落回文本之下，否则它的 backdrop 会把文字一起糊掉 */
+  isolation: isolate;
 }
 
-/* 提示底色跟随透明度设置，拉到 0 时会全透明，浅色文字只剩模糊壁纸可依；
-   用描边阴影保证任何壁纸下都读得出文字。 */
-html[data-theme][data-wallpaper="on"] .n-tooltip {
-  text-shadow:
-    0 1px 2px rgba(0, 0, 0, 0.55),
-    0 0 1px rgba(0, 0, 0, 0.4);
-}
-
-/* 透明度淡入会让玻璃底与模糊一起从透明过渡，看起来像先透明后才成为玻璃；
-   只保留缩放动画。 */
-html[data-theme][data-wallpaper="on"] .n-popover.popover-transition-enter-from {
+/* 透明度淡入与缩放会让玻璃底与模糊晚一帧成形：先看到一眼清晰的壁纸，再变成磨砂，
+   因此壁纸模式下浮层直接以最终形态出现。 */
+html[data-theme][data-wallpaper="on"]
+  :is(.n-popover, .n-dropdown-menu, .n-base-select-menu):is(
+    .popover-transition-enter-from,
+    .popover-transition-enter-to,
+    .fade-in-scale-up-transition-enter-from,
+    .fade-in-scale-up-transition-enter-to
+  ) {
   opacity: 1;
+  transform: none;
 }
 
 html[data-theme][data-wallpaper="on"] .n-popover::before,
@@ -127,6 +128,7 @@ html[data-theme][data-wallpaper="on"] .n-dropdown-menu::before {
   content: "";
   position: absolute;
   inset: 0;
+  z-index: -1;
   border-radius: inherit;
   backdrop-filter: blur(14px) saturate(1.15);
   pointer-events: none;
