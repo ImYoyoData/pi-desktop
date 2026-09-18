@@ -1,7 +1,12 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 import { NModal, NButton, NSpace, useDialog, useMessage } from "naive-ui";
-import { renderMarkdownCached, setMarkdownCopyLabel, splitLiveMarkdown } from "@renderer/utils/markdown";
+import {
+  createStreamBlockSplitter,
+  renderMarkdown,
+  renderMarkdownCached,
+  setMarkdownCopyLabel,
+} from "@renderer/utils/markdown";
 import {
   applyDiagramZoom,
   clampDiagramZoom,
@@ -47,33 +52,63 @@ const diagramLabels = computed<DiagramToolLabels>(() => ({
 
 setMarkdownCopyLabel(t.copy);
 
-function refreshHtml(content: string): void {
-  if (props.streaming) {
-    // 流式只解析到最后一个已完成段落，未完成尾部按纯文本跟随，避免每个
-    // chunk 都全量重解析不断变长的回答（长输出会拖垮主线程）。
-    const { prefix, tail } = splitLiveMarkdown(content, STREAM_TAIL_MAX_CHARS);
-    if (prefix !== lastStreamPrefix) {
-      lastStreamPrefix = prefix;
-      html.value = prefix ? renderMarkdownCached(prefix, false) : "";
-    }
-    liveTail.value = tail;
-    return;
-  }
-  lastStreamPrefix = "";
-  liveTail.value = "";
-  html.value = renderMarkdownCached(content, true);
-}
-
-const html = ref("");
-/** 流式期间未完成段落的纯文本尾部（段落推进后并入 html）。 */
+/** 已定型的 HTML 块：流式只追加新块，历史消息始终只有一整块。 */
+const blocks = ref<string[]>([]);
+/** 最后一个段落（介于定型边界与旧渲染点之间）的 HTML，随内容增长重解析。 */
+const liveBlock = ref("");
+/** 旧渲染点之后的未完成尾部（未完成段落按纯文本跟随）。 */
 const liveTail = ref("");
 const STREAM_TAIL_MAX_CHARS = 24_000;
-let lastStreamPrefix = "";
+let splitter = createStreamBlockSplitter();
+let liveBlockText = "";
+
+function tailText(content: string, from: number): string {
+  const tail = content.slice(from);
+  return tail.length > STREAM_TAIL_MAX_CHARS
+    ? `…${tail.slice(-STREAM_TAIL_MAX_CHARS)}`
+    : tail;
+}
+
+/** 旧版的渲染点：最后一个空行之后（其前的内容全部渲染成 HTML）。 */
+function renderPointOf(content: string): number {
+  const at = content.lastIndexOf("\n\n");
+  return at >= 0 ? at + 2 : 0;
+}
+
+/** 流式：定型块只追加，只有最后一个段落重解析，渲染范围与旧版逐字一致。 */
+function refreshStream(content: string): void {
+  const added = splitter.take(content);
+  if (added) {
+    const block = renderMarkdown(added);
+    if (block) blocks.value.push(block);
+  }
+  const boundary = splitter.boundary;
+  const renderPoint = Math.max(renderPointOf(content), boundary);
+  const liveText = content.slice(boundary, renderPoint);
+  if (liveText !== liveBlockText) {
+    liveBlockText = liveText;
+    liveBlock.value = liveText ? renderMarkdown(liveText) : "";
+  }
+  liveTail.value = tailText(content, renderPoint);
+}
+
+function renderFull(content: string): void {
+  splitter = createStreamBlockSplitter();
+  liveBlockText = "";
+  liveBlock.value = "";
+  blocks.value = content ? [renderMarkdownCached(content)] : [];
+  liveTail.value = "";
+}
+
+function refreshHtml(content: string): void {
+  if (props.streaming) refreshStream(content);
+  else renderFull(content);
+}
+
 let diagramTimer = 0;
 /**
- * Streaming ticks append faster than a full marked+hljs+DOMPurify pass over
- * the whole accumulated answer should run — render at most every ~90ms with a
- * trailing catch-up (the last tick always lands a final render).
+ * 流式 tick 快于一次分块渲染加尾部更新所需的时间 — 最多每 ~90ms 渲染一次，
+ * 并带一次尾随补齐（最后一个 tick 总会落地一次渲染）。
  */
 const RENDER_THROTTLE_MS = 90;
 let renderTimer = 0;
@@ -225,11 +260,19 @@ watch(
   },
 );
 
-// 流结束后整段重新解析一次（此前只渲染已完成段落 + 纯文本尾部），
-// 内容未变时 content watcher 不会触发，这里兜底收尾。
+// 流结束后整段重新解析一次（与旧版渲染结果完全一致），并重置分块状态。
 watch(
   () => props.streaming,
   (streaming, wasStreaming) => {
+    if (streaming && !wasStreaming) {
+      splitter = createStreamBlockSplitter();
+      blocks.value = [];
+      liveBlock.value = "";
+      liveBlockText = "";
+      refreshStream(props.content);
+      scheduleDiagrams();
+      return;
+    }
     if (wasStreaming && !streaming) renderNow(props.content);
   },
 );
@@ -270,7 +313,8 @@ onUnmounted(() => {
     class="md"
     :class="{ 'md-chat': variant === 'chat' }"
   >
-    <div v-if="html" v-html="html" />
+    <div v-for="(block, index) in blocks" :key="index" v-html="block" />
+    <div v-if="liveBlock" v-html="liveBlock" />
     <div v-if="liveTail" class="md-live-tail">{{ liveTail }}</div>
   </div>
 

@@ -157,14 +157,13 @@ function wrapTables(html: string): string {
  * Parse GFM markdown → sanitized HTML for chat bubbles.
  *
  * Virtual-window remounts re-render the same finished answers on every scroll;
- * an LRU of rendered HTML keeps those remounts near-free. Streaming renders
- * pass cacheable=false so intermediate snapshots never pollute the cache.
+ * an LRU of rendered HTML keeps those remounts near-free.
  */
 const htmlCache = new Map<string, string>();
 const HTML_CACHE_MAX_ENTRIES = 300;
 const HTML_CACHE_SKIP_CHARS = 120_000;
 
-export function renderMarkdownCached(content: string, cacheable = true): string {
+export function renderMarkdownCached(content: string): string {
   const key = content || "";
   if (key.length > HTML_CACHE_SKIP_CHARS) return renderMarkdown(key);
   const hit = htmlCache.get(key);
@@ -174,32 +173,101 @@ export function renderMarkdownCached(content: string, cacheable = true): string 
     return hit;
   }
   const html = renderMarkdown(key);
-  if (cacheable) {
-    htmlCache.set(key, html);
-    if (htmlCache.size > HTML_CACHE_MAX_ENTRIES) {
-      const oldest = htmlCache.keys().next().value;
-      if (oldest !== undefined) htmlCache.delete(oldest);
-    }
+  htmlCache.set(key, html);
+  if (htmlCache.size > HTML_CACHE_MAX_ENTRIES) {
+    const oldest = htmlCache.keys().next().value;
+    if (oldest !== undefined) htmlCache.delete(oldest);
   }
   return html;
 }
 
+const FENCE_OPEN_RE = /^ {0,3}(`{3,}|~{3,})/;
+const FENCE_CLOSE_RE = /^ {0,3}(`{3,}|~{3,})\s*$/;
+/** 续接上一个块的行：缩进代码、松散列表项 —— 其前的空行不是块边界。 */
+const BLOCK_CONTINUE_RE = /^(?: {4,}|\t|\s*[-*+]\s|\s*\d{1,9}[.)]\s)/;
+
+function fenceOpenMarker(line: string): string {
+  return FENCE_OPEN_RE.exec(line)?.[1] ?? "";
+}
+
+function closesFence(line: string, fence: string): boolean {
+  const marker = FENCE_CLOSE_RE.exec(line)?.[1];
+  return Boolean(marker && marker[0] === fence[0] && marker.length >= fence.length);
+}
+
+export type StreamBlockSplitter = {
+  /** 已确认可独立解析的内容长度（以空行收尾，且不在围栏内）。 */
+  readonly boundary: number;
+  /** 返回自上次调用以来新定型的文本段；无进展时返回空串。 */
+  take(content: string): string;
+};
+
 /**
- * 流式渲染切分：最后一个空行之前是“已完成段落”，交给 marked 解析；其后的
- * 未完成尾部按纯文本显示。内容增长时段落边界才会推进，避免每个 chunk 都
- * 全量重解析不断变长的回答。尾部超长时只保留窗口，防止巨量文本常驻 DOM。
+ * 流式块切分器：只增量扫描新增行，维护围栏与块延续状态，给出可独立解析的
+ * 块边界。逐块解析后拼接，替换掉“每个 chunk 全量重解析整篇回答”的做法。
  */
-export function splitLiveMarkdown(
-	content: string,
-	maxTailChars: number,
-): { prefix: string; tail: string } {
-	const boundary = content.lastIndexOf("\n\n");
-	const prefix = boundary >= 0 ? content.slice(0, boundary + 2) : "";
-	let tail = boundary >= 0 ? content.slice(boundary + 2) : content;
-	if (tail.length > maxTailChars) {
-		tail = `…${tail.slice(-maxTailChars)}`;
-	}
-	return { prefix, tail };
+export function createStreamBlockSplitter(): StreamBlockSplitter {
+  let scanned = 0;
+  let boundary = 0;
+  let rendered = 0;
+  let pending = -1;
+  let fence = "";
+
+  function reset(): void {
+    scanned = 0;
+    boundary = 0;
+    rendered = 0;
+    pending = -1;
+    fence = "";
+  }
+
+  function consumeLine(line: string, lineEnd: number): void {
+    if (fence) {
+      if (closesFence(line, fence)) fence = "";
+      return;
+    }
+    if (line.trim() === "") {
+      pending = lineEnd;
+      return;
+    }
+    const marker = fenceOpenMarker(line);
+    if (marker) {
+      if (pending >= 0) {
+        boundary = pending;
+        pending = -1;
+      }
+      fence = marker;
+      return;
+    }
+    if (pending < 0) return;
+    if (BLOCK_CONTINUE_RE.test(line)) {
+      pending = -1;
+      return;
+    }
+    boundary = pending;
+    pending = -1;
+  }
+
+  return {
+    get boundary(): number {
+      return boundary;
+    },
+    take(content: string): string {
+      if (content.length < scanned) reset();
+      let pos = scanned;
+      while (pos < content.length) {
+        const nl = content.indexOf("\n", pos);
+        if (nl < 0) break;
+        consumeLine(content.slice(pos, nl), nl + 1);
+        pos = nl + 1;
+      }
+      scanned = pos;
+      if (boundary <= rendered) return "";
+      const added = content.slice(rendered, boundary);
+      rendered = boundary;
+      return added;
+    },
+  };
 }
 
 /** Parse GFM markdown → sanitized HTML for chat bubbles (uncached). */
