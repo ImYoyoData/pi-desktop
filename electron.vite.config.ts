@@ -1,5 +1,6 @@
 import { resolve } from "path";
 import { defineConfig } from "electron-vite";
+import type { Plugin } from "vite";
 import vue from "@vitejs/plugin-vue";
 import Components from "unplugin-vue-components/vite";
 import { NaiveUiResolver } from "unplugin-vue-components/resolvers";
@@ -13,6 +14,48 @@ const piEsmPackages = [
   "@earendil-works/pi-ai",
   "@earendil-works/pi-tui",
 ];
+
+/** monaco 只保留 utils/editor-lang.ts 会映射到的 21 种语言定义，其余 60 种不再进产物 */
+const monacoLanguages = new Set([
+  "c",
+  "cpp",
+  "csharp",
+  "css",
+  "go",
+  "html",
+  "ini",
+  "java",
+  "javascript",
+  "kotlin",
+  "less",
+  "markdown",
+  "powershell",
+  "python",
+  "rust",
+  "scss",
+  "shell",
+  "sql",
+  "typescript",
+  "xml",
+  "yaml",
+]);
+
+function trimMonacoLanguages(): Plugin {
+  return {
+    name: "pi-trim-monaco-languages",
+    enforce: "pre",
+    transform(code, id) {
+      if (!/[\\/]monaco-editor[\\/]esm[\\/]vs[\\/](index|editor\.main)\.js$/.test(id)) {
+        return null;
+      }
+      const trimmed = code.replace(
+        /^import '\.{1,2}\/languages\/definitions\/([\w.-]+)\/register\.js';\r?\n/gm,
+        (line, lang: string) => (monacoLanguages.has(lang) ? line : ""),
+      );
+      return trimmed === code ? null : trimmed;
+    },
+  };
+}
 
 export default defineConfig({
   main: {
@@ -55,6 +98,7 @@ export default defineConfig({
       Components({
         resolvers: [NaiveUiResolver()],
       }),
+      trimMonacoLanguages(),
     ],
     build: {
       // Electron 39 ships a modern Chromium: avoid transpiling to old
