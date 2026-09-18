@@ -16,6 +16,7 @@ const IGNORE_DIR_SEGMENTS = new Set([
 	".hg",
 	"dist",
 	"out",
+	"release",
 	".next",
 	"coverage",
 	"__pycache__",

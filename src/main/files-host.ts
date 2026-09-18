@@ -15,6 +15,7 @@ const SKIP = new Set([
 	"node_modules",
 	"dist",
 	"out",
+	"release",
 	"coverage",
 	"__pycache__",
 ]);
