@@ -75,6 +75,7 @@ import type {
 } from "../shared/git-types";
 import type { ProxySettings } from "../shared/proxy";
 import type { ThinkingLanguageSettings } from "../shared/thinking-language";
+import type { StreamRenderSettings } from "../shared/stream-render";
 
 export type AppInfo = {
 	version: string;
@@ -1572,6 +1573,17 @@ const api = {
 				IpcChannels.thinkingLanguage.set,
 				settings,
 			) as Promise<ThinkingLanguageSettings>,
+	},
+	streamRender: {
+		get: () =>
+			ipcRenderer.invoke(
+				IpcChannels.streamRender.get,
+			) as Promise<StreamRenderSettings>,
+		set: (settings: StreamRenderSettings) =>
+			ipcRenderer.invoke(
+				IpcChannels.streamRender.set,
+				settings,
+			) as Promise<StreamRenderSettings>,
 	},
 	appearance: {
 		pickWallpaper: () =>

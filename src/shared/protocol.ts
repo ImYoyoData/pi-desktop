@@ -33,6 +33,12 @@ export const IpcChannels = {
 		/** Renderer → main: 保存「思考语言」设置。 */
 		set: "thinkingLanguage:set",
 	},
+	streamRender: {
+		/** Renderer → main: 读取「流式渲染」设置。 */
+		get: "streamRender:get",
+		/** Renderer → main: 保存「流式渲染」设置（并热重载给活跃 worker）。 */
+		set: "streamRender:set",
+	},
 	appearance: {
 		/** Renderer → main: 选择壁纸文件（图片/动图/视频）。 */
 		pickWallpaper: "appearance:pickWallpaper",

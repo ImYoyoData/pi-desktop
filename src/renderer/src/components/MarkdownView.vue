@@ -20,6 +20,7 @@ import { mountDotIn } from "@renderer/utils/dot-render";
 import { mountMermaidIn, resetMermaidForTheme } from "@renderer/utils/mermaid-render";
 import { handleAppLinkClick } from "@renderer/utils/open-link";
 import { useAppearanceStore } from "@renderer/stores/appearance";
+import { useStreamRenderStore } from "@renderer/stores/stream-render";
 import { locale, t } from "@renderer/i18n";
 
 const props = defineProps<{
@@ -51,6 +52,10 @@ const diagramLabels = computed<DiagramToolLabels>(() => ({
 }));
 
 setMarkdownCopyLabel(t.copy);
+
+/** 流式渲染设置：开关决定走增量分块还是旧版全量重解析。 */
+const streamRender = useStreamRenderStore();
+void streamRender.load();
 
 /** 已定型的 HTML 块：流式只追加新块，历史消息始终只有一整块。 */
 const blocks = ref<string[]>([]);
@@ -100,17 +105,19 @@ function renderFull(content: string): void {
   liveTail.value = "";
 }
 
+function resetStreamState(): void {
+  splitter = createStreamBlockSplitter();
+  blocks.value = [];
+  liveBlock.value = "";
+  liveBlockText = "";
+}
+
 function refreshHtml(content: string): void {
-  if (props.streaming) refreshStream(content);
+  if (props.streaming && streamRender.enabled) refreshStream(content);
   else renderFull(content);
 }
 
 let diagramTimer = 0;
-/**
- * 流式 tick 快于一次分块渲染加尾部更新所需的时间 — 最多每 ~90ms 渲染一次，
- * 并带一次尾随补齐（最后一个 tick 总会落地一次渲染）。
- */
-const RENDER_THROTTLE_MS = 90;
 let renderTimer = 0;
 let pendingContent: string | null = null;
 let lastRenderAt = 0;
@@ -123,9 +130,11 @@ function renderNow(content: string): void {
   scheduleDiagrams();
 }
 
+/** 流式 tick 快于一次渲染所需的时间时就按设置间隔合并，并带一次尾随补齐。 */
 function scheduleRender(content: string): void {
+  const throttleMs = streamRender.throttleMs;
   const elapsed = Date.now() - lastRenderAt;
-  if (elapsed >= RENDER_THROTTLE_MS) {
+  if (elapsed >= throttleMs) {
     renderNow(content);
     return;
   }
@@ -137,7 +146,7 @@ function scheduleRender(content: string): void {
       const next = pendingContent;
       pendingContent = null;
       renderNow(next);
-    }, RENDER_THROTTLE_MS - elapsed);
+    }, throttleMs - elapsed);
   }
 }
 
@@ -265,15 +274,22 @@ watch(
   () => props.streaming,
   (streaming, wasStreaming) => {
     if (streaming && !wasStreaming) {
-      splitter = createStreamBlockSplitter();
-      blocks.value = [];
-      liveBlock.value = "";
-      liveBlockText = "";
+      resetStreamState();
       refreshStream(props.content);
       scheduleDiagrams();
       return;
     }
     if (wasStreaming && !streaming) renderNow(props.content);
+  },
+);
+
+// 切换开关时按新模式重渲染当前回答，避免两套渲染结果叠加。
+watch(
+  () => streamRender.enabled,
+  () => {
+    if (!props.streaming) return;
+    resetStreamState();
+    renderNow(props.content);
   },
 );
 

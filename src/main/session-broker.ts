@@ -5,6 +5,7 @@ import type {
   WorkerOutbound,
 } from "../shared/agent-worker-messages";
 import type { DesktopSecuritySettings } from "../shared/desktop-security";
+import type { StreamRenderSettings } from "../shared/stream-render";
 import type {
   AgentCommand,
   AgentEvent,
@@ -151,6 +152,10 @@ export type SessionBroker = {
   /** Hot-reload desktopSecurity into live workers (no restart). */
   notifyWorkersReloadSecurity: (
     desktopSecurity: DesktopSecuritySettings,
+  ) => Promise<void>;
+  /** Hot-reload the streaming render switch into live workers (no restart). */
+  notifyWorkersReloadStreamRender: (
+    streamRender: StreamRenderSettings,
   ) => Promise<void>;
   /** 热重载某工作区的扩展/MCP 资源（空闲 worker 立即重载，忙碌的等空闲）。 */
   notifyWorkersReloadResources: (cwd: string) => Promise<void>;
@@ -1231,6 +1236,17 @@ export function createSessionBroker(deps: {
     }
   }
 
+  async function notifyWorkersReloadStreamRender(
+    streamRender: StreamRenderSettings,
+  ): Promise<void> {
+    const ids = [...sessions.entries()]
+      .filter(([, rec]) => rec.worker !== null)
+      .map(([id]) => id);
+    for (const id of ids) {
+      await sendRawIfAlive(id, { kind: "reload_stream_render", streamRender });
+    }
+  }
+
   /** 空闲 worker 在进程内重载资源（扩展/MCP 配置），忙碌的等空闲后销毁重建。 */
   async function notifyWorkersReloadResources(cwd: string): Promise<void> {
     const resolved = path.resolve(cwd);
@@ -1264,6 +1280,7 @@ export function createSessionBroker(deps: {
     clearContext,
     notifyWorkersReloadModels,
     notifyWorkersReloadSecurity,
+    notifyWorkersReloadStreamRender,
     notifyWorkersReloadResources,
     patchSummary,
     persistUserMessageMeta,
