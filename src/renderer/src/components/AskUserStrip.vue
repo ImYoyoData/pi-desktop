@@ -5,7 +5,12 @@ import {
   NIcon,
   NText,
 } from "naive-ui";
-import { ChatbubbleEllipsesOutline, CheckmarkCircle } from "@vicons/ionicons5";
+import {
+  ChatbubbleEllipsesOutline,
+  CheckmarkCircle,
+  ChevronDownOutline,
+  ChevronForwardOutline,
+} from "@vicons/ionicons5";
 import type {
   AskUserAnswerDraft,
   AskUserQuestion,
@@ -28,6 +33,7 @@ const draft = ref<AskUserAnswerDraft>({});
 const validationError = ref<string | null>(null);
 const confirming = ref(false);
 const currentIndex = ref(0);
+const collapsed = ref(false);
 
 const prompt = computed(() => chat.activePendingAskUser);
 const questions = computed(() => prompt.value?.questions ?? []);
@@ -46,6 +52,7 @@ watch(
   (p) => {
     validationError.value = null;
     confirming.value = false;
+    collapsed.value = false;
     if (!p) {
       currentIndex.value = 0;
       draft.value = {};
@@ -87,6 +94,10 @@ watch(
 function persistStep(): void {
   const p = prompt.value;
   if (p?.requestId) chat.writeAskStep(p.requestId, currentIndex.value);
+}
+
+function toggleCollapsed(): void {
+  collapsed.value = !collapsed.value;
 }
 
 function optionLabel(opt: { id: string; label: string }): string {
@@ -236,20 +247,34 @@ function onCancelAsk(): void {
 <template>
   <div v-if="prompt && currentQuestion" class="ask-user-wrap">
     <div class="ask-user-card" role="dialog" :aria-label="t.askUserToolLabel">
-      <header class="strip-head">
-        <div class="head-badge" aria-hidden="true">
-          <NIcon :component="ChatbubbleEllipsesOutline" :size="14" />
-        </div>
-        <div class="head-text">
-          <div class="head-title">{{ t.askUserToolLabel }}</div>
-          <div class="head-sub">{{ t.askUserTitle }}</div>
-        </div>
-        <div v-if="total > 1" class="head-progress" :title="progressLabel">
-          {{ progressLabel }}
-        </div>
+      <header class="strip-head" :class="{ folded: collapsed }">
+        <button
+          type="button"
+          class="head-toggle pi-interactive"
+          :aria-expanded="!collapsed"
+          :aria-label="collapsed ? t.askUserExpand : t.askUserCollapse"
+          @click="toggleCollapsed"
+        >
+          <span class="head-badge" aria-hidden="true">
+            <NIcon :component="ChatbubbleEllipsesOutline" :size="14" />
+          </span>
+          <span class="head-text">
+            <span class="head-title">{{ t.askUserToolLabel }}</span>
+            <span class="head-sub">{{ t.askUserTitle }}</span>
+          </span>
+          <span v-if="total > 1" class="head-progress" :title="progressLabel">
+            {{ progressLabel }}
+          </span>
+          <NIcon
+            class="head-chev"
+            :component="collapsed ? ChevronForwardOutline : ChevronDownOutline"
+            :size="14"
+            aria-hidden="true"
+          />
+        </button>
       </header>
 
-      <div class="strip-body">
+      <div v-show="!collapsed" class="strip-body">
         <section class="question">
           <div class="q-prompt">
             <NText strong class="q-text">{{ currentQuestion.prompt }}</NText>
@@ -313,7 +338,7 @@ function onCancelAsk(): void {
         </section>
       </div>
 
-      <footer class="strip-foot">
+      <footer v-show="!collapsed" class="strip-foot">
         <div class="foot-left">
           <NButton
             quaternary
@@ -423,6 +448,33 @@ function onCancelAsk(): void {
   gap: 8px;
   padding: 8px 10px 2px;
   flex-shrink: 0;
+}
+
+.head-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-width: 0;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.head-chev {
+  flex-shrink: 0;
+  color: var(--chat-desc-fg, var(--fg-muted));
+}
+
+.head-toggle:hover .head-chev {
+  color: var(--fg-strong);
+}
+
+.strip-head.folded {
+  padding-bottom: 8px;
 }
 
 .head-badge {

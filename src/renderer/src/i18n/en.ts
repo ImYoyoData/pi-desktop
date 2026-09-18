@@ -414,6 +414,8 @@ export const en = {
 	askUserCustomOptionalPlaceholder: "Optional: add details",
 	askUserTitle: "Skip any question, then submit",
 	askUserToolLabel: "Ask user",
+	askUserExpand: "Expand question",
+	askUserCollapse: "Collapse question",
 	askUserErrMissingAnswer: "Select an option or skip this question",
 	askUserErrCannotSkip: "This question requires an answer",
 	askUserErrSelectOne: "Select exactly one option",

@@ -397,6 +397,8 @@ export const zh = {
 	askUserCustomOptionalPlaceholder: "可选：补充说明",
 	askUserTitle: "可跳过任意问题，回答后提交",
 	askUserToolLabel: "向用户提问",
+	askUserExpand: "展开提问",
+	askUserCollapse: "收起提问",
 	askUserErrMissingAnswer: "请选择一个选项或跳过此问题",
 	askUserErrCannotSkip: "此问题必须作答",
 	askUserErrSelectOne: "此问题只能选择一个选项",
