@@ -54,15 +54,14 @@ export function normalizeProxyUrl(raw: string): string | null {
 	return out.endsWith("/") ? out.slice(0, -1) : out;
 }
 
-/** Node 侧 fetch（EnvHttpProxyAgent）仅支持 http/https 代理，socks 需排除。 */
-const NODE_PROXY_PROTOCOLS = /^(http:|https:)$/;
+/** Node 侧 fetch（undici）仅支持 http/https 代理，socks 需排除。 */
+const NODE_PROXY_PROTOCOLS = /^https?:\/\//;
 
 const NODE_NO_PROXY = "localhost,127.0.0.1,::1";
 
 export function proxyEnvFromUrl(url: string): Record<string, string> {
 	const normalized = normalizeProxyUrl(url);
-	if (!normalized || !NODE_PROXY_PROTOCOLS.test(new URL(normalized).protocol))
-		return {};
+	if (!normalized || !NODE_PROXY_PROTOCOLS.test(normalized)) return {};
 	return {
 		HTTP_PROXY: normalized,
 		HTTPS_PROXY: normalized,
@@ -93,7 +92,7 @@ export function proxyEnvFromPacResult(
 		);
 		if (!match) continue;
 		const scheme = schemeByToken[match[1].toLowerCase()];
-		if (scheme && NODE_PROXY_PROTOCOLS.test(`${scheme}:`)) {
+		if (scheme && NODE_PROXY_PROTOCOLS.test(`${scheme}://`)) {
 			return proxyEnvFromUrl(`${scheme}://${match[2]}`);
 		}
 	}
@@ -105,4 +104,23 @@ export function isProxyActive(settings: ProxySettings): boolean {
 	if (settings.mode === "custom")
 		return normalizeProxyUrl(settings.url) !== null;
 	return false;
+}
+
+export type NodeProxyMode =
+	| { kind: "direct" }
+	| { kind: "http"; url: string }
+	| { kind: "socks" };
+
+/** 主进程 Node fetch（undici）的代理形态：socks 无法走 undici，调用方需回退 Chromium。 */
+export function resolveNodeProxyMode(settings: ProxySettings, systemProxyEnv: Record<string, string>): NodeProxyMode {
+	if (settings.mode === "custom") {
+		const url = normalizeProxyUrl(settings.url);
+		if (!url) return { kind: "direct" };
+		return NODE_PROXY_PROTOCOLS.test(url) ? { kind: "http", url } : { kind: "socks" };
+	}
+	if (settings.mode === "system") {
+		const url = systemProxyEnv.HTTP_PROXY ?? systemProxyEnv.ALL_PROXY;
+		return url ? { kind: "http", url } : { kind: "direct" };
+	}
+	return { kind: "direct" };
 }

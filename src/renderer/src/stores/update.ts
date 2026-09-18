@@ -19,6 +19,7 @@ export const useUpdateStore = defineStore("update", () => {
   const statusMessage = ref("");
   const lastError = ref<string | null>(null);
   const progress = ref<UpdateProgress | null>(null);
+  const cancelling = ref(false);
 
   const busy = computed(() => checking.value || downloading.value);
   const progressPercent = computed(() => {
@@ -39,6 +40,8 @@ export const useUpdateStore = defineStore("update", () => {
       available.value = true;
     } else if (result.status === "upToDate" || result.status === "downloaded") {
       available.value = false;
+    } else if (result.status === "cancelled") {
+      available.value = true;
     }
     if (result.status === "error") {
       lastError.value = result.message;
@@ -131,6 +134,17 @@ export const useUpdateStore = defineStore("update", () => {
     }
   }
 
+  /** 取消正在进行的安装包下载。 */
+  async function cancel(): Promise<boolean> {
+    if (!downloading.value || cancelling.value) return false;
+    cancelling.value = true;
+    try {
+      return await window.api.update.cancel();
+    } finally {
+      cancelling.value = false;
+    }
+  }
+
   function closeModal(): void {
     modalOpen.value = false;
   }
@@ -150,11 +164,13 @@ export const useUpdateStore = defineStore("update", () => {
     statusMessage,
     lastError,
     progress,
+    cancelling,
     progressPercent,
     check,
     checkOnStartup,
     openUpdateCard,
     download,
+    cancel,
     onProgress,
     closeModal,
   };

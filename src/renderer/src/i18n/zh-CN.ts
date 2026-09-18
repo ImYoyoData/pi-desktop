@@ -811,6 +811,8 @@ export const zh = {
 	updateNotes: "更新内容",
 	updateNoNotes: "暂无更新说明",
 	updateDownload: "下载并安装",
+	updateCancel: "取消下载",
+	updateCancelled: "已取消下载",
 	updateDownloading: "正在下载…",
 	updateDownloaded: "已打开安装包，请按提示完成更新",
 	updateOpenRelease: "打开发布页",

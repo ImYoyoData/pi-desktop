@@ -1,6 +1,7 @@
 import { spawn } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
+import { netFetch } from "./net-fetch";
 
 export type McpTestOutcome = {
 	ok: boolean;
@@ -197,7 +198,7 @@ async function testHttp(entry: Record<string, unknown>, timeoutMs: number): Prom
 		...stringMap(entry.headers),
 	};
 	try {
-		const initRes = await fetch(url, {
+		const initRes = await netFetch(url, {
 			method: "POST",
 			headers: baseHeaders,
 			body: JSON.stringify(initializeRequest(1)),
@@ -216,7 +217,7 @@ async function testHttp(entry: Record<string, unknown>, timeoutMs: number): Prom
 		}
 
 		const sessionId = initRes.headers.get("mcp-session-id");
-		const listRes = await fetch(url, {
+		const listRes = await netFetch(url, {
 			method: "POST",
 			headers: sessionId ? { ...baseHeaders, "mcp-session-id": sessionId } : baseHeaders,
 			body: JSON.stringify(toolsListRequest(2)),

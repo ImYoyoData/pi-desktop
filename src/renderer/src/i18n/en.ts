@@ -852,6 +852,8 @@ export const en = {
 	updateNotes: "What's new",
 	updateNoNotes: "No release notes",
 	updateDownload: "Download & install",
+	updateCancel: "Cancel download",
+	updateCancelled: "Download cancelled",
 	updateDownloading: "Downloading…",
 	updateDownloaded: "Installer opened — follow the prompts to finish updating",
 	updateOpenRelease: "Open release page",

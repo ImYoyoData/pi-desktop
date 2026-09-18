@@ -867,6 +867,7 @@ declare const api: {
 		openAuthorEmail: () => Promise<void>;
 		check: (opts?: { download?: boolean }) => Promise<UpdateCheckResult>;
 		download: () => Promise<UpdateCheckResult>;
+		cancel: () => Promise<boolean>;
 		onProgress: (callback: (progress: UpdateProgress) => void) => () => void;
 	};
 	piCli: {

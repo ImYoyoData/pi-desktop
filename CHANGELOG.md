@@ -1,5 +1,33 @@
 # Changelog
 
+## v0.3.4-rc.3 (2026-09-19)
+
+本版重点：更新下载改为并行分片，安装包下载速度提升一个量级并支持随时取消；同时补齐代理设置的生效范围——主进程派生的 npm / git / Pi CLI 等子进程此前会绕过代理直连。
+
+### 新功能 Features
+
+- **更新下载可以取消**：下载中「下载并安装」按钮变为「取消下载」，点击后立即中止（实测 26 毫秒返回），未完成的 `.part` 文件自动清理；取消后按钮回到可重新下载的状态。
+
+- **Cancel an in-flight update download**: while downloading, "Download & install" turns into "Cancel download". Clicking it aborts immediately (measured 26 ms), the partial `.part` file is removed automatically, and the button returns to a fresh download.
+
+### 性能优化 Performance
+
+- 安装包下载改为 **32 路并行分片**（HTTP Range）：各连接写入自己的文件偏移、逐片校验长度，小文件自动减少分片；实测 138 MB 安装包从单连接的 0.7 MB/s 提升到 15 MB/s 左右。
+
+- Installer downloads now use **32 parallel range requests**: each connection writes its own offset, every segment is length-checked, and small files automatically use fewer segments. A real 138 MB package measured about 15 MB/s, up from 0.7 MB/s on a single connection.
+
+### 修复 Fixes
+
+- 修复代理设置对部分请求不生效：此前只有 Chromium 侧的请求和会话 worker 走代理，主进程派生的 npm / git / Pi CLI / 插件安装等子进程会直连；现在启动与设置变更时都会把代理写入主进程环境、子进程直接继承，MCP 连接测试也改走 Chromium 网络栈。
+- 修复更新下载取消后卡住数秒：中止时立即停止写盘与进度广播、立刻断开所有分片连接，等分片收尾后再清理临时文件（取消耗时实测从约 3 秒降到 26 毫秒）。
+- 修复取消后进度条显示成 100%：取消后不再渲染进度条与字节数，只保留「已取消下载」提示。
+- 更新下载的 Node 侧分片请求同样遵循代理设置，socks 代理自动回退为单连接下载。
+
+- Fixed proxy settings not covering every request: only Chromium-side requests and session workers used to honor the proxy, while subprocesses spawned by the main process (npm, git, the Pi CLI, plugin installs) went direct. The proxy is now written into the main process environment on startup and on every change so subprocesses inherit it, and the MCP connection test goes through the Chromium network stack.
+- Fixed the update download hanging for seconds after cancellation: aborting now stops disk writes and progress broadcasts at once, tears the segment connections down immediately, and waits for segments to settle before removing the temporary file (about 3 s down to 26 ms).
+- Fixed the progress bar jumping to 100% after cancelling: the bar and byte counter are no longer rendered once cancelled, only the "Download cancelled" line remains.
+- Node-side segment requests for the updater now honor the proxy too, with socks proxies falling back to a single-connection download.
+
 ## v0.3.4-rc.2 (2026-09-18)
 
 本版重点：流式输出链路优化——回答渲染改为增量分块、会话事件按帧合并，长回答不再越写越卡；并新增「流式渲染」设置（设置 → 外观 → 界面），可开关该优化并单独调节渲染节流间隔。

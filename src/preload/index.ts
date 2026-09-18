@@ -1379,6 +1379,7 @@ const api = {
 			ipcRenderer.invoke(
 				IpcChannels.update.download,
 			) as Promise<UpdateCheckResult>,
+		cancel: () => ipcRenderer.invoke(IpcChannels.update.cancel) as Promise<boolean>,
 		onProgress: (callback: (progress: UpdateProgress) => void) => {
 			const listener = (
 				_event: Electron.IpcRendererEvent,
