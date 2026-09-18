@@ -106,6 +106,21 @@ html[data-theme][data-wallpaper="on"] .n-popover,
 html[data-theme][data-wallpaper="on"] .n-dropdown-menu {
   background-color: var(--w-elevated-surface) !important;
   --n-color: var(--w-elevated-surface) !important;
+  /* 伪元素模糊层必须落回文本之下，否则它的 backdrop 会把文字一起糊掉 */
+  isolation: isolate;
+}
+
+/* 透明度淡入与缩放会让玻璃底与模糊晚一帧成形：先看到一眼清晰的壁纸，再变成磨砂，
+   因此壁纸模式下浮层直接以最终形态出现。 */
+html[data-theme][data-wallpaper="on"]
+  :is(.n-popover, .n-dropdown-menu, .n-base-select-menu):is(
+    .popover-transition-enter-from,
+    .popover-transition-enter-to,
+    .fade-in-scale-up-transition-enter-from,
+    .fade-in-scale-up-transition-enter-to
+  ) {
+  opacity: 1;
+  transform: none;
 }
 
 html[data-theme][data-wallpaper="on"] .n-popover::before,
@@ -113,6 +128,7 @@ html[data-theme][data-wallpaper="on"] .n-dropdown-menu::before {
   content: "";
   position: absolute;
   inset: 0;
+  z-index: -1;
   border-radius: inherit;
   backdrop-filter: blur(14px) saturate(1.15);
   pointer-events: none;
