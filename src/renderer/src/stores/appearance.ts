@@ -34,6 +34,7 @@ const MESSAGE_PREVIEW_KEY = "pi-desktop:message-preview";
 const MESSAGE_PREVIEW_IMAGE_KEY = "pi-desktop:message-preview-image";
 const SESSION_HOVER_ACTIONS_KEY = "pi-desktop:session-hover-actions";
 const TRUNCATE_TOOL_OUTPUT_KEY = "pi-desktop:truncate-tool-output";
+const PRIVILEGE_LEVEL_KEY = "pi-desktop:show-privilege-level";
 
 /** 工具输出预览的可选截断行数；0 表示不截断。 */
 export const TRUNCATE_TOOL_OUTPUT_CHOICES = [0, 10, 24, 50, 100] as const;
@@ -95,6 +96,14 @@ function readMessagePreviewImage(): boolean {
 function readSessionHoverActions(): boolean {
   try {
     return localStorage.getItem(SESSION_HOVER_ACTIONS_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+function readShowPrivilegeLevel(): boolean {
+  try {
+    return localStorage.getItem(PRIVILEGE_LEVEL_KEY) === "1";
   } catch {
     return false;
   }
@@ -220,6 +229,7 @@ export const useAppearanceStore = defineStore("appearance", () => {
   const showMessagePreviewImage = ref(readMessagePreviewImage());
   const showSessionHoverActions = ref(readSessionHoverActions());
   const truncateToolOutputLines = ref(readTruncateToolOutputLines());
+  const showPrivilegeLevel = ref(readShowPrivilegeLevel());
   const customAppearance = ref<CustomAppearanceSettings>(readCustomAppearance());
   const wallpaperBroken = ref(false);
 
@@ -328,6 +338,15 @@ export const useAppearanceStore = defineStore("appearance", () => {
     }
   }
 
+  function setShowPrivilegeLevel(next: boolean): void {
+    showPrivilegeLevel.value = next;
+    try {
+      localStorage.setItem(PRIVILEGE_LEVEL_KEY, next ? "1" : "0");
+    } catch {
+      // ignore
+    }
+  }
+
   function setTruncateToolOutputLines(next: number): void {
     const value = isTruncateToolOutputChoice(next) ? next : TRUNCATE_TOOL_OUTPUT_FALLBACK;
     truncateToolOutputLines.value = value;
@@ -431,6 +450,7 @@ export const useAppearanceStore = defineStore("appearance", () => {
     showMessagePreview,
     showMessagePreviewImage,
     showSessionHoverActions,
+    showPrivilegeLevel,
     truncateToolOutputLines,
     wallpaper,
     surfaces,
@@ -445,6 +465,7 @@ export const useAppearanceStore = defineStore("appearance", () => {
     setShowMessagePreview,
     setShowMessagePreviewImage,
     setSessionHoverActions,
+    setShowPrivilegeLevel,
     setTruncateToolOutputLines,
     setWallpaperFile,
     clearWallpaper,

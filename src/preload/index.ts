@@ -14,6 +14,7 @@ import type {
 	SessionStatus,
 	SessionSummary,
 	TerminalShellOption,
+	WindowRunIdentity,
 	WorkspaceGroups,
 } from "../shared/protocol";
 import { IpcChannels } from "../shared/protocol";
@@ -177,6 +178,8 @@ const api = {
 	window: {
 		platform: () =>
 			ipcRenderer.invoke(IpcChannels.window.platform) as Promise<NodeJS.Platform>,
+		identity: () =>
+			ipcRenderer.invoke(IpcChannels.window.identity) as Promise<WindowRunIdentity>,
 		minimize: () =>
 			ipcRenderer.invoke(IpcChannels.window.minimize) as Promise<void>,
 		maximize: () =>

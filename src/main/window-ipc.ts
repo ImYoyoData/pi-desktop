@@ -1,6 +1,9 @@
+import { spawnSync } from "node:child_process";
+import { userInfo } from "node:os";
 import { BrowserWindow, clipboard, ipcMain, nativeTheme, systemPreferences } from "electron";
 import { nativeImage } from "electron";
 import { IpcChannels } from "../shared/protocol";
+import type { WindowPrivilegeLevel, WindowRunIdentity } from "../shared/protocol";
 import type { EditContextMenuAction } from "../shared/context-menu";
 import type { EditMenuLocale } from "../shared/edit-menu-i18n";
 import { allowWindowClose, setUiLocale } from "./window";
@@ -30,8 +33,29 @@ function applyChrome(win: BrowserWindow, mode: ChromeTheme): void {
   // Window chrome buttons are drawn in the renderer instead.
 }
 
+let cachedIdentity: WindowRunIdentity | undefined;
+
+/** 运行身份：Windows 先认 SYSTEM 账户，再用 fltmc 判断是否已提升；类 Unix 以 uid 0 视为管理员。 */
+function runIdentity(): WindowRunIdentity {
+  if (cachedIdentity) return cachedIdentity;
+  const username = userInfo().username;
+  let level: WindowPrivilegeLevel;
+  if (process.platform !== "win32") {
+    level = process.getuid?.() === 0 ? "admin" : "user";
+  } else if (username.toLowerCase() === "system") {
+    level = "system";
+  } else {
+    const probe = spawnSync("fltmc", [], { stdio: "ignore", windowsHide: true });
+    level = probe.status === 0 ? "admin" : "user";
+  }
+  cachedIdentity = { username, level };
+  return cachedIdentity;
+}
+
 export function registerWindowIpc(): void {
   ipcMain.handle(IpcChannels.window.platform, () => process.platform);
+
+  ipcMain.handle(IpcChannels.window.identity, () => runIdentity());
 
   ipcMain.handle(IpcChannels.window.minimize, (event) => {
     BrowserWindow.fromWebContents(event.sender)?.minimize();
