@@ -28,6 +28,16 @@
 
 - Fixed the todo panel's "Continue task" button producing two prompts: it now sends the "Continue task" text itself instead of a separately built instruction, so the bubble matches what the agent receives and the echo is no longer duplicated as a second message.
 
+### 打包与体积 Packaging
+
+- 修复安装包夹带本地文件：`.pi-glla`（会话与 owner 数据）、`scratch_*`、自定义打包输出目录、工作区源码等此前会被打进 `app.asar`，现已全部排除。
+- 安装包瘦身：剔除仅供渲染进程使用、且已随前端一并打包的重复依赖（mermaid 的传递依赖，约 14 MB）；编辑器内置语言定义只保留实际用到的 21 种。
+- 新增快速打包命令：`npm run dist:win:x64:fast`（低压缩出包，明显更快）与 `npm run pack:win:x64`（跳过重新构建，仅打包）。
+
+- Fixed the installer shipping local files: `.pi-glla` (session and owner data), `scratch_*`, custom packaging output directories and workspace sources used to be packed into `app.asar`; all of them are excluded now.
+- Smaller installer: duplicated dependencies used only by the renderer (mermaid's transitive deps, about 14 MB) are gone, and the editor ships only the 21 built-in languages it actually maps.
+- New fast packaging commands: `npm run dist:win:x64:fast` (low-compression, much faster) and `npm run pack:win:x64` (packaging only, no rebuild).
+
 ## v0.3.4-rc.1 (2026-09-18)
 
 本版重点：界面上的悬停提示统一改由应用内浮层渲染（不再使用系统原生 `title`），并修复壁纸模式下浮层文字被磨砂层糊掉、下拉菜单先闪一帧清晰背景的问题。
