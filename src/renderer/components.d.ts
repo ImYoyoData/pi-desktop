@@ -20,6 +20,7 @@ declare module 'vue' {
     AppearanceSettings: typeof import('./src/components/AppearanceSettings.vue')['default']
     AppearanceSliderRow: typeof import('./src/components/customize/AppearanceSliderRow.vue')['default']
     AppearanceWallpaperCard: typeof import('./src/components/customize/AppearanceWallpaperCard.vue')['default']
+    AppHoverTip: typeof import('./src/components/AppHoverTip.vue')['default']
     AppWallpaper: typeof import('./src/components/AppWallpaper.vue')['default']
     AskUserStrip: typeof import('./src/components/AskUserStrip.vue')['default']
     AsrBackendChooseModal: typeof import('./src/components/AsrBackendChooseModal.vue')['default']
