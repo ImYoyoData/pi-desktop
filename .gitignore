@@ -71,3 +71,5 @@ pnpm-lock.yaml
 /.cursor
 /.claude
 /.commandcode
+/.pi/
+/release-bench/
