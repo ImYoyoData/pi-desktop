@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { onMounted, onUnmounted, ref } from "vue";
+import { computed, onMounted, onUnmounted, ref } from "vue";
 import { NButton, NIcon, NSpace } from "naive-ui";
 import { ArrowUpCircleOutline, LogoGithub } from "@vicons/ionicons5";
+import type { WindowRunIdentity } from "../../../shared/protocol";
 import PanelLeftIcon from "@renderer/components/icons/PanelLeftIcon.vue";
 import PanelRightIcon from "@renderer/components/icons/PanelRightIcon.vue";
 import PanelBottomIcon from "@renderer/components/icons/PanelBottomIcon.vue";
@@ -9,13 +10,23 @@ import UpdateCard from "@renderer/components/UpdateCard.vue";
 import { useWorkspaceStore } from "@renderer/stores/workspace";
 import { useUpdateStore } from "@renderer/stores/update";
 import { useLayoutStore } from "@renderer/stores/layout";
+import { useAppearanceStore } from "@renderer/stores/appearance";
 import { t } from "@renderer/i18n";
 
 const workspace = useWorkspaceStore();
 const updateStore = useUpdateStore();
 const layout = useLayoutStore();
+const appearance = useAppearanceStore();
 const platform = ref<NodeJS.Platform>("win32");
 const isMaximized = ref(false);
+const identity = ref<WindowRunIdentity | null>(null);
+const privilegeLabel = computed(() => {
+  const value = identity.value;
+  if (!value) return "";
+  if (value.level === "admin") return `(${t.privilegeAdmin})`;
+  if (value.level === "system") return `(${t.privilegeSystem})`;
+  return `(${value.username})`;
+});
 let offUpdateProgress: (() => void) | undefined;
 let offMaximized: (() => void) | undefined;
 let offUnmaximized: (() => void) | undefined;
@@ -34,6 +45,9 @@ async function onClose(): Promise<void> {
 
 onMounted(async () => {
   platform.value = await window.api.window.platform();
+  if (platform.value === "win32") {
+    identity.value = await window.api.window.identity();
+  }
   if (platform.value !== "darwin") {
     isMaximized.value = await window.api.window.isMaximized();
     offMaximized = window.api.window.onMaximized(() => {
@@ -73,6 +87,11 @@ async function onUpdateClick(): Promise<void> {
     <div class="drag traffic-space" aria-hidden="true" />
     <div class="brand">
       <span class="name">{{ t.appName }}</span>
+      <span
+        v-if="identity && platform === 'win32' && appearance.showPrivilegeLevel"
+        class="privilege"
+        >{{ privilegeLabel }}</span
+      >
     </div>
     <div class="center drag" />
     <div class="actions no-drag">
@@ -205,6 +224,12 @@ async function onUpdateClick(): Promise<void> {
   font-weight: 600;
   font-size: 12.5px;
   letter-spacing: -0.01em;
+}
+
+.privilege {
+  margin-left: 6px;
+  font-size: 11px;
+  font-weight: 400;
 }
 
 .layout-controls {

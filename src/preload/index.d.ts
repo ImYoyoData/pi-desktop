@@ -10,6 +10,7 @@ import type {
 	SessionStatus,
 	SessionSummary,
 	TerminalShellOption,
+	WindowRunIdentity,
 } from "../shared/protocol";
 import type { AgentRunEvent, AgentRunSnapshot } from "../shared/agent-runs";
 import type { EditContextMenuAction, EditContextMenuPayload } from "../shared/context-menu";
@@ -117,6 +118,7 @@ declare const api: {
 	};
 	window: {
 		platform: () => Promise<NodeJS.Platform>;
+		identity: () => Promise<WindowRunIdentity>;
 		minimize: () => Promise<void>;
 		maximize: () => Promise<void>;
 		close: () => Promise<void>;

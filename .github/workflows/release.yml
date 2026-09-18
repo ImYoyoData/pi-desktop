@@ -205,6 +205,8 @@ jobs:
 
             - **问答卡片支持折叠**：agent 的「向用户提问」卡片头部改为可点击的折叠开关，右侧箭头指示展开状态；收起后只保留标题栏与进度，问题选项与操作按钮一并隐藏，新的提问到来时会自动展开。
 
+            - **标题栏显示运行身份**：设置 → 界面新增「显示权限级别」开关（仅 Windows 显示，默认关闭）。开启后标题栏在应用名后显示当前进程的运行身份：普通用户为系统账户名（如 `(MIAN)`），管理员为 `(Admin)`，SYSTEM 账户为 `(System)`。
+
             ### 性能优化 Performance
 
             - 流式回答改为**增量分块渲染**：已完成的段落只解析一次，仅最后一段随内容增长重解析，不再每次刷新都对整篇回答重跑 markdown + 代码高亮 + 消毒；渲染范围与旧版逐帧一致，所见内容不变。
@@ -229,6 +231,8 @@ jobs:
             - **New "Streaming render" settings** (Settings → Appearance → Interface): the switch is off by default (off keeps the legacy render path), with a separate markdown render throttle (40 / 60 / 90 / 120 / 200 ms, default 90). Both apply immediately, including to sessions that are already open.
 
             - **Collapsible "Ask user" card**: the clarification card header is now a clickable toggle with a chevron; collapsing it keeps only the title bar and progress, hiding the question and its buttons, and the card expands again automatically when a new question arrives.
+
+            - **Run identity in the title bar**: a new "Show privilege level" switch in Settings → Interface (Windows only, off by default). When enabled, the title bar shows the current process identity after the app name: the system account name for a standard user (like `(MIAN)`), `(Admin)` when elevated, or `(System)` under the SYSTEM account.
 
             ### Performance
 

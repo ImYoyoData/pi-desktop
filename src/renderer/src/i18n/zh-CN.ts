@@ -39,6 +39,9 @@ const TOOL_DESCRIPTIONS: Record<string, string> = {
 /** UI copy — Simplified Chinese */
 export const zh = {
 	appName: "Pi Desktop",
+	privilegeAdmin: "Admin",
+	privilegeSystem: "System",
+	showPrivilegeLevel: "显示权限级别",
 	newAgent: "新建 Agent",
 	openFolder: "打开文件夹",
 	openFolderHint: "选择一个项目目录，开始 Agent 工作区",

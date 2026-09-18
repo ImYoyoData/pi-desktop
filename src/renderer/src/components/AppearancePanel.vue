@@ -56,9 +56,13 @@ function onLocaleUpdate(v: string | number | null): void {
 
 const thinkingLanguage = ref<ThinkingLanguage>("en");
 const thinkingLanguageSaving = ref(false);
+const isWindows = ref(false);
 
 onMounted(() => {
   void loadThinkingLanguage();
+  void window.api.window.platform().then((p) => {
+    isWindows.value = p === "win32";
+  });
 });
 
 async function loadThinkingLanguage(): Promise<void> {
@@ -107,6 +111,12 @@ const showSessionTitle = computed({
 const showSessionHoverActions = computed({
   get: () => appearance.showSessionHoverActions,
   set: (value: boolean) => appearance.setSessionHoverActions(value),
+});
+
+/** 运行权限级别（用户/Admin/System）徽标仅在 Windows 可开关。 */
+const showPrivilegeLevel = computed({
+  get: () => appearance.showPrivilegeLevel,
+  set: (value: boolean) => appearance.setShowPrivilegeLevel(value),
 });
 
 const showMessagePreview = computed({
@@ -379,6 +389,24 @@ function onMessageWidthChange(value: string | number | null): void {
           <NRadioButton :value="false">{{ t.switchOff }}</NRadioButton>
         </NRadioGroup>
       </div>
+
+      <template v-if="isWindows">
+        <NDivider style="margin: 0" />
+
+        <div class="switch-row">
+          <div class="switch-labels">
+            <NText strong>{{ t.showPrivilegeLevel }}</NText>
+          </div>
+          <NRadioGroup
+            v-model:value="showPrivilegeLevel"
+            size="small"
+            class="setting-radio-group"
+          >
+            <NRadioButton :value="true">{{ t.switchOn }}</NRadioButton>
+            <NRadioButton :value="false">{{ t.switchOff }}</NRadioButton>
+          </NRadioGroup>
+        </div>
+      </template>
     </template>
   </div>
 </template>

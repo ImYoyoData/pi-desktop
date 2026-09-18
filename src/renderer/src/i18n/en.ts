@@ -39,6 +39,9 @@ const TOOL_DESCRIPTIONS: Record<string, string> = {
 /** UI copy — English (fallback when system language is not Chinese) */
 export const en = {
 	appName: "Pi Desktop",
+	privilegeAdmin: "Admin",
+	privilegeSystem: "System",
+	showPrivilegeLevel: "Show privilege level",
 	newAgent: "New Agent",
 	openFolder: "Open Folder",
 	openFolderHint: "Choose a project folder to start the Agent workspace",
