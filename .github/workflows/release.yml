@@ -138,7 +138,9 @@ jobs:
           CSC_IDENTITY_AUTO_DISCOVERY: false
           # Monaco / Vite can OOM-abort (exit 134) on macOS runners without a larger heap.
           NODE_OPTIONS: --max-old-space-size=8192
-        run: ${{ matrix.build_cmd }} -- --publish never
+        # --publish never 由各 dist 脚本自带；此处追加 `-- --publish never` 会被 npm
+        # 附到脚本末尾，落到嵌套的 npm run 上并作为未知 CLI 配置直接报错。
+        run: ${{ matrix.build_cmd }}
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
