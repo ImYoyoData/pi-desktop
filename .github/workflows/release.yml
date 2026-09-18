@@ -208,6 +208,10 @@ jobs:
             - 流式回答改为**增量分块渲染**：已完成的段落只解析一次，仅最后一段随内容增长重解析，不再每次刷新都对整篇回答重跑 markdown + 代码高亮 + 消毒；渲染范围与旧版逐帧一致，所见内容不变。
             - 会话 worker 的流式快照**按帧合并**（开关开启时生效）：每 40ms 只发最新一帧，不再每个 token 都把整段累积内容跨进程传输三遍。
 
+            ### 修复 Fixes
+
+            - 修复待办面板点「继续任务」后聊天里出现两条提示词：按钮现在直接把「继续任务」四个字发给 agent，不再额外构造一段独立指令——气泡与 agent 实收内容一致，回显不会再重复成第二条。
+
             ## What's New (v0.3.4-rc.2)
 
             Streaming output got a faster path: answers render in incremental blocks and session events are coalesced per frame, so long answers no longer stutter while streaming. A new "Streaming render" setting (Settings → Appearance → Interface) lets you switch that path on or off and tune the render throttle.
@@ -220,6 +224,10 @@ jobs:
 
             - Streaming answers now use **incremental block rendering**: finished paragraphs are parsed once and only the last paragraph is re-parsed as it grows, instead of re-running markdown + syntax highlighting + sanitizing over the whole answer on every tick. The rendered range matches the legacy behaviour frame by frame.
             - Session workers **coalesce streaming snapshots** (when the switch is on): only the newest frame is sent every 40 ms, instead of shipping the whole accumulated message across process boundaries for every token.
+
+            ### Fixes
+
+            - Fixed the todo panel's "Continue task" button producing two prompts: it now sends the "Continue task" text itself instead of a separately built instruction, so the bubble matches what the agent receives and the echo is no longer duplicated as a second message.
 
             ## 下载 / Downloads
             - **Windows x64**: `Pi Desktop-*-win-x64-setup.exe`

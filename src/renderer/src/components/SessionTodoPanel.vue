@@ -174,14 +174,7 @@ function onResume(): void {
   if (!id) return;
   // 先解除暂停：本次 sendPrompt 的新任务重置由 skipNextReset 跳过，列表得以保留。
   widgets.resumeTodosForSession(id);
-  void chat.sendPrompt(
-    id,
-    t.todoContinuePrompt,
-    undefined,
-    undefined,
-    undefined,
-    t.todoResumeTask,
-  );
+  void chat.sendPrompt(id, t.todoResumeTask);
 }
 
 function onDeleteList(): void {
