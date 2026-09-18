@@ -5,6 +5,7 @@ import {
 	rankFuzzyPathEntries,
 	scoreFuzzyPathQuery,
 } from "../shared/fuzzy-path";
+import { workspaceEntryKind } from "./fs-entry-kind";
 
 const SKIP = new Set([
 	"node_modules",
@@ -41,12 +42,8 @@ export function listWorkspaceDir(
 	for (const name of names) {
 		if (SKIP.has(name) || name === "." || name === "..") continue;
 		const childAbs = path.join(abs, name);
-		let kind: "file" | "dir";
-		try {
-			kind = fs.statSync(childAbs).isDirectory() ? "dir" : "file";
-		} catch {
-			continue;
-		}
+		const kind = workspaceEntryKind(childAbs);
+		if (kind === "none") continue;
 		entries.push({ name, path: toRel(relative, name), kind });
 	}
 	entries.sort((a, b) => {
@@ -250,12 +247,8 @@ export function searchWorkspaceFiles(
 			if (SEARCH_SKIP.has(name) || name === "." || name === "..") continue;
 			const childRel = toRel(relative, name);
 			const childAbs = path.join(abs, name);
-			let kind: "file" | "dir";
-			try {
-				kind = fs.statSync(childAbs).isDirectory() ? "dir" : "file";
-			} catch {
-				continue;
-			}
+			const kind = workspaceEntryKind(childAbs);
+			if (kind === "none") continue;
 			const entry: WorkspaceDirEntry = { name, path: childRel, kind };
 			if (scoreFuzzyPathQuery(q, name, childRel) != null) {
 				candidates.push(entry);
