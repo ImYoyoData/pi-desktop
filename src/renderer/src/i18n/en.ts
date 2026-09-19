@@ -971,7 +971,7 @@ export const en = {
 	aboutVersion: "Version",
 	aboutAuthor: "Author",
 	aboutRepository: "Repository",
-	aboutOpenRepository: "Open on GitHub",
+	aboutOpenRepository: "GitHub",
 	aboutContributors: "Contributors",
 	aboutContributorOwner: "Project author",
 	aboutContributorCommits: (count: number) => `${count} commits`,
