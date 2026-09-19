@@ -99,15 +99,7 @@ marked.use({
         return renderMathBlock(source);
       }
 
-      let highlighted = "";
-      try {
-        highlighted =
-          language && hljs.getLanguage(language)
-            ? hljs.highlight(text, { language }).value
-            : highlightAutoCapped(text);
-      } catch {
-        highlighted = escapeHtml(text);
-      }
+      const highlighted = highlightCode(text, language);
       const lines = text.replace(/\n$/, "").split("\n");
       const nos = lines.map((_, i) => `<span>${i + 1}</span>`).join("");
       const label = language || "code";
@@ -145,6 +137,42 @@ const HIGHLIGHT_AUTO_MAX_CHARS = 8_000;
 function highlightAutoCapped(text: string): string {
   if (text.length > HIGHLIGHT_AUTO_MAX_CHARS) return escapeHtml(text);
   return hljs.highlightAuto(text).value;
+}
+
+/**
+ * 全量重解析会反复高亮同一段代码（流式尾部增长、虚拟窗口重挂载），
+ * 按“语言 + 源码”缓存结果；超大代码块不缓存，避免常驻内存。
+ */
+const highlightCache = new Map<string, string>();
+const HIGHLIGHT_CACHE_MAX_ENTRIES = 48;
+const HIGHLIGHT_CACHE_MAX_CHARS = 24_000;
+
+function highlightCode(text: string, language: string): string {
+  const key =
+    text.length <= HIGHLIGHT_CACHE_MAX_CHARS ? `${language}\u0000${text}` : "";
+  const hit = key ? highlightCache.get(key) : undefined;
+  if (hit !== undefined) {
+    highlightCache.delete(key);
+    highlightCache.set(key, hit);
+    return hit;
+  }
+  let highlighted: string;
+  try {
+    highlighted =
+      language && hljs.getLanguage(language)
+        ? hljs.highlight(text, { language }).value
+        : highlightAutoCapped(text);
+  } catch {
+    highlighted = escapeHtml(text);
+  }
+  if (key) {
+    highlightCache.set(key, highlighted);
+    if (highlightCache.size > HIGHLIGHT_CACHE_MAX_ENTRIES) {
+      const oldest = highlightCache.keys().next().value;
+      if (oldest !== undefined) highlightCache.delete(oldest);
+    }
+  }
+  return highlighted;
 }
 
 function wrapTables(html: string): string {
