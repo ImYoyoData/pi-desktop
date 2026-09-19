@@ -47,6 +47,7 @@ import { registerWindowIpc } from "./window-ipc";
 import { registerAsrIpc } from "./asr-host";
 import { registerTtsIpc } from "./tts-host";
 import { registerUpdateIpc } from "./update-host";
+import { registerContributorsIpc } from "./contributors-host";
 import { registerPiCliIpc } from "./pi-cli-host";
 import { registerMarketIpc } from "./market-host";
 import { registerCheckpointIpc } from "./checkpoint-ipc";
@@ -463,6 +464,7 @@ function boot(): void {
 			markStartup("main:defer:asr");
 			registerTtsIpc();
 			registerUpdateIpc();
+			registerContributorsIpc();
 			registerPiCliIpc();
 			registerMarketIpc(broker);
 			markStartup("main:defer:hosts");

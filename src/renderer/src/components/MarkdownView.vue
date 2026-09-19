@@ -19,6 +19,7 @@ import {
 import { mountDotIn } from "@renderer/utils/dot-render";
 import { mountMermaidIn, resetMermaidForTheme } from "@renderer/utils/mermaid-render";
 import { handleAppLinkClick } from "@renderer/utils/open-link";
+import { vMarkdownHtml } from "@renderer/utils/html-patch";
 import { useAppearanceStore } from "@renderer/stores/appearance";
 import { useStreamRenderStore } from "@renderer/stores/stream-render";
 import { locale, t } from "@renderer/i18n";
@@ -101,7 +102,9 @@ function renderFull(content: string): void {
   splitter = createStreamBlockSplitter();
   liveBlockText = "";
   liveBlock.value = "";
-  blocks.value = content ? [renderMarkdownCached(content)] : [];
+  // 流式期间的内容不会被复用，写入 LRU 只会淘汰历史消息的缓存。
+  const render = props.streaming ? renderMarkdown : renderMarkdownCached;
+  blocks.value = content ? [render(content)] : [];
   liveTail.value = "";
 }
 
@@ -329,8 +332,8 @@ onUnmounted(() => {
     class="md"
     :class="{ 'md-chat': variant === 'chat' }"
   >
-    <div v-for="(block, index) in blocks" :key="index" v-html="block" />
-    <div v-if="liveBlock" v-html="liveBlock" />
+    <div v-for="(block, index) in blocks" :key="index" v-markdown-html="block" />
+    <div v-if="liveBlock" v-markdown-html="liveBlock" />
     <div v-if="liveTail" class="md-live-tail">{{ liveTail }}</div>
   </div>
 
