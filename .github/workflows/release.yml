@@ -195,21 +195,21 @@ jobs:
           generate_release_notes: true
           body: |
 
-            ## 主要更新（v0.3.4-rc.5）
+            ## 主要更新（v0.3.4-rc.6）
 
-            本版重点：设置 → 关于页新增贡献者名单——头像按提交数排名展示，点开可看提交数、仓库内排名与首次/最近提交时间，并可一键打开其 GitHub 主页。
+            本版重点：贡献者头像落盘缓存到安装目录，取回一次后本地读取，离线也能显示。
 
             ### 新功能 Features
 
-            - **关于页新增贡献者名单**（设置 → 关于）：列出仓库贡献者头像与用户名，按提交数排名；点击头像打开详情卡，显示提交数、仓库内排名、首次与最近提交日期，并可打开其 GitHub 主页。头像由主进程走代理拉取并缓存，离线时回退为字母占位。
+            - **贡献者头像缓存到安装目录**：头像取回后写入安装目录的 `resources/Avatar/`（开发期写入仓库 `resources/Avatar/`），下次启动直接读本地，不再重复联网；安装目录只读时自动降级为进程内缓存，离线首次启动仍回退字母占位。
 
-            ## What's New (v0.3.4-rc.5)
+            ## What's New (v0.3.4-rc.6)
 
-            This release adds a contributors list to the About page (Settings → About): avatars and usernames ranked by commit count, with a detail card showing commit count, repo rank, first and latest commit dates, and a link to the GitHub profile. Avatars are fetched through the configured proxy and cached by the main process.
+            This release caches contributor avatars on disk under the install directory (`resources/Avatar/`).
 
             ### New Features
 
-            - **Contributors list on the About page** (Settings → About): lists contributor avatars and usernames ranked by commit count. Clicking an avatar opens a detail card with commit count, repo rank, first and latest commit dates, and a link to the GitHub profile. Avatars are fetched through the configured proxy and cached by the main process, falling back to an initial-letter placeholder when offline.
+            - **Contributor avatars are cached on disk** in the install directory (`resources/Avatar/`): fetched once through the configured proxy, then loaded from local files on later launches. A read-only install directory falls back to the in-process cache, and a first offline launch still shows the initial-letter placeholder.
 
             ## 下载 / Downloads
             - **Windows x64**: `Pi Desktop-*-win-x64-setup.exe`

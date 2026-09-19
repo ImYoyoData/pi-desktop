@@ -1,5 +1,15 @@
 # Changelog
 
+## v0.3.4-rc.6 (2026-09-19)
+
+本版重点：贡献者头像落盘缓存到安装目录，取回一次后本地读取，离线也能显示。
+
+### 新功能 Features
+
+- **贡献者头像缓存到安装目录**：头像取回后写入安装目录的 `resources/Avatar/`（开发期写入仓库 `resources/Avatar/`），下次启动直接读本地，不再重复联网；安装目录只读时自动降级为进程内缓存，离线首次启动仍回退字母占位。
+
+- **Contributor avatars are cached on disk** in the install directory (`resources/Avatar/`): fetched once through the configured proxy, then loaded from local files on later launches. A read-only install directory falls back to the in-process cache, and a first offline launch still shows the initial-letter placeholder.
+
 ## v0.3.4-rc.5 (2026-09-19)
 
 本版重点：设置 → 关于页新增贡献者名单——头像按提交数排名展示，点开可看提交数、仓库内排名与首次/最近提交时间，并可一键打开其 GitHub 主页。
