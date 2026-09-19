@@ -43,7 +43,12 @@ function onShellSelect(key: string | number): void {
 
 function closeActiveTerminal(): void {
   const tab = rightTabs.activePanelTab;
-  if (tab?.kind === "terminal") rightTabs.closeTab(tab.id);
+  if (tab?.kind === "terminal") {
+    rightTabs.closeTab(tab.id);
+    return;
+  }
+  // 底栏已无终端时，再按一次折起底栏
+  if (!layout.bottomCollapsed) layout.toggleBottomCollapsed();
 }
 
 onMounted(async () => {
