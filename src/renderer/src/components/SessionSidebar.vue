@@ -42,6 +42,7 @@ import { useChatStore } from "@renderer/stores/chat";
 import { useSendQueueStore } from "@renderer/stores/send-queue";
 import { useWorkspaceStore } from "@renderer/stores/workspace";
 import { useLayoutStore } from "@renderer/stores/layout";
+import { useKeybindingsStore } from "@renderer/stores/keybindings";
 import { useAppearanceStore } from "@renderer/stores/appearance";
 import { isUnstartedSession } from "@renderer/utils/session-started";
 import { buildSessionTree, type SessionTreeItem } from "@renderer/utils/session-tree";
@@ -68,6 +69,7 @@ const chatStore = useChatStore();
 const sendQueueStore = useSendQueueStore();
 const workspace = useWorkspaceStore();
 const layout = useLayoutStore();
+const keybindings = useKeybindingsStore();
 const appearance = useAppearanceStore();
 const dialog = useDialog();
 const message = useMessage();
@@ -766,6 +768,7 @@ function togglePin(root: string, id: string): void {
 
 onMounted(async () => {
   markRendererStartup("renderer:sidebar-mounted");
+  keybindings.register("new-session", () => void onNewAgent());
   loadPins();
   loadSessionOrders();
   sessionsStore.bindEvents();
@@ -792,6 +795,7 @@ onMounted(async () => {
 });
 
 onUnmounted(() => {
+  keybindings.unregister("new-session");
   window.removeEventListener("pi-session-created", onSessionCreated);
   destroyWorkspaceSortable();
   destroySessionSortables();

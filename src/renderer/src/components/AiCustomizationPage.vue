@@ -4,6 +4,7 @@ import { NButton, NInput, NModal, NSpin, NSpace, useDialog, useMessage } from "n
 import CodiconIcon from "@renderer/components/icons/CodiconIcon.vue";
 import PreviewTab from "@renderer/components/PreviewTab.vue";
 import AppearancePanel from "@renderer/components/AppearancePanel.vue";
+import KeybindingsSettings from "@renderer/components/KeybindingsSettings.vue";
 import AboutPanel from "@renderer/components/AboutPanel.vue";
 import CustomizeGeneral from "@renderer/components/customize/CustomizeGeneral.vue";
 import CustomizeSection from "@renderer/components/customize/CustomizeSection.vue";
@@ -39,6 +40,7 @@ interface CustomizeSectionEntry {
 const sections = computed<CustomizeSectionEntry[]>(() => [
   { id: "general", icon: "settings", label: t.customizeGeneral, description: t.customizeGeneralDesc },
   { id: "appearance", icon: "appearance", label: t.customizeAppearance, description: t.customizeAppearanceDesc },
+  { id: "keys", icon: "keyboard", label: t.customizeKeys, description: t.customizeKeysDesc },
   { id: "models", icon: "models", label: t.customizeModels, description: t.customizeModelsDesc },
   { id: "agents", icon: "agents", label: t.customizeAgents, description: t.customizeAgentsDesc },
   { id: "skills", icon: "skills", label: t.customizeSkills, description: t.customizeSkillsDesc },
@@ -735,6 +737,8 @@ onUnmounted(() => {
         <CustomizeGeneral v-else-if="active === 'general'" @open="modal = $event" />
 
         <AppearancePanel v-else-if="active === 'appearance'" />
+
+        <KeybindingsSettings v-else-if="active === 'keys'" />
 
         <AboutPanel v-else-if="active === 'about'" />
 

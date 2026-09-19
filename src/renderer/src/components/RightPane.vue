@@ -37,6 +37,7 @@ import RightDockChanges from "@renderer/components/RightDockChanges.vue";
 import { useAgentRunsStore } from "@renderer/stores/agent-runs";
 import { useBrowserNavStore } from "@renderer/stores/browser-nav";
 import { useLayoutStore } from "@renderer/stores/layout";
+import { useKeybindingsStore } from "@renderer/stores/keybindings";
 import { usePreviewStore } from "@renderer/stores/preview";
 import { useRightTabsStore, type RightTab, type RightTabKind } from "@renderer/stores/right-tabs";
 import { useWorkspaceStore } from "@renderer/stores/workspace";
@@ -46,6 +47,7 @@ import { localizedTabLabel } from "@renderer/utils/right-tab-labels";
 import { t } from "@renderer/i18n";
 
 const layout = useLayoutStore();
+const keybindings = useKeybindingsStore();
 const previewStore = usePreviewStore();
 const rightTabs = useRightTabsStore();
 const workspace = useWorkspaceStore();
@@ -161,6 +163,12 @@ function onDividerDown(ev: MouseEvent): void {
 
 function toggleMaximizeEditor(): void {
   layout.toggleEditorMaximized();
+}
+
+function showFilesPanel(): void {
+  if (layout.rightCollapsed) layout.toggleRightCollapsed();
+  detailsVisible.value = true;
+  dockView.value = "files";
 }
 
 function onLayoutKeydown(ev: KeyboardEvent): void {
@@ -290,6 +298,7 @@ onMounted(() => {
     if (tab.kind === "changes" && !tab.filePath) rightTabs.closeTab(tab.id);
   }
   window.addEventListener("keydown", onLayoutKeydown);
+  keybindings.register("right-pane-files", showFilesPanel);
   void rightTabs.refreshPreviewGitMeta();
   void nextTick(() => {
     bindTabsSortable();
@@ -324,6 +333,7 @@ onMounted(() => {
 });
 
 onUnmounted(() => {
+  keybindings.unregister("right-pane-files");
   destroyTabsSortable();
   tabsResizeObs?.disconnect();
   tabsResizeObs = null;
