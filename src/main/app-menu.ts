@@ -1,4 +1,4 @@
-import { app, Menu, shell } from "electron";
+import { app, BrowserWindow, Menu, shell } from "electron";
 import { APP_GITHUB_URL } from "../shared/app-meta";
 
 /** Native app menu — especially important on macOS for Edit/Copy/Paste shortcuts. */
@@ -57,7 +57,15 @@ export function installApplicationMenu(): void {
         { role: "forceReload" },
         { type: "separator" },
         { role: "resetZoom" },
-        { role: "zoomIn" },
+        {
+          /** 不用 zoomIn role：它自带的 Ctrl+= 会抢走应用快捷键，改为仅菜单点击。 */
+          label: "Zoom In",
+          click: (_item, win) => {
+            if (!(win instanceof BrowserWindow)) return;
+            const { webContents } = win;
+            webContents.setZoomLevel(Math.min(webContents.getZoomLevel() + 0.5, 9));
+          },
+        },
         { role: "zoomOut" },
         { type: "separator" },
         { role: "togglefullscreen" },

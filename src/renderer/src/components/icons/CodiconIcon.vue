@@ -2,7 +2,7 @@
 /** VS Code codicons — 智能体设置页图标。 */
 withDefaults(
   defineProps<{
-    name: "skills" | "instructions" | "agents" | "tools" | "hooks" | "settings" | "appearance" | "models" | "prompts" | "mcp" | "plugins" | "notify" | "voice" | "security" | "proxy" | "lan" | "about" | "open" | "file" | "enable" | "disable" | "remove" | "search" | "add" | "run" | "back" | "check" | "chevronDown" | "chevronRight" | "close" | "maximize" | "restore" | "copy" | "more";
+    name: "skills" | "instructions" | "agents" | "tools" | "hooks" | "settings" | "appearance" | "models" | "prompts" | "mcp" | "plugins" | "notify" | "voice" | "security" | "proxy" | "lan" | "about" | "open" | "file" | "enable" | "disable" | "remove" | "search" | "add" | "run" | "back" | "check" | "chevronDown" | "chevronRight" | "close" | "maximize" | "restore" | "copy" | "more" | "keyboard";
     size?: number;
   }>(),
   { size: 16 },
@@ -52,5 +52,6 @@ withDefaults(
     <path v-else-if="name === 'check'" d="M13.78 4.22a.75.75 0 0 1 0 1.06l-6.25 6.25a.75.75 0 0 1-1.06 0L3.22 8.28a.75.75 0 1 1 1.06-1.06L7 10.94l5.72-5.72a.75.75 0 0 1 1.06 0Z" />
     <path v-else-if="name === 'more'" d="M4 8C4 8.55228 3.55228 9 3 9C2.44772 9 2 8.55228 2 8C2 7.44772 2.44772 7 3 7C3.55228 7 4 7.44772 4 8ZM8 9C8.55228 9 9 8.55228 9 8C9 7.44772 8.55228 7 8 7C7.44772 7 7 7.44772 7 8C7 8.55228 7.44772 9 8 9ZM13 9C13.5523 9 14 8.55228 14 8C14 7.44772 13.5523 7 13 7C12.4477 7 12 7.44772 12 8C12 8.55228 12.4477 9 13 9Z" />
     <path v-else-if="name === 'copy'" d="M5.08535 2.00049C5.29127 1.41789 5.84689 1.00049 6.5 1.00049H9.5C10.1531 1.00049 10.7087 1.41789 10.9146 2.00049H11.5C12.3284 2.00049 13 2.67206 13 3.50049V8.10026C12.919 8.12889 12.8402 8.16457 12.7646 8.20715C12.4603 8.37833 12.2253 8.65027 12.1 8.97611L12 8.87618V3.50049C12 3.22435 11.7761 3.00049 11.5 3.00049H10.9146C10.7087 3.58308 10.1531 4.00049 9.5 4.00049H6.5C5.84689 4.00049 5.29127 3.58308 5.08535 3.00049H4.5C4.22386 3.00049 4 3.22435 4 3.50049V13.5005C4 13.7766 4.22386 14.0005 4.5 14.0005H8V14.5001C8.00164 14.6722 8.03284 14.8413 8.09101 15.0005H4.5C3.67157 15.0005 3 14.3289 3 13.5005V3.50049C3 2.67206 3.67157 2.00049 4.5 2.00049H5.08535ZM6.5 2.00049C6.22386 2.00049 6 2.22435 6 2.50049C6 2.77663 6.22386 3.00049 6.5 3.00049H9.5C9.77614 3.00049 10 2.77663 10 2.50049C10 2.22435 9.77614 2.00049 9.5 2.00049H6.5Z" />
+    <path v-else-if="name === 'keyboard'" d="M14 3H3a1 1 0 0 0-1 1v7a1 1 0 0 0 1 1h11a1 1 0 0 0 1-1V4a1 1 0 0 0-1-1zm0 8H3V4h11v7zm-3-6h-1v1h1V5zm-1 2H9v1h1V7zm2-2h1v1h-1V5zm1 4h-1v1h1V9zM6 9h5v1H6V9zm7-2h-2v1h2V7zM8 5h1v1H8V5zm0 2H7v1h1V7zM4 9h1v1H4V9zm0-4h1v1H4V5zm3 0H6v1h1V5zM4 7h2v1H4V7z" />
   </svg>
 </template>

@@ -1,5 +1,29 @@
 # Changelog
 
+## v0.3.4-rc.4 (2026-09-19)
+
+本版重点：新增「快捷键」设置页——应用级快捷键都能改键、单独开关，也能用总开关一键停用；同时补齐一份内置快捷键参考清单，并把 `Ctrl+=` 让给「切换模式」。
+
+### 新功能 Features
+
+- **新增「快捷键」设置页**（设置 → 快捷键）：完整列出应用快捷键，支持录制改键（按下组合键即改，`Esc` 取消）、单项启用/禁用、恢复默认，以及**总开关**（关闭后所有快捷键失效、配置保留）；键位与其它快捷键重复时行内标红提示，配置存本地、重启后保留。
+
+- **11 条可自定义快捷键**：新建会话 `Ctrl+N`、修改权限 `Ctrl+M`（循环权限档位）、新建终端 `` Ctrl+` ``、关闭终端 `Shift+Esc`、打开文件 `Ctrl+E`、打开/关闭右侧栏 `Ctrl+Alt+B`、右侧栏文件 `Ctrl+P`、切换模型 `Ctrl+Shift+M`、打开设置 `Ctrl+,`、切换思考程度 `Ctrl+I`、切换模式 `Ctrl+=`（后三条为循环切换）。
+
+- **内置快捷键参考清单**：设置页新增「应用 / 输入框与列表 / 菜单与系统」三组只读清单，把项目自带、不可改键的快捷键一并列出（`Ctrl+Alt+E` 最大化编辑器区、`Ctrl+Alt+L` 详情面板、`Ctrl+S` 保存、`F12`、`Ctrl+Alt+Y` 语音唤醒、`Enter` / `Shift+Enter` / `↑↓` / `Tab` / `Esc`、`Ctrl+Z` / `Ctrl+Y` / `Ctrl+X` / `Ctrl+C` / `Ctrl+V` / `Ctrl+A`、`Ctrl+R`、`Ctrl+0` / `Ctrl+-`、`F11`、`Ctrl+W`）。
+
+- **New "Keyboard" settings page** (Settings → Keyboard): lists every application shortcut with record-to-rebind (press the combo, `Esc` to cancel), per-shortcut enable/disable, reset to default, and a **master switch** that turns all shortcuts off while keeping your bindings. Duplicate combinations are flagged inline, and bindings persist locally across restarts.
+
+- **11 rebindable shortcuts**: new session `Ctrl+N`, cycle permission `Ctrl+M`, new terminal `` Ctrl+` ``, close terminal `Shift+Esc`, open file `Ctrl+E`, toggle right pane `Ctrl+Alt+B`, right pane files `Ctrl+P`, switch model `Ctrl+Shift+M`, open settings `Ctrl+,`, cycle thinking level `Ctrl+I`, cycle mode `Ctrl+=`.
+
+- **Built-in shortcut reference**: three read-only groups (App / Composer and lists / Menu and system) listing the shortcuts the app ships with — `Ctrl+Alt+E`, `Ctrl+Alt+L`, `Ctrl+S`, `F12`, `Ctrl+Alt+Y`, `Enter` / `Shift+Enter` / `↑↓` / `Tab` / `Esc`, `Ctrl+Z` / `Ctrl+Y` / `Ctrl+X` / `Ctrl+C` / `Ctrl+V` / `Ctrl+A`, `Ctrl+R`, `Ctrl+0` / `Ctrl+-`, `F11`, `Ctrl+W`.
+
+### 变更 Changes
+
+- 主进程菜单的 Zoom In 不再占用 `Ctrl+=`（改为仅菜单点击），把该组合让给「切换模式」；`Ctrl+-` 缩小与 `Ctrl+0` 重置缩放保持不变。
+
+- The menu's Zoom In no longer binds `Ctrl+=` (menu click only) so the combination is free for "switch mode"; `Ctrl+-` and `Ctrl+0` still work as before.
+
 ## v0.3.4-rc.3 (2026-09-19)
 
 本版重点：更新下载改为并行分片，安装包下载速度提升一个量级并支持随时取消；同时补齐代理设置的生效范围——主进程派生的 npm / git / Pi CLI 等子进程此前会绕过代理直连。
