@@ -195,43 +195,37 @@ jobs:
           generate_release_notes: true
           body: |
 
-            ## 主要更新（v0.3.4-rc.3）
+            ## 主要更新（v0.3.4-rc.4）
 
-            本版重点：更新下载改为并行分片，安装包下载速度提升一个量级并支持随时取消；同时补齐代理设置的生效范围——主进程派生的 npm / git / Pi CLI 等子进程此前会绕过代理直连。
+            本版重点：新增「快捷键」设置页——应用级快捷键都能改键、单独开关，也能用总开关一键停用；同时补齐一份内置快捷键参考清单，并把 `Ctrl+=` 让给「切换模式」。
 
             ### 新功能 Features
 
-            - **更新下载可以取消**：下载中「下载并安装」按钮变为「取消下载」，点击后立即中止（实测 26 毫秒返回），未完成的 `.part` 文件自动清理；取消后按钮回到可重新下载的状态。
+            - **新增「快捷键」设置页**（设置 → 快捷键）：完整列出应用快捷键，支持录制改键（按下组合键即改，`Esc` 取消）、单项启用/禁用、恢复默认，以及**总开关**（关闭后所有快捷键失效、配置保留）；键位与其它快捷键重复时行内标红提示，配置存本地、重启后保留。
 
-            ### 性能优化 Performance
+            - **11 条可自定义快捷键**：新建会话 `Ctrl+N`、修改权限 `Ctrl+M`（循环权限档位）、新建终端 `` Ctrl+` ``、关闭终端 `Shift+Esc`、打开文件 `Ctrl+E`、打开/关闭右侧栏 `Ctrl+Alt+B`、右侧栏文件 `Ctrl+P`、切换模型 `Ctrl+Shift+M`、打开设置 `Ctrl+,`、切换思考程度 `Ctrl+I`、切换模式 `Ctrl+=`。
 
-            - 安装包下载改为 **32 路并行分片**（HTTP Range）：各连接写入自己的文件偏移、逐片校验长度，小文件自动减少分片；实测 138 MB 安装包从单连接的 0.7 MB/s 提升到 15 MB/s 左右。
+            - **内置快捷键参考清单**：设置页新增「应用 / 输入框与列表 / 菜单与系统」三组只读清单，把项目自带、不可改键的快捷键一并列出（`Ctrl+Alt+E` 最大化编辑器区、`Ctrl+Alt+L` 详情面板、`Ctrl+S` 保存、`F12`、`Ctrl+Alt+Y` 语音唤醒、`Enter` / `Shift+Enter` / `↑↓` / `Tab` / `Esc`、`Ctrl+Z` / `Ctrl+Y` / `Ctrl+X` / `Ctrl+C` / `Ctrl+V` / `Ctrl+A`、`Ctrl+R`、`Ctrl+0` / `Ctrl+-`、`F11`、`Ctrl+W`）。
 
-            ### 修复 Fixes
+            ### 变更 Changes
 
-            - 修复代理设置对部分请求不生效：此前只有 Chromium 侧的请求和会话 worker 走代理，主进程派生的 npm / git / Pi CLI / 插件安装等子进程会直连；现在启动与设置变更时都会把代理写入主进程环境、子进程直接继承，MCP 连接测试也改走 Chromium 网络栈。
-            - 修复更新下载取消后卡住数秒：中止时立即停止写盘与进度广播、立刻断开所有分片连接，等分片收尾后再清理临时文件（取消耗时实测从约 3 秒降到 26 毫秒）。
-            - 修复取消后进度条显示成 100%：取消后不再渲染进度条与字节数，只保留「已取消下载」提示。
-            - 更新下载的 Node 侧分片请求同样遵循代理设置，socks 代理自动回退为单连接下载。
+            - 主进程菜单的 Zoom In 不再占用 `Ctrl+=`（改为仅菜单点击），把该组合让给「切换模式」；`Ctrl+-` 缩小与 `Ctrl+0` 重置缩放保持不变。
 
-            ## What's New (v0.3.4-rc.3)
+            ## What's New (v0.3.4-rc.4)
 
-            The updater is the focus this time: installer downloads now run as parallel range requests, roughly an order of magnitude faster and cancellable at any moment. Proxy settings also now cover the subprocesses the app spawns (npm, git, the Pi CLI), which used to bypass the proxy and go direct.
+            This release adds a Keyboard settings page: application shortcuts can be rebound, toggled individually, or disabled with a single master switch, plus a full reference list of the built-in shortcuts. The menu's `Ctrl+=` zoom-in binding also steps aside for "switch mode".
 
             ### New Features
 
-            - **Cancel an in-flight update download**: while downloading, "Download & install" turns into "Cancel download". Clicking it aborts immediately (measured 26 ms), the partial `.part` file is removed automatically, and the button returns to a fresh download.
+            - **New "Keyboard" settings page** (Settings → Keyboard): lists every application shortcut with record-to-rebind (press the combo, `Esc` to cancel), per-shortcut enable/disable, reset to default, and a **master switch** that turns all shortcuts off while keeping your bindings. Duplicate combinations are flagged inline, and bindings persist locally across restarts.
 
-            ### Performance
+            - **11 rebindable shortcuts**: new session `Ctrl+N`, cycle permission `Ctrl+M`, new terminal `` Ctrl+` ``, close terminal `Shift+Esc`, open file `Ctrl+E`, toggle right pane `Ctrl+Alt+B`, right pane files `Ctrl+P`, switch model `Ctrl+Shift+M`, open settings `Ctrl+,`, cycle thinking level `Ctrl+I`, cycle mode `Ctrl+=`.
 
-            - Installer downloads now use **32 parallel range requests**: each connection writes its own offset, every segment is length-checked, and small files automatically use fewer segments. A real 138 MB package measured about 15 MB/s, up from 0.7 MB/s on a single connection.
+            - **Built-in shortcut reference**: three read-only groups (App / Composer and lists / Menu and system) listing the shortcuts the app ships with — `Ctrl+Alt+E`, `Ctrl+Alt+L`, `Ctrl+S`, `F12`, `Ctrl+Alt+Y`, `Enter` / `Shift+Enter` / `↑↓` / `Tab` / `Esc`, `Ctrl+Z` / `Ctrl+Y` / `Ctrl+X` / `Ctrl+C` / `Ctrl+V` / `Ctrl+A`, `Ctrl+R`, `Ctrl+0` / `Ctrl+-`, `F11`, `Ctrl+W`.
 
-            ### Fixes
+            ### Changes
 
-            - Fixed proxy settings not covering every request: only Chromium-side requests and session workers used to honor the proxy, while subprocesses spawned by the main process (npm, git, the Pi CLI, plugin installs) went direct. The proxy is now written into the main process environment on startup and on every change so subprocesses inherit it, and the MCP connection test goes through the Chromium network stack.
-            - Fixed the update download hanging for seconds after cancellation: aborting now stops disk writes and progress broadcasts at once, tears the segment connections down immediately, and waits for segments to settle before removing the temporary file (about 3 s down to 26 ms).
-            - Fixed the progress bar jumping to 100% after cancelling: the bar and byte counter are no longer rendered once cancelled, only the "Download cancelled" line remains.
-            - Node-side segment requests for the updater now honor the proxy too, with socks proxies falling back to a single-connection download.
+            - The menu's Zoom In no longer binds `Ctrl+=` (menu click only) so the combination is free for "switch mode"; `Ctrl+-` and `Ctrl+0` still work as before.
 
             ## 下载 / Downloads
             - **Windows x64**: `Pi Desktop-*-win-x64-setup.exe`

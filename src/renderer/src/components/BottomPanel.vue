@@ -1,11 +1,12 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from "vue";
+import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import type { DropdownOption } from "naive-ui";
 import { NButton, NDropdown, NEmpty, NIcon } from "naive-ui";
 import { AddOutline, ChevronDownOutline, CloseOutline, TerminalOutline } from "@vicons/ionicons5";
 import type { TerminalShellOption } from "../../../shared/protocol";
 import TerminalTab from "@renderer/components/TerminalTab.vue";
 import { useLayoutStore } from "@renderer/stores/layout";
+import { useKeybindingsStore } from "@renderer/stores/keybindings";
 import { useRightTabsStore } from "@renderer/stores/right-tabs";
 import { useWorkspaceStore } from "@renderer/stores/workspace";
 import { localizedTabLabel } from "@renderer/utils/right-tab-labels";
@@ -13,6 +14,7 @@ import { terminalShellLabel } from "@renderer/utils/terminal-shell-labels";
 import { t } from "@renderer/i18n";
 
 const layout = useLayoutStore();
+const keybindings = useKeybindingsStore();
 const rightTabs = useRightTabsStore();
 const workspace = useWorkspaceStore();
 
@@ -39,12 +41,29 @@ function onShellSelect(key: string | number): void {
   newTerminal(String(key));
 }
 
+function closeActiveTerminal(): void {
+  const tab = rightTabs.activePanelTab;
+  if (tab?.kind === "terminal") {
+    rightTabs.closeTab(tab.id);
+    return;
+  }
+  // 底栏已无终端时，再按一次折起底栏
+  if (!layout.bottomCollapsed) layout.toggleBottomCollapsed();
+}
+
 onMounted(async () => {
+  keybindings.register("new-terminal", () => newTerminal());
+  keybindings.register("close-terminal", closeActiveTerminal);
   try {
     shells.value = await window.api.terminal.listShells();
   } catch {
     shells.value = [];
   }
+});
+
+onUnmounted(() => {
+  keybindings.unregister("new-terminal");
+  keybindings.unregister("close-terminal");
 });
 
 // 展开底栏时确保至少有一个终端
