@@ -10,6 +10,9 @@ import { frontmatterText } from "./frontmatter";
 import { createCustomization, listCustomizations, setMcpServerEnabled, addMcpServers, ensureMcpConfig, removeMcpServer, readMcpEntry, setCustomizationItemEnabled, removeCustomizationItem } from "./customizations-host";
 import { testMcpServer } from "./mcp-test";
 
+/** 同时测试的服务器个数：串行等待太慢，全量并发又会瞬间拉起过多子进程。 */
+const MCP_TEST_CONCURRENCY = 4;
+
 /** 快照缓存版本：字段结构变化时递增，旧缓存自然失效。 */
 const SNAPSHOT_CACHE_VERSION = 1;
 
@@ -220,21 +223,37 @@ export function registerCustomizationsIpc(broker?: {
 
 	ipcMain.handle(
 		IpcChannels.customizations.testMcpServers,
-		async (_event, targets: McpTestTarget[]): Promise<McpTestResult[]> => {
-			const results: McpTestResult[] = [];
-			for (const target of targets) {
-				const entry = readMcpEntry(target.name, target.scope, target.workspace);
-				if (!entry) {
-					results.push({ ...target, ok: false, error: "server not found", durationMs: 0 });
-					continue;
-				}
-				if (entry.disabled === true) {
-					results.push({ ...target, ok: false, error: "disabled", durationMs: 0 });
-					continue;
-				}
-				results.push({ ...target, ...(await testMcpServer(entry)) });
-			}
-			return results;
-		},
+		(_event, targets: McpTestTarget[]): Promise<McpTestResult[]> =>
+			mapWithConcurrency(targets, MCP_TEST_CONCURRENCY, testMcpTarget),
 	);
+}
+
+async function testMcpTarget(target: McpTestTarget): Promise<McpTestResult> {
+	const entry = readMcpEntry(target.name, target.scope, target.workspace);
+	if (!entry) return { ...target, ok: false, error: "server not found", durationMs: 0 };
+	if (entry.disabled === true) return { ...target, ok: false, error: "disabled", durationMs: 0 };
+	return { ...target, ...(await testMcpServer(entry)) };
+}
+
+/** 测试会拉起子进程，限制并发以免同时抢占系统资源；结果保持输入顺序。 */
+async function mapWithConcurrency<T, R>(
+	items: T[],
+	limit: number,
+	run: (item: T) => Promise<R>,
+): Promise<R[]> {
+	const results = new Array<R>(items.length);
+	let cursor = 0;
+	async function worker(): Promise<void> {
+		const index = cursor;
+		cursor += 1;
+		if (index >= items.length) return;
+		results[index] = await run(items[index]);
+		await worker();
+	}
+	const workers: Promise<void>[] = [];
+	for (let i = 0; i < Math.min(limit, items.length); i += 1) {
+		workers.push(worker());
+	}
+	await Promise.all(workers);
+	return results;
 }

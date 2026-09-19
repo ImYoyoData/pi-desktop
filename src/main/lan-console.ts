@@ -319,9 +319,11 @@ function sendJson(client: WsClient, payload: Record<string, unknown>): void {
 }
 
 function broadcast(payload: Record<string, unknown>): void {
-  const raw = JSON.stringify(payload);
+  let raw = "";
   for (const c of clients) {
-    if (c.authed && c.ws.readyState === WebSocket.OPEN) c.ws.send(raw);
+    if (!c.authed || c.ws.readyState !== WebSocket.OPEN) continue;
+    if (!raw) raw = JSON.stringify(payload);
+    c.ws.send(raw);
   }
 }
 

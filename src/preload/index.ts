@@ -1361,6 +1361,13 @@ const api = {
 			};
 		},
 	},
+	contributors: {
+		avatar: (url: string) =>
+			ipcRenderer.invoke(
+				IpcChannels.contributors.avatar,
+				url,
+			) as Promise<string | null>,
+	},
 	update: {
 		getAppInfo: () =>
 			ipcRenderer.invoke(IpcChannels.update.getAppInfo) as Promise<AppInfo>,

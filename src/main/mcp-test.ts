@@ -33,17 +33,23 @@ function stringMap(value: unknown): Record<string, string> {
 	return out;
 }
 
-/** Windows 下按 PATH 补全 .cmd/.exe 后缀，让 npx 等命令可以直接 spawn。 */
+/** Windows 下按 PATH 补全 .cmd/.exe 后缀，让 npx 等命令可以直接 spawn。结果按进程缓存，避免每次测试重复扫描 PATH。 */
+const resolvedCommands = new Map<string, string>();
+
 function resolveCommand(command: string): string {
 	if (process.platform !== "win32" || path.extname(command)) return command;
+	const cached = resolvedCommands.get(command);
+	if (cached) return cached;
 	const dirs = (process.env.PATH ?? "").split(path.delimiter).filter(Boolean);
+	let resolved = command;
 	for (const ext of [".cmd", ".exe", ".bat", ""]) {
-		for (const dir of dirs) {
-			const candidate = path.join(dir, `${command}${ext}`);
-			if (fs.existsSync(candidate)) return candidate;
-		}
+		const dir = dirs.find((item) => fs.existsSync(path.join(item, `${command}${ext}`)));
+		if (!dir) continue;
+		resolved = path.join(dir, `${command}${ext}`);
+		break;
 	}
-	return command;
+	resolvedCommands.set(command, resolved);
+	return resolved;
 }
 
 function initializeRequest(id: number): Record<string, unknown> {

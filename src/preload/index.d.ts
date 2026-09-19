@@ -860,6 +860,9 @@ declare const api: {
 			callback: (payload: { speaking: boolean }) => void,
 		) => () => void;
 	};
+	contributors: {
+		avatar: (url: string) => Promise<string | null>;
+	};
 	update: {
 		getAppInfo: () => Promise<AppInfo>;
 		openGithub: () => Promise<void>;

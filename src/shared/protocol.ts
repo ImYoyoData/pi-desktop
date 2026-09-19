@@ -321,6 +321,9 @@ export const IpcChannels = {
 		cancel: "update:cancel",
 		progress: "update:progress",
 	},
+	contributors: {
+		avatar: "contributors:avatar",
+	},
 	piCli: {
 		status: "piCli:status",
 		shouldPrompt: "piCli:shouldPrompt",
