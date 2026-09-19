@@ -93,8 +93,12 @@ function post(msg: WorkerOutbound): void {
 	process.parentPort?.postMessage(msg);
 }
 
-/** 流式快照的 IPC 合并间隔：≈25fps，足以跟上人眼。 */
+/** 流式快照的最小 IPC 合并间隔；实际间隔跟随渲染节流设置。 */
 const STREAM_SNAPSHOT_FLUSH_MS = 40;
+
+function snapshotFlushMs(): number {
+	return Math.max(STREAM_SNAPSHOT_FLUSH_MS, streamRenderSettings.throttleMs);
+}
 
 /**
  * SDK 每个 delta 都会发一帧 message_update，帧里带的是累积内容；逐帧跨进程传输
@@ -105,6 +109,7 @@ function createSnapshotThrottle(send: (event: Record<string, unknown>) => void):
 } {
 	let pending: Record<string, unknown> | null = null;
 	let timer: ReturnType<typeof setTimeout> | null = null;
+
 
 	function flush(): void {
 		if (timer) {
@@ -121,13 +126,13 @@ function createSnapshotThrottle(send: (event: Record<string, unknown>) => void):
 		push(event: Record<string, unknown>): void {
 			const type = event.type;
 			const snapshot = type === "message_update" || type === "tool_execution_update";
-			if (!streamRenderSettings.enabled || !snapshot) {
+			if (!snapshot) {
 				flush();
 				send(event);
 				return;
 			}
 			pending = event;
-			if (!timer) timer = setTimeout(flush, STREAM_SNAPSHOT_FLUSH_MS);
+			if (!timer) timer = setTimeout(flush, snapshotFlushMs());
 		},
 	};
 }
