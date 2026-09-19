@@ -32,6 +32,7 @@ import DraftContextBar from "@renderer/components/DraftContextBar.vue";
 import { useChatStore } from "@renderer/stores/chat";
 import type { ContextUsageSegmentId, ElementCitation } from "../../../shared/protocol";
 import { isHttpUrl, useComposerStore } from "@renderer/stores/composer";
+import { useKeybindingsStore } from "@renderer/stores/keybindings";
 import {
   useSendQueueStore,
   type QueuedSendItem,
@@ -112,6 +113,7 @@ const props = withDefaults(
 
 const chat = useChatStore();
 const composer = useComposerStore();
+const keybindings = useKeybindingsStore();
 const sendQueue = useSendQueueStore();
 const sessions = useSessionsStore();
 const workspace = useWorkspaceStore();
@@ -1821,8 +1823,7 @@ function closeContextPopover(): void {
   ctxPopoverShow.value = false;
   document.removeEventListener("pointerdown", onContextOutside, true);
 }
-async function onThinkingChange(value: string | number): Promise<void> {
-  const level = String(value) as ThinkingLevel;
+async function onThinkingChange(value: string | number): Promise<void> {  const level = String(value) as ThinkingLevel;
   thinkingLevel.value = level;
   const key = prefsKey.value;
   if (key) rememberThinking(key, level);
@@ -1832,6 +1833,21 @@ async function onThinkingChange(value: string | number): Promise<void> {
     type: "set_thinking_level",
     level: routedThinkingLevel(level),
   });
+}
+
+/** 快捷键：循环到下一个模型 / 思考等级。 */
+function cycleModel(): void {
+  const options = flatModelOptions(availableModels.value);
+  if (!options.length) return;
+  const index = options.findIndex((o) => o.value === selectedModelKey.value);
+  const next = options[(index + 1) % options.length];
+  if (next) void onModelChange(next.value);
+}
+
+function cycleThinking(): void {
+  const index = THINKING_LEVELS.findIndex((o) => o.value === thinkingLevel.value);
+  const next = THINKING_LEVELS[(index + 1) % THINKING_LEVELS.length];
+  if (next) void onThinkingChange(next.value);
 }
 
 async function refreshModels(): Promise<void> {
@@ -2342,6 +2358,8 @@ onMounted(() => {
   window.addEventListener(ASR_VOICE_WAKE_EVENT, onAsrWake);
   window.addEventListener("keydown", onVoiceSessionKeydown, true);
   window.addEventListener("pi-models-changed", onModelsChanged);
+  keybindings.register("cycle-model", cycleModel);
+  keybindings.register("cycle-thinking", cycleThinking);
   // Warm AudioWorklet + mic permission off the click path (idle so boot stays light).
   const ric =
     typeof window.requestIdleCallback === "function"
@@ -2353,6 +2371,8 @@ onMounted(() => {
 });
 
 onUnmounted(() => {
+  keybindings.unregister("cycle-model");
+  keybindings.unregister("cycle-thinking");
   window.removeEventListener("pi-models-changed", onModelsChanged);
   window.removeEventListener("keydown", onVoiceSessionKeydown, true);
   window.removeEventListener(ASR_VOICE_WAKE_EVENT, onAsrWake);
