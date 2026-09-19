@@ -928,7 +928,7 @@ export const zh = {
 	aboutVersion: "版本",
 	aboutAuthor: "作者",
 	aboutRepository: "仓库",
-	aboutOpenRepository: "在 GitHub 打开",
+	aboutOpenRepository: "GitHub",
 	aboutContributors: "贡献者",
 	aboutContributorOwner: "项目作者",
 	aboutContributorCommits: (count: number) => `${count} 次提交`,

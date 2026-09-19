@@ -2,7 +2,7 @@
 
 ## v0.3.4-rc.4 (2026-09-19)
 
-本版重点：新增「快捷键」设置页——应用级快捷键都能改键、单独开关，也能用总开关一键停用；同时补齐一份内置快捷键参考清单，并把 `Ctrl+=` 让给「切换模式」。
+本版重点：新增「快捷键」设置页——应用级快捷键都能改键、单独开关，也能用总开关一键停用；同时补齐一份内置快捷键参考清单，并把 `Ctrl+=` 让给「切换模式」；关于页也新增了贡献者名单。
 
 ### 新功能 Features
 
@@ -17,6 +17,10 @@
 - **11 rebindable shortcuts**: new session `Ctrl+N`, cycle permission `Ctrl+M`, new terminal `` Ctrl+` ``, close terminal `Shift+Esc`, open file `Ctrl+E`, toggle right pane `Ctrl+Alt+B`, right pane files `Ctrl+P`, switch model `Ctrl+Shift+M`, open settings `Ctrl+,`, cycle thinking level `Ctrl+I`, cycle mode `Ctrl+=`.
 
 - **Built-in shortcut reference**: three read-only groups (App / Composer and lists / Menu and system) listing the shortcuts the app ships with — `Ctrl+Alt+E`, `Ctrl+Alt+L`, `Ctrl+S`, `F12`, `Ctrl+Alt+Y`, `Enter` / `Shift+Enter` / `↑↓` / `Tab` / `Esc`, `Ctrl+Z` / `Ctrl+Y` / `Ctrl+X` / `Ctrl+C` / `Ctrl+V` / `Ctrl+A`, `Ctrl+R`, `Ctrl+0` / `Ctrl+-`, `F11`, `Ctrl+W`.
+
+- **关于页新增贡献者名单**（设置 → 关于）：列出仓库贡献者头像与用户名，按提交数排名；点击头像打开详情卡，显示提交数、仓库内排名、首次与最近提交日期，并可打开其 GitHub 主页。头像由主进程走代理拉取并缓存，离线时回退为字母占位。
+
+- **Contributors list on the About page** (Settings → About): lists contributor avatars and usernames ranked by commit count. Clicking an avatar opens a detail card with commit count, repo rank, first and latest commit dates, and a link to the GitHub profile. Avatars are fetched through the configured proxy and cached by the main process, falling back to an initial-letter placeholder when offline.
 
 ### 变更 Changes
 
