@@ -97,7 +97,7 @@ function hintOf(id: KeybindingId): string {
             :class="{ recording: recording === def.id, conflict: keybindings.conflicts.has(def.id) }"
             :title="recording === def.id ? t.keybindingsRecordingHint : hintOf(def.id)"
           >
-            {{ recording === def.id ? t.keybindingsRecording : keybindings.labelOf(def) }}
+            {{ recording === def.id ? t.keybindingsRecording : keybindings.labelOf(def) || t.keybindingsUnset }}
           </span>
           <NButton
             size="tiny"

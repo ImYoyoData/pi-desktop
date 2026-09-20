@@ -46,6 +46,7 @@ import { useKeybindingsStore } from "@renderer/stores/keybindings";
 import { useAppearanceStore } from "@renderer/stores/appearance";
 import { isUnstartedSession } from "@renderer/utils/session-started";
 import { isTextEntryTarget } from "@renderer/utils/keyboard-target";
+import { hasOpenModal } from "@renderer/utils/modal-overlay";
 import { buildSessionTree, type SessionTreeItem } from "@renderer/utils/session-tree";
 import { t } from "@renderer/i18n";
 import CodiconIcon from "@renderer/components/icons/CodiconIcon.vue";
@@ -544,7 +545,7 @@ function rootOfSession(id: string): string | null {
 function onDeleteKeydown(event: KeyboardEvent): void {
   if (event.key !== "Delete" || event.ctrlKey || event.altKey || event.metaKey) return;
   if (!selectMode.value || !selectedSessionIds.value.length || keybindings.capturing) return;
-  if (isTextEntryTarget(event.target) || document.querySelector(".n-modal-container")) return;
+  if (isTextEntryTarget(event.target) || hasOpenModal()) return;
   event.preventDefault();
   deleteSelectedSessions();
 }
@@ -779,6 +780,7 @@ function togglePin(root: string, id: string): void {
 onMounted(async () => {
   markRendererStartup("renderer:sidebar-mounted");
   keybindings.register("new-session", () => void onNewAgent());
+  keybindings.register("select-sessions", enterSelectMode);
   loadPins();
   loadSessionOrders();
   sessionsStore.bindEvents();
@@ -807,6 +809,7 @@ onMounted(async () => {
 
 onUnmounted(() => {
   keybindings.unregister("new-session");
+  keybindings.unregister("select-sessions");
   window.removeEventListener("pi-session-created", onSessionCreated);
   window.removeEventListener("keydown", onDeleteKeydown, true);
   destroyWorkspaceSortable();

@@ -5,6 +5,7 @@ import type { Messages } from "@renderer/i18n";
 
 export type KeybindingId =
   | "new-session"
+  | "select-sessions"
   | "cycle-permission"
   | "new-terminal"
   | "close-terminal"
@@ -34,12 +35,14 @@ export interface BuiltinShortcut {
 
 export const KEYBINDINGS: KeybindingDef[] = [
   { id: "new-session", labelKey: "hotkeyNewSession", defaultAccel: "Control+N" },
+  { id: "select-sessions", labelKey: "hotkeySelectSessions", defaultAccel: "Control+P" },
   { id: "cycle-permission", labelKey: "hotkeyCyclePermission", defaultAccel: "Control+M" },
   { id: "new-terminal", labelKey: "hotkeyNewTerminal", defaultAccel: "Control+`" },
   { id: "close-terminal", labelKey: "hotkeyCloseTerminal", defaultAccel: "Shift+Escape" },
   { id: "open-file", labelKey: "hotkeyOpenFile", defaultAccel: "Control+E" },
   { id: "toggle-right-pane", labelKey: "hotkeyToggleRightPane", defaultAccel: "Control+Alt+B" },
-  { id: "right-pane-files", labelKey: "hotkeyRightPaneFiles", defaultAccel: "Control+P" },
+  /** 无默认键位：功能保留，用户可在设置页自行绑定 */
+  { id: "right-pane-files", labelKey: "hotkeyRightPaneFiles", defaultAccel: "" },
   { id: "cycle-model", labelKey: "hotkeyCycleModel", defaultAccel: "Control+Shift+M" },
   { id: "open-settings", labelKey: "hotkeyOpenSettings", defaultAccel: "Control+," },
   { id: "cycle-thinking", labelKey: "hotkeyCycleThinking", defaultAccel: "Control+I" },
@@ -140,7 +143,8 @@ export const useKeybindingsStore = defineStore("keybindings", () => {
   const accelIndex = computed(() => {
     const map = new Map<string, KeybindingDef>();
     for (const def of KEYBINDINGS) {
-      map.set(canonicalAccel(accelOf(def)), def);
+      const accel = canonicalAccel(accelOf(def));
+      if (accel) map.set(accel, def);
     }
     return map;
   });
@@ -149,11 +153,12 @@ export const useKeybindingsStore = defineStore("keybindings", () => {
     const seen = new Map<string, number>();
     for (const def of KEYBINDINGS) {
       const key = canonicalAccel(accelOf(def));
-      seen.set(key, (seen.get(key) ?? 0) + 1);
+      if (key) seen.set(key, (seen.get(key) ?? 0) + 1);
     }
     const dup = new Set<KeybindingId>();
     for (const def of KEYBINDINGS) {
-      if ((seen.get(canonicalAccel(accelOf(def))) ?? 0) > 1) dup.add(def.id);
+      const key = canonicalAccel(accelOf(def));
+      if (key && (seen.get(key) ?? 0) > 1) dup.add(def.id);
     }
     return dup;
   });
