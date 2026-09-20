@@ -45,6 +45,7 @@ import { useLayoutStore } from "@renderer/stores/layout";
 import { useKeybindingsStore } from "@renderer/stores/keybindings";
 import { useAppearanceStore } from "@renderer/stores/appearance";
 import { isUnstartedSession } from "@renderer/utils/session-started";
+import { isTextEntryTarget } from "@renderer/utils/keyboard-target";
 import { buildSessionTree, type SessionTreeItem } from "@renderer/utils/session-tree";
 import { t } from "@renderer/i18n";
 import CodiconIcon from "@renderer/components/icons/CodiconIcon.vue";
@@ -539,6 +540,15 @@ function rootOfSession(id: string): string | null {
   return null;
 }
 
+/** 选择模式下 Del 等同点击工具条「删除」，仍走确认框。 */
+function onDeleteKeydown(event: KeyboardEvent): void {
+  if (event.key !== "Delete" || event.ctrlKey || event.altKey || event.metaKey) return;
+  if (!selectMode.value || !selectedSessionIds.value.length || keybindings.capturing) return;
+  if (isTextEntryTarget(event.target) || document.querySelector(".n-modal-container")) return;
+  event.preventDefault();
+  deleteSelectedSessions();
+}
+
 function deleteSelectedSessions(): void {
   const ids = [...selectedSessionIds.value];
   if (!ids.length) return;
@@ -774,6 +784,7 @@ onMounted(async () => {
   sessionsStore.bindEvents();
   // 派生会话等由其他组件新建的会话：排到最前，避免被折叠到「展开其余 N 个」之下。
   window.addEventListener("pi-session-created", onSessionCreated);
+  window.addEventListener("keydown", onDeleteKeydown, true);
   // App.vue already loads workspace/recent — skip duplicate IPC on cold start.
   const boot: Promise<unknown>[] = [
     workspace.refreshAliases(),
@@ -797,6 +808,7 @@ onMounted(async () => {
 onUnmounted(() => {
   keybindings.unregister("new-session");
   window.removeEventListener("pi-session-created", onSessionCreated);
+  window.removeEventListener("keydown", onDeleteKeydown, true);
   destroyWorkspaceSortable();
   destroySessionSortables();
 });
