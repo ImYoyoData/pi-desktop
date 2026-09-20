@@ -3,6 +3,7 @@ import { onMounted, onUnmounted, reactive, ref, watch } from "vue";
 import CodiconIcon from "@renderer/components/icons/CodiconIcon.vue";
 import AiCustomizationPage from "@renderer/components/AiCustomizationPage.vue";
 import { useLayoutStore } from "@renderer/stores/layout";
+import { hasOpenModal } from "@renderer/utils/modal-overlay";
 import { t } from "@renderer/i18n";
 
 /**
@@ -76,7 +77,7 @@ function onHeaderPointerDown(event: PointerEvent): void {
 /** Esc 关闭；页面内打开的 naive-ui 模态优先消费 Esc。 */
 function onWindowKeydown(event: KeyboardEvent): void {
   if (event.key !== "Escape" || event.defaultPrevented) return;
-  if (document.querySelector(".n-modal-container")) return;
+  if (hasOpenModal()) return;
   close();
 }
 
