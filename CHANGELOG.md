@@ -22,6 +22,12 @@
 
 - **Built-in shortcut list** now lists `Enter` (confirm dialog) and `Del` (delete in select mode) under Settings → Keyboard.
 
+### 修复 Fixes
+
+- 修复工作区「移动到分类」点击无反应：菜单里的各个分类是子项，其 key（`group-default` / `group:<名称>`）与父项 `move-group` 不同，处理函数一直在等父项 key，点击因此被静默丢弃；现在按 key 前缀解析分类名，右键菜单与省略号菜单都能正常归类，选内置「Default」即清除分类。
+
+- **Fixed "Move to category" doing nothing**: the entries under the submenu are leaves whose keys (`group-default` / `group:<name>`) never equal the parent `move-group` key the handler waited for, so a click was silently dropped. The key is now resolved by prefix, so both the context menu and the ellipsis menu move a workspace, and picking the built-in "Default" clears its category.
+
 ## v0.3.4-rc.5 (2026-09-19)
 
 本版重点：设置 → 关于页新增贡献者名单——头像按提交数排名展示，点开可看提交数、仓库内排名与首次/最近提交时间，并可一键打开其 GitHub 主页。

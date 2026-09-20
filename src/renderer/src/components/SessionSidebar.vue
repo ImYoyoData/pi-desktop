@@ -1426,17 +1426,16 @@ async function onWorkspaceMenu(root: string, key: string | number): Promise<void
     case "rename-project":
       openWorkspaceRename(root);
       break;
-    case "move-group": {
-      const name = groupNameFromKey(k);
-      if (name !== null) await workspace.setGroupOf(root, name === GROUP_DEFAULT ? null : name);
-      break;
-    }
     case "remove": {
       confirmPurgeWorkspace(root);
       break;
     }
-    default:
+    default: {
+      const name = groupNameFromKey(k);
+      if (!name) break;
+      await workspace.setGroupOf(root, name === GROUP_DEFAULT ? null : name);
       break;
+    }
   }
 }
 
