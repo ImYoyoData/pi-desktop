@@ -209,6 +209,10 @@ jobs:
 
             - **内置快捷键清单同步**：设置 → 快捷键的内置清单新增 `Enter`（确认对话框）与 `Del`（选择模式删除）两条只读展示。
 
+            ### 修复 Fixes
+
+            - **修复工作区「移动到分类」点击无反应**：菜单里的各个分类是子项，其 key（`group-default` / `group:<名称>`）与父项 `move-group` 不同，处理函数一直在等父项 key，点击因此被静默丢弃；现在按 key 前缀解析分类名，右键菜单与省略号菜单都能正常归类，选内置「Default」即清除分类。
+
             ## What's New (v0.3.4-rc.6)
 
             This release caches contributor avatars on disk under the install directory (`resources/Avatar/`), and adds two keyboard shortcuts: `Enter` to confirm dialogs, `Del` to delete selected sessions in select mode.
@@ -222,6 +226,10 @@ jobs:
             - **`Del` deletes in select mode**: with sessions multi-selected, `Del` acts as the toolbar's Delete button and the confirmation dialog still appears. Text inputs, open overlays and `Ctrl` / `Alt` / `Win` combinations are left untouched.
 
             - **Built-in shortcut list** now lists `Enter` (confirm dialog) and `Del` (delete in select mode) under Settings → Keyboard.
+
+            ### Fixes
+
+            - **"Move to category" did nothing**: the entries under the submenu are leaves whose keys (`group-default` / `group:<name>`) never equal the parent `move-group` key the handler waited for, so a click was silently dropped. The key is now resolved by prefix, so both the context menu and the ellipsis menu move a workspace, and picking the built-in "Default" clears its category.
 
             ## 下载 / Downloads
             - **Windows x64**: `Pi Desktop-*-win-x64-setup.exe`
