@@ -215,6 +215,8 @@ export const zh = {
 	hotkeyZoom: "重置缩放 / 缩小",
 	hotkeyFullscreen: "全屏",
 	hotkeyCloseWindow: "关闭窗口",
+	hotkeyDialogConfirm: "确认对话框的确定按钮",
+	hotkeySelectModeDelete: "选择模式下删除选中会话",
 	keybindingsMaster: "启用快捷键",
 	keybindingsMasterHint: "总开关：关闭后所有快捷键失效，已做的配置保留。",
 	keybindingsCustomGroup: "可自定义",

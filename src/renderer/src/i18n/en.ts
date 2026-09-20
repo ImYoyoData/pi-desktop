@@ -225,6 +225,8 @@ export const en = {
 	hotkeyZoom: "Reset zoom / zoom out",
 	hotkeyFullscreen: "Full screen",
 	hotkeyCloseWindow: "Close window",
+	hotkeyDialogConfirm: "Confirm dialog OK button",
+	hotkeySelectModeDelete: "Delete selected sessions in select mode",
 	keybindingsMaster: "Enable shortcuts",
 	keybindingsMasterHint: "Master switch: turning it off disables every shortcut and keeps your bindings.",
 	keybindingsCustomGroup: "Customizable",
