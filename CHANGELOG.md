@@ -1,5 +1,15 @@
 # Changelog
 
+## v0.3.4-rc.8 (2026-09-21)
+
+本版重点：侧栏「选择」模式补上退出键——多选状态下按 `Esc` 等同点击工具条「取消」，清空选中退回普通列表，与设置窗口的 `Esc` 行为一致。
+
+### 新功能 Features
+
+- **选择模式下 `Esc` 退出**：会话多选时按 `Esc` 等同点击工具条「取消」，清空选中并退回普通列表；设置页内置快捷键清单同步列出 `Esc`。焦点在输入框或有弹层打开时不触发，`Shift+Esc`（关闭终端）不受影响。
+
+- **`Esc` exits select mode**: with sessions multi-selected, `Esc` acts like the toolbar's Cancel button — it clears the selection and returns to the normal list, and is listed under Settings → Keyboard. Text inputs and open overlays keep their own `Esc` handling, and `Shift+Esc` (close terminal) is unaffected.
+
 ## v0.3.4-rc.7 (2026-09-21)
 
 本版重点：侧栏「选择」模式拿到专属快捷键——`Ctrl+P` 从「右侧栏文件」改为进入选择模式；并修好选择模式下 `Del` 一直没反应的问题，设置窗口的 `Esc` 一并恢复。
