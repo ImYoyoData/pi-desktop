@@ -1,5 +1,25 @@
 # Changelog
 
+## v0.3.4-rc.7 (2026-09-21)
+
+本版重点：侧栏「选择」模式拿到专属快捷键——`Ctrl+P` 从「右侧栏文件」改为进入选择模式；并修好选择模式下 `Del` 一直没反应的问题，设置窗口的 `Esc` 一并恢复。
+
+### 新功能 Features
+
+- **`Ctrl+P` 改为进入选择模式**：原「右侧栏文件」取消默认键位（功能保留，可在设置 → 快捷键里自行绑定），`Ctrl+P` 现在等同侧栏菜单里的「选择」，进入会话多选；设置页快捷键清单同步改名为「选择会话」。
+
+- **`Ctrl+P` enters select mode**: the former "right pane files" shortcut no longer has a default binding (the action is still there and can be rebound under Settings → Keyboard), so `Ctrl+P` now matches the sidebar's "Select" entry. The settings list shows it as "Select sessions".
+
+### 修复 Fixes
+
+- **修复选择模式下 `Del` 删除会话无反应**：判断「是否有弹窗打开」时用的是 `.n-modal-container`，但 naive-ui 的模态容器由 `LazyTeleport` 承载，只要显示过一次就永久留在 DOM，判断因此恒为真、每次按键都被丢弃；改为检测真正随开关渲染与销毁的遮罩。
+
+- **修复设置窗口 `Esc` 关不掉**：同一条恒真判断让「页面内有弹窗时不关窗口」变成了永远不关，一并改用遮罩检测。
+
+- **Fixed `Del` doing nothing in select mode**: the open-overlay check used `.n-modal-container`, but naive-ui keeps that container in the DOM forever once shown (`LazyTeleport`), so the guard was always true and every keypress was dropped. It now checks the mask, which renders and unmounts with the modal.
+
+- **Fixed the settings window not closing on `Esc`**: the same always-true check turned "don't close while an overlay is open" into "never close"; it now uses the mask check too.
+
 ## v0.3.4-rc.6 (2026-09-19)
 
 本版重点：贡献者头像落盘缓存到安装目录，取回一次后本地读取，离线也能显示；另新增两条键盘捷径——确认对话框按 `Enter` 即点确定，选择模式下按 `Del` 即点删除。
