@@ -1,5 +1,33 @@
 # Changelog
 
+## v0.3.4-rc.6 (2026-09-19)
+
+本版重点：贡献者头像落盘缓存到安装目录，取回一次后本地读取，离线也能显示；另新增两条键盘捷径——确认对话框按 `Enter` 即点确定，选择模式下按 `Del` 即点删除。
+
+### 新功能 Features
+
+- **贡献者头像缓存到安装目录**：头像取回后写入安装目录的 `resources/Avatar/`（开发期写入仓库 `resources/Avatar/`），下次启动直接读本地，不再重复联网；安装目录只读时自动降级为进程内缓存，离线首次启动仍回退字母占位。
+
+- **Contributor avatars are cached on disk** in the install directory (`resources/Avatar/`): fetched once through the configured proxy, then loaded from local files on later launches. A read-only install directory falls back to the in-process cache, and a first offline launch still shows the initial-letter placeholder.
+
+- **确认对话框按 `Enter` 快速确定**：任意确认对话框弹出时，按 `Enter` 等同点击「确定」，多弹层时取最上层。对话框内输入框的 `Enter` 仍由输入框自己处理（如重命名提交），输入法组合中不触发。
+
+- **选择模式下按 `Del` 快速删除会话**：会话多选（选择模式）下选中会话后，按 `Del` 等同点击工具条「删除」，仍会弹出确认框；焦点在输入框、已有弹层打开、或按住 `Ctrl` / `Alt` / `Win` 时不触发。
+
+- **内置快捷键清单同步**：设置 → 快捷键的内置清单新增 `Enter`（确认对话框）与 `Del`（选择模式删除）两条只读展示。
+
+- **`Enter` confirms dialogs**: while any confirm dialog is open, `Enter` clicks its OK button (the topmost dialog wins). Inputs inside a dialog keep their own `Enter` handling (e.g. rename submit), and IME composition is ignored.
+
+- **`Del` deletes in select mode**: with sessions multi-selected, `Del` acts as the toolbar's Delete button and the confirmation dialog still appears. Text inputs, open overlays and `Ctrl` / `Alt` / `Win` combinations are left untouched.
+
+- **Built-in shortcut list** now lists `Enter` (confirm dialog) and `Del` (delete in select mode) under Settings → Keyboard.
+
+### 修复 Fixes
+
+- 修复工作区「移动到分类」点击无反应：菜单里的各个分类是子项，其 key（`group-default` / `group:<名称>`）与父项 `move-group` 不同，处理函数一直在等父项 key，点击因此被静默丢弃；现在按 key 前缀解析分类名，右键菜单与省略号菜单都能正常归类，选内置「Default」即清除分类。
+
+- **Fixed "Move to category" doing nothing**: the entries under the submenu are leaves whose keys (`group-default` / `group:<name>`) never equal the parent `move-group` key the handler waited for, so a click was silently dropped. The key is now resolved by prefix, so both the context menu and the ellipsis menu move a workspace, and picking the built-in "Default" clears its category.
+
 ## v0.3.4-rc.5 (2026-09-19)
 
 本版重点：设置 → 关于页新增贡献者名单——头像按提交数排名展示，点开可看提交数、仓库内排名与首次/最近提交时间，并可一键打开其 GitHub 主页。

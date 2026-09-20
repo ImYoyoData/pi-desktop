@@ -35,6 +35,7 @@ import { locale } from "@renderer/i18n";
 import { dismissStartupSplash } from "@renderer/utils/startup-splash";
 import { markRendererStartup } from "@renderer/utils/startup-timing";
 import { startFsChangedBus } from "@renderer/utils/fs-changed-bus";
+import { isTextEntryTarget } from "@renderer/utils/keyboard-target";
 
 /** Heavy workspace chrome — load after first paint when a folder is open. */
 const SplitRoot = defineAsyncComponent(() => {
@@ -83,6 +84,31 @@ keybindings.register("toggle-right-pane", () => layout.toggleRightCollapsed());
 keybindings.register("open-settings", () => layout.openCustomize(layout.customizeSection));
 keybindings.register("cycle-mode", cycleComposerMode);
 keybindings.register("open-file", () => void pickAndOpenFile());
+
+/** 最上层确认对话框的确定按钮：negative 按钮带 ghost 标记，需排除。 */
+function dialogConfirmButton(): HTMLElement | null {
+  const actions = document.querySelectorAll<HTMLElement>(".n-dialog__action");
+  const action = actions[actions.length - 1];
+  if (!action) return null;
+  const buttons = action.querySelectorAll<HTMLElement>("button:not(.n-button--ghost)");
+  return buttons[buttons.length - 1] ?? null;
+}
+
+/** 对话框内输入框的 Enter 由输入框自己处理，避免重复提交。 */
+function inDialogTextEntry(target: EventTarget | null): boolean {
+  return (
+    target instanceof HTMLElement && !!target.closest(".n-dialog") && isTextEntryTarget(target)
+  );
+}
+
+/** 任意确认对话框弹出时，Enter 等同点击确定。 */
+function onDialogEnterKeydown(event: KeyboardEvent): void {
+  if (event.key !== "Enter" || event.isComposing || inDialogTextEntry(event.target)) return;
+  const confirm = dialogConfirmButton();
+  if (!confirm) return;
+  event.preventDefault();
+  confirm.click();
+}
 /** True once workspace/platform init finished (gates shell mounting). */
 const bootInitDone = ref(false);
 /**
@@ -114,6 +140,7 @@ let stopCustomizations: (() => void) | undefined;
 let customizationsWarmTimer = 0;
 
 onMounted(() => {
+  window.addEventListener("keydown", onDialogEnterKeydown, true);
   stopAppearance = appearance.init();
   stopFsChangedBus = startFsChangedBus();
   stopCustomizations = customizations.init();
@@ -149,6 +176,7 @@ onMounted(() => {
 });
 
 onUnmounted(() => {
+  window.removeEventListener("keydown", onDialogEnterKeydown, true);
   window.clearTimeout(bootTimer);
   window.clearTimeout(customizationsWarmTimer);
   keybindings.uninstall();

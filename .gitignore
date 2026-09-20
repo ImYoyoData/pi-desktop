@@ -73,3 +73,6 @@ pnpm-lock.yaml
 /.commandcode
 /.pi/
 /release-bench/
+
+# 贡献者头像磁盘缓存（首次联网取回后自动生成）
+/resources/Avatar/

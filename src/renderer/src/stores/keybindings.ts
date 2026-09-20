@@ -53,6 +53,8 @@ export const BUILTIN_SHORTCUTS: BuiltinShortcut[] = [
   { group: "app", labelKey: "hotkeyAsrWake", keys: "Ctrl+Alt+Y" },
   { group: "app", labelKey: "hotkeyBrowserDevtools", keys: "F12" },
   { group: "app", labelKey: "hotkeyAppDevtools", keys: "Ctrl+Shift+I" },
+  { group: "app", labelKey: "hotkeyDialogConfirm", keys: "Enter" },
+  { group: "app", labelKey: "hotkeySelectModeDelete", keys: "Del" },
   { group: "composer", labelKey: "hotkeySend", keys: "Enter" },
   { group: "composer", labelKey: "hotkeyNewline", keys: "Shift+Enter" },
   { group: "composer", labelKey: "hotkeyMenuNavigate", keys: "↑ / ↓" },
