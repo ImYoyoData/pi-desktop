@@ -228,6 +228,7 @@ export const en = {
 	hotkeyCloseWindow: "Close window",
 	hotkeyDialogConfirm: "Confirm dialog OK button",
 	hotkeySelectModeDelete: "Delete selected sessions in select mode",
+	hotkeySelectModeCancel: "Exit select mode (same as Cancel)",
 	keybindingsMaster: "Enable shortcuts",
 	keybindingsMasterHint: "Master switch: turning it off disables every shortcut and keeps your bindings.",
 	keybindingsCustomGroup: "Customizable",

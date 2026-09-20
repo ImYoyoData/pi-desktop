@@ -541,13 +541,20 @@ function rootOfSession(id: string): string | null {
   return null;
 }
 
-/** 选择模式下 Del 等同点击工具条「删除」，仍走确认框。 */
-function onDeleteKeydown(event: KeyboardEvent): void {
-  if (event.key !== "Delete" || event.ctrlKey || event.altKey || event.metaKey) return;
-  if (!selectMode.value || !selectedSessionIds.value.length || keybindings.capturing) return;
+/** 选择模式下的按键：Del 等同点击工具条「删除」（仍走确认框），Esc 等同点击「取消」退出。 */
+function onSelectModeKeydown(event: KeyboardEvent): void {
+  if (!selectMode.value || keybindings.capturing) return;
+  if (event.ctrlKey || event.altKey || event.metaKey) return;
   if (isTextEntryTarget(event.target) || hasOpenModal()) return;
-  event.preventDefault();
-  deleteSelectedSessions();
+  if (event.key === "Escape" && !event.shiftKey) {
+    event.preventDefault();
+    exitSelectMode();
+    return;
+  }
+  if (event.key === "Delete" && selectedSessionIds.value.length) {
+    event.preventDefault();
+    deleteSelectedSessions();
+  }
 }
 
 function deleteSelectedSessions(): void {
@@ -786,7 +793,7 @@ onMounted(async () => {
   sessionsStore.bindEvents();
   // 派生会话等由其他组件新建的会话：排到最前，避免被折叠到「展开其余 N 个」之下。
   window.addEventListener("pi-session-created", onSessionCreated);
-  window.addEventListener("keydown", onDeleteKeydown, true);
+  window.addEventListener("keydown", onSelectModeKeydown, true);
   // App.vue already loads workspace/recent — skip duplicate IPC on cold start.
   const boot: Promise<unknown>[] = [
     workspace.refreshAliases(),
@@ -811,7 +818,7 @@ onUnmounted(() => {
   keybindings.unregister("new-session");
   keybindings.unregister("select-sessions");
   window.removeEventListener("pi-session-created", onSessionCreated);
-  window.removeEventListener("keydown", onDeleteKeydown, true);
+  window.removeEventListener("keydown", onSelectModeKeydown, true);
   destroyWorkspaceSortable();
   destroySessionSortables();
 });
