@@ -1,7 +1,7 @@
 import { spawnSync } from "node:child_process";
 import { userInfo } from "node:os";
 import { BrowserWindow, clipboard, ipcMain, nativeTheme, systemPreferences } from "electron";
-import { nativeImage } from "electron";
+import { ClipboardItem, nativeImage } from "electron";
 import { IpcChannels } from "../shared/protocol";
 import type { WindowPrivilegeLevel, WindowRunIdentity } from "../shared/protocol";
 import type { EditContextMenuAction } from "../shared/context-menu";
@@ -113,13 +113,15 @@ export function registerWindowIpc(): void {
   });
 
   /** Copy a data-URL image to the system clipboard (real image, pasteable anywhere). */
-  ipcMain.handle(IpcChannels.clipboard.writeImage, (_event, dataUrl: string) => {
+  ipcMain.handle(IpcChannels.clipboard.writeImage, async (_event, dataUrl: string) => {
     if (typeof dataUrl !== "string" || !dataUrl.startsWith("data:image/")) {
       throw new Error("clipboard.writeImage: expected an image data URL");
     }
     const image = nativeImage.createFromDataURL(dataUrl);
     if (image.isEmpty()) throw new Error("clipboard.writeImage: failed to decode image");
-    clipboard.writeImage(image);
+    await clipboard.write([
+      new ClipboardItem({ "image/png": new Blob([new Uint8Array(image.toPNG())], { type: "image/png" }) }),
+    ]);
   });
   /** Open (or focus) the app Chromium DevTools for this window. */
   ipcMain.handle(IpcChannels.window.openDevTools, (event) => {
