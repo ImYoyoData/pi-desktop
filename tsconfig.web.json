@@ -9,14 +9,13 @@
   ],
   "compilerOptions": {
     "composite": true,
-    "baseUrl": ".",
     "plugins": [{ "name": "@vue/typescript-plugin" }],
     "paths": {
       "@renderer/*": [
-        "src/renderer/src/*"
+        "./src/renderer/src/*"
       ],
       "marked-katex-extension": [
-        "src/renderer/src/marked-katex-extension.d.ts"
+        "./src/renderer/src/marked-katex-extension.d.ts"
       ]
     }
   }

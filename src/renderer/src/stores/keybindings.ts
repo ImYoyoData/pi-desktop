@@ -58,6 +58,7 @@ export const BUILTIN_SHORTCUTS: BuiltinShortcut[] = [
   { group: "app", labelKey: "hotkeyAppDevtools", keys: "Ctrl+Shift+I" },
   { group: "app", labelKey: "hotkeyDialogConfirm", keys: "Enter" },
   { group: "app", labelKey: "hotkeySelectModeDelete", keys: "Del" },
+  { group: "app", labelKey: "hotkeySelectModeCancel", keys: "Esc" },
   { group: "composer", labelKey: "hotkeySend", keys: "Enter" },
   { group: "composer", labelKey: "hotkeyNewline", keys: "Shift+Enter" },
   { group: "composer", labelKey: "hotkeyMenuNavigate", keys: "↑ / ↓" },
