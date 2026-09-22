@@ -51,12 +51,17 @@ const HEARTBEAT_MISS_LIMIT_IDLE = 3;
  * Real deaths still surface via exit/fatal; Stop uses abort force-kill; renderer
  * soft-hang covers "worker alive but no output" without killing mid-tool.
  *
- * A turn whose event loop stays silent past STALL_EMIT_MS is beyond "slow work":
+ * A turn whose event loop stays silent past the stall window (default 75s) is beyond "slow work":
  * the worker answers pings before any command work, so 75s of zero messages means
  * the loop is wedged (e.g. stdout pipe backpressure, deadlock, OOM thrash). Emit
  * worker_stall (never kill mid-turn) so the renderer can abort + restart + resend.
  */
-export const STALL_EMIT_MS = 75_000;
+let stallEmitMs = 75_000;
+
+/** 「重试」设置热更新卡死判定阈值。 */
+export function setStallEmitMs(ms: number): void {
+  stallEmitMs = ms;
+}
 /**
  * Stop is a cancel, not a disconnect: `session.abort()` is a signal that
  * normally resolves in milliseconds. Only force-kill the worker after a long
@@ -157,8 +162,8 @@ export type SessionBroker = {
   notifyWorkersReloadStreamRender: (
     streamRender: StreamRenderSettings,
   ) => Promise<void>;
-  /** 热重载某工作区的扩展/MCP 资源（空闲 worker 立即重载，忙碌的等空闲）。 */
-  notifyWorkersReloadResources: (cwd: string) => Promise<void>;
+  /** 热重载扩展/MCP 资源与设置（空闲 worker 立即重载，忙碌的等空闲）；不传 cwd = 通知所有工作区。 */
+  notifyWorkersReloadResources: (cwd?: string) => Promise<void>;
   /** Delete one cached image file (user removed it from the editor). */
   deleteCachedImage: (sessionId: string, cachePath: string) => void;
   /** Cache a pasted / URL image into the session's attachment folder. */
@@ -319,7 +324,7 @@ export function createSessionBroker(deps: {
         // means the loop is wedged, not slow. Emit once — the renderer decides
         // whether to abort + restart; we never kill a mid-turn worker here.
         if (
-          Date.now() - current.lastAliveAt >= STALL_EMIT_MS &&
+          Date.now() - current.lastAliveAt >= stallEmitMs &&
           !current.stallEmitted
         ) {
           current.stallEmitted = true;
@@ -1248,11 +1253,11 @@ export function createSessionBroker(deps: {
   }
 
   /** 空闲 worker 在进程内重载资源（扩展/MCP 配置），忙碌的等空闲后销毁重建。 */
-  async function notifyWorkersReloadResources(cwd: string): Promise<void> {
-    const resolved = path.resolve(cwd);
+  async function notifyWorkersReloadResources(cwd?: string): Promise<void> {
+    const resolved = cwd ? path.resolve(cwd) : null;
     for (const [id, rec] of sessions.entries()) {
       if (!rec.worker) continue;
-      if (path.resolve(rec.cwd) !== resolved) continue;
+      if (resolved && path.resolve(rec.cwd) !== resolved) continue;
       if (rec.summary.status !== "idle") {
         rec.restartOnIdle = true;
         continue;

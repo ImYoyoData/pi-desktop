@@ -43,6 +43,7 @@ declare module 'vue' {
     CustomizeGeneral: typeof import('./src/components/customize/CustomizeGeneral.vue')['default']
     CustomizeHooks: typeof import('./src/components/customize/CustomizeHooks.vue')['default']
     CustomizeModels: typeof import('./src/components/customize/CustomizeModels.vue')['default']
+    CustomizeRetry: typeof import('./src/components/customize/CustomizeRetry.vue')['default']
     CustomizeSection: typeof import('./src/components/customize/CustomizeSection.vue')['default']
     CustomizeTools: typeof import('./src/components/customize/CustomizeTools.vue')['default']
     DiffTab: typeof import('./src/components/DiffTab.vue')['default']
