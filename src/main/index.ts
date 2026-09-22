@@ -51,6 +51,7 @@ import { registerContributorsIpc } from "./contributors-host";
 import { registerPiCliIpc } from "./pi-cli-host";
 import { registerMarketIpc } from "./market-host";
 import { registerCheckpointIpc } from "./checkpoint-ipc";
+import { initRetrySettings, registerRetryIpc } from "./retry-ipc";
 import { registerNotifyIpc } from "./notify-host";
 import {
 	askRendererPermission,
@@ -353,6 +354,8 @@ function boot(): void {
 		registerSecurityIpc(broker);
 		registerThinkingLanguageIpc();
 		registerStreamRenderIpc(broker);
+		registerRetryIpc(broker);
+		initRetrySettings();
 		registerAppearanceIpc();
 		registerLanConsoleIpc(broker);
 		registerPreviewIpc();

@@ -1,5 +1,49 @@
 # Changelog
 
+## v0.3.5-rc.1 (2026-09-22)
+
+本版重点：依赖全面升级——pi-agent 三件套升到 0.87.0、electron 升到 44，工具链同步升级并完成 API 适配；设置新增「重试」面板（自动重试、网络请求、卡死恢复档位），并修复 electron 44 下 dev 启动即报 `Electron uninstall` 的问题。
+
+### 新功能 Features
+
+- **「重试」设置页**：设置 → 通用新增「重试」面板，三组档位——自动重试（Pi SDK 回合层：开关、次数、指数退避基准间隔）、网络请求（HTTP 层重试次数、最大等待、请求超时）、卡死恢复（恢复次数上限、软挂起与卡死判定时长）。设置写入 `~/.pi/agent/settings.json` 的 `retry` 段，保存后热重载给活跃 worker 并同步所有窗口，卡死判定阈值即时在主进程生效。
+
+- **Retry settings page**: a new "Retry" panel under Settings → General with three groups — auto retry (Pi SDK turn layer: toggle, count, backoff base delay), network requests (HTTP-level retries, max retry delay, request timeout) and stuck recovery (recover attempts, soft-hang / stall silence). Values persist to the `retry` section of `~/.pi/agent/settings.json`, hot-reload into live workers on save, sync across windows, and apply the stall threshold in the main process immediately.
+
+### 变更 Changes
+
+- **依赖全面升级**：`@earendil-works/pi-agent-core` / `pi-ai` / `pi-coding-agent` 0.85.1 → 0.87.0，electron 39 → 44，vue、vite、typescript、undici、electron-builder、node-pty 等同步升级到当前最新。
+
+- **electron 44 适配**：剪贴板写图改走 `ClipboardItem` + `write()`——旧 `writeImage` 已从 `Clipboard` 移除，新 API 为 W3C 风格异步接口。
+
+- **pi-coding-agent 0.87 适配**：`emitBeforeAgentStart` 签名变更（不再单独传系统提示），系统提示改经 `BuildSystemPromptOptions` 传递。
+
+- **构建工具链取舍**：typescript 钉在 6.0.3（vue-tsc 尚不支持 TS 7 的原生 tsgo）、vite 钉在 7.x（electron-vite 5 的 peer 上限）；`tsconfig.web.json` 移除已废弃的 `baseUrl`，`paths` 改为相对路径。
+
+- **Dependencies upgraded across the board**: pi-agent-core / pi-ai / pi-coding-agent 0.85.1 → 0.87.0, electron 39 → 44, plus vue, vite, typescript, undici, electron-builder and node-pty to their latest.
+
+- **Electron 44 adaptation**: clipboard image writes now use `ClipboardItem` + `write()` — the old `writeImage` API was removed in favor of the W3C-style async clipboard API.
+
+- **pi-coding-agent 0.87 adaptation**: `emitBeforeAgentStart` changed its signature (the system prompt is no longer a standalone argument) and now receives it through `BuildSystemPromptOptions`.
+
+- **Build toolchain pins**: typescript stays at 6.0.3 (vue-tsc does not support the native tsgo-based TS 7 yet) and vite at 7.x (the peer range of electron-vite 5); `tsconfig.web.json` drops the deprecated `baseUrl` and resolves `paths` relatively.
+
+### 修复 Fixes
+
+- **修复升级 electron 44 后 `npm run dev` 启动即报 `Electron uninstall`**：electron 44 的 npm 包不再自带 `postinstall` 下载脚本，`npm install` 后 `node_modules/electron/dist` 缺失；现 `postinstall` 链首显式执行 `node node_modules/electron/install.js`（沿用 `.npmrc` 镜像配置），全新安装与既有安装都能自动补齐二进制。
+
+- **Fixed `npm run dev` failing with `Electron uninstall` after the Electron 44 upgrade**: the electron 44 npm package no longer ships a `postinstall` download hook, so `npm install` left `node_modules/electron/dist` missing. The `postinstall` chain now runs `node node_modules/electron/install.js` first (using the `.npmrc` mirror config), so both fresh and existing installs fetch the binary automatically.
+
+## v0.3.4-rc.8 (2026-09-21)
+
+本版重点：侧栏「选择」模式补上退出键——多选状态下按 `Esc` 等同点击工具条「取消」，清空选中退回普通列表，与设置窗口的 `Esc` 行为一致。
+
+### 新功能 Features
+
+- **选择模式下 `Esc` 退出**：会话多选时按 `Esc` 等同点击工具条「取消」，清空选中并退回普通列表；设置页内置快捷键清单同步列出 `Esc`。焦点在输入框或有弹层打开时不触发，`Shift+Esc`（关闭终端）不受影响。
+
+- **`Esc` exits select mode**: with sessions multi-selected, `Esc` acts like the toolbar's Cancel button — it clears the selection and returns to the normal list, and is listed under Settings → Keyboard. Text inputs and open overlays keep their own `Esc` handling, and `Shift+Esc` (close terminal) is unaffected.
+
 ## v0.3.4-rc.7 (2026-09-21)
 
 本版重点：侧栏「选择」模式拿到专属快捷键——`Ctrl+P` 从「右侧栏文件」改为进入选择模式；并修好选择模式下 `Del` 一直没反应的问题，设置窗口的 `Esc` 一并恢复。

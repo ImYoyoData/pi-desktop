@@ -42,6 +42,7 @@ const sections = computed<CustomizeSectionEntry[]>(() => [
   { id: "appearance", icon: "appearance", label: t.customizeAppearance, description: t.customizeAppearanceDesc },
   { id: "keys", icon: "keyboard", label: t.customizeKeys, description: t.customizeKeysDesc },
   { id: "models", icon: "models", label: t.customizeModels, description: t.customizeModelsDesc },
+  { id: "retry", icon: "run", label: t.customizeRetry, description: t.customizeRetryDesc },
   { id: "agents", icon: "agents", label: t.customizeAgents, description: t.customizeAgentsDesc },
   { id: "skills", icon: "skills", label: t.customizeSkills, description: t.customizeSkillsDesc },
   { id: "instructions", icon: "instructions", label: t.customizeInstructions, description: t.customizeInstructionsDesc },
@@ -743,6 +744,8 @@ onUnmounted(() => {
         <AboutPanel v-else-if="active === 'about'" />
 
         <CustomizeModels v-else-if="active === 'models'" />
+
+        <CustomizeRetry v-else-if="active === 'retry'" />
 
         <CustomizeHooks v-else-if="active === 'hooks'" :hooks="store.snapshot.hooks" />
 

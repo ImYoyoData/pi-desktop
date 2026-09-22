@@ -29,6 +29,7 @@ import type {
 	TestProviderBaseUrlResult,
 } from "../shared/model-discover";
 import type { PreviewResult } from "../shared/preview-types";
+import type { RetrySettings } from "../shared/retry-settings";
 import type {
 	AsrInstallProgress,
 	AsrStatus,
@@ -115,6 +116,11 @@ declare const api: {
 		get: () => Promise<ProxySettings>;
 		set: (settings: ProxySettings) => Promise<ProxySettings>;
 		onChanged: (callback: (settings: ProxySettings) => void) => () => void;
+	};
+	retry: {
+		get: () => Promise<RetrySettings>;
+		set: (settings: RetrySettings) => Promise<RetrySettings>;
+		onChanged: (callback: (settings: RetrySettings) => void) => () => void;
 	};
 	window: {
 		platform: () => Promise<NodeJS.Platform>;

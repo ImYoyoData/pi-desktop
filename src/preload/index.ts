@@ -77,6 +77,7 @@ import type {
 import type { ProxySettings } from "../shared/proxy";
 import type { ThinkingLanguageSettings } from "../shared/thinking-language";
 import type { StreamRenderSettings } from "../shared/stream-render";
+import type { RetrySettings } from "../shared/retry-settings";
 
 export type AppInfo = {
 	version: string;
@@ -172,6 +173,25 @@ const api = {
 			ipcRenderer.on(IpcChannels.proxy.changed, listener);
 			return () => {
 				ipcRenderer.removeListener(IpcChannels.proxy.changed, listener);
+			};
+		},
+	},
+	retry: {
+		get: () =>
+			ipcRenderer.invoke(IpcChannels.retry.get) as Promise<RetrySettings>,
+		set: (settings: RetrySettings) =>
+			ipcRenderer.invoke(
+				IpcChannels.retry.set,
+				settings,
+			) as Promise<RetrySettings>,
+		onChanged: (callback: (settings: RetrySettings) => void) => {
+			const listener = (
+				_event: Electron.IpcRendererEvent,
+				settings: RetrySettings,
+			) => callback(settings);
+			ipcRenderer.on(IpcChannels.retry.changed, listener);
+			return () => {
+				ipcRenderer.removeListener(IpcChannels.retry.changed, listener);
 			};
 		},
 	},

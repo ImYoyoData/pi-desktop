@@ -40,6 +40,14 @@ export const IpcChannels = {
 		/** Renderer → main: 保存「流式渲染」设置（并热重载给活跃 worker）。 */
 		set: "streamRender:set",
 	},
+	retry: {
+		/** Renderer → main: 读取「重试」设置。 */
+		get: "retry:get",
+		/** Renderer → main: 保存「重试」设置（并热重载给活跃 worker）。 */
+		set: "retry:set",
+		/** Main → renderer: 重试设置变更（多窗口同步）。 */
+		changed: "retry:changed",
+	},
 	appearance: {
 		/** Renderer → main: 选择壁纸文件（图片/动图/视频）。 */
 		pickWallpaper: "appearance:pickWallpaper",
