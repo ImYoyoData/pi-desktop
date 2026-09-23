@@ -192,6 +192,15 @@ export const useChatStore = defineStore("chat", () => {
 	/** Turns the user explicitly stopped — their prompt_done must NOT
 	 *  auto-complete the (paused) todo list. */
 	const stopIntentBySession = new Set<string>();
+	/**
+	 * Sessions with a stop in flight.
+	 *
+	 * Stopping is an RPC to the worker, and a worker that is busy (long tool call,
+	 * big session write) may not get to it for a while. Without this the Stop
+	 * button just sat there looking dead for the whole wait, which read as the app
+	 * having frozen; the UI now shows the request was received immediately.
+	 */
+	const stoppingBySession = reactive<Record<string, boolean>>({});
 	/** Per-session prompt chain: sends are strictly serial per session so two
 	 *  queued prompts never race the worker or corrupt the single-active
 	 *  checkpoint (duplicate sends from the queue-edit path caused both). */
@@ -285,6 +294,13 @@ export const useChatStore = defineStore("chat", () => {
 		const id = sessionsStore.activeId;
 		if (!id) return false;
 		return stateFor(id).running;
+	});
+
+	/** The active session has a stop request in flight (worker not idle yet). */
+	const activeStopping = computed(() => {
+		const id = sessionsStore.activeId;
+		if (!id) return false;
+		return Boolean(stoppingBySession[id]) && stateFor(id).running;
 	});
 
 	/** Fields for the long-running wait indicator (phase / silence / worker alive). */
@@ -551,6 +567,9 @@ export const useChatStore = defineStore("chat", () => {
 			}
 		}
 		if (event.type === "prompt_done") {
+			// Turn over: clear the in-flight stop marker first so the Stop button
+			// returns to Send on the same paint that ends the turn.
+			stoppingBySession[sessionId] = false;
 			// Turn over: close any todo items the model left open so the
 			// checklist always finishes with a frozen total time — unless the
 			// user stopped this turn (paused list stays for continue/delete).
@@ -1125,6 +1144,9 @@ export const useChatStore = defineStore("chat", () => {
 		// User-initiated stop: freeze the todo round as paused — the user
 		// decides to continue or delete; never auto-complete it.
 		stopIntentBySession.add(sessionId);
+		// Light up the stopping UI before the RPC: the worker may take a while to
+		// reach the abort (busy tool call), and a silent button reads as a freeze.
+		stoppingBySession[sessionId] = true;
 
 		const row = sessionsStore.sessions.find((s) => s.id === sessionId);
 		if (row?.status === "stuck") {
@@ -1139,9 +1161,17 @@ export const useChatStore = defineStore("chat", () => {
 					retryHint: null,
 				}),
 			);
+			stoppingBySession[sessionId] = false;
 			return;
 		}
-		await sessionsStore.sendCommand(sessionId, { type: "abort" });
+		try {
+			await sessionsStore.sendCommand(sessionId, { type: "abort" });
+		} finally {
+			// The turn may still be winding down; `prompt_done` clears running and
+			// with it activeStopping. Only drop the flag early if the worker has
+			// already gone idle, so the button never gets stuck in "stopping".
+			if (!stateFor(sessionId).running) stoppingBySession[sessionId] = false;
+		}
 	}
 
 	async function truncateFrom(
@@ -1472,6 +1502,7 @@ export const useChatStore = defineStore("chat", () => {
 		activeMessages,
 		activeStreaming,
 		activeRunning,
+		activeStopping,
 		activeWaitState,
 		activeRetryHint,
 		activePendingAskUser,

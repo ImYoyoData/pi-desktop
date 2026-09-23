@@ -184,7 +184,14 @@ async function onUpdateClick(): Promise<void> {
   align-items: center;
   height: 36px;
   padding: 0 8px;
-  background: color-mix(in srgb, var(--bg-title) 88%, var(--bg-elevated));
+  /*
+   * 半透明标题栏：颜色只做轻微压暗（一档 26%），让下面的内容/壁纸透出来。
+   * 配合 backdrop-filter 形成磨砂玻璃 —— 启用壁纸时透的是壁纸，未启用时透的是
+   * 窗口底色（Electron backgroundColor），两种情况都不会出现实心色块。
+   * 透明度刻意保守，避免文字对比度受背景影响。
+   */
+  background: color-mix(in srgb, var(--bg-title) 74%, transparent);
+  backdrop-filter: blur(18px) saturate(1.2);
   border-bottom: 1px solid var(--border);
   color: var(--fg-muted);
   font-size: 12px;

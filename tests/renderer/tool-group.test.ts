@@ -4,6 +4,7 @@ import {
   categorizeToolCall,
   finalAnswerRowIds,
   summarizeWorkSection,
+  workSectionCountSummary,
   workSectionLiveTitle,
   type WorkSectionRow,
   type WorkSectionSummaryStrings,
@@ -158,11 +159,56 @@ const summaryStrings: WorkSectionSummaryStrings = {
   readMany: (n) => `Reviewed ${n} files`,
   readAndEdited: (f) => `Reviewed and updated ${f}`,
   steps: (n) => `Finished with ${n} steps`,
+  editCount: (n) => `Updated ${n} files`,
+  readCount: (n) => `Reviewed ${n} files`,
+  bashCount: (n) => `Ran ${n} commands`,
+  todoCount: (n) => `Updated todos ${n} times`,
+  toolCount: (n) => `Used ${n} tools`,
 };
 
 function tools(...list: WorkSectionTool[]): WorkSectionTool[] {
   return list;
 }
+
+describe("workSectionCountSummary", () => {
+  it("joins one segment per category, each with its count", () => {
+    expect(
+      workSectionCountSummary(
+        tools(
+          { kind: "read", target: "a.ts" },
+          { kind: "read", target: "b.ts" },
+          { kind: "edit", target: "c.ts" },
+          { kind: "bash", target: "ls" },
+          { kind: "bash", target: "rg foo" },
+          { kind: "todo", target: "" },
+          { kind: "tool", target: "grep" },
+        ),
+        0,
+        summaryStrings,
+      ),
+    ).toBe(
+      "Updated 1 files · Reviewed 2 files · Ran 2 commands · Updated todos 1 times · Used 1 tools",
+    );
+  });
+
+  it("drops categories with a count of zero", () => {
+    expect(
+      workSectionCountSummary(
+        tools(
+          { kind: "read", target: "a.ts" },
+          { kind: "read", target: "b.ts" },
+        ),
+        0,
+        summaryStrings,
+      ),
+    ).toBe("Reviewed 2 files");
+  });
+
+  it("falls back to a step count when the section has no tools", () => {
+    expect(workSectionCountSummary([], 3, summaryStrings)).toBe("Finished with 3 steps");
+    expect(workSectionCountSummary([], 0, summaryStrings)).toBe("Finished with 0 steps");
+  });
+});
 
 describe("summarizeWorkSection", () => {
   it("combines read+edit of the same file", () => {

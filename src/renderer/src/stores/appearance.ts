@@ -35,6 +35,11 @@ const MESSAGE_PREVIEW_IMAGE_KEY = "pi-desktop:message-preview-image";
 const SESSION_HOVER_ACTIONS_KEY = "pi-desktop:session-hover-actions";
 const TRUNCATE_TOOL_OUTPUT_KEY = "pi-desktop:truncate-tool-output";
 const PRIVILEGE_LEVEL_KEY = "pi-desktop:show-privilege-level";
+/**
+ * Whether tool calls (read / write / edit / bash …) start expanded while the turn
+ * is streaming. Off → every card starts folded and the user opens what they want.
+ */
+const EXPAND_TOOL_CALLS_KEY = "pi-desktop:expand-tool-calls";
 
 /** 工具输出预览的可选截断行数；0 表示不截断。 */
 export const TRUNCATE_TOOL_OUTPUT_CHOICES = [0, 10, 24, 50, 100] as const;
@@ -104,6 +109,15 @@ function readSessionHoverActions(): boolean {
 function readShowPrivilegeLevel(): boolean {
   try {
     return localStorage.getItem(PRIVILEGE_LEVEL_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+/** Default OFF: tool calls start folded, which keeps long turns scannable. */
+function readExpandToolCalls(): boolean {
+  try {
+    return localStorage.getItem(EXPAND_TOOL_CALLS_KEY) === "1";
   } catch {
     return false;
   }
@@ -230,6 +244,7 @@ export const useAppearanceStore = defineStore("appearance", () => {
   const showSessionHoverActions = ref(readSessionHoverActions());
   const truncateToolOutputLines = ref(readTruncateToolOutputLines());
   const showPrivilegeLevel = ref(readShowPrivilegeLevel());
+  const expandToolCalls = ref(readExpandToolCalls());
   const customAppearance = ref<CustomAppearanceSettings>(readCustomAppearance());
   const wallpaperBroken = ref(false);
 
@@ -357,6 +372,15 @@ export const useAppearanceStore = defineStore("appearance", () => {
     }
   }
 
+  function setExpandToolCalls(next: boolean): void {
+    expandToolCalls.value = next;
+    try {
+      localStorage.setItem(EXPAND_TOOL_CALLS_KEY, next ? "1" : "0");
+    } catch {
+      // ignore
+    }
+  }
+
   /** 壁纸开合会切换整套配色，玻璃相关的 DOM 变量与暗色文字一起刷新。 */
   function syncGlassShell(): void {
     applyCustomAppearance(customAppearance.value, wallpaperBroken.value);
@@ -452,6 +476,7 @@ export const useAppearanceStore = defineStore("appearance", () => {
     showSessionHoverActions,
     showPrivilegeLevel,
     truncateToolOutputLines,
+    expandToolCalls,
     wallpaper,
     surfaces,
     messageWidth,
@@ -467,6 +492,7 @@ export const useAppearanceStore = defineStore("appearance", () => {
     setSessionHoverActions,
     setShowPrivilegeLevel,
     setTruncateToolOutputLines,
+    setExpandToolCalls,
     setWallpaperFile,
     clearWallpaper,
     setVeilOpacity,

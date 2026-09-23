@@ -2,13 +2,53 @@
 
 ## v0.3.5-rc.2 (2026-09-23)
 
-本版重点：修复 pi 0.87 升级后插件工具在 Agent 会话与设置-工具页全部消失的问题。
+本版重点：修复 pi 0.87 升级后插件工具在 Agent 会话与设置-工具页全部消失的问题；此外重做了工具调用的折叠体验（默认折叠 + 分类次数小结）、修好了 Windows 上的 bash 工具，并大幅改善了「停止」时的卡顿。
+
+### 新功能 Features
+
+- **工具调用默认折叠 + 设置开关**：读取/写入文件、执行命令等工具卡片默认**全部折叠**，长回合不再被 diff 和文件内容淹没。设置 → 外观新增「展开工具调用详情」开关，打开后恢复原来的行为（写入/编辑/命令/清单在流式时自动展开，读取始终折叠）。
+- **折叠后显示分类次数小结**：折叠起来的过程行汇总成一行，例如「查看了 2 个文件 · 执行了 1 条命令 · 更新了 1 次清单」，明确告诉你这一轮做了什么、各做了几次，而不是只挑一个文件名。
+- **进行中显示当前所有操作**：回合还在跑时标题显示**所有正在进行的步骤**（并行操作并列展示，各占一段），收尾后自动换成上面的分类小结 —— 运行中能看清"现在在干嘛"，结束后只留结论。
+- **引导内容不再"消失"**：回复期间发送的内容，之前会有一段时间在界面上完全看不到（引导是立即注入的，但 Pi 要等当前工具调用跑完才把它写进会话记录）。现在发送后立刻显示为「引导中」卡片，直到真正出现在聊天记录里。
+- **「回答语言」设置**：设置 → 外观可为 Pi 的回复指定语言（20 种，默认「跟随设备」按系统语言判断），与界面语言相互独立 —— 界面英文而 Pi 用中文回答是可以的。语言写入系统提示词，避免模型跟着上一条消息的语言漂移。
+
+- **Tool calls collapsed by default, with a toggle**: file reads/writes and command cards now start folded, so a long turn is no longer buried under diffs and file dumps. Settings → Appearance gains an "Expand tool call details" switch that restores the previous per-kind behaviour (write/edit/bash/todo expand while streaming, reads stay folded).
+- **Per-category counts in the folded summary**: a folded process section now reads like "Reviewed 2 files · Ran 1 command · Updated todos 1 time" — what happened and how many times, instead of naming a single file.
+- **Live view of everything in flight**: while a turn runs, the header lists every step currently running (parallel steps each get their own segment), then swaps to the count summary once it settles.
+- **Guidance no longer appears to vanish**: text sent while Pi was replying used to be invisible for a while (steering is injected immediately, but Pi only writes it into the session after the current tool calls finish). It now shows as a "Guiding" card from the moment it is sent until it lands in the transcript.
+- **Answer language setting**: Settings → Appearance lets you pin the language Pi replies in (20 options, defaulting to "follow the device"). Independent of the interface language, and written into the system prompt so the model does not drift into whatever language the last message used.
+
+### 变更 Changes
+
+- **标题栏改为半透明**：顶栏颜色改为 74% 不透明并加毛玻璃模糊，启用壁纸时透出壁纸、未启用时透出窗口底色，不再是实心色块；拖动窗口的行为不受影响。
+- **输入框与聊天区域同宽**：输入框去掉了自己独立的 748px 宽度上限，改为与消息内容共用同一个列盒子（同一个「消息宽度」设置 + 同样的内边距），左边缘严格对齐；`ask_user` 卡片、权限弹窗、扩展 UI 也一并统一。拖动「消息宽度」时输入框会跟着一起变。消息列表同时固定预留滚动条槽位，避免滚动条出现/消失时整列左右跳动。
+
+- **Semi-transparent title bar**: the bar is now 74% opaque with a backdrop blur, showing the wallpaper through it when one is set (and the window backing colour otherwise) instead of a solid block.
+- **Composer now matches the chat column width**: the input no longer has its own 748px cap and instead shares the message content's column box (same "message width" setting and the same padding), so the left edges line up exactly. The ask_user card, permission dialog and extension UI were unified the same way. The message list also reserves its scrollbar gutter so the column no longer shifts when a scrollbar appears.
 
 ### 修复 Fixes
 
 - **修复插件工具在 Agent 会话与设置-工具页全部消失**：pi 0.87 的扩展加载器改为按 `usesEmbeddedModules` 三分支选择解析方式，构建期 Electron 补丁的正则不再匹配，打包产物回落到 `getAliases()`；CJS 下 `import.meta.resolve` 退化为 `require.resolve`，而 Pi 各包是 ESM-only（exports 只有 `import` 条件），解析必然抛 `ERR_PACKAGE_PATH_NOT_EXPORTED`，所有扩展加载失败。现将兜底分支替换为 `virtualModules`，扩展改用产物内已打包的模块解析，插件工具在会话与设置页恢复。
 
 - **Fixed plugin tools vanishing from Agent sessions and Settings → Tools**: pi 0.87's extension loader now picks its resolution strategy through a three-branch `usesEmbeddedModules`, so the build-time Electron patch regex no longer matched and the bundle fell back to `getAliases()`. Under CJS `import.meta.resolve` degrades to `require.resolve`, and since the Pi packages are ESM-only (exports expose only the `import` condition) this always throws `ERR_PACKAGE_PATH_NOT_EXPORTED`, failing every extension load. The fallback branch is now replaced with `virtualModules`, resolving extensions against the modules already bundled into the output, restoring plugin tools in sessions and Settings.
+
+- **修复 Windows 上 bash 工具不可用**（`execvpe(/bin/bash) failed: No such file or directory`）：工具原本退回到 PATH 上的 `bash.exe`，而那其实是 WSL 启动器，未安装 WSL 发行版时必然失败。现在会从 PATH 上的 `git` 反推真正的 bash（例如 Git 装在 D 盘、`%ProgramFiles%` 在 C 盘这种情况也能找到），找不到才改用内置 PowerShell 工具，并禁止调用不可用的 bash，避免模型反复撞错。
+- **修复点「停止」时的卡顿与假死**：停止是一次等待 worker 回应的 RPC，而 force-kill 兜底时限原本是 **30 秒** —— worker 若正忙于同步的工具调用或大文件写盘，界面就会一直没有任何反馈，看起来像卡死。现在兜底降到 8 秒，并且点击瞬间按钮就变成「正在停止…」的加载态，即使 worker 要过几秒才腾出手，也能立刻知道请求已收到。
+- **修复「新建会话」不输入内容仍会残留空会话文件**：点「新建会话」会预热一个会话（界面立刻可用、不落侧栏），但退出时只清理了"已激活但未使用"的会话，**预热草稿**那条路径没有释放，于是磁盘上留下一个永远不出现在侧栏的空 jsonl。现在退出时会同时释放预热草稿与未使用的会话，实测点「新建会话」→ 不输入 → 退出后文件不再残留。
+- **修复权限弹窗比输入框宽**：权限卡、ask_user 卡与扩展 UI 之前不跟随聊天列宽度，会横跨整个面板；现在与输入框使用同一列几何。
+
+- **Fixed the bash tool being unusable on Windows** (`execvpe(/bin/bash) failed: No such file or directory`): its shell fallback picked `bash.exe` from PATH, which is the WSL launcher and fails whenever no WSL distribution is installed. A real bash is now derived from the `git` found on PATH — which also covers Git installed on a different drive than `%ProgramFiles%` — and only when none exists does the app switch to the built-in PowerShell tool and deny the broken `bash` tool.
+- **Fixed the stall and dead-feeling UI when pressing Stop**: stopping is an RPC that waits for the worker, and the force-kill fallback was **30 seconds** — if the worker was busy in a synchronous tool call or a large session write, the UI showed nothing for the whole wait. The fallback is now 8 seconds, and the button switches to a "Stopping…" spinner the moment it is clicked.
+- **Fixed abandoned "new session" drafts leaving an empty session file on disk**: clicking 新建会话 pre-warms a session (usable immediately, never shown in the sidebar), but quit-time cleanup only handled the active-but-unused case and never released the *prepared draft*, so an empty jsonl stayed on disk while being hidden from the sidebar. Quit now releases both; verified that new session → type nothing → quit leaves no file behind.
+- **Fixed the permission dialog being wider than the input box**: the permission card, ask_user card and extension UI did not follow the chat column and spanned the whole panel; they now share the composer's column geometry.
+
+### 优化 / 体验 Improvements
+
+- **折叠/展开更顺滑**：按分段内容体量决定是否做动画，超大分段的折叠改为瞬时切换，避免逐帧重排海量节点造成卡顿。
+- **输入框跟随「消息宽度」设置**：调整消息宽度时输入框同步变化，两者不会再脱节；消息列固定预留滚动条槽位，列宽不再随内容长短跳动。
+
+- **Smoother folding**: whether a fold animates is decided by the section's content size, and oversized sections snap instead of re-laying out thousands of nodes every frame.
+- **The composer follows the message-width setting** and the chat column reserves its scrollbar gutter, so the two never drift apart and the column width no longer jumps with content length.
 
 ## v0.3.5-rc.1 (2026-09-22)
 

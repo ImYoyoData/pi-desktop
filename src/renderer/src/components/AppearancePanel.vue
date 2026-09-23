@@ -119,6 +119,12 @@ const showPrivilegeLevel = computed({
   set: (value: boolean) => appearance.setShowPrivilegeLevel(value),
 });
 
+/** 工具调用详情（读写文件、命令等）是否默认展开。 */
+const expandToolCalls = computed({
+  get: () => appearance.expandToolCalls,
+  set: (value: boolean) => appearance.setExpandToolCalls(value),
+});
+
 const showMessagePreview = computed({
   get: () => appearance.showMessagePreview,
   set: (value: boolean) => appearance.setShowMessagePreview(value),
@@ -407,6 +413,23 @@ function onMessageWidthChange(value: string | number | null): void {
           </NRadioGroup>
         </div>
       </template>
+
+      <NDivider style="margin: 0" />
+
+      <div class="switch-row">
+        <div class="switch-labels">
+          <NText strong>{{ t.expandToolCalls }}</NText>
+          <NText depth="3" class="switch-hint">{{ t.expandToolCallsHint }}</NText>
+        </div>
+        <NRadioGroup
+          v-model:value="expandToolCalls"
+          size="small"
+          class="setting-radio-group"
+        >
+          <NRadioButton :value="true">{{ t.switchOn }}</NRadioButton>
+          <NRadioButton :value="false">{{ t.switchOff }}</NRadioButton>
+        </NRadioGroup>
+      </div>
     </template>
   </div>
 </template>
@@ -431,6 +454,11 @@ function onMessageWidthChange(value: string | number | null): void {
   flex-direction: column;
   gap: 4px;
   min-width: 0;
+}
+
+.switch-hint {
+  font-size: 12px;
+  line-height: 1.45;
 }
 
 .setting-select {

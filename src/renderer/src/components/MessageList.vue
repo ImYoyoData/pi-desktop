@@ -104,12 +104,35 @@ const sendQueue = useSendQueueStore();
 const sessions = useSessionsStore();
 
 /**
- * Queued sends still waiting for their turn, shown as cards at the tail so the
- * message never appears to vanish while the agent finishes what it is doing.
+ * Messages that are not in the transcript yet, shown as cards at the tail so they
+ * never appear to vanish:
+ * - `queued`  — waiting for the turn to end before being sent.
+ * - `steered` — already handed to the running turn; the agent writes it into the
+ *   session only after the current tool calls finish, so it is invisible until then.
  */
-const pendingQueueCards = computed(() => sendQueue.activeItems);
+const pendingCards = computed(() => [
+  ...sendQueue.activePendingSteers.map((item) => ({ item, kind: "steered" as const })),
+  ...sendQueue.activeItems.map((item) => ({ item, kind: "queued" as const })),
+]);
 
-/** One-line preview for a queued card (mirrors SendQueueBar). */
+/**
+ * Drop in-flight guidance once it has landed in the transcript, otherwise the card
+ * would outlive the message it represents.
+ */
+watch(
+  () => {
+    const id = sessions.activeId;
+    if (!id) return 0;
+    const state = chat.bySession[id];
+    const last = state?.messages.at(-1);
+    return last?.role === "user" ? state.messages.length : 0;
+  },
+  (len) => {
+    if (len > 0 && sessions.activeId) sendQueue.clearPendingSteers(sessions.activeId);
+  },
+);
+
+/** One-line preview for a pending card (mirrors SendQueueBar). */
 function queuePreview(item: { text: string; images?: unknown[]; elementTags?: { label?: string }[] }): string {
   const raw = item.text.replace(/\s+/gu, " ").trim();
   if (raw) return raw;
@@ -2267,14 +2290,16 @@ function onRevertUser(msg: Extract<ChatMessage, { role: "user" }>): void {
       </template>
 
       <!--
-        Guidance that is waiting its turn. Without this the message vanished from
-        the UI the moment it was queued (it only came back as a bubble when the
-        agent got to it), which read as "my message was lost".
+        Guidance that is not in the transcript yet. Without this the message
+        vanished from the UI the moment it was sent/queued (it only came back as a
+        bubble when the agent got to it), which read as "my message was lost".
       -->
-      <div v-if="pendingQueueCards.length" class="steer-cards" aria-live="polite">
-        <div v-for="item in pendingQueueCards" :key="item.id" class="steer-card">
-          <span class="steer-card-tag">{{ t.steerPendingTag }}</span>
-          <span class="steer-card-text">{{ queuePreview(item) }}</span>
+      <div v-if="pendingCards.length" class="steer-cards" aria-live="polite">
+        <div v-for="row in pendingCards" :key="row.item.id" class="steer-card">
+          <span class="steer-card-tag">
+            {{ row.kind === "steered" ? t.steerPendingSent : t.steerPendingTag }}
+          </span>
+          <span class="steer-card-text">{{ queuePreview(row.item) }}</span>
         </div>
       </div>
     </div>
@@ -2429,6 +2454,16 @@ function onRevertUser(msg: Extract<ChatMessage, { role: "user" }>): void {
   overflow: auto;
   min-height: 0;
   background: var(--bg);
+  /*
+   * Always reserve the scrollbar gutter, symmetrically.
+   *
+   * The columns inside are centred percentage boxes, so a classic (non-overlay)
+   * scrollbar appearing/disappearing used to resize and shift the whole message
+   * column by half the scrollbar width — which made it drift out of line with the
+   * composer, and jump when the first message overflowed. Reserving it on both
+   * edges keeps the column centred and a constant width.
+   */
+  scrollbar-gutter: stable both-edges;
   /* Body defaults to user-select:none — allow selecting chat text to copy. */
   user-select: text;
   -webkit-user-select: text;
@@ -2443,14 +2478,15 @@ function onRevertUser(msg: Extract<ChatMessage, { role: "user" }>): void {
   width: 100%;
   max-width: var(--pi-message-max, 75%);
   margin: 0 auto;
-  padding: 16px 16px;
+  /* Horizontal inset shared with the composer via --chat-column-pad-x so the
+     input box lines up with the message content. */
+  padding: 16px var(--chat-column-pad-x, 16px);
   display: flex;
   flex-direction: column;
   gap: 16px;
   min-height: 100%;
   box-sizing: border-box;
 }
-
 .virtual-spacer {
   flex-shrink: 0;
   width: 100%;
