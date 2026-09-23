@@ -1,4 +1,5 @@
-import { resolve } from "path";
+import { copyFileSync, mkdirSync } from "node:fs";
+import { dirname, resolve } from "node:path";
 import { defineConfig } from "electron-vite";
 import type { Plugin } from "vite";
 import vue from "@vitejs/plugin-vue";
@@ -57,9 +58,31 @@ function trimMonacoLanguages(): Plugin {
   };
 }
 
+/**
+ * jiti 的懒加载 Babel 后备写成 `createRequire(import.meta.url)("../dist/babel.cjs")`，
+ * 路径相对它自己所在文件解析。jiti 被 Rollup 打进 out/main/chunks/ 后，该路径变成
+ * out/main/dist/babel.cjs —— 产物里没有这个文件，任何需要转译的扩展/配置首次加载
+ * 都会抛 `Cannot find module '../dist/babel.cjs'`（MCP 工具、扩展全部失效）。
+ * babel.cjs 只依赖 node 内建模块，复制到它期望的位置即可。
+ */
+function copyJitiBabelRuntime(): Plugin {
+  return {
+    name: "pi-jiti-babel-runtime",
+    writeBundle() {
+      const target = resolve("out/main/dist/babel.cjs");
+      mkdirSync(dirname(target), { recursive: true });
+      copyFileSync(resolve("node_modules/jiti/dist/babel.cjs"), target);
+    },
+  };
+}
+
 export default defineConfig({
   main: {
-    plugins: [piExtensionLoaderElectronPlugin(), piOAuthElectronPlugin()],
+    plugins: [
+      piExtensionLoaderElectronPlugin(),
+      piOAuthElectronPlugin(),
+      copyJitiBabelRuntime(),
+    ],
     build: {
       externalizeDeps: {
         exclude: piEsmPackages,
