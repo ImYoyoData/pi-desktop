@@ -1,5 +1,15 @@
 # Changelog
 
+## v0.3.5-rc.2 (2026-09-23)
+
+本版重点：修复 pi 0.87 升级后插件工具在 Agent 会话与设置-工具页全部消失的问题。
+
+### 修复 Fixes
+
+- **修复插件工具在 Agent 会话与设置-工具页全部消失**：pi 0.87 的扩展加载器改为按 `usesEmbeddedModules` 三分支选择解析方式，构建期 Electron 补丁的正则不再匹配，打包产物回落到 `getAliases()`；CJS 下 `import.meta.resolve` 退化为 `require.resolve`，而 Pi 各包是 ESM-only（exports 只有 `import` 条件），解析必然抛 `ERR_PACKAGE_PATH_NOT_EXPORTED`，所有扩展加载失败。现将兜底分支替换为 `virtualModules`，扩展改用产物内已打包的模块解析，插件工具在会话与设置页恢复。
+
+- **Fixed plugin tools vanishing from Agent sessions and Settings → Tools**: pi 0.87's extension loader now picks its resolution strategy through a three-branch `usesEmbeddedModules`, so the build-time Electron patch regex no longer matched and the bundle fell back to `getAliases()`. Under CJS `import.meta.resolve` degrades to `require.resolve`, and since the Pi packages are ESM-only (exports expose only the `import` condition) this always throws `ERR_PACKAGE_PATH_NOT_EXPORTED`, failing every extension load. The fallback branch is now replaced with `virtualModules`, resolving extensions against the modules already bundled into the output, restoring plugin tools in sessions and Settings.
+
 ## v0.3.5-rc.1 (2026-09-22)
 
 本版重点：依赖全面升级——pi-agent 三件套升到 0.87.0、electron 升到 44，工具链同步升级并完成 API 适配；设置新增「重试」面板（自动重试、网络请求、卡死恢复档位），并修复 electron 44 下 dev 启动即报 `Electron uninstall` 的问题。
