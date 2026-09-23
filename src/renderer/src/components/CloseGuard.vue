@@ -37,10 +37,15 @@ async function forceCloseAfterKill(ids: string[]): Promise<void> {
   await window.api.window.forceClose();
 }
 
-/** Discard the active session when it was never used (no messages, no name). */
-async function discardActiveUnstarted(): Promise<void> {
+/**
+ * Drop a "新会话" the user never sent anything in — both the pre-warmed draft
+ * (click 新建会话 then quit, where no session was ever active) and a session that
+ * exists but has no messages. Without the draft half, an empty jsonl was left on
+ * disk even though the sidebar never showed it.
+ */
+async function discardUnstarted(): Promise<void> {
   try {
-    await sessions.discardActiveIfUnstarted();
+    await sessions.discardUnstartedOnQuit();
   } catch {
     // best-effort cleanup before force close
   }
@@ -55,7 +60,7 @@ async function handleCloseRequest(): Promise<void> {
       try {
         // Close may kill the renderer right after this call, so clean the
         // abandoned "新会话" before asking the window to close.
-        await discardActiveUnstarted();
+        await discardUnstarted();
         await window.api.window.forceClose();
       } finally {
         handling = false;
@@ -69,6 +74,9 @@ async function handleCloseRequest(): Promise<void> {
       negativeText: t.cancel,
       onPositiveClick: async () => {
         try {
+          // Killing the worker leaves the session usable, so an unstarted one can
+          // still be dropped here.
+          await discardUnstarted();
           await forceCloseAfterKill(running);
         } finally {
           handling = false;

@@ -64,11 +64,16 @@ export function setStallEmitMs(ms: number): void {
 }
 /**
  * Stop is a cancel, not a disconnect: `session.abort()` is a signal that
- * normally resolves in milliseconds. Only force-kill the worker after a long
- * grace period so a mid-tool abort (e.g. a slow LLM stream teardown) never
- * tears down the warm Pi connection + its prompt cache on a routine Stop.
+ * normally resolves in milliseconds. This is the fallback for a worker that
+ * cannot reach the abort at all (stuck in a synchronous tool call / giant
+ * session write): the command is then rejected, the worker killed, and the
+ * session reset so any Stop ends the turn.
+ *
+ * Kept short on purpose — the grace period is the window in which the app looks
+ * hung, and 30s of that felt like a freeze. Warm Pi connections and their prompt
+ * cache are only worth preserving when the worker is actually responsive.
  */
-export const ABORT_FORCE_KILL_MS = 30_000;
+export const ABORT_FORCE_KILL_MS = 8_000;
 const SHUTDOWN_GRACE_MS = 800;
 const CONTEXT_SEGMENT_IDS = new Set<ContextUsageSegmentId>([
   "system",

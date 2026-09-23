@@ -93,9 +93,15 @@ async function reply(decision: PermissionDecision): Promise<void> {
 </template>
 
 <style scoped>
+/* Shares the chat column's box (same cap + padding as the composer and the
+   message content) so the permission card lines up under them. */
 .permission-wrap {
   flex-shrink: 0;
-  padding: 0 12px 10px;
+  width: 100%;
+  max-width: var(--pi-message-max, 75%);
+  margin: 0 auto;
+  padding: 0 var(--chat-column-pad-x, 16px) 10px;
+  box-sizing: border-box;
   max-height: min(42vh, 420px);
   display: flex;
   flex-direction: column;

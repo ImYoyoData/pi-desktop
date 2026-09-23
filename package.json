@@ -82,6 +82,7 @@
     "electron": "^44.4.3",
     "electron-builder": "^26.15.3",
     "electron-vite": "^5.0.0",
+    "jiti": "2.7.0",
     "typescript": "^6.0.3",
     "unplugin-vue-components": "^32.1.0",
     "vite": "^7.3.6",

@@ -363,6 +363,20 @@ export const useSessionsStore = defineStore("sessions", () => {
     return true;
   }
 
+  /**
+   * Quit-time cleanup for a "新会话" the user never sent anything in.
+   *
+   * Two shapes have to be handled:
+   * - a *prepared* draft (clicked 新建会话, then quit) — `activeId` is still null,
+   *   so `discardActiveIfUnstarted` alone leaves its pre-warmed session file on
+   *   disk. It never appeared in the sidebar, but the empty jsonl survived.
+   * - a committed-but-unstarted session (created, still no messages).
+   */
+  async function discardUnstartedOnQuit(): Promise<void> {
+    await releasePreparedDraft();
+    await discardActiveIfUnstarted();
+  }
+
   async function sendCommand(
     sessionId: string,
     command: AgentCommand,
@@ -462,6 +476,7 @@ export const useSessionsStore = defineStore("sessions", () => {
     commitDraft,
     selectSession,
     discardActiveIfUnstarted,
+    discardUnstartedOnQuit,
     sendCommand,
     tryCommand,
     killWorker,
