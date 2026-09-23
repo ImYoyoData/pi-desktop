@@ -104,6 +104,9 @@ asarUnpack:
   - "**/session-history-worker.js"
   # Workers require() shared modules chunked beside them — must be unpacked too.
   - "**/out/main/chunks/**"
+  # chunks 里的 jiti 懒加载 Babel 按 ../dist/babel.cjs 相对 require，必须落在同一个
+  # unpacked 树内（asar 内路径从 unpacked 树解析不到）。
+  - "**/out/main/dist/**"
 extraResources:
   - from: resources/
     to: resources/

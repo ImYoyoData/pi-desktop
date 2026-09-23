@@ -49,6 +49,7 @@ Desktop.ini
 # --- Test & tool caches ---
 coverage
 .vite
+.vitest
 .cache
 .turbo
 .eslintcache
