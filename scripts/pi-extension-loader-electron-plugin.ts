@@ -1,30 +1,27 @@
 import type { Plugin } from "vite";
 
 /**
- * Pi's extension loader uses `import.meta.resolve` in getAliases() and prefers
- * filesystem aliases when not running as a Bun binary. Electron utilityProcess
- * bundles that loader to CJS, where `import.meta.resolve` becomes `(void 0)` —
- * every extension then fails with "(void 0) is not a function".
+ * Pi 扩展加载器按运行时选择模块解析方式：Bun/SEA/内置 Node 走 virtualModules
+ * （产物内已打包的 Pi/typebox），普通 Node 走 getAliases() 别名。
  *
- * Force the Bun-style `virtualModules` path so extensions resolve against the
- * already-bundled Pi/typebox copies (correct for Electron packaging too).
+ * Electron 主进程把加载器打成 CJS，getAliases() 的 import.meta.resolve 退化为
+ * require.resolve，而 Pi 各包是 ESM-only（exports 只有 import 条件），解析必然
+ * 抛 ERR_PACKAGE_PATH_NOT_EXPORTED，扩展加载全部失败 —— 表现就是插件工具在
+ * Agent 会话和设置-工具页同时消失。
+ *
+ * 把兜底分支的 { alias: getAliases() } 换成 virtualModules，让扩展改用产物内
+ * 已打包的模块，与 Bun 单文件模式一致。
  */
 export function piExtensionLoaderElectronPlugin(): Plugin {
-  /** Keep as object properties (not a nested `{...}`), so createJiti options stay valid. */
-  const propertyReplacement = "virtualModules: VIRTUAL_MODULES, tryNative: false";
+  const propertyReplacement =
+    "{ virtualModules: await getVirtualModules(), tryNative: false }";
 
   const rewrite = (code: string): string | null => {
-    if (!code.includes("VIRTUAL_MODULES") || !code.includes("getAliases")) return null;
-    if (!code.includes("isBunBinary")) return null;
-
-    let next = code.replace(
-      /\.\.\.\s*\(?\s*isBunBinary[\s\S]*?\{\s*alias:\s*getAliases\(\)\s*\}\s*\)?/g,
+    if (!code.includes("alias: getAliases()")) return null;
+    if (!code.includes("getVirtualModules")) return null;
+    const next = code.replace(
+      /\{\s*alias:\s*getAliases\(\)\s*\}/g,
       propertyReplacement,
-    );
-    // Safety: import.meta.resolve → require.resolve (returns a filesystem path).
-    next = next.replace(
-      /fileURLToPath\(\s*import\.meta\.resolve\(\s*([^)]+?)\s*\)\s*\)/g,
-      "require.resolve($1)",
     );
     return next === code ? null : next;
   };
@@ -40,7 +37,6 @@ export function piExtensionLoaderElectronPlugin(): Plugin {
       return next ? { code: next, map: null } : null;
     },
     renderChunk(code) {
-      if (!code.includes("VIRTUAL_MODULES") || !code.includes("getAliases")) return null;
       const next = rewrite(code);
       return next ? { code: next, map: null } : null;
     },
