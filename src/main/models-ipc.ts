@@ -21,6 +21,7 @@ import {
 } from "../shared/model-discover";
 import type { SessionBroker } from "./session-broker";
 import { getModelsConfigService } from "./models-config";
+import { netFetch } from "./net-fetch";
 import { buildCatalogIndex, enrichDiscoveredModels, resolveDiscoveredModels } from "./model-catalog";
 import { readModelSelection, writeModelSelection } from "./models-selection";
 import type { ModelSelection } from "../shared/model-selection";
@@ -282,11 +283,14 @@ export function registerModelsIpc(broker: SessionBroker): void {
       _event,
       payload: { baseUrl: string; apiKey?: string; api?: string },
     ): Promise<TestProviderBaseUrlResult> => {
-      return testProviderBaseUrl({
-        baseUrl: String(payload?.baseUrl ?? ""),
-        apiKey: typeof payload?.apiKey === "string" ? payload.apiKey : undefined,
-        api: typeof payload?.api === "string" ? payload.api : undefined,
-      });
+      return testProviderBaseUrl(
+        {
+          baseUrl: String(payload?.baseUrl ?? ""),
+          apiKey: typeof payload?.apiKey === "string" ? payload.apiKey : undefined,
+          api: typeof payload?.api === "string" ? payload.api : undefined,
+        },
+        { fetchImpl: netFetch },
+      );
     },
   );
 
@@ -296,11 +300,14 @@ export function registerModelsIpc(broker: SessionBroker): void {
       _event,
       payload: { baseUrl: string; apiKey?: string; api?: string },
     ): Promise<DiscoverModelsResult> => {
-      const result = await discoverModels({
-        baseUrl: String(payload?.baseUrl ?? ""),
-        apiKey: typeof payload?.apiKey === "string" ? payload.apiKey : undefined,
-        api: typeof payload?.api === "string" ? payload.api : undefined,
-      });
+      const result = await discoverModels(
+        {
+          baseUrl: String(payload?.baseUrl ?? ""),
+          apiKey: typeof payload?.apiKey === "string" ? payload.apiKey : undefined,
+          api: typeof payload?.api === "string" ? payload.api : undefined,
+        },
+        { fetchImpl: netFetch },
+      );
       if (!result.ok) return result;
       try {
         const config = await getModelsConfigService().readModelsConfig();
@@ -341,12 +348,15 @@ export function registerModelsIpc(broker: SessionBroker): void {
           apiKey = cred.key.trim();
         }
       }
-      return testModelConnection({
-        baseUrl: String(payload?.baseUrl ?? ""),
-        apiKey,
-        api: typeof payload?.api === "string" ? payload.api : undefined,
-        modelId: String(payload?.modelId ?? ""),
-      });
+      return testModelConnection(
+        {
+          baseUrl: String(payload?.baseUrl ?? ""),
+          apiKey,
+          api: typeof payload?.api === "string" ? payload.api : undefined,
+          modelId: String(payload?.modelId ?? ""),
+        },
+        { fetchImpl: netFetch },
+      );
     },
   );
 
