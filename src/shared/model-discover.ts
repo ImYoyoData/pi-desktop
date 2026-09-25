@@ -361,7 +361,11 @@ async function getJson(
     try {
       return { ok: true, json: JSON.parse(text) as unknown };
     } catch {
-      return { ok: false, error: "Response is not JSON" };
+      const snippet = text.replace(/\s+/gu, " ").slice(0, 180);
+      return {
+        ok: false,
+        error: `Response is not JSON (HTTP ${res.status}): ${snippet}`,
+      };
     }
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : String(err) };
