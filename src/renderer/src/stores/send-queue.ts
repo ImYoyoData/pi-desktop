@@ -30,6 +30,17 @@ export const useSendQueueStore = defineStore("sendQueue", () => {
   const editingBySession = reactive<Record<string, string | null>>({});
   /** When true, auto-drain on idle is skipped (immediate-send in progress). */
   const suppressDrain = reactive<Record<string, boolean>>({});
+  /**
+   * Guidance that was sent into the running turn and has not surfaced in the
+   * transcript yet.
+   *
+   * A steering message is handed to the agent immediately, but the agent only
+   * writes it into the session after the current tool calls finish — so between
+   * "sent" and "visible as a bubble" there was nothing on screen and the message
+   * looked like it had vanished. These are rendered as pending cards until the
+   * transcript catches up.
+   */
+  const pendingSteers = reactive<Record<string, QueuedSendItem[]>>({});
   const sessionsStore = useSessionsStore();
 
   function list(sessionId: string): QueuedSendItem[] {
@@ -37,11 +48,47 @@ export const useSendQueueStore = defineStore("sendQueue", () => {
     return bySession[sessionId]!;
   }
 
+  function steerList(sessionId: string): QueuedSendItem[] {
+    if (!pendingSteers[sessionId]) pendingSteers[sessionId] = [];
+    return pendingSteers[sessionId]!;
+  }
+
   const activeItems = computed(() => {
     const id = sessionsStore.activeId;
     if (!id) return [] as QueuedSendItem[];
     return list(id);
   });
+
+  /** In-flight guidance for the active session. */
+  const activePendingSteers = computed(() => {
+    const id = sessionsStore.activeId;
+    if (!id) return [] as QueuedSendItem[];
+    return steerList(id);
+  });
+
+  /** Record guidance that was just handed to the running turn. */
+  function addPendingSteer(
+    sessionId: string,
+    payload: Omit<QueuedSendItem, "id">,
+  ): QueuedSendItem {
+    const item: QueuedSendItem = {
+      id: itemId(),
+      text: payload.text,
+      agentText: payload.agentText,
+      images: payload.images?.length ? payload.images.map((i) => ({ ...i })) : undefined,
+      citations: payload.citations?.length ? payload.citations.map((c) => ({ ...c })) : undefined,
+      elementTags: payload.elementTags?.length
+        ? payload.elementTags.map((t) => ({ ...t }))
+        : undefined,
+    };
+    steerList(sessionId).push(item);
+    return item;
+  }
+
+  /** Drop a pending steer once its text shows up in the transcript. */
+  function clearPendingSteers(sessionId: string): void {
+    if (pendingSteers[sessionId]?.length) pendingSteers[sessionId] = [];
+  }
 
   const editingId = computed(() => {
     const id = sessionsStore.activeId;
@@ -129,6 +176,7 @@ export const useSendQueueStore = defineStore("sendQueue", () => {
     delete bySession[sessionId];
     delete suppressDrain[sessionId];
     delete editingBySession[sessionId];
+    delete pendingSteers[sessionId];
   }
 
   function setSuppressDrain(sessionId: string, value: boolean): void {
@@ -142,11 +190,14 @@ export const useSendQueueStore = defineStore("sendQueue", () => {
   return {
     bySession,
     activeItems,
+    activePendingSteers,
     editingId,
     list,
     get,
     setEditing,
     enqueue,
+    addPendingSteer,
+    clearPendingSteers,
     updateText,
     updateItem,
     remove,

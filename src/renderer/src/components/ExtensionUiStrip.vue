@@ -167,9 +167,15 @@ async function onSubmitText(p: ExtensionUiPending | null): Promise<void> {
 </template>
 
 <style scoped>
+/* Shares the chat column's box (same cap + padding as the composer and the
+   message content) so extension UI lines up with them. */
 .ext-ui-wrap {
   flex-shrink: 0;
-  padding: 0 12px 8px;
+  width: 100%;
+  max-width: var(--pi-message-max, 75%);
+  margin: 0 auto;
+  padding: 0 var(--chat-column-pad-x, 16px) 8px;
+  box-sizing: border-box;
 }
 
 .ext-ui-card {

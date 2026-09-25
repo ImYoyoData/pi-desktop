@@ -71,6 +71,9 @@ export function buildModelMenu(
  * past the window and the lower entries could not be reached. Capping the height
  * and letting the menu scroll keeps every model clickable, and
  * `overscroll-behavior: contain` stops the page behind it from scrolling too.
+ *
+ * SAFETY: `scrollable` is intentionally a boolean on naive-ui's menu node, but
+ * its public callback type only allows primitive HTML attributes.
  */
 export const MODEL_MENU_PROPS: DropdownMenuProps = () =>
   ({

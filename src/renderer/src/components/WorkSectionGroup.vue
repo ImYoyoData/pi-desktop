@@ -7,7 +7,7 @@ import ToolCallCard from "@renderer/components/ToolCallCard.vue";
 import { toolCardFor, type ToolCard } from "@renderer/utils/tool-diff";
 import {
   categorizeToolCall,
-  summarizeWorkSection,
+  workSectionCountSummary,
   workSectionLiveTitle,
   type WorkSectionTool,
 } from "@renderer/utils/tool-group";
@@ -268,13 +268,9 @@ const categorized = computed(() =>
   toolItems.value.map((m) => categorizeToolCall(m.toolName, m.args)),
 );
 
-/** Live title: present-tense label of the latest step (Copilot streaming header). */
-const liveTitle = computed(() => {
-  const last = props.items[props.items.length - 1];
-  if (!last) return t.wsLiveThinking;
-  if (last.role !== "tool") return t.wsLiveThinking;
-  const tools: WorkSectionTool[] = [categorizeToolCall(last.toolName, last.args)];
-  return workSectionLiveTitle(tools, {
+/** Present-tense label of ONE tool call (copilot streaming header, per step). */
+function liveLabelFor(tool: WorkSectionTool): string {
+  return workSectionLiveTitle([tool], {
     edit: t.wsLiveEdit,
     read: t.wsLiveRead,
     bash: t.wsLiveBash,
@@ -282,17 +278,57 @@ const liveTitle = computed(() => {
     tool: t.wsLiveTool,
     thinking: t.wsLiveThinking,
   });
+}
+
+/** Cap so a wide fan-out cannot push the header past its single line. */
+const MAX_LIVE_LABELS = 4;
+
+/**
+ * Live title: every tool call that is still running, shown while streaming.
+ *
+ * The same step later folds into the section summary — this is only so the user
+ * can see what is happening RIGHT NOW, including several operations running at
+ * once (each one gets its own segment, capped at MAX_LIVE_LABELS).
+ */
+const liveTitle = computed(() => {
+  const active: WorkSectionTool[] = [];
+  for (const msg of props.items) {
+    if (msg.role !== "tool" || !msg.streaming) continue;
+    active.push(categorizeToolCall(msg.toolName, msg.args));
+  }
+  // Nothing marked streaming yet (between steps / thinking only): same fallback.
+  if (!active.length) return t.wsLiveThinking;
+
+  const labels: string[] = [];
+  const seen = new Set<string>();
+  for (const tool of active) {
+    const label = liveLabelFor(tool);
+    // Two identical operations (e.g. three reads of the same file) collapse to
+    // one segment rather than "读取 a.ts · 读取 a.ts".
+    if (seen.has(label)) continue;
+    seen.add(label);
+    labels.push(label);
+    if (labels.length >= MAX_LIVE_LABELS) break;
+  }
+  // Trailing "+N" when the cap hides work, so the header never under-reports.
+  const hidden = Math.max(0, active.length - labels.length);
+  return labels.join(" · ") + (hidden > 0 ? ` · +${hidden}` : "");
 });
 
 /** Settled title: past-tense natural-language summary (Copilot finalized header). */
 const summaryTitle = computed(() =>
-  summarizeWorkSection(categorized.value, thinkingCount.value, {
+  workSectionCountSummary(categorized.value, thinkingCount.value, {
     editOne: t.wsSummaryEditOne,
     editMany: t.wsSummaryEditMany,
     readOne: t.wsSummaryReadOne,
     readMany: t.wsSummaryReadMany,
     readAndEdited: t.wsSummaryReadEdited,
     steps: t.wsSummarySteps,
+    editCount: t.wsSummaryEditCount,
+    readCount: t.wsSummaryReadCount,
+    bashCount: t.wsSummaryBashCount,
+    todoCount: t.wsSummaryTodoCount,
+    toolCount: t.wsSummaryToolCount,
   }),
 );
 
@@ -383,6 +419,7 @@ function toolStatus(msg: ToolMessage): {
                 :streaming="msg.streaming"
                 :auto-collapse="props.autoCollapse"
                 tree-item
+                detail-collapsed
                 @open="emit('open', $event)"
               />
             </div>
