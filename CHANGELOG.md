@@ -2,7 +2,7 @@
 
 ## v0.3.5-rc.2 (2026-09-23)
 
-本版重点：修复 pi 0.87 升级后插件工具在 Agent 会话与设置-工具页全部消失的问题；此外重做了工具调用的折叠体验（默认折叠 + 分类次数小结）、修好了 Windows 上的 bash 工具，并大幅改善了「停止」时的卡顿。
+本版重点：修复 pi 0.87 升级后插件工具在 Agent 会话与设置-工具页全部消失的问题；此外重做了工具调用的折叠体验（默认折叠 + 分类次数小结）、修好了 Windows 上的 bash 工具，并大幅改善了「停止」时的卡顿，并修好了自定义提供商「拉取模型」拉不到模型的问题。
 
 ### 新功能 Features
 
@@ -41,6 +41,10 @@
 - **Fixed the stall and dead-feeling UI when pressing Stop**: stopping is an RPC that waits for the worker, and the force-kill fallback was **30 seconds** — if the worker was busy in a synchronous tool call or a large session write, the UI showed nothing for the whole wait. The fallback is now 8 seconds, and the button switches to a "Stopping…" spinner the moment it is clicked.
 - **Fixed abandoned "new session" drafts leaving an empty session file on disk**: clicking 新建会话 pre-warms a session (usable immediately, never shown in the sidebar), but quit-time cleanup only handled the active-but-unused case and never released the *prepared draft*, so an empty jsonl stayed on disk while being hidden from the sidebar. Quit now releases both; verified that new session → type nothing → quit leaves no file behind.
 - **Fixed the permission dialog being wider than the input box**: the permission card, ask_user card and extension UI did not follow the chat column and spanned the whole panel; they now share the composer's column geometry.
+
+- **修复自定义提供商「拉取模型」/测速报 `Response is not JSON`**：模型发现、地址测速与「测试模型」这三个请求走的是主进程 undici（`globalThis.fetch`），不经过 Chromium 网络栈 —— 既不遵循应用里设置的代理，也没有 Chrome 的请求特征，网关把它们当作异常客户端、返回拦截页时就只能失败。现三个请求统一改走 `netFetch`（Chromium 栈），与更新、市场、ASR 等其它网络功能一致；响应不是 JSON 时错误里会同时给出状态码与响应片段，便于直接看出返回了什么。
+
+- **Fixed "Fetch Models" / latency test failing with `Response is not JSON`**: model discovery, base-URL latency probing and "Test model" all went through the main process's undici (`globalThis.fetch`) instead of the Chromium network stack — so they ignored the configured proxy and carried no Chrome request fingerprint, and failed whenever the gateway answered such a request with its interception page. All three now go through `netFetch` (the Chromium stack), matching updates, market, ASR and every other network feature; a non-JSON response now reports the status code and a response snippet so the cause is visible at a glance.
 
 ### 优化 / 体验 Improvements
 
