@@ -266,13 +266,26 @@ async function onNewAgent(): Promise<void> {
   padding: 24px;
 }
 
-/* Chat input stack — docked todo / changed-files share the composer surface. */
+/*
+ * Chat input stack — docked todo / changed-files share the composer surface.
+ *
+ * Shares the message column's exact box: same `--pi-message-max` cap (Settings →
+ * 外观 → 消息宽度) and the same horizontal padding as MessageList's `.inner`, so
+ * the input box sits precisely under the message content.
+ *
+ * `scrollbar-gutter: stable both-edges` mirrors the gutter the message list
+ * reserves for its classic (non-overlay) scrollbar — without it the scroller's
+ * content box is one scrollbar narrower and a centred percentage column lands a
+ * few px off.
+ */
 .chat-input-stack {
   flex-shrink: 0;
   width: 100%;
-  max-width: var(--composer-max, 748px);
+  max-width: var(--pi-message-max, 75%);
   margin: 0 auto;
-  padding: 0 var(--chat-pad-x, 12px) 10px;
+  padding: 0 var(--chat-column-pad-x, 16px) 10px;
+  box-sizing: border-box;
+  scrollbar-gutter: stable both-edges;
   display: flex;
   flex-direction: column;
   min-width: 0;

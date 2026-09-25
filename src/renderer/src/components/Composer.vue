@@ -331,6 +331,11 @@ const showPrimaryAction = computed(
 );
 /** Stop when running with empty composer; otherwise send/queue. */
 const primaryIsStop = computed(() => running.value && !hasSendContent.value);
+/**
+ * A stop is in flight but the worker has not gone idle yet. The button shows a
+ * spinner instead of looking inert, so a slow abort never reads as a freeze.
+ */
+const stopping = computed(() => chat.activeStopping);
 
 async function readImageFile(file: File): Promise<{
   data: string;
@@ -805,6 +810,16 @@ async function steerFromComposer(): Promise<boolean> {
   });
   if (!steerText.trim()) return false;
   composer.clear();
+  // Show it immediately as a pending card: the agent only writes a steering
+  // message into the transcript after the current tool calls finish, so without
+  // this the guidance looked like it had been swallowed.
+  sendQueue.addPendingSteer(id, {
+    text: snap.displayText || snap.text || " ",
+    agentText: snap.text || undefined,
+    images: snap.imagesToSend.length ? snap.imagesToSend : undefined,
+    citations: snap.citationsToSend,
+    elementTags: snap.tagsToSend,
+  });
   await applySelectedModel({ allowStart: true });
   await chat.steer(id, steerText, snap.imagesToSend.length ? snap.imagesToSend : undefined);
   messageApi.success(t.steerSent, { duration: 1400 });
@@ -2829,7 +2844,7 @@ watch(
             size="tiny"
             circle
             :type="primaryIsStop ? 'error' : 'primary'"
-            :loading="voicePending"
+            :loading="voicePending || stopping"
             :disabled="
               voicePending
                 || (!primaryIsStop && !hasSendContent && !(isEditingQueue && hasSendContent))
@@ -2837,13 +2852,15 @@ watch(
             :aria-label="
               voicePending
                 ? t.voiceTranscribing
-                : primaryIsStop
-                  ? t.stop
-                  : isEditingQueue
-                    ? t.queueSave
-                    : t.enterToSendShiftNewline
+                : stopping
+                  ? t.stopping
+                  : primaryIsStop
+                    ? t.stop
+                    : isEditingQueue
+                      ? t.queueSave
+                      : t.enterToSendShiftNewline
             "
-            :title="!primaryIsStop && isEditingQueue ? t.queueSave : undefined"
+            :title="stopping ? t.stopping : !primaryIsStop && isEditingQueue ? t.queueSave : undefined"
             @click="onPrimaryAction"
           >
             <template #icon>

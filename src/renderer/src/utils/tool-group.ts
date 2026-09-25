@@ -155,6 +155,12 @@ export type WorkSectionSummaryStrings = {
   /** Same file read and edited, e.g. "Reviewed and updated foo.ts". */
   readAndEdited: (file: string) => string;
   steps: (count: number) => string;
+  /** Per-category counts, shown in the collapsed header (e.g. "更新了 3 个文件"). */
+  editCount: (count: number) => string;
+  readCount: (count: number) => string;
+  bashCount: (count: number) => string;
+  todoCount: (count: number) => string;
+  toolCount: (count: number) => string;
 };
 
 /**
@@ -186,6 +192,33 @@ export function summarizeWorkSection(
   if (reads.size === 1) return s.readOne([...reads][0]!);
   if (reads.size > 1) return s.readMany(reads.size);
   return s.steps(tools.length + thinkingCount);
+}
+
+/**
+ * Count-based summary for the COLLAPSED header: one short segment per tool
+ * category, so the folded row reads like "更新了 3 个文件 · 查看了 10 个文件 ·
+ * 执行了 5 条命令" instead of naming one file.
+ *
+ * Categories with count 0 are dropped; a section with no tools falls back to
+ * `steps(thinkingCount)` so an empty header never renders.
+ */
+export function workSectionCountSummary(
+  tools: WorkSectionTool[],
+  thinkingCount: number,
+  s: WorkSectionSummaryStrings,
+): string {
+  const counts = { edit: 0, read: 0, bash: 0, todo: 0, tool: 0 };
+  for (const tool of tools) counts[tool.kind] += 1;
+
+  const parts: string[] = [];
+  if (counts.edit) parts.push(s.editCount(counts.edit));
+  if (counts.read) parts.push(s.readCount(counts.read));
+  if (counts.bash) parts.push(s.bashCount(counts.bash));
+  if (counts.todo) parts.push(s.todoCount(counts.todo));
+  if (counts.tool) parts.push(s.toolCount(counts.tool));
+
+  if (!parts.length) return s.steps(thinkingCount);
+  return parts.join(" · ");
 }
 
 /** i18n strings for the live (present-tense) section title while streaming. */

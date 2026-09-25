@@ -107,6 +107,37 @@ describe("detectRealBashShell", () => {
     expect(file).toBe("C:\\Program Files\\Git\\bin\\bash.exe");
   });
 
+  it("derives bash from a Git install on any drive (git on PATH)", () => {
+    // The real case that was missed: Git is installed on D: while %ProgramFiles%
+    // points at C:, so a fixed-drive probe never found this perfectly good bash
+    // and the app wrongly concluded "no bash here".
+    const env = {
+      ProgramFiles: "C:\\Program Files",
+      PATH: "D:\\Program Files\\Git\\cmd;C:\\Windows\\System32",
+    } as NodeJS.ProcessEnv;
+    const files = new Set([
+      "D:\\Program Files\\Git\\cmd\\git.exe",
+      "D:\\Program Files\\Git\\bin\\bash.exe",
+    ]);
+    expect(detectRealBashShell(env, (p) => files.has(p), "win32")).toBe(
+      "D:\\Program Files\\Git\\bin\\bash.exe",
+    );
+  });
+
+  it("prefers a real bash over the WSL launcher even when both exist", () => {
+    const env = {
+      PATH: "C:\\Windows\\System32;D:\\Program Files\\Git\\cmd",
+    } as NodeJS.ProcessEnv;
+    const files = new Set([
+      "C:\\Windows\\System32\\bash.exe",
+      "D:\\Program Files\\Git\\cmd\\git.exe",
+      "D:\\Program Files\\Git\\bin\\bash.exe",
+    ]);
+    expect(detectRealBashShell(env, (p) => files.has(p), "win32")).toBe(
+      "D:\\Program Files\\Git\\bin\\bash.exe",
+    );
+  });
+
   it("returns null off Windows and when nothing exists", () => {
     expect(detectRealBashShell({} as NodeJS.ProcessEnv, () => true, "linux")).toBeNull();
     expect(detectRealBashShell({} as NodeJS.ProcessEnv, () => false, "win32")).toBeNull();

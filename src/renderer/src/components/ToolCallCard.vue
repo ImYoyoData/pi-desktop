@@ -14,6 +14,7 @@ import {
 } from "@vicons/ionicons5";
 import type { ToolCard } from "@renderer/utils/tool-diff";
 import { previewText } from "@renderer/utils/tool-diff";
+import { isToolCardOpen } from "@renderer/utils/tool-card-open";
 import FileChip from "@renderer/components/FileChip.vue";
 import { t } from "@renderer/i18n";
 import { formatElapsedShort } from "@renderer/utils/agent-wait";
@@ -33,47 +34,42 @@ const props = defineProps<{
   autoCollapse?: boolean;
   /** Rendered as a child of a Copilot tool group: indented under the tree line. */
   treeItem?: boolean;
+  /**
+   * Never auto-expand while streaming — the row stays folded until the user opens
+   * it. Used for the detail rows inside a work-section, whose group header already
+   * summarises what happened ("已读取 2 个文件 · 已运行 1 条命令"), so expanding
+   * every row as well only buries the answer.
+   */
+  detailCollapsed?: boolean;
 }>();
 
 const emit = defineEmits<{
   open: [path: string];
 }>();
 
-/** Write / edit / bash / todo expand while live; read stays collapsed by default. */
-function shouldAutoExpand(kind: ToolCard["kind"]): boolean {
-  switch (kind) {
-    case "write":
-    case "edit":
-    case "bash":
-    case "todo":
-      return true;
-    case "read":
-    case "generic":
-    case "other":
-      return false;
-    default: {
-      const _never: never = kind;
-      return Boolean(_never);
-    }
-  }
-}
-
-/** Expanded while streaming for write/edit/bash; stays open after so diffs are visible. */
+/** Explicit user toggle; null = follow the automatic rule. */
 const manuallyOpen = ref<boolean | null>(null);
 const bodyRef = ref<HTMLElement | null>(null);
 /** Follow newest lines unless the user scrolls up inside the card. */
 let stickToBottom = true;
 const NEAR_BOTTOM_PX = 48;
 
-const open = computed(() => {
-  // Turn finished: only a user-expanded card stays open; history stays folded.
-  if (props.autoCollapse) return manuallyOpen.value === true;
-  if (manuallyOpen.value !== null) return manuallyOpen.value;
-  if (!shouldAutoExpand(props.card.kind)) return false;
-  // Copilot: a finished step stays open until the whole turn finishes; the
-  // result (diff/output) keeps streaming in instead of folding after 1.2s.
-  return Boolean(props.streaming);
-});
+/**
+ * Whether a tool card opens by itself. The rule lives in
+ * `utils/tool-card-open.ts` (pure + unit-tested); this component only supplies
+ * state. Default is folded for every kind — a long turn can hold dozens of cards,
+ * and auto-expanding them buries the answer under diffs and file dumps.
+ */
+const open = computed(() =>
+  isToolCardOpen({
+    kind: props.card.kind,
+    expandToolCalls: appearance.expandToolCalls,
+    detailCollapsed: Boolean(props.detailCollapsed),
+    autoCollapse: Boolean(props.autoCollapse),
+    streaming: Boolean(props.streaming),
+    manuallyOpen: manuallyOpen.value,
+  }),
+);
 
 watch(
   () => props.streaming,

@@ -194,6 +194,23 @@ export function pickTerminalShell(
   return shells[0] ?? null;
 }
 
+/**
+ * Absolute path of a real bash (Git Bash / MSYS2 / Cygwin), or null.
+ *
+ * Exported for the agent worker: its bash tool needs a genuine interpreter, and
+ * this module already knows how to find one — including installs on a non-system
+ * drive, which a `%ProgramFiles%`-only probe misses (Git is commonly installed on
+ * D: when the system drive is small).
+ */
+export function findRealBashPath(
+  platform: NodeJS.Platform = process.platform,
+  env: NodeJS.ProcessEnv = process.env,
+  exists: (file: string) => boolean = isExecutable,
+): string | null {
+  if (platform !== "win32") return null;
+  return firstExecutable(gitBashCandidates(env), exists);
+}
+
 export function resolveTerminalShell(
   shellId?: string | null,
   shells: TerminalShellOption[] = findTerminalShells(),

@@ -42,6 +42,9 @@ export const en = {
 	privilegeAdmin: "Admin",
 	privilegeSystem: "System",
 	showPrivilegeLevel: "Show privilege level",
+	expandToolCalls: "Expand tool call details",
+	expandToolCallsHint:
+		"When on, tool cards (file reads/writes, commands, …) open automatically while the turn streams. When off (default) they all start folded — open the ones you want.",
 	newAgent: "New Agent",
 	openFolder: "Open Folder",
 	openFolderHint: "Choose a project folder to start the Agent workspace",
@@ -364,6 +367,7 @@ export const en = {
 	pasteImageDownloadFailed: "Could not download the pasted image",
 	send: "Send",
 	stop: "Stop",
+	stopping: "Stopping…",
 	steer: "Steer",
 	followUp: "Follow-up",
 	composerPlaceholder:
@@ -417,6 +421,7 @@ export const en = {
 	queueAdded: "Added to queue",
 	steerSent: "Sent as guidance — Pi will take it into account on its next step",
 	steerPendingTag: "Queued",
+	steerPendingSent: "Guiding",
 	selectElement: "Select element",
 	selectElementHint: "Click to pick an element; drag to capture a region",
 	navigate: "Go",
@@ -1296,6 +1301,11 @@ export const en = {
 	wsSummaryReadMany: (n: number) => (n === 1 ? "Reviewed 1 file" : `Reviewed ${n} files`),
 	wsSummaryReadEdited: (f: string) => `Reviewed and updated ${f}`,
 	wsSummarySteps: (n: number) => (n === 1 ? "Finished with 1 step" : `Finished with ${n} steps`),
+	wsSummaryEditCount: (n: number) => `Updated ${n} files`,
+	wsSummaryReadCount: (n: number) => `Reviewed ${n} files`,
+	wsSummaryBashCount: (n: number) => `Ran ${n} commands`,
+	wsSummaryTodoCount: (n: number) => `Updated todos ${n} times`,
+	wsSummaryToolCount: (n: number) => `Used ${n} tools`,
 	wsViewChanges: "View file changes",
 	/** Docked changed-files working set (Copilot editing-session equivalent). */
 	filesChanged: "Changed files",

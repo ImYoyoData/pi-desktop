@@ -402,15 +402,15 @@ function onCancelAsk(): void {
 </template>
 
 <style scoped>
-/* Column geometry matches the composer's chat-input-stack so the card lines
-   up edge-to-edge with the message list and the input box (Copilot style:
-   the clarification card shares the chat column). */
+/* Shares the chat column's box (same cap + padding as the composer and the
+   message content) so the clarification card lines up under them. */
 .ask-user-wrap {
   flex-shrink: 0;
   width: 100%;
-  max-width: var(--composer-max, 748px);
+  max-width: var(--pi-message-max, 75%);
   margin: 0 auto;
-  padding: 0 var(--chat-pad-x, 12px) 8px;
+  padding: 0 var(--chat-column-pad-x, 16px) 8px;
+  box-sizing: border-box;
   display: flex;
   flex-direction: column;
   min-height: 0;

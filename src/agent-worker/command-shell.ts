@@ -131,9 +131,12 @@ export function describeCommandShell(shell: CommandShell): string {
  * A real bash for `shellPath`, or null.
  *
  * Checked in order:
- * 1. `PI_DESKTOP_BASH_SHELL` — set by the main process, which already knows the
- *    machine's shells (see main/terminal-shell.ts).
- * 2. Common Git-for-Windows install locations, which are usually NOT on PATH.
+ * 1. `PI_DESKTOP_BASH_SHELL` — set by the main process, whose terminal-shell
+ *    module already resolved a bash (it also checks `git` on PATH and installs on
+ *    non-system drives).
+ * 2. A `bash.exe` sitting next to a `git` found on PATH — so drive layout does
+ *    not matter and no extra configuration is needed.
+ * 3. Common Git-for-Windows install locations.
  *
  * The WSL launcher is rejected on purpose: it exists on most Windows boxes but
  * only works when a WSL distribution is actually installed.
@@ -149,6 +152,9 @@ export function detectRealBashShell(
   if (fromEnv && !isWslBashPath(fromEnv) && exists(fromEnv)) return fromEnv;
 
   const candidates = [
+    // Git on PATH may live on any drive (`D:\Program Files\Git\cmd\git.exe`), so
+    // derive bash from it before falling back to well-known paths.
+    ...bashCandidatesFromGitOnPath(env, exists),
     env.ProgramFiles ? win32.join(env.ProgramFiles, "Git", "bin", "bash.exe") : "",
     env["ProgramFiles(x86)"] ? win32.join(env["ProgramFiles(x86)"], "Git", "bin", "bash.exe") : "",
     env.LOCALAPPDATA ? win32.join(env.LOCALAPPDATA, "Programs", "Git", "bin", "bash.exe") : "",
@@ -160,6 +166,29 @@ export function detectRealBashShell(
     if (!isWslBashPath(file) && exists(file)) return file;
   }
   return null;
+}
+
+/**
+ * `…/Git/cmd/git.exe` (a PATH entry) → `…/Git/bin/bash.exe`.
+ *
+ * PATH normally points at Git's `cmd` (or `bin`) directory, so the install root
+ * is that entry minus its last segment.
+ */
+function bashCandidatesFromGitOnPath(
+  env: NodeJS.ProcessEnv,
+  exists: (file: string) => boolean,
+): string[] {
+  const out: string[] = [];
+  for (const dir of String(env.PATH ?? "").split(";")) {
+    const trimmed = dir.trim().replace(/^"(.*)"$/u, "$1");
+    if (!trimmed) continue;
+    // A PATH entry either holds git.exe directly, or is the Git root itself.
+    const hasGitExe = exists(win32.join(trimmed, "git.exe"));
+    const gitRoot = hasGitExe ? win32.dirname(trimmed) : trimmed;
+    if (!hasGitExe && !exists(win32.join(trimmed, "cmd", "git.exe"))) continue;
+    out.push(win32.join(gitRoot, "bin", "bash.exe"), win32.join(gitRoot, "usr", "bin", "bash.exe"));
+  }
+  return out;
 }
 
 /**
