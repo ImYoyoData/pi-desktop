@@ -1,29 +1,5 @@
 # Changelog
 
-## v0.3.5-rc.3 (2026-09-28)
-
-本版重点：修复自定义模型「保存后会话输入框选不了模型、看起来像没有模型配置」的问题 —— 一条过期的模型策展记录会把该提供商的模型全部过滤掉；以及修复「拉取模型」在密钥存于 auth.json 时拿不到密钥而失败、且探测请求没有超时导致一直转圈。
-
-### 修复 Fixes
-
-- **修复保存自定义模型后，会话输入框的模型选择器点不动、像是没有模型配置**：桌面端为「避免 300 个模型的提供商淹没菜单」而维护了一份策展名单（`models-selection.json`）。当自定义提供商的模型 id 被改掉（改名、换模型）后，名单里的旧 id 一个都对不上，`filterAvailableModels` 会把这个提供商**新**的模型也一并过滤掉 —— 菜单被清空，看起来就像压根没配任何模型。文件里本就写好了 `pruneModelSelection`（注释即写着「so stale ids cannot hide a fresh list」），但生产代码从未调用；且它把过期名单裁剪成 `[]`，而 `[]` 在这套设计里恰恰是「隐藏该提供商」的意思，等于把「模型改名了」误判成「用户想隐藏」。现新增 `pruneStaleModelSelection` 区分两种空列表 —— 用户主动设的 `[]`（保留，继续隐藏）与「原本有 id、裁剪后全没了」的过期名单（删掉整个键，恢复成显示全部），并在 Composer 过滤前先裁剪、结果回写，**自愈**且下次启动不会复活；机器上已有的残留数据打开一次会话即自动清除。
-
-- **修复自定义提供商「拉取模型」失败**：`models.discover` 与 `models.testBaseUrl` 只认表单里填的 API Key，而「测试模型」（`testConnection`）会带 `providerId` 并回退到 `auth.json` 里的密钥。于是通过**设置 → 提供商**配好密钥的提供商（密钥只落在 auth.json，表单里读不到），会出现**测速成功、拉取 401** 的怪现象。现三个探测统一走 `resolveProbeKey`：表单 key 优先，回退 auth.json。注：rc.2 已修过拉取报 `Response is not JSON`（改走 Chromium 网络栈），本次是另一条独立路径。
-
-- **拉取模型 / 地址测速增加超时**：这两个请求此前完全没有超时（只有「测试模型」有 20 秒），端点挂住时按钮会一直转圈，看起来也像失败。现拉取 30 秒、测速 20 秒。
-
-- **Fixed the model picker being unusable after saving a custom model**: the desktop keeps its own curation list (`models-selection.json`) so a 300-model provider cannot flood the menu. Once a custom provider's model ids are changed, none of the curated ids match any more, and `filterAvailableModels` filters away the provider's *new* models too — leaving the menu empty, which reads as "this session has no model config at all". `pruneModelSelection` already existed (its own comment says "so stale ids cannot hide a fresh list") but was never called in production, and it collapsed a stale curation to `[]`, which in this design means "hide this provider" — turning "the models were renamed" into "the user wanted it hidden". The new `pruneStaleModelSelection` tells the two apart: an explicit `[]` is kept, while a curation that *had* ids and lost them all is dropped so the provider shows again. The composer now prunes before filtering and writes the result back, self-healing existing leftover data on the next session.
-
-- **Fixed "Fetch models" failing**: `models.discover` and `models.testBaseUrl` only used the API key typed in the form, while "Test model" (`testConnection`) also passed `providerId` and fell back to the key in `auth.json`. A provider keyed through Settings → Providers stores its secret only in auth.json, so the form field came up empty and discovery got a 401 while the connection test passed. All three probes now share `resolveProbeKey` — form key first, auth.json as fallback. (rc.2 already fixed a different failure here, `Response is not JSON`, by moving to the Chromium network stack.)
-
-- **Fetch models and base-URL test now time out**: neither request had a deadline (only "Test model" did, at 20s), so a hung endpoint left the button spinning indefinitely. Discovery is now 30s and the base-URL probe 20s.
-
-### 优化 / 体验 Improvements
-
-- **模型列表刷新失败时不再清空已有列表**：Composer 的 `refreshModels` 原来在 `catch` 里直接把列表置空，一次瞬时故障就变成一个点不开也恢复不了的死按钮；现在保留原列表并输出日志。
-
-- **The model list is no longer blanked on a failed refresh**: `refreshModels` used to empty the list in its `catch`, turning a transient failure into a model button that neither opens nor recovers. It now keeps the previous list and logs the error.
-
 ## v0.3.5-rc.2 (2026-09-23)
 
 本版重点：修复 pi 0.87 升级后插件工具在 Agent 会话与设置-工具页全部消失的问题；此外重做了工具调用的折叠体验（默认折叠 + 分类次数小结）、修好了 Windows 上的 bash 工具，并大幅改善了「停止」时的卡顿，并修好了自定义提供商「拉取模型」拉不到模型的问题。
