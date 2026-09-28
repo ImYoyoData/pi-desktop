@@ -375,6 +375,9 @@ async function discover(): Promise<void> {
       baseUrl: current.baseUrl,
       apiKey: current.apiKey.trim() || undefined,
       api: current.api,
+      // Lets the main process fall back to the auth.json key when this provider
+      // was keyed through Settings → Providers rather than this form.
+      providerId: current.id.trim() || undefined,
     });
     if (result.ok && result.models.length) {
       pickRows.value = result.models;
@@ -419,6 +422,7 @@ async function testBaseUrl(): Promise<void> {
       baseUrl: current.baseUrl,
       apiKey: current.apiKey.trim() || undefined,
       api: current.api,
+      providerId: current.id.trim() || undefined,
     });
     if (!result.responded) {
       message.error(`${t.modelsCustomBaseUrlTestFail}: ${result.error}`, { duration: 8000 });

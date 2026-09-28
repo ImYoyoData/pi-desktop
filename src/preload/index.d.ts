@@ -735,11 +735,13 @@ declare const api: {
 			baseUrl: string;
 			apiKey?: string;
 			api?: string;
+			providerId?: string;
 		}) => Promise<DiscoverModelsResult>;
 		testBaseUrl: (payload: {
 			baseUrl: string;
 			apiKey?: string;
 			api?: string;
+			providerId?: string;
 		}) => Promise<TestProviderBaseUrlResult>;
 		testConnection: (payload: {
 			baseUrl: string;
