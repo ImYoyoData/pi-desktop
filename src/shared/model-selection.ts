@@ -145,3 +145,53 @@ export function pruneModelSelection(
   }
   return { providers, disabled: [...selection.disabled] };
 }
+
+/**
+ * Same as {@link pruneModelSelection}, but a curation that went *stale* is dropped
+ * entirely instead of collapsing to `[]`.
+ *
+ * Why this distinction matters: `providers[id] === []` is the documented way to
+ * hide a provider, and a user who curated a provider down to nothing meant it.
+ * A curation that *had* ids and lost every one of them to pruning never meant
+ * that — it means the upstream models were renamed or replaced (a custom
+ * provider whose model ids were edited, a provider whose catalog moved on).
+ * Collapsing it to `[]` hides the provider's new models, and because the picker
+ * then has nothing left to show, the session looks like it has no model config
+ * at all. Dropping the key restores "uncurated → show everything".
+ */
+export function pruneStaleModelSelection(
+  selection: ModelSelection,
+  available: readonly Pick<ModelsAvailableEntry, "provider" | "id">[],
+): ModelSelection {
+  const pruned = pruneModelSelection(selection, available);
+  const providers: Record<string, string[]> = {};
+  for (const [providerId, ids] of Object.entries(pruned.providers)) {
+    // An empty list that survived pruning was either explicit (kept) or stale
+    // (dropped). Only an explicit `[]` can be told apart by looking at the
+    // original: a non-empty source that pruned to nothing is stale by definition.
+    if (ids.length === 0 && (selection.providers[providerId]?.length ?? 0) > 0) continue;
+    providers[providerId] = ids;
+  }
+  return { providers, disabled: [...selection.disabled] };
+}
+
+/** True when the two selections would persist differently. */
+export function isSameModelSelection(a: ModelSelection, b: ModelSelection): boolean {
+  if (a.disabled.length !== b.disabled.length) return false;
+  const aProviders = Object.keys(a.providers);
+  const bProviders = Object.keys(b.providers);
+  if (aProviders.length !== bProviders.length) return false;
+  for (const id of aProviders) {
+    const other = b.providers[id];
+    if (!other) return false;
+    const mine = a.providers[id] ?? [];
+    if (mine.length !== other.length) return false;
+    for (let i = 0; i < mine.length; i += 1) {
+      if (mine[i] !== other[i]) return false;
+    }
+  }
+  for (const id of a.disabled) {
+    if (!b.disabled.includes(id)) return false;
+  }
+  return true;
+}
