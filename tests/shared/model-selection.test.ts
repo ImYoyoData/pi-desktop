@@ -3,10 +3,14 @@ import {
   EMPTY_MODEL_SELECTION,
   filterAvailableModels,
   isProviderCurated,
+  isSameModelSelection,
   parseModelSelection,
   providerSelection,
   pruneModelSelection,
+  pruneStaleModelSelection,
+  withProviderDisabled,
   withProviderSelection,
+  type ModelSelection,
 } from "../../src/shared/model-selection";
 
 const AVAILABLE = [
@@ -118,5 +122,68 @@ describe("model selection", () => {
   it("keeps a curated-to-nothing provider across a prune when it still exists", () => {
     const selection = withProviderSelection(EMPTY_MODEL_SELECTION, "deepseek", []);
     expect(providerSelection(pruneModelSelection(selection, AVAILABLE), "deepseek")).toEqual([]);
+  });
+});
+
+describe("stale curation recovery", () => {
+  it("drops a curation whose ids were all replaced upstream, so the provider shows again", () => {
+    // The reported bug: a custom provider's model id was edited, leaving a
+    // curation that matched nothing. Pruning it to [] would hide the provider.
+    const selection = withProviderSelection(EMPTY_MODEL_SELECTION, "commandcode", [
+      "deepseek/deepseek-v4.1-flash",
+    ]);
+    const stale = pruneStaleModelSelection(selection, [
+      { provider: "commandcode", id: "stealth/space-bunny-alpha" },
+    ]);
+    expect(isProviderCurated(stale, "commandcode")).toBe(false);
+    expect(
+      filterAvailableModels(
+        [{ provider: "commandcode", id: "stealth/space-bunny-alpha" }],
+        stale,
+      ).map((m) => m.id),
+    ).toEqual(["stealth/space-bunny-alpha"]);
+  });
+
+  it("keeps a curation that still matches at least one live model", () => {
+    const selection = withProviderSelection(EMPTY_MODEL_SELECTION, "openrouter", [
+      "xai/grok-4.6",
+      "gone/model",
+    ]);
+    const pruned = pruneStaleModelSelection(selection, AVAILABLE);
+    expect(providerSelection(pruned, "openrouter")).toEqual(["xai/grok-4.6"]);
+  });
+
+  it("still honours an explicit curated-to-nothing as 'hide this provider'", () => {
+    const selection = withProviderSelection(EMPTY_MODEL_SELECTION, "openrouter", []);
+    const pruned = pruneStaleModelSelection(selection, AVAILABLE);
+    expect(isProviderCurated(pruned, "openrouter")).toBe(true);
+    expect(filterAvailableModels(AVAILABLE, pruned).map((m) => m.provider)).toEqual([
+      "deepseek",
+    ]);
+  });
+
+  it("leaves disabled providers and uncurated providers alone", () => {
+    const selection: ModelSelection = {
+      providers: { deepseek: ["deepseek-v4-flash"] },
+      disabled: ["openrouter", "google"],
+    };
+    const pruned = pruneStaleModelSelection(selection, AVAILABLE);
+    expect(pruned.disabled).toEqual(["openrouter", "google"]);
+    expect(providerSelection(pruned, "deepseek")).toEqual(["deepseek-v4-flash"]);
+  });
+
+  it("compares selections by value for the self-heal write", () => {
+    const a = withProviderSelection(EMPTY_MODEL_SELECTION, "openrouter", ["xai/grok-4.6"]);
+    expect(isSameModelSelection(a, parseModelSelection(JSON.parse(JSON.stringify(a))))).toBe(
+      true,
+    );
+    expect(isSameModelSelection(a, withProviderSelection(a, "openrouter", []))).toBe(false);
+    expect(isSameModelSelection(a, withProviderDisabled(a, "openrouter", true))).toBe(false);
+    expect(
+      isSameModelSelection(
+        withProviderDisabled(a, "openrouter", true),
+        withProviderDisabled(a, "openrouter", true),
+      ),
+    ).toBe(true);
   });
 });

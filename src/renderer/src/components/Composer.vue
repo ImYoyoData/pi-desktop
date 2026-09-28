@@ -62,7 +62,12 @@ import {
   suspendWakeListen,
 } from "@renderer/utils/asr-wake-listen";
 import { scrubAsrHallucination } from "../../../shared/asr";
-import { EMPTY_MODEL_SELECTION, filterAvailableModels } from "../../../shared/model-selection";
+import {
+  EMPTY_MODEL_SELECTION,
+  filterAvailableModels,
+  isSameModelSelection,
+  pruneStaleModelSelection,
+} from "../../../shared/model-selection";
 import { MODEL_MENU_PROPS, buildModelMenu } from "@renderer/model-menu";
 import { formatAcceleratorLabel } from "../../../shared/hotkey";
 import {
@@ -1868,12 +1873,24 @@ function cycleThinking(): void {
 async function refreshModels(): Promise<void> {
   try {
     const data = await window.api.models.get();
+    const available = data.available;
     // Honour the Settings → Models curation so a 300-model provider does not
     // flood the menu; providers without a curation pass through untouched.
-    const selected = filterAvailableModels(
-      data.available,
-      data.modelSelection ?? EMPTY_MODEL_SELECTION,
-    );
+    //
+    // Prune first. A curation whose ids were all renamed/replaced upstream would
+    // otherwise filter the provider's *new* models away and leave the menu empty —
+    // which reads as "this session has no model config". Persist the pruned
+    // selection so the stale entry does not come back on the next launch.
+    const stored = data.modelSelection ?? EMPTY_MODEL_SELECTION;
+    const selection = pruneStaleModelSelection(stored, available);
+    if (!isSameModelSelection(stored, selection)) {
+      try {
+        await window.api.models.setSelection(selection);
+      } catch {
+        // Self-heal is best-effort: an unwritable store must not break the menu.
+      }
+    }
+    const selected = filterAvailableModels(available, selection);
     const byProvider = new Map<string, { label: string; value: string }[]>();
     for (const m of selected) {
       const list = byProvider.get(m.provider) ?? [];
@@ -1889,8 +1906,10 @@ async function refreshModels(): Promise<void> {
     }));
     availableModels.value = groups;
     await syncSessionModelAndThinking();
-  } catch {
-    availableModels.value = [];
+  } catch (err) {
+    // Keep whatever list we already had: blanking it turns a transient failure
+    // into a dead model button with no way back.
+    console.warn("[composer] failed to refresh models", err);
   }
 }
 
