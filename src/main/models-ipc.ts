@@ -37,6 +37,47 @@ async function createRuntime(): Promise<import("@earendil-works/pi-coding-agent"
   });
 }
 
+/**
+ * The API key stored in auth.json for a provider, if any.
+ *
+ * The custom-model form keeps its key in `models.json`, but a provider can also
+ * be keyed through Settings → Providers (or OAuth), where the secret only ever
+ * lands in auth.json. Endpoint probes have to consider both, or they hit 401 on
+ * exactly the providers the user already configured.
+ */
+async function readStoredProviderKey(providerId: string | undefined): Promise<string | undefined> {
+  const id = typeof providerId === "string" ? providerId.trim() : "";
+  if (!id) return undefined;
+  try {
+    const cred = (await getModelsConfigService().readAuthConfig())[id];
+    if (cred && cred.type === "api_key" && typeof cred.key === "string" && cred.key.trim()) {
+      return cred.key.trim();
+    }
+  } catch {
+    // Unreadable auth.json is not fatal — probe without a key.
+  }
+  return undefined;
+}
+
+/** Endpoint probes need a deadline; without one a hung server spins the button forever. */
+function probeSignal(timeoutMs: number): AbortSignal | undefined {
+  const ctor = globalThis.AbortSignal as
+    | (typeof AbortSignal & { timeout?: (ms: number) => AbortSignal })
+    | undefined;
+  if (ctor && typeof ctor.timeout === "function") return ctor.timeout(timeoutMs);
+  return undefined;
+}
+
+/** Form key wins; fall back to auth.json so a keyed provider still probes. */
+async function resolveProbeKey(
+  rawApiKey: unknown,
+  rawProviderId: unknown,
+): Promise<string | undefined> {
+  const key = typeof rawApiKey === "string" ? rawApiKey.trim() : "";
+  if (key) return key;
+  return readStoredProviderKey(typeof rawProviderId === "string" ? rawProviderId : undefined);
+}
+
 export async function listAvailableModels(runtime: ModelRuntime): Promise<ModelsGetResult["available"]> {
   const models = await runtime.getAvailable();
   return models
@@ -281,15 +322,15 @@ export function registerModelsIpc(broker: SessionBroker): void {
     IpcChannels.models.testBaseUrl,
     async (
       _event,
-      payload: { baseUrl: string; apiKey?: string; api?: string },
+      payload: { baseUrl: string; apiKey?: string; api?: string; providerId?: string },
     ): Promise<TestProviderBaseUrlResult> => {
       return testProviderBaseUrl(
         {
           baseUrl: String(payload?.baseUrl ?? ""),
-          apiKey: typeof payload?.apiKey === "string" ? payload.apiKey : undefined,
+          apiKey: await resolveProbeKey(payload?.apiKey, payload?.providerId),
           api: typeof payload?.api === "string" ? payload.api : undefined,
         },
-        { fetchImpl: netFetch },
+        { fetchImpl: netFetch, signal: probeSignal(20_000) },
       );
     },
   );
@@ -298,15 +339,15 @@ export function registerModelsIpc(broker: SessionBroker): void {
     IpcChannels.models.discover,
     async (
       _event,
-      payload: { baseUrl: string; apiKey?: string; api?: string },
+      payload: { baseUrl: string; apiKey?: string; api?: string; providerId?: string },
     ): Promise<DiscoverModelsResult> => {
       const result = await discoverModels(
         {
           baseUrl: String(payload?.baseUrl ?? ""),
-          apiKey: typeof payload?.apiKey === "string" ? payload.apiKey : undefined,
+          apiKey: await resolveProbeKey(payload?.apiKey, payload?.providerId),
           api: typeof payload?.api === "string" ? payload.api : undefined,
         },
-        { fetchImpl: netFetch },
+        { fetchImpl: netFetch, signal: probeSignal(30_000) },
       );
       if (!result.ok) return result;
       try {
@@ -335,19 +376,7 @@ export function registerModelsIpc(broker: SessionBroker): void {
         providerId?: string;
       },
     ): Promise<TestModelConnectionResult> => {
-      let apiKey =
-        typeof payload?.apiKey === "string" && payload.apiKey.trim()
-          ? payload.apiKey.trim()
-          : undefined;
-      const providerId =
-        typeof payload?.providerId === "string" ? payload.providerId.trim() : "";
-      if (!apiKey && providerId) {
-        const auth = await getModelsConfigService().readAuthConfig();
-        const cred = auth[providerId];
-        if (cred && cred.type === "api_key" && typeof cred.key === "string" && cred.key.trim()) {
-          apiKey = cred.key.trim();
-        }
-      }
+      const apiKey = await resolveProbeKey(payload?.apiKey, payload?.providerId);
       return testModelConnection(
         {
           baseUrl: String(payload?.baseUrl ?? ""),
