@@ -40,6 +40,14 @@ export const IpcChannels = {
 		/** Renderer → main: 保存「流式渲染」设置（并热重载给活跃 worker）。 */
 		set: "streamRender:set",
 	},
+	tempCleanup: {
+		/** Renderer → main: 读取命令输出临时文件清理设置。 */
+		get: "tempCleanup:get",
+		/** Renderer → main: 保存清理设置（并重排定时器）。 */
+		set: "tempCleanup:set",
+		/** Renderer → main: 立即执行一次清理，返回删除数量与释放字节数。 */
+		sweep: "tempCleanup:sweep",
+	},
 	retry: {
 		/** Renderer → main: 读取「重试」设置。 */
 		get: "retry:get",
@@ -554,7 +562,7 @@ export type AgentCommand =
 	| { type: "follow_up"; message: string }
 	| { type: "abort" }
 	| { type: "set_model"; provider: string; modelId: string }
-	| { type: "set_thinking_level"; level: string }
+	| { type: "set_thinking_level"; level: string; persist?: boolean }
 	| { type: "compact"; customInstructions?: string }
 	| { type: "get_state" }
 	| { type: "ping" }

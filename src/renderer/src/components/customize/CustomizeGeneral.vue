@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed } from "vue";
 import CodiconIcon from "@renderer/components/icons/CodiconIcon.vue";
+import TempCleanupSettings from "@renderer/components/customize/TempCleanupSettings.vue";
 import { t } from "@renderer/i18n";
 
 const emit = defineEmits<{ open: [id: string] }>();
@@ -35,6 +36,9 @@ const rows = computed(() => [
         <span class="item-chevron"><CodiconIcon name="chevronRight" :size="14" /></span>
       </div>
     </button>
+
+    <div class="general-divider" />
+    <TempCleanupSettings />
   </div>
 </template>
 
@@ -47,6 +51,12 @@ const rows = computed(() => [
   min-height: 0;
   overflow-y: auto;
   padding-top: 8px;
+}
+
+.general-divider {
+  flex-shrink: 0;
+  margin: 8px 12px 0 16px;
+  border-top: 1px solid var(--border);
 }
 
 .ai-customization-list-item {

@@ -3,8 +3,10 @@ import { spawn, type ChildProcess } from "node:child_process";
 import { constants } from "node:fs";
 import { access as fsAccess } from "node:fs/promises";
 import { execFile } from "node:child_process";
+import { join } from "node:path";
 import { promisify } from "node:util";
 import {
+	getPowerShellConfig,
 	getShellConfig,
 	type BashOperations,
 } from "@earendil-works/pi-coding-agent";
@@ -25,6 +27,14 @@ export type TrackedRunStart = {
 export type BashRunTrackerHooks = {
 	sessionId: string;
 	workspaceRoot: string;
+	/**
+	 * 探测到的真实 shell。SDK 的 `createBashToolDefinition({shellPath})` /
+	 * `createPowerShellToolDefinition()` 只把 shell 选择喂给各自的本地
+	 * operations，而桌面注入了 `operations`，那条分支被短路——必须自己按
+	 * kind 选配置，否则 PowerShell 机器上仍会 spawn bash。
+	 */
+	shellKind?: "bash" | "powershell" | "unresolved";
+	shellPath?: string;
 	onStarted: (run: TrackedRunStart) => void;
 	onOutput: (runId: string, chunk: string) => void;
 	onEnded: (runId: string) => void;
@@ -52,10 +62,42 @@ type ActiveRun = {
 const BACKGROUND_NOTICE =
 	"\n[pi-desktop] Running in background — conversation continues; output is in the Running panel.\n";
 
+/** setTimeout 的上限（毫秒），与 Pi SDK 的 MAX_TIMEOUT_MS 一致。 */
+const MAX_TIMEOUT_MS = 2_147_483_647;
+
+/**
+ * 按探测结果选 shell 配置。bash 用探测到的真实路径（非标准安装路径也不会
+ * 落回 WSL 启动器），PowerShell 用 SDK 的解析（优先 pwsh），未探测到时
+ * 交回 SDK 默认。
+ */
+function resolveShellConfig(hooks: BashRunTrackerHooks): ReturnType<typeof getShellConfig> {
+	if (hooks.shellKind === "powershell") return getPowerShellConfig();
+	if (hooks.shellPath) return getShellConfig(hooks.shellPath);
+	return getShellConfig();
+}
+
+/**
+ * bash 工具的 timeout 单位是秒，缺省表示不超时。与 Pi SDK 同样的校验：
+ * 非正数、超过上限都直接拒绝，避免静默变成"永不超时"。
+ */
+function resolveTimeoutMs(timeout: number | undefined): number | undefined {
+	if (timeout === undefined) return undefined;
+	if (!Number.isFinite(timeout) || timeout <= 0) {
+		throw new Error("Invalid timeout: must be a finite number of seconds");
+	}
+	const timeoutMs = timeout * 1000;
+	if (timeoutMs > MAX_TIMEOUT_MS) {
+		throw new Error(`Invalid timeout: maximum is ${MAX_TIMEOUT_MS / 1000} seconds`);
+	}
+	return timeoutMs;
+}
+
 function killProcessTree(pid: number): void {
 	if (process.platform === "win32") {
+		// 绝对路径：PATH 被裁剪或污染时仍能找到 taskkill（与 Pi SDK 一致）。
+		const systemRoot = process.env.SystemRoot ?? "C:\\Windows";
 		try {
-			spawn("taskkill", ["/pid", String(pid), "/T", "/F"], {
+			spawn(join(systemRoot, "System32", "taskkill.exe"), ["/pid", String(pid), "/T", "/F"], {
 				stdio: "ignore",
 				windowsHide: true,
 				detached: true,
@@ -76,6 +118,9 @@ function killProcessTree(pid: number): void {
 		// ignore
 	}
 }
+
+/** Exposed for unit tests. */
+export const __test = { resolveTimeoutMs, resolveShellConfig };
 
 function isPidAlive(pid: number): boolean {
 	if (!Number.isFinite(pid) || pid <= 0) return false;
@@ -451,7 +496,7 @@ export function createTrackedBashOperations(
 						);
 					}
 
-					const shellConfig = getShellConfig();
+					const shellConfig = resolveShellConfig(hooks);
 					const commandFromStdin = shellConfig.commandTransport === "stdin";
 					const child = spawn(
 						shellConfig.shell,
@@ -492,6 +537,17 @@ export function createTrackedBashOperations(
 					if (local.signal.aborted) onAbort();
 					else local.signal.addEventListener("abort", onAbort, { once: true });
 
+					// Pi 把 timeout 传下来，但 operations 覆盖后原生实现不执行，这里补上：
+					// 到点杀整棵进程树，抛 `timeout:N` 由 SDK 翻译成可读文案。
+					const timeoutMs = resolveTimeoutMs(options.timeout);
+					let timedOut = false;
+					const timeoutHandle = timeoutMs
+						? setTimeout(() => {
+							timedOut = true;
+							onAbort();
+						}, timeoutMs)
+						: null;
+
 					const forward = (data: Buffer) => {
 						const chunk = data.toString("utf8");
 						hooks.onOutput(id, chunk);
@@ -517,7 +573,10 @@ export function createTrackedBashOperations(
 						exitCode = await waitForChildExit(child);
 					} finally {
 						clearInterval(sample);
+						if (timeoutHandle) clearTimeout(timeoutHandle);
 					}
+
+					if (timedOut) throw new Error(`timeout:${options.timeout}`);
 
 					if (local.signal.aborted) {
 						if (!row.backgrounded) throw new Error("aborted");

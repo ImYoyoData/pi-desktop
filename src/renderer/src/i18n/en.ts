@@ -97,6 +97,17 @@ export const en = {
 	customizeGeneral: "General",
 	customizeGeneralDesc:
 		"App settings: chat display, thinking language, notifications, voice, security, proxy and remote.",
+	tempCleanupEnabled: "Auto-clean command output temp files",
+	tempCleanupEnabledHint: "Full logs of large outputs are written to the temp dir and never removed by Pi",
+	tempCleanupInterval: "Cleanup interval",
+	tempCleanupIntervalHint: "How often to scan for expired files",
+	tempCleanupMaxAge: "File age limit",
+	tempCleanupMaxAgeHint: "Only files older than this are deleted; in-use ones are untouched",
+	tempCleanupSweepNow: "Clean now",
+	tempCleanupSweepDone: (count: number, mb: number) => `Cleaned ${count} file(s), freed ${mb.toFixed(1)} MB`,
+	tempCleanupIntervalLabel: (hours: number) =>
+		hours >= 24 ? `every ${Math.round(hours / 24)}d` : `every ${hours}h`,
+	tempCleanupSweepEmpty: "Nothing to clean up",
 	customizeAppearance: "Appearance",
 	customizeAppearanceDesc: "Theme and interface language.",
 	customizeModels: "Models",
