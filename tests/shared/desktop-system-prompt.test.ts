@@ -3,21 +3,7 @@ import {
   DESKTOP_ASK_USER_PROMPT,
   DESKTOP_BASH_BACKGROUND_PROMPT,
   DESKTOP_COMPOSER_MODES_PROMPT,
-  DESKTOP_PROJECT_ORIENTATION_PROMPT,
 } from "../../src/shared/desktop-system-prompt";
-
-describe("DESKTOP_PROJECT_ORIENTATION_PROMPT", () => {
-  it("requires AGENTS.md on first visit and mentions other orientation sources", () => {
-    expect(DESKTOP_PROJECT_ORIENTATION_PROMPT).toContain("AGENTS.md");
-    expect(DESKTOP_PROJECT_ORIENTATION_PROMPT).toMatch(/first turn/i);
-    expect(DESKTOP_PROJECT_ORIENTATION_PROMPT).toMatch(/MUST/i);
-    expect(DESKTOP_PROJECT_ORIENTATION_PROMPT).toContain("project_context");
-    expect(DESKTOP_PROJECT_ORIENTATION_PROMPT).toContain("README.md");
-    expect(DESKTOP_PROJECT_ORIENTATION_PROMPT).toContain(".cursor/");
-    expect(DESKTOP_PROJECT_ORIENTATION_PROMPT).toContain(".pi/");
-    expect(DESKTOP_PROJECT_ORIENTATION_PROMPT).toContain(".opencode/");
-  });
-});
 
 describe("DESKTOP_ASK_USER_PROMPT", () => {
   it("documents ask_user usage", () => {

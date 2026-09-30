@@ -70,6 +70,7 @@ declare module 'vue' {
     PermissionStrip: typeof import('./src/components/PermissionStrip.vue')['default']
     PiCliSetup: typeof import('./src/components/PiCliSetup.vue')['default']
     PreviewTab: typeof import('./src/components/PreviewTab.vue')['default']
+    ProviderLogin: typeof import('./src/components/customize/ProviderLogin.vue')['default']
     ProxySettings: typeof import('./src/components/ProxySettings.vue')['default']
     RightDockChanges: typeof import('./src/components/RightDockChanges.vue')['default']
     RightPane: typeof import('./src/components/RightPane.vue')['default']

@@ -259,11 +259,11 @@ function describeMcp(entry: unknown): string {
 }
 
 function isMcpDisabled(entry: unknown): boolean {
-	return (
-		Boolean(entry) &&
-		typeof entry === "object" &&
-		(entry as { disabled?: unknown }).disabled === true
-	);
+	if (!entry || typeof entry !== "object") return false;
+	const record = entry as { enabled?: unknown; disabled?: unknown };
+	if (record.enabled === false) return true;
+	// 旧版 pi-mcp-adapter 约定的 disabled 字段；官方扩展只认 enabled。
+	return record.disabled === true;
 }
 
 function readMcpFile(file: string, scope: CustomizationScope): CustomizationItem[] {
@@ -276,7 +276,28 @@ function readMcpFile(file: string, scope: CustomizationScope): CustomizationItem
 	}
 	const servers = parsed.mcpServers;
 	if (!servers || typeof servers !== "object") return [];
-	return Object.entries(servers).map(([name, entry]) => ({
+	const entries = Object.entries(servers);
+	// 官方扩展不认旧版 pi-mcp-adapter 的 disabled 字段，读到即迁移为 enabled: false，
+	// 避免想停用的服务器被官方扩展照常连接。
+	const legacyDisabled = entries.some(
+		([, entry]) => isMcpEntry(entry) && (entry as { disabled?: unknown }).disabled === true,
+	);
+	if (legacyDisabled) {
+		for (const entry of Object.values(servers)) {
+			if (!isMcpEntry(entry)) continue;
+			const record = entry as { disabled?: unknown; enabled?: unknown };
+			if (record.disabled === true) {
+				delete record.disabled;
+				record.enabled = false;
+			}
+		}
+		try {
+			writeMcpRaw(file, parsed);
+		} catch {
+			// 迁移失败不阻塞列表展示，旧字段仍按停用渲染
+		}
+	}
+	return entries.map(([name, entry]) => ({
 		id: `${file}#${name}`,
 		name,
 		description: describeMcp(entry),
@@ -318,7 +339,7 @@ function isMcpEntry(value: unknown): value is Record<string, unknown> {
 	return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
 
-/** 通过 `disabled` 字段启停 MCP 服务器（pi-mcp-adapter 读取该字段）。 */
+/** 通过官方 MCP 扩展的 `enabled` 字段启停服务器，并清理旧版遗留的 disabled 字段。 */
 export function setMcpServerEnabled(
 	name: string,
 	scope: "user" | "project",
@@ -331,8 +352,9 @@ export function setMcpServerEnabled(
 	if (!isMcpEntry(entry)) {
 		throw new Error(`MCP server "${name}" not found in ${file}`);
 	}
-	if (enabled) delete entry.disabled;
-	else entry.disabled = true;
+	delete entry.disabled;
+	if (enabled) delete entry.enabled;
+	else entry.enabled = false;
 	writeMcpRaw(file, raw);
 }
 

@@ -99,7 +99,6 @@ import { locale, t } from "@renderer/i18n";
 import {
   THINKING_LEVELS,
   isThinkingLevel,
-  routedThinkingLevel,
   thinkingLevelLabel,
   type ThinkingLevel,
 } from "@renderer/utils/thinking-level";
@@ -239,7 +238,7 @@ function thinkingFromState(data: unknown): ThinkingLevel | null {
   return isThinkingLevel(level) ? level : null;
 }
 
-/** 界面档位写入偏好；实际发送的值由 routedThinkingLevel 决定，不回写界面。 */
+/** 界面档位写入偏好；worker 会按模型能力 clamp 后回传实际档位。 */
 function adoptThinking(level: ThinkingLevel, key: string | null = prefsKey.value): void {
   thinkingLevel.value = level;
   if (key) rememberThinking(key, level);
@@ -247,8 +246,7 @@ function adoptThinking(level: ThinkingLevel, key: string | null = prefsKey.value
 
 /**
  * worker 会按模型能力 clamp 档位（模型未映射 xhigh/max 时回落到 high）。
- * 实际值不等于路由值就说明被 clamp，界面改成实际档位，避免显示与实际不符；
- * 相等时（含 Minimal→Low / Medium→High 的静默路由）保留用户选择。
+ * 实际值不等于请求值就说明被 clamp，界面改成实际档位，避免显示与实际不符。
  */
 function adoptThinkingResult(
   requested: ThinkingLevel,
@@ -257,7 +255,7 @@ function adoptThinkingResult(
 ): void {
   const actual = (result as { level?: unknown } | null)?.level;
   // worker 未回传实际值时不动界面，只按用户选择记忆。
-  if (!isThinkingLevel(actual) || actual === routedThinkingLevel(requested)) {
+  if (!isThinkingLevel(actual) || actual === requested) {
     if (key) rememberThinking(key, requested);
     return;
   }
@@ -1162,7 +1160,7 @@ async function submit(mode: "prompt" | "steer" | "follow_up"): Promise<void> {
     void sessions
       .sendCommand(id, {
         type: "set_thinking_level",
-        level: routedThinkingLevel(level),
+        level,
       })
       .then((result) => adoptThinkingResult(level, result, id))
       .catch(() => {
@@ -1875,7 +1873,7 @@ async function onThinkingChange(value: string | number): Promise<void> {  const 
   if (!id) return;
   const result = await sessions.sendCommand(id, {
     type: "set_thinking_level",
-    level: routedThinkingLevel(level),
+    level,
   });
   adoptThinkingResult(level, result, key);
 }
@@ -2014,18 +2012,17 @@ async function syncSessionModelAndThinking(): Promise<void> {
     }
   }
 
-  // 界面保留用户选择的档位；worker 里存的是路由后的实际档位。
+  // 界面与 worker 各自保留档位；不一致（如会话切换）时把界面值同步过去。
   if (rememberedThinking) {
     thinkingLevel.value = rememberedThinking;
   } else if (workerThinking) {
     adoptThinking(workerThinking, realId);
   }
-  const routed = routedThinkingLevel(thinkingLevel.value);
-  if (workerThinking !== null && workerThinking !== routed) {
+  if (workerThinking !== null && workerThinking !== thinkingLevel.value) {
     try {
       const result = await sessions.tryCommand(realId, {
         type: "set_thinking_level",
-        level: routed,
+        level: thinkingLevel.value,
       });
       adoptThinkingResult(thinkingLevel.value, result, realId);
     } catch {
