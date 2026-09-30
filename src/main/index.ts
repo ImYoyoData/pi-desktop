@@ -72,6 +72,8 @@ import {
 import { registerSecurityIpc } from "./security-ipc";
 import { registerThinkingLanguageIpc } from "./thinking-language-ipc";
 import { registerStreamRenderIpc } from "./stream-render-ipc";
+import { registerTempCleanupIpc } from "./temp-cleanup-ipc";
+import { registerTempCleanup } from "./temp-cleanup-host";
 import { registerAppearanceIpc } from "./appearance-ipc";
 import {
 	disposeLanConsole,
@@ -369,6 +371,8 @@ function boot(): void {
 		registerStreamRenderIpc(broker);
 		registerRetryIpc(broker);
 		initRetrySettings();
+		registerTempCleanupIpc();
+		registerTempCleanup();
 		registerAppearanceIpc();
 		registerLanConsoleIpc(broker);
 		registerPreviewIpc();

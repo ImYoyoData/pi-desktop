@@ -78,6 +78,7 @@ import type {
 import type { ProxySettings } from "../shared/proxy";
 import type { ThinkingLanguageSettings } from "../shared/thinking-language";
 import type { StreamRenderSettings } from "../shared/stream-render";
+import type { TempCleanupSettings } from "../shared/temp-cleanup";
 import type { RetrySettings } from "../shared/retry-settings";
 
 export type AppInfo = {
@@ -1628,6 +1629,20 @@ const api = {
 				IpcChannels.streamRender.set,
 				settings,
 			) as Promise<StreamRenderSettings>,
+	},
+	tempCleanup: {
+		get: () =>
+			ipcRenderer.invoke(IpcChannels.tempCleanup.get) as Promise<TempCleanupSettings>,
+		set: (settings: TempCleanupSettings) =>
+			ipcRenderer.invoke(
+				IpcChannels.tempCleanup.set,
+				settings,
+			) as Promise<TempCleanupSettings>,
+		sweep: () =>
+			ipcRenderer.invoke(IpcChannels.tempCleanup.sweep) as Promise<{
+				removed: number;
+				bytes: number;
+			}>,
 	},
 	appearance: {
 		pickWallpaper: () =>

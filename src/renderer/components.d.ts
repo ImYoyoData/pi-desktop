@@ -83,6 +83,7 @@ declare module 'vue' {
     SessionTodoPanel: typeof import('./src/components/SessionTodoPanel.vue')['default']
     SkillsSettings: typeof import('./src/components/SkillsSettings.vue')['default']
     SplitRoot: typeof import('./src/components/SplitRoot.vue')['default']
+    TempCleanupSettings: typeof import('./src/components/customize/TempCleanupSettings.vue')['default']
     TerminalTab: typeof import('./src/components/TerminalTab.vue')['default']
     ThinkingBlock: typeof import('./src/components/ThinkingBlock.vue')['default']
     TitleBar: typeof import('./src/components/TitleBar.vue')['default']

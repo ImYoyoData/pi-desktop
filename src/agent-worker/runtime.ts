@@ -539,6 +539,9 @@ async function initSession(
 	runTracker = createTrackedBashOperations(undefined, {
 		sessionId: sessionManager.getSessionId(),
 		workspaceRoot: cwd,
+		// operations 覆盖后 SDK 的 shell 选择不再生效，探测结果必须显式传下去。
+		shellKind: commandShell.kind,
+		...(commandShell.kind === "unresolved" ? {} : { shellPath: commandShell.shellPath }),
 		onStarted: (run) => post({ kind: "run_started", run }),
 		onOutput: (runId, chunk) => post({ kind: "run_output", runId, chunk }),
 		onEnded: (runId) => post({ kind: "run_ended", runId }),
@@ -1017,8 +1020,12 @@ async function runCommand(id: string, command: AgentCommand): Promise<void> {
 		}
 		case "set_thinking_level": {
 			// 重新广播一次，界面上的模型/思考标注立即跟上选择器。
+			// persist 时写入 Pi 全局默认：新建会话（无历史档位记录）据此初始化，
+			// 与 Pi 的 defaultThinkingLevel 语义一致。
 			const active = requireSession();
-			active.setThinkingLevel(command.level as ThinkingLevel);
+			active.setThinkingLevel(command.level as ThinkingLevel, {
+				persist: command.persist === true,
+			});
 			emitContextUsage(active);
 			post({ kind: "result", id, data: { ok: true, level: active.thinkingLevel } });
 			return;

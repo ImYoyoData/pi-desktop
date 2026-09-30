@@ -1871,9 +1871,11 @@ async function onThinkingChange(value: string | number): Promise<void> {  const 
   if (key) rememberThinking(key, level);
   const id = sessionId.value;
   if (!id) return;
+  // persist: 写入 Pi 全局默认，新会话（无历史记录）据此初始化。
   const result = await sessions.sendCommand(id, {
     type: "set_thinking_level",
     level,
+    persist: true,
   });
   adoptThinkingResult(level, result, key);
 }

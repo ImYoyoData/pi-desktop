@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import type { BashOperations } from "@earendil-works/pi-coding-agent";
-import { createTrackedBashOperations } from "../../src/agent-worker/bash-run-tracker";
+import { createTrackedBashOperations, __test } from "../../src/agent-worker/bash-run-tracker";
 
 function mockBase(opts?: {
   hangUntilAbort?: boolean;
@@ -129,5 +129,49 @@ describe("createTrackedBashOperations", () => {
     await vi.waitFor(() => expect(getActiveRunIds().length).toBe(1));
     terminateRun(getActiveRunIds()[0]!);
     await vi.waitFor(() => expect(getActiveRunIds().length).toBe(0));
+  });
+});
+
+describe("bash timeout / shell resolution", () => {
+  it("treats a missing timeout as no timeout", () => {
+    expect(__test.resolveTimeoutMs(undefined)).toBeUndefined();
+  });
+
+  it("converts seconds to milliseconds", () => {
+    expect(__test.resolveTimeoutMs(30)).toBe(30_000);
+  });
+
+  it("rejects non-positive and non-finite values", () => {
+    expect(() => __test.resolveTimeoutMs(0)).toThrow(/finite number of seconds/);
+    expect(() => __test.resolveTimeoutMs(-5)).toThrow(/finite number of seconds/);
+    expect(() => __test.resolveTimeoutMs(Number.NaN)).toThrow(/finite number of seconds/);
+  });
+
+  it("rejects timeouts beyond the setTimeout ceiling", () => {
+    expect(() => __test.resolveTimeoutMs(2_147_484)).toThrow(/maximum is/);
+  });
+
+  it("resolves the powershell config for a powershell shell", () => {
+    const config = __test.resolveShellConfig({
+      shellKind: "powershell",
+      sessionId: "s1",
+      workspaceRoot: "/ws",
+      onStarted: () => {},
+      onOutput: () => {},
+      onEnded: () => {},
+    });
+    expect(config.shell.toLowerCase()).toMatch(/pwsh|powershell/);
+  });
+
+  it("falls back to the SDK default when no shell was detected", () => {
+    const config = __test.resolveShellConfig({
+      shellKind: "unresolved",
+      sessionId: "s1",
+      workspaceRoot: "/ws",
+      onStarted: () => {},
+      onOutput: () => {},
+      onEnded: () => {},
+    });
+    expect(config.shell.length).toBeGreaterThan(0);
   });
 });

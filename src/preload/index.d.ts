@@ -72,6 +72,7 @@ import type {
 import type { ProxySettings } from "../shared/proxy";
 import type { ThinkingLanguageSettings } from "../shared/thinking-language";
 import type { StreamRenderSettings } from "../shared/stream-render";
+import type { TempCleanupSettings } from "../shared/temp-cleanup";
 export type AppInfo = {
 	version: string;
 	githubUrl: string;
@@ -1003,6 +1004,11 @@ declare const api: {
 	streamRender: {
 		get: () => Promise<StreamRenderSettings>;
 		set: (settings: StreamRenderSettings) => Promise<StreamRenderSettings>;
+	tempCleanup: {
+		get: () => Promise<TempCleanupSettings>;
+		set: (settings: TempCleanupSettings) => Promise<TempCleanupSettings>;
+		sweep: () => Promise<{ removed: number; bytes: number }>;
+	};
 	};
 	appearance: {
 		pickWallpaper: () => Promise<string | null>;
