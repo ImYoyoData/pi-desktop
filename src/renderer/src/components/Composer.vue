@@ -245,6 +245,25 @@ function adoptThinking(level: ThinkingLevel, key: string | null = prefsKey.value
   if (key) rememberThinking(key, level);
 }
 
+/**
+ * worker 会按模型能力 clamp 档位（模型未映射 xhigh/max 时回落到 high）。
+ * 实际值不等于路由值就说明被 clamp，界面改成实际档位，避免显示与实际不符；
+ * 相等时（含 Minimal→Low / Medium→High 的静默路由）保留用户选择。
+ */
+function adoptThinkingResult(
+  requested: ThinkingLevel,
+  result: unknown,
+  key: string | null = prefsKey.value,
+): void {
+  const actual = (result as { level?: unknown } | null)?.level;
+  // worker 未回传实际值时不动界面，只按用户选择记忆。
+  if (!isThinkingLevel(actual) || actual === routedThinkingLevel(requested)) {
+    if (key) rememberThinking(key, requested);
+    return;
+  }
+  adoptThinking(actual, key);
+}
+
 function rememberModel(sessionId: string, key: string): void {
   modelBySession.value = { ...modelBySession.value, [sessionId]: key };
   persistSessionPrefs();
@@ -630,6 +649,7 @@ function snapshotComposerPayload(): {
         kind?: "file" | "url" | "element" | "agent" | "plan" | "ask" | "task";
       }[]
     | undefined;
+  mode: ComposerAgentMode;
 } | null {
   const chipText = composer.formatChipsForMessage();
   const displayText = composer.draft.trim();
@@ -684,6 +704,7 @@ function snapshotComposerPayload(): {
     imagesToSend,
     citationsToSend,
     tagsToSend: tagsToSend.length ? tagsToSend : undefined,
+    mode,
   };
 }
 
@@ -1087,6 +1108,10 @@ async function submit(mode: "prompt" | "steer" | "follow_up"): Promise<void> {
     return;
   }
 
+  // 快照先于任何 await 取：让出的微任务里会话绑定可能变化，
+  // 否则工具栏显示的模式会与实际下发的不一致。
+  const snap = snapshotComposerPayload();
+
   // While agent is running, a plain send becomes guidance for the running turn
   // (steer) instead of waiting for the next turn.
   if (running.value && mode === "prompt") {
@@ -1097,7 +1122,6 @@ async function submit(mode: "prompt" | "steer" | "follow_up"): Promise<void> {
   // Bare builtin slash (e.g. `/compact`) — run locally, do not prompt the model.
   if (mode === "prompt" && (await tryConsumeBuiltinSlashDraft())) return;
 
-  const snap = snapshotComposerPayload();
   if (!snap) return;
 
   // 草稿态在此刻才真正建会话（首条消息触发），失败则保留输入待重试。
@@ -1113,7 +1137,7 @@ async function submit(mode: "prompt" | "steer" | "follow_up"): Promise<void> {
         return;
       }
       id = created.id;
-      composer.transferDraftMode(id);
+      composer.transferDraftMode(id, snap.mode);
     } catch (err) {
       draftCommitPending = false;
       messageApi.error(err instanceof Error ? err.message : String(err));
@@ -1140,7 +1164,7 @@ async function submit(mode: "prompt" | "steer" | "follow_up"): Promise<void> {
         type: "set_thinking_level",
         level: routedThinkingLevel(level),
       })
-      .then(() => rememberThinking(id, level))
+      .then((result) => adoptThinkingResult(level, result, id))
       .catch(() => {
         // ignore — prompt may still proceed with worker default
       });
@@ -1849,10 +1873,11 @@ async function onThinkingChange(value: string | number): Promise<void> {  const 
   if (key) rememberThinking(key, level);
   const id = sessionId.value;
   if (!id) return;
-  await sessions.sendCommand(id, {
+  const result = await sessions.sendCommand(id, {
     type: "set_thinking_level",
     level: routedThinkingLevel(level),
   });
+  adoptThinkingResult(level, result, key);
 }
 
 /** 快捷键：循环到下一个模型 / 思考等级。 */
@@ -1998,7 +2023,11 @@ async function syncSessionModelAndThinking(): Promise<void> {
   const routed = routedThinkingLevel(thinkingLevel.value);
   if (workerThinking !== null && workerThinking !== routed) {
     try {
-      await sessions.tryCommand(realId, { type: "set_thinking_level", level: routed });
+      const result = await sessions.tryCommand(realId, {
+        type: "set_thinking_level",
+        level: routed,
+      });
+      adoptThinkingResult(thinkingLevel.value, result, realId);
     } catch {
       // ignore thinking sync failures
     }
@@ -2457,6 +2486,9 @@ watch(sessionId, (id, prev) => {
   }
   if (id && thinkingBySession.value[id]) {
     thinkingLevel.value = thinkingBySession.value[id];
+  } else if (id) {
+    // 新会话没有记忆时沿用当前档位，不因 worker 默认值回退。
+    rememberThinking(id, thinkingLevel.value);
   }
   void refreshModels();
 });
