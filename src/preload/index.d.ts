@@ -18,6 +18,7 @@ import type { AgentSaveResult, CustomizationsSnapshot, CustomizationCreateKind, 
 import type {
 	ModelsGetResult,
 	ModelsOAuthEventPayload,
+	ModelsQuotaResult,
 	ModelsOAuthPromptReply,
 	ModelsSetPayload,
 	ProviderCatalogResult,
@@ -757,6 +758,7 @@ declare const api: {
 		oauthPrompt: (reply: ModelsOAuthPromptReply) => Promise<void>;
 		oauthCancel: () => Promise<void>;
 		onOauthEvent: (callback: (payload: ModelsOAuthEventPayload) => void) => () => void;
+		fetchQuota: (providerId: string) => Promise<ModelsQuotaResult>;
 	};
 	preview: {
 		read: (filePath: string) => Promise<PreviewResult>;

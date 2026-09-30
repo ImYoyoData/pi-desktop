@@ -24,6 +24,7 @@ import type { AgentSaveResult, CustomizationsSnapshot, CustomizationCreateKind, 
 import type {
 	ModelsGetResult,
 	ModelsOAuthEventPayload,
+	ModelsQuotaResult,
 	ModelsOAuthPromptReply,
 	ModelsSetPayload,
 	ProviderCatalogResult,
@@ -1064,6 +1065,8 @@ const api = {
 				IpcChannels.models.setSelection,
 				selection,
 			) as Promise<void>,
+		fetchQuota: (providerId: string) =>
+			ipcRenderer.invoke(IpcChannels.models.fetchQuota, providerId) as Promise<ModelsQuotaResult>,
 		oauthLogin: (providerId: string) =>
 			ipcRenderer.invoke(IpcChannels.models.oauthLogin, providerId) as Promise<void>,
 		oauthLogout: (providerId: string) =>
