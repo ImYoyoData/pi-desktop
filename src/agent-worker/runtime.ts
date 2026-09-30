@@ -533,6 +533,7 @@ async function initSession(
 				: {}),
 		},
 	});
+	enableAllThinkingLevels(services.modelRuntime);
 	let assertBashExecAllowed: ((command: string) => void) | null = null;
 	let takeBashBackgroundFlag: ((command: string) => boolean) | null = null;
 	runTracker = createTrackedBashOperations(undefined, {
@@ -732,6 +733,55 @@ async function refreshSessionModel(active: AgentSession): Promise<void> {
 }
 
 type SessionModel = NonNullable<ReturnType<AgentSession["modelRuntime"]["getModel"]>>;
+
+const ALL_THINKING_LEVELS = [
+	"off",
+	"minimal",
+	"low",
+	"medium",
+	"high",
+	"xhigh",
+	"max",
+] as const;
+
+/**
+ * 全档位开放：Pi 规定 xhigh/max 需要模型显式映射，否则 clamp 到 high。
+ * 桌面不跟随该规则——给未映射的推理模型补齐全档位，映射值即原始档位名
+ * （各 API 层在缺映射时本就按原始名发送），不改写 models.json。
+ */
+function withAllThinkingLevels(model: SessionModel): SessionModel {
+	if (!model.reasoning) return model;
+	const map = model.thinkingLevelMap;
+	if (map) {
+		const missing = ALL_THINKING_LEVELS.filter((level) => !(level in map));
+		if (missing.length === 0) return model;
+		const next: Record<string, string> = {};
+		for (const level of ALL_THINKING_LEVELS) {
+			const mapped = map[level];
+			next[level] = mapped === undefined || mapped === null ? level : (mapped as string);
+		}
+		return { ...model, thinkingLevelMap: next };
+	}
+	const next: Record<string, string> = {};
+	for (const level of ALL_THINKING_LEVELS) next[level] = level;
+	return { ...model, thinkingLevelMap: next };
+}
+
+/** 在 ModelRuntime 视图上开放全部档位，不落盘、不改用户配置。 */
+function enableAllThinkingLevels(runtime: AgentSession["modelRuntime"]): void {
+	const getModel = runtime.getModel.bind(runtime);
+	const getModels = runtime.getModels.bind(runtime);
+	const getAvailable = runtime.getAvailable.bind(runtime);
+	const getAvailableSnapshot = runtime.getAvailableSnapshot.bind(runtime);
+	runtime.getModel = (providerId, modelId) => {
+		const model = getModel(providerId, modelId);
+		return model ? withAllThinkingLevels(model) : undefined;
+	};
+	runtime.getModels = (providerId) => getModels(providerId).map(withAllThinkingLevels);
+	runtime.getAvailable = async (providerId, options) =>
+		(await getAvailable(providerId, options)).map(withAllThinkingLevels);
+	runtime.getAvailableSnapshot = () => getAvailableSnapshot().map(withAllThinkingLevels);
+}
 
 /**
  * 解析待设置模型：优先内存可用快照，未命中只查该 provider。
