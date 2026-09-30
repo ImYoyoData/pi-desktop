@@ -29,14 +29,3 @@ export function isThinkingLevel(value: unknown): value is ThinkingLevel {
 export function thinkingLevelLabel(value: unknown): string | null {
   return isThinkingLevel(value) ? (LABELS.get(value) ?? null) : null;
 }
-
-/** 仅作展示、实际静默路由到其它档位的级别。 */
-const ROUTED_LEVELS: Partial<Record<ThinkingLevel, ThinkingLevel>> = {
-  minimal: "low",
-  medium: "high",
-};
-
-/** 实际发给 Pi 的思考级别：界面保留用户选择，Minimal→Low、Medium→High。 */
-export function routedThinkingLevel(level: ThinkingLevel): ThinkingLevel {
-  return ROUTED_LEVELS[level] ?? level;
-}

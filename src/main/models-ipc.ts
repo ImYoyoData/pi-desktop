@@ -38,6 +38,16 @@ async function createRuntime(): Promise<import("@earendil-works/pi-coding-agent"
 }
 
 /**
+ * Sign in with ChatGPT 要求以稳定设备 ID 标识安装（写入全局 settings.json），
+ * 与 pi CLI 的 login 行为一致。
+ */
+async function createDeviceIdProvider(): Promise<() => string> {
+  const { SettingsManager, getAgentDir } = await import("@earendil-works/pi-coding-agent");
+  const settingsManager = SettingsManager.create(process.cwd(), getAgentDir());
+  return () => settingsManager.getOrCreateDeviceId();
+}
+
+/**
  * The API key stored in auth.json for a provider, if any.
  *
  * The custom-model form keeps its key in `models.json`, but a provider can also
@@ -407,12 +417,24 @@ export function registerModelsIpc(broker: SessionBroker): void {
       const sender = event.sender;
       const interaction: AuthInteraction = {
         signal: session.controller.signal,
-        notify: (authEvent) => pushOauthEvent(sender, providerId, toOauthEvent(authEvent)),
-        prompt: (prompt) => requestOauthPrompt(session, sender, prompt),
+        notify: (authEvent) => {
+          console.info(`[oauth] ${providerId} event: ${authEvent.type}`);
+          pushOauthEvent(sender, providerId, toOauthEvent(authEvent));
+        },
+        prompt: (prompt) => {
+          console.info(`[oauth] ${providerId} prompt: ${prompt.type}`);
+          return requestOauthPrompt(session, sender, prompt);
+        },
       };
       try {
-        await runtime.login(providerId, "oauth", interaction);
+        await runtime.login(providerId, "oauth", interaction, {
+          getDeviceId: await createDeviceIdProvider(),
+        });
+        console.info(`[oauth] ${providerId} login ok`);
         await broker.notifyWorkersReloadModels();
+      } catch (err) {
+        console.error(`[oauth] ${providerId} login failed:`, err);
+        throw err;
       } finally {
         if (activeOauthLogin === session) activeOauthLogin = null;
       }

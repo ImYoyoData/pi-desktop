@@ -14,6 +14,7 @@ import { EyeOffOutline, EyeOutline } from "@vicons/ionicons5";
 import CodiconIcon from "@renderer/components/icons/CodiconIcon.vue";
 import ToggleButton from "@renderer/components/ToggleButton.vue";
 import ModelPickModal from "@renderer/components/customize/ModelPickModal.vue";
+import ProviderLogin from "@renderer/components/customize/ProviderLogin.vue";
 import {
   CUSTOM_MODEL_APIS,
   emptyCustomProvider,
@@ -46,6 +47,7 @@ const dialog = useDialog();
 
 const loading = ref(true);
 const loadError = ref("");
+const oauthOpen = ref(false);
 const modelsText = ref("");
 const providers = ref<CustomProviderDraft[]>([]);
 /** 桌面端策展状态：仅存于本地配置，不写 models.json。shallowRef 保持纯数据，避免 IPC 克隆 Proxy 失败。 */
@@ -474,6 +476,8 @@ async function testModel(rowKey: string, modelId: string): Promise<void> {
 
 <template>
   <div class="customize-models">
+    <ProviderLogin :show="oauthOpen" @close="oauthOpen = false" @changed="load()" />
+
     <NSpin v-if="loading" size="small" class="content-spin" />
 
     <p v-else-if="loadError" class="content-error">
@@ -484,8 +488,10 @@ async function testModel(rowKey: string, modelId: string): Promise<void> {
       <aside class="models-sidebar">
         <div class="list-toolbar">
           <NButton size="small" @click="onAddProvider">
-            <template #icon><CodiconIcon name="add" :size="13" /></template>
-            {{ t.modelsCustomAdd }}
+            {{ t.modelsAuthApiLogin }}
+          </NButton>
+          <NButton size="small" @click="oauthOpen = true">
+            {{ t.modelsAuthOauthLogin }}
           </NButton>
         </div>
 
@@ -800,8 +806,15 @@ async function testModel(rowKey: string, modelId: string): Promise<void> {
 }
 
 .list-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   flex-shrink: 0;
   margin-bottom: 8px;
+}
+
+.list-toolbar .n-button {
+  flex: 1;
 }
 
 .sidebar-empty {

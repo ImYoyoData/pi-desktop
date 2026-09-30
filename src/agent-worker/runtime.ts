@@ -1,14 +1,14 @@
 import type { ImageContent } from "@earendil-works/pi-ai/compat";
 import { readFileSync, writeFileSync } from "node:fs";
-import {
-	routedThinkingLevel,
-	type ThinkingLevel,
-} from "../shared/thinking-level";
+import { type ThinkingLevel } from "../shared/thinking-level";
 import {
 	createAgentSessionFromServices,
 	createAgentSessionServices,
 	createBashToolDefinition,
+	createCodemodeExtension,
+	createMcpExtension,
 	createPowerShellToolDefinition,
+	createToolSearchExtension,
 	defineTool,
 	getAgentDir,
 	SessionManager,
@@ -55,7 +55,6 @@ import {
 	DESKTOP_ASK_USER_PROMPT,
 	DESKTOP_COMPOSER_MODES_PROMPT,
 	DESKTOP_BASH_BACKGROUND_PROMPT,
-	DESKTOP_PROJECT_ORIENTATION_PROMPT,
 	DESKTOP_TODO_PROMPT,
 } from "../shared/desktop-system-prompt";
 import { createAskUserToolDefinition } from "./ask-user-tool";import { createTodoWriteToolDefinition } from "./todo-tool";
@@ -76,7 +75,6 @@ import {
 	parseSessionTiming,
 	sessionTimingPath,
 } from "../shared/session-timing";
-import { pruneOldToolResults } from "./tool-result-prune";
 import {
 	createDesktopExtensionUIContext,
 	setExtensionInfoNotificationsMuted,
@@ -517,8 +515,13 @@ async function initSession(
 		agentDir,
 		settingsManager,
 		resourceLoaderOptions: {
+			// 与 pi CLI 的 builtInExtensions 对齐（llama.cpp 未随 SDK 公开导出，无法接入）。
+			extensionFactories: [
+				{ name: "codemode", factory: createCodemodeExtension(), replaceable: true, builtin: true },
+				{ name: "tool-search", factory: createToolSearchExtension(), replaceable: true, builtin: true },
+				{ name: "mcp", factory: createMcpExtension(), replaceable: true, builtin: true },
+			],
 			appendSystemPrompt: [
-				DESKTOP_PROJECT_ORIENTATION_PROMPT,
 				DESKTOP_ASK_USER_PROMPT,
 				DESKTOP_TODO_PROMPT,
 				DESKTOP_BASH_BACKGROUND_PROMPT,
@@ -530,7 +533,6 @@ async function initSession(
 				: {}),
 		},
 	});
-	forceDefaultThinkingLevels(services.modelRuntime);
 	let assertBashExecAllowed: ((command: string) => void) | null = null;
 	let takeBashBackgroundFlag: ((command: string) => boolean) | null = null;
 	runTracker = createTrackedBashOperations(undefined, {
@@ -720,38 +722,13 @@ function requireSession(): AgentSession {
 	return session;
 }
 
-/**
- * ModelRuntime.refresh() reloads models.json / catalogs, but AuthStorage keeps an
- * in-memory snapshot of auth.json from worker start. Re-read disk before refresh.
- */
-function reloadAuthStorageCache(active: AgentSession): void {
-	// SAFETY: SDK 未导出 ModelRuntime 的凭据类型，这里按内部结构读取 auth 缓存。
-	const runtime = active.modelRuntime as unknown as {
-		credentials?: { store?: { reload?: () => void } };
-	};
-	runtime.credentials?.store?.reload?.();
-}
-
 async function refreshSessionModel(active: AgentSession): Promise<void> {
 	const current = active.model;
 	if (!current) return;
 	const next = active.modelRuntime.getModel(current.provider, current.id);
 	if (next && next !== current) {
-		await setModelPreservingThinking(active, next);
+		await active.setModel(next);
 	}
-}
-
-/**
- * Pi 切模型会把思考级别重置为默认值；这里保留切换前的实际等级（并套用界面路由），
- * 避免“选 Medium、实际又被重置回默认值”。
- */
-async function setModelPreservingThinking(
-	active: AgentSession,
-	model: SessionModel,
-): Promise<void> {
-	const level = routedThinkingLevel(active.thinkingLevel);
-	await active.setModel(model);
-	if (active.thinkingLevel !== level) active.setThinkingLevel(level);
 }
 
 type SessionModel = NonNullable<ReturnType<AgentSession["modelRuntime"]["getModel"]>>;
@@ -775,31 +752,6 @@ async function resolveSelectableModel(
 	} catch {
 		return undefined;
 	}
-}
-
-/** Pi 只在 thinkingLevelMap 显式映射时才提供 XHigh/Max；完全未配置时按支持处理。 */
-function withDefaultThinkingLevels(model: SessionModel): SessionModel {
-	if (!model.reasoning) return model;
-	// 用户（或目录）已配置映射就尊重，保留 Pi 的档位回退（如 xhigh 不支持→max）。
-	if (model.thinkingLevelMap !== undefined) return model;
-	return { ...model, thinkingLevelMap: { xhigh: "xhigh", max: "max" } };
-}
-
-/** 在 ModelRuntime 上补默认思考等级，不改写 models.json。 */
-function forceDefaultThinkingLevels(runtime: AgentSession["modelRuntime"]): void {
-	const getModel = runtime.getModel.bind(runtime);
-	const getModels = runtime.getModels.bind(runtime);
-	const getAvailable = runtime.getAvailable.bind(runtime);
-	const getAvailableSnapshot = runtime.getAvailableSnapshot.bind(runtime);
-	runtime.getModel = (providerId, modelId) => {
-		const model = getModel(providerId, modelId);
-		return model ? withDefaultThinkingLevels(model) : undefined;
-	};
-	runtime.getModels = (providerId) => getModels(providerId).map(withDefaultThinkingLevels);
-	runtime.getAvailable = async (providerId, options) =>
-		(await getAvailable(providerId, options)).map(withDefaultThinkingLevels);
-	runtime.getAvailableSnapshot = () =>
-		getAvailableSnapshot().map(withDefaultThinkingLevels);
 }
 
 function emitContextUsage(active: AgentSession): void {
@@ -836,24 +788,6 @@ function emitContextUsage(active: AgentSession): void {
 	});
 }
 
-/**
- * OpenCode-style prune: shrink old tool results in the live agent message list
- * before the next model turn (or before LLM compact). Disk jsonl is unchanged.
- */
-function pruneAgentToolResults(active: AgentSession): void {
-	try {
-		const result = pruneOldToolResults(
-			// SAFETY: 修剪函数只读取消息的公共字段，与 SDK 消息结构兼容。
-			active.messages as unknown as Parameters<typeof pruneOldToolResults>[0],
-		);
-		if (result.changed) {
-			emitContextUsage(active);
-		}
-	} catch {
-		// prune is best-effort — never block the turn
-	}
-}
-
 export async function handleWorkerMessage(msg: WorkerInbound): Promise<void> {
 	if (msg.kind === "ping") {
 		post({ kind: "pong" });
@@ -867,7 +801,6 @@ export async function handleWorkerMessage(msg: WorkerInbound): Promise<void> {
 	}
 	if (msg.kind === "reload_models") {
 		if (session) {
-			reloadAuthStorageCache(session);
 			await session.modelRuntime.refresh({ allowNetwork: false });
 			await refreshSessionModel(session);
 		}
@@ -944,7 +877,6 @@ async function runCommand(id: string, command: AgentCommand): Promise<void> {
 				message = formatCitationsBlock(command.citations) + message;
 			}
 			applyBuiltinBrowserToolGate(active, message, command.citations);
-			pruneAgentToolResults(active);
 			const images = normalizePromptImages(command.images);
 			if (images?.length && !modelAcceptsImages(active)) {
 				post({ kind: "result", id, error: formatNoVisionModelError() });
@@ -971,7 +903,6 @@ async function runCommand(id: string, command: AgentCommand): Promise<void> {
 		case "steer": {
 			const active = requireSession();
 			applyBuiltinBrowserToolGate(active, command.message);
-			pruneAgentToolResults(active);
 			const images = normalizePromptImages(command.images);
 			if (images?.length && !modelAcceptsImages(active)) {
 				post({ kind: "result", id, error: formatNoVisionModelError() });
@@ -1006,7 +937,6 @@ async function runCommand(id: string, command: AgentCommand): Promise<void> {
 		case "follow_up": {
 			const active = requireSession();
 			applyBuiltinBrowserToolGate(active, command.message);
-			pruneAgentToolResults(active);
 			await active.followUp(command.message);
 			post({ kind: "result", id, data: { ok: true } });
 			return;
@@ -1030,24 +960,21 @@ async function runCommand(id: string, command: AgentCommand): Promise<void> {
 				});
 				return;
 			}
-			await setModelPreservingThinking(active, model);
+			await active.setModel(model);
 			emitContextUsage(active);
 			post({ kind: "result", id, data: { ok: true } });
 			return;
 		}
 		case "set_thinking_level": {
 			// 重新广播一次，界面上的模型/思考标注立即跟上选择器。
-			// 界面档位静默路由（Minimal→Low、Medium→High），返回值是实际生效等级。
 			const active = requireSession();
-			active.setThinkingLevel(routedThinkingLevel(command.level as ThinkingLevel));
+			active.setThinkingLevel(command.level as ThinkingLevel);
 			emitContextUsage(active);
 			post({ kind: "result", id, data: { ok: true, level: active.thinkingLevel } });
 			return;
 		}
 		case "compact": {
 			const active = requireSession();
-			// Light prune first so the summarizer sees less tool noise / fewer tokens.
-			pruneAgentToolResults(active);
 			await active.compact(command.customInstructions);
 			emitContextUsage(active);
 			post({ kind: "result", id, data: { ok: true } });

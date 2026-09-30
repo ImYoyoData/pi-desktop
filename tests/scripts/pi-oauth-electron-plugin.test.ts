@@ -39,6 +39,24 @@ describe("piOAuthElectronPlugin", () => {
     expect(out!.code).toContain('import("./openai-codex.js")');
   });
 
+  it("rewrites bare fetch calls in oauth modules to the desktop bridge", () => {
+    const oauthModule = `
+const response = await fetch(TOKEN_URL, { method: "POST", signal });
+return await fetch(url, init);
+const other = prefetch(TOKEN_URL);
+globalThis.fetch(TOKEN_URL);
+`;
+    const next = __test.rewriteOAuthFetches(oauthModule);
+    expect(next).toContain(
+      "await (globalThis.__piDesktopOAuthFetch ?? globalThis.fetch)(TOKEN_URL, { method: \"POST\", signal })",
+    );
+    expect(next).toContain(
+      "return await (globalThis.__piDesktopOAuthFetch ?? globalThis.fetch)(url, init)",
+    );
+    expect(next).toContain("prefetch(TOKEN_URL)");
+    expect(next).toContain("globalThis.fetch(TOKEN_URL)");
+  });
+
   it("ignores unrelated modules", () => {
     const plugin = piOAuthElectronPlugin();
     const transform = plugin.transform as (
