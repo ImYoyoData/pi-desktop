@@ -213,6 +213,7 @@ export const IpcChannels = {
 		readMcpServer: "customizations:readMcpServer",
 		ensureMcpConfig: "customizations:ensureMcpConfig",
 		removeMcpServer: "customizations:removeMcpServer",
+		setBuiltinExtensionEnabled: "customizations:setBuiltinExtensionEnabled",
 		setItemEnabled: "customizations:setItemEnabled",
 		removeItem: "customizations:removeItem",
 		testMcpServers: "customizations:testMcpServers",

@@ -1,10 +1,45 @@
 <script setup lang="ts">
-import { computed, reactive } from "vue";
+import { computed, reactive, ref } from "vue";
+import { useMessage } from "naive-ui";
 import CodiconIcon from "@renderer/components/icons/CodiconIcon.vue";
-import type { CustomizationItem, CustomizationScope } from "../../../../shared/customizations";
+import ToggleButton from "@renderer/components/ToggleButton.vue";
+import type {
+  BuiltinExtensionItem,
+  CustomizationItem,
+  CustomizationScope,
+} from "../../../../shared/customizations";
+import { useCustomizationsStore } from "@renderer/stores/customizations";
+import { useWorkspaceStore } from "@renderer/stores/workspace";
 import { t } from "@renderer/i18n";
 
-const props = defineProps<{ tools: CustomizationItem[] }>();
+const props = defineProps<{
+  tools: CustomizationItem[];
+  builtinExtensions: BuiltinExtensionItem[];
+}>();
+
+const store = useCustomizationsStore();
+const workspace = useWorkspaceStore();
+const message = useMessage();
+
+const builtinCollapsed = ref(false);
+
+function builtinDescription(name: string): string {
+  return t.customizeBuiltinExtensionDescription(name);
+}
+
+/** 开关内置扩展：主进程写全局 settings，返回最新列表后本地覆盖。 */
+async function toggleBuiltin(item: BuiltinExtensionItem, enabled: boolean): Promise<void> {
+  try {
+    const items = await window.api.customizations.setBuiltinExtensionEnabled(
+      item.name,
+      enabled,
+      workspace.root ?? undefined,
+    );
+    store.setBuiltinExtensionEnabled(items);
+  } catch (err) {
+    message.error(err instanceof Error ? err.message : String(err));
+  }
+}
 
 type ToolGroup = {
   key: string;
@@ -72,7 +107,7 @@ const groups = computed<ToolGroup[]>(() => {
 
 <template>
   <div class="customize-tools">
-    <div v-if="!tools.length" class="list-empty-state">
+    <div v-if="!tools.length && !builtinExtensions.length" class="list-empty-state">
       <div class="empty-state-header">
         <span class="empty-state-text">{{ t.customizeEmpty(t.customizeTools) }}</span>
       </div>
@@ -80,6 +115,65 @@ const groups = computed<ToolGroup[]>(() => {
     </div>
 
     <div v-else class="list-container">
+      <div v-if="builtinExtensions.length" class="group-block">
+        <button
+          type="button"
+          class="ai-customization-group-header"
+          :class="{ collapsed: builtinCollapsed }"
+          @click="builtinCollapsed = !builtinCollapsed"
+        >
+          <span class="group-label-group">
+            <span class="group-label">{{ t.customizeBuiltinExtensions }}</span>
+          </span>
+          <span class="group-count">
+            {{ builtinExtensions.filter((item) => item.enabled).length }}/{{ builtinExtensions.length }}
+          </span>
+          <span class="group-info" :title="t.customizeBuiltinExtensionsHint">
+            <CodiconIcon name="about" :size="14" />
+          </span>
+          <span class="group-chevron">
+            <CodiconIcon
+              :name="builtinCollapsed ? 'chevronRight' : 'chevronDown'"
+              :size="14"
+            />
+          </span>
+        </button>
+        <template v-if="!builtinCollapsed">
+          <div
+            v-for="item in builtinExtensions"
+            :key="item.id"
+            class="ai-customization-list-item"
+          >
+            <div class="item-left">
+              <div class="item-text">
+                <div class="item-name-row">
+                  <span class="item-name">{{ item.name }}</span>
+                  <span v-if="item.overridden" class="inline-badge">
+                    {{ t.customizeBuiltinOverridden }}
+                  </span>
+                </div>
+                <div class="item-description">{{ builtinDescription(item.name) }}</div>
+              </div>
+            </div>
+            <div class="item-right">
+              <ToggleButton
+                class="item-switch"
+                :value="item.enabled"
+                :disabled="item.overridden"
+                :title="
+                  item.overridden
+                    ? t.customizeBuiltinOverriddenHint
+                    : item.enabled
+                      ? t.customizeDisable
+                      : t.customizeEnable
+                "
+                @update:value="(value: boolean) => toggleBuiltin(item, value)"
+              />
+            </div>
+          </div>
+        </template>
+      </div>
+
       <div v-for="group in groups" :key="group.key" class="group-block">
         <button
           type="button"
@@ -136,6 +230,28 @@ const groups = computed<ToolGroup[]>(() => {
 .group-block {
   display: flex;
   flex-direction: column;
+}
+
+.item-right {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  gap: 4px;
+  margin-left: 16px;
+}
+
+.item-switch {
+  flex-shrink: 0;
+}
+
+.inline-badge {
+  flex-shrink: 0;
+  padding: 0 6px;
+  border-radius: 4px;
+  background: var(--bg-active);
+  color: var(--fg-muted);
+  font-size: 10px;
+  line-height: 16px;
 }
 
 .ai-customization-group-header {

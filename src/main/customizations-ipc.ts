@@ -7,7 +7,7 @@ import { emptyCustomizations, type CustomizationCreateKind, type CustomizationsS
 import { getWorkspace, listRecentDesktop } from "./workspace-ipc";
 import { createAgentFromDraft, createInstructionsFromDraft, saveAgentContent } from "./agent-host";
 import { frontmatterText } from "./frontmatter";
-import { createCustomization, listCustomizations, setMcpServerEnabled, addMcpServers, ensureMcpConfig, removeMcpServer, readMcpEntry, setCustomizationItemEnabled, removeCustomizationItem } from "./customizations-host";
+import { createCustomization, listCustomizations, setMcpServerEnabled, addMcpServers, ensureMcpConfig, removeMcpServer, readMcpEntry, setBuiltinExtensionEnabled, setCustomizationItemEnabled, removeCustomizationItem } from "./customizations-host";
 import { testMcpServer } from "./mcp-test";
 import { readProviderToken } from "./models-config";
 
@@ -188,6 +188,16 @@ export function registerCustomizationsIpc(broker?: {
 			const root = cwd || getWorkspace();
 			if (scope === "project" && !root) throw new Error("workspace required");
 			return readMcpEntry(name, scope, root ?? undefined);
+		},
+	);
+
+	ipcMain.handle(
+		IpcChannels.customizations.setBuiltinExtensionEnabled,
+		async (_event, name: string, enabled: boolean, cwd?: string) => {
+			const root = cwd || getWorkspace();
+			const items = await setBuiltinExtensionEnabled(name, enabled, root ?? undefined);
+			if (root) await broker?.notifyWorkersReloadResources(root);
+			return items;
 		},
 	);
 

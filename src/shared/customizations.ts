@@ -71,6 +71,7 @@ export type CustomizationsSnapshot = {
 	mcp: CustomizationItem[];
 	plugins: CustomizationItem[];
 	tools: CustomizationItem[];
+	builtinExtensions: BuiltinExtensionItem[];
 	diagnostics: string[];
 };
 
@@ -87,6 +88,15 @@ export type McpEditTarget = {
 	name: string;
 	scope: "user" | "project";
 	workspace: string | null;
+};
+
+/** 桌面注册的 pi 内置扩展开关状态。 */
+export type BuiltinExtensionItem = {
+	id: string;
+	name: string;
+	enabled: boolean;
+	/** 由项目设置覆盖，开关只作用于全局。 */
+	overridden: boolean;
 };
 
 export type McpTestResult = McpTestTarget & {
@@ -108,6 +118,7 @@ export function emptyCustomizations(root: string | null): CustomizationsSnapshot
 		mcp: [],
 		plugins: [],
 		tools: [],
+		builtinExtensions: [],
 		diagnostics: [],
 	};
 }

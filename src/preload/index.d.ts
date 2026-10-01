@@ -14,7 +14,7 @@ import type {
 } from "../shared/protocol";
 import type { AgentRunEvent, AgentRunSnapshot } from "../shared/agent-runs";
 import type { EditContextMenuAction, EditContextMenuPayload } from "../shared/context-menu";
-import type { AgentSaveResult, CustomizationsSnapshot, CustomizationCreateKind, InstructionsSaveResult, McpTestResult, McpTestTarget, SkillSaveResult } from "../shared/customizations";
+import type { AgentSaveResult, BuiltinExtensionItem, CustomizationsSnapshot, CustomizationCreateKind, InstructionsSaveResult, McpTestResult, McpTestTarget, SkillSaveResult } from "../shared/customizations";
 import type {
 	ModelsGetResult,
 	ModelsOAuthEventPayload,
@@ -624,6 +624,11 @@ declare const api: {
 			scope: "user" | "project",
 			cwd?: string,
 		) => Promise<Record<string, unknown> | null>;
+		setBuiltinExtensionEnabled: (
+			name: string,
+			enabled: boolean,
+			cwd?: string,
+		) => Promise<BuiltinExtensionItem[]>;
 		ensureMcpConfig: (
 			scope: "user" | "project",
 			cwd?: string,
