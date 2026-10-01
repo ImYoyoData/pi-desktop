@@ -9,6 +9,8 @@ import type {
   ModelsOAuthPromptReply,
   ModelsProviderAuth,
   ModelsQuotaResult,
+  ModelsQuotaWindow,
+  ModelsQuotaWindowKind,
   ModelsSetPayload,
   ProviderCatalogResult,
 } from "../shared/models-settings";
@@ -109,10 +111,6 @@ export async function listAvailableModels(runtime: ModelRuntime): Promise<Models
     });
 }
 
-function formatUsd(value: number): string {
-  return `$${value.toFixed(2)}`;
-}
-
 type StoredCredential = { type?: string; key?: string; access?: string; refresh?: string; expires?: number };
 
 async function readStoredCredential(providerId: string): Promise<StoredCredential | undefined> {
@@ -198,16 +196,12 @@ async function fetchOpenRouterQuota(providerId: string): Promise<ModelsQuotaResu
     ...(remaining !== undefined ? { remaining } : {}),
     ...(total !== undefined ? { total } : {}),
     ...(used !== undefined ? { used } : {}),
-    label:
-      remaining !== undefined
-        ? `剩余 ${formatUsd(remaining)}${total !== undefined ? ` / ${formatUsd(total)}` : ""}`
-        : `已用 ${formatUsd(used ?? 0)}`,
   };
 }
 
-type QuotaWindow = { used: number; limit: number; resetAt?: string };
+type QuotaWindow = ModelsQuotaWindow;
 
-function quotaWindowFrom(value: unknown): QuotaWindow | null {
+function quotaWindowFrom(value: unknown, kind: ModelsQuotaWindowKind): QuotaWindow | null {
   if (!value || typeof value !== "object") return null;
   const record = value as { limit?: unknown; used?: unknown; remaining?: unknown; resetTime?: unknown; reset_at?: unknown };
   const limit = typeof record.limit === "number" ? record.limit : Number.NaN;
@@ -219,16 +213,11 @@ function quotaWindowFrom(value: unknown): QuotaWindow | null {
   if (!Number.isFinite(used)) return null;
   const resetRaw = record.resetTime ?? record.reset_at;
   return {
+    kind,
     used,
     limit,
     ...(typeof resetRaw === "string" && resetRaw ? { resetAt: resetRaw } : {}),
   };
-}
-
-function formatWindow(window: QuotaWindow): string {
-  const percent = Math.max(0, Math.min(100, (window.used / window.limit) * 100));
-  const suffix = window.resetAt ? `，${String(window.resetAt).slice(0, 10)} 重置` : "";
-  return `已用 ${percent.toFixed(0)}%（${window.used} / ${window.limit}）${suffix}`;
 }
 
 /** Kimi Code 订阅用量（端点与官方 Kimi Code CLI 一致）。 */
@@ -240,15 +229,15 @@ async function fetchKimiQuota(providerId: string): Promise<ModelsQuotaResult> {
   });
   if (!response.ok) return { providerId, supported: false, error: `HTTP ${response.status}` };
   const body = (await response.json()) as Record<string, unknown>;
-  const usage = quotaWindowFrom(body.usage);
   const limits = Array.isArray(body.limits) ? body.limits : [];
-  const detail = quotaWindowFrom(
-    (limits[0] as { detail?: unknown } | undefined)?.detail ?? limits[0],
-  );
-  const totalQuota = quotaWindowFrom(body.totalQuota);
-  const windows = [usage, detail, totalQuota]
-    .filter((w): w is QuotaWindow => w !== null)
-    .map(formatWindow);
+  const windows = [
+    quotaWindowFrom(body.usage, "primary"),
+    quotaWindowFrom(
+      (limits[0] as { detail?: unknown } | undefined)?.detail ?? limits[0],
+      "secondary",
+    ),
+    quotaWindowFrom(body.totalQuota, "total"),
+  ].filter((w): w is QuotaWindow => w !== null);
   const level =
     typeof (body.user as { membership?: { level?: unknown } } | undefined)?.membership?.level ===
     "string"
@@ -306,13 +295,13 @@ async function fetchCopilotQuota(providerId: string): Promise<ModelsQuotaResult>
   const plan = typeof body.copilot_plan === "string" && body.copilot_plan
     ? body.copilot_plan.charAt(0).toUpperCase() + body.copilot_plan.slice(1)
     : undefined;
-  const resetLabel = typeof body.quota_reset_date === "string" && body.quota_reset_date
-    ? body.quota_reset_date.slice(0, 10)
+  const resetAt = typeof body.quota_reset_date === "string" && body.quota_reset_date
+    ? body.quota_reset_date
     : undefined;
   const snapshots = body.quota_snapshots ?? {};
-  const windows: string[] = [];
+  const windows: ModelsQuotaWindow[] = [];
   const describe = (
-    name: string,
+    kind: ModelsQuotaWindowKind,
     snapshot: {
       entitlement?: number;
       remaining?: number;
@@ -334,17 +323,17 @@ async function fetchCopilotQuota(providerId: string): Promise<ModelsQuotaResult>
     if (Number.isFinite(entitlement) && entitlement > 0) {
       // 超额时 remaining 为负数，截断会显示成「剩余 0」；改用 credits_used 呈现进度。
       const used = Number.isFinite(creditsUsed) && creditsUsed >= 0 ? creditsUsed : entitlement - remaining;
-      windows.push(`${name} 已用 ${usedPercent.toFixed(0)}%（${used} / ${entitlement}）`);
+      windows.push({ kind, used, limit: entitlement });
       return;
     }
     if (Number.isFinite(creditsUsed) && creditsUsed > 0) {
-      windows.push(`${name} 已用 ${creditsUsed}`);
+      windows.push({ kind, used: creditsUsed });
     }
   };
-  describe("高级请求", snapshots.premium_interactions);
-  describe("对话", snapshots.chat);
-  if (windows.length > 0 && resetLabel) {
-    windows.push(`${resetLabel} 重置`);
+  describe("premium", snapshots.premium_interactions);
+  describe("chat", snapshots.chat);
+  if (windows.length > 0 && resetAt) {
+    for (const window of windows) window.resetAt = resetAt;
   }
   return {
     providerId,
@@ -374,16 +363,17 @@ async function fetchXaiQuota(providerId: string): Promise<ModelsQuotaResult> {
   };
   const config = body.config;
   if (!config) return { providerId, supported: false, error: "unexpected response" };
-  const windows: string[] = [];
+  const windows: ModelsQuotaWindow[] = [];
+  const resetAt = config.billingPeriodEnd;
   const monthlyLimit = config.monthlyLimit?.val ?? 0;
   const used = config.used?.val;
   if (monthlyLimit > 0 && typeof used === "number") {
-    windows.push(formatWindow({ used, limit: monthlyLimit }));
+    windows.push({ kind: "primary", used, limit: monthlyLimit, ...(resetAt ? { resetAt } : {}) });
   }
   const onDemandCap = config.onDemandCap?.val ?? 0;
   const onDemandUsed = config.onDemandUsed?.val;
   if (onDemandCap > 0 && typeof onDemandUsed === "number") {
-    windows.push(formatWindow({ used: onDemandUsed, limit: onDemandCap }));
+    windows.push({ kind: "onDemand", used: onDemandUsed, limit: onDemandCap, ...(resetAt ? { resetAt } : {}) });
   }
   if (windows.length === 0) {
     // 无上限的包月订阅：只报已用量，不臆造总额度。
@@ -392,7 +382,7 @@ async function fetchXaiQuota(providerId: string): Promise<ModelsQuotaResult> {
         providerId,
         supported: true,
         used,
-        windows: [`本周期已用 ${used}${config.billingPeriodEnd ? `，${config.billingPeriodEnd.slice(0, 10)} 重置` : ""}`],
+        windows: [{ kind: "primary", used, ...(resetAt ? { resetAt } : {}) }],
       };
     }
     return { providerId, supported: false, error: "no usage data" };

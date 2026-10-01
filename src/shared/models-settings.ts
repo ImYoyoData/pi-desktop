@@ -62,6 +62,25 @@ export type ModelsGetResult = {
  * 提供商额度查询结果。Pi SDK 没有额度 API，本类型只承载桌面侧自行查询到的
  * 公开数据（目前仅 OpenRouter credits）；其余提供商返回 unsupported。
  */
+/** 额度窗口种类；文案由渲染层按 i18n 组装，主进程只提供数据。 */
+export type ModelsQuotaWindowKind =
+  | "primary"
+  | "secondary"
+  | "total"
+  | "onDemand"
+  | "premium"
+  | "chat";
+
+export type ModelsQuotaWindow = {
+  kind: ModelsQuotaWindowKind;
+  /** 已用量。 */
+  used: number;
+  /** 上限；缺省表示无上限（如包月订阅）。 */
+  limit?: number;
+  /** 用量窗口的结束时间（ISO 字符串）。 */
+  resetAt?: string;
+};
+
 export type ModelsQuotaResult = {
   providerId: string;
   supported: boolean;
@@ -73,10 +92,8 @@ export type ModelsQuotaResult = {
   used?: number;
   /** 订阅档位名（如 Kimi 的会员等级）。 */
   plan?: string;
-  /** 逐周期用量摘要，如 "已用 42%（42 / 100）"。 */
-  windows?: string[];
-  /** 供 UI 展示的一行摘要，如 "剩余 $12.34 / $50.00"。 */
-  label?: string;
+  /** 逐周期用量；文案在渲染层按 kind + i18n 生成。 */
+  windows?: ModelsQuotaWindow[];
   /** 查询失败原因（网络、鉴权、端点变更等）。 */
   error?: string;
 };

@@ -97,6 +97,19 @@ export const en = {
 	customizeGeneral: "General",
 	customizeGeneralDesc:
 		"App settings: chat display, thinking language, notifications, voice, security, proxy and remote.",
+	modelsAuthQuotaPrimary: "Current period",
+	modelsAuthQuotaSecondary: "Detailed quota",
+	modelsAuthQuotaTotal: "Total quota",
+	modelsAuthQuotaOnDemand: "On-demand",
+	modelsAuthQuotaPremium: "Premium requests",
+	modelsAuthQuotaChat: "Chat",
+	modelsAuthQuotaUsed: (name: string, percent: string, used: string, limit: string, reset?: string) =>
+		`${name} used ${percent}% (${used} / ${limit})${reset ? `, resets ${reset}` : ""}`,
+	modelsAuthQuotaUsedNoLimit: (name: string, used: string, reset?: string) =>
+		`${name} used ${used} this period${reset ? `, resets ${reset}` : ""}`,
+	modelsAuthQuotaRemaining: (remaining: string, total?: string) =>
+		`${remaining} left${total ? ` of ${total}` : ""}`,
+	modelsAuthQuotaSpent: (used: string) => `${used} used`,
 	tempCleanupEnabled: "Auto-clean command output temp files",
 	tempCleanupEnabledHint: "Full logs of large outputs are written to the temp dir and never removed by Pi",
 	tempCleanupInterval: "Cleanup interval",
