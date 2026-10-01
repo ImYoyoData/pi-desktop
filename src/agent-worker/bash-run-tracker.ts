@@ -44,6 +44,8 @@ export type BashRunTrackerHooks = {
 	beforeExec?: (command: string) => void;
 	/** When true, start detached from the tool call (permission "后台运行"). */
 	shouldStartBackground?: (command: string) => boolean;
+	/** bash 命令前执行的片段（pi 的 shellCommandPrefix），PowerShell 不使用。 */
+	commandPrefix?: string;
 };
 
 type ActiveRun = {
@@ -121,6 +123,13 @@ function killProcessTree(pid: number): void {
 
 /** Exposed for unit tests. */
 export const __test = { resolveTimeoutMs, resolveShellConfig };
+
+/** bash 命令前缀：与 pi 一致，前缀单独一行放在命令前；PowerShell 不使用。 */
+function withCommandPrefix(command: string, hooks: BashRunTrackerHooks): string {
+	const prefix = hooks.commandPrefix?.trim();
+	if (!prefix || hooks.shellKind === "powershell") return command;
+	return `${prefix}\n${command}`;
+}
 
 function isPidAlive(pid: number): boolean {
 	if (!Number.isFinite(pid) || pid <= 0) return false;
@@ -402,7 +411,7 @@ export function createTrackedBashOperations(
 
 				void (async () => {
 					try {
-						const result = await base.exec(spawnCommand, cwd, {
+						const result = await base.exec(withCommandPrefix(spawnCommand, hooks), cwd, {
 							...options,
 							signal: local.signal,
 							onData: (data) => {
@@ -502,7 +511,7 @@ export function createTrackedBashOperations(
 						shellConfig.shell,
 						commandFromStdin
 							? shellConfig.args
-							: [...shellConfig.args, spawnCommand],
+							: [...shellConfig.args, withCommandPrefix(spawnCommand, hooks)],
 						{
 							cwd,
 							// New process group on macOS/Linux so kill(-pid) terminates the tree.
@@ -514,7 +523,7 @@ export function createTrackedBashOperations(
 					);
 					if (commandFromStdin) {
 						child.stdin?.on("error", () => {});
-						child.stdin?.end(spawnCommand);
+						child.stdin?.end(withCommandPrefix(spawnCommand, hooks));
 					}
 
 					if (child.pid) {

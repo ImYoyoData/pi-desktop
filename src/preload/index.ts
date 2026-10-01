@@ -20,7 +20,7 @@ import type {
 import { IpcChannels } from "../shared/protocol";
 import type { EditContextMenuAction, EditContextMenuPayload } from "../shared/context-menu";
 import type { AgentRunEvent, AgentRunSnapshot } from "../shared/agent-runs";
-import type { AgentSaveResult, BuiltinExtensionItem, CustomizationsSnapshot, CustomizationCreateKind, InstructionsSaveResult, McpTestResult, McpTestTarget, SkillSaveResult } from "../shared/customizations";
+import type { AgentSaveResult, BuiltinExtensionItem, BuiltinToolItem, CodemodeSettingsState, CustomizationsSnapshot, CustomizationCreateKind, InstructionsSaveResult, McpAuthEventPayload, McpAuthPromptReply, McpAuthState, McpAuthTarget, McpTestResult, McpTestTarget, SkillSaveResult } from "../shared/customizations";
 import type {
 	ModelsGetResult,
 	ModelsOAuthEventPayload,
@@ -80,6 +80,7 @@ import type { ThinkingLanguageSettings } from "../shared/thinking-language";
 import type { StreamRenderSettings } from "../shared/stream-render";
 import type { TempCleanupSettings } from "../shared/temp-cleanup";
 import type { RetrySettings } from "../shared/retry-settings";
+import type { RuntimeSettings } from "../shared/runtime-settings";
 
 export type AppInfo = {
 	version: string;
@@ -194,6 +195,25 @@ const api = {
 			ipcRenderer.on(IpcChannels.retry.changed, listener);
 			return () => {
 				ipcRenderer.removeListener(IpcChannels.retry.changed, listener);
+			};
+		},
+	},
+	runtime: {
+		get: () =>
+			ipcRenderer.invoke(IpcChannels.runtime.get) as Promise<RuntimeSettings>,
+		set: (settings: RuntimeSettings) =>
+			ipcRenderer.invoke(
+				IpcChannels.runtime.set,
+				settings,
+			) as Promise<RuntimeSettings>,
+		onChanged: (callback: (settings: RuntimeSettings) => void) => {
+			const listener = (
+				_event: Electron.IpcRendererEvent,
+				settings: RuntimeSettings,
+			) => callback(settings);
+			ipcRenderer.on(IpcChannels.runtime.changed, listener);
+			return () => {
+				ipcRenderer.removeListener(IpcChannels.runtime.changed, listener);
 			};
 		},
 	},
@@ -860,6 +880,22 @@ const api = {
 				enabled,
 				cwd,
 			) as Promise<BuiltinExtensionItem[]>,
+		setToolEnabled: (name: string, enabled: boolean, cwd?: string) =>
+			ipcRenderer.invoke(
+				IpcChannels.customizations.setToolEnabled,
+				name,
+				enabled,
+				cwd,
+			) as Promise<BuiltinToolItem[]>,
+		setCodemodeSettings: (
+			patch: { mode?: "on" | "only"; inlineBudget?: number | null },
+			cwd?: string,
+		) =>
+			ipcRenderer.invoke(
+				IpcChannels.customizations.setCodemodeSettings,
+				patch,
+				cwd,
+			) as Promise<CodemodeSettingsState>,
 		ensureMcpConfig: (scope: "user" | "project", cwd?: string) =>
 			ipcRenderer.invoke(
 				IpcChannels.customizations.ensureMcpConfig,
@@ -899,6 +935,38 @@ const api = {
 			ipcRenderer.on(IpcChannels.customizations.updated, listener);
 			return () => {
 				ipcRenderer.removeListener(IpcChannels.customizations.updated, listener);
+			};
+		},
+		mcpAuthStates: (targets: McpAuthTarget[]) =>
+			ipcRenderer.invoke(
+				IpcChannels.customizations.mcpAuthStates,
+				targets,
+			) as Promise<Record<string, McpAuthState>>,
+		mcpLogin: (target: McpAuthTarget) =>
+			ipcRenderer.invoke(
+				IpcChannels.customizations.mcpLogin,
+				target,
+			) as Promise<void>,
+		mcpAuthPrompt: (reply: McpAuthPromptReply) =>
+			ipcRenderer.invoke(
+				IpcChannels.customizations.mcpAuthPrompt,
+				reply,
+			) as Promise<void>,
+		mcpLoginCancel: () =>
+			ipcRenderer.invoke(IpcChannels.customizations.mcpLoginCancel) as Promise<void>,
+		mcpLogout: (target: McpAuthTarget) =>
+			ipcRenderer.invoke(
+				IpcChannels.customizations.mcpLogout,
+				target,
+			) as Promise<boolean>,
+		onMcpAuthEvent: (callback: (payload: McpAuthEventPayload) => void) => {
+			const listener = (
+				_event: Electron.IpcRendererEvent,
+				payload: McpAuthEventPayload,
+			): void => callback(payload);
+			ipcRenderer.on(IpcChannels.customizations.mcpAuthEvent, listener);
+			return () => {
+				ipcRenderer.removeListener(IpcChannels.customizations.mcpAuthEvent, listener);
 			};
 		},
 	},

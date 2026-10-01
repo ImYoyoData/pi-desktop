@@ -1,10 +1,11 @@
 <script setup lang="ts">
-import { computed, reactive, ref } from "vue";
+import { computed, reactive, ref, watch } from "vue";
 import { NButton, NDropdown, NInput, useDialog, useMessage } from "naive-ui";
 import type { DropdownOption } from "naive-ui";
 import CodiconIcon from "@renderer/components/icons/CodiconIcon.vue";
 import ToggleButton from "@renderer/components/ToggleButton.vue";
 import McpAddModal from "@renderer/components/customize/McpAddModal.vue";
+import McpLoginModal from "@renderer/components/customize/McpLoginModal.vue";
 import { useWorkspaceStore } from "@renderer/stores/workspace";
 import { useScopedWorkspaces } from "@renderer/utils/scoped-workspaces";
 import { useCustomizationsStore } from "@renderer/stores/customizations";
@@ -12,6 +13,8 @@ import { usePluginUpdatesStore } from "@renderer/stores/plugin-updates";
 import type {
   CustomizationItem,
   CustomizationScope,
+  McpAuthState,
+  McpAuthTarget,
   McpEditTarget,
   McpTestResult,
 } from "../../../../shared/customizations";
@@ -48,6 +51,8 @@ const addOpen = ref(false);
 const mcpEdit = ref<McpEditTarget | null>(null);
 const mcpTesting = ref(false);
 const mcpTestResults = ref<Record<string, McpTestResult>>({});
+const mcpAuthStates = ref<Record<string, McpAuthState>>({});
+const mcpLoginTarget = ref<McpAuthTarget | null>(null);
 const pluginUpdates = usePluginUpdatesStore();
 const collapsed = reactive(new Set<CustomizationScope>());
 
@@ -433,8 +438,7 @@ async function testMcpServers(): Promise<void> {
   }
 }
 
-function testBadge(item: CustomizationItem): { text: string; className: string } | null {
-  if (item.enabled === false) return null;
+function testBadge(item: CustomizationItem): { text: string; className: string } | null {  if (item.enabled === false) return null;
   if (mcpTesting.value) return { text: t.customizeMcpTesting, className: "is-pending" };
   const result = mcpTestResults.value[item.id];
   if (!result) return null;
@@ -446,6 +450,71 @@ function testBadge(item: CustomizationItem): { text: string; className: string }
   }
   const error = result.error === "timeout" ? t.customizeMcpTestTimeout : (result.error ?? "");
   return { text: t.customizeMcpTestFailed(error), className: "is-fail" };
+}
+
+/** MCP OAuth：登录目标、凭据状态与登录弹窗。 */
+function mcpTarget(item: CustomizationItem): McpAuthTarget {
+  const workspace = workspaceOf(item);
+  return {
+    name: item.name,
+    scope: item.scope === "project" ? "project" : "user",
+    ...(workspace ? { workspace } : {}),
+  };
+}
+
+function mcpAuthStateOf(item: CustomizationItem): McpAuthState | null {
+  const scope = item.scope === "project" ? "project" : "user";
+  return mcpAuthStates.value[`${scope}:${item.name}`] ?? null;
+}
+
+async function refreshMcpAuth(): Promise<void> {
+  if (props.kind !== "mcp") return;
+  const targets = props.items
+    .filter((item) => item.scope === "user" || item.scope === "project")
+    .map(mcpTarget);
+  if (targets.length === 0) {
+    mcpAuthStates.value = {};
+    return;
+  }
+  try {
+    mcpAuthStates.value = await window.api.customizations.mcpAuthStates(targets);
+  } catch {
+    // 凭据状态获取失败不影响列表展示
+  }
+}
+
+watch(
+  () => [props.kind, props.items] as const,
+  () => {
+    void refreshMcpAuth();
+  },
+  { immediate: true },
+);
+
+function openMcpLogin(item: CustomizationItem): void {
+  mcpLoginTarget.value = mcpTarget(item);
+}
+
+function onMcpLoginChanged(): void {
+  void refreshMcpAuth();
+}
+
+function confirmMcpLogout(item: CustomizationItem): void {
+  dialog.warning({
+    title: t.customizeMcpSignOut,
+    content: t.customizeMcpSignOutConfirm(item.name),
+    positiveText: t.customizeMcpSignOut,
+    negativeText: t.cancel,
+    onPositiveClick: async () => {
+      try {
+        await window.api.customizations.mcpLogout(mcpTarget(item));
+        message.success(t.customizeMcpSignOutSuccess);
+        await refreshMcpAuth();
+      } catch (err) {
+        message.error(err instanceof Error ? err.message : String(err));
+      }
+    },
+  });
 }
 
 /** 技能规范校验问题标签（仅技能列表显示）。 */
@@ -719,6 +788,12 @@ function onCtxSelect(key: string | number): void {
                     {{ testBadge(item)?.text }}
                   </span>
                   <span
+                    v-if="mcpAuthStateOf(item)?.authenticated"
+                    class="inline-badge auth-badge"
+                  >
+                    {{ t.customizeMcpSignedIn }}
+                  </span>
+                  <span
                     v-if="skillWarning(item)"
                     class="inline-badge warning-badge"
                     :title="skillWarning(item)?.hint"
@@ -762,6 +837,24 @@ function onCtxSelect(key: string | number): void {
                 {{ t.customizeEdit }}
               </button>
               <button
+                v-if="kind === 'mcp' && mcpAuthStateOf(item)?.oauth && !mcpAuthStateOf(item)?.authenticated"
+                type="button"
+                class="item-action"
+                :title="t.customizeMcpSignIn"
+                @click.stop="openMcpLogin(item)"
+              >
+                {{ t.customizeMcpSignIn }}
+              </button>
+              <button
+                v-else-if="kind === 'mcp' && mcpAuthStateOf(item)?.authenticated"
+                type="button"
+                class="item-action"
+                :title="t.customizeMcpSignOut"
+                @click.stop="confirmMcpLogout(item)"
+              >
+                {{ t.customizeMcpSignOut }}
+              </button>
+              <button
                 v-if="canRemove(item)"
                 type="button"
                 class="item-action"
@@ -793,6 +886,13 @@ function onCtxSelect(key: string | number): void {
       :edit="mcpEdit"
       @close="addOpen = false"
       @added="onMcpAdded"
+    />
+
+    <McpLoginModal
+      :show="mcpLoginTarget !== null"
+      :target="mcpLoginTarget"
+      @close="mcpLoginTarget = null"
+      @changed="onMcpLoginChanged"
     />
   </div>
 </template>
@@ -966,6 +1066,10 @@ function onCtxSelect(key: string | number): void {
 
 .test-badge.is-fail {
   color: var(--error);
+}
+
+.auth-badge {
+  color: var(--success);
 }
 
 .warning-badge {

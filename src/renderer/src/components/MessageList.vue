@@ -115,6 +115,28 @@ const pendingCards = computed(() => [
   ...sendQueue.activeItems.map((item) => ({ item, kind: "queued" as const })),
 ]);
 
+/** 清空 pi 侧的引导 / 排队消息与本地队列（丢弃，不退回输入框）。 */
+function clearPendingQueue(): void {
+  const id = sessions.activeId;
+  if (!id) return;
+  const count = pendingCards.value.length;
+  dialog.warning({
+    title: t.queueClear,
+    content: t.queueClearConfirm(count),
+    positiveText: t.queueClear,
+    negativeText: t.cancel,
+    onPositiveClick: async () => {
+      try {
+        await chat.clearQueue(id);
+        sendQueue.clearSession(id);
+        messageApi.success(t.queueCleared);
+      } catch (err) {
+        messageApi.error(err instanceof Error ? err.message : String(err));
+      }
+    },
+  });
+}
+
 /**
  * Drop in-flight guidance once it has landed in the transcript, otherwise the card
  * would outlive the message it represents.
@@ -2234,6 +2256,7 @@ function onRevertUser(msg: Extract<ChatMessage, { role: "user" }>): void {
               :status-type="toolStatus(msg).type"
               :streaming="msg.streaming"
               :auto-collapse="rowSettled(msg)"
+              :nested-calls="msg.nestedCalls"
               @open="openPreview"
             />
           </div>
@@ -2301,6 +2324,9 @@ function onRevertUser(msg: Extract<ChatMessage, { role: "user" }>): void {
           </span>
           <span class="steer-card-text">{{ queuePreview(row.item) }}</span>
         </div>
+        <button type="button" class="steer-clear" @click="clearPendingQueue">
+          {{ t.queueClear }}
+        </button>
       </div>
     </div>
     </div>
@@ -3056,6 +3082,23 @@ function onRevertUser(msg: Extract<ChatMessage, { role: "user" }>): void {
   flex-direction: column;
   gap: 4px;
   margin-top: 8px;
+}
+
+.steer-clear {
+  align-self: flex-start;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--fg-muted);
+  font: inherit;
+  font-size: 11px;
+  line-height: 16px;
+  cursor: pointer;
+}
+
+.steer-clear:hover {
+  color: var(--fg);
+  text-decoration: underline;
 }
 
 .steer-card {

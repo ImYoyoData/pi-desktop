@@ -489,25 +489,35 @@ async function initSession(
 		streamRenderSettings = parseStreamRenderSettings(streamRenderSnapshot);
 	}
 	const agentDir = getAgentDir();
+	// 打开的工作区一律视为已信任（信任机制已移除）。
+	const settingsManager = SettingsManager.create(cwd, agentDir, {
+		projectTrusted: true,
+	});
+	// 会话目录：pi 的 sessionDir 设置优先，否则用默认的按 cwd 编码目录。
+	const sessionDir = settingsManager.getSessionDir() ?? "";
 	const sessionManager = filePath
-		? openExistingSessionFile(SessionManager, filePath, cwd)
-		: SessionManager.create(cwd);
+		? openExistingSessionFile(SessionManager, filePath, cwd, sessionDir || undefined)
+		: SessionManager.create(cwd, sessionDir || undefined);
 	// New sessions must hit disk before idle-destroy / cold reopen (avoids id mismatch).
 	ensureSessionFileOnDisk(sessionManager);
 	const initialSessionFile = sessionManager.getSessionFile();
 	if (initialSessionFile) {
 		restoreTimingFromDisk(initialSessionFile);
 	}
-	// 打开的工作区一律视为已信任（信任机制已移除）。
-	const settingsManager = SettingsManager.create(cwd, agentDir, {
-		projectTrusted: true,
-	});
 	const builtinBrowserSkillDir = resolveBuiltinBrowserSkillDir(
 		workerDirname(),
 		typeof process.resourcesPath === "string" ? process.resourcesPath : undefined,
 	);
 	// Which command shell this machine can actually run (see command-shell.ts).
-	const commandShell = detectCommandShell();
+	// pi 的 shellPath / shellCommandPrefix 优先于自动探测。
+	const configuredShellPath = settingsManager.getShellPath() ?? "";
+	const shellCommandPrefix = settingsManager.getShellCommandPrefix() ?? "";
+	const commandShell = detectCommandShell(
+		process.env,
+		undefined,
+		undefined,
+		configuredShellPath,
+	);
 	const commandShellPromptText = commandShellPrompt(commandShell);
 	console.info(`[pi-desktop] command shell: ${describeCommandShell(commandShell)}`);
 	const services = await createAgentSessionServices({
@@ -542,6 +552,7 @@ async function initSession(
 		// operations 覆盖后 SDK 的 shell 选择不再生效，探测结果必须显式传下去。
 		shellKind: commandShell.kind,
 		...(commandShell.kind === "unresolved" ? {} : { shellPath: commandShell.shellPath }),
+		...(shellCommandPrefix ? { commandPrefix: shellCommandPrefix } : {}),
 		onStarted: (run) => post({ kind: "run_started", run }),
 		onOutput: (runId, chunk) => post({ kind: "run_output", runId, chunk }),
 		onEnded: (runId) => post({ kind: "run_ended", runId }),
@@ -998,6 +1009,12 @@ async function runCommand(id: string, command: AgentCommand): Promise<void> {
 			await requireSession().abort();
 			post({ kind: "result", id, data: { ok: true } });
 			return;
+		case "clear_queue": {
+			// pi 侧的引导 / 排队消息一并清空；返回文本供界面核对。
+			const cleared = requireSession().clearQueue();
+			post({ kind: "result", id, data: cleared });
+			return;
+		}
 		case "set_model": {
 			const active = requireSession();
 			const model = await resolveSelectableModel(

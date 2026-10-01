@@ -40,18 +40,68 @@ function truncateForUi(text: string, max = MAX_UI_TEXT_CHARS): string {
   return `${text.slice(0, max)}\n… (${text.length - max} more chars)`;
 }
 
-function truncateArgsForUi(args: unknown): unknown {
-  if (args == null || typeof args !== "object") return args;
+/** 工具调用参数到达 UI 时的形态：JSON 值，或超长时的截断占位。 */
+type ToolArgsValue =
+  | unknown[]
+  | Record<string, unknown>
+  | string
+  | number
+  | boolean
+  | null
+  | undefined;
+
+function truncateArgsForUi(args: unknown): ToolArgsValue {
+  if (args === null || args === undefined) return args;
+  if (typeof args === "string" || typeof args === "number" || typeof args === "boolean")
+    return args;
+  if (typeof args !== "object") return undefined;
   try {
     const raw = JSON.stringify(args);
-    if (raw.length <= MAX_UI_TEXT_CHARS) return args;
+    if (raw.length <= MAX_UI_TEXT_CHARS) return args as ToolArgsValue;
     return {
       _truncated: true,
       preview: `${raw.slice(0, MAX_UI_TEXT_CHARS)}… (${raw.length - MAX_UI_TEXT_CHARS} more chars)`,
     };
   } catch {
-    return args;
+    return args as ToolArgsValue;
   }
+}
+
+/** pi 记录在工具结果上的嵌套调用（ctx.executeTool，如 codemode 脚本）。 */
+function nestedCallsFromMessage(
+  message: Record<string, unknown>,
+):
+  | {
+      toolCallId: string;
+      toolName: string;
+      isError?: boolean;
+      durationMs?: number;
+    }[]
+  | undefined {
+  const record = message.nestedCalls;
+  if (!record || typeof record !== "object") return undefined;
+  const calls = (record as { calls?: unknown }).calls;
+  if (!Array.isArray(calls)) return undefined;
+  const out: {
+    toolCallId: string;
+    toolName: string;
+    isError?: boolean;
+    durationMs?: number;
+  }[] = [];
+  for (const call of calls) {
+    if (!call || typeof call !== "object") continue;
+    const row = call as { id?: unknown; name?: unknown; status?: unknown; durationMs?: unknown };
+    if (typeof row.id !== "string" || !row.id) continue;
+    out.push({
+      toolCallId: row.id,
+      toolName: typeof row.name === "string" && row.name ? row.name : "tool",
+      ...(row.status === "error" ? { isError: true } : {}),
+      ...(typeof row.durationMs === "number" && Number.isFinite(row.durationMs)
+        ? { durationMs: row.durationMs }
+        : {}),
+    });
+  }
+  return out.length > 0 ? out : undefined;
 }
 
 function textFromAgentMessage(message: Record<string, unknown>): string {
@@ -337,6 +387,7 @@ function buildMessagesFromEntries(
           : "tool";
       const text = textFromAgentMessage(entry.message);
       const args = toolCallArgsById.get(toolCallId);
+      const nested = nestedCallsFromMessage(entry.message);
       messages.push({
         id: entry.id,
         role: "tool",
@@ -345,6 +396,7 @@ function buildMessagesFromEntries(
         text: truncateForUi(text),
         isError: Boolean(entry.message.isError),
         ...(args !== undefined ? { args: truncateArgsForUi(args) } : {}),
+        ...(nested ? { nestedCalls: nested } : {}),
       });
     }
   }

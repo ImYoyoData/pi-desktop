@@ -25,6 +25,7 @@ export function openExistingSessionFile(
   SessionManagerCtor: typeof SessionManager,
   filePath: string,
   cwd: string,
+  sessionDir?: string,
 ): SessionManager {
   const trimmed = filePath.trim();
   if (!trimmed) {
@@ -33,5 +34,5 @@ export function openExistingSessionFile(
   if (!existsSync(trimmed)) {
     throw new Error(`session file not found: ${trimmed}`);
   }
-  return SessionManagerCtor.open(trimmed, undefined, cwd);
+  return SessionManagerCtor.open(trimmed, sessionDir, cwd);
 }
