@@ -56,6 +56,14 @@ export const IpcChannels = {
 		/** Main → renderer: 重试设置变更（多窗口同步）。 */
 		changed: "retry:changed",
 	},
+	runtime: {
+		/** Renderer → main: 读取「运行」设置（压缩 / 缓存 / 隐私）。 */
+		get: "runtime:get",
+		/** Renderer → main: 保存「运行」设置（并热重载给活跃 worker）。 */
+		set: "runtime:set",
+		/** Main → renderer: 运行设置变更（多窗口同步）。 */
+		changed: "runtime:changed",
+	},
 	appearance: {
 		/** Renderer → main: 选择壁纸文件（图片/动图/视频）。 */
 		pickWallpaper: "appearance:pickWallpaper",
@@ -214,9 +222,17 @@ export const IpcChannels = {
 		ensureMcpConfig: "customizations:ensureMcpConfig",
 		removeMcpServer: "customizations:removeMcpServer",
 		setBuiltinExtensionEnabled: "customizations:setBuiltinExtensionEnabled",
+		setToolEnabled: "customizations:setToolEnabled",
+		setCodemodeSettings: "customizations:setCodemodeSettings",
 		setItemEnabled: "customizations:setItemEnabled",
 		removeItem: "customizations:removeItem",
 		testMcpServers: "customizations:testMcpServers",
+		mcpAuthStates: "customizations:mcpAuthStates",
+		mcpLogin: "customizations:mcpLogin",
+		mcpAuthPrompt: "customizations:mcpAuthPrompt",
+		mcpLoginCancel: "customizations:mcpLoginCancel",
+		mcpLogout: "customizations:mcpLogout",
+		mcpAuthEvent: "customizations:mcpAuthEvent",
 		updated: "customizations:updated",
 	},
 	skills: {
@@ -563,6 +579,7 @@ export type AgentCommand =
 	| { type: "steer"; message: string; images?: PromptImageContent[] }
 	| { type: "follow_up"; message: string }
 	| { type: "abort" }
+	| { type: "clear_queue" }
 	| { type: "set_model"; provider: string; modelId: string }
 	| { type: "set_thinking_level"; level: string; persist?: boolean }
 	| { type: "compact"; customInstructions?: string }
@@ -721,6 +738,13 @@ export type SessionHistoryMessage =
 			isError?: boolean;
 			/** Tool-call arguments from the preceding assistant toolCall (e.g. write content). */
 			args?: unknown;
+			/** 工具内部调用（ctx.executeTool）的摘要，从 pi 的 nestedCalls 还原。 */
+			nestedCalls?: {
+				toolCallId: string;
+				toolName: string;
+				isError?: boolean;
+				durationMs?: number;
+			}[];
 	  };
 
 /** Paginated leaf-path history for the chat UI (avoid loading entire huge sessions). */

@@ -4,6 +4,7 @@ import { agentDir } from "./agent-dir";
 import { frontmatterText } from "./frontmatter";
 import { isPathInsideRoot } from "../shared/path-sandbox";
 import { listPlugins } from "./plugins-host";
+import { builtinToolItems, codemodeSettingsState } from "./builtin-tools-host";
 import { scanUnloadedSkills, type LocalSkillScope } from "./skill-scan";
 import { skillWarningOf } from "./skill-validate";
 import type {
@@ -759,6 +760,8 @@ export async function listCustomizations(
 			settingsManager.getGlobalSettings().extensions ?? [],
 			settingsManager.getProjectSettings().extensions ?? [],
 		),
+		toolToggles: builtinToolItems(settingsManager),
+		codemode: codemodeSettingsState(settingsManager),
 		diagnostics: [
 			...skills.diagnostics.map((entry) => entry.message),
 			...prompts.diagnostics.map((entry) => entry.message),

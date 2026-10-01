@@ -72,6 +72,9 @@ export type CustomizationsSnapshot = {
 	plugins: CustomizationItem[];
 	tools: CustomizationItem[];
 	builtinExtensions: BuiltinExtensionItem[];
+	/** 需要 defaultTools 才启用的内置工具开关（codemode / tool_search）。 */
+	toolToggles: BuiltinToolItem[];
+	codemode: CodemodeSettingsState;
 	diagnostics: string[];
 };
 
@@ -99,12 +102,62 @@ export type BuiltinExtensionItem = {
 	overridden: boolean;
 };
 
+/** 默认不启用的内置工具（pi 的 `+name` / `-name` 写进 defaultTools）。 */
+export type BuiltinToolItem = {
+	id: string;
+	name: string;
+	enabled: boolean;
+	/** 由项目设置覆盖，开关只作用于全局。 */
+	overridden: boolean;
+};
+
+/** codemode 工具的呈现设置（settings.json 的 codemode 段）。 */
+export type CodemodeSettingsState = {
+	/** on：直接声明的工具同时写进 codemode 说明；only：只写 codemode 说明。 */
+	mode: "on" | "only";
+	/** codemode 说明可用的 token 预算（字符数 / 4）；undefined 用 pi 默认值。 */
+	inlineBudget?: number;
+};
+
 export type McpTestResult = McpTestTarget & {
 	ok: boolean;
 	/** 服务器返回的工具数量（未获取到时为 undefined）。 */
 	toolCount?: number;
 	error?: string;
 	durationMs: number;
+};
+
+/** MCP OAuth 登录/登出/状态查询的目标。 */
+export type McpAuthTarget = McpTestTarget;
+
+/** 单个服务器的 OAuth 凭据状态。 */
+export type McpAuthState = {
+	/** 服务器使用 OAuth 登录（url 型，无 auth.provider / Authorization 头）。 */
+	oauth: boolean;
+	authenticated: boolean;
+	/** 访问令牌过期时间（毫秒时间戳）。 */
+	expiresAt?: number;
+};
+
+/** 登录过程推给渲染层的进展事件。 */
+export type McpAuthEvent =
+	| { type: "info"; message: string }
+	| { type: "auth_url"; url: string }
+	| { type: "prompt"; promptId: number };
+
+export type McpAuthEventPayload = {
+	name: string;
+	scope: "user" | "project";
+	event: McpAuthEvent;
+};
+
+/** 渲染层对授权码粘贴提示的回复；cancelled 中止登录。 */
+export type McpAuthPromptReply = {
+	name: string;
+	scope: "user" | "project";
+	promptId: number;
+	value?: string;
+	cancelled?: boolean;
 };
 
 export function emptyCustomizations(root: string | null): CustomizationsSnapshot {
@@ -119,6 +172,8 @@ export function emptyCustomizations(root: string | null): CustomizationsSnapshot
 		plugins: [],
 		tools: [],
 		builtinExtensions: [],
+		toolToggles: [],
+		codemode: { mode: "on" },
 		diagnostics: [],
 	};
 }
