@@ -122,6 +122,7 @@ restoreStartupProxyEnv();
 // OAuth 补丁把 pi-ai 各 OAuth 模块的裸 fetch 指到 __piDesktopOAuthFetch：
 // 用 Electron net.fetch（Chromium 网络栈，跟随 session 代理规则），
 // 与用户浏览器同路，避免直连被墙/被 Cloudflare 挑战。
+// SAFETY: globalThis 无该扩展属性声明，只能经 Record 断言写入；读取方由 oauth 补丁保证。
 (globalThis as unknown as Record<string, unknown>).__piDesktopOAuthFetch = (
 	url: string,
 	init?: RequestInit,

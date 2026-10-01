@@ -749,7 +749,11 @@ onUnmounted(() => {
 
         <CustomizeHooks v-else-if="active === 'hooks'" :hooks="store.snapshot.hooks" />
 
-        <CustomizeTools v-else-if="active === 'tools'" :tools="store.snapshot.tools" />
+        <CustomizeTools
+          v-else-if="active === 'tools'"
+          :tools="store.snapshot.tools"
+          :builtin-extensions="store.snapshot.builtinExtensions"
+        />
 
         <CustomizeSection
           v-else

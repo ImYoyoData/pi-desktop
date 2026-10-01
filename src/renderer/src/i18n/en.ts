@@ -36,6 +36,12 @@ const TOOL_DESCRIPTIONS: Record<string, string> = {
 	browser_evaluate: "Evaluate JS in the built-in browser",
 };
 
+const BUILTIN_EXTENSION_DESCRIPTIONS: Record<string, string> = {
+	codemode: "Let the model write JavaScript that calls tools, including MCP tools",
+	"tool-search": "Search deferred tools and expose matching ones to the model",
+	mcp: "Connect MCP servers and bring their tools into the session",
+};
+
 /** UI copy — English (fallback when system language is not Chinese) */
 export const en = {
 	appName: "Pi Desktop",
@@ -406,6 +412,14 @@ export const en = {
 	customizeDiagnostics: "Diagnostics",
 	customizeToolsBuiltinNote: "Built-in tools are provided by pi.",
 	customizeToolDescription: (name: string) => TOOL_DESCRIPTIONS[name] ?? "",
+	customizeBuiltinExtensions: "Built-in extensions",
+	customizeBuiltinExtensionsHint:
+		"Extensions shipped with pi; turning one off keeps it out of the current session.",
+	customizeBuiltinOverridden: "Project override",
+	customizeBuiltinOverriddenHint:
+		"This workspace's project settings override the global switch; edit it there instead.",
+	customizeBuiltinExtensionDescription: (name: string) =>
+		BUILTIN_EXTENSION_DESCRIPTIONS[name] ?? "",
 	customizeAboutDesc: "Version, updates and open-source licenses.",
 	terminal: "Terminal",
 	preview: "Preview",

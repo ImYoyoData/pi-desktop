@@ -20,7 +20,7 @@ import type {
 import { IpcChannels } from "../shared/protocol";
 import type { EditContextMenuAction, EditContextMenuPayload } from "../shared/context-menu";
 import type { AgentRunEvent, AgentRunSnapshot } from "../shared/agent-runs";
-import type { AgentSaveResult, CustomizationsSnapshot, CustomizationCreateKind, InstructionsSaveResult, McpTestResult, McpTestTarget, SkillSaveResult } from "../shared/customizations";
+import type { AgentSaveResult, BuiltinExtensionItem, CustomizationsSnapshot, CustomizationCreateKind, InstructionsSaveResult, McpTestResult, McpTestTarget, SkillSaveResult } from "../shared/customizations";
 import type {
 	ModelsGetResult,
 	ModelsOAuthEventPayload,
@@ -853,6 +853,13 @@ const api = {
 				scope,
 				cwd,
 			) as Promise<Record<string, unknown> | null>,
+		setBuiltinExtensionEnabled: (name: string, enabled: boolean, cwd?: string) =>
+			ipcRenderer.invoke(
+				IpcChannels.customizations.setBuiltinExtensionEnabled,
+				name,
+				enabled,
+				cwd,
+			) as Promise<BuiltinExtensionItem[]>,
 		ensureMcpConfig: (scope: "user" | "project", cwd?: string) =>
 			ipcRenderer.invoke(
 				IpcChannels.customizations.ensureMcpConfig,

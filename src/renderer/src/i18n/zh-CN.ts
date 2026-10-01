@@ -36,6 +36,12 @@ const TOOL_DESCRIPTIONS: Record<string, string> = {
 	browser_evaluate: "在内置浏览器中执行 JS",
 };
 
+const BUILTIN_EXTENSION_DESCRIPTIONS: Record<string, string> = {
+	codemode: "让模型编写 JavaScript 脚本调用工具（含 MCP 工具）",
+	"tool-search": "搜索延迟加载的工具并临时暴露给模型",
+	mcp: "连接 MCP 服务器并把它们的工具接入会话",
+};
+
 /** UI copy — Simplified Chinese */
 export const zh = {
 	appName: "Pi Desktop",
@@ -396,6 +402,12 @@ export const zh = {
 	customizeDiagnostics: "诊断",
 	customizeToolsBuiltinNote: "内置工具由 pi 提供。",
 	customizeToolDescription: (name: string) => TOOL_DESCRIPTIONS[name] ?? "",
+	customizeBuiltinExtensions: "内置扩展",
+	customizeBuiltinExtensionsHint: "pi 自带的扩展；关闭后当前会话不再加载它。",
+	customizeBuiltinOverridden: "项目覆盖",
+	customizeBuiltinOverriddenHint: "当前工作区的项目设置覆盖了全局开关，请在项目设置中修改。",
+	customizeBuiltinExtensionDescription: (name: string) =>
+		BUILTIN_EXTENSION_DESCRIPTIONS[name] ?? "",
 	customizeAboutDesc: "版本信息、更新与开源许可。",
 	terminal: "终端",
 	preview: "预览",

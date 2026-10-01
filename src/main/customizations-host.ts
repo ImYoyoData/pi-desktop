@@ -7,6 +7,7 @@ import { listPlugins } from "./plugins-host";
 import { scanUnloadedSkills, type LocalSkillScope } from "./skill-scan";
 import { skillWarningOf } from "./skill-validate";
 import type {
+	BuiltinExtensionItem,
 	CustomizationCreateKind,
 	CustomizationItem,
 	CustomizationScope,
@@ -507,6 +508,8 @@ export function ensureMcpConfig(scope: "user" | "project", root?: string): { fil
 function extensionLabel(ext: ExtensionLike): string {
 	const source = ext.sourceInfo?.source;
 	if (source?.startsWith("npm:")) return source;
+	const builtinPrefix = "builtin:";
+	if (ext.path.startsWith(builtinPrefix)) return ext.path.slice(builtinPrefix.length);
 	const file = path.basename(ext.path).replace(/\.[a-z]+$/i, "");
 	return file || source || "extension";
 }
@@ -676,7 +679,17 @@ export async function listCustomizations(
 	const settingsManager = sdk.SettingsManager.create(root, dir, {
 		projectTrusted: true,
 	});
-	const loader = new sdk.DefaultResourceLoader({ cwd: root, agentDir: dir, settingsManager });
+	const loader = new sdk.DefaultResourceLoader({
+		cwd: root,
+		agentDir: dir,
+		settingsManager,
+		// 与 agent-worker 的注册保持一致，否则设置页看不到 codemode / tool_search 工具。
+		extensionFactories: [
+			{ name: "codemode", factory: sdk.createCodemodeExtension(), replaceable: true, builtin: true },
+			{ name: "tool-search", factory: sdk.createToolSearchExtension(), replaceable: true, builtin: true },
+			{ name: "mcp", factory: sdk.createMcpExtension(), replaceable: true, builtin: true },
+		],
+	});
 	await loader.reload();
 
 	const skills = loader.getSkills();
@@ -742,6 +755,10 @@ export async function listCustomizations(
 		],
 		plugins: await listPluginItems(root),
 		tools: collectTools(extensionList),
+		builtinExtensions: builtinExtensionItems(
+			settingsManager.getGlobalSettings().extensions ?? [],
+			settingsManager.getProjectSettings().extensions ?? [],
+		),
 		diagnostics: [
 			...skills.diagnostics.map((entry) => entry.message),
 			...prompts.diagnostics.map((entry) => entry.message),
@@ -754,6 +771,63 @@ type CreateTemplate = {
 	base: string;
 	relative: (name: string) => string;
 };
+
+/** 桌面在会话中注册的 pi 内置扩展（与 agent-worker 的 extensionFactories 一致）。 */
+const DESKTOP_BUILTIN_EXTENSIONS: readonly string[] = ["codemode", "tool-search", "mcp"];
+
+/**
+ * 与 pi 的 isEnabledByOverrides 一致：`!` 排除 → `+` 强制启用 → `-` 强制禁用；
+ * 该级设置里没有任何匹配项时返回 undefined（交给下一级设置）。
+ */
+function builtinOverrideState(patterns: readonly string[], target: string): boolean | undefined {
+	const has = (marker: string): boolean => patterns.includes(`${marker}${target}`);
+	if (!has("!") && !has("+") && !has("-")) return undefined;
+	if (has("!")) return false;
+	if (has("+")) return true;
+	return false;
+}
+
+function builtinExtensionItems(
+	globalPaths: readonly string[],
+	projectPaths: readonly string[],
+): BuiltinExtensionItem[] {
+	return DESKTOP_BUILTIN_EXTENSIONS.map((name) => {
+		const target = `builtin:${name}`;
+		const project = builtinOverrideState(projectPaths, target);
+		return {
+			id: target,
+			name,
+			enabled: project ?? builtinOverrideState(globalPaths, target) ?? true,
+			overridden: project !== undefined,
+		};
+	});
+}
+
+/** 切换内置扩展：写全局 settings 的 extensions；默认启用，禁用写 `-builtin:<name>`。 */
+export async function setBuiltinExtensionEnabled(
+	name: string,
+	enabled: boolean,
+	cwd?: string,
+): Promise<BuiltinExtensionItem[]> {
+	if (!DESKTOP_BUILTIN_EXTENSIONS.includes(name)) {
+		throw new Error(`Unknown built-in extension "${name}"`);
+	}
+	const sdk = await import("@earendil-works/pi-coding-agent");
+	const dir = sdk.getAgentDir();
+	const settingsManager = sdk.SettingsManager.create(cwd ?? process.cwd(), dir, {
+		projectTrusted: true,
+	});
+	const target = `builtin:${name}`;
+	const current = settingsManager.getGlobalSettings().extensions ?? [];
+	const next = current.filter(
+		(entry) => entry !== `-${target}` && entry !== `!${target}` && entry !== `+${target}`,
+	);
+	if (!enabled) next.push(`-${target}`);
+	settingsManager.setExtensionPaths(next);
+	// save() 是异步队列；不等 flush，紧跟的 worker reload 可能读到旧设置。
+	await settingsManager.flush();
+	return builtinExtensionItems(next, settingsManager.getProjectSettings().extensions ?? []);
+}
 
 /** 新建定制项的用户级目录（对应 pi 的 agentDir 约定），文件内容留空由用户填写。 */
 const CREATE_TEMPLATES: Record<Exclude<CustomizationCreateKind, "skills">, CreateTemplate> = {
