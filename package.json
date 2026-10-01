@@ -40,9 +40,9 @@
     "postinstall": "node node_modules/electron/install.js && node scripts/ensure-dugite-git.mjs && node scripts/patch-highlightjs-exports.mjs && electron-builder install-app-deps"
   },
   "dependencies": {
-    "@earendil-works/pi-agent-core": "0.99.1",
-    "@earendil-works/pi-ai": "0.99.1",
-    "@earendil-works/pi-coding-agent": "0.99.1",
+    "@earendil-works/pi-agent-core": "0.99.2",
+    "@earendil-works/pi-ai": "0.99.2",
+    "@earendil-works/pi-coding-agent": "0.99.2",
     "@electron-toolkit/preload": "^3.0.2",
     "@electron-toolkit/utils": "^4.0.0",
     "@vicons/ionicons5": "^0.13.0",

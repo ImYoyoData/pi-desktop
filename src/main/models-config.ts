@@ -1,7 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
 import { agentDir } from "./agent-dir";
-import type { ApiKeyCredential } from "@earendil-works/pi-ai";
 import { COMMON_API_KEY_PROVIDERS } from "../shared/models-settings";
 
 export type ModelsConfig = {
@@ -12,7 +11,14 @@ export type ModelsConfig = {
 /** auth.json may contain api_key or oauth credentials */
 export type AuthConfig = Record<
   string,
-  ApiKeyCredential | { type: string; key?: string; access?: string; refresh?: string; [k: string]: unknown }
+  {
+    type?: string;
+    key?: string;
+    access?: string;
+    refresh?: string;
+    expires?: number;
+    [k: string]: unknown;
+  }
 >;
 
 export type ModelsConfigPaths = {
@@ -152,6 +158,16 @@ export function getModelsConfigService(): ModelsConfigService {
     defaultService = createModelsConfig(resolveModelsConfigPaths());
   }
   return defaultService;
+}
+
+/** auth.json 中某 provider 的当前密钥或访问令牌；MCP 的 auth.provider 校验与测试用。 */
+export async function readProviderToken(providerId: string): Promise<string | undefined> {
+  const cred = (await getModelsConfigService().readAuthConfig())[providerId] as
+    | { type?: string; key?: string; access?: string }
+    | undefined;
+  if (!cred || typeof cred !== "object") return undefined;
+  if (cred.type === "oauth") return typeof cred.access === "string" ? cred.access : undefined;
+  return typeof cred.key === "string" ? cred.key : undefined;
 }
 
 export async function readModelsConfig(): Promise<ModelsConfig> {

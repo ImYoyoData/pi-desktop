@@ -9,6 +9,7 @@ import { createAgentFromDraft, createInstructionsFromDraft, saveAgentContent } f
 import { frontmatterText } from "./frontmatter";
 import { createCustomization, listCustomizations, setMcpServerEnabled, addMcpServers, ensureMcpConfig, removeMcpServer, readMcpEntry, setCustomizationItemEnabled, removeCustomizationItem } from "./customizations-host";
 import { testMcpServer } from "./mcp-test";
+import { readProviderToken } from "./models-config";
 
 /** 同时测试的服务器个数：串行等待太慢，全量并发又会瞬间拉起过多子进程。 */
 const MCP_TEST_CONCURRENCY = 4;
@@ -182,6 +183,15 @@ export function registerCustomizationsIpc(broker?: {
 	);
 
 	ipcMain.handle(
+		IpcChannels.customizations.readMcpServer,
+		(_event, name: string, scope: "user" | "project", cwd?: string) => {
+			const root = cwd || getWorkspace();
+			if (scope === "project" && !root) throw new Error("workspace required");
+			return readMcpEntry(name, scope, root ?? undefined);
+		},
+	);
+
+	ipcMain.handle(
 		IpcChannels.customizations.ensureMcpConfig,
 		(_event, scope: "user" | "project", cwd?: string) => {
 			const root = cwd || getWorkspace();
@@ -231,8 +241,31 @@ export function registerCustomizationsIpc(broker?: {
 async function testMcpTarget(target: McpTestTarget): Promise<McpTestResult> {
 	const entry = readMcpEntry(target.name, target.scope, target.workspace);
 	if (!entry) return { ...target, ok: false, error: "server not found", durationMs: 0 };
-	if (entry.disabled === true) return { ...target, ok: false, error: "disabled", durationMs: 0 };
+	if (entry.disabled === true || entry.enabled === false) {
+		return { ...target, ok: false, error: "disabled", durationMs: 0 };
+	}
+	const provider = mcpAuthProvider(entry);
+	if (provider) {
+		const token = await readProviderToken(provider);
+		if (!token) {
+			return {
+				...target,
+				ok: false,
+				error: `no stored credential for provider "${provider}"`,
+				durationMs: 0,
+			};
+		}
+		return { ...target, ...(await testMcpServer(entry, undefined, token)) };
+	}
 	return { ...target, ...(await testMcpServer(entry)) };
+}
+
+/** MCP 的 `auth.provider`（HTTP 服务器用 provider 的 /login 令牌）。 */
+function mcpAuthProvider(entry: Record<string, unknown>): string | undefined {
+	const auth = entry.auth;
+	if (!auth || typeof auth !== "object" || Array.isArray(auth)) return undefined;
+	const provider = (auth as { provider?: unknown }).provider;
+	return typeof provider === "string" && provider ? provider : undefined;
 }
 
 /** 测试会拉起子进程，限制并发以免同时抢占系统资源；结果保持输入顺序。 */

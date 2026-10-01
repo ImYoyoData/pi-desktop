@@ -619,6 +619,11 @@ declare const api: {
 			servers: Record<string, unknown>,
 			cwd?: string,
 		) => Promise<{ filePath: string; names: string[] }>;
+		readMcpServer: (
+			name: string,
+			scope: "user" | "project",
+			cwd?: string,
+		) => Promise<Record<string, unknown> | null>;
 		ensureMcpConfig: (
 			scope: "user" | "project",
 			cwd?: string,

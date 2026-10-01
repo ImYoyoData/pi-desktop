@@ -82,6 +82,13 @@ export type McpTestTarget = {
 	workspace?: string;
 };
 
+/** 在桌面上编辑已有 MCP 服务器的目标。 */
+export type McpEditTarget = {
+	name: string;
+	scope: "user" | "project";
+	workspace: string | null;
+};
+
 export type McpTestResult = McpTestTarget & {
 	ok: boolean;
 	/** 服务器返回的工具数量（未获取到时为 undefined）。 */

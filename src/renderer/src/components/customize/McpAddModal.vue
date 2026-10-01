@@ -12,10 +12,12 @@ import {
 } from "naive-ui";
 import CodiconIcon from "@renderer/components/icons/CodiconIcon.vue";
 import { t } from "@renderer/i18n";
+import type { McpEditTarget } from "../../../../shared/customizations";
 
 const props = defineProps<{
   show: boolean;
   workspaces: string[];
+  edit?: McpEditTarget | null;
 }>();
 
 const emit = defineEmits<{
@@ -24,46 +26,177 @@ const emit = defineEmits<{
 }>();
 
 type Method = "form" | "json";
-type Transport = "command" | "url" | "sse";
-type Protocol = "auto" | "2026-07-28" | "legacy";
+type Transport = "command" | "url";
+type Exposure = "codemode" | "deferred" | "direct" | "hidden";
+
+const FORM_KEYS = [
+  "type",
+  "command",
+  "args",
+  "env",
+  "cwd",
+  "url",
+  "headers",
+  "oauth",
+  "auth",
+  "description",
+  "exposure",
+  "timeout",
+] as const;
+
+const OAUTH_KEYS = [
+  "clientId",
+  "clientSecret",
+  "clientName",
+  "scope",
+  "callbackPort",
+  "callbackUrl",
+] as const;
 
 const scope = ref<string>("user");
 const method = ref<Method>("form");
 const transport = ref<Transport>("command");
 const name = ref("");
+const description = ref("");
+const exposure = ref<Exposure>("codemode");
+const timeout = ref("");
 const command = ref("");
 const args = ref("");
-const url = ref("");
 const env = ref("");
-const timeout = ref("");
-const protocol = ref<Protocol>("auto");
+const cwd = ref("");
+const url = ref("");
 const headers = ref("");
 const headersOpen = ref(false);
+const oauthOpen = ref(false);
+const oauthClientId = ref("");
+const oauthClientSecret = ref("");
+const oauthClientName = ref("");
+const oauthScope = ref("");
+const oauthCallbackPort = ref("");
+const oauthCallbackUrl = ref("");
+const authProvider = ref("");
 const json = ref("");
 const error = ref("");
 const saving = ref(false);
+const loading = ref(false);
+const originalEntry = ref<Record<string, unknown> | null>(null);
+
+const editing = computed(() => Boolean(props.edit));
+const projectScoped = computed(() =>
+  props.edit ? props.edit.scope === "project" : scope.value !== "user",
+);
+const hasStoredAuth = computed(() => authProvider.value.trim().length > 0);
 
 watch(
   () => props.show,
   (open) => {
     if (!open) return;
-    scope.value = "user";
-    method.value = "form";
-    transport.value = "command";
-    name.value = "";
-    command.value = "";
-    args.value = "";
-    url.value = "";
-    env.value = "";
-    timeout.value = "";
-    protocol.value = "auto";
-    headers.value = "";
-    headersOpen.value = false;
-    json.value = "";
-    error.value = "";
-    saving.value = false;
+    resetForm();
+    if (props.edit) void loadEntry(props.edit);
   },
 );
+
+function resetForm(): void {
+  scope.value = "user";
+  method.value = "form";
+  transport.value = "command";
+  name.value = "";
+  description.value = "";
+  exposure.value = "codemode";
+  timeout.value = "";
+  command.value = "";
+  args.value = "";
+  env.value = "";
+  cwd.value = "";
+  url.value = "";
+  headers.value = "";
+  headersOpen.value = false;
+  oauthOpen.value = false;
+  oauthClientId.value = "";
+  oauthClientSecret.value = "";
+  oauthClientName.value = "";
+  oauthScope.value = "";
+  oauthCallbackPort.value = "";
+  oauthCallbackUrl.value = "";
+  authProvider.value = "";
+  json.value = "";
+  error.value = "";
+  saving.value = false;
+  loading.value = false;
+  originalEntry.value = null;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function stringOf(value: unknown): string {
+  return typeof value === "string" ? value : "";
+}
+
+function isExposure(value: unknown): value is Exposure {
+  return value === "codemode" || value === "deferred" || value === "direct" || value === "hidden";
+}
+
+function formatKeyValues(value: unknown, separator: string): string {
+  if (!isRecord(value)) return "";
+  return Object.entries(value)
+    .map(([key, item]) => `${key}${separator}${typeof item === "string" ? item : ""}`)
+    .join("\n");
+}
+
+/** 编辑已有服务器：读取配置回填表单，未在表单暴露的字段保留在 originalEntry 中。 */
+async function loadEntry(target: McpEditTarget): Promise<void> {
+  loading.value = true;
+  try {
+    const entry = await window.api.customizations.readMcpServer(
+      target.name,
+      target.scope,
+      target.workspace ?? undefined,
+    );
+    if (!entry) {
+      error.value = t.customizeMcpLoadFailed;
+      return;
+    }
+    originalEntry.value = entry;
+    name.value = target.name;
+    json.value = JSON.stringify(entry, null, 2);
+    description.value = stringOf(entry.description);
+    if (isExposure(entry.exposure)) exposure.value = entry.exposure;
+    if (typeof entry.timeout === "number") timeout.value = String(entry.timeout);
+    if (typeof entry.url === "string") {
+      transport.value = "url";
+      url.value = entry.url;
+      headers.value = formatKeyValues(entry.headers, ": ");
+      headersOpen.value = Boolean(headers.value);
+      const oauth = entry.oauth;
+      if (isRecord(oauth)) {
+        oauthOpen.value = true;
+        oauthClientId.value = stringOf(oauth.clientId);
+        oauthClientSecret.value = stringOf(oauth.clientSecret);
+        oauthClientName.value = stringOf(oauth.clientName);
+        oauthScope.value = stringOf(oauth.scope);
+        oauthCallbackPort.value =
+          typeof oauth.callbackPort === "number" ? String(oauth.callbackPort) : "";
+        oauthCallbackUrl.value = stringOf(oauth.callbackUrl);
+      }
+      const auth = entry.auth;
+      authProvider.value = isRecord(auth) ? stringOf(auth.provider) : "";
+    } else {
+      transport.value = "command";
+      command.value = stringOf(entry.command);
+      args.value = Array.isArray(entry.args)
+        ? entry.args.filter((item): item is string => typeof item === "string").join(" ")
+        : "";
+      env.value = formatKeyValues(entry.env, "=");
+      cwd.value = stringOf(entry.cwd);
+    }
+  } catch (err) {
+    error.value = err instanceof Error ? err.message : String(err);
+  } finally {
+    loading.value = false;
+  }
+}
 
 function baseName(target: string): string {
   return target.split(/[\\/]/).filter(Boolean).pop() ?? target;
@@ -84,79 +217,111 @@ const scopeOptions = computed(() => [
 const transportOptions = computed(() => [
   { label: t.customizeMcpTransportCommand, value: "command" },
   { label: t.customizeMcpTransportUrl, value: "url" },
-  { label: t.customizeMcpTransportSse, value: "sse" },
 ]);
 
-const protocolOptions = computed(() => [
-  { label: t.customizeMcpProtocolAuto, value: "auto" },
-  { label: t.customizeMcpProtocolNew, value: "2026-07-28" },
-  { label: t.customizeMcpProtocolLegacy, value: "legacy" },
+const exposureOptions = computed(() => [
+  { label: t.customizeMcpExposureCodemode, value: "codemode" },
+  { label: t.customizeMcpExposureDeferred, value: "deferred" },
+  { label: t.customizeMcpExposureDirect, value: "direct" },
+  { label: t.customizeMcpExposureHidden, value: "hidden" },
 ]);
 
-function parseEnv(text: string): Record<string, string> | undefined {
+function parseKeyValues(
+  text: string,
+  separator: string,
+  message: string,
+  trimValue: boolean,
+): Record<string, string> | undefined {
   const entries = text
     .split(/\r?\n/)
     .map((line) => line.trim())
     .filter(Boolean)
     .map((line) => {
-      const index = line.indexOf("=");
-      if (index <= 0) throw new Error(t.customizeMcpEnvInvalid);
-      return [line.slice(0, index).trim(), line.slice(index + 1)] as const;
+      const index = line.indexOf(separator);
+      if (index <= 0) throw new Error(message);
+      const key = line.slice(0, index).trim();
+      const raw = line.slice(index + separator.length);
+      return [key, trimValue ? raw.trim() : raw] as const;
     });
   return entries.length ? Object.fromEntries(entries) : undefined;
+}
+
+function parseEnv(text: string): Record<string, string> | undefined {
+  return parseKeyValues(text, "=", t.customizeMcpEnvInvalid, false);
 }
 
 function parseHeaders(text: string): Record<string, string> | undefined {
-  const entries = text
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter(Boolean)
-    .map((line) => {
-      const index = line.indexOf(":");
-      if (index <= 0) throw new Error(t.customizeMcpHeadersInvalid);
-      return [line.slice(0, index).trim(), line.slice(index + 1).trim()] as const;
-    });
-  return entries.length ? Object.fromEntries(entries) : undefined;
+  return parseKeyValues(text, ":", t.customizeMcpHeadersInvalid, true);
+}
+
+/** OAuth 子字段与表单合并；原配置里未暴露的子字段保留。 */
+function buildOauth(): Record<string, unknown> | undefined {
+  const base = originalEntry.value?.oauth;
+  const oauth: Record<string, unknown> = isRecord(base) ? { ...base } : {};
+  for (const key of OAUTH_KEYS) delete oauth[key];
+  const clientId = oauthClientId.value.trim();
+  if (clientId) oauth.clientId = clientId;
+  const clientSecret = oauthClientSecret.value.trim();
+  if (clientSecret) oauth.clientSecret = clientSecret;
+  const clientName = oauthClientName.value.trim();
+  if (clientName) oauth.clientName = clientName;
+  const scopeText = oauthScope.value.trim();
+  if (scopeText) oauth.scope = scopeText;
+  const portText = oauthCallbackPort.value.trim();
+  if (portText) {
+    const port = Number(portText);
+    if (!Number.isInteger(port) || port < 1 || port > 65535) {
+      throw new Error(t.customizeMcpOauthPortInvalid);
+    }
+    oauth.callbackPort = port;
+  }
+  const callbackUrl = oauthCallbackUrl.value.trim();
+  if (callbackUrl) oauth.callbackUrl = callbackUrl;
+  return Object.keys(oauth).length ? oauth : undefined;
 }
 
 function buildEntry(): Record<string, unknown> {
-  const entry: Record<string, unknown> = {};
+  const entry: Record<string, unknown> = originalEntry.value ? { ...originalEntry.value } : {};
+  for (const key of FORM_KEYS) delete entry[key];
+  const descriptionText = description.value.trim();
+  if (descriptionText) entry.description = descriptionText;
+  if (exposure.value !== "codemode") entry.exposure = exposure.value;
+  const timeoutText = timeout.value.trim();
+  if (timeoutText) {
+    const seconds = Number(timeoutText);
+    if (!Number.isFinite(seconds) || seconds <= 0) throw new Error(t.customizeMcpTimeoutInvalid);
+    entry.timeout = seconds;
+  }
   if (transport.value === "command") {
     entry.command = command.value.trim();
     const list = args.value.trim() ? args.value.trim().split(/\s+/) : [];
     if (list.length) entry.args = list;
     const envMap = parseEnv(env.value);
     if (envMap) entry.env = envMap;
-  } else {
-    entry.url = url.value.trim();
-    if (transport.value === "sse") entry.httpTransport = "sse";
-    entry.protocolVersion = protocol.value;
-    const headerMap = parseHeaders(headers.value);
-    if (headerMap) entry.headers = headerMap;
+    const cwdText = cwd.value.trim();
+    if (cwdText) entry.cwd = cwdText;
+    return entry;
   }
-  const rawTimeout = timeout.value.trim();
-  if (rawTimeout) {
-    const ms = Number(rawTimeout);
-    if (!Number.isInteger(ms) || ms <= 0) throw new Error(t.customizeMcpTimeoutInvalid);
-    entry.requestTimeoutMs = ms;
-  }
+  entry.url = url.value.trim();
+  const headerMap = parseHeaders(headers.value);
+  if (headerMap) entry.headers = headerMap;
+  const oauth = buildOauth();
+  if (oauth) entry.oauth = oauth;
+  const provider = authProvider.value.trim();
+  if (provider) entry.auth = { provider };
+  else if (isRecord(originalEntry.value?.auth)) entry.auth = originalEntry.value.auth;
   return entry;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
 
 function looksLikeEntry(value: Record<string, unknown>): boolean {
   return value.command !== undefined || value.url !== undefined || value.socket !== undefined;
 }
 
-/** 归一化外部格式：VS Code/Cursor 的 type、opencode 的数组 command 与 environment。 */
+/** 归一化外部格式：VS Code/Cursor 的 type、opencode 的数组 command 与 environment；pi 0.99.2 不认 SSE 与 httpTransport。 */
 function normalizeEntry(entry: Record<string, unknown>): Record<string, unknown> {
   const next = { ...entry };
-  const type = next.type;
   delete next.type;
-  if (type === "sse" && next.httpTransport === undefined) next.httpTransport = "sse";
+  delete next.httpTransport;
   if (next.env === undefined && isRecord(next.environment)) {
     next.env = next.environment;
     delete next.environment;
@@ -314,10 +479,19 @@ function buildServers(): Record<string, unknown> {
   if (transport.value === "command" && !command.value.trim()) {
     throw new Error(t.customizeMcpTargetRequired);
   }
-  if (transport.value !== "command" && !url.value.trim()) {
+  if (transport.value === "url" && !url.value.trim()) {
     throw new Error(t.customizeMcpTargetRequired);
   }
   return { [serverName]: buildEntry() };
+}
+
+function saveTarget(): { scope: "user" | "project"; cwd?: string } {
+  if (props.edit) {
+    return props.edit.scope === "project"
+      ? { scope: "project", cwd: props.edit.workspace ?? undefined }
+      : { scope: "user" };
+  }
+  return scope.value === "user" ? { scope: "user" } : { scope: "project", cwd: scope.value };
 }
 
 async function submit(): Promise<void> {
@@ -329,14 +503,14 @@ async function submit(): Promise<void> {
     error.value = err instanceof Error ? err.message : String(err);
     return;
   }
+  const target = saveTarget();
+  if (target.scope === "project" && !target.cwd) {
+    error.value = t.slashNeedWorkspace;
+    return;
+  }
   saving.value = true;
   try {
-    const userScope = scope.value === "user";
-    await window.api.customizations.addMcpServers(
-      userScope ? "user" : "project",
-      servers,
-      userScope ? undefined : scope.value,
-    );
+    await window.api.customizations.addMcpServers(target.scope, servers, target.cwd);
     emit("added");
     emit("close");
   } catch (err) {
@@ -352,7 +526,7 @@ async function submit(): Promise<void> {
     :show="show"
     preset="card"
     class="pi-settings-modal mcp-add-modal"
-    style="width: min(600px, 92vw)"
+    style="width: min(640px, 94vw)"
     :bordered="false"
     :mask-closable="false"
     @close="emit('close')"
@@ -360,8 +534,10 @@ async function submit(): Promise<void> {
   >
     <template #header>
       <div class="modal-title-block">
-        <div class="modal-title">{{ t.customizeMcpAddTitle }}</div>
-        <div class="modal-subtitle">{{ t.customizeMcpAddSubtitle }}</div>
+        <div class="modal-title">{{ editing ? t.customizeMcpEditTitle : t.customizeMcpAddTitle }}</div>
+        <div class="modal-subtitle">
+          {{ editing ? t.customizeMcpEditSubtitle : t.customizeMcpAddSubtitle }}
+        </div>
       </div>
     </template>
 
@@ -379,6 +555,7 @@ async function submit(): Promise<void> {
           <NInput
             v-model:value="name"
             size="small"
+            :disabled="editing"
             :placeholder="method === 'form' ? t.customizeMcpNameExample : t.customizeMcpJsonNameHint"
           />
         </div>
@@ -388,6 +565,7 @@ async function submit(): Promise<void> {
             v-model:value="scope"
             size="small"
             class="scope-select"
+            :disabled="editing"
             :options="scopeOptions"
           />
         </div>
@@ -395,31 +573,40 @@ async function submit(): Promise<void> {
 
       <template v-if="method === 'form'">
         <div class="field">
-          <span class="field-label">{{ t.customizeMcpTransport }}</span>
-          <NSelect
-            v-model:value="transport"
+          <span class="field-label">{{ t.customizeMcpDescription }}</span>
+          <NInput
+            v-model:value="description"
             size="small"
-            class="narrow-select"
-            :options="transportOptions"
+            :placeholder="t.customizeMcpDescriptionPlaceholder"
           />
         </div>
 
-        <div class="field">
-          <span class="field-label">{{ t.customizeMcpTimeout }}</span>
-          <NInput v-model:value="timeout" size="small" class="narrow-input" placeholder="30000" />
-        </div>
-
-        <template v-if="transport !== 'command'">
+        <div class="field-row">
           <div class="field">
-            <span class="field-label">{{ t.customizeMcpProtocol }}</span>
+            <span class="field-label">{{ t.customizeMcpTransport }}</span>
             <NSelect
-              v-model:value="protocol"
+              v-model:value="transport"
               size="small"
               class="narrow-select"
-              :options="protocolOptions"
+              :options="transportOptions"
             />
           </div>
+          <div class="field">
+            <span class="field-label">{{ t.customizeMcpExposure }}</span>
+            <NSelect
+              v-model:value="exposure"
+              size="small"
+              class="narrow-select"
+              :options="exposureOptions"
+            />
+          </div>
+          <div class="field">
+            <span class="field-label">{{ t.customizeMcpTimeout }}</span>
+            <NInput v-model:value="timeout" size="small" class="narrow-input" placeholder="60" />
+          </div>
+        </div>
 
+        <template v-if="transport === 'url'">
           <div class="field">
             <span class="field-label">{{ t.customizeMcpUrl }}</span>
             <NInput v-model:value="url" size="small" :placeholder="t.customizeMcpUrlExample" />
@@ -438,16 +625,77 @@ async function submit(): Promise<void> {
               :placeholder="t.customizeMcpHeadersHint"
             />
           </div>
+
+          <div class="field">
+            <button type="button" class="collapse-toggle" @click="oauthOpen = !oauthOpen">
+              <CodiconIcon :name="oauthOpen ? 'chevronDown' : 'chevronRight'" :size="14" />
+              <span>{{ t.customizeMcpOauth }}</span>
+            </button>
+            <div v-if="oauthOpen" class="sub-fields">
+              <div class="field">
+                <span class="field-label">{{ t.customizeMcpOauthClientId }}</span>
+                <NInput
+                  v-model:value="oauthClientId"
+                  size="small"
+                  :placeholder="t.customizeMcpOauthAuto"
+                />
+              </div>
+              <div class="field">
+                <span class="field-label">{{ t.customizeMcpOauthClientSecret }}</span>
+                <NInput v-model:value="oauthClientSecret" size="small" type="password" />
+              </div>
+              <div class="field">
+                <span class="field-label">{{ t.customizeMcpOauthClientName }}</span>
+                <NInput
+                  v-model:value="oauthClientName"
+                  size="small"
+                  :placeholder="t.customizeMcpOauthAuto"
+                />
+              </div>
+              <div class="field">
+                <span class="field-label">{{ t.customizeMcpOauthScope }}</span>
+                <NInput
+                  v-model:value="oauthScope"
+                  size="small"
+                  :placeholder="t.customizeMcpOauthAuto"
+                />
+              </div>
+              <div class="field">
+                <span class="field-label">{{ t.customizeMcpOauthCallbackPort }}</span>
+                <NInput v-model:value="oauthCallbackPort" size="small" class="narrow-input" />
+              </div>
+              <div class="field">
+                <span class="field-label">{{ t.customizeMcpOauthCallbackUrl }}</span>
+                <NInput
+                  v-model:value="oauthCallbackUrl"
+                  size="small"
+                  placeholder="http://localhost:8080/oauth/callback"
+                />
+              </div>
+            </div>
+          </div>
+
+          <div v-if="!projectScoped || hasStoredAuth" class="field">
+            <span class="field-label">{{ t.customizeMcpAuthProvider }}</span>
+            <NInput
+              v-model:value="authProvider"
+              size="small"
+              :placeholder="t.customizeMcpAuthProviderPlaceholder"
+            />
+            <NText depth="3" class="field-hint">
+              {{
+                projectScoped
+                  ? t.customizeMcpAuthProviderProjectUnsupported
+                  : t.customizeMcpAuthProviderHint
+              }}
+            </NText>
+          </div>
         </template>
 
         <template v-else>
           <div class="field">
             <span class="field-label">{{ t.customizeMcpCommand }}</span>
-            <NInput
-              v-model:value="command"
-              size="small"
-              :placeholder="t.customizeMcpCommandExample"
-            />
+            <NInput v-model:value="command" size="small" :placeholder="t.customizeMcpCommandExample" />
           </div>
           <div class="field">
             <span class="field-label">{{ t.customizeMcpArgs }}</span>
@@ -461,6 +709,10 @@ async function submit(): Promise<void> {
               :autosize="{ minRows: 2, maxRows: 4 }"
               :placeholder="t.customizeMcpEnvExample"
             />
+          </div>
+          <div class="field">
+            <span class="field-label">{{ t.customizeMcpCwd }}</span>
+            <NInput v-model:value="cwd" size="small" :placeholder="t.customizeMcpCwdPlaceholder" />
           </div>
         </template>
       </template>
@@ -483,7 +735,12 @@ async function submit(): Promise<void> {
 
     <template #footer>
       <NSpace justify="end">
-        <NButton type="primary" :loading="saving" @click="submit">
+        <NButton
+          type="primary"
+          :loading="saving || loading"
+          :disabled="loading"
+          @click="submit"
+        >
           {{ t.customizeMcpSave }}
         </NButton>
         <NButton :disabled="saving" @click="emit('close')">{{ t.cancel }}</NButton>
@@ -558,6 +815,15 @@ async function submit(): Promise<void> {
 .narrow-select,
 .narrow-input {
   width: 220px;
+}
+
+.sub-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
 }
 
 .collapse-toggle {
