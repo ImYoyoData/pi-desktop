@@ -99,6 +99,14 @@ export default defineConfig({
           "session-history-worker": resolve(
             "src/main/session-history-worker.ts",
           ),
+          // pi-codemode 用 new URL("./worker.js", import.meta.url) 启动沙箱 worker，
+          // 相对它自己所在 chunk 解析；SDK 的 Node bundle 同样把 worker 放在 chunk 旁。
+          "chunks/worker": resolve(
+            "node_modules/@earendil-works/pi-coding-agent/dist/bundle/chunks/codemode-worker.js",
+          ),
+          "chunks/image-resize-worker": resolve(
+            "node_modules/@earendil-works/pi-coding-agent/dist/bundle/chunks/image-resize-worker.js",
+          ),
         },
       },
     },

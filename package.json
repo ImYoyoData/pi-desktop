@@ -63,6 +63,7 @@
     "npm": "^12.0.2",
     "pinia": "^4.0.3",
     "qrcode": "^1.5.4",
+    "quickjs-wasi": "3.6.2",
     "sortablejs": "^1.15.7",
     "splitpanes": "^4.1.2",
     "typebox": "1.3.34",
