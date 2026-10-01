@@ -249,7 +249,10 @@ function otherWorkspaceSkillItems(
 
 function describeMcp(entry: unknown): string {
 	if (!entry || typeof entry !== "object") return "";
-	const record = entry as { command?: unknown; args?: unknown; url?: unknown };
+	const record = entry as { description?: unknown; command?: unknown; args?: unknown; url?: unknown };
+	if (typeof record.description === "string" && record.description.trim()) {
+		return record.description.trim();
+	}
 	if (typeof record.url === "string" && record.url) return record.url;
 	const command = typeof record.command === "string" ? record.command : "";
 	const args = Array.isArray(record.args)
@@ -277,19 +280,17 @@ function readMcpFile(file: string, scope: CustomizationScope): CustomizationItem
 	const servers = parsed.mcpServers;
 	if (!servers || typeof servers !== "object") return [];
 	const entries = Object.entries(servers);
-	// 官方扩展不认旧版 pi-mcp-adapter 的 disabled 字段，读到即迁移为 enabled: false，
-	// 避免想停用的服务器被官方扩展照常连接。
-	const legacyDisabled = entries.some(
-		([, entry]) => isMcpEntry(entry) && (entry as { disabled?: unknown }).disabled === true,
+	// 旧字段迁移：disabled → enabled: false；requestTimeoutMs → timeout（秒）；
+	// pi 0.99.2 不再支持 protocolVersion / httpTransport，读到即移除。
+	const legacyFields = entries.some(
+		([, entry]) =>
+			isMcpEntry(entry) &&
+			((entry as { disabled?: unknown }).disabled === true || hasLegacyMcpTransportFields(entry)),
 	);
-	if (legacyDisabled) {
+	if (legacyFields) {
 		for (const entry of Object.values(servers)) {
 			if (!isMcpEntry(entry)) continue;
-			const record = entry as { disabled?: unknown; enabled?: unknown };
-			if (record.disabled === true) {
-				delete record.disabled;
-				record.enabled = false;
-			}
+			migrateLegacyMcpEntry(entry);
 		}
 		try {
 			writeMcpRaw(file, parsed);
@@ -339,6 +340,91 @@ function isMcpEntry(value: unknown): value is Record<string, unknown> {
 	return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
 
+function hasLegacyMcpTransportFields(entry: Record<string, unknown>): boolean {
+	return (
+		entry.requestTimeoutMs !== undefined ||
+		entry.protocolVersion !== undefined ||
+		entry.httpTransport !== undefined
+	);
+}
+
+/** 旧版桌面表单字段迁移到 pi 0.99.2 认的字段。 */
+function migrateLegacyMcpEntry(entry: Record<string, unknown>): void {
+	const record = entry as {
+		disabled?: unknown;
+		enabled?: unknown;
+		requestTimeoutMs?: unknown;
+		protocolVersion?: unknown;
+		httpTransport?: unknown;
+		timeout?: unknown;
+	};
+	if (record.disabled === true) {
+		delete record.disabled;
+		record.enabled = false;
+	}
+	if (record.requestTimeoutMs !== undefined) {
+		if (
+			record.timeout === undefined &&
+			typeof record.requestTimeoutMs === "number" &&
+			record.requestTimeoutMs > 0
+		) {
+			record.timeout = record.requestTimeoutMs / 1000;
+		}
+		delete record.requestTimeoutMs;
+	}
+	delete record.protocolVersion;
+	delete record.httpTransport;
+}
+
+const MCP_LOOPBACK_HOSTS = ["localhost", "127.0.0.1", "[::1]"];
+
+/** 写入前的关键校验，与 pi MCP 扩展的 validateMcpServerConfig 保持一致。 */
+function validateMcpEntry(
+	name: string,
+	entry: Record<string, unknown>,
+	scope: "user" | "project",
+): string | null {
+	if (!/^[A-Za-z0-9_-]+$/.test(name)) {
+		return `invalid server name "${name}" (use letters, digits, "_" and "-")`;
+	}
+	if (entry.type === "sse") {
+		return `server "${name}": legacy SSE transport is not supported; use the streamable HTTP URL`;
+	}
+	const timeout = entry.timeout;
+	if (timeout !== undefined && (typeof timeout !== "number" || !(timeout > 0))) {
+		return `server "${name}": timeout must be a positive number of seconds`;
+	}
+	if (entry.url !== undefined) {
+		const url = entry.url;
+		let parsed: URL | null = null;
+		if (typeof url === "string") {
+			try {
+				parsed = new URL(url);
+			} catch {
+				parsed = null;
+			}
+		}
+		if (!parsed || !/^https?:$/.test(parsed.protocol)) {
+			return `server "${name}": url must be an http or https URL`;
+		}
+		const auth = entry.auth;
+		if (auth !== undefined) {
+			if (!isMcpEntry(auth) || typeof auth.provider !== "string" || !auth.provider) {
+				return `server "${name}": auth.provider must be a provider name`;
+			}
+			if (scope === "project") {
+				return `server "${name}": auth.provider is only allowed in the global mcp.json`;
+			}
+			if (parsed.protocol !== "https:" && !MCP_LOOPBACK_HOSTS.includes(parsed.hostname)) {
+				return `server "${name}": auth requires an https URL, or http on localhost, 127.0.0.1, or [::1]`;
+			}
+		}
+		return null;
+	}
+	if (typeof entry.command === "string") return null;
+	return `server "${name}" needs either "command" (stdio) or "url" (streamable HTTP)`;
+}
+
 /** 通过官方 MCP 扩展的 `enabled` 字段启停服务器，并清理旧版遗留的 disabled 字段。 */
 export function setMcpServerEnabled(
 	name: string,
@@ -368,6 +454,8 @@ export function addMcpServers(
 	if (names.length === 0) throw new Error("No MCP servers to add");
 	for (const name of names) {
 		if (!isMcpEntry(servers[name])) throw new Error(`Invalid MCP server "${name}"`);
+		const error = validateMcpEntry(name, servers[name], scope);
+		if (error) throw new Error(error);
 	}
 	const file = mcpConfigPath(scope, root);
 	const raw = readMcpRaw(file);

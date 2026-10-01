@@ -846,6 +846,13 @@ const api = {
 				servers,
 				cwd,
 			) as Promise<{ filePath: string; names: string[] }>,
+		readMcpServer: (name: string, scope: "user" | "project", cwd?: string) =>
+			ipcRenderer.invoke(
+				IpcChannels.customizations.readMcpServer,
+				name,
+				scope,
+				cwd,
+			) as Promise<Record<string, unknown> | null>,
 		ensureMcpConfig: (scope: "user" | "project", cwd?: string) =>
 			ipcRenderer.invoke(
 				IpcChannels.customizations.ensureMcpConfig,

@@ -12,6 +12,7 @@ import { usePluginUpdatesStore } from "@renderer/stores/plugin-updates";
 import type {
   CustomizationItem,
   CustomizationScope,
+  McpEditTarget,
   McpTestResult,
 } from "../../../../shared/customizations";
 import type { PluginUpdateProgress, PluginVersionInfo } from "../../../../shared/pi-market";
@@ -44,6 +45,7 @@ const message = useMessage();
 
 const query = ref("");
 const addOpen = ref(false);
+const mcpEdit = ref<McpEditTarget | null>(null);
 const mcpTesting = ref(false);
 const mcpTestResults = ref<Record<string, McpTestResult>>({});
 const pluginUpdates = usePluginUpdatesStore();
@@ -376,6 +378,22 @@ function onMcpAdded(): void {
   emit("refresh");
 }
 
+function openMcpAdd(): void {
+  mcpEdit.value = null;
+  addOpen.value = true;
+}
+
+/** 打开编辑弹窗；项目级工作区路径从配置文件位置反推。 */
+function openMcpEdit(item: CustomizationItem): void {
+  if (item.scope !== "user" && item.scope !== "project") return;
+  mcpEdit.value = {
+    name: item.name,
+    scope: item.scope,
+    workspace: workspaceOf(item) ?? null,
+  };
+  addOpen.value = true;
+}
+
 const enabledMcpItems = computed(() => props.items.filter((item) => item.enabled !== false));
 
 /** 从 `<workspace>/.pi/mcp.json` 反推出工作区路径。 */
@@ -540,6 +558,9 @@ const ctxOptions = computed<DropdownOption[]>(() => {
   if (props.kind !== "plugins") {
     options.push({ label: t.customizeCopyPath, key: "copy", disabled: !item.filePath });
   }
+  if (props.kind === "mcp" && (item.scope === "user" || item.scope === "project")) {
+    options.push({ label: t.customizeEdit, key: "edit" });
+  }
   if (canToggle(item)) {
     options.push({
       label: item.enabled === false ? t.customizeEnable : t.customizeDisable,
@@ -562,6 +583,9 @@ function onCtxSelect(key: string | number): void {
       break;
     case "copy":
       void copyPath(item);
+      break;
+    case "edit":
+      openMcpEdit(item);
       break;
     case "toggle":
       void setEnabled(item, item.enabled === false);
@@ -609,7 +633,7 @@ function onCtxSelect(key: string | number): void {
         >
           {{ t.customizeCheckUpdates }}
         </NButton>
-        <NButton v-if="kind === 'mcp'" class="list-add-button" size="small" @click="addOpen = true">
+        <NButton v-if="kind === 'mcp'" class="list-add-button" size="small" @click="openMcpAdd">
           {{ t.customizeMcpAdd }}
         </NButton>
         <NDropdown
@@ -729,6 +753,15 @@ function onCtxSelect(key: string | number): void {
                 @update:value="(value: boolean) => setEnabled(item, value)"
               />
               <button
+                v-if="kind === 'mcp' && (item.scope === 'user' || item.scope === 'project')"
+                type="button"
+                class="item-action"
+                :title="t.customizeEdit"
+                @click.stop="openMcpEdit(item)"
+              >
+                {{ t.customizeEdit }}
+              </button>
+              <button
                 v-if="canRemove(item)"
                 type="button"
                 class="item-action"
@@ -757,6 +790,7 @@ function onCtxSelect(key: string | number): void {
     <McpAddModal
       :show="addOpen"
       :workspaces="scopedWorkspaces"
+      :edit="mcpEdit"
       @close="addOpen = false"
       @added="onMcpAdded"
     />
