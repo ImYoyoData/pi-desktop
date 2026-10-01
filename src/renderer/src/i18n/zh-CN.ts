@@ -92,6 +92,19 @@ export const zh = {
 	customizeTitle: "智能体设置",
 	customizeGeneral: "通用",
 	customizeGeneralDesc: "界面显示、思考语言、通知、语音、安全、代理与远程等应用设置。",
+	modelsAuthQuotaPrimary: "本期用量",
+	modelsAuthQuotaSecondary: "详细用量",
+	modelsAuthQuotaTotal: "总额度",
+	modelsAuthQuotaOnDemand: "按需用量",
+	modelsAuthQuotaPremium: "高级请求",
+	modelsAuthQuotaChat: "对话",
+	modelsAuthQuotaUsed: (name: string, percent: string, used: string, limit: string, reset?: string) =>
+		`${name} 已用 ${percent}%（${used} / ${limit}）${reset ? `，${reset} 重置` : ""}`,
+	modelsAuthQuotaUsedNoLimit: (name: string, used: string, reset?: string) =>
+		`${name}本周期已用 ${used}${reset ? `，${reset} 重置` : ""}`,
+	modelsAuthQuotaRemaining: (remaining: string, total?: string) =>
+		`剩余 ${remaining}${total ? ` / ${total}` : ""}`,
+	modelsAuthQuotaSpent: (used: string) => `已用 ${used}`,
 	tempCleanupEnabled: "自动清理命令输出临时文件",
 	tempCleanupEnabledHint: "大输出命令的完整日志会写入临时目录，Pi 不会自动删除",
 	tempCleanupInterval: "清理间隔",

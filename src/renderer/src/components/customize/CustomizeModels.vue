@@ -292,6 +292,53 @@ const oauthModels = computed(() =>
 const quota = ref<ModelsQuotaResult | null>(null);
 const quotaLoading = ref(false);
 
+function formatUsd(value: number): string {
+  return `$${value.toFixed(2)}`;
+}
+
+const QUOTA_WINDOW_LABELS = {
+  primary: () => t.modelsAuthQuotaPrimary,
+  secondary: () => t.modelsAuthQuotaSecondary,
+  total: () => t.modelsAuthQuotaTotal,
+  onDemand: () => t.modelsAuthQuotaOnDemand,
+  premium: () => t.modelsAuthQuotaPremium,
+  chat: () => t.modelsAuthQuotaChat,
+} as const;
+
+/** 余额型（OpenRouter credits）文案。 */
+const balanceLine = computed(() => {
+  const q = quota.value;
+  if (!q?.supported) return "";
+  if (q.remaining !== undefined) {
+    return q.total !== undefined
+      ? t.modelsAuthQuotaRemaining(formatUsd(q.remaining), formatUsd(q.total))
+      : t.modelsAuthQuotaRemaining(formatUsd(q.remaining));
+  }
+  if (q.used !== undefined && !q.windows?.length) {
+    return t.modelsAuthQuotaSpent(formatUsd(q.used));
+  }
+  return "";
+});
+
+/** 逐周期用量文案；主进程只给结构化数据，文案在此按当前语言生成。 */
+const quotaLines = computed(() =>
+  (quota.value?.windows ?? []).map((window) => {
+    const name = QUOTA_WINDOW_LABELS[window.kind]();
+    const reset = window.resetAt ? window.resetAt.slice(0, 10) : undefined;
+    if (window.limit === undefined) {
+      return t.modelsAuthQuotaUsedNoLimit(name, formatTokenCount(window.used), reset);
+    }
+    const percent = Math.max(0, Math.min(100, (window.used / window.limit) * 100));
+    return t.modelsAuthQuotaUsed(
+      name,
+      percent.toFixed(0),
+      formatTokenCount(window.used),
+      formatTokenCount(window.limit),
+      reset,
+    );
+  }),
+);
+
 async function loadQuota(force = false): Promise<void> {
   const id = selectedOauth.value?.id ?? "";
   if (!id) return;
@@ -704,12 +751,16 @@ async function testModel(rowKey: string, modelId: string): Promise<void> {
                 {{ t.modelsAuthQuotaLoading }}
               </span>
               <span
-                v-else-if="quota?.supported && (quota.windows?.length || quota.plan || quota.label)"
+                v-else-if="quota?.supported && (quota.windows?.length || quota.plan || quota.remaining !== undefined || quota.used !== undefined)"
                 class="oauth-quota-value"
               >
                 <span v-if="quota.plan" class="oauth-quota-plan">{{ quota.plan }}</span>
-                <span v-if="quota.label" class="oauth-quota-line">{{ quota.label }}</span>
-                <span v-for="line in quota.windows ?? []" :key="line" class="oauth-quota-line">
+                <span v-if="balanceLine" class="oauth-quota-line">{{ balanceLine }}</span>
+                <span
+                  v-for="(line, index) in quotaLines"
+                  :key="`${index}:${line}`"
+                  class="oauth-quota-line"
+                >
                   {{ line }}
                 </span>
               </span>
@@ -1026,13 +1077,23 @@ async function testModel(rowKey: string, modelId: string): Promise<void> {
 .list-toolbar {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   flex-shrink: 0;
   margin-bottom: 8px;
 }
 
+/* min-width:0 —— flex item 默认 min-width:auto，两个按钮的内容最小宽度会把
+   它们顶出侧栏（190px）；文字不够时省略而不是撑破边框。 */
 .list-toolbar .n-button {
   flex: 1;
+  min-width: 0;
+  padding: 0 8px;
+}
+
+.list-toolbar .n-button :deep(.n-button__content) {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .sidebar-empty {
