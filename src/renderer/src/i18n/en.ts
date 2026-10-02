@@ -392,6 +392,7 @@ export const en = {
 	customizeMcpOauthScope: "Scope",
 	customizeMcpOauthCallbackPort: "Callback port",
 	customizeMcpOauthCallbackUrl: "Callback URL",
+	customizeMcpOauthAuthServerMetadataUrl: "Authorization server metadata URL",
 	customizeMcpOauthPortInvalid: "Callback port must be an integer from 1 to 65535",
 	customizeMcpAuthProvider: "Auth Provider",
 	customizeMcpAuthProviderPlaceholder: "e.g. openai",
