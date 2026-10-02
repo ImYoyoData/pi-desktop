@@ -83,6 +83,8 @@ export type GenericToolCard = {
   kind: "generic";
   summary: string | null;
   preview: string | null;
+  /** 工具结果里的图片块（codemode 生成图等），已转成 data URL。 */
+  images: string[];
 };
 
 export type ToolCard =
@@ -94,6 +96,25 @@ export type ToolCard =
 
 function isRecord(v: unknown): v is Record<string, unknown> {
   return Boolean(v) && typeof v === "object" && !Array.isArray(v);
+}
+
+/** 工具结果里最多渲染的图片块数（生成图可能很大，避免撑爆内存）。 */
+const MAX_TOOL_RESULT_IMAGES = 8;
+
+/** `{ type: "image", data, mimeType }` 块 → data URL；非法或超出上限的丢弃。 */
+function imageDataUrls(content: unknown): string[] {
+  if (!Array.isArray(content)) return [];
+  const out: string[] = [];
+  for (const block of content) {
+    if (out.length >= MAX_TOOL_RESULT_IMAGES) break;
+    if (!isRecord(block) || block.type !== "image") continue;
+    const data = block.data;
+    const mimeType = block.mimeType;
+    if (typeof data !== "string" || !data) continue;
+    if (typeof mimeType !== "string" || !mimeType.startsWith("image/")) continue;
+    out.push(`data:${mimeType};base64,${data}`);
+  }
+  return out;
 }
 
 /** Count +/- lines in a unified / display diff (ignore +++ / --- headers). */
@@ -118,9 +139,10 @@ export function countDiffStats(diffText: string): ToolDiffStats {
 export function extractToolResult(result: unknown): {
   details: Record<string, unknown> | null;
   text: string;
+  images: string[];
 } {
   if (!isRecord(result)) {
-    return { details: null, text: result == null ? "" : String(result) };
+    return { details: null, text: result == null ? "" : String(result), images: [] };
   }
   const details = isRecord(result.details) ? result.details : null;
   let text = "";
@@ -134,10 +156,11 @@ export function extractToolResult(result: unknown): {
   } else if (typeof result.text === "string") {
     text = result.text;
   }
+  const images = imageDataUrls(result.content);
   if (!details && (typeof result.diff === "string" || typeof result.patch === "string")) {
-    return { details: result, text };
+    return { details: result, text, images };
   }
-  return { details, text };
+  return { details, text, images };
 }
 
 function pathFromArgs(args: unknown): string | null {
@@ -509,7 +532,7 @@ export function parseToolCard(
   if (isTodoToolName(toolName)) {
     return parseTodoToolCard(args, result);
   }
-  const { text } = extractToolResult(result);
+  const { text, images } = extractToolResult(result);
   const summary =
     commandFromArgs(args) ??
     pathFromArgs(args) ??
@@ -518,6 +541,7 @@ export function parseToolCard(
     kind: "generic",
     summary,
     preview: text.trim() ? text : (args != null ? JSON.stringify(args, null, 2) : null),
+    images,
   };
 }
 

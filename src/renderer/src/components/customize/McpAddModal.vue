@@ -51,6 +51,7 @@ const OAUTH_KEYS = [
   "scope",
   "callbackPort",
   "callbackUrl",
+  "authServerMetadataUrl",
 ] as const;
 
 const scope = ref<string>("user");
@@ -74,6 +75,7 @@ const oauthClientName = ref("");
 const oauthScope = ref("");
 const oauthCallbackPort = ref("");
 const oauthCallbackUrl = ref("");
+const oauthAuthServerMetadataUrl = ref("");
 const authProvider = ref("");
 const json = ref("");
 const error = ref("");
@@ -118,6 +120,7 @@ function resetForm(): void {
   oauthScope.value = "";
   oauthCallbackPort.value = "";
   oauthCallbackUrl.value = "";
+  oauthAuthServerMetadataUrl.value = "";
   authProvider.value = "";
   json.value = "";
   error.value = "";
@@ -179,6 +182,7 @@ async function loadEntry(target: McpEditTarget): Promise<void> {
         oauthCallbackPort.value =
           typeof oauth.callbackPort === "number" ? String(oauth.callbackPort) : "";
         oauthCallbackUrl.value = stringOf(oauth.callbackUrl);
+        oauthAuthServerMetadataUrl.value = stringOf(oauth.authServerMetadataUrl);
       }
       const auth = entry.auth;
       authProvider.value = isRecord(auth) ? stringOf(auth.provider) : "";
@@ -277,6 +281,8 @@ function buildOauth(): Record<string, unknown> | undefined {
   }
   const callbackUrl = oauthCallbackUrl.value.trim();
   if (callbackUrl) oauth.callbackUrl = callbackUrl;
+  const metadataUrl = oauthAuthServerMetadataUrl.value.trim();
+  if (metadataUrl) oauth.authServerMetadataUrl = metadataUrl;
   return Object.keys(oauth).length ? oauth : undefined;
 }
 
@@ -670,6 +676,14 @@ async function submit(): Promise<void> {
                   v-model:value="oauthCallbackUrl"
                   size="small"
                   placeholder="http://localhost:8080/oauth/callback"
+                />
+              </div>
+              <div class="field">
+                <span class="field-label">{{ t.customizeMcpOauthAuthServerMetadataUrl }}</span>
+                <NInput
+                  v-model:value="oauthAuthServerMetadataUrl"
+                  size="small"
+                  placeholder="https://auth.example.com/.well-known/oauth-authorization-server"
                 />
               </div>
             </div>

@@ -194,6 +194,14 @@ export function packageRootFromPiCli(cliPath: string): string {
   return path.resolve(path.dirname(cliPath), "..");
 }
 
+/** 打包版随 extraResources 携带的 SDK 资源目录（docs/examples 等 .md 不进 asar）。 */
+function resolveBundledPiPackageRoot(): string | undefined {
+  const resourcesPath = process.resourcesPath;
+  if (!resourcesPath) return undefined;
+  const dir = path.join(resourcesPath, "pi-package");
+  return existsSync(path.join(dir, "package.json")) ? dir : undefined;
+}
+
 /** Resolve @earendil-works/pi-coding-agent dist/cli.js from app roots or common installs. */
 export function resolvePiCodingAgentCliPath(
   searchRoots: string[],
@@ -405,7 +413,10 @@ export function buildAgentWorkerEnv(
     // <root>/src/… for themes/templates (ENOENT). Point the SDK's official
     // PI_PACKAGE_DIR hook at the package root that owns this CLI so
     // ctx.ui.theme / export templates resolve inside node_modules.
-    if (packageRoot && existsSync(path.join(packageRoot, "package.json"))) {
+    const resourcesRoot = resolveBundledPiPackageRoot();
+    if (resourcesRoot) {
+      next[PI_PACKAGE_DIR_ENV] = resourcesRoot;
+    } else if (packageRoot && existsSync(path.join(packageRoot, "package.json"))) {
       next[PI_PACKAGE_DIR_ENV] = packageRoot;
     }
   }

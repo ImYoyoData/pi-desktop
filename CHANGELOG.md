@@ -1,5 +1,31 @@
 # Changelog
 
+## v0.3.5-rc.4 (2026-10-02)
+
+本版重点：跟进 pi 1.0.0（SDK 从 0.99.2 升级），修复 MCP OAuth 凭据的读写，打包时附带 pi 的文档资源，并接入 1.0.0 的两项新能力。
+
+### 新功能 Features
+
+- **MCP OAuth 支持授权服务器元数据地址**：服务器发布的 OAuth 授权服务器元数据地址不符合规范、或未发布时，可在 MCP 服务器的「OAuth 高级设置」里填写 `authServerMetadataUrl`，登录直接使用该地址，不再依赖自动探测。
+- **工具结果里的图片会显示出来**：codemode 生成图（`image()` / `models.generateImages()`）等工具返回的图片块，现在会在工具卡片中直接渲染（最多 8 张，随卡片展开）。
+
+- **Authorization server metadata URL for MCP OAuth**: when a server advertises a wrong OAuth authorization server metadata document (or none), set `authServerMetadataUrl` in the MCP server's OAuth advanced settings so sign-in uses that address instead of discovery.
+- **Images from tool results are shown**: image blocks returned by tools such as codemode generation (`image()` / `models.generateImages()`) now render inside the tool card (up to 8, when expanded).
+
+### 变更 Changes
+
+- **升级 pi 到 1.0.0**：`@earendil-works/pi-coding-agent`、`@earendil-works/pi-agent-core`、`@earendil-works/pi-ai` 从 0.99.2 升到 1.0.0。
+
+- **Upgraded pi to 1.0.0**: `@earendil-works/pi-coding-agent`, `@earendil-works/pi-agent-core` and `@earendil-works/pi-ai` moved from 0.99.2 to 1.0.0.
+
+### 修复 Fixes
+
+- **修复 MCP OAuth 登录状态显示未认证、登出无效**：pi 1.0.0 把 MCP OAuth 凭据改为按「服务器名 + URL」存储，旧的单参数调用按 URL 读不到新凭据。现在按服务器名与 URL 读写，1.0.0 的首个使用同一 URL 的服务器也会自动接管旧凭据（旧凭据不会丢）。
+- **修复打包版里模型读不到 pi 文档**：1.0.0 的 codemode 提示词只保留一行摘要，细节引导模型去读 `docs/codemode.md`（models API、图像生成等），而 asar 打包会排除所有 `.md`，模型读到的路径不存在。现在打包时把 pi 的 `package.json`、`README.md`、`CHANGELOG.md`、`docs/`、`examples/` 作为 extraResources 附带到 `resources/pi-package`，并让 `PI_PACKAGE_DIR` 指向它。
+
+- **Fixed MCP OAuth showing "not authenticated" and logout doing nothing**: pi 1.0.0 stores MCP OAuth credentials per server name and URL, so the old single-argument calls keyed by URL alone could not read the new credentials. Reads and writes now pass both, and the first server using a URL takes over credentials stored by older versions (nothing is lost).
+- **Fixed the packaged app being unable to read pi's docs**: pi 1.0.0's codemode prompt keeps only a one-line summary and points the model at `docs/codemode.md` (models API, image generation, …), but the asar excludes every `.md`, so the model was given a path that does not exist. The build now ships pi's `package.json`, `README.md`, `CHANGELOG.md`, `docs/` and `examples/` as extraResources under `resources/pi-package`, with `PI_PACKAGE_DIR` pointing there.
+
 ## v0.3.5-rc.2 (2026-09-23)
 
 本版重点：修复 pi 0.87 升级后插件工具在 Agent 会话与设置-工具页全部消失的问题；此外重做了工具调用的折叠体验（默认折叠 + 分类次数小结）、修好了 Windows 上的 bash 工具，并大幅改善了「停止」时的卡顿，并修好了自定义提供商「拉取模型」拉不到模型的问题。

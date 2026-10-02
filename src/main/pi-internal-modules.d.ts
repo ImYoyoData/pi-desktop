@@ -33,6 +33,8 @@ declare module "pi-internal/mcp-oauth" {
 		callbackUrl?: string;
 		scope?: string;
 		clientName?: string;
+		/** 服务器已发布授权服务器元数据的地址（pi 要求 https，或本机 http）。 */
+		authServerMetadataUrl?: URL;
 	}
 
 	export interface McpSignInPrompt {
@@ -46,11 +48,11 @@ declare module "pi-internal/mcp-oauth" {
 
 	export class McpOAuthCredentialStore {
 		constructor(backend?: unknown, lockDir?: string);
-		forServer(serverUrl: string): McpOAuthStateStore;
+		forServer(name: string, serverUrl: string): McpOAuthStateStore;
 		/** 已存凭据；未登录过时返回 undefined。 */
-		tokens(serverUrl: string): McpOAuthTokens | undefined;
+		tokens(name: string, serverUrl: string): McpOAuthTokens | undefined;
 		/** 删除凭据；返回是否存在过。 */
-		remove(serverUrl: string): boolean;
+		remove(name: string, serverUrl: string): boolean;
 	}
 
 	export function signInMcpServer(options: {

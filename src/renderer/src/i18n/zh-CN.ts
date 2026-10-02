@@ -382,6 +382,7 @@ export const zh = {
 	customizeMcpOauthScope: "授权范围",
 	customizeMcpOauthCallbackPort: "回调端口",
 	customizeMcpOauthCallbackUrl: "回调地址",
+	customizeMcpOauthAuthServerMetadataUrl: "授权服务器元数据 URL",
 	customizeMcpOauthPortInvalid: "回调端口应为 1-65535 的整数",
 	customizeMcpAuthProvider: "认证 Provider",
 	customizeMcpAuthProviderPlaceholder: "例如 openai",

@@ -305,6 +305,10 @@ watch(
   },
 );
 
+const cardImages = computed<string[]>(() =>
+  props.card.kind === "generic" ? props.card.images : [],
+);
+
 const emptyBodyText = computed(() => {
   if (props.card.kind === "bash") return t.toolNoOutput;
   if (props.card.kind === "todo") return t.toolTodoEmpty;
@@ -331,7 +335,7 @@ const pathTitle = computed(() => {
 const expandable = computed(() => {
   if (props.card.kind === "todo") return todoItems.value.length > 0;
   if (props.nestedCalls?.length) return true;
-  return Boolean(body.value);
+  return Boolean(body.value) || cardImages.value.length > 0;
 });
 
 /** 可预览的文件路径（read / edit / write / other 卡才有）。 */
@@ -467,7 +471,10 @@ const todoItems = computed(() =>
         meta: isDiffBody && (line.startsWith('@@') || line.startsWith('diff ') || line.startsWith('index ') || line.startsWith('+++') || line.startsWith('---')),
       }"
     >{{ line || ' ' }}</span></code></pre>
-    <pre v-else-if="open && !body" class="tool-body empty">{{ emptyBodyText }}</pre>
+    <pre v-else-if="open && !body && !cardImages.length" class="tool-body empty">{{ emptyBodyText }}</pre>
+    <div v-if="open && cardImages.length" class="tool-images">
+      <img v-for="(src, i) in cardImages" :key="i" :src="src" class="tool-image" alt="" />
+    </div>
   </div>
 </template>
 
@@ -718,6 +725,24 @@ const todoItems = computed(() =>
 .tool-body.empty {
   padding: 8px 10px;
   color: var(--chat-desc-fg, var(--fg-muted));
+}
+
+.tool-images {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 2px 0 4px;
+}
+
+.tool-call.tree-item .tool-images {
+  margin-left: 24px;
+}
+
+.tool-image {
+  max-width: min(100%, 420px);
+  max-height: 260px;
+  border: 1px solid var(--chat-line, var(--border));
+  border-radius: 6px;
 }
 
 .tool-body-bash .dline {

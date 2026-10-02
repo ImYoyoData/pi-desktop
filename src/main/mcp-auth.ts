@@ -46,7 +46,7 @@ export async function readMcpAuthState(target: McpAuthTarget): Promise<McpAuthSt
 	const entry = readEntry(target);
 	const url = entry ? mcpOAuthUrl(entry) : null;
 	if (!url) return { oauth: false, authenticated: false };
-	const state = await store.forServer(url).load();
+	const state = await store.forServer(target.name, url).load();
 	const tokens = state?.tokens;
 	return {
 		oauth: true,
@@ -62,7 +62,7 @@ export function mcpLogout(target: McpAuthTarget): boolean {
 	const entry = readEntry(target);
 	const url = entry ? mcpOAuthUrl(entry) : null;
 	if (!url) return false;
-	return store.remove(url);
+	return store.remove(target.name, url);
 }
 
 /** mcp.json 的 oauth 段，clientSecret 按 pi 的规则解析环境变量 / 命令。 */
@@ -74,6 +74,17 @@ function oauthSettings(entry: Record<string, unknown>, name: string): McpOAuthSe
 			: {};
 	const text = (value: unknown): string | undefined =>
 		typeof value === "string" && value ? value : undefined;
+	const metadataText = text(oauth.authServerMetadataUrl);
+	let metadataUrl: URL | undefined;
+	if (metadataText) {
+		try {
+			metadataUrl = new URL(metadataText);
+		} catch {
+			throw new Error(
+				`MCP server "${name}" oauth.authServerMetadataUrl is not a valid URL: ${metadataText}`,
+			);
+		}
+	}
 	return {
 		...(text(oauth.clientId) ? { clientId: text(oauth.clientId) } : {}),
 		...(text(oauth.clientSecret)
@@ -90,6 +101,7 @@ function oauthSettings(entry: Record<string, unknown>, name: string): McpOAuthSe
 		...(text(oauth.callbackUrl) ? { callbackUrl: text(oauth.callbackUrl) } : {}),
 		...(text(oauth.scope) ? { scope: text(oauth.scope) } : {}),
 		...(text(oauth.clientName) ? { clientName: text(oauth.clientName) } : {}),
+		...(metadataUrl ? { authServerMetadataUrl: metadataUrl } : {}),
 	};
 }
 
@@ -114,7 +126,7 @@ export async function mcpLogin(
 	hooks.onInfo(`正在登录 ${url}`);
 	await signInMcpServer({
 		serverUrl: url,
-		store: store.forServer(url),
+		store: store.forServer(target.name, url),
 		settings: oauthSettings(entry, target.name),
 		prompt: {
 			showAuthorizationUrl: (authorizationUrl) => {
