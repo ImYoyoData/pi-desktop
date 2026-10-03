@@ -4,6 +4,13 @@ export type ModelsAvailableEntry = {
   provider: string;
   id: string;
   name: string;
+  contextWindow: number;
+  maxTokens: number;
+  /** 输入模态：text / image。 */
+  input: ("text" | "image")[];
+  reasoning: boolean;
+  /** 每百万 token 价格（美元）。免费模型为 0。 */
+  cost: { input: number; output: number; cacheRead: number; cacheWrite: number };
 };
 export type ModelsProviderAuth = {
   id: string;
@@ -49,6 +56,46 @@ export type ModelsGetResult = {
   available: ModelsAvailableEntry[];
   /** Desktop-side per-provider curation; absent provider = show everything. */
   modelSelection?: ModelSelection;
+};
+
+/**
+ * 提供商额度查询结果。Pi SDK 没有额度 API，本类型只承载桌面侧自行查询到的
+ * 公开数据（目前仅 OpenRouter credits）；其余提供商返回 unsupported。
+ */
+/** 额度窗口种类；文案由渲染层按 i18n 组装，主进程只提供数据。 */
+export type ModelsQuotaWindowKind =
+  | "primary"
+  | "secondary"
+  | "total"
+  | "onDemand"
+  | "premium"
+  | "chat";
+
+export type ModelsQuotaWindow = {
+  kind: ModelsQuotaWindowKind;
+  /** 已用量。 */
+  used: number;
+  /** 上限；缺省表示无上限（如包月订阅）。 */
+  limit?: number;
+  /** 用量窗口的结束时间（ISO 字符串）。 */
+  resetAt?: string;
+};
+
+export type ModelsQuotaResult = {
+  providerId: string;
+  supported: boolean;
+  /** 剩余额度（美元）。 */
+  remaining?: number;
+  /** 总额度（美元），未知时省略。 */
+  total?: number;
+  /** 已用额度（美元），未知时省略。 */
+  used?: number;
+  /** 订阅档位名（如 Kimi 的会员等级）。 */
+  plan?: string;
+  /** 逐周期用量；文案在渲染层按 kind + i18n 生成。 */
+  windows?: ModelsQuotaWindow[];
+  /** 查询失败原因（网络、鉴权、端点变更等）。 */
+  error?: string;
 };
 
 export type ModelsSetPayload = {

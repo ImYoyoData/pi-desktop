@@ -195,81 +195,65 @@ jobs:
           generate_release_notes: true
           body: |
 
-            ## 主要更新（v0.3.5-rc.3）
+            ## 主要更新（v0.3.5-rc.4）
 
-            本版重点：修复自定义模型「保存后会话输入框选不了模型、看起来像没有模型配置」
-            的问题 —— 一条过期的模型策展记录会把该提供商的模型全部过滤掉；以及修复
-            「拉取模型」在密钥存于 auth.json 时拿不到密钥而失败、且探测请求没有超时导致
-            一直转圈。
+            本版重点：跟进 pi 1.0.0（SDK 从 0.99.2 升级），修复 MCP OAuth 凭据的
+            读写，打包时附带 pi 的文档资源，并接入 1.0.0 的两项新能力。
+
+            ### 新功能 Features
+
+            - **MCP OAuth 支持授权服务器元数据地址**：服务器发布的 OAuth 授权服务器
+              元数据地址不符合规范、或未发布时，可在 MCP 服务器的「OAuth 高级设置」里
+              填写 `authServerMetadataUrl`，登录直接使用该地址，不再依赖自动探测。
+            - **工具结果里的图片会显示出来**：codemode 生成图（`image()` /
+              `models.generateImages()`）等工具返回的图片块，现在会在工具卡片中直接
+              渲染（最多 8 张，随卡片展开）。
+
+            - **Authorization server metadata URL for MCP OAuth**: when a server
+              advertises a wrong OAuth authorization server metadata document (or
+              none), set `authServerMetadataUrl` in the MCP server's OAuth advanced
+              settings so sign-in uses that address instead of discovery.
+            - **Images from tool results are shown**: image blocks returned by
+              tools such as codemode generation (`image()` /
+              `models.generateImages()`) now render inside the tool card (up to 8,
+              when expanded).
+
+            ### 变更 Changes
+
+            - **升级 pi 到 1.0.0**：`@earendil-works/pi-coding-agent`、
+              `@earendil-works/pi-agent-core`、`@earendil-works/pi-ai` 从 0.99.2
+              升到 1.0.0。
+
+            - **Upgraded pi to 1.0.0**: `@earendil-works/pi-coding-agent`,
+              `@earendil-works/pi-agent-core` and `@earendil-works/pi-ai` moved from
+              0.99.2 to 1.0.0.
 
             ### 修复 Fixes
 
-            - **修复保存自定义模型后，会话输入框的模型选择器点不动、像是没有模型配置**：
-              桌面端为「避免 300 个模型的提供商淹没菜单」而维护了一份策展名单
-              （`models-selection.json`）。当自定义提供商的模型 id 被改掉（改名、换模型）
-              后，名单里的旧 id 一个都对不上，`filterAvailableModels` 会把这个提供商
-              **新**的模型也一并过滤掉 —— 菜单被清空，看起来就像压根没配任何模型。文件里
-              本就写好了 `pruneModelSelection`（注释即写着「so stale ids cannot hide a
-              fresh list」），但生产代码从未调用；且它把过期名单裁剪成 `[]`，而 `[]` 在
-              这套设计里恰恰是「隐藏该提供商」的意思，等于把「模型改名了」误判成「用户想
-              隐藏」。现新增 `pruneStaleModelSelection` 区分两种空列表 —— 用户主动设的
-              `[]`（保留，继续隐藏）与「原本有 id、裁剪后全没了」的过期名单（删掉整个键，
-              恢复成显示全部），并在 Composer 过滤前先裁剪、结果回写，**自愈**且下次启动
-              不会复活；机器上已有的残留数据打开一次会话即自动清除。
+            - **修复 MCP OAuth 登录状态显示未认证、登出无效**：pi 1.0.0 把 MCP
+              OAuth 凭据改为按「服务器名 + URL」存储，旧的单参数调用按 URL 读不到新
+              凭据。现在按服务器名与 URL 读写，1.0.0 的首个使用同一 URL 的服务器也会
+              自动接管旧凭据（旧凭据不会丢）。
+            - **修复打包版里模型读不到 pi 文档**：1.0.0 的 codemode 提示词只保留一行
+              摘要，细节引导模型去读 `docs/codemode.md`（models API、图像生成等），
+              而 asar 打包会排除所有 `.md`，模型读到的路径不存在。现在打包时把 pi 的
+              `package.json`、`README.md`、`CHANGELOG.md`、`docs/`、`examples/`
+              作为 extraResources 附带到 `resources/pi-package`，并让
+              `PI_PACKAGE_DIR` 指向它。
 
-            - **修复自定义提供商「拉取模型」失败**：`models.discover` 与
-              `models.testBaseUrl` 只认表单里填的 API Key，而「测试模型」
-              （`testConnection`）会带 `providerId` 并回退到 `auth.json` 里的密钥。于是
-              通过**设置 → 提供商**配好密钥的提供商（密钥只落在 auth.json，表单里读不到），
-              会出现**测速成功、拉取 401** 的怪现象。现三个探测统一走 `resolveProbeKey`：
-              表单 key 优先，回退 auth.json。注：rc.2 已修过拉取报 `Response is not JSON`
-              （改走 Chromium 网络栈），本次是另一条独立路径。
-
-            - **拉取模型 / 地址测速增加超时**：这两个请求此前完全没有超时（只有「测试模型」
-              有 20 秒），端点挂住时按钮会一直转圈，看起来也像失败。现拉取 30 秒、
-              测速 20 秒。
-
-            - **Fixed the model picker being unusable after saving a custom model**: the
-              desktop keeps its own curation list (`models-selection.json`) so a
-              300-model provider cannot flood the menu. Once a custom provider's model
-              ids are changed, none of the curated ids match any more, and
-              `filterAvailableModels` filters away the provider's *new* models too —
-              leaving the menu empty, which reads as "this session has no model config
-              at all". `pruneModelSelection` already existed (its own comment says "so
-              stale ids cannot hide a fresh list") but was never called in production,
-              and it collapsed a stale curation to `[]`, which in this design means
-              "hide this provider" — turning "the models were renamed" into "the user
-              wanted it hidden". The new `pruneStaleModelSelection` tells the two
-              apart: an explicit `[]` is kept, while a curation that *had* ids and lost
-              them all is dropped so the provider shows again. The composer now prunes
-              before filtering and writes the result back, self-healing existing
-              leftover data on the next session.
-
-            - **Fixed "Fetch models" failing**: `models.discover` and
-              `models.testBaseUrl` only used the API key typed in the form, while "Test
-              model" (`testConnection`) also passed `providerId` and fell back to the
-              key in `auth.json`. A provider keyed through Settings → Providers stores
-              its secret only in auth.json, so the form field came up empty and
-              discovery got a 401 while the connection test passed. All three probes
-              now share `resolveProbeKey` — form key first, auth.json as fallback.
-              (rc.2 already fixed a different failure here, `Response is not JSON`, by
-              moving to the Chromium network stack.)
-
-            - **Fetch models and base-URL test now time out**: neither request had a
-              deadline (only "Test model" did, at 20s), so a hung endpoint left the
-              button spinning indefinitely. Discovery is now 30s and the base-URL probe
-              20s.
-
-            ### 优化 / 体验 Improvements
-
-            - **模型列表刷新失败时不再清空已有列表**：Composer 的 `refreshModels` 原来在
-              `catch` 里直接把列表置空，一次瞬时故障就变成一个点不开也恢复不了的死按钮；
-              现在保留原列表并输出日志。
-
-            - **The model list is no longer blanked on a failed refresh**:
-              `refreshModels` used to empty the list in its `catch`, turning a
-              transient failure into a model button that neither opens nor recovers.
-              It now keeps the previous list and logs the error.
+            - **Fixed MCP OAuth showing "not authenticated" and logout doing
+              nothing**: pi 1.0.0 stores MCP OAuth credentials per server name and
+              URL, so the old single-argument calls keyed by URL alone could not
+              read the new credentials. Reads and writes now pass both, and the
+              first server using a URL takes over credentials stored by older
+              versions (nothing is lost).
+            - **Fixed the packaged app being unable to read pi's docs**: pi 1.0.0's
+              codemode prompt keeps only a one-line summary and points the model at
+              `docs/codemode.md` (models API, image generation, …), but the asar
+              excludes every `.md`, so the model was given a path that does not
+              exist. The build now ships pi's `package.json`, `README.md`,
+              `CHANGELOG.md`, `docs/` and `examples/` as extraResources under
+              `resources/pi-package`, with `PI_PACKAGE_DIR` pointing there.
 
             ## 下载 / Downloads
             - **Windows x64**: `Pi Desktop-*-win-x64-setup.exe`

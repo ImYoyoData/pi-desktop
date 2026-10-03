@@ -66,6 +66,23 @@ export const useCustomizationsStore = defineStore("customizations", () => {
     };
   }
 
+  /** 本地更新内置扩展开关状态（主进程写入后返回最新列表）。 */
+  function setBuiltinExtensionEnabled(
+    items: CustomizationsSnapshot["builtinExtensions"],
+  ): void {
+    snapshot.value = { ...snapshot.value, builtinExtensions: items };
+  }
+
+  /** 本地更新内置工具开关状态（主进程写入后返回最新列表）。 */
+  function setToolToggles(items: CustomizationsSnapshot["toolToggles"]): void {
+    snapshot.value = { ...snapshot.value, toolToggles: items };
+  }
+
+  /** 本地更新 codemode 设置（主进程写入后返回最新值）。 */
+  function setCodemode(state: CustomizationsSnapshot["codemode"]): void {
+    snapshot.value = { ...snapshot.value, codemode: state };
+  }
+
   /** 本地更新技能启用状态，避免重新加载整份快照。 */
   function setSkillEnabled(id: string, enabled: boolean): void {
     snapshot.value = {
@@ -112,6 +129,9 @@ export const useCustomizationsStore = defineStore("customizations", () => {
     setMcpEnabled,
     removeMcp,
     setPluginEnabled,
+    setBuiltinExtensionEnabled,
+    setToolToggles,
+    setCodemode,
     setSkillEnabled,
     setFileItemEnabled,
     removeFileItem,

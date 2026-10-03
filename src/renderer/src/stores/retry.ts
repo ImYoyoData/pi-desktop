@@ -1,19 +1,12 @@
 import { defineStore } from "pinia";
-import { ref, toRaw } from "vue";
+import { ref } from "vue";
+import { toIpcPlain } from "../../../shared/protocol";
 import {
   DEFAULT_RETRY_SETTINGS,
   type RetrySettings,
 } from "../../../shared/retry-settings";
 
 /** 「重试」设置：主进程持久化到 settings.json，渲染端与 worker 共用同一份值。 */
-/** IPC 结构化克隆不接受 Vue 响应式代理：剥离 provider / desktop 两层代理再发送。 */
-function toPlain(next: RetrySettings): RetrySettings {
-  return structuredClone({
-    ...toRaw(next),
-    provider: { ...toRaw(next.provider) },
-    desktop: { ...toRaw(next.desktop) },
-  });
-}
 
 export const useRetryStore = defineStore("retry", () => {
   const settings = ref<RetrySettings>({ ...DEFAULT_RETRY_SETTINGS });
@@ -38,7 +31,8 @@ export const useRetryStore = defineStore("retry", () => {
   }
 
   async function save(next: RetrySettings): Promise<void> {
-    settings.value = await window.api.retry.set(toPlain(next));
+    // Vue 响应式代理不能结构化克隆，先转成普通对象再发 IPC。
+    settings.value = await window.api.retry.set(toIpcPlain(next));
   }
 
   return { settings, load, save };

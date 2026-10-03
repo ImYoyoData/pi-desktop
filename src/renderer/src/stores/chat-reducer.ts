@@ -20,6 +20,18 @@ export type ChatUserImage = {
 
 export type PendingPermission = PermissionAskPrompt;
 
+/** 由工具内部调用（ctx.executeTool，如 codemode 脚本）产生的嵌套调用。 */
+export type ChatToolNestedCall = {
+	toolCallId: string;
+	toolName: string;
+	args?: unknown;
+	result?: unknown;
+	isError?: boolean;
+	streaming?: boolean;
+	startedAt?: number;
+	durationMs?: number;
+};
+
 export type ChatMessage =
 	| {
 			id: string;
@@ -65,6 +77,8 @@ export type ChatMessage =
 			startedAt?: number;
 			/** Execution duration stamped at tool_execution_end. */
 			durationMs?: number;
+			/** 嵌套调用折叠在父卡片里；历史会话来自 pi 的 nestedCalls。 */
+			nestedCalls?: ChatToolNestedCall[];
 	  }
 	| {
 			id: string;
@@ -145,7 +159,24 @@ function countResultLines(text: string): number {
 	return text.replace(/\r\n/g, "\n").split("\n").length;
 }
 
-export function capStreamedToolResult(result: unknown): unknown {
+/** 工具结果到达 UI 时的形态：文本（bash 等）或 JSON 对象/数组。 */
+export type ToolResultValue =
+	| string
+	| Record<string, unknown>
+	| unknown[]
+	| null
+	| undefined;
+
+/** 会话事件里的结果是 unknown；归一化成 ToolResultValue 后再进入卡片渲染。 */
+export function toToolResultValue(value: unknown): ToolResultValue {
+	if (value === null || value === undefined) return value;
+	if (typeof value === "string") return value;
+	if (Array.isArray(value)) return value;
+	if (typeof value === "object") return value as Record<string, unknown>;
+	return undefined;
+}
+
+export function capStreamedToolResult(result: ToolResultValue): ToolResultValue {
 	if (typeof result !== "string" || result.length <= STREAM_RESULT_CAP_CHARS)
 		return result;
 	return `\u2026 [output truncated, ${countResultLines(result)} lines total]\n${result.slice(-STREAM_RESULT_CAP_CHARS)}`;
@@ -160,7 +191,7 @@ export function capStreamedToolResult(result: unknown): unknown {
 const RESULT_STORE_HEAD_CHARS = 16 * 1024;
 const RESULT_STORE_TAIL_CHARS = 16 * 1024;
 
-export function capStoredToolResult(result: unknown): unknown {
+export function capStoredToolResult(result: ToolResultValue): ToolResultValue {
 	if (typeof result !== "string") return result;
 	const keep = RESULT_STORE_HEAD_CHARS + RESULT_STORE_TAIL_CHARS;
 	if (result.length <= keep) return result;
@@ -404,6 +435,65 @@ function parkLiveTool(
 	if (streaming?.role !== "tool") return messages;
 	if (messages.some((m) => m.id === streaming.id)) return messages;
 	return [...messages, { ...streaming, streaming: true }];
+}
+
+/** 事件里的 parentToolCallId：只有工具内部发起（ctx.executeTool）的调用才有。 */
+function nestedParentId(payload: Record<string, unknown>): string {
+	return typeof payload.parentToolCallId === "string" ? payload.parentToolCallId : "";
+}
+
+/**
+ * 把嵌套调用写进父卡片的 nestedCalls；父卡片可能在实时槽（streamingMessage）
+ * 或历史里（parkLiveTool 会同时保留一份）。父卡片不存在时返回 null，调用方
+ * 退回普通的顶层卡片处理。
+ */
+function upsertNestedCall(
+	state: ChatState,
+	parentToolCallId: string,
+	toolCallId: string,
+	patch: Partial<Omit<ChatToolNestedCall, "toolCallId">>,
+): ChatState | null {
+	const parentId = `tool-${parentToolCallId}`;
+	const applyTo = (msg: ChatMessage): ChatMessage | null => {
+		if (msg.role !== "tool" || msg.id !== parentId) return null;
+		const merge = (call: ChatToolNestedCall): ChatToolNestedCall => {
+			const merged = { ...call, ...patch };
+			if (
+				merged.streaming === false &&
+				merged.durationMs == null &&
+				merged.startedAt != null
+			) {
+				merged.durationMs = Math.max(0, Date.now() - merged.startedAt);
+			}
+			return merged;
+		};
+		const calls = msg.nestedCalls ?? [];
+		const index = calls.findIndex((call) => call.toolCallId === toolCallId);
+		const next =
+			index >= 0
+				? calls.map((call, i) => (i === index ? merge(call) : call))
+				: [...calls, merge({ toolCallId, toolName: String(patch.toolName ?? "tool") })];
+		return { ...msg, nestedCalls: next };
+	};
+
+	const stream = state.streamingMessage;
+	const streamed = stream ? applyTo(stream) : null;
+	if (streamed) {
+		return {
+			...state,
+			running: true,
+			streamingMessage: streamed,
+			messages: state.messages.map((msg) => applyTo(msg) ?? msg),
+		};
+	}
+	const index = state.messages.findIndex(
+		(msg) => msg.role === "tool" && msg.id === parentId,
+	);
+	if (index < 0) return null;
+	const current = state.messages[index]!;
+	const messages = state.messages.slice();
+	messages[index] = applyTo(current) ?? current;
+	return { ...state, running: true, messages };
 }
 
 function commitAssistantStream(state: ChatState): ChatState {
@@ -1094,11 +1184,22 @@ function reduceAgentPayload(
 		const toolCallId = String(payload.toolCallId ?? localId("tool"));
 		const id = `tool-${toolCallId}`;
 		const now = Date.now();
+		const toolName = String(payload.toolName ?? "tool");
+		const args = payload.args;
+		// 嵌套调用不单独成卡片，折叠在父卡片的 nestedCalls 里。
+		const parentToolCallId = nestedParentId(payload);
+		if (parentToolCallId) {
+			const nested = upsertNestedCall(state, parentToolCallId, toolCallId, {
+				toolName,
+				args,
+				startedAt: now,
+				streaming: true,
+			});
+			if (nested) return nested;
+		}
 		// Finalize any in-progress assistant text/thinking into history first
 		let next = commitAssistantStream(state);
 		let messages = next.messages;
-		const toolName = String(payload.toolName ?? "tool");
-		const args = payload.args;
 
 		// Prefer updating an already-streaming tool card (from toolcall_delta).
 		if (
@@ -1167,6 +1268,16 @@ function reduceAgentPayload(
 		const toolCallId = String(payload.toolCallId ?? "");
 		const id = `tool-${toolCallId}`;
 		const toolName = String(payload.toolName ?? "tool");
+		const parentToolCallId = nestedParentId(payload);
+		if (parentToolCallId) {
+			const nested = upsertNestedCall(state, parentToolCallId, toolCallId, {
+				toolName,
+				args: payload.args,
+				result: capStreamedToolResult(toToolResultValue(payload.partialResult)),
+				streaming: true,
+			});
+			if (nested) return nested;
+		}
 		const patch = (
 			msg: Extract<ChatMessage, { role: "tool" }>,
 		): Extract<ChatMessage, { role: "tool" }> => ({
@@ -1174,7 +1285,9 @@ function reduceAgentPayload(
 			toolName: toolName || msg.toolName,
 			args: payload.args ?? msg.args,
 			// Progressive tool output (bash etc.); write/edit usually update via args.
-			result: capStreamedToolResult(payload.partialResult ?? msg.result),
+			result: capStreamedToolResult(
+				toToolResultValue(payload.partialResult ?? msg.result),
+			),
 			streaming: true,
 		});
 
@@ -1210,7 +1323,7 @@ function reduceAgentPayload(
 				toolCallId,
 				toolName,
 				args: payload.args,
-				result: capStreamedToolResult(payload.partialResult),
+				result: capStreamedToolResult(toToolResultValue(payload.partialResult)),
 				streaming: true,
 				order,
 			},
@@ -1219,6 +1332,16 @@ function reduceAgentPayload(
 	if (type === "tool_execution_end") {
 		const toolCallId = String(payload.toolCallId ?? "");
 		const id = `tool-${toolCallId}`;
+		const parentToolCallId = nestedParentId(payload);
+		if (parentToolCallId) {
+			const nested = upsertNestedCall(state, parentToolCallId, toolCallId, {
+				toolName: String(payload.toolName ?? "tool"),
+				result: capStoredToolResult(toToolResultValue(payload.result)),
+				isError: Boolean(payload.isError),
+				streaming: false,
+			});
+			if (nested) return nested;
+		}
 		const stream =
 			state.streamingMessage?.role === "tool" && state.streamingMessage.id === id
 				? state.streamingMessage
@@ -1231,7 +1354,7 @@ function reduceAgentPayload(
 			toolCallId,
 			toolName: String(payload.toolName ?? prior?.toolName ?? "tool"),
 			args: prior?.args ?? payload.args,
-			result: capStoredToolResult(payload.result),
+			result: capStoredToolResult(toToolResultValue(payload.result)),
 			isError: Boolean(payload.isError),
 			streaming: false,
 			order: prior?.order,

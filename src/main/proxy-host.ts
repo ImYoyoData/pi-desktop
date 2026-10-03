@@ -1,4 +1,4 @@
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { app, BrowserWindow, ipcMain, session } from "electron";
 import { IpcChannels } from "../shared/protocol";
@@ -88,6 +88,47 @@ function broadcastChanged(settings: ProxySettings): void {
 	}
 }
 
+/** 上次生效的代理 env 快照；NODE_USE_ENV_PROXY 只在进程启动时生效，OAuth 等
+ *  SDK 裸 fetch 依赖它，因此持久化并在主进程入口最早处恢复。 */
+function proxyEnvSnapshotPath(): string {
+	return join(app.getPath("userData"), "proxy-env.json");
+}
+
+function persistProxyEnvSnapshot(): void {
+	try {
+		const env = withProxyEnv({});
+		const snapshot: Record<string, string> = {};
+		for (const key of [...PROXY_ENV_KEYS, "NODE_USE_ENV_PROXY"]) {
+			const value = env[key];
+			if (typeof value === "string" && value) snapshot[key] = value;
+		}
+		const file = proxyEnvSnapshotPath();
+		mkdirSync(dirname(file), { recursive: true });
+		writeFileSync(file, `${JSON.stringify(snapshot, null, 2)}\n`, {
+			encoding: "utf8",
+			mode: 0o600,
+		});
+	} catch (err) {
+		console.warn("[proxy] failed to persist proxy env snapshot", err);
+	}
+}
+
+/** 主进程入口在 userData 路径定型后立即调用，早于任何 fetch。 */
+export function restoreStartupProxyEnv(): void {
+	for (const key of PROXY_ENV_KEYS) delete process.env[key];
+	delete process.env.NODE_USE_ENV_PROXY;
+	try {
+		const snapshot = JSON.parse(
+			readFileSync(proxyEnvSnapshotPath(), "utf8"),
+		) as Record<string, unknown>;
+		for (const [key, value] of Object.entries(snapshot)) {
+			if (typeof value === "string" && value) process.env[key] = value;
+		}
+	} catch {
+		// 无快照（首次启动 / 关闭代理）——保持无代理
+	}
+}
+
 export function getProxySettings(): ProxySettings {
 	return { ...currentSettings };
 }
@@ -127,6 +168,22 @@ function applyHostProxyEnv(): void {
 /** Load persisted settings and apply them; call once after app ready. */
 export async function initProxy(): Promise<void> {
 	currentSettings = readSettingsFromDisk();
+	// 首次启动（用户从未设置过代理）：探测系统代理并自动采用，让 OAuth 等
+	// 主进程裸 fetch 与浏览器同路；之后用户在设置里改模式会落盘，不再触发。
+	if (!existsSync(settingsPath())) {
+		try {
+			const result = await session.defaultSession.resolveProxy(
+				SYSTEM_PROXY_PROBE_URL,
+			);
+			const detected = proxyEnvFromPacResult(result);
+			if (Object.keys(detected).length > 0) {
+				currentSettings = { mode: "system", url: "" };
+				writeSettingsToDisk(currentSettings);
+			}
+		} catch {
+			// 探测失败保持默认 off
+		}
+	}
 	try {
 		await applyProxySettings(currentSettings);
 		await refreshSystemProxyEnv();
@@ -134,6 +191,7 @@ export async function initProxy(): Promise<void> {
 		console.warn("[proxy] failed to apply settings on startup", err);
 	} finally {
 		applyHostProxyEnv();
+		persistProxyEnvSnapshot();
 	}
 }
 
@@ -171,6 +229,7 @@ export function registerProxyIpc(opts?: {
 			await applyProxySettings(next);
 			await refreshSystemProxyEnv();
 			applyHostProxyEnv();
+			persistProxyEnvSnapshot();
 			broadcastChanged(next);
 			opts?.onChanged?.(next);
 			return getProxySettings();

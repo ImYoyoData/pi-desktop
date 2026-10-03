@@ -4,9 +4,11 @@ import { agentDir } from "./agent-dir";
 import { frontmatterText } from "./frontmatter";
 import { isPathInsideRoot } from "../shared/path-sandbox";
 import { listPlugins } from "./plugins-host";
+import { builtinToolItems, codemodeSettingsState } from "./builtin-tools-host";
 import { scanUnloadedSkills, type LocalSkillScope } from "./skill-scan";
 import { skillWarningOf } from "./skill-validate";
 import type {
+	BuiltinExtensionItem,
 	CustomizationCreateKind,
 	CustomizationItem,
 	CustomizationScope,
@@ -249,7 +251,10 @@ function otherWorkspaceSkillItems(
 
 function describeMcp(entry: unknown): string {
 	if (!entry || typeof entry !== "object") return "";
-	const record = entry as { command?: unknown; args?: unknown; url?: unknown };
+	const record = entry as { description?: unknown; command?: unknown; args?: unknown; url?: unknown };
+	if (typeof record.description === "string" && record.description.trim()) {
+		return record.description.trim();
+	}
 	if (typeof record.url === "string" && record.url) return record.url;
 	const command = typeof record.command === "string" ? record.command : "";
 	const args = Array.isArray(record.args)
@@ -259,11 +264,11 @@ function describeMcp(entry: unknown): string {
 }
 
 function isMcpDisabled(entry: unknown): boolean {
-	return (
-		Boolean(entry) &&
-		typeof entry === "object" &&
-		(entry as { disabled?: unknown }).disabled === true
-	);
+	if (!entry || typeof entry !== "object") return false;
+	const record = entry as { enabled?: unknown; disabled?: unknown };
+	if (record.enabled === false) return true;
+	// 旧版 pi-mcp-adapter 约定的 disabled 字段；官方扩展只认 enabled。
+	return record.disabled === true;
 }
 
 function readMcpFile(file: string, scope: CustomizationScope): CustomizationItem[] {
@@ -276,7 +281,26 @@ function readMcpFile(file: string, scope: CustomizationScope): CustomizationItem
 	}
 	const servers = parsed.mcpServers;
 	if (!servers || typeof servers !== "object") return [];
-	return Object.entries(servers).map(([name, entry]) => ({
+	const entries = Object.entries(servers);
+	// 旧字段迁移：disabled → enabled: false；requestTimeoutMs → timeout（秒）；
+	// pi 0.99.2 不再支持 protocolVersion / httpTransport，读到即移除。
+	const legacyFields = entries.some(
+		([, entry]) =>
+			isMcpEntry(entry) &&
+			((entry as { disabled?: unknown }).disabled === true || hasLegacyMcpTransportFields(entry)),
+	);
+	if (legacyFields) {
+		for (const entry of Object.values(servers)) {
+			if (!isMcpEntry(entry)) continue;
+			migrateLegacyMcpEntry(entry);
+		}
+		try {
+			writeMcpRaw(file, parsed);
+		} catch {
+			// 迁移失败不阻塞列表展示，旧字段仍按停用渲染
+		}
+	}
+	return entries.map(([name, entry]) => ({
 		id: `${file}#${name}`,
 		name,
 		description: describeMcp(entry),
@@ -318,7 +342,92 @@ function isMcpEntry(value: unknown): value is Record<string, unknown> {
 	return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
 
-/** 通过 `disabled` 字段启停 MCP 服务器（pi-mcp-adapter 读取该字段）。 */
+function hasLegacyMcpTransportFields(entry: Record<string, unknown>): boolean {
+	return (
+		entry.requestTimeoutMs !== undefined ||
+		entry.protocolVersion !== undefined ||
+		entry.httpTransport !== undefined
+	);
+}
+
+/** 旧版桌面表单字段迁移到 pi 0.99.2 认的字段。 */
+function migrateLegacyMcpEntry(entry: Record<string, unknown>): void {
+	const record = entry as {
+		disabled?: unknown;
+		enabled?: unknown;
+		requestTimeoutMs?: unknown;
+		protocolVersion?: unknown;
+		httpTransport?: unknown;
+		timeout?: unknown;
+	};
+	if (record.disabled === true) {
+		delete record.disabled;
+		record.enabled = false;
+	}
+	if (record.requestTimeoutMs !== undefined) {
+		if (
+			record.timeout === undefined &&
+			typeof record.requestTimeoutMs === "number" &&
+			record.requestTimeoutMs > 0
+		) {
+			record.timeout = record.requestTimeoutMs / 1000;
+		}
+		delete record.requestTimeoutMs;
+	}
+	delete record.protocolVersion;
+	delete record.httpTransport;
+}
+
+const MCP_LOOPBACK_HOSTS = ["localhost", "127.0.0.1", "[::1]"];
+
+/** 写入前的关键校验，与 pi MCP 扩展的 validateMcpServerConfig 保持一致。 */
+function validateMcpEntry(
+	name: string,
+	entry: Record<string, unknown>,
+	scope: "user" | "project",
+): string | null {
+	if (!/^[A-Za-z0-9_-]+$/.test(name)) {
+		return `invalid server name "${name}" (use letters, digits, "_" and "-")`;
+	}
+	if (entry.type === "sse") {
+		return `server "${name}": legacy SSE transport is not supported; use the streamable HTTP URL`;
+	}
+	const timeout = entry.timeout;
+	if (timeout !== undefined && (typeof timeout !== "number" || !(timeout > 0))) {
+		return `server "${name}": timeout must be a positive number of seconds`;
+	}
+	if (entry.url !== undefined) {
+		const url = entry.url;
+		let parsed: URL | null = null;
+		if (typeof url === "string") {
+			try {
+				parsed = new URL(url);
+			} catch {
+				parsed = null;
+			}
+		}
+		if (!parsed || !/^https?:$/.test(parsed.protocol)) {
+			return `server "${name}": url must be an http or https URL`;
+		}
+		const auth = entry.auth;
+		if (auth !== undefined) {
+			if (!isMcpEntry(auth) || typeof auth.provider !== "string" || !auth.provider) {
+				return `server "${name}": auth.provider must be a provider name`;
+			}
+			if (scope === "project") {
+				return `server "${name}": auth.provider is only allowed in the global mcp.json`;
+			}
+			if (parsed.protocol !== "https:" && !MCP_LOOPBACK_HOSTS.includes(parsed.hostname)) {
+				return `server "${name}": auth requires an https URL, or http on localhost, 127.0.0.1, or [::1]`;
+			}
+		}
+		return null;
+	}
+	if (typeof entry.command === "string") return null;
+	return `server "${name}" needs either "command" (stdio) or "url" (streamable HTTP)`;
+}
+
+/** 通过官方 MCP 扩展的 `enabled` 字段启停服务器，并清理旧版遗留的 disabled 字段。 */
 export function setMcpServerEnabled(
 	name: string,
 	scope: "user" | "project",
@@ -331,8 +440,9 @@ export function setMcpServerEnabled(
 	if (!isMcpEntry(entry)) {
 		throw new Error(`MCP server "${name}" not found in ${file}`);
 	}
-	if (enabled) delete entry.disabled;
-	else entry.disabled = true;
+	delete entry.disabled;
+	if (enabled) delete entry.enabled;
+	else entry.enabled = false;
 	writeMcpRaw(file, raw);
 }
 
@@ -346,6 +456,8 @@ export function addMcpServers(
 	if (names.length === 0) throw new Error("No MCP servers to add");
 	for (const name of names) {
 		if (!isMcpEntry(servers[name])) throw new Error(`Invalid MCP server "${name}"`);
+		const error = validateMcpEntry(name, servers[name], scope);
+		if (error) throw new Error(error);
 	}
 	const file = mcpConfigPath(scope, root);
 	const raw = readMcpRaw(file);
@@ -397,6 +509,8 @@ export function ensureMcpConfig(scope: "user" | "project", root?: string): { fil
 function extensionLabel(ext: ExtensionLike): string {
 	const source = ext.sourceInfo?.source;
 	if (source?.startsWith("npm:")) return source;
+	const builtinPrefix = "builtin:";
+	if (ext.path.startsWith(builtinPrefix)) return ext.path.slice(builtinPrefix.length);
 	const file = path.basename(ext.path).replace(/\.[a-z]+$/i, "");
 	return file || source || "extension";
 }
@@ -566,7 +680,17 @@ export async function listCustomizations(
 	const settingsManager = sdk.SettingsManager.create(root, dir, {
 		projectTrusted: true,
 	});
-	const loader = new sdk.DefaultResourceLoader({ cwd: root, agentDir: dir, settingsManager });
+	const loader = new sdk.DefaultResourceLoader({
+		cwd: root,
+		agentDir: dir,
+		settingsManager,
+		// 与 agent-worker 的注册保持一致，否则设置页看不到 codemode / tool_search 工具。
+		extensionFactories: [
+			{ name: "codemode", factory: sdk.createCodemodeExtension(), replaceable: true, builtin: true },
+			{ name: "tool-search", factory: sdk.createToolSearchExtension(), replaceable: true, builtin: true },
+			{ name: "mcp", factory: sdk.createMcpExtension(), replaceable: true, builtin: true },
+		],
+	});
 	await loader.reload();
 
 	const skills = loader.getSkills();
@@ -632,6 +756,12 @@ export async function listCustomizations(
 		],
 		plugins: await listPluginItems(root),
 		tools: collectTools(extensionList),
+		builtinExtensions: builtinExtensionItems(
+			settingsManager.getGlobalSettings().extensions ?? [],
+			settingsManager.getProjectSettings().extensions ?? [],
+		),
+		toolToggles: builtinToolItems(settingsManager),
+		codemode: codemodeSettingsState(settingsManager),
 		diagnostics: [
 			...skills.diagnostics.map((entry) => entry.message),
 			...prompts.diagnostics.map((entry) => entry.message),
@@ -644,6 +774,63 @@ type CreateTemplate = {
 	base: string;
 	relative: (name: string) => string;
 };
+
+/** 桌面在会话中注册的 pi 内置扩展（与 agent-worker 的 extensionFactories 一致）。 */
+const DESKTOP_BUILTIN_EXTENSIONS: readonly string[] = ["codemode", "tool-search", "mcp"];
+
+/**
+ * 与 pi 的 isEnabledByOverrides 一致：`!` 排除 → `+` 强制启用 → `-` 强制禁用；
+ * 该级设置里没有任何匹配项时返回 undefined（交给下一级设置）。
+ */
+function builtinOverrideState(patterns: readonly string[], target: string): boolean | undefined {
+	const has = (marker: string): boolean => patterns.includes(`${marker}${target}`);
+	if (!has("!") && !has("+") && !has("-")) return undefined;
+	if (has("!")) return false;
+	if (has("+")) return true;
+	return false;
+}
+
+function builtinExtensionItems(
+	globalPaths: readonly string[],
+	projectPaths: readonly string[],
+): BuiltinExtensionItem[] {
+	return DESKTOP_BUILTIN_EXTENSIONS.map((name) => {
+		const target = `builtin:${name}`;
+		const project = builtinOverrideState(projectPaths, target);
+		return {
+			id: target,
+			name,
+			enabled: project ?? builtinOverrideState(globalPaths, target) ?? true,
+			overridden: project !== undefined,
+		};
+	});
+}
+
+/** 切换内置扩展：写全局 settings 的 extensions；默认启用，禁用写 `-builtin:<name>`。 */
+export async function setBuiltinExtensionEnabled(
+	name: string,
+	enabled: boolean,
+	cwd?: string,
+): Promise<BuiltinExtensionItem[]> {
+	if (!DESKTOP_BUILTIN_EXTENSIONS.includes(name)) {
+		throw new Error(`Unknown built-in extension "${name}"`);
+	}
+	const sdk = await import("@earendil-works/pi-coding-agent");
+	const dir = sdk.getAgentDir();
+	const settingsManager = sdk.SettingsManager.create(cwd ?? process.cwd(), dir, {
+		projectTrusted: true,
+	});
+	const target = `builtin:${name}`;
+	const current = settingsManager.getGlobalSettings().extensions ?? [];
+	const next = current.filter(
+		(entry) => entry !== `-${target}` && entry !== `!${target}` && entry !== `+${target}`,
+	);
+	if (!enabled) next.push(`-${target}`);
+	settingsManager.setExtensionPaths(next);
+	// save() 是异步队列；不等 flush，紧跟的 worker reload 可能读到旧设置。
+	await settingsManager.flush();
+	return builtinExtensionItems(next, settingsManager.getProjectSettings().extensions ?? []);
+}
 
 /** 新建定制项的用户级目录（对应 pi 的 agentDir 约定），文件内容留空由用户填写。 */
 const CREATE_TEMPLATES: Record<Exclude<CustomizationCreateKind, "skills">, CreateTemplate> = {

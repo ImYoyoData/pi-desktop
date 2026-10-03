@@ -8,6 +8,9 @@ import type {
   ModelsOAuthPrompt,
   ModelsOAuthPromptReply,
   ModelsProviderAuth,
+  ModelsQuotaResult,
+  ModelsQuotaWindow,
+  ModelsQuotaWindowKind,
   ModelsSetPayload,
   ProviderCatalogResult,
 } from "../shared/models-settings";
@@ -35,6 +38,16 @@ async function createRuntime(): Promise<import("@earendil-works/pi-coding-agent"
     modelsPath: paths.modelsPath,
     authPath: paths.authPath,
   });
+}
+
+/**
+ * Sign in with ChatGPT 要求以稳定设备 ID 标识安装（写入全局 settings.json），
+ * 与 pi CLI 的 login 行为一致。
+ */
+async function createDeviceIdProvider(): Promise<() => string> {
+  const { SettingsManager, getAgentDir } = await import("@earendil-works/pi-coding-agent");
+  const settingsManager = SettingsManager.create(process.cwd(), getAgentDir());
+  return () => settingsManager.getOrCreateDeviceId();
 }
 
 /**
@@ -85,12 +98,323 @@ export async function listAvailableModels(runtime: ModelRuntime): Promise<Models
       provider: m.provider,
       id: m.id,
       name: m.name ?? m.id,
+      contextWindow: m.contextWindow,
+      maxTokens: m.maxTokens,
+      input: m.input,
+      reasoning: m.reasoning,
+      cost: m.cost,
     }))
     .sort((a, b) => {
       const byProvider = a.provider.localeCompare(b.provider);
       if (byProvider !== 0) return byProvider;
       return (a.name || a.id).localeCompare(b.name || b.id, undefined, { numeric: true });
     });
+}
+
+type StoredCredential = { type?: string; key?: string; access?: string; refresh?: string; expires?: number };
+
+async function readStoredCredential(providerId: string): Promise<StoredCredential | undefined> {
+  const cred = (await getModelsConfigService().readAuthConfig())[providerId] as
+    | StoredCredential
+    | undefined;
+  return cred && typeof cred === "object" ? cred : undefined;
+}
+
+async function readProviderCredential(providerId: string): Promise<string | undefined> {
+  const cred = await readStoredCredential(providerId);
+  if (!cred) return undefined;
+  if (cred.type === "oauth") return typeof cred.access === "string" ? cred.access : undefined;
+  if (cred.type === "api_key") return typeof cred.key === "string" ? cred.key : undefined;
+  return undefined;
+}
+
+const KIMI_CLIENT_ID = "17e5f671-d194-4dfb-9706-5516cb48c098";
+const KIMI_OAUTH_HOST = "https://auth.kimi.com";
+
+/**
+ * Kimi Code 凭据过期时静默续期并回写 auth.json（与官方 Kimi Code CLI 的
+ * 刷新参数一致），否则额度查询只会拿到 401。
+ */
+async function ensureKimiAccessToken(): Promise<string | undefined> {
+  const cred = await readStoredCredential("kimi-coding");
+  if (!cred || cred.type !== "oauth") return undefined;
+  const access = typeof cred.access === "string" ? cred.access : undefined;
+  const expiresAt = typeof cred.expires === "number" ? cred.expires : 0;
+  if (access && expiresAt > Date.now() + 30_000) return access;
+  const refreshToken = typeof cred.refresh === "string" ? cred.refresh : undefined;
+  if (!refreshToken) return access;
+  const response = await netFetch(`${KIMI_OAUTH_HOST}/api/oauth/token`, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded", Accept: "application/json" },
+    body: new URLSearchParams({
+      client_id: KIMI_CLIENT_ID,
+      grant_type: "refresh_token",
+      refresh_token: refreshToken,
+    }).toString(),
+  });
+  if (!response.ok) return access;
+  const token = (await response.json()) as { access_token?: string; refresh_token?: string; expires_in?: number };
+  if (typeof token.access_token !== "string" || !token.access_token) return access;
+  try {
+    const service = getModelsConfigService();
+    const auth = await service.readAuthConfig();
+    await service.writeAuthConfig({
+      ...auth,
+      "kimi-coding": {
+        ...auth["kimi-coding"],
+        type: "oauth",
+        access: token.access_token,
+        refresh: typeof token.refresh_token === "string" ? token.refresh_token : refreshToken,
+        expires: Date.now() + (typeof token.expires_in === "number" ? token.expires_in : 3600) * 1000,
+      },
+    });
+  } catch (err) {
+    console.warn("[quota] failed to persist refreshed Kimi token", err);
+  }
+  return token.access_token;
+}
+
+async function fetchOpenRouterQuota(providerId: string): Promise<ModelsQuotaResult> {
+  const key = await readProviderCredential(providerId);
+  if (!key) return { providerId, supported: false, error: "missing credential" };
+  const response = await netFetch("https://openrouter.ai/api/v1/credits", {
+    headers: { Authorization: `Bearer ${key}` },
+  });
+  if (!response.ok) return { providerId, supported: false, error: `HTTP ${response.status}` };
+  const payload = (await response.json()) as {
+    data?: { total_credits?: number; total_usage?: number };
+  };
+  const total = typeof payload.data?.total_credits === "number" ? payload.data.total_credits : undefined;
+  const used = typeof payload.data?.total_usage === "number" ? payload.data.total_usage : undefined;
+  if (total === undefined && used === undefined) {
+    return { providerId, supported: false, error: "unexpected response" };
+  }
+  const remaining = total !== undefined && used !== undefined ? total - used : undefined;
+  return {
+    providerId,
+    supported: true,
+    ...(remaining !== undefined ? { remaining } : {}),
+    ...(total !== undefined ? { total } : {}),
+    ...(used !== undefined ? { used } : {}),
+  };
+}
+
+type QuotaWindow = ModelsQuotaWindow;
+
+function quotaWindowFrom(value: unknown, kind: ModelsQuotaWindowKind): QuotaWindow | null {
+  if (!value || typeof value !== "object") return null;
+  const record = value as { limit?: unknown; used?: unknown; remaining?: unknown; resetTime?: unknown; reset_at?: unknown };
+  const limit = typeof record.limit === "number" ? record.limit : Number.NaN;
+  if (!Number.isFinite(limit) || limit <= 0) return null;
+  let used = typeof record.used === "number" ? record.used : Number.NaN;
+  if (!Number.isFinite(used) && typeof record.remaining === "number") {
+    used = limit - record.remaining;
+  }
+  if (!Number.isFinite(used)) return null;
+  const resetRaw = record.resetTime ?? record.reset_at;
+  return {
+    kind,
+    used,
+    limit,
+    ...(typeof resetRaw === "string" && resetRaw ? { resetAt: resetRaw } : {}),
+  };
+}
+
+/** Kimi Code 订阅用量（端点与官方 Kimi Code CLI 一致）。 */
+async function fetchKimiQuota(providerId: string): Promise<ModelsQuotaResult> {
+  const token = await ensureKimiAccessToken();
+  if (!token) return { providerId, supported: false, error: "missing credential" };
+  const response = await netFetch("https://api.kimi.com/coding/v1/usages", {
+    headers: { Authorization: `Bearer ${token}`, Accept: "application/json" },
+  });
+  if (!response.ok) return { providerId, supported: false, error: `HTTP ${response.status}` };
+  const body = (await response.json()) as Record<string, unknown>;
+  const limits = Array.isArray(body.limits) ? body.limits : [];
+  const windows = [
+    quotaWindowFrom(body.usage, "primary"),
+    quotaWindowFrom(
+      (limits[0] as { detail?: unknown } | undefined)?.detail ?? limits[0],
+      "secondary",
+    ),
+    quotaWindowFrom(body.totalQuota, "total"),
+  ].filter((w): w is QuotaWindow => w !== null);
+  const level =
+    typeof (body.user as { membership?: { level?: unknown } } | undefined)?.membership?.level ===
+    "string"
+      ? (body.user as { membership: { level: string } }).membership.level
+      : undefined;
+  if (windows.length === 0) {
+    return {
+      providerId,
+      supported: true,
+      ...(level ? { plan: level } : {}),
+      windows: [],
+    };
+  }
+  return {
+    providerId,
+    supported: true,
+    ...(level ? { plan: level } : {}),
+    windows,
+  };
+}
+
+/**
+ * GitHub Copilot 订阅配额。`copilot_internal/user` 只接受 GitHub OAuth token，
+ * auth.json 里存的是 Copilot 会话 token（tid=…）与它的 refresh（ghu_…），
+ * 这里用后者查询。
+ */
+async function fetchCopilotQuota(providerId: string): Promise<ModelsQuotaResult> {
+  const cred = await readStoredCredential(providerId);
+  const githubToken =
+    cred?.type === "oauth" && typeof cred.refresh === "string" && cred.refresh.startsWith("gh")
+      ? cred.refresh
+      : undefined;
+  if (!githubToken) {
+    return { providerId, supported: false, error: "missing GitHub OAuth token" };
+  }
+  const response = await netFetch("https://api.github.com/copilot_internal/user", {
+    headers: {
+      Authorization: `Bearer ${githubToken}`,
+      Accept: "application/json",
+      "Editor-Version": "vscode/1.96.2",
+      "Editor-Plugin-Version": "copilot-chat/0.26.7",
+      "User-Agent": "GitHubCopilotChat/0.26.7",
+      "X-Github-Api-Version": "2025-04-01",
+    },
+  });
+  if (response.status === 401 || response.status === 403) {
+    return { providerId, supported: false, error: `HTTP ${response.status}：凭据已失效，请重新登录` };
+  }
+  if (!response.ok) return { providerId, supported: false, error: `HTTP ${response.status}` };
+  const body = (await response.json()) as {
+    copilot_plan?: string;
+    quota_reset_date?: string;
+    quota_snapshots?: Record<string, { entitlement?: number; remaining?: number; percent_remaining?: number }>;
+  };
+  const plan = typeof body.copilot_plan === "string" && body.copilot_plan
+    ? body.copilot_plan.charAt(0).toUpperCase() + body.copilot_plan.slice(1)
+    : undefined;
+  const resetAt = typeof body.quota_reset_date === "string" && body.quota_reset_date
+    ? body.quota_reset_date
+    : undefined;
+  const snapshots = body.quota_snapshots ?? {};
+  const windows: ModelsQuotaWindow[] = [];
+  const describe = (
+    kind: ModelsQuotaWindowKind,
+    snapshot: {
+      entitlement?: number;
+      remaining?: number;
+      percent_remaining?: number;
+      credits_used?: number;
+    } | undefined,
+  ) => {
+    if (!snapshot) return;
+    const entitlement = Number(snapshot.entitlement);
+    const remaining = Number(snapshot.remaining);
+    const percentRemaining = Number(snapshot.percent_remaining);
+    const creditsUsed = Number(snapshot.credits_used);
+    const usedPercent = Number.isFinite(percentRemaining)
+      ? 100 - percentRemaining
+      : Number.isFinite(entitlement) && entitlement > 0 && Number.isFinite(remaining)
+        ? ((entitlement - remaining) / entitlement) * 100
+        : Number.NaN;
+    if (!Number.isFinite(usedPercent) || usedPercent <= 0) return;
+    if (Number.isFinite(entitlement) && entitlement > 0) {
+      // 超额时 remaining 为负数，截断会显示成「剩余 0」；改用 credits_used 呈现进度。
+      const used = Number.isFinite(creditsUsed) && creditsUsed >= 0 ? creditsUsed : entitlement - remaining;
+      windows.push({ kind, used, limit: entitlement });
+      return;
+    }
+    if (Number.isFinite(creditsUsed) && creditsUsed > 0) {
+      windows.push({ kind, used: creditsUsed });
+    }
+  };
+  describe("premium", snapshots.premium_interactions);
+  describe("chat", snapshots.chat);
+  if (windows.length > 0 && resetAt) {
+    for (const window of windows) window.resetAt = resetAt;
+  }
+  return {
+    providerId,
+    supported: true,
+    ...(plan ? { plan } : {}),
+    windows,
+  };
+}
+
+/** Grok（SuperGrok / X Premium）订阅周期用量。 */
+async function fetchXaiQuota(providerId: string): Promise<ModelsQuotaResult> {
+  const token = await readProviderCredential(providerId);
+  if (!token) return { providerId, supported: false, error: "missing credential" };
+  const response = await netFetch("https://cli-chat-proxy.grok.com/v1/billing", {
+    headers: { Authorization: `Bearer ${token}`, Accept: "application/json" },
+  });
+  if (!response.ok) return { providerId, supported: false, error: `HTTP ${response.status}` };
+  const body = (await response.json()) as {
+    config?: {
+      monthlyLimit?: { val?: number };
+      used?: { val?: number };
+      onDemandCap?: { val?: number };
+      onDemandUsed?: { val?: number };
+      billingPeriodEnd?: string;
+      limits?: Record<string, { val?: number }>;
+    };
+  };
+  const config = body.config;
+  if (!config) return { providerId, supported: false, error: "unexpected response" };
+  const windows: ModelsQuotaWindow[] = [];
+  const resetAt = config.billingPeriodEnd;
+  const monthlyLimit = config.monthlyLimit?.val ?? 0;
+  const used = config.used?.val;
+  if (monthlyLimit > 0 && typeof used === "number") {
+    windows.push({ kind: "primary", used, limit: monthlyLimit, ...(resetAt ? { resetAt } : {}) });
+  }
+  const onDemandCap = config.onDemandCap?.val ?? 0;
+  const onDemandUsed = config.onDemandUsed?.val;
+  if (onDemandCap > 0 && typeof onDemandUsed === "number") {
+    windows.push({ kind: "onDemand", used: onDemandUsed, limit: onDemandCap, ...(resetAt ? { resetAt } : {}) });
+  }
+  if (windows.length === 0) {
+    // 无上限的包月订阅：只报已用量，不臆造总额度。
+    if (typeof used === "number") {
+      return {
+        providerId,
+        supported: true,
+        used,
+        windows: [{ kind: "primary", used, ...(resetAt ? { resetAt } : {}) }],
+      };
+    }
+    return { providerId, supported: false, error: "no usage data" };
+  }
+  return {
+    providerId,
+    supported: true,
+    ...(typeof used === "number" ? { used } : {}),
+    ...(monthlyLimit > 0 ? { total: monthlyLimit } : {}),
+    windows,
+  };
+}
+
+/**
+ * 提供商额度查询。Pi SDK 自身没有额度 API，这里按各家官方客户端使用的公开
+ * 端点查询（OpenRouter credits、Kimi Code usages、Grok billing）；未接管的
+ * 提供商明确回 unsupported，不展示来路不明的数字。
+ */
+async function fetchProviderQuota(providerId: string): Promise<ModelsQuotaResult> {
+  try {
+    if (providerId === "openrouter") return await fetchOpenRouterQuota(providerId);
+    if (providerId === "kimi-coding") return await fetchKimiQuota(providerId);
+    if (providerId === "xai") return await fetchXaiQuota(providerId);
+    if (providerId === "github-copilot") return await fetchCopilotQuota(providerId);
+    return { providerId, supported: false };
+  } catch (err) {
+    return {
+      providerId,
+      supported: false,
+      error: err instanceof Error ? err.message : String(err),
+    };
+  }
 }
 
 /**
@@ -252,6 +576,12 @@ export function registerModelsIpc(broker: SessionBroker): void {
     await broker.notifyWorkersReloadModels();
   });
 
+  ipcMain.handle(IpcChannels.models.fetchQuota, async (_event, rawProviderId: string) => {
+    const providerId = String(rawProviderId ?? "").trim();
+    if (!providerId) throw new Error("缺少提供商 ID");
+    return fetchProviderQuota(providerId);
+  });
+
   ipcMain.handle(IpcChannels.models.set, async (_event, payload: ModelsSetPayload) => {
     const service = getModelsConfigService();
     await service.writeModelsConfigText(payload.modelsText);
@@ -407,12 +737,24 @@ export function registerModelsIpc(broker: SessionBroker): void {
       const sender = event.sender;
       const interaction: AuthInteraction = {
         signal: session.controller.signal,
-        notify: (authEvent) => pushOauthEvent(sender, providerId, toOauthEvent(authEvent)),
-        prompt: (prompt) => requestOauthPrompt(session, sender, prompt),
+        notify: (authEvent) => {
+          console.info(`[oauth] ${providerId} event: ${authEvent.type}`);
+          pushOauthEvent(sender, providerId, toOauthEvent(authEvent));
+        },
+        prompt: (prompt) => {
+          console.info(`[oauth] ${providerId} prompt: ${prompt.type}`);
+          return requestOauthPrompt(session, sender, prompt);
+        },
       };
       try {
-        await runtime.login(providerId, "oauth", interaction);
+        await runtime.login(providerId, "oauth", interaction, {
+          getDeviceId: await createDeviceIdProvider(),
+        });
+        console.info(`[oauth] ${providerId} login ok`);
         await broker.notifyWorkersReloadModels();
+      } catch (err) {
+        console.error(`[oauth] ${providerId} login failed:`, err);
+        throw err;
       } finally {
         if (activeOauthLogin === session) activeOauthLogin = null;
       }

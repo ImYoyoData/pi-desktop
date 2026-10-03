@@ -83,6 +83,18 @@ export default defineConfig({
       piOAuthElectronPlugin(),
       copyJitiBabelRuntime(),
     ],
+    resolve: {
+      alias: {
+        // MCP OAuth 与配置值解析没有从 pi 的入口导出，按文件路径打包进来
+        // （类型声明见 src/main/pi-internal-modules.d.ts）。
+        "pi-internal/mcp-oauth": resolve(
+          "node_modules/@earendil-works/pi-coding-agent/dist/extensions/mcp/oauth.js",
+        ),
+        "pi-internal/resolve-config-value": resolve(
+          "node_modules/@earendil-works/pi-coding-agent/dist/core/resolve-config-value.js",
+        ),
+      },
+    },
     build: {
       externalizeDeps: {
         exclude: piEsmPackages,
@@ -90,14 +102,21 @@ export default defineConfig({
       // The main bundle lives inside the asar and is never downloaded, so
       // skip minification there to make every build noticeably faster.
       minify: false,
-      rollupOptions: {
-        input: {
+      rollupOptions: {        input: {
           index: resolve("src/main/index.ts"),
           "agent-worker/index": resolve("src/agent-worker/index.ts"),
           "asr-cloud-worker": resolve("src/main/asr-cloud-worker.ts"),
           "asr-gpu-detect-worker": resolve("src/main/asr-gpu-detect-worker.ts"),
           "session-history-worker": resolve(
             "src/main/session-history-worker.ts",
+          ),
+          // pi-codemode 用 new URL("./worker.js", import.meta.url) 启动沙箱 worker，
+          // 相对它自己所在 chunk 解析；SDK 的 Node bundle 同样把 worker 放在 chunk 旁。
+          "chunks/worker": resolve(
+            "node_modules/@earendil-works/pi-coding-agent/dist/bundle/chunks/codemode-worker.js",
+          ),
+          "chunks/image-resize-worker": resolve(
+            "node_modules/@earendil-works/pi-coding-agent/dist/bundle/chunks/image-resize-worker.js",
           ),
         },
       },

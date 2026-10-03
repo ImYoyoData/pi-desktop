@@ -17,7 +17,18 @@
  */
 
 import { existsSync } from "node:fs";
-import { win32 } from "node:path";
+import { homedir } from "node:os";
+import { join, win32 } from "node:path";
+
+/** `~` / `~/…` / `~\…` 展开为主目录（与 pi 的 normalizePath 一致）。 */
+function expandTilde(value: string): string {
+  if (!value) return value;
+  if (value === "~") return homedir();
+  if (value.startsWith("~/") || value.startsWith("~\\")) {
+    return join(homedir(), value.slice(2));
+  }
+  return value;
+}
 
 const defaultExists = (file: string): boolean => {
   try {
@@ -194,14 +205,34 @@ function bashCandidatesFromGitOnPath(
 /**
  * Resolve the shell in a worker process.
  *
- * Order: `PI_DESKTOP_SHELL_ID` (the main process already picks a shell for the
- * terminal with the same precedence) → a real bash found on disk → PowerShell.
+ * Order: pi 的 `shellPath` 设置 → `PI_DESKTOP_SHELL_ID` (the main process already
+ * picks a shell for the terminal with the same precedence) → a real bash found on
+ * disk → PowerShell.
  */
 export function detectCommandShell(
   env: NodeJS.ProcessEnv = process.env,
   exists: (file: string) => boolean = defaultExists,
   platform: NodeJS.Platform = process.platform,
+  preferredShellPath?: string,
 ): CommandShell {
+  // pi 的 shellPath 显式指定时照用；`~` 与 pi 一样展开，不存在时回落到探测。
+  const preferred = expandTilde(String(preferredShellPath ?? "").trim());
+  if (preferred && exists(preferred)) {
+    const name = win32.basename(preferred).toLowerCase();
+    if (name.includes("pwsh")) {
+      return { kind: "powershell", shellPath: preferred, id: "pwsh" };
+    }
+    if (name.includes("powershell")) {
+      return { kind: "powershell", shellPath: preferred, id: "powershell" };
+    }
+    return { kind: "bash", shellPath: preferred, id: "configured" };
+  }
+  if (preferred) {
+    console.warn(
+      `[pi-desktop] configured shellPath not found, falling back to auto-detect: ${preferred}`,
+    );
+  }
+
   if (platform !== "win32") return { kind: "unresolved", id: "" };
 
   const bash = detectRealBashShell(env, exists, platform);

@@ -9,6 +9,7 @@ import {
 	BrowserWindow,
 	dialog,
 	nativeImage,
+	net,
 	session,
 	systemPreferences,
 } from "electron";
@@ -52,6 +53,7 @@ import { registerPiCliIpc } from "./pi-cli-host";
 import { registerMarketIpc } from "./market-host";
 import { registerCheckpointIpc } from "./checkpoint-ipc";
 import { initRetrySettings, registerRetryIpc } from "./retry-ipc";
+import { registerRuntimeSettingsIpc } from "./runtime-settings-ipc";
 import { registerNotifyIpc } from "./notify-host";
 import {
 	askRendererPermission,
@@ -71,6 +73,8 @@ import {
 import { registerSecurityIpc } from "./security-ipc";
 import { registerThinkingLanguageIpc } from "./thinking-language-ipc";
 import { registerStreamRenderIpc } from "./stream-render-ipc";
+import { registerTempCleanupIpc } from "./temp-cleanup-ipc";
+import { registerTempCleanup } from "./temp-cleanup-host";
 import { registerAppearanceIpc } from "./appearance-ipc";
 import {
 	disposeLanConsole,
@@ -78,7 +82,7 @@ import {
 	registerLanConsoleIpc,
 } from "./lan-console";
 import { ensurePiAgentEnvironment } from "./pi-env";
-import { initProxy, registerProxyIpc } from "./proxy-host";
+import { initProxy, registerProxyIpc, restoreStartupProxyEnv } from "./proxy-host";
 import { installApplicationMenu } from "./app-menu";
 import { enableHardwareAcceleration } from "./gpu-flags";
 import {
@@ -111,6 +115,19 @@ if (process.env.PI_DESKTOP_USER_DATA) {
 // run are locked (second instance / crash / AV) — reset unusable ones now,
 // before any BrowserWindow exists.
 guardChromiumCacheDirs();
+
+// NODE_USE_ENV_PROXY 只在进程启动时生效：恢复上次生效的代理 env，
+// 让 OAuth 登录等 SDK 裸 fetch 走代理（须早于任何网络请求）。
+restoreStartupProxyEnv();
+
+// OAuth 补丁把 pi-ai 各 OAuth 模块的裸 fetch 指到 __piDesktopOAuthFetch：
+// 用 Electron net.fetch（Chromium 网络栈，跟随 session 代理规则），
+// 与用户浏览器同路，避免直连被墙/被 Cloudflare 挑战。
+// SAFETY: globalThis 无该扩展属性声明，只能经 Record 断言写入；读取方由 oauth 补丁保证。
+(globalThis as unknown as Record<string, unknown>).__piDesktopOAuthFetch = (
+	url: string,
+	init?: RequestInit,
+) => net.fetch(url, init);
 
 /**
  * Packaged builds: only one running instance with one primary window.
@@ -356,6 +373,9 @@ function boot(): void {
 		registerStreamRenderIpc(broker);
 		registerRetryIpc(broker);
 		initRetrySettings();
+		registerRuntimeSettingsIpc(broker);
+		registerTempCleanupIpc();
+		registerTempCleanup();
 		registerAppearanceIpc();
 		registerLanConsoleIpc(broker);
 		registerPreviewIpc();

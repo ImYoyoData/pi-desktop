@@ -14,6 +14,12 @@ import { EyeOffOutline, EyeOutline } from "@vicons/ionicons5";
 import CodiconIcon from "@renderer/components/icons/CodiconIcon.vue";
 import ToggleButton from "@renderer/components/ToggleButton.vue";
 import ModelPickModal from "@renderer/components/customize/ModelPickModal.vue";
+import ProviderLogin from "@renderer/components/customize/ProviderLogin.vue";
+import type {
+  ModelsAvailableEntry,
+  ModelsQuotaResult,
+  ModelsProviderAuth,
+} from "../../../../shared/models-settings";
 import {
   CUSTOM_MODEL_APIS,
   emptyCustomProvider,
@@ -46,8 +52,15 @@ const dialog = useDialog();
 
 const loading = ref(true);
 const loadError = ref("");
+const oauthOpen = ref(false);
 const modelsText = ref("");
 const providers = ref<CustomProviderDraft[]>([]);
+/** 通过 OAuth 登录的内置提供商（凭据在 auth.json，不在 models.json）。 */
+const oauthSignedIn = ref<ModelsProviderAuth[]>([]);
+/** 目录中当前可用的模型（含 OAuth 提供商），详情面板只读展示。 */
+const available = ref<ModelsAvailableEntry[]>([]);
+/** 当前在详情区展示的 OAuth 提供商。 */
+const selectedOAuthId = ref<string | null>(null);
 /** 桌面端策展状态：仅存于本地配置，不写 models.json。shallowRef 保持纯数据，避免 IPC 克隆 Proxy 失败。 */
 const modelSelection = shallowRef<ModelSelection>(EMPTY_MODEL_SELECTION);
 
@@ -116,6 +129,11 @@ async function load(preferId?: string | null): Promise<void> {
     modelsText.value = data.modelsText;
     modelSelection.value = data.modelSelection ?? EMPTY_MODEL_SELECTION;
     providers.value = listEditableProviders(parseModelsConfigText(data.modelsText));
+    available.value = data.available;
+    oauthSignedIn.value = data.providers.filter((p) => p.oauth && p.configured);
+    if (selectedOAuthId.value && !oauthSignedIn.value.some((p) => p.id === selectedOAuthId.value)) {
+      selectedOAuthId.value = null;
+    }
     const nextId =
       (preferId && providers.value.some((p) => p.id === preferId) ? preferId : null) ??
       (selectedId.value && providers.value.some((p) => p.id === selectedId.value)
@@ -181,8 +199,163 @@ function confirmDiscard(run: () => void): void {
 }
 
 function onSelectProvider(id: string): void {
-  if (id === selectedId.value && !isNew.value) return;
-  confirmDiscard(() => selectProvider(id));
+  if (id === selectedId.value && !isNew.value && !selectedOAuthId.value) return;
+  confirmDiscard(() => {
+    selectedOAuthId.value = null;
+    selectProvider(id);
+  });
+}
+
+/** OAuth 提供商在详情区只读展示，不进入草稿编辑流程。 */
+function onSelectOauth(id: string): void {
+  if (id === selectedOAuthId.value) return;
+  confirmDiscard(() => {
+    selectedOAuthId.value = id;
+    clearDraft();
+    void loadQuota();
+  });
+}
+
+async function signOutOauth(id: string): Promise<void> {
+  try {
+    await window.api.models.oauthLogout(id);
+    message.success(t.providerAuthLoggedOut);
+    window.dispatchEvent(new Event("pi-models-changed"));
+    selectedOAuthId.value = null;
+    await load();
+  } catch (err) {
+    message.error(err instanceof Error ? err.message : String(err));
+  }
+}
+
+function oauthModelCount(id: string): number {
+  return available.value.filter((m) => m.provider === id).length;
+}
+
+const oauthProviderDisabled = computed(() =>
+  selectedOauth.value
+    ? isProviderDisabled(modelSelection.value, selectedOauth.value.id)
+    : false,
+);
+
+/** OAuth 提供商同样走桌面端策展：关闭后其模型从选择器中隐藏，不动 auth.json。 */
+async function setOauthProviderDisabled(value: boolean): Promise<void> {
+  const id = selectedOauth.value?.id ?? "";
+  if (!id) return;
+  const next = withProviderDisabled(modelSelection.value, id, value);
+  modelSelection.value = next;
+  try {
+    await window.api.models.setSelection(next);
+    message.success(value ? t.modelsCustomDisabled : t.modelsCustomEnable);
+  } catch (err) {
+    modelSelection.value = withProviderDisabled(modelSelection.value, id, !value);
+    message.error(err instanceof Error ? err.message : String(err));
+  }
+}
+
+/** 每百万 token 价格；免费模型返回 null。 */
+function priceLabel(rate: number): string | null {
+  if (!rate) return null;
+  return `$${rate}/M`;
+}
+
+function costLabel(entry: ModelsAvailableEntry): string | null {
+  const input = priceLabel(entry.cost.input);
+  const output = priceLabel(entry.cost.output);
+  if (!input && !output) return t.modelsAuthFree;
+  return [input ? `${t.modelsAuthIn} ${input}` : null, output ? `${t.modelsAuthOut} ${output}` : null]
+    .filter(Boolean)
+    .join(" · ");
+}
+
+function formatTokenCount(value: number): string {
+  return value.toLocaleString();
+}
+
+function modalLabel(entry: ModelsAvailableEntry): string {
+  const labels: string[] = [];
+  if (entry.input.includes("text")) labels.push(t.modelsAuthModalText);
+  if (entry.input.includes("image")) labels.push(t.modelsAuthModalImage);
+  return labels.join(" + ");
+}
+
+const selectedOauth = computed(
+  () => oauthSignedIn.value.find((p) => p.id === selectedOAuthId.value) ?? null,
+);
+
+const oauthModels = computed(() =>
+  selectedOauth.value
+    ? available.value.filter((m) => m.provider === selectedOauth.value!.id)
+    : [],
+);
+
+const quota = ref<ModelsQuotaResult | null>(null);
+const quotaLoading = ref(false);
+
+function formatUsd(value: number): string {
+  return `$${value.toFixed(2)}`;
+}
+
+const QUOTA_WINDOW_LABELS = {
+  primary: () => t.modelsAuthQuotaPrimary,
+  secondary: () => t.modelsAuthQuotaSecondary,
+  total: () => t.modelsAuthQuotaTotal,
+  onDemand: () => t.modelsAuthQuotaOnDemand,
+  premium: () => t.modelsAuthQuotaPremium,
+  chat: () => t.modelsAuthQuotaChat,
+} as const;
+
+/** 余额型（OpenRouter credits）文案。 */
+const balanceLine = computed(() => {
+  const q = quota.value;
+  if (!q?.supported) return "";
+  if (q.remaining !== undefined) {
+    return q.total !== undefined
+      ? t.modelsAuthQuotaRemaining(formatUsd(q.remaining), formatUsd(q.total))
+      : t.modelsAuthQuotaRemaining(formatUsd(q.remaining));
+  }
+  if (q.used !== undefined && !q.windows?.length) {
+    return t.modelsAuthQuotaSpent(formatUsd(q.used));
+  }
+  return "";
+});
+
+/** 逐周期用量文案；主进程只给结构化数据，文案在此按当前语言生成。 */
+const quotaLines = computed(() =>
+  (quota.value?.windows ?? []).map((window) => {
+    const name = QUOTA_WINDOW_LABELS[window.kind]();
+    const reset = window.resetAt ? window.resetAt.slice(0, 10) : undefined;
+    if (window.limit === undefined) {
+      return t.modelsAuthQuotaUsedNoLimit(name, formatTokenCount(window.used), reset);
+    }
+    const percent = Math.max(0, Math.min(100, (window.used / window.limit) * 100));
+    return t.modelsAuthQuotaUsed(
+      name,
+      percent.toFixed(0),
+      formatTokenCount(window.used),
+      formatTokenCount(window.limit),
+      reset,
+    );
+  }),
+);
+
+async function loadQuota(force = false): Promise<void> {
+  const id = selectedOauth.value?.id ?? "";
+  if (!id) return;
+  if (quotaLoading.value) return;
+  if (!force && quota.value?.providerId === id) return;
+  quotaLoading.value = true;
+  try {
+    quota.value = await window.api.models.fetchQuota(id);
+  } catch (err) {
+    quota.value = {
+      providerId: id,
+      supported: false,
+      error: err instanceof Error ? err.message : String(err),
+    };
+  } finally {
+    quotaLoading.value = false;
+  }
 }
 
 function onAddProvider(): void {
@@ -474,6 +647,8 @@ async function testModel(rowKey: string, modelId: string): Promise<void> {
 
 <template>
   <div class="customize-models">
+    <ProviderLogin :show="oauthOpen" @close="oauthOpen = false" @changed="load()" />
+
     <NSpin v-if="loading" size="small" class="content-spin" />
 
     <p v-else-if="loadError" class="content-error">
@@ -484,12 +659,14 @@ async function testModel(rowKey: string, modelId: string): Promise<void> {
       <aside class="models-sidebar">
         <div class="list-toolbar">
           <NButton size="small" @click="onAddProvider">
-            <template #icon><CodiconIcon name="add" :size="13" /></template>
-            {{ t.modelsCustomAdd }}
+            {{ t.modelsAuthApiLogin }}
+          </NButton>
+          <NButton size="small" @click="oauthOpen = true">
+            {{ t.modelsAuthOauthLogin }}
           </NButton>
         </div>
 
-        <div v-if="!providers.length" class="sidebar-empty">
+        <div v-if="!providers.length && !oauthSignedIn.length" class="sidebar-empty">
           <span class="sidebar-empty-title">{{ t.modelsCustomEmpty }}</span>
           <span class="sidebar-empty-hint">{{ t.modelsCustomEmptyHint }}</span>
         </div>
@@ -522,11 +699,109 @@ async function testModel(rowKey: string, modelId: string): Promise<void> {
               </template>
             </span>
           </button>
+
+          <template v-if="oauthSignedIn.length">
+            <div class="oauth-group-label">{{ t.modelsAuthSignedInGroup }}</div>
+            <button
+              v-for="p in oauthSignedIn"
+              :key="`oauth:${p.id}`"
+              type="button"
+              class="provider-item"
+              :class="{ selected: p.id === selectedOAuthId }"
+              @click="onSelectOauth(p.id)"
+            >
+              <span class="provider-head">
+                <span class="provider-name">{{ p.displayName }}</span>
+                <span class="provider-badge">{{ t.modelsAuthOauthBadge }}</span>
+              </span>
+              <span class="provider-sub">
+                {{ t.modelsCustomCount(oauthModelCount(p.id)) }}
+              </span>
+            </button>
+          </template>
         </div>
       </aside>
 
       <section class="models-detail">
-        <div v-if="!draft" class="detail-empty">
+        <template v-if="selectedOauth">
+          <header class="detail-header">
+            <h3 class="detail-title">{{ selectedOauth.displayName }}</h3>
+            <span class="inline-badge">{{ t.modelsAuthOauthBadge }}</span>
+            <span class="detail-spacer" />
+            <ToggleButton
+              :label="t.modelsCustomDisable"
+              :value="oauthProviderDisabled"
+              :title="t.modelsCustomDisabledHint"
+              @update:value="setOauthProviderDisabled"
+            />
+            <button
+              type="button"
+              class="detail-remove"
+              :title="t.providerAuthSignOut"
+              @click="signOutOauth(selectedOauth.id)"
+            >
+              {{ t.providerAuthSignOut }}
+            </button>
+          </header>
+
+          <div class="oauth-detail">
+            <div class="oauth-quota">
+              <span class="oauth-quota-label">{{ t.modelsAuthQuota }}</span>
+              <span v-if="quotaLoading" class="oauth-quota-value">
+                {{ t.modelsAuthQuotaLoading }}
+              </span>
+              <span
+                v-else-if="quota?.supported && (quota.windows?.length || quota.plan || quota.remaining !== undefined || quota.used !== undefined)"
+                class="oauth-quota-value"
+              >
+                <span v-if="quota.plan" class="oauth-quota-plan">{{ quota.plan }}</span>
+                <span v-if="balanceLine" class="oauth-quota-line">{{ balanceLine }}</span>
+                <span
+                  v-for="(line, index) in quotaLines"
+                  :key="`${index}:${line}`"
+                  class="oauth-quota-line"
+                >
+                  {{ line }}
+                </span>
+              </span>
+              <span v-else class="oauth-quota-value muted">
+                {{ quota?.error ? quota.error : t.modelsAuthQuotaEmpty }}
+              </span>
+              <NButton
+                size="tiny"
+                quaternary
+                :loading="quotaLoading"
+                @click="loadQuota(true)"
+              >
+                {{ t.reload }}
+              </NButton>
+            </div>
+            <div v-if="!oauthModels.length" class="oauth-detail-empty">
+              {{ t.modelsCustomEmptyHint }}
+            </div>
+            <ul v-else class="oauth-model-list">
+              <li v-for="m in oauthModels" :key="m.id" class="oauth-model-item">
+                <div class="oauth-model-head">
+                  <span class="oauth-model-name">{{ m.name || m.id }}</span>
+                  <span class="oauth-model-id">{{ m.id }}</span>
+                </div>
+                <div class="oauth-model-meta">
+                  <span class="oauth-model-chip">
+                    {{ t.modelsCustomContextWindow }} {{ formatTokenCount(m.contextWindow) }}
+                  </span>
+                  <span class="oauth-model-chip">
+                    {{ t.modelsCustomMaxTokens }} {{ formatTokenCount(m.maxTokens) }}
+                  </span>
+                  <span v-if="modalLabel(m)" class="oauth-model-chip">{{ modalLabel(m) }}</span>
+                  <span v-if="m.reasoning" class="oauth-model-chip">{{ t.modelsCustomReasoning }}</span>
+                  <span v-if="costLabel(m)" class="oauth-model-chip">{{ costLabel(m) }}</span>
+                </div>
+              </li>
+            </ul>
+          </div>
+        </template>
+
+        <div v-else-if="!draft" class="detail-empty">
           <span class="detail-empty-title">{{ t.modelsCustomSelectHint }}</span>
         </div>
 
@@ -800,8 +1075,25 @@ async function testModel(rowKey: string, modelId: string): Promise<void> {
 }
 
 .list-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
   flex-shrink: 0;
   margin-bottom: 8px;
+}
+
+/* min-width:0 —— flex item 默认 min-width:auto，两个按钮的内容最小宽度会把
+   它们顶出侧栏（190px）；文字不够时省略而不是撑破边框。 */
+.list-toolbar .n-button {
+  flex: 1;
+  min-width: 0;
+  padding: 0 8px;
+}
+
+.list-toolbar .n-button :deep(.n-button__content) {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .sidebar-empty {
@@ -827,6 +1119,135 @@ async function testModel(rowKey: string, modelId: string): Promise<void> {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
+}
+
+.oauth-quota {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font-size: 12px;
+}
+
+.oauth-quota-label {
+  color: var(--fg-muted);
+}
+
+.oauth-quota-value {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px;
+  color: var(--fg);
+  word-break: break-all;
+}
+
+.oauth-quota-plan {
+  padding: 1px 6px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font-size: 11px;
+  line-height: 16px;
+  color: var(--fg-muted);
+}
+
+.oauth-quota-line {
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.oauth-quota-value.muted {
+  color: var(--fg-muted);
+  opacity: 0.8;
+}
+
+.oauth-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 16px;
+}
+
+.oauth-detail-hint {
+  margin: 0;
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--fg-muted);
+}
+
+.oauth-detail-empty {
+  font-size: 12px;
+  color: var(--fg-muted);
+  opacity: 0.7;
+}
+
+.oauth-model-list {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.oauth-model-item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.oauth-model-item:last-child {
+  border-bottom: none;
+}
+
+.oauth-model-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  min-width: 0;
+}
+
+.oauth-model-name {
+  flex: 1;
+  min-width: 0;
+  font-size: 12px;
+  color: var(--fg);
+}
+
+.oauth-model-id {
+  font-size: 11px;
+  color: var(--fg-muted);
+  opacity: 0.8;
+  word-break: break-all;
+}
+
+.oauth-model-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.oauth-model-chip {
+  padding: 1px 6px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font-size: 11px;
+  line-height: 16px;
+  color: var(--fg-muted);
+}
+
+.oauth-group-label {
+  margin: 10px 0 2px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--fg-muted);
 }
 
 .provider-item {

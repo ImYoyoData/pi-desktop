@@ -133,6 +133,8 @@ function escapeHtml(s: string): string {
  * text (still perfectly readable).
  */
 const HIGHLIGHT_AUTO_MAX_CHARS = 8_000;
+/** 显式语言高亮同样有上限：十万级字符的同步高亮会长时间占住渲染线程。 */
+const HIGHLIGHT_LANG_MAX_CHARS = 24_000;
 
 function highlightAutoCapped(text: string): string {
   if (text.length > HIGHLIGHT_AUTO_MAX_CHARS) return escapeHtml(text);
@@ -148,6 +150,7 @@ const HIGHLIGHT_CACHE_MAX_ENTRIES = 48;
 const HIGHLIGHT_CACHE_MAX_CHARS = 24_000;
 
 function highlightCode(text: string, language: string): string {
+  if (text.length > HIGHLIGHT_LANG_MAX_CHARS) return escapeHtml(text);
   const key =
     text.length <= HIGHLIGHT_CACHE_MAX_CHARS ? `${language}\u0000${text}` : "";
   const hit = key ? highlightCache.get(key) : undefined;
@@ -193,6 +196,7 @@ const HTML_CACHE_SKIP_CHARS = 120_000;
 
 export function renderMarkdownCached(content: string): string {
   const key = content || "";
+  if (key.length > MESSAGE_MARKDOWN_MAX_CHARS) return renderPlainTextBlock(key);
   if (key.length > HTML_CACHE_SKIP_CHARS) return renderMarkdown(key);
   const hit = htmlCache.get(key);
   if (hit !== undefined) {
@@ -296,6 +300,23 @@ export function createStreamBlockSplitter(): StreamBlockSplitter {
       return added;
     },
   };
+}
+
+/** 单块解析上限：超过后按纯文本渲染，避免一次同步解析 + 净化长时间冻结渲染线程。 */
+const BLOCK_MARKDOWN_MAX_CHARS = 32_000;
+/** 已完成消息全量解析上限：极端长回答直接纯文本，保证界面可用。 */
+const MESSAGE_MARKDOWN_MAX_CHARS = 120_000;
+
+function renderPlainTextBlock(content: string): string {
+  return `<pre class="md-plain-block">${escapeHtml(content)}</pre>`;
+}
+
+/** 块级 markdown 渲染：超大块降级为纯文本。 */
+export function renderMarkdownBlock(content: string): string {
+  const text = content ?? "";
+  return text.length > BLOCK_MARKDOWN_MAX_CHARS
+    ? renderPlainTextBlock(text)
+    : renderMarkdown(text);
 }
 
 /** Parse GFM markdown → sanitized HTML for chat bubbles (uncached). */

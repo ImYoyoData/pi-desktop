@@ -264,9 +264,17 @@ watch(
 const toolItems = computed(() => props.items.filter(isToolMessage));
 const thinkingCount = computed(() => props.items.length - toolItems.value.length);
 
-const categorized = computed(() =>
-  toolItems.value.map((m) => categorizeToolCall(m.toolName, m.args)),
-);
+const categorized = computed(() => {
+  const tools: WorkSectionTool[] = [];
+  for (const msg of toolItems.value) {
+    tools.push(categorizeToolCall(msg.toolName, msg.args));
+    // 嵌套调用（codemode 等）也计入分类，但不另占一行。
+    for (const call of msg.nestedCalls ?? []) {
+      tools.push(categorizeToolCall(call.toolName, call.args));
+    }
+  }
+  return tools;
+});
 
 /** Present-tense label of ONE tool call (copilot streaming header, per step). */
 function liveLabelFor(tool: WorkSectionTool): string {
@@ -293,8 +301,11 @@ const MAX_LIVE_LABELS = 4;
 const liveTitle = computed(() => {
   const active: WorkSectionTool[] = [];
   for (const msg of props.items) {
-    if (msg.role !== "tool" || !msg.streaming) continue;
-    active.push(categorizeToolCall(msg.toolName, msg.args));
+    if (msg.role !== "tool") continue;
+    if (msg.streaming) active.push(categorizeToolCall(msg.toolName, msg.args));
+    for (const call of msg.nestedCalls ?? []) {
+      if (call.streaming) active.push(categorizeToolCall(call.toolName, call.args));
+    }
   }
   // Nothing marked streaming yet (between steps / thinking only): same fallback.
   if (!active.length) return t.wsLiveThinking;
@@ -418,6 +429,7 @@ function toolStatus(msg: ToolMessage): {
                 :status-type="toolStatus(msg).type"
                 :streaming="msg.streaming"
                 :auto-collapse="props.autoCollapse"
+                :nested-calls="msg.nestedCalls"
                 tree-item
                 detail-collapsed
                 @open="emit('open', $event)"

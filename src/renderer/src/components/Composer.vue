@@ -99,7 +99,6 @@ import { locale, t } from "@renderer/i18n";
 import {
   THINKING_LEVELS,
   isThinkingLevel,
-  routedThinkingLevel,
   thinkingLevelLabel,
   type ThinkingLevel,
 } from "@renderer/utils/thinking-level";
@@ -239,10 +238,28 @@ function thinkingFromState(data: unknown): ThinkingLevel | null {
   return isThinkingLevel(level) ? level : null;
 }
 
-/** 界面档位写入偏好；实际发送的值由 routedThinkingLevel 决定，不回写界面。 */
+/** 界面档位写入偏好；worker 会按模型能力 clamp 后回传实际档位。 */
 function adoptThinking(level: ThinkingLevel, key: string | null = prefsKey.value): void {
   thinkingLevel.value = level;
   if (key) rememberThinking(key, level);
+}
+
+/**
+ * worker 会按模型能力 clamp 档位（模型未映射 xhigh/max 时回落到 high）。
+ * 实际值不等于请求值就说明被 clamp，界面改成实际档位，避免显示与实际不符。
+ */
+function adoptThinkingResult(
+  requested: ThinkingLevel,
+  result: unknown,
+  key: string | null = prefsKey.value,
+): void {
+  const actual = (result as { level?: unknown } | null)?.level;
+  // worker 未回传实际值时不动界面，只按用户选择记忆。
+  if (!isThinkingLevel(actual) || actual === requested) {
+    if (key) rememberThinking(key, requested);
+    return;
+  }
+  adoptThinking(actual, key);
 }
 
 function rememberModel(sessionId: string, key: string): void {
@@ -630,6 +647,7 @@ function snapshotComposerPayload(): {
         kind?: "file" | "url" | "element" | "agent" | "plan" | "ask" | "task";
       }[]
     | undefined;
+  mode: ComposerAgentMode;
 } | null {
   const chipText = composer.formatChipsForMessage();
   const displayText = composer.draft.trim();
@@ -684,6 +702,7 @@ function snapshotComposerPayload(): {
     imagesToSend,
     citationsToSend,
     tagsToSend: tagsToSend.length ? tagsToSend : undefined,
+    mode,
   };
 }
 
@@ -1087,6 +1106,10 @@ async function submit(mode: "prompt" | "steer" | "follow_up"): Promise<void> {
     return;
   }
 
+  // 快照先于任何 await 取：让出的微任务里会话绑定可能变化，
+  // 否则工具栏显示的模式会与实际下发的不一致。
+  const snap = snapshotComposerPayload();
+
   // While agent is running, a plain send becomes guidance for the running turn
   // (steer) instead of waiting for the next turn.
   if (running.value && mode === "prompt") {
@@ -1097,7 +1120,6 @@ async function submit(mode: "prompt" | "steer" | "follow_up"): Promise<void> {
   // Bare builtin slash (e.g. `/compact`) — run locally, do not prompt the model.
   if (mode === "prompt" && (await tryConsumeBuiltinSlashDraft())) return;
 
-  const snap = snapshotComposerPayload();
   if (!snap) return;
 
   // 草稿态在此刻才真正建会话（首条消息触发），失败则保留输入待重试。
@@ -1113,7 +1135,7 @@ async function submit(mode: "prompt" | "steer" | "follow_up"): Promise<void> {
         return;
       }
       id = created.id;
-      composer.transferDraftMode(id);
+      composer.transferDraftMode(id, snap.mode);
     } catch (err) {
       draftCommitPending = false;
       messageApi.error(err instanceof Error ? err.message : String(err));
@@ -1138,9 +1160,9 @@ async function submit(mode: "prompt" | "steer" | "follow_up"): Promise<void> {
     void sessions
       .sendCommand(id, {
         type: "set_thinking_level",
-        level: routedThinkingLevel(level),
+        level,
       })
-      .then(() => rememberThinking(id, level))
+      .then((result) => adoptThinkingResult(level, result, id))
       .catch(() => {
         // ignore — prompt may still proceed with worker default
       });
@@ -1849,10 +1871,13 @@ async function onThinkingChange(value: string | number): Promise<void> {  const 
   if (key) rememberThinking(key, level);
   const id = sessionId.value;
   if (!id) return;
-  await sessions.sendCommand(id, {
+  // persist: 写入 Pi 全局默认，新会话（无历史记录）据此初始化。
+  const result = await sessions.sendCommand(id, {
     type: "set_thinking_level",
-    level: routedThinkingLevel(level),
+    level,
+    persist: true,
   });
+  adoptThinkingResult(level, result, key);
 }
 
 /** 快捷键：循环到下一个模型 / 思考等级。 */
@@ -1989,16 +2014,19 @@ async function syncSessionModelAndThinking(): Promise<void> {
     }
   }
 
-  // 界面保留用户选择的档位；worker 里存的是路由后的实际档位。
+  // 界面与 worker 各自保留档位；不一致（如会话切换）时把界面值同步过去。
   if (rememberedThinking) {
     thinkingLevel.value = rememberedThinking;
   } else if (workerThinking) {
     adoptThinking(workerThinking, realId);
   }
-  const routed = routedThinkingLevel(thinkingLevel.value);
-  if (workerThinking !== null && workerThinking !== routed) {
+  if (workerThinking !== null && workerThinking !== thinkingLevel.value) {
     try {
-      await sessions.tryCommand(realId, { type: "set_thinking_level", level: routed });
+      const result = await sessions.tryCommand(realId, {
+        type: "set_thinking_level",
+        level: thinkingLevel.value,
+      });
+      adoptThinkingResult(thinkingLevel.value, result, realId);
     } catch {
       // ignore thinking sync failures
     }
@@ -2457,6 +2485,9 @@ watch(sessionId, (id, prev) => {
   }
   if (id && thinkingBySession.value[id]) {
     thinkingLevel.value = thinkingBySession.value[id];
+  } else if (id) {
+    // 新会话没有记忆时沿用当前档位，不因 worker 默认值回退。
+    rememberThinking(id, thinkingLevel.value);
   }
   void refreshModels();
 });

@@ -2,6 +2,7 @@
 import { computed } from "vue";
 import { NDivider, NRadioButton, NRadioGroup, NSelect, NText } from "naive-ui";
 import {
+  RETRY_AGENT_MAX_DELAY_CHOICES,
   RETRY_BASE_DELAY_CHOICES,
   RETRY_COUNT_CHOICES,
   RETRY_DESKTOP_COUNT_CHOICES,
@@ -33,10 +34,24 @@ function durationOptions(
   return values.map((value) => ({ label: label(value), value }));
 }
 
+/** 手写的非档位值也要能回显：并入选项，避免下拉把用户值显示成别的档位。 */
+function withCurrent(options: Option[], current: number): Option[] {
+  if (options.some((option) => option.value === current)) return options;
+  return [...options, { label: current.toLocaleString(), value: current }].sort(
+    (a, b) => a.value - b.value,
+  );
+}
+
 const maxRetryOptions = countOptions(RETRY_COUNT_CHOICES);
 const baseDelayOptions = durationOptions(RETRY_BASE_DELAY_CHOICES, t.retryDuration);
 const maxDelayOptions = durationOptions(RETRY_MAX_DELAY_CHOICES, (ms) =>
   ms === 0 ? t.retryValueUnlimited : t.retryDuration(ms),
+);
+const agentMaxDelayOptions = computed<Option[]>(() =>
+  withCurrent(
+    durationOptions(RETRY_AGENT_MAX_DELAY_CHOICES, t.retryDuration),
+    retry.settings.maxAgentDelayMs,
+  ),
 );
 const timeoutOptions: Option[] = RETRY_TIMEOUT_CHOICES.map((ms) => ({
   label: ms === null ? t.retryValueDefault : t.retryDuration(ms),
@@ -79,6 +94,7 @@ function onTimeout(value: string | number | null): void {
 
 const onMaxRetries = onNumber((value) => save({ maxRetries: value }));
 const onBaseDelay = onNumber((value) => save({ baseDelayMs: value }));
+const onAgentMaxDelay = onNumber((value) => save({ maxAgentDelayMs: value }));
 const onProviderMaxRetries = onNumber((value) => saveProvider({ maxRetries: value }));
 const onProviderMaxDelay = onNumber((value) => saveProvider({ maxRetryDelayMs: value }));
 const onRecoverMax = onNumber((value) => saveDesktop({ recoverMax: value }));
@@ -130,6 +146,21 @@ const onStallSilence = onNumber((value) => saveDesktop({ stallSilenceMs: value }
         size="small"
         class="setting-select"
         @update:value="onBaseDelay"
+      />
+    </div>
+
+    <div class="switch-row">
+      <div class="switch-labels">
+        <NText strong>{{ t.retryAgentMaxDelay }}</NText>
+        <NText depth="3" class="row-hint">{{ t.retryAgentMaxDelayHint }}</NText>
+      </div>
+      <NSelect
+        :value="retry.settings.maxAgentDelayMs"
+        :options="agentMaxDelayOptions"
+        :disabled="!retry.settings.enabled"
+        size="small"
+        class="setting-select"
+        @update:value="onAgentMaxDelay"
       />
     </div>
 
