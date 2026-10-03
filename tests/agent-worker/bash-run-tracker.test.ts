@@ -151,7 +151,7 @@ describe("bash timeout / shell resolution", () => {
     expect(() => __test.resolveTimeoutMs(2_147_484)).toThrow(/maximum is/);
   });
 
-  it("resolves the powershell config for a powershell shell", () => {
+  it.runIf(process.platform === "win32")("resolves the powershell config for a powershell shell", () => {
     const config = __test.resolveShellConfig({
       shellKind: "powershell",
       sessionId: "s1",
