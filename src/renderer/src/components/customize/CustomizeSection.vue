@@ -1,10 +1,11 @@
 <script setup lang="ts">
-import { computed, reactive, ref } from "vue";
+import { computed, reactive, ref, watch } from "vue";
 import { NButton, NDropdown, NInput, useDialog, useMessage } from "naive-ui";
 import type { DropdownOption } from "naive-ui";
 import CodiconIcon from "@renderer/components/icons/CodiconIcon.vue";
 import ToggleButton from "@renderer/components/ToggleButton.vue";
 import McpAddModal from "@renderer/components/customize/McpAddModal.vue";
+import McpLoginModal from "@renderer/components/customize/McpLoginModal.vue";
 import { useWorkspaceStore } from "@renderer/stores/workspace";
 import { useScopedWorkspaces } from "@renderer/utils/scoped-workspaces";
 import { useCustomizationsStore } from "@renderer/stores/customizations";
@@ -12,6 +13,9 @@ import { usePluginUpdatesStore } from "@renderer/stores/plugin-updates";
 import type {
   CustomizationItem,
   CustomizationScope,
+  McpAuthState,
+  McpAuthTarget,
+  McpEditTarget,
   McpTestResult,
 } from "../../../../shared/customizations";
 import type { PluginUpdateProgress, PluginVersionInfo } from "../../../../shared/pi-market";
@@ -44,41 +48,11 @@ const message = useMessage();
 
 const query = ref("");
 const addOpen = ref(false);
+const mcpEdit = ref<McpEditTarget | null>(null);
 const mcpTesting = ref(false);
 const mcpTestResults = ref<Record<string, McpTestResult>>({});
-const installingMcpAdapter = ref(false);
-
-const MCP_ADAPTER_PACKAGE = "pi-mcp-adapter";
-
-/** MCP 服务器由 pi-mcp-adapter 插件提供，未安装时该页配置不会生效。 */
-const mcpAdapterMissing = computed(
-  () =>
-    props.kind === "mcp" &&
-    Boolean(store.snapshot.root) &&
-    !store.snapshot.plugins.some(
-      (item) =>
-        (item.source ?? item.name).replace(/^npm:/, "") === MCP_ADAPTER_PACKAGE &&
-        item.detail !== "missing",
-    ),
-);
-
-async function installMcpAdapter(): Promise<void> {
-  if (installingMcpAdapter.value) return;
-  installingMcpAdapter.value = true;
-  try {
-    const result = await window.api.market.install(MCP_ADAPTER_PACKAGE);
-    if (!result.ok) {
-      message.error(result.error || t.marketInstallFailed);
-      return;
-    }
-    message.success(t.marketInstalled(MCP_ADAPTER_PACKAGE));
-    await store.load(true);
-  } catch (err) {
-    message.error(err instanceof Error ? err.message : String(err));
-  } finally {
-    installingMcpAdapter.value = false;
-  }
-}
+const mcpAuthStates = ref<Record<string, McpAuthState>>({});
+const mcpLoginTarget = ref<McpAuthTarget | null>(null);
 const pluginUpdates = usePluginUpdatesStore();
 const collapsed = reactive(new Set<CustomizationScope>());
 
@@ -409,6 +383,22 @@ function onMcpAdded(): void {
   emit("refresh");
 }
 
+function openMcpAdd(): void {
+  mcpEdit.value = null;
+  addOpen.value = true;
+}
+
+/** 打开编辑弹窗；项目级工作区路径从配置文件位置反推。 */
+function openMcpEdit(item: CustomizationItem): void {
+  if (item.scope !== "user" && item.scope !== "project") return;
+  mcpEdit.value = {
+    name: item.name,
+    scope: item.scope,
+    workspace: workspaceOf(item) ?? null,
+  };
+  addOpen.value = true;
+}
+
 const enabledMcpItems = computed(() => props.items.filter((item) => item.enabled !== false));
 
 /** 从 `<workspace>/.pi/mcp.json` 反推出工作区路径。 */
@@ -448,8 +438,7 @@ async function testMcpServers(): Promise<void> {
   }
 }
 
-function testBadge(item: CustomizationItem): { text: string; className: string } | null {
-  if (item.enabled === false) return null;
+function testBadge(item: CustomizationItem): { text: string; className: string } | null {  if (item.enabled === false) return null;
   if (mcpTesting.value) return { text: t.customizeMcpTesting, className: "is-pending" };
   const result = mcpTestResults.value[item.id];
   if (!result) return null;
@@ -461,6 +450,71 @@ function testBadge(item: CustomizationItem): { text: string; className: string }
   }
   const error = result.error === "timeout" ? t.customizeMcpTestTimeout : (result.error ?? "");
   return { text: t.customizeMcpTestFailed(error), className: "is-fail" };
+}
+
+/** MCP OAuth：登录目标、凭据状态与登录弹窗。 */
+function mcpTarget(item: CustomizationItem): McpAuthTarget {
+  const workspace = workspaceOf(item);
+  return {
+    name: item.name,
+    scope: item.scope === "project" ? "project" : "user",
+    ...(workspace ? { workspace } : {}),
+  };
+}
+
+function mcpAuthStateOf(item: CustomizationItem): McpAuthState | null {
+  const scope = item.scope === "project" ? "project" : "user";
+  return mcpAuthStates.value[`${scope}:${item.name}`] ?? null;
+}
+
+async function refreshMcpAuth(): Promise<void> {
+  if (props.kind !== "mcp") return;
+  const targets = props.items
+    .filter((item) => item.scope === "user" || item.scope === "project")
+    .map(mcpTarget);
+  if (targets.length === 0) {
+    mcpAuthStates.value = {};
+    return;
+  }
+  try {
+    mcpAuthStates.value = await window.api.customizations.mcpAuthStates(targets);
+  } catch {
+    // 凭据状态获取失败不影响列表展示
+  }
+}
+
+watch(
+  () => [props.kind, props.items] as const,
+  () => {
+    void refreshMcpAuth();
+  },
+  { immediate: true },
+);
+
+function openMcpLogin(item: CustomizationItem): void {
+  mcpLoginTarget.value = mcpTarget(item);
+}
+
+function onMcpLoginChanged(): void {
+  void refreshMcpAuth();
+}
+
+function confirmMcpLogout(item: CustomizationItem): void {
+  dialog.warning({
+    title: t.customizeMcpSignOut,
+    content: t.customizeMcpSignOutConfirm(item.name),
+    positiveText: t.customizeMcpSignOut,
+    negativeText: t.cancel,
+    onPositiveClick: async () => {
+      try {
+        await window.api.customizations.mcpLogout(mcpTarget(item));
+        message.success(t.customizeMcpSignOutSuccess);
+        await refreshMcpAuth();
+      } catch (err) {
+        message.error(err instanceof Error ? err.message : String(err));
+      }
+    },
+  });
 }
 
 /** 技能规范校验问题标签（仅技能列表显示）。 */
@@ -573,6 +627,9 @@ const ctxOptions = computed<DropdownOption[]>(() => {
   if (props.kind !== "plugins") {
     options.push({ label: t.customizeCopyPath, key: "copy", disabled: !item.filePath });
   }
+  if (props.kind === "mcp" && (item.scope === "user" || item.scope === "project")) {
+    options.push({ label: t.customizeEdit, key: "edit" });
+  }
   if (canToggle(item)) {
     options.push({
       label: item.enabled === false ? t.customizeEnable : t.customizeDisable,
@@ -596,6 +653,9 @@ function onCtxSelect(key: string | number): void {
     case "copy":
       void copyPath(item);
       break;
+    case "edit":
+      openMcpEdit(item);
+      break;
     case "toggle":
       void setEnabled(item, item.enabled === false);
       break;
@@ -608,18 +668,6 @@ function onCtxSelect(key: string | number): void {
 
 <template>
   <div class="customize-list">
-    <div v-if="mcpAdapterMissing" class="mcp-adapter-warning">
-      <span class="mcp-adapter-warning-text">{{ t.customizeMcpAdapterMissing }}</span>
-      <NButton
-        size="tiny"
-        type="primary"
-        :loading="installingMcpAdapter"
-        @click="installMcpAdapter"
-      >
-        {{ t.customizeMcpAdapterInstall }}
-      </NButton>
-    </div>
-
     <div class="list-search-and-button-container">
       <div class="list-search-container">
         <NInput
@@ -654,7 +702,7 @@ function onCtxSelect(key: string | number): void {
         >
           {{ t.customizeCheckUpdates }}
         </NButton>
-        <NButton v-if="kind === 'mcp'" class="list-add-button" size="small" @click="addOpen = true">
+        <NButton v-if="kind === 'mcp'" class="list-add-button" size="small" @click="openMcpAdd">
           {{ t.customizeMcpAdd }}
         </NButton>
         <NDropdown
@@ -740,6 +788,12 @@ function onCtxSelect(key: string | number): void {
                     {{ testBadge(item)?.text }}
                   </span>
                   <span
+                    v-if="mcpAuthStateOf(item)?.authenticated"
+                    class="inline-badge auth-badge"
+                  >
+                    {{ t.customizeMcpSignedIn }}
+                  </span>
+                  <span
                     v-if="skillWarning(item)"
                     class="inline-badge warning-badge"
                     :title="skillWarning(item)?.hint"
@@ -774,6 +828,33 @@ function onCtxSelect(key: string | number): void {
                 @update:value="(value: boolean) => setEnabled(item, value)"
               />
               <button
+                v-if="kind === 'mcp' && (item.scope === 'user' || item.scope === 'project')"
+                type="button"
+                class="item-action"
+                :title="t.customizeEdit"
+                @click.stop="openMcpEdit(item)"
+              >
+                {{ t.customizeEdit }}
+              </button>
+              <button
+                v-if="kind === 'mcp' && mcpAuthStateOf(item)?.oauth && !mcpAuthStateOf(item)?.authenticated"
+                type="button"
+                class="item-action"
+                :title="t.customizeMcpSignIn"
+                @click.stop="openMcpLogin(item)"
+              >
+                {{ t.customizeMcpSignIn }}
+              </button>
+              <button
+                v-else-if="kind === 'mcp' && mcpAuthStateOf(item)?.authenticated"
+                type="button"
+                class="item-action"
+                :title="t.customizeMcpSignOut"
+                @click.stop="confirmMcpLogout(item)"
+              >
+                {{ t.customizeMcpSignOut }}
+              </button>
+              <button
                 v-if="canRemove(item)"
                 type="button"
                 class="item-action"
@@ -802,8 +883,16 @@ function onCtxSelect(key: string | number): void {
     <McpAddModal
       :show="addOpen"
       :workspaces="scopedWorkspaces"
+      :edit="mcpEdit"
       @close="addOpen = false"
       @added="onMcpAdded"
+    />
+
+    <McpLoginModal
+      :show="mcpLoginTarget !== null"
+      :target="mcpLoginTarget"
+      @close="mcpLoginTarget = null"
+      @changed="onMcpLoginChanged"
     />
   </div>
 </template>
@@ -815,26 +904,6 @@ function onCtxSelect(key: string | number): void {
   flex: 1;
   min-width: 0;
   min-height: 0;
-}
-
-.mcp-adapter-warning {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-shrink: 0;
-  margin-top: 16px;
-  padding: 8px 10px;
-  border: 1px solid color-mix(in srgb, var(--error) 45%, transparent);
-  border-radius: 4px;
-  background: color-mix(in srgb, var(--error) 12%, transparent);
-  font-size: 12px;
-  line-height: 16px;
-}
-
-.mcp-adapter-warning-text {
-  flex: 1;
-  min-width: 0;
-  color: var(--fg);
 }
 
 .list-search-and-button-container {
@@ -997,6 +1066,10 @@ function onCtxSelect(key: string | number): void {
 
 .test-badge.is-fail {
   color: var(--error);
+}
+
+.auth-badge {
+  color: var(--success);
 }
 
 .warning-badge {

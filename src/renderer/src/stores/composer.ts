@@ -155,11 +155,9 @@ export const useComposerStore = defineStore("composer", () => {
     return bucket().mode;
   }
 
-  /** 草稿首次发送：把草稿工具栏模式迁移到新会话，草稿桶恢复默认。 */
-  function transferDraftMode(toSessionId: string): void {
-    const draft = ensureBucket(null);
-    const mode = draft.mode;
-    draft.mode = "agent";
+  /** 草稿首次发送：把工具栏模式迁移到新会话，草稿桶恢复默认。 */
+  function transferDraftMode(toSessionId: string, mode: ComposerAgentMode): void {
+    ensureBucket(null).mode = "agent";
     ensureBucket(toSessionId).mode = mode;
   }
 

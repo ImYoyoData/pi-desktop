@@ -264,6 +264,7 @@ export const useChatStore = defineStore("chat", () => {
 				result: row.text,
 				isError: row.isError,
 				streaming: false,
+				...(row.nestedCalls?.length ? { nestedCalls: row.nestedCalls } : {}),
 			};
 		}
 		return {
@@ -1126,6 +1127,11 @@ export const useChatStore = defineStore("chat", () => {
 		await sessionsStore.sendCommand(sessionId, { type: "follow_up", message });
 	}
 
+	/** 清空 pi 侧的引导 / 排队消息；本地队列由界面一并清理。 */
+	async function clearQueue(sessionId: string): Promise<void> {
+		await sessionsStore.sendCommand(sessionId, { type: "clear_queue" });
+	}
+
 	async function abort(sessionId: string): Promise<void> {
 		// TEMP-DIAG: find who auto-aborts while ask_user is pending.
 		if (stateFor(sessionId).pendingAskUser) {
@@ -1526,6 +1532,7 @@ export const useChatStore = defineStore("chat", () => {
 		sendPrompt,
 		steer,
 		followUp,
+		clearQueue,
 		abort,
 		truncateFrom,
 		beginEditUser,

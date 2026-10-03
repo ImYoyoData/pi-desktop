@@ -14,10 +14,11 @@ import type {
 } from "../shared/protocol";
 import type { AgentRunEvent, AgentRunSnapshot } from "../shared/agent-runs";
 import type { EditContextMenuAction, EditContextMenuPayload } from "../shared/context-menu";
-import type { AgentSaveResult, CustomizationsSnapshot, CustomizationCreateKind, InstructionsSaveResult, McpTestResult, McpTestTarget, SkillSaveResult } from "../shared/customizations";
+import type { AgentSaveResult, BuiltinExtensionItem, BuiltinToolItem, CodemodeSettingsState, CustomizationsSnapshot, CustomizationCreateKind, InstructionsSaveResult, McpAuthEventPayload, McpAuthPromptReply, McpAuthState, McpAuthTarget, McpTestResult, McpTestTarget, SkillSaveResult } from "../shared/customizations";
 import type {
 	ModelsGetResult,
 	ModelsOAuthEventPayload,
+	ModelsQuotaResult,
 	ModelsOAuthPromptReply,
 	ModelsSetPayload,
 	ProviderCatalogResult,
@@ -71,6 +72,7 @@ import type {
 import type { ProxySettings } from "../shared/proxy";
 import type { ThinkingLanguageSettings } from "../shared/thinking-language";
 import type { StreamRenderSettings } from "../shared/stream-render";
+import type { TempCleanupSettings } from "../shared/temp-cleanup";
 export type AppInfo = {
 	version: string;
 	githubUrl: string;
@@ -121,6 +123,11 @@ declare const api: {
 		get: () => Promise<RetrySettings>;
 		set: (settings: RetrySettings) => Promise<RetrySettings>;
 		onChanged: (callback: (settings: RetrySettings) => void) => () => void;
+	};
+	runtime: {
+		get: () => Promise<RuntimeSettings>;
+		set: (settings: RuntimeSettings) => Promise<RuntimeSettings>;
+		onChanged: (callback: (settings: RuntimeSettings) => void) => () => void;
 	};
 	window: {
 		platform: () => Promise<NodeJS.Platform>;
@@ -617,6 +624,25 @@ declare const api: {
 			servers: Record<string, unknown>,
 			cwd?: string,
 		) => Promise<{ filePath: string; names: string[] }>;
+		readMcpServer: (
+			name: string,
+			scope: "user" | "project",
+			cwd?: string,
+		) => Promise<Record<string, unknown> | null>;
+		setBuiltinExtensionEnabled: (
+			name: string,
+			enabled: boolean,
+			cwd?: string,
+		) => Promise<BuiltinExtensionItem[]>;
+		setToolEnabled: (
+			name: string,
+			enabled: boolean,
+			cwd?: string,
+		) => Promise<BuiltinToolItem[]>;
+		setCodemodeSettings: (
+			patch: { mode?: "on" | "only"; inlineBudget?: number | null },
+			cwd?: string,
+		) => Promise<CodemodeSettingsState>;
 		ensureMcpConfig: (
 			scope: "user" | "project",
 			cwd?: string,
@@ -633,6 +659,12 @@ declare const api: {
 		) => Promise<{ filePath: string }>;
 		removeItem: (filePath: string, cwd?: string) => Promise<{ filePath: string }>;
 		testMcpServers: (targets: McpTestTarget[]) => Promise<McpTestResult[]>;
+		mcpAuthStates: (targets: McpAuthTarget[]) => Promise<Record<string, McpAuthState>>;
+		mcpLogin: (target: McpAuthTarget) => Promise<void>;
+		mcpAuthPrompt: (reply: McpAuthPromptReply) => Promise<void>;
+		mcpLoginCancel: () => Promise<void>;
+		mcpLogout: (target: McpAuthTarget) => Promise<boolean>;
+		onMcpAuthEvent: (callback: (payload: McpAuthEventPayload) => void) => () => void;
 		onUpdated: (callback: (snapshot: CustomizationsSnapshot) => void) => () => void;
 	};
 	skills: {
@@ -757,6 +789,7 @@ declare const api: {
 		oauthPrompt: (reply: ModelsOAuthPromptReply) => Promise<void>;
 		oauthCancel: () => Promise<void>;
 		onOauthEvent: (callback: (payload: ModelsOAuthEventPayload) => void) => () => void;
+		fetchQuota: (providerId: string) => Promise<ModelsQuotaResult>;
 	};
 	preview: {
 		read: (filePath: string) => Promise<PreviewResult>;
@@ -1001,6 +1034,11 @@ declare const api: {
 	streamRender: {
 		get: () => Promise<StreamRenderSettings>;
 		set: (settings: StreamRenderSettings) => Promise<StreamRenderSettings>;
+	tempCleanup: {
+		get: () => Promise<TempCleanupSettings>;
+		set: (settings: TempCleanupSettings) => Promise<TempCleanupSettings>;
+		sweep: () => Promise<{ removed: number; bytes: number }>;
+	};
 	};
 	appearance: {
 		pickWallpaper: () => Promise<string | null>;

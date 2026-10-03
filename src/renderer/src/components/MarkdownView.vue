@@ -4,6 +4,7 @@ import { NModal, NButton, NSpace, useDialog, useMessage } from "naive-ui";
 import {
   createStreamBlockSplitter,
   renderMarkdown,
+  renderMarkdownBlock,
   renderMarkdownCached,
   setMarkdownCopyLabel,
 } from "@renderer/utils/markdown";
@@ -65,6 +66,14 @@ const liveBlock = ref("");
 /** 旧渲染点之后的未完成尾部（未完成段落按纯文本跟随）。 */
 const liveTail = ref("");
 const STREAM_TAIL_MAX_CHARS = 24_000;
+/**
+ * 流式期间单个未定型块的解析上限：模型正在写长代码块时，未闭合围栏会让整个块
+ * 一直落在 live 块里，每个 tick 全量解析 + 高亮 + 净化会占满渲染线程，界面直接卡死。
+ * 超限就按纯文本尾部跟随，块定型或流结束后再完整渲染。
+ */
+const STREAM_LIVE_BLOCK_MAX_CHARS = 12_000;
+/** 旧渲染路径（流式渲染开关关闭）在流式期间的整段解析上限。 */
+const STREAM_FULL_MAX_CHARS = 24_000;
 let splitter = createStreamBlockSplitter();
 let liveBlockText = "";
 
@@ -85,12 +94,18 @@ function renderPointOf(content: string): number {
 function refreshStream(content: string): void {
   const added = splitter.take(content);
   if (added) {
-    const block = renderMarkdown(added);
+    const block = renderMarkdownBlock(added);
     if (block) blocks.value.push(block);
   }
   const boundary = splitter.boundary;
   const renderPoint = Math.max(renderPointOf(content), boundary);
   const liveText = content.slice(boundary, renderPoint);
+  if (liveText.length > STREAM_LIVE_BLOCK_MAX_CHARS) {
+    liveBlockText = "";
+    liveBlock.value = "";
+    liveTail.value = tailText(content, boundary);
+    return;
+  }
   if (liveText !== liveBlockText) {
     liveBlockText = liveText;
     liveBlock.value = liveText ? renderMarkdown(liveText) : "";
@@ -102,6 +117,11 @@ function renderFull(content: string): void {
   splitter = createStreamBlockSplitter();
   liveBlockText = "";
   liveBlock.value = "";
+  if (props.streaming && content.length > STREAM_FULL_MAX_CHARS) {
+    blocks.value = [];
+    liveTail.value = tailText(content, 0);
+    return;
+  }
   // 流式期间的内容不会被复用，写入 LRU 只会淘汰历史消息的缓存。
   const render = props.streaming ? renderMarkdown : renderMarkdownCached;
   blocks.value = content ? [render(content)] : [];
@@ -431,6 +451,18 @@ onUnmounted(() => {
 /* 流式纯文本尾部：保留原始换行，直到段落完成被 marked 接管。 */
 .md :deep(.md-live-tail) {
   white-space: pre-wrap;
+}
+
+.md :deep(pre.md-plain-block) {
+  margin: 0.5em 0;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: rgba(127, 127, 127, 0.1);
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+  font-size: 13px;
+  line-height: 1.55;
 }
 
 .md :deep(strong),

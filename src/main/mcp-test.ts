@@ -11,7 +11,8 @@ export type McpTestOutcome = {
 };
 
 const DEFAULT_TIMEOUT_MS = 10_000;
-const PROTOCOL_VERSION = "2025-06-18";
+/** 与 pi-mcp 的 LATEST_PROTOCOL_VERSION 对齐。 */
+const PROTOCOL_VERSION = "2025-11-25";
 const CLIENT_INFO = { name: "pi-desktop", version: "1.0.0" };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -194,7 +195,11 @@ function parsePayload(text: string): Record<string, unknown> | null {
 }
 
 /** HTTP/SSE：对 url 发 initialize 请求，再尝试 tools/list。 */
-async function testHttp(entry: Record<string, unknown>, timeoutMs: number): Promise<McpTestOutcome> {
+async function testHttp(
+	entry: Record<string, unknown>,
+	timeoutMs: number,
+	authToken?: string,
+): Promise<McpTestOutcome> {
 	const startedAt = Date.now();
 	const url = typeof entry.url === "string" ? entry.url : "";
 	const signal = AbortSignal.timeout(timeoutMs);
@@ -202,6 +207,7 @@ async function testHttp(entry: Record<string, unknown>, timeoutMs: number): Prom
 		"content-type": "application/json",
 		accept: "application/json, text/event-stream",
 		...stringMap(entry.headers),
+		...(authToken ? { authorization: `Bearer ${authToken}` } : {}),
 	};
 	try {
 		const initRes = await netFetch(url, {
@@ -251,8 +257,9 @@ async function testHttp(entry: Record<string, unknown>, timeoutMs: number): Prom
 export async function testMcpServer(
 	entry: Record<string, unknown>,
 	timeoutMs = DEFAULT_TIMEOUT_MS,
+	authToken?: string,
 ): Promise<McpTestOutcome> {
-	if (typeof entry.url === "string" && entry.url) return testHttp(entry, timeoutMs);
+	if (typeof entry.url === "string" && entry.url) return testHttp(entry, timeoutMs, authToken);
 	if (typeof entry.command === "string" && entry.command) return testStdio(entry, timeoutMs);
 	return { ok: false, error: "no command or url", durationMs: 0 };
 }

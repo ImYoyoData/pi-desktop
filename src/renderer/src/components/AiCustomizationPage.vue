@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { computed, h, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
+import { computed, h, nextTick, onMounted, onUnmounted, ref, watch, type Component } from "vue";
 import { NButton, NInput, NModal, NSpin, NSpace, useDialog, useMessage } from "naive-ui";
+import { RefreshOutline } from "@vicons/ionicons5";
 import CodiconIcon from "@renderer/components/icons/CodiconIcon.vue";
 import PreviewTab from "@renderer/components/PreviewTab.vue";
 import AppearancePanel from "@renderer/components/AppearancePanel.vue";
@@ -11,6 +12,7 @@ import CustomizeSection from "@renderer/components/customize/CustomizeSection.vu
 import CustomizeHooks from "@renderer/components/customize/CustomizeHooks.vue";
 import CustomizeTools from "@renderer/components/customize/CustomizeTools.vue";
 import CustomizeModels from "@renderer/components/customize/CustomizeModels.vue";
+import CustomizeRuntime from "@renderer/components/customize/CustomizeRuntime.vue";
 import NotifySettings from "@renderer/components/NotifySettings.vue";
 import AsrSettings from "@renderer/components/AsrSettings.vue";
 import SecuritySettings from "@renderer/components/SecuritySettings.vue";
@@ -30,9 +32,17 @@ const props = defineProps<{
 
 type CodiconName = InstanceType<typeof CodiconIcon>["$props"]["name"];
 
+/** 导航图标：codicon 名，或直接给一个图标组件（如 ionicons 的 refresh）。 */
+type SectionIcon = CodiconName | Component;
+
+/** 类型守卫：区分 codicon 名与组件图标。 */
+function isCodiconName(icon: SectionIcon): icon is CodiconName {
+  return typeof icon === "string";
+}
+
 interface CustomizeSectionEntry {
   id: string;
-  icon: CodiconName;
+  icon: SectionIcon;
   label: string;
   description: string;
 }
@@ -42,7 +52,8 @@ const sections = computed<CustomizeSectionEntry[]>(() => [
   { id: "appearance", icon: "appearance", label: t.customizeAppearance, description: t.customizeAppearanceDesc },
   { id: "keys", icon: "keyboard", label: t.customizeKeys, description: t.customizeKeysDesc },
   { id: "models", icon: "models", label: t.customizeModels, description: t.customizeModelsDesc },
-  { id: "retry", icon: "run", label: t.customizeRetry, description: t.customizeRetryDesc },
+  { id: "retry", icon: RefreshOutline, label: t.customizeRetry, description: t.customizeRetryDesc },
+  { id: "runtime", icon: "run", label: t.customizeRuntime, description: t.customizeRuntimeDesc },
   { id: "agents", icon: "agents", label: t.customizeAgents, description: t.customizeAgentsDesc },
   { id: "skills", icon: "skills", label: t.customizeSkills, description: t.customizeSkillsDesc },
   { id: "instructions", icon: "instructions", label: t.customizeInstructions, description: t.customizeInstructionsDesc },
@@ -640,7 +651,10 @@ onUnmounted(() => {
             :title="entry.description"
             @click="selectSection(entry.id)"
           >
-            <span class="section-icon"><CodiconIcon :name="entry.icon" :size="16" /></span>
+            <span class="section-icon">
+              <CodiconIcon v-if="isCodiconName(entry.icon)" :name="entry.icon" :size="16" />
+              <component :is="entry.icon" v-else :size="16" />
+            </span>
             <span class="section-label">{{ entry.label }}</span>
             <span v-if="counts[entry.id]" class="section-count">{{ counts[entry.id] }}</span>
           </button>
@@ -747,9 +761,15 @@ onUnmounted(() => {
 
         <CustomizeRetry v-else-if="active === 'retry'" />
 
+        <CustomizeRuntime v-else-if="active === 'runtime'" />
+
         <CustomizeHooks v-else-if="active === 'hooks'" :hooks="store.snapshot.hooks" />
 
-        <CustomizeTools v-else-if="active === 'tools'" :tools="store.snapshot.tools" />
+        <CustomizeTools
+          v-else-if="active === 'tools'"
+          :tools="store.snapshot.tools"
+          :builtin-extensions="store.snapshot.builtinExtensions"
+        />
 
         <CustomizeSection
           v-else

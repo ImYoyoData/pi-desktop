@@ -1,10 +1,138 @@
 <script setup lang="ts">
-import { computed, reactive } from "vue";
+import { computed, reactive, ref, watch } from "vue";
+import { NInputNumber, NSelect, useMessage } from "naive-ui";
 import CodiconIcon from "@renderer/components/icons/CodiconIcon.vue";
-import type { CustomizationItem, CustomizationScope } from "../../../../shared/customizations";
+import ToggleButton from "@renderer/components/ToggleButton.vue";
+import type {
+  BuiltinExtensionItem,
+  BuiltinToolItem,
+  CustomizationItem,
+  CustomizationScope,
+} from "../../../../shared/customizations";
+import { useCustomizationsStore } from "@renderer/stores/customizations";
+import { useWorkspaceStore } from "@renderer/stores/workspace";
 import { t } from "@renderer/i18n";
 
-const props = defineProps<{ tools: CustomizationItem[] }>();
+const props = defineProps<{
+  tools: CustomizationItem[];
+  builtinExtensions: BuiltinExtensionItem[];
+}>();
+
+const store = useCustomizationsStore();
+const workspace = useWorkspaceStore();
+const message = useMessage();
+
+const builtinCollapsed = ref(false);
+const toolsCollapsed = ref(false);
+
+function builtinDescription(name: string): string {
+  return t.customizeBuiltinExtensionDescription(name);
+}
+
+const toolToggles = computed(() => store.snapshot.toolToggles ?? []);
+const codemodeState = computed(
+  () => store.snapshot.codemode ?? { mode: "on" as const },
+);
+
+function builtinToolDescription(name: string): string {
+  return t.customizeBuiltinToolDescription(name);
+}
+
+/** 开关内置工具：主进程写全局 defaultTools，返回最新列表后本地覆盖。 */
+async function toggleTool(item: BuiltinToolItem, enabled: boolean): Promise<void> {
+  try {
+    const items = await window.api.customizations.setToolEnabled(
+      item.name,
+      enabled,
+      workspace.root ?? undefined,
+    );
+    store.setToolToggles(items);
+  } catch (err) {
+    message.error(err instanceof Error ? err.message : String(err));
+  }
+}
+
+/** codemode / tool_search 工具所属的内置扩展名。 */
+function toolExtensionName(name: string): string {
+  return name === "tool_search" ? "tool-search" : name;
+}
+
+/** 对应的内置扩展被关闭时工具无法加载，开关只作提示。 */
+function toolExtensionOff(item: BuiltinToolItem): boolean {
+  const extension = props.builtinExtensions.find(
+    (entry) => entry.name === toolExtensionName(item.name),
+  );
+  return extension?.enabled === false;
+}
+
+function toolToggleTitle(item: BuiltinToolItem): string {
+  if (item.overridden) return t.customizeBuiltinOverriddenHint;
+  if (toolExtensionOff(item)) return t.customizeBuiltinToolNeedsExtension;
+  return item.enabled ? t.customizeDisable : t.customizeEnable;
+}
+
+/** 只有 codemode 启用时才展示它的呈现设置。 */
+const codemodeEnabled = computed(
+  () => toolToggles.value.find((item) => item.name === "codemode")?.enabled === true,
+);
+
+const codemodeModeOptions = computed(() => [
+  { label: t.customizeCodemodeModeOn, value: "on" },
+  { label: t.customizeCodemodeModeOnly, value: "only" },
+]);
+
+const codemodeMode = ref<"on" | "only">("on");
+const inlineBudget = ref<number | null>(null);
+
+watch(
+  codemodeState,
+  (state) => {
+    codemodeMode.value = state.mode;
+    inlineBudget.value = state.inlineBudget ?? null;
+  },
+  { immediate: true },
+);
+
+async function saveCodemodeMode(mode: "on" | "only"): Promise<void> {
+  try {
+    store.setCodemode(
+      await window.api.customizations.setCodemodeSettings(
+        { mode },
+        workspace.root ?? undefined,
+      ),
+    );
+  } catch (err) {
+    message.error(err instanceof Error ? err.message : String(err));
+  }
+}
+
+async function saveInlineBudget(): Promise<void> {
+  try {
+    const value = inlineBudget.value;
+    store.setCodemode(
+      await window.api.customizations.setCodemodeSettings(
+        { inlineBudget: value == null || Number.isNaN(value) ? null : value },
+        workspace.root ?? undefined,
+      ),
+    );
+  } catch (err) {
+    message.error(err instanceof Error ? err.message : String(err));
+  }
+}
+
+/** 开关内置扩展：主进程写全局 settings，返回最新列表后本地覆盖。 */
+async function toggleBuiltin(item: BuiltinExtensionItem, enabled: boolean): Promise<void> {
+  try {
+    const items = await window.api.customizations.setBuiltinExtensionEnabled(
+      item.name,
+      enabled,
+      workspace.root ?? undefined,
+    );
+    store.setBuiltinExtensionEnabled(items);
+  } catch (err) {
+    message.error(err instanceof Error ? err.message : String(err));
+  }
+}
 
 type ToolGroup = {
   key: string;
@@ -72,7 +200,7 @@ const groups = computed<ToolGroup[]>(() => {
 
 <template>
   <div class="customize-tools">
-    <div v-if="!tools.length" class="list-empty-state">
+    <div v-if="!tools.length && !builtinExtensions.length" class="list-empty-state">
       <div class="empty-state-header">
         <span class="empty-state-text">{{ t.customizeEmpty(t.customizeTools) }}</span>
       </div>
@@ -80,6 +208,145 @@ const groups = computed<ToolGroup[]>(() => {
     </div>
 
     <div v-else class="list-container">
+      <div v-if="builtinExtensions.length" class="group-block">
+        <button
+          type="button"
+          class="ai-customization-group-header"
+          :class="{ collapsed: builtinCollapsed }"
+          @click="builtinCollapsed = !builtinCollapsed"
+        >
+          <span class="group-label-group">
+            <span class="group-label">{{ t.customizeBuiltinExtensions }}</span>
+          </span>
+          <span class="group-count">
+            {{ builtinExtensions.filter((item) => item.enabled).length }}/{{ builtinExtensions.length }}
+          </span>
+          <span class="group-info" :title="t.customizeBuiltinExtensionsHint">
+            <CodiconIcon name="about" :size="14" />
+          </span>
+          <span class="group-chevron">
+            <CodiconIcon
+              :name="builtinCollapsed ? 'chevronRight' : 'chevronDown'"
+              :size="14"
+            />
+          </span>
+        </button>
+        <template v-if="!builtinCollapsed">
+          <div
+            v-for="item in builtinExtensions"
+            :key="item.id"
+            class="ai-customization-list-item"
+          >
+            <div class="item-left">
+              <div class="item-text">
+                <div class="item-name-row">
+                  <span class="item-name">{{ item.name }}</span>
+                  <span v-if="item.overridden" class="inline-badge">
+                    {{ t.customizeBuiltinOverridden }}
+                  </span>
+                </div>
+                <div class="item-description">{{ builtinDescription(item.name) }}</div>
+              </div>
+            </div>
+            <div class="item-right">
+              <ToggleButton
+                class="item-switch"
+                :value="item.enabled"
+                :disabled="item.overridden"
+                :title="
+                  item.overridden
+                    ? t.customizeBuiltinOverriddenHint
+                    : item.enabled
+                      ? t.customizeDisable
+                      : t.customizeEnable
+                "
+                @update:value="(value: boolean) => toggleBuiltin(item, value)"
+              />
+            </div>
+          </div>
+        </template>
+      </div>
+
+      <div v-if="toolToggles.length" class="group-block">
+        <button
+          type="button"
+          class="ai-customization-group-header"
+          :class="{ collapsed: toolsCollapsed }"
+          @click="toolsCollapsed = !toolsCollapsed"
+        >
+          <span class="group-label-group">
+            <span class="group-label">{{ t.customizeBuiltinTools }}</span>
+          </span>
+          <span class="group-count">
+            {{ toolToggles.filter((item) => item.enabled).length }}/{{ toolToggles.length }}
+          </span>
+          <span class="group-info" :title="t.customizeBuiltinToolsHint">
+            <CodiconIcon name="about" :size="14" />
+          </span>
+          <span class="group-chevron">
+            <CodiconIcon
+              :name="toolsCollapsed ? 'chevronRight' : 'chevronDown'"
+              :size="14"
+            />
+          </span>
+        </button>
+        <template v-if="!toolsCollapsed">
+          <div
+            v-for="item in toolToggles"
+            :key="item.id"
+            class="ai-customization-list-item"
+          >
+            <div class="item-left">
+              <div class="item-text">
+                <div class="item-name-row">
+                  <span class="item-name">{{ item.name }}</span>
+                  <span v-if="item.overridden" class="inline-badge">
+                    {{ t.customizeBuiltinOverridden }}
+                  </span>
+                </div>
+                <div class="item-description">{{ builtinToolDescription(item.name) }}</div>
+              </div>
+            </div>
+            <div class="item-right">
+              <ToggleButton
+                class="item-switch"
+                :value="item.enabled"
+                :disabled="item.overridden || toolExtensionOff(item)"
+                :title="toolToggleTitle(item)"
+                @update:value="(value: boolean) => toggleTool(item, value)"
+              />
+            </div>
+          </div>
+          <div v-if="codemodeEnabled" class="codemode-settings">
+            <div class="codemode-field">
+              <span class="field-label">{{ t.customizeCodemodeMode }}</span>
+              <NSelect
+                class="field-control"
+                size="small"
+                :value="codemodeMode"
+                :options="codemodeModeOptions"
+                @update:value="saveCodemodeMode"
+              />
+            </div>
+            <div class="codemode-field">
+              <span class="field-label">{{ t.customizeCodemodeInlineBudget }}</span>
+              <NInputNumber
+                class="field-control"
+                size="small"
+                :value="inlineBudget"
+                :min="0"
+                :show-button="false"
+                placeholder="3000"
+                @update:value="(value: number | null) => (inlineBudget = value)"
+                @blur="saveInlineBudget"
+              />
+            </div>
+            <div class="codemode-hint">{{ t.customizeCodemodeModeHint }}</div>
+            <div class="codemode-hint">{{ t.customizeCodemodeInlineBudgetHint }}</div>
+          </div>
+        </template>
+      </div>
+
       <div v-for="group in groups" :key="group.key" class="group-block">
         <button
           type="button"
@@ -136,6 +403,58 @@ const groups = computed<ToolGroup[]>(() => {
 .group-block {
   display: flex;
   flex-direction: column;
+}
+
+.item-right {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  gap: 4px;
+  margin-left: 16px;
+}
+
+.item-switch {
+  flex-shrink: 0;
+}
+
+.codemode-settings {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 2px 12px 10px 16px;
+}
+
+.codemode-field {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.field-label {
+  min-width: 84px;
+  color: var(--fg-muted);
+  font-size: 12px;
+}
+
+.field-control {
+  width: 200px;
+}
+
+.codemode-hint {
+  max-width: 560px;
+  color: var(--fg-muted);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.inline-badge {
+  flex-shrink: 0;
+  padding: 0 6px;
+  border-radius: 4px;
+  background: var(--bg-active);
+  color: var(--fg-muted);
+  font-size: 10px;
+  line-height: 16px;
 }
 
 .ai-customization-group-header {

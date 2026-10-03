@@ -1,14 +1,14 @@
 import type { ImageContent } from "@earendil-works/pi-ai/compat";
 import { readFileSync, writeFileSync } from "node:fs";
-import {
-	routedThinkingLevel,
-	type ThinkingLevel,
-} from "../shared/thinking-level";
+import { type ThinkingLevel } from "../shared/thinking-level";
 import {
 	createAgentSessionFromServices,
 	createAgentSessionServices,
 	createBashToolDefinition,
+	createCodemodeExtension,
+	createMcpExtension,
 	createPowerShellToolDefinition,
+	createToolSearchExtension,
 	defineTool,
 	getAgentDir,
 	SessionManager,
@@ -55,7 +55,6 @@ import {
 	DESKTOP_ASK_USER_PROMPT,
 	DESKTOP_COMPOSER_MODES_PROMPT,
 	DESKTOP_BASH_BACKGROUND_PROMPT,
-	DESKTOP_PROJECT_ORIENTATION_PROMPT,
 	DESKTOP_TODO_PROMPT,
 } from "../shared/desktop-system-prompt";
 import { createAskUserToolDefinition } from "./ask-user-tool";import { createTodoWriteToolDefinition } from "./todo-tool";
@@ -76,7 +75,6 @@ import {
 	parseSessionTiming,
 	sessionTimingPath,
 } from "../shared/session-timing";
-import { pruneOldToolResults } from "./tool-result-prune";
 import {
 	createDesktopExtensionUIContext,
 	setExtensionInfoNotificationsMuted,
@@ -491,25 +489,35 @@ async function initSession(
 		streamRenderSettings = parseStreamRenderSettings(streamRenderSnapshot);
 	}
 	const agentDir = getAgentDir();
+	// 打开的工作区一律视为已信任（信任机制已移除）。
+	const settingsManager = SettingsManager.create(cwd, agentDir, {
+		projectTrusted: true,
+	});
+	// 会话目录：pi 的 sessionDir 设置优先，否则用默认的按 cwd 编码目录。
+	const sessionDir = settingsManager.getSessionDir() ?? "";
 	const sessionManager = filePath
-		? openExistingSessionFile(SessionManager, filePath, cwd)
-		: SessionManager.create(cwd);
+		? openExistingSessionFile(SessionManager, filePath, cwd, sessionDir || undefined)
+		: SessionManager.create(cwd, sessionDir || undefined);
 	// New sessions must hit disk before idle-destroy / cold reopen (avoids id mismatch).
 	ensureSessionFileOnDisk(sessionManager);
 	const initialSessionFile = sessionManager.getSessionFile();
 	if (initialSessionFile) {
 		restoreTimingFromDisk(initialSessionFile);
 	}
-	// 打开的工作区一律视为已信任（信任机制已移除）。
-	const settingsManager = SettingsManager.create(cwd, agentDir, {
-		projectTrusted: true,
-	});
 	const builtinBrowserSkillDir = resolveBuiltinBrowserSkillDir(
 		workerDirname(),
 		typeof process.resourcesPath === "string" ? process.resourcesPath : undefined,
 	);
 	// Which command shell this machine can actually run (see command-shell.ts).
-	const commandShell = detectCommandShell();
+	// pi 的 shellPath / shellCommandPrefix 优先于自动探测。
+	const configuredShellPath = settingsManager.getShellPath() ?? "";
+	const shellCommandPrefix = settingsManager.getShellCommandPrefix() ?? "";
+	const commandShell = detectCommandShell(
+		process.env,
+		undefined,
+		undefined,
+		configuredShellPath,
+	);
 	const commandShellPromptText = commandShellPrompt(commandShell);
 	console.info(`[pi-desktop] command shell: ${describeCommandShell(commandShell)}`);
 	const services = await createAgentSessionServices({
@@ -517,8 +525,13 @@ async function initSession(
 		agentDir,
 		settingsManager,
 		resourceLoaderOptions: {
+			// 与 pi CLI 的 builtInExtensions 对齐（llama.cpp 未随 SDK 公开导出，无法接入）。
+			extensionFactories: [
+				{ name: "codemode", factory: createCodemodeExtension(), replaceable: true, builtin: true },
+				{ name: "tool-search", factory: createToolSearchExtension(), replaceable: true, builtin: true },
+				{ name: "mcp", factory: createMcpExtension(), replaceable: true, builtin: true },
+			],
 			appendSystemPrompt: [
-				DESKTOP_PROJECT_ORIENTATION_PROMPT,
 				DESKTOP_ASK_USER_PROMPT,
 				DESKTOP_TODO_PROMPT,
 				DESKTOP_BASH_BACKGROUND_PROMPT,
@@ -530,12 +543,16 @@ async function initSession(
 				: {}),
 		},
 	});
-	forceDefaultThinkingLevels(services.modelRuntime);
+	enableAllThinkingLevels(services.modelRuntime);
 	let assertBashExecAllowed: ((command: string) => void) | null = null;
 	let takeBashBackgroundFlag: ((command: string) => boolean) | null = null;
 	runTracker = createTrackedBashOperations(undefined, {
 		sessionId: sessionManager.getSessionId(),
 		workspaceRoot: cwd,
+		// operations 覆盖后 SDK 的 shell 选择不再生效，探测结果必须显式传下去。
+		shellKind: commandShell.kind,
+		...(commandShell.kind === "unresolved" ? {} : { shellPath: commandShell.shellPath }),
+		...(shellCommandPrefix ? { commandPrefix: shellCommandPrefix } : {}),
 		onStarted: (run) => post({ kind: "run_started", run }),
 		onOutput: (runId, chunk) => post({ kind: "run_output", runId, chunk }),
 		onEnded: (runId) => post({ kind: "run_ended", runId }),
@@ -720,41 +737,65 @@ function requireSession(): AgentSession {
 	return session;
 }
 
-/**
- * ModelRuntime.refresh() reloads models.json / catalogs, but AuthStorage keeps an
- * in-memory snapshot of auth.json from worker start. Re-read disk before refresh.
- */
-function reloadAuthStorageCache(active: AgentSession): void {
-	// SAFETY: SDK 未导出 ModelRuntime 的凭据类型，这里按内部结构读取 auth 缓存。
-	const runtime = active.modelRuntime as unknown as {
-		credentials?: { store?: { reload?: () => void } };
-	};
-	runtime.credentials?.store?.reload?.();
-}
-
 async function refreshSessionModel(active: AgentSession): Promise<void> {
 	const current = active.model;
 	if (!current) return;
 	const next = active.modelRuntime.getModel(current.provider, current.id);
 	if (next && next !== current) {
-		await setModelPreservingThinking(active, next);
+		await active.setModel(next);
 	}
 }
 
+type SessionModel = NonNullable<ReturnType<AgentSession["modelRuntime"]["getModel"]>>;
+
+const ALL_THINKING_LEVELS = [
+	"off",
+	"minimal",
+	"low",
+	"medium",
+	"high",
+	"xhigh",
+	"max",
+] as const;
+
 /**
- * Pi 切模型会把思考级别重置为默认值；这里保留切换前的实际等级（并套用界面路由），
- * 避免“选 Medium、实际又被重置回默认值”。
+ * 全档位开放：Pi 规定 xhigh/max 需要模型显式映射，否则 clamp 到 high。
+ * 桌面不跟随该规则——给未映射的推理模型补齐全档位，映射值即原始档位名
+ * （各 API 层在缺映射时本就按原始名发送），不改写 models.json。
  */
-async function setModelPreservingThinking(
-	active: AgentSession,
-	model: SessionModel,
-): Promise<void> {
-	const level = routedThinkingLevel(active.thinkingLevel);
-	await active.setModel(model);
-	if (active.thinkingLevel !== level) active.setThinkingLevel(level);
+function withAllThinkingLevels(model: SessionModel): SessionModel {
+	if (!model.reasoning) return model;
+	const map = model.thinkingLevelMap;
+	if (map) {
+		const missing = ALL_THINKING_LEVELS.filter((level) => !(level in map));
+		if (missing.length === 0) return model;
+		const next: Record<string, string> = {};
+		for (const level of ALL_THINKING_LEVELS) {
+			const mapped = map[level];
+			next[level] = mapped === undefined || mapped === null ? level : (mapped as string);
+		}
+		return { ...model, thinkingLevelMap: next };
+	}
+	const next: Record<string, string> = {};
+	for (const level of ALL_THINKING_LEVELS) next[level] = level;
+	return { ...model, thinkingLevelMap: next };
 }
 
-type SessionModel = NonNullable<ReturnType<AgentSession["modelRuntime"]["getModel"]>>;
+/** 在 ModelRuntime 视图上开放全部档位，不落盘、不改用户配置。 */
+function enableAllThinkingLevels(runtime: AgentSession["modelRuntime"]): void {
+	const getModel = runtime.getModel.bind(runtime);
+	const getModels = runtime.getModels.bind(runtime);
+	const getAvailable = runtime.getAvailable.bind(runtime);
+	const getAvailableSnapshot = runtime.getAvailableSnapshot.bind(runtime);
+	runtime.getModel = (providerId, modelId) => {
+		const model = getModel(providerId, modelId);
+		return model ? withAllThinkingLevels(model) : undefined;
+	};
+	runtime.getModels = (providerId) => getModels(providerId).map(withAllThinkingLevels);
+	runtime.getAvailable = async (providerId, options) =>
+		(await getAvailable(providerId, options)).map(withAllThinkingLevels);
+	runtime.getAvailableSnapshot = () => getAvailableSnapshot().map(withAllThinkingLevels);
+}
 
 /**
  * 解析待设置模型：优先内存可用快照，未命中只查该 provider。
@@ -775,31 +816,6 @@ async function resolveSelectableModel(
 	} catch {
 		return undefined;
 	}
-}
-
-/** Pi 只在 thinkingLevelMap 显式映射时才提供 XHigh/Max；完全未配置时按支持处理。 */
-function withDefaultThinkingLevels(model: SessionModel): SessionModel {
-	if (!model.reasoning) return model;
-	// 用户（或目录）已配置映射就尊重，保留 Pi 的档位回退（如 xhigh 不支持→max）。
-	if (model.thinkingLevelMap !== undefined) return model;
-	return { ...model, thinkingLevelMap: { xhigh: "xhigh", max: "max" } };
-}
-
-/** 在 ModelRuntime 上补默认思考等级，不改写 models.json。 */
-function forceDefaultThinkingLevels(runtime: AgentSession["modelRuntime"]): void {
-	const getModel = runtime.getModel.bind(runtime);
-	const getModels = runtime.getModels.bind(runtime);
-	const getAvailable = runtime.getAvailable.bind(runtime);
-	const getAvailableSnapshot = runtime.getAvailableSnapshot.bind(runtime);
-	runtime.getModel = (providerId, modelId) => {
-		const model = getModel(providerId, modelId);
-		return model ? withDefaultThinkingLevels(model) : undefined;
-	};
-	runtime.getModels = (providerId) => getModels(providerId).map(withDefaultThinkingLevels);
-	runtime.getAvailable = async (providerId, options) =>
-		(await getAvailable(providerId, options)).map(withDefaultThinkingLevels);
-	runtime.getAvailableSnapshot = () =>
-		getAvailableSnapshot().map(withDefaultThinkingLevels);
 }
 
 function emitContextUsage(active: AgentSession): void {
@@ -836,24 +852,6 @@ function emitContextUsage(active: AgentSession): void {
 	});
 }
 
-/**
- * OpenCode-style prune: shrink old tool results in the live agent message list
- * before the next model turn (or before LLM compact). Disk jsonl is unchanged.
- */
-function pruneAgentToolResults(active: AgentSession): void {
-	try {
-		const result = pruneOldToolResults(
-			// SAFETY: 修剪函数只读取消息的公共字段，与 SDK 消息结构兼容。
-			active.messages as unknown as Parameters<typeof pruneOldToolResults>[0],
-		);
-		if (result.changed) {
-			emitContextUsage(active);
-		}
-	} catch {
-		// prune is best-effort — never block the turn
-	}
-}
-
 export async function handleWorkerMessage(msg: WorkerInbound): Promise<void> {
 	if (msg.kind === "ping") {
 		post({ kind: "pong" });
@@ -867,7 +865,6 @@ export async function handleWorkerMessage(msg: WorkerInbound): Promise<void> {
 	}
 	if (msg.kind === "reload_models") {
 		if (session) {
-			reloadAuthStorageCache(session);
 			await session.modelRuntime.refresh({ allowNetwork: false });
 			await refreshSessionModel(session);
 		}
@@ -944,7 +941,6 @@ async function runCommand(id: string, command: AgentCommand): Promise<void> {
 				message = formatCitationsBlock(command.citations) + message;
 			}
 			applyBuiltinBrowserToolGate(active, message, command.citations);
-			pruneAgentToolResults(active);
 			const images = normalizePromptImages(command.images);
 			if (images?.length && !modelAcceptsImages(active)) {
 				post({ kind: "result", id, error: formatNoVisionModelError() });
@@ -971,7 +967,6 @@ async function runCommand(id: string, command: AgentCommand): Promise<void> {
 		case "steer": {
 			const active = requireSession();
 			applyBuiltinBrowserToolGate(active, command.message);
-			pruneAgentToolResults(active);
 			const images = normalizePromptImages(command.images);
 			if (images?.length && !modelAcceptsImages(active)) {
 				post({ kind: "result", id, error: formatNoVisionModelError() });
@@ -1006,7 +1001,6 @@ async function runCommand(id: string, command: AgentCommand): Promise<void> {
 		case "follow_up": {
 			const active = requireSession();
 			applyBuiltinBrowserToolGate(active, command.message);
-			pruneAgentToolResults(active);
 			await active.followUp(command.message);
 			post({ kind: "result", id, data: { ok: true } });
 			return;
@@ -1015,6 +1009,12 @@ async function runCommand(id: string, command: AgentCommand): Promise<void> {
 			await requireSession().abort();
 			post({ kind: "result", id, data: { ok: true } });
 			return;
+		case "clear_queue": {
+			// pi 侧的引导 / 排队消息一并清空；返回文本供界面核对。
+			const cleared = requireSession().clearQueue();
+			post({ kind: "result", id, data: cleared });
+			return;
+		}
 		case "set_model": {
 			const active = requireSession();
 			const model = await resolveSelectableModel(
@@ -1030,24 +1030,25 @@ async function runCommand(id: string, command: AgentCommand): Promise<void> {
 				});
 				return;
 			}
-			await setModelPreservingThinking(active, model);
+			await active.setModel(model);
 			emitContextUsage(active);
 			post({ kind: "result", id, data: { ok: true } });
 			return;
 		}
 		case "set_thinking_level": {
 			// 重新广播一次，界面上的模型/思考标注立即跟上选择器。
-			// 界面档位静默路由（Minimal→Low、Medium→High），返回值是实际生效等级。
+			// persist 时写入 Pi 全局默认：新建会话（无历史档位记录）据此初始化，
+			// 与 Pi 的 defaultThinkingLevel 语义一致。
 			const active = requireSession();
-			active.setThinkingLevel(routedThinkingLevel(command.level as ThinkingLevel));
+			active.setThinkingLevel(command.level as ThinkingLevel, {
+				persist: command.persist === true,
+			});
 			emitContextUsage(active);
 			post({ kind: "result", id, data: { ok: true, level: active.thinkingLevel } });
 			return;
 		}
 		case "compact": {
 			const active = requireSession();
-			// Light prune first so the summarizer sees less tool noise / fewer tokens.
-			pruneAgentToolResults(active);
 			await active.compact(command.customInstructions);
 			emitContextUsage(active);
 			post({ kind: "result", id, data: { ok: true } });

@@ -40,6 +40,14 @@ export const IpcChannels = {
 		/** Renderer → main: 保存「流式渲染」设置（并热重载给活跃 worker）。 */
 		set: "streamRender:set",
 	},
+	tempCleanup: {
+		/** Renderer → main: 读取命令输出临时文件清理设置。 */
+		get: "tempCleanup:get",
+		/** Renderer → main: 保存清理设置（并重排定时器）。 */
+		set: "tempCleanup:set",
+		/** Renderer → main: 立即执行一次清理，返回删除数量与释放字节数。 */
+		sweep: "tempCleanup:sweep",
+	},
 	retry: {
 		/** Renderer → main: 读取「重试」设置。 */
 		get: "retry:get",
@@ -47,6 +55,14 @@ export const IpcChannels = {
 		set: "retry:set",
 		/** Main → renderer: 重试设置变更（多窗口同步）。 */
 		changed: "retry:changed",
+	},
+	runtime: {
+		/** Renderer → main: 读取「运行」设置（压缩 / 缓存 / 隐私）。 */
+		get: "runtime:get",
+		/** Renderer → main: 保存「运行」设置（并热重载给活跃 worker）。 */
+		set: "runtime:set",
+		/** Main → renderer: 运行设置变更（多窗口同步）。 */
+		changed: "runtime:changed",
 	},
 	appearance: {
 		/** Renderer → main: 选择壁纸文件（图片/动图/视频）。 */
@@ -202,11 +218,21 @@ export const IpcChannels = {
 		createInstructionsFromDraft: "customizations:createInstructionsFromDraft",
 		setMcpEnabled: "customizations:setMcpEnabled",
 		addMcpServers: "customizations:addMcpServers",
+		readMcpServer: "customizations:readMcpServer",
 		ensureMcpConfig: "customizations:ensureMcpConfig",
 		removeMcpServer: "customizations:removeMcpServer",
+		setBuiltinExtensionEnabled: "customizations:setBuiltinExtensionEnabled",
+		setToolEnabled: "customizations:setToolEnabled",
+		setCodemodeSettings: "customizations:setCodemodeSettings",
 		setItemEnabled: "customizations:setItemEnabled",
 		removeItem: "customizations:removeItem",
 		testMcpServers: "customizations:testMcpServers",
+		mcpAuthStates: "customizations:mcpAuthStates",
+		mcpLogin: "customizations:mcpLogin",
+		mcpAuthPrompt: "customizations:mcpAuthPrompt",
+		mcpLoginCancel: "customizations:mcpLoginCancel",
+		mcpLogout: "customizations:mcpLogout",
+		mcpAuthEvent: "customizations:mcpAuthEvent",
 		updated: "customizations:updated",
 	},
 	skills: {
@@ -235,6 +261,7 @@ export const IpcChannels = {
 		testConnection: "models:testConnection",
 		providerCatalog: "models:providerCatalog",
 		setSelection: "models:setSelection",
+		fetchQuota: "models:fetchQuota",
 		oauthLogin: "models:oauthLogin",
 		oauthLogout: "models:oauthLogout",
 		oauthPrompt: "models:oauthPrompt",
@@ -552,8 +579,9 @@ export type AgentCommand =
 	| { type: "steer"; message: string; images?: PromptImageContent[] }
 	| { type: "follow_up"; message: string }
 	| { type: "abort" }
+	| { type: "clear_queue" }
 	| { type: "set_model"; provider: string; modelId: string }
-	| { type: "set_thinking_level"; level: string }
+	| { type: "set_thinking_level"; level: string; persist?: boolean }
 	| { type: "compact"; customInstructions?: string }
 	| { type: "get_state" }
 	| { type: "ping" }
@@ -710,6 +738,13 @@ export type SessionHistoryMessage =
 			isError?: boolean;
 			/** Tool-call arguments from the preceding assistant toolCall (e.g. write content). */
 			args?: unknown;
+			/** 工具内部调用（ctx.executeTool）的摘要，从 pi 的 nestedCalls 还原。 */
+			nestedCalls?: {
+				toolCallId: string;
+				toolName: string;
+				isError?: boolean;
+				durationMs?: number;
+			}[];
 	  };
 
 /** Paginated leaf-path history for the chat UI (avoid loading entire huge sessions). */

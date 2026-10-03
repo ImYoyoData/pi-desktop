@@ -1,20 +1,32 @@
 import fs from "node:fs";
 import path from "node:path";
 import { createHash } from "node:crypto";
-import { BrowserWindow, app, ipcMain } from "electron";
+import { BrowserWindow, app, ipcMain, shell, type WebContents } from "electron";
 import { IpcChannels } from "../shared/protocol";
-import { emptyCustomizations, type CustomizationCreateKind, type CustomizationsSnapshot, type McpTestResult, type McpTestTarget } from "../shared/customizations";
+import { emptyCustomizations, type CustomizationCreateKind, type CustomizationsSnapshot, type McpAuthEvent, type McpAuthEventPayload, type McpAuthPromptReply, type McpAuthState, type McpAuthTarget, type McpTestResult, type McpTestTarget } from "../shared/customizations";
 import { getWorkspace, listRecentDesktop } from "./workspace-ipc";
 import { createAgentFromDraft, createInstructionsFromDraft, saveAgentContent } from "./agent-host";
 import { frontmatterText } from "./frontmatter";
-import { createCustomization, listCustomizations, setMcpServerEnabled, addMcpServers, ensureMcpConfig, removeMcpServer, readMcpEntry, setCustomizationItemEnabled, removeCustomizationItem } from "./customizations-host";
-import { testMcpServer } from "./mcp-test";
+import { createCustomization, listCustomizations, setMcpServerEnabled, addMcpServers, ensureMcpConfig, removeMcpServer, readMcpEntry, setBuiltinExtensionEnabled, setCustomizationItemEnabled, removeCustomizationItem } from "./customizations-host";import { testMcpServer } from "./mcp-test";
+import { setBuiltinToolEnabled, setCodemodeSettings } from "./builtin-tools-host";
+import { mcpLogin, mcpLogout, readMcpAuthState } from "./mcp-auth";
+import { readProviderToken } from "./models-config";
 
 /** 同时测试的服务器个数：串行等待太慢，全量并发又会瞬间拉起过多子进程。 */
 const MCP_TEST_CONCURRENCY = 4;
 
+/** 进行中的 MCP 登录：授权码粘贴提示需要回推给发起它的渲染层。 */
+type ActiveMcpLogin = {
+	target: McpAuthTarget;
+	promptSeq: number;
+	resolvePrompt: ((value: string | undefined) => void) | null;
+	sender: WebContents;
+};
+
+let activeMcpLogin: ActiveMcpLogin | null = null;
+
 /** 快照缓存版本：字段结构变化时递增，旧缓存自然失效。 */
-const SNAPSHOT_CACHE_VERSION = 1;
+const SNAPSHOT_CACHE_VERSION = 2;
 
 type CachedSnapshot = {
 	version: number;
@@ -182,6 +194,45 @@ export function registerCustomizationsIpc(broker?: {
 	);
 
 	ipcMain.handle(
+		IpcChannels.customizations.readMcpServer,
+		(_event, name: string, scope: "user" | "project", cwd?: string) => {
+			const root = cwd || getWorkspace();
+			if (scope === "project" && !root) throw new Error("workspace required");
+			return readMcpEntry(name, scope, root ?? undefined);
+		},
+	);
+
+	ipcMain.handle(
+		IpcChannels.customizations.setBuiltinExtensionEnabled,
+		async (_event, name: string, enabled: boolean, cwd?: string) => {
+			const root = cwd || getWorkspace();
+			const items = await setBuiltinExtensionEnabled(name, enabled, root ?? undefined);
+			if (root) await broker?.notifyWorkersReloadResources(root);
+			return items;
+		},
+	);
+
+	ipcMain.handle(
+		IpcChannels.customizations.setToolEnabled,
+		async (_event, name: string, enabled: boolean, cwd?: string) => {
+			const root = cwd || getWorkspace();
+			const items = await setBuiltinToolEnabled(name, enabled, root ?? undefined);
+			if (root) await broker?.notifyWorkersReloadResources(root);
+			return items;
+		},
+	);
+
+	ipcMain.handle(
+		IpcChannels.customizations.setCodemodeSettings,
+		async (_event, patch: { mode?: unknown; inlineBudget?: unknown }, cwd?: string) => {
+			const root = cwd || getWorkspace();
+			const state = await setCodemodeSettings(patch ?? {}, root ?? undefined);
+			if (root) await broker?.notifyWorkersReloadResources(root);
+			return state;
+		},
+	);
+
+	ipcMain.handle(
 		IpcChannels.customizations.ensureMcpConfig,
 		(_event, scope: "user" | "project", cwd?: string) => {
 			const root = cwd || getWorkspace();
@@ -226,13 +277,144 @@ export function registerCustomizationsIpc(broker?: {
 		(_event, targets: McpTestTarget[]): Promise<McpTestResult[]> =>
 			mapWithConcurrency(targets, MCP_TEST_CONCURRENCY, testMcpTarget),
 	);
+
+	ipcMain.handle(
+		IpcChannels.customizations.mcpAuthStates,
+		(_event, targets: McpAuthTarget[]): Promise<Record<string, McpAuthState>> =>
+			mapMcpAuthStates(targets),
+	);
+
+	ipcMain.handle(
+		IpcChannels.customizations.mcpLogin,
+		async (event, target: McpAuthTarget): Promise<void> => {
+			if (activeMcpLogin) throw new Error("another MCP sign-in is already running");
+			const session: ActiveMcpLogin = {
+				target,
+				promptSeq: 0,
+				resolvePrompt: null,
+				sender: event.sender,
+			};
+			activeMcpLogin = session;
+			try {
+				await mcpLogin(target, {
+					onInfo: (message) =>
+						pushMcpAuthEvent(session.sender, target, { type: "info", message }),
+					onAuthorizationUrl: (url) => {
+						pushMcpAuthEvent(session.sender, target, { type: "auth_url", url });
+						void shell.openExternal(url);
+					},
+					promptForRedirectUrl: (signal) => requestMcpRedirectUrl(session, signal),
+				});
+				const root = target.workspace?.trim() || getWorkspace();
+				if (root) await broker?.notifyWorkersReloadResources(root);
+			} finally {
+				if (activeMcpLogin === session) activeMcpLogin = null;
+			}
+		},
+	);
+
+	ipcMain.handle(
+		IpcChannels.customizations.mcpAuthPrompt,
+		(_event, reply: McpAuthPromptReply): void => {
+			const session = activeMcpLogin;
+			if (!session) return;
+			if (
+				session.target.name !== reply?.name ||
+				session.target.scope !== reply?.scope
+			) {
+				return;
+			}
+			session.resolvePrompt?.(
+				reply.cancelled ? undefined : String(reply.value ?? ""),
+			);
+		},
+	);
+
+	ipcMain.handle(IpcChannels.customizations.mcpLoginCancel, (): void => {
+		activeMcpLogin?.resolvePrompt?.(undefined);
+	});
+
+	ipcMain.handle(
+		IpcChannels.customizations.mcpLogout,
+		async (_event, target: McpAuthTarget): Promise<boolean> => {
+			const removed = mcpLogout(target);
+			const root = target.workspace?.trim() || getWorkspace();
+			if (root) await broker?.notifyWorkersReloadResources(root);
+			return removed;
+		},
+	);
+}
+
+/** 读取多个服务器的 OAuth 状态，key 与渲染端的 `scope:name` 对齐。 */
+async function mapMcpAuthStates(
+	targets: McpAuthTarget[],
+): Promise<Record<string, McpAuthState>> {
+	const entries: [string, McpAuthState][] = [];
+	for (const target of targets ?? []) {
+		entries.push([`${target.scope}:${target.name}`, await readMcpAuthState(target)]);
+	}
+	return Object.fromEntries(entries);
+}
+
+/** MCP 登录进展推给渲染层。 */function pushMcpAuthEvent(
+	sender: WebContents,
+	target: McpAuthTarget,
+	event: McpAuthEvent,
+): void {
+	if (sender.isDestroyed()) return;
+	const payload: McpAuthEventPayload = {
+		name: target.name,
+		scope: target.scope,
+		event,
+	};
+	sender.send(IpcChannels.customizations.mcpAuthEvent, payload);
+}
+
+/** 让渲染层粘贴回调地址；浏览器回调先到时由 pi 中止该提示。 */
+function requestMcpRedirectUrl(
+	session: ActiveMcpLogin,
+	signal: AbortSignal,
+): Promise<string | undefined> {
+	const promptId = ++session.promptSeq;
+	pushMcpAuthEvent(session.sender, session.target, { type: "prompt", promptId });
+	return new Promise<string | undefined>((resolve) => {
+		const finish = (value: string | undefined): void => {
+			session.resolvePrompt = null;
+			resolve(value);
+		};
+		session.resolvePrompt = finish;
+		signal.addEventListener("abort", () => finish(undefined), { once: true });
+	});
 }
 
 async function testMcpTarget(target: McpTestTarget): Promise<McpTestResult> {
 	const entry = readMcpEntry(target.name, target.scope, target.workspace);
 	if (!entry) return { ...target, ok: false, error: "server not found", durationMs: 0 };
-	if (entry.disabled === true) return { ...target, ok: false, error: "disabled", durationMs: 0 };
+	if (entry.disabled === true || entry.enabled === false) {
+		return { ...target, ok: false, error: "disabled", durationMs: 0 };
+	}
+	const provider = mcpAuthProvider(entry);
+	if (provider) {
+		const token = await readProviderToken(provider);
+		if (!token) {
+			return {
+				...target,
+				ok: false,
+				error: `no stored credential for provider "${provider}"`,
+				durationMs: 0,
+			};
+		}
+		return { ...target, ...(await testMcpServer(entry, undefined, token)) };
+	}
 	return { ...target, ...(await testMcpServer(entry)) };
+}
+
+/** MCP 的 `auth.provider`（HTTP 服务器用 provider 的 /login 令牌）。 */
+function mcpAuthProvider(entry: Record<string, unknown>): string | undefined {
+	const auth = entry.auth;
+	if (!auth || typeof auth !== "object" || Array.isArray(auth)) return undefined;
+	const provider = (auth as { provider?: unknown }).provider;
+	return typeof provider === "string" && provider ? provider : undefined;
 }
 
 /** 测试会拉起子进程，限制并发以免同时抢占系统资源；结果保持输入顺序。 */

@@ -14,6 +14,7 @@ import {
 } from "@vicons/ionicons5";
 import type { ToolCard } from "@renderer/utils/tool-diff";
 import { previewText } from "@renderer/utils/tool-diff";
+import type { ChatToolNestedCall } from "@renderer/stores/chat-reducer";
 import { isToolCardOpen } from "@renderer/utils/tool-card-open";
 import FileChip from "@renderer/components/FileChip.vue";
 import { t } from "@renderer/i18n";
@@ -41,6 +42,8 @@ const props = defineProps<{
    * every row as well only buries the answer.
    */
   detailCollapsed?: boolean;
+  /** 工具内部调用（ctx.executeTool，如 codemode 脚本）的嵌套调用。 */
+  nestedCalls?: ChatToolNestedCall[];
 }>();
 
 const emit = defineEmits<{
@@ -302,6 +305,10 @@ watch(
   },
 );
 
+const cardImages = computed<string[]>(() =>
+  props.card.kind === "generic" ? props.card.images : [],
+);
+
 const emptyBodyText = computed(() => {
   if (props.card.kind === "bash") return t.toolNoOutput;
   if (props.card.kind === "todo") return t.toolTodoEmpty;
@@ -327,7 +334,8 @@ const pathTitle = computed(() => {
 /** Rows with nothing to reveal drop the disclosure affordance (VS Code setExpandable). */
 const expandable = computed(() => {
   if (props.card.kind === "todo") return todoItems.value.length > 0;
-  return Boolean(body.value);
+  if (props.nestedCalls?.length) return true;
+  return Boolean(body.value) || cardImages.value.length > 0;
 });
 
 /** 可预览的文件路径（read / edit / write / other 卡才有）。 */
@@ -412,8 +420,7 @@ const todoItems = computed(() =>
         aria-hidden="true"
       />
     </div>
-    <ul v-if="open && card.kind === 'todo' && todoItems.length" class="todo-body">
-      <li
+    <ul v-if="open && card.kind === 'todo' && todoItems.length" class="todo-body">      <li
         v-for="item in todoItems"
         :key="item.id"
         class="todo-row"
@@ -427,6 +434,27 @@ const todoItems = computed(() =>
         <span class="todo-text">{{ item.text }}</span>
       </li>
     </ul>
+    <div v-if="open && nestedCalls?.length" class="nested-body">
+      <div
+        v-for="call in nestedCalls"
+        :key="call.toolCallId"
+        class="nested-row"
+        :class="{ error: call.isError, streaming: call.streaming }"
+      >
+        <NIcon
+          class="nested-mark"
+          :component="
+            call.streaming ? EllipseOutline : call.isError ? CloseCircleOutline : CheckmarkCircleOutline
+          "
+          :size="12"
+        />
+        <span class="nested-name">{{ call.toolName }}</span>
+        <span
+          v-if="call.durationMs != null && !call.streaming"
+          class="nested-meta"
+        >{{ formatDuration(call.durationMs) }}</span>
+      </div>
+    </div>
     <pre
       v-else-if="open && body"
       ref="bodyRef"
@@ -443,7 +471,10 @@ const todoItems = computed(() =>
         meta: isDiffBody && (line.startsWith('@@') || line.startsWith('diff ') || line.startsWith('index ') || line.startsWith('+++') || line.startsWith('---')),
       }"
     >{{ line || ' ' }}</span></code></pre>
-    <pre v-else-if="open && !body" class="tool-body empty">{{ emptyBodyText }}</pre>
+    <pre v-else-if="open && !body && !cardImages.length" class="tool-body empty">{{ emptyBodyText }}</pre>
+    <div v-if="open && cardImages.length" class="tool-images">
+      <img v-for="(src, i) in cardImages" :key="i" :src="src" class="tool-image" alt="" />
+    </div>
   </div>
 </template>
 
@@ -459,6 +490,45 @@ const todoItems = computed(() =>
 
 .tool-call.error {
   color: var(--error, #d03050);
+}
+
+.nested-body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 2px 0 4px;
+  padding-left: 20px;
+}
+
+.nested-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  color: var(--fg-muted);
+  font-size: 11px;
+  line-height: 16px;
+}
+
+.nested-row.error {
+  color: var(--error, #d03050);
+}
+
+.nested-mark {
+  flex-shrink: 0;
+  opacity: 0.7;
+}
+
+.nested-name {
+  font-family: var(--font-mono, monospace);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.nested-meta {
+  flex-shrink: 0;
+  opacity: 0.7;
 }
 
 .tool-call.ask-user-muted {
@@ -655,6 +725,24 @@ const todoItems = computed(() =>
 .tool-body.empty {
   padding: 8px 10px;
   color: var(--chat-desc-fg, var(--fg-muted));
+}
+
+.tool-images {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 2px 0 4px;
+}
+
+.tool-call.tree-item .tool-images {
+  margin-left: 24px;
+}
+
+.tool-image {
+  max-width: min(100%, 420px);
+  max-height: 260px;
+  border: 1px solid var(--chat-line, var(--border));
+  border-radius: 6px;
 }
 
 .tool-body-bash .dline {

@@ -3,7 +3,7 @@
  * - enabled / maxRetries / baseDelayMs 由 pi SDK 的 turn 层自动重试读取；
  * - provider.* 由 pi SDK 的 HTTP 请求层读取；
  * - desktop.* 仅 pi-desktop 使用（worker 卡死自动恢复）。
- * 各档位为预设选项，解析时吸附到最近的档位，越界值不会写坏行为。
+ * 各档位为预设选项；除 maxAgentDelayMs 外，解析时吸附到最近的档位。
  */
 
 export type RetryProviderSettings = {
@@ -30,6 +30,8 @@ export type RetrySettings = {
   enabled: boolean;
   maxRetries: number;
   baseDelayMs: number;
+  /** agent 层重试等待上限；pi 用 Math.min(delay, maxAgentDelayMs)，0 = 立即重试。 */
+  maxAgentDelayMs: number;
   provider: RetryProviderSettings;
   desktop: RetryDesktopSettings;
 };
@@ -37,6 +39,10 @@ export type RetrySettings = {
 export const RETRY_COUNT_CHOICES = [0, 1, 2, 3, 5, 8, 10] as const;
 export const RETRY_BASE_DELAY_CHOICES = [500, 1000, 2000, 3000, 5000, 10_000] as const;
 export const RETRY_MAX_DELAY_CHOICES = [0, 15_000, 30_000, 60_000, 120_000, 300_000] as const;
+/** agent 退避上限的选项；不提供 0（pi 里 0 = 不等待，只适合手写）。 */
+export const RETRY_AGENT_MAX_DELAY_CHOICES = [
+  1000, 5000, 15_000, 30_000, 60_000, 120_000, 300_000,
+] as const;
 export const RETRY_TIMEOUT_CHOICES = [null, 60_000, 120_000, 300_000, 600_000] as const;
 export const RETRY_DESKTOP_COUNT_CHOICES = [0, 1, 2, 3, 5] as const;
 export const RETRY_SOFT_HANG_SILENCE_CHOICES = [60_000, 120_000, 180_000, 300_000] as const;
@@ -46,6 +52,7 @@ export const DEFAULT_RETRY_SETTINGS: RetrySettings = {
   enabled: true,
   maxRetries: 3,
   baseDelayMs: 2000,
+  maxAgentDelayMs: 60_000,
   provider: { maxRetries: 0, maxRetryDelayMs: 60_000, timeoutMs: null },
   desktop: {
     recoverMax: 2,
@@ -61,13 +68,19 @@ function readObject(raw: unknown): Record<string, unknown> {
     : {};
 }
 
-function snapToChoice(raw: unknown, choices: readonly number[], fallback: number): number {
-  const value = Number(raw);
+function snapToChoice(raw: unknown, choices: readonly number[], fallback: number): number {  const value = Number(raw);
   if (!Number.isFinite(value)) return fallback;
   return choices.reduce(
     (best, choice) => (Math.abs(choice - value) < Math.abs(best - value) ? choice : best),
     fallback,
   );
+}
+
+/** 退避上限：0 在 pi 里 = 立即重试，保留手写的合法非负值；非法/缺失才回落默认。 */
+function readNonNegativeNumber(raw: unknown, fallback: number): number {
+  const value = Number(raw);
+  if (!Number.isFinite(value) || value < 0) return fallback;
+  return Math.round(value);
 }
 
 function parseProvider(raw: unknown): RetryProviderSettings {
@@ -116,6 +129,10 @@ export function parseRetrySettings(raw: unknown): RetrySettings {
       source.baseDelayMs,
       RETRY_BASE_DELAY_CHOICES,
       DEFAULT_RETRY_SETTINGS.baseDelayMs,
+    ),
+    maxAgentDelayMs: readNonNegativeNumber(
+      source.maxAgentDelayMs,
+      DEFAULT_RETRY_SETTINGS.maxAgentDelayMs,
     ),
     provider: parseProvider(source.provider),
     desktop: parseDesktop(source.desktop),

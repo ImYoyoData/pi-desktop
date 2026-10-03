@@ -112,6 +112,16 @@ extraResources:
     to: resources/
     filter:
       - "**/*"
+  # SDK 按 PI_PACKAGE_DIR 解析 docs/README/examples；这些 .md 被 asar 的
+  # "!**/*.{md,map}" 排除，1.0.0 的 codemode 提示词会引导模型读取文档。
+  - from: node_modules/@earendil-works/pi-coding-agent
+    to: pi-package/
+    filter:
+      - "package.json"
+      - "README.md"
+      - "CHANGELOG.md"
+      - "docs/**"
+      - "examples/**"
 icon: build/icon.png
 compression: normal
 removePackageScripts: true
