@@ -45,6 +45,7 @@
     "@earendil-works/pi-coding-agent": "^1.0.0",
     "@electron-toolkit/preload": "^3.0.2",
     "@electron-toolkit/utils": "^4.0.0",
+    "@git-diff-view/vue": "^0.1.7",
     "@vicons/ionicons5": "^0.13.0",
     "@viz-js/viz": "^3.30.0",
     "@xterm/addon-fit": "^0.11.0",

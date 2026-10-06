@@ -28,7 +28,6 @@ import {
   EllipsisHorizontalOutline,
   FolderOpenOutline,
   FolderOutline,
-  GitPullRequestOutline,
   ListOutline,
   PinOutline,
   SwapHorizontalOutline,
@@ -51,6 +50,7 @@ import { hasOpenModal } from "@renderer/utils/modal-overlay";
 import { buildSessionTree, type SessionTreeItem } from "@renderer/utils/session-tree";
 import { t } from "@renderer/i18n";
 import CodiconIcon from "@renderer/components/icons/CodiconIcon.vue";
+import GitPullRequestIcon from "@renderer/components/icons/GitPullRequestIcon.vue";
 import { markRendererStartup } from "@renderer/utils/startup-timing";
 
 const PIN_KEY = "session-pins:v1";
@@ -1647,7 +1647,7 @@ watch(
         @click="layout.showPullRequests()"
       >
         <span class="btn-content">
-          <NIcon :component="GitPullRequestOutline" :size="15" />
+          <GitPullRequestIcon :size="16" class="btn-glyph" />
           <span class="btn-label">{{ t.pullRequests }}</span>
         </span>
       </NButton>
@@ -2161,8 +2161,8 @@ watch(
 }
 
 .top-btn-active {
-  background: var(--accent-soft) !important;
-  color: var(--accent) !important;
+  background: rgba(127, 127, 127, 0.14) !important;
+  color: var(--fg-strong) !important;
 }
 
 .btn-content {
@@ -2170,6 +2170,10 @@ watch(
   align-items: center;
   gap: 8px;
   min-width: 0;
+}
+
+.btn-glyph {
+  flex: none;
 }
 
 .top-btn .btn-label {

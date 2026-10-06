@@ -1,20 +1,18 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref, watch } from "vue";
-import { NButton, NDropdown, NIcon, NInput, NSelect, NSpin, useMessage } from "naive-ui";
+import { NButton, NDropdown, NIcon, NInput, NSpin, useMessage } from "naive-ui";
 import type { DropdownOption } from "naive-ui";
 import {
   ArrowBackOutline,
   ChevronDownOutline,
   CloseCircleOutline,
-  CreateOutline,
   FlagOutline,
   GitCommitOutline,
   GitMerge,
-  GitPullRequest,
-  GitPullRequestOutline,
   LinkOutline,
   OpenOutline,
   PeopleOutline,
+  PencilOutline,
   PersonAddOutline,
   PersonOutline,
   PricetagOutline,
@@ -30,6 +28,8 @@ import type {
   PullRequestReviewState,
 } from "../../../shared/github-types";
 import GitHubAvatar from "@renderer/components/GitHubAvatar.vue";
+import GitPullRequestIcon from "@renderer/components/icons/GitPullRequestIcon.vue";
+import PullRequestChoicePopover, { type ChoiceOption } from "@renderer/components/PullRequestChoicePopover.vue";
 import PullRequestConversation from "@renderer/components/PullRequestConversation.vue";
 import PullRequestFiles from "@renderer/components/PullRequestFiles.vue";
 import {
@@ -71,10 +71,9 @@ const titleDraft = ref("");
 const reviewOpen = ref(false);
 const reviewEvent = ref<"approve" | "request-changes" | "comment">("comment");
 const reviewBody = ref("");
-const peopleOpen = ref(false);
-const labelOpen = ref(false);
-const milestoneOpen = ref(false);
 const choices = ref<PullRequestChoices>({});
+const choicesLoading = ref(false);
+const choicesError = ref<string | null>(null);
 
 const pullRequest = computed(() => detail.value?.pullRequest ?? null);
 const checks = computed(() => pullRequest.value?.checks ?? []);
@@ -293,29 +292,44 @@ async function setState(state: "close" | "reopen" | "ready" | "draft"): Promise<
 }
 
 async function loadChoices(kind: "labels" | "people" | "milestones"): Promise<void> {
-  const response = await window.api.github.pullRequestChoices(plainIpcArgs({ url: props.url, kind }));
-  if (!response.success) {
-    message.error(response.error || t.prCouldNotLoadChoices);
-    return;
+  const loaded =
+    kind === "labels" ? choices.value.labels : kind === "people" ? choices.value.people : choices.value.milestones;
+  if (loaded) return;
+  choicesLoading.value = true;
+  choicesError.value = null;
+  try {
+    const response = await window.api.github.pullRequestChoices(plainIpcArgs({ url: props.url, kind }));
+    if (!response.success) {
+      choicesError.value = response.error || t.prCouldNotLoadChoices;
+      return;
+    }
+    choices.value = {
+      ...choices.value,
+      labels: response.labels ?? choices.value.labels,
+      people: response.people ?? choices.value.people,
+      milestones: response.milestones ?? choices.value.milestones,
+    };
+  } finally {
+    choicesLoading.value = false;
   }
-  choices.value = {
-    ...choices.value,
-    labels: response.labels ?? choices.value.labels,
-    people: response.people ?? choices.value.people,
-    milestones: response.milestones ?? choices.value.milestones,
-  };
 }
 
-function labelOptions(): { label: string; value: string }[] {
-  return (choices.value.labels ?? []).map((label) => ({ label: label.name, value: label.name }));
+function labelChoiceOptions(): ChoiceOption[] {
+  return (choices.value.labels ?? []).map((label) => ({ value: label.name, color: label.color }));
 }
 
-function peopleOptions(): { label: string; value: string }[] {
-  return (choices.value.people ?? []).map((login) => ({ label: login, value: login }));
+function peopleChoiceOptions(): ChoiceOption[] {
+  return (choices.value.people ?? []).map((login) => ({ value: login }));
 }
 
-function milestoneOptions(): { label: string; value: string }[] {
-  return (choices.value.milestones ?? []).map((milestone) => ({ label: milestone.title, value: milestone.title }));
+function milestoneChoiceOptions(): ChoiceOption[] {
+  return (choices.value.milestones ?? []).map((milestone) => ({ value: milestone.title }));
+}
+
+function toggleName(kind: "labels" | "assignees" | "reviewers", value: string, on: boolean): void {
+  const current = currentNames(kind);
+  const next = on ? [...current, value] : current.filter((name) => name !== value);
+  void applyNames(kind, next);
 }
 
 function currentNames(kind: "labels" | "assignees" | "reviewers"): string[] {
@@ -336,21 +350,6 @@ async function applyNames(kind: "labels" | "assignees" | "reviewers", next: stri
 
 async function applyMilestone(title: string | null): Promise<void> {
   await run({ kind: "milestone", title });
-}
-
-function openPeople(): void {
-  peopleOpen.value = true;
-  void loadChoices("people");
-}
-
-function openLabels(): void {
-  labelOpen.value = true;
-  void loadChoices("labels");
-}
-
-function openMilestone(): void {
-  milestoneOpen.value = true;
-  void loadChoices("milestones");
 }
 
 function rerunChecks(failedOnly: boolean): void {
@@ -388,7 +387,7 @@ function onEscape(event: KeyboardEvent): void {
   ) {
     return;
   }
-  if (document.querySelector('[role="menu"], [role="dialog"], [role="alertdialog"]')) return;
+  if (document.querySelector('[role="menu"], [role="dialog"], [role="alertdialog"], .n-popover')) return;
   emit("back");
 }
 
@@ -459,7 +458,8 @@ defineExpose({ refresh: () => loadDetail(true) });
 
       <template v-else-if="pullRequest">
         <div class="title-row">
-          <NIcon :component="pullRequest.state === 'merged' ? GitMerge : pullRequest.state === 'closed' ? CloseCircleOutline : pullRequest.isDraft ? GitPullRequestOutline : GitPullRequest"
+          <NIcon
+            :component="pullRequest.state === 'merged' ? GitMerge : pullRequest.state === 'closed' ? CloseCircleOutline : GitPullRequestIcon"
             :size="20"
             class="state-icon"
             :class="pullRequest.state === 'merged' ? 'merged' : pullRequest.state === 'closed' ? 'closed' : pullRequest.isDraft ? 'draft' : 'open'"
@@ -469,7 +469,7 @@ defineExpose({ refresh: () => loadDetail(true) });
             <span class="number">
               #{{ pullRequest.number }}
               <button v-if="detail?.viewerCanUpdate" type="button" class="edit-title" :title="t.prEditTitle" @click="beginTitleEdit">
-                <NIcon :component="CreateOutline" :size="13" />
+                <NIcon :component="PencilOutline" :size="13" />
               </button>
             </span>
           </h1>
@@ -619,6 +619,7 @@ defineExpose({ refresh: () => loadDetail(true) });
           :detail="detail"
           :pending="pending"
           @run="run"
+          @reload="loadPatch(true)"
         />
       </div>
 
@@ -627,7 +628,17 @@ defineExpose({ refresh: () => loadDetail(true) });
           <header class="side-head">
             <NIcon :component="PeopleOutline" :size="14" class="side-icon" />
             <span>{{ t.prReviewers }}</span>
-            <button v-if="canEditMeta" type="button" class="side-edit" @click="openPeople">＋</button>
+            <PullRequestChoicePopover
+              v-if="canEditMeta"
+              :title="t.prReviewers"
+              :options="peopleChoiceOptions()"
+              :selected="detail.reviewRequests"
+              :loading="choicesLoading"
+              :error="choicesError"
+              multi
+              @load="loadChoices('people')"
+              @toggle="(value: string, on: boolean) => toggleName('reviewers', value, on)"
+            />
           </header>
           <ul v-if="detail.reviewRequests.length" class="side-list">
             <li v-for="login in detail.reviewRequests" :key="login" class="side-row">
@@ -642,7 +653,17 @@ defineExpose({ refresh: () => loadDetail(true) });
           <header class="side-head">
             <NIcon :component="PersonAddOutline" :size="14" class="side-icon" />
             <span>{{ t.prAssignees }}</span>
-            <button v-if="canEditMeta" type="button" class="side-edit" @click="openPeople">＋</button>
+            <PullRequestChoicePopover
+              v-if="canEditMeta"
+              :title="t.prAssignees"
+              :options="peopleChoiceOptions()"
+              :selected="detail.assignees"
+              :loading="choicesLoading"
+              :error="choicesError"
+              multi
+              @load="loadChoices('people')"
+              @toggle="(value: string, on: boolean) => toggleName('assignees', value, on)"
+            />
           </header>
           <ul v-if="detail.assignees.length" class="side-list">
             <li v-for="login in detail.assignees" :key="login" class="side-row">
@@ -657,7 +678,17 @@ defineExpose({ refresh: () => loadDetail(true) });
           <header class="side-head">
             <NIcon :component="PricetagOutline" :size="14" class="side-icon" />
             <span>{{ t.prLabels }}</span>
-            <button v-if="canEditMeta" type="button" class="side-edit" @click="openLabels">＋</button>
+            <PullRequestChoicePopover
+              v-if="canEditMeta"
+              :title="t.prLabels"
+              :options="labelChoiceOptions()"
+              :selected="detail.labels.map((label) => label.name)"
+              :loading="choicesLoading"
+              :error="choicesError"
+              multi
+              @load="loadChoices('labels')"
+              @toggle="(value: string, on: boolean) => toggleName('labels', value, on)"
+            />
           </header>
           <div v-if="detail.labels.length" class="label-chips">
             <span v-for="label in detail.labels" :key="label.name" class="label-chip" :style="labelStyle(label)">
@@ -671,7 +702,16 @@ defineExpose({ refresh: () => loadDetail(true) });
           <header class="side-head">
             <NIcon :component="FlagOutline" :size="14" class="side-icon" />
             <span>{{ t.prMilestone }}</span>
-            <button v-if="canEditMeta" type="button" class="side-edit" @click="openMilestone">＋</button>
+            <PullRequestChoicePopover
+              v-if="canEditMeta"
+              :title="t.prMilestone"
+              :options="milestoneChoiceOptions()"
+              :selected="detail.milestone ? [detail.milestone.title] : []"
+              :loading="choicesLoading"
+              :error="choicesError"
+              @load="loadChoices('milestones')"
+              @toggle="(value: string, on: boolean) => applyMilestone(on ? value : null)"
+            />
           </header>
           <p v-if="detail.milestone" class="side-text">{{ detail.milestone.title }}</p>
           <p v-else class="side-empty">{{ t.prNoMilestone }}</p>
@@ -764,70 +804,6 @@ defineExpose({ refresh: () => loadDetail(true) });
           </div>
         </section>
       </aside>
-    </div>
-
-    <div v-if="peopleOpen && detail" class="overlay" @click.self="peopleOpen = false">
-      <div class="overlay-card">
-        <div class="overlay-title">{{ t.prReviewers }} / {{ t.prAssignees }}</div>
-        <div class="overlay-field">
-          <span>{{ t.prReviewers }}</span>
-          <NSelect
-            multiple
-            filterable
-            size="small"
-            :value="detail.reviewRequests"
-            :options="peopleOptions()"
-            @update:value="(value: string[]) => applyNames('reviewers', value)"
-          />
-        </div>
-        <div class="overlay-field">
-          <span>{{ t.prAssignees }}</span>
-          <NSelect
-            multiple
-            filterable
-            size="small"
-            :value="detail.assignees"
-            :options="peopleOptions()"
-            @update:value="(value: string[]) => applyNames('assignees', value)"
-          />
-        </div>
-        <div class="overlay-actions">
-          <NButton size="tiny" quaternary @click="peopleOpen = false">{{ t.cancel }}</NButton>
-        </div>
-      </div>
-    </div>
-
-    <div v-if="labelOpen && detail" class="overlay" @click.self="labelOpen = false">
-      <div class="overlay-card">
-        <div class="overlay-title">{{ t.prLabels }}</div>
-        <NSelect
-          multiple
-          filterable
-          size="small"
-          :value="detail.labels.map((label) => label.name)"
-          :options="labelOptions()"
-          @update:value="(value: string[]) => applyNames('labels', value)"
-        />
-        <div class="overlay-actions">
-          <NButton size="tiny" quaternary @click="labelOpen = false">{{ t.cancel }}</NButton>
-        </div>
-      </div>
-    </div>
-
-    <div v-if="milestoneOpen && detail" class="overlay" @click.self="milestoneOpen = false">
-      <div class="overlay-card">
-        <div class="overlay-title">{{ t.prMilestone }}</div>
-        <NSelect
-          size="small"
-          clearable
-          :value="detail.milestone?.title ?? null"
-          :options="milestoneOptions()"
-          @update:value="(value: string | null) => applyMilestone(value ?? null)"
-        />
-        <div class="overlay-actions">
-          <NButton size="tiny" quaternary @click="milestoneOpen = false">{{ t.cancel }}</NButton>
-        </div>
-      </div>
     </div>
   </div>
 </template>
@@ -1518,45 +1494,5 @@ defineExpose({ refresh: () => loadDetail(true) });
   padding: 24px 12px;
   text-align: center;
   color: var(--fg-muted);
-}
-
-.overlay {
-  position: fixed;
-  inset: 0;
-  z-index: 60;
-  display: flex;
-  align-items: flex-start;
-  justify-content: center;
-  padding-top: 12%;
-  background: rgba(0, 0, 0, 0.25);
-}
-
-.overlay-card {
-  width: min(440px, 86%);
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  padding: 14px;
-  border: 1px solid var(--border-strong);
-  border-radius: var(--radius-lg);
-  background: var(--bg-elevated);
-  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.24);
-}
-
-.overlay-title {
-  font-weight: 600;
-}
-
-.overlay-field {
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-  font-size: 11.5px;
-  color: var(--fg-muted);
-}
-
-.overlay-actions {
-  display: flex;
-  justify-content: flex-end;
 }
 </style>

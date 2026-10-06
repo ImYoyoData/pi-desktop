@@ -1,18 +1,18 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref } from "vue";
-import { NIcon, NSelect, useMessage } from "naive-ui";
+import { NDropdown, NIcon, useMessage } from "naive-ui";
 import {
   ChatbubbleOutline,
   CheckmarkCircleOutline,
+  ChevronDownOutline,
   CloseCircleOutline,
   CopyOutline,
   GitMerge,
-  GitPullRequest,
-  GitPullRequestOutline,
   OpenOutline,
   RefreshOutline,
   SearchOutline,
 } from "@vicons/ionicons5";
+import GitPullRequestIcon from "@renderer/components/icons/GitPullRequestIcon.vue";
 import type {
   PullRequestDetail,
   PullRequestLabel,
@@ -54,13 +54,15 @@ const view = computed<PrView>(() => {
   return store.selection.author === "mine" ? "mine" : "all";
 });
 
-const viewOptions = computed(() => [
-  { label: t.prViewAll, value: "all" },
-  { label: t.prViewMine, value: "mine" },
-  { label: t.prViewReviewing, value: "reviewing" },
-  { label: t.prViewAssigned, value: "assigned" },
-  { label: t.prViewMentioned, value: "mentioned" },
+const viewItems = computed<MenuItem[]>(() => [
+  { key: "all", label: t.prViewAll },
+  { key: "mine", label: t.prViewMine },
+  { key: "reviewing", label: t.prViewReviewing },
+  { key: "assigned", label: t.prViewAssigned },
+  { key: "mentioned", label: t.prViewMentioned },
 ]);
+
+const viewLabel = computed(() => viewItems.value.find((item) => item.key === view.value)?.label ?? "");
 
 const stateTabs = computed(() => [
   { key: "open" as const, label: t.prStateOpen, count: list.value.counts?.open },
@@ -70,16 +72,23 @@ const stateTabs = computed(() => [
 ]);
 
 
-const sortOptions = computed(() => [
-  { label: t.prSortUpdatedDesc, value: "updated-desc" },
-  { label: t.prSortUpdatedAsc, value: "updated-asc" },
-  { label: t.prSortCreatedDesc, value: "created-desc" },
-  { label: t.prSortCreatedAsc, value: "created-asc" },
-  { label: t.prSortCommentsDesc, value: "comments-desc" },
-  { label: t.prSortCommentsAsc, value: "comments-asc" },
-  { label: t.prSortReactionsDesc, value: "reactions-desc" },
-  { label: t.prSortInteractionsDesc, value: "interactions-desc" },
+type MenuItem = { key: string; label: string };
+
+const sortItems = computed<MenuItem[]>(() => [
+  { key: "updated-desc", label: t.prSortUpdatedDesc },
+  { key: "updated-asc", label: t.prSortUpdatedAsc },
+  { key: "created-desc", label: t.prSortCreatedDesc },
+  { key: "created-asc", label: t.prSortCreatedAsc },
+  { key: "comments-desc", label: t.prSortCommentsDesc },
+  { key: "comments-asc", label: t.prSortCommentsAsc },
+  { key: "reactions-desc", label: t.prSortReactionsDesc },
+  { key: "interactions-desc", label: t.prSortInteractionsDesc },
 ]);
+
+const sortLabel = computed(
+  () =>
+    sortItems.value.find((item) => item.key === (store.selection.filters.sort ?? "updated-desc"))?.label ?? "",
+);
 
 type FilterChip = { key: keyof typeof store.selection.filters; label: string };
 
@@ -155,7 +164,7 @@ function relativeTime(iso: string | undefined): string {
 function stateIcon(row: PullRequestSummary) {
   if (row.state === "merged") return GitMerge;
   if (row.state === "closed") return CloseCircleOutline;
-  return row.isDraft ? GitPullRequestOutline : GitPullRequest;
+  return GitPullRequestIcon;
 }
 
 function stateClass(row: PullRequestSummary): string {
@@ -276,13 +285,16 @@ onUnmounted(() => {
         <h1 class="page-title">{{ t.pullRequests }}</h1>
         <span v-if="list.repository" class="repo-name">{{ list.repository }}</span>
         <div class="head-tools">
-          <NSelect
-            class="view-select"
-            size="small"
-            :value="view"
-            :options="viewOptions"
-            @update:value="selectView"
-          />
+          <NDropdown
+            trigger="click"
+            :options="viewItems"
+            @select="(key: string) => selectView(key as PrView)"
+          >
+            <button type="button" class="view-btn" :aria-label="t.prShowView(viewLabel)">
+              <span>{{ viewLabel }}</span>
+              <NIcon :component="ChevronDownOutline" :size="14" class="chev" />
+            </button>
+          </NDropdown>
           <form class="search-box" @submit.prevent="submitSearch">
             <NIcon :component="SearchOutline" :size="14" class="search-icon" />
             <input
@@ -300,12 +312,14 @@ onUnmounted(() => {
       </header>
 
       <div class="tabs-row">
-        <div class="state-tabs">
+        <div class="state-tabs" role="tablist" :aria-label="t.prFilterState">
           <button
             v-for="tab in stateTabs"
             :key="tab.key"
             type="button"
+            role="tab"
             class="state-tab"
+            :aria-selected="store.selection.state === tab.key"
             :class="{ active: store.selection.state === tab.key }"
             @click="selectState(tab.key)"
           >
@@ -315,13 +329,16 @@ onUnmounted(() => {
         </div>
         <div class="tabs-tools">
           <PullRequestFilterBar />
-          <NSelect
-            class="sort-select"
-            size="small"
-            :value="store.selection.filters.sort ?? 'updated-desc'"
-            :options="sortOptions"
-            @update:value="(value: string) => setFilter('sort', value)"
-          />
+          <NDropdown
+            trigger="click"
+            :options="sortItems"
+            @select="(key: string) => setFilter('sort', key)"
+          >
+            <button type="button" class="sort-btn" :aria-label="t.prSortBy(sortLabel)">
+              <span>{{ sortLabel }}</span>
+              <NIcon :component="ChevronDownOutline" :size="12" />
+            </button>
+          </NDropdown>
         </div>
       </div>
 
@@ -376,15 +393,16 @@ onUnmounted(() => {
                 :key="row.url"
                 class="pr-row"
                 :class="{ highlighted: index === highlighted }"
+                @click="openDetail(row)"
                 @pointerenter="prefetch(row)"
               >
                 <NIcon :component="stateIcon(row)" :size="16" class="state-icon" :class="stateClass(row)" />
                 <div class="row-main">
                   <div class="row-title-line">
-                    <button type="button" class="row-title" @click="openDetail(row)">
+                    <span class="row-title">
                       {{ row.title }}
                       <span class="row-number">#{{ row.number }}</span>
-                    </button>
+                    </span>
                   </div>
                   <div class="row-sub">
                     <span v-if="row.isDraft" class="draft-tag">{{ t.prDraft }}</span>
@@ -443,10 +461,10 @@ onUnmounted(() => {
                 <div class="row-time">
                   <span class="time-text">{{ relativeTime(row.updatedAt ?? row.createdAt) }}</span>
                   <span class="row-actions">
-                    <button type="button" class="row-action" :title="t.prCopyLink" @click="copyLink(row)">
+                    <button type="button" class="row-action" :title="t.prCopyLink" @click.stop="copyLink(row)">
                       <NIcon :component="CopyOutline" :size="13" />
                     </button>
-                    <button type="button" class="row-action" :title="t.prOpenOnGithub" @click="openOnGithub(row)">
+                    <button type="button" class="row-action" :title="t.prOpenOnGithub" @click.stop="openOnGithub(row)">
                       <NIcon :component="OpenOutline" :size="13" />
                     </button>
                   </span>
@@ -522,8 +540,28 @@ onUnmounted(() => {
   min-width: 0;
 }
 
-.view-select {
-  width: 150px;
+.view-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 36px;
+  padding: 0 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--fg-strong);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.view-btn:hover {
+  background: rgba(127, 127, 127, 0.04);
+}
+
+.view-btn .chev {
+  color: var(--fg-muted);
 }
 
 .search-box {
@@ -597,12 +635,10 @@ onUnmounted(() => {
 }
 
 .state-tabs {
-  display: inline-flex;
+  display: flex;
+  flex-shrink: 0;
   align-items: center;
-  gap: 2px;
-  padding: 4px;
-  border-radius: 8px;
-  background: rgba(127, 127, 127, 0.06);
+  gap: 12px;
 }
 
 .state-tab {
@@ -611,12 +647,13 @@ onUnmounted(() => {
   gap: 6px;
   height: 28px;
   border: 0;
-  border-radius: 6px;
-  padding: 0 12px;
+  border-radius: 4px;
+  padding: 0;
   background: transparent;
   color: var(--fg-muted);
   font-size: 13px;
   cursor: pointer;
+  transition: color 0.15s ease;
 }
 
 .state-tab:hover {
@@ -624,19 +661,15 @@ onUnmounted(() => {
 }
 
 .state-tab.active {
-  background: rgba(127, 127, 127, 0.1);
-  color: var(--fg);
-  font-weight: 500;
+  color: var(--fg-strong);
+  font-weight: 600;
 }
 
 .state-tab .count {
-  border-radius: 3px;
-  background: rgba(127, 127, 127, 0.1);
-  padding: 0 6px;
-  font-size: 11px;
+  color: var(--fg-muted);
+  font-size: 12px;
   font-weight: 400;
   font-variant-numeric: tabular-nums;
-  color: var(--fg-muted);
 }
 
 .tabs-tools {
@@ -646,8 +679,23 @@ onUnmounted(() => {
   gap: 8px;
 }
 
-.sort-select {
-  width: 160px;
+.sort-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 28px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--fg-muted);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.sort-btn:hover {
+  background: rgba(127, 127, 127, 0.07);
+  color: var(--fg);
 }
 
 .chips {
@@ -724,6 +772,7 @@ onUnmounted(() => {
   padding: 10px 12px;
   border-bottom: 1px solid var(--border);
   font-size: 12px;
+  cursor: pointer;
   transition: background-color 0.1s ease;
 }
 
@@ -789,21 +838,12 @@ onUnmounted(() => {
 
 .row-title {
   min-width: 0;
-  border: 0;
-  background: transparent;
   color: var(--fg);
   font-size: 13px;
   font-weight: 500;
-  text-align: left;
-  padding: 0;
-  cursor: pointer;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.row-title:hover {
-  color: var(--accent);
 }
 
 .row-number {
