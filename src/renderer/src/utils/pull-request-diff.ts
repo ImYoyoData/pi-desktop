@@ -12,6 +12,8 @@ export type DiffHunk = { header: string; lines: DiffLine[]; raw: string[] };
 export type DiffFile = {
 	path: string;
 	previousPath: string | null;
+	/** 完整 diff 段落（含 diff --git/---/+++ 头），@git-diff-view 解析器需要它。 */
+	rawSection: string;
 	hunks: DiffHunk[];
 	additions: number;
 	deletions: number;
@@ -104,7 +106,7 @@ function parseSection(section: string, path: string, previousPath: string | null
 			newNumber += 1;
 		}
 	}
-	return { path, previousPath, hunks, additions, deletions };
+	return { path, previousPath, rawSection: section, hunks, additions, deletions };
 }
 
 export function parseUnifiedDiff(patch: string): DiffFile[] {
