@@ -4,7 +4,7 @@ import { NButton, NIcon, NInput } from "naive-ui";
 import {
   CheckmarkCircleOutline,
   ChatbubbleOutline,
-  CreateOutline,
+  PencilOutline,
   RefreshOutline,
   TextOutline,
   TrashOutline,
@@ -191,7 +191,7 @@ function toggleThread(): void {
         </div>
 
         <button v-if="comment.viewerCanUpdate" type="button" class="action-btn" :title="t.prEdit" @click="beginEdit">
-          <NIcon :component="CreateOutline" :size="12" />
+          <NIcon :component="PencilOutline" :size="12" />
         </button>
         <button
           v-if="!compact"

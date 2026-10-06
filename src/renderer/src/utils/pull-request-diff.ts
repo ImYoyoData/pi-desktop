@@ -7,7 +7,7 @@ export type DiffLine = {
 	newNumber: number | null;
 };
 
-export type DiffHunk = { header: string; lines: DiffLine[] };
+export type DiffHunk = { header: string; lines: DiffLine[]; raw: string[] };
 
 export type DiffFile = {
 	path: string;
@@ -68,7 +68,7 @@ function parseSection(section: string, path: string, previousPath: string | null
 	for (const line of section.split("\n")) {
 		const header = HUNK_HEADER.exec(line);
 		if (header) {
-			current = { header: line, lines: [] };
+			current = { header: line, lines: [], raw: [line] };
 			hunks.push(current);
 			oldNumber = Number(header[1]);
 			newNumber = Number(header[2]);
@@ -77,24 +77,28 @@ function parseSection(section: string, path: string, previousPath: string | null
 		if (!current) continue;
 		if (line.startsWith("diff --git ")) break;
 		if (line.startsWith("\\")) {
+			current.raw.push(line);
 			current.lines.push({ kind: "meta", text: line, oldNumber: null, newNumber: null });
 			continue;
 		}
 		const marker = line[0] ?? " ";
 		const text = line.slice(1);
 		if (marker === "+") {
+			current.raw.push(line);
 			current.lines.push({ kind: "added", text, oldNumber: null, newNumber });
 			newNumber += 1;
 			additions += 1;
 			continue;
 		}
 		if (marker === "-") {
+			current.raw.push(line);
 			current.lines.push({ kind: "removed", text, oldNumber, newNumber: null });
 			oldNumber += 1;
 			deletions += 1;
 			continue;
 		}
 		if (marker === " " || line === "") {
+			current.raw.push(line);
 			current.lines.push({ kind: "context", text, oldNumber, newNumber });
 			oldNumber += 1;
 			newNumber += 1;
@@ -114,3 +118,4 @@ export function parseUnifiedDiff(patch: string): DiffFile[] {
 			return [parseSection(section, path, previousPathOf(section, path))];
 		});
 }
+
