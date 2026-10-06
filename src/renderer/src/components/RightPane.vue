@@ -19,6 +19,7 @@ import {
   DocumentTextOutline,
   ExpandOutline,
   GitCompareOutline,
+  GitPullRequestOutline,
   GlobeOutline,
   ListOutline,
   PlayCircleOutline,
@@ -444,10 +445,20 @@ const addOptions = computed<DropdownOption[]>(() => [
     key: "running",
     icon: () => h(NIcon, null, { default: () => h(PlayCircleOutline) }),
   },
+  {
+    label: t.pullRequests,
+    key: "pull-requests",
+    icon: () => h(NIcon, null, { default: () => h(GitPullRequestOutline) }),
+  },
 ]);
 
 async function onAddSelect(key: string | number): Promise<void> {
-  rightTabs.addTab(String(key) as RightTabKind);
+  const value = String(key);
+  if (value === "pull-requests") {
+    layout.showPullRequests();
+    return;
+  }
+  rightTabs.addTab(value as RightTabKind);
 }
 
 const active = computed(() => rightTabs.activeTab);

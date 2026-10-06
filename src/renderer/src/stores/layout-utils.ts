@@ -29,8 +29,13 @@ export interface PersistedLayout {
   customizeSection: string;
 }
 
-/** 中央区域视图：聊天 / 智能体设置整页。 */
-export type CenterView = "chat" | "customize";
+/** 中央区域视图：聊天 / 拉取请求 / 智能体设置整页。 */
+export type CenterView = "chat" | "pull-requests" | "customize";
+
+function normalizeCenterView(value: unknown): CenterView {
+  if (value === "customize" || value === "pull-requests") return value;
+  return "chat";
+}
 
 export const DEFAULT_LAYOUT: PersistedLayout = {
   leftSize: 20,
@@ -111,7 +116,7 @@ function normalizeSizes(partial: Partial<PersistedLayout>): PersistedLayout {
     rightCollapsed: partial.rightCollapsed === true,
     bottomSize: clampPanelHeight(partial.bottomSize ?? DEFAULT_LAYOUT.bottomSize),
     bottomCollapsed: partial.bottomCollapsed !== false,
-    centerView: partial.centerView === "customize" ? "customize" : "chat",
+    centerView: normalizeCenterView(partial.centerView),
     customizeSection:
       typeof partial.customizeSection === "string" && partial.customizeSection
         ? partial.customizeSection
@@ -146,7 +151,7 @@ export function readLayout(workspaceRoot: string): PersistedLayout {
       leftCollapsed: parsed.leftCollapsed === true,
       rightCollapsed: parsed.rightCollapsed === true,
       bottomCollapsed: parsed.bottomCollapsed !== false,
-      centerView: parsed.centerView === "customize" ? "customize" : "chat",
+      centerView: normalizeCenterView(parsed.centerView),
       customizeSection:
         typeof parsed.customizeSection === "string" && parsed.customizeSection
           ? parsed.customizeSection

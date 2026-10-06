@@ -335,7 +335,7 @@ export const useRightTabsStore = defineStore("rightTabs", () => {
     const tab: RightTab = {
       id: nextTabId(kind),
       kind,
-      label,
+      label: label ?? String(kind),
       filePath: opts?.filePath,
       dirty: false,
       missing: false,

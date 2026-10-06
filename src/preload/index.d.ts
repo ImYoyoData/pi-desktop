@@ -3,6 +3,7 @@ import type {
 	AgentEvent,
 	ElementCitation,
 	LanConsoleStatus,
+	MenuCommand,
 	SessionHistoryMessage,
 	SessionHistoryPage,
 	SessionHistoryQuery,
@@ -14,6 +15,20 @@ import type {
 } from "../shared/protocol";
 import type { AgentRunEvent, AgentRunSnapshot } from "../shared/agent-runs";
 import type { EditContextMenuAction, EditContextMenuPayload } from "../shared/context-menu";
+import type {
+	GitHubImageResult,
+	GitHubResponse,
+	PullRequestAction,
+	PullRequestChoices,
+	PullRequestChoiceKind,
+	PullRequestDetail,
+	PullRequestFilters,
+	PullRequestListAuthor,
+	PullRequestListState,
+	PullRequestPage,
+	PullRequestPatchResult,
+	PullRequestSummary,
+} from "../shared/github-types";
 import type { AgentSaveResult, BuiltinExtensionItem, BuiltinToolItem, CodemodeSettingsState, CustomizationsSnapshot, CustomizationCreateKind, InstructionsSaveResult, McpAuthEventPayload, McpAuthPromptReply, McpAuthState, McpAuthTarget, McpTestResult, McpTestTarget, SkillSaveResult } from "../shared/customizations";
 import type {
 	ModelsGetResult,
@@ -145,6 +160,7 @@ declare const api: {
 		onContextMenu: (
 			callback: (payload: EditContextMenuPayload) => void,
 		) => () => void;
+		onMenuCommand: (callback: (command: MenuCommand) => void) => () => void;
 		runContextMenuAction: (action: EditContextMenuAction) => Promise<void>;
 		onCloseRequest: (callback: () => void) => () => void;
 		onMaximized: (callback: () => void) => () => void;
@@ -593,6 +609,41 @@ declare const api: {
 			side: "ours" | "theirs";
 		}) => Promise<GitOpResult>;
 		abortMerge: () => Promise<GitOpResult>;
+	};
+	github: {
+		pullRequest: (branch: string) => Promise<
+			GitHubResponse<{ pullRequest: PullRequestSummary | null }>
+		>;
+		pullRequestView: (url: string) => Promise<
+			GitHubResponse<{ pullRequest: PullRequestSummary }>
+		>;
+		pullRequestList: (payload: {
+			state: PullRequestListState;
+			author: PullRequestListAuthor;
+			cursor?: string;
+			filters?: PullRequestFilters;
+			requestId?: string;
+		}) => Promise<GitHubResponse<PullRequestPage>>;
+		pullRequestListCancel: (requestId: string) => Promise<void>;
+		pullRequestDetail: (payload: { url: string }) => Promise<
+			GitHubResponse<{ detail: PullRequestDetail }>
+		>;
+		pullRequestPatch: (payload: {
+			url: string;
+			headSha?: string;
+		}) => Promise<GitHubResponse<PullRequestPatchResult>>;
+		pullRequestAction: (payload: {
+			url: string;
+			action: PullRequestAction;
+		}) => Promise<GitHubResponse<object>>;
+		pullRequestChoices: (payload: {
+			url: string;
+			kind: PullRequestChoiceKind;
+		}) => Promise<GitHubResponse<PullRequestChoices>>;
+		repositoryChoices: (payload: {
+			kind: PullRequestChoiceKind;
+		}) => Promise<GitHubResponse<PullRequestChoices>>;
+		image: (url: string) => Promise<GitHubImageResult>;
 	};
 	customizations: {
 		list: (cwd?: string, force?: boolean) => Promise<CustomizationsSnapshot>;

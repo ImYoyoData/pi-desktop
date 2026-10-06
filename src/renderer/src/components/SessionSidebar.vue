@@ -28,6 +28,7 @@ import {
   EllipsisHorizontalOutline,
   FolderOpenOutline,
   FolderOutline,
+  GitPullRequestOutline,
   ListOutline,
   PinOutline,
   SwapHorizontalOutline,
@@ -1150,6 +1151,7 @@ async function onNewAgent(): Promise<void> {
 async function onNewAgentForWorkspace(root: string, event?: Event): Promise<void> {
   event?.stopPropagation();
   event?.preventDefault();
+  layout.showChat();
   // 在别的目录新建会放弃当前未使用的空会话。
   if (workspace.root && workspace.root !== root) {
     await discardActiveUnstartedForRoot(workspace.root);
@@ -1206,6 +1208,7 @@ async function discardUnstartedSession(root: string, sessionId: string): Promise
 }
 
 async function onSelectSession(root: string, sessionId: string): Promise<void> {
+  layout.showChat();
   // An active 新会话 the user never chatted with is dropped when they leave it
   // (click another session / switch workspace) instead of lingering on disk.
   const leavingId = sessionsStore.activeId;
@@ -1632,6 +1635,20 @@ watch(
         <span class="btn-content">
           <NIcon :component="FolderOpenOutline" :size="15" />
           <span class="btn-label">{{ t.openWorkspace }}</span>
+        </span>
+      </NButton>
+      <NButton
+        v-if="!selectMode"
+        quaternary
+        size="small"
+        class="pi-interactive top-btn"
+        :class="{ 'top-btn-active': layout.centerView === 'pull-requests' }"
+        :aria-current="layout.centerView === 'pull-requests' ? 'page' : undefined"
+        @click="layout.showPullRequests()"
+      >
+        <span class="btn-content">
+          <NIcon :component="GitPullRequestOutline" :size="15" />
+          <span class="btn-label">{{ t.pullRequests }}</span>
         </span>
       </NButton>
     </div>
@@ -2141,6 +2158,11 @@ watch(
 .top-btn :deep(.n-button__content) {
   width: 100%;
   justify-content: flex-start;
+}
+
+.top-btn-active {
+  background: var(--accent-soft) !important;
+  color: var(--accent) !important;
 }
 
 .btn-content {

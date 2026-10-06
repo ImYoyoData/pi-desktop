@@ -1,5 +1,6 @@
 import { app, BrowserWindow, Menu, shell } from "electron";
 import { APP_GITHUB_URL } from "../shared/app-meta";
+import { IpcChannels } from "../shared/protocol";
 
 /** Native app menu — especially important on macOS for Edit/Copy/Paste shortcuts. */
 export function installApplicationMenu(): void {
@@ -67,6 +68,14 @@ export function installApplicationMenu(): void {
           },
         },
         { role: "zoomOut" },
+        { type: "separator" },
+        {
+          label: "Pull Requests",
+          click: (_item, win) => {
+            if (!(win instanceof BrowserWindow)) return;
+            win.webContents.send(IpcChannels.window.menuCommand, "open-pull-requests");
+          },
+        },
         { type: "separator" },
         { role: "togglefullscreen" },
       ],

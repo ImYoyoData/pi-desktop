@@ -15,7 +15,8 @@ export type KeybindingId =
   | "cycle-model"
   | "open-settings"
   | "cycle-thinking"
-  | "cycle-mode";
+  | "cycle-mode"
+  | "open-pull-requests";
 
 export interface KeybindingDef {
   id: KeybindingId;
@@ -47,6 +48,7 @@ export const KEYBINDINGS: KeybindingDef[] = [
   { id: "open-settings", labelKey: "hotkeyOpenSettings", defaultAccel: "Control+," },
   { id: "cycle-thinking", labelKey: "hotkeyCycleThinking", defaultAccel: "Control+I" },
   { id: "cycle-mode", labelKey: "hotkeyCycleMode", defaultAccel: "Control+=" },
+  { id: "open-pull-requests", labelKey: "pullRequests", defaultAccel: "Control+Shift+P" },
 ];
 
 export const BUILTIN_SHORTCUTS: BuiltinShortcut[] = [

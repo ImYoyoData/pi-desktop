@@ -6,6 +6,7 @@ import type {
 	LanConsoleStatus,
 	AgentEvent,
 	ElementCitation,
+	MenuCommand,
 	SessionHistoryMessage,
 	SessionHistoryPage,
 	SessionHistoryQuery,
@@ -19,6 +20,20 @@ import type {
 } from "../shared/protocol";
 import { IpcChannels } from "../shared/protocol";
 import type { EditContextMenuAction, EditContextMenuPayload } from "../shared/context-menu";
+import type {
+	GitHubImageResult,
+	GitHubResponse,
+	PullRequestAction,
+	PullRequestChoices,
+	PullRequestChoiceKind,
+	PullRequestDetail,
+	PullRequestFilters,
+	PullRequestListAuthor,
+	PullRequestListState,
+	PullRequestPage,
+	PullRequestPatchResult,
+	PullRequestSummary,
+} from "../shared/github-types";
 import type { AgentRunEvent, AgentRunSnapshot } from "../shared/agent-runs";
 import type { AgentSaveResult, BuiltinExtensionItem, BuiltinToolItem, CodemodeSettingsState, CustomizationsSnapshot, CustomizationCreateKind, InstructionsSaveResult, McpAuthEventPayload, McpAuthPromptReply, McpAuthState, McpAuthTarget, McpTestResult, McpTestTarget, SkillSaveResult } from "../shared/customizations";
 import type {
@@ -103,6 +118,16 @@ export type {
 	SessionStatus,
 	SessionSummary,
 };
+
+/** Vue 响应式对象是 Proxy，结构化克隆会报 “An object could not be cloned.”。 */
+function plainArgs<T>(value: T): T {
+	if (value === undefined || value === null) return value;
+	try {
+		return JSON.parse(JSON.stringify(value)) as T;
+	} catch {
+		return value;
+	}
+}
 
 const api = {
 	clipboard: {
@@ -260,6 +285,14 @@ const api = {
 				IpcChannels.window.contextMenuAction,
 				action,
 			) as Promise<void>,
+		onMenuCommand: (callback: (command: MenuCommand) => void) => {
+			const listener = (_event: unknown, command: MenuCommand) =>
+				callback(command);
+			ipcRenderer.on(IpcChannels.window.menuCommand, listener);
+			return () => {
+				ipcRenderer.removeListener(IpcChannels.window.menuCommand, listener);
+			};
+		},
 		onCloseRequest: (callback: () => void) => {
 			const listener = () => callback();
 			ipcRenderer.on(IpcChannels.window.closeRequest, listener);
@@ -813,6 +846,50 @@ const api = {
 			) as Promise<GitOpResult>,
 		abortMerge: () =>
 			ipcRenderer.invoke(IpcChannels.git.abortMerge) as Promise<GitOpResult>,
+	},
+	github: {
+		pullRequest: (branch: string) =>
+			ipcRenderer.invoke(IpcChannels.github.pullRequest, branch) as Promise<
+				GitHubResponse<{ pullRequest: PullRequestSummary | null }>
+			>,
+		pullRequestView: (url: string) =>
+			ipcRenderer.invoke(IpcChannels.github.pullRequestView, url) as Promise<
+				GitHubResponse<{ pullRequest: PullRequestSummary }>
+			>,
+		pullRequestList: (payload: {
+			state: PullRequestListState;
+			author: PullRequestListAuthor;
+			cursor?: string;
+			filters?: PullRequestFilters;
+			requestId?: string;
+		}) =>
+			ipcRenderer.invoke(IpcChannels.github.pullRequestList, plainArgs(payload)) as Promise<
+				GitHubResponse<PullRequestPage>
+			>,
+		pullRequestListCancel: (requestId: string) =>
+			ipcRenderer.invoke(IpcChannels.github.pullRequestListCancel, requestId) as Promise<void>,
+		pullRequestDetail: (payload: { url: string }) =>
+			ipcRenderer.invoke(IpcChannels.github.pullRequestDetail, plainArgs(payload)) as Promise<
+				GitHubResponse<{ detail: PullRequestDetail }>
+			>,
+		pullRequestPatch: (payload: { url: string; headSha?: string }) =>
+			ipcRenderer.invoke(IpcChannels.github.pullRequestPatch, plainArgs(payload)) as Promise<
+				GitHubResponse<PullRequestPatchResult>
+			>,
+		pullRequestAction: (payload: { url: string; action: PullRequestAction }) =>
+			ipcRenderer.invoke(IpcChannels.github.pullRequestAction, plainArgs(payload)) as Promise<
+				GitHubResponse<object>
+			>,
+		pullRequestChoices: (payload: { url: string; kind: PullRequestChoiceKind }) =>
+			ipcRenderer.invoke(IpcChannels.github.pullRequestChoices, plainArgs(payload)) as Promise<
+				GitHubResponse<PullRequestChoices>
+			>,
+		repositoryChoices: (payload: { kind: PullRequestChoiceKind }) =>
+			ipcRenderer.invoke(IpcChannels.github.repositoryChoices, plainArgs(payload)) as Promise<
+				GitHubResponse<PullRequestChoices>
+			>,
+		image: (url: string) =>
+			ipcRenderer.invoke(IpcChannels.github.image, url) as Promise<GitHubImageResult>,
 	},
 	customizations: {
 		list: (cwd?: string, force?: boolean) =>

@@ -43,6 +43,7 @@ import { registerFilesIpc } from "./files-ipc";
 import { registerCustomizationsIpc } from "./customizations-ipc";
 import { registerSkillsIpc } from "./skills-ipc";
 import { registerGitIpc } from "./git-ipc";
+import { registerGitHubIpc } from "./github-ipc";
 import { registerFsWatchIpc } from "./fs-watch-host";
 import { registerWindowIpc } from "./window-ipc";
 import { registerAsrIpc } from "./asr-host";
@@ -384,6 +385,7 @@ function boot(): void {
 		registerCustomizationsIpc(broker);
 		registerFsWatchIpc();
 		registerGitIpc();
+		registerGitHubIpc();
 		registerSkillsIpc(broker);
 		registerBrowserIpc();
 		registerTerminalIpc();

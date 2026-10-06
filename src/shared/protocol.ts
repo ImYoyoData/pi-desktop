@@ -1,5 +1,8 @@
 import type { WorkerResourceSummary } from "./worker-resources";
 
+/** 主进程原生菜单向渲染进程发送的命令。 */
+export type MenuCommand = "open-pull-requests";
+
 export const IpcChannels = {
 	window: {
 		minimize: "window:minimize",
@@ -23,6 +26,8 @@ export const IpcChannels = {
 		contextMenu: "window:contextMenu",
 		/** Renderer → main: 执行右键菜单选中的编辑命令。 */
 		contextMenuAction: "window:contextMenuAction",
+		/** Main → renderer: 原生菜单命令（打开拉取请求视图等）。 */
+		menuCommand: "window:menuCommand",
 	},
 	clipboard: {
 		/** Renderer → main: copy a data-URL image onto the system clipboard. */
@@ -209,6 +214,18 @@ export const IpcChannels = {
 		checkoutConflictSide: "git:checkoutConflictSide",
 		abortMerge: "git:abortMerge",
 		syncStatus: "git:syncStatus",
+	},
+	github: {
+		pullRequest: "github:pullRequest",
+		pullRequestView: "github:pullRequestView",
+		pullRequestList: "github:pullRequestList",
+		pullRequestListCancel: "github:pullRequestListCancel",
+		pullRequestDetail: "github:pullRequestDetail",
+		pullRequestPatch: "github:pullRequestPatch",
+		pullRequestAction: "github:pullRequestAction",
+		pullRequestChoices: "github:pullRequestChoices",
+		repositoryChoices: "github:repositoryChoices",
+		image: "github:image",
 	},
 	customizations: {
 		list: "customizations:list",
