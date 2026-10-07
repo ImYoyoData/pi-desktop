@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { computed, ref, watch } from "vue";
+import { computed, onMounted, ref, watch } from "vue";
 import {
+  NButton,
   NDivider,
   NInput,
   NInputNumber,
@@ -17,6 +18,7 @@ import {
   COMPACTION_RESERVE_CHOICES,
   WEBSOCKET_TIMEOUT_CHOICES,
   type CacheWarmingMode,
+  type CompactionModelOverride,
   type RuntimeSettings,
   type RuntimeThinkingBudgets,
 } from "../../../../shared/runtime-settings";
@@ -31,6 +33,9 @@ type Option = { label: string; value: number | string };
 
 /** NSelect 不能用 null 当值：-1 代表「不写该键」（用 pi 默认）。 */
 const WS_TIMEOUT_DEFAULT = -1;
+
+/** 按模型覆盖里的 -1：该字段不写，跟随上面的全局值。 */
+const OVERRIDE_UNSET = -1;
 
 function tokenOptions(values: readonly number[]): Option[] {
   return values.map((value) => ({ label: value.toLocaleString(), value }));
@@ -187,6 +192,97 @@ function onWsTimeout(value: string | number): void {
 function onCacheWarming(value: string | number): void {
   if (typeof value === "string") save({ cacheWarming: value as CacheWarmingMode });
 }
+
+type ModelChoice = { label: string; value: string; name: string };
+
+const modelChoices = ref<ModelChoice[]>([]);
+const overrideModelToAdd = ref<string | null>(null);
+
+onMounted(async () => {
+  try {
+    const data = await window.api.models.get();
+    modelChoices.value = data.available
+      .map((model) => {
+        const name = model.name?.trim() || model.id;
+        return {
+          label: `${name} · ${model.provider}/${model.id}`,
+          value: `${model.provider}/${model.id}`,
+          name,
+        };
+      })
+      .sort((a, b) => a.value.localeCompare(b.value));
+  } catch {
+    // 拉取失败时仍可编辑/删除已存在的覆盖
+  }
+});
+
+const overrideRows = computed(() =>
+  Object.entries(runtime.settings.compaction.modelOverrides)
+    .map(([key, override]) => {
+      const choice = modelChoices.value.find((model) => model.value === key);
+      return {
+        key,
+        label: choice?.name ?? key,
+        reserveTokens: override.reserveTokens ?? OVERRIDE_UNSET,
+        keepRecentTokens: override.keepRecentTokens ?? OVERRIDE_UNSET,
+      };
+    })
+    .sort((a, b) => a.key.localeCompare(b.key)),
+);
+
+/** 下拉选项：-1 = 不设置（跟随全局），并把已写入的非档位值并进来回显。 */
+function overrideTokenOptions(values: readonly number[], field: keyof CompactionModelOverride): Option[] {
+  const current = Object.values(runtime.settings.compaction.modelOverrides)
+    .map((override) => override[field])
+    .filter((value): value is number => typeof value === "number");
+  const nums = [...new Set([...values, ...current])].sort((a, b) => a - b);
+  const global =
+    field === "reserveTokens"
+      ? runtime.settings.compaction.reserveTokens
+      : runtime.settings.compaction.keepRecentTokens;
+  return [
+    {
+      label: `${t.runtimeCompactionOverrideGlobal} (${global.toLocaleString()})`,
+      value: OVERRIDE_UNSET,
+    },
+    ...nums.map((value) => ({ label: value.toLocaleString(), value })),
+  ];
+}
+
+const reserveOverrideOptions = computed(() =>
+  overrideTokenOptions(COMPACTION_RESERVE_CHOICES, "reserveTokens"),
+);
+const keepRecentOverrideOptions = computed(() =>
+  overrideTokenOptions(COMPACTION_KEEP_RECENT_CHOICES, "keepRecentTokens"),
+);
+
+function addOverride(): void {
+  const key = overrideModelToAdd.value;
+  if (!key) return;
+  if (!runtime.settings.compaction.modelOverrides[key]) {
+    saveCompaction({ modelOverrides: { ...runtime.settings.compaction.modelOverrides, [key]: {} } });
+  }
+  overrideModelToAdd.value = null;
+}
+
+function removeOverride(key: string): void {
+  const next = { ...runtime.settings.compaction.modelOverrides };
+  delete next[key];
+  saveCompaction({ modelOverrides: next });
+}
+
+function setOverrideField(
+  key: string,
+  field: keyof CompactionModelOverride,
+  value: string | number,
+): void {
+  if (typeof value !== "number") return;
+  const current = runtime.settings.compaction.modelOverrides;
+  const entry: CompactionModelOverride = { ...current[key] };
+  if (value === OVERRIDE_UNSET) delete entry[field];
+  else entry[field] = value;
+  saveCompaction({ modelOverrides: { ...current, [key]: entry } });
+}
 </script>
 
 <template>
@@ -234,6 +330,70 @@ function onCacheWarming(value: string | number): void {
         class="setting-select"
         @update:value="onKeepRecent"
       />
+    </div>
+
+    <div class="section-head override-head">
+      <NText strong>{{ t.runtimeCompactionOverrides }}</NText>
+      <NText depth="3" class="section-hint">{{ t.runtimeCompactionOverridesHint }}</NText>
+    </div>
+
+    <div class="switch-row">
+      <div class="switch-labels">
+        <NText strong>{{ t.runtimeCompactionOverrideModel }}</NText>
+      </div>
+      <div class="override-add">
+        <NSelect
+          v-model:value="overrideModelToAdd"
+          :options="modelChoices"
+          :disabled="!runtime.settings.compaction.enabled"
+          filterable
+          clearable
+          size="small"
+          class="override-model-select"
+          :placeholder="t.runtimeCompactionOverrideModel"
+        />
+        <NButton
+          size="small"
+          :disabled="!runtime.settings.compaction.enabled || !overrideModelToAdd"
+          @click="addOverride"
+        >
+          {{ t.runtimeCompactionOverrideAdd }}
+        </NButton>
+      </div>
+    </div>
+
+    <div v-if="overrideRows.length === 0" class="override-empty">
+      <NText depth="3" class="row-hint">{{ t.runtimeCompactionOverridesEmpty }}</NText>
+    </div>
+
+    <div v-for="row in overrideRows" :key="row.key" class="switch-row override-row">
+      <div class="switch-labels">
+        <NText strong class="override-label">{{ row.label }}</NText>
+        <NText depth="3" class="row-hint override-key">{{ row.key }}</NText>
+      </div>
+      <div class="override-controls">
+        <NText depth="3" class="override-field-label">{{ t.runtimeCompactionReserve }}</NText>
+        <NSelect
+          :value="row.reserveTokens"
+          :options="reserveOverrideOptions"
+          :disabled="!runtime.settings.compaction.enabled"
+          size="small"
+          class="setting-select"
+          @update:value="(value: string | number) => setOverrideField(row.key, 'reserveTokens', value)"
+        />
+        <NText depth="3" class="override-field-label">{{ t.runtimeCompactionKeepRecent }}</NText>
+        <NSelect
+          :value="row.keepRecentTokens"
+          :options="keepRecentOverrideOptions"
+          :disabled="!runtime.settings.compaction.enabled"
+          size="small"
+          class="setting-select"
+          @update:value="(value: string | number) => setOverrideField(row.key, 'keepRecentTokens', value)"
+        />
+        <NButton size="small" quaternary @click="removeOverride(row.key)">
+          {{ t.runtimeCompactionOverrideRemove }}
+        </NButton>
+      </div>
     </div>
 
     <NDivider style="margin: 0" />
@@ -573,5 +733,46 @@ function onCacheWarming(value: string | number): void {
   flex: 1;
   padding: 0;
   text-align: center;
+}
+
+.override-head {
+  margin-top: 4px;
+}
+
+.override-add {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.override-model-select {
+  width: 320px;
+}
+
+.override-empty {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.override-label,
+.override-key {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.override-controls {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.override-field-label {
+  font-size: 12px;
+  white-space: nowrap;
 }
 </style>

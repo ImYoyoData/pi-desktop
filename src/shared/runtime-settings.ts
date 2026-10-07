@@ -9,12 +9,20 @@
 export const CACHE_WARMING_MODES = ["off", "streaming", "idle"] as const;
 export type CacheWarmingMode = (typeof CACHE_WARMING_MODES)[number];
 
+/** 单个模型的压缩覆盖；键为 pi 的 `provider/modelId`，字段各自回退到全局值。 */
+export type CompactionModelOverride = {
+  reserveTokens?: number;
+  keepRecentTokens?: number;
+};
+
 export type RuntimeCompactionSettings = {
   enabled: boolean;
   /** 压缩前为回复预留的 token（pi 默认 16384）。 */
   reserveTokens: number;
   /** 压缩后保留的最近 token（pi 默认 20000）。 */
   keepRecentTokens: number;
+  /** 按模型覆盖压缩预算（pi 的 compaction.modelOverrides）；空对象表示不写该键。 */
+  modelOverrides: Record<string, CompactionModelOverride>;
 };
 
 export type RuntimeImagesSettings = {
@@ -67,10 +75,11 @@ export type RuntimeSettings = {
 
 export const COMPACTION_RESERVE_CHOICES = [
   4096, 8192, 12288, 16384, 24576, 32768, 65536,
+  100000, 150000, 200000, 300000, 400000, 500000,
 ] as const;
 
 export const COMPACTION_KEEP_RECENT_CHOICES = [
-  5000, 10000, 15000, 20000, 30000, 60000, 100000,
+  5000, 10000, 15000, 20000, 30000, 60000, 100000, 150000, 200000,
 ] as const;
 
 export const BRANCH_SUMMARY_RESERVE_CHOICES = [
@@ -83,7 +92,12 @@ export const WEBSOCKET_TIMEOUT_CHOICES = [
 ] as const;
 
 export const DEFAULT_RUNTIME_SETTINGS: RuntimeSettings = {
-  compaction: { enabled: true, reserveTokens: 16384, keepRecentTokens: 20000 },
+  compaction: {
+    enabled: true,
+    reserveTokens: 16384,
+    keepRecentTokens: 20000,
+    modelOverrides: {},
+  },
   cacheWarming: "streaming",
   showCacheMissNotices: false,
   images: { autoResize: true, blockImages: false },
@@ -128,6 +142,49 @@ function readBudget(raw: unknown): number | undefined {
   const value = Number(raw);
   if (!Number.isFinite(value) || value <= 0) return undefined;
   return Math.round(value);
+}
+
+/**
+ * 读取 compaction.modelOverrides：值为对象的条目保留（空对象也保留，
+ * 表示该模型启用了覆盖但字段仍走全局值）；非法条目丢弃，避免 pi 读取时报错。
+ */
+function readModelOverrides(raw: unknown): Record<string, CompactionModelOverride> {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
+  const out: Record<string, CompactionModelOverride> = {};
+  for (const [rawKey, value] of Object.entries(raw as Record<string, unknown>)) {
+    const key = rawKey.trim();
+    if (!key) continue;
+    if (!value || typeof value !== "object" || Array.isArray(value)) continue;
+    const entry = value as Record<string, unknown>;
+    const override: CompactionModelOverride = {};
+    const reserveTokens = readBudget(entry.reserveTokens);
+    if (reserveTokens !== undefined) override.reserveTokens = reserveTokens;
+    const keepRecentTokens = readBudget(entry.keepRecentTokens);
+    if (keepRecentTokens !== undefined) override.keepRecentTokens = keepRecentTokens;
+    out[key] = override;
+  }
+  return out;
+}
+
+/** 序列化 modelOverrides：只写 pi 支持的两个字段，其它键不落盘。 */
+function writeModelOverrides(
+  overrides: Record<string, CompactionModelOverride>,
+): Record<string, CompactionModelOverride> | undefined {
+  const keys = Object.keys(overrides);
+  if (keys.length === 0) return undefined;
+  const out: Record<string, CompactionModelOverride> = {};
+  for (const key of keys) {
+    const override = overrides[key] ?? {};
+    out[key] = {
+      ...(typeof override.reserveTokens === "number"
+        ? { reserveTokens: override.reserveTokens }
+        : {}),
+      ...(typeof override.keepRecentTokens === "number"
+        ? { keepRecentTokens: override.keepRecentTokens }
+        : {}),
+    };
+  }
+  return out;
 }
 
 function isCacheWarmingMode(value: unknown): value is CacheWarmingMode {
@@ -175,6 +232,7 @@ function parseRuntimeFields(
         compaction.keepRecentTokens,
         DEFAULT_RUNTIME_SETTINGS.compaction.keepRecentTokens,
       ),
+      modelOverrides: readModelOverrides(compaction.modelOverrides),
     },
     cacheWarming: isCacheWarmingMode(source.cacheWarming)
       ? source.cacheWarming
@@ -217,6 +275,7 @@ export function runtimeSettingsPatch(
     enabled: next.compaction.enabled,
     reserveTokens: next.compaction.reserveTokens,
     keepRecentTokens: next.compaction.keepRecentTokens,
+    modelOverrides: writeModelOverrides(next.compaction.modelOverrides),
   };
   const warnings = {
     ...readObject(source.warnings),
