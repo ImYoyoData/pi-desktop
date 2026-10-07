@@ -33,5 +33,21 @@ try {
   // ignore
 }
 
-createApp(App).use(createPinia()).mount("#app");
+const app = createApp(App);
+
+/**
+ * 渲染层错误必须可见：没有处理器时一次组件抛错只会静默停更该组件
+ * （消息列表停住、其余 UI 照常），看上去像“会话卡住”。
+ */
+app.config.errorHandler = (err, _instance, info) => {
+  console.error(`[renderer] component error (${info}):`, err);
+};
+window.addEventListener("error", (event) => {
+  console.error("[renderer] error:", event.message, event.error);
+});
+window.addEventListener("unhandledrejection", (event) => {
+  console.error("[renderer] unhandled rejection:", event.reason);
+});
+
+app.use(createPinia()).mount("#app");
 markRendererStartup("renderer:mounted");

@@ -512,7 +512,13 @@ export const useChatStore = defineStore("chat", () => {
 
 	function applyEvent(event: AgentEvent): void {
 		const sessionId = event.sessionId;
-		setSessionState(sessionId, reduceChatEvent(stateFor(sessionId), event));
+		try {
+			setSessionState(sessionId, reduceChatEvent(stateFor(sessionId), event));
+		} catch (err) {
+			// 一条事件归约失败不能影响后续事件（也避免异常穿透 ipcRenderer 回调）。
+			console.error(`[chat] reduce failed for ${event.type}:`, err);
+			return;
+		}
 
 		if (event.type === "agent_event") {
 			const payload = event.event as {
@@ -1133,13 +1139,6 @@ export const useChatStore = defineStore("chat", () => {
 	}
 
 	async function abort(sessionId: string): Promise<void> {
-		// TEMP-DIAG: find who auto-aborts while ask_user is pending.
-		if (stateFor(sessionId).pendingAskUser) {
-			console.warn("[ask-user-diag] abort() called while pendingAskUser present", {
-				sessionId,
-				stack: new Error().stack,
-			});
-		}
 		// Stop dismisses any pending interactive strip (ask_user / permission /
 		// extension UI) immediately — don't wait for the worker cancel broadcast.
 		setSessionState(
