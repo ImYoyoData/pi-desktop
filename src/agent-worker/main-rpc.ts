@@ -62,7 +62,6 @@ export function rpcToMain(
     const onAbort = (): void => {
       if (rowTimer) clearTimeout(rowTimer);
       cleanup();
-      console.warn(`[ask-user-diag] rpcToMain abort fired for method=${method} id=${id}`);
       // Tell main to tear down the pending UI ask (broadcasts a cancel so the
       // renderer strip closes). The reply to this cancel is intentionally ignored.
       post({
