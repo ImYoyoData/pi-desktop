@@ -1006,12 +1006,13 @@ declare const api: {
 		) => () => void;
 	};
 	notify: {
-		turnComplete: (payload: { title: string; body: string }) => Promise<{
+		turnComplete: (payload: { title: string; body: string; sessionId?: string }) => Promise<{
 			ok: boolean;
 			notified: boolean;
 			focused: boolean;
 			error?: string;
 		}>;
+		onOpenSession: (callback: (payload: { sessionId: string }) => void) => () => void;
 	};
 	security: {
 		get: () => Promise<DesktopSecuritySettings>;

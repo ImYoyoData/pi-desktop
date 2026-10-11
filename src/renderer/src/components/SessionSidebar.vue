@@ -784,6 +784,9 @@ onMounted(async () => {
   markRendererStartup("renderer:sidebar-mounted");
   keybindings.register("new-session", () => void onNewAgent());
   keybindings.register("select-sessions", enterSelectMode);
+  offNotifyOpen = window.api.notify.onOpenSession(({ sessionId }) => {
+    void onNotifyOpenSession(sessionId);
+  });
   loadPins();
   loadSessionOrders();
   sessionsStore.bindEvents();
@@ -813,6 +816,7 @@ onMounted(async () => {
 onUnmounted(() => {
   keybindings.unregister("new-session");
   keybindings.unregister("select-sessions");
+  offNotifyOpen?.();
   window.removeEventListener("pi-session-created", onSessionCreated);
   window.removeEventListener("keydown", onSelectModeKeydown, true);
   destroyWorkspaceSortable();
@@ -1258,6 +1262,17 @@ async function onSelectSession(root: string, sessionId: string): Promise<void> {
   } finally {
     chatStore.endHistoryLoad(sessionId);
   }
+}
+
+let offNotifyOpen: (() => void) | undefined;
+
+async function onNotifyOpenSession(sessionId: string): Promise<void> {
+  const root =
+    rootOfSession(sessionId) ??
+    sessionsStore.sessions.find((s) => s.id === sessionId)?.cwd ??
+    null;
+  if (!root) return;
+  await onSelectSession(root, sessionId);
 }
 
 async function onKill(): Promise<void> {

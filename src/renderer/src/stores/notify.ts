@@ -71,7 +71,11 @@ export const useNotifyStore = defineStore("notify", () => {
   }
 
   /** Called on prompt_done — respects prefs. */
-  async function onTurnComplete(opts: { title: string; body: string }): Promise<void> {
+  async function onTurnComplete(opts: {
+    title: string;
+    body: string;
+    sessionId?: string;
+  }): Promise<void> {
     if (soundEnabled.value) {
       void playChime();
     }

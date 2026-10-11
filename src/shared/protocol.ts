@@ -348,6 +348,8 @@ export const IpcChannels = {
 	},
 	notify: {
 		turnComplete: "notify:turnComplete",
+		/** Main → renderer: 通知被点击，跳转到对应会话 */
+		openSession: "notify:openSession",
 	},
 	runs: {
 		list: "runs:list",
