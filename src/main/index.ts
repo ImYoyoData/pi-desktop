@@ -37,7 +37,7 @@ import type { WorkerOutbound } from "../shared/agent-worker-messages";
 import type { SecurityCategory } from "../shared/desktop-security";
 import { registerPreviewIpc } from "./preview-ipc";
 import { registerPreviewWatchIpc } from "./preview-watch-host";
-import { registerTerminalIpc } from "./terminal-host";
+import { registerTerminalIpc, disposeAllTerminals } from "./terminal-host";
 import { registerWorkspaceIpc } from "./workspace-ipc";
 import { registerFilesIpc } from "./files-ipc";
 import { registerCustomizationsIpc } from "./customizations-ipc";
@@ -500,5 +500,9 @@ function boot(): void {
 		if (process.platform !== "darwin") {
 			app.quit();
 		}
+	});
+
+	app.on("before-quit", () => {
+		disposeAllTerminals();
 	});
 }
