@@ -1,11 +1,10 @@
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
-import { NButton, NIcon, NText } from "naive-ui";
+import { NButton, NIcon, NInput, NText } from "naive-ui";
 import { CheckmarkOutline, CloseOutline, ExtensionPuzzleOutline } from "@vicons/ionicons5";
 import type { ExtensionUiPending } from "../../../shared/extension-ui";
 import { t } from "@renderer/i18n";
 import { useChatStore } from "@renderer/stores/chat";
-import VoiceTextField from "@renderer/components/VoiceTextField.vue";
 
 const chat = useChatStore();
 const replying = ref(false);
@@ -127,7 +126,7 @@ async function onSubmitText(p: ExtensionUiPending | null): Promise<void> {
       </div>
 
       <div v-else-if="prompt.method === 'input' || prompt.method === 'editor'" class="strip-body">
-        <VoiceTextField
+        <NInput
           v-if="prompt.method === 'input'"
           :value="textDraft"
           size="small"
@@ -136,7 +135,7 @@ async function onSubmitText(p: ExtensionUiPending | null): Promise<void> {
           @update:value="(v) => (textDraft = v)"
           @keydown="(e) => e.key === 'Enter' && (e.preventDefault(), onSubmitText(prompt))"
         />
-        <VoiceTextField
+        <NInput
           v-else
           :value="textDraft"
           type="textarea"

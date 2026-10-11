@@ -2,7 +2,6 @@ import type {
 	AgentCommand,
 	AgentEvent,
 	ElementCitation,
-	LanConsoleStatus,
 	MenuCommand,
 	SessionHistoryMessage,
 	SessionHistoryPage,
@@ -46,16 +45,6 @@ import type {
 } from "../shared/model-discover";
 import type { PreviewResult } from "../shared/preview-types";
 import type { RetrySettings } from "../shared/retry-settings";
-import type {
-	AsrInstallProgress,
-	AsrStatus,
-	AsrStreamEvent,
-} from "../shared/asr";
-import type {
-	TtsInstallProgress,
-	TtsSpeakResult,
-	TtsStatus,
-} from "../shared/tts";
 import type { UpdateCheckResult, UpdateProgress } from "../shared/update";
 import type {
 	PiCliInstallProgress,
@@ -100,9 +89,7 @@ export type { UpdateProgress };
 export type {
 	AgentCommand,
 	AgentEvent,
-	CloudflareTunnelStatus,
 	ElementCitation,
-	LanConsoleStatus,
 	SessionHistoryMessage,
 	SessionHistoryPage,
 	SessionHistoryQuery,
@@ -113,21 +100,6 @@ export type {
 declare const api: {
 	clipboard: {
 		writeImage: (dataUrl: string) => Promise<void>;
-	};
-	lanConsole: {
-		getStatus: () => Promise<LanConsoleStatus>;
-		setEnabled: (enabled: boolean) => Promise<LanConsoleStatus>;
-		setPublicAccess: (enabled: boolean) => Promise<LanConsoleStatus>;
-		setPort: (port: number) => Promise<LanConsoleStatus>;
-		rotatePin: () => Promise<LanConsoleStatus>;
-		setTunnelConfig: (
-			token: string,
-			publicUrl: string,
-		) => Promise<LanConsoleStatus>;
-		setPreferredIp: (ip: string) => Promise<LanConsoleStatus>;
-		onTunnelStatus: (
-			callback: (status: CloudflareTunnelStatus) => void,
-		) => () => void;
 	};
 	proxy: {
 		get: () => Promise<ProxySettings>;
@@ -918,53 +890,6 @@ declare const api: {
 		onElementScreenshot: (callback: (dataUrl: string) => void) => () => void;
 		onSelectCancelled: (callback: () => void) => () => void;
 		onToggleEmbeddedDevTools: (callback: () => void) => () => void;
-	};
-	asr: {
-		status: () => Promise<AsrStatus>;
-		setEnabled: (enabled: boolean) => Promise<AsrStatus>;
-		setGpuPreference: (preference: string) => Promise<AsrStatus>;
-		setDownloadMirror: (mirror: string) => Promise<AsrStatus>;
-		install: () => Promise<AsrStatus>;
-		installFromUrl: (url: string) => Promise<AsrStatus>;
-		pickModel: () => Promise<string | null>;
-		importModel: (filePath: string) => Promise<AsrStatus>;
-		reinstallRuntime: () => Promise<AsrStatus>;
-		pickRuntimeArchive: () => Promise<string | null>;
-		importRuntime: (filePath: string) => Promise<AsrStatus>;
-		cancelInstall: () => Promise<{
-			ok: boolean;
-		}>;
-		uninstall: () => Promise<AsrStatus>;
-		transcribe: (pcm: Int16Array, sampleRate: number) => Promise<string>;
-		streamStart: () => Promise<AsrStatus>;
-		streamPush: (pcm: Int16Array) => Promise<void>;
-		streamStop: () => Promise<AsrStatus>;
-		onStreamEvent: (callback: (event: AsrStreamEvent) => void) => () => void;
-		onProgress: (callback: (progress: AsrInstallProgress) => void) => () => void;
-		setWakeHotkey: (accel: string) => Promise<AsrStatus>;
-		setResidentModel: (enabled: boolean) => Promise<AsrStatus>;
-		setWakeEnabled: (enabled: boolean) => Promise<AsrStatus>;
-		setWakeWords: (raw: string) => Promise<AsrStatus>;
-		setBackend: (backend: string) => Promise<AsrStatus>;
-		getCloudConfig: () => Promise<{
-			backend: "local" | "cloud" | null;
-			cloud: AsrCloudConfig | null;
-		}>;
-		setCloudConfig: (cloud: AsrCloudConfig) => Promise<AsrStatus>;
-		testCloud: () => Promise<{ ok: boolean; message: string }>;
-		onWake: (callback: () => void) => () => void;
-	};
-	tts: {
-		status: () => Promise<TtsStatus>;
-		setEnabled: (enabled: boolean) => Promise<TtsStatus>;
-		install: () => Promise<TtsStatus>;
-		uninstall: () => Promise<TtsStatus>;
-		speak: (text: string) => Promise<TtsSpeakResult>;
-		stop: () => Promise<TtsStatus>;
-		onProgress: (callback: (progress: TtsInstallProgress) => void) => () => void;
-		onSpeaking: (
-			callback: (payload: { speaking: boolean }) => void,
-		) => () => void;
 	};
 	contributors: {
 		avatar: (url: string) => Promise<string | null>;

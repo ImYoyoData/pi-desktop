@@ -44,7 +44,7 @@
 ┌─────────────┬──────────────────────┬──────────────────┐
 │  Sessions   │   Agent chat stream  │  Running · Diff  │
 │  + models   │   tools · ask user   │  Browser · Term  │
-│  + skills   │   voice · citations  │  Preview · Git   │
+│  + skills   │   citations          │  Preview · Git   │
 └─────────────┴──────────────────────┴──────────────────┘
 ```
 
@@ -75,8 +75,6 @@ Pi is a powerful coding agent. Pi Desktop wraps it in a **product-grade workbenc
 - **Built-in Git workbench** — Changes panel with stage/unstage, per-file diff, commit & push, branch management, commit history with per-commit file lists, reset (soft/hard), and file-level restore.
 - **Embedded browser & element picker** — open web pages, select elements/screenshots and feed them to the agent as citations and images.
 - **Terminal, Preview & Running** — node-pty terminal, file preview with Monaco diffs, and a Running panel for background processes.
-- **Flexible voice input** — dictation and wake-word listening backed by either on-device **CrispASR** (offline, private) or an **OpenAI-compatible cloud ASR API** of your choice.
-- **Remote Control** — LAN access is on by default: open `http://<this-pc-ip>:18700` on a phone or tablet (plain HTTP, so no certificate warning) and continue the conversation with a 9-digit access PIN. For access from outside your network, flip the **Public access** switch and a Cloudflare tunnel (cloudflared is downloaded automatically) publishes an HTTPS URL. The web console has no voice input.
 - **Images in context** — paste images or image URLs; they are cached per session and sent to the model as base64 with a file path text-only models can locate.
 - **Trust & safety** — per-workspace trust gate, bash/write permission prompts, and an allowlist.
 - **Fast & light on slow machines** — lazy-loaded UI, off-main-thread PCM encoding, and no Pi SDK import in the main-process boot path.
@@ -86,7 +84,6 @@ Pi is a powerful coding agent. Pi Desktop wraps it in a **product-grade workbenc
 | **Agent core** | Multi-session Pi runtime, streaming turns, tool cards with diffs, ask-user wizard |
 | **Workbench** | Changes / Running / Browser / Terminal / Preview tabs |
 | **Trust & safety** | Project trust gate, bash allowlist, permission prompts |
-| **Voice** | On-device ASR or configurable cloud ASR API (OpenAI-compatible) |
 | **Ship path** | NSIS + DMG per architecture via GitHub Actions on push to `main` |
 
 ---
@@ -122,7 +119,6 @@ npm run dist:win   # or dist:mac — package installers
 1. Open a project folder and trust it.
 2. Pick a model (and set your API key under **Settings → Model** if needed).
 3. Create a session and describe a task — the agent will investigate, implement, and you can review + commit from the right-hand Git panel.
-4. Click the mic to enable voice input; on first use choose **Local (offline)** or **Cloud API** recognition.
 
 ---
 

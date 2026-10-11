@@ -68,11 +68,4 @@ describe("i18n locale files", () => {
     expect(missingInEn, "keys present in zh-CN but missing in en").toEqual([]);
     expect(missingInZh, "keys present in en but missing in zh-CN").toEqual([]);
   });
-
-  it("does not resurrect the duplicated copy-URL key", () => {
-    // `lanPublicCopyUrl` was defined twice (esbuild warned) and never used — the
-    // panel reuses `lanConsoleCopy`. It must not come back in either locale.
-    expect(topLevelKeys("zh-CN.ts").filter((k) => k === "lanPublicCopyUrl")).toEqual([]);
-    expect(topLevelKeys("en.ts").filter((k) => k === "lanPublicCopyUrl")).toEqual([]);
-  });
 });

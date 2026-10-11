@@ -1,6 +1,3 @@
-/** Default ASR wake chord (Electron accelerator). */
-export const DEFAULT_ASR_WAKE_HOTKEY = "Control+Alt+Y";
-
 const MODIFIER_CODES = new Set([
   "ControlLeft",
   "ControlRight",

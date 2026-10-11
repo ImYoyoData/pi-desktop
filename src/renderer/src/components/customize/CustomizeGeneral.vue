@@ -8,10 +8,8 @@ const emit = defineEmits<{ open: [id: string] }>();
 
 const rows = computed(() => [
   { id: "notify", icon: "notify", label: t.notifyTitle },
-  { id: "voice", icon: "voice", label: t.voiceTitle },
   { id: "security", icon: "security", label: t.securityTitle },
   { id: "proxy", icon: "proxy", label: t.proxyTitle },
-  { id: "lan", icon: "lan", label: t.lanConsoleTitle },
 ] as const);
 </script>
 

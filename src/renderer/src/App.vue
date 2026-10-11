@@ -18,8 +18,6 @@ import AppHoverTip from "@renderer/components/AppHoverTip.vue";
 import WelcomeView from "@renderer/components/WelcomeView.vue";
 import PiCliSetup from "@renderer/components/PiCliSetup.vue";
 import CloseGuard from "@renderer/components/CloseGuard.vue";
-import AsrWakeGuard from "@renderer/components/AsrWakeGuard.vue";
-import AsrBackendChooseModal from "@renderer/components/AsrBackendChooseModal.vue";
 import { useWorkspaceStore } from "@renderer/stores/workspace";
 import { useAppearanceStore } from "@renderer/stores/appearance";
 import { useCustomizationsStore } from "@renderer/stores/customizations";
@@ -203,7 +201,6 @@ onUnmounted(() => {
     <NMessageProvider>
       <NDialogProvider>
         <CloseGuard />
-        <AsrWakeGuard />
         <div
           class="app-shell"
           :data-theme="appearance.resolvedTheme"
@@ -219,7 +216,6 @@ onUnmounted(() => {
           </main>
           <PiCliSetup />
           <AiCustomizationModal v-if="workspace.root" />
-          <AsrBackendChooseModal />
         </div>
         <AppContextMenu />
         <AppHoverTip />

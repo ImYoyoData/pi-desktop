@@ -16,7 +16,6 @@ files:
   # 本地状态 / 临时目录 / 未构建的源（.pi-glla 是 GLLA 会话与 owner 数据，绝不能进包）
   - "!.pi/**"
   - "!.pi-glla/**"
-  - "!lan-web/**"
   - "!scratch_*/**"
   - "!tmp-freeze/**"
   - "!vitest.config.ts"
@@ -36,7 +35,8 @@ files:
   - "!{.eslintcache,eslint.config.mjs,.prettierignore,.prettierrc.yaml,dev-app-update.yml,CHANGELOG.md}"
   - "!{.env,.env.*,.npmrc,pnpm-lock.yaml}"
   - "!{tsconfig.json,tsconfig.node.json,tsconfig.web.json,tsconfig.*.tsbuildinfo}"
-  # Renderer-only packages are already bundled into out/ — exclude to cut size hard
+  # Renderer-only packages are already bundled into out/ —
+  # exclude to cut size hard
   - "!node_modules/monaco-editor/**"
   - "!node_modules/naive-ui/**"
   - "!node_modules/@vicons/**"
@@ -98,9 +98,7 @@ asarUnpack:
   # dugite embeds a real Git binary (win/mac/linux); must stay outside asar.
   # dugite rewrites app.asar → app.asar.unpacked when resolving git/.
   - "**/node_modules/dugite/git/**"
-  # worker_threads cannot load JS from asar (ASR / history offload).
-  - "**/asr-cloud-worker.js"
-  - "**/asr-gpu-detect-worker.js"
+  # worker_threads cannot load JS from asar (history offload).
   - "**/session-history-worker.js"
   # Workers require() shared modules chunked beside them — must be unpacked too.
   - "**/out/main/chunks/**"
@@ -135,7 +133,8 @@ electronLanguages:
   - en-US
   - zh-CN
 
-# One NSIS installer per arch (build with --x64 OR --arm64, never both in one fat package).
+# One NSIS installer per arch (build with --x64 OR --arm64,
+# never both in one fat package).
 win:
   executableName: PiDesktop
   artifactName: ${productName}-${version}-win-${arch}-setup.${ext}
@@ -161,14 +160,28 @@ mac:
   target:
     - target: dmg
   extendInfo:
-    NSCameraUsageDescription: Pi Desktop may use the camera for browser previews.
-    NSMicrophoneUsageDescription: Pi Desktop uses the microphone for local speech recognition and browser previews.
-    NSAppleEventsUsageDescription: Pi Desktop may control Terminal to help install the Pi CLI when needed.
-    NSDocumentsFolderUsageDescription: Pi Desktop needs access to your Documents folder for workspaces.
-    NSDownloadsFolderUsageDescription: Pi Desktop needs access to your Downloads folder for workspaces.
-    NSDesktopFolderUsageDescription: Pi Desktop needs access to your Desktop folder for workspaces.
-    NSRemovableVolumesUsageDescription: Pi Desktop needs access to removable volumes when you open a workspace there.
-    NSNetworkVolumesUsageDescription: Pi Desktop needs access to network volumes when you open a workspace there.
+    NSCameraUsageDescription: >-
+      Pi Desktop may use the camera for browser previews.
+    NSMicrophoneUsageDescription: >-
+      Pi Desktop uses the microphone for browser previews.
+    NSAppleEventsUsageDescription: >-
+      Pi Desktop may control Terminal to help install the Pi CLI
+      when needed.
+    NSDocumentsFolderUsageDescription: >-
+      Pi Desktop needs access to your Documents folder for
+      workspaces.
+    NSDownloadsFolderUsageDescription: >-
+      Pi Desktop needs access to your Downloads folder for
+      workspaces.
+    NSDesktopFolderUsageDescription: >-
+      Pi Desktop needs access to your Desktop folder for
+      workspaces.
+    NSRemovableVolumesUsageDescription: >-
+      Pi Desktop needs access to removable volumes when you open
+      a workspace there.
+    NSNetworkVolumesUsageDescription: >-
+      Pi Desktop needs access to network volumes when you open a
+      workspace there.
   # Requires Apple Developer ID + notary credentials in CI to enable.
   notarize: false
 
