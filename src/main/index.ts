@@ -46,8 +46,6 @@ import { registerGitIpc } from "./git-ipc";
 import { registerGitHubIpc } from "./github-ipc";
 import { registerFsWatchIpc } from "./fs-watch-host";
 import { registerWindowIpc } from "./window-ipc";
-import { registerAsrIpc } from "./asr-host";
-import { registerTtsIpc } from "./tts-host";
 import { registerUpdateIpc } from "./update-host";
 import { registerContributorsIpc } from "./contributors-host";
 import { registerPiCliIpc } from "./pi-cli-host";
@@ -77,11 +75,6 @@ import { registerStreamRenderIpc } from "./stream-render-ipc";
 import { registerTempCleanupIpc } from "./temp-cleanup-ipc";
 import { registerTempCleanup } from "./temp-cleanup-host";
 import { registerAppearanceIpc } from "./appearance-ipc";
-import {
-	disposeLanConsole,
-	ensureLanConsoleFromSettings,
-	registerLanConsoleIpc,
-} from "./lan-console";
 import { ensurePiAgentEnvironment } from "./pi-env";
 import { migrateLegacyProviderIds } from "./provider-id-migration";
 import { initProxy, registerProxyIpc, restoreStartupProxyEnv } from "./proxy-host";
@@ -143,7 +136,7 @@ const gotSingleInstanceLock =
 if (!gotSingleInstanceLock) {
 	app.quit();
 } else {
-	// ASR stream stdin can emit write EOF/EPIPE after the child exits — never crash the app.
+	// 子进程 stdin 写入可能在退出后触发 EPIPE/EOF，绝不能让应用崩溃。
 	process.on("uncaughtException", (err) => {
 		const msg = err instanceof Error ? err.message : String(err);
 		const code =
@@ -379,7 +372,6 @@ function boot(): void {
 		registerTempCleanupIpc();
 		registerTempCleanup();
 		registerAppearanceIpc();
-		registerLanConsoleIpc(broker);
 		registerPreviewIpc();
 		registerPreviewWatchIpc();
 		registerFilesIpc();
@@ -395,7 +387,7 @@ function boot(): void {
 		electronApp.setAppUserModelId("com.pi.desktop");
 		markStartup("main:ipc-critical-done");
 
-		// Allow mic/camera for ASR + embedded browser (macOS TCC still gates via askForMediaAccess).
+		// Allow mic/camera for the embedded browser (macOS TCC still gates via askForMediaAccess).
 		const allowPermissions = new Set([
 			"media",
 			"mediaKeySystem",
@@ -466,7 +458,7 @@ function boot(): void {
 		});
 
 		// Show UI as soon as possible — defer agent env setup and non-critical
-		// hosts (ASR / update / market / CLI) so the window paints first.
+		// hosts (update / market / CLI) so the window paints first.
 		void initProxy();
 		registerProxyIpc({ onChanged: () => broker.recycleWorkers() });
 		const mainWindow = createMainWindow();
@@ -487,23 +479,12 @@ function boot(): void {
 			}
 			markStartup("main:defer:pi-env");
 			migrateLegacyProviderIds();
-			registerAsrIpc();
-			markStartup("main:defer:asr");
-			registerTtsIpc();
 			registerUpdateIpc();
 			registerContributorsIpc();
 			registerPiCliIpc();
 			registerMarketIpc(broker);
 			markStartup("main:defer:hosts");
-			// Remote control serves the built web panel right away; give the
-			// window a chance to paint and hydrate before it starts listening.
-			setTimeout(() => {
-				markStartup("main:defer:lan-start");
-				if (process.env.PI_DESKTOP_NO_LAN !== "1") {
-					ensureLanConsoleFromSettings();
-				}
-				markStartup("main:deferred-init-done");
-			}, 900);
+			markStartup("main:deferred-init-done");
 		});
 
 		app.on("activate", () => {
@@ -519,10 +500,5 @@ function boot(): void {
 		if (process.platform !== "darwin") {
 			app.quit();
 		}
-	});
-
-	// Never leave the remote-control listeners or a cloudflared tunnel behind.
-	app.on("will-quit", () => {
-		disposeLanConsole();
 	});
 }

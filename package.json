@@ -15,7 +15,7 @@
   "license": "MIT",
   "scripts": {
     "dev": "node scripts/patch-highlightjs-exports.mjs && electron-vite dev",
-    "build": "node scripts/patch-highlightjs-exports.mjs && node scripts/build-lan-web.mjs && electron-vite build",
+    "build": "node scripts/patch-highlightjs-exports.mjs && electron-vite build",
     "test": "vitest run",
     "typecheck": "npm run typecheck:node && npm run typecheck:web",
     "typecheck:node": "tsc --noEmit -p tsconfig.node.json --composite false",
@@ -49,7 +49,6 @@
     "@vicons/ionicons5": "^0.13.0",
     "@viz-js/viz": "^3.30.0",
     "@xterm/addon-fit": "^0.11.0",
-    "cloudflared": "0.7.3",
     "dompurify": "^3.4.15",
     "dugite": "^3.2.3",
     "highlight.js": "^11.12.0",

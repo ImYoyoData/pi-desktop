@@ -31,7 +31,6 @@ import { useSessionsStore } from "./sessions";
 import { useCheckpointStore } from "./checkpoint";
 import { useComposerStore } from "./composer";
 import { useNotifyStore } from "./notify";
-import { useTtsStore } from "./tts";
 import { useSessionWidgetsStore } from "./session-widgets";
 import { useWorkspaceStore } from "./workspace";
 import { extractToolResult } from "../utils/tool-diff";
@@ -502,15 +501,6 @@ export const useChatStore = defineStore("chat", () => {
 		// setStatus / setTitle: reserved for future chrome.
 	}
 
-	/**
-	 * Apply an agent event into chat state only (no TTS / auto-recover / notify).
-	 * Used by the LAN web console which feeds the same MessageList via WS.
-	 */
-	function applyLanEvent(event: AgentEvent): void {
-		const sessionId = event.sessionId;
-		setSessionState(sessionId, reduceChatEvent(stateFor(sessionId), event));
-	}
-
 	function applyEvent(event: AgentEvent): void {
 		const sessionId = event.sessionId;
 		try {
@@ -590,16 +580,6 @@ export const useChatStore = defineStore("chat", () => {
 				title: t.appName,
 				body: t.notifyTurnCompleteBody,
 			});
-			// Only speak for the focused session — avoid background tabs narrating.
-			if (sessionId === useSessionsStore().activeId) {
-				const state = stateFor(sessionId);
-				const lastAssistant = [...state.messages]
-					.reverse()
-					.find((m) => m.role === "assistant" && m.text?.trim());
-				if (lastAssistant && "text" in lastAssistant && lastAssistant.text) {
-					useTtsStore().speakReply(lastAssistant.text, lastAssistant.id);
-				}
-			}
 		}
 
 		if (event.type === "worker_stuck") {
@@ -1540,7 +1520,6 @@ export const useChatStore = defineStore("chat", () => {
 		activePendingExtensionUi,
 		securityRemediationTick,
 		bindEvents,
-		applyLanEvent,
 		clearPendingAskUserFor,
 		readAskDraft,
 		writeAskDraft,

@@ -55,7 +55,6 @@ export const BUILTIN_SHORTCUTS: BuiltinShortcut[] = [
   { group: "app", labelKey: "hotkeyMaximizeEditor", keys: "Ctrl+Alt+E" },
   { group: "app", labelKey: "hotkeyToggleDetails", keys: "Ctrl+Alt+L" },
   { group: "app", labelKey: "hotkeySaveFile", keys: "Ctrl+S" },
-  { group: "app", labelKey: "hotkeyAsrWake", keys: "Ctrl+Alt+Y" },
   { group: "app", labelKey: "hotkeyBrowserDevtools", keys: "F12" },
   { group: "app", labelKey: "hotkeyAppDevtools", keys: "Ctrl+Shift+I" },
   { group: "app", labelKey: "hotkeyDialogConfirm", keys: "Enter" },

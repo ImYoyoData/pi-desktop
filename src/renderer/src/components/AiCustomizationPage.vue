@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, h, nextTick, onMounted, onUnmounted, ref, watch, type Component } from "vue";
-import { NButton, NInput, NModal, NSpin, NSpace, useDialog, useMessage } from "naive-ui";
+import { NButton, NInput, NSpin, NSpace, useDialog, useMessage } from "naive-ui";
 import { RefreshOutline } from "@vicons/ionicons5";
 import CodiconIcon from "@renderer/components/icons/CodiconIcon.vue";
 import PreviewTab from "@renderer/components/PreviewTab.vue";
@@ -14,11 +14,9 @@ import CustomizeTools from "@renderer/components/customize/CustomizeTools.vue";
 import CustomizeModels from "@renderer/components/customize/CustomizeModels.vue";
 import CustomizeRuntime from "@renderer/components/customize/CustomizeRuntime.vue";
 import NotifySettings from "@renderer/components/NotifySettings.vue";
-import AsrSettings from "@renderer/components/AsrSettings.vue";
 import SecuritySettings from "@renderer/components/SecuritySettings.vue";
 import ProxySettings from "@renderer/components/ProxySettings.vue";
 import MarketSettings from "@renderer/components/MarketSettings.vue";
-import LanConsoleSettings from "@renderer/components/LanConsoleSettings.vue";
 import { useCustomizationsStore } from "@renderer/stores/customizations";
 import { useLayoutStore } from "@renderer/stores/layout";
 import { useWorkspaceStore } from "@renderer/stores/workspace";
@@ -838,21 +836,9 @@ onUnmounted(() => {
     </section>
 
     <NotifySettings :open="modal === 'notify'" @close="modal = null" />
-    <AsrSettings :open="modal === 'voice'" @close="modal = null" />
     <SecuritySettings :open="modal === 'security'" @close="modal = null" />
     <ProxySettings :open="modal === 'proxy'" @close="modal = null" />
     <MarketSettings :open="modal === 'market'" @close="modal = null" />
-    <NModal
-      :show="modal === 'lan'"
-      preset="card"
-      class="pi-settings-modal"
-      style="width: min(520px, 92vw)"
-      :title="t.lanConsoleTitle"
-      :bordered="false"
-      @update:show="(value) => !value && (modal = null)"
-    >
-      <LanConsoleSettings @close="modal = null" />
-    </NModal>
   </div>
 </template>
 

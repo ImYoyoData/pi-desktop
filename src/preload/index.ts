@@ -2,8 +2,6 @@ import { contextBridge, ipcRenderer, webUtils } from "electron";
 import { electronAPI } from "@electron-toolkit/preload";
 import type {
 	AgentCommand,
-	CloudflareTunnelStatus,
-	LanConsoleStatus,
 	AgentEvent,
 	ElementCitation,
 	MenuCommand,
@@ -51,17 +49,6 @@ import type {
 	TestProviderBaseUrlResult,
 } from "../shared/model-discover";
 import type { PreviewResult } from "../shared/preview-types";
-import type {
-	AsrCloudConfig,
-	AsrInstallProgress,
-	AsrStatus,
-	AsrStreamEvent,
-} from "../shared/asr";
-import type {
-	TtsInstallProgress,
-	TtsSpeakResult,
-	TtsStatus,
-} from "../shared/tts";
 import type { UpdateCheckResult, UpdateProgress } from "../shared/update";
 import type {
 	PiCliInstallProgress,
@@ -136,54 +123,6 @@ const api = {
 				IpcChannels.clipboard.writeImage,
 				dataUrl,
 			) as Promise<void>,
-	},
-	lanConsole: {
-		getStatus: () =>
-			ipcRenderer.invoke(
-				IpcChannels.lanConsole.getStatus,
-			) as Promise<LanConsoleStatus>,
-		setEnabled: (enabled: boolean) =>
-			ipcRenderer.invoke(
-				IpcChannels.lanConsole.setEnabled,
-				enabled,
-			) as Promise<LanConsoleStatus>,
-		setPublicAccess: (enabled: boolean) =>
-			ipcRenderer.invoke(
-				IpcChannels.lanConsole.setPublicAccess,
-				enabled,
-			) as Promise<LanConsoleStatus>,
-		setPort: (port: number) =>
-			ipcRenderer.invoke(
-				IpcChannels.lanConsole.setPort,
-				port,
-			) as Promise<LanConsoleStatus>,
-		rotatePin: () =>
-			ipcRenderer.invoke(
-				IpcChannels.lanConsole.rotatePin,
-			) as Promise<LanConsoleStatus>,
-		setTunnelConfig: (token: string, publicUrl: string) =>
-			ipcRenderer.invoke(
-				IpcChannels.lanConsole.setTunnelConfig,
-				String(token ?? ""),
-				String(publicUrl ?? ""),
-			) as Promise<LanConsoleStatus>,
-		setPreferredIp: (ip: string) =>
-			ipcRenderer.invoke(
-				IpcChannels.lanConsole.setPreferredIp,
-				String(ip ?? ""),
-			) as Promise<LanConsoleStatus>,
-		onTunnelStatus: (callback: (status: CloudflareTunnelStatus) => void) => {
-			const listener = (
-				_event: unknown,
-				status: CloudflareTunnelStatus,
-			): void => callback(status);
-			ipcRenderer.on(IpcChannels.lanConsole.tunnelStatus, listener);
-			return () =>
-				ipcRenderer.removeListener(
-					IpcChannels.lanConsole.tunnelStatus,
-					listener,
-				);
-		},
 	},
 	proxy: {
 		get: () =>
@@ -1414,177 +1353,9 @@ const api = {
 			};
 		},
 	},
-	asr: {
-		status: () =>
-			ipcRenderer.invoke(IpcChannels.asr.status) as Promise<AsrStatus>,
-		setEnabled: (enabled: boolean) =>
-			ipcRenderer.invoke(
-				IpcChannels.asr.setEnabled,
-				enabled,
-			) as Promise<AsrStatus>,
-		setGpuPreference: (preference: string) =>
-			ipcRenderer.invoke(
-				IpcChannels.asr.setGpuPreference,
-				preference,
-			) as Promise<AsrStatus>,
-		setDownloadMirror: (mirror: string) =>
-			ipcRenderer.invoke(
-				IpcChannels.asr.setDownloadMirror,
-				mirror,
-			) as Promise<AsrStatus>,
-		install: () =>
-			ipcRenderer.invoke(IpcChannels.asr.install) as Promise<AsrStatus>,
-		installFromUrl: (url: string) =>
-			ipcRenderer.invoke(
-				IpcChannels.asr.installFromUrl,
-				url,
-			) as Promise<AsrStatus>,
-		pickModel: () =>
-			ipcRenderer.invoke(IpcChannels.asr.pickModel) as Promise<string | null>,
-		importModel: (filePath: string) =>
-			ipcRenderer.invoke(
-				IpcChannels.asr.importModel,
-				filePath,
-			) as Promise<AsrStatus>,
-		reinstallRuntime: () =>
-			ipcRenderer.invoke(IpcChannels.asr.reinstallRuntime) as Promise<AsrStatus>,
-		pickRuntimeArchive: () =>
-			ipcRenderer.invoke(IpcChannels.asr.pickRuntimeArchive) as Promise<
-				string | null
-			>,
-		importRuntime: (filePath: string) =>
-			ipcRenderer.invoke(
-				IpcChannels.asr.importRuntime,
-				filePath,
-			) as Promise<AsrStatus>,
-		cancelInstall: () =>
-			ipcRenderer.invoke(IpcChannels.asr.cancelInstall) as Promise<{
-				ok: boolean;
-			}>,
-		uninstall: () =>
-			ipcRenderer.invoke(IpcChannels.asr.uninstall) as Promise<AsrStatus>,
-		transcribe: (pcm: Int16Array, sampleRate: number) =>
-			ipcRenderer.invoke(IpcChannels.asr.transcribe, {
-				pcm,
-				sampleRate,
-			}) as Promise<string>,
-		streamStart: () =>
-			ipcRenderer.invoke(IpcChannels.asr.streamStart) as Promise<AsrStatus>,
-		streamPush: (pcm: Int16Array) => {
-			// send (not invoke): wake listen pushes many frames/sec; avoid
-			// base64 + promise round-trips on the UI / main threads.
-			ipcRenderer.send(IpcChannels.asr.streamPush, { pcm });
-			return Promise.resolve();
-		},
-		streamStop: () =>
-			ipcRenderer.invoke(IpcChannels.asr.streamStop) as Promise<AsrStatus>,
-		onStreamEvent: (callback: (event: AsrStreamEvent) => void) => {
-			const listener = (
-				_event: Electron.IpcRendererEvent,
-				payload: AsrStreamEvent,
-			) => callback(payload);
-			ipcRenderer.on(IpcChannels.asr.streamEvent, listener);
-			return () => {
-				ipcRenderer.removeListener(IpcChannels.asr.streamEvent, listener);
-			};
-		},
-		onProgress: (callback: (progress: AsrInstallProgress) => void) => {
-			const listener = (
-				_event: Electron.IpcRendererEvent,
-				progress: AsrInstallProgress,
-			) => callback(progress);
-			ipcRenderer.on(IpcChannels.asr.progress, listener);
-			return () => {
-				ipcRenderer.removeListener(IpcChannels.asr.progress, listener);
-			};
-		},
-		setWakeHotkey: (accel: string) =>
-			ipcRenderer.invoke(
-				IpcChannels.asr.setWakeHotkey,
-				accel,
-			) as Promise<AsrStatus>,
-		setResidentModel: (enabled: boolean) =>
-			ipcRenderer.invoke(
-				IpcChannels.asr.setResidentModel,
-				enabled,
-			) as Promise<AsrStatus>,
-		setWakeEnabled: (enabled: boolean) =>
-			ipcRenderer.invoke(
-				IpcChannels.asr.setWakeEnabled,
-				enabled,
-			) as Promise<AsrStatus>,
-		setWakeWords: (raw: string) =>
-			ipcRenderer.invoke(IpcChannels.asr.setWakeWords, raw) as Promise<AsrStatus>,
-		setBackend: (backend: string) =>
-			ipcRenderer.invoke(
-				IpcChannels.asr.setBackend,
-				backend,
-			) as Promise<AsrStatus>,
-		getCloudConfig: () =>
-			ipcRenderer.invoke(IpcChannels.asr.getCloudConfig) as Promise<{
-				backend: "local" | "cloud" | null;
-				cloud: AsrCloudConfig | null;
-			}>,
-		setCloudConfig: (cloud: AsrCloudConfig) =>
-			ipcRenderer.invoke(
-				IpcChannels.asr.setCloudConfig,
-				cloud,
-			) as Promise<AsrStatus>,
-		testCloud: () =>
-			ipcRenderer.invoke(IpcChannels.asr.testCloud) as Promise<{
-				ok: boolean;
-				message: string;
-			}>,
-		onWake: (callback: () => void) => {
-			const listener = () => callback();
-			ipcRenderer.on(IpcChannels.asr.wake, listener);
-			return () => {
-				ipcRenderer.removeListener(IpcChannels.asr.wake, listener);
-			};
-		},
-	},
-	tts: {
-		status: () =>
-			ipcRenderer.invoke(IpcChannels.tts.status) as Promise<TtsStatus>,
-		setEnabled: (enabled: boolean) =>
-			ipcRenderer.invoke(
-				IpcChannels.tts.setEnabled,
-				enabled,
-			) as Promise<TtsStatus>,
-		install: () =>
-			ipcRenderer.invoke(IpcChannels.tts.install) as Promise<TtsStatus>,
-		uninstall: () =>
-			ipcRenderer.invoke(IpcChannels.tts.uninstall) as Promise<TtsStatus>,
-		speak: (text: string) =>
-			ipcRenderer.invoke(IpcChannels.tts.speak, text) as Promise<TtsSpeakResult>,
-		stop: () => ipcRenderer.invoke(IpcChannels.tts.stop) as Promise<TtsStatus>,
-		onProgress: (callback: (progress: TtsInstallProgress) => void) => {
-			const listener = (
-				_event: Electron.IpcRendererEvent,
-				progress: TtsInstallProgress,
-			) => callback(progress);
-			ipcRenderer.on(IpcChannels.tts.progress, listener);
-			return () => {
-				ipcRenderer.removeListener(IpcChannels.tts.progress, listener);
-			};
-		},
-		onSpeaking: (callback: (payload: { speaking: boolean }) => void) => {
-			const listener = (
-				_event: Electron.IpcRendererEvent,
-				payload: { speaking: boolean },
-			) => callback(payload);
-			ipcRenderer.on(IpcChannels.tts.speaking, listener);
-			return () => {
-				ipcRenderer.removeListener(IpcChannels.tts.speaking, listener);
-			};
-		},
-	},
 	contributors: {
 		avatar: (url: string) =>
-			ipcRenderer.invoke(
-				IpcChannels.contributors.avatar,
-				url,
-			) as Promise<string | null>,
+			ipcRenderer.invoke(IpcChannels.contributors.avatar, url) as Promise<string | null>,
 	},
 	update: {
 		getAppInfo: () =>

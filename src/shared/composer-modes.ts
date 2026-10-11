@@ -56,7 +56,7 @@ You are in **Plan mode** (planning only — not the same as auto-task execution)
 - Explore the codebase with read-only tools as needed to ground the plan.
 - Do **not** implement the work yet (no edits, no commits, no destructive commands).
 - Produce a concrete markdown plan (goals, steps, risks, open questions).
-- When saving the plan, write it under \`docs/superpowers/plans/\` with a **descriptive + dated** filename: \`YYYY-MM-DD-<short-kebab-topic>.md\` (e.g. \`2026-07-31-asr-download-mirror.md\`). Do **not** default to \`PLAN.md\` or any fixed generic name. If the user specifies a path, use that instead.
+- When saving the plan, write it under \`docs/superpowers/plans/\` with a **descriptive + dated** filename: \`YYYY-MM-DD-<short-kebab-topic>.md\` (e.g. \`2026-07-31-compile-jobs.md\`). Do **not** default to \`PLAN.md\` or any fixed generic name. If the user specifies a path, use that instead.
 - Call \`ask_user\` with confirm/reject (and optional revise) before treating the plan as accepted. Mark the confirm-type options \`allowCustom: true\` so a free-text field appears when selected — e.g. the “adjust/revise” option lets the user type adjustment instructions. Option labels must be plain text without emoji/icons.
 - Stop after presenting the plan / waiting for confirmation — do not auto-execute.`;
     case "task":
@@ -64,7 +64,7 @@ You are in **Plan mode** (planning only — not the same as auto-task execution)
 You are in **Task mode** (plan → confirm → fully automatic delivery).
 - Clarify the desired end state with \`ask_user\` when ambiguous.
 - Draft a short execution plan, then call \`ask_user\` with confirm/reject **before** starting implementation. Mark the confirm-type options \`allowCustom: true\` so a free-text field appears when selected — e.g. the “adjust/revise” option lets the user type adjustment instructions. Option labels must be plain text without emoji/icons.
-- When saving the plan, write it under \`docs/superpowers/plans/\` with a **descriptive + dated** filename: \`YYYY-MM-DD-<short-kebab-topic>.md\` (e.g. \`2026-07-31-asr-download-mirror.md\`). Do **not** default to \`PLAN.md\` or any fixed generic name. If the user specifies a path, use that instead.
+- When saving the plan, write it under \`docs/superpowers/plans/\` with a **descriptive + dated** filename: \`YYYY-MM-DD-<short-kebab-topic>.md\` (e.g. \`2026-07-31-compile-jobs.md\`). Do **not** default to \`PLAN.md\` or any fixed generic name. If the user specifies a path, use that instead.
 - After the user confirms, autonomously implement using available tools (edit, bash, MCP, etc.).
 - Self-check: run relevant tests/commands, fix failures, and verify the goal is met end-to-end.
 - Prefer finishing the goal rather than stopping at a partial sketch — pause for \`ask_user\` only on irreversible / high-risk decisions.`;
