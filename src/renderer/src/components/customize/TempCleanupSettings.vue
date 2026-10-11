@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from "vue";
-import { NButton, NSelect, NSwitch, useMessage } from "naive-ui";
+import { NButton, NRadioButton, NRadioGroup, NSelect, NText, useMessage } from "naive-ui";
 import type { TempCleanupSettings } from "../../../../shared/temp-cleanup";
 import {
 	DEFAULT_TEMP_CLEANUP_SETTINGS,
@@ -12,6 +12,8 @@ const message = useMessage();
 const settings = ref<TempCleanupSettings>({ ...DEFAULT_TEMP_CLEANUP_SETTINGS });
 const sweeping = ref(false);
 const loaded = ref(false);
+const statsText = ref("");
+const statsLoading = ref(false);
 
 const intervalOptions = computed(() =>
 	TEMP_CLEANUP_INTERVALS.map((hours) => ({
@@ -19,6 +21,11 @@ const intervalOptions = computed(() =>
 		value: hours,
 	})),
 );
+
+const ageOptions = computed(() => [1, 6, 12, 24, 72, 168].map((hours) => ({
+	label: t.tempCleanupIntervalLabel(hours),
+	value: hours,
+})));
 
 onMounted(async () => {
 	try {
@@ -38,6 +45,11 @@ async function save(next: TempCleanupSettings): Promise<void> {
 	}
 }
 
+const enabledControl = computed({
+	get: () => settings.value.enabled,
+	set: (value: boolean) => onToggle(value),
+});
+
 function onToggle(value: boolean): void {
 	void save({ ...settings.value, enabled: value });
 }
@@ -50,10 +62,21 @@ function onMaxAge(value: number): void {
 	void save({ ...settings.value, maxAgeHours: value });
 }
 
-const ageOptions = computed(() => [1, 6, 12, 24, 72, 168].map((hours) => ({
-	label: t.tempCleanupIntervalLabel(hours),
-	value: hours,
-})));
+async function showStats(): Promise<void> {
+	if (statsLoading.value) return;
+	statsLoading.value = true;
+	try {
+		const result = await window.api.tempCleanup.stats();
+		statsText.value = t.tempCleanupStatsResult(
+			result.count,
+			result.bytes / 1024 / 1024,
+		);
+	} catch (err) {
+		message.error(err instanceof Error ? err.message : String(err));
+	} finally {
+		statsLoading.value = false;
+	}
+}
 
 async function sweepNow(): Promise<void> {
 	if (sweeping.value) return;
@@ -67,6 +90,7 @@ async function sweepNow(): Promise<void> {
 		} else {
 			message.info(t.tempCleanupSweepEmpty);
 		}
+		if (statsText.value) await showStats();
 	} catch (err) {
 		message.error(err instanceof Error ? err.message : String(err));
 	} finally {
@@ -77,21 +101,22 @@ async function sweepNow(): Promise<void> {
 
 <template>
   <div v-if="loaded" class="temp-cleanup">
-    <div class="temp-cleanup-row">
-      <div class="temp-cleanup-text">
-        <span class="temp-cleanup-name">{{ t.tempCleanupEnabled }}</span>
-        <span class="temp-cleanup-hint">{{ t.tempCleanupEnabledHint }}</span>
+    <div class="switch-row">
+      <div class="switch-labels">
+        <NText strong>{{ t.tempCleanupEnabled }}</NText>
       </div>
-      <NSwitch :value="settings.enabled" @update:value="onToggle" />
+      <NRadioGroup v-model:value="enabledControl" size="small" class="setting-radio-group">
+        <NRadioButton :value="true">{{ t.switchOn }}</NRadioButton>
+        <NRadioButton :value="false">{{ t.switchOff }}</NRadioButton>
+      </NRadioGroup>
     </div>
 
-    <div class="temp-cleanup-row">
-      <div class="temp-cleanup-text">
-        <span class="temp-cleanup-name">{{ t.tempCleanupInterval }}</span>
-        <span class="temp-cleanup-hint">{{ t.tempCleanupIntervalHint }}</span>
+    <div class="switch-row">
+      <div class="switch-labels">
+        <NText strong>{{ t.tempCleanupInterval }}</NText>
       </div>
       <NSelect
-        class="temp-cleanup-select"
+        class="setting-select"
         size="small"
         :value="settings.intervalHours"
         :options="intervalOptions"
@@ -100,13 +125,12 @@ async function sweepNow(): Promise<void> {
       />
     </div>
 
-    <div class="temp-cleanup-row">
-      <div class="temp-cleanup-text">
-        <span class="temp-cleanup-name">{{ t.tempCleanupMaxAge }}</span>
-        <span class="temp-cleanup-hint">{{ t.tempCleanupMaxAgeHint }}</span>
+    <div class="switch-row">
+      <div class="switch-labels">
+        <NText strong>{{ t.tempCleanupMaxAge }}</NText>
       </div>
       <NSelect
-        class="temp-cleanup-select"
+        class="setting-select"
         size="small"
         :value="settings.maxAgeHours"
         :options="ageOptions"
@@ -115,9 +139,12 @@ async function sweepNow(): Promise<void> {
       />
     </div>
 
-    <div class="temp-cleanup-row">
-      <div class="temp-cleanup-text" />
-      <NButton size="small" :loading="sweeping" @click="sweepNow">
+    <div class="switch-row">
+      <NText depth="3" class="row-hint stats-text">{{ statsText }}</NText>
+      <NButton size="small" secondary :loading="statsLoading" @click="showStats">
+        {{ t.tempCleanupStats }}
+      </NButton>
+      <NButton size="small" secondary :loading="sweeping" @click="sweepNow">
         {{ t.tempCleanupSweepNow }}
       </NButton>
     </div>
@@ -128,42 +155,50 @@ async function sweepNow(): Promise<void> {
 .temp-cleanup {
   display: flex;
   flex-direction: column;
+  gap: 12px;
 }
 
-.temp-cleanup-row {
+.row-hint {
+  font-size: 12px;
+  line-height: 16px;
+}
+
+.switch-row {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: 12px;
-  padding: 8px 12px 8px 16px;
-  border-top: 1px solid var(--border);
 }
 
-.temp-cleanup-row:first-child {
-  border-top: none;
-}
-
-.temp-cleanup-text {
+.switch-labels {
   display: flex;
   flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.setting-select {
+  flex-shrink: 0;
+  width: 128px;
+}
+
+.setting-radio-group {
+  flex-shrink: 0;
+  width: 120px;
+  display: inline-flex;
+}
+
+.setting-radio-group :deep(.n-radio-button) {
+  flex: 1;
+  padding: 0;
+  text-align: center;
+}
+
+.stats-text {
   flex: 1;
   min-width: 0;
-  gap: 2px;
-}
-
-.temp-cleanup-name {
-  font-size: 13px;
-  line-height: 18px;
-  color: var(--fg);
-}
-
-.temp-cleanup-hint {
-  font-size: 11px;
-  line-height: 16px;
-  color: var(--fg-muted);
-}
-
-.temp-cleanup-select {
-  width: 168px;
-  flex-shrink: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 </style>

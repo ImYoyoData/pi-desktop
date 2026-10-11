@@ -2,10 +2,9 @@ import { contextBridge, ipcRenderer, webUtils } from "electron";
 import { electronAPI } from "@electron-toolkit/preload";
 import type {
 	AgentCommand,
-	CloudflareTunnelStatus,
-	LanConsoleStatus,
 	AgentEvent,
 	ElementCitation,
+	MenuCommand,
 	SessionHistoryMessage,
 	SessionHistoryPage,
 	SessionHistoryQuery,
@@ -19,8 +18,22 @@ import type {
 } from "../shared/protocol";
 import { IpcChannels } from "../shared/protocol";
 import type { EditContextMenuAction, EditContextMenuPayload } from "../shared/context-menu";
+import type {
+	GitHubImageResult,
+	GitHubResponse,
+	PullRequestAction,
+	PullRequestChoices,
+	PullRequestChoiceKind,
+	PullRequestDetail,
+	PullRequestFilters,
+	PullRequestListAuthor,
+	PullRequestListState,
+	PullRequestPage,
+	PullRequestPatchResult,
+	PullRequestSummary,
+} from "../shared/github-types";
 import type { AgentRunEvent, AgentRunSnapshot } from "../shared/agent-runs";
-import type { AgentSaveResult, BuiltinExtensionItem, BuiltinToolItem, CodemodeSettingsState, CustomizationsSnapshot, CustomizationCreateKind, InstructionsSaveResult, McpAuthEventPayload, McpAuthPromptReply, McpAuthState, McpAuthTarget, McpTestResult, McpTestTarget, SkillSaveResult } from "../shared/customizations";
+import type { AgentSaveResult, BuiltinExtensionItem, BuiltinToolItem, CodemodeSettingsState, CustomizationsSnapshot, CustomizationCreateKind, InstructionsSaveResult, McpAuthEventPayload, McpAuthPromptReply, McpAuthState, McpAuthTarget, McpProjectOverride, McpTestResult, McpTestTarget, SkillSaveResult } from "../shared/customizations";
 import type {
 	ModelsGetResult,
 	ModelsOAuthEventPayload,
@@ -36,17 +49,6 @@ import type {
 	TestProviderBaseUrlResult,
 } from "../shared/model-discover";
 import type { PreviewResult } from "../shared/preview-types";
-import type {
-	AsrCloudConfig,
-	AsrInstallProgress,
-	AsrStatus,
-	AsrStreamEvent,
-} from "../shared/asr";
-import type {
-	TtsInstallProgress,
-	TtsSpeakResult,
-	TtsStatus,
-} from "../shared/tts";
 import type { UpdateCheckResult, UpdateProgress } from "../shared/update";
 import type {
 	PiCliInstallProgress,
@@ -104,6 +106,16 @@ export type {
 	SessionSummary,
 };
 
+/** Vue 响应式对象是 Proxy，结构化克隆会报 “An object could not be cloned.”。 */
+function plainArgs<T>(value: T): T {
+	if (value === undefined || value === null) return value;
+	try {
+		return JSON.parse(JSON.stringify(value)) as T;
+	} catch {
+		return value;
+	}
+}
+
 const api = {
 	clipboard: {
 		writeImage: (dataUrl: string) =>
@@ -111,54 +123,6 @@ const api = {
 				IpcChannels.clipboard.writeImage,
 				dataUrl,
 			) as Promise<void>,
-	},
-	lanConsole: {
-		getStatus: () =>
-			ipcRenderer.invoke(
-				IpcChannels.lanConsole.getStatus,
-			) as Promise<LanConsoleStatus>,
-		setEnabled: (enabled: boolean) =>
-			ipcRenderer.invoke(
-				IpcChannels.lanConsole.setEnabled,
-				enabled,
-			) as Promise<LanConsoleStatus>,
-		setPublicAccess: (enabled: boolean) =>
-			ipcRenderer.invoke(
-				IpcChannels.lanConsole.setPublicAccess,
-				enabled,
-			) as Promise<LanConsoleStatus>,
-		setPort: (port: number) =>
-			ipcRenderer.invoke(
-				IpcChannels.lanConsole.setPort,
-				port,
-			) as Promise<LanConsoleStatus>,
-		rotatePin: () =>
-			ipcRenderer.invoke(
-				IpcChannels.lanConsole.rotatePin,
-			) as Promise<LanConsoleStatus>,
-		setTunnelConfig: (token: string, publicUrl: string) =>
-			ipcRenderer.invoke(
-				IpcChannels.lanConsole.setTunnelConfig,
-				String(token ?? ""),
-				String(publicUrl ?? ""),
-			) as Promise<LanConsoleStatus>,
-		setPreferredIp: (ip: string) =>
-			ipcRenderer.invoke(
-				IpcChannels.lanConsole.setPreferredIp,
-				String(ip ?? ""),
-			) as Promise<LanConsoleStatus>,
-		onTunnelStatus: (callback: (status: CloudflareTunnelStatus) => void) => {
-			const listener = (
-				_event: unknown,
-				status: CloudflareTunnelStatus,
-			): void => callback(status);
-			ipcRenderer.on(IpcChannels.lanConsole.tunnelStatus, listener);
-			return () =>
-				ipcRenderer.removeListener(
-					IpcChannels.lanConsole.tunnelStatus,
-					listener,
-				);
-		},
 	},
 	proxy: {
 		get: () =>
@@ -260,6 +224,14 @@ const api = {
 				IpcChannels.window.contextMenuAction,
 				action,
 			) as Promise<void>,
+		onMenuCommand: (callback: (command: MenuCommand) => void) => {
+			const listener = (_event: unknown, command: MenuCommand) =>
+				callback(command);
+			ipcRenderer.on(IpcChannels.window.menuCommand, listener);
+			return () => {
+				ipcRenderer.removeListener(IpcChannels.window.menuCommand, listener);
+			};
+		},
 		onCloseRequest: (callback: () => void) => {
 			const listener = () => callback();
 			ipcRenderer.on(IpcChannels.window.closeRequest, listener);
@@ -814,6 +786,50 @@ const api = {
 		abortMerge: () =>
 			ipcRenderer.invoke(IpcChannels.git.abortMerge) as Promise<GitOpResult>,
 	},
+	github: {
+		pullRequest: (branch: string) =>
+			ipcRenderer.invoke(IpcChannels.github.pullRequest, branch) as Promise<
+				GitHubResponse<{ pullRequest: PullRequestSummary | null }>
+			>,
+		pullRequestView: (url: string) =>
+			ipcRenderer.invoke(IpcChannels.github.pullRequestView, url) as Promise<
+				GitHubResponse<{ pullRequest: PullRequestSummary }>
+			>,
+		pullRequestList: (payload: {
+			state: PullRequestListState;
+			author: PullRequestListAuthor;
+			cursor?: string;
+			filters?: PullRequestFilters;
+			requestId?: string;
+		}) =>
+			ipcRenderer.invoke(IpcChannels.github.pullRequestList, plainArgs(payload)) as Promise<
+				GitHubResponse<PullRequestPage>
+			>,
+		pullRequestListCancel: (requestId: string) =>
+			ipcRenderer.invoke(IpcChannels.github.pullRequestListCancel, requestId) as Promise<void>,
+		pullRequestDetail: (payload: { url: string }) =>
+			ipcRenderer.invoke(IpcChannels.github.pullRequestDetail, plainArgs(payload)) as Promise<
+				GitHubResponse<{ detail: PullRequestDetail }>
+			>,
+		pullRequestPatch: (payload: { url: string; headSha?: string }) =>
+			ipcRenderer.invoke(IpcChannels.github.pullRequestPatch, plainArgs(payload)) as Promise<
+				GitHubResponse<PullRequestPatchResult>
+			>,
+		pullRequestAction: (payload: { url: string; action: PullRequestAction }) =>
+			ipcRenderer.invoke(IpcChannels.github.pullRequestAction, plainArgs(payload)) as Promise<
+				GitHubResponse<object>
+			>,
+		pullRequestChoices: (payload: { url: string; kind: PullRequestChoiceKind }) =>
+			ipcRenderer.invoke(IpcChannels.github.pullRequestChoices, plainArgs(payload)) as Promise<
+				GitHubResponse<PullRequestChoices>
+			>,
+		repositoryChoices: (payload: { kind: PullRequestChoiceKind }) =>
+			ipcRenderer.invoke(IpcChannels.github.repositoryChoices, plainArgs(payload)) as Promise<
+				GitHubResponse<PullRequestChoices>
+			>,
+		image: (url: string) =>
+			ipcRenderer.invoke(IpcChannels.github.image, url) as Promise<GitHubImageResult>,
+	},
 	customizations: {
 		list: (cwd?: string, force?: boolean) =>
 			ipcRenderer.invoke(
@@ -829,6 +845,19 @@ const api = {
 			ipcRenderer.invoke(
 				IpcChannels.customizations.createAgentFromDraft,
 				content,
+				scope,
+				cwd,
+			) as Promise<AgentSaveResult>,
+		createPromptFromDraft: (
+			content: string,
+			name: string,
+			scope: "user" | "project",
+			cwd?: string,
+		) =>
+			ipcRenderer.invoke(
+				IpcChannels.customizations.createPromptFromDraft,
+				content,
+				name,
 				scope,
 				cwd,
 			) as Promise<AgentSaveResult>,
@@ -853,6 +882,18 @@ const api = {
 				name,
 				scope,
 				enabled,
+				cwd,
+			) as Promise<void>,
+		listMcpProjectOverrides: (cwd?: string) =>
+			ipcRenderer.invoke(
+				IpcChannels.customizations.listMcpProjectOverrides,
+				cwd,
+			) as Promise<Record<string, "enabled" | "disabled">>,
+		setMcpProjectOverride: (name: string, override: McpProjectOverride, cwd?: string) =>
+			ipcRenderer.invoke(
+				IpcChannels.customizations.setMcpProjectOverride,
+				name,
+				override,
 				cwd,
 			) as Promise<void>,
 		addMcpServers: (
@@ -1312,177 +1353,9 @@ const api = {
 			};
 		},
 	},
-	asr: {
-		status: () =>
-			ipcRenderer.invoke(IpcChannels.asr.status) as Promise<AsrStatus>,
-		setEnabled: (enabled: boolean) =>
-			ipcRenderer.invoke(
-				IpcChannels.asr.setEnabled,
-				enabled,
-			) as Promise<AsrStatus>,
-		setGpuPreference: (preference: string) =>
-			ipcRenderer.invoke(
-				IpcChannels.asr.setGpuPreference,
-				preference,
-			) as Promise<AsrStatus>,
-		setDownloadMirror: (mirror: string) =>
-			ipcRenderer.invoke(
-				IpcChannels.asr.setDownloadMirror,
-				mirror,
-			) as Promise<AsrStatus>,
-		install: () =>
-			ipcRenderer.invoke(IpcChannels.asr.install) as Promise<AsrStatus>,
-		installFromUrl: (url: string) =>
-			ipcRenderer.invoke(
-				IpcChannels.asr.installFromUrl,
-				url,
-			) as Promise<AsrStatus>,
-		pickModel: () =>
-			ipcRenderer.invoke(IpcChannels.asr.pickModel) as Promise<string | null>,
-		importModel: (filePath: string) =>
-			ipcRenderer.invoke(
-				IpcChannels.asr.importModel,
-				filePath,
-			) as Promise<AsrStatus>,
-		reinstallRuntime: () =>
-			ipcRenderer.invoke(IpcChannels.asr.reinstallRuntime) as Promise<AsrStatus>,
-		pickRuntimeArchive: () =>
-			ipcRenderer.invoke(IpcChannels.asr.pickRuntimeArchive) as Promise<
-				string | null
-			>,
-		importRuntime: (filePath: string) =>
-			ipcRenderer.invoke(
-				IpcChannels.asr.importRuntime,
-				filePath,
-			) as Promise<AsrStatus>,
-		cancelInstall: () =>
-			ipcRenderer.invoke(IpcChannels.asr.cancelInstall) as Promise<{
-				ok: boolean;
-			}>,
-		uninstall: () =>
-			ipcRenderer.invoke(IpcChannels.asr.uninstall) as Promise<AsrStatus>,
-		transcribe: (pcm: Int16Array, sampleRate: number) =>
-			ipcRenderer.invoke(IpcChannels.asr.transcribe, {
-				pcm,
-				sampleRate,
-			}) as Promise<string>,
-		streamStart: () =>
-			ipcRenderer.invoke(IpcChannels.asr.streamStart) as Promise<AsrStatus>,
-		streamPush: (pcm: Int16Array) => {
-			// send (not invoke): wake listen pushes many frames/sec; avoid
-			// base64 + promise round-trips on the UI / main threads.
-			ipcRenderer.send(IpcChannels.asr.streamPush, { pcm });
-			return Promise.resolve();
-		},
-		streamStop: () =>
-			ipcRenderer.invoke(IpcChannels.asr.streamStop) as Promise<AsrStatus>,
-		onStreamEvent: (callback: (event: AsrStreamEvent) => void) => {
-			const listener = (
-				_event: Electron.IpcRendererEvent,
-				payload: AsrStreamEvent,
-			) => callback(payload);
-			ipcRenderer.on(IpcChannels.asr.streamEvent, listener);
-			return () => {
-				ipcRenderer.removeListener(IpcChannels.asr.streamEvent, listener);
-			};
-		},
-		onProgress: (callback: (progress: AsrInstallProgress) => void) => {
-			const listener = (
-				_event: Electron.IpcRendererEvent,
-				progress: AsrInstallProgress,
-			) => callback(progress);
-			ipcRenderer.on(IpcChannels.asr.progress, listener);
-			return () => {
-				ipcRenderer.removeListener(IpcChannels.asr.progress, listener);
-			};
-		},
-		setWakeHotkey: (accel: string) =>
-			ipcRenderer.invoke(
-				IpcChannels.asr.setWakeHotkey,
-				accel,
-			) as Promise<AsrStatus>,
-		setResidentModel: (enabled: boolean) =>
-			ipcRenderer.invoke(
-				IpcChannels.asr.setResidentModel,
-				enabled,
-			) as Promise<AsrStatus>,
-		setWakeEnabled: (enabled: boolean) =>
-			ipcRenderer.invoke(
-				IpcChannels.asr.setWakeEnabled,
-				enabled,
-			) as Promise<AsrStatus>,
-		setWakeWords: (raw: string) =>
-			ipcRenderer.invoke(IpcChannels.asr.setWakeWords, raw) as Promise<AsrStatus>,
-		setBackend: (backend: string) =>
-			ipcRenderer.invoke(
-				IpcChannels.asr.setBackend,
-				backend,
-			) as Promise<AsrStatus>,
-		getCloudConfig: () =>
-			ipcRenderer.invoke(IpcChannels.asr.getCloudConfig) as Promise<{
-				backend: "local" | "cloud" | null;
-				cloud: AsrCloudConfig | null;
-			}>,
-		setCloudConfig: (cloud: AsrCloudConfig) =>
-			ipcRenderer.invoke(
-				IpcChannels.asr.setCloudConfig,
-				cloud,
-			) as Promise<AsrStatus>,
-		testCloud: () =>
-			ipcRenderer.invoke(IpcChannels.asr.testCloud) as Promise<{
-				ok: boolean;
-				message: string;
-			}>,
-		onWake: (callback: () => void) => {
-			const listener = () => callback();
-			ipcRenderer.on(IpcChannels.asr.wake, listener);
-			return () => {
-				ipcRenderer.removeListener(IpcChannels.asr.wake, listener);
-			};
-		},
-	},
-	tts: {
-		status: () =>
-			ipcRenderer.invoke(IpcChannels.tts.status) as Promise<TtsStatus>,
-		setEnabled: (enabled: boolean) =>
-			ipcRenderer.invoke(
-				IpcChannels.tts.setEnabled,
-				enabled,
-			) as Promise<TtsStatus>,
-		install: () =>
-			ipcRenderer.invoke(IpcChannels.tts.install) as Promise<TtsStatus>,
-		uninstall: () =>
-			ipcRenderer.invoke(IpcChannels.tts.uninstall) as Promise<TtsStatus>,
-		speak: (text: string) =>
-			ipcRenderer.invoke(IpcChannels.tts.speak, text) as Promise<TtsSpeakResult>,
-		stop: () => ipcRenderer.invoke(IpcChannels.tts.stop) as Promise<TtsStatus>,
-		onProgress: (callback: (progress: TtsInstallProgress) => void) => {
-			const listener = (
-				_event: Electron.IpcRendererEvent,
-				progress: TtsInstallProgress,
-			) => callback(progress);
-			ipcRenderer.on(IpcChannels.tts.progress, listener);
-			return () => {
-				ipcRenderer.removeListener(IpcChannels.tts.progress, listener);
-			};
-		},
-		onSpeaking: (callback: (payload: { speaking: boolean }) => void) => {
-			const listener = (
-				_event: Electron.IpcRendererEvent,
-				payload: { speaking: boolean },
-			) => callback(payload);
-			ipcRenderer.on(IpcChannels.tts.speaking, listener);
-			return () => {
-				ipcRenderer.removeListener(IpcChannels.tts.speaking, listener);
-			};
-		},
-	},
 	contributors: {
 		avatar: (url: string) =>
-			ipcRenderer.invoke(
-				IpcChannels.contributors.avatar,
-				url,
-			) as Promise<string | null>,
+			ipcRenderer.invoke(IpcChannels.contributors.avatar, url) as Promise<string | null>,
 	},
 	update: {
 		getAppInfo: () =>
@@ -1674,13 +1547,23 @@ const api = {
 			}) as Promise<void>,
 	},
 	notify: {
-		turnComplete: (payload: { title: string; body: string }) =>
+		turnComplete: (payload: { title: string; body: string; sessionId?: string }) =>
 			ipcRenderer.invoke(IpcChannels.notify.turnComplete, payload) as Promise<{
 				ok: boolean;
 				notified: boolean;
 				focused: boolean;
 				error?: string;
 			}>,
+		onOpenSession: (callback: (payload: { sessionId: string }) => void) => {
+			const listener = (
+				_event: Electron.IpcRendererEvent,
+				payload: { sessionId: string },
+			) => callback(payload);
+			ipcRenderer.on(IpcChannels.notify.openSession, listener);
+			return () => {
+				ipcRenderer.removeListener(IpcChannels.notify.openSession, listener);
+			};
+		},
 	},
 	security: {
 		get: () =>
@@ -1723,6 +1606,11 @@ const api = {
 		sweep: () =>
 			ipcRenderer.invoke(IpcChannels.tempCleanup.sweep) as Promise<{
 				removed: number;
+				bytes: number;
+			}>,
+		stats: () =>
+			ipcRenderer.invoke(IpcChannels.tempCleanup.stats) as Promise<{
+				count: number;
 				bytes: number;
 			}>,
 	},

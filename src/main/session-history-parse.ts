@@ -388,6 +388,7 @@ function buildMessagesFromEntries(
       const text = textFromAgentMessage(entry.message);
       const args = toolCallArgsById.get(toolCallId);
       const nested = nestedCallsFromMessage(entry.message);
+      const recordedMs = entry.message.durationMs;
       messages.push({
         id: entry.id,
         role: "tool",
@@ -396,6 +397,9 @@ function buildMessagesFromEntries(
         text: truncateForUi(text),
         isError: Boolean(entry.message.isError),
         ...(args !== undefined ? { args: truncateArgsForUi(args) } : {}),
+        ...(typeof recordedMs === "number" && Number.isFinite(recordedMs) && recordedMs > 0
+          ? { durationMs: recordedMs }
+          : {}),
         ...(nested ? { nestedCalls: nested } : {}),
       });
     }

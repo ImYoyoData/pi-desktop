@@ -4,6 +4,7 @@ import { locale, t } from "@renderer/i18n";
 import { clearTabHistory } from "@renderer/stores/browser-library";
 import { uniquePreviewTabLabel } from "@renderer/utils/preview-tab-label";
 import { localizedTabLabel } from "@renderer/utils/right-tab-labels";
+import type { ProgramStatusReport } from "@renderer/utils/osc-program-status";
 
 export type RightTabKind =
   | "running"
@@ -40,6 +41,8 @@ export type RightTab = {
   cwd?: string;
   /** Terminal: shell id chosen for this tab (empty = default shell). */
   shellId?: string;
+  /** Terminal: pi 等程序经 OSC 7501 上报的运行状态。 */
+  piStatus?: ProgramStatusReport;
   /** Browser: last address-bar URL (restored after restart). */
   url?: string;
 };
@@ -202,6 +205,13 @@ export const useRightTabsStore = defineStore("rightTabs", () => {
     tab.label = next;
   }
 
+  /** 终端里程序经 OSC 7501 上报的运行状态（pi 会随运行推进上报）。 */
+  function setPiStatus(id: string, status: ProgramStatusReport | null): void {
+    const tab = tabs.value.find((t) => t.id === id);
+    if (!tab) return;
+    tab.piStatus = status ?? undefined;
+  }
+
   function renameTab(id: string, label: string): void {
     const tab = tabs.value.find((t) => t.id === id);
     if (!tab || tab.kind === "files") {
@@ -335,7 +345,7 @@ export const useRightTabsStore = defineStore("rightTabs", () => {
     const tab: RightTab = {
       id: nextTabId(kind),
       kind,
-      label,
+      label: label ?? String(kind),
       filePath: opts?.filePath,
       dirty: false,
       missing: false,
@@ -560,6 +570,7 @@ export const useRightTabsStore = defineStore("rightTabs", () => {
     closeAllPreviewTabs,
     patchTab,
     autoTitleTab,
+    setPiStatus,
     renameTab,
     addTab,
     revealInChanges,

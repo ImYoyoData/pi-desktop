@@ -50,19 +50,15 @@ import { hasOpenModal } from "@renderer/utils/modal-overlay";
 import { buildSessionTree, type SessionTreeItem } from "@renderer/utils/session-tree";
 import { t } from "@renderer/i18n";
 import CodiconIcon from "@renderer/components/icons/CodiconIcon.vue";
+import GitPullRequestIcon from "@renderer/components/icons/GitPullRequestIcon.vue";
 import { markRendererStartup } from "@renderer/utils/startup-timing";
 
 const PIN_KEY = "session-pins:v1";
 const SESSION_ORDER_KEY = "pi-desktop:session-order:v2";
 const SESSION_VISIBLE_LIMIT = 5;
 
-/** 左下角快捷入口，自上而下依次：外观、模型、MCP、技能、插件、设置。 */
+/** 左下角快捷入口：设置。 */
 const customizeEntries = computed(() => [
-  { name: "appearance", section: "appearance", label: t.customizeAppearance },
-  { name: "models", section: "models", label: t.customizeModels },
-  { name: "mcp", section: "mcp", label: t.customizeMcp },
-  { name: "skills", section: "skills", label: t.customizeSkills },
-  { name: "plugins", section: "plugins", label: t.customizePlugins },
   { name: "settings", section: "general", label: t.customizeSettings },
 ] as const);
 
@@ -788,6 +784,9 @@ onMounted(async () => {
   markRendererStartup("renderer:sidebar-mounted");
   keybindings.register("new-session", () => void onNewAgent());
   keybindings.register("select-sessions", enterSelectMode);
+  offNotifyOpen = window.api.notify.onOpenSession(({ sessionId }) => {
+    void onNotifyOpenSession(sessionId);
+  });
   loadPins();
   loadSessionOrders();
   sessionsStore.bindEvents();
@@ -817,6 +816,7 @@ onMounted(async () => {
 onUnmounted(() => {
   keybindings.unregister("new-session");
   keybindings.unregister("select-sessions");
+  offNotifyOpen?.();
   window.removeEventListener("pi-session-created", onSessionCreated);
   window.removeEventListener("keydown", onSelectModeKeydown, true);
   destroyWorkspaceSortable();
@@ -1150,6 +1150,7 @@ async function onNewAgent(): Promise<void> {
 async function onNewAgentForWorkspace(root: string, event?: Event): Promise<void> {
   event?.stopPropagation();
   event?.preventDefault();
+  layout.showChat();
   // 在别的目录新建会放弃当前未使用的空会话。
   if (workspace.root && workspace.root !== root) {
     await discardActiveUnstartedForRoot(workspace.root);
@@ -1206,6 +1207,7 @@ async function discardUnstartedSession(root: string, sessionId: string): Promise
 }
 
 async function onSelectSession(root: string, sessionId: string): Promise<void> {
+  layout.showChat();
   // An active 新会话 the user never chatted with is dropped when they leave it
   // (click another session / switch workspace) instead of lingering on disk.
   const leavingId = sessionsStore.activeId;
@@ -1260,6 +1262,17 @@ async function onSelectSession(root: string, sessionId: string): Promise<void> {
   } finally {
     chatStore.endHistoryLoad(sessionId);
   }
+}
+
+let offNotifyOpen: (() => void) | undefined;
+
+async function onNotifyOpenSession(sessionId: string): Promise<void> {
+  const root =
+    rootOfSession(sessionId) ??
+    sessionsStore.sessions.find((s) => s.id === sessionId)?.cwd ??
+    null;
+  if (!root) return;
+  await onSelectSession(root, sessionId);
 }
 
 async function onKill(): Promise<void> {
@@ -1632,6 +1645,20 @@ watch(
         <span class="btn-content">
           <NIcon :component="FolderOpenOutline" :size="15" />
           <span class="btn-label">{{ t.openWorkspace }}</span>
+        </span>
+      </NButton>
+      <NButton
+        v-if="!selectMode"
+        quaternary
+        size="small"
+        class="pi-interactive top-btn"
+        :class="{ 'top-btn-active': layout.centerView === 'pull-requests' }"
+        :aria-current="layout.centerView === 'pull-requests' ? 'page' : undefined"
+        @click="layout.showPullRequests()"
+      >
+        <span class="btn-content">
+          <GitPullRequestIcon :size="16" class="btn-glyph" />
+          <span class="btn-label">{{ t.pullRequests }}</span>
         </span>
       </NButton>
     </div>
@@ -2143,11 +2170,20 @@ watch(
   justify-content: flex-start;
 }
 
+.top-btn-active {
+  background: rgba(127, 127, 127, 0.14) !important;
+  color: var(--fg-strong) !important;
+}
+
 .btn-content {
   display: inline-flex;
   align-items: center;
   gap: 8px;
   min-width: 0;
+}
+
+.btn-glyph {
+  flex: none;
 }
 
 .top-btn .btn-label {

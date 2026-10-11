@@ -29,7 +29,7 @@ const BRANDED_IDS = [
   "qwen-token-plan-cn",
   "openrouter",
   "github-copilot",
-  "azure-openai-responses",
+  "azure",
   "amazon-bedrock",
   "cerebras",
   "nvidia",

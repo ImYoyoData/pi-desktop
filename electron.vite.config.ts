@@ -105,8 +105,6 @@ export default defineConfig({
       rollupOptions: {        input: {
           index: resolve("src/main/index.ts"),
           "agent-worker/index": resolve("src/agent-worker/index.ts"),
-          "asr-cloud-worker": resolve("src/main/asr-cloud-worker.ts"),
-          "asr-gpu-detect-worker": resolve("src/main/asr-gpu-detect-worker.ts"),
           "session-history-worker": resolve(
             "src/main/session-history-worker.ts",
           ),

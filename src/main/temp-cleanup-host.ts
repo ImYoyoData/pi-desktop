@@ -40,28 +40,52 @@ function isPiTempFile(name: string): boolean {
   return PI_TEMP_PREFIXES.some((prefix) => name.startsWith(prefix) && name.endsWith(".log"));
 }
 
-/** 删除超过 maxAgeHours 的 Pi 临时输出，返回删除数量与释放的字节数。 */
-export function sweepTempOutputs(maxAgeHours: number): { removed: number; bytes: number } {
+type TempOutputEntry = { file: string; size: number; mtimeMs: number };
+
+function scanTempOutputs(): TempOutputEntry[] {
   const dir = os.tmpdir();
-  const cutoff = Date.now() - maxAgeHours * 3_600_000;
-  let removed = 0;
-  let bytes = 0;
   let entries: string[];
   try {
     entries = fs.readdirSync(dir);
   } catch {
-    return { removed, bytes };
+    return [];
   }
+  const found: TempOutputEntry[] = [];
   for (const name of entries) {
     if (!isPiTempFile(name)) continue;
     const file = path.join(dir, name);
     try {
       const stat = fs.statSync(file);
-      // mtime 太新的不动：可能正被某个会话中的模型读取。
-      if (!stat.isFile() || stat.mtimeMs > cutoff) continue;
-      fs.unlinkSync(file);
+      if (!stat.isFile()) continue;
+      found.push({ file, size: stat.size, mtimeMs: stat.mtimeMs });
+    } catch {
+      // 文件可能刚被别人删掉，或没有权限
+    }
+  }
+  return found;
+}
+
+/** 当前临时目录里 Pi 临时输出的数量与总占用。 */
+export function countTempOutputs(): { count: number; bytes: number } {
+  const entries = scanTempOutputs();
+  return {
+    count: entries.length,
+    bytes: entries.reduce((sum, entry) => sum + entry.size, 0),
+  };
+}
+
+/** 删除超过 maxAgeHours 的 Pi 临时输出，返回删除数量与释放的字节数。 */
+export function sweepTempOutputs(maxAgeHours: number): { removed: number; bytes: number } {
+  const cutoff = Date.now() - maxAgeHours * 3_600_000;
+  let removed = 0;
+  let bytes = 0;
+  for (const entry of scanTempOutputs()) {
+    // mtime 太新的不动：可能正被某个会话中的模型读取。
+    if (entry.mtimeMs > cutoff) continue;
+    try {
+      fs.unlinkSync(entry.file);
       removed += 1;
-      bytes += stat.size;
+      bytes += entry.size;
     } catch {
       // 文件可能刚被别人删掉，或没有权限
     }

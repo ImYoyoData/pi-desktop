@@ -5,9 +5,7 @@ import {
   NDropdown,
   NIcon,
   NImage,
-  NModal,
   NPopover,
-  NText,
   useMessage,
 } from "naive-ui";
 import type { DropdownOption } from "naive-ui";
@@ -17,16 +15,12 @@ import {
   ContractOutline,
   DocumentOutline,
   ExpandOutline,
-  MicOutline,
   SendOutline,
   StopOutline,
 } from "@vicons/ionicons5";
 import ComposerRichEditor from "@renderer/components/ComposerRichEditor.vue";
 import ComposerSlashMenu from "@renderer/components/ComposerSlashMenu.vue";
 import ComposerAtFileMenu from "@renderer/components/ComposerAtFileMenu.vue";
-import AsrInstallProgress from "@renderer/components/AsrInstallProgress.vue";
-import AsrInstallConfirmModal from "@renderer/components/AsrInstallConfirmModal.vue";
-import VoiceRecordBar, { type VoiceMeter } from "@renderer/components/VoiceRecordBar.vue";
 import SendQueueBar from "@renderer/components/SendQueueBar.vue";
 import DraftContextBar from "@renderer/components/DraftContextBar.vue";
 import { useChatStore } from "@renderer/stores/chat";
@@ -46,22 +40,8 @@ import {
 import { useWorkspaceStore } from "@renderer/stores/workspace";
 import { useAppearanceStore } from "@renderer/stores/appearance";
 import { useRightTabsStore } from "@renderer/stores/right-tabs";
-import { formatAsrInstallError, formatAsrRuntimeError, isAsrInstallCancelled, useAsrStore } from "@renderer/stores/asr";
-import { useMediaStore } from "@renderer/stores/media";
 import { plainTextFromClipboard } from "@renderer/utils/composer-rich";
 import { heuristicSessionTitle } from "@renderer/utils/session-title";
-import {
-  prewarmVoiceCapture,
-  startVoiceRecord,
-  type VoiceRecordSession,
-} from "@renderer/utils/pcm-capture";
-import { yieldToPaint } from "@renderer/utils/low-power";
-import {
-  ASR_VOICE_WAKE_EVENT,
-  stopPreloadStream,
-  suspendWakeListen,
-} from "@renderer/utils/asr-wake-listen";
-import { scrubAsrHallucination } from "../../../shared/asr";
 import {
   EMPTY_MODEL_SELECTION,
   filterAvailableModels,
@@ -69,7 +49,6 @@ import {
   pruneStaleModelSelection,
 } from "../../../shared/model-selection";
 import { MODEL_MENU_PROPS, buildModelMenu } from "@renderer/model-menu";
-import { formatAcceleratorLabel } from "../../../shared/hotkey";
 import {
   composerModePreamble,
   isComposerAgentMode,
@@ -122,20 +101,8 @@ const sendQueue = useSendQueueStore();
 const sessions = useSessionsStore();
 const workspace = useWorkspaceStore();
 const rightTabs = useRightTabsStore();
-const asr = useAsrStore();
 const appearance = useAppearanceStore();
-const media = useMediaStore();
 const messageApi = useMessage();
-let voiceConfirming = false;
-/** Bumped to ignore late transcription results after cancel/switch. */
-let voiceGen = 0;
-let offAsrProgress: (() => void) | undefined;
-const voiceActive = ref(false);
-/** Non-reactive meter — mutated from AudioWorklet; VoiceRecordBar samples via rAF. */
-const voiceMeter: VoiceMeter = { level: 0 };
-/** True from confirm until transcription finishes — send button loading. */
-const voicePending = ref(false);
-let voiceSession: VoiceRecordSession | null = null;
 type ModelSelectOption =
   | { type: "group"; label: string; key: string; children: { label: string; value: string }[] }
   | { label: string; value: string };
@@ -181,12 +148,6 @@ const richEditor = ref<{
   getSurface?: () => HTMLElement | null;
   appendTextAtEnd?: (text: string) => void;
   insertTextAtCaret?: (text: string) => void;
-  beginVoiceStream?: () => { id: number } | null;
-  setVoicePending?: (handle: { id: number }, text: string) => void;
-  appendVoiceCommitted?: (handle: { id: number }, text: string) => void;
-  commitVoiceStream?: (handle: { id: number }) => void;
-  abortVoiceStream?: (handle: { id: number }) => void;
-  isCaretAtVoiceLive?: (handle: { id: number }) => boolean;
   scrollToEnd?: () => void;
 } | null>(null);
 /** Expanded tall editor (hover affordance top-right). */
@@ -196,18 +157,11 @@ function focusDraft(): void {
   richEditor.value?.focus?.();
 }
 
-/** Keep focus + caret at end of the draft while dictating. */
 function focusDraftAtEnd(): void {
   richEditor.value?.focusEnd?.();
   richEditor.value?.scrollToEnd?.();
 }
 
-/**
- * Stop recording only when the user intentionally moves the caret
- * (mouse reposition or navigation keys) — typing must NOT cancel.
- * During streaming dictation the caret must stay parked at the live
- * insertion point; any move away interrupts the stream.
- */
 function persistSessionPrefs(): void {
   localStorage.setItem(
     SESSION_PREFS_KEY,
@@ -950,7 +904,6 @@ function loadQueueItemIntoComposer(item: {
 function beginEditQueueItem(itemId: string): void {
   const id = sessionId.value;
   if (!id) return;
-  if (voiceActive.value) cancelVoice();
   if (chat.pendingUserEdit) chat.cancelEditUser();
 
   const editing = sendQueue.editingId;
@@ -1079,7 +1032,6 @@ async function sendQueuedNow(itemId: string): Promise<void> {
   if (!id) return;
   const item = sendQueue.remove(id, itemId);
   if (!item) return;
-  if (voiceActive.value) cancelVoice();
   sendQueue.setSuppressDrain(id, true);
   try {
     if (isAgentBusy(id)) {
@@ -1096,10 +1048,6 @@ async function sendQueuedNow(itemId: string): Promise<void> {
 }
 
 async function submit(mode: "prompt" | "steer" | "follow_up"): Promise<void> {
-  // Sending cancels an in-progress voice take / waits out pending ASR
-  if (voiceActive.value) cancelVoice();
-  if (voicePending.value) return;
-
   // Editing a queued message: commit back into the queue
   if (sendQueue.editingId) {
     saveEditingToQueue();
@@ -1273,7 +1221,6 @@ async function onAbort(): Promise<void> {
 }
 
 function onPrimaryAction(): void {
-  if (voicePending.value) return;
   if (sendQueue.editingId && !running.value) {
     saveEditingToQueue();
     return;
@@ -1473,7 +1420,7 @@ const slashItems = computed(() => {
 });
 
 const slashMenuOpen = computed(
-  () => Boolean(slashContext.value) && slashItems.value.length > 0 && !voiceActive.value,
+  () => Boolean(slashContext.value) && slashItems.value.length > 0,
 );
 
 const atFileContext = computed(() => {
@@ -1483,7 +1430,7 @@ const atFileContext = computed(() => {
 });
 
 const atFileMenuOpen = computed(
-  () => Boolean(atFileContext.value) && !voiceActive.value,
+  () => Boolean(atFileContext.value),
 );
 
 const atFileEmptyHint = computed(() => {
@@ -1731,13 +1678,6 @@ const sessionStats = computed<SessionStatItem[] | null>(() => {
         }
       : null,
   );
-  if (u.ttftMs != null && u.ttftMs > 0) {
-    push({
-      key: "ttft",
-      label: t.sessionStatsTtft,
-      value: formatSessionTtft(u.ttftMs),
-    });
-  }
   if (u.tokensPerSecond != null && u.tokensPerSecond > 0) {
     push({
       key: "tps",
@@ -1782,12 +1722,6 @@ const sessionStats = computed<SessionStatItem[] | null>(() => {
   return items.length > 0 ? items : null;
 });
 
-
-function formatSessionTtft(ms: number | null): string {
-  if (ms == null || !Number.isFinite(ms) || ms <= 0) return "—";
-  const s = ms / 1000;
-  return t.sessionStatsTtftFormat(s < 1 ? s.toFixed(2) : s.toFixed(1));
-}
 
 function formatSessionTps(n: number | null): string {
   if (n == null || !Number.isFinite(n) || n <= 0) return "—";
@@ -2153,312 +2087,27 @@ function onPaste(event: ClipboardEvent): void {
   }
 }
 
-async function ensureAsrReady(): Promise<boolean> {
-  if (ensureAsrReadyFlight) return ensureAsrReadyFlight;
-  ensureAsrReadyFlight = doEnsureAsrReady().finally(() => {
-    ensureAsrReadyFlight = null;
-  });
-  return ensureAsrReadyFlight;
-}
-
-let ensureAsrReadyFlight: Promise<boolean> | null = null;
-
-async function doEnsureAsrReady(): Promise<boolean> {
-  // Resident warm path: status already loaded + installed — skip refresh hitch when possible.
-  if (!(asr.status.residentModel && asr.status.installed && asr.status.enabled)) {
-    await asr.refresh();
-  }
-  if (!asr.status.supported) {
-    messageApi.warning(t.asrUnsupported);
-    return false;
-  }
-  if (!asr.status.enabled) {
-    messageApi.warning(t.asrDisabled);
-    return false;
-  }
-  // Cloud backend needs no local model/runtime.
-  if (asr.status.backend === "cloud" && asr.status.cloudConfigured) return true;
-  if (asr.status.installed) return true;
-
-  // Join an in-flight install (e.g. background warm from mic click) — don't start a second one.
-  if (asr.installing) {
-    try {
-      await asr.install();
-      return asr.status.installed;
-    } catch (err) {
-      if (isAsrInstallCancelled(err)) return false;
-      messageApi.error(formatAsrInstallError(err, t.asrDownloadFailed), { duration: 6000 });
-      return false;
-    }
-  }
-
-  const ok = await promptAsrInstallConfirm();
-  if (!ok) return false;
-  try {
-    await asr.install();
-    return true;
-  } catch (err) {
-    if (isAsrInstallCancelled(err)) return false;
-    messageApi.error(formatAsrInstallError(err, t.asrDownloadFailed), { duration: 6000 });
-    return false;
-  }
-}
-
-const asrInstallConfirmOpen = ref(false);
-let asrInstallConfirmResolve: ((ok: boolean) => void) | null = null;
-
-function promptAsrInstallConfirm(): Promise<boolean> {
-  if (asrInstallConfirmResolve) {
-    asrInstallConfirmResolve(false);
-    asrInstallConfirmResolve = null;
-  }
-  asrInstallConfirmOpen.value = true;
-  return new Promise((resolve) => {
-    asrInstallConfirmResolve = resolve;
-  });
-}
-
-function onAsrInstallConfirm(): void {
-  asrInstallConfirmOpen.value = false;
-  asrInstallConfirmResolve?.(true);
-  asrInstallConfirmResolve = null;
-}
-
-function onAsrInstallConfirmCancel(): void {
-  asrInstallConfirmOpen.value = false;
-  asrInstallConfirmResolve?.(false);
-  asrInstallConfirmResolve = null;
-}
-
-function setDictationWakePaused(paused: boolean): void {
-  asr.setWakePaused(paused);
-}
-
-function joinAsr(base: string, next: string): string {
-  const a = base.replace(/\s+$/u, "");
-  const b = next.replace(/^\s+/u, "").trim();
-  if (!b) return a;
-  if (!a) return b;
-  if (b.startsWith(a)) return b;
-  if (a.endsWith(b)) return a;
-  const needSpace =
-    !/[\s\u3000]$/u.test(a) && !/^[,.!?;:\uFF0C\u3002\uFF01\uFF1F\u3001\uFF1B\uFF1A]/.test(b);
-  return needSpace ? `${a} ${b}` : `${a}${b}`;
-}
-
-function cancelVoice(opts?: { resumeWake?: boolean }): void {
-  voiceGen += 1;
-  voiceSession?.abort();
-  voiceSession = null;
-  voiceActive.value = false;
-  voiceMeter.level = 0;
-  voicePending.value = false;
-  voiceConfirming = false;
-  asr.recording = false;
-  if (opts?.resumeWake !== false) setDictationWakePaused(false);
-}
-
-async function confirmVoice(): Promise<void> {
-  if (!voiceSession) {
-    if (voiceActive.value && !voiceConfirming) messageApi.info(t.voiceMicOpening);
-    return;
-  }
-  if (voiceConfirming) return;
-  voiceConfirming = true;
-  const gen = voiceGen;
-
-  // Stop mic + close record UI immediately; send button shows loading until ASR finishes.
-  const session = voiceSession;
-  voiceSession = null;
-  voiceActive.value = false;
-  voiceMeter.level = 0;
-  asr.recording = false;
-  voicePending.value = true;
-
-  try {
-    // Let the "transcribing…" UI paint before encode / IPC / main work.
-    await nextTick();
-    await yieldToPaint();
-    if (gen !== voiceGen) return;
-    const { pcm, sampleRate } = await session.stop();
-    if (gen !== voiceGen) return;
-    if (!pcm || pcm.length === 0) {
-      messageApi.warning(t.voiceEmpty);
-      return;
-    }
-    const ready = await ensureAsrReady();
-    if (gen !== voiceGen) return;
-    if (!ready) return;
-    const raw = await asr.transcribe(pcm, sampleRate);
-    if (gen !== voiceGen) return;
-    const text = scrubAsrHallucination(raw);
-    if (!text) {
-      messageApi.warning(t.voiceEmpty);
-      return;
-    }
-    // Insert directly at the current caret — do NOT move the cursor.
-    if (richEditor.value?.insertTextAtCaret) {
-      richEditor.value.insertTextAtCaret(text);
-    } else {
-      composer.draft = joinAsr(composer.draft, text);
-    }
-  } catch (err) {
-    if (gen !== voiceGen) return;
-    const raw = err instanceof Error ? err.message : String(err);
-    messageApi.error(formatAsrRuntimeError(raw, t.asrFail), { duration: 5500 });
-  } finally {
-    voiceConfirming = false;
-    voicePending.value = false;
-    setDictationWakePaused(false);
-  }
-}
-
-async function onMicClick(): Promise<void> {
-  if (asr.installing || voiceConfirming || voicePending.value) return;
-  if (voiceActive.value) return;
-  // First use: let the user pick the recognition backend (local vs cloud API).
-  if (!(await asr.ensureBackendChosen())) return;
-
-  if (asr.status.supported === false && !asr.status.cloudConfigured) {
-    messageApi.warning(t.asrUnsupported);
-    return;
-  }
-  if (asr.status.enabled === false) {
-    messageApi.warning(t.asrDisabled);
-    return;
-  }
-
-  setDictationWakePaused(true);
-
-  // Show the record UI INSTANTLY — never block the click on the mic or
-  // the ASR engine. The mic opens in the background; the model loads async.
-  voiceActive.value = true;
-  asr.recording = true;
-  voiceMeter.level = 0;
-  void nextTick(() => focusDraftAtEnd());
-
-  // Free wake mic / preload / media in the background — do NOT await on the click path.
-  // suspend keeps the ASR child warm so convert stays fast on low-end machines.
-  void (async () => {
-    await suspendWakeListen();
-    await stopPreloadStream();
-    media.stopAll();
-  })();
-
-  try {
-    // Kick mic open without awaiting UI; startVoiceRecord already yields a frame.
-    voiceSession = await startVoiceRecord({
-      onLevel: (level) => {
-        if (!voiceActive.value) return;
-        voiceMeter.level = level;
-      },
-      onMaxDuration: () => {
-        void confirmVoice();
-      },
-    });
-    if (!voiceActive.value) {
-      voiceSession.abort();
-      voiceSession = null;
-    }
-  } catch (err) {
-    const raw = err instanceof Error ? err.message : String(err);
-    let msg = raw;
-    if (/permission denied|NotAllowed|PermissionDenied/i.test(raw) || raw.includes("\u9ea6\u514b\u98ce")) {
-      msg = t.asrMicDenied;
-    } else if (/No microphone|NotFound|DevicesNotFound/i.test(raw) || raw.includes("\u672a\u68c0\u6d4b")) {
-      msg = t.asrMicMissing;
-    }
-    messageApi.error(msg);
-    cancelVoice();
-    return;
-  }
-
-  // Warm / ensure runtime+model in the background so conversion is fast.
-  void ensureAsrReady().then((ready) => {
-    if (!ready && voiceActive.value) {
-      // Keep recording UI; confirmVoice will re-check / show install.
-    }
-  });
-}
-const micTitle = computed(
-  () => `${t.voiceInput} (${formatAcceleratorLabel(asr.status.wakeHotkey || "Control+Alt+Y")})`,
-);
-
-function onVoiceSessionKeydown(e: KeyboardEvent): void {
-  if (!voiceActive.value || voicePending.value || voiceConfirming) return;
-  if (e.isComposing) return;
-  if (e.key === "Enter" && !e.ctrlKey && !e.altKey && !e.metaKey && !e.shiftKey) {
-    e.preventDefault();
-    e.stopPropagation();
-    void confirmVoice();
-    return;
-  }
-  if (e.key === "Escape") {
-    e.preventDefault();
-    e.stopPropagation();
-    cancelVoice();
-  }
-}
-
-/** User typed/edited the draft while streaming — they took control, stop. */
-function onAsrWake(): void {
-  if (asr.capturingHotkey) return;
-  if (!asr.micVisible) return;
-  if (voiceActive.value || voicePending.value || voiceConfirming || asr.installing) return;
-  void onMicClick();
-}
-
-let offAsrWake: (() => void) | undefined;
-
 onMounted(() => {
   composer.bindSession(sessionId.value);
   void refreshModels();
   void security.load().catch(() => {});
-  void asr.refresh();
-  offAsrProgress = asr.bindProgress();
-  offAsrWake = window.api.asr.onWake(onAsrWake);
-  window.addEventListener(ASR_VOICE_WAKE_EVENT, onAsrWake);
-  window.addEventListener("keydown", onVoiceSessionKeydown, true);
   window.addEventListener("pi-models-changed", onModelsChanged);
   keybindings.register("cycle-model", cycleModel);
   keybindings.register("cycle-thinking", cycleThinking);
-  // Warm AudioWorklet + mic permission off the click path (idle so boot stays light).
-  const ric =
-    typeof window.requestIdleCallback === "function"
-      ? window.requestIdleCallback.bind(window)
-      : (cb: () => void) => window.setTimeout(cb, 900);
-  ric(() => {
-    void prewarmVoiceCapture();
-  });
 });
 
 onUnmounted(() => {
   keybindings.unregister("cycle-model");
   keybindings.unregister("cycle-thinking");
   window.removeEventListener("pi-models-changed", onModelsChanged);
-  window.removeEventListener("keydown", onVoiceSessionKeydown, true);
-  window.removeEventListener(ASR_VOICE_WAKE_EVENT, onAsrWake);
   document.removeEventListener("pointerdown", onContextOutside, true);
-  offAsrProgress?.();
-  offAsrWake?.();
-  // Do not stop App-level wake listen — only clear dictation pause if we held it.
-  cancelVoice({ resumeWake: true });
 });
 
 function onModelsChanged(): void {
   void refreshModels();
 }
 
-watch(
-  () => asr.recording,
-  (recording) => {
-    if (recording) media.stopAll();
-  },
-);
-
 watch(sessionId, (id, prev) => {
-  // Switching session cancels an in-progress voice take / pending ASR
-  if (voiceActive.value || voicePending.value) cancelVoice();
   if (chat.pendingUserEdit) chat.cancelEditUser();
   composer.bindSession(id);
 
@@ -2492,14 +2141,6 @@ watch(sessionId, (id, prev) => {
   void refreshModels();
 });
 
-watch(
-  () => workspace.root,
-  (next, prev) => {
-    if (next === prev) return;
-    if (voiceActive.value || voicePending.value) cancelVoice();
-  },
-);
-
 /** After a turn finishes — or when queue gains items while already idle — flush follow-ups. */
 watch(running, (now, was) => {
   if (was && !now && sessionId.value) {
@@ -2528,7 +2169,7 @@ watch(
       @send-now="(qid) => void sendQueuedNow(qid)"
     />
     <div
-      v-if="isEditingQueue && !voiceActive"
+      v-if="isEditingQueue"
       class="queue-edit-banner"
     >
       <span>{{ t.queueEditingHint }}</span>
@@ -2537,7 +2178,7 @@ watch(
       </button>
     </div>
     <div
-      v-else-if="isEditingPublished && !voiceActive"
+      v-else-if="isEditingPublished"
       class="queue-edit-banner"
     >
       <span>{{ t.editingPublishedHint }}</span>
@@ -2548,7 +2189,6 @@ watch(
     <div
       class="composer-card"
       :class="{
-        'is-voice-recording': voiceActive,
         'is-editor-expanded': editorExpanded,
         'is-file-drag-over': fileDragOver,
         docked: props.docked,
@@ -2602,15 +2242,13 @@ watch(
         />
         <ComposerRichEditor
           ref="richEditor"
-          :disabled="voicePending"
           :expanded="editorExpanded"
           @keydown="onKeydown"
         />
       </div>
 
-      <!-- Toolbar stays mounted; voice UI overlays this row only. -->
       <div class="composer-footer">
-        <div class="toolbar" :aria-hidden="voiceActive">
+        <div class="toolbar">
           <div class="toolbar-left">
             <input
               type="file"
@@ -2626,7 +2264,6 @@ watch(
             <NDropdown
               trigger="click"
               :options="attachMenu"
-              :disabled="voiceActive || voicePending"
               @select="onAttachSelect"
             >
               <NButton
@@ -2634,7 +2271,6 @@ watch(
                 circle
                 size="tiny"
                 :title="t.composerAttach"
-                :disabled="voiceActive || voicePending"
               >
                 <template #icon>
                   <NIcon :component="AddOutline" />
@@ -2647,7 +2283,6 @@ watch(
             trigger="click"
             placement="top-start"
             :show-arrow="true"
-            :disabled="voiceActive || voicePending"
             raw
           >
             <template #trigger>
@@ -2655,7 +2290,6 @@ watch(
                 quaternary
                 size="tiny"
                 class="mode-btn"
-                :disabled="voiceActive || voicePending"
                 :title="t.composerModeHint"
                 :aria-expanded="modeBubbleShow"
                 :aria-haspopup="true"
@@ -2699,14 +2333,12 @@ watch(
             trigger="click"
             :options="modelMenu"
             :menu-props="modelMenuProps"
-            :disabled="voiceActive || voicePending"
             @select="onModelChange"
           >
             <NButton
               quaternary
               size="tiny"
               class="model-btn"
-              :disabled="voiceActive || voicePending"
               :title="t.modelPlaceholder"
             >
               <span class="model-label">{{ modelLabel }}</span>
@@ -2716,14 +2348,12 @@ watch(
           <NDropdown
             trigger="click"
             :options="thinkingMenu"
-            :disabled="voiceActive || voicePending"
             @select="onThinkingChange"
           >
             <NButton
               quaternary
               size="tiny"
               class="think-btn"
-              :disabled="voiceActive || voicePending"
               :title="t.thinkingLevel"
             >
               <span class="think-label">{{ thinkingLabel }}</span>
@@ -2734,7 +2364,6 @@ watch(
             trigger="click"
             placement="top-end"
             :show-arrow="true"
-            :disabled="voiceActive || voicePending"
             :show="permBubbleShow"
             raw
             @update:show="onPermBubbleShow"
@@ -2744,7 +2373,6 @@ watch(
                 quaternary
                 size="tiny"
                 class="mode-btn"
-                :disabled="voiceActive || voicePending"
                 :title="t.securityPermissionMode"
                 :aria-expanded="permBubbleShow"
                 :aria-haspopup="true"
@@ -2782,19 +2410,14 @@ watch(
           </NPopover>
         </div>
 
+        <div v-if="appearance.showSessionDetails && sessionStats" class="session-stats" role="status" aria-label="session statistics">
+          <span v-for="item in sessionStats" :key="item.key" class="ss-item" :title="item.title">
+            <span class="ss-label">{{ item.label }}</span>
+            <strong>{{ item.value }}</strong>
+          </span>
+        </div>
+
         <div class="toolbar-right">
-          <button
-            v-if="asr.micVisible && !voiceActive && !voicePending"
-            type="button"
-            class="mic-btn"
-            :disabled="asr.installing"
-            :aria-label="micTitle"
-            :title="micTitle"
-            @pointerenter="void prewarmVoiceCapture()"
-            @mousedown.prevent="onMicClick"
-          >
-            <NIcon :component="MicOutline" :size="18" />
-          </button>
           <NPopover
             trigger="manual"
             :show="ctxPopoverShow"
@@ -2806,7 +2429,7 @@ watch(
                 type="button"
                 class="ctx-meter"
                 :class="`ctx-${contextTone}`"
-                :disabled="!sessionId || voiceActive || voicePending"
+                :disabled="!sessionId"
                 :title="t.contextUsageTitle"
                 :aria-label="t.contextUsageTitle"
                 @click.stop="openContextPopover"
@@ -2852,7 +2475,7 @@ watch(
               </div>
               <div v-if="contextSegments.length" class="ctx-legend">
                 <div v-for="seg in contextSegments" :key="`leg-${seg.id}`" class="ctx-legend-row">
-                  <span class="ctx-swatch" :style="{ background: seg.color }" />
+                  <span class="ctx-swatch" :style="{ background: seg.color }"></span>
                   <span class="ctx-legend-label">{{ seg.label }}</span>
                   <strong>{{ seg.tokensLabel }}</strong>
                 </div>
@@ -2884,31 +2507,28 @@ watch(
                 :loading="compactBusy"
                 @click="onCompactContext"
               >
-                <span v-if="contextNeedsCompact" class="ctx-compact-dot" />
+                <span v-if="contextNeedsCompact" class="ctx-compact-dot"></span>
                 {{ t.compactContext }}
               </NButton>
             </div>
           </NPopover>
           <NButton
-            v-if="showPrimaryAction || voicePending"
+            v-if="showPrimaryAction"
             size="tiny"
             circle
             :type="primaryIsStop ? 'error' : 'primary'"
-            :loading="voicePending || stopping"
+            :loading="stopping"
             :disabled="
-              voicePending
-                || (!primaryIsStop && !hasSendContent && !(isEditingQueue && hasSendContent))
+              !primaryIsStop && !hasSendContent && !(isEditingQueue && hasSendContent)
             "
             :aria-label="
-              voicePending
-                ? t.voiceTranscribing
-                : stopping
-                  ? t.stopping
-                  : primaryIsStop
-                    ? t.stop
-                    : isEditingQueue
-                      ? t.queueSave
-                      : t.enterToSendShiftNewline
+              stopping
+                ? t.stopping
+                : primaryIsStop
+                  ? t.stop
+                  : isEditingQueue
+                    ? t.queueSave
+                    : t.enterToSendShiftNewline
             "
             :title="stopping ? t.stopping : !primaryIsStop && isEditingQueue ? t.queueSave : undefined"
             @click="onPrimaryAction"
@@ -2919,91 +2539,13 @@ watch(
           </NButton>
         </div>
       </div>
-
-        <div v-if="voiceActive" class="voice-row" role="presentation">
-          <NButton
-            quaternary
-            circle
-            size="tiny"
-            class="voice-attach"
-            :title="t.composerAttach"
-            disabled
-            tabindex="-1"
-          >
-            <template #icon>
-              <NIcon :component="AddOutline" />
-            </template>
-          </NButton>
-          <VoiceRecordBar
-            :meter="voiceMeter"
-            :busy="voicePending"
-            :show-stop="running"
-            @cancel="cancelVoice"
-            @confirm="confirmVoice"
-            @stop="onAbort"
-          />
-        </div>
-      </div>
     </div>
 
-    <div v-if="appearance.showSessionDetails" class="composer-meta">
-      <div v-if="sessionStats" class="session-stats" role="status" aria-label="session statistics">
-        <template v-for="(item, idx) in sessionStats" :key="item.key">
-          <span v-if="idx > 0" class="ss-sep" aria-hidden="true" />
-          <span class="ss-item" :title="item.title">
-            <span class="ss-label">{{ item.label }}</span>
-            <strong>{{ item.value }}</strong>
-          </span>
-        </template>
-      </div>
     </div>
-
-    <AsrInstallConfirmModal
-      :show="asrInstallConfirmOpen"
-      @confirm="onAsrInstallConfirm"
-      @cancel="onAsrInstallConfirmCancel"
-    />
-
-    <NModal
-      :show="asr.installing"
-      preset="card"
-      :title="t.asrInstalling"
-      :bordered="false"
-      :mask-closable="false"
-      :closable="false"
-      style="width: min(420px, 92vw)"
-    >
-      <div class="asr-install-device">
-        {{ t.asrDevice }}: {{ asr.status.gpuDeviceLabel }} ({{ asr.status.gpuBackend.toUpperCase() }} /
-        {{
-          asr.status.gpuKind === "cpu"
-            ? t.asrDeviceCpu
-            : asr.status.gpuKind === "metal"
-              ? t.asrDeviceMetal
-              : asr.status.gpuKind === "discrete"
-                ? t.asrDeviceDiscrete
-                : t.asrDeviceIntegrated
-        }})
-      </div>
-      <NText
-        :depth="asr.status.gpuKind === 'cpu' ? 1 : 3"
-        style="font-size: 12px; display: block; margin: 6px 0 10px"
-        :type="asr.status.gpuKind === 'cpu' ? 'warning' : 'default'"
-      >
-        {{ asr.status.gpuKind === "cpu" ? t.asrCpuSlowHint : t.asrGpuFastHint }}
-      </NText>
-      <AsrInstallProgress />
-    </NModal>
   </div>
 </template>
 
 <style scoped>
-.asr-install-device {
-  font-size: 13px;
-  color: var(--fg-strong);
-  margin-bottom: 2px;
-}
-
 .composer-wrap {
   flex-shrink: 0;
   width: 100%;
@@ -3129,7 +2671,7 @@ watch(
   background: transparent;
 }
 
-/* Bottom toolbar slot — voice UI overlays this row without resizing the editor. */
+/* Bottom toolbar slot */
 .composer-footer {
   position: relative;
   min-width: 0;
@@ -3138,51 +2680,6 @@ watch(
 .composer-footer .toolbar {
   /* Keep layout height while covered so the card does not jump. */
   transition: none;
-}
-
-.composer-card.is-voice-recording .composer-footer .toolbar {
-  visibility: hidden;
-  pointer-events: none;
-}
-
-.voice-row {
-  position: absolute;
-  inset: 0;
-  z-index: 2;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 4px 6px 3px;
-  box-sizing: border-box;
-  overflow: hidden;
-  background: var(--bg-elevated, #fff);
-  border-top: 1px solid color-mix(in srgb, var(--border, #e5e7eb) 55%, transparent);
-  border-radius: 0 0 calc(var(--radius-lg, 8px) - 6px) calc(var(--radius-lg, 8px) - 6px);
-}
-
-.voice-row .voice-attach {
-  flex-shrink: 0;
-  width: 22px;
-  height: 22px;
-  min-width: 22px;
-  min-height: 22px;
-  padding: 0;
-  color: var(--fg-faint);
-  background: var(--bg-hover);
-}
-
-.voice-row .voice-attach :deep(.n-icon) {
-  font-size: 14px;
-}
-
-.voice-row .voice-attach:disabled {
-  opacity: 1;
-  color: var(--fg-faint);
-}
-
-.voice-row :deep(.voice-bar) {
-  flex: 1;
-  min-width: 0;
 }
 
 .image-attachments {
@@ -3233,22 +2730,11 @@ watch(
   padding: 0;
 }
 
-.composer-meta {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  width: 100%;
-  padding: 4px 4px 0;
-  box-sizing: border-box;
-  min-width: 0;
-}
-
 .toolbar {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 4px;
+  gap: 12px;
   padding-top: 2px;
   min-width: 0;
 }
@@ -3258,7 +2744,7 @@ watch(
   align-items: center;
   gap: 2px;
   min-width: 0;
-  flex: 1;
+  flex: 0 1 auto;
   overflow: hidden;
 }
 
@@ -3267,47 +2753,6 @@ watch(
   align-items: center;
   gap: 6px;
   flex-shrink: 0;
-}
-
-.mic-btn {
-  width: 28px;
-  height: 28px;
-  border: none;
-  border-radius: 999px;
-  background: transparent;
-  color: var(--fg-muted);
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  transition: background 0.15s ease, color 0.15s ease;
-}
-
-.mic-btn:hover:not(:disabled) {
-  background: var(--bg-hover);
-  color: var(--fg-strong);
-}
-
-.mic-btn.recording {
-  color: var(--error);
-  background: color-mix(in srgb, var(--error) 12%, transparent);
-  animation: mic-pulse 1.2s ease-in-out infinite;
-}
-
-.mic-btn.busy,
-.mic-btn:disabled {
-  opacity: 0.55;
-  cursor: default;
-}
-
-@keyframes mic-pulse {
-  0%,
-  100% {
-    box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.35);
-  }
-  50% {
-    box-shadow: 0 0 0 6px rgba(239, 68, 68, 0);
-  }
 }
 
 .model-btn {
@@ -3428,10 +2873,8 @@ watch(
   align-items: center;
   justify-content: center;
   flex-wrap: wrap;
-  gap: 4px 10px;
-  width: 100%;
-  padding: 2px 2px 0;
-  box-sizing: border-box;
+  gap: 2px 6px;
+  flex: 1;
   min-width: 0;
   color: var(--fg-muted, #71717a);
   font-size: 11px;
@@ -3445,6 +2888,11 @@ watch(
   white-space: nowrap;
 }
 
+.ss-item + .ss-item {
+  padding-left: 7px;
+  border-left: 1px solid color-mix(in srgb, var(--border, #ddd) 70%, transparent);
+}
+
 .ss-item strong {
   font-weight: 600;
   color: var(--fg-strong, #1f2328);
@@ -3453,13 +2901,6 @@ watch(
 
 .ss-label {
   color: var(--fg-faint, #999);
-}
-
-.ss-sep {
-  width: 1px;
-  height: 10px;
-  background: color-mix(in srgb, var(--border, #ddd) 70%, transparent);
-  flex-shrink: 0;
 }
 
 .ctx-meter {
@@ -3679,8 +3120,8 @@ watch(
 
   .session-stats {
     justify-content: flex-start;
-    overflow-x: auto;
     flex-wrap: nowrap;
+    overflow-x: auto;
     -webkit-overflow-scrolling: touch;
     scrollbar-width: none;
   }

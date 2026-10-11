@@ -2,7 +2,7 @@ import type {
 	AgentCommand,
 	AgentEvent,
 	ElementCitation,
-	LanConsoleStatus,
+	MenuCommand,
 	SessionHistoryMessage,
 	SessionHistoryPage,
 	SessionHistoryQuery,
@@ -14,7 +14,21 @@ import type {
 } from "../shared/protocol";
 import type { AgentRunEvent, AgentRunSnapshot } from "../shared/agent-runs";
 import type { EditContextMenuAction, EditContextMenuPayload } from "../shared/context-menu";
-import type { AgentSaveResult, BuiltinExtensionItem, BuiltinToolItem, CodemodeSettingsState, CustomizationsSnapshot, CustomizationCreateKind, InstructionsSaveResult, McpAuthEventPayload, McpAuthPromptReply, McpAuthState, McpAuthTarget, McpTestResult, McpTestTarget, SkillSaveResult } from "../shared/customizations";
+import type {
+	GitHubImageResult,
+	GitHubResponse,
+	PullRequestAction,
+	PullRequestChoices,
+	PullRequestChoiceKind,
+	PullRequestDetail,
+	PullRequestFilters,
+	PullRequestListAuthor,
+	PullRequestListState,
+	PullRequestPage,
+	PullRequestPatchResult,
+	PullRequestSummary,
+} from "../shared/github-types";
+import type { AgentSaveResult, BuiltinExtensionItem, BuiltinToolItem, CodemodeSettingsState, CustomizationsSnapshot, CustomizationCreateKind, InstructionsSaveResult, McpAuthEventPayload, McpAuthPromptReply, McpAuthState, McpAuthTarget, McpProjectOverride, McpTestResult, McpTestTarget, SkillSaveResult } from "../shared/customizations";
 import type {
 	ModelsGetResult,
 	ModelsOAuthEventPayload,
@@ -31,16 +45,6 @@ import type {
 } from "../shared/model-discover";
 import type { PreviewResult } from "../shared/preview-types";
 import type { RetrySettings } from "../shared/retry-settings";
-import type {
-	AsrInstallProgress,
-	AsrStatus,
-	AsrStreamEvent,
-} from "../shared/asr";
-import type {
-	TtsInstallProgress,
-	TtsSpeakResult,
-	TtsStatus,
-} from "../shared/tts";
 import type { UpdateCheckResult, UpdateProgress } from "../shared/update";
 import type {
 	PiCliInstallProgress,
@@ -85,9 +89,7 @@ export type { UpdateProgress };
 export type {
 	AgentCommand,
 	AgentEvent,
-	CloudflareTunnelStatus,
 	ElementCitation,
-	LanConsoleStatus,
 	SessionHistoryMessage,
 	SessionHistoryPage,
 	SessionHistoryQuery,
@@ -98,21 +100,6 @@ export type {
 declare const api: {
 	clipboard: {
 		writeImage: (dataUrl: string) => Promise<void>;
-	};
-	lanConsole: {
-		getStatus: () => Promise<LanConsoleStatus>;
-		setEnabled: (enabled: boolean) => Promise<LanConsoleStatus>;
-		setPublicAccess: (enabled: boolean) => Promise<LanConsoleStatus>;
-		setPort: (port: number) => Promise<LanConsoleStatus>;
-		rotatePin: () => Promise<LanConsoleStatus>;
-		setTunnelConfig: (
-			token: string,
-			publicUrl: string,
-		) => Promise<LanConsoleStatus>;
-		setPreferredIp: (ip: string) => Promise<LanConsoleStatus>;
-		onTunnelStatus: (
-			callback: (status: CloudflareTunnelStatus) => void,
-		) => () => void;
 	};
 	proxy: {
 		get: () => Promise<ProxySettings>;
@@ -145,6 +132,7 @@ declare const api: {
 		onContextMenu: (
 			callback: (payload: EditContextMenuPayload) => void,
 		) => () => void;
+		onMenuCommand: (callback: (command: MenuCommand) => void) => () => void;
 		runContextMenuAction: (action: EditContextMenuAction) => Promise<void>;
 		onCloseRequest: (callback: () => void) => () => void;
 		onMaximized: (callback: () => void) => () => void;
@@ -594,11 +582,52 @@ declare const api: {
 		}) => Promise<GitOpResult>;
 		abortMerge: () => Promise<GitOpResult>;
 	};
+	github: {
+		pullRequest: (branch: string) => Promise<
+			GitHubResponse<{ pullRequest: PullRequestSummary | null }>
+		>;
+		pullRequestView: (url: string) => Promise<
+			GitHubResponse<{ pullRequest: PullRequestSummary }>
+		>;
+		pullRequestList: (payload: {
+			state: PullRequestListState;
+			author: PullRequestListAuthor;
+			cursor?: string;
+			filters?: PullRequestFilters;
+			requestId?: string;
+		}) => Promise<GitHubResponse<PullRequestPage>>;
+		pullRequestListCancel: (requestId: string) => Promise<void>;
+		pullRequestDetail: (payload: { url: string }) => Promise<
+			GitHubResponse<{ detail: PullRequestDetail }>
+		>;
+		pullRequestPatch: (payload: {
+			url: string;
+			headSha?: string;
+		}) => Promise<GitHubResponse<PullRequestPatchResult>>;
+		pullRequestAction: (payload: {
+			url: string;
+			action: PullRequestAction;
+		}) => Promise<GitHubResponse<object>>;
+		pullRequestChoices: (payload: {
+			url: string;
+			kind: PullRequestChoiceKind;
+		}) => Promise<GitHubResponse<PullRequestChoices>>;
+		repositoryChoices: (payload: {
+			kind: PullRequestChoiceKind;
+		}) => Promise<GitHubResponse<PullRequestChoices>>;
+		image: (url: string) => Promise<GitHubImageResult>;
+	};
 	customizations: {
 		list: (cwd?: string, force?: boolean) => Promise<CustomizationsSnapshot>;
 		create: (kind: CustomizationCreateKind) => Promise<{ filePath: string }>;
 		createAgentFromDraft: (
 			content: string,
+			scope: "user" | "project",
+			cwd?: string,
+		) => Promise<AgentSaveResult>;
+		createPromptFromDraft: (
+			content: string,
+			name: string,
 			scope: "user" | "project",
 			cwd?: string,
 		) => Promise<AgentSaveResult>;
@@ -617,6 +646,14 @@ declare const api: {
 			name: string,
 			scope: "user" | "project",
 			enabled: boolean,
+			cwd?: string,
+		) => Promise<void>;
+		listMcpProjectOverrides: (
+			cwd?: string,
+		) => Promise<Record<string, "enabled" | "disabled">>;
+		setMcpProjectOverride: (
+			name: string,
+			override: McpProjectOverride,
 			cwd?: string,
 		) => Promise<void>;
 		addMcpServers: (
@@ -854,53 +891,6 @@ declare const api: {
 		onSelectCancelled: (callback: () => void) => () => void;
 		onToggleEmbeddedDevTools: (callback: () => void) => () => void;
 	};
-	asr: {
-		status: () => Promise<AsrStatus>;
-		setEnabled: (enabled: boolean) => Promise<AsrStatus>;
-		setGpuPreference: (preference: string) => Promise<AsrStatus>;
-		setDownloadMirror: (mirror: string) => Promise<AsrStatus>;
-		install: () => Promise<AsrStatus>;
-		installFromUrl: (url: string) => Promise<AsrStatus>;
-		pickModel: () => Promise<string | null>;
-		importModel: (filePath: string) => Promise<AsrStatus>;
-		reinstallRuntime: () => Promise<AsrStatus>;
-		pickRuntimeArchive: () => Promise<string | null>;
-		importRuntime: (filePath: string) => Promise<AsrStatus>;
-		cancelInstall: () => Promise<{
-			ok: boolean;
-		}>;
-		uninstall: () => Promise<AsrStatus>;
-		transcribe: (pcm: Int16Array, sampleRate: number) => Promise<string>;
-		streamStart: () => Promise<AsrStatus>;
-		streamPush: (pcm: Int16Array) => Promise<void>;
-		streamStop: () => Promise<AsrStatus>;
-		onStreamEvent: (callback: (event: AsrStreamEvent) => void) => () => void;
-		onProgress: (callback: (progress: AsrInstallProgress) => void) => () => void;
-		setWakeHotkey: (accel: string) => Promise<AsrStatus>;
-		setResidentModel: (enabled: boolean) => Promise<AsrStatus>;
-		setWakeEnabled: (enabled: boolean) => Promise<AsrStatus>;
-		setWakeWords: (raw: string) => Promise<AsrStatus>;
-		setBackend: (backend: string) => Promise<AsrStatus>;
-		getCloudConfig: () => Promise<{
-			backend: "local" | "cloud" | null;
-			cloud: AsrCloudConfig | null;
-		}>;
-		setCloudConfig: (cloud: AsrCloudConfig) => Promise<AsrStatus>;
-		testCloud: () => Promise<{ ok: boolean; message: string }>;
-		onWake: (callback: () => void) => () => void;
-	};
-	tts: {
-		status: () => Promise<TtsStatus>;
-		setEnabled: (enabled: boolean) => Promise<TtsStatus>;
-		install: () => Promise<TtsStatus>;
-		uninstall: () => Promise<TtsStatus>;
-		speak: (text: string) => Promise<TtsSpeakResult>;
-		stop: () => Promise<TtsStatus>;
-		onProgress: (callback: (progress: TtsInstallProgress) => void) => () => void;
-		onSpeaking: (
-			callback: (payload: { speaking: boolean }) => void,
-		) => () => void;
-	};
 	contributors: {
 		avatar: (url: string) => Promise<string | null>;
 	};
@@ -1016,12 +1006,13 @@ declare const api: {
 		) => () => void;
 	};
 	notify: {
-		turnComplete: (payload: { title: string; body: string }) => Promise<{
+		turnComplete: (payload: { title: string; body: string; sessionId?: string }) => Promise<{
 			ok: boolean;
 			notified: boolean;
 			focused: boolean;
 			error?: string;
 		}>;
+		onOpenSession: (callback: (payload: { sessionId: string }) => void) => () => void;
 	};
 	security: {
 		get: () => Promise<DesktopSecuritySettings>;
@@ -1034,11 +1025,12 @@ declare const api: {
 	streamRender: {
 		get: () => Promise<StreamRenderSettings>;
 		set: (settings: StreamRenderSettings) => Promise<StreamRenderSettings>;
+	};
 	tempCleanup: {
 		get: () => Promise<TempCleanupSettings>;
 		set: (settings: TempCleanupSettings) => Promise<TempCleanupSettings>;
 		sweep: () => Promise<{ removed: number; bytes: number }>;
-	};
+		stats: () => Promise<{ count: number; bytes: number }>;
 	};
 	appearance: {
 		pickWallpaper: () => Promise<string | null>;

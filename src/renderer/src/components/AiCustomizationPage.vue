@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, h, nextTick, onMounted, onUnmounted, ref, watch, type Component } from "vue";
-import { NButton, NInput, NModal, NSpin, NSpace, useDialog, useMessage } from "naive-ui";
+import { NButton, NInput, NSpin, NSpace, useDialog, useMessage } from "naive-ui";
 import { RefreshOutline } from "@vicons/ionicons5";
 import CodiconIcon from "@renderer/components/icons/CodiconIcon.vue";
 import PreviewTab from "@renderer/components/PreviewTab.vue";
@@ -13,12 +13,7 @@ import CustomizeHooks from "@renderer/components/customize/CustomizeHooks.vue";
 import CustomizeTools from "@renderer/components/customize/CustomizeTools.vue";
 import CustomizeModels from "@renderer/components/customize/CustomizeModels.vue";
 import CustomizeRuntime from "@renderer/components/customize/CustomizeRuntime.vue";
-import NotifySettings from "@renderer/components/NotifySettings.vue";
-import AsrSettings from "@renderer/components/AsrSettings.vue";
-import SecuritySettings from "@renderer/components/SecuritySettings.vue";
-import ProxySettings from "@renderer/components/ProxySettings.vue";
 import MarketSettings from "@renderer/components/MarketSettings.vue";
-import LanConsoleSettings from "@renderer/components/LanConsoleSettings.vue";
 import { useCustomizationsStore } from "@renderer/stores/customizations";
 import { useLayoutStore } from "@renderer/stores/layout";
 import { useWorkspaceStore } from "@renderer/stores/workspace";
@@ -57,6 +52,7 @@ const sections = computed<CustomizeSectionEntry[]>(() => [
   { id: "agents", icon: "agents", label: t.customizeAgents, description: t.customizeAgentsDesc },
   { id: "skills", icon: "skills", label: t.customizeSkills, description: t.customizeSkillsDesc },
   { id: "instructions", icon: "instructions", label: t.customizeInstructions, description: t.customizeInstructionsDesc },
+  { id: "prompts", icon: "prompts", label: t.customizePrompts, description: t.customizePromptsDesc },
   { id: "hooks", icon: "hooks", label: t.customizeHooks, description: t.customizeHooksDesc },
   { id: "mcp", icon: "mcp", label: t.customizeMcp, description: t.customizeMcpDesc },
   { id: "plugins", icon: "plugins", label: t.customizePlugins, description: t.customizePluginsDesc },
@@ -83,16 +79,17 @@ const active = ref(resolveSection(props.section));
 const modal = ref<string | null>(null);
 const width = ref(readWidth());
 /** 页内编辑目标：已有文件或未落盘的草稿（技能/智能体/指令）。 */
-type DraftKind = "skills" | "agents" | "instructions";
+type DraftKind = "skills" | "agents" | "instructions" | "prompts";
 type EditingTarget =
   | { kind: "file"; filePath: string; title: string; rename: boolean }
   | { kind: "draft"; draftKind: DraftKind; scope: "user" | "project"; workspace: string | null };
 
-/** 各类草稿的初始内容：指令是纯 markdown，技能与智能体带 frontmatter。 */
+/** 各类草稿的初始内容：指令是纯 markdown，技能与智能体带 frontmatter，提示模板带 description/argument-hint。 */
 const DRAFT_TEMPLATES: Record<DraftKind, string> = {
   skills: ["---", "name: ", 'description: ""', "---", ""].join("\n"),
   agents: ["---", "name: ", 'description: ""', "---", ""].join("\n"),
   instructions: "",
+  prompts: ["---", 'description: ""', 'argument-hint: ""', "---", ""].join("\n"),
 };
 
 const editing = ref<EditingTarget | null>(null);
@@ -161,6 +158,10 @@ const draftLocation = computed(() => {
       const name = editorName.value.trim() || "new-agent";
       return `${base}${sep}agents${sep}${name}.md`;
     }
+    if (draft.draftKind === "prompts") {
+      const name = editorName.value.trim() || "new-prompt";
+      return `${base}${sep}prompts${sep}${name}.md`;
+    }
     const name = editorName.value.trim() || "new-skill";
     return `${base}${sep}skills${sep}${name}${sep}SKILL.md`;
   }
@@ -168,6 +169,10 @@ const draftLocation = computed(() => {
   if (draft.draftKind === "agents") {
     const name = editorName.value.trim() || "new-agent";
     return `~/.pi/agent/agents/${name}.md`;
+  }
+  if (draft.draftKind === "prompts") {
+    const name = editorName.value.trim() || "new-prompt";
+    return `~/.pi/agent/prompts/${name}.md`;
   }
   const name = editorName.value.trim() || "new-skill";
   return `~/.pi/agent/skills/${name}/SKILL.md`;
@@ -177,7 +182,7 @@ const current = computed(
   () => sections.value.find((entry) => entry.id === active.value) ?? sections.value[0],
 );
 
-const LIST_KINDS = ["agents", "skills", "instructions", "mcp", "plugins"] as const;
+const LIST_KINDS = ["agents", "skills", "instructions", "prompts", "mcp", "plugins"] as const;
 type ListKind = (typeof LIST_KINDS)[number];
 
 const listKind = computed<ListKind>(() =>
@@ -191,6 +196,8 @@ const listItems = computed(() => {
       return snapshot.skills;
     case "instructions":
       return snapshot.instructions;
+    case "prompts":
+      return snapshot.prompts;
     case "mcp":
       return snapshot.mcp;
     case "plugins":
@@ -204,6 +211,7 @@ const counts = computed<Record<string, number>>(() => ({
   agents: store.snapshot.agents.length,
   skills: store.snapshot.skills.length,
   instructions: store.snapshot.instructions.length,
+  prompts: store.snapshot.prompts.length,
   hooks: store.snapshot.hooks.length,
   mcp: store.snapshot.mcp.length,
   plugins: store.snapshot.plugins.length,
@@ -256,6 +264,8 @@ function draftTitle(kind: DraftKind): string {
       return t.customizeNewAgent;
     case "instructions":
       return t.customizeNewInstructions;
+    case "prompts":
+      return t.customizeNewPrompt;
     default:
       return t.customizeNewSkill;
   }
@@ -344,6 +354,43 @@ async function saveInstructionsDraft(content: string): Promise<boolean> {
   } catch (err) {
     message.error(err instanceof Error ? err.message : String(err));
     return false;
+  }
+}
+
+async function savePromptDraft(content: string): Promise<boolean> {
+  const draft = draftTarget.value;
+  if (!draft) return false;
+  const name = editorName.value.trim();
+  try {
+    const saved = await window.api.customizations.createPromptFromDraft(
+      content,
+      name,
+      draft.scope,
+      draft.scope === "project" ? draft.workspace ?? undefined : undefined,
+    );
+    if (!saved.ok) {
+      message.error(promptIssueText(saved.code));
+      return false;
+    }
+    await store.load(true);
+    editing.value = { kind: "file", filePath: saved.filePath, title: saved.name, rename: false };
+    editorName.value = saved.name;
+    message.success(t.saved);
+    return true;
+  } catch (err) {
+    message.error(err instanceof Error ? err.message : String(err));
+    return false;
+  }
+}
+
+function promptIssueText(code: AgentIssueCode): string {
+  switch (code) {
+    case "name-required":
+      return t.customizePromptNameRequired;
+    case "name-invalid":
+      return t.customizePromptNameInvalid;
+    default:
+      return t.customizePromptExists;
   }
 }
 
@@ -451,6 +498,8 @@ async function saveEditorContent(content: string): Promise<boolean> {
         return saveSkillDraft(content);
       case "agents":
         return saveAgentDraft(content);
+      case "prompts":
+        return savePromptDraft(content);
       default:
         return saveInstructionsDraft(content);
     }
@@ -749,7 +798,7 @@ onUnmounted(() => {
 
         <NSpin v-if="store.loading" size="small" class="content-spin" />
 
-        <CustomizeGeneral v-else-if="active === 'general'" @open="modal = $event" />
+        <CustomizeGeneral v-else-if="active === 'general'" />
 
         <AppearancePanel v-else-if="active === 'appearance'" />
 
@@ -783,22 +832,7 @@ onUnmounted(() => {
       </div>
     </section>
 
-    <NotifySettings :open="modal === 'notify'" @close="modal = null" />
-    <AsrSettings :open="modal === 'voice'" @close="modal = null" />
-    <SecuritySettings :open="modal === 'security'" @close="modal = null" />
-    <ProxySettings :open="modal === 'proxy'" @close="modal = null" />
     <MarketSettings :open="modal === 'market'" @close="modal = null" />
-    <NModal
-      :show="modal === 'lan'"
-      preset="card"
-      class="pi-settings-modal"
-      style="width: min(520px, 92vw)"
-      :title="t.lanConsoleTitle"
-      :bordered="false"
-      @update:show="(value) => !value && (modal = null)"
-    >
-      <LanConsoleSettings @close="modal = null" />
-    </NModal>
   </div>
 </template>
 

@@ -13,7 +13,7 @@ type MediaHandle = {
 
 /**
  * Global registry for <audio>/<video> in preview (and future) tabs.
- * Used to pause/stop playback when voice recording starts or UI hides a tab.
+ * Used to pause/stop playback when UI hides a tab.
  */
 export const useMediaStore = defineStore("media", () => {
   const handles = new Map<string, MediaHandle>();

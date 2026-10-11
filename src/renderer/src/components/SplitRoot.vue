@@ -19,6 +19,9 @@ const ChatPanel = defineAsyncComponent(
 const RightPane = defineAsyncComponent(
   () => import("@renderer/components/RightPane.vue"),
 );
+const PullRequestsView = defineAsyncComponent(
+  () => import("@renderer/components/PullRequestsView.vue"),
+);
 const BottomPanel = defineAsyncComponent(
   () => import("@renderer/components/BottomPanel.vue"),
 );
@@ -155,7 +158,8 @@ function onChatResized(payload: SplitpanesResizedPayload): void {
                 :max-size="layout.editorMaximized || layout.bottomCollapsed ? 100 : 100 - PANEL_MIN"
                 :class="{ 'pane-collapsed': layout.editorMaximized }"
               >
-                <ChatPanel :visible="chatVisible" />
+                <PullRequestsView v-if="layout.centerView === 'pull-requests'" />
+                <ChatPanel v-else :visible="chatVisible" />
               </Pane>
               <Pane
                 :size="bottomPanelSize"

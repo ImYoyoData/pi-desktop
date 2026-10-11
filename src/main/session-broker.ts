@@ -236,7 +236,12 @@ export function createSessionBroker(deps: {
 
   function emit(event: AgentEvent): void {
     for (const cb of listeners) {
-      cb(event);
+      try {
+        cb(event);
+      } catch (err) {
+        // 一个监听器抛错不能阻断其余监听器（渲染端依赖后注册的 broadcaster）。
+        console.error("[session-broker] event listener failed:", err);
+      }
     }
   }
 

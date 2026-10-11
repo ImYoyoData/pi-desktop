@@ -1,5 +1,8 @@
 import type { WorkerResourceSummary } from "./worker-resources";
 
+/** 主进程原生菜单向渲染进程发送的命令。 */
+export type MenuCommand = "open-pull-requests";
+
 export const IpcChannels = {
 	window: {
 		minimize: "window:minimize",
@@ -23,6 +26,8 @@ export const IpcChannels = {
 		contextMenu: "window:contextMenu",
 		/** Renderer → main: 执行右键菜单选中的编辑命令。 */
 		contextMenuAction: "window:contextMenuAction",
+		/** Main → renderer: 原生菜单命令（打开拉取请求视图等）。 */
+		menuCommand: "window:menuCommand",
 	},
 	clipboard: {
 		/** Renderer → main: copy a data-URL image onto the system clipboard. */
@@ -45,6 +50,8 @@ export const IpcChannels = {
 		get: "tempCleanup:get",
 		/** Renderer → main: 保存清理设置（并重排定时器）。 */
 		set: "tempCleanup:set",
+		/** Renderer → main: 统计当前临时文件数量与占用字节数。 */
+		stats: "tempCleanup:stats",
 		/** Renderer → main: 立即执行一次清理，返回删除数量与释放字节数。 */
 		sweep: "tempCleanup:sweep",
 	},
@@ -156,24 +163,6 @@ export const IpcChannels = {
 		unwatch: "fs:unwatch",
 		changed: "fs:changed",
 	},
-	lanConsole: {
-		/** Renderer → main: current remote-control status (enabled / port / pin / urls). */
-		getStatus: "lanConsole:getStatus",
-		/** Renderer → main: enable or disable LAN (local network) access. */
-		setEnabled: "lanConsole:setEnabled",
-		/** Renderer → main: enable or disable public access via a Cloudflare tunnel. */
-		setPublicAccess: "lanConsole:setPublicAccess",
-		/** Renderer → main: change the LAN port. */
-		setPort: "lanConsole:setPort",
-		/** Renderer → main: issue a new 9-digit access PIN. */
-		rotatePin: "lanConsole:rotatePin",
-		/** Renderer → main: save the optional named-tunnel token + public hostname. */
-		setTunnelConfig: "lanConsole:setTunnelConfig",
-		/** Renderer → main: pick which LAN IPv4 to show in QR / copy URL. */
-		setPreferredIp: "lanConsole:setPreferredIp",
-		/** Main → renderer: public-access (cloudflared) state changed. */
-		tunnelStatus: "lanConsole:tunnelStatus",
-	},
 	git: {
 		status: "git:status",
 		diff: "git:diff",
@@ -210,13 +199,28 @@ export const IpcChannels = {
 		abortMerge: "git:abortMerge",
 		syncStatus: "git:syncStatus",
 	},
+	github: {
+		pullRequest: "github:pullRequest",
+		pullRequestView: "github:pullRequestView",
+		pullRequestList: "github:pullRequestList",
+		pullRequestListCancel: "github:pullRequestListCancel",
+		pullRequestDetail: "github:pullRequestDetail",
+		pullRequestPatch: "github:pullRequestPatch",
+		pullRequestAction: "github:pullRequestAction",
+		pullRequestChoices: "github:pullRequestChoices",
+		repositoryChoices: "github:repositoryChoices",
+		image: "github:image",
+	},
 	customizations: {
 		list: "customizations:list",
 		create: "customizations:create",
 		createAgentFromDraft: "customizations:createAgentFromDraft",
+		createPromptFromDraft: "customizations:createPromptFromDraft",
 		saveAgent: "customizations:saveAgent",
 		createInstructionsFromDraft: "customizations:createInstructionsFromDraft",
 		setMcpEnabled: "customizations:setMcpEnabled",
+		listMcpProjectOverrides: "customizations:listMcpProjectOverrides",
+		setMcpProjectOverride: "customizations:setMcpProjectOverride",
 		addMcpServers: "customizations:addMcpServers",
 		readMcpServer: "customizations:readMcpServer",
 		ensureMcpConfig: "customizations:ensureMcpConfig",
@@ -303,49 +307,6 @@ export const IpcChannels = {
 		openExternal: "browser:openExternal",
 		toggleEmbeddedDevTools: "browser:toggleEmbeddedDevTools",
 	},
-	asr: {
-		status: "asr:status",
-		setEnabled: "asr:setEnabled",
-		setGpuPreference: "asr:setGpuPreference",
-		setDownloadMirror: "asr:setDownloadMirror",
-		install: "asr:install",
-		installFromUrl: "asr:installFromUrl",
-		pickModel: "asr:pickModel",
-		importModel: "asr:importModel",
-		reinstallRuntime: "asr:reinstallRuntime",
-		pickRuntimeArchive: "asr:pickRuntimeArchive",
-		importRuntime: "asr:importRuntime",
-		/** Abort in-flight runtime/model download. */
-		cancelInstall: "asr:cancelInstall",
-		uninstall: "asr:uninstall",
-		transcribe: "asr:transcribe",
-		streamStart: "asr:streamStart",
-		streamPush: "asr:streamPush",
-		streamStop: "asr:streamStop",
-		streamEvent: "asr:streamEvent",
-		progress: "asr:progress",
-		setWakeHotkey: "asr:setWakeHotkey",
-		setResidentModel: "asr:setResidentModel",
-		setWakeEnabled: "asr:setWakeEnabled",
-		setWakeWords: "asr:setWakeWords",
-		setBackend: "asr:setBackend",
-		getCloudConfig: "asr:getCloudConfig",
-		setCloudConfig: "asr:setCloudConfig",
-		testCloud: "asr:testCloud",
-		/** Main → renderer: global wake hotkey pressed. */
-		wake: "asr:wake",
-	},
-	tts: {
-		status: "tts:status",
-		setEnabled: "tts:setEnabled",
-		install: "tts:install",
-		uninstall: "tts:uninstall",
-		speak: "tts:speak",
-		stop: "tts:stop",
-		progress: "tts:progress",
-		/** Main → renderer: playback started/stopped. */
-		speaking: "tts:speaking",
-	},
 	update: {
 		getAppInfo: "update:getAppInfo",
 		openGithub: "update:openGithub",
@@ -387,6 +348,8 @@ export const IpcChannels = {
 	},
 	notify: {
 		turnComplete: "notify:turnComplete",
+		/** Main → renderer: 通知被点击，跳转到对应会话 */
+		openSession: "notify:openSession",
 	},
 	runs: {
 		list: "runs:list",
@@ -429,72 +392,6 @@ export type WorkspaceGroups = {
 };
 
 export type SessionStatus = "idle" | "running" | "error" | "stuck";
-
-/** Public-access (Cloudflare tunnel) state, mirrored from the main process. */
-export type CloudflareTunnelStatus = {
-	/** User wants public access; binary resolve/start may still be in flight. */
-	enabled: boolean;
-	/** A runnable cloudflared executable was resolved. */
-	installed: boolean;
-	/** cloudflared process running. */
-	running: boolean;
-	/** Current step while bringing the tunnel up. */
-	phase: "off" | "downloading" | "starting" | "on" | "error";
-	/**
-	 * Public URL once the tunnel is up. Quick mode: a trycloudflare hostname
-	 * minted per start. Named mode: the user's fixed hostname.
-	 */
-	url: string | null;
-	/** Last failure message, shown in the remote-control panel. */
-	error: string | null;
-	/** Loopback origin the tunnel forwards to. */
-	origin: string | null;
-	/** Which mode is running (or about to run). */
-	mode: "quick" | "named";
-	/** Where the cloudflared binary lives. */
-	binaryPath: string;
-	/** True when the user supplied their own cloudflared build. */
-	customBinary: boolean;
-};
-
-/**
- * Remote-control (formerly "LAN web console") status exposed to the settings UI.
- *
- * Login is a single 9-digit numeric PIN. The LAN side is plain HTTP (no
- * certificate warnings on phones) while public access rides a Cloudflare tunnel
- * that terminates TLS at the edge.
- */
-export type LanConsoleStatus = {
-	/** LAN access switch (default on). */
-	enabled: boolean;
-	/** HTTPS listener is actually accepting connections. */
-	listening: boolean;
-	/** Public access via Cloudflare tunnel (default off). */
-	publicAccess: boolean;
-	port: number;
-	/** 9-digit access PIN shown in the panel and used to log in. */
-	pin: string;
-	/** Selected LAN IPv4 used for QR / copy (best-effort ranked when unset). */
-	preferredIp: string;
-	/** All candidate LAN IPv4s, preferred/best-ranked first. */
-	addresses: string[];
-	/** HTTPS URLs for each address (same order as `addresses`). */
-	urls: string[];
-	/** Preferred LAN access URL, e.g. https://192.168.1.5:18700. */
-	baseUrl: string;
-	/** Full LAN URL for opening the console (PIN login). */
-	url: string;
-	/** Public tunnel URL when public access is up, else null. */
-	publicUrl: string | null;
-	/** Which tunnel mode is configured: accountless quick, or the user's own. */
-	tunnelMode: "quick" | "named";
-	/** True once a Cloudflare tunnel token was saved (named mode). */
-	tunnelTokenSet: boolean;
-	/** Public hostname the user configured for their own named tunnel. */
-	tunnelPublicUrl: string;
-	/** Cloudflare tunnel detail for the panel. */
-	tunnel: CloudflareTunnelStatus;
-};
 
 /** Tools / extensions / skills loaded into a session worker (null while booting). */
 export type SessionExtensionInfo = {
@@ -738,6 +635,8 @@ export type SessionHistoryMessage =
 			isError?: boolean;
 			/** Tool-call arguments from the preceding assistant toolCall (e.g. write content). */
 			args?: unknown;
+			/** 工具执行耗时毫秒（pi 1.1.0 起记录在工具结果上）。 */
+			durationMs?: number;
 			/** 工具内部调用（ctx.executeTool）的摘要，从 pi 的 nestedCalls 还原。 */
 			nestedCalls?: {
 				toolCallId: string;

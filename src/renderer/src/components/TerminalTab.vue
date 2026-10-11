@@ -11,6 +11,7 @@ import { useRightTabsStore } from "@renderer/stores/right-tabs";
 import { sanitizeTerminalCommandLabel, truncateTabLabel } from "../../../shared/tab-label";
 import { t } from "@renderer/i18n";
 import { handleAppLinkClick } from "@renderer/utils/open-link";
+import { ProgramStatusScanner } from "@renderer/utils/osc-program-status";
 import { xtermTheme } from "@renderer/utils/xterm-theme";
 
 const props = defineProps<{
@@ -54,6 +55,8 @@ let inputLineBuf = "";
 let autoTitled = false;
 /** Skip CSI / OSC sequences in onData so focus-in `[I` never enters the title buffer. */
 let ansiSkip: "none" | "esc" | "csi" | "osc" = "none";
+/** pi 等程序的 OSC 7501 状态：应答支持查询并把上报状态写进 tab。 */
+const programStatusScanner = new ProgramStatusScanner();
 
 function flushWriteBuf(): void {
   writeRaf = 0;
@@ -282,7 +285,15 @@ watch(
 
 onMounted(async () => {
   offData = window.api.terminal.onData(({ id, data }) => {
-    if (id === activePtyId.value) enqueueWrite(data);
+    if (id !== activePtyId.value) return;
+    const scan = programStatusScanner.scan(data);
+    for (const reply of scan.replies) {
+      void window.api.terminal.write(id, reply);
+    }
+    for (const report of scan.reports) {
+      if (props.instanceId) rightTabs.setPiStatus(props.instanceId, report);
+    }
+    enqueueWrite(data);
   });
   resizeObserver = new ResizeObserver(() => scheduleFit());
   if (hostRef.value) resizeObserver.observe(hostRef.value);
