@@ -31,16 +31,20 @@
 ### 修复 Fixes
 
 - **修复 models.json 文本报错不友好**：粘贴非法 JSON 时现在报 `Invalid models.json: …`，而不是裸的解析器异常。
+- **修复功能裁剪遗留的问题**：恢复被清理误删的四个 i18n 键（`marketLoadMore` / `marketLoadingMore` / `marketEnd` / `scrollToLatest`）与 preload 的 `contributors.avatar`（写法归一为单行）、修复 Composer 模板在移除语音输入后缺少的闭合标签（此前会中断构建）、移除未使用的 NModal 导入。
 
 - **Friendlier models.json parse errors**: pasting invalid JSON now reports `Invalid models.json: …` instead of a raw parser error.
+- **Fixed issues left by the feature removal**: restored the four i18n keys accidentally deleted during cleanup (`marketLoadMore` / `marketLoadingMore` / `marketEnd` / `scrollToLatest`) and the preload `contributors.avatar` (normalized to one line), fixed the Composer template's missing closing tag after the voice input removal (which had broken the build), and dropped the unused NModal import.
 
 ### 变更 Changes
 
+- **接入官方预览包 pi-durable**：新增依赖 `@earendil-works/pi-durable` 1.1.0（官方 durable 会话/任务/文档运行时，Experimental，连带 `@earendil-works/chord` 1.1.0）。本轮仅打通依赖与类型/构建，行为不变；后续可基于其 Harness / 任务图能力做崩溃续跑等集成。
 - **升级 pi 到 1.1.0**：`@earendil-works/pi-coding-agent`、`@earendil-works/pi-agent-core`、`@earendil-works/pi-ai` 从 1.0.0 升到 1.1.0（pi-codemode / pi-mcp / pi-tui / pi-telemetry 同步）。构建期扩展加载器补丁与打包时附带的 pi 文档资源均与 1.1.0 兼容，无需调整。
 - **azure provider 更名自动迁移**（pi 1.0.3 破坏性变更）：pi 把 `azure-openai-responses` 更名为 `azure`。启动时自动把 `auth.json`、`models.json`、`settings.json`（`defaultProvider` / `enabledModels` / `modelThinkingLevels`）、`mcp.json`（`auth.provider`）里的旧 id 改名为新 id，Azure 凭据与设置不用手动搬；平台目录与图标映射同步改名，历史遗留 id 仍解析到 Azure 图标。
 - **工具耗时改用 pi 记录的执行时间**（pi 1.1.0）：`tool_execution_end` 与工具结果现在带记录的执行耗时（单调时钟）。工具卡片优先显示该耗时，历史会话也能还原每个工具的实际耗时，嵌套调用同步；未记录时回退原有实时计时。工具卡片与历史会话的耗时展示无需改动，数据到位后自动显示。
 - **取消与自然完成可区分**（pi 1.1.0）：`agent_settled` 事件现在带 `aborted`。取消落在工具执行中、没留下任何回答时，补一张「已取消」卡，回合不再默默消失。
 - **MCP OAuth 支持客户端注册方式**（pi 1.0.1）：MCP 服务器的「OAuth 高级设置」新增客户端注册方式，可选动态注册（DCR，默认）或客户端 ID 元数据文档（CIMD，`oauth.clientRegistration: "cimd"`）；CIMD 用 pi.dev 上的文档识别 pi，授权服务器可按 URL 放行，不再依赖动态注册。
+- **依赖全面更新**：@types/node 26.6.5、@vitejs/plugin-vue 6.0.10、@viz-js/viz 3.31.0、@vue/typescript-plugin 3.3.13、dompurify 3.4.16、electron 44.7.0、marked 18.1.0、mermaid 12.1.0、monaco-editor 0.57.0、npm 12.2.0、typebox 1.3.36、undici 8.11.2、vite 7.3.7、vitest 5.0.3、vue-tsc 3.3.13、ws 8.22.0。受上游 peer 约束暂不升级：vite 8（electron-vite 5.0.0 仅支持到 vite 7）、TypeScript 7（vue-tsc 3.3.13 无法解析 TS 7 的 exports 变化）、katex 0.19（marked-katex-extension 5.1.13 peer 限制 <0.19）。
 
 ### 变更 Changes (English)
 
@@ -49,6 +53,7 @@
 - **Tool durations now come from pi's recorded execution time** (pi 1.1.0): `tool_execution_end` and tool results carry the recorded duration (monotonic clock). Tool cards prefer it, history restores the real duration of every tool, nested calls follow, and the live wall-clock estimate remains as a fallback.
 - **Cancelled runs are told apart from finished ones** (pi 1.1.0): `agent_settled` now carries `aborted`. When a cancel lands during a tool call and no reply was produced, a "Cancelled" card is added instead of the turn silently vanishing.
 - **MCP OAuth client registration mode** (pi 1.0.1): the MCP server "OAuth advanced settings" gain a client registration mode — dynamic registration (DCR, default) or Client ID Metadata Document (CIMD, `oauth.clientRegistration: "cimd"`). CIMD identifies pi by the document on pi.dev so authorization servers can allow it by URL instead of dynamic registration.
+- **Dependencies refreshed**: @types/node 26.6.5, @vitejs/plugin-vue 6.0.10, @viz-js/viz 3.31.0, @vue/typescript-plugin 3.3.13, dompurify 3.4.16, electron 44.7.0, marked 18.1.0, mermaid 12.1.0, monaco-editor 0.57.0, npm 12.2.0, typebox 1.3.36, undici 8.11.2, vite 7.3.7, vitest 5.0.3, vue-tsc 3.3.13, ws 8.22.0. Held back by upstream peer constraints: vite 8 (electron-vite 5.0.0 supports up to vite 7), TypeScript 7 (vue-tsc 3.3.13 cannot resolve TS 7's changed exports), and katex 0.19 (marked-katex-extension 5.1.13 peers `<0.19`).
 
 ## v0.3.5-rc.4 (2026-10-02)
 
