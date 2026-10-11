@@ -12,6 +12,8 @@ const message = useMessage();
 const settings = ref<TempCleanupSettings>({ ...DEFAULT_TEMP_CLEANUP_SETTINGS });
 const sweeping = ref(false);
 const loaded = ref(false);
+const statsText = ref("");
+const statsLoading = ref(false);
 
 const intervalOptions = computed(() =>
 	TEMP_CLEANUP_INTERVALS.map((hours) => ({
@@ -19,6 +21,11 @@ const intervalOptions = computed(() =>
 		value: hours,
 	})),
 );
+
+const ageOptions = computed(() => [1, 6, 12, 24, 72, 168].map((hours) => ({
+	label: t.tempCleanupIntervalLabel(hours),
+	value: hours,
+})));
 
 onMounted(async () => {
 	try {
@@ -50,10 +57,21 @@ function onMaxAge(value: number): void {
 	void save({ ...settings.value, maxAgeHours: value });
 }
 
-const ageOptions = computed(() => [1, 6, 12, 24, 72, 168].map((hours) => ({
-	label: t.tempCleanupIntervalLabel(hours),
-	value: hours,
-})));
+async function showStats(): Promise<void> {
+	if (statsLoading.value) return;
+	statsLoading.value = true;
+	try {
+		const result = await window.api.tempCleanup.stats();
+		statsText.value = t.tempCleanupStatsResult(
+			result.count,
+			result.bytes / 1024 / 1024,
+		);
+	} catch (err) {
+		message.error(err instanceof Error ? err.message : String(err));
+	} finally {
+		statsLoading.value = false;
+	}
+}
 
 async function sweepNow(): Promise<void> {
 	if (sweeping.value) return;
@@ -67,6 +85,7 @@ async function sweepNow(): Promise<void> {
 		} else {
 			message.info(t.tempCleanupSweepEmpty);
 		}
+		if (statsText.value) await showStats();
 	} catch (err) {
 		message.error(err instanceof Error ? err.message : String(err));
 	} finally {
@@ -78,18 +97,12 @@ async function sweepNow(): Promise<void> {
 <template>
   <div v-if="loaded" class="temp-cleanup">
     <div class="temp-cleanup-row">
-      <div class="temp-cleanup-text">
-        <span class="temp-cleanup-name">{{ t.tempCleanupEnabled }}</span>
-        <span class="temp-cleanup-hint">{{ t.tempCleanupEnabledHint }}</span>
-      </div>
+      <span class="temp-cleanup-name">{{ t.tempCleanupEnabled }}</span>
       <NSwitch :value="settings.enabled" @update:value="onToggle" />
     </div>
 
     <div class="temp-cleanup-row">
-      <div class="temp-cleanup-text">
-        <span class="temp-cleanup-name">{{ t.tempCleanupInterval }}</span>
-        <span class="temp-cleanup-hint">{{ t.tempCleanupIntervalHint }}</span>
-      </div>
+      <span class="temp-cleanup-name">{{ t.tempCleanupInterval }}</span>
       <NSelect
         class="temp-cleanup-select"
         size="small"
@@ -101,10 +114,7 @@ async function sweepNow(): Promise<void> {
     </div>
 
     <div class="temp-cleanup-row">
-      <div class="temp-cleanup-text">
-        <span class="temp-cleanup-name">{{ t.tempCleanupMaxAge }}</span>
-        <span class="temp-cleanup-hint">{{ t.tempCleanupMaxAgeHint }}</span>
-      </div>
+      <span class="temp-cleanup-name">{{ t.tempCleanupMaxAge }}</span>
       <NSelect
         class="temp-cleanup-select"
         size="small"
@@ -115,8 +125,11 @@ async function sweepNow(): Promise<void> {
       />
     </div>
 
-    <div class="temp-cleanup-row">
-      <div class="temp-cleanup-text" />
+    <div class="temp-cleanup-row temp-cleanup-actions">
+      <span class="temp-cleanup-stats">{{ statsText }}</span>
+      <NButton size="small" :loading="statsLoading" @click="showStats">
+        {{ t.tempCleanupStats }}
+      </NButton>
       <NButton size="small" :loading="sweeping" @click="sweepNow">
         {{ t.tempCleanupSweepNow }}
       </NButton>
@@ -134,36 +147,33 @@ async function sweepNow(): Promise<void> {
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 8px 12px 8px 16px;
-  border-top: 1px solid var(--border);
-}
-
-.temp-cleanup-row:first-child {
-  border-top: none;
-}
-
-.temp-cleanup-text {
-  display: flex;
-  flex-direction: column;
-  flex: 1;
-  min-width: 0;
-  gap: 2px;
+  padding: 6px 12px 6px 16px;
 }
 
 .temp-cleanup-name {
+  flex: 1;
+  min-width: 0;
   font-size: 13px;
   line-height: 18px;
   color: var(--fg);
-}
-
-.temp-cleanup-hint {
-  font-size: 11px;
-  line-height: 16px;
-  color: var(--fg-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .temp-cleanup-select {
   width: 168px;
   flex-shrink: 0;
+}
+
+.temp-cleanup-stats {
+  flex: 1;
+  min-width: 0;
+  font-size: 11px;
+  line-height: 16px;
+  color: var(--fg-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 </style>

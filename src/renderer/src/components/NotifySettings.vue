@@ -1,12 +1,9 @@
 <script setup lang="ts">
 import { computed } from "vue";
-import { NModal, NText, NButton, NDivider, useMessage } from "naive-ui";
+import { NButton, NText, useMessage } from "naive-ui";
 import ToggleButton from "@renderer/components/ToggleButton.vue";
 import { useNotifyStore } from "@renderer/stores/notify";
 import { t } from "@renderer/i18n";
-
-const props = defineProps<{ open: boolean }>();
-const emit = defineEmits<{ close: [] }>();
 
 const notify = useNotifyStore();
 const message = useMessage();
@@ -28,78 +25,61 @@ async function onPreview(): Promise<void> {
 </script>
 
 <template>
-  <NModal
-    :show="props.open"
-    preset="card"
-    class="pi-settings-modal"
-    style="width: min(520px, 92vw)"
-    :title="t.notifyTitle"
-    :bordered="false"
-    size="huge"
-    @update:show="(v) =>
-    
- !v && emit('close')"
-  >
-    <div class="modal-scroll">
+  <section class="settings-group">
+    <div class="group-title">{{ t.notifyTitle }}</div>
 
-    <div class="section">
-      <div class="row">
-        <div class="labels">
-          <NText strong>{{ t.notifySound }}</NText>
-          <NText depth="3" style="font-size: 12px; display: block; margin-top: 4px">
-            {{ t.notifySoundHint }}
-          </NText>
-        </div>
-        <ToggleButton v-model:value="soundOn" />
+    <div class="row">
+      <div class="labels">
+        <NText strong>{{ t.notifySound }}</NText>
+        <NText depth="3" class="hint">{{ t.notifySoundHint }}</NText>
       </div>
-      <NButton size="small" secondary style="align-self: flex-start; margin-top: 10px" @click="onPreview">
+      <ToggleButton v-model:value="soundOn" />
+    </div>
+
+    <div class="row">
+      <NButton size="small" secondary @click="onPreview">
         {{ t.notifyPreview }}
       </NButton>
     </div>
 
-    <NDivider style="margin: 18px 0" />
-
-    <div class="section">
-      <div class="row">
-        <div class="labels">
-          <NText strong>{{ t.notifySystem }}</NText>
-          <NText depth="3" style="font-size: 12px; display: block; margin-top: 4px">
-            {{ t.notifySystemHint }}
-          </NText>
-        </div>
-        <ToggleButton v-model:value="notifyOn" />
+    <div class="row">
+      <div class="labels">
+        <NText strong>{{ t.notifySystem }}</NText>
+        <NText depth="3" class="hint">{{ t.notifySystemHint }}</NText>
       </div>
+      <ToggleButton v-model:value="notifyOn" />
     </div>
-
-    
-    
-
-    </div>
-<template #footer>
-      <div class="footer">
-        <NButton @click="emit('close')">{{ t.close }}</NButton>
-      </div>
-    </template>
-  </NModal>
+  </section>
 </template>
 
 <style scoped>
-.section {
+.settings-group {
   display: flex;
   flex-direction: column;
+  gap: 12px;
 }
+
+.group-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--fg-muted);
+}
+
 .row {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
   gap: 16px;
 }
+
 .labels {
-  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
   min-width: 0;
 }
-.footer {
-  display: flex;
-  justify-content: flex-end;
+
+.hint {
+  font-size: 12px;
 }
 </style>

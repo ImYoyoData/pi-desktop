@@ -1024,11 +1024,12 @@ declare const api: {
 	streamRender: {
 		get: () => Promise<StreamRenderSettings>;
 		set: (settings: StreamRenderSettings) => Promise<StreamRenderSettings>;
+	};
 	tempCleanup: {
 		get: () => Promise<TempCleanupSettings>;
 		set: (settings: TempCleanupSettings) => Promise<TempCleanupSettings>;
 		sweep: () => Promise<{ removed: number; bytes: number }>;
-	};
+		stats: () => Promise<{ count: number; bytes: number }>;
 	};
 	appearance: {
 		pickWallpaper: () => Promise<string | null>;

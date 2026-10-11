@@ -13,9 +13,6 @@ import CustomizeHooks from "@renderer/components/customize/CustomizeHooks.vue";
 import CustomizeTools from "@renderer/components/customize/CustomizeTools.vue";
 import CustomizeModels from "@renderer/components/customize/CustomizeModels.vue";
 import CustomizeRuntime from "@renderer/components/customize/CustomizeRuntime.vue";
-import NotifySettings from "@renderer/components/NotifySettings.vue";
-import SecuritySettings from "@renderer/components/SecuritySettings.vue";
-import ProxySettings from "@renderer/components/ProxySettings.vue";
 import MarketSettings from "@renderer/components/MarketSettings.vue";
 import { useCustomizationsStore } from "@renderer/stores/customizations";
 import { useLayoutStore } from "@renderer/stores/layout";
@@ -801,7 +798,7 @@ onUnmounted(() => {
 
         <NSpin v-if="store.loading" size="small" class="content-spin" />
 
-        <CustomizeGeneral v-else-if="active === 'general'" @open="modal = $event" />
+        <CustomizeGeneral v-else-if="active === 'general'" />
 
         <AppearancePanel v-else-if="active === 'appearance'" />
 
@@ -835,9 +832,6 @@ onUnmounted(() => {
       </div>
     </section>
 
-    <NotifySettings :open="modal === 'notify'" @close="modal = null" />
-    <SecuritySettings :open="modal === 'security'" @close="modal = null" />
-    <ProxySettings :open="modal === 'proxy'" @close="modal = null" />
     <MarketSettings :open="modal === 'market'" @close="modal = null" />
   </div>
 </template>

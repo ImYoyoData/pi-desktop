@@ -135,6 +135,9 @@ export const zh = {
 	tempCleanupMaxAge: "文件有效期",
 	tempCleanupMaxAgeHint: "超过此时长的文件才会被删除，正在使用的不受影响",
 	tempCleanupSweepNow: "立即清理",
+	tempCleanupStats: "查看统计",
+	tempCleanupStatsResult: (count: number, mb: number) =>
+		`临时文件 ${count} 个，共 ${mb.toFixed(1)} MB`,
 	tempCleanupSweepDone: (count: number, mb: number) => `已清理 ${count} 个文件，释放 ${mb.toFixed(1)} MB`,
 	tempCleanupIntervalLabel: (hours: number) =>
 		hours >= 24 ? `每 ${Math.round(hours / 24)} 天` : `每 ${hours} 小时`,
@@ -711,8 +714,7 @@ export const zh = {
 		"自动压缩阈值：contextTokens > contextWindow − reserveTokens（默认 reserveTokens=16384）",
 	sessionStatsTurns: "轮数",
 	sessionStatsSteps: "步数",
-	sessionStatsToolCalls: "工具调用",
-	sessionStatsTtft: "首 token",
+	sessionStatsToolCalls: "工具",
 	sessionStatsTps: "平均",
 	sessionStatsCacheHit: "缓存命中",
 	sessionStatsInputTokens: "输入",
@@ -720,7 +722,6 @@ export const zh = {
 	sessionStatsEmpty: "暂无会话统计",
 	sessionStatsTitle: (turns: string, steps: string, tools: string) =>
 		`Agent 轮数 ${turns} · 步数 ${steps} · 工具调用 ${tools}`,
-	sessionStatsTtftFormat: (s: string) => `${s} 秒`,
 	sessionStatsTpsFormat: (n: string) => `${n} tok/s`,
 	sessionStatsCacheHitFormat: (p: string) => `${p}%`,
 	sessionStatsTokensFormat: (n: string) => `${n} tok`,
