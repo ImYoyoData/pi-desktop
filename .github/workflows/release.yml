@@ -20,8 +20,9 @@ permissions:
   contents: write
 
 concurrency:
-  # Never cancel an in-flight release — previous runs were aborted mid macOS build
-  # when a follow-up push to main arrived (cancel-in-progress: true).
+  # Never cancel an in-flight release — previous runs were aborted mid
+  # macOS build when a follow-up push to main arrived
+  # (cancel-in-progress: true).
   group: release-${{ github.ref }}
   cancel-in-progress: false
 
@@ -90,7 +91,8 @@ jobs:
             build_cmd: npm run dist:win:x64
             artifact_glob: release/*-setup.exe
           - name: windows-arm64
-            # Separate job → separate NSIS (not a fat installer). Cross-arch Electron + node-pty prebuilds.
+            # Separate job → separate NSIS (not a fat installer).
+            # Cross-arch Electron + node-pty prebuilds.
             os: windows-latest
             dugite_arch: arm64
             build_cmd: npm run dist:win:arm64
@@ -101,8 +103,10 @@ jobs:
             build_cmd: npm run dist:mac:arm64
             artifact_glob: release/*.dmg
           - name: macos-x64
-            # Intel DMG on Apple Silicon runners. Avoid macos-13 (scarce / long queue).
-            # dist:mac:x64 rebuilds node-pty for x64 then packages with npmRebuild=false
+            # Intel DMG on Apple Silicon runners. Avoid macos-13
+            # (scarce / long queue).
+            # dist:mac:x64 rebuilds node-pty for x64 then packages with
+            # npmRebuild=false
             # (cross-arch electron-builder rebuild often SIGABRT / exit 134).
             os: macos-latest
             dugite_arch: x64
@@ -122,7 +126,8 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      # dugite post install fetches host-arch Git; cross-arch jobs must refresh before pack.
+      # dugite post install fetches host-arch Git; cross-arch jobs must
+      # refresh before pack.
       - name: Ensure dugite embedded Git (${{ matrix.dugite_arch }})
         run: node scripts/ensure-dugite-git.mjs ${{ matrix.dugite_arch }}
 
@@ -131,12 +136,15 @@ jobs:
 
       - name: Build & package
         env:
-          # Prevent electron-builder from creating/updating GitHub Releases mid-build
-          # (publish is handled solely by the softprops job below).
+          # Prevent electron-builder from creating/updating GitHub
+          # Releases mid-build (publish is handled solely by the softprops
+          # job below).
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # Skip Apple identity discovery — unsigned builds; avoids notarize/signing hangs.
+          # Skip Apple identity discovery — unsigned builds; avoids
+          # notarize/signing hangs.
           CSC_IDENTITY_AUTO_DISCOVERY: false
-          # Monaco / Vite can OOM-abort (exit 134) on macOS runners without a larger heap.
+          # Monaco / Vite can OOM-abort (exit 134) on macOS runners
+          # without a larger heap.
           NODE_OPTIONS: --max-old-space-size=8192
         # --publish never 由各 dist 脚本自带；此处追加 `-- --publish never` 会被 npm
         # 附到脚本末尾，落到嵌套的 npm run 上并作为未知 CLI 配置直接报错。
@@ -153,7 +161,8 @@ jobs:
   release:
     name: GitHub Release
     needs: [check, version, build]
-    # Publish whatever arch artifacts succeeded (don't block the whole release on one matrix cell).
+    # Publish whatever arch artifacts succeeded (don't block the whole
+    # release on one matrix cell).
     if: >
       always() &&
       needs.check.result == 'success' &&
@@ -176,7 +185,9 @@ jobs:
         shell: bash
         run: |
           mkdir -p upload
-          find dist-artifacts -type f \( -name '*-setup.exe' -o -name '*.dmg' -o -name '*.AppImage' \) -print -exec cp {} upload/ \;
+          find dist-artifacts -type f \
+            \( -name '*-setup.exe' -o -name '*.dmg' -o -name '*.AppImage' \) \
+            -print -exec cp {} upload/ \;
           echo "=== release assets ==="
           ls -lah upload || true
           count=$(find upload -type f | wc -l | tr -d ' ')
@@ -195,65 +206,155 @@ jobs:
           generate_release_notes: true
           body: |
 
-            ## 主要更新（v0.3.5-rc.4）
+            ## 主要更新（v0.3.6-rc.1）
 
-            本版重点：跟进 pi 1.0.0（SDK 从 0.99.2 升级），修复 MCP OAuth 凭据的
-            读写，打包时附带 pi 的文档资源，并接入 1.0.0 的两项新能力。
+            本版重点：跟进 pi 1.1.0（含 1.0.1–1.0.4）的全部变更，升级 SDK，
+            适配 azure 更名、工具耗时记录、取消态与 MCP 客户端注册方式，并在
+            界面上接入采样参数、MCP 项目覆盖、内置工具与提示模板管理，终端改用
+            pi 原生运行状态；并修复退出后进程残留。
 
             ### 新功能 Features
 
-            - **MCP OAuth 支持授权服务器元数据地址**：服务器发布的 OAuth 授权服务器
-              元数据地址不符合规范、或未发布时，可在 MCP 服务器的「OAuth 高级设置」里
-              填写 `authServerMetadataUrl`，登录直接使用该地址，不再依赖自动探测。
-            - **工具结果里的图片会显示出来**：codemode 生成图（`image()` /
-              `models.generateImages()`）等工具返回的图片块，现在会在工具卡片中直接
-              渲染（最多 8 张，随卡片展开）。
+            - **模型可编辑采样参数**：自定义模型编辑表单新增「采样参数」折叠区，
+              直接编辑 `samplingParams`（如 `temperature`、`top_p`）与
+              `samplingParamsByThinkingLevel`（按 off/minimal/low/medium/high/
+              xhigh/max 分档覆盖），对应 pi 1.0.2 的按思考档采样设置（仅
+              openai-completions / openai-responses / azure 生效）。
+            - **MCP 服务器支持项目覆盖**：设置 → MCP 的用户级服务器新增「此项目」
+              三态选择（跟随全局 / 在此项目启用 / 在此项目禁用），写入
+              `<工作区>/.pi/mcp.json` 的覆盖条目（无 command/url，只改启用态），
+              对应 pi 1.0.1 的项目级覆盖。
+            - **工具页覆盖全部内置工具**：内置工具开关从 codemode / tool_search
+              扩展到 pi 全部可切换工具（read / bash / powershell / edit / write /
+              grep / find / ls / codemode / tool_search）。
+            - **MCP 支持按工具暴露**：MCP 服务器编辑新增「按工具暴露（toolExposure）」，
+              按工具名或通配符覆盖服务器的 exposure（codemode / deferred / direct /
+              hidden），hidden 服务器也能只放行个别工具。
+            - **思考档与模型设置**：「运行」设置新增「思考档与模型」节：默认启动
+              思考档（defaultThinkingLevel）、按模型启动思考档（modelThinkingLevels）、
+              启用模型循环列表（enabledModels 模式）、隐藏思考块开关（hideThinkingBlock）。
+            - **消息投递方式**：新增「消息投递」节，引导与追问队列可选全部投递或
+              逐条投递（steeringMode / followUpMode）。
+            - **传输方式与 npm 命令**：环境节新增 provider 传输方式（transport：
+              auto / sse / websocket / websocket-cached）与 npm 命令（npmCommand）设置。
+            - **提示模板管理页**：设置页恢复「提示模板」分组（与智能体/技能同级），
+              列出用户级 `~/.pi/agent/prompts/` 与工作区 `.pi/prompts/` 的模板，
+              支持新建、编辑、启停与删除。
+            - **终端改用 pi 原生运行状态**：终端面板解析 pi 上报的 OSC 7501
+              （Program Status Protocol），tab 标签显示运行状态点（运行中呼吸点 /
+              等待输入 / 已完成 / 出错），tooltip 带会话名或错误首行。
+            - **内置扩展补齐 llama.cpp**：设置 → 工具的「内置扩展」现在列出 pi 全部
+              四个内置扩展（llama.cpp / codemode / tool-search / mcp）。
 
-            - **Authorization server metadata URL for MCP OAuth**: when a server
-              advertises a wrong OAuth authorization server metadata document (or
-              none), set `authServerMetadataUrl` in the MCP server's OAuth advanced
-              settings so sign-in uses that address instead of discovery.
-            - **Images from tool results are shown**: image blocks returned by
-              tools such as codemode generation (`image()` /
-              `models.generateImages()`) now render inside the tool card (up to 8,
-              when expanded).
+            - **Editable sampling params for custom models**: the model
+              editor gains a collapsible "Sampling params" section for
+              `samplingParams` and `samplingParamsByThinkingLevel` (per
+              off/minimal/low/medium/high/xhigh/max level), following pi
+              1.0.2's sampling-by-thinking-level support (openai-completions
+              / openai-responses / azure only).
+            - **MCP project overrides**: user-level MCP servers gain an
+              "In this project" selector (follow global / enable in this
+              project / disable in this project) writing an override entry
+              into `<workspace>/.pi/mcp.json`, following pi 1.0.1's project
+              overrides.
+            - **Built-in tool switches cover every tool**: the tool page
+              now toggles all switchable pi tools (read / bash / powershell
+              / edit / write / grep / find / ls / codemode / tool_search).
+            - **Per-tool MCP exposure**: MCP server editing gains
+              "Per-tool exposure (toolExposure)" to override the server
+              exposure per tool name or wildcard (codemode / deferred /
+              direct / hidden).
+            - **Thinking level and model settings**: the Runtime page
+              gains a "Thinking level and models" section — default
+              thinking level, per-model thinking level, enabled model
+              patterns, and a hide-thinking-blocks switch.
+            - **Message delivery**: a new "Message delivery" section
+              chooses whether queued steering and follow-ups are delivered
+              all at once or one at a time.
+            - **Transport and npm command**: the Environment section
+              gains provider transport (auto / sse / websocket /
+              websocket-cached) and npm command settings.
+            - **Prompt templates page**: Settings restores the "Prompt
+              templates" group, listing user (`~/.pi/agent/prompts/`) and
+              workspace (`.pi/prompts/`) templates with create, edit,
+              enable/disable and delete.
+            - **Terminals use pi's native run status**: the terminal
+              parses pi's OSC 7501 (Program Status Protocol) reports,
+              showing a status dot on the tab (working / waiting / done /
+              error).
+            - **Built-in extensions list completed with llama.cpp**:
+              Settings → Tools now lists all four of pi's built-in
+              extensions (llama.cpp / codemode / tool-search / mcp).
 
             ### 变更 Changes
 
-            - **升级 pi 到 1.0.0**：`@earendil-works/pi-coding-agent`、
-              `@earendil-works/pi-agent-core`、`@earendil-works/pi-ai` 从 0.99.2
-              升到 1.0.0。
+            - **接入官方预览包 pi-durable**：新增依赖 `@earendil-works/pi-durable`
+              1.1.0（官方 durable 会话/任务/文档运行时，Experimental）。本轮仅打通
+              依赖与类型/构建，行为不变。
+            - **升级 pi 到 1.1.0**：`@earendil-works/pi-coding-agent`、
+              `@earendil-works/pi-agent-core`、`@earendil-works/pi-ai` 从 1.0.0 升到
+              1.1.0（pi-codemode / pi-mcp / pi-tui / pi-telemetry 同步）。
+            - **azure provider 更名自动迁移**（pi 1.0.3 破坏性变更）：pi 把
+              `azure-openai-responses` 更名为 `azure`。启动时自动把 `auth.json`、
+              `models.json`、`settings.json`、`mcp.json` 里的旧 id 改名为新 id，
+              Azure 凭据与设置不用手动搬。
+            - **工具耗时改用 pi 记录的执行时间**（pi 1.1.0）：工具卡片优先显示 pi
+              记录的执行耗时，历史会话也能还原每个工具的实际耗时。
+            - **取消与自然完成可区分**（pi 1.1.0）：`agent_settled` 事件现在带
+              `aborted`。取消落在工具执行中、没留下任何回答时，补一张「已取消」卡。
+            - **MCP OAuth 支持客户端注册方式**（pi 1.0.1）：可选动态注册（DCR，默认）
+              或客户端 ID 元数据文档（CIMD，`oauth.clientRegistration: "cimd"`）。
+            - **依赖全面更新**：@types/node 26.6.5、electron 44.7.0、marked 18.1.0、
+              mermaid 12.1.0、monaco-editor 0.57.0、vite 7.3.7、vitest 5.0.3
+              等 18 项。受上游 peer 约束暂不升级：vite 8、TypeScript 7、
+              katex 0.19。
 
-            - **Upgraded pi to 1.0.0**: `@earendil-works/pi-coding-agent`,
-              `@earendil-works/pi-agent-core` and `@earendil-works/pi-ai` moved from
-              0.99.2 to 1.0.0.
+            - **Upgraded pi to 1.1.0**: `@earendil-works/pi-coding-agent`,
+              `@earendil-works/pi-agent-core` and
+              `@earendil-works/pi-ai` moved from 1.0.0 to 1.1.0
+              (pi-codemode / pi-mcp / pi-tui / pi-telemetry follow).
+            - **Automatic migration for the azure provider rename**
+              (pi 1.0.3 breaking change): pi renamed
+              `azure-openai-responses` to `azure`. On launch the old id is
+              rewritten to the new one in `auth.json`, `models.json`,
+              `settings.json` and `mcp.json`.
+            - **Tool durations now come from pi's recorded execution time**
+              (pi 1.1.0): tool cards prefer pi's recorded duration, and history
+              restores the real duration of every tool.
+            - **Cancelled runs are told apart from finished ones** (pi 1.1.0):
+              `agent_settled` now carries `aborted`.
+            - **MCP OAuth client registration mode** (pi 1.0.1): dynamic
+              registration (DCR, default) or Client ID Metadata Document (CIMD,
+              `oauth.clientRegistration: "cimd"`).
+            - **Dependencies refreshed**: @types/node 26.6.5, electron 44.7.0,
+              marked 18.1.0, mermaid 12.1.0, monaco-editor 0.57.0, vite 7.3.7,
+              vitest 5.0.3 and more. Held back by upstream peer constraints:
+              vite 8, TypeScript 7, katex 0.19.
 
             ### 修复 Fixes
 
-            - **修复 MCP OAuth 登录状态显示未认证、登出无效**：pi 1.0.0 把 MCP
-              OAuth 凭据改为按「服务器名 + URL」存储，旧的单参数调用按 URL 读不到新
-              凭据。现在按服务器名与 URL 读写，1.0.0 的首个使用同一 URL 的服务器也会
-              自动接管旧凭据（旧凭据不会丢）。
-            - **修复打包版里模型读不到 pi 文档**：1.0.0 的 codemode 提示词只保留一行
-              摘要，细节引导模型去读 `docs/codemode.md`（models API、图像生成等），
-              而 asar 打包会排除所有 `.md`，模型读到的路径不存在。现在打包时把 pi 的
-              `package.json`、`README.md`、`CHANGELOG.md`、`docs/`、`examples/`
-              作为 extraResources 附带到 `resources/pi-package`，并让
-              `PI_PACKAGE_DIR` 指向它。
+            - **修复退出后进程残留**：退出前未回收 node-pty 终端，ConPTY 管道句柄
+              与 shell 子进程（pwsh / conhost）卡住主进程退出，窗口关掉后 electron
+              主进程经常残留。现在退出时统一回收全部 pty，关闭窗口后进程树完整退出。
+            - **修复 models.json 文本报错不友好**：粘贴非法 JSON 时现在报
+              `Invalid models.json: …`，而不是裸的解析器异常。
+            - **修复功能裁剪遗留的问题**：恢复被清理误删的四个 i18n 键与 preload 的
+              `contributors.avatar`、修复 Composer 模板缺少的闭合标签（此前会中断
+              构建）、移除未使用的 NModal 导入。
 
-            - **Fixed MCP OAuth showing "not authenticated" and logout doing
-              nothing**: pi 1.0.0 stores MCP OAuth credentials per server name and
-              URL, so the old single-argument calls keyed by URL alone could not
-              read the new credentials. Reads and writes now pass both, and the
-              first server using a URL takes over credentials stored by older
-              versions (nothing is lost).
-            - **Fixed the packaged app being unable to read pi's docs**: pi 1.0.0's
-              codemode prompt keeps only a one-line summary and points the model at
-              `docs/codemode.md` (models API, image generation, …), but the asar
-              excludes every `.md`, so the model was given a path that does not
-              exist. The build now ships pi's `package.json`, `README.md`,
-              `CHANGELOG.md`, `docs/` and `examples/` as extraResources under
-              `resources/pi-package`, with `PI_PACKAGE_DIR` pointing there.
+            - **Fixed processes left behind after quit**: node-pty
+              terminals were never reclaimed on quit, so ConPTY pipe
+              handles and shell children (pwsh / conhost) stalled the main
+              process and electron.exe often lingered after the window
+              closed. All ptys are now disposed on quit.
+            - **Friendlier models.json parse errors**: pasting invalid
+              JSON now reports `Invalid models.json: …` instead of a raw
+              parser error.
+            - **Fixed issues left by the feature removal**: restored the
+              four i18n keys accidentally deleted during cleanup and the
+              preload `contributors.avatar`, fixed the Composer template's
+              missing closing tag (which had broken the build), and dropped
+              the unused NModal import.
 
             ## 下载 / Downloads
             - **Windows x64**: `Pi Desktop-*-win-x64-setup.exe`
