@@ -1547,13 +1547,23 @@ const api = {
 			}) as Promise<void>,
 	},
 	notify: {
-		turnComplete: (payload: { title: string; body: string }) =>
+		turnComplete: (payload: { title: string; body: string; sessionId?: string }) =>
 			ipcRenderer.invoke(IpcChannels.notify.turnComplete, payload) as Promise<{
 				ok: boolean;
 				notified: boolean;
 				focused: boolean;
 				error?: string;
 			}>,
+		onOpenSession: (callback: (payload: { sessionId: string }) => void) => {
+			const listener = (
+				_event: Electron.IpcRendererEvent,
+				payload: { sessionId: string },
+			) => callback(payload);
+			ipcRenderer.on(IpcChannels.notify.openSession, listener);
+			return () => {
+				ipcRenderer.removeListener(IpcChannels.notify.openSession, listener);
+			};
+		},
 	},
 	security: {
 		get: () =>

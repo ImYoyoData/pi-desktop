@@ -577,8 +577,9 @@ export const useChatStore = defineStore("chat", () => {
 				useSessionWidgetsStore().finalizeTodosForSession(sessionId);
 			}
 			void notifyStore.onTurnComplete({
-				title: t.appName,
+				title: notifyTitleOf(sessionId),
 				body: t.notifyTurnCompleteBody,
+				sessionId,
 			});
 		}
 
@@ -592,6 +593,12 @@ export const useChatStore = defineStore("chat", () => {
 				void autoRecover(sessionId, "stall");
 			}
 		}
+	}
+
+	function notifyTitleOf(sessionId: string): string {
+		const row = sessionsStore.sessions.find((s) => s.id === sessionId);
+		const label = row?.name?.trim() || row?.firstMessage?.trim() || "";
+		return label ? label.slice(0, 40) : t.appName;
 	}
 
 	/** Drop the "正在自动恢复" banner without resetting the attempt budget. */
