@@ -1,8 +1,8 @@
 # Changelog
 
-## Unreleased
+## v0.3.6-rc.1 (2026-10-11)
 
-本版重点：跟进 pi 1.1.0（含 1.0.1–1.0.4）的全部变更，升级 SDK，适配 azure 更名、工具耗时记录、取消态与 MCP 客户端注册方式，并在界面上接入采样参数、MCP 项目覆盖、内置工具与提示模板管理，终端改用 pi 原生运行状态。
+本版重点：跟进 pi 1.1.0（含 1.0.1–1.0.4）的全部变更，升级 SDK，适配 azure 更名、工具耗时记录、取消态与 MCP 客户端注册方式，并在界面上接入采样参数、MCP 项目覆盖、内置工具与提示模板管理，终端改用 pi 原生运行状态；并修复退出后进程残留。
 
 ### 新功能 Features
 
@@ -30,9 +30,11 @@
 
 ### 修复 Fixes
 
+- **修复退出后进程残留**：退出前未回收 node-pty 终端，ConPTY 管道句柄与 shell 子进程（pwsh / conhost）卡住主进程退出，窗口关掉后 electron 主进程经常残留。现在退出时统一回收全部 pty，关闭窗口后进程树完整退出；只要开过终端（标签页会持久化并在启动时自动重建 pty）就会触发，故此前“经常”残留。
 - **修复 models.json 文本报错不友好**：粘贴非法 JSON 时现在报 `Invalid models.json: …`，而不是裸的解析器异常。
 - **修复功能裁剪遗留的问题**：恢复被清理误删的四个 i18n 键（`marketLoadMore` / `marketLoadingMore` / `marketEnd` / `scrollToLatest`）与 preload 的 `contributors.avatar`（写法归一为单行）、修复 Composer 模板在移除语音输入后缺少的闭合标签（此前会中断构建）、移除未使用的 NModal 导入。
 
+- **Fixed processes left behind after quit**: node-pty terminals were never reclaimed on quit, so ConPTY pipe handles and shell children (pwsh / conhost) stalled the main process and electron.exe often lingered after the window closed. All ptys are now disposed on quit and the whole process tree exits; terminal tabs persist and auto-recreate the pty on launch, which is why it used to happen "often".
 - **Friendlier models.json parse errors**: pasting invalid JSON now reports `Invalid models.json: …` instead of a raw parser error.
 - **Fixed issues left by the feature removal**: restored the four i18n keys accidentally deleted during cleanup (`marketLoadMore` / `marketLoadingMore` / `marketEnd` / `scrollToLatest`) and the preload `contributors.avatar` (normalized to one line), fixed the Composer template's missing closing tag after the voice input removal (which had broken the build), and dropped the unused NModal import.
 
