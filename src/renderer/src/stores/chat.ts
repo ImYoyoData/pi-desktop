@@ -742,7 +742,31 @@ export const useChatStore = defineStore("chat", () => {
 		}
 	}
 
+	/**
+	 * 隐藏期间窗口定时器被 Chromium 节流，会话事件缓冲的消费随之滞后，
+	 * lastWorkerAliveAt 会停在旧值上，把「UI 没收到心跳」误报成「worker 心跳异常」。
+	 * 恢复可见时以当前时刻重置基准，真伪交给随后到达的心跳确认。
+	 */
+	function resetWorkerAliveClocks(): void {
+		const now = Date.now();
+		for (const sessionId of Object.keys(bySession)) {
+			const state = bySession[sessionId];
+			if (!state?.running || state.lastWorkerAliveAt == null) continue;
+			setSessionState(sessionId, { ...state, lastWorkerAliveAt: now });
+		}
+	}
+
+	function handleVisibilityChange(): void {
+		if (document.hidden) return;
+		agentEventSink.flushNow();
+		resetWorkerAliveClocks();
+	}
+
 	function checkSoftHangSessions(): void {
+		// 隐藏窗口的定时器同样被节流：事件消费滞后会让「没收到心跳」看起来像 stall
+		// 或软挂，后台不做静默判定。真死 / 真卡由主进程（不受窗口隐藏影响）的
+		// stall / exit 事件兜底。
+		if (document.hidden) return;
 		const now = Date.now();
 		for (const [sessionId, state] of Object.entries(bySession)) {
 			if (!state?.running || state.autoRecovering || recoveringIds.has(sessionId))
@@ -934,7 +958,7 @@ export const useChatStore = defineStore("chat", () => {
 		const off = window.api.sessions.onEvent((event) => {
 			agentEventSink.push(event);
 		});
-		document.addEventListener("visibilitychange", agentEventSink.flushNow);
+		document.addEventListener("visibilitychange", handleVisibilityChange);
 		const offPermission = window.api.sessions.onPermission((req) => {
 			if (isPermissionAskCancelled(req)) {
 				const pending = stateFor(req.sessionId).pendingPermission;
@@ -977,7 +1001,7 @@ export const useChatStore = defineStore("chat", () => {
 				softHangTimer = null;
 			}
 			agentEventSink.dispose();
-			document.removeEventListener("visibilitychange", agentEventSink.flushNow);
+			document.removeEventListener("visibilitychange", handleVisibilityChange);
 			off();
 			offPermission();
 			offAskUser();
