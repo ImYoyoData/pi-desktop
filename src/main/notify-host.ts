@@ -23,9 +23,9 @@ function resolveMainWindow(): BrowserWindow | null {
 }
 
 /** Bring the app window to the foreground (notification click / tray-style restore). */
-export function focusMainWindow(): void {
+export function focusMainWindow(): BrowserWindow | null {
   const win = resolveMainWindow();
-  if (!win) return;
+  if (!win) return null;
   if (win.isMinimized()) win.restore();
   win.show();
   win.focus();
@@ -36,6 +36,7 @@ export function focusMainWindow(): void {
       // Older Electron / rare focus failures — show+focus above is enough.
     }
   }
+  return win;
 }
 
 function trackNotification(n: Notification): void {
@@ -50,7 +51,7 @@ function trackNotification(n: Notification): void {
 export function registerNotifyIpc(): void {
   ipcMain.handle(
     IpcChannels.notify.turnComplete,
-    (_event, payload: { title?: string; body?: string }) => {
+    (_event, payload: { title?: string; body?: string; sessionId?: string }) => {
       const focused = isMainWindowFocused();
       if (focused) {
         return { ok: true as const, notified: false, focused: true };
@@ -64,8 +65,12 @@ export function registerNotifyIpc(): void {
         const n = new Notification({ title, body, silent: true });
         // Bind before show() so platforms that deliver click early still focus the app.
         n.on("click", () => {
-          focusMainWindow();
+          const win = focusMainWindow();
           liveNotifications.delete(n);
+          const sessionId = typeof payload?.sessionId === "string" ? payload.sessionId : "";
+          if (win && sessionId) {
+            win.webContents.send(IpcChannels.notify.openSession, { sessionId });
+          }
         });
         trackNotification(n);
         n.show();

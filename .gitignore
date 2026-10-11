@@ -77,3 +77,4 @@ pnpm-lock.yaml
 
 # 贡献者头像磁盘缓存（首次联网取回后自动生成）
 /resources/Avatar/
+/release-check/win-unpacked/resources/app.asar

@@ -37,7 +37,6 @@ export const useLayoutStore = defineStore("layout", () => {
   /** 中央区域当前视图及智能体设置页状态。 */
   const centerView = ref<CenterView>(DEFAULT_LAYOUT.centerView);
   const customizeSection = ref(DEFAULT_LAYOUT.customizeSection);
-
   type PreMaximizeState = {
     leftCollapsed: boolean;
     rightCollapsed: boolean;
@@ -134,6 +133,13 @@ export const useLayoutStore = defineStore("layout", () => {
     persist();
   }
 
+  /** 在中央区域打开拉取请求视图。 */
+  function showPullRequests(): void {
+    if (editorMaximized.value) toggleEditorMaximized();
+    centerView.value = "pull-requests";
+    persist();
+  }
+
   function setCustomizeSection(section: string): void {
     customizeSection.value = section;
     persist();
@@ -208,6 +214,7 @@ export const useLayoutStore = defineStore("layout", () => {
     toggleEditorMaximized,
     openCustomize,
     showChat,
+    showPullRequests,
     setCustomizeSection,
   };
 });

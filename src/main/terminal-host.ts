@@ -91,6 +91,24 @@ function queueTerminalData(id: string, data: string): void {
   }
 }
 
+/** 退出前回收全部 pty：ConPTY 管道句柄与 shell 子进程不清理会卡住主进程退出。 */
+export function disposeAllTerminals(): void {
+  if (flushTimer) {
+    clearTimeout(flushTimer);
+    flushTimer = null;
+  }
+  pendingData.clear();
+  scrollbacks.clear();
+  for (const term of terminals.values()) {
+    try {
+      term.kill();
+    } catch {
+      // pty 已销毁时忽略
+    }
+  }
+  terminals.clear();
+}
+
 export function registerTerminalIpc(): void {
   // Drain anything buffered while the window was hidden as soon as it shows.
   onWindowShown(() => {

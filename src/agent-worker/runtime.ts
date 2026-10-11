@@ -417,7 +417,7 @@ function sanitizeAgentEvent(
 		};
 	}
 	if (type === "agent_settled") {
-		return { type: "agent_settled" };
+		return { type: "agent_settled", aborted: Boolean(event.aborted) };
 	}
 	if (type === "turn_end") {
 		return { type: "turn_end" };

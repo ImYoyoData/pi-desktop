@@ -1,5 +1,62 @@
 # Changelog
 
+## v0.3.6-rc.1 (2026-10-11)
+
+本版重点：跟进 pi 1.1.0（含 1.0.1–1.0.4）的全部变更，升级 SDK，适配 azure 更名、工具耗时记录、取消态与 MCP 客户端注册方式，并在界面上接入采样参数、MCP 项目覆盖、内置工具与提示模板管理，终端改用 pi 原生运行状态；并修复退出后进程残留。
+
+### 新功能 Features
+
+- **模型可编辑采样参数**：自定义模型编辑表单新增「采样参数」折叠区，直接编辑 `samplingParams`（如 `temperature`、`top_p`）与 `samplingParamsByThinkingLevel`（按 off/minimal/low/medium/high/xhigh/max 分档覆盖），对应 pi 1.0.2 的按思考档采样设置（仅 openai-completions / openai-responses / azure 生效）。
+- **MCP 服务器支持项目覆盖**：设置 → MCP 的用户级服务器新增「此项目」三态选择（跟随全局 / 在此项目启用 / 在此项目禁用），写入 `<工作区>/.pi/mcp.json` 的覆盖条目（无 command/url，只改启用态），对应 pi 1.0.1 的项目级覆盖；切换后立即通知工作区内的会话重载 MCP 配置。
+- **工具页覆盖全部内置工具**：内置工具开关从 codemode / tool_search 扩展到 pi 全部可切换工具（read / bash / powershell / edit / write / grep / find / ls / codemode / tool_search），grep / find / ls / powershell 不用再手写 settings.json。
+- **MCP 支持按工具暴露**：MCP 服务器编辑新增「按工具暴露（toolExposure）」，按工具名或通配符覆盖服务器的 exposure（codemode / deferred / direct / hidden），hidden 服务器也能只放行个别工具。
+- **思考档与模型设置**：「运行」设置新增「思考档与模型」节：默认启动思考档（defaultThinkingLevel）、按模型启动思考档（modelThinkingLevels，provider/modelId: 档位）、启用模型循环列表（enabledModels 模式，如 anthropic/*）、隐藏思考块开关（hideThinkingBlock）。
+- **消息投递方式**：新增「消息投递」节，引导与追问队列可选全部投递或逐条投递（steeringMode / followUpMode）。
+- **传输方式与 npm 命令**：环境节新增 provider 传输方式（transport：auto / sse / websocket / websocket-cached）与 npm 命令（npmCommand）设置。
+- **提示模板管理页**：设置页恢复「提示模板」分组（与智能体/技能同级），列出用户级 `~/.pi/agent/prompts/` 与工作区 `.pi/prompts/` 的模板，支持新建（文件名即 `/` 命令名，带 description / argument-hint 模板）、编辑、启停与删除。
+- **终端改用 pi 原生运行状态**：终端面板解析 pi 上报的 OSC 7501（Program Status Protocol），tab 标签显示运行状态点（运行中呼吸点 / 等待输入 / 已完成 / 出错），tooltip 带会话名或错误首行；并应答协议的支持查询，pi 开始正式上报状态。
+- **内置扩展补齐 llama.cpp**：设置 → 工具的「内置扩展」现在列出 pi 全部四个内置扩展（llama.cpp / codemode / tool-search / mcp），之前缺少 llama.cpp，无法在桌面里启停本地 llama.cpp 模型与分类器支持。
+
+- **Editable sampling params for custom models**: the model editor gains a collapsible "Sampling params" section for `samplingParams` (e.g. `temperature`, `top_p`) and `samplingParamsByThinkingLevel` (per off/minimal/low/medium/high/xhigh/max level), following pi 1.0.2's sampling-by-thinking-level support (openai-completions / openai-responses / azure only).
+- **MCP project overrides**: user-level MCP servers gain an "In this project" selector (follow global / enable in this project / disable in this project) that writes an override entry (no command/url, enable state only) into `<workspace>/.pi/mcp.json`, following pi 1.0.1's project overrides; sessions in the workspace reload MCP config right away.
+- **Built-in tool switches cover every tool**: the tool page now toggles all switchable pi tools (read / bash / powershell / edit / write / grep / find / ls / codemode / tool_search), so grep / find / ls / powershell no longer need hand-edited settings.json.
+- **Per-tool MCP exposure**: MCP server editing gains "Per-tool exposure (toolExposure)" to override the server exposure per tool name or wildcard (codemode / deferred / direct / hidden); even a hidden server can release individual tools.
+- **Thinking level and model settings**: the Runtime page gains a "Thinking level and models" section — default thinking level, per-model thinking level (`provider/modelId: level`), enabled model patterns (e.g. `anthropic/*`), and a hide-thinking-blocks switch.
+- **Message delivery**: a new "Message delivery" section chooses whether queued steering and follow-ups are delivered all at once or one at a time.
+- **Transport and npm command**: the Environment section gains provider transport (auto / sse / websocket / websocket-cached) and npm command settings.
+- **Prompt templates page**: Settings restores the "Prompt templates" group alongside agents and skills, listing user (`~/.pi/agent/prompts/`) and workspace (`.pi/prompts/`) templates with create (file name becomes the `/` command), edit, enable/disable and delete.
+- **Terminals use pi's native run status**: the terminal parses pi's OSC 7501 (Program Status Protocol) reports, showing a status dot on the tab (working / waiting / done / error) with the session name or error line in the tooltip, and answers the protocol's support query so pi starts reporting.
+- **Built-in extensions list completed with llama.cpp**: Settings → Tools now lists all four of pi's built-in extensions (llama.cpp / codemode / tool-search / mcp); llama.cpp was missing, so local llama.cpp models and classifier support could not be toggled from the desktop.
+
+### 修复 Fixes
+
+- **修复退出后进程残留**：退出前未回收 node-pty 终端，ConPTY 管道句柄与 shell 子进程（pwsh / conhost）卡住主进程退出，窗口关掉后 electron 主进程经常残留。现在退出时统一回收全部 pty，关闭窗口后进程树完整退出；只要开过终端（标签页会持久化并在启动时自动重建 pty）就会触发，故此前“经常”残留。
+- **修复 models.json 文本报错不友好**：粘贴非法 JSON 时现在报 `Invalid models.json: …`，而不是裸的解析器异常。
+- **修复功能裁剪遗留的问题**：恢复被清理误删的四个 i18n 键（`marketLoadMore` / `marketLoadingMore` / `marketEnd` / `scrollToLatest`）与 preload 的 `contributors.avatar`（写法归一为单行）、修复 Composer 模板在移除语音输入后缺少的闭合标签（此前会中断构建）、移除未使用的 NModal 导入。
+
+- **Fixed processes left behind after quit**: node-pty terminals were never reclaimed on quit, so ConPTY pipe handles and shell children (pwsh / conhost) stalled the main process and electron.exe often lingered after the window closed. All ptys are now disposed on quit and the whole process tree exits; terminal tabs persist and auto-recreate the pty on launch, which is why it used to happen "often".
+- **Friendlier models.json parse errors**: pasting invalid JSON now reports `Invalid models.json: …` instead of a raw parser error.
+- **Fixed issues left by the feature removal**: restored the four i18n keys accidentally deleted during cleanup (`marketLoadMore` / `marketLoadingMore` / `marketEnd` / `scrollToLatest`) and the preload `contributors.avatar` (normalized to one line), fixed the Composer template's missing closing tag after the voice input removal (which had broken the build), and dropped the unused NModal import.
+
+### 变更 Changes
+
+- **接入官方预览包 pi-durable**：新增依赖 `@earendil-works/pi-durable` 1.1.0（官方 durable 会话/任务/文档运行时，Experimental，连带 `@earendil-works/chord` 1.1.0）。本轮仅打通依赖与类型/构建，行为不变；后续可基于其 Harness / 任务图能力做崩溃续跑等集成。
+- **升级 pi 到 1.1.0**：`@earendil-works/pi-coding-agent`、`@earendil-works/pi-agent-core`、`@earendil-works/pi-ai` 从 1.0.0 升到 1.1.0（pi-codemode / pi-mcp / pi-tui / pi-telemetry 同步）。构建期扩展加载器补丁与打包时附带的 pi 文档资源均与 1.1.0 兼容，无需调整。
+- **azure provider 更名自动迁移**（pi 1.0.3 破坏性变更）：pi 把 `azure-openai-responses` 更名为 `azure`。启动时自动把 `auth.json`、`models.json`、`settings.json`（`defaultProvider` / `enabledModels` / `modelThinkingLevels`）、`mcp.json`（`auth.provider`）里的旧 id 改名为新 id，Azure 凭据与设置不用手动搬；平台目录与图标映射同步改名，历史遗留 id 仍解析到 Azure 图标。
+- **工具耗时改用 pi 记录的执行时间**（pi 1.1.0）：`tool_execution_end` 与工具结果现在带记录的执行耗时（单调时钟）。工具卡片优先显示该耗时，历史会话也能还原每个工具的实际耗时，嵌套调用同步；未记录时回退原有实时计时。工具卡片与历史会话的耗时展示无需改动，数据到位后自动显示。
+- **取消与自然完成可区分**（pi 1.1.0）：`agent_settled` 事件现在带 `aborted`。取消落在工具执行中、没留下任何回答时，补一张「已取消」卡，回合不再默默消失。
+- **MCP OAuth 支持客户端注册方式**（pi 1.0.1）：MCP 服务器的「OAuth 高级设置」新增客户端注册方式，可选动态注册（DCR，默认）或客户端 ID 元数据文档（CIMD，`oauth.clientRegistration: "cimd"`）；CIMD 用 pi.dev 上的文档识别 pi，授权服务器可按 URL 放行，不再依赖动态注册。
+- **依赖全面更新**：@types/node 26.6.5、@vitejs/plugin-vue 6.0.10、@viz-js/viz 3.31.0、@vue/typescript-plugin 3.3.13、dompurify 3.4.16、electron 44.7.0、marked 18.1.0、mermaid 12.1.0、monaco-editor 0.57.0、npm 12.2.0、typebox 1.3.36、undici 8.11.2、vite 7.3.7、vitest 5.0.3、vue-tsc 3.3.13、ws 8.22.0。受上游 peer 约束暂不升级：vite 8（electron-vite 5.0.0 仅支持到 vite 7）、TypeScript 7（vue-tsc 3.3.13 无法解析 TS 7 的 exports 变化）、katex 0.19（marked-katex-extension 5.1.13 peer 限制 <0.19）。
+
+### 变更 Changes (English)
+
+- **Upgraded pi to 1.1.0**: `@earendil-works/pi-coding-agent`, `@earendil-works/pi-agent-core` and `@earendil-works/pi-ai` moved from 1.0.0 to 1.1.0 (pi-codemode / pi-mcp / pi-tui / pi-telemetry follow). The build-time extension-loader patch and the packaged pi docs both stay compatible with 1.1.0 unchanged.
+- **Automatic migration for the azure provider rename** (pi 1.0.3 breaking change): pi renamed `azure-openai-responses` to `azure`. On launch the old id is rewritten to the new one in `auth.json`, `models.json`, `settings.json` (`defaultProvider` / `enabledModels` / `modelThinkingLevels`) and `mcp.json` (`auth.provider`), so Azure credentials and settings keep working without manual edits; the platform catalog and icon mapping follow, and legacy ids still resolve to the Azure mark.
+- **Tool durations now come from pi's recorded execution time** (pi 1.1.0): `tool_execution_end` and tool results carry the recorded duration (monotonic clock). Tool cards prefer it, history restores the real duration of every tool, nested calls follow, and the live wall-clock estimate remains as a fallback.
+- **Cancelled runs are told apart from finished ones** (pi 1.1.0): `agent_settled` now carries `aborted`. When a cancel lands during a tool call and no reply was produced, a "Cancelled" card is added instead of the turn silently vanishing.
+- **MCP OAuth client registration mode** (pi 1.0.1): the MCP server "OAuth advanced settings" gain a client registration mode — dynamic registration (DCR, default) or Client ID Metadata Document (CIMD, `oauth.clientRegistration: "cimd"`). CIMD identifies pi by the document on pi.dev so authorization servers can allow it by URL instead of dynamic registration.
+- **Dependencies refreshed**: @types/node 26.6.5, @vitejs/plugin-vue 6.0.10, @viz-js/viz 3.31.0, @vue/typescript-plugin 3.3.13, dompurify 3.4.16, electron 44.7.0, marked 18.1.0, mermaid 12.1.0, monaco-editor 0.57.0, npm 12.2.0, typebox 1.3.36, undici 8.11.2, vite 7.3.7, vitest 5.0.3, vue-tsc 3.3.13, ws 8.22.0. Held back by upstream peer constraints: vite 8 (electron-vite 5.0.0 supports up to vite 7), TypeScript 7 (vue-tsc 3.3.13 cannot resolve TS 7's changed exports), and katex 0.19 (marked-katex-extension 5.1.13 peers `<0.19`).
+
 ## v0.3.5-rc.4 (2026-10-02)
 
 本版重点：跟进 pi 1.0.0（SDK 从 0.99.2 升级），修复 MCP OAuth 凭据的读写，打包时附带 pi 的文档资源，并接入 1.0.0 的两项新能力。

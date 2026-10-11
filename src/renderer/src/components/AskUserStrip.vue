@@ -3,6 +3,7 @@ import { computed, ref, watch } from "vue";
 import {
   NButton,
   NIcon,
+  NInput,
   NText,
 } from "naive-ui";
 import {
@@ -25,7 +26,6 @@ import {
 } from "../../../shared/ask-user";
 import { t } from "@renderer/i18n";
 import { useChatStore } from "@renderer/stores/chat";
-import VoiceTextField from "@renderer/components/VoiceTextField.vue";
 
 const chat = useChatStore();
 
@@ -321,7 +321,7 @@ function onCancelAsk(): void {
             </button>
           </div>
 
-          <VoiceTextField
+          <NInput
             v-if="customInputMode(currentQuestion) !== 'none' && !isSkipped(currentQuestion)"
             class="custom-input"
             :value="customModel(currentQuestion)"

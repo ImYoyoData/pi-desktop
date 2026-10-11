@@ -17,8 +17,19 @@ type SettingsLike = {
 /** pi 的 DEFAULT_TOOL_NAMES：defaultTools 没写普通工具名时启用的工具。 */
 const DEFAULT_TOOL_NAMES = ["read", "bash", "edit", "write"];
 
-/** 桌面可切换的内置工具（pi 里默认不激活）。 */
-export const BUILTIN_TOOL_NAMES = ["codemode", "tool_search"] as const;
+/** 桌面可切换的内置工具（defaultTools 写 `+name` / `-name`）；后两个默认不激活。 */
+export const BUILTIN_TOOL_NAMES = [
+	"read",
+	"bash",
+	"powershell",
+	"edit",
+	"write",
+	"grep",
+	"find",
+	"ls",
+	"codemode",
+	"tool_search",
+] as const;
 
 export type BuiltinToolName = (typeof BUILTIN_TOOL_NAMES)[number];
 

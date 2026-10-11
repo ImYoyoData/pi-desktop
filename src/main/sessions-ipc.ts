@@ -71,7 +71,12 @@ function describeExtension(entryPath: string): SessionExtensionInfo {
 
 function broadcastEvent(event: unknown): void {
   for (const win of BrowserWindow.getAllWindows()) {
-    win.webContents.send(IpcChannels.sessions.event, event);
+    try {
+      win.webContents.send(IpcChannels.sessions.event, event);
+    } catch (err) {
+      // 单个窗口发送失败不能影响其余窗口与后续事件。
+      console.error("[sessions] event broadcast failed:", err);
+    }
   }
 }
 

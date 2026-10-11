@@ -18,8 +18,6 @@ import AppHoverTip from "@renderer/components/AppHoverTip.vue";
 import WelcomeView from "@renderer/components/WelcomeView.vue";
 import PiCliSetup from "@renderer/components/PiCliSetup.vue";
 import CloseGuard from "@renderer/components/CloseGuard.vue";
-import AsrWakeGuard from "@renderer/components/AsrWakeGuard.vue";
-import AsrBackendChooseModal from "@renderer/components/AsrBackendChooseModal.vue";
 import { useWorkspaceStore } from "@renderer/stores/workspace";
 import { useAppearanceStore } from "@renderer/stores/appearance";
 import { useCustomizationsStore } from "@renderer/stores/customizations";
@@ -84,6 +82,7 @@ keybindings.register("toggle-right-pane", () => layout.toggleRightCollapsed());
 keybindings.register("open-settings", () => layout.openCustomize(layout.customizeSection));
 keybindings.register("cycle-mode", cycleComposerMode);
 keybindings.register("open-file", () => void pickAndOpenFile());
+keybindings.register("open-pull-requests", () => layout.showPullRequests());
 
 /** 最上层确认对话框的确定按钮：negative 按钮带 ghost 标记，需排除。 */
 function dialogConfirmButton(): HTMLElement | null {
@@ -138,9 +137,13 @@ let stopAppearance: (() => void) | undefined;
 let stopFsChangedBus: (() => void) | undefined;
 let stopCustomizations: (() => void) | undefined;
 let customizationsWarmTimer = 0;
+let offMenuCommand: (() => void) | undefined;
 
 onMounted(() => {
   window.addEventListener("keydown", onDialogEnterKeydown, true);
+  offMenuCommand = window.api.window.onMenuCommand((command) => {
+    if (command === "open-pull-requests") layout.showPullRequests();
+  });
   stopAppearance = appearance.init();
   stopFsChangedBus = startFsChangedBus();
   stopCustomizations = customizations.init();
@@ -180,6 +183,7 @@ onUnmounted(() => {
   window.clearTimeout(bootTimer);
   window.clearTimeout(customizationsWarmTimer);
   keybindings.uninstall();
+  offMenuCommand?.();
   stopAppearance?.();
   stopFsChangedBus?.();
   stopCustomizations?.();
@@ -197,7 +201,6 @@ onUnmounted(() => {
     <NMessageProvider>
       <NDialogProvider>
         <CloseGuard />
-        <AsrWakeGuard />
         <div
           class="app-shell"
           :data-theme="appearance.resolvedTheme"
@@ -213,7 +216,6 @@ onUnmounted(() => {
           </main>
           <PiCliSetup />
           <AiCustomizationModal v-if="workspace.root" />
-          <AsrBackendChooseModal />
         </div>
         <AppContextMenu />
         <AppHoverTip />

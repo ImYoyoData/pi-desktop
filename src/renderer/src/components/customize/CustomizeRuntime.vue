@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { computed, ref, watch } from "vue";
+import { computed, onMounted, ref, watch } from "vue";
 import {
+  NButton,
   NDivider,
   NInput,
   NInputNumber,
@@ -15,11 +16,16 @@ import {
   CACHE_WARMING_MODES,
   COMPACTION_KEEP_RECENT_CHOICES,
   COMPACTION_RESERVE_CHOICES,
+  DELIVERY_MODES,
+  TRANSPORT_MODES,
   WEBSOCKET_TIMEOUT_CHOICES,
   type CacheWarmingMode,
+  type CompactionModelOverride,
+  type DeliveryMode,
   type RuntimeSettings,
   type RuntimeThinkingBudgets,
 } from "../../../../shared/runtime-settings";
+import { THINKING_LEVELS, isThinkingLevel } from "@renderer/utils/thinking-level";
 import { useRuntimeSettingsStore } from "@renderer/stores/runtime-settings";
 import { t } from "@renderer/i18n";
 
@@ -31,6 +37,9 @@ type Option = { label: string; value: number | string };
 
 /** NSelect 不能用 null 当值：-1 代表「不写该键」（用 pi 默认）。 */
 const WS_TIMEOUT_DEFAULT = -1;
+
+/** 按模型覆盖里的 -1：该字段不写，跟随上面的全局值。 */
+const OVERRIDE_UNSET = -1;
 
 function tokenOptions(values: readonly number[]): Option[] {
   return values.map((value) => ({ label: value.toLocaleString(), value }));
@@ -89,6 +98,9 @@ const warmingOptions = computed<Option[]>(() =>
 const sessionDir = ref("");
 const shellPath = ref("");
 const shellCommandPrefix = ref("");
+const modelThinkingLevelsText = ref("");
+const enabledModelsText = ref("");
+const npmCommandText = ref("");
 
 watch(
   () => runtime.settings,
@@ -96,6 +108,11 @@ watch(
     sessionDir.value = settings.sessionDir;
     shellPath.value = settings.shellPath;
     shellCommandPrefix.value = settings.shellCommandPrefix;
+    modelThinkingLevelsText.value = Object.entries(settings.modelThinkingLevels)
+      .map(([key, level]) => `${key}: ${level}`)
+      .join("\n");
+    enabledModelsText.value = settings.enabledModels.join("\n");
+    npmCommandText.value = settings.npmCommand.join("\n");
   },
   { immediate: true, deep: true },
 );
@@ -124,6 +141,84 @@ const anthropicExtraUsage = computed({
   get: () => runtime.settings.anthropicExtraUsage,
   set: (value: boolean) => save({ anthropicExtraUsage: value }),
 });
+const hideThinkingBlock = computed({
+  get: () => runtime.settings.hideThinkingBlock,
+  set: (value: boolean) => save({ hideThinkingBlock: value }),
+});
+
+/** 空字符串表示不写该键（用 pi 默认值）。 */
+const defaultThinkingLevel = computed({
+  get: () => runtime.settings.defaultThinkingLevel,
+  set: (value: string) => save({ defaultThinkingLevel: value }),
+});
+const transportValue = computed({
+  get: () => runtime.settings.transport,
+  set: (value: string) => save({ transport: value }),
+});
+const steeringMode = computed({
+  get: () => runtime.settings.steeringMode,
+  set: (value: DeliveryMode) => save({ steeringMode: value }),
+});
+const followUpMode = computed({
+  get: () => runtime.settings.followUpMode,
+  set: (value: DeliveryMode) => save({ followUpMode: value }),
+});
+
+const thinkingLevelOptions = computed<Option[]>(() => [
+  { label: t.runtimeLevelDefault, value: "" },
+  ...THINKING_LEVELS.map((level) => ({ label: level.label, value: level.value })),
+]);
+
+const transportOptions = computed<Option[]>(() => [
+  { label: t.runtimeTransportDefault, value: "" },
+  ...TRANSPORT_MODES.map((mode) => ({ label: mode, value: mode })),
+]);
+
+const deliveryOptions = computed<Option[]>(() =>
+  DELIVERY_MODES.map((mode) => ({
+    label: mode === "all" ? t.runtimeDeliveryAll : t.runtimeDeliveryOneAtATime,
+    value: mode,
+  })),
+);
+
+function parseLevelMapText(text: string): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const line of text.split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    const index = trimmed.indexOf(":");
+    if (index <= 0) throw new Error(t.runtimeModelThinkingLevelsInvalid);
+    const value = trimmed.slice(index + 1).trim();
+    if (!isThinkingLevel(value)) throw new Error(t.runtimeModelThinkingLevelsInvalid);
+    out[trimmed.slice(0, index).trim()] = value;
+  }
+  return out;
+}
+
+function parseLines(text: string): string[] {
+  return text
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+}
+
+/** 失焦保存的文本设置：解析失败提示原因并回读，避免界面与 settings.json 脱节。 */
+function saveModelThinkingLevels(): void {
+  try {
+    save({ modelThinkingLevels: parseLevelMapText(modelThinkingLevelsText.value) });
+  } catch (err) {
+    messageApi.error(err instanceof Error ? err.message : String(err));
+    void runtime.load(true);
+  }
+}
+
+function saveEnabledModels(): void {
+  save({ enabledModels: parseLines(enabledModelsText.value) });
+}
+
+function saveNpmCommand(): void {
+  save({ npmCommand: parseLines(npmCommandText.value) });
+}
 const skillCommands = computed({
   get: () => runtime.settings.enableSkillCommands,
   set: (value: boolean) => save({ enableSkillCommands: value }),
@@ -187,6 +282,97 @@ function onWsTimeout(value: string | number): void {
 function onCacheWarming(value: string | number): void {
   if (typeof value === "string") save({ cacheWarming: value as CacheWarmingMode });
 }
+
+type ModelChoice = { label: string; value: string; name: string };
+
+const modelChoices = ref<ModelChoice[]>([]);
+const overrideModelToAdd = ref<string | null>(null);
+
+onMounted(async () => {
+  try {
+    const data = await window.api.models.get();
+    modelChoices.value = data.available
+      .map((model) => {
+        const name = model.name?.trim() || model.id;
+        return {
+          label: `${name} · ${model.provider}/${model.id}`,
+          value: `${model.provider}/${model.id}`,
+          name,
+        };
+      })
+      .sort((a, b) => a.value.localeCompare(b.value));
+  } catch {
+    // 拉取失败时仍可编辑/删除已存在的覆盖
+  }
+});
+
+const overrideRows = computed(() =>
+  Object.entries(runtime.settings.compaction.modelOverrides)
+    .map(([key, override]) => {
+      const choice = modelChoices.value.find((model) => model.value === key);
+      return {
+        key,
+        label: choice?.name ?? key,
+        reserveTokens: override.reserveTokens ?? OVERRIDE_UNSET,
+        keepRecentTokens: override.keepRecentTokens ?? OVERRIDE_UNSET,
+      };
+    })
+    .sort((a, b) => a.key.localeCompare(b.key)),
+);
+
+/** 下拉选项：-1 = 不设置（跟随全局），并把已写入的非档位值并进来回显。 */
+function overrideTokenOptions(values: readonly number[], field: keyof CompactionModelOverride): Option[] {
+  const current = Object.values(runtime.settings.compaction.modelOverrides)
+    .map((override) => override[field])
+    .filter((value): value is number => typeof value === "number");
+  const nums = [...new Set([...values, ...current])].sort((a, b) => a - b);
+  const global =
+    field === "reserveTokens"
+      ? runtime.settings.compaction.reserveTokens
+      : runtime.settings.compaction.keepRecentTokens;
+  return [
+    {
+      label: `${t.runtimeCompactionOverrideGlobal} (${global.toLocaleString()})`,
+      value: OVERRIDE_UNSET,
+    },
+    ...nums.map((value) => ({ label: value.toLocaleString(), value })),
+  ];
+}
+
+const reserveOverrideOptions = computed(() =>
+  overrideTokenOptions(COMPACTION_RESERVE_CHOICES, "reserveTokens"),
+);
+const keepRecentOverrideOptions = computed(() =>
+  overrideTokenOptions(COMPACTION_KEEP_RECENT_CHOICES, "keepRecentTokens"),
+);
+
+function addOverride(): void {
+  const key = overrideModelToAdd.value;
+  if (!key) return;
+  if (!runtime.settings.compaction.modelOverrides[key]) {
+    saveCompaction({ modelOverrides: { ...runtime.settings.compaction.modelOverrides, [key]: {} } });
+  }
+  overrideModelToAdd.value = null;
+}
+
+function removeOverride(key: string): void {
+  const next = { ...runtime.settings.compaction.modelOverrides };
+  delete next[key];
+  saveCompaction({ modelOverrides: next });
+}
+
+function setOverrideField(
+  key: string,
+  field: keyof CompactionModelOverride,
+  value: string | number,
+): void {
+  if (typeof value !== "number") return;
+  const current = runtime.settings.compaction.modelOverrides;
+  const entry: CompactionModelOverride = { ...current[key] };
+  if (value === OVERRIDE_UNSET) delete entry[field];
+  else entry[field] = value;
+  saveCompaction({ modelOverrides: { ...current, [key]: entry } });
+}
 </script>
 
 <template>
@@ -234,6 +420,70 @@ function onCacheWarming(value: string | number): void {
         class="setting-select"
         @update:value="onKeepRecent"
       />
+    </div>
+
+    <div class="section-head override-head">
+      <NText strong>{{ t.runtimeCompactionOverrides }}</NText>
+      <NText depth="3" class="section-hint">{{ t.runtimeCompactionOverridesHint }}</NText>
+    </div>
+
+    <div class="switch-row">
+      <div class="switch-labels">
+        <NText strong>{{ t.runtimeCompactionOverrideModel }}</NText>
+      </div>
+      <div class="override-add">
+        <NSelect
+          v-model:value="overrideModelToAdd"
+          :options="modelChoices"
+          :disabled="!runtime.settings.compaction.enabled"
+          filterable
+          clearable
+          size="small"
+          class="override-model-select"
+          :placeholder="t.runtimeCompactionOverrideModel"
+        />
+        <NButton
+          size="small"
+          :disabled="!runtime.settings.compaction.enabled || !overrideModelToAdd"
+          @click="addOverride"
+        >
+          {{ t.runtimeCompactionOverrideAdd }}
+        </NButton>
+      </div>
+    </div>
+
+    <div v-if="overrideRows.length === 0" class="override-empty">
+      <NText depth="3" class="row-hint">{{ t.runtimeCompactionOverridesEmpty }}</NText>
+    </div>
+
+    <div v-for="row in overrideRows" :key="row.key" class="switch-row override-row">
+      <div class="switch-labels">
+        <NText strong class="override-label">{{ row.label }}</NText>
+        <NText depth="3" class="row-hint override-key">{{ row.key }}</NText>
+      </div>
+      <div class="override-controls">
+        <NText depth="3" class="override-field-label">{{ t.runtimeCompactionReserve }}</NText>
+        <NSelect
+          :value="row.reserveTokens"
+          :options="reserveOverrideOptions"
+          :disabled="!runtime.settings.compaction.enabled"
+          size="small"
+          class="setting-select"
+          @update:value="(value: string | number) => setOverrideField(row.key, 'reserveTokens', value)"
+        />
+        <NText depth="3" class="override-field-label">{{ t.runtimeCompactionKeepRecent }}</NText>
+        <NSelect
+          :value="row.keepRecentTokens"
+          :options="keepRecentOverrideOptions"
+          :disabled="!runtime.settings.compaction.enabled"
+          size="small"
+          class="setting-select"
+          @update:value="(value: string | number) => setOverrideField(row.key, 'keepRecentTokens', value)"
+        />
+        <NButton size="small" quaternary @click="removeOverride(row.key)">
+          {{ t.runtimeCompactionOverrideRemove }}
+        </NButton>
+      </div>
     </div>
 
     <NDivider style="margin: 0" />
@@ -292,6 +542,69 @@ function onCacheWarming(value: string | number): void {
         <NText depth="3" class="row-hint">{{ t.runtimeImageBlockHint }}</NText>
       </div>
       <NRadioGroup v-model:value="blockImages" size="small" class="setting-radio-group">
+        <NRadioButton :value="true">{{ t.switchOn }}</NRadioButton>
+        <NRadioButton :value="false">{{ t.switchOff }}</NRadioButton>
+      </NRadioGroup>
+    </div>
+
+    <NDivider style="margin: 0" />
+
+    <div class="section-head">
+      <NText strong>{{ t.runtimeThinkingSection }}</NText>
+      <NText depth="3" class="section-hint">{{ t.runtimeThinkingSectionHint }}</NText>
+    </div>
+
+    <div class="switch-row">
+      <div class="switch-labels">
+        <NText strong>{{ t.runtimeDefaultThinkingLevel }}</NText>
+        <NText depth="3" class="row-hint">{{ t.runtimeDefaultThinkingLevelHint }}</NText>
+      </div>
+      <NSelect
+        v-model:value="defaultThinkingLevel"
+        :options="thinkingLevelOptions"
+        size="small"
+        class="setting-select"
+      />
+    </div>
+
+    <div class="switch-row">
+      <div class="switch-labels">
+        <NText strong>{{ t.runtimeModelThinkingLevels }}</NText>
+        <NText depth="3" class="row-hint">{{ t.runtimeModelThinkingLevelsHint }}</NText>
+      </div>
+      <NInput
+        v-model:value="modelThinkingLevelsText"
+        type="textarea"
+        size="small"
+        class="setting-input"
+        :autosize="{ minRows: 2, maxRows: 6 }"
+        placeholder="provider/modelId: high"
+        @blur="saveModelThinkingLevels"
+      />
+    </div>
+
+    <div class="switch-row">
+      <div class="switch-labels">
+        <NText strong>{{ t.runtimeEnabledModels }}</NText>
+        <NText depth="3" class="row-hint">{{ t.runtimeEnabledModelsHint }}</NText>
+      </div>
+      <NInput
+        v-model:value="enabledModelsText"
+        type="textarea"
+        size="small"
+        class="setting-input"
+        :autosize="{ minRows: 2, maxRows: 6 }"
+        placeholder="anthropic/*"
+        @blur="saveEnabledModels"
+      />
+    </div>
+
+    <div class="switch-row">
+      <div class="switch-labels">
+        <NText strong>{{ t.runtimeHideThinkingBlock }}</NText>
+        <NText depth="3" class="row-hint">{{ t.runtimeHideThinkingBlockHint }}</NText>
+      </div>
+      <NRadioGroup v-model:value="hideThinkingBlock" size="small" class="setting-radio-group">
         <NRadioButton :value="true">{{ t.switchOn }}</NRadioButton>
         <NRadioButton :value="false">{{ t.switchOff }}</NRadioButton>
       </NRadioGroup>
@@ -399,6 +712,39 @@ function onCacheWarming(value: string | number): void {
     <NDivider style="margin: 0" />
 
     <div class="section-head">
+      <NText strong>{{ t.runtimeDeliverySection }}</NText>
+      <NText depth="3" class="section-hint">{{ t.runtimeDeliverySectionHint }}</NText>
+    </div>
+
+    <div class="switch-row">
+      <div class="switch-labels">
+        <NText strong>{{ t.runtimeSteeringMode }}</NText>
+        <NText depth="3" class="row-hint">{{ t.runtimeSteeringModeHint }}</NText>
+      </div>
+      <NSelect
+        v-model:value="steeringMode"
+        :options="deliveryOptions"
+        size="small"
+        class="setting-select"
+      />
+    </div>
+
+    <div class="switch-row">
+      <div class="switch-labels">
+        <NText strong>{{ t.runtimeFollowUpMode }}</NText>
+        <NText depth="3" class="row-hint">{{ t.runtimeFollowUpModeHint }}</NText>
+      </div>
+      <NSelect
+        v-model:value="followUpMode"
+        :options="deliveryOptions"
+        size="small"
+        class="setting-select"
+      />
+    </div>
+
+    <NDivider style="margin: 0" />
+
+    <div class="section-head">
       <NText strong>{{ t.runtimeEnvSection }}</NText>
       <NText depth="3" class="section-hint">{{ t.runtimeEnvSectionHint }}</NText>
     </div>
@@ -442,6 +788,35 @@ function onCacheWarming(value: string | number): void {
         class="setting-input"
         :placeholder="t.runtimeShellPrefixPlaceholder"
         @blur="save({ shellCommandPrefix })"
+      />
+    </div>
+
+    <div class="switch-row">
+      <div class="switch-labels">
+        <NText strong>{{ t.runtimeTransport }}</NText>
+        <NText depth="3" class="row-hint">{{ t.runtimeTransportHint }}</NText>
+      </div>
+      <NSelect
+        v-model:value="transportValue"
+        :options="transportOptions"
+        size="small"
+        class="setting-select"
+      />
+    </div>
+
+    <div class="switch-row">
+      <div class="switch-labels">
+        <NText strong>{{ t.runtimeNpmCommand }}</NText>
+        <NText depth="3" class="row-hint">{{ t.runtimeNpmCommandHint }}</NText>
+      </div>
+      <NInput
+        v-model:value="npmCommandText"
+        type="textarea"
+        size="small"
+        class="setting-input"
+        :autosize="{ minRows: 2, maxRows: 4 }"
+        placeholder="npm"
+        @blur="saveNpmCommand"
       />
     </div>
 
@@ -573,5 +948,46 @@ function onCacheWarming(value: string | number): void {
   flex: 1;
   padding: 0;
   text-align: center;
+}
+
+.override-head {
+  margin-top: 4px;
+}
+
+.override-add {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.override-model-select {
+  width: 320px;
+}
+
+.override-empty {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.override-label,
+.override-key {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.override-controls {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.override-field-label {
+  font-size: 12px;
+  white-space: nowrap;
 }
 </style>

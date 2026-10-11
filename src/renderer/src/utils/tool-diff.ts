@@ -1,6 +1,7 @@
 /** Parse Pi coding-agent tool payloads for Cursor-like tool cards. */
 
 import type { ChatMessage } from "../stores/chat-reducer";
+import { safeStringify } from "./safe-json";
 import {
   isTodoToolName,
   normalizeTodoRows,
@@ -18,13 +19,35 @@ export type ToolMessage = Extract<ChatMessage, { role: "tool" }>;
  */
 const toolCardMemo = new WeakMap<ToolMessage, ToolCard>();
 
+/**
+ * 解析抛错时退化为纯文本卡片并缓存：卡片解析在 MessageList 的模板/computed 里调用，
+ * 一次抛错会让整个消息列表停止更新（Vue 只停更出错的组件），且下次渲染重复抛错。
+ */
+function fallbackToolCard(msg: ToolMessage): ToolCard {
+  const rendered = [msg.args, msg.result]
+    .filter((v) => v != null)
+    .map((v) => safeStringify(v, 2))
+    .filter(Boolean)
+    .join("\n");
+  return {
+    kind: "generic",
+    summary: msg.toolName,
+    preview: rendered ? rendered.slice(0, 20_000) : null,
+    images: [],
+  };
+}
+
 export function toolCardFor(msg: ToolMessage): ToolCard {
   let card = toolCardMemo.get(msg);
   if (!card) {
-    card = parseToolCard(msg.toolName, msg.args, msg.result, {
-      isError: msg.isError,
-      durationMs: typeof msg.durationMs === "number" ? msg.durationMs : undefined,
-    });
+    try {
+      card = parseToolCard(msg.toolName, msg.args, msg.result, {
+        isError: msg.isError,
+        durationMs: typeof msg.durationMs === "number" ? msg.durationMs : undefined,
+      });
+    } catch {
+      card = fallbackToolCard(msg);
+    }
     toolCardMemo.set(msg, card);
   }
   return card;
@@ -536,11 +559,11 @@ export function parseToolCard(
   const summary =
     commandFromArgs(args) ??
     pathFromArgs(args) ??
-    (isRecord(args) ? JSON.stringify(args).slice(0, 120) : null);
+    (isRecord(args) ? safeStringify(args).slice(0, 120) : null);
   return {
     kind: "generic",
     summary,
-    preview: text.trim() ? text : (args != null ? JSON.stringify(args, null, 2) : null),
+    preview: text.trim() ? text : (args != null ? safeStringify(args, 2) : null),
     images,
   };
 }

@@ -31,7 +31,6 @@ import { useSessionsStore } from "./sessions";
 import { useCheckpointStore } from "./checkpoint";
 import { useComposerStore } from "./composer";
 import { useNotifyStore } from "./notify";
-import { useTtsStore } from "./tts";
 import { useSessionWidgetsStore } from "./session-widgets";
 import { useWorkspaceStore } from "./workspace";
 import { extractToolResult } from "../utils/tool-diff";
@@ -264,6 +263,7 @@ export const useChatStore = defineStore("chat", () => {
 				result: row.text,
 				isError: row.isError,
 				streaming: false,
+				...(row.durationMs != null ? { durationMs: row.durationMs } : {}),
 				...(row.nestedCalls?.length ? { nestedCalls: row.nestedCalls } : {}),
 			};
 		}
@@ -501,18 +501,15 @@ export const useChatStore = defineStore("chat", () => {
 		// setStatus / setTitle: reserved for future chrome.
 	}
 
-	/**
-	 * Apply an agent event into chat state only (no TTS / auto-recover / notify).
-	 * Used by the LAN web console which feeds the same MessageList via WS.
-	 */
-	function applyLanEvent(event: AgentEvent): void {
-		const sessionId = event.sessionId;
-		setSessionState(sessionId, reduceChatEvent(stateFor(sessionId), event));
-	}
-
 	function applyEvent(event: AgentEvent): void {
 		const sessionId = event.sessionId;
-		setSessionState(sessionId, reduceChatEvent(stateFor(sessionId), event));
+		try {
+			setSessionState(sessionId, reduceChatEvent(stateFor(sessionId), event));
+		} catch (err) {
+			// 一条事件归约失败不能影响后续事件（也避免异常穿透 ipcRenderer 回调）。
+			console.error(`[chat] reduce failed for ${event.type}:`, err);
+			return;
+		}
 
 		if (event.type === "agent_event") {
 			const payload = event.event as {
@@ -580,19 +577,10 @@ export const useChatStore = defineStore("chat", () => {
 				useSessionWidgetsStore().finalizeTodosForSession(sessionId);
 			}
 			void notifyStore.onTurnComplete({
-				title: t.appName,
+				title: notifyTitleOf(sessionId),
 				body: t.notifyTurnCompleteBody,
+				sessionId,
 			});
-			// Only speak for the focused session — avoid background tabs narrating.
-			if (sessionId === useSessionsStore().activeId) {
-				const state = stateFor(sessionId);
-				const lastAssistant = [...state.messages]
-					.reverse()
-					.find((m) => m.role === "assistant" && m.text?.trim());
-				if (lastAssistant && "text" in lastAssistant && lastAssistant.text) {
-					useTtsStore().speakReply(lastAssistant.text, lastAssistant.id);
-				}
-			}
 		}
 
 		if (event.type === "worker_stuck") {
@@ -605,6 +593,12 @@ export const useChatStore = defineStore("chat", () => {
 				void autoRecover(sessionId, "stall");
 			}
 		}
+	}
+
+	function notifyTitleOf(sessionId: string): string {
+		const row = sessionsStore.sessions.find((s) => s.id === sessionId);
+		const label = row?.name?.trim() || row?.firstMessage?.trim() || "";
+		return label ? label.slice(0, 40) : t.appName;
 	}
 
 	/** Drop the "正在自动恢复" banner without resetting the attempt budget. */
@@ -736,7 +730,31 @@ export const useChatStore = defineStore("chat", () => {
 		}
 	}
 
+	/**
+	 * 隐藏期间窗口定时器被 Chromium 节流，会话事件缓冲的消费随之滞后，
+	 * lastWorkerAliveAt 会停在旧值上，把「UI 没收到心跳」误报成「worker 心跳异常」。
+	 * 恢复可见时以当前时刻重置基准，真伪交给随后到达的心跳确认。
+	 */
+	function resetWorkerAliveClocks(): void {
+		const now = Date.now();
+		for (const sessionId of Object.keys(bySession)) {
+			const state = bySession[sessionId];
+			if (!state?.running || state.lastWorkerAliveAt == null) continue;
+			setSessionState(sessionId, { ...state, lastWorkerAliveAt: now });
+		}
+	}
+
+	function handleVisibilityChange(): void {
+		if (document.hidden) return;
+		agentEventSink.flushNow();
+		resetWorkerAliveClocks();
+	}
+
 	function checkSoftHangSessions(): void {
+		// 隐藏窗口的定时器同样被节流：事件消费滞后会让「没收到心跳」看起来像 stall
+		// 或软挂，后台不做静默判定。真死 / 真卡由主进程（不受窗口隐藏影响）的
+		// stall / exit 事件兜底。
+		if (document.hidden) return;
 		const now = Date.now();
 		for (const [sessionId, state] of Object.entries(bySession)) {
 			if (!state?.running || state.autoRecovering || recoveringIds.has(sessionId))
@@ -928,7 +946,7 @@ export const useChatStore = defineStore("chat", () => {
 		const off = window.api.sessions.onEvent((event) => {
 			agentEventSink.push(event);
 		});
-		document.addEventListener("visibilitychange", agentEventSink.flushNow);
+		document.addEventListener("visibilitychange", handleVisibilityChange);
 		const offPermission = window.api.sessions.onPermission((req) => {
 			if (isPermissionAskCancelled(req)) {
 				const pending = stateFor(req.sessionId).pendingPermission;
@@ -971,7 +989,7 @@ export const useChatStore = defineStore("chat", () => {
 				softHangTimer = null;
 			}
 			agentEventSink.dispose();
-			document.removeEventListener("visibilitychange", agentEventSink.flushNow);
+			document.removeEventListener("visibilitychange", handleVisibilityChange);
 			off();
 			offPermission();
 			offAskUser();
@@ -1133,13 +1151,6 @@ export const useChatStore = defineStore("chat", () => {
 	}
 
 	async function abort(sessionId: string): Promise<void> {
-		// TEMP-DIAG: find who auto-aborts while ask_user is pending.
-		if (stateFor(sessionId).pendingAskUser) {
-			console.warn("[ask-user-diag] abort() called while pendingAskUser present", {
-				sessionId,
-				stack: new Error().stack,
-			});
-		}
 		// Stop dismisses any pending interactive strip (ask_user / permission /
 		// extension UI) immediately — don't wait for the worker cancel broadcast.
 		setSessionState(
@@ -1516,7 +1527,6 @@ export const useChatStore = defineStore("chat", () => {
 		activePendingExtensionUi,
 		securityRemediationTick,
 		bindEvents,
-		applyLanEvent,
 		clearPendingAskUserFor,
 		readAskDraft,
 		writeAskDraft,
