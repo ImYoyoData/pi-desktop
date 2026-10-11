@@ -76,18 +76,19 @@ const urlInvalid = computed(
 
 <template>
   <section class="settings-group">
-    <div class="group-title">{{ t.proxyTitle }}</div>
-
-    <div class="row">
-      <NRadioGroup :value="mode" size="small" @update:value="onMode">
+    <div class="switch-row">
+      <div class="switch-labels">
+        <NText strong>{{ t.proxyTitle }}</NText>
+      </div>
+      <NRadioGroup :value="mode" size="small" class="setting-radio-group" @update:value="onMode">
         <NRadioButton value="off">{{ t.proxyModeOff }}</NRadioButton>
         <NRadioButton value="system">{{ t.proxyModeSystem }}</NRadioButton>
         <NRadioButton value="custom">{{ t.proxyModeCustom }}</NRadioButton>
       </NRadioGroup>
     </div>
 
-    <div v-if="mode === 'custom'" class="row">
-      <div class="labels">
+    <div v-if="mode === 'custom'" class="switch-row">
+      <div class="switch-labels">
         <NText strong>{{ t.proxyUrlLabel }}</NText>
       </div>
       <NInput
@@ -109,24 +110,30 @@ const urlInvalid = computed(
   gap: 12px;
 }
 
-.group-title {
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--fg-muted);
-}
-
-.row {
+.switch-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 16px;
+  gap: 12px;
 }
 
-.labels {
+.switch-labels {
   display: flex;
   flex-direction: column;
   gap: 4px;
   min-width: 0;
+}
+
+.setting-radio-group {
+  flex-shrink: 0;
+  width: 168px;
+  display: inline-flex;
+}
+
+.setting-radio-group :deep(.n-radio-button) {
+  flex: 1;
+  padding: 0;
+  text-align: center;
 }
 
 .url-input {

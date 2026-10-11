@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from "vue";
-import { NButton, NDivider, NText, useMessage } from "naive-ui";
+import { NRadioButton, NRadioGroup, NText, useMessage } from "naive-ui";
 import {
   PERMISSION_PROFILES,
   type PermissionProfile,
@@ -46,6 +46,8 @@ const profileOptions = computed(() =>
   })),
 );
 
+const currentHint = computed(() => profileHint(security.profile));
+
 onMounted(() => void refresh());
 
 async function refresh(): Promise<void> {
@@ -69,54 +71,34 @@ async function pick(value: PermissionProfile): Promise<void> {
     saving.value = false;
   }
 }
-
-async function onOpenDevTools(): Promise<void> {
-  try {
-    await window.api.window.openDevTools();
-  } catch (err) {
-    message.error(err instanceof Error ? err.message : t.cannotOpenDevtools);
-  }
-}
 </script>
 
 <template>
   <section class="settings-group">
-    <div class="group-title">{{ t.securityTitle }}</div>
+    <div class="section-head">
+      <NText strong>{{ t.securityTitle }}</NText>
+    </div>
 
-    <div class="row">
-      <div class="labels">
+    <div class="switch-row">
+      <div class="switch-labels">
         <NText strong>{{ t.securityPermissionMode }}</NText>
-        <NText depth="3" class="hint">{{ t.securityPermissionModeHint }}</NText>
+        <NText depth="3" class="row-hint">{{ currentHint }}</NText>
       </div>
-    </div>
-
-    <div class="profile-list" role="radiogroup" :aria-label="t.securityPermissionMode">
-      <button
-        v-for="opt in profileOptions"
-        :key="opt.value"
-        type="button"
-        role="radio"
-        class="profile-option"
-        :class="{ active: security.profile === opt.value }"
-        :aria-checked="security.profile === opt.value"
+      <NRadioGroup
+        :value="security.profile"
+        size="small"
         :disabled="saving"
-        @click="pick(opt.value)"
+        class="setting-radio-group"
+        @update:value="pick"
       >
-        <span class="profile-name">{{ opt.label }}</span>
-        <span class="profile-hint">{{ opt.hint }}</span>
-      </button>
-    </div>
-
-    <NDivider class="div" />
-
-    <div class="row">
-      <div class="labels">
-        <NText strong>{{ t.securityOpenDevTools }}</NText>
-        <NText depth="3" class="hint">{{ t.securityOpenDevToolsHint }}</NText>
-      </div>
-      <NButton size="small" secondary :disabled="saving" @click="onOpenDevTools">
-        {{ t.open }}
-      </NButton>
+        <NRadioButton
+          v-for="opt in profileOptions"
+          :key="opt.value"
+          :value="opt.value"
+        >
+          {{ opt.label }}
+        </NRadioButton>
+      </NRadioGroup>
     </div>
   </section>
 </template>
@@ -125,87 +107,36 @@ async function onOpenDevTools(): Promise<void> {
 .settings-group {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 12px;
 }
 
-.group-title {
+.section-head {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.row-hint {
   font-size: 12px;
-  font-weight: 600;
-  color: var(--fg-muted);
+  line-height: 16px;
 }
 
-.row {
+.switch-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 16px;
+  gap: 12px;
 }
 
-.labels {
+.switch-labels {
   display: flex;
   flex-direction: column;
   gap: 4px;
   min-width: 0;
 }
 
-.hint {
-  font-size: 12px;
-}
-
-.div {
-  margin: 2px 0 !important;
-}
-
-.profile-list {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.profile-option {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  align-items: flex-start;
-  width: 100%;
-  margin: 0;
-  padding: 8px 12px;
-  border: 1px solid var(--border, rgba(128, 128, 128, 0.25));
-  border-radius: 6px;
-  background: var(--bg-elevated, transparent);
-  color: inherit;
-  font: inherit;
-  text-align: left;
-  cursor: pointer;
-}
-
-.profile-option:hover {
-  border-color: var(--accent-border, var(--accent));
-}
-
-.profile-option:focus-visible {
-  outline: 1px solid var(--accent);
-  outline-offset: -1px;
-}
-
-.profile-option.active {
-  border-color: var(--accent);
-  background: var(--accent-soft, transparent);
-}
-
-.profile-option:disabled {
-  cursor: default;
-  opacity: 0.7;
-}
-
-.profile-name {
-  font-size: 12.5px;
-  font-weight: 600;
-}
-
-.profile-hint {
-  font-size: 11px;
-  color: var(--fg-muted, #71717a);
-  line-height: 1.4;
+.setting-radio-group {
+  flex-shrink: 0;
+  display: inline-flex;
 }
 </style>

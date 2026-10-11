@@ -1,12 +1,10 @@
 <script setup lang="ts">
 import { computed } from "vue";
-import { NButton, NText, useMessage } from "naive-ui";
-import ToggleButton from "@renderer/components/ToggleButton.vue";
+import { NRadioButton, NRadioGroup, NText } from "naive-ui";
 import { useNotifyStore } from "@renderer/stores/notify";
 import { t } from "@renderer/i18n";
 
 const notify = useNotifyStore();
-const message = useMessage();
 
 const soundOn = computed({
   get: () => notify.soundEnabled,
@@ -17,37 +15,34 @@ const notifyOn = computed({
   get: () => notify.notifyEnabled,
   set: (v: boolean) => notify.setNotifyEnabled(v),
 });
-
-async function onPreview(): Promise<void> {
-  await notify.playChime();
-  message.success(t.notifyPreviewPlayed);
-}
 </script>
 
 <template>
   <section class="settings-group">
-    <div class="group-title">{{ t.notifyTitle }}</div>
+    <div class="section-head">
+      <NText strong>{{ t.notifyTitle }}</NText>
+    </div>
 
-    <div class="row">
-      <div class="labels">
+    <div class="switch-row">
+      <div class="switch-labels">
         <NText strong>{{ t.notifySound }}</NText>
-        <NText depth="3" class="hint">{{ t.notifySoundHint }}</NText>
+        <NText depth="3" class="row-hint">{{ t.notifySoundHint }}</NText>
       </div>
-      <ToggleButton v-model:value="soundOn" />
+      <NRadioGroup v-model:value="soundOn" size="small" class="setting-radio-group">
+        <NRadioButton :value="true">{{ t.switchOn }}</NRadioButton>
+        <NRadioButton :value="false">{{ t.switchOff }}</NRadioButton>
+      </NRadioGroup>
     </div>
 
-    <div class="row">
-      <NButton size="small" secondary @click="onPreview">
-        {{ t.notifyPreview }}
-      </NButton>
-    </div>
-
-    <div class="row">
-      <div class="labels">
+    <div class="switch-row">
+      <div class="switch-labels">
         <NText strong>{{ t.notifySystem }}</NText>
-        <NText depth="3" class="hint">{{ t.notifySystemHint }}</NText>
+        <NText depth="3" class="row-hint">{{ t.notifySystemHint }}</NText>
       </div>
-      <ToggleButton v-model:value="notifyOn" />
+      <NRadioGroup v-model:value="notifyOn" size="small" class="setting-radio-group">
+        <NRadioButton :value="true">{{ t.switchOn }}</NRadioButton>
+        <NRadioButton :value="false">{{ t.switchOff }}</NRadioButton>
+      </NRadioGroup>
     </div>
   </section>
 </template>
@@ -59,27 +54,41 @@ async function onPreview(): Promise<void> {
   gap: 12px;
 }
 
-.group-title {
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--fg-muted);
+.section-head {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
 }
 
-.row {
+.section-hint,
+.row-hint {
+  font-size: 12px;
+  line-height: 16px;
+}
+
+.switch-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 16px;
+  gap: 12px;
 }
 
-.labels {
+.switch-labels {
   display: flex;
   flex-direction: column;
   gap: 4px;
   min-width: 0;
 }
 
-.hint {
-  font-size: 12px;
+.setting-radio-group {
+  flex-shrink: 0;
+  width: 120px;
+  display: inline-flex;
+}
+
+.setting-radio-group :deep(.n-radio-button) {
+  flex: 1;
+  padding: 0;
+  text-align: center;
 }
 </style>
