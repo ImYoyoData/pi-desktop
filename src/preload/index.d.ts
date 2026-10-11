@@ -29,7 +29,7 @@ import type {
 	PullRequestPatchResult,
 	PullRequestSummary,
 } from "../shared/github-types";
-import type { AgentSaveResult, BuiltinExtensionItem, BuiltinToolItem, CodemodeSettingsState, CustomizationsSnapshot, CustomizationCreateKind, InstructionsSaveResult, McpAuthEventPayload, McpAuthPromptReply, McpAuthState, McpAuthTarget, McpTestResult, McpTestTarget, SkillSaveResult } from "../shared/customizations";
+import type { AgentSaveResult, BuiltinExtensionItem, BuiltinToolItem, CodemodeSettingsState, CustomizationsSnapshot, CustomizationCreateKind, InstructionsSaveResult, McpAuthEventPayload, McpAuthPromptReply, McpAuthState, McpAuthTarget, McpProjectOverride, McpTestResult, McpTestTarget, SkillSaveResult } from "../shared/customizations";
 import type {
 	ModelsGetResult,
 	ModelsOAuthEventPayload,
@@ -653,6 +653,12 @@ declare const api: {
 			scope: "user" | "project",
 			cwd?: string,
 		) => Promise<AgentSaveResult>;
+		createPromptFromDraft: (
+			content: string,
+			name: string,
+			scope: "user" | "project",
+			cwd?: string,
+		) => Promise<AgentSaveResult>;
 		saveAgent: (
 			filePath: string,
 			content: string,
@@ -668,6 +674,14 @@ declare const api: {
 			name: string,
 			scope: "user" | "project",
 			enabled: boolean,
+			cwd?: string,
+		) => Promise<void>;
+		listMcpProjectOverrides: (
+			cwd?: string,
+		) => Promise<Record<string, "enabled" | "disabled">>;
+		setMcpProjectOverride: (
+			name: string,
+			override: McpProjectOverride,
 			cwd?: string,
 		) => Promise<void>;
 		addMcpServers: (

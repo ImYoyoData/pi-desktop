@@ -26,6 +26,10 @@ export type CustomModelEntry = {
   maxTokens?: number;
   /** When true, model accepts images (`input: ["text","image"]`). */
   vision?: boolean;
+  /** 采样参数默认值的表单 JSON 文本（保存时解析，如 {"temperature":1.0}）。 */
+  samplingParamsJson?: string;
+  /** 按思考档位覆盖采样参数的表单 JSON 文本，键为 pi 档位名。 */
+  samplingParamsByThinkingLevelJson?: string;
 };
 
 /** A fresh, blank model row. Max output defaults to the GUI budget. */
@@ -79,8 +83,17 @@ export function emptyCustomProvider(partial?: Partial<CustomProviderDraft>): Cus
 }
 
 export function parseModelsConfigText(text: string): ModelsConfigDoc {
-  const raw = text.trim() ? JSON.parse(text) : { providers: {} };
-  const root = asRecord(raw) ?? {};
+  let parsed: unknown = { providers: {} };
+  if (text.trim()) {
+    try {
+      parsed = JSON.parse(text);
+    } catch (err) {
+      throw new Error(
+        `Invalid models.json: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+  }
+  const root = asRecord(parsed) ?? {};
   const providers = asRecord(root.providers) ?? {};
   const rest: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(root)) {
@@ -121,6 +134,13 @@ function parseModelEntry(raw: unknown): CustomModelEntry | null {
   if (!id) return null;
   const contextWindow = parsePositiveInt(o.contextWindow);
   const maxTokens = parsePositiveInt(o.maxTokens);
+  const samplingParams = asRecord(o.samplingParams);
+  const levelsRaw = asRecord(o.samplingParamsByThinkingLevel);
+  const levels: Record<string, Record<string, unknown>> = {};
+  for (const [level, value] of Object.entries(levelsRaw ?? {})) {
+    const params = asRecord(value);
+    if (params) levels[level] = params;
+  }
   return {
     id,
     name: typeof o.name === "string" ? o.name : "",
@@ -128,6 +148,12 @@ function parseModelEntry(raw: unknown): CustomModelEntry | null {
     ...(contextWindow ? { contextWindow } : {}),
     ...(maxTokens ? { maxTokens } : {}),
     ...(modelHasVision(o.input) ? { vision: true } : {}),
+    ...(samplingParams && Object.keys(samplingParams).length
+      ? { samplingParamsJson: JSON.stringify(samplingParams, null, 2) }
+      : {}),
+    ...(Object.keys(levels).length
+      ? { samplingParamsByThinkingLevelJson: JSON.stringify(levels, null, 2) }
+      : {}),
   };
 }
 
@@ -219,7 +245,33 @@ function mergeModelJson(
     base.input = next.length ? next : ["text"];
   }
 
+  mergeJsonParam(base, "samplingParams", draft.samplingParamsJson);
+  mergeJsonParam(base, "samplingParamsByThinkingLevel", draft.samplingParamsByThinkingLevelJson);
+
   return base;
+}
+
+/** 表单 JSON 文本写回模型条目；空文本或非法内容删掉该字段（保存前已校验）。 */
+function mergeJsonParam(
+  base: Record<string, unknown>,
+  key: "samplingParams" | "samplingParamsByThinkingLevel",
+  text: string | undefined,
+): void {
+  const trimmed = text?.trim();
+  if (!trimmed) {
+    delete base[key];
+    return;
+  }
+  try {
+    const parsed: unknown = JSON.parse(trimmed);
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+      base[key] = parsed;
+      return;
+    }
+  } catch {
+    // 校验已拦截；这里保持删除，避免写回半编辑状态
+  }
+  delete base[key];
 }
 
 /**
@@ -270,6 +322,27 @@ export function draftToProviderJson(
   return out;
 }
 
+function samplingJsonError(entry: CustomModelEntry): string | null {
+  const fields = [
+    ["samplingParams", entry.samplingParamsJson],
+    ["samplingParamsByThinkingLevel", entry.samplingParamsByThinkingLevelJson],
+  ] as const;
+  for (const [label, text] of fields) {
+    const trimmed = text?.trim();
+    if (!trimmed) continue;
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(trimmed);
+    } catch {
+      return `${label} must be valid JSON`;
+    }
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      return `${label} must be a JSON object`;
+    }
+  }
+  return null;
+}
+
 export function validateCustomProvider(
   draft: CustomProviderDraft,
   opts?: { editingId?: string | null; existingIds?: string[] },
@@ -292,6 +365,10 @@ export function validateCustomProvider(
   const modelIds = draft.models.map((m) => m.id.trim()).filter(Boolean);
   if (!modelIds.length) return "Add at least one model id";
   if (new Set(modelIds).size !== modelIds.length) return "Duplicate model ids";
+  for (const model of draft.models) {
+    const samplingError = samplingJsonError(model);
+    if (samplingError) return samplingError;
+  }
 
   const existing = opts?.existingIds ?? [];
   const editing = opts?.editingId?.trim() || null;

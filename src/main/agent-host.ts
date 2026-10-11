@@ -108,3 +108,26 @@ export function createInstructionsFromDraft(
   fs.writeFileSync(filePath, content, "utf8");
   return { ok: true, filePath };
 }
+
+/** 按草稿创建提示模板：文件名即命令名，用户级 <agentDir>/prompts，工作区 <workspace>/.pi/prompts。 */
+export function createPromptFromDraft(
+  content: string,
+  name: string,
+  scope: "user" | "project",
+  workspace?: string,
+): AgentSaveResult {
+  const issue = agentNameIssue(name);
+  if (issue) return { ok: false, code: issue };
+  const root =
+    scope === "project"
+      ? workspace?.trim()
+        ? path.join(workspace.trim(), ".pi", "prompts")
+        : null
+      : path.join(agentDir(), "prompts");
+  if (!root) throw new Error("workspace required");
+  const filePath = path.join(root, `${name}.md`);
+  if (fs.existsSync(filePath)) return { ok: false, code: "exists" };
+  fs.mkdirSync(root, { recursive: true });
+  fs.writeFileSync(filePath, content, "utf8");
+  return { ok: true, filePath, name };
+}

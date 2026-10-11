@@ -35,7 +35,7 @@ import type {
 	PullRequestSummary,
 } from "../shared/github-types";
 import type { AgentRunEvent, AgentRunSnapshot } from "../shared/agent-runs";
-import type { AgentSaveResult, BuiltinExtensionItem, BuiltinToolItem, CodemodeSettingsState, CustomizationsSnapshot, CustomizationCreateKind, InstructionsSaveResult, McpAuthEventPayload, McpAuthPromptReply, McpAuthState, McpAuthTarget, McpTestResult, McpTestTarget, SkillSaveResult } from "../shared/customizations";
+import type { AgentSaveResult, BuiltinExtensionItem, BuiltinToolItem, CodemodeSettingsState, CustomizationsSnapshot, CustomizationCreateKind, InstructionsSaveResult, McpAuthEventPayload, McpAuthPromptReply, McpAuthState, McpAuthTarget, McpProjectOverride, McpTestResult, McpTestTarget, SkillSaveResult } from "../shared/customizations";
 import type {
 	ModelsGetResult,
 	ModelsOAuthEventPayload,
@@ -909,6 +909,19 @@ const api = {
 				scope,
 				cwd,
 			) as Promise<AgentSaveResult>,
+		createPromptFromDraft: (
+			content: string,
+			name: string,
+			scope: "user" | "project",
+			cwd?: string,
+		) =>
+			ipcRenderer.invoke(
+				IpcChannels.customizations.createPromptFromDraft,
+				content,
+				name,
+				scope,
+				cwd,
+			) as Promise<AgentSaveResult>,
 		saveAgent: (filePath: string, content: string, renameName?: string, cwd?: string) =>
 			ipcRenderer.invoke(
 				IpcChannels.customizations.saveAgent,
@@ -930,6 +943,18 @@ const api = {
 				name,
 				scope,
 				enabled,
+				cwd,
+			) as Promise<void>,
+		listMcpProjectOverrides: (cwd?: string) =>
+			ipcRenderer.invoke(
+				IpcChannels.customizations.listMcpProjectOverrides,
+				cwd,
+			) as Promise<Record<string, "enabled" | "disabled">>,
+		setMcpProjectOverride: (name: string, override: McpProjectOverride, cwd?: string) =>
+			ipcRenderer.invoke(
+				IpcChannels.customizations.setMcpProjectOverride,
+				name,
+				override,
 				cwd,
 			) as Promise<void>,
 		addMcpServers: (

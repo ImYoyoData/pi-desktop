@@ -13,6 +13,7 @@ import type {
 	CustomizationItem,
 	CustomizationScope,
 	CustomizationsSnapshot,
+	McpProjectOverride,
 } from "../shared/customizations";
 
 type Sdk = typeof import("@earendil-works/pi-coding-agent");
@@ -446,6 +447,63 @@ export function setMcpServerEnabled(
 	writeMcpRaw(file, raw);
 }
 
+/** 覆盖条目：无 command/url，只改用户级同名服务器的 enabled / exposure / toolExposure。 */
+function isMcpOverrideEntry(entry: unknown): entry is Record<string, unknown> {
+	return (
+		isMcpEntry(entry) &&
+		(entry as { command?: unknown }).command === undefined &&
+		(entry as { url?: unknown }).url === undefined
+	);
+}
+
+/** 项目覆盖清单（pi 1.0.1）：名称 → 显式启用态。 */
+export function readMcpProjectOverrides(root: string): Record<string, "enabled" | "disabled"> {
+	const servers = mcpServersObject(readMcpRaw(mcpConfigPath("project", root)));
+	const out: Record<string, "enabled" | "disabled"> = {};
+	for (const [name, entry] of Object.entries(servers)) {
+		if (!isMcpOverrideEntry(entry)) continue;
+		if (entry.enabled === false) out[name] = "disabled";
+		else if (entry.enabled === true) out[name] = "enabled";
+	}
+	return out;
+}
+
+/** 写项目覆盖；inherit 清掉覆盖（完整项目定义不动）。 */
+export function setMcpProjectOverride(
+	name: string,
+	root: string,
+	override: McpProjectOverride,
+): void {
+	const file = mcpConfigPath("project", root);
+	const raw = readMcpRaw(file);
+	const servers = mcpServersObject(raw);
+	const entry = servers[name];
+	if (isMcpOverrideEntry(entry)) {
+		if (override === "inherit") {
+			delete entry.enabled;
+			if (Object.keys(entry).length === 0) delete servers[name];
+		} else {
+			entry.enabled = override === "enabled";
+		}
+		raw.mcpServers = servers;
+		writeMcpRaw(file, raw);
+		return;
+	}
+	if (isMcpEntry(entry)) {
+		// 项目级完整定义：启用态写在定义上，不是用户级覆盖。
+		if (override === "inherit") return;
+		delete entry.disabled;
+		if (override === "enabled") delete entry.enabled;
+		else entry.enabled = false;
+		writeMcpRaw(file, raw);
+		return;
+	}
+	if (override === "inherit") return;
+	servers[name] = { enabled: override === "enabled" };
+	raw.mcpServers = servers;
+	writeMcpRaw(file, raw);
+}
+
 /** 添加/覆盖 MCP 服务器定义，同名直接覆盖。 */
 export function addMcpServers(
 	scope: "user" | "project",
@@ -776,7 +834,13 @@ type CreateTemplate = {
 };
 
 /** 桌面在会话中注册的 pi 内置扩展（与 agent-worker 的 extensionFactories 一致）。 */
-const DESKTOP_BUILTIN_EXTENSIONS: readonly string[] = ["codemode", "tool-search", "mcp"];
+/** pi 的内置扩展（dist/extensions/index.js 的 builtInExtensions）；桌面可逐个禁用。 */
+const DESKTOP_BUILTIN_EXTENSIONS: readonly string[] = [
+	"llama.cpp",
+	"codemode",
+	"tool-search",
+	"mcp",
+];
 
 /**
  * 与 pi 的 isEnabledByOverrides 一致：`!` 排除 → `+` 强制启用 → `-` 强制禁用；

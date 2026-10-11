@@ -83,6 +83,7 @@ import {
 	registerLanConsoleIpc,
 } from "./lan-console";
 import { ensurePiAgentEnvironment } from "./pi-env";
+import { migrateLegacyProviderIds } from "./provider-id-migration";
 import { initProxy, registerProxyIpc, restoreStartupProxyEnv } from "./proxy-host";
 import { installApplicationMenu } from "./app-menu";
 import { enableHardwareAcceleration } from "./gpu-flags";
@@ -485,6 +486,7 @@ function boot(): void {
 				console.info("[pi-env] initialized", init.agentDir, init.created);
 			}
 			markStartup("main:defer:pi-env");
+			migrateLegacyProviderIds();
 			registerAsrIpc();
 			markStartup("main:defer:asr");
 			registerTtsIpc();

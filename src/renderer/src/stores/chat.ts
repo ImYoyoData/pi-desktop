@@ -264,6 +264,7 @@ export const useChatStore = defineStore("chat", () => {
 				result: row.text,
 				isError: row.isError,
 				streaming: false,
+				...(row.durationMs != null ? { durationMs: row.durationMs } : {}),
 				...(row.nestedCalls?.length ? { nestedCalls: row.nestedCalls } : {}),
 			};
 		}

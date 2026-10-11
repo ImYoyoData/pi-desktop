@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, reactive, ref, watch } from "vue";
-import { NButton, NDropdown, NInput, useDialog, useMessage } from "naive-ui";
+import { NButton, NDropdown, NInput, NSelect, useDialog, useMessage } from "naive-ui";
 import type { DropdownOption } from "naive-ui";
 import CodiconIcon from "@renderer/components/icons/CodiconIcon.vue";
 import ToggleButton from "@renderer/components/ToggleButton.vue";
@@ -16,12 +16,13 @@ import type {
   McpAuthState,
   McpAuthTarget,
   McpEditTarget,
+  McpProjectOverride,
   McpTestResult,
 } from "../../../../shared/customizations";
 import type { PluginUpdateProgress, PluginVersionInfo } from "../../../../shared/pi-market";
 import { t } from "@renderer/i18n";
 
-type SectionKind = "agents" | "skills" | "instructions" | "mcp" | "plugins";
+type SectionKind = "agents" | "skills" | "instructions" | "prompts" | "mcp" | "plugins";
 
 const props = defineProps<{
   kind: SectionKind;
@@ -34,7 +35,7 @@ const emit = defineEmits<{
   open: [payload: { filePath: string; title: string; rename: boolean }];
   newDraft: [
     payload: {
-      kind: "skills" | "agents" | "instructions";
+      kind: "skills" | "agents" | "instructions" | "prompts";
       scope: "user" | "project";
       workspace: string | null;
     },
@@ -52,6 +53,7 @@ const mcpEdit = ref<McpEditTarget | null>(null);
 const mcpTesting = ref(false);
 const mcpTestResults = ref<Record<string, McpTestResult>>({});
 const mcpAuthStates = ref<Record<string, McpAuthState>>({});
+const mcpOverrides = ref<Record<string, "enabled" | "disabled">>({});
 const mcpLoginTarget = ref<McpAuthTarget | null>(null);
 const pluginUpdates = usePluginUpdatesStore();
 const collapsed = reactive(new Set<CustomizationScope>());
@@ -120,6 +122,8 @@ const emptyLabel = computed(() => {
       return t.customizeSkills;
     case "instructions":
       return t.customizeInstructions;
+    case "prompts":
+      return t.customizePrompts;
     case "mcp":
       return t.customizeMcp;
     default:
@@ -133,6 +137,8 @@ const createLabel = computed(() => {
       return t.customizeNewAgent;
     case "skills":
       return t.customizeNewSkill;
+    case "prompts":
+      return t.customizeNewPrompt;
     default:
       return t.customizeNewInstructions;
   }
@@ -210,6 +216,14 @@ async function setEnabled(item: CustomizationItem, enabled: boolean): Promise<vo
       );
       store.setFileItemEnabled(props.kind, item.id, enabled, filePath);
       return;
+    } else if (props.kind === "prompts" && item.filePath) {
+      const { filePath } = await window.api.customizations.setItemEnabled(
+        item.filePath,
+        enabled,
+        workspace.root ?? undefined,
+      );
+      store.setFileItemEnabled(props.kind, item.id, enabled, filePath);
+      return;
     } else if (props.kind === "plugins" && item.source) {
       // 先本地生效，写入失败再回滚，避免列表整表刷新。
       store.setPluginEnabled(item.id, enabled);
@@ -255,7 +269,7 @@ function isEditableItem(item: CustomizationItem): boolean {
 function canToggle(item: CustomizationItem): boolean {
   if (props.kind === "skills") return Boolean(item.filePath) && item.enabled !== undefined;
   if (props.kind === "mcp") return item.enabled !== undefined;
-  if (props.kind === "agents") return isEditableItem(item);
+  if (props.kind === "agents" || props.kind === "prompts") return isEditableItem(item);
   return props.kind === "plugins" && Boolean(item.source);
 }
 
@@ -487,9 +501,62 @@ watch(
   () => [props.kind, props.items] as const,
   () => {
     void refreshMcpAuth();
+    void refreshMcpOverrides();
   },
   { immediate: true },
 );
+
+/** pi 1.0.1 项目覆盖：用户级服务器在当前工作区的启用态覆盖（.pi/mcp.json）。 */
+async function refreshMcpOverrides(): Promise<void> {
+  if (props.kind !== "mcp" || !workspace.root) {
+    mcpOverrides.value = {};
+    return;
+  }
+  try {
+    mcpOverrides.value = await window.api.customizations.listMcpProjectOverrides(
+      workspace.root,
+    );
+  } catch {
+    // 覆盖状态获取失败不影响列表展示
+  }
+}
+
+const mcpOverrideOptions = computed(() => [
+  { label: t.customizeMcpOverrideInherit, value: "inherit" },
+  { label: t.customizeMcpOverrideEnabled, value: "enabled" },
+  { label: t.customizeMcpOverrideDisabled, value: "disabled" },
+]);
+
+function showMcpOverride(item: CustomizationItem): boolean {
+  return props.kind === "mcp" && item.scope === "user" && Boolean(workspace.root);
+}
+
+function mcpOverrideOf(item: CustomizationItem): McpProjectOverride {
+  return mcpOverrides.value[item.name] ?? "inherit";
+}
+
+async function setMcpOverride(
+  item: CustomizationItem,
+  value: McpProjectOverride,
+): Promise<void> {
+  const root = workspace.root;
+  if (!root) return;
+  const previous = mcpOverrideOf(item);
+  const next = { ...mcpOverrides.value };
+  if (value === "inherit") delete next[item.name];
+  else next[item.name] = value;
+  mcpOverrides.value = next;
+  try {
+    await window.api.customizations.setMcpProjectOverride(item.name, value, root);
+    emit("refresh");
+  } catch (err) {
+    const rollback = { ...mcpOverrides.value };
+    if (previous === "inherit") delete rollback[item.name];
+    else rollback[item.name] = previous;
+    mcpOverrides.value = rollback;
+    message.error(err instanceof Error ? err.message : String(err));
+  }
+}
 
 function openMcpLogin(item: CustomizationItem): void {
   mcpLoginTarget.value = mcpTarget(item);
@@ -542,14 +609,14 @@ function skillWarning(item: CustomizationItem): { text: string; hint: string } |
 function canRemove(item: CustomizationItem): boolean {
   if (props.kind === "skills") return Boolean(item.filePath);
   if (props.kind === "mcp") return true;
-  if (props.kind === "agents") return isEditableItem(item);
+  if (props.kind === "agents" || props.kind === "prompts") return isEditableItem(item);
   if (props.kind === "instructions") return item.removable === true;
   return props.kind === "plugins" && Boolean(item.source);
 }
 
 function removeLabel(): string {
   if (props.kind === "mcp") return t.customizeMcpRemove;
-  if (props.kind === "agents" || props.kind === "instructions") {
+  if (props.kind === "agents" || props.kind === "instructions" || props.kind === "prompts") {
     return t.customizeDelete;
   }
   return props.kind === "plugins" ? t.customizeUninstallPlugin : t.customizeUninstall;
@@ -566,7 +633,7 @@ function confirmRemove(item: CustomizationItem): void {
     content:
       props.kind === "mcp"
         ? t.customizeMcpRemoveConfirm(item.name)
-        : props.kind === "instructions" || props.kind === "agents"
+        : props.kind === "instructions" || props.kind === "agents" || props.kind === "prompts"
           ? t.customizeDeleteConfirm(item.description || item.name)
           : t.customizeUninstallConfirm(item.name),
     positiveText: removeLabel(),
@@ -578,6 +645,13 @@ function confirmRemove(item: CustomizationItem): void {
           store.removeFileItem(props.kind, item.id);
           return;
         } else if (props.kind === "agents" && item.filePath) {
+          await window.api.customizations.removeItem(
+            item.filePath,
+            workspace.root ?? undefined,
+          );
+          store.removeFileItem(props.kind, item.id);
+          return;
+        } else if (props.kind === "prompts" && item.filePath) {
           await window.api.customizations.removeItem(
             item.filePath,
             workspace.root ?? undefined,
@@ -826,6 +900,16 @@ function onCtxSelect(key: string | number): void {
                 :title="item.enabled === false ? t.customizeEnable : t.customizeDisable"
                 @click.stop
                 @update:value="(value: boolean) => setEnabled(item, value)"
+              />
+              <NSelect
+                v-if="showMcpOverride(item)"
+                class="item-override"
+                size="tiny"
+                :value="mcpOverrideOf(item)"
+                :options="mcpOverrideOptions"
+                :title="t.customizeMcpProjectOverride"
+                @click.stop
+                @update:value="(value: McpProjectOverride) => setMcpOverride(item, value)"
               />
               <button
                 v-if="kind === 'mcp' && (item.scope === 'user' || item.scope === 'project')"
@@ -1112,6 +1196,11 @@ function onCtxSelect(key: string | number): void {
 
 .item-switch {
   flex-shrink: 0;
+}
+
+.item-override {
+  flex-shrink: 0;
+  width: 132px;
 }
 
 .item-update-button {

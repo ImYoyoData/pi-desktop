@@ -41,6 +41,7 @@ const FORM_KEYS = [
   "auth",
   "description",
   "exposure",
+  "toolExposure",
   "timeout",
 ] as const;
 
@@ -48,6 +49,7 @@ const OAUTH_KEYS = [
   "clientId",
   "clientSecret",
   "clientName",
+  "clientRegistration",
   "scope",
   "callbackPort",
   "callbackUrl",
@@ -60,6 +62,7 @@ const transport = ref<Transport>("command");
 const name = ref("");
 const description = ref("");
 const exposure = ref<Exposure>("codemode");
+const toolExposure = ref("");
 const timeout = ref("");
 const command = ref("");
 const args = ref("");
@@ -72,6 +75,7 @@ const oauthOpen = ref(false);
 const oauthClientId = ref("");
 const oauthClientSecret = ref("");
 const oauthClientName = ref("");
+const oauthClientRegistration = ref<"dcr" | "cimd">("dcr");
 const oauthScope = ref("");
 const oauthCallbackPort = ref("");
 const oauthCallbackUrl = ref("");
@@ -105,6 +109,7 @@ function resetForm(): void {
   name.value = "";
   description.value = "";
   exposure.value = "codemode";
+  toolExposure.value = "";
   timeout.value = "";
   command.value = "";
   args.value = "";
@@ -117,6 +122,7 @@ function resetForm(): void {
   oauthClientId.value = "";
   oauthClientSecret.value = "";
   oauthClientName.value = "";
+  oauthClientRegistration.value = "dcr";
   oauthScope.value = "";
   oauthCallbackPort.value = "";
   oauthCallbackUrl.value = "";
@@ -166,6 +172,7 @@ async function loadEntry(target: McpEditTarget): Promise<void> {
     json.value = JSON.stringify(entry, null, 2);
     description.value = stringOf(entry.description);
     if (isExposure(entry.exposure)) exposure.value = entry.exposure;
+    toolExposure.value = formatKeyValues(entry.toolExposure, ": ");
     if (typeof entry.timeout === "number") timeout.value = String(entry.timeout);
     if (typeof entry.url === "string") {
       transport.value = "url";
@@ -178,6 +185,8 @@ async function loadEntry(target: McpEditTarget): Promise<void> {
         oauthClientId.value = stringOf(oauth.clientId);
         oauthClientSecret.value = stringOf(oauth.clientSecret);
         oauthClientName.value = stringOf(oauth.clientName);
+        oauthClientRegistration.value =
+          stringOf(oauth.clientRegistration) === "cimd" ? "cimd" : "dcr";
         oauthScope.value = stringOf(oauth.scope);
         oauthCallbackPort.value =
           typeof oauth.callbackPort === "number" ? String(oauth.callbackPort) : "";
@@ -230,6 +239,11 @@ const exposureOptions = computed(() => [
   { label: t.customizeMcpExposureHidden, value: "hidden" },
 ]);
 
+const clientRegistrationOptions = computed(() => [
+  { label: t.customizeMcpOauthClientRegistrationDcr, value: "dcr" },
+  { label: t.customizeMcpOauthClientRegistrationCimd, value: "cimd" },
+]);
+
 function parseKeyValues(
   text: string,
   separator: string,
@@ -269,6 +283,7 @@ function buildOauth(): Record<string, unknown> | undefined {
   if (clientSecret) oauth.clientSecret = clientSecret;
   const clientName = oauthClientName.value.trim();
   if (clientName) oauth.clientName = clientName;
+  if (oauthClientRegistration.value === "cimd") oauth.clientRegistration = "cimd";
   const scopeText = oauthScope.value.trim();
   if (scopeText) oauth.scope = scopeText;
   const portText = oauthCallbackPort.value.trim();
@@ -286,12 +301,25 @@ function buildOauth(): Record<string, unknown> | undefined {
   return Object.keys(oauth).length ? oauth : undefined;
 }
 
+function parseToolExposure(text: string): Record<string, string> | undefined {
+  const map = parseKeyValues(text, ":", t.customizeMcpToolExposureInvalid, true);
+  if (!map) return undefined;
+  for (const value of Object.values(map)) {
+    if (!isExposure(value) && value !== "codemode-deferred") {
+      throw new Error(t.customizeMcpToolExposureInvalid);
+    }
+  }
+  return map;
+}
+
 function buildEntry(): Record<string, unknown> {
   const entry: Record<string, unknown> = originalEntry.value ? { ...originalEntry.value } : {};
   for (const key of FORM_KEYS) delete entry[key];
   const descriptionText = description.value.trim();
   if (descriptionText) entry.description = descriptionText;
   if (exposure.value !== "codemode") entry.exposure = exposure.value;
+  const toolExposureMap = parseToolExposure(toolExposure.value);
+  if (toolExposureMap) entry.toolExposure = toolExposureMap;
   const timeoutText = timeout.value.trim();
   if (timeoutText) {
     const seconds = Number(timeoutText);
@@ -607,6 +635,16 @@ async function submit(): Promise<void> {
             />
           </div>
           <div class="field">
+            <span class="field-label">{{ t.customizeMcpToolExposure }}</span>
+            <NInput
+              v-model:value="toolExposure"
+              type="textarea"
+              size="small"
+              :autosize="{ minRows: 2, maxRows: 6 }"
+              :placeholder="t.customizeMcpToolExposureHint"
+            />
+          </div>
+          <div class="field">
             <span class="field-label">{{ t.customizeMcpTimeout }}</span>
             <NInput v-model:value="timeout" size="small" class="narrow-input" placeholder="60" />
           </div>
@@ -656,6 +694,15 @@ async function submit(): Promise<void> {
                   v-model:value="oauthClientName"
                   size="small"
                   :placeholder="t.customizeMcpOauthAuto"
+                />
+              </div>
+              <div class="field">
+                <span class="field-label">{{ t.customizeMcpOauthClientRegistration }}</span>
+                <NSelect
+                  v-model:value="oauthClientRegistration"
+                  size="small"
+                  class="narrow-select"
+                  :options="clientRegistrationOptions"
                 />
               </div>
               <div class="field">
