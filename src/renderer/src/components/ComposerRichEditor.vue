@@ -3,7 +3,7 @@ import { computed, nextTick, onMounted, ref, watch } from "vue";
 import type { ComposerChip } from "@renderer/stores/composer";
 import { truncateElementContent, useComposerStore } from "@renderer/stores/composer";
 import { fileTagLabel, urlTagLabel } from "@renderer/utils/composer-tags";
-import { serializeRichEditor } from "@renderer/utils/composer-rich";
+import { draftBeforeCaret, serializeRichEditor } from "@renderer/utils/composer-rich";
 import { isRegionCitation } from "../../../shared/protocol";
 import { t } from "@renderer/i18n";
 
@@ -321,7 +321,7 @@ function insertTextAtCaret(text: string): void {
     return;
   }
 
-  const before = (range.startContainer.textContent ?? "").slice(0, range.startOffset);
+  const before = draftBeforeCaret(root, range);
   applyingStore = true;
   if (!insertTextViaCommand(next, before)) {
     insertTextViaDom(range, next, before);

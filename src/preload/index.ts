@@ -1598,6 +1598,11 @@ const api = {
 				removed: number;
 				bytes: number;
 			}>,
+		stats: () =>
+			ipcRenderer.invoke(IpcChannels.tempCleanup.stats) as Promise<{
+				count: number;
+				bytes: number;
+			}>,
 	},
 	appearance: {
 		pickWallpaper: () =>

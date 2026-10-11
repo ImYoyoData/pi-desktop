@@ -50,6 +50,8 @@ export const IpcChannels = {
 		get: "tempCleanup:get",
 		/** Renderer → main: 保存清理设置（并重排定时器）。 */
 		set: "tempCleanup:set",
+		/** Renderer → main: 统计当前临时文件数量与占用字节数。 */
+		stats: "tempCleanup:stats",
 		/** Renderer → main: 立即执行一次清理，返回删除数量与释放字节数。 */
 		sweep: "tempCleanup:sweep",
 	},

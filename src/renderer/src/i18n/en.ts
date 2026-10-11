@@ -140,6 +140,9 @@ export const en = {
 	tempCleanupMaxAge: "File age limit",
 	tempCleanupMaxAgeHint: "Only files older than this are deleted; in-use ones are untouched",
 	tempCleanupSweepNow: "Clean now",
+	tempCleanupStats: "Show stats",
+	tempCleanupStatsResult: (count: number, mb: number) =>
+		`${count} temp file(s), ${mb.toFixed(1)} MB total`,
 	tempCleanupSweepDone: (count: number, mb: number) => `Cleaned ${count} file(s), freed ${mb.toFixed(1)} MB`,
 	tempCleanupIntervalLabel: (hours: number) =>
 		hours >= 24 ? `every ${Math.round(hours / 24)}d` : `every ${hours}h`,
@@ -733,8 +736,7 @@ export const en = {
 		"Auto-compact when contextTokens > contextWindow − reserveTokens (default reserveTokens=16384)",
 	sessionStatsTurns: "Turns",
 	sessionStatsSteps: "Steps",
-	sessionStatsToolCalls: "Tool calls",
-	sessionStatsTtft: "TTFT",
+	sessionStatsToolCalls: "Tools",
 	sessionStatsTps: "Avg",
 	sessionStatsCacheHit: "Cache hit",
 	sessionStatsInputTokens: "Input",
@@ -742,7 +744,6 @@ export const en = {
 	sessionStatsEmpty: "No session stats yet",
 	sessionStatsTitle: (turns: string, steps: string, tools: string) =>
 		`Agent ${turns} turns · ${steps} steps · ${tools} tool calls`,
-	sessionStatsTtftFormat: (s: string) => `${s}s`,
 	sessionStatsTpsFormat: (n: string) => `${n} tok/s`,
 	sessionStatsCacheHitFormat: (p: string) => `${p}%`,
 	sessionStatsTokensFormat: (n: string) => `${n} tok`,

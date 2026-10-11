@@ -1678,13 +1678,6 @@ const sessionStats = computed<SessionStatItem[] | null>(() => {
         }
       : null,
   );
-  if (u.ttftMs != null && u.ttftMs > 0) {
-    push({
-      key: "ttft",
-      label: t.sessionStatsTtft,
-      value: formatSessionTtft(u.ttftMs),
-    });
-  }
   if (u.tokensPerSecond != null && u.tokensPerSecond > 0) {
     push({
       key: "tps",
@@ -1729,12 +1722,6 @@ const sessionStats = computed<SessionStatItem[] | null>(() => {
   return items.length > 0 ? items : null;
 });
 
-
-function formatSessionTtft(ms: number | null): string {
-  if (ms == null || !Number.isFinite(ms) || ms <= 0) return "—";
-  const s = ms / 1000;
-  return t.sessionStatsTtftFormat(s < 1 ? s.toFixed(2) : s.toFixed(1));
-}
 
 function formatSessionTps(n: number | null): string {
   if (n == null || !Number.isFinite(n) || n <= 0) return "—";
@@ -2423,6 +2410,13 @@ watch(
           </NPopover>
         </div>
 
+        <div v-if="appearance.showSessionDetails && sessionStats" class="session-stats" role="status" aria-label="session statistics">
+          <span v-for="item in sessionStats" :key="item.key" class="ss-item" :title="item.title">
+            <span class="ss-label">{{ item.label }}</span>
+            <strong>{{ item.value }}</strong>
+          </span>
+        </div>
+
         <div class="toolbar-right">
           <NPopover
             trigger="manual"
@@ -2544,18 +2538,6 @@ watch(
             </template>
           </NButton>
         </div>
-      </div>
-    </div>
-
-    <div v-if="appearance.showSessionDetails" class="composer-meta">
-      <div v-if="sessionStats" class="session-stats" role="status" aria-label="session statistics">
-        <template v-for="(item, idx) in sessionStats" :key="item.key">
-          <span v-if="idx > 0" class="ss-sep" aria-hidden="true" />
-          <span class="ss-item" :title="item.title">
-            <span class="ss-label">{{ item.label }}</span>
-            <strong>{{ item.value }}</strong>
-          </span>
-        </template>
       </div>
     </div>
 
@@ -2748,22 +2730,11 @@ watch(
   padding: 0;
 }
 
-.composer-meta {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  width: 100%;
-  padding: 4px 4px 0;
-  box-sizing: border-box;
-  min-width: 0;
-}
-
 .toolbar {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 4px;
+  gap: 12px;
   padding-top: 2px;
   min-width: 0;
 }
@@ -2773,7 +2744,7 @@ watch(
   align-items: center;
   gap: 2px;
   min-width: 0;
-  flex: 1;
+  flex: 0 1 auto;
   overflow: hidden;
 }
 
@@ -2902,10 +2873,8 @@ watch(
   align-items: center;
   justify-content: center;
   flex-wrap: wrap;
-  gap: 4px 10px;
-  width: 100%;
-  padding: 2px 2px 0;
-  box-sizing: border-box;
+  gap: 2px 6px;
+  flex: 1;
   min-width: 0;
   color: var(--fg-muted, #71717a);
   font-size: 11px;
@@ -2919,6 +2888,11 @@ watch(
   white-space: nowrap;
 }
 
+.ss-item + .ss-item {
+  padding-left: 7px;
+  border-left: 1px solid color-mix(in srgb, var(--border, #ddd) 70%, transparent);
+}
+
 .ss-item strong {
   font-weight: 600;
   color: var(--fg-strong, #1f2328);
@@ -2927,13 +2901,6 @@ watch(
 
 .ss-label {
   color: var(--fg-faint, #999);
-}
-
-.ss-sep {
-  width: 1px;
-  height: 10px;
-  background: color-mix(in srgb, var(--border, #ddd) 70%, transparent);
-  flex-shrink: 0;
 }
 
 .ctx-meter {
@@ -3153,8 +3120,8 @@ watch(
 
   .session-stats {
     justify-content: flex-start;
-    overflow-x: auto;
     flex-wrap: nowrap;
+    overflow-x: auto;
     -webkit-overflow-scrolling: touch;
     scrollbar-width: none;
   }

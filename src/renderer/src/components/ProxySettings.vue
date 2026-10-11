@@ -1,12 +1,10 @@
 <script setup lang="ts">
-import { computed, ref, watch } from "vue";
+import { computed, onMounted, ref } from "vue";
 import {
-  NModal,
-  NRadioGroup,
-  NRadioButton,
   NInput,
+  NRadioButton,
+  NRadioGroup,
   NText,
-  NButton,
   useMessage,
 } from "naive-ui";
 import {
@@ -15,32 +13,22 @@ import {
 } from "../../../shared/proxy";
 import { t } from "@renderer/i18n";
 
-const props = defineProps<{ open: boolean }>();
-const emit = defineEmits<{ close: [] }>();
-
 const message = useMessage();
 
 const mode = ref<ProxyMode>("off");
 const url = ref("");
-let loaded = false;
+const loaded = ref(false);
 
-watch(
-  () => props.open,
-  async (open) => {
-    if (!open) {
-      loaded = false;
-      return;
-    }
-    try {
-      const current = await window.api.proxy.get();
-      mode.value = current.mode;
-      url.value = current.url;
-    } catch {
-    } finally {
-      loaded = true;
-    }
-  },
-);
+onMounted(async () => {
+  try {
+    const current = await window.api.proxy.get();
+    mode.value = current.mode;
+    url.value = current.url;
+  } catch {
+  } finally {
+    loaded.value = true;
+  }
+});
 
 let applyChain: Promise<void> = Promise.resolve();
 
@@ -60,20 +48,23 @@ function apply(showSuccess = false): void {
   });
 }
 
-watch(mode, (next, prev) => {
-  if (!loaded || next === prev) return;
+function onMode(next: ProxyMode): void {
+  if (!loaded.value || next === mode.value) return;
+  mode.value = next;
   if (next === "custom" && !normalizeProxyUrl(url.value)) return;
   apply(true);
-});
+}
 
 let urlTimer: ReturnType<typeof setTimeout> | undefined;
-watch(url, () => {
-  if (!loaded || mode.value !== "custom") return;
+
+function onUrl(next: string): void {
+  url.value = next;
+  if (!loaded.value || mode.value !== "custom") return;
   clearTimeout(urlTimer);
   urlTimer = setTimeout(() => {
     if (normalizeProxyUrl(url.value)) apply();
   }, 600);
-});
+}
 
 const urlInvalid = computed(
   () =>
@@ -84,52 +75,62 @@ const urlInvalid = computed(
 </script>
 
 <template>
-  <NModal
-    :show="props.open"
-    preset="card"
-    class="pi-settings-modal"
-    style="width: min(520px, 92vw)"
-    :title="t.proxyTitle"
-    :bordered="false"
-    size="huge"
-    @update:show="(v) => !v && emit('close')"
-  >
-    <div class="modal-scroll">
-      <div class="section">
-        <NRadioGroup v-model:value="mode" size="small">
-          <NRadioButton value="off">{{ t.proxyModeOff }}</NRadioButton>
-          <NRadioButton value="system">{{ t.proxyModeSystem }}</NRadioButton>
-          <NRadioButton value="custom">{{ t.proxyModeCustom }}</NRadioButton>
-        </NRadioGroup>
-      </div>
+  <section class="settings-group">
+    <div class="group-title">{{ t.proxyTitle }}</div>
 
-      <div v-if="mode === 'custom'" class="section" style="margin-top: 16px">
-        <NText strong style="font-size: 13px; display: block; margin-bottom: 6px">
-          {{ t.proxyUrlLabel }}
-        </NText>
-        <NInput
-          v-model:value="url"
-          size="small"
-          :status="urlInvalid ? 'error' : undefined"
-          :placeholder="t.proxyUrlPlaceholder"
-        />
-      </div>
+    <div class="row">
+      <NRadioGroup :value="mode" size="small" @update:value="onMode">
+        <NRadioButton value="off">{{ t.proxyModeOff }}</NRadioButton>
+        <NRadioButton value="system">{{ t.proxyModeSystem }}</NRadioButton>
+        <NRadioButton value="custom">{{ t.proxyModeCustom }}</NRadioButton>
+      </NRadioGroup>
     </div>
-    <template #footer>
-      <div class="footer">
-        <NButton @click="emit('close')">{{ t.close }}</NButton>
+
+    <div v-if="mode === 'custom'" class="row">
+      <div class="labels">
+        <NText strong>{{ t.proxyUrlLabel }}</NText>
       </div>
-    </template>
-  </NModal>
+      <NInput
+        class="url-input"
+        :value="url"
+        size="small"
+        :status="urlInvalid ? 'error' : undefined"
+        :placeholder="t.proxyUrlPlaceholder"
+        @update:value="onUrl"
+      />
+    </div>
+  </section>
 </template>
 
 <style scoped>
-.section {
+.settings-group {
   display: flex;
   flex-direction: column;
+  gap: 12px;
 }
-.footer {
+
+.group-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--fg-muted);
+}
+
+.row {
   display: flex;
-  justify-content: flex-end;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.labels {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.url-input {
+  width: 320px;
+  flex-shrink: 0;
 }
 </style>

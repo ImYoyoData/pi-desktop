@@ -31,6 +31,14 @@ export function plainTextFromClipboard(textPlain: string, textHtml = ""): string
   return extractDraftFromRichHtml(textHtml).replace(/\r\n/g, "\n").replace(/\r/g, "\n");
 }
 
+/** 插入点前的草稿文本：chip 记作空格，零宽占位符剔除，用于判断是否补前导空格。 */
+export function draftBeforeCaret(root: HTMLElement, range: Range): string {
+  const head = range.cloneRange();
+  head.selectNodeContents(root);
+  head.setEnd(range.startContainer, range.startOffset);
+  return serializeRichEditor(head.cloneContents()).draft;
+}
+
 export function chipIdsFromRichHtml(html: string): string[] {
   const ids: string[] = [];
   CHIP_ID_RE.lastIndex = 0;
@@ -45,7 +53,7 @@ export function chipIdsFromRichHtml(html: string): string[] {
  * Walk a contenteditable root: text nodes → draft, chip spans → chipOrder (skipped as labels).
  * Falls back to HTML string helpers when `querySelectorAll` is the only API (tests).
  */
-export function serializeRichEditor(root: HTMLElement): { draft: string; chipOrder: string[] } {
+export function serializeRichEditor(root: HTMLElement | DocumentFragment): { draft: string; chipOrder: string[] } {
   if (typeof root.querySelectorAll === "function" && typeof (root as Node).childNodes === "undefined") {
     const chipOrder: string[] = [];
     const nodes = root.querySelectorAll("[data-chip-id]");
@@ -54,7 +62,7 @@ export function serializeRichEditor(root: HTMLElement): { draft: string; chipOrd
       if (id) chipOrder.push(id);
     }
     return {
-      draft: extractDraftFromRichHtml(root.innerHTML),
+      draft: extractDraftFromRichHtml("innerHTML" in root ? root.innerHTML : ""),
       chipOrder,
     };
   }
