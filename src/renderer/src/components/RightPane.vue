@@ -45,6 +45,10 @@ import { useWorkspaceStore } from "@renderer/stores/workspace";
 import { gitCodeColor } from "@renderer/utils/editor-lang";
 import { fileIcon, type FileIcon } from "@renderer/utils/file-icon";
 import { localizedTabLabel } from "@renderer/utils/right-tab-labels";
+import type {
+  ProgramStatusReport,
+  ProgramStatusState,
+} from "@renderer/utils/osc-program-status";
 import { t } from "@renderer/i18n";
 
 const layout = useLayoutStore();
@@ -422,6 +426,26 @@ function tabLabelStyle(tab: RightTab): Record<string, string> | undefined {
   return undefined;
 }
 
+function piStateLabel(state: ProgramStatusState): string {
+  switch (state) {
+    case "working":
+      return t.terminalPiWorking;
+    case "blocked":
+      return t.terminalPiBlocked;
+    case "done":
+      return t.terminalPiDone;
+    case "error":
+      return t.terminalPiError;
+    default:
+      return t.terminalPiIdle;
+  }
+}
+
+function piStatusTitle(status: ProgramStatusReport): string {
+  const label = piStateLabel(status.state);
+  return status.message ? `${label} · ${status.message}` : label;
+}
+
 /** 预览标签的 Seti 文件图标：git/脏状态色优先于主题类型色。 */
 const tabIcons = computed(() => {
   const icons = new Map<string, FileIcon>();
@@ -708,6 +732,13 @@ function submitRenameTab(): void {
               }"
               :style="tabLabelStyle(tab)"
             >{{ tabDisplayLabel(tab) }}</span>
+            <span
+              v-if="tab.kind === 'terminal' && tab.piStatus"
+              class="tab-pi-status"
+              :class="`is-${tab.piStatus.state}`"
+              :title="piStatusTitle(tab.piStatus)"
+              aria-hidden="true"
+            ></span>
             <span
               v-if="tab.kind === 'running' && runningCount > 0"
               class="tab-run-count"
@@ -1184,6 +1215,41 @@ function submitRenameTab(): void {
 .tab-label.transient {
   font-style: italic;
   font-weight: 450;
+}
+
+.tab-pi-status {
+  flex-shrink: 0;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--fg-muted);
+}
+
+.tab-pi-status.is-working {
+  background: var(--accent);
+  animation: tab-pi-breathe 1.2s ease-in-out infinite;
+}
+
+.tab-pi-status.is-blocked {
+  background: #e6a23c;
+}
+
+.tab-pi-status.is-done {
+  background: #67c23a;
+}
+
+.tab-pi-status.is-error {
+  background: var(--error);
+}
+
+@keyframes tab-pi-breathe {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
 }
 
 .body {

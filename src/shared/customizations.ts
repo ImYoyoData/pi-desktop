@@ -93,6 +93,9 @@ export type McpEditTarget = {
 	workspace: string | null;
 };
 
+/** pi 1.0.1 的项目覆盖：.pi/mcp.json 无 command/url 的条目只改用户级服务器的启用态。 */
+export type McpProjectOverride = "inherit" | "enabled" | "disabled";
+
 /** 桌面注册的 pi 内置扩展开关状态。 */
 export type BuiltinExtensionItem = {
 	id: string;

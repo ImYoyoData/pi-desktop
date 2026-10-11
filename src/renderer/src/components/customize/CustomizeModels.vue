@@ -397,6 +397,17 @@ function setModelNumber(
   else model[key] = Math.floor(value);
 }
 
+const samplingOpen = ref<Record<string, boolean>>({});
+
+function samplingRowKey(index: number): string {
+  return modelRowKeys.value[index] ?? String(index);
+}
+
+function toggleSampling(index: number): void {
+  const key = samplingRowKey(index);
+  samplingOpen.value = { ...samplingOpen.value, [key]: !samplingOpen.value[key] };
+}
+
 function onApiKeyInput(value: string): void {
   if (!draft.value) return;
   draft.value.apiKey = value;
@@ -1012,6 +1023,38 @@ async function testModel(rowKey: string, modelId: string): Promise<void> {
                       @update:value="(value: boolean) => (model.vision = value)"
                     />
                   </div>
+
+                  <button type="button" class="sampling-toggle" @click="toggleSampling(index)">
+                    <CodiconIcon
+                      :name="samplingOpen[samplingRowKey(index)] ? 'chevronDown' : 'chevronRight'"
+                      :size="14"
+                    />
+                    <span>{{ t.modelsCustomSampling }}</span>
+                  </button>
+                  <div v-if="samplingOpen[samplingRowKey(index)]" class="sampling-fields">
+                    <div class="sampling-field">
+                      <span class="sampling-label">{{ t.modelsCustomSamplingParams }}</span>
+                      <NInput
+                        v-model:value="model.samplingParamsJson"
+                        type="textarea"
+                        size="small"
+                        :rows="3"
+                        :placeholder="t.modelsCustomSamplingParamsHint"
+                      />
+                    </div>
+                    <div class="sampling-field">
+                      <span class="sampling-label">
+                        {{ t.modelsCustomSamplingParamsLevels }}
+                      </span>
+                      <NInput
+                        v-model:value="model.samplingParamsByThinkingLevelJson"
+                        type="textarea"
+                        size="small"
+                        :rows="4"
+                        :placeholder="t.modelsCustomSamplingParamsLevelsHint"
+                      />
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>
@@ -1557,6 +1600,40 @@ async function testModel(rowKey: string, modelId: string): Promise<void> {
   align-items: center;
   flex-wrap: wrap;
   gap: 10px;
+}
+
+.sampling-toggle {
+  display: inline-flex;
+  align-items: center;
+  align-self: flex-start;
+  gap: 4px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--fg-muted);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.sampling-toggle:hover {
+  color: var(--fg);
+}
+
+.sampling-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.sampling-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.sampling-label {
+  color: var(--fg-muted);
+  font-size: 12px;
 }
 
 .model-number {

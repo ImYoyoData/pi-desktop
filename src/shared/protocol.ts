@@ -231,9 +231,12 @@ export const IpcChannels = {
 		list: "customizations:list",
 		create: "customizations:create",
 		createAgentFromDraft: "customizations:createAgentFromDraft",
+		createPromptFromDraft: "customizations:createPromptFromDraft",
 		saveAgent: "customizations:saveAgent",
 		createInstructionsFromDraft: "customizations:createInstructionsFromDraft",
 		setMcpEnabled: "customizations:setMcpEnabled",
+		listMcpProjectOverrides: "customizations:listMcpProjectOverrides",
+		setMcpProjectOverride: "customizations:setMcpProjectOverride",
 		addMcpServers: "customizations:addMcpServers",
 		readMcpServer: "customizations:readMcpServer",
 		ensureMcpConfig: "customizations:ensureMcpConfig",
@@ -755,6 +758,8 @@ export type SessionHistoryMessage =
 			isError?: boolean;
 			/** Tool-call arguments from the preceding assistant toolCall (e.g. write content). */
 			args?: unknown;
+			/** 工具执行耗时毫秒（pi 1.1.0 起记录在工具结果上）。 */
+			durationMs?: number;
 			/** 工具内部调用（ctx.executeTool）的摘要，从 pi 的 nestedCalls 还原。 */
 			nestedCalls?: {
 				toolCallId: string;

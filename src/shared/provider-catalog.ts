@@ -292,7 +292,7 @@ const SDK_PRESENTATION: Record<string, SdkPresentation> = {
   "cloudflare-workers-ai": { category: "global" },
   "cloudflare-ai-gateway": { category: "global" },
   "amazon-bedrock": { category: "global" },
-  "azure-openai-responses": { category: "global" },
+  azure: { category: "global" },
   "google-vertex": { category: "global" },
   "github-copilot": { category: "featured" },
   "openai-codex": { category: "featured" },

@@ -16,12 +16,16 @@ import {
   CACHE_WARMING_MODES,
   COMPACTION_KEEP_RECENT_CHOICES,
   COMPACTION_RESERVE_CHOICES,
+  DELIVERY_MODES,
+  TRANSPORT_MODES,
   WEBSOCKET_TIMEOUT_CHOICES,
   type CacheWarmingMode,
   type CompactionModelOverride,
+  type DeliveryMode,
   type RuntimeSettings,
   type RuntimeThinkingBudgets,
 } from "../../../../shared/runtime-settings";
+import { THINKING_LEVELS, isThinkingLevel } from "@renderer/utils/thinking-level";
 import { useRuntimeSettingsStore } from "@renderer/stores/runtime-settings";
 import { t } from "@renderer/i18n";
 
@@ -94,6 +98,9 @@ const warmingOptions = computed<Option[]>(() =>
 const sessionDir = ref("");
 const shellPath = ref("");
 const shellCommandPrefix = ref("");
+const modelThinkingLevelsText = ref("");
+const enabledModelsText = ref("");
+const npmCommandText = ref("");
 
 watch(
   () => runtime.settings,
@@ -101,6 +108,11 @@ watch(
     sessionDir.value = settings.sessionDir;
     shellPath.value = settings.shellPath;
     shellCommandPrefix.value = settings.shellCommandPrefix;
+    modelThinkingLevelsText.value = Object.entries(settings.modelThinkingLevels)
+      .map(([key, level]) => `${key}: ${level}`)
+      .join("\n");
+    enabledModelsText.value = settings.enabledModels.join("\n");
+    npmCommandText.value = settings.npmCommand.join("\n");
   },
   { immediate: true, deep: true },
 );
@@ -129,6 +141,84 @@ const anthropicExtraUsage = computed({
   get: () => runtime.settings.anthropicExtraUsage,
   set: (value: boolean) => save({ anthropicExtraUsage: value }),
 });
+const hideThinkingBlock = computed({
+  get: () => runtime.settings.hideThinkingBlock,
+  set: (value: boolean) => save({ hideThinkingBlock: value }),
+});
+
+/** 空字符串表示不写该键（用 pi 默认值）。 */
+const defaultThinkingLevel = computed({
+  get: () => runtime.settings.defaultThinkingLevel,
+  set: (value: string) => save({ defaultThinkingLevel: value }),
+});
+const transportValue = computed({
+  get: () => runtime.settings.transport,
+  set: (value: string) => save({ transport: value }),
+});
+const steeringMode = computed({
+  get: () => runtime.settings.steeringMode,
+  set: (value: DeliveryMode) => save({ steeringMode: value }),
+});
+const followUpMode = computed({
+  get: () => runtime.settings.followUpMode,
+  set: (value: DeliveryMode) => save({ followUpMode: value }),
+});
+
+const thinkingLevelOptions = computed<Option[]>(() => [
+  { label: t.runtimeLevelDefault, value: "" },
+  ...THINKING_LEVELS.map((level) => ({ label: level.label, value: level.value })),
+]);
+
+const transportOptions = computed<Option[]>(() => [
+  { label: t.runtimeTransportDefault, value: "" },
+  ...TRANSPORT_MODES.map((mode) => ({ label: mode, value: mode })),
+]);
+
+const deliveryOptions = computed<Option[]>(() =>
+  DELIVERY_MODES.map((mode) => ({
+    label: mode === "all" ? t.runtimeDeliveryAll : t.runtimeDeliveryOneAtATime,
+    value: mode,
+  })),
+);
+
+function parseLevelMapText(text: string): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const line of text.split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    const index = trimmed.indexOf(":");
+    if (index <= 0) throw new Error(t.runtimeModelThinkingLevelsInvalid);
+    const value = trimmed.slice(index + 1).trim();
+    if (!isThinkingLevel(value)) throw new Error(t.runtimeModelThinkingLevelsInvalid);
+    out[trimmed.slice(0, index).trim()] = value;
+  }
+  return out;
+}
+
+function parseLines(text: string): string[] {
+  return text
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+}
+
+/** 失焦保存的文本设置：解析失败提示原因并回读，避免界面与 settings.json 脱节。 */
+function saveModelThinkingLevels(): void {
+  try {
+    save({ modelThinkingLevels: parseLevelMapText(modelThinkingLevelsText.value) });
+  } catch (err) {
+    messageApi.error(err instanceof Error ? err.message : String(err));
+    void runtime.load(true);
+  }
+}
+
+function saveEnabledModels(): void {
+  save({ enabledModels: parseLines(enabledModelsText.value) });
+}
+
+function saveNpmCommand(): void {
+  save({ npmCommand: parseLines(npmCommandText.value) });
+}
 const skillCommands = computed({
   get: () => runtime.settings.enableSkillCommands,
   set: (value: boolean) => save({ enableSkillCommands: value }),
@@ -460,6 +550,69 @@ function setOverrideField(
     <NDivider style="margin: 0" />
 
     <div class="section-head">
+      <NText strong>{{ t.runtimeThinkingSection }}</NText>
+      <NText depth="3" class="section-hint">{{ t.runtimeThinkingSectionHint }}</NText>
+    </div>
+
+    <div class="switch-row">
+      <div class="switch-labels">
+        <NText strong>{{ t.runtimeDefaultThinkingLevel }}</NText>
+        <NText depth="3" class="row-hint">{{ t.runtimeDefaultThinkingLevelHint }}</NText>
+      </div>
+      <NSelect
+        v-model:value="defaultThinkingLevel"
+        :options="thinkingLevelOptions"
+        size="small"
+        class="setting-select"
+      />
+    </div>
+
+    <div class="switch-row">
+      <div class="switch-labels">
+        <NText strong>{{ t.runtimeModelThinkingLevels }}</NText>
+        <NText depth="3" class="row-hint">{{ t.runtimeModelThinkingLevelsHint }}</NText>
+      </div>
+      <NInput
+        v-model:value="modelThinkingLevelsText"
+        type="textarea"
+        size="small"
+        class="setting-input"
+        :autosize="{ minRows: 2, maxRows: 6 }"
+        placeholder="provider/modelId: high"
+        @blur="saveModelThinkingLevels"
+      />
+    </div>
+
+    <div class="switch-row">
+      <div class="switch-labels">
+        <NText strong>{{ t.runtimeEnabledModels }}</NText>
+        <NText depth="3" class="row-hint">{{ t.runtimeEnabledModelsHint }}</NText>
+      </div>
+      <NInput
+        v-model:value="enabledModelsText"
+        type="textarea"
+        size="small"
+        class="setting-input"
+        :autosize="{ minRows: 2, maxRows: 6 }"
+        placeholder="anthropic/*"
+        @blur="saveEnabledModels"
+      />
+    </div>
+
+    <div class="switch-row">
+      <div class="switch-labels">
+        <NText strong>{{ t.runtimeHideThinkingBlock }}</NText>
+        <NText depth="3" class="row-hint">{{ t.runtimeHideThinkingBlockHint }}</NText>
+      </div>
+      <NRadioGroup v-model:value="hideThinkingBlock" size="small" class="setting-radio-group">
+        <NRadioButton :value="true">{{ t.switchOn }}</NRadioButton>
+        <NRadioButton :value="false">{{ t.switchOff }}</NRadioButton>
+      </NRadioGroup>
+    </div>
+
+    <NDivider style="margin: 0" />
+
+    <div class="section-head">
       <NText strong>{{ t.runtimeBudgetsSection }}</NText>
       <NText depth="3" class="section-hint">{{ t.runtimeBudgetsSectionHint }}</NText>
     </div>
@@ -559,6 +712,39 @@ function setOverrideField(
     <NDivider style="margin: 0" />
 
     <div class="section-head">
+      <NText strong>{{ t.runtimeDeliverySection }}</NText>
+      <NText depth="3" class="section-hint">{{ t.runtimeDeliverySectionHint }}</NText>
+    </div>
+
+    <div class="switch-row">
+      <div class="switch-labels">
+        <NText strong>{{ t.runtimeSteeringMode }}</NText>
+        <NText depth="3" class="row-hint">{{ t.runtimeSteeringModeHint }}</NText>
+      </div>
+      <NSelect
+        v-model:value="steeringMode"
+        :options="deliveryOptions"
+        size="small"
+        class="setting-select"
+      />
+    </div>
+
+    <div class="switch-row">
+      <div class="switch-labels">
+        <NText strong>{{ t.runtimeFollowUpMode }}</NText>
+        <NText depth="3" class="row-hint">{{ t.runtimeFollowUpModeHint }}</NText>
+      </div>
+      <NSelect
+        v-model:value="followUpMode"
+        :options="deliveryOptions"
+        size="small"
+        class="setting-select"
+      />
+    </div>
+
+    <NDivider style="margin: 0" />
+
+    <div class="section-head">
       <NText strong>{{ t.runtimeEnvSection }}</NText>
       <NText depth="3" class="section-hint">{{ t.runtimeEnvSectionHint }}</NText>
     </div>
@@ -602,6 +788,35 @@ function setOverrideField(
         class="setting-input"
         :placeholder="t.runtimeShellPrefixPlaceholder"
         @blur="save({ shellCommandPrefix })"
+      />
+    </div>
+
+    <div class="switch-row">
+      <div class="switch-labels">
+        <NText strong>{{ t.runtimeTransport }}</NText>
+        <NText depth="3" class="row-hint">{{ t.runtimeTransportHint }}</NText>
+      </div>
+      <NSelect
+        v-model:value="transportValue"
+        :options="transportOptions"
+        size="small"
+        class="setting-select"
+      />
+    </div>
+
+    <div class="switch-row">
+      <div class="switch-labels">
+        <NText strong>{{ t.runtimeNpmCommand }}</NText>
+        <NText depth="3" class="row-hint">{{ t.runtimeNpmCommandHint }}</NText>
+      </div>
+      <NInput
+        v-model:value="npmCommandText"
+        type="textarea"
+        size="small"
+        class="setting-input"
+        :autosize="{ minRows: 2, maxRows: 4 }"
+        placeholder="npm"
+        @blur="saveNpmCommand"
       />
     </div>
 

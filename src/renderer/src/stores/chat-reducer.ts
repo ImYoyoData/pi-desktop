@@ -442,6 +442,12 @@ function nestedParentId(payload: Record<string, unknown>): string {
 	return typeof payload.parentToolCallId === "string" ? payload.parentToolCallId : "";
 }
 
+/** pi 1.1.0 起 tool_execution_end 带记录的执行耗时（单调时钟，工具未运行时缺省）。 */
+function recordedDurationMs(payload: Record<string, unknown>): number | undefined {
+	const value = payload.durationMs;
+	return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
 /**
  * 把嵌套调用写进父卡片的 nestedCalls；父卡片可能在实时槽（streamingMessage）
  * 或历史里（parkLiveTool 会同时保留一份）。父卡片不存在时返回 null，调用方
@@ -1334,11 +1340,13 @@ function reduceAgentPayload(
 		const id = `tool-${toolCallId}`;
 		const parentToolCallId = nestedParentId(payload);
 		if (parentToolCallId) {
+			const recordedMs = recordedDurationMs(payload);
 			const nested = upsertNestedCall(state, parentToolCallId, toolCallId, {
 				toolName: String(payload.toolName ?? "tool"),
 				result: capStoredToolResult(toToolResultValue(payload.result)),
 				isError: Boolean(payload.isError),
 				streaming: false,
+				...(recordedMs != null ? { durationMs: recordedMs } : {}),
 			});
 			if (nested) return nested;
 		}
@@ -1348,6 +1356,7 @@ function reduceAgentPayload(
 				: null;
 		const existing = state.messages.find((m) => m.id === id);
 		const prior = stream ?? (existing?.role === "tool" ? existing : null);
+		const recordedMs = recordedDurationMs(payload);
 		const toolMsg: ChatMessage = {
 			id,
 			role: "tool",
@@ -1358,9 +1367,11 @@ function reduceAgentPayload(
 			isError: Boolean(payload.isError),
 			streaming: false,
 			order: prior?.order,
-			...(prior?.startedAt != null
-				? { durationMs: Math.max(0, Date.now() - prior.startedAt) }
-				: {}),
+			...(recordedMs != null
+				? { durationMs: recordedMs }
+				: prior?.startedAt != null
+					? { durationMs: Math.max(0, Date.now() - prior.startedAt) }
+					: {}),
 		};
 		// The finished tool is the live card: finalize it into history.
 		if (stream) {
@@ -1429,12 +1440,25 @@ function reduceAgentPayload(
 	if (type === "agent_settled") {
 		// Fallback idle if prompt_done was missed; normally agent_end / prompt_done clears running.
 		const committed = commitStreamingMessage(state);
-		return {
+		const settled: ChatState = {
 			...committed,
 			running: false,
 			retryHint: null,
 			nextToolOrder: 1,
 		};
+		// pi 1.1.0 起 agent_settled 带 aborted。取消落在工具执行中时没有 message_end
+		// 可报，补一张取消卡，让「被取消」与「自然跑完」有区别。
+		if (payload.aborted === true) {
+			const last = settled.messages.at(-1);
+			if (!(last?.role === "error" && last.variant === "cancelled")) {
+				return appendError(
+					settled,
+					uiLocale() === "zh-CN" ? "已取消" : "Cancelled",
+					{ variant: "cancelled" },
+				);
+			}
+		}
+		return settled;
 	}
 	return state;
 }

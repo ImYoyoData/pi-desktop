@@ -129,6 +129,7 @@ const PROVIDER_ICON_ALIASES: Record<string, string> = {
   "amazon-bedrock": "bedrock",
   "ant-ling": "antgroup",
   anthropic: "anthropic",
+  azure: "azureai",
   "azure-openai-responses": "azureai",
   baseten: "baseten",
   cerebras: "cerebras",

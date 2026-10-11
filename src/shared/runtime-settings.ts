@@ -1,3 +1,5 @@
+import { isThinkingLevel } from "./thinking-level";
+
 /**
  * 「运行」设置（settings.json 的顶层键）：
  * compaction / cacheWarming / showCacheMissNotices / images / thinkingBudgets /
@@ -8,6 +10,14 @@
 
 export const CACHE_WARMING_MODES = ["off", "streaming", "idle"] as const;
 export type CacheWarmingMode = (typeof CACHE_WARMING_MODES)[number];
+
+/** 引导 / 追问队列的投递方式。 */
+export const DELIVERY_MODES = ["all", "one-at-a-time"] as const;
+export type DeliveryMode = (typeof DELIVERY_MODES)[number];
+
+/** provider 传输方式（pi 的 transport）。 */
+export const TRANSPORT_MODES = ["auto", "sse", "websocket", "websocket-cached"] as const;
+export type TransportMode = (typeof TRANSPORT_MODES)[number];
 
 /** 单个模型的压缩覆盖；键为 pi 的 `provider/modelId`，字段各自回退到全局值。 */
 export type CompactionModelOverride = {
@@ -56,6 +66,22 @@ export type RuntimeSettings = {
   branchSummary: RuntimeBranchSummarySettings;
   /** Anthropic 订阅额度提示，pi 默认开启。 */
   anthropicExtraUsage: boolean;
+  /** 启动思考档；空字符串表示不写（pi 默认 medium）。 */
+  defaultThinkingLevel: string;
+  /** 按模型的启动思考档，键为 pi 的 `provider/modelId`。 */
+  modelThinkingLevels: Record<string, string>;
+  /** 模型启用/循环 pattern（--models 格式）；空数组表示不写（全部可用模型）。 */
+  enabledModels: string[];
+  /** 隐藏思考块（pi 的 hideThinkingBlock）。 */
+  hideThinkingBlock: boolean;
+  /** 引导消息投递方式（pi 的 steeringMode）。 */
+  steeringMode: DeliveryMode;
+  /** 追问消息投递方式（pi 的 followUpMode）。 */
+  followUpMode: DeliveryMode;
+  /** provider 传输方式；空字符串表示不写（pi 默认 auto）。 */
+  transport: string;
+  /** npm 命令与参数（pi 的 npmCommand）；空数组表示不写（pi 默认 npm）。 */
+  npmCommand: string[];
   /** Codex WebSocket 连接超时；null = 不写该键（pi 默认），0 = 禁用超时。 */
   websocketConnectTimeoutMs: number | null;
   /** 命令 shell 路径；空字符串表示自动探测。 */
@@ -104,6 +130,14 @@ export const DEFAULT_RUNTIME_SETTINGS: RuntimeSettings = {
   thinkingBudgets: {},
   branchSummary: { reserveTokens: 16384, skipPrompt: false },
   anthropicExtraUsage: true,
+  defaultThinkingLevel: "",
+  modelThinkingLevels: {},
+  enabledModels: [],
+  hideThinkingBlock: false,
+  steeringMode: "one-at-a-time",
+  followUpMode: "one-at-a-time",
+  transport: "",
+  npmCommand: [],
   websocketConnectTimeoutMs: null,
   shellPath: "",
   shellCommandPrefix: "",
@@ -193,6 +227,30 @@ function isCacheWarmingMode(value: unknown): value is CacheWarmingMode {
   );
 }
 
+function isDeliveryMode(value: unknown): value is DeliveryMode {
+  return typeof value === "string" && (DELIVERY_MODES as readonly string[]).includes(value);
+}
+
+function isTransportMode(value: unknown): value is TransportMode {
+  return typeof value === "string" && (TRANSPORT_MODES as readonly string[]).includes(value);
+}
+
+function isStringArray(value: unknown): value is string[] {
+  return Array.isArray(value) && value.every((entry) => typeof entry === "string");
+}
+
+/** 按模型思考档：键非空、值是合法档位才保留。 */
+function readThinkingLevelMap(raw: unknown): Record<string, string> {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
+  const out: Record<string, string> = {};
+  for (const [rawKey, value] of Object.entries(raw as Record<string, unknown>)) {
+    const key = rawKey.trim();
+    if (!key || !isThinkingLevel(value)) continue;
+    out[key] = value;
+  }
+  return out;
+}
+
 /** 解析运行设置；缺省/非法值回落到 pi 的默认值。 */
 export function parseRuntimeSettings(raw: unknown): RuntimeSettings {
   const source = readObject(raw);
@@ -251,6 +309,24 @@ function parseRuntimeFields(
       skipPrompt: branchSummary.skipPrompt === true,
     },
     anthropicExtraUsage: anthropicExtraUsage !== false,
+    defaultThinkingLevel: isThinkingLevel(source.defaultThinkingLevel)
+      ? source.defaultThinkingLevel
+      : "",
+    modelThinkingLevels: readThinkingLevelMap(source.modelThinkingLevels),
+    enabledModels: isStringArray(source.enabledModels)
+      ? source.enabledModels.map((entry) => entry.trim()).filter(Boolean)
+      : [],
+    hideThinkingBlock: source.hideThinkingBlock === true,
+    steeringMode: isDeliveryMode(source.steeringMode)
+      ? source.steeringMode
+      : DEFAULT_RUNTIME_SETTINGS.steeringMode,
+    followUpMode: isDeliveryMode(source.followUpMode)
+      ? source.followUpMode
+      : DEFAULT_RUNTIME_SETTINGS.followUpMode,
+    transport: isTransportMode(source.transport) ? source.transport : "",
+    npmCommand: isStringArray(source.npmCommand)
+      ? source.npmCommand.filter((entry) => entry.trim())
+      : [],
     websocketConnectTimeoutMs: readWebsocketTimeout(source.websocketConnectTimeoutMs),
     shellPath: readText(source.shellPath),
     shellCommandPrefix: readText(source.shellCommandPrefix),
@@ -296,6 +372,15 @@ export function runtimeSettingsPatch(
       skipPrompt: next.branchSummary.skipPrompt,
     },
     warnings,
+    defaultThinkingLevel: next.defaultThinkingLevel || undefined,
+    modelThinkingLevels:
+      Object.keys(next.modelThinkingLevels).length > 0 ? next.modelThinkingLevels : undefined,
+    enabledModels: next.enabledModels.length > 0 ? next.enabledModels : undefined,
+    hideThinkingBlock: next.hideThinkingBlock || undefined,
+    steeringMode: next.steeringMode,
+    followUpMode: next.followUpMode,
+    transport: next.transport || undefined,
+    npmCommand: next.npmCommand.length > 0 ? next.npmCommand : undefined,
     websocketConnectTimeoutMs: next.websocketConnectTimeoutMs ?? undefined,
     shellPath: next.shellPath || undefined,
     shellCommandPrefix: next.shellCommandPrefix || undefined,

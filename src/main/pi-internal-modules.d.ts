@@ -33,6 +33,8 @@ declare module "pi-internal/mcp-oauth" {
 		callbackUrl?: string;
 		scope?: string;
 		clientName?: string;
+		/** dcr 动态注册（默认）；cimd 用 pi.dev 的客户端 ID 元数据文档，授权服务器可按 URL 放行。 */
+		clientRegistration?: "dcr" | "cimd";
 		/** 服务器已发布授权服务器元数据的地址（pi 要求 https，或本机 http）。 */
 		authServerMetadataUrl?: URL;
 	}

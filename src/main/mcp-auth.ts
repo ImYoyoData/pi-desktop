@@ -101,6 +101,9 @@ function oauthSettings(entry: Record<string, unknown>, name: string): McpOAuthSe
 		...(text(oauth.callbackUrl) ? { callbackUrl: text(oauth.callbackUrl) } : {}),
 		...(text(oauth.scope) ? { scope: text(oauth.scope) } : {}),
 		...(text(oauth.clientName) ? { clientName: text(oauth.clientName) } : {}),
+		...(oauth.clientRegistration === "cimd" || oauth.clientRegistration === "dcr"
+			? { clientRegistration: oauth.clientRegistration }
+			: {}),
 		...(metadataUrl ? { authServerMetadataUrl: metadataUrl } : {}),
 	};
 }
