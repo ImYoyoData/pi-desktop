@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from "vue";
-import { NButton, NSelect, NSwitch, useMessage } from "naive-ui";
+import { NButton, NRadioButton, NRadioGroup, NSelect, NText, useMessage } from "naive-ui";
 import type { TempCleanupSettings } from "../../../../shared/temp-cleanup";
 import {
 	DEFAULT_TEMP_CLEANUP_SETTINGS,
@@ -44,6 +44,11 @@ async function save(next: TempCleanupSettings): Promise<void> {
 		message.error(err instanceof Error ? err.message : String(err));
 	}
 }
+
+const enabledControl = computed({
+	get: () => settings.value.enabled,
+	set: (value: boolean) => onToggle(value),
+});
 
 function onToggle(value: boolean): void {
 	void save({ ...settings.value, enabled: value });
@@ -96,15 +101,22 @@ async function sweepNow(): Promise<void> {
 
 <template>
   <div v-if="loaded" class="temp-cleanup">
-    <div class="temp-cleanup-row">
-      <span class="temp-cleanup-name">{{ t.tempCleanupEnabled }}</span>
-      <NSwitch :value="settings.enabled" @update:value="onToggle" />
+    <div class="switch-row">
+      <div class="switch-labels">
+        <NText strong>{{ t.tempCleanupEnabled }}</NText>
+      </div>
+      <NRadioGroup v-model:value="enabledControl" size="small" class="setting-radio-group">
+        <NRadioButton :value="true">{{ t.switchOn }}</NRadioButton>
+        <NRadioButton :value="false">{{ t.switchOff }}</NRadioButton>
+      </NRadioGroup>
     </div>
 
-    <div class="temp-cleanup-row">
-      <span class="temp-cleanup-name">{{ t.tempCleanupInterval }}</span>
+    <div class="switch-row">
+      <div class="switch-labels">
+        <NText strong>{{ t.tempCleanupInterval }}</NText>
+      </div>
       <NSelect
-        class="temp-cleanup-select"
+        class="setting-select"
         size="small"
         :value="settings.intervalHours"
         :options="intervalOptions"
@@ -113,10 +125,12 @@ async function sweepNow(): Promise<void> {
       />
     </div>
 
-    <div class="temp-cleanup-row">
-      <span class="temp-cleanup-name">{{ t.tempCleanupMaxAge }}</span>
+    <div class="switch-row">
+      <div class="switch-labels">
+        <NText strong>{{ t.tempCleanupMaxAge }}</NText>
+      </div>
       <NSelect
-        class="temp-cleanup-select"
+        class="setting-select"
         size="small"
         :value="settings.maxAgeHours"
         :options="ageOptions"
@@ -125,12 +139,12 @@ async function sweepNow(): Promise<void> {
       />
     </div>
 
-    <div class="temp-cleanup-row temp-cleanup-actions">
-      <span class="temp-cleanup-stats">{{ statsText }}</span>
-      <NButton size="small" :loading="statsLoading" @click="showStats">
+    <div class="switch-row">
+      <NText depth="3" class="row-hint stats-text">{{ statsText }}</NText>
+      <NButton size="small" secondary :loading="statsLoading" @click="showStats">
         {{ t.tempCleanupStats }}
       </NButton>
-      <NButton size="small" :loading="sweeping" @click="sweepNow">
+      <NButton size="small" secondary :loading="sweeping" @click="sweepNow">
         {{ t.tempCleanupSweepNow }}
       </NButton>
     </div>
@@ -141,37 +155,48 @@ async function sweepNow(): Promise<void> {
 .temp-cleanup {
   display: flex;
   flex-direction: column;
+  gap: 12px;
 }
 
-.temp-cleanup-row {
+.row-hint {
+  font-size: 12px;
+  line-height: 16px;
+}
+
+.switch-row {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: 12px;
-  padding: 6px 12px 6px 16px;
 }
 
-.temp-cleanup-name {
-  flex: 1;
+.switch-labels {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
   min-width: 0;
-  font-size: 13px;
-  line-height: 18px;
-  color: var(--fg);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
-.temp-cleanup-select {
-  width: 168px;
+.setting-select {
   flex-shrink: 0;
+  width: 128px;
 }
 
-.temp-cleanup-stats {
+.setting-radio-group {
+  flex-shrink: 0;
+  width: 120px;
+  display: inline-flex;
+}
+
+.setting-radio-group :deep(.n-radio-button) {
+  flex: 1;
+  padding: 0;
+  text-align: center;
+}
+
+.stats-text {
   flex: 1;
   min-width: 0;
-  font-size: 11px;
-  line-height: 16px;
-  color: var(--fg-muted);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
