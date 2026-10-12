@@ -13,6 +13,7 @@ import {
 	type NodeProxyMode,
 	type ProxySettings,
 } from "../shared/proxy";
+import { syncWebSearchProxy } from "./web-search-proxy";
 
 const SYSTEM_PROXY_PROBE_URL = "https://api.openai.com";
 
@@ -165,6 +166,18 @@ function applyHostProxyEnv(): void {
 	Object.assign(process.env, withProxyEnv({}));
 }
 
+/** pi 的 web-search 工具只读 web-search.json 的 proxy 字段，不认环境变量。 */
+function applyWebSearchProxy(): void {
+	try {
+		syncWebSearchProxy(
+			currentSettings,
+			systemProxyEnv.HTTP_PROXY ?? systemProxyEnv.ALL_PROXY,
+		);
+	} catch (err) {
+		console.warn("[proxy] failed to sync web-search.json proxy", err);
+	}
+}
+
 /** Load persisted settings and apply them; call once after app ready. */
 export async function initProxy(): Promise<void> {
 	currentSettings = readSettingsFromDisk();
@@ -192,6 +205,7 @@ export async function initProxy(): Promise<void> {
 	} finally {
 		applyHostProxyEnv();
 		persistProxyEnvSnapshot();
+		applyWebSearchProxy();
 	}
 }
 
@@ -230,6 +244,7 @@ export function registerProxyIpc(opts?: {
 			await refreshSystemProxyEnv();
 			applyHostProxyEnv();
 			persistProxyEnvSnapshot();
+			applyWebSearchProxy();
 			broadcastChanged(next);
 			opts?.onChanged?.(next);
 			return getProxySettings();
