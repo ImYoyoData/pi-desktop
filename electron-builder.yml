@@ -45,9 +45,7 @@ files:
   - "!node_modules/splitpanes/**"
   - "!node_modules/sortablejs/**"
   - "!node_modules/@types/**"
-  - "!node_modules/xterm/**"
   - "!node_modules/@xterm/**"
-  - "!node_modules/xterm-addon-web-links/**"
   - "!node_modules/mermaid/**"
   # mermaid 的传递依赖：renderer 已 bundle，包内副本无运行时代码引用
   - "!node_modules/elkjs/**"
