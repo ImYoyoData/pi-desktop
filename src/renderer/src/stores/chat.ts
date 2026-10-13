@@ -7,7 +7,7 @@ import type {
 	PromptImageContent,
 	SessionHistoryMessage,
 } from "../../../shared/protocol";
-import { toPromptCitations, toPromptImages, SESSION_HISTORY_LOAD_LIMIT } from "../../../shared/protocol";
+import { toPromptCitations, toPromptImages, SESSION_HISTORY_INITIAL_LIMIT, SESSION_HISTORY_PAGE_SIZE } from "../../../shared/protocol";
 import { createHiddenEventSink } from "@renderer/utils/hidden-event-buffer";
 import {
 	appendUserMessage,
@@ -200,6 +200,62 @@ export const useChatStore = defineStore("chat", () => {
 	const MAX_CACHED_SESSIONS = 8;
 	/** 会话状态最后一次 hydrate 的时间戳，用于 LRU 排序。 */
 	const sessionHydratedAt = new Map<string, number>();
+	/**
+	 * 每个会话的「更早历史」游标：是否还有、下一页从哪一条取、是否正在取。
+	 *
+	 * 初始只装尾部一页（见 SESSION_HISTORY_INITIAL_LIMIT），往上的历史由用户主动
+	 * 翻页加载。超长会话一次性全量载入会把渲染进程堆撑爆，这是内存治理的一环。
+	 */
+	const olderBySession = reactive<
+		Record<string, { hasMore: boolean; cursor: string | null; loading: boolean }>
+	>({});
+
+	function resetOlderCursor(
+		sessionId: string,
+		hasMore: boolean,
+		firstMessageId: string | null,
+	): void {
+		olderBySession[sessionId] = { hasMore, cursor: firstMessageId, loading: false };
+	}
+
+	/**
+	 * 取一页更早的历史并前插到消息列表头部，返回前插的条数。
+	 *
+	 * 返回条数供列表平移渲染窗口，保证视口内容不因前插而跳动。空页 / 出错都
+	 * 视为「没有更早了」，不会反复触发加载。
+	 */
+	async function loadOlderMessages(sessionId: string): Promise<number> {
+		const older = olderBySession[sessionId];
+		if (!older || older.loading || !older.hasMore || !older.cursor) return 0;
+		const row = sessionsStore.sessions.find((s) => s.id === sessionId);
+		if (!row?.filePath) return 0;
+
+		older.loading = true;
+		try {
+			const page = await window.api.sessions.history(row.filePath, {
+				limit: SESSION_HISTORY_PAGE_SIZE,
+				beforeId: older.cursor,
+			});
+			const state = bySession[sessionId];
+			if (!state || !page.messages.length) {
+				older.hasMore = false;
+				return 0;
+			}
+			const prepended = page.messages.map(mapHistoryRow);
+			bySession[sessionId] = {
+				...state,
+				messages: [...prepended, ...state.messages],
+			};
+			older.hasMore = page.hasMore;
+			older.cursor = prepended[0]!.id;
+			return prepended.length;
+		} catch (err) {
+			console.error("[chat] load older history failed:", err);
+			return 0;
+		} finally {
+			older.loading = false;
+		}
+	}
 	let softHangTimer: ReturnType<typeof setInterval> | null = null;
 	/** 会话事件订阅的解绑函数（已绑定时非 null，保证幂等）。 */
 	let unbindEvents: (() => void) | null = null;
@@ -844,6 +900,7 @@ export const useChatStore = defineStore("chat", () => {
 	function settledStateFromHistory(
 		sessionId: string,
 		history: SessionHistoryMessage[],
+		hasOlder = false,
 	): void {
 		bySession[sessionId] = {
 			messages: history.map(mapHistoryRow),
@@ -862,11 +919,13 @@ export const useChatStore = defineStore("chat", () => {
 		};
 		softHangReported.delete(sessionId);
 		stallReported.delete(sessionId);
+		resetOlderCursor(sessionId, hasOlder, history[0]?.id ?? null);
 	}
 
 	function hydrateFromHistory(
 		sessionId: string,
 		history: SessionHistoryMessage[],
+		hasOlder = false,
 	): void {
 		pendingUserEdit.value = null;
 		sessionHydratedAt.set(sessionId, Date.now());
@@ -880,11 +939,14 @@ export const useChatStore = defineStore("chat", () => {
 			// / extension strip). The disk page read on session switch
 			// lags the live turn, so replacing state would drop the pending prompt
 			// and any un-flushed stream tail; keep it until the turn settles.
-			softHangReported.delete(sessionId);
-			bySession[sessionId] = reconcileRunning(sessionId, {
+softHangReported.delete(sessionId);
+			const merged = reconcileRunning(sessionId, {
 				...live,
 				messages: mergeHistoryWithLive(mapped, live.messages),
 			});
+			bySession[sessionId] = merged;
+			// live 可能带着用户已翻到的更早历史，游标跟着合并后的第一条走。
+			resetOlderCursor(sessionId, hasOlder, merged.messages[0]?.id ?? null);
 			return;
 		}
 		// Returning to a session we already hold in memory: when the disk page is
@@ -901,9 +963,10 @@ export const useChatStore = defineStore("chat", () => {
 		) {
 			softHangReported.delete(sessionId);
 			bySession[sessionId] = reconcileRunning(sessionId, live);
+			resetOlderCursor(sessionId, hasOlder, live.messages[0]?.id ?? null);
 			return;
 		}
-		settledStateFromHistory(sessionId, history);
+		settledStateFromHistory(sessionId, history, hasOlder);
 		evictIdleSessions(sessionId);
 	}
 
@@ -937,11 +1000,11 @@ export const useChatStore = defineStore("chat", () => {
 
 		sessionsStore.applyStatus(sessionId, status);
 		const page = await window.api.sessions.history(row.filePath, {
-			limit: SESSION_HISTORY_LOAD_LIMIT,
+			limit: SESSION_HISTORY_INITIAL_LIMIT,
 		});
 		// 事件丢失连带丢了 prompt_done 的副作用，逐项补齐终态。
 		void checkpointStore.loadSessionSummaries(sessionId);
-		settledStateFromHistory(sessionId, page.messages);
+		settledStateFromHistory(sessionId, page.messages, page.hasMore);
 		recoveringIds.delete(sessionId);
 		stoppingBySession[sessionId] = false;
 		stopIntentBySession.delete(sessionId);
@@ -969,6 +1032,7 @@ export const useChatStore = defineStore("chat", () => {
 		askUserDrafts.delete(sessionId);
 		askUserSteps.delete(sessionId);
 		stoppingBySession[sessionId] = false;
+		delete olderBySession[sessionId];
 		checkpointStore.clearSession(sessionId);
 	}
 
@@ -1437,11 +1501,11 @@ export const useChatStore = defineStore("chat", () => {
 		try {
 			const [page] = await Promise.all([
 				window.api.sessions.history(forked.filePath, {
-					limit: SESSION_HISTORY_LOAD_LIMIT,
+					limit: SESSION_HISTORY_INITIAL_LIMIT,
 				}),
 				sessionsStore.selectSession(forked.id, root),
 			]);
-			hydrateFromHistory(forked.id, page.messages);
+			hydrateFromHistory(forked.id, page.messages, page.hasMore);
 		} finally {
 			endHistoryLoad(forked.id);
 		}
@@ -1572,6 +1636,7 @@ export const useChatStore = defineStore("chat", () => {
 
 	return {
 		bySession,
+		olderBySession,
 		pendingUserEdit,
 		historyLoadingId,
 		historyLoading,
@@ -1594,6 +1659,7 @@ export const useChatStore = defineStore("chat", () => {
 		beginHistoryLoad,
 		endHistoryLoad,
 		hydrateFromHistory,
+		loadOlderMessages,
 		resyncActiveSession,
 		clearSession,
 		sendPrompt,

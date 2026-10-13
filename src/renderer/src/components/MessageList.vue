@@ -495,6 +495,29 @@ const visibleMessages = computed(() =>
   displayMessages.value.slice(renderStart.value, renderEnd.value),
 );
 
+/** 更早历史的分页游标；没有更早历史时不显示入口。 */
+const olderState = computed(() => {
+  const id = sessions.activeId;
+  if (!id) return null;
+  return chat.olderBySession[id] ?? null;
+});
+
+/**
+ * 前插一页更早历史，并把渲染窗口同步下移同样条数。
+ *
+ * 前插只会让已挂载行的下标整体后移；窗口同步平移后可见集合不变，顶部占位
+ * （estimateRangeHeight(0, renderStart)）相应变高，视口因此不会跳动。
+ */
+async function onLoadOlder(): Promise<void> {
+  const id = sessions.activeId;
+  if (!id) return;
+  const added = await chat.loadOlderMessages(id);
+  if (added <= 0 || sessions.activeId !== id) return;
+  const len = displayMessages.value.length;
+  renderStart.value = Math.min(renderStart.value + added, len);
+  renderEnd.value = Math.min(renderEnd.value + added, len);
+}
+
 function estimateMessageHeight(msg: ChatMessage | undefined): number {
   if (!msg) return EST_MSG_HEIGHT;
   const group = workSectionMembership.value.get(msg.id);
@@ -2048,6 +2071,12 @@ function onRevertUser(msg: Extract<ChatMessage, { role: "user" }>): void {
   <div class="message-list-root">
     <div ref="scroller" class="message-list" :class="{ 'is-settling': settlingUi }">
     <div class="inner">
+      <div v-if="olderState?.hasMore" class="load-older">
+        <NButton text :loading="olderState.loading" @click="onLoadOlder">
+          {{ t.loadOlderHistory }}
+        </NButton>
+      </div>
+
       <NEmpty
         v-if="messages.length === 0 && !streaming && !historyLoading && !settlingUi"
         :description="t.emptyChat"
@@ -2586,6 +2615,17 @@ function onRevertUser(msg: Extract<ChatMessage, { role: "user" }>): void {
   flex-shrink: 0;
   width: 100%;
   pointer-events: none;
+}
+
+/* 往上翻历史的入口常驻视口顶部：列表顶部可能压着很长的估算占位，不粘住就点不到。 */
+.load-older {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  display: flex;
+  justify-content: center;
+  flex-shrink: 0;
+  padding: 4px 0;
 }
 
 .jump-latest {

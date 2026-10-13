@@ -4,6 +4,7 @@ import type {
   SessionHistoryMessage,
   SessionHistoryPage,
 } from "../shared/protocol";
+import { SESSION_HISTORY_PAGE_SIZE } from "../shared/protocol";
 import { sessionTimingPath } from "../shared/session-timing";
 import { deleteChatMeta, readChatMeta } from "./session-chat-meta";
 import { deleteImageCache } from "./session-image-cache";
@@ -15,9 +16,6 @@ import {
   parseHistoryOffMain,
   parseHistoryPageOffMain,
 } from "./session-history-offload";
-
-/** Default page size for chat UI history (tail / older pages). Disk jsonl stays full (shared with Pi CLI). */
-export const SESSION_HISTORY_PAGE_SIZE = 30;
 
 function deleteTimingMeta(filePath: string): void {
   try {

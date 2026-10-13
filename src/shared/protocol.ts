@@ -656,8 +656,16 @@ export type SessionHistoryQuery = {
 	beforeId?: string | null;
 };
 
-/** 聊天界面一次性加载全部尾部历史，分页只用于上滑加载更早的消息。 */
-export const SESSION_HISTORY_LOAD_LIMIT = 1_000_000;
+/** 单页历史条数（往上翻历史时按此粒度取）。主进程 readSessionHistoryPage 的默认值。 */
+export const SESSION_HISTORY_PAGE_SIZE = 30;
+
+/**
+ * 聊天界面首次打开一个会话时加载的尾部历史条数。
+ *
+ * 刻意不无上限：超长会话（几千轮）一次性全量载入，会把海量消息与大工具输出
+ * 一次性灌进渲染进程堆，是内存崩溃的主要来源。更早的历史按需往上翻。
+ */
+export const SESSION_HISTORY_INITIAL_LIMIT = 500;
 
 export type SessionSummary = {
 	id: string;
