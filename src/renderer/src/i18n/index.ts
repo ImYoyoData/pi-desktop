@@ -2,12 +2,13 @@ import { reactive, ref } from "vue";
 import { en } from "./en";
 import { zh } from "./zh-CN";
 import { detectSystemLanguage, resolveUiLocale, type UiLocale } from "./locale";
+import * as prefs from "@renderer/utils/prefs";
 
 export type Messages = typeof zh;
 
 function readStoredLocalePreference(): "system" | "zh-CN" | "en" {
   try {
-    const raw = localStorage.getItem("pi-desktop:locale-preference");
+    const raw = prefs.getItem("pi-desktop:locale-preference");
     if (raw === "zh-CN" || raw === "en" || raw === "system") return raw;
   } catch {
     // ignore

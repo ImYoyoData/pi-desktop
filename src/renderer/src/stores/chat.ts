@@ -1,5 +1,5 @@
 import { defineStore } from "pinia";
-import { computed, onScopeDispose, reactive, ref } from "vue";
+import { computed, reactive, ref } from "vue";
 import { createDiscreteApi } from "naive-ui";
 import type {
 	AgentEvent,
@@ -7,24 +7,21 @@ import type {
 	PromptImageContent,
 	SessionHistoryMessage,
 } from "../../../shared/protocol";
-import { toPromptCitations, toPromptImages, SESSION_HISTORY_LOAD_LIMIT } from "../../../shared/protocol";
+import { toPromptCitations, toPromptImages, SESSION_HISTORY_INITIAL_LIMIT, SESSION_HISTORY_PAGE_SIZE } from "../../../shared/protocol";
 import { createHiddenEventSink } from "@renderer/utils/hidden-event-buffer";
 import {
 	appendUserMessage,
 	clearPendingAskUser,
 	clearPendingExtensionUi,
-	clearPendingPermission,
 	createChatState,
 	hasLiveTurnState,
 	reduceChatEvent,
 	setPendingAskUser,
 	setPendingExtensionUi,
-	setPendingPermission,
 	withRunClock,
 	type ChatMessage,
 	type ChatState,
 	type ChatUserImage,
-	type PendingPermission,
 } from "./chat-reducer";
 import { stripComposerModePreamble } from "../../../shared/composer-modes";
 import { useSessionsStore } from "./sessions";
@@ -53,11 +50,7 @@ import {
 	turnHasProgressBeforeError,
 } from "../utils/chat-retry-continue";
 import { t } from "../i18n";
-import {
-	isPermissionAskCancelled,
-	type PermissionAskPrompt,
-	type PermissionDecision,
-} from "../../../shared/desktop-security";
+
 import {
 	isAskUserAskCancelled,
 	type AskUserAnswerDraft,
@@ -79,19 +72,16 @@ export type {
 	ChatState,
 	ChatUserImage,
 	ChatRetryHint,
-	PendingPermission,
 } from "./chat-reducer";
 export {
 	appendUserMessage,
 	clearPendingAskUser,
 	clearPendingExtensionUi,
-	clearPendingPermission,
 	createChatState,
 	hasLiveTurnState,
 	reduceChatEvent,
 	setPendingAskUser,
 	setPendingExtensionUi,
-	setPendingPermission,
 } from "./chat-reducer";
 
 /** In-progress re-edit of a published user bubble (messages stay until commit/send). */
@@ -121,8 +111,6 @@ export const useChatStore = defineStore("chat", () => {
 	const workspaceStore = useWorkspaceStore();
 	const pendingUserEdit = ref<PendingUserEdit | null>(null);
 	const historyLoadingId = ref<string | null>(null);
-	/** Bumped when a permission ask is denied or times out — UI may toast Security remediation. */
-	const securityRemediationTick = ref(0);
 	/** requestId → UI draft kept across renderer reloads (恢复后可继续提交). */
 	const askUserDrafts = new Map<string, AskUserAnswerDraft>();
 	/** requestId → 当前题号，会话切换回来后仍停在原来那一题。 */
@@ -204,16 +192,78 @@ export const useChatStore = defineStore("chat", () => {
 	 *  queued prompts never race the worker or corrupt the single-active
 	 *  checkpoint (duplicate sends from the queue-edit path caused both). */
 	const promptChain = new Map<string, Promise<unknown>>();
+	/**
+	 * 常驻内存的会话上限。切走的会话原本永远留在 bySession 里（只有删除会话才清），
+	 * 长时间使用后渲染进程堆会线性增长直至 OOM。超出后按最久未使用驱逐空闲会话，
+	 * 切回时从磁盘重新 hydrate。
+	 */
+	const MAX_CACHED_SESSIONS = 8;
+	/** 会话状态最后一次 hydrate 的时间戳，用于 LRU 排序。 */
+	const sessionHydratedAt = new Map<string, number>();
+	/**
+	 * 每个会话的「更早历史」游标：是否还有、下一页从哪一条取、是否正在取。
+	 *
+	 * 初始只装尾部一页（见 SESSION_HISTORY_INITIAL_LIMIT），往上的历史由用户主动
+	 * 翻页加载。超长会话一次性全量载入会把渲染进程堆撑爆，这是内存治理的一环。
+	 */
+	const olderBySession = reactive<
+		Record<string, { hasMore: boolean; cursor: string | null; loading: boolean }>
+	>({});
+
+	function resetOlderCursor(
+		sessionId: string,
+		hasMore: boolean,
+		firstMessageId: string | null,
+	): void {
+		olderBySession[sessionId] = { hasMore, cursor: firstMessageId, loading: false };
+	}
+
+	/**
+	 * 取一页更早的历史并前插到消息列表头部，返回前插的条数。
+	 *
+	 * 返回条数供列表平移渲染窗口，保证视口内容不因前插而跳动。空页 / 出错都
+	 * 视为「没有更早了」，不会反复触发加载。
+	 */
+	async function loadOlderMessages(sessionId: string): Promise<number> {
+		const older = olderBySession[sessionId];
+		if (!older || older.loading || !older.hasMore || !older.cursor) return 0;
+		const row = sessionsStore.sessions.find((s) => s.id === sessionId);
+		if (!row?.filePath) return 0;
+
+		older.loading = true;
+		try {
+			const page = await window.api.sessions.history(row.filePath, {
+				limit: SESSION_HISTORY_PAGE_SIZE,
+				beforeId: older.cursor,
+			});
+			const state = bySession[sessionId];
+			if (!state || !page.messages.length) {
+				older.hasMore = false;
+				return 0;
+			}
+			const prepended = page.messages.map(mapHistoryRow);
+			bySession[sessionId] = {
+				...state,
+				messages: [...prepended, ...state.messages],
+			};
+			older.hasMore = page.hasMore;
+			older.cursor = prepended[0]!.id;
+			return prepended.length;
+		} catch (err) {
+			console.error("[chat] load older history failed:", err);
+			return 0;
+		} finally {
+			older.loading = false;
+		}
+	}
 	let softHangTimer: ReturnType<typeof setInterval> | null = null;
+	/** 会话事件订阅的解绑函数（已绑定时非 null，保证幂等）。 */
+	let unbindEvents: (() => void) | null = null;
 	const agentEventSink = createHiddenEventSink<AgentEvent>({
 		apply: (event) => applyEvent(event),
 		isHidden: () => document.hidden,
 		onError: (err) => console.error("[chat] buffered event apply failed", err),
 	});
-
-	function noteSecurityRemediation(): void {
-		securityRemediationTick.value += 1;
-	}
 
 	function stateFor(sessionId: string): ChatState {
 		if (!bySession[sessionId]) {
@@ -267,6 +317,15 @@ export const useChatStore = defineStore("chat", () => {
 				...(row.nestedCalls?.length ? { nestedCalls: row.nestedCalls } : {}),
 			};
 		}
+		if (row.role === "summary") {
+			return {
+				id: row.id,
+				role: "summary" as const,
+				text: row.text,
+				kind: row.kind,
+				...(row.tokensBefore != null ? { tokensBefore: row.tokensBefore } : {}),
+			};
+		}
 		return {
 			id: row.id,
 			role: "assistant" as const,
@@ -315,7 +374,6 @@ export const useChatStore = defineStore("chat", () => {
 			streamingMessage: s.streamingMessage,
 			retryHint: s.retryHint,
 			pendingAskUser: s.pendingAskUser,
-			pendingPermission: s.pendingPermission,
 			pendingExtensionUi: s.pendingExtensionUi,
 			turnStartedAt: s.turnStartedAt,
 			phaseStartedAt: s.phaseStartedAt,
@@ -335,12 +393,6 @@ export const useChatStore = defineStore("chat", () => {
 		const id = sessionsStore.activeId;
 		if (!id) return null;
 		return stateFor(id).pendingAskUser;
-	});
-
-	const activePendingPermission = computed(() => {
-		const id = sessionsStore.activeId;
-		if (!id) return null;
-		return stateFor(id).pendingPermission;
 	});
 
 	const activePendingExtensionUi = computed(() => {
@@ -389,33 +441,19 @@ export const useChatStore = defineStore("chat", () => {
 				questions: ask.questions,
 			});
 		}
-		for (const perm of snapshot.permissions ?? []) {
-			if (!perm?.requestId || !perm?.sessionId) continue;
-			if (stateFor(perm.sessionId).pendingPermission?.requestId === perm.requestId) continue;
-			setPendingPermissionFor(perm as PermissionAskPrompt);
-		}
 		for (const dialog of snapshot.extensionDialogs ?? []) {
 			if (!dialog || !("requestId" in dialog) || !dialog.requestId) continue;
 			if (stateFor(dialog.sessionId).pendingExtensionUi?.requestId === dialog.requestId) continue;
 			setPendingExtensionUiFor(dialog);
 		}
-		if (snapshot.asks?.length || snapshot.permissions?.length || snapshot.extensionDialogs?.length) {
+		if (snapshot.asks?.length || snapshot.extensionDialogs?.length) {
 			if (notifyStore.soundEnabled) {
 				void notifyStore.playChime();
 			}
 		}
 	}
 
-	function setPendingPermissionFor(req: PendingPermission): void {
-		setSessionState(
-			req.sessionId,
-			setPendingPermission(stateFor(req.sessionId), req),
-		);
-	}
-
-	function clearPendingPermissionFor(sessionId: string): void {
-		setSessionState(sessionId, clearPendingPermission(stateFor(sessionId)));
-	}
+	
 
 	function setPendingExtensionUiFor(req: ExtensionUiPending): void {
 		setSessionState(
@@ -428,17 +466,7 @@ export const useChatStore = defineStore("chat", () => {
 		setSessionState(sessionId, clearPendingExtensionUi(stateFor(sessionId)));
 	}
 
-	async function replyPermission(
-		sessionId: string,
-		requestId: string,
-		decision: PermissionDecision,
-	): Promise<void> {
-		clearPendingPermissionFor(sessionId);
-		if (decision === "deny") {
-			noteSecurityRemediation();
-		}
-		await window.api.sessions.permissionReply({ requestId, decision });
-	}
+	
 
 	async function replyAskUser(payload: AskUserAskReply): Promise<void> {
 		const id = sessionsStore.activeId;
@@ -499,6 +527,19 @@ export const useChatStore = defineStore("chat", () => {
 			return;
 		}
 		// setStatus / setTitle: reserved for future chrome.
+	}
+
+	/**
+	 * 回合结束（正常结束或失败）统一收尾待办：用户主动停止则冻结成暂停列表，
+	 * 否则把模型没回写的项标为「未回写」，不让面板停在「进行中」。
+	 */
+	function settleTodosForSession(sessionId: string): void {
+		const widgets = useSessionWidgetsStore();
+		if (stopIntentBySession.delete(sessionId)) {
+			widgets.pauseTodosForSession(sessionId);
+		} else {
+			widgets.finalizeTodosForSession(sessionId);
+		}
 	}
 
 	function applyEvent(event: AgentEvent): void {
@@ -568,19 +609,15 @@ export const useChatStore = defineStore("chat", () => {
 			// Turn over: clear the in-flight stop marker first so the Stop button
 			// returns to Send on the same paint that ends the turn.
 			stoppingBySession[sessionId] = false;
-			// Turn over: close any todo items the model left open so the
-			// checklist always finishes with a frozen total time — unless the
-			// user stopped this turn (paused list stays for continue/delete).
-			if (stopIntentBySession.delete(sessionId)) {
-				useSessionWidgetsStore().pauseTodosForSession(sessionId);
-			} else {
-				useSessionWidgetsStore().finalizeTodosForSession(sessionId);
-			}
+			settleTodosForSession(sessionId);
 			void notifyStore.onTurnComplete({
 				title: notifyTitleOf(sessionId),
 				body: t.notifyTurnCompleteBody,
 				sessionId,
 			});
+		} else if (event.type === "prompt_error") {
+			// 失败同样结束了回合：待办要落到 paused / 未回写，不能停在「进行中」。
+			settleTodosForSession(sessionId);
 		}
 
 		if (event.type === "worker_stuck") {
@@ -628,11 +665,7 @@ export const useChatStore = defineStore("chat", () => {
 	): Promise<boolean> {
 		if (recoveringIds.has(sessionId)) return false;
 		const state = stateFor(sessionId);
-		if (
-			state.pendingAskUser ||
-			state.pendingPermission ||
-			state.pendingExtensionUi
-		) {
+		if (state.pendingAskUser || state.pendingExtensionUi) {
 			return false;
 		}
 		if (!canAutoRecoverForReason(state.autoRecoverCount, reason)) {
@@ -760,9 +793,7 @@ export const useChatStore = defineStore("chat", () => {
 			if (!state?.running || state.autoRecovering || recoveringIds.has(sessionId))
 				continue;
 			if (softHangReported.has(sessionId)) continue;
-			const waitingUser = Boolean(
-				state.pendingAskUser || state.pendingPermission || state.pendingExtensionUi,
-			);
+			const waitingUser = Boolean(state.pendingAskUser || state.pendingExtensionUi);
 			const outputSilenceMs = agentOutputSilenceMs(state, now);
 			const workerSilenceMs = agentWorkerSilenceMs(state, now);
 			// Event-loop stall (heartbeats AND output dead) — full restart + resend.
@@ -871,26 +902,60 @@ export const useChatStore = defineStore("chat", () => {
 		return [...head, ...liveMessages.slice(liveUser)];
 	}
 
+	/**
+	 * 以磁盘历史为唯一真相重建会话状态：消息已落盘，本轮一定已结束。
+	 * hydrate（切会话）与 resync（事件丢失兜底）共用，避免两处终态字段漂移。
+	 */
+	function settledStateFromHistory(
+		sessionId: string,
+		history: SessionHistoryMessage[],
+		hasOlder = false,
+	): void {
+		bySession[sessionId] = {
+			messages: history.map(mapHistoryRow),
+			streamingMessage: null,
+			running: false,
+			retryHint: null,
+			nextToolOrder: 1,
+			pendingAskUser: null,
+			pendingExtensionUi: null,
+			turnStartedAt: null,
+			phaseStartedAt: null,
+			lastActivityAt: null,
+			lastWorkerAliveAt: null,
+			autoRecoverCount: 0,
+			autoRecovering: false,
+		};
+		softHangReported.delete(sessionId);
+		stallReported.delete(sessionId);
+		resetOlderCursor(sessionId, hasOlder, history[0]?.id ?? null);
+	}
+
 	function hydrateFromHistory(
 		sessionId: string,
 		history: SessionHistoryMessage[],
+		hasOlder = false,
 	): void {
 		pendingUserEdit.value = null;
+		sessionHydratedAt.set(sessionId, Date.now());
 		// Restore persisted checkpoint summaries so history keeps its revert
 		// buttons across session switches / restarts.
 		void checkpointStore.loadSessionSummaries(sessionId);
 		const mapped = history.map(mapHistoryRow);
 		const live = bySession[sessionId];
 		if (live && hasLiveTurnState(live)) {
-			// Session already has a live turn in memory (streaming tail / ask_user
-			// / permission / extension strip). The disk page read on session switch
+// Session already has a live turn in memory (streaming tail / ask_user
+			// / extension strip). The disk page read on session switch
 			// lags the live turn, so replacing state would drop the pending prompt
 			// and any un-flushed stream tail; keep it until the turn settles.
-			softHangReported.delete(sessionId);
-			bySession[sessionId] = reconcileRunning(sessionId, {
+softHangReported.delete(sessionId);
+			const merged = reconcileRunning(sessionId, {
 				...live,
 				messages: mergeHistoryWithLive(mapped, live.messages),
 			});
+			bySession[sessionId] = merged;
+			// live 可能带着用户已翻到的更早历史，游标跟着合并后的第一条走。
+			resetOlderCursor(sessionId, hasOlder, merged.messages[0]?.id ?? null);
 			return;
 		}
 		// Returning to a session we already hold in memory: when the disk page is
@@ -907,60 +972,130 @@ export const useChatStore = defineStore("chat", () => {
 		) {
 			softHangReported.delete(sessionId);
 			bySession[sessionId] = reconcileRunning(sessionId, live);
+			resetOlderCursor(sessionId, hasOlder, live.messages[0]?.id ?? null);
 			return;
 		}
-		bySession[sessionId] = {
-			messages: mapped,
-			streamingMessage: null,
-			running: false,
-			retryHint: null,
-			nextToolOrder: 1,
-			pendingAskUser: null,
-			pendingPermission: null,
-			pendingExtensionUi: null,
-			turnStartedAt: null,
-			phaseStartedAt: null,
-			lastActivityAt: null,
-			lastWorkerAliveAt: null,
-			autoRecoverCount: 0,
-			autoRecovering: false,
-		};
-		softHangReported.delete(sessionId);
+		settledStateFromHistory(sessionId, history, hasOlder);
+		evictIdleSessions(sessionId);
 	}
 
+	/**
+	 * 用主进程权威状态对账当前会话，补回丢失的流式内容。
+	 *
+	 * 会话事件由主进程单向推送，渲染端无法补发；任何一次丢失（渲染重载、订阅
+	 * 空窗）都会让本地 running 与主进程永久不一致——界面停在「等待模型响应」，
+	 * 而模型其实早已回复完。聊天视图重新可见时做一次兜底：主进程已空闲而本地还在
+	 * 转，就丢掉 live 状态，按磁盘历史重建（live 只剩半截流式，并不可信）。
+	 */
+	async function resyncActiveSession(): Promise<void> {
+		try {
+			await doResyncActiveSession();
+		} catch (err) {
+			// 对账是兜底，失败就保持现状，不能反过来弄坏已能用的界面。
+			console.error("[chat] session resync failed:", err);
+		}
+	}
+
+	async function doResyncActiveSession(): Promise<void> {
+		const sessionId = sessionsStore.activeId;
+		if (!sessionId) return;
+		const row = sessionsStore.sessions.find((s) => s.id === sessionId);
+		if (!row?.filePath) return;
+		const state = bySession[sessionId];
+		if (!state?.running && !state?.autoRecovering) return;
+
+		const status = await window.api.sessions.status(sessionId, row.cwd);
+		if (status === null || status === "running" || status === "stuck") return;
+
+		sessionsStore.applyStatus(sessionId, status);
+		const page = await window.api.sessions.history(row.filePath, {
+			limit: SESSION_HISTORY_INITIAL_LIMIT,
+		});
+		// 事件丢失连带丢了 prompt_done 的副作用，逐项补齐终态。
+		void checkpointStore.loadSessionSummaries(sessionId);
+		settledStateFromHistory(sessionId, page.messages, page.hasMore);
+		recoveringIds.delete(sessionId);
+		stoppingBySession[sessionId] = false;
+		stopIntentBySession.delete(sessionId);
+		void checkpointStore.finishActive(sessionId);
+		useSessionWidgetsStore().finalizeTodosForSession(sessionId);
+	}
+
+	/**
+ * 清掉一个会话在渲染进程里的全部常驻数据。
+ *
+ * 既是「删除会话」的收尾，也是内存驱逐的执行体——bySession 里的消息只是其中一项，
+ * 配套的 Map / Set / reactive 记录不一起清，内存并不会真的降下来。
+ */
 	function clearSession(sessionId: string): void {
 		delete bySession[sessionId];
 		if (pendingUserEdit.value?.sessionId === sessionId) {
 			pendingUserEdit.value = null;
 		}
+		sessionHydratedAt.delete(sessionId);
+		softHangReported.delete(sessionId);
+		stallReported.delete(sessionId);
+		stopIntentBySession.delete(sessionId);
+		recoveringIds.delete(sessionId);
+		promptChain.delete(sessionId);
+		askUserDrafts.delete(sessionId);
+		askUserSteps.delete(sessionId);
+		stoppingBySession[sessionId] = false;
+		delete olderBySession[sessionId];
+		checkpointStore.clearSession(sessionId);
 	}
 
-	let eventsBound = false;
-	function bindEvents(): void {
-		if (eventsBound) return;
-		eventsBound = true;
-		checkpointStore.bindEvents();
-		if (!softHangTimer) {
-			softHangTimer = setInterval(() => checkSoftHangSessions(), 5_000);
+	/**
+	 * 内存治理：把常驻的空闲会话压到上限以内，超出部分按最久未使用依次驱逐。
+	 *
+	 * 驱逐后切回该会话会从磁盘重新 hydrate，代价只是一次 IPC + 解析。运行中的会话
+	 * 永不驱逐——内存里的流式内容是唯一真相，磁盘可能还没落盘。若全部候选都在运行
+	 * （实际最多一两轮），本轮不驱逐，等它们结束后下次 hydrate 再回收。
+	 */
+	function evictIdleSessions(keepSessionId: string): void {
+		const ids = Object.keys(bySession);
+		let overflow = ids.length - MAX_CACHED_SESSIONS;
+		if (overflow <= 0) return;
+		const evictable = ids
+			.filter((id) => id !== keepSessionId)
+			.filter((id) => !hasLiveTurnState(bySession[id]!))
+			.sort((a, b) => (sessionHydratedAt.get(a) ?? 0) - (sessionHydratedAt.get(b) ?? 0));
+		for (const id of evictable) {
+			if (overflow <= 0) break;
+			clearSession(id);
+			overflow--;
 		}
+	}
+
+	/**
+	 * 静默看门狗：会话长时间无输出时判定软挂 / 事件循环卡死并自动恢复。
+	 * 返回停止函数，由应用级 bootstrap 持有。
+	 */
+	function startSoftHangWatchdog(): () => void {
+		if (softHangTimer) return () => {};
+		softHangTimer = setInterval(() => checkSoftHangSessions(), 5_000);
+		return () => {
+			if (!softHangTimer) return;
+			clearInterval(softHangTimer);
+			softHangTimer = null;
+		};
+	}
+
+	/**
+	 * 注册进程级 IPC 订阅，返回解绑函数。
+	 *
+	 * 只能由应用级 bootstrap（app-events）调用：会话事件是单向推送，组件一旦
+	 * 卸载就再也补不回来。ChatPanel 会被 `v-if` 反复销毁重建（切换拉取请求视图），
+	 * 把订阅挂在组件生命周期上会让事件流出现空窗，界面永久停在「等待模型响应」。
+	 */
+	function bindEvents(): () => void {
+		if (unbindEvents) return unbindEvents;
+		const stopCheckpoint = checkpointStore.bindEvents();
+		const stopWatchdog = startSoftHangWatchdog();
 		const off = window.api.sessions.onEvent((event) => {
 			agentEventSink.push(event);
 		});
 		document.addEventListener("visibilitychange", handleVisibilityChange);
-		const offPermission = window.api.sessions.onPermission((req) => {
-			if (isPermissionAskCancelled(req)) {
-				const pending = stateFor(req.sessionId).pendingPermission;
-				if (pending?.requestId === req.requestId) {
-					clearPendingPermissionFor(req.sessionId);
-					noteSecurityRemediation();
-				}
-				return;
-			}
-			setPendingPermissionFor(req);
-			if (notifyStore.soundEnabled) {
-				void notifyStore.playChime();
-			}
-		});
 		const offAskUser = window.api.sessions.onAskUser((req) => {
 			if (isAskUserAskCancelled(req)) {
 				const pending = stateFor(req.sessionId).pendingAskUser;
@@ -982,19 +1117,16 @@ export const useChatStore = defineStore("chat", () => {
 			handleExtensionUiEvent(event);
 		});
 		void recoverPendingUi();
-		onScopeDispose(() => {
-			eventsBound = false;
-			if (softHangTimer) {
-				clearInterval(softHangTimer);
-				softHangTimer = null;
-			}
-			agentEventSink.dispose();
+		unbindEvents = () => {
+			unbindEvents = null;
+			stopCheckpoint();
+			stopWatchdog();
 			document.removeEventListener("visibilitychange", handleVisibilityChange);
 			off();
-			offPermission();
 			offAskUser();
 			offExtensionUi();
-		});
+		};
+		return unbindEvents;
 	}
 
 	async function sendPrompt(
@@ -1155,7 +1287,7 @@ export const useChatStore = defineStore("chat", () => {
 		// extension UI) immediately — don't wait for the worker cancel broadcast.
 		setSessionState(
 			sessionId,
-			clearPendingAskUser(clearPendingPermission(clearPendingExtensionUi(stateFor(sessionId)))),
+			clearPendingAskUser(clearPendingExtensionUi(stateFor(sessionId))),
 		);
 
 		// User-initiated stop: freeze the todo round as paused — the user
@@ -1378,11 +1510,11 @@ export const useChatStore = defineStore("chat", () => {
 		try {
 			const [page] = await Promise.all([
 				window.api.sessions.history(forked.filePath, {
-					limit: SESSION_HISTORY_LOAD_LIMIT,
+					limit: SESSION_HISTORY_INITIAL_LIMIT,
 				}),
 				sessionsStore.selectSession(forked.id, root),
 			]);
-			hydrateFromHistory(forked.id, page.messages);
+			hydrateFromHistory(forked.id, page.messages, page.hasMore);
 		} finally {
 			endHistoryLoad(forked.id);
 		}
@@ -1513,6 +1645,7 @@ export const useChatStore = defineStore("chat", () => {
 
 	return {
 		bySession,
+		olderBySession,
 		pendingUserEdit,
 		historyLoadingId,
 		historyLoading,
@@ -1523,21 +1656,20 @@ export const useChatStore = defineStore("chat", () => {
 		activeWaitState,
 		activeRetryHint,
 		activePendingAskUser,
-		activePendingPermission,
 		activePendingExtensionUi,
-		securityRemediationTick,
 		bindEvents,
 		clearPendingAskUserFor,
 		readAskDraft,
 		writeAskDraft,
 		readAskStep,
 		writeAskStep,
-		replyPermission,
 		replyAskUser,
 		replyExtensionUi,
 		beginHistoryLoad,
 		endHistoryLoad,
 		hydrateFromHistory,
+		loadOlderMessages,
+		resyncActiveSession,
 		clearSession,
 		sendPrompt,
 		steer,

@@ -44,4 +44,39 @@ describe("models-config", () => {
     const def = resolveModelsConfigPaths();
     expect(def.modelsPath.endsWith(path.join(".pi", "agent", "models.json"))).toBe(true);
   });
+
+  it("写入时补上 pi 的配置 schema", async () => {
+    const cfg = createModelsConfig({ modelsPath, authPath: path.join(dir, "auth.json") });
+
+    await cfg.writeModelsConfig({ providers: { ollama: { baseUrl: "http://x" } } });
+    expect(JSON.parse(fs.readFileSync(modelsPath, "utf8")).$schema).toBe(
+      "https://pi.dev/schemas/models.schema.json",
+    );
+
+    fs.writeFileSync(modelsPath, JSON.stringify({ $schema: "https://example.com/x.json" }));
+    await cfg.writeModelsConfigText(
+      JSON.stringify({ $schema: "https://example.com/x.json", providers: {} }),
+    );
+    expect(JSON.parse(fs.readFileSync(modelsPath, "utf8")).$schema).toBe("https://example.com/x.json");
+  });
+
+  it("用户手写的非对象 JSON 原样落盘，不被补 schema 改写", async () => {
+    const cfg = createModelsConfig({ modelsPath, authPath: path.join(dir, "auth.json") });
+
+    for (const text of ["null", "[1,2,3]", '"hi"']) {
+      await cfg.writeModelsConfigText(text);
+      expect(JSON.parse(fs.readFileSync(modelsPath, "utf8"))).toEqual(JSON.parse(text));
+    }
+  });
+
+  it("非字符串的 $schema 被替换，否则 pi 会拒绝整个 models.json", async () => {
+    const cfg = createModelsConfig({ modelsPath, authPath: path.join(dir, "auth.json") });
+
+    for (const stale of [123, null, {}, [1]]) {
+      await cfg.writeModelsConfigText(JSON.stringify({ $schema: stale, providers: {} }));
+      expect(JSON.parse(fs.readFileSync(modelsPath, "utf8")).$schema).toBe(
+        "https://pi.dev/schemas/models.schema.json",
+      );
+    }
+  });
 });

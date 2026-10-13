@@ -13,10 +13,6 @@ import {
   snapshotPendingAskUserAsks,
 } from "./ask-user-host";
 import {
-  cancelPermissionAsksForSession,
-  snapshotPendingPermissionAsks,
-} from "./permission-ask-host";
-import {
   cancelExtensionUiAsksForSession,
   snapshotPendingExtensionUiDialogs,
 } from "./extension-ui-host";
@@ -82,13 +78,12 @@ function broadcastEvent(event: unknown): void {
 
 /**
  * A turn abort (renderer Stop / auto-recover) must also tear down whatever UI
- * ask this session is blocked on. ask_user / permission / extension-UI dialogs
- * wait in main, and the worker cannot cancel the ones whose RPCs carry no abort
+ * ask this session is blocked on. ask_user / extension-UI dialogs wait in main,
+ * and the worker cannot cancel the ones whose RPCs carry no abort
  * signal — without this the turn stays "running" until the ask times out.
  */
 function cancelSessionUiAsks(sessionId: string): void {
   cancelAskUserAsksForSession(sessionId);
-  cancelPermissionAsksForSession(sessionId);
   cancelExtensionUiAsksForSession(sessionId);
 }
 
@@ -188,7 +183,6 @@ export function registerSessionsIpc(broker: SessionBroker): void {
   // with the original requestId, so a recovered strip stays submittable.
   ipcMain.handle(IpcChannels.sessions.pendingUi, () => ({
     asks: snapshotPendingAskUserAsks(),
-    permissions: snapshotPendingPermissionAsks(),
     extensionDialogs: snapshotPendingExtensionUiDialogs(),
   }));
 

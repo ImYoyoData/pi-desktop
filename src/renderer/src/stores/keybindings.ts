@@ -2,11 +2,11 @@ import { defineStore } from "pinia";
 import { computed, ref, watch } from "vue";
 import { formatAcceleratorLabel, keyboardEventToAccelerator, normalizeAccelerator } from "../../../shared/hotkey";
 import type { Messages } from "@renderer/i18n";
+import * as prefs from "@renderer/utils/prefs";
 
 export type KeybindingId =
   | "new-session"
   | "select-sessions"
-  | "cycle-permission"
   | "new-terminal"
   | "close-terminal"
   | "open-file"
@@ -37,7 +37,6 @@ export interface BuiltinShortcut {
 export const KEYBINDINGS: KeybindingDef[] = [
   { id: "new-session", labelKey: "hotkeyNewSession", defaultAccel: "Control+N" },
   { id: "select-sessions", labelKey: "hotkeySelectSessions", defaultAccel: "Control+P" },
-  { id: "cycle-permission", labelKey: "hotkeyCyclePermission", defaultAccel: "Control+M" },
   { id: "new-terminal", labelKey: "hotkeyNewTerminal", defaultAccel: "Control+`" },
   { id: "close-terminal", labelKey: "hotkeyCloseTerminal", defaultAccel: "Shift+Escape" },
   { id: "open-file", labelKey: "hotkeyOpenFile", defaultAccel: "Control+E" },
@@ -98,7 +97,7 @@ interface StoredState {
 
 function readStored(): StoredState {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
+    const raw = prefs.getItem(STORAGE_KEY);
     if (!raw) return { master: true, bindings: {} };
     const parsed = JSON.parse(raw) as Partial<StoredState>;
     return {
@@ -120,7 +119,7 @@ export const useKeybindingsStore = defineStore("keybindings", () => {
 
   function persist(): void {
     try {
-      localStorage.setItem(
+      prefs.setItem(
         STORAGE_KEY,
         JSON.stringify({ master: master.value, bindings: stored.value }),
       );

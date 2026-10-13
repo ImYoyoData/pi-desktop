@@ -1,6 +1,5 @@
 import type { AgentCommand } from "./protocol";
 import type { BrowserRpcMethod } from "./browser-automation";
-import type { DesktopSecuritySettings } from "./desktop-security";
 import type { StreamRenderSettings } from "./stream-render";
 import type { WorkerResourceSummary } from "./worker-resources";
 
@@ -11,13 +10,11 @@ export type WorkerInbound =
       kind: "init";
       cwd: string;
       filePath?: string;
-      desktopSecurity?: DesktopSecuritySettings;
       streamRender?: StreamRenderSettings;
     }
   | { kind: "command"; id: string; command: AgentCommand }
   | { kind: "reload_models" }
   | { kind: "reload_resources" }
-  | { kind: "reload_security"; desktopSecurity: DesktopSecuritySettings }
   | { kind: "reload_stream_render"; streamRender: StreamRenderSettings }
   | { kind: "shutdown" }
   | { kind: "ping" }

@@ -1,5 +1,6 @@
 import { defineStore } from "pinia";
 import { computed, ref } from "vue";
+import * as prefs from "@renderer/utils/prefs";
 import {
   applyUiLocale,
   detectSystemLanguage,
@@ -52,7 +53,7 @@ function isTruncateToolOutputChoice(value: number): boolean {
 
 function readShowCompactButton(): boolean {
   try {
-    return localStorage.getItem(COMPACT_BTN_KEY) === "1";
+    return prefs.getItem(COMPACT_BTN_KEY) === "1";
   } catch {
     return false;
   }
@@ -60,7 +61,7 @@ function readShowCompactButton(): boolean {
 
 function readPanelDividers(): boolean {
   try {
-    return localStorage.getItem(PANEL_DIVIDERS_KEY) !== "0";
+    return prefs.getItem(PANEL_DIVIDERS_KEY) !== "0";
   } catch {
     return true;
   }
@@ -68,7 +69,7 @@ function readPanelDividers(): boolean {
 
 function readSessionDetails(): boolean {
   try {
-    return localStorage.getItem(SESSION_DETAILS_KEY) !== "0";
+    return prefs.getItem(SESSION_DETAILS_KEY) !== "0";
   } catch {
     return true;
   }
@@ -76,7 +77,7 @@ function readSessionDetails(): boolean {
 
 function readSessionTitle(): boolean {
   try {
-    return localStorage.getItem(SESSION_TITLE_KEY) !== "0";
+    return prefs.getItem(SESSION_TITLE_KEY) !== "0";
   } catch {
     return true;
   }
@@ -84,7 +85,7 @@ function readSessionTitle(): boolean {
 
 function readMessagePreview(): boolean {
   try {
-    return localStorage.getItem(MESSAGE_PREVIEW_KEY) !== "0";
+    return prefs.getItem(MESSAGE_PREVIEW_KEY) !== "0";
   } catch {
     return true;
   }
@@ -92,7 +93,7 @@ function readMessagePreview(): boolean {
 
 function readMessagePreviewImage(): boolean {
   try {
-    return localStorage.getItem(MESSAGE_PREVIEW_IMAGE_KEY) === "1";
+    return prefs.getItem(MESSAGE_PREVIEW_IMAGE_KEY) === "1";
   } catch {
     return false;
   }
@@ -100,7 +101,7 @@ function readMessagePreviewImage(): boolean {
 
 function readSessionHoverActions(): boolean {
   try {
-    return localStorage.getItem(SESSION_HOVER_ACTIONS_KEY) === "1";
+    return prefs.getItem(SESSION_HOVER_ACTIONS_KEY) === "1";
   } catch {
     return false;
   }
@@ -108,7 +109,7 @@ function readSessionHoverActions(): boolean {
 
 function readShowPrivilegeLevel(): boolean {
   try {
-    return localStorage.getItem(PRIVILEGE_LEVEL_KEY) === "1";
+    return prefs.getItem(PRIVILEGE_LEVEL_KEY) === "1";
   } catch {
     return false;
   }
@@ -117,7 +118,7 @@ function readShowPrivilegeLevel(): boolean {
 /** Default OFF: tool calls start folded, which keeps long turns scannable. */
 function readExpandToolCalls(): boolean {
   try {
-    return localStorage.getItem(EXPAND_TOOL_CALLS_KEY) === "1";
+    return prefs.getItem(EXPAND_TOOL_CALLS_KEY) === "1";
   } catch {
     return false;
   }
@@ -125,7 +126,7 @@ function readExpandToolCalls(): boolean {
 
 function readTruncateToolOutputLines(): number {
   try {
-    const raw = localStorage.getItem(TRUNCATE_TOOL_OUTPUT_KEY);
+    const raw = prefs.getItem(TRUNCATE_TOOL_OUTPUT_KEY);
     if (raw === "1") return 24; // 旧版开关：开启时按 24 行截断
     const value = Number(raw);
     return isTruncateToolOutputChoice(value) ? value : TRUNCATE_TOOL_OUTPUT_FALLBACK;
@@ -136,14 +137,14 @@ function readTruncateToolOutputLines(): number {
 
 function readCustomAppearance(): CustomAppearanceSettings {
   try {
-    const current = localStorage.getItem(CUSTOM_APPEARANCE_KEY);
-    const raw = current ?? localStorage.getItem(CUSTOM_APPEARANCE_LEGACY_KEY);
+    const current = prefs.getItem(CUSTOM_APPEARANCE_KEY);
+    const raw = current ?? prefs.getItem(CUSTOM_APPEARANCE_LEGACY_KEY);
     if (!raw) return createDefaultCustomAppearance();
     const parsed = normalizeCustomAppearance(JSON.parse(raw));
     // 从 v1 迁移：保留用户已调好的值，补全后才写回新键，避免每次启动重新迁移
     if (!current) {
       try {
-        localStorage.setItem(CUSTOM_APPEARANCE_KEY, JSON.stringify(parsed));
+        prefs.setItem(CUSTOM_APPEARANCE_KEY, JSON.stringify(parsed));
       } catch {
         // ignore
       }
@@ -185,7 +186,7 @@ function clampAlpha(value: number): number {
 
 function readThemePreference(): ThemePreference {
   try {
-    const raw = localStorage.getItem(THEME_KEY);
+    const raw = prefs.getItem(THEME_KEY);
     if (raw === "light" || raw === "dark" || raw === "system") return raw;
   } catch {
     // ignore
@@ -195,7 +196,7 @@ function readThemePreference(): ThemePreference {
 
 function readLocalePreference(): LocalePreference {
   try {
-    const raw = localStorage.getItem(LOCALE_KEY);
+    const raw = prefs.getItem(LOCALE_KEY);
     if (raw === "zh-CN" || raw === "en" || raw === "system") return raw;
   } catch {
     // ignore
@@ -271,7 +272,7 @@ export const useAppearanceStore = defineStore("appearance", () => {
   function setThemePreference(next: ThemePreference): void {
     themePreference.value = next;
     try {
-      localStorage.setItem(THEME_KEY, next);
+      prefs.setItem(THEME_KEY, next);
     } catch {
       // ignore
     }
@@ -282,7 +283,7 @@ export const useAppearanceStore = defineStore("appearance", () => {
   function setLocalePreference(next: LocalePreference): void {
     localePreference.value = next;
     try {
-      localStorage.setItem(LOCALE_KEY, next);
+      prefs.setItem(LOCALE_KEY, next);
     } catch {
       // ignore
     }
@@ -293,7 +294,7 @@ export const useAppearanceStore = defineStore("appearance", () => {
   function setShowCompactButton(next: boolean): void {
     showCompactButton.value = next;
     try {
-      localStorage.setItem(COMPACT_BTN_KEY, next ? "1" : "0");
+      prefs.setItem(COMPACT_BTN_KEY, next ? "1" : "0");
     } catch {
       // ignore
     }
@@ -302,7 +303,7 @@ export const useAppearanceStore = defineStore("appearance", () => {
   function setShowPanelDividers(next: boolean): void {
     showPanelDividers.value = next;
     try {
-      localStorage.setItem(PANEL_DIVIDERS_KEY, next ? "1" : "0");
+      prefs.setItem(PANEL_DIVIDERS_KEY, next ? "1" : "0");
     } catch {
       // ignore
     }
@@ -311,7 +312,7 @@ export const useAppearanceStore = defineStore("appearance", () => {
   function setShowSessionDetails(next: boolean): void {
     showSessionDetails.value = next;
     try {
-      localStorage.setItem(SESSION_DETAILS_KEY, next ? "1" : "0");
+      prefs.setItem(SESSION_DETAILS_KEY, next ? "1" : "0");
     } catch {
       // ignore
     }
@@ -320,7 +321,7 @@ export const useAppearanceStore = defineStore("appearance", () => {
   function setShowSessionTitle(next: boolean): void {
     showSessionTitle.value = next;
     try {
-      localStorage.setItem(SESSION_TITLE_KEY, next ? "1" : "0");
+      prefs.setItem(SESSION_TITLE_KEY, next ? "1" : "0");
     } catch {
       // ignore
     }
@@ -329,7 +330,7 @@ export const useAppearanceStore = defineStore("appearance", () => {
   function setShowMessagePreview(next: boolean): void {
     showMessagePreview.value = next;
     try {
-      localStorage.setItem(MESSAGE_PREVIEW_KEY, next ? "1" : "0");
+      prefs.setItem(MESSAGE_PREVIEW_KEY, next ? "1" : "0");
     } catch {
       // ignore
     }
@@ -338,7 +339,7 @@ export const useAppearanceStore = defineStore("appearance", () => {
   function setShowMessagePreviewImage(next: boolean): void {
     showMessagePreviewImage.value = next;
     try {
-      localStorage.setItem(MESSAGE_PREVIEW_IMAGE_KEY, next ? "1" : "0");
+      prefs.setItem(MESSAGE_PREVIEW_IMAGE_KEY, next ? "1" : "0");
     } catch {
       // ignore
     }
@@ -347,7 +348,7 @@ export const useAppearanceStore = defineStore("appearance", () => {
   function setSessionHoverActions(next: boolean): void {
     showSessionHoverActions.value = next;
     try {
-      localStorage.setItem(SESSION_HOVER_ACTIONS_KEY, next ? "1" : "0");
+      prefs.setItem(SESSION_HOVER_ACTIONS_KEY, next ? "1" : "0");
     } catch {
       // ignore
     }
@@ -356,7 +357,7 @@ export const useAppearanceStore = defineStore("appearance", () => {
   function setShowPrivilegeLevel(next: boolean): void {
     showPrivilegeLevel.value = next;
     try {
-      localStorage.setItem(PRIVILEGE_LEVEL_KEY, next ? "1" : "0");
+      prefs.setItem(PRIVILEGE_LEVEL_KEY, next ? "1" : "0");
     } catch {
       // ignore
     }
@@ -366,7 +367,7 @@ export const useAppearanceStore = defineStore("appearance", () => {
     const value = isTruncateToolOutputChoice(next) ? next : TRUNCATE_TOOL_OUTPUT_FALLBACK;
     truncateToolOutputLines.value = value;
     try {
-      localStorage.setItem(TRUNCATE_TOOL_OUTPUT_KEY, String(value));
+      prefs.setItem(TRUNCATE_TOOL_OUTPUT_KEY, String(value));
     } catch {
       // ignore
     }
@@ -375,7 +376,7 @@ export const useAppearanceStore = defineStore("appearance", () => {
   function setExpandToolCalls(next: boolean): void {
     expandToolCalls.value = next;
     try {
-      localStorage.setItem(EXPAND_TOOL_CALLS_KEY, next ? "1" : "0");
+      prefs.setItem(EXPAND_TOOL_CALLS_KEY, next ? "1" : "0");
     } catch {
       // ignore
     }
@@ -391,7 +392,7 @@ export const useAppearanceStore = defineStore("appearance", () => {
   function persistCustom(next: CustomAppearanceSettings): void {
     customAppearance.value = next;
     try {
-      localStorage.setItem(CUSTOM_APPEARANCE_KEY, JSON.stringify(next));
+      prefs.setItem(CUSTOM_APPEARANCE_KEY, JSON.stringify(next));
     } catch {
       // ignore
     }

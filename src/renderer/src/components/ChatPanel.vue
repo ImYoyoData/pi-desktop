@@ -1,10 +1,9 @@
 <script setup lang="ts">
 import { computed, defineAsyncComponent, onMounted, onUnmounted, ref, watch } from "vue";
-import { NButton, NEmpty, NIcon, NTag, NText, useMessage } from "naive-ui";
+import { NButton, NEmpty, NIcon, NTag, NText } from "naive-ui";
 import { AddOutline, InformationCircleOutline, SparklesOutline } from "@vicons/ionicons5";
-import AskUserStrip from "@renderer/components/AskUserStrip.vue";
 import SessionInfoModal from "@renderer/components/SessionInfoModal.vue";
-import PermissionStrip from "@renderer/components/PermissionStrip.vue";
+import AskUserStrip from "@renderer/components/AskUserStrip.vue";
 import ExtensionUiStrip from "@renderer/components/ExtensionUiStrip.vue";
 import SessionTodoPanel from "@renderer/components/SessionTodoPanel.vue";
 import SessionChangedFiles from "@renderer/components/SessionChangedFiles.vue";
@@ -39,7 +38,6 @@ const workspace = useWorkspaceStore();
 const widgets = useSessionWidgetsStore();
 
 widgets.restoreTodoSnapshots();
-const message = useMessage();
 
 /** 面板被折叠/让位给编辑器区域时不参与可见性：消息区据此暂停测量与贴底。 */
 const props = defineProps<{ visible?: boolean }>();
@@ -65,14 +63,7 @@ watch(
 );
 const hasDock = computed(() => hasTodoDock.value || hasFileDock.value);
 
-watch(
-  () => chat.securityRemediationTick,
-  (n, prev) => {
-    if (n > (prev ?? 0)) {
-      message.warning(t.securityToolDeniedToast, { duration: 5500 });
-    }
-  },
-);
+
 const isDraft = computed(() => !sessions.activeId && Boolean(sessions.draftRoot));
 const hasSession = computed(() => Boolean(sessions.activeId) || isDraft.value);
 
@@ -91,7 +82,9 @@ const nowTick = ref(Date.now());
 const sessionInfoOpen = ref(false);
 let headerTimer: ReturnType<typeof setInterval> | null = null;
 onMounted(() => {
-  chat.bindEvents();
+  // 进程级事件订阅由 app-events 随应用注册，不随本组件生死；这里只做一次
+  // 权威状态对账，修正可能因事件丢失而卡住的「等待模型响应」。
+  void chat.resyncActiveSession();
   headerTimer = setInterval(() => {
     nowTick.value = Date.now();
   }, 1000);
@@ -210,12 +203,8 @@ async function onNewAgent(): Promise<void> {
         :history-loading="chat.historyLoading"
         :visible="props.visible !== false"
       />
-      <!-- Permission blocks the tool; when both pending, show permission first. -->
-      <PermissionStrip />
-      <ExtensionUiStrip v-if="!chat.activePendingPermission" />
-      <AskUserStrip
-        v-if="!chat.activePendingPermission && !chat.activePendingExtensionUi"
-      />
+      <ExtensionUiStrip />
+      <AskUserStrip v-if="!chat.activePendingExtensionUi" />
       <!-- Docked widgets share one surface with the composer (chat-input-stack). -->
       <div class="chat-input-stack">
         <div v-if="hasDock" class="stack-above">

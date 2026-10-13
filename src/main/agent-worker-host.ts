@@ -5,7 +5,6 @@ import type {
   WorkerOutbound,
 } from "../shared/agent-worker-messages";
 import type { SpawnWorker, WorkerHandle } from "./session-broker";
-import { getDesktopSecuritySettings } from "./desktop-security-host";
 import { getStreamRenderSettings } from "./stream-render-host";
 import { buildAgentWorkerEnv } from "./pi-path-env";
 import { withProxyEnv, refreshSystemProxy } from "./proxy-host";
@@ -192,12 +191,10 @@ export function createUtilityProcessSpawnWorker(): SpawnWorker {
     };
 
     const readyPromise = waitForReady(child);
-    const desktopSecurity = await getDesktopSecuritySettings();
     child.postMessage({
       kind: "init",
       cwd,
       filePath,
-      desktopSecurity,
       streamRender: getStreamRenderSettings(),
     } satisfies WorkerInbound);
     const ready = await readyPromise;

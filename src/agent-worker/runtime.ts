@@ -38,14 +38,7 @@ import {
 	resolveBuiltinBrowserSkillDir,
 	shouldEnableBuiltinBrowserTools,
 } from "../shared/builtin-browser";
-import {
-	DEFAULT_DESKTOP_SECURITY,
-	isPermissionDecision,
-	parseDesktopSecurity,
-	PERMISSION_ASK_TIMEOUT_MS,
-	type DesktopSecuritySettings,
-	type SecurityCategory,
-} from "../shared/desktop-security";
+
 import {
 	DEFAULT_STREAM_RENDER_SETTINGS,
 	parseStreamRenderSettings,
@@ -57,7 +50,9 @@ import {
 	DESKTOP_BASH_BACKGROUND_PROMPT,
 	DESKTOP_TODO_PROMPT,
 } from "../shared/desktop-system-prompt";
-import { createAskUserToolDefinition } from "./ask-user-tool";import { createTodoWriteToolDefinition } from "./todo-tool";
+import { createAskUserToolDefinition } from "./ask-user-tool";
+import { createTodoWriteToolDefinition, clearLatestTodoWriteRows } from "./todo-tool";
+import { createTodoReminderExtension } from "./todo-reminder";
 import { commandShouldStartBackground } from "../shared/bash-background";
 import { createTrackedBashOperations } from "./bash-run-tracker";
 import {
@@ -79,8 +74,8 @@ import {
 	createDesktopExtensionUIContext,
 	setExtensionInfoNotificationsMuted,
 } from "./extension-ui-context";
-import { handleRpcResponse, rpcToMain, setRpcWorkspaceRoot } from "./main-rpc";
-import { createPermissionGate } from "./permission-gate";
+import { handleRpcResponse, setRpcWorkspaceRoot } from "./main-rpc";
+
 import {
 	logResourceSummary,
 	summarizeSessionResources,
@@ -178,9 +173,7 @@ function timingStats() {
 			timing.decodeMs > 0 ? timing.outputTokens / (timing.decodeMs / 1000) : null,
 	};
 }
-let desktopSecurity: DesktopSecuritySettings = { ...DEFAULT_DESKTOP_SECURITY };
 let streamRenderSettings: StreamRenderSettings = { ...DEFAULT_STREAM_RENDER_SETTINGS };
-const sessionAllows = new Set<SecurityCategory>();
 /** Once unlocked this session, keep browser_* available for follow-up clicks/fills. */
 let browserToolsUnlocked = false;
 
@@ -243,6 +236,44 @@ function messageContentHasImage(content: unknown): boolean {
 			typeof part === "object" &&
 			(part as { type?: unknown }).type === "image",
 	);
+}
+
+/** 停在一半的工具调用在历史里的统一结果文案。 */
+const CANCELLED_TOOL_RESULT = "Cancelled by user";
+
+/**
+ * 补齐停在半路的 tool_result。
+ *
+ * stop 落在工具执行中时，assistant 的 tool_call 照样落盘，而工具结果不会写出：
+ * 会话树从此断链 —— 工具卡片重启后消失，发给模型的上下文也带着悬空 tool_use。
+ */
+function fillCancelledToolResults(active: AgentSession): void {
+	const branch = active.sessionManager.getBranch();
+	const answered = new Set<string>();
+	for (const entry of branch) {
+		if (entry.type !== "message" || entry.message.role !== "toolResult") continue;
+		const callId = (entry.message as { toolCallId?: unknown }).toolCallId;
+		if (typeof callId === "string" && callId) answered.add(callId);
+	}
+	for (const entry of branch) {
+		if (entry.type !== "message" || entry.message.role !== "assistant") continue;
+		const content = (entry.message as { content?: unknown }).content;
+		if (!Array.isArray(content)) continue;
+		for (const part of content) {
+			const call = part as { type?: unknown; id?: unknown; name?: unknown };
+			if (call.type !== "toolCall" || typeof call.id !== "string" || !call.id) continue;
+			if (answered.has(call.id)) continue;
+			answered.add(call.id);
+			active.sessionManager.appendMessage({
+				role: "toolResult",
+				toolCallId: call.id,
+				toolName: typeof call.name === "string" && call.name ? call.name : "tool",
+				content: [{ type: "text", text: CANCELLED_TOOL_RESULT }],
+				isError: true,
+				timestamp: Date.now(),
+			});
+		}
+	}
 }
 
 /**
@@ -447,6 +478,28 @@ const CONTEXT_USAGE_EVENT_TYPES = new Set([
 	"tool_execution_end",
 ]);
 
+/**
+ * 把压缩摘要挂到 compaction_end 事件上。
+ * 磁盘上已有一份 compaction entry（重启能还原），当拍也插一张卡片，
+ * 否则用户按完压缩看到的是「什么都没发生」。
+ */
+function withCompactionSummary(event: Record<string, unknown>): Record<string, unknown> {
+	if (event.type !== "compaction_end") return event;
+	const { result, ...rest } = event;
+	const row = result as { summary?: unknown; tokensBefore?: unknown } | undefined;
+	const summary = typeof row?.summary === "string" ? row.summary.trim() : "";
+	// result 还带着 details.readFiles 之类的清单，界面用不上，不走 IPC。
+	if (!summary) return rest;
+	const tokensBefore = row?.tokensBefore;
+	return {
+		...rest,
+		summary,
+		...(typeof tokensBefore === "number" && Number.isFinite(tokensBefore) && tokensBefore > 0
+			? { tokensBefore }
+			: {}),
+	};
+}
+
 function busyLoopMs(ms: number): void {
 	const end = Date.now() + ms;
 	while (Date.now() < end) {
@@ -473,7 +526,6 @@ function formatCitationsBlock(citations: ElementCitation[]): string {
 async function initSession(
 	cwd: string,
 	filePath: string | undefined,
-	securitySnapshot?: DesktopSecuritySettings,
 	streamRenderSnapshot?: StreamRenderSettings,
 ): Promise<void> {
 	if (initStarted) {
@@ -482,9 +534,6 @@ async function initSession(
 	initStarted = true;
 	browserToolsUnlocked = false;
 	setRpcWorkspaceRoot(cwd);
-	if (securitySnapshot) {
-		desktopSecurity = parseDesktopSecurity(securitySnapshot);
-	}
 	if (streamRenderSnapshot) {
 		streamRenderSettings = parseStreamRenderSettings(streamRenderSnapshot);
 	}
@@ -530,6 +579,8 @@ async function initSession(
 				{ name: "codemode", factory: createCodemodeExtension(), replaceable: true, builtin: true },
 				{ name: "tool-search", factory: createToolSearchExtension(), replaceable: true, builtin: true },
 				{ name: "mcp", factory: createMcpExtension(), replaceable: true, builtin: true },
+				// 模型不回写待办时把清单拉回正轨：上下文进度注入 + 回合末兜底提醒。
+				{ name: "todo-reminder", factory: createTodoReminderExtension(), builtin: true, hidden: true },
 			],
 			appendSystemPrompt: [
 				DESKTOP_ASK_USER_PROMPT,
@@ -544,8 +595,6 @@ async function initSession(
 		},
 	});
 	enableAllThinkingLevels(services.modelRuntime);
-	let assertBashExecAllowed: ((command: string) => void) | null = null;
-	let takeBashBackgroundFlag: ((command: string) => boolean) | null = null;
 	runTracker = createTrackedBashOperations(undefined, {
 		sessionId: sessionManager.getSessionId(),
 		workspaceRoot: cwd,
@@ -557,10 +606,7 @@ async function initSession(
 		onOutput: (runId, chunk) => post({ kind: "run_output", runId, chunk }),
 		onEnded: (runId) => post({ kind: "run_ended", runId }),
 		onBackgrounded: (runId) => post({ kind: "run_backgrounded", runId }),
-		beforeExec: (command) => assertBashExecAllowed?.(command),
-		shouldStartBackground: (command) =>
-			Boolean(takeBashBackgroundFlag?.(command)) ||
-			commandShouldStartBackground(command),
+		shouldStartBackground: commandShouldStartBackground,
 	});
 	const { session: created, extensionsResult } =
 		await createAgentSessionFromServices({
@@ -619,39 +665,6 @@ async function initSession(
 	}
 	// Registered but inactive until the user mentions browser / selects elements.
 	syncBuiltinBrowserTools(created, false);
-	const {
-		gate: permissionGate,
-		assertBashExecAllowed: assertBash,
-		takeBashBackgroundFlag: takeBg,
-	} = createPermissionGate({
-		getSettings: () => desktopSecurity,
-		sessionAllows,
-		askUser: async (req) => {
-			const raw = await rpcToMain(
-				"desktop.permissionAsk",
-				{
-					category: req.category,
-					toolName: req.toolName,
-					summary: req.summary,
-					danger: req.danger === true,
-				},
-				PERMISSION_ASK_TIMEOUT_MS,
-			);
-			if (!isPermissionDecision(raw)) {
-				throw new Error("invalid permission decision from main");
-			}
-			return raw;
-		},
-	});
-	assertBashExecAllowed = assertBash;
-	takeBashBackgroundFlag = takeBg;
-	const prevBefore = created.agent.beforeToolCall?.bind(created.agent);
-	created.agent.beforeToolCall = async (ctx, signal) => {
-		const gated = await permissionGate(ctx, signal);
-		if (gated?.block) return gated;
-		return prevBefore?.(ctx, signal);
-	};
-
 	const sessionEvents = createSnapshotThrottle((event) => {
 		try {
 			post({ kind: "event", event });
@@ -669,7 +682,9 @@ async function initSession(
 		timingTracker.observe(event);
 		let payload: Record<string, unknown>;
 		try {
-			payload = sanitizeAgentEvent(withEffectiveThinkingLevel(raw, created));
+			payload = withCompactionSummary(
+				sanitizeAgentEvent(withEffectiveThinkingLevel(raw, created)),
+			);
 		} catch {
 			payload = { type: typeof raw.type === "string" ? raw.type : "unknown" };
 		}
@@ -721,10 +736,13 @@ async function warmExtensionHooks(active: AgentSession): Promise<void> {
 	try {
 		const runner = active.extensionRunner;
 		if (!runner.hasHandlers("before_agent_start")) return;
-		await runner.emitBeforeAgentStart("", undefined, {
-			cwd: active.sessionManager.getCwd(),
-			forceSystemPrompt: active.systemPrompt,
-		});
+		await runner.emitBeforeAgentStart(
+			{ messageType: "user", prompt: "" },
+			{
+				cwd: active.sessionManager.getCwd(),
+				forceSystemPrompt: active.systemPrompt,
+			},
+		);
 	} catch {
 		// 预热失败不影响正常会话
 	}
@@ -883,10 +901,7 @@ export async function handleWorkerMessage(msg: WorkerInbound): Promise<void> {
 		}
 		return;
 	}
-	if (msg.kind === "reload_security") {
-		desktopSecurity = parseDesktopSecurity(msg.desktopSecurity);
-		return;
-	}
+	
 	if (msg.kind === "reload_stream_render") {
 		streamRenderSettings = parseStreamRenderSettings(msg.streamRender);
 		return;
@@ -895,7 +910,6 @@ export async function handleWorkerMessage(msg: WorkerInbound): Promise<void> {
 		await initSession(
 			msg.cwd,
 			msg.filePath,
-			msg.desktopSecurity,
 			msg.streamRender,
 		);
 		return;
@@ -936,6 +950,8 @@ async function runCommand(id: string, command: AgentCommand): Promise<void> {
 			return;
 		case "prompt": {
 			const active = requireSession();
+			// 新回合开始：渲染进程会重置待办面板，这里的旧清单同步作废。
+			clearLatestTodoWriteRows();
 			let message = command.message;
 			if (command.citations?.length) {
 				message = formatCitationsBlock(command.citations) + message;
@@ -995,6 +1011,8 @@ async function runCommand(id: string, command: AgentCommand): Promise<void> {
 				await active.abort();
 			}
 			const ok = await rollbackTurnEnd(active, command.userIndex, command.expectText);
+			// 停在一半的工具调用仍留在保留的链上，就地补齐。
+			if (ok) fillCancelledToolResults(active);
 			post({ kind: "result", id, data: { ok } });
 			return;
 		}
@@ -1005,10 +1023,13 @@ async function runCommand(id: string, command: AgentCommand): Promise<void> {
 			post({ kind: "result", id, data: { ok: true } });
 			return;
 		}
-		case "abort":
-			await requireSession().abort();
+		case "abort": {
+			const active = requireSession();
+			await active.abort();
+			fillCancelledToolResults(active);
 			post({ kind: "result", id, data: { ok: true } });
 			return;
+		}
 		case "clear_queue": {
 			// pi 侧的引导 / 排队消息一并清空；返回文本供界面核对。
 			const cleared = requireSession().clearQueue();

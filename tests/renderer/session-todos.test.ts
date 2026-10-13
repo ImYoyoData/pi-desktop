@@ -2,7 +2,10 @@ import { describe, expect, it } from "vitest";
 import {
 	filterBaselineItems,
 	isTodoToolName,
+	normalizeTodoRows,
+	parseTodoSnapshot,
 	parseTodoWidgetLines,
+	serializeTodoSnapshot,
 	todoListAllDone,
 	todoListVisible,
 	todosFromToolArgs,
@@ -103,7 +106,8 @@ describe("session-todos", () => {
 		});
 		expect(list?.items).toEqual([
 			{ id: "t1", text: "Wire overlay", done: true },
-			{ id: "t2", text: "Add tests", done: false },
+			// 模型刚发出调用（只有 args）时，in_progress 行就要点亮活动项。
+			{ id: "t2", text: "Add tests", done: false, active: true },
 			{ id: "t3", text: "Write README", done: false },
 		]);
 	});
@@ -231,5 +235,93 @@ describe("filterBaselineItems — new-task cleanup of stale extension todos", ()
 		const r = filterBaselineItems(list!, baseline);
 		// Both rows carry baseline text; both are stale — nothing new here.
 		expect(r.items).toEqual([]);
+	});
+
+	it("normalizes the unreported flag on items", () => {
+		const items = normalizeTodoRows([
+			{ id: "1", text: "已确认", done: true },
+			{ id: "2", text: "未回写", done: false, unreported: true },
+		]);
+		expect(items[0].unreported).toBeUndefined();
+		expect(items[1]).toMatchObject({ done: false, unreported: true });
+	});
+
+	it("derives the active row from status when args carry no activeId", () => {
+		const list = todosFromToolArgs("pi-deck-todo", {
+			todos: [
+				{ id: "1", content: "第一步", status: "completed" },
+				{ id: "2", content: "第二步", status: "in_progress" },
+				{ id: "3", content: "第三步", status: "pending" },
+			],
+		});
+		expect(list?.items.map((i) => Boolean(i.active))).toEqual([
+			false,
+			true,
+			false,
+		]);
+	});
+
+	it("does not invent an active row when nothing is in progress", () => {
+		const list = todosFromToolArgs("pi-deck-todo", {
+			todos: [
+				{ id: "1", content: "A", status: "pending" },
+				{ id: "2", content: "B", status: "pending" },
+			],
+		});
+		expect(list?.items.some((i) => i.active)).toBe(false);
+	});
+
+	it("falls back to positional ids when deriving the active row", () => {
+		const list = todosFromToolArgs("pi-deck-todo", {
+			todos: [
+				{ content: "无 id 的进行中项", status: "in_progress" },
+				{ content: "下一项", status: "pending" },
+			],
+		});
+		expect(list?.items[0]).toMatchObject({ id: "1", active: true });
+	});
+
+	it("keeps the explicit activeId from details over the derived one", () => {
+		const list = todosFromToolDetails("pi-deck-todo", {
+			activeId: "3",
+			todos: [
+				{ id: "1", content: "A", status: "in_progress" },
+				{ id: "3", content: "B", status: "pending" },
+			],
+		});
+		expect(list?.items.map((i) => Boolean(i.active))).toEqual([false, true]);
+	});
+
+	it("round-trips the unreported flag through the snapshot", () => {
+		const list = {
+			key: "pi-deck-todo",
+			title: "Todos 1/2",
+			items: [
+				{ id: "1", text: "A", done: true, durationMs: 1200 },
+				{
+					id: "2",
+					text: "B",
+					done: false,
+					unreported: true,
+					durationMs: 3400,
+				},
+			],
+			dismissed: false,
+		};
+		const snapshot = serializeTodoSnapshot("s1", list, 10, 0, true, {
+			A: { startedAt: 10, completedAt: 1210 },
+			B: { startedAt: 10 },
+		});
+		const parsed = parseTodoSnapshot(
+			JSON.parse(JSON.stringify(snapshot)) as unknown,
+		);
+		expect(parsed?.list.items[1]).toMatchObject({
+			text: "B",
+			done: false,
+			unreported: true,
+			durationMs: 3400,
+		});
+		expect(todoListAllDone(parsed!.list)).toBe(false);
+		expect(todoListVisible(parsed!.list)).toBe(true);
 	});
 });

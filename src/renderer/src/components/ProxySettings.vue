@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from "vue";
+import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 import {
   NInput,
   NRadioButton,
@@ -18,6 +18,11 @@ const message = useMessage();
 const mode = ref<ProxyMode>("off");
 const url = ref("");
 const loaded = ref(false);
+let urlTimer: ReturnType<typeof setTimeout> | undefined;
+
+onBeforeUnmount(() => {
+  clearTimeout(urlTimer);
+});
 
 onMounted(async () => {
   try {
@@ -55,8 +60,6 @@ function onMode(next: ProxyMode): void {
   apply(true);
 }
 
-let urlTimer: ReturnType<typeof setTimeout> | undefined;
-
 function onUrl(next: string): void {
   url.value = next;
   if (!loaded.value || mode.value !== "custom") return;
@@ -80,11 +83,12 @@ const urlInvalid = computed(
       <div class="switch-labels">
         <NText strong>{{ t.proxyTitle }}</NText>
       </div>
-      <NRadioGroup :value="mode" size="small" class="setting-radio-group" @update:value="onMode">
+      <NRadioGroup v-if="loaded" :value="mode" size="small" class="setting-radio-group" @update:value="onMode">
         <NRadioButton value="off">{{ t.proxyModeOff }}</NRadioButton>
         <NRadioButton value="system">{{ t.proxyModeSystem }}</NRadioButton>
         <NRadioButton value="custom">{{ t.proxyModeCustom }}</NRadioButton>
       </NRadioGroup>
+      <div v-else class="setting-radio-placeholder" />
     </div>
 
     <div v-if="mode === 'custom'" class="switch-row">
@@ -128,6 +132,14 @@ const urlInvalid = computed(
   flex-shrink: 0;
   width: 168px;
   display: inline-flex;
+}
+
+.setting-radio-placeholder {
+  flex-shrink: 0;
+  width: 168px;
+  height: 22px;
+  border-radius: 3px;
+  background: rgba(128, 128, 128, 0.14);
 }
 
 .setting-radio-group :deep(.n-radio-button) {

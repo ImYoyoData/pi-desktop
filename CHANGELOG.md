@@ -1,5 +1,71 @@
 # Changelog
 
+## v0.3.6-rc.2 (2026-10-14)
+
+本版重点：升级 pi SDK 到 1.2.0，适配 `before_agent_start` 新签名，并把按密钥的 OpenRouter 模型列表接进模型页（打开时联网刷新目录）；同时带来 OpenRouter 负价格、MCP 带资源服务器工具注册延迟、上下文压缩可能失败等一批上游修复。另新增联网搜索服务器配置面板、扩展 Hook 事件列表与思考语言设置，会话历史改为分页加载，并修复会话事件流随组件卸载永久中断、桌面端安装包/dev 偏好分家与粘贴文本被改写；移除权限确认网关与命令输出临时文件清理。
+
+### 新功能 Features
+
+- **联网搜索服务器配置**：设置新增「联网搜索」页，可读写 pi 的 `web-search.json` 服务器配置（对应 pi 1.2.0 前置的 web_search 工具链）；代理变更时同步写入该文件的 proxy 字段。
+- **扩展 Hook 事件列表**：自定义 → Hooks 页除桌面自身的 Hook 外，列出扩展订阅的 pi 生命周期事件，并按事件名归并订阅的扩展。
+- **思考语言设置**：自定义 → 通用页新增思考语言设置。
+- **会话历史展示上下文压缩与分支摘要**：消息列表现在解析并展示上下文压缩（compaction）与分支摘要，对应 pi 的 `compaction_end` 事件。
+- **配置文件写入 pi 官方 JSON Schema**（pi 1.2.0）：桌面端写入的 `settings.json` / `models.json` 补上 pi 发布的 `$schema` 字段，编辑器可据此校验与补全；用户已写的 `$schema` 保持不动。
+- **OpenRouter 按密钥列出可用模型**（pi 1.2.0）：配了 OpenRouter 密钥后，模型列表只列出该密钥有权使用的模型，并带上该密钥的上下文长度、最大输出与价格（含在 `models.json` 里设为 base URL 的区域端点），列表会保存下来离线可用。桌面端按 pi 的做法接入：只有「设置 → 模型」页会联网刷新目录，输入框切模型、消息列表取显示名等高频路径用已缓存目录，保存/删除后重载也不重复联网；刷新沿用 SDK 自带的 4 小时目录缓存，同一分钟内来回切页只请求一次，等待上限 5 秒（超时不影响已刷到的部分）；离线模式（`PI_OFFLINE`）下不联网，失败或超时静默降级。
+
+- **Web search server configuration**: a new "Web search" settings page reads and writes pi's `web-search.json` server config (feeding pi 1.2.0's web_search tooling). The proxy field is kept in sync when the app proxy changes.
+- **Extension hook event list**: Settings → Hooks now lists the pi lifecycle events extensions subscribe to, grouped by event name alongside the desktop's own hooks.
+- **Thinking language setting**: a thinking-language setting is added to Settings → General.
+- **Compaction and branch summaries in chat history**: the message list now parses and shows context compaction and branch summaries from pi's `compaction_end` event.
+- **Config files carry pi's published JSON Schema** (pi 1.2.0): `settings.json` / `models.json` written by the desktop get pi's `$schema` field so editors can validate and complete them; a `$schema` the user already wrote is kept.
+- **Per-key OpenRouter model lists** (pi 1.2.0): with an OpenRouter key configured, the model list shows only the models that key may use, with that key's context size, max output and prices (including regional endpoints set as the base URL in `models.json`). The list is saved and used offline. The desktop follows pi's approach: only Settings → Models refreshes the catalog over the network, while high-frequency paths such as switching models in the composer or reading display names in the message list use the cached catalog, and reloads after save/delete do not re-fetch. The refresh keeps the SDK's own 4-hour catalog cache and requests at most once per minute, with a 5s wait cap (a timeout still keeps whatever was already fetched). Offline mode (`PI_OFFLINE`) skips the network, and failures or timeouts fall back silently.
+
+### 修复 Fixes
+
+- **修复安装包与 dev 偏好分家**：同一台机器上安装包与 `npm run dev` 的背景图、消息预览、会话排序、各类界面开关各不相同，消息预览关掉后下次启动又变回开启。根因是这些偏好存在渲染进程 localStorage，而它同时绑在 Electron userData 与页面 origin 两个维度上（安装包是 file://，dev 是 http://localhost:5173），两边双重隔离各存一份。现统一改存 `~/.pi/agent/desktop-prefs.json`（原子写 + 串行读改写队列），安装包与 dev 共用同一份偏好，一端修改在另一端下次启动生效。
+- **聊天历史改为分页加载**：打开会话原本一次性灌入全部尾部历史（上限 100 万条），超长会话会把海量消息与大工具输出一次性压进渲染堆，是内存崩溃的主要来源。现在每次只加载最近 500 条，MessageList 顶部提供「加载更早的历史」按页前插并平移渲染窗口，视口不跳；切回被驱逐过的会话同样从最近一页开始。
+- **修复会话事件流永久中断**：会话事件由主进程单向推送，渲染端无法补发，而三个 store 的 IPC 订阅各自绑在组件生命周期上，ChatPanel 被 `v-if` 销毁重建（切到拉取请求视图）即解绑，叠加 hidden-event-buffer 的 dispose 后 push 变成永久 no-op，两者叠加使事件流一旦中断就再也恢复不了——worker 与模型都正常，界面却永远停在「等待模型响应」。现改为进程级订阅在应用启动时统一注册，hidden-event-buffer 的 stop 后 push 退化为直通而非 no-op，并在聊天视图重新可见时用 sessions.status 对账补回丢失的收尾。
+- **治理渲染进程常驻内存**：session bySession 加 LRU 上限 8（运行中的会话永不驱逐），切走但没删的会话不再带着全量历史永久常驻堆；clearSession 扩成完整清理，checkpoint 按 sessionId 前缀一并清除。
+- **修复待办清单不按进度回写、收尾时被伪造成「一次性全完成」**：模型常把待办攒到最后一次更新，而回合结束时面板会把所有未完成项自动标成完成、并盖同一个完成时间，于是「哪一步没被确认」在界面上完全看不出来。根因是三层叠加：待办规则全是自然语言软约束、没有任何机制提醒；每次回写要独占一整轮模型调用（实测平均 14~44 次工具调用才回写一次）；最后面板的自动补完成再把缺口抹平。现在：回合结束时仍未回写的项保持未完成并标为「未回写」（虚线问号 +「N 项模型未回写」），面板不再伪造完成；新增内置扩展 `todo-reminder`——每 3 次工具调用在下一次请求的上下文末尾注入一行进度摘要（不写进工具结果、不影响界面），回合即将结束时若仍挂着 in_progress 项，则注入一条隐藏提醒并请求模型再回写一次（每轮最多一次，中止/出错不触发）；`todo_write` 的结果文本与系统提示同步改成「收尾前必须回写」；回合以错误结束时同样按此收尾（用户主动停止仍保持暂停列表）。
+- **修复粘贴到消息框内容被改写**：粘贴文本开头总会多出一个空格；开头本来有多个空格时会被压成单个；剪贴板只有空格时则什么都粘贴不出来。根因是自绘输入框的插入路径有三处叠加改写：`normalizeInsertedText` 用 `trim()` 砍掉首尾空白、`needsLeadingSpace` 在插入点前有文字时无条件补一个空格、`Composer.vue` 的 `!plain.trim()` 判定把纯空白剪贴板整条丢弃（而剪贴板里的 `text/plain` 确实是那些空格）。现在粘贴逐字还原：首尾空白与内容原样落进输入框，纯空格剪贴板照常插入；「补分隔空格」的启发式只保留给拖放 URL 使用，两条路径互不影响（#36）。
+
+- **Desktop preferences were split between the installed app and dev**: background image, message preview, session ordering and the various UI switches differed between the installed build and `npm run dev` on the same machine, and turning the message preview off appeared to revert on next launch. The root cause is that these preferences lived in renderer localStorage, which is keyed by both the Electron userData dir and the page origin (file:// for the app, http://localhost:5173 for dev), so each side kept its own copy. They now live in a single `~/.pi/agent/desktop-prefs.json` (atomic write plus a serialized read-modify-write queue); the installed app and dev share them, and a change on one side takes effect on the other at next launch.
+- **Chat history is now paged**: opening a session used to load its entire tail in one go (limit was 1,000,000 entries), and a very long session pushed a flood of messages and large tool outputs into the renderer heap at once, the main source of out-of-memory crashes. It now loads only the most recent 500 entries, with a persistent "load earlier history" control at the top of MessageList that prepends a page and shifts the render window so the viewport does not jump; evicted sessions also resume from the most recent page.
+- **Fixed session event streams stopping permanently**: session events are pushed one-way from the main process and cannot be replayed, yet three stores subscribed over IPC bound to component lifetimes — a ChatPanel destroyed and rebuilt by `v-if` (e.g. switching to the pull-request view) unsubscribed, and hidden-event-buffer's dispose turned push into a permanent no-op. Once interrupted the stream never recovered: worker and model were fine but the UI sat at "waiting for model response" forever. Subscriptions are now process-level, registered once at startup; after stop the buffer passes push through instead of no-op; and when the chat view becomes visible again it reconciles against sessions.status to restore missing tail work.
+- **Renderer memory kept growing**: the bySession map gained an LRU cap of 8 (sessions with live turns are never evicted), so a session that was navigated away from without being deleted no longer kept its full history resident; clearSession now does a full cleanup, and checkpoint entries are dropped by sessionId prefix.
+- **Fixed todos not being written per step and being faked into "all done at the end"**: models often batch todo updates, and when a turn ended the panel completed every remaining item on its own with one shared completion time, so which step was never confirmed became invisible. Three causes stacked: the todo rules were soft prose with no mechanism behind them; each write cost a whole model round (measured: one update per 14–44 tool calls); and the panel papered over the gap. Now items the model never reported stay open and are marked "not reported" (dashed question mark plus an "N not reported by the model" sub-label); a new built-in `todo-reminder` extension injects a one-line progress digest into the next request's context every third tool call (tool results and UI stay untouched) and, when an `in_progress` item is still open as the turn settles, injects a hidden reminder and asks the model once more to write the list (at most once per run, skipped on abort/error); `todo_write`'s result text and the system prompt now state the write-before-you-finish requirement; a turn that ends in an error settles the same way, while a user stop still keeps the paused list.
+- **Fixed pasted text being rewritten in the composer**: pasting always added a leading space, an original run of leading spaces collapsed into one, and a clipboard holding nothing but spaces pasted nothing at all. Three rewrites stacked in the hand-rolled editor's insert path: `normalizeInsertedText` trimmed leading and trailing whitespace, `needsLeadingSpace` unconditionally added a space when text preceded the caret, and `Composer.vue`'s `!plain.trim()` test dropped a whitespace-only clipboard outright (while the clipboard's `text/plain` really did hold those spaces). Pasting now restores the text verbatim — leading and trailing whitespace land in the editor as-is and a whitespace-only clipboard pastes normally; the "insert a separator space" heuristic is kept for dropped URLs only, so the two paths no longer interfere (#36).
+
+### 随 pi 1.2.0 升级获得的上游修复 Upstream fixes via pi 1.2.0
+
+以下均为 pi SDK 内部行为，升级后自动生效，桌面端无对应代码改动。
+
+- **OpenRouter 路由模型负价格归零**：`openrouter/auto` 这类路由模型原先在模型页显示 `$-1000000/M` 之类的负价格（OpenRouter 的占位负价被直接透出），现归零。
+- **带资源的 MCP 服务器不再延迟注册工具**：pi 连接时不再预先列举全部资源（列举大目录可能很慢），改为按需列举；此前要等所有资源列完才注册工具。
+- **上下文压缩不再因请求过大而失败**：会话序列化（压缩、分支摘要、bug 报告）跳过 thinking 块——回放的 thinking 往往不在模型实时上下文里，带上它会让摘要请求比要总结的上下文还大。
+- **Anthropic 拒绝严格工具集时自动重试**：因语法大小、工具数量或联合类型上限被拒时，改用非严格模式重试一次，不再整轮失败。
+- **provider 错误纳入可重试**：「The upstream provider returned an error」现在按可重试的 provider 错误处理。
+
+- **OpenRouter router models no longer show a negative price**: router models such as `openrouter/auto` used to render a price like `$-1000000/M` in the model list (OpenRouter's negative placeholder prices were passed through); they are now 0.
+- **MCP servers with resources register their tools right away**: pi no longer lists resources when connecting (listing a large drive can be slow) and lists them on demand, so a server that offers resources no longer waits for every resource to be listed.
+- **Compaction no longer fails outright**: `serializeConversation()` (compaction, branch summaries, bug reports) omits thinking blocks — replayed thinking is often not part of the model's live context, so including it could make the summarization request larger than the context it summarizes.
+- **Anthropic rejecting the strict tool set retries once**: when the strict tool set is rejected for grammar size, tool count or union limits, pi retries once with preferred tools non-strict instead of failing the turn.
+- **Provider errors are retried**: "The upstream provider returned an error" is now treated as a retryable transient provider error.
+
+### 变更 Changes
+
+- **升级 pi SDK 到 1.2.0**：`@earendil-works/pi-coding-agent`、`@earendil-works/pi-agent-core`、`@earendil-works/pi-ai`、`@earendil-works/pi-durable` 从 1.1.0 升到 1.2.0（pi-codemode / pi-mcp / pi-tui / pi-telemetry / chord 同步）。适配 pi 1.2.0 的 `before_agent_start` 新签名：事件按 `messageType` 区分用户提交与扩展触发的运行，agent-worker 预热扩展 hook 时改传 `{ messageType: "user", prompt: "" }`，保持「空 prompt 不写用户事件」的原有语义；其余 SDK API 与构建期扩展加载器补丁均与 1.2.0 兼容，无需调整。
+- **移除权限确认网关与命令输出临时文件清理**：桌面端不再代理 pi 的工具权限询问与项目信任设置，权限确认交回 pi CLI 自身；命令输出临时文件清理由外部工具负责，移除 temp-cleanup 的 IPC、设置面板与定时器。
+- **依赖调整**：终端迁移到 `@xterm/xterm` 6.0.0 与 `@xterm/addon-web-links` 0.12.0（上游已废弃 xterm 5.x）；移除零引用的 qrcode；`ws` 仅供 CDP 调试脚本使用，从 dependencies 移入 devDependencies。
+- **codemode 工具声明补上输入约束**（pi 1.2.0）：codemode 里的工具声明现在把 integer、最小/最大值、长度、pattern、默认值以 `@` 标记写在属性注释上，脚本能直接看到约束而不用工具在描述里重复一遍。
+
+### 变更 Changes (English)
+
+- **Upgraded pi SDK to 1.2.0**: `@earendil-works/pi-coding-agent`, `@earendil-works/pi-agent-core`, `@earendil-works/pi-ai` and `@earendil-works/pi-durable` moved from 1.1.0 to 1.2.0 (pi-codemode / pi-mcp / pi-tui / pi-telemetry / chord follow). Adapted to pi 1.2.0's new `before_agent_start` signature: the event now distinguishes user-submitted from extension-triggered runs via `messageType`, and the agent worker's hook warm-up passes `{ messageType: "user", prompt: "" }` to keep the original "empty prompt writes no user event" semantics. The remaining SDK API and the build-time extension-loader patch stay compatible with 1.2.0 unchanged.
+- **Removed the permission gateway and temp-file cleanup**: the desktop no longer proxies pi's tool permission prompts or project-trust settings — permission confirmation goes back to the pi CLI itself — and command-output temp-file cleanup is left to external tooling, so temp-cleanup's IPC, settings panel and timers are removed.
+- **Dependency changes**: the terminal moves to `@xterm/xterm` 6.0.0 and `@xterm/addon-web-links` 0.12.0 (upstream deprecated xterm 5.x); the unreferenced qrcode package is removed; `ws` is only used by the CDP debug script and moved from dependencies to devDependencies.
+- **Codemode tool declarations show input constraints** (pi 1.2.0): codemode's tool declarations now spell out integer, minimum/maximum, length, pattern and default as `@` tags on property comments, so scripts see the constraints without the tool repeating them in its description.
+
 ## v0.3.6-rc.1 (2026-10-11)
 
 本版重点：跟进 pi 1.1.0（含 1.0.1–1.0.4）的全部变更，升级 SDK，适配 azure 更名、工具耗时记录、取消态与 MCP 客户端注册方式，并在界面上接入采样参数、MCP 项目覆盖、内置工具与提示模板管理，终端改用 pi 原生运行状态；并修复退出后进程残留。

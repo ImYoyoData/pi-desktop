@@ -1,6 +1,7 @@
 import { app, BrowserWindow, Notification, ipcMain } from "electron";
 import { IpcChannels } from "../shared/protocol";
 import { getUiLocale } from "./ui-locale";
+import type { SessionBroker } from "./session-broker";
 
 /** Keep Notification instances alive until click/close — otherwise GC drops the click handler. */
 const liveNotifications = new Set<Notification>();
@@ -48,7 +49,7 @@ function trackNotification(n: Notification): void {
   n.once("failed", release);
 }
 
-export function registerNotifyIpc(): void {
+export function registerNotifyIpc(broker: Pick<SessionBroker, "cwdOfSession">): void {
   ipcMain.handle(
     IpcChannels.notify.turnComplete,
     (_event, payload: { title?: string; body?: string; sessionId?: string }) => {
@@ -69,7 +70,9 @@ export function registerNotifyIpc(): void {
           liveNotifications.delete(n);
           const sessionId = typeof payload?.sessionId === "string" ? payload.sessionId : "";
           if (win && sessionId) {
-            win.webContents.send(IpcChannels.notify.openSession, { sessionId });
+            // 一并带上 cwd：渲染进程可能没加载过该会话所在工作区的列表，仅靠 sessionId 无法定位。
+            const cwd = broker.cwdOfSession(sessionId) ?? undefined;
+            win.webContents.send(IpcChannels.notify.openSession, { sessionId, cwd });
           }
         });
         trackNotification(n);

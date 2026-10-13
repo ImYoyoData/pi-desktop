@@ -18,13 +18,14 @@ import {
   SendOutline,
   StopOutline,
 } from "@vicons/ionicons5";
+import * as prefsApi from "@renderer/utils/prefs";
 import ComposerRichEditor from "@renderer/components/ComposerRichEditor.vue";
 import ComposerSlashMenu from "@renderer/components/ComposerSlashMenu.vue";
 import ComposerAtFileMenu from "@renderer/components/ComposerAtFileMenu.vue";
 import SendQueueBar from "@renderer/components/SendQueueBar.vue";
 import DraftContextBar from "@renderer/components/DraftContextBar.vue";
 import { useChatStore } from "@renderer/stores/chat";
-import type { ContextUsageSegmentId, ElementCitation } from "../../../shared/protocol";
+import type { ElementCitation } from "../../../shared/protocol";
 import { isHttpUrl, useComposerStore } from "@renderer/stores/composer";
 import { useKeybindingsStore } from "@renderer/stores/keybindings";
 import {
@@ -32,16 +33,50 @@ import {
   type QueuedSendItem,
 } from "@renderer/stores/send-queue";
 import { useSessionsStore } from "@renderer/stores/sessions";
-import {
-  permissionProfileLabel,
-  permissionProfileOptions,
-  useSecurityStore,
-} from "@renderer/stores/security";
 import { useWorkspaceStore } from "@renderer/stores/workspace";
 import { useAppearanceStore } from "@renderer/stores/appearance";
 import { useRightTabsStore } from "@renderer/stores/right-tabs";
 import { plainTextFromClipboard } from "@renderer/utils/composer-rich";
 import { heuristicSessionTitle } from "@renderer/utils/session-title";
+import {
+  DRAFT_PREF_KEY,
+  SESSION_PREFS_KEY,
+  flatModelOptions,
+  forgetPrefKey,
+  modelKeyFromState,
+  parseSessionPrefs,
+  resolveThinkingResult,
+  serializeSessionPrefs,
+  setPrefKey,
+  thinkingFromState,
+  type SessionPrefs,
+} from "@renderer/utils/session-prefs";
+import {
+  coercePathToken,
+  toWorkspaceRelative,
+  transferTypesHaveFilePayload,
+  type WorkspacePathContext,
+} from "@renderer/utils/composer-paths";
+import {
+  displayTextFor,
+  planComposerTags,
+  queueItemHasContent,
+  queueMessageText,
+  steerTextWithCitations,
+  titleSeedFor,
+} from "@renderer/utils/composer-payload";
+import { buildSessionStats } from "@renderer/utils/session-stats";
+import {
+  contextCostLabelOf,
+  contextFreePctOf,
+  contextFullLabelOf,
+  contextNeedsCompactAt,
+  contextPercentOf,
+  contextRingDash,
+  contextSegmentsOf,
+  contextTokensPairLabelOf,
+  contextToneOf,
+} from "@renderer/utils/context-usage";
 import {
   EMPTY_MODEL_SELECTION,
   filterAvailableModels,
@@ -51,10 +86,8 @@ import {
 import { MODEL_MENU_PROPS, buildModelMenu } from "@renderer/model-menu";
 import {
   composerModePreamble,
-  isComposerAgentMode,
   type ComposerAgentMode,
 } from "../../../shared/composer-modes";
-import type { PermissionProfile } from "../../../shared/desktop-security";
 import {
   filterSlashItems,
   isSlashBuiltinId,
@@ -71,7 +104,6 @@ import {
 import { formatLlmError } from "@renderer/utils/llm-error";
 import {
   decodeWorkspacePaths,
-  looksLikeWorkspaceRelPath,
   PI_WORKSPACE_PATHS_MIME,
 } from "@renderer/utils/workspace-path-dnd";
 import { locale, t } from "@renderer/i18n";
@@ -107,47 +139,22 @@ type ModelSelectOption =
   | { type: "group"; label: string; key: string; children: { label: string; value: string }[] }
   | { label: string; value: string };
 
-const SESSION_PREFS_KEY = "pi-desktop:session-model-prefs";
-/** 未创建的新会话草稿用稳定键记住模型/思考等级，发送后自动沿用到真实会话。 */
-const DRAFT_PREF_KEY = "__draft__";
-
-type SessionPrefs = {
-  models: Record<string, string>;
-  thinking: Record<string, ThinkingLevel>;
-};
-
-function loadSessionPrefs(): SessionPrefs {
-  try {
-    const raw = localStorage.getItem(SESSION_PREFS_KEY);
-    if (!raw) return { models: {}, thinking: {} };
-    const parsed = JSON.parse(raw) as Partial<SessionPrefs>;
-    return {
-      models: parsed.models && typeof parsed.models === "object" ? parsed.models : {},
-      thinking:
-        parsed.thinking && typeof parsed.thinking === "object"
-          ? (parsed.thinking as Record<string, ThinkingLevel>)
-          : {},
-    };
-  } catch {
-    return { models: {}, thinking: {} };
-  }
-}
-
 const availableModels = ref<ModelSelectOption[]>([]);
 const selectedModelKey = ref<string | null>(null);
 /** Last applied model key for the active session (`sessionId::provider/id`). */
 const appliedModelForSession = ref<string | null>(null);
 /** Per-session remembered model (`provider/id`) and thinking level. */
-const modelBySession = ref<Record<string, string>>(loadSessionPrefs().models);
-const thinkingBySession = ref<Record<string, ThinkingLevel>>(loadSessionPrefs().thinking);
+const prefs = ref<SessionPrefs>(parseSessionPrefs(prefsApi.getItem(SESSION_PREFS_KEY)));
+const modelBySession = computed(() => prefs.value.models);
+const thinkingBySession = computed(() => prefs.value.thinking);
 const thinkingLevel = ref<ThinkingLevel>("medium");
 const richEditor = ref<{
   focus?: () => void;
   focusEnd?: () => void;
   isCaretAtEnd?: () => boolean;
   getSurface?: () => HTMLElement | null;
-  appendTextAtEnd?: (text: string) => void;
-  insertTextAtCaret?: (text: string) => void;
+  appendTextAtEnd?: (text: string, separate?: boolean) => void;
+  insertTextAtCaret?: (text: string, separate?: boolean) => void;
   scrollToEnd?: () => void;
 } | null>(null);
 /** Expanded tall editor (hover affordance top-right). */
@@ -163,33 +170,7 @@ function focusDraftAtEnd(): void {
 }
 
 function persistSessionPrefs(): void {
-  localStorage.setItem(
-    SESSION_PREFS_KEY,
-    JSON.stringify({
-      models: modelBySession.value,
-      thinking: thinkingBySession.value,
-    }),
-  );
-}
-
-function flatModelOptions(groups: ModelSelectOption[]): { label: string; value: string }[] {
-  return groups.flatMap((g) => ("children" in g ? g.children : [g]));
-}
-
-function modelKeyFromState(data: unknown): string | null {
-  if (!data || typeof data !== "object") return null;
-  const model = (data as { model?: unknown }).model;
-  if (!model || typeof model !== "object") return null;
-  const m = model as { provider?: unknown; id?: unknown };
-  if (typeof m.provider !== "string" || typeof m.id !== "string") return null;
-  if (!m.provider || !m.id) return null;
-  return `${m.provider}/${m.id}`;
-}
-
-function thinkingFromState(data: unknown): ThinkingLevel | null {
-  if (!data || typeof data !== "object") return null;
-  const level = (data as { thinkingLevel?: unknown }).thinkingLevel;
-  return isThinkingLevel(level) ? level : null;
+  prefsApi.setItem(SESSION_PREFS_KEY, serializeSessionPrefs(prefs.value));
 }
 
 /** 界面档位写入偏好；worker 会按模型能力 clamp 后回传实际档位。 */
@@ -207,9 +188,9 @@ function adoptThinkingResult(
   result: unknown,
   key: string | null = prefsKey.value,
 ): void {
-  const actual = (result as { level?: unknown } | null)?.level;
   // worker 未回传实际值时不动界面，只按用户选择记忆。
-  if (!isThinkingLevel(actual) || actual === requested) {
+  const { actual, clamped } = resolveThinkingResult(requested, result, isThinkingLevel);
+  if (!clamped) {
     if (key) rememberThinking(key, requested);
     return;
   }
@@ -217,12 +198,12 @@ function adoptThinkingResult(
 }
 
 function rememberModel(sessionId: string, key: string): void {
-  modelBySession.value = { ...modelBySession.value, [sessionId]: key };
+  prefs.value = setPrefKey(prefs.value, "models", sessionId, key);
   persistSessionPrefs();
 }
 
 function rememberThinking(sessionId: string, level: ThinkingLevel): void {
-  thinkingBySession.value = { ...thinkingBySession.value, [sessionId]: level };
+  prefs.value = setPrefKey(prefs.value, "thinking", sessionId, level);
   persistSessionPrefs();
 }
 
@@ -231,13 +212,9 @@ let draftCommitPending = false;
 
 /** 清掉某个记忆键，避免草稿转正后残留悬挂偏好。 */
 function forgetPrefs(key: string): void {
-  if (!(key in modelBySession.value) && !(key in thinkingBySession.value)) return;
-  const models = { ...modelBySession.value };
-  const thinking = { ...thinkingBySession.value };
-  delete models[key];
-  delete thinking[key];
-  modelBySession.value = models;
-  thinkingBySession.value = thinking;
+  const next = forgetPrefKey(prefs.value, key);
+  if (next === prefs.value) return;
+  prefs.value = next;
   persistSessionPrefs();
 }
 
@@ -346,21 +323,8 @@ function electronFilePath(file: File): string | null {
       p = "";
     }
   }
-  if (typeof p === "string" && p.trim()) return toWorkspaceRelative(p.trim());
+  if (typeof p === "string" && p.trim()) return toWorkspaceRelativePath(p.trim());
   return null;
-}
-
-/** Prefer workspace-relative paths for file tags. */
-function toWorkspaceRelative(absOrRel: string): string {
-  const raw = absOrRel.replace(/\\/g, "/");
-  const root = (workspace.root || "").replace(/\\/g, "/").replace(/\/+$/, "");
-  if (!root) return raw;
-  const fold = (s: string) => (pathCaseInsensitive.value ? s.toLowerCase() : s);
-  const rootFold = fold(root);
-  const pathFold = fold(raw);
-  if (pathFold === rootFold) return "";
-  if (pathFold.startsWith(`${rootFold}/`)) return raw.slice(root.length + 1);
-  return raw;
 }
 
 const pathCaseInsensitive = ref(false);
@@ -369,53 +333,25 @@ void window.api.window.platform().then((p) => {
   pathCaseInsensitive.value = p === "win32" || p === "darwin";
 });
 
-function fileUrlToPath(uri: string): string | null {
-  const raw = uri.trim();
-  if (!raw) return null;
-  try {
-    if (/^file:\/\//i.test(raw)) {
-      const u = new URL(raw);
-      let p = decodeURIComponent(u.pathname);
-      if (/^\/[A-Za-z]:\//.test(p)) {
-        p = p.slice(1).replace(/\//g, "\\");
-      }
-      return toWorkspaceRelative(p);
-    }
-  } catch {
-    // fall through
-  }
-  if (/^[A-Za-z]:[\\/]/.test(raw) || raw.startsWith("\\\\") || raw.startsWith("/")) {
-    return toWorkspaceRelative(raw);
-  }
-  return null;
+/** Prefer workspace-relative paths for file tags. */
+const pathCtx = computed<WorkspacePathContext>(() => ({
+  root: workspace.root || "",
+  caseInsensitive: pathCaseInsensitive.value,
+}));
+
+function toWorkspaceRelativePath(p: string): string {
+  return toWorkspaceRelative(p, pathCtx.value);
 }
 
 /** Absolute / file:// / workspace-relative path token → workspace-relative for file tags. */
-function coercePathToken(raw: string): string | null {
-  const fromUrl = fileUrlToPath(raw);
-  if (fromUrl != null && fromUrl !== "") return fromUrl;
-  if (fromUrl === "") return null; // dropped onto workspace root itself
-  if (looksLikeWorkspaceRelPath(raw)) {
-    // Strip quotes wrapping pasted paths that contain spaces.
-    return raw
-      .trim()
-      .replace(/^["']|["']$/g, "")
-      .replace(/\\/g, "/")
-      .replace(/^\.\//, "");
-  }
-  return null;
+function coercePathTokenInComposer(raw: string): string | null {
+  return coercePathToken(raw, pathCtx.value);
 }
 
 const fileDragOver = ref(false);
 
 function transferHasFilePayload(data: DataTransfer): boolean {
-  const types = Array.from(data.types);
-  return (
-    types.includes(PI_WORKSPACE_PATHS_MIME) ||
-    types.includes("Files") ||
-    types.includes("text/uri-list") ||
-    types.includes("text/plain")
-  );
+  return transferTypesHaveFilePayload(data.types);
 }
 
 function onComposerDragOver(event: DragEvent): void {
@@ -444,7 +380,7 @@ function onComposerDrop(event: DragEvent): void {
   if (outcome.kind === "text") {
     // Dropped http(s) URLs stay plain text — insert where the user let go.
     placeDropCaret(event.clientX, event.clientY);
-    richEditor.value?.insertTextAtCaret?.(outcome.text);
+    richEditor.value?.insertTextAtCaret?.(outcome.text, true);
   }
 }
 
@@ -524,7 +460,7 @@ function ingestTransferData(
         urls.push(trimmed);
         continue;
       }
-      const filePath = coercePathToken(trimmed);
+      const filePath = coercePathTokenInComposer(trimmed);
       if (filePath) filePaths.push(filePath);
     }
     for (const filePath of filePaths) composer.addFileTag(filePath);
@@ -539,7 +475,7 @@ function ingestTransferData(
 
   if (text) {
     const lines = text.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
-    const asPaths = lines.map(coercePathToken).filter((p): p is string => Boolean(p));
+    const asPaths = lines.map(coercePathTokenInComposer).filter((p): p is string => Boolean(p));
     if (asPaths.length && asPaths.length === lines.length) {
       for (const filePath of asPaths) composer.addFileTag(filePath);
       return { kind: "files" };
@@ -704,29 +640,6 @@ const modeMenuItems = computed<ModeMenuItem[]>(() => [
 
 const modeBubbleShow = ref(false);
 
-const security = useSecurityStore();
-const permBubbleShow = ref(false);
-const permissionOptions = computed(() => permissionProfileOptions());
-const activePermissionLabel = computed(() =>
-  permissionProfileLabel(security.profile),
-);
-
-/** 打开气泡时重新拉取，其它入口的改动不会漏。 */
-function onPermBubbleShow(show: boolean): void {
-  permBubbleShow.value = show;
-  if (show) void security.load().catch(() => {});
-}
-
-async function onPermissionPick(value: PermissionProfile): Promise<void> {
-  permBubbleShow.value = false;
-  if (security.profile === value) return;
-  try {
-    await security.setProfile(value);
-  } catch (err) {
-    messageApi.error(err instanceof Error ? err.message : String(err));
-  }
-}
-
 const activeModeLabel = computed(() => modeTagLabel(composer.mode));
 
 function onModePick(mode: ComposerAgentMode): void {
@@ -746,11 +659,12 @@ function enqueueFromComposer(): boolean {
   if (!id) return false;
   const snap = snapshotComposerPayload();
   if (!snap) return false;
-  const message =
-    snap.displayText ||
-    (snap.imagesToSend.length || snap.tagsToSend?.length ? " " : snap.text || " ");
   sendQueue.enqueue(id, {
-    text: message,
+    text: queueMessageText({
+      displayText: snap.displayText,
+      text: snap.text,
+      hasVisual: Boolean(snap.imagesToSend.length || snap.tagsToSend?.length),
+    }),
     images: snap.imagesToSend.length ? snap.imagesToSend : undefined,
     citations: snap.citationsToSend,
     elementTags: snap.tagsToSend,
@@ -814,11 +728,12 @@ function saveEditingToQueue(): boolean {
     messageApi.warning(t.queueEditPlaceholder);
     return false;
   }
-  const message =
-    snap.displayText ||
-    (snap.imagesToSend.length || snap.tagsToSend?.length ? " " : snap.text || " ");
   const updated = sendQueue.updateItem(id, qid, {
-    text: message,
+    text: queueMessageText({
+      displayText: snap.displayText,
+      text: snap.text,
+      hasVisual: Boolean(snap.imagesToSend.length || snap.tagsToSend?.length),
+    }),
     agentText: snap.text || undefined,
     images: snap.imagesToSend.length ? snap.imagesToSend : undefined,
     citations: snap.citationsToSend,
@@ -859,7 +774,7 @@ function loadQueueItemIntoComposer(item: {
   }[];
 }): void {
   composer.clear();
-  composer.draft = item.text === " " ? "" : item.text;
+  composer.draft = displayTextFor(item.text);
   for (const img of item.images ?? []) {
     composer.addImageFile({
       data: img.data,
@@ -877,27 +792,17 @@ function loadQueueItemIntoComposer(item: {
       htmlSnippet: c.htmlSnippet ?? "",
     });
   }
-  for (const tag of item.elementTags ?? []) {
-    if (isComposerAgentMode(tag.kind)) {
-      composer.setMode(tag.kind);
-      continue;
+  for (const action of planComposerTags(item.elementTags)) {
+    if (action.kind === "mode") {
+      composer.setMode(action.mode);
+    } else if (action.kind === "file") {
+      composer.addFileTag(action.value);
+    } else if (action.kind === "url") {
+      composer.addUrlTag(action.value);
+    } else if (!seenUrls.has(action.url)) {
+      seenUrls.add(action.url);
+      composer.addCitation({ url: action.url, selector: "", text: action.text, htmlSnippet: "" });
     }
-    if (tag.kind === "file") {
-      composer.addFileTag(tag.content || tag.label || tag.url);
-      continue;
-    }
-    if (tag.kind === "url" || (!tag.kind && /^https?:\/\//i.test(tag.url))) {
-      composer.addUrlTag(tag.url);
-      continue;
-    }
-    if (seenUrls.has(tag.url)) continue;
-    seenUrls.add(tag.url);
-    composer.addCitation({
-      url: tag.url,
-      selector: "",
-      text: tag.content || tag.label || "",
-      htmlSnippet: "",
-    });
   }
 }
 
@@ -933,15 +838,13 @@ async function dispatchQueuedItem(
   // Cold session: spawn worker on first real dispatch (not on create/open).
   // 不等待：队列气泡先上屏，不被 worker 往返挡住。
   void applySelectedModel({ allowStart: true });
-  const agentText = item.agentText || item.text || " ";
-  const displayText = item.text === " " ? "" : item.text;
   await chat.sendPrompt(
     id,
-    agentText,
+    item.agentText || item.text || " ",
     item.citations,
     item.images,
     item.elementTags,
-    displayText,
+    displayTextFor(item.text),
   );
 }
 
@@ -950,20 +853,6 @@ function isAgentBusy(targetSessionId?: string): boolean {
   if (!id) return false;
   if (chat.bySession[id]?.running) return true;
   return sessions.sessions.find((s) => s.id === id)?.status === "running";
-}
-
-function queueItemHasContent(item: {
-  text: string;
-  images?: unknown[];
-  citations?: unknown[];
-  elementTags?: unknown[];
-}): boolean {
-  return Boolean(
-    item.text.trim() ||
-      item.images?.length ||
-      item.citations?.length ||
-      item.elementTags?.length,
-  );
 }
 
 /** Serialize auto-drain so idle races cannot fire two sends at once. */
@@ -1015,18 +904,6 @@ async function drainQueueIfIdle(targetSessionId: string): Promise<void> {
   }
 }
 
-/** Embed URL citations as text so they survive the steer message (text-only queue). */
-function steerTextWithCitations(item: {
-  agentText?: string;
-  text: string;
-  citations?: { url?: string; text?: string }[];
-}): string {
-  const base = item.agentText || item.text || " ";
-  const cites = (item.citations ?? []).filter((c) => c && c.url);
-  if (!cites.length) return base;
-  const lines = cites.map((c) => `- ${c.url}${c.text ? ` (${c.text.slice(0, 160)})` : ""}`);
-  return [base, "", "References:", ...lines].join("\n");
-}
 async function sendQueuedNow(itemId: string): Promise<void> {
   const id = sessionId.value;
   if (!id) return;
@@ -1097,7 +974,7 @@ async function submit(mode: "prompt" | "steer" | "follow_up"): Promise<void> {
 
   const displayText = snap.displayText;
   const agentText = snap.text || " ";
-  const titleSeed = displayText || snap.tagsToSend?.[0]?.content || snap.tagsToSend?.[0]?.label || "";
+  const titleSeed = titleSeedFor(displayText, snap.tagsToSend?.[0]);
   composer.clearSession(sourceId);
   // First message (or any send) activates the Pi agent worker and applies model.
   if (mode === "prompt" || mode === "steer" || mode === "follow_up") {
@@ -1246,66 +1123,15 @@ function onQueueSendClick(): void {
 
 const contextUsage = computed(() => sessions.activeContextUsage);
 
-function formatTokens(count: number): string {
-  if (count < 1000) return String(count);
-  if (count < 10_000) return `${(count / 1000).toFixed(1)}k`;
-  if (count < 1_000_000) return `${Math.round(count / 1000)}k`;
-  if (count < 10_000_000) return `${(count / 1_000_000).toFixed(1)}M`;
-  return `${Math.round(count / 1_000_000)}M`;
-}
-
-const SEGMENT_META: Record<
-  ContextUsageSegmentId,
-  { color: string; label: () => string }
-> = {
-  system: { color: "var(--ctx-system)", label: () => t.contextUsageSegSystem },
-  tools: { color: "var(--ctx-tools)", label: () => t.contextUsageSegTools },
-  summarized: { color: "var(--ctx-summarized)", label: () => t.contextUsageSegSummarized },
-  conversation: { color: "var(--ctx-conversation)", label: () => t.contextUsageSegConversation },
-  toolResults: { color: "var(--ctx-tool-results)", label: () => t.contextUsageSegToolResults },
-};
 
 const ctxPopoverShow = ref(false);
 const skillsCount = ref<number | null>(null);
 let skillsCountCachedFor: string | null = null;
-/**
- * True context fill as a fraction of the model's real context window.
- * Ring, tone and the "% Full" label all use this same window-based percent,
- * matching the stacked bar's widths (tokens / contextWindow).
- */
-const contextPercent = computed(() => {
-  const usage = contextUsage.value;
-  const tokens = usage?.tokens;
-  const window = usage?.contextWindow;
-  if (tokens == null || !Number.isFinite(tokens) || tokens <= 0) return null;
-  if (!window || !Number.isFinite(window) || window <= 0) return null;
-  return Math.max(0, Math.min(100, (tokens / window) * 100));
-});
-
-const contextTone = computed(() => {
-  const pct = contextPercent.value;
-  if (pct == null) return "muted";
-  if (pct > 90) return "danger";
-  if (pct > 70) return "warn";
-  return "ok";
-});
-
-const contextRingStyle = computed(() => {
-  const pct = contextPercent.value ?? 0;
-  const r = 7;
-  const c = 2 * Math.PI * r;
-  const offset = c * (1 - pct / 100);
-  return {
-    strokeDasharray: `${c}`,
-    strokeDashoffset: `${offset}`,
-  };
-});
-
-const contextMessageCount = computed(() => {
-  const fromStats = contextUsage.value?.messageCount;
-  if (typeof fromStats === "number") return fromStats;
-  return chat.activeMessages.length;
-});
+/** 上下文占用率：环形图、色调、% Full 与分段条共用同一个窗口口径。 */
+const contextPercent = computed(() => contextPercentOf(contextUsage.value));
+const contextTone = computed(() => contextToneOf(contextPercent.value));
+const contextRingStyle = computed(() => contextRingDash(contextPercent.value));
+const contextMessageCount = computed(() => contextUsage.value?.messageCount ?? chat.activeMessages.length);
 const contextToolCount = computed(() => {
   const fromStats = contextUsage.value?.toolCalls;
   if (typeof fromStats === "number") return fromStats;
@@ -1313,60 +1139,12 @@ const contextToolCount = computed(() => {
   const streaming = chat.activeStreaming?.role === "tool" ? 1 : 0;
   return messages + streaming;
 });
-
-/** Real cumulative session LLM cost in USD (from Pi getSessionStats). */
-const contextCostLabel = computed(() => {
-  const cost = contextUsage.value?.costUsd;
-  if (cost == null || !Number.isFinite(cost) || cost <= 0) return "";
-  return `$${cost.toFixed(2)}`;
-});
-
-/** True when the context is at/past the manual-compact line (70% of the real window). */
-const contextNeedsCompact = computed(() => {
-  const pct = contextPercent.value;
-  return pct != null && pct >= 70;
-});
-
-const contextSegments = computed(() => {
-  const usage = contextUsage.value;
-  const window = usage?.contextWindow ?? 0;
-  const segs = usage?.segments ?? [];
-  if (!window || !segs.length) return [];
-  return segs.map((s) => {
-    const meta = SEGMENT_META[s.id];
-    return {
-      id: s.id,
-      tokens: s.tokens,
-      label: meta?.label() ?? s.id,
-      color: meta?.color ?? "var(--fg-faint)",
-      widthPct: Math.max(0.4, (s.tokens / window) * 100),
-      tokensLabel: formatTokens(s.tokens),
-    };
-  });
-});
-
-const contextFreePct = computed(() => {
-  const usage = contextUsage.value;
-  if (!usage?.contextWindow) return 100;
-  const used =
-    typeof usage.tokens === "number"
-      ? usage.tokens
-      : (usage.segments ?? []).reduce((n, s) => n + s.tokens, 0);
-  return Math.max(0, 100 - (used / usage.contextWindow) * 100);
-});
-
-const contextFullLabel = computed(() => {
-  const pct = contextPercent.value;
-  if (pct == null) return t.contextUsageUnknown;
-  return t.contextUsageFull(pct.toFixed(0));
-});
-
-const contextTokensPairLabel = computed(() => {
-  const usage = contextUsage.value;
-  if (!usage) return t.contextUsageEmpty;
-  const used = usage.tokens !== null ? formatTokens(usage.tokens) : "?";
-  return t.contextUsageTokensPair(used, formatTokens(usage.contextWindow));
-});
+const contextCostLabel = computed(() => contextCostLabelOf(contextUsage.value));
+const contextNeedsCompact = computed(() => contextNeedsCompactAt(contextPercent.value));
+const contextSegments = computed(() => contextSegmentsOf(contextUsage.value));
+const contextFreePct = computed(() => contextFreePctOf(contextUsage.value));
+const contextFullLabel = computed(() => contextFullLabelOf(contextPercent.value));
+const contextTokensPairLabel = computed(() => contextTokensPairLabelOf(contextUsage.value));
 const slashMenuRef = ref<{ move: (d: number) => void; confirm: () => boolean } | null>(null);
 const atFileMenuRef = ref<{ move: (d: number) => void; confirm: () => boolean } | null>(null);
 const modelMenuRef = ref<{ focus?: () => void } | null>(null);
@@ -1632,115 +1410,7 @@ async function tryConsumeBuiltinSlashDraft(): Promise<boolean> {
  * Only items that actually have data are rendered — a stat with no sample
  * is omitted instead of showing "label —".
  */
-type SessionStatItem = {
-  key: string;
-  label: string;
-  value: string;
-  title?: string;
-};
-
-const sessionStats = computed<SessionStatItem[] | null>(() => {
-  const u = contextUsage.value;
-  if (!u) return null;
-  const items: SessionStatItem[] = [];
-  const push = (item: SessionStatItem | null): void => {
-    if (item) items.push(item);
-  };
-  push(
-    u.turns != null && u.turns > 0
-      ? {
-          key: "turns",
-          label: t.sessionStatsTurns,
-          value: formatNum(u.turns),
-          title: t.sessionStatsTitle(
-            formatNum(u.turns),
-            formatNum(u.steps ?? null),
-            formatNum(u.toolCalls ?? null),
-          ),
-        }
-      : null,
-  );
-  push(
-    u.steps != null && u.steps > 0
-      ? {
-          key: "steps",
-          label: t.sessionStatsSteps,
-          value: formatNum(u.steps),
-        }
-      : null,
-  );
-  push(
-    u.toolCalls != null && u.toolCalls > 0
-      ? {
-          key: "tools",
-          label: t.sessionStatsToolCalls,
-          value: formatNum(u.toolCalls),
-        }
-      : null,
-  );
-  if (u.tokensPerSecond != null && u.tokensPerSecond > 0) {
-    push({
-      key: "tps",
-      label: t.sessionStatsTps,
-      value: formatSessionTps(u.tokensPerSecond),
-    });
-  }
-  if (
-    u.cacheReadTokens != null &&
-    u.inputTokens != null &&
-    u.cacheWriteTokens != null &&
-    u.inputTokens + u.cacheReadTokens + u.cacheWriteTokens > 0
-  ) {
-    const pct = Math.min(
-      100,
-      Math.round(
-        (u.cacheReadTokens /
-          (u.inputTokens + u.cacheReadTokens + u.cacheWriteTokens)) *
-          100,
-      ),
-    );
-    push({
-      key: "cacheHit",
-      label: t.sessionStatsCacheHit,
-      value: formatSessionCacheHit(pct),
-    });
-  }
-  if (u.inputTokens != null && u.inputTokens > 0) {
-    push({
-      key: "input",
-      label: t.sessionStatsInputTokens,
-      value: formatSessionTokens(u.inputTokens),
-    });
-  }
-  if (u.outputTokens != null && u.outputTokens > 0) {
-    push({
-      key: "output",
-      label: t.sessionStatsOutputTokens,
-      value: formatSessionTokens(u.outputTokens),
-    });
-  }
-  return items.length > 0 ? items : null;
-});
-
-
-function formatSessionTps(n: number | null): string {
-  if (n == null || !Number.isFinite(n) || n <= 0) return "—";
-  return t.sessionStatsTpsFormat(n >= 100 ? n.toFixed(0) : n.toFixed(1));
-}
-
-function formatSessionCacheHit(p: number | null): string {
-  if (p == null) return "—";
-  return t.sessionStatsCacheHitFormat(String(p));
-}
-
-function formatSessionTokens(n: number | null): string {
-  if (n == null || !Number.isFinite(n) || n < 0) return "—";
-  return t.sessionStatsTokensFormat(n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n));
-}
-
-function formatNum(n: number | null): string {
-  return n == null ? "—" : String(n);
-}
+const sessionStats = computed(() => buildSessionStats(contextUsage.value));
 
 const compactBusy = ref(false);
 
@@ -1920,7 +1590,7 @@ async function syncSessionModelAndThinking(): Promise<void> {
     const state = await sessions.tryCommand(realId, { type: "get_state" });
     if (state !== undefined) {
       workerKey = modelKeyFromState(state);
-      workerThinking = thinkingFromState(state);
+      workerThinking = thinkingFromState(state, isThinkingLevel);
       sessions.applyContextFromState(realId, state);
     }
   } catch {
@@ -2076,11 +1746,10 @@ function onPaste(event: ClipboardEvent): void {
 
     // Strip Word/browser formatting: never let contenteditable insert styled HTML.
     const plain = plainTextFromClipboard(data.getData("text/plain") ?? "", html);
-    if (!plain.trim() && !html.trim()) return;
+    // 空白同样是用户复制的内容（缩进、空格），逐字插入，不能因 trim 为空就丢弃。
+    if (!plain) return;
     event.preventDefault();
-    if (plain.trim()) {
-      richEditor.value?.insertTextAtCaret?.(plain);
-    }
+    richEditor.value?.insertTextAtCaret?.(plain);
   } catch (err) {
     // Never let a paste handler exception swallow the user's clipboard.
     console.warn("[composer] onPaste error", err);
@@ -2090,7 +1759,6 @@ function onPaste(event: ClipboardEvent): void {
 onMounted(() => {
   composer.bindSession(sessionId.value);
   void refreshModels();
-  void security.load().catch(() => {});
   window.addEventListener("pi-models-changed", onModelsChanged);
   keybindings.register("cycle-model", cycleModel);
   keybindings.register("cycle-thinking", cycleThinking);
@@ -2359,62 +2027,6 @@ watch(
               <span class="think-label">{{ thinkingLabel }}</span>
             </NButton>
           </NDropdown>
-
-          <NPopover
-            trigger="click"
-            placement="top-end"
-            :show-arrow="true"
-            :show="permBubbleShow"
-            raw
-            @update:show="onPermBubbleShow"
-          >
-            <template #trigger>
-              <NButton
-                quaternary
-                size="tiny"
-                class="mode-btn"
-                :title="t.securityPermissionMode"
-                :aria-expanded="permBubbleShow"
-                :aria-haspopup="true"
-              >
-                <span class="mode-label">{{ activePermissionLabel }}</span>
-              </NButton>
-            </template>
-            <div
-              class="mode-bubble"
-              role="listbox"
-              :aria-label="t.securityPermissionMode"
-            >
-              <button
-                v-for="item in permissionOptions"
-                :key="item.value"
-                type="button"
-                class="mode-option"
-                role="option"
-                :aria-selected="security.profile === item.value"
-                :class="{ active: security.profile === item.value }"
-                @click="onPermissionPick(item.value)"
-              >
-                <div class="mode-option-main">
-                  <span class="mode-option-name">{{ item.label }}</span>
-                  <span class="mode-option-hint">{{ item.hint }}</span>
-                </div>
-                <NIcon
-                  v-if="security.profile === item.value"
-                  class="mode-option-check"
-                  :component="CheckmarkOutline"
-                  :size="14"
-                />
-              </button>
-            </div>
-          </NPopover>
-        </div>
-
-        <div v-if="appearance.showSessionDetails && sessionStats" class="session-stats" role="status" aria-label="session statistics">
-          <span v-for="item in sessionStats" :key="item.key" class="ss-item" :title="item.title">
-            <span class="ss-label">{{ item.label }}</span>
-            <strong>{{ item.value }}</strong>
-          </span>
         </div>
 
         <div class="toolbar-right">
@@ -2540,7 +2152,13 @@ watch(
         </div>
       </div>
     </div>
+    </div>
 
+    <div v-if="appearance.showSessionDetails && sessionStats" class="session-stats" role="status" aria-label="session statistics">
+      <span v-for="item in sessionStats" :key="item.key" class="ss-item" :title="item.title">
+        <span class="ss-label">{{ item.label }}</span>
+        <strong>{{ item.value }}</strong>
+      </span>
     </div>
   </div>
 </template>
@@ -2675,11 +2293,6 @@ watch(
 .composer-footer {
   position: relative;
   min-width: 0;
-}
-
-.composer-footer .toolbar {
-  /* Keep layout height while covered so the card does not jump. */
-  transition: none;
 }
 
 .image-attachments {
@@ -2874,8 +2487,8 @@ watch(
   justify-content: center;
   flex-wrap: wrap;
   gap: 2px 6px;
-  flex: 1;
   min-width: 0;
+  padding: 0 8px;
   color: var(--fg-muted, #71717a);
   font-size: 11px;
   line-height: 1.4;

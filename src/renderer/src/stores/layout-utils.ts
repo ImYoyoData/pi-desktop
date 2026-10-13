@@ -1,3 +1,5 @@
+import * as prefs from "@renderer/utils/prefs";
+
 export function clampPanelWidth(px: number, min = 180, max = 560): number {
   return Math.min(max, Math.max(min, px));
 }
@@ -63,7 +65,7 @@ interface SharedLeftState {
 
 function readSharedLeft(): SharedLeftState | null {
   try {
-    const raw = localStorage.getItem(SHARED_LEFT_KEY);
+    const raw = prefs.getItem(SHARED_LEFT_KEY);
     if (!raw) return null;
     const parsed = JSON.parse(raw) as Partial<SharedLeftState>;
     if (typeof parsed.leftSize !== "number" || !Number.isFinite(parsed.leftSize)) {
@@ -79,7 +81,7 @@ function readSharedLeft(): SharedLeftState | null {
 }
 
 function writeSharedLeft(state: SharedLeftState): void {
-  localStorage.setItem(
+  prefs.setItem(
     SHARED_LEFT_KEY,
     JSON.stringify({
       leftSize: clampPanePercent(state.leftSize),
@@ -127,9 +129,9 @@ function normalizeSizes(partial: Partial<PersistedLayout>): PersistedLayout {
 export function readLayout(workspaceRoot: string): PersistedLayout {
   try {
     const raw =
-      localStorage.getItem(layoutStorageKey(workspaceRoot)) ??
-      localStorage.getItem(`layout:v3:${workspaceRoot}`) ??
-      localStorage.getItem(`layout:v2:${workspaceRoot}`);
+      prefs.getItem(layoutStorageKey(workspaceRoot)) ??
+      prefs.getItem(`layout:v3:${workspaceRoot}`) ??
+      prefs.getItem(`layout:v2:${workspaceRoot}`);
     if (!raw) {
       return applySharedLeft({ ...DEFAULT_LAYOUT });
     }
@@ -165,5 +167,5 @@ export function readLayout(workspaceRoot: string): PersistedLayout {
 export function writeLayout(workspaceRoot: string, state: PersistedLayout): void {
   const normalized = normalizeSizes(state);
   writeSharedLeft(normalized);
-  localStorage.setItem(layoutStorageKey(workspaceRoot), JSON.stringify(normalized));
+  prefs.setItem(layoutStorageKey(workspaceRoot), JSON.stringify(normalized));
 }

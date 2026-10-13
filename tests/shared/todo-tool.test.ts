@@ -5,6 +5,7 @@ import {
 	normalizeTodoWriteRows,
 	parseTodoStatus,
 	summarizeTodoWrite,
+	todoProgressLine,
 } from "../../src/shared/todo-tool";
 
 describe("todo-tool (builtin todo_write)", () => {
@@ -81,5 +82,27 @@ describe("todo-tool (builtin todo_write)", () => {
 		expect(text).toContain("4 items");
 		expect(text).toContain("2 completed");
 		expect(text).toContain("1 in progress");
+	});
+
+	it("builds a one-line digest that points at the current step", () => {
+		expect(
+			todoProgressLine([
+				{ id: "1", text: "A", status: "completed" },
+				{ id: "2", text: "B", status: "in_progress" },
+				{ id: "3", text: "C", status: "pending" },
+			]),
+		).toBe("1/3 completed · in progress: #2 B");
+		expect(
+			todoProgressLine([
+				{ id: "1", text: "A", status: "completed" },
+				{ id: "3", text: "C", status: "pending" },
+			]),
+		).toBe("1/2 completed · next: #3 C");
+	});
+
+	it("has no digest left once every item is completed", () => {
+		expect(
+			todoProgressLine([{ id: "1", text: "A", status: "completed" }]),
+		).toBeNull();
 	});
 });
