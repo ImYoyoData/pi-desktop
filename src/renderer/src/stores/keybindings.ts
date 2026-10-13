@@ -2,6 +2,7 @@ import { defineStore } from "pinia";
 import { computed, ref, watch } from "vue";
 import { formatAcceleratorLabel, keyboardEventToAccelerator, normalizeAccelerator } from "../../../shared/hotkey";
 import type { Messages } from "@renderer/i18n";
+import * as prefs from "@renderer/utils/prefs";
 
 export type KeybindingId =
   | "new-session"
@@ -96,7 +97,7 @@ interface StoredState {
 
 function readStored(): StoredState {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
+    const raw = prefs.getItem(STORAGE_KEY);
     if (!raw) return { master: true, bindings: {} };
     const parsed = JSON.parse(raw) as Partial<StoredState>;
     return {
@@ -118,7 +119,7 @@ export const useKeybindingsStore = defineStore("keybindings", () => {
 
   function persist(): void {
     try {
-      localStorage.setItem(
+      prefs.setItem(
         STORAGE_KEY,
         JSON.stringify({ master: master.value, bindings: stored.value }),
       );

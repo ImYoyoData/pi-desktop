@@ -68,6 +68,7 @@ import { registerThinkingLanguageIpc } from "./thinking-language-ipc";
 import { registerStreamRenderIpc } from "./stream-render-ipc";
 import { registerWebSearchConfigIpc } from "./web-search-config-ipc";
 import { registerAppearanceIpc } from "./appearance-ipc";
+import { registerPrefsIpc } from "./prefs-ipc";
 import { ensurePiAgentEnvironment } from "./pi-env";
 import { migrateLegacyProviderIds } from "./provider-id-migration";
 import { initProxy, registerProxyIpc, restoreStartupProxyEnv } from "./proxy-host";
@@ -341,6 +342,7 @@ function boot(): void {
 		registerRuntimeSettingsIpc(broker);
 		registerWebSearchConfigIpc();
 		registerAppearanceIpc();
+		registerPrefsIpc();
 		registerPreviewIpc();
 		registerPreviewWatchIpc();
 		registerFilesIpc();

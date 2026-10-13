@@ -1,6 +1,7 @@
 import { defineStore } from "pinia";
 import { ref, watch } from "vue";
 import chimeUrl from "@renderer/assets/sounds/qipao.mp3";
+import * as prefs from "@renderer/utils/prefs";
 
 const PREFS_KEY = "pi-desktop:notify-prefs";
 
@@ -11,7 +12,7 @@ export type NotifyPrefs = {
 
 function readPrefs(): NotifyPrefs {
   try {
-    const raw = localStorage.getItem(PREFS_KEY);
+    const raw = prefs.getItem(PREFS_KEY);
     if (!raw) return { soundEnabled: true, notifyEnabled: true };
     const parsed = JSON.parse(raw) as Partial<NotifyPrefs>;
     return {
@@ -40,7 +41,7 @@ export const useNotifyStore = defineStore("notify", () => {
 
   watch([soundEnabled, notifyEnabled], () => {
     try {
-      localStorage.setItem(
+      prefs.setItem(
         PREFS_KEY,
         JSON.stringify({
           soundEnabled: soundEnabled.value,

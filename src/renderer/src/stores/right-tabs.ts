@@ -4,6 +4,7 @@ import { locale, t } from "@renderer/i18n";
 import { clearTabHistory } from "@renderer/stores/browser-library";
 import { uniquePreviewTabLabel } from "@renderer/utils/preview-tab-label";
 import { localizedTabLabel } from "@renderer/utils/right-tab-labels";
+import * as prefs from "@renderer/utils/prefs";
 import type { ProgramStatusReport } from "@renderer/utils/osc-program-status";
 
 export type RightTabKind =
@@ -428,7 +429,7 @@ export const useRightTabsStore = defineStore("rightTabs", () => {
       ),
     };
     try {
-      localStorage.setItem(storageKey(root), JSON.stringify(payload));
+      prefs.setItem(storageKey(root), JSON.stringify(payload));
     } catch {
       // ignore quota
     }
@@ -447,8 +448,8 @@ export const useRightTabsStore = defineStore("rightTabs", () => {
     try {
       // Prefer v2; fall back to v1 so existing workspaces keep their tabs.
       const raw =
-        localStorage.getItem(storageKey(root)) ??
-        localStorage.getItem(`pi-desktop:right-tabs:v1:${root.replace(/\\/g, "/").toLowerCase()}`);
+        prefs.getItem(storageKey(root)) ??
+        prefs.getItem(`pi-desktop:right-tabs:v1:${root.replace(/\\/g, "/").toLowerCase()}`);
       if (raw) restored = JSON.parse(raw) as PersistedTabs;
     } catch {
       restored = null;

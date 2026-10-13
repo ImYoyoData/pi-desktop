@@ -13,6 +13,7 @@ import {
 	todosFromToolDetails,
 	type SessionTodoList,
 } from "../utils/session-todos";
+import * as prefs from "@renderer/utils/prefs";
 
 /**
  * Live extension widgets / todo lists keyed by session.
@@ -251,7 +252,7 @@ export const useSessionWidgetsStore = defineStore("session-widgets", () => {
 	function pruneStaleTodoSnapshots(knownSessionIds: Set<string>): void {
 		let keys: string[] = [];
 		try {
-			keys = Object.keys(localStorage).filter((k) =>
+			keys = prefs.keys().filter((k) =>
 				k.startsWith("pi-desktop:todo-snapshot:v1:"),
 			);
 		} catch {
@@ -261,7 +262,7 @@ export const useSessionWidgetsStore = defineStore("session-widgets", () => {
 			const id = key.slice("pi-desktop:todo-snapshot:v1:".length);
 			if (!knownSessionIds.has(id)) {
 				try {
-					localStorage.removeItem(key);
+					prefs.removeItem(key);
 				} catch {
 					// ignore
 				}
@@ -396,7 +397,7 @@ export const useSessionWidgetsStore = defineStore("session-widgets", () => {
 		try {
 			const list = todosBySession.value[sessionId];
 			if (!list || !list.items.length) {
-				localStorage.removeItem(todoSnapshotKey(sessionId));
+				prefs.removeItem(todoSnapshotKey(sessionId));
 				return;
 			}
 			const snapshot = serializeTodoSnapshot(
@@ -407,7 +408,7 @@ export const useSessionWidgetsStore = defineStore("session-widgets", () => {
 				Boolean(toolOwnedBySession.value[sessionId]),
 				itemTimingBySession.value[sessionId] ?? {},
 			);
-			localStorage.setItem(todoSnapshotKey(sessionId), JSON.stringify(snapshot));
+			prefs.setItem(todoSnapshotKey(sessionId), JSON.stringify(snapshot));
 		} catch {
 			// ignore — best effort only
 		}
@@ -415,7 +416,7 @@ export const useSessionWidgetsStore = defineStore("session-widgets", () => {
 
 	function dropTodoSnapshot(sessionId: string): void {
 		try {
-			localStorage.removeItem(todoSnapshotKey(sessionId));
+			prefs.removeItem(todoSnapshotKey(sessionId));
 		} catch {
 		// ignore
 		}
@@ -431,7 +432,7 @@ export const useSessionWidgetsStore = defineStore("session-widgets", () => {
 		todoSnapshotRestored = true;
 		let keys: string[] = [];
 		try {
-			keys = Object.keys(localStorage).filter((k) =>
+			keys = prefs.keys().filter((k) =>
 				k.startsWith("pi-desktop:todo-snapshot:v1:"),
 			);
 		} catch {
@@ -440,7 +441,7 @@ export const useSessionWidgetsStore = defineStore("session-widgets", () => {
 		for (const key of keys) {
 			let parsed: unknown = null;
 			try {
-				parsed = JSON.parse(localStorage.getItem(key) ?? "null");
+				parsed = JSON.parse(prefs.getItem(key) ?? "null");
 			} catch {
 				continue;
 			}

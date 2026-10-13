@@ -1017,6 +1017,14 @@ declare const api: {
 	appearance: {
 		pickWallpaper: () => Promise<string | null>;
 	};
+	prefs: {
+		readSync: () => Record<string, string>;
+		setSync: (patch: Record<string, string>) => void;
+		removeSync: (keys: string[]) => void;
+		get: () => Promise<Record<string, string>>;
+		set: (patch: Record<string, string>) => Promise<Record<string, string>>;
+		remove: (keys: string[]) => Promise<Record<string, string>>;
+	};
 	terminal: {
 		create: (cwd?: string, shellId?: string) => Promise<string>;
 		listShells: () => Promise<TerminalShellOption[]>;

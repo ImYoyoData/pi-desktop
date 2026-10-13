@@ -45,6 +45,7 @@ import { useWorkspaceStore } from "@renderer/stores/workspace";
 import { gitCodeColor } from "@renderer/utils/editor-lang";
 import { fileIcon, type FileIcon } from "@renderer/utils/file-icon";
 import { localizedTabLabel } from "@renderer/utils/right-tab-labels";
+import * as prefs from "@renderer/utils/prefs";
 import type {
   ProgramStatusReport,
   ProgramStatusState,
@@ -80,7 +81,7 @@ const dockView = ref<"files" | "changes" | null>(readDockView());
 
 function readDockView(): "files" | "changes" | null {
   try {
-    const raw = localStorage.getItem(DOCK_VIEW_KEY);
+    const raw = prefs.getItem(DOCK_VIEW_KEY);
     if (raw === "files" || raw === "changes") return raw;
   } catch {
     // ignore
@@ -91,7 +92,7 @@ function readDockView(): "files" | "changes" | null {
 watch(dockView, (v) => {
   if (!v) return;
   try {
-    localStorage.setItem(DOCK_VIEW_KEY, v);
+    prefs.setItem(DOCK_VIEW_KEY, v);
   } catch {
     // ignore
   }
@@ -103,7 +104,7 @@ const detailsVisible = ref(readFlag(DOCK_DETAILS_KEY, true));
 
 function readFlag(key: string, fallback: boolean): boolean {
   try {
-    const raw = localStorage.getItem(key);
+    const raw = prefs.getItem(key);
     if (raw === "1") return true;
     if (raw === "0") return false;
   } catch {
@@ -114,7 +115,7 @@ function readFlag(key: string, fallback: boolean): boolean {
 
 watch(detailsVisible, (v) => {
   try {
-    localStorage.setItem(DOCK_DETAILS_KEY, v ? "1" : "0");
+    prefs.setItem(DOCK_DETAILS_KEY, v ? "1" : "0");
   } catch {
     // ignore
   }
@@ -130,7 +131,7 @@ const dockWidth = ref(readDockWidth());
 
 function readDockWidth(): number {
   try {
-    const n = Number(localStorage.getItem(DOCK_WIDTH_KEY));
+    const n = Number(prefs.getItem(DOCK_WIDTH_KEY));
     if (Number.isFinite(n)) return Math.min(DOCK_MAX_WIDTH, Math.max(DOCK_MIN_WIDTH, n));
   } catch {
     // ignore
@@ -140,7 +141,7 @@ function readDockWidth(): number {
 
 watch(dockWidth, (v) => {
   try {
-    localStorage.setItem(DOCK_WIDTH_KEY, String(v));
+    prefs.setItem(DOCK_WIDTH_KEY, String(v));
   } catch {
     // ignore
   }

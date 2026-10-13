@@ -1580,6 +1580,24 @@ const api = {
 				string | null
 			>,
 	},
+	prefs: {
+		readSync: () =>
+			ipcRenderer.sendSync(IpcChannels.prefs.readSync) as Record<string, string>,
+		setSync: (patch: Record<string, string>) =>
+			ipcRenderer.sendSync(IpcChannels.prefs.setSync, patch) as void,
+		removeSync: (keys: string[]) =>
+			ipcRenderer.sendSync(IpcChannels.prefs.removeSync, keys) as void,
+		get: () =>
+			ipcRenderer.invoke(IpcChannels.prefs.get) as Promise<Record<string, string>>,
+		set: (patch: Record<string, string>) =>
+			ipcRenderer.invoke(IpcChannels.prefs.set, patch) as Promise<
+				Record<string, string>
+			>,
+		remove: (keys: string[]) =>
+			ipcRenderer.invoke(IpcChannels.prefs.remove, keys) as Promise<
+				Record<string, string>
+			>,
+	},
 	terminal: {
 		create: (cwd?: string, shellId?: string) =>
 			ipcRenderer.invoke(

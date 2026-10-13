@@ -19,6 +19,7 @@ import { useCustomizationsStore } from "@renderer/stores/customizations";
 import { useLayoutStore } from "@renderer/stores/layout";
 import { useWorkspaceStore } from "@renderer/stores/workspace";
 import { t } from "@renderer/i18n";
+import * as prefs from "@renderer/utils/prefs";
 import type { AgentIssueCode, SkillIssueCode } from "../../../shared/customizations";
 
 const props = defineProps<{
@@ -221,7 +222,7 @@ const counts = computed<Record<string, number>>(() => ({
 }));
 
 function readWidth(): number {
-  const raw = Number(localStorage.getItem(WIDTH_KEY));
+  const raw = Number(prefs.getItem(WIDTH_KEY));
   if (!Number.isFinite(raw) || raw <= 0) return SIDEBAR_DEFAULT_WIDTH;
   return Math.min(Math.max(raw, SIDEBAR_MIN_WIDTH), SIDEBAR_MAX_WIDTH);
 }
@@ -644,7 +645,7 @@ function onResizeStart(event: MouseEvent): void {
   const onUp = () => {
     window.removeEventListener("mousemove", onMove);
     window.removeEventListener("mouseup", onUp);
-    localStorage.setItem(WIDTH_KEY, String(width.value));
+    prefs.setItem(WIDTH_KEY, String(width.value));
   };
   window.addEventListener("mousemove", onMove);
   window.addEventListener("mouseup", onUp);

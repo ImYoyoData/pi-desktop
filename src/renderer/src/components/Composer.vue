@@ -18,6 +18,7 @@ import {
   SendOutline,
   StopOutline,
 } from "@vicons/ionicons5";
+import * as prefs from "@renderer/utils/prefs";
 import ComposerRichEditor from "@renderer/components/ComposerRichEditor.vue";
 import ComposerSlashMenu from "@renderer/components/ComposerSlashMenu.vue";
 import ComposerAtFileMenu from "@renderer/components/ComposerAtFileMenu.vue";
@@ -112,7 +113,7 @@ type SessionPrefs = {
 
 function loadSessionPrefs(): SessionPrefs {
   try {
-    const raw = localStorage.getItem(SESSION_PREFS_KEY);
+    const raw = prefs.getItem(SESSION_PREFS_KEY);
     if (!raw) return { models: {}, thinking: {} };
     const parsed = JSON.parse(raw) as Partial<SessionPrefs>;
     return {
@@ -157,7 +158,7 @@ function focusDraftAtEnd(): void {
 }
 
 function persistSessionPrefs(): void {
-  localStorage.setItem(
+  prefs.setItem(
     SESSION_PREFS_KEY,
     JSON.stringify({
       models: modelBySession.value,
