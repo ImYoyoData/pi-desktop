@@ -23,12 +23,30 @@ export function extractDraftFromRichHtml(html: string): string {
     .replace(/\u200B/g, "");
 }
 
-/** Normalize clipboard payloads to plain text (prefer text/plain; HTML is stripped). */
+/**
+ * Normalize clipboard payloads to plain text.
+ * text/plain 有内容就原样采用——只有空格也算内容（用户复制的就是空格）；
+ * 它为空时才退回剥掉格式的 HTML。
+ */
 export function plainTextFromClipboard(textPlain: string, textHtml = ""): string {
   const fromPlain = textPlain.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
-  if (fromPlain.trim()) return fromPlain;
+  if (fromPlain) return fromPlain;
   if (!textHtml.trim()) return "";
   return extractDraftFromRichHtml(textHtml).replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+}
+
+/** 插入前清理：剔除零宽占位符、换行统一为 \n；首尾空白原样保留（粘贴要逐字还原）。 */
+export function normalizeInsertedText(text: string): string {
+  return text.replace(/\u200B/g, "").replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+}
+
+/** 插入点前若已有非空白文本，且新内容不是标点开头，则需补一个分隔空格（拖放语义）。 */
+export function needsLeadingSpace(before: string, next: string): boolean {
+  return (
+    Boolean(before.replace(/\s+$/u, "")) &&
+    !/[\s\u3000]$/u.test(before) &&
+    !/^[,.!?;:\uFF0C\u3002\uFF01\uFF1F\u3001\uFF1B\uFF1A]/.test(next)
+  );
 }
 
 /** 插入点前的草稿文本：chip 记作空格，零宽占位符剔除，用于判断是否补前导空格。 */
