@@ -40,6 +40,28 @@ async function createRuntime(): Promise<import("@earendil-works/pi-coding-agent"
   });
 }
 
+/** 打开模型页时联网刷一次目录，15s 上限（与 pi CLI 的 update --models 同款）。 */
+const CATALOG_REFRESH_TIMEOUT_MS = 15_000;
+
+/**
+ * 联网刷新模型目录，让 OpenRouter 等供应商按当前密钥列出可用模型与价格
+ * （pi 1.2.0 新增）。create 时不开网络以保持首屏速度，这里按需刷新；
+ * 失败或超时静默降级到内置目录。
+ */
+async function refreshCatalogsOverNetwork(
+  runtime: ModelRuntime,
+): Promise<void> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), CATALOG_REFRESH_TIMEOUT_MS);
+  try {
+    await runtime.refresh({ allowNetwork: true, signal: controller.signal });
+  } catch {
+    // 离线或超时：用上一次缓存的目录，不阻塞界面。
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
 /**
  * Sign in with ChatGPT 要求以稳定设备 ID 标识安装（写入全局 settings.json），
  * 与 pi CLI 的 login 行为一致。
@@ -558,6 +580,8 @@ export function registerModelsIpc(broker: SessionBroker): void {
   ipcMain.handle(IpcChannels.models.get, async (): Promise<ModelsGetResult> => {
     const service = getModelsConfigService();
     const runtime = await createRuntime();
+    // 先联网刷新目录，OpenRouter 等供应商才能按当前密钥列出可用模型与价格。
+    await refreshCatalogsOverNetwork(runtime);
     // getAvailable() refreshes auth-gated availability; modelCount uses this, not catalog size
     const [modelsText, available] = await Promise.all([
       service.readModelsConfigText(),
