@@ -153,8 +153,8 @@ const richEditor = ref<{
   focusEnd?: () => void;
   isCaretAtEnd?: () => boolean;
   getSurface?: () => HTMLElement | null;
-  appendTextAtEnd?: (text: string) => void;
-  insertTextAtCaret?: (text: string) => void;
+  appendTextAtEnd?: (text: string, separate?: boolean) => void;
+  insertTextAtCaret?: (text: string, separate?: boolean) => void;
   scrollToEnd?: () => void;
 } | null>(null);
 /** Expanded tall editor (hover affordance top-right). */
@@ -380,7 +380,7 @@ function onComposerDrop(event: DragEvent): void {
   if (outcome.kind === "text") {
     // Dropped http(s) URLs stay plain text — insert where the user let go.
     placeDropCaret(event.clientX, event.clientY);
-    richEditor.value?.insertTextAtCaret?.(outcome.text);
+    richEditor.value?.insertTextAtCaret?.(outcome.text, true);
   }
 }
 
@@ -1746,11 +1746,10 @@ function onPaste(event: ClipboardEvent): void {
 
     // Strip Word/browser formatting: never let contenteditable insert styled HTML.
     const plain = plainTextFromClipboard(data.getData("text/plain") ?? "", html);
-    if (!plain.trim() && !html.trim()) return;
+    // 空白同样是用户复制的内容（缩进、空格），逐字插入，不能因 trim 为空就丢弃。
+    if (!plain) return;
     event.preventDefault();
-    if (plain.trim()) {
-      richEditor.value?.insertTextAtCaret?.(plain);
-    }
+    richEditor.value?.insertTextAtCaret?.(plain);
   } catch (err) {
     // Never let a paste handler exception swallow the user's clipboard.
     console.warn("[composer] onPaste error", err);
