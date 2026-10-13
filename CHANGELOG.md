@@ -1,5 +1,47 @@
 # Changelog
 
+## v0.3.6-rc.2 (2026-10-14)
+
+本版重点：升级 pi SDK 到 1.2.0 并适配其 `before_agent_start` 新签名，新增联网搜索服务器配置面板、扩展 Hook 事件列表与思考语言设置，会话历史改为分页加载，并修复会话事件流随组件卸载永久中断与桌面端安装包/dev 偏好分家；移除权限确认网关与命令输出临时文件清理。
+
+### 新功能 Features
+
+- **联网搜索服务器配置**：设置新增「联网搜索」页，可读写 pi 的 `web-search.json` 服务器配置（对应 pi 1.2.0 前置的 web_search 工具链）；代理变更时同步写入该文件的 proxy 字段。
+- **扩展 Hook 事件列表**：自定义 → Hooks 页除桌面自身的 Hook 外，列出扩展订阅的 pi 生命周期事件，并按事件名归并订阅的扩展。
+- **思考语言设置**：自定义 → 通用页新增思考语言设置。
+- **会话历史展示上下文压缩与分支摘要**：消息列表现在解析并展示上下文压缩（compaction）与分支摘要，对应 pi 的 `compaction_end` 事件。
+- **配置文件写入 pi 官方 JSON Schema**（pi 1.2.0）：桌面端写入的 `settings.json` / `models.json` 补上 pi 发布的 `$schema` 字段，编辑器可据此校验与补全；用户已写的 `$schema` 保持不动。
+
+- **Web search server configuration**: a new "Web search" settings page reads and writes pi's `web-search.json` server config (feeding pi 1.2.0's web_search tooling). The proxy field is kept in sync when the app proxy changes.
+- **Extension hook event list**: Settings → Hooks now lists the pi lifecycle events extensions subscribe to, grouped by event name alongside the desktop's own hooks.
+- **Thinking language setting**: a thinking-language setting is added to Settings → General.
+- **Compaction and branch summaries in chat history**: the message list now parses and shows context compaction and branch summaries from pi's `compaction_end` event.
+- **Config files carry pi's published JSON Schema** (pi 1.2.0): `settings.json` / `models.json` written by the desktop get pi's `$schema` field so editors can validate and complete them; a `$schema` the user already wrote is kept.
+
+### 修复 Fixes
+
+- **修复安装包与 dev 偏好分家**：同一台机器上安装包与 `npm run dev` 的背景图、消息预览、会话排序、各类界面开关各不相同，消息预览关掉后下次启动又变回开启。根因是这些偏好存在渲染进程 localStorage，而它同时绑在 Electron userData 与页面 origin 两个维度上（安装包是 file://，dev 是 http://localhost:5173），两边双重隔离各存一份。现统一改存 `~/.pi/agent/desktop-prefs.json`（原子写 + 串行读改写队列），安装包与 dev 共用同一份偏好，一端修改在另一端下次启动生效。
+- **聊天历史改为分页加载**：打开会话原本一次性灌入全部尾部历史（上限 100 万条），超长会话会把海量消息与大工具输出一次性压进渲染堆，是内存崩溃的主要来源。现在每次只加载最近 500 条，MessageList 顶部提供「加载更早的历史」按页前插并平移渲染窗口，视口不跳；切回被驱逐过的会话同样从最近一页开始。
+- **修复会话事件流永久中断**：会话事件由主进程单向推送，渲染端无法补发，而三个 store 的 IPC 订阅各自绑在组件生命周期上，ChatPanel 被 `v-if` 销毁重建（切到拉取请求视图）即解绑，叠加 hidden-event-buffer 的 dispose 后 push 变成永久 no-op，两者叠加使事件流一旦中断就再也恢复不了——worker 与模型都正常，界面却永远停在「等待模型响应」。现改为进程级订阅在应用启动时统一注册，hidden-event-buffer 的 stop 后 push 退化为直通而非 no-op，并在聊天视图重新可见时用 sessions.status 对账补回丢失的收尾。
+- **治理渲染进程常驻内存**：session bySession 加 LRU 上限 8（运行中的会话永不驱逐），切走但没删的会话不再带着全量历史永久常驻堆；clearSession 扩成完整清理，checkpoint 按 sessionId 前缀一并清除。
+
+- **Desktop preferences were split between the installed app and dev**: background image, message preview, session ordering and the various UI switches differed between the installed build and `npm run dev` on the same machine, and turning the message preview off appeared to revert on next launch. The root cause is that these preferences lived in renderer localStorage, which is keyed by both the Electron userData dir and the page origin (file:// for the app, http://localhost:5173 for dev), so each side kept its own copy. They now live in a single `~/.pi/agent/desktop-prefs.json` (atomic write plus a serialized read-modify-write queue); the installed app and dev share them, and a change on one side takes effect on the other at next launch.
+- **Chat history is now paged**: opening a session used to load its entire tail in one go (limit was 1,000,000 entries), and a very long session pushed a flood of messages and large tool outputs into the renderer heap at once, the main source of out-of-memory crashes. It now loads only the most recent 500 entries, with a persistent "load earlier history" control at the top of MessageList that prepends a page and shifts the render window so the viewport does not jump; evicted sessions also resume from the most recent page.
+- **Fixed session event streams stopping permanently**: session events are pushed one-way from the main process and cannot be replayed, yet three stores subscribed over IPC bound to component lifetimes — a ChatPanel destroyed and rebuilt by `v-if` (e.g. switching to the pull-request view) unsubscribed, and hidden-event-buffer's dispose turned push into a permanent no-op. Once interrupted the stream never recovered: worker and model were fine but the UI sat at "waiting for model response" forever. Subscriptions are now process-level, registered once at startup; after stop the buffer passes push through instead of no-op; and when the chat view becomes visible again it reconciles against sessions.status to restore missing tail work.
+- **Renderer memory kept growing**: the bySession map gained an LRU cap of 8 (sessions with live turns are never evicted), so a session that was navigated away from without being deleted no longer kept its full history resident; clearSession now does a full cleanup, and checkpoint entries are dropped by sessionId prefix.
+
+### 变更 Changes
+
+- **升级 pi SDK 到 1.2.0**：`@earendil-works/pi-coding-agent`、`@earendil-works/pi-agent-core`、`@earendil-works/pi-ai`、`@earendil-works/pi-durable` 从 1.1.0 升到 1.2.0（pi-codemode / pi-mcp / pi-tui / pi-telemetry / chord 同步）。适配 pi 1.2.0 的 `before_agent_start` 新签名：事件按 `messageType` 区分用户提交与扩展触发的运行，agent-worker 预热扩展 hook 时改传 `{ messageType: "user", prompt: "" }`，保持「空 prompt 不写用户事件」的原有语义；其余 SDK API 与构建期扩展加载器补丁均与 1.2.0 兼容，无需调整。
+- **移除权限确认网关与命令输出临时文件清理**：桌面端不再代理 pi 的工具权限询问与项目信任设置，权限确认交回 pi CLI 自身；命令输出临时文件清理由外部工具负责，移除 temp-cleanup 的 IPC、设置面板与定时器。
+- **依赖调整**：终端迁移到 `@xterm/xterm` 6.0.0 与 `@xterm/addon-web-links` 0.12.0（上游已废弃 xterm 5.x）；移除零引用的 qrcode；`ws` 仅供 CDP 调试脚本使用，从 dependencies 移入 devDependencies。
+
+### 变更 Changes (English)
+
+- **Upgraded pi SDK to 1.2.0**: `@earendil-works/pi-coding-agent`, `@earendil-works/pi-agent-core`, `@earendil-works/pi-ai` and `@earendil-works/pi-durable` moved from 1.1.0 to 1.2.0 (pi-codemode / pi-mcp / pi-tui / pi-telemetry / chord follow). Adapted to pi 1.2.0's new `before_agent_start` signature: the event now distinguishes user-submitted from extension-triggered runs via `messageType`, and the agent worker's hook warm-up passes `{ messageType: "user", prompt: "" }` to keep the original "empty prompt writes no user event" semantics. The remaining SDK API and the build-time extension-loader patch stay compatible with 1.2.0 unchanged.
+- **Removed the permission gateway and temp-file cleanup**: the desktop no longer proxies pi's tool permission prompts or project-trust settings — permission confirmation goes back to the pi CLI itself — and command-output temp-file cleanup is left to external tooling, so temp-cleanup's IPC, settings panel and timers are removed.
+- **Dependency changes**: the terminal moves to `@xterm/xterm` 6.0.0 and `@xterm/addon-web-links` 0.12.0 (upstream deprecated xterm 5.x); the unreferenced qrcode package is removed; `ws` is only used by the CDP debug script and moved from dependencies to devDependencies.
+
 ## v0.3.6-rc.1 (2026-10-11)
 
 本版重点：跟进 pi 1.1.0（含 1.0.1–1.0.4）的全部变更，升级 SDK，适配 azure 更名、工具耗时记录、取消态与 MCP 客户端注册方式，并在界面上接入采样参数、MCP 项目覆盖、内置工具与提示模板管理，终端改用 pi 原生运行状态；并修复退出后进程残留。

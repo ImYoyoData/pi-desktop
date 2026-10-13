@@ -4,9 +4,24 @@ import { agentDir } from "./agent-dir";
 import { COMMON_API_KEY_PROVIDERS } from "../shared/models-settings";
 
 export type ModelsConfig = {
+  $schema?: string;
   providers?: Record<string, unknown>;
   modelOverrides?: Record<string, unknown>;
 };
+
+/** pi 1.2.0 发布的配置 schema；写进文件后编辑器可校验与补全。 */
+const MODELS_SCHEMA_URL = "https://pi.dev/schemas/models.schema.json";
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+/** $schema 置首；用户已写的字符串值不动，非字符串的旧值剔除。 */
+function withSchema(config: ModelsConfig): ModelsConfig {
+  if (typeof config.$schema === "string") return config;
+  const { $schema: _stale, ...rest } = config;
+  return { $schema: MODELS_SCHEMA_URL, ...rest };
+}
 
 /** auth.json may contain api_key or oauth credentials */
 export type AuthConfig = Record<
@@ -69,7 +84,7 @@ export function createModelsConfig(paths: ModelsConfigPaths) {
 
   async function writeModelsConfig(next: ModelsConfig): Promise<void> {
     return enqueueWrite(() => {
-      writeJsonAtomic(paths.modelsPath, next);
+      writeJsonAtomic(paths.modelsPath, withSchema(next));
     });
   }
 
@@ -89,7 +104,7 @@ export function createModelsConfig(paths: ModelsConfigPaths) {
       } catch (err) {
         throw new Error(`Invalid models.json: ${err instanceof Error ? err.message : String(err)}`);
       }
-      writeJsonAtomic(paths.modelsPath, parsed);
+      writeJsonAtomic(paths.modelsPath, isRecord(parsed) ? withSchema(parsed) : parsed);
     });
   }
 

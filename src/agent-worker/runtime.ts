@@ -732,10 +732,13 @@ async function warmExtensionHooks(active: AgentSession): Promise<void> {
 	try {
 		const runner = active.extensionRunner;
 		if (!runner.hasHandlers("before_agent_start")) return;
-		await runner.emitBeforeAgentStart("", undefined, {
-			cwd: active.sessionManager.getCwd(),
-			forceSystemPrompt: active.systemPrompt,
-		});
+		await runner.emitBeforeAgentStart(
+			{ messageType: "user", prompt: "" },
+			{
+				cwd: active.sessionManager.getCwd(),
+				forceSystemPrompt: active.systemPrompt,
+			},
+		);
 	} catch {
 		// 预热失败不影响正常会话
 	}
