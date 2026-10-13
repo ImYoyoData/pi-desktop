@@ -600,6 +600,7 @@ export const en = {
 	welcomeTitle: "Get started with Pi",
 	addWorkspace: "Add workspace",
 	emptyChat: "Send a message to start Pi",
+	loadOlderHistory: "Load earlier history",
 	agentRunning: "Pi is running…",
 	agentWaitStarting: "Starting…",
 	agentWaitModel: "Waiting for model…",

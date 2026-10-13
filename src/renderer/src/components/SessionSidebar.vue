@@ -35,7 +35,7 @@ import {
 } from "@vicons/ionicons5";
 import Sortable from "sortablejs";
 import type { SessionStatus, SessionSummary } from "../../../shared/protocol";
-import { SESSION_HISTORY_LOAD_LIMIT } from "../../../shared/protocol";
+import { SESSION_HISTORY_INITIAL_LIMIT } from "../../../shared/protocol";
 import { useSessionsStore } from "@renderer/stores/sessions";
 import { useSessionWidgetsStore } from "@renderer/stores/session-widgets";
 import { useChatStore } from "@renderer/stores/chat";
@@ -1245,13 +1245,13 @@ async function onSelectSession(root: string, sessionId: string): Promise<void> {
     // Load history from disk in parallel with opening the session in main:
     // history only needs the file path, so the two round-trips no longer stack.
     const historyPromise = opened?.filePath
-      ? window.api.sessions.history(opened.filePath, { limit: SESSION_HISTORY_LOAD_LIMIT })
+      ? window.api.sessions.history(opened.filePath, { limit: SESSION_HISTORY_INITIAL_LIMIT })
       : Promise.resolve({ messages: [], hasMore: false, total: 0 });
     const [page] = await Promise.all([
       historyPromise,
       sessionsStore.selectSession(sessionId, root),
     ]);
-    chatStore.hydrateFromHistory(sessionId, page.messages);
+    chatStore.hydrateFromHistory(sessionId, page.messages, page.hasMore);
     if (discardLeaving && workspace.root === root) {
       await discardUnstartedSession(leavingRoot, leaving!.id);
     }
