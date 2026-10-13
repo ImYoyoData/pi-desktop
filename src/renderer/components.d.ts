@@ -53,6 +53,7 @@ declare module 'vue' {
     GitPullRequestIcon: typeof import('./src/components/icons/GitPullRequestIcon.vue')['default']
     HookEventList: typeof import('./src/components/customize/HookEventList.vue')['default']
     Icon: typeof import('./src/components/Icon.vue')['default']
+    ImageLightbox: typeof import('./src/components/ImageLightbox.vue')['default']
     KeybindingsSettings: typeof import('./src/components/KeybindingsSettings.vue')['default']
     MarkdownView: typeof import('./src/components/MarkdownView.vue')['default']
     MarketSettings: typeof import('./src/components/MarketSettings.vue')['default']
