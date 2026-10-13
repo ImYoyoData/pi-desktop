@@ -82,7 +82,9 @@ const nowTick = ref(Date.now());
 const sessionInfoOpen = ref(false);
 let headerTimer: ReturnType<typeof setInterval> | null = null;
 onMounted(() => {
-  chat.bindEvents();
+  // 进程级事件订阅由 app-events 随应用注册，不随本组件生死；这里只做一次
+  // 权威状态对账，修正可能因事件丢失而卡住的「等待模型响应」。
+  void chat.resyncActiveSession();
   headerTimer = setInterval(() => {
     nowTick.value = Date.now();
   }, 1000);

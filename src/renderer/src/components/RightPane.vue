@@ -309,8 +309,7 @@ onMounted(() => {
     bindTabsSortable();
     bindTabsScrollObservers();
   });
-  // Keep run list warm even when the Running tab is not active.
-  agentRuns.bind();
+  // Run-list 订阅在 app-events 里随应用生命周期；这里只拉一次初始快照。
   void agentRuns.refresh(workspace.root);
 
   offOpenBrowserTab = window.api.browser.onOpenTab((payload) => {
@@ -342,7 +341,6 @@ onUnmounted(() => {
   destroyTabsSortable();
   tabsResizeObs?.disconnect();
   tabsResizeObs = null;
-  agentRuns.unbind();
   offOpenBrowserTab?.();
   offOpenBrowserTab = null;
   offCloseBrowserTab?.();
