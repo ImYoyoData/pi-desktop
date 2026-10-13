@@ -291,29 +291,33 @@ export const useSessionWidgetsStore = defineStore("session-widgets", () => {
 	}
 
 	/**
-	 * Turn finished: auto-complete any items the model left open so the
-	 * round always ends with a closed checklist and a frozen total time.
-	 * (Models routinely forget to flip the last item to completed.)
+	 * 回合结束：模型没回写的项保持未完成，只标记为「未回写」。
+	 *
+	 * 旧实现把它们一律改成 completed，把「模型漏报」伪装成「最后一次性全部完成」，
+	 * 用户再也看不出哪一步没人确认。开始时钟保留在原 timing 里，
+	 * 模型下一轮回写 completed 时仍然算得出真实耗时。
 	 */
 	function finalizeTodosForSession(sessionId: string): void {
 		const list = todosBySession.value[sessionId];
-		// Paused = user stopped this round on purpose — never auto-complete it.
+		// Paused = user stopped this round on purpose — leave it alone.
 		if (!list || list.paused) return;
 		const now = Date.now();
-		const timing = { ...(itemTimingBySession.value[sessionId] ?? {}) };
+		const timing = itemTimingBySession.value[sessionId] ?? {};
 		let changed = false;
 		const items = list.items.map((item) => {
 			if (item.done) return item;
 			changed = true;
-			const key = item.text.trim();
-			const t = timing[key];
-			const startedAt = item.startedAt ?? t?.startedAt ?? now;
-			timing[key] = { startedAt, completedAt: now };
+			const startedAt =
+				item.startedAt ?? timing[item.text.trim()]?.startedAt ?? now;
 			const { active: _active, startedAt: _startedAt, ...rest } = item;
-			return { ...rest, done: true, durationMs: Math.max(0, now - startedAt) };
+			return {
+				...rest,
+				unreported: true,
+				durationMs: Math.max(0, now - startedAt),
+			};
 		});
 		if (!changed) {
-			// Already all done — just make sure the round clock is closed.
+			// 模型已把清单收尾 —— 只补上回合完成时钟。
 			if (!todoCompletedAtBySession.value[sessionId]) {
 				todoCompletedAtBySession.value = {
 					...todoCompletedAtBySession.value,
@@ -323,18 +327,14 @@ export const useSessionWidgetsStore = defineStore("session-widgets", () => {
 			}
 			return;
 		}
-		itemTimingBySession.value = {
-			...itemTimingBySession.value,
-			[sessionId]: timing,
-		};
-		todoCompletedAtBySession.value = {
-			...todoCompletedAtBySession.value,
-			[sessionId]: now,
-		};
 		todosBySession.value = {
 			...todosBySession.value,
 			[sessionId]: { ...list, items, dismissed: false },
 		};
+		// 还有未确认的项：本轮不算完成，清掉旧的结束时钟。
+		const ends = { ...todoCompletedAtBySession.value };
+		delete ends[sessionId];
+		todoCompletedAtBySession.value = ends;
 		persistTodoSnapshot(sessionId);
 	}
 

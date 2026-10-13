@@ -508,6 +508,7 @@ export const en = {
 	todoProgress: (done: number, total: number) => `Todos ${done}/${total}`,
 	todoAllDone: (total: number) => `Todos complete (${total})`,
 	todoRemaining: (n: number) => `${n} remaining`,
+	todoUnreported: (n: number) => `${n} not reported by the model`,
 	todoDismiss: "Dismiss todos",
 	todoOpenItems: "Open",
 	todoDoneItems: "Completed",

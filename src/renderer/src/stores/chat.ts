@@ -529,6 +529,19 @@ export const useChatStore = defineStore("chat", () => {
 		// setStatus / setTitle: reserved for future chrome.
 	}
 
+	/**
+	 * 回合结束（正常结束或失败）统一收尾待办：用户主动停止则冻结成暂停列表，
+	 * 否则把模型没回写的项标为「未回写」，不让面板停在「进行中」。
+	 */
+	function settleTodosForSession(sessionId: string): void {
+		const widgets = useSessionWidgetsStore();
+		if (stopIntentBySession.delete(sessionId)) {
+			widgets.pauseTodosForSession(sessionId);
+		} else {
+			widgets.finalizeTodosForSession(sessionId);
+		}
+	}
+
 	function applyEvent(event: AgentEvent): void {
 		const sessionId = event.sessionId;
 		try {
@@ -596,19 +609,15 @@ export const useChatStore = defineStore("chat", () => {
 			// Turn over: clear the in-flight stop marker first so the Stop button
 			// returns to Send on the same paint that ends the turn.
 			stoppingBySession[sessionId] = false;
-			// Turn over: close any todo items the model left open so the
-			// checklist always finishes with a frozen total time — unless the
-			// user stopped this turn (paused list stays for continue/delete).
-			if (stopIntentBySession.delete(sessionId)) {
-				useSessionWidgetsStore().pauseTodosForSession(sessionId);
-			} else {
-				useSessionWidgetsStore().finalizeTodosForSession(sessionId);
-			}
+			settleTodosForSession(sessionId);
 			void notifyStore.onTurnComplete({
 				title: notifyTitleOf(sessionId),
 				body: t.notifyTurnCompleteBody,
 				sessionId,
 			});
+		} else if (event.type === "prompt_error") {
+			// 失败同样结束了回合：待办要落到 paused / 未回写，不能停在「进行中」。
+			settleTodosForSession(sessionId);
 		}
 
 		if (event.type === "worker_stuck") {

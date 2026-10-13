@@ -50,7 +50,9 @@ import {
 	DESKTOP_BASH_BACKGROUND_PROMPT,
 	DESKTOP_TODO_PROMPT,
 } from "../shared/desktop-system-prompt";
-import { createAskUserToolDefinition } from "./ask-user-tool";import { createTodoWriteToolDefinition } from "./todo-tool";
+import { createAskUserToolDefinition } from "./ask-user-tool";
+import { createTodoWriteToolDefinition, clearLatestTodoWriteRows } from "./todo-tool";
+import { createTodoReminderExtension } from "./todo-reminder";
 import { commandShouldStartBackground } from "../shared/bash-background";
 import { createTrackedBashOperations } from "./bash-run-tracker";
 import {
@@ -577,6 +579,8 @@ async function initSession(
 				{ name: "codemode", factory: createCodemodeExtension(), replaceable: true, builtin: true },
 				{ name: "tool-search", factory: createToolSearchExtension(), replaceable: true, builtin: true },
 				{ name: "mcp", factory: createMcpExtension(), replaceable: true, builtin: true },
+				// 模型不回写待办时把清单拉回正轨：上下文进度注入 + 回合末兜底提醒。
+				{ name: "todo-reminder", factory: createTodoReminderExtension(), builtin: true, hidden: true },
 			],
 			appendSystemPrompt: [
 				DESKTOP_ASK_USER_PROMPT,
@@ -946,6 +950,8 @@ async function runCommand(id: string, command: AgentCommand): Promise<void> {
 			return;
 		case "prompt": {
 			const active = requireSession();
+			// 新回合开始：渲染进程会重置待办面板，这里的旧清单同步作废。
+			clearLatestTodoWriteRows();
 			let message = command.message;
 			if (command.citations?.length) {
 				message = formatCitationsBlock(command.citations) + message;
