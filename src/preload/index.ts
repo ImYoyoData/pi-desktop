@@ -75,7 +75,7 @@ import type {
 import type { ProxySettings } from "../shared/proxy";
 import type { ThinkingLanguageSettings } from "../shared/thinking-language";
 import type { StreamRenderSettings } from "../shared/stream-render";
-
+import type { WebSearchConfigState, WebSearchSettings } from "../shared/web-search-config";
 import type { RetrySettings } from "../shared/retry-settings";
 import type { RuntimeSettings } from "../shared/runtime-settings";
 
@@ -1565,7 +1565,15 @@ const api = {
 				settings,
 			) as Promise<StreamRenderSettings>,
 	},
-	
+	webSearchConfig: {
+		get: () =>
+			ipcRenderer.invoke(IpcChannels.webSearchConfig.get) as Promise<WebSearchConfigState>,
+		set: (settings: WebSearchSettings) =>
+			ipcRenderer.invoke(
+				IpcChannels.webSearchConfig.set,
+				settings,
+			) as Promise<WebSearchConfigState>,
+	},
 	appearance: {
 		pickWallpaper: () =>
 			ipcRenderer.invoke(IpcChannels.appearance.pickWallpaper) as Promise<

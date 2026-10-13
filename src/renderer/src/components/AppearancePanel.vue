@@ -7,7 +7,6 @@ import {
   NSelect,
   NSpace,
   NText,
-  useMessage,
 } from "naive-ui";
 import {
   TRUNCATE_TOOL_OUTPUT_CHOICES,
@@ -17,10 +16,6 @@ import {
 } from "@renderer/stores/appearance";
 import { useStreamRenderStore } from "@renderer/stores/stream-render";
 import { STREAM_RENDER_THROTTLE_CHOICES } from "../../../shared/stream-render";
-import {
-  normalizeThinkingLanguage,
-  type ThinkingLanguage,
-} from "../../../shared/thinking-language";
 import { MESSAGE_WIDTH_CHOICES } from "../../../shared/appearance";
 import AppearanceWallpaperCard from "@renderer/components/customize/AppearanceWallpaperCard.vue";
 import { t } from "@renderer/i18n";
@@ -29,7 +24,6 @@ import { t } from "@renderer/i18n";
 const appearance = useAppearanceStore();
 const streamRender = useStreamRenderStore();
 void streamRender.load();
-const message = useMessage();
 
 type AppearanceTab = "theme" | "ui";
 const TAB_KEY = "pi-desktop:appearance-tab:v1";
@@ -54,39 +48,13 @@ function onLocaleUpdate(v: string | number | null): void {
   appearance.setLocalePreference(v as LocalePreference);
 }
 
-const thinkingLanguage = ref<ThinkingLanguage>("en");
-const thinkingLanguageSaving = ref(false);
 const isWindows = ref(false);
 
 onMounted(() => {
-  void loadThinkingLanguage();
   void window.api.window.platform().then((p) => {
     isWindows.value = p === "win32";
   });
 });
-
-async function loadThinkingLanguage(): Promise<void> {
-  try {
-    const settings = await window.api.thinkingLanguage.get();
-    thinkingLanguage.value = settings.language;
-  } catch {
-    // 读取失败时保留当前值
-  }
-}
-
-async function saveThinkingLanguage(value: string | number): Promise<void> {
-  const language = normalizeThinkingLanguage(value);
-  thinkingLanguage.value = language;
-  thinkingLanguageSaving.value = true;
-  try {
-    const settings = await window.api.thinkingLanguage.set({ language });
-    thinkingLanguage.value = settings.language;
-  } catch (err) {
-    message.error(err instanceof Error ? err.message : String(err));
-  } finally {
-    thinkingLanguageSaving.value = false;
-  }
-}
 
 const showCompactButton = computed({
   get: () => appearance.showCompactButton,
@@ -211,24 +179,6 @@ function onMessageWidthChange(value: string | number | null): void {
     </template>
 
     <template v-else>
-      <div class="switch-row">
-        <div class="switch-labels">
-          <NText strong>{{ t.thinkingLanguage }}</NText>
-        </div>
-        <NRadioGroup
-          :value="thinkingLanguage"
-          size="small"
-          :disabled="thinkingLanguageSaving"
-          class="setting-radio-group"
-          @update:value="saveThinkingLanguage"
-        >
-          <NRadioButton value="zh">{{ t.thinkingLanguageZh }}</NRadioButton>
-          <NRadioButton value="en">{{ t.thinkingLanguageEn }}</NRadioButton>
-        </NRadioGroup>
-      </div>
-
-      <NDivider style="margin: 0" />
-
       <div class="switch-row">
         <div class="switch-labels">
           <NText strong>{{ t.showPanelDividers }}</NText>

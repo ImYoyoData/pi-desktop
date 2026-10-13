@@ -4,6 +4,8 @@ export type ModelsAvailableEntry = {
   provider: string;
   id: string;
   name: string;
+  /** 该模型的协议，如 openai-responses / openai-completions / anthropic。 */
+  api: string;
   contextWindow: number;
   maxTokens: number;
   /** 输入模态：text / image。 */
@@ -24,6 +26,8 @@ export type ModelsProviderAuth = {
   baseUrl?: string;
   /** Provider also exposes an OAuth login flow. */
   oauth?: boolean;
+  /** 该 provider 至少有一个模型走 OpenAI Responses 协议（pi-web-access 复用凭据的前提）。 */
+  responsesApi?: boolean;
 };
 
 /** One entry of a provider's model catalog, with the metadata the GUI cares about. */

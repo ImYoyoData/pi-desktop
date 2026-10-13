@@ -10,6 +10,7 @@ import { skillWarningOf } from "./skill-validate";
 import type {
 	BuiltinExtensionItem,
 	CustomizationCreateKind,
+	CustomizationHook,
 	CustomizationItem,
 	CustomizationScope,
 	CustomizationsSnapshot,
@@ -35,6 +36,7 @@ type ExtensionLike = {
 	path: string;
 	sourceInfo?: SourceInfoLike;
 	tools: Map<string, { definition?: { label?: string; description?: string } }>;
+	handlers: Map<string, unknown[]>;
 };
 
 /** pi 内置工具与简介，文案取自 pi-coding-agent 各工具的系统提示 snippet。 */
@@ -585,6 +587,22 @@ function toolItems(
 	}));
 }
 
+/** 扩展订阅的 pi 生命周期事件：按事件名归并订阅者，事件名升序。 */
+function collectHooks(extensions: readonly ExtensionLike[]): CustomizationHook[] {
+	const byEvent = new Map<string, string[]>();
+	for (const ext of extensions) {
+		const label = extensionLabel(ext);
+		for (const event of ext.handlers.keys()) {
+			const subscribers = byEvent.get(event) ?? [];
+			if (!subscribers.includes(label)) subscribers.push(label);
+			byEvent.set(event, subscribers);
+		}
+	}
+	return [...byEvent.entries()]
+		.map(([event, subscribers]) => ({ event, subscribers }))
+		.sort((a, b) => a.event.localeCompare(b.event));
+}
+
 function collectTools(extensions: readonly ExtensionLike[]): CustomizationItem[] {
 	const items: CustomizationItem[] = [
 		...toolItems("builtin", BUILTIN_TOOLS),
@@ -807,7 +825,7 @@ export async function listCustomizations(
 			...workspaceInstructionItems(workspaces, loadedInstructionPaths),
 		],
 		prompts: listPrompts(root, dir, sdk, prompts.prompts),
-		hooks: [],
+		hooks: collectHooks(extensionList),
 		mcp: [
 			...readMcpFile(path.join(dir, "mcp.json"), "user"),
 			...readMcpFile(path.join(root, ".pi", "mcp.json"), "project"),

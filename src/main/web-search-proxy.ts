@@ -6,7 +6,7 @@ import { normalizeProxyUrl, type ProxySettings } from "../shared/proxy";
 const CONFIG_FILE = "web-search.json";
 
 /** 与 pi-web-access 的 getWebSearchConfigDir 保持一致，否则写入的文件不会被读取。 */
-function webSearchConfigPath(): string {
+export function webSearchConfigPath(): string {
 	const explicitDir = process.env.PI_CODING_AGENT_DIR;
 	if (explicitDir) return join(explicitDir, CONFIG_FILE);
 

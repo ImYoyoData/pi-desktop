@@ -27,6 +27,10 @@ type ParsedEntry = {
   modelId?: string;
   /** thinking_level_change entries. */
   thinkingLevel?: string;
+  /** compaction / branch_summary entries. */
+  summary?: string;
+  /** compaction entries: token 数（压缩前）。 */
+  tokensBefore?: number;
 };
 
 type HistoryImage = { mimeType: string; dataUrl: string };
@@ -34,6 +38,9 @@ type HistoryImage = { mimeType: string; dataUrl: string };
 const MAX_UI_TEXT_CHARS = 24_000;
 const MAX_HISTORY_IMAGE_BYTES = 24 * 1024 * 1024;
 const MAX_IMAGE_BASE64_LENGTH = 12 * 1024 * 1024;
+
+/** 停在半路的工具调用在历史里的结果文案（与 worker 落盘时一致）。 */
+const CANCELLED_TOOL_TEXT = "Cancelled by user";
 
 function truncateForUi(text: string, max = MAX_UI_TEXT_CHARS): string {
   if (text.length <= max) return text;
@@ -212,17 +219,36 @@ function thinkingFromAgentMessage(message: Record<string, unknown>): string {
     .join("");
 }
 
-function toolCallArgsFromAssistant(message: Record<string, unknown>): Map<string, unknown> {
-  const out = new Map<string, unknown>();
+function toolCallsFromAssistant(
+  message: Record<string, unknown>,
+): { id: string; name: string; args: unknown }[] {
   const content = message.content;
-  if (!Array.isArray(content)) return out;
+  if (!Array.isArray(content)) return [];
+  const out: { id: string; name: string; args: unknown }[] = [];
   for (const part of content) {
     if (!part || typeof part !== "object") continue;
-    const row = part as { type?: unknown; id?: unknown; arguments?: unknown };
+    const row = part as { type?: unknown; id?: unknown; name?: unknown; arguments?: unknown };
     if (row.type !== "toolCall" || typeof row.id !== "string" || !row.id) continue;
-    out.set(row.id, row.arguments);
+    out.push({
+      id: row.id,
+      name: typeof row.name === "string" && row.name ? row.name : "tool",
+      args: row.arguments,
+    });
   }
   return out;
+}
+
+/** 分支上已有结果的工具调用。 */
+function answeredToolCalls(pathIds: string[], byId: Map<string, ParsedEntry>): Set<string> {
+  const answered = new Set<string>();
+  for (const id of pathIds) {
+    const entry = byId.get(id);
+    if (entry?.type !== "message" || !entry.message) continue;
+    if (entry.message.role !== "toolResult") continue;
+    const callId = entry.message.toolCallId;
+    if (typeof callId === "string" && callId) answered.add(callId);
+  }
+  return answered;
 }
 
 function findLeafId(entries: ParsedEntry[]): string | null {
@@ -274,6 +300,10 @@ function collectEntries(raw: string): {
       ...(typeof parsed.thinkingLevel === "string"
         ? { thinkingLevel: parsed.thinkingLevel }
         : {}),
+      ...(typeof parsed.summary === "string" ? { summary: parsed.summary } : {}),
+      ...(typeof parsed.tokensBefore === "number" && Number.isFinite(parsed.tokensBefore)
+        ? { tokensBefore: parsed.tokensBefore }
+        : {}),
     });
   }
   return { entries, pendingImages };
@@ -297,6 +327,7 @@ function buildMessagesFromEntries(
 
   const messages: SessionHistoryMessage[] = [];
   const toolCallArgsById = new Map<string, unknown>();
+  const answered = answeredToolCalls(pathIds, byId);
   let metaCursor = 0;
   let currentModel: { provider: string; id: string } | null = null;
   let currentThinkingLevel: string | null = null;
@@ -315,6 +346,22 @@ function buildMessagesFromEntries(
     }
     if (entry.type === "thinking_level_change") {
       if (entry.thinkingLevel) currentThinkingLevel = entry.thinkingLevel;
+      continue;
+    }
+    // 上下文压缩 / 分支摘要：模型只拿到摘要，历史界面也照样展示，
+    //  否则重启后这段对话凭空消失。
+    if (entry.type === "compaction" || entry.type === "branch_summary") {
+      const text = (entry.summary ?? "").trim();
+      if (!text) continue;
+      messages.push({
+        id: entry.id,
+        role: "summary",
+        text: truncateForUi(text),
+        kind: entry.type === "compaction" ? "compaction" : "branch",
+        ...(entry.tokensBefore != null && entry.tokensBefore > 0
+          ? { tokensBefore: entry.tokensBefore }
+          : {}),
+      });
       continue;
     }
     if (entry.type !== "message" || !entry.message) {
@@ -353,8 +400,9 @@ function buildMessagesFromEntries(
         });
       }
     } else if (role === "assistant") {
-      for (const [callId, args] of toolCallArgsFromAssistant(entry.message)) {
-        toolCallArgsById.set(callId, args);
+      const calls = toolCallsFromAssistant(entry.message);
+      for (const call of calls) {
+        toolCallArgsById.set(call.id, call.args);
       }
       const text = textFromAgentMessage(entry.message);
       const thinking = thinkingFromAgentMessage(entry.message);
@@ -376,6 +424,20 @@ function buildMessagesFromEntries(
           ...(currentThinkingLevel ? { thinkingLevel: currentThinkingLevel } : {}),
           ...(usage ? { usage } : {}),
           ...(durationMs != null && durationMs > 0 ? { durationMs } : {}),
+        });
+      }
+      // stop 落在工具执行中时磁盘上没有 tool_result，补一张已取消卡片，
+      // 否则这张卡片只在当次运行里出现过，重启后凭空消失。
+      for (const call of calls) {
+        if (answered.has(call.id)) continue;
+        messages.push({
+          id: `${entry.id}~${call.id}`,
+          role: "tool",
+          toolCallId: call.id,
+          toolName: call.name,
+          text: CANCELLED_TOOL_TEXT,
+          isError: true,
+          ...(call.args !== undefined ? { args: truncateArgsForUi(call.args) } : {}),
         });
       }
     } else if (role === "toolResult") {
