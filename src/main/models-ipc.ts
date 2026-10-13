@@ -28,6 +28,7 @@ import { netFetch } from "./net-fetch";
 import { buildCatalogIndex, enrichDiscoveredModels, resolveDiscoveredModels } from "./model-catalog";
 import { readModelSelection, writeModelSelection } from "./models-selection";
 import type { ModelSelection } from "../shared/model-selection";
+import { isOfflineMode } from "../shared/offline";
 import type { AuthEvent, AuthInteraction, AuthPrompt } from "@earendil-works/pi-ai";
 import type { ModelRuntime } from "@earendil-works/pi-coding-agent";
 
@@ -38,6 +39,53 @@ async function createRuntime(): Promise<import("@earendil-works/pi-coding-agent"
     modelsPath: paths.modelsPath,
     authPath: paths.authPath,
   });
+}
+
+/**
+ * 刷新目录的总等待上限。refresh 逐 provider 独立进行，中断后已完成的部分
+ * 仍会落盘，所以短超时不会丢数据。pi CLI 用 15s（命令行用户能等），桌面端
+ * 打开模型页要尽快出内容，取 5s。
+ */
+const CATALOG_REFRESH_TIMEOUT_MS = 5_000;
+
+/** 同一窗口内只刷一次，避免在设置里来回切页时重复请求。 */
+const CATALOG_REFRESH_TTL_MS = 60_000;
+
+let lastCatalogRefreshAt = 0;
+let inflightCatalogRefresh: Promise<void> | null = null;
+
+/**
+ * 联网刷新模型目录，让 OpenRouter 等供应商按当前密钥列出可用模型与价格
+ * （pi 1.2.0 新增）。仅由模型页显式触发，create 时不开网络以保持首屏速度。
+ *
+ * 不传 force：SDK 自带 4 小时的目录缓存（REMOTE_CATALOG_REFRESH_INTERVAL_MS），
+ * 传 force 会跳过它，来回切页就把全部 provider 重刷一遍。OpenRouter 的按密钥
+ * 列表不受影响——withPersonalizedCatalog 本就忽略 force，每次都按当前密钥拉取。
+ */
+function refreshCatalogsOverNetwork(runtime: ModelRuntime): Promise<void> {
+  if (isOfflineMode()) return Promise.resolve();
+  if (inflightCatalogRefresh) return inflightCatalogRefresh;
+  if (Date.now() - lastCatalogRefreshAt < CATALOG_REFRESH_TTL_MS) {
+    return Promise.resolve();
+  }
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), CATALOG_REFRESH_TIMEOUT_MS);
+  const task: Promise<void> = runtime
+    .refresh({ allowNetwork: true, signal: controller.signal })
+    .then(
+      () => {
+        lastCatalogRefreshAt = Date.now();
+      },
+      () => {
+        // 离线、超时或 provider 报错：用已缓存的目录，不阻塞界面。
+      },
+    )
+    .finally(() => {
+      clearTimeout(timeout);
+      inflightCatalogRefresh = null;
+    });
+  inflightCatalogRefresh = task;
+  return task;
 }
 
 /**
@@ -98,6 +146,7 @@ export async function listAvailableModels(runtime: ModelRuntime): Promise<Models
       provider: m.provider,
       id: m.id,
       name: m.name ?? m.id,
+      api: m.api,
       contextWindow: m.contextWindow,
       maxTokens: m.maxTokens,
       input: m.input,
@@ -427,11 +476,13 @@ function listAuthProviders(
   available: ModelsGetResult["available"],
 ): ModelsProviderAuth[] {
   const availableCountByProvider = new Map<string, number>();
+  const responsesProviders = new Set<string>();
   for (const model of available) {
     availableCountByProvider.set(
       model.provider,
       (availableCountByProvider.get(model.provider) ?? 0) + 1,
     );
+    if (model.api === "openai-responses") responsesProviders.add(model.provider);
   }
 
   const seen = new Set<string>();
@@ -452,6 +503,7 @@ function listAuthProviders(
       modelCount: availableCountByProvider.get(provider.id) ?? 0,
       supportsApiKey,
       ...(provider.baseUrl ? { baseUrl: provider.baseUrl } : {}),
+      ...(responsesProviders.has(provider.id) ? { responsesApi: true } : {}),
       ...(oauth ? { oauth: true } : {}),
     });
   }
@@ -550,10 +602,25 @@ function requestOauthPrompt(
   });
 }
 
+/**
+ * 是否需要为本次读取联网刷新目录。
+ *
+ * 只有模型页显式要求且不在离线模式时才刷；其余调用（输入框切模型、
+ * 消息列表取显示名等）直接用已缓存目录，避免每次切会话/切模型都付一次网络往返。
+ */
+export function shouldRefreshCatalog(
+  payload: { refreshCatalog?: boolean } | undefined,
+): boolean {
+  return Boolean(payload?.refreshCatalog) && !isOfflineMode();
+}
+
 export function registerModelsIpc(broker: SessionBroker): void {
-  ipcMain.handle(IpcChannels.models.get, async (): Promise<ModelsGetResult> => {
+  ipcMain.handle(IpcChannels.models.get, async (_event, payload?: { refreshCatalog?: boolean }): Promise<ModelsGetResult> => {
     const service = getModelsConfigService();
     const runtime = await createRuntime();
+    if (shouldRefreshCatalog(payload)) {
+      await refreshCatalogsOverNetwork(runtime);
+    }
     // getAvailable() refreshes auth-gated availability; modelCount uses this, not catalog size
     const [modelsText, available] = await Promise.all([
       service.readModelsConfigText(),

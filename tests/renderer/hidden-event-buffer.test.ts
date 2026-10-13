@@ -21,7 +21,7 @@ describe("hidden-event-buffer", () => {
 	});
 
 	afterEach(() => {
-		sink.dispose();
+		sink.stop();
 		vi.useRealTimers();
 	});
 
@@ -88,7 +88,7 @@ describe("hidden-event-buffer", () => {
 	});
 
 	it("keeps applying later events when one apply throws", () => {
-		sink.dispose();
+		sink.stop();
 		sink = createHiddenEventSink<number>({
 			apply: (n) => {
 				if (n === 2) throw new Error("boom");
@@ -107,12 +107,38 @@ describe("hidden-event-buffer", () => {
 		expect(applied).toEqual([1, 3]);
 	});
 
-	it("dispose drops the backlog and pending timer", () => {
+	it("stop drops the backlog and pending timer", () => {
 		hidden = true;
 		sink.push(1);
-		sink.dispose();
+		sink.stop();
 		vi.advanceTimersByTime(5_000);
 		expect(applied).toEqual([]);
 		expect(sink.pending).toBe(0);
+	});
+
+	// 回归：stop 曾让 push 变成永久 no-op，组件卸载后所有会话事件被静默丢弃，
+	// 界面永远停在「等待模型响应」。stop 之后必须退化为直通而不是失效。
+	it("still delivers events pushed after stop", () => {
+		sink.stop();
+		sink.push(1);
+		sink.push(2);
+		vi.advanceTimersByTime(0);
+		expect(applied).toEqual([1, 2]);
+	});
+
+	it("still delivers events after stop even while hidden", () => {
+		hidden = true;
+		sink.stop();
+		sink.push(1);
+		vi.advanceTimersByTime(0);
+		expect(applied).toEqual([1]);
+	});
+
+	it("stop is idempotent", () => {
+		sink.stop();
+		sink.stop();
+		sink.push(1);
+		vi.advanceTimersByTime(0);
+		expect(applied).toEqual([1]);
 	});
 });

@@ -3,7 +3,7 @@ import { computed, nextTick, onMounted, ref, watch } from "vue";
 import type { ComposerChip } from "@renderer/stores/composer";
 import { truncateElementContent, useComposerStore } from "@renderer/stores/composer";
 import { fileTagLabel, urlTagLabel } from "@renderer/utils/composer-tags";
-import { draftBeforeCaret, serializeRichEditor } from "@renderer/utils/composer-rich";
+import { draftBeforeCaret, needsLeadingSpace, normalizeInsertedText, serializeRichEditor } from "@renderer/utils/composer-rich";
 import { isRegionCitation } from "../../../shared/protocol";
 import { t } from "@renderer/i18n";
 
@@ -160,26 +160,8 @@ function rebuildFromStore(): void {
   applyingStore = false;
 }
 
-/** 插入前统一清理：去掉零宽占位符，换行为 \n，去掉首尾空白。 */
-function normalizeInsertedText(text: string): string {
-  return text
-    .replace(/\u200B/g, "")
-    .replace(/\r\n/g, "\n")
-    .replace(/\r/g, "\n")
-    .trim();
-}
-
-/** 插入点前若已有非空白文本，且新内容不是标点开头，则补一个空格。 */
-function needsLeadingSpace(before: string, next: string): boolean {
-  return (
-    Boolean(before.replace(/\s+$/u, "")) &&
-    !/[\s\u3000]$/u.test(before) &&
-    !/^[,.!?;:\uFF0C\u3002\uFF01\uFF1F\u3001\uFF1B\uFF1A]/.test(next)
-  );
-}
-
 /** Append plain text after chips / existing content, sync draft, scroll into view. */
-function appendTextAtEnd(text: string): void {
+function appendTextAtEnd(text: string, separate = false): void {
   const root = surface.value;
   const next = normalizeInsertedText(text);
   if (!root || !next) return;
@@ -195,12 +177,8 @@ function appendTextAtEnd(text: string): void {
     last.remove();
   }
 
-  const before = serializeRichEditor(root).draft.replace(/\s+$/u, "");
-  const needSpace =
-    Boolean(before) &&
-    !/[\s\u3000]$/u.test(before) &&
-    !/^[,.!?;:\uFF0C\u3002\uFF01\uFF1F\u3001\uFF1B\uFF1A]/.test(next);
-  if (root.childNodes.length > 0 && needSpace) {
+  const before = serializeRichEditor(root).draft;
+  if (separate && root.childNodes.length > 0 && needsLeadingSpace(before, next)) {
     root.appendChild(document.createTextNode(" "));
   }
   const lines = next.split("\n");
@@ -247,9 +225,10 @@ function escapeHtml(text: string): string {
 /**
  * 走原生 insertHTML 命令插入纯文本，浏览器才会把它记进 undo 栈，
  * Ctrl+Z 因而能撤回粘贴内容；命令不可用时返回 false，由调用方退回 DOM 拼接。
+ * `separate` 为真时按拖放语义补一个分隔空格，粘贴不补。
  */
-function insertTextViaCommand(next: string, before: string): boolean {
-  const payload = needsLeadingSpace(before, next) ? ` ${next}` : next;
+function insertTextViaCommand(next: string, before: string, separate: boolean): boolean {
+  const payload = separate && needsLeadingSpace(before, next) ? ` ${next}` : next;
   const html = escapeHtml(payload).replace(/\n/g, "<br>");
   try {
     return document.execCommand("insertHTML", false, html);
@@ -259,9 +238,9 @@ function insertTextViaCommand(next: string, before: string): boolean {
 }
 
 /** 程序化 DOM 拼接：多行必须拆成真实 <br>，否则 contenteditable 会吞掉 \n。 */
-function insertTextViaDom(range: Range, next: string, before: string): void {
+function insertTextViaDom(range: Range, next: string, before: string, separate: boolean): void {
   range.deleteContents();
-  if (needsLeadingSpace(before, next)) {
+  if (separate && needsLeadingSpace(before, next)) {
     range.insertNode(document.createTextNode(" "));
     const sp = document.createTextNode("\u200B");
     range.insertNode(sp);
@@ -299,10 +278,11 @@ function insertTextViaDom(range: Range, next: string, before: string): void {
 /**
  * Insert plain text at the current selection; a highlighted range inside the
  * surface is replaced in place. Falls back to the end of the editor when no
- * selection lives inside the surface (e.g. dictation finished while the
- * editor lost focus).
+ * selection lives inside the surface (e.g. the editor lost focus).
+ * `separate` 仅拖放使用：插入点前有文字时补一个分隔空格。粘贴逐字插入，
+ * 首尾空白与内容必须原样落到输入框，不做任何改写。
  */
-function insertTextAtCaret(text: string): void {
+function insertTextAtCaret(text: string, separate = false): void {
   const root = surface.value;
   const next = normalizeInsertedText(text);
   if (!root || !next) return;
@@ -317,14 +297,14 @@ function insertTextAtCaret(text: string): void {
       : null;
 
   if (!range) {
-    appendTextAtEnd(next);
+    appendTextAtEnd(next, separate);
     return;
   }
 
   const before = draftBeforeCaret(root, range);
   applyingStore = true;
-  if (!insertTextViaCommand(next, before)) {
-    insertTextViaDom(range, next, before);
+  if (!insertTextViaCommand(next, before, separate)) {
+    insertTextViaDom(range, next, before, separate);
   }
   applyingStore = false;
   syncDraftFromDom();

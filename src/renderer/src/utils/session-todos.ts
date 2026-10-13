@@ -10,6 +10,11 @@ export type SessionTodoItem = {
 	durationMs?: number;
 	/** Wall-clock ms when this item started (drives the live in-progress timer). */
 	startedAt?: number;
+	/**
+	 * 回合结束时模型仍没回写这一项（既没标 completed 也没标 in_progress）。
+	 * 面板据此显示「未回写」而不是伪造的完成。下一次 todo_write 会清掉它。
+	 */
+	unreported?: boolean;
 };
 
 export type SessionTodoList = {
@@ -77,6 +82,64 @@ function statusDone(status: unknown): boolean {
 	);
 }
 
+/**
+ * 行 id：显式 id/step 优先，空值回退到有效行序号。
+ * 与 shared/todo-tool 的 normalizeTodoWriteRows 保持同一语义，两处不能各自推演。
+ */
+function rowIdFromRaw(
+	row: { id?: unknown; step?: unknown },
+	positionalId: number,
+): string {
+	const raw = row.id ?? row.step;
+	if (typeof raw === "number" && Number.isFinite(raw)) return String(raw);
+	if (typeof raw === "string" && raw.trim()) return raw.trim();
+	return String(positionalId);
+}
+
+/** 行状态为「进行中」，词表与 shared/todo-tool 的 parseTodoStatus 对齐。 */
+function statusActive(status: unknown): boolean {
+	if (typeof status !== "string") return false;
+	const s = status.trim().toLowerCase();
+	return (
+		s === "in_progress" ||
+		s === "in-progress" ||
+		s === "inprogress" ||
+		s === "running" ||
+		s === "active"
+	);
+}
+
+/**
+ * 从原始行里派生唯一的活动项 id。
+ *
+ * 模型刚发出 todo_write 时只有 args、没有 details.activeId，按行状态能立刻点亮
+ * 「进行中」并开始计时，而不是等 tool_execution_end。id/step 缺失时按有效行序号取值，
+ * 与 normalizeTodoRows 的兜底 id 一致。
+ */
+function derivedActiveIdFromRows(rows: unknown): string | null {
+	if (!Array.isArray(rows)) return null;
+	let index = 0;
+	for (const raw of rows) {
+		if (!raw || typeof raw !== "object") continue;
+		const row = raw as {
+			id?: unknown;
+			step?: unknown;
+			text?: unknown;
+			content?: unknown;
+			title?: unknown;
+			status?: unknown;
+		};
+		const hasText = [row.text, row.content, row.title].some(
+			(v) => typeof v === "string" && v.trim(),
+		);
+		if (!hasText) continue;
+		index += 1;
+		if (!statusActive(row.status)) continue;
+		return rowIdFromRaw(row, index);
+	}
+	return null;
+}
+
 /** Normalize heterogeneous todo rows (pi-deck text/done, Cursor content/status, …). */
 export function normalizeTodoRows(rows: unknown): SessionTodoItem[] {
 	if (!Array.isArray(rows)) return [];
@@ -93,6 +156,7 @@ export function normalizeTodoRows(rows: unknown): SessionTodoItem[] {
 			status?: unknown;
 			step?: unknown;
 			active?: unknown;
+			unreported?: unknown;
 			durationMs?: unknown;
 		};
 		const textRaw =
@@ -102,14 +166,10 @@ export function normalizeTodoRows(rows: unknown): SessionTodoItem[] {
 			"";
 		const text = textRaw.trim();
 		if (!text) continue;
-		const id =
-			typeof t.id === "number" || typeof t.id === "string"
-				? String(t.id)
-				: typeof t.step === "number" || typeof t.step === "string"
-					? String(t.step)
-					: String(items.length + 1);
+		const id = rowIdFromRaw(t, items.length + 1);
 		const done = Boolean(t.done ?? t.completed) || statusDone(t.status);
 		const active = t.active === true;
+		const unreported = t.unreported === true;
 		const durationMs =
 			typeof t.durationMs === "number" &&
 			Number.isFinite(t.durationMs) &&
@@ -121,6 +181,7 @@ export function normalizeTodoRows(rows: unknown): SessionTodoItem[] {
 			text,
 			done,
 			...(active ? { active: true } : {}),
+			...(unreported ? { unreported: true } : {}),
 			...(durationMs != null ? { durationMs } : {}),
 		});
 	}
@@ -252,13 +313,15 @@ export function todosFromToolDetails(
 			? (details as { activeId?: unknown; nowMs?: unknown })
 			: null;
 	const activeId = detailsObj?.activeId;
+	const activeKey =
+		activeId != null ? String(activeId) : derivedActiveIdFromRows(payload.rows);
 	const nowMs =
 		typeof detailsObj?.nowMs === "number" && Number.isFinite(detailsObj.nowMs)
 			? detailsObj.nowMs
 			: Date.now();
 
 	for (const item of items) {
-		if (activeId != null && String(item.id) === String(activeId)) {
+		if (activeKey != null && String(item.id) === activeKey) {
 			item.active = true;
 		}
 		if (item.durationMs != null) continue; // already from widget suffix
@@ -386,11 +449,13 @@ export function serializeTodoSnapshot(
 		version: TODO_SNAPSHOT_VERSION,
 		sessionId,
 		savedAt: Date.now(),
-		list: JSON.parse(JSON.stringify(list)) as SessionTodoList,
+		list: { ...list, items: list.items.map((item) => ({ ...item })) },
 		startedAt,
 		completedAt,
 		toolOwned,
-		timings: JSON.parse(JSON.stringify(timings ?? {})) as TodoListSnapshot["timings"],
+		timings: Object.fromEntries(
+			Object.entries(timings ?? {}).map(([key, value]) => [key, { ...value }]),
+		),
 	};
 }
 

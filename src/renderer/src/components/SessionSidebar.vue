@@ -35,7 +35,7 @@ import {
 } from "@vicons/ionicons5";
 import Sortable from "sortablejs";
 import type { SessionStatus, SessionSummary } from "../../../shared/protocol";
-import { SESSION_HISTORY_LOAD_LIMIT } from "../../../shared/protocol";
+import { SESSION_HISTORY_INITIAL_LIMIT } from "../../../shared/protocol";
 import { useSessionsStore } from "@renderer/stores/sessions";
 import { useSessionWidgetsStore } from "@renderer/stores/session-widgets";
 import { useChatStore } from "@renderer/stores/chat";
@@ -52,6 +52,7 @@ import { t } from "@renderer/i18n";
 import CodiconIcon from "@renderer/components/icons/CodiconIcon.vue";
 import GitPullRequestIcon from "@renderer/components/icons/GitPullRequestIcon.vue";
 import { markRendererStartup } from "@renderer/utils/startup-timing";
+import * as prefs from "@renderer/utils/prefs";
 
 const PIN_KEY = "session-pins:v1";
 const SESSION_ORDER_KEY = "pi-desktop:session-order:v2";
@@ -689,7 +690,7 @@ const showStuckRecovery = computed(() => activeSession.value?.status === "stuck"
 
 function loadPins(): void {
   try {
-    const raw = localStorage.getItem(PIN_KEY);
+    const raw = prefs.getItem(PIN_KEY);
     if (!raw) return;
     const parsed = JSON.parse(raw) as Record<string, string[]>;
     for (const [k, v] of Object.entries(parsed)) {
@@ -701,12 +702,12 @@ function loadPins(): void {
 }
 
 function persistPins(): void {
-  localStorage.setItem(PIN_KEY, JSON.stringify({ ...pins }));
+  prefs.setItem(PIN_KEY, JSON.stringify({ ...pins }));
 }
 
 function loadSessionOrders(): void {
   try {
-    const raw = localStorage.getItem(SESSION_ORDER_KEY);
+    const raw = prefs.getItem(SESSION_ORDER_KEY);
     if (!raw) return;
     const parsed = JSON.parse(raw) as Record<string, string[]>;
     for (const [k, v] of Object.entries(parsed)) {
@@ -718,7 +719,7 @@ function loadSessionOrders(): void {
 }
 
 function persistSessionOrders(): void {
-  localStorage.setItem(SESSION_ORDER_KEY, JSON.stringify({ ...sessionOrders }));
+  prefs.setItem(SESSION_ORDER_KEY, JSON.stringify({ ...sessionOrders }));
 }
 
 function setSessionListRef(root: string, el: unknown): void {
@@ -784,12 +785,11 @@ onMounted(async () => {
   markRendererStartup("renderer:sidebar-mounted");
   keybindings.register("new-session", () => void onNewAgent());
   keybindings.register("select-sessions", enterSelectMode);
-  offNotifyOpen = window.api.notify.onOpenSession(({ sessionId }) => {
-    void onNotifyOpenSession(sessionId);
+  offNotifyOpen = window.api.notify.onOpenSession(({ sessionId, cwd }) => {
+    void onNotifyOpenSession(sessionId, cwd);
   });
   loadPins();
   loadSessionOrders();
-  sessionsStore.bindEvents();
   // 派生会话等由其他组件新建的会话：排到最前，避免被折叠到「展开其余 N 个」之下。
   window.addEventListener("pi-session-created", onSessionCreated);
   window.addEventListener("keydown", onSelectModeKeydown, true);
@@ -1246,13 +1246,13 @@ async function onSelectSession(root: string, sessionId: string): Promise<void> {
     // Load history from disk in parallel with opening the session in main:
     // history only needs the file path, so the two round-trips no longer stack.
     const historyPromise = opened?.filePath
-      ? window.api.sessions.history(opened.filePath, { limit: SESSION_HISTORY_LOAD_LIMIT })
+      ? window.api.sessions.history(opened.filePath, { limit: SESSION_HISTORY_INITIAL_LIMIT })
       : Promise.resolve({ messages: [], hasMore: false, total: 0 });
     const [page] = await Promise.all([
       historyPromise,
       sessionsStore.selectSession(sessionId, root),
     ]);
-    chatStore.hydrateFromHistory(sessionId, page.messages);
+    chatStore.hydrateFromHistory(sessionId, page.messages, page.hasMore);
     if (discardLeaving && workspace.root === root) {
       await discardUnstartedSession(leavingRoot, leaving!.id);
     }
@@ -1266,13 +1266,21 @@ async function onSelectSession(root: string, sessionId: string): Promise<void> {
 
 let offNotifyOpen: (() => void) | undefined;
 
-async function onNotifyOpenSession(sessionId: string): Promise<void> {
-  const root =
+async function onNotifyOpenSession(sessionId: string, cwd?: string): Promise<void> {
+  const root = resolveNotifyRoot(sessionId, cwd);
+  if (!root) return;
+  await onSelectSession(root, sessionId);
+}
+
+/** 定位会话所在工作区：侧栏缓存 → store 列表 → 主进程下发的 cwd（列表未加载时唯一线索）。 */
+function resolveNotifyRoot(sessionId: string, cwd?: string): string | null {
+  const known =
     rootOfSession(sessionId) ??
     sessionsStore.sessions.find((s) => s.id === sessionId)?.cwd ??
     null;
-  if (!root) return;
-  await onSelectSession(root, sessionId);
+  if (known) return known;
+  if (!cwd) return null;
+  return allWorkspacePaths.value.find((p) => sameWorkspacePath(p, cwd)) ?? cwd;
 }
 
 async function onKill(): Promise<void> {
@@ -1591,11 +1599,7 @@ function isRunning(status: SessionStatus): boolean {
 
 function hasPendingAsk(sessionId: string): boolean {
   const state = chatStore.bySession[sessionId];
-  return Boolean(
-    state?.pendingAskUser ||
-      state?.pendingPermission ||
-      state?.pendingExtensionUi,
-  );
+  return Boolean(state?.pendingAskUser || state?.pendingExtensionUi);
 }
 
 const justEnded = reactive(new Set<string>());

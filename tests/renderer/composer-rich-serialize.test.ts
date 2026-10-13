@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import {
   chipIdsFromRichHtml,
   extractDraftFromRichHtml,
+  needsLeadingSpace,
+  normalizeInsertedText,
   plainTextFromClipboard,
   serializeRichEditor,
 } from "../../src/renderer/src/utils/composer-rich";
@@ -20,6 +22,35 @@ describe("composer-rich", () => {
       plainTextFromClipboard("", `<p>Hello</p><p>World</p>`).replace(/\n+/g, "\n").trim(),
     ).toBe("Hello\nWorld");
     expect(plainTextFromClipboard("  a\r\nb  ", "")).toBe("  a\nb  ");
+  });
+
+  it("keeps clipboard payloads that are only whitespace", () => {
+    expect(plainTextFromClipboard("    ", "")).toBe("    ");
+    expect(plainTextFromClipboard("  ", "")).toBe("  ");
+    expect(plainTextFromClipboard("\u3000\u3000", "")).toBe("\u3000\u3000");
+    expect(plainTextFromClipboard("", "")).toBe("");
+  });
+
+  it("takes whitespace-only text/plain over HTML, and empty text/plain falls back to HTML", () => {
+    expect(plainTextFromClipboard("   ", "<p>styled</p>")).toBe("   ");
+    expect(plainTextFromClipboard("", "<span>   </span>")).toBe("   ");
+    expect(plainTextFromClipboard("", "<p>Hello</p><p>World</p>").replace(/\n+/g, "\n").trim()).toBe("Hello\nWorld");
+  });
+
+  it("keeps leading and trailing whitespace when normalizing inserted text", () => {
+    expect(normalizeInsertedText("  leading spaces")).toBe("  leading spaces");
+    expect(normalizeInsertedText("padded  ")).toBe("padded  ");
+    expect(normalizeInsertedText("    ")).toBe("    ");
+    expect(normalizeInsertedText("a\u200Bb")).toBe("ab");
+    expect(normalizeInsertedText("l1\r\nl2\rl3")).toBe("l1\nl2\nl3");
+  });
+
+  it("separates dropped text from preceding content without touching pasted text", () => {
+    expect(needsLeadingSpace("abc", "url")).toBe(true);
+    expect(needsLeadingSpace("abc", "  url")).toBe(true);
+    expect(needsLeadingSpace("abc ", "url")).toBe(false);
+    expect(needsLeadingSpace("", "url")).toBe(false);
+    expect(needsLeadingSpace("abc", ",x")).toBe(false);
   });
 
   it("lists chip ids in document order", () => {

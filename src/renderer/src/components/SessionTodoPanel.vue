@@ -50,7 +50,8 @@ watch(
   () => {
     const l = widgets.activeTodoList;
     if (!l || l.paused) return false;
-    return l.items.some((i) => !i.done);
+    // 未完成且耗时还没冻结的项才需要秒级重算；「未回写」项的耗时已冻结。
+    return l.items.some((i) => !i.done && i.durationMs == null);
   },
   (hasActive) => {
     if (hasActive) startTick();
@@ -91,6 +92,10 @@ const doneCount = computed(
 const total = computed(() => list.value?.items.length ?? 0);
 const openCount = computed(() => Math.max(0, total.value - doneCount.value));
 const allDone = computed(() => total.value > 0 && openCount.value === 0);
+/** 回合结束时模型没回写状态的项 —— 面板真话：不打勾，提示待确认。 */
+const unreportedCount = computed(
+  () => list.value?.items.filter((i) => i.unreported && !i.done).length ?? 0,
+);
 
 const firstInProgress = computed(
   () => list.value?.items.find((i) => i.active && !i.done) ?? null,
@@ -156,6 +161,7 @@ const headerLabel = computed(() =>
 
 const subLabel = computed(() => {
   if (paused.value) return t.todoPaused;
+  if (unreportedCount.value > 0) return t.todoUnreported(unreportedCount.value);
   if (allDone.value) return t.todoDoneItems;
   return t.todoRemaining(openCount.value);
 });
@@ -248,13 +254,25 @@ function onDeleteList(): void {
             v-for="item in list.items"
             :key="item.id"
             class="todo-item"
-            :class="{ done: item.done, live: item.active && !item.done }"
+            :class="{
+              done: item.done,
+              live: item.active && !item.done,
+              unreported: item.unreported && !item.done,
+            }"
             role="listitem"
           >
             <span class="todo-status" aria-hidden="true">
               <span
                 class="st-mark"
-                :class="item.done ? 'done' : item.active ? 'in-progress' : 'open'"
+                :class="
+                  item.done
+                    ? 'done'
+                    : item.unreported
+                      ? 'unreported'
+                      : item.active
+                        ? 'in-progress'
+                        : 'open'
+                "
               />
             </span>
             <span class="todo-text">{{ item.text }}</span>
@@ -531,6 +549,25 @@ function onDeleteList(): void {
   border: 1.5px solid var(--border-strong, var(--fg-faint));
 }
 
+/* 未回写：模型没确认过状态，用虚线圆 + 问号区别于真正的完成。 */
+.st-mark.unreported {
+  border: 1.5px dashed var(--border-strong, var(--fg-faint));
+  position: relative;
+}
+
+.st-mark.unreported::after {
+  content: "?";
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 7px;
+  font-weight: 700;
+  line-height: 1;
+  color: var(--fg-muted, var(--fg-faint));
+}
+
 .st-mark.done {
   background: var(--success, var(--green));
   border: none;
@@ -573,6 +610,10 @@ function onDeleteList(): void {
   color: var(--chat-desc-fg, var(--fg-muted));
   text-decoration: line-through;
   text-decoration-color: color-mix(in srgb, var(--fg-muted) 45%, transparent);
+}
+
+.todo-item.unreported .todo-text {
+  color: var(--chat-desc-fg, var(--fg-muted));
 }
 
 .todo-dur {

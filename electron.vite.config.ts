@@ -102,7 +102,8 @@ export default defineConfig({
       // The main bundle lives inside the asar and is never downloaded, so
       // skip minification there to make every build noticeably faster.
       minify: false,
-      rollupOptions: {        input: {
+      rollupOptions: {
+        input: {
           index: resolve("src/main/index.ts"),
           "agent-worker/index": resolve("src/agent-worker/index.ts"),
           "session-history-worker": resolve(
@@ -116,6 +117,20 @@ export default defineConfig({
           "chunks/image-resize-worker": resolve(
             "node_modules/@earendil-works/pi-coding-agent/dist/bundle/chunks/image-resize-worker.js",
           ),
+        },
+        output: {
+          /**
+           * SDK 内部成环：agent-session-services.js -> sdk.js -> agent-session-runtime.js
+           * -> agent-session-services.js（两个工厂函数在 runtime.js 里被再导出）。
+           * 叠加 loader.js 的动态 import（virtual-modules.js 会把整个入口 barrel 拖进
+           * 动态分块），Rollup 会把这三者拆进不同 chunk 并对循环 re-export 报警告，
+           * 有真实的跨 chunk 循环执行顺序风险。合并成一个 chunk 消除该风险。
+           */
+          manualChunks(id: string) {
+            return /[\\/]pi-coding-agent[\\/]dist[\\/]core[\\/](sdk|agent-session-services|agent-session-runtime)\.js$/.test(id)
+              ? "pi-agent-session"
+              : undefined;
+          },
         },
       },
     },

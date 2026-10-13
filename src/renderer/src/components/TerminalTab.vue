@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import { FitAddon } from "@xterm/addon-fit";
-import { Terminal } from "xterm";
-import { WebLinksAddon } from "xterm-addon-web-links";
-import "xterm/css/xterm.css";
+import { Terminal } from "@xterm/xterm";
+import { WebLinksAddon } from "@xterm/addon-web-links";
+import "@xterm/xterm/css/xterm.css";
 import { nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useDialog } from "naive-ui";
 import { useWorkspaceStore } from "@renderer/stores/workspace";

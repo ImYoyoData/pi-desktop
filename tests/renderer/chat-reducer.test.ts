@@ -946,3 +946,50 @@ describe("hasLiveTurnState", () => {
 		expect(hasLiveTurnState(settled)).toBe(false);
 	});
 });
+
+describe("compaction_end", () => {
+	it("appends a summary card when the compaction produced text", () => {
+		let state = createChatState();
+		state = appendUserMessage(state, "长对话");
+		state = reduceChatEvent(state, {
+			type: "agent_event",
+			sessionId: "s1",
+			event: {
+				type: "compaction_end",
+				reason: "manual",
+				summary: "压缩后的摘要正文",
+				tokensBefore: 120000,
+			},
+		});
+		expect(state.messages).toHaveLength(2);
+		expect(state.messages[1]).toMatchObject({
+			role: "summary",
+			text: "压缩后的摘要正文",
+			kind: "compaction",
+			tokensBefore: 120000,
+		});
+	});
+
+	it("keeps the failure bubble and adds no card", () => {
+		let state = createChatState();
+		state = appendUserMessage(state, "长对话");
+		state = reduceChatEvent(state, {
+			type: "agent_event",
+			sessionId: "s1",
+			event: { type: "compaction_end", errorMessage: "Compaction failed: boom" },
+		});
+		expect(state.messages.some((m) => m.role === "summary")).toBe(false);
+		expect(state.messages.at(-1)).toMatchObject({ role: "error" });
+	});
+
+	it("ignores an aborted compaction without summary", () => {
+		let state = createChatState();
+		state = appendUserMessage(state, "长对话");
+		state = reduceChatEvent(state, {
+			type: "agent_event",
+			sessionId: "s1",
+			event: { type: "compaction_end", aborted: true },
+		});
+		expect(state.messages.some((m) => m.role === "summary")).toBe(false);
+	});
+});

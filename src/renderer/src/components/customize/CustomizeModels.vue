@@ -105,7 +105,7 @@ const providerDisabled = computed(() => {
 });
 
 onMounted(() => {
-  void load();
+  void load(null, { refreshCatalog: true });
 });
 
 function cloneDraft(src: CustomProviderDraft): CustomProviderDraft {
@@ -121,11 +121,18 @@ function resetRowKeys(count: number): void {
   modelRowKeys.value = Array.from({ length: count }, () => nextRowKey());
 }
 
-async function load(preferId?: string | null): Promise<void> {
+/**
+ * 加载模型页数据。仅进入页面时联网刷新目录（让 OpenRouter 等按当前密钥
+ * 列出模型与价格）；保存、删除、登出后的重载用已缓存目录，避免多余网络往返。
+ */
+async function load(
+  preferId?: string | null,
+  options?: { refreshCatalog?: boolean },
+): Promise<void> {
   loading.value = true;
   loadError.value = "";
   try {
-    const data = await window.api.models.get();
+    const data = await window.api.models.get(options);
     modelsText.value = data.modelsText;
     modelSelection.value = data.modelSelection ?? EMPTY_MODEL_SELECTION;
     providers.value = listEditableProviders(parseModelsConfigText(data.modelsText));

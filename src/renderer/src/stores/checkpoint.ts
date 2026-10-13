@@ -1,5 +1,5 @@
 import { defineStore } from "pinia";
-import { onScopeDispose, reactive } from "vue";
+import { reactive } from "vue";
 
 export type CheckpointSummary = {
 	sessionId: string;
@@ -16,17 +16,22 @@ function keyOf(sessionId: string, userMessageId: string): string {
 export const useCheckpointStore = defineStore("checkpoint", () => {
 	const byKey = reactive<Record<string, CheckpointSummary>>({});
 
-	let bound = false;
-	function bindEvents(): void {
-		if (bound) return;
-		bound = true;
+	let unbind: (() => void) | null = null;
+
+	/**
+	 * 注册检查点更新订阅，返回解绑函数（重复调用返回同一个）。
+	 * 由应用级 bootstrap 持有：检查点事件同样是单向推送，不能随面板卸载。
+	 */
+	function bindEvents(): () => void {
+		if (unbind) return unbind;
 		const off = window.api.checkpoint.onUpdated((summary) => {
 			byKey[keyOf(summary.sessionId, summary.userMessageId)] = summary;
 		});
-		onScopeDispose(() => {
-			bound = false;
+		unbind = () => {
+			unbind = null;
 			off();
-		});
+		};
+		return unbind;
 	}
 
 	async function begin(
@@ -80,6 +85,14 @@ export const useCheckpointStore = defineStore("checkpoint", () => {
 		return result;
 	}
 
+	/** 丢弃某会话的全部检查点记录（key 形如 `sessionId::userMessageId`）。 */
+	function clearSession(sessionId: string): void {
+		const prefix = `${sessionId}::`;
+		for (const key of Object.keys(byKey)) {
+			if (key.startsWith(prefix)) delete byKey[key];
+		}
+	}
+
 	return {
 		byKey,
 		bindEvents,
@@ -90,5 +103,6 @@ export const useCheckpointStore = defineStore("checkpoint", () => {
 		isReverted,
 		summaryFor,
 		revert,
+		clearSession,
 	};
 });

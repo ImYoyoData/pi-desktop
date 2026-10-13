@@ -7,8 +7,18 @@ import fs from "node:fs";
 import path from "node:path";
 import { agentDir } from "./agent-dir";
 
+/** pi 1.2.0 发布的配置 schema；写进文件后编辑器可校验与补全。 */
+const SETTINGS_SCHEMA_URL = "https://pi.dev/schemas/settings.schema.json";
+
 export function settingsPath(agentDirOverride?: string): string {
   return path.join(path.resolve(agentDirOverride ?? agentDir()), "settings.json");
+}
+
+/** $schema 置首；用户已写的字符串值不动，非字符串的旧值剔除。 */
+function withSchema(root: Record<string, unknown>): Record<string, unknown> {
+  if (typeof root.$schema === "string") return root;
+  const { $schema: _stale, ...rest } = root;
+  return { $schema: SETTINGS_SCHEMA_URL, ...rest };
 }
 
 export function readSettingsRoot(filePath: string): Record<string, unknown> {
@@ -43,7 +53,7 @@ export function updateSettingsRoot(
 ): Promise<void> {
   const filePath = settingsPath(agentDirOverride);
   const task = (): void => {
-    writeJsonAtomic(filePath, { ...readSettingsRoot(filePath), ...patch });
+    writeJsonAtomic(filePath, withSchema({ ...readSettingsRoot(filePath), ...patch }));
   };
   writeQueue = writeQueue.then(task, task);
   return writeQueue;

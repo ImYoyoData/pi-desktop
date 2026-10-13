@@ -163,3 +163,156 @@ describe("parseSessionHistoryPageFromJsonl", () => {
     expect(tail.messages.some((m) => m.id === "u1")).toBe(false);
   });
 });
+
+describe("parseSessionHistoryJsonl 断链与摘要还原", () => {
+  const header = {
+    type: "session",
+    version: 3,
+    id: "session-x",
+    timestamp: "2026-01-15T12:00:00.000Z",
+    cwd: "/tmp",
+  };
+
+  it("为 stop 打断的工具调用补一张已取消卡片", () => {
+    const raw = jsonl([
+      header,
+      {
+        type: "message",
+        id: "u1",
+        parentId: null,
+        timestamp: "2026-01-15T12:00:01.000Z",
+        message: { role: "user", content: "跑一下" },
+      },
+      {
+        type: "message",
+        id: "a1",
+        parentId: "u1",
+        timestamp: "2026-01-15T12:00:02.000Z",
+        message: {
+          role: "assistant",
+          content: [
+            { type: "thinking", thinking: "准备执行" },
+            { type: "toolCall", id: "call-1", name: "bash", arguments: { command: "ls" } },
+          ],
+        },
+      },
+      // 没有 tool_result：stop 落在工具执行中
+      {
+        type: "message",
+        id: "u2",
+        parentId: "a1",
+        timestamp: "2026-01-15T12:00:05.000Z",
+        message: { role: "user", content: "换个问题" },
+      },
+    ]);
+
+    const msgs = parseSessionHistoryJsonl(raw);
+    const cancelled = msgs.find((m) => m.role === "tool");
+    expect(cancelled).toBeDefined();
+    if (!cancelled || cancelled.role !== "tool") return;
+    expect(cancelled.toolCallId).toBe("call-1");
+    expect(cancelled.toolName).toBe("bash");
+    expect(cancelled.isError).toBe(true);
+    // 位置在 assistant 之后、下一轮 user 之前
+    expect(msgs.map((m) => m.id)).toEqual(["u1", "a1", "a1~call-1", "u2"]);
+    // args 仍然保留
+    expect(cancelled.args).toEqual({ command: "ls" });
+  });
+
+  it("已有 tool_result 时不重复补卡片", () => {
+    const raw = jsonl([
+      header,
+      {
+        type: "message",
+        id: "u1",
+        parentId: null,
+        timestamp: "2026-01-15T12:00:01.000Z",
+        message: { role: "user", content: "跑一下" },
+      },
+      {
+        type: "message",
+        id: "a1",
+        parentId: "u1",
+        timestamp: "2026-01-15T12:00:02.000Z",
+        message: {
+          role: "assistant",
+          content: [{ type: "toolCall", id: "call-1", name: "bash", arguments: {} }],
+        },
+      },
+      {
+        type: "message",
+        id: "r1",
+        parentId: "a1",
+        timestamp: "2026-01-15T12:00:03.000Z",
+        message: {
+          role: "toolResult",
+          toolCallId: "call-1",
+          toolName: "bash",
+          content: [{ type: "text", text: "ok" }],
+          isError: false,
+        },
+      },
+    ]);
+    const msgs = parseSessionHistoryJsonl(raw);
+    expect(msgs.filter((m) => m.role === "tool").length).toBe(1);
+    expect(msgs.map((m) => m.id)).toEqual(["u1", "r1"]);
+  });
+
+  it("恢复 compaction 与 branch_summary 摘要", () => {
+    const raw = jsonl([
+      header,
+      {
+        type: "message",
+        id: "u1",
+        parentId: null,
+        timestamp: "2026-01-15T12:00:01.000Z",
+        message: { role: "user", content: "长对话" },
+      },
+      {
+        type: "compaction",
+        id: "c1",
+        parentId: "u1",
+        timestamp: "2026-01-15T12:00:10.000Z",
+        summary: "压缩摘要正文",
+        firstKeptEntryId: "u1",
+        tokensBefore: 123456,
+      },
+      {
+        type: "branch_summary",
+        id: "b1",
+        parentId: "c1",
+        timestamp: "2026-01-15T12:00:20.000Z",
+        fromId: "u1",
+        summary: "分支摘要正文",
+      },
+    ]);
+    const msgs = parseSessionHistoryJsonl(raw);
+    expect(msgs.map((m) => m.id)).toEqual(["u1", "c1", "b1"]);
+    const compaction = msgs[1];
+    expect(compaction.role).toBe("summary");
+    if (compaction.role !== "summary") return;
+    expect(compaction.kind).toBe("compaction");
+    expect(compaction.text).toBe("压缩摘要正文");
+    expect(compaction.tokensBefore).toBe(123456);
+    const branch = msgs[2];
+    expect(branch.role).toBe("summary");
+    if (branch.role !== "summary") return;
+    expect(branch.kind).toBe("branch");
+    expect(branch.text).toBe("分支摘要正文");
+  });
+
+  it("空摘要不产生气泡", () => {
+    const raw = jsonl([
+      header,
+      {
+        type: "compaction",
+        id: "c1",
+        parentId: null,
+        timestamp: "2026-01-15T12:00:10.000Z",
+        summary: "   ",
+        tokensBefore: 1,
+      },
+    ]);
+    expect(parseSessionHistoryJsonl(raw)).toEqual([]);
+  });
+});

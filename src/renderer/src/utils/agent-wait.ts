@@ -15,7 +15,7 @@ export type AgentWaitPhase =
 
 export function agentWaitPhase(state: ChatState): AgentWaitPhase | null {
   if (!state.running) return null;
-  if (state.pendingAskUser || state.pendingPermission || state.pendingExtensionUi) {
+  if (state.pendingAskUser || state.pendingExtensionUi) {
     return "waiting_user";
   }
   const stream = state.streamingMessage;

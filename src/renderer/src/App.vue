@@ -22,17 +22,16 @@ import { useWorkspaceStore } from "@renderer/stores/workspace";
 import { useAppearanceStore } from "@renderer/stores/appearance";
 import { useCustomizationsStore } from "@renderer/stores/customizations";
 import { useKeybindingsStore } from "@renderer/stores/keybindings";
-import { useSecurityStore } from "@renderer/stores/security";
+
 import { useLayoutStore } from "@renderer/stores/layout";
 import { useComposerStore } from "@renderer/stores/composer";
 import { usePreviewStore } from "@renderer/stores/preview";
-import { DEFAULT_PERMISSION_PROFILE, PERMISSION_PROFILES } from "../../shared/desktop-security";
+
 import { COMPOSER_AGENT_MODES } from "../../shared/composer-modes";
 import { darkThemeOverrides, lightThemeOverrides } from "@renderer/theme/naive";
 import { locale } from "@renderer/i18n";
 import { dismissStartupSplash } from "@renderer/utils/startup-splash";
 import { markRendererStartup } from "@renderer/utils/startup-timing";
-import { startFsChangedBus } from "@renderer/utils/fs-changed-bus";
 import { isTextEntryTarget } from "@renderer/utils/keyboard-target";
 
 /** Heavy workspace chrome — load after first paint when a folder is open. */
@@ -51,18 +50,9 @@ const workspace = useWorkspaceStore();
 const appearance = useAppearanceStore();
 const customizations = useCustomizationsStore();
 const keybindings = useKeybindingsStore();
-const security = useSecurityStore();
 const layout = useLayoutStore();
 const composer = useComposerStore();
 const preview = usePreviewStore();
-
-async function cyclePermission(): Promise<void> {
-  if (!security.loaded) await security.load();
-  const index = PERMISSION_PROFILES.indexOf(security.profile);
-  const next =
-    PERMISSION_PROFILES[(index + 1) % PERMISSION_PROFILES.length] ?? DEFAULT_PERMISSION_PROFILE;
-  await security.setProfile(next);
-}
 
 function cycleComposerMode(): void {
   const index = COMPOSER_AGENT_MODES.indexOf(composer.mode);
@@ -77,7 +67,6 @@ async function pickAndOpenFile(): Promise<void> {
 
 /** 全局快捷键：在根组件注册一次，先于子组件挂载，capture 阶段优先拦截。 */
 keybindings.install();
-keybindings.register("cycle-permission", () => void cyclePermission());
 keybindings.register("toggle-right-pane", () => layout.toggleRightCollapsed());
 keybindings.register("open-settings", () => layout.openCustomize(layout.customizeSection));
 keybindings.register("cycle-mode", cycleComposerMode);
@@ -134,7 +123,6 @@ const themeOverrides = computed(() =>
 );
 
 let stopAppearance: (() => void) | undefined;
-let stopFsChangedBus: (() => void) | undefined;
 let stopCustomizations: (() => void) | undefined;
 let customizationsWarmTimer = 0;
 let offMenuCommand: (() => void) | undefined;
@@ -145,7 +133,6 @@ onMounted(() => {
     if (command === "open-pull-requests") layout.showPullRequests();
   });
   stopAppearance = appearance.init();
-  stopFsChangedBus = startFsChangedBus();
   stopCustomizations = customizations.init();
   void window.api.window.setUiLocale(locale.value);
   // Instant open: drop the full-screen splash right after first paint so the
@@ -185,7 +172,6 @@ onUnmounted(() => {
   keybindings.uninstall();
   offMenuCommand?.();
   stopAppearance?.();
-  stopFsChangedBus?.();
   stopCustomizations?.();
 });
 </script>

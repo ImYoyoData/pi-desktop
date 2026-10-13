@@ -1,4 +1,5 @@
 import { t } from "@renderer/i18n";
+import * as prefs from "@renderer/utils/prefs";
 
 export interface BrowserLibraryEntry {
   id: string;
@@ -39,7 +40,7 @@ function newId(): string {
 
 function readJson<T>(key: string, fallback: T): T {
   try {
-    const raw = localStorage.getItem(key);
+    const raw = prefs.getItem(key);
     if (!raw) return fallback;
     return JSON.parse(raw) as T;
   } catch {
@@ -48,7 +49,7 @@ function readJson<T>(key: string, fallback: T): T {
 }
 
 function writeJson(key: string, value: unknown): void {
-  localStorage.setItem(key, JSON.stringify(value));
+  prefs.setItem(key, JSON.stringify(value));
 }
 
 function historyStorageKey(tabId: string): string {
@@ -108,7 +109,7 @@ export function removeHistory(tabId: string, id: string): void {
 export function clearTabHistory(tabId: string): void {
   if (!tabId) return;
   try {
-    localStorage.removeItem(historyStorageKey(tabId));
+    prefs.removeItem(historyStorageKey(tabId));
   } catch {
     // ignore
   }
@@ -224,7 +225,7 @@ export function groupHistoryByRecency(entries: BrowserLibraryEntry[]): HistoryGr
 /** Best-effort cleanup of unused legacy global history (no longer shared). */
 export function dropLegacyGlobalHistory(): void {
   try {
-    localStorage.removeItem(LEGACY_HISTORY_KEY);
+    prefs.removeItem(LEGACY_HISTORY_KEY);
   } catch {
     // ignore
   }

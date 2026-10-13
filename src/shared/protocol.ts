@@ -45,16 +45,6 @@ export const IpcChannels = {
 		/** Renderer → main: 保存「流式渲染」设置（并热重载给活跃 worker）。 */
 		set: "streamRender:set",
 	},
-	tempCleanup: {
-		/** Renderer → main: 读取命令输出临时文件清理设置。 */
-		get: "tempCleanup:get",
-		/** Renderer → main: 保存清理设置（并重排定时器）。 */
-		set: "tempCleanup:set",
-		/** Renderer → main: 统计当前临时文件数量与占用字节数。 */
-		stats: "tempCleanup:stats",
-		/** Renderer → main: 立即执行一次清理，返回删除数量与释放字节数。 */
-		sweep: "tempCleanup:sweep",
-	},
 	retry: {
 		/** Renderer → main: 读取「重试」设置。 */
 		get: "retry:get",
@@ -74,6 +64,20 @@ export const IpcChannels = {
 	appearance: {
 		/** Renderer → main: 选择壁纸文件（图片/动图/视频）。 */
 		pickWallpaper: "appearance:pickWallpaper",
+	},
+	prefs: {
+		/** Renderer → main（同步）: 整份读取桌面端偏好，启动时首帧就要用。 */
+		readSync: "prefs:readSync",
+		/** Renderer → main（同步）: 退出前补齐未落盘改动。 */
+		setSync: "prefs:setSync",
+		/** Renderer → main（同步）: 退出前删除键。 */
+		removeSync: "prefs:removeSync",
+		/** Renderer → main: 整份读取桌面端偏好。 */
+		get: "prefs:get",
+		/** Renderer → main: 合并写入偏好，返回合并后的整份。 */
+		set: "prefs:set",
+		/** Renderer → main: 删除偏好键，返回剩余整份。 */
+		remove: "prefs:remove",
 	},
 	workspace: {
 		get: "workspace:get",
@@ -127,10 +131,6 @@ export const IpcChannels = {
 		fork: "sessions:fork",
 		/** Clear conversation messages on disk and restart the worker (keeps session id). */
 		clearContext: "sessions:clearContext",
-		/** Main → renderer: permission strip ask */
-		permission: "sessions:permission",
-		/** Renderer → main: permission strip reply */
-		permissionReply: "sessions:permissionReply",
 		/** Main → renderer: ask_user wizard */
 		askUser: "sessions:askUser",
 		/** Renderer → main: ask_user answers */
@@ -357,14 +357,16 @@ export const IpcChannels = {
 		background: "runs:background",
 		event: "runs:event",
 	},
-	security: {
-		get: "security:get",
-		set: "security:set",
-	},
 	proxy: {
 		get: "proxy:get",
 		set: "proxy:set",
 		changed: "proxy:changed",
+	},
+	webSearchConfig: {
+		/** Renderer → main: 读取联网搜索的服务器配置。 */
+		get: "webSearchConfig:get",
+		/** Renderer → main: 保存搜索服务器配置（保留 proxy 等未纳管字段）。 */
+		set: "webSearchConfig:set",
 	},
 } as const;
 
@@ -644,6 +646,15 @@ export type SessionHistoryMessage =
 				isError?: boolean;
 				durationMs?: number;
 			}[];
+	  }
+	| {
+			id: string;
+			role: "summary";
+			text: string;
+			/** 上下文压缩摘要 / 分支摘要。 */
+			kind: "compaction" | "branch";
+			/** 压缩前的 token 数（compaction 才有）。 */
+			tokensBefore?: number;
 	  };
 
 /** Paginated leaf-path history for the chat UI (avoid loading entire huge sessions). */
@@ -659,8 +670,16 @@ export type SessionHistoryQuery = {
 	beforeId?: string | null;
 };
 
-/** 聊天界面一次性加载全部尾部历史，分页只用于上滑加载更早的消息。 */
-export const SESSION_HISTORY_LOAD_LIMIT = 1_000_000;
+/** 单页历史条数（往上翻历史时按此粒度取）。主进程 readSessionHistoryPage 的默认值。 */
+export const SESSION_HISTORY_PAGE_SIZE = 30;
+
+/**
+ * 聊天界面首次打开一个会话时加载的尾部历史条数。
+ *
+ * 刻意不无上限：超长会话（几千轮）一次性全量载入，会把海量消息与大工具输出
+ * 一次性灌进渲染进程堆，是内存崩溃的主要来源。更早的历史按需往上翻。
+ */
+export const SESSION_HISTORY_INITIAL_LIMIT = 500;
 
 export type SessionSummary = {
 	id: string;
@@ -684,10 +703,7 @@ export type SessionForkResult = {
 /** Renderer asks main for interaction prompts still awaiting a reply (post-reload recovery). */
 export type PendingUiSnapshotRequest = {
 	asks: import("./ask-user").AskUserAskPrompt[];
-	permissions: PendingUiPermissionSnapshot[];
 	extensionDialogs: PendingUiExtensionSnapshot[];
 };
-
-export type PendingUiPermissionSnapshot = import("./desktop-security").PermissionAskPrompt;
 
 export type PendingUiExtensionSnapshot = import("./extension-ui").ExtensionUiPending;

@@ -18,7 +18,6 @@ const props = defineProps<{
     | "streamingMessage"
     | "retryHint"
     | "pendingAskUser"
-    | "pendingPermission"
     | "pendingExtensionUi"
     | "turnStartedAt"
     | "phaseStartedAt"
