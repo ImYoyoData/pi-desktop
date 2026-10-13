@@ -18,7 +18,7 @@ import {
   SendOutline,
   StopOutline,
 } from "@vicons/ionicons5";
-import * as prefs from "@renderer/utils/prefs";
+import * as prefsApi from "@renderer/utils/prefs";
 import ComposerRichEditor from "@renderer/components/ComposerRichEditor.vue";
 import ComposerSlashMenu from "@renderer/components/ComposerSlashMenu.vue";
 import ComposerAtFileMenu from "@renderer/components/ComposerAtFileMenu.vue";
@@ -38,6 +38,25 @@ import { useAppearanceStore } from "@renderer/stores/appearance";
 import { useRightTabsStore } from "@renderer/stores/right-tabs";
 import { plainTextFromClipboard } from "@renderer/utils/composer-rich";
 import { heuristicSessionTitle } from "@renderer/utils/session-title";
+import {
+  DRAFT_PREF_KEY,
+  SESSION_PREFS_KEY,
+  flatModelOptions,
+  forgetPrefKey,
+  modelKeyFromState,
+  parseSessionPrefs,
+  resolveThinkingResult,
+  serializeSessionPrefs,
+  setPrefKey,
+  thinkingFromState,
+  type SessionPrefs,
+} from "@renderer/utils/session-prefs";
+import {
+  coercePathToken,
+  toWorkspaceRelative,
+  transferTypesHaveFilePayload,
+  type WorkspacePathContext,
+} from "@renderer/utils/composer-paths";
 import { buildSessionStats } from "@renderer/utils/session-stats";
 import {
   contextCostLabelOf,
@@ -78,7 +97,6 @@ import {
 import { formatLlmError } from "@renderer/utils/llm-error";
 import {
   decodeWorkspacePaths,
-  looksLikeWorkspaceRelPath,
   PI_WORKSPACE_PATHS_MIME,
 } from "@renderer/utils/workspace-path-dnd";
 import { locale, t } from "@renderer/i18n";
@@ -114,39 +132,14 @@ type ModelSelectOption =
   | { type: "group"; label: string; key: string; children: { label: string; value: string }[] }
   | { label: string; value: string };
 
-const SESSION_PREFS_KEY = "pi-desktop:session-model-prefs";
-/** 未创建的新会话草稿用稳定键记住模型/思考等级，发送后自动沿用到真实会话。 */
-const DRAFT_PREF_KEY = "__draft__";
-
-type SessionPrefs = {
-  models: Record<string, string>;
-  thinking: Record<string, ThinkingLevel>;
-};
-
-function loadSessionPrefs(): SessionPrefs {
-  try {
-    const raw = prefs.getItem(SESSION_PREFS_KEY);
-    if (!raw) return { models: {}, thinking: {} };
-    const parsed = JSON.parse(raw) as Partial<SessionPrefs>;
-    return {
-      models: parsed.models && typeof parsed.models === "object" ? parsed.models : {},
-      thinking:
-        parsed.thinking && typeof parsed.thinking === "object"
-          ? (parsed.thinking as Record<string, ThinkingLevel>)
-          : {},
-    };
-  } catch {
-    return { models: {}, thinking: {} };
-  }
-}
-
 const availableModels = ref<ModelSelectOption[]>([]);
 const selectedModelKey = ref<string | null>(null);
 /** Last applied model key for the active session (`sessionId::provider/id`). */
 const appliedModelForSession = ref<string | null>(null);
 /** Per-session remembered model (`provider/id`) and thinking level. */
-const modelBySession = ref<Record<string, string>>(loadSessionPrefs().models);
-const thinkingBySession = ref<Record<string, ThinkingLevel>>(loadSessionPrefs().thinking);
+const prefs = ref<SessionPrefs>(parseSessionPrefs(prefsApi.getItem(SESSION_PREFS_KEY)));
+const modelBySession = computed(() => prefs.value.models);
+const thinkingBySession = computed(() => prefs.value.thinking);
 const thinkingLevel = ref<ThinkingLevel>("medium");
 const richEditor = ref<{
   focus?: () => void;
@@ -170,33 +163,7 @@ function focusDraftAtEnd(): void {
 }
 
 function persistSessionPrefs(): void {
-  prefs.setItem(
-    SESSION_PREFS_KEY,
-    JSON.stringify({
-      models: modelBySession.value,
-      thinking: thinkingBySession.value,
-    }),
-  );
-}
-
-function flatModelOptions(groups: ModelSelectOption[]): { label: string; value: string }[] {
-  return groups.flatMap((g) => ("children" in g ? g.children : [g]));
-}
-
-function modelKeyFromState(data: unknown): string | null {
-  if (!data || typeof data !== "object") return null;
-  const model = (data as { model?: unknown }).model;
-  if (!model || typeof model !== "object") return null;
-  const m = model as { provider?: unknown; id?: unknown };
-  if (typeof m.provider !== "string" || typeof m.id !== "string") return null;
-  if (!m.provider || !m.id) return null;
-  return `${m.provider}/${m.id}`;
-}
-
-function thinkingFromState(data: unknown): ThinkingLevel | null {
-  if (!data || typeof data !== "object") return null;
-  const level = (data as { thinkingLevel?: unknown }).thinkingLevel;
-  return isThinkingLevel(level) ? level : null;
+  prefsApi.setItem(SESSION_PREFS_KEY, serializeSessionPrefs(prefs.value));
 }
 
 /** 界面档位写入偏好；worker 会按模型能力 clamp 后回传实际档位。 */
@@ -214,9 +181,9 @@ function adoptThinkingResult(
   result: unknown,
   key: string | null = prefsKey.value,
 ): void {
-  const actual = (result as { level?: unknown } | null)?.level;
   // worker 未回传实际值时不动界面，只按用户选择记忆。
-  if (!isThinkingLevel(actual) || actual === requested) {
+  const { actual, clamped } = resolveThinkingResult(requested, result, isThinkingLevel);
+  if (!clamped) {
     if (key) rememberThinking(key, requested);
     return;
   }
@@ -224,12 +191,12 @@ function adoptThinkingResult(
 }
 
 function rememberModel(sessionId: string, key: string): void {
-  modelBySession.value = { ...modelBySession.value, [sessionId]: key };
+  prefs.value = setPrefKey(prefs.value, "models", sessionId, key);
   persistSessionPrefs();
 }
 
 function rememberThinking(sessionId: string, level: ThinkingLevel): void {
-  thinkingBySession.value = { ...thinkingBySession.value, [sessionId]: level };
+  prefs.value = setPrefKey(prefs.value, "thinking", sessionId, level);
   persistSessionPrefs();
 }
 
@@ -238,13 +205,9 @@ let draftCommitPending = false;
 
 /** 清掉某个记忆键，避免草稿转正后残留悬挂偏好。 */
 function forgetPrefs(key: string): void {
-  if (!(key in modelBySession.value) && !(key in thinkingBySession.value)) return;
-  const models = { ...modelBySession.value };
-  const thinking = { ...thinkingBySession.value };
-  delete models[key];
-  delete thinking[key];
-  modelBySession.value = models;
-  thinkingBySession.value = thinking;
+  const next = forgetPrefKey(prefs.value, key);
+  if (next === prefs.value) return;
+  prefs.value = next;
   persistSessionPrefs();
 }
 
@@ -353,21 +316,8 @@ function electronFilePath(file: File): string | null {
       p = "";
     }
   }
-  if (typeof p === "string" && p.trim()) return toWorkspaceRelative(p.trim());
+  if (typeof p === "string" && p.trim()) return toWorkspaceRelativePath(p.trim());
   return null;
-}
-
-/** Prefer workspace-relative paths for file tags. */
-function toWorkspaceRelative(absOrRel: string): string {
-  const raw = absOrRel.replace(/\\/g, "/");
-  const root = (workspace.root || "").replace(/\\/g, "/").replace(/\/+$/, "");
-  if (!root) return raw;
-  const fold = (s: string) => (pathCaseInsensitive.value ? s.toLowerCase() : s);
-  const rootFold = fold(root);
-  const pathFold = fold(raw);
-  if (pathFold === rootFold) return "";
-  if (pathFold.startsWith(`${rootFold}/`)) return raw.slice(root.length + 1);
-  return raw;
 }
 
 const pathCaseInsensitive = ref(false);
@@ -376,53 +326,25 @@ void window.api.window.platform().then((p) => {
   pathCaseInsensitive.value = p === "win32" || p === "darwin";
 });
 
-function fileUrlToPath(uri: string): string | null {
-  const raw = uri.trim();
-  if (!raw) return null;
-  try {
-    if (/^file:\/\//i.test(raw)) {
-      const u = new URL(raw);
-      let p = decodeURIComponent(u.pathname);
-      if (/^\/[A-Za-z]:\//.test(p)) {
-        p = p.slice(1).replace(/\//g, "\\");
-      }
-      return toWorkspaceRelative(p);
-    }
-  } catch {
-    // fall through
-  }
-  if (/^[A-Za-z]:[\\/]/.test(raw) || raw.startsWith("\\\\") || raw.startsWith("/")) {
-    return toWorkspaceRelative(raw);
-  }
-  return null;
+/** Prefer workspace-relative paths for file tags. */
+const pathCtx = computed<WorkspacePathContext>(() => ({
+  root: workspace.root || "",
+  caseInsensitive: pathCaseInsensitive.value,
+}));
+
+function toWorkspaceRelativePath(p: string): string {
+  return toWorkspaceRelative(p, pathCtx.value);
 }
 
 /** Absolute / file:// / workspace-relative path token → workspace-relative for file tags. */
-function coercePathToken(raw: string): string | null {
-  const fromUrl = fileUrlToPath(raw);
-  if (fromUrl != null && fromUrl !== "") return fromUrl;
-  if (fromUrl === "") return null; // dropped onto workspace root itself
-  if (looksLikeWorkspaceRelPath(raw)) {
-    // Strip quotes wrapping pasted paths that contain spaces.
-    return raw
-      .trim()
-      .replace(/^["']|["']$/g, "")
-      .replace(/\\/g, "/")
-      .replace(/^\.\//, "");
-  }
-  return null;
+function coercePathTokenInComposer(raw: string): string | null {
+  return coercePathToken(raw, pathCtx.value);
 }
 
 const fileDragOver = ref(false);
 
 function transferHasFilePayload(data: DataTransfer): boolean {
-  const types = Array.from(data.types);
-  return (
-    types.includes(PI_WORKSPACE_PATHS_MIME) ||
-    types.includes("Files") ||
-    types.includes("text/uri-list") ||
-    types.includes("text/plain")
-  );
+  return transferTypesHaveFilePayload(data.types);
 }
 
 function onComposerDragOver(event: DragEvent): void {
@@ -531,7 +453,7 @@ function ingestTransferData(
         urls.push(trimmed);
         continue;
       }
-      const filePath = coercePathToken(trimmed);
+      const filePath = coercePathTokenInComposer(trimmed);
       if (filePath) filePaths.push(filePath);
     }
     for (const filePath of filePaths) composer.addFileTag(filePath);
@@ -546,7 +468,7 @@ function ingestTransferData(
 
   if (text) {
     const lines = text.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
-    const asPaths = lines.map(coercePathToken).filter((p): p is string => Boolean(p));
+    const asPaths = lines.map(coercePathTokenInComposer).filter((p): p is string => Boolean(p));
     if (asPaths.length && asPaths.length === lines.length) {
       for (const filePath of asPaths) composer.addFileTag(filePath);
       return { kind: "files" };
@@ -1697,7 +1619,7 @@ async function syncSessionModelAndThinking(): Promise<void> {
     const state = await sessions.tryCommand(realId, { type: "get_state" });
     if (state !== undefined) {
       workerKey = modelKeyFromState(state);
-      workerThinking = thinkingFromState(state);
+      workerThinking = thinkingFromState(state, isThinkingLevel);
       sessions.applyContextFromState(realId, state);
     }
   } catch {
