@@ -28,6 +28,7 @@ import { netFetch } from "./net-fetch";
 import { buildCatalogIndex, enrichDiscoveredModels, resolveDiscoveredModels } from "./model-catalog";
 import { readModelSelection, writeModelSelection } from "./models-selection";
 import type { ModelSelection } from "../shared/model-selection";
+import { isOfflineMode } from "../shared/offline";
 import type { AuthEvent, AuthInteraction, AuthPrompt } from "@earendil-works/pi-ai";
 import type { ModelRuntime } from "@earendil-works/pi-coding-agent";
 
@@ -40,23 +41,22 @@ async function createRuntime(): Promise<import("@earendil-works/pi-coding-agent"
   });
 }
 
-/** 打开模型页时联网刷一次目录，15s 上限（与 pi CLI 的 update --models 同款）。 */
+/** 刷新目录的超时，与 pi CLI 的 update --models 同款。 */
 const CATALOG_REFRESH_TIMEOUT_MS = 15_000;
 
 /**
  * 联网刷新模型目录，让 OpenRouter 等供应商按当前密钥列出可用模型与价格
- * （pi 1.2.0 新增）。create 时不开网络以保持首屏速度，这里按需刷新；
- * 失败或超时静默降级到内置目录。
+ * （pi 1.2.0 新增）。由模型页显式触发，create 时不开网络以保持首屏速度。
+ * 离线、超时或 provider 报错时静默降级到已缓存的目录。
  */
-async function refreshCatalogsOverNetwork(
-  runtime: ModelRuntime,
-): Promise<void> {
+async function refreshCatalogsOverNetwork(runtime: ModelRuntime): Promise<void> {
+  if (isOfflineMode()) return;
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), CATALOG_REFRESH_TIMEOUT_MS);
   try {
-    await runtime.refresh({ allowNetwork: true, signal: controller.signal });
+    await runtime.refresh({ allowNetwork: true, force: true, signal: controller.signal });
   } catch {
-    // 离线或超时：用上一次缓存的目录，不阻塞界面。
+    // 离线、超时或 provider 报错：用已缓存的目录，不阻塞界面。
   } finally {
     clearTimeout(timeout);
   }
@@ -577,11 +577,14 @@ function requestOauthPrompt(
 }
 
 export function registerModelsIpc(broker: SessionBroker): void {
-  ipcMain.handle(IpcChannels.models.get, async (): Promise<ModelsGetResult> => {
+  ipcMain.handle(IpcChannels.models.get, async (_event, payload?: { refreshCatalog?: boolean }): Promise<ModelsGetResult> => {
     const service = getModelsConfigService();
     const runtime = await createRuntime();
-    // 先联网刷新目录，OpenRouter 等供应商才能按当前密钥列出可用模型与价格。
-    await refreshCatalogsOverNetwork(runtime);
+    // 仅模型页显式要求时联网；其余调用（输入框切模型、消息列表取显示名等）
+    // 直接用已缓存的目录，避免每次切会话/切模型都付一次网络往返。
+    if (payload?.refreshCatalog) {
+      await refreshCatalogsOverNetwork(runtime);
+    }
     // getAvailable() refreshes auth-gated availability; modelCount uses this, not catalog size
     const [modelsText, available] = await Promise.all([
       service.readModelsConfigText(),

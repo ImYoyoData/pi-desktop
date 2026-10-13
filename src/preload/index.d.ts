@@ -784,7 +784,7 @@ declare const api: {
 		}>;
 	};
 	models: {
-		get: () => Promise<ModelsGetResult>;
+		get: (payload?: { refreshCatalog?: boolean }) => Promise<ModelsGetResult>;
 		set: (payload: ModelsSetPayload) => Promise<void>;
 		clearKey: (provider: string) => Promise<void>;
 		test: () => Promise<ModelsGetResult["available"]>;

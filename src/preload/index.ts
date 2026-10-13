@@ -1116,8 +1116,8 @@ const api = {
 		},
 	},
 	models: {
-		get: () =>
-			ipcRenderer.invoke(IpcChannels.models.get) as Promise<ModelsGetResult>,
+		get: (payload?: { refreshCatalog?: boolean }) =>
+			ipcRenderer.invoke(IpcChannels.models.get, payload) as Promise<ModelsGetResult>,
 		set: (payload: ModelsSetPayload) =>
 			ipcRenderer.invoke(IpcChannels.models.set, payload) as Promise<void>,
 		clearKey: (provider: string) =>

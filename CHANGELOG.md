@@ -11,14 +11,14 @@
 - **思考语言设置**：自定义 → 通用页新增思考语言设置。
 - **会话历史展示上下文压缩与分支摘要**：消息列表现在解析并展示上下文压缩（compaction）与分支摘要，对应 pi 的 `compaction_end` 事件。
 - **配置文件写入 pi 官方 JSON Schema**（pi 1.2.0）：桌面端写入的 `settings.json` / `models.json` 补上 pi 发布的 `$schema` 字段，编辑器可据此校验与补全；用户已写的 `$schema` 保持不动。
-- **OpenRouter 按密钥列出可用模型**（pi 1.2.0）：配了 OpenRouter 密钥后，模型列表只列出该密钥有权使用的模型，并带上该密钥的上下文长度、最大输出与价格（含在 `models.json` 里设为 base URL 的区域端点），列表会保存下来离线可用。桌面端在打开模型页时联网刷新一次模型目录（15s 上限，与 pi CLI 同款做法），失败或超时静默降级到内置目录。
+- **OpenRouter 按密钥列出可用模型**（pi 1.2.0）：配了 OpenRouter 密钥后，模型列表只列出该密钥有权使用的模型，并带上该密钥的上下文长度、最大输出与价格（含在 `models.json` 里设为 base URL 的区域端点），列表会保存下来离线可用。桌面端按 pi 的做法接入：打开「设置 → 模型」时联网刷新一次目录（15s 上限），输入框切模型、消息列表取显示名等高频路径用已缓存目录，保存/删除后重载也不重复联网；离线模式（`PI_OFFLINE`）下不联网，失败或超时静默降级。
 
 - **Web search server configuration**: a new "Web search" settings page reads and writes pi's `web-search.json` server config (feeding pi 1.2.0's web_search tooling). The proxy field is kept in sync when the app proxy changes.
 - **Extension hook event list**: Settings → Hooks now lists the pi lifecycle events extensions subscribe to, grouped by event name alongside the desktop's own hooks.
 - **Thinking language setting**: a thinking-language setting is added to Settings → General.
 - **Compaction and branch summaries in chat history**: the message list now parses and shows context compaction and branch summaries from pi's `compaction_end` event.
 - **Config files carry pi's published JSON Schema** (pi 1.2.0): `settings.json` / `models.json` written by the desktop get pi's `$schema` field so editors can validate and complete them; a `$schema` the user already wrote is kept.
-- **Per-key OpenRouter model lists** (pi 1.2.0): with an OpenRouter key configured, the model list shows only the models that key may use, with that key's context size, max output and prices (including regional endpoints set as the base URL in `models.json`). The list is saved and used offline. The desktop refreshes the model catalog over the network once when the model page opens (15s cap, same approach as the pi CLI) and silently falls back to the built-in catalog on failure or timeout.
+- **Per-key OpenRouter model lists** (pi 1.2.0): with an OpenRouter key configured, the model list shows only the models that key may use, with that key's context size, max output and prices (including regional endpoints set as the base URL in `models.json`). The list is saved and used offline. The desktop follows pi's approach: the catalog is refreshed over the network once when Settings → Models opens (15s cap), while high-frequency paths such as switching models in the composer or reading display names in the message list use the cached catalog, and reloads after save/delete do not re-fetch. Offline mode (`PI_OFFLINE`) skips the network, and failures or timeouts fall back silently.
 
 ### 修复 Fixes
 
