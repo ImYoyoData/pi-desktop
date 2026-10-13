@@ -31,27 +31,45 @@ import ToolCallCard from "@renderer/components/ToolCallCard.vue";
 import TurnDiffSummary from "@renderer/components/TurnDiffSummary.vue";
 import WorkSectionGroup from "@renderer/components/WorkSectionGroup.vue";
 import AgentWaitIndicator from "@renderer/components/AgentWaitIndicator.vue";
+import ImageLightbox from "@renderer/components/ImageLightbox.vue";
 import { toolCardFor as toolCard } from "@renderer/utils/tool-diff";
 import {
-  buildWorkSectionSpans,
-  finalAnswerRowIds,
-} from "@renderer/utils/tool-group";
+  buildFinalAnswerIds,
+  buildRoundUserByRow,
+  buildSettledRowIds,
+  buildWorkSectionMembership,
+  displayMessageRows,
+  lastIdPerRound,
+  latestTurnStartIndex,
+  type UserMessage,
+} from "@renderer/utils/message-rows";
 import { agentOutputSilenceMs } from "@renderer/utils/agent-wait";
 import type { ChatState } from "@renderer/stores/chat-reducer";
 import { usePreviewStore } from "@renderer/stores/preview";
 import { useRightTabsStore } from "@renderer/stores/right-tabs";
 import { t } from "@renderer/i18n";
-import {
-  isComposerAgentMode,
-  stripComposerModePreamble,
-} from "../../../shared/composer-modes";
-import { ASK_USER_TOOL_NAME } from "../../../shared/ask-user";
+import { buildUserRowView, type UserRowView } from "@renderer/utils/message-user";
 import {
   collectTurnFileChanges,
   type TurnFileChanges,
 } from "@renderer/utils/turn-file-changes";
 import { decideFollowOnScroll } from "@renderer/utils/follow-bottom";
-import { thinkingLevelLabel } from "@renderer/utils/thinking-level";
+import {
+  allowWindowAdjust,
+  createWindowAdjustGate,
+  noteWindowAdjust,
+  trimLineIsSafe,
+  type WindowAdjustDir,
+} from "@renderer/utils/message-virtual-window";
+import {
+  assistantModelDetail as assistantModelDetailOf,
+  assistantStats as assistantStatsOf,
+  buildModelNameMap,
+  toolStatus as toolStatusOf,
+  type CompactDetail,
+  type ToolMessage,
+  type ToolStatusLabel,
+} from "@renderer/utils/message-metrics";
 
 /**
  * Sliding virtual window: mount a modest range around the viewport so
@@ -165,72 +183,17 @@ const previewStore = usePreviewStore();
 const rightTabs = useRightTabsStore();
 const messageApi = useMessage();
 
-/**
- * Custom image lightbox: click to zoom, right-click to copy / save.
- * naive-ui's built-in preview has no clipboard integration.
- */
+/** 当前放大的图片；灯箱本身的交互与样式都在 ImageLightbox 里。 */
 type ImagePreview = { dataUrl: string; mimeType: string };
 const imagePreview = ref<ImagePreview | null>(null);
-const previewMenuOpen = ref(false);
-const previewMenuPos = ref({ x: 0, y: 0 });
 
-function openImagePreview(img: { dataUrl: string; mimeType: string }): void {
+function openImagePreview(img: ImagePreview): void {
   imagePreview.value = { dataUrl: img.dataUrl, mimeType: img.mimeType };
-  previewMenuOpen.value = false;
 }
 
 function closeImagePreview(): void {
   imagePreview.value = null;
-  previewMenuOpen.value = false;
 }
-
-function openPreviewMenu(event: MouseEvent): void {
-  previewMenuOpen.value = true;
-  const menuW = 160;
-  const menuH = 76;
-  previewMenuPos.value = {
-    x: Math.max(4, Math.min(event.clientX, window.innerWidth - menuW - 4)),
-    y: Math.max(4, Math.min(event.clientY, window.innerHeight - menuH - 4)),
-  };
-}
-
-async function copyPreviewImage(): Promise<void> {
-  const preview = imagePreview.value;
-  if (!preview) return;
-  try {
-    await window.api.clipboard.writeImage(preview.dataUrl);
-    previewMenuOpen.value = false;
-    messageApi.success(t.copyImageDone);
-  } catch (err) {
-    previewMenuOpen.value = false;
-    messageApi.error(err instanceof Error ? err.message : String(err));
-  }
-}
-
-function savePreviewImage(): void {
-  const preview = imagePreview.value;
-  if (!preview) return;
-  previewMenuOpen.value = false;
-  const a = document.createElement("a");
-  a.href = preview.dataUrl;
-  const ext = (preview.mimeType.split("/")[1] ?? "png").replace(/[^a-z0-9]/gi, "") || "png";
-  a.download = `image-${Date.now()}.${ext}`;
-  a.click();
-}
-
-function onPreviewKeydown(event: KeyboardEvent): void {
-  if (event.key === "Escape") closeImagePreview();
-}
-
-watch(imagePreview, (preview) => {
-  if (preview) window.addEventListener("keydown", onPreviewKeydown);
-  else window.removeEventListener("keydown", onPreviewKeydown);
-});
-
-onBeforeUnmount(() => {
-  window.removeEventListener("keydown", onPreviewKeydown);
-  imagePreview.value = null;
-});
 
 const dialog = useDialog();
 const scroller = ref<HTMLElement | null>(null);
@@ -267,41 +230,18 @@ let adjustingWindow = false;
  * 窗口调整方向闸门：向上扩展裁尾部、向下扩展裁头部，两侧裁剪会互相把对方
  * 重新推回阈值内，形成每帧交替重建 DOM 的自激振荡。反向调整必须隔一帧以上，
  * 短时间内反复反向则判定为振荡，拉长冷却。同向连续扩展不受影响。
+ * 判据与状态机在 utils/message-virtual-window.ts。
  */
-let lastWindowAdjustDir: "up" | "down" | null = null;
-let lastWindowAdjustAt = 0;
-let windowAdjustReverseCount = 0;
-let windowAdjustWindowStart = 0;
-let autoCoverSuppressedUntil = 0;
-const WINDOW_REVERSE_COOLDOWN_MS = 120;
-const WINDOW_REVERSE_WINDOW_MS = 1_000;
-const WINDOW_REVERSE_MAX = 4;
-const AUTO_COVER_SUPPRESS_MS = 400;
+let adjustGate = createWindowAdjustGate(Date.now());
 
-function allowWindowAdjust(dir: "up" | "down"): boolean {
-  const now = Date.now();
-  if (lastWindowAdjustDir === null || lastWindowAdjustDir === dir) return true;
-  const cooldown =
-    now < autoCoverSuppressedUntil ? AUTO_COVER_SUPPRESS_MS : WINDOW_REVERSE_COOLDOWN_MS;
-  return now - lastWindowAdjustAt >= cooldown;
+function allowAdjust(dir: WindowAdjustDir): boolean {
+  return allowWindowAdjust(adjustGate, dir, Date.now());
 }
 
-function noteWindowAdjust(dir: "up" | "down"): void {
-  const now = Date.now();
-  if (now - windowAdjustWindowStart > WINDOW_REVERSE_WINDOW_MS) {
-    windowAdjustWindowStart = now;
-    windowAdjustReverseCount = 0;
-  }
-  if (lastWindowAdjustDir !== null && lastWindowAdjustDir !== dir) {
-    windowAdjustReverseCount += 1;
-  }
-  lastWindowAdjustDir = dir;
-  lastWindowAdjustAt = now;
-  if (windowAdjustReverseCount > WINDOW_REVERSE_MAX) {
-    autoCoverSuppressedUntil = now + AUTO_COVER_SUPPRESS_MS;
-    windowAdjustReverseCount = 0;
-  }
+function noteAdjust(dir: WindowAdjustDir): void {
+  adjustGate = noteWindowAdjust(adjustGate, dir, Date.now());
 }
+
 let followBottom = true;
 /**
  * Latched once the user scrolls away from the live edge; cleared only when they
@@ -333,19 +273,6 @@ let scrollRaf = 0;
  * stream, folded per work section (see WorkSectionGroup). Older turns drop
  * their process rows so history reads as prompts + final answers only.
  */
-const latestTurnStart = computed(() => {
-  const list = props.messages;
-  for (let i = list.length - 1; i >= 0; i--) {
-    if (list[i]?.role === "user") return i;
-  }
-  return -1;
-});
-
-/** Tool rows that must stay visible even in clean history (user questions). */
-function isKeepVisibleTool(msg: ChatMessage): boolean {
-  return msg.role === "tool" && msg.toolName === ASK_USER_TOOL_NAME;
-}
-
 /** 完整消息序列（含 streaming）：改动统计需要历史轮被裁剪掉的工具行。 */
 const allMessages = computed<ChatMessage[]>(() => {
   const list = [...props.messages];
@@ -353,139 +280,29 @@ const allMessages = computed<ChatMessage[]>(() => {
   return list;
 });
 
-const displayMessages = computed(() => {
-  const list = allMessages.value;
-  const start = latestTurnStart.value;
-  const out: ChatMessage[] = [];
-  for (let i = 0; i < list.length; i++) {
-    const msg = list[i]!;
-    // Older, already-finished turns: drop their tool/thinking rows so the
-    // history reads as user messages + final answers only (Codex-like).
-    // Interactive ask_user rows stay visible.
-    if (
-      i <= start &&
-      !isKeepVisibleTool(msg) &&
-      (msg.role === "tool" ||
-        (msg.role === "assistant" && Boolean(msg.thinking) && !msg.text))
-    ) {
-      continue;
-    }
-    out.push(msg);
-  }
-  return out;
-});
-
-type WorkSectionMembership = {
-  groupId: string;
-  leadId: string;
-  isLead: boolean;
-  items: ChatMessage[];
-};
-
 /**
- * Copilot work sections: consecutive process rows (all tool calls + thinking
- * rows between answer texts) fold into one collapsible WorkSectionGroup.
- * Interactive ask_user tools break the section and stay standalone.
+ * 渲染行序列。最新一轮之前的工具 / 纯思考行不渲染，历史只留用户提问与最终回答
+ * （Codex 风格）；行整形、分组、折叠判定的规则在 utils/message-rows.ts。
  */
-const workSectionMembership = computed(() => {
-  const all = displayMessages.value;
-  const map = new Map<string, WorkSectionMembership>();
-  const spans = buildWorkSectionSpans(
-    all.map((m) => ({
-      id: m.id,
-      role: m.role,
-      toolName: m.role === "tool" ? m.toolName : "",
-      hasText: m.role === "assistant" ? Boolean(m.text) : false,
-      hasThinking: m.role === "assistant" ? Boolean(m.thinking) : false,
-    })),
-    (row) => row.toolName === ASK_USER_TOOL_NAME,
-  );
-  for (const span of spans) {
-    const items = all.slice(span.start, span.end);
-    for (let i = 0; i < span.ids.length; i++) {
-      map.set(span.ids[i]!, {
-        groupId: span.groupId,
-        leadId: span.ids[0]!,
-        isLead: i === 0,
-        items,
-      });
-    }
-  }
-  return map;
-});
+const displayMessages = computed(() =>
+  displayMessageRows(allMessages.value, latestTurnStartIndex(props.messages)),
+);
 
-/**
- * Copilot fold rule (chatProgressContentPart `isHidden`): a process block
- * folds only once visible output actually renders AFTER it in the stream —
- * an assistant answer text, or a newer process row (the next section/tool).
- * Rows fold in strict appearance order: an earlier block never stays open
- * past a later one that already folded, and nothing folds on a bare agent
- * response that produced no visible output.
- *
- * Computed in ONE backward pass (O(n)) — this recomputes on every streaming
- * tick, so it must stay cheap or long turns would jank.
- */
-const settledRowIds = computed(() => {
-  const all = displayMessages.value;
-  const membership = workSectionMembership.value;
-  const settled = new Set<string>();
-  // Track for each message whether anything visible appears after it.
-  // Backward pass: "has later visible output" propagates from the end.
-  const n = all.length;
-  const isProcessRow = (m: ChatMessage): boolean =>
-    m.role === "tool" ||
-    (m.role === "assistant" && Boolean(m.thinking) && !m.text);
-  const isVisible = (m: ChatMessage): boolean =>
-    m.role === "assistant" && Boolean(m.text) ? true : isProcessRow(m);
-  // hasVisibleAfter[i] = any visible row in (i, n).
-  const hasVisibleAfter = new Array<boolean>(n + 1).fill(false);
-  for (let i = n - 1; i >= 0; i--) {
-    hasVisibleAfter[i] = hasVisibleAfter[i + 1] || isVisible(all[i]!);
-  }
-  // A group settles as a unit once ANY row past its last member is visible.
-  // Compute per-group end boundary once (id→index map keeps this O(n)).
-  const indexById = new Map<string, number>();
-  for (let i = 0; i < n; i++) indexById.set(all[i]!.id, i);
-  const groupEndById = new Map<string, number>();
-  for (const [id, m] of membership) {
-    if (m.isLead) {
-      const leadIdx = indexById.get(id);
-      if (leadIdx != null) groupEndById.set(m.groupId, leadIdx + m.items.length);
-    }
-  }
-  for (let i = 0; i < n; i++) {
-    const msg = all[i]!;
-    if (!isProcessRow(msg)) continue;
-    const m = membership.get(msg.id);
-    let boundary = i + 1;
-    if (m) {
-      const end = groupEndById.get(m.groupId);
-      if (end != null) boundary = Math.max(boundary, end);
-    }
-    if (boundary < n && hasVisibleAfter[boundary]) settled.add(msg.id);
-  }
-  return settled;
-});
+const workSectionMembership = computed(() =>
+  buildWorkSectionMembership(displayMessages.value),
+);
+
+const settledRowIds = computed(() =>
+  buildSettledRowIds(displayMessages.value, workSectionMembership.value),
+);
 
 function rowSettled(msg: ChatMessage): boolean {
   return settledRowIds.value.has(msg.id);
 }
 
-/**
- * Assistant rows that ended their user round. Only these show the copy /
- * speak / regenerate actions — a mid-round narration (text + toolCall, with
- * more work to follow) must not render like a finished turn.
- */
-const finalAnswerIds = computed(() => {
-  const rows = displayMessages.value.map((m) => ({
-    id: m.id,
-    role: m.role,
-    toolName: m.role === "tool" ? m.toolName : "",
-    hasText: m.role === "assistant" ? Boolean(m.text) : false,
-    hasThinking: m.role === "assistant" ? Boolean(m.thinking) : false,
-  }));
-  return finalAnswerRowIds(rows);
-});
+const finalAnswerIds = computed(() =>
+  buildFinalAnswerIds(displayMessages.value),
+);
 
 function isFinalAnswer(msg: ChatMessage): boolean {
   return msg.role === "assistant" && finalAnswerIds.value.has(msg.id);
@@ -621,14 +438,13 @@ const stickyPinMessage = computed(() => {
 const appearance = useAppearanceStore();
 
 /** 置顶预览条：关闭预览、或内容全被开关隐藏（如纯图片消息）时不显示。 */
-const stickyPreviewMessage = computed(() => {
+const stickyPreview = computed<{ msg: UserMessage; view: UserRowView } | null>(() => {
   if (!appearance.showMessagePreview) return null;
   const msg = stickyPinMessage.value;
   if (!msg) return null;
+  const view = buildUserRowView(msg);
   const hasImages = (msg.images?.length ?? 0) > 0 && appearance.showMessagePreviewImage;
-  const hasText = !!displayUserText(msg.text);
-  const hasTags = visibleUserTags(msg.elementTags).length > 0;
-  return hasImages || hasText || hasTags ? msg : null;
+  return hasImages || view.text || view.tags.length > 0 ? { msg, view } : null;
 });
 
 function stickyCapPx(sc: HTMLElement): number {
@@ -980,7 +796,7 @@ function scheduleWindowPrefetch(): void {
 function expandHistoryUp(): void {
   if (adjustingWindow) return;
   if (renderStart.value <= 0) return;
-  if (!allowWindowAdjust("up")) return;
+  if (!allowAdjust("up")) return;
   const sc = scroller.value;
   if (!sc) return;
   adjustingWindow = true;
@@ -993,16 +809,39 @@ function expandHistoryUp(): void {
   // 被裁掉的行必须在视口下方，否则底部 spacer 会顶进视口（露出空白）。
   const trimEnd = nextStart + VIRTUAL_MAX;
   if (!followBottom && trimEnd < nextEnd) {
+    const viewportTop = sc.scrollTop;
+    const viewportBottom = sc.scrollTop + sc.clientHeight;
     const trimLineTop = measuredBoundaryTop(trimEnd);
     if (trimLineTop != null) {
       // 实测裁剪线：它在视口下方留够 OVERSCAN_PX，裁完就不会立刻满足向下扩展条件。
-      if (trimLineTop > sc.scrollTop + sc.clientHeight + OVERSCAN_PX) nextEnd = trimEnd;
+      if (
+        trimLineIsSafe({
+          dir: "up",
+          trimLineTop,
+          viewportTop,
+          viewportBottom,
+          overscanPx: OVERSCAN_PX,
+        })
+      ) {
+        nextEnd = trimEnd;
+      }
     } else {
       const trimmed = estimateRangeHeight(trimEnd, nextEnd);
       const trimTop = sc.scrollHeight - bottomSpacerPx.value - trimmed;
       // 余量要含被裁区间的估算高度：估算偏低会让 trimTop 偏大，只留 OVERSCAN_PX
       // 会裁到视口内的行（锚点随之丢失，scrollTop 突跳又触发新一轮调整）。
-      if (trimTop > sc.scrollTop + sc.clientHeight + OVERSCAN_PX + trimmed) nextEnd = trimEnd;
+      if (
+        trimLineIsSafe({
+          dir: "up",
+          trimLineTop: trimTop,
+          viewportTop,
+          viewportBottom,
+          overscanPx: OVERSCAN_PX,
+          margin: trimmed,
+        })
+      ) {
+        nextEnd = trimEnd;
+      }
     }
   }
   if (fitsFullMount(displayMessages.value.length)) {
@@ -1011,7 +850,7 @@ function expandHistoryUp(): void {
   } else {
     alignRenderWindowToGroup(nextStart, nextEnd);
   }
-  noteWindowAdjust("up");
+  noteAdjust("up");
   void nextTick(() => {
     restoreScrollAnchor(anchor, prevHeight, prevTop);
     measureVisibleRows();
@@ -1026,7 +865,7 @@ function expandHistoryDown(): void {
   if (adjustingWindow) return;
   const len = displayMessages.value.length;
   if (renderEnd.value >= len) return;
-  if (!allowWindowAdjust("down")) return;
+  if (!allowAdjust("down")) return;
   const sc = scroller.value;
   if (!sc) return;
   adjustingWindow = true;
@@ -1039,15 +878,38 @@ function expandHistoryDown(): void {
   let nextStart = renderStart.value;
   const trimStart = renderEnd.value - VIRTUAL_MAX;
   if (trimStart > nextStart) {
+    const viewportTop = sc.scrollTop;
+    const viewportBottom = sc.scrollTop + sc.clientHeight;
     const trimLineTop = measuredBoundaryTop(trimStart);
     if (trimLineTop != null) {
       // 实测裁剪线：它在视口上方留够 OVERSCAN_PX，裁完就不会立刻满足向上扩展条件。
-      if (trimLineTop < sc.scrollTop - OVERSCAN_PX) nextStart = trimStart;
+      if (
+        trimLineIsSafe({
+          dir: "down",
+          trimLineTop,
+          viewportTop,
+          viewportBottom,
+          overscanPx: OVERSCAN_PX,
+        })
+      ) {
+        nextStart = trimStart;
+      }
     } else {
       const trimmed = estimateRangeHeight(nextStart, trimStart);
       const trimBottom = topSpacerPx.value + trimmed;
       // 同上：topSpacerPx / 估算高度偏低会让 trimBottom 偏小，条件反而更容易成立。
-      if (sc.scrollTop > trimBottom + OVERSCAN_PX + trimmed) nextStart = trimStart;
+      if (
+        trimLineIsSafe({
+          dir: "down",
+          trimLineTop: trimBottom,
+          viewportTop,
+          viewportBottom,
+          overscanPx: OVERSCAN_PX,
+          margin: trimmed,
+        })
+      ) {
+        nextStart = trimStart;
+      }
     }
   }
   if (fitsFullMount(len)) {
@@ -1056,7 +918,7 @@ function expandHistoryDown(): void {
   } else {
     alignRenderWindowToGroup(nextStart, renderEnd.value);
   }
-  noteWindowAdjust("down");
+  noteAdjust("down");
   void nextTick(() => {
     restoreScrollAnchor(anchor, prevHeight, prevTop);
     measureVisibleRows();
@@ -1709,25 +1571,6 @@ function turnDiffFor(msg: ChatMessage): TurnFileChanges | null {
   return turnDiffsByRow.value.get(msg.id) ?? null;
 }
 
-/** 每轮（user 行分隔）最后一个命中行的 id；null 表示该轮没有命中行。 */
-function lastIdPerRound(
-  msgs: readonly ChatMessage[],
-  match: (msg: ChatMessage) => boolean,
-): (string | null)[] {
-  const ids: (string | null)[] = [];
-  let last: string | null = null;
-  for (const msg of msgs) {
-    if (msg.role === "user") {
-      ids.push(last);
-      last = null;
-      continue;
-    }
-    if (match(msg)) last = msg.id;
-  }
-  ids.push(last);
-  return ids;
-}
-
 const openTurnDiffs = ref(new Set<string>());
 
 function isTurnDiffOpen(id: string): boolean {
@@ -1762,34 +1605,21 @@ function toggleSummary(id: string): void {
  * an agent ran bash / edited large files.
  */
 
-function isModeTagKind(kind: string | undefined): boolean {
-  return isComposerAgentMode(kind);
-}
+/** 用户行的展示态预计算：模板查表，避免每行重复跑前言剥离 / 标签过滤。 */
+const userViewByRow = computed(() => {
+  const out = new Map<string, UserRowView>();
+  for (const msg of displayMessages.value) {
+    if (msg.role === "user") out.set(msg.id, buildUserRowView(msg));
+  }
+  return out;
+});
 
-function visibleUserTags(
-  tags:
-    | {
-        url: string;
-        host: string;
-        label: string;
-        content?: string;
-        kind?: "file" | "url" | "element" | "agent" | "plan" | "ask" | "task";
-      }[]
-    | undefined,
-) {
-  return (tags ?? []).filter((tag) => !isModeTagKind(tag.kind));
-}
-
-function displayUserText(text: string): string {
-  return stripComposerModePreamble(text);
-}
-
-/** Long user cards get a fold toggle (line-clamp when collapsed). */
-function userCardNeedsToggle(msg: Extract<ChatMessage, { role: "user" }>): boolean {
-  const textLen = displayUserText(msg.text).length;
-  const imgCount = msg.images?.length ?? 0;
-  const tagCount = visibleUserTags(msg.elementTags).length;
-  return textLen > 140 || imgCount > 2 || tagCount > 4;
+function userRow(msg: ChatMessage): UserRowView {
+  const view = userViewByRow.value.get(msg.id);
+  if (view) return view;
+  return msg.role === "user"
+    ? buildUserRowView(msg)
+    : { text: "", tags: [], needsToggle: false };
 }
 
 function openPreview(filePath: string): void {
@@ -1800,43 +1630,8 @@ function openPreview(filePath: string): void {
   });
 }
 
-function toolStatus(msg: Extract<ChatMessage, { role: "tool" }>): {
-  type: "default" | "success" | "error" | "info";
-  label: string;
-} {
-  if (msg.streaming) return { type: "info", label: t.toolRunning };
-  if (msg.isError) return { type: "error", label: t.toolError };
-  return { type: "success", label: t.toolDone };
-}
-
-/**
- * "12.4s · 1.2k tok · 96 tok/s" for a finished assistant turn.
- * Shows when we have duration and/or usage from the final message.
- */
-function assistantStats(
-  msg: Extract<ChatMessage, { role: "assistant" }>,
-): { compact: string; detail: string } | null {
-  const durMs = msg.durationMs;
-  const usage = msg.usage;
-  const total = usage?.totalTokens;
-  const durLabel = durMs != null && durMs > 0 ? formatElapsedMs(durMs) : null;
-  const tokLabel =
-    total != null && total > 0 ? formatTokenCount(total) : null;
-  if (!durLabel && !tokLabel) return null;
-
-  const perSec =
-    durLabel && tokLabel && durMs && durMs > 0 && total && total > 0
-      ? Math.round(total / (durMs / 1000))
-      : null;
-  const compact = [durLabel, tokLabel, perSec != null ? `${perSec}/s` : null]
-    .filter(Boolean)
-    .join(" · ");
-  const detail = t.assistantStatsTitle(
-    durLabel ?? "—",
-    total != null ? total.toLocaleString() : "—",
-    perSec != null ? String(perSec) : "—",
-  );
-  return { compact, detail };
+function toolStatus(msg: ToolMessage): ToolStatusLabel {
+  return toolStatusOf(msg);
 }
 
 /** `provider/id` → 模型目录中的显示名。 */
@@ -1845,48 +1640,36 @@ const modelNames = ref<Record<string, string>>({});
 async function loadModelNames(): Promise<void> {
   try {
     const data = await window.api.models.get();
-    modelNames.value = Object.fromEntries(
-      data.available.map((m) => [`${m.provider}/${m.id}`, m.name]),
-    );
+    modelNames.value = buildModelNameMap(data.available);
   } catch {
     // 取不到目录时退回原始 model id
   }
 }
 
 /**
- * "Claude Sonnet 4.5 · High"：本轮结束使用的模型与思考级别。
- * 思考为 off 时不展示级别；模型名缺失时退回 model id。
+ * 尾部指标只在最终回答行渲染，预先算成表：模板里直接查表，
+ * 避免每行每次渲染重复做 toLocaleString / 思考级别映射。单遍 O(n)。
  */
-function assistantModelDetail(
-  msg: Extract<ChatMessage, { role: "assistant" }>,
-): { compact: string; detail: string } | null {
+const statsByRow = computed(() => {
+  const out = new Map<string, CompactDetail | null>();
+  for (const msg of displayMessages.value) {
+    if (msg.role === "assistant" && finalAnswerIds.value.has(msg.id)) {
+      out.set(msg.id, assistantStatsOf(msg));
+    }
+  }
+  return out;
+});
+
+const modelDetailByRow = computed(() => {
+  const out = new Map<string, CompactDetail | null>();
   const usage = sessions.activeContextUsage;
-  const model = msg.model ?? usage?.model ?? null;
-  const rawLevel = msg.thinkingLevel ?? usage?.thinkingLevel ?? null;
-  const name = model
-    ? (modelNames.value[`${model.provider}/${model.id}`] ?? model.id)
-    : null;
-  const level = rawLevel && rawLevel !== "off" ? thinkingLevelLabel(rawLevel) : null;
-  if (!name && !level) return null;
-  return {
-    compact: [name, level].filter(Boolean).join(" · "),
-    detail: t.assistantModelTitle(name ?? "—", level ?? "—"),
-  };
-}
-
-function formatElapsedMs(ms: number): string {
-  const sec = ms / 1000;
-  if (sec < 60) return `${sec.toFixed(1)}s`;
-  const min = Math.floor(sec / 60);
-  const rem = Math.round(sec % 60);
-  return rem ? `${min}m ${rem}s` : `${min}m`;
-}
-
-function formatTokenCount(n: number): string {
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
-  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}k`;
-  return String(n);
-}
+  for (const msg of displayMessages.value) {
+    if (msg.role === "assistant" && finalAnswerIds.value.has(msg.id)) {
+      out.set(msg.id, assistantModelDetailOf(msg, usage, modelNames.value));
+    }
+  }
+  return out;
+});
 
 async function copyText(text: string): Promise<void> {
   await navigator.clipboard.writeText(text);
@@ -1894,13 +1677,14 @@ async function copyText(text: string): Promise<void> {
 }
 
 /** 把一条 user 气泡放回输入框（重新编辑或还原检查点后用）。 */
-function loadComposerFromUser(msg: Extract<ChatMessage, { role: "user" }>): void {
+function loadComposerFromUser(msg: UserMessage): void {
+  const view = buildUserRowView(msg);
   composer.clear();
-  composer.draft = displayUserText(msg.text);
+  composer.draft = view.text;
   for (const img of msg.images ?? []) {
     composer.addImageFromDataUrl(img.dataUrl);
   }
-  for (const tag of visibleUserTags(msg.elementTags)) {
+  for (const tag of view.tags) {
     if (tag.kind === "file") {
       composer.addFileTag(tag.content || tag.label || tag.url);
     } else if (tag.kind === "url" || (!tag.kind && /^https?:\/\//i.test(tag.url))) {
@@ -1962,17 +1746,9 @@ function onRestoreCheckpoint(msg: Extract<ChatMessage, { role: "user" }>): void 
 }
 
 /** assistant 行归属到本轮最近的 user 消息，操作行的检查点/派生按钮需要它。 */
-const roundUserByRow = computed(() => {
-  const map = new Map<string, Extract<ChatMessage, { role: "user" }>>();
-  let current: Extract<ChatMessage, { role: "user" }> | null = null;
-  for (const m of props.messages) {
-    if (m.role === "user") current = m;
-    else if (current) map.set(m.id, current);
-  }
-  return map;
-});
+const roundUserByRow = computed(() => buildRoundUserByRow(props.messages));
 
-function roundUserOf(msg: ChatMessage): Extract<ChatMessage, { role: "user" }> | null {
+function roundUserOf(msg: ChatMessage): UserMessage | null {
   return roundUserByRow.value.get(msg.id) ?? null;
 }
 
@@ -2134,13 +1910,13 @@ function onRevertUser(msg: Extract<ChatMessage, { role: "user" }>): void {
                 />
               </div>
               <div
-                v-if="displayUserText(msg.text)"
+                v-if="userRow(msg).text"
                 class="user-plain"
                 :class="{ clamped: !isUserExpanded(msg.id) }"
-              >{{ displayUserText(msg.text) }}</div>
-              <div v-if="visibleUserTags(msg.elementTags).length" class="user-tags">
+              >{{ userRow(msg).text }}</div>
+              <div v-if="userRow(msg).tags.length" class="user-tags">
                 <NTag
-                  v-for="(tag, idx) in visibleUserTags(msg.elementTags)"
+                  v-for="(tag, idx) in userRow(msg).tags"
                   :key="`${msg.id}-tag-${idx}`"
                   type="info"
                   size="small"
@@ -2175,7 +1951,7 @@ function onRevertUser(msg: Extract<ChatMessage, { role: "user" }>): void {
                 </NTooltip>
               </div>
               <button
-                v-if="userCardNeedsToggle(msg)"
+                v-if="userRow(msg).needsToggle"
                 type="button"
                 class="user-card-toggle"
                 :aria-expanded="isUserExpanded(msg.id)"
@@ -2191,7 +1967,7 @@ function onRevertUser(msg: Extract<ChatMessage, { role: "user" }>): void {
             <div v-if="!running" class="actions user-actions">
               <NTooltip>
                 <template #trigger>
-                  <NButton quaternary circle size="tiny" @click="copyText(displayUserText(msg.text))">
+                  <NButton quaternary circle size="tiny" @click="copyText(userRow(msg).text)">
                     <template #icon>
                       <NIcon :component="CopyOutline" />
                     </template>
@@ -2302,18 +2078,18 @@ function onRevertUser(msg: Extract<ChatMessage, { role: "user" }>): void {
                 </NTooltip>
               </template>
               <span
-                v-if="assistantStats(msg)"
+                v-if="statsByRow.get(msg.id)"
                 class="assistant-stats"
-                :title="assistantStats(msg)!.detail"
+                :title="statsByRow.get(msg.id)!.detail"
               >
-                {{ assistantStats(msg)!.compact }}
+                {{ statsByRow.get(msg.id)!.compact }}
               </span>
               <span
-                v-if="assistantModelDetail(msg)"
+                v-if="modelDetailByRow.get(msg.id)"
                 class="assistant-model"
-                :title="assistantModelDetail(msg)!.detail"
+                :title="modelDetailByRow.get(msg.id)!.detail"
               >
-                {{ assistantModelDetail(msg)!.compact }}
+                {{ modelDetailByRow.get(msg.id)!.compact }}
               </span>
             </div>
 
@@ -2430,7 +2206,7 @@ function onRevertUser(msg: Extract<ChatMessage, { role: "user" }>): void {
     </div>
 
     <div
-      v-if="stickyPreviewMessage"
+      v-if="stickyPreview"
       ref="stickyPinEl"
       class="user-sticky-pin"
       :class="{ 'is-expanded': stickyExpanded }"
@@ -2439,14 +2215,14 @@ function onRevertUser(msg: Extract<ChatMessage, { role: "user" }>): void {
     >
       <div
         class="sticky-pin-body bubble user"
-        :class="{ 'user-collapsed': !stickyExpanded && userCardNeedsToggle(stickyPreviewMessage) }"
+        :class="{ 'user-collapsed': !stickyExpanded && stickyPreview.view.needsToggle }"
       >
         <div
-          v-if="stickyPreviewMessage.images?.length && appearance.showMessagePreviewImage"
+          v-if="stickyPreview.msg.images?.length && appearance.showMessagePreviewImage"
           class="user-images"
         >
           <img
-            v-for="(img, idx) in stickyPreviewMessage.images"
+            v-for="(img, idx) in stickyPreview.msg.images"
             :key="`pin-img-${idx}`"
             class="user-image"
             :src="img.dataUrl"
@@ -2457,16 +2233,16 @@ function onRevertUser(msg: Extract<ChatMessage, { role: "user" }>): void {
           />
         </div>
         <div
-          v-if="displayUserText(stickyPreviewMessage.text)"
+          v-if="stickyPreview.view.text"
           class="user-plain"
-          :class="{ clamped: !stickyExpanded && userCardNeedsToggle(stickyPreviewMessage) }"
-        >{{ displayUserText(stickyPreviewMessage.text) }}</div>
+          :class="{ clamped: !stickyExpanded && stickyPreview.view.needsToggle }"
+        >{{ stickyPreview.view.text }}</div>
         <div
-          v-if="visibleUserTags(stickyPreviewMessage.elementTags).length"
+          v-if="stickyPreview.view.tags.length"
           class="user-tags"
         >
           <NTag
-            v-for="(tag, idx) in visibleUserTags(stickyPreviewMessage.elementTags)"
+            v-for="(tag, idx) in stickyPreview.view.tags"
             :key="`pin-tag-${idx}`"
             type="info"
             size="small"
@@ -2511,57 +2287,11 @@ function onRevertUser(msg: Extract<ChatMessage, { role: "user" }>): void {
       </button>
     </Transition>
   </div>
-  <!-- Image lightbox: click to zoom, right-click to copy / save. -->
-  <Teleport to="body">
-    <div
-      v-if="imagePreview"
-      class="image-preview-overlay"
-      tabindex="-1"
-      @keydown="onPreviewKeydown"
-      @click.self="closeImagePreview"
-      @contextmenu.self.prevent="closeImagePreview"
-    >
-      <div class="preview-toolbar">
-        <span class="preview-title">{{ t.imageAttachment }}</span>
-        <div class="preview-actions">
-          <button type="button" class="preview-btn" @click="copyPreviewImage">
-            {{ t.copyImage }}
-          </button>
-          <button type="button" class="preview-btn" @click="savePreviewImage">
-            {{ t.saveImage }}
-          </button>
-          <button
-            type="button"
-            class="preview-btn close"
-            :aria-label="t.close"
-            :title="t.close"
-            @click="closeImagePreview"
-          >
-            ✕
-          </button>
-        </div>
-      </div>
-      <img
-        :src="imagePreview?.dataUrl"
-        class="preview-img"
-        alt=""
-        @contextmenu.prevent="openPreviewMenu"
-      />
-      <div
-        v-if="previewMenuOpen"
-        class="preview-context-menu"
-        :style="{ left: previewMenuPos.x + 'px', top: previewMenuPos.y + 'px' }"
-        @contextmenu.prevent
-      >
-        <button type="button" class="ctx-item" @click="copyPreviewImage">
-          {{ t.copyImage }}
-        </button>
-        <button type="button" class="ctx-item" @click="savePreviewImage">
-          {{ t.saveImage }}
-        </button>
-      </div>
-    </div>
-  </Teleport>
+  <ImageLightbox
+    :data-url="imagePreview?.dataUrl ?? null"
+    :mime-type="imagePreview?.mimeType ?? ''"
+    @close="closeImagePreview"
+  />
 </template>
 
 <style scoped>
@@ -3297,122 +3027,5 @@ function onRevertUser(msg: Extract<ChatMessage, { role: "user" }>): void {
   }
 }
 
-/* Image lightbox */
-.image-preview-overlay {
-  position: fixed;
-  inset: 0;
-  z-index: 2147483644;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: rgba(9, 9, 11, 0.82);
-  backdrop-filter: blur(3px);
-  cursor: zoom-out;
-  animation: preview-fade 160ms var(--ease-out, ease);
-  outline: none;
-}
-
-@keyframes preview-fade {
-  from { opacity: 0; }
-  to { opacity: 1; }
-}
-
-.preview-toolbar {
-  position: absolute;
-  top: 12px;
-  left: 12px;
-  right: 12px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 8px 10px;
-  border-radius: 6px;
-  background: rgba(24, 24, 27, 0.72);
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  color: #fafafa;
-  user-select: none;
-}
-
-.preview-title {
-  font-size: 12.5px;
-  font-weight: 600;
-  color: rgba(255, 255, 255, 0.85);
-}
-
-.preview-actions {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.preview-btn {
-  padding: 4px 10px;
-  border-radius: 4px;
-  border: 1px solid rgba(255, 255, 255, 0.18);
-  background: rgba(255, 255, 255, 0.08);
-  color: #fafafa;
-  font: inherit;
-  font-size: 12px;
-  cursor: pointer;
-  transition: background var(--duration-fast, 140ms) var(--ease-out, ease);
-}
-
-.preview-btn:hover {
-  background: rgba(255, 255, 255, 0.18);
-}
-
-.preview-btn.close {
-  border-color: transparent;
-  background: transparent;
-  font-size: 14px;
-  padding: 4px 8px;
-}
-
-.preview-img {
-  max-width: calc(100vw - 80px);
-  max-height: calc(100vh - 80px);
-  object-fit: contain;
-  border-radius: 4px;
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
-  cursor: zoom-out;
-  user-select: none;
-  -webkit-user-drag: none;
-}
-
-.preview-context-menu {
-  position: fixed;
-  z-index: 2147483645;
-  min-width: 150px;
-  padding: 4px;
-  border-radius: 6px;
-  background: var(--bg-elevated, #1c1c22);
-  border: 1px solid var(--border);
-  box-shadow: var(--shadow-lg, 0 12px 40px rgba(0, 0, 0, 0.3));
-  animation: preview-fade 100ms var(--ease-out, ease);
-}
-
-.ctx-item {
-  display: block;
-  width: 100%;
-  padding: 7px 10px;
-  border: 0;
-  border-radius: 4px;
-  background: transparent;
-  color: var(--fg);
-  text-align: left;
-  font: inherit;
-  font-size: 12.5px;
-  cursor: pointer;
-}
-
-.ctx-item:hover {
-  background: var(--bg-hover);
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .image-preview-overlay {
-    animation: none;
-  }
-}
+/* 图片灯箱：ImageLightbox.vue */
 </style>
