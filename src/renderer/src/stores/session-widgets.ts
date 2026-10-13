@@ -303,10 +303,12 @@ export const useSessionWidgetsStore = defineStore("session-widgets", () => {
 		if (!list || list.paused) return;
 		const now = Date.now();
 		const timing = itemTimingBySession.value[sessionId] ?? {};
-		let changed = false;
+		let hasOpen = false;
 		const items = list.items.map((item) => {
 			if (item.done) return item;
-			changed = true;
+			hasOpen = true;
+			// 已标未回写的项上一轮就冻结过耗时 —— 恢复路径再跑一次时原样保留。
+			if (item.unreported && item.durationMs != null) return item;
 			const startedAt =
 				item.startedAt ?? timing[item.text.trim()]?.startedAt ?? now;
 			const { active: _active, startedAt: _startedAt, ...rest } = item;
@@ -316,7 +318,7 @@ export const useSessionWidgetsStore = defineStore("session-widgets", () => {
 				durationMs: Math.max(0, now - startedAt),
 			};
 		});
-		if (!changed) {
+		if (!hasOpen) {
 			// 模型已把清单收尾 —— 只补上回合完成时钟。
 			if (!todoCompletedAtBySession.value[sessionId]) {
 				todoCompletedAtBySession.value = {

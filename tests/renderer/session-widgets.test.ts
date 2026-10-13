@@ -167,7 +167,7 @@ describe("session-widgets — full-replace todo lists", () => {
 		expect(w.todoCompletedAt("s1")).toBeGreaterThan(0);
 	});
 
-	it("finalize is idempotent and drops the live start clock", () => {
+	it("finalize is idempotent and drops the live start clock", async () => {
 		const w = useSessionWidgetsStore();
 		w.applyTodoToolArgs("s1", {
 			todos: [{ id: "1", content: "做的步骤", status: "in_progress" }],
@@ -178,6 +178,8 @@ describe("session-widgets — full-replace todo lists", () => {
 		const frozen = first.durationMs;
 
 		// 事件丢失的恢复路径会再跑一次 finalize，不能重复改动已冻结的项。
+		// 隔开一毫秒，否则两次收尾落在同一刻，重算耗时的回归也测不出来。
+		await new Promise((resolve) => setTimeout(resolve, 10));
 		w.finalizeTodosForSession("s1");
 		expect(w.activeTodoList!.items[0].durationMs).toBe(frozen);
 		expect(w.activeTodoList!.items[0].unreported).toBe(true);
