@@ -102,3 +102,15 @@ export function summarizeTodoWrite(rows: TodoWriteRow[]): string {
 	const active = rows.filter((r) => r.status === "in_progress").length;
 	return `Todo list updated (${rows.length} items · ${done} completed · ${active} in progress).`;
 }
+
+/**
+ * One-line progress digest for the model (`3/7 completed · in progress: #4 …`).
+ * Null when every item is completed — nothing left to nudge.
+ */
+export function todoProgressLine(rows: TodoWriteRow[]): string | null {
+	const done = rows.filter((r) => r.status === "completed").length;
+	const focus = rows.find((r) => r.status === "in_progress");
+	const next = focus ?? rows.find((r) => r.status === "pending");
+	if (!next) return null;
+	return `${done}/${rows.length} completed · ${focus ? "in progress" : "next"}: #${next.id} ${next.text}`;
+}

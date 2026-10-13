@@ -115,7 +115,7 @@ describe("session-widgets — full-replace todo lists", () => {
 		expect(fresh.startedAt).toBeGreaterThanOrEqual(startedAt);
 	});
 
-	it("finalize auto-completes items the model left open when the turn ends", () => {
+	it("finalize marks unconfirmed items as unreported instead of completing them", () => {
 		const w = useSessionWidgetsStore();
 		w.applyTodoToolArgs("s1", {
 			todos: [
@@ -128,11 +128,60 @@ describe("session-widgets — full-replace todo lists", () => {
 		w.finalizeTodosForSession("s1");
 
 		const items = w.activeTodoList!.items;
-		expect(items.every((i) => i.done)).toBe(true);
 		const late = items.find((i) => i.text === "忘了标记的步骤")!;
+		expect(late.done).toBe(false);
+		expect(late.unreported).toBe(true);
+		expect(late.active).toBeUndefined();
 		expect(late.durationMs).toBeGreaterThanOrEqual(0);
-		// Round clock closed so the header can show the total time.
+		// 还有未确认项 —— 本轮不算完成，也不允许自动收起。
+		expect(w.todoCompletedAt("s1")).toBe(0);
+		expect(w.activeTodoList!.dismissed).toBe(false);
+	});
+
+	it("finalize clears the unreported flag once the model writes again", () => {
+		const w = useSessionWidgetsStore();
+		w.applyTodoToolArgs("s1", {
+			todos: [{ id: "1", content: "做的步骤", status: "in_progress" }],
+		});
+		w.finalizeTodosForSession("s1");
+		expect(w.activeTodoList?.items[0].unreported).toBe(true);
+
+		w.applyTodoToolArgs("s1", {
+			todos: [
+				{ id: "1", content: "做的步骤", status: "completed" },
+				{ id: "2", content: "下一步", status: "in_progress" },
+			],
+		});
+		expect(w.activeTodoList?.items[0].unreported).toBeUndefined();
+		expect(w.activeTodoList?.items[0].done).toBe(true);
+	});
+
+	it("finalize leaves a fully reported list untouched and closes the round clock", () => {
+		const w = useSessionWidgetsStore();
+		w.applyTodoToolArgs("s1", {
+			todos: [{ id: "1", content: "完成", status: "completed" }],
+		});
+		w.finalizeTodosForSession("s1");
+		expect(w.activeTodoList?.items[0]).toMatchObject({ done: true });
+		expect(w.activeTodoList?.items.some((i) => i.unreported)).toBe(false);
 		expect(w.todoCompletedAt("s1")).toBeGreaterThan(0);
+	});
+
+	it("finalize is idempotent and drops the live start clock", () => {
+		const w = useSessionWidgetsStore();
+		w.applyTodoToolArgs("s1", {
+			todos: [{ id: "1", content: "做的步骤", status: "in_progress" }],
+		});
+		w.finalizeTodosForSession("s1");
+		const first = w.activeTodoList!.items[0];
+		expect(first.startedAt).toBeUndefined();
+		const frozen = first.durationMs;
+
+		// 事件丢失的恢复路径会再跑一次 finalize，不能重复改动已冻结的项。
+		w.finalizeTodosForSession("s1");
+		expect(w.activeTodoList!.items[0].durationMs).toBe(frozen);
+		expect(w.activeTodoList!.items[0].unreported).toBe(true);
+		expect(w.todoCompletedAt("s1")).toBe(0);
 	});
 
 	it("finalize skips paused lists — stopped rounds are never auto-completed", () => {

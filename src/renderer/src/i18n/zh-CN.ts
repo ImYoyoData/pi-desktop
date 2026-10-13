@@ -492,6 +492,7 @@ export const zh = {
 	todoProgress: (done: number, total: number) => `待办 ${done}/${total}`,
 	todoAllDone: (total: number) => `待办已完成（${total}）`,
 	todoRemaining: (n: number) => `剩余 ${n} 项`,
+	todoUnreported: (n: number) => `${n} 项模型未回写`,
 	todoDismiss: "收起待办",
 	todoOpenItems: "进行中",
 	todoDoneItems: "已完成",
