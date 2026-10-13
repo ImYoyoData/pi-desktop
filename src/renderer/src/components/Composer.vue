@@ -25,7 +25,7 @@ import ComposerAtFileMenu from "@renderer/components/ComposerAtFileMenu.vue";
 import SendQueueBar from "@renderer/components/SendQueueBar.vue";
 import DraftContextBar from "@renderer/components/DraftContextBar.vue";
 import { useChatStore } from "@renderer/stores/chat";
-import type { ContextUsageSegmentId, ElementCitation } from "../../../shared/protocol";
+import type { ElementCitation } from "../../../shared/protocol";
 import { isHttpUrl, useComposerStore } from "@renderer/stores/composer";
 import { useKeybindingsStore } from "@renderer/stores/keybindings";
 import {
@@ -38,6 +38,18 @@ import { useAppearanceStore } from "@renderer/stores/appearance";
 import { useRightTabsStore } from "@renderer/stores/right-tabs";
 import { plainTextFromClipboard } from "@renderer/utils/composer-rich";
 import { heuristicSessionTitle } from "@renderer/utils/session-title";
+import { buildSessionStats } from "@renderer/utils/session-stats";
+import {
+  contextCostLabelOf,
+  contextFreePctOf,
+  contextFullLabelOf,
+  contextNeedsCompactAt,
+  contextPercentOf,
+  contextRingDash,
+  contextSegmentsOf,
+  contextTokensPairLabelOf,
+  contextToneOf,
+} from "@renderer/utils/context-usage";
 import {
   EMPTY_MODEL_SELECTION,
   filterAvailableModels,
@@ -1218,66 +1230,15 @@ function onQueueSendClick(): void {
 
 const contextUsage = computed(() => sessions.activeContextUsage);
 
-function formatTokens(count: number): string {
-  if (count < 1000) return String(count);
-  if (count < 10_000) return `${(count / 1000).toFixed(1)}k`;
-  if (count < 1_000_000) return `${Math.round(count / 1000)}k`;
-  if (count < 10_000_000) return `${(count / 1_000_000).toFixed(1)}M`;
-  return `${Math.round(count / 1_000_000)}M`;
-}
-
-const SEGMENT_META: Record<
-  ContextUsageSegmentId,
-  { color: string; label: () => string }
-> = {
-  system: { color: "var(--ctx-system)", label: () => t.contextUsageSegSystem },
-  tools: { color: "var(--ctx-tools)", label: () => t.contextUsageSegTools },
-  summarized: { color: "var(--ctx-summarized)", label: () => t.contextUsageSegSummarized },
-  conversation: { color: "var(--ctx-conversation)", label: () => t.contextUsageSegConversation },
-  toolResults: { color: "var(--ctx-tool-results)", label: () => t.contextUsageSegToolResults },
-};
 
 const ctxPopoverShow = ref(false);
 const skillsCount = ref<number | null>(null);
 let skillsCountCachedFor: string | null = null;
-/**
- * True context fill as a fraction of the model's real context window.
- * Ring, tone and the "% Full" label all use this same window-based percent,
- * matching the stacked bar's widths (tokens / contextWindow).
- */
-const contextPercent = computed(() => {
-  const usage = contextUsage.value;
-  const tokens = usage?.tokens;
-  const window = usage?.contextWindow;
-  if (tokens == null || !Number.isFinite(tokens) || tokens <= 0) return null;
-  if (!window || !Number.isFinite(window) || window <= 0) return null;
-  return Math.max(0, Math.min(100, (tokens / window) * 100));
-});
-
-const contextTone = computed(() => {
-  const pct = contextPercent.value;
-  if (pct == null) return "muted";
-  if (pct > 90) return "danger";
-  if (pct > 70) return "warn";
-  return "ok";
-});
-
-const contextRingStyle = computed(() => {
-  const pct = contextPercent.value ?? 0;
-  const r = 7;
-  const c = 2 * Math.PI * r;
-  const offset = c * (1 - pct / 100);
-  return {
-    strokeDasharray: `${c}`,
-    strokeDashoffset: `${offset}`,
-  };
-});
-
-const contextMessageCount = computed(() => {
-  const fromStats = contextUsage.value?.messageCount;
-  if (typeof fromStats === "number") return fromStats;
-  return chat.activeMessages.length;
-});
+/** 上下文占用率：环形图、色调、% Full 与分段条共用同一个窗口口径。 */
+const contextPercent = computed(() => contextPercentOf(contextUsage.value));
+const contextTone = computed(() => contextToneOf(contextPercent.value));
+const contextRingStyle = computed(() => contextRingDash(contextPercent.value));
+const contextMessageCount = computed(() => contextUsage.value?.messageCount ?? chat.activeMessages.length);
 const contextToolCount = computed(() => {
   const fromStats = contextUsage.value?.toolCalls;
   if (typeof fromStats === "number") return fromStats;
@@ -1285,59 +1246,12 @@ const contextToolCount = computed(() => {
   const streaming = chat.activeStreaming?.role === "tool" ? 1 : 0;
   return messages + streaming;
 });
-
-/** Real cumulative session LLM cost in USD (from Pi getSessionStats). */
-const contextCostLabel = computed(() => {
-  const cost = contextUsage.value?.costUsd;
-  return positive(cost) ? formatSessionCost(cost) : "";
-});
-
-/** True when the context is at/past the manual-compact line (70% of the real window). */
-const contextNeedsCompact = computed(() => {
-  const pct = contextPercent.value;
-  return pct != null && pct >= 70;
-});
-
-const contextSegments = computed(() => {
-  const usage = contextUsage.value;
-  const window = usage?.contextWindow ?? 0;
-  const segs = usage?.segments ?? [];
-  if (!window || !segs.length) return [];
-  return segs.map((s) => {
-    const meta = SEGMENT_META[s.id];
-    return {
-      id: s.id,
-      tokens: s.tokens,
-      label: meta?.label() ?? s.id,
-      color: meta?.color ?? "var(--fg-faint)",
-      widthPct: Math.max(0.4, (s.tokens / window) * 100),
-      tokensLabel: formatTokens(s.tokens),
-    };
-  });
-});
-
-const contextFreePct = computed(() => {
-  const usage = contextUsage.value;
-  if (!usage?.contextWindow) return 100;
-  const used =
-    typeof usage.tokens === "number"
-      ? usage.tokens
-      : (usage.segments ?? []).reduce((n, s) => n + s.tokens, 0);
-  return Math.max(0, 100 - (used / usage.contextWindow) * 100);
-});
-
-const contextFullLabel = computed(() => {
-  const pct = contextPercent.value;
-  if (pct == null) return t.contextUsageUnknown;
-  return t.contextUsageFull(pct.toFixed(0));
-});
-
-const contextTokensPairLabel = computed(() => {
-  const usage = contextUsage.value;
-  if (!usage) return t.contextUsageEmpty;
-  const used = usage.tokens !== null ? formatTokens(usage.tokens) : "?";
-  return t.contextUsageTokensPair(used, formatTokens(usage.contextWindow));
-});
+const contextCostLabel = computed(() => contextCostLabelOf(contextUsage.value));
+const contextNeedsCompact = computed(() => contextNeedsCompactAt(contextPercent.value));
+const contextSegments = computed(() => contextSegmentsOf(contextUsage.value));
+const contextFreePct = computed(() => contextFreePctOf(contextUsage.value));
+const contextFullLabel = computed(() => contextFullLabelOf(contextPercent.value));
+const contextTokensPairLabel = computed(() => contextTokensPairLabelOf(contextUsage.value));
 const slashMenuRef = ref<{ move: (d: number) => void; confirm: () => boolean } | null>(null);
 const atFileMenuRef = ref<{ move: (d: number) => void; confirm: () => boolean } | null>(null);
 const modelMenuRef = ref<{ focus?: () => void } | null>(null);
@@ -1603,198 +1517,7 @@ async function tryConsumeBuiltinSlashDraft(): Promise<boolean> {
  * Only items that actually have data are rendered — a stat with no sample
  * is omitted instead of showing "label —".
  */
-type SessionStatItem = {
-  key: string;
-  label: string;
-  value: string;
-  title?: string;
-};
-
-const sessionStats = computed<SessionStatItem[] | null>(() => {
-  const u = contextUsage.value;
-  if (!u) return null;
-  const items: SessionStatItem[] = [];
-  const push = (item: SessionStatItem | null): void => {
-    if (item) items.push(item);
-  };
-  push(
-    positive(u.turns)
-      ? {
-          key: "turns",
-          label: t.sessionStatsTurns,
-          value: formatNum(u.turns),
-          title: t.sessionStatsTitle(
-            formatNum(u.turns),
-            formatNum(u.steps ?? null),
-            formatNum(u.toolCalls ?? null),
-          ),
-        }
-      : null,
-  );
-  push(
-    positive(u.steps)
-      ? {
-          key: "steps",
-          label: t.sessionStatsSteps,
-          value: formatNum(u.steps),
-        }
-      : null,
-  );
-  push(
-    positive(u.toolCalls)
-      ? {
-          key: "tools",
-          label: t.sessionStatsToolCalls,
-          value: formatNum(u.toolCalls),
-        }
-      : null,
-  );
-  push(
-    positive(u.messageCount)
-      ? {
-          key: "messages",
-          label: t.sessionStatsMessages,
-          value: formatNum(u.messageCount),
-        }
-      : null,
-  );
-  push(
-    positive(u.tokensPerSecond)
-      ? {
-          key: "tps",
-          label: t.sessionStatsTps,
-          value: formatSessionTps(u.tokensPerSecond),
-        }
-      : null,
-  );
-  push(
-    positive(u.ttftMs) && positive(u.ttftSteps)
-      ? {
-          key: "ttft",
-          label: t.sessionStatsTtft,
-          value: formatSessionTtft(u.ttftMs),
-        }
-      : null,
-  );
-  const cacheTotal =
-    (u.inputTokens ?? 0) + (u.cacheReadTokens ?? 0) + (u.cacheWriteTokens ?? 0);
-  push(
-    positive(u.cacheReadTokens) && cacheTotal > 0
-      ? {
-          key: "cacheHit",
-          label: t.sessionStatsCacheHit,
-          value: formatSessionCacheHit(
-            Math.min(
-              100,
-              Math.round(((u.cacheReadTokens ?? 0) / cacheTotal) * 100),
-            ),
-          ),
-        }
-      : null,
-  );
-  push(
-    positive(u.cacheReadTokens)
-      ? {
-          key: "cacheRead",
-          label: t.sessionStatsCacheRead,
-          value: formatSessionTokens(u.cacheReadTokens),
-        }
-      : null,
-  );
-  push(
-    positive(u.cacheWriteTokens)
-      ? {
-          key: "cacheWrite",
-          label: t.sessionStatsCacheWrite,
-          value: formatSessionTokens(u.cacheWriteTokens),
-        }
-      : null,
-  );
-  push(
-    positive(u.inputTokens)
-      ? {
-          key: "input",
-          label: t.sessionStatsInputTokens,
-          value: formatSessionTokens(u.inputTokens),
-        }
-      : null,
-  );
-  push(
-    positive(u.outputTokens)
-      ? {
-          key: "output",
-          label: t.sessionStatsOutputTokens,
-          value: formatSessionTokens(u.outputTokens),
-        }
-      : null,
-  );
-  push(
-    positive(u.costUsd)
-      ? {
-          key: "cost",
-          label: t.sessionStatsCost,
-          value: formatSessionCost(u.costUsd),
-        }
-      : null,
-  );
-  push(
-    positive(u.llmDurationMs)
-      ? {
-          key: "duration",
-          label: t.sessionStatsDuration,
-          value: formatSessionDuration(u.llmDurationMs),
-        }
-      : null,
-  );
-  return items.length > 0 ? items : null;
-});
-
-
-/** 会话统计只渲染有数据的项：null、非有限值与零值一律视为无数据。 */
-function positive(n: number | null | undefined): boolean {
-  return n != null && Number.isFinite(n) && n > 0;
-}
-
-function formatSessionTps(n: number | null | undefined): string {
-  if (n == null || !Number.isFinite(n) || n <= 0) return "—";
-  return t.sessionStatsTpsFormat(n >= 100 ? n.toFixed(0) : n.toFixed(1));
-}
-
-function formatSessionCacheHit(p: number | null | undefined): string {
-  if (p == null) return "—";
-  return t.sessionStatsCacheHitFormat(String(p));
-}
-
-function formatSessionTtft(ms: number | null | undefined): string {
-  if (ms == null || !Number.isFinite(ms) || ms <= 0) return "—";
-  return ms < 1000 ? `${Math.round(ms)}ms` : `${(ms / 1000).toFixed(1)}s`;
-}
-
-function formatSessionCost(usd: number | null | undefined): string {
-  if (usd == null || !Number.isFinite(usd) || usd <= 0) return "—";
-  return `$${usd.toFixed(2)}`;
-}
-
-function formatSessionDuration(ms: number | null | undefined): string {
-  if (ms == null || !Number.isFinite(ms) || ms <= 0) return "—";
-  const totalSec = Math.round(ms / 1000);
-  if (totalSec < 60) return `${totalSec}s`;
-  const totalMin = Math.floor(totalSec / 60);
-  if (totalMin < 60) return `${totalMin}m`;
-  const hours = Math.floor(totalMin / 60);
-  const restMin = totalMin % 60;
-  return restMin ? `${hours}h ${restMin}m` : `${hours}h`;
-}
-
-function formatSessionTokens(n: number | null | undefined): string {
-  if (n == null || !Number.isFinite(n) || n < 0) return "—";
-  if (n >= 1_000_000) return t.sessionStatsTokensFormat(`${(n / 1_000_000).toFixed(1)}M`);
-  return t.sessionStatsTokensFormat(n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n));
-}
-
-function formatNum(n: number | null | undefined): string {
-  return n == null ? "—" : String(n);
-}
+const sessionStats = computed(() => buildSessionStats(contextUsage.value));
 
 const compactBusy = ref(false);
 
