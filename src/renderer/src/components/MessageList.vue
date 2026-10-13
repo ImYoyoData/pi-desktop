@@ -10,7 +10,7 @@ import {
   useDialog,
   useMessage,
 } from "naive-ui";
-import { ArrowDownOutline, ArrowUndoOutline, ChevronDownOutline, ChevronUpOutline, CopyOutline, CreateOutline, GitBranchOutline, RefreshOutline } from "@vicons/ionicons5";
+import { ArrowDownOutline, ArrowUndoOutline, ChevronDownOutline, ChevronForwardOutline, ChevronUpOutline, CopyOutline, CreateOutline, GitBranchOutline, RefreshOutline } from "@vicons/ionicons5";
 import type { ChatMessage, ChatRetryHint } from "@renderer/stores/chat";
 import { useAppearanceStore } from "@renderer/stores/appearance";
 import { useChatStore } from "@renderer/stores/chat";
@@ -240,6 +240,12 @@ let suppressFollowBottomUntil = 0;
 /** Inclusive start / exclusive end of displayMessages currently mounted. */
 const renderStart = ref(0);
 const renderEnd = ref(0);
+/**
+ * 测量表容量上限。key 带会话前缀以免不同会话互相污染，但表本身不会在切换
+ * 会话时清理 —— 长时间使用 / 频繁切会话会让它涨到几十万条，之后每次查表
+ * 都变成缓存未命中。按插入顺序淘汰最旧的即可：被淘汰的行重新挂载时量一次。
+ */
+const MEASURE_MAX_ENTRIES = 20_000;
 const heightById = new Map<string, number>();
 /** Heights are session-scoped: switching sessions keeps past measurements usable. */
 function heightKey(id: string): string {
@@ -247,7 +253,55 @@ function heightKey(id: string): string {
 }
 /** Real layout offsetTop of measured rows (for accurate sticky pinning). */
 const topById = new Map<string, number>();
+function rememberMeasure(cache: Map<string, number>, key: string, value: number): void {
+  cache.delete(key);
+  cache.set(key, value);
+  while (cache.size > MEASURE_MAX_ENTRIES) {
+    const oldest = cache.keys().next().value;
+    if (oldest === undefined) break;
+    cache.delete(oldest);
+  }
+}
 let adjustingWindow = false;
+/**
+ * 窗口调整方向闸门：向上扩展裁尾部、向下扩展裁头部，两侧裁剪会互相把对方
+ * 重新推回阈值内，形成每帧交替重建 DOM 的自激振荡。反向调整必须隔一帧以上，
+ * 短时间内反复反向则判定为振荡，拉长冷却。同向连续扩展不受影响。
+ */
+let lastWindowAdjustDir: "up" | "down" | null = null;
+let lastWindowAdjustAt = 0;
+let windowAdjustReverseCount = 0;
+let windowAdjustWindowStart = 0;
+let autoCoverSuppressedUntil = 0;
+const WINDOW_REVERSE_COOLDOWN_MS = 120;
+const WINDOW_REVERSE_WINDOW_MS = 1_000;
+const WINDOW_REVERSE_MAX = 4;
+const AUTO_COVER_SUPPRESS_MS = 400;
+
+function allowWindowAdjust(dir: "up" | "down"): boolean {
+  const now = Date.now();
+  if (lastWindowAdjustDir === null || lastWindowAdjustDir === dir) return true;
+  const cooldown =
+    now < autoCoverSuppressedUntil ? AUTO_COVER_SUPPRESS_MS : WINDOW_REVERSE_COOLDOWN_MS;
+  return now - lastWindowAdjustAt >= cooldown;
+}
+
+function noteWindowAdjust(dir: "up" | "down"): void {
+  const now = Date.now();
+  if (now - windowAdjustWindowStart > WINDOW_REVERSE_WINDOW_MS) {
+    windowAdjustWindowStart = now;
+    windowAdjustReverseCount = 0;
+  }
+  if (lastWindowAdjustDir !== null && lastWindowAdjustDir !== dir) {
+    windowAdjustReverseCount += 1;
+  }
+  lastWindowAdjustDir = dir;
+  lastWindowAdjustAt = now;
+  if (windowAdjustReverseCount > WINDOW_REVERSE_MAX) {
+    autoCoverSuppressedUntil = now + AUTO_COVER_SUPPRESS_MS;
+    windowAdjustReverseCount = 0;
+  }
+}
 let followBottom = true;
 /**
  * Latched once the user scrolls away from the live edge; cleared only when they
@@ -458,6 +512,27 @@ function estimateRangeHeight(from: number, to: number): number {
     h += estimateMessageHeight(all[i]);
   }
   return h;
+}
+
+/**
+ * 第 index 行的真实顶部位置（相对滚动内容，与 scrollTop 同坐标系）。
+ * 裁剪线判断必须用它：spacer 用的是估算高度，估算误差会把裁剪线算进视口里，
+ * 裁掉的行随即又被下一次扩展挂回来 —— 上下交替重建 DOM 正是“滚到中段必卡”的根因。
+ * 折叠跟随行 display:none，offsetTop 恒为 0，改用上一行的底部推算。
+ * 返回 null 表示窗口内没有可用的实测值，调用方退回估算。
+ */
+function measuredBoundaryTop(index: number): number | null {
+  const all = displayMessages.value;
+  const own = topById.get(all[index]?.id ?? "");
+  if (own != null && own > 0) return own;
+  for (let i = index - 1; i >= renderStart.value; i--) {
+    const id = all[i]?.id;
+    if (!id) continue;
+    const top = topById.get(id);
+    const h = heightById.get(heightKey(id));
+    if (top != null && top > 0 && h != null && h > 0) return top + h;
+  }
+  return null;
 }
 
 const topSpacerPx = computed(() => estimateRangeHeight(0, renderStart.value));
@@ -735,10 +810,10 @@ function measureVisibleRows(): void {
     if (!id) continue;
     // Use layout height for virtual window estimates.
     const h = row.offsetHeight;
-    if (h > 0) heightById.set(heightKey(id), h);
+    if (h > 0) rememberMeasure(heightById, heightKey(id), h);
     // Real layout offset inside the scroller (rows are flex children of .inner).
     const top = row.offsetTop;
-    if (top > 0 || row === rows[0]) topById.set(id, top);
+    if (top > 0 || row === rows[0]) rememberMeasure(topById, id, top);
   }
 }
 
@@ -764,9 +839,9 @@ function rowResized(id: string): void {
       const row = sc.querySelector<HTMLElement>(`.row[data-msg-id="${rowId}"]`);
       if (!row) continue;
       const h = row.offsetHeight;
-      if (h > 0) heightById.set(heightKey(rowId), h);
+      if (h > 0) rememberMeasure(heightById, heightKey(rowId), h);
       const top = row.offsetTop;
-      if (top > 0) topById.set(rowId, top);
+      if (top > 0) rememberMeasure(topById, rowId, top);
     }
     ensureViewportCovered();
   });
@@ -797,6 +872,21 @@ function ensureViewportCovered(): void {
   ) {
     expandHistoryDown();
   }
+}
+
+let viewportCoverRaf = 0;
+/**
+ * 视口补挂必须走 rAF：expandHistoryUp/Down 的 nextTick 末尾若直接同步调
+ * ensureViewportCovered，扩展会在同一个宏任务的微任务链里一路递归到
+ * renderStart===0 / renderEnd===len —— 期间浏览器既不出帧也不派发输入，
+ * 整段历史被挂成真实 DOM，窗口彻底无响应。改由下一帧续跑，每帧最多扩一轮。
+ */
+function scheduleViewportCover(): void {
+  if (viewportCoverRaf) return;
+  viewportCoverRaf = requestAnimationFrame(() => {
+    viewportCoverRaf = 0;
+    ensureViewportCovered();
+  });
 }
 
 /** 视口内首/尾两条可见行，作为窗口变更后的位置基准。 */
@@ -867,6 +957,7 @@ function scheduleWindowPrefetch(): void {
 function expandHistoryUp(): void {
   if (adjustingWindow) return;
   if (renderStart.value <= 0) return;
+  if (!allowWindowAdjust("up")) return;
   const sc = scroller.value;
   if (!sc) return;
   adjustingWindow = true;
@@ -879,8 +970,17 @@ function expandHistoryUp(): void {
   // 被裁掉的行必须在视口下方，否则底部 spacer 会顶进视口（露出空白）。
   const trimEnd = nextStart + VIRTUAL_MAX;
   if (!followBottom && trimEnd < nextEnd) {
-    const trimTop = sc.scrollHeight - bottomSpacerPx.value - estimateRangeHeight(trimEnd, nextEnd);
-    if (trimTop > sc.scrollTop + sc.clientHeight + OVERSCAN_PX) nextEnd = trimEnd;
+    const trimLineTop = measuredBoundaryTop(trimEnd);
+    if (trimLineTop != null) {
+      // 实测裁剪线：它在视口下方留够 OVERSCAN_PX，裁完就不会立刻满足向下扩展条件。
+      if (trimLineTop > sc.scrollTop + sc.clientHeight + OVERSCAN_PX) nextEnd = trimEnd;
+    } else {
+      const trimmed = estimateRangeHeight(trimEnd, nextEnd);
+      const trimTop = sc.scrollHeight - bottomSpacerPx.value - trimmed;
+      // 余量要含被裁区间的估算高度：估算偏低会让 trimTop 偏大，只留 OVERSCAN_PX
+      // 会裁到视口内的行（锚点随之丢失，scrollTop 突跳又触发新一轮调整）。
+      if (trimTop > sc.scrollTop + sc.clientHeight + OVERSCAN_PX + trimmed) nextEnd = trimEnd;
+    }
   }
   if (fitsFullMount(displayMessages.value.length)) {
     renderStart.value = 0;
@@ -888,13 +988,14 @@ function expandHistoryUp(): void {
   } else {
     alignRenderWindowToGroup(nextStart, nextEnd);
   }
+  noteWindowAdjust("up");
   void nextTick(() => {
     restoreScrollAnchor(anchor, prevHeight, prevTop);
     measureVisibleRows();
     adjustingWindow = false;
     updateStickyPinned();
     scheduleWindowPrefetch();
-    ensureViewportCovered();
+    scheduleViewportCover();
   });
 }
 
@@ -902,6 +1003,7 @@ function expandHistoryDown(): void {
   if (adjustingWindow) return;
   const len = displayMessages.value.length;
   if (renderEnd.value >= len) return;
+  if (!allowWindowAdjust("down")) return;
   const sc = scroller.value;
   if (!sc) return;
   adjustingWindow = true;
@@ -914,8 +1016,16 @@ function expandHistoryDown(): void {
   let nextStart = renderStart.value;
   const trimStart = renderEnd.value - VIRTUAL_MAX;
   if (trimStart > nextStart) {
-    const trimBottom = topSpacerPx.value + estimateRangeHeight(nextStart, trimStart);
-    if (sc.scrollTop > trimBottom + OVERSCAN_PX) nextStart = trimStart;
+    const trimLineTop = measuredBoundaryTop(trimStart);
+    if (trimLineTop != null) {
+      // 实测裁剪线：它在视口上方留够 OVERSCAN_PX，裁完就不会立刻满足向上扩展条件。
+      if (trimLineTop < sc.scrollTop - OVERSCAN_PX) nextStart = trimStart;
+    } else {
+      const trimmed = estimateRangeHeight(nextStart, trimStart);
+      const trimBottom = topSpacerPx.value + trimmed;
+      // 同上：topSpacerPx / 估算高度偏低会让 trimBottom 偏小，条件反而更容易成立。
+      if (sc.scrollTop > trimBottom + OVERSCAN_PX + trimmed) nextStart = trimStart;
+    }
   }
   if (fitsFullMount(len)) {
     renderStart.value = 0;
@@ -923,13 +1033,14 @@ function expandHistoryDown(): void {
   } else {
     alignRenderWindowToGroup(nextStart, renderEnd.value);
   }
+  noteWindowAdjust("down");
   void nextTick(() => {
     restoreScrollAnchor(anchor, prevHeight, prevTop);
     measureVisibleRows();
     adjustingWindow = false;
     updateStickyPinned();
     scheduleWindowPrefetch();
-    ensureViewportCovered();
+    scheduleViewportCover();
   });
 }
 
@@ -1522,6 +1633,10 @@ onBeforeUnmount(() => {
     cancelAnimationFrame(scrollRaf);
     scrollRaf = 0;
   }
+  if (viewportCoverRaf) {
+    cancelAnimationFrame(viewportCoverRaf);
+    viewportCoverRaf = 0;
+  }
   if (bottomScrollRaf) {
     cancelAnimationFrame(bottomScrollRaf);
     bottomScrollRaf = 0;
@@ -1601,6 +1716,19 @@ function toggleTurnDiff(id: string): void {
   if (next.has(id)) next.delete(id);
   else next.add(id);
   openTurnDiffs.value = next;
+}
+
+const openSummaries = ref(new Set<string>());
+
+function isSummaryOpen(id: string): boolean {
+  return openSummaries.value.has(id);
+}
+
+function toggleSummary(id: string): void {
+  const next = new Set(openSummaries.value);
+  if (next.has(id)) next.delete(id);
+  else next.add(id);
+  openSummaries.value = next;
 }
 
 /**
@@ -2186,6 +2314,23 @@ function onRevertUser(msg: Extract<ChatMessage, { role: "user" }>): void {
           </div>
         </template>
 
+        <template v-else-if="msg.role === 'summary'">
+          <div class="summary-card">
+            <button class="summary-head" type="button" @click="toggleSummary(msg.id)">
+              <NIcon
+                :component="isSummaryOpen(msg.id) ? ChevronDownOutline : ChevronForwardOutline"
+              />
+              <span class="summary-title">
+                {{ msg.kind === 'compaction' ? t.summaryCompaction : t.summaryBranch }}
+              </span>
+              <span v-if="msg.tokensBefore" class="summary-meta">
+                {{ t.summaryTokens(msg.tokensBefore) }}
+              </span>
+            </button>
+            <div v-if="isSummaryOpen(msg.id)" class="summary-body">{{ msg.text }}</div>
+          </div>
+        </template>
+
         <template v-else-if="msg.role === 'error'">
           <div
             class="bubble-wrap"
@@ -2740,6 +2885,54 @@ function onRevertUser(msg: Extract<ChatMessage, { role: "user" }>): void {
 
 .error-retry-btn {
   flex-shrink: 0;
+}
+
+/* 上下文压缩 / 分支摘要：折叠卡片，默认收起只留一行标题。 */
+.summary-card {
+  max-width: 100%;
+  border: 1px solid var(--border-color, rgba(128, 128, 128, 0.28));
+  border-radius: var(--radius-md, 6px);
+  background: var(--bg-subtle, rgba(128, 128, 128, 0.06));
+  overflow: hidden;
+}
+
+.summary-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 7px 11px;
+  border: none;
+  background: transparent;
+  color: var(--fg-muted, #888);
+  font-size: 12.5px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.summary-head:hover {
+  background: var(--bg-hover, rgba(128, 128, 128, 0.08));
+}
+
+.summary-title {
+  font-weight: 500;
+  color: var(--fg-strong);
+}
+
+.summary-meta {
+  margin-left: auto;
+  font-size: 11.5px;
+  opacity: 0.8;
+}
+
+.summary-body {
+  padding: 4px 12px 11px;
+  border-top: 1px solid var(--border-color, rgba(128, 128, 128, 0.18));
+  color: var(--fg-muted, #888);
+  font-size: 13px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 
 .cancelled-wrap .error-retry-btn {

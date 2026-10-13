@@ -11,6 +11,7 @@ import CustomizeGeneral from "@renderer/components/customize/CustomizeGeneral.vu
 import CustomizeSection from "@renderer/components/customize/CustomizeSection.vue";
 import CustomizeHooks from "@renderer/components/customize/CustomizeHooks.vue";
 import CustomizeTools from "@renderer/components/customize/CustomizeTools.vue";
+import WebSearchSettings from "@renderer/components/customize/WebSearchSettings.vue";
 import CustomizeModels from "@renderer/components/customize/CustomizeModels.vue";
 import CustomizeRuntime from "@renderer/components/customize/CustomizeRuntime.vue";
 import MarketSettings from "@renderer/components/MarketSettings.vue";
@@ -57,6 +58,7 @@ const sections = computed<CustomizeSectionEntry[]>(() => [
   { id: "mcp", icon: "mcp", label: t.customizeMcp, description: t.customizeMcpDesc },
   { id: "plugins", icon: "plugins", label: t.customizePlugins, description: t.customizePluginsDesc },
   { id: "tools", icon: "tools", label: t.customizeTools, description: t.customizeToolsDesc },
+  { id: "websearch", icon: "search", label: t.webSearch, description: t.webSearchDesc },
   { id: "about", icon: "about", label: t.aboutTitle, description: t.customizeAboutDesc },
 ]);
 
@@ -819,6 +821,8 @@ onUnmounted(() => {
           :tools="store.snapshot.tools"
           :builtin-extensions="store.snapshot.builtinExtensions"
         />
+
+        <WebSearchSettings v-else-if="active === 'websearch'" />
 
         <CustomizeSection
           v-else

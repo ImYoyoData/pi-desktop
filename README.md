@@ -76,14 +76,14 @@ Pi is a powerful coding agent. Pi Desktop wraps it in a **product-grade workbenc
 - **Embedded browser & element picker** — open web pages, select elements/screenshots and feed them to the agent as citations and images.
 - **Terminal, Preview & Running** — node-pty terminal, file preview with Monaco diffs, and a Running panel for background processes.
 - **Images in context** — paste images or image URLs; they are cached per session and sent to the model as base64 with a file path text-only models can locate.
-- **Trust & safety** — per-workspace trust gate, bash/write permission prompts, and an allowlist.
+- **Trust & safety** — per-workspace trust gate; tools run with the app process's own OS permissions, exactly like Pi itself.
 - **Fast & light on slow machines** — lazy-loaded UI, off-main-thread PCM encoding, and no Pi SDK import in the main-process boot path.
 
 | Layer | What you get |
 | --- | --- |
 | **Agent core** | Multi-session Pi runtime, streaming turns, tool cards with diffs, ask-user wizard |
 | **Workbench** | Changes / Running / Browser / Terminal / Preview tabs |
-| **Trust & safety** | Project trust gate, bash allowlist, permission prompts |
+| **Trust & safety** | Project trust gate; tools execute with the app's OS permissions |
 | **Ship path** | NSIS + DMG per architecture via GitHub Actions on push to `main` |
 
 ---
