@@ -12,6 +12,7 @@ import {
 } from "./agent-npm-extensions";
 import { resolveNpmRunner } from "./bundled-npm";
 import { isNewerVersion } from "../shared/update";
+import { isOfflineMode } from "../shared/offline";
 import { IpcChannels } from "../shared/protocol";
 import type { PluginUpdateProgress, PluginVersionInfo } from "../shared/pi-market";
 import type { PackageSource, SettingsManager } from "@earendil-works/pi-coding-agent";
@@ -207,12 +208,6 @@ function broadcastUpdateProgress(progress: PluginUpdateProgress): void {
 	for (const win of BrowserWindow.getAllWindows()) {
 		win.webContents.send(IpcChannels.plugins.updateProgress, progress);
 	}
-}
-
-/** 离线模式（PI_OFFLINE）下不做任何网络检查与安装。 */
-function isOfflineMode(): boolean {
-	const value = process.env.PI_OFFLINE?.trim().toLowerCase();
-	return value === "1" || value === "true" || value === "yes";
 }
 
 /** 包名合法性校验，避免拼接进命令行时被注入。 */
