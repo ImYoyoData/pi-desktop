@@ -45,16 +45,6 @@ export const IpcChannels = {
 		/** Renderer → main: 保存「流式渲染」设置（并热重载给活跃 worker）。 */
 		set: "streamRender:set",
 	},
-	tempCleanup: {
-		/** Renderer → main: 读取命令输出临时文件清理设置。 */
-		get: "tempCleanup:get",
-		/** Renderer → main: 保存清理设置（并重排定时器）。 */
-		set: "tempCleanup:set",
-		/** Renderer → main: 统计当前临时文件数量与占用字节数。 */
-		stats: "tempCleanup:stats",
-		/** Renderer → main: 立即执行一次清理，返回删除数量与释放字节数。 */
-		sweep: "tempCleanup:sweep",
-	},
 	retry: {
 		/** Renderer → main: 读取「重试」设置。 */
 		get: "retry:get",
@@ -127,10 +117,6 @@ export const IpcChannels = {
 		fork: "sessions:fork",
 		/** Clear conversation messages on disk and restart the worker (keeps session id). */
 		clearContext: "sessions:clearContext",
-		/** Main → renderer: permission strip ask */
-		permission: "sessions:permission",
-		/** Renderer → main: permission strip reply */
-		permissionReply: "sessions:permissionReply",
 		/** Main → renderer: ask_user wizard */
 		askUser: "sessions:askUser",
 		/** Renderer → main: ask_user answers */
@@ -357,14 +343,16 @@ export const IpcChannels = {
 		background: "runs:background",
 		event: "runs:event",
 	},
-	security: {
-		get: "security:get",
-		set: "security:set",
-	},
 	proxy: {
 		get: "proxy:get",
 		set: "proxy:set",
 		changed: "proxy:changed",
+	},
+	webSearchConfig: {
+		/** Renderer → main: 读取联网搜索的服务器配置。 */
+		get: "webSearchConfig:get",
+		/** Renderer → main: 保存搜索服务器配置（保留 proxy 等未纳管字段）。 */
+		set: "webSearchConfig:set",
 	},
 } as const;
 
@@ -644,6 +632,15 @@ export type SessionHistoryMessage =
 				isError?: boolean;
 				durationMs?: number;
 			}[];
+	  }
+	| {
+			id: string;
+			role: "summary";
+			text: string;
+			/** 上下文压缩摘要 / 分支摘要。 */
+			kind: "compaction" | "branch";
+			/** 压缩前的 token 数（compaction 才有）。 */
+			tokensBefore?: number;
 	  };
 
 /** Paginated leaf-path history for the chat UI (avoid loading entire huge sessions). */
@@ -684,10 +681,7 @@ export type SessionForkResult = {
 /** Renderer asks main for interaction prompts still awaiting a reply (post-reload recovery). */
 export type PendingUiSnapshotRequest = {
 	asks: import("./ask-user").AskUserAskPrompt[];
-	permissions: PendingUiPermissionSnapshot[];
 	extensionDialogs: PendingUiExtensionSnapshot[];
 };
-
-export type PendingUiPermissionSnapshot = import("./desktop-security").PermissionAskPrompt;
 
 export type PendingUiExtensionSnapshot = import("./extension-ui").ExtensionUiPending;

@@ -13,18 +13,15 @@ import {
 	appendUserMessage,
 	clearPendingAskUser,
 	clearPendingExtensionUi,
-	clearPendingPermission,
 	createChatState,
 	hasLiveTurnState,
 	reduceChatEvent,
 	setPendingAskUser,
 	setPendingExtensionUi,
-	setPendingPermission,
 	withRunClock,
 	type ChatMessage,
 	type ChatState,
 	type ChatUserImage,
-	type PendingPermission,
 } from "./chat-reducer";
 import { stripComposerModePreamble } from "../../../shared/composer-modes";
 import { useSessionsStore } from "./sessions";
@@ -53,11 +50,7 @@ import {
 	turnHasProgressBeforeError,
 } from "../utils/chat-retry-continue";
 import { t } from "../i18n";
-import {
-	isPermissionAskCancelled,
-	type PermissionAskPrompt,
-	type PermissionDecision,
-} from "../../../shared/desktop-security";
+
 import {
 	isAskUserAskCancelled,
 	type AskUserAnswerDraft,
@@ -79,19 +72,16 @@ export type {
 	ChatState,
 	ChatUserImage,
 	ChatRetryHint,
-	PendingPermission,
 } from "./chat-reducer";
 export {
 	appendUserMessage,
 	clearPendingAskUser,
 	clearPendingExtensionUi,
-	clearPendingPermission,
 	createChatState,
 	hasLiveTurnState,
 	reduceChatEvent,
 	setPendingAskUser,
 	setPendingExtensionUi,
-	setPendingPermission,
 } from "./chat-reducer";
 
 /** In-progress re-edit of a published user bubble (messages stay until commit/send). */
@@ -121,8 +111,6 @@ export const useChatStore = defineStore("chat", () => {
 	const workspaceStore = useWorkspaceStore();
 	const pendingUserEdit = ref<PendingUserEdit | null>(null);
 	const historyLoadingId = ref<string | null>(null);
-	/** Bumped when a permission ask is denied or times out — UI may toast Security remediation. */
-	const securityRemediationTick = ref(0);
 	/** requestId → UI draft kept across renderer reloads (恢复后可继续提交). */
 	const askUserDrafts = new Map<string, AskUserAnswerDraft>();
 	/** requestId → 当前题号，会话切换回来后仍停在原来那一题。 */
@@ -211,10 +199,6 @@ export const useChatStore = defineStore("chat", () => {
 		onError: (err) => console.error("[chat] buffered event apply failed", err),
 	});
 
-	function noteSecurityRemediation(): void {
-		securityRemediationTick.value += 1;
-	}
-
 	function stateFor(sessionId: string): ChatState {
 		if (!bySession[sessionId]) {
 			bySession[sessionId] = createChatState();
@@ -267,6 +251,15 @@ export const useChatStore = defineStore("chat", () => {
 				...(row.nestedCalls?.length ? { nestedCalls: row.nestedCalls } : {}),
 			};
 		}
+		if (row.role === "summary") {
+			return {
+				id: row.id,
+				role: "summary" as const,
+				text: row.text,
+				kind: row.kind,
+				...(row.tokensBefore != null ? { tokensBefore: row.tokensBefore } : {}),
+			};
+		}
 		return {
 			id: row.id,
 			role: "assistant" as const,
@@ -315,7 +308,6 @@ export const useChatStore = defineStore("chat", () => {
 			streamingMessage: s.streamingMessage,
 			retryHint: s.retryHint,
 			pendingAskUser: s.pendingAskUser,
-			pendingPermission: s.pendingPermission,
 			pendingExtensionUi: s.pendingExtensionUi,
 			turnStartedAt: s.turnStartedAt,
 			phaseStartedAt: s.phaseStartedAt,
@@ -335,12 +327,6 @@ export const useChatStore = defineStore("chat", () => {
 		const id = sessionsStore.activeId;
 		if (!id) return null;
 		return stateFor(id).pendingAskUser;
-	});
-
-	const activePendingPermission = computed(() => {
-		const id = sessionsStore.activeId;
-		if (!id) return null;
-		return stateFor(id).pendingPermission;
 	});
 
 	const activePendingExtensionUi = computed(() => {
@@ -389,33 +375,19 @@ export const useChatStore = defineStore("chat", () => {
 				questions: ask.questions,
 			});
 		}
-		for (const perm of snapshot.permissions ?? []) {
-			if (!perm?.requestId || !perm?.sessionId) continue;
-			if (stateFor(perm.sessionId).pendingPermission?.requestId === perm.requestId) continue;
-			setPendingPermissionFor(perm as PermissionAskPrompt);
-		}
 		for (const dialog of snapshot.extensionDialogs ?? []) {
 			if (!dialog || !("requestId" in dialog) || !dialog.requestId) continue;
 			if (stateFor(dialog.sessionId).pendingExtensionUi?.requestId === dialog.requestId) continue;
 			setPendingExtensionUiFor(dialog);
 		}
-		if (snapshot.asks?.length || snapshot.permissions?.length || snapshot.extensionDialogs?.length) {
+		if (snapshot.asks?.length || snapshot.extensionDialogs?.length) {
 			if (notifyStore.soundEnabled) {
 				void notifyStore.playChime();
 			}
 		}
 	}
 
-	function setPendingPermissionFor(req: PendingPermission): void {
-		setSessionState(
-			req.sessionId,
-			setPendingPermission(stateFor(req.sessionId), req),
-		);
-	}
-
-	function clearPendingPermissionFor(sessionId: string): void {
-		setSessionState(sessionId, clearPendingPermission(stateFor(sessionId)));
-	}
+	
 
 	function setPendingExtensionUiFor(req: ExtensionUiPending): void {
 		setSessionState(
@@ -428,17 +400,7 @@ export const useChatStore = defineStore("chat", () => {
 		setSessionState(sessionId, clearPendingExtensionUi(stateFor(sessionId)));
 	}
 
-	async function replyPermission(
-		sessionId: string,
-		requestId: string,
-		decision: PermissionDecision,
-	): Promise<void> {
-		clearPendingPermissionFor(sessionId);
-		if (decision === "deny") {
-			noteSecurityRemediation();
-		}
-		await window.api.sessions.permissionReply({ requestId, decision });
-	}
+	
 
 	async function replyAskUser(payload: AskUserAskReply): Promise<void> {
 		const id = sessionsStore.activeId;
@@ -628,11 +590,7 @@ export const useChatStore = defineStore("chat", () => {
 	): Promise<boolean> {
 		if (recoveringIds.has(sessionId)) return false;
 		const state = stateFor(sessionId);
-		if (
-			state.pendingAskUser ||
-			state.pendingPermission ||
-			state.pendingExtensionUi
-		) {
+		if (state.pendingAskUser || state.pendingExtensionUi) {
 			return false;
 		}
 		if (!canAutoRecoverForReason(state.autoRecoverCount, reason)) {
@@ -760,9 +718,7 @@ export const useChatStore = defineStore("chat", () => {
 			if (!state?.running || state.autoRecovering || recoveringIds.has(sessionId))
 				continue;
 			if (softHangReported.has(sessionId)) continue;
-			const waitingUser = Boolean(
-				state.pendingAskUser || state.pendingPermission || state.pendingExtensionUi,
-			);
+			const waitingUser = Boolean(state.pendingAskUser || state.pendingExtensionUi);
 			const outputSilenceMs = agentOutputSilenceMs(state, now);
 			const workerSilenceMs = agentWorkerSilenceMs(state, now);
 			// Event-loop stall (heartbeats AND output dead) — full restart + resend.
@@ -882,8 +838,8 @@ export const useChatStore = defineStore("chat", () => {
 		const mapped = history.map(mapHistoryRow);
 		const live = bySession[sessionId];
 		if (live && hasLiveTurnState(live)) {
-			// Session already has a live turn in memory (streaming tail / ask_user
-			// / permission / extension strip). The disk page read on session switch
+// Session already has a live turn in memory (streaming tail / ask_user
+			// / extension strip). The disk page read on session switch
 			// lags the live turn, so replacing state would drop the pending prompt
 			// and any un-flushed stream tail; keep it until the turn settles.
 			softHangReported.delete(sessionId);
@@ -916,7 +872,6 @@ export const useChatStore = defineStore("chat", () => {
 			retryHint: null,
 			nextToolOrder: 1,
 			pendingAskUser: null,
-			pendingPermission: null,
 			pendingExtensionUi: null,
 			turnStartedAt: null,
 			phaseStartedAt: null,
@@ -947,20 +902,6 @@ export const useChatStore = defineStore("chat", () => {
 			agentEventSink.push(event);
 		});
 		document.addEventListener("visibilitychange", handleVisibilityChange);
-		const offPermission = window.api.sessions.onPermission((req) => {
-			if (isPermissionAskCancelled(req)) {
-				const pending = stateFor(req.sessionId).pendingPermission;
-				if (pending?.requestId === req.requestId) {
-					clearPendingPermissionFor(req.sessionId);
-					noteSecurityRemediation();
-				}
-				return;
-			}
-			setPendingPermissionFor(req);
-			if (notifyStore.soundEnabled) {
-				void notifyStore.playChime();
-			}
-		});
 		const offAskUser = window.api.sessions.onAskUser((req) => {
 			if (isAskUserAskCancelled(req)) {
 				const pending = stateFor(req.sessionId).pendingAskUser;
@@ -991,7 +932,6 @@ export const useChatStore = defineStore("chat", () => {
 			agentEventSink.dispose();
 			document.removeEventListener("visibilitychange", handleVisibilityChange);
 			off();
-			offPermission();
 			offAskUser();
 			offExtensionUi();
 		});
@@ -1155,7 +1095,7 @@ export const useChatStore = defineStore("chat", () => {
 		// extension UI) immediately — don't wait for the worker cancel broadcast.
 		setSessionState(
 			sessionId,
-			clearPendingAskUser(clearPendingPermission(clearPendingExtensionUi(stateFor(sessionId)))),
+			clearPendingAskUser(clearPendingExtensionUi(stateFor(sessionId))),
 		);
 
 		// User-initiated stop: freeze the todo round as paused — the user
@@ -1523,16 +1463,13 @@ export const useChatStore = defineStore("chat", () => {
 		activeWaitState,
 		activeRetryHint,
 		activePendingAskUser,
-		activePendingPermission,
 		activePendingExtensionUi,
-		securityRemediationTick,
 		bindEvents,
 		clearPendingAskUserFor,
 		readAskDraft,
 		writeAskDraft,
 		readAskStep,
 		writeAskStep,
-		replyPermission,
 		replyAskUser,
 		replyExtensionUi,
 		beginHistoryLoad,

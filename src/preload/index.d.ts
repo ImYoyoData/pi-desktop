@@ -58,11 +58,6 @@ import type {
 	PluginUpdateProgress,
 	PluginVersionInfo,
 } from "../shared/pi-market";
-import type {
-	DesktopSecuritySettings,
-	PermissionAskReply,
-	PermissionAskRequest,
-} from "../shared/desktop-security";
 import type { AskUserAskReply, AskUserAskRequest } from "../shared/ask-user";
 import type {
 	ExtensionUiEvent,
@@ -76,7 +71,7 @@ import type {
 import type { ProxySettings } from "../shared/proxy";
 import type { ThinkingLanguageSettings } from "../shared/thinking-language";
 import type { StreamRenderSettings } from "../shared/stream-render";
-import type { TempCleanupSettings } from "../shared/temp-cleanup";
+import type { WebSearchConfigState, WebSearchSettings } from "../shared/web-search-config";
 export type AppInfo = {
 	version: string;
 	githubUrl: string;
@@ -223,13 +218,6 @@ declare const api: {
 		getInfo: (sessionId: string) => Promise<SessionInfoResult>;
 		onWorkerReady: (callback: (sessionId: string) => void) => () => void;
 		onEvent: (callback: (event: AgentEvent) => void) => () => void;
-		onPermission: (
-			callback: (payload: PermissionAskRequest) => void,
-		) => () => void;
-		permissionReply: (payload: PermissionAskReply) => Promise<{
-			ok: boolean;
-			reason?: string;
-		}>;
 		onAskUser: (callback: (payload: AskUserAskRequest) => void) => () => void;
 		askUserReply: (payload: AskUserAskReply) => Promise<{
 			ok: boolean;
@@ -1012,11 +1000,7 @@ declare const api: {
 			focused: boolean;
 			error?: string;
 		}>;
-		onOpenSession: (callback: (payload: { sessionId: string }) => void) => () => void;
-	};
-	security: {
-		get: () => Promise<DesktopSecuritySettings>;
-		set: (settings: DesktopSecuritySettings) => Promise<void>;
+		onOpenSession: (callback: (payload: { sessionId: string; cwd?: string }) => void) => () => void;
 	};
 	thinkingLanguage: {
 		get: () => Promise<ThinkingLanguageSettings>;
@@ -1026,11 +1010,9 @@ declare const api: {
 		get: () => Promise<StreamRenderSettings>;
 		set: (settings: StreamRenderSettings) => Promise<StreamRenderSettings>;
 	};
-	tempCleanup: {
-		get: () => Promise<TempCleanupSettings>;
-		set: (settings: TempCleanupSettings) => Promise<TempCleanupSettings>;
-		sweep: () => Promise<{ removed: number; bytes: number }>;
-		stats: () => Promise<{ count: number; bytes: number }>;
+	webSearchConfig: {
+		get: () => Promise<WebSearchConfigState>;
+		set: (settings: WebSearchSettings) => Promise<WebSearchConfigState>;
 	};
 	appearance: {
 		pickWallpaper: () => Promise<string | null>;

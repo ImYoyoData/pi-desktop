@@ -34,7 +34,6 @@ import { createBrowserTabRegistry } from "./browser-tab-registry";
 import { createBrowserAutomationHost } from "./browser-automation-host";
 import type { BrowserRpcMethod } from "../shared/browser-automation";
 import type { WorkerOutbound } from "../shared/agent-worker-messages";
-import type { SecurityCategory } from "../shared/desktop-security";
 import { registerPreviewIpc } from "./preview-ipc";
 import { registerPreviewWatchIpc } from "./preview-watch-host";
 import { registerTerminalIpc, disposeAllTerminals } from "./terminal-host";
@@ -54,11 +53,7 @@ import { registerCheckpointIpc } from "./checkpoint-ipc";
 import { initRetrySettings, registerRetryIpc } from "./retry-ipc";
 import { registerRuntimeSettingsIpc } from "./runtime-settings-ipc";
 import { registerNotifyIpc } from "./notify-host";
-import {
-	askRendererPermission,
-	cancelPermissionAsk,
-	registerPermissionAskIpc,
-} from "./permission-ask-host";
+
 import {
 	askRendererAskUser,
 	cancelAskUserAsk,
@@ -69,11 +64,9 @@ import {
 	handleExtensionUiRpc,
 	registerExtensionUiIpc,
 } from "./extension-ui-host";
-import { registerSecurityIpc } from "./security-ipc";
 import { registerThinkingLanguageIpc } from "./thinking-language-ipc";
 import { registerStreamRenderIpc } from "./stream-render-ipc";
-import { registerTempCleanupIpc } from "./temp-cleanup-ipc";
-import { registerTempCleanup } from "./temp-cleanup-host";
+
 import { registerAppearanceIpc } from "./appearance-ipc";
 import { ensurePiAgentEnvironment } from "./pi-env";
 import { migrateLegacyProviderIds } from "./provider-id-migration";
@@ -204,27 +197,7 @@ function boot(): void {
 			void (async () => {
 				try {
 					let result: unknown;
-					if (msg.method === "desktop.permissionAsk") {
-						const params = msg.params ?? {};
-						const category = params.category;
-						const toolName =
-							typeof params.toolName === "string" ? params.toolName : "";
-						const summary = typeof params.summary === "string" ? params.summary : "";
-						if (category !== "bash" && category !== "write") {
-							throw new Error("desktop.permissionAsk: invalid category");
-						}
-						if (!toolName) {
-							throw new Error("desktop.permissionAsk: toolName required");
-						}
-						result = await askRendererPermission({
-							sessionId,
-							requestId: msg.id,
-							category: category as SecurityCategory,
-							toolName,
-							summary,
-							danger: params.danger === true,
-						});
-					} else if (msg.method === "desktop.askUser") {
+					if (msg.method === "desktop.askUser") {
 						const questions = questionsFromAskUserParams(msg.params ?? {});
 						if (!questions.length) {
 							throw new Error("desktop.askUser: invalid or empty questions");
@@ -242,7 +215,6 @@ function boot(): void {
 							typeof params.requestId === "string" ? params.requestId : "";
 						if (requestId) {
 							cancelAskUserAsk(requestId);
-							cancelPermissionAsk(requestId);
 						}
 						result = { ok: true };
 					} else if (msg.method === "desktop.extensionUi") {
@@ -360,17 +332,14 @@ function boot(): void {
 		registerSessionsIpc(broker);
 		registerAgentRunsIpc(registryHolder.current!);
 		registerModelsIpc(broker);
-		registerPermissionAskIpc();
 		registerAskUserIpc();
 		registerExtensionUiIpc();
-		registerSecurityIpc(broker);
 		registerThinkingLanguageIpc();
 		registerStreamRenderIpc(broker);
 		registerRetryIpc(broker);
 		initRetrySettings();
 		registerRuntimeSettingsIpc(broker);
-		registerTempCleanupIpc();
-		registerTempCleanup();
+		
 		registerAppearanceIpc();
 		registerPreviewIpc();
 		registerPreviewWatchIpc();
@@ -382,7 +351,7 @@ function boot(): void {
 		registerSkillsIpc(broker);
 		registerBrowserIpc();
 		registerTerminalIpc();
-		registerNotifyIpc();
+		registerNotifyIpc(broker);
 		registerCheckpointIpc();
 		electronApp.setAppUserModelId("com.pi.desktop");
 		markStartup("main:ipc-critical-done");

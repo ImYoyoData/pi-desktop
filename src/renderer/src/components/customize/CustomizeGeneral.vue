@@ -2,8 +2,6 @@
 import { NButton, NText, useMessage } from "naive-ui";
 import NotifySettings from "@renderer/components/NotifySettings.vue";
 import ProxySettings from "@renderer/components/ProxySettings.vue";
-import SecuritySettings from "@renderer/components/SecuritySettings.vue";
-import TempCleanupSettings from "@renderer/components/customize/TempCleanupSettings.vue";
 import { t } from "@renderer/i18n";
 
 const message = useMessage();
@@ -22,13 +20,7 @@ async function onOpenDevTools(): Promise<void> {
     <NotifySettings />
 
     <div class="general-divider" />
-    <SecuritySettings />
-
-    <div class="general-divider" />
     <ProxySettings />
-
-    <div class="general-divider" />
-    <TempCleanupSettings />
 
     <div class="general-divider" />
     <div class="switch-row">

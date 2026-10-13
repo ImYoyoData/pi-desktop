@@ -40,9 +40,7 @@ export type BashRunTrackerHooks = {
 	onEnded: (runId: string) => void;
 	/** Fired when the bash tool detaches; process may still be running. */
 	onBackgrounded?: (runId: string) => void;
-	/** Defense-in-depth permission check before shell spawn (bash only). */
-	beforeExec?: (command: string) => void;
-	/** When true, start detached from the tool call (permission "后台运行"). */
+	/** When true, start detached from the tool call. */
 	shouldStartBackground?: (command: string) => boolean;
 	/** bash 命令前执行的片段（pi 的 shellCommandPrefix），PowerShell 不使用。 */
 	commandPrefix?: string;
@@ -372,7 +370,6 @@ export function createTrackedBashOperations(
 		const operations: BashOperations = {
 			exec: async (command, cwd, options) => {
 				const { command: spawnCommand } = stripBashBackgroundMarker(command);
-				hooks.beforeExec?.(spawnCommand);
 				const startBg = Boolean(hooks.shouldStartBackground?.(command));
 				const id = randomUUID();
 				const local = new AbortController();
@@ -459,7 +456,6 @@ export function createTrackedBashOperations(
 	const operations: BashOperations = {
 		exec: async (command, cwd, options) => {
 			const { command: spawnCommand } = stripBashBackgroundMarker(command);
-			hooks.beforeExec?.(spawnCommand);
 			const startBg = Boolean(hooks.shouldStartBackground?.(command));
 			const id = randomUUID();
 			const local = new AbortController();

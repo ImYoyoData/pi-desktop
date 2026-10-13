@@ -19,10 +19,6 @@ const notifyOn = computed({
 
 <template>
   <section class="settings-group">
-    <div class="section-head">
-      <NText strong>{{ t.notifyTitle }}</NText>
-    </div>
-
     <div class="switch-row">
       <div class="switch-labels">
         <NText strong>{{ t.notifySound }}</NText>
@@ -54,13 +50,6 @@ const notifyOn = computed({
   gap: 12px;
 }
 
-.section-head {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.section-hint,
 .row-hint {
   font-size: 12px;
   line-height: 16px;
