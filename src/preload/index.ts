@@ -62,11 +62,6 @@ import type {
 	PluginUpdateProgress,
 	PluginVersionInfo,
 } from "../shared/pi-market";
-import type {
-	DesktopSecuritySettings,
-	PermissionAskReply,
-	PermissionAskRequest,
-} from "../shared/desktop-security";
 import type { AskUserAskReply, AskUserAskRequest } from "../shared/ask-user";
 import type {
 	ExtensionUiEvent,
@@ -80,7 +75,7 @@ import type {
 import type { ProxySettings } from "../shared/proxy";
 import type { ThinkingLanguageSettings } from "../shared/thinking-language";
 import type { StreamRenderSettings } from "../shared/stream-render";
-import type { TempCleanupSettings } from "../shared/temp-cleanup";
+
 import type { RetrySettings } from "../shared/retry-settings";
 import type { RuntimeSettings } from "../shared/runtime-settings";
 
@@ -456,24 +451,7 @@ const api = {
 				ipcRenderer.removeListener(IpcChannels.sessions.event, listener);
 			};
 		},
-		onPermission: (callback: (payload: PermissionAskRequest) => void) => {
-			const listener = (
-				_event: Electron.IpcRendererEvent,
-				payload: PermissionAskRequest,
-			) => callback(payload);
-			ipcRenderer.on(IpcChannels.sessions.permission, listener);
-			return () => {
-				ipcRenderer.removeListener(IpcChannels.sessions.permission, listener);
-			};
-		},
-		permissionReply: (payload: PermissionAskReply) =>
-			ipcRenderer.invoke(
-				IpcChannels.sessions.permissionReply,
-				payload,
-			) as Promise<{
-				ok: boolean;
-				reason?: string;
-			}>,
+		
 		onAskUser: (callback: (payload: AskUserAskRequest) => void) => {
 			const listener = (
 				_event: Electron.IpcRendererEvent,
@@ -1554,24 +1532,16 @@ const api = {
 				focused: boolean;
 				error?: string;
 			}>,
-		onOpenSession: (callback: (payload: { sessionId: string }) => void) => {
+		onOpenSession: (callback: (payload: { sessionId: string; cwd?: string }) => void) => {
 			const listener = (
 				_event: Electron.IpcRendererEvent,
-				payload: { sessionId: string },
+				payload: { sessionId: string; cwd?: string },
 			) => callback(payload);
 			ipcRenderer.on(IpcChannels.notify.openSession, listener);
 			return () => {
 				ipcRenderer.removeListener(IpcChannels.notify.openSession, listener);
 			};
 		},
-	},
-	security: {
-		get: () =>
-			ipcRenderer.invoke(
-				IpcChannels.security.get,
-			) as Promise<DesktopSecuritySettings>,
-		set: (settings: DesktopSecuritySettings) =>
-			ipcRenderer.invoke(IpcChannels.security.set, settings) as Promise<void>,
 	},
 	thinkingLanguage: {
 		get: () =>
@@ -1595,25 +1565,7 @@ const api = {
 				settings,
 			) as Promise<StreamRenderSettings>,
 	},
-	tempCleanup: {
-		get: () =>
-			ipcRenderer.invoke(IpcChannels.tempCleanup.get) as Promise<TempCleanupSettings>,
-		set: (settings: TempCleanupSettings) =>
-			ipcRenderer.invoke(
-				IpcChannels.tempCleanup.set,
-				settings,
-			) as Promise<TempCleanupSettings>,
-		sweep: () =>
-			ipcRenderer.invoke(IpcChannels.tempCleanup.sweep) as Promise<{
-				removed: number;
-				bytes: number;
-			}>,
-		stats: () =>
-			ipcRenderer.invoke(IpcChannels.tempCleanup.stats) as Promise<{
-				count: number;
-				bytes: number;
-			}>,
-	},
+	
 	appearance: {
 		pickWallpaper: () =>
 			ipcRenderer.invoke(IpcChannels.appearance.pickWallpaper) as Promise<

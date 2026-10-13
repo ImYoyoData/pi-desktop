@@ -32,11 +32,6 @@ import {
   type QueuedSendItem,
 } from "@renderer/stores/send-queue";
 import { useSessionsStore } from "@renderer/stores/sessions";
-import {
-  permissionProfileLabel,
-  permissionProfileOptions,
-  useSecurityStore,
-} from "@renderer/stores/security";
 import { useWorkspaceStore } from "@renderer/stores/workspace";
 import { useAppearanceStore } from "@renderer/stores/appearance";
 import { useRightTabsStore } from "@renderer/stores/right-tabs";
@@ -54,7 +49,6 @@ import {
   isComposerAgentMode,
   type ComposerAgentMode,
 } from "../../../shared/composer-modes";
-import type { PermissionProfile } from "../../../shared/desktop-security";
 import {
   filterSlashItems,
   isSlashBuiltinId,
@@ -704,29 +698,6 @@ const modeMenuItems = computed<ModeMenuItem[]>(() => [
 
 const modeBubbleShow = ref(false);
 
-const security = useSecurityStore();
-const permBubbleShow = ref(false);
-const permissionOptions = computed(() => permissionProfileOptions());
-const activePermissionLabel = computed(() =>
-  permissionProfileLabel(security.profile),
-);
-
-/** 打开气泡时重新拉取，其它入口的改动不会漏。 */
-function onPermBubbleShow(show: boolean): void {
-  permBubbleShow.value = show;
-  if (show) void security.load().catch(() => {});
-}
-
-async function onPermissionPick(value: PermissionProfile): Promise<void> {
-  permBubbleShow.value = false;
-  if (security.profile === value) return;
-  try {
-    await security.setProfile(value);
-  } catch (err) {
-    messageApi.error(err instanceof Error ? err.message : String(err));
-  }
-}
-
 const activeModeLabel = computed(() => modeTagLabel(composer.mode));
 
 function onModePick(mode: ComposerAgentMode): void {
@@ -1317,8 +1288,7 @@ const contextToolCount = computed(() => {
 /** Real cumulative session LLM cost in USD (from Pi getSessionStats). */
 const contextCostLabel = computed(() => {
   const cost = contextUsage.value?.costUsd;
-  if (cost == null || !Number.isFinite(cost) || cost <= 0) return "";
-  return `$${cost.toFixed(2)}`;
+  return positive(cost) ? formatSessionCost(cost) : "";
 });
 
 /** True when the context is at/past the manual-compact line (70% of the real window). */
@@ -1647,7 +1617,7 @@ const sessionStats = computed<SessionStatItem[] | null>(() => {
     if (item) items.push(item);
   };
   push(
-    u.turns != null && u.turns > 0
+    positive(u.turns)
       ? {
           key: "turns",
           label: t.sessionStatsTurns,
@@ -1661,7 +1631,7 @@ const sessionStats = computed<SessionStatItem[] | null>(() => {
       : null,
   );
   push(
-    u.steps != null && u.steps > 0
+    positive(u.steps)
       ? {
           key: "steps",
           label: t.sessionStatsSteps,
@@ -1670,7 +1640,7 @@ const sessionStats = computed<SessionStatItem[] | null>(() => {
       : null,
   );
   push(
-    u.toolCalls != null && u.toolCalls > 0
+    positive(u.toolCalls)
       ? {
           key: "tools",
           label: t.sessionStatsToolCalls,
@@ -1678,67 +1648,150 @@ const sessionStats = computed<SessionStatItem[] | null>(() => {
         }
       : null,
   );
-  if (u.tokensPerSecond != null && u.tokensPerSecond > 0) {
-    push({
-      key: "tps",
-      label: t.sessionStatsTps,
-      value: formatSessionTps(u.tokensPerSecond),
-    });
-  }
-  if (
-    u.cacheReadTokens != null &&
-    u.inputTokens != null &&
-    u.cacheWriteTokens != null &&
-    u.inputTokens + u.cacheReadTokens + u.cacheWriteTokens > 0
-  ) {
-    const pct = Math.min(
-      100,
-      Math.round(
-        (u.cacheReadTokens /
-          (u.inputTokens + u.cacheReadTokens + u.cacheWriteTokens)) *
-          100,
-      ),
-    );
-    push({
-      key: "cacheHit",
-      label: t.sessionStatsCacheHit,
-      value: formatSessionCacheHit(pct),
-    });
-  }
-  if (u.inputTokens != null && u.inputTokens > 0) {
-    push({
-      key: "input",
-      label: t.sessionStatsInputTokens,
-      value: formatSessionTokens(u.inputTokens),
-    });
-  }
-  if (u.outputTokens != null && u.outputTokens > 0) {
-    push({
-      key: "output",
-      label: t.sessionStatsOutputTokens,
-      value: formatSessionTokens(u.outputTokens),
-    });
-  }
+  push(
+    positive(u.messageCount)
+      ? {
+          key: "messages",
+          label: t.sessionStatsMessages,
+          value: formatNum(u.messageCount),
+        }
+      : null,
+  );
+  push(
+    positive(u.tokensPerSecond)
+      ? {
+          key: "tps",
+          label: t.sessionStatsTps,
+          value: formatSessionTps(u.tokensPerSecond),
+        }
+      : null,
+  );
+  push(
+    positive(u.ttftMs) && positive(u.ttftSteps)
+      ? {
+          key: "ttft",
+          label: t.sessionStatsTtft,
+          value: formatSessionTtft(u.ttftMs),
+        }
+      : null,
+  );
+  const cacheTotal =
+    (u.inputTokens ?? 0) + (u.cacheReadTokens ?? 0) + (u.cacheWriteTokens ?? 0);
+  push(
+    positive(u.cacheReadTokens) && cacheTotal > 0
+      ? {
+          key: "cacheHit",
+          label: t.sessionStatsCacheHit,
+          value: formatSessionCacheHit(
+            Math.min(
+              100,
+              Math.round(((u.cacheReadTokens ?? 0) / cacheTotal) * 100),
+            ),
+          ),
+        }
+      : null,
+  );
+  push(
+    positive(u.cacheReadTokens)
+      ? {
+          key: "cacheRead",
+          label: t.sessionStatsCacheRead,
+          value: formatSessionTokens(u.cacheReadTokens),
+        }
+      : null,
+  );
+  push(
+    positive(u.cacheWriteTokens)
+      ? {
+          key: "cacheWrite",
+          label: t.sessionStatsCacheWrite,
+          value: formatSessionTokens(u.cacheWriteTokens),
+        }
+      : null,
+  );
+  push(
+    positive(u.inputTokens)
+      ? {
+          key: "input",
+          label: t.sessionStatsInputTokens,
+          value: formatSessionTokens(u.inputTokens),
+        }
+      : null,
+  );
+  push(
+    positive(u.outputTokens)
+      ? {
+          key: "output",
+          label: t.sessionStatsOutputTokens,
+          value: formatSessionTokens(u.outputTokens),
+        }
+      : null,
+  );
+  push(
+    positive(u.costUsd)
+      ? {
+          key: "cost",
+          label: t.sessionStatsCost,
+          value: formatSessionCost(u.costUsd),
+        }
+      : null,
+  );
+  push(
+    positive(u.llmDurationMs)
+      ? {
+          key: "duration",
+          label: t.sessionStatsDuration,
+          value: formatSessionDuration(u.llmDurationMs),
+        }
+      : null,
+  );
   return items.length > 0 ? items : null;
 });
 
 
-function formatSessionTps(n: number | null): string {
+/** 会话统计只渲染有数据的项：null、非有限值与零值一律视为无数据。 */
+function positive(n: number | null | undefined): boolean {
+  return n != null && Number.isFinite(n) && n > 0;
+}
+
+function formatSessionTps(n: number | null | undefined): string {
   if (n == null || !Number.isFinite(n) || n <= 0) return "—";
   return t.sessionStatsTpsFormat(n >= 100 ? n.toFixed(0) : n.toFixed(1));
 }
 
-function formatSessionCacheHit(p: number | null): string {
+function formatSessionCacheHit(p: number | null | undefined): string {
   if (p == null) return "—";
   return t.sessionStatsCacheHitFormat(String(p));
 }
 
-function formatSessionTokens(n: number | null): string {
+function formatSessionTtft(ms: number | null | undefined): string {
+  if (ms == null || !Number.isFinite(ms) || ms <= 0) return "—";
+  return ms < 1000 ? `${Math.round(ms)}ms` : `${(ms / 1000).toFixed(1)}s`;
+}
+
+function formatSessionCost(usd: number | null | undefined): string {
+  if (usd == null || !Number.isFinite(usd) || usd <= 0) return "—";
+  return `$${usd.toFixed(2)}`;
+}
+
+function formatSessionDuration(ms: number | null | undefined): string {
+  if (ms == null || !Number.isFinite(ms) || ms <= 0) return "—";
+  const totalSec = Math.round(ms / 1000);
+  if (totalSec < 60) return `${totalSec}s`;
+  const totalMin = Math.floor(totalSec / 60);
+  if (totalMin < 60) return `${totalMin}m`;
+  const hours = Math.floor(totalMin / 60);
+  const restMin = totalMin % 60;
+  return restMin ? `${hours}h ${restMin}m` : `${hours}h`;
+}
+
+function formatSessionTokens(n: number | null | undefined): string {
   if (n == null || !Number.isFinite(n) || n < 0) return "—";
+  if (n >= 1_000_000) return t.sessionStatsTokensFormat(`${(n / 1_000_000).toFixed(1)}M`);
   return t.sessionStatsTokensFormat(n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n));
 }
 
-function formatNum(n: number | null): string {
+function formatNum(n: number | null | undefined): string {
   return n == null ? "—" : String(n);
 }
 
@@ -2090,7 +2143,6 @@ function onPaste(event: ClipboardEvent): void {
 onMounted(() => {
   composer.bindSession(sessionId.value);
   void refreshModels();
-  void security.load().catch(() => {});
   window.addEventListener("pi-models-changed", onModelsChanged);
   keybindings.register("cycle-model", cycleModel);
   keybindings.register("cycle-thinking", cycleThinking);
@@ -2359,62 +2411,6 @@ watch(
               <span class="think-label">{{ thinkingLabel }}</span>
             </NButton>
           </NDropdown>
-
-          <NPopover
-            trigger="click"
-            placement="top-end"
-            :show-arrow="true"
-            :show="permBubbleShow"
-            raw
-            @update:show="onPermBubbleShow"
-          >
-            <template #trigger>
-              <NButton
-                quaternary
-                size="tiny"
-                class="mode-btn"
-                :title="t.securityPermissionMode"
-                :aria-expanded="permBubbleShow"
-                :aria-haspopup="true"
-              >
-                <span class="mode-label">{{ activePermissionLabel }}</span>
-              </NButton>
-            </template>
-            <div
-              class="mode-bubble"
-              role="listbox"
-              :aria-label="t.securityPermissionMode"
-            >
-              <button
-                v-for="item in permissionOptions"
-                :key="item.value"
-                type="button"
-                class="mode-option"
-                role="option"
-                :aria-selected="security.profile === item.value"
-                :class="{ active: security.profile === item.value }"
-                @click="onPermissionPick(item.value)"
-              >
-                <div class="mode-option-main">
-                  <span class="mode-option-name">{{ item.label }}</span>
-                  <span class="mode-option-hint">{{ item.hint }}</span>
-                </div>
-                <NIcon
-                  v-if="security.profile === item.value"
-                  class="mode-option-check"
-                  :component="CheckmarkOutline"
-                  :size="14"
-                />
-              </button>
-            </div>
-          </NPopover>
-        </div>
-
-        <div v-if="appearance.showSessionDetails && sessionStats" class="session-stats" role="status" aria-label="session statistics">
-          <span v-for="item in sessionStats" :key="item.key" class="ss-item" :title="item.title">
-            <span class="ss-label">{{ item.label }}</span>
-            <strong>{{ item.value }}</strong>
-          </span>
         </div>
 
         <div class="toolbar-right">
@@ -2540,7 +2536,13 @@ watch(
         </div>
       </div>
     </div>
+    </div>
 
+    <div v-if="appearance.showSessionDetails && sessionStats" class="session-stats" role="status" aria-label="session statistics">
+      <span v-for="item in sessionStats" :key="item.key" class="ss-item" :title="item.title">
+        <span class="ss-label">{{ item.label }}</span>
+        <strong>{{ item.value }}</strong>
+      </span>
     </div>
   </div>
 </template>
@@ -2675,11 +2677,6 @@ watch(
 .composer-footer {
   position: relative;
   min-width: 0;
-}
-
-.composer-footer .toolbar {
-  /* Keep layout height while covered so the card does not jump. */
-  transition: none;
 }
 
 .image-attachments {
@@ -2874,8 +2871,8 @@ watch(
   justify-content: center;
   flex-wrap: wrap;
   gap: 2px 6px;
-  flex: 1;
   min-width: 0;
+  padding: 0 8px;
   color: var(--fg-muted, #71717a);
   font-size: 11px;
   line-height: 1.4;

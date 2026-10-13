@@ -6,7 +6,6 @@ import type { Messages } from "@renderer/i18n";
 export type KeybindingId =
   | "new-session"
   | "select-sessions"
-  | "cycle-permission"
   | "new-terminal"
   | "close-terminal"
   | "open-file"
@@ -37,7 +36,6 @@ export interface BuiltinShortcut {
 export const KEYBINDINGS: KeybindingDef[] = [
   { id: "new-session", labelKey: "hotkeyNewSession", defaultAccel: "Control+N" },
   { id: "select-sessions", labelKey: "hotkeySelectSessions", defaultAccel: "Control+P" },
-  { id: "cycle-permission", labelKey: "hotkeyCyclePermission", defaultAccel: "Control+M" },
   { id: "new-terminal", labelKey: "hotkeyNewTerminal", defaultAccel: "Control+`" },
   { id: "close-terminal", labelKey: "hotkeyCloseTerminal", defaultAccel: "Shift+Escape" },
   { id: "open-file", labelKey: "hotkeyOpenFile", defaultAccel: "Control+E" },

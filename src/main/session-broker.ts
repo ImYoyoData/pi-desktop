@@ -4,7 +4,7 @@ import type {
   WorkerInbound,
   WorkerOutbound,
 } from "../shared/agent-worker-messages";
-import type { DesktopSecuritySettings } from "../shared/desktop-security";
+
 import type { StreamRenderSettings } from "../shared/stream-render";
 import type {
   AgentCommand,
@@ -159,10 +159,6 @@ export type SessionBroker = {
   /** Wipe chat history for a session (disk + live worker) while keeping the same session id. */
   clearContext: (sessionId: string, cwd: string) => Promise<void>;
   notifyWorkersReloadModels: () => Promise<void>;
-  /** Hot-reload desktopSecurity into live workers (no restart). */
-  notifyWorkersReloadSecurity: (
-    desktopSecurity: DesktopSecuritySettings,
-  ) => Promise<void>;
   /** Hot-reload the streaming render switch into live workers (no restart). */
   notifyWorkersReloadStreamRender: (
     streamRender: StreamRenderSettings,
@@ -187,6 +183,8 @@ export type SessionBroker = {
     sessionId: string,
     patch: Partial<Pick<SessionSummary, "name" | "firstMessage" | "modified">>,
   ) => SessionSummary | null;
+  /** 已注册会话的工作目录（通知点击跳转用）；未注册返回 null。 */
+  cwdOfSession: (sessionId: string) => string | null;
   onEvent: (cb: (event: AgentEvent) => void) => () => void;
 };
 
@@ -865,6 +863,10 @@ export function createSessionBroker(deps: {
     return { ...rec.summary };
   }
 
+  function cwdOfSession(sessionId: string): string | null {
+    return sessions.get(sessionId)?.cwd ?? null;
+  }
+
   async function openSession(
     sessionId: string,
     cwd: string,
@@ -1240,17 +1242,6 @@ export function createSessionBroker(deps: {
     }
   }
 
-  async function notifyWorkersReloadSecurity(
-    desktopSecurity: DesktopSecuritySettings,
-  ): Promise<void> {
-    const ids = [...sessions.entries()]
-      .filter(([, rec]) => rec.worker !== null)
-      .map(([id]) => id);
-    for (const id of ids) {
-      await sendRawIfAlive(id, { kind: "reload_security", desktopSecurity });
-    }
-  }
-
   async function notifyWorkersReloadStreamRender(
     streamRender: StreamRenderSettings,
   ): Promise<void> {
@@ -1294,10 +1285,10 @@ export function createSessionBroker(deps: {
     purgeWorkspace,
     clearContext,
     notifyWorkersReloadModels,
-    notifyWorkersReloadSecurity,
     notifyWorkersReloadStreamRender,
     notifyWorkersReloadResources,
     patchSummary,
+    cwdOfSession,
     persistUserMessageMeta,
     cacheImage,
     deleteCachedImage,

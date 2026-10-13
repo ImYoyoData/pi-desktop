@@ -784,8 +784,8 @@ onMounted(async () => {
   markRendererStartup("renderer:sidebar-mounted");
   keybindings.register("new-session", () => void onNewAgent());
   keybindings.register("select-sessions", enterSelectMode);
-  offNotifyOpen = window.api.notify.onOpenSession(({ sessionId }) => {
-    void onNotifyOpenSession(sessionId);
+  offNotifyOpen = window.api.notify.onOpenSession(({ sessionId, cwd }) => {
+    void onNotifyOpenSession(sessionId, cwd);
   });
   loadPins();
   loadSessionOrders();
@@ -1266,13 +1266,21 @@ async function onSelectSession(root: string, sessionId: string): Promise<void> {
 
 let offNotifyOpen: (() => void) | undefined;
 
-async function onNotifyOpenSession(sessionId: string): Promise<void> {
-  const root =
+async function onNotifyOpenSession(sessionId: string, cwd?: string): Promise<void> {
+  const root = resolveNotifyRoot(sessionId, cwd);
+  if (!root) return;
+  await onSelectSession(root, sessionId);
+}
+
+/** 定位会话所在工作区：侧栏缓存 → store 列表 → 主进程下发的 cwd（列表未加载时唯一线索）。 */
+function resolveNotifyRoot(sessionId: string, cwd?: string): string | null {
+  const known =
     rootOfSession(sessionId) ??
     sessionsStore.sessions.find((s) => s.id === sessionId)?.cwd ??
     null;
-  if (!root) return;
-  await onSelectSession(root, sessionId);
+  if (known) return known;
+  if (!cwd) return null;
+  return allWorkspacePaths.value.find((p) => sameWorkspacePath(p, cwd)) ?? cwd;
 }
 
 async function onKill(): Promise<void> {
@@ -1591,11 +1599,7 @@ function isRunning(status: SessionStatus): boolean {
 
 function hasPendingAsk(sessionId: string): boolean {
   const state = chatStore.bySession[sessionId];
-  return Boolean(
-    state?.pendingAskUser ||
-      state?.pendingPermission ||
-      state?.pendingExtensionUi,
-  );
+  return Boolean(state?.pendingAskUser || state?.pendingExtensionUi);
 }
 
 const justEnded = reactive(new Set<string>());

@@ -4,8 +4,6 @@ import {
   BROWSER_RPC_TIMEOUT_MS,
   type BrowserRpcMethod,
 } from "../shared/browser-automation";
-import { PERMISSION_ASK_TIMEOUT_MS } from "../shared/desktop-security";
-
 type Pending = {
   resolve: (value: unknown) => void;
   reject: (err: Error) => void;
@@ -15,8 +13,7 @@ type Pending = {
 const pending = new Map<string, Pending>();
 let workspaceRoot: string | null = null;
 
-/** Default RPC timeout; permission asks use {@link PERMISSION_ASK_TIMEOUT_MS}. */
-export { PERMISSION_ASK_TIMEOUT_MS };
+/** Default RPC timeout for worker → main calls. */
 
 function post(msg: WorkerOutbound): void {
   process.parentPort?.postMessage(msg);

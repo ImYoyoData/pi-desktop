@@ -1,6 +1,5 @@
 import type { AgentEvent } from "../../../shared/protocol";
 import type { AskUserPrompt } from "../../../shared/ask-user";
-import type { PermissionAskPrompt } from "../../../shared/desktop-security";
 import type { ExtensionUiPending } from "../../../shared/extension-ui";
 import { formatLlmError } from "../utils/llm-error";
 import { locale as uiLocalePref, t } from "../i18n";
@@ -18,7 +17,7 @@ export type ChatUserImage = {
 	dataUrl: string;
 };
 
-export type PendingPermission = PermissionAskPrompt;
+
 
 /** 由工具内部调用（ctx.executeTool，如 codemode 脚本）产生的嵌套调用。 */
 export type ChatToolNestedCall = {
@@ -82,6 +81,15 @@ export type ChatMessage =
 	  }
 	| {
 			id: string;
+			role: "summary";
+			text: string;
+			/** 上下文压缩摘要 / 分支摘要。 */
+			kind: "compaction" | "branch";
+			/** 压缩前的 token 数。 */
+			tokensBefore?: number;
+	  }
+	| {
+			id: string;
 			role: "error";
 			text: string;
 			variant?: "error" | "cancelled";
@@ -106,8 +114,6 @@ export type ChatState = {
 	nextToolOrder: number;
 	/** Interactive ask_user strip; null when none / discarded. */
 	pendingAskUser: AskUserPrompt | null;
-	/** Interactive permission strip; null when none. */
-	pendingPermission: PendingPermission | null;
 	/** Pi extension UI dialog (select/confirm/input/editor). */
 	pendingExtensionUi: ExtensionUiPending | null;
 	/** Wall-clock when the current turn became running (ms). */
@@ -136,7 +142,6 @@ export function createChatState(): ChatState {
 		retryHint: null,
 		nextToolOrder: 1,
 		pendingAskUser: null,
-		pendingPermission: null,
 		pendingExtensionUi: null,
 		turnStartedAt: null,
 		phaseStartedAt: null,
@@ -238,7 +243,6 @@ export function hasLiveTurnState(state: ChatState): boolean {
 		state.autoRecovering ||
 		state.streamingMessage != null ||
 		state.pendingAskUser != null ||
-		state.pendingPermission != null ||
 		state.pendingExtensionUi != null
 	);
 }
@@ -255,17 +259,7 @@ export function setPendingAskUser(
 	return { ...state, pendingAskUser: pending };
 }
 
-export function clearPendingPermission(state: ChatState): ChatState {
-	if (!state.pendingPermission) return state;
-	return { ...state, pendingPermission: null };
-}
 
-export function setPendingPermission(
-	state: ChatState,
-	pending: PendingPermission | null,
-): ChatState {
-	return { ...state, pendingPermission: pending };
-}
 
 export function clearPendingExtensionUi(state: ChatState): ChatState {
 	if (!state.pendingExtensionUi) return state;
@@ -922,6 +916,28 @@ function reduceAgentPayload(
 		payload.errorMessage
 	) {
 		return appendError(state, payload.errorMessage);
+	}
+	if (type === "compaction_end") {
+		// 压缩成功：当拍插摘要卡片，和重启后从 compaction entry 还原的卡片一致。
+		const summary = typeof payload.summary === "string" ? payload.summary.trim() : "";
+		if (!summary) return state;
+		const tokensBefore = payload.tokensBefore;
+		const committed = commitStreamingMessage(state);
+		return {
+			...committed,
+			messages: [
+				...committed.messages,
+				{
+					id: `compaction-${committed.messages.length}`,
+					role: "summary",
+					text: summary,
+					kind: "compaction",
+					...(typeof tokensBefore === "number" && tokensBefore > 0
+						? { tokensBefore }
+						: {}),
+				},
+			],
+		};
 	}
 	if (type === "message_start" || type === "message_update") {
 		const message = payload.message;
