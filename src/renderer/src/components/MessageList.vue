@@ -49,6 +49,7 @@ import { usePreviewStore } from "@renderer/stores/preview";
 import { useRightTabsStore } from "@renderer/stores/right-tabs";
 import { t } from "@renderer/i18n";
 import { buildUserRowView, type UserRowView } from "@renderer/utils/message-user";
+import { planComposerTags } from "@renderer/utils/composer-payload";
 import {
   collectTurnFileChanges,
   type TurnFileChanges,
@@ -1684,18 +1685,13 @@ function loadComposerFromUser(msg: UserMessage): void {
   for (const img of msg.images ?? []) {
     composer.addImageFromDataUrl(img.dataUrl);
   }
-  for (const tag of view.tags) {
-    if (tag.kind === "file") {
-      composer.addFileTag(tag.content || tag.label || tag.url);
-    } else if (tag.kind === "url" || (!tag.kind && /^https?:\/\//i.test(tag.url))) {
-      composer.addUrlTag(tag.url);
-    } else {
-      composer.addCitation({
-        url: tag.url,
-        selector: "",
-        text: tag.content || tag.label || "",
-        htmlSnippet: "",
-      });
+  for (const action of planComposerTags(view.tags)) {
+    if (action.kind === "file") {
+      composer.addFileTag(action.value);
+    } else if (action.kind === "url") {
+      composer.addUrlTag(action.value);
+    } else if (action.kind === "citation") {
+      composer.addCitation({ url: action.url, selector: "", text: action.text, htmlSnippet: "" });
     }
   }
 }

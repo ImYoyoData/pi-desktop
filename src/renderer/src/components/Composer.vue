@@ -57,6 +57,14 @@ import {
   transferTypesHaveFilePayload,
   type WorkspacePathContext,
 } from "@renderer/utils/composer-paths";
+import {
+  displayTextFor,
+  planComposerTags,
+  queueItemHasContent,
+  queueMessageText,
+  steerTextWithCitations,
+  titleSeedFor,
+} from "@renderer/utils/composer-payload";
 import { buildSessionStats } from "@renderer/utils/session-stats";
 import {
   contextCostLabelOf,
@@ -78,7 +86,6 @@ import {
 import { MODEL_MENU_PROPS, buildModelMenu } from "@renderer/model-menu";
 import {
   composerModePreamble,
-  isComposerAgentMode,
   type ComposerAgentMode,
 } from "../../../shared/composer-modes";
 import {
@@ -652,11 +659,12 @@ function enqueueFromComposer(): boolean {
   if (!id) return false;
   const snap = snapshotComposerPayload();
   if (!snap) return false;
-  const message =
-    snap.displayText ||
-    (snap.imagesToSend.length || snap.tagsToSend?.length ? " " : snap.text || " ");
   sendQueue.enqueue(id, {
-    text: message,
+    text: queueMessageText({
+      displayText: snap.displayText,
+      text: snap.text,
+      hasVisual: Boolean(snap.imagesToSend.length || snap.tagsToSend?.length),
+    }),
     images: snap.imagesToSend.length ? snap.imagesToSend : undefined,
     citations: snap.citationsToSend,
     elementTags: snap.tagsToSend,
@@ -720,11 +728,12 @@ function saveEditingToQueue(): boolean {
     messageApi.warning(t.queueEditPlaceholder);
     return false;
   }
-  const message =
-    snap.displayText ||
-    (snap.imagesToSend.length || snap.tagsToSend?.length ? " " : snap.text || " ");
   const updated = sendQueue.updateItem(id, qid, {
-    text: message,
+    text: queueMessageText({
+      displayText: snap.displayText,
+      text: snap.text,
+      hasVisual: Boolean(snap.imagesToSend.length || snap.tagsToSend?.length),
+    }),
     agentText: snap.text || undefined,
     images: snap.imagesToSend.length ? snap.imagesToSend : undefined,
     citations: snap.citationsToSend,
@@ -765,7 +774,7 @@ function loadQueueItemIntoComposer(item: {
   }[];
 }): void {
   composer.clear();
-  composer.draft = item.text === " " ? "" : item.text;
+  composer.draft = displayTextFor(item.text);
   for (const img of item.images ?? []) {
     composer.addImageFile({
       data: img.data,
@@ -783,27 +792,17 @@ function loadQueueItemIntoComposer(item: {
       htmlSnippet: c.htmlSnippet ?? "",
     });
   }
-  for (const tag of item.elementTags ?? []) {
-    if (isComposerAgentMode(tag.kind)) {
-      composer.setMode(tag.kind);
-      continue;
+  for (const action of planComposerTags(item.elementTags)) {
+    if (action.kind === "mode") {
+      composer.setMode(action.mode);
+    } else if (action.kind === "file") {
+      composer.addFileTag(action.value);
+    } else if (action.kind === "url") {
+      composer.addUrlTag(action.value);
+    } else if (!seenUrls.has(action.url)) {
+      seenUrls.add(action.url);
+      composer.addCitation({ url: action.url, selector: "", text: action.text, htmlSnippet: "" });
     }
-    if (tag.kind === "file") {
-      composer.addFileTag(tag.content || tag.label || tag.url);
-      continue;
-    }
-    if (tag.kind === "url" || (!tag.kind && /^https?:\/\//i.test(tag.url))) {
-      composer.addUrlTag(tag.url);
-      continue;
-    }
-    if (seenUrls.has(tag.url)) continue;
-    seenUrls.add(tag.url);
-    composer.addCitation({
-      url: tag.url,
-      selector: "",
-      text: tag.content || tag.label || "",
-      htmlSnippet: "",
-    });
   }
 }
 
@@ -839,15 +838,13 @@ async function dispatchQueuedItem(
   // Cold session: spawn worker on first real dispatch (not on create/open).
   // 不等待：队列气泡先上屏，不被 worker 往返挡住。
   void applySelectedModel({ allowStart: true });
-  const agentText = item.agentText || item.text || " ";
-  const displayText = item.text === " " ? "" : item.text;
   await chat.sendPrompt(
     id,
-    agentText,
+    item.agentText || item.text || " ",
     item.citations,
     item.images,
     item.elementTags,
-    displayText,
+    displayTextFor(item.text),
   );
 }
 
@@ -856,20 +853,6 @@ function isAgentBusy(targetSessionId?: string): boolean {
   if (!id) return false;
   if (chat.bySession[id]?.running) return true;
   return sessions.sessions.find((s) => s.id === id)?.status === "running";
-}
-
-function queueItemHasContent(item: {
-  text: string;
-  images?: unknown[];
-  citations?: unknown[];
-  elementTags?: unknown[];
-}): boolean {
-  return Boolean(
-    item.text.trim() ||
-      item.images?.length ||
-      item.citations?.length ||
-      item.elementTags?.length,
-  );
 }
 
 /** Serialize auto-drain so idle races cannot fire two sends at once. */
@@ -921,18 +904,6 @@ async function drainQueueIfIdle(targetSessionId: string): Promise<void> {
   }
 }
 
-/** Embed URL citations as text so they survive the steer message (text-only queue). */
-function steerTextWithCitations(item: {
-  agentText?: string;
-  text: string;
-  citations?: { url?: string; text?: string }[];
-}): string {
-  const base = item.agentText || item.text || " ";
-  const cites = (item.citations ?? []).filter((c) => c && c.url);
-  if (!cites.length) return base;
-  const lines = cites.map((c) => `- ${c.url}${c.text ? ` (${c.text.slice(0, 160)})` : ""}`);
-  return [base, "", "References:", ...lines].join("\n");
-}
 async function sendQueuedNow(itemId: string): Promise<void> {
   const id = sessionId.value;
   if (!id) return;
@@ -1003,7 +974,7 @@ async function submit(mode: "prompt" | "steer" | "follow_up"): Promise<void> {
 
   const displayText = snap.displayText;
   const agentText = snap.text || " ";
-  const titleSeed = displayText || snap.tagsToSend?.[0]?.content || snap.tagsToSend?.[0]?.label || "";
+  const titleSeed = titleSeedFor(displayText, snap.tagsToSend?.[0]);
   composer.clearSession(sourceId);
   // First message (or any send) activates the Pi agent worker and applies model.
   if (mode === "prompt" || mode === "steer" || mode === "follow_up") {
