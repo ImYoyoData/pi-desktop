@@ -1,7 +1,14 @@
 export type HiddenEventSink<T> = {
 	push: (event: T) => void;
 	flushNow: () => void;
-	dispose: () => void;
+	/**
+	 * 停止缓冲并丢弃已排队事件。
+	 *
+	 * 刻意不做成"此后 push 全部丢弃"：任何误调用（组件卸载、重复 stop）都会让
+	 * 会话事件永久静默，界面永远停在「等待模型响应」且没有任何报错。stop 之后
+	 * 退化为无缓冲直通，故障模式从"永久失效"降级为"少了层节流"。
+	 */
+	stop: () => void;
 	readonly pending: number;
 };
 
@@ -16,47 +23,54 @@ export function createHiddenEventSink<T>(opts: {
 	const flushBatch = opts.flushBatch ?? 1_000;
 	const queue: T[] = [];
 	let timer: ReturnType<typeof setTimeout> | null = null;
-	let disposed = false;
+	let stopped = false;
+
+	function applyOne(event: T): void {
+		try {
+			opts.apply(event);
+		} catch (err) {
+			opts.onError?.(err, event);
+		}
+	}
 
 	function schedule(delayMs: number): void {
-		if (disposed || timer != null) return;
+		if (timer != null) return;
 		timer = setTimeout(flush, delayMs);
+	}
+
+	/** 已停止缓冲时立即消费；否则按可见性选择节流间隔。 */
+	function flushDelay(): number {
+		if (stopped) return 0;
+		return opts.isHidden() ? hiddenFlushMs : 0;
 	}
 
 	function flush(): void {
 		timer = null;
-		if (disposed) return;
 		const batch = queue.splice(0, flushBatch);
-		for (const event of batch) {
-			try {
-				opts.apply(event);
-			} catch (err) {
-				opts.onError?.(err, event);
-			}
-		}
+		for (const event of batch) applyOne(event);
 		if (queue.length) schedule(0);
 	}
 
 	return {
 		push(event: T): void {
-			if (disposed) return;
-			if (opts.isHidden() || queue.length > 0) {
-				queue.push(event);
-				schedule(opts.isHidden() ? hiddenFlushMs : 0);
+			const direct = !stopped && !opts.isHidden() && queue.length === 0;
+			if (direct) {
+				applyOne(event);
 				return;
 			}
-			opts.apply(event);
+			queue.push(event);
+			schedule(flushDelay());
 		},
 		flushNow(): void {
-			if (disposed || opts.isHidden() || !queue.length) return;
+			if (opts.isHidden() || !queue.length) return;
 			if (timer != null) {
 				clearTimeout(timer);
 				timer = null;
 			}
 			schedule(0);
 		},
-		dispose(): void {
-			disposed = true;
+		stop(): void {
+			stopped = true;
 			if (timer != null) {
 				clearTimeout(timer);
 				timer = null;

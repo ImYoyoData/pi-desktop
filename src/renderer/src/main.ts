@@ -6,6 +6,7 @@ import "./assets/main.css";
 import "./assets/vscode-syntax.css";
 import "./assets/wallpaper.css";
 import { markRendererStartup } from "./utils/startup-timing";
+import { bootstrapAppEvents } from "./app-events";
 import {
   CUSTOM_APPEARANCE_KEY,
   CUSTOM_APPEARANCE_LEGACY_KEY,
@@ -50,4 +51,6 @@ window.addEventListener("unhandledrejection", (event) => {
 });
 
 app.use(createPinia()).mount("#app");
+// mount 之后同步注册，中间不会有 IPC 事件到达；进程级订阅不能交给组件生命周期。
+bootstrapAppEvents();
 markRendererStartup("renderer:mounted");

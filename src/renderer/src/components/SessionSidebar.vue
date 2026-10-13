@@ -789,7 +789,6 @@ onMounted(async () => {
   });
   loadPins();
   loadSessionOrders();
-  sessionsStore.bindEvents();
   // 派生会话等由其他组件新建的会话：排到最前，避免被折叠到「展开其余 N 个」之下。
   window.addEventListener("pi-session-created", onSessionCreated);
   window.addEventListener("keydown", onSelectModeKeydown, true);

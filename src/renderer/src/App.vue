@@ -32,7 +32,6 @@ import { darkThemeOverrides, lightThemeOverrides } from "@renderer/theme/naive";
 import { locale } from "@renderer/i18n";
 import { dismissStartupSplash } from "@renderer/utils/startup-splash";
 import { markRendererStartup } from "@renderer/utils/startup-timing";
-import { startFsChangedBus } from "@renderer/utils/fs-changed-bus";
 import { isTextEntryTarget } from "@renderer/utils/keyboard-target";
 
 /** Heavy workspace chrome — load after first paint when a folder is open. */
@@ -124,7 +123,6 @@ const themeOverrides = computed(() =>
 );
 
 let stopAppearance: (() => void) | undefined;
-let stopFsChangedBus: (() => void) | undefined;
 let stopCustomizations: (() => void) | undefined;
 let customizationsWarmTimer = 0;
 let offMenuCommand: (() => void) | undefined;
@@ -135,7 +133,6 @@ onMounted(() => {
     if (command === "open-pull-requests") layout.showPullRequests();
   });
   stopAppearance = appearance.init();
-  stopFsChangedBus = startFsChangedBus();
   stopCustomizations = customizations.init();
   void window.api.window.setUiLocale(locale.value);
   // Instant open: drop the full-screen splash right after first paint so the
@@ -175,7 +172,6 @@ onUnmounted(() => {
   keybindings.uninstall();
   offMenuCommand?.();
   stopAppearance?.();
-  stopFsChangedBus?.();
   stopCustomizations?.();
 });
 </script>

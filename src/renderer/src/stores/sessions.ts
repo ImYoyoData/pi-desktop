@@ -1,5 +1,5 @@
 import { defineStore } from "pinia";
-import { computed, onScopeDispose, ref } from "vue";
+import { computed, ref } from "vue";
 import type {
   AgentCommand,
   AgentEvent,
@@ -449,18 +449,24 @@ export const useSessionsStore = defineStore("sessions", () => {
     return updated;
   }
 
-  let eventsBound = false;
-  function bindEvents(): void {
-    if (eventsBound) return;
-    eventsBound = true;
-    const off = window.api.sessions.onEvent((event) => {
-      applyEvent(event);
-    });
-    onScopeDispose(() => {
-      eventsBound = false;
-      off();
-    });
-  }
+let unbind: (() => void) | null = null;
+
+	/**
+	 * 注册会话列表状态订阅，返回解绑函数（重复调用返回同一个）。
+	 * 由应用级 bootstrap 持有：与 chat store 共用同一推送流，任一侧漏订阅都会
+	 * 让侧栏状态与聊天区脱节。
+	 */
+	function bindEvents(): () => void {
+		if (unbind) return unbind;
+		const off = window.api.sessions.onEvent((event) => {
+			applyEvent(event);
+		});
+		unbind = () => {
+			unbind = null;
+			off();
+		};
+		return unbind;
+	}
 
   return {
     sessions,
@@ -470,6 +476,7 @@ export const useSessionsStore = defineStore("sessions", () => {
     contextBySession,
     activeContextUsage,
     applyContextFromState,
+    applyStatus: patchStatus,
     refresh,
     beginDraft,
     setDraftRoot,

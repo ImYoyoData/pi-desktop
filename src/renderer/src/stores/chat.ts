@@ -1,5 +1,5 @@
 import { defineStore } from "pinia";
-import { computed, onScopeDispose, reactive, ref } from "vue";
+import { computed, reactive, ref } from "vue";
 import { createDiscreteApi } from "naive-ui";
 import type {
 	AgentEvent,
@@ -192,7 +192,17 @@ export const useChatStore = defineStore("chat", () => {
 	 *  queued prompts never race the worker or corrupt the single-active
 	 *  checkpoint (duplicate sends from the queue-edit path caused both). */
 	const promptChain = new Map<string, Promise<unknown>>();
+	/**
+	 * 常驻内存的会话上限。切走的会话原本永远留在 bySession 里（只有删除会话才清），
+	 * 长时间使用后渲染进程堆会线性增长直至 OOM。超出后按最久未使用驱逐空闲会话，
+	 * 切回时从磁盘重新 hydrate。
+	 */
+	const MAX_CACHED_SESSIONS = 8;
+	/** 会话状态最后一次 hydrate 的时间戳，用于 LRU 排序。 */
+	const sessionHydratedAt = new Map<string, number>();
 	let softHangTimer: ReturnType<typeof setInterval> | null = null;
+	/** 会话事件订阅的解绑函数（已绑定时非 null，保证幂等）。 */
+	let unbindEvents: (() => void) | null = null;
 	const agentEventSink = createHiddenEventSink<AgentEvent>({
 		apply: (event) => applyEvent(event),
 		isHidden: () => document.hidden,
@@ -827,11 +837,39 @@ export const useChatStore = defineStore("chat", () => {
 		return [...head, ...liveMessages.slice(liveUser)];
 	}
 
+	/**
+	 * 以磁盘历史为唯一真相重建会话状态：消息已落盘，本轮一定已结束。
+	 * hydrate（切会话）与 resync（事件丢失兜底）共用，避免两处终态字段漂移。
+	 */
+	function settledStateFromHistory(
+		sessionId: string,
+		history: SessionHistoryMessage[],
+	): void {
+		bySession[sessionId] = {
+			messages: history.map(mapHistoryRow),
+			streamingMessage: null,
+			running: false,
+			retryHint: null,
+			nextToolOrder: 1,
+			pendingAskUser: null,
+			pendingExtensionUi: null,
+			turnStartedAt: null,
+			phaseStartedAt: null,
+			lastActivityAt: null,
+			lastWorkerAliveAt: null,
+			autoRecoverCount: 0,
+			autoRecovering: false,
+		};
+		softHangReported.delete(sessionId);
+		stallReported.delete(sessionId);
+	}
+
 	function hydrateFromHistory(
 		sessionId: string,
 		history: SessionHistoryMessage[],
 	): void {
 		pendingUserEdit.value = null;
+		sessionHydratedAt.set(sessionId, Date.now());
 		// Restore persisted checkpoint summaries so history keeps its revert
 		// buttons across session switches / restarts.
 		void checkpointStore.loadSessionSummaries(sessionId);
@@ -865,39 +903,122 @@ export const useChatStore = defineStore("chat", () => {
 			bySession[sessionId] = reconcileRunning(sessionId, live);
 			return;
 		}
-		bySession[sessionId] = {
-			messages: mapped,
-			streamingMessage: null,
-			running: false,
-			retryHint: null,
-			nextToolOrder: 1,
-			pendingAskUser: null,
-			pendingExtensionUi: null,
-			turnStartedAt: null,
-			phaseStartedAt: null,
-			lastActivityAt: null,
-			lastWorkerAliveAt: null,
-			autoRecoverCount: 0,
-			autoRecovering: false,
-		};
-		softHangReported.delete(sessionId);
+		settledStateFromHistory(sessionId, history);
+		evictIdleSessions(sessionId);
 	}
 
+	/**
+	 * 用主进程权威状态对账当前会话，补回丢失的流式内容。
+	 *
+	 * 会话事件由主进程单向推送，渲染端无法补发；任何一次丢失（渲染重载、订阅
+	 * 空窗）都会让本地 running 与主进程永久不一致——界面停在「等待模型响应」，
+	 * 而模型其实早已回复完。聊天视图重新可见时做一次兜底：主进程已空闲而本地还在
+	 * 转，就丢掉 live 状态，按磁盘历史重建（live 只剩半截流式，并不可信）。
+	 */
+	async function resyncActiveSession(): Promise<void> {
+		try {
+			await doResyncActiveSession();
+		} catch (err) {
+			// 对账是兜底，失败就保持现状，不能反过来弄坏已能用的界面。
+			console.error("[chat] session resync failed:", err);
+		}
+	}
+
+	async function doResyncActiveSession(): Promise<void> {
+		const sessionId = sessionsStore.activeId;
+		if (!sessionId) return;
+		const row = sessionsStore.sessions.find((s) => s.id === sessionId);
+		if (!row?.filePath) return;
+		const state = bySession[sessionId];
+		if (!state?.running && !state?.autoRecovering) return;
+
+		const status = await window.api.sessions.status(sessionId, row.cwd);
+		if (status === null || status === "running" || status === "stuck") return;
+
+		sessionsStore.applyStatus(sessionId, status);
+		const page = await window.api.sessions.history(row.filePath, {
+			limit: SESSION_HISTORY_LOAD_LIMIT,
+		});
+		// 事件丢失连带丢了 prompt_done 的副作用，逐项补齐终态。
+		void checkpointStore.loadSessionSummaries(sessionId);
+		settledStateFromHistory(sessionId, page.messages);
+		recoveringIds.delete(sessionId);
+		stoppingBySession[sessionId] = false;
+		stopIntentBySession.delete(sessionId);
+		void checkpointStore.finishActive(sessionId);
+		useSessionWidgetsStore().finalizeTodosForSession(sessionId);
+	}
+
+	/**
+ * 清掉一个会话在渲染进程里的全部常驻数据。
+ *
+ * 既是「删除会话」的收尾，也是内存驱逐的执行体——bySession 里的消息只是其中一项，
+ * 配套的 Map / Set / reactive 记录不一起清，内存并不会真的降下来。
+ */
 	function clearSession(sessionId: string): void {
 		delete bySession[sessionId];
 		if (pendingUserEdit.value?.sessionId === sessionId) {
 			pendingUserEdit.value = null;
 		}
+		sessionHydratedAt.delete(sessionId);
+		softHangReported.delete(sessionId);
+		stallReported.delete(sessionId);
+		stopIntentBySession.delete(sessionId);
+		recoveringIds.delete(sessionId);
+		promptChain.delete(sessionId);
+		askUserDrafts.delete(sessionId);
+		askUserSteps.delete(sessionId);
+		stoppingBySession[sessionId] = false;
+		checkpointStore.clearSession(sessionId);
 	}
 
-	let eventsBound = false;
-	function bindEvents(): void {
-		if (eventsBound) return;
-		eventsBound = true;
-		checkpointStore.bindEvents();
-		if (!softHangTimer) {
-			softHangTimer = setInterval(() => checkSoftHangSessions(), 5_000);
+	/**
+	 * 内存治理：把常驻的空闲会话压到上限以内，超出部分按最久未使用依次驱逐。
+	 *
+	 * 驱逐后切回该会话会从磁盘重新 hydrate，代价只是一次 IPC + 解析。运行中的会话
+	 * 永不驱逐——内存里的流式内容是唯一真相，磁盘可能还没落盘。若全部候选都在运行
+	 * （实际最多一两轮），本轮不驱逐，等它们结束后下次 hydrate 再回收。
+	 */
+	function evictIdleSessions(keepSessionId: string): void {
+		const ids = Object.keys(bySession);
+		let overflow = ids.length - MAX_CACHED_SESSIONS;
+		if (overflow <= 0) return;
+		const evictable = ids
+			.filter((id) => id !== keepSessionId)
+			.filter((id) => !hasLiveTurnState(bySession[id]!))
+			.sort((a, b) => (sessionHydratedAt.get(a) ?? 0) - (sessionHydratedAt.get(b) ?? 0));
+		for (const id of evictable) {
+			if (overflow <= 0) break;
+			clearSession(id);
+			overflow--;
 		}
+	}
+
+	/**
+	 * 静默看门狗：会话长时间无输出时判定软挂 / 事件循环卡死并自动恢复。
+	 * 返回停止函数，由应用级 bootstrap 持有。
+	 */
+	function startSoftHangWatchdog(): () => void {
+		if (softHangTimer) return () => {};
+		softHangTimer = setInterval(() => checkSoftHangSessions(), 5_000);
+		return () => {
+			if (!softHangTimer) return;
+			clearInterval(softHangTimer);
+			softHangTimer = null;
+		};
+	}
+
+	/**
+	 * 注册进程级 IPC 订阅，返回解绑函数。
+	 *
+	 * 只能由应用级 bootstrap（app-events）调用：会话事件是单向推送，组件一旦
+	 * 卸载就再也补不回来。ChatPanel 会被 `v-if` 反复销毁重建（切换拉取请求视图），
+	 * 把订阅挂在组件生命周期上会让事件流出现空窗，界面永久停在「等待模型响应」。
+	 */
+	function bindEvents(): () => void {
+		if (unbindEvents) return unbindEvents;
+		const stopCheckpoint = checkpointStore.bindEvents();
+		const stopWatchdog = startSoftHangWatchdog();
 		const off = window.api.sessions.onEvent((event) => {
 			agentEventSink.push(event);
 		});
@@ -923,18 +1044,16 @@ export const useChatStore = defineStore("chat", () => {
 			handleExtensionUiEvent(event);
 		});
 		void recoverPendingUi();
-		onScopeDispose(() => {
-			eventsBound = false;
-			if (softHangTimer) {
-				clearInterval(softHangTimer);
-				softHangTimer = null;
-			}
-			agentEventSink.dispose();
+		unbindEvents = () => {
+			unbindEvents = null;
+			stopCheckpoint();
+			stopWatchdog();
 			document.removeEventListener("visibilitychange", handleVisibilityChange);
 			off();
 			offAskUser();
 			offExtensionUi();
-		});
+		};
+		return unbindEvents;
 	}
 
 	async function sendPrompt(
@@ -1475,6 +1594,7 @@ export const useChatStore = defineStore("chat", () => {
 		beginHistoryLoad,
 		endHistoryLoad,
 		hydrateFromHistory,
+		resyncActiveSession,
 		clearSession,
 		sendPrompt,
 		steer,
