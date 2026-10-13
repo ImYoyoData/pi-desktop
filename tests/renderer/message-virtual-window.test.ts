@@ -1,59 +1,151 @@
 import { describe, expect, it } from "vitest";
 import {
-  ensureIndexInVirtualWindow,
-  followBottomVirtualWindow,
-  windowAfterHistoryPrepend,
+  AUTO_COVER_SUPPRESS_MS,
+  WINDOW_REVERSE_COOLDOWN_MS,
+  WINDOW_REVERSE_MAX,
+  WINDOW_REVERSE_WINDOW_MS,
+  allowWindowAdjust,
+  createWindowAdjustGate,
+  noteWindowAdjust,
+  trimLineIsSafe,
+  type WindowAdjustGate,
 } from "../../src/renderer/src/utils/message-virtual-window";
 
-describe("ensureIndexInVirtualWindow", () => {
-  it("is idempotent when window already trimmed around an in-range index", () => {
-    const first = ensureIndexInVirtualWindow({ start: 0, end: 120 }, 10, 200, 48);
-    expect(first.window.end - first.window.start).toBeLessThanOrEqual(48);
-    expect(first.changed).toBe(true);
+const T0 = 1_000_000;
 
-    const second = ensureIndexInVirtualWindow(first.window, 10, 200, 48);
-    expect(second.changed).toBe(false);
-    expect(second.window).toEqual(first.window);
+function after(gate: WindowAdjustGate, dir: "up" | "down", now: number): WindowAdjustGate {
+  return noteWindowAdjust(gate, dir, now);
+}
+
+/**
+ * 连续反向 WINDOW_REVERSE_MAX + 1 次即可触发振荡判定（判据是严格大于）。
+ * 每次间隔取冷却值，保证始终落在滑动窗口内，不会因过期而重置计数。
+ */
+function oscillate(reversals: number, stepMs = WINDOW_REVERSE_COOLDOWN_MS) {
+  let gate = createWindowAdjustGate(T0);
+  let now = T0;
+  gate = after(gate, "up", now);
+  now += stepMs;
+  for (let i = 0; i < reversals; i++) {
+    gate = after(gate, i % 2 === 0 ? "down" : "up", now);
+    now += stepMs;
+  }
+  return { gate, now };
+}
+
+describe("allowWindowAdjust", () => {
+  it("allows the first adjustment", () => {
+    expect(allowWindowAdjust(createWindowAdjustGate(T0), "up", T0)).toBe(true);
   });
 
-  it("does not report changed when clamp assignments are no-ops", () => {
-    const window = { start: 50, end: 98 };
-    const again = ensureIndexInVirtualWindow(window, 60, 200, 48);
-    expect(again.changed).toBe(false);
-    expect(again.window).toEqual(window);
+  it("allows consecutive same-direction adjustments without cooldown", () => {
+    const gate = after(createWindowAdjustGate(T0), "up", T0);
+    expect(allowWindowAdjust(gate, "up", T0)).toBe(true);
+    expect(allowWindowAdjust(gate, "up", T0 + 10)).toBe(true);
   });
 
-  it("expands upward when index is above the window", () => {
-    const result = ensureIndexInVirtualWindow({ start: 80, end: 112 }, 40, 200, 48);
-    expect(result.changed).toBe(true);
-    expect(result.window.start).toBeLessThanOrEqual(40);
-    expect(result.window.end - result.window.start).toBeLessThanOrEqual(48);
-    expect(40 >= result.window.start && 40 < result.window.end).toBe(true);
+  it("blocks a reversal that arrives within the base cooldown", () => {
+    const gate = after(createWindowAdjustGate(T0), "up", T0);
+    expect(allowWindowAdjust(gate, "down", T0)).toBe(false);
+    expect(allowWindowAdjust(gate, "down", T0 + WINDOW_REVERSE_COOLDOWN_MS - 1)).toBe(false);
+  });
+
+  it("allows a reversal once the cooldown elapsed", () => {
+    const gate = after(createWindowAdjustGate(T0), "up", T0);
+    expect(allowWindowAdjust(gate, "down", T0 + WINDOW_REVERSE_COOLDOWN_MS)).toBe(true);
+  });
+
+  it("lengthens the cooldown while oscillation suppression is active", () => {
+    const { gate, now } = oscillate(WINDOW_REVERSE_MAX + 1);
+    expect(gate.suppressedUntil).toBeGreaterThan(0);
+
+    const fresh = after(gate, "down", now);
+    expect(allowWindowAdjust(fresh, "up", now)).toBe(false);
+    expect(allowWindowAdjust(fresh, "up", now + WINDOW_REVERSE_COOLDOWN_MS)).toBe(false);
+    expect(allowWindowAdjust(fresh, "up", now + AUTO_COVER_SUPPRESS_MS)).toBe(true);
+  });
+
+  it("does not suppress before the reversal limit is exceeded", () => {
+    const { gate } = oscillate(WINDOW_REVERSE_MAX);
+    expect(gate.reverseCount).toBe(WINDOW_REVERSE_MAX);
+    expect(gate.suppressedUntil).toBe(0);
   });
 });
 
-describe("followBottomVirtualWindow", () => {
-  it("never expands beyond the configured window size", () => {
-    const w = followBottomVirtualWindow(500, 32);
-    expect(w.end).toBe(500);
-    expect(w.start).toBe(468);
-    expect(w.end - w.start).toBe(32);
+describe("noteWindowAdjust", () => {
+  it("keeps the gate mutable-free: returns a new state object", () => {
+    const gate = createWindowAdjustGate(T0);
+    const next = after(gate, "up", T0);
+    expect(gate.lastDir).toBeNull();
+    expect(next.lastDir).toBe("up");
+  });
+
+  it("counts reversals within the sliding window", () => {
+    let gate = createWindowAdjustGate(T0);
+    gate = after(gate, "up", T0);
+    gate = after(gate, "down", T0 + 200);
+    expect(gate.reverseCount).toBe(1);
+    gate = after(gate, "up", T0 + 400);
+    expect(gate.reverseCount).toBe(2);
+  });
+
+  it("forgets reversals once the window elapsed", () => {
+    let gate = createWindowAdjustGate(T0);
+    gate = after(gate, "up", T0);
+    gate = after(gate, "down", T0 + 200);
+    expect(gate.reverseCount).toBe(1);
+    gate = after(gate, "up", T0 + WINDOW_REVERSE_WINDOW_MS + 1);
+    expect(gate.reverseCount).toBe(1);
+  });
+
+  it("resets the counter and suppresses after exceeding the reversal limit", () => {
+    const { gate } = oscillate(WINDOW_REVERSE_MAX + 1);
+    expect(gate.reverseCount).toBe(0);
+    expect(gate.suppressedUntil).toBeGreaterThan(0);
   });
 });
 
-describe("windowAfterHistoryPrepend", () => {
-  it("shifts the mounted window instead of jumping to the list head", () => {
-    // Viewing indices 0..48 of the already-loaded tail; 30 older rows prepend.
-    const next = windowAfterHistoryPrepend({ start: 0, end: 48 }, 30, 200, 48, 16);
-    expect(next.start).toBe(14); // 0+30-16
-    expect(next.end).toBe(62); // start+48
-    // Previously-visible first row is now at index 30 — still inside the window.
-    expect(next.start).toBeLessThanOrEqual(30);
-    expect(next.end).toBeGreaterThan(30);
+describe("trimLineIsSafe", () => {
+  const TOP = 1_000;
+  const BOTTOM = 1_800;
+  const OVERSCAN = 280;
+  const safe = (dir: "up" | "down", trimLineTop: number, margin?: number) =>
+    trimLineIsSafe({ dir, trimLineTop, viewportTop: TOP, viewportBottom: BOTTOM, overscanPx: OVERSCAN, margin });
+
+  it("keeps the trim line below the viewport when expanding up", () => {
+    expect(safe("up", BOTTOM + OVERSCAN + 1)).toBe(true);
+    expect(safe("up", BOTTOM + OVERSCAN)).toBe(false);
   });
 
-  it("keeps size within maxSize", () => {
-    const next = windowAfterHistoryPrepend({ start: 10, end: 50 }, 40, 300, 48, 16);
-    expect(next.end - next.start).toBeLessThanOrEqual(48);
+  it("refuses to trim a line inside the viewport when expanding up", () => {
+    expect(safe("up", BOTTOM - 1)).toBe(false);
+  });
+
+  it("keeps the trim line above the viewport when expanding down", () => {
+    expect(safe("down", TOP - OVERSCAN - 1)).toBe(true);
+    expect(safe("down", TOP - OVERSCAN)).toBe(false);
+  });
+
+  it("refuses to trim a line inside the viewport when expanding down", () => {
+    expect(safe("down", BOTTOM - 1)).toBe(false);
+  });
+
+  it("adds the margin so estimates biased low cannot trim the viewport", () => {
+    // 估算裁剪线刚好在视口外一像素：没有余量时会裁到视口内的行。
+    const line = BOTTOM + OVERSCAN + 1;
+    expect(safe("up", line)).toBe(true);
+    expect(safe("up", line, 50)).toBe(false);
+  });
+
+  it("uses viewport top as the reference when expanding down with a margin", () => {
+    const line = TOP - OVERSCAN - 1;
+    expect(safe("down", line)).toBe(true);
+    expect(safe("down", line, 50)).toBe(false);
+  });
+
+  it("is symmetric: opposite directions disagree on the same line", () => {
+    const line = BOTTOM + OVERSCAN + 1;
+    expect(safe("up", line)).toBe(true);
+    expect(safe("down", line)).toBe(false);
   });
 });
