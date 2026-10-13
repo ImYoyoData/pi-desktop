@@ -20,6 +20,7 @@ import {
   StarOutline,
 } from "@vicons/ionicons5";
 import PenNibIcon from "@renderer/components/icons/PenNibIcon.vue";
+import * as prefs from "@renderer/utils/prefs";
 import type { ElementCitation } from "../../../shared/protocol";
 import { isRegionCitation } from "../../../shared/protocol";
 import { useComposerStore } from "@renderer/stores/composer";
@@ -99,7 +100,7 @@ const devtoolsStyle = computed(() => ({
 
 function loadDevtoolsWidth(): void {
   try {
-    const raw = localStorage.getItem(DEVTOOLS_WIDTH_KEY);
+    const raw = prefs.getItem(DEVTOOLS_WIDTH_KEY);
     if (!raw) return;
     const pct = Number(raw);
     if (!Number.isFinite(pct) || pct < 20 || pct > 70) return;
@@ -514,7 +515,7 @@ function onDragEnd(): void {
     if (Number.isFinite(rightPx) && rightPx > 0) {
       const pct = (rightPx / rect.width) * 100;
       devtoolsPercent.value = Math.min(70, Math.max(20, pct));
-      localStorage.setItem(DEVTOOLS_WIDTH_KEY, String(devtoolsPercent.value));
+      prefs.setItem(DEVTOOLS_WIDTH_KEY, String(devtoolsPercent.value));
     }
     ghost.style.display = "none";
   }

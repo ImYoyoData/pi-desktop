@@ -65,6 +65,20 @@ export const IpcChannels = {
 		/** Renderer → main: 选择壁纸文件（图片/动图/视频）。 */
 		pickWallpaper: "appearance:pickWallpaper",
 	},
+	prefs: {
+		/** Renderer → main（同步）: 整份读取桌面端偏好，启动时首帧就要用。 */
+		readSync: "prefs:readSync",
+		/** Renderer → main（同步）: 退出前补齐未落盘改动。 */
+		setSync: "prefs:setSync",
+		/** Renderer → main（同步）: 退出前删除键。 */
+		removeSync: "prefs:removeSync",
+		/** Renderer → main: 整份读取桌面端偏好。 */
+		get: "prefs:get",
+		/** Renderer → main: 合并写入偏好，返回合并后的整份。 */
+		set: "prefs:set",
+		/** Renderer → main: 删除偏好键，返回剩余整份。 */
+		remove: "prefs:remove",
+	},
 	workspace: {
 		get: "workspace:get",
 		open: "workspace:open",

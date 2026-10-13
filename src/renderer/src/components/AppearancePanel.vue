@@ -19,6 +19,7 @@ import { STREAM_RENDER_THROTTLE_CHOICES } from "../../../shared/stream-render";
 import { MESSAGE_WIDTH_CHOICES } from "../../../shared/appearance";
 import AppearanceWallpaperCard from "@renderer/components/customize/AppearanceWallpaperCard.vue";
 import { t } from "@renderer/i18n";
+import * as prefs from "@renderer/utils/prefs";
 
 /** 外观设置：主题与界面两个子页；设置模态与智能体设置页共用。 */
 const appearance = useAppearanceStore();
@@ -28,12 +29,12 @@ void streamRender.load();
 type AppearanceTab = "theme" | "ui";
 const TAB_KEY = "pi-desktop:appearance-tab:v1";
 
-const tab = ref<AppearanceTab>(localStorage.getItem(TAB_KEY) === "ui" ? "ui" : "theme");
+const tab = ref<AppearanceTab>(prefs.getItem(TAB_KEY) === "ui" ? "ui" : "theme");
 
 function onTabUpdate(value: string | number | null): void {
   if (value !== "theme" && value !== "ui") return;
   tab.value = value;
-  localStorage.setItem(TAB_KEY, value);
+  prefs.setItem(TAB_KEY, value);
 }
 
 const themeValue = computed({

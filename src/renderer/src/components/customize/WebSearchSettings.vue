@@ -5,6 +5,7 @@ import type { WebSearchSettings } from "../../../../shared/web-search-config";
 import type { ModelsProviderAuth } from "../../../../shared/models-settings";
 import { useSessionsStore } from "@renderer/stores/sessions";
 import { t } from "@renderer/i18n";
+import * as prefs from "@renderer/utils/prefs";
 
 const message = useMessage();
 const sessions = useSessionsStore();
@@ -67,7 +68,7 @@ function presetProvider(): string {
 
 function sessionModelKey(sessionId: string): string {
   try {
-    const raw = localStorage.getItem("pi-desktop:session-model-prefs");
+    const raw = prefs.getItem("pi-desktop:session-model-prefs");
     if (!raw) return "";
     const models = (JSON.parse(raw) as { models?: Record<string, string> }).models;
     return typeof models?.[sessionId] === "string" ? models[sessionId] : "";

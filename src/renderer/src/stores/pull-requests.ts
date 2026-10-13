@@ -10,6 +10,7 @@ import type {
 } from "../../../shared/github-types";
 import { useWorkspaceStore } from "@renderer/stores/workspace";
 import { plainIpcArgs } from "@renderer/utils/ipc-plain";
+import * as prefs from "@renderer/utils/prefs";
 
 const SELECTION_KEY = "pi-desktop:pull-request-selection:v1";
 const MAX_LIST_PAGES = 10;
@@ -54,7 +55,7 @@ const TEXT_KEYS = [
 
 export function readPullRequestSelection(): PullRequestSelection {
 	try {
-		const raw = localStorage.getItem(SELECTION_KEY);
+		const raw = prefs.getItem(SELECTION_KEY);
 		if (!raw) return { ...DEFAULT_SELECTION, filters: {} };
 		const parsed = JSON.parse(raw) as Partial<PullRequestSelection> & { filters?: unknown };
 		return {
@@ -163,7 +164,7 @@ export const usePullRequestsStore = defineStore("pullRequests", () => {
 
 	function persistSelection(): void {
 		try {
-			localStorage.setItem(SELECTION_KEY, JSON.stringify(selection.value));
+			prefs.setItem(SELECTION_KEY, JSON.stringify(selection.value));
 		} catch {
 			// 忽略存储失败
 		}

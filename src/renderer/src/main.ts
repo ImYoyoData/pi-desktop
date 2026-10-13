@@ -7,6 +7,7 @@ import "./assets/vscode-syntax.css";
 import "./assets/wallpaper.css";
 import { markRendererStartup } from "./utils/startup-timing";
 import { bootstrapAppEvents } from "./app-events";
+import * as prefs from "@renderer/utils/prefs";
 import {
   CUSTOM_APPEARANCE_KEY,
   CUSTOM_APPEARANCE_LEGACY_KEY,
@@ -16,10 +17,10 @@ markRendererStartup("renderer:entry");
 
 // Apply theme before first paint of Vue tree (CSP-safe; no inline HTML script).
 try {
-  const pref = localStorage.getItem("pi-desktop:theme-preference") || "system";
+  const pref = prefs.getItem("pi-desktop:theme-preference") || "system";
   const custom =
-    localStorage.getItem(CUSTOM_APPEARANCE_KEY) ??
-    localStorage.getItem(CUSTOM_APPEARANCE_LEGACY_KEY);
+    prefs.getItem(CUSTOM_APPEARANCE_KEY) ??
+    prefs.getItem(CUSTOM_APPEARANCE_LEGACY_KEY);
   // 壁纸模式固定深色玻璃，首帧就得按暗色渲染
   const wallpaper = custom ? JSON.parse(custom)?.wallpaper : null;
   const dark =

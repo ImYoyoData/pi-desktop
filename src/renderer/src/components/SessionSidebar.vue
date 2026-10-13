@@ -52,6 +52,7 @@ import { t } from "@renderer/i18n";
 import CodiconIcon from "@renderer/components/icons/CodiconIcon.vue";
 import GitPullRequestIcon from "@renderer/components/icons/GitPullRequestIcon.vue";
 import { markRendererStartup } from "@renderer/utils/startup-timing";
+import * as prefs from "@renderer/utils/prefs";
 
 const PIN_KEY = "session-pins:v1";
 const SESSION_ORDER_KEY = "pi-desktop:session-order:v2";
@@ -689,7 +690,7 @@ const showStuckRecovery = computed(() => activeSession.value?.status === "stuck"
 
 function loadPins(): void {
   try {
-    const raw = localStorage.getItem(PIN_KEY);
+    const raw = prefs.getItem(PIN_KEY);
     if (!raw) return;
     const parsed = JSON.parse(raw) as Record<string, string[]>;
     for (const [k, v] of Object.entries(parsed)) {
@@ -701,12 +702,12 @@ function loadPins(): void {
 }
 
 function persistPins(): void {
-  localStorage.setItem(PIN_KEY, JSON.stringify({ ...pins }));
+  prefs.setItem(PIN_KEY, JSON.stringify({ ...pins }));
 }
 
 function loadSessionOrders(): void {
   try {
-    const raw = localStorage.getItem(SESSION_ORDER_KEY);
+    const raw = prefs.getItem(SESSION_ORDER_KEY);
     if (!raw) return;
     const parsed = JSON.parse(raw) as Record<string, string[]>;
     for (const [k, v] of Object.entries(parsed)) {
@@ -718,7 +719,7 @@ function loadSessionOrders(): void {
 }
 
 function persistSessionOrders(): void {
-  localStorage.setItem(SESSION_ORDER_KEY, JSON.stringify({ ...sessionOrders }));
+  prefs.setItem(SESSION_ORDER_KEY, JSON.stringify({ ...sessionOrders }));
 }
 
 function setSessionListRef(root: string, el: unknown): void {

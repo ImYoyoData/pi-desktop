@@ -1,6 +1,7 @@
 import { defineStore } from "pinia";
 import { computed, ref } from "vue";
 import type { UpdateCheckResult, UpdateProgress } from "../../../shared/update";
+import * as prefs from "@renderer/utils/prefs";
 
 const AUTO_CHECK_KEY = "pi-desktop:last-update-check";
 let startupChecked = false;
@@ -52,7 +53,7 @@ export const useUpdateStore = defineStore("update", () => {
 
   function markChecked(): void {
     try {
-      localStorage.setItem(AUTO_CHECK_KEY, String(Date.now()));
+      prefs.setItem(AUTO_CHECK_KEY, String(Date.now()));
     } catch {
       // ignore
     }
