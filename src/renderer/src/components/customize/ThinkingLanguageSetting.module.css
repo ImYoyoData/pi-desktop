@@ -1,0 +1,31 @@
+.root {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 6px 12px 6px 16px;
+}
+
+.rowLabels {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.rowHint {
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.rowRadio {
+  display: flex;
+  flex-shrink: 0;
+  width: 120px;
+}
+
+.rowRadio :global(.ant-radio-button-wrapper) {
+  flex: 1;
+  padding: 0;
+  text-align: center;
+}

@@ -1,0 +1,81 @@
+.root {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.listContainer {
+  display: flex;
+  flex-direction: column;
+}
+
+.hookEventItem {
+  display: flex;
+  align-items: center;
+  min-height: 32px;
+  padding: 6px 12px 6px 16px;
+  border-radius: 4px;
+}
+
+.hookEventItem:hover {
+  background-color: var(--bg-hover);
+}
+
+.itemName {
+  flex: 1;
+  min-width: 0;
+  color: var(--fg);
+  font-family: var(--font-mono, monospace);
+  font-size: 12px;
+  line-height: 18px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.itemBadges {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  gap: 4px;
+  margin-left: 16px;
+  opacity: 0;
+  transition: opacity 0.1s ease;
+}
+
+.hookEventItem:hover .itemBadges,
+.hookEventItem:focus-within .itemBadges {
+  opacity: 1;
+}
+
+.itemBadge {
+  flex-shrink: 0;
+  padding: 0 6px;
+  border-radius: 4px;
+  background: var(--bg-active);
+  color: var(--fg-muted);
+  font-size: 10px;
+  line-height: 16px;
+}
+
+.listEmptyState {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 24px;
+  gap: 8px;
+  text-align: center;
+}
+
+.emptyStateText {
+  color: var(--fg);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.emptyStateSubtext {
+  max-width: 320px;
+  color: var(--fg-muted);
+  font-size: 12px;
+  line-height: 1.4;
+}

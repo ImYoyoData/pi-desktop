@@ -1,0 +1,223 @@
+.customizeTools {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+}
+
+.listContainer {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.groupBlock {
+  display: flex;
+  flex-direction: column;
+}
+
+.itemRight {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  gap: 4px;
+  margin-left: 16px;
+}
+
+.itemSwitch {
+  flex-shrink: 0;
+}
+
+.codemodeSettings {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 2px 12px 10px 16px;
+}
+
+.codemodeField {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.fieldLabel {
+  min-width: 84px;
+  color: var(--fg-muted);
+  font-size: 12px;
+}
+
+.fieldControl {
+  width: 200px;
+}
+
+.codemodeHint {
+  max-width: 560px;
+  color: var(--fg-muted);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.inlineBadge {
+  flex-shrink: 0;
+  padding: 0 6px;
+  border-radius: 4px;
+  background: var(--bg-active);
+  color: var(--fg-muted);
+  font-size: 10px;
+  line-height: 16px;
+}
+
+.aiCustomizationGroupHeader {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 36px;
+  margin: 0;
+  padding: 4px 8px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  user-select: none;
+}
+
+.aiCustomizationGroupHeader:hover {
+  background-color: var(--bg-hover);
+}
+
+.groupLabelGroup {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.groupLabel {
+  color: var(--fg);
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.groupCount {
+  flex-shrink: 0;
+  margin-top: 2px;
+  color: var(--fg-muted);
+  font-size: 11px;
+  font-weight: 600;
+  text-align: right;
+}
+
+.groupInfo {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  color: var(--fg-muted);
+  opacity: 0;
+  transition: opacity 0.1s ease;
+}
+
+.aiCustomizationGroupHeader:hover .groupInfo {
+  opacity: 0.8;
+}
+
+.groupInfo:hover {
+  opacity: 1;
+}
+
+.groupChevron {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  margin-left: auto;
+  opacity: 0.7;
+}
+
+.aiCustomizationListItem {
+  display: flex;
+  align-items: center;
+  min-height: 32px;
+  padding: 6px 12px 6px 16px;
+  border-radius: 4px;
+}
+
+.aiCustomizationListItem:hover {
+  background-color: var(--bg-hover);
+}
+
+.itemLeft {
+  display: flex;
+  align-items: center;
+  flex: 1;
+  min-width: 0;
+}
+
+.itemText {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.itemNameRow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  overflow: hidden;
+}
+
+.itemName {
+  color: var(--fg);
+  font-family: var(--font-mono, monospace);
+  font-size: 12px;
+  line-height: 18px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.itemDescription {
+  color: var(--fg-muted);
+  font-size: 11px;
+  line-height: 14px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.listEmptyState {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  flex: 1;
+  padding: 48px 24px;
+  gap: 8px;
+  text-align: center;
+}
+
+.emptyStateText {
+  color: var(--fg);
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.emptyStateSubtext {
+  max-width: 250px;
+  color: var(--fg-muted);
+  font-size: 13px;
+  line-height: 1.4;
+}

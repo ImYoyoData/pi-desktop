@@ -1,16 +1,18 @@
-import { defineStore } from "pinia";
-import { ref } from "vue";
+import { create } from "zustand";
 
-export const usePreviewStore = defineStore("preview", () => {
-  const filePath = ref<string | null>(null);
+type PreviewState = {
+  filePath: string | null;
+  openSignal: number;
+  openPreview: (path: string) => void;
+};
+
+export const usePreviewStore = create<PreviewState>()((set) => {
   let openNonce = 0;
-  const openSignal = ref(0);
 
   function openPreview(path: string): void {
-    filePath.value = path.replace(/\\/g, "/");
     openNonce += 1;
-    openSignal.value = openNonce;
+    set({ filePath: path.replace(/\\/g, "/"), openSignal: openNonce });
   }
 
-  return { filePath, openSignal, openPreview };
+  return { filePath: null, openSignal: 0, openPreview };
 });

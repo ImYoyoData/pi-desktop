@@ -1,0 +1,104 @@
+.keysPanel {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.switchRow {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.labels {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.hint {
+  font-size: 12px;
+}
+
+/* 盖掉 antd Divider 自带的上下外边距 */
+:global(.ant-divider).divider {
+  margin: 0;
+}
+
+.group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.rows {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.subGroup {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 4px;
+}
+
+.subTitle {
+  font-size: 12px;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 10px;
+}
+
+.row + .row {
+  border-top: 1px solid var(--border);
+}
+
+.off .label,
+.off .keys {
+  opacity: 0.5;
+}
+
+.label {
+  flex: 1;
+  min-width: 0;
+  color: var(--fg);
+}
+
+.keys {
+  flex-shrink: 0;
+  min-width: 96px;
+  padding: 2px 8px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg-hover);
+  color: var(--fg-strong);
+  font-family: var(--mono-font, ui-monospace, SFMono-Regular, Consolas, monospace);
+  font-size: 12px;
+  text-align: center;
+  white-space: nowrap;
+}
+
+.plain {
+  border-color: transparent;
+  background: transparent;
+}
+
+.recording {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.conflict {
+  border-color: var(--error);
+  color: var(--error);
+}

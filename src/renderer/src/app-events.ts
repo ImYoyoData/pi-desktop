@@ -18,16 +18,16 @@ let teardown: (() => void) | null = null;
 
 /**
  * 注册全部进程级订阅，返回解绑函数。幂等：重复调用返回同一个解绑函数。
- * 必须在 pinia 安装之后调用。
+ * 必须在应用启动后调用。
  */
 export function bootstrapAppEvents(): () => void {
 	if (teardown) return teardown;
 
-	const runs = useAgentRunsStore();
+	const runs = useAgentRunsStore.getState();
 	runs.bind();
 	const stops: Array<() => void> = [
-		useSessionsStore().bindEvents(),
-		useChatStore().bindEvents(),
+		useSessionsStore.getState().bindEvents(),
+		useChatStore.getState().bindEvents(),
 		startFsChangedBus(),
 		runs.unbind,
 	];

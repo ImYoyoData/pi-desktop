@@ -1,0 +1,162 @@
+:global(.title-bar) {
+  display: flex;
+  align-items: center;
+  height: 36px;
+  padding: 0 8px;
+  /*
+   * 半透明标题栏：颜色只做轻微压暗（一档 26%），让下面的内容/壁纸透出来。
+   * 配合 backdrop-filter 形成磨砂玻璃 —— 启用壁纸时透的是壁纸，未启用时透的是
+   * 窗口底色（Electron backgroundColor），两种情况都不会出现实心色块。
+   * 透明度刻意保守，避免文字对比度受背景影响。
+   */
+  background: color-mix(in srgb, var(--bg-title) 74%, transparent);
+  backdrop-filter: blur(18px) saturate(1.2);
+  border-bottom: 1px solid var(--border);
+  color: var(--fg-muted);
+  font-size: 12px;
+  user-select: none;
+  flex-shrink: 0;
+  box-shadow: 0 1px 0 color-mix(in srgb, var(--bg-elevated) 40%, transparent);
+  /* Whole bar is draggable; interactive children use .no-drag. */
+  -webkit-app-region: drag;
+}
+
+.drag {
+  -webkit-app-region: drag;
+}
+
+.noDrag {
+  -webkit-app-region: no-drag;
+}
+
+.trafficSpace {
+  width: 0;
+  flex-shrink: 0;
+}
+
+.mac .trafficSpace {
+  /* Leave room for traffic lights (hiddenInset + trafficLightPosition). */
+  width: 72px;
+}
+
+.brand {
+  display: inline-flex;
+  align-items: center;
+  padding-left: 4px;
+  color: var(--fg-strong);
+}
+
+.name {
+  font-weight: 600;
+  font-size: 12.5px;
+  letter-spacing: -0.01em;
+}
+
+.privilege {
+  margin-left: 6px;
+  font-size: 11px;
+  font-weight: 400;
+}
+
+.layoutControls {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin-left: 6px;
+}
+
+/* VSCode 布局控件：图标常驻，区域可见时高亮。 */
+.layoutBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: none;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--fg-muted);
+  cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+
+.layoutBtn:hover {
+  background: var(--bg-hover, rgba(127, 127, 127, 0.1));
+  color: var(--fg-strong);
+}
+
+.layoutBtn.checked,
+.layoutBtn.checked:hover {
+  background: var(--bg-active);
+  color: var(--fg-strong);
+}
+
+.center {
+  flex: 1;
+  min-width: 0;
+}
+
+.actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.updateBtn {
+  position: relative;
+  flex-shrink: 0;
+  margin-right: 2px;
+}
+
+.updateDot {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 0 1.5px var(--bg-title, var(--bg));
+  pointer-events: none;
+}
+
+.windowControls {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  height: 100%;
+}
+
+.wcBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 46px;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--fg-muted);
+  cursor: pointer;
+  -webkit-app-region: no-drag;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+
+.wcBtn:hover {
+  background: var(--bg-hover, rgba(127, 127, 127, 0.1));
+  color: var(--fg-strong);
+}
+
+.closeBtn:hover {
+  background: #c42b1c;
+  color: #fff;
+}
+
+.wcIcon {
+  display: block;
+  width: 10px;
+  height: 10px;
+  flex-shrink: 0;
+}

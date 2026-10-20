@@ -1,0 +1,21 @@
+.chipTag {
+  max-width: 200px;
+  flex-shrink: 0;
+}
+
+.chipTag:global(.ant-tag) {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+}
+
+.chipFile {
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
+.chipLabel {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

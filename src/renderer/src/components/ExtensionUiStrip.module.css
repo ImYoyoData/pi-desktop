@@ -1,0 +1,98 @@
+/* Shares the chat column's box (same cap + padding as the composer and the
+   message content) so extension UI lines up with them. */
+.extUiWrap {
+  flex-shrink: 0;
+  width: 100%;
+  max-width: var(--pi-message-max, 75%);
+  margin: 0 auto;
+  padding: 0 var(--chat-column-pad-x, 16px) 8px;
+  box-sizing: border-box;
+}
+
+.extUiCard {
+  border: 1px solid color-mix(in srgb, var(--primary, #3b82f6) 28%, var(--border, #ddd));
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--bg-elevated, #fff) 94%, var(--primary, #3b82f6) 6%);
+  overflow: hidden;
+}
+
+.stripHead {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px 6px;
+}
+
+.headBadge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--primary, #3b82f6) 16%, transparent);
+  color: var(--primary, #3b82f6);
+}
+
+.headText {
+  min-width: 0;
+}
+
+.headTitle {
+  font-size: 12px;
+  font-weight: 650;
+  color: var(--fg-strong, #111);
+}
+
+.headSub {
+  font-size: 12px;
+  color: var(--fg-muted, #555);
+  line-height: 1.35;
+}
+
+.stripBody {
+  padding: 4px 12px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.message {
+  font-size: 12.5px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+}
+
+.optList {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.optChip {
+  margin: 0;
+  padding: 5px 12px;
+  border: 1px solid var(--border, #ddd);
+  border-radius: 999px;
+  background: var(--bg, #fff);
+  color: var(--fg, #222);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.optChip:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--primary, #3b82f6) 50%, var(--border));
+}
+
+.optChip.active {
+  border-color: var(--primary, #3b82f6);
+  background: color-mix(in srgb, var(--primary, #3b82f6) 14%, transparent);
+  color: var(--primary, #3b82f6);
+}
+
+.stripFoot {
+  display: flex;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 6px;
+}

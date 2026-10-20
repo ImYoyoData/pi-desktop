@@ -1,0 +1,44 @@
+.root {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.switchRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.switchLabels {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.radioGroup {
+  flex-shrink: 0;
+  width: 168px;
+  display: inline-flex;
+}
+
+.radioPlaceholder {
+  flex-shrink: 0;
+  width: 168px;
+  height: 22px;
+  border-radius: 3px;
+  background: rgba(128, 128, 128, 0.14);
+}
+
+.radioGroup :global(.ant-radio-button-wrapper) {
+  flex: 1;
+  padding: 0;
+  text-align: center;
+}
+
+.urlInput {
+  width: 320px;
+  flex-shrink: 0;
+}

@@ -1,5 +1,4 @@
-import { defineStore } from "pinia";
-import { ref, watch } from "vue";
+import { create } from "zustand";
 import type { WorkspaceGroups } from "../../../shared/protocol";
 import { useRightTabsStore } from "@renderer/stores/right-tabs";
 
@@ -17,22 +16,47 @@ function sanitizeRoots(list: unknown): string[] {
 		: [];
 }
 
-export const useWorkspaceStore = defineStore("workspace", () => {
-	const root = ref<string | null>(null);
-	const recent = ref<string[]>([]);
+type WorkspaceBase = {
+	root: string | null;
+	recent: string[];
 	/** 绝对路径 → 用户自定义显示名。 */
-	const aliases = ref<Record<string, string>>({});
+	aliases: Record<string, string>;
 	/** 自定义分类名（顺序即菜单顺序）；未归类的工作区归入内置“默认”。 */
-	const groups = ref<string[]>([]);
+	groups: string[];
 	/** 绝对路径 → 分类名。 */
-	const groupOf = ref<Record<string, string>>({});
+	groupOf: Record<string, string>;
 	/** 已归档的会话 id（从侧栏隐藏，可恢复）。 */
-	const archivedSessions = ref<string[]>([]);
+	archivedSessions: string[];
 	/**
 	 * True once the current `root` is ready for session hydrate / worker spawn.
 	 */
-	const sessionsReady = ref(false);
+	sessionsReady: boolean;
+};
 
+export type WorkspaceState = WorkspaceBase & {
+	getWorkspace: () => Promise<string | null>;
+	openWorkspace: () => Promise<string | null>;
+	openWorkspacePath: (workspaceRoot: string) => Promise<string | null>;
+	clearWorkspace: () => Promise<null>;
+	listRecent: () => Promise<string[]>;
+	listRecentFast: () => Promise<string[]>;
+	removeRecent: (workspaceRoot: string) => Promise<void>;
+	purgeWorkspace: (workspaceRoot: string) => Promise<void>;
+	reorderRecent: (order: string[]) => Promise<string[]>;
+	revealInFolder: (workspaceRoot: string) => Promise<void>;
+	refreshAliases: () => Promise<void>;
+	renameWorkspace: (workspaceRoot: string, name: string | null) => Promise<void>;
+	relocateWorkspace: (workspaceRoot: string) => Promise<string | null>;
+	refreshGroups: () => Promise<void>;
+	addGroup: (name: string) => Promise<void>;
+	renameGroup: (from: string, to: string) => Promise<void>;
+	removeGroup: (name: string) => Promise<void>;
+	setGroupOf: (workspaceRoot: string, group: string | null) => Promise<void>;
+	refreshArchivedSessions: () => Promise<void>;
+	setArchivedSessions: (ids: string[]) => Promise<void>;
+};
+
+export const useWorkspaceStore = create<WorkspaceState>()((set, get) => {
 	/**
 	 * Watcher lifecycle is owned by main (workspace-ipc).
 	 * On switch we still ask main to re-sync, and drop old-workspace preview tabs
@@ -40,32 +64,17 @@ export const useWorkspaceStore = defineStore("workspace", () => {
 	 */
 	function onRootChanged(next: string | null, prev: string | null): void {
 		if (next === prev) return;
-		const tabs = useRightTabsStore();
-		tabs.switchWorkspace(prev, next);
+		useRightTabsStore.getState().switchWorkspace(prev, next);
 		if (next) void window.api.fs.watch(next);
 		else void window.api.fs.unwatch();
 	}
 
-	watch(root, (next, prev) => {
-		onRootChanged(next, prev ?? null);
-	});
-
-	watch(
-		() => {
-			const tabs = useRightTabsStore();
-			return [tabs.tabs, tabs.activeId] as const;
-		},
-		() => {
-			useRightTabsStore().persistTabs(root.value);
-		},
-		{ deep: true },
-	);
-
-	async function commitWorkspace(next: string | null): Promise<string | null> {
-		sessionsReady.value = false;
-		root.value = next;
-		sessionsReady.value = true;
-		return root.value;
+	function commitWorkspace(next: string | null): string | null {
+		const prev = get().root;
+		set({ sessionsReady: false, root: next });
+		onRootChanged(next, prev);
+		set({ sessionsReady: true });
+		return get().root;
 	}
 
 	async function clearWorkspace(): Promise<null> {
@@ -81,7 +90,7 @@ export const useWorkspaceStore = defineStore("workspace", () => {
 	}
 
 	async function openWorkspace(): Promise<string | null> {
-		const previous = root.value;
+		const previous = get().root;
 		const picked = await window.api.workspace.pick();
 		await listRecent();
 		if (!picked) return previous;
@@ -102,8 +111,9 @@ export const useWorkspaceStore = defineStore("workspace", () => {
 	 * Full recent list (Desktop + Pi-discovered). Prefer listRecentFast on boot.
 	 */
 	async function listRecent(): Promise<string[]> {
-		recent.value = sanitizeRoots(await window.api.workspace.listRecent());
-		return recent.value;
+		const rows = sanitizeRoots(await window.api.workspace.listRecent());
+		set({ recent: rows });
+		return rows;
 	}
 
 	/**
@@ -111,18 +121,19 @@ export const useWorkspaceStore = defineStore("workspace", () => {
 	 * Keeps startup / first paint snappy when ~/.pi/agent/sessions is large.
 	 */
 	async function listRecentFast(): Promise<string[]> {
-		recent.value = sanitizeRoots(await window.api.workspace.listRecentDesktop());
+		const rows = sanitizeRoots(await window.api.workspace.listRecentDesktop());
+		set({ recent: rows });
 		void listRecent().catch(() => {
 			/* background merge best-effort */
 		});
-		return recent.value;
+		return rows;
 	}
 
 	async function applyWorkspaceSwitch(next: {
 		root: string | null;
 		recent: string[];
 	}): Promise<void> {
-		recent.value = sanitizeRoots(next.recent);
+		set({ recent: sanitizeRoots(next.recent) });
 		await commitWorkspace(next.root);
 	}
 
@@ -141,8 +152,9 @@ export const useWorkspaceStore = defineStore("workspace", () => {
 	}
 
 	async function reorderRecent(order: string[]): Promise<string[]> {
-		recent.value = sanitizeRoots(await window.api.workspace.reorderRecent(order));
-		return recent.value;
+		const rows = sanitizeRoots(await window.api.workspace.reorderRecent(order));
+		set({ recent: rows });
+		return rows;
 	}
 
 	async function revealInFolder(workspaceRoot: string): Promise<void> {
@@ -150,7 +162,7 @@ export const useWorkspaceStore = defineStore("workspace", () => {
 	}
 
 	async function refreshAliases(): Promise<void> {
-		aliases.value = await window.api.workspace.listAliases();
+		set({ aliases: await window.api.workspace.listAliases() });
 	}
 
 	/** 重命名工作区显示名（磁盘目录不变）；name 为空即清除。 */
@@ -158,7 +170,7 @@ export const useWorkspaceStore = defineStore("workspace", () => {
 		workspaceRoot: string,
 		name: string | null,
 	): Promise<void> {
-		aliases.value = await window.api.workspace.setAlias(workspaceRoot, name);
+		set({ aliases: await window.api.workspace.setAlias(workspaceRoot, name) });
 	}
 
 	/** 重新定位：选新目录接管该工作区，Pi 会话一起迁过去。取消时返回 null。 */
@@ -168,14 +180,13 @@ export const useWorkspaceStore = defineStore("workspace", () => {
 		const picked = await window.api.workspace.pick();
 		if (!picked) return null;
 		const next = await window.api.workspace.relocate(workspaceRoot, picked);
-		aliases.value = next.aliases;
+		set({ aliases: next.aliases });
 		await applyWorkspaceSwitch(next);
 		return next.root;
 	}
 
 	function applyGroups(next: WorkspaceGroups): void {
-		groups.value = next.groups;
-		groupOf.value = next.groupOf;
+		set({ groups: next.groups, groupOf: next.groupOf });
 	}
 
 	async function refreshGroups(): Promise<void> {
@@ -203,21 +214,21 @@ export const useWorkspaceStore = defineStore("workspace", () => {
 	}
 
 	async function refreshArchivedSessions(): Promise<void> {
-		archivedSessions.value = await window.api.workspace.listArchivedSessions();
+		set({ archivedSessions: await window.api.workspace.listArchivedSessions() });
 	}
 
 	async function setArchivedSessions(ids: string[]): Promise<void> {
-		archivedSessions.value = await window.api.workspace.setArchivedSessions(ids);
+		set({ archivedSessions: ids });
 	}
 
 	return {
-		root,
-		recent,
-		aliases,
-		groups,
-		groupOf,
-		archivedSessions,
-		sessionsReady,
+		root: null,
+		recent: [],
+		aliases: {},
+		groups: [],
+		groupOf: {},
+		archivedSessions: [],
+		sessionsReady: false,
 		getWorkspace,
 		openWorkspace,
 		openWorkspacePath,
@@ -239,4 +250,9 @@ export const useWorkspaceStore = defineStore("workspace", () => {
 		refreshArchivedSessions,
 		setArchivedSessions,
 	};
+});
+
+useRightTabsStore.subscribe((state, prev) => {
+	if (state.tabs === prev.tabs && state.activeId === prev.activeId) return;
+	useRightTabsStore.getState().persistTabs(useWorkspaceStore.getState().root);
 });

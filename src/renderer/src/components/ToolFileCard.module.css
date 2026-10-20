@@ -1,0 +1,126 @@
+.toolFile {
+  width: 100%;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--tool-bg, var(--bg-elevated));
+  overflow: hidden;
+}
+
+.toolFile.streaming {
+  opacity: 0.85;
+}
+
+.toolFileHead {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  padding: 5px 8px;
+  border: none;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  min-width: 0;
+}
+
+.toolFileHead:hover {
+  background: var(--bg-hover, rgba(127, 127, 127, 0.06));
+}
+
+.chev {
+  flex-shrink: 0;
+  color: var(--fg-muted);
+}
+
+.toolFileHead :global(.ant-tag) {
+  font-size: 11px;
+  line-height: 16px;
+  padding-inline: 5px;
+}
+
+.toolName {
+  flex-shrink: 0;
+  font-size: 11px !important;
+}
+
+.path {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  font-family: ui-monospace, Cascadia Code, Consolas, monospace;
+}
+
+.stats {
+  flex-shrink: 0;
+  display: inline-flex;
+  gap: 6px;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  font-family: ui-monospace, Cascadia Code, Consolas, monospace;
+}
+
+.add {
+  color: var(--diff-added);
+}
+
+.del {
+  color: var(--diff-removed);
+}
+
+.openBtn {
+  width: 22px !important;
+  height: 22px !important;
+  min-width: 22px !important;
+  padding: 0 !important;
+}
+
+.fileGlyph {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-family: "seti";
+  font-size: 14px;
+  line-height: 1;
+  transform: translateY(1px);
+}
+
+.toolDiff {
+  margin: 0;
+  padding: 6px 8px 8px;
+  border-top: 1px solid var(--border);
+  max-height: 180px;
+  overflow: auto;
+  font-size: 11px;
+  line-height: 1.45;
+  font-family: ui-monospace, Cascadia Code, Consolas, monospace;
+  background: var(--bg, transparent);
+}
+
+.toolDiff.empty {
+  color: var(--fg-muted);
+}
+
+.dline {
+  display: block;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.dline.addLine {
+  background: color-mix(in srgb, var(--diff-added) 12%, transparent);
+  color: var(--diff-added);
+}
+
+.dline.delLine {
+  background: color-mix(in srgb, var(--diff-removed) 10%, transparent);
+  color: var(--diff-removed);
+}
+
+.dline.meta {
+  color: var(--fg-muted);
+}

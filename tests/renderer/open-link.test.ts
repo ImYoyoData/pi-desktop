@@ -1,14 +1,98 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
-import { createPinia, setActivePinia } from "pinia";
 import {
   handleAppLinkClick,
   normalizeHttpUrl,
   openInBuiltinBrowser,
   type LinkConfirmDialog,
 } from "../../src/renderer/src/utils/open-link";
-import { useRightTabsStore } from "../../src/renderer/src/stores/right-tabs";
-import { useLayoutStore } from "../../src/renderer/src/stores/layout";
-import { useBrowserNavStore } from "../../src/renderer/src/stores/browser-nav";
+
+const { rightTabsStore, layoutStore, browserNavStore } = vi.hoisted(() => {
+  type MockTab = { id: string; kind: string; label: string; url?: string };
+  type MockStore<T> = (() => T) & {
+    getState: () => T;
+    setState: (patch: Partial<T>) => void;
+  };
+
+  function createMockStore<T extends object>(createState: () => T): MockStore<T> {
+    const state = createState();
+    const store = (() => state) as MockStore<T>;
+    store.getState = () => state;
+    store.setState = (patch) => {
+      Object.assign(state, patch);
+    };
+    return store;
+  }
+
+  const rightTabsStore = createMockStore(() => {
+    const state: {
+      tabs: MockTab[];
+      addTab: (kind: string) => MockTab;
+      patchTab: (id: string, patch: Partial<MockTab>) => void;
+    } = {
+      tabs: [],
+      addTab: (kind) => {
+        const tab: MockTab = {
+          id: `${kind}-${state.tabs.length + 1}`,
+          kind,
+          label: kind,
+        };
+        state.tabs.push(tab);
+        return tab;
+      },
+      patchTab: (id, patch) => {
+        const tab = state.tabs.find((t) => t.id === id);
+        if (tab) Object.assign(tab, patch);
+      },
+    };
+    return state;
+  });
+
+  const layoutStore = createMockStore(() => {
+    const state: {
+      rightCollapsed: boolean;
+      toggleRightCollapsed: () => void;
+    } = {
+      rightCollapsed: true,
+      toggleRightCollapsed: () => {
+        state.rightCollapsed = !state.rightCollapsed;
+      },
+    };
+    return state;
+  });
+
+  const browserNavStore = createMockStore(() => {
+    const state: {
+      pendingUrl: string | null;
+      pendingTabId: string | null;
+      seq: number;
+      requestNavigate: (url: string, tabId: string) => void;
+    } = {
+      pendingUrl: null,
+      pendingTabId: null,
+      seq: 0,
+      requestNavigate: (url, tabId) => {
+        state.pendingUrl = url;
+        state.pendingTabId = tabId;
+        state.seq += 1;
+      },
+    };
+    return state;
+  });
+
+  return { rightTabsStore, layoutStore, browserNavStore };
+});
+
+vi.mock("../../src/renderer/src/stores/right-tabs", () => ({
+  useRightTabsStore: rightTabsStore,
+}));
+
+vi.mock("../../src/renderer/src/stores/layout", () => ({
+  useLayoutStore: layoutStore,
+}));
+
+vi.mock("../../src/renderer/src/stores/browser-nav", () => ({
+  useBrowserNavStore: browserNavStore,
+}));
 
 describe("normalizeHttpUrl", () => {
   it("accepts http(s) and www", () => {
@@ -26,7 +110,9 @@ describe("normalizeHttpUrl", () => {
 
 describe("handleAppLinkClick", () => {
   beforeEach(() => {
-    setActivePinia(createPinia());
+    rightTabsStore.setState({ tabs: [] });
+    layoutStore.setState({ rightCollapsed: true });
+    browserNavStore.setState({ pendingUrl: null, pendingTabId: null, seq: 0 });
     vi.stubGlobal("window", {
       api: {
         browser: {
@@ -37,8 +123,7 @@ describe("handleAppLinkClick", () => {
   });
 
   it("opens built-in browser on plain click", () => {
-    const layout = useLayoutStore();
-    layout.rightCollapsed = true;
+    layoutStore.setState({ rightCollapsed: true });
     const dialog: LinkConfirmDialog = { warning: vi.fn() };
 
     handleAppLinkClick(
@@ -48,11 +133,11 @@ describe("handleAppLinkClick", () => {
     );
 
     expect(dialog.warning).not.toHaveBeenCalled();
-    const tabs = useRightTabsStore();
+    const tabs = rightTabsStore.getState();
     const browser = tabs.tabs.find((t) => t.kind === "browser");
     expect(browser).toBeTruthy();
-    expect(useBrowserNavStore().pendingUrl).toBe("https://pi.dev/docs");
-    expect(layout.rightCollapsed).toBe(false);
+    expect(browserNavStore.getState().pendingUrl).toBe("https://pi.dev/docs");
+    expect(layoutStore.getState().rightCollapsed).toBe(false);
   });
 
   it("Ctrl+click shows dialog with external and built-in actions", () => {
@@ -73,7 +158,9 @@ describe("handleAppLinkClick", () => {
     expect(call.positiveText).toBeTruthy();
     expect(call.negativeText).toBeTruthy();
 
-    const browser = useRightTabsStore().tabs.find((t) => t.kind === "browser");
+    const browser = rightTabsStore
+      .getState()
+      .tabs.find((t) => t.kind === "browser");
     expect(browser).toBeTruthy();
 
     // External path
@@ -84,7 +171,9 @@ describe("handleAppLinkClick", () => {
   it("openInBuiltinBrowser always creates a new tab", () => {
     openInBuiltinBrowser("https://a.example");
     openInBuiltinBrowser("https://b.example");
-    const browsers = useRightTabsStore().tabs.filter((t) => t.kind === "browser");
+    const browsers = rightTabsStore
+      .getState()
+      .tabs.filter((t) => t.kind === "browser");
     expect(browsers.length).toBe(2);
   });
 });

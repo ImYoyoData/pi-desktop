@@ -1,12 +1,14 @@
-import { createPinia, setActivePinia } from "pinia";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { AgentRunSnapshot } from "../../src/shared/agent-runs";
 import { useAgentRunsStore } from "../../src/renderer/src/stores/agent-runs";
 import { useWorkspaceStore } from "../../src/renderer/src/stores/workspace";
 
-vi.mock("naive-ui", () => ({
-  createDiscreteApi: () => ({
-    message: { warning: vi.fn(), error: vi.fn(), info: vi.fn() },
+vi.mock("../../src/renderer/src/services/feedback", () => ({
+  getMessage: () => ({
+    warning: vi.fn(),
+    error: vi.fn(),
+    info: vi.fn(),
+    success: vi.fn(),
   }),
 }));
 
@@ -24,9 +26,18 @@ function snap(partial: Partial<AgentRunSnapshot> & Pick<AgentRunSnapshot, "id">)
   };
 }
 
+function state() {
+  return useAgentRunsStore.getState();
+}
+
+function setWorkspaceRoot(root: string | null): void {
+  useWorkspaceStore.setState({ root });
+}
+
 describe("agent-runs store", () => {
   beforeEach(() => {
-    setActivePinia(createPinia());
+    useAgentRunsStore.setState(useAgentRunsStore.getInitialState(), true);
+    setWorkspaceRoot(null);
     vi.stubGlobal("window", {
       api: {
         runs: {
@@ -51,35 +62,32 @@ describe("agent-runs store", () => {
   });
 
   it("ignores upsert from a different workspace", () => {
-    const workspace = useWorkspaceStore();
-    workspace.root = "C:\\ws\\A";
-    const store = useAgentRunsStore();
+    setWorkspaceRoot("C:\\ws\\A");
+    const store = state();
 
     store.applyEvent({
       type: "upsert",
       run: snap({ id: "r1", workspaceRoot: "c:/ws/other" }),
     });
 
-    expect(store.runs).toEqual([]);
+    expect(state().runs).toEqual([]);
   });
 
   it("accepts upsert for current workspace (normalized)", () => {
-    const workspace = useWorkspaceStore();
-    workspace.root = "C:\\ws\\A\\";
-    const store = useAgentRunsStore();
+    setWorkspaceRoot("C:\\ws\\A\\");
+    const store = state();
     const run = snap({ id: "r1", workspaceRoot: "c:/ws/a" });
 
     store.applyEvent({ type: "upsert", run });
 
-    expect(store.runs).toHaveLength(1);
-    expect(store.runs[0]?.id).toBe("r1");
-    expect(store.selectedId).toBe("r1");
+    expect(state().runs).toHaveLength(1);
+    expect(state().runs[0]?.id).toBe("r1");
+    expect(state().selectedId).toBe("r1");
   });
 
   it("updates outputTail for known run and ignores unknown", () => {
-    const workspace = useWorkspaceStore();
-    workspace.root = "c:/ws/a";
-    const store = useAgentRunsStore();
+    setWorkspaceRoot("c:/ws/a");
+    const store = state();
     store.applyEvent({ type: "upsert", run: snap({ id: "r1" }) });
 
     store.applyEvent({
@@ -88,7 +96,7 @@ describe("agent-runs store", () => {
       chunk: "x",
       outputTail: "x",
     });
-    expect(store.runs[0]?.outputTail).toBe("");
+    expect(state().runs[0]?.outputTail).toBe("");
 
     const before = Date.now();
     store.applyEvent({
@@ -97,15 +105,14 @@ describe("agent-runs store", () => {
       chunk: "hello",
       outputTail: "hello",
     });
-    expect(store.runs[0]?.outputTail).toBe("hello");
-    expect(store.runs[0]?.lastOutputAt).toBeGreaterThanOrEqual(before);
+    expect(state().runs[0]?.outputTail).toBe("hello");
+    expect(state().runs[0]?.lastOutputAt).toBeGreaterThanOrEqual(before);
   });
 
   it("checkBashStalls terminates silent running bash once", async () => {
     vi.useFakeTimers();
-    const workspace = useWorkspaceStore();
-    workspace.root = "c:/ws/a";
-    const store = useAgentRunsStore();
+    setWorkspaceRoot("c:/ws/a");
+    const store = state();
     const terminate = vi.mocked(window.api.runs.terminate);
     store.applyEvent({
       type: "upsert",
@@ -126,23 +133,21 @@ describe("agent-runs store", () => {
   });
 
   it("removes ended run and reselects", () => {
-    const workspace = useWorkspaceStore();
-    workspace.root = "c:/ws/a";
-    const store = useAgentRunsStore();
+    setWorkspaceRoot("c:/ws/a");
+    const store = state();
     store.applyEvent({ type: "upsert", run: snap({ id: "r1" }) });
     store.applyEvent({ type: "upsert", run: snap({ id: "r2", command: "ping" }) });
     store.select("r1");
 
     store.applyEvent({ type: "ended", runId: "r1" });
 
-    expect(store.runs.map((r) => r.id)).toEqual(["r2"]);
-    expect(store.selectedId).toBe("r2");
+    expect(state().runs.map((r) => r.id)).toEqual(["r2"]);
+    expect(state().selectedId).toBe("r2");
   });
 
   it("filters snapshot to current workspace", () => {
-    const workspace = useWorkspaceStore();
-    workspace.root = "c:/ws/a";
-    const store = useAgentRunsStore();
+    setWorkspaceRoot("c:/ws/a");
+    const store = state();
 
     store.applyEvent({
       type: "snapshot",
@@ -152,24 +157,22 @@ describe("agent-runs store", () => {
       ],
     });
 
-    expect(store.runs.map((r) => r.id)).toEqual(["keep"]);
+    expect(state().runs.map((r) => r.id)).toEqual(["keep"]);
   });
 
   it("refresh clears when workspace is null", async () => {
-    const workspace = useWorkspaceStore();
-    workspace.root = "c:/ws/a";
-    const store = useAgentRunsStore();
+    setWorkspaceRoot("c:/ws/a");
+    const store = state();
     store.applyEvent({ type: "upsert", run: snap({ id: "r1" }) });
 
     await store.refresh(null);
-    expect(store.runs).toEqual([]);
-    expect(store.selectedId).toBeNull();
+    expect(state().runs).toEqual([]);
+    expect(state().selectedId).toBeNull();
   });
 
   it("ignores stale refresh response after newer workspace refresh", async () => {
-    const workspace = useWorkspaceStore();
-    workspace.root = "c:/ws/a";
-    const store = useAgentRunsStore();
+    setWorkspaceRoot("c:/ws/a");
+    const store = state();
     store.applyEvent({
       type: "upsert",
       run: snap({ id: "a0", workspaceRoot: "c:/ws/a" }),
@@ -186,17 +189,17 @@ describe("agent-runs store", () => {
     ]);
 
     const pendingA = store.refresh("c:/ws/a");
-    expect(store.runs.map((r) => r.id)).toEqual(["a0"]);
+    expect(state().runs.map((r) => r.id)).toEqual(["a0"]);
 
-    workspace.root = "c:/ws/b";
+    setWorkspaceRoot("c:/ws/b");
     await store.refresh("c:/ws/b");
-    expect(store.runs.map((r) => r.id)).toEqual(["b1"]);
-    expect(store.selectedId).toBe("b1");
+    expect(state().runs.map((r) => r.id)).toEqual(["b1"]);
+    expect(state().selectedId).toBe("b1");
 
     resolveA([snap({ id: "a1", workspaceRoot: "c:/ws/a" })]);
     await pendingA;
 
-    expect(store.runs.map((r) => r.id)).toEqual(["b1"]);
-    expect(store.selectedId).toBe("b1");
+    expect(state().runs.map((r) => r.id)).toEqual(["b1"]);
+    expect(state().selectedId).toBe("b1");
   });
 });

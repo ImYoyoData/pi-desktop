@@ -1,14 +1,18 @@
-import { defineStore } from "pinia";
-import { ref } from "vue";
+import { create } from "zustand";
 import { toIpcPlain } from "../../../shared/protocol";
 import {
   DEFAULT_RUNTIME_SETTINGS,
   type RuntimeSettings,
 } from "../../../shared/runtime-settings";
 
+type RuntimeSettingsState = {
+  settings: RuntimeSettings;
+  load: (force?: boolean) => Promise<void>;
+  save: (next: RuntimeSettings) => Promise<void>;
+};
+
 /** 「运行」设置：主进程持久化到 settings.json，渲染端与 worker 共用同一份值。 */
-export const useRuntimeSettingsStore = defineStore("runtime-settings", () => {
-  const settings = ref<RuntimeSettings>({ ...DEFAULT_RUNTIME_SETTINGS });
+export const useRuntimeSettingsStore = create<RuntimeSettingsState>()((set) => {
   let loading: Promise<void> | null = null;
   let subscribed = false;
 
@@ -19,11 +23,11 @@ export const useRuntimeSettingsStore = defineStore("runtime-settings", () => {
       if (!subscribed) {
         subscribed = true;
         window.api.runtime.onChanged((next) => {
-          settings.value = next;
+          set({ settings: next });
         });
       }
       try {
-        settings.value = await window.api.runtime.get();
+        set({ settings: await window.api.runtime.get() });
       } catch {
         // 读取失败时保持默认值
       }
@@ -32,9 +36,8 @@ export const useRuntimeSettingsStore = defineStore("runtime-settings", () => {
   }
 
   async function save(next: RuntimeSettings): Promise<void> {
-    // Vue 响应式代理不能结构化克隆，先转成普通对象再发 IPC。
-    settings.value = await window.api.runtime.set(toIpcPlain(next));
+    set({ settings: await window.api.runtime.set(toIpcPlain(next)) });
   }
 
-  return { settings, load, save };
+  return { settings: { ...DEFAULT_RUNTIME_SETTINGS }, load, save };
 });

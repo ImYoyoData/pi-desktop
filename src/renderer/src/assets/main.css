@@ -227,6 +227,29 @@ button {
 
 .splitpanes {
   background: var(--bg) !important;
+  display: flex;
+  flex-direction: row;
+  width: 100%;
+  height: 100%;
+}
+
+.splitpanes--horizontal {
+  flex-direction: column;
+}
+
+.splitpanes__pane {
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+}
+
+.splitpanes__splitter {
+  flex: 0 0 auto;
+  cursor: col-resize;
+}
+
+.splitpanes--horizontal > .splitpanes__splitter {
+  cursor: row-resize;
 }
 
 .splitpanes__splitter {
@@ -266,7 +289,49 @@ button {
   border-bottom-color: transparent;
 }
 
-.app-shell.panel-dividers-off .chat-panel .head {
+/* 分栏外壳：左侧栏 + 主区，主区内部再分聊天列与右侧面板 */
+.split-root {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+}
+
+.split-root .panes,
+.split-root .splitpanes {
+  height: 100%;
+}
+
+.split-root .splitpanes__pane {
+  overflow: hidden;
+  background: var(--bg);
+  display: flex;
+  flex-direction: column;
+  /* splitpanes 默认给面板宽高加 0.2s 过渡，折叠/最大化会逐帧重排重内容区；
+     展开收起瞬时生效，一次布局代替十几帧。 */
+  transition: none;
+  will-change: auto;
+}
+
+.split-root .splitpanes__pane > * {
+  flex: 1;
+  min-height: 0;
+  height: 100%;
+}
+
+.split-root .pane-collapsed {
+  overflow: hidden !important;
+  pointer-events: none;
+  visibility: hidden;
+  /* 隐藏面板整棵子树跳过布局/绘制（保留 DOM 与组件状态）。 */
+  content-visibility: hidden;
+}
+
+.split-root .panel-collapsed .splitpanes__splitter {
+  display: none;
+}
+
+.app-shell.panel-dividers-off .chat-panel .chat-panel-head {
   border-bottom-color: transparent;
 }
 
@@ -276,6 +341,19 @@ button {
 
 .app-shell.panel-dividers-off .splitpanes.outer > .splitpanes__splitter {
   background: transparent !important;
+}
+
+/*
+ * 空态插图尺寸：antd 的 Empty 默认图按 token 渲染成 100px 高，
+ * 原来 naive-ui 的 NEmpty 是 40px。这里统一压回原尺寸，保持空态观感。
+ */
+.ant-empty .ant-empty-image {
+  height: 40px !important;
+}
+
+.ant-empty .ant-empty-image svg {
+  height: 100% !important;
+  width: auto !important;
 }
 
 /* Refined scrollbars */
@@ -438,32 +516,8 @@ button {
   color: var(--fg-muted);
 }
 
-/*
- * Modal enter/leave: opacity only (no scale). Scale + large card paint feels janky
- * in Electron with chat/Monaco behind the mask.
- */
-.n-modal-container .fade-in-scale-up-transition-enter-from,
-.n-modal-container .fade-in-scale-up-transition-leave-to {
-  opacity: 0;
-  transform: none !important;
-}
-.n-modal-container .fade-in-scale-up-transition-enter-to,
-.n-modal-container .fade-in-scale-up-transition-leave-from {
-  opacity: 1;
-  transform: none !important;
-}
-.n-modal-container .fade-in-scale-up-transition-enter-active,
-.n-modal-container .fade-in-scale-up-transition-leave-active {
-  transition: opacity 110ms var(--ease-out, ease) !important;
-}
-.n-modal-mask.fade-in-transition-enter-active,
-.n-modal-mask.fade-in-transition-leave-active {
-  transition: opacity 100ms var(--ease-out, ease) !important;
-}
-
 /* Settings modals */
-.pi-settings-modal.n-modal,
-.pi-settings-modal.n-card {
+.pi-settings-modal .ant-modal-content {
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-lg);
   border: 1px solid var(--border);
@@ -473,8 +527,8 @@ button {
  * 设置页内的自绘按钮统一键盘焦点样式：Chromium 默认白色焦点环在深色玻璃上
  * 过于突兀（点击按钮后的 Esc 等键盘操作会触发 :focus-visible）。
  */
-.pi-settings-modal button:not(.n-button):focus-visible,
-.modal-editor-panel button:not(.n-button):focus-visible {
+.pi-settings-modal button:not(.ant-btn):focus-visible,
+.modal-editor-panel button:not(.ant-btn):focus-visible {
   outline: 1px solid var(--accent);
   outline-offset: -1px;
 }
@@ -492,18 +546,18 @@ button {
   box-sizing: border-box;
 }
 
-.pi-settings-modal .n-card-header {
+.pi-settings-modal .ant-modal-header {
   padding: 18px 20px 10px !important;
   border-bottom: 1px solid var(--border);
 }
 
-.pi-settings-modal .n-card-header .n-card-header__title {
+.pi-settings-modal .ant-modal-title {
   font-size: 15px;
   font-weight: 650;
   letter-spacing: 0.01em;
 }
 
-.pi-settings-modal .n-card__content {
+.pi-settings-modal .ant-modal-body {
   padding: 14px 20px 18px !important;
 }
 
@@ -521,49 +575,33 @@ button {
 }
 
 /*
- * 设置页内的 naive-ui 控件描边统一跟随 --border（玻璃下为白色半透明描边），
- * 与自绘按钮（ToggleButton、item-action）保持一致；
- * naive-ui 把主题变量内联在组件根元素上，必须 !important 才能覆盖。
+ * 设置页内的控件描边统一跟随 --border（玻璃下为白色半透明描边），
+ * 与自绘按钮（ToggleButton、item-action）保持一致。
  */
-.pi-settings-modal .n-radio-group,
-.modal-editor-panel .n-radio-group {
-  --n-button-border-color: var(--border) !important;
-  --n-button-border-color-active: var(--border) !important;
-}
-
-.pi-settings-modal .n-base-selection,
-.modal-editor-panel .n-base-selection,
-.pi-settings-modal .n-input,
-.modal-editor-panel .n-input {
-  --n-border: 1px solid var(--border) !important;
-  --n-border-hover: 1px solid var(--border) !important;
-  --n-border-focus: 1px solid var(--border) !important;
-  --n-border-active: 1px solid var(--border) !important;
-  --n-border-disabled: 1px solid var(--border) !important;
-}
-
-/* 按钮的实际描边在 __border / __state-border 上，text 按钮的 border-style 为 none 不受影响 */
-.pi-settings-modal .n-button__border,
-.pi-settings-modal .n-button__state-border,
-.modal-editor-panel .n-button__border,
-.modal-editor-panel .n-button__state-border {
+.pi-settings-modal .ant-input,
+.pi-settings-modal .ant-input-affix-wrapper,
+.pi-settings-modal .ant-input-number,
+.pi-settings-modal .ant-select-selector,
+.modal-editor-panel .ant-input,
+.modal-editor-panel .ant-input-affix-wrapper,
+.modal-editor-panel .ant-input-number,
+.modal-editor-panel .ant-select-selector {
   border-color: var(--border) !important;
 }
 
-.pi-settings-modal .n-checkbox-box,
-.modal-editor-panel .n-checkbox-box {
-  --n-border: 1px solid var(--border) !important;
-  --n-border-disabled: 1px solid var(--border) !important;
+.pi-settings-modal .ant-btn,
+.modal-editor-panel .ant-btn {
+  border-color: var(--border) !important;
 }
 
-.pi-settings-modal .n-tabs,
-.modal-editor-panel .n-tabs {
-  --n-tab-border-color: var(--border) !important;
+.pi-settings-modal .ant-checkbox-inner,
+.modal-editor-panel .ant-checkbox-inner {
+  border-color: var(--border) !important;
 }
 
-.pi-settings-modal .n-divider,
-.modal-editor-panel .n-divider {
-  --n-color: var(--border) !important;
+.pi-settings-modal .ant-divider,
+.modal-editor-panel .ant-divider {
+  border-color: var(--border) !important;
 }
 
 .pi-settings-modal .section-label {
@@ -572,7 +610,7 @@ button {
   color: var(--fg-strong);
 }
 
-.pi-settings-modal .n-card__footer {
+.pi-settings-modal .ant-modal-footer {
   padding: 12px 20px 16px !important;
   border-top: 1px solid var(--border);
 }
@@ -585,7 +623,7 @@ button {
 
 /* Interactive controls — snappy press feedback without layout shift */
 .pi-interactive,
-.n-button {
+.ant-btn {
   transition:
     transform var(--duration-fast) var(--ease-out),
     opacity var(--duration-fast) var(--ease-out),
@@ -601,11 +639,11 @@ button {
  * centered floating buttons), which shifts the hit target and misses clicks.
  */
 .pi-interactive:active:not(:disabled),
-.n-button:not(.n-button--disabled):active {
+.ant-btn:not(:disabled):active {
   scale: 0.985;
 }
 
-.n-button.n-button--circle:active:not(.n-button--disabled) {
+.ant-btn.ant-btn-circle:not(:disabled):active {
   scale: 0.94;
 }
 
@@ -623,8 +661,8 @@ button {
 }
 
 /* macOS: slightly denser titlebar hit targets feel closer to native */
-html.platform-darwin .title-bar .n-button {
-  --n-height: 28px;
+html.platform-darwin .title-bar .ant-btn {
+  height: 28px;
 }
 
 /*

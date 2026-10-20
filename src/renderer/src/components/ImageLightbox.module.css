@@ -1,0 +1,121 @@
+.imagePreviewOverlay {
+  position: fixed;
+  inset: 0;
+  z-index: 2147483644;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(9, 9, 11, 0.82);
+  backdrop-filter: blur(3px);
+  cursor: zoom-out;
+  animation: preview-fade 160ms var(--ease-out, ease);
+  outline: none;
+}
+
+@keyframes preview-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.previewToolbar {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  right: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: rgba(24, 24, 27, 0.72);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  color: #fafafa;
+  user-select: none;
+}
+
+.previewTitle {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.85);
+}
+
+.previewActions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.previewBtn {
+  padding: 4px 10px;
+  border-radius: 4px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  background: rgba(255, 255, 255, 0.08);
+  color: #fafafa;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  transition: background var(--duration-fast, 140ms) var(--ease-out, ease);
+}
+
+.previewBtn:hover {
+  background: rgba(255, 255, 255, 0.18);
+}
+
+.close {
+  border-color: transparent;
+  background: transparent;
+  font-size: 14px;
+  padding: 4px 8px;
+}
+
+.previewImg {
+  max-width: calc(100vw - 80px);
+  max-height: calc(100vh - 80px);
+  object-fit: contain;
+  border-radius: 4px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+  cursor: zoom-out;
+  user-select: none;
+  -webkit-user-drag: none;
+}
+
+.previewContextMenu {
+  position: fixed;
+  z-index: 2147483645;
+  min-width: 150px;
+  padding: 4px;
+  border-radius: 6px;
+  background: var(--bg-elevated, #1c1c22);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-lg, 0 12px 40px rgba(0, 0, 0, 0.3));
+  animation: preview-fade 100ms var(--ease-out, ease);
+}
+
+.ctxItem {
+  display: block;
+  width: 100%;
+  padding: 7px 10px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--fg);
+  text-align: left;
+  font: inherit;
+  font-size: 12.5px;
+  cursor: pointer;
+}
+
+.ctxItem:hover {
+  background: var(--bg-hover);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .imagePreviewOverlay {
+    animation: none;
+  }
+}

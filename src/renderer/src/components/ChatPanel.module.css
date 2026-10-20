@@ -1,0 +1,85 @@
+.chatPanel {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-width: 0;
+  background: var(--bg);
+}
+
+.chatPanelHead {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  height: 36px;
+  padding: 0 var(--chat-pad-x, 10px);
+  flex-shrink: 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tag {
+  border-radius: 999px;
+  font-size: 11px;
+  line-height: 18px;
+  margin-inline-end: 0;
+}
+
+.emptyAgent {
+  flex: 1;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+}
+
+/* 自定义图标原版是 28px，这里让图标容器也跟着收窄。 */
+.emptyAgent :global(.ant-empty-image) {
+  height: 28px !important;
+}
+
+/*
+ * Chat input stack — docked todo / changed-files share the composer surface.
+ *
+ * Shares the message column's exact box: same `--pi-message-max` cap (Settings →
+ * 外观 → 消息宽度) and the same horizontal padding as MessageList's `.inner`, so
+ * the input box sits precisely under the message content.
+ *
+ * `scrollbar-gutter: stable both-edges` mirrors the gutter the message list
+ * reserves for its classic (non-overlay) scrollbar — without it the scroller's
+ * content box is one scrollbar narrower and a centred percentage column lands a
+ * few px off.
+ */
+.chatInputStack {
+  flex-shrink: 0;
+  width: 100%;
+  max-width: var(--pi-message-max, 75%);
+  margin: 0 auto;
+  padding: 0 var(--chat-column-pad-x, 16px) 10px;
+  box-sizing: border-box;
+  scrollbar-gutter: stable both-edges;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.stackAbove {
+  border: 1px solid var(--border);
+  border-bottom: none;
+  border-radius: var(--radius-lg, 8px) var(--radius-lg, 8px) 0 0;
+  background: var(--tool-bg, #f5f6f7);
+  padding: 3px 3px 0;
+  overflow: hidden;
+  box-shadow: none;
+}
+
+/* Inner vertical hairline between docked members. */
+.stackAbove :global(.todo-dock) + :global(.files-dock) {
+  border-top: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+  margin-top: 4px;
+  padding-top: 4px;
+}

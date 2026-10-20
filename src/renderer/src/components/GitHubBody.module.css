@@ -1,0 +1,95 @@
+.root {
+  min-width: 0;
+  font-size: 13px;
+  line-height: 1.62;
+  color: var(--pi-text);
+  overflow-wrap: anywhere;
+}
+
+.empty {
+  margin: 0;
+  color: var(--pi-text-weak);
+  font-style: italic;
+}
+
+.html :global(p) {
+  margin: 0 0 0.6em;
+}
+
+.html :global(p:last-child) {
+  margin-bottom: 0;
+}
+
+.html :global(a) {
+  color: var(--pi-accent);
+  text-decoration: none;
+}
+
+.html :global(a:hover) {
+  text-decoration: underline;
+}
+
+.html :global(img) {
+  max-width: 100%;
+  border-radius: 6px;
+  background: rgba(127, 127, 127, 0.08);
+}
+
+.html :global(pre) {
+  margin: 0.6em 0;
+  padding: 10px 12px;
+  overflow-x: auto;
+  border-radius: 6px;
+  background: rgba(127, 127, 127, 0.12);
+  font-family: var(--pi-font-mono, ui-monospace, monospace);
+  font-size: 12px;
+}
+
+.html :global(code) {
+  padding: 1px 4px;
+  border-radius: 4px;
+  background: rgba(127, 127, 127, 0.14);
+  font-family: var(--pi-font-mono, ui-monospace, monospace);
+  font-size: 12px;
+}
+
+.html :global(pre code) {
+  padding: 0;
+  background: transparent;
+}
+
+.html :global(blockquote) {
+  margin: 0.6em 0;
+  padding-left: 12px;
+  border-left: 3px solid rgba(127, 127, 127, 0.3);
+  color: var(--pi-text-weak);
+}
+
+.html :global(ul),
+.html :global(ol) {
+  margin: 0.4em 0;
+  padding-left: 1.4em;
+}
+
+.html :global(table) {
+  border-collapse: collapse;
+  margin: 0.6em 0;
+}
+
+.html :global(th),
+.html :global(td) {
+  border: 1px solid rgba(127, 127, 127, 0.3);
+  padding: 4px 8px;
+}
+
+.html :global(h1),
+.html :global(h2),
+.html :global(h3),
+.html :global(h4) {
+  margin: 0.8em 0 0.4em;
+  font-size: 14px;
+}
+
+.html :global(details) {
+  margin: 0.5em 0;
+}
