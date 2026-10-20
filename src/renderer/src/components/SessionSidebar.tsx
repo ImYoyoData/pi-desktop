@@ -33,7 +33,6 @@ import {
   FolderOutline,
   ListOutline,
   PinOutline,
-  SwapHorizontalOutline,
   TrashOutline,
 } from "@renderer/components/icons/ionicons";
 import CodiconIcon, {
@@ -63,11 +62,6 @@ import styles from "./SessionSidebar.module.css";
 const PIN_KEY = "session-pins:v1";
 const SESSION_ORDER_KEY = "pi-desktop:session-order:v2";
 const SESSION_VISIBLE_LIMIT = 5;
-
-/** 侧栏分类：空串表示“全部项目”，GROUP_DEFAULT 是内置的“默认”。 */
-const GROUP_ALL = "";
-const GROUP_DEFAULT = "\u0000default";
-const GROUP_KEY_PREFIX = "group:";
 
 const ARCHIVE_KEY_PREFIX = "archive:";
 const ARCHIVE_DAY_STEPS = [3, 7, 30, 90];
@@ -107,20 +101,10 @@ type SidebarLocal = {
   selectMode: boolean;
   selectedSessionIds: string[];
   workspacePaths: string[];
-  activeGroup: string;
 };
 
-function groupNameOf(workspace: WorkspaceState, root: string): string {
-  return workspace.groupOf[root]?.trim() || GROUP_DEFAULT;
-}
-
-function activeGroupOf(workspace: WorkspaceState, selected: string): string {
-  if (!selected || selected === GROUP_DEFAULT) return selected;
-  return workspace.groups.includes(selected) ? selected : GROUP_ALL;
-}
-
-/** 最近列表 + 活动工作区兜底，未经分类过滤。 */
-function allWorkspacePathsOf(workspace: WorkspaceState): string[] {
+/** 侧栏展示的工作区：最近列表 + 活动工作区兜底。 */
+function workspacePathsOf(workspace: WorkspaceState): string[] {
   const paths = [...workspace.recent];
   const root = workspace.root;
   if (
@@ -130,29 +114,6 @@ function allWorkspacePathsOf(workspace: WorkspaceState): string[] {
     paths.push(root);
   }
   return paths;
-}
-
-/** 侧栏实际展示的工作区（按选中分类过滤）。 */
-function workspacePathsOf(
-  workspace: WorkspaceState,
-  activeGroup: string,
-): string[] {
-  const all = allWorkspacePathsOf(workspace);
-  if (!activeGroup) return all;
-  return all.filter((root) => groupNameOf(workspace, root) === activeGroup);
-}
-
-function groupOptionKey(name: string): string {
-  if (name === GROUP_ALL) return "group-all";
-  if (name === GROUP_DEFAULT) return "group-default";
-  return `${GROUP_KEY_PREFIX}${name}`;
-}
-
-function groupNameFromKey(key: string): string | null {
-  if (key === "group-all") return GROUP_ALL;
-  if (key === "group-default") return GROUP_DEFAULT;
-  if (key.startsWith(GROUP_KEY_PREFIX)) return key.slice(GROUP_KEY_PREFIX.length);
-  return null;
 }
 
 function isRunning(status: SessionStatus): boolean {
@@ -291,12 +252,6 @@ export function SessionSidebar(): ReactNode {
   const [wsRenameDraft, setWsRenameDraft] = useState("");
   const [wsRenameRoot, setWsRenameRoot] = useState<string | null>(null);
 
-  const [selectedGroup, setSelectedGroup] = useState<string>(GROUP_ALL);
-  const [groupDialogOpen, setGroupDialogOpen] = useState(false);
-  const [groupDraft, setGroupDraft] = useState("");
-  const [groupDialogMode, setGroupDialogMode] = useState<"create" | "rename">(
-    "create",
-  );
   const [workspaceCollapsed, setWorkspaceCollapsed] = useState(false);
 
   const [selectMode, setSelectMode] = useState(false);
@@ -322,17 +277,9 @@ export function SessionSidebar(): ReactNode {
     () => new Set(workspace.archivedSessions),
     [workspace.archivedSessions],
   );
-  const activeGroup = useMemo(
-    () => activeGroupOf(workspace, selectedGroup),
-    [workspace, selectedGroup],
-  );
-  const allWorkspacePaths = useMemo(
-    () => allWorkspacePathsOf(workspace),
-    [workspace],
-  );
   const workspacePaths = useMemo(
-    () => workspacePathsOf(workspace, activeGroup),
-    [workspace, activeGroup],
+    () => workspacePathsOf(workspace),
+    [workspace],
   );
   const workspacePathsKey = workspacePaths.join("\0");
 
@@ -344,7 +291,6 @@ export function SessionSidebar(): ReactNode {
     selectMode,
     selectedSessionIds,
     workspacePaths,
-    activeGroup,
   });
 
   useEffect(() => {
@@ -356,7 +302,6 @@ export function SessionSidebar(): ReactNode {
       selectMode,
       selectedSessionIds,
       workspacePaths,
-      activeGroup,
     };
   });
 
@@ -381,19 +326,6 @@ export function SessionSidebar(): ReactNode {
       ],
     [t],
   );
-
-  const workspacePanelLabel = ((): string => {
-    if (activeGroup === GROUP_ALL) return t.workspacePanelProjects;
-    if (activeGroup === GROUP_DEFAULT) return t.groupDefault;
-    return activeGroup;
-  })();
-
-  function groupCount(name: string): number {
-    if (name === GROUP_ALL) return allWorkspacePaths.length;
-    return allWorkspacePaths.filter(
-      (root) => groupNameOf(workspace, root) === name,
-    ).length;
-  }
 
   function sessionLabel(session: {
     name?: string;
@@ -841,7 +773,7 @@ export function SessionSidebar(): ReactNode {
       null;
     if (known) return known;
     if (!cwd) return null;
-    const recent = allWorkspacePathsOf(useWorkspaceStore.getState());
+    const recent = workspacePathsOf(useWorkspaceStore.getState());
     return recent.find((p) => sameWorkspacePath(p, cwd)) ?? cwd;
   }
 
@@ -961,45 +893,6 @@ export function SessionSidebar(): ReactNode {
     }
   }
 
-  function openGroupCreate(): void {
-    setGroupDialogMode("create");
-    setGroupDraft("");
-    setGroupDialogOpen(true);
-  }
-
-  function openGroupRename(): void {
-    setGroupDialogMode("rename");
-    setGroupDraft(activeGroup);
-    setGroupDialogOpen(true);
-  }
-
-  async function submitGroupDialog(): Promise<void> {
-    const name = groupDraft.trim();
-    if (!name) return;
-    try {
-      if (groupDialogMode === "create") {
-        await useWorkspaceStore.getState().addGroup(name);
-      } else {
-        await useWorkspaceStore.getState().renameGroup(activeGroup, name);
-      }
-      setSelectedGroup(name);
-      setGroupDialogOpen(false);
-    } catch (err) {
-      message.error(err instanceof Error ? err.message : String(err));
-    }
-  }
-
-  async function removeCurrentGroup(): Promise<void> {
-    const name = activeGroup;
-    if (!name || name === GROUP_DEFAULT) return;
-    try {
-      await useWorkspaceStore.getState().removeGroup(name);
-      setSelectedGroup(GROUP_ALL);
-    } catch (err) {
-      message.error(err instanceof Error ? err.message : String(err));
-    }
-  }
-
   function enterSelectMode(): void {
     setSelectMode(true);
     setSelectedSessionIds([]);
@@ -1100,13 +993,13 @@ export function SessionSidebar(): ReactNode {
     setArchivedOpen(true);
     setArchivedRows([]);
     try {
-      for (const root of allWorkspacePaths) await ensureSessionsLoaded(root);
+      for (const root of workspacePaths) await ensureSessionsLoaded(root);
     } catch (err) {
       message.error(err instanceof Error ? err.message : String(err));
       return;
     }
     const byId = new Map<string, { root: string; session: SessionSummary }>();
-    for (const root of allWorkspacePaths) {
+    for (const root of workspacePaths) {
       for (const s of localRef.current.sessionsByRoot[root] ?? []) {
         byId.set(s.id, { root, session: s });
       }
@@ -1449,8 +1342,6 @@ export function SessionSidebar(): ReactNode {
     const el = workspaceTreeEl.current;
     if (!el) return;
     if (localRef.current.workspacePaths.length < 2) return;
-    // 分类视图下拖拽只会重排可见项，会把其它分类的工作区挤到后面，直接不启用。
-    if (localRef.current.activeGroup) return;
     workspaceSortable.current = Sortable.create(el, {
       animation: 150,
       draggable: "[data-ws-block]",
@@ -1502,58 +1393,6 @@ export function SessionSidebar(): ReactNode {
     appendSessionToOrder(root, sessionId);
   }
 
-  function renderGroupLabel(name: string | null, label: string): ReactNode {
-    if (name === null) return label;
-    return (
-      <span
-        style={{
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-          gap: "24px",
-          minWidth: "132px",
-        }}
-      >
-        <span>{label}</span>
-        <span style={{ opacity: 0.55, fontVariantNumeric: "tabular-nums" }}>
-          {groupCount(name)}
-        </span>
-      </span>
-    );
-  }
-
-  function groupMenuItems(): MenuItem[] {
-    const items: MenuItem[] = [
-      {
-        label: renderGroupLabel(GROUP_ALL, t.groupAllProjects),
-        key: groupOptionKey(GROUP_ALL),
-      },
-      {
-        label: renderGroupLabel(GROUP_DEFAULT, t.groupDefault),
-        key: groupOptionKey(GROUP_DEFAULT),
-      },
-    ];
-    for (const name of workspace.groups) {
-      items.push({
-        label: renderGroupLabel(name, name),
-        key: groupOptionKey(name),
-      });
-    }
-    items.push({ type: "divider", key: "group-divider" });
-    items.push({ label: t.groupNew, key: "group-new" });
-    return items;
-  }
-
-  function onGroupMenuSelect(key: string | number): void {
-    const k = String(key);
-    if (k === "group-new") {
-      openGroupCreate();
-      return;
-    }
-    const name = groupNameFromKey(k);
-    if (name !== null) setSelectedGroup(name);
-  }
-
   function archiveDayOptions(): MenuItem[] {
     return ARCHIVE_DAY_STEPS.map((days) => ({
       label: t.archiveOlderThan(days),
@@ -1561,8 +1400,8 @@ export function SessionSidebar(): ReactNode {
     }));
   }
 
-  function groupAdminItems(): MenuItem[] {
-    const items: MenuItem[] = [
+  function moreMenuItems(): MenuItem[] {
+    return [
       { label: t.selectSessions, key: "select-mode", icon: <ListOutline /> },
       {
         label: t.archiveMenu,
@@ -1575,26 +1414,13 @@ export function SessionSidebar(): ReactNode {
         key: "archived-list",
         icon: <ArchiveOutline />,
       },
-      { type: "divider", key: "session-divider" },
-      { label: t.groupNew, key: "group-new" },
     ];
-    const current = activeGroup;
-    if (current && current !== GROUP_DEFAULT) {
-      items.push(
-        { label: t.groupRename, key: "group-rename" },
-        { label: t.groupRemove, key: "group-remove" },
-      );
-    }
-    return items;
   }
 
-  async function onGroupAdminSelect(key: string | number): Promise<void> {
+  async function onMoreMenuSelect(key: string | number): Promise<void> {
     const k = String(key);
     if (k === "select-mode") enterSelectMode();
     else if (k === "archived-list") await openArchivedList();
-    else if (k === "group-new") openGroupCreate();
-    else if (k === "group-rename") openGroupRename();
-    else if (k === "group-remove") await removeCurrentGroup();
     else await onArchiveSelect(k);
   }
 
@@ -1624,18 +1450,6 @@ export function SessionSidebar(): ReactNode {
         label: t.renameProject,
         key: "rename-project",
         icon: <CreateOutline />,
-      },
-      {
-        label: t.moveToGroup,
-        key: "move-group",
-        icon: <FolderOutline />,
-        children: [
-          { label: t.groupDefault, key: groupOptionKey(GROUP_DEFAULT) },
-          ...workspace.groups.map((name) => ({
-            label: name,
-            key: groupOptionKey(name),
-          })),
-        ],
       },
       { type: "divider", key: "d1" },
       {
@@ -1677,14 +1491,6 @@ export function SessionSidebar(): ReactNode {
         break;
       case "remove": {
         confirmPurgeWorkspace(root);
-        break;
-      }
-      default: {
-        const name = groupNameFromKey(k);
-        if (!name) break;
-        await useWorkspaceStore
-          .getState()
-          .setGroupOf(root, name === GROUP_DEFAULT ? null : name);
         break;
       }
     }
@@ -1826,7 +1632,6 @@ export function SessionSidebar(): ReactNode {
     // App.vue already loads workspace/recent — skip duplicate IPC on cold start.
     const boot: Promise<unknown>[] = [
       useWorkspaceStore.getState().refreshAliases(),
-      useWorkspaceStore.getState().refreshGroups(),
       useWorkspaceStore.getState().refreshArchivedSessions(),
     ];
     if (!useWorkspaceStore.getState().root) {
@@ -2080,7 +1885,7 @@ export function SessionSidebar(): ReactNode {
               size="small"
               className={`pi-interactive ${styles.wsPanelToggle}`}
               styles={{ root: { justifyContent: "flex-start" } }}
-              title={workspacePanelLabel}
+              title={t.workspacePanelProjects}
               onClick={() => setWorkspaceCollapsed((prev) => !prev)}
             >
               <span className={styles.btnContent}>
@@ -2089,22 +1894,13 @@ export function SessionSidebar(): ReactNode {
                 ) : (
                   <ChevronDownOutline size={14} />
                 )}
-                <span className={styles.wsPanelLabel}>{workspacePanelLabel}</span>
+                <span className={styles.wsPanelLabel}>
+                  {t.workspacePanelProjects}
+                </span>
               </span>
             </Button>
           )}
           <div className={styles.wsToolIcons}>
-            <Dropdown
-              trigger={["click"]}
-              menu={{
-                items: groupMenuItems(),
-                onClick: ({ key }) => onGroupMenuSelect(key),
-              }}
-            >
-              <Button type="text" size="small" title={t.groupAllProjects}>
-                <SwapHorizontalOutline size={14} />
-              </Button>
-            </Dropdown>
             <Button
               type="text"
               size="small"
@@ -2116,8 +1912,8 @@ export function SessionSidebar(): ReactNode {
             <Dropdown
               trigger={["click"]}
               menu={{
-                items: groupAdminItems(),
-                onClick: ({ key }) => void onGroupAdminSelect(key),
+                items: moreMenuItems(),
+                onClick: ({ key }) => void onMoreMenuSelect(key),
               }}
             >
               <Button type="text" size="small" title={t.moreActions}>
@@ -2471,26 +2267,6 @@ export function SessionSidebar(): ReactNode {
             if (e.key !== "Enter") return;
             e.preventDefault();
             void submitWorkspaceRename();
-          }}
-        />
-      </Modal>
-
-      <Modal
-        open={groupDialogOpen}
-        title={groupDialogMode === "create" ? t.groupNew : t.groupRename}
-        okText={t.save}
-        cancelText={t.cancel}
-        onOk={() => void submitGroupDialog().finally(() => setGroupDialogOpen(false))}
-        onCancel={() => setGroupDialogOpen(false)}
-      >
-        <Input
-          value={groupDraft}
-          placeholder={t.groupNamePlaceholder}
-          onChange={(e) => setGroupDraft(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key !== "Enter") return;
-            e.preventDefault();
-            void submitGroupDialog();
           }}
         />
       </Modal>

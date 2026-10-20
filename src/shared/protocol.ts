@@ -99,12 +99,6 @@ export const IpcChannels = {
 		setAlias: "workspace:setAlias",
 		/** 重新定位工作区到新目录，Pi 会话目录随之迁移。 */
 		relocate: "workspace:relocate",
-		/** Renderer → main：工作区分类（自定义分组）。 */
-		listGroups: "workspace:listGroups",
-		addGroup: "workspace:addGroup",
-		renameGroup: "workspace:renameGroup",
-		removeGroup: "workspace:removeGroup",
-		setGroupOf: "workspace:setGroupOf",
 		/** 已归档会话 id 列表：读取与覆写。 */
 		listArchivedSessions: "workspace:listArchivedSessions",
 		setArchivedSessions: "workspace:setArchivedSessions",
@@ -385,12 +379,6 @@ export type TerminalShellOption = {
 	id: string;
 	file: string;
 	args: string[];
-};
-
-/** 工作区分类：自定义分组名（顺序即菜单顺序）+ 工作区归属（绝对路径 → 分类名）。 */
-export type WorkspaceGroups = {
-  groups: string[];
-  groupOf: Record<string, string>;
 };
 
 export type SessionStatus = "idle" | "running" | "error" | "stuck";
