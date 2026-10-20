@@ -1,5 +1,4 @@
 import { create } from "zustand";
-import type { WorkspaceGroups } from "../../../shared/protocol";
 import { useRightTabsStore } from "@renderer/stores/right-tabs";
 
 /**
@@ -21,10 +20,6 @@ type WorkspaceBase = {
 	recent: string[];
 	/** 绝对路径 → 用户自定义显示名。 */
 	aliases: Record<string, string>;
-	/** 自定义分类名（顺序即菜单顺序）；未归类的工作区归入内置“默认”。 */
-	groups: string[];
-	/** 绝对路径 → 分类名。 */
-	groupOf: Record<string, string>;
 	/** 已归档的会话 id（从侧栏隐藏，可恢复）。 */
 	archivedSessions: string[];
 	/**
@@ -47,11 +42,6 @@ export type WorkspaceState = WorkspaceBase & {
 	refreshAliases: () => Promise<void>;
 	renameWorkspace: (workspaceRoot: string, name: string | null) => Promise<void>;
 	relocateWorkspace: (workspaceRoot: string) => Promise<string | null>;
-	refreshGroups: () => Promise<void>;
-	addGroup: (name: string) => Promise<void>;
-	renameGroup: (from: string, to: string) => Promise<void>;
-	removeGroup: (name: string) => Promise<void>;
-	setGroupOf: (workspaceRoot: string, group: string | null) => Promise<void>;
 	refreshArchivedSessions: () => Promise<void>;
 	setArchivedSessions: (ids: string[]) => Promise<void>;
 };
@@ -185,34 +175,6 @@ export const useWorkspaceStore = create<WorkspaceState>()((set, get) => {
 		return next.root;
 	}
 
-	function applyGroups(next: WorkspaceGroups): void {
-		set({ groups: next.groups, groupOf: next.groupOf });
-	}
-
-	async function refreshGroups(): Promise<void> {
-		applyGroups(await window.api.workspace.listGroups());
-	}
-
-	async function addGroup(name: string): Promise<void> {
-		applyGroups(await window.api.workspace.addGroup(name));
-	}
-
-	async function renameGroup(from: string, to: string): Promise<void> {
-		applyGroups(await window.api.workspace.renameGroup(from, to));
-	}
-
-	async function removeGroup(name: string): Promise<void> {
-		applyGroups(await window.api.workspace.removeGroup(name));
-	}
-
-	/** 把工作区归入分类；group 为空即回到内置“默认”。 */
-	async function setGroupOf(
-		workspaceRoot: string,
-		group: string | null,
-	): Promise<void> {
-		applyGroups(await window.api.workspace.setGroupOf(workspaceRoot, group));
-	}
-
 	async function refreshArchivedSessions(): Promise<void> {
 		set({ archivedSessions: await window.api.workspace.listArchivedSessions() });
 	}
@@ -225,8 +187,6 @@ export const useWorkspaceStore = create<WorkspaceState>()((set, get) => {
 		root: null,
 		recent: [],
 		aliases: {},
-		groups: [],
-		groupOf: {},
 		archivedSessions: [],
 		sessionsReady: false,
 		getWorkspace,
@@ -242,11 +202,6 @@ export const useWorkspaceStore = create<WorkspaceState>()((set, get) => {
 		refreshAliases,
 		renameWorkspace,
 		relocateWorkspace,
-		refreshGroups,
-		addGroup,
-		renameGroup,
-		removeGroup,
-		setGroupOf,
 		refreshArchivedSessions,
 		setArchivedSessions,
 	};
