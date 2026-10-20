@@ -1,0 +1,90 @@
+.modalBody {
+  height: min(480px, 65vh);
+  overflow: hidden;
+}
+
+.spinFill {
+  height: 100%;
+}
+
+.spinFill :global(.ant-spin-container) {
+  height: 100%;
+}
+
+.layout {
+  display: grid;
+  grid-template-columns: 240px 1fr;
+  height: 100%;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.left {
+  height: 100%;
+  border-right: 1px solid var(--border);
+  background: var(--bg-panel);
+  overflow: auto;
+}
+
+.row {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 10px;
+  border: none;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+  color: inherit;
+}
+
+.row:hover {
+  background: var(--bg-hover);
+}
+
+.rowActive {
+  background: var(--bg-selected);
+}
+
+.name {
+  font-size: 12.5px;
+  font-weight: 550;
+}
+
+.right {
+  height: 100%;
+  /* 原来这层是 naive 的 NScrollbar，内容绝对定位在滚动容器里，
+     外层左右 padding 被绝对定位吃掉，实际不产生内缩。 */
+  padding: 0 0 24px;
+  box-sizing: border-box;
+  overflow: auto;
+}
+
+.head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+  gap: 8px;
+}
+
+.title {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.desc {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--fg);
+  white-space: pre-wrap;
+}
+
+.danger {
+  margin-top: 16px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}

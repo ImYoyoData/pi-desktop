@@ -1,5 +1,4 @@
-import { defineStore } from "pinia";
-import { ref, watch } from "vue";
+import { create } from "zustand";
 import chimeUrl from "@renderer/assets/sounds/qipao.mp3";
 import * as prefs from "@renderer/utils/prefs";
 
@@ -34,31 +33,33 @@ function getAudio(): HTMLAudioElement {
   return sharedAudio;
 }
 
-export const useNotifyStore = defineStore("notify", () => {
-  const initial = readPrefs();
-  const soundEnabled = ref(initial.soundEnabled);
-  const notifyEnabled = ref(initial.notifyEnabled);
+type NotifyState = {
+  soundEnabled: boolean;
+  notifyEnabled: boolean;
+  setSoundEnabled: (v: boolean) => void;
+  setNotifyEnabled: (v: boolean) => void;
+  playChime: () => Promise<void>;
+  onTurnComplete: (opts: {
+    title: string;
+    body: string;
+    sessionId?: string;
+  }) => Promise<void>;
+};
 
-  watch([soundEnabled, notifyEnabled], () => {
+export const useNotifyStore = create<NotifyState>()((set, get) => {
+  function persistPrefs(): void {
     try {
+      const { soundEnabled, notifyEnabled } = get();
       prefs.setItem(
         PREFS_KEY,
         JSON.stringify({
-          soundEnabled: soundEnabled.value,
-          notifyEnabled: notifyEnabled.value,
+          soundEnabled,
+          notifyEnabled,
         } satisfies NotifyPrefs),
       );
     } catch {
       // ignore quota / private mode
     }
-  });
-
-  function setSoundEnabled(v: boolean): void {
-    soundEnabled.value = v;
-  }
-
-  function setNotifyEnabled(v: boolean): void {
-    notifyEnabled.value = v;
   }
 
   async function playChime(): Promise<void> {
@@ -77,10 +78,10 @@ export const useNotifyStore = defineStore("notify", () => {
     body: string;
     sessionId?: string;
   }): Promise<void> {
-    if (soundEnabled.value) {
+    if (get().soundEnabled) {
       void playChime();
     }
-    if (notifyEnabled.value) {
+    if (get().notifyEnabled) {
       try {
         await window.api.notify.turnComplete(opts);
       } catch {
@@ -89,11 +90,19 @@ export const useNotifyStore = defineStore("notify", () => {
     }
   }
 
+  const initial = readPrefs();
+
   return {
-    soundEnabled,
-    notifyEnabled,
-    setSoundEnabled,
-    setNotifyEnabled,
+    soundEnabled: initial.soundEnabled,
+    notifyEnabled: initial.notifyEnabled,
+    setSoundEnabled: (v) => {
+      set({ soundEnabled: v });
+      persistPrefs();
+    },
+    setNotifyEnabled: (v) => {
+      set({ notifyEnabled: v });
+      persistPrefs();
+    },
     playChime,
     onTurnComplete,
   };

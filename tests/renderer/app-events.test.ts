@@ -1,12 +1,15 @@
-import { createPinia, setActivePinia } from "pinia";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { bootstrapAppEvents, isAppEventsBound } from "../../src/renderer/src/app-events";
 import { useChatStore } from "../../src/renderer/src/stores/chat";
 import { useSessionsStore } from "../../src/renderer/src/stores/sessions";
+import { useSessionWidgetsStore } from "../../src/renderer/src/stores/session-widgets";
 
-vi.mock("naive-ui", () => ({
-  createDiscreteApi: () => ({
-    message: { warning: vi.fn(), error: vi.fn(), info: vi.fn() },
+vi.mock("../../src/renderer/src/services/feedback", () => ({
+  getMessage: () => ({
+    warning: vi.fn(),
+    error: vi.fn(),
+    info: vi.fn(),
+    success: vi.fn(),
   }),
 }));
 
@@ -24,10 +27,16 @@ function emitSession(event: unknown): void {
   for (const cb of sessionListeners) cb(event);
 }
 
+function resetStores(): void {
+  useChatStore.setState(useChatStore.getInitialState(), true);
+  useSessionsStore.setState(useSessionsStore.getInitialState(), true);
+  useSessionWidgetsStore.setState(useSessionWidgetsStore.getInitialState(), true);
+}
+
 function setupEnv(): void {
   sessionListeners.length = 0;
   runListeners.length = 0;
-  setActivePinia(createPinia());
+  resetStores();
   vi.stubGlobal("document", {
     hidden: false,
     addEventListener: vi.fn(),
@@ -106,8 +115,6 @@ describe("app-events", () => {
   // 「等待模型响应」，而后端与模型都正常。
   it("keeps delivering session events without any component involvement", () => {
     teardown = bootstrapAppEvents();
-    const chat = useChatStore();
-    const sessions = useSessionsStore();
 
     emitSession({
       type: "agent_event",
@@ -115,8 +122,8 @@ describe("app-events", () => {
       event: { type: "agent_start" },
     });
 
-    expect(chat.bySession.s1?.running).toBe(true);
-    expect(sessions.sessions).toHaveLength(0); // 未登记会话，状态不落地
+    expect(useChatStore.getState().bySession.s1?.running).toBe(true);
+    expect(useSessionsStore.getState().sessions).toHaveLength(0); // 未登记会话，状态不落地
   });
 
   it("unbind tears everything down and a later bootstrap rebinds cleanly", () => {

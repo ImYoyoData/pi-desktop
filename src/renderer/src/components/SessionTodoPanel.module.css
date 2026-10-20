@@ -1,0 +1,382 @@
+/* 1:1 VS Code Copilot chatTodoListWidget — docks flush onto the composer
+   surface. Border/radius are provided by the enclosing .chat-input-stack
+   (each member is a borderless slice). */
+
+.todoDock {
+  flex-shrink: 0;
+  min-width: 0;
+  background: transparent;
+}
+
+.todoDockHead {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.todoDockToggle {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  flex: 1;
+  min-width: 0;
+  height: 24px;
+  padding: 0 6px 0 2px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--fg);
+  cursor: pointer;
+  text-align: left;
+  font: inherit;
+  user-select: none;
+}
+
+.todoDockToggle:hover {
+  background: var(--chat-hover-bg, color-mix(in srgb, var(--fg) 5%, transparent));
+}
+
+.chev {
+  flex-shrink: 0;
+  color: var(--chat-desc-fg, var(--fg-muted));
+}
+
+.headLead {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+}
+
+.leadMark {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  box-sizing: border-box;
+}
+
+.leadMark.inProgress {
+  background: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+  animation: lead-pulse 1.4s ease-in-out infinite;
+}
+
+.leadMark.open {
+  border: 1.5px solid var(--border-strong, var(--fg-faint));
+}
+
+.leadMark.done {
+  background: var(--success, var(--green));
+  box-shadow: 0 0 0 3px
+    color-mix(in srgb, var(--success, var(--green)) 18%, transparent);
+}
+
+@keyframes lead-pulse {
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.55;
+    transform: scale(0.88);
+  }
+}
+
+.todoDockTitle {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--chat-font-s, 12px);
+  font-weight: 500;
+  line-height: 22px;
+  color: var(--fg);
+}
+
+.todoDockPill {
+  flex-shrink: 0;
+  margin-right: 2px;
+  font-size: var(--chat-font-xs, 11px);
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  color: var(--chat-desc-fg, var(--fg-muted));
+}
+
+.todoDockPill.live {
+  color: var(--accent);
+}
+
+.todoDockPill.paused {
+  font-style: italic;
+}
+
+.todoDockClose {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  margin-right: 2px;
+  padding: 0;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--chat-icon-fg, var(--fg-muted));
+  cursor: pointer;
+  opacity: 0;
+  transition:
+    opacity 120ms ease,
+    background 120ms ease,
+    color 120ms ease;
+}
+
+.todoDock:hover .todoDockClose,
+.todoDock:focus-within .todoDockClose,
+.todoDock.expanded .todoDockClose {
+  opacity: 1;
+}
+
+.todoDockClose:hover {
+  background: var(--chat-hover-bg, color-mix(in srgb, var(--fg) 6%, transparent));
+  color: var(--fg);
+}
+
+.todoPausedActions {
+  display: flex;
+  gap: 6px;
+  padding: 0 10px 8px;
+}
+
+.tpBtn {
+  padding: 4px 12px;
+  border: none;
+  border-radius: 6px;
+  font: inherit;
+  font-size: var(--chat-font-s, 12px);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.tpBtn.primary {
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.tpBtn.primary:hover {
+  background: var(--accent-soft-hover, var(--accent-soft));
+}
+
+.tpBtn.danger {
+  color: var(--red, var(--fg-muted));
+  background: color-mix(in srgb, var(--red, #ef4444) 10%, transparent);
+}
+
+.tpBtn.danger:hover {
+  background: color-mix(in srgb, var(--red, #ef4444) 16%, transparent);
+}
+
+.todoDockBody {
+  min-width: 0;
+  padding: 0 6px 6px;
+}
+
+.todoList {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  max-height: 198px;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-strong, var(--border)) transparent;
+}
+
+.todoList::-webkit-scrollbar {
+  width: 8px;
+}
+
+.todoList::-webkit-scrollbar-thumb {
+  background: var(--border-strong, var(--border));
+  border-radius: 4px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+
+.todoItem {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 22px;
+  padding: 0 6px;
+  border-radius: 5px;
+  font-size: var(--chat-font-m, 13px);
+  line-height: 1.5;
+  color: var(--fg);
+}
+
+.todoItem:hover {
+  background: var(--chat-hover-bg, color-mix(in srgb, var(--fg) 5%, transparent));
+}
+
+.todoItem.live {
+  background: var(--accent-soft);
+}
+
+.todoStatus {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+}
+
+.stMark {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  box-sizing: border-box;
+  flex-shrink: 0;
+}
+
+.stMark.inProgress {
+  background: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-soft);
+  animation: st-pulse 1.1s ease-in-out infinite;
+}
+
+.stMark.open {
+  border: 1.5px solid var(--border-strong, var(--fg-faint));
+}
+
+/* 未回写：模型没确认过状态，用虚线圆 + 问号区别于真正的完成。 */
+.stMark.unreported {
+  border: 1.5px dashed var(--border-strong, var(--fg-faint));
+  position: relative;
+}
+
+.stMark.unreported::after {
+  content: "?";
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 7px;
+  font-weight: 700;
+  line-height: 1;
+  color: var(--fg-muted, var(--fg-faint));
+}
+
+.stMark.done {
+  background: var(--success, var(--green));
+  border: none;
+  position: relative;
+}
+
+.stMark.done::after {
+  content: "";
+  position: absolute;
+  left: 3px;
+  top: 1px;
+  width: 3px;
+  height: 6px;
+  border: solid #fff;
+  border-width: 0 1.5px 1.5px 0;
+  transform: rotate(42deg);
+}
+
+@keyframes st-pulse {
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.5;
+    transform: scale(0.86);
+  }
+}
+
+.todoText {
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.todoItem.done .todoText {
+  color: var(--chat-desc-fg, var(--fg-muted));
+  text-decoration: line-through;
+  text-decoration-color: color-mix(in srgb, var(--fg-muted) 45%, transparent);
+}
+
+.todoItem.unreported .todoText {
+  color: var(--chat-desc-fg, var(--fg-muted));
+}
+
+.todoDur {
+  flex-shrink: 0;
+  margin-left: auto;
+  font-size: var(--chat-font-xs, 11px);
+  font-variant-numeric: tabular-nums;
+  color: var(--chat-icon-fg, var(--fg-muted));
+  white-space: nowrap;
+}
+
+.todoDur.live {
+  color: var(--accent);
+}
+
+/* Expand/collapse animation */
+.bodyEnter {
+  overflow: hidden;
+  animation: todo-expand-in 140ms ease;
+}
+
+.bodyLeave {
+  overflow: hidden;
+  animation: todo-expand-out 140ms ease forwards;
+}
+
+@keyframes todo-expand-in {
+  from {
+    opacity: 0;
+    transform: translateY(-3px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes todo-expand-out {
+  from {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  to {
+    opacity: 0;
+    transform: translateY(-3px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .leadMark.inProgress,
+  .stMark.inProgress {
+    animation: none;
+  }
+
+  .bodyEnter,
+  .bodyLeave {
+    animation: none;
+  }
+}

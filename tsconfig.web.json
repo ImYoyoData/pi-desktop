@@ -3,13 +3,12 @@
   "include": [
     "src/renderer/src/env.d.ts",
     "src/renderer/src/**/*",
-    "src/renderer/src/**/*.vue",
     "src/preload/*.d.ts",
     "src/shared/**/*"
   ],
   "compilerOptions": {
     "composite": true,
-    "plugins": [{ "name": "@vue/typescript-plugin" }],
+    "jsx": "react-jsx",
     "paths": {
       "@renderer/*": [
         "./src/renderer/src/*"

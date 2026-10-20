@@ -2,14 +2,14 @@ import type { AgentEvent } from "../../../shared/protocol";
 import type { AskUserPrompt } from "../../../shared/ask-user";
 import type { ExtensionUiPending } from "../../../shared/extension-ui";
 import { formatLlmError } from "../utils/llm-error";
-import { locale as uiLocalePref, t } from "../i18n";
+import { getLocale, t } from "../i18n";
 import {
 	isComposerAgentMode,
 	stripComposerModePreamble,
 } from "../../../shared/composer-modes";
 
 function uiLocale(): "zh-CN" | "en" {
-	return uiLocalePref.value;
+	return getLocale();
 }
 
 export type ChatUserImage = {

@@ -1,0 +1,104 @@
+.headerTitle {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+}
+
+.headerExtra {
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--fg-muted);
+}
+
+.modalBody {
+  height: min(480px, 65vh);
+  overflow: hidden;
+}
+
+.spinFill {
+  height: 100%;
+}
+
+.spinFill :global(.ant-spin-container) {
+  height: 100%;
+}
+
+.layout {
+  display: grid;
+  grid-template-columns: 260px 1fr;
+  height: 100%;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.left {
+  height: 100%;
+  border-right: 1px solid var(--border);
+  background: var(--bg-panel);
+}
+
+/* naive 的 NScrollbar 换成普通容器后，滚动由容器自己负责 */
+.left {
+  overflow: auto;
+}
+
+.row {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 10px;
+  border: none;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+
+.row:hover {
+  background: var(--bg-hover);
+}
+
+.active {
+  background: var(--bg-selected);
+}
+
+.name {
+  font-size: 12.5px;
+  font-weight: 550;
+  word-break: break-all;
+}
+
+.right {
+  height: 100%;
+  padding: 20px 24px 24px;
+  box-sizing: border-box;
+  overflow: auto;
+}
+
+.head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 10px;
+  gap: 12px;
+}
+
+.title {
+  font-size: 14px;
+  font-weight: 600;
+  word-break: break-all;
+}
+
+.tag {
+  font-size: 11px;
+  line-height: 18px;
+}
+
+.danger {
+  margin-top: 16px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}

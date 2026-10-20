@@ -6,7 +6,8 @@
  * separate bugs lived here — a menu that grew past the window with no scrolling,
  * and a menu that silently ignored clicks.
  */
-import type { DropdownMenuProps } from "naive-ui";
+import type { MenuProps } from "antd";
+import type { CSSProperties } from "react";
 
 /** One selectable model. */
 export type ModelChoice = { label: string; value: string };
@@ -14,14 +15,8 @@ export type ModelChoice = { label: string; value: string };
 /** A provider group, or a bare model when a provider has a single entry. */
 export type ModelSelectOption = ModelChoice | { label: string; key: string; children: ModelChoice[] };
 
-/** Dropdown item shape consumed by naive-ui's NDropdown. */
-export type ModelMenuItem = {
-  label: string;
-  key: string | number;
-  type?: "group";
-  children?: { label: string; key: string; props?: Record<string, unknown> }[];
-  props?: Record<string, unknown>;
-};
+/** Dropdown item shape consumed by antd's Dropdown menu. */
+export type ModelMenuItem = NonNullable<MenuProps["items"]>[number];
 
 /** Flatten groups back into a single list (used for the current-model label). */
 export function flatModelOptions(groups: ModelSelectOption[]): ModelChoice[] {
@@ -36,7 +31,7 @@ export function flatModelOptions(groups: ModelSelectOption[]): ModelChoice[] {
 export function buildModelMenu(
   groups: ModelSelectOption[],
   selected: string | null,
-  selectedStyle = "font-weight: 600; color: var(--accent)",
+  selectedStyle: CSSProperties = { fontWeight: 600, color: "var(--accent)" },
 ): ModelMenuItem[] {
   return groups.map((group) => {
     if ("children" in group) {
@@ -47,14 +42,14 @@ export function buildModelMenu(
         children: group.children.map((o) => ({
           label: o.label,
           key: o.value,
-          props: o.value === selected ? { style: selectedStyle } : undefined,
+          style: o.value === selected ? selectedStyle : undefined,
         })),
       };
     }
     return {
       label: group.label,
       key: group.value,
-      props: group.value === selected ? { style: selectedStyle } : undefined,
+      style: group.value === selected ? selectedStyle : undefined,
     };
   });
 }
@@ -62,21 +57,14 @@ export function buildModelMenu(
 /**
  * Menu props factory that makes a long model list usable.
  *
- * naive-ui's `menu-props` is a FUNCTION (`menuProps: Function` in Dropdown.mjs),
- * called as `menuProps(undefined, nodes)` and merged onto the dropdown menu node.
- * Passing a plain object throws `TypeError: menuProps is not a function` inside
- * renderPopoverBody — which broke the whole composer, not just the menu.
- *
- * A naive-ui dropdown does not scroll on its own: with hundreds of models it grew
- * past the window and the lower entries could not be reached. Capping the height
- * and letting the menu scroll keeps every model clickable, and
- * `overscroll-behavior: contain` stops the page behind it from scrolling too.
- *
- * SAFETY: `scrollable` is intentionally a boolean on naive-ui's menu node, but
- * its public callback type only allows primitive HTML attributes.
+ * antd 的下拉菜单不会自己滚动：模型条目上百个时会撑出窗口，底部的条目点不到。
+ * 限制高度并让菜单自身滚动，保证每个模型都够得着；`overscroll-behavior: contain`
+ * 同时阻止背后的页面跟着滚。
  */
-export const MODEL_MENU_PROPS: DropdownMenuProps = () =>
-  ({
-    scrollable: true,
-    style: "max-height: min(60vh, 460px); overflow-y: auto; overscroll-behavior: contain;",
-  }) as unknown as ReturnType<DropdownMenuProps>;
+export const MODEL_MENU_PROPS: MenuProps = {
+  style: {
+    maxHeight: "min(60vh, 460px)",
+    overflowY: "auto",
+    overscrollBehavior: "contain",
+  },
+};

@@ -1,0 +1,304 @@
+/* Shares the chat column's box (same cap + padding as the composer and the
+   message content) so the clarification card lines up under them. */
+.askUserWrap {
+  flex-shrink: 0;
+  width: 100%;
+  max-width: var(--pi-message-max, 75%);
+  margin: 0 auto;
+  padding: 0 var(--chat-column-pad-x, 16px) 8px;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  animation: ask-rise 160ms var(--ease-out, ease);
+}
+
+@keyframes ask-rise {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Copilot-style clarification card: flat elevated surface, hairline border,
+   small radius, restrained type — no accent gradient / glow. */
+.askUserCard {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  border-radius: 4px;
+  border: 1px solid var(--chat-line, var(--border));
+  background: var(--bg-elevated, #fff);
+  box-shadow: none;
+  overflow: hidden;
+}
+
+/* Header row reads like a chat participant label: icon + name + subtle hint. */
+.stripHead {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px 2px;
+  flex-shrink: 0;
+}
+
+.stripHead.folded {
+  padding-bottom: 8px;
+}
+
+.headToggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-width: 0;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.headChev {
+  flex-shrink: 0;
+  color: var(--chat-desc-fg, var(--fg-muted));
+}
+
+.headToggle:hover .headChev {
+  color: var(--fg-strong);
+}
+
+.headBadge {
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--chat-icon-fg, var(--fg-muted));
+  background: var(--chat-hover-bg, rgba(127, 127, 127, 0.12));
+  flex-shrink: 0;
+}
+
+.headText {
+  min-width: 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.headTitle {
+  font-size: var(--chat-font-s, 12px);
+  font-weight: 600;
+  letter-spacing: 0;
+  color: var(--fg-strong);
+  white-space: nowrap;
+}
+
+.headSub {
+  font-size: var(--chat-font-xs, 11px);
+  color: var(--chat-desc-fg, var(--fg-muted));
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.headProgress {
+  flex-shrink: 0;
+  font-size: var(--chat-font-xs, 11px);
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  color: var(--chat-desc-fg, var(--fg-muted));
+}
+
+.stripBody {
+  overflow-y: auto;
+  padding: 6px 10px 8px;
+  flex: 1;
+  min-height: 0;
+}
+
+.hidden {
+  display: none;
+}
+
+.question {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.qPrompt {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.qText {
+  font-size: var(--chat-font-m, 13px);
+  line-height: 1.45;
+  letter-spacing: 0;
+  font-weight: 500;
+  color: var(--fg);
+}
+
+.skipTag {
+  flex-shrink: 0;
+  font-size: var(--chat-font-xs, 11px);
+  font-weight: 500;
+  color: var(--chat-desc-fg, var(--fg-muted));
+  padding: 1px 7px;
+  border: 1px solid var(--chat-line, var(--border));
+  border-radius: 999px;
+}
+
+.optGrid {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.optGridWrap {
+  flex-wrap: wrap;
+  flex-direction: row;
+  gap: 6px;
+}
+
+.optGridDim {
+  opacity: 0.5;
+}
+
+/* Copilot response-style choice rows: quiet checkbox list, hover highlight,
+   selected gets a subtle checked state instead of a loud filled pill. */
+.optChip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  margin: 0;
+  padding: 5px 8px;
+  border-radius: 6px;
+  border: none;
+  background: transparent;
+  color: var(--fg);
+  text-align: left;
+  cursor: pointer;
+  font-size: var(--chat-font-s, 12px);
+  line-height: 1.4;
+  transition: background var(--duration-fast, 100ms) var(--ease-out, ease);
+}
+
+.optChip.compact {
+  width: auto;
+  max-width: 100%;
+  padding: 4px 10px;
+  border: 1px solid var(--chat-line, var(--border));
+  border-radius: 999px;
+  background: transparent;
+}
+
+.optChip:hover {
+  background: var(--chat-hover-bg, rgba(127, 127, 127, 0.12));
+}
+
+.optChip.compact:hover {
+  border-color: var(--chat-line, var(--border));
+  background: var(--chat-hover-bg, rgba(127, 127, 127, 0.12));
+}
+
+.optChip.selected {
+  background: var(--accent-soft, rgba(65, 118, 230, 0.08));
+}
+
+.optChip.selected.compact {
+  border-color: var(--accent-border, rgba(65, 118, 230, 0.32));
+  background: var(--accent-soft, rgba(65, 118, 230, 0.08));
+}
+
+.optCheck {
+  flex-shrink: 0;
+  width: 16px;
+  height: 16px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--accent);
+}
+
+.optRing {
+  width: 14px;
+  height: 14px;
+  border-radius: 999px;
+  border: 1.5px solid var(--chat-line, var(--border-strong));
+  box-sizing: border-box;
+}
+
+.optRing.multi {
+  border-radius: 4px;
+}
+
+.optLabel {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.customInput {
+  margin-top: 4px;
+}
+
+.skipBtn {
+  color: var(--chat-desc-fg, var(--fg-muted));
+}
+
+/* Footer keeps only quiet actions — borderless, no stacked tint bar. */
+.stripFoot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 4px 10px 8px;
+  flex-shrink: 0;
+}
+
+.footLeft {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  flex: 1;
+}
+
+.cancelBtn {
+  color: var(--chat-desc-fg, var(--fg-muted));
+}
+
+.err {
+  min-width: 0;
+  font-size: var(--chat-font-xs, 11px);
+}
+
+.footActions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+  margin-left: auto;
+}
+
+.confirmBtn {
+  min-width: 84px;
+  font-weight: 600;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .askUserWrap {
+    animation: none;
+  }
+}

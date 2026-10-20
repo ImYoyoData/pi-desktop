@@ -1,0 +1,116 @@
+.turnDiff {
+  width: 100%;
+  margin-top: 4px;
+}
+
+.tdHead {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  width: 100%;
+  padding: 4px 6px;
+  border: none;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--fg-muted);
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+  transition: background var(--duration-fast) var(--ease-out);
+}
+
+.tdHead:hover {
+  background: color-mix(in srgb, var(--fg) 4%, transparent);
+  color: var(--fg);
+}
+
+.tdChev {
+  flex-shrink: 0;
+  color: var(--fg-faint);
+}
+
+.tdLabel {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+}
+
+.tdNums,
+.tdAdd,
+.tdDel {
+  flex-shrink: 0;
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.tdNums {
+  display: inline-flex;
+  gap: 6px;
+}
+
+.tdAdd {
+  color: var(--git-u, var(--success, var(--green)));
+}
+
+.tdDel {
+  color: var(--git-d, var(--red, #ef4444));
+}
+
+.tdFiles {
+  list-style: none;
+  margin: 2px 0 0;
+  padding: 0 0 0 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.tdFileRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 3px 8px;
+  border-radius: 6px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.tdFileRow:hover {
+  background: var(--bg-hover);
+}
+
+.tdFile {
+  flex: 1;
+  min-width: 0;
+  display: inline-flex;
+  align-items: baseline;
+  overflow: hidden;
+  white-space: nowrap;
+  direction: ltr;
+  unicode-bidi: isolate;
+}
+
+.tdDir {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  direction: rtl;
+  text-align: left;
+  color: var(--fg-faint);
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 11px;
+}
+
+.tdName {
+  flex-shrink: 0;
+  max-width: 60%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--fg-strong);
+}

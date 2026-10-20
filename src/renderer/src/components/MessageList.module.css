@@ -1,0 +1,741 @@
+.messageListRoot {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.messageList {
+  flex: 1;
+  overflow: auto;
+  min-height: 0;
+  background: var(--bg);
+  /*
+   * Always reserve the scrollbar gutter, symmetrically.
+   *
+   * The columns inside are centred percentage boxes, so a classic (non-overlay)
+   * scrollbar appearing/disappearing used to resize and shift the whole message
+   * column by half the scrollbar width — which made it drift out of line with the
+   * composer, and jump when the first message overflowed. Reserving it on both
+   * edges keeps the column centred and a constant width.
+   */
+  scrollbar-gutter: stable both-edges;
+  /* Body defaults to user-select:none — allow selecting chat text to copy. */
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+.messageList.isSettling {
+  /* Hide until scrolled to bottom so the virtual spacer is not shown as a blank chat. */
+  visibility: hidden;
+}
+
+.inner {
+  width: 100%;
+  max-width: var(--pi-message-max, 75%);
+  margin: 0 auto;
+  /* Horizontal inset shared with the composer via --chat-column-pad-x so the
+     input box lines up with the message content. */
+  padding: 16px var(--chat-column-pad-x, 16px);
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-height: 100%;
+  box-sizing: border-box;
+}
+
+.virtualSpacer {
+  flex-shrink: 0;
+  width: 100%;
+  pointer-events: none;
+}
+
+/* 往上翻历史的入口常驻视口顶部：列表顶部可能压着很长的估算占位，不粘住就点不到。 */
+.loadOlder {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  display: flex;
+  justify-content: center;
+  flex-shrink: 0;
+  padding: 4px 0;
+}
+
+.jumpLatest {
+  position: absolute;
+  left: 50%;
+  bottom: 14px;
+  z-index: 8;
+  /* Independent of transform/scale press feedback — keeps hit target stable. */
+  translate: -50% 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 14px;
+  border: 1px solid color-mix(in srgb, var(--border, #ddd) 80%, transparent);
+  border-radius: 999px;
+  background: var(--bg-elevated, #ffffff);
+  color: var(--fg, #222);
+  font-size: 12px;
+  font-weight: 600;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.12);
+  backdrop-filter: blur(14px) saturate(1.15);
+  cursor: pointer;
+}
+
+.jumpLatestMotion {
+  transition:
+    opacity 160ms ease,
+    translate 160ms ease;
+}
+
+.jumpLatestHidden {
+  opacity: 0;
+  translate: -50% 8px;
+  pointer-events: none;
+}
+
+.jumpLatestVisible {
+  opacity: 1;
+  translate: -50% 0;
+  pointer-events: auto;
+}
+
+.jumpLatest:hover {
+  background: color-mix(in srgb, var(--bg-elevated, #ffffff) 88%, var(--fg, #222) 12%);
+}
+
+.row {
+  display: flex;
+}
+
+/* DeepSeek Harness: a single uniform column gap spaces every flow item. */
+.rowUser {
+  flex-direction: column;
+  align-items: flex-end;
+  width: 100%;
+}
+
+.rowAssistant {
+  /* spacing handled by .inner gap */
+}
+
+/* DeepSeek Harness renders tool calls inline as flow items — no indentation,
+   no left rail; spacing comes from the column gap alone. */
+.rowTool {
+  margin: 0;
+  padding-left: 0;
+  border-left: none;
+}
+
+.rowError {
+  margin: 4px 0;
+}
+
+/* Only the last row of the stream adds bottom padding; the gap already
+   separates — avoid double spacing before the composer. */
+.row:last-child {
+  margin-bottom: 4px;
+}
+
+.userStickyPin {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 6;
+  display: flex;
+  justify-content: flex-end;
+  max-height: min(16vh, 110px);
+  overflow: hidden;
+  background: var(--bg);
+  padding: 6px var(--chat-pad-x, 10px) 8px;
+  border-bottom: 1px solid color-mix(in srgb, var(--border, #ddd) 55%, transparent);
+  box-shadow: 0 4px 12px color-mix(in srgb, #000 6%, transparent);
+  transition: max-height 0.18s ease;
+}
+
+.userStickyPin.isExpanded {
+  max-height: min(40vh, 280px);
+  overflow-y: auto;
+}
+
+.userStickyPin::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 36px;
+  pointer-events: none;
+  background: linear-gradient(to bottom, transparent, var(--bg));
+  transition: opacity 0.15s ease;
+}
+
+.userStickyPin.isExpanded::after {
+  opacity: 0;
+}
+
+.stickyPinBody {
+  width: auto;
+  max-width: min(85%, 640px);
+  margin-left: auto;
+}
+
+.stickyToggle {
+  position: absolute;
+  left: 50%;
+  bottom: 6px;
+  z-index: 2;
+  translate: -50% 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 10px;
+  border: 1px solid color-mix(in srgb, var(--border, #ddd) 70%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--bg) 92%, var(--fg, #111) 8%);
+  color: var(--fg-secondary, var(--fg, #666));
+  font-size: 12px;
+  line-height: 1.4;
+  cursor: pointer;
+  box-shadow: 0 1px 4px color-mix(in srgb, #000 12%, transparent);
+}
+
+.stickyToggle:hover {
+  color: var(--fg, #111);
+  border-color: color-mix(in srgb, var(--border, #ddd) 100%, transparent);
+}
+
+.rowEditTail {
+  opacity: 0.45;
+  transition: opacity 0.15s ease;
+}
+
+.rowAssistant,
+.rowTool,
+.rowError {
+  justify-content: flex-start;
+}
+
+/* Folded into the work section on the lead row — keep DOM for virtual ids, zero layout. */
+.rowToolGroupFollower {
+  display: none;
+}
+
+.bubbleWrap {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-width: 100%;
+}
+
+.bubbleWrap.user {
+  align-items: flex-end;
+  width: auto;
+  max-width: min(82%, 525px);
+}
+
+.bubbleWrap.assistant {
+  align-items: flex-start;
+  width: 100%;
+}
+
+.bubbleWrap.errorWrap {
+  align-items: flex-start;
+  gap: 8px;
+  max-width: 100%;
+}
+
+.bubbleWrap.cancelledWrap {
+  align-items: center;
+  flex-direction: row;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+  max-width: 100%;
+  margin: 4px 0 2px;
+}
+
+.bubble {
+  padding: 9px 13px;
+  border-radius: var(--radius-md, 6px);
+  font-size: 16px;
+  line-height: 1.6;
+  word-break: break-word;
+  user-select: text;
+  -webkit-user-select: text;
+  cursor: text;
+}
+
+/* User prompt: DeepSeek-style soft blue pill, right-aligned, no border. */
+.bubble.user {
+  width: auto;
+  max-width: 100%;
+  box-sizing: border-box;
+  padding: 10px 16px;
+  border-radius: 6px;
+  background: var(--user-bg, #edf3fe);
+  color: var(--fg-strong);
+  border: none;
+  box-shadow: none;
+  overflow: hidden;
+}
+
+/* Collapsed long card: clamp the text block to a few lines. */
+.clamped {
+  display: -webkit-box;
+  -webkit-line-clamp: 4;
+  line-clamp: 4;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.userCardToggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  margin-top: 6px;
+  padding: 1px 6px;
+  border: none;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--accent, #3b82f6);
+  font-size: 11px;
+  line-height: 1.5;
+  cursor: pointer;
+}
+
+.userCardToggle:hover {
+  background: color-mix(in srgb, var(--accent, #3b82f6) 12%, transparent);
+}
+
+.bubble.assistant {
+  background: transparent;
+  padding: 2px 0;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  /* Copilot (VS Code) chat typography: 13px / 1.5em, --vscode-chat-font-size-body-m */
+  font-size: var(--chat-font-m, 13px);
+  line-height: 1.5em;
+  color: var(--fg, #0f1115);
+}
+
+/* The final answer is the visual anchor of an assistant message — give the
+   markdown body room below the (folded) thinking block and above the actions. */
+.bubble.assistant :global(.assistant-md) {
+  margin-top: 4px;
+}
+
+.bubble.assistant :global(.assistant-md:first-child) {
+  margin-top: 0;
+}
+
+/* While thinking with no answer yet: pin the thinking block to the bottom
+   so it follows the "live" edge as thinking text grows. */
+.bubble.assistant.thinkBottom {
+  flex-direction: column-reverse;
+}
+
+.bubble.assistant.thinkBottom :global(.markdown-view) {
+  margin-top: 0;
+  margin-bottom: 0;
+}
+
+.bubble.error {
+  background: rgba(208, 48, 80, 0.08);
+  border: 1px solid rgba(208, 48, 80, 0.35);
+  color: var(--fg-strong);
+}
+
+/* Cursor-like stop notice: muted inline text, no alarm card. */
+.bubble.cancelled {
+  padding: 0;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  font-size: 12.5px;
+  line-height: 1.4;
+  color: var(--fg-muted, #888);
+  font-style: italic;
+}
+
+.errorRetryBtn {
+  flex-shrink: 0;
+}
+
+.cancelledWrap .errorRetryBtn {
+  font-size: 12px !important;
+  height: 22px !important;
+  padding: 0 6px !important;
+  color: var(--fg-muted, #888) !important;
+}
+
+.cancelledWrap .errorRetryBtn:hover {
+  color: var(--fg-strong, #222) !important;
+}
+
+/* 上下文压缩 / 分支摘要：折叠卡片，默认收起只留一行标题。 */
+.summaryCard {
+  max-width: 100%;
+  border: 1px solid var(--border-color, rgba(128, 128, 128, 0.28));
+  border-radius: var(--radius-md, 6px);
+  background: var(--bg-subtle, rgba(128, 128, 128, 0.06));
+  overflow: hidden;
+}
+
+.summaryHead {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 7px 11px;
+  border: none;
+  background: transparent;
+  color: var(--fg-muted, #888);
+  font-size: 12.5px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.summaryHead:hover {
+  background: var(--bg-hover, rgba(128, 128, 128, 0.08));
+}
+
+.summaryTitle {
+  font-weight: 500;
+  color: var(--fg-strong);
+}
+
+.summaryMeta {
+  margin-left: auto;
+  font-size: 11.5px;
+  opacity: 0.8;
+}
+
+.summaryBody {
+  padding: 4px 12px 11px;
+  border-top: 1px solid var(--border-color, rgba(128, 128, 128, 0.18));
+  color: var(--fg-muted, #888);
+  font-size: 13px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.userTags,
+.userImages {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.userTag {
+  max-width: 200px;
+}
+
+.userTag:global(.ant-tag) {
+  border-radius: 999px;
+}
+
+.userTag:global(.ant-tag) {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.userTagFile {
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
+.userTagModePlan {
+  background-color: color-mix(in srgb, var(--warning) 20%, transparent) !important;
+  color: var(--warning) !important;
+  border-color: color-mix(in srgb, var(--warning) 45%, transparent) !important;
+}
+
+.userTagModeAgent {
+  background-color: color-mix(in srgb, var(--fg-muted) 16%, transparent) !important;
+  color: var(--fg-muted) !important;
+  border-color: color-mix(in srgb, var(--fg-muted) 40%, transparent) !important;
+}
+
+.userTagModeAsk {
+  background-color: color-mix(in srgb, var(--accent) 16%, transparent) !important;
+  color: var(--accent) !important;
+  border-color: color-mix(in srgb, var(--accent) 40%, transparent) !important;
+}
+
+.userTagModeTask {
+  background-color: color-mix(in srgb, var(--success) 16%, transparent) !important;
+  color: var(--success) !important;
+  border-color: color-mix(in srgb, var(--success) 40%, transparent) !important;
+}
+
+.userImage {
+  width: 72px;
+  height: 72px;
+  border-radius: 4px;
+  overflow: hidden;
+  object-fit: cover;
+  cursor: zoom-in;
+  border: 1px solid var(--border);
+  transition: filter var(--duration-fast, 140ms) var(--ease-out, ease);
+}
+
+.userImage:hover {
+  filter: brightness(0.94);
+}
+
+.userPlain {
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 16px;
+  line-height: 1.5;
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+.userBubbleFooter {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  margin-top: 6px;
+  min-height: 22px;
+}
+
+.bubbleRevert {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--fg-muted, #8a8a8a);
+  cursor: pointer;
+  transition: color 0.12s ease, background 0.12s ease;
+}
+
+.bubbleRevert:hover:not(:disabled) {
+  color: var(--fg-strong, #222);
+  background: color-mix(in srgb, var(--fg-muted, #888) 12%, transparent);
+}
+
+.bubbleRevert:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.actions {
+  display: flex;
+  gap: 2px;
+  align-items: center;
+  opacity: 0;
+  transition: opacity 0.12s ease;
+}
+
+/* DeepSeek Harness MessageIconActions: 28px circular, label-tertiary,
+   hover → interactive-bg-hover + label-secondary. */
+.actions :global(.ant-btn) {
+  width: 28px;
+  height: 28px;
+  color: var(--fg-faint, #81858c) !important;
+}
+
+.actions :global(.ant-btn:hover:not(.ant-btn-disabled)) {
+  background: var(--bg-hover, #f1f3f5) !important;
+  color: var(--fg-muted, #61666b) !important;
+}
+
+/* Copy / re-edit under the prompt (hover). Revert is inside the bubble. */
+.userActions {
+  justify-content: flex-end;
+  margin-top: 2px;
+  padding-right: 2px;
+}
+
+.bubbleWrap:hover .actions {
+  opacity: 1;
+}
+
+/* Turn stats (duration · tokens · tok/s) — muted, right side of the actions. */
+.assistantStats {
+  margin-left: 8px;
+  font-size: 10.5px;
+  font-variant-numeric: tabular-nums;
+  color: var(--fg-faint, var(--fg-muted));
+  white-space: nowrap;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+/* 本轮结束时的模型与思考级别。 */
+.assistantModel {
+  margin-left: 8px;
+  padding-left: 8px;
+  border-left: 1px solid var(--border);
+  font-size: 10.5px;
+  color: var(--fg-faint, var(--fg-muted));
+  white-space: nowrap;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.cursor {
+  display: inline-block;
+  width: 6px;
+  height: 14px;
+  margin-left: 2px;
+  vertical-align: text-bottom;
+  background: var(--accent);
+  animation: blink 1s step-end infinite;
+}
+
+@keyframes blink {
+  50% {
+    opacity: 0;
+  }
+}
+
+/*
+ * Streaming answer: a soft highlight sweeps across the text to show the
+ * model is still producing output (Cursor-style shimmer). A translucent
+ * gradient bar sweeps over the block — text colours are left untouched so
+ * markdown (code, links) stays readable.
+ */
+.streamShimmer {
+  position: relative;
+  border-radius: 3px;
+}
+
+.streamShimmer::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: linear-gradient(
+    100deg,
+    transparent 30%,
+    color-mix(in srgb, var(--accent, #2563eb) 14%, transparent) 48%,
+    color-mix(in srgb, var(--accent, #2563eb) 14%, transparent) 52%,
+    transparent 70%
+  );
+  background-repeat: no-repeat;
+  background-size: 55% 100%;
+  animation: stream-sweep 1.6s ease-in-out infinite;
+}
+
+@keyframes stream-sweep {
+  from {
+    background-position: -60% 0;
+  }
+  to {
+    background-position: 170% 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .streamShimmer::after {
+    animation: none;
+  }
+}
+
+.tool {
+  width: 100%;
+  max-width: 100%;
+}
+
+.runningIndicator {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 0;
+}
+
+.dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--accent);
+  animation: pulse 1.2s ease-in-out infinite;
+}
+
+.dot.warn {
+  background: var(--warning);
+}
+
+.retryDetail {
+  opacity: 0.8;
+}
+
+/* Queued-guidance cards: the message stays visible until the agent takes it. */
+.steerCards {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 8px;
+}
+
+.steerClear {
+  align-self: flex-start;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--fg-muted);
+  font: inherit;
+  font-size: 11px;
+  line-height: 16px;
+  cursor: pointer;
+}
+
+.steerClear:hover {
+  color: var(--fg);
+  text-decoration: underline;
+}
+
+.steerCard {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border: 1px dashed color-mix(in srgb, var(--accent, #2563eb) 45%, var(--border, #e6e8ec));
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--accent, #2563eb) 6%, transparent);
+}
+
+.steerCardTag {
+  flex-shrink: 0;
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--accent, #2563eb);
+}
+
+.steerCardText {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  opacity: 0.9;
+}
+
+@keyframes pulse {
+  0%,
+  100% {
+    opacity: 0.35;
+    transform: scale(0.85);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}

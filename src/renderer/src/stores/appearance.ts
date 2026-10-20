@@ -1,5 +1,4 @@
-import { defineStore } from "pinia";
-import { computed, ref } from "vue";
+import { create } from "zustand";
 import * as prefs from "@renderer/utils/prefs";
 import {
   applyUiLocale,
@@ -232,165 +231,125 @@ function scheduleChromeSync(pref: ThemePreference, mode: ResolvedTheme): void {
   });
 }
 
-export const useAppearanceStore = defineStore("appearance", () => {
-  const themePreference = ref<ThemePreference>(readThemePreference());
-  const localePreference = ref<LocalePreference>(readLocalePreference());
-  const systemDark = ref(systemPrefersDark());
-  const showCompactButton = ref(readShowCompactButton());
-  const showPanelDividers = ref(readPanelDividers());
-  const showSessionDetails = ref(readSessionDetails());
-  const showSessionTitle = ref(readSessionTitle());
-  const showMessagePreview = ref(readMessagePreview());
-  const showMessagePreviewImage = ref(readMessagePreviewImage());
-  const showSessionHoverActions = ref(readSessionHoverActions());
-  const truncateToolOutputLines = ref(readTruncateToolOutputLines());
-  const showPrivilegeLevel = ref(readShowPrivilegeLevel());
-  const expandToolCalls = ref(readExpandToolCalls());
-  const customAppearance = ref<CustomAppearanceSettings>(readCustomAppearance());
-  const wallpaperBroken = ref(false);
+type AppearanceBase = {
+  themePreference: ThemePreference;
+  localePreference: LocalePreference;
+  systemDark: boolean;
+  showCompactButton: boolean;
+  showPanelDividers: boolean;
+  showSessionDetails: boolean;
+  showSessionTitle: boolean;
+  showMessagePreview: boolean;
+  showMessagePreviewImage: boolean;
+  showSessionHoverActions: boolean;
+  truncateToolOutputLines: number;
+  showPrivilegeLevel: boolean;
+  expandToolCalls: boolean;
+  customAppearance: CustomAppearanceSettings;
+  wallpaperBroken: boolean;
+};
 
-  const wallpaper = computed(() => customAppearance.value.wallpaper);
-  const surfaces = computed(() => customAppearance.value.surfaces);
-  const messageWidth = computed(() => customAppearance.value.messageWidth);
+type AppearanceDerived = {
+  wallpaper: WallpaperSettings;
+  surfaces: SurfaceAlphaSettings;
+  messageWidth: number;
+  glassSurface: boolean;
+  resolvedTheme: ResolvedTheme;
+  resolvedUiLocale: UiLocale;
+};
 
-  /** 壁纸生效时界面固定为深色玻璃：底色、文字、naive-ui 与编辑器一起走暗色。 */
-  const glassSurface = computed(
-    () => customAppearance.value.wallpaper.kind !== "none" && !wallpaperBroken.value,
-  );
+export type AppearanceState = AppearanceBase &
+  AppearanceDerived & {
+    setThemePreference: (next: ThemePreference) => void;
+    setLocalePreference: (next: LocalePreference) => void;
+    setShowCompactButton: (next: boolean) => void;
+    setShowPanelDividers: (next: boolean) => void;
+    setShowSessionDetails: (next: boolean) => void;
+    setShowSessionTitle: (next: boolean) => void;
+    setShowMessagePreview: (next: boolean) => void;
+    setShowMessagePreviewImage: (next: boolean) => void;
+    setSessionHoverActions: (next: boolean) => void;
+    setShowPrivilegeLevel: (next: boolean) => void;
+    setTruncateToolOutputLines: (next: number) => void;
+    setExpandToolCalls: (next: boolean) => void;
+    setWallpaperFile: (path: string) => void;
+    clearWallpaper: () => void;
+    setVeilOpacity: (value: number) => void;
+    setVeilBlur: (value: number) => void;
+    setSurfaceAlpha: (key: SurfaceAlphaKey, value: number) => void;
+    setMessageWidth: (value: number) => void;
+    setWallpaperBroken: (broken: boolean) => void;
+    init: () => () => void;
+  };
 
-  const resolvedTheme = computed<ResolvedTheme>(() =>
-    glassSurface.value ? "dark" : resolveTheme(themePreference.value, systemDark.value),
-  );
-
+/** 派生值统一在这里算，写入 store 前调用，保证状态与派生量始终一致。 */
+function derive(base: AppearanceBase): AppearanceDerived {
+  const wallpaper = base.customAppearance.wallpaper;
+  const surfaces = base.customAppearance.surfaces;
+  const messageWidth = base.customAppearance.messageWidth;
+  /** 壁纸生效时界面固定为深色玻璃：底色、文字、组件库与编辑器一起走暗色。 */
+  const glassSurface = wallpaper.kind !== "none" && !base.wallpaperBroken;
+  const resolvedTheme: ResolvedTheme = glassSurface
+    ? "dark"
+    : resolveTheme(base.themePreference, base.systemDark);
   /** 当前生效的界面语言（system 偏好跟随系统语言）。 */
-  const resolvedUiLocale = computed<UiLocale>(() =>
-    localePreference.value === "system"
+  const resolvedUiLocale: UiLocale =
+    base.localePreference === "system"
       ? resolveUiLocale(detectSystemLanguage())
-      : localePreference.value,
-  );
+      : base.localePreference;
+  return {
+    wallpaper,
+    surfaces,
+    messageWidth,
+    glassSurface,
+    resolvedTheme,
+    resolvedUiLocale,
+  };
+}
 
-  function setThemePreference(next: ThemePreference): void {
-    themePreference.value = next;
-    try {
-      prefs.setItem(THEME_KEY, next);
-    } catch {
-      // ignore
-    }
-    applyDomTheme(resolvedTheme.value);
-    scheduleChromeSync(next, resolvedTheme.value);
-  }
+function initialBase(): AppearanceBase {
+  return {
+    themePreference: readThemePreference(),
+    localePreference: readLocalePreference(),
+    systemDark: systemPrefersDark(),
+    showCompactButton: readShowCompactButton(),
+    showPanelDividers: readPanelDividers(),
+    showSessionDetails: readSessionDetails(),
+    showSessionTitle: readSessionTitle(),
+    showMessagePreview: readMessagePreview(),
+    showMessagePreviewImage: readMessagePreviewImage(),
+    showSessionHoverActions: readSessionHoverActions(),
+    truncateToolOutputLines: readTruncateToolOutputLines(),
+    showPrivilegeLevel: readShowPrivilegeLevel(),
+    expandToolCalls: readExpandToolCalls(),
+    customAppearance: readCustomAppearance(),
+    wallpaperBroken: false,
+  };
+}
 
-  function setLocalePreference(next: LocalePreference): void {
-    localePreference.value = next;
-    try {
-      prefs.setItem(LOCALE_KEY, next);
-    } catch {
-      // ignore
-    }
-    applyUiLocale(resolvedUiLocale.value);
-    void window.api.window.setUiLocale(resolvedUiLocale.value);
-  }
-
-  function setShowCompactButton(next: boolean): void {
-    showCompactButton.value = next;
-    try {
-      prefs.setItem(COMPACT_BTN_KEY, next ? "1" : "0");
-    } catch {
-      // ignore
-    }
-  }
-
-  function setShowPanelDividers(next: boolean): void {
-    showPanelDividers.value = next;
-    try {
-      prefs.setItem(PANEL_DIVIDERS_KEY, next ? "1" : "0");
-    } catch {
-      // ignore
-    }
-  }
-
-  function setShowSessionDetails(next: boolean): void {
-    showSessionDetails.value = next;
-    try {
-      prefs.setItem(SESSION_DETAILS_KEY, next ? "1" : "0");
-    } catch {
-      // ignore
-    }
-  }
-
-  function setShowSessionTitle(next: boolean): void {
-    showSessionTitle.value = next;
-    try {
-      prefs.setItem(SESSION_TITLE_KEY, next ? "1" : "0");
-    } catch {
-      // ignore
-    }
-  }
-
-  function setShowMessagePreview(next: boolean): void {
-    showMessagePreview.value = next;
-    try {
-      prefs.setItem(MESSAGE_PREVIEW_KEY, next ? "1" : "0");
-    } catch {
-      // ignore
-    }
-  }
-
-  function setShowMessagePreviewImage(next: boolean): void {
-    showMessagePreviewImage.value = next;
-    try {
-      prefs.setItem(MESSAGE_PREVIEW_IMAGE_KEY, next ? "1" : "0");
-    } catch {
-      // ignore
-    }
-  }
-
-  function setSessionHoverActions(next: boolean): void {
-    showSessionHoverActions.value = next;
-    try {
-      prefs.setItem(SESSION_HOVER_ACTIONS_KEY, next ? "1" : "0");
-    } catch {
-      // ignore
-    }
-  }
-
-  function setShowPrivilegeLevel(next: boolean): void {
-    showPrivilegeLevel.value = next;
-    try {
-      prefs.setItem(PRIVILEGE_LEVEL_KEY, next ? "1" : "0");
-    } catch {
-      // ignore
-    }
-  }
-
-  function setTruncateToolOutputLines(next: number): void {
-    const value = isTruncateToolOutputChoice(next) ? next : TRUNCATE_TOOL_OUTPUT_FALLBACK;
-    truncateToolOutputLines.value = value;
-    try {
-      prefs.setItem(TRUNCATE_TOOL_OUTPUT_KEY, String(value));
-    } catch {
-      // ignore
-    }
-  }
-
-  function setExpandToolCalls(next: boolean): void {
-    expandToolCalls.value = next;
-    try {
-      prefs.setItem(EXPAND_TOOL_CALLS_KEY, next ? "1" : "0");
-    } catch {
-      // ignore
-    }
+export const useAppearanceStore = create<AppearanceState>()((set, get) => {
+  /**
+   * 写入基础字段并同步重算派生值。
+   * zustand 的 set 是浅合并：只提交派生字段会让基础字段不生效，
+   * 所以补丁必须和派生值一起返回。
+   */
+  function commit(patch: Partial<AppearanceBase>): void {
+    set((state) => {
+      const base = { ...state, ...patch };
+      return { ...patch, ...derive(base) };
+    });
   }
 
   /** 壁纸开合会切换整套配色，玻璃相关的 DOM 变量与暗色文字一起刷新。 */
   function syncGlassShell(): void {
-    applyCustomAppearance(customAppearance.value, wallpaperBroken.value);
-    applyDomTheme(resolvedTheme.value);
-    scheduleChromeSync(themePreference.value, resolvedTheme.value);
+    const state = get();
+    applyCustomAppearance(state.customAppearance, state.wallpaperBroken);
+    applyDomTheme(state.resolvedTheme);
+    scheduleChromeSync(state.themePreference, state.resolvedTheme);
   }
 
   function persistCustom(next: CustomAppearanceSettings): void {
-    customAppearance.value = next;
+    commit({ customAppearance: next });
     try {
       prefs.setItem(CUSTOM_APPEARANCE_KEY, JSON.stringify(next));
     } catch {
@@ -400,107 +359,174 @@ export const useAppearanceStore = defineStore("appearance", () => {
   }
 
   function updateWallpaper(patch: Partial<WallpaperSettings>): void {
-    if ("kind" in patch || "path" in patch) wallpaperBroken.value = false;
+    const state = get();
+    if ("kind" in patch || "path" in patch) set({ wallpaperBroken: false });
     persistCustom({
-      ...customAppearance.value,
-      wallpaper: { ...customAppearance.value.wallpaper, ...patch },
+      ...state.customAppearance,
+      wallpaper: { ...state.customAppearance.wallpaper, ...patch },
     });
-  }
-
-  /** 壁纸文件缺失或无法解码：保持设置但暂时恢复不透明界面。 */
-  function setWallpaperBroken(broken: boolean): void {
-    if (wallpaperBroken.value === broken) return;
-    wallpaperBroken.value = broken;
-    syncGlassShell();
-  }
-
-  function setWallpaperFile(path: string): void {
-    const kind = wallpaperKindForPath(path);
-    if (!kind) return;
-    updateWallpaper({ kind, path });
-  }
-
-  function clearWallpaper(): void {
-    updateWallpaper({ kind: "none", path: "" });
-  }
-
-  function setVeilOpacity(value: number): void {
-    updateWallpaper({ veilOpacity: clampAlpha(value) });
-  }
-
-  function setVeilBlur(value: number): void {
-    updateWallpaper({ veilBlur: clampAlpha(value) });
-  }
-
-  function setSurfaceAlpha(key: SurfaceAlphaKey, value: number): void {
-    persistCustom({
-      ...customAppearance.value,
-      surfaces: { ...customAppearance.value.surfaces, [key]: clampAlpha(value) },
-    });
-  }
-
-  function setMessageWidth(value: number): void {
-    persistCustom({ ...customAppearance.value, messageWidth: normalizeMessageWidth(value) });
   }
 
   function syncSystemListener(): () => void {
     const mq = window.matchMedia("(prefers-color-scheme: dark)");
     const onChange = () => {
-      const before = resolvedTheme.value;
-      systemDark.value = mq.matches;
-      if (themePreference.value !== "system") return;
-      if (before === resolvedTheme.value) return;
-      applyDomTheme(resolvedTheme.value);
-      scheduleChromeSync("system", resolvedTheme.value);
+      const before = get().resolvedTheme;
+      commit({ systemDark: mq.matches });
+      const after = get().resolvedTheme;
+      if (get().themePreference !== "system") return;
+      if (before === after) return;
+      applyDomTheme(after);
+      scheduleChromeSync("system", after);
     };
     onChange();
     mq.addEventListener("change", onChange);
     return () => mq.removeEventListener("change", onChange);
   }
 
-  function init(): () => void {
-    syncGlassShell();
-    return syncSystemListener();
-  }
+  const base = initialBase();
 
   return {
-    themePreference,
-    localePreference,
-    resolvedUiLocale,
-    resolvedTheme,
-    showCompactButton,
-    showPanelDividers,
-    showSessionDetails,
-    showSessionTitle,
-    showMessagePreview,
-    showMessagePreviewImage,
-    showSessionHoverActions,
-    showPrivilegeLevel,
-    truncateToolOutputLines,
-    expandToolCalls,
-    wallpaper,
-    surfaces,
-    messageWidth,
-    wallpaperBroken,
-    setThemePreference,
-    setLocalePreference,
-    setShowCompactButton,
-    setShowPanelDividers,
-    setShowSessionDetails,
-    setShowSessionTitle,
-    setShowMessagePreview,
-    setShowMessagePreviewImage,
-    setSessionHoverActions,
-    setShowPrivilegeLevel,
-    setTruncateToolOutputLines,
-    setExpandToolCalls,
-    setWallpaperFile,
-    clearWallpaper,
-    setVeilOpacity,
-    setVeilBlur,
-    setSurfaceAlpha,
-    setMessageWidth,
-    setWallpaperBroken,
-    init,
+    ...base,
+    ...derive(base),
+    setThemePreference: (next) => {
+      commit({ themePreference: next });
+      try {
+        prefs.setItem(THEME_KEY, next);
+      } catch {
+        // ignore
+      }
+      const state = get();
+      applyDomTheme(state.resolvedTheme);
+      scheduleChromeSync(next, state.resolvedTheme);
+    },
+    setLocalePreference: (next) => {
+      commit({ localePreference: next });
+      try {
+        prefs.setItem(LOCALE_KEY, next);
+      } catch {
+        // ignore
+      }
+      const state = get();
+      applyUiLocale(state.resolvedUiLocale);
+      void window.api.window.setUiLocale(state.resolvedUiLocale);
+    },
+    setShowCompactButton: (next) => {
+      set({ showCompactButton: next });
+      try {
+        prefs.setItem(COMPACT_BTN_KEY, next ? "1" : "0");
+      } catch {
+        // ignore
+      }
+    },
+    setShowPanelDividers: (next) => {
+      set({ showPanelDividers: next });
+      try {
+        prefs.setItem(PANEL_DIVIDERS_KEY, next ? "1" : "0");
+      } catch {
+        // ignore
+      }
+    },
+    setShowSessionDetails: (next) => {
+      set({ showSessionDetails: next });
+      try {
+        prefs.setItem(SESSION_DETAILS_KEY, next ? "1" : "0");
+      } catch {
+        // ignore
+      }
+    },
+    setShowSessionTitle: (next) => {
+      set({ showSessionTitle: next });
+      try {
+        prefs.setItem(SESSION_TITLE_KEY, next ? "1" : "0");
+      } catch {
+        // ignore
+      }
+    },
+    setShowMessagePreview: (next) => {
+      set({ showMessagePreview: next });
+      try {
+        prefs.setItem(MESSAGE_PREVIEW_KEY, next ? "1" : "0");
+      } catch {
+        // ignore
+      }
+    },
+    setShowMessagePreviewImage: (next) => {
+      set({ showMessagePreviewImage: next });
+      try {
+        prefs.setItem(MESSAGE_PREVIEW_IMAGE_KEY, next ? "1" : "0");
+      } catch {
+        // ignore
+      }
+    },
+    setSessionHoverActions: (next) => {
+      set({ showSessionHoverActions: next });
+      try {
+        prefs.setItem(SESSION_HOVER_ACTIONS_KEY, next ? "1" : "0");
+      } catch {
+        // ignore
+      }
+    },
+    setShowPrivilegeLevel: (next) => {
+      set({ showPrivilegeLevel: next });
+      try {
+        prefs.setItem(PRIVILEGE_LEVEL_KEY, next ? "1" : "0");
+      } catch {
+        // ignore
+      }
+    },
+    setTruncateToolOutputLines: (next) => {
+      const value = isTruncateToolOutputChoice(next) ? next : TRUNCATE_TOOL_OUTPUT_FALLBACK;
+      set({ truncateToolOutputLines: value });
+      try {
+        prefs.setItem(TRUNCATE_TOOL_OUTPUT_KEY, String(value));
+      } catch {
+        // ignore
+      }
+    },
+    setExpandToolCalls: (next) => {
+      set({ expandToolCalls: next });
+      try {
+        prefs.setItem(EXPAND_TOOL_CALLS_KEY, next ? "1" : "0");
+      } catch {
+        // ignore
+      }
+    },
+    setWallpaperFile: (path) => {
+      const kind = wallpaperKindForPath(path);
+      if (!kind) return;
+      updateWallpaper({ kind, path });
+    },
+    clearWallpaper: () => {
+      updateWallpaper({ kind: "none", path: "" });
+    },
+    setVeilOpacity: (value) => {
+      updateWallpaper({ veilOpacity: clampAlpha(value) });
+    },
+    setVeilBlur: (value) => {
+      updateWallpaper({ veilBlur: clampAlpha(value) });
+    },
+    setSurfaceAlpha: (key, value) => {
+      const state = get();
+      persistCustom({
+        ...state.customAppearance,
+        surfaces: { ...state.customAppearance.surfaces, [key]: clampAlpha(value) },
+      });
+    },
+    setMessageWidth: (value) => {
+      const state = get();
+      persistCustom({
+        ...state.customAppearance,
+        messageWidth: normalizeMessageWidth(value),
+      });
+    },
+    setWallpaperBroken: (broken) => {
+      if (get().wallpaperBroken === broken) return;
+      commit({ wallpaperBroken: broken });
+      syncGlassShell();
+    },
+    init: () => {
+      syncGlassShell();
+      return syncSystemListener();
+    },
   };
 });

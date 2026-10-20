@@ -1,0 +1,53 @@
+/*
+ * antd 的 <App> 会包一层 .ant-app，它没有高度样式，
+ * 会打断 #app → .app-shell 的高度继承链（百分比高度对 auto 高度父元素无效）。
+ */
+#app > .ant-app {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+
+.app-shell {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+  background: var(--bg);
+  color: var(--fg);
+}
+
+.app-main {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.app-main-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  animation: shell-rise 280ms var(--ease-out, cubic-bezier(0.22, 1, 0.36, 1));
+}
+
+@keyframes shell-rise {
+  from {
+    opacity: 0.35;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .app-main-body {
+    animation: none !important;
+    transition: none !important;
+  }
+}

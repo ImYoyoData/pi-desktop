@@ -1,0 +1,720 @@
+:global(.sidebar) {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: var(--bg-sidebar);
+  min-width: 0;
+  /* 右侧分栏线由 splitter 提供，再描边会叠成 2px */
+}
+
+.sessionsPane {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.wsTools {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px 2px;
+  flex-shrink: 0;
+}
+
+.wsSelectActions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+
+.wsToolIcons {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin-left: auto;
+}
+
+.wsPanelToggle {
+  flex: 1;
+  min-width: 0;
+  justify-content: flex-start;
+  padding: 0 12px;
+  height: 24px;
+  border-radius: 6px;
+  font-size: 12.5px;
+}
+
+.wsPanelLabel {
+  max-width: 140px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.topActions {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
+  padding: 10px 8px 8px;
+  flex-shrink: 0;
+  position: relative;
+  z-index: 6;
+  background: var(--bg-sidebar);
+}
+
+.topBtn {
+  width: 100%;
+  min-width: 0;
+  justify-content: flex-start;
+  padding: 0 10px;
+  height: 28px;
+  border-radius: 6px;
+  font-size: 12.5px;
+}
+
+/* 点击后不再保留 focus 底色，只留悬停高亮 */
+.wsPanelToggle:focus-visible,
+.topBtn:not(.topBtnActive):focus-visible {
+  background: transparent !important;
+}
+
+.topBtnActive {
+  background: rgba(127, 127, 127, 0.14) !important;
+  color: var(--fg-strong) !important;
+}
+
+.btnContent {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.topBtn .btnContent {
+  width: 100%;
+  justify-content: flex-start;
+}
+
+.btnGlyph {
+  flex: none;
+}
+
+.topBtn .btnLabel {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tree {
+  flex: 1;
+  min-height: 0;
+  /* 原来这层是 naive 的 NScrollbar：内容绝对定位在滚动容器里，
+     外层左右 padding 被绝对定位吃掉，实际不产生内缩。
+     换成普通滚动容器后 padding 会生效，故左右补 0，保持原有对齐。 */
+  padding: 0 0 8px;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+.wsTree {
+  display: flex;
+  flex-direction: column;
+}
+
+.wsRowWrap {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  width: 100%;
+  border-radius: var(--radius-sm, 4px);
+}
+
+/* 当前工作区与悬停共用同一层背景，避免行内再叠一层出现双层色块；
+   鼠标点击后不保留高亮，仅键盘聚焦（focus-visible）时显示。 */
+.wsRowWrap:hover,
+.wsRowWrap.wsRowWrapActive,
+.wsRowWrap:has(:focus-visible) {
+  background: var(--bg-hover);
+}
+
+.wsRow {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: 32px;
+  padding: 0 8px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--fg-strong);
+  font-size: 13px;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  text-align: left;
+  cursor: grab;
+  transition: background var(--duration-fast, 140ms) var(--ease-out, ease);
+}
+
+.wsRow:active {
+  cursor: grabbing;
+}
+
+.wsAction {
+  flex-shrink: 0;
+  margin-right: 4px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--duration-fast, 140ms) var(--ease-out, ease);
+}
+
+.wsRowWrap:hover .wsAction,
+.wsRowWrap:focus-within .wsAction {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.chevron {
+  display: inline-flex;
+  color: var(--fg-faint);
+  transition: transform var(--duration-fast, 140ms) var(--ease-out, ease);
+}
+
+.chevron.chevronOpen {
+  transform: rotate(90deg);
+}
+
+.sessionList {
+  list-style: none;
+  margin: 0 0 8px;
+  padding: 2px 0 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.sessionRow {
+  position: relative;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border-radius: 6px;
+  font-size: 13px;
+  color: var(--fg-muted);
+  cursor: pointer;
+  animation: session-row-in 220ms var(--ease-out, cubic-bezier(0.22, 1, 0.36, 1)) both;
+  animation-delay: calc(min(var(--i, 0), 12) * 18ms);
+}
+
+@keyframes session-row-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.sessionInner {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  padding: 7px 8px;
+  padding-left: calc(8px + var(--depth, 0) * 24px);
+  border-radius: 6px;
+  border: 1px solid transparent;
+  transition:
+    background var(--duration-fast, 140ms) var(--ease-out, ease),
+    color var(--duration-fast, 140ms) var(--ease-out, ease),
+    border-color var(--duration-fast, 140ms) var(--ease-out, ease),
+    box-shadow var(--duration-fast, 140ms) var(--ease-out, ease),
+    transform var(--duration-fast, 140ms) var(--ease-out, ease);
+}
+
+.sessionRow:hover .sessionInner {
+  background: var(--bg-hover);
+  color: var(--fg);
+}
+
+.sessionRow:active .sessionInner {
+  transform: scale(0.992);
+}
+
+.sessionRow.sessionRowActive .sessionInner {
+  background: var(--bg-selected);
+  border-color: var(--border);
+  color: var(--fg-strong);
+  box-shadow: none;
+}
+
+.activeBar {
+  position: absolute;
+  left: calc(2px + var(--depth, 0) * 24px);
+  top: 11px;
+  bottom: 11px;
+  width: 2.5px;
+  border-radius: 999px;
+  background: transparent;
+  transition:
+    background var(--duration-fast, 140ms) var(--ease-out, ease),
+    transform var(--duration-fast, 140ms) var(--ease-out, ease);
+  transform: scaleY(0.4);
+}
+
+.treeGuide {
+  position: absolute;
+  top: -1px;
+  bottom: 50%;
+  left: calc(16px + var(--g, 0) * 24px);
+  width: 0;
+  border-left: 1px solid color-mix(in srgb, var(--fg-faint) 40%, transparent);
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.1s linear;
+}
+
+.treeGuide.treeGuideFull {
+  bottom: -1px;
+}
+
+.treeGuide.treeGuideElbow {
+  width: 12px;
+  border-bottom: 1px solid color-mix(in srgb, var(--fg-faint) 40%, transparent);
+  border-bottom-left-radius: 4px;
+}
+
+.treeGuide.treeGuideEnded {
+  display: none;
+}
+
+.treeConnector {
+  position: absolute;
+  top: calc(50% - 0.5px);
+  left: calc(16px + var(--g, 0) * 24px);
+  width: 12px;
+  border-top: 1px solid color-mix(in srgb, var(--fg-faint) 40%, transparent);
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.1s linear;
+}
+
+.treeDescender {
+  position: absolute;
+  top: calc(50% + 12px);
+  bottom: -2px;
+  left: calc(16px + var(--g, 0) * 24px);
+  width: 0;
+  border-left: 1px solid color-mix(in srgb, var(--fg-faint) 40%, transparent);
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.1s linear;
+}
+
+.sessionRow.sessionRowGuidesVisible .treeGuide,
+.sessionRow.sessionRowGuidesVisible .treeConnector,
+.sessionRow.sessionRowGuidesVisible .treeDescender {
+  opacity: 1;
+}
+
+.sessionRow.sessionRowActive .activeBar {
+  background: var(--accent);
+  transform: scaleY(1);
+}
+
+.statusMark {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+  display: grid;
+  place-items: center;
+}
+
+.treeTwistie {
+  position: absolute;
+  top: 50%;
+  left: calc(8px + var(--depth, 0) * 24px);
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--fg);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(-50%);
+  z-index: 1;
+}
+
+.treeTwistie.treeTwistieCollapsed {
+  transform: translateY(-50%) rotate(-90deg);
+}
+
+.sessionRow:hover .treeTwistie,
+.treeTwistie:focus-visible {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.sessionRow:hover[aria-expanded] .statusMark {
+  visibility: hidden;
+}
+
+.statusCore {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--fg-faint);
+  display: block;
+}
+
+.statusMark.stIdle .statusCore {
+  background: color-mix(in srgb, var(--fg-faint) 55%, transparent);
+}
+
+.statusMark.stRunning .statusCore {
+  background: var(--green);
+  box-shadow: 0 0 0 0 color-mix(in srgb, var(--green) 45%, transparent);
+  animation: status-pulse 1.4s ease-out infinite;
+}
+
+.statusMark.stError .statusCore {
+  background: var(--red);
+}
+
+.statusMark.stStuck .statusCore {
+  background: var(--warning);
+}
+
+@keyframes status-pulse {
+  0% {
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--green) 45%, transparent);
+  }
+  70% {
+    box-shadow: 0 0 0 6px transparent;
+  }
+  100% {
+    box-shadow: 0 0 0 0 transparent;
+  }
+}
+
+.sessionBody {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.sessionTitleRow {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+}
+
+.sessionLabel {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12.5px;
+  font-weight: 550;
+  letter-spacing: -0.01em;
+  line-height: 1.25;
+}
+
+.sessionRow.sessionRowActive .sessionLabel {
+  font-weight: 650;
+}
+
+.sessionMeta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 14px;
+  padding-left: 1px;
+}
+
+.time {
+  font-size: 10.5px;
+  color: var(--fg-faint);
+  font-variant-numeric: tabular-nums;
+}
+
+.runTag,
+.errTag,
+.stuckTag,
+.doneTag {
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  padding: 0 5px;
+  border-radius: 999px;
+  line-height: 14px;
+}
+
+.runTag {
+  color: var(--green);
+  background: color-mix(in srgb, var(--green) 14%, transparent);
+}
+
+.runTag.runTagAsk {
+  color: var(--warning);
+  background: color-mix(in srgb, var(--warning) 16%, transparent);
+}
+
+.doneTag {
+  color: var(--fg);
+  background: color-mix(in srgb, var(--fg) 12%, transparent);
+}
+
+.errTag {
+  color: var(--red);
+  background: color-mix(in srgb, var(--red) 14%, transparent);
+}
+
+.stuckTag {
+  color: var(--warning);
+  background: color-mix(in srgb, var(--warning) 16%, transparent);
+}
+
+.trash {
+  opacity: 0;
+  flex-shrink: 0;
+  /* naive 的 size="tiny" 圆钮是 22×22，antd 的 size="small" 是 24×24。
+     锁回原尺寸，antd 的 circle 按钮内边距也要清掉，否则会挤占标题宽度。 */
+  width: 22px !important;
+  min-width: 22px !important;
+  height: 22px !important;
+  padding-inline: 0 !important;
+  transition: opacity var(--duration-fast, 140ms) var(--ease-out, ease);
+}
+
+.sessionRow:hover .trash {
+  opacity: 1;
+}
+
+.pin {
+  flex-shrink: 0;
+  color: var(--accent);
+  opacity: 0.9;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sessionRow,
+  .statusMark.stRunning .statusCore {
+    animation: none !important;
+  }
+}
+
+.empty,
+.emptyInline {
+  padding: 8px 12px;
+  font-size: 12px;
+  color: var(--fg-faint);
+}
+
+.sessionExpandRow {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+/* 悬停占位：默认零行高，悬停时才撑开把下方内容下推 */
+.sessionList.sessionListHoverActions .sessionExpandRow {
+  height: 0;
+  min-height: 0;
+  overflow: hidden;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--duration-fast, 140ms) var(--ease-out, ease);
+}
+
+.sessionList.sessionListHoverActions:hover .sessionExpandRow,
+.sessionList.sessionListHoverActions:focus-within .sessionExpandRow {
+  height: auto;
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.sessionExpandBtn {
+  width: 100%;
+  margin: 0;
+  padding: 5px 8px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--fg-faint);
+  font: inherit;
+  font-size: 11.5px;
+  text-align: center;
+  cursor: pointer;
+  transition:
+    background var(--duration-fast, 140ms) var(--ease-out, ease),
+    color var(--duration-fast, 140ms) var(--ease-out, ease);
+}
+
+.sessionExpandBtn:hover {
+  background: var(--bg-hover);
+  color: var(--fg);
+}
+
+:global(.customize-bar) {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  flex-shrink: 0;
+  padding: 4px 6px 6px;
+  border-top: 1px solid var(--border, rgba(128, 128, 128, 0.15));
+}
+
+.customizeBtn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  margin: 0;
+  padding: 4px 8px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--fg-muted, #888);
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+  transition:
+    background var(--duration-fast, 140ms) var(--ease-out, ease),
+    color var(--duration-fast, 140ms) var(--ease-out, ease);
+}
+
+.customizeBtn:hover {
+  background: var(--bg-hover, rgba(127, 127, 127, 0.07));
+  color: var(--fg);
+}
+
+.customizeBtn:focus-visible {
+  outline: 1px solid var(--border-strong, rgba(128, 128, 128, 0.4));
+  outline-offset: -1px;
+}
+
+.customizeLabel {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sessionCheck {
+  flex-shrink: 0;
+}
+
+.sessionRow.sessionRowSelected .sessionInner {
+  background: var(--bg-selected);
+  border-color: var(--border);
+  color: var(--fg-strong);
+}
+
+.archivedEmpty {
+  padding: 18px 0;
+  text-align: center;
+  color: var(--fg-muted);
+  font-size: 13px;
+}
+
+.archivedList {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 46vh;
+  overflow: auto;
+}
+
+.archivedSearch {
+  margin-bottom: 8px;
+}
+
+.archivedRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 4px 6px 8px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.archivedRow:hover {
+  background: var(--bg-hover);
+}
+
+.archivedRow.archivedRowSelected {
+  background: var(--bg-selected);
+}
+
+.archivedCheck {
+  flex-shrink: 0;
+}
+
+.archivedActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.archivedMeta {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.archivedLabel {
+  font-size: 13px;
+  color: var(--fg);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.archivedSub {
+  font-size: 11.5px;
+  color: var(--fg-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ctxAnchor {
+  position: fixed;
+  left: 0;
+  top: 0;
+  width: 0;
+  height: 0;
+  z-index: 1000;
+}
+
+.ctxAnchorTarget {
+  display: block;
+  width: 0;
+  height: 0;
+}

@@ -1,0 +1,339 @@
+/* 1:1 VS Code Copilot tool row — see chatProgressContentPart / chatThinkingContent.css */
+.toolCall {
+  width: 100%;
+  overflow: hidden;
+  font-size: var(--chat-font-s, 12px);
+  line-height: 1.5em;
+  color: var(--chat-desc-fg, var(--fg-muted));
+}
+
+.toolCall.error {
+  color: var(--error, #d03050);
+}
+
+.nestedBody {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 2px 0 4px;
+  padding-left: 20px;
+}
+
+.nestedRow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  color: var(--fg-muted);
+  font-size: 11px;
+  line-height: 16px;
+}
+
+.nestedRow.error {
+  color: var(--error, #d03050);
+}
+
+.nestedMark {
+  flex-shrink: 0;
+  opacity: 0.7;
+}
+
+.nestedName {
+  font-family: var(--font-mono, monospace);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.nestedMeta {
+  flex-shrink: 0;
+  opacity: 0.7;
+}
+
+.toolCall.askUserMuted {
+  opacity: 0.82;
+}
+
+.toolCall.askUserMuted .headline:empty {
+  display: none;
+}
+
+.toolCallHead {
+  position: relative;
+  width: fit-content;
+  max-width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin: 0;
+  padding: 2px 6px 2px 2px;
+  border: none;
+  border-radius: 5px;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  min-width: 0;
+  box-sizing: border-box;
+}
+
+.notExpandable .toolCallHead {
+  cursor: default;
+}
+
+.toolCallHead:hover {
+  background: var(--chat-hover-bg, color-mix(in srgb, var(--fg) 5%, transparent));
+  color: var(--fg, inherit);
+}
+
+/* Tree mode (inside WorkSectionGroup): icon hangs on the chain-of-thought line. */
+.treeItem .toolCallHead {
+  width: 100%;
+  padding: 4px 12px 4px 24px;
+}
+
+.kindIcon {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 12px;
+  height: 12px;
+  color: var(--chat-icon-fg, var(--fg-muted));
+}
+
+.kindIcon.error {
+  color: var(--error, #d03050);
+}
+
+.treeItem .kindIcon {
+  position: absolute;
+  left: 5px;
+  top: 8px;
+}
+
+.headText {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+  overflow: hidden;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum";
+}
+
+.action {
+  font: inherit;
+  color: inherit;
+  flex-shrink: 0;
+}
+
+.headline {
+  font: inherit;
+  color: inherit;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* bash command / glob pattern pill — VS Code [data-code] inside progress text */
+.cmdPill {
+  display: inline-block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+  margin: 0;
+  padding: 1px 3px;
+  border: 1px solid var(--chat-line, var(--border));
+  border-radius: 4px;
+  background: var(--w-tool-surface, var(--md-inline-code-bg, var(--code-bg)));
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
+  font-size: var(--chat-font-xs, 11px);
+  color: inherit;
+  white-space: nowrap;
+}
+
+/* Long commands/headlines shrink themselves; the line-count meta always stays visible. */
+.meta {
+  font: inherit;
+  color: inherit;
+  opacity: 0.85;
+  flex-shrink: 0;
+}
+
+.meta.stats {
+  display: inline-flex;
+  gap: 5px;
+  margin-left: 0;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  opacity: 1;
+  flex-shrink: 0;
+}
+
+.headText :global(.file-chip) {
+  min-width: 0;
+}
+
+.add {
+  color: var(--git-u, #1a7f37);
+}
+
+.del {
+  color: var(--git-d, #cf222e);
+}
+
+.trunc {
+  margin-left: 0;
+  flex-shrink: 0;
+  font-size: var(--chat-font-xs, 11px);
+  color: var(--warning, #9a6700);
+}
+
+/* Trailing disclosure chevron — .chat-collapsible-hover-chevron (1:1) */
+.hoverChev {
+  flex-shrink: 0;
+  opacity: 0;
+  transform: rotate(0deg);
+  transform-origin: center;
+  transition:
+    opacity 100ms ease-in-out,
+    transform 180ms cubic-bezier(0.2, 0, 0, 1);
+  color: var(--chat-desc-fg, var(--fg-muted));
+}
+
+.hoverChev.expanded {
+  opacity: 1;
+  transform: rotate(90deg);
+}
+
+.toolCallHead:hover .hoverChev {
+  opacity: 1;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hoverChev {
+    transition: none;
+  }
+}
+
+.bgBtn {
+  flex-shrink: 0;
+}
+
+.toolBody {
+  margin: 2px 0 4px;
+  padding: 5px 8px;
+  max-height: 160px;
+  overflow: auto;
+  font-size: var(--chat-font-xs, 11px);
+  line-height: 1.5;
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
+  border: 1px solid var(--chat-line, var(--border));
+  border-radius: 6px;
+  background: var(--w-tool-surface, var(--pre-bg, var(--code-bg)));
+  color: var(--fg, inherit);
+}
+
+.treeItem .toolBody {
+  margin-left: 24px;
+}
+
+.toolBody.empty {
+  padding: 8px 10px;
+  color: var(--chat-desc-fg, var(--fg-muted));
+}
+
+.toolImages {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 2px 0 4px;
+}
+
+.treeItem .toolImages {
+  margin-left: 24px;
+}
+
+.toolImage {
+  max-width: min(100%, 420px);
+  max-height: 260px;
+  border: 1px solid var(--chat-line, var(--border));
+  border-radius: 6px;
+}
+
+.toolBodyBash .dline {
+  color: var(--fg-strong, inherit);
+}
+
+.dline {
+  display: block;
+  padding: 0 4px;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+.dline.add {
+  background: rgba(46, 160, 67, 0.12);
+}
+
+.dline.del {
+  background: rgba(248, 81, 73, 0.12);
+}
+
+.dline.meta {
+  color: var(--fg-muted);
+}
+
+.todoBody {
+  list-style: none;
+  margin: 2px 0 4px;
+  padding: 6px 8px;
+  border: 1px solid var(--chat-line, var(--border));
+  border-radius: 6px;
+  background: var(--w-tool-surface, var(--pre-bg, var(--code-bg)));
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 180px;
+  overflow: auto;
+}
+
+.treeItem .todoBody {
+  margin-left: 24px;
+}
+
+.todoRow {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: var(--chat-font-s, 12px);
+  line-height: 1.35;
+  color: var(--fg);
+}
+
+.todoRow.done {
+  color: var(--fg-muted);
+}
+
+.todoRow.done .todoText {
+  text-decoration: line-through;
+  text-decoration-color: color-mix(in srgb, var(--fg-muted) 55%, transparent);
+}
+
+.todoMark {
+  flex-shrink: 0;
+  margin-top: 1px;
+  color: var(--fg-muted);
+}
+
+.todoRow.done .todoMark {
+  color: var(--success, #3d9a6a);
+}
+
+.todoText {
+  min-width: 0;
+  word-break: break-word;
+}

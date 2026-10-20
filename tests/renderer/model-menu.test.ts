@@ -46,8 +46,8 @@ describe("buildModelMenu", () => {
       },
     ];
     const menu = buildModelMenu(groups, "p/b");
-    expect(menu[0]?.children?.[0]?.props).toBeUndefined();
-    expect(menu[0]?.children?.[1]?.props?.style).toContain("font-weight: 600");
+    expect(menu[0]?.children?.[0]?.style).toBeUndefined();
+    expect(menu[0]?.children?.[1]?.style).toMatchObject({ fontWeight: 600 });
   });
 
   it("emits a stable key for every entry so selects resolve", () => {
@@ -77,21 +77,16 @@ describe("flatModelOptions", () => {
 });
 
 describe("MODEL_MENU_PROPS", () => {
-  it("is a FUNCTION because naive-ui calls menu-props", () => {
-    // Passing an object threw `TypeError: menuProps is not a function` inside
-    // naive-ui's renderPopoverBody and broke the entire composer.
-    expect(typeof MODEL_MENU_PROPS).toBe("function");
+  it("is a plain object because antd takes the menu config directly", () => {
+    expect(typeof MODEL_MENU_PROPS).toBe("object");
   });
 
   it("caps the menu height and makes it scroll", () => {
-    const props = MODEL_MENU_PROPS() as { style?: string; scrollable?: boolean };
-    expect(props.style).toContain("max-height");
-    expect(props.style).toContain("overflow-y: auto");
-    expect(props.scrollable).toBe(true);
+    expect(MODEL_MENU_PROPS.style?.maxHeight).toContain("min(60vh, 460px)");
+    expect(MODEL_MENU_PROPS.style?.overflowY).toBe("auto");
   });
 
   it("contains overscroll so the page behind does not move", () => {
-    const props = MODEL_MENU_PROPS() as { style?: string };
-    expect(props.style).toContain("overscroll-behavior: contain");
+    expect(MODEL_MENU_PROPS.style?.overscrollBehavior).toBe("contain");
   });
 });

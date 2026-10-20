@@ -1,5 +1,4 @@
-import { defineStore } from "pinia";
-import { computed, ref } from "vue";
+import { create } from "zustand";
 import type {
   AgentCommand,
   AgentEvent,
@@ -109,30 +108,87 @@ function parseContextUsage(data: unknown): SessionContextUsage | null {
   };
 }
 
-export const useSessionsStore = defineStore("sessions", () => {
-  const sessions = ref<SessionSummary[]>([]);
+type SessionsBase = {
+  sessions: SessionSummary[];
   /** cwd 当前 sessions 列表所属的工作区（null=未加载/已清空）。 */
-  const listRoot = ref<string | null>(null);
-  const activeId = ref<string | null>(null);
+  listRoot: string | null;
+  activeId: string | null;
   /** 未创建的新会话草稿所属工作区（null=不处于草稿态）。 */
-  const draftRoot = ref<string | null>(null);
-  const contextBySession = ref<Record<string, SessionContextUsage>>({});
+  draftRoot: string | null;
+  contextBySession: Record<string, SessionContextUsage>;
+};
 
-  const activeContextUsage = computed(() => {
-    const id = activeId.value;
-    if (!id) return null;
-    return contextBySession.value[id] ?? null;
-  });
+type SessionsDerived = {
+  activeContextUsage: SessionContextUsage | null;
+};
+
+export type SessionsState = SessionsBase &
+  SessionsDerived & {
+    applyContextFromState: (sessionId: string, data: unknown) => void;
+    applyStatus: (sessionId: string, status: SessionSummary["status"]) => void;
+    refresh: (cwd: string | null) => Promise<void>;
+    beginDraft: (cwd: string) => void;
+    setDraftRoot: (cwd: string) => void;
+    commitDraft: () => Promise<SessionSummary | null>;
+    selectSession: (sessionId: string, cwd: string) => Promise<void>;
+    discardActiveIfUnstarted: () => Promise<boolean>;
+    discardUnstartedOnQuit: () => Promise<void>;
+    sendCommand: (
+      sessionId: string,
+      command: AgentCommand,
+    ) => Promise<unknown>;
+    tryCommand: (
+      sessionId: string,
+      command: AgentCommand,
+    ) => Promise<unknown | undefined>;
+    killWorker: (sessionId: string, cwd: string | null) => Promise<void>;
+    restartWorker: (sessionId: string, cwd: string | null) => Promise<void>;
+    deleteSession: (sessionId: string, cwd: string) => Promise<void>;
+    renameSession: (
+      sessionId: string,
+      cwd: string,
+      name: string,
+    ) => Promise<SessionSummary | null>;
+    bindEvents: () => () => void;
+  };
+
+function derive(base: SessionsBase): SessionsDerived {
+  const id = base.activeId;
+  return {
+    activeContextUsage: id ? base.contextBySession[id] ?? null : null,
+  };
+}
+
+export const useSessionsStore = create<SessionsState>()((set, get) => {
+  const base: SessionsBase = {
+    sessions: [],
+    listRoot: null,
+    activeId: null,
+    draftRoot: null,
+    contextBySession: {},
+  };
+
+  let unbind: (() => void) | null = null;
+  /** 草稿预热会话：已落盘并预热 worker，但尚未进入侧栏。 */
+  let preparedDraft: { cwd: string; summary: SessionSummary } | null = null;
+
+  function commit(patch: Partial<SessionsBase>): void {
+    set((state) => {
+      const next = { ...state, ...patch };
+      return { ...next, ...derive(next) };
+    });
+  }
 
   function upsert(summary: SessionSummary): void {
-    const idx = sessions.value.findIndex((s) => s.id === summary.id);
+    const list = get().sessions;
+    const idx = list.findIndex((s) => s.id === summary.id);
     if (idx >= 0) {
       // Replace array so sidebar/header title computeds refresh reliably (#3).
-      sessions.value = sessions.value.map((s, i) =>
-        i === idx ? { ...summary } : s,
-      );
+      commit({
+        sessions: list.map((s, i) => (i === idx ? { ...summary } : s)),
+      });
     } else {
-      sessions.value = [...sessions.value, summary];
+      commit({ sessions: [...list, summary] });
     }
   }
 
@@ -140,21 +196,24 @@ export const useSessionsStore = defineStore("sessions", () => {
     sessionId: string,
     status: SessionSummary["status"],
   ): void {
-    const idx = sessions.value.findIndex((s) => s.id === sessionId);
+    const list = get().sessions;
+    const idx = list.findIndex((s) => s.id === sessionId);
     if (idx < 0) return;
-    const row = sessions.value[idx];
+    const row = list[idx];
     if (row.status === status) return;
     // Replace row so list watchers / computed status update reliably.
-    sessions.value = sessions.value.map((s, i) =>
-      i === idx ? { ...s, status } : s,
-    );
+    commit({
+      sessions: list.map((s, i) => (i === idx ? { ...s, status } : s)),
+    });
   }
 
   function setContextUsage(
     sessionId: string,
     usage: SessionContextUsage,
   ): void {
-    contextBySession.value = { ...contextBySession.value, [sessionId]: usage };
+    commit({
+      contextBySession: { ...get().contextBySession, [sessionId]: usage },
+    });
   }
 
   function applyContextFromState(sessionId: string, data: unknown): void {
@@ -230,48 +289,47 @@ export const useSessionsStore = defineStore("sessions", () => {
 
   async function refresh(cwd: string | null): Promise<void> {
     if (!cwd) {
-      sessions.value = [];
-      listRoot.value = null;
-      draftRoot.value = null;
+      commit({ sessions: [], listRoot: null, draftRoot: null });
       return;
     }
-    if (draftRoot.value && draftRoot.value !== cwd) draftRoot.value = null;
+    if (get().draftRoot && get().draftRoot !== cwd) commit({ draftRoot: null });
     // 预热草稿与崩溃残留的空会话不上侧栏；活动会话始终保留。
     const rows = await window.api.sessions.list(cwd);
-    sessions.value = rows.filter(
-      (row) => row.id === activeId.value || !isUnstartedSession(row),
-    );
-    listRoot.value = cwd;
+    const activeId = get().activeId;
+    commit({
+      sessions: rows.filter(
+        (row) => row.id === activeId || !isUnstartedSession(row),
+      ),
+      listRoot: cwd,
+    });
   }
 
   /** Drop in-memory state for a session that was deleted (shared cleanup). */
   function dropSessionState(sessionId: string): void {
-    if (activeId.value === sessionId) {
-      activeId.value = null;
-    }
-    sessions.value = sessions.value.filter((s) => s.id !== sessionId);
-    const next = { ...contextBySession.value };
+    const state = get();
+    const next = { ...state.contextBySession };
     delete next[sessionId];
-    contextBySession.value = next;
-    useComposerStore().dropSession(sessionId);
+    commit({
+      activeId: state.activeId === sessionId ? null : state.activeId,
+      sessions: state.sessions.filter((s) => s.id !== sessionId),
+      contextBySession: next,
+    });
+    useComposerStore.getState().dropSession(sessionId);
   }
 
   /** Active row when it was never used (no messages, no name) — safe to discard. */
   function activeIfUnstarted(): SessionSummary | null {
-    const id = activeId.value;
+    const id = get().activeId;
     if (!id) return null;
-    const row = sessions.value.find((s) => s.id === id) ?? null;
+    const row = get().sessions.find((s) => s.id === id) ?? null;
     return row && isUnstartedSession(row) ? row : null;
   }
-
-  /** 草稿预热会话：已落盘并预热 worker，但尚未进入侧栏。 */
-  let preparedDraft: { cwd: string; summary: SessionSummary } | null = null;
 
   /** 释放未使用的预热会话；已被认领时不动。 */
   async function releasePreparedDraft(): Promise<void> {
     const pending = preparedDraft;
     preparedDraft = null;
-    if (!pending || activeId.value === pending.summary.id) return;
+    if (!pending || get().activeId === pending.summary.id) return;
     try {
       await window.api.sessions.delete(pending.summary.id, pending.summary.cwd);
     } catch {
@@ -297,8 +355,7 @@ export const useSessionsStore = defineStore("sessions", () => {
     if (preparedDraft && !sameWorkspacePath(preparedDraft.cwd, cwd)) {
       void releasePreparedDraft();
     }
-    draftRoot.value = cwd;
-    activeId.value = null;
+    commit({ draftRoot: cwd, activeId: null });
     // 进入草稿即后台预热会话与 worker（点新建会话/应用启动就开跑），首条消息不再等冷启动。
     void prepareDraft(cwd);
   }
@@ -310,12 +367,12 @@ export const useSessionsStore = defineStore("sessions", () => {
   function beginDraft(cwd: string): void {
     setDraftRoot(cwd);
     // 保留草稿缓冲：反复新建或切走再回来都不丢已输入内容（发送成功才清空）。
-    useComposerStore().bindSession(null);
+    useComposerStore.getState().bindSession(null);
   }
 
   /** 草稿首次发送：创建会话文件并切换为活动会话（复用预热会话）。 */
   async function commitDraft(): Promise<SessionSummary | null> {
-    const cwd = draftRoot.value;
+    const cwd = get().draftRoot;
     if (!cwd) return null;
     const prepared =
       preparedDraft && sameWorkspacePath(preparedDraft.cwd, cwd)
@@ -325,8 +382,7 @@ export const useSessionsStore = defineStore("sessions", () => {
     const created = prepared?.summary ?? (await window.api.sessions.create(cwd));
     preparedDraft = null;
     upsert(created);
-    activeId.value = created.id;
-    draftRoot.value = null;
+    commit({ activeId: created.id, draftRoot: null });
     // 侧栏把新会话排到最前，否则它会落在折叠的旧会话之下。
     window.dispatchEvent(
       new CustomEvent("pi-session-created", {
@@ -346,8 +402,7 @@ export const useSessionsStore = defineStore("sessions", () => {
       throw new Error(`failed to open session: ${sessionId}`);
     }
     upsert(opened);
-    draftRoot.value = null;
-    activeId.value = sessionId;
+    commit({ draftRoot: null, activeId: sessionId });
   }
 
   /** Discard the active session on quit / session-switch when it was never used. */
@@ -434,14 +489,17 @@ export const useSessionsStore = defineStore("sessions", () => {
     const trimmed = name.trim();
     // Optimistic UI update so title flips immediately (before IPC round-trip).
     if (trimmed) {
-      const idx = sessions.value.findIndex((s) => s.id === sessionId);
+      const list = get().sessions;
+      const idx = list.findIndex((s) => s.id === sessionId);
       if (idx >= 0) {
-        const row = sessions.value[idx]!;
-        sessions.value = sessions.value.map((s, i) =>
-          i === idx
-            ? { ...row, name: trimmed, modified: new Date().toISOString() }
-            : s,
-        );
+        const row = list[idx];
+        commit({
+          sessions: list.map((s, i) =>
+            i === idx
+              ? { ...row, name: trimmed, modified: new Date().toISOString() }
+              : s,
+          ),
+        });
       }
     }
     const updated = await window.api.sessions.rename(sessionId, cwd, trimmed);
@@ -449,32 +507,26 @@ export const useSessionsStore = defineStore("sessions", () => {
     return updated;
   }
 
-let unbind: (() => void) | null = null;
-
-	/**
-	 * 注册会话列表状态订阅，返回解绑函数（重复调用返回同一个）。
-	 * 由应用级 bootstrap 持有：与 chat store 共用同一推送流，任一侧漏订阅都会
-	 * 让侧栏状态与聊天区脱节。
-	 */
-	function bindEvents(): () => void {
-		if (unbind) return unbind;
-		const off = window.api.sessions.onEvent((event) => {
-			applyEvent(event);
-		});
-		unbind = () => {
-			unbind = null;
-			off();
-		};
-		return unbind;
-	}
+  /**
+   * 注册会话列表状态订阅，返回解绑函数（重复调用返回同一个）。
+   * 由应用级 bootstrap 持有：与 chat store 共用同一推送流，任一侧漏订阅都会
+   * 让侧栏状态与聊天区脱节。
+   */
+  function bindEvents(): () => void {
+    if (unbind) return unbind;
+    const off = window.api.sessions.onEvent((event) => {
+      applyEvent(event);
+    });
+    unbind = () => {
+      unbind = null;
+      off();
+    };
+    return unbind;
+  }
 
   return {
-    sessions,
-    listRoot,
-    activeId,
-    draftRoot,
-    contextBySession,
-    activeContextUsage,
+    ...base,
+    ...derive(base),
     applyContextFromState,
     applyStatus: patchStatus,
     refresh,

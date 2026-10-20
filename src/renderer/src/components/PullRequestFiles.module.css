@@ -1,0 +1,303 @@
+.root {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+}
+
+.filesToolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+.layoutTabs {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 4px;
+  border-radius: 8px;
+  background: rgba(127, 127, 127, 0.06);
+}
+
+.layoutTab {
+  height: 28px;
+  border: 0;
+  border-radius: 6px;
+  padding: 0 12px;
+  background: transparent;
+  color: var(--fg-muted);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.layoutTab:hover {
+  color: var(--fg);
+}
+
+.layoutTab.active {
+  background: rgba(127, 127, 127, 0.1);
+  color: var(--fg);
+  font-weight: 500;
+}
+
+.fileFilter {
+  position: relative;
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  max-width: 260px;
+  flex: 1;
+}
+
+.filterIcon {
+  position: absolute;
+  left: 10px;
+  color: var(--fg-muted);
+  pointer-events: none;
+}
+
+.fileFilter input {
+  width: 100%;
+  height: 36px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--fg);
+  padding: 0 10px 0 32px;
+  font-size: 13px;
+  outline: none;
+}
+
+.fileFilter input:focus {
+  border-color: var(--accent-border);
+}
+
+.spacer {
+  flex: 1;
+}
+
+.filesSummary {
+  font-size: 12px;
+  color: var(--fg-muted);
+}
+
+.expandBtn {
+  height: 28px;
+  border: 0;
+  border-radius: 6px;
+  padding: 0 8px;
+  margin-right: -8px;
+  background: transparent;
+  color: var(--fg-muted);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.expandBtn:hover {
+  background: rgba(127, 127, 127, 0.07);
+  color: var(--fg);
+}
+
+.expandBtn:disabled {
+  opacity: 0.5;
+  pointer-events: none;
+}
+
+.state {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 24px 12px;
+  color: var(--fg-muted);
+  font-size: 12.5px;
+}
+
+.alert {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 20px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}
+
+.alert p {
+  margin: 0;
+  font-size: 13px;
+}
+
+.linkBtn {
+  align-self: flex-start;
+  border: 0;
+  background: transparent;
+  color: var(--fg);
+  text-decoration: underline;
+  cursor: pointer;
+  font-size: 13px;
+}
+
+.file {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  overflow: hidden;
+  background: rgba(127, 127, 127, 0.025);
+}
+
+.fileHead {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 44px;
+  padding: 8px 14px;
+  border: 0;
+  background: transparent;
+  color: var(--fg);
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.fileHead:hover {
+  background: rgba(127, 127, 127, 0.05);
+}
+
+.chevron {
+  flex: none;
+  color: var(--fg-muted);
+  transition: transform 0.15s ease;
+}
+
+.chevron.collapsed {
+  transform: rotate(-90deg);
+}
+
+.setiGlyph {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 16px;
+  height: 16px;
+  font-family: "seti";
+  font-size: 14px;
+  line-height: 1;
+}
+
+.filePath {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+  flex: 1;
+}
+
+.renamed {
+  color: var(--fg-muted);
+  font-size: 11px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.threadCount {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex: none;
+  color: var(--fg-muted);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.stats {
+  margin-left: auto;
+  display: inline-flex;
+  gap: 6px;
+  font-variant-numeric: tabular-nums;
+  font-size: 11.5px;
+}
+
+.stats .added {
+  color: var(--diff-added);
+}
+
+.stats .removed {
+  color: var(--diff-removed);
+}
+
+.fileBody {
+  border-top: 1px solid var(--border);
+  overflow-x: auto;
+}
+
+/* 库默认用 GitHub 固定配色（纯白/深黑背景），改为跟随应用主题变量。 */
+.fileBody
+  :global(.diff-tailwindcss-wrapper[data-theme="light"] .diff-style-root),
+.fileBody
+  :global(.diff-tailwindcss-wrapper[data-theme="dark"] .diff-style-root) {
+  --diff-border--: var(--border);
+  --diff-plain-content--: transparent;
+  --diff-plain-lineNumber--: rgba(127, 127, 127, 0.05);
+  --diff-plain-lineNumber-color--: var(--fg-muted);
+  --diff-expand-content--: rgba(127, 127, 127, 0.07);
+  --diff-expand-lineNumber--: rgba(127, 127, 127, 0.07);
+  --diff-expand-lineNumber-color--: var(--fg-muted);
+  --diff-empty-content--: rgba(127, 127, 127, 0.04);
+  --diff-add-content--: rgba(88, 124, 12, 0.12);
+  --diff-del-content--: rgba(173, 7, 7, 0.12);
+  --diff-add-lineNumber--: rgba(88, 124, 12, 0.2);
+  --diff-del-lineNumber--: rgba(173, 7, 7, 0.2);
+  --diff-add-content-highlight--: rgba(88, 124, 12, 0.24);
+  --diff-del-content-highlight--: rgba(173, 7, 7, 0.24);
+  --diff-hunk-content--: rgba(127, 127, 127, 0.08);
+  --diff-hunk-lineNumber--: rgba(127, 127, 127, 0.12);
+  --diff-hunk-content-color--: var(--fg-muted);
+  --diff-hunk-lineNumber-hover--: var(--accent);
+  --diff-add-widget--: var(--accent);
+  background: transparent;
+}
+
+.fileBody :global(.diff-style-root) {
+  background: transparent;
+  font-size: 12px;
+}
+
+.fileNote {
+  margin: 0;
+  padding: 24px 16px;
+  color: var(--fg-muted);
+  font-size: 12px;
+}
+
+.widgetEditor {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 12px;
+  min-width: 320px;
+}
+
+.widgetActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.extendThread {
+  padding: 6px 10px;
+  min-width: 320px;
+}
+
+.orphans {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 6px 0;
+}

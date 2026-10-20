@@ -1,54 +1,90 @@
-import { defineStore } from "pinia";
-import { computed, ref } from "vue";
+import { create } from "zustand";
 import type { UpdateCheckResult, UpdateProgress } from "../../../shared/update";
 import * as prefs from "@renderer/utils/prefs";
 
 const AUTO_CHECK_KEY = "pi-desktop:last-update-check";
 let startupChecked = false;
 
-export const useUpdateStore = defineStore("update", () => {
-  const available = ref(false);
-  const checking = ref(false);
-  const downloading = ref(false);
-  const modalOpen = ref(false);
-  const currentVersion = ref("");
-  const latestVersion = ref<string | null>(null);
-  const releaseName = ref<string | null>(null);
-  const releaseNotes = ref<string | null>(null);
-  const releaseUrl = ref<string | null>(null);
-  const assetName = ref<string | null>(null);
-  const statusMessage = ref("");
-  const lastError = ref<string | null>(null);
-  const progress = ref<UpdateProgress | null>(null);
-  const cancelling = ref(false);
+type UpdateBase = {
+  available: boolean;
+  checking: boolean;
+  downloading: boolean;
+  modalOpen: boolean;
+  currentVersion: string;
+  latestVersion: string | null;
+  releaseName: string | null;
+  releaseNotes: string | null;
+  releaseUrl: string | null;
+  assetName: string | null;
+  statusMessage: string;
+  lastError: string | null;
+  progress: UpdateProgress | null;
+  cancelling: boolean;
+};
 
-  const busy = computed(() => checking.value || downloading.value);
-  const progressPercent = computed(() => {
-    const p = progress.value;
-    if (!p || !p.totalBytes || p.totalBytes <= 0) return null;
-    return Math.min(100, Math.round((p.receivedBytes / p.totalBytes) * 100));
-  });
+type UpdateDerived = {
+  busy: boolean;
+  progressPercent: number | null;
+};
+
+type UpdateState = UpdateBase &
+  UpdateDerived & {
+    check: (opts?: { openModal?: boolean }) => Promise<UpdateCheckResult | null>;
+    checkOnStartup: () => Promise<void>;
+    openUpdateCard: () => Promise<void>;
+    download: () => Promise<UpdateCheckResult | null>;
+    cancel: () => Promise<boolean>;
+    onProgress: (p: UpdateProgress) => void;
+    closeModal: () => void;
+  };
+
+function progressPercentOf(progress: UpdateProgress | null): number | null {
+  if (!progress || !progress.totalBytes || progress.totalBytes <= 0) return null;
+  return Math.min(
+    100,
+    Math.round((progress.receivedBytes / progress.totalBytes) * 100),
+  );
+}
+
+function derive(base: UpdateBase): UpdateDerived {
+  return {
+    busy: base.checking || base.downloading,
+    progressPercent: progressPercentOf(base.progress),
+  };
+}
+
+export const useUpdateStore = create<UpdateState>()((set, get) => {
+  function writeBase(patch: Partial<UpdateBase>): void {
+    set((state) => {
+      const next = { ...state, ...patch };
+      return { ...patch, ...derive(next) };
+    });
+  }
 
   function applyResult(result: UpdateCheckResult): void {
-    currentVersion.value = result.currentVersion;
-    latestVersion.value = result.latestVersion ?? latestVersion.value;
-    releaseName.value = result.releaseName ?? releaseName.value;
-    releaseNotes.value = result.releaseNotes ?? releaseNotes.value;
-    releaseUrl.value = result.releaseUrl ?? releaseUrl.value;
-    assetName.value = result.assetName ?? assetName.value;
-    statusMessage.value = result.message;
+    const state = get();
+    const patch: Partial<UpdateBase> = {
+      currentVersion: result.currentVersion,
+      latestVersion: result.latestVersion ?? state.latestVersion,
+      releaseName: result.releaseName ?? state.releaseName,
+      releaseNotes: result.releaseNotes ?? state.releaseNotes,
+      releaseUrl: result.releaseUrl ?? state.releaseUrl,
+      assetName: result.assetName ?? state.assetName,
+      statusMessage: result.message,
+    };
     if (result.status === "available") {
-      available.value = true;
+      patch.available = true;
     } else if (result.status === "upToDate" || result.status === "downloaded") {
-      available.value = false;
+      patch.available = false;
     } else if (result.status === "cancelled") {
-      available.value = true;
+      patch.available = true;
     }
     if (result.status === "error") {
-      lastError.value = result.message;
+      patch.lastError = result.message;
     } else if (result.status === "available" || result.status === "upToDate") {
-      lastError.value = null;
+      patch.lastError = null;
     }
+    writeBase(patch);
   }
 
   function markChecked(): void {
@@ -59,26 +95,26 @@ export const useUpdateStore = defineStore("update", () => {
     }
   }
 
-  async function check(opts?: { openModal?: boolean }): Promise<UpdateCheckResult | null> {
-    if (busy.value) return null;
-    checking.value = true;
-    lastError.value = null;
+  async function check(
+    opts?: { openModal?: boolean },
+  ): Promise<UpdateCheckResult | null> {
+    if (get().busy) return null;
+    writeBase({ checking: true, lastError: null });
     try {
       const result = await window.api.update.check({ download: false });
       applyResult(result);
       markChecked();
       if (opts?.openModal) {
-        modalOpen.value = true;
+        writeBase({ modalOpen: true });
       }
       return result;
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      lastError.value = message;
-      statusMessage.value = message;
-      if (opts?.openModal) modalOpen.value = true;
+      writeBase({ lastError: message, statusMessage: message });
+      if (opts?.openModal) writeBase({ modalOpen: true });
       return null;
     } finally {
-      checking.value = false;
+      writeBase({ checking: false });
     }
   }
 
@@ -91,82 +127,92 @@ export const useUpdateStore = defineStore("update", () => {
 
   /** Title-bar / About button: open card (refresh check if needed). */
   async function openUpdateCard(): Promise<void> {
-    modalOpen.value = true;
-    if (!latestVersion.value || !available.value) {
+    writeBase({ modalOpen: true });
+    const state = get();
+    if (!state.latestVersion || !state.available) {
       await check({ openModal: true });
     }
   }
 
   async function download(): Promise<UpdateCheckResult | null> {
-    if (busy.value) return null;
-    downloading.value = true;
-    progress.value = {
-      phase: "download",
-      receivedBytes: 0,
-      totalBytes: null,
-      message: "",
-    };
+    if (get().busy) return null;
+    writeBase({
+      downloading: true,
+      progress: {
+        phase: "download",
+        receivedBytes: 0,
+        totalBytes: null,
+        message: "",
+      },
+    });
     try {
       const result = await window.api.update.download();
       applyResult(result);
       if (result.status === "downloaded") {
-        available.value = false;
+        writeBase({ available: false });
       }
       return result;
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      lastError.value = message;
-      progress.value = {
-        phase: "error",
-        receivedBytes: 0,
-        totalBytes: null,
-        message,
-      };
+      writeBase({
+        lastError: message,
+        progress: {
+          phase: "error",
+          receivedBytes: 0,
+          totalBytes: null,
+          message,
+        },
+      });
       return null;
     } finally {
-      downloading.value = false;
+      writeBase({ downloading: false });
     }
   }
 
   function onProgress(p: UpdateProgress): void {
-    progress.value = p;
     if (p.phase === "error") {
-      lastError.value = p.message;
+      writeBase({ progress: p, lastError: p.message });
+      return;
     }
+    writeBase({ progress: p });
   }
 
   /** 取消正在进行的安装包下载。 */
   async function cancel(): Promise<boolean> {
-    if (!downloading.value || cancelling.value) return false;
-    cancelling.value = true;
+    const state = get();
+    if (!state.downloading || state.cancelling) return false;
+    writeBase({ cancelling: true });
     try {
       return await window.api.update.cancel();
     } finally {
-      cancelling.value = false;
+      writeBase({ cancelling: false });
     }
   }
 
   function closeModal(): void {
-    modalOpen.value = false;
+    writeBase({ modalOpen: false });
   }
 
+  const base: UpdateBase = {
+    available: false,
+    checking: false,
+    downloading: false,
+    modalOpen: false,
+    currentVersion: "",
+    latestVersion: null,
+    releaseName: null,
+    releaseNotes: null,
+    releaseUrl: null,
+    assetName: null,
+    statusMessage: "",
+    lastError: null,
+    progress: null,
+    cancelling: false,
+  };
+
   return {
-    available,
-    checking,
-    downloading,
-    busy,
-    modalOpen,
-    currentVersion,
-    latestVersion,
-    releaseName,
-    releaseNotes,
-    releaseUrl,
-    assetName,
-    statusMessage,
-    lastError,
-    progress,
-    cancelling,
-    progressPercent,
+    ...base,
+    ...derive(base),
     check,
     checkOnStartup,
     openUpdateCard,
