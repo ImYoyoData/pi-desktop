@@ -127,7 +127,7 @@
 }
 
 .contentInner > :not(.contentError):not(.contentSpin):not(.embeddedEditor):not(.editorPageHeader) {
-  width: min(calc(100% - 80px), 840px);
+  width: min(calc(100% - 64px), 880px);
   margin-inline: auto;
 }
 
@@ -264,20 +264,20 @@
 
 .sectionTitleHeader {
   flex-shrink: 0;
-  padding: 16px 0 0;
+  padding: 18px 0 0;
 }
 
 .sectionTitleRow {
   display: flex;
   align-items: center;
   gap: 6px;
-  margin: 0 0 12px;
+  margin: 0 0 14px;
 }
 
 .sectionTitle {
   margin: 0;
   color: var(--fg);
-  font-size: 18px;
+  font-size: 17px;
   font-weight: 600;
 }
 

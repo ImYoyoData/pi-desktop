@@ -1,5 +1,5 @@
 import { useEffect, type ReactNode } from "react";
-import { Divider, Radio, Select, Typography } from "antd";
+import { Select } from "antd";
 import {
   RETRY_AGENT_MAX_DELAY_CHOICES,
   RETRY_BASE_DELAY_CHOICES,
@@ -12,14 +12,16 @@ import {
   type RetrySettings,
 } from "../../../../shared/retry-settings";
 import { useRetryStore } from "@renderer/stores/retry";
+import {
+  SettingsGroup,
+  SettingsRow,
+  SettingsSwitch,
+} from "@renderer/components/customize/SettingsGroup";
 import { useI18n } from "@renderer/i18n/use-i18n";
 import styles from "./CustomizeRetry.module.css";
 
 /** 请求超时下拉的「默认」档位（跟跟随 httpIdleTimeoutMs）。 */
 const TIMEOUT_DEFAULT = -1;
-
-const ON = "on";
-const OFF = "off";
 
 type Option = { label: string; value: number };
 
@@ -38,7 +40,7 @@ function durationOptions(
 function withCurrent(options: Option[], current: number): Option[] {
   if (options.some((option) => option.value === current)) return options;
   return [...options, { label: current.toLocaleString(), value: current }].sort(
-    (a, b) => a.value - b.value,
+    (a, b) => Number(a.value) - Number(b.value),
   );
 }
 
@@ -105,196 +107,128 @@ export function CustomizeRetry(): ReactNode {
 
   return (
     <div className={styles.root}>
-      <div className={styles.sectionHead}>
-        <Typography.Text strong>{t.retryAutoSection}</Typography.Text>
-        <Typography.Text type="secondary" className={styles.sectionHint}>
-          {t.retryAutoSectionHint}
-        </Typography.Text>
-      </div>
+      <SettingsGroup title={t.retryAutoSection} hint={t.retryAutoSectionHint}>
+        <SettingsRow label={t.retryEnabled}>
+          <SettingsSwitch
+            checked={settings.enabled}
+            label={t.retryEnabled}
+            onChange={(value) => save({ enabled: value })}
+          />
+        </SettingsRow>
 
-      <div className={styles.switchRow}>
-        <div className={styles.switchLabels}>
-          <Typography.Text strong>{t.retryEnabled}</Typography.Text>
-        </div>
-        <Radio.Group
-          className={styles.radioGroup}
-          size="small"
-          value={settings.enabled ? ON : OFF}
-          onChange={(event) => save({ enabled: event.target.value === ON })}
+        <SettingsRow label={t.retryMaxRetries}>
+          <Select
+            className={styles.settingSelect}
+            value={settings.maxRetries}
+            options={maxRetryOptions}
+            disabled={!settings.enabled}
+            size="small"
+            onChange={onMaxRetries}
+          />
+        </SettingsRow>
+
+        <SettingsRow label={t.retryBaseDelay} description={t.retryBaseDelayHint}>
+          <Select
+            className={styles.settingSelect}
+            value={settings.baseDelayMs}
+            options={baseDelayOptions}
+            disabled={!settings.enabled}
+            size="small"
+            onChange={onBaseDelay}
+          />
+        </SettingsRow>
+
+        <SettingsRow label={t.retryAgentMaxDelay} description={t.retryAgentMaxDelayHint}>
+          <Select
+            className={styles.settingSelect}
+            value={settings.maxAgentDelayMs}
+            options={agentMaxDelayOptions}
+            disabled={!settings.enabled}
+            size="small"
+            onChange={onAgentMaxDelay}
+          />
+        </SettingsRow>
+      </SettingsGroup>
+
+      <SettingsGroup title={t.retryProviderSection} hint={t.retryProviderSectionHint}>
+        <SettingsRow label={t.retryProviderMaxRetries}>
+          <Select
+            className={styles.settingSelect}
+            value={settings.provider.maxRetries}
+            options={maxRetryOptions}
+            size="small"
+            onChange={onProviderMaxRetries}
+          />
+        </SettingsRow>
+
+        <SettingsRow label={t.retryProviderMaxDelay} description={t.retryProviderMaxDelayHint}>
+          <Select
+            className={styles.settingSelect}
+            value={settings.provider.maxRetryDelayMs}
+            options={maxDelayOptions}
+            size="small"
+            onChange={onProviderMaxDelay}
+          />
+        </SettingsRow>
+
+        <SettingsRow label={t.retryProviderTimeout} description={t.retryProviderTimeoutHint}>
+          <Select
+            className={styles.settingSelect}
+            value={timeoutValue}
+            options={timeoutOptions}
+            size="small"
+            onChange={onTimeout}
+          />
+        </SettingsRow>
+      </SettingsGroup>
+
+      <SettingsGroup title={t.retryDesktopSection} hint={t.retryDesktopSectionHint}>
+        <SettingsRow label={t.retryDesktopRecoverMax}>
+          <Select
+            className={styles.settingSelect}
+            value={settings.desktop.recoverMax}
+            options={desktopCountOptions}
+            size="small"
+            onChange={onRecoverMax}
+          />
+        </SettingsRow>
+
+        <SettingsRow label={t.retryDesktopSoftHangMax}>
+          <Select
+            className={styles.settingSelect}
+            value={settings.desktop.softHangMax}
+            options={desktopCountOptions}
+            size="small"
+            onChange={onSoftHangMax}
+          />
+        </SettingsRow>
+
+        <SettingsRow
+          label={t.retryDesktopSoftHangSilence}
+          description={t.retryDesktopSoftHangSilenceHint}
         >
-          <Radio.Button value={ON}>{t.switchOn}</Radio.Button>
-          <Radio.Button value={OFF}>{t.switchOff}</Radio.Button>
-        </Radio.Group>
-      </div>
+          <Select
+            className={styles.settingSelect}
+            value={settings.desktop.softHangSilenceMs}
+            options={softHangSilenceOptions}
+            size="small"
+            onChange={onSoftHangSilence}
+          />
+        </SettingsRow>
 
-      <div className={styles.switchRow}>
-        <div className={styles.switchLabels}>
-          <Typography.Text strong>{t.retryMaxRetries}</Typography.Text>
-        </div>
-        <Select
-          className={styles.settingSelect}
-          value={settings.maxRetries}
-          options={maxRetryOptions}
-          disabled={!settings.enabled}
-          size="small"
-          onChange={onMaxRetries}
-        />
-      </div>
-
-      <div className={styles.switchRow}>
-        <div className={styles.switchLabels}>
-          <Typography.Text strong>{t.retryBaseDelay}</Typography.Text>
-          <Typography.Text type="secondary" className={styles.rowHint}>
-            {t.retryBaseDelayHint}
-          </Typography.Text>
-        </div>
-        <Select
-          className={styles.settingSelect}
-          value={settings.baseDelayMs}
-          options={baseDelayOptions}
-          disabled={!settings.enabled}
-          size="small"
-          onChange={onBaseDelay}
-        />
-      </div>
-
-      <div className={styles.switchRow}>
-        <div className={styles.switchLabels}>
-          <Typography.Text strong>{t.retryAgentMaxDelay}</Typography.Text>
-          <Typography.Text type="secondary" className={styles.rowHint}>
-            {t.retryAgentMaxDelayHint}
-          </Typography.Text>
-        </div>
-        <Select
-          className={styles.settingSelect}
-          value={settings.maxAgentDelayMs}
-          options={agentMaxDelayOptions}
-          disabled={!settings.enabled}
-          size="small"
-          onChange={onAgentMaxDelay}
-        />
-      </div>
-
-      <Divider style={{ margin: 0 }} />
-
-      <div className={styles.sectionHead}>
-        <Typography.Text strong>{t.retryProviderSection}</Typography.Text>
-        <Typography.Text type="secondary" className={styles.sectionHint}>
-          {t.retryProviderSectionHint}
-        </Typography.Text>
-      </div>
-
-      <div className={styles.switchRow}>
-        <div className={styles.switchLabels}>
-          <Typography.Text strong>{t.retryProviderMaxRetries}</Typography.Text>
-        </div>
-        <Select
-          className={styles.settingSelect}
-          value={settings.provider.maxRetries}
-          options={maxRetryOptions}
-          size="small"
-          onChange={onProviderMaxRetries}
-        />
-      </div>
-
-      <div className={styles.switchRow}>
-        <div className={styles.switchLabels}>
-          <Typography.Text strong>{t.retryProviderMaxDelay}</Typography.Text>
-          <Typography.Text type="secondary" className={styles.rowHint}>
-            {t.retryProviderMaxDelayHint}
-          </Typography.Text>
-        </div>
-        <Select
-          className={styles.settingSelect}
-          value={settings.provider.maxRetryDelayMs}
-          options={maxDelayOptions}
-          size="small"
-          onChange={onProviderMaxDelay}
-        />
-      </div>
-
-      <div className={styles.switchRow}>
-        <div className={styles.switchLabels}>
-          <Typography.Text strong>{t.retryProviderTimeout}</Typography.Text>
-          <Typography.Text type="secondary" className={styles.rowHint}>
-            {t.retryProviderTimeoutHint}
-          </Typography.Text>
-        </div>
-        <Select
-          className={styles.settingSelect}
-          value={timeoutValue}
-          options={timeoutOptions}
-          size="small"
-          onChange={onTimeout}
-        />
-      </div>
-
-      <Divider style={{ margin: 0 }} />
-
-      <div className={styles.sectionHead}>
-        <Typography.Text strong>{t.retryDesktopSection}</Typography.Text>
-        <Typography.Text type="secondary" className={styles.sectionHint}>
-          {t.retryDesktopSectionHint}
-        </Typography.Text>
-      </div>
-
-      <div className={styles.switchRow}>
-        <div className={styles.switchLabels}>
-          <Typography.Text strong>{t.retryDesktopRecoverMax}</Typography.Text>
-        </div>
-        <Select
-          className={styles.settingSelect}
-          value={settings.desktop.recoverMax}
-          options={desktopCountOptions}
-          size="small"
-          onChange={onRecoverMax}
-        />
-      </div>
-
-      <div className={styles.switchRow}>
-        <div className={styles.switchLabels}>
-          <Typography.Text strong>{t.retryDesktopSoftHangMax}</Typography.Text>
-        </div>
-        <Select
-          className={styles.settingSelect}
-          value={settings.desktop.softHangMax}
-          options={desktopCountOptions}
-          size="small"
-          onChange={onSoftHangMax}
-        />
-      </div>
-
-      <div className={styles.switchRow}>
-        <div className={styles.switchLabels}>
-          <Typography.Text strong>{t.retryDesktopSoftHangSilence}</Typography.Text>
-          <Typography.Text type="secondary" className={styles.rowHint}>
-            {t.retryDesktopSoftHangSilenceHint}
-          </Typography.Text>
-        </div>
-        <Select
-          className={styles.settingSelect}
-          value={settings.desktop.softHangSilenceMs}
-          options={softHangSilenceOptions}
-          size="small"
-          onChange={onSoftHangSilence}
-        />
-      </div>
-
-      <div className={styles.switchRow}>
-        <div className={styles.switchLabels}>
-          <Typography.Text strong>{t.retryDesktopStallSilence}</Typography.Text>
-          <Typography.Text type="secondary" className={styles.rowHint}>
-            {t.retryDesktopStallSilenceHint}
-          </Typography.Text>
-        </div>
-        <Select
-          className={styles.settingSelect}
-          value={settings.desktop.stallSilenceMs}
-          options={stallSilenceOptions}
-          size="small"
-          onChange={onStallSilence}
-        />
-      </div>
+        <SettingsRow
+          label={t.retryDesktopStallSilence}
+          description={t.retryDesktopStallSilenceHint}
+        >
+          <Select
+            className={styles.settingSelect}
+            value={settings.desktop.stallSilenceMs}
+            options={stallSilenceOptions}
+            size="small"
+            onChange={onStallSilence}
+          />
+        </SettingsRow>
+      </SettingsGroup>
     </div>
   );
 }

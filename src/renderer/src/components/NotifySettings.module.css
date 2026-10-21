@@ -1,36 +1,5 @@
 .root {
   display: flex;
   flex-direction: column;
-  gap: 12px;
-}
-
-.rowHint {
-  font-size: 12px;
-  line-height: 16px;
-}
-
-.switchRow {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-}
-
-.switchLabels {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  min-width: 0;
-}
-
-.radioGroup {
-  flex-shrink: 0;
-  width: 120px;
-  display: inline-flex;
-}
-
-.radioGroup :global(.ant-radio-button-wrapper) {
-  flex: 1;
-  padding: 0;
-  text-align: center;
+  gap: 16px;
 }

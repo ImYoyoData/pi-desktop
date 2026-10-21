@@ -1,6 +1,10 @@
 import type { ReactNode } from "react";
-import { Button, Typography } from "antd";
+import { Button } from "antd";
 import ProxySettings from "@renderer/components/ProxySettings";
+import {
+  SettingsGroup,
+  SettingsRow,
+} from "@renderer/components/customize/SettingsGroup";
 import { useMessage } from "@renderer/services/feedback";
 import { useI18n } from "@renderer/i18n/use-i18n";
 import styles from "./CustomizeNetwork.module.css";
@@ -21,19 +25,16 @@ export function CustomizeNetwork(): ReactNode {
     <div className={styles.customizeNetwork}>
       <ProxySettings />
 
-      <div className={styles.networkDivider} />
-
-      <div className={styles.switchRow}>
-        <div className={styles.switchLabels}>
-          <Typography.Text strong>{t.securityOpenDevTools}</Typography.Text>
-          <Typography.Text type="secondary" className={styles.rowHint}>
-            {t.securityOpenDevToolsHint}
-          </Typography.Text>
-        </div>
-        <Button size="small" onClick={() => void onOpenDevTools()}>
-          {t.open}
-        </Button>
-      </div>
+      <SettingsGroup>
+        <SettingsRow
+          label={t.securityOpenDevTools}
+          description={t.securityOpenDevToolsHint}
+        >
+          <Button size="small" onClick={() => void onOpenDevTools()}>
+            {t.open}
+          </Button>
+        </SettingsRow>
+      </SettingsGroup>
     </div>
   );
 }

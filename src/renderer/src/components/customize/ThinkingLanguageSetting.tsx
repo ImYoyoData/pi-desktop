@@ -1,9 +1,10 @@
 import { useEffect, useState, type ReactNode } from "react";
-import { Radio, Typography } from "antd";
+import { Select } from "antd";
 import {
   normalizeThinkingLanguage,
   type ThinkingLanguage,
 } from "../../../../shared/thinking-language";
+import { SettingsRow } from "@renderer/components/customize/SettingsGroup";
 import { useMessage } from "@renderer/services/feedback";
 import { useI18n } from "@renderer/i18n/use-i18n";
 import styles from "./ThinkingLanguageSetting.module.css";
@@ -39,25 +40,22 @@ export function ThinkingLanguageSetting(): ReactNode {
     }
   }
 
+  const languageOptions = [
+    { label: t.thinkingLanguageZh, value: "zh" },
+    { label: t.thinkingLanguageEn, value: "en" },
+  ];
+
   return (
-    <div className={styles.root}>
-      <div className={styles.rowLabels}>
-        <Typography.Text strong>{t.thinkingLanguage}</Typography.Text>
-        <Typography.Text type="secondary" className={styles.rowHint}>
-          {t.thinkingLanguageHint}
-        </Typography.Text>
-      </div>
-      <Radio.Group
-        className={styles.rowRadio}
+    <SettingsRow label={t.thinkingLanguage} description={t.thinkingLanguageHint}>
+      <Select
+        className={styles.rowSelect}
         size="small"
         value={language}
+        options={languageOptions}
         disabled={saving}
-        onChange={(event) => void save(event.target.value)}
-      >
-        <Radio.Button value="zh">{t.thinkingLanguageZh}</Radio.Button>
-        <Radio.Button value="en">{t.thinkingLanguageEn}</Radio.Button>
-      </Radio.Group>
-    </div>
+        onChange={(value) => void save(value)}
+      />
+    </SettingsRow>
   );
 }
 

@@ -1,6 +1,6 @@
 import { useState, type ReactNode } from "react";
-import { Typography } from "antd";
 import CodiconIcon from "@renderer/components/icons/CodiconIcon";
+import groupStyles from "@renderer/components/customize/SettingsGroup.module.css";
 import ThinkingLanguageSetting from "@renderer/components/customize/ThinkingLanguageSetting";
 import HookEventList from "@renderer/components/customize/HookEventList";
 import type { CustomizationHook } from "../../../../shared/customizations";
@@ -28,7 +28,7 @@ export function CustomizeHooks({ hooks }: Props): ReactNode {
 
   return (
     <div className={styles.customizeHooks}>
-      <div className={styles.groupBlock}>
+      <div className={`${groupStyles.card} ${styles.groupBlock}`}>
         <button
           type="button"
           className={styles.groupHeader}
@@ -52,10 +52,8 @@ export function CustomizeHooks({ hooks }: Props): ReactNode {
 
             <div className={styles.modePreambleRow}>
               <div className={styles.rowLabels}>
-                <Typography.Text strong>{t.composerModePreamble}</Typography.Text>
-                <Typography.Text type="secondary" className={styles.rowHint}>
-                  {t.composerModePreambleHint}
-                </Typography.Text>
+                <span className={styles.rowTitle}>{t.composerModePreamble}</span>
+                <span className={styles.rowHint}>{t.composerModePreambleHint}</span>
               </div>
               <span className={styles.modeBadges}>
                 <span className={styles.inlineBadge}>{t.composerModeAgent}</span>
@@ -68,7 +66,7 @@ export function CustomizeHooks({ hooks }: Props): ReactNode {
         ) : null}
       </div>
 
-      <div className={styles.groupBlock}>
+      <div className={`${groupStyles.card} ${styles.groupBlock}`}>
         <button
           type="button"
           className={styles.groupHeader}

@@ -3,27 +3,3 @@
   flex-direction: column;
   gap: 16px;
 }
-
-.networkDivider {
-  flex-shrink: 0;
-  border-top: 1px solid var(--border);
-}
-
-.switchRow {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-}
-
-.switchLabels {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  min-width: 0;
-}
-
-.rowHint {
-  font-size: 12px;
-  line-height: 16px;
-}

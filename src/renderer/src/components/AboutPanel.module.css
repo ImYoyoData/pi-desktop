@@ -4,6 +4,7 @@
   flex: 1;
   min-width: 0;
   min-height: 0;
+  overflow-y: auto;
   padding-top: 8px;
   gap: 16px;
 }
@@ -14,21 +15,7 @@
   gap: 10px;
 }
 
-.aboutBlock {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  font-size: 13px;
-}
-
-.aboutRow {
-  display: flex;
-  justify-content: space-between;
-  gap: 12px;
-  color: var(--fg-muted);
-}
-
-.aboutRow span:last-child {
+.aboutValue {
   color: var(--fg-strong);
   font-variant-numeric: tabular-nums;
 }
@@ -46,17 +33,11 @@
   text-decoration: underline;
 }
 
-.aboutSectionTitle {
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--fg-strong);
-  margin-bottom: 12px;
-}
-
 .contributorGrid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(88px, 1fr));
   gap: 12px 8px;
+  padding: 14px;
 }
 
 .contributorItem {

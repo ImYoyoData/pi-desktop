@@ -1,7 +1,11 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { InputNumber, Select } from "antd";
 import CodiconIcon from "@renderer/components/icons/CodiconIcon";
-import ToggleButton from "@renderer/components/ToggleButton";
+import groupStyles from "@renderer/components/customize/SettingsGroup.module.css";
+import {
+  SettingsRow,
+  SettingsSwitch,
+} from "@renderer/components/customize/SettingsGroup";
 import type {
   BuiltinExtensionItem,
   BuiltinToolItem,
@@ -208,15 +212,13 @@ export function CustomizeTools({ tools, builtinExtensions }: Props): ReactNode {
       ) : (
         <div className={styles.listContainer}>
           {builtinExtensions.length ? (
-            <div className={styles.groupBlock}>
+            <div className={`${groupStyles.card} ${styles.groupCard}`}>
               <button
                 type="button"
-                className={styles.aiCustomizationGroupHeader}
+                className={styles.groupHeader}
                 onClick={() => setBuiltinCollapsed((value) => !value)}
               >
-                <span className={styles.groupLabelGroup}>
-                  <span className={styles.groupLabel}>{t.customizeBuiltinExtensions}</span>
-                </span>
+                <span className={styles.groupLabel}>{t.customizeBuiltinExtensions}</span>
                 <span className={styles.groupCount}>
                   {builtinExtensions.filter((item) => item.enabled).length}/
                   {builtinExtensions.length}
@@ -231,57 +233,42 @@ export function CustomizeTools({ tools, builtinExtensions }: Props): ReactNode {
                   />
                 </span>
               </button>
+
               {!builtinCollapsed ? (
-                <>
+                <div className={styles.groupBody}>
                   {builtinExtensions.map((item) => (
-                    <div key={item.id} className={styles.aiCustomizationListItem}>
-                      <div className={styles.itemLeft}>
-                        <div className={styles.itemText}>
-                          <div className={styles.itemNameRow}>
-                            <span className={styles.itemName}>{item.name}</span>
-                            {item.overridden ? (
-                              <span className={styles.inlineBadge}>
-                                {t.customizeBuiltinOverridden}
-                              </span>
-                            ) : null}
-                          </div>
-                          <div className={styles.itemDescription}>
-                            {builtinDescription(item.name)}
-                          </div>
-                        </div>
-                      </div>
-                      <div className={styles.itemRight}>
-                        <ToggleButton
-                          className={styles.itemSwitch}
-                          value={item.enabled}
-                          disabled={item.overridden}
-                          title={
-                            item.overridden
-                              ? t.customizeBuiltinOverriddenHint
-                              : item.enabled
-                                ? t.customizeDisable
-                                : t.customizeEnable
-                          }
-                          onValueChange={(value) => void toggleBuiltin(item, value)}
-                        />
-                      </div>
-                    </div>
+                    <SettingsRow
+                      key={item.id}
+                      label={item.name}
+                      description={builtinDescription(item.name)}
+                    >
+                      <SettingsSwitch
+                        checked={item.enabled}
+                        label={
+                          item.overridden
+                            ? t.customizeBuiltinOverriddenHint
+                            : item.enabled
+                              ? t.customizeDisable
+                              : t.customizeEnable
+                        }
+                        disabled={item.overridden}
+                        onChange={(value) => void toggleBuiltin(item, value)}
+                      />
+                    </SettingsRow>
                   ))}
-                </>
+                </div>
               ) : null}
             </div>
           ) : null}
 
           {toolToggles.length ? (
-            <div className={styles.groupBlock}>
+            <div className={`${groupStyles.card} ${styles.groupCard}`}>
               <button
                 type="button"
-                className={styles.aiCustomizationGroupHeader}
+                className={styles.groupHeader}
                 onClick={() => setToolsCollapsed((value) => !value)}
               >
-                <span className={styles.groupLabelGroup}>
-                  <span className={styles.groupLabel}>{t.customizeBuiltinTools}</span>
-                </span>
+                <span className={styles.groupLabel}>{t.customizeBuiltinTools}</span>
                 <span className={styles.groupCount}>
                   {toolToggles.filter((item) => item.enabled).length}/{toolToggles.length}
                 </span>
@@ -295,40 +282,30 @@ export function CustomizeTools({ tools, builtinExtensions }: Props): ReactNode {
                   />
                 </span>
               </button>
+
               {!toolsCollapsed ? (
-                <>
+                <div className={styles.groupBody}>
                   {toolToggles.map((item) => (
-                    <div key={item.id} className={styles.aiCustomizationListItem}>
-                      <div className={styles.itemLeft}>
-                        <div className={styles.itemText}>
-                          <div className={styles.itemNameRow}>
-                            <span className={styles.itemName}>{item.name}</span>
-                            {item.overridden ? (
-                              <span className={styles.inlineBadge}>
-                                {t.customizeBuiltinOverridden}
-                              </span>
-                            ) : null}
-                          </div>
-                          <div className={styles.itemDescription}>
-                            {builtinToolDescription(item.name)}
-                          </div>
-                        </div>
-                      </div>
-                      <div className={styles.itemRight}>
-                        <ToggleButton
-                          className={styles.itemSwitch}
-                          value={item.enabled}
-                          disabled={item.overridden || toolExtensionOff(item)}
-                          title={toolToggleTitle(item)}
-                          onValueChange={(value) => void toggleTool(item, value)}
-                        />
-                      </div>
-                    </div>
+                    <SettingsRow
+                      key={item.id}
+                      label={item.name}
+                      description={builtinToolDescription(item.name)}
+                    >
+                      <SettingsSwitch
+                        checked={item.enabled}
+                        label={toolToggleTitle(item)}
+                        disabled={item.overridden || toolExtensionOff(item)}
+                        onChange={(value) => void toggleTool(item, value)}
+                      />
+                    </SettingsRow>
                   ))}
+
                   {codemodeEnabled ? (
-                    <div className={styles.codemodeSettings}>
-                      <div className={styles.codemodeField}>
-                        <span className={styles.fieldLabel}>{t.customizeCodemodeMode}</span>
+                    <>
+                      <SettingsRow
+                        label={t.customizeCodemodeMode}
+                        description={t.customizeCodemodeModeHint}
+                      >
                         <Select
                           className={styles.fieldControl}
                           size="small"
@@ -336,11 +313,12 @@ export function CustomizeTools({ tools, builtinExtensions }: Props): ReactNode {
                           options={codemodeModeOptions}
                           onChange={(value: "on" | "only") => void saveCodemodeMode(value)}
                         />
-                      </div>
-                      <div className={styles.codemodeField}>
-                        <span className={styles.fieldLabel}>
-                          {t.customizeCodemodeInlineBudget}
-                        </span>
+                      </SettingsRow>
+
+                      <SettingsRow
+                        label={t.customizeCodemodeInlineBudget}
+                        description={t.customizeCodemodeInlineBudgetHint}
+                      >
                         <InputNumber
                           className={styles.fieldControl}
                           size="small"
@@ -351,28 +329,22 @@ export function CustomizeTools({ tools, builtinExtensions }: Props): ReactNode {
                           onChange={(value: number | null) => setInlineBudget(value)}
                           onBlur={() => void saveInlineBudget()}
                         />
-                      </div>
-                      <div className={styles.codemodeHint}>{t.customizeCodemodeModeHint}</div>
-                      <div className={styles.codemodeHint}>
-                        {t.customizeCodemodeInlineBudgetHint}
-                      </div>
-                    </div>
+                      </SettingsRow>
+                    </>
                   ) : null}
-                </>
+                </div>
               ) : null}
             </div>
           ) : null}
 
           {groups.map((group) => (
-            <div key={group.key} className={styles.groupBlock}>
+            <div key={group.key} className={`${groupStyles.card} ${styles.groupCard}`}>
               <button
                 type="button"
-                className={styles.aiCustomizationGroupHeader}
+                className={styles.groupHeader}
                 onClick={() => toggleGroup(group.key)}
               >
-                <span className={styles.groupLabelGroup}>
-                  <span className={styles.groupLabel}>{group.label}</span>
-                </span>
+                <span className={styles.groupLabel}>{group.label}</span>
                 <span className={styles.groupCount}>{group.items.length}</span>
                 <span className={styles.groupInfo} title={group.hint}>
                   <CodiconIcon name="about" size={14} />
@@ -384,23 +356,13 @@ export function CustomizeTools({ tools, builtinExtensions }: Props): ReactNode {
                   />
                 </span>
               </button>
+
               {!collapsed.has(group.key) ? (
-                <>
+                <div className={styles.groupBody}>
                   {group.items.map((tool) => (
-                    <div key={tool.id} className={styles.aiCustomizationListItem}>
-                      <div className={styles.itemLeft}>
-                        <div className={styles.itemText}>
-                          <div className={styles.itemNameRow}>
-                            <span className={styles.itemName}>{tool.name}</span>
-                          </div>
-                          {tool.description ? (
-                            <div className={styles.itemDescription}>{tool.description}</div>
-                          ) : null}
-                        </div>
-                      </div>
-                    </div>
+                    <SettingsRow key={tool.id} label={tool.name} description={tool.description} />
                   ))}
-                </>
+                </div>
               ) : null}
             </div>
           ))}

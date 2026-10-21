@@ -5,10 +5,14 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { Input, Radio, Typography } from "antd";
+import { Input, Select } from "antd";
 import { useMessage } from "@renderer/services/feedback";
 import { normalizeProxyUrl, type ProxyMode } from "../../../shared/proxy";
 import { useI18n } from "@renderer/i18n/use-i18n";
+import {
+  SettingsGroup,
+  SettingsRow,
+} from "@renderer/components/customize/SettingsGroup";
 import styles from "./ProxySettings.module.css";
 
 export function ProxySettings(): ReactNode {
@@ -103,33 +107,30 @@ export function ProxySettings(): ReactNode {
     url.trim().length > 0 &&
     normalizeProxyUrl(url) === null;
 
+  const modeOptions = [
+    { label: t.proxyModeOff, value: "off" },
+    { label: t.proxyModeSystem, value: "system" },
+    { label: t.proxyModeCustom, value: "custom" },
+  ];
+
   return (
-    <section className={styles.root}>
-      <div className={styles.switchRow}>
-        <div className={styles.switchLabels}>
-          <Typography.Text strong>{t.proxyTitle}</Typography.Text>
-        </div>
+    <SettingsGroup>
+      <SettingsRow label={t.proxyTitle}>
         {loaded ? (
-          <Radio.Group
-            className={styles.radioGroup}
+          <Select
+            className={styles.modeSelect}
             size="small"
             value={mode}
-            onChange={(event) => onMode(event.target.value as ProxyMode)}
-          >
-            <Radio.Button value="off">{t.proxyModeOff}</Radio.Button>
-            <Radio.Button value="system">{t.proxyModeSystem}</Radio.Button>
-            <Radio.Button value="custom">{t.proxyModeCustom}</Radio.Button>
-          </Radio.Group>
+            options={modeOptions}
+            onChange={(value) => onMode(value as ProxyMode)}
+          />
         ) : (
-          <div className={styles.radioPlaceholder} />
+          <div className={styles.modePlaceholder} />
         )}
-      </div>
+      </SettingsRow>
 
       {mode === "custom" ? (
-        <div className={styles.switchRow}>
-          <div className={styles.switchLabels}>
-            <Typography.Text strong>{t.proxyUrlLabel}</Typography.Text>
-          </div>
+        <SettingsRow label={t.proxyUrlLabel}>
           <Input
             className={styles.urlInput}
             value={url}
@@ -138,9 +139,9 @@ export function ProxySettings(): ReactNode {
             placeholder={t.proxyUrlPlaceholder}
             onChange={(event) => onUrl(event.target.value)}
           />
-        </div>
+        </SettingsRow>
       ) : null}
-    </section>
+    </SettingsGroup>
   );
 }
 

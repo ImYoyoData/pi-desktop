@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from "react";
-import { Button, Divider, Input, InputNumber, Radio, Select, Typography } from "antd";
+import { Button, Input, InputNumber, Select } from "antd";
 import {
   BRANCH_SUMMARY_RESERVE_CHOICES,
   CACHE_WARMING_MODES,
@@ -16,6 +16,11 @@ import {
 } from "../../../../shared/runtime-settings";
 import { THINKING_LEVELS, isThinkingLevel } from "@renderer/utils/thinking-level";
 import { useRuntimeSettingsStore } from "@renderer/stores/runtime-settings";
+import {
+  SettingsGroup,
+  SettingsRow,
+  SettingsSwitch,
+} from "@renderer/components/customize/SettingsGroup";
 import { useMessage } from "@renderer/services/feedback";
 import { useI18n } from "@renderer/i18n/use-i18n";
 import styles from "./CustomizeRuntime.module.css";
@@ -311,666 +316,418 @@ export function CustomizeRuntime(): ReactNode {
 
   return (
     <div className={styles.runtimeSettings}>
-      <div className={styles.sectionHead}>
-        <Typography.Text strong>{t.runtimeCompactionSection}</Typography.Text>
-        <Typography.Text type="secondary" className={styles.sectionHint}>
-          {t.runtimeCompactionSectionHint}
-        </Typography.Text>
-      </div>
-
-      <div className={styles.switchRow}>
-        <div className={styles.switchLabels}>
-          <Typography.Text strong>{t.runtimeCompactionEnabled}</Typography.Text>
-        </div>
-        <Radio.Group
-          size="small"
-          className={styles.settingRadioGroup}
-          value={runtime.settings.compaction.enabled}
-          onChange={(event) => saveCompaction({ enabled: event.target.checked })}
-        >
-          <Radio.Button value={true}>{t.switchOn}</Radio.Button>
-          <Radio.Button value={false}>{t.switchOff}</Radio.Button>
-        </Radio.Group>
-      </div>
-
-      <div className={styles.switchRow}>
-        <div className={styles.switchLabels}>
-          <Typography.Text strong>{t.runtimeCompactionReserve}</Typography.Text>
-          <Typography.Text type="secondary" className={styles.rowHint}>
-            {t.runtimeCompactionReserveHint}
-          </Typography.Text>
-        </div>
-        <Select
-          value={runtime.settings.compaction.reserveTokens}
-          options={reserveOptions}
-          disabled={!runtime.settings.compaction.enabled}
-          size="small"
-          className={styles.settingSelect}
-          onChange={onReserve}
-        />
-      </div>
-
-      <div className={styles.switchRow}>
-        <div className={styles.switchLabels}>
-          <Typography.Text strong>{t.runtimeCompactionKeepRecent}</Typography.Text>
-          <Typography.Text type="secondary" className={styles.rowHint}>
-            {t.runtimeCompactionKeepRecentHint}
-          </Typography.Text>
-        </div>
-        <Select
-          value={runtime.settings.compaction.keepRecentTokens}
-          options={keepRecentOptions}
-          disabled={!runtime.settings.compaction.enabled}
-          size="small"
-          className={styles.settingSelect}
-          onChange={onKeepRecent}
-        />
-      </div>
-
-      <div className={`${styles.sectionHead} ${styles.overrideHead}`}>
-        <Typography.Text strong>{t.runtimeCompactionOverrides}</Typography.Text>
-        <Typography.Text type="secondary" className={styles.sectionHint}>
-          {t.runtimeCompactionOverridesHint}
-        </Typography.Text>
-      </div>
-
-      <div className={styles.switchRow}>
-        <div className={styles.switchLabels}>
-          <Typography.Text strong>{t.runtimeCompactionOverrideModel}</Typography.Text>
-        </div>
-        <div className={styles.overrideAdd}>
-          <Select
-            value={overrideModelToAdd ?? undefined}
-            options={modelChoices}
-            disabled={!runtime.settings.compaction.enabled}
-            showSearch
-            allowClear
-            size="small"
-            className={styles.overrideModelSelect}
-            placeholder={t.runtimeCompactionOverrideModel}
-            onChange={(value: string) => setOverrideModelToAdd(value ?? null)}
+      <SettingsGroup title={t.runtimeCompactionSection} hint={t.runtimeCompactionSectionHint}>
+        <SettingsRow label={t.runtimeCompactionEnabled}>
+          <SettingsSwitch
+            checked={runtime.settings.compaction.enabled}
+            label={t.runtimeCompactionEnabled}
+            onChange={(value) => saveCompaction({ enabled: value })}
           />
-          <Button
+        </SettingsRow>
+
+        <SettingsRow
+          label={t.runtimeCompactionReserve}
+          description={t.runtimeCompactionReserveHint}
+        >
+          <Select
+            value={runtime.settings.compaction.reserveTokens}
+            options={reserveOptions}
+            disabled={!runtime.settings.compaction.enabled}
             size="small"
-            disabled={!runtime.settings.compaction.enabled || !overrideModelToAdd}
-            onClick={addOverride}
-          >
-            {t.runtimeCompactionOverrideAdd}
-          </Button>
-        </div>
-      </div>
+            className={styles.settingSelect}
+            onChange={onReserve}
+          />
+        </SettingsRow>
 
-      {overrideRows.length === 0 ? (
-        <div className={styles.overrideEmpty}>
-          <Typography.Text type="secondary" className={styles.rowHint}>
-            {t.runtimeCompactionOverridesEmpty}
-          </Typography.Text>
-        </div>
-      ) : null}
+        <SettingsRow
+          label={t.runtimeCompactionKeepRecent}
+          description={t.runtimeCompactionKeepRecentHint}
+        >
+          <Select
+            value={runtime.settings.compaction.keepRecentTokens}
+            options={keepRecentOptions}
+            disabled={!runtime.settings.compaction.enabled}
+            size="small"
+            className={styles.settingSelect}
+            onChange={onKeepRecent}
+          />
+        </SettingsRow>
+      </SettingsGroup>
 
-      {overrideRows.map((row) => (
-        <div key={row.key} className={styles.switchRow}>
-          <div className={styles.switchLabels}>
-            <Typography.Text strong className={styles.overrideLabel}>
-              {row.label}
-            </Typography.Text>
-            <Typography.Text type="secondary" className={`${styles.rowHint} ${styles.overrideKey}`}>
-              {row.key}
-            </Typography.Text>
-          </div>
-          <div className={styles.overrideControls}>
-            <Typography.Text type="secondary" className={styles.overrideFieldLabel}>
-              {t.runtimeCompactionReserve}
-            </Typography.Text>
+      <SettingsGroup
+        title={t.runtimeCompactionOverrides}
+        hint={t.runtimeCompactionOverridesHint}
+      >
+        <SettingsRow label={t.runtimeCompactionOverrideModel}>
+          <div className={styles.overrideAdd}>
             <Select
-              value={row.reserveTokens}
-              options={reserveOverrideOptions}
+              value={overrideModelToAdd ?? undefined}
+              options={modelChoices}
               disabled={!runtime.settings.compaction.enabled}
+              showSearch
+              allowClear
               size="small"
-              className={styles.settingSelect}
-              onChange={(value: string | number) =>
-                setOverrideField(row.key, "reserveTokens", value)
-              }
+              className={styles.overrideModelSelect}
+              placeholder={t.runtimeCompactionOverrideModel}
+              onChange={(value: string) => setOverrideModelToAdd(value ?? null)}
             />
-            <Typography.Text type="secondary" className={styles.overrideFieldLabel}>
-              {t.runtimeCompactionKeepRecent}
-            </Typography.Text>
-            <Select
-              value={row.keepRecentTokens}
-              options={keepRecentOverrideOptions}
-              disabled={!runtime.settings.compaction.enabled}
+            <Button
               size="small"
-              className={styles.settingSelect}
-              onChange={(value: string | number) =>
-                setOverrideField(row.key, "keepRecentTokens", value)
-              }
-            />
-            <Button size="small" type="text" onClick={() => removeOverride(row.key)}>
-              {t.runtimeCompactionOverrideRemove}
+              disabled={!runtime.settings.compaction.enabled || !overrideModelToAdd}
+              onClick={addOverride}
+            >
+              {t.runtimeCompactionOverrideAdd}
             </Button>
           </div>
-        </div>
-      ))}
+        </SettingsRow>
 
-      <Divider style={{ margin: 0 }} />
+        {overrideRows.length === 0 ? (
+          <div className={styles.overrideEmpty}>{t.runtimeCompactionOverridesEmpty}</div>
+        ) : null}
 
-      <div className={styles.sectionHead}>
-        <Typography.Text strong>{t.runtimeCacheSection}</Typography.Text>
-        <Typography.Text type="secondary" className={styles.sectionHint}>
-          {t.runtimeCacheSectionHint}
-        </Typography.Text>
-      </div>
+        {overrideRows.map((row) => (
+          <SettingsRow key={row.key} label={row.label} description={row.key}>
+            <div className={styles.overrideControls}>
+              <span className={styles.overrideFieldLabel}>
+                {t.runtimeCompactionReserve}
+              </span>
+              <Select
+                value={row.reserveTokens}
+                options={reserveOverrideOptions}
+                disabled={!runtime.settings.compaction.enabled}
+                size="small"
+                className={styles.overrideSelect}
+                onChange={(value: string | number) =>
+                  setOverrideField(row.key, "reserveTokens", value)
+                }
+              />
+              <span className={styles.overrideFieldLabel}>
+                {t.runtimeCompactionKeepRecent}
+              </span>
+              <Select
+                value={row.keepRecentTokens}
+                options={keepRecentOverrideOptions}
+                disabled={!runtime.settings.compaction.enabled}
+                size="small"
+                className={styles.overrideSelect}
+                onChange={(value: string | number) =>
+                  setOverrideField(row.key, "keepRecentTokens", value)
+                }
+              />
+              <Button size="small" type="text" onClick={() => removeOverride(row.key)}>
+                {t.runtimeCompactionOverrideRemove}
+              </Button>
+            </div>
+          </SettingsRow>
+        ))}
+      </SettingsGroup>
 
-      <div className={styles.switchRow}>
-        <div className={styles.switchLabels}>
-          <Typography.Text strong>{t.runtimeCacheWarming}</Typography.Text>
-          <Typography.Text type="secondary" className={styles.rowHint}>
-            {t.runtimeCacheWarmingHint}
-          </Typography.Text>
-        </div>
-        <Select
-          value={runtime.settings.cacheWarming}
-          options={warmingOptions}
-          size="small"
-          className={styles.settingSelect}
-          onChange={onCacheWarming}
-        />
-      </div>
+      <SettingsGroup title={t.runtimeCacheSection} hint={t.runtimeCacheSectionHint}>
+        <SettingsRow label={t.runtimeCacheWarming} description={t.runtimeCacheWarmingHint}>
+          <Select
+            value={runtime.settings.cacheWarming}
+            options={warmingOptions}
+            size="small"
+            className={styles.settingSelect}
+            onChange={onCacheWarming}
+          />
+        </SettingsRow>
 
-      <div className={styles.switchRow}>
-        <div className={styles.switchLabels}>
-          <Typography.Text strong>{t.runtimeCacheMissNotices}</Typography.Text>
-          <Typography.Text type="secondary" className={styles.rowHint}>
-            {t.runtimeCacheMissNoticesHint}
-          </Typography.Text>
-        </div>
-        <Radio.Group
-          size="small"
-          className={styles.settingRadioGroup}
-          value={runtime.settings.showCacheMissNotices}
-          onChange={(event) => save({ showCacheMissNotices: event.target.checked })}
+        <SettingsRow label={t.runtimeCacheMissNotices} description={t.runtimeCacheMissNoticesHint}>
+          <SettingsSwitch
+            checked={runtime.settings.showCacheMissNotices}
+            label={t.runtimeCacheMissNotices}
+            onChange={(value) => save({ showCacheMissNotices: value })}
+          />
+        </SettingsRow>
+      </SettingsGroup>
+
+      <SettingsGroup title={t.runtimeImagesSection} hint={t.runtimeImagesSectionHint}>
+        <SettingsRow label={t.runtimeImageAutoResize} description={t.runtimeImageAutoResizeHint}>
+          <SettingsSwitch
+            checked={runtime.settings.images.autoResize}
+            label={t.runtimeImageAutoResize}
+            onChange={(value) => saveImages({ autoResize: value })}
+          />
+        </SettingsRow>
+
+        <SettingsRow label={t.runtimeImageBlock} description={t.runtimeImageBlockHint}>
+          <SettingsSwitch
+            checked={runtime.settings.images.blockImages}
+            label={t.runtimeImageBlock}
+            onChange={(value) => saveImages({ blockImages: value })}
+          />
+        </SettingsRow>
+      </SettingsGroup>
+
+      <SettingsGroup title={t.runtimeThinkingSection} hint={t.runtimeThinkingSectionHint}>
+        <SettingsRow
+          label={t.runtimeDefaultThinkingLevel}
+          description={t.runtimeDefaultThinkingLevelHint}
         >
-          <Radio.Button value={true}>{t.switchOn}</Radio.Button>
-          <Radio.Button value={false}>{t.switchOff}</Radio.Button>
-        </Radio.Group>
-      </div>
+          <Select
+            value={runtime.settings.defaultThinkingLevel}
+            options={thinkingLevelOptions}
+            size="small"
+            className={styles.settingSelect}
+            onChange={(value: string) => save({ defaultThinkingLevel: value })}
+          />
+        </SettingsRow>
 
-      <Divider style={{ margin: 0 }} />
-
-      <div className={styles.sectionHead}>
-        <Typography.Text strong>{t.runtimeImagesSection}</Typography.Text>
-        <Typography.Text type="secondary" className={styles.sectionHint}>
-          {t.runtimeImagesSectionHint}
-        </Typography.Text>
-      </div>
-
-      <div className={styles.switchRow}>
-        <div className={styles.switchLabels}>
-          <Typography.Text strong>{t.runtimeImageAutoResize}</Typography.Text>
-          <Typography.Text type="secondary" className={styles.rowHint}>
-            {t.runtimeImageAutoResizeHint}
-          </Typography.Text>
-        </div>
-        <Radio.Group
-          size="small"
-          className={styles.settingRadioGroup}
-          value={runtime.settings.images.autoResize}
-          onChange={(event) => saveImages({ autoResize: event.target.checked })}
+        <SettingsRow
+          label={t.runtimeModelThinkingLevels}
+          description={t.runtimeModelThinkingLevelsHint}
         >
-          <Radio.Button value={true}>{t.switchOn}</Radio.Button>
-          <Radio.Button value={false}>{t.switchOff}</Radio.Button>
-        </Radio.Group>
-      </div>
+          <Input.TextArea
+            value={modelThinkingLevelsText}
+            size="small"
+            className={styles.settingInput}
+            autoSize={{ minRows: 2, maxRows: 6 }}
+            placeholder="provider/modelId: high"
+            onChange={(event) => setModelThinkingLevelsText(event.target.value)}
+            onBlur={saveModelThinkingLevels}
+          />
+        </SettingsRow>
 
-      <div className={styles.switchRow}>
-        <div className={styles.switchLabels}>
-          <Typography.Text strong>{t.runtimeImageBlock}</Typography.Text>
-          <Typography.Text type="secondary" className={styles.rowHint}>
-            {t.runtimeImageBlockHint}
-          </Typography.Text>
-        </div>
-        <Radio.Group
-          size="small"
-          className={styles.settingRadioGroup}
-          value={runtime.settings.images.blockImages}
-          onChange={(event) => saveImages({ blockImages: event.target.checked })}
+        <SettingsRow
+          label={t.runtimeEnabledModels}
+          description={t.runtimeEnabledModelsHint}
         >
-          <Radio.Button value={true}>{t.switchOn}</Radio.Button>
-          <Radio.Button value={false}>{t.switchOff}</Radio.Button>
-        </Radio.Group>
-      </div>
+          <Input.TextArea
+            value={enabledModelsText}
+            size="small"
+            className={styles.settingInput}
+            autoSize={{ minRows: 2, maxRows: 6 }}
+            placeholder="anthropic/*"
+            onChange={(event) => setEnabledModelsText(event.target.value)}
+            onBlur={saveEnabledModels}
+          />
+        </SettingsRow>
 
-      <Divider style={{ margin: 0 }} />
-
-      <div className={styles.sectionHead}>
-        <Typography.Text strong>{t.runtimeThinkingSection}</Typography.Text>
-        <Typography.Text type="secondary" className={styles.sectionHint}>
-          {t.runtimeThinkingSectionHint}
-        </Typography.Text>
-      </div>
-
-      <div className={styles.switchRow}>
-        <div className={styles.switchLabels}>
-          <Typography.Text strong>{t.runtimeDefaultThinkingLevel}</Typography.Text>
-          <Typography.Text type="secondary" className={styles.rowHint}>
-            {t.runtimeDefaultThinkingLevelHint}
-          </Typography.Text>
-        </div>
-        <Select
-          value={runtime.settings.defaultThinkingLevel}
-          options={thinkingLevelOptions}
-          size="small"
-          className={styles.settingSelect}
-          onChange={(value: string) => save({ defaultThinkingLevel: value })}
-        />
-      </div>
-
-      <div className={styles.switchRow}>
-        <div className={styles.switchLabels}>
-          <Typography.Text strong>{t.runtimeModelThinkingLevels}</Typography.Text>
-          <Typography.Text type="secondary" className={styles.rowHint}>
-            {t.runtimeModelThinkingLevelsHint}
-          </Typography.Text>
-        </div>
-        <Input.TextArea
-          value={modelThinkingLevelsText}
-          size="small"
-          className={styles.settingInput}
-          autoSize={{ minRows: 2, maxRows: 6 }}
-          placeholder="provider/modelId: high"
-          onChange={(event) => setModelThinkingLevelsText(event.target.value)}
-          onBlur={saveModelThinkingLevels}
-        />
-      </div>
-
-      <div className={styles.switchRow}>
-        <div className={styles.switchLabels}>
-          <Typography.Text strong>{t.runtimeEnabledModels}</Typography.Text>
-          <Typography.Text type="secondary" className={styles.rowHint}>
-            {t.runtimeEnabledModelsHint}
-          </Typography.Text>
-        </div>
-        <Input.TextArea
-          value={enabledModelsText}
-          size="small"
-          className={styles.settingInput}
-          autoSize={{ minRows: 2, maxRows: 6 }}
-          placeholder="anthropic/*"
-          onChange={(event) => setEnabledModelsText(event.target.value)}
-          onBlur={saveEnabledModels}
-        />
-      </div>
-
-      <div className={styles.switchRow}>
-        <div className={styles.switchLabels}>
-          <Typography.Text strong>{t.runtimeHideThinkingBlock}</Typography.Text>
-          <Typography.Text type="secondary" className={styles.rowHint}>
-            {t.runtimeHideThinkingBlockHint}
-          </Typography.Text>
-        </div>
-        <Radio.Group
-          size="small"
-          className={styles.settingRadioGroup}
-          value={runtime.settings.hideThinkingBlock}
-          onChange={(event) => save({ hideThinkingBlock: event.target.checked })}
+        <SettingsRow
+          label={t.runtimeHideThinkingBlock}
+          description={t.runtimeHideThinkingBlockHint}
         >
-          <Radio.Button value={true}>{t.switchOn}</Radio.Button>
-          <Radio.Button value={false}>{t.switchOff}</Radio.Button>
-        </Radio.Group>
-      </div>
+          <SettingsSwitch
+            checked={runtime.settings.hideThinkingBlock}
+            label={t.runtimeHideThinkingBlock}
+            onChange={(value) => save({ hideThinkingBlock: value })}
+          />
+        </SettingsRow>
+      </SettingsGroup>
 
-      <Divider style={{ margin: 0 }} />
+      <SettingsGroup title={t.runtimeBudgetsSection} hint={t.runtimeBudgetsSectionHint}>
+        <SettingsRow label="minimal">
+          <InputNumber
+            className={styles.settingSelect}
+            size="small"
+            value={runtime.settings.thinkingBudgets.minimal ?? null}
+            min={1}
+            controls={false}
+            placeholder={t.runtimeBudgetPlaceholder}
+            onChange={(value: number | null) => saveBudget("minimal", value)}
+          />
+        </SettingsRow>
 
-      <div className={styles.sectionHead}>
-        <Typography.Text strong>{t.runtimeBudgetsSection}</Typography.Text>
-        <Typography.Text type="secondary" className={styles.sectionHint}>
-          {t.runtimeBudgetsSectionHint}
-        </Typography.Text>
-      </div>
+        <SettingsRow label="low">
+          <InputNumber
+            className={styles.settingSelect}
+            size="small"
+            value={runtime.settings.thinkingBudgets.low ?? null}
+            min={1}
+            controls={false}
+            placeholder={t.runtimeBudgetPlaceholder}
+            onChange={(value: number | null) => saveBudget("low", value)}
+          />
+        </SettingsRow>
 
-      <div className={styles.switchRow}>
-        <div className={styles.switchLabels}>
-          <Typography.Text strong>minimal</Typography.Text>
-        </div>
-        <InputNumber
-          className={styles.settingSelect}
-          size="small"
-          value={runtime.settings.thinkingBudgets.minimal ?? null}
-          min={1}
-          controls={false}
-          placeholder={t.runtimeBudgetPlaceholder}
-          onChange={(value: number | null) => saveBudget("minimal", value)}
-        />
-      </div>
+        <SettingsRow label="medium">
+          <InputNumber
+            className={styles.settingSelect}
+            size="small"
+            value={runtime.settings.thinkingBudgets.medium ?? null}
+            min={1}
+            controls={false}
+            placeholder={t.runtimeBudgetPlaceholder}
+            onChange={(value: number | null) => saveBudget("medium", value)}
+          />
+        </SettingsRow>
 
-      <div className={styles.switchRow}>
-        <div className={styles.switchLabels}>
-          <Typography.Text strong>low</Typography.Text>
-        </div>
-        <InputNumber
-          className={styles.settingSelect}
-          size="small"
-          value={runtime.settings.thinkingBudgets.low ?? null}
-          min={1}
-          controls={false}
-          placeholder={t.runtimeBudgetPlaceholder}
-          onChange={(value: number | null) => saveBudget("low", value)}
-        />
-      </div>
+        <SettingsRow label="high">
+          <InputNumber
+            className={styles.settingSelect}
+            size="small"
+            value={runtime.settings.thinkingBudgets.high ?? null}
+            min={1}
+            controls={false}
+            placeholder={t.runtimeBudgetPlaceholder}
+            onChange={(value: number | null) => saveBudget("high", value)}
+          />
+        </SettingsRow>
+      </SettingsGroup>
 
-      <div className={styles.switchRow}>
-        <div className={styles.switchLabels}>
-          <Typography.Text strong>medium</Typography.Text>
-        </div>
-        <InputNumber
-          className={styles.settingSelect}
-          size="small"
-          value={runtime.settings.thinkingBudgets.medium ?? null}
-          min={1}
-          controls={false}
-          placeholder={t.runtimeBudgetPlaceholder}
-          onChange={(value: number | null) => saveBudget("medium", value)}
-        />
-      </div>
-
-      <div className={styles.switchRow}>
-        <div className={styles.switchLabels}>
-          <Typography.Text strong>high</Typography.Text>
-        </div>
-        <InputNumber
-          className={styles.settingSelect}
-          size="small"
-          value={runtime.settings.thinkingBudgets.high ?? null}
-          min={1}
-          controls={false}
-          placeholder={t.runtimeBudgetPlaceholder}
-          onChange={(value: number | null) => saveBudget("high", value)}
-        />
-      </div>
-
-      <Divider style={{ margin: 0 }} />
-
-      <div className={styles.sectionHead}>
-        <Typography.Text strong>{t.runtimeBranchSection}</Typography.Text>
-        <Typography.Text type="secondary" className={styles.sectionHint}>
-          {t.runtimeBranchSectionHint}
-        </Typography.Text>
-      </div>
-
-      <div className={styles.switchRow}>
-        <div className={styles.switchLabels}>
-          <Typography.Text strong>{t.runtimeBranchReserve}</Typography.Text>
-          <Typography.Text type="secondary" className={styles.rowHint}>
-            {t.runtimeBranchReserveHint}
-          </Typography.Text>
-        </div>
-        <Select
-          value={runtime.settings.branchSummary.reserveTokens}
-          options={branchReserveOptions}
-          size="small"
-          className={styles.settingSelect}
-          onChange={onBranchReserve}
-        />
-      </div>
-
-      <div className={styles.switchRow}>
-        <div className={styles.switchLabels}>
-          <Typography.Text strong>{t.runtimeBranchSkipPrompt}</Typography.Text>
-          <Typography.Text type="secondary" className={styles.rowHint}>
-            {t.runtimeBranchSkipPromptHint}
-          </Typography.Text>
-        </div>
-        <Radio.Group
-          size="small"
-          className={styles.settingRadioGroup}
-          value={runtime.settings.branchSummary.skipPrompt}
-          onChange={(event) => saveBranch({ skipPrompt: event.target.checked })}
+      <SettingsGroup title={t.runtimeBranchSection} hint={t.runtimeBranchSectionHint}>
+        <SettingsRow
+          label={t.runtimeBranchReserve}
+          description={t.runtimeBranchReserveHint}
         >
-          <Radio.Button value={true}>{t.switchOn}</Radio.Button>
-          <Radio.Button value={false}>{t.switchOff}</Radio.Button>
-        </Radio.Group>
-      </div>
+          <Select
+            value={runtime.settings.branchSummary.reserveTokens}
+            options={branchReserveOptions}
+            size="small"
+            className={styles.settingSelect}
+            onChange={onBranchReserve}
+          />
+        </SettingsRow>
 
-      <Divider style={{ margin: 0 }} />
-
-      <div className={styles.sectionHead}>
-        <Typography.Text strong>{t.runtimeDeliverySection}</Typography.Text>
-        <Typography.Text type="secondary" className={styles.sectionHint}>
-          {t.runtimeDeliverySectionHint}
-        </Typography.Text>
-      </div>
-
-      <div className={styles.switchRow}>
-        <div className={styles.switchLabels}>
-          <Typography.Text strong>{t.runtimeSteeringMode}</Typography.Text>
-          <Typography.Text type="secondary" className={styles.rowHint}>
-            {t.runtimeSteeringModeHint}
-          </Typography.Text>
-        </div>
-        <Select
-          value={runtime.settings.steeringMode}
-          options={deliveryOptions}
-          size="small"
-          className={styles.settingSelect}
-          onChange={(value: DeliveryMode) => save({ steeringMode: value })}
-        />
-      </div>
-
-      <div className={styles.switchRow}>
-        <div className={styles.switchLabels}>
-          <Typography.Text strong>{t.runtimeFollowUpMode}</Typography.Text>
-          <Typography.Text type="secondary" className={styles.rowHint}>
-            {t.runtimeFollowUpModeHint}
-          </Typography.Text>
-        </div>
-        <Select
-          value={runtime.settings.followUpMode}
-          options={deliveryOptions}
-          size="small"
-          className={styles.settingSelect}
-          onChange={(value: DeliveryMode) => save({ followUpMode: value })}
-        />
-      </div>
-
-      <Divider style={{ margin: 0 }} />
-
-      <div className={styles.sectionHead}>
-        <Typography.Text strong>{t.runtimeEnvSection}</Typography.Text>
-        <Typography.Text type="secondary" className={styles.sectionHint}>
-          {t.runtimeEnvSectionHint}
-        </Typography.Text>
-      </div>
-
-      <div className={styles.switchRow}>
-        <div className={styles.switchLabels}>
-          <Typography.Text strong>{t.runtimeSessionDir}</Typography.Text>
-          <Typography.Text type="secondary" className={styles.rowHint}>
-            {t.runtimeSessionDirHint}
-          </Typography.Text>
-        </div>
-        <Input
-          value={sessionDir}
-          size="small"
-          className={styles.settingInput}
-          placeholder={t.runtimeSessionDirPlaceholder}
-          onChange={(event) => setSessionDir(event.target.value)}
-          onBlur={() => save({ sessionDir })}
-        />
-      </div>
-
-      <div className={styles.switchRow}>
-        <div className={styles.switchLabels}>
-          <Typography.Text strong>{t.runtimeShellPath}</Typography.Text>
-          <Typography.Text type="secondary" className={styles.rowHint}>
-            {t.runtimeShellPathHint}
-          </Typography.Text>
-        </div>
-        <Input
-          value={shellPath}
-          size="small"
-          className={styles.settingInput}
-          placeholder={t.runtimeShellPathPlaceholder}
-          onChange={(event) => setShellPath(event.target.value)}
-          onBlur={() => save({ shellPath })}
-        />
-      </div>
-
-      <div className={styles.switchRow}>
-        <div className={styles.switchLabels}>
-          <Typography.Text strong>{t.runtimeShellPrefix}</Typography.Text>
-          <Typography.Text type="secondary" className={styles.rowHint}>
-            {t.runtimeShellPrefixHint}
-          </Typography.Text>
-        </div>
-        <Input
-          value={shellCommandPrefix}
-          size="small"
-          className={styles.settingInput}
-          placeholder={t.runtimeShellPrefixPlaceholder}
-          onChange={(event) => setShellCommandPrefix(event.target.value)}
-          onBlur={() => save({ shellCommandPrefix })}
-        />
-      </div>
-
-      <div className={styles.switchRow}>
-        <div className={styles.switchLabels}>
-          <Typography.Text strong>{t.runtimeTransport}</Typography.Text>
-          <Typography.Text type="secondary" className={styles.rowHint}>
-            {t.runtimeTransportHint}
-          </Typography.Text>
-        </div>
-        <Select
-          value={runtime.settings.transport}
-          options={transportOptions}
-          size="small"
-          className={styles.settingSelect}
-          onChange={(value: string) => save({ transport: value })}
-        />
-      </div>
-
-      <div className={styles.switchRow}>
-        <div className={styles.switchLabels}>
-          <Typography.Text strong>{t.runtimeNpmCommand}</Typography.Text>
-          <Typography.Text type="secondary" className={styles.rowHint}>
-            {t.runtimeNpmCommandHint}
-          </Typography.Text>
-        </div>
-        <Input.TextArea
-          value={npmCommandText}
-          size="small"
-          className={styles.settingInput}
-          autoSize={{ minRows: 2, maxRows: 4 }}
-          placeholder="npm"
-          onChange={(event) => setNpmCommandText(event.target.value)}
-          onBlur={saveNpmCommand}
-        />
-      </div>
-
-      <Divider style={{ margin: 0 }} />
-
-      <div className={styles.sectionHead}>
-        <Typography.Text strong>{t.runtimeAdvancedSection}</Typography.Text>
-        <Typography.Text type="secondary" className={styles.sectionHint}>
-          {t.runtimeAdvancedSectionHint}
-        </Typography.Text>
-      </div>
-
-      <div className={styles.switchRow}>
-        <div className={styles.switchLabels}>
-          <Typography.Text strong>{t.runtimeAnthropicExtraUsage}</Typography.Text>
-          <Typography.Text type="secondary" className={styles.rowHint}>
-            {t.runtimeAnthropicExtraUsageHint}
-          </Typography.Text>
-        </div>
-        <Radio.Group
-          size="small"
-          className={styles.settingRadioGroup}
-          value={runtime.settings.anthropicExtraUsage}
-          onChange={(event) => save({ anthropicExtraUsage: event.target.checked })}
+        <SettingsRow
+          label={t.runtimeBranchSkipPrompt}
+          description={t.runtimeBranchSkipPromptHint}
         >
-          <Radio.Button value={true}>{t.switchOn}</Radio.Button>
-          <Radio.Button value={false}>{t.switchOff}</Radio.Button>
-        </Radio.Group>
-      </div>
+          <SettingsSwitch
+            checked={runtime.settings.branchSummary.skipPrompt}
+            label={t.runtimeBranchSkipPrompt}
+            onChange={(value) => saveBranch({ skipPrompt: value })}
+          />
+        </SettingsRow>
+      </SettingsGroup>
 
-      <div className={styles.switchRow}>
-        <div className={styles.switchLabels}>
-          <Typography.Text strong>{t.runtimeWsTimeout}</Typography.Text>
-          <Typography.Text type="secondary" className={styles.rowHint}>
-            {t.runtimeWsTimeoutHint}
-          </Typography.Text>
-        </div>
-        <Select
-          value={wsTimeoutValue}
-          options={wsTimeoutOptions}
-          size="small"
-          className={styles.settingSelect}
-          onChange={onWsTimeout}
-        />
-      </div>
+      <SettingsGroup title={t.runtimeDeliverySection} hint={t.runtimeDeliverySectionHint}>
+        <SettingsRow label={t.runtimeSteeringMode} description={t.runtimeSteeringModeHint}>
+          <Select
+            value={runtime.settings.steeringMode}
+            options={deliveryOptions}
+            size="small"
+            className={styles.settingSelect}
+            onChange={(value: DeliveryMode) => save({ steeringMode: value })}
+          />
+        </SettingsRow>
 
-      <div className={styles.switchRow}>
-        <div className={styles.switchLabels}>
-          <Typography.Text strong>{t.runtimeSkillCommands}</Typography.Text>
-          <Typography.Text type="secondary" className={styles.rowHint}>
-            {t.runtimeSkillCommandsHint}
-          </Typography.Text>
-        </div>
-        <Radio.Group
-          size="small"
-          className={styles.settingRadioGroup}
-          value={runtime.settings.enableSkillCommands}
-          onChange={(event) => save({ enableSkillCommands: event.target.checked })}
+        <SettingsRow
+          label={t.runtimeFollowUpMode}
+          description={t.runtimeFollowUpModeHint}
         >
-          <Radio.Button value={true}>{t.switchOn}</Radio.Button>
-          <Radio.Button value={false}>{t.switchOff}</Radio.Button>
-        </Radio.Group>
-      </div>
+          <Select
+            value={runtime.settings.followUpMode}
+            options={deliveryOptions}
+            size="small"
+            className={styles.settingSelect}
+            onChange={(value: DeliveryMode) => save({ followUpMode: value })}
+          />
+        </SettingsRow>
+      </SettingsGroup>
 
-      <Divider style={{ margin: 0 }} />
+      <SettingsGroup title={t.runtimeEnvSection} hint={t.runtimeEnvSectionHint}>
+        <SettingsRow label={t.runtimeSessionDir} description={t.runtimeSessionDirHint}>
+          <Input
+            value={sessionDir}
+            size="small"
+            className={styles.settingInput}
+            placeholder={t.runtimeSessionDirPlaceholder}
+            onChange={(event) => setSessionDir(event.target.value)}
+            onBlur={() => save({ sessionDir })}
+          />
+        </SettingsRow>
 
-      <div className={styles.sectionHead}>
-        <Typography.Text strong>{t.runtimePrivacySection}</Typography.Text>
-        <Typography.Text type="secondary" className={styles.sectionHint}>
-          {t.runtimePrivacySectionHint}
-        </Typography.Text>
-      </div>
+        <SettingsRow label={t.runtimeShellPath} description={t.runtimeShellPathHint}>
+          <Input
+            value={shellPath}
+            size="small"
+            className={styles.settingInput}
+            placeholder={t.runtimeShellPathPlaceholder}
+            onChange={(event) => setShellPath(event.target.value)}
+            onBlur={() => save({ shellPath })}
+          />
+        </SettingsRow>
 
-      <div className={styles.switchRow}>
-        <div className={styles.switchLabels}>
-          <Typography.Text strong>{t.runtimeAnalytics}</Typography.Text>
-          <Typography.Text type="secondary" className={styles.rowHint}>
-            {t.runtimeAnalyticsHint}
-          </Typography.Text>
-        </div>
-        <Radio.Group
-          size="small"
-          className={styles.settingRadioGroup}
-          value={runtime.settings.enableAnalytics}
-          onChange={(event) => save({ enableAnalytics: event.target.checked })}
+        <SettingsRow label={t.runtimeShellPrefix} description={t.runtimeShellPrefixHint}>
+          <Input
+            value={shellCommandPrefix}
+            size="small"
+            className={styles.settingInput}
+            placeholder={t.runtimeShellPrefixPlaceholder}
+            onChange={(event) => setShellCommandPrefix(event.target.value)}
+            onBlur={() => save({ shellCommandPrefix })}
+          />
+        </SettingsRow>
+
+        <SettingsRow label={t.runtimeTransport} description={t.runtimeTransportHint}>
+          <Select
+            value={runtime.settings.transport}
+            options={transportOptions}
+            size="small"
+            className={styles.settingSelect}
+            onChange={(value: string) => save({ transport: value })}
+          />
+        </SettingsRow>
+
+        <SettingsRow label={t.runtimeNpmCommand} description={t.runtimeNpmCommandHint}>
+          <Input.TextArea
+            value={npmCommandText}
+            size="small"
+            className={styles.settingInput}
+            autoSize={{ minRows: 2, maxRows: 4 }}
+            placeholder="npm"
+            onChange={(event) => setNpmCommandText(event.target.value)}
+            onBlur={saveNpmCommand}
+          />
+        </SettingsRow>
+      </SettingsGroup>
+
+      <SettingsGroup title={t.runtimeAdvancedSection} hint={t.runtimeAdvancedSectionHint}>
+        <SettingsRow
+          label={t.runtimeAnthropicExtraUsage}
+          description={t.runtimeAnthropicExtraUsageHint}
         >
-          <Radio.Button value={true}>{t.switchOn}</Radio.Button>
-          <Radio.Button value={false}>{t.switchOff}</Radio.Button>
-        </Radio.Group>
-      </div>
+          <SettingsSwitch
+            checked={runtime.settings.anthropicExtraUsage}
+            label={t.runtimeAnthropicExtraUsage}
+            onChange={(value) => save({ anthropicExtraUsage: value })}
+          />
+        </SettingsRow>
 
-      <div className={styles.switchRow}>
-        <div className={styles.switchLabels}>
-          <Typography.Text strong>{t.runtimeInstallTelemetry}</Typography.Text>
-          <Typography.Text type="secondary" className={styles.rowHint}>
-            {t.runtimeInstallTelemetryHint}
-          </Typography.Text>
-        </div>
-        <Radio.Group
-          size="small"
-          className={styles.settingRadioGroup}
-          value={runtime.settings.enableInstallTelemetry}
-          onChange={(event) => save({ enableInstallTelemetry: event.target.checked })}
+        <SettingsRow label={t.runtimeWsTimeout} description={t.runtimeWsTimeoutHint}>
+          <Select
+            value={wsTimeoutValue}
+            options={wsTimeoutOptions}
+            size="small"
+            className={styles.settingSelect}
+            onChange={onWsTimeout}
+          />
+        </SettingsRow>
+
+        <SettingsRow
+          label={t.runtimeSkillCommands}
+          description={t.runtimeSkillCommandsHint}
         >
-          <Radio.Button value={true}>{t.switchOn}</Radio.Button>
-          <Radio.Button value={false}>{t.switchOff}</Radio.Button>
-        </Radio.Group>
-      </div>
+          <SettingsSwitch
+            checked={runtime.settings.enableSkillCommands}
+            label={t.runtimeSkillCommands}
+            onChange={(value) => save({ enableSkillCommands: value })}
+          />
+        </SettingsRow>
+      </SettingsGroup>
+
+      <SettingsGroup title={t.runtimePrivacySection} hint={t.runtimePrivacySectionHint}>
+        <SettingsRow label={t.runtimeAnalytics} description={t.runtimeAnalyticsHint}>
+          <SettingsSwitch
+            checked={runtime.settings.enableAnalytics}
+            label={t.runtimeAnalytics}
+            onChange={(value) => save({ enableAnalytics: value })}
+          />
+        </SettingsRow>
+
+        <SettingsRow
+          label={t.runtimeInstallTelemetry}
+          description={t.runtimeInstallTelemetryHint}
+        >
+          <SettingsSwitch
+            checked={runtime.settings.enableInstallTelemetry}
+            label={t.runtimeInstallTelemetry}
+            onChange={(value) => save({ enableInstallTelemetry: value })}
+          />
+        </SettingsRow>
+      </SettingsGroup>
     </div>
   );
 }

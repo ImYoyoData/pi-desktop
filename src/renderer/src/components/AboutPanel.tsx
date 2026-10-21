@@ -1,5 +1,9 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { Button, Modal, Typography } from "antd";
+import {
+  SettingsGroup,
+  SettingsRow,
+} from "@renderer/components/customize/SettingsGroup";
 import { useI18n } from "@renderer/i18n/use-i18n";
 import { CONTRIBUTORS, type Contributor } from "../../../shared/contributors";
 import styles from "./AboutPanel.module.css";
@@ -71,21 +75,19 @@ export function AboutPanel(): ReactNode {
         {appInfo ? <Typography.Text type="secondary">v{appInfo.version}</Typography.Text> : null}
       </div>
 
-      <div className={styles.aboutBlock}>
-        <div className={styles.aboutRow}>
-          <span>{t.aboutAuthor}</span>
-          <span>{appInfo?.author ?? "—"}</span>
-        </div>
-        <div className={styles.aboutRow}>
-          <span>{t.aboutRepository}</span>
+      <SettingsGroup>
+        <SettingsRow label={t.aboutAuthor}>
+          <span className={styles.aboutValue}>{appInfo?.author ?? "—"}</span>
+        </SettingsRow>
+
+        <SettingsRow label={t.aboutRepository}>
           <button type="button" className={styles.aboutLink} onClick={openRepository}>
             {t.aboutOpenRepository}
           </button>
-        </div>
-      </div>
+        </SettingsRow>
+      </SettingsGroup>
 
-      <div className={styles.aboutSection}>
-        <div className={styles.aboutSectionTitle}>{t.aboutContributors}</div>
+      <SettingsGroup title={t.aboutContributors}>
         <div className={styles.contributorGrid}>
           {ranked.map((item) => {
             const avatar = avatars[item.contributor.login];
@@ -116,7 +118,7 @@ export function AboutPanel(): ReactNode {
             );
           })}
         </div>
-      </div>
+      </SettingsGroup>
 
       <Modal
         open={selected !== null}
