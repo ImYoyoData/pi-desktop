@@ -503,7 +503,8 @@ button {
 }
 
 /* Settings modals */
-.pi-settings-modal .ant-modal-content {
+/* antd v6 的弹窗内容盒是 .ant-modal-container，v5 的 .ant-modal-content 已不存在 */
+.pi-settings-modal .ant-modal-container {
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-lg);
   border: 1px solid var(--border);
@@ -563,21 +564,50 @@ button {
 /*
  * 设置页内的控件描边统一跟随 --border（玻璃下为白色半透明描边），
  * 与自绘按钮（ToggleButton、item-action）保持一致。
+ * antd v6 的下拉框外壳就是根节点 .ant-select（v5 的 .ant-select-selector 已移除）。
  */
 .pi-settings-modal .ant-input,
 .pi-settings-modal .ant-input-affix-wrapper,
 .pi-settings-modal .ant-input-number,
-.pi-settings-modal .ant-select-selector,
+.pi-settings-modal .ant-select,
 .modal-editor-panel .ant-input,
 .modal-editor-panel .ant-input-affix-wrapper,
 .modal-editor-panel .ant-input-number,
-.modal-editor-panel .ant-select-selector {
+.modal-editor-panel .ant-select {
   border-color: var(--border) !important;
 }
 
-.pi-settings-modal .ant-btn,
-.modal-editor-panel .ant-btn {
+/*
+ * antd v6 把组件级 token（Select 的 selectorBg、InputNumber 的表面等）固化成字面量，
+ * 覆盖 --ant-color-bg-container 这类全局变量对它们无效；
+ * 输入类控件必须直接给表面赋值，才跟得上应用自己的输入框透明度。
+ */
+.pi-settings-modal .ant-input,
+.pi-settings-modal .ant-input-affix-wrapper,
+.pi-settings-modal .ant-input-number,
+.pi-settings-modal .ant-input-number-input,
+.pi-settings-modal .ant-select,
+.modal-editor-panel .ant-input,
+.modal-editor-panel .ant-input-affix-wrapper,
+.modal-editor-panel .ant-input-number,
+.modal-editor-panel .ant-input-number-input,
+.modal-editor-panel .ant-select {
+  background-color: var(--bg-input) !important;
+}
+
+/* 次级按钮跟随卡片表面，避免实色块与玻璃面板脱节 */
+.pi-settings-modal .ant-btn:not(.ant-btn-primary):not(.ant-btn-text):not(.ant-btn-link),
+.modal-editor-panel .ant-btn:not(.ant-btn-primary):not(.ant-btn-text):not(.ant-btn-link) {
+  background-color: var(--bg-elevated) !important;
   border-color: var(--border) !important;
+}
+
+.pi-settings-modal
+  .ant-btn:not(.ant-btn-primary):not(.ant-btn-text):not(.ant-btn-link):hover:not(:disabled),
+.modal-editor-panel
+  .ant-btn:not(.ant-btn-primary):not(.ant-btn-text):not(.ant-btn-link):hover:not(:disabled) {
+  background-color: var(--bg-active) !important;
+  border-color: var(--accent-border) !important;
 }
 
 .pi-settings-modal .ant-checkbox-inner,

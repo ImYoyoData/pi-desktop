@@ -80,7 +80,7 @@ html[data-theme][data-wallpaper="on"] .composer-card {
 /* 浮层玻璃的模糊落在内容层上：元素自身带 backdrop-filter 会形成 backdrop root，
    root 内的后代（下拉子菜单）就无法再模糊其下的背景，只能靠实色保底而发黑。 */
 html[data-theme][data-wallpaper="on"] .ant-dropdown .ant-dropdown-menu,
-html[data-theme][data-wallpaper="on"] .ant-dropdown-menu-submenu .ant-dropdown-menu,
+html[data-theme][data-wallpaper="on"] .ant-dropdown-menu,
 html[data-theme][data-wallpaper="on"] .ant-select-dropdown,
 html[data-theme][data-wallpaper="on"] .ant-message-notice,
 html[data-theme][data-wallpaper="on"] .ant-notification-notice,
@@ -134,7 +134,7 @@ html[data-theme][data-wallpaper="on"] .modal-editor-panel .ant-modal-container {
 html[data-theme][data-wallpaper="on"]
   :is(
     .ant-dropdown,
-    .ant-dropdown-menu-submenu-popup,
+    .ant-dropdown-menu,
     .ant-popover,
     .ant-select-dropdown,
     .ant-tooltip,
@@ -183,6 +183,8 @@ html[data-theme][data-wallpaper="on"] .monaco-hover {
 /* antd 输入控件跟随输入框透明度（hover 背景默认是实色，必须一并覆盖） */
 html[data-theme][data-wallpaper="on"] .ant-input,
 html[data-theme][data-wallpaper="on"] .ant-input-affix-wrapper,
-html[data-theme][data-wallpaper="on"] .ant-select-selector {
+html[data-theme][data-wallpaper="on"] .ant-input-number,
+html[data-theme][data-wallpaper="on"] .ant-input-number-input,
+html[data-theme][data-wallpaper="on"] .ant-select {
   background-color: var(--w-input-surface) !important;
 }
