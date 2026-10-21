@@ -1,11 +1,4 @@
-import {
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  type ReactNode,
-} from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { CheckmarkOutline, ChevronForwardOutline } from "@renderer/components/icons/ionicons";
 import type { ChatMessage } from "@renderer/stores/chat";
 import ToolCallCard from "@renderer/components/ToolCallCard";
@@ -27,25 +20,19 @@ type Props = {
   /** True once the next output appeared after this section: fold + summary title. */
   autoCollapse?: boolean;
   onOpen: (path: string) => void;
-  /** Fired once a fold/unfold settled, so the virtual list can re-measure. */
-  onResize: () => void;
 };
 
 function isToolMessage(msg: ChatMessage): msg is ToolMessage {
   return msg.role === "tool";
 }
 
-export function WorkSectionGroup({ items, autoCollapse, onOpen, onResize }: Props): ReactNode {
+export function WorkSectionGroup({ items, autoCollapse, onOpen }: Props): ReactNode {
   const t = useI18n();
   const [manuallyOpen, setManuallyOpen] = useState<boolean | null>(null);
   /** Animate folds only after first paint — matches Copilot (transition after mount). */
   const [animated, setAnimated] = useState(false);
   const animationRaf = useRef(0);
-  const resizeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const collapseTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const prefersReducedMotion =
-    typeof window !== "undefined" &&
-    window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
   /**
    * Fold/unfold animates grid-rows, which re-layouts the whole expanded subtree
@@ -74,51 +61,6 @@ export function WorkSectionGroup({ items, autoCollapse, onOpen, onResize }: Prop
     }
     return false;
   }, [items]);
-
-  /** Inner content box — ResizeObserver reports real height changes to the list. */
-  const bodyRef = useRef<HTMLDivElement | null>(null);
-  const lastReportedHeight = useRef(0);
-  const reportRaf = useRef(0);
-  /** Suppress observer reports while a fold/unfold transition is running. */
-  const transitioning = useRef(false);
-
-  const scheduleResize = useCallback(
-    (delayMs: number): void => {
-      if (resizeTimer.current) clearTimeout(resizeTimer.current);
-      resizeTimer.current = setTimeout(() => {
-        resizeTimer.current = null;
-        transitioning.current = false;
-        onResize();
-      }, delayMs);
-    },
-    [onResize],
-  );
-
-  const reportHeightNow = useCallback((): void => {
-    if (reportRaf.current) return;
-    reportRaf.current = requestAnimationFrame(() => {
-      reportRaf.current = 0;
-      if (transitioning.current) return;
-      onResize();
-    });
-  }, [onResize]);
-
-  useEffect(() => {
-    const el = bodyRef.current;
-    if (!el || typeof ResizeObserver === "undefined") return;
-    const observer = new ResizeObserver(() => {
-      if (transitioning.current) return;
-      const h = el.scrollHeight;
-      if (Math.abs(h - lastReportedHeight.current) > 1) {
-        lastReportedHeight.current = h;
-        reportHeightNow();
-      }
-    });
-    observer.observe(el);
-    return () => {
-      observer.disconnect();
-    };
-  }, [reportHeightNow]);
 
   const anyStreaming = items.some((m) => "streaming" in m && Boolean(m.streaming));
 
@@ -169,20 +111,16 @@ export function WorkSectionGroup({ items, autoCollapse, onOpen, onResize }: Prop
   useEffect(() => {
     if (lastOpen.current === open) return;
     lastOpen.current = open;
-    transitioning.current = true;
     // Oversized sections snap instantly: animating grid-rows would re-layout
     // tens of thousands of DOM nodes every frame and freeze the UI thread.
     if (heavySection) {
       setAnimated(false);
-      scheduleResize(0);
       return;
     }
     animationRaf.current = requestAnimationFrame(() => {
       setAnimated(true);
     });
-    // Let the CSS grid-rows transition run, then tell the list the height moved.
-    scheduleResize(prefersReducedMotion ? 0 : 200);
-  }, [open, heavySection, prefersReducedMotion, scheduleResize]);
+  }, [open, heavySection]);
 
   function toggle(): void {
     setManuallyOpen(!open);
@@ -208,8 +146,6 @@ export function WorkSectionGroup({ items, autoCollapse, onOpen, onResize }: Prop
   useEffect(() => {
     return () => {
       if (animationRaf.current) cancelAnimationFrame(animationRaf.current);
-      if (resizeTimer.current) clearTimeout(resizeTimer.current);
-      if (reportRaf.current) cancelAnimationFrame(reportRaf.current);
       if (collapseTimer.current) clearTimeout(collapseTimer.current);
       liveThinkingEls.current.clear();
     };
@@ -412,7 +348,6 @@ export function WorkSectionGroup({ items, autoCollapse, onOpen, onResize }: Prop
         aria-hidden={open ? undefined : "true"}
       >
         <div
-          ref={bodyRef}
           className={`${styles.workSectionAnimationInner}${heavySection && !open ? ` ${styles.forceHidden}` : ""}`}
         >
           <div className={styles.workSectionBody}>

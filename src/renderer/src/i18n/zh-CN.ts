@@ -782,8 +782,6 @@ export const zh = {
 	showSessionTitle: "会话标题",
 	showSessionDetails: "会话详细显示",
 	sessionHoverActions: "会话展开/收起按钮悬停显示",
-	messagePreview: "消息预览",
-	messagePreviewImage: "消息预览图片",
 	showCompactButtonOn: "显示",
 	showCompactButtonOff: "隐藏",
 	switchOn: "开启",
@@ -1022,8 +1020,6 @@ export const zh = {
 		`模型 ${model} · 思考 ${level}`,
 	userCardExpand: "展开",
 	userCardCollapse: "收起",
-	stickyExpand: "展开",
-	stickyCollapse: "收起",
 	revertTurn: "撤回",
 	reverted: "已撤回",
 	revertTurnConfirm:

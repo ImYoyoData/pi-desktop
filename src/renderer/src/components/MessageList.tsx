@@ -27,7 +27,6 @@ import {
   RefreshOutline,
 } from "@renderer/components/icons/ionicons";
 import type { ChatMessage, ChatRetryHint } from "@renderer/stores/chat";
-import { useAppearanceStore } from "@renderer/stores/appearance";
 import { useChatStore } from "@renderer/stores/chat";
 import { useCheckpointStore } from "@renderer/stores/checkpoint";
 import { useComposerStore } from "@renderer/stores/composer";
@@ -92,9 +91,6 @@ const OVERSCAN_PX = 280;
 const NEAR_BOTTOM_PX = 120;
 /** virtua 的行高估值：接近真实行高，锚定补偿的位移才不会被放大成剧烈跳动。 */
 const EST_ROW_HEIGHT = 120;
-/** Sticky user card must never cover the whole viewport (agent output would look "stuck"). */
-const STICKY_MAX_VH = 0.16;
-const STICKY_MAX_PX = 110;
 
 type Props = {
   messages: ChatMessage[];
@@ -139,7 +135,6 @@ export function MessageList({
   const sessions = useSessionsStore();
   const previewStore = usePreviewStore();
   const rightTabs = useRightTabsStore();
-  const appearance = useAppearanceStore();
   const messageApi = useMessage();
   const dialog = useDialog();
 
@@ -154,7 +149,7 @@ export function MessageList({
   const scrollerRef = useRef<HTMLDivElement | null>(null);
   const historyLoadingRef = useRef(historyLoading);
   historyLoadingRef.current = historyLoading;
-  const lastPinnedUserId = useRef<string | null>(null);
+  const lastJumpedUserId = useRef<string | null>(null);
   /** Avoid follow-bottom immediately undoing the post-send card-bottom scroll. */
   const suppressFollowBottomUntil = useRef(0);
   /** virtua 的虚拟列表实例：负责测量、窗口与滚动位置补偿。 */
@@ -301,17 +296,6 @@ export function MessageList({
 
   const sessionId = sessions.activeId;
 
-  /**
-   * Cursor-like sticky user prompt:
-   * Among user messages scrolled fully above the viewport, pin the nearest
-   * (highest index). Overlay uses store text — no need to remount that row.
-   */
-  const [stickyExpanded, setStickyExpanded] = useState(false);
-  const [stickyNeedsToggle, setStickyNeedsToggle] = useState(false);
-  const [stickyHover, setStickyHover] = useState(false);
-  const [stickyPinId, setStickyPinId] = useState<string | null>(null);
-  const stickyPinEl = useRef<HTMLDivElement | null>(null);
-
   /** User cards the user explicitly expanded (id → true). Default: collapsed. */
   const [expandedUserIds, setExpandedUserIds] = useState<Set<string>>(new Set());
 
@@ -326,135 +310,6 @@ export function MessageList({
       else next.add(id);
       return next;
     });
-  }
-
-  const stickyPinned = stickyPinId != null;
-
-  const stickyPinMessage = useMemo(() => {
-    if (!stickyPinId) return null;
-    const msg = displayMessages.find((m) => m.id === stickyPinId);
-    return msg?.role === "user" ? msg : null;
-  }, [displayMessages, stickyPinId]);
-
-  /** 置顶预览条：关闭预览、或内容全被开关隐藏（如纯图片消息）时不显示。 */
-  const stickyPreview = useMemo<{ msg: UserMessage; view: UserRowView } | null>(() => {
-    if (!appearance.showMessagePreview) return null;
-    const msg = stickyPinMessage;
-    if (!msg) return null;
-    const view = buildUserRowView(msg);
-    const hasImages = (msg.images?.length ?? 0) > 0 && appearance.showMessagePreviewImage;
-    return hasImages || view.text || view.tags.length > 0 ? { msg, view } : null;
-  }, [appearance.showMessagePreview, appearance.showMessagePreviewImage, stickyPinMessage]);
-
-  function stickyCapPx(sc: HTMLElement): number {
-    return Math.min(Math.round(sc.clientHeight * STICKY_MAX_VH), STICKY_MAX_PX);
-  }
-
-  function measureStickyNeedsToggle(naturalHeight: number): void {
-    const sc = scrollerRef.current;
-    if (!sc || !stickyPinned) {
-      setStickyNeedsToggle(false);
-      return;
-    }
-    setStickyNeedsToggle(naturalHeight > stickyCapPx(sc) + 12);
-  }
-
-  /**
-   * 视口上方最近的一条用户消息（Cursor 行为）。
-   * 位置取自 virtua 的行偏移（相对虚拟容器），加 startMargin 换算到滚动坐标系。
-   * 未挂载的行同样保留缓存尺寸，所以视口上方的历史提问始终可以被置顶。
-   */
-  function findStickyUserMessageId(): string | null {
-    const v = virtualizerRef.current;
-    const sc = scrollerRef.current;
-    const all = rowsRef.current.renderRows;
-    if (!v || !sc || all.length === 0) return null;
-
-    const viewportTop = sc.scrollTop + 8;
-    const first = Math.min(all.length - 1, Math.max(0, v.findItemIndex(sc.scrollTop - startMargin)));
-
-    for (let i = first; i >= 0; i--) {
-      const m = all[i];
-      if (!m || m.role !== "user") continue;
-      // 视口内的行要整条都在视口之上才置顶；视口上方的行必然满足。
-      if (i < first) return m.id;
-      const bottom = startMargin + v.getItemOffset(i) + v.getItemSize(i);
-      if (bottom < viewportTop) return m.id;
-    }
-
-    return null;
-  }
-
-  function clearStickyPin(): void {
-    if (!stickyPinId && !stickyNeedsToggle) return;
-    setStickyPinId(null);
-    setStickyExpanded(false);
-    setStickyHover(false);
-    setStickyNeedsToggle(false);
-  }
-
-  /** Pin overlay for the nearest user message scrolled above the viewport. */
-  function updateStickyPinned(): void {
-    const sc = scrollerRef.current;
-    if (!sc || !appearance.showMessagePreview) {
-      clearStickyPin();
-      return;
-    }
-
-    const id = findStickyUserMessageId();
-    if (!id) {
-      clearStickyPin();
-      return;
-    }
-
-    if (id !== stickyPinId) {
-      setStickyPinId(id);
-      setStickyExpanded(false);
-      setStickyHover(false);
-    }
-
-    // Sticky UI is an overlay copy from store — do NOT expand the virtual window
-    // to remount that row (that previously caused unbounded mounts + nextTick loops).
-    const body = stickyPinEl.current?.querySelector<HTMLElement>(".sticky-pin-body");
-    if (body) {
-      measureStickyNeedsToggle(body.scrollHeight);
-      return;
-    }
-    requestAnimationFrame(() => {
-      const el = stickyPinEl.current?.querySelector<HTMLElement>(".sticky-pin-body");
-      if (el) measureStickyNeedsToggle(el.scrollHeight);
-    });
-  }
-
-  function refreshStickyToggleNeed(): void {
-    requestAnimationFrame(() => {
-      if (!stickyPinned) {
-        setStickyNeedsToggle(false);
-        return;
-      }
-      const pin = stickyPinEl.current;
-      const body = pin?.querySelector<HTMLElement>(".sticky-pin-body");
-      if (body) {
-        measureStickyNeedsToggle(body.scrollHeight);
-        return;
-      }
-      updateStickyPinned();
-    });
-  }
-
-  function toggleStickyExpanded(): void {
-    setStickyExpanded((current) => !current);
-    refreshStickyToggleNeed();
-  }
-
-  function onStickyUserEnter(): void {
-    if (!stickyPinned) return;
-    setStickyHover(true);
-    refreshStickyToggleNeed();
-  }
-
-  function onStickyUserLeave(): void {
-    setStickyHover(false);
   }
 
   function isNearBottom(el: HTMLElement): boolean {
@@ -494,13 +349,12 @@ export function MessageList({
     sc.scrollTop = sc.scrollHeight;
   }
 
-  /** virtua 行高变化：置顶提问的位置要跟着重算，贴底时也要重新收敛到底部。 */
+  /** virtua 行高变化：贴底时重新收敛到底部。 */
   const virtualResizeRaf = useRef(0);
   function handleVirtualResize(): void {
     if (virtualResizeRaf.current) return;
     virtualResizeRaf.current = requestAnimationFrame(() => {
       virtualResizeRaf.current = 0;
-      updateStickyPinned();
       // 行高变化会顶长内容，贴底状态下重新贴回底部；已经离开底部则不打扰阅读。
       const sc = scrollerRef.current;
       if (!sc || !followBottom.current) return;
@@ -633,17 +487,15 @@ export function MessageList({
     if (token !== sessionJumpToken.current) return;
     if (settlingSession.current) {
       // settle state is being snapped anyway — do NOT reset a mid-settle latch.
-      lastPinnedUserId.current = rowsRef.current.latestUserMessageId;
+      lastJumpedUserId.current = rowsRef.current.latestUserMessageId;
       return;
     }
     // historyLoading finished outside settle (hydrate landed late): jump to live.
     if (!followBottom.current) {
       disengageHistoryReading();
-      lastPinnedUserId.current = rowsRef.current.latestUserMessageId;
+      lastJumpedUserId.current = rowsRef.current.latestUserMessageId;
     }
     jumpToBottomInstant();
-    updateStickyPinned();
-    refreshStickyToggleNeed();
   }
 
   /** Cold start + session switch: wait for hydrate, then land on bottom (no blank spacer). */
@@ -840,7 +692,7 @@ export function MessageList({
   /**
    * 滚动事件不参与贴底决策：虚拟列表的锚定补偿同样会派发 scroll 事件
    * （把 scrollTop 往下推回去保持内容视觉位置不变），把它当成用户意图就会把视口吸回底部。
-   * 这里只负责跟随态的收敛与置顶预览刷新。
+   * 这里只负责跟随态的收敛。
    */
   function onScrollerScroll(): void {
     if (paneHidden()) return;
@@ -848,7 +700,6 @@ export function MessageList({
     scrollRaf.current = requestAnimationFrame(() => {
       scrollRaf.current = 0;
       handleScrollerScroll();
-      updateStickyPinned();
     });
   }
 
@@ -974,7 +825,7 @@ export function MessageList({
       !document.hidden &&
       followBottom.current
     ) {
-      lastPinnedUserId.current = rowsRef.current.latestUserMessageId;
+      lastJumpedUserId.current = rowsRef.current.latestUserMessageId;
       setShowJumpLatest(false);
       requestAnimationFrame(() => {
         // User may have scrolled up while this tick was queued — respect it.
@@ -995,7 +846,7 @@ export function MessageList({
     if (!followBottom.current) return;
     // A *new* trailing message while already following: just re-snap.
     if (followBottom.current) {
-      lastPinnedUserId.current = rowsRef.current.latestUserMessageId;
+      lastJumpedUserId.current = rowsRef.current.latestUserMessageId;
       requestAnimationFrame(() => {
         if (!followBottom.current && !settlingSession.current) return;
         jumpToBottomInstant();
@@ -1013,25 +864,15 @@ export function MessageList({
     const prev = prevLatestUserId.current;
     prevLatestUserId.current = id;
     if (prev === undefined) return;
-    setStickyExpanded(false);
-    setStickyHover(false);
-    setStickyNeedsToggle(false);
-    setStickyPinId(null);
-    if (!id || id === lastPinnedUserId.current) {
-      updateStickyPinned();
-      refreshStickyToggleNeed();
-      return;
-    }
+    if (!id || id === lastJumpedUserId.current) return;
     const prevReading = !followBottom.current;
-    lastPinnedUserId.current = id;
+    lastJumpedUserId.current = id;
     if (prevReading) {
       // While the user was reading history and sends a follow-up, follow them
       // down to the new tail — jump immediately, don't wait for settle logic.
       disengageHistoryReading();
       suppressFollowBottomUntil.current = Date.now() + 160;
       requestAnimationFrame(() => {
-        updateStickyPinned();
-        refreshStickyToggleNeed();
         const sc = scrollerRef.current;
         const card = sc?.querySelector(`[data-msg-id="${CSS.escape(id)}"]`) as HTMLElement | null;
         if (!sc || !card) return;
@@ -1047,16 +888,12 @@ export function MessageList({
     if (settlingSession.current) {
       requestAnimationFrame(() => {
         jumpToBottomInstant();
-        updateStickyPinned();
-        refreshStickyToggleNeed();
       });
       return;
     }
     // Brief pause so follow-bottom doesn't yank away before layout settles.
     suppressFollowBottomUntil.current = Date.now() + 160;
     requestAnimationFrame(() => {
-      updateStickyPinned();
-      refreshStickyToggleNeed();
       const sc2 = scrollerRef.current;
       const card2 = sc2?.querySelector(
         `[data-msg-id="${CSS.escape(id)}"]`,
@@ -1558,7 +1395,6 @@ export function MessageList({
               items={membership.items}
               autoCollapse={rowSettled(msg)}
               onOpen={openPreview}
-              onResize={refreshStickyToggleNeed}
             />
           </div>
         </article>
@@ -1927,80 +1763,6 @@ export function MessageList({
           ) : null}
         </div>
       </div>
-
-      {stickyPreview ? (
-        <div
-          ref={stickyPinEl}
-          className={`${styles.userStickyPin}${stickyExpanded ? ` ${styles.isExpanded}` : ""}`}
-          onMouseEnter={onStickyUserEnter}
-          onMouseLeave={onStickyUserLeave}
-        >
-          <div
-            className={`${styles.stickyPinBody} ${styles.bubble} ${styles.user}`}
-          >
-            {stickyPreview.msg.images?.length && appearance.showMessagePreviewImage ? (
-              <div className={styles.userImages}>
-                {stickyPreview.msg.images.map((img, idx) => (
-                  <img
-                    key={`pin-img-${idx}`}
-                    className={styles.userImage}
-                    src={img.dataUrl}
-                    alt={t.imageAttachment}
-                    loading="lazy"
-                    draggable="false"
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      openImagePreview(img);
-                    }}
-                  />
-                ))}
-              </div>
-            ) : null}
-            {stickyPreview.view.text ? (
-              <div
-                className={`${styles.userPlain}${
-                  !stickyExpanded && stickyPreview.view.needsToggle ? ` ${styles.clamped}` : ""
-                }`}
-              >
-                {stickyPreview.view.text}
-              </div>
-            ) : null}
-            {stickyPreview.view.tags.length ? (
-              <div className={styles.userTags}>
-                {stickyPreview.view.tags.map((tag, idx) => (
-                  <Tag
-                    key={`pin-tag-${idx}`}
-                    color="blue"
-                    className={`${styles.userTag}${tag.kind === "file" ? ` ${styles.userTagFile}` : ""}`}
-                    title={tag.url || tag.label}
-                  >
-                    {tag.label || tag.content}
-                  </Tag>
-                ))}
-              </div>
-            ) : null}
-          </div>
-          {stickyNeedsToggle && (stickyHover || stickyExpanded) ? (
-            <button
-              type="button"
-              className={styles.stickyToggle}
-              aria-expanded={stickyExpanded}
-              aria-label={stickyExpanded ? t.stickyCollapse : t.stickyExpand}
-              onClick={(event) => {
-                event.stopPropagation();
-                toggleStickyExpanded();
-              }}
-            >
-              {stickyExpanded ? (
-                <ChevronUpOutline size={14} />
-              ) : (
-                <ChevronDownOutline size={14} />
-              )}
-              <span>{stickyExpanded ? t.stickyCollapse : t.stickyExpand}</span>
-            </button>
-          ) : null}
-        </div>
-      ) : null}
 
       {jumpMounted ? (
         <button

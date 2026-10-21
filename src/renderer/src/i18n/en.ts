@@ -806,8 +806,6 @@ export const en = {
 	showSessionTitle: "Session title",
 	showSessionDetails: "Session details",
 	sessionHoverActions: "Session expand/collapse button on hover",
-	messagePreview: "Message preview",
-	messagePreviewImage: "Preview images",
 	showCompactButtonOn: "Show",
 	showCompactButtonOff: "Hide",
 	switchOn: "On",
@@ -1056,8 +1054,6 @@ export const en = {
 		`Model ${model} · Thinking ${level}`,
 	userCardExpand: "Expand",
 	userCardCollapse: "Collapse",
-	stickyExpand: "Expand",
-	stickyCollapse: "Collapse",
 	revertTurn: "Revert files",
 	reverted: "Reverted",
 	revertTurnConfirm:
