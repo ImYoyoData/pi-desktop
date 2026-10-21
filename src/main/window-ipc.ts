@@ -7,6 +7,7 @@ import type { WindowPrivilegeLevel, WindowRunIdentity } from "../shared/protocol
 import type { EditContextMenuAction } from "../shared/context-menu";
 import type { EditMenuLocale } from "../shared/edit-menu-i18n";
 import { allowWindowClose, setUiLocale } from "./window";
+import type { SessionBroker } from "./session-broker";
 
 const EDIT_COMMANDS: Record<EditContextMenuAction, (wc: Electron.WebContents) => void> = {
   undo: (wc) => wc.undo(),
@@ -52,7 +53,7 @@ function runIdentity(): WindowRunIdentity {
   return cachedIdentity;
 }
 
-export function registerWindowIpc(): void {
+export function registerWindowIpc(broker?: SessionBroker): void {
   ipcMain.handle(IpcChannels.window.platform, () => process.platform);
 
   ipcMain.handle(IpcChannels.window.identity, () => runIdentity());
@@ -94,7 +95,10 @@ export function registerWindowIpc(): void {
   });
 
   ipcMain.handle(IpcChannels.window.setUiLocale, (_event, next: EditMenuLocale) => {
-    if (next === "zh-CN" || next === "en") setUiLocale(next);
+    if (next === "zh-CN" || next === "en") {
+      setUiLocale(next);
+      void broker?.notifyWorkersReloadLocale(next);
+    }
   });
 
   /** macOS requires TCC prompt via askForMediaAccess before getUserMedia works reliably. */

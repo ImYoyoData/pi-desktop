@@ -132,6 +132,80 @@ describe("createTrackedBashOperations", () => {
   });
 });
 
+describe("后台截断提示的来源与语言", () => {
+  it("软件自动判定常驻进程时提示「自动截断」", async () => {
+    const base: BashOperations = {
+      exec: async (_command, _cwd, { onData }) => {
+        onData(Buffer.from("x\n"));
+        return { exitCode: 0 };
+      },
+    };
+    const chunks: string[] = [];
+    const { operations } = createTrackedBashOperations(base, {
+      sessionId: "s1",
+      workspaceRoot: "/ws",
+      onStarted: () => {},
+      onOutput: (_id, chunk) => chunks.push(chunk),
+      onEnded: () => {},
+      shouldStartBackground: () => true,
+    });
+    await operations.exec("npm run dev", "/ws", { onData: () => {} });
+    expect(chunks.join("")).toContain("自动截断");
+  });
+
+  it("用户点击「转到后台」时提示「用户截断」", async () => {
+    const base: BashOperations = {
+      exec: async (_command, _cwd, { onData, signal }) => {
+        onData(Buffer.from("x\n"));
+        await new Promise<void>((_resolve, reject) => {
+          if (signal?.aborted) {
+            reject(new Error("aborted"));
+            return;
+          }
+          signal?.addEventListener("abort", () => reject(new Error("aborted")), {
+            once: true,
+          });
+        });
+        return { exitCode: 0 };
+      },
+    };
+    const chunks: string[] = [];
+    const { operations, backgroundRun, getActiveRunIds } = createTrackedBashOperations(base, {
+      sessionId: "s1",
+      workspaceRoot: "/ws",
+      onStarted: () => {},
+      onOutput: (_id, chunk) => chunks.push(chunk),
+      onEnded: () => {},
+    });
+    const p = operations.exec("sleep 30", "/ws", { onData: () => {} });
+    await vi.waitFor(() => expect(getActiveRunIds().length).toBe(1));
+    expect(backgroundRun(getActiveRunIds()[0]!)).toBe(true);
+    await expect(p).resolves.toEqual({ exitCode: null });
+    expect(chunks.join("")).toContain("用户截断");
+  });
+
+  it("跟随界面语言切换文案", async () => {
+    const base: BashOperations = {
+      exec: async (_command, _cwd, { onData }) => {
+        onData(Buffer.from("x\n"));
+        return { exitCode: 0 };
+      },
+    };
+    const chunks: string[] = [];
+    const { operations } = createTrackedBashOperations(base, {
+      sessionId: "s1",
+      workspaceRoot: "/ws",
+      onStarted: () => {},
+      onOutput: (_id, chunk) => chunks.push(chunk),
+      onEnded: () => {},
+      shouldStartBackground: () => true,
+      getLocale: () => "en",
+    });
+    await operations.exec("npm run dev", "/ws", { onData: () => {} });
+    expect(chunks.join("")).toContain("Auto-truncated");
+  });
+});
+
 describe("bash timeout / shell resolution", () => {
   it("treats a missing timeout as no timeout", () => {
     expect(__test.resolveTimeoutMs(undefined)).toBeUndefined();

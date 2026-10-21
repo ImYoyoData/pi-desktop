@@ -6,6 +6,7 @@ import type {
 } from "../shared/agent-worker-messages";
 
 import type { StreamRenderSettings } from "../shared/stream-render";
+import type { BashNoticeLocale } from "../shared/bash-notice-i18n";
 import type {
   AgentCommand,
   AgentEvent,
@@ -163,6 +164,8 @@ export type SessionBroker = {
   notifyWorkersReloadStreamRender: (
     streamRender: StreamRenderSettings,
   ) => Promise<void>;
+  /** 热更新存活 worker 的界面语言（后台截断提示文案）。 */
+  notifyWorkersReloadLocale: (locale: BashNoticeLocale) => Promise<void>;
   /** 热重载扩展/MCP 资源与设置（空闲 worker 立即重载，忙碌的等空闲）；不传 cwd = 通知所有工作区。 */
   notifyWorkersReloadResources: (cwd?: string) => Promise<void>;
   /** Delete one cached image file (user removed it from the editor). */
@@ -1253,6 +1256,16 @@ export function createSessionBroker(deps: {
     }
   }
 
+  /** 界面语言变化时热更新存活 worker 的后台截断提示文案。 */
+  async function notifyWorkersReloadLocale(locale: BashNoticeLocale): Promise<void> {
+    const ids = [...sessions.entries()]
+      .filter(([, rec]) => rec.worker !== null)
+      .map(([id]) => id);
+    for (const id of ids) {
+      await sendRawIfAlive(id, { kind: "reload_locale", locale });
+    }
+  }
+
   /** 空闲 worker 在进程内重载资源（扩展/MCP 配置），忙碌的等空闲后销毁重建。 */
   async function notifyWorkersReloadResources(cwd?: string): Promise<void> {
     const resolved = cwd ? path.resolve(cwd) : null;
@@ -1286,6 +1299,7 @@ export function createSessionBroker(deps: {
     clearContext,
     notifyWorkersReloadModels,
     notifyWorkersReloadStreamRender,
+    notifyWorkersReloadLocale,
     notifyWorkersReloadResources,
     patchSummary,
     cwdOfSession,
