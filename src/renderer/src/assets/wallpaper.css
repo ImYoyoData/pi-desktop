@@ -35,6 +35,9 @@ html[data-theme][data-wallpaper="on"] {
     var(--w-solid-elevated) var(--pi-alpha-tool, 0%),
     transparent
   );
+  /* 浮层面板（斜杠菜单、@ 文件菜单）：底色跟抬升表面走，
+     玻璃感由自身的模糊提供，与设置页同一套配方。 */
+  --w-overlay-surface: var(--w-elevated-surface);
 
   --bg: transparent;
   --bg-title: transparent;
@@ -75,6 +78,46 @@ html[data-theme][data-wallpaper="on"] .img-chip {
 /* 输入框叠自己的磨砂层，浮层与右键菜单已统一带 backdrop-filter */
 html[data-theme][data-wallpaper="on"] .composer-card {
   backdrop-filter: blur(24px) saturate(1.3);
+}
+
+/* 斜杠菜单与 @ 文件菜单是自绘浮层，且从输入框上方越界弹出：
+   壁纸模式下必须自带玻璃层，配方与设置页一致（抬升表面底色 + 24px 模糊），
+   否则菜单会直接透出壁纸。 */
+html[data-theme][data-wallpaper="on"] .composer-slash-menu,
+html[data-theme][data-wallpaper="on"] .composer-at-file-menu {
+  background-color: var(--w-overlay-surface);
+  backdrop-filter: blur(24px) saturate(1.3);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.3);
+}
+
+/* antd v6 的 CSS 变量模式把 --ant-color-* 声明在每个组件根节点上（class 形如 css-var-r0），
+   html 上的同名变量会被组件根自身的声明盖掉，壁纸模式下必须直接改到组件根上。 */
+html[data-theme][data-wallpaper="on"] [class*="css-var-"] {
+  --ant-color-bg-elevated: var(--w-elevated-surface) !important;
+  --ant-color-bg-elevated-hover: var(--w-elevated-surface) !important;
+  --ant-color-bg-input: var(--w-input-surface) !important;
+}
+
+/* 面板内的容器（文件树）跟随面板透明：不再叠一层实色底 */
+html[data-theme][data-wallpaper="on"] .ant-tree {
+  --ant-color-bg-container: transparent !important;
+}
+
+/* 设置页之外的输入类控件同样要走输入表面 */
+html[data-theme][data-wallpaper="on"] .ant-input,
+html[data-theme][data-wallpaper="on"] .ant-input-affix-wrapper,
+html[data-theme][data-wallpaper="on"] .ant-input-number,
+html[data-theme][data-wallpaper="on"] .ant-input-number-input,
+html[data-theme][data-wallpaper="on"] .ant-select {
+  background-color: var(--w-input-surface) !important;
+}
+
+/* 独立渲染的右键菜单是浮层：底色固化在组件 token 上，要单独覆盖 */
+html[data-theme][data-wallpaper="on"] .ant-menu {
+  --ant-menu-item-bg: var(--w-overlay-surface) !important;
+  --ant-menu-popup-bg: var(--w-overlay-surface) !important;
+  --ant-menu-item-hover-bg: var(--bg-hover) !important;
+  backdrop-filter: blur(14px) saturate(1.15);
 }
 
 /* 浮层玻璃的模糊落在内容层上：元素自身带 backdrop-filter 会形成 backdrop root，
@@ -168,6 +211,12 @@ html[data-theme][data-wallpaper="on"] .monaco-editor .margin,
 html[data-theme][data-wallpaper="on"] .monaco-editor .minimap,
 html[data-theme][data-wallpaper="on"] .monaco-editor .decorationsOverviewRuler,
 html[data-theme][data-wallpaper="on"] .monaco-diff-editor .diffOverview {
+  background-color: transparent !important;
+}
+
+/* Monaco 吸顶条属于编辑区内容，跟随编辑区透出界面 */
+html[data-theme][data-wallpaper="on"] .monaco-editor .sticky-widget .sticky-widget-line-numbers,
+html[data-theme][data-wallpaper="on"] .monaco-editor .sticky-widget .sticky-widget-lines-scrollable {
   background-color: transparent !important;
 }
 
