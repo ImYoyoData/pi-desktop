@@ -32,6 +32,7 @@ import ComposerAtFileMenu, {
 } from "@renderer/components/ComposerAtFileMenu";
 import SendQueueBar from "@renderer/components/SendQueueBar";
 import DraftContextBar from "@renderer/components/DraftContextBar";
+import { NO_OVERLAY_MOTION } from "@renderer/components/overlay-motion";
 import { useChatStore } from "@renderer/stores/chat";
 import type { ElementCitation } from "../../../shared/protocol";
 import { isHttpUrl, useComposerStore } from "@renderer/stores/composer";
@@ -243,6 +244,8 @@ export function Composer({ docked = false }: ComposerProps): ReactNode {
   const slashMenuRef = useRef<ComposerSlashMenuHandle | null>(null);
   const atFileMenuRef = useRef<ComposerAtFileMenuHandle | null>(null);
   const appliedModelForSessionRef = useRef<string | null>(null);
+  /** 模型菜单最近一次关闭的时刻：用来吞掉双击的后半段。 */
+  const modelMenuClosedAtRef = useRef(0);
   const draftCommitPendingRef = useRef(false);
   const drainInFlightRef = useRef<string | null>(null);
   const slashSkillsCachedForRef = useRef<string | null>(null);
@@ -1706,6 +1709,17 @@ export function Composer({ docked = false }: ComposerProps): ReactNode {
     }
   }
 
+  /**
+   * 模型菜单的开关：打开由按钮自己决定，关闭交给 antd（点按钮、点菜单项、点外部）。
+   * 关闭后短时间内再点按钮不重开——那是双击的后半段，否则会出现「点开之后再点一次
+   * 不是关闭而是重新打开」。
+   */
+  function onModelMenuToggle(): void {
+    if (modelMenuOpen.value) return;
+    if (Date.now() - modelMenuClosedAtRef.current < 250) return;
+    modelMenuOpen.set(true);
+  }
+
   async function onModelChange(value: string | number): Promise<void> {
     // Switching models while Pi is replying is allowed. The worker applies it to
     // the live session immediately (and when no worker is warm the choice is
@@ -2122,6 +2136,7 @@ export function Composer({ docked = false }: ComposerProps): ReactNode {
                 }}
               />
               <Dropdown
+                {...NO_OVERLAY_MOTION}
                 trigger={["click"]}
                 menu={{
                   items: attachMenu,
@@ -2180,8 +2195,14 @@ export function Composer({ docked = false }: ComposerProps): ReactNode {
               </Popover>
 
               <Dropdown
+                {...NO_OVERLAY_MOTION}
                 open={modelMenuOpen.value}
-                onOpenChange={(next) => modelMenuOpen.set(next)}
+                onOpenChange={(next) => {
+                  // 关闭一律跟随 antd 的判定（点按钮、点菜单项、点外部都走这里）。
+                  if (next) return;
+                  modelMenuClosedAtRef.current = Date.now();
+                  modelMenuOpen.set(false);
+                }}
                 trigger={["click"]}
                 menu={{
                   ...MODEL_MENU_PROPS,
@@ -2194,12 +2215,14 @@ export function Composer({ docked = false }: ComposerProps): ReactNode {
                   size="small"
                   className={styles.modelBtn}
                   title={t.modelPlaceholder}
+                  onClick={onModelMenuToggle}
                 >
                   <span className={styles.modelLabel}>{modelLabel}</span>
                 </Button>
               </Dropdown>
 
               <Dropdown
+                {...NO_OVERLAY_MOTION}
                 trigger={["click"]}
                 menu={{
                   items: thinkingMenu,

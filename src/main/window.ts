@@ -59,7 +59,7 @@ export function createMainWindow(): BrowserWindow {
   const iconPath = resolveWindowIcon();
 
   const mainWindow = new BrowserWindow({
-    width: 1440,
+    width: 1500,
     height: 900,
     minWidth: 960,
     minHeight: 640,

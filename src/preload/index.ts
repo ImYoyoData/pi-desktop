@@ -32,7 +32,7 @@ import type {
 	PullRequestSummary,
 } from "../shared/github-types";
 import type { AgentRunEvent, AgentRunSnapshot } from "../shared/agent-runs";
-import type { AgentSaveResult, BuiltinExtensionItem, BuiltinToolItem, CodemodeSettingsState, CustomizationsSnapshot, CustomizationCreateKind, InstructionsSaveResult, McpAuthEventPayload, McpAuthPromptReply, McpAuthState, McpAuthTarget, McpProjectOverride, McpTestResult, McpTestTarget, SkillSaveResult } from "../shared/customizations";
+import type { BuiltinExtensionItem, BuiltinToolItem, CodemodeSettingsState, CustomizationsSnapshot, CustomizationCreateKind, InstructionsSaveResult, McpAuthEventPayload, McpAuthPromptReply, McpAuthState, McpAuthTarget, McpProjectOverride, McpTestResult, McpTestTarget, PromptSaveResult, SkillSaveResult } from "../shared/customizations";
 import type {
 	ModelsGetResult,
 	ModelsOAuthEventPayload,
@@ -74,7 +74,6 @@ import type {
 import type { ProxySettings } from "../shared/proxy";
 import type { ThinkingLanguageSettings } from "../shared/thinking-language";
 import type { StreamRenderSettings } from "../shared/stream-render";
-import type { WebSearchConfigState, WebSearchSettings } from "../shared/web-search-config";
 import type { RetrySettings } from "../shared/retry-settings";
 import type { RuntimeSettings } from "../shared/runtime-settings";
 
@@ -797,13 +796,6 @@ const api = {
 			ipcRenderer.invoke(IpcChannels.customizations.create, kind) as Promise<{
 				filePath: string;
 			}>,
-		createAgentFromDraft: (content: string, scope: "user" | "project", cwd?: string) =>
-			ipcRenderer.invoke(
-				IpcChannels.customizations.createAgentFromDraft,
-				content,
-				scope,
-				cwd,
-			) as Promise<AgentSaveResult>,
 		createPromptFromDraft: (
 			content: string,
 			name: string,
@@ -816,15 +808,7 @@ const api = {
 				name,
 				scope,
 				cwd,
-			) as Promise<AgentSaveResult>,
-		saveAgent: (filePath: string, content: string, renameName?: string, cwd?: string) =>
-			ipcRenderer.invoke(
-				IpcChannels.customizations.saveAgent,
-				filePath,
-				content,
-				renameName,
-				cwd,
-			) as Promise<AgentSaveResult>,
+			) as Promise<PromptSaveResult>,
 		createInstructionsFromDraft: (content: string, scope: "user" | "project", cwd?: string) =>
 			ipcRenderer.invoke(
 				IpcChannels.customizations.createInstructionsFromDraft,
@@ -1542,15 +1526,6 @@ const api = {
 				IpcChannels.streamRender.set,
 				settings,
 			) as Promise<StreamRenderSettings>,
-	},
-	webSearchConfig: {
-		get: () =>
-			ipcRenderer.invoke(IpcChannels.webSearchConfig.get) as Promise<WebSearchConfigState>,
-		set: (settings: WebSearchSettings) =>
-			ipcRenderer.invoke(
-				IpcChannels.webSearchConfig.set,
-				settings,
-			) as Promise<WebSearchConfigState>,
 	},
 	appearance: {
 		pickWallpaper: () =>

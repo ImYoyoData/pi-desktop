@@ -28,7 +28,7 @@ import type {
 	PullRequestPatchResult,
 	PullRequestSummary,
 } from "../shared/github-types";
-import type { AgentSaveResult, BuiltinExtensionItem, BuiltinToolItem, CodemodeSettingsState, CustomizationsSnapshot, CustomizationCreateKind, InstructionsSaveResult, McpAuthEventPayload, McpAuthPromptReply, McpAuthState, McpAuthTarget, McpProjectOverride, McpTestResult, McpTestTarget, SkillSaveResult } from "../shared/customizations";
+import type { BuiltinExtensionItem, BuiltinToolItem, CodemodeSettingsState, CustomizationsSnapshot, CustomizationCreateKind, InstructionsSaveResult, McpAuthEventPayload, McpAuthPromptReply, McpAuthState, McpAuthTarget, McpProjectOverride, McpTestResult, McpTestTarget, PromptSaveResult, SkillSaveResult } from "../shared/customizations";
 import type {
 	ModelsGetResult,
 	ModelsOAuthEventPayload,
@@ -71,7 +71,6 @@ import type {
 import type { ProxySettings } from "../shared/proxy";
 import type { ThinkingLanguageSettings } from "../shared/thinking-language";
 import type { StreamRenderSettings } from "../shared/stream-render";
-import type { WebSearchConfigState, WebSearchSettings } from "../shared/web-search-config";
 export type AppInfo = {
 	version: string;
 	githubUrl: string;
@@ -599,23 +598,12 @@ declare const api: {
 	customizations: {
 		list: (cwd?: string, force?: boolean) => Promise<CustomizationsSnapshot>;
 		create: (kind: CustomizationCreateKind) => Promise<{ filePath: string }>;
-		createAgentFromDraft: (
-			content: string,
-			scope: "user" | "project",
-			cwd?: string,
-		) => Promise<AgentSaveResult>;
 		createPromptFromDraft: (
 			content: string,
 			name: string,
 			scope: "user" | "project",
 			cwd?: string,
-		) => Promise<AgentSaveResult>;
-		saveAgent: (
-			filePath: string,
-			content: string,
-			renameName?: string,
-			cwd?: string,
-		) => Promise<AgentSaveResult>;
+		) => Promise<PromptSaveResult>;
 		createInstructionsFromDraft: (
 			content: string,
 			scope: "user" | "project",
@@ -1000,10 +988,6 @@ declare const api: {
 	streamRender: {
 		get: () => Promise<StreamRenderSettings>;
 		set: (settings: StreamRenderSettings) => Promise<StreamRenderSettings>;
-	};
-	webSearchConfig: {
-		get: () => Promise<WebSearchConfigState>;
-		set: (settings: WebSearchSettings) => Promise<WebSearchConfigState>;
 	};
 	appearance: {
 		pickWallpaper: () => Promise<string | null>;

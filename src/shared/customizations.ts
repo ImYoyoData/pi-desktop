@@ -39,13 +39,13 @@ export type SkillSaveResult =
 	| { ok: true; filePath: string; name: string }
 	| { ok: false; issues: SkillIssueCode[] };
 
-/** 智能体名称在文件系统层面不可用的原因。 */
-export type AgentIssueCode = "name-required" | "name-invalid" | "exists";
+/** 名称在文件系统层面不可用的原因。 */
+export type PromptIssueCode = "name-required" | "name-invalid" | "exists";
 
-/** 智能体草稿创建/保存的结果。 */
-export type AgentSaveResult =
+/** 提示模板草稿创建/保存的结果。 */
+export type PromptSaveResult =
 	| { ok: true; filePath: string; name: string }
-	| { ok: false; code: AgentIssueCode };
+	| { ok: false; code: PromptIssueCode };
 
 /** 指令（AGENTS.md）草稿创建的结果。 */
 export type InstructionsSaveResult =
@@ -59,11 +59,10 @@ export type CustomizationHook = {
 };
 
 /** 可新建的定制项类型。 */
-export type CustomizationCreateKind = "agents" | "skills" | "instructions" | "prompts";
+export type CustomizationCreateKind = "skills" | "instructions" | "prompts";
 
 export type CustomizationsSnapshot = {
 	root: string | null;
-	agents: CustomizationItem[];
 	skills: CustomizationItem[];
 	instructions: CustomizationItem[];
 	prompts: CustomizationItem[];
@@ -166,7 +165,6 @@ export type McpAuthPromptReply = {
 export function emptyCustomizations(root: string | null): CustomizationsSnapshot {
 	return {
 		root,
-		agents: [],
 		skills: [],
 		instructions: [],
 		prompts: [],

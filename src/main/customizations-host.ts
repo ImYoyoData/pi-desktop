@@ -82,15 +82,6 @@ const DESKTOP_TOOLS: ReadonlyArray<{ name: string; description: string }> = [
 	{ name: "browser_evaluate", description: "Evaluate JS in the built-in browser" },
 ];
 
-/** 全局智能体文件（pi-subagents 同款目录）。 */
-function agentDirs(root: string, dir: string): Array<[string, CustomizationScope]> {
-	return [
-		[path.join(dir, "agents"), "user"],
-		[path.join(root, ".pi", "agents"), "project"],
-		[path.join(dir, "npm", "node_modules", "pi-subagents", "agents"), "builtin"],
-	];
-}
-
 function scopeOf(info: SourceInfoLike | undefined): CustomizationScope {
 	if (info?.origin === "package") return "extension";
 	return info?.scope === "user" ? "user" : "project";
@@ -106,14 +97,6 @@ function firstLine(content: string): string {
 	return line.trim().slice(0, 160);
 }
 
-function formatTools(value: unknown): string | undefined {
-	if (Array.isArray(value)) {
-		const tools = value.filter((entry): entry is string => typeof entry === "string");
-		return tools.length ? tools.join(", ") : undefined;
-	}
-	return typeof value === "string" && value.trim() ? value.trim() : undefined;
-}
-
 function isDisabledFile(name: string): boolean {
 	return name.endsWith(DISABLED_EXT);
 }
@@ -126,27 +109,6 @@ function baseNameWithoutExtension(name: string): string {
 
 function isCustomizationFile(name: string): boolean {
 	return name.endsWith(".md") || name.endsWith(`.md${DISABLED_EXT}`);
-}
-
-function readAgentDir(directory: string, scope: CustomizationScope, sdk: Sdk): CustomizationItem[] {
-	if (!fs.existsSync(directory)) return [];
-	return fs
-		.readdirSync(directory)
-		.filter(isCustomizationFile)
-		.map((name) => {
-			const filePath = path.join(directory, name);
-			const content = fs.readFileSync(filePath, "utf8");
-			const { frontmatter } = sdk.parseFrontmatter<Record<string, unknown>>(content);
-			return {
-				id: filePath,
-				name: frontmatterText(frontmatter.name) || baseNameWithoutExtension(name),
-				description: filePath,
-				filePath,
-				scope,
-				detail: formatTools(frontmatter.tools),
-				enabled: !isDisabledFile(name),
-			};
-		});
 }
 
 /** 已禁用的提示模板：loader 不会加载它们，需要单独扫描目录补齐列表。 */
@@ -198,33 +160,6 @@ function listPrompts(
 		...readDisabledPromptDir(path.join(dir, "prompts"), "user", sdk),
 		...readDisabledPromptDir(path.join(root, ".pi", "prompts"), "project", sdk),
 	];
-}
-
-function listAgents(root: string, dir: string, sdk: Sdk): CustomizationItem[] {
-	return agentDirs(root, dir).flatMap(([directory, scope]) =>
-		readAgentDir(directory, scope, sdk),
-	);
-}
-
-/** 其它最近工作区的智能体文件。 */
-function otherWorkspaceAgents(
-	root: string,
-	workspaces: readonly string[],
-	sdk: Sdk,
-): CustomizationItem[] {
-	const items: CustomizationItem[] = [];
-	const seen = new Set<string>();
-	for (const workspace of workspaces) {
-		const ws = path.resolve(workspace);
-		if (ws.toLowerCase() === path.resolve(root).toLowerCase()) continue;
-		for (const item of readAgentDir(path.join(ws, ".pi", "agents"), "project", sdk)) {
-			const key = path.resolve(item.filePath ?? "").toLowerCase();
-			if (seen.has(key)) continue;
-			seen.add(key);
-			items.push(item);
-		}
-	}
-	return items;
 }
 
 /** 其它最近工作区的技能文件。 */
@@ -789,10 +724,6 @@ export async function listCustomizations(
 
 	return {
 		root,
-		agents: [
-			...listAgents(root, dir, sdk).map(markCurrent),
-			...otherWorkspaceAgents(root, workspaces, sdk),
-		],
 		skills: [
 			...skills.skills
 				.map((skill) => ({
@@ -916,10 +847,6 @@ export async function setBuiltinExtensionEnabled(
 
 /** 新建定制项的用户级目录（对应 pi 的 agentDir 约定），文件内容留空由用户填写。 */
 const CREATE_TEMPLATES: Record<Exclude<CustomizationCreateKind, "skills">, CreateTemplate> = {
-	agents: {
-		base: "new-agent",
-		relative: (name) => path.join("agents", `${name}.md`),
-	},
 	instructions: {
 		base: "AGENTS",
 		relative: () => "AGENTS.md",
@@ -962,13 +889,13 @@ export function createCustomization(kind: CustomizationCreateKind): { filePath: 
 	return { filePath };
 }
 
-/** 允许启停与删除的定制文件目录：用户级与工作区级的 agents/prompts。 */
+/** 允许启停与删除的定制文件目录：用户级与工作区级的 prompts。 */
 function editableRoots(root?: string, workspaces: readonly string[] = []): string[] {
 	const dir = agentDir();
-	const roots = [path.join(dir, "agents"), path.join(dir, "prompts")];
+	const roots = [path.join(dir, "prompts")];
 	const bases = [...(root ? [root] : []), ...workspaces];
 	for (const base of bases) {
-		roots.push(path.join(base, ".pi", "agents"), path.join(base, ".pi", "prompts"));
+		roots.push(path.join(base, ".pi", "prompts"));
 	}
 	return roots;
 }

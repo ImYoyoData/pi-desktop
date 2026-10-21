@@ -20,6 +20,7 @@ import {
   Typography,
 } from "antd";
 import type { MenuProps } from "antd";
+import { NO_OVERLAY_MOTION } from "@renderer/components/overlay-motion";
 import {
   ArchiveOutline,
   ChatboxOutline,
@@ -79,6 +80,7 @@ type ContextMenuState = {
   show: boolean;
   x: number;
   y: number;
+  placement: "bottomLeft" | "topRight";
   kind: "workspace" | "session";
   root: string;
   session: SessionSummary | null;
@@ -268,6 +270,7 @@ export function SessionSidebar(): ReactNode {
     show: false,
     x: 0,
     y: 0,
+    placement: "bottomLeft",
     kind: "workspace",
     root: "",
     session: null,
@@ -320,7 +323,7 @@ export function SessionSidebar(): ReactNode {
       [
         {
           name: "settings" as CodiconName,
-          section: "general",
+          section: "appearance",
           label: t.customizeSettings,
         },
       ],
@@ -1566,25 +1569,36 @@ export function SessionSidebar(): ReactNode {
       show: true,
       x: e.clientX,
       y: e.clientY,
+      placement: "bottomLeft",
       kind: "workspace",
       root,
       session: null,
     });
   }
 
-  /** 省略号按钮打开工作区菜单：延后一拍，避免同一次点击冒泡到 document 被 clickoutside 立即关掉。 */
+  /**
+   * 省略号按钮：菜单已开则关闭，否则贴着按钮右上沿打开。
+   * 菜单锚在按钮上方且右对齐，既不会盖住按钮（否则再点一次就点不到按钮了），
+   * 也不会伸到侧栏外面去。
+   */
   function onWorkspaceMore(e: ReactMouseEvent, root: string): void {
-    const { clientX, clientY } = e;
-    window.setTimeout(() => {
-      setCtx({
+    e.preventDefault();
+    e.stopPropagation();
+    const anchor = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    setCtx((prev) => {
+      if (prev.show && prev.kind === "workspace" && prev.root === root) {
+        return { ...prev, show: false };
+      }
+      return {
         show: true,
-        x: clientX,
-        y: clientY,
+        x: anchor.right,
+        y: anchor.top,
+        placement: "topRight",
         kind: "workspace",
         root,
         session: null,
-      });
-    }, 0);
+      };
+    });
   }
 
   function openSessionCtx(
@@ -1598,6 +1612,7 @@ export function SessionSidebar(): ReactNode {
       show: true,
       x: e.clientX,
       y: e.clientY,
+      placement: "bottomLeft",
       kind: "session",
       root,
       session,
@@ -1773,8 +1788,12 @@ export function SessionSidebar(): ReactNode {
   useEffect(() => {
     if (!ctx.show) return;
     const onPointerDown = (event: MouseEvent): void => {
+      // 只管左键：右键是「换个位置重开菜单」，先关再开会让弹层闪一下。
+      if (event.button !== 0) return;
       const target = event.target as HTMLElement | null;
       if (target?.closest?.(".ant-dropdown")) return;
+      // 省略号按钮自己管开关，按在按钮上的这一下不能把菜单关掉。
+      if (target?.closest?.("[data-ws-more-trigger]")) return;
       closeCtx();
     };
     document.addEventListener("mousedown", onPointerDown, true);
@@ -1910,6 +1929,7 @@ export function SessionSidebar(): ReactNode {
               <ContractOutline size={14} />
             </Button>
             <Dropdown
+              {...NO_OVERLAY_MOTION}
               trigger={["click"]}
               menu={{
                 items: moreMenuItems(),
@@ -1980,6 +2000,7 @@ export function SessionSidebar(): ReactNode {
                           shape="circle"
                           size="small"
                           data-no-ws-drag
+                          data-ws-more-trigger
                           onClick={(e) => onWorkspaceMore(e, root)}
                         >
                           <EllipsisHorizontalOutline size={14} />
@@ -2348,24 +2369,23 @@ export function SessionSidebar(): ReactNode {
         )}
       </Modal>
 
-      {ctx.show
-        ? createPortal(
-            <div className={styles.ctxAnchor} style={{ left: ctx.x, top: ctx.y }}>
-              <Dropdown
-                open
-                trigger={[]}
-                placement="bottomLeft"
-                menu={{
-                  items: ctxItems,
-                  onClick: ({ key }) => void onCtxSelect(key),
-                }}
-              >
-                <span className={styles.ctxAnchorTarget} />
-              </Dropdown>
-            </div>,
-            document.body,
-          )
-        : null}
+      {createPortal(
+        <div className={styles.ctxAnchor} style={{ left: ctx.x, top: ctx.y }}>
+          <Dropdown
+            {...NO_OVERLAY_MOTION}
+            open={ctx.show}
+            trigger={[]}
+            placement={ctx.placement}
+            menu={{
+              items: ctxItems,
+              onClick: ({ key }) => void onCtxSelect(key),
+            }}
+          >
+            <span className={styles.ctxAnchorTarget} />
+          </Dropdown>
+        </div>,
+        document.body,
+      )}
     </aside>
   );
 }

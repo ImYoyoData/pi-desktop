@@ -72,14 +72,36 @@ html[data-theme][data-wallpaper="on"] .img-chip {
   background: var(--w-elevated-surface);
 }
 
-/* 输入框与设置页叠自己的磨砂层，浮层与右键菜单已统一带 backdrop-filter */
-html[data-theme][data-wallpaper="on"] .composer-card,
-html[data-theme][data-wallpaper="on"] .pi-settings-modal,
-html[data-theme][data-wallpaper="on"] .modal-editor-panel {
+/* 输入框叠自己的磨砂层，浮层与右键菜单已统一带 backdrop-filter */
+html[data-theme][data-wallpaper="on"] .composer-card {
   backdrop-filter: blur(24px) saturate(1.3);
 }
 
-/* 设置页整体使用独立的透明度档位 */
+/* 浮层玻璃的模糊落在内容层上：元素自身带 backdrop-filter 会形成 backdrop root，
+   root 内的后代（下拉子菜单）就无法再模糊其下的背景，只能靠实色保底而发黑。 */
+html[data-theme][data-wallpaper="on"] .ant-dropdown .ant-dropdown-menu,
+html[data-theme][data-wallpaper="on"] .ant-dropdown-menu-submenu .ant-dropdown-menu,
+html[data-theme][data-wallpaper="on"] .ant-select-dropdown,
+html[data-theme][data-wallpaper="on"] .ant-message-notice,
+html[data-theme][data-wallpaper="on"] .ant-notification-notice,
+html[data-theme][data-wallpaper="on"] .ant-modal .ant-modal-container {
+  background-color: var(--w-elevated-surface) !important;
+  backdrop-filter: blur(14px) saturate(1.15);
+}
+
+/* Popover 与 Tooltip 的根自带 drop-shadow 滤镜，后代取不到壁纸，模糊只能落在根上 */
+html[data-theme][data-wallpaper="on"] .ant-popover,
+html[data-theme][data-wallpaper="on"] .ant-tooltip {
+  backdrop-filter: blur(14px) saturate(1.15);
+}
+
+html[data-theme][data-wallpaper="on"] .ant-popover-container,
+html[data-theme][data-wallpaper="on"] .ant-tooltip-container {
+  background-color: var(--w-elevated-surface) !important;
+}
+
+/* 设置页整体使用独立的透明度档位；根节点只提供表面变量，
+   模糊交给内容层 —— 根节点自带 backdrop-filter 会让内容层取不到壁纸。 */
 html[data-theme][data-wallpaper="on"] .pi-settings-modal,
 html[data-theme][data-wallpaper="on"] .modal-editor-panel {
   --w-settings-surface: color-mix(
@@ -87,26 +109,33 @@ html[data-theme][data-wallpaper="on"] .modal-editor-panel {
     var(--w-solid-bg) var(--pi-alpha-settings, 0%),
     transparent
   );
-  background: var(--w-settings-surface);
   --ant-color-bg-elevated: var(--w-settings-surface);
   --ant-color-bg-container: var(--w-settings-surface);
 }
 
-/* antd 浮层（选择菜单、对话框、消息、通知）跟随抬升表面，并模糊其下的壁纸 */
-html[data-theme][data-wallpaper="on"] .ant-select-dropdown,
-html[data-theme][data-wallpaper="on"] .ant-modal .ant-modal-content,
-html[data-theme][data-wallpaper="on"] .ant-message-notice-content,
-html[data-theme][data-wallpaper="on"] .ant-notification-notice {
-  background-color: var(--w-elevated-surface) !important;
-  backdrop-filter: blur(14px) saturate(1.15);
+/* 设置页的表面与模糊要盖过上面的通用规则，故放在其后 */
+html[data-theme][data-wallpaper="on"] .pi-settings-modal .ant-modal-container,
+html[data-theme][data-wallpaper="on"] .modal-editor-panel .ant-modal-container {
+  background-color: var(--w-settings-surface) !important;
+  backdrop-filter: blur(24px) saturate(1.3);
 }
 
-/* 浮层玻璃的模糊直接落在内容层上：元素自身带 backdrop-filter 会形成 backdrop root，
-   root 内的后代（下拉子菜单）就无法再模糊其下的背景，只能靠实色保底而发黑。 */
-html[data-theme][data-wallpaper="on"] .ant-popover .ant-popover-inner,
-html[data-theme][data-wallpaper="on"] .ant-dropdown .ant-dropdown-menu {
-  background-color: var(--w-elevated-surface) !important;
-  backdrop-filter: blur(14px) saturate(1.15);
+/* 浮层进出场动画在根上做透明度过渡：透明度小于 1 时浏览器会为该子树建立 backdrop root，
+   内容层的 backdrop-filter 便取不到壁纸，玻璃底在动画期间消失（收起时同样会闪一下全透明）。
+   壁纸模式下压掉进出场的透明度变化；下拉菜单已整体关掉进出场动画，这里兜底保证
+   其它浮层动画进行中的那一帧也不会把玻璃底闪没。 */
+html[data-theme][data-wallpaper="on"]
+  :is(
+    .ant-dropdown,
+    .ant-dropdown-menu-submenu-popup,
+    .ant-popover,
+    .ant-select-dropdown,
+    .ant-tooltip,
+    .ant-modal,
+    .ant-message-notice,
+    .ant-notification-notice
+  ):is([class*="-enter"], [class*="-appear"], [class*="-leave"]) {
+  opacity: 1 !important;
 }
 
 html[data-theme][data-wallpaper="on"] .preview-context-menu,

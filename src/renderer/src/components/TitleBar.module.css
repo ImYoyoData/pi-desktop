@@ -2,7 +2,11 @@
   display: flex;
   align-items: center;
   height: 36px;
-  padding: 0 8px;
+  /*
+   * 右侧不留内边距：自绘窗口按钮要贴住窗口边缘，
+   * 否则关闭按钮悬停的红色块与窗口右缘之间会出现一条缝。
+   */
+  padding: 0 0 0 8px;
   /*
    * 半透明标题栏：颜色只做轻微压暗（一档 26%），让下面的内容/壁纸透出来。
    * 配合 backdrop-filter 形成磨砂玻璃 —— 启用壁纸时透的是壁纸，未启用时透的是
@@ -37,6 +41,11 @@
 .mac .trafficSpace {
   /* Leave room for traffic lights (hiddenInset + trafficLightPosition). */
   width: 72px;
+}
+
+/* macOS 不画自绘窗口按钮，右侧保留与左侧交通灯对称的留白 */
+:global(.title-bar).mac {
+  padding-right: 8px;
 }
 
 .brand {
