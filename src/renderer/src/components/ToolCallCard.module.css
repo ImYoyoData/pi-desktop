@@ -219,8 +219,28 @@
   }
 }
 
-.bgBtn {
+/* 转到后台：跟随聊天区 chip 体系（描边 + 半透明表面 + chat 色板），
+   不用 antd 默认的实心块，否则在壁纸/聊天表面上像贴了个外来控件。 */
+.bgBtn:global(.ant-btn) {
   flex-shrink: 0;
+  height: 20px;
+  padding: 0 6px;
+  border-radius: 4px;
+  font-size: var(--chat-font-xs, 11px);
+  background: var(--w-tool-surface, var(--bg-elevated)) !important;
+  border-color: var(--chat-line, var(--border)) !important;
+  color: var(--chat-desc-fg, var(--fg-muted)) !important;
+}
+
+.bgBtn:global(.ant-btn):hover:not(:disabled) {
+  background: var(--chat-hover-bg, var(--bg-hover)) !important;
+  border-color: var(--accent-border, var(--fg-faint)) !important;
+  color: var(--fg, inherit) !important;
+}
+
+.bgBtn:global(.ant-btn):disabled {
+  color: var(--chat-desc-fg, var(--fg-muted)) !important;
+  opacity: 0.55;
 }
 
 .toolBody {
