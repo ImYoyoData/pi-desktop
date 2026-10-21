@@ -65,10 +65,7 @@ export const zh = {
 	expandToolCalls: "展开工具调用详情",
 	expandToolCallsHint:
 		"开启后，读取/写入文件、执行命令等工具卡片在生成过程中会自动展开；关闭时（默认）全部折叠，需要时自己点开。",
-	newAgent: "新建 Agent",
 	openFolder: "打开文件夹",
-	openFolderHint: "选择一个项目目录，开始 Agent 工作区",
-	recent: "最近打开",
 	noFolder: "未打开工作区",
 	sessions: "会话",
 	emptySessions: "暂无会话",
@@ -1228,7 +1225,6 @@ export const zh = {
 	sessionIdCopied: "已复制会话 ID",
 	renameSession: "重命名会话",
 	sessionNamePlaceholder: "会话名称",
-	selectOrCreateSession: "在左侧选择会话，或新建一个来开始。",
 	noRecentProjects: "暂无最近项目",
 
 	// Security settings

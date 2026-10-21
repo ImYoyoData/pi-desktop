@@ -1,18 +1,13 @@
 import {
   lazy,
   Suspense,
-  useCallback,
   useEffect,
   useRef,
   useState,
   type ReactNode,
 } from "react";
-import { Button, Empty, Tag, Typography } from "antd";
-import {
-  AddOutline,
-  InformationCircleOutline,
-  SparklesOutline,
-} from "@renderer/components/icons/ionicons";
+import { Button, Tag, Typography } from "antd";
+import { InformationCircleOutline } from "@renderer/components/icons/ionicons";
 import SessionInfoModal from "@renderer/components/SessionInfoModal";
 import AskUserStrip from "@renderer/components/AskUserStrip";
 import ExtensionUiStrip from "@renderer/components/ExtensionUiStrip";
@@ -21,7 +16,6 @@ import SessionChangedFiles from "@renderer/components/SessionChangedFiles";
 import { useAppearanceStore } from "@renderer/stores/appearance";
 import { useChatStore } from "@renderer/stores/chat";
 import { useSessionsStore } from "@renderer/stores/sessions";
-import { useWorkspaceStore } from "@renderer/stores/workspace";
 import { useSessionWidgetsStore } from "@renderer/stores/session-widgets";
 import { hasAnyFileChange } from "@renderer/utils/session-file-changes";
 import { heuristicSessionTitle } from "@renderer/utils/session-title";
@@ -47,7 +41,6 @@ export function ChatPanel({ visible }: Props): ReactNode {
   const chat = useChatStore();
   const appearance = useAppearanceStore();
   const sessions = useSessionsStore();
-  const workspace = useWorkspaceStore();
 
   useEffect(() => {
     useSessionWidgetsStore.getState().restoreTodoSnapshots();
@@ -88,7 +81,6 @@ export function ChatPanel({ visible }: Props): ReactNode {
 
   const isDraft = !sessions.activeId && Boolean(sessions.draftRoot);
   const hasSession = Boolean(sessions.activeId) || isDraft;
-  const canCreateSession = !workspace.root || workspace.sessionsReady;
 
   const running = (() => {
     const id = sessions.activeId;
@@ -142,35 +134,9 @@ export function ChatPanel({ visible }: Props): ReactNode {
     return t.newSession;
   })();
 
-  const onNewAgent = useCallback(async (): Promise<void> => {
-    const ws = useWorkspaceStore.getState();
-    if (ws.root && !ws.sessionsReady) return;
-    let root = ws.root;
-    if (!root) root = await useWorkspaceStore.getState().openWorkspace();
-    if (!root) return;
-    if (!useWorkspaceStore.getState().sessionsReady) return;
-    useSessionsStore.getState().beginDraft(root);
-  }, []);
-
   return (
     <section className={`chat-panel ${styles.chatPanel}`}>
-      {!hasSession ? (
-        <div className={styles.emptyAgent}>
-          <Empty
-            description={t.selectOrCreateSession}
-            image={<SparklesOutline size={28} />}
-          >
-            <Button
-              type="primary"
-              disabled={!canCreateSession}
-              icon={<AddOutline />}
-              onClick={() => void onNewAgent()}
-            >
-              {t.newAgent}
-            </Button>
-          </Empty>
-        </div>
-      ) : (
+      {hasSession ? (
         <>
           <header className={`chat-panel-head ${styles.chatPanelHead}`}>
             {appearance.showSessionTitle ? (
@@ -232,7 +198,7 @@ export function ChatPanel({ visible }: Props): ReactNode {
             </Suspense>
           </div>
         </>
-      )}
+      ) : null}
       <SessionInfoModal
         open={sessionInfoOpen}
         sessionId={sessions.activeId}

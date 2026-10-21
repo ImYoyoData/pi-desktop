@@ -113,6 +113,13 @@ html[data-theme][data-wallpaper="on"] .modal-editor-panel {
   --ant-color-bg-container: var(--w-settings-surface);
 }
 
+/* 设置页是自绘浮动面板，内部没有 .ant-modal-container 可挂：磨砂必须落在面板自身，
+   否则整块面板直接透出壁纸（面板自身背景是透明的 --bg），玻璃感就没了。 */
+html[data-theme][data-wallpaper="on"] .modal-editor-panel {
+  background: var(--w-settings-surface);
+  backdrop-filter: blur(24px) saturate(1.3);
+}
+
 /* 设置页的表面与模糊要盖过上面的通用规则，故放在其后 */
 html[data-theme][data-wallpaper="on"] .pi-settings-modal .ant-modal-container,
 html[data-theme][data-wallpaper="on"] .modal-editor-panel .ant-modal-container {
