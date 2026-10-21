@@ -8,6 +8,7 @@ import type { WindowRunIdentity } from "../../../shared/protocol";
 import PanelLeftIcon from "@renderer/components/icons/PanelLeftIcon";
 import PanelRightIcon from "@renderer/components/icons/PanelRightIcon";
 import PanelBottomIcon from "@renderer/components/icons/PanelBottomIcon";
+import PiLogoIcon from "@renderer/components/icons/PiLogoIcon";
 import UpdateCard from "@renderer/components/UpdateCard";
 import { useWorkspaceStore } from "@renderer/stores/workspace";
 import { useUpdateStore } from "@renderer/stores/update";
@@ -99,6 +100,7 @@ export function TitleBar(): ReactNode {
       <header className={`title-bar ${platform === "darwin" ? styles.mac : ""}`}>
         <div className={`${styles.drag} ${styles.trafficSpace}`} aria-hidden="true" />
         <div className={styles.brand}>
+          <PiLogoIcon size={16} />
           <span className={styles.name}>{t.appName}</span>
           {identity && platform === "win32" && appearance.showPrivilegeLevel ? (
             <span className={styles.privilege}>{privilegeLabel}</span>
