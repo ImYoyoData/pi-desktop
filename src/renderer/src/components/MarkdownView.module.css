@@ -240,7 +240,7 @@
   box-shadow: none;
 }
 
-.root:global(.md) code.hljs {
+.root:global(.md) :global(code.hljs) {
   font-family: var(--font-mono);
   font-size: 12px;
   line-height: 1.5;
@@ -352,7 +352,7 @@
   padding: 8px 12px;
 }
 
-.root:global(.md.md-chat) code.hljs {
+.root:global(.md.md-chat) :global(code.hljs) {
   font-size: var(--chat-font-s, 12px);
   line-height: 1.45;
 }

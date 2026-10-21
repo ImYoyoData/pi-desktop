@@ -10,6 +10,7 @@ import {
 import { Button, Modal, Space } from "antd";
 import {
   createStreamBlockSplitter,
+  markdownRootClassName,
   renderMarkdown,
   renderMarkdownBlock,
   renderMarkdownCached,
@@ -72,10 +73,14 @@ function tailText(content: string, from: number): string {
     : tail;
 }
 
-/** 旧版的渲染点：最后一个空行之后（其前的内容全部渲染成 HTML）。 */
-function renderPointOf(content: string): number {
-  const at = content.lastIndexOf("\n\n");
-  return at >= 0 ? at + 2 : 0;
+/**
+ * 流式渲染点：围栏内的内容必须整段交给 markdown 解析。
+ * 之前按“最后一个空行”切分，空行落在围栏内部时会把围栏原文（``` 语言标记）
+ * 当纯文本甩到界面上；围栏闭合后若后面没有空行，整段代码也会一直以原文示人。
+ */
+function renderPointOf(content: string, splitter: StreamBlockSplitter): number {
+  if (splitter.inFence) return content.length;
+  return Math.max(splitter.boundary, splitter.closedFenceEnd);
 }
 
 export function MarkdownView({ content, variant, streaming, className }: Props): ReactNode {
@@ -143,7 +148,7 @@ export function MarkdownView({ content, variant, streaming, className }: Props):
         if (block) blocks.push(block);
       }
       const boundary = splitter.boundary;
-      const renderPoint = Math.max(renderPointOf(source), boundary);
+      const renderPoint = Math.max(renderPointOf(source, splitter), boundary);
       const liveText = source.slice(boundary, renderPoint);
       if (liveText.length > STREAM_LIVE_BLOCK_MAX_CHARS) {
         liveBlockTextRef.current = "";
@@ -437,7 +442,7 @@ export function MarkdownView({ content, variant, streaming, className }: Props):
     <>
       <div
         ref={rootEl}
-        className={`md${variant === "chat" ? " md-chat" : ""}${styles.root}${className ? ` ${className}` : ""}`}
+        className={markdownRootClassName(variant, styles.root, className)}
       >
         {renderState.blocks.map((block, index) => (
           <MarkdownHtml key={index} html={block} />

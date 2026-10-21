@@ -1,6 +1,6 @@
 import DOMPurify from "dompurify";
 import katex from "katex";
-import { marked } from "marked";
+import { marked, type Token } from "marked";
 import markedKatex from "marked-katex-extension";
 import hljs from "highlight.js/lib/common";
 
@@ -112,9 +112,21 @@ marked.use({
         `</div></div>`,
       ].join("");
     },
-    link({ href, title, text }: { href: string; title?: string | null; text: string }) {
+    link({
+      href,
+      title,
+      text,
+      tokens,
+    }: {
+      href: string;
+      title?: string | null;
+      text: string;
+      tokens?: Token[];
+    }) {
       const titleAttr = title ? ` title="${escapeHtml(title)}"` : "";
-      return `<a href="${escapeHtml(href)}"${titleAttr} rel="noopener noreferrer">${text}</a>`;
+      // token.text 是链接标签的原文，未转义；含 < > & 时会破坏 HTML 结构。
+      const label = tokens?.length ? this.parser.parseInline(tokens) : escapeHtml(text);
+      return `<a href="${escapeHtml(href)}"${titleAttr} rel="noopener noreferrer">${label}</a>`;
     },
   },
 });
@@ -230,6 +242,10 @@ function closesFence(line: string, fence: string): boolean {
 export type StreamBlockSplitter = {
   /** 已确认可独立解析的内容长度（以空行收尾，且不在围栏内）。 */
   readonly boundary: number;
+  /** 最后一个已闭合围栏的结束位置；还没有闭合围栏时为 0。 */
+  readonly closedFenceEnd: number;
+  /** 当前是否停在未闭合的围栏里。 */
+  readonly inFence: boolean;
   /** 返回自上次调用以来新定型的文本段；无进展时返回空串。 */
   take(content: string): string;
 };
@@ -244,6 +260,8 @@ export function createStreamBlockSplitter(): StreamBlockSplitter {
   let rendered = 0;
   let pending = -1;
   let fence = "";
+  let closedFenceEnd = 0;
+  let partialLine = "";
 
   function reset(): void {
     scanned = 0;
@@ -251,11 +269,21 @@ export function createStreamBlockSplitter(): StreamBlockSplitter {
     rendered = 0;
     pending = -1;
     fence = "";
+    closedFenceEnd = 0;
+    partialLine = "";
+  }
+
+  /** 尾部未换行的那一行也可能已经开启/闭合了围栏，必须一并计入。 */
+  function partialClosesFence(): boolean {
+    return fence !== "" && closesFence(partialLine, fence);
   }
 
   function consumeLine(line: string, lineEnd: number): void {
     if (fence) {
-      if (closesFence(line, fence)) fence = "";
+      if (closesFence(line, fence)) {
+        fence = "";
+        closedFenceEnd = lineEnd;
+      }
       return;
     }
     if (line.trim() === "") {
@@ -284,6 +312,13 @@ export function createStreamBlockSplitter(): StreamBlockSplitter {
     get boundary(): number {
       return boundary;
     },
+    get closedFenceEnd(): number {
+      return partialClosesFence() ? scanned + partialLine.length : closedFenceEnd;
+    },
+    get inFence(): boolean {
+      if (fence) return !partialClosesFence();
+      return fenceOpenMarker(partialLine) !== "";
+    },
     take(content: string): string {
       if (content.length < scanned) reset();
       let pos = scanned;
@@ -294,6 +329,7 @@ export function createStreamBlockSplitter(): StreamBlockSplitter {
         pos = nl + 1;
       }
       scanned = pos;
+      partialLine = content.slice(pos);
       if (boundary <= rendered) return "";
       const added = content.slice(rendered, boundary);
       rendered = boundary;
@@ -306,6 +342,20 @@ export function createStreamBlockSplitter(): StreamBlockSplitter {
 const BLOCK_MARKDOWN_MAX_CHARS = 32_000;
 /** 已完成消息全量解析上限：极端长回答直接纯文本，保证界面可用。 */
 const MESSAGE_MARKDOWN_MAX_CHARS = 120_000;
+
+/**
+ * markdown 容器的 class 列表。变体类与 CSS Module 类之间必须留空格：
+ * 粘连成 `md-chatroot_hash` 时，`.md.md-chat` 这类选择器全部失配，
+ * 聊天样式（代码块悬浮复制按钮、隐藏语言标签、隐藏行号）整块失效。
+ */
+export function markdownRootClassName(
+  variant: "default" | "chat" | undefined,
+  moduleClass: string,
+  extra?: string,
+): string {
+  const variantClass = variant === "chat" ? "md md-chat" : "md";
+  return `${variantClass} ${moduleClass}${extra ? ` ${extra}` : ""}`;
+}
 
 function renderPlainTextBlock(content: string): string {
   return `<pre class="md-plain-block">${escapeHtml(content)}</pre>`;
