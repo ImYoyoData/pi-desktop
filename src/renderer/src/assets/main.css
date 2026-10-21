@@ -255,6 +255,9 @@ button {
 .splitpanes__splitter {
   background: transparent !important;
   position: relative;
+  /* 分隔线本体只有 0.5px，可抓区靠 ::before 撑开；抬到面板之上，
+     否则命中区右半边会被右侧面板（同为 relative，按文档序后绘制）盖住。 */
+  z-index: 1;
   transition: background var(--duration-fast) var(--ease-out);
 }
 
