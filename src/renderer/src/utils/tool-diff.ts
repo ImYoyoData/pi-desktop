@@ -239,18 +239,6 @@ function parseOutputCapMarker(text: string): number | null {
   return m ? Number(m[1]) : null;
 }
 
-/**
- * Render-time cut for tool text previews (Appearance → Interface line-number choice).
- * Cards keep the full stored text; the cut with an "N more" suffix applies only
- * when the user picks a line limit.
- */
-export function previewText(text: string, maxLines: number): string | null {
-  if (!text.trim()) return null;
-  const lines = text.replace(/\r\n/g, "\n").split("\n");
-  if (lines.length <= maxLines) return text;
-  return `${lines.slice(0, maxLines).join("\n")}\n… (${lines.length - maxLines} more)`;
-}
-
 /** Parse "Showing lines A-B of N" notices from read/bash tool text. */
 function parseLineRangeNotice(text: string): {
   startLine: number | null;

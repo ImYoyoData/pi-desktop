@@ -20,7 +20,6 @@ import {
   type IoniconProps,
 } from "@renderer/components/icons/ionicons";
 import type { ToolCard } from "@renderer/utils/tool-diff";
-import { previewText } from "@renderer/utils/tool-diff";
 import type { ChatToolNestedCall } from "@renderer/stores/chat-reducer";
 import { isToolCardOpen } from "@renderer/utils/tool-card-open";
 import FileChip from "@renderer/components/FileChip";
@@ -252,18 +251,11 @@ export function ToolCallCard({
     return fileName || toolName;
   }, [card, fileName, isAskUserTool, t, toolName]);
 
-  /** 按用户设定的截断行数渲染工具输出；0 表示不截断。 */
-  function renderBodyText(text: string | null | undefined): string | null {
-    if (!text) return null;
-    const maxLines = appearance.truncateToolOutputLines;
-    return maxLines > 0 ? previewText(text, maxLines) : text;
-  }
-
   const body = useMemo(() => {
     if (card.kind === "todo") return null;
     if (card.kind === "bash") {
       const cmd = card.command?.trim() || "";
-      const out = renderBodyText(card.preview);
+      const out = card.preview;
       if (cmd && out) return `$ ${cmd}\n\n${out}`;
       if (out) return out;
       if (cmd) return `$ ${cmd}`;
@@ -272,11 +264,9 @@ export function ToolCallCard({
     if (card.kind === "edit" || card.kind === "write") {
       return card.diff;
     }
-    if (card.kind === "other") return renderBodyText(card.diff);
-    return card.kind === "read" || card.kind === "generic"
-      ? renderBodyText(card.preview)
-      : null;
-  }, [card, appearance.truncateToolOutputLines]);
+    if (card.kind === "other") return card.diff;
+    return card.kind === "read" || card.kind === "generic" ? card.preview : null;
+  }, [card]);
 
   const stickKinds = card.kind === "write" || card.kind === "edit" || card.kind === "bash";
 

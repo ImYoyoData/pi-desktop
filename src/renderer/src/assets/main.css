@@ -284,11 +284,6 @@ button {
   inset: -3px;
 }
 
-/* 「界面分隔线」关闭：隐藏顶栏、聊天标题栏、左下快捷入口与侧栏分栏线 */
-.app-shell.panel-dividers-off .title-bar {
-  border-bottom-color: transparent;
-}
-
 /* 分栏外壳：左侧栏 + 主区，主区内部再分聊天列与右侧面板 */
 .split-root {
   position: relative;
@@ -329,18 +324,6 @@ button {
 
 .split-root .panel-collapsed .splitpanes__splitter {
   display: none;
-}
-
-.app-shell.panel-dividers-off .chat-panel .chat-panel-head {
-  border-bottom-color: transparent;
-}
-
-.app-shell.panel-dividers-off .customize-bar {
-  border-top-color: transparent;
-}
-
-.app-shell.panel-dividers-off .splitpanes.outer > .splitpanes__splitter {
-  background: transparent !important;
 }
 
 /*

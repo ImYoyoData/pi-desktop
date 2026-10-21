@@ -27,13 +27,11 @@ export type SurfaceAlphaKey = keyof SurfaceAlphaSettings;
 const THEME_KEY = "pi-desktop:theme-preference";
 const LOCALE_KEY = "pi-desktop:locale-preference";
 const COMPACT_BTN_KEY = "pi-desktop:show-compact-button";
-const PANEL_DIVIDERS_KEY = "pi-desktop:panel-dividers";
 const SESSION_DETAILS_KEY = "pi-desktop:session-details";
 const SESSION_TITLE_KEY = "pi-desktop:session-title";
 const MESSAGE_PREVIEW_KEY = "pi-desktop:message-preview";
 const MESSAGE_PREVIEW_IMAGE_KEY = "pi-desktop:message-preview-image";
 const SESSION_HOVER_ACTIONS_KEY = "pi-desktop:session-hover-actions";
-const TRUNCATE_TOOL_OUTPUT_KEY = "pi-desktop:truncate-tool-output";
 const PRIVILEGE_LEVEL_KEY = "pi-desktop:show-privilege-level";
 /**
  * Whether tool calls (read / write / edit / bash …) start expanded while the turn
@@ -41,28 +39,11 @@ const PRIVILEGE_LEVEL_KEY = "pi-desktop:show-privilege-level";
  */
 const EXPAND_TOOL_CALLS_KEY = "pi-desktop:expand-tool-calls";
 
-/** 工具输出预览的可选截断行数；0 表示不截断。 */
-export const TRUNCATE_TOOL_OUTPUT_CHOICES = [0, 10, 24, 50, 100] as const;
-
-const TRUNCATE_TOOL_OUTPUT_FALLBACK = 0;
-
-function isTruncateToolOutputChoice(value: number): boolean {
-  return (TRUNCATE_TOOL_OUTPUT_CHOICES as readonly number[]).includes(value);
-}
-
 function readShowCompactButton(): boolean {
   try {
     return prefs.getItem(COMPACT_BTN_KEY) === "1";
   } catch {
     return false;
-  }
-}
-
-function readPanelDividers(): boolean {
-  try {
-    return prefs.getItem(PANEL_DIVIDERS_KEY) !== "0";
-  } catch {
-    return true;
   }
 }
 
@@ -120,17 +101,6 @@ function readExpandToolCalls(): boolean {
     return prefs.getItem(EXPAND_TOOL_CALLS_KEY) === "1";
   } catch {
     return false;
-  }
-}
-
-function readTruncateToolOutputLines(): number {
-  try {
-    const raw = prefs.getItem(TRUNCATE_TOOL_OUTPUT_KEY);
-    if (raw === "1") return 24; // 旧版开关：开启时按 24 行截断
-    const value = Number(raw);
-    return isTruncateToolOutputChoice(value) ? value : TRUNCATE_TOOL_OUTPUT_FALLBACK;
-  } catch {
-    return TRUNCATE_TOOL_OUTPUT_FALLBACK;
   }
 }
 
@@ -231,18 +201,25 @@ function scheduleChromeSync(pref: ThemePreference, mode: ResolvedTheme): void {
   });
 }
 
+/** 「界面分隔线」开关已移除，清掉历史遗留的偏好键。 */
+function dropObsoletePrefs(): void {
+  try {
+    prefs.removeItem("pi-desktop:panel-dividers");
+  } catch {
+    // ignore
+  }
+}
+
 type AppearanceBase = {
   themePreference: ThemePreference;
   localePreference: LocalePreference;
   systemDark: boolean;
   showCompactButton: boolean;
-  showPanelDividers: boolean;
   showSessionDetails: boolean;
   showSessionTitle: boolean;
   showMessagePreview: boolean;
   showMessagePreviewImage: boolean;
   showSessionHoverActions: boolean;
-  truncateToolOutputLines: number;
   showPrivilegeLevel: boolean;
   expandToolCalls: boolean;
   customAppearance: CustomAppearanceSettings;
@@ -263,14 +240,12 @@ export type AppearanceState = AppearanceBase &
     setThemePreference: (next: ThemePreference) => void;
     setLocalePreference: (next: LocalePreference) => void;
     setShowCompactButton: (next: boolean) => void;
-    setShowPanelDividers: (next: boolean) => void;
     setShowSessionDetails: (next: boolean) => void;
     setShowSessionTitle: (next: boolean) => void;
     setShowMessagePreview: (next: boolean) => void;
     setShowMessagePreviewImage: (next: boolean) => void;
     setSessionHoverActions: (next: boolean) => void;
     setShowPrivilegeLevel: (next: boolean) => void;
-    setTruncateToolOutputLines: (next: number) => void;
     setExpandToolCalls: (next: boolean) => void;
     setWallpaperFile: (path: string) => void;
     clearWallpaper: () => void;
@@ -313,13 +288,11 @@ function initialBase(): AppearanceBase {
     localePreference: readLocalePreference(),
     systemDark: systemPrefersDark(),
     showCompactButton: readShowCompactButton(),
-    showPanelDividers: readPanelDividers(),
     showSessionDetails: readSessionDetails(),
     showSessionTitle: readSessionTitle(),
     showMessagePreview: readMessagePreview(),
     showMessagePreviewImage: readMessagePreviewImage(),
     showSessionHoverActions: readSessionHoverActions(),
-    truncateToolOutputLines: readTruncateToolOutputLines(),
     showPrivilegeLevel: readShowPrivilegeLevel(),
     expandToolCalls: readExpandToolCalls(),
     customAppearance: readCustomAppearance(),
@@ -418,14 +391,6 @@ export const useAppearanceStore = create<AppearanceState>()((set, get) => {
         // ignore
       }
     },
-    setShowPanelDividers: (next) => {
-      set({ showPanelDividers: next });
-      try {
-        prefs.setItem(PANEL_DIVIDERS_KEY, next ? "1" : "0");
-      } catch {
-        // ignore
-      }
-    },
     setShowSessionDetails: (next) => {
       set({ showSessionDetails: next });
       try {
@@ -474,15 +439,6 @@ export const useAppearanceStore = create<AppearanceState>()((set, get) => {
         // ignore
       }
     },
-    setTruncateToolOutputLines: (next) => {
-      const value = isTruncateToolOutputChoice(next) ? next : TRUNCATE_TOOL_OUTPUT_FALLBACK;
-      set({ truncateToolOutputLines: value });
-      try {
-        prefs.setItem(TRUNCATE_TOOL_OUTPUT_KEY, String(value));
-      } catch {
-        // ignore
-      }
-    },
     setExpandToolCalls: (next) => {
       set({ expandToolCalls: next });
       try {
@@ -526,6 +482,7 @@ export const useAppearanceStore = create<AppearanceState>()((set, get) => {
     },
     init: () => {
       syncGlassShell();
+      dropObsoletePrefs();
       return syncSystemListener();
     },
   };
