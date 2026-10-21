@@ -1,60 +1,17 @@
 .runtimeSettings {
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  padding: 12px 16px 20px;
-}
-
-.sectionHead {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.sectionHint,
-.rowHint {
-  font-size: 12px;
-  line-height: 16px;
-}
-
-.switchRow {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-}
-
-.switchLabels {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  min-width: 0;
+  gap: 16px;
 }
 
 .settingSelect {
   flex-shrink: 0;
-  width: 128px;
+  width: 140px;
 }
 
 .settingInput {
   flex-shrink: 0;
   width: 260px;
-}
-
-.settingRadioGroup {
-  flex-shrink: 0;
-  width: 120px;
-  display: inline-flex;
-}
-
-.settingRadioGroup :global(.ant-radio-button-wrapper) {
-  flex: 1;
-  padding: 0;
-  text-align: center;
-}
-
-.overrideHead {
-  margin-top: 4px;
 }
 
 .overrideAdd {
@@ -65,19 +22,14 @@
 }
 
 .overrideModelSelect {
-  width: 320px;
+  width: 260px;
 }
 
 .overrideEmpty {
-  display: flex;
-  justify-content: flex-end;
-}
-
-.overrideLabel,
-.overrideKey {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  padding: 10px 14px;
+  color: var(--fg-muted);
+  font-size: 12px;
+  line-height: 17px;
 }
 
 .overrideControls {
@@ -92,4 +44,8 @@
 .overrideFieldLabel {
   font-size: 12px;
   white-space: nowrap;
+}
+
+.overrideSelect {
+  width: 120px;
 }

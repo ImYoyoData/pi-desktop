@@ -1,30 +1,7 @@
 .keysPanel {
   display: flex;
   flex-direction: column;
-  gap: 14px;
-}
-
-.switchRow {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
   gap: 16px;
-}
-
-.labels {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  min-width: 0;
-}
-
-.hint {
-  font-size: 12px;
-}
-
-/* 盖掉 antd Divider 自带的上下外边距 */
-:global(.ant-divider).divider {
-  margin: 0;
 }
 
 .group {
@@ -33,34 +10,32 @@
   gap: 8px;
 }
 
-.rows {
-  display: flex;
-  flex-direction: column;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  overflow: hidden;
-}
-
 .subGroup {
   display: flex;
   flex-direction: column;
   gap: 6px;
-  margin-top: 4px;
+  padding: 10px 14px;
 }
 
 .subTitle {
+  color: var(--fg-muted);
   font-size: 12px;
+}
+
+.subRows {
+  display: flex;
+  flex-direction: column;
+}
+
+.subRows > * + * {
+  border-top: 1px solid var(--border);
 }
 
 .row {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 6px 10px;
-}
-
-.row + .row {
-  border-top: 1px solid var(--border);
+  padding: 10px 14px;
 }
 
 .off .label,
@@ -72,6 +47,7 @@
   flex: 1;
   min-width: 0;
   color: var(--fg);
+  font-size: 13px;
 }
 
 .keys {

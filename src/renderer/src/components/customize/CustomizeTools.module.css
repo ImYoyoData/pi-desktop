@@ -10,75 +10,25 @@
   flex: 1;
   min-height: 0;
   overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
 }
 
-.groupBlock {
+.groupCard {
   display: flex;
   flex-direction: column;
 }
 
-.itemRight {
-  display: flex;
-  align-items: center;
-  flex-shrink: 0;
-  gap: 4px;
-  margin-left: 16px;
-}
-
-.itemSwitch {
-  flex-shrink: 0;
-}
-
-.codemodeSettings {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  padding: 2px 12px 10px 16px;
-}
-
-.codemodeField {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.fieldLabel {
-  min-width: 84px;
-  color: var(--fg-muted);
-  font-size: 12px;
-}
-
-.fieldControl {
-  width: 200px;
-}
-
-.codemodeHint {
-  max-width: 560px;
-  color: var(--fg-muted);
-  font-size: 11px;
-  line-height: 1.5;
-}
-
-.inlineBadge {
-  flex-shrink: 0;
-  padding: 0 6px;
-  border-radius: 4px;
-  background: var(--bg-active);
-  color: var(--fg-muted);
-  font-size: 10px;
-  line-height: 16px;
-}
-
-.aiCustomizationGroupHeader {
+.groupHeader {
   display: flex;
   align-items: center;
   gap: 8px;
   width: 100%;
   min-height: 36px;
   margin: 0;
-  padding: 4px 8px;
+  padding: 10px 14px;
   border: none;
-  border-radius: 4px;
   background: transparent;
   color: inherit;
   font: inherit;
@@ -87,15 +37,8 @@
   user-select: none;
 }
 
-.aiCustomizationGroupHeader:hover {
+.groupHeader:hover {
   background-color: var(--bg-hover);
-}
-
-.groupLabelGroup {
-  display: flex;
-  align-items: center;
-  min-width: 0;
-  overflow: hidden;
 }
 
 .groupLabel {
@@ -108,7 +51,6 @@
 
 .groupCount {
   flex-shrink: 0;
-  margin-top: 2px;
   color: var(--fg-muted);
   font-size: 11px;
   font-weight: 600;
@@ -127,7 +69,7 @@
   transition: opacity 0.1s ease;
 }
 
-.aiCustomizationGroupHeader:hover .groupInfo {
+.groupHeader:hover .groupInfo {
   opacity: 0.8;
 }
 
@@ -146,56 +88,12 @@
   opacity: 0.7;
 }
 
-.aiCustomizationListItem {
-  display: flex;
-  align-items: center;
-  min-height: 32px;
-  padding: 6px 12px 6px 16px;
-  border-radius: 4px;
+.groupBody > * + * {
+  border-top: 1px solid var(--border);
 }
 
-.aiCustomizationListItem:hover {
-  background-color: var(--bg-hover);
-}
-
-.itemLeft {
-  display: flex;
-  align-items: center;
-  flex: 1;
-  min-width: 0;
-}
-
-.itemText {
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-  overflow: hidden;
-}
-
-.itemNameRow {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  overflow: hidden;
-}
-
-.itemName {
-  color: var(--fg);
-  font-family: var(--font-mono, monospace);
-  font-size: 12px;
-  line-height: 18px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.itemDescription {
-  color: var(--fg-muted);
-  font-size: 11px;
-  line-height: 14px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+.fieldControl {
+  width: 200px;
 }
 
 .listEmptyState {

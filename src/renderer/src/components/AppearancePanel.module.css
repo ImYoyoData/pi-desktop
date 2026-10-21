@@ -5,64 +5,7 @@
   container-type: inline-size;
 }
 
-.sectionTitle {
-  font-size: 12.5px;
-  font-weight: 600;
-  color: var(--fg-strong);
-}
-
-.switchRow {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-}
-
-.switchLabels {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  min-width: 0;
-}
-
-.switchHint {
-  font-size: 12px;
-  line-height: 1.45;
-}
-
 .settingSelect {
   flex-shrink: 0;
-  width: 120px;
-}
-
-.settingRadioGroup {
-  display: inline-flex;
-  flex-shrink: 0;
-  width: 120px;
-}
-
-.settingRadioGroup :global(.ant-radio-button-wrapper) {
-  flex: 1;
-  padding: 0;
-  text-align: center;
-}
-
-.themeLocaleGrid {
-  display: grid;
-  grid-template-columns: 1fr max-content;
-  align-items: center;
-  gap: 16px 12px;
-}
-
-.themeLocaleDivider {
-  grid-column: 1 / -1;
-}
-
-.themeLocaleRadio {
-  display: flex;
-}
-
-.themeLocaleRadio :global(.ant-radio-button-wrapper) {
-  flex: 1;
-  text-align: center;
+  width: 140px;
 }

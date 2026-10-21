@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { Button, Divider, Typography } from "antd";
-import ToggleButton from "@renderer/components/ToggleButton";
+import { Button } from "antd";
 import {
   BUILTIN_SHORTCUTS,
   KEYBINDINGS,
@@ -9,6 +8,11 @@ import {
   type KeybindingId,
 } from "@renderer/stores/keybindings";
 import { keyboardEventToAccelerator } from "../../../shared/hotkey";
+import {
+  SettingsGroup,
+  SettingsRow,
+  SettingsSwitch,
+} from "@renderer/components/customize/SettingsGroup";
 import { useI18n } from "@renderer/i18n/use-i18n";
 import type { Messages } from "@renderer/i18n";
 import styles from "./KeybindingsSettings.module.css";
@@ -74,80 +78,67 @@ export function KeybindingsSettings(): ReactNode {
 
   return (
     <div className={styles.keysPanel}>
-      <div className={styles.switchRow}>
-        <div className={styles.labels}>
-          <Typography.Text strong>{t.keybindingsMaster}</Typography.Text>
-          <Typography.Text type="secondary" className={styles.hint}>
-            {t.keybindingsMasterHint}
-          </Typography.Text>
-        </div>
-        <ToggleButton
-          value={keybindings.master}
-          onValueChange={(value) => keybindings.setMaster(value)}
-        />
-      </div>
+      <SettingsGroup>
+        <SettingsRow label={t.keybindingsMaster} description={t.keybindingsMasterHint}>
+          <SettingsSwitch
+            checked={keybindings.master}
+            label={t.keybindingsMaster}
+            onChange={(value) => keybindings.setMaster(value)}
+          />
+        </SettingsRow>
+      </SettingsGroup>
 
-      <Divider className={styles.divider} />
-
-      <section className={styles.group}>
-        <Typography.Text strong>{t.keybindingsCustomGroup}</Typography.Text>
-        <div className={styles.rows}>
-          {KEYBINDINGS.map((def) => {
-            const isRecording = recording === def.id;
-            const conflict = keybindings.conflicts.has(def.id);
-            const disabled = !keybindings.enabledOf(def.id) || !keybindings.master;
-            return (
-              <div
-                key={def.id}
-                className={disabled ? `${styles.row} ${styles.off}` : styles.row}
+      <SettingsGroup title={t.keybindingsCustomGroup}>
+        {KEYBINDINGS.map((def) => {
+          const isRecording = recording === def.id;
+          const conflict = keybindings.conflicts.has(def.id);
+          const disabled = !keybindings.enabledOf(def.id) || !keybindings.master;
+          return (
+            <div
+              key={def.id}
+              className={disabled ? `${styles.row} ${styles.off}` : styles.row}
+            >
+              <span className={styles.label}>{t[def.labelKey] as string}</span>
+              <span
+                className={`${styles.keys}${isRecording ? ` ${styles.recording}` : ""}${conflict ? ` ${styles.conflict}` : ""}`}
+                title={isRecording ? t.keybindingsRecordingHint : hintOf(def.id)}
               >
-                <span className={styles.label}>{t[def.labelKey] as string}</span>
-                <span
-                  className={`${styles.keys}${isRecording ? ` ${styles.recording}` : ""}${conflict ? ` ${styles.conflict}` : ""}`}
-                  title={isRecording ? t.keybindingsRecordingHint : hintOf(def.id)}
-                >
-                  {isRecording
-                    ? t.keybindingsRecording
-                    : keybindings.labelOf(def) || t.keybindingsUnset}
-                </span>
-                <Button
-                  size="small"
-                  type="text"
-                  disabled={isRecording || !keybindings.master}
-                  onClick={() => startRecording(def.id)}
-                >
-                  {t.keybindingsChange}
-                </Button>
-                <Button
-                  size="small"
-                  type="text"
-                  disabled={keybindings.isDefault(def.id)}
-                  onClick={() => keybindings.resetBinding(def.id)}
-                >
-                  {t.keybindingsReset}
-                </Button>
-                <ToggleButton
-                  disabled={!keybindings.master}
-                  value={keybindings.enabledOf(def.id)}
-                  onValueChange={(value) => keybindings.setEnabled(def.id, value)}
-                />
-              </div>
-            );
-          })}
-        </div>
-      </section>
+                {isRecording
+                  ? t.keybindingsRecording
+                  : keybindings.labelOf(def) || t.keybindingsUnset}
+              </span>
+              <Button
+                size="small"
+                type="text"
+                disabled={isRecording || !keybindings.master}
+                onClick={() => startRecording(def.id)}
+              >
+                {t.keybindingsChange}
+              </Button>
+              <Button
+                size="small"
+                type="text"
+                disabled={keybindings.isDefault(def.id)}
+                onClick={() => keybindings.resetBinding(def.id)}
+              >
+                {t.keybindingsReset}
+              </Button>
+              <SettingsSwitch
+                checked={keybindings.enabledOf(def.id)}
+                label={t[def.labelKey] as string}
+                disabled={!keybindings.master}
+                onChange={(value) => keybindings.setEnabled(def.id, value)}
+              />
+            </div>
+          );
+        })}
+      </SettingsGroup>
 
-      <section className={styles.group}>
-        <Typography.Text strong>{t.keybindingsBuiltinGroup}</Typography.Text>
-        <Typography.Text type="secondary" className={styles.hint}>
-          {t.keybindingsBuiltinHint}
-        </Typography.Text>
+      <SettingsGroup title={t.keybindingsBuiltinGroup} hint={t.keybindingsBuiltinHint}>
         {builtinSections.map((section) => (
           <div key={section.group} className={styles.subGroup}>
-            <Typography.Text type="secondary" className={styles.subTitle}>
-              {section.title}
-            </Typography.Text>
-            <div className={styles.rows}>
+            <div className={styles.subTitle}>{section.title}</div>
+            <div className={styles.subRows}>
               {section.items.map((item) => (
                 <div key={item.labelKey} className={styles.row}>
                   <span className={styles.label}>{t[item.labelKey] as string}</span>
@@ -157,7 +148,7 @@ export function KeybindingsSettings(): ReactNode {
             </div>
           </div>
         ))}
-      </section>
+      </SettingsGroup>
     </div>
   );
 }
