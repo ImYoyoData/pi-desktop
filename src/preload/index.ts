@@ -9,7 +9,6 @@ import type {
 	SessionHistoryPage,
 	SessionHistoryQuery,
 	SessionForkResult,
-	SessionInfoResult,
 	SessionStatus,
 	SessionSummary,
 	TerminalShellOption,
@@ -407,19 +406,6 @@ const api = {
 				sessionId,
 				cwd,
 			) as Promise<SessionStatus | null>,
-		getInfo: (sessionId: string) =>
-			ipcRenderer.invoke(
-				IpcChannels.sessions.getInfo,
-				sessionId,
-			) as Promise<SessionInfoResult>,
-		onWorkerReady: (callback: (sessionId: string) => void): (() => void) => {
-			const listener = (_e: Electron.IpcRendererEvent, sessionId: string) =>
-				callback(sessionId);
-			ipcRenderer.on(IpcChannels.sessions.workerReady, listener);
-			return () => {
-				ipcRenderer.removeListener(IpcChannels.sessions.workerReady, listener);
-			};
-		},
 		onEvent: (callback: (event: AgentEvent) => void) => {
 			const listener = (_event: Electron.IpcRendererEvent, payload: AgentEvent) =>
 				callback(payload);

@@ -6,7 +6,6 @@ import type {
 	SessionHistoryMessage,
 	SessionHistoryPage,
 	SessionHistoryQuery,
-	SessionInfoResult,
 	SessionStatus,
 	SessionSummary,
 	TerminalShellOption,
@@ -87,7 +86,6 @@ export type {
 	SessionHistoryMessage,
 	SessionHistoryPage,
 	SessionHistoryQuery,
-	SessionInfoResult,
 	SessionStatus,
 	SessionSummary,
 };
@@ -205,8 +203,6 @@ declare const api: {
 		deleteCachedImage: (sessionId: string, cachePath: string) => Promise<void>;
 		clearContext: (sessionId: string, cwd: string) => Promise<void>;
 		status: (sessionId: string, cwd: string) => Promise<SessionStatus | null>;
-		getInfo: (sessionId: string) => Promise<SessionInfoResult>;
-		onWorkerReady: (callback: (sessionId: string) => void) => () => void;
 		onEvent: (callback: (event: AgentEvent) => void) => () => void;
 		onAskUser: (callback: (payload: AskUserAskRequest) => void) => () => void;
 		askUserReply: (payload: AskUserAskReply) => Promise<{

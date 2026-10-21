@@ -6,9 +6,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { Button, Tag, Typography } from "antd";
-import { InformationCircleOutline } from "@renderer/components/icons/ionicons";
-import SessionInfoModal from "@renderer/components/SessionInfoModal";
+import { Tag, Typography } from "antd";
 import AskUserStrip from "@renderer/components/AskUserStrip";
 import ExtensionUiStrip from "@renderer/components/ExtensionUiStrip";
 import SessionTodoPanel from "@renderer/components/SessionTodoPanel";
@@ -90,7 +88,6 @@ export function ChatPanel({ visible }: Props): ReactNode {
   })();
 
   const [nowTick, setNowTick] = useState(() => Date.now());
-  const [sessionInfoOpen, setSessionInfoOpen] = useState(false);
 
   useEffect(() => {
     // 进程级事件订阅由 app-events 随应用注册，不随本组件生死；这里只做一次
@@ -113,6 +110,12 @@ export function ChatPanel({ visible }: Props): ReactNode {
 
   const showHeaderRunning =
     running || Boolean(chat.activeWaitState?.autoRecovering);
+
+  /** 头部没有标题与状态标签时不渲染，避免留下一条空白分隔栏。 */
+  const showHeader =
+    appearance.showSessionTitle ||
+    Boolean(chat.activeRetryHint) ||
+    showHeaderRunning;
 
   const title = (() => {
     if (isDraft) return t.newSession;
@@ -138,41 +141,31 @@ export function ChatPanel({ visible }: Props): ReactNode {
     <section className={`chat-panel ${styles.chatPanel}`}>
       {hasSession ? (
         <>
-          <header className={`chat-panel-head ${styles.chatPanelHead}`}>
-            {appearance.showSessionTitle ? (
-              <Typography.Text
-                strong
-                style={{ flex: 1, minWidth: 0 }}
-                className={styles.title}
-              >
-                {title}
-              </Typography.Text>
-            ) : null}
-            {chat.activeRetryHint ? (
-              <Tag color="warning" variant="filled" className={styles.tag}>
-                {t.retrying(
-                  chat.activeRetryHint.attempt,
-                  chat.activeRetryHint.maxAttempts,
-                )}
-              </Tag>
-            ) : showHeaderRunning ? (
-              <Tag color="success" variant="filled" className={styles.tag}>
-                {headerWaitLabel}
-              </Tag>
-            ) : null}
-            <Button
-              type="text"
-              shape="circle"
-              size="small"
-              className="pi-interactive"
-              disabled={!sessions.activeId}
-              title={t.sessionInfoTitle}
-              aria-label={t.sessionInfoTitle}
-              onClick={() => setSessionInfoOpen(true)}
-            >
-              <InformationCircleOutline size={15} />
-            </Button>
-          </header>
+          {showHeader ? (
+            <header className={`chat-panel-head ${styles.chatPanelHead}`}>
+              {appearance.showSessionTitle ? (
+                <Typography.Text
+                  strong
+                  style={{ flex: 1, minWidth: 0 }}
+                  className={styles.title}
+                >
+                  {title}
+                </Typography.Text>
+              ) : null}
+              {chat.activeRetryHint ? (
+                <Tag color="warning" variant="filled" className={styles.tag}>
+                  {t.retrying(
+                    chat.activeRetryHint.attempt,
+                    chat.activeRetryHint.maxAttempts,
+                  )}
+                </Tag>
+              ) : showHeaderRunning ? (
+                <Tag color="success" variant="filled" className={styles.tag}>
+                  {headerWaitLabel}
+                </Tag>
+              ) : null}
+            </header>
+          ) : null}
           <Suspense fallback={null}>
             <MessageList
               messages={chat.activeMessages}
@@ -199,11 +192,6 @@ export function ChatPanel({ visible }: Props): ReactNode {
           </div>
         </>
       ) : null}
-      <SessionInfoModal
-        open={sessionInfoOpen}
-        sessionId={sessions.activeId}
-        onClose={() => setSessionInfoOpen(false)}
-      />
     </section>
   );
 }
