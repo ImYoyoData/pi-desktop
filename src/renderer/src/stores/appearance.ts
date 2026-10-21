@@ -29,8 +29,6 @@ const LOCALE_KEY = "pi-desktop:locale-preference";
 const COMPACT_BTN_KEY = "pi-desktop:show-compact-button";
 const SESSION_DETAILS_KEY = "pi-desktop:session-details";
 const SESSION_TITLE_KEY = "pi-desktop:session-title";
-const MESSAGE_PREVIEW_KEY = "pi-desktop:message-preview";
-const MESSAGE_PREVIEW_IMAGE_KEY = "pi-desktop:message-preview-image";
 const SESSION_HOVER_ACTIONS_KEY = "pi-desktop:session-hover-actions";
 const PRIVILEGE_LEVEL_KEY = "pi-desktop:show-privilege-level";
 /**
@@ -60,22 +58,6 @@ function readSessionTitle(): boolean {
     return prefs.getItem(SESSION_TITLE_KEY) !== "0";
   } catch {
     return true;
-  }
-}
-
-function readMessagePreview(): boolean {
-  try {
-    return prefs.getItem(MESSAGE_PREVIEW_KEY) !== "0";
-  } catch {
-    return true;
-  }
-}
-
-function readMessagePreviewImage(): boolean {
-  try {
-    return prefs.getItem(MESSAGE_PREVIEW_IMAGE_KEY) === "1";
-  } catch {
-    return false;
   }
 }
 
@@ -201,12 +183,18 @@ function scheduleChromeSync(pref: ThemePreference, mode: ResolvedTheme): void {
   });
 }
 
-/** 「界面分隔线」开关已移除，清掉历史遗留的偏好键。 */
+/** 「界面分隔线」「消息预览」开关已移除，清掉历史遗留的偏好键。 */
 function dropObsoletePrefs(): void {
-  try {
-    prefs.removeItem("pi-desktop:panel-dividers");
-  } catch {
-    // ignore
+  for (const key of [
+    "pi-desktop:panel-dividers",
+    "pi-desktop:message-preview",
+    "pi-desktop:message-preview-image",
+  ]) {
+    try {
+      prefs.removeItem(key);
+    } catch {
+      // ignore
+    }
   }
 }
 
@@ -217,8 +205,6 @@ type AppearanceBase = {
   showCompactButton: boolean;
   showSessionDetails: boolean;
   showSessionTitle: boolean;
-  showMessagePreview: boolean;
-  showMessagePreviewImage: boolean;
   showSessionHoverActions: boolean;
   showPrivilegeLevel: boolean;
   expandToolCalls: boolean;
@@ -242,8 +228,6 @@ export type AppearanceState = AppearanceBase &
     setShowCompactButton: (next: boolean) => void;
     setShowSessionDetails: (next: boolean) => void;
     setShowSessionTitle: (next: boolean) => void;
-    setShowMessagePreview: (next: boolean) => void;
-    setShowMessagePreviewImage: (next: boolean) => void;
     setSessionHoverActions: (next: boolean) => void;
     setShowPrivilegeLevel: (next: boolean) => void;
     setExpandToolCalls: (next: boolean) => void;
@@ -290,8 +274,6 @@ function initialBase(): AppearanceBase {
     showCompactButton: readShowCompactButton(),
     showSessionDetails: readSessionDetails(),
     showSessionTitle: readSessionTitle(),
-    showMessagePreview: readMessagePreview(),
-    showMessagePreviewImage: readMessagePreviewImage(),
     showSessionHoverActions: readSessionHoverActions(),
     showPrivilegeLevel: readShowPrivilegeLevel(),
     expandToolCalls: readExpandToolCalls(),
@@ -403,22 +385,6 @@ export const useAppearanceStore = create<AppearanceState>()((set, get) => {
       set({ showSessionTitle: next });
       try {
         prefs.setItem(SESSION_TITLE_KEY, next ? "1" : "0");
-      } catch {
-        // ignore
-      }
-    },
-    setShowMessagePreview: (next) => {
-      set({ showMessagePreview: next });
-      try {
-        prefs.setItem(MESSAGE_PREVIEW_KEY, next ? "1" : "0");
-      } catch {
-        // ignore
-      }
-    },
-    setShowMessagePreviewImage: (next) => {
-      set({ showMessagePreviewImage: next });
-      try {
-        prefs.setItem(MESSAGE_PREVIEW_IMAGE_KEY, next ? "1" : "0");
       } catch {
         // ignore
       }
