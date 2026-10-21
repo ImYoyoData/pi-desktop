@@ -324,7 +324,7 @@ function boot(): void {
 
 		// Critical IPC first — needed for shell, workspace, sessions.
 		registerStartupTimingIpc();
-		registerWindowIpc();
+		registerWindowIpc(broker);
 		registerWorkspaceIpc({
 			purgeWorkspaceSessions: (cwd) => broker.purgeWorkspace(cwd),
 			stopWorkspaceSessions: (cwd) => broker.stopWorkspaceSessions(cwd),

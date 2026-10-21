@@ -50,6 +50,7 @@ import {
 	DESKTOP_BASH_BACKGROUND_PROMPT,
 	DESKTOP_TODO_PROMPT,
 } from "../shared/desktop-system-prompt";
+import type { BashNoticeLocale } from "../shared/bash-notice-i18n";
 import { createAskUserToolDefinition } from "./ask-user-tool";
 import { createTodoWriteToolDefinition, clearLatestTodoWriteRows } from "./todo-tool";
 import { createTodoReminderExtension } from "./todo-reminder";
@@ -174,6 +175,8 @@ function timingStats() {
 	};
 }
 let streamRenderSettings: StreamRenderSettings = { ...DEFAULT_STREAM_RENDER_SETTINGS };
+/** 界面语言，决定后台截断提示的措辞。 */
+let uiLocale: BashNoticeLocale = "zh-CN";
 /** Once unlocked this session, keep browser_* available for follow-up clicks/fills. */
 let browserToolsUnlocked = false;
 
@@ -607,6 +610,7 @@ async function initSession(
 		onEnded: (runId) => post({ kind: "run_ended", runId }),
 		onBackgrounded: (runId) => post({ kind: "run_backgrounded", runId }),
 		shouldStartBackground: commandShouldStartBackground,
+		getLocale: () => uiLocale,
 	});
 	const { session: created, extensionsResult } =
 		await createAgentSessionFromServices({
@@ -906,7 +910,12 @@ export async function handleWorkerMessage(msg: WorkerInbound): Promise<void> {
 		streamRenderSettings = parseStreamRenderSettings(msg.streamRender);
 		return;
 	}
+	if (msg.kind === "reload_locale") {
+		uiLocale = msg.locale;
+		return;
+	}
 	if (msg.kind === "init") {
+		if (msg.locale) uiLocale = msg.locale;
 		await initSession(
 			msg.cwd,
 			msg.filePath,
