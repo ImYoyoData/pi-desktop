@@ -1,5 +1,11 @@
+import { readFileSync } from "node:fs";
+import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { parseMarkdownRaw } from "../../src/renderer/src/utils/markdown";
+import {
+  createStreamBlockSplitter,
+  markdownRootClassName,
+  parseMarkdownRaw,
+} from "../../src/renderer/src/utils/markdown";
 
 describe("parseMarkdownRaw (GFM)", () => {
   it("renders tables", () => {
@@ -83,5 +89,50 @@ describe("parseMarkdownRaw (GFM)", () => {
     expect(inline).toContain("katex");
     const block = parseMarkdownRaw("$$\na+b=c\n$$");
     expect(block).toContain("katex");
+  });
+
+  it("escapes link text so angle brackets cannot break the markup", () => {
+    const html = parseMarkdownRaw("[a < b & c](https://x.test)");
+    expect(html).toContain("a &lt; b &amp; c");
+    expect(html).not.toContain("a < b");
+  });
+});
+
+describe("markdown root class list", () => {
+  it("keeps variant and CSS module classes as separate class names", () => {
+    const classes = markdownRootClassName("chat", "root_hash", "assistant-md").split(" ");
+    expect(classes).toEqual(["md", "md-chat", "root_hash", "assistant-md"]);
+  });
+
+  it("omits the chat variant class in the default variant", () => {
+    const classes = markdownRootClassName("default", "root_hash").split(" ");
+    expect(classes).toEqual(["md", "root_hash"]);
+  });
+});
+
+describe("stream block splitter", () => {
+  it("tracks the open fence so a trailing code block can be rendered as markdown", () => {
+    const splitter = createStreamBlockSplitter();
+    splitter.take("```ts\nconst a = 1;\n");
+    expect(splitter.inFence).toBe(true);
+  });
+
+  it("records where the last closed fence ended", () => {
+    const splitter = createStreamBlockSplitter();
+    const source = "```ts\nconst a = 1;\n```\n";
+    splitter.take(source);
+    expect(splitter.inFence).toBe(false);
+    expect(splitter.closedFenceEnd).toBe(source.length);
+  });
+});
+
+describe("MarkdownView module stylesheet", () => {
+  it("keeps markdown markup class names global so CSS modules do not hash them", () => {
+    const cssPath = path.resolve(
+      __dirname,
+      "../../src/renderer/src/components/MarkdownView.module.css",
+    );
+    const css = readFileSync(cssPath, "utf8").replace(/:global\([^)]*\)/g, "");
+    expect(css).not.toMatch(/\.hljs\b/);
   });
 });
