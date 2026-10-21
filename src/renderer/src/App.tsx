@@ -158,10 +158,7 @@ export function App(): React.ReactNode {
       <AntApp>
         <FeedbackProvider>
           <CloseGuard />
-          <div
-            className={`app-shell${appearance.showPanelDividers ? "" : " panel-dividers-off"}`}
-            data-theme={appearance.resolvedTheme}
-          >
+          <div className="app-shell" data-theme={appearance.resolvedTheme}>
             <AppWallpaper />
             <TitleBar />
             <main className="app-main">

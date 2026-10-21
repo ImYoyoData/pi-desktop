@@ -1,7 +1,6 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { Divider, Radio, Select, Typography } from "antd";
 import {
-  TRUNCATE_TOOL_OUTPUT_CHOICES,
   useAppearanceStore,
   type LocalePreference,
   type ThemePreference,
@@ -41,10 +40,6 @@ export function AppearancePanel(): ReactNode {
     appearance.setLocalePreference(value as LocalePreference);
   }
 
-  function onTruncateChange(value: string | number | null): void {
-    if (typeof value === "number") appearance.setTruncateToolOutputLines(value);
-  }
-
   function onStreamRenderThrottleChange(value: string | number | null): void {
     if (typeof value === "number") void streamRender.update({ throttleMs: value });
   }
@@ -52,11 +47,6 @@ export function AppearancePanel(): ReactNode {
   function onMessageWidthChange(value: string | number | null): void {
     if (typeof value === "number") appearance.setMessageWidth(value);
   }
-
-  const truncateOptions: Option[] = TRUNCATE_TOOL_OUTPUT_CHOICES.map((lines) => ({
-    label: lines === 0 ? t.truncateToolOutputOff : t.truncateToolOutputLines(lines),
-    value: lines,
-  }));
 
   const messageWidthOptions: Option[] = MESSAGE_WIDTH_CHOICES.map((value) => ({
     label: t.appearanceMessageWidthValue(Math.round(value * 100)),
@@ -112,24 +102,6 @@ export function AppearancePanel(): ReactNode {
 
       <div className={styles.switchRow}>
         <div className={styles.switchLabels}>
-          <Typography.Text strong>{t.showPanelDividers}</Typography.Text>
-        </div>
-        <Radio.Group
-          value={appearance.showPanelDividers ? ON : OFF}
-          size="small"
-          className={styles.settingRadioGroup}
-          style={{ display: "inline-flex" }}
-          onChange={(event) => appearance.setShowPanelDividers(event.target.value === ON)}
-        >
-          <Radio.Button value={ON}>{t.showCompactButtonOn}</Radio.Button>
-          <Radio.Button value={OFF}>{t.showCompactButtonOff}</Radio.Button>
-        </Radio.Group>
-      </div>
-
-      <Divider style={{ margin: 0 }} />
-
-      <div className={styles.switchRow}>
-        <div className={styles.switchLabels}>
           <Typography.Text strong>{t.showSessionTitle}</Typography.Text>
         </div>
         <Radio.Group
@@ -160,21 +132,6 @@ export function AppearancePanel(): ReactNode {
           <Radio.Button value={ON}>{t.showCompactButtonOn}</Radio.Button>
           <Radio.Button value={OFF}>{t.showCompactButtonOff}</Radio.Button>
         </Radio.Group>
-      </div>
-
-      <Divider style={{ margin: 0 }} />
-
-      <div className={styles.switchRow}>
-        <div className={styles.switchLabels}>
-          <Typography.Text strong>{t.truncateToolOutput}</Typography.Text>
-        </div>
-        <Select
-          value={appearance.truncateToolOutputLines}
-          options={truncateOptions}
-          size="small"
-          className={styles.settingSelect}
-          onChange={onTruncateChange}
-        />
       </div>
 
       <Divider style={{ margin: 0 }} />
