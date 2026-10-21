@@ -90,7 +90,7 @@ export const ComposerAtFileMenu = forwardRef<
   return (
     <div
       ref={listRef}
-      className={styles.root}
+      className={`composer-at-file-menu ${styles.root}`}
       role="listbox"
       aria-label={t.atFileMenuLabel}
     >

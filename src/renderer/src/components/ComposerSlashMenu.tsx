@@ -85,7 +85,11 @@ export const ComposerSlashMenu = forwardRef<
   if (!visible || !items.length) return null;
 
   return (
-    <div ref={listRef} className={styles.root} role="listbox">
+    <div
+      ref={listRef}
+      className={`composer-slash-menu ${styles.root}`}
+      role="listbox"
+    >
       {items.map((item, index) => (
         <button
           key={item.id}
