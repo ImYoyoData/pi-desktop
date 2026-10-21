@@ -562,7 +562,6 @@ export const zh = {
 	restore: "还原",
 	welcomeTitle: "开始使用 Pi",
 	addWorkspace: "添加工作区",
-	emptyChat: "发送消息以启动 Pi",
 	loadOlderHistory: "加载更早的历史",
 	agentRunning: "Pi 运行中…",
 	agentWaitStarting: "正在启动…",
