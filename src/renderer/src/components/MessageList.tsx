@@ -14,7 +14,7 @@ import {
   type CustomContainerComponentProps,
   type VirtualizerHandle,
 } from "virtua";
-import { Button, Empty, Tag, Tooltip, Typography } from "antd";
+import { Button, Tag, Tooltip, Typography } from "antd";
 import {
   ArrowDownOutline,
   ArrowUndoOutline,
@@ -364,9 +364,8 @@ export function MessageList({
 
   /**
    * 虚拟列表之前的头部高度：virtua 以此为基准换算可见区间，填错会让视口整体偏移。
-   * 头部只有 .inner 上内边距、顶部“加载更早”入口与空态占位，三者变化或面板改尺寸时都要重测。
+   * 头部只有 .inner 上内边距与顶部“加载更早”入口，两者变化或面板改尺寸时都要重测。
    */
-  const showEmpty = messages.length === 0 && !streaming && !historyLoading && !settlingUi;
   useLayoutEffect(() => {
     const sc = scrollerRef.current;
     const host = virtualHostRef.current;
@@ -381,7 +380,7 @@ export function MessageList({
     const observer = new ResizeObserver(measure);
     observer.observe(sc);
     return () => observer.disconnect();
-  }, [olderState?.hasMore, olderState?.loading, sessionId, showEmpty]);
+  }, [olderState?.hasMore, olderState?.loading, sessionId]);
 
   /**
    * shift 只在行数变化的那一次渲染生效，用完立刻复位。
@@ -1706,8 +1705,6 @@ export function MessageList({
               </Button>
             </div>
           ) : null}
-
-          {showEmpty ? <Empty description={t.emptyChat} style={{ margin: "auto" }} /> : null}
 
           <Virtualizer
             ref={virtualizerRef}
