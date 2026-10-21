@@ -51,8 +51,14 @@
 .brand {
   display: inline-flex;
   align-items: center;
+  gap: 6px;
   padding-left: 4px;
   color: var(--fg-strong);
+}
+
+.brand > svg {
+  display: block;
+  flex-shrink: 0;
 }
 
 .name {
