@@ -1,4 +1,4 @@
-import { app, BrowserWindow, utilityProcess } from "electron";
+import { app, utilityProcess } from "electron";
 import path from "node:path";
 import type {
   WorkerInbound,
@@ -12,33 +12,11 @@ import {
   PI_DESKTOP_NODE_PATH_ENV,
   PI_DESKTOP_PI_CLI_PATH_ENV,
 } from "../shared/pi-subagent-env";
-import type { WorkerResourceSummary } from "../shared/worker-resources";
-import { IpcChannels } from "../shared/protocol";
 
 export { IDLE_WORKER_DESTROY_MS } from "./worker-lifecycle";
 
 function workerScriptPath(): string {
   return path.join(__dirname, "agent-worker/index.js");
-}
-
-/** Latest resource summary per session (tools / extensions / skills). */
-const sessionResources = new Map<string, WorkerResourceSummary>();
-
-export function getSessionResources(
-  sessionId: string,
-): WorkerResourceSummary | null {
-  return sessionResources.get(sessionId) ?? null;
-}
-
-export function clearSessionResources(sessionId: string): void {
-  sessionResources.delete(sessionId);
-}
-
-function broadcastWorkerResourcesReady(sessionId: string): void {
-  for (const win of BrowserWindow.getAllWindows()) {
-    if (!win.isDestroyed())
-      win.webContents.send(IpcChannels.sessions.workerReady, sessionId);
-  }
 }
 
 function waitForReady(
@@ -66,8 +44,6 @@ function waitForReady(
         clearTimeout(timer);
         child.off("message", onMessage);
         if (raw.resources) {
-          sessionResources.set(raw.id, raw.resources);
-          broadcastWorkerResourcesReady(raw.id);
           const r = raw.resources;
           console.info(
             `[pi-desktop] worker ready: ${r.extensionCount} extension(s), ${r.skillCount} skill(s), ${r.agentsFileCount ?? 0} agents file(s), ${r.activeTools.length} tool(s)`,

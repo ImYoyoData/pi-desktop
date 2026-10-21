@@ -1,5 +1,3 @@
-import type { WorkerResourceSummary } from "./worker-resources";
-
 /** 主进程原生菜单向渲染进程发送的命令。 */
 export type MenuCommand = "open-pull-requests";
 
@@ -112,10 +110,6 @@ export const IpcChannels = {
 		tryCommand: "sessions:tryCommand",
 		event: "sessions:event",
 		status: "sessions:status",
-		/** Renderer ? main: loaded tools/extensions/skills for a session. */
-		getInfo: "sessions:getInfo",
-		/** Main ? renderer: a session worker finished loading its resources. */
-		workerReady: "sessions:workerReady",
 		killWorker: "sessions:killWorker",
 		restartWorker: "sessions:restartWorker",
 		delete: "sessions:delete",
@@ -374,21 +368,6 @@ export type TerminalShellOption = {
 };
 
 export type SessionStatus = "idle" | "running" | "error" | "stuck";
-
-/** Tools / extensions / skills loaded into a session worker (null while booting). */
-export type SessionExtensionInfo = {
-	path: string;
-	/** Readable extension name (package name or file stem). */
-	name: string;
-	/** Short description from the extension package.json when available. */
-	brief: string;
-};
-
-export type SessionInfoResult = {
-	resources: WorkerResourceSummary | null;
-	/** Extension paths enriched with a readable name + brief description. */
-	extensions: SessionExtensionInfo[];
-};
 
 /** Mirrors Pi SDK `ContextUsage` from `AgentSession.getContextUsage()`, plus session stats. */
 export type SessionContextUsage = {

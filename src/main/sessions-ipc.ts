@@ -1,7 +1,4 @@
 import { BrowserWindow, ipcMain } from "electron";
-import { readFileSync } from "node:fs";
-import { basename, join } from "node:path";
-import type { SessionExtensionInfo } from "../shared/protocol";
 import type { AgentCommand } from "../shared/protocol";
 import type { SessionImageCacheSource } from "../shared/protocol";
 import type { ChatMessageTag } from "../shared/chat-meta";
@@ -16,54 +13,8 @@ import {
   cancelExtensionUiAsksForSession,
   snapshotPendingExtensionUiDialogs,
 } from "./extension-ui-host";
-import {
-  clearSessionResources,
-  getSessionResources,
-} from "./agent-worker-host";
 import { renameSessionFile } from "./session-rename";
 import { forkSessionAtUserTurn } from "./session-fork";
-
-/**
- * Enrich an extension entry path with a readable name + brief description.
- * For node_modules packages the package name is taken from the path and
- * package.json is read at exactly that package root (never walks up into
- * an unrelated package). Local ~/.pi/agent/extensions/*.ts files use the
- * file stem as the name.
- */
-function describeExtension(entryPath: string): SessionExtensionInfo {
-  const norm = entryPath.replace(/\\/g, "/");
-  const nmMarker = "/node_modules/";
-  const nmIdx = norm.indexOf(nmMarker);
-  if (nmIdx >= 0) {
-    const rest = norm.slice(nmIdx + nmMarker.length);
-    const parts = rest.split("/");
-    const scoped = parts[0]?.startsWith("@")
-      ? `${parts[0] ?? ""}/${parts[1] ?? ""}`
-      : (parts[0] ?? "");
-    if (scoped) {
-      const pkgRoot = entryPath.slice(0, nmIdx + nmMarker.length + scoped.length);
-      try {
-        const raw = JSON.parse(readFileSync(join(pkgRoot, "package.json"), "utf8")) as {
-          name?: unknown;
-          description?: unknown;
-        };
-        return {
-          path: entryPath,
-          name: typeof raw.name === "string" && raw.name ? raw.name : scoped,
-          brief: typeof raw.description === "string" ? raw.description : "",
-        };
-      } catch {
-        return { path: entryPath, name: scoped, brief: "" };
-      }
-    }
-  }
-  const stem = norm.split("/").pop() ?? basename(entryPath);
-  return {
-    path: entryPath,
-    name: stem.replace(/\.(ts|js|mjs|cjs)$/i, "") || basename(entryPath),
-    brief: "",
-  };
-}
 
 function broadcastEvent(event: unknown): void {
   for (const win of BrowserWindow.getAllWindows()) {
@@ -104,7 +55,6 @@ export function registerSessionsIpc(broker: SessionBroker): void {
   ipcMain.handle(IpcChannels.sessions.close, (_event, sessionId: string) => {
     const id = String(sessionId ?? "");
     cancelSessionUiAsks(id);
-    clearSessionResources(id);
     return broker.closeSession(id);
   });
 
@@ -128,12 +78,6 @@ export function registerSessionsIpc(broker: SessionBroker): void {
     broker.restartWorker(sessionId),
   );
 
-  ipcMain.handle(IpcChannels.sessions.getInfo, (_event, sessionId: string) => {
-    const resources = typeof sessionId === "string" ? getSessionResources(sessionId) : null;
-    const extensions = (resources?.extensionPaths ?? []).map(describeExtension);
-    return { resources, extensions };
-  });
-
   ipcMain.handle(IpcChannels.sessions.status, async (_event, sessionId: string, cwd: string) => {
     const list = await broker.listSessions(cwd);
     return list.find((s) => s.id === sessionId)?.status ?? null;
@@ -146,7 +90,6 @@ export function registerSessionsIpc(broker: SessionBroker): void {
   ipcMain.handle(IpcChannels.sessions.delete, (_event, sessionId: string, cwd: string) => {
     const id = String(sessionId ?? "");
     cancelSessionUiAsks(id);
-    clearSessionResources(id);
     return broker.deleteSession(id, cwd);
   });
 
