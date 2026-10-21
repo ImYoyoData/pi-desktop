@@ -4,7 +4,6 @@ import TitleBar from "@renderer/components/TitleBar";
 import AppWallpaper from "@renderer/components/AppWallpaper";
 import AppContextMenu from "@renderer/components/AppContextMenu";
 import AppHoverTip from "@renderer/components/AppHoverTip";
-import WelcomeView from "@renderer/components/WelcomeView";
 import PiCliSetup from "@renderer/components/PiCliSetup";
 import CloseGuard from "@renderer/components/CloseGuard";
 import { useWorkspaceStore } from "@renderer/stores/workspace";
@@ -168,13 +167,9 @@ export function App(): React.ReactNode {
             <main className="app-main">
               {bootInitDone ? (
                 <div className="app-main-body">
-                  {workspace.root ? (
-                    <Suspense fallback={null}>
-                      <SplitRoot />
-                    </Suspense>
-                  ) : (
-                    <WelcomeView />
-                  )}
+                  <Suspense fallback={null}>
+                    <SplitRoot />
+                  </Suspense>
                 </div>
               ) : null}
             </main>

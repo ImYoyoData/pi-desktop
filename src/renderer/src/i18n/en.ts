@@ -65,10 +65,7 @@ export const en = {
 	expandToolCalls: "Expand tool call details",
 	expandToolCallsHint:
 		"When on, tool cards (file reads/writes, commands, …) open automatically while the turn streams. When off (default) they all start folded — open the ones you want.",
-	newAgent: "New Agent",
 	openFolder: "Open Folder",
-	openFolderHint: "Choose a project folder to start the Agent workspace",
-	recent: "Recent",
 	noFolder: "No workspace open",
 	sessions: "Sessions",
 	emptySessions: "No sessions yet",
@@ -1269,7 +1266,6 @@ export const en = {
 	sessionIdCopied: "Session ID copied",
 	renameSession: "Rename session",
 	sessionNamePlaceholder: "Session name",
-	selectOrCreateSession: "Select a session on the left, or create one to start.",
 	noRecentProjects: "No recent projects",
 
 	// Security settings

@@ -67,6 +67,9 @@ const SESSION_VISIBLE_LIMIT = 5;
 const ARCHIVE_KEY_PREFIX = "archive:";
 const ARCHIVE_DAY_STEPS = [3, 7, 30, 90];
 
+/** 上下文菜单的大致高度：用来判断按钮下方是否放得下。 */
+const CTX_MENU_HEIGHT = 220;
+
 type MenuItem = NonNullable<MenuProps["items"]>[number];
 
 type ArchivedRow = {
@@ -80,7 +83,7 @@ type ContextMenuState = {
   show: boolean;
   x: number;
   y: number;
-  placement: "bottomLeft" | "topRight";
+  placement: "bottomLeft" | "bottomRight" | "topRight";
   kind: "workspace" | "session";
   root: string;
   session: SessionSummary | null;
@@ -1577,14 +1580,15 @@ export function SessionSidebar(): ReactNode {
   }
 
   /**
-   * 省略号按钮：菜单已开则关闭，否则贴着按钮右上沿打开。
-   * 菜单锚在按钮上方且右对齐，既不会盖住按钮（否则再点一次就点不到按钮了），
-   * 也不会伸到侧栏外面去。
+   * 省略号按钮：菜单已开则关闭，否则贴着按钮打开。
+   * 菜单右对齐按钮右缘（不伸到侧栏外面），下方放得下就挂在按钮下沿，
+   * 放不下才翻到上沿；两种情况都不压住按钮，否则再点一次就点到菜单上去了。
    */
   function onWorkspaceMore(e: ReactMouseEvent, root: string): void {
     e.preventDefault();
     e.stopPropagation();
     const anchor = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    const fitsBelow = window.innerHeight - anchor.bottom >= CTX_MENU_HEIGHT;
     setCtx((prev) => {
       if (prev.show && prev.kind === "workspace" && prev.root === root) {
         return { ...prev, show: false };
@@ -1592,8 +1596,8 @@ export function SessionSidebar(): ReactNode {
       return {
         show: true,
         x: anchor.right,
-        y: anchor.top,
-        placement: "topRight",
+        y: fitsBelow ? anchor.bottom : anchor.top,
+        placement: fitsBelow ? "bottomRight" : "topRight",
         kind: "workspace",
         root,
         session: null,
@@ -1788,12 +1792,13 @@ export function SessionSidebar(): ReactNode {
   useEffect(() => {
     if (!ctx.show) return;
     const onPointerDown = (event: MouseEvent): void => {
-      // 只管左键：右键是「换个位置重开菜单」，先关再开会让弹层闪一下。
-      if (event.button !== 0) return;
       const target = event.target as HTMLElement | null;
-      if (target?.closest?.(".ant-dropdown")) return;
+      // 左键点在菜单上：留给菜单项自己处理（先关掉会把这次点击吞掉）。
+      if (event.button === 0 && target?.closest?.(".ant-dropdown")) return;
       // 省略号按钮自己管开关，按在按钮上的这一下不能把菜单关掉。
       if (target?.closest?.("[data-ws-more-trigger]")) return;
+      // 其余情况（含右键）一律先关掉菜单：菜单一旦消失，随后的 contextmenu 就会
+      // 落到被它盖住的会话行上，菜单才能跟着切换到新的目标。
       closeCtx();
     };
     document.addEventListener("mousedown", onPointerDown, true);
@@ -2369,23 +2374,25 @@ export function SessionSidebar(): ReactNode {
         )}
       </Modal>
 
-      {createPortal(
-        <div className={styles.ctxAnchor} style={{ left: ctx.x, top: ctx.y }}>
-          <Dropdown
-            {...NO_OVERLAY_MOTION}
-            open={ctx.show}
-            trigger={[]}
-            placement={ctx.placement}
-            menu={{
-              items: ctxItems,
-              onClick: ({ key }) => void onCtxSelect(key),
-            }}
-          >
-            <span className={styles.ctxAnchorTarget} />
-          </Dropdown>
-        </div>,
-        document.body,
-      )}
+      {ctx.show
+        ? createPortal(
+            <div className={styles.ctxAnchor} style={{ left: ctx.x, top: ctx.y }}>
+              <Dropdown
+                {...NO_OVERLAY_MOTION}
+                open
+                trigger={[]}
+                placement={ctx.placement}
+                menu={{
+                  items: ctxItems,
+                  onClick: ({ key }) => void onCtxSelect(key),
+                }}
+              >
+                <span className={styles.ctxAnchorTarget} />
+              </Dropdown>
+            </div>,
+            document.body,
+          )
+        : null}
     </aside>
   );
 }

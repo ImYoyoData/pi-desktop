@@ -30,18 +30,6 @@
   margin-inline-end: 0;
 }
 
-.emptyAgent {
-  flex: 1;
-  display: grid;
-  place-items: center;
-  padding: 24px;
-}
-
-/* 自定义图标原版是 28px，这里让图标容器也跟着收窄。 */
-.emptyAgent :global(.ant-empty-image) {
-  height: 28px !important;
-}
-
 /*
  * Chat input stack — docked todo / changed-files share the composer surface.
  *
