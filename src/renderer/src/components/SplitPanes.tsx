@@ -49,6 +49,16 @@ function readBasisSize(element: HTMLElement): number {
   return Number.isFinite(value) ? value : 0;
 }
 
+type DragState = {
+  index: number;
+  startPos: number;
+  startSizes: number[];
+  total: number;
+  metaA: PaneMeta;
+  metaB: PaneMeta;
+  onResized?: (payload: SplitPanesResizedPayload) => void;
+};
+
 export function SplitPanes({
   horizontal = false,
   className,
@@ -57,14 +67,7 @@ export function SplitPanes({
 }: SplitPanesProps): ReactNode {
   const containerRef = useRef<HTMLDivElement>(null);
   const metasRef = useRef<Map<HTMLElement, PaneMeta>>(new Map());
-  const dragRef = useRef<{
-    index: number;
-    startPos: number;
-    startSizes: number[];
-    total: number;
-    metaA: PaneMeta;
-    metaB: PaneMeta;
-  } | null>(null);
+  const dragRef = useRef<DragState | null>(null);
 
   const registerPane = useCallback((element: HTMLElement, meta: PaneMeta) => {
     metasRef.current.set(element, meta);
@@ -79,10 +82,15 @@ export function SplitPanes({
     [registerPane, unregisterPane],
   );
 
+  /** 只认直接子面板：嵌套分栏的子面板属于内层容器，混进来会算错比例。 */
   const readPaneElements = useCallback((): HTMLElement[] => {
     const container = containerRef.current;
     if (!container) return [];
-    return Array.from(container.querySelectorAll<HTMLElement>("[data-split-pane]"));
+    const panes: HTMLElement[] = [];
+    for (const child of Array.from(container.children) as HTMLElement[]) {
+      if (child.hasAttribute("data-split-pane")) panes.push(child);
+    }
+    return panes;
   }, []);
 
   const handleMove = useCallback(
@@ -102,15 +110,16 @@ export function SplitPanes({
       nextA = clamp(pairTotal - nextB, metaA.min, metaA.max);
       sizes[a] = nextA;
       sizes[b] = nextB;
-      onResized?.({ panes: sizes.map((size) => ({ size })) });
+      drag.onResized?.({ panes: sizes.map((size) => ({ size })) });
     },
-    [horizontal, onResized],
+    [horizontal],
   );
 
   const handleUp = useCallback(() => {
     dragRef.current = null;
     window.removeEventListener("pointermove", handleMove);
     window.removeEventListener("pointerup", handleUp);
+    window.removeEventListener("pointercancel", handleUp);
   }, [handleMove]);
 
   const handleSplitterDown =
@@ -135,15 +144,18 @@ export function SplitPanes({
         total,
         metaA: metasRef.current.get(panes[index]) ?? fallback,
         metaB: metasRef.current.get(panes[index + 1]) ?? fallback,
+        onResized,
       };
       window.addEventListener("pointermove", handleMove);
       window.addEventListener("pointerup", handleUp);
+      window.addEventListener("pointercancel", handleUp);
     };
 
   useEffect(() => {
     return () => {
       window.removeEventListener("pointermove", handleMove);
       window.removeEventListener("pointerup", handleUp);
+      window.removeEventListener("pointercancel", handleUp);
     };
   }, [handleMove, handleUp]);
 
