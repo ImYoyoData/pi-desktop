@@ -23,7 +23,7 @@ import { useDialog, useMessage } from "@renderer/services/feedback";
 import { useI18n } from "@renderer/i18n/use-i18n";
 import styles from "./CustomizeSection.module.css";
 
-type SectionKind = "agents" | "skills" | "instructions" | "prompts" | "mcp" | "plugins";
+type SectionKind = "skills" | "instructions" | "prompts" | "mcp" | "plugins";
 type MenuItem = NonNullable<MenuProps["items"]>[number];
 
 type Props = {
@@ -33,7 +33,7 @@ type Props = {
   onMarket?: () => void;
   onOpen?: (payload: { filePath: string; title: string; rename: boolean }) => void;
   onNewDraft?: (payload: {
-    kind: "skills" | "agents" | "instructions" | "prompts";
+    kind: "skills" | "instructions" | "prompts";
     scope: "user" | "project";
     workspace: string | null;
   }) => void;
@@ -111,8 +111,6 @@ export function CustomizeSection({
 
   function emptyLabel(): string {
     switch (kind) {
-      case "agents":
-        return t.customizeAgents;
       case "skills":
         return t.customizeSkills;
       case "instructions":
@@ -128,8 +126,6 @@ export function CustomizeSection({
 
   function createLabel(): string {
     switch (kind) {
-      case "agents":
-        return t.customizeNewAgent;
       case "skills":
         return t.customizeNewSkill;
       case "prompts":
@@ -172,7 +168,7 @@ export function CustomizeSection({
       filePath: item.filePath,
       title: item.name,
       rename:
-        (kind === "skills" || kind === "agents") &&
+        kind === "skills" &&
         (item.scope === "user" || item.scope === "project"),
     });
   }
@@ -207,21 +203,13 @@ export function CustomizeSection({
           throw err;
         }
         return;
-      } else if (kind === "agents" && item.filePath) {
-        const { filePath } = await window.api.customizations.setItemEnabled(
-          item.filePath,
-          enabled,
-          workspace.root ?? undefined,
-        );
-        store.setFileItemEnabled(kind, item.id, enabled, filePath);
-        return;
       } else if (kind === "prompts" && item.filePath) {
         const { filePath } = await window.api.customizations.setItemEnabled(
           item.filePath,
           enabled,
           workspace.root ?? undefined,
         );
-        store.setFileItemEnabled(kind, item.id, enabled, filePath);
+        store.setFileItemEnabled(item.id, enabled, filePath);
         return;
       } else if (kind === "plugins" && item.source) {
         // 先本地生效，写入失败再回滚，避免列表整表刷新。
@@ -268,7 +256,7 @@ export function CustomizeSection({
   function canToggle(item: CustomizationItem): boolean {
     if (kind === "skills") return Boolean(item.filePath) && item.enabled !== undefined;
     if (kind === "mcp") return item.enabled !== undefined;
-    if (kind === "agents" || kind === "prompts") return isEditableItem(item);
+    if (kind === "prompts") return isEditableItem(item);
     return kind === "plugins" && Boolean(item.source);
   }
 
@@ -348,11 +336,11 @@ export function CustomizeSection({
     })),
   ];
 
-  type DraftKind = "skills" | "agents" | "instructions";
+  type DraftKind = "skills" | "instructions";
 
   /** 需要先选作用域的定制项。 */
   const draftKind: DraftKind | null =
-    kind === "skills" || kind === "agents" || kind === "instructions" ? kind : null;
+    kind === "skills" || kind === "instructions" ? kind : null;
 
   function onDraftScopeSelect(key: string): void {
     const draft = draftKind;
@@ -603,14 +591,14 @@ export function CustomizeSection({
   function canRemove(item: CustomizationItem): boolean {
     if (kind === "skills") return Boolean(item.filePath);
     if (kind === "mcp") return true;
-    if (kind === "agents" || kind === "prompts") return isEditableItem(item);
+    if (kind === "prompts") return isEditableItem(item);
     if (kind === "instructions") return item.removable === true;
     return kind === "plugins" && Boolean(item.source);
   }
 
   function removeLabel(): string {
     if (kind === "mcp") return t.customizeMcpRemove;
-    if (kind === "agents" || kind === "instructions" || kind === "prompts") {
+    if (kind === "instructions" || kind === "prompts") {
       return t.customizeDelete;
     }
     return kind === "plugins" ? t.customizeUninstallPlugin : t.customizeUninstall;
@@ -627,7 +615,7 @@ export function CustomizeSection({
       content:
         kind === "mcp"
           ? t.customizeMcpRemoveConfirm(item.name)
-          : kind === "instructions" || kind === "agents" || kind === "prompts"
+          : kind === "instructions" || kind === "prompts"
             ? t.customizeDeleteConfirm(item.description || item.name)
             : t.customizeUninstallConfirm(item.name),
       positiveText: removeLabel(),
@@ -636,10 +624,6 @@ export function CustomizeSection({
         try {
           if (kind === "skills" && item.filePath) {
             await window.api.skills.uninstall(item.filePath, workspace.root ?? undefined);
-            store.removeFileItem(kind, item.id);
-            return;
-          } else if (kind === "agents" && item.filePath) {
-            await window.api.customizations.removeItem(item.filePath, workspace.root ?? undefined);
             store.removeFileItem(kind, item.id);
             return;
           } else if (kind === "prompts" && item.filePath) {

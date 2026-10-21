@@ -208,9 +208,7 @@ export const IpcChannels = {
 	customizations: {
 		list: "customizations:list",
 		create: "customizations:create",
-		createAgentFromDraft: "customizations:createAgentFromDraft",
 		createPromptFromDraft: "customizations:createPromptFromDraft",
-		saveAgent: "customizations:saveAgent",
 		createInstructionsFromDraft: "customizations:createInstructionsFromDraft",
 		setMcpEnabled: "customizations:setMcpEnabled",
 		listMcpProjectOverrides: "customizations:listMcpProjectOverrides",
@@ -355,12 +353,6 @@ export const IpcChannels = {
 		get: "proxy:get",
 		set: "proxy:set",
 		changed: "proxy:changed",
-	},
-	webSearchConfig: {
-		/** Renderer → main: 读取联网搜索的服务器配置。 */
-		get: "webSearchConfig:get",
-		/** Renderer → main: 保存搜索服务器配置（保留 proxy 等未纳管字段）。 */
-		set: "webSearchConfig:set",
 	},
 } as const;
 

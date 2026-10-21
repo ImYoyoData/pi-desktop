@@ -16,11 +16,11 @@ import PreviewTab, { type PreviewTabHandle } from "@renderer/components/PreviewT
 import AppearancePanel from "@renderer/components/AppearancePanel";
 import KeybindingsSettings from "@renderer/components/KeybindingsSettings";
 import AboutPanel from "@renderer/components/AboutPanel";
-import CustomizeGeneral from "@renderer/components/customize/CustomizeGeneral";
+import NotifySettings from "@renderer/components/NotifySettings";
+import CustomizeNetwork from "@renderer/components/customize/CustomizeNetwork";
 import CustomizeSection from "@renderer/components/customize/CustomizeSection";
 import CustomizeHooks from "@renderer/components/customize/CustomizeHooks";
 import CustomizeTools from "@renderer/components/customize/CustomizeTools";
-import WebSearchSettings from "@renderer/components/customize/WebSearchSettings";
 import CustomizeModels from "@renderer/components/customize/CustomizeModels";
 import CustomizeRuntime from "@renderer/components/customize/CustomizeRuntime";
 import CustomizeRetry from "@renderer/components/customize/CustomizeRetry";
@@ -31,7 +31,7 @@ import { useWorkspaceStore } from "@renderer/stores/workspace";
 import { useDialog, useMessage } from "@renderer/services/feedback";
 import { useI18n } from "@renderer/i18n/use-i18n";
 import * as prefs from "@renderer/utils/prefs";
-import type { AgentIssueCode, SkillIssueCode } from "../../../shared/customizations";
+import type { PromptIssueCode, SkillIssueCode } from "../../../shared/customizations";
 import styles from "./AiCustomizationPage.module.css";
 
 type Props = {
@@ -39,7 +39,7 @@ type Props = {
   visible: boolean;
 };
 
-type DraftKind = "skills" | "agents" | "instructions" | "prompts";
+type DraftKind = "skills" | "instructions" | "prompts";
 
 type EditingTarget =
   | { kind: "file"; filePath: string; title: string; rename: boolean }
@@ -54,13 +54,13 @@ function isCodiconName(icon: SectionIcon): icon is CodiconName {
 }
 
 const SECTION_IDS = [
-  "general",
   "appearance",
+  "notifications",
+  "network",
   "keys",
   "models",
   "retry",
   "runtime",
-  "agents",
   "skills",
   "instructions",
   "prompts",
@@ -68,11 +68,10 @@ const SECTION_IDS = [
   "mcp",
   "plugins",
   "tools",
-  "websearch",
   "about",
 ] as const;
 
-const LIST_KINDS = ["agents", "skills", "instructions", "prompts", "mcp", "plugins"] as const;
+const LIST_KINDS = ["skills", "instructions", "prompts", "mcp", "plugins"] as const;
 type ListKind = (typeof LIST_KINDS)[number];
 
 /** VS Code 侧栏常量：默认 200px，可拖拽 150–350。 */
@@ -81,10 +80,9 @@ const SIDEBAR_MIN_WIDTH = 150;
 const SIDEBAR_MAX_WIDTH = 350;
 const WIDTH_KEY = "pi-desktop:customize-sidebar-width:v1";
 
-/** 各类草稿的初始内容：指令是纯 markdown，技能与智能体带 frontmatter，提示模板带 description/argument-hint。 */
+/** 各类草稿的初始内容：指令是纯 markdown，技能带 frontmatter，提示模板带 description/argument-hint。 */
 const DRAFT_TEMPLATES: Record<DraftKind, string> = {
   skills: ["---", "name: ", 'description: ""', "---", ""].join("\n"),
-  agents: ["---", "name: ", 'description: ""', "---", ""].join("\n"),
   instructions: "",
   prompts: ["---", 'description: ""', 'argument-hint: ""', "---", ""].join("\n"),
 };
@@ -95,9 +93,9 @@ function readWidth(): number {
   return Math.min(Math.max(raw, SIDEBAR_MIN_WIDTH), SIDEBAR_MAX_WIDTH);
 }
 
-/** 旧版本持久化的失效页签（如已移除的「提示」）回落到常规页。 */
+/** 旧版本持久化的失效页签（如已移除的「通用」）回落到首个分区。 */
 function resolveSection(id: string): string {
-  return (SECTION_IDS as readonly string[]).includes(id) ? id : "general";
+  return (SECTION_IDS as readonly string[]).includes(id) ? id : "appearance";
 }
 
 export function AiCustomizationPage({ section, visible }: Props): ReactNode {
@@ -125,18 +123,28 @@ export function AiCustomizationPage({ section, visible }: Props): ReactNode {
   widthRef.current = width;
 
   const sections: { id: string; icon: SectionIcon; label: string; description: string }[] = [
-    { id: "general", icon: "settings", label: t.customizeGeneral, description: t.customizeGeneralDesc },
     {
       id: "appearance",
       icon: "appearance",
       label: t.customizeAppearance,
       description: t.customizeAppearanceDesc,
     },
+    {
+      id: "notifications",
+      icon: "notify",
+      label: t.customizeNotifications,
+      description: t.customizeNotificationsDesc,
+    },
+    {
+      id: "network",
+      icon: "proxy",
+      label: t.customizeNetwork,
+      description: t.customizeNetworkDesc,
+    },
     { id: "keys", icon: "keyboard", label: t.customizeKeys, description: t.customizeKeysDesc },
     { id: "models", icon: "models", label: t.customizeModels, description: t.customizeModelsDesc },
     { id: "retry", icon: RefreshOutline, label: t.customizeRetry, description: t.customizeRetryDesc },
     { id: "runtime", icon: "run", label: t.customizeRuntime, description: t.customizeRuntimeDesc },
-    { id: "agents", icon: "agents", label: t.customizeAgents, description: t.customizeAgentsDesc },
     { id: "skills", icon: "skills", label: t.customizeSkills, description: t.customizeSkillsDesc },
     {
       id: "instructions",
@@ -149,7 +157,6 @@ export function AiCustomizationPage({ section, visible }: Props): ReactNode {
     { id: "mcp", icon: "mcp", label: t.customizeMcp, description: t.customizeMcpDesc },
     { id: "plugins", icon: "plugins", label: t.customizePlugins, description: t.customizePluginsDesc },
     { id: "tools", icon: "tools", label: t.customizeTools, description: t.customizeToolsDesc },
-    { id: "websearch", icon: "search", label: t.webSearch, description: t.webSearchDesc },
     { id: "about", icon: "about", label: t.aboutTitle, description: t.customizeAboutDesc },
   ];
 
@@ -157,7 +164,7 @@ export function AiCustomizationPage({ section, visible }: Props): ReactNode {
 
   const listKind: ListKind = (LIST_KINDS as readonly string[]).includes(active)
     ? (active as ListKind)
-    : "agents";
+    : "skills";
 
   const snapshot = store.snapshot;
 
@@ -174,12 +181,11 @@ export function AiCustomizationPage({ section, visible }: Props): ReactNode {
       case "plugins":
         return snapshot.plugins;
       default:
-        return snapshot.agents;
+        return snapshot.skills;
     }
   })();
 
   const counts: Record<string, number> = {
-    agents: snapshot.agents.length,
     skills: snapshot.skills.length,
     instructions: snapshot.instructions.length,
     prompts: snapshot.prompts.length,
@@ -198,7 +204,7 @@ export function AiCustomizationPage({ section, visible }: Props): ReactNode {
     return target.draftKind === "instructions" ? t.customizeNewInstructions : "";
   })();
 
-  /** 标题可编辑：技能/智能体草稿可改名，指令文件名固定；已保存技能/智能体按列表来源可改名。 */
+  /** 标题可编辑：技能草稿可改名，指令文件名固定；已保存技能按列表来源可改名。 */
   const nameEditable = (() => {
     const target = editing;
     if (!target) return false;
@@ -216,12 +222,6 @@ export function AiCustomizationPage({ section, visible }: Props): ReactNode {
     const next = editorName.trim();
     if (!target.rename || !next || next === target.title) return target.filePath;
     const sep = target.filePath.includes("\\") ? "\\" : "/";
-    if (listKind === "agents") {
-      const file = `${sep}${target.title}.md`;
-      return target.filePath.includes(file)
-        ? target.filePath.replace(file, `${sep}${next}.md`)
-        : target.filePath;
-    }
     const marker = `${sep}${target.title}${sep}`;
     return target.filePath.includes(marker)
       ? target.filePath.replace(marker, `${sep}${next}${sep}`)
@@ -246,10 +246,6 @@ export function AiCustomizationPage({ section, visible }: Props): ReactNode {
       const sep = draft.workspace.includes("\\") ? "\\" : "/";
       const base = `${draft.workspace}${sep}.pi`;
       if (draft.draftKind === "instructions") return `${draft.workspace}${sep}AGENTS.md`;
-      if (draft.draftKind === "agents") {
-        const name = editorName.trim() || "new-agent";
-        return `${base}${sep}agents${sep}${name}.md`;
-      }
       if (draft.draftKind === "prompts") {
         const name = editorName.trim() || "new-prompt";
         return `${base}${sep}prompts${sep}${name}.md`;
@@ -258,10 +254,6 @@ export function AiCustomizationPage({ section, visible }: Props): ReactNode {
       return `${base}${sep}skills${sep}${name}${sep}SKILL.md`;
     }
     if (draft.draftKind === "instructions") return "~/.pi/agent/AGENTS.md";
-    if (draft.draftKind === "agents") {
-      const name = editorName.trim() || "new-agent";
-      return `~/.pi/agent/agents/${name}.md`;
-    }
     if (draft.draftKind === "prompts") {
       const name = editorName.trim() || "new-prompt";
       return `~/.pi/agent/prompts/${name}.md`;
@@ -275,7 +267,7 @@ export function AiCustomizationPage({ section, visible }: Props): ReactNode {
     const target = editing;
     if (!target) return false;
     if (target.kind === "draft") return true;
-    return listKind === "skills" || listKind === "agents";
+    return listKind === "skills";
   })();
 
   const attachEditor = useCallback((handle: PreviewTabHandle | null): void => {
@@ -339,8 +331,6 @@ export function AiCustomizationPage({ section, visible }: Props): ReactNode {
 
   function draftTitle(kind: DraftKind): string {
     switch (kind) {
-      case "agents":
-        return t.customizeNewAgent;
       case "instructions":
         return t.customizeNewInstructions;
       case "prompts":
@@ -376,30 +366,6 @@ export function AiCustomizationPage({ section, visible }: Props): ReactNode {
       );
       if (!saved.ok) {
         message.error(skillIssuesText(saved.issues));
-        return false;
-      }
-      await store.load(true);
-      setEditing({ kind: "file", filePath: saved.filePath, title: saved.name, rename: true });
-      setEditorName(saved.name);
-      message.success(t.saved);
-      return true;
-    } catch (err) {
-      message.error(err instanceof Error ? err.message : String(err));
-      return false;
-    }
-  }
-
-  async function saveAgentDraft(content: string): Promise<boolean> {
-    const draft = draftTarget;
-    if (!draft) return false;
-    try {
-      const saved = await window.api.customizations.createAgentFromDraft(
-        content,
-        draft.scope,
-        draft.scope === "project" ? draft.workspace ?? undefined : undefined,
-      );
-      if (!saved.ok) {
-        message.error(agentIssueText(saved.code));
         return false;
       }
       await store.load(true);
@@ -462,7 +428,7 @@ export function AiCustomizationPage({ section, visible }: Props): ReactNode {
     }
   }
 
-  function promptIssueText(code: AgentIssueCode): string {
+  function promptIssueText(code: PromptIssueCode): string {
     switch (code) {
       case "name-required":
         return t.customizePromptNameRequired;
@@ -473,18 +439,7 @@ export function AiCustomizationPage({ section, visible }: Props): ReactNode {
     }
   }
 
-  function agentIssueText(code: AgentIssueCode): string {
-    switch (code) {
-      case "name-required":
-        return t.agentNameRequired;
-      case "name-invalid":
-        return t.agentNameInvalid;
-      default:
-        return t.agentAlreadyExists;
-    }
-  }
-
-  /** 已保存文件落盘：技能走 skills.save（校验 + 改名），智能体走 saveAgent，其余直接写盘。 */
+  /** 已保存文件落盘：技能走 skills.save（校验 + 改名），其余直接写盘。 */
   async function saveFileTarget(
     target: Extract<EditingTarget, { kind: "file" }>,
     content: string,
@@ -502,28 +457,6 @@ export function AiCustomizationPage({ section, visible }: Props): ReactNode {
         );
         if (!saved.ok) {
           message.error(skillIssuesText(saved.issues));
-          return false;
-        }
-        await store.load(true);
-        setEditing({ kind: "file", filePath: saved.filePath, title: saved.name, rename: true });
-        setEditorName(saved.name);
-        message.success(t.saved);
-        return true;
-      } catch (err) {
-        message.error(err instanceof Error ? err.message : String(err));
-        return false;
-      }
-    }
-    if (kind === "agents" && target.rename) {
-      try {
-        const saved = await window.api.customizations.saveAgent(
-          target.filePath,
-          content,
-          shouldRename ? nextName : undefined,
-          workspace.root ?? undefined,
-        );
-        if (!saved.ok) {
-          message.error(agentIssueText(saved.code));
           return false;
         }
         await store.load(true);
@@ -575,8 +508,6 @@ export function AiCustomizationPage({ section, visible }: Props): ReactNode {
       switch (target.draftKind) {
         case "skills":
           return saveSkillDraft(content);
-        case "agents":
-          return saveAgentDraft(content);
         case "prompts":
           return savePromptDraft(content);
         default:
@@ -654,10 +585,7 @@ export function AiCustomizationPage({ section, visible }: Props): ReactNode {
     const kind = listKind;
     dialog.create({
       title: t.customizeDelete,
-      content:
-        kind === "agents"
-          ? t.customizeDeleteConfirm(target.title)
-          : t.customizeUninstallConfirm(target.title),
+      content: t.customizeUninstallConfirm(target.title),
       positiveText: t.customizeDelete,
       negativeText: t.cancel,
       onPositiveClick: async () => {
@@ -703,8 +631,10 @@ export function AiCustomizationPage({ section, visible }: Props): ReactNode {
   function renderSectionContent(): ReactNode {
     if (store.loading) return <Spin size="small" className={styles.contentSpin} />;
     switch (active) {
-      case "general":
-        return <CustomizeGeneral />;
+      case "notifications":
+        return <NotifySettings />;
+      case "network":
+        return <CustomizeNetwork />;
       case "appearance":
         return <AppearancePanel />;
       case "keys":
@@ -726,8 +656,6 @@ export function AiCustomizationPage({ section, visible }: Props): ReactNode {
             builtinExtensions={snapshot.builtinExtensions}
           />
         );
-      case "websearch":
-        return <WebSearchSettings />;
       default:
         return (
           <CustomizeSection

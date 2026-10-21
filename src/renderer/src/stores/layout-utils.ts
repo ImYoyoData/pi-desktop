@@ -48,7 +48,7 @@ export const DEFAULT_LAYOUT: PersistedLayout = {
   bottomSize: 30,
   bottomCollapsed: true,
   centerView: "chat",
-  customizeSection: "general",
+  customizeSection: "appearance",
 };
 
 export function layoutStorageKey(workspaceRoot: string): string {

@@ -5,6 +5,12 @@
   container-type: inline-size;
 }
 
+.sectionTitle {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--fg-strong);
+}
+
 .switchRow {
   display: flex;
   align-items: center;

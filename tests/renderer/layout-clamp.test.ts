@@ -77,6 +77,7 @@ describe("layout v4 defaults", () => {
   it("round-trips percent layout", () => {
     const key = "layout-test-roundtrip";
     writeLayout(key, {
+      ...DEFAULT_LAYOUT,
       leftSize: 18,
       centerSize: 32,
       rightSize: 50,

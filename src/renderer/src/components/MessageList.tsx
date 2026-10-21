@@ -2,12 +2,18 @@ import {
   lazy,
   Suspense,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
+  type ReactElement,
   type ReactNode,
 } from "react";
-import { flushSync } from "react-dom";
+import {
+  Virtualizer,
+  type CustomContainerComponentProps,
+  type VirtualizerHandle,
+} from "virtua";
 import { Button, Empty, Tag, Tooltip, Typography } from "antd";
 import {
   ArrowDownOutline,
@@ -60,14 +66,7 @@ import {
   collectTurnFileChanges,
   type TurnFileChanges,
 } from "@renderer/utils/turn-file-changes";
-import { decideFollowOnScroll } from "@renderer/utils/follow-bottom";
-import {
-  allowWindowAdjust,
-  createWindowAdjustGate,
-  noteWindowAdjust,
-  trimLineIsSafe,
-  type WindowAdjustDir,
-} from "@renderer/utils/message-virtual-window";
+import { decideFollowOnIntent, type FollowIntent } from "@renderer/utils/follow-bottom";
 import {
   assistantModelDetail as assistantModelDetailOf,
   assistantStats as assistantStatsOf,
@@ -86,22 +85,13 @@ import styles from "./MessageList.module.css";
 const MarkdownView = lazy(() => import("@renderer/components/MarkdownView"));
 
 /**
- * Sliding virtual window: mount a modest range around the viewport so
- * opening a long shared Pi session stays interactive (overscan above + below).
- */
-const VIRTUAL_WINDOW = 32;
-/** Soft cap before trimming the far side of the window. */
-const VIRTUAL_MAX = 48;
-const VIRTUAL_CHUNK = 16;
-const EST_MSG_HEIGHT = 120;
-/** Collapsed tool-group summary row (Cursor-style). */
-const EST_TOOL_GROUP_HEIGHT = 40;
-const NEAR_BOTTOM_PX = 120;
-/**
- * Prefetch distance to spacers. Keep modest — large overscan + recursive expand
- * remounted Markdown/tool rows and froze the whole Electron UI while dragging.
+ * 虚拟滚动由 virtua 承担：视口外额外渲染的像素。太大会重复挂载 Markdown 行，
+ * 拖动时整窗卡死；太小则快速滚动会露白。
  */
 const OVERSCAN_PX = 280;
+const NEAR_BOTTOM_PX = 120;
+/** virtua 的行高估值：接近真实行高，锚定补偿的位移才不会被放大成剧烈跳动。 */
+const EST_ROW_HEIGHT = 120;
 /** Sticky user card must never cover the whole viewport (agent output would look "stuck"). */
 const STICKY_MAX_VH = 0.16;
 const STICKY_MAX_PX = 110;
@@ -115,11 +105,6 @@ type Props = {
   /** 面板被折叠/让位给编辑器区域时为 false。 */
   visible?: boolean;
 };
-
-type RenderWindow = { start: number; end: number };
-
-type ScrollAnchor = { id: string; viewportTop: number };
-type ScrollAnchors = { first: ScrollAnchor | null; last: ScrollAnchor | null };
 
 type ImagePreview = { dataUrl: string; mimeType: string };
 
@@ -172,64 +157,24 @@ export function MessageList({
   const lastPinnedUserId = useRef<string | null>(null);
   /** Avoid follow-bottom immediately undoing the post-send card-bottom scroll. */
   const suppressFollowBottomUntil = useRef(0);
-  /** Inclusive start / exclusive end of displayMessages currently mounted. */
-  const windowRef = useRef<RenderWindow>({ start: 0, end: 0 });
-  const [renderWindow, setRenderWindow] = useState<RenderWindow>(windowRef.current);
+  /** virtua 的虚拟列表实例：负责测量、窗口与滚动位置补偿。 */
+  const virtualizerRef = useRef<VirtualizerHandle | null>(null);
+  /** virtua 容器元素，用于实测其在滚动内容中的起始偏移。 */
+  const virtualHostRef = useRef<HTMLDivElement | null>(null);
   /**
-   * 测量表容量上限。key 带会话前缀以免不同会话互相污染，但表本身不会在切换
-   * 会话时清理 —— 长时间使用 / 频繁切会话会让它涨到几十万条，之后每次查表
-   * 都变成缓存未命中。按插入顺序淘汰最旧的即可：被淘汰的行重新挂载时量一次。
+   * 虚拟列表之前的内容高度（.inner 上内边距 + 顶部“加载更早”入口）。
+   * virtua 以此为基准换算可见区间，填错会让视口整体偏移。
    */
-  const MEASURE_MAX_ENTRIES = 20_000;
-  const heightById = useRef(new Map<string, number>());
-  /** Heights are session-scoped: switching sessions keeps past measurements usable. */
-  function heightKey(id: string): string {
-    return `${sessions.activeId}|${id}`;
-  }
-  /** Real layout offsetTop of measured rows (for accurate sticky pinning). */
-  const topById = useRef(new Map<string, number>());
-  function rememberMeasure(cache: Map<string, number>, key: string, value: number): void {
-    cache.delete(key);
-    cache.set(key, value);
-    while (cache.size > MEASURE_MAX_ENTRIES) {
-      const oldest = cache.keys().next().value;
-      if (oldest === undefined) break;
-      cache.delete(oldest);
-    }
-  }
-  const adjustingWindow = useRef(false);
+  const [startMargin, setStartMargin] = useState(0);
+  /** 前插更早历史时置位：virtua 据此把滚动位置按尾部对齐，避免视口跳动。 */
+  const [shift, setShift] = useState(false);
+
   /**
-   * 窗口调整方向闸门：向上扩展裁尾部、向下扩展裁头部，两侧裁剪会互相把对方
-   * 重新推回阈值内，形成每帧交替重建 DOM 的自激振荡。反向调整必须隔一帧以上，
-   * 短时间内反复反向则判定为振荡，拉长冷却。同向连续扩展不受影响。
-   * 判据与状态机在 utils/message-virtual-window.ts。
+   * 贴底状态：true = 跟随实时边缘；false = 用户在读历史，视口不得自行移动。
+   * 只由用户意图翻转（滚轮 / 键盘 / 触摸 / 拖动滚动条），滚动事件不参与 ——
+   * 虚拟列表的锚定补偿也会派发 scroll 事件，用它判断意图会把视口吸回底部。
    */
-  const adjustGate = useRef(createWindowAdjustGate(Date.now()));
-
-  function allowAdjust(dir: WindowAdjustDir): boolean {
-    return allowWindowAdjust(adjustGate.current, dir, Date.now());
-  }
-
-  function noteAdjust(dir: WindowAdjustDir): void {
-    adjustGate.current = noteWindowAdjust(adjustGate.current, dir, Date.now());
-  }
-
   const followBottom = useRef(true);
-  /**
-   * Latched once the user scrolls away from the live edge; cleared only when they
-   * scroll back down into the near-bottom zone (or send / jump-to-latest). A pure
-   * distance threshold deadlocks while streaming: every chunk snap re-bottoms the
-   * viewport, so `isNearBottom` stays true and small upward wheel steps could
-   * never escape it.
-   */
-  const userScrolledAway = useRef(false);
-  /**
-   * Hard latch: the user is reading history and may be away from the live edge —
-   * absolutely no viewport motion until they ask for it. Guards every watcher /
-   * mutation that would otherwise snap back to the bottom while the agent keeps
-   * streaming or while older pages keep loading.
-   */
-  const readingHistory = useRef(false);
   /** Session switch / hydrate settle — snap to bottom, never smooth-scroll. */
   const settlingSession = useRef(false);
   const sessionJumpToken = useRef(0);
@@ -238,6 +183,12 @@ export function MessageList({
   /** Show floating jump control when user scrolled away from latest. */
   const [showJumpLatest, setShowJumpLatest] = useState(false);
   const scrollRaf = useRef(0);
+  /** 意图序号：滚动事件到达前若用户又改了意图，排队的复查作废。 */
+  const intentToken = useRef(0);
+  /** 向下意图的复查帧：滚轮/键盘事件先于滚动发生，底部区域要等滚动落地才能判断。 */
+  const liveEdgeCheckRaf = useRef(0);
+  /** 抓着滚动条：此时视口由用户手动导航，任何贴底都要让位。 */
+  const scrollbarGrab = useRef(false);
 
   /**
    * VS Code Copilot design (chatThinkingContentPart): the latest turn's process
@@ -266,6 +217,15 @@ export function MessageList({
     [displayMessages],
   );
 
+  /**
+   * 虚拟化的行序列：工作分组的从属行不单独成行 —— 分组内容整体挂在首行上，
+   * 若从属行独立成行，首行被裁出窗口时会留下一整段空白。
+   */
+  const renderRows = useMemo(
+    () => displayMessages.filter((m) => workSectionMembership.get(m.id)?.isLead !== false),
+    [displayMessages, workSectionMembership],
+  );
+
   const settledRowIds = useMemo(
     () => buildSettledRowIds(displayMessages, workSectionMembership),
     [displayMessages, workSectionMembership],
@@ -286,6 +246,7 @@ export function MessageList({
 
   const rowsRef = useRef({
     displayMessages,
+    renderRows,
     workSectionMembership,
     settledRowIds,
     finalAnswerIds,
@@ -293,6 +254,7 @@ export function MessageList({
   });
   rowsRef.current = {
     displayMessages,
+    renderRows,
     workSectionMembership,
     settledRowIds,
     finalAnswerIds,
@@ -307,8 +269,6 @@ export function MessageList({
     return msg.role === "assistant" && rowsRef.current.finalAnswerIds.has(msg.id);
   }
 
-  const visibleMessages = displayMessages.slice(renderWindow.start, renderWindow.end);
-
   /** 更早历史的分页游标；没有更早历史时不显示入口。 */
   const olderState = useMemo(() => {
     const id = sessions.activeId;
@@ -316,92 +276,27 @@ export function MessageList({
     return chat.olderBySession[id] ?? null;
   }, [chat.olderBySession, sessions.activeId]);
 
-  function applyWindow(next: RenderWindow): void {
-    windowRef.current = next;
-    setRenderWindow(next);
-  }
-
   /**
-   * 前插一页更早历史，并把渲染窗口同步下移同样条数。
+   * 前插一页更早历史。shift 让 virtua 按“尾部对齐”补偿滚动位置，
+   * 前插后视口内容不跳动。
    *
-   * 前插只会让已挂载行的下标整体后移；窗口同步平移后可见集合不变，顶部占位
-   * （estimateRangeHeight(0, renderStart)）相应变高，视口因此不会跳动。
+   * shift 是一次性的：virtua 只在“行数变化的那一次渲染”消费它。
+   * 前插的行可能全被 displayMessageRows 裁掉（历史轮的工具/纯思考行不渲染），
+   * 行数不变 → shift 无人消费，会一直挂着，
+   * 下一次行数变化（比如流式输出的新行）就会被当成“前插”而按尾部对齐，
+   * 视口直接被拖到内容末尾。所以这里用 pendingShift 记账，落地后立即核销。
    */
+  const pendingShift = useRef(false);
   async function onLoadOlder(): Promise<void> {
     const id = sessions.activeId;
     if (!id) return;
+    pendingShift.current = true;
+    setShift(true);
     const added = await chat.loadOlderMessages(id);
-    if (added <= 0 || sessions.activeId !== id) return;
-    const len = rowsRef.current.displayMessages.length;
-    const current = windowRef.current;
-    applyWindow({
-      start: Math.min(current.start + added, len),
-      end: Math.min(current.end + added, len),
-    });
-  }
-
-  function estimateMessageHeight(msg: ChatMessage | undefined): number {
-    if (!msg) return EST_MSG_HEIGHT;
-    const group = rowsRef.current.workSectionMembership.get(msg.id);
-    if (group) {
-      if (!group.isLead) return 0;
-      return heightById.current.get(heightKey(group.leadId)) || EST_TOOL_GROUP_HEIGHT;
+    if (added <= 0 || sessions.activeId !== id) {
+      pendingShift.current = false;
+      setShift(false);
     }
-    return heightById.current.get(heightKey(msg.id)) || EST_MSG_HEIGHT;
-  }
-
-  function estimateRangeHeight(from: number, to: number): number {
-    const all = rowsRef.current.displayMessages;
-    let h = 0;
-    for (let i = from; i < to; i++) {
-      h += estimateMessageHeight(all[i]);
-    }
-    return h;
-  }
-
-  /**
-   * 第 index 行的真实顶部位置（相对滚动内容，与 scrollTop 同坐标系）。
-   * 裁剪线判断必须用它：spacer 用的是估算高度，估算误差会把裁剪线算进视口里，
-   * 裁掉的行随即又被下一次扩展挂回来 —— 上下交替重建 DOM 正是“滚到中段必卡”的根因。
-   * 折叠跟随行 display:none，offsetTop 恒为 0，改用上一行的底部推算。
-   * 返回 null 表示窗口内没有可用的实测值，调用方退回估算。
-   */
-  function measuredBoundaryTop(index: number): number | null {
-    const all = rowsRef.current.displayMessages;
-    const own = topById.current.get(all[index]?.id ?? "");
-    if (own != null && own > 0) return own;
-    for (let i = index - 1; i >= windowRef.current.start; i--) {
-      const id = all[i]?.id;
-      if (!id) continue;
-      const top = topById.current.get(id);
-      const h = heightById.current.get(heightKey(id));
-      if (top != null && top > 0 && h != null && h > 0) return top + h;
-    }
-    return null;
-  }
-
-  const topSpacerPx = useMemo(
-    () => estimateRangeHeight(0, renderWindow.start),
-    [displayMessages, renderWindow.start],
-  );
-
-  const bottomSpacerPx = useMemo(
-    () => estimateRangeHeight(renderWindow.end, displayMessages.length),
-    [displayMessages, renderWindow.end],
-  );
-
-  const spacerRef = useRef({ topSpacerPx, bottomSpacerPx });
-  spacerRef.current = { topSpacerPx, bottomSpacerPx };
-
-  /**
-   * Below this estimated total height the whole list mounts without a trailing
-   * window: a windowed head would render as blank spacer (and drop the opening
-   * user prompt from view) even though everything would fit on screen.
-   */
-  const FULL_MOUNT_MAX_PX = 2000;
-
-  function fitsFullMount(len: number): boolean {
-    return len <= VIRTUAL_WINDOW || estimateRangeHeight(0, len) <= FULL_MOUNT_MAX_PX;
   }
 
   const sessionId = sessions.activeId;
@@ -465,28 +360,26 @@ export function MessageList({
   }
 
   /**
-   * Nearest user message fully above the viewport top (Cursor behavior).
-   * Uses real measured layout offsets when available (the estimate used to
-   * over-count the user card height, pinning messages that had only partially
-   * scrolled out of view). Unmounted rows above the window never render (the
-   * spacer is blank), so the nearest user message up there is always pinnable.
+   * 视口上方最近的一条用户消息（Cursor 行为）。
+   * 位置取自 virtua 的行偏移（相对虚拟容器），加 startMargin 换算到滚动坐标系。
+   * 未挂载的行同样保留缓存尺寸，所以视口上方的历史提问始终可以被置顶。
    */
   function findStickyUserMessageId(): string | null {
+    const v = virtualizerRef.current;
     const sc = scrollerRef.current;
-    const all = rowsRef.current.displayMessages;
-    if (!sc || all.length === 0) return null;
+    const all = rowsRef.current.renderRows;
+    if (!v || !sc || all.length === 0) return null;
 
     const viewportTop = sc.scrollTop + 8;
+    const first = Math.min(all.length - 1, Math.max(0, v.findItemIndex(sc.scrollTop - startMargin)));
 
-    for (let i = all.length - 1; i >= 0; i--) {
-      const m = all[i]!;
-      if (m.role !== "user") continue;
-      if (i < windowRef.current.start) return m.id;
-      const top = topById.current.get(m.id);
-      if (top == null) continue;
-      // Real position: pin only when the WHOLE row is above the viewport;
-      // otherwise keep scanning upward for an older fully-scrolled-out prompt.
-      if (top + estimateMessageHeight(m) < viewportTop) return m.id;
+    for (let i = first; i >= 0; i--) {
+      const m = all[i];
+      if (!m || m.role !== "user") continue;
+      // 视口内的行要整条都在视口之上才置顶；视口上方的行必然满足。
+      if (i < first) return m.id;
+      const bottom = startMargin + v.getItemOffset(i) + v.getItemSize(i);
+      if (bottom < viewportTop) return m.id;
     }
 
     return null;
@@ -569,407 +462,109 @@ export function MessageList({
   }
 
   /**
-   * A work section renders only on its lead row — a window that starts inside a
-   * group would mount followers as empty 0-height rows. Widen the start upward
-   * to the group's lead so the section stays whole.
+   * virtua 容器元素：默认容器拿不到引用，这里包一层，实测虚拟列表在滚动内容中的
+   * 起始偏移（.inner 上内边距 + 顶部“加载更早”入口 + 间距）。
+   * 用 useState 固定组件身份：身份一变 virtua 容器会被重建，滚动位置与行高缓存全丢。
    */
-  function groupAlignedStart(start: number, end: number): number {
-    const all = rowsRef.current.displayMessages;
-    if (start <= 0 || start >= all.length || start >= end) return start;
-    const m = rowsRef.current.workSectionMembership.get(all[start]!.id);
-    if (!m) return start;
-    const leadIdx = all.findIndex((r) => r.id === m.leadId);
-    return leadIdx >= 0 && leadIdx < start ? leadIdx : start;
-  }
+  const [VirtualHost] = useState(() =>
+    function VirtualHost({
+      style,
+      children,
+      ref,
+    }: CustomContainerComponentProps): ReactElement {
+      return (
+        <div
+          ref={(el) => {
+            virtualHostRef.current = el;
+            if (typeof ref === "function") ref(el);
+            else if (ref) ref.current = el;
+          }}
+          style={style}
+        >
+          {children}
+        </div>
+      );
+    },
+  );
 
-  function alignRenderWindowToGroup(start: number, end: number): void {
-    const len = rowsRef.current.displayMessages.length;
-    const clampedEnd = Math.max(0, Math.min(end, len));
-    const clampedStart = groupAlignedStart(Math.max(0, Math.min(start, clampedEnd)), clampedEnd);
-    applyWindow({ start: clampedStart, end: clampedEnd });
-  }
-
-  /**
-   * 贴底窗口：从尾部向上累加估算高度，直到能盖住视口（至少 VIRTUAL_WINDOW 行）。
-   * 长摘要折叠后尾部只剩一行表头，固定行数的尾窗会让视口落进顶部 spacer，
-   * 看起来就是一大片空白。
-   */
-  function tailWindowForViewport(len: number): { start: number; end: number } {
-    const all = rowsRef.current.displayMessages;
-    const need = (scrollerRef.current?.clientHeight ?? 0) + OVERSCAN_PX;
-    const minStart = Math.max(0, len - VIRTUAL_WINDOW);
-    let start = minStart;
-    let height = 0;
-    for (let i = len - 1; i >= 0; i--) {
-      height += estimateMessageHeight(all[i]);
-      if (height >= need && i <= minStart) {
-        start = i;
-        break;
-      }
-      if (i === 0) {
-        start = 0;
-        break;
-      }
-    }
-    return { start: groupAlignedStart(start, len), end: len };
-  }
-
-  function clampRenderWindow(preferBottom: boolean): void {
-    const len = rowsRef.current.displayMessages.length;
-    // Mount-all only while pinned to the bottom (callers re-pin after the
-    // clamp); expanding mid-read has no scroll compensation and would jump.
-    if (preferBottom && fitsFullMount(len)) {
-      applyWindow({ start: 0, end: len });
-      return;
-    }
-    if (len <= VIRTUAL_WINDOW) {
-      applyWindow({ start: 0, end: len });
-      return;
-    }
-    if (preferBottom) {
-      const tail = tailWindowForViewport(len);
-      alignRenderWindowToGroup(tail.start, tail.end);
-      return;
-    }
-    // Keep current window sized and clamped inside [0, len].
-    const current = windowRef.current;
-    let start = Math.max(0, Math.min(current.start, len));
-    let end = Math.max(start, Math.min(current.end, len));
-    if (end - start < Math.min(VIRTUAL_WINDOW, len)) {
-      end = Math.min(len, start + VIRTUAL_WINDOW);
-      start = Math.max(0, end - VIRTUAL_WINDOW);
-    }
-    alignRenderWindowToGroup(start, end);
-  }
-
-  function measureVisibleRows(): void {
+  /** 贴到滚动内容底部，末尾的“正在重试 / 等待 / 排队提示”也在可视区内。 */
+  function scrollToBottom(): void {
     const sc = scrollerRef.current;
-    if (!sc || paneHidden()) return;
-    const rows = sc.querySelectorAll<HTMLElement>(".row[data-msg-id]");
-    for (const row of rows) {
-      const id = row.dataset.msgId;
-      if (!id) continue;
-      // Use layout height for virtual window estimates.
-      const h = row.offsetHeight;
-      if (h > 0) rememberMeasure(heightById.current, heightKey(id), h);
-      // Real layout offset inside the scroller (rows are flex children of .inner).
-      const top = row.offsetTop;
-      if (top > 0 || row === rows[0]) rememberMeasure(topById.current, id, top);
-    }
+    if (!sc) return;
+    sc.scrollTop = sc.scrollHeight;
   }
 
-  /**
-   * Re-measure a single row after its own content resized (e.g. a work section
-   * finished its fold/unfold animation). Keeps virtual-window heights in sync
-   * without a full relayout — the source of the "janky" fold.
-   * 拖动分隔条 / 缩放窗口时每帧会收到多个分组的高度变化，按帧合并成一次测量。
-   */
-  const resizedRowRaf = useRef(0);
-  const resizedRowIds = useRef(new Set<string>());
-  function rowResized(id: string): void {
-    if (adjustingWindow.current || settlingSession.current || paneHidden()) return;
-    resizedRowIds.current.add(id);
-    if (resizedRowRaf.current) return;
-    resizedRowRaf.current = requestAnimationFrame(() => {
-      resizedRowRaf.current = 0;
-      const ids = [...resizedRowIds.current];
-      resizedRowIds.current.clear();
+  /** virtua 行高变化：置顶提问的位置要跟着重算，贴底时也要重新收敛到底部。 */
+  const virtualResizeRaf = useRef(0);
+  function handleVirtualResize(): void {
+    if (virtualResizeRaf.current) return;
+    virtualResizeRaf.current = requestAnimationFrame(() => {
+      virtualResizeRaf.current = 0;
+      updateStickyPinned();
+      // 行高变化会顶长内容，贴底状态下重新贴回底部；已经离开底部则不打扰阅读。
       const sc = scrollerRef.current;
-      if (!sc) return;
-      for (const rowId of ids) {
-        const row = sc.querySelector<HTMLElement>(`.row[data-msg-id="${rowId}"]`);
-        if (!row) continue;
-        const h = row.offsetHeight;
-        if (h > 0) rememberMeasure(heightById.current, heightKey(rowId), h);
-        const top = row.offsetTop;
-        if (top > 0) rememberMeasure(topById.current, rowId, top);
-      }
-      ensureViewportCovered();
+      if (!sc || !followBottom.current) return;
+      if (isNearBottom(sc)) scrollToBottom();
     });
   }
 
   /**
-   * 行高变化（长摘要折叠/展开）后视口可能落进 spacer 覆盖的未挂载区域 ——
-   * 屏幕上就只剩一片空白。这里就地补挂对应方向的行，让视口重新被真实内容盖住。
+   * 虚拟列表之前的头部高度：virtua 以此为基准换算可见区间，填错会让视口整体偏移。
+   * 头部只有 .inner 上内边距、顶部“加载更早”入口与空态占位，三者变化或面板改尺寸时都要重测。
    */
-  function ensureViewportCovered(): void {
-    if (adjustingWindow.current || settlingSession.current || document.hidden) return;
-    if (paneHidden()) return;
+  const showEmpty = messages.length === 0 && !streaming && !historyLoading && !settlingUi;
+  useLayoutEffect(() => {
     const sc = scrollerRef.current;
-    if (!sc) return;
-    // 已挂载内容不足一屏且确实有 spacer：行高可能在被卸载期间变化过，先量一次再判断。
-    const mountedHeight = sc.scrollHeight - spacerRef.current.topSpacerPx - spacerRef.current.bottomSpacerPx;
-    if (
-      mountedHeight < sc.clientHeight &&
-      (spacerRef.current.topSpacerPx > 0 || spacerRef.current.bottomSpacerPx > 0)
-    ) {
-      measureVisibleRows();
-    }
-    if (
-      windowRef.current.start > 0 &&
-      sc.scrollTop < spacerRef.current.topSpacerPx + OVERSCAN_PX
-    ) {
-      expandHistoryUp();
-      return;
-    }
-    const len = rowsRef.current.displayMessages.length;
-    if (
-      windowRef.current.end < len &&
-      sc.scrollTop + sc.clientHeight > sc.scrollHeight - spacerRef.current.bottomSpacerPx - OVERSCAN_PX
-    ) {
-      expandHistoryDown();
-    }
-  }
-
-  const viewportCoverRaf = useRef(0);
-  /**
-   * 视口补挂必须走 rAF：expandHistoryUp/Down 的 nextTick 末尾若直接同步调
-   * ensureViewportCovered，扩展会在同一个宏任务的微任务链里一路递归到
-   * renderStart===0 / renderEnd===len —— 期间浏览器既不出帧也不派发输入，
-   * 整段历史被挂成真实 DOM，窗口彻底无响应。改由下一帧续跑，每帧最多扩一轮。
-   */
-  function scheduleViewportCover(): void {
-    if (viewportCoverRaf.current) return;
-    viewportCoverRaf.current = requestAnimationFrame(() => {
-      viewportCoverRaf.current = 0;
-      ensureViewportCovered();
-    });
-  }
-
-  /** 视口内首/尾两条可见行，作为窗口变更后的位置基准。 */
-  function captureScrollAnchors(): ScrollAnchors {
-    const anchors: ScrollAnchors = { first: null, last: null };
-    const sc = scrollerRef.current;
-    if (!sc) return anchors;
-    const scRect = sc.getBoundingClientRect();
-    for (const row of sc.querySelectorAll<HTMLElement>(".row[data-msg-id]")) {
-      const id = row.dataset.msgId;
-      if (!id) continue;
-      const rect = row.getBoundingClientRect();
-      if (rect.bottom <= scRect.top || rect.top >= scRect.bottom) continue;
-      const anchor = { id, viewportTop: rect.top - scRect.top };
-      if (!anchors.first) anchors.first = anchor;
-      anchors.last = anchor;
-    }
-    return anchors;
-  }
+    const host = virtualHostRef.current;
+    if (!sc || !host) return;
+    const measure = (): void => {
+      const next = Math.round(
+        host.getBoundingClientRect().top - sc.getBoundingClientRect().top + sc.scrollTop,
+      );
+      setStartMargin((prev) => (prev === next ? prev : next));
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(sc);
+    return () => observer.disconnect();
+  }, [olderState?.hasMore, olderState?.loading, sessionId, showEmpty]);
 
   /**
-   * 窗口变更后把锚点行放回原视口位置，按行的真实位移补偿。
-   * 不能用整体高度差：它把窗口内其它行的内容变化（流式输出、异步 Markdown）
-   * 和 spacer 估算误差一并算进去，等于每次调整都把视图往底部推。
-   * 向上扩展裁尾部、向下扩展裁头部，所以首/尾锚点至少有一个还在。
+   * shift 只在行数变化的那一次渲染生效，用完立刻复位。
+   * 前插的行全被裁掉时行数不变，shift 没人消费就会一直挂着，
+   * 等下一次行数变化（流式新行）时被误当成“前插”而按尾部对齐，视口直接被拖到内容末尾。
+   * 所以这里盯住“消息数 + 行数”：前插落地后（无论有没有产生新行）立刻核销。
    */
-  function restoreScrollAnchor(
-    anchors: ScrollAnchors,
-    prevHeight: number,
-    prevTop: number,
-  ): void {
-    const sc = scrollerRef.current;
-    if (!sc) return;
-    const scTop = sc.getBoundingClientRect().top;
-    for (const anchor of [anchors.first, anchors.last]) {
-      if (!anchor) continue;
-      const row = sc.querySelector<HTMLElement>(
-        `.row[data-msg-id="${CSS.escape(anchor.id)}"]`,
-      );
-      if (!row) continue;
-      sc.scrollTop += row.getBoundingClientRect().top - scTop - anchor.viewportTop;
-      return;
-    }
-    // 两个锚点都被卸载时退回高度差补偿。
-    sc.scrollTop = prevTop + (sc.scrollHeight - prevHeight);
-  }
-
-  /** After a window mutate, continue prefetch on the next frame (yields to paint — no nextTick storm). */
-  function scheduleWindowPrefetch(): void {
-    requestAnimationFrame(() => {
-      const sc = scrollerRef.current;
-      if (!sc || adjustingWindow.current || settlingSession.current) return;
-      if (
-        windowRef.current.start > 0 &&
-        sc.scrollTop < spacerRef.current.topSpacerPx + OVERSCAN_PX
-      ) {
-        expandHistoryUp();
-        return;
-      }
-      if (followBottom.current) return;
-      const bottomEdge = sc.scrollHeight - spacerRef.current.bottomSpacerPx;
-      if (sc.scrollTop + sc.clientHeight > bottomEdge - OVERSCAN_PX) {
-        expandHistoryDown();
-      }
-    });
-  }
-
-  function expandHistoryUp(): void {
-    if (adjustingWindow.current) return;
-    if (windowRef.current.start <= 0) return;
-    if (!allowAdjust("up")) return;
-    const sc = scrollerRef.current;
-    if (!sc) return;
-    adjustingWindow.current = true;
-    const prevHeight = sc.scrollHeight;
-    const prevTop = sc.scrollTop;
-    const anchor = captureScrollAnchors();
-    const nextStart = Math.max(0, windowRef.current.start - VIRTUAL_CHUNK);
-    let nextEnd = windowRef.current.end;
-    // Trim far (bottom) side so mounting stays bounded while scrolling up.
-    // 被裁掉的行必须在视口下方，否则底部 spacer 会顶进视口（露出空白）。
-    const trimEnd = nextStart + VIRTUAL_MAX;
-    if (!followBottom.current && trimEnd < nextEnd) {
-      const viewportTop = sc.scrollTop;
-      const viewportBottom = sc.scrollTop + sc.clientHeight;
-      const trimLineTop = measuredBoundaryTop(trimEnd);
-      if (trimLineTop != null) {
-        // 实测裁剪线：它在视口下方留够 OVERSCAN_PX，裁完就不会立刻满足向下扩展条件。
-        if (
-          trimLineIsSafe({
-            dir: "up",
-            trimLineTop,
-            viewportTop,
-            viewportBottom,
-            overscanPx: OVERSCAN_PX,
-          })
-        ) {
-          nextEnd = trimEnd;
-        }
-      } else {
-        const trimmed = estimateRangeHeight(trimEnd, nextEnd);
-        const trimTop = sc.scrollHeight - spacerRef.current.bottomSpacerPx - trimmed;
-        // 余量要含被裁区间的估算高度：估算偏低会让 trimTop 偏大，只留 OVERSCAN_PX
-        // 会裁到视口内的行（锚点随之丢失，scrollTop 突跳又触发新一轮调整）。
-        if (
-          trimLineIsSafe({
-            dir: "up",
-            trimLineTop: trimTop,
-            viewportTop,
-            viewportBottom,
-            overscanPx: OVERSCAN_PX,
-            margin: trimmed,
-          })
-        ) {
-          nextEnd = trimEnd;
-        }
-      }
-    }
-    const len = rowsRef.current.displayMessages.length;
-    if (fitsFullMount(len)) {
-      flushSync(() => applyWindow({ start: 0, end: len }));
-    } else {
-      const start = groupAlignedStart(nextStart, nextEnd);
-      flushSync(() =>
-        applyWindow({
-          start: Math.max(0, Math.min(start, len)),
-          end: Math.max(0, Math.min(nextEnd, len)),
-        }),
-      );
-    }
-    noteAdjust("up");
-    restoreScrollAnchor(anchor, prevHeight, prevTop);
-    measureVisibleRows();
-    adjustingWindow.current = false;
-    updateStickyPinned();
-    scheduleWindowPrefetch();
-    scheduleViewportCover();
-  }
-
-  function expandHistoryDown(): void {
-    if (adjustingWindow.current) return;
-    const len = rowsRef.current.displayMessages.length;
-    if (windowRef.current.end >= len) return;
-    if (!allowAdjust("down")) return;
-    const sc = scrollerRef.current;
-    if (!sc) return;
-    adjustingWindow.current = true;
-    const prevHeight = sc.scrollHeight;
-    const prevTop = sc.scrollTop;
-    const anchor = captureScrollAnchors();
-    const nextEnd = Math.min(len, windowRef.current.end + VIRTUAL_CHUNK);
-    // Trim far (top) side — never grow past VIRTUAL_MAX (sticky is overlay-only).
-    // 被裁掉的行必须完全在视口上方，否则顶部 spacer 会露进视口（“到最顶上大片空白”）。
-    let nextStart = windowRef.current.start;
-    const trimStart = nextEnd - VIRTUAL_MAX;
-    if (trimStart > nextStart) {
-      const viewportTop = sc.scrollTop;
-      const viewportBottom = sc.scrollTop + sc.clientHeight;
-      const trimLineTop = measuredBoundaryTop(trimStart);
-      if (trimLineTop != null) {
-        // 实测裁剪线：它在视口上方留够 OVERSCAN_PX，裁完就不会立刻满足向上扩展条件。
-        if (
-          trimLineIsSafe({
-            dir: "down",
-            trimLineTop,
-            viewportTop,
-            viewportBottom,
-            overscanPx: OVERSCAN_PX,
-          })
-        ) {
-          nextStart = trimStart;
-        }
-      } else {
-        const trimmed = estimateRangeHeight(nextStart, trimStart);
-        const trimBottom = spacerRef.current.topSpacerPx + trimmed;
-        // 同上：topSpacerPx / 估算高度偏低会让 trimBottom 偏小，条件反而更容易成立。
-        if (
-          trimLineIsSafe({
-            dir: "down",
-            trimLineTop: trimBottom,
-            viewportTop,
-            viewportBottom,
-            overscanPx: OVERSCAN_PX,
-            margin: trimmed,
-          })
-        ) {
-          nextStart = trimStart;
-        }
-      }
-    }
-    if (fitsFullMount(len)) {
-      flushSync(() => applyWindow({ start: 0, end: len }));
-    } else {
-      const start = groupAlignedStart(nextStart, nextEnd);
-      flushSync(() =>
-        applyWindow({
-          start: Math.max(0, Math.min(start, len)),
-          end: Math.max(0, Math.min(nextEnd, len)),
-        }),
-      );
-    }
-    noteAdjust("down");
-    restoreScrollAnchor(anchor, prevHeight, prevTop);
-    measureVisibleRows();
-    adjustingWindow.current = false;
-    updateStickyPinned();
-    scheduleWindowPrefetch();
-    scheduleViewportCover();
-  }
+  useLayoutEffect(() => {
+    if (!pendingShift.current) return;
+    pendingShift.current = false;
+    setShift(false);
+  }, [renderRows.length, messages.length]);
 
   const instantSnapToken = useRef(0);
   function jumpToBottomInstant(): void {
     // Jump control / settle are the only callers; anything else must not move
     // the viewport while the user is reading history.
-    if (readingHistory.current || paneHidden()) return;
+    if (!followBottom.current || paneHidden()) return;
     const sc = scrollerRef.current;
     if (!sc) return;
     const token = ++instantSnapToken.current;
-    sc.scrollTop = sc.scrollHeight;
+    scrollToBottom();
     // Deferred re-snaps must re-check follow: the user may scroll up while these
     // rAFs are still queued — never yank the viewport back down afterwards.
     requestAnimationFrame(() => {
       if (token !== instantSnapToken.current || (!followBottom.current && !settlingSession.current)) {
         return;
       }
-      if (readingHistory.current) return;
-      const el = scrollerRef.current;
-      if (!el) return;
-      el.scrollTop = el.scrollHeight;
+      if (!followBottom.current) return;
+      if (!scrollerRef.current) return;
+      scrollToBottom();
       requestAnimationFrame(() => {
         if (token !== instantSnapToken.current || (!followBottom.current && !settlingSession.current)) {
           return;
         }
-        if (readingHistory.current) return;
-        const el2 = scrollerRef.current;
-        if (el2) el2.scrollTop = el2.scrollHeight;
+        if (!followBottom.current) return;
+        scrollToBottom();
       });
     });
   }
@@ -981,47 +576,32 @@ export function MessageList({
    * frame is enough; later updates simply re-schedule.
    */
   const bottomScrollRaf = useRef(0);
-  /**
-   * 每 tick 同步量高会强制布局（offsetHeight 读取），高 chunk 频率下占满主线程。
-   * 流式期间合并为 ~250ms 尾随测量，滚动 / 窗口调整路径仍各自即时测量。
-   */
-  const streamMeasureTimer = useRef(0);
-  function scheduleStreamMeasure(): void {
-    if (streamMeasureTimer.current) return;
-    streamMeasureTimer.current = window.setTimeout(() => {
-      streamMeasureTimer.current = 0;
-      measureVisibleRows();
-    }, 250);
-  }
   function scheduleBottomScroll(): void {
     // Hard latch first: a reader must never be yanked, even if followBottom is
     // still momentarily true in a state snapshot taken mid-wheel.
-    if (readingHistory.current) return;
+    if (!followBottom.current) return;
     // Minimized / hidden: no layout work until the window is restored.
     if (document.hidden || paneHidden()) return;
     if (bottomScrollRaf.current) return;
     bottomScrollRaf.current = requestAnimationFrame(() => {
       bottomScrollRaf.current = 0;
-      const sc = scrollerRef.current;
       // Re-check at fire time, not just schedule time: the user may have scrolled
       // up after the snap was queued (the follow decision is sync, this rAF is
       // not) — never yank the viewport back down while they read history.
-      if (!sc || document.hidden || paneHidden() || !followBottom.current) return;
+      if (document.hidden || paneHidden() || !followBottom.current) return;
       // Even when a prior state sample left follow=true (samples are not atomic
       // with a mid-await wheel), the hard reading latch still wins at fire time.
-      if (readingHistory.current) return;
-      sc.scrollTop = sc.scrollHeight;
+      if (!followBottom.current) return;
+      scrollToBottom();
     });
   }
 
-  /** 面板 / 窗口重新可见：贴底收敛一次，不重新量全部行高。 */
+  /** 面板 / 窗口重新可见：贴底收敛一次。 */
   function onBecameVisible(): void {
     if (paneHidden() || document.hidden) return;
-    if (!followBottom.current || readingHistory.current) return;
-    clampRenderWindow(true);
+    if (!followBottom.current) return;
     scheduleBottomScroll();
     requestAnimationFrame(() => {
-      measureVisibleRows();
       scheduleBottomScroll();
     });
   }
@@ -1043,9 +623,7 @@ export function MessageList({
   function jumpToLatest(): void {
     disengageHistoryReading();
     setShowJumpLatest(false);
-    clampRenderWindow(true);
     requestAnimationFrame(() => {
-      measureVisibleRows();
       jumpToBottomInstant();
     });
   }
@@ -1055,14 +633,12 @@ export function MessageList({
     if (token !== sessionJumpToken.current) return;
     if (settlingSession.current) {
       // settle state is being snapped anyway — do NOT reset a mid-settle latch.
-      clampRenderWindow(true);
       lastPinnedUserId.current = rowsRef.current.latestUserMessageId;
       return;
     }
     // historyLoading finished outside settle (hydrate landed late): jump to live.
-    if (!followBottom.current && !readingHistory.current) {
+    if (!followBottom.current) {
       disengageHistoryReading();
-      clampRenderWindow(true);
       lastPinnedUserId.current = rowsRef.current.latestUserMessageId;
     }
     jumpToBottomInstant();
@@ -1076,7 +652,6 @@ export function MessageList({
     settlingSession.current = true;
     setSettlingUi(true);
     disengageHistoryReading();
-    applyWindow({ start: 0, end: 0 });
 
     // History load is async after activeId flips — wait for messages / load end before revealing.
     const deadline = Date.now() + 8_000;
@@ -1108,7 +683,10 @@ export function MessageList({
     await snapSessionToBottom(token);
     // Land on the bottom BEFORE revealing (the old flow revealed only after all
     // re-snaps; with early reveal the stale scroll offset would flash otherwise).
+    // 多等一帧：virtua 首帧的行高是估值，等它校正后再贴底，露出的位置才准。
     if (token === sessionJumpToken.current) {
+      await new Promise<void>((r) => requestAnimationFrame(() => r()));
+      jumpToBottomInstant();
       await new Promise<void>((r) => requestAnimationFrame(() => r()));
       jumpToBottomInstant();
       setSettlingUi(false);
@@ -1126,13 +704,7 @@ export function MessageList({
     }
   }
 
-  /**
-   * Cheap, synchronous follow-bottom decision on every scroll event. Must NOT be
-   * rAF-deferred: stream snaps are themselves scheduled on rAFs, so deferring
-   * this let an already-queued snap run with a stale followBottom=true and yank
-   * the viewport back to the bottom while the user was reading history above.
-   */
-  const lastSyncScrollTop = useRef(-1);
+  /** 取消所有排队中的贴底动作：用户已接管视口，不能再被拉回底部。 */
   function cancelQueuedBottomSnaps(): void {
     if (bottomScrollRaf.current) {
       cancelAnimationFrame(bottomScrollRaf.current);
@@ -1142,17 +714,44 @@ export function MessageList({
     instantSnapToken.current++;
   }
 
-  /** 用户明确开始读历史：立即脱离贴底，不再被任何排队中的贴底拉回。 */
-  function engageUserHistoryScroll(): void {
-    if (readingHistory.current && !followBottom.current) return;
+  /**
+   * 用户意图的唯一入口：向上 = 回看历史，向下 = 回到实时边缘。
+   * 贴底状态只在这里翻转，滚动事件无权改动它。
+   */
+  function applyFollowIntent(intent: FollowIntent): void {
+    intentToken.current++;
     const sc = scrollerRef.current;
-    if (!sc || sc.scrollHeight <= sc.clientHeight + 1) return;
+    if (!sc) return;
+    // 内容装得下时没有历史可看，保持贴底。
+    if (intent === "up" && sc.scrollHeight <= sc.clientHeight + 1) return;
+    const decision = decideFollowOnIntent({
+      intent,
+      nearBottom: isNearBottom(sc),
+      following: followBottom.current,
+    });
+    if (!decision.engaged) return;
+    if (decision.following) {
+      disengageHistoryReading();
+      return;
+    }
     cancelSessionSettle();
     suppressFollowBottomUntil.current = 0;
-    userScrolledAway.current = true;
-    followBottom.current = false;
     cancelQueuedBottomSnaps();
     engageHistoryReading();
+  }
+
+  /**
+   * 向下意图的落地复查：滚轮/键盘事件先于滚动发生，此刻还判断不出是否进入底部区域，
+   * 等滚动真正落地后再看一次。用户若在期间改了意图（序号变化），这次复查作废。
+   */
+  function scheduleLiveEdgeCheck(): void {
+    const token = intentToken.current;
+    if (liveEdgeCheckRaf.current) cancelAnimationFrame(liveEdgeCheckRaf.current);
+    liveEdgeCheckRaf.current = requestAnimationFrame(() => {
+      liveEdgeCheckRaf.current = 0;
+      if (token !== intentToken.current) return;
+      applyFollowIntent("down");
+    });
   }
 
   /** 会话贴底是多段异步快照，用户中途上滑时整体取消。 */
@@ -1163,46 +762,6 @@ export function MessageList({
     setSettlingUi(false);
   }
 
-  function syncFollowBottomOnScroll(sc: HTMLElement): void {
-    // While the virtual window adjusts the DOM, scroll events are synthetic — the
-    // decision machine must not run at all (a synthetic nudge could otherwise
-    // look like the user scrolling back down).
-    if (adjustingWindow.current || settlingSession.current) {
-      lastSyncScrollTop.current = sc.scrollTop;
-      return;
-    }
-    const decision = decideFollowOnScroll({
-      top: sc.scrollTop,
-      lastTop: lastSyncScrollTop.current,
-      nearBottom: isNearBottom(sc),
-      now: Date.now(),
-      suppressUntil: suppressFollowBottomUntil.current,
-      away: userScrolledAway.current,
-      following: followBottom.current,
-      guarded: false,
-    });
-    lastSyncScrollTop.current = sc.scrollTop;
-    userScrolledAway.current = decision.away;
-    suppressFollowBottomUntil.current = decision.suppressUntil;
-    followBottom.current = decision.following;
-    if (!followBottom.current) cancelQueuedBottomSnaps();
-    // While a user is reading history (hard latch), every extra list insert
-    // shifts the DOM; synthetic scroll events then fire. Those are not
-    // intent — the state machine stays inert except for a real return into the
-    // live edge, which releases the latch (decideFollowOnScroll only reports
-    // following=true once the user scrolls back into the near-bottom zone).
-    if (readingHistory.current) {
-      if (!decision.following) {
-        setShowJumpLatest(rowsRef.current.displayMessages.length > 0);
-        return;
-      }
-      disengageHistoryReading();
-    }
-    // Return to the live edge = explicit "stop reading history" intent.
-    if (!followBottom.current) engageHistoryReading();
-    setShowJumpLatest(!followBottom.current && rowsRef.current.displayMessages.length > 0);
-  }
-
   /**
    * Wheel events only fire for real user input (programmatic scrollTop writes do
    * not). One upward tick disengages follow immediately — even inside the
@@ -1210,14 +769,26 @@ export function MessageList({
    * user's scroll progress every chunk and they could never escape.
    */
   function onScrollerWheel(event: WheelEvent): void {
-    if (event.deltaY >= 0) return;
-    if (!scrollerRef.current) return;
-    engageUserHistoryScroll();
+    if (event.deltaY === 0) return;
+    // ctrl+wheel 是触控板捏合缩放，不是滚动意图。
+    if (event.ctrlKey) return;
+    if (event.deltaY < 0) {
+      applyFollowIntent("up");
+      return;
+    }
+    applyFollowIntent("down");
+    scheduleLiveEdgeCheck();
   }
 
   function onScrollerKeydown(event: KeyboardEvent): void {
-    if (event.key !== "ArrowUp" && event.key !== "PageUp" && event.key !== "Home") return;
-    engageUserHistoryScroll();
+    if (event.key === "ArrowUp" || event.key === "PageUp" || event.key === "Home") {
+      applyFollowIntent("up");
+      return;
+    }
+    if (event.key === "ArrowDown" || event.key === "PageDown" || event.key === "End") {
+      applyFollowIntent("down");
+      scheduleLiveEdgeCheck();
+    }
   }
 
   const touchStartY = useRef(-1);
@@ -1228,63 +799,51 @@ export function MessageList({
   /** 手指下移 = 内容上滚 = 回看更早的消息（触摸屏 / 手机网页端没有 wheel 事件）。 */
   function onScrollerTouchMove(event: TouchEvent): void {
     const y = event.touches[0]?.clientY;
-    if (y == null || touchStartY.current < 0 || y <= touchStartY.current + 8) return;
-    engageUserHistoryScroll();
+    if (y == null || touchStartY.current < 0) return;
+    const delta = y - touchStartY.current;
+    if (delta > 8) {
+      applyFollowIntent("up");
+      return;
+    }
+    if (delta < -8) {
+      applyFollowIntent("down");
+      scheduleLiveEdgeCheck();
+    }
   }
 
-  /** 指针落在滚动条区域（元素内容区右侧）时同样视为主动滚动。 */
+  /**
+   * 抓着滚动条 = 用户手动导航：先脱离贴底让出视口，松手时若已回到底部区域再贴回去。
+   * 滚动条拖拽不产生 wheel 事件，只能靠 pointerdown/up 判定。
+   */
   function onScrollerPointerDown(event: PointerEvent): void {
     const sc = scrollerRef.current;
     if (!sc) return;
     if (event.clientX < sc.getBoundingClientRect().left + sc.clientWidth) return;
-    engageUserHistoryScroll();
+    scrollbarGrab.current = true;
+    applyFollowIntent("up");
   }
 
-  /** Heavy virtual-window / prefetch work stays rAF-coalesced (follow already synced). */
+  function onScrollerPointerUp(): void {
+    if (!scrollbarGrab.current) return;
+    scrollbarGrab.current = false;
+    applyFollowIntent("down");
+  }
+
+  /** 贴底状态下滚动：把视口重新收敛到底部（内容增长后可能偏离）。 */
   function handleScrollerScroll(): void {
     const sc = scrollerRef.current;
-    if (!sc || adjustingWindow.current || settlingSession.current) return;
-
-    if (followBottom.current) {
-      const len = rowsRef.current.displayMessages.length;
-      const ideal = fitsFullMount(len) ? { start: 0, end: len } : tailWindowForViewport(len);
-      if (windowRef.current.start !== ideal.start || windowRef.current.end !== ideal.end) {
-        alignRenderWindowToGroup(ideal.start, ideal.end);
-        // The clamp changes content above the live edge — re-pin so the
-        // viewport stays on the bottom instead of sliding into the spacer.
-        requestAnimationFrame(() => {
-          const el = scrollerRef.current;
-          if (!el || !followBottom.current || readingHistory.current || adjustingWindow.current) {
-            return;
-          }
-          el.scrollTop = el.scrollHeight;
-          measureVisibleRows();
-          ensureViewportCovered();
-        });
-      } else {
-        ensureViewportCovered();
-      }
-      return;
-    }
-
-    // Prefetch above: expand before the viewport hits blank spacer.
-    if (
-      windowRef.current.start > 0 &&
-      sc.scrollTop < spacerRef.current.topSpacerPx + OVERSCAN_PX
-    ) {
-      expandHistoryUp();
-    }
-    // Prefetch below: keep continuity when scrolling back toward latest.
-    const bottomEdge = sc.scrollHeight - spacerRef.current.bottomSpacerPx;
-    if (sc.scrollTop + sc.clientHeight > bottomEdge - OVERSCAN_PX) {
-      expandHistoryDown();
-    }
+    if (!sc || settlingSession.current) return;
+    if (!followBottom.current) return;
+    if (isNearBottom(sc)) scrollToBottom();
   }
 
+  /**
+   * 滚动事件不参与贴底决策：虚拟列表的锚定补偿同样会派发 scroll 事件
+   * （把 scrollTop 往下推回去保持内容视觉位置不变），把它当成用户意图就会把视口吸回底部。
+   * 这里只负责跟随态的收敛与置顶预览刷新。
+   */
   function onScrollerScroll(): void {
     if (paneHidden()) return;
-    const sc = scrollerRef.current;
-    if (sc) syncFollowBottomOnScroll(sc);
     if (scrollRaf.current) return;
     scrollRaf.current = requestAnimationFrame(() => {
       scrollRaf.current = 0;
@@ -1294,15 +853,13 @@ export function MessageList({
   }
 
   function engageHistoryReading(): void {
-    readingHistory.current = true;
-    setShowJumpLatest(true);
+    followBottom.current = false;
+    setShowJumpLatest(rowsRef.current.displayMessages.length > 0);
   }
 
   function disengageHistoryReading(): void {
-    readingHistory.current = false;
     followBottom.current = true;
-    userScrolledAway.current = false;
-    lastSyncScrollTop.current = -1;
+    setShowJumpLatest(false);
   }
 
   const latestHandlers = useRef({
@@ -1312,6 +869,7 @@ export function MessageList({
     onScrollerTouchStart,
     onScrollerTouchMove,
     onScrollerPointerDown,
+    onScrollerPointerUp,
   });
   latestHandlers.current = {
     onScrollerScroll,
@@ -1320,6 +878,7 @@ export function MessageList({
     onScrollerTouchStart,
     onScrollerTouchMove,
     onScrollerPointerDown,
+    onScrollerPointerUp,
   };
 
   useEffect(() => {
@@ -1336,12 +895,16 @@ export function MessageList({
       latestHandlers.current.onScrollerTouchMove(event);
     const onPointerDown = (event: PointerEvent): void =>
       latestHandlers.current.onScrollerPointerDown(event);
+    const onPointerUp = (): void => latestHandlers.current.onScrollerPointerUp();
     sc.addEventListener("scroll", onScroll, { passive: true });
     sc.addEventListener("wheel", onWheel, { passive: true });
     sc.addEventListener("keydown", onKeydown);
     sc.addEventListener("touchstart", onTouchStart, { passive: true });
     sc.addEventListener("touchmove", onTouchMove, { passive: true });
     sc.addEventListener("pointerdown", onPointerDown, { passive: true });
+    // 松手可能落在面板之外，挂在 window 上才收得到。
+    window.addEventListener("pointerup", onPointerUp);
+    window.addEventListener("pointercancel", onPointerUp);
     document.addEventListener("visibilitychange", onVisibilityChange);
     // Auto-load on startup mounts MessageList *after* activeId is set, so the
     // sessionId watcher may not re-fire — settle here or the spacer looks blank.
@@ -1354,28 +917,25 @@ export function MessageList({
       sc.removeEventListener("touchstart", onTouchStart);
       sc.removeEventListener("touchmove", onTouchMove);
       sc.removeEventListener("pointerdown", onPointerDown);
+      window.removeEventListener("pointerup", onPointerUp);
+      window.removeEventListener("pointercancel", onPointerUp);
       document.removeEventListener("visibilitychange", onVisibilityChange);
       if (scrollRaf.current) {
         cancelAnimationFrame(scrollRaf.current);
         scrollRaf.current = 0;
       }
-      if (viewportCoverRaf.current) {
-        cancelAnimationFrame(viewportCoverRaf.current);
-        viewportCoverRaf.current = 0;
-      }
       if (bottomScrollRaf.current) {
         cancelAnimationFrame(bottomScrollRaf.current);
         bottomScrollRaf.current = 0;
       }
-      if (streamMeasureTimer.current) {
-        clearTimeout(streamMeasureTimer.current);
-        streamMeasureTimer.current = 0;
+      if (virtualResizeRaf.current) {
+        cancelAnimationFrame(virtualResizeRaf.current);
+        virtualResizeRaf.current = 0;
       }
-      if (resizedRowRaf.current) {
-        cancelAnimationFrame(resizedRowRaf.current);
-        resizedRowRaf.current = 0;
+      if (liveEdgeCheckRaf.current) {
+        cancelAnimationFrame(liveEdgeCheckRaf.current);
+        liveEdgeCheckRaf.current = 0;
       }
-      resizedRowIds.current.clear();
       instantSnapToken.current++;
     };
   }, []);
@@ -1406,26 +966,13 @@ export function MessageList({
     const prevLen = prevDisplayLength.current;
     prevDisplayLength.current = len;
     const hydratedFromEmpty = (prevLen === 0 || prevLen == null) && len > 0;
-    // Only pin the trailing window when the user is following the bottom.
-    // (Do NOT yank the window during agent runs if the user scrolled up to read history.)
-    if (readingHistory.current) {
-      // List growth above the anchored read position is fine — the spacer
-      // absorbs it and the browser keeps the anchored row on screen.
-      if (!hydratedFromEmpty) clampRenderWindow(false);
-    } else if (followBottom.current || hydratedFromEmpty) {
-      clampRenderWindow(true);
-    } else if (len <= VIRTUAL_WINDOW) {
-      applyWindow({ start: 0, end: len });
-    } else {
-      clampRenderWindow(false);
-    }
     // Critical: hydrate often lands AFTER settle timeouts. Always snap when
-    // following bottom / first populate, otherwise the virtual spacer stays in view (blank).
+    // following bottom / first populate, otherwise the list stays at the top.
     // Skip while hidden — the visibility handler re-snaps once on restore.
     if (
       (followBottom.current || settlingSession.current || hydratedFromEmpty) &&
       !document.hidden &&
-      !readingHistory.current
+      followBottom.current
     ) {
       lastPinnedUserId.current = rowsRef.current.latestUserMessageId;
       setShowJumpLatest(false);
@@ -1445,10 +992,9 @@ export function MessageList({
     prevLastMessageId.current = id;
     if (prev === undefined) return;
     if (!id || id === prev) return;
-    if (readingHistory.current) return;
-    // A *new* trailing message while already following: just re-clamp + snap.
+    if (!followBottom.current) return;
+    // A *new* trailing message while already following: just re-snap.
     if (followBottom.current) {
-      clampRenderWindow(true);
       lastPinnedUserId.current = rowsRef.current.latestUserMessageId;
       requestAnimationFrame(() => {
         if (!followBottom.current && !settlingSession.current) return;
@@ -1476,16 +1022,14 @@ export function MessageList({
       refreshStickyToggleNeed();
       return;
     }
-    const prevReading = readingHistory.current;
+    const prevReading = !followBottom.current;
     lastPinnedUserId.current = id;
     if (prevReading) {
       // While the user was reading history and sends a follow-up, follow them
       // down to the new tail — jump immediately, don't wait for settle logic.
       disengageHistoryReading();
-      clampRenderWindow(true);
       suppressFollowBottomUntil.current = Date.now() + 160;
       requestAnimationFrame(() => {
-        measureVisibleRows();
         updateStickyPinned();
         refreshStickyToggleNeed();
         const sc = scrollerRef.current;
@@ -1500,7 +1044,6 @@ export function MessageList({
     }
     // Session switch / hydrate: land on bottom instantly (no slide).
     disengageHistoryReading();
-    clampRenderWindow(true);
     if (settlingSession.current) {
       requestAnimationFrame(() => {
         jumpToBottomInstant();
@@ -1512,7 +1055,6 @@ export function MessageList({
     // Brief pause so follow-bottom doesn't yank away before layout settles.
     suppressFollowBottomUntil.current = Date.now() + 160;
     requestAnimationFrame(() => {
-      measureVisibleRows();
       updateStickyPinned();
       refreshStickyToggleNeed();
       const sc2 = scrollerRef.current;
@@ -1539,7 +1081,7 @@ export function MessageList({
     prevStreamRun.current = { length: messages.length, streaming, running };
     if (!prev) return;
     if (Date.now() < suppressFollowBottomUntil.current) return;
-    if (document.hidden || readingHistory.current) return;
+    if (document.hidden || !followBottom.current) return;
     const prevStreaming = prev.streaming ?? null;
     const prevRunning = prev.running ?? false;
     const justFinished = Boolean(prevRunning || prevStreaming) && !running && !streaming;
@@ -1549,12 +1091,9 @@ export function MessageList({
       if (!followBottom.current) return;
       // Coalesced + re-checked at fire time (never yanks a scrolled-up reader).
       scheduleBottomScroll();
-      if (justFinished) measureVisibleRows();
-      else scheduleStreamMeasure();
       if (justFinished) {
         requestAnimationFrame(() => {
-          const sc = scrollerRef.current;
-          if (sc && followBottom.current && !readingHistory.current) sc.scrollTop = sc.scrollHeight;
+          if (followBottom.current) scrollToBottom();
         });
       }
     }
@@ -1597,7 +1136,7 @@ export function MessageList({
     if (prev === undefined) return;
     if (!followBottom.current || Date.now() < suppressFollowBottomUntil.current) return;
     if (!running && !streaming) return;
-    if (document.hidden || readingHistory.current) return;
+    if (document.hidden || !followBottom.current) return;
     requestAnimationFrame(() => {
       scheduleBottomScroll();
     });
@@ -1998,6 +1537,324 @@ export function MessageList({
     return () => clearTimeout(timer);
   }, [jumpVisible]);
 
+  /** 单行渲染：行高由 virtua 实测，行间距由 .row 的 padding 承担。 */
+  function renderMessageRow(msg: ChatMessage, index: number): ReactElement {
+    const membership = workSectionMembership.get(msg.id);
+    const rowClass = [
+      styles.row,
+      rowRoleClass(msg.role),
+      index === renderRows.length - 1 ? styles.rowLast : "",
+      sessionId && chat.isPendingEditTail(sessionId, msg.id)
+        ? styles.rowEditTail
+        : "",
+    ]
+      .filter(Boolean)
+      .join(" ");
+    if (membership) {
+      return (
+        <article key={msg.id} className={rowClass} data-msg-id={msg.id}>
+          <div className={styles.tool}>
+            <WorkSectionGroup
+              items={membership.items}
+              autoCollapse={rowSettled(msg)}
+              onOpen={openPreview}
+              onResize={refreshStickyToggleNeed}
+            />
+          </div>
+        </article>
+      );
+    }
+    if (msg.role === "user") {
+      const view = userRow(msg);
+      const expanded = isUserExpanded(msg.id);
+      return (
+        <article key={msg.id} className={rowClass} data-msg-id={msg.id}>
+          <div className={`${styles.bubbleWrap} ${styles.user}`}>
+            <div className={`${styles.bubble} ${styles.user}`}>
+              {msg.images?.length ? (
+                <div className={styles.userImages}>
+                  {msg.images.map((img, idx) => (
+                    <img
+                      key={`${msg.id}-img-${idx}`}
+                      className={styles.userImage}
+                      src={img.dataUrl}
+                      alt={t.imageAttachment}
+                      loading="lazy"
+                      draggable="false"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        openImagePreview(img);
+                      }}
+                    />
+                  ))}
+                </div>
+              ) : null}
+              {view.text ? (
+                <div
+                  className={`${styles.userPlain}${expanded ? "" : ` ${styles.clamped}`}`}
+                >
+                  {view.text}
+                </div>
+              ) : null}
+              {view.tags.length ? (
+                <div className={styles.userTags}>
+                  {view.tags.map((tag, idx) => (
+                    <Tag
+                      key={`${msg.id}-tag-${idx}`}
+                      color="blue"
+                      className={`${styles.userTag}${tag.kind === "file" ? ` ${styles.userTagFile}` : ""}`}
+                      title={tag.url || tag.label}
+                    >
+                      {tag.label || tag.content}
+                    </Tag>
+                  ))}
+                </div>
+              ) : null}
+              {canRevertUser(msg) || isRevertedUser(msg) ? (
+                <div className={styles.userBubbleFooter}>
+                  <Tooltip
+                    title={isRevertedUser(msg) ? t.reverted : t.revertTurn}
+                    placement="top"
+                  >
+                    <button
+                      type="button"
+                      className={styles.bubbleRevert}
+                      disabled={running || isRevertedUser(msg)}
+                      aria-label={isRevertedUser(msg) ? t.reverted : t.revertTurn}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        onRevertUser(msg);
+                      }}
+                    >
+                      <ArrowUndoOutline size={15} />
+                    </button>
+                  </Tooltip>
+                </div>
+              ) : null}
+              {view.needsToggle ? (
+                <button
+                  type="button"
+                  className={styles.userCardToggle}
+                  aria-expanded={expanded}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    toggleUserExpanded(msg.id);
+                  }}
+                >
+                  {expanded ? (
+                    <ChevronUpOutline size={13} />
+                  ) : (
+                    <ChevronDownOutline size={13} />
+                  )}
+                  <span>{expanded ? t.userCardCollapse : t.userCardExpand}</span>
+                </button>
+              ) : null}
+            </div>
+            {!running ? (
+              <div className={`${styles.actions} ${styles.userActions}`}>
+                <Tooltip title={t.copy}>
+                  <Button
+                    type="text"
+                    shape="circle"
+                    size="small"
+                    icon={<CopyOutline />}
+                    onClick={() => copyText(view.text)}
+                  />
+                </Tooltip>
+                <Tooltip title={t.reEdit}>
+                  <Button
+                    type="text"
+                    shape="circle"
+                    size="small"
+                    icon={<CreateOutline />}
+                    onClick={() => onEditUser(msg)}
+                  />
+                </Tooltip>
+              </div>
+            ) : null}
+          </div>
+        </article>
+      );
+    }
+    if (msg.role === "assistant") {
+      const stats = statsByRow.get(msg.id);
+      const modelDetail = modelDetailByRow.get(msg.id);
+      const roundUser = roundUserOf(msg);
+      const diff = turnDiffFor(msg);
+      return (
+        <article key={msg.id} className={rowClass} data-msg-id={msg.id}>
+          {msg.text || msg.thinking || !msg.streaming ? (
+            <div className={`${styles.bubbleWrap} ${styles.assistant}`}>
+              <div
+                className={`${styles.bubble} ${styles.assistant}${
+                  msg.streaming && msg.thinking && !msg.text
+                    ? ` ${styles.thinkBottom}`
+                    : ""
+                }`}
+              >
+                {msg.thinking || (msg.streaming && !msg.text) ? (
+                  <ThinkingBlock
+                    thinking={msg.thinking ?? ""}
+                    streaming={Boolean(msg.streaming && !msg.text)}
+                    autoCollapse={turnDone || !(msg.streaming && !msg.text)}
+                  />
+                ) : null}
+                {msg.text ? (
+                  <Suspense fallback={null}>
+                    <MarkdownView
+                      content={msg.text}
+                      streaming={Boolean(msg.streaming)}
+                      variant="chat"
+                      className={`assistant-md${msg.streaming && msg.text ? ` ${styles.streamShimmer}` : ""}`}
+                    />
+                  </Suspense>
+                ) : null}
+                {msg.streaming && msg.text ? (
+                  <span className={styles.cursor} aria-hidden="true" />
+                ) : null}
+              </div>
+              {canShowAssistantActions(msg) ? (
+                <div className={styles.actions}>
+                  <Tooltip title={t.copy}>
+                    <Button
+                      type="text"
+                      shape="circle"
+                      size="small"
+                      icon={<CopyOutline />}
+                      onClick={() => copyText(msg.text)}
+                    />
+                  </Tooltip>
+                  <Tooltip title={t.regenerate}>
+                    <Button
+                      type="text"
+                      shape="circle"
+                      size="small"
+                      icon={<RefreshOutline />}
+                      onClick={() => void onRegenerate(msg)}
+                    />
+                  </Tooltip>
+                  {roundUser ? (
+                    <>
+                      {!isLatestRound(msg) ? (
+                        <Tooltip title={t.restoreCheckpoint}>
+                          <Button
+                            type="text"
+                            shape="circle"
+                            size="small"
+                            icon={<ArrowUndoOutline />}
+                            onClick={() => onRestoreCheckpoint(roundUser)}
+                          />
+                        </Tooltip>
+                      ) : null}
+                      <Tooltip title={t.forkConversation}>
+                        <Button
+                          type="text"
+                          shape="circle"
+                          size="small"
+                          icon={<GitBranchOutline />}
+                          onClick={() => void onForkConversation(roundUser)}
+                        />
+                      </Tooltip>
+                    </>
+                  ) : null}
+                  {stats ? (
+                    <span className={styles.assistantStats} title={stats.detail}>
+                      {stats.compact}
+                    </span>
+                  ) : null}
+                  {modelDetail ? (
+                    <span className={styles.assistantModel} title={modelDetail.detail}>
+                      {modelDetail.compact}
+                    </span>
+                  ) : null}
+                </div>
+              ) : null}
+
+              {diff ? (
+                <TurnDiffSummary
+                  changes={diff}
+                  open={isTurnDiffOpen(msg.id)}
+                  onToggle={() => toggleTurnDiff(msg.id)}
+                  onOpenFile={openPreview}
+                />
+              ) : null}
+            </div>
+          ) : null}
+        </article>
+      );
+    }
+    if (msg.role === "tool") {
+      const status = toolStatus(msg);
+      return (
+        <article key={msg.id} className={rowClass} data-msg-id={msg.id}>
+          <div className={styles.tool}>
+            <ToolCallCard
+              card={toolCard(msg)}
+              toolName={msg.toolName}
+              order={msg.order}
+              statusLabel={status.label}
+              statusType={status.type}
+              streaming={msg.streaming}
+              autoCollapse={rowSettled(msg)}
+              nestedCalls={msg.nestedCalls}
+              onOpen={openPreview}
+            />
+          </div>
+        </article>
+      );
+    }
+    if (msg.role === "summary") {
+      const open = isSummaryOpen(msg.id);
+      return (
+        <article key={msg.id} className={rowClass} data-msg-id={msg.id}>
+          <div className={styles.summaryCard}>
+            <button
+              className={styles.summaryHead}
+              type="button"
+              onClick={() => toggleSummary(msg.id)}
+            >
+              {open ? <ChevronDownOutline /> : <ChevronForwardOutline />}
+              <span className={styles.summaryTitle}>
+                {msg.kind === "compaction" ? t.summaryCompaction : t.summaryBranch}
+              </span>
+              {msg.tokensBefore ? (
+                <span className={styles.summaryMeta}>
+                  {t.summaryTokens(msg.tokensBefore)}
+                </span>
+              ) : null}
+            </button>
+            {open ? <div className={styles.summaryBody}>{msg.text}</div> : null}
+          </div>
+        </article>
+      );
+    }
+    const cancelled = msg.variant === "cancelled";
+    return (
+      <article key={msg.id} className={rowClass} data-msg-id={msg.id}>
+        <div
+          className={`${styles.bubbleWrap} ${cancelled ? styles.cancelledWrap : styles.errorWrap}`}
+        >
+          <div
+            className={`${styles.bubble} ${cancelled ? styles.cancelled : styles.error}`}
+          >
+            {msg.text}
+          </div>
+          <Button
+            size="small"
+            type={cancelled ? "text" : "primary"}
+            danger={!cancelled}
+            disabled={running}
+            className={styles.errorRetryBtn}
+            icon={<RefreshOutline />}
+            onClick={() => void onRetryError(msg)}
+          >
+            {t.retryRequest}
+          </Button>
+        </div>
+      </article>
+    );
+  }
+
   return (
     <>
       <div className={styles.messageListRoot}>
@@ -2014,349 +1871,23 @@ export function MessageList({
             </div>
           ) : null}
 
-          {messages.length === 0 && !streaming && !historyLoading && !settlingUi ? (
-            <Empty description={t.emptyChat} style={{ margin: "auto" }} />
-          ) : null}
+          {showEmpty ? <Empty description={t.emptyChat} style={{ margin: "auto" }} /> : null}
 
-          {topSpacerPx > 0 ? (
-            <div
-              className={styles.virtualSpacer}
-              style={{ height: `${topSpacerPx}px` }}
-              aria-hidden="true"
-            />
-          ) : null}
+          <Virtualizer
+            ref={virtualizerRef}
+            as={VirtualHost}
+            data={renderRows}
+            scrollRef={scrollerRef}
+            shift={shift}
+            startMargin={startMargin}
+            bufferSize={OVERSCAN_PX}
+            itemSize={EST_ROW_HEIGHT}
+            onResize={handleVirtualResize}
+          >
+            {(msg, index) => renderMessageRow(msg, index)}
+          </Virtualizer>
 
-          {visibleMessages.map((msg) => {
-            const membership = workSectionMembership.get(msg.id);
-            const rowClass = [
-              styles.row,
-              rowRoleClass(msg.role),
-              membership?.isLead === false ? styles.rowToolGroupFollower : "",
-              sessionId && chat.isPendingEditTail(sessionId, msg.id)
-                ? styles.rowEditTail
-                : "",
-            ]
-              .filter(Boolean)
-              .join(" ");
-            if (membership?.isLead) {
-              return (
-                <article key={msg.id} className={rowClass} data-msg-id={msg.id}>
-                  <div className={styles.tool}>
-                    <WorkSectionGroup
-                      items={membership.items}
-                      autoCollapse={rowSettled(msg)}
-                      onOpen={openPreview}
-                      onResize={() => rowResized(msg.id)}
-                    />
-                  </div>
-                </article>
-              );
-            }
-            if (membership) {
-              return (
-                <article key={msg.id} className={rowClass} data-msg-id={msg.id} />
-              );
-            }
-            if (msg.role === "user") {
-              const view = userRow(msg);
-              const expanded = isUserExpanded(msg.id);
-              return (
-                <article key={msg.id} className={rowClass} data-msg-id={msg.id}>
-                  <div className={`${styles.bubbleWrap} ${styles.user}`}>
-                    <div className={`${styles.bubble} ${styles.user}`}>
-                      {msg.images?.length ? (
-                        <div className={styles.userImages}>
-                          {msg.images.map((img, idx) => (
-                            <img
-                              key={`${msg.id}-img-${idx}`}
-                              className={styles.userImage}
-                              src={img.dataUrl}
-                              alt={t.imageAttachment}
-                              loading="lazy"
-                              draggable="false"
-                              onClick={(event) => {
-                                event.stopPropagation();
-                                openImagePreview(img);
-                              }}
-                            />
-                          ))}
-                        </div>
-                      ) : null}
-                      {view.text ? (
-                        <div
-                          className={`${styles.userPlain}${expanded ? "" : ` ${styles.clamped}`}`}
-                        >
-                          {view.text}
-                        </div>
-                      ) : null}
-                      {view.tags.length ? (
-                        <div className={styles.userTags}>
-                          {view.tags.map((tag, idx) => (
-                            <Tag
-                              key={`${msg.id}-tag-${idx}`}
-                              color="blue"
-                              className={`${styles.userTag}${tag.kind === "file" ? ` ${styles.userTagFile}` : ""}`}
-                              title={tag.url || tag.label}
-                            >
-                              {tag.label || tag.content}
-                            </Tag>
-                          ))}
-                        </div>
-                      ) : null}
-                      {canRevertUser(msg) || isRevertedUser(msg) ? (
-                        <div className={styles.userBubbleFooter}>
-                          <Tooltip
-                            title={isRevertedUser(msg) ? t.reverted : t.revertTurn}
-                            placement="top"
-                          >
-                            <button
-                              type="button"
-                              className={styles.bubbleRevert}
-                              disabled={running || isRevertedUser(msg)}
-                              aria-label={isRevertedUser(msg) ? t.reverted : t.revertTurn}
-                              onClick={(event) => {
-                                event.stopPropagation();
-                                onRevertUser(msg);
-                              }}
-                            >
-                              <ArrowUndoOutline size={15} />
-                            </button>
-                          </Tooltip>
-                        </div>
-                      ) : null}
-                      {view.needsToggle ? (
-                        <button
-                          type="button"
-                          className={styles.userCardToggle}
-                          aria-expanded={expanded}
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            toggleUserExpanded(msg.id);
-                          }}
-                        >
-                          {expanded ? (
-                            <ChevronUpOutline size={13} />
-                          ) : (
-                            <ChevronDownOutline size={13} />
-                          )}
-                          <span>{expanded ? t.userCardCollapse : t.userCardExpand}</span>
-                        </button>
-                      ) : null}
-                    </div>
-                    {!running ? (
-                      <div className={`${styles.actions} ${styles.userActions}`}>
-                        <Tooltip title={t.copy}>
-                          <Button
-                            type="text"
-                            shape="circle"
-                            size="small"
-                            icon={<CopyOutline />}
-                            onClick={() => copyText(view.text)}
-                          />
-                        </Tooltip>
-                        <Tooltip title={t.reEdit}>
-                          <Button
-                            type="text"
-                            shape="circle"
-                            size="small"
-                            icon={<CreateOutline />}
-                            onClick={() => onEditUser(msg)}
-                          />
-                        </Tooltip>
-                      </div>
-                    ) : null}
-                  </div>
-                </article>
-              );
-            }
-            if (msg.role === "assistant") {
-              const stats = statsByRow.get(msg.id);
-              const modelDetail = modelDetailByRow.get(msg.id);
-              const roundUser = roundUserOf(msg);
-              const diff = turnDiffFor(msg);
-              return (
-                <article key={msg.id} className={rowClass} data-msg-id={msg.id}>
-                  {msg.text || msg.thinking || !msg.streaming ? (
-                    <div className={`${styles.bubbleWrap} ${styles.assistant}`}>
-                      <div
-                        className={`${styles.bubble} ${styles.assistant}${
-                          msg.streaming && msg.thinking && !msg.text
-                            ? ` ${styles.thinkBottom}`
-                            : ""
-                        }`}
-                      >
-                        {msg.thinking || (msg.streaming && !msg.text) ? (
-                          <ThinkingBlock
-                            thinking={msg.thinking ?? ""}
-                            streaming={Boolean(msg.streaming && !msg.text)}
-                            autoCollapse={turnDone || !(msg.streaming && !msg.text)}
-                          />
-                        ) : null}
-                        {msg.text ? (
-                          <Suspense fallback={null}>
-                            <MarkdownView
-                              content={msg.text}
-                              streaming={Boolean(msg.streaming)}
-                              variant="chat"
-                              className={`assistant-md${msg.streaming && msg.text ? ` ${styles.streamShimmer}` : ""}`}
-                            />
-                          </Suspense>
-                        ) : null}
-                        {msg.streaming && msg.text ? (
-                          <span className={styles.cursor} aria-hidden="true" />
-                        ) : null}
-                      </div>
-                      {canShowAssistantActions(msg) ? (
-                        <div className={styles.actions}>
-                          <Tooltip title={t.copy}>
-                            <Button
-                              type="text"
-                              shape="circle"
-                              size="small"
-                              icon={<CopyOutline />}
-                              onClick={() => copyText(msg.text)}
-                            />
-                          </Tooltip>
-                          <Tooltip title={t.regenerate}>
-                            <Button
-                              type="text"
-                              shape="circle"
-                              size="small"
-                              icon={<RefreshOutline />}
-                              onClick={() => void onRegenerate(msg)}
-                            />
-                          </Tooltip>
-                          {roundUser ? (
-                            <>
-                              {!isLatestRound(msg) ? (
-                                <Tooltip title={t.restoreCheckpoint}>
-                                  <Button
-                                    type="text"
-                                    shape="circle"
-                                    size="small"
-                                    icon={<ArrowUndoOutline />}
-                                    onClick={() => onRestoreCheckpoint(roundUser)}
-                                  />
-                                </Tooltip>
-                              ) : null}
-                              <Tooltip title={t.forkConversation}>
-                                <Button
-                                  type="text"
-                                  shape="circle"
-                                  size="small"
-                                  icon={<GitBranchOutline />}
-                                  onClick={() => void onForkConversation(roundUser)}
-                                />
-                              </Tooltip>
-                            </>
-                          ) : null}
-                          {stats ? (
-                            <span className={styles.assistantStats} title={stats.detail}>
-                              {stats.compact}
-                            </span>
-                          ) : null}
-                          {modelDetail ? (
-                            <span className={styles.assistantModel} title={modelDetail.detail}>
-                              {modelDetail.compact}
-                            </span>
-                          ) : null}
-                        </div>
-                      ) : null}
-
-                      {diff ? (
-                        <TurnDiffSummary
-                          changes={diff}
-                          open={isTurnDiffOpen(msg.id)}
-                          onToggle={() => toggleTurnDiff(msg.id)}
-                          onOpenFile={openPreview}
-                        />
-                      ) : null}
-                    </div>
-                  ) : null}
-                </article>
-              );
-            }
-            if (msg.role === "tool") {
-              const status = toolStatus(msg);
-              return (
-                <article key={msg.id} className={rowClass} data-msg-id={msg.id}>
-                  <div className={styles.tool}>
-                    <ToolCallCard
-                      card={toolCard(msg)}
-                      toolName={msg.toolName}
-                      order={msg.order}
-                      statusLabel={status.label}
-                      statusType={status.type}
-                      streaming={msg.streaming}
-                      autoCollapse={rowSettled(msg)}
-                      nestedCalls={msg.nestedCalls}
-                      onOpen={openPreview}
-                    />
-                  </div>
-                </article>
-              );
-            }
-            if (msg.role === "summary") {
-              const open = isSummaryOpen(msg.id);
-              return (
-                <article key={msg.id} className={rowClass} data-msg-id={msg.id}>
-                  <div className={styles.summaryCard}>
-                    <button
-                      className={styles.summaryHead}
-                      type="button"
-                      onClick={() => toggleSummary(msg.id)}
-                    >
-                      {open ? <ChevronDownOutline /> : <ChevronForwardOutline />}
-                      <span className={styles.summaryTitle}>
-                        {msg.kind === "compaction" ? t.summaryCompaction : t.summaryBranch}
-                      </span>
-                      {msg.tokensBefore ? (
-                        <span className={styles.summaryMeta}>
-                          {t.summaryTokens(msg.tokensBefore)}
-                        </span>
-                      ) : null}
-                    </button>
-                    {open ? <div className={styles.summaryBody}>{msg.text}</div> : null}
-                  </div>
-                </article>
-              );
-            }
-            const cancelled = msg.variant === "cancelled";
-            return (
-              <article key={msg.id} className={rowClass} data-msg-id={msg.id}>
-                <div
-                  className={`${styles.bubbleWrap} ${cancelled ? styles.cancelledWrap : styles.errorWrap}`}
-                >
-                  <div
-                    className={`${styles.bubble} ${cancelled ? styles.cancelled : styles.error}`}
-                  >
-                    {msg.text}
-                  </div>
-                  <Button
-                    size="small"
-                    type={cancelled ? "text" : "primary"}
-                    danger={!cancelled}
-                    disabled={running}
-                    className={styles.errorRetryBtn}
-                    icon={<RefreshOutline />}
-                    onClick={() => void onRetryError(msg)}
-                  >
-                    {t.retryRequest}
-                  </Button>
-                </div>
-              </article>
-            );
-          })}
-
-          {bottomSpacerPx > 0 ? (
-            <div
-              className={styles.virtualSpacer}
-              style={{ height: `${bottomSpacerPx}px` }}
-              aria-hidden="true"
-            />
-          ) : null}
-
-          {renderWindow.end >= displayMessages.length ? (
+          {showJumpLatest ? null : (
             <>
               {retryHint ? (
                 <div className={styles.runningIndicator}>
@@ -2372,7 +1903,7 @@ export function MessageList({
                 <AgentWaitIndicator state={waitState} />
               ) : null}
             </>
-          ) : null}
+          )}
 
           {/*
             Guidance that is not in the transcript yet. Without this the message

@@ -5,8 +5,7 @@ import { BrowserWindow, app, ipcMain, shell, type WebContents } from "electron";
 import { IpcChannels } from "../shared/protocol";
 import { emptyCustomizations, type CustomizationCreateKind, type CustomizationsSnapshot, type McpAuthEvent, type McpAuthEventPayload, type McpAuthPromptReply, type McpAuthState, type McpAuthTarget, type McpProjectOverride, type McpTestResult, type McpTestTarget } from "../shared/customizations";
 import { getWorkspace, listRecentDesktop } from "./workspace-ipc";
-import { createAgentFromDraft, createInstructionsFromDraft, createPromptFromDraft, saveAgentContent } from "./agent-host";
-import { frontmatterText } from "./frontmatter";
+import { createInstructionsFromDraft, createPromptFromDraft } from "./draft-host";
 import { createCustomization, listCustomizations, setMcpServerEnabled, addMcpServers, ensureMcpConfig, removeMcpServer, readMcpEntry, readMcpProjectOverrides, setMcpProjectOverride, setBuiltinExtensionEnabled, setCustomizationItemEnabled, removeCustomizationItem } from "./customizations-host";import { testMcpServer } from "./mcp-test";
 import { setBuiltinToolEnabled, setCodemodeSettings } from "./builtin-tools-host";
 import { mcpLogin, mcpLogout, readMcpAuthState } from "./mcp-auth";
@@ -132,21 +131,6 @@ export function registerCustomizationsIpc(broker?: {
 	);
 
 	ipcMain.handle(
-		IpcChannels.customizations.createAgentFromDraft,
-		async (_event, content: string, scope: "user" | "project", workspace?: string) => {
-			const { parseFrontmatter } = await import("@earendil-works/pi-coding-agent");
-			const { frontmatter } = parseFrontmatter<Record<string, unknown>>(content);
-			const name = frontmatterText(frontmatter.name);
-			return createAgentFromDraft(
-				content,
-				name,
-				scope,
-				workspace?.trim() || getWorkspace() || undefined,
-			);
-		},
-	);
-
-	ipcMain.handle(
 		IpcChannels.customizations.createPromptFromDraft,
 		(_event, content: string, name: string, scope: "user" | "project", workspace?: string) =>
 			createPromptFromDraft(
@@ -155,22 +139,6 @@ export function registerCustomizationsIpc(broker?: {
 				scope,
 				workspace?.trim() || getWorkspace() || undefined,
 			),
-	);
-
-	ipcMain.handle(
-		IpcChannels.customizations.saveAgent,
-		async (_event, filePath: string, content: string, renameName?: string, cwd?: string) => {
-			const { parseFrontmatter } = await import("@earendil-works/pi-coding-agent");
-			const { frontmatter } = parseFrontmatter<Record<string, unknown>>(content);
-			const name = frontmatterText(frontmatter.name);
-			return saveAgentContent(
-				filePath,
-				content,
-				name,
-				renameName,
-				cwd?.trim() || getWorkspace() || undefined,
-			);
-		},
 	);
 
 	ipcMain.handle(

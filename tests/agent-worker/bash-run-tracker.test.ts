@@ -9,7 +9,7 @@ function mockBase(opts?: {
     exec: async (_command, _cwd, { onData, signal }) => {
       onData(Buffer.from("hello\n"));
       if (opts?.hangUntilAbort) {
-        await new Promise<void>((resolve, reject) => {
+        await new Promise<void>((_resolve, reject) => {
           if (signal?.aborted) {
             reject(new Error("aborted"));
             return;
@@ -104,7 +104,7 @@ describe("createTrackedBashOperations", () => {
     const base: BashOperations = {
       exec: async (_command, _cwd, { onData, signal }) => {
         onData(Buffer.from("x\n"));
-        await new Promise<void>((resolve, reject) => {
+        await new Promise<void>((_resolve, reject) => {
           if (signal?.aborted) {
             reject(new Error("aborted"));
             return;

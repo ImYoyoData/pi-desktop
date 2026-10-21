@@ -18,7 +18,6 @@ function editCard(
 function toolMsg(
 	id: string,
 	toolName: string,
-	card: ToolCard,
 ): Extract<ChatMessage, { role: "tool" }> {
 	return {
 		id,
@@ -48,8 +47,8 @@ describe("collectTurnFileChanges", () => {
 				role: "assistant",
 				text: "working…",
 			},
-			toolMsg("t1", "edit", editCard("src/a.ts", 10, 2)),
-			toolMsg("t2", "edit", editCard("src/a.ts", 3, 5)),
+			toolMsg("t1", "edit"),
+			toolMsg("t2", "edit"),
 			{ id: "a2", role: "assistant", text: "done" },
 		];
 		const map = collectTurnFileChanges(messages, parse, true);
@@ -65,10 +64,10 @@ describe("collectTurnFileChanges", () => {
 	it("splits turns on user prompts", () => {
 		const messages: ChatMessage[] = [
 			{ id: "u1", role: "user", text: "one" },
-			toolMsg("t1", "edit", editCard("src/a.ts", 10, 2)),
+			toolMsg("t1", "edit"),
 			{ id: "a1", role: "assistant", text: "ok" },
 			{ id: "u2", role: "user", text: "more" },
-			toolMsg("t3", "write", editCard("README.md", 1, 0)),
+			toolMsg("t3", "write"),
 			{ id: "a2", role: "assistant", text: "done" },
 		];
 		const map = collectTurnFileChanges(messages, parse, true);
@@ -83,17 +82,9 @@ describe("collectTurnFileChanges", () => {
 	it("ignores non-file tools and cards without stats/path", () => {
 		const messages: ChatMessage[] = [
 			{ id: "u1", role: "user", text: "x" },
-			toolMsg("t9", "bash", { kind: "bash" } as unknown as ToolCard),
-			toolMsg(
-				"t8",
-				"read",
-				{ kind: "read", path: "y.ts" } as unknown as ToolCard,
-			),
-			toolMsg(
-				"t7",
-				"edit",
-				{ kind: "edit", path: null, stats: null } as unknown as ToolCard,
-			),
+			toolMsg("t9", "bash"),
+			toolMsg("t8", "read"),
+			toolMsg("t7", "edit"),
 			{ id: "a1", role: "assistant", text: "ok" },
 		];
 		const map = collectTurnFileChanges(messages, parse, true);
@@ -103,7 +94,7 @@ describe("collectTurnFileChanges", () => {
 	it("trailing turn is excluded unless includeTrailing is set", () => {
 		const messages: ChatMessage[] = [
 			{ id: "u1", role: "user", text: "x" },
-			toolMsg("t1", "edit", editCard("src/a.ts", 10, 2)),
+			toolMsg("t1", "edit"),
 			{ id: "a1", role: "assistant", text: "ok" },
 		];
 		expect(collectTurnFileChanges(messages, parse, false).size).toBe(0);

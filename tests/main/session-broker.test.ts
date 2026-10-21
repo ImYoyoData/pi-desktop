@@ -5,10 +5,14 @@ import { describe, expect, it, vi } from "vitest";
 import {
   createSessionBroker,
   ABORT_FORCE_KILL_MS,
-  STALL_EMIT_MS,
+  setStallEmitMs,
   type AllocateSession,
   type SpawnWorker,
 } from "../../src/main/session-broker";
+import type { WorkerOutbound } from "../../src/shared/agent-worker-messages";
+
+/** 卡死判定阈值：测试里显式设置，避免依赖主进程默认值。 */
+const STALL_EMIT_MS = 75_000;
 
 function allocateFixed(id: string): AllocateSession {
   return async (cwd) => ({ id, cwd, filePath: `/tmp/${id}.jsonl` });
@@ -104,7 +108,7 @@ describe("session-broker", () => {
     vi.useFakeTimers();
     let spawnCount = 0;
     let killed = false;
-    let messageCb: ((msg: { kind: string }) => void) | null = null;
+    let messageCb: ((msg: WorkerOutbound) => void) | null = null;
     const broker = createSessionBroker({
       idleDestroyMs: 60_000,
       allocateSession: allocateFixed("session-a"),
@@ -148,7 +152,7 @@ describe("session-broker", () => {
   });
 
   it("rejects pending prompt commands on worker fatal", async () => {
-    let messageCb: ((msg: { kind: string; id?: string; error?: string }) => void) | null = null;
+    let messageCb: ((msg: WorkerOutbound) => void) | null = null;
     const broker = createSessionBroker({
       allocateSession: allocateFixed("session-a"),
       spawnWorker: async (cwd, filePath) => ({
@@ -181,7 +185,7 @@ describe("session-broker", () => {
   });
 
   it("ignores clean worker exit (0) without prompt_error", async () => {
-    let messageCb: ((msg: { kind: string; error?: string }) => void) | null = null;
+    let messageCb!: (msg: WorkerOutbound) => void;
     const events: Array<{ type: string; errorMessage?: string; status?: string }> = [];
     const broker = createSessionBroker({
       allocateSession: allocateFixed("session-a"),
@@ -194,9 +198,7 @@ describe("session-broker", () => {
           kill: () => {},
           onMessage: (cb) => {
             messageCb = cb;
-            return () => {
-              messageCb = null;
-            };
+            return () => {};
           },
         },
       }),
@@ -206,7 +208,7 @@ describe("session-broker", () => {
     });
     const session = await broker.createSession("/tmp/a");
     await broker.send(session.id, { type: "ping" });
-    messageCb?.({ kind: "fatal", error: "worker exited (0)" });
+    messageCb({ kind: "fatal", error: "worker exited (0)" });
     expect(events.some((e) => e.type === "prompt_error")).toBe(false);
     expect(events.some((e) => e.type === "session_status" && e.status === "error")).toBe(
       false,
@@ -322,8 +324,9 @@ describe("session-broker", () => {
 
   it("does not emit worker_stall while an active turn keeps answering pings", async () => {
     vi.useFakeTimers();
+    setStallEmitMs(STALL_EMIT_MS);
     const events: Array<{ type: string }> = [];
-    let messageCb: ((msg: { kind: string }) => void) | null = null;
+    let messageCb: ((msg: WorkerOutbound) => void) | null = null;
     const broker = createSessionBroker({
       allocateSession: allocateFixed("session-a"),
       spawnWorker: async (cwd, filePath) => ({
@@ -365,7 +368,7 @@ describe("session-broker", () => {
   it("emits session_status when heartbeat recovers from stuck to idle", async () => {
     vi.useFakeTimers();
     const events: Array<{ type: string; status?: string; sessionId?: string }> = [];
-    let messageCb: ((msg: { kind: string }) => void) | null = null;
+    let messageCb!: (msg: WorkerOutbound) => void;
     let killed = false;
     const broker = createSessionBroker({
       allocateSession: allocateFixed("session-a"),
@@ -380,9 +383,7 @@ describe("session-broker", () => {
           },
           onMessage: (cb) => {
             messageCb = cb;
-            return () => {
-              messageCb = null;
-            };
+            return () => {};
           },
         },
       }),
@@ -395,7 +396,7 @@ describe("session-broker", () => {
     expect(killed).toBe(true);
 
     const beforeRecovery = events.length;
-    messageCb?.({ kind: "pong" });
+    messageCb({ kind: "pong" });
     const recovery = events.slice(beforeRecovery);
     expect(recovery).toContainEqual({
       type: "session_status",
@@ -434,7 +435,7 @@ describe("session-broker", () => {
   it("does not mark stuck when worker keeps sending events without pong", async () => {
     vi.useFakeTimers();
     const events: Array<{ type: string }> = [];
-    let messageCb: ((msg: { kind: string; event?: { type: string } }) => void) | null = null;
+    let messageCb!: (msg: WorkerOutbound) => void;
     const broker = createSessionBroker({
       allocateSession: allocateFixed("session-a"),
       spawnWorker: async (cwd, filePath) => ({
@@ -446,9 +447,7 @@ describe("session-broker", () => {
           kill: () => {},
           onMessage: (cb) => {
             messageCb = cb;
-            return () => {
-              messageCb = null;
-            };
+            return () => {};
           },
         },
       }),
@@ -458,7 +457,7 @@ describe("session-broker", () => {
     await broker.send(session.id, { type: "ping" });
     for (let i = 0; i < 5; i++) {
       await vi.advanceTimersByTimeAsync(4_000);
-      messageCb?.({ kind: "event", event: { type: "message_update" } });
+      messageCb({ kind: "event", event: { type: "message_update" } });
     }
     expect(events.some((e) => e.type === "worker_stuck")).toBe(false);
     vi.useRealTimers();
@@ -467,7 +466,7 @@ describe("session-broker", () => {
   it("does not false-stuck when heartbeat timers coalesce after a pause", async () => {
     vi.useFakeTimers();
     const events: Array<{ type: string }> = [];
-    let messageCb: ((msg: { kind: string }) => void) | null = null;
+    let messageCb: ((msg: WorkerOutbound) => void) | null = null;
     const broker = createSessionBroker({
       allocateSession: allocateFixed("session-a"),
       spawnWorker: async (cwd, filePath) => ({
@@ -571,7 +570,7 @@ describe("session-broker", () => {
 
   it("openSession prewarms the worker without blocking the open", async () => {
     let spawnCount = 0;
-    let releaseSpawn: (() => void) | null = null;
+    let releaseSpawn!: () => void;
     const gate = new Promise<void>((resolve) => {
       releaseSpawn = resolve;
     });
@@ -597,7 +596,7 @@ describe("session-broker", () => {
     const opened = await broker.openSession("session-a", "/tmp/a");
     expect(opened?.id).toBe("session-a");
     expect(spawnCount).toBe(1);
-    releaseSpawn?.();
+    releaseSpawn();
     await vi.waitFor(() => {
       // Prewarm completed without any further spawn.
       expect(spawnCount).toBe(1);
@@ -606,7 +605,7 @@ describe("session-broker", () => {
 
   it("dedupes a cold-start send that races the prewarm spawn", async () => {
     let spawnCount = 0;
-    let releaseSpawn: (() => void) | null = null;
+    let releaseSpawn!: () => void;
     const gate = new Promise<void>((resolve) => {
       releaseSpawn = resolve;
     });
@@ -631,7 +630,7 @@ describe("session-broker", () => {
     await broker.openSession("session-a", "/tmp/a");
     const pending = broker.send(session.id, { type: "ping" });
     expect(spawnCount).toBe(1);
-    releaseSpawn?.();
+    releaseSpawn();
     await pending;
     expect(spawnCount).toBe(1);
   });

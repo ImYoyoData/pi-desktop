@@ -66,7 +66,6 @@ import {
 } from "./extension-ui-host";
 import { registerThinkingLanguageIpc } from "./thinking-language-ipc";
 import { registerStreamRenderIpc } from "./stream-render-ipc";
-import { registerWebSearchConfigIpc } from "./web-search-config-ipc";
 import { registerAppearanceIpc } from "./appearance-ipc";
 import { registerPrefsIpc } from "./prefs-ipc";
 import { ensurePiAgentEnvironment } from "./pi-env";
@@ -340,7 +339,6 @@ function boot(): void {
 		registerRetryIpc(broker);
 		initRetrySettings();
 		registerRuntimeSettingsIpc(broker);
-		registerWebSearchConfigIpc();
 		registerAppearanceIpc();
 		registerPrefsIpc();
 		registerPreviewIpc();

@@ -484,7 +484,14 @@ export function ContractOutline({
       style={color ? { color, ...style } : style}
       aria-hidden="true"
     >
-
+      <polyline points={"304 416 304 304 416 304"} fill={"none"} stroke={"currentColor"} strokeLinecap={"round"} strokeLinejoin={"round"} strokeWidth={32} />
+      <line x1={314.2} y1={314.23} x2={432} y2={432} fill={"none"} stroke={"currentColor"} strokeLinecap={"round"} strokeLinejoin={"round"} strokeWidth={32} />
+      <polyline points={"208 96 208 208 96 208"} fill={"none"} stroke={"currentColor"} strokeLinecap={"round"} strokeLinejoin={"round"} strokeWidth={32} />
+      <line x1={197.8} y1={197.77} x2={80} y2={80} fill={"none"} stroke={"currentColor"} strokeLinecap={"round"} strokeLinejoin={"round"} strokeWidth={32} />
+      <polyline points={"416 208 304 208 304 96"} fill={"none"} stroke={"currentColor"} strokeLinecap={"round"} strokeLinejoin={"round"} strokeWidth={32} />
+      <line x1={314.23} y1={197.8} x2={432} y2={80} fill={"none"} stroke={"currentColor"} strokeLinecap={"round"} strokeLinejoin={"round"} strokeWidth={32} />
+      <polyline points={"96 304 208 304 208 416"} fill={"none"} stroke={"currentColor"} strokeLinecap={"round"} strokeLinejoin={"round"} strokeWidth={32} />
+      <line x1={197.77} y1={314.2} x2={80} y2={432} fill={"none"} stroke={"currentColor"} strokeLinecap={"round"} strokeLinejoin={"round"} strokeWidth={32} />
     </svg>
   );
 }
@@ -619,7 +626,12 @@ export function EarthOutline({
       style={color ? { color, ...style } : style}
       aria-hidden="true"
     >
-
+      <path d={"M464,256c0-114.87-93.13-208-208-208S48,141.13,48,256s93.13,208,208,208S464,370.87,464,256Z"} fill={"none"} stroke={"currentColor"} strokeMiterlimit={10} strokeWidth={32} />
+      <path d={"M445.57,172.14c-16.06.1-14.48,29.73-34.49,15.75-7.43-5.18-12-12.71-21.33-15-8.15-2-16.5.08-24.55,1.47-9.15,1.58-20,2.29-26.94,9.22-6.71,6.67-10.26,15.62-17.4,22.33-13.81,13-19.64,27.19-10.7,45.57,8.6,17.67,26.59,27.26,46,26,19.07-1.27,38.88-12.33,38.33,15.38-.2,9.8,1.85,16.6,4.86,25.71,2.79,8.4,2.6,16.54,3.24,25.21,1.18,16.2,4.16,34.36,12.2,48.67l15-21.16c1.85-2.62,5.72-6.29,6.64-9.38,1.63-5.47-1.58-14.87-1.95-21s-.19-12.34-1.13-18.47c-1.32-8.59-6.4-16.64-7.1-25.13-1.29-15.81,1.6-28.43-10.58-41.65-11.76-12.75-29-15.81-45.47-13.22-8.3,1.3-41.71,6.64-28.3-12.33,2.65-3.73,7.28-6.79,10.26-10.34,2.59-3.09,4.84-8.77,7.88-11.18s17-5.18,21-3.95,8.17,7,11.64,9.56a49.89,49.89,0,0,0,21.81,9.36c13.66,2,42.22-5.94,42-23.46C456.45,191.7,448.65,180,445.57,172.14Z"} />
+      <path d={"M287.45,316.3c-5.33-22.44-35.82-29.94-52.26-42.11-9.45-7-17.86-17.81-30.27-18.69-5.72-.41-10.51.83-16.18-.64-5.2-1.34-9.28-4.14-14.82-3.41-10.35,1.36-16.88,12.42-28,10.92-10.55-1.42-21.42-13.76-23.82-23.81-3.08-12.92,7.14-17.11,18.09-18.26,4.57-.48,9.7-1,14.09.67,5.78,2.15,8.51,7.81,13.7,10.67,9.73,5.33,11.7-3.19,10.21-11.83-2.23-12.94-4.83-18.22,6.71-27.12,8-6.14,14.84-10.58,13.56-21.61-.76-6.48-4.31-9.41-1-15.86,2.51-4.91,9.4-9.34,13.89-12.27,11.59-7.56,49.65-7,34.1-28.16-4.57-6.21-13-17.31-21-18.83-10-1.89-14.44,9.27-21.41,14.19-7.2,5.09-21.22,10.87-28.43,3-9.7-10.59,6.43-14.07,10-21.46S176.34,70.33,170,66.79l-29.81,33.43a41.52,41.52,0,0,0,8.34,31.86c5.93,7.63,15.37,10.08,15.8,20.5.42,10-1.14,15.12-7.68,22.15-2.83,3-4.83,7.26-7.71,10.07-3.53,3.43-2.22,2.38-7.73,3.32-10.36,1.75-19.18,4.45-29.19,7.21C95.34,199.94,93.8,172.69,86.2,162l-25,20.19c-.27,3.31,4.1,9.4,5.29,13C73.32,215.76,87.1,231.67,96,251.35c9.37,20.84,34.53,15.06,45.64,33.32,9.86,16.2-.67,36.71,6.71,53.67,5.36,12.31,18,15,26.72,24,8.91,9.09,8.72,21.53,10.08,33.36a305.22,305.22,0,0,0,7.45,41.28c1.21,4.69,2.32,10.89,5.53,14.76,2.2,2.66,9.75,4.95,6.7,5.83,4.26.7,11.85,4.68,15.4,1.76,4.68-3.84,3.43-15.66,4.24-21,2.43-15.9,10.39-31.45,21.13-43.35,10.61-11.74,25.15-19.69,34.11-33C288.44,349,291.07,331.49,287.45,316.3Zm-33.39,26.32c-6,10.71-19.36,17.88-27.95,26.39-2.33,2.31-7.29,10.31-10.21,8.58-2.09-1.24-2.8-11.62-3.57-14a61.17,61.17,0,0,0-21.71-29.95c-3.13-2.37-10.89-5.45-12.68-8.7-2-3.53-.2-11.86-.13-15.7.11-5.6-2.44-14.91-1.06-20,1.6-5.87-1.48-2.33,3.77-3.49,2.77-.62,14.21,1.39,17.66,2.11,5.48,1.14,8.5,4.55,12.82,8,11.36,9.11,23.87,16.16,36.6,23.14C257.46,324.46,260.36,331.37,254.06,342.62Z"} />
+      <path d={"M184.46,67.09c4.74,4.63,9.2,10.11,16.27,10.57,6.69.45,13-3.17,18.84,1.38,6.48,5,11.15,11.33,19.75,12.89,8.32,1.51,17.13-3.35,19.19-11.86,2-8.11-2.31-16.93-2.57-25.07,0-1.13.61-6.15-.17-7-.58-.64-5.42.08-6.16.1q-8.13.24-16.22,1.12a207.1,207.1,0,0,0-57.18,14.65C178.64,65.55,181.69,66.22,184.46,67.09Z"} />
+      <path d={"M356.4,123.27c8.49,0,17.11-3.8,14.37-13.62-2.3-8.23-6.22-17.16-15.76-12.72-6.07,2.82-14.67,10-15.38,17.12C338.82,122.13,350.74,123.27,356.4,123.27Z"} />
+      <path d={"M349.62,166.24c8.67,5.19,21.53,2.75,28.07-4.66,5.11-5.8,8.12-15.87,17.31-15.86a15.4,15.4,0,0,1,10.82,4.41c3.8,3.93,3.05,7.62,3.86,12.54,1.81,11.05,13.66.63,16.75-3.65,2-2.79,4.71-6.93,3.8-10.56-.84-3.39-4.8-7-6.56-10.11-5.14-9-9.37-19.47-17.07-26.74-7.41-7-16.52-6.19-23.55,1.08-5.76,6-12.45,10.75-16.39,18.05-2.78,5.13-5.91,7.58-11.54,8.91-3.1.73-6.64,1-9.24,3.08C338.64,148.43,342.76,162.12,349.62,166.24Z"} />
     </svg>
   );
 }
@@ -684,7 +696,14 @@ export function ExpandOutline({
       style={color ? { color, ...style } : style}
       aria-hidden="true"
     >
-
+      <polyline points={"432 320 432 432 320 432"} fill={"none"} stroke={"currentColor"} strokeLinecap={"round"} strokeLinejoin={"round"} strokeWidth={32} />
+      <line x1={421.8} y1={421.77} x2={304} y2={304} fill={"none"} stroke={"currentColor"} strokeLinecap={"round"} strokeLinejoin={"round"} strokeWidth={32} />
+      <polyline points={"80 192 80 80 192 80"} fill={"none"} stroke={"currentColor"} strokeLinecap={"round"} strokeLinejoin={"round"} strokeWidth={32} />
+      <line x1={90.2} y1={90.23} x2={208} y2={208} fill={"none"} stroke={"currentColor"} strokeLinecap={"round"} strokeLinejoin={"round"} strokeWidth={32} />
+      <polyline points={"320 80 432 80 432 192"} fill={"none"} stroke={"currentColor"} strokeLinecap={"round"} strokeLinejoin={"round"} strokeWidth={32} />
+      <line x1={421.77} y1={90.2} x2={304} y2={208} fill={"none"} stroke={"currentColor"} strokeLinecap={"round"} strokeLinejoin={"round"} strokeWidth={32} />
+      <polyline points={"192 432 80 432 80 320"} fill={"none"} stroke={"currentColor"} strokeLinecap={"round"} strokeLinejoin={"round"} strokeWidth={32} />
+      <line x1={90.23} y1={421.8} x2={208} y2={304} fill={"none"} stroke={"currentColor"} strokeLinecap={"round"} strokeLinejoin={"round"} strokeWidth={32} />
     </svg>
   );
 }
@@ -726,7 +745,11 @@ export function EyeOffOutline({
       style={color ? { color, ...style } : style}
       aria-hidden="true"
     >
-
+      <path d={"M432,448a15.92,15.92,0,0,1-11.31-4.69l-352-352A16,16,0,0,1,91.31,68.69l352,352A16,16,0,0,1,432,448Z"} />
+      <path d={"M255.66,384c-41.49,0-81.5-12.28-118.92-36.5-34.07-22-64.74-53.51-88.7-91l0-.08c19.94-28.57,41.78-52.73,65.24-72.21a2,2,0,0,0,.14-2.94L93.5,161.38a2,2,0,0,0-2.71-.12c-24.92,21-48.05,46.76-69.08,76.92a31.92,31.92,0,0,0-.64,35.54c26.41,41.33,60.4,76.14,98.28,100.65C162,402,207.9,416,255.66,416a239.13,239.13,0,0,0,75.8-12.58,2,2,0,0,0,.77-3.31l-21.58-21.58a4,4,0,0,0-3.83-1A204.8,204.8,0,0,1,255.66,384Z"} />
+      <path d={"M490.84,238.6c-26.46-40.92-60.79-75.68-99.27-100.53C349,110.55,302,96,255.66,96a227.34,227.34,0,0,0-74.89,12.83,2,2,0,0,0-.75,3.31l21.55,21.55a4,4,0,0,0,3.88,1A192.82,192.82,0,0,1,255.66,128c40.69,0,80.58,12.43,118.55,37,34.71,22.4,65.74,53.88,89.76,91a.13.13,0,0,1,0,.16,310.72,310.72,0,0,1-64.12,72.73,2,2,0,0,0-.15,2.95l19.9,19.89a2,2,0,0,0,2.7.13,343.49,343.49,0,0,0,68.64-78.48A32.2,32.2,0,0,0,490.84,238.6Z"} />
+      <path d={"M256,160a95.88,95.88,0,0,0-21.37,2.4,2,2,0,0,0-1,3.38L346.22,278.34a2,2,0,0,0,3.38-1A96,96,0,0,0,256,160Z"} />
+      <path d={"M165.78,233.66a2,2,0,0,0-3.38,1,96,96,0,0,0,115,115,2,2,0,0,0,1-3.38Z"} />
     </svg>
   );
 }
@@ -769,7 +792,12 @@ export function FileTrayFullOutline({
       style={color ? { color, ...style } : style}
       aria-hidden="true"
     >
-
+      <path d={"M384,80H128c-26,0-43,14-48,40L48,272V384a48.14,48.14,0,0,0,48,48H416a48.14,48.14,0,0,0,48-48V272L432,120C427,93,409,80,384,80Z"} fill={"none"} stroke={"currentColor"} strokeLinejoin={"round"} strokeWidth={32} />
+      <line x1={48} y1={272} x2={192} y2={272} fill={"none"} stroke={"currentColor"} strokeLinecap={"round"} strokeLinejoin={"round"} strokeWidth={32} />
+      <line x1={320} y1={272} x2={464} y2={272} fill={"none"} stroke={"currentColor"} strokeLinecap={"round"} strokeLinejoin={"round"} strokeWidth={32} />
+      <path d={"M192,272a64,64,0,0,0,128,0"} fill={"none"} stroke={"currentColor"} strokeLinecap={"round"} strokeLinejoin={"round"} strokeWidth={32} />
+      <line x1={144} y1={144} x2={368} y2={144} fill={"none"} stroke={"currentColor"} strokeLinecap={"round"} strokeLinejoin={"round"} strokeWidth={32} />
+      <line x1={128} y1={208} x2={384} y2={208} fill={"none"} stroke={"currentColor"} strokeLinecap={"round"} strokeLinejoin={"round"} strokeWidth={32} />
     </svg>
   );
 }
@@ -855,7 +883,11 @@ export function GitBranchOutline({
       style={color ? { color, ...style } : style}
       aria-hidden="true"
     >
-
+      <circle cx={160} cy={96} r={48} fill={"none"} stroke={"currentColor"} strokeLinecap={"round"} strokeLinejoin={"round"} strokeWidth={32} />
+      <circle cx={160} cy={416} r={48} fill={"none"} stroke={"currentColor"} strokeLinecap={"round"} strokeLinejoin={"round"} strokeWidth={32} />
+      <line x1={160} y1={368} x2={160} y2={144} fill={"none"} stroke={"currentColor"} strokeLinecap={"round"} strokeLinejoin={"round"} strokeWidth={32} />
+      <circle cx={352} cy={160} r={48} fill={"none"} stroke={"currentColor"} strokeLinecap={"round"} strokeLinejoin={"round"} strokeWidth={32} />
+      <path d={"M352,208c0,128-192,48-192,160"} fill={"none"} stroke={"currentColor"} strokeLinecap={"round"} strokeLinejoin={"round"} strokeWidth={32} />
     </svg>
   );
 }
@@ -899,7 +931,12 @@ export function GitCompareOutline({
       style={color ? { color, ...style } : style}
       aria-hidden="true"
     >
-
+      <polyline points={"304 160 240 96 304 32"} fill={"none"} stroke={"currentColor"} strokeLinecap={"round"} strokeLinejoin={"round"} strokeWidth={32} />
+      <polyline points={"207 352 271 416 207 480"} fill={"none"} stroke={"currentColor"} strokeLinecap={"round"} strokeLinejoin={"round"} strokeWidth={32} />
+      <circle cx={112} cy={96} r={48} fill={"none"} stroke={"currentColor"} strokeLinecap={"round"} strokeLinejoin={"round"} strokeWidth={32} />
+      <circle cx={400} cy={416} r={48} fill={"none"} stroke={"currentColor"} strokeLinecap={"round"} strokeLinejoin={"round"} strokeWidth={32} />
+      <path d={"M256,96h84a60,60,0,0,1,60,60V368"} fill={"none"} stroke={"currentColor"} strokeLinecap={"round"} strokeLinejoin={"round"} strokeWidth={32} />
+      <path d={"M255,416H171a60,60,0,0,1-60-60V144"} fill={"none"} stroke={"currentColor"} strokeLinecap={"round"} strokeLinejoin={"round"} strokeWidth={32} />
     </svg>
   );
 }
@@ -941,7 +978,12 @@ export function GitPullRequestOutline({
       style={color ? { color, ...style } : style}
       aria-hidden="true"
     >
-
+      <circle cx={128} cy={416} r={48} fill={"none"} stroke={"currentColor"} strokeLinecap={"round"} strokeLinejoin={"round"} strokeWidth={32} />
+      <line x1={128} y1={144} x2={128} y2={368} fill={"none"} stroke={"currentColor"} strokeLinecap={"round"} strokeLinejoin={"round"} strokeWidth={32} />
+      <polyline points={"288 160 224 96 288 32"} fill={"none"} stroke={"currentColor"} strokeLinecap={"round"} strokeLinejoin={"round"} strokeWidth={32} />
+      <circle cx={128} cy={96} r={48} fill={"none"} stroke={"currentColor"} strokeLinecap={"round"} strokeLinejoin={"round"} strokeWidth={32} />
+      <circle cx={384} cy={416} r={48} fill={"none"} stroke={"currentColor"} strokeLinecap={"round"} strokeLinejoin={"round"} strokeWidth={32} />
+      <path d={"M240,96h84a60,60,0,0,1,60,60V368"} fill={"none"} stroke={"currentColor"} strokeLinecap={"round"} strokeLinejoin={"round"} strokeWidth={32} />
     </svg>
   );
 }
@@ -962,7 +1004,12 @@ export function GlobeOutline({
       style={color ? { color, ...style } : style}
       aria-hidden="true"
     >
-
+      <path d={"M256,48C141.13,48,48,141.13,48,256s93.13,208,208,208,208-93.13,208-208S370.87,48,256,48Z"} fill={"none"} stroke={"currentColor"} strokeMiterlimit={10} strokeWidth={32} />
+      <path d={"M256,48c-58.07,0-112.67,93.13-112.67,208S197.93,464,256,464s112.67-93.13,112.67-208S314.07,48,256,48Z"} fill={"none"} stroke={"currentColor"} strokeMiterlimit={10} strokeWidth={32} />
+      <path d={"M117.33,117.33c38.24,27.15,86.38,43.34,138.67,43.34s100.43-16.19,138.67-43.34"} fill={"none"} stroke={"currentColor"} strokeLinecap={"round"} strokeLinejoin={"round"} strokeWidth={32} />
+      <path d={"M394.67,394.67c-38.24-27.15-86.38-43.34-138.67-43.34s-100.43,16.19-138.67,43.34"} fill={"none"} stroke={"currentColor"} strokeLinecap={"round"} strokeLinejoin={"round"} strokeWidth={32} />
+      <line x1={256} y1={48} x2={256} y2={464} fill={"none"} stroke={"currentColor"} strokeMiterlimit={10} strokeWidth={32} />
+      <line x1={464} y1={256} x2={48} y2={256} fill={"none"} stroke={"currentColor"} strokeMiterlimit={10} strokeWidth={32} />
     </svg>
   );
 }
@@ -983,7 +1030,20 @@ export function HardwareChipOutline({
       style={color ? { color, ...style } : style}
       aria-hidden="true"
     >
-
+      <rect x={80} y={80} width={352} height={352} rx={48} ry={48} fill={"none"} stroke={"currentColor"} strokeLinejoin={"round"} strokeWidth={32} />
+      <rect x={144} y={144} width={224} height={224} rx={16} ry={16} fill={"none"} stroke={"currentColor"} strokeLinejoin={"round"} strokeWidth={32} />
+      <line x1={256} y1={80} x2={256} y2={48} fill={"none"} stroke={"currentColor"} strokeLinecap={"round"} strokeLinejoin={"round"} strokeWidth={32} />
+      <line x1={336} y1={80} x2={336} y2={48} fill={"none"} stroke={"currentColor"} strokeLinecap={"round"} strokeLinejoin={"round"} strokeWidth={32} />
+      <line x1={176} y1={80} x2={176} y2={48} fill={"none"} stroke={"currentColor"} strokeLinecap={"round"} strokeLinejoin={"round"} strokeWidth={32} />
+      <line x1={256} y1={464} x2={256} y2={432} fill={"none"} stroke={"currentColor"} strokeLinecap={"round"} strokeLinejoin={"round"} strokeWidth={32} />
+      <line x1={336} y1={464} x2={336} y2={432} fill={"none"} stroke={"currentColor"} strokeLinecap={"round"} strokeLinejoin={"round"} strokeWidth={32} />
+      <line x1={176} y1={464} x2={176} y2={432} fill={"none"} stroke={"currentColor"} strokeLinecap={"round"} strokeLinejoin={"round"} strokeWidth={32} />
+      <line x1={432} y1={256} x2={464} y2={256} fill={"none"} stroke={"currentColor"} strokeLinecap={"round"} strokeLinejoin={"round"} strokeWidth={32} />
+      <line x1={432} y1={336} x2={464} y2={336} fill={"none"} stroke={"currentColor"} strokeLinecap={"round"} strokeLinejoin={"round"} strokeWidth={32} />
+      <line x1={432} y1={176} x2={464} y2={176} fill={"none"} stroke={"currentColor"} strokeLinecap={"round"} strokeLinejoin={"round"} strokeWidth={32} />
+      <line x1={48} y1={256} x2={80} y2={256} fill={"none"} stroke={"currentColor"} strokeLinecap={"round"} strokeLinejoin={"round"} strokeWidth={32} />
+      <line x1={48} y1={336} x2={80} y2={336} fill={"none"} stroke={"currentColor"} strokeLinecap={"round"} strokeLinejoin={"round"} strokeWidth={32} />
+      <line x1={48} y1={176} x2={80} y2={176} fill={"none"} stroke={"currentColor"} strokeLinecap={"round"} strokeLinejoin={"round"} strokeWidth={32} />
     </svg>
   );
 }
@@ -1028,7 +1088,12 @@ export function LibraryOutline({
       style={color ? { color, ...style } : style}
       aria-hidden="true"
     >
-
+      <rect x={32} y={96} width={64} height={368} rx={16} ry={16} fill={"none"} stroke={"currentColor"} strokeLinejoin={"round"} strokeWidth={32} />
+      <line x1={112} y1={224} x2={240} y2={224} fill={"none"} stroke={"currentColor"} strokeLinecap={"round"} strokeLinejoin={"round"} strokeWidth={32} />
+      <line x1={112} y1={400} x2={240} y2={400} fill={"none"} stroke={"currentColor"} strokeLinecap={"round"} strokeLinejoin={"round"} strokeWidth={32} />
+      <rect x={112} y={160} width={128} height={304} rx={16} ry={16} fill={"none"} stroke={"currentColor"} strokeLinejoin={"round"} strokeWidth={32} />
+      <rect x={256} y={48} width={96} height={416} rx={16} ry={16} fill={"none"} stroke={"currentColor"} strokeLinejoin={"round"} strokeWidth={32} />
+      <path d={"M422.46,96.11l-40.4,4.25c-11.12,1.17-19.18,11.57-17.93,23.1l34.92,321.59c1.26,11.53,11.37,20,22.49,18.84l40.4-4.25c11.12-1.17,19.18-11.57,17.93-23.1L445,115C443.69,103.42,433.58,94.94,422.46,96.11Z"} fill={"none"} stroke={"currentColor"} strokeLinejoin={"round"} strokeWidth={32} />
     </svg>
   );
 }
@@ -1072,7 +1137,12 @@ export function ListOutline({
       style={color ? { color, ...style } : style}
       aria-hidden="true"
     >
-
+      <line x1={160} y1={144} x2={448} y2={144} fill={"none"} stroke={"currentColor"} strokeLinecap={"round"} strokeLinejoin={"round"} strokeWidth={32} />
+      <line x1={160} y1={256} x2={448} y2={256} fill={"none"} stroke={"currentColor"} strokeLinecap={"round"} strokeLinejoin={"round"} strokeWidth={32} />
+      <line x1={160} y1={368} x2={448} y2={368} fill={"none"} stroke={"currentColor"} strokeLinecap={"round"} strokeLinejoin={"round"} strokeWidth={32} />
+      <circle cx={80} cy={144} r={16} fill={"none"} stroke={"currentColor"} strokeLinecap={"round"} strokeLinejoin={"round"} strokeWidth={32} />
+      <circle cx={80} cy={256} r={16} fill={"none"} stroke={"currentColor"} strokeLinecap={"round"} strokeLinejoin={"round"} strokeWidth={32} />
+      <circle cx={80} cy={368} r={16} fill={"none"} stroke={"currentColor"} strokeLinecap={"round"} strokeLinejoin={"round"} strokeWidth={32} />
     </svg>
   );
 }
@@ -1604,7 +1674,12 @@ export function TrashOutline({
       style={color ? { color, ...style } : style}
       aria-hidden="true"
     >
-
+      <path d={"M112,112l20,320c.95,18.49,14.4,32,32,32H348c17.67,0,30.87-13.51,32-32l20-320"} fill={"none"} stroke={"currentColor"} strokeLinecap={"round"} strokeLinejoin={"round"} strokeWidth={32} />
+      <line x1={80} y1={112} x2={432} y2={112} stroke={"currentColor"} strokeLinecap={"round"} strokeMiterlimit={10} strokeWidth={32} />
+      <path d={"M192,112V72h0a23.93,23.93,0,0,1,24-24h80a23.93,23.93,0,0,1,24,24h0v40"} fill={"none"} stroke={"currentColor"} strokeLinecap={"round"} strokeLinejoin={"round"} strokeWidth={32} />
+      <line x1={256} y1={176} x2={256} y2={400} fill={"none"} stroke={"currentColor"} strokeLinecap={"round"} strokeLinejoin={"round"} strokeWidth={32} />
+      <line x1={184} y1={176} x2={192} y2={400} fill={"none"} stroke={"currentColor"} strokeLinecap={"round"} strokeLinejoin={"round"} strokeWidth={32} />
+      <line x1={328} y1={176} x2={320} y2={400} fill={"none"} stroke={"currentColor"} strokeLinecap={"round"} strokeLinejoin={"round"} strokeWidth={32} />
     </svg>
   );
 }

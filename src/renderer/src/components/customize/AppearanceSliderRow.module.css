@@ -1,8 +1,13 @@
 .sliderRow {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 4px;
   min-width: 0;
+}
+
+/* antd 默认给滑块留了 12px 上下外边距，六个滑块叠起来很占高度，这里收紧。 */
+.sliderRow :global(.ant-slider.ant-slider) {
+  margin: 6px 4px;
 }
 
 .sliderHead {
