@@ -31,6 +31,8 @@
 
 .termHost :global(.xterm-viewport) {
   overflow-y: auto !important;
+  /* xterm 自带的视口底色是纯黑，会在自定义外观下留下黑底；终端底色交给容器提供 */
+  background-color: transparent;
 }
 
 .termHost :global(.xterm-helper-textarea),
