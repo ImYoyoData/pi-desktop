@@ -1,9 +1,8 @@
 import { useEffect, useState, type MouseEvent as ReactMouseEvent, type ReactNode } from "react";
-import { Button, Dropdown, Input, Select } from "antd";
+import { Button, Dropdown, Input } from "antd";
 import type { MenuProps } from "antd";
 import CodiconIcon from "@renderer/components/icons/CodiconIcon";
 import ToggleButton from "@renderer/components/ToggleButton";
-import McpAddModal from "@renderer/components/customize/McpAddModal";
 import McpLoginModal from "@renderer/components/customize/McpLoginModal";
 import { useWorkspaceStore } from "@renderer/stores/workspace";
 import { useScopedWorkspaces } from "@renderer/utils/scoped-workspaces";
@@ -15,7 +14,6 @@ import type {
   McpAuthState,
   McpAuthTarget,
   McpEditTarget,
-  McpProjectOverride,
   McpTestResult,
 } from "../../../../shared/customizations";
 import type { PluginUpdateProgress, PluginVersionInfo } from "../../../../shared/pi-market";
@@ -23,7 +21,7 @@ import { useDialog, useMessage } from "@renderer/services/feedback";
 import { useI18n } from "@renderer/i18n/use-i18n";
 import styles from "./CustomizeSection.module.css";
 
-type SectionKind = "skills" | "instructions" | "prompts" | "mcp" | "plugins";
+type SectionKind = "skills" | "instructions" | "mcp" | "plugins";
 type MenuItem = NonNullable<MenuProps["items"]>[number];
 
 type Props = {
@@ -33,10 +31,12 @@ type Props = {
   onMarket?: () => void;
   onOpen?: (payload: { filePath: string; title: string; rename: boolean }) => void;
   onNewDraft?: (payload: {
-    kind: "skills" | "instructions" | "prompts";
+    kind: "skills" | "instructions";
     scope: "user" | "project";
     workspace: string | null;
   }) => void;
+  onMcpAdd?: () => void;
+  onMcpEdit?: (target: McpEditTarget) => void;
 };
 
 const GROUP_ORDER: CustomizationScope[] = ["project", "user", "builtin", "extension"];
@@ -48,6 +48,8 @@ export function CustomizeSection({
   onMarket,
   onOpen,
   onNewDraft,
+  onMcpAdd,
+  onMcpEdit,
 }: Props): ReactNode {
   const workspace = useWorkspaceStore();
   const store = useCustomizationsStore();
@@ -56,12 +58,9 @@ export function CustomizeSection({
   const t = useI18n();
 
   const [query, setQuery] = useState("");
-  const [addOpen, setAddOpen] = useState(false);
-  const [mcpEdit, setMcpEdit] = useState<McpEditTarget | null>(null);
   const [mcpTesting, setMcpTesting] = useState(false);
   const [mcpTestResults, setMcpTestResults] = useState<Record<string, McpTestResult>>({});
   const [mcpAuthStates, setMcpAuthStates] = useState<Record<string, McpAuthState>>({});
-  const [mcpOverrides, setMcpOverrides] = useState<Record<string, "enabled" | "disabled">>({});
   const [mcpLoginTarget, setMcpLoginTarget] = useState<McpAuthTarget | null>(null);
   const [collapsed, setCollapsed] = useState<Set<CustomizationScope>>(() => new Set());
   const pluginUpdates = usePluginUpdatesStore();
@@ -115,8 +114,6 @@ export function CustomizeSection({
         return t.customizeSkills;
       case "instructions":
         return t.customizeInstructions;
-      case "prompts":
-        return t.customizePrompts;
       case "mcp":
         return t.customizeMcp;
       default:
@@ -128,8 +125,6 @@ export function CustomizeSection({
     switch (kind) {
       case "skills":
         return t.customizeNewSkill;
-      case "prompts":
-        return t.customizeNewPrompt;
       default:
         return t.customizeNewInstructions;
     }
@@ -161,6 +156,10 @@ export function CustomizeSection({
       void window.api.workspace.revealInFolder(item.filePath).catch((err) => {
         message.error(err instanceof Error ? err.message : String(err));
       });
+      return;
+    }
+    if (kind === "mcp") {
+      openMcpEdit(item);
       return;
     }
     if (!item.filePath) return;
@@ -203,14 +202,6 @@ export function CustomizeSection({
           throw err;
         }
         return;
-      } else if (kind === "prompts" && item.filePath) {
-        const { filePath } = await window.api.customizations.setItemEnabled(
-          item.filePath,
-          enabled,
-          workspace.root ?? undefined,
-        );
-        store.setFileItemEnabled(item.id, enabled, filePath);
-        return;
       } else if (kind === "plugins" && item.source) {
         // 先本地生效，写入失败再回滚，避免列表整表刷新。
         store.setPluginEnabled(item.id, enabled);
@@ -248,15 +239,9 @@ export function CustomizeSection({
     }
   }
 
-  /** 用户级与工作区级的智能体文件可启停、可删除。 */
-  function isEditableItem(item: CustomizationItem): boolean {
-    return (item.scope === "user" || item.scope === "project") && Boolean(item.filePath);
-  }
-
   function canToggle(item: CustomizationItem): boolean {
     if (kind === "skills") return Boolean(item.filePath) && item.enabled !== undefined;
     if (kind === "mcp") return item.enabled !== undefined;
-    if (kind === "prompts") return isEditableItem(item);
     return kind === "plugins" && Boolean(item.source);
   }
 
@@ -376,24 +361,18 @@ export function CustomizeSection({
     }
   }
 
-  function onMcpAdded(): void {
-    onRefresh?.();
-  }
-
   function openMcpAdd(): void {
-    setMcpEdit(null);
-    setAddOpen(true);
+    onMcpAdd?.();
   }
 
-  /** 打开编辑弹窗；项目级工作区路径从配置文件位置反推。 */
+  /** 打开编辑表单；项目级工作区路径从配置文件位置反推。 */
   function openMcpEdit(item: CustomizationItem): void {
     if (item.scope !== "user" && item.scope !== "project") return;
-    setMcpEdit({
+    onMcpEdit?.({
       name: item.name,
       scope: item.scope,
       workspace: workspaceOf(item) ?? null,
     });
-    setAddOpen(true);
   }
 
   const enabledMcpItems = items.filter((item) => item.enabled !== false);
@@ -481,64 +460,9 @@ export function CustomizeSection({
     }
   }
 
-  /** pi 1.0.1 项目覆盖：用户级服务器在当前工作区的启用态覆盖（.pi/mcp.json）。 */
-  async function refreshMcpOverrides(): Promise<void> {
-    if (kind !== "mcp" || !workspace.root) {
-      setMcpOverrides({});
-      return;
-    }
-    try {
-      setMcpOverrides(await window.api.customizations.listMcpProjectOverrides(workspace.root));
-    } catch {
-      // 覆盖状态获取失败不影响列表展示
-    }
-  }
-
   useEffect(() => {
     void refreshMcpAuth();
-    void refreshMcpOverrides();
   }, [kind, items]);
-
-  const mcpOverrideOptions = [
-    { label: t.customizeMcpOverrideInherit, value: "inherit" },
-    { label: t.customizeMcpOverrideEnabled, value: "enabled" },
-    { label: t.customizeMcpOverrideDisabled, value: "disabled" },
-  ];
-
-  function showMcpOverride(item: CustomizationItem): boolean {
-    return kind === "mcp" && item.scope === "user" && Boolean(workspace.root);
-  }
-
-  function mcpOverrideOf(item: CustomizationItem): McpProjectOverride {
-    return mcpOverrides[item.name] ?? "inherit";
-  }
-
-  async function setMcpOverride(
-    item: CustomizationItem,
-    value: McpProjectOverride,
-  ): Promise<void> {
-    const root = workspace.root;
-    if (!root) return;
-    const previous = mcpOverrideOf(item);
-    setMcpOverrides((prev) => {
-      const next = { ...prev };
-      if (value === "inherit") delete next[item.name];
-      else next[item.name] = value;
-      return next;
-    });
-    try {
-      await window.api.customizations.setMcpProjectOverride(item.name, value, root);
-      onRefresh?.();
-    } catch (err) {
-      setMcpOverrides((prev) => {
-        const rollback = { ...prev };
-        if (previous === "inherit") delete rollback[item.name];
-        else rollback[item.name] = previous;
-        return rollback;
-      });
-      message.error(err instanceof Error ? err.message : String(err));
-    }
-  }
 
   function openMcpLogin(item: CustomizationItem): void {
     setMcpLoginTarget(mcpTarget(item));
@@ -591,14 +515,13 @@ export function CustomizeSection({
   function canRemove(item: CustomizationItem): boolean {
     if (kind === "skills") return Boolean(item.filePath);
     if (kind === "mcp") return true;
-    if (kind === "prompts") return isEditableItem(item);
     if (kind === "instructions") return item.removable === true;
     return kind === "plugins" && Boolean(item.source);
   }
 
   function removeLabel(): string {
     if (kind === "mcp") return t.customizeMcpRemove;
-    if (kind === "instructions" || kind === "prompts") {
+    if (kind === "instructions") {
       return t.customizeDelete;
     }
     return kind === "plugins" ? t.customizeUninstallPlugin : t.customizeUninstall;
@@ -615,7 +538,7 @@ export function CustomizeSection({
       content:
         kind === "mcp"
           ? t.customizeMcpRemoveConfirm(item.name)
-          : kind === "instructions" || kind === "prompts"
+          : kind === "instructions"
             ? t.customizeDeleteConfirm(item.description || item.name)
             : t.customizeUninstallConfirm(item.name),
       positiveText: removeLabel(),
@@ -624,11 +547,7 @@ export function CustomizeSection({
         try {
           if (kind === "skills" && item.filePath) {
             await window.api.skills.uninstall(item.filePath, workspace.root ?? undefined);
-            store.removeFileItem(kind, item.id);
-            return;
-          } else if (kind === "prompts" && item.filePath) {
-            await window.api.customizations.removeItem(item.filePath, workspace.root ?? undefined);
-            store.removeFileItem(kind, item.id);
+            store.removeFileItem(item.id);
             return;
           } else if (kind === "instructions" && item.filePath) {
             await window.api.customizations.removeItem(item.filePath, workspace.root ?? undefined);
@@ -906,22 +825,6 @@ export function CustomizeSection({
                                 onValueChange={(value) => void setEnabled(item, value)}
                               />
                             ) : null}
-                            {showMcpOverride(item) ? (
-                              <span
-                                className={styles.itemOverride}
-                                title={t.customizeMcpProjectOverride}
-                              >
-                                <Select
-                                  className={styles.itemOverrideSelect}
-                                  size="small"
-                                  value={mcpOverrideOf(item)}
-                                  options={mcpOverrideOptions}
-                                  onChange={(value: McpProjectOverride) =>
-                                    void setMcpOverride(item, value)
-                                  }
-                                />
-                              </span>
-                            ) : null}
                             {kind === "mcp" && (item.scope === "user" || item.scope === "project") ? (
                               <button
                                 type="button"
@@ -971,14 +874,6 @@ export function CustomizeSection({
           ))}
         </div>
       )}
-
-      <McpAddModal
-        show={addOpen}
-        workspaces={scopedWorkspaces}
-        edit={mcpEdit}
-        onClose={() => setAddOpen(false)}
-        onAdded={onMcpAdded}
-      />
 
       <McpLoginModal
         show={mcpLoginTarget !== null}

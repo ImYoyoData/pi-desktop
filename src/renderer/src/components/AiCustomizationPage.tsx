@@ -19,6 +19,7 @@ import AboutPanel from "@renderer/components/AboutPanel";
 import NotifySettings from "@renderer/components/NotifySettings";
 import CustomizeNetwork from "@renderer/components/customize/CustomizeNetwork";
 import CustomizeSection from "@renderer/components/customize/CustomizeSection";
+import McpServerForm from "@renderer/components/customize/McpServerForm";
 import CustomizeHooks from "@renderer/components/customize/CustomizeHooks";
 import CustomizeTools from "@renderer/components/customize/CustomizeTools";
 import CustomizeModels from "@renderer/components/customize/CustomizeModels";
@@ -30,8 +31,9 @@ import { useLayoutStore } from "@renderer/stores/layout";
 import { useWorkspaceStore } from "@renderer/stores/workspace";
 import { useDialog, useMessage } from "@renderer/services/feedback";
 import { useI18n } from "@renderer/i18n/use-i18n";
+import { useScopedWorkspaces } from "@renderer/utils/scoped-workspaces";
 import * as prefs from "@renderer/utils/prefs";
-import type { PromptIssueCode, SkillIssueCode } from "../../../shared/customizations";
+import type { McpEditTarget, SkillIssueCode } from "../../../shared/customizations";
 import styles from "./AiCustomizationPage.module.css";
 
 type Props = {
@@ -39,11 +41,14 @@ type Props = {
   visible: boolean;
 };
 
-type DraftKind = "skills" | "instructions" | "prompts";
+type DraftKind = "skills" | "instructions";
 
 type EditingTarget =
   | { kind: "file"; filePath: string; title: string; rename: boolean }
   | { kind: "draft"; draftKind: DraftKind; scope: "user" | "project"; workspace: string | null };
+
+/** MCP 新建/编辑表单：edit 为空表示新建。 */
+type McpFormTarget = { edit: McpEditTarget | null };
 
 /** 导航图标：codicon 名，或直接给一个图标组件（如 ionicons 的 refresh）。 */
 type SectionIcon = CodiconName | ComponentType<IoniconProps>;
@@ -63,7 +68,6 @@ const SECTION_IDS = [
   "runtime",
   "skills",
   "instructions",
-  "prompts",
   "hooks",
   "mcp",
   "plugins",
@@ -71,7 +75,7 @@ const SECTION_IDS = [
   "about",
 ] as const;
 
-const LIST_KINDS = ["skills", "instructions", "prompts", "mcp", "plugins"] as const;
+const LIST_KINDS = ["skills", "instructions", "mcp", "plugins"] as const;
 type ListKind = (typeof LIST_KINDS)[number];
 
 /** VS Code 侧栏常量：默认 200px，可拖拽 150–350。 */
@@ -80,11 +84,10 @@ const SIDEBAR_MIN_WIDTH = 150;
 const SIDEBAR_MAX_WIDTH = 350;
 const WIDTH_KEY = "pi-desktop:customize-sidebar-width:v1";
 
-/** 各类草稿的初始内容：指令是纯 markdown，技能带 frontmatter，提示模板带 description/argument-hint。 */
+/** 各类草稿的初始内容：指令是纯 markdown，技能带 frontmatter。 */
 const DRAFT_TEMPLATES: Record<DraftKind, string> = {
   skills: ["---", "name: ", 'description: ""', "---", ""].join("\n"),
   instructions: "",
-  prompts: ["---", 'description: ""', 'argument-hint: ""', "---", ""].join("\n"),
 };
 
 function readWidth(): number {
@@ -105,11 +108,13 @@ export function AiCustomizationPage({ section, visible }: Props): ReactNode {
   const store = useCustomizationsStore();
   const layout = useLayoutStore();
   const workspace = useWorkspaceStore();
+  const scopedWorkspaces = useScopedWorkspaces();
 
   const [active, setActive] = useState<string>(() => resolveSection(section));
   const [modal, setModal] = useState<string | null>(null);
   const [width, setWidth] = useState<number>(readWidth);
   const [editing, setEditing] = useState<EditingTarget | null>(null);
+  const [mcpForm, setMcpForm] = useState<McpFormTarget | null>(null);
   const [editorName, setEditorName] = useState("");
   const [editorDirty, setEditorDirty] = useState(false);
   const [leaveLabel, setLeaveLabel] = useState<string | null>(null);
@@ -152,7 +157,6 @@ export function AiCustomizationPage({ section, visible }: Props): ReactNode {
       label: t.customizeInstructions,
       description: t.customizeInstructionsDesc,
     },
-    { id: "prompts", icon: "prompts", label: t.customizePrompts, description: t.customizePromptsDesc },
     { id: "hooks", icon: "hooks", label: t.customizeHooks, description: t.customizeHooksDesc },
     { id: "mcp", icon: "mcp", label: t.customizeMcp, description: t.customizeMcpDesc },
     { id: "plugins", icon: "plugins", label: t.customizePlugins, description: t.customizePluginsDesc },
@@ -174,8 +178,6 @@ export function AiCustomizationPage({ section, visible }: Props): ReactNode {
         return snapshot.skills;
       case "instructions":
         return snapshot.instructions;
-      case "prompts":
-        return snapshot.prompts;
       case "mcp":
         return snapshot.mcp;
       case "plugins":
@@ -188,7 +190,6 @@ export function AiCustomizationPage({ section, visible }: Props): ReactNode {
   const counts: Record<string, number> = {
     skills: snapshot.skills.length,
     instructions: snapshot.instructions.length,
-    prompts: snapshot.prompts.length,
     hooks: snapshot.hooks.length,
     mcp: snapshot.mcp.length,
     plugins: snapshot.plugins.length,
@@ -246,18 +247,10 @@ export function AiCustomizationPage({ section, visible }: Props): ReactNode {
       const sep = draft.workspace.includes("\\") ? "\\" : "/";
       const base = `${draft.workspace}${sep}.pi`;
       if (draft.draftKind === "instructions") return `${draft.workspace}${sep}AGENTS.md`;
-      if (draft.draftKind === "prompts") {
-        const name = editorName.trim() || "new-prompt";
-        return `${base}${sep}prompts${sep}${name}.md`;
-      }
       const name = editorName.trim() || "new-skill";
       return `${base}${sep}skills${sep}${name}${sep}SKILL.md`;
     }
     if (draft.draftKind === "instructions") return "~/.pi/agent/AGENTS.md";
-    if (draft.draftKind === "prompts") {
-      const name = editorName.trim() || "new-prompt";
-      return `~/.pi/agent/prompts/${name}.md`;
-    }
     const name = editorName.trim() || "new-skill";
     return `~/.pi/agent/skills/${name}/SKILL.md`;
   })();
@@ -298,11 +291,24 @@ export function AiCustomizationPage({ section, visible }: Props): ReactNode {
     nameInputRef.current?.focus();
   }, [editing]);
 
+  /** 离开 MCP 分区时收起内嵌表单。 */
+  useEffect(() => {
+    if (active !== "mcp") setMcpForm(null);
+  }, [active]);
+
   function selectSection(id: string): void {
     leaveEditor(() => {
       setActive(id);
       layout.setCustomizeSection(id);
     });
+  }
+
+  function openMcpAdd(): void {
+    setMcpForm({ edit: null });
+  }
+
+  function openMcpEdit(target: McpEditTarget): void {
+    setMcpForm({ edit: target });
   }
 
   function openInPage(payload: { filePath: string; title: string; rename: boolean }): void {
@@ -333,8 +339,6 @@ export function AiCustomizationPage({ section, visible }: Props): ReactNode {
     switch (kind) {
       case "instructions":
         return t.customizeNewInstructions;
-      case "prompts":
-        return t.customizeNewPrompt;
       default:
         return t.customizeNewSkill;
     }
@@ -399,43 +403,6 @@ export function AiCustomizationPage({ section, visible }: Props): ReactNode {
     } catch (err) {
       message.error(err instanceof Error ? err.message : String(err));
       return false;
-    }
-  }
-
-  async function savePromptDraft(content: string): Promise<boolean> {
-    const draft = draftTarget;
-    if (!draft) return false;
-    const name = editorName.trim();
-    try {
-      const saved = await window.api.customizations.createPromptFromDraft(
-        content,
-        name,
-        draft.scope,
-        draft.scope === "project" ? draft.workspace ?? undefined : undefined,
-      );
-      if (!saved.ok) {
-        message.error(promptIssueText(saved.code));
-        return false;
-      }
-      await store.load(true);
-      setEditing({ kind: "file", filePath: saved.filePath, title: saved.name, rename: false });
-      setEditorName(saved.name);
-      message.success(t.saved);
-      return true;
-    } catch (err) {
-      message.error(err instanceof Error ? err.message : String(err));
-      return false;
-    }
-  }
-
-  function promptIssueText(code: PromptIssueCode): string {
-    switch (code) {
-      case "name-required":
-        return t.customizePromptNameRequired;
-      case "name-invalid":
-        return t.customizePromptNameInvalid;
-      default:
-        return t.customizePromptExists;
     }
   }
 
@@ -508,8 +475,6 @@ export function AiCustomizationPage({ section, visible }: Props): ReactNode {
       switch (target.draftKind) {
         case "skills":
           return saveSkillDraft(content);
-        case "prompts":
-          return savePromptDraft(content);
         default:
           return saveInstructionsDraft(content);
       }
@@ -665,6 +630,8 @@ export function AiCustomizationPage({ section, visible }: Props): ReactNode {
             onMarket={() => setModal("market")}
             onOpen={openInPage}
             onNewDraft={openDraft}
+            onMcpAdd={openMcpAdd}
+            onMcpEdit={openMcpEdit}
           />
         );
     }
@@ -714,7 +681,16 @@ export function AiCustomizationPage({ section, visible }: Props): ReactNode {
       />
 
       <section className={styles.managementContent}>
-        {editing ? (
+        {mcpForm && active === "mcp" ? (
+          <div className={styles.contentInner}>
+            <McpServerForm
+              workspaces={scopedWorkspaces.paths}
+              edit={mcpForm.edit}
+              onClose={() => setMcpForm(null)}
+              onAdded={() => void store.load(true)}
+            />
+          </div>
+        ) : editing ? (
           <div className={`${styles.contentInner} ${styles.editorInner}`}>
             <header className={styles.editorPageHeader}>
               <button

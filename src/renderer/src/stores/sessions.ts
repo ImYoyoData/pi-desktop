@@ -5,11 +5,13 @@ import type {
   ContextUsageSegment,
   ContextUsageSegmentId,
   SessionContextUsage,
+  SessionStatus,
   SessionSummary,
 } from "../../../shared/protocol";
 import { toIpcPlain } from "../../../shared/protocol";
 import { isUnstartedSession } from "@renderer/utils/session-started";
 import { useComposerStore } from "./composer";
+import { useWorkspaceStore } from "./workspace";
 
 /** 工作区路径比较（分隔符与大小写无关）。 */
 function sameWorkspacePath(a: string, b: string): boolean {
@@ -116,6 +118,11 @@ type SessionsBase = {
   /** 未创建的新会话草稿所属工作区（null=不处于草稿态）。 */
   draftRoot: string | null;
   contextBySession: Record<string, SessionContextUsage>;
+  /**
+   * 会话状态镜像：按 sessionId 记录主进程给出的最新状态。
+   * 与工作区无关——侧栏同时展示多个工作区，状态必须跨工作区保持最新。
+   */
+  statusBySession: Record<string, SessionStatus>;
 };
 
 type SessionsDerived = {
@@ -126,6 +133,8 @@ export type SessionsState = SessionsBase &
   SessionsDerived & {
     applyContextFromState: (sessionId: string, data: unknown) => void;
     applyStatus: (sessionId: string, status: SessionSummary["status"]) => void;
+    /** 用主进程返回的列表整体替换某个工作区的会话，并同步状态镜像。 */
+    replaceList: (root: string, rows: SessionSummary[]) => void;
     refresh: (cwd: string | null) => Promise<void>;
     beginDraft: (cwd: string) => void;
     setDraftRoot: (cwd: string) => void;
@@ -166,6 +175,7 @@ export const useSessionsStore = create<SessionsState>()((set, get) => {
     activeId: null,
     draftRoot: null,
     contextBySession: {},
+    statusBySession: {},
   };
 
   let unbind: (() => void) | null = null;
@@ -182,14 +192,31 @@ export const useSessionsStore = create<SessionsState>()((set, get) => {
   function upsert(summary: SessionSummary): void {
     const list = get().sessions;
     const idx = list.findIndex((s) => s.id === summary.id);
+    const statusBySession = {
+      ...get().statusBySession,
+      [summary.id]: summary.status,
+    };
     if (idx >= 0) {
       // Replace array so sidebar/header title computeds refresh reliably (#3).
       commit({
         sessions: list.map((s, i) => (i === idx ? { ...summary } : s)),
+        statusBySession,
       });
     } else {
-      commit({ sessions: [...list, summary] });
+      commit({ sessions: [...list, summary], statusBySession });
     }
+  }
+
+  /**
+   * 列表里的状态并入镜像：主进程返回的列表是状态的权威来源，
+   * 覆盖镜像后，此前由事件累积的状态也会被这次读取纠正。
+   */
+  function mergeStatusMirror(
+    rows: SessionSummary[],
+  ): Record<string, SessionStatus> {
+    const mirror = { ...get().statusBySession };
+    for (const row of rows) mirror[row.id] = row.status;
+    return mirror;
   }
 
   function patchStatus(
@@ -198,11 +225,18 @@ export const useSessionsStore = create<SessionsState>()((set, get) => {
   ): void {
     const list = get().sessions;
     const idx = list.findIndex((s) => s.id === sessionId);
-    if (idx < 0) return;
+    const mirror = get().statusBySession;
+    if (idx < 0) {
+      // 会话不在当前工作区的列表里（其它工作区）：状态只进镜像。
+      if (mirror[sessionId] === status) return;
+      commit({ statusBySession: { ...mirror, [sessionId]: status } });
+      return;
+    }
     const row = list[idx];
-    if (row.status === status) return;
+    if (row.status === status && mirror[sessionId] === status) return;
     // Replace row so list watchers / computed status update reliably.
     commit({
+      statusBySession: { ...mirror, [sessionId]: status },
       sessions: list.map((s, i) => (i === idx ? { ...s, status } : s)),
     });
   }
@@ -287,6 +321,19 @@ export const useSessionsStore = create<SessionsState>()((set, get) => {
     }
   }
 
+  /**
+   * 用主进程返回的列表整体替换某个工作区的会话。
+   * 只有当前工作区才替换 sessions；其它工作区的行由侧栏自己缓存，只同步状态镜像。
+   */
+  function replaceList(root: string, rows: SessionSummary[]): void {
+    const statusBySession = mergeStatusMirror(rows);
+    if (root !== useWorkspaceStore.getState().root) {
+      commit({ statusBySession });
+      return;
+    }
+    commit({ sessions: rows, listRoot: root, statusBySession });
+  }
+
   async function refresh(cwd: string | null): Promise<void> {
     if (!cwd) {
       commit({ sessions: [], listRoot: null, draftRoot: null });
@@ -296,11 +343,13 @@ export const useSessionsStore = create<SessionsState>()((set, get) => {
     // 预热草稿与崩溃残留的空会话不上侧栏；活动会话始终保留。
     const rows = await window.api.sessions.list(cwd);
     const activeId = get().activeId;
+    const kept = rows.filter(
+      (row) => row.id === activeId || !isUnstartedSession(row),
+    );
     commit({
-      sessions: rows.filter(
-        (row) => row.id === activeId || !isUnstartedSession(row),
-      ),
+      sessions: kept,
       listRoot: cwd,
+      statusBySession: mergeStatusMirror(kept),
     });
   }
 
@@ -309,10 +358,13 @@ export const useSessionsStore = create<SessionsState>()((set, get) => {
     const state = get();
     const next = { ...state.contextBySession };
     delete next[sessionId];
+    const statusBySession = { ...state.statusBySession };
+    delete statusBySession[sessionId];
     commit({
       activeId: state.activeId === sessionId ? null : state.activeId,
       sessions: state.sessions.filter((s) => s.id !== sessionId),
       contextBySession: next,
+      statusBySession,
     });
     useComposerStore.getState().dropSession(sessionId);
   }
@@ -460,12 +512,26 @@ export const useSessionsStore = create<SessionsState>()((set, get) => {
     return window.api.sessions.tryCommand(sessionId, plain);
   }
 
+  /**
+   * 刷新列表所需的工作区：调用方没给就按会话自身的工作区找。
+   * 找不到时返回 null——此时应跳过刷新，而不是把列表清空。
+   */
+  function resolveRefreshRoot(
+    sessionId: string,
+    cwd: string | null,
+  ): string | null {
+    if (cwd) return cwd;
+    const row = get().sessions.find((s) => s.id === sessionId);
+    return row?.cwd ?? get().listRoot;
+  }
+
   async function killWorker(
     sessionId: string,
     cwd: string | null,
   ): Promise<void> {
     await window.api.sessions.killWorker(sessionId);
-    await refresh(cwd);
+    const root = resolveRefreshRoot(sessionId, cwd);
+    if (root) await refresh(root);
   }
 
   async function restartWorker(
@@ -473,7 +539,8 @@ export const useSessionsStore = create<SessionsState>()((set, get) => {
     cwd: string | null,
   ): Promise<void> {
     await window.api.sessions.restartWorker(sessionId);
-    await refresh(cwd);
+    const root = resolveRefreshRoot(sessionId, cwd);
+    if (root) await refresh(root);
   }
 
   async function deleteSession(sessionId: string, cwd: string): Promise<void> {
@@ -529,6 +596,7 @@ export const useSessionsStore = create<SessionsState>()((set, get) => {
     ...derive(base),
     applyContextFromState,
     applyStatus: patchStatus,
+    replaceList,
     refresh,
     beginDraft,
     setDraftRoot,

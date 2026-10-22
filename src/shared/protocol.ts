@@ -1,3 +1,5 @@
+import type { LegacyModeTagKind } from "./injected-blocks";
+
 /** 主进程原生菜单向渲染进程发送的命令。 */
 export type MenuCommand = "open-pull-requests";
 
@@ -14,7 +16,6 @@ export const IpcChannels = {
 		/** Main → renderer: window just unmaximized/restored (for title-bar button state). */
 		onUnmaximized: "window:onUnmaximized",
 		platform: "window:platform",
-		identity: "window:identity",
 		setThemeSource: "window:setThemeSource",
 		setChromeTheme: "window:setChromeTheme",
 		requestMediaAccess: "window:requestMediaAccess",
@@ -202,11 +203,8 @@ export const IpcChannels = {
 	customizations: {
 		list: "customizations:list",
 		create: "customizations:create",
-		createPromptFromDraft: "customizations:createPromptFromDraft",
 		createInstructionsFromDraft: "customizations:createInstructionsFromDraft",
 		setMcpEnabled: "customizations:setMcpEnabled",
-		listMcpProjectOverrides: "customizations:listMcpProjectOverrides",
-		setMcpProjectOverride: "customizations:setMcpProjectOverride",
 		addMcpServers: "customizations:addMcpServers",
 		readMcpServer: "customizations:readMcpServer",
 		ensureMcpConfig: "customizations:ensureMcpConfig",
@@ -214,7 +212,6 @@ export const IpcChannels = {
 		setBuiltinExtensionEnabled: "customizations:setBuiltinExtensionEnabled",
 		setToolEnabled: "customizations:setToolEnabled",
 		setCodemodeSettings: "customizations:setCodemodeSettings",
-		setItemEnabled: "customizations:setItemEnabled",
 		removeItem: "customizations:removeItem",
 		testMcpServers: "customizations:testMcpServers",
 		mcpAuthStates: "customizations:mcpAuthStates",
@@ -349,15 +346,6 @@ export const IpcChannels = {
 		changed: "proxy:changed",
 	},
 } as const;
-
-/** 当前进程在系统中的运行身份：普通用户 / 管理员 / SYSTEM 账户。 */
-export type WindowPrivilegeLevel = "user" | "admin" | "system";
-
-/** 标题栏展示的运行身份：系统账户名 + 权限级别。 */
-export type WindowRunIdentity = {
-	username: string;
-	level: WindowPrivilegeLevel;
-};
 
 /** 内嵌终端可选的 shell，由主进程检测后提供给底栏 "+" 菜单。 */
 export type TerminalShellOption = {
@@ -569,7 +557,7 @@ export type SessionHistoryMessage =
 				host: string;
 				label: string;
 				content?: string;
-				kind?: "file" | "url" | "element" | "agent" | "plan" | "ask" | "task";
+				kind?: "file" | "url" | "element" | LegacyModeTagKind;
 			}[];
 	  }
 	| {

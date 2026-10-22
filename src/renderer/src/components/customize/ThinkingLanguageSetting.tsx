@@ -12,7 +12,7 @@ import styles from "./ThinkingLanguageSetting.module.css";
 export function ThinkingLanguageSetting(): ReactNode {
   const message = useMessage();
   const t = useI18n();
-  const [language, setLanguage] = useState<ThinkingLanguage>("en");
+  const [language, setLanguage] = useState<ThinkingLanguage>("default");
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
@@ -41,8 +41,8 @@ export function ThinkingLanguageSetting(): ReactNode {
   }
 
   const languageOptions = [
+    { label: t.thinkingLanguageDefault, value: "default" },
     { label: t.thinkingLanguageZh, value: "zh" },
-    { label: t.thinkingLanguageEn, value: "en" },
   ];
 
   return (

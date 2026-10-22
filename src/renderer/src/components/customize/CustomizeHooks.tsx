@@ -49,19 +49,6 @@ export function CustomizeHooks({ hooks }: Props): ReactNode {
         {!collapsed.has("desktop") ? (
           <div className={styles.groupBody}>
             <ThinkingLanguageSetting />
-
-            <div className={styles.modePreambleRow}>
-              <div className={styles.rowLabels}>
-                <span className={styles.rowTitle}>{t.composerModePreamble}</span>
-                <span className={styles.rowHint}>{t.composerModePreambleHint}</span>
-              </div>
-              <span className={styles.modeBadges}>
-                <span className={styles.inlineBadge}>{t.composerModeAgent}</span>
-                <span className={styles.inlineBadge}>{t.composerModeAsk}</span>
-                <span className={styles.inlineBadge}>{t.composerModePlan}</span>
-                <span className={styles.inlineBadge}>{t.composerModeTask}</span>
-              </span>
-            </div>
           </div>
         ) : null}
       </div>

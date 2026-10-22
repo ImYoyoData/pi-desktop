@@ -29,8 +29,6 @@ const LOCALE_KEY = "pi-desktop:locale-preference";
 const COMPACT_BTN_KEY = "pi-desktop:show-compact-button";
 const SESSION_DETAILS_KEY = "pi-desktop:session-details";
 const SESSION_TITLE_KEY = "pi-desktop:session-title";
-const SESSION_HOVER_ACTIONS_KEY = "pi-desktop:session-hover-actions";
-const PRIVILEGE_LEVEL_KEY = "pi-desktop:show-privilege-level";
 /**
  * Whether tool calls (read / write / edit / bash …) start expanded while the turn
  * is streaming. Off → every card starts folded and the user opens what they want.
@@ -58,22 +56,6 @@ function readSessionTitle(): boolean {
     return prefs.getItem(SESSION_TITLE_KEY) !== "0";
   } catch {
     return true;
-  }
-}
-
-function readSessionHoverActions(): boolean {
-  try {
-    return prefs.getItem(SESSION_HOVER_ACTIONS_KEY) === "1";
-  } catch {
-    return false;
-  }
-}
-
-function readShowPrivilegeLevel(): boolean {
-  try {
-    return prefs.getItem(PRIVILEGE_LEVEL_KEY) === "1";
-  } catch {
-    return false;
   }
 }
 
@@ -183,12 +165,14 @@ function scheduleChromeSync(pref: ThemePreference, mode: ResolvedTheme): void {
   });
 }
 
-/** 「界面分隔线」「消息预览」开关已移除，清掉历史遗留的偏好键。 */
+/** 已下线的开关：清掉历史遗留的偏好键。 */
 function dropObsoletePrefs(): void {
   for (const key of [
     "pi-desktop:panel-dividers",
     "pi-desktop:message-preview",
     "pi-desktop:message-preview-image",
+    "pi-desktop:session-hover-actions",
+    "pi-desktop:show-privilege-level",
   ]) {
     try {
       prefs.removeItem(key);
@@ -205,8 +189,6 @@ type AppearanceBase = {
   showCompactButton: boolean;
   showSessionDetails: boolean;
   showSessionTitle: boolean;
-  showSessionHoverActions: boolean;
-  showPrivilegeLevel: boolean;
   expandToolCalls: boolean;
   customAppearance: CustomAppearanceSettings;
   wallpaperBroken: boolean;
@@ -228,8 +210,6 @@ export type AppearanceState = AppearanceBase &
     setShowCompactButton: (next: boolean) => void;
     setShowSessionDetails: (next: boolean) => void;
     setShowSessionTitle: (next: boolean) => void;
-    setSessionHoverActions: (next: boolean) => void;
-    setShowPrivilegeLevel: (next: boolean) => void;
     setExpandToolCalls: (next: boolean) => void;
     setWallpaperFile: (path: string) => void;
     clearWallpaper: () => void;
@@ -274,8 +254,6 @@ function initialBase(): AppearanceBase {
     showCompactButton: readShowCompactButton(),
     showSessionDetails: readSessionDetails(),
     showSessionTitle: readSessionTitle(),
-    showSessionHoverActions: readSessionHoverActions(),
-    showPrivilegeLevel: readShowPrivilegeLevel(),
     expandToolCalls: readExpandToolCalls(),
     customAppearance: readCustomAppearance(),
     wallpaperBroken: false,
@@ -385,22 +363,6 @@ export const useAppearanceStore = create<AppearanceState>()((set, get) => {
       set({ showSessionTitle: next });
       try {
         prefs.setItem(SESSION_TITLE_KEY, next ? "1" : "0");
-      } catch {
-        // ignore
-      }
-    },
-    setSessionHoverActions: (next) => {
-      set({ showSessionHoverActions: next });
-      try {
-        prefs.setItem(SESSION_HOVER_ACTIONS_KEY, next ? "1" : "0");
-      } catch {
-        // ignore
-      }
-    },
-    setShowPrivilegeLevel: (next) => {
-      set({ showPrivilegeLevel: next });
-      try {
-        prefs.setItem(PRIVILEGE_LEVEL_KEY, next ? "1" : "0");
       } catch {
         // ignore
       }

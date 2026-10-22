@@ -88,8 +88,13 @@
   gap: 1px;
   max-height: 198px;
   overflow-y: auto;
-  scrollbar-width: thin;
-  scrollbar-color: var(--border-strong, var(--border)) transparent;
+}
+
+@supports not selector(::-webkit-scrollbar) {
+  .filesList {
+    scrollbar-width: thin;
+    scrollbar-color: var(--border-strong, var(--border)) transparent;
+  }
 }
 
 .filesItem {

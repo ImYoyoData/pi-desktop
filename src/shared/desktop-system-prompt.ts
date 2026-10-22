@@ -55,5 +55,3 @@ How to background:
 
 When a command is backgrounded, the tool returns immediately; follow logs / stop the process from the Running panel.
 `;
-
-export { DESKTOP_COMPOSER_MODES_PROMPT } from "./composer-modes";

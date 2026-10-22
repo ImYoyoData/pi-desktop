@@ -2,7 +2,6 @@ import { create } from "zustand";
 import type { ElementCitation } from "../../../shared/protocol";
 import { isRegionCitation } from "../../../shared/protocol";
 import { truncateHtmlSnippet } from "../../../shared/html-snippet";
-import type { ComposerAgentMode } from "../../../shared/composer-modes";
 import { t } from "@renderer/i18n";
 import { fileTagLabel, urlTagLabel } from "@renderer/utils/path-label";
 
@@ -29,8 +28,6 @@ type ComposerBucket = {
   draft: string;
   chips: ComposerChip[];
   images: ComposerImage[];
-  /** Persistent toolbar mode (not an editor capsule). */
-  mode: ComposerAgentMode;
 };
 
 const NONE_KEY = "__none__";
@@ -73,7 +70,7 @@ function parseDataUrl(dataUrl: string): { mimeType: string; data: string } | nul
 }
 
 function emptyBucket(): ComposerBucket {
-  return { draft: "", chips: [], images: [], mode: "agent" };
+  return { draft: "", chips: [], images: [] };
 }
 
 const EMPTY_BUCKET: ComposerBucket = emptyBucket();
@@ -92,7 +89,6 @@ type ComposerDerived = {
   draft: string;
   chips: ComposerChip[];
   images: ComposerImage[];
-  mode: ComposerAgentMode;
 };
 
 function derive(base: ComposerBase): ComposerDerived {
@@ -101,7 +97,6 @@ function derive(base: ComposerBase): ComposerDerived {
     draft: bucket.draft,
     chips: bucket.chips,
     images: bucket.images,
-    mode: bucket.mode,
   };
 }
 
@@ -111,8 +106,6 @@ export type ComposerState = ComposerBase &
     dropSession: (sessionId: string) => void;
     resetAll: () => void;
     setDraft: (next: string) => void;
-    setMode: (next: ComposerAgentMode) => void;
-    activeMode: () => ComposerAgentMode;
     elementCitations: () => ElementCitation[];
     elementTagSnapshot: () => {
       url: string;
@@ -137,7 +130,6 @@ export type ComposerState = ComposerBase &
     clearImages: () => void;
     addFileTag: (filePath: string, startLine?: number, endLine?: number) => void;
     addUrlTag: (url: string) => void;
-    transferDraftMode: (toSessionId: string, mode: ComposerAgentMode) => void;
     removeChip: (id: string) => void;
     clear: () => void;
     clearSession: (sessionId: string | null) => void;
@@ -211,22 +203,6 @@ export const useComposerStore = create<ComposerState>()((set, get) => {
 
   function setDraft(next: string): void {
     updateActiveBucket((bucket) => ({ ...bucket, draft: next }));
-  }
-
-  function setMode(next: ComposerAgentMode): void {
-    updateActiveBucket((bucket) => ({ ...bucket, mode: next }));
-  }
-
-  function activeMode(): ComposerAgentMode {
-    return get().mode;
-  }
-
-  /** 草稿首次发送：把工具栏模式迁移到新会话，草稿桶恢复默认。 */
-  function transferDraftMode(toSessionId: string, mode: ComposerAgentMode): void {
-    const bySession = { ...get().bySession };
-    bySession[NONE_KEY] = { ...(bySession[NONE_KEY] ?? emptyBucket()), mode: "agent" };
-    bySession[toSessionId] = { ...(bySession[toSessionId] ?? emptyBucket()), mode };
-    commit({ bySession });
   }
 
   function elementCitations(): ElementCitation[] {
@@ -550,8 +526,6 @@ export const useComposerStore = create<ComposerState>()((set, get) => {
     dropSession,
     resetAll,
     setDraft,
-    setMode,
-    activeMode,
     elementCitations,
     elementTagSnapshot,
     attachmentTagSnapshot,
@@ -565,7 +539,6 @@ export const useComposerStore = create<ComposerState>()((set, get) => {
     clearImages,
     addFileTag,
     addUrlTag,
-    transferDraftMode,
     removeChip,
     clear,
     clearSession,

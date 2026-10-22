@@ -82,9 +82,10 @@
   --code-bg: #eaeaea;
   --pre-bg: #eaeaea;
   --md-inline-code-bg: #ececec;
-  --scrollbar: rgba(100, 100, 100, 0.75);
-  --scrollbar-hover: rgba(100, 100, 100, 0.82);
-  --scrollbar-active: rgba(100, 100, 100, 0.88);
+  --scrollbar-rgb: 100 100 100;
+  --scrollbar-alpha: 0.5;
+  --scrollbar-hover-alpha: 0.62;
+  --scrollbar-active-alpha: 0.72;
 
   /* Copilot (VS Code) chat tokens — see docs/superpowers/plans/2026-09-05-copilot-style-output.md */
   --chat-font-m: 13px;
@@ -160,9 +161,10 @@ html[data-theme="dark"] {
   --code-bg: #242526;
   --pre-bg: #242526;
   --md-inline-code-bg: #262626;
-  --scrollbar: rgba(168, 169, 170, 0.52);
-  --scrollbar-hover: rgba(168, 169, 170, 0.56);
-  --scrollbar-active: rgba(168, 169, 170, 0.61);
+  --scrollbar-rgb: 168 169 170;
+  --scrollbar-alpha: 0.34;
+  --scrollbar-hover-alpha: 0.44;
+  --scrollbar-active-alpha: 0.54;
 
   --chat-font-m: 13px;
   --chat-font-s: 12px;
@@ -342,10 +344,34 @@ button {
   width: auto !important;
 }
 
-/* Refined scrollbars */
+/*
+ * Refined scrollbars
+ *
+ * 标准 scrollbar-width / scrollbar-color 与 ::-webkit-scrollbar 互斥：元素一旦设置标准
+ * 属性，Chromium 会改用原生平台滚动条（圆角拇指 + 竖向轨道两端的上下箭头），并忽略该
+ * 元素上全部 ::-webkit-scrollbar 规则。标准属性因此只对不支持 webkit 伪元素的引擎启用，
+ * Chromium 走下面的 webkit 规则（无箭头按钮）。
+ *
+ * 拇指空闲时透明，滚动时淡入、停止滚动后淡出。可见度由 --pi-scrollbar-alpha 决定：
+ * 脚本给滚动容器打上 .pi-scroll-active 后过渡到 1，停止滚动后回到 0。滚动条伪元素
+ * 自身的 transition 在 Chromium 里不参与动画，所以用 @property 注册变量来插值。
+ */
+@property --pi-scrollbar-alpha {
+  syntax: "<number>";
+  inherits: true;
+  initial-value: 0;
+}
+
+@supports not selector(::-webkit-scrollbar) {
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: rgb(var(--scrollbar-rgb) / var(--scrollbar-alpha)) transparent;
+  }
+}
+
 * {
-  scrollbar-width: thin;
-  scrollbar-color: var(--scrollbar, rgba(100, 100, 100, 0.4)) transparent;
+  --pi-scrollbar-alpha: 0;
+  transition: --pi-scrollbar-alpha 200ms ease-out;
 }
 
 *::-webkit-scrollbar {
@@ -354,25 +380,34 @@ button {
 }
 
 *::-webkit-scrollbar-thumb {
-  background: var(--scrollbar, rgba(100, 100, 100, 0.4));
+  background: rgb(var(--scrollbar-rgb) / calc(var(--scrollbar-alpha) * var(--pi-scrollbar-alpha)));
   border: 2px solid transparent;
   background-clip: padding-box;
+  border-radius: 5px;
 }
 
 *::-webkit-scrollbar-thumb:hover {
-  background: var(--scrollbar-hover, rgba(100, 100, 100, 0.7));
+  background: rgb(var(--scrollbar-rgb) / var(--scrollbar-hover-alpha));
   background-clip: padding-box;
   border: 2px solid transparent;
 }
 
 *::-webkit-scrollbar-thumb:active {
-  background: var(--scrollbar-active, rgba(0, 0, 0, 0.6));
+  background: rgb(var(--scrollbar-rgb) / var(--scrollbar-active-alpha));
   background-clip: padding-box;
   border: 2px solid transparent;
 }
 
 *::-webkit-scrollbar-track {
   background: transparent;
+}
+
+*::-webkit-scrollbar-button {
+  display: none;
+}
+
+:where(.pi-scroll-active) {
+  --pi-scrollbar-alpha: 1;
 }
 
 @keyframes copilot-shimmer {

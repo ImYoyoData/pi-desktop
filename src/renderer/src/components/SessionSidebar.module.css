@@ -33,18 +33,63 @@
 .wsToolIcons {
   display: flex;
   align-items: center;
-  gap: 2px;
+  gap: 4px;
   margin-left: auto;
+  opacity: 0;
+  visibility: hidden;
+  transition:
+    opacity var(--duration-fast, 140ms) var(--ease-out, ease),
+    visibility var(--duration-fast, 140ms) var(--ease-out, ease);
+}
+
+/* antd 小号按钮自带 8px 内边距，这里收成纯图标方块，两枚图标才成组 */
+.wsToolBtn:global(.ant-btn) {
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  color: var(--fg-muted) !important;
+}
+
+.wsToolBtn:global(.ant-btn):hover:not(:disabled) {
+  color: var(--fg-strong) !important;
 }
 
 .wsPanelToggle {
   flex: 1;
   min-width: 0;
   justify-content: flex-start;
-  padding: 0 12px;
-  height: 24px;
+  padding: 0 8px;
+  height: 26px;
   border-radius: 6px;
-  font-size: 12.5px;
+}
+
+.wsPanelHead {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+}
+
+.wsPanelChevron {
+  display: inline-flex;
+  color: var(--fg-muted);
+  opacity: 0;
+  visibility: hidden;
+  transition:
+    opacity var(--duration-fast, 140ms) var(--ease-out, ease),
+    visibility var(--duration-fast, 140ms) var(--ease-out, ease);
+}
+
+/* 收起时保留箭头，否则看不出这一节还能展开 */
+.wsPanelChevronSticky {
+  opacity: 1;
+  visibility: visible;
+}
+
+.wsTools:hover .wsPanelChevron,
+.wsTools:hover .wsToolIcons {
+  opacity: 1;
+  visibility: visible;
 }
 
 .wsPanelLabel {
@@ -52,6 +97,9 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--fg-strong);
 }
 
 .topActions {
@@ -73,7 +121,12 @@
   padding: 0 10px;
   height: 28px;
   border-radius: 6px;
+}
+
+/* antd 按钮默认 13px/400，抬到复合选择器压回侧边栏正文字号 */
+.topBtn:global(.ant-btn) {
   font-size: 12.5px;
+  font-weight: 400;
 }
 
 /* 点击后不再保留 focus 底色，只留悬停高亮 */
@@ -97,10 +150,6 @@
 .topBtn .btnContent {
   width: 100%;
   justify-content: flex-start;
-}
-
-.btnGlyph {
-  flex: none;
 }
 
 .topBtn .btnLabel {
@@ -535,23 +584,6 @@
   list-style: none;
   margin: 0;
   padding: 0;
-}
-
-/* 悬停占位：默认零行高，悬停时才撑开把下方内容下推 */
-.sessionList.sessionListHoverActions .sessionExpandRow {
-  height: 0;
-  min-height: 0;
-  overflow: hidden;
-  opacity: 0;
-  pointer-events: none;
-  transition: opacity var(--duration-fast, 140ms) var(--ease-out, ease);
-}
-
-.sessionList.sessionListHoverActions:hover .sessionExpandRow,
-.sessionList.sessionListHoverActions:focus-within .sessionExpandRow {
-  height: auto;
-  opacity: 1;
-  pointer-events: auto;
 }
 
 .sessionExpandBtn {

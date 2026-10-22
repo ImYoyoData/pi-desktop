@@ -11,13 +11,11 @@ import { useAppearanceStore } from "@renderer/stores/appearance";
 import { useCustomizationsStore } from "@renderer/stores/customizations";
 import { useKeybindingsStore } from "@renderer/stores/keybindings";
 import { useLayoutStore } from "@renderer/stores/layout";
-import { useComposerStore } from "@renderer/stores/composer";
 import { usePreviewStore } from "@renderer/stores/preview";
 import { FeedbackProvider } from "@renderer/services/feedback";
 import { antdLocaleFor, themeConfigFor } from "@renderer/theme/antd";
 import { useUiLocale } from "@renderer/i18n/use-i18n";
 import { getLocale } from "@renderer/i18n";
-import { COMPOSER_AGENT_MODES } from "../../shared/composer-modes";
 import { dismissStartupSplash } from "@renderer/utils/startup-splash";
 import { markRendererStartup } from "@renderer/utils/startup-timing";
 import { isTextEntryTarget } from "@renderer/utils/keyboard-target";
@@ -33,14 +31,6 @@ const SplitRoot = lazy(async () => {
 const AiCustomizationModal = lazy(
   () => import("@renderer/components/AiCustomizationModal"),
 );
-
-function cycleComposerMode(): void {
-  const composer = useComposerStore.getState();
-  const index = COMPOSER_AGENT_MODES.indexOf(composer.mode);
-  composer.setMode(
-    COMPOSER_AGENT_MODES[(index + 1) % COMPOSER_AGENT_MODES.length] ?? "agent",
-  );
-}
 
 /** 等同编辑器区的「打开文件…」按钮：系统对话框选文件，打开到编辑器区。 */
 async function pickAndOpenFile(): Promise<void> {
@@ -103,7 +93,6 @@ export function App(): React.ReactNode {
       const layout = useLayoutStore.getState();
       layout.openCustomize(layout.customizeSection);
     });
-    keybindings.register("cycle-mode", cycleComposerMode);
     keybindings.register("open-file", () => void pickAndOpenFile());
     keybindings.register("open-pull-requests", () =>
       useLayoutStore.getState().showPullRequests(),

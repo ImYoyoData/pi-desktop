@@ -113,8 +113,3 @@
   min-height: 0;
   overflow: hidden;
 }
-
-.panelEmpty {
-  height: 100%;
-  justify-content: center;
-}

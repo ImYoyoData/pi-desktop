@@ -5,6 +5,7 @@ import "./assets/vscode-syntax.css";
 import "./assets/wallpaper.css";
 import { markRendererStartup } from "./utils/startup-timing";
 import { bootstrapAppEvents } from "./app-events";
+import { bootstrapScrollAutoHide } from "./utils/scroll-auto-hide";
 import * as prefs from "@renderer/utils/prefs";
 import {
   CUSTOM_APPEARANCE_KEY,
@@ -49,6 +50,8 @@ if (!container) throw new Error("挂载点 #app 不存在");
 
 // 进程级订阅不挂在组件生命周期上，先于首帧注册，避免漏掉主进程推送的事件。
 bootstrapAppEvents();
+// 滚动条空闲自动隐藏，同样是进程级行为。
+bootstrapScrollAutoHide();
 
 createRoot(container).render(<App />);
 markRendererStartup("renderer:mounted");

@@ -1212,6 +1212,29 @@ export function OpenOutline({
   );
 }
 
+export function OptionsOutline({
+  size,
+  color,
+  className,
+  style,
+}: IoniconProps): ReactNode {
+  return (
+    <svg
+      xmlns={"http://www.w3.org/2000/svg"}
+      viewBox={"0 0 512 512"}
+      width={size ?? "1em"}
+      height={size ?? "1em"}
+      className={className}
+      style={color ? { color, ...style } : style}
+      aria-hidden="true"
+    >
+      <path fill={"none"} stroke={"currentColor"} strokeLinecap={"round"} strokeLinejoin={"round"} strokeWidth={32} d={"M104 160h304M104 352h304"} />
+      <circle cx={"160"} cy={"160"} r={"54"} fill={"currentColor"} />
+      <circle cx={"352"} cy={"352"} r={"54"} fill={"currentColor"} />
+    </svg>
+  );
+}
+
 export function PencilOutline({
   size,
   color,

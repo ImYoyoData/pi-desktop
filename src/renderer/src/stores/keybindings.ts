@@ -14,7 +14,6 @@ export type KeybindingId =
   | "cycle-model"
   | "open-settings"
   | "cycle-thinking"
-  | "cycle-mode"
   | "open-pull-requests";
 
 export interface KeybindingDef {
@@ -45,7 +44,6 @@ export const KEYBINDINGS: KeybindingDef[] = [
   { id: "cycle-model", labelKey: "hotkeyCycleModel", defaultAccel: "Control+Shift+M" },
   { id: "open-settings", labelKey: "hotkeyOpenSettings", defaultAccel: "Control+," },
   { id: "cycle-thinking", labelKey: "hotkeyCycleThinking", defaultAccel: "Control+I" },
-  { id: "cycle-mode", labelKey: "hotkeyCycleMode", defaultAccel: "Control+=" },
   { id: "open-pull-requests", labelKey: "pullRequests", defaultAccel: "Control+Shift+P" },
 ];
 
@@ -96,15 +94,19 @@ interface StoredState {
 
 type Bindings = Record<string, StoredBinding>;
 
+const KNOWN_IDS = new Set<string>(KEYBINDINGS.map((def) => def.id));
+
 function readStored(): StoredState {
   try {
     const raw = prefs.getItem(STORAGE_KEY);
     if (!raw) return { master: true, bindings: {} };
     const parsed = JSON.parse(raw) as Partial<StoredState>;
-    return {
-      master: parsed.master !== false,
-      bindings: parsed.bindings && typeof parsed.bindings === "object" ? parsed.bindings : {},
-    };
+    const stored = parsed.bindings && typeof parsed.bindings === "object" ? parsed.bindings : {};
+    const known: Bindings = {};
+    for (const [id, binding] of Object.entries(stored)) {
+      if (KNOWN_IDS.has(id)) known[id] = binding;
+    }
+    return { master: parsed.master !== false, bindings: known };
   } catch {
     return { master: true, bindings: {} };
   }

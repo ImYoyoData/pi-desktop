@@ -13,7 +13,6 @@ import { Button, Dropdown, Image, Popover } from "antd";
 import type { MenuProps } from "antd";
 import {
   AddOutline,
-  CheckmarkOutline,
   ContractOutline,
   DocumentOutline,
   ExpandOutline,
@@ -93,10 +92,7 @@ import {
   pruneStaleModelSelection,
 } from "../../../shared/model-selection";
 import { MODEL_MENU_PROPS, buildModelMenu } from "@renderer/model-menu";
-import {
-  composerModePreamble,
-  type ComposerAgentMode,
-} from "../../../shared/composer-modes";
+import type { LegacyModeTagKind } from "../../../shared/injected-blocks";
 import {
   filterSlashItems,
   isSlashBuiltinId,
@@ -139,22 +135,10 @@ type ModelSelectOption =
     }
   | { label: string; value: string };
 
-type ModeMenuItem = {
-  value: ComposerAgentMode;
-  label: string;
-  tag: string;
-  hint: string;
-};
-
 type Latest<T> = {
   readonly value: T;
   ref: MutableRefObject<T>;
   set: (next: T) => void;
-};
-
-const RAW_POPOVER_STYLES = {
-  root: { background: "transparent", boxShadow: "none", padding: 0 },
-  container: { background: "transparent", boxShadow: "none", padding: 0 },
 };
 
 const TONE_CLASS: Record<string, string> = {
@@ -235,7 +219,6 @@ export function Composer({ docked = false }: ComposerProps): ReactNode {
   const editorExpanded = useLatest(false);
   const fileDragOver = useLatest(false);
   const pathCaseInsensitive = useLatest(false);
-  const modeBubbleOpen = useLatest(false);
   const ctxPopoverOpen = useLatest(false);
   const modelMenuOpen = useLatest(false);
   const compactBusy = useLatest(false);
@@ -598,23 +581,6 @@ export function Composer({ docked = false }: ComposerProps): ReactNode {
     }
   }
 
-  function modeTagLabel(mode: ComposerAgentMode): string {
-    switch (mode) {
-      case "agent":
-        return t.composerModeAgent;
-      case "ask":
-        return t.composerModeAsk;
-      case "plan":
-        return t.composerModePlan;
-      case "task":
-        return t.composerModeTask;
-      default: {
-        const _never: never = mode;
-        return String(_never);
-      }
-    }
-  }
-
   function snapshotComposerPayload(): {
     text: string;
     displayText: string;
@@ -626,17 +592,15 @@ export function Composer({ docked = false }: ComposerProps): ReactNode {
           host: string;
           label: string;
           content?: string;
-          kind?: "file" | "url" | "element" | "agent" | "plan" | "ask" | "task";
+          kind?: "file" | "url" | "element" | LegacyModeTagKind;
         }[]
       | undefined;
-    mode: ComposerAgentMode;
   } | null {
     const store = useComposerStore.getState();
     const chipText = store.formatChipsForMessage();
     const displayText = store.draft.trim();
-    const mode = store.activeMode();
     const body = [displayText, chipText].filter(Boolean).join("\n\n");
-    let text = [composerModePreamble(mode), body].filter(Boolean).join("\n\n");
+    let text = body;
     // Bind cached image paths to the prompt (hidden in the editor): text-only
     // models can locate the files, vision models still get the base64 content.
     const imagePaths = Array.from(
@@ -663,7 +627,6 @@ export function Composer({ docked = false }: ComposerProps): ReactNode {
         ...(i.cachePath ? { cachePath: i.cachePath } : {}),
       }));
     const citationsToSend = citationList ? citationList.map((c) => ({ ...c })) : undefined;
-    // Mode is injected into agentText via preamble — do not show a mode chip on the bubble.
     const tagsToSend = attachmentTags.map((row) => {
       let host = "";
       if (row.kind === "url" || row.kind === "element") {
@@ -687,7 +650,6 @@ export function Composer({ docked = false }: ComposerProps): ReactNode {
       imagesToSend,
       citationsToSend,
       tagsToSend: tagsToSend.length ? tagsToSend : undefined,
-      mode,
     };
   }
 
@@ -698,40 +660,6 @@ export function Composer({ docked = false }: ComposerProps): ReactNode {
       icon: <DocumentOutline />,
     },
   ];
-
-  const modeMenuItems: ModeMenuItem[] = [
-    {
-      value: "agent",
-      label: t.composerModeAgent,
-      tag: t.composerModeAgentTag,
-      hint: t.composerModeAgentHint,
-    },
-    {
-      value: "ask",
-      label: t.composerModeAsk,
-      tag: t.composerModeAskTag,
-      hint: t.composerModeAskHint,
-    },
-    {
-      value: "plan",
-      label: t.composerModePlan,
-      tag: t.composerModePlanTag,
-      hint: t.composerModePlanHint,
-    },
-    {
-      value: "task",
-      label: t.composerModeTask,
-      tag: t.composerModeTaskTag,
-      hint: t.composerModeTaskHint,
-    },
-  ];
-
-  const activeModeLabel = modeTagLabel(composer.mode);
-
-  function onModePick(mode: ComposerAgentMode): void {
-    useComposerStore.getState().setMode(mode);
-    modeBubbleOpen.set(false);
-  }
 
   async function onAttachSelect(key: string | number): Promise<void> {
     if (String(key) === "file") {
@@ -882,9 +810,7 @@ export function Composer({ docked = false }: ComposerProps): ReactNode {
       });
     }
     for (const action of planComposerTags(item.elementTags)) {
-      if (action.kind === "mode") {
-        useComposerStore.getState().setMode(action.mode);
-      } else if (action.kind === "file") {
+      if (action.kind === "file") {
         useComposerStore.getState().addFileTag(action.value);
       } else if (action.kind === "url") {
         useComposerStore.getState().addUrlTag(action.value);
@@ -1063,7 +989,6 @@ export function Composer({ docked = false }: ComposerProps): ReactNode {
           return;
         }
         id = created.id;
-        useComposerStore.getState().transferDraftMode(id, snap.mode);
       } catch (err) {
         draftCommitPendingRef.current = false;
         messageApi.error(err instanceof Error ? err.message : String(err));
@@ -2145,54 +2070,6 @@ export function Composer({ docked = false }: ComposerProps): ReactNode {
               >
                 <Button type="text" size="small" title={t.composerAttach} icon={<AddOutline />} />
               </Dropdown>
-
-              <Popover
-                open={modeBubbleOpen.value}
-                onOpenChange={(next) => modeBubbleOpen.set(next)}
-                trigger="click"
-                placement="topLeft"
-                styles={RAW_POPOVER_STYLES}
-                content={
-                  <div className={styles.modeBubble} role="listbox" aria-label={t.composerModeHint}>
-                    {modeMenuItems.map((item) => (
-                      <button
-                        key={item.value}
-                        type="button"
-                        className={`${styles.modeOption} ${
-                          composer.mode === item.value ? styles.active : ""
-                        }`}
-                        role="option"
-                        aria-selected={composer.mode === item.value}
-                        onClick={() => onModePick(item.value)}
-                      >
-                        <div className={styles.modeOptionMain}>
-                          <span className={styles.modeOptionName}>
-                            {item.label}
-                            {item.tag && item.tag !== item.label ? (
-                              <span className={styles.modeOptionTag}>{item.tag}</span>
-                            ) : null}
-                          </span>
-                          <span className={styles.modeOptionHint}>{item.hint}</span>
-                        </div>
-                        {composer.mode === item.value ? (
-                          <CheckmarkOutline size={14} className={styles.modeOptionCheck} />
-                        ) : null}
-                      </button>
-                    ))}
-                  </div>
-                }
-              >
-                <Button
-                  type="text"
-                  size="small"
-                  className={styles.modeBtn}
-                  title={t.composerModeHint}
-                  aria-expanded={modeBubbleOpen.value}
-                  aria-haspopup="true"
-                >
-                  <span className={styles.modeLabel}>{activeModeLabel}</span>
-                </Button>
-              </Popover>
 
               <Dropdown
                 {...NO_OVERLAY_MOTION}

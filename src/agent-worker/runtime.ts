@@ -46,7 +46,6 @@ import {
 } from "../shared/stream-render";
 import {
 	DESKTOP_ASK_USER_PROMPT,
-	DESKTOP_COMPOSER_MODES_PROMPT,
 	DESKTOP_BASH_BACKGROUND_PROMPT,
 	DESKTOP_TODO_PROMPT,
 } from "../shared/desktop-system-prompt";
@@ -589,7 +588,6 @@ async function initSession(
 				DESKTOP_ASK_USER_PROMPT,
 				DESKTOP_TODO_PROMPT,
 				DESKTOP_BASH_BACKGROUND_PROMPT,
-				DESKTOP_COMPOSER_MODES_PROMPT,
 				...(commandShellPromptText ? [commandShellPromptText] : []),
 			],
 			...(builtinBrowserSkillDir

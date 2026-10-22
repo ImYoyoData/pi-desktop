@@ -12,7 +12,6 @@ import type {
 	SessionStatus,
 	SessionSummary,
 	TerminalShellOption,
-	WindowRunIdentity,
 } from "../shared/protocol";
 import { IpcChannels } from "../shared/protocol";
 import type { EditContextMenuAction, EditContextMenuPayload } from "../shared/context-menu";
@@ -31,7 +30,7 @@ import type {
 	PullRequestSummary,
 } from "../shared/github-types";
 import type { AgentRunEvent, AgentRunSnapshot } from "../shared/agent-runs";
-import type { BuiltinExtensionItem, BuiltinToolItem, CodemodeSettingsState, CustomizationsSnapshot, CustomizationCreateKind, InstructionsSaveResult, McpAuthEventPayload, McpAuthPromptReply, McpAuthState, McpAuthTarget, McpProjectOverride, McpTestResult, McpTestTarget, PromptSaveResult, SkillSaveResult } from "../shared/customizations";
+import type { BuiltinExtensionItem, BuiltinToolItem, CodemodeSettingsState, CustomizationsSnapshot, CustomizationCreateKind, InstructionsSaveResult, McpAuthEventPayload, McpAuthPromptReply, McpAuthState, McpAuthTarget, McpTestResult, McpTestTarget, SkillSaveResult } from "../shared/customizations";
 import type {
 	ModelsGetResult,
 	ModelsOAuthEventPayload,
@@ -176,8 +175,6 @@ const api = {
 	window: {
 		platform: () =>
 			ipcRenderer.invoke(IpcChannels.window.platform) as Promise<NodeJS.Platform>,
-		identity: () =>
-			ipcRenderer.invoke(IpcChannels.window.identity) as Promise<WindowRunIdentity>,
 		minimize: () =>
 			ipcRenderer.invoke(IpcChannels.window.minimize) as Promise<void>,
 		maximize: () =>
@@ -782,19 +779,6 @@ const api = {
 			ipcRenderer.invoke(IpcChannels.customizations.create, kind) as Promise<{
 				filePath: string;
 			}>,
-		createPromptFromDraft: (
-			content: string,
-			name: string,
-			scope: "user" | "project",
-			cwd?: string,
-		) =>
-			ipcRenderer.invoke(
-				IpcChannels.customizations.createPromptFromDraft,
-				content,
-				name,
-				scope,
-				cwd,
-			) as Promise<PromptSaveResult>,
 		createInstructionsFromDraft: (content: string, scope: "user" | "project", cwd?: string) =>
 			ipcRenderer.invoke(
 				IpcChannels.customizations.createInstructionsFromDraft,
@@ -808,18 +792,6 @@ const api = {
 				name,
 				scope,
 				enabled,
-				cwd,
-			) as Promise<void>,
-		listMcpProjectOverrides: (cwd?: string) =>
-			ipcRenderer.invoke(
-				IpcChannels.customizations.listMcpProjectOverrides,
-				cwd,
-			) as Promise<Record<string, "enabled" | "disabled">>,
-		setMcpProjectOverride: (name: string, override: McpProjectOverride, cwd?: string) =>
-			ipcRenderer.invoke(
-				IpcChannels.customizations.setMcpProjectOverride,
-				name,
-				override,
 				cwd,
 			) as Promise<void>,
 		addMcpServers: (
@@ -874,13 +846,6 @@ const api = {
 				IpcChannels.customizations.removeMcpServer,
 				name,
 				scope,
-				cwd,
-			) as Promise<{ filePath: string }>,
-		setItemEnabled: (filePath: string, enabled: boolean, cwd?: string) =>
-			ipcRenderer.invoke(
-				IpcChannels.customizations.setItemEnabled,
-				filePath,
-				enabled,
 				cwd,
 			) as Promise<{ filePath: string }>,
 		removeItem: (filePath: string, cwd?: string) =>

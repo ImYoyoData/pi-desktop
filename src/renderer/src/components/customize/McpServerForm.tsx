@@ -1,15 +1,14 @@
 import { useEffect, useState, type ReactNode } from "react";
-import { Button, Input, Modal, Radio, Select, Space, Typography } from "antd";
+import { Button, Input, Radio, Select, Typography } from "antd";
 import CodiconIcon from "@renderer/components/icons/CodiconIcon";
 import { useI18n } from "@renderer/i18n/use-i18n";
 import type { McpEditTarget } from "../../../../shared/customizations";
-import styles from "./McpAddModal.module.css";
+import styles from "./McpServerForm.module.css";
 
 type Props = {
-  show: boolean;
   workspaces: string[];
   edit?: McpEditTarget | null;
-  onClose?: () => void;
+  onClose: () => void;
   onAdded?: () => void;
 };
 
@@ -43,6 +42,9 @@ const OAUTH_KEYS = [
   "callbackUrl",
   "authServerMetadataUrl",
 ] as const;
+
+/** 与 pi 的服务器名校验一致：字母、数字、下划线、连字符。 */
+const NAME_PATTERN = /^[A-Za-z0-9_-]+$/;
 
 type FormState = {
   scope: string;
@@ -102,7 +104,33 @@ const EMPTY_FORM: FormState = {
   json: "",
 };
 
-export function McpAddModal({ show, workspaces, edit, onClose, onAdded }: Props): ReactNode {
+/** 表单字段的初始值：回填服务器配置前先整体复位。 */
+const FIELD_DEFAULTS: Omit<FormState, "scope" | "method" | "name" | "json"> = {
+  transport: "command",
+  description: "",
+  exposure: "codemode",
+  toolExposure: "",
+  timeout: "",
+  command: "",
+  args: "",
+  env: "",
+  cwd: "",
+  url: "",
+  headers: "",
+  headersOpen: false,
+  oauthOpen: false,
+  oauthClientId: "",
+  oauthClientSecret: "",
+  oauthClientName: "",
+  oauthClientRegistration: "dcr",
+  oauthScope: "",
+  oauthCallbackPort: "",
+  oauthCallbackUrl: "",
+  oauthAuthServerMetadataUrl: "",
+  authProvider: "",
+};
+
+export function McpServerForm({ workspaces, edit, onClose, onAdded }: Props): ReactNode {
   const t = useI18n();
   const [form, setForm] = useState<FormState>(EMPTY_FORM);
   const [error, setError] = useState("");
@@ -118,19 +146,22 @@ export function McpAddModal({ show, workspaces, edit, onClose, onAdded }: Props)
     setForm((prev) => ({ ...prev, ...patch }));
   }
 
-  useEffect(() => {
-    if (!show) return;
-    resetForm();
-    if (edit) void loadEntry(edit);
-  }, [show]);
-
-  function resetForm(): void {
-    setForm(EMPTY_FORM);
-    setError("");
-    setSaving(false);
-    setLoading(false);
-    setOriginalEntry(null);
+  /** 字段变更：编辑态同步刷新 JSON，表单与 JSON 始终保持一致。 */
+  function updateField(patch: Partial<FormState>): void {
+    setForm((prev) => {
+      const next = { ...prev, ...patch };
+      if (!edit) return next;
+      try {
+        return { ...next, json: JSON.stringify(buildEntry(next), null, 2) };
+      } catch {
+        return next;
+      }
+    });
   }
+
+  useEffect(() => {
+    if (edit) void loadEntry(edit);
+  }, [edit?.name, edit?.scope, edit?.workspace]);
 
   function isRecord(value: unknown): value is Record<string, unknown> {
     return Boolean(value) && typeof value === "object" && !Array.isArray(value);
@@ -151,6 +182,46 @@ export function McpAddModal({ show, workspaces, edit, onClose, onAdded }: Props)
       .join("\n");
   }
 
+  /** 服务器配置 → 表单字段。 */
+  function entryToState(entry: Record<string, unknown>): Partial<FormState> {
+    const state: Partial<FormState> = { ...FIELD_DEFAULTS };
+    state.description = stringOf(entry.description);
+    state.toolExposure = formatKeyValues(entry.toolExposure, ": ");
+    if (isExposure(entry.exposure)) state.exposure = entry.exposure;
+    if (typeof entry.timeout === "number") state.timeout = String(entry.timeout);
+    if (typeof entry.url === "string") {
+      const headersText = formatKeyValues(entry.headers, ": ");
+      state.transport = "url";
+      state.url = entry.url;
+      state.headers = headersText;
+      state.headersOpen = Boolean(headersText);
+      const oauth = entry.oauth;
+      if (isRecord(oauth)) {
+        state.oauthOpen = true;
+        state.oauthClientId = stringOf(oauth.clientId);
+        state.oauthClientSecret = stringOf(oauth.clientSecret);
+        state.oauthClientName = stringOf(oauth.clientName);
+        state.oauthClientRegistration = stringOf(oauth.clientRegistration) === "cimd" ? "cimd" : "dcr";
+        state.oauthScope = stringOf(oauth.scope);
+        state.oauthCallbackPort =
+          typeof oauth.callbackPort === "number" ? String(oauth.callbackPort) : "";
+        state.oauthCallbackUrl = stringOf(oauth.callbackUrl);
+        state.oauthAuthServerMetadataUrl = stringOf(oauth.authServerMetadataUrl);
+      }
+      const auth = entry.auth;
+      state.authProvider = isRecord(auth) ? stringOf(auth.provider) : "";
+    } else {
+      state.transport = "command";
+      state.command = stringOf(entry.command);
+      state.args = Array.isArray(entry.args)
+        ? entry.args.filter((item): item is string => typeof item === "string").join(" ")
+        : "";
+      state.env = formatKeyValues(entry.env, "=");
+      state.cwd = stringOf(entry.cwd);
+    }
+    return state;
+  }
+
   /** 编辑已有服务器：读取配置回填表单，未在表单暴露的字段保留在 originalEntry 中。 */
   async function loadEntry(target: McpEditTarget): Promise<void> {
     setLoading(true);
@@ -165,45 +236,12 @@ export function McpAddModal({ show, workspaces, edit, onClose, onAdded }: Props)
         return;
       }
       setOriginalEntry(entry);
-      const patch: Partial<FormState> = {
+      update({
+        ...entryToState(entry),
         name: target.name,
+        scope: target.scope === "project" ? (target.workspace ?? "") : "user",
         json: JSON.stringify(entry, null, 2),
-        description: stringOf(entry.description),
-        toolExposure: formatKeyValues(entry.toolExposure, ": "),
-      };
-      if (isExposure(entry.exposure)) patch.exposure = entry.exposure;
-      if (typeof entry.timeout === "number") patch.timeout = String(entry.timeout);
-      if (typeof entry.url === "string") {
-        const headersText = formatKeyValues(entry.headers, ": ");
-        patch.transport = "url";
-        patch.url = entry.url;
-        patch.headers = headersText;
-        patch.headersOpen = Boolean(headersText);
-        const oauth = entry.oauth;
-        if (isRecord(oauth)) {
-          patch.oauthOpen = true;
-          patch.oauthClientId = stringOf(oauth.clientId);
-          patch.oauthClientSecret = stringOf(oauth.clientSecret);
-          patch.oauthClientName = stringOf(oauth.clientName);
-          patch.oauthClientRegistration = stringOf(oauth.clientRegistration) === "cimd" ? "cimd" : "dcr";
-          patch.oauthScope = stringOf(oauth.scope);
-          patch.oauthCallbackPort =
-            typeof oauth.callbackPort === "number" ? String(oauth.callbackPort) : "";
-          patch.oauthCallbackUrl = stringOf(oauth.callbackUrl);
-          patch.oauthAuthServerMetadataUrl = stringOf(oauth.authServerMetadataUrl);
-        }
-        const auth = entry.auth;
-        patch.authProvider = isRecord(auth) ? stringOf(auth.provider) : "";
-      } else {
-        patch.transport = "command";
-        patch.command = stringOf(entry.command);
-        patch.args = Array.isArray(entry.args)
-          ? entry.args.filter((item): item is string => typeof item === "string").join(" ")
-          : "";
-        patch.env = formatKeyValues(entry.env, "=");
-        patch.cwd = stringOf(entry.cwd);
-      }
-      update(patch);
+      });
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -273,20 +311,20 @@ export function McpAddModal({ show, workspaces, edit, onClose, onAdded }: Props)
   }
 
   /** OAuth 子字段与表单合并；原配置里未暴露的子字段保留。 */
-  function buildOauth(): Record<string, unknown> | undefined {
+  function buildOauth(state: FormState): Record<string, unknown> | undefined {
     const base = originalEntry?.oauth;
     const oauth: Record<string, unknown> = isRecord(base) ? { ...base } : {};
     for (const key of OAUTH_KEYS) delete oauth[key];
-    const clientId = form.oauthClientId.trim();
+    const clientId = state.oauthClientId.trim();
     if (clientId) oauth.clientId = clientId;
-    const clientSecret = form.oauthClientSecret.trim();
+    const clientSecret = state.oauthClientSecret.trim();
     if (clientSecret) oauth.clientSecret = clientSecret;
-    const clientName = form.oauthClientName.trim();
+    const clientName = state.oauthClientName.trim();
     if (clientName) oauth.clientName = clientName;
-    if (form.oauthClientRegistration === "cimd") oauth.clientRegistration = "cimd";
-    const scopeText = form.oauthScope.trim();
+    if (state.oauthClientRegistration === "cimd") oauth.clientRegistration = "cimd";
+    const scopeText = state.oauthScope.trim();
     if (scopeText) oauth.scope = scopeText;
-    const portText = form.oauthCallbackPort.trim();
+    const portText = state.oauthCallbackPort.trim();
     if (portText) {
       const port = Number(portText);
       if (!Number.isInteger(port) || port < 1 || port > 65535) {
@@ -294,9 +332,9 @@ export function McpAddModal({ show, workspaces, edit, onClose, onAdded }: Props)
       }
       oauth.callbackPort = port;
     }
-    const callbackUrl = form.oauthCallbackUrl.trim();
+    const callbackUrl = state.oauthCallbackUrl.trim();
     if (callbackUrl) oauth.callbackUrl = callbackUrl;
-    const metadataUrl = form.oauthAuthServerMetadataUrl.trim();
+    const metadataUrl = state.oauthAuthServerMetadataUrl.trim();
     if (metadataUrl) oauth.authServerMetadataUrl = metadataUrl;
     return Object.keys(oauth).length ? oauth : undefined;
   }
@@ -312,36 +350,36 @@ export function McpAddModal({ show, workspaces, edit, onClose, onAdded }: Props)
     return map;
   }
 
-  function buildEntry(): Record<string, unknown> {
+  function buildEntry(state: FormState): Record<string, unknown> {
     const entry: Record<string, unknown> = originalEntry ? { ...originalEntry } : {};
     for (const key of FORM_KEYS) delete entry[key];
-    const descriptionText = form.description.trim();
+    const descriptionText = state.description.trim();
     if (descriptionText) entry.description = descriptionText;
-    if (form.exposure !== "codemode") entry.exposure = form.exposure;
-    const toolExposureMap = parseToolExposure(form.toolExposure);
+    if (state.exposure !== "codemode") entry.exposure = state.exposure;
+    const toolExposureMap = parseToolExposure(state.toolExposure);
     if (toolExposureMap) entry.toolExposure = toolExposureMap;
-    const timeoutText = form.timeout.trim();
+    const timeoutText = state.timeout.trim();
     if (timeoutText) {
       const seconds = Number(timeoutText);
       if (!Number.isFinite(seconds) || seconds <= 0) throw new Error(t.customizeMcpTimeoutInvalid);
       entry.timeout = seconds;
     }
-    if (form.transport === "command") {
-      entry.command = form.command.trim();
-      const list = form.args.trim() ? form.args.trim().split(/\s+/) : [];
+    if (state.transport === "command") {
+      entry.command = state.command.trim();
+      const list = state.args.trim() ? state.args.trim().split(/\s+/) : [];
       if (list.length) entry.args = list;
-      const envMap = parseEnv(form.env);
+      const envMap = parseEnv(state.env);
       if (envMap) entry.env = envMap;
-      const cwdText = form.cwd.trim();
+      const cwdText = state.cwd.trim();
       if (cwdText) entry.cwd = cwdText;
       return entry;
     }
-    entry.url = form.url.trim();
-    const headerMap = parseHeaders(form.headers);
+    entry.url = state.url.trim();
+    const headerMap = parseHeaders(state.headers);
     if (headerMap) entry.headers = headerMap;
-    const oauth = buildOauth();
+    const oauth = buildOauth(state);
     if (oauth) entry.oauth = oauth;
-    const provider = form.authProvider.trim();
+    const provider = state.authProvider.trim();
     if (provider) entry.auth = { provider };
     else if (isRecord(originalEntry?.auth)) entry.auth = originalEntry.auth;
     return entry;
@@ -506,17 +544,95 @@ export function McpAddModal({ show, workspaces, edit, onClose, onAdded }: Props)
     throw new Error(t.customizeMcpJsonInvalid);
   }
 
-  function buildServers(): Record<string, unknown> {
-    if (form.method === "json") return parseJsonServers(form.json, form.name);
-    const serverName = form.name.trim();
-    if (!serverName) throw new Error(t.customizeMcpNameRequired);
-    if (form.transport === "command" && !form.command.trim()) {
+  /** 编辑态：JSON 只描述当前服务器，取出该服务器的定义。 */
+  function parseEditEntry(text: string, name: string): Record<string, unknown> {
+    const trimmed = text.trim();
+    if (!trimmed) throw new Error(t.customizeMcpJsonInvalid);
+    let parsed: unknown;
+    try {
+      parsed = parseLooseJson(trimmed);
+    } catch {
+      const named = splitNamedEntry(trimmed);
+      if (!named) throw new Error(t.customizeMcpJsonInvalid);
+      try {
+        parsed = parseLooseJson(named.json);
+      } catch {
+        throw new Error(t.customizeMcpJsonInvalid);
+      }
+    }
+    if (!isRecord(parsed)) throw new Error(t.customizeMcpJsonInvalid);
+
+    const nested =
+      parsed.mcpServers ?? parsed["mcp-servers"] ?? parsed.mcp_servers ?? parsed.servers;
+    if (nested !== undefined) {
+      if (!isRecord(nested)) throw new Error(t.customizeMcpJsonInvalid);
+      const entry = nested[name];
+      if (!isRecord(entry)) throw new Error(t.customizeMcpJsonServerMissing(name));
+      return normalizeEntry(entry);
+    }
+
+    if (!looksLikeEntry(parsed)) throw new Error(t.customizeMcpJsonInvalid);
+    return normalizeEntry(parsed);
+  }
+
+  /** JSON 回填表单：解析失败时保留原表单内容。 */
+  function applyJsonToForm(): boolean {
+    try {
+      const entry = parseEditEntry(form.json, sourceName());
+      setOriginalEntry(entry);
+      update(entryToState(entry));
+      setError("");
+      return true;
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+      return false;
+    }
+  }
+
+  /** 切换表单 / JSON：编辑态两边内容互相同步，JSON 解析失败时停留在 JSON 视图。 */
+  function onMethodChange(method: Method): void {
+    if (!edit) {
+      update({ method });
+      return;
+    }
+    if (method === "json") {
+      try {
+        update({ method, json: JSON.stringify(buildEntry(form), null, 2) });
+      } catch {
+        update({ method });
+      }
+      return;
+    }
+    if (!applyJsonToForm()) return;
+    update({ method });
+  }
+
+  /** 配置文件里的原始名称：JSON 内嵌 mcpServers 时按原名查找。 */
+  function sourceName(): string {
+    return edit?.name ?? form.name;
+  }
+
+  /** 服务器名称需与 pi 的校验一致：字母、数字、下划线、连字符。 */
+  function checkName(name: string): string {
+    const trimmed = name.trim();
+    if (!trimmed) throw new Error(t.customizeMcpNameRequired);
+    if (!NAME_PATTERN.test(trimmed)) throw new Error(t.customizeMcpNameInvalid);
+    return trimmed;
+  }
+
+  function buildServers(state: FormState): Record<string, unknown> {
+    if (state.method === "json") {
+      if (edit) return { [checkName(state.name)]: parseEditEntry(state.json, sourceName()) };
+      return parseJsonServers(state.json, state.name);
+    }
+    const serverName = checkName(state.name);
+    if (state.transport === "command" && !state.command.trim()) {
       throw new Error(t.customizeMcpTargetRequired);
     }
-    if (form.transport === "url" && !form.url.trim()) {
+    if (state.transport === "url" && !state.url.trim()) {
       throw new Error(t.customizeMcpTargetRequired);
     }
-    return { [serverName]: buildEntry() };
+    return { [serverName]: buildEntry(state) };
   }
 
   function saveTarget(): { scope: "user" | "project"; cwd?: string } {
@@ -532,7 +648,7 @@ export function McpAddModal({ show, workspaces, edit, onClose, onAdded }: Props)
     setError("");
     let servers: Record<string, unknown>;
     try {
-      servers = buildServers();
+      servers = buildServers(form);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
       return;
@@ -542,11 +658,28 @@ export function McpAddModal({ show, workspaces, edit, onClose, onAdded }: Props)
       setError(t.slashNeedWorkspace);
       return;
     }
+    const previousName = edit?.name ?? "";
+    const nextName = form.name.trim();
+    const renamed = Boolean(edit) && nextName !== previousName;
+    if (renamed) {
+      const taken = await window.api.customizations.readMcpServer(
+        nextName,
+        target.scope,
+        target.cwd,
+      );
+      if (taken) {
+        setError(t.customizeMcpNameExists(nextName));
+        return;
+      }
+    }
     setSaving(true);
     try {
       await window.api.customizations.addMcpServers(target.scope, servers, target.cwd);
+      if (renamed) {
+        await window.api.customizations.removeMcpServer(previousName, target.scope, target.cwd);
+      }
       onAdded?.();
-      onClose?.();
+      onClose();
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -555,72 +688,51 @@ export function McpAddModal({ show, workspaces, edit, onClose, onAdded }: Props)
   }
 
   return (
-    <Modal
-      open={show}
-      className={`pi-settings-modal ${styles.mcpAddModal}`}
-      width="min(640px, 94vw)"
-      mask={{ closable: false }}
-      onCancel={() => onClose?.()}
-      title={
-        <div className={styles.modalHeader}>
-          <div className={styles.modalTitleBlock}>
-            <div className={styles.modalTitle}>
-              {editing ? t.customizeMcpEditTitle : t.customizeMcpAddTitle}
-            </div>
-            <div className={styles.modalSubtitle}>
-              {editing ? t.customizeMcpEditSubtitle : t.customizeMcpAddSubtitle}
-            </div>
-          </div>
-          <Radio.Group
-            className={styles.methodGroup}
-            size="small"
-            value={form.method}
-            onChange={(event) => update({ method: event.target.value as Method })}
-          >
-            <Radio.Button value="form">{t.customizeMcpAddForm}</Radio.Button>
-            <Radio.Button value="json">{t.customizeMcpAddJson}</Radio.Button>
-          </Radio.Group>
+    <div className={styles.formPanel}>
+      <header className={styles.panelHeader}>
+        <button
+          type="button"
+          className={styles.backButton}
+          title={t.customizeBackToList}
+          aria-label={t.customizeBackToList}
+          onClick={onClose}
+        >
+          <CodiconIcon name="back" size={16} />
+        </button>
+        <div className={styles.panelHeading}>
+          <h2 className={styles.panelTitle}>
+            {editing ? t.customizeMcpEditTitle : t.customizeMcpAddTitle}
+          </h2>
         </div>
-      }
-      footer={
-        <Space style={{ justifyContent: "flex-end" }}>
-          <Button
-            type="primary"
-            loading={saving || loading}
-            disabled={loading}
-            onClick={() => void submit()}
-          >
-            {t.customizeMcpSave}
-          </Button>
-          <Button disabled={saving} onClick={() => onClose?.()}>
-            {t.cancel}
-          </Button>
-        </Space>
-      }
-    >
-      <div className={`section ${styles.mcpFormCard}`}>
-        <div className={styles.fieldRow}>
-          <div className={`${styles.field} ${styles.nameField}`}>
-            <span className={styles.fieldLabel}>{t.customizeMcpName}</span>
-            <Input
-              value={form.name}
-              size="small"
-              disabled={editing}
-              placeholder={form.method === "form" ? t.customizeMcpNameExample : t.customizeMcpJsonNameHint}
-              onChange={(event) => update({ name: event.target.value })}
-            />
-          </div>
-          <div className={styles.scopeField}>
-            <span className={styles.fieldLabel}>{t.customizeMcpAddScope}</span>
-            <Select
-              value={form.scope}
-              size="small"
-              className={styles.scopeSelect}
-              disabled={editing}
-              options={scopeOptions}
-              onChange={(value: string) => update({ scope: value })}
-            />
-          </div>
+        <div className={styles.scopeField}>
+          <span className={styles.fieldLabel}>{t.customizeMcpAddScope}</span>
+          <Select
+            value={form.scope}
+            className={styles.scopeSelect}
+            disabled={editing}
+            options={scopeOptions}
+            onChange={(value: string) => update({ scope: value })}
+          />
+        </div>
+        <Radio.Group
+          className={styles.methodGroup}
+          size="small"
+          value={form.method}
+          onChange={(event) => onMethodChange(event.target.value as Method)}
+        >
+          <Radio.Button value="form">{t.customizeMcpAddForm}</Radio.Button>
+          <Radio.Button value="json">{t.customizeMcpAddJson}</Radio.Button>
+        </Radio.Group>
+      </header>
+
+      <div className={styles.formCard}>
+        <div className={styles.field}>
+          <span className={styles.fieldLabel}>{t.customizeMcpName}</span>
+          <Input
+            value={form.name}
+            placeholder={form.method === "form" ? t.customizeMcpNameExample : t.customizeMcpJsonNameHint}
+            onChange={(event) => update({ name: event.target.value })}
+          />
         </div>
 
         {form.method === "form" ? (
@@ -629,53 +741,51 @@ export function McpAddModal({ show, workspaces, edit, onClose, onAdded }: Props)
               <span className={styles.fieldLabel}>{t.customizeMcpDescription}</span>
               <Input
                 value={form.description}
-                size="small"
                 placeholder={t.customizeMcpDescriptionPlaceholder}
-                onChange={(event) => update({ description: event.target.value })}
+                onChange={(event) => updateField({ description: event.target.value })}
               />
             </div>
 
-            <div className={styles.fieldRow}>
+            <div className={styles.typeRow}>
               <div className={styles.field}>
                 <span className={styles.fieldLabel}>{t.customizeMcpTransport}</span>
                 <Select
                   value={form.transport}
-                  size="small"
                   className={styles.narrowSelect}
                   options={transportOptions}
-                  onChange={(value: Transport) => update({ transport: value })}
+                  onChange={(value: Transport) => updateField({ transport: value })}
                 />
               </div>
+
               <div className={styles.field}>
                 <span className={styles.fieldLabel}>{t.customizeMcpExposure}</span>
                 <Select
                   value={form.exposure}
-                  size="small"
                   className={styles.narrowSelect}
                   options={exposureOptions}
-                  onChange={(value: Exposure) => update({ exposure: value })}
+                  onChange={(value: Exposure) => updateField({ exposure: value })}
                 />
               </div>
-              <div className={styles.field}>
-                <span className={styles.fieldLabel}>{t.customizeMcpToolExposure}</span>
-                <Input.TextArea
-                  value={form.toolExposure}
-                  size="small"
-                  autoSize={{ minRows: 2, maxRows: 6 }}
-                  placeholder={t.customizeMcpToolExposureHint}
-                  onChange={(event) => update({ toolExposure: event.target.value })}
-                />
-              </div>
+
               <div className={styles.field}>
                 <span className={styles.fieldLabel}>{t.customizeMcpTimeout}</span>
                 <Input
                   value={form.timeout}
-                  size="small"
                   className={styles.narrowInput}
                   placeholder="60"
-                  onChange={(event) => update({ timeout: event.target.value })}
+                  onChange={(event) => updateField({ timeout: event.target.value })}
                 />
               </div>
+            </div>
+
+            <div className={styles.field}>
+              <span className={styles.fieldLabel}>{t.customizeMcpToolExposure}</span>
+              <Input.TextArea
+                value={form.toolExposure}
+                autoSize={{ minRows: 2, maxRows: 6 }}
+                placeholder={t.customizeMcpToolExposureHint}
+                onChange={(event) => updateField({ toolExposure: event.target.value })}
+              />
             </div>
 
             {form.transport === "url" ? (
@@ -684,9 +794,8 @@ export function McpAddModal({ show, workspaces, edit, onClose, onAdded }: Props)
                   <span className={styles.fieldLabel}>{t.customizeMcpUrl}</span>
                   <Input
                     value={form.url}
-                    size="small"
                     placeholder={t.customizeMcpUrlExample}
-                    onChange={(event) => update({ url: event.target.value })}
+                    onChange={(event) => updateField({ url: event.target.value })}
                   />
                 </div>
 
@@ -704,7 +813,7 @@ export function McpAddModal({ show, workspaces, edit, onClose, onAdded }: Props)
                       value={form.headers}
                       autoSize={{ minRows: 2, maxRows: 5 }}
                       placeholder={t.customizeMcpHeadersHint}
-                      onChange={(event) => update({ headers: event.target.value })}
+                      onChange={(event) => updateField({ headers: event.target.value })}
                     />
                   ) : null}
                 </div>
@@ -721,12 +830,13 @@ export function McpAddModal({ show, workspaces, edit, onClose, onAdded }: Props)
                   {form.oauthOpen ? (
                     <div className={styles.subFields}>
                       <div className={styles.field}>
-                        <span className={styles.fieldLabel}>{t.customizeMcpOauthClientId}</span>
+                        <span className={styles.fieldLabel}>
+                          {t.customizeMcpOauthClientId}
+                        </span>
                         <Input
                           value={form.oauthClientId}
-                          size="small"
                           placeholder={t.customizeMcpOauthAuto}
-                          onChange={(event) => update({ oauthClientId: event.target.value })}
+                          onChange={(event) => updateField({ oauthClientId: event.target.value })}
                         />
                       </div>
                       <div className={styles.field}>
@@ -735,17 +845,17 @@ export function McpAddModal({ show, workspaces, edit, onClose, onAdded }: Props)
                         </span>
                         <Input.Password
                           value={form.oauthClientSecret}
-                          size="small"
-                          onChange={(event) => update({ oauthClientSecret: event.target.value })}
+                          onChange={(event) => updateField({ oauthClientSecret: event.target.value })}
                         />
                       </div>
                       <div className={styles.field}>
-                        <span className={styles.fieldLabel}>{t.customizeMcpOauthClientName}</span>
+                        <span className={styles.fieldLabel}>
+                          {t.customizeMcpOauthClientName}
+                        </span>
                         <Input
                           value={form.oauthClientName}
-                          size="small"
                           placeholder={t.customizeMcpOauthAuto}
-                          onChange={(event) => update({ oauthClientName: event.target.value })}
+                          onChange={(event) => updateField({ oauthClientName: event.target.value })}
                         />
                       </div>
                       <div className={styles.field}>
@@ -754,11 +864,10 @@ export function McpAddModal({ show, workspaces, edit, onClose, onAdded }: Props)
                         </span>
                         <Select
                           value={form.oauthClientRegistration}
-                          size="small"
                           className={styles.narrowSelect}
                           options={clientRegistrationOptions}
                           onChange={(value: "dcr" | "cimd") =>
-                            update({ oauthClientRegistration: value })
+                            updateField({ oauthClientRegistration: value })
                           }
                         />
                       </div>
@@ -766,27 +875,24 @@ export function McpAddModal({ show, workspaces, edit, onClose, onAdded }: Props)
                         <span className={styles.fieldLabel}>{t.customizeMcpOauthScope}</span>
                         <Input
                           value={form.oauthScope}
-                          size="small"
                           placeholder={t.customizeMcpOauthAuto}
-                          onChange={(event) => update({ oauthScope: event.target.value })}
+                          onChange={(event) => updateField({ oauthScope: event.target.value })}
                         />
                       </div>
                       <div className={styles.field}>
                         <span className={styles.fieldLabel}>{t.customizeMcpOauthCallbackPort}</span>
                         <Input
                           value={form.oauthCallbackPort}
-                          size="small"
                           className={styles.narrowInput}
-                          onChange={(event) => update({ oauthCallbackPort: event.target.value })}
+                          onChange={(event) => updateField({ oauthCallbackPort: event.target.value })}
                         />
                       </div>
                       <div className={styles.field}>
                         <span className={styles.fieldLabel}>{t.customizeMcpOauthCallbackUrl}</span>
                         <Input
                           value={form.oauthCallbackUrl}
-                          size="small"
                           placeholder="http://localhost:8080/oauth/callback"
-                          onChange={(event) => update({ oauthCallbackUrl: event.target.value })}
+                          onChange={(event) => updateField({ oauthCallbackUrl: event.target.value })}
                         />
                       </div>
                       <div className={styles.field}>
@@ -795,10 +901,9 @@ export function McpAddModal({ show, workspaces, edit, onClose, onAdded }: Props)
                         </span>
                         <Input
                           value={form.oauthAuthServerMetadataUrl}
-                          size="small"
                           placeholder="https://auth.example.com/.well-known/oauth-authorization-server"
                           onChange={(event) =>
-                            update({ oauthAuthServerMetadataUrl: event.target.value })
+                            updateField({ oauthAuthServerMetadataUrl: event.target.value })
                           }
                         />
                       </div>
@@ -811,9 +916,8 @@ export function McpAddModal({ show, workspaces, edit, onClose, onAdded }: Props)
                     <span className={styles.fieldLabel}>{t.customizeMcpAuthProvider}</span>
                     <Input
                       value={form.authProvider}
-                      size="small"
                       placeholder={t.customizeMcpAuthProviderPlaceholder}
-                      onChange={(event) => update({ authProvider: event.target.value })}
+                      onChange={(event) => updateField({ authProvider: event.target.value })}
                     />
                     <Typography.Text type="secondary" className={styles.fieldHint}>
                       {projectScoped
@@ -829,37 +933,33 @@ export function McpAddModal({ show, workspaces, edit, onClose, onAdded }: Props)
                   <span className={styles.fieldLabel}>{t.customizeMcpCommand}</span>
                   <Input
                     value={form.command}
-                    size="small"
                     placeholder={t.customizeMcpCommandExample}
-                    onChange={(event) => update({ command: event.target.value })}
+                    onChange={(event) => updateField({ command: event.target.value })}
                   />
                 </div>
                 <div className={styles.field}>
                   <span className={styles.fieldLabel}>{t.customizeMcpArgs}</span>
                   <Input
                     value={form.args}
-                    size="small"
                     placeholder={t.customizeMcpArgsExample}
-                    onChange={(event) => update({ args: event.target.value })}
+                    onChange={(event) => updateField({ args: event.target.value })}
                   />
                 </div>
                 <div className={styles.field}>
                   <span className={styles.fieldLabel}>{t.customizeMcpEnv}</span>
                   <Input.TextArea
                     value={form.env}
-                    size="small"
                     autoSize={{ minRows: 2, maxRows: 4 }}
                     placeholder={t.customizeMcpEnvExample}
-                    onChange={(event) => update({ env: event.target.value })}
+                    onChange={(event) => updateField({ env: event.target.value })}
                   />
                 </div>
                 <div className={styles.field}>
                   <span className={styles.fieldLabel}>{t.customizeMcpCwd}</span>
                   <Input
                     value={form.cwd}
-                    size="small"
                     placeholder={t.customizeMcpCwdPlaceholder}
-                    onChange={(event) => update({ cwd: event.target.value })}
+                    onChange={(event) => updateField({ cwd: event.target.value })}
                   />
                 </div>
               </>
@@ -875,15 +975,29 @@ export function McpAddModal({ show, workspaces, edit, onClose, onAdded }: Props)
               onChange={(event) => update({ json: event.target.value })}
             />
             <Typography.Text type="secondary" className={styles.fieldHint}>
-              {t.customizeMcpJsonHint}
+              {editing ? t.customizeMcpJsonServerHint : t.customizeMcpJsonHint}
             </Typography.Text>
           </div>
         )}
-      </div>
 
-      {error ? <div className={styles.formError}>{error}</div> : null}
-    </Modal>
+        {error ? <div className={styles.formError}>{error}</div> : null}
+
+        <div className={styles.cardActions}>
+          <Button
+            type="primary"
+            loading={saving || loading}
+            disabled={loading}
+            onClick={() => void submit()}
+          >
+            {t.customizeMcpSave}
+          </Button>
+          <Button disabled={saving} onClick={onClose}>
+            {t.cancel}
+          </Button>
+        </div>
+      </div>
+    </div>
   );
 }
 
-export default McpAddModal;
+export default McpServerForm;

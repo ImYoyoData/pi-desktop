@@ -368,10 +368,6 @@
   overflow: hidden;
 }
 
-.empty {
-  margin-top: 40px;
-}
-
 .renameHint {
   margin: 0 0 10px;
   font-size: 13px;

@@ -451,6 +451,11 @@ export function createSessionBroker(deps: {
     rec.spawnedAt = Date.now();
     rec.restartOnIdle = false;
     rec.summary.filePath = spawned.filePath;
+    // 判定卡死时 worker 已被杀掉，状态却留在 stuck；新 worker 起来后复位，
+    // 否则这次卡死会一直挂在会话列表上，直到有人显式重启。
+    if (rec.summary.status === "stuck") {
+      setStatus(sessionId, "idle");
+    }
     attachWorker(sessionId, spawned.worker);
     startHeartbeat(sessionId);
     scheduleIdleDestroy(sessionId);
@@ -959,7 +964,7 @@ export function createSessionBroker(deps: {
     emit({ type: "worker_exit", sessionId, code: 0 });
   }
 
-  /** 用户轮次统一注入思考语言块（Reasonix reasoning_language）；已带块时不重复注入。 */
+  /** 用户轮次统一注入思考语言块（Reasonix reasoning_language）；默认档位不注入，已带块时不重复注入。 */
   function withThinkingLanguage(command: AgentCommand): AgentCommand {
     if (
       command.type !== "prompt" &&
@@ -970,6 +975,7 @@ export function createSessionBroker(deps: {
     }
     if (hasThinkingLanguageBlock(command.message)) return command;
     const block = thinkingLanguageBlock(getThinkingLanguageSettings().language);
+    if (!block) return command;
     return { ...command, message: `${block}\n\n${command.message}` };
   }
 
