@@ -210,15 +210,6 @@
   opacity: 1;
 }
 
-.itemOverride {
-  flex-shrink: 0;
-  width: 132px;
-}
-
-.itemOverrideSelect {
-  width: 100%;
-}
-
 .itemUpdateButton {
   flex-shrink: 0;
 }

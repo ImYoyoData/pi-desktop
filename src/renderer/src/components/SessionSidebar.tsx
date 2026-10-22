@@ -22,24 +22,24 @@ import {
 import type { MenuProps } from "antd";
 import { NO_OVERLAY_MOTION } from "@renderer/components/overlay-motion";
 import {
-  ArchiveOutline,
+  AddOutline,
   ChatboxOutline,
   ChevronDownOutline,
   ChevronForwardOutline,
-  ContractOutline,
   CopyOutline,
   CreateOutline,
   EllipsisHorizontalOutline,
   FolderOpenOutline,
   FolderOutline,
+  GitPullRequestOutline,
   ListOutline,
+  OptionsOutline,
   PinOutline,
   TrashOutline,
 } from "@renderer/components/icons/ionicons";
 import CodiconIcon, {
   type CodiconName,
 } from "@renderer/components/icons/CodiconIcon";
-import GitPullRequestIcon from "@renderer/components/icons/GitPullRequestIcon";
 import Sortable from "sortablejs";
 import type { SessionStatus, SessionSummary } from "../../../shared/protocol";
 import { SESSION_HISTORY_INITIAL_LIMIT } from "../../../shared/protocol";
@@ -50,7 +50,6 @@ import { useSendQueueStore } from "@renderer/stores/send-queue";
 import { useWorkspaceStore, type WorkspaceState } from "@renderer/stores/workspace";
 import { useLayoutStore } from "@renderer/stores/layout";
 import { useKeybindingsStore } from "@renderer/stores/keybindings";
-import { useAppearanceStore } from "@renderer/stores/appearance";
 import { isUnstartedSession } from "@renderer/utils/session-started";
 import { isTextEntryTarget } from "@renderer/utils/keyboard-target";
 import { buildSessionTree, type SessionTreeItem } from "@renderer/utils/session-tree";
@@ -63,9 +62,6 @@ import styles from "./SessionSidebar.module.css";
 const PIN_KEY = "session-pins:v1";
 const SESSION_ORDER_KEY = "pi-desktop:session-order:v2";
 const SESSION_VISIBLE_LIMIT = 5;
-
-const ARCHIVE_KEY_PREFIX = "archive:";
-const ARCHIVE_DAY_STEPS = [3, 7, 30, 90];
 
 /** 上下文菜单的大致高度：用来判断按钮下方是否放得下。 */
 const CTX_MENU_HEIGHT = 220;
@@ -208,7 +204,9 @@ export function SessionSidebar(): ReactNode {
   const sessionsStore = useSessionsStore();
   const workspace = useWorkspaceStore();
   const layout = useLayoutStore();
-  const appearance = useAppearanceStore();
+
+  /** 主进程给出的最新状态（按会话 id，与工作区无关）。 */
+  const statusBySession = sessionsStore.statusBySession;
 
   const pendingAskKey = useChatStore((s) => {
     const ids: string[] = [];
@@ -409,11 +407,19 @@ export function SessionSidebar(): ReactNode {
     return compareSessionsOf(sessionOrders, pins, root);
   }
 
+  /**
+   * 会话行的状态取自主进程镜像：侧栏同时展示多个工作区，
+   * 缓存行里的状态只在加载那一刻准确，镜像才跟得上运行/收尾。
+   */
+  function liveStatusOf(row: SessionSummary): SessionStatus {
+    return statusBySession[row.id] ?? row.status;
+  }
+
   function visibleSessions(root: string): SessionSummary[] {
     return visibleSessionsOfList(
       [...(sessionsByRoot[root] ?? [])],
       archivedIds,
-    );
+    ).map((row) => ({ ...row, status: liveStatusOf(row) }));
   }
 
   function visibleTreeItemsFor(root: string): VisibleSessionItem[] {
@@ -536,9 +542,7 @@ export function SessionSidebar(): ReactNode {
     markRendererStartup("renderer:sessions-request");
     const list = await window.api.sessions.list(root);
     setSessionsByRoot((prev) => ({ ...prev, [root]: list }));
-    if (root === useWorkspaceStore.getState().root) {
-      useSessionsStore.setState({ sessions: list, listRoot: root });
-    }
+    useSessionsStore.getState().replaceList(root, list);
     useSessionWidgetsStore
       .getState()
       .pruneStaleTodoSnapshots(new Set(list.map((s) => s.id)));
@@ -937,17 +941,6 @@ export function SessionSidebar(): ReactNode {
     setSelectedSessionIds(ids.slice(start, end + 1));
   }
 
-  function archiveDaysFromKey(key: string): number | null {
-    if (!key.startsWith(ARCHIVE_KEY_PREFIX)) return null;
-    const days = Number(key.slice(ARCHIVE_KEY_PREFIX.length));
-    return Number.isFinite(days) && days > 0 ? days : null;
-  }
-
-  async function onArchiveSelect(key: string | number): Promise<void> {
-    const days = archiveDaysFromKey(String(key));
-    if (days !== null) await archiveSessionsOlderThan(days);
-  }
-
   /** 归档勾选的会话（不按时间过滤）。 */
   async function archiveSelectedSessions(): Promise<void> {
     const targets = selectedSessionIds.filter((id) => !archivedIds.has(id));
@@ -956,35 +949,6 @@ export function SessionSidebar(): ReactNode {
       return;
     }
     try {
-      await useWorkspaceStore
-        .getState()
-        .setArchivedSessions([...archivedIds, ...targets]);
-      message.success(t.archiveDone(targets.length));
-      exitSelectMode();
-    } catch (err) {
-      message.error(err instanceof Error ? err.message : String(err));
-    }
-  }
-
-  /** 归档当前分类下超过 N 天未活动的会话（菜单里的时间归档）。 */
-  async function archiveSessionsOlderThan(days: number): Promise<void> {
-    const cutoff = Date.now() - days * 24 * 60 * 60 * 1000;
-    const targets: string[] = [];
-    try {
-      for (const root of workspacePaths) {
-        await ensureSessionsLoaded(root);
-        for (const s of localRef.current.sessionsByRoot[root] ?? []) {
-          if (archivedIds.has(s.id)) continue;
-          if (s.id === useSessionsStore.getState().activeId) continue;
-          if (isRunning(s.status)) continue;
-          if (new Date(s.modified).getTime() > cutoff) continue;
-          targets.push(s.id);
-        }
-      }
-      if (!targets.length) {
-        message.info(t.archiveNone);
-        return;
-      }
       await useWorkspaceStore
         .getState()
         .setArchivedSessions([...archivedIds, ...targets]);
@@ -1214,14 +1178,6 @@ export function SessionSidebar(): ReactNode {
     });
   }
 
-  function collapseAllWorkspaces(): void {
-    setExpanded((prev) => {
-      const next: Record<string, boolean> = {};
-      for (const key of Object.keys(prev)) next[key] = false;
-      return next;
-    });
-  }
-
   function openCustomize(section: string): void {
     useLayoutStore.getState().openCustomize(section);
   }
@@ -1399,35 +1355,12 @@ export function SessionSidebar(): ReactNode {
     appendSessionToOrder(root, sessionId);
   }
 
-  function archiveDayOptions(): MenuItem[] {
-    return ARCHIVE_DAY_STEPS.map((days) => ({
-      label: t.archiveOlderThan(days),
-      key: `${ARCHIVE_KEY_PREFIX}${days}`,
-    }));
-  }
-
   function moreMenuItems(): MenuItem[] {
-    return [
-      { label: t.selectSessions, key: "select-mode", icon: <ListOutline /> },
-      {
-        label: t.archiveMenu,
-        key: "archive-menu",
-        icon: <ArchiveOutline />,
-        children: archiveDayOptions(),
-      },
-      {
-        label: t.archivedSessions,
-        key: "archived-list",
-        icon: <ArchiveOutline />,
-      },
-    ];
+    return [{ label: t.selectSessions, key: "select-mode", icon: <ListOutline /> }];
   }
 
   async function onMoreMenuSelect(key: string | number): Promise<void> {
-    const k = String(key);
-    if (k === "select-mode") enterSelectMode();
-    else if (k === "archived-list") await openArchivedList();
-    else await onArchiveSelect(k);
+    if (String(key) === "select-mode") enterSelectMode();
   }
 
   function workspaceMenuItems(): MenuItem[] {
@@ -1846,9 +1779,7 @@ export function SessionSidebar(): ReactNode {
             onClick={() => useLayoutStore.getState().showPullRequests()}
           >
             <span className={styles.btnContent}>
-              <span className={styles.btnGlyph}>
-                <GitPullRequestIcon size={16} />
-              </span>
+              <GitPullRequestOutline size={15} />
               <span className={styles.btnLabel}>{t.pullRequests}</span>
             </span>
           </Button>
@@ -1902,6 +1833,13 @@ export function SessionSidebar(): ReactNode {
               >
                 {t.delete}
               </Button>
+              <Button
+                type="text"
+                size="small"
+                onClick={() => void openArchivedList()}
+              >
+                {t.archivedSessions}
+              </Button>
             </div>
           ) : (
             <Button
@@ -1912,27 +1850,25 @@ export function SessionSidebar(): ReactNode {
               title={t.workspacePanelProjects}
               onClick={() => setWorkspaceCollapsed((prev) => !prev)}
             >
-              <span className={styles.btnContent}>
-                {workspaceCollapsed ? (
-                  <ChevronForwardOutline size={14} />
-                ) : (
-                  <ChevronDownOutline size={14} />
-                )}
+              <span className={styles.wsPanelHead}>
                 <span className={styles.wsPanelLabel}>
                   {t.workspacePanelProjects}
+                </span>
+                <span
+                  className={`${styles.wsPanelChevron} ${
+                    workspaceCollapsed ? styles.wsPanelChevronSticky : ""
+                  }`}
+                >
+                  {workspaceCollapsed ? (
+                    <ChevronForwardOutline size={13} />
+                  ) : (
+                    <ChevronDownOutline size={13} />
+                  )}
                 </span>
               </span>
             </Button>
           )}
           <div className={styles.wsToolIcons}>
-            <Button
-              type="text"
-              size="small"
-              title={t.collapseAllWorkspaces}
-              onClick={collapseAllWorkspaces}
-            >
-              <ContractOutline size={14} />
-            </Button>
             <Dropdown
               {...NO_OVERLAY_MOTION}
               trigger={["click"]}
@@ -1941,10 +1877,24 @@ export function SessionSidebar(): ReactNode {
                 onClick: ({ key }) => void onMoreMenuSelect(key),
               }}
             >
-              <Button type="text" size="small" title={t.moreActions}>
-                <EllipsisHorizontalOutline size={14} />
+              <Button
+                type="text"
+                size="small"
+                title={t.moreActions}
+                className={styles.wsToolBtn}
+              >
+                <OptionsOutline size={16} />
               </Button>
             </Dropdown>
+            <Button
+              type="text"
+              size="small"
+              title={t.openWorkspace}
+              className={styles.wsToolBtn}
+              onClick={() => void onAddWorkspace()}
+            >
+              <AddOutline size={18} />
+            </Button>
           </div>
         </div>
 
@@ -2014,11 +1964,7 @@ export function SessionSidebar(): ReactNode {
                     </div>
 
                     <ul
-                      className={`${styles.sessionList} ${
-                        appearance.showSessionHoverActions
-                          ? styles.sessionListHoverActions
-                          : ""
-                      }`}
+                      className={styles.sessionList}
                       data-no-ws-drag
                       ref={sessionListRef(root)}
                       style={{ display: expandedRoot ? undefined : "none" }}

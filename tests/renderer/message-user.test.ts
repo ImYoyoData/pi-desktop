@@ -1,15 +1,16 @@
 import { describe, expect, it } from "vitest";
 import { buildUserRowView } from "../../src/renderer/src/utils/message-user";
-import { composerModePreamble } from "../../src/shared/composer-modes";
 import type { UserMessage } from "../../src/renderer/src/utils/message-rows";
+
+const LEGACY_MODE_BLOCK = "[pi-desktop mode: agent]\nYou are in **Agent mode**.\n- rule";
 
 function msg(partial: Partial<UserMessage>): UserMessage {
   return { id: "u1", role: "user", text: "hello", ...partial };
 }
 
 describe("buildUserRowView", () => {
-  it("strips the injected agent-mode preamble from the visible text", () => {
-    const text = `${composerModePreamble("agent")}\n\n真正的提问`;
+  it("strips the legacy mode block from the visible text", () => {
+    const text = `${LEGACY_MODE_BLOCK}\n\n真正的提问`;
     expect(buildUserRowView(msg({ text })).text).toBe("真正的提问");
   });
 

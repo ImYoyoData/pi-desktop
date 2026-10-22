@@ -17,7 +17,6 @@ import { useSessionsStore } from "@renderer/stores/sessions";
 import { useSessionWidgetsStore } from "@renderer/stores/session-widgets";
 import { hasAnyFileChange } from "@renderer/utils/session-file-changes";
 import { heuristicSessionTitle } from "@renderer/utils/session-title";
-import { formatElapsedShort } from "@renderer/utils/agent-wait";
 import { useI18n } from "@renderer/i18n/use-i18n";
 import styles from "./ChatPanel.module.css";
 
@@ -87,35 +86,15 @@ export function ChatPanel({ visible }: Props): ReactNode {
     return chat.activeRunning || row?.status === "running";
   })();
 
-  const [nowTick, setNowTick] = useState(() => Date.now());
-
   useEffect(() => {
     // 进程级事件订阅由 app-events 随应用注册，不随本组件生死；这里只做一次
     // 权威状态对账，修正可能因事件丢失而卡住的「等待模型响应」。
     void useChatStore.getState().resyncActiveSession();
-    const timer = window.setInterval(() => setNowTick(Date.now()), 1000);
-    return () => window.clearInterval(timer);
   }, []);
-
-  const headerWaitLabel = (() => {
-    const s = chat.activeWaitState;
-    if (!s) return t.agentRunning;
-    if (s.autoRecovering) return t.autoRecovering;
-    // Header shows whole-turn total; per-phase clocks live in AgentWaitIndicator.
-    const elapsed = s.turnStartedAt
-      ? formatElapsedShort(Math.max(0, nowTick - s.turnStartedAt))
-      : "";
-    return elapsed ? `${t.agentRunning} · ${elapsed}` : t.agentRunning;
-  })();
-
-  const showHeaderRunning =
-    running || Boolean(chat.activeWaitState?.autoRecovering);
 
   /** 头部没有标题与状态标签时不渲染，避免留下一条空白分隔栏。 */
   const showHeader =
-    appearance.showSessionTitle ||
-    Boolean(chat.activeRetryHint) ||
-    showHeaderRunning;
+    appearance.showSessionTitle || Boolean(chat.activeRetryHint);
 
   const title = (() => {
     if (isDraft) return t.newSession;
@@ -158,10 +137,6 @@ export function ChatPanel({ visible }: Props): ReactNode {
                     chat.activeRetryHint.attempt,
                     chat.activeRetryHint.maxAttempts,
                   )}
-                </Tag>
-              ) : showHeaderRunning ? (
-                <Tag color="success" variant="filled" className={styles.tag}>
-                  {headerWaitLabel}
                 </Tag>
               ) : null}
             </header>

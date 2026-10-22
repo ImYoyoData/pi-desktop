@@ -23,7 +23,10 @@ import {
 	type ChatState,
 	type ChatUserImage,
 } from "./chat-reducer";
-import { stripComposerModePreamble } from "../../../shared/composer-modes";
+import {
+	stripInjectedBlocks,
+	type LegacyModeTagKind,
+} from "../../../shared/injected-blocks";
 import { useSessionsStore } from "./sessions";
 import { useCheckpointStore } from "./checkpoint";
 import { useComposerStore } from "./composer";
@@ -148,7 +151,7 @@ type ElementTag = {
 	host: string;
 	label: string;
 	content?: string;
-	kind?: "file" | "url" | "element" | "agent" | "plan" | "ask" | "task";
+	kind?: "file" | "url" | "element" | LegacyModeTagKind;
 };
 
 export type ChatStoreState = ChatBase &
@@ -477,7 +480,7 @@ export const useChatStore = create<ChatStoreState>()((set, get) => {
 			return {
 				id: row.id,
 				role: "user" as const,
-				text: stripComposerModePreamble(row.text),
+				text: stripInjectedBlocks(row.text),
 				...(row.images?.length ? { images: row.images } : {}),
 				...(row.elementTags?.length ? { elementTags: row.elementTags } : {}),
 			};

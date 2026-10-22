@@ -17,8 +17,7 @@ type CustomizationsState = {
   setToolToggles: (items: CustomizationsSnapshot["toolToggles"]) => void;
   setCodemode: (state: CustomizationsSnapshot["codemode"]) => void;
   setSkillEnabled: (id: string, enabled: boolean) => void;
-  setFileItemEnabled: (id: string, enabled: boolean, filePath: string) => void;
-  removeFileItem: (kind: "skills" | "prompts", id: string) => void;
+  removeFileItem: (id: string) => void;
 };
 
 /** 智能体设置页数据：按工作区加载一次，工作区切换时重取。 */
@@ -119,24 +118,11 @@ export const useCustomizationsStore = create<CustomizationsState>()((set, get) =
     });
   }
 
-  /** 本地更新提示的启停状态与重命名后的路径，避免重新加载整份快照。 */
-  function setFileItemEnabled(id: string, enabled: boolean, filePath: string): void {
+  /** 从本地快照中移除已删除的技能。 */
+  function removeFileItem(id: string): void {
     const snapshot = get().snapshot;
-    const items = snapshot.prompts.map((item) =>
-      item.id === id ? { ...item, id: filePath, filePath, enabled } : item,
-    );
-    set({ snapshot: { ...snapshot, prompts: items } });
-  }
-
-  /** 从本地快照中移除已删除的技能/提示。 */
-  function removeFileItem(kind: "skills" | "prompts", id: string): void {
-    const snapshot = get().snapshot;
-    const items = snapshot[kind].filter((item) => item.id !== id);
     set({
-      snapshot:
-        kind === "skills"
-          ? { ...snapshot, skills: items }
-          : { ...snapshot, prompts: items },
+      snapshot: { ...snapshot, skills: snapshot.skills.filter((item) => item.id !== id) },
     });
   }
 
@@ -153,7 +139,6 @@ export const useCustomizationsStore = create<CustomizationsState>()((set, get) =
     setToolToggles,
     setCodemode,
     setSkillEnabled,
-    setFileItemEnabled,
     removeFileItem,
   };
 });

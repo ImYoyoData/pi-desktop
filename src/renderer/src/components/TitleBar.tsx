@@ -4,7 +4,6 @@ import {
   ArrowUpCircleOutline,
   LogoGithub,
 } from "@renderer/components/icons/ionicons";
-import type { WindowRunIdentity } from "../../../shared/protocol";
 import PanelLeftIcon from "@renderer/components/icons/PanelLeftIcon";
 import PanelRightIcon from "@renderer/components/icons/PanelRightIcon";
 import PanelBottomIcon from "@renderer/components/icons/PanelBottomIcon";
@@ -13,7 +12,6 @@ import UpdateCard from "@renderer/components/UpdateCard";
 import { useWorkspaceStore } from "@renderer/stores/workspace";
 import { useUpdateStore } from "@renderer/stores/update";
 import { useLayoutStore } from "@renderer/stores/layout";
-import { useAppearanceStore } from "@renderer/stores/appearance";
 import { useI18n } from "@renderer/i18n/use-i18n";
 import styles from "./TitleBar.module.css";
 
@@ -22,11 +20,9 @@ export function TitleBar(): ReactNode {
   const workspace = useWorkspaceStore();
   const update = useUpdateStore();
   const layout = useLayoutStore();
-  const appearance = useAppearanceStore();
 
   const [platform, setPlatform] = useState<NodeJS.Platform>("win32");
   const [isMaximized, setIsMaximized] = useState(false);
-  const [identity, setIdentity] = useState<WindowRunIdentity | null>(null);
 
   useEffect(() => {
     let disposed = false;
@@ -38,11 +34,6 @@ export function TitleBar(): ReactNode {
       const current = await window.api.window.platform();
       if (disposed) return;
       setPlatform(current);
-      if (current === "win32") {
-        const info = await window.api.window.identity();
-        if (disposed) return;
-        setIdentity(info);
-      }
       if (current !== "darwin") {
         const maximized = await window.api.window.isMaximized();
         if (disposed) return;
@@ -67,13 +58,6 @@ export function TitleBar(): ReactNode {
       offUnmaximized?.();
     };
   }, []);
-
-  const privilegeLabel = ((): string => {
-    if (!identity) return "";
-    if (identity.level === "admin") return `(${t.privilegeAdmin})`;
-    if (identity.level === "system") return `(${t.privilegeSystem})`;
-    return `(${identity.username})`;
-  })();
 
   async function onMinimize(): Promise<void> {
     await window.api.window.minimize();
@@ -102,9 +86,6 @@ export function TitleBar(): ReactNode {
         <div className={styles.brand}>
           <PiLogoIcon size={16} />
           <span className={styles.name}>{t.appName}</span>
-          {identity && platform === "win32" && appearance.showPrivilegeLevel ? (
-            <span className={styles.privilege}>{privilegeLabel}</span>
-          ) : null}
         </div>
         <div className={`${styles.center} ${styles.drag}`} />
         <div className={`${styles.actions} ${styles.noDrag}`}>

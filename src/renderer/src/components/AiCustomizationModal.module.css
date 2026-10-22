@@ -1,9 +1,9 @@
+/* 仅作浮层定位容器，不承载遮罩，避免与应用自身的弹窗遮罩叠加压暗 */
 .modalEditorBlock {
   position: fixed;
   inset: 0;
   z-index: 1000;
   overflow: hidden;
-  background: rgba(0, 0, 0, 0.5);
 }
 
 .modalEditorPanel {

@@ -6,7 +6,7 @@
  * once, then only materializes images for the requested window — so switching
  * huge sessions does not ship megabytes of unused base64 over IPC.
  */
-import { stripComposerModePreamble } from "../shared/composer-modes";
+import { stripInjectedBlocks } from "../shared/injected-blocks";
 import { stripThinkingLanguageBlock } from "../shared/thinking-language";
 import {
   stripAttachedImagesBlock,
@@ -371,7 +371,7 @@ function buildMessagesFromEntries(
     if (role === "user") {
       const rawText = textFromAgentMessage(entry.message);
       const hasImages = (pendingImages.get(entry.id)?.length ?? 0) > 0;
-      const cleanText = stripComposerModePreamble(
+      const cleanText = stripInjectedBlocks(
         stripSelectionCitationsBlock(stripAttachedImagesBlock(rawText)),
       );
       const agentText = stripSelectionCitationsBlock(rawText);

@@ -8,13 +8,9 @@
    */
   padding: 0 0 0 8px;
   /*
-   * 半透明标题栏：颜色只做轻微压暗（一档 26%），让下面的内容/壁纸透出来。
-   * 配合 backdrop-filter 形成磨砂玻璃 —— 启用壁纸时透的是壁纸，未启用时透的是
-   * 窗口底色（Electron backgroundColor），两种情况都不会出现实心色块。
-   * 透明度刻意保守，避免文字对比度受背景影响。
+   * 标题栏不加遮罩：背景全透、未启用壁纸时透出窗口底色，启用壁纸时直接透出壁纸，
+   * 不做压暗也不做磨砂模糊。
    */
-  background: color-mix(in srgb, var(--bg-title) 74%, transparent);
-  backdrop-filter: blur(18px) saturate(1.2);
   border-bottom: 1px solid var(--border);
   color: var(--fg-muted);
   font-size: 12px;
@@ -65,12 +61,6 @@
   font-weight: 600;
   font-size: 12.5px;
   letter-spacing: -0.01em;
-}
-
-.privilege {
-  margin-left: 6px;
-  font-size: 11px;
-  font-weight: 400;
 }
 
 .layoutControls {

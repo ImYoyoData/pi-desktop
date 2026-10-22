@@ -5,10 +5,7 @@
  * Composer 编辑队列项），这里抽成一份，两边共用。
  */
 
-import {
-  isComposerAgentMode,
-  type ComposerAgentMode,
-} from "../../../shared/composer-modes";
+import { isLegacyModeTagKind } from "../../../shared/injected-blocks";
 
 export type ComposerTag = {
   url: string;
@@ -19,7 +16,6 @@ export type ComposerTag = {
 };
 
 export type ComposerTagAction =
-  | { kind: "mode"; mode: ComposerAgentMode }
   | { kind: "file"; value: string }
   | { kind: "url"; value: string }
   | { kind: "citation"; url: string; text: string };
@@ -31,7 +27,7 @@ function tagText(tag: ComposerTag): string {
 /**
  * 标签 → 输入框动作序列。
  *
- * 判定顺序：agent 模式标记先于一切（它改的是模式而非内容）；file 用
+ * 判定顺序：旧版模式标记直接跳过（模式功能已下线）；file 用
  * content/label/url 兜底；url 接受显式 kind 或无 kind 但形似 http(s)；
  * 其余（含 element / 无 kind 的普通链接）降级为引用。
  *
@@ -40,8 +36,7 @@ function tagText(tag: ComposerTag): string {
 export function planComposerTags(tags: readonly ComposerTag[] | undefined): ComposerTagAction[] {
   const out: ComposerTagAction[] = [];
   for (const tag of tags ?? []) {
-    if (isComposerAgentMode(tag.kind)) {
-      out.push({ kind: "mode", mode: tag.kind });
+    if (isLegacyModeTagKind(tag.kind)) {
       continue;
     }
     if (tag.kind === "file") {

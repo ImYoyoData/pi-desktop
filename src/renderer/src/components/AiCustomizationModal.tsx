@@ -15,7 +15,7 @@ import { useI18n } from "@renderer/i18n/use-i18n";
 import styles from "./AiCustomizationModal.module.css";
 
 /**
- * VS Code modal editor 形态：居中浮层 + 40px 独立标题栏 + 半透明遮罩。
+ * VS Code modal editor 形态：居中浮层 + 40px 独立标题栏。
  * 尺寸取自 modalEditorPart.ts：默认 80%（上限 1400×900），最小 400×300。
  */
 const TITLE_BAR_HEIGHT = 36;

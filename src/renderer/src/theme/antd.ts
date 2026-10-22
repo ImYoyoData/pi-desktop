@@ -17,6 +17,8 @@ const sharedToken = {
   fontFamily,
   fontFamilyCode: fontFamilyMono,
   controlHeight: 32,
+  /** 去掉弹窗遮罩：对话框直接浮在应用之上，不再压暗底层界面 */
+  colorBgMask: "transparent",
 };
 
 /** 开启 CSS 变量模式：壁纸玻璃态靠覆盖 `--ant-color-*` 变量实现。 */

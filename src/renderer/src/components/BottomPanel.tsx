@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { Button, Dropdown, Empty } from "antd";
+import { Button, Dropdown } from "antd";
 import {
   AddOutline,
   ChevronDownOutline,
@@ -171,22 +171,6 @@ export function BottomPanel(): ReactNode {
             />
           </div>
         ))}
-        {rightTabs.panelTabs.length ? null : (
-          <Empty
-            className={styles.panelEmpty}
-            image={Empty.PRESENTED_IMAGE_SIMPLE}
-            description={t.terminalEmptyHint}
-          >
-            <Button
-              size="small"
-              className="pi-interactive"
-              onClick={() => newTerminal()}
-              icon={<AddOutline size={14} />}
-            >
-              {t.newTerminal}
-            </Button>
-          </Empty>
-        )}
       </div>
     </section>
   );

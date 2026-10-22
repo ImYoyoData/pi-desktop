@@ -7,11 +7,11 @@ import {
   CloseCircleOutline,
   CopyOutline,
   GitMerge,
+  GitPullRequestOutline,
   OpenOutline,
   RefreshOutline,
   SearchOutline,
 } from "@renderer/components/icons/ionicons";
-import GitPullRequestIcon from "@renderer/components/icons/GitPullRequestIcon";
 import type {
   PullRequestDetail,
   PullRequestFilters,
@@ -169,7 +169,7 @@ export function PullRequestsView(): ReactNode {
   function stateIcon(row: PullRequestSummary): ReactNode {
     if (row.state === "merged") return <GitMerge size={16} />;
     if (row.state === "closed") return <CloseCircleOutline size={16} />;
-    return <GitPullRequestIcon size={16} />;
+    return <GitPullRequestOutline size={16} />;
   }
 
   function stateClass(row: PullRequestSummary): string {

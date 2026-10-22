@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import type { ElementCitation, PromptImageContent } from "../../../shared/protocol";
+import type { LegacyModeTagKind } from "../../../shared/injected-blocks";
 import { useSessionsStore } from "./sessions";
 
 export type QueuedSendItem = {
@@ -15,7 +16,7 @@ export type QueuedSendItem = {
     host: string;
     label: string;
     content?: string;
-    kind?: "file" | "url" | "element" | "agent" | "plan" | "ask" | "task";
+    kind?: "file" | "url" | "element" | LegacyModeTagKind;
   }[];
 };
 

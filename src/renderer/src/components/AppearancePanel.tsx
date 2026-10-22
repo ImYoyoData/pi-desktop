@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, type ReactNode } from "react";
 import { Select } from "antd";
 import {
   useAppearanceStore,
@@ -23,16 +23,9 @@ export function AppearancePanel(): ReactNode {
   const t = useI18n();
   const appearance = useAppearanceStore();
   const streamRender = useStreamRenderStore();
-  const [isWindows, setIsWindows] = useState(false);
 
   useEffect(() => {
     void streamRender.load();
-  }, []);
-
-  useEffect(() => {
-    void window.api.window.platform().then((p) => {
-      setIsWindows(p === "win32");
-    });
   }, []);
 
   /** 切换语言：原地替换界面文案，不刷页、不显示加载页。 */
@@ -154,25 +147,7 @@ export function AppearancePanel(): ReactNode {
           />
         </SettingsRow>
 
-        <SettingsRow label={t.sessionHoverActions}>
-          <SettingsSwitch
-            checked={appearance.showSessionHoverActions}
-            label={t.sessionHoverActions}
-            onChange={(value) => appearance.setSessionHoverActions(value)}
-          />
-        </SettingsRow>
-
-        {isWindows ? (
-          <SettingsRow label={t.showPrivilegeLevel}>
-            <SettingsSwitch
-              checked={appearance.showPrivilegeLevel}
-              label={t.showPrivilegeLevel}
-              onChange={(value) => appearance.setShowPrivilegeLevel(value)}
-            />
-          </SettingsRow>
-        ) : null}
-
-        <SettingsRow label={t.expandToolCalls} description={t.expandToolCallsHint}>
+        <SettingsRow label={t.expandToolCalls}>
           <SettingsSwitch
             checked={appearance.expandToolCalls}
             label={t.expandToolCalls}

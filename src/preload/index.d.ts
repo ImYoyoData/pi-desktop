@@ -9,7 +9,6 @@ import type {
 	SessionStatus,
 	SessionSummary,
 	TerminalShellOption,
-	WindowRunIdentity,
 } from "../shared/protocol";
 import type { AgentRunEvent, AgentRunSnapshot } from "../shared/agent-runs";
 import type { EditContextMenuAction, EditContextMenuPayload } from "../shared/context-menu";
@@ -27,7 +26,7 @@ import type {
 	PullRequestPatchResult,
 	PullRequestSummary,
 } from "../shared/github-types";
-import type { BuiltinExtensionItem, BuiltinToolItem, CodemodeSettingsState, CustomizationsSnapshot, CustomizationCreateKind, InstructionsSaveResult, McpAuthEventPayload, McpAuthPromptReply, McpAuthState, McpAuthTarget, McpProjectOverride, McpTestResult, McpTestTarget, PromptSaveResult, SkillSaveResult } from "../shared/customizations";
+import type { BuiltinExtensionItem, BuiltinToolItem, CodemodeSettingsState, CustomizationsSnapshot, CustomizationCreateKind, InstructionsSaveResult, McpAuthEventPayload, McpAuthPromptReply, McpAuthState, McpAuthTarget, McpTestResult, McpTestTarget, SkillSaveResult } from "../shared/customizations";
 import type {
 	ModelsGetResult,
 	ModelsOAuthEventPayload,
@@ -110,7 +109,6 @@ declare const api: {
 	};
 	window: {
 		platform: () => Promise<NodeJS.Platform>;
-		identity: () => Promise<WindowRunIdentity>;
 		minimize: () => Promise<void>;
 		maximize: () => Promise<void>;
 		close: () => Promise<void>;
@@ -594,12 +592,6 @@ declare const api: {
 	customizations: {
 		list: (cwd?: string, force?: boolean) => Promise<CustomizationsSnapshot>;
 		create: (kind: CustomizationCreateKind) => Promise<{ filePath: string }>;
-		createPromptFromDraft: (
-			content: string,
-			name: string,
-			scope: "user" | "project",
-			cwd?: string,
-		) => Promise<PromptSaveResult>;
 		createInstructionsFromDraft: (
 			content: string,
 			scope: "user" | "project",
@@ -609,14 +601,6 @@ declare const api: {
 			name: string,
 			scope: "user" | "project",
 			enabled: boolean,
-			cwd?: string,
-		) => Promise<void>;
-		listMcpProjectOverrides: (
-			cwd?: string,
-		) => Promise<Record<string, "enabled" | "disabled">>;
-		setMcpProjectOverride: (
-			name: string,
-			override: McpProjectOverride,
 			cwd?: string,
 		) => Promise<void>;
 		addMcpServers: (
@@ -650,11 +634,6 @@ declare const api: {
 		removeMcpServer: (
 			name: string,
 			scope: "user" | "project",
-			cwd?: string,
-		) => Promise<{ filePath: string }>;
-		setItemEnabled: (
-			filePath: string,
-			enabled: boolean,
 			cwd?: string,
 		) => Promise<{ filePath: string }>;
 		removeItem: (filePath: string, cwd?: string) => Promise<{ filePath: string }>;

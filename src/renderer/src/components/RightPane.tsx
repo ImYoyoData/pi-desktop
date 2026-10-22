@@ -7,7 +7,7 @@ import {
   type ReactNode,
 } from "react";
 import { createPortal } from "react-dom";
-import { Button, Dropdown, Empty, Input, Menu, Modal } from "antd";
+import { Button, Dropdown, Input, Menu, Modal } from "antd";
 import type { MenuProps } from "antd";
 import Sortable from "sortablejs";
 import {
@@ -778,13 +778,6 @@ export function RightPane(): ReactNode {
             }
             return null;
           })}
-          {active ? null : (
-            <Empty
-              className={styles.empty}
-              image={Empty.PRESENTED_IMAGE_SIMPLE}
-              description={rightTabs.dockTabs.length ? t.selectTabHint : t.clickToAddTab}
-            />
-          )}
         </div>
 
         {detailsVisible ? (
