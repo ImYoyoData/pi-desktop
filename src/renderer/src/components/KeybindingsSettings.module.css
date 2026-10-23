@@ -1,0 +1,80 @@
+.keysPanel {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.subGroup {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 14px;
+}
+
+.subTitle {
+  color: var(--fg-muted);
+  font-size: 0.9231rem;
+}
+
+.subRows {
+  display: flex;
+  flex-direction: column;
+}
+
+.subRows > * + * {
+  border-top: 1px solid var(--border);
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+}
+
+.off .label,
+.off .keys {
+  opacity: 0.5;
+}
+
+.label {
+  flex: 1;
+  min-width: 0;
+  color: var(--fg);
+  font-size: 1rem;
+}
+
+.keys {
+  flex-shrink: 0;
+  min-width: 96px;
+  padding: 2px 8px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg-hover);
+  color: var(--fg-strong);
+  font-family: var(--mono-font, ui-monospace, SFMono-Regular, Consolas, monospace);
+  font-size: 0.9231rem;
+  text-align: center;
+  white-space: nowrap;
+}
+
+.plain {
+  border-color: transparent;
+  background: transparent;
+}
+
+.recording {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.conflict {
+  border-color: var(--error);
+  color: var(--error);
+}

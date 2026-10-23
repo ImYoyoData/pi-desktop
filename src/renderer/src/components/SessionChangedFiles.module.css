@@ -1,0 +1,185 @@
+/* 1:1 VS Code Copilot chat-editing working set — docked slice on the input
+   stack. Border/radius come from the enclosing .chat-input-stack. */
+
+.filesDock {
+  flex-shrink: 0;
+  min-width: 0;
+  background: transparent;
+}
+
+.filesDockHead {
+  display: flex;
+  align-items: center;
+}
+
+.filesDockToggle {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  flex: 1;
+  min-width: 0;
+  height: 24px;
+  padding: 0 6px 0 2px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--fg);
+  cursor: pointer;
+  text-align: left;
+  font: inherit;
+  user-select: none;
+}
+
+.filesDockToggle:hover {
+  background: var(--chat-hover-bg, color-mix(in srgb, var(--fg) 5%, transparent));
+}
+
+.chev {
+  flex-shrink: 0;
+  color: var(--chat-desc-fg, var(--fg-muted));
+}
+
+.filesTitle {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--chat-font-s, 12px);
+  font-weight: 500;
+  line-height: 22px;
+  color: var(--chat-desc-fg, var(--fg-muted));
+}
+
+.filesDockToggle:hover .filesTitle {
+  color: var(--fg);
+}
+
+.filesLineCounts {
+  flex-shrink: 0;
+  display: inline-flex;
+  gap: 3px;
+  margin-right: 6px;
+  font-size: var(--chat-font-xs, 11px);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum";
+}
+
+.linesAdded {
+  color: var(--git-u, var(--success, var(--green)));
+}
+
+.linesRemoved {
+  color: var(--git-d, var(--red, #ef4444));
+}
+
+.filesDockBody {
+  min-width: 0;
+  padding: 0 6px 6px;
+}
+
+.filesList {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  max-height: 198px;
+  overflow-y: auto;
+}
+
+@supports not selector(::-webkit-scrollbar) {
+  .filesList {
+    scrollbar-width: thin;
+    scrollbar-color: var(--border-strong, var(--border)) transparent;
+  }
+}
+
+.filesItem {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 22px;
+  padding: 0 6px;
+  border-radius: 5px;
+  font-size: var(--chat-font-s, 12px);
+  color: var(--fg);
+  cursor: pointer;
+}
+
+.filesItem:hover {
+  background: var(--chat-hover-bg, color-mix(in srgb, var(--fg) 5%, transparent));
+}
+
+/* VS Code Seti 主题图标 —— 主题字体声明的字号为 150% */
+.fileGlyph {
+  flex-shrink: 0;
+  width: 20px;
+  text-align: center;
+  font-family: "seti";
+  font-size: 150%;
+  line-height: 1;
+  color: var(--chat-icon-fg, var(--fg-muted));
+  /* Seti 字形居中于行盒，文字视觉中心偏下约 2px，下移对齐 */
+  transform: translateY(2px);
+}
+
+.filePath {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.filesItemCounts {
+  flex-shrink: 0;
+  display: inline-flex;
+  gap: 3px;
+  margin-right: 4px;
+  font-size: var(--chat-font-xs, 11px);
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum";
+}
+
+/* Expand/collapse animation */
+.bodyEnter {
+  overflow: hidden;
+  animation: files-expand-in 140ms ease;
+}
+
+.bodyLeave {
+  overflow: hidden;
+  animation: files-expand-out 140ms ease forwards;
+}
+
+@keyframes files-expand-in {
+  from {
+    opacity: 0;
+    transform: translateY(-3px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes files-expand-out {
+  from {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  to {
+    opacity: 0;
+    transform: translateY(-3px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .bodyEnter,
+  .bodyLeave {
+    animation: none;
+  }
+}

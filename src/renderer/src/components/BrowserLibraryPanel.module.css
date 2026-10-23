@@ -1,0 +1,95 @@
+.libraryPanel {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  background: var(--bg);
+}
+
+.searchWrap {
+  padding: 10px 12px 8px;
+  flex-shrink: 0;
+}
+
+.listScroll {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  /* 原来这层是 naive 的 NScrollbar，内容绝对定位在滚动容器里，
+     外层左右 padding 被绝对定位吃掉，实际不产生内缩。 */
+  padding: 0 0 12px;
+}
+
+.group {
+  margin-bottom: 6px;
+}
+
+.groupHead {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border: none;
+  background: transparent;
+  color: var(--fg-muted);
+  font-size: 0.9231rem;
+  font-weight: 500;
+  padding: 6px 8px;
+  cursor: pointer;
+  border-radius: 6px;
+}
+
+.groupHead:hover {
+  background: var(--bg-hover);
+  color: var(--fg);
+}
+
+.row {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  border: none;
+  background: transparent;
+  text-align: left;
+  padding: 9px 10px;
+  border-radius: 4px;
+  cursor: pointer;
+  color: var(--fg);
+  font-size: 1rem;
+}
+
+.row:hover {
+  background: var(--bg-hover);
+}
+
+.fav {
+  width: 16px;
+  height: 16px;
+  border-radius: 3px;
+  flex-shrink: 0;
+  object-fit: contain;
+}
+
+.favFallback {
+  flex-shrink: 0;
+  color: var(--fg-faint);
+}
+
+.label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rowAction {
+  opacity: 0;
+  flex-shrink: 0;
+  color: var(--fg-muted) !important;
+}
+
+.row:hover .rowAction {
+  opacity: 1;
+}

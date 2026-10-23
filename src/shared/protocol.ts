@@ -1,7 +1,11 @@
-import type { WorkerResourceSummary } from "./worker-resources";
+import type { LegacyModeTagKind } from "./injected-blocks";
 
 /** 主进程原生菜单向渲染进程发送的命令。 */
-export type MenuCommand = "open-pull-requests";
+export type MenuCommand =
+	| "open-pull-requests"
+	| "zoom-in"
+	| "zoom-out"
+	| "zoom-reset";
 
 export const IpcChannels = {
 	window: {
@@ -16,7 +20,6 @@ export const IpcChannels = {
 		/** Main → renderer: window just unmaximized/restored (for title-bar button state). */
 		onUnmaximized: "window:onUnmaximized",
 		platform: "window:platform",
-		identity: "window:identity",
 		setThemeSource: "window:setThemeSource",
 		setChromeTheme: "window:setChromeTheme",
 		requestMediaAccess: "window:requestMediaAccess",
@@ -99,12 +102,6 @@ export const IpcChannels = {
 		setAlias: "workspace:setAlias",
 		/** 重新定位工作区到新目录，Pi 会话目录随之迁移。 */
 		relocate: "workspace:relocate",
-		/** Renderer → main：工作区分类（自定义分组）。 */
-		listGroups: "workspace:listGroups",
-		addGroup: "workspace:addGroup",
-		renameGroup: "workspace:renameGroup",
-		removeGroup: "workspace:removeGroup",
-		setGroupOf: "workspace:setGroupOf",
 		/** 已归档会话 id 列表：读取与覆写。 */
 		listArchivedSessions: "workspace:listArchivedSessions",
 		setArchivedSessions: "workspace:setArchivedSessions",
@@ -118,10 +115,6 @@ export const IpcChannels = {
 		tryCommand: "sessions:tryCommand",
 		event: "sessions:event",
 		status: "sessions:status",
-		/** Renderer ? main: loaded tools/extensions/skills for a session. */
-		getInfo: "sessions:getInfo",
-		/** Main ? renderer: a session worker finished loading its resources. */
-		workerReady: "sessions:workerReady",
 		killWorker: "sessions:killWorker",
 		restartWorker: "sessions:restartWorker",
 		delete: "sessions:delete",
@@ -214,13 +207,8 @@ export const IpcChannels = {
 	customizations: {
 		list: "customizations:list",
 		create: "customizations:create",
-		createAgentFromDraft: "customizations:createAgentFromDraft",
-		createPromptFromDraft: "customizations:createPromptFromDraft",
-		saveAgent: "customizations:saveAgent",
 		createInstructionsFromDraft: "customizations:createInstructionsFromDraft",
 		setMcpEnabled: "customizations:setMcpEnabled",
-		listMcpProjectOverrides: "customizations:listMcpProjectOverrides",
-		setMcpProjectOverride: "customizations:setMcpProjectOverride",
 		addMcpServers: "customizations:addMcpServers",
 		readMcpServer: "customizations:readMcpServer",
 		ensureMcpConfig: "customizations:ensureMcpConfig",
@@ -228,7 +216,6 @@ export const IpcChannels = {
 		setBuiltinExtensionEnabled: "customizations:setBuiltinExtensionEnabled",
 		setToolEnabled: "customizations:setToolEnabled",
 		setCodemodeSettings: "customizations:setCodemodeSettings",
-		setItemEnabled: "customizations:setItemEnabled",
 		removeItem: "customizations:removeItem",
 		testMcpServers: "customizations:testMcpServers",
 		mcpAuthStates: "customizations:mcpAuthStates",
@@ -312,10 +299,26 @@ export const IpcChannels = {
 		openGithub: "update:openGithub",
 		openReleases: "update:openReleases",
 		openAuthorEmail: "update:openAuthorEmail",
+		/** Renderer → main: 读取当前更新状态。 */
+		getState: "update:getState",
+		/** Renderer → main: 检查是否有新版本。 */
 		check: "update:check",
+		/** Renderer → main: 开始下载新版本。 */
 		download: "update:download",
+		/** Renderer → main: 忽略版本比较，真实下载并安装最新发布版。 */
+		forceUpdate: "update:forceUpdate",
+		/** Renderer → main: 取消下载。 */
 		cancel: "update:cancel",
-		progress: "update:progress",
+		/** Renderer → main: 退出应用并启动安装程序。 */
+		install: "update:install",
+		/** Main → renderer: 更新状态变化。 */
+		state: "update:state",
+		/** Renderer → main: 悬浮卡片内容高度变化，窗口跟随调整。 */
+		toastResize: "update:toastResize",
+		/** Renderer → main: 收起右下角悬浮卡片。 */
+		toastDismiss: "update:toastDismiss",
+		/** Renderer → main: 重新展开右下角悬浮卡片。 */
+		toastShow: "update:toastShow",
 	},
 	contributors: {
 		avatar: "contributors:avatar",
@@ -362,22 +365,7 @@ export const IpcChannels = {
 		set: "proxy:set",
 		changed: "proxy:changed",
 	},
-	webSearchConfig: {
-		/** Renderer → main: 读取联网搜索的服务器配置。 */
-		get: "webSearchConfig:get",
-		/** Renderer → main: 保存搜索服务器配置（保留 proxy 等未纳管字段）。 */
-		set: "webSearchConfig:set",
-	},
 } as const;
-
-/** 当前进程在系统中的运行身份：普通用户 / 管理员 / SYSTEM 账户。 */
-export type WindowPrivilegeLevel = "user" | "admin" | "system";
-
-/** 标题栏展示的运行身份：系统账户名 + 权限级别。 */
-export type WindowRunIdentity = {
-	username: string;
-	level: WindowPrivilegeLevel;
-};
 
 /** 内嵌终端可选的 shell，由主进程检测后提供给底栏 "+" 菜单。 */
 export type TerminalShellOption = {
@@ -387,28 +375,7 @@ export type TerminalShellOption = {
 	args: string[];
 };
 
-/** 工作区分类：自定义分组名（顺序即菜单顺序）+ 工作区归属（绝对路径 → 分类名）。 */
-export type WorkspaceGroups = {
-  groups: string[];
-  groupOf: Record<string, string>;
-};
-
 export type SessionStatus = "idle" | "running" | "error" | "stuck";
-
-/** Tools / extensions / skills loaded into a session worker (null while booting). */
-export type SessionExtensionInfo = {
-	path: string;
-	/** Readable extension name (package name or file stem). */
-	name: string;
-	/** Short description from the extension package.json when available. */
-	brief: string;
-};
-
-export type SessionInfoResult = {
-	resources: WorkerResourceSummary | null;
-	/** Extension paths enriched with a readable name + brief description. */
-	extensions: SessionExtensionInfo[];
-};
 
 /** Mirrors Pi SDK `ContextUsage` from `AgentSession.getContextUsage()`, plus session stats. */
 export type SessionContextUsage = {
@@ -595,7 +562,9 @@ export type AgentEvent =
 	| { type: "worker_stall"; sessionId: string }
 	| { type: "worker_alive"; sessionId: string }
 	| { type: "worker_exit"; sessionId: string; code: number | null }
-	| { type: "session_status"; sessionId: string; status: SessionStatus };
+	| { type: "session_status"; sessionId: string; status: SessionStatus }
+	/** 会话产生新活动：主进程刷新最近时间，侧栏据此重排。 */
+	| { type: "session_activity"; sessionId: string; modified: string };
 
 export type SessionHistoryMessage =
 	| {
@@ -610,7 +579,7 @@ export type SessionHistoryMessage =
 				host: string;
 				label: string;
 				content?: string;
-				kind?: "file" | "url" | "element" | "agent" | "plan" | "ask" | "task";
+				kind?: "file" | "url" | "element" | LegacyModeTagKind;
 			}[];
 	  }
 	| {
@@ -687,6 +656,8 @@ export type SessionSummary = {
 	cwd: string;
 	name?: string;
 	modified: string;
+	/** 会话文件 header 的创建时间（缺失时回退 modified）。 */
+	created?: string;
 	firstMessage?: string;
 	status: SessionStatus;
 	/** 派生会话的父会话 id（由 header.parentSession 路径解析）。 */

@@ -1,9 +1,7 @@
-import { defineStore } from "pinia";
-import { computed, reactive, ref } from "vue";
+import { create } from "zustand";
 import type { ElementCitation } from "../../../shared/protocol";
 import { isRegionCitation } from "../../../shared/protocol";
 import { truncateHtmlSnippet } from "../../../shared/html-snippet";
-import type { ComposerAgentMode } from "../../../shared/composer-modes";
 import { t } from "@renderer/i18n";
 import { fileTagLabel, urlTagLabel } from "@renderer/utils/path-label";
 
@@ -30,8 +28,6 @@ type ComposerBucket = {
   draft: string;
   chips: ComposerChip[];
   images: ComposerImage[];
-  /** Persistent toolbar mode (not an editor capsule). */
-  mode: ComposerAgentMode;
 };
 
 const NONE_KEY = "__none__";
@@ -74,95 +70,143 @@ function parseDataUrl(dataUrl: string): { mimeType: string; data: string } | nul
 }
 
 function emptyBucket(): ComposerBucket {
-  return { draft: "", chips: [], images: [], mode: "agent" };
+  return { draft: "", chips: [], images: [] };
 }
 
-export const useComposerStore = defineStore("composer", () => {
+const EMPTY_BUCKET: ComposerBucket = emptyBucket();
+
+function keyFor(sessionId: string | null | undefined): string {
+  return sessionId?.trim() ? sessionId : NONE_KEY;
+}
+
+type ComposerBase = {
   /** Per-session composer state (draft / chips / images). */
-  const bySession = reactive<Record<string, ComposerBucket>>({});
-  const activeSessionId = ref<string | null>(null);
+  bySession: Record<string, ComposerBucket>;
+  activeSessionId: string | null;
+};
 
-  function keyFor(sessionId: string | null | undefined): string {
-    return sessionId?.trim() ? sessionId : NONE_KEY;
+type ComposerDerived = {
+  draft: string;
+  chips: ComposerChip[];
+  images: ComposerImage[];
+};
+
+function derive(base: ComposerBase): ComposerDerived {
+  const bucket = base.bySession[keyFor(base.activeSessionId)] ?? EMPTY_BUCKET;
+  return {
+    draft: bucket.draft,
+    chips: bucket.chips,
+    images: bucket.images,
+  };
+}
+
+export type ComposerState = ComposerBase &
+  ComposerDerived & {
+    bindSession: (sessionId: string | null) => void;
+    dropSession: (sessionId: string) => void;
+    resetAll: () => void;
+    setDraft: (next: string) => void;
+    elementCitations: () => ElementCitation[];
+    elementTagSnapshot: () => {
+      url: string;
+      host: string;
+      label: string;
+      content: string;
+    }[];
+    attachmentTagSnapshot: () => {
+      kind: "file" | "url" | "element";
+      label: string;
+      title: string;
+      ref: string;
+      content?: string;
+    }[];
+    addCitation: (citation: ElementCitation) => void;
+    attachScreenshotToLatestElement: (dataUrl: string) => void;
+    addImageFile: (image: Omit<ComposerImage, "id"> & { id?: string }) => void;
+    addImageFromDataUrl: (dataUrl: string, cachePath?: string) => boolean;
+    addPastedImage: (dataUrl: string) => Promise<void>;
+    addImageFromUrl: (url: string) => Promise<boolean>;
+    removeImage: (id: string) => void;
+    clearImages: () => void;
+    addFileTag: (filePath: string, startLine?: number, endLine?: number) => void;
+    addUrlTag: (url: string) => void;
+    removeChip: (id: string) => void;
+    clear: () => void;
+    clearSession: (sessionId: string | null) => void;
+    insertPathRef: (filePath: string) => void;
+    formatChipsForMessage: () => string;
+  };
+
+export const useComposerStore = create<ComposerState>()((set, get) => {
+  function commit(patch: Partial<ComposerBase>): void {
+    set((state) => {
+      const next = { ...state, ...patch };
+      return { ...next, ...derive(next) };
+    });
   }
 
-  function ensureBucket(sessionId: string | null | undefined): ComposerBucket {
+  function currentBucket(): ComposerBucket {
+    const state = get();
+    return state.bySession[keyFor(state.activeSessionId)] ?? EMPTY_BUCKET;
+  }
+
+  function updateBucketFor(
+    sessionId: string | null | undefined,
+    patch: (bucket: ComposerBucket) => ComposerBucket,
+  ): void {
     const key = keyFor(sessionId);
-    if (!bySession[key]) bySession[key] = emptyBucket();
-    return bySession[key]!;
+    const current = get().bySession[key] ?? emptyBucket();
+    commit({ bySession: { ...get().bySession, [key]: patch(current) } });
   }
 
-  function bucket(): ComposerBucket {
-    return ensureBucket(activeSessionId.value);
+  function updateActiveBucket(patch: (bucket: ComposerBucket) => ComposerBucket): void {
+    updateBucketFor(get().activeSessionId, patch);
   }
 
   /** Bind UI to a session's private editor buffer. */
   function bindSession(sessionId: string | null): void {
-    activeSessionId.value = sessionId;
-    ensureBucket(sessionId);
+    const key = keyFor(sessionId);
+    const bySession = get().bySession;
+    commit({
+      bySession: bySession[key] ? bySession : { ...bySession, [key]: emptyBucket() },
+      activeSessionId: sessionId,
+    });
   }
 
   function dropSession(sessionId: string): void {
     const key = keyFor(sessionId);
-    const b = bySession[key];
-    if (b) {
-      for (const img of b.images) {
+    const bucket = get().bySession[key];
+    if (bucket) {
+      for (const img of bucket.images) {
         if (img.previewUrl.startsWith("blob:")) URL.revokeObjectURL(img.previewUrl);
       }
-      delete bySession[key];
     }
-    if (activeSessionId.value === sessionId) {
-      activeSessionId.value = null;
-      ensureBucket(null);
+    const bySession = { ...get().bySession };
+    delete bySession[key];
+    if (get().activeSessionId !== sessionId) {
+      commit({ bySession });
+      return;
     }
+    bySession[NONE_KEY] = bySession[NONE_KEY] ?? emptyBucket();
+    commit({ bySession, activeSessionId: null });
   }
 
   /** Clear all session buffers (e.g. workspace switch). */
   function resetAll(): void {
-    for (const key of Object.keys(bySession)) {
-      const b = bySession[key];
-      if (!b) continue;
-      for (const img of b.images) {
+    for (const bucket of Object.values(get().bySession)) {
+      for (const img of bucket.images) {
         if (img.previewUrl.startsWith("blob:")) URL.revokeObjectURL(img.previewUrl);
       }
-      delete bySession[key];
     }
-    activeSessionId.value = null;
-    ensureBucket(null);
+    commit({ bySession: { [NONE_KEY]: emptyBucket() }, activeSessionId: null });
   }
 
-  const draft = computed({
-    get: () => bucket().draft,
-    set: (v: string) => {
-      bucket().draft = v;
-    },
-  });
-
-  const chips = computed(() => bucket().chips);
-  const images = computed(() => bucket().images);
-  const mode = computed({
-    get: () => bucket().mode,
-    set: (value: ComposerAgentMode) => {
-      bucket().mode = value;
-    },
-  });
-
-  function setMode(next: ComposerAgentMode): void {
-    bucket().mode = next;
-  }
-
-  function activeMode(): ComposerAgentMode {
-    return bucket().mode;
-  }
-
-  /** 草稿首次发送：把工具栏模式迁移到新会话，草稿桶恢复默认。 */
-  function transferDraftMode(toSessionId: string, mode: ComposerAgentMode): void {
-    ensureBucket(null).mode = "agent";
-    ensureBucket(toSessionId).mode = mode;
+  function setDraft(next: string): void {
+    updateActiveBucket((bucket) => ({ ...bucket, draft: next }));
   }
 
   function elementCitations(): ElementCitation[] {
-    return bucket()
+    return currentBucket()
       .chips.filter((c): c is Extract<ComposerChip, { kind: "element" }> => c.kind === "element")
       .map((c) => c.citation);
   }
@@ -173,18 +217,20 @@ export const useComposerStore = defineStore("composer", () => {
       console.warn("[composer] failed to parse image data URL");
       return false;
     }
-    const b = bucket();
-    if (b.images.some((i) => i.data === parsed.data)) return false;
-    b.images = [
-      ...b.images,
-      {
-        id: chipId(),
-        data: parsed.data,
-        mimeType: parsed.mimeType,
-        previewUrl: `data:${parsed.mimeType};base64,${parsed.data}`,
-        ...(cachePath ? { cachePath } : {}),
-      },
-    ];
+    if (currentBucket().images.some((i) => i.data === parsed.data)) return false;
+    updateActiveBucket((bucket) => ({
+      ...bucket,
+      images: [
+        ...bucket.images,
+        {
+          id: chipId(),
+          data: parsed.data,
+          mimeType: parsed.mimeType,
+          previewUrl: `data:${parsed.mimeType};base64,${parsed.data}`,
+          ...(cachePath ? { cachePath } : {}),
+        },
+      ],
+    }));
     return true;
   }
 
@@ -195,7 +241,7 @@ export const useComposerStore = defineStore("composer", () => {
    * locate the file).
    */
   async function addPastedImage(dataUrl: string): Promise<void> {
-    const sessionId = activeSessionId.value;
+    const sessionId = get().activeSessionId;
     // 草稿（未创建会话）没有附件目录可缓存，先内联保存，发送时再随消息带走。
     if (!sessionId) {
       addImageFromDataUrl(dataUrl);
@@ -218,7 +264,7 @@ export const useComposerStore = defineStore("composer", () => {
    * fails / the URL is not an image so callers can fall back to a URL tag.
    */
   async function addImageFromUrl(url: string): Promise<boolean> {
-    const sessionId = activeSessionId.value;
+    const sessionId = get().activeSessionId;
     if (!sessionId) return false;
     try {
       const cached = await window.api.sessions.cacheImage(sessionId, { url });
@@ -231,30 +277,30 @@ export const useComposerStore = defineStore("composer", () => {
   }
 
   function addImageFile(image: Omit<ComposerImage, "id"> & { id?: string }): void {
-    const b = bucket();
-    b.images = [
-      ...b.images,
-      {
-        id: image.id ?? chipId(),
-        data: image.data,
-        mimeType: image.mimeType,
-        previewUrl: image.previewUrl,
-      },
-    ];
+    updateActiveBucket((bucket) => ({
+      ...bucket,
+      images: [
+        ...bucket.images,
+        {
+          id: image.id ?? chipId(),
+          data: image.data,
+          mimeType: image.mimeType,
+          previewUrl: image.previewUrl,
+        },
+      ],
+    }));
   }
 
   function removeImage(id: string): void {
-    const b = bucket();
-    const idx = b.images.findIndex((i) => i.id === id);
-    if (idx < 0) return;
-    const next = [...b.images];
-    const [img] = next.splice(idx, 1);
-    if (img?.previewUrl.startsWith("blob:")) URL.revokeObjectURL(img.previewUrl);
-    b.images = next;
+    const bucket = currentBucket();
+    const img = bucket.images.find((i) => i.id === id);
+    if (!img) return;
+    if (img.previewUrl.startsWith("blob:")) URL.revokeObjectURL(img.previewUrl);
+    updateActiveBucket((b) => ({ ...b, images: b.images.filter((i) => i.id !== id) }));
     // Manual removal from the editor deletes the cached copy too — the
     // message is gone, so the attachment file is no longer referenced.
-    if (img?.cachePath) {
-      const sessionId = activeSessionId.value;
+    if (img.cachePath) {
+      const sessionId = get().activeSessionId;
       if (sessionId) {
         void window.api.sessions.deleteCachedImage(sessionId, img.cachePath).catch(() => {
           // best-effort cleanup
@@ -264,105 +310,112 @@ export const useComposerStore = defineStore("composer", () => {
   }
 
   function clearImages(): void {
-    const b = bucket();
-    for (const img of b.images) {
+    const bucket = currentBucket();
+    for (const img of bucket.images) {
       if (img.previewUrl.startsWith("blob:")) URL.revokeObjectURL(img.previewUrl);
     }
-    b.images = [];
+    updateActiveBucket((b) => ({ ...b, images: [] }));
   }
 
   /**
    * Element tag (content only in UI). Screenshot arrives via separate IPC → addImageFromDataUrl.
    */
   function addCitation(citation: ElementCitation): void {
-    const b = bucket();
-    b.chips = [
-      ...b.chips,
-      {
-        id: chipId(),
-        kind: "element",
-        citation: {
-          ...citation,
-          htmlSnippet: truncateHtmlSnippet(citation.htmlSnippet),
-          bounds: citation.bounds,
-          screenshotDataUrl: citation.screenshotDataUrl,
+    updateActiveBucket((bucket) => ({
+      ...bucket,
+      chips: [
+        ...bucket.chips,
+        {
+          id: chipId(),
+          kind: "element",
+          citation: {
+            ...citation,
+            htmlSnippet: truncateHtmlSnippet(citation.htmlSnippet),
+            bounds: citation.bounds,
+            screenshotDataUrl: citation.screenshotDataUrl,
+          },
         },
-      },
-    ];
+      ],
+    }));
     if (citation.screenshotDataUrl?.startsWith("data:")) {
       addImageFromDataUrl(citation.screenshotDataUrl);
     }
   }
 
   function attachScreenshotToLatestElement(dataUrl: string): void {
-    const b = bucket();
-    for (let i = b.chips.length - 1; i >= 0; i--) {
-      const chip = b.chips[i];
-      if (chip?.kind === "element" && !chip.citation.screenshotDataUrl) {
-        b.chips = b.chips.map((c, idx) =>
-          idx === i && c.kind === "element"
-            ? { ...c, citation: { ...c.citation, screenshotDataUrl: dataUrl } }
-            : c,
-        );
-        return;
+    updateActiveBucket((bucket) => {
+      for (let i = bucket.chips.length - 1; i >= 0; i--) {
+        const chip = bucket.chips[i];
+        if (chip?.kind === "element" && !chip.citation.screenshotDataUrl) {
+          return {
+            ...bucket,
+            chips: bucket.chips.map((c, idx) =>
+              idx === i && c.kind === "element"
+                ? { ...c, citation: { ...c.citation, screenshotDataUrl: dataUrl } }
+                : c,
+            ),
+          };
+        }
       }
-    }
+      return bucket;
+    });
   }
 
   function addFileTag(filePath: string, startLine?: number, endLine?: number): void {
     const path = filePath.trim();
     if (!path) return;
-    const b = bucket();
-    // Deduplicate: same path + same range → skip
-    if (
-      b.chips.some(
+    updateActiveBucket((bucket) => {
+      // Deduplicate: same path + same range → skip
+      const duplicate = bucket.chips.some(
         (c) =>
           c.kind === "file" &&
           c.path === path &&
           c.startLine === startLine &&
           c.endLine === endLine,
-      )
-    )
-      return;
-    b.chips = [...b.chips, { id: chipId(), kind: "file", path, startLine, endLine }];
+      );
+      if (duplicate) return bucket;
+      return {
+        ...bucket,
+        chips: [...bucket.chips, { id: chipId(), kind: "file", path, startLine, endLine }],
+      };
+    });
   }
 
   function addUrlTag(url: string): void {
     const normalized = url.trim();
     if (!isHttpUrl(normalized)) return;
-    const b = bucket();
-    if (b.chips.some((c) => c.kind === "url" && c.url === normalized)) return;
-    b.chips = [...b.chips, { id: chipId(), kind: "url", url: normalized }];
+    updateActiveBucket((bucket) => {
+      if (bucket.chips.some((c) => c.kind === "url" && c.url === normalized)) return bucket;
+      return { ...bucket, chips: [...bucket.chips, { id: chipId(), kind: "url", url: normalized }] };
+    });
   }
 
   function removeChip(id: string): void {
-    const b = bucket();
-    const chip = b.chips.find((c) => c.id === id);
+    const bucket = currentBucket();
+    const chip = bucket.chips.find((c) => c.id === id);
     if (chip?.kind === "element" && chip.citation.screenshotDataUrl) {
       const parsed = parseDataUrl(chip.citation.screenshotDataUrl);
       if (parsed) {
-        const img = b.images.find((i) => i.data === parsed.data);
+        const img = bucket.images.find((i) => i.data === parsed.data);
         if (img) removeImage(img.id);
       }
     }
-    b.chips = b.chips.filter((c) => c.id !== id);
+    updateActiveBucket((b) => ({ ...b, chips: b.chips.filter((c) => c.id !== id) }));
   }
 
   /** 清空指定会话（草稿传 null）的输入缓冲；与当前活动会话无关。 */
   function clearSession(sessionId: string | null): void {
     const key = keyFor(sessionId);
-    const b = bySession[key];
-    if (!b) return;
-    b.draft = "";
-    b.chips = [];
-    for (const img of b.images) {
+    const bucket = get().bySession[key];
+    if (!bucket) return;
+    for (const img of bucket.images) {
       if (img.previewUrl.startsWith("blob:")) URL.revokeObjectURL(img.previewUrl);
     }
-    b.images = [];
+    updateBucketFor(sessionId, (b) => ({ ...b, draft: "", chips: [], images: [] }));
   }
 
   function clear(): void {
-    clearSession(activeSessionId.value);
+    clearSession(get().activeSessionId);
   }
 
   /** Legacy name — now adds a file tag chip instead of plain text. */
@@ -373,7 +426,7 @@ export const useComposerStore = defineStore("composer", () => {
   /** Short @-style tags for the user-visible message (not the agent citation dump). */
   function formatChipsForMessage(): string {
     const parts: string[] = [];
-    for (const chip of bucket().chips) {
+    for (const chip of currentBucket().chips) {
       if (chip.kind === "file") {
         const ref = chip.path.includes(" ") ? `"${chip.path}"` : chip.path;
         const range =
@@ -408,7 +461,7 @@ export const useComposerStore = defineStore("composer", () => {
       ref: string;
       content?: string;
     }[] = [];
-    for (const chip of bucket().chips) {
+    for (const chip of currentBucket().chips) {
       if (chip.kind === "file") {
         const range =
           chip.startLine && chip.endLine
@@ -464,15 +517,15 @@ export const useComposerStore = defineStore("composer", () => {
     });
   }
 
+  const base: ComposerBase = { bySession: {}, activeSessionId: null };
+
   return {
-    activeSessionId,
-    draft,
-    chips,
-    images,
-    mode,
+    ...base,
+    ...derive(base),
     bindSession,
     dropSession,
     resetAll,
+    setDraft,
     elementCitations,
     elementTagSnapshot,
     attachmentTagSnapshot,
@@ -486,9 +539,6 @@ export const useComposerStore = defineStore("composer", () => {
     clearImages,
     addFileTag,
     addUrlTag,
-    setMode,
-    activeMode,
-    transferDraftMode,
     removeChip,
     clear,
     clearSession,

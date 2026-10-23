@@ -6,6 +6,7 @@ import type {
 } from "../shared/agent-worker-messages";
 
 import type { StreamRenderSettings } from "../shared/stream-render";
+import type { BashNoticeLocale } from "../shared/bash-notice-i18n";
 import type {
   AgentCommand,
   AgentEvent,
@@ -163,6 +164,8 @@ export type SessionBroker = {
   notifyWorkersReloadStreamRender: (
     streamRender: StreamRenderSettings,
   ) => Promise<void>;
+  /** 热更新存活 worker 的界面语言（后台截断提示文案）。 */
+  notifyWorkersReloadLocale: (locale: BashNoticeLocale) => Promise<void>;
   /** 热重载扩展/MCP 资源与设置（空闲 worker 立即重载，忙碌的等空闲）；不传 cwd = 通知所有工作区。 */
   notifyWorkersReloadResources: (cwd?: string) => Promise<void>;
   /** Delete one cached image file (user removed it from the editor). */
@@ -257,6 +260,16 @@ export function createSessionBroker(deps: {
       rec.restartOnIdle = false;
       destroyIdleWorker(sessionId);
     }
+  }
+
+  /** 记录最近活动时间并广播：渲染端据此更新「最近时间」并重排侧栏。 */
+  function touchActivity(rec: SessionRecord): void {
+    rec.summary.modified = new Date().toISOString();
+    emit({
+      type: "session_activity",
+      sessionId: rec.summary.id,
+      modified: rec.summary.modified,
+    });
   }
 
   function rejectPendingCommands(rec: SessionRecord, message: string): void {
@@ -448,6 +461,11 @@ export function createSessionBroker(deps: {
     rec.spawnedAt = Date.now();
     rec.restartOnIdle = false;
     rec.summary.filePath = spawned.filePath;
+    // 判定卡死时 worker 已被杀掉，状态却留在 stuck；新 worker 起来后复位，
+    // 否则这次卡死会一直挂在会话列表上，直到有人显式重启。
+    if (rec.summary.status === "stuck") {
+      setStatus(sessionId, "idle");
+    }
     attachWorker(sessionId, spawned.worker);
     startHeartbeat(sessionId);
     scheduleIdleDestroy(sessionId);
@@ -693,6 +711,7 @@ export function createSessionBroker(deps: {
         pending.resolve(msg.data);
         if (pending.command.type === "prompt") {
           setStatus(sessionId, "idle");
+          touchActivity(rec);
           emit({ type: "prompt_done", sessionId });
           scheduleIdleDestroy(sessionId);
         } else if (pending.command.type === "hang") {
@@ -707,7 +726,7 @@ export function createSessionBroker(deps: {
     id: string,
     cwd: string,
     filePath: string,
-    meta?: Partial<Pick<SessionSummary, "name" | "firstMessage" | "modified">>,
+    meta?: Partial<Pick<SessionSummary, "name" | "firstMessage" | "modified" | "created">>,
   ): SessionSummary {
     const summary: SessionSummary = {
       id,
@@ -716,6 +735,7 @@ export function createSessionBroker(deps: {
       name: meta?.name,
       firstMessage: meta?.firstMessage,
       modified: meta?.modified ?? new Date().toISOString(),
+      created: meta?.created ?? meta?.modified ?? new Date().toISOString(),
       status: "idle",
     };
     const existing = sessions.get(id);
@@ -778,6 +798,7 @@ export function createSessionBroker(deps: {
         name: rec.summary.name ?? existing?.name,
         firstMessage: rec.summary.firstMessage ?? existing?.firstMessage,
         filePath: rec.summary.filePath || existing?.filePath || "",
+        created: existing?.created ?? rec.summary.created,
         modified:
           existing?.modified && rec.summary.modified
             ? rec.summary.modified > existing.modified
@@ -956,7 +977,7 @@ export function createSessionBroker(deps: {
     emit({ type: "worker_exit", sessionId, code: 0 });
   }
 
-  /** 用户轮次统一注入思考语言块（Reasonix reasoning_language）；已带块时不重复注入。 */
+  /** 用户轮次统一注入思考语言块（Reasonix reasoning_language）；默认档位不注入，已带块时不重复注入。 */
   function withThinkingLanguage(command: AgentCommand): AgentCommand {
     if (
       command.type !== "prompt" &&
@@ -967,6 +988,7 @@ export function createSessionBroker(deps: {
     }
     if (hasThinkingLanguageBlock(command.message)) return command;
     const block = thinkingLanguageBlock(getThinkingLanguageSettings().language);
+    if (!block) return command;
     return { ...command, message: `${block}\n\n${command.message}` };
   }
 
@@ -1027,6 +1049,7 @@ export function createSessionBroker(deps: {
     if (command.type === "prompt" || command.type === "hang") {
       setStatus(sessionId, "running");
     }
+    if (command.type === "prompt" && rec) touchActivity(rec);
     const cmdId = crypto.randomUUID();
     // Wait for worker result for mutating commands so errors (e.g. set_model) surface to UI.
     const awaitsResult =
@@ -1220,7 +1243,7 @@ export function createSessionBroker(deps: {
 
     if (live) {
       live.summary.firstMessage = undefined;
-      live.summary.modified = new Date().toISOString();
+      touchActivity(live);
       setStatus(sessionId, "idle");
     }
   }
@@ -1250,6 +1273,16 @@ export function createSessionBroker(deps: {
       .map(([id]) => id);
     for (const id of ids) {
       await sendRawIfAlive(id, { kind: "reload_stream_render", streamRender });
+    }
+  }
+
+  /** 界面语言变化时热更新存活 worker 的后台截断提示文案。 */
+  async function notifyWorkersReloadLocale(locale: BashNoticeLocale): Promise<void> {
+    const ids = [...sessions.entries()]
+      .filter(([, rec]) => rec.worker !== null)
+      .map(([id]) => id);
+    for (const id of ids) {
+      await sendRawIfAlive(id, { kind: "reload_locale", locale });
     }
   }
 
@@ -1286,6 +1319,7 @@ export function createSessionBroker(deps: {
     clearContext,
     notifyWorkersReloadModels,
     notifyWorkersReloadStreamRender,
+    notifyWorkersReloadLocale,
     notifyWorkersReloadResources,
     patchSummary,
     cwdOfSession,

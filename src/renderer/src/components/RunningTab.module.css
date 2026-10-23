@@ -1,0 +1,111 @@
+.runningTab {
+  display: grid;
+  grid-template-columns: minmax(160px, 38%) 1fr;
+  height: 100%;
+  min-height: 0;
+}
+
+.runList {
+  border-right: 1px solid var(--border);
+  overflow: auto;
+  min-height: 0;
+}
+
+.emptyWrap {
+  height: 100%;
+  display: grid;
+  place-items: center;
+  padding: 12px;
+}
+
+.runRow {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  width: 100%;
+  border: none;
+  background: transparent;
+  text-align: left;
+  padding: 8px;
+  cursor: pointer;
+  color: var(--fg);
+}
+
+.runRow:hover {
+  background: var(--bg-hover);
+}
+
+.runRow:global(.active) {
+  background: var(--bg-panel);
+}
+
+.runMain {
+  flex: 1;
+  min-width: 0;
+}
+
+.cmd {
+  font-size: 0.9231rem;
+  font-weight: 550;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.meta {
+  margin-top: 2px;
+  font-size: 0.8462rem;
+  color: var(--fg-muted);
+}
+
+.status {
+  color: var(--fg-faint);
+}
+
+.runOut {
+  position: relative;
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
+  background: var(--bg-panel);
+}
+
+.termHost {
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+.termHost :global(.xterm) {
+  width: 100%;
+  height: 100%;
+  padding: 4px;
+  box-sizing: border-box;
+  color: var(--fg-strong, #27272a);
+}
+
+.termHost :global(.xterm-viewport) {
+  overflow-y: auto !important;
+  /* xterm 自带的视口底色是纯黑，会在自定义外观下留下黑底；终端底色交给容器提供 */
+  background-color: transparent;
+}
+
+.termHost :global(.xterm-helper-textarea),
+.termHost :global(.xterm-composition-view) {
+  color: var(--fg-strong, #27272a) !important;
+  caret-color: transparent !important;
+}
+
+.outEmpty {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 12px;
+  background: var(--bg-panel);
+  z-index: 1;
+}

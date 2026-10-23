@@ -2,6 +2,7 @@ import type { AgentCommand } from "./protocol";
 import type { BrowserRpcMethod } from "./browser-automation";
 import type { StreamRenderSettings } from "./stream-render";
 import type { WorkerResourceSummary } from "./worker-resources";
+import type { BashNoticeLocale } from "./bash-notice-i18n";
 
 export type { WorkerResourceSummary } from "./worker-resources";
 
@@ -11,11 +12,13 @@ export type WorkerInbound =
       cwd: string;
       filePath?: string;
       streamRender?: StreamRenderSettings;
+      locale?: BashNoticeLocale;
     }
   | { kind: "command"; id: string; command: AgentCommand }
   | { kind: "reload_models" }
   | { kind: "reload_resources" }
   | { kind: "reload_stream_render"; streamRender: StreamRenderSettings }
+  | { kind: "reload_locale"; locale: BashNoticeLocale }
   | { kind: "shutdown" }
   | { kind: "ping" }
   | { kind: "terminate_run"; runId: string }

@@ -26,9 +26,9 @@ export function normalizeHttpUrl(raw: string): string | null {
 
 /** Open URL in a new built-in browser tab (never overwrite an existing one). */
 export function openInBuiltinBrowser(url: string): void {
-  const rightTabs = useRightTabsStore();
-  const layout = useLayoutStore();
-  const browserNav = useBrowserNavStore();
+  const rightTabs = useRightTabsStore.getState();
+  const layout = useLayoutStore.getState();
+  const browserNav = useBrowserNavStore.getState();
   const tab = rightTabs.addTab("browser");
   rightTabs.patchTab(tab.id, { url });
   browserNav.requestNavigate(url, tab.id);

@@ -1,0 +1,521 @@
+/* Global base.css resets ul list-style and * font-weight — restore GFM chrome here. */
+.root:global(.md) {
+  font-size: 1.2308rem;
+  line-height: 1.75;
+  color: inherit;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+  user-select: text;
+  -webkit-user-select: text;
+  cursor: text;
+}
+
+.root:global(.md) p {
+  margin: 0 0 0.65em;
+}
+
+.root:global(.md) p:last-child {
+  margin-bottom: 0;
+}
+
+.root:global(.md) h1,
+.root:global(.md) h2,
+.root:global(.md) h3,
+.root:global(.md) h4,
+.root:global(.md) h5,
+.root:global(.md) h6 {
+  margin: 1em 0 0.45em;
+  line-height: 1.3;
+  color: var(--fg-strong);
+  font-weight: 650;
+}
+
+.root:global(.md) h1 {
+  font-size: 1.45em;
+}
+.root:global(.md) h2 {
+  font-size: 1.28em;
+}
+.root:global(.md) h3 {
+  font-size: 1.14em;
+}
+.root:global(.md) h4,
+.root:global(.md) h5,
+.root:global(.md) h6 {
+  font-size: 1em;
+}
+
+.root:global(.md) h1:first-child,
+.root:global(.md) h2:first-child,
+.root:global(.md) h3:first-child,
+.root:global(.md) h4:first-child {
+  margin-top: 0;
+}
+
+/* 流式纯文本尾部：保留原始换行，直到段落完成被 marked 接管。 */
+.root:global(.md) :global(.md-live-tail) {
+  white-space: pre-wrap;
+}
+
+.root:global(.md) pre.md-plain-block {
+  margin: 0.5em 0;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: rgba(127, 127, 127, 0.1);
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+  font-size: 1rem;
+  line-height: 1.55;
+}
+
+.root:global(.md) strong,
+.root:global(.md) b {
+  font-weight: 650;
+  color: var(--fg-strong);
+}
+
+.root:global(.md) em,
+.root:global(.md) i {
+  font-style: italic;
+}
+
+.root:global(.md) del,
+.root:global(.md) s {
+  text-decoration: line-through;
+  color: var(--fg-muted);
+}
+
+.root:global(.md) ul,
+.root:global(.md) ol {
+  margin: 0 0 0.65em;
+  padding-left: 1.5em;
+}
+
+.root:global(.md) ul {
+  list-style: disc outside;
+}
+
+.root:global(.md) ol {
+  list-style: decimal outside;
+}
+
+.root:global(.md) ul ul {
+  list-style: circle;
+  margin-bottom: 0;
+}
+
+.root:global(.md) ul ul ul {
+  list-style: square;
+}
+
+.root:global(.md) ol ol {
+  list-style: lower-alpha;
+}
+
+.root:global(.md) li {
+  margin: 0.2em 0;
+}
+
+.root:global(.md) li > p {
+  margin: 0.2em 0;
+}
+
+.root:global(.md) blockquote {
+  margin: 0.65em 0;
+  padding: 0.15em 0 0.15em 0.85em;
+  border-left: 3px solid var(--border-strong, rgba(127, 127, 127, 0.45));
+  color: var(--fg-muted);
+}
+
+.root:global(.md) hr {
+  margin: 1em 0;
+  border: none;
+  border-top: 1px solid var(--border-subtle, rgba(127, 127, 127, 0.25));
+}
+
+.root:global(.md) a {
+  color: var(--accent, #3b82f6);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+
+.root:global(.md) :global(.md-table-scroll) {
+  overflow-x: auto;
+  margin: 0.65em 0;
+}
+
+.root:global(.md) table {
+  border-collapse: collapse;
+  width: max-content;
+  min-width: 100%;
+  font-size: 1rem;
+}
+
+.root:global(.md) th,
+.root:global(.md) td {
+  border: 1px solid var(--border-subtle, rgba(127, 127, 127, 0.3));
+  padding: 6px 10px;
+  text-align: left;
+}
+
+.root:global(.md) th {
+  background: var(--bg-elevated, rgba(127, 127, 127, 0.08));
+  font-weight: 600;
+}
+
+.root:global(.md) :global(.code-block) {
+  margin: 0.75em 0;
+  border-radius: 4px;
+  border: 1px solid var(--border-subtle, rgba(127, 127, 127, 0.25));
+  overflow: hidden;
+  background: var(--pre-bg, var(--code-bg, var(--bg-elevated, transparent)));
+}
+
+.root:global(.md) :global(.code-head) {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 4px 10px;
+  border-bottom: 1px solid var(--border-subtle, rgba(127, 127, 127, 0.2));
+  font-size: 0.8462rem;
+  color: var(--fg-faint);
+}
+
+.root:global(.md) :global(.copy-btn) {
+  border: none;
+  background: transparent;
+  color: var(--fg-muted);
+  cursor: pointer;
+  font-size: 0.8462rem;
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+
+.root:global(.md) :global(.copy-btn:hover) {
+  background: rgba(127, 127, 127, 0.12);
+  color: var(--fg);
+}
+
+.root:global(.md) :global(.code-body) {
+  display: flex;
+  align-items: flex-start;
+  max-height: 420px;
+  /* Single scrollport so line numbers and code stay locked together. */
+  overflow: auto;
+}
+
+.root:global(.md) :global(.line-nos) {
+  flex: 0 0 auto;
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  padding: 10px 0;
+  text-align: right;
+  user-select: none;
+  font-family: var(--font-mono);
+  font-size: 0.9231rem;
+  line-height: 1.5;
+  color: var(--fg-faint);
+  background: var(--pre-bg, var(--code-bg, var(--bg-elevated, transparent)));
+}
+
+.root:global(.md) :global(.line-nos span) {
+  display: block;
+  padding: 0 8px;
+}
+
+/* Do not give <pre> its own scrollbar — that desyncs .line-nos (issue #6). */
+.root:global(.md) :global(.code-body > pre) {
+  flex: 1 1 auto;
+  min-width: 0;
+  margin: 0;
+  padding: 10px 12px;
+  overflow: visible;
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+.root:global(.md) :global(code.hljs) {
+  font-family: var(--font-mono);
+  font-size: 0.9231rem;
+  line-height: 1.5;
+  background: transparent;
+  padding: 0;
+  white-space: pre;
+}
+
+.root:global(.md) :not(pre) > code {
+  font-family: var(--font-mono);
+  font-size: 0.9em;
+  padding: 0.1em 0.35em;
+  border-radius: 4px;
+  background: var(--md-inline-code-bg, rgba(0, 0, 0, 0.06));
+}
+
+/* ============ Copilot (VS Code) chat variant — 1:1 ============
+   Sources: media/chat.css, chatContentParts/media/codeBlockPart.css,
+   chatContentParts/media/chatInlineAnchorWidget.css */
+.root:global(.md.md-chat) {
+  font-size: var(--chat-font-m, 13px);
+  line-height: 1.5em;
+}
+
+.root:global(.md.md-chat) p {
+  margin: 0 0 16px 0;
+}
+
+.root:global(.md.md-chat) h1,
+.root:global(.md.md-chat) h2,
+.root:global(.md.md-chat) h3,
+.root:global(.md.md-chat) h4,
+.root:global(.md.md-chat) h5,
+.root:global(.md.md-chat) h6 {
+  line-height: normal;
+}
+
+.root:global(.md.md-chat) ul {
+  padding-inline-start: 24px;
+}
+
+.root:global(.md.md-chat) ol {
+  padding-inline-start: 28px;
+}
+
+.root:global(.md.md-chat) li {
+  margin: 4px 0;
+}
+
+/* Inline code pill — [data-code] in progress/markdown text */
+.root:global(.md.md-chat) :not(pre) > code {
+  font-size: 0.9em;
+  padding: 1px 3px;
+  border-radius: 4px;
+  border: 1px solid var(--chat-line, var(--border));
+  background: var(--md-inline-code-bg, rgba(127, 127, 127, 0.1));
+}
+
+/* Code block: headerless, floating copy toolbar on hover (codeBlockPart.css) */
+.root:global(.md.md-chat) :global(.code-block) {
+  position: relative;
+  margin: 0 0 16px 0;
+  border-radius: 6px;
+  border: 1px solid var(--chat-line, var(--border));
+}
+
+.root:global(.md.md-chat) :global(.code-head) {
+  position: absolute;
+  top: 4px;
+  right: 8px;
+  z-index: 2;
+  padding: 0;
+  border-bottom: none;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 100ms ease-in-out;
+}
+
+.root:global(.md.md-chat) :global(.code-block:hover) :global(.code-head),
+.root:global(.md.md-chat) :global(.code-head:focus-within) {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.root:global(.md.md-chat) :global(.code-head .lang) {
+  display: none;
+}
+
+.root:global(.md.md-chat) :global(.code-head .copy-btn) {
+  height: 22px;
+  padding: 0 8px;
+  border: 1px solid var(--chat-line, var(--border));
+  border-radius: 5px;
+  background: var(--bg-elevated, var(--bg));
+  color: var(--chat-desc-fg, var(--fg-muted));
+  font-size: var(--chat-font-xs, 11px);
+}
+
+.root:global(.md.md-chat) :global(.code-head .copy-btn:hover) {
+  color: var(--fg);
+}
+
+/* VS Code chat code blocks have no gutter line numbers */
+.root:global(.md.md-chat) :global(.line-nos) {
+  display: none;
+}
+
+.root:global(.md.md-chat) :global(.code-body > pre) {
+  padding: 8px 12px;
+}
+
+.root:global(.md.md-chat) :global(code.hljs) {
+  font-size: var(--chat-font-s, 12px);
+  line-height: 1.45;
+}
+
+.root:global(.md) :global(.md-diagram) {
+  margin: 0.75em 0;
+  border-radius: 4px;
+  border: 1px solid var(--border-subtle, rgba(127, 127, 127, 0.25));
+  background: var(--bg-elevated, transparent);
+  overflow: hidden;
+}
+
+.root:global(.md) :global(.md-diagram-toolbar) {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--border-subtle, rgba(127, 127, 127, 0.2));
+  font-size: 0.8462rem;
+  color: var(--fg-faint);
+}
+
+.root:global(.md) :global(.md-diagram-kind) {
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-weight: 600;
+}
+
+.root:global(.md) :global(.md-diagram-spacer) {
+  flex: 1;
+}
+
+.root:global(.md) :global(.md-diagram-zoom) {
+  min-width: 40px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.root:global(.md) :global(.md-diagram-btn) {
+  border: none;
+  background: transparent;
+  color: var(--fg-muted);
+  cursor: pointer;
+  font-size: 0.9231rem;
+  line-height: 1;
+  min-width: 24px;
+  height: 24px;
+  padding: 0 6px;
+  border-radius: 4px;
+}
+
+.root:global(.md) :global(.md-diagram-btn:hover) {
+  background: rgba(127, 127, 127, 0.14);
+  color: var(--fg);
+}
+
+.root:global(.md) :global(.md-diagram-viewport) {
+  overflow: auto;
+  max-height: min(70vh, 640px);
+  padding: 12px;
+  cursor: grab;
+}
+
+.root:global(.md) :global(.md-diagram-canvas) {
+  transform-origin: top left;
+  width: max-content;
+  margin: 0 auto;
+}
+
+.root:global(.md) :global(.md-diagram-canvas svg) {
+  display: block;
+  max-width: none;
+  height: auto;
+}
+
+.root:global(.md) :global(.md-diagram-src) {
+  margin: 0;
+  padding: 10px 12px;
+  overflow: auto;
+  font-family: var(--font-mono);
+  font-size: 0.9231rem;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  background: transparent;
+}
+
+.root:global(.md) :global(.md-diagram-error .md-diagram-src) {
+  opacity: 0.9;
+}
+
+.root:global(.md) :global(.md-diagram-error-msg) {
+  margin: 0;
+  padding: 6px 10px 10px;
+  font-size: 0.8462rem;
+  line-height: 1.4;
+  color: var(--error, #d03050);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.root:global(.md) :global(.md-math-block) {
+  margin: 0.75em 0;
+  overflow-x: auto;
+  text-align: center;
+}
+
+.root:global(.md) :global(.katex-display) {
+  margin: 0.5em 0;
+}
+
+.previewShell {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: min(86vh, 900px);
+}
+
+.previewToolbar {
+  margin-bottom: 0;
+  flex-shrink: 0;
+}
+
+.previewHint {
+  margin-left: 8px;
+  font-size: 0.8462rem;
+  color: var(--fg-faint);
+}
+
+.previewZoom {
+  display: inline-flex;
+  align-items: center;
+  min-width: 44px;
+  justify-content: center;
+  font-size: 0.9231rem;
+  color: var(--fg-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.previewViewport {
+  flex: 1;
+  overflow: auto;
+  min-height: min(78vh, 820px);
+  max-height: min(82vh, 880px);
+  padding: 20px;
+  border-radius: 4px;
+  border: 1px solid var(--border-subtle, rgba(127, 127, 127, 0.25));
+  background: var(--bg-elevated, transparent);
+  cursor: grab;
+}
+
+.previewCanvas {
+  transform-origin: top left;
+  width: max-content;
+  margin: 0 auto;
+}
+
+.previewCanvas :global(svg) {
+  display: block;
+  max-width: none;
+  height: auto;
+}
+
+:global(.ant-modal).diagramFullscreenModal {
+  width: min(100vw - 16px, 1400px) !important;
+  max-width: 100vw !important;
+}

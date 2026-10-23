@@ -99,7 +99,7 @@ export function resolveThinkingResult(
   return { actual: raw, clamped: true };
 }
 
-/** 分组模型列表拍平，naive-ui 的 value 始终取叶子项。 */
+/** 分组模型列表拍平，选中值始终取叶子项。 */
 export function flatModelOptions<T extends { label: string; value: string }>(
   groups: readonly (T | { type: "group"; label: string; key: string; children: T[] })[],
 ): T[] {

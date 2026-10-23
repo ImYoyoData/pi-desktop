@@ -50,7 +50,9 @@ describe("resolveCommandShell (win32)", () => {
       { id: "git-bash", file: "C:\\Program Files\\Git\\bin\\bash.exe" },
     ]);
     expect(shell.kind).toBe("bash");
-    expect(shell.shellPath).toBe("C:\\Program Files\\Git\\bin\\bash.exe");
+    expect("shellPath" in shell ? shell.shellPath : "").toBe(
+      "C:\\Program Files\\Git\\bin\\bash.exe",
+    );
   });
 
   it("never returns the WSL launcher as a bash", () => {

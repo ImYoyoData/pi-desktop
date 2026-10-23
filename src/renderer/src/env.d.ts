@@ -1,24 +1,19 @@
 /// <reference types="vite/client" />
 /// <reference types="electron" />
 
-import type { PiDesktopApi } from "../../preload/index";
-
 declare global {
-  namespace JSX {
-    interface IntrinsicElements {
-      webview: Electron.WebviewHTMLAttributes & {
-        src?: string;
-        allowpopups?: boolean | string;
-        class?: string;
-        ref?: unknown;
-      };
+  namespace React {
+    namespace JSX {
+      interface IntrinsicElements {
+        webview: React.DetailedHTMLProps<
+          React.HTMLAttributes<Electron.WebviewTag>,
+          Electron.WebviewTag
+        > & {
+          src?: string;
+          allowpopups?: boolean | string;
+        };
+      }
     }
-  }
-}
-
-declare module "vue" {
-  export interface GlobalComponents {
-    webview: Electron.WebviewHTMLAttributes;
   }
 }
 

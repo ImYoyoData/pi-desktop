@@ -1,5 +1,4 @@
-import { defineStore } from "pinia";
-import { reactive } from "vue";
+import { create } from "zustand";
 
 export type CheckpointSummary = {
 	sessionId: string;
@@ -9,14 +8,48 @@ export type CheckpointSummary = {
 	skippedCount: number;
 };
 
+type CheckpointRevertResult = {
+	ok: boolean;
+	restored: number;
+	deleted: number;
+	skipped: number;
+	error: string | null;
+};
+
+type CheckpointState = {
+	byKey: Record<string, CheckpointSummary>;
+	bindEvents: () => () => void;
+	begin: (sessionId: string, userMessageId: string) => Promise<void>;
+	finishActive: (sessionId: string) => Promise<void>;
+	loadSessionSummaries: (sessionId: string) => Promise<void>;
+	canRevert: (sessionId: string, userMessageId: string) => boolean;
+	isReverted: (sessionId: string, userMessageId: string) => boolean;
+	summaryFor: (
+		sessionId: string,
+		userMessageId: string,
+	) => CheckpointSummary | null;
+	revert: (
+		sessionId: string,
+		userMessageId: string,
+	) => Promise<CheckpointRevertResult>;
+	clearSession: (sessionId: string) => void;
+};
+
 function keyOf(sessionId: string, userMessageId: string): string {
 	return `${sessionId}::${userMessageId}`;
 }
 
-export const useCheckpointStore = defineStore("checkpoint", () => {
-	const byKey = reactive<Record<string, CheckpointSummary>>({});
-
+export const useCheckpointStore = create<CheckpointState>()((set, get) => {
 	let unbind: (() => void) | null = null;
+
+	function putSummary(summary: CheckpointSummary): void {
+		set((state) => ({
+			byKey: {
+				...state.byKey,
+				[keyOf(summary.sessionId, summary.userMessageId)]: summary,
+			},
+		}));
+	}
 
 	/**
 	 * 注册检查点更新订阅，返回解绑函数（重复调用返回同一个）。
@@ -25,7 +58,7 @@ export const useCheckpointStore = defineStore("checkpoint", () => {
 	function bindEvents(): () => void {
 		if (unbind) return unbind;
 		const off = window.api.checkpoint.onUpdated((summary) => {
-			byKey[keyOf(summary.sessionId, summary.userMessageId)] = summary;
+			putSummary(summary);
 		});
 		unbind = () => {
 			unbind = null;
@@ -39,13 +72,13 @@ export const useCheckpointStore = defineStore("checkpoint", () => {
 		userMessageId: string,
 	): Promise<void> {
 		const summary = await window.api.checkpoint.begin(sessionId, userMessageId);
-		byKey[keyOf(sessionId, userMessageId)] = summary;
+		putSummary(summary);
 	}
 
 	async function finishActive(sessionId: string): Promise<void> {
 		const summary = await window.api.checkpoint.finishActive(sessionId);
 		if (summary) {
-			byKey[keyOf(summary.sessionId, summary.userMessageId)] = summary;
+			putSummary(summary);
 		}
 	}
 
@@ -54,7 +87,7 @@ export const useCheckpointStore = defineStore("checkpoint", () => {
 		try {
 			const rows = await window.api.checkpoint.list(sessionId);
 			for (const s of rows) {
-				byKey[keyOf(s.sessionId, s.userMessageId)] = s;
+				putSummary(s);
 			}
 		} catch {
 			// best-effort — buttons degrade gracefully
@@ -62,12 +95,12 @@ export const useCheckpointStore = defineStore("checkpoint", () => {
 	}
 
 	function canRevert(sessionId: string, userMessageId: string): boolean {
-		const s = byKey[keyOf(sessionId, userMessageId)];
+		const s = get().byKey[keyOf(sessionId, userMessageId)];
 		return s?.status === "ready" && s.fileCount > 0;
 	}
 
 	function isReverted(sessionId: string, userMessageId: string): boolean {
-		return byKey[keyOf(sessionId, userMessageId)]?.status === "reverted";
+		return get().byKey[keyOf(sessionId, userMessageId)]?.status === "reverted";
 	}
 
 	/** Expose summary so templates can depend on byKey reactively. */
@@ -75,26 +108,32 @@ export const useCheckpointStore = defineStore("checkpoint", () => {
 		sessionId: string,
 		userMessageId: string,
 	): CheckpointSummary | null {
-		return byKey[keyOf(sessionId, userMessageId)] ?? null;
+		return get().byKey[keyOf(sessionId, userMessageId)] ?? null;
 	}
 
-	async function revert(sessionId: string, userMessageId: string) {
+	async function revert(
+		sessionId: string,
+		userMessageId: string,
+	): Promise<CheckpointRevertResult> {
 		const result = await window.api.checkpoint.revert(sessionId, userMessageId);
 		const summary = await window.api.checkpoint.get(sessionId, userMessageId);
-		if (summary) byKey[keyOf(sessionId, userMessageId)] = summary;
+		if (summary) putSummary(summary);
 		return result;
 	}
 
 	/** 丢弃某会话的全部检查点记录（key 形如 `sessionId::userMessageId`）。 */
 	function clearSession(sessionId: string): void {
 		const prefix = `${sessionId}::`;
-		for (const key of Object.keys(byKey)) {
-			if (key.startsWith(prefix)) delete byKey[key];
+		const next: Record<string, CheckpointSummary> = {};
+		for (const [key, value] of Object.entries(get().byKey)) {
+			if (key.startsWith(prefix)) continue;
+			next[key] = value;
 		}
+		set({ byKey: next });
 	}
 
 	return {
-		byKey,
+		byKey: {},
 		bindEvents,
 		begin,
 		finishActive,

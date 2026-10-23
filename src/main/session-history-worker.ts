@@ -43,6 +43,8 @@ export type DiskSessionRow = {
   cwd: string;
   name?: string;
   modified: string;
+  /** header.timestamp：会话创建时间。 */
+  created?: string;
   firstMessage: string;
   /** header.parentSession：父会话文件路径。 */
   parentSessionPath?: string;
@@ -160,6 +162,9 @@ function summarizeSessionFile(filePath: string): DiskSessionRow | null {
       cwd: typeof header.cwd === "string" ? header.cwd : "",
       name,
       modified: modified.toISOString(),
+      created: Number.isNaN(headerTime)
+        ? undefined
+        : new Date(headerTime).toISOString(),
       firstMessage: firstMessage || "(no messages)",
       parentSessionPath,
     };

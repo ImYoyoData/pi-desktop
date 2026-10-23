@@ -1,0 +1,33 @@
+.root {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 2px 8px;
+}
+.dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--success, #18a058);
+  animation: pulse 1.2s ease-in-out infinite;
+  flex-shrink: 0;
+}
+.toneWarn .dot {
+  background: var(--warning, #f0a020);
+}
+.toneDanger .dot {
+  background: var(--error, #d03050);
+  animation: none;
+}
+.detail {
+  opacity: 0.85;
+}
+@keyframes pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}

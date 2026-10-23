@@ -52,7 +52,7 @@ let off: (() => void) | null = null;
 export function startFsChangedBus(): () => void {
   if (off) return off;
   const detach = window.api.fs.onChanged((payload) => {
-    const workspace = useWorkspaceStore();
+    const workspace = useWorkspaceStore.getState();
     // 忽略上一个工作区 watcher 的迟到事件
     if (!workspace.root || !sameWorkspaceRoot(payload.root, workspace.root)) return;
     window.dispatchEvent(

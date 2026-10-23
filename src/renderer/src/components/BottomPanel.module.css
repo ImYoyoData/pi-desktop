@@ -1,0 +1,115 @@
+.bottomPanel {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  min-width: 0;
+  background: var(--bg);
+}
+
+.panelHead {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  height: 32px;
+  min-height: 32px;
+  padding: 0 6px;
+  border-bottom: 1px solid var(--border);
+  background: color-mix(in srgb, var(--bg-panel) 92%, var(--bg-elevated));
+  flex-shrink: 0;
+}
+
+.panelTabs {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  height: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+}
+
+.panelTabs::-webkit-scrollbar {
+  display: none;
+}
+
+.panelTab {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 160px;
+  height: 24px;
+  padding: 0 4px 0 8px;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--fg-muted);
+  font-size: 0.8846rem;
+  cursor: pointer;
+  flex-shrink: 0;
+  user-select: none;
+  transition: background var(--duration-fast, 140ms) var(--ease-out, ease),
+    color var(--duration-fast, 140ms) var(--ease-out, ease);
+}
+
+.panelTab:hover {
+  background: var(--bg-hover);
+  color: var(--fg);
+}
+
+.panelTab.active {
+  background: var(--bg-elevated);
+  border-color: var(--border);
+  color: var(--fg-strong);
+  box-shadow: var(--shadow-sm);
+}
+
+.panelTabLabel {
+  max-width: 110px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 550;
+}
+
+.panelTabClose {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--fg-faint);
+  opacity: 0.55;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.panelTab:hover .panelTabClose,
+.panelTab.active .panelTabClose {
+  opacity: 1;
+}
+
+.panelTabClose:hover {
+  background: var(--bg-active);
+  color: var(--fg);
+}
+
+.panelBody {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.panelTerm {
+  position: absolute;
+  inset: 0;
+  min-height: 0;
+  overflow: hidden;
+}

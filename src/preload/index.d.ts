@@ -6,11 +6,9 @@ import type {
 	SessionHistoryMessage,
 	SessionHistoryPage,
 	SessionHistoryQuery,
-	SessionInfoResult,
 	SessionStatus,
 	SessionSummary,
 	TerminalShellOption,
-	WindowRunIdentity,
 } from "../shared/protocol";
 import type { AgentRunEvent, AgentRunSnapshot } from "../shared/agent-runs";
 import type { EditContextMenuAction, EditContextMenuPayload } from "../shared/context-menu";
@@ -28,7 +26,7 @@ import type {
 	PullRequestPatchResult,
 	PullRequestSummary,
 } from "../shared/github-types";
-import type { AgentSaveResult, BuiltinExtensionItem, BuiltinToolItem, CodemodeSettingsState, CustomizationsSnapshot, CustomizationCreateKind, InstructionsSaveResult, McpAuthEventPayload, McpAuthPromptReply, McpAuthState, McpAuthTarget, McpProjectOverride, McpTestResult, McpTestTarget, SkillSaveResult } from "../shared/customizations";
+import type { BuiltinExtensionItem, BuiltinToolItem, CodemodeSettingsState, CustomizationsSnapshot, CustomizationCreateKind, InstructionsSaveResult, McpAuthEventPayload, McpAuthPromptReply, McpAuthState, McpAuthTarget, McpTestResult, McpTestTarget, SkillSaveResult } from "../shared/customizations";
 import type {
 	ModelsGetResult,
 	ModelsOAuthEventPayload,
@@ -45,7 +43,6 @@ import type {
 } from "../shared/model-discover";
 import type { PreviewResult } from "../shared/preview-types";
 import type { RetrySettings } from "../shared/retry-settings";
-import type { UpdateCheckResult, UpdateProgress } from "../shared/update";
 import type {
 	PiCliInstallProgress,
 	PiCliInstallResult,
@@ -71,7 +68,7 @@ import type {
 import type { ProxySettings } from "../shared/proxy";
 import type { ThinkingLanguageSettings } from "../shared/thinking-language";
 import type { StreamRenderSettings } from "../shared/stream-render";
-import type { WebSearchConfigState, WebSearchSettings } from "../shared/web-search-config";
+import type { AppUpdateState } from "../shared/update";
 export type AppInfo = {
 	version: string;
 	githubUrl: string;
@@ -80,7 +77,6 @@ export type AppInfo = {
 	qq: string;
 	email: string;
 };
-export type { UpdateProgress };
 export type {
 	AgentCommand,
 	AgentEvent,
@@ -88,7 +84,6 @@ export type {
 	SessionHistoryMessage,
 	SessionHistoryPage,
 	SessionHistoryQuery,
-	SessionInfoResult,
 	SessionStatus,
 	SessionSummary,
 };
@@ -113,7 +108,6 @@ declare const api: {
 	};
 	window: {
 		platform: () => Promise<NodeJS.Platform>;
-		identity: () => Promise<WindowRunIdentity>;
 		minimize: () => Promise<void>;
 		maximize: () => Promise<void>;
 		close: () => Promise<void>;
@@ -168,15 +162,6 @@ declare const api: {
 			recent: string[];
 			aliases: Record<string, string>;
 		}>;
-		/** 工作区分类（自定义分组）。 */
-		listGroups: () => Promise<WorkspaceGroups>;
-		addGroup: (name: string) => Promise<WorkspaceGroups>;
-		renameGroup: (from: string, to: string) => Promise<WorkspaceGroups>;
-		removeGroup: (name: string) => Promise<WorkspaceGroups>;
-		setGroupOf: (
-			root: string,
-			group: string | null,
-		) => Promise<WorkspaceGroups>;
 		/** 已归档会话 id 列表：读取与覆写（恢复会话即从列表移除该 id）。 */
 		listArchivedSessions: () => Promise<string[]>;
 		setArchivedSessions: (ids: string[]) => Promise<string[]>;
@@ -215,8 +200,6 @@ declare const api: {
 		deleteCachedImage: (sessionId: string, cachePath: string) => Promise<void>;
 		clearContext: (sessionId: string, cwd: string) => Promise<void>;
 		status: (sessionId: string, cwd: string) => Promise<SessionStatus | null>;
-		getInfo: (sessionId: string) => Promise<SessionInfoResult>;
-		onWorkerReady: (callback: (sessionId: string) => void) => () => void;
 		onEvent: (callback: (event: AgentEvent) => void) => () => void;
 		onAskUser: (callback: (payload: AskUserAskRequest) => void) => () => void;
 		askUserReply: (payload: AskUserAskReply) => Promise<{
@@ -608,23 +591,6 @@ declare const api: {
 	customizations: {
 		list: (cwd?: string, force?: boolean) => Promise<CustomizationsSnapshot>;
 		create: (kind: CustomizationCreateKind) => Promise<{ filePath: string }>;
-		createAgentFromDraft: (
-			content: string,
-			scope: "user" | "project",
-			cwd?: string,
-		) => Promise<AgentSaveResult>;
-		createPromptFromDraft: (
-			content: string,
-			name: string,
-			scope: "user" | "project",
-			cwd?: string,
-		) => Promise<AgentSaveResult>;
-		saveAgent: (
-			filePath: string,
-			content: string,
-			renameName?: string,
-			cwd?: string,
-		) => Promise<AgentSaveResult>;
 		createInstructionsFromDraft: (
 			content: string,
 			scope: "user" | "project",
@@ -634,14 +600,6 @@ declare const api: {
 			name: string,
 			scope: "user" | "project",
 			enabled: boolean,
-			cwd?: string,
-		) => Promise<void>;
-		listMcpProjectOverrides: (
-			cwd?: string,
-		) => Promise<Record<string, "enabled" | "disabled">>;
-		setMcpProjectOverride: (
-			name: string,
-			override: McpProjectOverride,
 			cwd?: string,
 		) => Promise<void>;
 		addMcpServers: (
@@ -675,11 +633,6 @@ declare const api: {
 		removeMcpServer: (
 			name: string,
 			scope: "user" | "project",
-			cwd?: string,
-		) => Promise<{ filePath: string }>;
-		setItemEnabled: (
-			filePath: string,
-			enabled: boolean,
 			cwd?: string,
 		) => Promise<{ filePath: string }>;
 		removeItem: (filePath: string, cwd?: string) => Promise<{ filePath: string }>;
@@ -887,10 +840,16 @@ declare const api: {
 		openGithub: () => Promise<void>;
 		openReleases: () => Promise<void>;
 		openAuthorEmail: () => Promise<void>;
-		check: (opts?: { download?: boolean }) => Promise<UpdateCheckResult>;
-		download: () => Promise<UpdateCheckResult>;
-		cancel: () => Promise<boolean>;
-		onProgress: (callback: (progress: UpdateProgress) => void) => () => void;
+		getState: () => Promise<AppUpdateState>;
+		check: () => Promise<AppUpdateState>;
+		download: () => Promise<void>;
+		forceUpdate: () => Promise<void>;
+		cancel: () => Promise<void>;
+		install: () => Promise<void>;
+		onState: (callback: (state: AppUpdateState) => void) => () => void;
+		setToastHeight: (height: number) => void;
+		dismissToast: () => void;
+		showToast: () => void;
 	};
 	piCli: {
 		status: () => Promise<PiCliStatus>;
@@ -1009,10 +968,6 @@ declare const api: {
 	streamRender: {
 		get: () => Promise<StreamRenderSettings>;
 		set: (settings: StreamRenderSettings) => Promise<StreamRenderSettings>;
-	};
-	webSearchConfig: {
-		get: () => Promise<WebSearchConfigState>;
-		set: (settings: WebSearchSettings) => Promise<WebSearchConfigState>;
 	};
 	appearance: {
 		pickWallpaper: () => Promise<string | null>;

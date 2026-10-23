@@ -3,8 +3,15 @@ import {
   MODEL_MENU_PROPS,
   buildModelMenu,
   flatModelOptions,
+  type ModelMenuItem,
   type ModelSelectOption,
 } from "../../src/renderer/src/model-menu";
+
+/** group 项才带 children，其余变体（item/divider/submenu）没有该字段。 */
+function groupChildren(item: ModelMenuItem | undefined): Exclude<ModelMenuItem, null>[] {
+  if (!item || !("children" in item) || !Array.isArray(item.children)) return [];
+  return item.children.filter((child): child is Exclude<ModelMenuItem, null> => child !== null);
+}
 
 /**
  * The composer's model picker holds hundreds of entries. Two regressions lived in
@@ -27,7 +34,7 @@ describe("buildModelMenu", () => {
     const menu = buildModelMenu(groups, "anthropic/claude-opus");
     expect(menu).toHaveLength(2);
     expect(menu[0]).toMatchObject({ type: "group", label: "Anthropic", key: "anthropic" });
-    expect(menu[0]?.children?.map((c) => c.key)).toEqual([
+    expect(groupChildren(menu[0]).map((c) => c.key)).toEqual([
       "anthropic/claude-sonnet",
       "anthropic/claude-opus",
     ]);
@@ -46,8 +53,8 @@ describe("buildModelMenu", () => {
       },
     ];
     const menu = buildModelMenu(groups, "p/b");
-    expect(menu[0]?.children?.[0]?.props).toBeUndefined();
-    expect(menu[0]?.children?.[1]?.props?.style).toContain("font-weight: 600");
+    expect(groupChildren(menu[0])[0]?.style).toBeUndefined();
+    expect(groupChildren(menu[0])[1]?.style).toMatchObject({ fontWeight: 600 });
   });
 
   it("emits a stable key for every entry so selects resolve", () => {
@@ -56,7 +63,7 @@ describe("buildModelMenu", () => {
       { label: "G", key: "g", children: [{ label: "X", value: "g/x" }] },
     ];
     const menu = buildModelMenu(groups, "");
-    const keys = [menu[0]?.key, menu[1]?.key, menu[1]?.children?.[0]?.key];
+    const keys = [menu[0]?.key, menu[1]?.key, groupChildren(menu[1])[0]?.key];
     expect(keys).toEqual(["provider/solo", "g", "g/x"]);
     expect(new Set(keys).size).toBe(keys.length);
   });
@@ -77,21 +84,16 @@ describe("flatModelOptions", () => {
 });
 
 describe("MODEL_MENU_PROPS", () => {
-  it("is a FUNCTION because naive-ui calls menu-props", () => {
-    // Passing an object threw `TypeError: menuProps is not a function` inside
-    // naive-ui's renderPopoverBody and broke the entire composer.
-    expect(typeof MODEL_MENU_PROPS).toBe("function");
+  it("is a plain object because antd takes the menu config directly", () => {
+    expect(typeof MODEL_MENU_PROPS).toBe("object");
   });
 
   it("caps the menu height and makes it scroll", () => {
-    const props = MODEL_MENU_PROPS() as { style?: string; scrollable?: boolean };
-    expect(props.style).toContain("max-height");
-    expect(props.style).toContain("overflow-y: auto");
-    expect(props.scrollable).toBe(true);
+    expect(MODEL_MENU_PROPS.style?.maxHeight).toContain("min(60vh, 460px)");
+    expect(MODEL_MENU_PROPS.style?.overflowY).toBe("auto");
   });
 
   it("contains overscroll so the page behind does not move", () => {
-    const props = MODEL_MENU_PROPS() as { style?: string };
-    expect(props.style).toContain("overscroll-behavior: contain");
+    expect(MODEL_MENU_PROPS.style?.overscrollBehavior).toBe("contain");
   });
 });

@@ -9,7 +9,7 @@
  * Because the transcript only grows, its per-file sums over-count repeated
  * edits of the same lines — the net path exists to correct that.
  */
-import { ref, watch, onUnmounted } from "vue";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useChatStore } from "@renderer/stores/chat";
 import { useCheckpointStore } from "@renderer/stores/checkpoint";
 import { useSessionsStore } from "@renderer/stores/sessions";
@@ -25,110 +25,117 @@ type NetStats = { additions: number; deletions: number };
  * ~120ms trailing throttle instead — committed rows stay memoized anyway. */
 const AGGREGATE_THROTTLE_MS = 120;
 
-export function useSessionFileChanges() {
-  const chat = useChatStore();
-  const sessions = useSessionsStore();
-  const checkpoint = useCheckpointStore();
+export function useSessionFileChanges(): { files: SessionFileChange[] } {
+  const activeMessages = useChatStore((s) => s.activeMessages);
+  const activeStreaming = useChatStore((s) => s.activeStreaming);
+  const byKey = useCheckpointStore((s) => s.byKey);
 
-  const files = ref<SessionFileChange[]>([]);
-  /** Actual-change stats already fetched from main (path → counts). */
-  const netStats = ref<Record<string, NetStats>>({});
-
-  let lastCommitted: readonly unknown[] | null = null;
-  let lastFetchKey = "";
-  let fetchSeq = 0;
-  let lastActiveId: string | null = null;
+  const [files, setFiles] = useState<SessionFileChange[]>([]);
+  const netStats = useRef<Record<string, NetStats>>({});
+  const lastCommitted = useRef<readonly unknown[] | null>(null);
+  const lastFetchKey = useRef("");
+  const fetchSeq = useRef(0);
+  const lastActiveId = useRef<string | null>(null);
   /** Checkpoint lifecycle (begin/finish/revert) invalidates net stats. */
-  let checkpointTick = 0;
-  let aggregateTimer = 0;
+  const checkpointTick = useRef(0);
+  const aggregateTimer = useRef(0);
 
-  function merged(list: SessionFileChange[]): SessionFileChange[] {
-    const net = netStats.value;
+  const merged = useCallback((list: SessionFileChange[]): SessionFileChange[] => {
+    const net = netStats.current;
     return list.map((f) => {
       const s = net[f.path];
       if (!s) return f;
       return { path: f.path, additions: s.additions, deletions: s.deletions };
     });
-  }
+  }, []);
 
   /**
    * Fetch the real per-file change counts from main. Skipped while only the
    * streaming row mutates (its identity is stable) so a long-running turn does
    * not hammer IPC on every token tick.
    */
-  async function refreshNetIfNeeded(list: SessionFileChange[]): Promise<void> {
-    const sessionId = sessions.activeId;
-    if (!list.length || !sessionId) return;
-    const committed = chat.activeMessages;
-    const paths = list.map((f) => f.path);
-    const key = `${sessionId}|${checkpointTick}|${committed === lastCommitted ? "s" : "c"}|${paths.join(String.fromCharCode(0))}`;
-    lastCommitted = committed;
-    if (key === lastFetchKey) return;
-    lastFetchKey = key;
-    const seq = ++fetchSeq;
-    try {
-      const res = await window.api.checkpoint.netSessionChanges(sessionId, paths);
-      if (seq !== fetchSeq) return;
-      const next: Record<string, NetStats> = {};
-      for (const p of paths) {
-        const s = res[p];
-        if (s?.available) next[p] = { additions: s.additions, deletions: s.deletions };
+  const refreshNetIfNeeded = useCallback(
+    async (list: SessionFileChange[]): Promise<void> => {
+      const sessionId = useSessionsStore.getState().activeId;
+      if (!list.length || !sessionId) return;
+      const committed = useChatStore.getState().activeMessages;
+      const paths = list.map((f) => f.path);
+      const key = `${sessionId}|${checkpointTick.current}|${committed === lastCommitted.current ? "s" : "c"}|${paths.join(String.fromCharCode(0))}`;
+      lastCommitted.current = committed;
+      if (key === lastFetchKey.current) return;
+      lastFetchKey.current = key;
+      const seq = ++fetchSeq.current;
+      try {
+        const res = await window.api.checkpoint.netSessionChanges(sessionId, paths);
+        if (seq !== fetchSeq.current) return;
+        const next: Record<string, NetStats> = {};
+        for (const p of paths) {
+          const s = res[p];
+          if (s?.available) next[p] = { additions: s.additions, deletions: s.deletions };
+        }
+        netStats.current = next;
+        const chatState = useChatStore.getState();
+        setFiles(
+          merged(aggregateFileChanges(chatState.activeMessages, chatState.activeStreaming)),
+        );
+      } catch {
+        // IPC hiccup — keep the transcript fallback until the next change.
       }
-      netStats.value = next;
-      files.value = merged(aggregateFileChanges(chat.activeMessages, chat.activeStreaming));
-    } catch {
-      // IPC hiccup — keep the transcript fallback until the next change.
-    }
-  }
+    },
+    [merged],
+  );
 
   /**
    * Transcript totals gate which rows exist and provide the fallback numbers.
    * Prune net stats whose path vanished (e.g. history truncation) so stale
    * counts never resurface.
    */
-  function recompute(): void {
-    const activeId = sessions.activeId;
-    if (activeId !== lastActiveId) {
-      lastActiveId = activeId;
-      netStats.value = {};
-      lastFetchKey = "";
+  const recompute = useCallback((): void => {
+    const chatState = useChatStore.getState();
+    const activeId = useSessionsStore.getState().activeId;
+    if (activeId !== lastActiveId.current) {
+      lastActiveId.current = activeId;
+      netStats.current = {};
+      lastFetchKey.current = "";
     }
-    const list = aggregateFileChanges(chat.activeMessages, chat.activeStreaming);
+    const list = aggregateFileChanges(chatState.activeMessages, chatState.activeStreaming);
     const keep: Record<string, NetStats> = {};
     for (const f of list) {
-      const s = netStats.value[f.path];
+      const s = netStats.current[f.path];
       if (s) keep[f.path] = s;
     }
-    netStats.value = keep;
-    files.value = merged(list);
+    netStats.current = keep;
+    setFiles(merged(list));
     void refreshNetIfNeeded(list);
-  }
+  }, [merged, refreshNetIfNeeded]);
 
-  function scheduleRecompute(): void {
-    if (aggregateTimer) return;
-    aggregateTimer = window.setTimeout(() => {
-      aggregateTimer = 0;
+  const scheduleRecompute = useCallback((): void => {
+    if (aggregateTimer.current) return;
+    aggregateTimer.current = window.setTimeout(() => {
+      aggregateTimer.current = 0;
       recompute();
     }, AGGREGATE_THROTTLE_MS);
-  }
+  }, [recompute]);
 
-  watch(
-    () => [chat.activeMessages, chat.activeStreaming] as const,
-    () => scheduleRecompute(),
-  );
-  watch(
-    () => checkpoint.byKey,
-    () => {
-      checkpointTick += 1;
-      scheduleRecompute();
-    },
-    { deep: true },
-  );
-  onUnmounted(() => {
-    if (aggregateTimer) window.clearTimeout(aggregateTimer);
-    fetchSeq += 1;
-  });
-  recompute();
+  useEffect(() => {
+    scheduleRecompute();
+  }, [activeMessages, activeStreaming, scheduleRecompute]);
+
+  useEffect(() => {
+    checkpointTick.current += 1;
+    scheduleRecompute();
+  }, [byKey, scheduleRecompute]);
+
+  useEffect(() => {
+    recompute();
+  }, [recompute]);
+
+  useEffect(() => {
+    return () => {
+      if (aggregateTimer.current) window.clearTimeout(aggregateTimer.current);
+      fetchSeq.current += 1;
+    };
+  }, []);
 
   return { files };
 }

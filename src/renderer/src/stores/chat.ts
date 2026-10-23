@@ -1,6 +1,4 @@
-import { defineStore } from "pinia";
-import { computed, reactive, ref } from "vue";
-import { createDiscreteApi } from "naive-ui";
+import { create } from "zustand";
 import type {
 	AgentEvent,
 	ElementCitation,
@@ -9,6 +7,7 @@ import type {
 } from "../../../shared/protocol";
 import { toPromptCitations, toPromptImages, SESSION_HISTORY_INITIAL_LIMIT, SESSION_HISTORY_PAGE_SIZE } from "../../../shared/protocol";
 import { createHiddenEventSink } from "@renderer/utils/hidden-event-buffer";
+import { getMessage } from "@renderer/services/feedback";
 import {
 	appendUserMessage,
 	clearPendingAskUser,
@@ -20,10 +19,14 @@ import {
 	setPendingExtensionUi,
 	withRunClock,
 	type ChatMessage,
+	type ChatRetryHint,
 	type ChatState,
 	type ChatUserImage,
 } from "./chat-reducer";
-import { stripComposerModePreamble } from "../../../shared/composer-modes";
+import {
+	stripInjectedBlocks,
+	type LegacyModeTagKind,
+} from "../../../shared/injected-blocks";
 import { useSessionsStore } from "./sessions";
 import { useCheckpointStore } from "./checkpoint";
 import { useComposerStore } from "./composer";
@@ -65,8 +68,6 @@ import {
 	type ExtensionUiReply,
 } from "../../../shared/extension-ui";
 
-const { message: discreteMessage } = createDiscreteApi(["message"]);
-
 export type {
 	ChatMessage,
 	ChatState,
@@ -90,6 +91,135 @@ export type PendingUserEdit = {
 	messageId: string;
 };
 
+type OlderCursor = {
+	hasMore: boolean;
+	cursor: string | null;
+	loading: boolean;
+};
+
+type ChatBase = {
+	bySession: Record<string, ChatState>;
+	/**
+	 * 每个会话的「更早历史」游标：是否还有、下一页从哪一条取、是否正在取。
+	 *
+	 * 初始只装尾部一页（见 SESSION_HISTORY_INITIAL_LIMIT），往上的历史由用户主动
+	 * 翻页加载。超长会话一次性全量载入会把渲染进程堆撑爆，这是内存治理的一环。
+	 */
+	olderBySession: Record<string, OlderCursor>;
+	/**
+	 * Sessions with a stop in flight.
+	 *
+	 * Stopping is an RPC to the worker, and a worker that is busy (long tool call,
+	 * big session write) may not get to it for a while. Without this the Stop
+	 * button just sat there looking dead for the whole wait, which read as the app
+	 * having frozen; the UI now shows the request was received immediately.
+	 */
+	stoppingBySession: Record<string, boolean>;
+	pendingUserEdit: PendingUserEdit | null;
+	historyLoadingId: string | null;
+};
+
+/** Fields for the long-running wait indicator (phase / silence / worker alive). */
+export type ChatWaitState = {
+	running: boolean;
+	streamingMessage: ChatMessage | null;
+	retryHint: ChatRetryHint | null;
+	pendingAskUser: AskUserPrompt | null;
+	pendingExtensionUi: ExtensionUiPending | null;
+	turnStartedAt: number | null;
+	phaseStartedAt: number | null;
+	lastActivityAt: number | null;
+	lastWorkerAliveAt: number | null;
+	autoRecovering: boolean;
+};
+
+type ChatDerived = {
+	historyLoading: boolean;
+	activeMessages: ChatMessage[];
+	activeStreaming: ChatMessage | null;
+	activeRunning: boolean;
+	/** The active session has a stop request in flight (worker not idle yet). */
+	activeStopping: boolean;
+	activeWaitState: ChatWaitState | null;
+	activeRetryHint: ChatRetryHint | null;
+	activePendingAskUser: AskUserPrompt | null;
+	activePendingExtensionUi: ExtensionUiPending | null;
+};
+
+type ElementTag = {
+	url: string;
+	host: string;
+	label: string;
+	content?: string;
+	kind?: "file" | "url" | "element" | LegacyModeTagKind;
+};
+
+export type ChatStoreState = ChatBase &
+	ChatDerived & {
+		bindEvents: () => () => void;
+		clearPendingAskUserFor: (sessionId: string) => void;
+		readAskDraft: (requestId: string) => AskUserAnswerDraft | null;
+		writeAskDraft: (requestId: string, draft: AskUserAnswerDraft) => void;
+		readAskStep: (requestId: string) => number | null;
+		writeAskStep: (requestId: string, step: number) => void;
+		replyAskUser: (payload: AskUserAskReply) => Promise<void>;
+		replyExtensionUi: (reply: ExtensionUiReply) => Promise<void>;
+		beginHistoryLoad: (sessionId: string) => void;
+		endHistoryLoad: (sessionId: string) => void;
+		hydrateFromHistory: (
+			sessionId: string,
+			history: SessionHistoryMessage[],
+			hasOlder?: boolean,
+		) => void;
+		loadOlderMessages: (sessionId: string) => Promise<number>;
+		resyncActiveSession: () => Promise<void>;
+		clearSession: (sessionId: string) => void;
+		sendPrompt: (
+			sessionId: string,
+			message: string,
+			citations?: ElementCitation[],
+			images?: PromptImageContent[],
+			elementTags?: ElementTag[],
+			displayText?: string,
+		) => Promise<void>;
+		steer: (
+			sessionId: string,
+			message: string,
+			images?: PromptImageContent[],
+		) => Promise<void>;
+		followUp: (sessionId: string, message: string) => Promise<void>;
+		clearQueue: (sessionId: string) => Promise<void>;
+		abort: (sessionId: string) => Promise<void>;
+		truncateFrom: (sessionId: string, messageId: string) => Promise<void>;
+		beginEditUser: (
+			sessionId: string,
+			messageId: string,
+		) => Extract<ChatMessage, { role: "user" }> | null;
+		cancelEditUser: () => void;
+		isPendingEditMessage: (sessionId: string, messageId: string) => boolean;
+		isPendingEditTail: (sessionId: string, messageId: string) => boolean;
+		regenerate: (
+			sessionId: string,
+			assistantMessageId: string,
+		) => Promise<void>;
+		retryFromError: (
+			sessionId: string,
+			errorMessageId: string,
+		) => Promise<void>;
+		restoreTurn: (
+			sessionId: string,
+			messageId: string,
+		) => Promise<{ ok: boolean }>;
+		forkConversation: (
+			sessionId: string,
+			messageId: string,
+		) => Promise<string | null>;
+		autoRecover: (
+			sessionId: string,
+			reason: AutoRecoverReason,
+		) => Promise<boolean>;
+	};
+
 function toChatImages(
 	images?: PromptImageContent[],
 ): ChatUserImage[] | undefined {
@@ -103,14 +233,49 @@ function toChatImages(
 	return out.length ? out : undefined;
 }
 
-export const useChatStore = defineStore("chat", () => {
-	const bySession = reactive<Record<string, ChatState>>({});
-	const sessionsStore = useSessionsStore();
-	const checkpointStore = useCheckpointStore();
-	const notifyStore = useNotifyStore();
-	const workspaceStore = useWorkspaceStore();
-	const pendingUserEdit = ref<PendingUserEdit | null>(null);
-	const historyLoadingId = ref<string | null>(null);
+function waitStateOf(state: ChatState | undefined): ChatWaitState | null {
+	if (!state) return null;
+	if (!state.running && !state.autoRecovering) return null;
+	return {
+		running: state.running,
+		streamingMessage: state.streamingMessage,
+		retryHint: state.retryHint,
+		pendingAskUser: state.pendingAskUser,
+		pendingExtensionUi: state.pendingExtensionUi,
+		turnStartedAt: state.turnStartedAt,
+		phaseStartedAt: state.phaseStartedAt,
+		lastActivityAt: state.lastActivityAt,
+		lastWorkerAliveAt: state.lastWorkerAliveAt,
+		autoRecovering: state.autoRecovering,
+	};
+}
+
+function derive(base: ChatBase): ChatDerived {
+	const id = useSessionsStore.getState().activeId;
+	const state = id ? base.bySession[id] : undefined;
+	const running = state?.running ?? false;
+	return {
+		historyLoading: Boolean(id && base.historyLoadingId === id),
+		activeMessages: state?.messages ?? [],
+		activeStreaming: state?.streamingMessage ?? null,
+		activeRunning: running,
+		activeStopping: Boolean(id && base.stoppingBySession[id] && running),
+		activeWaitState: waitStateOf(state),
+		activeRetryHint: state?.retryHint ?? null,
+		activePendingAskUser: state?.pendingAskUser ?? null,
+		activePendingExtensionUi: state?.pendingExtensionUi ?? null,
+	};
+}
+
+export const useChatStore = create<ChatStoreState>()((set, get) => {
+	const base: ChatBase = {
+		bySession: {},
+		olderBySession: {},
+		stoppingBySession: {},
+		pendingUserEdit: null,
+		historyLoadingId: null,
+	};
+
 	/** requestId → UI draft kept across renderer reloads (恢复后可继续提交). */
 	const askUserDrafts = new Map<string, AskUserAnswerDraft>();
 	/** requestId → 当前题号，会话切换回来后仍停在原来那一题。 */
@@ -140,8 +305,8 @@ export const useChatStore = defineStore("chat", () => {
 			parsed[requestId] = draft;
 			const keys = Object.keys(parsed).slice(-8);
 		const trimmed: Record<string, AskUserAnswerDraft> = {};
-			for (const k of keys) trimmed[k] = parsed[k]!;
-			sessionStorage.setItem(ASK_DRAFT_KEY, JSON.stringify(trimmed));
+		for (const k of keys) trimmed[k] = parsed[k]!;
+		sessionStorage.setItem(ASK_DRAFT_KEY, JSON.stringify(trimmed));
 		} catch {
 			// ignore — best effort only
 		}
@@ -169,7 +334,6 @@ export const useChatStore = defineStore("chat", () => {
 		}
 	}
 
-
 	/** Sessions currently inside autoRecover (restart + resend). */
 	const recoveringIds = new Set<string>();
 	/** Soft-hang timeout already reported for this turn (avoid repeat errors). */
@@ -179,15 +343,6 @@ export const useChatStore = defineStore("chat", () => {
 	/** Turns the user explicitly stopped — their prompt_done must NOT
 	 *  auto-complete the (paused) todo list. */
 	const stopIntentBySession = new Set<string>();
-	/**
-	 * Sessions with a stop in flight.
-	 *
-	 * Stopping is an RPC to the worker, and a worker that is busy (long tool call,
-	 * big session write) may not get to it for a while. Without this the Stop
-	 * button just sat there looking dead for the whole wait, which read as the app
-	 * having frozen; the UI now shows the request was received immediately.
-	 */
-	const stoppingBySession = reactive<Record<string, boolean>>({});
 	/** Per-session prompt chain: sends are strictly serial per session so two
 	 *  queued prompts never race the worker or corrupt the single-active
 	 *  checkpoint (duplicate sends from the queue-edit path caused both). */
@@ -200,22 +355,25 @@ export const useChatStore = defineStore("chat", () => {
 	const MAX_CACHED_SESSIONS = 8;
 	/** 会话状态最后一次 hydrate 的时间戳，用于 LRU 排序。 */
 	const sessionHydratedAt = new Map<string, number>();
-	/**
-	 * 每个会话的「更早历史」游标：是否还有、下一页从哪一条取、是否正在取。
-	 *
-	 * 初始只装尾部一页（见 SESSION_HISTORY_INITIAL_LIMIT），往上的历史由用户主动
-	 * 翻页加载。超长会话一次性全量载入会把渲染进程堆撑爆，这是内存治理的一环。
-	 */
-	const olderBySession = reactive<
-		Record<string, { hasMore: boolean; cursor: string | null; loading: boolean }>
-	>({});
+
+	function commit(patch: Partial<ChatBase>): void {
+		set((state) => {
+			const next = { ...state, ...patch };
+			return { ...next, ...derive(next) };
+		});
+	}
 
 	function resetOlderCursor(
 		sessionId: string,
 		hasMore: boolean,
 		firstMessageId: string | null,
 	): void {
-		olderBySession[sessionId] = { hasMore, cursor: firstMessageId, loading: false };
+		commit({
+			olderBySession: {
+				...get().olderBySession,
+				[sessionId]: { hasMore, cursor: firstMessageId, loading: false },
+			},
+		});
 	}
 
 	/**
@@ -225,35 +383,62 @@ export const useChatStore = defineStore("chat", () => {
 	 * 视为「没有更早了」，不会反复触发加载。
 	 */
 	async function loadOlderMessages(sessionId: string): Promise<number> {
-		const older = olderBySession[sessionId];
+		const older = get().olderBySession[sessionId];
 		if (!older || older.loading || !older.hasMore || !older.cursor) return 0;
-		const row = sessionsStore.sessions.find((s) => s.id === sessionId);
+		const row = useSessionsStore
+			.getState()
+			.sessions.find((s) => s.id === sessionId);
 		if (!row?.filePath) return 0;
 
-		older.loading = true;
+		commit({
+			olderBySession: {
+				...get().olderBySession,
+				[sessionId]: { ...older, loading: true },
+			},
+		});
 		try {
 			const page = await window.api.sessions.history(row.filePath, {
 				limit: SESSION_HISTORY_PAGE_SIZE,
 				beforeId: older.cursor,
 			});
-			const state = bySession[sessionId];
+			const state = get().bySession[sessionId];
 			if (!state || !page.messages.length) {
-				older.hasMore = false;
+				commit({
+					olderBySession: {
+						...get().olderBySession,
+						[sessionId]: { ...older, hasMore: false },
+					},
+				});
 				return 0;
 			}
 			const prepended = page.messages.map(mapHistoryRow);
-			bySession[sessionId] = {
-				...state,
-				messages: [...prepended, ...state.messages],
-			};
-			older.hasMore = page.hasMore;
-			older.cursor = prepended[0]!.id;
+			commit({
+				bySession: {
+					...get().bySession,
+					[sessionId]: {
+						...state,
+						messages: [...prepended, ...state.messages],
+					},
+				},
+				olderBySession: {
+					...get().olderBySession,
+					[sessionId]: {
+						hasMore: page.hasMore,
+						cursor: prepended[0]!.id,
+						loading: false,
+					},
+				},
+			});
 			return prepended.length;
 		} catch (err) {
 			console.error("[chat] load older history failed:", err);
+			commit({
+				olderBySession: {
+					...get().olderBySession,
+					[sessionId]: { ...older, loading: false },
+				},
+			});
 			return 0;
-		} finally {
-			older.loading = false;
 		}
 	}
 	let softHangTimer: ReturnType<typeof setInterval> | null = null;
@@ -266,30 +451,27 @@ export const useChatStore = defineStore("chat", () => {
 	});
 
 	function stateFor(sessionId: string): ChatState {
-		if (!bySession[sessionId]) {
-			bySession[sessionId] = createChatState();
-		}
-		return bySession[sessionId];
+		return get().bySession[sessionId] ?? createChatState();
 	}
 
 	/** Commit chat state and reset phaseStartedAt when the wait phase changes. */
 	function setSessionState(sessionId: string, next: ChatState): void {
-		const prev = bySession[sessionId] ?? createChatState();
-		bySession[sessionId] = syncPhaseClock(prev, next);
+		const prev = get().bySession[sessionId] ?? createChatState();
+		commit({
+			bySession: {
+				...get().bySession,
+				[sessionId]: syncPhaseClock(prev, next),
+			},
+		});
 	}
 
-	const historyLoading = computed(() => {
-		const id = sessionsStore.activeId;
-		return Boolean(id && historyLoadingId.value === id);
-	});
-
 	function beginHistoryLoad(sessionId: string): void {
-		historyLoadingId.value = sessionId;
+		commit({ historyLoadingId: sessionId });
 	}
 
 	function endHistoryLoad(sessionId: string): void {
-		if (historyLoadingId.value === sessionId) {
-			historyLoadingId.value = null;
+		if (get().historyLoadingId === sessionId) {
+			commit({ historyLoadingId: null });
 		}
 	}
 
@@ -298,7 +480,7 @@ export const useChatStore = defineStore("chat", () => {
 			return {
 				id: row.id,
 				role: "user" as const,
-				text: stripComposerModePreamble(row.text),
+				text: stripInjectedBlocks(row.text),
 				...(row.images?.length ? { images: row.images } : {}),
 				...(row.elementTags?.length ? { elementTags: row.elementTags } : {}),
 			};
@@ -337,69 +519,6 @@ export const useChatStore = defineStore("chat", () => {
 			...(row.durationMs != null ? { durationMs: row.durationMs } : {}),
 		};
 	}
-
-	const activeMessages = computed(() => {
-		const id = sessionsStore.activeId;
-		if (!id) return [] as ChatMessage[];
-		return stateFor(id).messages;
-	});
-
-	const activeStreaming = computed(() => {
-		const id = sessionsStore.activeId;
-		if (!id) return null as ChatMessage | null;
-		return stateFor(id).streamingMessage;
-	});
-
-	const activeRunning = computed(() => {
-		const id = sessionsStore.activeId;
-		if (!id) return false;
-		return stateFor(id).running;
-	});
-
-	/** The active session has a stop request in flight (worker not idle yet). */
-	const activeStopping = computed(() => {
-		const id = sessionsStore.activeId;
-		if (!id) return false;
-		return Boolean(stoppingBySession[id]) && stateFor(id).running;
-	});
-
-	/** Fields for the long-running wait indicator (phase / silence / worker alive). */
-	const activeWaitState = computed(() => {
-		const id = sessionsStore.activeId;
-		if (!id) return null;
-		const s = stateFor(id);
-		if (!s.running && !s.autoRecovering) return null;
-		return {
-			running: s.running,
-			streamingMessage: s.streamingMessage,
-			retryHint: s.retryHint,
-			pendingAskUser: s.pendingAskUser,
-			pendingExtensionUi: s.pendingExtensionUi,
-			turnStartedAt: s.turnStartedAt,
-			phaseStartedAt: s.phaseStartedAt,
-			lastActivityAt: s.lastActivityAt,
-			lastWorkerAliveAt: s.lastWorkerAliveAt,
-			autoRecovering: s.autoRecovering,
-		};
-	});
-
-	const activeRetryHint = computed(() => {
-		const id = sessionsStore.activeId;
-		if (!id) return null;
-		return stateFor(id).retryHint;
-	});
-
-	const activePendingAskUser = computed(() => {
-		const id = sessionsStore.activeId;
-		if (!id) return null;
-		return stateFor(id).pendingAskUser;
-	});
-
-	const activePendingExtensionUi = computed(() => {
-		const id = sessionsStore.activeId;
-		if (!id) return null;
-		return stateFor(id).pendingExtensionUi;
-	});
 
 	function clearPendingAskUserFor(sessionId: string): void {
 		setSessionState(sessionId, clearPendingAskUser(stateFor(sessionId)));
@@ -447,13 +566,12 @@ export const useChatStore = defineStore("chat", () => {
 			setPendingExtensionUiFor(dialog);
 		}
 		if (snapshot.asks?.length || snapshot.extensionDialogs?.length) {
-			if (notifyStore.soundEnabled) {
-				void notifyStore.playChime();
+			const notify = useNotifyStore.getState();
+			if (notify.soundEnabled) {
+				void notify.playChime();
 			}
 		}
 	}
-
-	
 
 	function setPendingExtensionUiFor(req: ExtensionUiPending): void {
 		setSessionState(
@@ -466,10 +584,8 @@ export const useChatStore = defineStore("chat", () => {
 		setSessionState(sessionId, clearPendingExtensionUi(stateFor(sessionId)));
 	}
 
-	
-
 	async function replyAskUser(payload: AskUserAskReply): Promise<void> {
-		const id = sessionsStore.activeId;
+		const id = useSessionsStore.getState().activeId;
 		if (id) clearPendingAskUserFor(id);
 		clearAskUserDraft(payload.requestId);
 		const res = await window.api.sessions.askUserReply(payload);
@@ -477,7 +593,7 @@ export const useChatStore = defineStore("chat", () => {
 	}
 
 	async function replyExtensionUi(reply: ExtensionUiReply): Promise<void> {
-		const id = sessionsStore.activeId;
+		const id = useSessionsStore.getState().activeId;
 		if (id) clearPendingExtensionUiFor(id);
 		await window.api.sessions.extensionUiReply(reply);
 	}
@@ -492,14 +608,15 @@ export const useChatStore = defineStore("chat", () => {
 		}
 		if (isExtensionUiPending(event)) {
 			setPendingExtensionUiFor(event);
-			if (notifyStore.soundEnabled) {
-				void notifyStore.playChime();
+			const notify = useNotifyStore.getState();
+			if (notify.soundEnabled) {
+				void notify.playChime();
 			}
 			return;
 		}
 		if (event.method === "notify") {
 			// Toast for the active session only to avoid noise from background workers.
-			if (event.sessionId !== sessionsStore.activeId) return;
+			if (event.sessionId !== useSessionsStore.getState().activeId) return;
 			// Todo / plan snapshots belong in the persistent panel — don't also toast.
 			if (
 				/(?:待办|计划进度|Todos\s+\d|☑|☐)/.test(event.message) &&
@@ -507,23 +624,21 @@ export const useChatStore = defineStore("chat", () => {
 			) {
 				return;
 			}
-			if (event.notifyType === "error") discreteMessage.error(event.message);
-			else if (event.notifyType === "warning")
-				discreteMessage.warning(event.message);
-			else discreteMessage.info(event.message);
+			const message = getMessage();
+			if (event.notifyType === "error") message.error(event.message);
+			else if (event.notifyType === "warning") message.warning(event.message);
+			else message.info(event.message);
 			return;
 		}
 		if (event.method === "setEditorText") {
-			if (event.sessionId !== sessionsStore.activeId) return;
-			useComposerStore().draft = event.text;
+			if (event.sessionId !== useSessionsStore.getState().activeId) return;
+			useComposerStore.setState({ draft: event.text });
 			return;
 		}
 		if (event.method === "setWidget") {
-			useSessionWidgetsStore().setWidget(
-				event.sessionId,
-				event.widgetKey,
-				event.widgetLines,
-			);
+			useSessionWidgetsStore
+				.getState()
+				.setWidget(event.sessionId, event.widgetKey, event.widgetLines);
 			return;
 		}
 		// setStatus / setTitle: reserved for future chrome.
@@ -534,7 +649,7 @@ export const useChatStore = defineStore("chat", () => {
 	 * 否则把模型没回写的项标为「未回写」，不让面板停在「进行中」。
 	 */
 	function settleTodosForSession(sessionId: string): void {
-		const widgets = useSessionWidgetsStore();
+		const widgets = useSessionWidgetsStore.getState();
 		if (stopIntentBySession.delete(sessionId)) {
 			widgets.pauseTodosForSession(sessionId);
 		} else {
@@ -570,7 +685,7 @@ export const useChatStore = defineStore("chat", () => {
 				isTodoToolName(payload.toolName) &&
 				!payload.isError
 			) {
-				const widgets = useSessionWidgetsStore();
+				const widgets = useSessionWidgetsStore.getState();
 				if (
 					payload.type === "tool_execution_start" ||
 					payload.type === "tool_execution_update"
@@ -596,7 +711,7 @@ export const useChatStore = defineStore("chat", () => {
 		}
 
 		if (event.type === "prompt_done" || event.type === "prompt_error") {
-			void checkpointStore.finishActive(sessionId);
+			void useCheckpointStore.getState().finishActive(sessionId);
 			softHangReported.delete(sessionId);
 			stallReported.delete(sessionId);
 			if (event.type === "prompt_done") {
@@ -608,9 +723,11 @@ export const useChatStore = defineStore("chat", () => {
 		if (event.type === "prompt_done") {
 			// Turn over: clear the in-flight stop marker first so the Stop button
 			// returns to Send on the same paint that ends the turn.
-			stoppingBySession[sessionId] = false;
+			commit({
+				stoppingBySession: { ...get().stoppingBySession, [sessionId]: false },
+			});
 			settleTodosForSession(sessionId);
-			void notifyStore.onTurnComplete({
+			void useNotifyStore.getState().onTurnComplete({
 				title: notifyTitleOf(sessionId),
 				body: t.notifyTurnCompleteBody,
 				sessionId,
@@ -633,7 +750,9 @@ export const useChatStore = defineStore("chat", () => {
 	}
 
 	function notifyTitleOf(sessionId: string): string {
-		const row = sessionsStore.sessions.find((s) => s.id === sessionId);
+		const row = useSessionsStore
+			.getState()
+			.sessions.find((s) => s.id === sessionId);
 		const label = row?.name?.trim() || row?.firstMessage?.trim() || "";
 		return label ? label.slice(0, 40) : t.appName;
 	}
@@ -679,7 +798,7 @@ export const useChatStore = defineStore("chat", () => {
 					}),
 				);
 			} else {
-				discreteMessage.warning(t.autoRecoverGaveUp);
+				getMessage().warning(t.autoRecoverGaveUp);
 			}
 			return false;
 		}
@@ -701,9 +820,9 @@ export const useChatStore = defineStore("chat", () => {
 			}
 
 			try {
-				await sessionsStore.restartWorker(sessionId, null);
+				await useSessionsStore.getState().restartWorker(sessionId, null);
 			} catch (err) {
-				discreteMessage.error(err instanceof Error ? err.message : String(err));
+				getMessage().error(err instanceof Error ? err.message : String(err));
 				return false;
 			}
 
@@ -734,7 +853,7 @@ export const useChatStore = defineStore("chat", () => {
 				}),
 			);
 
-			discreteMessage.info(
+			getMessage().info(
 				reason === "worker_stuck"
 					? t.autoRecoverWorkerStuck
 					: reason === "stall"
@@ -770,8 +889,7 @@ export const useChatStore = defineStore("chat", () => {
 	 */
 	function resetWorkerAliveClocks(): void {
 		const now = Date.now();
-		for (const sessionId of Object.keys(bySession)) {
-			const state = bySession[sessionId];
+		for (const [sessionId, state] of Object.entries(get().bySession)) {
 			if (!state?.running || state.lastWorkerAliveAt == null) continue;
 			setSessionState(sessionId, { ...state, lastWorkerAliveAt: now });
 		}
@@ -789,7 +907,7 @@ export const useChatStore = defineStore("chat", () => {
 		// stall / exit 事件兜底。
 		if (document.hidden) return;
 		const now = Date.now();
-		for (const [sessionId, state] of Object.entries(bySession)) {
+		for (const [sessionId, state] of Object.entries(get().bySession)) {
 			if (!state?.running || state.autoRecovering || recoveringIds.has(sessionId))
 				continue;
 			if (softHangReported.has(sessionId)) continue;
@@ -856,7 +974,7 @@ export const useChatStore = defineStore("chat", () => {
 			clearAutoRecovering(sessionId);
 		} catch (err) {
 			softHangReported.delete(sessionId);
-			discreteMessage.error(err instanceof Error ? err.message : String(err));
+			getMessage().error(err instanceof Error ? err.message : String(err));
 		}
 	}
 
@@ -867,7 +985,9 @@ export const useChatStore = defineStore("chat", () => {
 	 */
 	function reconcileRunning(sessionId: string, state: ChatState): ChatState {
 		if (!state.running) return state;
-		const row = sessionsStore.sessions.find((s) => s.id === sessionId);
+		const row = useSessionsStore
+			.getState()
+			.sessions.find((s) => s.id === sessionId);
 		if (!row || row.status === "running" || row.status === "stuck") return state;
 		return { ...state, running: false, streamingMessage: null, retryHint: null };
 	}
@@ -911,21 +1031,26 @@ export const useChatStore = defineStore("chat", () => {
 		history: SessionHistoryMessage[],
 		hasOlder = false,
 	): void {
-		bySession[sessionId] = {
-			messages: history.map(mapHistoryRow),
-			streamingMessage: null,
-			running: false,
-			retryHint: null,
-			nextToolOrder: 1,
-			pendingAskUser: null,
-			pendingExtensionUi: null,
-			turnStartedAt: null,
-			phaseStartedAt: null,
-			lastActivityAt: null,
-			lastWorkerAliveAt: null,
-			autoRecoverCount: 0,
-			autoRecovering: false,
-		};
+		commit({
+			bySession: {
+				...get().bySession,
+				[sessionId]: {
+					messages: history.map(mapHistoryRow),
+					streamingMessage: null,
+					running: false,
+					retryHint: null,
+					nextToolOrder: 1,
+					pendingAskUser: null,
+					pendingExtensionUi: null,
+					turnStartedAt: null,
+					phaseStartedAt: null,
+					lastActivityAt: null,
+					lastWorkerAliveAt: null,
+					autoRecoverCount: 0,
+					autoRecovering: false,
+				},
+			},
+		});
 		softHangReported.delete(sessionId);
 		stallReported.delete(sessionId);
 		resetOlderCursor(sessionId, hasOlder, history[0]?.id ?? null);
@@ -936,13 +1061,13 @@ export const useChatStore = defineStore("chat", () => {
 		history: SessionHistoryMessage[],
 		hasOlder = false,
 	): void {
-		pendingUserEdit.value = null;
+		commit({ pendingUserEdit: null });
 		sessionHydratedAt.set(sessionId, Date.now());
 		// Restore persisted checkpoint summaries so history keeps its revert
 		// buttons across session switches / restarts.
-		void checkpointStore.loadSessionSummaries(sessionId);
+		void useCheckpointStore.getState().loadSessionSummaries(sessionId);
 		const mapped = history.map(mapHistoryRow);
-		const live = bySession[sessionId];
+		const live = get().bySession[sessionId];
 		if (live && hasLiveTurnState(live)) {
 // Session already has a live turn in memory (streaming tail / ask_user
 			// / extension strip). The disk page read on session switch
@@ -953,7 +1078,9 @@ softHangReported.delete(sessionId);
 				...live,
 				messages: mergeHistoryWithLive(mapped, live.messages),
 			});
-			bySession[sessionId] = merged;
+			commit({
+				bySession: { ...get().bySession, [sessionId]: merged },
+			});
 			// live 可能带着用户已翻到的更早历史，游标跟着合并后的第一条走。
 			resetOlderCursor(sessionId, hasOlder, merged.messages[0]?.id ?? null);
 			return;
@@ -971,7 +1098,12 @@ softHangReported.delete(sessionId);
 				.every((m, i) => m.id === mapped[i]!.id)
 		) {
 			softHangReported.delete(sessionId);
-			bySession[sessionId] = reconcileRunning(sessionId, live);
+			commit({
+				bySession: {
+					...get().bySession,
+					[sessionId]: reconcileRunning(sessionId, live),
+				},
+			});
 			resetOlderCursor(sessionId, hasOlder, live.messages[0]?.id ?? null);
 			return;
 		}
@@ -997,41 +1129,54 @@ softHangReported.delete(sessionId);
 	}
 
 	async function doResyncActiveSession(): Promise<void> {
-		const sessionId = sessionsStore.activeId;
+		const sessions = useSessionsStore.getState();
+		const sessionId = sessions.activeId;
 		if (!sessionId) return;
-		const row = sessionsStore.sessions.find((s) => s.id === sessionId);
+		const row = sessions.sessions.find((s) => s.id === sessionId);
 		if (!row?.filePath) return;
-		const state = bySession[sessionId];
+		const state = get().bySession[sessionId];
 		if (!state?.running && !state?.autoRecovering) return;
 
 		const status = await window.api.sessions.status(sessionId, row.cwd);
 		if (status === null || status === "running" || status === "stuck") return;
 
-		sessionsStore.applyStatus(sessionId, status);
+		sessions.applyStatus(sessionId, status);
 		const page = await window.api.sessions.history(row.filePath, {
 			limit: SESSION_HISTORY_INITIAL_LIMIT,
 		});
 		// 事件丢失连带丢了 prompt_done 的副作用，逐项补齐终态。
-		void checkpointStore.loadSessionSummaries(sessionId);
+		void useCheckpointStore.getState().loadSessionSummaries(sessionId);
 		settledStateFromHistory(sessionId, page.messages, page.hasMore);
 		recoveringIds.delete(sessionId);
-		stoppingBySession[sessionId] = false;
+		commit({
+			stoppingBySession: { ...get().stoppingBySession, [sessionId]: false },
+		});
 		stopIntentBySession.delete(sessionId);
-		void checkpointStore.finishActive(sessionId);
-		useSessionWidgetsStore().finalizeTodosForSession(sessionId);
+		void useCheckpointStore.getState().finishActive(sessionId);
+		useSessionWidgetsStore.getState().finalizeTodosForSession(sessionId);
 	}
 
 	/**
- * 清掉一个会话在渲染进程里的全部常驻数据。
- *
- * 既是「删除会话」的收尾，也是内存驱逐的执行体——bySession 里的消息只是其中一项，
- * 配套的 Map / Set / reactive 记录不一起清，内存并不会真的降下来。
- */
+	 * 清掉一个会话在渲染进程里的全部常驻数据。
+	 *
+	 * 既是「删除会话」的收尾，也是内存驱逐的执行体——bySession 里的消息只是其中一项，
+	 * 配套的 Map / Set / reactive 记录不一起清，内存并不会真的降下来。
+	 */
 	function clearSession(sessionId: string): void {
+		const state = get();
+		const bySession = { ...state.bySession };
 		delete bySession[sessionId];
-		if (pendingUserEdit.value?.sessionId === sessionId) {
-			pendingUserEdit.value = null;
-		}
+		const olderBySession = { ...state.olderBySession };
+		delete olderBySession[sessionId];
+		commit({
+			bySession,
+			olderBySession,
+			pendingUserEdit:
+				state.pendingUserEdit?.sessionId === sessionId
+					? null
+					: state.pendingUserEdit,
+			stoppingBySession: { ...state.stoppingBySession, [sessionId]: false },
+		});
 		sessionHydratedAt.delete(sessionId);
 		softHangReported.delete(sessionId);
 		stallReported.delete(sessionId);
@@ -1040,9 +1185,7 @@ softHangReported.delete(sessionId);
 		promptChain.delete(sessionId);
 		askUserDrafts.delete(sessionId);
 		askUserSteps.delete(sessionId);
-		stoppingBySession[sessionId] = false;
-		delete olderBySession[sessionId];
-		checkpointStore.clearSession(sessionId);
+		useCheckpointStore.getState().clearSession(sessionId);
 	}
 
 	/**
@@ -1053,12 +1196,12 @@ softHangReported.delete(sessionId);
 	 * （实际最多一两轮），本轮不驱逐，等它们结束后下次 hydrate 再回收。
 	 */
 	function evictIdleSessions(keepSessionId: string): void {
-		const ids = Object.keys(bySession);
+		const ids = Object.keys(get().bySession);
 		let overflow = ids.length - MAX_CACHED_SESSIONS;
 		if (overflow <= 0) return;
 		const evictable = ids
 			.filter((id) => id !== keepSessionId)
-			.filter((id) => !hasLiveTurnState(bySession[id]!))
+			.filter((id) => !hasLiveTurnState(get().bySession[id]!))
 			.sort((a, b) => (sessionHydratedAt.get(a) ?? 0) - (sessionHydratedAt.get(b) ?? 0));
 		for (const id of evictable) {
 			if (overflow <= 0) break;
@@ -1090,7 +1233,7 @@ softHangReported.delete(sessionId);
 	 */
 	function bindEvents(): () => void {
 		if (unbindEvents) return unbindEvents;
-		const stopCheckpoint = checkpointStore.bindEvents();
+		const stopCheckpoint = useCheckpointStore.getState().bindEvents();
 		const stopWatchdog = startSoftHangWatchdog();
 		const off = window.api.sessions.onEvent((event) => {
 			agentEventSink.push(event);
@@ -1109,8 +1252,9 @@ softHangReported.delete(sessionId);
 				requestId: req.requestId,
 				questions: req.questions,
 			});
-			if (notifyStore.soundEnabled) {
-				void notifyStore.playChime();
+			const notify = useNotifyStore.getState();
+			if (notify.soundEnabled) {
+				void notify.playChime();
 			}
 		});
 		const offExtensionUi = window.api.sessions.onExtensionUi((event) => {
@@ -1134,13 +1278,7 @@ softHangReported.delete(sessionId);
 		message: string,
 		citations?: ElementCitation[],
 		images?: PromptImageContent[],
-		elementTags?: {
-			url: string;
-			host: string;
-			label: string;
-			content?: string;
-			kind?: "file" | "url" | "element" | "agent" | "plan" | "ask" | "task";
-		}[],
+		elementTags?: ElementTag[],
 		/** Bubble text (defaults to `message`). Agent always receives `message`. */
 		displayText?: string,
 	): Promise<void> {
@@ -1170,13 +1308,7 @@ softHangReported.delete(sessionId);
 		message: string,
 		citations?: ElementCitation[],
 		images?: PromptImageContent[],
-		elementTags?: {
-			url: string;
-			host: string;
-			label: string;
-			content?: string;
-			kind?: "file" | "url" | "element" | "agent" | "plan" | "ask" | "task";
-		}[],
+		elementTags?: ElementTag[],
 		/** Bubble text (defaults to `message`). Agent always receives `message`. */
 		displayText?: string,
 	): Promise<void> {
@@ -1185,8 +1317,8 @@ softHangReported.delete(sessionId);
 		const bubbleText = displayText !== undefined ? displayText : message;
 
 		// Re-edit commit: replace that bubble and everything after it (UI + agent tree).
-		const edit = pendingUserEdit.value;
-		pendingUserEdit.value = null;
+		const edit = get().pendingUserEdit;
+		commit({ pendingUserEdit: null });
 		if (edit?.sessionId === sessionId) {
 			const before = stateFor(sessionId);
 			const located = locateUserTurn(before, edit.messageId);
@@ -1202,7 +1334,7 @@ softHangReported.delete(sessionId);
 					}),
 				);
 				try {
-					await sessionsStore.sendCommand(sessionId, {
+					await useSessionsStore.getState().sendCommand(sessionId, {
 						type: "rollback_user",
 						userIndex: located.userIndex,
 					});
@@ -1214,7 +1346,7 @@ softHangReported.delete(sessionId);
 
 		// A new task starts a clean slate: drop the previous round's todos so
 		// fresh items never accumulate on top of the old list.
-		useSessionWidgetsStore().resetTodosForSession(sessionId);
+		useSessionWidgetsStore.getState().resetTodosForSession(sessionId);
 		setSessionState(
 			sessionId,
 			appendUserMessage(
@@ -1227,7 +1359,7 @@ softHangReported.delete(sessionId);
 		const last = stateFor(sessionId).messages.at(-1);
 		if (last?.role === "user") {
 			// Must finish begin (baseline snapshot) before the agent starts writing files.
-			await checkpointStore.begin(sessionId, last.id);
+			await useCheckpointStore.getState().begin(sessionId, last.id);
 		}
 		// Persist attachment chips so they survive a session reload (sidecar keyed by agent text).
 		if (elementTags?.length) {
@@ -1238,14 +1370,14 @@ softHangReported.delete(sessionId);
 				});
 		}
 		try {
-			await sessionsStore.sendCommand(sessionId, {
+			await useSessionsStore.getState().sendCommand(sessionId, {
 				type: "prompt",
 				message,
 				citations: promptCitations,
 				images: promptImages,
 			});
 		} catch (err) {
-			void checkpointStore.finishActive(sessionId);
+			void useCheckpointStore.getState().finishActive(sessionId);
 			const raw = err instanceof Error ? err.message : String(err);
 			const state = stateFor(sessionId);
 			setSessionState(
@@ -1265,7 +1397,7 @@ softHangReported.delete(sessionId);
 		images?: PromptImageContent[],
 	): Promise<void> {
 		clearPendingAskUserFor(sessionId);
-		await sessionsStore.sendCommand(sessionId, {
+		await useSessionsStore.getState().sendCommand(sessionId, {
 			type: "steer",
 			message,
 			...(images?.length ? { images } : {}),
@@ -1274,12 +1406,17 @@ softHangReported.delete(sessionId);
 
 	async function followUp(sessionId: string, message: string): Promise<void> {
 		clearPendingAskUserFor(sessionId);
-		await sessionsStore.sendCommand(sessionId, { type: "follow_up", message });
+		await useSessionsStore.getState().sendCommand(sessionId, {
+			type: "follow_up",
+			message,
+		});
 	}
 
 	/** 清空 pi 侧的引导 / 排队消息；本地队列由界面一并清理。 */
 	async function clearQueue(sessionId: string): Promise<void> {
-		await sessionsStore.sendCommand(sessionId, { type: "clear_queue" });
+		await useSessionsStore.getState().sendCommand(sessionId, {
+			type: "clear_queue",
+		});
 	}
 
 	async function abort(sessionId: string): Promise<void> {
@@ -1295,11 +1432,14 @@ softHangReported.delete(sessionId);
 		stopIntentBySession.add(sessionId);
 		// Light up the stopping UI before the RPC: the worker may take a while to
 		// reach the abort (busy tool call), and a silent button reads as a freeze.
-		stoppingBySession[sessionId] = true;
+		commit({
+			stoppingBySession: { ...get().stoppingBySession, [sessionId]: true },
+		});
 
-		const row = sessionsStore.sessions.find((s) => s.id === sessionId);
+		const sessions = useSessionsStore.getState();
+		const row = sessions.sessions.find((s) => s.id === sessionId);
 		if (row?.status === "stuck") {
-			await sessionsStore.killWorker(sessionId, null);
+			await sessions.killWorker(sessionId, null);
 			const state = stateFor(sessionId);
 			setSessionState(
 				sessionId,
@@ -1310,16 +1450,22 @@ softHangReported.delete(sessionId);
 					retryHint: null,
 				}),
 			);
-			stoppingBySession[sessionId] = false;
+			commit({
+				stoppingBySession: { ...get().stoppingBySession, [sessionId]: false },
+			});
 			return;
 		}
 		try {
-			await sessionsStore.sendCommand(sessionId, { type: "abort" });
+			await sessions.sendCommand(sessionId, { type: "abort" });
 		} finally {
 			// The turn may still be winding down; `prompt_done` clears running and
 			// with it activeStopping. Only drop the flag early if the worker has
 			// already gone idle, so the button never gets stuck in "stopping".
-			if (!stateFor(sessionId).running) stoppingBySession[sessionId] = false;
+			if (!stateFor(sessionId).running) {
+				commit({
+					stoppingBySession: { ...get().stoppingBySession, [sessionId]: false },
+				});
+			}
 		}
 	}
 
@@ -1354,22 +1500,22 @@ softHangReported.delete(sessionId);
 		if (idx < 0) return null;
 		const msg = state.messages[idx];
 		if (msg.role !== "user") return null;
-		pendingUserEdit.value = { sessionId, messageId };
+		commit({ pendingUserEdit: { sessionId, messageId } });
 		return msg;
 	}
 
 	function cancelEditUser(): void {
-		pendingUserEdit.value = null;
+		commit({ pendingUserEdit: null });
 	}
 
 	function isPendingEditMessage(sessionId: string, messageId: string): boolean {
-		const p = pendingUserEdit.value;
+		const p = get().pendingUserEdit;
 		return Boolean(p && p.sessionId === sessionId && p.messageId === messageId);
 	}
 
 	/** True for the edited bubble and everything after it (dim while editing). */
 	function isPendingEditTail(sessionId: string, messageId: string): boolean {
-		const p = pendingUserEdit.value;
+		const p = get().pendingUserEdit;
 		if (!p || p.sessionId !== sessionId) return false;
 		const state = stateFor(sessionId);
 		const editIdx = state.messages.findIndex((m) => m.id === p.messageId);
@@ -1395,7 +1541,7 @@ softHangReported.delete(sessionId);
 		sessionId: string,
 		assistantMessageId: string,
 	): Promise<void> {
-		pendingUserEdit.value = null;
+		commit({ pendingUserEdit: null });
 		const state = stateFor(sessionId);
 		const idx = state.messages.findIndex((m) => m.id === assistantMessageId);
 		if (idx < 0) return;
@@ -1458,7 +1604,7 @@ softHangReported.delete(sessionId);
 		if (!located) return { ok: false };
 		let rolledBack = false;
 		try {
-			const result = await sessionsStore.sendCommand(sessionId, {
+			const result = await useSessionsStore.getState().sendCommand(sessionId, {
 				type: "rollback_turn_end",
 				userIndex: located.userIndex,
 				expectText: located.message.text,
@@ -1468,9 +1614,11 @@ softHangReported.delete(sessionId);
 			// 命令失败按回退失败处理
 		}
 		if (!rolledBack) return { ok: false };
-		if (pendingUserEdit.value?.sessionId === sessionId) pendingUserEdit.value = null;
+		if (get().pendingUserEdit?.sessionId === sessionId) {
+			commit({ pendingUserEdit: null });
+		}
 		// 被丢弃的轮次已消失，其 todo 不能继续留在界面上。
-		useSessionWidgetsStore().resetTodosForSession(sessionId);
+		useSessionWidgetsStore.getState().resetTodosForSession(sessionId);
 		const state = stateFor(sessionId);
 		const nextUserIdx = state.messages.findIndex(
 			(m, i) => i > located.cutIdx && m.role === "user",
@@ -1496,7 +1644,7 @@ softHangReported.delete(sessionId);
 		sessionId: string,
 		messageId: string,
 	): Promise<string | null> {
-		const root = workspaceStore.root;
+		const root = useWorkspaceStore.getState().root;
 		const located = locateUserTurn(stateFor(sessionId), messageId);
 		if (!root || !located) return null;
 		const forked = await window.api.sessions.fork(
@@ -1505,14 +1653,15 @@ softHangReported.delete(sessionId);
 			located.userIndex,
 			located.message.text,
 		);
-		await sessionsStore.refresh(root);
+		const sessions = useSessionsStore.getState();
+		await sessions.refresh(root);
 		beginHistoryLoad(forked.id);
 		try {
 			const [page] = await Promise.all([
 				window.api.sessions.history(forked.filePath, {
 					limit: SESSION_HISTORY_INITIAL_LIMIT,
 				}),
-				sessionsStore.selectSession(forked.id, root),
+				sessions.selectSession(forked.id, root),
 			]);
 			hydrateFromHistory(forked.id, page.messages, page.hasMore);
 		} finally {
@@ -1535,7 +1684,7 @@ softHangReported.delete(sessionId);
 		sessionId: string,
 		errorMessageId: string,
 	): Promise<void> {
-		pendingUserEdit.value = null;
+		commit({ pendingUserEdit: null });
 		const state = stateFor(sessionId);
 		const kept = dropErrorKeepHistory(state.messages, errorMessageId);
 		if (!kept) return;
@@ -1575,7 +1724,7 @@ softHangReported.delete(sessionId);
 				),
 			);
 			try {
-				await sessionsStore.sendCommand(sessionId, {
+				await useSessionsStore.getState().sendCommand(sessionId, {
 					type: "prompt",
 					message: t.retryContinueAgentPrompt,
 				});
@@ -1604,7 +1753,7 @@ softHangReported.delete(sessionId);
 		userMsg: Extract<ChatMessage, { role: "user" }>,
 	): Promise<void> {
 		// New round: clear the previous round's todos before re-driving the prompt.
-		useSessionWidgetsStore().resetTodosForSession(sessionId);
+		useSessionWidgetsStore.getState().resetTodosForSession(sessionId);
 		const images = userMsg.images?.map((img) => {
 			const raw = img.dataUrl.replace(/^data:[^;]+;base64,/, "");
 			return { type: "image" as const, data: raw, mimeType: img.mimeType };
@@ -1625,7 +1774,7 @@ softHangReported.delete(sessionId);
 			),
 		);
 		try {
-			await sessionsStore.sendCommand(sessionId, {
+			await useSessionsStore.getState().sendCommand(sessionId, {
 				type: "prompt",
 				message: userMsg.text,
 				images: promptImages,
@@ -1644,19 +1793,8 @@ softHangReported.delete(sessionId);
 	}
 
 	return {
-		bySession,
-		olderBySession,
-		pendingUserEdit,
-		historyLoadingId,
-		historyLoading,
-		activeMessages,
-		activeStreaming,
-		activeRunning,
-		activeStopping,
-		activeWaitState,
-		activeRetryHint,
-		activePendingAskUser,
-		activePendingExtensionUi,
+		...base,
+		...derive(base),
 		bindEvents,
 		clearPendingAskUserFor,
 		readAskDraft,
@@ -1687,4 +1825,9 @@ softHangReported.delete(sessionId);
 		forkConversation,
 		autoRecover,
 	};
+});
+
+useSessionsStore.subscribe((state, prev) => {
+	if (state.activeId === prev.activeId) return;
+	useChatStore.setState((s) => derive(s));
 });

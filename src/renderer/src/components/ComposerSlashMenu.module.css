@@ -1,0 +1,63 @@
+.root {
+  position: absolute;
+  left: 10px;
+  right: 10px;
+  bottom: calc(100% + 6px);
+  z-index: 20;
+  max-height: 240px;
+  overflow: auto;
+  border: 1px solid var(--border, #ddd);
+  border-radius: 6px;
+  background: var(--bg-elevated, #fff);
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.12);
+  padding: 4px;
+}
+
+.row {
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) minmax(0, 1.6fr) auto;
+  gap: 8px;
+  align-items: center;
+  width: 100%;
+  margin: 0;
+  padding: 7px 9px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.row:hover,
+.row.active {
+  background: color-mix(in srgb, var(--primary, #3b82f6) 12%, transparent);
+}
+
+.cmd {
+  font-family: var(--font-mono, ui-monospace, Menlo, Consolas, monospace);
+  font-size: 0.9231rem;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.desc {
+  font-size: 0.8462rem;
+  color: var(--fg-muted, #888);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.kind {
+  font-size: 0.7692rem;
+  color: var(--fg-faint, #aaa);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.row.skill .kind {
+  color: color-mix(in srgb, var(--primary, #3b82f6) 70%, var(--fg-muted));
+}

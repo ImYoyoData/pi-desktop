@@ -476,13 +476,11 @@ function listAuthProviders(
   available: ModelsGetResult["available"],
 ): ModelsProviderAuth[] {
   const availableCountByProvider = new Map<string, number>();
-  const responsesProviders = new Set<string>();
   for (const model of available) {
     availableCountByProvider.set(
       model.provider,
       (availableCountByProvider.get(model.provider) ?? 0) + 1,
     );
-    if (model.api === "openai-responses") responsesProviders.add(model.provider);
   }
 
   const seen = new Set<string>();
@@ -503,7 +501,6 @@ function listAuthProviders(
       modelCount: availableCountByProvider.get(provider.id) ?? 0,
       supportsApiKey,
       ...(provider.baseUrl ? { baseUrl: provider.baseUrl } : {}),
-      ...(responsesProviders.has(provider.id) ? { responsesApi: true } : {}),
       ...(oauth ? { oauth: true } : {}),
     });
   }

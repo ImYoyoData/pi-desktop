@@ -1,0 +1,128 @@
+.modalTitleBlock {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.modalTitle {
+  color: var(--fg-strong);
+  font-size: 1.1538rem;
+  font-weight: 650;
+}
+
+.modalSubtitle {
+  color: var(--fg-muted);
+  font-size: 0.9231rem;
+}
+
+.pickToolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.pickToolbar > :first-child {
+  flex: 1;
+  min-width: 0;
+}
+
+.pickList {
+  max-height: 360px;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+}
+
+.pickRow {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 7px 10px;
+  cursor: pointer;
+}
+
+.pickRow:hover {
+  background: var(--bg-hover);
+}
+
+.existing {
+  cursor: default;
+  opacity: 0.55;
+}
+
+.pickCheck {
+  margin-top: 1px;
+}
+
+.pickMain {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  gap: 2px;
+  min-width: 0;
+}
+
+.pickHead {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.pickId {
+  overflow: hidden;
+  color: var(--fg);
+  font-size: 0.9615rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pickTag {
+  flex-shrink: 0;
+  padding: 0 5px;
+  border-radius: 3px;
+  background: var(--bg-active);
+  color: var(--fg-muted);
+  font-size: 0.7692rem;
+  line-height: 15px;
+}
+
+.pickSub {
+  overflow: hidden;
+  color: var(--fg-muted);
+  font-size: 0.8462rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pickBadge {
+  flex-shrink: 0;
+  margin-top: 1px;
+  padding: 0 6px;
+  border-radius: 4px;
+  background: var(--bg-active);
+  color: var(--fg-muted);
+  font-size: 0.7692rem;
+  line-height: 16px;
+}
+
+.pickEmpty {
+  margin: 0;
+  padding: 24px 0;
+  color: var(--fg-muted);
+  font-size: 0.9231rem;
+  text-align: center;
+}
+
+.pickFooter {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.pickCount {
+  flex: 1;
+  color: var(--fg-muted);
+  font-size: 0.9231rem;
+}

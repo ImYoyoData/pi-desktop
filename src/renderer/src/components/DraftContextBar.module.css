@@ -1,0 +1,122 @@
+.root {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 0 4px 2px;
+  min-width: 0;
+}
+
+.ctxTrigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 220px;
+  padding: 2px 6px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--fg-muted, #888);
+  font-size: 0.8462rem;
+  line-height: 1.4;
+  cursor: pointer;
+}
+
+.ctxTrigger:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--fg-muted, #888) 12%, transparent);
+  color: var(--fg-strong, #222);
+}
+
+.ctxTrigger:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.ctxLabel {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 170px;
+}
+
+.ctxPanel {
+  width: 264px;
+  max-width: 80vw;
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  border: 1px solid color-mix(in srgb, var(--border, #ddd) 80%, transparent);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--bg-panel, var(--bg-elevated, #fff)) 96%, transparent);
+  box-shadow: 0 10px 28px color-mix(in srgb, #000 16%, transparent);
+  backdrop-filter: blur(10px);
+}
+
+.ctxScroll {
+  max-height: 260px;
+  overflow: auto;
+}
+
+.ctxItem {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 4px 8px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--fg, inherit);
+  font-size: 0.9231rem;
+  text-align: left;
+  cursor: pointer;
+}
+
+.ctxItem:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--fg-muted, #888) 12%, transparent);
+}
+
+.ctxItem:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.ctxItem.current {
+  color: var(--accent, #3b82f6);
+  font-weight: 600;
+}
+
+.ctxItem.remote .ctxItemName {
+  color: var(--fg-muted, #888);
+}
+
+.ctxItemMain {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  flex: 1;
+}
+
+.ctxItemName {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ctxItemPath {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.7692rem;
+  color: var(--fg-muted, #999);
+}
+
+.ctxItem.open {
+  color: var(--fg-muted, #888);
+}
+
+.branchCreate {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}

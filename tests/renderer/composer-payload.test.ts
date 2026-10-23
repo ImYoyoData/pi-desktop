@@ -20,14 +20,9 @@ describe("planComposerTags", () => {
     expect(planComposerTags([])).toEqual([]);
   });
 
-  it("routes agent-mode markers to the mode action first", () => {
-    const out = planComposerTags([tag({ url: "x", kind: "agent" })]);
-    expect(out).toEqual([{ kind: "mode", mode: "agent" }]);
-    for (const mode of ["ask", "plan", "task"]) {
-      expect(planComposerTags([tag({ url: "x", kind: mode })])[0]).toEqual({
-        kind: "mode",
-        mode,
-      });
+  it("drops retired mode marker tags", () => {
+    for (const mode of ["agent", "ask", "plan", "task"]) {
+      expect(planComposerTags([tag({ url: "x", kind: mode })])).toEqual([]);
     }
   });
 
@@ -61,12 +56,11 @@ describe("planComposerTags", () => {
 
   it("keeps order across a mixed batch", () => {
     const out = planComposerTags([
-      tag({ url: "m", kind: "agent" }),
       tag({ url: "f", kind: "file", content: "c" }),
       tag({ url: "https://a.dev" }),
       tag({ url: "e", kind: "element" }),
     ]);
-    expect(out.map((a) => a.kind)).toEqual(["mode", "file", "url", "citation"]);
+    expect(out.map((a) => a.kind)).toEqual(["file", "url", "citation"]);
   });
 });
 

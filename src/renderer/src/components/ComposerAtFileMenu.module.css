@@ -1,0 +1,80 @@
+.root {
+  position: absolute;
+  left: 10px;
+  right: 10px;
+  bottom: calc(100% + 6px);
+  z-index: 20;
+  max-height: min(360px, 42vh);
+  overflow: auto;
+  border: 1px solid var(--border, #ddd);
+  border-radius: 6px;
+  background: var(--bg-elevated, #fff);
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.12);
+  padding: 4px;
+}
+
+.empty {
+  padding: 10px 12px;
+  font-size: 0.9231rem;
+  color: var(--fg-muted, #888);
+}
+
+.row {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr) minmax(0, 1.2fr);
+  gap: 8px;
+  align-items: center;
+  width: 100%;
+  margin: 0;
+  padding: 6px 8px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.row:hover,
+.row.active {
+  background: color-mix(in srgb, var(--primary, #3b82f6) 12%, transparent);
+}
+
+.icon {
+  width: 14px;
+  height: 14px;
+  border-radius: 2px;
+  border: 1.5px solid color-mix(in srgb, var(--fg-muted, #888) 55%, transparent);
+  box-sizing: border-box;
+  justify-self: center;
+}
+
+.iconDir {
+  border-radius: 2px 2px 1px 1px;
+  border-top-width: 3px;
+  background: color-mix(in srgb, var(--fg-muted, #888) 8%, transparent);
+}
+
+.iconFile {
+  background: color-mix(in srgb, var(--fg-muted, #888) 5%, transparent);
+}
+
+.name {
+  font-size: 0.9615rem;
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--fg-strong, #222);
+}
+
+.dir {
+  font-family: var(--font-mono, ui-monospace, Menlo, Consolas, monospace);
+  font-size: 0.8462rem;
+  color: var(--fg-muted, #888);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: right;
+  direction: rtl;
+}

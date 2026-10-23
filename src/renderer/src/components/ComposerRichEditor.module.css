@@ -1,0 +1,105 @@
+.richWrap {
+  position: relative;
+  width: 100%;
+  min-width: 0;
+}
+
+/* Overlay only — must not affect editor layout/height when empty. */
+.richPlaceholder {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  pointer-events: none;
+  user-select: none;
+  font-size: 1rem;
+  line-height: 1.45;
+  color: var(--fg-faint, #999);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.richSurface {
+  position: relative;
+  z-index: 1;
+  min-height: 24px;
+  max-height: calc(1.45em * 8 + 8px);
+  overflow-y: auto;
+  width: 100%;
+  min-width: 0;
+  outline: none;
+  font-size: 1rem;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--fg-strong, inherit);
+  user-select: text;
+  -webkit-user-select: text;
+  transition:
+    max-height 0.18s ease,
+    min-height 0.18s ease;
+}
+
+.richWrap.isExpanded .richSurface {
+  /* Grow the visible input area upward (not only raise max-height for long text). */
+  min-height: min(42vh, 420px);
+  max-height: min(60vh, 560px);
+}
+
+.richSurface.isDisabled {
+  opacity: 0.65;
+  cursor: default;
+}
+
+.richSurface :global(.chip) {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  max-width: 200px;
+  margin: 1px 2px;
+  padding: 0 6px 0 8px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--primary, #3b82f6) 28%, var(--border, #ddd));
+  background: color-mix(in srgb, var(--primary, #3b82f6) 12%, transparent);
+  color: var(--fg-strong, #222);
+  font-size: 0.8462rem;
+  line-height: 1.6;
+  vertical-align: middle;
+  user-select: none;
+  cursor: default;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.richSurface :global(.chip-label) {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.richSurface :global(.chip-file) {
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
+}
+
+.richSurface :global(.chip-x) {
+  flex-shrink: 0;
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--fg-muted, #666);
+  font-size: 1rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.richSurface :global(.chip-x:hover) {
+  background: rgba(0, 0, 0, 0.08);
+  color: var(--fg-strong, #222);
+}
