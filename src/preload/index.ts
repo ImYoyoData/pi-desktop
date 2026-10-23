@@ -46,7 +46,6 @@ import type {
 	TestProviderBaseUrlResult,
 } from "../shared/model-discover";
 import type { PreviewResult } from "../shared/preview-types";
-import type { UpdateCheckResult, UpdateProgress } from "../shared/update";
 import type {
 	PiCliInstallProgress,
 	PiCliInstallResult,
@@ -74,6 +73,7 @@ import type { ThinkingLanguageSettings } from "../shared/thinking-language";
 import type { StreamRenderSettings } from "../shared/stream-render";
 import type { RetrySettings } from "../shared/retry-settings";
 import type { RuntimeSettings } from "../shared/runtime-settings";
+import type { AppUpdateState } from "../shared/update";
 
 export type AppInfo = {
 	version: string;
@@ -83,8 +83,6 @@ export type AppInfo = {
 	qq: string;
 	email: string;
 };
-
-export type { UpdateProgress };
 
 export type {
 	AgentCommand,
@@ -1257,24 +1255,21 @@ const api = {
 			ipcRenderer.invoke(IpcChannels.update.openReleases) as Promise<void>,
 		openAuthorEmail: () =>
 			ipcRenderer.invoke(IpcChannels.update.openAuthorEmail) as Promise<void>,
-		check: (opts?: { download?: boolean }) =>
-			ipcRenderer.invoke(
-				IpcChannels.update.check,
-				opts,
-			) as Promise<UpdateCheckResult>,
-		download: () =>
-			ipcRenderer.invoke(
-				IpcChannels.update.download,
-			) as Promise<UpdateCheckResult>,
-		cancel: () => ipcRenderer.invoke(IpcChannels.update.cancel) as Promise<boolean>,
-		onProgress: (callback: (progress: UpdateProgress) => void) => {
-			const listener = (
-				_event: Electron.IpcRendererEvent,
-				progress: UpdateProgress,
-			) => callback(progress);
-			ipcRenderer.on(IpcChannels.update.progress, listener);
+		getState: () =>
+			ipcRenderer.invoke(IpcChannels.update.getState) as Promise<AppUpdateState>,
+		check: () =>
+			ipcRenderer.invoke(IpcChannels.update.check) as Promise<AppUpdateState>,
+		download: () => ipcRenderer.invoke(IpcChannels.update.download) as Promise<void>,
+		forceUpdate: () =>
+			ipcRenderer.invoke(IpcChannels.update.forceUpdate) as Promise<void>,
+		cancel: () => ipcRenderer.invoke(IpcChannels.update.cancel) as Promise<void>,
+		install: () => ipcRenderer.invoke(IpcChannels.update.install) as Promise<void>,
+		onState: (callback: (state: AppUpdateState) => void) => {
+			const listener = (_event: Electron.IpcRendererEvent, state: AppUpdateState) =>
+				callback(state);
+			ipcRenderer.on(IpcChannels.update.state, listener);
 			return () => {
-				ipcRenderer.removeListener(IpcChannels.update.progress, listener);
+				ipcRenderer.removeListener(IpcChannels.update.state, listener);
 			};
 		},
 	},

@@ -610,6 +610,29 @@ export function DocumentTextOutline({
   );
 }
 
+export function DownloadOutline({
+  size,
+  color,
+  className,
+  style,
+}: IoniconProps): ReactNode {
+  return (
+    <svg
+      xmlns={"http://www.w3.org/2000/svg"}
+      viewBox={"0 0 512 512"}
+      width={size ?? "1em"}
+      height={size ?? "1em"}
+      className={className}
+      style={color ? { color, ...style } : style}
+      aria-hidden="true"
+    >
+      <path fill={"none"} stroke={"currentColor"} strokeLinecap={"round"} strokeLinejoin={"round"} strokeWidth={32} d={"M256 96v224"} />
+      <path fill={"none"} stroke={"currentColor"} strokeLinecap={"round"} strokeLinejoin={"round"} strokeWidth={32} d={"M144 256l112 112 112-112"} />
+      <path fill={"none"} stroke={"currentColor"} strokeLinecap={"round"} strokeLinejoin={"round"} strokeWidth={32} d={"M112 416h288"} />
+    </svg>
+  );
+}
+
 export function EarthOutline({
   size,
   color,

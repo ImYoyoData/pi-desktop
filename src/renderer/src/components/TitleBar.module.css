@@ -108,22 +108,30 @@
   gap: 2px;
 }
 
+/* 有新版本时的标题栏入口：胶囊小按钮，鼠标悬停才显出底色。 */
 .updateBtn {
-  position: relative;
-  flex-shrink: 0;
-  margin-right: 2px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 22px;
+  padding: 0 8px;
+  border: none;
+  border-radius: 11px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease;
 }
 
-.updateDot {
-  position: absolute;
-  top: 4px;
-  right: 4px;
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: var(--accent);
-  box-shadow: 0 0 0 1.5px var(--bg-title, var(--bg));
-  pointer-events: none;
+.updateBtn:hover {
+  background: var(--accent-soft-hover);
+}
+
+.updateBtn > svg {
+  display: block;
+  flex-shrink: 0;
 }
 
 .windowControls {
