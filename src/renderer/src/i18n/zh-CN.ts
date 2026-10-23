@@ -59,6 +59,40 @@ const BUILTIN_TOOL_DESCRIPTIONS: Record<string, string> = {
 /** UI copy — Simplified Chinese */
 export const zh = {
 	appName: "Pi Desktop",
+	updateTestGroup: "应用更新",
+	updateTestLabel: "测试自动更新",
+	updateTestHint:
+		"真实走一遍更新：检测最新版本 → 下载安装包 → 安装时退出程序。安装包约 138MB，会覆盖当前安装的版本。",
+	updateTestStart: "开始测试",
+	updateTestConfirm:
+		"将下载最新版本的完整安装包（约 138MB），下载完成后点击「安装并重启」即可真实安装，Pi Desktop 会在安装时退出。",
+	updateTestConfirmOk: "下载并安装",
+	updateTestCancel: "取消",
+	updateCheck: "检查更新",
+	updateUpToDate: "已是最新版本",
+	updateAvailable: "新版本",
+	updateAvailableTip: (version: string) => `发现新版本 ${version}，点击下载`,
+	updateReady: "可安装",
+	updateReadyTip: "更新已下载完成，点击安装",
+	updateDownloadingTip: (percent: number) => `正在下载 ${percent}%`,
+	updateChecking: "正在检查更新…",
+	updateCheckingHint: "正在从 GitHub Releases 获取最新版本。",
+	updateDownloading: "正在下载更新",
+	updateReadyDetail: (version: string) =>
+		`新版本 ${version} 已下载完成，安装会自动退出当前程序。`,
+	updateFailed: "更新失败",
+	updateCancel: "取消下载",
+	updateLater: "稍后",
+	updateInstallRestart: "安装并重启",
+	updateInstallOpenImage: "打开镜像并退出",
+	updateMacManual:
+		"macOS 需要手动替换：点击后会打开磁盘镜像，请把 Pi Desktop 拖到「应用程序」文件夹后重新启动。",
+	updateRetry: "重试",
+	updateClose: "关闭",
+	updateEta: (seconds: number) =>
+		seconds < 60
+			? `剩余约 ${seconds} 秒`
+			: `剩余约 ${Math.floor(seconds / 60)} 分 ${seconds % 60} 秒`,
 	expandToolCalls: "展开工具调用详情",
 	openFolder: "打开文件夹",
 	noFolder: "未打开工作区",
@@ -923,21 +957,6 @@ export const zh = {
 	appearanceMessageWidthValue: (percent: number) =>
 		percent >= 100 ? "全宽" : `${percent}%`,
 	githubOpen: "打开 GitHub 项目",
-	checkUpdate: "检查更新",
-	checkingUpdate: "正在检查更新…",
-	updateAvailableTitle: (v: string) => `发现新版本 v${v}`,
-	updateVersionLine: (current: string, latest: string) =>
-		`当前 ${current} → 最新 ${latest}`,
-	updateNotes: "更新内容",
-	updateNoNotes: "暂无更新说明",
-	updateDownload: "下载并安装",
-	updateCancel: "取消下载",
-	updateCancelled: "已取消下载",
-	updateDownloading: "正在下载…",
-	updateDownloaded: "已打开安装包，请按提示完成更新",
-	updateOpenRelease: "打开发布页",
-	updateRecheck: "重新检查",
-	updateUpToDate: "已是最新版本",
 	aboutTitle: "关于",
 	aboutVersion: "版本",
 	aboutAuthor: "作者",

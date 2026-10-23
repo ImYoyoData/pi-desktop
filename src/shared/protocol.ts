@@ -295,10 +295,20 @@ export const IpcChannels = {
 		openGithub: "update:openGithub",
 		openReleases: "update:openReleases",
 		openAuthorEmail: "update:openAuthorEmail",
+		/** Renderer → main: 读取当前更新状态。 */
+		getState: "update:getState",
+		/** Renderer → main: 检查是否有新版本。 */
 		check: "update:check",
+		/** Renderer → main: 开始下载新版本。 */
 		download: "update:download",
+		/** Renderer → main: 忽略版本比较，真实下载并安装最新发布版。 */
+		forceUpdate: "update:forceUpdate",
+		/** Renderer → main: 取消下载。 */
 		cancel: "update:cancel",
-		progress: "update:progress",
+		/** Renderer → main: 退出应用并启动安装程序。 */
+		install: "update:install",
+		/** Main → renderer: 更新状态变化。 */
+		state: "update:state",
 	},
 	contributors: {
 		avatar: "contributors:avatar",

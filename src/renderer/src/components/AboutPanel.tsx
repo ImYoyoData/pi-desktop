@@ -4,6 +4,8 @@ import {
   SettingsGroup,
   SettingsRow,
 } from "@renderer/components/customize/SettingsGroup";
+import { useMessage } from "@renderer/services/feedback";
+import { useAppUpdateStore } from "@renderer/stores/app-update";
 import { useI18n } from "@renderer/i18n/use-i18n";
 import { CONTRIBUTORS, type Contributor } from "../../../shared/contributors";
 import styles from "./AboutPanel.module.css";
@@ -16,9 +18,13 @@ type AppInfo = {
 
 export function AboutPanel(): ReactNode {
   const t = useI18n();
+  const message = useMessage();
   const [appInfo, setAppInfo] = useState<AppInfo | null>(null);
   const [avatars, setAvatars] = useState<Record<string, string>>({});
   const [selected, setSelected] = useState<Contributor | null>(null);
+
+  const updateStatus = useAppUpdateStore((s) => s.state.status);
+  const checkUpdate = useAppUpdateStore((s) => s.check);
 
   /** 按提交数排名，网格与详情弹窗共用同一顺序。 */
   const ranked = useMemo(
@@ -62,6 +68,20 @@ export function AboutPanel(): ReactNode {
     void window.api.browser.openExternal(appInfo?.githubUrl ?? "");
   }
 
+  /** 手动检查更新：有新版本时提示去标题栏下载。 */
+  async function onCheckUpdate(): Promise<void> {
+    const result = await checkUpdate();
+    if (result.status === "available") {
+      message.success(t.updateAvailableTip(result.info?.version ?? ""), 4);
+      return;
+    }
+    if (result.error) {
+      message.error(result.error, 5);
+      return;
+    }
+    message.success(t.updateUpToDate, 3);
+  }
+
   function openProfile(contributor: Contributor): void {
     void window.api.browser.openExternal(contributor.htmlUrl);
   }
@@ -73,6 +93,14 @@ export function AboutPanel(): ReactNode {
           {t.appName}
         </Typography.Text>
         {appInfo ? <Typography.Text type="secondary">v{appInfo.version}</Typography.Text> : null}
+        <Button
+          size="small"
+          type="text"
+          loading={updateStatus === "checking"}
+          onClick={() => void onCheckUpdate()}
+        >
+          {t.updateCheck}
+        </Button>
       </div>
 
       <SettingsGroup>

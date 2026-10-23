@@ -59,6 +59,41 @@ const BUILTIN_TOOL_DESCRIPTIONS: Record<string, string> = {
 /** UI copy — English (fallback when system language is not Chinese) */
 export const en = {
 	appName: "Pi Desktop",
+	updateTestGroup: "Application updates",
+	updateTestLabel: "Test auto update",
+	updateTestHint:
+		"Run the real update flow: detect the latest release, download the installer, then install it. The installer is about 138MB and replaces the currently installed build.",
+	updateTestStart: "Start test",
+	updateTestConfirm:
+		"This downloads the full installer of the latest release (about 138MB). Once it finishes, click “Install and restart” to install it for real — Pi Desktop quits while installing.",
+	updateTestConfirmOk: "Download and install",
+	updateTestCancel: "Cancel",
+	updateCheck: "Check for updates",
+	updateUpToDate: "You are up to date",
+	updateAvailable: "Update",
+	updateAvailableTip: (version: string) =>
+		`Version ${version} is available — click to download`,
+	updateReady: "Ready",
+	updateReadyTip: "Update downloaded — click to install",
+	updateDownloadingTip: (percent: number) => `Downloading ${percent}%`,
+	updateChecking: "Checking for updates…",
+	updateCheckingHint: "Fetching the latest release from GitHub.",
+	updateDownloading: "Downloading update",
+	updateReadyDetail: (version: string) =>
+		`Version ${version} is downloaded. Installing closes the app.`,
+	updateFailed: "Update failed",
+	updateCancel: "Cancel download",
+	updateLater: "Later",
+	updateInstallRestart: "Install and restart",
+	updateInstallOpenImage: "Open image and quit",
+	updateMacManual:
+		"macOS updates are manual: the disk image opens next — drag Pi Desktop into Applications, then launch it again.",
+	updateRetry: "Retry",
+	updateClose: "Close",
+	updateEta: (seconds: number) =>
+		seconds < 60
+			? `${seconds}s left`
+			: `${Math.floor(seconds / 60)}m ${seconds % 60}s left`,
 	expandToolCalls: "Expand tool call details",
 	openFolder: "Open Folder",
 	noFolder: "No workspace open",
@@ -954,21 +989,6 @@ export const en = {
 	appearanceMessageWidthValue: (percent: number) =>
 		percent >= 100 ? "Full width" : `${percent}%`,
 	githubOpen: "Open GitHub repository",
-	checkUpdate: "Check for updates",
-	checkingUpdate: "Checking for updates…",
-	updateAvailableTitle: (v: string) => `Update available — v${v}`,
-	updateVersionLine: (current: string, latest: string) =>
-		`Current ${current} → Latest ${latest}`,
-	updateNotes: "What's new",
-	updateNoNotes: "No release notes",
-	updateDownload: "Download & install",
-	updateCancel: "Cancel download",
-	updateCancelled: "Download cancelled",
-	updateDownloading: "Downloading…",
-	updateDownloaded: "Installer opened — follow the prompts to finish updating",
-	updateOpenRelease: "Open release page",
-	updateRecheck: "Check again",
-	updateUpToDate: "You're up to date",
 	aboutTitle: "About",
 	aboutVersion: "Version",
 	aboutAuthor: "Author",

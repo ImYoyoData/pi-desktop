@@ -43,7 +43,6 @@ import type {
 } from "../shared/model-discover";
 import type { PreviewResult } from "../shared/preview-types";
 import type { RetrySettings } from "../shared/retry-settings";
-import type { UpdateCheckResult, UpdateProgress } from "../shared/update";
 import type {
 	PiCliInstallProgress,
 	PiCliInstallResult,
@@ -69,6 +68,7 @@ import type {
 import type { ProxySettings } from "../shared/proxy";
 import type { ThinkingLanguageSettings } from "../shared/thinking-language";
 import type { StreamRenderSettings } from "../shared/stream-render";
+import type { AppUpdateState } from "../shared/update";
 export type AppInfo = {
 	version: string;
 	githubUrl: string;
@@ -77,7 +77,6 @@ export type AppInfo = {
 	qq: string;
 	email: string;
 };
-export type { UpdateProgress };
 export type {
 	AgentCommand,
 	AgentEvent,
@@ -841,10 +840,13 @@ declare const api: {
 		openGithub: () => Promise<void>;
 		openReleases: () => Promise<void>;
 		openAuthorEmail: () => Promise<void>;
-		check: (opts?: { download?: boolean }) => Promise<UpdateCheckResult>;
-		download: () => Promise<UpdateCheckResult>;
-		cancel: () => Promise<boolean>;
-		onProgress: (callback: (progress: UpdateProgress) => void) => () => void;
+		getState: () => Promise<AppUpdateState>;
+		check: () => Promise<AppUpdateState>;
+		download: () => Promise<void>;
+		forceUpdate: () => Promise<void>;
+		cancel: () => Promise<void>;
+		install: () => Promise<void>;
+		onState: (callback: (state: AppUpdateState) => void) => () => void;
 	};
 	piCli: {
 		status: () => Promise<PiCliStatus>;
