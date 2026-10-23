@@ -9,9 +9,12 @@ import {
 import {
   CUSTOM_APPEARANCE_KEY,
   CUSTOM_APPEARANCE_LEGACY_KEY,
+  FONT_SIZE_CHOICES,
+  FONT_SIZE_DEFAULT,
   VEIL_BLUR_MAX_PX,
   createDefaultCustomAppearance,
   normalizeCustomAppearance,
+  normalizeFontSize,
   normalizeMessageWidth,
   wallpaperKindForPath,
   type CustomAppearanceSettings,
@@ -26,6 +29,7 @@ export type SurfaceAlphaKey = keyof SurfaceAlphaSettings;
 
 const THEME_KEY = "pi-desktop:theme-preference";
 const LOCALE_KEY = "pi-desktop:locale-preference";
+const FONT_SIZE_KEY = "pi-desktop:font-size";
 const COMPACT_BTN_KEY = "pi-desktop:show-compact-button";
 const SESSION_DETAILS_KEY = "pi-desktop:session-details";
 const SESSION_TITLE_KEY = "pi-desktop:session-title";
@@ -137,6 +141,17 @@ function readLocalePreference(): LocalePreference {
   return "system";
 }
 
+/** 界面字号档位（整体缩放比例）。 */
+function readFontSize(): number {
+  try {
+    const raw = prefs.getItem(FONT_SIZE_KEY);
+    if (raw === null) return FONT_SIZE_DEFAULT;
+    return normalizeFontSize(raw);
+  } catch {
+    return FONT_SIZE_DEFAULT;
+  }
+}
+
 function systemPrefersDark(): boolean {
   if (typeof window === "undefined" || !window.matchMedia) return false;
   return window.matchMedia("(prefers-color-scheme: dark)").matches;
@@ -165,6 +180,11 @@ function scheduleChromeSync(pref: ThemePreference, mode: ResolvedTheme): void {
   });
 }
 
+/** 字号走窗口级缩放，文字、图标与间距等比放大，布局不塌。 */
+function applyFontSize(size: number): void {
+  void window.api.window.setZoomFactor(size);
+}
+
 /** 已下线的开关：清掉历史遗留的偏好键。 */
 function dropObsoletePrefs(): void {
   for (const key of [
@@ -185,6 +205,8 @@ function dropObsoletePrefs(): void {
 type AppearanceBase = {
   themePreference: ThemePreference;
   localePreference: LocalePreference;
+  /** 界面字号档位：整体缩放比例。 */
+  fontSize: number;
   systemDark: boolean;
   showCompactButton: boolean;
   showSessionDetails: boolean;
@@ -207,6 +229,9 @@ export type AppearanceState = AppearanceBase &
   AppearanceDerived & {
     setThemePreference: (next: ThemePreference) => void;
     setLocalePreference: (next: LocalePreference) => void;
+    setFontSize: (next: number) => void;
+    /** 菜单缩放：在字号档位之间上/下一档。 */
+    stepFontSize: (direction: 1 | -1) => void;
     setShowCompactButton: (next: boolean) => void;
     setShowSessionDetails: (next: boolean) => void;
     setShowSessionTitle: (next: boolean) => void;
@@ -250,6 +275,7 @@ function initialBase(): AppearanceBase {
   return {
     themePreference: readThemePreference(),
     localePreference: readLocalePreference(),
+    fontSize: readFontSize(),
     systemDark: systemPrefersDark(),
     showCompactButton: readShowCompactButton(),
     showSessionDetails: readSessionDetails(),
@@ -343,6 +369,25 @@ export const useAppearanceStore = create<AppearanceState>()((set, get) => {
       applyUiLocale(state.resolvedUiLocale);
       void window.api.window.setUiLocale(state.resolvedUiLocale);
     },
+    setFontSize: (next) => {
+      const size = normalizeFontSize(next);
+      if (size === get().fontSize) return;
+      commit({ fontSize: size });
+      try {
+        prefs.setItem(FONT_SIZE_KEY, String(size));
+      } catch {
+        // ignore
+      }
+      applyFontSize(size);
+    },
+    stepFontSize: (direction) => {
+      const choices: readonly number[] = FONT_SIZE_CHOICES;
+      const current = get().fontSize;
+      const found = choices.findIndex((choice) => choice === current);
+      const from = found < 0 ? choices.indexOf(FONT_SIZE_DEFAULT) : found;
+      const next = choices[Math.min(choices.length - 1, Math.max(0, from + direction))];
+      get().setFontSize(next);
+    },
     setShowCompactButton: (next) => {
       set({ showCompactButton: next });
       try {
@@ -410,6 +455,7 @@ export const useAppearanceStore = create<AppearanceState>()((set, get) => {
     },
     init: () => {
       syncGlassShell();
+      applyFontSize(get().fontSize);
       dropObsoletePrefs();
       return syncSystemListener();
     },

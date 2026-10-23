@@ -14,13 +14,13 @@
   animation: update-rise 160ms ease-out;
 }
 
+/* 只做位移不做透明度：透明度小于 1 会让整棵子树另起一个 backdrop root，
+   壁纸模式下浮层的 backdrop-filter 便取不到壁纸，起落时会闪一下全透明。 */
 @keyframes update-rise {
   from {
-    opacity: 0;
     transform: translateY(6px);
   }
   to {
-    opacity: 1;
     transform: translateY(0);
   }
 }

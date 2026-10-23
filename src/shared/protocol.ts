@@ -1,7 +1,11 @@
 import type { LegacyModeTagKind } from "./injected-blocks";
 
 /** 主进程原生菜单向渲染进程发送的命令。 */
-export type MenuCommand = "open-pull-requests";
+export type MenuCommand =
+	| "open-pull-requests"
+	| "zoom-in"
+	| "zoom-out"
+	| "zoom-reset";
 
 export const IpcChannels = {
 	window: {
@@ -20,6 +24,7 @@ export const IpcChannels = {
 		setChromeTheme: "window:setChromeTheme",
 		requestMediaAccess: "window:requestMediaAccess",
 		setUiLocale: "window:setUiLocale",
+		setZoomFactor: "window:setZoomFactor",
 		openDevTools: "window:openDevTools",
 		/** Main → renderer: 右键编辑菜单（自绘）。 */
 		contextMenu: "window:contextMenu",

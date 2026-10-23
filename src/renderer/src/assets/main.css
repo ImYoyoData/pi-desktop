@@ -645,6 +645,21 @@ button {
   border-color: var(--accent-border) !important;
 }
 
+/*
+ * 右下角更新进度框挂在 body 上，不在设置页作用域内，
+ * 次级按钮要单独跟随浮层表面，否则实色按钮块会与玻璃浮层脱节。
+ */
+.pi-update-panel .ant-btn:not(.ant-btn-primary):not(.ant-btn-text):not(.ant-btn-link) {
+  background-color: var(--bg-elevated) !important;
+  border-color: var(--border) !important;
+}
+
+.pi-update-panel
+  .ant-btn:not(.ant-btn-primary):not(.ant-btn-text):not(.ant-btn-link):hover:not(:disabled) {
+  background-color: var(--bg-active) !important;
+  border-color: var(--accent-border) !important;
+}
+
 .pi-settings-modal .ant-checkbox-inner,
 .modal-editor-panel .ant-checkbox-inner {
   border-color: var(--border) !important;
