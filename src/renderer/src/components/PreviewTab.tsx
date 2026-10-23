@@ -2,6 +2,7 @@ import {
   forwardRef,
   useEffect,
   useImperativeHandle,
+  useMemo,
   useRef,
   useState,
   type ReactNode,
@@ -25,6 +26,8 @@ import {
   type FsChangedPayload,
 } from "@renderer/utils/fs-changed-bus";
 import { loadMonaco } from "@renderer/utils/monaco-loader";
+import { parentDir } from "@renderer/utils/fs-path";
+import type { MarkdownAssetBase } from "@renderer/utils/markdown-assets";
 import {
   applyMonacoColorTheme,
   injectEditorStyleOverrides,
@@ -144,6 +147,16 @@ export const PreviewTab = forwardRef<PreviewTabHandle, Props>(function PreviewTa
   const crumbs = currentPath ? breadcrumbs(currentPath) : [];
   const errorText =
     result?.kind === "error" ? result.message : t.fileDeletedHint;
+
+  /** 相对路径图片按文档所在目录解析。 */
+  const workspaceRoot = useWorkspaceStore((s) => s.root);
+  const mdAssets = useMemo<MarkdownAssetBase | null>(() => {
+    if (!currentPath) return null;
+    const root = workspaceRoot ?? "";
+    if (!root && !isAbsoluteFsPath(currentPath)) return null;
+    const absolute = absoluteWorkspacePath(root, currentPath);
+    return { dir: parentDir(absolute), root: root || null };
+  }, [currentPath, workspaceRoot]);
 
   function stopMedia(): void {
     useMediaStore.getState().stopByPrefix(mediaIdPrefix);
@@ -972,7 +985,7 @@ export const PreviewTab = forwardRef<PreviewTabHandle, Props>(function PreviewTa
                       />
                       {showMdPreview ? (
                         <div className={styles.mdPreview}>
-                          <MarkdownView content={liveContent} />
+                          <MarkdownView content={liveContent} assets={mdAssets} />
                         </div>
                       ) : null}
                     </div>

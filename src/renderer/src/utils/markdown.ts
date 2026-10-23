@@ -3,8 +3,22 @@ import katex from "katex";
 import { marked, type Token } from "marked";
 import markedKatex from "marked-katex-extension";
 import hljs from "highlight.js/lib/common";
+import {
+  resolveMarkdownImageSrc,
+  type MarkdownAssetBase,
+} from "@renderer/utils/markdown-assets";
 
 let copyButtonLabel = "Copy";
+
+/**
+ * 解析上下文：marked 渲染器是全局单例，只能靠调用前后切换。
+ * 图片的相对路径按它所属文档的目录解析。
+ */
+let currentAssets: MarkdownAssetBase | null = null;
+
+/** 允许应用内协议：默认规则不认 pi-local/pi-media，会把 src 整条抹掉。 */
+export const ALLOWED_URI_REGEXP =
+  /^(?:(?:(?:f|ht)tps?|mailto|tel|callto|sms|cid|xmpp|matrix|pi-local|pi-media):|[^a-z]|[a-z+.\-]+(?:[^a-z+.\-:]|$))/i;
 
 /** Update copy button label (i18n). Safe to call from Vue setup. */
 export function setMarkdownCopyLabel(label: string): void {
@@ -128,6 +142,21 @@ marked.use({
       const label = tokens?.length ? this.parser.parseInline(tokens) : escapeHtml(text);
       return `<a href="${escapeHtml(href)}"${titleAttr} rel="noopener noreferrer">${label}</a>`;
     },
+    image({
+      href,
+      title,
+      text,
+    }: {
+      href: string;
+      title?: string | null;
+      text: string;
+    }) {
+      // 相对路径图片按文档所在目录解析；解析不了就交回默认渲染器。
+      const src = resolveMarkdownImageSrc(href, currentAssets);
+      if (!src) return false;
+      const titleAttr = title ? ` title="${escapeHtml(title)}"` : "";
+      return `<img src="${escapeHtml(src)}" alt="${escapeHtml(text)}"${titleAttr}>`;
+    },
   },
 });
 
@@ -206,17 +235,26 @@ const htmlCache = new Map<string, string>();
 const HTML_CACHE_MAX_ENTRIES = 300;
 const HTML_CACHE_SKIP_CHARS = 120_000;
 
-export function renderMarkdownCached(content: string): string {
-  const key = content || "";
-  if (key.length > MESSAGE_MARKDOWN_MAX_CHARS) return renderPlainTextBlock(key);
-  if (key.length > HTML_CACHE_SKIP_CHARS) return renderMarkdown(key);
+/** 缓存键要带上图片解析基准：同一段内容在不同目录下的图片地址不同。 */
+function cacheKey(content: string, assets: MarkdownAssetBase | null): string {
+  if (!assets) return content;
+  return `${assets.dir}\u0000${assets.root ?? ""}\u0000${content}`;
+}
+
+export function renderMarkdownCached(
+  content: string,
+  assets: MarkdownAssetBase | null = null,
+): string {
+  const key = cacheKey(content, assets);
+  if (key.length > MESSAGE_MARKDOWN_MAX_CHARS) return renderPlainTextBlock(content);
+  if (key.length > HTML_CACHE_SKIP_CHARS) return renderMarkdown(content, assets);
   const hit = htmlCache.get(key);
   if (hit !== undefined) {
     htmlCache.delete(key);
     htmlCache.set(key, hit);
     return hit;
   }
-  const html = renderMarkdown(key);
+  const html = renderMarkdown(content, assets);
   htmlCache.set(key, html);
   if (htmlCache.size > HTML_CACHE_MAX_ENTRIES) {
     const oldest = htmlCache.keys().next().value;
@@ -362,17 +400,38 @@ function renderPlainTextBlock(content: string): string {
 }
 
 /** 块级 markdown 渲染：超大块降级为纯文本。 */
-export function renderMarkdownBlock(content: string): string {
+export function renderMarkdownBlock(
+  content: string,
+  assets: MarkdownAssetBase | null = null,
+): string {
   const text = content ?? "";
   return text.length > BLOCK_MARKDOWN_MAX_CHARS
     ? renderPlainTextBlock(text)
-    : renderMarkdown(text);
+    : renderMarkdown(text, assets);
+}
+
+/** 解析 markdown：图片相对路径依赖文档目录，解析期间临时挂上基准。 */
+function parseWithAssets(
+  content: string,
+  assets: MarkdownAssetBase | null,
+): string {
+  const previous = currentAssets;
+  currentAssets = assets;
+  try {
+    return marked.parse(content || "", { async: false }) as string;
+  } finally {
+    currentAssets = previous;
+  }
 }
 
 /** Parse GFM markdown → sanitized HTML for chat bubbles (uncached). */
-export function renderMarkdown(content: string): string {
-  const raw = marked.parse(content || "", { async: false }) as string;
+export function renderMarkdown(
+  content: string,
+  assets: MarkdownAssetBase | null = null,
+): string {
+  const raw = parseWithAssets(content, assets);
   return DOMPurify.sanitize(wrapTables(raw), {
+    ALLOWED_URI_REGEXP,
     ADD_TAGS: ["button", "input"],
     ADD_ATTR: [
       "data-copy",
@@ -412,6 +471,9 @@ export function renderMarkdown(content: string): string {
 }
 
 /** Pure marked output for unit tests (no DOMPurify / window). */
-export function parseMarkdownRaw(content: string): string {
-  return marked.parse(content || "", { async: false }) as string;
+export function parseMarkdownRaw(
+  content: string,
+  assets: MarkdownAssetBase | null = null,
+): string {
+  return parseWithAssets(content, assets);
 }
