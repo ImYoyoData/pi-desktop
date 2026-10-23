@@ -20,6 +20,7 @@ import { getLocale } from "@renderer/i18n";
 import { dismissStartupSplash } from "@renderer/utils/startup-splash";
 import { markRendererStartup } from "@renderer/utils/startup-timing";
 import { isTextEntryTarget } from "@renderer/utils/keyboard-target";
+import { FONT_SIZE_DEFAULT } from "../../shared/appearance";
 import "./App.css";
 
 /** Heavy workspace chrome — load after first paint when a folder is open. */
@@ -84,6 +85,10 @@ export function App(): React.ReactNode {
     window.addEventListener("keydown", onDialogEnterKeydown, true);
     const offMenuCommand = window.api.window.onMenuCommand((command) => {
       if (command === "open-pull-requests") useLayoutStore.getState().showPullRequests();
+      else if (command === "zoom-in") useAppearanceStore.getState().stepFontSize(1);
+      else if (command === "zoom-out") useAppearanceStore.getState().stepFontSize(-1);
+      else if (command === "zoom-reset")
+        useAppearanceStore.getState().setFontSize(FONT_SIZE_DEFAULT);
     });
     const keybindings = useKeybindingsStore.getState();
     keybindings.install();

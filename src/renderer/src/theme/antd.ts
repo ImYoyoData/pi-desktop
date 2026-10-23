@@ -1,4 +1,4 @@
-import { theme, type ThemeConfig } from "antd";
+import { theme, type MappingAlgorithm, type ThemeConfig } from "antd";
 import zhCN from "antd/locale/zh_CN";
 import enUS from "antd/locale/en_US";
 import type { Locale } from "antd/es/locale";
@@ -24,13 +24,36 @@ const sharedToken = {
 /** 开启 CSS 变量模式：壁纸玻璃态靠覆盖 `--ant-color-*` 变量实现。 */
 const cssVar = { prefix: "ant" };
 
+/** 应用主色：与 main.css 里的 `--accent` 保持同色。 */
+const LIGHT_PRIMARY = "#0069cc";
+const DARK_PRIMARY = "#297aa0";
+
+/**
+ * antd 的算法会改写 colorPrimary（暗色下压成 #266b8b），
+ * 而应用自绘控件用的是 --accent，同一屏里两种主色对不上。
+ * 这里在算法结果上把主色钉死成与 --accent 相同的色值。
+ * 包装结果必须是模块级常量：算法函数换了引用，antd 会重建整套样式缓存。
+ */
+function withPrimaryColor(
+  algorithm: MappingAlgorithm,
+  primary: string,
+): MappingAlgorithm {
+  return (token, derivativeToken) => ({
+    ...algorithm(token, derivativeToken),
+    colorPrimary: primary,
+  });
+}
+
+const lightAlgorithm = withPrimaryColor(theme.defaultAlgorithm, LIGHT_PRIMARY);
+const darkAlgorithm = withPrimaryColor(theme.darkAlgorithm, DARK_PRIMARY);
+
 /** 浅色主题 — VS Code "2026 Light"。 */
 export const lightThemeConfig: ThemeConfig = {
-  algorithm: theme.defaultAlgorithm,
+  algorithm: lightAlgorithm,
   cssVar,
   token: {
     ...sharedToken,
-    colorPrimary: "#0069cc",
+    colorPrimary: LIGHT_PRIMARY,
     colorText: "#202020",
     colorTextSecondary: "#606060",
     colorTextTertiary: "#999999",
@@ -46,11 +69,11 @@ export const lightThemeConfig: ThemeConfig = {
 
 /** 深色主题 — VS Code "2026 Dark"。 */
 export const darkThemeConfig: ThemeConfig = {
-  algorithm: theme.darkAlgorithm,
+  algorithm: darkAlgorithm,
   cssVar,
   token: {
     ...sharedToken,
-    colorPrimary: "#297aa0",
+    colorPrimary: DARK_PRIMARY,
     colorText: "#f5f6f7",
     colorTextSecondary: "#cfd3d6",
     colorTextTertiary: "#adb2b8",

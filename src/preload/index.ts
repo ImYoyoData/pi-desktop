@@ -191,6 +191,8 @@ const api = {
 			ipcRenderer.invoke(IpcChannels.window.setChromeTheme, mode) as Promise<void>,
 		setUiLocale: (locale: "zh-CN" | "en") =>
 			ipcRenderer.invoke(IpcChannels.window.setUiLocale, locale) as Promise<void>,
+		setZoomFactor: (factor: number) =>
+			ipcRenderer.invoke(IpcChannels.window.setZoomFactor, factor) as Promise<void>,
 		requestMediaAccess: (kind: "microphone" | "camera") =>
 			ipcRenderer.invoke(
 				IpcChannels.window.requestMediaAccess,

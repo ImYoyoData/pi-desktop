@@ -45,7 +45,7 @@ export function UpdateProgress(): ReactNode {
 	})();
 
 	return createPortal(
-		<div className={styles.panel} role="status" aria-live="polite">
+		<div className={`pi-update-panel ${styles.panel}`} role="status" aria-live="polite">
 			<div className={styles.head}>
 				<span className={styles.title}>{title}</span>
 				<button
@@ -67,6 +67,7 @@ export function UpdateProgress(): ReactNode {
 							size="small"
 							showInfo={false}
 							status="active"
+							railColor="var(--border-strong)"
 						/>
 						<div className={styles.meta}>
 							<span>{formatSpeed(progress?.bytesPerSecond ?? 0)}</span>

@@ -7,7 +7,7 @@ import {
 } from "@renderer/stores/appearance";
 import { useStreamRenderStore } from "@renderer/stores/stream-render";
 import { STREAM_RENDER_THROTTLE_CHOICES } from "../../../shared/stream-render";
-import { MESSAGE_WIDTH_CHOICES } from "../../../shared/appearance";
+import { FONT_SIZE_CHOICES, MESSAGE_WIDTH_CHOICES } from "../../../shared/appearance";
 import AppearanceWallpaperCard from "@renderer/components/customize/AppearanceWallpaperCard";
 import {
   SettingsGroup,
@@ -43,8 +43,17 @@ export function AppearancePanel(): ReactNode {
     if (typeof value === "number") appearance.setMessageWidth(value);
   }
 
+  function onFontSizeChange(value: string | number | null): void {
+    if (typeof value === "number") appearance.setFontSize(value);
+  }
+
   const messageWidthOptions: Option[] = MESSAGE_WIDTH_CHOICES.map((value) => ({
     label: t.appearanceMessageWidthValue(Math.round(value * 100)),
+    value,
+  }));
+
+  const fontSizeOptions: Option[] = FONT_SIZE_CHOICES.map((value) => ({
+    label: t.appearanceFontSizeValue(Math.round(value * 100)),
     value,
   }));
 
@@ -89,6 +98,16 @@ export function AppearancePanel(): ReactNode {
             size="small"
             className={styles.settingSelect}
             onChange={(value) => onLocaleUpdate(value)}
+          />
+        </SettingsRow>
+
+        <SettingsRow label={t.appearanceFontSize} description={t.appearanceFontSizeTip}>
+          <Select
+            value={appearance.fontSize}
+            options={fontSizeOptions}
+            size="small"
+            className={styles.settingSelect}
+            onChange={(value) => onFontSizeChange(value)}
           />
         </SettingsRow>
       </SettingsGroup>

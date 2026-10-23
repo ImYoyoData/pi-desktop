@@ -61,13 +61,7 @@ export const en = {
 	appName: "Pi Desktop",
 	updateTestGroup: "Application updates",
 	updateTestLabel: "Test auto update",
-	updateTestHint:
-		"Run the real update flow: detect the latest release, download the installer, then install it. The installer is about 138MB and replaces the currently installed build.",
 	updateTestStart: "Start test",
-	updateTestConfirm:
-		"This downloads the full installer of the latest release (about 138MB). Once it finishes, click “Install and restart” to install it for real — Pi Desktop quits while installing.",
-	updateTestConfirmOk: "Download and install",
-	updateTestCancel: "Cancel",
 	updateCheck: "Check for updates",
 	updateUpToDate: "You are up to date",
 	updateAvailable: "Update",
@@ -988,6 +982,9 @@ export const en = {
 	appearanceMessageWidth: "Message width",
 	appearanceMessageWidthValue: (percent: number) =>
 		percent >= 100 ? "Full width" : `${percent}%`,
+	appearanceFontSize: "Font size",
+	appearanceFontSizeTip: "Scales interface text, icons and spacing proportionally.",
+	appearanceFontSizeValue: (percent: number) => `${percent}%`,
 	githubOpen: "Open GitHub repository",
 	aboutTitle: "About",
 	aboutVersion: "Version",

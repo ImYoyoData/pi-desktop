@@ -61,13 +61,7 @@ export const zh = {
 	appName: "Pi Desktop",
 	updateTestGroup: "应用更新",
 	updateTestLabel: "测试自动更新",
-	updateTestHint:
-		"真实走一遍更新：检测最新版本 → 下载安装包 → 安装时退出程序。安装包约 138MB，会覆盖当前安装的版本。",
 	updateTestStart: "开始测试",
-	updateTestConfirm:
-		"将下载最新版本的完整安装包（约 138MB），下载完成后点击「安装并重启」即可真实安装，Pi Desktop 会在安装时退出。",
-	updateTestConfirmOk: "下载并安装",
-	updateTestCancel: "取消",
 	updateCheck: "检查更新",
 	updateUpToDate: "已是最新版本",
 	updateAvailable: "新版本",
@@ -956,6 +950,9 @@ export const zh = {
 	appearanceMessageWidth: "消息区宽度",
 	appearanceMessageWidthValue: (percent: number) =>
 		percent >= 100 ? "全宽" : `${percent}%`,
+	appearanceFontSize: "字体大小",
+	appearanceFontSizeTip: "按比例缩放界面文字、图标与间距。",
+	appearanceFontSizeValue: (percent: number) => `${percent}%`,
 	githubOpen: "打开 GitHub 项目",
 	aboutTitle: "关于",
 	aboutVersion: "版本",

@@ -116,6 +116,7 @@ declare const api: {
 		setThemeSource: (source: "system" | "light" | "dark") => Promise<void>;
 		setChromeTheme: (mode: "light" | "dark") => Promise<void>;
 		setUiLocale: (locale: "zh-CN" | "en") => Promise<void>;
+		setZoomFactor: (factor: number) => Promise<void>;
 		requestMediaAccess: (kind: "microphone" | "camera") => Promise<boolean>;
 		openDevTools: () => Promise<void>;
 		onContextMenu: (

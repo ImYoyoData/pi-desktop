@@ -37,6 +37,11 @@ export const MESSAGE_WIDTH_CHOICES = [0.6, 0.75, 0.8, 0.85, 1] as const;
 /** 默认档位。 */
 export const MESSAGE_WIDTH_DEFAULT = 0.75;
 
+/** 界面字号档位：整体缩放比例，文字、图标与间距同步缩放。 */
+export const FONT_SIZE_CHOICES = [0.9, 1, 1.1, 1.25, 1.5] as const;
+/** 默认字号档位。 */
+export const FONT_SIZE_DEFAULT = 1;
+
 export const WALLPAPER_IMAGE_EXTENSIONS = [
   "png",
   "jpg",
@@ -70,6 +75,14 @@ export function normalizeMessageWidth(value: unknown): number {
   const n = typeof value === "number" ? value : Number(value);
   if (!Number.isFinite(n)) return MESSAGE_WIDTH_DEFAULT;
   return MESSAGE_WIDTH_CHOICES.reduce((best, choice) =>
+    Math.abs(choice - n) < Math.abs(best - n) ? choice : best,
+  );
+}
+
+export function normalizeFontSize(value: unknown): number {
+  const n = typeof value === "number" ? value : Number(value);
+  if (!Number.isFinite(n)) return FONT_SIZE_DEFAULT;
+  return FONT_SIZE_CHOICES.reduce((best, choice) =>
     Math.abs(choice - n) < Math.abs(best - n) ? choice : best,
   );
 }
