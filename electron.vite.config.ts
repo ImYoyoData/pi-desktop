@@ -141,13 +141,7 @@ export default defineConfig({
       },
     },
     plugins: [
-      react({
-        template: {
-          compilerOptions: {
-            isCustomElement: (tag) => tag === "webview",
-          },
-        },
-      }),
+      react(),
       trimMonacoLanguages(),
     ],
     build: {
