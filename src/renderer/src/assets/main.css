@@ -82,14 +82,15 @@
   --code-bg: #eaeaea;
   --pre-bg: #eaeaea;
   --md-inline-code-bg: #ececec;
-  --scrollbar: rgba(100, 100, 100, 0.75);
-  --scrollbar-hover: rgba(100, 100, 100, 0.82);
-  --scrollbar-active: rgba(100, 100, 100, 0.88);
+  --scrollbar-rgb: 100 100 100;
+  --scrollbar-alpha: 0.5;
+  --scrollbar-hover-alpha: 0.62;
+  --scrollbar-active-alpha: 0.72;
 
   /* Copilot (VS Code) chat tokens — see docs/superpowers/plans/2026-09-05-copilot-style-output.md */
-  --chat-font-m: 13px;
-  --chat-font-s: 12px;
-  --chat-font-xs: 11px;
+  --chat-font-m: 1rem;
+  --chat-font-s: 0.9231rem;
+  --chat-font-xs: 0.8462rem;
   --chat-desc-fg: #606060;
   --chat-line: #e2e2e5;
   --chat-hover-bg: #00000014;
@@ -160,13 +161,14 @@ html[data-theme="dark"] {
   --code-bg: #242526;
   --pre-bg: #242526;
   --md-inline-code-bg: #262626;
-  --scrollbar: rgba(168, 169, 170, 0.52);
-  --scrollbar-hover: rgba(168, 169, 170, 0.56);
-  --scrollbar-active: rgba(168, 169, 170, 0.61);
+  --scrollbar-rgb: 168 169 170;
+  --scrollbar-alpha: 0.34;
+  --scrollbar-hover-alpha: 0.44;
+  --scrollbar-active-alpha: 0.54;
 
-  --chat-font-m: 13px;
-  --chat-font-s: 12px;
-  --chat-font-xs: 11px;
+  --chat-font-m: 1rem;
+  --chat-font-s: 0.9231rem;
+  --chat-font-xs: 0.8462rem;
   --chat-desc-fg: #9da1a6;
   --chat-line: #2a2b2c;
   --chat-hover-bg: #ffffff14;
@@ -187,12 +189,17 @@ body,
   padding: 0;
 }
 
+/* 界面字号基准：设置页按 px 覆盖这个值，rem 文字随之缩放。 */
+html {
+  font-size: 13px;
+}
+
 body {
   overflow: hidden;
   background: var(--bg);
   color: var(--fg);
   font-family: var(--font-ui);
-  font-size: 12.5px;
+  font-size: 0.9615rem;
   letter-spacing: -0.011em;
   user-select: none;
   text-rendering: optimizeLegibility;
@@ -227,11 +234,37 @@ button {
 
 .splitpanes {
   background: var(--bg) !important;
+  display: flex;
+  flex-direction: row;
+  width: 100%;
+  height: 100%;
+}
+
+.splitpanes--horizontal {
+  flex-direction: column;
+}
+
+.splitpanes__pane {
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+}
+
+.splitpanes__splitter {
+  flex: 0 0 auto;
+  cursor: col-resize;
+}
+
+.splitpanes--horizontal > .splitpanes__splitter {
+  cursor: row-resize;
 }
 
 .splitpanes__splitter {
   background: transparent !important;
   position: relative;
+  /* 分隔线本体只有 0.5px，可抓区靠 ::before 撑开；抬到面板之上，
+     否则命中区右半边会被右侧面板（同为 relative，按文档序后绘制）盖住。 */
+  z-index: 1;
   transition: background var(--duration-fast) var(--ease-out);
 }
 
@@ -261,27 +294,89 @@ button {
   inset: -3px;
 }
 
-/* 「界面分隔线」关闭：隐藏顶栏、聊天标题栏、左下快捷入口与侧栏分栏线 */
-.app-shell.panel-dividers-off .title-bar {
-  border-bottom-color: transparent;
+/* 分栏外壳：左侧栏 + 主区，主区内部再分聊天列与右侧面板 */
+.split-root {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
 }
 
-.app-shell.panel-dividers-off .chat-panel .head {
-  border-bottom-color: transparent;
+.split-root .panes,
+.split-root .splitpanes {
+  height: 100%;
 }
 
-.app-shell.panel-dividers-off .customize-bar {
-  border-top-color: transparent;
+.split-root .splitpanes__pane {
+  overflow: hidden;
+  background: var(--bg);
+  display: flex;
+  flex-direction: column;
+  /* splitpanes 默认给面板宽高加 0.2s 过渡，折叠/最大化会逐帧重排重内容区；
+     展开收起瞬时生效，一次布局代替十几帧。 */
+  transition: none;
+  will-change: auto;
 }
 
-.app-shell.panel-dividers-off .splitpanes.outer > .splitpanes__splitter {
-  background: transparent !important;
+.split-root .splitpanes__pane > * {
+  flex: 1;
+  min-height: 0;
+  height: 100%;
 }
 
-/* Refined scrollbars */
+.split-root .pane-collapsed {
+  overflow: hidden !important;
+  pointer-events: none;
+  visibility: hidden;
+  /* 隐藏面板整棵子树跳过布局/绘制（保留 DOM 与组件状态）。 */
+  content-visibility: hidden;
+}
+
+.split-root .panel-collapsed .splitpanes__splitter {
+  display: none;
+}
+
+/*
+ * 空态插图尺寸：antd 的 Empty 默认图按 token 渲染成 100px 高，
+ * 原来 naive-ui 的 NEmpty 是 40px。这里统一压回原尺寸，保持空态观感。
+ */
+.ant-empty .ant-empty-image {
+  height: 40px !important;
+}
+
+.ant-empty .ant-empty-image svg {
+  height: 100% !important;
+  width: auto !important;
+}
+
+/*
+ * Refined scrollbars
+ *
+ * 标准 scrollbar-width / scrollbar-color 与 ::-webkit-scrollbar 互斥：元素一旦设置标准
+ * 属性，Chromium 会改用原生平台滚动条（圆角拇指 + 竖向轨道两端的上下箭头），并忽略该
+ * 元素上全部 ::-webkit-scrollbar 规则。标准属性因此只对不支持 webkit 伪元素的引擎启用，
+ * Chromium 走下面的 webkit 规则（无箭头按钮）。
+ *
+ * 拇指空闲时透明，滚动时淡入、停止滚动后淡出。可见度由 --pi-scrollbar-alpha 决定：
+ * 脚本给滚动容器打上 .pi-scroll-active 后过渡到 1，停止滚动后回到 0。滚动条伪元素
+ * 自身的 transition 在 Chromium 里不参与动画，所以用 @property 注册变量来插值。
+ */
+@property --pi-scrollbar-alpha {
+  syntax: "<number>";
+  inherits: true;
+  initial-value: 0;
+}
+
+@supports not selector(::-webkit-scrollbar) {
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: rgb(var(--scrollbar-rgb) / var(--scrollbar-alpha)) transparent;
+  }
+}
+
 * {
-  scrollbar-width: thin;
-  scrollbar-color: var(--scrollbar, rgba(100, 100, 100, 0.4)) transparent;
+  --pi-scrollbar-alpha: 0;
+  transition: --pi-scrollbar-alpha 200ms ease-out;
 }
 
 *::-webkit-scrollbar {
@@ -290,25 +385,34 @@ button {
 }
 
 *::-webkit-scrollbar-thumb {
-  background: var(--scrollbar, rgba(100, 100, 100, 0.4));
+  background: rgb(var(--scrollbar-rgb) / calc(var(--scrollbar-alpha) * var(--pi-scrollbar-alpha)));
   border: 2px solid transparent;
   background-clip: padding-box;
+  border-radius: 5px;
 }
 
 *::-webkit-scrollbar-thumb:hover {
-  background: var(--scrollbar-hover, rgba(100, 100, 100, 0.7));
+  background: rgb(var(--scrollbar-rgb) / var(--scrollbar-hover-alpha));
   background-clip: padding-box;
   border: 2px solid transparent;
 }
 
 *::-webkit-scrollbar-thumb:active {
-  background: var(--scrollbar-active, rgba(0, 0, 0, 0.6));
+  background: rgb(var(--scrollbar-rgb) / var(--scrollbar-active-alpha));
   background-clip: padding-box;
   border: 2px solid transparent;
 }
 
 *::-webkit-scrollbar-track {
   background: transparent;
+}
+
+*::-webkit-scrollbar-button {
+  display: none;
+}
+
+:where(.pi-scroll-active) {
+  --pi-scrollbar-alpha: 1;
 }
 
 @keyframes copilot-shimmer {
@@ -347,7 +451,7 @@ button {
 }
 
 .md {
-  font-size: 16px;
+  font-size: 1.2308rem;
   line-height: 1.75;
   color: var(--fg);
   word-break: break-word;
@@ -418,7 +522,7 @@ button {
   background: transparent;
   border: none;
   padding: 0;
-  font-size: 12.5px;
+  font-size: 0.9615rem;
   line-height: 1.5;
 }
 
@@ -438,32 +542,9 @@ button {
   color: var(--fg-muted);
 }
 
-/*
- * Modal enter/leave: opacity only (no scale). Scale + large card paint feels janky
- * in Electron with chat/Monaco behind the mask.
- */
-.n-modal-container .fade-in-scale-up-transition-enter-from,
-.n-modal-container .fade-in-scale-up-transition-leave-to {
-  opacity: 0;
-  transform: none !important;
-}
-.n-modal-container .fade-in-scale-up-transition-enter-to,
-.n-modal-container .fade-in-scale-up-transition-leave-from {
-  opacity: 1;
-  transform: none !important;
-}
-.n-modal-container .fade-in-scale-up-transition-enter-active,
-.n-modal-container .fade-in-scale-up-transition-leave-active {
-  transition: opacity 110ms var(--ease-out, ease) !important;
-}
-.n-modal-mask.fade-in-transition-enter-active,
-.n-modal-mask.fade-in-transition-leave-active {
-  transition: opacity 100ms var(--ease-out, ease) !important;
-}
-
 /* Settings modals */
-.pi-settings-modal.n-modal,
-.pi-settings-modal.n-card {
+/* antd v6 的弹窗内容盒是 .ant-modal-container，v5 的 .ant-modal-content 已不存在 */
+.pi-settings-modal .ant-modal-container {
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-lg);
   border: 1px solid var(--border);
@@ -473,8 +554,8 @@ button {
  * 设置页内的自绘按钮统一键盘焦点样式：Chromium 默认白色焦点环在深色玻璃上
  * 过于突兀（点击按钮后的 Esc 等键盘操作会触发 :focus-visible）。
  */
-.pi-settings-modal button:not(.n-button):focus-visible,
-.modal-editor-panel button:not(.n-button):focus-visible {
+.pi-settings-modal button:not(.ant-btn):focus-visible,
+.modal-editor-panel button:not(.ant-btn):focus-visible {
   outline: 1px solid var(--accent);
   outline-offset: -1px;
 }
@@ -492,18 +573,18 @@ button {
   box-sizing: border-box;
 }
 
-.pi-settings-modal .n-card-header {
+.pi-settings-modal .ant-modal-header {
   padding: 18px 20px 10px !important;
   border-bottom: 1px solid var(--border);
 }
 
-.pi-settings-modal .n-card-header .n-card-header__title {
-  font-size: 15px;
+.pi-settings-modal .ant-modal-title {
+  font-size: 1.1538rem;
   font-weight: 650;
   letter-spacing: 0.01em;
 }
 
-.pi-settings-modal .n-card__content {
+.pi-settings-modal .ant-modal-body {
   padding: 14px 20px 18px !important;
 }
 
@@ -521,58 +602,86 @@ button {
 }
 
 /*
- * 设置页内的 naive-ui 控件描边统一跟随 --border（玻璃下为白色半透明描边），
- * 与自绘按钮（ToggleButton、item-action）保持一致；
- * naive-ui 把主题变量内联在组件根元素上，必须 !important 才能覆盖。
+ * 设置页内的控件描边统一跟随 --border（玻璃下为白色半透明描边），
+ * 与自绘按钮（ToggleButton、item-action）保持一致。
+ * antd v6 的下拉框外壳就是根节点 .ant-select（v5 的 .ant-select-selector 已移除）。
  */
-.pi-settings-modal .n-radio-group,
-.modal-editor-panel .n-radio-group {
-  --n-button-border-color: var(--border) !important;
-  --n-button-border-color-active: var(--border) !important;
-}
-
-.pi-settings-modal .n-base-selection,
-.modal-editor-panel .n-base-selection,
-.pi-settings-modal .n-input,
-.modal-editor-panel .n-input {
-  --n-border: 1px solid var(--border) !important;
-  --n-border-hover: 1px solid var(--border) !important;
-  --n-border-focus: 1px solid var(--border) !important;
-  --n-border-active: 1px solid var(--border) !important;
-  --n-border-disabled: 1px solid var(--border) !important;
-}
-
-/* 按钮的实际描边在 __border / __state-border 上，text 按钮的 border-style 为 none 不受影响 */
-.pi-settings-modal .n-button__border,
-.pi-settings-modal .n-button__state-border,
-.modal-editor-panel .n-button__border,
-.modal-editor-panel .n-button__state-border {
+.pi-settings-modal .ant-input,
+.pi-settings-modal .ant-input-affix-wrapper,
+.pi-settings-modal .ant-input-number,
+.pi-settings-modal .ant-select,
+.modal-editor-panel .ant-input,
+.modal-editor-panel .ant-input-affix-wrapper,
+.modal-editor-panel .ant-input-number,
+.modal-editor-panel .ant-select {
   border-color: var(--border) !important;
 }
 
-.pi-settings-modal .n-checkbox-box,
-.modal-editor-panel .n-checkbox-box {
-  --n-border: 1px solid var(--border) !important;
-  --n-border-disabled: 1px solid var(--border) !important;
+/*
+ * antd v6 把组件级 token（Select 的 selectorBg、InputNumber 的表面等）固化成字面量，
+ * 覆盖 --ant-color-bg-container 这类全局变量对它们无效；
+ * 输入类控件必须直接给表面赋值，才跟得上应用自己的输入框透明度。
+ */
+.pi-settings-modal .ant-input,
+.pi-settings-modal .ant-input-affix-wrapper,
+.pi-settings-modal .ant-input-number,
+.pi-settings-modal .ant-input-number-input,
+.pi-settings-modal .ant-select,
+.modal-editor-panel .ant-input,
+.modal-editor-panel .ant-input-affix-wrapper,
+.modal-editor-panel .ant-input-number,
+.modal-editor-panel .ant-input-number-input,
+.modal-editor-panel .ant-select {
+  background-color: var(--bg-input) !important;
 }
 
-.pi-settings-modal .n-tabs,
-.modal-editor-panel .n-tabs {
-  --n-tab-border-color: var(--border) !important;
+/* 次级按钮跟随卡片表面，避免实色块与玻璃面板脱节 */
+.pi-settings-modal .ant-btn:not(.ant-btn-primary):not(.ant-btn-text):not(.ant-btn-link),
+.modal-editor-panel .ant-btn:not(.ant-btn-primary):not(.ant-btn-text):not(.ant-btn-link) {
+  background-color: var(--bg-elevated) !important;
+  border-color: var(--border) !important;
 }
 
-.pi-settings-modal .n-divider,
-.modal-editor-panel .n-divider {
-  --n-color: var(--border) !important;
+.pi-settings-modal
+  .ant-btn:not(.ant-btn-primary):not(.ant-btn-text):not(.ant-btn-link):hover:not(:disabled),
+.modal-editor-panel
+  .ant-btn:not(.ant-btn-primary):not(.ant-btn-text):not(.ant-btn-link):hover:not(:disabled) {
+  background-color: var(--bg-active) !important;
+  border-color: var(--accent-border) !important;
+}
+
+/*
+ * 右下角更新进度框挂在 body 上，不在设置页作用域内，
+ * 次级按钮要单独跟随浮层表面，否则实色按钮块会与玻璃浮层脱节。
+ */
+.pi-update-panel .ant-btn:not(.ant-btn-primary):not(.ant-btn-text):not(.ant-btn-link) {
+  background-color: var(--bg-elevated) !important;
+  border-color: var(--border) !important;
+}
+
+.pi-update-panel
+  .ant-btn:not(.ant-btn-primary):not(.ant-btn-text):not(.ant-btn-link):hover:not(:disabled) {
+  background-color: var(--bg-active) !important;
+  border-color: var(--accent-border) !important;
+}
+
+.pi-settings-modal .ant-checkbox-inner,
+.modal-editor-panel .ant-checkbox-inner {
+  border-color: var(--border) !important;
+}
+
+.pi-settings-modal .ant-divider,
+.modal-editor-panel .ant-divider {
+  border-color: var(--border) !important;
 }
 
 .pi-settings-modal .section-label {
-  font-size: 12.5px;
+  font-size: 0.9615rem;
   font-weight: 600;
   color: var(--fg-strong);
 }
 
-.pi-settings-modal .n-card__footer {
+.pi-settings-modal .ant-modal-footer {
   padding: 12px 20px 16px !important;
   border-top: 1px solid var(--border);
 }
@@ -585,7 +694,7 @@ button {
 
 /* Interactive controls — snappy press feedback without layout shift */
 .pi-interactive,
-.n-button {
+.ant-btn {
   transition:
     transform var(--duration-fast) var(--ease-out),
     opacity var(--duration-fast) var(--ease-out),
@@ -601,11 +710,11 @@ button {
  * centered floating buttons), which shifts the hit target and misses clicks.
  */
 .pi-interactive:active:not(:disabled),
-.n-button:not(.n-button--disabled):active {
+.ant-btn:not(:disabled):active {
   scale: 0.985;
 }
 
-.n-button.n-button--circle:active:not(.n-button--disabled) {
+.ant-btn.ant-btn-circle:not(:disabled):active {
   scale: 0.94;
 }
 
@@ -623,8 +732,8 @@ button {
 }
 
 /* macOS: slightly denser titlebar hit targets feel closer to native */
-html.platform-darwin .title-bar .n-button {
-  --n-height: 28px;
+html.platform-darwin .title-bar .ant-btn {
+  height: 28px;
 }
 
 /*

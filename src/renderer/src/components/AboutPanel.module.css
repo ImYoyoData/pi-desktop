@@ -1,0 +1,150 @@
+.aboutPanel {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  overflow-y: auto;
+  padding-top: 8px;
+  gap: 16px;
+}
+
+.aboutHead {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+
+.aboutValue {
+  color: var(--fg-strong);
+  font-variant-numeric: tabular-nums;
+}
+
+.aboutLink {
+  border: none;
+  background: none;
+  padding: 0;
+  font: inherit;
+  color: var(--accent);
+  cursor: pointer;
+}
+
+.aboutLink:hover {
+  text-decoration: underline;
+}
+
+.contributorGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(88px, 1fr));
+  gap: 12px 8px;
+  padding: 14px;
+}
+
+.contributorItem {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 4px;
+  border: none;
+  border-radius: 8px;
+  background: none;
+  font: inherit;
+  color: var(--fg-muted);
+  cursor: pointer;
+}
+
+.contributorItem:hover {
+  background: var(--bg-hover);
+  color: var(--fg-strong);
+}
+
+.contributorAvatar {
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  object-fit: cover;
+}
+
+.contributorFallback {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  font-size: 1.3846rem;
+  font-weight: 600;
+}
+
+.contributorLogin {
+  max-width: 100%;
+  font-size: 0.9231rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.detail {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+
+.detailAvatar {
+  width: 72px;
+  height: 72px;
+  border-radius: 50%;
+  object-fit: cover;
+}
+
+.detailFallback {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  font-size: 2rem;
+  font-weight: 600;
+}
+
+.detailLogin {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 1rem;
+  color: var(--fg-muted);
+}
+
+.detailBadge {
+  padding: 1px 7px;
+  border: 1px solid var(--accent-border);
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 0.8462rem;
+}
+
+.detailRows {
+  width: 100%;
+  margin-top: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 1rem;
+}
+
+.detailRow {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--fg-muted);
+}
+
+.detailRow span:last-child {
+  color: var(--fg-strong);
+  font-variant-numeric: tabular-nums;
+}
+
+.detailFooter {
+  display: flex;
+  justify-content: flex-end;
+}

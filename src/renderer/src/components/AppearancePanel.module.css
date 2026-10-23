@@ -1,0 +1,11 @@
+.appearancePanel {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  container-type: inline-size;
+}
+
+.settingSelect {
+  flex-shrink: 0;
+  width: 140px;
+}

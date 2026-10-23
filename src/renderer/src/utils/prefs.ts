@@ -3,7 +3,7 @@
  *
  * 之前全部落在 localStorage：它跟着 Electron userData 与页面 origin 走，
  * 安装包（file://）与 npm run dev（http://localhost:5173）各有一份，
- * 同一台机器两种启动方式配置互不相干，消息预览等开关每每"被重置"。
+ * 同一台机器两种启动方式配置互不相干，各类界面开关每每"被重置"。
  *
  * 现在 ~/.pi/agent/desktop-prefs.json 是唯一权威存储，两种启动方式共用；
  * localStorage 降级为镜像，只用于把各来源的历史值并进来。

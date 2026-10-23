@@ -1,0 +1,66 @@
+.body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.loginInfo {
+  color: var(--fg-muted);
+  font-size: 0.9615rem;
+  word-break: break-all;
+}
+
+.loginUrlBlock {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.loginUrl {
+  flex: 1;
+  min-width: 0;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg-active);
+  color: var(--fg);
+  font-family: var(--font-mono, monospace);
+  font-size: 0.8846rem;
+  word-break: break-all;
+}
+
+.loginHint {
+  color: var(--fg-muted);
+  font-size: 0.8846rem;
+  line-height: 1.45;
+}
+
+.loginPrompt {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.loginError {
+  color: var(--error);
+  font-size: 0.9231rem;
+  word-break: break-word;
+}
+
+.modalFooter {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.modalTitleBlock {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.modalTitle {
+  color: var(--fg-strong);
+  font-size: 1.1538rem;
+  font-weight: 650;
+}

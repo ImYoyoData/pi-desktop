@@ -154,7 +154,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: pi-desktop-${{ matrix.name }}
-          path: ${{ matrix.artifact_glob }}
+          path: |
+            ${{ matrix.artifact_glob }}
+            release/latest*.yml
           if-no-files-found: error
           retention-days: 14
 
@@ -186,7 +188,7 @@ jobs:
         run: |
           mkdir -p upload
           find dist-artifacts -type f \
-            \( -name '*-setup.exe' -o -name '*.dmg' -o -name '*.AppImage' \) \
+            \( -name '*-setup.exe' -o -name '*.dmg' -o -name '*.AppImage' -o -name 'latest*.yml' \) \
             -print -exec cp {} upload/ \;
           echo "=== release assets ==="
           ls -lah upload || true
@@ -206,161 +208,62 @@ jobs:
           generate_release_notes: true
           body: |
 
-            ## 主要更新（v0.3.6-rc.1）
+            ## 主要更新
 
-            本版重点：跟进 pi 1.1.0（含 1.0.1–1.0.4）的全部变更，升级 SDK，
-            适配 azure 更名、工具耗时记录、取消态与 MCP 客户端注册方式，并在
-            界面上接入采样参数、MCP 项目覆盖、内置工具与提示模板管理，终端改用
-            pi 原生运行状态；并修复退出后进程残留。
+            本版重构桌面端界面与分发链路：渲染层从 Vue 迁移到 React，控件与设置页
+            统一为 antd v6 的胶囊卡片风格；重写自动更新与安装包流程；补齐 Markdown
+            相对路径图片解析；并修复多处渲染与交互问题。
 
             ### 新功能 Features
 
-            - **模型可编辑采样参数**：自定义模型编辑表单新增「采样参数」折叠区，
-              直接编辑 `samplingParams`（如 `temperature`、`top_p`）与
-              `samplingParamsByThinkingLevel`（按 off/minimal/low/medium/high/
-              xhigh/max 分档覆盖），对应 pi 1.0.2 的按思考档采样设置（仅
-              openai-completions / openai-responses / azure 生效）。
-            - **MCP 服务器支持项目覆盖**：设置 → MCP 的用户级服务器新增「此项目」
-              三态选择（跟随全局 / 在此项目启用 / 在此项目禁用），写入
-              `<工作区>/.pi/mcp.json` 的覆盖条目（无 command/url，只改启用态），
-              对应 pi 1.0.1 的项目级覆盖。
-            - **工具页覆盖全部内置工具**：内置工具开关从 codemode / tool_search
-              扩展到 pi 全部可切换工具（read / bash / powershell / edit / write /
-              grep / find / ls / codemode / tool_search）。
-            - **MCP 支持按工具暴露**：MCP 服务器编辑新增「按工具暴露（toolExposure）」，
-              按工具名或通配符覆盖服务器的 exposure（codemode / deferred / direct /
-              hidden），hidden 服务器也能只放行个别工具。
-            - **思考档与模型设置**：「运行」设置新增「思考档与模型」节：默认启动
-              思考档（defaultThinkingLevel）、按模型启动思考档（modelThinkingLevels）、
-              启用模型循环列表（enabledModels 模式）、隐藏思考块开关（hideThinkingBlock）。
-            - **消息投递方式**：新增「消息投递」节，引导与追问队列可选全部投递或
-              逐条投递（steeringMode / followUpMode）。
-            - **传输方式与 npm 命令**：环境节新增 provider 传输方式（transport：
-              auto / sse / websocket / websocket-cached）与 npm 命令（npmCommand）设置。
-            - **提示模板管理页**：设置页恢复「提示模板」分组（与智能体/技能同级），
-              列出用户级 `~/.pi/agent/prompts/` 与工作区 `.pi/prompts/` 的模板，
-              支持新建、编辑、启停与删除。
-            - **终端改用 pi 原生运行状态**：终端面板解析 pi 上报的 OSC 7501
-              （Program Status Protocol），tab 标签显示运行状态点（运行中呼吸点 /
-              等待输入 / 已完成 / 出错），tooltip 带会话名或错误首行。
-            - **内置扩展补齐 llama.cpp**：设置 → 工具的「内置扩展」现在列出 pi 全部
-              四个内置扩展（llama.cpp / codemode / tool-search / mcp）。
+            - **自动更新**：版本检测、分片下载与安装后重启，标题栏与关于页展示下载进度。
+            - **自定义安装器**：NSIS 脚本统一安装目录、检测新旧目录占用，安装包命名
+              统一为 `Pi-Desktop-*`。
+            - **Markdown 图片**：相对路径图片按文档所在目录解析。
+            - **React 界面**：渲染层由 Vue 迁移到 React + antd v6，设置项统一为胶囊
+              卡片风格，标题栏显示 Pi 图标。
 
-            - **Editable sampling params for custom models**: the model
-              editor gains a collapsible "Sampling params" section for
-              `samplingParams` and `samplingParamsByThinkingLevel` (per
-              off/minimal/low/medium/high/xhigh/max level), following pi
-              1.0.2's sampling-by-thinking-level support (openai-completions
-              / openai-responses / azure only).
-            - **MCP project overrides**: user-level MCP servers gain an
-              "In this project" selector (follow global / enable in this
-              project / disable in this project) writing an override entry
-              into `<workspace>/.pi/mcp.json`, following pi 1.0.1's project
-              overrides.
-            - **Built-in tool switches cover every tool**: the tool page
-              now toggles all switchable pi tools (read / bash / powershell
-              / edit / write / grep / find / ls / codemode / tool_search).
-            - **Per-tool MCP exposure**: MCP server editing gains
-              "Per-tool exposure (toolExposure)" to override the server
-              exposure per tool name or wildcard (codemode / deferred /
-              direct / hidden).
-            - **Thinking level and model settings**: the Runtime page
-              gains a "Thinking level and models" section — default
-              thinking level, per-model thinking level, enabled model
-              patterns, and a hide-thinking-blocks switch.
-            - **Message delivery**: a new "Message delivery" section
-              chooses whether queued steering and follow-ups are delivered
-              all at once or one at a time.
-            - **Transport and npm command**: the Environment section
-              gains provider transport (auto / sse / websocket /
-              websocket-cached) and npm command settings.
-            - **Prompt templates page**: Settings restores the "Prompt
-              templates" group, listing user (`~/.pi/agent/prompts/`) and
-              workspace (`.pi/prompts/`) templates with create, edit,
-              enable/disable and delete.
-            - **Terminals use pi's native run status**: the terminal
-              parses pi's OSC 7501 (Program Status Protocol) reports,
-              showing a status dot on the tab (working / waiting / done /
-              error).
-            - **Built-in extensions list completed with llama.cpp**:
-              Settings → Tools now lists all four of pi's built-in
-              extensions (llama.cpp / codemode / tool-search / mcp).
+            - **Auto update**: version check, chunked download and restart after
+              install, with progress shown in the title bar and About panel.
+            - **Custom installer**: the NSIS script normalizes the install
+              directory, detects occupancy of old and new directories, and
+              unifies package names as `Pi-Desktop-*`.
+            - **Markdown images**: relative image paths resolve against the
+              document directory.
+            - **React UI**: renderer migrated from Vue to React + antd v6, with
+              capsule-card settings and a Pi icon in the title bar.
 
             ### 变更 Changes
 
-            - **接入官方预览包 pi-durable**：新增依赖 `@earendil-works/pi-durable`
-              1.1.0（官方 durable 会话/任务/文档运行时，Experimental）。本轮仅打通
-              依赖与类型/构建，行为不变。
-            - **升级 pi 到 1.1.0**：`@earendil-works/pi-coding-agent`、
-              `@earendil-works/pi-agent-core`、`@earendil-works/pi-ai` 从 1.0.0 升到
-              1.1.0（pi-codemode / pi-mcp / pi-tui / pi-telemetry 同步）。
-            - **azure provider 更名自动迁移**（pi 1.0.3 破坏性变更）：pi 把
-              `azure-openai-responses` 更名为 `azure`。启动时自动把 `auth.json`、
-              `models.json`、`settings.json`、`mcp.json` 里的旧 id 改名为新 id，
-              Azure 凭据与设置不用手动搬。
-            - **工具耗时改用 pi 记录的执行时间**（pi 1.1.0）：工具卡片优先显示 pi
-              记录的执行耗时，历史会话也能还原每个工具的实际耗时。
-            - **取消与自然完成可区分**（pi 1.1.0）：`agent_settled` 事件现在带
-              `aborted`。取消落在工具执行中、没留下任何回答时，补一张「已取消」卡。
-            - **MCP OAuth 支持客户端注册方式**（pi 1.0.1）：可选动态注册（DCR，默认）
-              或客户端 ID 元数据文档（CIMD，`oauth.clientRegistration: "cimd"`）。
-            - **依赖全面更新**：@types/node 26.6.5、electron 44.7.0、marked 18.1.0、
-              mermaid 12.1.0、monaco-editor 0.57.0、vite 7.3.7、vitest 5.0.3
-              等 18 项。受上游 peer 约束暂不升级：vite 8、TypeScript 7、
-              katex 0.19。
+            - **精简入口**：移除欢迎页与空会话引导、会话分类、会话信息弹窗、
+              消息预览、界面分隔线与工具输出截断开关、模式与提示定制项。
+            - **视觉细节**：终端视口底色改透明，壁纸模式下修正浮层与控件表面。
 
-            - **Upgraded pi to 1.1.0**: `@earendil-works/pi-coding-agent`,
-              `@earendil-works/pi-agent-core` and
-              `@earendil-works/pi-ai` moved from 1.0.0 to 1.1.0
-              (pi-codemode / pi-mcp / pi-tui / pi-telemetry follow).
-            - **Automatic migration for the azure provider rename**
-              (pi 1.0.3 breaking change): pi renamed
-              `azure-openai-responses` to `azure`. On launch the old id is
-              rewritten to the new one in `auth.json`, `models.json`,
-              `settings.json` and `mcp.json`.
-            - **Tool durations now come from pi's recorded execution time**
-              (pi 1.1.0): tool cards prefer pi's recorded duration, and history
-              restores the real duration of every tool.
-            - **Cancelled runs are told apart from finished ones** (pi 1.1.0):
-              `agent_settled` now carries `aborted`.
-            - **MCP OAuth client registration mode** (pi 1.0.1): dynamic
-              registration (DCR, default) or Client ID Metadata Document (CIMD,
-              `oauth.clientRegistration: "cimd"`).
-            - **Dependencies refreshed**: @types/node 26.6.5, electron 44.7.0,
-              marked 18.1.0, mermaid 12.1.0, monaco-editor 0.57.0, vite 7.3.7,
-              vitest 5.0.3 and more. Held back by upstream peer constraints:
-              vite 8, TypeScript 7, katex 0.19.
+            - **Simplified entry points**: removed the welcome page and empty-state
+              guide, session categories, session info dialog, message previews,
+              the divider and tool-output truncation switches, and the mode/tip
+              customization items.
+            - **Visual details**: transparent terminal viewport background, plus
+              overlay and control surfaces fixed in wallpaper mode.
 
             ### 修复 Fixes
 
-            - **修复退出后进程残留**：退出前未回收 node-pty 终端，ConPTY 管道句柄
-              与 shell 子进程（pwsh / conhost）卡住主进程退出，窗口关掉后 electron
-              主进程经常残留。现在退出时统一回收全部 pty，关闭窗口后进程树完整退出。
-            - **修复 models.json 文本报错不友好**：粘贴非法 JSON 时现在报
-              `Invalid models.json: …`，而不是裸的解析器异常。
-            - **修复功能裁剪遗留的问题**：恢复被清理误删的四个 i18n 键与 preload 的
-              `contributors.avatar`、修复 Composer 模板缺少的闭合标签（此前会中断
-              构建）、移除未使用的 NModal 导入。
+            - **消息区 Markdown 渲染失效**：容器 class 粘连导致聊天样式整块失效。
+            - **分栏线拖不动**：拖拽监听被重渲染摘除、拖拽比例算错。
+            - **虚拟滚动渲染问题**；后台截断来源可区分并接入 i18n。
 
-            - **Fixed processes left behind after quit**: node-pty
-              terminals were never reclaimed on quit, so ConPTY pipe
-              handles and shell children (pwsh / conhost) stalled the main
-              process and electron.exe often lingered after the window
-              closed. All ptys are now disposed on quit.
-            - **Friendlier models.json parse errors**: pasting invalid
-              JSON now reports `Invalid models.json: …` instead of a raw
-              parser error.
-            - **Fixed issues left by the feature removal**: restored the
-              four i18n keys accidentally deleted during cleanup and the
-              preload `contributors.avatar`, fixed the Composer template's
-              missing closing tag (which had broken the build), and dropped
-              the unused NModal import.
+            - **Message markdown rendering**: glued container classes broke the
+              whole chat stylesheet.
+            - **Split-pane divider**: the drag listener was removed on re-render
+              and the ratio was computed incorrectly.
+            - **Virtual scrolling** rendering issues; background truncation now
+              reports its source and is localized.
 
             ## 下载 / Downloads
-            - **Windows x64**: `Pi Desktop-*-win-x64-setup.exe`
-            - **Windows ARM64**: `Pi Desktop-*-win-arm64-setup.exe`
-            - **macOS Apple Silicon**: `Pi Desktop-*-mac-arm64.dmg`
-            - **macOS Intel**: `Pi Desktop-*-mac-x64.dmg`
+            - **Windows x64**: `Pi-Desktop-*-win-x64-setup.exe`
+            - **Windows ARM64**: `Pi-Desktop-*-win-arm64-setup.exe`
+            - **macOS Apple Silicon**: `Pi-Desktop-*-mac-arm64.dmg`
+            - **macOS Intel**: `Pi-Desktop-*-mac-x64.dmg`
 
           files: upload/*
           fail_on_unmatched_files: false

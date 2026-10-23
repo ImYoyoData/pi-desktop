@@ -3,6 +3,7 @@
  * next to the Pi session jsonl so chat tags survive history reloads.
  */
 import { BUILTIN_BROWSER_SELECTION_HEADER } from "./builtin-browser";
+import type { LegacyModeTagKind } from "./injected-blocks";
 
 /**
  * Attachment chip rendered in the user bubble. Mirrors ChatMessage.elementTags.
@@ -12,7 +13,7 @@ export type ChatMessageTag = {
   host: string;
   label: string;
   content?: string;
-  kind?: "file" | "url" | "element" | "agent" | "plan" | "ask" | "task";
+  kind?: "file" | "url" | "element" | LegacyModeTagKind;
 };
 
 /** Sidecar file adjacent to the session jsonl. */

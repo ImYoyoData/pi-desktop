@@ -67,7 +67,7 @@ describe("AgentRunRegistry", () => {
   });
 
   it("terminate marks terminating and invokes sender", async () => {
-    const send = vi.fn(async () => null);
+    const send = vi.fn(async (_sessionId: string, _runId: string) => null);
     const reg = createAgentRunRegistry({
       onEvent: () => {},
       sendTerminate: async (sessionId, runId) => {

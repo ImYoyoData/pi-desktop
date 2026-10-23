@@ -1,14 +1,13 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { createPinia, setActivePinia } from "pinia";
 import { useSendQueueStore } from "../../src/renderer/src/stores/send-queue";
 
 describe("send-queue", () => {
 	beforeEach(() => {
-		setActivePinia(createPinia());
+		useSendQueueStore.setState(useSendQueueStore.getInitialState(), true);
 	});
 
 	it("enqueues and consumes each item exactly once", () => {
-		const q = useSendQueueStore();
+		const q = useSendQueueStore.getState();
 		q.enqueue("s1", { text: "a" });
 		q.enqueue("s1", { text: "b" });
 		expect(q.list("s1")).toHaveLength(2);
@@ -18,7 +17,7 @@ describe("send-queue", () => {
 	});
 
 	it("editing an item does not duplicate it; discard keeps one copy", () => {
-		const q = useSendQueueStore();
+		const q = useSendQueueStore.getState();
 		const item = q.enqueue("s1", { text: "hello" });
 		expect(q.list("s1")).toHaveLength(1);
 
@@ -34,19 +33,19 @@ describe("send-queue", () => {
 	});
 
 	it("remove drops the item and clears editing state", () => {
-		const q = useSendQueueStore();
+		const q = useSendQueueStore.getState();
 		const item = q.enqueue("s1", { text: "x" });
 		q.setEditing("s1", item.id);
 		expect(q.remove("s1", item.id)?.id).toBe(item.id);
 		expect(q.list("s1")).toHaveLength(0);
-		expect(q.editingId).toBeNull();
+		expect(useSendQueueStore.getState().editingId).toBeNull();
 	});
 
 	it("takeNext clears editing for the consumed item", () => {
-		const q = useSendQueueStore();
+		const q = useSendQueueStore.getState();
 		const item = q.enqueue("s1", { text: "y" });
 		q.setEditing("s1", item.id);
 		q.takeNext("s1");
-		expect(q.editingId).toBeNull();
+		expect(useSendQueueStore.getState().editingId).toBeNull();
 	});
 });

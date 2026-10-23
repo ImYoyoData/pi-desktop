@@ -1,4 +1,4 @@
-import { defineStore } from "pinia";
+import { create } from "zustand";
 
 export type MediaRegisterOptions = {
   /** Reset currentTime when stopAll runs (default true). */
@@ -11,12 +11,28 @@ type MediaHandle = {
   resetOnStop: boolean;
 };
 
+type MediaState = {
+  register: (
+    id: string,
+    el: HTMLMediaElement,
+    opts?: MediaRegisterOptions,
+  ) => () => void;
+  unregister: (id: string) => void;
+  stopAll: (opts?: { reset?: boolean }) => void;
+  pauseAll: () => void;
+  stopByPrefix: (prefix: string, opts?: { reset?: boolean }) => void;
+};
+
 /**
  * Global registry for <audio>/<video> in preview (and future) tabs.
  * Used to pause/stop playback when UI hides a tab.
  */
-export const useMediaStore = defineStore("media", () => {
+export const useMediaStore = create<MediaState>()(() => {
   const handles = new Map<string, MediaHandle>();
+
+  function unregister(id: string): void {
+    handles.delete(id);
+  }
 
   function register(
     id: string,
@@ -31,10 +47,6 @@ export const useMediaStore = defineStore("media", () => {
     return () => {
       unregister(id);
     };
-  }
-
-  function unregister(id: string): void {
-    handles.delete(id);
   }
 
   function stopElement(el: HTMLMediaElement, reset: boolean): void {

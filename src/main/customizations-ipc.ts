@@ -3,11 +3,10 @@ import path from "node:path";
 import { createHash } from "node:crypto";
 import { BrowserWindow, app, ipcMain, shell, type WebContents } from "electron";
 import { IpcChannels } from "../shared/protocol";
-import { emptyCustomizations, type CustomizationCreateKind, type CustomizationsSnapshot, type McpAuthEvent, type McpAuthEventPayload, type McpAuthPromptReply, type McpAuthState, type McpAuthTarget, type McpProjectOverride, type McpTestResult, type McpTestTarget } from "../shared/customizations";
+import { emptyCustomizations, type CustomizationCreateKind, type CustomizationsSnapshot, type McpAuthEvent, type McpAuthEventPayload, type McpAuthPromptReply, type McpAuthState, type McpAuthTarget, type McpTestResult, type McpTestTarget } from "../shared/customizations";
 import { getWorkspace, listRecentDesktop } from "./workspace-ipc";
-import { createAgentFromDraft, createInstructionsFromDraft, createPromptFromDraft, saveAgentContent } from "./agent-host";
-import { frontmatterText } from "./frontmatter";
-import { createCustomization, listCustomizations, setMcpServerEnabled, addMcpServers, ensureMcpConfig, removeMcpServer, readMcpEntry, readMcpProjectOverrides, setMcpProjectOverride, setBuiltinExtensionEnabled, setCustomizationItemEnabled, removeCustomizationItem } from "./customizations-host";import { testMcpServer } from "./mcp-test";
+import { createInstructionsFromDraft } from "./draft-host";
+import { createCustomization, listCustomizations, setMcpServerEnabled, addMcpServers, ensureMcpConfig, removeMcpServer, readMcpEntry, setBuiltinExtensionEnabled, removeCustomizationItem } from "./customizations-host";import { testMcpServer } from "./mcp-test";
 import { setBuiltinToolEnabled, setCodemodeSettings } from "./builtin-tools-host";
 import { mcpLogin, mcpLogout, readMcpAuthState } from "./mcp-auth";
 import { readProviderToken } from "./models-config";
@@ -132,48 +131,6 @@ export function registerCustomizationsIpc(broker?: {
 	);
 
 	ipcMain.handle(
-		IpcChannels.customizations.createAgentFromDraft,
-		async (_event, content: string, scope: "user" | "project", workspace?: string) => {
-			const { parseFrontmatter } = await import("@earendil-works/pi-coding-agent");
-			const { frontmatter } = parseFrontmatter<Record<string, unknown>>(content);
-			const name = frontmatterText(frontmatter.name);
-			return createAgentFromDraft(
-				content,
-				name,
-				scope,
-				workspace?.trim() || getWorkspace() || undefined,
-			);
-		},
-	);
-
-	ipcMain.handle(
-		IpcChannels.customizations.createPromptFromDraft,
-		(_event, content: string, name: string, scope: "user" | "project", workspace?: string) =>
-			createPromptFromDraft(
-				content,
-				String(name ?? "").trim(),
-				scope,
-				workspace?.trim() || getWorkspace() || undefined,
-			),
-	);
-
-	ipcMain.handle(
-		IpcChannels.customizations.saveAgent,
-		async (_event, filePath: string, content: string, renameName?: string, cwd?: string) => {
-			const { parseFrontmatter } = await import("@earendil-works/pi-coding-agent");
-			const { frontmatter } = parseFrontmatter<Record<string, unknown>>(content);
-			const name = frontmatterText(frontmatter.name);
-			return saveAgentContent(
-				filePath,
-				content,
-				name,
-				renameName,
-				cwd?.trim() || getWorkspace() || undefined,
-			);
-		},
-	);
-
-	ipcMain.handle(
 		IpcChannels.customizations.createInstructionsFromDraft,
 		async (_event, content: string, scope: "user" | "project", workspace?: string) =>
 			createInstructionsFromDraft(
@@ -190,25 +147,6 @@ export function registerCustomizationsIpc(broker?: {
 			if (scope === "project" && !root) throw new Error("workspace required");
 			setMcpServerEnabled(name, scope, enabled, root ?? undefined);
 			if (root) await broker?.notifyWorkersReloadResources(root);
-		},
-	);
-
-	ipcMain.handle(
-		IpcChannels.customizations.listMcpProjectOverrides,
-		(_event, cwd?: string) => {
-			const root = cwd || getWorkspace();
-			if (!root) return {};
-			return readMcpProjectOverrides(root);
-		},
-	);
-
-	ipcMain.handle(
-		IpcChannels.customizations.setMcpProjectOverride,
-		async (_event, name: string, override: McpProjectOverride, cwd?: string) => {
-			const root = cwd || getWorkspace();
-			if (!root) throw new Error("workspace required");
-			setMcpProjectOverride(name, root, override);
-			await broker?.notifyWorkersReloadResources(root);
 		},
 	);
 
@@ -277,16 +215,6 @@ export function registerCustomizationsIpc(broker?: {
 			const root = cwd || getWorkspace();
 			if (scope === "project" && !root) throw new Error("workspace required");
 			const result = removeMcpServer(name, scope, root ?? undefined);
-			if (root) await broker?.notifyWorkersReloadResources(root);
-			return result;
-		},
-	);
-
-	ipcMain.handle(
-		IpcChannels.customizations.setItemEnabled,
-		async (_event, filePath: string, enabled: boolean, cwd?: string) => {
-			const root = cwd || getWorkspace() || undefined;
-			const result = setCustomizationItemEnabled(filePath, enabled, root, listRecentDesktop());
 			if (root) await broker?.notifyWorkersReloadResources(root);
 			return result;
 		},

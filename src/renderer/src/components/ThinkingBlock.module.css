@@ -1,0 +1,88 @@
+/* 1:1 VS Code Copilot thinking row — chatThinkingContent.css / chatCollapsibleContentPart */
+.thinking {
+  margin: 0 0 2px;
+  overflow: hidden;
+  color: var(--chat-desc-fg, var(--fg-muted));
+}
+
+.thinkingHead {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  width: fit-content;
+  max-width: 100%;
+  margin: 0 0 0 -2px;
+  padding: 2px 6px 2px 2px;
+  border: none;
+  border-radius: 5px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: var(--chat-font-s, 12px);
+  line-height: 1.5em;
+  text-align: left;
+  cursor: pointer;
+  user-select: none;
+}
+
+.thinkingHead:hover {
+  background: var(--chat-hover-bg, color-mix(in srgb, var(--fg) 5%, transparent));
+  color: var(--fg, inherit);
+}
+
+.open > .thinkingHead {
+  color: var(--fg, inherit);
+}
+
+.label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Trailing disclosure chevron — .chat-collapsible-hover-chevron (1:1) */
+.hoverChev {
+  flex-shrink: 0;
+  opacity: 0;
+  transform: rotate(0deg);
+  transform-origin: center;
+  transition:
+    opacity 100ms ease-in-out,
+    transform 180ms cubic-bezier(0.2, 0, 0, 1);
+  color: var(--chat-desc-fg, var(--fg-muted));
+}
+
+.expanded {
+  opacity: 1;
+  transform: rotate(90deg);
+}
+
+.thinkingHead:hover .hoverChev {
+  opacity: 1;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hoverChev {
+    transition: none;
+  }
+}
+
+.thinkingBody {
+  margin: 2px 0 6px 10.5px;
+  padding: 2px 0 2px 13px;
+  border-left: 1px solid var(--chat-line, var(--border));
+  max-height: 200px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: var(--chat-font-s, 12px);
+  line-height: 1.5em;
+  color: var(--chat-desc-fg, var(--fg-muted));
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+.muted {
+  opacity: 0.75;
+}

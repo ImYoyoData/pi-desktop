@@ -39,14 +39,6 @@ export type SkillSaveResult =
 	| { ok: true; filePath: string; name: string }
 	| { ok: false; issues: SkillIssueCode[] };
 
-/** 智能体名称在文件系统层面不可用的原因。 */
-export type AgentIssueCode = "name-required" | "name-invalid" | "exists";
-
-/** 智能体草稿创建/保存的结果。 */
-export type AgentSaveResult =
-	| { ok: true; filePath: string; name: string }
-	| { ok: false; code: AgentIssueCode };
-
 /** 指令（AGENTS.md）草稿创建的结果。 */
 export type InstructionsSaveResult =
 	| { ok: true; filePath: string }
@@ -59,14 +51,12 @@ export type CustomizationHook = {
 };
 
 /** 可新建的定制项类型。 */
-export type CustomizationCreateKind = "agents" | "skills" | "instructions" | "prompts";
+export type CustomizationCreateKind = "skills" | "instructions";
 
 export type CustomizationsSnapshot = {
 	root: string | null;
-	agents: CustomizationItem[];
 	skills: CustomizationItem[];
 	instructions: CustomizationItem[];
-	prompts: CustomizationItem[];
 	hooks: CustomizationHook[];
 	mcp: CustomizationItem[];
 	plugins: CustomizationItem[];
@@ -92,9 +82,6 @@ export type McpEditTarget = {
 	scope: "user" | "project";
 	workspace: string | null;
 };
-
-/** pi 1.0.1 的项目覆盖：.pi/mcp.json 无 command/url 的条目只改用户级服务器的启用态。 */
-export type McpProjectOverride = "inherit" | "enabled" | "disabled";
 
 /** 桌面注册的 pi 内置扩展开关状态。 */
 export type BuiltinExtensionItem = {
@@ -166,10 +153,8 @@ export type McpAuthPromptReply = {
 export function emptyCustomizations(root: string | null): CustomizationsSnapshot {
 	return {
 		root,
-		agents: [],
 		skills: [],
 		instructions: [],
-		prompts: [],
 		hooks: [],
 		mcp: [],
 		plugins: [],

@@ -9,12 +9,9 @@ import type {
 	SessionHistoryPage,
 	SessionHistoryQuery,
 	SessionForkResult,
-	SessionInfoResult,
 	SessionStatus,
 	SessionSummary,
 	TerminalShellOption,
-	WindowRunIdentity,
-	WorkspaceGroups,
 } from "../shared/protocol";
 import { IpcChannels } from "../shared/protocol";
 import type { EditContextMenuAction, EditContextMenuPayload } from "../shared/context-menu";
@@ -33,7 +30,7 @@ import type {
 	PullRequestSummary,
 } from "../shared/github-types";
 import type { AgentRunEvent, AgentRunSnapshot } from "../shared/agent-runs";
-import type { AgentSaveResult, BuiltinExtensionItem, BuiltinToolItem, CodemodeSettingsState, CustomizationsSnapshot, CustomizationCreateKind, InstructionsSaveResult, McpAuthEventPayload, McpAuthPromptReply, McpAuthState, McpAuthTarget, McpProjectOverride, McpTestResult, McpTestTarget, SkillSaveResult } from "../shared/customizations";
+import type { BuiltinExtensionItem, BuiltinToolItem, CodemodeSettingsState, CustomizationsSnapshot, CustomizationCreateKind, InstructionsSaveResult, McpAuthEventPayload, McpAuthPromptReply, McpAuthState, McpAuthTarget, McpTestResult, McpTestTarget, SkillSaveResult } from "../shared/customizations";
 import type {
 	ModelsGetResult,
 	ModelsOAuthEventPayload,
@@ -49,7 +46,6 @@ import type {
 	TestProviderBaseUrlResult,
 } from "../shared/model-discover";
 import type { PreviewResult } from "../shared/preview-types";
-import type { UpdateCheckResult, UpdateProgress } from "../shared/update";
 import type {
 	PiCliInstallProgress,
 	PiCliInstallResult,
@@ -75,9 +71,9 @@ import type {
 import type { ProxySettings } from "../shared/proxy";
 import type { ThinkingLanguageSettings } from "../shared/thinking-language";
 import type { StreamRenderSettings } from "../shared/stream-render";
-import type { WebSearchConfigState, WebSearchSettings } from "../shared/web-search-config";
 import type { RetrySettings } from "../shared/retry-settings";
 import type { RuntimeSettings } from "../shared/runtime-settings";
+import type { AppUpdateState } from "../shared/update";
 
 export type AppInfo = {
 	version: string;
@@ -87,8 +83,6 @@ export type AppInfo = {
 	qq: string;
 	email: string;
 };
-
-export type { UpdateProgress };
 
 export type {
 	AgentCommand,
@@ -179,8 +173,6 @@ const api = {
 	window: {
 		platform: () =>
 			ipcRenderer.invoke(IpcChannels.window.platform) as Promise<NodeJS.Platform>,
-		identity: () =>
-			ipcRenderer.invoke(IpcChannels.window.identity) as Promise<WindowRunIdentity>,
 		minimize: () =>
 			ipcRenderer.invoke(IpcChannels.window.minimize) as Promise<void>,
 		maximize: () =>
@@ -295,27 +287,6 @@ const api = {
 				recent: string[];
 				aliases: Record<string, string>;
 			}>,
-		listGroups: () =>
-			ipcRenderer.invoke(IpcChannels.workspace.listGroups) as Promise<WorkspaceGroups>,
-		addGroup: (name: string) =>
-			ipcRenderer.invoke(IpcChannels.workspace.addGroup, name) as Promise<WorkspaceGroups>,
-		renameGroup: (from: string, to: string) =>
-			ipcRenderer.invoke(
-				IpcChannels.workspace.renameGroup,
-				from,
-				to,
-			) as Promise<WorkspaceGroups>,
-		removeGroup: (name: string) =>
-			ipcRenderer.invoke(
-				IpcChannels.workspace.removeGroup,
-				name,
-			) as Promise<WorkspaceGroups>,
-		setGroupOf: (root: string, group: string | null) =>
-			ipcRenderer.invoke(
-				IpcChannels.workspace.setGroupOf,
-				root,
-				group,
-			) as Promise<WorkspaceGroups>,
 		/** 已归档会话 id 列表：读取与覆写（恢复会话即从列表移除该 id）。 */
 		listArchivedSessions: () =>
 			ipcRenderer.invoke(
@@ -430,19 +401,6 @@ const api = {
 				sessionId,
 				cwd,
 			) as Promise<SessionStatus | null>,
-		getInfo: (sessionId: string) =>
-			ipcRenderer.invoke(
-				IpcChannels.sessions.getInfo,
-				sessionId,
-			) as Promise<SessionInfoResult>,
-		onWorkerReady: (callback: (sessionId: string) => void): (() => void) => {
-			const listener = (_e: Electron.IpcRendererEvent, sessionId: string) =>
-				callback(sessionId);
-			ipcRenderer.on(IpcChannels.sessions.workerReady, listener);
-			return () => {
-				ipcRenderer.removeListener(IpcChannels.sessions.workerReady, listener);
-			};
-		},
 		onEvent: (callback: (event: AgentEvent) => void) => {
 			const listener = (_event: Electron.IpcRendererEvent, payload: AgentEvent) =>
 				callback(payload);
@@ -819,34 +777,6 @@ const api = {
 			ipcRenderer.invoke(IpcChannels.customizations.create, kind) as Promise<{
 				filePath: string;
 			}>,
-		createAgentFromDraft: (content: string, scope: "user" | "project", cwd?: string) =>
-			ipcRenderer.invoke(
-				IpcChannels.customizations.createAgentFromDraft,
-				content,
-				scope,
-				cwd,
-			) as Promise<AgentSaveResult>,
-		createPromptFromDraft: (
-			content: string,
-			name: string,
-			scope: "user" | "project",
-			cwd?: string,
-		) =>
-			ipcRenderer.invoke(
-				IpcChannels.customizations.createPromptFromDraft,
-				content,
-				name,
-				scope,
-				cwd,
-			) as Promise<AgentSaveResult>,
-		saveAgent: (filePath: string, content: string, renameName?: string, cwd?: string) =>
-			ipcRenderer.invoke(
-				IpcChannels.customizations.saveAgent,
-				filePath,
-				content,
-				renameName,
-				cwd,
-			) as Promise<AgentSaveResult>,
 		createInstructionsFromDraft: (content: string, scope: "user" | "project", cwd?: string) =>
 			ipcRenderer.invoke(
 				IpcChannels.customizations.createInstructionsFromDraft,
@@ -860,18 +790,6 @@ const api = {
 				name,
 				scope,
 				enabled,
-				cwd,
-			) as Promise<void>,
-		listMcpProjectOverrides: (cwd?: string) =>
-			ipcRenderer.invoke(
-				IpcChannels.customizations.listMcpProjectOverrides,
-				cwd,
-			) as Promise<Record<string, "enabled" | "disabled">>,
-		setMcpProjectOverride: (name: string, override: McpProjectOverride, cwd?: string) =>
-			ipcRenderer.invoke(
-				IpcChannels.customizations.setMcpProjectOverride,
-				name,
-				override,
 				cwd,
 			) as Promise<void>,
 		addMcpServers: (
@@ -926,13 +844,6 @@ const api = {
 				IpcChannels.customizations.removeMcpServer,
 				name,
 				scope,
-				cwd,
-			) as Promise<{ filePath: string }>,
-		setItemEnabled: (filePath: string, enabled: boolean, cwd?: string) =>
-			ipcRenderer.invoke(
-				IpcChannels.customizations.setItemEnabled,
-				filePath,
-				enabled,
 				cwd,
 			) as Promise<{ filePath: string }>,
 		removeItem: (filePath: string, cwd?: string) =>
@@ -1344,26 +1255,27 @@ const api = {
 			ipcRenderer.invoke(IpcChannels.update.openReleases) as Promise<void>,
 		openAuthorEmail: () =>
 			ipcRenderer.invoke(IpcChannels.update.openAuthorEmail) as Promise<void>,
-		check: (opts?: { download?: boolean }) =>
-			ipcRenderer.invoke(
-				IpcChannels.update.check,
-				opts,
-			) as Promise<UpdateCheckResult>,
-		download: () =>
-			ipcRenderer.invoke(
-				IpcChannels.update.download,
-			) as Promise<UpdateCheckResult>,
-		cancel: () => ipcRenderer.invoke(IpcChannels.update.cancel) as Promise<boolean>,
-		onProgress: (callback: (progress: UpdateProgress) => void) => {
-			const listener = (
-				_event: Electron.IpcRendererEvent,
-				progress: UpdateProgress,
-			) => callback(progress);
-			ipcRenderer.on(IpcChannels.update.progress, listener);
+		getState: () =>
+			ipcRenderer.invoke(IpcChannels.update.getState) as Promise<AppUpdateState>,
+		check: () =>
+			ipcRenderer.invoke(IpcChannels.update.check) as Promise<AppUpdateState>,
+		download: () => ipcRenderer.invoke(IpcChannels.update.download) as Promise<void>,
+		forceUpdate: () =>
+			ipcRenderer.invoke(IpcChannels.update.forceUpdate) as Promise<void>,
+		cancel: () => ipcRenderer.invoke(IpcChannels.update.cancel) as Promise<void>,
+		install: () => ipcRenderer.invoke(IpcChannels.update.install) as Promise<void>,
+		onState: (callback: (state: AppUpdateState) => void) => {
+			const listener = (_event: Electron.IpcRendererEvent, state: AppUpdateState) =>
+				callback(state);
+			ipcRenderer.on(IpcChannels.update.state, listener);
 			return () => {
-				ipcRenderer.removeListener(IpcChannels.update.progress, listener);
+				ipcRenderer.removeListener(IpcChannels.update.state, listener);
 			};
 		},
+		setToastHeight: (height: number) =>
+			ipcRenderer.send(IpcChannels.update.toastResize, height),
+		dismissToast: () => ipcRenderer.send(IpcChannels.update.toastDismiss),
+		showToast: () => ipcRenderer.send(IpcChannels.update.toastShow),
 	},
 	piCli: {
 		status: () =>
@@ -1564,15 +1476,6 @@ const api = {
 				IpcChannels.streamRender.set,
 				settings,
 			) as Promise<StreamRenderSettings>,
-	},
-	webSearchConfig: {
-		get: () =>
-			ipcRenderer.invoke(IpcChannels.webSearchConfig.get) as Promise<WebSearchConfigState>,
-		set: (settings: WebSearchSettings) =>
-			ipcRenderer.invoke(
-				IpcChannels.webSearchConfig.set,
-				settings,
-			) as Promise<WebSearchConfigState>,
 	},
 	appearance: {
 		pickWallpaper: () =>

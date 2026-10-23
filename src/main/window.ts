@@ -7,6 +7,7 @@ import type { EditContextMenuPayload } from "../shared/context-menu";
 import { editMenuLabels } from "../shared/edit-menu-i18n";
 import { getUiLocale, setUiLocale } from "./ui-locale";
 import { bindWindowVisibility } from "./window-visibility";
+import { closeUpdateToast } from "./update-toast";
 
 export { getUiLocale, setUiLocale };
 
@@ -49,17 +50,25 @@ function resolveWindowIcon(): string | undefined {
 /** When true, the next close/quit proceeds without asking the renderer. */
 let allowClose = false;
 
+/** 程序化退出（更新安装）时不再向渲染层询问，直接放行关闭。 */
+let forceClosing = false;
+
 export function allowWindowClose(): void {
   allowClose = true;
 }
 
+export function allowForceClose(): void {
+  forceClosing = true;
+}
+
 export function createMainWindow(): BrowserWindow {
   allowClose = false;
+  forceClosing = false;
   const isMac = process.platform === "darwin";
   const iconPath = resolveWindowIcon();
 
   const mainWindow = new BrowserWindow({
-    width: 1440,
+    width: 1500,
     height: 900,
     minWidth: 960,
     minHeight: 640,
@@ -96,18 +105,22 @@ export function createMainWindow(): BrowserWindow {
 
   // Failsafe: if ready-to-show is late/missed, still surface the window.
   mainWindow.webContents.once("did-finish-load", () => {
+    // 旧版本用窗口缩放调字号，这里清掉残留的缩放，字号改由根元素字体控制。
+    mainWindow.webContents.setZoomFactor(1);
     if (!mainWindow.isDestroyed() && !mainWindow.isVisible()) {
       mainWindow.show();
     }
   });
 
   mainWindow.on("close", (event) => {
-    if (allowClose) return;
+    if (allowClose || forceClosing) return;
     event.preventDefault();
     if (!mainWindow.isDestroyed()) {
       mainWindow.webContents.send(IpcChannels.window.closeRequest);
     }
   });
+
+  mainWindow.on("closed", () => closeUpdateToast());
 
   mainWindow.webContents.setWindowOpenHandler((details) => {
     void shell.openExternal(details.url);

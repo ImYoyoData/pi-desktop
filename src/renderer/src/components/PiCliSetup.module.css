@@ -1,0 +1,22 @@
+.progress {
+  margin-top: 16px;
+}
+
+.footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+}
+
+.link {
+  border: none;
+  background: transparent;
+  padding: 0;
+  color: var(--fg-strong);
+  cursor: pointer;
+  font: inherit;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}

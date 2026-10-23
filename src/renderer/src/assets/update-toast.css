@@ -1,0 +1,17 @@
+/* 悬浮窗是透明窗口：页面本身不能铺底色，卡片自己带表面与投影。 */
+html,
+body,
+#app {
+  background: transparent;
+}
+
+body {
+  overflow: hidden;
+}
+
+/* 内边距留给卡片投影，主进程按这个留白计算窗口尺寸。 */
+#app {
+  height: auto;
+  padding: 10px;
+  box-sizing: border-box;
+}

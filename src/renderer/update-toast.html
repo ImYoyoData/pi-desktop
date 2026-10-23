@@ -1,0 +1,15 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="UTF-8" />
+    <title>Pi Desktop Update</title>
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self' blob:; worker-src 'self' blob:; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https: http: pi-local: pi-media:; font-src 'self' data:; connect-src 'self' https: http: ws: wss:; media-src 'self' data: blob: pi-local: pi-media:"
+    />
+  </head>
+  <body>
+    <div id="app"></div>
+    <script type="module" src="/src/update-toast.tsx"></script>
+  </body>
+</html>

@@ -1,0 +1,174 @@
+.formPanel {
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+  gap: 16px;
+  padding-bottom: 8px;
+}
+
+.panelHeader {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 12px;
+}
+
+.backButton {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--fg-muted);
+  cursor: pointer;
+  transition: background-color 0.1s ease, color 0.1s ease;
+}
+
+.backButton:hover {
+  background-color: var(--bg-hover);
+  color: var(--fg);
+}
+
+.backButton:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: -1px;
+}
+
+.panelHeading {
+  min-width: 0;
+}
+
+.panelTitle {
+  margin: 0;
+  overflow: hidden;
+  color: var(--fg);
+  font-size: 1.2308rem;
+  font-weight: 600;
+  line-height: 22px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.methodGroup {
+  flex-shrink: 0;
+  font-weight: 400;
+}
+
+/*
+ * antd 的分段按钮自带一套 token（实色容器 + 主题描边 + 主题色文字），
+ * 与应用自己的表面/弱强调色不是一套，深色主题下尤其突兀；
+ * 这里改成和 ToggleButton 一致的胶囊观感：透明底 + 弱强调色填充。
+ */
+.methodGroup :global(.ant-radio-button-wrapper) {
+  height: 24px;
+  padding-inline: 10px;
+  border: 1px solid var(--border) !important;
+  background: transparent !important;
+  color: var(--fg-muted) !important;
+  font-size: 0.9231rem;
+  line-height: 22px;
+}
+
+.methodGroup :global(.ant-radio-button-wrapper:hover:not(.ant-radio-button-wrapper-checked)) {
+  background: var(--bg-active) !important;
+  color: var(--fg) !important;
+}
+
+.methodGroup :global(.ant-radio-button-wrapper-checked) {
+  background: var(--accent-soft) !important;
+  border-color: var(--accent-border) !important;
+  color: var(--fg-strong) !important;
+}
+
+.formCard {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 20px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md, 6px);
+  background: var(--bg-elevated, var(--bg));
+}
+
+.typeRow {
+  display: flex;
+  align-items: flex-end;
+  flex-wrap: wrap;
+  gap: 16px;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.scopeField {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.scopeSelect {
+  width: 160px;
+}
+
+.fieldLabel {
+  font-size: 0.9231rem;
+  color: var(--fg-muted);
+}
+
+.narrowSelect,
+.narrowInput {
+  width: 240px;
+  max-width: 100%;
+}
+
+.subFields {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md, 6px);
+}
+
+.collapseToggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--fg-muted);
+  font-size: 0.9615rem;
+  cursor: pointer;
+}
+
+.collapseToggle:hover {
+  color: var(--fg-strong);
+}
+
+.fieldHint {
+  font-size: 0.8846rem;
+  line-height: 1.45;
+}
+
+.formError {
+  color: var(--error);
+  font-size: 0.9231rem;
+}
+
+.cardActions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}

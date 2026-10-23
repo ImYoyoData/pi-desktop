@@ -1,5 +1,4 @@
-import { defineStore } from "pinia";
-import { computed, ref, watch } from "vue";
+import { create } from "zustand";
 import type {
 	PullRequestCounts,
 	PullRequestFilters,
@@ -143,28 +142,57 @@ function mergeByUrl(current: PullRequestSummary[], incoming: PullRequestSummary[
 	return [...new Map([...current, ...incoming].map((entry) => [entry.url, entry])).values()];
 }
 
-export const usePullRequestsStore = defineStore("pullRequests", () => {
-	const workspace = useWorkspaceStore();
-	const selection = ref<PullRequestSelection>(readPullRequestSelection());
-	const list = ref<ListState>({ key: "", ...EMPTY_LIST });
+type PullRequestsBase = {
+	selection: PullRequestSelection;
+	list: ListState;
+	workspaceRoot: string | null;
+};
+
+type PullRequestsDerived = {
+	filtersJson: string;
+	key: string;
+};
+
+function derive(base: PullRequestsBase): PullRequestsDerived {
+	const filtersJson = serializeFilters(base.selection.filters);
+	const key = JSON.stringify([
+		base.workspaceRoot ?? "",
+		base.selection.state,
+		base.selection.author,
+		filtersJson,
+	]);
+	return { filtersJson, key };
+}
+
+export type PullRequestsState = PullRequestsBase &
+	PullRequestsDerived & {
+		load: (force?: boolean) => Promise<void>;
+		loadMore: () => Promise<void>;
+		refresh: () => void;
+		setSelection: (patch: Partial<PullRequestSelection>) => void;
+		setFilter: (
+			key: keyof PullRequestFilters,
+			value: PullRequestFilters[keyof PullRequestFilters] | undefined,
+		) => void;
+		clearFilters: () => void;
+	};
+
+export const usePullRequestsStore = create<PullRequestsState>()((set, get) => {
 	const cache = new Map<string, Omit<ListState, "key">>();
 	const pending = new Set<string>();
 	let generation = 0;
 	let activeKey = "";
 
-	const filtersJson = computed(() => serializeFilters(selection.value.filters));
-	const key = computed(() =>
-		JSON.stringify([
-			workspace.root ?? "",
-			selection.value.state,
-			selection.value.author,
-			filtersJson.value,
-		]),
-	);
+	function commit(patch: Partial<PullRequestsBase>): void {
+		set((state) => {
+			const next = { ...state, ...patch };
+			return { ...next, ...derive(next) };
+		});
+	}
 
 	function persistSelection(): void {
 		try {
-			prefs.setItem(SELECTION_KEY, JSON.stringify(selection.value));
+			prefs.setItem(SELECTION_KEY, JSON.stringify(get().selection));
 		} catch {
 			// 忽略存储失败
 		}
@@ -177,10 +205,11 @@ export const usePullRequestsStore = defineStore("pullRequests", () => {
 
 	async function fetchPage(currentKey: string, cursor?: string) {
 		const requestId = crypto.randomUUID();
+		const state = get();
 		pending.add(requestId);
 		try {
 			const filters =
-				filtersJson.value === "{}" ? undefined : (JSON.parse(filtersJson.value) as PullRequestFilters);
+				state.filtersJson === "{}" ? undefined : (JSON.parse(state.filtersJson) as PullRequestFilters);
 			if (filters?.updatedWithin) {
 				const days = filters.updatedWithin;
 				delete filters.updatedWithin;
@@ -189,8 +218,8 @@ export const usePullRequestsStore = defineStore("pullRequests", () => {
 			const response = await window.api.github
 				.pullRequestList(
 					plainIpcArgs({
-						state: selection.value.state,
-						author: selection.value.author,
+						state: state.selection.state,
+						author: state.selection.author,
 						...(filters ? { filters } : {}),
 						...(cursor ? { cursor } : {}),
 						requestId,
@@ -212,23 +241,26 @@ export const usePullRequestsStore = defineStore("pullRequests", () => {
 	}
 
 	async function load(force = false): Promise<void> {
-		if (!workspace.root) return;
-		const currentKey = key.value;
+		const state = get();
+		if (!state.workspaceRoot) return;
+		const currentKey = state.key;
 		const cached = cache.get(currentKey);
-		if (!force && list.value.key === currentKey) return;
+		if (!force && state.list.key === currentKey) return;
 		cancelPending();
 		const run = ++generation;
 		activeKey = currentKey;
 		const previous = cached ?? EMPTY_LIST;
 		const targetCount = previous.pullRequests.length;
-		list.value = {
-			...previous,
-			key: currentKey,
-			loading: !force,
-			loadingMore: force,
-			error: null,
-			moreError: null,
-		};
+		commit({
+			list: {
+				...previous,
+				key: currentKey,
+				loading: !force,
+				loadingMore: force,
+				error: null,
+				moreError: null,
+			},
+		});
 		try {
 			const first = await fetchPage(currentKey);
 			let rows = first.pullRequests ?? [];
@@ -252,41 +284,47 @@ export const usePullRequestsStore = defineStore("pullRequests", () => {
 			};
 			cache.set(currentKey, settled);
 			trimCache();
-			list.value = { ...settled, key: currentKey };
+			commit({ list: { ...settled, key: currentKey } });
 		} catch (error) {
 			if (error === SUPERSEDED || run !== generation) return;
 			const message = error instanceof Error ? error.message : String(error);
-			list.value = { ...list.value, loading: false, loadingMore: false, error: message, moreError: null };
+			const list = get().list;
+			commit({
+				list: { ...list, loading: false, loadingMore: false, error: message, moreError: null },
+			});
 		}
 	}
 
 	async function loadMore(): Promise<void> {
-		const currentKey = list.value.key;
-		if (!workspace.root || list.value.key !== key.value || !list.value.nextCursor) return;
-		if (list.value.loadingMore) return;
+		const state = get();
+		const currentKey = state.list.key;
+		if (!state.workspaceRoot || state.list.key !== state.key || !state.list.nextCursor) return;
+		if (state.list.loadingMore) return;
 		const run = generation;
-		const cursor = list.value.nextCursor;
-		list.value = { ...list.value, loadingMore: true, moreError: null };
+		const cursor = state.list.nextCursor;
+		commit({ list: { ...state.list, loadingMore: true, moreError: null } });
 		try {
 			const next = await fetchPage(currentKey, cursor);
 			if (run !== generation) return;
+			const current = get().list;
 			const settled: Omit<ListState, "key"> = {
-				pullRequests: mergeByUrl(list.value.pullRequests, next.pullRequests ?? []),
+				pullRequests: mergeByUrl(current.pullRequests, next.pullRequests ?? []),
 				nextCursor: next.nextCursor ?? null,
-				totalCount: list.value.totalCount,
-				counts: list.value.counts,
-				repository: list.value.repository,
+				totalCount: current.totalCount,
+				counts: current.counts,
+				repository: current.repository,
 				loading: false,
 				loadingMore: false,
 				error: null,
 				moreError: null,
 			};
 			cache.set(currentKey, settled);
-			list.value = { ...settled, key: currentKey };
+			commit({ list: { ...settled, key: currentKey } });
 		} catch (error) {
 			if (error === SUPERSEDED || run !== generation) return;
 			const message = error instanceof Error ? error.message : String(error);
-			list.value = { ...list.value, loadingMore: false, moreError: message };
+			const list = get().list;
+			commit({ list: { ...list, loadingMore: false, moreError: message } });
 		}
 	}
 
@@ -299,18 +337,19 @@ export const usePullRequestsStore = defineStore("pullRequests", () => {
 	}
 
 	function setSelection(patch: Partial<PullRequestSelection>): void {
+		const current = get().selection;
 		const next: PullRequestSelection = {
-			state: patch.state ?? selection.value.state,
-			author: patch.author ?? selection.value.author,
-			filters: patch.filters ?? selection.value.filters,
+			state: patch.state ?? current.state,
+			author: patch.author ?? current.author,
+			filters: patch.filters ?? current.filters,
 		};
-		selection.value = next;
+		commit({ selection: next });
 		persistSelection();
 		void load();
 	}
 
 	function setFilter(key: keyof PullRequestFilters, value: PullRequestFilters[keyof PullRequestFilters] | undefined): void {
-		const filters = { ...selection.value.filters };
+		const filters = { ...get().selection.filters };
 		if (value === undefined || value === "" || (Array.isArray(value) && value.length === 0)) {
 			delete filters[key];
 		} else {
@@ -327,29 +366,28 @@ export const usePullRequestsStore = defineStore("pullRequests", () => {
 		void load(true);
 	}
 
-	watch(
-		() => key.value,
-		(current, previous) => {
-			if (current === previous) return;
-			void load();
-		},
-	);
+	function resetForWorkspace(root: string | null): void {
+		generation += 1;
+		cancelPending();
+		cache.clear();
+		commit({ workspaceRoot: root, list: { key: "", ...EMPTY_LIST } });
+		void load();
+	}
 
-	watch(
-		() => workspace.root,
-		() => {
-			generation += 1;
-			cancelPending();
-			cache.clear();
-			list.value = { key: "", ...EMPTY_LIST };
-			void load();
-		},
-	);
+	const base: PullRequestsBase = {
+		selection: readPullRequestSelection(),
+		list: { key: "", ...EMPTY_LIST },
+		workspaceRoot: useWorkspaceStore.getState().root,
+	};
+
+	useWorkspaceStore.subscribe((state, prev) => {
+		if (state.root === prev.root) return;
+		resetForWorkspace(state.root);
+	});
 
 	return {
-		selection,
-		list,
-		key,
+		...base,
+		...derive(base),
 		load,
 		loadMore,
 		refresh,

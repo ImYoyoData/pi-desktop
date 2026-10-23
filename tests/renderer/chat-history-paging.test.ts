@@ -1,12 +1,15 @@
-import { createPinia, setActivePinia } from "pinia";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { useChatStore } from "../../src/renderer/src/stores/chat";
 import { useSessionsStore } from "../../src/renderer/src/stores/sessions";
+import { useSessionWidgetsStore } from "../../src/renderer/src/stores/session-widgets";
 import type { SessionHistoryMessage, SessionHistoryPage } from "../../src/shared/protocol";
 
-vi.mock("naive-ui", () => ({
-  createDiscreteApi: () => ({
-    message: { warning: vi.fn(), error: vi.fn(), info: vi.fn() },
+vi.mock("../../src/renderer/src/services/feedback", () => ({
+  getMessage: () => ({
+    warning: vi.fn(),
+    error: vi.fn(),
+    info: vi.fn(),
+    success: vi.fn(),
   }),
 }));
 
@@ -17,7 +20,9 @@ const historyMock = vi.fn(async (): Promise<SessionHistoryPage> => ({
 }));
 
 function setupEnv(): void {
-  setActivePinia(createPinia());
+  useChatStore.setState(useChatStore.getInitialState(), true);
+  useSessionsStore.setState(useSessionsStore.getInitialState(), true);
+  useSessionWidgetsStore.setState(useSessionWidgetsStore.getInitialState(), true);
   vi.stubGlobal("document", { hidden: false, addEventListener: vi.fn(), removeEventListener: vi.fn() });
   vi.stubGlobal("window", {
     api: {
@@ -46,16 +51,18 @@ function page(tag: string, n: number): SessionHistoryMessage[] {
 
 /** 登记会话并把最近一页灌进 chat store。 */
 function stage(tag: string, n: number, hasMore: boolean): void {
-  useSessionsStore().sessions = [
-    {
-      id: "s1",
-      cwd: "c:/ws",
-      filePath: "c:/ws/.pi/s1.jsonl",
-      status: "idle",
-      modified: "2026-01-01T00:00:00.000Z",
-    },
-  ];
-  useChatStore().hydrateFromHistory("s1", page(tag, n), hasMore);
+  useSessionsStore.setState({
+    sessions: [
+      {
+        id: "s1",
+        cwd: "c:/ws",
+        filePath: "c:/ws/.pi/s1.jsonl",
+        status: "idle",
+        modified: "2026-01-01T00:00:00.000Z",
+      },
+    ],
+  });
+  useChatStore.getState().hydrateFromHistory("s1", page(tag, n), hasMore);
 }
 
 const ids = (tag: string, n: number) => page(tag, n).map((m) => m.id);
@@ -68,7 +75,7 @@ describe("chat history paging", () => {
 
   it("records the cursor from the oldest loaded message", () => {
     stage("a", 3, true);
-    const older = useChatStore().olderBySession.s1;
+    const older = useChatStore.getState().olderBySession.s1;
     expect(older?.hasMore).toBe(true);
     expect(older?.cursor).toBe("a0");
     expect(older?.loading).toBe(false);
@@ -76,29 +83,29 @@ describe("chat history paging", () => {
 
   it("defaults to no older history when the caller does not say", () => {
     stage("a", 3, false);
-    expect(useChatStore().olderBySession.s1?.hasMore).toBe(false);
+    expect(useChatStore.getState().olderBySession.s1?.hasMore).toBe(false);
   });
 
   it("prepends an older page in front of the loaded tail", async () => {
     stage("a", 3, true);
     historyMock.mockResolvedValue({ messages: page("b", 2), hasMore: false, total: 5 });
-    const chat = useChatStore();
+    const chat = useChatStore.getState();
 
     const added = await chat.loadOlderMessages("s1");
 
     expect(added).toBe(2);
-    expect(chat.bySession.s1?.messages.map((m) => m.id)).toEqual([
+    expect(useChatStore.getState().bySession.s1?.messages.map((m) => m.id)).toEqual([
       ...ids("b", 2),
       ...ids("a", 3),
     ]);
-    expect(chat.olderBySession.s1).toMatchObject({ hasMore: false, cursor: "b0" });
+    expect(useChatStore.getState().olderBySession.s1).toMatchObject({ hasMore: false, cursor: "b0" });
   });
 
   it("passes the cursor as beforeId so the main process returns strictly older rows", async () => {
     stage("a", 3, true);
     historyMock.mockResolvedValue({ messages: page("b", 2), hasMore: false, total: 5 });
 
-    await useChatStore().loadOlderMessages("s1");
+    await useChatStore.getState().loadOlderMessages("s1");
 
     expect(historyMock).toHaveBeenCalledWith("c:/ws/.pi/s1.jsonl", {
       limit: expect.any(Number),
@@ -108,7 +115,7 @@ describe("chat history paging", () => {
 
   it("skips the round-trip when there is nothing older left", async () => {
     stage("a", 3, false);
-    expect(await useChatStore().loadOlderMessages("s1")).toBe(0);
+    expect(await useChatStore.getState().loadOlderMessages("s1")).toBe(0);
     expect(historyMock).not.toHaveBeenCalled();
   });
 
@@ -116,18 +123,18 @@ describe("chat history paging", () => {
     stage("a", 3, true);
     historyMock.mockResolvedValue({ messages: [], hasMore: true, total: 9 });
 
-    expect(await useChatStore().loadOlderMessages("s1")).toBe(0);
-    expect(useChatStore().olderBySession.s1?.hasMore).toBe(false);
+    expect(await useChatStore.getState().loadOlderMessages("s1")).toBe(0);
+    expect(useChatStore.getState().olderBySession.s1?.hasMore).toBe(false);
   });
 
   it("keeps the backlog on IPC failure so a retry can still work", async () => {
     stage("a", 3, true);
     historyMock.mockRejectedValue(new Error("ipc down"));
-    const chat = useChatStore();
+    const chat = useChatStore.getState();
 
     expect(await chat.loadOlderMessages("s1")).toBe(0);
-    expect(chat.olderBySession.s1).toMatchObject({ hasMore: true, loading: false });
-    expect(chat.bySession.s1?.messages).toHaveLength(3);
+    expect(useChatStore.getState().olderBySession.s1).toMatchObject({ hasMore: true, loading: false });
+    expect(useChatStore.getState().bySession.s1?.messages).toHaveLength(3);
   });
 
   it("blocks a second concurrent request for the same session", async () => {
@@ -139,11 +146,11 @@ describe("chat history paging", () => {
           release = () => resolve({ messages: page("b", 2), hasMore: false, total: 5 });
         }),
     );
-    const chat = useChatStore();
+    const chat = useChatStore.getState();
 
     const first = chat.loadOlderMessages("s1");
-    expect(chat.olderBySession.s1?.loading).toBe(true);
-    expect(await chat.loadOlderMessages("s1")).toBe(0);
+    expect(useChatStore.getState().olderBySession.s1?.loading).toBe(true);
+    expect(await useChatStore.getState().loadOlderMessages("s1")).toBe(0);
     expect(historyMock).toHaveBeenCalledTimes(1);
 
     release();
@@ -152,8 +159,7 @@ describe("chat history paging", () => {
 
   it("drops the cursor when the session state is cleared", () => {
     stage("a", 3, true);
-    const chat = useChatStore();
-    chat.clearSession("s1");
-    expect(chat.olderBySession.s1).toBeUndefined();
+    useChatStore.getState().clearSession("s1");
+    expect(useChatStore.getState().olderBySession.s1).toBeUndefined();
   });
 });

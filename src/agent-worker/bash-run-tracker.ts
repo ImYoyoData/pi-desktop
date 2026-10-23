@@ -11,6 +11,11 @@ import {
 	type BashOperations,
 } from "@earendil-works/pi-coding-agent";
 import { stripBashBackgroundMarker } from "../shared/bash-background";
+import {
+	bashNoticeLabels,
+	type BashNoticeLocale,
+	type BashTruncationReason,
+} from "../shared/bash-notice-i18n";
 
 const execFileAsync = promisify(execFile);
 
@@ -44,6 +49,8 @@ export type BashRunTrackerHooks = {
 	shouldStartBackground?: (command: string) => boolean;
 	/** bash 命令前执行的片段（pi 的 shellCommandPrefix），PowerShell 不使用。 */
 	commandPrefix?: string;
+	/** 当前界面语言，决定后台截断提示的措辞。 */
+	getLocale?: () => BashNoticeLocale;
 };
 
 type ActiveRun = {
@@ -58,9 +65,6 @@ type ActiveRun = {
 	rejectTool: ((err: Error) => void) | null;
 	removeOuterAbort: (() => void) | null;
 };
-
-const BACKGROUND_NOTICE =
-	"\n[pi-desktop] Running in background — conversation continues; output is in the Running panel.\n";
 
 /** setTimeout 的上限（毫秒），与 Pi SDK 的 MAX_TIMEOUT_MS 一致。 */
 const MAX_TIMEOUT_MS = 2_147_483_647;
@@ -302,17 +306,22 @@ export function createTrackedBashOperations(
 } {
 	const active = new Map<string, ActiveRun>();
 
-	function detachTool(row: ActiveRun, runId: string, notice: boolean): boolean {
+	function detachTool(
+		row: ActiveRun,
+		runId: string,
+		reason: BashTruncationReason,
+	): boolean {
 		if (row.backgrounded) return false;
 		row.backgrounded = true;
-		if (notice && row.toolOnData) {
+		const notice = bashNoticeLabels(hooks.getLocale?.() ?? "zh-CN").detached(reason);
+		if (row.toolOnData) {
 			try {
-				row.toolOnData(Buffer.from(BACKGROUND_NOTICE));
+				row.toolOnData(Buffer.from(notice));
 			} catch {
 				// ignore
 			}
 		}
-		hooks.onOutput(runId, BACKGROUND_NOTICE);
+		hooks.onOutput(runId, notice);
 		row.toolOnData = null;
 		row.removeOuterAbort?.();
 		row.removeOuterAbort = null;
@@ -327,7 +336,7 @@ export function createTrackedBashOperations(
 	function backgroundRun(runId: string): boolean {
 		const row = active.get(runId);
 		if (!row || row.backgrounded) return false;
-		return detachTool(row, runId, true);
+		return detachTool(row, runId, "user");
 	}
 
 	function terminateRun(runId: string): boolean {
@@ -438,7 +447,7 @@ export function createTrackedBashOperations(
 				})();
 
 				if (startBg) {
-					detachTool(row, id, true);
+					detachTool(row, id, "auto");
 				}
 
 				return toolPromise;
@@ -570,7 +579,7 @@ export function createTrackedBashOperations(
 					}, 3_000);
 
 					if (startBg) {
-						detachTool(row, id, true);
+						detachTool(row, id, "auto");
 					}
 
 					let exitCode: number | null = null;
@@ -602,7 +611,9 @@ export function createTrackedBashOperations(
 						if (row.survivors.size > 0) {
 							hooks.onOutput(
 								id,
-								`\n[pi-desktop] shell exited; tracking ${row.survivors.size} background process(es)…\n`,
+								bashNoticeLabels(hooks.getLocale?.() ?? "zh-CN").shellSurvivors(
+								row.survivors.size,
+							),
 							);
 							await waitForSurvivorsExit(row.survivors, local.signal);
 						}
@@ -612,7 +623,9 @@ export function createTrackedBashOperations(
 					if (row.survivors.size > 0) {
 						hooks.onOutput(
 							id,
-							`\n[pi-desktop] shell exited; tracking ${row.survivors.size} background process(es)…\n`,
+							bashNoticeLabels(hooks.getLocale?.() ?? "zh-CN").shellSurvivors(
+								row.survivors.size,
+							),
 						);
 						await waitForSurvivorsExit(row.survivors, local.signal);
 						if (local.signal.aborted) throw new Error("aborted");

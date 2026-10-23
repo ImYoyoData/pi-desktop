@@ -2,14 +2,15 @@ import type { AgentEvent } from "../../../shared/protocol";
 import type { AskUserPrompt } from "../../../shared/ask-user";
 import type { ExtensionUiPending } from "../../../shared/extension-ui";
 import { formatLlmError } from "../utils/llm-error";
-import { locale as uiLocalePref, t } from "../i18n";
+import { getLocale, t } from "../i18n";
 import {
-	isComposerAgentMode,
-	stripComposerModePreamble,
-} from "../../../shared/composer-modes";
+	isLegacyModeTagKind,
+	stripInjectedBlocks,
+	type LegacyModeTagKind,
+} from "../../../shared/injected-blocks";
 
 function uiLocale(): "zh-CN" | "en" {
-	return uiLocalePref.value;
+	return getLocale();
 }
 
 export type ChatUserImage = {
@@ -43,7 +44,7 @@ export type ChatMessage =
 				host: string;
 				label: string;
 				content?: string;
-				kind?: "file" | "url" | "element" | "agent" | "plan" | "ask" | "task";
+				kind?: "file" | "url" | "element" | LegacyModeTagKind;
 			}[];
 	  }
 	| {
@@ -1069,7 +1070,7 @@ function reduceAgentPayload(
 		const msg = message as Record<string, unknown>;
 		if (msg.role === "user") {
 			const rawText = textFromMessage(msg);
-			const text = stripComposerModePreamble(rawText);
+			const text = stripInjectedBlocks(rawText);
 			const fromEvent = imagesFromMessage(msg);
 			const id = typeof msg.id === "string" && msg.id ? msg.id : localId("user");
 			const last = state.messages.at(-1);
@@ -1084,8 +1085,8 @@ function reduceAgentPayload(
 					(!last.text.trim() ||
 						rawText.trim().endsWith(last.text.trim()) ||
 						rawText.includes(last.text.trim()));
-				// Mode preamble is for the model only — keep the short optimistic bubble.
-				const modePreambleEcho =
+				// 注入块（思考语言等）只给模型看 —— 保留本地短气泡。
+				const injectedBlockEcho =
 					rawText !== text &&
 					Boolean(last.text.trim()) &&
 					(text.trim() === last.text.trim() || rawText.includes(last.text.trim()));
@@ -1094,7 +1095,7 @@ function reduceAgentPayload(
 				if (
 					sameText ||
 					expandedCitationEcho ||
-					modePreambleEcho ||
+					injectedBlockEcho ||
 					hasLocalExtras
 				) {
 					const next = [...state.messages];
@@ -1104,11 +1105,7 @@ function reduceAgentPayload(
 						text: last.text,
 						images: last.images ?? fromEvent,
 						elementTags: last.elementTags?.filter(
-							(tag) =>
-								tag.kind !== "agent" &&
-								tag.kind !== "ask" &&
-								tag.kind !== "plan" &&
-								tag.kind !== "task",
+							(tag) => !isLegacyModeTagKind(tag.kind),
 						),
 					};
 					return { ...state, messages: next, streamingMessage: null };
@@ -1488,12 +1485,12 @@ export function appendUserMessage(
 		host: string;
 		label: string;
 		content?: string;
-		kind?: "file" | "url" | "element" | "agent" | "plan" | "ask" | "task";
+		kind?: "file" | "url" | "element" | LegacyModeTagKind;
 	}[],
 ): ChatState {
-	const trimmed = stripComposerModePreamble(text).trim();
+	const trimmed = stripInjectedBlocks(text).trim();
 	const visibleTags = elementTags?.filter(
-		(tag) => !isComposerAgentMode(tag.kind),
+		(tag) => !isLegacyModeTagKind(tag.kind),
 	);
 	const hasImages = Boolean(images?.length);
 	const hasTags = Boolean(visibleTags?.length);
@@ -1599,6 +1596,7 @@ export function reduceChatEvent(
 				retryHint: null,
 			});
 		case "context_usage":
+		case "session_activity":
 			return state;
 		default: {
 			const _never: never = event;

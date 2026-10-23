@@ -6,10 +6,19 @@
     "src/main/**/*",
     "src/preload/**/*",
     "src/agent-worker/**/*",
-    "src/shared/**/*"
+    "src/shared/**/*",
+    "tests/main/**/*",
+    "tests/shared/**/*",
+    "tests/agent-worker/**/*",
+    "tests/scripts/**/*"
   ],
   "compilerOptions": {
     "composite": true,
-    "types": ["electron-vite/node"]
+    "types": ["electron-vite/node"],
+    "paths": {
+      "@renderer/*": [
+        "./src/renderer/src/*"
+      ]
+    }
   }
 }

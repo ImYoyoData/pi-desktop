@@ -1,5 +1,4 @@
-import { defineStore } from "pinia";
-import { ref } from "vue";
+import { create } from "zustand";
 import {
   clampPanePercent,
   clampPanelHeight,
@@ -18,190 +17,220 @@ export {
 } from "@renderer/stores/layout-utils";
 export type { CenterView, PersistedLayout } from "@renderer/stores/layout-utils";
 
-export const useLayoutStore = defineStore("layout", () => {
-  const workspaceRoot = ref<string | null>(null);
-  const leftSize = ref(DEFAULT_LAYOUT.leftSize);
-  const centerSize = ref(DEFAULT_LAYOUT.centerSize);
-  const rightSize = ref(DEFAULT_LAYOUT.rightSize);
-  const leftCollapsed = ref(false);
-  const rightCollapsed = ref(DEFAULT_LAYOUT.rightCollapsed);
-  const bottomSize = ref(DEFAULT_LAYOUT.bottomSize);
-  const bottomCollapsed = ref(DEFAULT_LAYOUT.bottomCollapsed);
+type PreMaximizeState = {
+  leftCollapsed: boolean;
+  rightCollapsed: boolean;
+  bottomCollapsed: boolean;
+  leftSize: number;
+  centerSize: number;
+  rightSize: number;
+  bottomSize: number;
+};
+
+type LayoutBase = {
+  workspaceRoot: string | null;
+  leftSize: number;
+  centerSize: number;
+  rightSize: number;
+  leftCollapsed: boolean;
+  rightCollapsed: boolean;
+  bottomSize: number;
+  bottomCollapsed: boolean;
   /**
    * Maximize Editor Area — the right pane hosts the editors (diffs, previews),
    * so maximizing collapses the left sidebar + chat column + bottom panel and
    * lets the right pane take over the window; restoring replays the exact
    * pre-maximize layout.
    */
-  const editorMaximized = ref(false);
+  editorMaximized: boolean;
   /** 中央区域当前视图及智能体设置页状态。 */
-  const centerView = ref<CenterView>(DEFAULT_LAYOUT.centerView);
-  const customizeSection = ref(DEFAULT_LAYOUT.customizeSection);
-  type PreMaximizeState = {
-    leftCollapsed: boolean;
-    rightCollapsed: boolean;
-    bottomCollapsed: boolean;
-    leftSize: number;
-    centerSize: number;
-    rightSize: number;
-    bottomSize: number;
-  };
+  centerView: CenterView;
+  customizeSection: string;
+};
+
+export type LayoutState = LayoutBase & {
+  loadForWorkspace: (root: string) => void;
+  setLeftSize: (pct: number) => void;
+  setCenterSize: (pct: number) => void;
+  setRightSize: (pct: number) => void;
+  setPaneSizes: (left: number, center: number, right: number) => void;
+  setBottomSize: (percent: number) => void;
+  toggleLeftCollapsed: () => void;
+  toggleRightCollapsed: () => void;
+  toggleBottomCollapsed: () => void;
+  toggleEditorMaximized: () => void;
+  openCustomize: (section: string) => void;
+  showChat: () => void;
+  showPullRequests: () => void;
+  setCustomizeSection: (section: string) => void;
+};
+
+export const useLayoutStore = create<LayoutState>()((set, get) => {
   let preMaximizeState: PreMaximizeState | null = null;
 
   function persist(): void {
-    if (!workspaceRoot.value) {
-      return;
-    }
-    writeLayout(workspaceRoot.value, {
-      leftSize: leftSize.value,
-      centerSize: centerSize.value,
-      rightSize: rightSize.value,
-      leftCollapsed: leftCollapsed.value,
-      rightCollapsed: rightCollapsed.value,
-      bottomSize: bottomSize.value,
-      bottomCollapsed: bottomCollapsed.value,
-      centerView: centerView.value,
-      customizeSection: customizeSection.value,
+    const state = get();
+    if (!state.workspaceRoot) return;
+    writeLayout(state.workspaceRoot, {
+      leftSize: state.leftSize,
+      centerSize: state.centerSize,
+      rightSize: state.rightSize,
+      leftCollapsed: state.leftCollapsed,
+      rightCollapsed: state.rightCollapsed,
+      bottomSize: state.bottomSize,
+      bottomCollapsed: state.bottomCollapsed,
+      centerView: state.centerView,
+      customizeSection: state.customizeSection,
     });
   }
 
   function loadForWorkspace(root: string): void {
-    workspaceRoot.value = root;
     const data = readLayout(root);
-    leftSize.value = data.leftSize;
-    centerSize.value = data.centerSize;
-    rightSize.value = data.rightSize;
-    leftCollapsed.value = data.leftCollapsed;
-    rightCollapsed.value = data.rightCollapsed;
-    bottomSize.value = data.bottomSize;
-    bottomCollapsed.value = data.bottomCollapsed;
-    centerView.value = data.centerView;
-    customizeSection.value = data.customizeSection;
+    set({
+      workspaceRoot: root,
+      leftSize: data.leftSize,
+      centerSize: data.centerSize,
+      rightSize: data.rightSize,
+      leftCollapsed: data.leftCollapsed,
+      rightCollapsed: data.rightCollapsed,
+      bottomSize: data.bottomSize,
+      bottomCollapsed: data.bottomCollapsed,
+      centerView: data.centerView,
+      customizeSection: data.customizeSection,
+    });
   }
 
   function setLeftSize(pct: number): void {
-    leftSize.value = clampPanePercent(pct);
+    set({ leftSize: clampPanePercent(pct) });
     persist();
   }
 
   function setCenterSize(pct: number): void {
-    centerSize.value = clampPanePercent(pct);
+    set({ centerSize: clampPanePercent(pct) });
     persist();
   }
 
   function setRightSize(pct: number): void {
-    rightSize.value = clampPanePercent(pct);
+    set({ rightSize: clampPanePercent(pct) });
     persist();
   }
 
   function setPaneSizes(left: number, center: number, right: number): void {
-    leftSize.value = clampPanePercent(left);
-    centerSize.value = clampPanePercent(center);
-    rightSize.value = clampPanePercent(right);
+    set({
+      leftSize: clampPanePercent(left),
+      centerSize: clampPanePercent(center),
+      rightSize: clampPanePercent(right),
+    });
     persist();
   }
 
   function toggleLeftCollapsed(): void {
-    leftCollapsed.value = !leftCollapsed.value;
+    set((state) => ({ leftCollapsed: !state.leftCollapsed }));
     persist();
   }
 
   function toggleRightCollapsed(): void {
-    if (editorMaximized.value) {
-      toggleEditorMaximized();
-      if (!rightCollapsed.value) {
-        rightCollapsed.value = true;
+    if (get().editorMaximized) {
+      get().toggleEditorMaximized();
+      if (!get().rightCollapsed) {
+        set({ rightCollapsed: true });
         persist();
       }
       return;
     }
-    rightCollapsed.value = !rightCollapsed.value;
+    set((state) => ({ rightCollapsed: !state.rightCollapsed }));
     persist();
   }
 
   /** 在中央区域打开智能体设置页（退出编辑器区最大化）。 */
   function openCustomize(section: string): void {
-    if (editorMaximized.value) toggleEditorMaximized();
-    if (section) customizeSection.value = section;
-    centerView.value = "customize";
+    if (get().editorMaximized) get().toggleEditorMaximized();
+    if (section) set({ customizeSection: section });
+    set({ centerView: "customize" });
     persist();
   }
 
   /** 返回聊天视图。 */
   function showChat(): void {
-    centerView.value = "chat";
+    set({ centerView: "chat" });
     persist();
   }
 
   /** 在中央区域打开拉取请求视图。 */
   function showPullRequests(): void {
-    if (editorMaximized.value) toggleEditorMaximized();
-    centerView.value = "pull-requests";
+    if (get().editorMaximized) get().toggleEditorMaximized();
+    set({ centerView: "pull-requests" });
     persist();
   }
 
   function setCustomizeSection(section: string): void {
-    customizeSection.value = section;
+    set({ customizeSection: section });
     persist();
   }
 
   /** Dragging the splitter implies a visible panel. */
   function setBottomSize(percent: number): void {
-    bottomSize.value = clampPanelHeight(percent);
-    bottomCollapsed.value = false;
+    set({ bottomSize: clampPanelHeight(percent), bottomCollapsed: false });
     persist();
   }
 
   function toggleBottomCollapsed(): void {
-    bottomCollapsed.value = !bottomCollapsed.value;
+    set((state) => ({ bottomCollapsed: !state.bottomCollapsed }));
     persist();
   }
 
   function toggleEditorMaximized(): void {
-    if (!editorMaximized.value) {
+    const state = get();
+    if (!state.editorMaximized) {
       preMaximizeState = {
-        leftCollapsed: leftCollapsed.value,
-        rightCollapsed: rightCollapsed.value,
-        bottomCollapsed: bottomCollapsed.value,
-        leftSize: leftSize.value,
-        centerSize: centerSize.value,
-        rightSize: rightSize.value,
-        bottomSize: bottomSize.value,
+        leftCollapsed: state.leftCollapsed,
+        rightCollapsed: state.rightCollapsed,
+        bottomCollapsed: state.bottomCollapsed,
+        leftSize: state.leftSize,
+        centerSize: state.centerSize,
+        rightSize: state.rightSize,
+        bottomSize: state.bottomSize,
       };
-      leftCollapsed.value = true;
-      rightCollapsed.value = false;
-      bottomCollapsed.value = true;
-      editorMaximized.value = true;
+      set({
+        leftCollapsed: true,
+        rightCollapsed: false,
+        bottomCollapsed: true,
+        editorMaximized: true,
+      });
       persist();
       return;
     }
     const pre = preMaximizeState;
-    editorMaximized.value = false;
     preMaximizeState = null;
-    if (pre) {
-      leftCollapsed.value = pre.leftCollapsed;
-      rightCollapsed.value = pre.rightCollapsed;
-      bottomCollapsed.value = pre.bottomCollapsed;
-      leftSize.value = pre.leftSize;
-      centerSize.value = pre.centerSize;
-      rightSize.value = pre.rightSize;
-      bottomSize.value = pre.bottomSize;
-    }
+    set({
+      editorMaximized: false,
+      ...(pre
+        ? {
+            leftCollapsed: pre.leftCollapsed,
+            rightCollapsed: pre.rightCollapsed,
+            bottomCollapsed: pre.bottomCollapsed,
+            leftSize: pre.leftSize,
+            centerSize: pre.centerSize,
+            rightSize: pre.rightSize,
+            bottomSize: pre.bottomSize,
+          }
+        : {}),
+    });
     persist();
   }
 
   return {
-    workspaceRoot,
-    leftSize,
-    centerSize,
-    rightSize,
-    leftCollapsed,
-    rightCollapsed,
-    bottomSize,
-    bottomCollapsed,
-    editorMaximized,
-    centerView,
-    customizeSection,
+    workspaceRoot: null,
+    leftSize: DEFAULT_LAYOUT.leftSize,
+    centerSize: DEFAULT_LAYOUT.centerSize,
+    rightSize: DEFAULT_LAYOUT.rightSize,
+    leftCollapsed: false,
+    rightCollapsed: DEFAULT_LAYOUT.rightCollapsed,
+    bottomSize: DEFAULT_LAYOUT.bottomSize,
+    bottomCollapsed: DEFAULT_LAYOUT.bottomCollapsed,
+    editorMaximized: false,
+    centerView: DEFAULT_LAYOUT.centerView,
+    customizeSection: DEFAULT_LAYOUT.customizeSection,
     loadForWorkspace,
     setLeftSize,
     setCenterSize,

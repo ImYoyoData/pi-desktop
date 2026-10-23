@@ -2,9 +2,7 @@ import { copyFileSync, mkdirSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { defineConfig } from "electron-vite";
 import type { Plugin } from "vite";
-import vue from "@vitejs/plugin-vue";
-import Components from "unplugin-vue-components/vite";
-import { NaiveUiResolver } from "unplugin-vue-components/resolvers";
+import react from "@vitejs/plugin-react";
 import { piExtensionLoaderElectronPlugin } from "./scripts/pi-extension-loader-electron-plugin";
 import { piOAuthElectronPlugin } from "./scripts/pi-oauth-electron-plugin";
 
@@ -143,16 +141,7 @@ export default defineConfig({
       },
     },
     plugins: [
-      vue({
-        template: {
-          compilerOptions: {
-            isCustomElement: (tag) => tag === "webview",
-          },
-        },
-      }),
-      Components({
-        resolvers: [NaiveUiResolver()],
-      }),
+      react(),
       trimMonacoLanguages(),
     ],
     build: {
@@ -161,6 +150,13 @@ export default defineConfig({
       target: "chrome130",
       reportCompressedSize: false,
       chunkSizeWarningLimit: 8000,
+      rollupOptions: {
+        input: {
+          index: resolve("src/renderer/index.html"),
+          // 桌面右下角的更新悬浮窗，独立透明窗口加载。
+          "update-toast": resolve("src/renderer/update-toast.html"),
+        },
+      },
     },
   },
 });

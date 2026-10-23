@@ -2,7 +2,7 @@ import { existsSync } from "node:fs";
 import type { SessionEntry } from "@earendil-works/pi-coding-agent";
 import type { SessionForkResult } from "../shared/protocol";
 import { stripAttachedImagesBlock } from "../shared/chat-meta";
-import { stripComposerModePreamble } from "../shared/composer-modes";
+import { stripInjectedBlocks } from "../shared/injected-blocks";
 import { messageContentText, turnTextMatches } from "../shared/turn-match";
 
 const FORK_TITLE_PREFIX = "Forked: ";
@@ -20,7 +20,7 @@ function firstUserText(path: SessionEntry[]): string {
 	for (const entry of path) {
 		if (entry.type !== "message" || entry.message.role !== "user") continue;
 		const raw = messageContentText((entry.message as { content?: unknown }).content);
-		const clean = stripComposerModePreamble(stripAttachedImagesBlock(raw))
+		const clean = stripInjectedBlocks(stripAttachedImagesBlock(raw))
 			.replace(/\s+/g, " ")
 			.trim();
 		if (clean) return clean;
@@ -30,7 +30,7 @@ function firstUserText(path: SessionEntry[]): string {
 
 /** 派生会话标题：取分叉点消息文本，为空时回退为 `Forked: ` + 源会话名。 */
 function forkTitleFor(turnText: string, sourceName: string | null): string | null {
-	const clean = stripComposerModePreamble(stripAttachedImagesBlock(turnText))
+	const clean = stripInjectedBlocks(stripAttachedImagesBlock(turnText))
 		.replace(/\s+/g, " ")
 		.trim()
 		.slice(0, FORK_TITLE_MAX);

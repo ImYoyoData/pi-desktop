@@ -1,0 +1,175 @@
+:global(.title-bar) {
+  display: flex;
+  align-items: center;
+  height: 36px;
+  /*
+   * 右侧不留内边距：自绘窗口按钮要贴住窗口边缘，
+   * 否则关闭按钮悬停的红色块与窗口右缘之间会出现一条缝。
+   */
+  padding: 0 0 0 8px;
+  /*
+   * 标题栏不加遮罩：背景全透、未启用壁纸时透出窗口底色，启用壁纸时直接透出壁纸，
+   * 不做压暗也不做磨砂模糊。
+   */
+  border-bottom: 1px solid var(--border);
+  color: var(--fg-muted);
+  font-size: 0.9231rem;
+  user-select: none;
+  flex-shrink: 0;
+  box-shadow: 0 1px 0 color-mix(in srgb, var(--bg-elevated) 40%, transparent);
+  /* Whole bar is draggable; interactive children use .no-drag. */
+  -webkit-app-region: drag;
+}
+
+.drag {
+  -webkit-app-region: drag;
+}
+
+.noDrag {
+  -webkit-app-region: no-drag;
+}
+
+.trafficSpace {
+  width: 0;
+  flex-shrink: 0;
+}
+
+.mac .trafficSpace {
+  /* Leave room for traffic lights (hiddenInset + trafficLightPosition). */
+  width: 72px;
+}
+
+/* macOS 不画自绘窗口按钮，右侧保留与左侧交通灯对称的留白 */
+:global(.title-bar).mac {
+  padding-right: 8px;
+}
+
+.brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding-left: 4px;
+  color: var(--fg-strong);
+}
+
+.brand > svg {
+  display: block;
+  flex-shrink: 0;
+}
+
+.name {
+  font-weight: 600;
+  font-size: 0.9615rem;
+  letter-spacing: -0.01em;
+}
+
+.layoutControls {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin-left: 6px;
+}
+
+/* VSCode 布局控件：图标常驻，区域可见时高亮。 */
+.layoutBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: none;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--fg-muted);
+  cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+
+.layoutBtn:hover {
+  background: var(--bg-hover, rgba(127, 127, 127, 0.1));
+  color: var(--fg-strong);
+}
+
+.layoutBtn.checked,
+.layoutBtn.checked:hover {
+  background: var(--bg-active);
+  color: var(--fg-strong);
+}
+
+.center {
+  flex: 1;
+  min-width: 0;
+}
+
+.actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+/* 有新版本时的标题栏入口：胶囊小按钮，鼠标悬停才显出底色。 */
+.updateBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 22px;
+  padding: 0 8px;
+  border: none;
+  border-radius: 11px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font: inherit;
+  font-size: 0.8462rem;
+  cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+
+.updateBtn:hover {
+  background: var(--accent-soft-hover);
+}
+
+.updateBtn > svg {
+  display: block;
+  flex-shrink: 0;
+}
+
+.windowControls {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  height: 100%;
+}
+
+.wcBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 46px;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--fg-muted);
+  cursor: pointer;
+  -webkit-app-region: no-drag;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+
+.wcBtn:hover {
+  background: var(--bg-hover, rgba(127, 127, 127, 0.1));
+  color: var(--fg-strong);
+}
+
+.closeBtn:hover {
+  background: #c42b1c;
+  color: #fff;
+}
+
+.wcIcon {
+  display: block;
+  width: 10px;
+  height: 10px;
+  flex-shrink: 0;
+}

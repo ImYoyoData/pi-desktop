@@ -1,4 +1,3 @@
-import { reactive, ref } from "vue";
 import { en } from "./en";
 import { zh } from "./zh-CN";
 import { detectSystemLanguage, resolveUiLocale, type UiLocale } from "./locale";
@@ -26,19 +25,35 @@ function messagesFor(next: UiLocale): Messages {
   return (next === "zh-CN" ? zh : en) as Messages;
 }
 
-/** 当前界面语言；切换语言时实时更新，无需重载页面。 */
-const locale = ref<UiLocale>(resolveActiveLocale());
+let currentLocale: UiLocale = resolveActiveLocale();
 
-/** Active UI strings — Chinese when zh*, otherwise English (or user override). */
-export const t = reactive({
-  ...messagesFor(locale.value),
-}) as Messages;
+/**
+ * Active UI strings — Chinese when zh*, otherwise English (or user override).
+ * 对象原地替换，React 组件通过 useI18n() 订阅变化后重渲染。
+ */
+export const t: Messages = { ...messagesFor(currentLocale) };
 
-/** 运行时切换界面语言：替换文案，模板立即跟随，不出现加载页。 */
+const listeners = new Set<() => void>();
+
+/** 当前生效的界面语言。 */
+export function getLocale(): UiLocale {
+  return currentLocale;
+}
+
+/** 订阅界面语言变化，返回解绑函数。 */
+export function subscribeLocale(listener: () => void): () => void {
+  listeners.add(listener);
+  return () => {
+    listeners.delete(listener);
+  };
+}
+
+/** 运行时切换界面语言：替换文案，组件立即跟随，不出现加载页。 */
 export function applyUiLocale(next: UiLocale): void {
-  if (next === locale.value) return;
-  locale.value = next;
+  if (next === currentLocale) return;
+  currentLocale = next;
   Object.assign(t, messagesFor(next));
+  for (const listener of listeners) listener();
 }
 
 /** Compile-time guard: en must stay key-compatible with zh. */
@@ -50,7 +65,7 @@ type _AssertSameKeys<A, B> = [keyof A] extends [keyof B]
 const _enCompat: _AssertSameKeys<typeof zh, typeof en> = true;
 void _enCompat;
 
-export { zh, en, locale, resolveUiLocale };
+export { zh, en, resolveUiLocale };
 export {
   detectSystemLanguage,
   resolveMonacoNls,

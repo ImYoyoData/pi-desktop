@@ -1,0 +1,46 @@
+.sliderRow {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+/* antd 默认给滑块留了 12px 上下外边距，六个滑块叠起来很占高度，这里收紧。 */
+.sliderRow :global(.ant-slider.ant-slider) {
+  margin: 6px 4px;
+}
+
+.sliderHead {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.sliderLabel {
+  font-size: 0.9615rem;
+  color: var(--fg);
+  white-space: nowrap;
+}
+
+.sliderTip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 13px;
+  height: 13px;
+  border: 1px solid var(--border-strong);
+  border-radius: 50%;
+  color: var(--fg-muted);
+  font-size: 0.6923rem;
+  line-height: 1;
+  cursor: default;
+}
+
+.sliderValue {
+  margin-left: auto;
+  color: var(--fg-muted);
+  font-size: 0.9231rem;
+  font-variant-numeric: tabular-nums;
+}

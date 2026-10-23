@@ -1,12 +1,9 @@
-import { defineStore } from "pinia";
-import { computed, ref } from "vue";
-import { createDiscreteApi } from "naive-ui";
+import { create } from "zustand";
 import type { AgentRunEvent, AgentRunSnapshot } from "../../../shared/agent-runs";
 import { shouldInterruptBashStall } from "../../../shared/bash-stall";
 import { useWorkspaceStore } from "@renderer/stores/workspace";
+import { getMessage } from "@renderer/services/feedback";
 import { t } from "@renderer/i18n";
-
-const { message: discreteMessage } = createDiscreteApi(["message"]);
 
 function normalizeRoot(root: string): string {
   return root.replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
@@ -17,63 +14,117 @@ function matchesWorkspace(runRoot: string, workspaceRoot: string | null): boolea
   return normalizeRoot(runRoot) === normalizeRoot(workspaceRoot);
 }
 
-export const useAgentRunsStore = defineStore("agentRuns", () => {
-  const runs = ref<AgentRunSnapshot[]>([]);
-  const selectedId = ref<string | null>(null);
+type AgentRunsBase = {
+  runs: AgentRunSnapshot[];
+  selectedId: string | null;
+};
+
+type AgentRunsDerived = {
+  selected: AgentRunSnapshot | null;
+};
+
+type AgentRunsState = AgentRunsBase &
+  AgentRunsDerived & {
+    applyEvent: (event: AgentRunEvent) => void;
+    refresh: (workspaceRoot: string | null) => Promise<void>;
+    bind: () => void;
+    unbind: () => void;
+    terminate: (runId: string) => Promise<void>;
+    background: (runId: string) => Promise<void>;
+    findBlockingRun: (
+      sessionId: string,
+      command: string,
+    ) => AgentRunSnapshot | null;
+    select: (id: string) => void;
+    checkBashStalls: () => void;
+  };
+
+function derive(base: AgentRunsBase): AgentRunsDerived {
+  return {
+    selected: base.runs.find((r) => r.id === base.selectedId) ?? null,
+  };
+}
+
+export const useAgentRunsStore = create<AgentRunsState>()((set, get) => {
   let unsub: (() => void) | null = null;
   let refreshGen = 0;
   let stallTimer: ReturnType<typeof setInterval> | null = null;
   /** Avoid repeat terminate storms for the same run id. */
   const stallTerminating = new Set<string>();
 
-  const selected = computed(
-    () => runs.value.find((r) => r.id === selectedId.value) ?? null,
-  );
+  function writeBase(patch: Partial<AgentRunsBase>): void {
+    set((state) => {
+      const next = { ...state, ...patch };
+      return { ...patch, ...derive(next) };
+    });
+  }
 
   function currentWorkspaceRoot(): string | null {
-    return useWorkspaceStore().root;
+    return useWorkspaceStore.getState().root;
+  }
+
+  function syncSelection(
+    runs: AgentRunSnapshot[],
+    selectedId: string | null,
+  ): string | null {
+    if (selectedId && !runs.some((r) => r.id === selectedId)) {
+      return runs[0]?.id ?? null;
+    }
+    if (!selectedId && runs.length > 0) return runs[0]!.id;
+    return selectedId;
   }
 
   function applyEvent(event: AgentRunEvent): void {
     const workspaceRoot = currentWorkspaceRoot();
     switch (event.type) {
       case "snapshot": {
-        runs.value = event.runs.filter((r) =>
+        const runs = event.runs.filter((r) =>
           matchesWorkspace(r.workspaceRoot, workspaceRoot),
         );
-        if (selectedId.value && !runs.value.some((r) => r.id === selectedId.value)) {
-          selectedId.value = runs.value[0]?.id ?? null;
-        }
+        const selectedId = get().selectedId;
+        writeBase({
+          runs,
+          selectedId:
+            selectedId && !runs.some((r) => r.id === selectedId)
+              ? runs[0]?.id ?? null
+              : selectedId,
+        });
         break;
       }
       case "upsert": {
         if (!matchesWorkspace(event.run.workspaceRoot, workspaceRoot)) return;
-        const i = runs.value.findIndex((r) => r.id === event.run.id);
-        if (i >= 0) {
-          runs.value = runs.value.map((r, idx) => (idx === i ? event.run : r));
-        } else {
-          runs.value = [...runs.value, event.run];
-        }
-        if (!selectedId.value) selectedId.value = event.run.id;
+        const runs = get().runs;
+        const i = runs.findIndex((r) => r.id === event.run.id);
+        const next =
+          i >= 0
+            ? runs.map((r, idx) => (idx === i ? event.run : r))
+            : [...runs, event.run];
+        writeBase({ runs: next, selectedId: get().selectedId || event.run.id });
         break;
       }
       case "output": {
-        const i = runs.value.findIndex((r) => r.id === event.runId);
+        const runs = get().runs;
+        const i = runs.findIndex((r) => r.id === event.runId);
         if (i < 0) return;
-        const prev = runs.value[i]!;
-        runs.value = runs.value.map((r, idx) =>
-          idx === i
-            ? { ...prev, outputTail: event.outputTail, lastOutputAt: Date.now() }
-            : r,
-        );
+        const prev = runs[i]!;
+        writeBase({
+          runs: runs.map((r, idx) =>
+            idx === i
+              ? { ...prev, outputTail: event.outputTail, lastOutputAt: Date.now() }
+              : r,
+          ),
+        });
         break;
       }
       case "ended": {
         stallTerminating.delete(event.runId);
-        runs.value = runs.value.filter((r) => r.id !== event.runId);
-        if (selectedId.value === event.runId) {
-          selectedId.value = runs.value[0]?.id ?? null;
-        }
+        const runs = get().runs.filter((r) => r.id !== event.runId);
+        const selectedId = get().selectedId;
+        writeBase({
+          runs,
+          selectedId:
+            selectedId === event.runId ? runs[0]?.id ?? null : selectedId,
+        });
         break;
       }
       default: {
@@ -83,37 +134,41 @@ export const useAgentRunsStore = defineStore("agentRuns", () => {
     }
   }
 
-  function syncSelection(): void {
-    if (selectedId.value && !runs.value.some((r) => r.id === selectedId.value)) {
-      selectedId.value = runs.value[0]?.id ?? null;
-    } else if (!selectedId.value && runs.value.length > 0) {
-      selectedId.value = runs.value[0]!.id;
-    }
-  }
-
   async function refresh(workspaceRoot: string | null): Promise<void> {
     const gen = ++refreshGen;
     if (!workspaceRoot) {
-      runs.value = [];
-      selectedId.value = null;
+      writeBase({ runs: [], selectedId: null });
       return;
     }
     // Drop other-workspace rows immediately so UI never shows a stale Scope B mix.
-    runs.value = runs.value.filter((r) =>
+    const filtered = get().runs.filter((r) =>
       matchesWorkspace(r.workspaceRoot, workspaceRoot),
     );
-    syncSelection();
+    writeBase({
+      runs: filtered,
+      selectedId: syncSelection(filtered, get().selectedId),
+    });
 
     const list = await window.api.runs.list(workspaceRoot);
     if (gen !== refreshGen) return;
 
-    runs.value = list.filter((r) => matchesWorkspace(r.workspaceRoot, workspaceRoot));
-    syncSelection();
+    const next = list.filter((r) =>
+      matchesWorkspace(r.workspaceRoot, workspaceRoot),
+    );
+    writeBase({ runs: next, selectedId: syncSelection(next, get().selectedId) });
+  }
+
+  async function terminate(runId: string): Promise<void> {
+    await window.api.runs.terminate(runId);
+  }
+
+  async function background(runId: string): Promise<void> {
+    await window.api.runs.background(runId);
   }
 
   function checkBashStalls(): void {
     const now = Date.now();
-    for (const run of runs.value) {
+    for (const run of get().runs) {
       if (stallTerminating.has(run.id)) continue;
       if (
         !shouldInterruptBashStall({
@@ -128,11 +183,11 @@ export const useAgentRunsStore = defineStore("agentRuns", () => {
       stallTerminating.add(run.id);
       void terminate(run.id)
         .then(() => {
-          discreteMessage.warning(t.bashStallInterrupted);
+          getMessage().warning(t.bashStallInterrupted);
         })
         .catch(() => {
           stallTerminating.delete(run.id);
-          discreteMessage.error(t.runningTerminateFailed);
+          getMessage().error(t.runningTerminateFailed);
         });
     }
   }
@@ -154,20 +209,15 @@ export const useAgentRunsStore = defineStore("agentRuns", () => {
     }
   }
 
-  async function terminate(runId: string): Promise<void> {
-    await window.api.runs.terminate(runId);
-  }
-
-  async function background(runId: string): Promise<void> {
-    await window.api.runs.background(runId);
-  }
-
   /** Prefer newest non-detached run matching session + command (tool card → Running). */
-  function findBlockingRun(sessionId: string, command: string): AgentRunSnapshot | null {
+  function findBlockingRun(
+    sessionId: string,
+    command: string,
+  ): AgentRunSnapshot | null {
     const cmd = command.trim();
     if (!cmd) return null;
     let best: AgentRunSnapshot | null = null;
-    for (const run of runs.value) {
+    for (const run of get().runs) {
       if (run.sessionId !== sessionId) continue;
       if (run.detached) continue;
       if (run.command.trim() !== cmd) continue;
@@ -177,13 +227,14 @@ export const useAgentRunsStore = defineStore("agentRuns", () => {
   }
 
   function select(id: string): void {
-    selectedId.value = id;
+    writeBase({ selectedId: id });
   }
 
+  const base: AgentRunsBase = { runs: [], selectedId: null };
+
   return {
-    runs,
-    selectedId,
-    selected,
+    ...base,
+    ...derive(base),
     applyEvent,
     refresh,
     bind,

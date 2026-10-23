@@ -26,8 +26,6 @@ export type ModelsProviderAuth = {
   baseUrl?: string;
   /** Provider also exposes an OAuth login flow. */
   oauth?: boolean;
-  /** 该 provider 至少有一个模型走 OpenAI Responses 协议（pi-web-access 复用凭据的前提）。 */
-  responsesApi?: boolean;
 };
 
 /** One entry of a provider's model catalog, with the metadata the GUI cares about. */

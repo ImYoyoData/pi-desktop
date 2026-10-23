@@ -1,0 +1,17 @@
+.modeSelect {
+  flex-shrink: 0;
+  width: 140px;
+}
+
+.modePlaceholder {
+  flex-shrink: 0;
+  width: 140px;
+  height: 24px;
+  border-radius: 4px;
+  background: rgba(128, 128, 128, 0.14);
+}
+
+.urlInput {
+  width: 320px;
+  flex-shrink: 0;
+}

@@ -1,12 +1,15 @@
-import { createPinia, setActivePinia } from "pinia";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { useChatStore, createChatState } from "../../src/renderer/src/stores/chat";
 import { useSessionsStore } from "../../src/renderer/src/stores/sessions";
+import { useSessionWidgetsStore } from "../../src/renderer/src/stores/session-widgets";
 import type { SessionHistoryMessage } from "../../src/shared/protocol";
 
-vi.mock("naive-ui", () => ({
-  createDiscreteApi: () => ({
-    message: { warning: vi.fn(), error: vi.fn(), info: vi.fn() },
+vi.mock("../../src/renderer/src/services/feedback", () => ({
+  getMessage: () => ({
+    warning: vi.fn(),
+    error: vi.fn(),
+    info: vi.fn(),
+    success: vi.fn(),
   }),
 }));
 
@@ -19,7 +22,9 @@ const DISK_HISTORY: SessionHistoryMessage[] = [
 ];
 
 function setupEnv(): void {
-  setActivePinia(createPinia());
+  useChatStore.setState(useChatStore.getInitialState(), true);
+  useSessionsStore.setState(useSessionsStore.getInitialState(), true);
+  useSessionWidgetsStore.setState(useSessionWidgetsStore.getInitialState(), true);
   vi.stubGlobal("document", { hidden: false, addEventListener: vi.fn(), removeEventListener: vi.fn() });
   vi.stubGlobal("window", {
     api: {
@@ -42,23 +47,29 @@ function setupEnv(): void {
 
 /** 登记一个活动会话，并让本地进入「正在运行」——模拟事件已丢失的界面。 */
 function stageRunningSession(): void {
-  const sessions = useSessionsStore();
-  sessions.sessions = [
-    {
-      id: "s1",
-      cwd: "c:/ws",
-      filePath: "c:/ws/.pi/s1.jsonl",
-      status: "running",
-      modified: "2026-01-01T00:00:00.000Z",
+  useSessionsStore.setState({
+    sessions: [
+      {
+        id: "s1",
+        cwd: "c:/ws",
+        filePath: "c:/ws/.pi/s1.jsonl",
+        status: "running",
+        modified: "2026-01-01T00:00:00.000Z",
+      },
+    ],
+    activeId: "s1",
+  });
+  useChatStore.setState((state) => ({
+    bySession: {
+      ...state.bySession,
+      s1: {
+        ...createChatState(),
+        running: true,
+        turnStartedAt: Date.now(),
+        lastActivityAt: Date.now(),
+      },
     },
-  ];
-  sessions.activeId = "s1";
-  useChatStore().bySession.s1 = {
-    ...createChatState(),
-    running: true,
-    turnStartedAt: Date.now(),
-    lastActivityAt: Date.now(),
-  };
+  }));
 }
 
 describe("chat store resync", () => {
@@ -72,36 +83,35 @@ describe("chat store resync", () => {
   // 主进程已收工时，这里用磁盘历史把会话拉回真实终态。
   it("rebuilds from disk when main is idle but the view still shows running", async () => {
     stageRunningSession();
-    const chat = useChatStore();
 
-    await chat.resyncActiveSession();
+    await useChatStore.getState().resyncActiveSession();
 
-    const state = chat.bySession.s1;
+    const state = useChatStore.getState().bySession.s1;
     expect(state?.running).toBe(false);
     expect(state?.streamingMessage).toBeNull();
     expect(state?.messages.map((m) => m.id)).toEqual(["u1", "a1"]);
-    expect(useSessionsStore().sessions[0]?.status).toBe("idle");
+    expect(useSessionsStore.getState().sessions[0]?.status).toBe("idle");
   });
 
   it("leaves a genuinely running turn untouched", async () => {
     stageRunningSession();
     statusMock.mockResolvedValue("running");
-    const chat = useChatStore();
 
-    await chat.resyncActiveSession();
+    await useChatStore.getState().resyncActiveSession();
 
-    expect(chat.bySession.s1?.running).toBe(true);
+    expect(useChatStore.getState().bySession.s1?.running).toBe(true);
     expect(historyMock).not.toHaveBeenCalled();
   });
 
   it("skips the round-trip entirely when nothing is running locally", async () => {
-    const sessions = useSessionsStore();
-    sessions.sessions = [
-      { id: "s1", cwd: "c:/ws", filePath: "c:/ws/.pi/s1.jsonl", status: "idle", modified: "2026-01-01T00:00:00.000Z" },
-    ];
-    sessions.activeId = "s1";
+    useSessionsStore.setState({
+      sessions: [
+        { id: "s1", cwd: "c:/ws", filePath: "c:/ws/.pi/s1.jsonl", status: "idle", modified: "2026-01-01T00:00:00.000Z" },
+      ],
+      activeId: "s1",
+    });
 
-    await useChatStore().resyncActiveSession();
+    await useChatStore.getState().resyncActiveSession();
 
     expect(statusMock).not.toHaveBeenCalled();
   });
@@ -109,14 +119,13 @@ describe("chat store resync", () => {
   it("keeps the current view usable when the reconciliation itself fails", async () => {
     stageRunningSession();
     statusMock.mockRejectedValue(new Error("ipc down"));
-    const chat = useChatStore();
 
-    await expect(chat.resyncActiveSession()).resolves.toBeUndefined();
-    expect(chat.bySession.s1?.running).toBe(true);
+    await expect(useChatStore.getState().resyncActiveSession()).resolves.toBeUndefined();
+    expect(useChatStore.getState().bySession.s1?.running).toBe(true);
   });
 
   it("does nothing without an active session", async () => {
-    await useChatStore().resyncActiveSession();
+    await useChatStore.getState().resyncActiveSession();
     expect(statusMock).not.toHaveBeenCalled();
   });
 });

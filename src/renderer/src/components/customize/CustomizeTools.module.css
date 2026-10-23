@@ -1,0 +1,121 @@
+.customizeTools {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+}
+
+.listContainer {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.groupCard {
+  display: flex;
+  flex-direction: column;
+}
+
+.groupHeader {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 36px;
+  margin: 0;
+  padding: 10px 14px;
+  border: none;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  user-select: none;
+}
+
+.groupHeader:hover {
+  background-color: var(--bg-hover);
+}
+
+.groupLabel {
+  color: var(--fg);
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.groupCount {
+  flex-shrink: 0;
+  color: var(--fg-muted);
+  font-size: 0.8462rem;
+  font-weight: 600;
+  text-align: right;
+}
+
+.groupInfo {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  color: var(--fg-muted);
+  opacity: 0;
+  transition: opacity 0.1s ease;
+}
+
+.groupHeader:hover .groupInfo {
+  opacity: 0.8;
+}
+
+.groupInfo:hover {
+  opacity: 1;
+}
+
+.groupChevron {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  margin-left: auto;
+  opacity: 0.7;
+}
+
+.groupBody > * + * {
+  border-top: 1px solid var(--border);
+}
+
+.fieldControl {
+  width: 200px;
+}
+
+.listEmptyState {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  flex: 1;
+  padding: 48px 24px;
+  gap: 8px;
+  text-align: center;
+}
+
+.emptyStateText {
+  color: var(--fg);
+  font-size: 1.2308rem;
+  font-weight: 600;
+}
+
+.emptyStateSubtext {
+  max-width: 250px;
+  color: var(--fg-muted);
+  font-size: 1rem;
+  line-height: 1.4;
+}

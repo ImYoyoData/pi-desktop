@@ -14,23 +14,11 @@ import type {
 	CustomizationItem,
 	CustomizationScope,
 	CustomizationsSnapshot,
-	McpProjectOverride,
 } from "../shared/customizations";
 
 type Sdk = typeof import("@earendil-works/pi-coding-agent");
 
 type SourceInfoLike = { scope?: string; origin?: string; source?: string };
-
-/** 禁用标记后缀：`foo.md` → `foo.md.disabled`（pi 只加载 .md，禁用后不再生效）。 */
-const DISABLED_EXT = ".disabled";
-
-type PromptLike = {
-	name: string;
-	description: string;
-	argumentHint?: string;
-	filePath: string;
-	sourceInfo?: SourceInfoLike;
-};
 
 type ExtensionLike = {
 	path: string;
@@ -82,15 +70,6 @@ const DESKTOP_TOOLS: ReadonlyArray<{ name: string; description: string }> = [
 	{ name: "browser_evaluate", description: "Evaluate JS in the built-in browser" },
 ];
 
-/** 全局智能体文件（pi-subagents 同款目录）。 */
-function agentDirs(root: string, dir: string): Array<[string, CustomizationScope]> {
-	return [
-		[path.join(dir, "agents"), "user"],
-		[path.join(root, ".pi", "agents"), "project"],
-		[path.join(dir, "npm", "node_modules", "pi-subagents", "agents"), "builtin"],
-	];
-}
-
 function scopeOf(info: SourceInfoLike | undefined): CustomizationScope {
 	if (info?.origin === "package") return "extension";
 	return info?.scope === "user" ? "user" : "project";
@@ -98,133 +77,6 @@ function scopeOf(info: SourceInfoLike | undefined): CustomizationScope {
 
 function packageSource(info: SourceInfoLike | undefined): string | undefined {
 	return info?.origin === "package" ? info.source : undefined;
-}
-
-function firstLine(content: string): string {
-	const body = content.replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n?/, "");
-	const line = body.split(/\r?\n/).find((entry) => entry.trim().length > 0) ?? "";
-	return line.trim().slice(0, 160);
-}
-
-function formatTools(value: unknown): string | undefined {
-	if (Array.isArray(value)) {
-		const tools = value.filter((entry): entry is string => typeof entry === "string");
-		return tools.length ? tools.join(", ") : undefined;
-	}
-	return typeof value === "string" && value.trim() ? value.trim() : undefined;
-}
-
-function isDisabledFile(name: string): boolean {
-	return name.endsWith(DISABLED_EXT);
-}
-
-/** 定制文件名去掉 `.md.disabled` 或 `.md` 后的基名。 */
-function baseNameWithoutExtension(name: string): string {
-	const base = isDisabledFile(name) ? name.slice(0, -DISABLED_EXT.length) : name;
-	return base.replace(/\.md$/, "");
-}
-
-function isCustomizationFile(name: string): boolean {
-	return name.endsWith(".md") || name.endsWith(`.md${DISABLED_EXT}`);
-}
-
-function readAgentDir(directory: string, scope: CustomizationScope, sdk: Sdk): CustomizationItem[] {
-	if (!fs.existsSync(directory)) return [];
-	return fs
-		.readdirSync(directory)
-		.filter(isCustomizationFile)
-		.map((name) => {
-			const filePath = path.join(directory, name);
-			const content = fs.readFileSync(filePath, "utf8");
-			const { frontmatter } = sdk.parseFrontmatter<Record<string, unknown>>(content);
-			return {
-				id: filePath,
-				name: frontmatterText(frontmatter.name) || baseNameWithoutExtension(name),
-				description: filePath,
-				filePath,
-				scope,
-				detail: formatTools(frontmatter.tools),
-				enabled: !isDisabledFile(name),
-			};
-		});
-}
-
-/** 已禁用的提示模板：loader 不会加载它们，需要单独扫描目录补齐列表。 */
-function readDisabledPromptDir(
-	directory: string,
-	scope: CustomizationScope,
-	sdk: Sdk,
-): CustomizationItem[] {
-	if (!fs.existsSync(directory)) return [];
-	return fs
-		.readdirSync(directory)
-		.filter(isDisabledFile)
-		.map((name) => {
-			const filePath = path.join(directory, name);
-			const content = fs.readFileSync(filePath, "utf8");
-			const { frontmatter } = sdk.parseFrontmatter<Record<string, unknown>>(content);
-			return {
-				id: filePath,
-				name: baseNameWithoutExtension(name),
-				description: frontmatterText(frontmatter.description) || firstLine(content),
-				filePath,
-				scope,
-				detail:
-					typeof frontmatter["argument-hint"] === "string"
-						? frontmatter["argument-hint"]
-						: undefined,
-				enabled: false,
-			};
-		});
-}
-
-function listPrompts(
-	root: string,
-	dir: string,
-	sdk: Sdk,
-	prompts: readonly PromptLike[],
-): CustomizationItem[] {
-	return [
-		...prompts.map((prompt) => ({
-			id: prompt.filePath,
-			name: prompt.name,
-			description: prompt.description,
-			filePath: prompt.filePath,
-			scope: scopeOf(prompt.sourceInfo),
-			source: packageSource(prompt.sourceInfo),
-			detail: prompt.argumentHint,
-			enabled: true,
-		})),
-		...readDisabledPromptDir(path.join(dir, "prompts"), "user", sdk),
-		...readDisabledPromptDir(path.join(root, ".pi", "prompts"), "project", sdk),
-	];
-}
-
-function listAgents(root: string, dir: string, sdk: Sdk): CustomizationItem[] {
-	return agentDirs(root, dir).flatMap(([directory, scope]) =>
-		readAgentDir(directory, scope, sdk),
-	);
-}
-
-/** 其它最近工作区的智能体文件。 */
-function otherWorkspaceAgents(
-	root: string,
-	workspaces: readonly string[],
-	sdk: Sdk,
-): CustomizationItem[] {
-	const items: CustomizationItem[] = [];
-	const seen = new Set<string>();
-	for (const workspace of workspaces) {
-		const ws = path.resolve(workspace);
-		if (ws.toLowerCase() === path.resolve(root).toLowerCase()) continue;
-		for (const item of readAgentDir(path.join(ws, ".pi", "agents"), "project", sdk)) {
-			const key = path.resolve(item.filePath ?? "").toLowerCase();
-			if (seen.has(key)) continue;
-			seen.add(key);
-			items.push(item);
-		}
-	}
-	return items;
 }
 
 /** 其它最近工作区的技能文件。 */
@@ -446,63 +298,6 @@ export function setMcpServerEnabled(
 	delete entry.disabled;
 	if (enabled) delete entry.enabled;
 	else entry.enabled = false;
-	writeMcpRaw(file, raw);
-}
-
-/** 覆盖条目：无 command/url，只改用户级同名服务器的 enabled / exposure / toolExposure。 */
-function isMcpOverrideEntry(entry: unknown): entry is Record<string, unknown> {
-	return (
-		isMcpEntry(entry) &&
-		(entry as { command?: unknown }).command === undefined &&
-		(entry as { url?: unknown }).url === undefined
-	);
-}
-
-/** 项目覆盖清单（pi 1.0.1）：名称 → 显式启用态。 */
-export function readMcpProjectOverrides(root: string): Record<string, "enabled" | "disabled"> {
-	const servers = mcpServersObject(readMcpRaw(mcpConfigPath("project", root)));
-	const out: Record<string, "enabled" | "disabled"> = {};
-	for (const [name, entry] of Object.entries(servers)) {
-		if (!isMcpOverrideEntry(entry)) continue;
-		if (entry.enabled === false) out[name] = "disabled";
-		else if (entry.enabled === true) out[name] = "enabled";
-	}
-	return out;
-}
-
-/** 写项目覆盖；inherit 清掉覆盖（完整项目定义不动）。 */
-export function setMcpProjectOverride(
-	name: string,
-	root: string,
-	override: McpProjectOverride,
-): void {
-	const file = mcpConfigPath("project", root);
-	const raw = readMcpRaw(file);
-	const servers = mcpServersObject(raw);
-	const entry = servers[name];
-	if (isMcpOverrideEntry(entry)) {
-		if (override === "inherit") {
-			delete entry.enabled;
-			if (Object.keys(entry).length === 0) delete servers[name];
-		} else {
-			entry.enabled = override === "enabled";
-		}
-		raw.mcpServers = servers;
-		writeMcpRaw(file, raw);
-		return;
-	}
-	if (isMcpEntry(entry)) {
-		// 项目级完整定义：启用态写在定义上，不是用户级覆盖。
-		if (override === "inherit") return;
-		delete entry.disabled;
-		if (override === "enabled") delete entry.enabled;
-		else entry.enabled = false;
-		writeMcpRaw(file, raw);
-		return;
-	}
-	if (override === "inherit") return;
-	servers[name] = { enabled: override === "enabled" };
-	raw.mcpServers = servers;
 	writeMcpRaw(file, raw);
 }
 
@@ -770,7 +565,6 @@ export async function listCustomizations(
 	await loader.reload();
 
 	const skills = loader.getSkills();
-	const prompts = loader.getPrompts();
 	const extensions = loader.getExtensions();
 	const agentsFiles = loader.getAgentsFiles().agentsFiles;
 	const extensionList: ExtensionLike[] = extensions.extensions;
@@ -789,10 +583,6 @@ export async function listCustomizations(
 
 	return {
 		root,
-		agents: [
-			...listAgents(root, dir, sdk).map(markCurrent),
-			...otherWorkspaceAgents(root, workspaces, sdk),
-		],
 		skills: [
 			...skills.skills
 				.map((skill) => ({
@@ -824,7 +614,6 @@ export async function listCustomizations(
 			}),
 			...workspaceInstructionItems(workspaces, loadedInstructionPaths),
 		],
-		prompts: listPrompts(root, dir, sdk, prompts.prompts),
 		hooks: collectHooks(extensionList),
 		mcp: [
 			...readMcpFile(path.join(dir, "mcp.json"), "user"),
@@ -840,16 +629,10 @@ export async function listCustomizations(
 		codemode: codemodeSettingsState(settingsManager),
 		diagnostics: [
 			...skills.diagnostics.map((entry) => entry.message),
-			...prompts.diagnostics.map((entry) => entry.message),
 			...extensions.errors.map((entry) => `${path.basename(entry.path)}: ${entry.error}`),
 		],
 	};
 }
-
-type CreateTemplate = {
-	base: string;
-	relative: (name: string) => string;
-};
 
 /** 桌面在会话中注册的 pi 内置扩展（与 agent-worker 的 extensionFactories 一致）。 */
 /** pi 的内置扩展（dist/extensions/index.js 的 builtInExtensions）；桌面可逐个禁用。 */
@@ -914,112 +697,30 @@ export async function setBuiltinExtensionEnabled(
 	return builtinExtensionItems(next, settingsManager.getProjectSettings().extensions ?? []);
 }
 
-/** 新建定制项的用户级目录（对应 pi 的 agentDir 约定），文件内容留空由用户填写。 */
-const CREATE_TEMPLATES: Record<Exclude<CustomizationCreateKind, "skills">, CreateTemplate> = {
-	agents: {
-		base: "new-agent",
-		relative: (name) => path.join("agents", `${name}.md`),
-	},
-	instructions: {
-		base: "AGENTS",
-		relative: () => "AGENTS.md",
-	},
-	prompts: {
-		base: "new-prompt",
-		relative: (name) => path.join("prompts", `${name}.md`),
-	},
-};
-
-function availableName(base: string, exists: (name: string) => boolean): string {
-	if (!exists(base)) return base;
-	for (let index = 2; index <= 999; index += 1) {
-		const candidate = `${base}-${index}`;
-		if (!exists(candidate)) return candidate;
-	}
-	throw new Error(`No available name for ${base}`);
-}
-
 /** 在用户目录创建空文件，返回供编辑器打开的路径。 */
 export function createCustomization(kind: CustomizationCreateKind): { filePath: string } {
 	if (kind === "skills") {
 		throw new Error("Create skills from the editor draft instead");
 	}
-	const dir = agentDir();
-	const template = CREATE_TEMPLATES[kind];
-	if (kind === "instructions") {
-		const filePath = path.join(dir, template.relative(""));
-		if (!fs.existsSync(filePath)) {
-			fs.writeFileSync(filePath, "", "utf8");
-		}
-		return { filePath };
+	const filePath = path.join(agentDir(), "AGENTS.md");
+	if (!fs.existsSync(filePath)) {
+		fs.writeFileSync(filePath, "", "utf8");
 	}
-	const name = availableName(template.base, (candidate) =>
-		fs.existsSync(path.join(dir, template.relative(candidate))),
-	);
-	const filePath = path.join(dir, template.relative(name));
-	fs.mkdirSync(path.dirname(filePath), { recursive: true });
-	fs.writeFileSync(filePath, "", "utf8");
 	return { filePath };
 }
 
-/** 允许启停与删除的定制文件目录：用户级与工作区级的 agents/prompts。 */
-function editableRoots(root?: string, workspaces: readonly string[] = []): string[] {
-	const dir = agentDir();
-	const roots = [path.join(dir, "agents"), path.join(dir, "prompts")];
-	const bases = [...(root ? [root] : []), ...workspaces];
-	for (const base of bases) {
-		roots.push(path.join(base, ".pi", "agents"), path.join(base, ".pi", "prompts"));
-	}
-	return roots;
-}
-
-function resolveEditableFile(
-	filePath: string,
-	root?: string,
-	workspaces: readonly string[] = [],
-): string {
-	const target = path.resolve(filePath);
-	if (!isCustomizationFile(path.basename(target))) {
-		throw new Error(`Not an agent/prompt file: ${filePath}`);
-	}
-	if (!editableRoots(root, workspaces).some((base) => isPathInsideRoot(base, target))) {
-		throw new Error(`Only user and workspace agents/prompts can be changed: ${filePath}`);
-	}
-	if (!fs.existsSync(target)) throw new Error(`File not found: ${filePath}`);
-	return target;
-}
-
-/** 启停定制文件：重命名为 `*.md.disabled`，恢复时去掉后缀。 */
-export function setCustomizationItemEnabled(
-	filePath: string,
-	enabled: boolean,
-	root?: string,
-	workspaces: readonly string[] = [],
-): { filePath: string } {
-	const target = resolveEditableFile(filePath, root, workspaces);
-	const disabled = target.endsWith(DISABLED_EXT);
-	if (enabled && !disabled) return { filePath: target };
-	if (!enabled && disabled) return { filePath: target };
-	const next = enabled ? target.slice(0, -DISABLED_EXT.length) : `${target}${DISABLED_EXT}`;
-	if (fs.existsSync(next)) throw new Error(`File already exists: ${next}`);
-	fs.renameSync(target, next);
-	return { filePath: next };
-}
-
-/** 删除定制文件（已禁用的文件同样可删）。 */
+/** 删除指令文件（用户级 AGENTS.md 或工作区根目录的同名文件）。 */
 export function removeCustomizationItem(
 	filePath: string,
 	root?: string,
 	workspaces: readonly string[] = [],
 ): { filePath: string } {
-	if (isInstructionFile(filePath)) {
-		const target = removableInstructionPath(filePath, root, workspaces);
-		if (!target) throw new Error(`Instruction file cannot be removed: ${filePath}`);
-		if (!fs.existsSync(target)) throw new Error(`File not found: ${filePath}`);
-		fs.rmSync(target, { force: false });
-		return { filePath: target };
+	if (!isInstructionFile(filePath)) {
+		throw new Error(`Not an instruction file: ${filePath}`);
 	}
-	const target = resolveEditableFile(filePath, root, workspaces);
+	const target = removableInstructionPath(filePath, root, workspaces);
+	if (!target) throw new Error(`Instruction file cannot be removed: ${filePath}`);
+	if (!fs.existsSync(target)) throw new Error(`File not found: ${filePath}`);
 	fs.rmSync(target, { force: false });
 	return { filePath: target };
 }

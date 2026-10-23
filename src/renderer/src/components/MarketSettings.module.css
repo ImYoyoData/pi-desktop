@@ -1,0 +1,188 @@
+.toolbar {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.search {
+  flex: 1;
+  min-width: 0;
+}
+
+.type {
+  width: 132px;
+  flex-shrink: 0;
+}
+
+.metaRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.listWrap {
+  position: relative;
+  min-height: 280px;
+  max-height: min(52vh, 480px);
+}
+
+.listSpin {
+  height: 100%;
+  max-height: min(52vh, 480px);
+  min-height: 280px;
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+
+.loadMoreBar {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 10px 12px;
+  pointer-events: none;
+  font-size: 0.9231rem;
+  font-weight: 500;
+  color: var(--fg-muted);
+  background: color-mix(in srgb, var(--bg, #fff) 88%, transparent);
+  border-top: 1px solid color-mix(in srgb, var(--border, #ddd) 70%, transparent);
+  backdrop-filter: blur(6px);
+}
+
+.loadMoreInline {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.9231rem;
+  color: var(--fg-muted);
+}
+
+.empty {
+  margin-top: 48px;
+}
+
+.empty :global(.ant-empty-image) {
+  display: none;
+}
+
+.empty :global(.ant-empty-description) {
+  font-size: 0.9231rem;
+  color: var(--fg-muted);
+}
+
+.pkgList {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 10px;
+}
+
+.pkgRow {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  align-items: stretch;
+  justify-content: space-between;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-elevated, #fff);
+  box-shadow: var(--shadow-sm, none);
+  transition:
+    border-color var(--duration-fast, 140ms) var(--ease-out, ease),
+    box-shadow var(--duration-fast, 140ms) var(--ease-out, ease),
+    transform var(--duration-fast, 140ms) var(--ease-out, ease);
+}
+
+.pkgRow:hover {
+  border-color: var(--accent-border, var(--border-strong));
+  box-shadow: var(--shadow-md);
+  transform: translateY(-1px);
+}
+
+.pkgMain {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.pkgTitleRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.pkgName {
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--accent);
+  font-size: 1rem;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+}
+
+.pkgName:hover {
+  text-decoration: underline;
+}
+
+.tag {
+  font-size: 0.8462rem;
+  line-height: 18px;
+}
+
+.pkgDesc {
+  font-size: 0.9231rem;
+  color: var(--fg-muted);
+  line-height: 1.4;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.pkgCmd {
+  font-size: 0.8462rem;
+  color: var(--fg-faint);
+  font-family: var(--font-mono, ui-monospace, monospace);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pkgActions {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  gap: 6px;
+  flex-shrink: 0;
+  margin-top: auto;
+  padding-top: 2px;
+}
+
+.pkgActions :global(.ant-btn) {
+  flex: 1 1 auto;
+}
+
+.pkgFooter {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 36px;
+  padding: 4px 0 8px;
+}

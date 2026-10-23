@@ -1,59 +1,35 @@
 /**
- * Follow-bottom decision state machine for MessageList — pure so the scroll
- * edge cases can be unit-tested without mounting Vue.
+ * MessageList 的贴底跟随状态机 —— 决策只由“用户意图”驱动，滚动事件不参与。
  *
- * Core rule: disengaging is intent-driven (any clear upward move latches
- * `away`); re-engaging requires scrolling back INTO the near-bottom zone.
- * A pure distance threshold deadlocks while streaming: every chunk snap resets
- * scrollTop to the very bottom, so `nearBottom` stays true and a user wheeling
- * up in small steps can never escape the threshold.
+ * 为什么不看滚动事件：虚拟列表的滚动锚定补偿同样会派发 scroll 事件
+ * （挂载新行后把 scrollTop 往下推回去，保证内容视觉位置不变），
+ * 这类事件与“用户向下滚动”无法区分。一旦滚动事件能重新贴底，
+ * 用户刚往上滚就被吸回底部，且没有任何办法挣脱。
  *
- * Callers must gate BEFORE invoking this during DOM mutations: scroll events
- * fired while the virtual window prepends rows / restores scrollTop are
- * synthetic and would otherwise be mistaken for user motion.
+ * 因此：离开实时边缘、回到实时边缘，都只认显式意图
+ * （滚轮、键盘、触摸、拖动滚动条）；scroll 事件只用于刷新置顶预览。
  */
+
+export type FollowIntent = "up" | "down";
 
 export type FollowDecision = {
   following: boolean;
-  away: boolean;
-  suppressUntil: number;
-  scrolledUp: boolean;
+  /** 状态是否真的翻转了 —— 调用方据此决定要不要更新界面。 */
+  engaged: boolean;
 };
 
-export function decideFollowOnScroll(input: {
-  top: number;
-  lastTop: number;
+export function decideFollowOnIntent(input: {
+  intent: FollowIntent;
   nearBottom: boolean;
-  now: number;
-  suppressUntil: number;
-  away: boolean;
   following: boolean;
-  guarded: boolean;
 }): FollowDecision {
-  const scrolledUp = input.lastTop >= 0 && input.top < input.lastTop - 1;
-  if (input.guarded) {
-    // While a window adjust / settle mutates the list, synthetic scroll events
-    // fire — never let them re-engage (or "detach") a reader. `following` is
-    // derived anyway; keep the latched truth stable.
-    return {
-      following: input.following,
-      away: input.away,
-      suppressUntil: input.suppressUntil,
-      scrolledUp,
-    };
+  if (input.intent === "up") {
+    // 向上永远是“回看历史”的意图 —— 立刻离开实时边缘
+    return { following: false, engaged: input.following };
   }
-  let away = input.away;
-  let suppressUntil = input.suppressUntil;
-  if (scrolledUp) {
-    suppressUntil = 0;
-    // Big upward moves leave the near zone and latch. Tiny programmatic nudges
-    // (scroll anchoring, estimate fixes) stay inside it and keep following.
-    if (!input.nearBottom) away = true;
-  } else if (input.nearBottom) {
-    // Scrolled back down into the live edge — resume following.
-    away = false;
+  // 向下只有进入底部区域才算“回到实时边缘”；否则用户只是继续在历史里翻
+  if (!input.nearBottom) {
+    return { following: input.following, engaged: false };
   }
-  const following =
-    input.now < suppressUntil ? true : input.nearBottom && !away;
-  return { following, away, suppressUntil, scrolledUp };
+  return { following: true, engaged: !input.following };
 }

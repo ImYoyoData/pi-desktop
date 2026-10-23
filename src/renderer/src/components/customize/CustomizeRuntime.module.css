@@ -1,0 +1,51 @@
+.runtimeSettings {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.settingSelect {
+  flex-shrink: 0;
+  width: 140px;
+}
+
+.settingInput {
+  flex-shrink: 0;
+  width: 260px;
+}
+
+.overrideAdd {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.overrideModelSelect {
+  width: 260px;
+}
+
+.overrideEmpty {
+  padding: 10px 14px;
+  color: var(--fg-muted);
+  font-size: 0.9231rem;
+  line-height: 17px;
+}
+
+.overrideControls {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.overrideFieldLabel {
+  font-size: 0.9231rem;
+  white-space: nowrap;
+}
+
+.overrideSelect {
+  width: 120px;
+}

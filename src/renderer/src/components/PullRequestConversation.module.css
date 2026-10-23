@@ -1,0 +1,170 @@
+.conversation {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+
+.description,
+.review {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: rgba(127, 127, 127, 0.025);
+  overflow: hidden;
+}
+
+.descriptionHead,
+.review header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 20px;
+  background: rgba(127, 127, 127, 0.045);
+  font-size: 0.9231rem;
+}
+
+.descriptionBody {
+  padding: 16px 20px;
+}
+
+.avatar {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  overflow: hidden;
+  background: var(--bg-hover);
+  flex: none;
+}
+
+.avatar.small {
+  width: 18px;
+  height: 18px;
+}
+
+.avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.avatarFallback {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  font-size: 0.7692rem;
+  color: var(--fg-muted);
+}
+
+.author {
+  font-weight: 600;
+}
+
+.time {
+  color: var(--fg-muted);
+  margin-left: auto;
+}
+
+.status {
+  border-radius: 999px;
+  padding: 0 6px;
+  font-size: 0.8077rem;
+  line-height: 15px;
+  background: var(--bg-hover);
+  color: var(--fg-muted);
+}
+
+.status.approved {
+  background: rgba(88, 124, 12, 0.14);
+  color: var(--success);
+}
+
+.status.changes-requested {
+  background: rgba(173, 7, 7, 0.14);
+  color: var(--error);
+}
+
+.review {
+  padding-bottom: 8px;
+}
+
+.review > :global(.github-body) {
+  padding: 8px 10px 0;
+}
+
+.editor {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.editorActions,
+.composerActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 4px;
+}
+
+.timeline {
+  list-style: none;
+  margin: 0;
+  padding: 0 0 0 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.timelineItem {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 0.9231rem;
+  color: var(--fg-muted);
+}
+
+.timelineIcon {
+  flex: none;
+  transform: translateY(2px);
+}
+
+.timelineText {
+  min-width: 0;
+  flex: 1;
+}
+
+.timelineText .subject {
+  color: var(--fg);
+  font-family: var(--font-mono);
+  font-size: 0.8462rem;
+  margin-left: 4px;
+}
+
+.timelineText .previous {
+  margin-left: 4px;
+  opacity: 0.8;
+}
+
+.comments {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.composer {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 12px 16px;
+  background: rgba(127, 127, 127, 0.025);
+}
+
+.composerHead {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--fg-muted);
+  font-size: 0.9231rem;
+}
