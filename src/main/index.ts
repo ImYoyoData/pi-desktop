@@ -23,7 +23,8 @@ import { broadcastRunsEvent, registerAgentRunsIpc } from "./agent-runs-ipc";
 import { createSessionBroker } from "./session-broker";
 import { registerModelsIpc } from "./models-ipc";
 import { registerSessionsIpc } from "./sessions-ipc";
-import { createMainWindow } from "./window";
+import { allowForceClose, createMainWindow } from "./window";
+import { cleanupUpdateTempDir } from "./update-temp";
 import {
 	bindBrowserTabRegistry,
 	registerBrowserIpc,
@@ -124,39 +125,61 @@ restoreStartupProxyEnv();
  * Opt out on packaged builds with PI_DESKTOP_ALLOW_MULTI_INSTANCE=1.
  */
 const allowMultiInstance = process.env.PI_DESKTOP_ALLOW_MULTI_INSTANCE === "1";
-const gotSingleInstanceLock =
-	app.isPackaged && !allowMultiInstance ? app.requestSingleInstanceLock() : true;
-if (!gotSingleInstanceLock) {
-	app.quit();
-} else {
-	// 子进程 stdin 写入可能在退出后触发 EPIPE/EOF，绝不能让应用崩溃。
-	process.on("uncaughtException", (err) => {
-		const msg = err instanceof Error ? err.message : String(err);
-		const code =
-			err && typeof err === "object"
-				? (err as NodeJS.ErrnoException).code
-				: undefined;
-		if (
-			code === "EPIPE" ||
-			code === "EOF" ||
-			/^write EOF$/i.test(msg) ||
-			/EPIPE/i.test(msg)
-		) {
-			console.warn("[main] swallowed stream write error:", msg);
-			return;
-		}
-		console.error("[main] uncaughtException:", err);
-		try {
-			dialog.showErrorBox(
-				"A JavaScript error occurred in the main process",
-				err instanceof Error && err.stack ? err.stack : msg,
-			);
-		} catch {
-			// ignore dialog failures during early boot
-		}
-	});
-	boot();
+/** 安装器重启应用时带 --updated：旧实例可能还在退出，单实例锁要等它释放。 */
+const isUpdatedLaunch = process.argv.includes("--updated");
+const SINGLE_INSTANCE_WAIT_MS = 1000;
+const SINGLE_INSTANCE_WAIT_TIMES = 12;
+
+/**
+ * 取单实例锁。安装器装完会立刻拉起新应用，旧实例此时可能尚未退出，
+ * 拿不到锁就退出会让用户看到「点了没反应」，因此更新重启时等待锁释放。
+ */
+async function acquireSingleInstanceLock(): Promise<boolean> {
+	if (!app.isPackaged || allowMultiInstance) return true;
+	if (app.requestSingleInstanceLock()) return true;
+	if (!isUpdatedLaunch) return false;
+	for (let i = 0; i < SINGLE_INSTANCE_WAIT_TIMES; i++) {
+		await new Promise((resolve) => setTimeout(resolve, SINGLE_INSTANCE_WAIT_MS));
+		if (app.requestSingleInstanceLock()) return true;
+	}
+	return false;
 }
+
+// 子进程 stdin 写入可能在退出后触发 EPIPE/EOF，绝不能让应用崩溃。
+process.on("uncaughtException", (err) => {
+	const msg = err instanceof Error ? err.message : String(err);
+	const code =
+		err && typeof err === "object"
+			? (err as NodeJS.ErrnoException).code
+			: undefined;
+	if (
+		code === "EPIPE" ||
+		code === "EOF" ||
+		/^write EOF$/i.test(msg) ||
+		/EPIPE/i.test(msg)
+	) {
+		console.warn("[main] swallowed stream write error:", msg);
+		return;
+	}
+	console.error("[main] uncaughtException:", err);
+	try {
+		dialog.showErrorBox(
+			"A JavaScript error occurred in the main process",
+			err instanceof Error && err.stack ? err.stack : msg,
+		);
+	} catch {
+		// ignore dialog failures during early boot
+	}
+});
+
+void acquireSingleInstanceLock().then((gotSingleInstanceLock) => {
+	if (!gotSingleInstanceLock) {
+		app.quit();
+		return;
+	}
+	cleanupUpdateTempDir();
+	boot();
+});
 
 function boot(): void {
 	const registryHolder: {
@@ -472,6 +495,8 @@ function boot(): void {
 	});
 
 	app.on("before-quit", () => {
+		// 程序化退出（如更新安装）不再等渲染层确认，直接放行关闭
+		allowForceClose();
 		disposeAllTerminals();
 	});
 }

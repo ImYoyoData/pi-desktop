@@ -135,17 +135,19 @@ electronLanguages:
 # never both in one fat package).
 win:
   executableName: PiDesktop
-  artifactName: ${productName}-${version}-win-${arch}-setup.${ext}
+  artifactName: Pi-Desktop-${version}-win-${arch}-setup.${ext}
   target:
     - target: nsis
 nsis:
   oneClick: false
   allowToChangeInstallationDirectory: true
+  # 自定义安装脚本：统一安装目录名、修正目录拼接、占用检测覆盖新旧安装目录
+  include: installer.nsh
   createDesktopShortcut: always
   createStartMenuShortcut: true
   shortcutName: Pi Desktop
-  uninstallDisplayName: Pi Desktop
-  artifactName: ${productName}-${version}-win-${arch}-setup.${ext}
+  uninstallDisplayName: Pi Desktop ${version}
+  artifactName: Pi-Desktop-${version}-win-${arch}-setup.${ext}
   differentialPackage: false
 
 mac:
@@ -154,7 +156,7 @@ mac:
   gatekeeperAssess: false
   entitlements: build/entitlements.mac.plist
   entitlementsInherit: build/entitlements.mac.plist
-  artifactName: ${productName}-${version}-mac-${arch}.${ext}
+  artifactName: Pi-Desktop-${version}-mac-${arch}.${ext}
   target:
     - target: dmg
   extendInfo:
@@ -184,14 +186,14 @@ mac:
   notarize: false
 
 dmg:
-  artifactName: ${productName}-${version}-mac-${arch}.${ext}
+  artifactName: Pi-Desktop-${version}-mac-${arch}.${ext}
   writeUpdateInfo: false
 
 linux:
   target:
     - AppImage
   category: Development
-  artifactName: ${productName}-${version}-linux-${arch}.${ext}
+  artifactName: Pi-Desktop-${version}-linux-${arch}.${ext}
 
 publish:
   provider: github

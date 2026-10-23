@@ -49,12 +49,20 @@ function resolveWindowIcon(): string | undefined {
 /** When true, the next close/quit proceeds without asking the renderer. */
 let allowClose = false;
 
+/** 程序化退出（更新安装）时不再向渲染层询问，直接放行关闭。 */
+let forceClosing = false;
+
 export function allowWindowClose(): void {
   allowClose = true;
 }
 
+export function allowForceClose(): void {
+  forceClosing = true;
+}
+
 export function createMainWindow(): BrowserWindow {
   allowClose = false;
+  forceClosing = false;
   const isMac = process.platform === "darwin";
   const iconPath = resolveWindowIcon();
 
@@ -102,7 +110,7 @@ export function createMainWindow(): BrowserWindow {
   });
 
   mainWindow.on("close", (event) => {
-    if (allowClose) return;
+    if (allowClose || forceClosing) return;
     event.preventDefault();
     if (!mainWindow.isDestroyed()) {
       mainWindow.webContents.send(IpcChannels.window.closeRequest);

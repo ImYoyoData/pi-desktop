@@ -154,7 +154,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: pi-desktop-${{ matrix.name }}
-          path: ${{ matrix.artifact_glob }}
+          path: |
+            ${{ matrix.artifact_glob }}
+            release/latest*.yml
           if-no-files-found: error
           retention-days: 14
 
@@ -186,7 +188,7 @@ jobs:
         run: |
           mkdir -p upload
           find dist-artifacts -type f \
-            \( -name '*-setup.exe' -o -name '*.dmg' -o -name '*.AppImage' \) \
+            \( -name '*-setup.exe' -o -name '*.dmg' -o -name '*.AppImage' -o -name 'latest*.yml' \) \
             -print -exec cp {} upload/ \;
           echo "=== release assets ==="
           ls -lah upload || true
@@ -357,10 +359,10 @@ jobs:
               the unused NModal import.
 
             ## 下载 / Downloads
-            - **Windows x64**: `Pi Desktop-*-win-x64-setup.exe`
-            - **Windows ARM64**: `Pi Desktop-*-win-arm64-setup.exe`
-            - **macOS Apple Silicon**: `Pi Desktop-*-mac-arm64.dmg`
-            - **macOS Intel**: `Pi Desktop-*-mac-x64.dmg`
+            - **Windows x64**: `Pi-Desktop-*-win-x64-setup.exe`
+            - **Windows ARM64**: `Pi-Desktop-*-win-arm64-setup.exe`
+            - **macOS Apple Silicon**: `Pi-Desktop-*-mac-arm64.dmg`
+            - **macOS Intel**: `Pi-Desktop-*-mac-x64.dmg`
 
           files: upload/*
           fail_on_unmatched_files: false
