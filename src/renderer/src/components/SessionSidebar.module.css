@@ -23,11 +23,13 @@
   flex-shrink: 0;
 }
 
-.wsSelectActions {
+.wsSelectBar {
   display: flex;
   align-items: center;
   gap: 4px;
-  min-width: 0;
+  flex-shrink: 0;
+  padding: 4px 6px;
+  border-top: 1px solid var(--border, rgba(128, 128, 128, 0.15));
 }
 
 .wsToolIcons {
@@ -506,6 +508,23 @@
   font-size: 10.5px;
   color: var(--fg-faint);
   font-variant-numeric: tabular-nums;
+}
+
+/* 按任务显示时每行标注所属项目，宽度受限避免挤压时间与状态标签 */
+.projectTag {
+  max-width: 72px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 10px;
+  color: var(--fg-faint);
+  opacity: 0.85;
+}
+
+.menuMark {
+  display: inline-block;
+  width: 14px;
+  height: 1px;
 }
 
 .runTag,

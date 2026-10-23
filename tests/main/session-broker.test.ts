@@ -215,6 +215,43 @@ describe("session-broker", () => {
     );
   });
 
+  it("broadcasts session_activity when a prompt starts and finishes", async () => {
+    let messageCb!: (msg: WorkerOutbound) => void;
+    const activities: string[] = [];
+    const broker = createSessionBroker({
+      allocateSession: allocateFixed("session-a"),
+      spawnWorker: async (cwd, filePath) => ({
+        id: idFromPath(filePath),
+        cwd,
+        filePath: filePath ?? "/tmp/session-a.jsonl",
+        worker: {
+          send: async (msg) => {
+            if (msg.kind === "command" && msg.command.type === "prompt") {
+              queueMicrotask(() =>
+                messageCb({ kind: "result", id: msg.id, data: {} }),
+              );
+            }
+            return null;
+          },
+          kill: () => {},
+          onMessage: (cb) => {
+            messageCb = cb;
+            return () => {};
+          },
+        },
+      }),
+    });
+    broker.onEvent((event) => {
+      if (event.type === "session_activity") activities.push(event.modified);
+    });
+    const session = await broker.createSession("/tmp/a");
+    await broker.send(session.id, { type: "prompt", message: "hi" });
+    expect(activities).toHaveLength(2);
+    expect(activities.every((value) => !Number.isNaN(Date.parse(value)))).toBe(
+      true,
+    );
+  });
+
   it("rejects pending commands when worker is terminated", async () => {
     const events: Array<{ type: string; status?: string }> = [];
     const broker = createSessionBroker({

@@ -241,6 +241,15 @@ export const useSessionsStore = create<SessionsState>()((set, get) => {
     });
   }
 
+  function patchModified(sessionId: string, modified: string): void {
+    const list = get().sessions;
+    const idx = list.findIndex((s) => s.id === sessionId);
+    if (idx < 0 || list[idx].modified === modified) return;
+    commit({
+      sessions: list.map((s, i) => (i === idx ? { ...s, modified } : s)),
+    });
+  }
+
   function setContextUsage(
     sessionId: string,
     usage: SessionContextUsage,
@@ -306,6 +315,9 @@ export const useSessionsStore = create<SessionsState>()((set, get) => {
         break;
       case "session_status":
         patchStatus(event.sessionId, event.status);
+        break;
+      case "session_activity":
+        patchModified(event.sessionId, event.modified);
         break;
       case "worker_exit":
         // code 0 / null = clean idle-destroy or session close — stay idle, not error
