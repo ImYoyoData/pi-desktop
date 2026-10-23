@@ -30,8 +30,10 @@ import { mountDotIn } from "@renderer/utils/dot-render";
 import { mountMermaidIn, resetMermaidForTheme } from "@renderer/utils/mermaid-render";
 import { handleAppLinkClick, type LinkConfirmDialog } from "@renderer/utils/open-link";
 import { MarkdownHtml } from "@renderer/utils/html-patch";
+import type { MarkdownAssetBase } from "@renderer/utils/markdown-assets";
 import { useAppearanceStore } from "@renderer/stores/appearance";
 import { useStreamRenderStore } from "@renderer/stores/stream-render";
+import { useWorkspaceStore } from "@renderer/stores/workspace";
 import { useI18n, useUiLocale } from "@renderer/i18n/use-i18n";
 import { useDialog, useMessage } from "@renderer/services/feedback";
 import styles from "./MarkdownView.module.css";
@@ -44,6 +46,8 @@ type Props = {
   /** Live stream bubble: growing content must not pollute the render cache. */
   streaming?: boolean;
   className?: string;
+  /** 相对路径图片的解析基准（markdown 所在目录）；缺省按工作区根目录解析。 */
+  assets?: MarkdownAssetBase | null;
 };
 
 type RenderState = {
@@ -83,7 +87,13 @@ function renderPointOf(content: string, splitter: StreamBlockSplitter): number {
   return Math.max(splitter.boundary, splitter.closedFenceEnd);
 }
 
-export function MarkdownView({ content, variant, streaming, className }: Props): ReactNode {
+export function MarkdownView({
+  content,
+  variant,
+  streaming,
+  className,
+  assets: assetsProp,
+}: Props): ReactNode {
   const t = useI18n();
   const locale = useUiLocale();
   const dialog = useDialog();
@@ -92,6 +102,16 @@ export function MarkdownView({ content, variant, streaming, className }: Props):
 
   /** 流式渲染设置：开关决定走增量分块还是旧版全量重解析。 */
   const streamRender = useStreamRenderStore();
+
+  const workspaceRoot = useWorkspaceStore((s) => s.root);
+  const propDir = assetsProp?.dir ?? null;
+  const propRoot = assetsProp?.root ?? null;
+  /** 图片解析基准：优先用调用方给的文档目录，否则按工作区根目录。 */
+  const assets = useMemo<MarkdownAssetBase | null>(() => {
+    if (propDir) return { dir: propDir, root: propRoot };
+    if (!workspaceRoot) return null;
+    return { dir: workspaceRoot, root: workspaceRoot };
+  }, [propDir, propRoot, workspaceRoot]);
 
   const rootEl = useRef<HTMLDivElement | null>(null);
   const previewViewportEl = useRef<HTMLDivElement | null>(null);
@@ -144,7 +164,7 @@ export function MarkdownView({ content, variant, streaming, className }: Props):
       const added = splitter.take(source);
       const blocks = renderStateRef.current.blocks.slice();
       if (added) {
-        const block = renderMarkdownBlock(added);
+        const block = renderMarkdownBlock(added, assets);
         if (block) blocks.push(block);
       }
       const boundary = splitter.boundary;
@@ -158,11 +178,11 @@ export function MarkdownView({ content, variant, streaming, className }: Props):
       let liveBlock = renderStateRef.current.liveBlock;
       if (liveText !== liveBlockTextRef.current) {
         liveBlockTextRef.current = liveText;
-        liveBlock = liveText ? renderMarkdown(liveText) : "";
+        liveBlock = liveText ? renderMarkdown(liveText, assets) : "";
       }
       applyRender({ blocks, liveBlock, liveTail: tailText(source, renderPoint) });
     },
-    [applyRender],
+    [applyRender, assets],
   );
 
   const renderFull = useCallback(
@@ -176,12 +196,12 @@ export function MarkdownView({ content, variant, streaming, className }: Props):
       // 流式期间的内容不会被复用，写入 LRU 只会淘汰历史消息的缓存。
       const render = streaming ? renderMarkdown : renderMarkdownCached;
       applyRender({
-        blocks: source ? [render(source)] : [],
+        blocks: source ? [render(source, assets)] : [],
         liveBlock: "",
         liveTail: "",
       });
     },
-    [applyRender, streaming],
+    [applyRender, assets, streaming],
   );
 
   const resetStreamState = useCallback((): void => {
@@ -371,16 +391,19 @@ export function MarkdownView({ content, variant, streaming, className }: Props):
     };
   }, []);
 
-  const prevContent = useRef<string | null>(null);
+  /** 图片解析基准变了也要重渲染：同一段内容在不同目录下的图片地址不同。 */
+  const assetsKey = `${assets?.dir ?? ""}\u0000${assets?.root ?? ""}`;
+  const prevRenderKey = useRef<string | null>(null);
   useEffect(() => {
-    if (prevContent.current === null) {
-      prevContent.current = content;
+    const key = `${content}\u0000${assetsKey}`;
+    if (prevRenderKey.current === null) {
+      prevRenderKey.current = key;
       return;
     }
-    if (prevContent.current === content) return;
-    prevContent.current = content;
+    if (prevRenderKey.current === key) return;
+    prevRenderKey.current = key;
     scheduleRender(content);
-  }, [content, scheduleRender]);
+  }, [content, assetsKey, scheduleRender]);
 
   const prevStreaming = useRef<boolean | undefined>(streaming);
   useEffect(() => {
