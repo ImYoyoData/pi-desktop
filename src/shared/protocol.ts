@@ -24,7 +24,6 @@ export const IpcChannels = {
 		setChromeTheme: "window:setChromeTheme",
 		requestMediaAccess: "window:requestMediaAccess",
 		setUiLocale: "window:setUiLocale",
-		setZoomFactor: "window:setZoomFactor",
 		openDevTools: "window:openDevTools",
 		/** Main → renderer: 右键编辑菜单（自绘）。 */
 		contextMenu: "window:contextMenu",
@@ -314,6 +313,12 @@ export const IpcChannels = {
 		install: "update:install",
 		/** Main → renderer: 更新状态变化。 */
 		state: "update:state",
+		/** Renderer → main: 悬浮卡片内容高度变化，窗口跟随调整。 */
+		toastResize: "update:toastResize",
+		/** Renderer → main: 收起右下角悬浮卡片。 */
+		toastDismiss: "update:toastDismiss",
+		/** Renderer → main: 重新展开右下角悬浮卡片。 */
+		toastShow: "update:toastShow",
 	},
 	contributors: {
 		avatar: "contributors:avatar",

@@ -951,8 +951,8 @@ export const zh = {
 	appearanceMessageWidthValue: (percent: number) =>
 		percent >= 100 ? "全宽" : `${percent}%`,
 	appearanceFontSize: "字体大小",
-	appearanceFontSizeTip: "按比例缩放界面文字、图标与间距。",
-	appearanceFontSizeValue: (percent: number) => `${percent}%`,
+	appearanceFontSizeTip: "只调整界面文字大小，图标与间距保持不变。",
+	appearanceFontSizeValue: (px: number) => `${px}px`,
 	githubOpen: "打开 GitHub 项目",
 	aboutTitle: "关于",
 	aboutVersion: "版本",

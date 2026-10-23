@@ -18,7 +18,7 @@
 }
 
 .title {
-  font-size: 11px;
+  font-size: 0.8462rem;
   font-weight: 600;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -40,7 +40,7 @@
 }
 
 .body :global(.ant-tree .ant-tree-node-content-wrapper) {
-  font-size: 12px;
+  font-size: 0.9231rem;
   min-height: 22px;
   border-radius: 6px;
   transition: background 120ms ease;
@@ -74,12 +74,12 @@
 }
 
 .treeLabel {
-  font-size: 12px;
+  font-size: 0.9231rem;
   color: var(--fg, #1f2328);
 }
 
 .gitBadge {
-  font-size: 10px;
+  font-size: 0.7692rem;
   font-weight: 700;
   font-family: var(--font-mono);
   margin-left: 4px;

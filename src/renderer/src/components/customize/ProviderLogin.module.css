@@ -13,19 +13,19 @@
 }
 
 .modalTitle {
-  font-size: 15px;
+  font-size: 1.1538rem;
   font-weight: 650;
   color: var(--fg-strong);
 }
 
 .modalSubtitle {
-  font-size: 12px;
+  font-size: 0.9231rem;
   color: var(--fg-muted);
 }
 
 .text {
   margin: 0;
-  font-size: 12px;
+  font-size: 0.9231rem;
   line-height: 18px;
   color: var(--fg);
   word-break: break-word;
@@ -38,7 +38,7 @@
 
 .link {
   margin: 0;
-  font-size: 12px;
+  font-size: 0.9231rem;
 }
 
 .link a {
@@ -75,13 +75,13 @@
 }
 
 .name {
-  font-size: 12px;
+  font-size: 0.9231rem;
   font-weight: 500;
   color: var(--fg);
 }
 
 .status {
-  font-size: 11px;
+  font-size: 0.8462rem;
   color: var(--fg-muted, var(--fg));
   opacity: 0.7;
 }
@@ -105,12 +105,12 @@
 }
 
 .deviceLabel {
-  font-size: 12px;
+  font-size: 0.9231rem;
   color: var(--fg-muted, var(--fg));
 }
 
 .deviceCode {
-  font-size: 13px;
+  font-size: 1rem;
   font-weight: 600;
   letter-spacing: 1px;
   color: var(--fg);

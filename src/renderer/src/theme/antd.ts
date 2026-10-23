@@ -87,8 +87,23 @@ export const darkThemeConfig: ThemeConfig = {
   },
 };
 
-export function themeConfigFor(mode: ResolvedTheme): ThemeConfig {
-  return mode === "dark" ? darkThemeConfig : lightThemeConfig;
+/**
+ * 按字号生成主题配置：antd 内部字号是 px，不跟随根元素 font-size，
+ * 需要把设置值透传给 token。缓存保证同一档位拿到同一个对象，避免重建样式。
+ */
+const themeCache = new Map<string, ThemeConfig>();
+
+export function themeConfigFor(mode: ResolvedTheme, fontSize: number): ThemeConfig {
+  const key = `${mode}:${fontSize}`;
+  const cached = themeCache.get(key);
+  if (cached) return cached;
+  const base = mode === "dark" ? darkThemeConfig : lightThemeConfig;
+  const config: ThemeConfig = {
+    ...base,
+    token: { ...base.token, fontSize },
+  };
+  themeCache.set(key, config);
+  return config;
 }
 
 export function antdLocaleFor(locale: UiLocale): Locale {

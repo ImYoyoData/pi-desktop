@@ -99,7 +99,7 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 12.5px;
+  font-size: 0.9615rem;
   font-weight: 600;
   color: var(--fg-strong);
 }
@@ -127,7 +127,7 @@
 
 /* antd 按钮默认 13px/400，抬到复合选择器压回侧边栏正文字号 */
 .topBtn:global(.ant-btn) {
-  font-size: 12.5px;
+  font-size: 0.9615rem;
   font-weight: 400;
 }
 
@@ -205,7 +205,7 @@
   border-radius: 4px;
   background: transparent;
   color: var(--fg-strong);
-  font-size: 13px;
+  font-size: 1rem;
   font-weight: 650;
   letter-spacing: -0.01em;
   text-align: left;
@@ -256,7 +256,7 @@
   margin: 0;
   padding: 0;
   border-radius: 6px;
-  font-size: 13px;
+  font-size: 1rem;
   color: var(--fg-muted);
   cursor: pointer;
   animation: session-row-in 220ms var(--ease-out, cubic-bezier(0.22, 1, 0.36, 1)) both;
@@ -485,7 +485,7 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 12.5px;
+  font-size: 0.9615rem;
   font-weight: 550;
   letter-spacing: -0.01em;
   line-height: 1.25;
@@ -505,7 +505,7 @@
 }
 
 .time {
-  font-size: 10.5px;
+  font-size: 0.8077rem;
   color: var(--fg-faint);
   font-variant-numeric: tabular-nums;
 }
@@ -516,7 +516,7 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 10px;
+  font-size: 0.7692rem;
   color: var(--fg-faint);
   opacity: 0.85;
 }
@@ -531,7 +531,7 @@
 .errTag,
 .stuckTag,
 .doneTag {
-  font-size: 9.5px;
+  font-size: 0.7308rem;
   font-weight: 700;
   letter-spacing: 0.04em;
   text-transform: uppercase;
@@ -597,7 +597,7 @@
 .empty,
 .emptyInline {
   padding: 8px 12px;
-  font-size: 12px;
+  font-size: 0.9231rem;
   color: var(--fg-faint);
 }
 
@@ -616,7 +616,7 @@
   background: transparent;
   color: var(--fg-faint);
   font: inherit;
-  font-size: 11.5px;
+  font-size: 0.8846rem;
   text-align: center;
   cursor: pointer;
   transition:
@@ -650,7 +650,7 @@
   background: transparent;
   color: var(--fg-muted, #888);
   font: inherit;
-  font-size: 12px;
+  font-size: 0.9231rem;
   text-align: left;
   cursor: pointer;
   transition:
@@ -688,7 +688,7 @@
   padding: 18px 0;
   text-align: center;
   color: var(--fg-muted);
-  font-size: 13px;
+  font-size: 1rem;
 }
 
 .archivedList {
@@ -742,7 +742,7 @@
 }
 
 .archivedLabel {
-  font-size: 13px;
+  font-size: 1rem;
   color: var(--fg);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -750,7 +750,7 @@
 }
 
 .archivedSub {
-  font-size: 11.5px;
+  font-size: 0.8846rem;
   color: var(--fg-muted);
   overflow: hidden;
   text-overflow: ellipsis;

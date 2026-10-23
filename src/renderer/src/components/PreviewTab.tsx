@@ -9,6 +9,7 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 import { Alert, Button, Empty, Spin, Typography } from "antd";
+import { fontSizePx, fontSizeRem } from "../../../shared/appearance";
 import {
   ChatbubbleEllipsesOutline,
   FolderOpenOutline,
@@ -370,15 +371,16 @@ export const PreviewTab = forwardRef<PreviewTabHandle, Props>(function PreviewTa
     if (!editorRef.current) {
       const dark = useAppearanceStore.getState().resolvedTheme === "dark";
       applyMonacoColorTheme(monaco, dark);
+      const fontPx = fontSizePx(12.5, useAppearanceStore.getState().fontSize);
       const editor = monaco.editor.create(host, {
         value: content,
         language,
         theme: monacoThemeName(dark),
         useShadowDOM: false,
         automaticLayout: true,
-        fontSize: 12.5,
+        fontSize: fontPx,
         fontFamily: 'var(--font-mono), "Cascadia Code", Consolas, monospace',
-        lineHeight: 20,
+        lineHeight: Math.round(fontPx * 1.6),
         minimap: { enabled: false },
         scrollBeyondLastLine: false,
         renderLineHighlight: "line",
@@ -753,6 +755,14 @@ export const PreviewTab = forwardRef<PreviewTabHandle, Props>(function PreviewTa
   }, [appearance.resolvedTheme]);
 
   useEffect(() => {
+    const fontPx = fontSizePx(12.5, appearance.fontSize);
+    editorRef.current?.updateOptions({
+      fontSize: fontPx,
+      lineHeight: Math.round(fontPx * 1.6),
+    });
+  }, [appearance.fontSize]);
+
+  useEffect(() => {
     if (active && currentPathRef.current) {
       void refreshGitForFile(currentPathRef.current);
       void nextFrame().then(() => editorRef.current?.layout());
@@ -849,7 +859,7 @@ export const PreviewTab = forwardRef<PreviewTabHandle, Props>(function PreviewTa
                 {missing ? <span className={styles.gone}>{t.deletedBadge}</span> : null}
               </>
             ) : (
-              <Typography.Text type="secondary" style={{ fontSize: 11 }}>
+              <Typography.Text type="secondary" style={{ fontSize: fontSizeRem(11) }}>
                 {t.noFileOpen}
               </Typography.Text>
             )}

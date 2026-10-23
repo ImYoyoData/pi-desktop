@@ -193,12 +193,6 @@ html[data-theme][data-wallpaper="on"] .app-context-menu {
   backdrop-filter: blur(14px) saturate(1.15);
 }
 
-/* 右下角更新进度框是自绘浮层：壁纸模式下必须自带玻璃层，
-   否则底层输入框等内容会直接透过浮层显示。 */
-html[data-theme][data-wallpaper="on"] .pi-update-panel {
-  backdrop-filter: blur(14px) saturate(1.15);
-}
-
 /* Monaco 编辑器右键菜单与子菜单：背景内联在滚动元素上，需直接覆盖 background-color */
 html[data-theme][data-wallpaper="on"] .monaco-menu-container,
 html[data-theme][data-wallpaper="on"] .monaco-menu-container .monaco-scrollable-element,

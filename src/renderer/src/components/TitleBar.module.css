@@ -13,7 +13,7 @@
    */
   border-bottom: 1px solid var(--border);
   color: var(--fg-muted);
-  font-size: 12px;
+  font-size: 0.9231rem;
   user-select: none;
   flex-shrink: 0;
   box-shadow: 0 1px 0 color-mix(in srgb, var(--bg-elevated) 40%, transparent);
@@ -59,7 +59,7 @@
 
 .name {
   font-weight: 600;
-  font-size: 12.5px;
+  font-size: 0.9615rem;
   letter-spacing: -0.01em;
 }
 
@@ -120,7 +120,7 @@
   background: var(--accent-soft);
   color: var(--accent);
   font: inherit;
-  font-size: 11px;
+  font-size: 0.8462rem;
   cursor: pointer;
   transition: background 0.12s ease, color 0.12s ease;
 }

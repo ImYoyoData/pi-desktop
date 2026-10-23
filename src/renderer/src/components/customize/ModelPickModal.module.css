@@ -6,13 +6,13 @@
 
 .modalTitle {
   color: var(--fg-strong);
-  font-size: 15px;
+  font-size: 1.1538rem;
   font-weight: 650;
 }
 
 .modalSubtitle {
   color: var(--fg-muted);
-  font-size: 12px;
+  font-size: 0.9231rem;
 }
 
 .pickToolbar {
@@ -73,7 +73,7 @@
 .pickId {
   overflow: hidden;
   color: var(--fg);
-  font-size: 12.5px;
+  font-size: 0.9615rem;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -84,14 +84,14 @@
   border-radius: 3px;
   background: var(--bg-active);
   color: var(--fg-muted);
-  font-size: 10px;
+  font-size: 0.7692rem;
   line-height: 15px;
 }
 
 .pickSub {
   overflow: hidden;
   color: var(--fg-muted);
-  font-size: 11px;
+  font-size: 0.8462rem;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -103,7 +103,7 @@
   border-radius: 4px;
   background: var(--bg-active);
   color: var(--fg-muted);
-  font-size: 10px;
+  font-size: 0.7692rem;
   line-height: 16px;
 }
 
@@ -111,7 +111,7 @@
   margin: 0;
   padding: 24px 0;
   color: var(--fg-muted);
-  font-size: 12px;
+  font-size: 0.9231rem;
   text-align: center;
 }
 
@@ -124,5 +124,5 @@
 .pickCount {
   flex: 1;
   color: var(--fg-muted);
-  font-size: 12px;
+  font-size: 0.9231rem;
 }

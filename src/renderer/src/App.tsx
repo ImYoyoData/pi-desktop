@@ -5,7 +5,6 @@ import AppWallpaper from "@renderer/components/AppWallpaper";
 import AppContextMenu from "@renderer/components/AppContextMenu";
 import AppHoverTip from "@renderer/components/AppHoverTip";
 import PiCliSetup from "@renderer/components/PiCliSetup";
-import UpdateProgress from "@renderer/components/UpdateProgress";
 import CloseGuard from "@renderer/components/CloseGuard";
 import { useWorkspaceStore } from "@renderer/stores/workspace";
 import { useAppearanceStore } from "@renderer/stores/appearance";
@@ -149,7 +148,10 @@ export function App(): React.ReactNode {
   }, []);
 
   return (
-    <ConfigProvider theme={themeConfigFor(appearance.resolvedTheme)} locale={antdLocaleFor(locale)}>
+    <ConfigProvider
+      theme={themeConfigFor(appearance.resolvedTheme, appearance.fontSize)}
+      locale={antdLocaleFor(locale)}
+    >
       <AntApp>
         <FeedbackProvider>
           <CloseGuard />
@@ -166,7 +168,6 @@ export function App(): React.ReactNode {
               ) : null}
             </main>
             <PiCliSetup />
-            <UpdateProgress />
             {workspace.root ? (
               <Suspense fallback={null}>
                 <AiCustomizationModal />

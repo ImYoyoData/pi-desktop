@@ -37,7 +37,7 @@
 
 .url {
   flex: 1 1 auto;
-  min-width: 12rem;
+  min-width: 156px;
   width: 0;
 }
 
@@ -157,7 +157,7 @@
   border: none;
   background: transparent;
   padding: 6px 12px;
-  font-size: 12.5px;
+  font-size: 0.9615rem;
   color: var(--fg-muted);
   cursor: pointer;
   border-radius: 6px 6px 0 0;
@@ -178,7 +178,7 @@
   background: transparent;
   color: var(--fg-muted);
   cursor: pointer;
-  font-size: 18px;
+  font-size: 1.3846rem;
   line-height: 1;
 }
 

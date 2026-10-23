@@ -18,7 +18,7 @@
 }
 
 .sliderLabel {
-  font-size: 12.5px;
+  font-size: 0.9615rem;
   color: var(--fg);
   white-space: nowrap;
 }
@@ -33,7 +33,7 @@
   border: 1px solid var(--border-strong);
   border-radius: 50%;
   color: var(--fg-muted);
-  font-size: 9px;
+  font-size: 0.6923rem;
   line-height: 1;
   cursor: default;
 }
@@ -41,6 +41,6 @@
 .sliderValue {
   margin-left: auto;
   color: var(--fg-muted);
-  font-size: 12px;
+  font-size: 0.9231rem;
   font-variant-numeric: tabular-nums;
 }

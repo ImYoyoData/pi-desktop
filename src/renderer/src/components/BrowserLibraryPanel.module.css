@@ -31,7 +31,7 @@
   border: none;
   background: transparent;
   color: var(--fg-muted);
-  font-size: 12px;
+  font-size: 0.9231rem;
   font-weight: 500;
   padding: 6px 8px;
   cursor: pointer;
@@ -56,7 +56,7 @@
   border-radius: 4px;
   cursor: pointer;
   color: var(--fg);
-  font-size: 13px;
+  font-size: 1rem;
 }
 
 .row:hover {

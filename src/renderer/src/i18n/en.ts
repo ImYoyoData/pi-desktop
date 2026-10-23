@@ -983,8 +983,8 @@ export const en = {
 	appearanceMessageWidthValue: (percent: number) =>
 		percent >= 100 ? "Full width" : `${percent}%`,
 	appearanceFontSize: "Font size",
-	appearanceFontSizeTip: "Scales interface text, icons and spacing proportionally.",
-	appearanceFontSizeValue: (percent: number) => `${percent}%`,
+	appearanceFontSizeTip: "Adjusts interface text size only; icons and spacing stay unchanged.",
+	appearanceFontSizeValue: (px: number) => `${px}px`,
 	githubOpen: "Open GitHub repository",
 	aboutTitle: "About",
 	aboutVersion: "Version",

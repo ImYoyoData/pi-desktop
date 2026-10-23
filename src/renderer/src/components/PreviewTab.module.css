@@ -23,7 +23,7 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 11.5px;
+  font-size: 0.8846rem;
   color: var(--fg-muted);
 }
 
@@ -45,13 +45,13 @@
 .dirty {
   margin-left: 6px;
   color: var(--accent);
-  font-size: 10px;
+  font-size: 0.7692rem;
 }
 
 .gone {
   margin-left: 8px;
   color: var(--git-d, #dc2626);
-  font-size: 11px;
+  font-size: 0.8462rem;
 }
 
 .actions {
@@ -73,7 +73,7 @@
   border: none;
   background: transparent;
   color: var(--fg-muted);
-  font-size: 11px;
+  font-size: 0.8462rem;
   line-height: 1;
   padding: 4px 8px;
   border-radius: 4px;
@@ -197,7 +197,7 @@
   color: var(--primary, #3b82f6);
   box-shadow: 0 2px 10px rgba(0, 0, 0, 0.14);
   cursor: pointer;
-  font-size: 12px;
+  font-size: 0.9231rem;
   font-weight: 500;
   line-height: 1;
   white-space: nowrap;

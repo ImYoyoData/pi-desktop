@@ -53,7 +53,7 @@ export function AppearancePanel(): ReactNode {
   }));
 
   const fontSizeOptions: Option[] = FONT_SIZE_CHOICES.map((value) => ({
-    label: t.appearanceFontSizeValue(Math.round(value * 100)),
+    label: t.appearanceFontSizeValue(value),
     value,
   }));
 

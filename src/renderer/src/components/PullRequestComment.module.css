@@ -39,7 +39,7 @@
   justify-content: center;
   width: 100%;
   height: 100%;
-  font-size: 11px;
+  font-size: 0.8462rem;
   color: var(--fg-muted);
 }
 
@@ -55,7 +55,7 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  font-size: 12px;
+  font-size: 0.9231rem;
 }
 
 .author {
@@ -70,7 +70,7 @@
 .tag {
   border-radius: 999px;
   padding: 0 6px;
-  font-size: 10.5px;
+  font-size: 0.8077rem;
   line-height: 15px;
   background: var(--bg-hover);
   color: var(--fg-muted);
@@ -92,7 +92,7 @@
   border-radius: var(--radius-sm);
   background: transparent;
   color: var(--fg-muted);
-  font-size: 11px;
+  font-size: 0.8462rem;
   padding: 1px 6px;
   cursor: pointer;
   max-width: 100%;
@@ -107,7 +107,7 @@
   border-radius: var(--radius-sm);
   background: rgba(127, 127, 127, 0.1);
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: 0.8462rem;
   overflow-x: auto;
   white-space: pre;
 }
@@ -148,7 +148,7 @@
   padding: 0 6px;
   background: transparent;
   color: var(--fg-muted);
-  font-size: 11px;
+  font-size: 0.8462rem;
   line-height: 18px;
   cursor: pointer;
 }
@@ -202,7 +202,7 @@
 .reactionChoice {
   border: 0;
   background: transparent;
-  font-size: 14px;
+  font-size: 1.0769rem;
   cursor: pointer;
   border-radius: var(--radius-sm);
   padding: 2px 3px;
@@ -226,7 +226,7 @@
   border: 0;
   background: transparent;
   color: var(--fg-muted);
-  font-size: 11px;
+  font-size: 0.8462rem;
   cursor: pointer;
   padding: 0;
 }

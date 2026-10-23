@@ -35,14 +35,14 @@
 }
 
 .toolFileHead :global(.ant-tag) {
-  font-size: 11px;
+  font-size: 0.8462rem;
   line-height: 16px;
   padding-inline: 5px;
 }
 
 .toolName {
   flex-shrink: 0;
-  font-size: 11px !important;
+  font-size: 0.8462rem !important;
 }
 
 .path {
@@ -51,7 +51,7 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 12px;
+  font-size: 0.9231rem;
   font-family: ui-monospace, Cascadia Code, Consolas, monospace;
 }
 
@@ -59,7 +59,7 @@
   flex-shrink: 0;
   display: inline-flex;
   gap: 6px;
-  font-size: 11px;
+  font-size: 0.8462rem;
   font-variant-numeric: tabular-nums;
   font-family: ui-monospace, Cascadia Code, Consolas, monospace;
 }
@@ -84,7 +84,7 @@
   align-items: center;
   justify-content: center;
   font-family: "seti";
-  font-size: 14px;
+  font-size: 1.0769rem;
   line-height: 1;
   transform: translateY(1px);
 }
@@ -95,7 +95,7 @@
   border-top: 1px solid var(--border);
   max-height: 180px;
   overflow: auto;
-  font-size: 11px;
+  font-size: 0.8462rem;
   line-height: 1.45;
   font-family: ui-monospace, Cascadia Code, Consolas, monospace;
   background: var(--bg, transparent);

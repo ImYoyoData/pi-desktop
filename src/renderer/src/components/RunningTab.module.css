@@ -45,7 +45,7 @@
 }
 
 .cmd {
-  font-size: 12px;
+  font-size: 0.9231rem;
   font-weight: 550;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -54,7 +54,7 @@
 
 .meta {
   margin-top: 2px;
-  font-size: 11px;
+  font-size: 0.8462rem;
   color: var(--fg-muted);
 }
 

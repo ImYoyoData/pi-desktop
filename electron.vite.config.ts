@@ -156,6 +156,13 @@ export default defineConfig({
       target: "chrome130",
       reportCompressedSize: false,
       chunkSizeWarningLimit: 8000,
+      rollupOptions: {
+        input: {
+          index: resolve("src/renderer/index.html"),
+          // 桌面右下角的更新悬浮窗，独立透明窗口加载。
+          "update-toast": resolve("src/renderer/update-toast.html"),
+        },
+      },
     },
   },
 });

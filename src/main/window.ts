@@ -7,6 +7,7 @@ import type { EditContextMenuPayload } from "../shared/context-menu";
 import { editMenuLabels } from "../shared/edit-menu-i18n";
 import { getUiLocale, setUiLocale } from "./ui-locale";
 import { bindWindowVisibility } from "./window-visibility";
+import { closeUpdateToast } from "./update-toast";
 
 export { getUiLocale, setUiLocale };
 
@@ -104,6 +105,8 @@ export function createMainWindow(): BrowserWindow {
 
   // Failsafe: if ready-to-show is late/missed, still surface the window.
   mainWindow.webContents.once("did-finish-load", () => {
+    // 旧版本用窗口缩放调字号，这里清掉残留的缩放，字号改由根元素字体控制。
+    mainWindow.webContents.setZoomFactor(1);
     if (!mainWindow.isDestroyed() && !mainWindow.isVisible()) {
       mainWindow.show();
     }
@@ -116,6 +119,8 @@ export function createMainWindow(): BrowserWindow {
       mainWindow.webContents.send(IpcChannels.window.closeRequest);
     }
   });
+
+  mainWindow.on("closed", () => closeUpdateToast());
 
   mainWindow.webContents.setWindowOpenHandler((details) => {
     void shell.openExternal(details.url);

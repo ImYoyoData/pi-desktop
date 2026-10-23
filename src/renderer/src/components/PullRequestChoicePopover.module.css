@@ -45,7 +45,7 @@
   background: var(--bg);
   color: var(--fg);
   padding: 0 8px 0 30px;
-  font-size: 12px;
+  font-size: 0.9231rem;
   outline: none;
 }
 
@@ -67,7 +67,7 @@
   border-radius: 6px;
   background: transparent;
   color: var(--fg);
-  font-size: 12px;
+  font-size: 0.9231rem;
   text-align: left;
   cursor: pointer;
 }
@@ -110,7 +110,7 @@
 .empty {
   margin: 0;
   padding: 8px;
-  font-size: 12px;
+  font-size: 0.9231rem;
   color: var(--fg-muted);
 }
 

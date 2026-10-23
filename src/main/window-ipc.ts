@@ -19,10 +19,6 @@ const EDIT_COMMANDS: Record<EditContextMenuAction, (wc: Electron.WebContents) =>
 type ThemeSource = "system" | "light" | "dark";
 type ChromeTheme = "light" | "dark";
 
-/** 缩放比例的允许区间，避免异常值把界面缩到不可用。 */
-const ZOOM_FACTOR_MIN = 0.5;
-const ZOOM_FACTOR_MAX = 2;
-
 function applyChrome(win: BrowserWindow, mode: ChromeTheme): void {
   const bg = mode === "dark" ? "#18181b" : "#f4f4f5";
   try {
@@ -79,15 +75,6 @@ export function registerWindowIpc(broker?: SessionBroker): void {
       setUiLocale(next);
       void broker?.notifyWorkersReloadLocale(next);
     }
-  });
-
-  /** 界面字号缩放：整体等比放大文字、图标与间距。 */
-  ipcMain.handle(IpcChannels.window.setZoomFactor, (event, factor: number) => {
-    if (typeof factor !== "number" || !Number.isFinite(factor)) return;
-    if (event.sender.isDestroyed()) return;
-    event.sender.setZoomFactor(
-      Math.min(ZOOM_FACTOR_MAX, Math.max(ZOOM_FACTOR_MIN, factor)),
-    );
   });
 
   /** macOS requires TCC prompt via askForMediaAccess before getUserMedia works reliably. */

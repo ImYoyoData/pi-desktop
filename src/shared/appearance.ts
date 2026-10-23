@@ -37,10 +37,10 @@ export const MESSAGE_WIDTH_CHOICES = [0.6, 0.75, 0.8, 0.85, 1] as const;
 /** 默认档位。 */
 export const MESSAGE_WIDTH_DEFAULT = 0.75;
 
-/** 界面字号档位：整体缩放比例，文字、图标与间距同步缩放。 */
-export const FONT_SIZE_CHOICES = [0.9, 1, 1.1, 1.25, 1.5] as const;
-/** 默认字号档位。 */
-export const FONT_SIZE_DEFAULT = 1;
+/** 界面字号档位（px）：只改变文字大小，图标与间距保持原样。 */
+export const FONT_SIZE_CHOICES = [9, 10, 11, 12, 13, 14, 15, 16] as const;
+/** 默认字号（px），也是样式里 px 换算 rem 的基准。 */
+export const FONT_SIZE_DEFAULT = 13;
 
 export const WALLPAPER_IMAGE_EXTENSIONS = [
   "png",
@@ -80,11 +80,23 @@ export function normalizeMessageWidth(value: unknown): number {
 }
 
 export function normalizeFontSize(value: unknown): number {
-  const n = typeof value === "number" ? value : Number(value);
+  let n = typeof value === "number" ? value : Number(value);
   if (!Number.isFinite(n)) return FONT_SIZE_DEFAULT;
+  // 旧版存的是缩放比例（0.9–1.5），按默认字号换算成 px 后再吸附到档位
+  if (n > 0 && n <= 3) n = Math.round(n * FONT_SIZE_DEFAULT);
   return FONT_SIZE_CHOICES.reduce((best, choice) =>
     Math.abs(choice - n) < Math.abs(best - n) ? choice : best,
   );
+}
+
+/** 设计稿 px 字号换算为随根字号缩放的 rem 值。 */
+export function fontSizeRem(basePx: number): string {
+  return `${Number((basePx / FONT_SIZE_DEFAULT).toFixed(4))}rem`;
+}
+
+/** 设计稿 px 字号换算为当前设置下的实际 px（Monaco / xterm 等只收数字的场合）。 */
+export function fontSizePx(basePx: number, rootPx: number): number {
+  return Math.round(((basePx / FONT_SIZE_DEFAULT) * rootPx) * 2) / 2;
 }
 
 function clamp01(value: unknown, fallback: number): number {

@@ -28,7 +28,7 @@
 .overrideEmpty {
   padding: 10px 14px;
   color: var(--fg-muted);
-  font-size: 12px;
+  font-size: 0.9231rem;
   line-height: 17px;
 }
 
@@ -42,7 +42,7 @@
 }
 
 .overrideFieldLabel {
-  font-size: 12px;
+  font-size: 0.9231rem;
   white-space: nowrap;
 }
 

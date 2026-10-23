@@ -15,7 +15,7 @@
 }
 
 .cardTitle {
-  font-size: 12.5px;
+  font-size: 0.9615rem;
   font-weight: 600;
   color: var(--fg-strong);
 }
@@ -29,7 +29,7 @@
   border: 1px solid var(--border-strong);
   border-radius: 50%;
   color: var(--fg-muted);
-  font-size: 9px;
+  font-size: 0.6923rem;
   line-height: 1;
   cursor: default;
 }
@@ -82,7 +82,7 @@
 
 .previewHint {
   color: var(--fg-muted);
-  font-size: 12px;
+  font-size: 0.9231rem;
 }
 
 .previewAction {
@@ -94,7 +94,7 @@
   border-radius: 4px;
   background: rgba(0, 0, 0, 0.55);
   color: #fff;
-  font-size: 12px;
+  font-size: 0.9231rem;
   opacity: 0;
   pointer-events: none;
   transition: opacity 120ms ease;
@@ -114,7 +114,7 @@
   box-sizing: border-box;
   background: color-mix(in srgb, var(--bg) 72%, transparent);
   color: var(--fg-muted);
-  font-size: 12px;
+  font-size: 0.9231rem;
   text-align: center;
 }
 
@@ -128,7 +128,7 @@
   background: rgba(0, 0, 0, 0.55);
   color: #fff;
   font: inherit;
-  font-size: 12px;
+  font-size: 0.9231rem;
   cursor: pointer;
 }
 

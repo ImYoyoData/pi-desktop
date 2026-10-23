@@ -88,9 +88,9 @@
   --scrollbar-active-alpha: 0.72;
 
   /* Copilot (VS Code) chat tokens — see docs/superpowers/plans/2026-09-05-copilot-style-output.md */
-  --chat-font-m: 13px;
-  --chat-font-s: 12px;
-  --chat-font-xs: 11px;
+  --chat-font-m: 1rem;
+  --chat-font-s: 0.9231rem;
+  --chat-font-xs: 0.8462rem;
   --chat-desc-fg: #606060;
   --chat-line: #e2e2e5;
   --chat-hover-bg: #00000014;
@@ -166,9 +166,9 @@ html[data-theme="dark"] {
   --scrollbar-hover-alpha: 0.44;
   --scrollbar-active-alpha: 0.54;
 
-  --chat-font-m: 13px;
-  --chat-font-s: 12px;
-  --chat-font-xs: 11px;
+  --chat-font-m: 1rem;
+  --chat-font-s: 0.9231rem;
+  --chat-font-xs: 0.8462rem;
   --chat-desc-fg: #9da1a6;
   --chat-line: #2a2b2c;
   --chat-hover-bg: #ffffff14;
@@ -189,12 +189,17 @@ body,
   padding: 0;
 }
 
+/* 界面字号基准：设置页按 px 覆盖这个值，rem 文字随之缩放。 */
+html {
+  font-size: 13px;
+}
+
 body {
   overflow: hidden;
   background: var(--bg);
   color: var(--fg);
   font-family: var(--font-ui);
-  font-size: 12.5px;
+  font-size: 0.9615rem;
   letter-spacing: -0.011em;
   user-select: none;
   text-rendering: optimizeLegibility;
@@ -446,7 +451,7 @@ button {
 }
 
 .md {
-  font-size: 16px;
+  font-size: 1.2308rem;
   line-height: 1.75;
   color: var(--fg);
   word-break: break-word;
@@ -517,7 +522,7 @@ button {
   background: transparent;
   border: none;
   padding: 0;
-  font-size: 12.5px;
+  font-size: 0.9615rem;
   line-height: 1.5;
 }
 
@@ -574,7 +579,7 @@ button {
 }
 
 .pi-settings-modal .ant-modal-title {
-  font-size: 15px;
+  font-size: 1.1538rem;
   font-weight: 650;
   letter-spacing: 0.01em;
 }
@@ -671,7 +676,7 @@ button {
 }
 
 .pi-settings-modal .section-label {
-  font-size: 12.5px;
+  font-size: 0.9615rem;
   font-weight: 600;
   color: var(--fg-strong);
 }
