@@ -25,9 +25,10 @@ export function registerLocalFileScheme(): void {
 /** 壁纸协议：只服务图片/视频扩展名的本地绝对路径。 */
 function handleWallpaperMedia(request: Request): Promise<Response> | Response {
   try {
+    // searchParams 已经解码过一次，再解一次会把文件名里的 % 打成非法序列。
     const p = new URL(request.url).searchParams.get("p");
     if (!p) return new Response("Missing path", { status: 400 });
-    const absolute = path.normalize(decodeURIComponent(p));
+    const absolute = path.normalize(p);
     if (!path.isAbsolute(absolute) || !wallpaperKindForPath(absolute)) {
       return new Response("Unsupported media path", { status: 400 });
     }
@@ -52,10 +53,9 @@ export function installLocalFileProtocol(): void {
       if (!root) {
         return new Response("No workspace", { status: 404 });
       }
-      const target = decodeURIComponent(rel);
-      const absolute = path.isAbsolute(target)
-        ? path.normalize(target)
-        : resolveWorkspacePath(root, target);
+      const absolute = path.isAbsolute(rel)
+        ? path.normalize(rel)
+        : resolveWorkspacePath(root, rel);
       return net.fetch(pathToFileURL(absolute).href);
     } catch (err) {
       return new Response(err instanceof Error ? err.message : String(err), { status: 400 });
