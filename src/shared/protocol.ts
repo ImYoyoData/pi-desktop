@@ -552,7 +552,9 @@ export type AgentEvent =
 	| { type: "worker_stall"; sessionId: string }
 	| { type: "worker_alive"; sessionId: string }
 	| { type: "worker_exit"; sessionId: string; code: number | null }
-	| { type: "session_status"; sessionId: string; status: SessionStatus };
+	| { type: "session_status"; sessionId: string; status: SessionStatus }
+	/** 会话产生新活动：主进程刷新最近时间，侧栏据此重排。 */
+	| { type: "session_activity"; sessionId: string; modified: string };
 
 export type SessionHistoryMessage =
 	| {
@@ -644,6 +646,8 @@ export type SessionSummary = {
 	cwd: string;
 	name?: string;
 	modified: string;
+	/** 会话文件 header 的创建时间（缺失时回退 modified）。 */
+	created?: string;
 	firstMessage?: string;
 	status: SessionStatus;
 	/** 派生会话的父会话 id（由 header.parentSession 路径解析）。 */

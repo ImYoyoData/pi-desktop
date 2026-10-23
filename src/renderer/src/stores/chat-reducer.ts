@@ -1596,6 +1596,7 @@ export function reduceChatEvent(
 				retryHint: null,
 			});
 		case "context_usage":
+		case "session_activity":
 			return state;
 		default: {
 			const _never: never = event;

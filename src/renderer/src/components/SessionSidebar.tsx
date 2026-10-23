@@ -24,6 +24,7 @@ import { NO_OVERLAY_MOTION } from "@renderer/components/overlay-motion";
 import {
   AddOutline,
   ChatboxOutline,
+  CheckmarkOutline,
   ChevronDownOutline,
   ChevronForwardOutline,
   CopyOutline,
@@ -35,6 +36,7 @@ import {
   ListOutline,
   OptionsOutline,
   PinOutline,
+  RefreshOutline,
   TrashOutline,
 } from "@renderer/components/icons/ionicons";
 import CodiconIcon, {
@@ -61,7 +63,49 @@ import styles from "./SessionSidebar.module.css";
 
 const PIN_KEY = "session-pins:v1";
 const SESSION_ORDER_KEY = "pi-desktop:session-order:v2";
+const SESSION_VIEW_KEY = "pi-desktop:session-view:v1";
 const SESSION_VISIBLE_LIMIT = 5;
+
+/** 侧栏视图：分组 / 时间范围 / 排序。 */
+type SessionViewGroup = "project" | "task";
+type SessionViewTime = "all" | "1d" | "3d" | "7d";
+type SessionViewSort = "created" | "recent";
+
+type SessionView = {
+  group: SessionViewGroup;
+  time: SessionViewTime;
+  sort: SessionViewSort;
+};
+
+const DEFAULT_SESSION_VIEW: SessionView = {
+  group: "project",
+  time: "all",
+  sort: "recent",
+};
+
+const SESSION_VIEW_TIME_MS: Record<Exclude<SessionViewTime, "all">, number> = {
+  "1d": 24 * 60 * 60 * 1000,
+  "3d": 3 * 24 * 60 * 60 * 1000,
+  "7d": 7 * 24 * 60 * 60 * 1000,
+};
+
+function loadSessionView(): SessionView {
+  try {
+    const raw = prefs.getItem(SESSION_VIEW_KEY);
+    if (!raw) return DEFAULT_SESSION_VIEW;
+    const parsed = JSON.parse(raw) as Partial<SessionView>;
+    return {
+      group: parsed.group === "task" ? "task" : "project",
+      time:
+        parsed.time === "1d" || parsed.time === "3d" || parsed.time === "7d"
+          ? parsed.time
+          : "all",
+      sort: parsed.sort === "created" ? "created" : "recent",
+    };
+  } catch {
+    return DEFAULT_SESSION_VIEW;
+  }
+}
 
 /** 上下文菜单的大致高度：用来判断按钮下方是否放得下。 */
 const CTX_MENU_HEIGHT = 220;
@@ -102,6 +146,7 @@ type SidebarLocal = {
   selectMode: boolean;
   selectedSessionIds: string[];
   workspacePaths: string[];
+  view: SessionView;
 };
 
 /** 侧栏展示的工作区：最近列表 + 活动工作区兜底。 */
@@ -161,8 +206,9 @@ function compareSessionsOf(
   sessionOrders: Record<string, string[]>,
   pins: Record<string, string[]>,
   root: string,
+  sort: SessionViewSort,
 ): (a: SessionSummary, b: SessionSummary) => number {
-  const order = sessionOrders[root];
+  const order = sort === "recent" ? sessionOrders[root] : undefined;
   const orderMap = order?.length ? new Map(order.map((id, i) => [id, i])) : null;
   const pinned = new Set(pins[root] ?? []);
   return (a, b) => {
@@ -170,13 +216,30 @@ function compareSessionsOf(
       const ai = orderMap.get(a.id) ?? Number.MAX_SAFE_INTEGER;
       const bi = orderMap.get(b.id) ?? Number.MAX_SAFE_INTEGER;
       if (ai !== bi) return ai - bi;
-      return b.modified.localeCompare(a.modified);
+      const aKey = sessionSortKey(a, sort);
+      const bKey = sessionSortKey(b, sort);
+      return bKey.localeCompare(aKey);
     }
     const ap = pinned.has(a.id) ? 0 : 1;
     const bp = pinned.has(b.id) ? 0 : 1;
     if (ap !== bp) return ap - bp;
-    return b.modified.localeCompare(a.modified);
+    const aKey = sessionSortKey(a, sort);
+    const bKey = sessionSortKey(b, sort);
+    return bKey.localeCompare(aKey);
   };
+}
+
+/** 排序键：创建时间取 header 时间戳，缺失时回退最近活动时间。 */
+function sessionSortKey(session: SessionSummary, sort: SessionViewSort): string {
+  return sort === "created" ? (session.created ?? session.modified) : session.modified;
+}
+
+/** 时间过滤：按最近活动时间（modified）取窗口，全部时不过滤。 */
+function withinSessionViewTime(item: SessionSummary, time: SessionViewTime): boolean {
+  if (time === "all") return true;
+  const parsed = Date.parse(item.modified);
+  if (Number.isNaN(parsed)) return true;
+  return Date.now() - parsed <= SESSION_VIEW_TIME_MS[time];
 }
 
 function topSessionsOf(
@@ -257,6 +320,8 @@ export function SessionSidebar(): ReactNode {
 
   const [workspaceCollapsed, setWorkspaceCollapsed] = useState(false);
 
+  const [view, setView] = useState<SessionView>(loadSessionView);
+
   const [selectMode, setSelectMode] = useState(false);
   const [selectedSessionIds, setSelectedSessionIds] = useState<string[]>([]);
   const [selectAnchorId, setSelectAnchorId] = useState<string | null>(null);
@@ -295,6 +360,7 @@ export function SessionSidebar(): ReactNode {
     selectMode,
     selectedSessionIds,
     workspacePaths,
+    view,
   });
 
   useEffect(() => {
@@ -306,6 +372,7 @@ export function SessionSidebar(): ReactNode {
       selectMode,
       selectedSessionIds,
       workspacePaths,
+      view,
     };
   });
 
@@ -404,7 +471,7 @@ export function SessionSidebar(): ReactNode {
   function compareSessions(
     root: string,
   ): (a: SessionSummary, b: SessionSummary) => number {
-    return compareSessionsOf(sessionOrders, pins, root);
+    return compareSessionsOf(sessionOrders, pins, root, view.sort);
   }
 
   /**
@@ -419,7 +486,9 @@ export function SessionSidebar(): ReactNode {
     return visibleSessionsOfList(
       [...(sessionsByRoot[root] ?? [])],
       archivedIds,
-    ).map((row) => ({ ...row, status: liveStatusOf(row) }));
+    )
+      .filter((row) => withinSessionViewTime(row, view.time))
+      .map((row) => ({ ...row, status: liveStatusOf(row) }));
   }
 
   function visibleTreeItemsFor(root: string): VisibleSessionItem[] {
@@ -480,6 +549,9 @@ export function SessionSidebar(): ReactNode {
 
   /** 侧栏可见会话的渲染顺序，Shift 范围选择按它取区间。 */
   const visibleSessionIds = ((): string[] => {
+    if (view.group === "task") {
+      return flatTaskRows().map((row) => row.item.session.id);
+    }
     const ids: string[] = [];
     for (const root of workspacePaths) {
       for (const item of visibleTreeItemsFor(root)) ids.push(item.session.id);
@@ -580,6 +652,7 @@ export function SessionSidebar(): ReactNode {
         localRef.current.sessionOrders,
         localRef.current.pins,
         root,
+        localRef.current.view.sort,
       ),
     )[0];
     if (first) await onSelectSession(root, first.id, list);
@@ -1241,6 +1314,194 @@ export function SessionSidebar(): ReactNode {
     });
   }
 
+  function updateView(patch: Partial<SessionView>): void {
+    setView((prev) => {
+      const next = { ...prev, ...patch };
+      prefs.setItem(SESSION_VIEW_KEY, JSON.stringify(next));
+      return next;
+    });
+  }
+
+  /** 按任务显示：跨项目拍平成一条列表，每行标注所属项目。 */
+  function flatTaskRows(): { root: string; item: VisibleSessionItem }[] {
+    const rows = workspacePaths.flatMap((root) =>
+      visibleSessions(root).map((session) => ({
+        root,
+        item: {
+          session,
+          depth: 0,
+          lastFlags: [],
+          parentId: undefined,
+          hasChildren: false,
+          childCount: 0,
+          topId: null,
+          guideFull: [],
+          isLastSibling: true,
+        },
+      })),
+    );
+    return rows.sort((a, b) => {
+      const aKey = sessionSortKey(a.item.session, view.sort);
+      const bKey = sessionSortKey(b.item.session, view.sort);
+      return bKey.localeCompare(aKey);
+    });
+  }
+
+  function renderSessionRow(
+    root: string,
+    item: VisibleSessionItem,
+    sIdx: number,
+    projectName?: string,
+  ): ReactNode {
+    const sessionId = item.session.id;
+    const collapsedNode = isTreeNodeCollapsed(root, sessionId);
+    return (
+      <li
+        key={sessionId}
+        className={`${styles.sessionRow} ${
+          sessionsStore.activeId === sessionId ? styles.sessionRowActive : ""
+        } ${
+          guidesVisibleFor(root, item) ? styles.sessionRowGuidesVisible : ""
+        } ${
+          selectMode && isSessionSelected(sessionId)
+            ? styles.sessionRowSelected
+            : ""
+        }`}
+        data-session-row
+        data-id={sessionId}
+        data-no-ws-drag
+        style={
+          {
+            "--i": String(sIdx),
+            "--depth": item.depth,
+          } as CSSProperties
+        }
+        aria-expanded={item.hasChildren ? !collapsedNode : undefined}
+        onClick={(e) =>
+          selectMode
+            ? onSessionRowClick(sessionId, e.shiftKey)
+            : void onSelectSession(root, sessionId)
+        }
+        onContextMenu={(e) => openSessionCtx(e, root, item.session)}
+        onMouseEnter={() => onSessionRowEnter(root, item)}
+        onMouseLeave={() => onSessionRowLeave(root)}
+      >
+        <div className={styles.sessionInner}>
+          {item.guideFull.map((full, gi) => (
+            <span
+              key={gi}
+              className={`${styles.treeGuide} ${
+                full
+                  ? styles.treeGuideFull
+                  : gi === item.guideFull.length - 1
+                    ? styles.treeGuideElbow
+                    : styles.treeGuideEnded
+              }`}
+              style={{ "--g": gi } as CSSProperties}
+              aria-hidden="true"
+            />
+          ))}
+          {item.depth > 0 && !item.isLastSibling ? (
+            <span
+              className={styles.treeConnector}
+              style={{ "--g": item.depth - 1 } as CSSProperties}
+              aria-hidden="true"
+            />
+          ) : null}
+          {item.hasChildren && !collapsedNode ? (
+            <span
+              className={styles.treeDescender}
+              style={{ "--g": item.depth } as CSSProperties}
+              aria-hidden="true"
+            />
+          ) : null}
+          <span className={styles.activeBar} />
+          <span
+            className={`${styles.statusMark} ${
+              styles[
+                `st${(item.session.status || "idle").charAt(0).toUpperCase()}${(item.session.status || "idle").slice(1)}`
+              ] ?? ""
+            }`}
+            aria-hidden="true"
+          >
+            <i className={styles.statusCore} />
+          </span>
+          {item.hasChildren ? (
+            <button
+              type="button"
+              className={`${styles.treeTwistie} ${
+                collapsedNode ? styles.treeTwistieCollapsed : ""
+              }`}
+              onClick={(e) => {
+                e.stopPropagation();
+                toggleTreeNode(root, sessionId);
+              }}
+            >
+              <ChevronDownOutline size={16} />
+            </button>
+          ) : null}
+          <div className={styles.sessionBody}>
+            <div className={styles.sessionTitleRow}>
+              {isPinned(root, sessionId) ? (
+                <PinOutline className={styles.pin} size={11} />
+              ) : null}
+              <span className={styles.sessionLabel}>
+                {sessionLabel(item.session)}
+              </span>
+            </div>
+            <div className={styles.sessionMeta}>
+              {projectName ? (
+                <span className={styles.projectTag} title={root}>
+                  {projectName}
+                </span>
+              ) : null}
+              <span className={styles.time}>
+                {relativeTime(item.session.modified)}
+              </span>
+              {isRunning(item.session.status) ? (
+                <span
+                  className={`${styles.runTag} ${
+                    hasPendingAsk(sessionId) ? styles.runTagAsk : ""
+                  }`}
+                >
+                  {hasPendingAsk(sessionId) ? "ask" : "live"}
+                </span>
+              ) : item.session.status === "error" ? (
+                <span className={styles.errTag}>err</span>
+              ) : item.session.status === "stuck" ? (
+                <span className={styles.stuckTag}>stuck</span>
+              ) : justEnded.has(sessionId) ? (
+                <span className={styles.doneTag}>done</span>
+              ) : null}
+            </div>
+          </div>
+          {selectMode ? (
+            <Checkbox
+              className={styles.sessionCheck}
+              checked={isSessionSelected(sessionId)}
+              data-no-session-drag
+              onClick={(e) => e.stopPropagation()}
+              onChange={() => toggleSessionSelect(sessionId)}
+            />
+          ) : (
+            <Button
+              className={styles.trash}
+              type="text"
+              shape="circle"
+              size="small"
+              onClick={(e) => {
+                e.stopPropagation();
+                confirmDeleteSession(root, sessionId);
+              }}
+            >
+              <TrashOutline size={14} />
+            </Button>
+          )}
+        </div>
+      </li>
+    );
+  }
+
   function bindSessionSortable(root: string): void {
     const el = sessionListEls.current.get(root);
     if (!el) return;
@@ -1250,9 +1511,10 @@ export function SessionSidebar(): ReactNode {
       draggable: "[data-session-row]",
       filter: "[data-no-session-drag]",
       disabled:
-        !localRef.current.sessionListExpanded[root] &&
-        (localRef.current.sessionsByRoot[root]?.length ?? 0) >
-          SESSION_VISIBLE_LIMIT,
+        localRef.current.view.sort !== "recent" ||
+        (!localRef.current.sessionListExpanded[root] &&
+          (localRef.current.sessionsByRoot[root]?.length ?? 0) >
+            SESSION_VISIBLE_LIMIT),
       onEnd: () => {
         const ids = [
           ...el.querySelectorAll<HTMLElement>("[data-session-row][data-id]"),
@@ -1335,13 +1597,23 @@ export function SessionSidebar(): ReactNode {
     const base = topSessionsOf(
       [...(local.sessionsByRoot[root] ?? [])],
       new Set(useWorkspaceStore.getState().archivedSessions),
-      compareSessionsOf(local.sessionOrders, local.pins, root),
+      compareSessionsOf(local.sessionOrders, local.pins, root, local.view.sort),
     )
       .map((s) => s.id)
       .filter((id) => id !== sessionId);
     const next = { ...local.sessionOrders, [root]: [sessionId, ...base] };
     setSessionOrders(next);
     persistSessionOrders(next);
+  }
+
+  /** 新活动把会话顶到最前，与「最近时间」排序保持一致。 */
+  function moveSessionsToFront(root: string, sessionIds: string[]): void {
+    setSessionOrders((prev) => {
+      const base = (prev[root] ?? []).filter((id) => !sessionIds.includes(id));
+      const next = { ...prev, [root]: [...sessionIds, ...base] };
+      persistSessionOrders(next);
+      return next;
+    });
   }
 
   /** 其他组件（如派生对话）建出的会话：置顶显示，折叠状态下也能看到。 */
@@ -1356,11 +1628,95 @@ export function SessionSidebar(): ReactNode {
   }
 
   function moreMenuItems(): MenuItem[] {
-    return [{ label: t.selectSessions, key: "select-mode", icon: <ListOutline /> }];
+    const activeIcon = (active: boolean): ReactNode =>
+      active ? (
+        <CheckmarkOutline size={14} />
+      ) : (
+        <span className={styles.menuMark} />
+      );
+    return [
+      { label: t.selectSessions, key: "select-mode", icon: <ListOutline /> },
+      { type: "divider", key: "d-view-0" },
+      {
+        type: "group",
+        key: "view-group",
+        label: t.sessionViewGroup,
+        children: [
+          {
+            key: "group:project",
+            label: t.sessionViewGroupProject,
+            icon: activeIcon(view.group === "project"),
+          },
+          {
+            key: "group:task",
+            label: t.sessionViewGroupTask,
+            icon: activeIcon(view.group === "task"),
+          },
+        ],
+      },
+      {
+        type: "group",
+        key: "view-time",
+        label: t.sessionViewTime,
+        children: [
+          {
+            key: "time:all",
+            label: t.sessionViewTimeAll,
+            icon: activeIcon(view.time === "all"),
+          },
+          {
+            key: "time:1d",
+            label: t.sessionViewTime1d,
+            icon: activeIcon(view.time === "1d"),
+          },
+          {
+            key: "time:3d",
+            label: t.sessionViewTime3d,
+            icon: activeIcon(view.time === "3d"),
+          },
+          {
+            key: "time:7d",
+            label: t.sessionViewTime7d,
+            icon: activeIcon(view.time === "7d"),
+          },
+        ],
+      },
+      {
+        type: "group",
+        key: "view-sort",
+        label: t.sessionViewSort,
+        children: [
+          {
+            key: "sort:recent",
+            label: t.sessionViewSortRecent,
+            icon: activeIcon(view.sort === "recent"),
+          },
+          {
+            key: "sort:created",
+            label: t.sessionViewSortCreated,
+            icon: activeIcon(view.sort === "created"),
+          },
+        ],
+      },
+      { type: "divider", key: "d-view-1" },
+      { key: "view-reset", label: t.sessionViewReset, icon: <RefreshOutline size={14} /> },
+    ];
   }
 
   async function onMoreMenuSelect(key: string | number): Promise<void> {
-    if (String(key) === "select-mode") enterSelectMode();
+    const k = String(key);
+    if (k === "select-mode") {
+      enterSelectMode();
+      return;
+    }
+    if (k === "view-reset") {
+      updateView(DEFAULT_SESSION_VIEW);
+      return;
+    }
+    const [kind, value] = k.split(":");
+    if (kind === "group") updateView({ group: value as SessionViewGroup });
+    else if (kind === "time") updateView({ time: value as SessionViewTime });
+    else if (kind === "sort") updateView({ sort: value as SessionViewSort });
   }
 
   function workspaceMenuItems(): MenuItem[] {
@@ -1623,11 +1979,11 @@ export function SessionSidebar(): ReactNode {
 
   useEffect(() => {
     bindWorkspaceSortable();
-  }, [workspacePathsKey]);
+  }, [workspacePathsKey, view.group]);
 
   useEffect(() => {
     for (const root of workspacePaths) bindSessionSortable(root);
-  }, [workspacePathsKey, sessionsByRoot, sessionListExpanded]);
+  }, [workspacePathsKey, sessionsByRoot, sessionListExpanded, view.group, view.sort]);
 
   useEffect(() => {
     const root = workspace.root;
@@ -1669,10 +2025,12 @@ export function SessionSidebar(): ReactNode {
     // Drop rows the live store no longer knows (deleted elsewhere) — but keep
     // them while the store list is empty (root not loaded yet).
     const alive = current.filter((row) => list.length === 0 || byId.has(row.id));
+    const touched: string[] = [];
     // Update existing rows + append any new ones from the store
     const next = alive.map((row) => {
       const live = byId.get(row.id);
       if (!live) return row;
+      if (live.modified > row.modified) touched.push(row.id);
       return {
         ...row,
         ...live,
@@ -1685,6 +2043,7 @@ export function SessionSidebar(): ReactNode {
       if (!next.some((r) => r.id === live.id)) next.push({ ...live });
     }
     setSessionsByRoot((prev) => ({ ...prev, [root]: next }));
+    if (touched.length) moveSessionsToFront(root, touched);
   }, [sessionsStore.sessions]);
 
   useEffect(() => {
@@ -1737,6 +2096,12 @@ export function SessionSidebar(): ReactNode {
     document.addEventListener("mousedown", onPointerDown, true);
     return () => document.removeEventListener("mousedown", onPointerDown, true);
   }, [ctx.show]);
+
+  const taskRows = view.group === "task" ? flatTaskRows() : [];
+  const listedRoots =
+    view.time === "all"
+      ? workspacePaths
+      : workspacePaths.filter((root) => sessionsFor(root).length > 0);
 
   return (
     <aside className="sidebar">
@@ -1812,62 +2177,31 @@ export function SessionSidebar(): ReactNode {
 
       <div className={styles.sessionsPane}>
         <div className={styles.wsTools}>
-          {selectMode ? (
-            <div className={styles.wsSelectActions}>
-              <Button type="text" size="small" onClick={exitSelectMode}>
-                {t.cancel}
-              </Button>
-              <Button
-                type="text"
-                size="small"
-                disabled={!selectedSessionIds.length}
-                onClick={() => void archiveSelectedSessions()}
-              >
-                {t.archiveMenu}
-              </Button>
-              <Button
-                type="text"
-                size="small"
-                disabled={!selectedSessionIds.length}
-                onClick={deleteSelectedSessions}
-              >
-                {t.delete}
-              </Button>
-              <Button
-                type="text"
-                size="small"
-                onClick={() => void openArchivedList()}
-              >
-                {t.archivedSessions}
-              </Button>
-            </div>
-          ) : (
-            <Button
-              type="text"
-              size="small"
-              className={`pi-interactive ${styles.wsPanelToggle}`}
-              styles={{ root: { justifyContent: "flex-start" } }}
-              title={t.workspacePanelProjects}
-              onClick={() => setWorkspaceCollapsed((prev) => !prev)}
-            >
-              <span className={styles.wsPanelHead}>
-                <span className={styles.wsPanelLabel}>
-                  {t.workspacePanelProjects}
-                </span>
-                <span
-                  className={`${styles.wsPanelChevron} ${
-                    workspaceCollapsed ? styles.wsPanelChevronSticky : ""
-                  }`}
-                >
-                  {workspaceCollapsed ? (
-                    <ChevronForwardOutline size={13} />
-                  ) : (
-                    <ChevronDownOutline size={13} />
-                  )}
-                </span>
+          <Button
+            type="text"
+            size="small"
+            className={`pi-interactive ${styles.wsPanelToggle}`}
+            styles={{ root: { justifyContent: "flex-start" } }}
+            title={t.workspacePanelProjects}
+            onClick={() => setWorkspaceCollapsed((prev) => !prev)}
+          >
+            <span className={styles.wsPanelHead}>
+              <span className={styles.wsPanelLabel}>
+                {t.workspacePanelProjects}
               </span>
-            </Button>
-          )}
+              <span
+                className={`${styles.wsPanelChevron} ${
+                  workspaceCollapsed ? styles.wsPanelChevronSticky : ""
+                }`}
+              >
+                {workspaceCollapsed ? (
+                  <ChevronForwardOutline size={13} />
+                ) : (
+                  <ChevronDownOutline size={13} />
+                )}
+              </span>
+            </span>
+          </Button>
           <div className={styles.wsToolIcons}>
             <Dropdown
               {...NO_OVERLAY_MOTION}
@@ -1898,10 +2232,24 @@ export function SessionSidebar(): ReactNode {
           </div>
         </div>
 
-        {workspacePaths.length && !workspaceCollapsed ? (
+        {view.group === "task" && !workspaceCollapsed ? (
+          <div className={styles.tree}>
+            <ul className={styles.sessionList}>
+              {taskRows.length ? (
+                taskRows.map(({ root, item }, idx) =>
+                  renderSessionRow(root, item, idx, workspaceName(root)),
+                )
+              ) : (
+                <li className={styles.emptyInline} data-no-session-drag>
+                  {t.emptySessions}
+                </li>
+              )}
+            </ul>
+          </div>
+        ) : listedRoots.length && !workspaceCollapsed ? (
           <div className={styles.tree}>
             <div ref={workspaceTreeEl} className={styles.wsTree}>
-              {workspacePaths.map((root) => {
+              {listedRoots.map((root) => {
                 const treeItems = visibleTreeItemsFor(root);
                 const rootSessions = sessionsFor(root);
                 const expandedRoot = Boolean(expanded[root]);
@@ -1977,170 +2325,9 @@ export function SessionSidebar(): ReactNode {
                           {t.emptySessions}
                         </li>
                       ) : null}
-                      {treeItems.map((item, sIdx) => {
-                        const sessionId = item.session.id;
-                        const collapsedNode = isTreeNodeCollapsed(
-                          root,
-                          sessionId,
-                        );
-                        return (
-                          <li
-                            key={sessionId}
-                            className={`${styles.sessionRow} ${
-                              sessionsStore.activeId === sessionId
-                                ? styles.sessionRowActive
-                                : ""
-                            } ${
-                              guidesVisibleFor(root, item)
-                                ? styles.sessionRowGuidesVisible
-                                : ""
-                            } ${
-                              selectMode && isSessionSelected(sessionId)
-                                ? styles.sessionRowSelected
-                                : ""
-                            }`}
-                            data-session-row
-                            data-id={sessionId}
-                            data-no-ws-drag
-                            style={
-                              {
-                                "--i": String(sIdx),
-                                "--depth": item.depth,
-                              } as CSSProperties
-                            }
-                            aria-expanded={
-                              item.hasChildren ? !collapsedNode : undefined
-                            }
-                            onClick={(e) =>
-                              selectMode
-                                ? onSessionRowClick(sessionId, e.shiftKey)
-                                : void onSelectSession(root, sessionId)
-                            }
-                            onContextMenu={(e) =>
-                              openSessionCtx(e, root, item.session)
-                            }
-                            onMouseEnter={() => onSessionRowEnter(root, item)}
-                            onMouseLeave={() => onSessionRowLeave(root)}
-                          >
-                            <div className={styles.sessionInner}>
-                              {item.guideFull.map((full, gi) => (
-                                <span
-                                  key={gi}
-                                  className={`${styles.treeGuide} ${
-                                    full
-                                      ? styles.treeGuideFull
-                                      : gi === item.guideFull.length - 1
-                                        ? styles.treeGuideElbow
-                                        : styles.treeGuideEnded
-                                  }`}
-                                  style={{ "--g": gi } as CSSProperties}
-                                  aria-hidden="true"
-                                />
-                              ))}
-                              {item.depth > 0 && !item.isLastSibling ? (
-                                <span
-                                  className={styles.treeConnector}
-                                  style={
-                                    { "--g": item.depth - 1 } as CSSProperties
-                                  }
-                                  aria-hidden="true"
-                                />
-                              ) : null}
-                              {item.hasChildren && !collapsedNode ? (
-                                <span
-                                  className={styles.treeDescender}
-                                  style={{ "--g": item.depth } as CSSProperties}
-                                  aria-hidden="true"
-                                />
-                              ) : null}
-                              <span className={styles.activeBar} />
-                              <span
-                                className={`${styles.statusMark} ${
-                                  styles[
-                                    `st${(item.session.status || "idle").charAt(0).toUpperCase()}${(item.session.status || "idle").slice(1)}`
-                                  ] ?? ""
-                                }`}
-                                aria-hidden="true"
-                              >
-                                <i className={styles.statusCore} />
-                              </span>
-                              {item.hasChildren ? (
-                                <button
-                                  type="button"
-                                  className={`${styles.treeTwistie} ${
-                                    collapsedNode ? styles.treeTwistieCollapsed : ""
-                                  }`}
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    toggleTreeNode(root, sessionId);
-                                  }}
-                                >
-                                  <ChevronDownOutline size={16} />
-                                </button>
-                              ) : null}
-                              <div className={styles.sessionBody}>
-                                <div className={styles.sessionTitleRow}>
-                                  {isPinned(root, sessionId) ? (
-                                    <PinOutline
-                                      className={styles.pin}
-                                      size={11}
-                                    />
-                                  ) : null}
-                                  <span className={styles.sessionLabel}>
-                                    {sessionLabel(item.session)}
-                                  </span>
-                                </div>
-                                <div className={styles.sessionMeta}>
-                                  <span className={styles.time}>
-                                    {relativeTime(item.session.modified)}
-                                  </span>
-                                  {isRunning(item.session.status) ? (
-                                    <span
-                                      className={`${styles.runTag} ${
-                                        hasPendingAsk(sessionId)
-                                          ? styles.runTagAsk
-                                          : ""
-                                      }`}
-                                    >
-                                      {hasPendingAsk(sessionId) ? "ask" : "live"}
-                                    </span>
-                                  ) : item.session.status === "error" ? (
-                                    <span className={styles.errTag}>err</span>
-                                  ) : item.session.status === "stuck" ? (
-                                    <span className={styles.stuckTag}>stuck</span>
-                                  ) : justEnded.has(sessionId) ? (
-                                    <span className={styles.doneTag}>done</span>
-                                  ) : null}
-                                </div>
-                              </div>
-                              {selectMode ? (
-                                <Checkbox
-                                  className={styles.sessionCheck}
-                                  checked={isSessionSelected(sessionId)}
-                                  data-no-session-drag
-                                  onClick={(e) => e.stopPropagation()}
-                                  onChange={() =>
-                                    toggleSessionSelect(sessionId)
-                                  }
-                                />
-                              ) : (
-                                <Button
-                                  className={styles.trash}
-                                  type="text"
-                                  shape="circle"
-                                  size="small"
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    confirmDeleteSession(root, sessionId);
-                                  }}
-                                >
-                                  <TrashOutline size={14} />
-                                </Button>
-                              )}
-                            </div>
-                          </li>
-                        );
-                      })}
+                      {treeItems.map((item, sIdx) =>
+                        renderSessionRow(root, item, sIdx),
+                      )}
                       {hiddenSessionCount(root) > 0 ? (
                         <li
                           className={styles.sessionExpandRow}
@@ -2182,9 +2369,42 @@ export function SessionSidebar(): ReactNode {
             </div>
           </div>
         ) : !workspaceCollapsed ? (
-          <div className={styles.empty}>{t.emptyWorkspaces}</div>
+          <div className={styles.empty}>
+            {workspacePaths.length ? t.emptySessions : t.emptyWorkspaces}
+          </div>
         ) : null}
       </div>
+
+      {selectMode ? (
+        <div className={styles.wsSelectBar}>
+          <Button type="text" size="small" onClick={exitSelectMode}>
+            {t.cancel}
+          </Button>
+          <Button
+            type="text"
+            size="small"
+            disabled={!selectedSessionIds.length}
+            onClick={() => void archiveSelectedSessions()}
+          >
+            {t.archiveMenu}
+          </Button>
+          <Button
+            type="text"
+            size="small"
+            disabled={!selectedSessionIds.length}
+            onClick={deleteSelectedSessions}
+          >
+            {t.delete}
+          </Button>
+          <Button
+            type="text"
+            size="small"
+            onClick={() => void openArchivedList()}
+          >
+            {t.archivedSessions}
+          </Button>
+        </div>
+      ) : null}
 
       <div className="customize-bar">
         {customizeEntries.map((entry) => (

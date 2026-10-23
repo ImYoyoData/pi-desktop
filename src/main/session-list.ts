@@ -160,6 +160,7 @@ function diskRowToSummary(row: {
   cwd: string;
   name?: string;
   modified: string;
+  created?: string;
   firstMessage: string;
 }): SessionSummary {
   return {
@@ -168,6 +169,7 @@ function diskRowToSummary(row: {
     cwd: row.cwd,
     name: row.name,
     modified: row.modified,
+    created: row.created ?? row.modified,
     firstMessage: row.firstMessage,
     status: "idle",
   };
@@ -254,6 +256,9 @@ function readSessionSummaryFallback(filePath: string): DiskSessionRow | null {
       cwd: typeof header.cwd === "string" ? header.cwd : "",
       name,
       modified: modified.toISOString(),
+      created: Number.isNaN(headerTime)
+        ? undefined
+        : new Date(headerTime).toISOString(),
       firstMessage: firstMessage || "(no messages)",
       parentSessionPath,
     };

@@ -262,6 +262,16 @@ export function createSessionBroker(deps: {
     }
   }
 
+  /** 记录最近活动时间并广播：渲染端据此更新「最近时间」并重排侧栏。 */
+  function touchActivity(rec: SessionRecord): void {
+    rec.summary.modified = new Date().toISOString();
+    emit({
+      type: "session_activity",
+      sessionId: rec.summary.id,
+      modified: rec.summary.modified,
+    });
+  }
+
   function rejectPendingCommands(rec: SessionRecord, message: string): void {
     rec.pendingCommands.forEach(({ reject }) => reject(new Error(message)));
     rec.pendingCommands.clear();
@@ -701,6 +711,7 @@ export function createSessionBroker(deps: {
         pending.resolve(msg.data);
         if (pending.command.type === "prompt") {
           setStatus(sessionId, "idle");
+          touchActivity(rec);
           emit({ type: "prompt_done", sessionId });
           scheduleIdleDestroy(sessionId);
         } else if (pending.command.type === "hang") {
@@ -715,7 +726,7 @@ export function createSessionBroker(deps: {
     id: string,
     cwd: string,
     filePath: string,
-    meta?: Partial<Pick<SessionSummary, "name" | "firstMessage" | "modified">>,
+    meta?: Partial<Pick<SessionSummary, "name" | "firstMessage" | "modified" | "created">>,
   ): SessionSummary {
     const summary: SessionSummary = {
       id,
@@ -724,6 +735,7 @@ export function createSessionBroker(deps: {
       name: meta?.name,
       firstMessage: meta?.firstMessage,
       modified: meta?.modified ?? new Date().toISOString(),
+      created: meta?.created ?? meta?.modified ?? new Date().toISOString(),
       status: "idle",
     };
     const existing = sessions.get(id);
@@ -786,6 +798,7 @@ export function createSessionBroker(deps: {
         name: rec.summary.name ?? existing?.name,
         firstMessage: rec.summary.firstMessage ?? existing?.firstMessage,
         filePath: rec.summary.filePath || existing?.filePath || "",
+        created: existing?.created ?? rec.summary.created,
         modified:
           existing?.modified && rec.summary.modified
             ? rec.summary.modified > existing.modified
@@ -1036,6 +1049,7 @@ export function createSessionBroker(deps: {
     if (command.type === "prompt" || command.type === "hang") {
       setStatus(sessionId, "running");
     }
+    if (command.type === "prompt" && rec) touchActivity(rec);
     const cmdId = crypto.randomUUID();
     // Wait for worker result for mutating commands so errors (e.g. set_model) surface to UI.
     const awaitsResult =
@@ -1229,7 +1243,7 @@ export function createSessionBroker(deps: {
 
     if (live) {
       live.summary.firstMessage = undefined;
-      live.summary.modified = new Date().toISOString();
+      touchActivity(live);
       setStatus(sessionId, "idle");
     }
   }
