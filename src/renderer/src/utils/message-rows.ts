@@ -31,7 +31,7 @@ function toRow(msg: ChatMessage): WorkSectionRow {
   };
 }
 
-/** 工具调用行 / 无正文的思考行：属于过程，历史轮里会被裁掉。 */
+/** 工具调用行 / 无正文的思考行：属于过程，按 work section 折叠展示。 */
 function isProcessRow(msg: ChatMessage): boolean {
   return (
     msg.role === "tool" ||
@@ -42,36 +42,6 @@ function isProcessRow(msg: ChatMessage): boolean {
 /** 过程行本身也算“可见输出”——它会占据自己的折叠块并终止前一块的折叠。 */
 function isVisibleRow(msg: ChatMessage): boolean {
   return (msg.role === "assistant" && Boolean(msg.text)) || isProcessRow(msg);
-}
-
-/** 交互式工具必须留在可见行里（它等用户作答），不能随历史过程行一起裁掉。 */
-function isKeepVisibleTool(msg: ChatMessage): boolean {
-  return msg.role === "tool" && msg.toolName === ASK_USER_TOOL_NAME;
-}
-
-/** 最新一轮（最后一个 user 消息）的起始下标；没有 user 消息返回 -1。 */
-export function latestTurnStartIndex(messages: readonly ChatMessage[]): number {
-  for (let i = messages.length - 1; i >= 0; i--) {
-    if (messages[i]?.role === "user") return i;
-  }
-  return -1;
-}
-
-/**
- * 历史裁剪：最新一轮之前的工具 / 纯思考行不再渲染，历史只留用户提问与最终回答，
- * 读起来像一串问答（Codex 风格）。
- */
-export function displayMessageRows(
-  all: readonly ChatMessage[],
-  turnStart: number,
-): ChatMessage[] {
-  const out: ChatMessage[] = [];
-  for (let i = 0; i < all.length; i++) {
-    const msg = all[i]!;
-    if (i <= turnStart && !isKeepVisibleTool(msg) && isProcessRow(msg)) continue;
-    out.push(msg);
-  }
-  return out;
 }
 
 /**
