@@ -45,9 +45,7 @@ import {
   buildRoundUserByRow,
   buildSettledRowIds,
   buildWorkSectionMembership,
-  displayMessageRows,
   lastIdPerRound,
-  latestTurnStartIndex,
   type UserMessage,
 } from "@renderer/utils/message-rows";
 import { agentOutputSilenceMs } from "@renderer/utils/agent-wait";
@@ -187,30 +185,18 @@ export function MessageList({
   const scrollbarGrab = useRef(false);
 
   /**
-   * VS Code Copilot design (chatThinkingContentPart): the latest turn's process
-   * — every tool call and thinking row between answer texts — stays in the
-   * stream, folded per work section (see WorkSectionGroup). Older turns drop
-   * their process rows so history reads as prompts + final answers only.
+   * 完整消息序列（含 streaming）。历史轮的过程行必须保留：它们会按 work section
+   * 折叠成小结条，展开后仍能看到工具调用与思考；直接裁掉等于丢数据。
    */
-  /** 完整消息序列（含 streaming）：改动统计需要历史轮被裁剪掉的工具行。 */
   const allMessages = useMemo<ChatMessage[]>(() => {
     const list = [...messages];
     if (streaming) list.push(streaming);
     return list;
   }, [messages, streaming]);
 
-  /**
-   * 渲染行序列。最新一轮之前的工具 / 纯思考行不渲染，历史只留用户提问与最终回答
-   * （Codex 风格）；行整形、分组、折叠判定的规则在 utils/message-rows.ts。
-   */
-  const displayMessages = useMemo(
-    () => displayMessageRows(allMessages, latestTurnStartIndex(messages)),
-    [allMessages, messages],
-  );
-
   const workSectionMembership = useMemo(
-    () => buildWorkSectionMembership(displayMessages),
-    [displayMessages],
+    () => buildWorkSectionMembership(allMessages),
+    [allMessages],
   );
 
   /**
@@ -218,30 +204,30 @@ export function MessageList({
    * 若从属行独立成行，首行被裁出窗口时会留下一整段空白。
    */
   const renderRows = useMemo(
-    () => displayMessages.filter((m) => workSectionMembership.get(m.id)?.isLead !== false),
-    [displayMessages, workSectionMembership],
+    () => allMessages.filter((m) => workSectionMembership.get(m.id)?.isLead !== false),
+    [allMessages, workSectionMembership],
   );
 
   const settledRowIds = useMemo(
-    () => buildSettledRowIds(displayMessages, workSectionMembership),
-    [displayMessages, workSectionMembership],
+    () => buildSettledRowIds(allMessages, workSectionMembership),
+    [allMessages, workSectionMembership],
   );
 
   const finalAnswerIds = useMemo(
-    () => buildFinalAnswerIds(displayMessages),
-    [displayMessages],
+    () => buildFinalAnswerIds(allMessages),
+    [allMessages],
   );
 
   const latestUserMessageId = useMemo(() => {
-    for (let i = displayMessages.length - 1; i >= 0; i--) {
-      const m = displayMessages[i];
+    for (let i = allMessages.length - 1; i >= 0; i--) {
+      const m = allMessages[i];
       if (m?.role === "user") return m.id;
     }
     return null;
-  }, [displayMessages]);
+  }, [allMessages]);
 
   const rowsRef = useRef({
-    displayMessages,
+    allMessages,
     renderRows,
     workSectionMembership,
     settledRowIds,
@@ -249,7 +235,7 @@ export function MessageList({
     latestUserMessageId,
   });
   rowsRef.current = {
-    displayMessages,
+    allMessages,
     renderRows,
     workSectionMembership,
     settledRowIds,
@@ -277,7 +263,7 @@ export function MessageList({
    * 前插后视口内容不跳动。
    *
    * shift 是一次性的：virtua 只在“行数变化的那一次渲染”消费它。
-   * 前插的行可能全被 displayMessageRows 裁掉（历史轮的工具/纯思考行不渲染），
+   * 前插的行可能全是分组从属行（work section 只在首行渲染），
    * 行数不变 → shift 无人消费，会一直挂着，
    * 下一次行数变化（比如流式输出的新行）就会被当成“前插”而按尾部对齐，
    * 视口直接被拖到内容末尾。所以这里用 pendingShift 记账，落地后立即核销。
@@ -385,7 +371,7 @@ export function MessageList({
 
   /**
    * shift 只在行数变化的那一次渲染生效，用完立刻复位。
-   * 前插的行全被裁掉时行数不变，shift 没人消费就会一直挂着，
+   * 前插的行全是分组从属行时行数不变，shift 没人消费就会一直挂着，
    * 等下一次行数变化（流式新行）时被误当成“前插”而按尾部对齐，视口直接被拖到内容末尾。
    * 所以这里盯住“消息数 + 行数”：前插落地后（无论有没有产生新行）立刻核销。
    */
@@ -520,11 +506,11 @@ export function MessageList({
 
     // An empty list after the hydrate frame is final (brand-new session) — don't
     // burn the old 400ms empty-poll on every fresh chat.
-    if (rowsRef.current.displayMessages.length === 0) {
+    if (rowsRef.current.allMessages.length === 0) {
       const emptyDeadline = Date.now() + 120;
       while (
         token === sessionJumpToken.current &&
-        rowsRef.current.displayMessages.length === 0 &&
+        rowsRef.current.allMessages.length === 0 &&
         Date.now() < emptyDeadline
       ) {
         await new Promise<void>((r) => setTimeout(r, 40));
@@ -705,7 +691,7 @@ export function MessageList({
 
   function engageHistoryReading(): void {
     followBottom.current = false;
-    setShowJumpLatest(rowsRef.current.displayMessages.length > 0);
+    setShowJumpLatest(rowsRef.current.allMessages.length > 0);
   }
 
   function disengageHistoryReading(): void {
@@ -811,11 +797,11 @@ export function MessageList({
     }
   }, [historyLoading]);
 
-  const prevDisplayLength = useRef<number | undefined>(undefined);
+  const prevMessageLength = useRef<number | undefined>(undefined);
   useEffect(() => {
-    const len = rowsRef.current.displayMessages.length;
-    const prevLen = prevDisplayLength.current;
-    prevDisplayLength.current = len;
+    const len = rowsRef.current.allMessages.length;
+    const prevLen = prevMessageLength.current;
+    prevMessageLength.current = len;
     const hydratedFromEmpty = (prevLen === 0 || prevLen == null) && len > 0;
     // Critical: hydrate often lands AFTER settle timeouts. Always snap when
     // following bottom / first populate, otherwise the list stays at the top.
@@ -833,7 +819,7 @@ export function MessageList({
         jumpToBottomInstant();
       });
     }
-  }, [displayMessages.length]);
+  }, [allMessages.length]);
 
   /** Hydrate can replace history with the same length — still need a bottom snap. */
   const prevLastMessageId = useRef<string | null | undefined>(undefined);
@@ -988,7 +974,7 @@ export function MessageList({
 
   /**
    * opencode DiffSummary：每轮（user 行分隔）的文件改动汇总，挂在轮末最终回答
-   * 下方。统计用完整消息 — 历史轮的工具行在渲染时被裁剪，计数仍要算上它们。
+   * 下方。统计用完整消息 — 工具行折叠在 work section 里，计数仍要算上它们。
    */
   const turnDiffsByRow = useMemo(() => {
     const out = new Map<string, TurnFileChanges>();
@@ -996,7 +982,7 @@ export function MessageList({
     if (!stats.size) return out;
     const sourceIds = lastIdPerRound(allMessages, (msg) => msg.role !== "user");
     const answerIds = lastIdPerRound(
-      displayMessages,
+      allMessages,
       (msg) => msg.role === "assistant" && Boolean(msg.text),
     );
     for (let i = 0; i < sourceIds.length; i++) {
@@ -1006,7 +992,7 @@ export function MessageList({
       if (changes && rowId) out.set(rowId, changes);
     }
     return out;
-  }, [allMessages, displayMessages, turnDone]);
+  }, [allMessages, turnDone]);
 
   function turnDiffFor(msg: ChatMessage): TurnFileChanges | null {
     return turnDiffsByRow.get(msg.id) ?? null;
@@ -1045,11 +1031,11 @@ export function MessageList({
   /** 用户行的展示态预计算：模板查表，避免每行重复跑前言剥离 / 标签过滤。 */
   const userViewByRow = useMemo(() => {
     const out = new Map<string, UserRowView>();
-    for (const msg of displayMessages) {
+    for (const msg of allMessages) {
       if (msg.role === "user") out.set(msg.id, buildUserRowView(msg));
     }
     return out;
-  }, [displayMessages]);
+  }, [allMessages]);
 
   function userRow(msg: ChatMessage): UserRowView {
     const view = userViewByRow.get(msg.id);
@@ -1089,24 +1075,24 @@ export function MessageList({
    */
   const statsByRow = useMemo(() => {
     const out = new Map<string, CompactDetail | null>();
-    for (const msg of displayMessages) {
+    for (const msg of allMessages) {
       if (msg.role === "assistant" && finalAnswerIds.has(msg.id)) {
         out.set(msg.id, assistantStatsOf(msg));
       }
     }
     return out;
-  }, [displayMessages, finalAnswerIds]);
+  }, [allMessages, finalAnswerIds]);
 
   const modelDetailByRow = useMemo(() => {
     const out = new Map<string, CompactDetail | null>();
     const usage = sessions.activeContextUsage;
-    for (const msg of displayMessages) {
+    for (const msg of allMessages) {
       if (msg.role === "assistant" && finalAnswerIds.has(msg.id)) {
         out.set(msg.id, assistantModelDetailOf(msg, usage, modelNames));
       }
     }
     return out;
-  }, [displayMessages, finalAnswerIds, modelNames, sessions.activeContextUsage]);
+  }, [allMessages, finalAnswerIds, modelNames, sessions.activeContextUsage]);
 
   async function copyText(text: string): Promise<void> {
     await navigator.clipboard.writeText(text);
