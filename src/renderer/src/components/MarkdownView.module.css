@@ -1,6 +1,6 @@
 /* Global base.css resets ul list-style and * font-weight — restore GFM chrome here. */
 .root:global(.md) {
-  font-size: 16px;
+  font-size: 1.2308rem;
   line-height: 1.75;
   color: inherit;
   word-break: break-word;
@@ -65,7 +65,7 @@
   white-space: pre-wrap;
   word-break: break-word;
   overflow-wrap: anywhere;
-  font-size: 13px;
+  font-size: 1rem;
   line-height: 1.55;
 }
 
@@ -150,7 +150,7 @@
   border-collapse: collapse;
   width: max-content;
   min-width: 100%;
-  font-size: 13px;
+  font-size: 1rem;
 }
 
 .root:global(.md) th,
@@ -180,7 +180,7 @@
   gap: 8px;
   padding: 4px 10px;
   border-bottom: 1px solid var(--border-subtle, rgba(127, 127, 127, 0.2));
-  font-size: 11px;
+  font-size: 0.8462rem;
   color: var(--fg-faint);
 }
 
@@ -189,7 +189,7 @@
   background: transparent;
   color: var(--fg-muted);
   cursor: pointer;
-  font-size: 11px;
+  font-size: 0.8462rem;
   padding: 2px 6px;
   border-radius: 4px;
 }
@@ -216,7 +216,7 @@
   text-align: right;
   user-select: none;
   font-family: var(--font-mono);
-  font-size: 12px;
+  font-size: 0.9231rem;
   line-height: 1.5;
   color: var(--fg-faint);
   background: var(--pre-bg, var(--code-bg, var(--bg-elevated, transparent)));
@@ -242,7 +242,7 @@
 
 .root:global(.md) :global(code.hljs) {
   font-family: var(--font-mono);
-  font-size: 12px;
+  font-size: 0.9231rem;
   line-height: 1.5;
   background: transparent;
   padding: 0;
@@ -371,7 +371,7 @@
   gap: 4px;
   padding: 4px 8px;
   border-bottom: 1px solid var(--border-subtle, rgba(127, 127, 127, 0.2));
-  font-size: 11px;
+  font-size: 0.8462rem;
   color: var(--fg-faint);
 }
 
@@ -396,7 +396,7 @@
   background: transparent;
   color: var(--fg-muted);
   cursor: pointer;
-  font-size: 12px;
+  font-size: 0.9231rem;
   line-height: 1;
   min-width: 24px;
   height: 24px;
@@ -433,7 +433,7 @@
   padding: 10px 12px;
   overflow: auto;
   font-family: var(--font-mono);
-  font-size: 12px;
+  font-size: 0.9231rem;
   line-height: 1.45;
   white-space: pre-wrap;
   background: transparent;
@@ -446,7 +446,7 @@
 .root:global(.md) :global(.md-diagram-error-msg) {
   margin: 0;
   padding: 6px 10px 10px;
-  font-size: 11px;
+  font-size: 0.8462rem;
   line-height: 1.4;
   color: var(--error, #d03050);
   white-space: pre-wrap;
@@ -477,7 +477,7 @@
 
 .previewHint {
   margin-left: 8px;
-  font-size: 11px;
+  font-size: 0.8462rem;
   color: var(--fg-faint);
 }
 
@@ -486,7 +486,7 @@
   align-items: center;
   min-width: 44px;
   justify-content: center;
-  font-size: 12px;
+  font-size: 0.9231rem;
   color: var(--fg-muted);
   font-variant-numeric: tabular-nums;
 }

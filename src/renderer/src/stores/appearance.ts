@@ -141,7 +141,7 @@ function readLocalePreference(): LocalePreference {
   return "system";
 }
 
-/** 界面字号档位（整体缩放比例）。 */
+/** 界面字号档位（px）。 */
 function readFontSize(): number {
   try {
     const raw = prefs.getItem(FONT_SIZE_KEY);
@@ -180,9 +180,9 @@ function scheduleChromeSync(pref: ThemePreference, mode: ResolvedTheme): void {
   });
 }
 
-/** 字号走窗口级缩放，文字、图标与间距等比放大，布局不塌。 */
+/** 字号只改根元素 font-size，样式里的 rem 文字随之变化，图标与间距不动。 */
 function applyFontSize(size: number): void {
-  void window.api.window.setZoomFactor(size);
+  document.documentElement.style.fontSize = `${size}px`;
 }
 
 /** 已下线的开关：清掉历史遗留的偏好键。 */
@@ -205,7 +205,7 @@ function dropObsoletePrefs(): void {
 type AppearanceBase = {
   themePreference: ThemePreference;
   localePreference: LocalePreference;
-  /** 界面字号档位：整体缩放比例。 */
+  /** 界面字号档位（px）。 */
   fontSize: number;
   systemDark: boolean;
   showCompactButton: boolean;
@@ -343,6 +343,8 @@ export const useAppearanceStore = create<AppearanceState>()((set, get) => {
   }
 
   const base = initialBase();
+  // 首帧前就写入根字号，避免启动时先按默认字号绘制再跳变。
+  applyFontSize(base.fontSize);
 
   return {
     ...base,

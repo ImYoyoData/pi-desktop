@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { Button, Modal, Typography } from "antd";
+import { fontSizeRem } from "../../../shared/appearance";
 import {
   SettingsGroup,
   SettingsRow,
@@ -89,7 +90,7 @@ export function AboutPanel(): ReactNode {
   return (
     <div className={styles.aboutPanel}>
       <div className={styles.aboutHead}>
-        <Typography.Text strong style={{ fontSize: 16 }}>
+        <Typography.Text strong style={{ fontSize: fontSizeRem(16) }}>
           {t.appName}
         </Typography.Text>
         {appInfo ? <Typography.Text type="secondary">v{appInfo.version}</Typography.Text> : null}

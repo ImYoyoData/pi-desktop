@@ -19,7 +19,7 @@
 
 .subTitle {
   color: var(--fg-muted);
-  font-size: 12px;
+  font-size: 0.9231rem;
 }
 
 .subRows {
@@ -47,7 +47,7 @@
   flex: 1;
   min-width: 0;
   color: var(--fg);
-  font-size: 13px;
+  font-size: 1rem;
 }
 
 .keys {
@@ -59,7 +59,7 @@
   background: var(--bg-hover);
   color: var(--fg-strong);
   font-family: var(--mono-font, ui-monospace, SFMono-Regular, Consolas, monospace);
-  font-size: 12px;
+  font-size: 0.9231rem;
   text-align: center;
   white-space: nowrap;
 }

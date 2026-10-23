@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { Button, Modal, Progress, Space, Typography } from "antd";
+import { fontSizeRem } from "../../../shared/appearance";
 import { useMessage } from "@renderer/services/feedback";
 import { useI18n } from "@renderer/i18n/use-i18n";
 import type { PiCliInstallProgress, PiCliStatus } from "../../../shared/pi-cli";
@@ -144,14 +145,14 @@ export function PiCliSetup(): ReactNode {
       <div className="modal-scroll">
         <Typography.Text
           type="secondary"
-          style={{ fontSize: 13, display: "block", lineHeight: 1.55 }}
+          style={{ fontSize: fontSizeRem(13), display: "block", lineHeight: 1.55 }}
         >
           {t.piCliMissingBody(platformLabel)}
         </Typography.Text>
         <Typography.Text
           type="secondary"
           style={{
-            fontSize: 12,
+            fontSize: fontSizeRem(12),
             display: "block",
             marginTop: 10,
             lineHeight: 1.5,
@@ -161,7 +162,7 @@ export function PiCliSetup(): ReactNode {
         </Typography.Text>
         <Typography.Text
           type="secondary"
-          style={{ fontSize: 12, display: "block", marginTop: 8 }}
+          style={{ fontSize: fontSizeRem(12), display: "block", marginTop: 8 }}
         >
           {t.piCliDocsHint}
           <button
@@ -183,7 +184,7 @@ export function PiCliSetup(): ReactNode {
 
         {installing || progress ? (
           <div className={styles.progress}>
-            <Typography.Text style={{ fontSize: 12 }}>
+            <Typography.Text style={{ fontSize: fontSizeRem(12) }}>
               {progress?.message || t.piCliInstalling}
             </Typography.Text>
             <Progress

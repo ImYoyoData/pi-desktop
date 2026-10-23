@@ -116,7 +116,6 @@ declare const api: {
 		setThemeSource: (source: "system" | "light" | "dark") => Promise<void>;
 		setChromeTheme: (mode: "light" | "dark") => Promise<void>;
 		setUiLocale: (locale: "zh-CN" | "en") => Promise<void>;
-		setZoomFactor: (factor: number) => Promise<void>;
 		requestMediaAccess: (kind: "microphone" | "camera") => Promise<boolean>;
 		openDevTools: () => Promise<void>;
 		onContextMenu: (
@@ -848,6 +847,9 @@ declare const api: {
 		cancel: () => Promise<void>;
 		install: () => Promise<void>;
 		onState: (callback: (state: AppUpdateState) => void) => () => void;
+		setToastHeight: (height: number) => void;
+		dismissToast: () => void;
+		showToast: () => void;
 	};
 	piCli: {
 		status: () => Promise<PiCliStatus>;

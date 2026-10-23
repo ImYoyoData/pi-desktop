@@ -7,7 +7,7 @@
 }
 
 .headerExtra {
-  font-size: 11px;
+  font-size: 0.8462rem;
   font-weight: 400;
   color: var(--fg-muted);
 }
@@ -66,7 +66,7 @@
 }
 
 .name {
-  font-size: 12.5px;
+  font-size: 0.9615rem;
   font-weight: 550;
   word-break: break-all;
 }
@@ -87,13 +87,13 @@
 }
 
 .title {
-  font-size: 14px;
+  font-size: 1.0769rem;
   font-weight: 600;
   word-break: break-all;
 }
 
 .tag {
-  font-size: 11px;
+  font-size: 0.8462rem;
   line-height: 18px;
 }
 

@@ -7,14 +7,14 @@
 .groupTitle {
   margin: 0;
   color: var(--fg-strong);
-  font-size: 12.5px;
+  font-size: 0.9615rem;
   font-weight: 600;
 }
 
 .groupHint {
   margin: 0;
   color: var(--fg-muted);
-  font-size: 12px;
+  font-size: 0.9231rem;
   line-height: 1.5;
 }
 
@@ -49,13 +49,13 @@
 
 .rowLabel {
   color: var(--fg);
-  font-size: 13px;
+  font-size: 1rem;
   line-height: 18px;
 }
 
 .rowDescription {
   color: var(--fg-muted);
-  font-size: 12px;
+  font-size: 0.9231rem;
   line-height: 17px;
 }
 

@@ -14,7 +14,7 @@
   background: transparent;
   color: var(--fg-muted);
   font: inherit;
-  font-size: 12px;
+  font-size: 0.9231rem;
   text-align: left;
   cursor: pointer;
   transition: background var(--duration-fast) var(--ease-out);
@@ -44,7 +44,7 @@
 .tdDel {
   flex-shrink: 0;
   font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
-  font-size: 11px;
+  font-size: 0.8462rem;
   font-variant-numeric: tabular-nums;
 }
 
@@ -76,7 +76,7 @@
   gap: 10px;
   padding: 3px 8px;
   border-radius: 6px;
-  font-size: 12px;
+  font-size: 0.9231rem;
   cursor: pointer;
 }
 
@@ -104,7 +104,7 @@
   text-align: left;
   color: var(--fg-faint);
   font-family: var(--font-mono, ui-monospace, monospace);
-  font-size: 11px;
+  font-size: 0.8462rem;
 }
 
 .tdName {

@@ -1,5 +1,6 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { Button, Empty, Modal, Space, Spin, Tag, Typography } from "antd";
+import { fontSizeRem } from "../../../shared/appearance";
 import { useWorkspaceStore } from "@renderer/stores/workspace";
 import ToggleButton from "@renderer/components/ToggleButton";
 import { useDialog, useMessage, type DialogHandle } from "@renderer/services/feedback";
@@ -160,7 +161,7 @@ export function ExtensionsSettings({ open, onClose }: Props): ReactNode {
                       onClick={() => setSelected(key)}
                     >
                       <div className={styles.name}>{pkg.source}</div>
-                      <Typography.Text type="secondary" style={{ fontSize: 11 }}>
+                      <Typography.Text type="secondary" style={{ fontSize: fontSizeRem(11) }}>
                         {pkg.scope}
                       </Typography.Text>
                     </button>
@@ -195,19 +196,19 @@ export function ExtensionsSettings({ open, onClose }: Props): ReactNode {
                     />
                   </div>
                   {selectedPkg.installedPath ? (
-                    <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                    <Typography.Text type="secondary" style={{ fontSize: fontSizeRem(12) }}>
                       {selectedPkg.installedPath}
                     </Typography.Text>
                   ) : null}
                   <Typography.Text
                     type="secondary"
-                    style={{ display: "block", marginTop: 12, fontSize: 12 }}
+                    style={{ display: "block", marginTop: 12, fontSize: fontSizeRem(12) }}
                   >
                     {t.extensionsHint}
                   </Typography.Text>
                   <Typography.Text
                     type="secondary"
-                    style={{ display: "block", marginTop: 8, fontSize: 11.5, lineHeight: 1.5 }}
+                    style={{ display: "block", marginTop: 8, fontSize: fontSizeRem(11.5), lineHeight: 1.5 }}
                   >
                     {t.extensionsCapabilitiesNote}
                   </Typography.Text>

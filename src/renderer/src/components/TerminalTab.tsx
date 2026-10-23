@@ -9,6 +9,7 @@ import { WebLinksAddon } from "@xterm/addon-web-links";
 import "@xterm/xterm/css/xterm.css";
 import { useWorkspaceStore } from "@renderer/stores/workspace";
 import { useAppearanceStore } from "@renderer/stores/appearance";
+import { fontSizePx } from "../../../shared/appearance";
 import { useRightTabsStore } from "@renderer/stores/right-tabs";
 import { sanitizeTerminalCommandLabel, truncateTabLabel } from "../../../shared/tab-label";
 import { useDialog } from "@renderer/services/feedback";
@@ -206,7 +207,7 @@ export function TerminalTab({
   function bindXterm(host: HTMLDivElement): void {
     const term = new Terminal({
       cursorBlink: true,
-      fontSize: 13,
+      fontSize: fontSizePx(13, useAppearanceStore.getState().fontSize),
       fontFamily: "Cascadia Code, Consolas, Menlo, monospace",
       rightClickSelectsWord: false,
       scrollback: 5000,
@@ -324,6 +325,13 @@ export function TerminalTab({
     term.options.theme = xtermTheme(appearance.resolvedTheme === "dark");
     scheduleFit();
   }, [visible, appearance.resolvedTheme]);
+
+  useEffect(() => {
+    const term = termRef.current;
+    if (!term) return;
+    term.options.fontSize = fontSizePx(13, appearance.fontSize);
+    scheduleFit();
+  }, [appearance.fontSize]);
 
   return (
     <div className={styles.terminalTab}>

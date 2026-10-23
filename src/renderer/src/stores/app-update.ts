@@ -4,8 +4,6 @@ import type { AppUpdateState } from "../../../shared/update";
 type AppUpdateStore = {
 	/** 主进程广播的更新状态。 */
 	state: AppUpdateState;
-	/** 右下角下载进度框是否展开。 */
-	panelOpen: boolean;
 	/** 当前这次更新是否由「测试自动更新」发起（重试时保持同样的行为）。 */
 	forced: boolean;
 	check: () => Promise<AppUpdateState>;
@@ -16,8 +14,6 @@ type AppUpdateStore = {
 	retry: () => Promise<void>;
 	cancel: () => Promise<void>;
 	install: () => Promise<void>;
-	openPanel: () => void;
-	closePanel: () => void;
 };
 
 const INITIAL_STATE: AppUpdateState = {
@@ -41,7 +37,6 @@ export const useAppUpdateStore = create<AppUpdateStore>()((set, get) => {
 
 	return {
 		state: INITIAL_STATE,
-		panelOpen: false,
 		forced: false,
 		check: async () => {
 			set({ state: { ...get().state, status: "checking" } });
@@ -50,11 +45,10 @@ export const useAppUpdateStore = create<AppUpdateStore>()((set, get) => {
 			return state;
 		},
 		download: async () => {
-			set({ panelOpen: true });
 			await window.api.update.download();
 		},
 		forceUpdate: async () => {
-			set({ panelOpen: true, forced: true });
+			set({ forced: true });
 			await window.api.update.forceUpdate();
 		},
 		retry: async () => {
@@ -83,7 +77,5 @@ export const useAppUpdateStore = create<AppUpdateStore>()((set, get) => {
 				// 主进程已退出
 			}
 		},
-		openPanel: () => set({ panelOpen: true }),
-		closePanel: () => set({ panelOpen: false }),
 	};
 });

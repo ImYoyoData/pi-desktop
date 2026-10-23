@@ -8,6 +8,7 @@ import {
   monacoThemeName,
 } from "@renderer/utils/monaco-theme";
 import { useAppearanceStore } from "@renderer/stores/appearance";
+import { fontSizePx } from "../../../shared/appearance";
 import styles from "./ChangesDiffEditor.module.css";
 
 type Props = {
@@ -34,6 +35,8 @@ export function ChangesDiffEditor({
   const originalModelRef = useRef<Monaco.editor.ITextModel | null>(null);
   const modifiedModelRef = useRef<Monaco.editor.ITextModel | null>(null);
   const resolvedTheme = useAppearanceStore((s) => s.resolvedTheme);
+  const fontSize = useAppearanceStore((s) => s.fontSize);
+  const editorFontPx = fontSizePx(12.5, fontSize);
   const themeRef = useRef(resolvedTheme);
   themeRef.current = resolvedTheme;
 
@@ -82,6 +85,7 @@ export function ChangesDiffEditor({
     applyMonacoColorTheme(monaco, dark);
 
     if (!diffEditorRef.current) {
+      const fontPx = fontSizePx(12.5, useAppearanceStore.getState().fontSize);
       diffEditorRef.current = monaco.editor.createDiffEditor(host, {
         theme: monacoThemeName(dark),
         useShadowDOM: false,
@@ -92,9 +96,9 @@ export function ChangesDiffEditor({
         enableSplitViewResizing: false,
         renderOverviewRuler: true,
         originalEditable: false,
-        fontSize: 12.5,
+        fontSize: fontPx,
         fontFamily: 'var(--font-mono), "Cascadia Code", Consolas, monospace',
-        lineHeight: 20,
+        lineHeight: Math.round(fontPx * 1.6),
         minimap: { enabled: false },
         scrollBeyondLastLine: false,
         padding: { top: 8 },
@@ -156,6 +160,13 @@ export function ChangesDiffEditor({
     if (!monaco || !diffEditorRef.current) return;
     applyMonacoColorTheme(monaco, resolvedTheme === "dark");
   }, [resolvedTheme]);
+
+  useEffect(() => {
+    diffEditorRef.current?.updateOptions({
+      fontSize: editorFontPx,
+      lineHeight: Math.round(editorFontPx * 1.6),
+    });
+  }, [editorFontPx]);
 
   useEffect(() => {
     return () => {

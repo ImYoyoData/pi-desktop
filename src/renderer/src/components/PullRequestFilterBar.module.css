@@ -16,7 +16,7 @@
   border-radius: 6px;
   background: transparent;
   color: var(--fg-muted);
-  font-size: 12px;
+  font-size: 0.9231rem;
   cursor: pointer;
 }
 
@@ -31,21 +31,21 @@
 }
 
 .filterLabel {
-  max-width: 9rem;
+  max-width: 117px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .filterValue {
-  max-width: 7rem;
+  max-width: 91px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   border-radius: 3px;
   background: var(--accent-soft);
   padding: 0 6px;
-  font-size: 11px;
+  font-size: 0.8462rem;
   font-weight: 500;
   line-height: 18px;
   color: var(--accent);
@@ -71,13 +71,13 @@
 }
 
 .panelTitle {
-  font-size: 12px;
+  font-size: 0.9231rem;
   font-weight: 500;
   color: var(--fg);
 }
 
 .panelCount {
-  font-size: 11px;
+  font-size: 0.8462rem;
   color: var(--fg-muted);
   font-variant-numeric: tabular-nums;
 }
@@ -104,7 +104,7 @@
   border-radius: 6px;
   background: var(--bg);
   color: var(--fg);
-  font-size: 12px;
+  font-size: 0.9231rem;
   outline: none;
 }
 
@@ -118,7 +118,7 @@
 .panelSection {
   margin: 4px 0 2px;
   padding: 0 8px;
-  font-size: 11px;
+  font-size: 0.8462rem;
   color: var(--fg-muted);
 }
 
@@ -133,7 +133,7 @@
   border-radius: 6px;
   background: transparent;
   color: var(--fg);
-  font-size: 12px;
+  font-size: 0.9231rem;
   text-align: left;
   cursor: pointer;
 }
@@ -164,7 +164,7 @@
 
 .optionHint {
   flex: none;
-  font-size: 11px;
+  font-size: 0.8462rem;
   color: var(--fg-muted);
 }
 
@@ -183,7 +183,7 @@
 .panelError {
   padding: 12px 8px;
   text-align: center;
-  font-size: 12px;
+  font-size: 0.9231rem;
   color: var(--fg-muted);
 }
 
@@ -203,7 +203,7 @@
   border-radius: 6px;
   background: transparent;
   color: var(--fg-muted);
-  font-size: 12px;
+  font-size: 0.9231rem;
   cursor: pointer;
 }
 

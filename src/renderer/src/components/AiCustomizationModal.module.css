@@ -39,7 +39,7 @@
   grid-column: 1;
   overflow: hidden;
   color: var(--fg);
-  font-size: 12px;
+  font-size: 0.9231rem;
   font-weight: 600;
   text-overflow: ellipsis;
   white-space: nowrap;

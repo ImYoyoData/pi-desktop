@@ -191,8 +191,6 @@ const api = {
 			ipcRenderer.invoke(IpcChannels.window.setChromeTheme, mode) as Promise<void>,
 		setUiLocale: (locale: "zh-CN" | "en") =>
 			ipcRenderer.invoke(IpcChannels.window.setUiLocale, locale) as Promise<void>,
-		setZoomFactor: (factor: number) =>
-			ipcRenderer.invoke(IpcChannels.window.setZoomFactor, factor) as Promise<void>,
 		requestMediaAccess: (kind: "microphone" | "camera") =>
 			ipcRenderer.invoke(
 				IpcChannels.window.requestMediaAccess,
@@ -1274,6 +1272,10 @@ const api = {
 				ipcRenderer.removeListener(IpcChannels.update.state, listener);
 			};
 		},
+		setToastHeight: (height: number) =>
+			ipcRenderer.send(IpcChannels.update.toastResize, height),
+		dismissToast: () => ipcRenderer.send(IpcChannels.update.toastDismiss),
+		showToast: () => ipcRenderer.send(IpcChannels.update.toastShow),
 	},
 	piCli: {
 		status: () =>

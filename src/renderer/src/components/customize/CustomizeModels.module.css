@@ -56,13 +56,13 @@
 
 .sidebarEmptyTitle {
   color: var(--fg);
-  font-size: 12px;
+  font-size: 0.9231rem;
   font-weight: 600;
 }
 
 .sidebarEmptyHint {
   color: var(--fg-muted);
-  font-size: 11px;
+  font-size: 0.8462rem;
   line-height: 1.45;
 }
 
@@ -79,7 +79,7 @@
   padding: 8px 10px;
   border: 1px solid var(--border);
   border-radius: 4px;
-  font-size: 12px;
+  font-size: 0.9231rem;
 }
 
 .oauthQuotaLabel {
@@ -101,13 +101,13 @@
   padding: 1px 6px;
   border: 1px solid var(--border);
   border-radius: 4px;
-  font-size: 11px;
+  font-size: 0.8462rem;
   line-height: 16px;
   color: var(--fg-muted);
 }
 
 .oauthQuotaLine {
-  font-size: 12px;
+  font-size: 0.9231rem;
   line-height: 18px;
 }
 
@@ -127,13 +127,13 @@
 
 .oauthDetailHint {
   margin: 0;
-  font-size: 12px;
+  font-size: 0.9231rem;
   line-height: 18px;
   color: var(--fg-muted);
 }
 
 .oauthDetailEmpty {
-  font-size: 12px;
+  font-size: 0.9231rem;
   color: var(--fg-muted);
   opacity: 0.7;
 }
@@ -168,12 +168,12 @@
 .oauthModelName {
   flex: 1;
   min-width: 0;
-  font-size: 12px;
+  font-size: 0.9231rem;
   color: var(--fg);
 }
 
 .oauthModelId {
-  font-size: 11px;
+  font-size: 0.8462rem;
   color: var(--fg-muted);
   opacity: 0.8;
   word-break: break-all;
@@ -189,14 +189,14 @@
   padding: 1px 6px;
   border: 1px solid var(--border);
   border-radius: 4px;
-  font-size: 11px;
+  font-size: 0.8462rem;
   line-height: 16px;
   color: var(--fg-muted);
 }
 
 .oauthGroupLabel {
   margin: 10px 0 2px;
-  font-size: 11px;
+  font-size: 0.8462rem;
   font-weight: 600;
   color: var(--fg-muted);
 }
@@ -235,7 +235,7 @@
 .providerName {
   overflow: hidden;
   color: var(--fg);
-  font-size: 12.5px;
+  font-size: 0.9615rem;
   line-height: 17px;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -247,7 +247,7 @@
   border-radius: 3px;
   background: var(--bg-active);
   color: var(--fg-muted);
-  font-size: 10px;
+  font-size: 0.7692rem;
   line-height: 15px;
 }
 
@@ -259,7 +259,7 @@
 .providerSub {
   overflow: hidden;
   color: var(--fg-muted);
-  font-size: 11px;
+  font-size: 0.8462rem;
   line-height: 15px;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -283,7 +283,7 @@
 
 .detailEmptyTitle {
   color: var(--fg-muted);
-  font-size: 13px;
+  font-size: 1rem;
 }
 
 .detailHeader {
@@ -306,7 +306,7 @@
   border-radius: 4px;
   background: transparent;
   color: var(--fg-muted);
-  font-size: 11.5px;
+  font-size: 0.8846rem;
   line-height: 1;
   white-space: nowrap;
   cursor: pointer;
@@ -321,7 +321,7 @@
   margin: 0;
   overflow: hidden;
   color: var(--fg);
-  font-size: 14px;
+  font-size: 1.0769rem;
   font-weight: 600;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -338,7 +338,7 @@
   border-radius: 4px;
   background: var(--bg-active);
   color: var(--fg-muted);
-  font-size: 10px;
+  font-size: 0.7692rem;
   line-height: 16px;
 }
 
@@ -352,7 +352,7 @@
 .formError {
   margin: 0 0 12px;
   color: var(--error);
-  font-size: 12px;
+  font-size: 0.9231rem;
 }
 
 .formSection {
@@ -362,7 +362,7 @@
 .formSectionTitle {
   margin-bottom: 8px;
   color: var(--fg);
-  font-size: 12px;
+  font-size: 0.9231rem;
   font-weight: 600;
 }
 
@@ -388,7 +388,7 @@
 .fieldLabel {
   overflow: hidden;
   color: var(--fg-muted);
-  font-size: 12px;
+  font-size: 0.9231rem;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -425,7 +425,7 @@
 
 .toggleHint {
   color: var(--fg-muted);
-  font-size: 11px;
+  font-size: 0.8462rem;
 }
 
 .modelList {
@@ -519,7 +519,7 @@
   border: none;
   background: transparent;
   color: var(--fg-muted);
-  font-size: 12px;
+  font-size: 0.9231rem;
   cursor: pointer;
 }
 
@@ -541,7 +541,7 @@
 
 .samplingLabel {
   color: var(--fg-muted);
-  font-size: 12px;
+  font-size: 0.9231rem;
 }
 
 .modelNumber {
@@ -560,7 +560,7 @@
 .contentError {
   margin: 0;
   color: var(--error);
-  font-size: 12px;
+  font-size: 0.9231rem;
 }
 
 .contentSpin {

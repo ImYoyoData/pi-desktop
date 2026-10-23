@@ -15,6 +15,7 @@ import {
   type VirtualizerHandle,
 } from "virtua";
 import { Button, Tag, Tooltip, Typography } from "antd";
+import { fontSizeRem } from "../../../shared/appearance";
 import {
   ArrowDownOutline,
   ArrowUndoOutline,
@@ -1725,7 +1726,7 @@ export function MessageList({
               {retryHint ? (
                 <div className={styles.runningIndicator}>
                   <span className={`${styles.dot} ${styles.warn}`} />
-                  <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                  <Typography.Text type="secondary" style={{ fontSize: fontSizeRem(12) }}>
                     {t.retrying(retryHint.attempt, retryHint.maxAttempts)}
                     {retryHint.message ? (
                       <span className={styles.retryDetail}> · {retryHint.message}</span>

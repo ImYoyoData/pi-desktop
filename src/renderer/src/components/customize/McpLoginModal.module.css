@@ -6,7 +6,7 @@
 
 .loginInfo {
   color: var(--fg-muted);
-  font-size: 12.5px;
+  font-size: 0.9615rem;
   word-break: break-all;
 }
 
@@ -25,13 +25,13 @@
   background: var(--bg-active);
   color: var(--fg);
   font-family: var(--font-mono, monospace);
-  font-size: 11.5px;
+  font-size: 0.8846rem;
   word-break: break-all;
 }
 
 .loginHint {
   color: var(--fg-muted);
-  font-size: 11.5px;
+  font-size: 0.8846rem;
   line-height: 1.45;
 }
 
@@ -43,7 +43,7 @@
 
 .loginError {
   color: var(--error);
-  font-size: 12px;
+  font-size: 0.9231rem;
   word-break: break-word;
 }
 
@@ -61,6 +61,6 @@
 
 .modalTitle {
   color: var(--fg-strong);
-  font-size: 15px;
+  font-size: 1.1538rem;
   font-weight: 650;
 }

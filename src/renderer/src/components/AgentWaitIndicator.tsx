@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { Typography } from "antd";
+import { fontSizeRem } from "../../../shared/appearance";
 import type { ChatState } from "@renderer/stores/chat-reducer";
 import {
   agentOutputSilenceMs,
@@ -114,7 +115,7 @@ export function AgentWaitIndicator({ state }: Props): ReactNode {
   return (
     <div className={`${styles.root}${toneClass ? ` ${toneClass}` : ""}`}>
       <span className={styles.dot} />
-      <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+      <Typography.Text type="secondary" style={{ fontSize: fontSizeRem(12) }}>
         {phaseLabel}
         {detail ? <span className={styles.detail}> · {detail}</span> : null}
       </Typography.Text>

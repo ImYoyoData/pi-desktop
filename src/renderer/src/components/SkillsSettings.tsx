@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { Button, Empty, Modal, Spin, Typography } from "antd";
+import { fontSizeRem } from "../../../shared/appearance";
 import { useI18n } from "@renderer/i18n/use-i18n";
 import {
   useDialog,
@@ -155,7 +156,7 @@ export function SkillsSettings({ open, onClose }: Props): ReactNode {
                   onClick={() => setSelected(skill.filePath)}
                 >
                   <div className={styles.name}>{skill.name}</div>
-                  <Typography.Text type="secondary" style={{ fontSize: 11 }}>
+                  <Typography.Text type="secondary" style={{ fontSize: fontSizeRem(11) }}>
                     {sourceLabel(skill)}
                   </Typography.Text>
                 </button>
@@ -168,7 +169,7 @@ export function SkillsSettings({ open, onClose }: Props): ReactNode {
                   <div className={styles.head}>
                     <div>
                       <div className={styles.title}>{selectedSkill.name}</div>
-                      <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                      <Typography.Text type="secondary" style={{ fontSize: fontSizeRem(12) }}>
                         {sourceLabel(selectedSkill)}
                       </Typography.Text>
                     </div>
@@ -180,7 +181,7 @@ export function SkillsSettings({ open, onClose }: Props): ReactNode {
                   </div>
                   <Typography.Text
                     type="secondary"
-                    style={{ fontSize: 12, display: "block", marginBottom: 10 }}
+                    style={{ fontSize: fontSizeRem(12), display: "block", marginBottom: 10 }}
                   >
                     {selectedSkill.filePath}
                   </Typography.Text>

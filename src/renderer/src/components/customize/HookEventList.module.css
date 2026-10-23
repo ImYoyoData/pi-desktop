@@ -29,7 +29,7 @@
   min-width: 0;
   color: var(--fg);
   font-family: var(--font-mono, monospace);
-  font-size: 12px;
+  font-size: 0.9231rem;
   line-height: 18px;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -57,7 +57,7 @@
   border-radius: 4px;
   background: var(--bg-active);
   color: var(--fg-muted);
-  font-size: 10px;
+  font-size: 0.7692rem;
   line-height: 16px;
 }
 
@@ -72,13 +72,13 @@
 
 .emptyStateText {
   color: var(--fg);
-  font-size: 14px;
+  font-size: 1.0769rem;
   font-weight: 600;
 }
 
 .emptyStateSubtext {
   max-width: 320px;
   color: var(--fg-muted);
-  font-size: 12px;
+  font-size: 0.9231rem;
   line-height: 1.4;
 }

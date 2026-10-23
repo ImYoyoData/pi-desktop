@@ -47,7 +47,7 @@
   margin: 0;
   overflow: hidden;
   color: var(--fg);
-  font-size: 16px;
+  font-size: 1.2308rem;
   font-weight: 600;
   line-height: 22px;
   text-overflow: ellipsis;
@@ -70,7 +70,7 @@
   border: 1px solid var(--border) !important;
   background: transparent !important;
   color: var(--fg-muted) !important;
-  font-size: 12px;
+  font-size: 0.9231rem;
   line-height: 22px;
 }
 
@@ -121,7 +121,7 @@
 }
 
 .fieldLabel {
-  font-size: 12px;
+  font-size: 0.9231rem;
   color: var(--fg-muted);
 }
 
@@ -148,7 +148,7 @@
   border: none;
   background: transparent;
   color: var(--fg-muted);
-  font-size: 12.5px;
+  font-size: 0.9615rem;
   cursor: pointer;
 }
 
@@ -157,13 +157,13 @@
 }
 
 .fieldHint {
-  font-size: 11.5px;
+  font-size: 0.8846rem;
   line-height: 1.45;
 }
 
 .formError {
   color: var(--error);
-  font-size: 12px;
+  font-size: 0.9231rem;
 }
 
 .cardActions {

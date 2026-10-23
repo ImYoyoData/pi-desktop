@@ -58,14 +58,14 @@
 
 .sessionsEmptyStateTitle {
   margin: 0;
-  font-size: 12px;
+  font-size: 0.9231rem;
   font-weight: 600;
   line-height: normal;
   color: var(--fg);
 }
 
 .sessionsEmptyStateDescription {
-  font-size: 12px;
+  font-size: 0.9231rem;
   line-height: normal;
   color: var(--fg-muted);
 }
@@ -85,7 +85,7 @@
   min-height: 22px;
   padding: 0 4px;
   border-radius: 4px;
-  font-size: 12px;
+  font-size: 0.9231rem;
   color: var(--fg);
   cursor: pointer;
 }
@@ -134,7 +134,7 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 11px;
+  font-size: 0.8462rem;
   color: var(--fg-faint, var(--fg-muted));
 }
 
@@ -144,7 +144,7 @@
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  font-size: 11px;
+  font-size: 0.8462rem;
   font-variant-numeric: tabular-nums;
 }
 
@@ -192,7 +192,7 @@
   width: 16px;
   min-width: 16px;
   margin-right: 2px;
-  font-size: 11px;
+  font-size: 0.8462rem;
   font-weight: 600;
   opacity: 0.9;
 }

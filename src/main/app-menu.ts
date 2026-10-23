@@ -65,16 +65,16 @@ export function installApplicationMenu(): void {
         { type: "separator" },
         {
           /** 不用 zoomIn role：它自带的 Ctrl+= 会抢走应用快捷键，改为仅菜单点击。 */
-          label: "Zoom In",
+          label: "Increase Font Size",
           click: (_item, win) => sendMenuCommand(win, "zoom-in"),
         },
         {
-          label: "Zoom Out",
+          label: "Decrease Font Size",
           accelerator: "CmdOrCtrl+-",
           click: (_item, win) => sendMenuCommand(win, "zoom-out"),
         },
         {
-          label: "Reset Zoom",
+          label: "Reset Font Size",
           accelerator: "CmdOrCtrl+0",
           click: (_item, win) => sendMenuCommand(win, "zoom-reset"),
         },

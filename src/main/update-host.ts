@@ -15,6 +15,7 @@ import {
 	startAppUpdateDownload,
 	type AppUpdateDownload,
 } from "./app-update";
+import { registerUpdateToastIpc, syncUpdateToast } from "./update-toast";
 
 /** 启动后延迟检查更新的时长（毫秒），避开首屏加载。 */
 const AUTO_CHECK_DELAY_MS = 8000;
@@ -38,6 +39,7 @@ function publish(patch: Partial<AppUpdateState>): void {
 	for (const win of BrowserWindow.getAllWindows()) {
 		win.webContents.send(IpcChannels.update.state, state);
 	}
+	syncUpdateToast(state);
 }
 
 /** 检查新版本。 */
@@ -161,6 +163,8 @@ export function registerUpdateIpc(): void {
 	});
 
 	ipcMain.handle(IpcChannels.update.install, () => runInstall());
+
+	registerUpdateToastIpc();
 
 	setTimeout(() => {
 		void runCheck();

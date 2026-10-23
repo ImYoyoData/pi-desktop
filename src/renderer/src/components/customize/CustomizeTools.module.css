@@ -52,7 +52,7 @@
 .groupCount {
   flex-shrink: 0;
   color: var(--fg-muted);
-  font-size: 11px;
+  font-size: 0.8462rem;
   font-weight: 600;
   text-align: right;
 }
@@ -109,13 +109,13 @@
 
 .emptyStateText {
   color: var(--fg);
-  font-size: 16px;
+  font-size: 1.2308rem;
   font-weight: 600;
 }
 
 .emptyStateSubtext {
   max-width: 250px;
   color: var(--fg-muted);
-  font-size: 13px;
+  font-size: 1rem;
   line-height: 1.4;
 }

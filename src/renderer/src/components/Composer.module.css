@@ -18,7 +18,7 @@
   gap: 8px;
   padding: 3px 8px;
   border-radius: 6px;
-  font-size: 11px;
+  font-size: 0.8462rem;
   line-height: 1.3;
   color: var(--fg-muted, #666);
   background: color-mix(in srgb, var(--primary, #3b82f6) 10%, transparent);
@@ -33,7 +33,7 @@
   border-radius: 4px;
   background: transparent;
   color: var(--primary, #3b82f6);
-  font-size: 11px;
+  font-size: 0.8462rem;
   cursor: pointer;
 }
 
@@ -173,7 +173,7 @@
   color: #fff;
   cursor: pointer;
   line-height: 1;
-  font-size: 12px;
+  font-size: 0.9231rem;
   padding: 0;
 }
 
@@ -210,7 +210,7 @@
 .modelLabel {
   display: inline-block;
   white-space: nowrap;
-  font-size: 11px;
+  font-size: 0.8462rem;
   margin-left: 1px;
 }
 
@@ -222,7 +222,7 @@
 .thinkLabel {
   display: inline-block;
   white-space: nowrap;
-  font-size: 11px;
+  font-size: 0.8462rem;
 }
 
 .sessionStats {
@@ -234,7 +234,7 @@
   min-width: 0;
   padding: 0 8px;
   color: var(--fg-muted, #71717a);
-  font-size: 11px;
+  font-size: 0.8462rem;
   line-height: 1.4;
 }
 
@@ -318,7 +318,7 @@
   flex-direction: column;
   gap: 8px;
   padding: 4px 2px 2px;
-  font-size: 12px;
+  font-size: 0.9231rem;
 }
 
 .ctxPopSummary {
@@ -329,7 +329,7 @@
 }
 
 .ctxPopCost {
-  font-size: 11px;
+  font-size: 0.8462rem;
   font-weight: 650;
   color: var(--warn, #d97706);
   font-variant-numeric: tabular-nums;
@@ -431,7 +431,7 @@
 }
 
 .ctxPopHint {
-  font-size: 11px;
+  font-size: 0.8462rem;
   color: var(--fg-faint);
   line-height: 1.35;
 }

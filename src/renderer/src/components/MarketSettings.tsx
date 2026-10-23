@@ -6,6 +6,7 @@ import {
   type ReactNode,
 } from "react";
 import { Button, Empty, Input, Modal, Select, Space, Spin, Tag, Typography } from "antd";
+import { fontSizeRem } from "../../../shared/appearance";
 import { useBrowserNavStore } from "@renderer/stores/browser-nav";
 import { useLayoutStore } from "@renderer/stores/layout";
 import { useRightTabsStore } from "@renderer/stores/right-tabs";
@@ -298,7 +299,7 @@ export function MarketSettings({ open, onClose }: Props): ReactNode {
       <div className="modal-scroll">
         <Typography.Text
           type="secondary"
-          style={{ fontSize: 13, lineHeight: 1.55, display: "block", marginBottom: 12 }}
+          style={{ fontSize: fontSizeRem(13), lineHeight: 1.55, display: "block", marginBottom: 12 }}
         >
           {t.marketHint}
         </Typography.Text>
@@ -330,7 +331,7 @@ export function MarketSettings({ open, onClose }: Props): ReactNode {
         </div>
 
         <div className={styles.metaRow}>
-          <Typography.Text type="secondary" style={{ fontSize: 11 }}>
+          <Typography.Text type="secondary" style={{ fontSize: fontSizeRem(11) }}>
             {totalHint ? t.marketShowing(totalHint) : t.marketFromPiDev}
           </Typography.Text>
           <Space size={6}>
@@ -440,7 +441,7 @@ export function MarketSettings({ open, onClose }: Props): ReactNode {
                     </li>
                   ) : items.length && !hasMore && !loading && !loadingMore ? (
                     <li className={styles.pkgFooter}>
-                      <Typography.Text type="secondary" style={{ fontSize: 11 }}>
+                      <Typography.Text type="secondary" style={{ fontSize: fontSizeRem(11) }}>
                         {t.marketEnd}
                       </Typography.Text>
                     </li>

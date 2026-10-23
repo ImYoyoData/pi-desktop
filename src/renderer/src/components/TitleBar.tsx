@@ -23,7 +23,6 @@ export function TitleBar(): ReactNode {
   const updatePercent = useAppUpdateStore((s) => s.state.progress?.percent ?? 0);
   const updateVersion = useAppUpdateStore((s) => s.state.info?.version ?? "");
   const startUpdate = useAppUpdateStore((s) => s.download);
-  const openUpdatePanel = useAppUpdateStore((s) => s.openPanel);
 
   /** 有新版本时标题栏出现更新入口；下载中/待安装时显示当前进度。 */
   const updateBadge = ((): string => {
@@ -85,13 +84,13 @@ export function TitleBar(): ReactNode {
     await window.api.update.openGithub();
   }
 
-  /** 新版本未下载时直接开始下载；已在下载或待安装时打开右下角进度框。 */
+  /** 新版本未下载时直接开始下载；已在下载或待安装时重新展开桌面右下角的悬浮卡片。 */
   async function onUpdateClick(): Promise<void> {
     if (updateStatus === "available") {
       await startUpdate();
       return;
     }
-    openUpdatePanel();
+    window.api.update.showToast();
   }
 
   return (

@@ -7,7 +7,7 @@
   border-radius: 6px;
   background: var(--bg-elevated, #ffffff);
   box-shadow: var(--shadow-lg, 0 8px 32px rgba(0, 0, 0, 0.32));
-  font-size: 12.5px;
+  font-size: 0.9615rem;
   user-select: none;
 }
 
@@ -38,7 +38,7 @@
 
 .accel {
   color: var(--fg-muted);
-  font-size: 11.5px;
+  font-size: 0.8846rem;
 }
 
 .separator {

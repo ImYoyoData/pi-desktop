@@ -84,7 +84,7 @@
   background: transparent;
   color: var(--fg-muted);
   font: inherit;
-  font-size: 11.5px;
+  font-size: 0.8846rem;
   font-weight: 600;
   cursor: pointer;
   transition:
@@ -193,7 +193,7 @@
   border-radius: 4px;
   background: transparent;
   color: var(--fg-muted);
-  font-size: 11.5px;
+  font-size: 0.8846rem;
   cursor: pointer;
   flex-shrink: 0;
   user-select: none;
@@ -241,7 +241,7 @@
   width: 14px;
   text-align: center;
   font-family: "seti";
-  font-size: 15px;
+  font-size: 1.1538rem;
   line-height: 1;
   /* Seti 字形居中于行盒，文字视觉中心偏下约 2px，下移对齐 */
   transform: translateY(2px);
@@ -254,7 +254,7 @@
   border-radius: 999px;
   background: color-mix(in srgb, var(--warning) 28%, transparent);
   color: inherit;
-  font-size: 10px;
+  font-size: 0.7692rem;
   font-weight: 650;
   font-variant-numeric: tabular-nums;
   line-height: 14px;
@@ -370,7 +370,7 @@
 
 .renameHint {
   margin: 0 0 10px;
-  font-size: 13px;
+  font-size: 1rem;
   color: var(--text-muted, #71717a);
 }
 

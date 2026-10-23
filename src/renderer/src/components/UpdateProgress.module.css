@@ -1,24 +1,19 @@
-/* 右下角浮层：跟随应用主题，浮在主界面之上但不遮挡标题栏。 */
+/* 卡片铺满独立悬浮窗的内边距区域；窗口本身就是桌面右下角的定位载体。 */
 .panel {
-  position: fixed;
-  right: 16px;
-  bottom: 16px;
-  z-index: 3000;
-  width: 300px;
-  padding: 10px 12px 12px;
+  width: 100%;
+  padding: 14px 16px;
   box-sizing: border-box;
-  border: 1px solid var(--border);
-  border-radius: 6px;
+  border: 1px solid var(--border-strong);
+  border-radius: 10px;
   background: var(--bg-elevated);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
-  animation: update-rise 160ms ease-out;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.28), 0 2px 8px rgba(0, 0, 0, 0.16);
+  color: var(--fg);
+  animation: update-rise 180ms ease-out;
 }
 
-/* 只做位移不做透明度：透明度小于 1 会让整棵子树另起一个 backdrop root，
-   壁纸模式下浮层的 backdrop-filter 便取不到壁纸，起落时会闪一下全透明。 */
 @keyframes update-rise {
   from {
-    transform: translateY(6px);
+    transform: translateY(8px);
   }
   to {
     transform: translateY(0);
@@ -28,40 +23,74 @@
 .head {
   display: flex;
   align-items: center;
-  justify-content: space-between;
   gap: 8px;
-  margin-bottom: 8px;
+}
+
+.icon {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 7px;
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.iconError {
+  background: color-mix(in srgb, var(--error) 14%, transparent);
+  color: var(--error);
 }
 
 .title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
   color: var(--fg-strong);
-  font-size: 12.5px;
+  font-size: 0.9615rem;
   font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .close {
   display: inline-flex;
+  flex: none;
   align-items: center;
   justify-content: center;
-  width: 20px;
-  height: 20px;
+  width: 24px;
+  height: 24px;
   padding: 0;
   border: none;
-  border-radius: 4px;
+  border-radius: 6px;
   background: transparent;
   color: var(--fg-muted);
   cursor: pointer;
+  transition: background-color 120ms ease, color 120ms ease;
 }
 
 .close:hover {
-  background: var(--bg-hover, rgba(127, 127, 127, 0.1));
+  background: var(--bg-hover);
   color: var(--fg-strong);
 }
 
 .body {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.detail {
+  margin: 0;
+  color: var(--fg-muted);
+  font-size: 0.9231rem;
+  line-height: 1.55;
+}
+
+.errorText {
+  color: var(--error);
 }
 
 .meta {
@@ -70,11 +99,17 @@
   justify-content: space-between;
   gap: 8px;
   color: var(--fg-muted);
-  font-size: 11px;
+  font-size: 0.8462rem;
+  font-variant-numeric: tabular-nums;
 }
 
 .footer {
   display: flex;
   justify-content: flex-end;
-  margin-top: 10px;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.footer:empty {
+  display: none;
 }

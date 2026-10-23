@@ -6,7 +6,7 @@
   overflow: hidden;
   background: rgba(127, 127, 127, 0.14);
   color: var(--fg-muted);
-  font-size: 10px;
+  font-size: 0.7692rem;
   font-weight: 500;
   text-transform: uppercase;
 }

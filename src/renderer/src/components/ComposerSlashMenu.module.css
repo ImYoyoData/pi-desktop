@@ -36,7 +36,7 @@
 
 .cmd {
   font-family: var(--font-mono, ui-monospace, Menlo, Consolas, monospace);
-  font-size: 12px;
+  font-size: 0.9231rem;
   font-weight: 600;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -44,7 +44,7 @@
 }
 
 .desc {
-  font-size: 11px;
+  font-size: 0.8462rem;
   color: var(--fg-muted, #888);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -52,7 +52,7 @@
 }
 
 .kind {
-  font-size: 10px;
+  font-size: 0.7692rem;
   color: var(--fg-faint, #aaa);
   text-transform: uppercase;
   letter-spacing: 0.04em;
