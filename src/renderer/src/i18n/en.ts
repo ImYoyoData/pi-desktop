@@ -1290,6 +1290,7 @@ export const en = {
 	toolResultImages: (n: number) => `${n} images`,
 	toolResultNoOutput: "No output",
 	toolResultMoreCalls: (n: number) => `${n} more calls`,
+	toolCallCount: (n: number) => (n === 1 ? "1 call" : `${n} calls`),
 	toolCommand: "Command",
 	toolTruncated: "Truncated",
 	marketTitle: "Extension market",

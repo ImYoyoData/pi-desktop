@@ -31,6 +31,7 @@ import { useAppearanceStore } from "@renderer/stores/appearance";
 import { useSessionsStore } from "@renderer/stores/sessions";
 import { useMessage } from "@renderer/services/feedback";
 import { ASK_USER_TOOL_NAME } from "../../../shared/ask-user";
+import { CODEMODE_TOOL_NAME } from "../../../shared/codemode-tool";
 import styles from "./ToolCallCard.module.css";
 
 type Props = {
@@ -163,6 +164,12 @@ export function ToolCallCard({
   const isAskUserTool = toolName === ASK_USER_TOOL_NAME;
   const sessionId = sessions.activeId;
 
+  /** 内部调用数量（codemode 脚本里发出的工具调用）。 */
+  const callCount = nestedCalls?.length ?? 0;
+  /** codemode 用调用概况当标题，脚本首行代码不作标题。 */
+  const showCallCount =
+    card.kind === "generic" && (toolName === CODEMODE_TOOL_NAME || callCount > 0);
+
   const blockingRunId = useMemo(() => {
     const current = card;
     if (current.kind !== "bash" || !streaming) return null;
@@ -230,6 +237,23 @@ export function ToolCallCard({
         ? styles.running
         : styles.success;
 
+  /** 待办卡的固定动作文案；没有固定动作时返回 null，进度改由标题承担。 */
+  const todoAction = useMemo(() => {
+    if (card.kind !== "todo") return null;
+    switch (card.action) {
+      case "add":
+        return t.toolTodoAdd;
+      case "toggle":
+        return t.toolTodoToggle;
+      case "clear":
+        return t.toolTodoClear;
+      case "list":
+        return t.toolTodoList;
+      default:
+        return null;
+    }
+  }, [card, t]);
+
   /** 处理后的结果反馈：只保留对用户有意义的结果（行数、改动、耗时、图片数）。 */
   const resultParts = useMemo(() => {
     const parts: string[] = [];
@@ -258,7 +282,7 @@ export function ToolCallCard({
         parts.push(lines != null ? t.toolResultLines(lines) : t.toolResultNoOutput);
       }
     } else if (card.kind === "todo") {
-      if (card.items.length) {
+      if (card.items.length && todoAction) {
         parts.push(
           t.todoProgress(card.items.filter((item) => item.done).length, card.items.length),
         );
@@ -279,17 +303,14 @@ export function ToolCallCard({
       parts.push(t.toolTruncated);
     }
     return parts;
-  }, [card, statusType, t]);
+  }, [card, statusType, t, todoAction]);
 
   const headline = useMemo(() => {
     if (isAskUserTool) return "";
     if (card.kind === "bash") return card.command || toolName;
     if (card.kind === "generic") return card.summary || "";
     if (card.kind === "todo") {
-      if (card.action === "add") return t.toolTodoAdd;
-      if (card.action === "toggle") return t.toolTodoToggle;
-      if (card.action === "clear") return t.toolTodoClear;
-      if (card.action === "list") return t.toolTodoList;
+      if (todoAction) return todoAction;
       return card.items.length
         ? t.todoProgress(
             card.items.filter((i) => i.done).length,
@@ -298,7 +319,29 @@ export function ToolCallCard({
         : toolName;
     }
     return fileName || toolName;
-  }, [card, fileName, isAskUserTool, t, toolName]);
+  }, [card, fileName, isAskUserTool, t, todoAction, toolName]);
+
+  /** 标题目标：调用概况 / 文件 / 命令胶囊 / 摘要。 */
+  function renderTarget(): ReactNode {
+    if (showCallCount) {
+      if (!callCount) return null;
+      return (
+        <span className={styles.callCount}>
+          <span className={styles.sep}>·</span>
+          {t.toolCallCount(callCount)}
+        </span>
+      );
+    }
+    if (previewPath) return <FileChip path={previewPath} onOpen={onOpen} />;
+    if (card.kind === "bash" && card.command) {
+      return <code className={styles.cmdPill}>{card.command}</code>;
+    }
+    return (
+      <span className={`${styles.headline}${streaming ? " copilot-shimmer" : ""}`}>
+        {headline}
+      </span>
+    );
+  }
 
   const body = useMemo(() => {
     if (card.kind === "todo") return null;
@@ -412,27 +455,20 @@ export function ToolCallCard({
             <span className={`${styles.action}${streaming ? " copilot-shimmer" : ""}`}>
               {actionLabel}
             </span>
-            {previewPath ? (
-              <FileChip path={previewPath} onOpen={onOpen} />
-            ) : card.kind === "bash" && card.command ? (
-              <code className={styles.cmdPill}>{card.command}</code>
-            ) : (
-              <span className={`${styles.headline}${streaming ? " copilot-shimmer" : ""}`}>
-                {headline}
-              </span>
-            )}
-          </div>
-          <div className={styles.resultRow}>
-            <span className={`${styles.resultStatus} ${statusClass}`}>{statusLabel}</span>
-            {resultParts.length ? (
-              <span className={styles.resultText}>{resultParts.join(" · ")}</span>
-            ) : null}
-            {(card.kind === "edit" || card.kind === "write") && card.stats ? (
-              <span className={styles.resultStats}>
-                <span className={styles.add}>+{card.stats.additions}</span>
-                <span className={styles.del}>−{card.stats.deletions}</span>
-              </span>
-            ) : null}
+            {renderTarget()}
+            <span className={styles.resultGroup}>
+              <span className={styles.sep}>·</span>
+              <span className={`${styles.resultStatus} ${statusClass}`}>{statusLabel}</span>
+              {resultParts.length ? (
+                <span className={styles.resultText}>{resultParts.join(" · ")}</span>
+              ) : null}
+              {(card.kind === "edit" || card.kind === "write") && card.stats ? (
+                <span className={styles.resultStats}>
+                  <span className={styles.add}>+{card.stats.additions}</span>
+                  <span className={styles.del}>−{card.stats.deletions}</span>
+                </span>
+              ) : null}
+            </span>
           </div>
           {nestedCalls?.length ? (
             <div className={styles.subCalls}>

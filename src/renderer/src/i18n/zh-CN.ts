@@ -1249,6 +1249,7 @@ export const zh = {
 	toolResultImages: (n: number) => `${n} 张图片`,
 	toolResultNoOutput: "无输出",
 	toolResultMoreCalls: (n: number) => `还有 ${n} 个调用`,
+	toolCallCount: (n: number) => `${n} 个调用`,
 	toolCommand: "命令",
 	toolTruncated: "已截断",
 	marketTitle: "扩展市场",
