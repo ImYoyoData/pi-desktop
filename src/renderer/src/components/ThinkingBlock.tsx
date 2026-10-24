@@ -1,7 +1,17 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import {
+  lazy,
+  Suspense,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import { ChevronForwardOutline } from "@renderer/components/icons/ionicons";
 import { useI18n } from "@renderer/i18n/use-i18n";
 import styles from "./ThinkingBlock.module.css";
+
+const MarkdownView = lazy(() => import("@renderer/components/MarkdownView"));
 
 type Props = {
   thinking: string;
@@ -9,6 +19,10 @@ type Props = {
   streaming?: boolean;
   /** True once the whole turn finished: fold finished thinking (Codex-like). */
   autoCollapse?: boolean;
+  /** 行首图标（工作区小节内与工具行对齐）。 */
+  leadingIcon?: ReactNode;
+  /** 行尾附加信息，例如思考耗时。 */
+  meta?: string;
 };
 
 /**
@@ -16,7 +30,13 @@ type Props = {
  * once the whole turn finishes the block folds back up (Codex-like), unless
  * the user expanded it manually.
  */
-export function ThinkingBlock({ thinking, streaming, autoCollapse }: Props): ReactNode {
+export function ThinkingBlock({
+  thinking,
+  streaming,
+  autoCollapse,
+  leadingIcon,
+  meta,
+}: Props): ReactNode {
   const t = useI18n();
   const [manuallyOpen, setManuallyOpen] = useState<boolean | null>(null);
   const bodyRef = useRef<HTMLDivElement | null>(null);
@@ -75,19 +95,32 @@ export function ThinkingBlock({ thinking, streaming, autoCollapse }: Props): Rea
       className={`${styles.thinking}${open ? ` ${styles.open}` : ""}`}
     >
       <button type="button" className={styles.thinkingHead} onClick={toggleOpen}>
+        {leadingIcon}
         <span
           className={`${styles.label}${streaming ? " copilot-shimmer" : ""}`}
         >
           {headLabel}
         </span>
+        {meta ? <span className={styles.meta}>{meta}</span> : null}
         <ChevronForwardOutline
           size={12}
           className={`${styles.hoverChev}${open ? ` ${styles.expanded}` : ""}`}
         />
       </button>
       {open && thinking ? (
-        <div ref={bodyRef} className={styles.thinkingBody} onScroll={onBodyScroll}>
-          {displayThinking}
+        <div
+          ref={bodyRef}
+          className={`${styles.thinkingBody}${leadingIcon ? ` ${styles.iconIndent}` : ""}`}
+          onScroll={onBodyScroll}
+        >
+          <Suspense fallback={null}>
+            <MarkdownView
+              content={displayThinking}
+              variant="chat"
+              streaming={streaming}
+              className={styles.markdown}
+            />
+          </Suspense>
         </div>
       ) : null}
       {open && streaming && !thinking ? (
