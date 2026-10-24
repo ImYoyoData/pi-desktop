@@ -159,11 +159,13 @@ const summaryStrings: WorkSectionSummaryStrings = {
   readMany: (n) => `Reviewed ${n} files`,
   readAndEdited: (f) => `Reviewed and updated ${f}`,
   steps: (n) => `Finished with ${n} steps`,
+  thinkingCount: (n) => `Thought ${n} times`,
   editCount: (n) => `Updated ${n} files`,
   readCount: (n) => `Reviewed ${n} files`,
   bashCount: (n) => `Ran ${n} commands`,
   todoCount: (n) => `Updated todos ${n} times`,
   toolCount: (n) => `Used ${n} tools`,
+  separator: ", ",
 };
 
 function tools(...list: WorkSectionTool[]): WorkSectionTool[] {
@@ -187,7 +189,7 @@ describe("workSectionCountSummary", () => {
         summaryStrings,
       ),
     ).toBe(
-      "Updated 1 files · Reviewed 2 files · Ran 2 commands · Updated todos 1 times · Used 1 tools",
+      "Updated 1 files, Reviewed 2 files, Ran 2 commands, Updated todos 1 times, Used 1 tools",
     );
   });
 
@@ -204,8 +206,18 @@ describe("workSectionCountSummary", () => {
     ).toBe("Reviewed 2 files");
   });
 
+  it("prepends the thinking count", () => {
+    expect(
+      workSectionCountSummary(
+        tools({ kind: "bash", target: "ls" }),
+        2,
+        summaryStrings,
+      ),
+    ).toBe("Thought 2 times, Ran 1 commands");
+  });
+
   it("falls back to a step count when the section has no tools", () => {
-    expect(workSectionCountSummary([], 3, summaryStrings)).toBe("Finished with 3 steps");
+    expect(workSectionCountSummary([], 3, summaryStrings)).toBe("Thought 3 times");
     expect(workSectionCountSummary([], 0, summaryStrings)).toBe("Finished with 0 steps");
   });
 });

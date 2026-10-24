@@ -41,10 +41,17 @@
   white-space: nowrap;
 }
 
+.meta {
+  flex-shrink: 0;
+  font-size: var(--chat-font-xs, 11px);
+  opacity: 0.65;
+  font-variant-numeric: tabular-nums;
+}
+
 /* Trailing disclosure chevron — .chat-collapsible-hover-chevron (1:1) */
 .hoverChev {
   flex-shrink: 0;
-  opacity: 0;
+  opacity: 0.65;
   transform: rotate(0deg);
   transform-origin: center;
   transition:
@@ -69,18 +76,38 @@
 }
 
 .thinkingBody {
-  margin: 2px 0 6px 10.5px;
-  padding: 2px 0 2px 13px;
-  border-left: 1px solid var(--chat-line, var(--border));
-  max-height: 200px;
+  margin: 4px 0 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--chat-line, var(--border));
+  border-radius: 8px;
+  background: var(--w-tool-surface, var(--pre-bg, var(--code-bg)));
+  max-height: 240px;
   overflow: auto;
-  white-space: pre-wrap;
-  word-break: break-word;
   font-size: var(--chat-font-s, 12px);
-  line-height: 1.5em;
+  line-height: 1.6em;
   color: var(--chat-desc-fg, var(--fg-muted));
   user-select: text;
   -webkit-user-select: text;
+}
+
+/* 思考内容用 markdown 渲染，字号/行高沿用思考区的紧凑设定。 */
+.thinkingBody .markdown:global(.md.md-chat) {
+  font-size: var(--chat-font-s, 12px);
+  line-height: 1.6;
+  color: var(--chat-desc-fg, var(--fg-muted));
+}
+
+.thinkingBody .markdown:global(.md.md-chat) p {
+  margin: 0 0 0.6em;
+}
+
+.thinkingBody .markdown:global(.md.md-chat) p:last-child {
+  margin-bottom: 0;
+}
+
+/* 带行首图标时正文与标签对齐。 */
+.iconIndent {
+  margin-left: 14px;
 }
 
 .muted {

@@ -1,6 +1,15 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { CheckmarkOutline, ChevronForwardOutline } from "@renderer/components/icons/ionicons";
+import {
+  BrainOutline,
+  ChevronForwardOutline,
+  CreateOutline,
+  DocumentTextOutline,
+  EyeOutline,
+  ListOutline,
+  SquareTerminalOutline,
+} from "@renderer/components/icons/ionicons";
 import type { ChatMessage } from "@renderer/stores/chat";
+import ThinkingBlock from "@renderer/components/ThinkingBlock";
 import ToolCallCard from "@renderer/components/ToolCallCard";
 import { toolCardFor, type ToolCard } from "@renderer/utils/tool-diff";
 import {
@@ -10,6 +19,7 @@ import {
   type WorkSectionTool,
 } from "@renderer/utils/tool-group";
 import { useI18n } from "@renderer/i18n/use-i18n";
+import { formatDuration } from "@renderer/utils/format-duration";
 import styles from "./WorkSectionGroup.module.css";
 
 type ToolMessage = Extract<ChatMessage, { role: "tool" }>;
@@ -32,7 +42,7 @@ export function WorkSectionGroup({ items, autoCollapse, onOpen }: Props): ReactN
   /** Animate folds only after first paint — matches Copilot (transition after mount). */
   const [animated, setAnimated] = useState(false);
   const animationRaf = useRef(0);
-  const collapseTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const collapseTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
   /**
    * Fold/unfold animates grid-rows, which re-layouts the whole expanded subtree
@@ -83,13 +93,13 @@ export function WorkSectionGroup({ items, autoCollapse, onOpen }: Props): ReactN
     prevAutoCollapse.current = autoCollapse;
     if (!autoCollapse || prev) return;
     collapseTimer.current = setTimeout(() => {
-      collapseTimer.current = null;
+      collapseTimer.current = undefined;
       setManuallyOpen(false);
     }, 350);
     return () => {
       if (collapseTimer.current) {
         clearTimeout(collapseTimer.current);
-        collapseTimer.current = null;
+        collapseTimer.current = undefined;
       }
     };
   }, [autoCollapse]);
@@ -102,7 +112,7 @@ export function WorkSectionGroup({ items, autoCollapse, onOpen }: Props): ReactN
     // A new step arrived while we were about to auto-fold — abort the fold.
     if (collapseTimer.current) {
       clearTimeout(collapseTimer.current);
-      collapseTimer.current = null;
+      collapseTimer.current = undefined;
     }
     setManuallyOpen(null);
   }, [items.length, autoCollapse, manuallyOpen]);
@@ -126,79 +136,12 @@ export function WorkSectionGroup({ items, autoCollapse, onOpen }: Props): ReactN
     setManuallyOpen(!open);
   }
 
-  /** Follow newest thinking unless the user scrolls up inside the box (ThinkingBlock rule). */
-  const liveThinkingEls = useRef(new Map<string, HTMLElement>());
-  const thinkingStick = useRef(true);
-  const THINKING_NEAR_BOTTOM_PX = 48;
-  const thinkingRefCallbacks = useRef(
-    new Map<string, (el: HTMLDivElement | null) => void>(),
-  );
-
-  /** The live thinking row inside this section (streams into its 200px box). */
-  const liveThinkingId = useMemo<string | null>(() => {
-    for (let i = items.length - 1; i >= 0; i--) {
-      const m = items[i]!;
-      if (m.role === "assistant" && m.streaming && m.thinking) return m.id;
-    }
-    return null;
-  }, [items]);
-
   useEffect(() => {
     return () => {
-      if (animationRaf.current) cancelAnimationFrame(animationRaf.current);
-      if (collapseTimer.current) clearTimeout(collapseTimer.current);
-      liveThinkingEls.current.clear();
+      cancelAnimationFrame(animationRaf.current);
+      clearTimeout(collapseTimer.current);
     };
   }, []);
-
-  function thinkingRef(id: string): (el: HTMLDivElement | null) => void {
-    let callback = thinkingRefCallbacks.current.get(id);
-    if (!callback) {
-      callback = (el: HTMLDivElement | null) => {
-        if (el) liveThinkingEls.current.set(id, el);
-        else liveThinkingEls.current.delete(id);
-      };
-      thinkingRefCallbacks.current.set(id, callback);
-    }
-    return callback;
-  }
-
-  function onThinkingScroll(id: string): void {
-    const el = liveThinkingEls.current.get(id);
-    if (!el) return;
-    thinkingStick.current =
-      el.scrollHeight - el.scrollTop - el.clientHeight < THINKING_NEAR_BOTTOM_PX;
-  }
-
-  function followLiveThinking(): void {
-    const id = liveThinkingId;
-    if (!id || !thinkingStick.current || !open) return;
-    const el = liveThinkingEls.current.get(id);
-    if (!el) return;
-    el.scrollTop = el.scrollHeight;
-  }
-
-  useEffect(() => {
-    thinkingStick.current = true;
-    followLiveThinking();
-  }, [liveThinkingId]);
-
-  const liveThinkingLength = useMemo(() => {
-    const id = liveThinkingId;
-    if (!id) return 0;
-    for (const m of items) {
-      if (m.id === id && m.role === "assistant") return m.thinking?.length ?? 0;
-    }
-    return 0;
-  }, [items, liveThinkingId]);
-
-  useEffect(() => {
-    followLiveThinking();
-  }, [liveThinkingLength]);
-
-  useEffect(() => {
-    followLiveThinking();
-  }, [open, items.length]);
 
   const thinkingCount = items.length - toolItems.length;
 
@@ -274,11 +217,13 @@ export function WorkSectionGroup({ items, autoCollapse, onOpen }: Props): ReactN
         readMany: t.wsSummaryReadMany,
         readAndEdited: t.wsSummaryReadEdited,
         steps: t.wsSummarySteps,
+        thinkingCount: t.wsSummaryThinkingCount,
         editCount: t.wsSummaryEditCount,
         readCount: t.wsSummaryReadCount,
         bashCount: t.wsSummaryBashCount,
         todoCount: t.wsSummaryTodoCount,
         toolCount: t.wsSummaryToolCount,
+        separator: t.wsSummarySeparator,
       }),
     [categorized, thinkingCount, t],
   );
@@ -303,6 +248,17 @@ export function WorkSectionGroup({ items, autoCollapse, onOpen }: Props): ReactN
   const settled = Boolean(autoCollapse) || !anyStreaming;
   const title = settled ? summaryTitle : liveTitle;
 
+  /** 小节首图标跟随标题第一个统计段。 */
+  const HeaderIcon = useMemo(() => {
+    const kinds = new Set(categorized.map((tool) => tool.kind));
+    if (kinds.has("edit")) return CreateOutline;
+    if (thinkingCount > 0) return BrainOutline;
+    if (kinds.has("read")) return EyeOutline;
+    if (kinds.has("bash")) return SquareTerminalOutline;
+    if (kinds.has("todo")) return ListOutline;
+    return DocumentTextOutline;
+  }, [categorized, thinkingCount]);
+
   /** Shared memoized card parsing per message object (tool-diff.ts). */
   function toolCard(msg: ToolMessage): ToolCard {
     return toolCardFor(msg);
@@ -325,10 +281,9 @@ export function WorkSectionGroup({ items, autoCollapse, onOpen }: Props): ReactN
         aria-expanded={open}
         onClick={toggle}
       >
-        {!settled ? <span className={styles.liveDot} aria-hidden="true" /> : null}
-        {settled ? (
-          <CheckmarkOutline size={12} className={styles.doneIcon} aria-hidden="true" />
-        ) : null}
+        <span className={styles.sectionBadge} aria-hidden="true">
+          <HeaderIcon size={13} />
+        </span>
         <span className={`${styles.summary}${!settled ? " copilot-shimmer" : ""}`}>{title}</span>
         {settled && hasDiff ? (
           <span className={styles.diffPill} title={t.wsViewChanges}>
@@ -378,13 +333,20 @@ export function WorkSectionGroup({ items, autoCollapse, onOpen }: Props): ReactN
                     key={msg.id}
                     className={`${styles.cotItem} ${styles.thinkingItem}`}
                   >
-                    <span className={styles.thinkingDot} aria-hidden="true" />
-                    <div
-                      ref={thinkingRef(msg.id)}
-                      className={styles.thinkingText}
-                      onScroll={() => onThinkingScroll(msg.id)}
-                    >
-                      {msg.thinking}
+                    <span className={styles.thinkingBadge} aria-hidden="true">
+                      <BrainOutline size={13} />
+                    </span>
+                    <div className={styles.thinkingContent}>
+                      <ThinkingBlock
+                        thinking={msg.thinking}
+                        streaming={Boolean(msg.streaming)}
+                        autoCollapse={Boolean(autoCollapse)}
+                        meta={
+                          msg.thinkingDurationMs != null
+                            ? formatDuration(msg.thinkingDurationMs)
+                            : undefined
+                        }
+                      />
                     </div>
                   </div>
                 );

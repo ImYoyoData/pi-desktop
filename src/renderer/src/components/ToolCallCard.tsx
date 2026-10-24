@@ -16,15 +16,16 @@ import {
   EllipseOutline,
   EyeOutline,
   ListOutline,
-  TerminalOutline,
+  SquareTerminalOutline,
   type IoniconProps,
 } from "@renderer/components/icons/ionicons";
 import type { ToolCard } from "@renderer/utils/tool-diff";
+import { toolCommandFromArgs, toolPathFromArgs } from "@renderer/utils/tool-diff";
 import type { ChatToolNestedCall } from "@renderer/stores/chat-reducer";
 import { isToolCardOpen } from "@renderer/utils/tool-card-open";
 import FileChip from "@renderer/components/FileChip";
 import { useI18n } from "@renderer/i18n/use-i18n";
-import { formatElapsedShort } from "@renderer/utils/agent-wait";
+import { formatDuration } from "@renderer/utils/format-duration";
 import { useAgentRunsStore } from "@renderer/stores/agent-runs";
 import { useAppearanceStore } from "@renderer/stores/appearance";
 import { useSessionsStore } from "@renderer/stores/sessions";
@@ -65,7 +66,7 @@ function kindIconFor(kind: ToolCard["kind"]): KindIconComponent {
     case "edit":
       return CreateOutline;
     case "bash":
-      return TerminalOutline;
+      return SquareTerminalOutline;
     case "todo":
       return ListOutline;
     case "generic":
@@ -76,15 +77,39 @@ function kindIconFor(kind: ToolCard["kind"]): KindIconComponent {
   }
 }
 
-/** Sub-second precision for quick commands, coarse units beyond that. */
-function formatDuration(ms: number): string {
-  if (ms < 10_000) return `${(ms / 1000).toFixed(1)}s`;
-  return formatElapsedShort(ms);
+/** 输出里的第一行有效文本，用于失败时的简短反馈。 */
+function firstLine(text: string | null | undefined): string | null {
+  if (!text) return null;
+  for (const line of text.split("\n")) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    return trimmed.length > 96 ? `${trimmed.slice(0, 95)}…` : trimmed;
+  }
+  return null;
+}
+
+/** 子调用的一行目标：命令 > 路径 > 常用文本参数。 */
+function nestedTarget(args: unknown): string {
+  const command = toolCommandFromArgs(args);
+  if (command) return command.length > 64 ? `${command.slice(0, 63)}…` : command;
+  const path = toolPathFromArgs(args);
+  if (path) return path;
+  if (args && typeof args === "object") {
+    for (const key of ["pattern", "query", "url", "prompt", "description"]) {
+      const value = (args as Record<string, unknown>)[key];
+      if (typeof value === "string" && value.trim()) {
+        const text = value.trim();
+        return text.length > 64 ? `${text.slice(0, 63)}…` : text;
+      }
+    }
+  }
+  return "";
 }
 
 export function ToolCallCard({
   card,
   toolName,
+  statusLabel,
   statusType,
   streaming,
   autoCollapse,
@@ -198,39 +223,63 @@ export function ToolCallCard({
 
   const KindIcon = kindIconFor(card.kind);
   const StatusIcon = statusType === "error" ? CloseCircleOutline : KindIcon;
+  const statusClass =
+    statusType === "error"
+      ? styles.error
+      : streaming
+        ? styles.running
+        : styles.success;
 
-  const metaLine = useMemo(() => {
+  /** 处理后的结果反馈：只保留对用户有意义的结果（行数、改动、耗时、图片数）。 */
+  const resultParts = useMemo(() => {
+    const parts: string[] = [];
     const dur =
       (card.kind === "read" || card.kind === "bash") &&
       card.durationMs != null &&
       card.durationMs > 0
         ? formatDuration(card.durationMs)
         : null;
-    const appendDuration = (base: string | null): string | null => {
-      if (!base) return dur ? t.toolDuration(dur) : null;
-      return dur ? `${base} · ${dur}` : base;
-    };
     if (card.kind === "read") {
-      if (card.linesRead != null && card.totalLines != null) {
-        return t.toolLinesRange(card.linesRead, card.totalLines);
+      if (statusType === "error") {
+        const line = firstLine(card.preview);
+        if (line) parts.push(line);
+      } else if (card.linesRead != null && card.totalLines != null) {
+        parts.push(t.toolResultReadOf(card.linesRead, card.totalLines));
+      } else if (card.linesRead != null) {
+        parts.push(t.toolResultRead(card.linesRead));
       }
-      if (card.linesRead != null) {
-        return t.toolLinesCount(card.linesRead);
+    } else if (card.kind === "bash") {
+      if (statusType === "error") {
+        const line = firstLine(card.preview);
+        if (line) parts.push(line);
+      } else {
+        const lines =
+          card.linesRead ?? (card.preview ? card.preview.split("\n").length : null);
+        parts.push(lines != null ? t.toolResultLines(lines) : t.toolResultNoOutput);
       }
-      return null;
+    } else if (card.kind === "todo") {
+      if (card.items.length) {
+        parts.push(
+          t.todoProgress(card.items.filter((item) => item.done).length, card.items.length),
+        );
+      }
+    } else if (card.kind === "generic") {
+      if (statusType === "error") {
+        const line = firstLine(card.preview);
+        if (line) parts.push(line);
+      } else if (card.images.length) {
+        parts.push(t.toolResultImages(card.images.length));
+      } else {
+        const out = card.preview?.trim() ?? "";
+        parts.push(out ? t.toolResultLines(out.split("\n").length) : t.toolResultNoOutput);
+      }
     }
-    if (card.kind === "bash") {
-      if (card.linesRead != null && card.totalLines != null) {
-        return appendDuration(t.toolLinesRange(card.linesRead, card.totalLines));
-      }
-      if (card.linesRead != null) {
-        return appendDuration(t.toolLinesCount(card.linesRead));
-      }
-      return appendDuration(null);
+    if (dur) parts.push(dur);
+    if ((card.kind === "read" || card.kind === "bash") && card.truncated) {
+      parts.push(t.toolTruncated);
     }
-    if (card.kind === "todo" && card.summary) return card.summary;
-    return null;
-  }, [card, t]);
+    return parts;
+  }, [card, statusType, t]);
 
   const headline = useMemo(() => {
     if (isAskUserTool) return "";
@@ -306,7 +355,7 @@ export function ToolCallCard({
   const expandable =
     card.kind === "todo"
       ? todoItems.length > 0
-      : Boolean(nestedCalls?.length) || Boolean(body) || cardImages.length > 0;
+      : Boolean(body) || cardImages.length > 0;
 
   /** 可预览的文件路径（read / edit / write / other 卡才有）。 */
   const previewPath = useMemo<string | null>(() => {
@@ -355,36 +404,75 @@ export function ToolCallCard({
           if (expandable) toggleOpen();
         }}
       >
-        <span
-          className={`${styles.kindIcon}${statusType === "error" ? ` ${styles.error}` : ""}`}
-          aria-hidden="true"
-        >
-          <StatusIcon size={12} />
+        <span className={`${styles.kindIcon} ${statusClass}`} aria-hidden="true">
+          <StatusIcon size={13} />
         </span>
-        <span className={styles.headText}>
-          <span className={`${styles.action}${streaming ? " copilot-shimmer" : ""}`}>
-            {actionLabel}
-          </span>
-          {previewPath ? (
-            <FileChip path={previewPath} onOpen={onOpen} />
-          ) : card.kind === "bash" && card.command ? (
-            <code className={styles.cmdPill}>{card.command}</code>
-          ) : (
-            <span className={`${styles.headline}${streaming ? " copilot-shimmer" : ""}`}>
-              {headline}
+        <div className={styles.headText}>
+          <div className={styles.titleRow}>
+            <span className={`${styles.action}${streaming ? " copilot-shimmer" : ""}`}>
+              {actionLabel}
             </span>
-          )}
-          {metaLine ? <span className={styles.meta}>{metaLine}</span> : null}
-          {(card.kind === "edit" || card.kind === "write") && card.stats ? (
-            <span className={`${styles.meta} ${styles.stats}`}>
-              <span className={styles.add}>+{card.stats.additions}</span>
-              <span className={styles.del}>-{card.stats.deletions}</span>
-            </span>
+            {previewPath ? (
+              <FileChip path={previewPath} onOpen={onOpen} />
+            ) : card.kind === "bash" && card.command ? (
+              <code className={styles.cmdPill}>{card.command}</code>
+            ) : (
+              <span className={`${styles.headline}${streaming ? " copilot-shimmer" : ""}`}>
+                {headline}
+              </span>
+            )}
+          </div>
+          <div className={styles.resultRow}>
+            <span className={`${styles.resultStatus} ${statusClass}`}>{statusLabel}</span>
+            {resultParts.length ? (
+              <span className={styles.resultText}>{resultParts.join(" · ")}</span>
+            ) : null}
+            {(card.kind === "edit" || card.kind === "write") && card.stats ? (
+              <span className={styles.resultStats}>
+                <span className={styles.add}>+{card.stats.additions}</span>
+                <span className={styles.del}>−{card.stats.deletions}</span>
+              </span>
+            ) : null}
+          </div>
+          {nestedCalls?.length ? (
+            <div className={styles.subCalls}>
+              {nestedCalls.slice(0, 8).map((call) => {
+                const NestedIcon = call.streaming
+                  ? EllipseOutline
+                  : call.isError
+                    ? CloseCircleOutline
+                    : CheckmarkCircleOutline;
+                const target = nestedTarget(call.args);
+                return (
+                  <div
+                    key={call.toolCallId}
+                    className={`${styles.subCall}${call.isError ? ` ${styles.error}` : ""}${call.streaming ? ` ${styles.running}` : ""}`}
+                  >
+                    <NestedIcon size={11} className={styles.subMark} />
+                    <span className={styles.subName}>{call.toolName}</span>
+                    {target ? <span className={styles.subTarget}>{target}</span> : null}
+                    <span className={styles.subMeta}>
+                      {call.streaming
+                        ? t.toolRunning
+                        : call.isError
+                          ? t.toolError
+                          : call.durationMs != null
+                            ? formatDuration(call.durationMs)
+                            : ""}
+                    </span>
+                  </div>
+                );
+              })}
+              {nestedCalls.length > 8 ? (
+                <div className={styles.subCall}>
+                  <span className={styles.subMore}>
+                    {t.toolResultMoreCalls(nestedCalls.length - 8)}
+                  </span>
+                </div>
+              ) : null}
+            </div>
           ) : null}
-          {(card.kind === "read" || card.kind === "bash") && card.truncated ? (
-            <span className={styles.trunc}>{t.toolTruncated}</span>
-          ) : null}
-        </span>
+        </div>
         {canBackground ? (
           <Button
             size="small"
@@ -422,29 +510,6 @@ export function ToolCallCard({
             </li>
           ))}
         </ul>
-      ) : null}
-      {open && nestedCalls?.length ? (
-        <div className={styles.nestedBody}>
-          {nestedCalls.map((call) => {
-            const NestedIcon = call.streaming
-              ? EllipseOutline
-              : call.isError
-                ? CloseCircleOutline
-                : CheckmarkCircleOutline;
-            return (
-              <div
-                key={call.toolCallId}
-                className={`${styles.nestedRow}${call.isError ? ` ${styles.error}` : ""}`}
-              >
-                <NestedIcon size={12} className={styles.nestedMark} />
-                <span className={styles.nestedName}>{call.toolName}</span>
-                {call.durationMs != null && !call.streaming ? (
-                  <span className={styles.nestedMeta}>{formatDuration(call.durationMs)}</span>
-                ) : null}
-              </div>
-            );
-          })}
-        </div>
       ) : null}
       {open && body ? (
         <pre

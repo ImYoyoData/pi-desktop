@@ -206,6 +206,17 @@ export function toolCommandFromArgs(args: unknown): string | null {
   return commandFromArgs(args);
 }
 
+/** 通用工具摘要：优先取代码首行，避免把整段 JSON 塞进标题。 */
+function genericSummary(args: unknown): string | null {
+  if (!isRecord(args)) return null;
+  const code = args.code;
+  if (typeof code === "string" && code.trim()) {
+    const first = code.split("\n").find((line) => line.trim()) ?? "";
+    return first.trim().slice(0, 120);
+  }
+  return safeStringify(args).slice(0, 120);
+}
+
 function truncationFromDetails(details: Record<string, unknown> | null): {
   linesRead: number | null;
   totalLines: number | null;
@@ -547,7 +558,7 @@ export function parseToolCard(
   const summary =
     commandFromArgs(args) ??
     pathFromArgs(args) ??
-    (isRecord(args) ? safeStringify(args).slice(0, 120) : null);
+    genericSummary(args);
   return {
     kind: "generic",
     summary,
