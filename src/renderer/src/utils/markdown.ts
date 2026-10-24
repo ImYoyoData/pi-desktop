@@ -190,7 +190,7 @@ const highlightCache = new Map<string, string>();
 const HIGHLIGHT_CACHE_MAX_ENTRIES = 48;
 const HIGHLIGHT_CACHE_MAX_CHARS = 24_000;
 
-function highlightCode(text: string, language: string): string {
+export function highlightCode(text: string, language: string): string {
   if (text.length > HIGHLIGHT_LANG_MAX_CHARS) return escapeHtml(text);
   const key =
     text.length <= HIGHLIGHT_CACHE_MAX_CHARS ? `${language}\u0000${text}` : "";
@@ -217,6 +217,19 @@ function highlightCode(text: string, language: string): string {
     }
   }
   return highlighted;
+}
+
+/**
+ * 代码高亮 → 可直接注入的 HTML。
+ *
+ * hljs 的输出只含固定 class 的 span、源文本已被转义；这里再过一遍净化器，
+ * 让文件视图不必依赖外层 markdown 的净化流程。
+ */
+export function highlightToSafeHtml(text: string, language: string): string {
+  return DOMPurify.sanitize(highlightCode(text, language), {
+    ALLOWED_TAGS: ["span", "br"],
+    ALLOWED_ATTR: ["class"],
+  });
 }
 
 function wrapTables(html: string): string {

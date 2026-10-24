@@ -100,12 +100,48 @@
   }
 }
 
-.workSectionBody {
+/* 过程时间线：每一步一行，展开体紧跟在所属步骤下方。 */
+.timeline {
+  position: relative;
   display: flex;
   flex-direction: column;
   gap: 1px;
   padding-top: 2px;
 }
+
+.timeline::before {
+  content: "";
+  position: absolute;
+  left: 11px;
+  top: 12px;
+  bottom: 12px;
+  width: 1px;
+  background: var(--chat-line, #e2e2e5);
+}
+
+.tlItem {
+  position: relative;
+}
+
+/* 折叠态的读/改/命令比例条。 */
+.ratioBar {
+  display: flex;
+  gap: 2px;
+  height: 3px;
+  margin: 2px 4px 0 26px;
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.ratioBar i {
+  display: block;
+  height: 100%;
+  border-radius: 2px;
+}
+
+.ratioEdit { background: var(--accent, #0069cc); }
+.ratioRead { background: color-mix(in srgb, var(--fg) 34%, transparent); }
+.ratioBash { background: color-mix(in srgb, var(--success, #587c0c) 60%, transparent); }
 
 /* Copilot collapsible content animation (chatCollapsibleContentPart.css 1:1):
    keeps the section's DOM mounted and animates height via grid rows, so the
@@ -156,11 +192,6 @@
   .workSectionAnimation {
     transition: none !important;
   }
-}
-
-/* Flat step row: icon column on the left, content beside it. */
-.cotItem {
-  position: relative;
 }
 
 /* 小节内的思考行：与工具行同构的徽标 + 内容。 */
