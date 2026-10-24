@@ -183,6 +183,7 @@ export const useWorkspaceStore = create<WorkspaceState>()((set, get) => {
 		set({ archivedSessions: ids });
 	}
 
+
 	return {
 		root: null,
 		recent: [],

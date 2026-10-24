@@ -1130,6 +1130,8 @@ export const zh = {
 	bookmarkPage: "收藏此页",
 	unbookmark: "取消收藏",
 	urlPlaceholder: "输入网址",
+	browserPreviewUnavailable:
+		"内置浏览器依赖 Electron 的 webview，外部浏览器预览模式下不可用，请在桌面端使用。",
 	cancelSelect: "取消选取",
 	historyAndBookmarks: "历史与收藏",
 	history: "历史",

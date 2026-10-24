@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import { useAppearanceStore } from "@renderer/stores/appearance";
-import { wallpaperMediaSrc } from "../../../shared/appearance";
+import { wallpaperSrc } from "@renderer/utils/wallpaper-src";
 import styles from "./AppWallpaper.module.css";
 
 /** 全局背景层：壁纸 + 遮罩 + 界面底色；界面底色只在这一层合成一次。 */
@@ -9,7 +9,7 @@ export function AppWallpaper(): ReactNode {
   const kind = appearance.wallpaper.kind;
   const broken = appearance.wallpaperBroken;
   const path = appearance.wallpaper.path;
-  const mediaSrc = path ? wallpaperMediaSrc(path) : "";
+  const mediaSrc = path ? wallpaperSrc(path) : "";
 
   if (kind === "none" || broken) return null;
 

@@ -19,6 +19,7 @@ import { getLocale } from "@renderer/i18n";
 import { dismissStartupSplash } from "@renderer/utils/startup-splash";
 import { markRendererStartup } from "@renderer/utils/startup-timing";
 import { isTextEntryTarget } from "@renderer/utils/keyboard-target";
+import { startStateSync } from "@renderer/utils/state-sync";
 import { FONT_SIZE_DEFAULT } from "../../shared/appearance";
 import "./App.css";
 
@@ -81,6 +82,7 @@ export function App(): React.ReactNode {
   const CUSTOMIZATIONS_PREWARM_MS = 1200;
 
   useEffect(() => {
+    startStateSync();
     window.addEventListener("keydown", onDialogEnterKeydown, true);
     const offMenuCommand = window.api.window.onMenuCommand((command) => {
       if (command === "open-pull-requests") useLayoutStore.getState().showPullRequests();

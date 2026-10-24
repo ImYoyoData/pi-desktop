@@ -53,16 +53,17 @@ export const IpcChannels = {
 		get: "retry:get",
 		/** Renderer → main: 保存「重试」设置（并热重载给活跃 worker）。 */
 		set: "retry:set",
-		/** Main → renderer: 重试设置变更（多窗口同步）。 */
-		changed: "retry:changed",
 	},
 	runtime: {
 		/** Renderer → main: 读取「运行」设置（压缩 / 缓存 / 隐私）。 */
 		get: "runtime:get",
 		/** Renderer → main: 保存「运行」设置（并热重载给活跃 worker）。 */
 		set: "runtime:set",
-		/** Main → renderer: 运行设置变更（多窗口同步）。 */
-		changed: "runtime:changed",
+	},
+	/** 共享状态统一通道：桌面端与浏览器预览页据此同步。 */
+	state: {
+		/** Main → renderer: 共享状态变化（按范围，见 shared/state-sync.ts）。 */
+		changed: "state:changed",
 	},
 	appearance: {
 		/** Renderer → main: 选择壁纸文件（图片/动图/视频）。 */
@@ -363,7 +364,6 @@ export const IpcChannels = {
 	proxy: {
 		get: "proxy:get",
 		set: "proxy:set",
-		changed: "proxy:changed",
 	},
 } as const;
 

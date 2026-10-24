@@ -5,7 +5,11 @@ import type { Plugin } from "vite";
 import react from "@vitejs/plugin-react";
 import { piExtensionLoaderElectronPlugin } from "./scripts/pi-extension-loader-electron-plugin";
 import { piOAuthElectronPlugin } from "./scripts/pi-oauth-electron-plugin";
-
+import {
+  DEV_BRIDGE_DEFAULT_PORT,
+  DEV_BRIDGE_PORT_OFFSET,
+  devBridgeInstance,
+} from "./src/shared/dev-bridge";
 /** Pi packages are ESM-only (`exports.import` without `require`); Electron main is CJS. */
 const piEsmPackages = [
   "@earendil-works/pi-coding-agent",
@@ -74,6 +78,46 @@ function copyJitiBabelRuntime(): Plugin {
   };
 }
 
+/**
+ * 预览桥端口：与 Vite 端口一一对应，多个 dev 实例互不抢占，
+ * 页面因此只会连到自己的主进程（否则两端状态永远对不上）。
+ */
+function devBridgePortFor(vitePort: number): number {
+	const override = Number.parseInt(process.env.PI_DESKTOP_BRIDGE_PORT ?? "", 10);
+	if (Number.isInteger(override) && override > 0 && override <= 65535) return override;
+	return vitePort + DEV_BRIDGE_PORT_OFFSET;
+}
+
+/**
+ * dev 模式把浏览器预览桥注入页面：外部浏览器打开 5173 时，
+ * 渲染层经桥访问主进程；Electron 侧已有 preload，注入脚本会自动跳过。
+ */
+function devBridgePlugin(): Plugin {
+	const state = { port: DEV_BRIDGE_DEFAULT_PORT };
+	return {
+		name: "pi-dev-bridge",
+		apply: "serve",
+		configureServer(server) {
+			const address = server.httpServer?.address();
+			const vitePort =
+				typeof address === "object" && address ? address.port : 5173;
+			state.port = devBridgePortFor(vitePort);
+		},
+		transformIndexHtml() {
+			return [
+				{
+					tag: "script",
+					attrs: {
+						type: "module",
+						src: `/src/dev-bridge.ts?bridgePort=${state.port}&instance=${devBridgeInstance(state.port)}`,
+					},
+					injectTo: "head-prepend",
+				},
+			];
+		},
+	};
+}
+
 export default defineConfig({
   main: {
     plugins: [
@@ -140,9 +184,11 @@ export default defineConfig({
         "@renderer": resolve("src/renderer/src"),
       },
     },
+    // 浏览器预览桥的端口：dev 时注入，env 可换端口避开多实例抢占。
     plugins: [
       react(),
       trimMonacoLanguages(),
+      devBridgePlugin(),
     ],
     build: {
       // Electron 39 ships a modern Chromium: avoid transpiling to old

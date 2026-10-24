@@ -1,4 +1,4 @@
-import type { PiDesktopApi } from "./index";
+import type { PiDesktopApi } from "../shared/api";
 import type { ElectronAPI } from "@electron-toolkit/preload";
 
 declare global {

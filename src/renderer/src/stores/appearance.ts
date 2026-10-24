@@ -39,6 +39,19 @@ const SESSION_TITLE_KEY = "pi-desktop:session-title";
  */
 const EXPAND_TOOL_CALLS_KEY = "pi-desktop:expand-tool-calls";
 
+/** 外观相关的偏好键：任意一个被改，界面就要重新读取并应用。 */
+export const APPEARANCE_KEYS = new Set([
+	THEME_KEY,
+	LOCALE_KEY,
+	FONT_SIZE_KEY,
+	COMPACT_BTN_KEY,
+	SESSION_DETAILS_KEY,
+	SESSION_TITLE_KEY,
+	EXPAND_TOOL_CALLS_KEY,
+	CUSTOM_APPEARANCE_KEY,
+	CUSTOM_APPEARANCE_LEGACY_KEY,
+]);
+
 function readShowCompactButton(): boolean {
   try {
     return prefs.getItem(COMPACT_BTN_KEY) === "1";
@@ -244,6 +257,8 @@ export type AppearanceState = AppearanceBase &
     setMessageWidth: (value: number) => void;
     setWallpaperBroken: (broken: boolean) => void;
     init: () => () => void;
+    /** 重新读取偏好并应用（另一窗口改了外观时调用）。 */
+    refreshFromPrefs: () => void;
   };
 
 /** 派生值统一在这里算，写入 store 前调用，保证状态与派生量始终一致。 */
@@ -460,6 +475,13 @@ export const useAppearanceStore = create<AppearanceState>()((set, get) => {
       applyFontSize(get().fontSize);
       dropObsoletePrefs();
       return syncSystemListener();
+    },
+    refreshFromPrefs: () => {
+      const base = initialBase();
+      commit(base);
+      applyFontSize(base.fontSize);
+      syncGlassShell();
+      applyUiLocale(get().resolvedUiLocale);
     },
   };
 });

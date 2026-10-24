@@ -57,6 +57,7 @@ import { isTextEntryTarget } from "@renderer/utils/keyboard-target";
 import { buildSessionTree, type SessionTreeItem } from "@renderer/utils/session-tree";
 import { markRendererStartup } from "@renderer/utils/startup-timing";
 import * as prefs from "@renderer/utils/prefs";
+import { registerStateApplier } from "@renderer/utils/state-sync";
 import { useI18n } from "@renderer/i18n/use-i18n";
 import { useDialog, useMessage, type DialogHandle } from "@renderer/services/feedback";
 import styles from "./SessionSidebar.module.css";
@@ -1934,6 +1935,14 @@ export function SessionSidebar(): ReactNode {
     );
     loadPins();
     loadSessionOrders();
+    // 另一窗口改了排序/置顶/分组时跟着变，桌面端与浏览器预览页保持一致。
+    const offPrefs = registerStateApplier((change) => {
+      if (change.scope !== "prefs") return;
+      const keys = change.keys ?? [];
+      if (keys.includes(PIN_KEY)) loadPins();
+      if (keys.includes(SESSION_ORDER_KEY)) loadSessionOrders();
+      if (keys.includes(SESSION_VIEW_KEY)) setView(loadSessionView());
+    });
     // 派生会话等由其他组件新建的会话：排到最前，避免被折叠到「展开其余 N 个」之下。
     window.addEventListener("pi-session-created", onSessionCreated);
     window.addEventListener("keydown", onSelectModeKeydown, true);
@@ -1967,6 +1976,7 @@ export function SessionSidebar(): ReactNode {
       useKeybindingsStore.getState().unregister("new-session");
       useKeybindingsStore.getState().unregister("select-sessions");
       offNotifyOpen();
+      offPrefs();
       window.removeEventListener("pi-session-created", onSessionCreated);
       window.removeEventListener("keydown", onSelectModeKeydown, true);
       workspaceSortable.current?.destroy();
