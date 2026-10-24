@@ -1170,6 +1170,8 @@ export const en = {
 	bookmarkPage: "Bookmark this page",
 	unbookmark: "Remove bookmark",
 	urlPlaceholder: "Enter a URL",
+	browserPreviewUnavailable:
+		"The built-in browser needs Electron's webview and is unavailable in external browser preview mode. Use the desktop app.",
 	cancelSelect: "Cancel selection",
 	historyAndBookmarks: "History & bookmarks",
 	history: "History",

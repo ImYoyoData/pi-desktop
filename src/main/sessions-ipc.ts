@@ -15,6 +15,7 @@ import {
 } from "./extension-ui-host";
 import { renameSessionFile } from "./session-rename";
 import { forkSessionAtUserTurn } from "./session-fork";
+import { broadcastStateChange } from "./ui-sync";
 
 function broadcastEvent(event: unknown): void {
   for (const win of BrowserWindow.getAllWindows()) {
@@ -25,6 +26,20 @@ function broadcastEvent(event: unknown): void {
       console.error("[sessions] event broadcast failed:", err);
     }
   }
+}
+
+/**
+ * 当前打开的会话：桌面端与浏览器预览页跟随最后一次显式切换。
+ * 启动后的首次打开只是恢复现场，不广播——否则另一侧会被拽到刚恢复的会话上。
+ */
+let activeSession: { sessionId: string; cwd: string } | null = null;
+
+function notifyActiveSession(sessionId: string, cwd: string): void {
+  if (activeSession?.sessionId === sessionId) return;
+  const isRestore = activeSession === null;
+  activeSession = { sessionId, cwd };
+  if (isRestore) return;
+  broadcastStateChange({ scope: "session", payload: activeSession });
 }
 
 /**
@@ -83,9 +98,11 @@ export function registerSessionsIpc(broker: SessionBroker): void {
     return list.find((s) => s.id === sessionId)?.status ?? null;
   });
 
-  ipcMain.handle(IpcChannels.sessions.open, (_event, sessionId: string, cwd: string) =>
-    broker.openSession(sessionId, cwd),
-  );
+  ipcMain.handle(IpcChannels.sessions.open, async (_event, sessionId: string, cwd: string) => {
+    const opened = await broker.openSession(sessionId, cwd);
+    if (opened) notifyActiveSession(sessionId, cwd);
+    return opened;
+  });
 
   ipcMain.handle(IpcChannels.sessions.delete, (_event, sessionId: string, cwd: string) => {
     const id = String(sessionId ?? "");

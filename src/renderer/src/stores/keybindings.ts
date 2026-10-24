@@ -71,7 +71,7 @@ export const BUILTIN_SHORTCUTS: BuiltinShortcut[] = [
   { group: "menu", labelKey: "hotkeyCloseWindow", keys: "Ctrl+W" },
 ];
 
-const STORAGE_KEY = "pi-desktop:keybindings:v1";
+export const STORAGE_KEY = "pi-desktop:keybindings:v1";
 const MOD_ORDER = ["Control", "Alt", "Shift", "Super", "Command"];
 
 /** 修饰键顺序统一，保证录制与匹配的比较结果一致。 */
@@ -165,6 +165,8 @@ export type KeybindingsState = KeybindingsBase &
     unregister: (id: KeybindingId) => void;
     install: () => void;
     uninstall: () => void;
+    /** 另一端改了快捷键后重新读取并应用。 */
+    refreshFromPrefs: () => void;
   };
 
 export const useKeybindingsStore = create<KeybindingsState>()((set, get) => {
@@ -287,6 +289,7 @@ export const useKeybindingsStore = create<KeybindingsState>()((set, get) => {
     stored: initial.bindings,
   };
 
+
   return {
     ...base,
     ...derive(base),
@@ -302,5 +305,9 @@ export const useKeybindingsStore = create<KeybindingsState>()((set, get) => {
     unregister,
     install,
     uninstall,
+    refreshFromPrefs: () => {
+      const next = readStored();
+      commit({ master: next.master, stored: next.bindings });
+    },
   };
 });

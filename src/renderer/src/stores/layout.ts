@@ -6,6 +6,7 @@ import {
   readLayout,
   writeLayout,
   type CenterView,
+  type PreMaximizeState,
 } from "@renderer/stores/layout-utils";
 
 export {
@@ -15,17 +16,7 @@ export {
   readLayout,
   writeLayout,
 } from "@renderer/stores/layout-utils";
-export type { CenterView, PersistedLayout } from "@renderer/stores/layout-utils";
-
-type PreMaximizeState = {
-  leftCollapsed: boolean;
-  rightCollapsed: boolean;
-  bottomCollapsed: boolean;
-  leftSize: number;
-  centerSize: number;
-  rightSize: number;
-  bottomSize: number;
-};
+export type { CenterView, PersistedLayout, PreMaximizeState } from "@renderer/stores/layout-utils";
 
 type LayoutBase = {
   workspaceRoot: string | null;
@@ -43,6 +34,8 @@ type LayoutBase = {
    * pre-maximize layout.
    */
   editorMaximized: boolean;
+  /** 最大化编辑器区之前的面板状态：退出最大化时还原。 */
+  preMaximize: PreMaximizeState | null;
   /** 中央区域当前视图及智能体设置页状态。 */
   centerView: CenterView;
   customizeSection: string;
@@ -66,8 +59,6 @@ export type LayoutState = LayoutBase & {
 };
 
 export const useLayoutStore = create<LayoutState>()((set, get) => {
-  let preMaximizeState: PreMaximizeState | null = null;
-
   function persist(): void {
     const state = get();
     if (!state.workspaceRoot) return;
@@ -81,6 +72,8 @@ export const useLayoutStore = create<LayoutState>()((set, get) => {
       bottomCollapsed: state.bottomCollapsed,
       centerView: state.centerView,
       customizeSection: state.customizeSection,
+      editorMaximized: state.editorMaximized,
+      preMaximize: state.preMaximize,
     });
   }
 
@@ -97,6 +90,8 @@ export const useLayoutStore = create<LayoutState>()((set, get) => {
       bottomCollapsed: data.bottomCollapsed,
       centerView: data.centerView,
       customizeSection: data.customizeSection,
+      editorMaximized: data.editorMaximized,
+      preMaximize: data.preMaximize,
     });
   }
 
@@ -182,16 +177,15 @@ export const useLayoutStore = create<LayoutState>()((set, get) => {
   function toggleEditorMaximized(): void {
     const state = get();
     if (!state.editorMaximized) {
-      preMaximizeState = {
-        leftCollapsed: state.leftCollapsed,
-        rightCollapsed: state.rightCollapsed,
-        bottomCollapsed: state.bottomCollapsed,
-        leftSize: state.leftSize,
-        centerSize: state.centerSize,
-        rightSize: state.rightSize,
-        bottomSize: state.bottomSize,
-      };
       set({
+        preMaximize: {
+          leftCollapsed: state.leftCollapsed,
+          rightCollapsed: state.rightCollapsed,
+          bottomCollapsed: state.bottomCollapsed,
+          leftSize: state.leftSize,
+          centerSize: state.centerSize,
+          rightSize: state.rightSize,
+        },
         leftCollapsed: true,
         rightCollapsed: false,
         bottomCollapsed: true,
@@ -200,10 +194,10 @@ export const useLayoutStore = create<LayoutState>()((set, get) => {
       persist();
       return;
     }
-    const pre = preMaximizeState;
-    preMaximizeState = null;
+    const pre = state.preMaximize;
     set({
       editorMaximized: false,
+      preMaximize: null,
       ...(pre
         ? {
             leftCollapsed: pre.leftCollapsed,
@@ -212,12 +206,12 @@ export const useLayoutStore = create<LayoutState>()((set, get) => {
             leftSize: pre.leftSize,
             centerSize: pre.centerSize,
             rightSize: pre.rightSize,
-            bottomSize: pre.bottomSize,
           }
         : {}),
     });
     persist();
   }
+
 
   return {
     workspaceRoot: null,
@@ -229,6 +223,7 @@ export const useLayoutStore = create<LayoutState>()((set, get) => {
     bottomSize: DEFAULT_LAYOUT.bottomSize,
     bottomCollapsed: DEFAULT_LAYOUT.bottomCollapsed,
     editorMaximized: false,
+    preMaximize: null,
     centerView: DEFAULT_LAYOUT.centerView,
     customizeSection: DEFAULT_LAYOUT.customizeSection,
     loadForWorkspace,

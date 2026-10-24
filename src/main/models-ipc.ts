@@ -27,6 +27,7 @@ import { getModelsConfigService } from "./models-config";
 import { netFetch } from "./net-fetch";
 import { buildCatalogIndex, enrichDiscoveredModels, resolveDiscoveredModels } from "./model-catalog";
 import { readModelSelection, writeModelSelection } from "./models-selection";
+import { broadcastStateChange } from "./ui-sync";
 import type { ModelSelection } from "../shared/model-selection";
 import { isOfflineMode } from "../shared/offline";
 import type { AuthEvent, AuthInteraction, AuthPrompt } from "@earendil-works/pi-ai";
@@ -638,6 +639,7 @@ export function registerModelsIpc(broker: SessionBroker): void {
   ipcMain.handle(IpcChannels.models.setSelection, async (_event, selection: ModelSelection) => {
     writeModelSelection(selection);
     await broker.notifyWorkersReloadModels();
+    broadcastStateChange({ scope: "models" });
   });
 
   ipcMain.handle(IpcChannels.models.fetchQuota, async (_event, rawProviderId: string) => {
@@ -671,12 +673,14 @@ export function registerModelsIpc(broker: SessionBroker): void {
       if (changed) await service.writeAuthConfig(next);
     }
     await broker.notifyWorkersReloadModels();
+    broadcastStateChange({ scope: "models" });
   });
 
   ipcMain.handle(IpcChannels.models.clearKey, async (_event, provider: string) => {
     const service = getModelsConfigService();
     await service.setProviderApiKey(provider, null);
     await broker.notifyWorkersReloadModels();
+    broadcastStateChange({ scope: "models" });
   });
 
   ipcMain.handle(IpcChannels.models.test, async () => {

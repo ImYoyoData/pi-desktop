@@ -44,6 +44,7 @@ import { gitCodeColor } from "@renderer/utils/editor-lang";
 import { fileIcon, type FileIcon } from "@renderer/utils/file-icon";
 import { localizedTabLabel } from "@renderer/utils/right-tab-labels";
 import * as prefs from "@renderer/utils/prefs";
+import { registerStateApplier } from "@renderer/utils/state-sync";
 import type {
   ProgramStatusReport,
   ProgramStatusState,
@@ -451,6 +452,17 @@ export function RightPane(): ReactNode {
       // ignore
     }
   }, [dockView]);
+
+  // 另一窗口改了右侧面板状态时跟着变，桌面端与浏览器预览页保持一致。
+  useEffect(() => {
+    return registerStateApplier((change) => {
+      if (change.scope !== "prefs") return;
+      const keys = change.keys ?? [];
+      if (keys.includes(DOCK_VIEW_KEY)) setDockView(readDockView());
+      if (keys.includes(DOCK_DETAILS_KEY)) setDetailsVisible(readFlag(DOCK_DETAILS_KEY, true));
+      if (keys.includes(DOCK_WIDTH_KEY)) setDockWidth(readDockWidth());
+    });
+  }, []);
 
   useEffect(() => {
     try {

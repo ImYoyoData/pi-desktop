@@ -2,7 +2,7 @@ import { create } from "zustand";
 import chimeUrl from "@renderer/assets/sounds/qipao.mp3";
 import * as prefs from "@renderer/utils/prefs";
 
-const PREFS_KEY = "pi-desktop:notify-prefs";
+export const PREFS_KEY = "pi-desktop:notify-prefs";
 
 export type NotifyPrefs = {
   soundEnabled: boolean;
@@ -38,6 +38,8 @@ type NotifyState = {
   notifyEnabled: boolean;
   setSoundEnabled: (v: boolean) => void;
   setNotifyEnabled: (v: boolean) => void;
+  /** 另一端改了通知设置后重新读取并应用。 */
+  refreshFromPrefs: () => void;
   playChime: () => Promise<void>;
   onTurnComplete: (opts: {
     title: string;
@@ -92,6 +94,7 @@ export const useNotifyStore = create<NotifyState>()((set, get) => {
 
   const initial = readPrefs();
 
+
   return {
     soundEnabled: initial.soundEnabled,
     notifyEnabled: initial.notifyEnabled,
@@ -102,6 +105,10 @@ export const useNotifyStore = create<NotifyState>()((set, get) => {
     setNotifyEnabled: (v) => {
       set({ notifyEnabled: v });
       persistPrefs();
+    },
+    refreshFromPrefs: () => {
+      const next = readPrefs();
+      set({ soundEnabled: next.soundEnabled, notifyEnabled: next.notifyEnabled });
     },
     playChime,
     onTurnComplete,
