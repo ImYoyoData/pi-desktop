@@ -130,19 +130,33 @@
   white-space: nowrap;
 }
 
-/* 结果行：状态 + 处理后的结果（行数 / 改动 / 耗时 / 图片数）。 */
-.resultRow {
-  display: flex;
-  align-items: center;
-  gap: 6px;
+/* 调用概况：codemode 等内部调用工具的标题目标。 */
+.callCount {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+  flex-shrink: 0;
+  color: var(--fg, inherit);
+}
+
+/* 结果段：状态 + 处理后的结果（行数 / 改动 / 耗时 / 图片数），与标题同行。 */
+.resultGroup {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
   min-width: 0;
   font-size: var(--chat-font-xs, 11px);
   line-height: 1.45;
   color: var(--chat-desc-fg, var(--fg-muted));
   white-space: nowrap;
-  overflow: hidden;
   font-variant-numeric: tabular-nums;
   font-feature-settings: "tnum";
+}
+
+/* 段之间的间隔点。 */
+.sep {
+  flex-shrink: 0;
+  opacity: 0.55;
 }
 
 .resultStatus {
@@ -175,16 +189,18 @@
   font-family: var(--font-mono, monospace);
 }
 
-/* 子调用：工具 + 目标 + 状态/耗时。 */
+/* 子调用：工具 + 目标 + 状态/耗时，展开后横向排成一行。 */
 .subCalls {
   display: flex;
-  flex-direction: column;
-  gap: 1px;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px 10px;
+  min-width: 0;
   margin-top: 3px;
 }
 
 .subCall {
-  display: flex;
+  display: inline-flex;
   align-items: center;
   gap: 5px;
   min-width: 0;
@@ -223,8 +239,6 @@
 
 .subMeta {
   flex-shrink: 0;
-  margin-left: auto;
-  padding-left: 8px;
   opacity: 0.65;
   font-variant-numeric: tabular-nums;
 }
