@@ -47,11 +47,6 @@
   color: var(--fg, inherit);
 }
 
-/* Tree mode (inside WorkSectionGroup): 行左缘与表头对齐。 */
-.treeItem .toolCallHead {
-  padding: 4px 6px 4px 0;
-}
-
 /* 左侧状态徽标：底色与图标颜色跟随运行状态。 */
 .kindIcon {
   flex-shrink: 0;
@@ -333,34 +328,116 @@
   opacity: 0.55;
 }
 
-.toolBody {
-  margin: 2px 0 4px 30px;
-  padding: 6px 9px;
-  max-height: 220px;
-  overflow: auto;
+/* 状态色：成功 / 失败 / 运行中。
+   这些类名由 statusClass 统一挂到徽标、结果状态与卡片根节点上，
+   必须独立存在，否则 styles.success 取到 undefined，状态色完全不生效。 */
+.success {
+  color: var(--success, #3d9a6a);
+}
+
+.error {
+  color: var(--error, #d03050);
+}
+
+.running {
+  color: var(--accent, #4f8cff);
+}
+
+/* --- 时间线步骤（工作区块内的一步） --- */
+.stepHead {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-width: 0;
+  padding: 4px 6px 4px 26px;
+  border-radius: 7px;
+  cursor: pointer;
+}
+
+.stepHead:hover {
+  background: var(--chat-hover-bg, color-mix(in srgb, var(--fg) 5%, transparent));
+}
+
+.stepDot {
+  position: absolute;
+  left: 3px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  border: 1px solid var(--chat-line, #e2e2e5);
+  background: var(--bg, #ffffff);
+  color: var(--chat-icon-fg, var(--fg-muted));
+}
+
+.stepDot.success { border-color: color-mix(in srgb, var(--success, #3d9a6a) 55%, transparent); }
+.stepDot.error { border-color: color-mix(in srgb, var(--error, #d03050) 55%, transparent); }
+.stepDot.running { border-color: var(--accent, #4f8cff); }
+
+.stepVerb {
+  flex-shrink: 0;
+  font-size: var(--chat-font-s, 12px);
+  color: var(--chat-desc-fg, var(--fg-muted));
+}
+
+.stepTarget {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  overflow: hidden;
+}
+
+.stepText,
+.stepCmd {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-mono, monospace);
   font-size: var(--chat-font-xs, 11px);
-  line-height: 1.55;
-  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
-  border: 1px solid var(--chat-line, var(--border));
-  border-radius: 8px;
-  background: var(--w-tool-surface, var(--pre-bg, var(--code-bg)));
   color: var(--fg, inherit);
 }
 
-.treeItem .toolBody {
-  padding: 8px 10px;
+.stepMeta {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: var(--chat-font-xs, 11px);
+  color: var(--fg-muted, #606060);
+  font-variant-numeric: tabular-nums;
 }
 
-.toolBody.empty {
-  padding: 8px 10px;
-  color: var(--chat-desc-fg, var(--fg-muted));
+.stepMetaItem { white-space: nowrap; }
+
+.stepStats {
+  font-family: var(--font-mono, monospace);
+}
+
+.stepOk { color: var(--success, #3d9a6a); }
+.stepErr { color: var(--error, #d03050); }
+
+/* 展开体紧跟在所属步骤下方，与步骤文本对齐。 */
+.stepBody {
+  padding-left: 26px;
+}
+
+/* 独立工具行的展开体：与标题左缘对齐地缩进一级。 */
+.rowBody {
+  margin: 2px 0 4px 30px;
 }
 
 .toolImages {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
-  margin: 2px 0 4px 30px;
+  margin: 4px 0 0;
 }
 
 .toolImage {
@@ -368,74 +445,4 @@
   max-height: 260px;
   border: 1px solid var(--chat-line, var(--border));
   border-radius: 6px;
-}
-
-.toolBodyBash .dline {
-  color: var(--fg-strong, inherit);
-}
-
-.dline {
-  display: block;
-  padding: 0 4px;
-  white-space: pre-wrap;
-  word-break: break-all;
-}
-
-.dline.add {
-  background: rgba(46, 160, 67, 0.12);
-}
-
-.dline.del {
-  background: rgba(248, 81, 73, 0.12);
-}
-
-.dline.meta {
-  color: var(--fg-muted);
-}
-
-.todoBody {
-  list-style: none;
-  margin: 2px 0 4px 30px;
-  padding: 6px 8px;
-  border: 1px solid var(--chat-line, var(--border));
-  border-radius: 6px;
-  background: var(--w-tool-surface, var(--pre-bg, var(--code-bg)));
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  max-height: 180px;
-  overflow: auto;
-}
-
-.todoRow {
-  display: flex;
-  align-items: flex-start;
-  gap: 8px;
-  font-size: var(--chat-font-s, 12px);
-  line-height: 1.35;
-  color: var(--fg);
-}
-
-.todoRow.done {
-  color: var(--fg-muted);
-}
-
-.todoRow.done .todoText {
-  text-decoration: line-through;
-  text-decoration-color: color-mix(in srgb, var(--fg-muted) 55%, transparent);
-}
-
-.todoMark {
-  flex-shrink: 0;
-  margin-top: 1px;
-  color: var(--fg-muted);
-}
-
-.todoRow.done .todoMark {
-  color: var(--success, #3d9a6a);
-}
-
-.todoText {
-  min-width: 0;
-  word-break: break-word;
 }

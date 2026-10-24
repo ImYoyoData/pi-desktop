@@ -1,7 +1,6 @@
 import {
   useEffect,
   useMemo,
-  useRef,
   useState,
   type ComponentType,
   type ReactNode,
@@ -20,10 +19,16 @@ import {
   type IoniconProps,
 } from "@renderer/components/icons/ionicons";
 import type { ToolCard } from "@renderer/utils/tool-diff";
-import { toolCommandFromArgs, toolPathFromArgs } from "@renderer/utils/tool-diff";
+import {
+  toolCardDurationMs,
+  toolCardHasBody,
+  toolCommandFromArgs,
+  toolPathFromArgs,
+} from "@renderer/utils/tool-diff";
 import type { ChatToolNestedCall } from "@renderer/stores/chat-reducer";
 import { isToolCardOpen } from "@renderer/utils/tool-card-open";
 import FileChip from "@renderer/components/FileChip";
+import ToolBody from "@renderer/components/ToolBody";
 import { useI18n } from "@renderer/i18n/use-i18n";
 import { formatDuration } from "@renderer/utils/format-duration";
 import { useAgentRunsStore } from "@renderer/stores/agent-runs";
@@ -43,8 +48,11 @@ type Props = {
   streaming?: boolean;
   /** True once the whole turn finished: fold finished process rows (Codex-like). */
   autoCollapse?: boolean;
-  /** Rendered as a child of a Copilot tool group: indented under the tree line. */
-  treeItem?: boolean;
+  /**
+   * "row"：独立工具行（两行式布局）。
+   * "step"：工作区块时间线里的一步（单行式，展开体紧跟在本行下方）。
+   */
+  variant?: "row" | "step";
   /**
    * Never auto-expand while streaming — the row stays folded until the user opens
    * it. Used for the detail rows inside a work-section, whose group header already
@@ -114,7 +122,7 @@ export function ToolCallCard({
   statusType,
   streaming,
   autoCollapse,
-  treeItem,
+  variant = "row",
   detailCollapsed,
   nestedCalls,
   onOpen,
@@ -127,10 +135,6 @@ export function ToolCallCard({
 
   /** Explicit user toggle; null = follow the automatic rule. */
   const [manuallyOpen, setManuallyOpen] = useState<boolean | null>(null);
-  const bodyRef = useRef<HTMLPreElement | null>(null);
-  /** Follow newest lines unless the user scrolls up inside the card. */
-  const stickToBottom = useRef(true);
-  const NEAR_BOTTOM_PX = 48;
   const [backgroundBusy, setBackgroundBusy] = useState(false);
 
   /**
@@ -139,20 +143,28 @@ export function ToolCallCard({
    * state. Default is folded for every kind — a long turn can hold dozens of cards,
    * and auto-expanding them buries the answer under diffs and file dumps.
    */
-  const open = isToolCardOpen({
-    kind: card.kind,
-    expandToolCalls: appearance.expandToolCalls,
-    detailCollapsed: Boolean(detailCollapsed),
-    autoCollapse: Boolean(autoCollapse),
-    streaming: Boolean(streaming),
-    manuallyOpen,
-  });
+  /**
+   * 时间线步骤默认折叠，用户点开才展开；正在流式输出的那一步自动展开，
+   * 结果落地后自动收起，答案不被淹没。独立工具行沿用原有的自动展开规则。
+   */
+  const open =
+    variant === "step"
+      ? manuallyOpen !== null
+        ? manuallyOpen
+        : Boolean(streaming)
+      : isToolCardOpen({
+          kind: card.kind,
+          expandToolCalls: appearance.expandToolCalls,
+          detailCollapsed: Boolean(detailCollapsed),
+          autoCollapse: Boolean(autoCollapse),
+          streaming: Boolean(streaming),
+          manuallyOpen,
+        });
 
   useEffect(() => {
     if (!streaming) return;
     // Reset manual override while streaming so it tracks live state.
     setManuallyOpen(null);
-    stickToBottom.current = true;
   }, [streaming]);
 
   // Fold everything as soon as the round finishes; users can re-expand manually.
@@ -343,63 +355,18 @@ export function ToolCallCard({
     );
   }
 
-  const body = useMemo(() => {
-    if (card.kind === "todo") return null;
-    if (card.kind === "bash") {
-      const cmd = card.command?.trim() || "";
-      const out = card.preview;
-      if (cmd && out) return `$ ${cmd}\n\n${out}`;
-      if (out) return out;
-      if (cmd) return `$ ${cmd}`;
-      return null;
-    }
-    if (card.kind === "edit" || card.kind === "write") {
-      return card.diff;
-    }
-    if (card.kind === "other") return card.diff;
-    return card.kind === "read" || card.kind === "generic" ? card.preview : null;
-  }, [card]);
-
-  const stickKinds = card.kind === "write" || card.kind === "edit" || card.kind === "bash";
-
-  useEffect(() => {
-    if (!stickKinds) return;
-    // Write/edit: always stick while open (args/result land progressively).
-    // Bash: stick while streaming live output.
-    if (card.kind === "bash" && !streaming) return;
-    if (!open || !stickToBottom.current) return;
-    const el = bodyRef.current;
-    if (!el) return;
-    el.scrollTop = el.scrollHeight;
-  }, [body, streaming, open, stickKinds, card.kind]);
-
   const cardImages = useMemo<string[]>(
     () => (card.kind === "generic" ? card.images : []),
     [card],
   );
-
-  const emptyBodyText = useMemo(() => {
-    if (card.kind === "bash") return t.toolNoOutput;
-    if (card.kind === "todo") return t.toolTodoEmpty;
-    if (card.kind === "read" || card.kind === "generic") return t.toolNoOutput;
-    return t.toolNoDiff;
-  }, [card.kind, t]);
-
-  const isDiffBody = card.kind === "edit" || card.kind === "write";
 
   const pathTitle =
     card.kind === "bash" || card.kind === "generic" || card.kind === "todo"
       ? undefined
       : (card.path ?? undefined);
 
-  const todoItems = useMemo(() => (card.kind === "todo" ? card.items : []), [card]);
-
   /** Rows with nothing to reveal drop the disclosure affordance (VS Code setExpandable). */
-  const expandable =
-    card.kind === "todo"
-      ? todoItems.length > 0
-      : Boolean(body) || cardImages.length > 0;
-
+  const expandable = toolCardHasBody(card) || cardImages.length > 0;
   /** 可预览的文件路径（read / edit / write / other 卡才有）。 */
   const previewPath = useMemo<string | null>(() => {
     if (
@@ -414,32 +381,146 @@ export function ToolCallCard({
   }, [card]);
 
   function toggleOpen(): void {
-    const next = !open;
-    setManuallyOpen(next);
-    if (!next) return;
-    stickToBottom.current = true;
+    setManuallyOpen(!open);
   }
 
-  function onBodyScroll(): void {
-    const el = bodyRef.current;
-    if (!el) return;
-    stickToBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < NEAR_BOTTOM_PX;
-  }
+  /** 时间线步骤的动词：按工具语义给一个短标签。 */
+  const stepVerb = useMemo(() => {
+    switch (card.kind) {
+      case "read":
+        return t.wsStepRead;
+      case "edit":
+      case "write":
+      case "other":
+        return t.wsStepEdit;
+      case "bash":
+        return t.wsStepBash;
+      case "todo":
+        return t.wsStepTodo;
+      default:
+        return t.wsStepTool;
+    }
+  }, [card.kind, t]);
 
-  const bodyLines = useMemo(() => (body ? body.split("\n") : []), [body]);
+  /** 时间线步骤的目标：文件可点开、命令用等宽字体、其余用摘要。 */
+  const stepTarget = useMemo<ReactNode>(() => {
+    if (previewPath) return <FileChip path={previewPath} onOpen={onOpen} />;
+    if (card.kind === "bash" && card.command) {
+      return <code className={styles.stepCmd}>{card.command}</code>;
+    }
+    return <span className={styles.stepText}>{headline || toolName}</span>;
+  }, [card, headline, onOpen, previewPath, toolName]);
+
+  /** 时间线步骤右侧的度量：行数 / 改动数 / 退出码 / 耗时。 */
+  const stepMeta = useMemo<ReactNode>(() => {
+    const parts: ReactNode[] = [];
+    if (card.kind === "read" && card.linesRead != null) {
+      parts.push(t.toolBodyLines(card.linesRead));
+    }
+    if ((card.kind === "edit" || card.kind === "write") && card.stats) {
+      parts.push(
+        <span key="stats" className={styles.stepStats}>
+          <span className={styles.add}>+{card.stats.additions}</span>{" "}
+          <span className={styles.del}>−{card.stats.deletions}</span>
+        </span>,
+      );
+    }
+    if (card.kind === "bash" && card.exitCode != null) {
+      parts.push(
+        <span
+          key="exit"
+          className={card.exitCode === 0 ? styles.stepOk : styles.stepErr}
+        >
+          {t.toolBodyExitCode(card.exitCode)}
+        </span>,
+      );
+    }
+    if (card.kind === "todo" && card.items.length) {
+      parts.push(t.todoProgress(card.items.filter((i) => i.done).length, card.items.length));
+    }
+    const durationMs = toolCardDurationMs(card);
+    if (durationMs) parts.push(formatDuration(durationMs));
+    if (!parts.length) return null;
+    return parts.map((part, index) => (
+      <span key={index} className={styles.stepMetaItem}>
+        {part}
+      </span>
+    ));
+  }, [card, t]);
+
+  /** 内部调用列表：独立工具行挂在标题下方，时间线步骤挂在展开体里。 */
+  const nestedCallsBlock = nestedCalls?.length ? (
+    <div className={styles.subCalls}>
+      {nestedCalls.slice(0, 8).map((call) => {
+        const NestedIcon = call.streaming
+          ? EllipseOutline
+          : call.isError
+            ? CloseCircleOutline
+            : CheckmarkCircleOutline;
+        const target = nestedTarget(call.args);
+        return (
+          <div
+            key={call.toolCallId}
+            className={`${styles.subCall}${call.isError ? ` ${styles.error}` : ""}${call.streaming ? ` ${styles.running}` : ""}`}
+          >
+            <NestedIcon size={11} className={styles.subMark} />
+            <span className={styles.subName}>{call.toolName}</span>
+            {target ? <span className={styles.subTarget}>{target}</span> : null}
+            <span className={styles.subMeta}>
+              {call.streaming
+                ? t.toolRunning
+                : call.isError
+                  ? t.toolError
+                  : call.durationMs != null
+                    ? formatDuration(call.durationMs)
+                    : ""}
+            </span>
+          </div>
+        );
+      })}
+      {nestedCalls.length > 8 ? (
+        <div className={styles.subCall}>
+          <span className={styles.subMore}>
+            {t.toolResultMoreCalls(nestedCalls.length - 8)}
+          </span>
+        </div>
+      ) : null}
+    </div>
+  ) : null;
 
   return (
     <div
       className={[
         styles.toolCall,
         statusType === "error" ? styles.error : "",
-        treeItem ? styles.treeItem : "",
         !expandable ? styles.notExpandable : "",
         isAskUserTool ? styles.askUserMuted : "",
       ]
         .filter(Boolean)
         .join(" ")}
     >
+      {variant === "step" ? (
+        <div
+          className={styles.stepHead}
+          title={pathTitle}
+          onClick={() => {
+            if (expandable) toggleOpen();
+          }}
+        >
+          <span className={`${styles.stepDot} ${statusClass}`} aria-hidden="true">
+            <StatusIcon size={11} />
+          </span>
+          <span className={styles.stepVerb}>{stepVerb}</span>
+          <span className={styles.stepTarget}>{stepTarget}</span>
+          <span className={styles.stepMeta}>{stepMeta}</span>
+          {expandable ? (
+            <ChevronForwardOutline
+              size={12}
+              className={`${styles.hoverChev}${open ? ` ${styles.expanded}` : ""}`}
+            />
+          ) : null}
+        </div>
+      ) : (
       <div
         className={styles.toolCallHead}
         title={pathTitle}
@@ -470,44 +551,7 @@ export function ToolCallCard({
               ) : null}
             </span>
           </div>
-          {nestedCalls?.length ? (
-            <div className={styles.subCalls}>
-              {nestedCalls.slice(0, 8).map((call) => {
-                const NestedIcon = call.streaming
-                  ? EllipseOutline
-                  : call.isError
-                    ? CloseCircleOutline
-                    : CheckmarkCircleOutline;
-                const target = nestedTarget(call.args);
-                return (
-                  <div
-                    key={call.toolCallId}
-                    className={`${styles.subCall}${call.isError ? ` ${styles.error}` : ""}${call.streaming ? ` ${styles.running}` : ""}`}
-                  >
-                    <NestedIcon size={11} className={styles.subMark} />
-                    <span className={styles.subName}>{call.toolName}</span>
-                    {target ? <span className={styles.subTarget}>{target}</span> : null}
-                    <span className={styles.subMeta}>
-                      {call.streaming
-                        ? t.toolRunning
-                        : call.isError
-                          ? t.toolError
-                          : call.durationMs != null
-                            ? formatDuration(call.durationMs)
-                            : ""}
-                    </span>
-                  </div>
-                );
-              })}
-              {nestedCalls.length > 8 ? (
-                <div className={styles.subCall}>
-                  <span className={styles.subMore}>
-                    {t.toolResultMoreCalls(nestedCalls.length - 8)}
-                  </span>
-                </div>
-              ) : null}
-            </div>
-          ) : null}
+          {nestedCallsBlock}
         </div>
         {canBackground ? (
           <Button
@@ -530,62 +574,18 @@ export function ToolCallCard({
           />
         ) : null}
       </div>
-      {open && card.kind === "todo" && todoItems.length ? (
-        <ul className={styles.todoBody}>
-          {todoItems.map((item) => (
-            <li
-              key={item.id}
-              className={`${styles.todoRow}${item.done ? ` ${styles.done}` : ""}`}
-            >
-              {item.done ? (
-                <CheckmarkCircleOutline size={14} className={styles.todoMark} />
-              ) : (
-                <EllipseOutline size={14} className={styles.todoMark} />
-              )}
-              <span className={styles.todoText}>{item.text}</span>
-            </li>
-          ))}
-        </ul>
-      ) : null}
-      {open && body ? (
-        <pre
-          ref={bodyRef}
-          className={`${styles.toolBody}${card.kind === "bash" ? ` ${styles.toolBodyBash}` : ""}`}
-          onScroll={onBodyScroll}
-        >
-          <code>
-            {bodyLines.map((line, i) => (
-              <span
-                key={i}
-                className={`${styles.dline}${
-                  isDiffBody && line.startsWith("+") && !line.startsWith("+++")
-                    ? ` ${styles.add}`
-                    : isDiffBody && line.startsWith("-") && !line.startsWith("---")
-                      ? ` ${styles.del}`
-                      : isDiffBody &&
-                          (line.startsWith("@@") ||
-                            line.startsWith("diff ") ||
-                            line.startsWith("index ") ||
-                            line.startsWith("+++") ||
-                            line.startsWith("---"))
-                        ? ` ${styles.meta}`
-                        : ""
-                }`}
-              >
-                {line || " "}
-              </span>
-            ))}
-          </code>
-        </pre>
-      ) : null}
-      {open && !body && !cardImages.length ? (
-        <pre className={`${styles.toolBody} ${styles.empty}`}>{emptyBodyText}</pre>
-      ) : null}
-      {open && cardImages.length ? (
-        <div className={styles.toolImages}>
-          {cardImages.map((src, i) => (
-            <img key={i} src={src} className={styles.toolImage} alt="" />
-          ))}
+      )}
+      {open ? (
+        <div className={variant === "step" ? styles.stepBody : styles.rowBody}>
+          <ToolBody card={card} streaming={streaming} onOpen={onOpen} />
+          {variant === "step" ? nestedCallsBlock : null}
+          {cardImages.length ? (
+            <div className={styles.toolImages}>
+              {cardImages.map((src, i) => (
+                <img key={i} src={src} className={styles.toolImage} alt="" />
+              ))}
+            </div>
+          ) : null}
         </div>
       ) : null}
     </div>

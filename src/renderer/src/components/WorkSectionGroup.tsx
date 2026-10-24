@@ -245,6 +245,44 @@ export function WorkSectionGroup({ items, autoCollapse, onOpen }: Props): ReactN
   }, [toolItems]);
   const hasDiff = diffTotals.added > 0 || diffTotals.removed > 0;
 
+  /**
+   * 折叠态的读/改/命令比例条：一眼看出这一轮主要在做什么。
+   * 宽度按各类步骤数占比分配，没有这三类步骤时不显示。
+   */
+  const ratioParts = useMemo(() => {
+    const counts = { edit: 0, read: 0, bash: 0 };
+    for (const tool of categorized) {
+      if (tool.kind === "edit") counts.edit += 1;
+      else if (tool.kind === "read") counts.read += 1;
+      else if (tool.kind === "bash") counts.bash += 1;
+    }
+    const total = counts.edit + counts.read + counts.bash;
+    if (!total) return [];
+    const parts: Array<{ key: string; className: string; percent: number }> = [];
+    if (counts.edit) {
+      parts.push({
+        key: "edit",
+        className: styles.ratioEdit,
+        percent: (counts.edit / total) * 100,
+      });
+    }
+    if (counts.read) {
+      parts.push({
+        key: "read",
+        className: styles.ratioRead,
+        percent: (counts.read / total) * 100,
+      });
+    }
+    if (counts.bash) {
+      parts.push({
+        key: "bash",
+        className: styles.ratioBash,
+        percent: (counts.bash / total) * 100,
+      });
+    }
+    return parts;
+  }, [categorized]);
+
   const settled = Boolean(autoCollapse) || !anyStreaming;
   const title = settled ? summaryTitle : liveTitle;
 
@@ -298,6 +336,14 @@ export function WorkSectionGroup({ items, autoCollapse, onOpen }: Props): ReactN
         />
       </button>
 
+      {ratioParts.length ? (
+        <div className={styles.ratioBar} aria-hidden="true">
+          {ratioParts.map((part) => (
+            <i key={part.key} className={part.className} style={{ width: `${part.percent}%` }} />
+          ))}
+        </div>
+      ) : null}
+
       <div
         className={`${styles.workSectionAnimation}${!open ? ` ${styles.collapsed}` : ""}${animated ? ` ${styles.animated}` : ""}`}
         aria-hidden={open ? undefined : "true"}
@@ -305,12 +351,12 @@ export function WorkSectionGroup({ items, autoCollapse, onOpen }: Props): ReactN
         <div
           className={`${styles.workSectionAnimationInner}${heavySection && !open ? ` ${styles.forceHidden}` : ""}`}
         >
-          <div className={styles.workSectionBody}>
+          <div className={styles.timeline}>
             {items.map((msg) => {
               if (isToolMessage(msg)) {
                 const status = toolStatus(msg);
                 return (
-                  <div key={msg.id} className={styles.cotItem}>
+                  <div key={msg.toolCallId} className={styles.tlItem}>
                     <ToolCallCard
                       card={toolCard(msg)}
                       toolName={msg.toolName}
@@ -320,8 +366,7 @@ export function WorkSectionGroup({ items, autoCollapse, onOpen }: Props): ReactN
                       streaming={msg.streaming}
                       autoCollapse={autoCollapse}
                       nestedCalls={msg.nestedCalls}
-                      treeItem
-                      detailCollapsed
+                      variant="step"
                       onOpen={onOpen}
                     />
                   </div>
@@ -331,7 +376,7 @@ export function WorkSectionGroup({ items, autoCollapse, onOpen }: Props): ReactN
                 return (
                   <div
                     key={msg.id}
-                    className={`${styles.cotItem} ${styles.thinkingItem}`}
+                    className={`${styles.tlItem} ${styles.thinkingItem}`}
                   >
                     <span className={styles.thinkingBadge} aria-hidden="true">
                       <BrainOutline size={13} />
