@@ -517,6 +517,9 @@ export const useChatStore = create<ChatStoreState>()((set, get) => {
 			...(row.thinkingLevel ? { thinkingLevel: row.thinkingLevel } : {}),
 			...(row.usage ? { usage: row.usage } : {}),
 			...(row.durationMs != null ? { durationMs: row.durationMs } : {}),
+			...(row.thinkingDurationMs != null
+				? { thinkingDurationMs: row.thinkingDurationMs }
+				: {}),
 		};
 	}
 

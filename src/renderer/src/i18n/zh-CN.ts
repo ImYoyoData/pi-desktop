@@ -734,6 +734,7 @@ export const zh = {
 	thinkingLevel: "思考级别",
 	thinking: "思考过程",
 	thinkingStreaming: "思考中",
+	thinkingChars: (n: number) => `${n} 字`,
 	composerSettingsLocked: "Pi 回复期间不可修改思考级别（模型随时可切换）",
 	imageTooLarge: "图片不能超过 8MB",
 	pasteImageOk: "已添加图片",

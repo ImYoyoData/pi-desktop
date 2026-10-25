@@ -19,7 +19,6 @@ import {
   type WorkSectionTool,
 } from "@renderer/utils/tool-group";
 import { useI18n } from "@renderer/i18n/use-i18n";
-import { formatDuration } from "@renderer/utils/format-duration";
 import styles from "./WorkSectionGroup.module.css";
 
 type ToolMessage = Extract<ChatMessage, { role: "tool" }>;
@@ -378,11 +377,7 @@ export function WorkSectionGroup({ items, autoCollapse, onOpen }: Props): ReactN
                         thinking={msg.thinking}
                         streaming={Boolean(msg.streaming)}
                         autoCollapse={Boolean(autoCollapse)}
-                        meta={
-                          msg.thinkingDurationMs != null
-                            ? formatDuration(msg.thinkingDurationMs)
-                            : undefined
-                        }
+                        durationMs={msg.thinkingDurationMs}
                       />
                     </div>
                   </div>

@@ -432,6 +432,12 @@ function buildMessagesFromEntries(
           turnStartMs != null && Number.isFinite(doneMs)
             ? Math.max(0, doneMs - turnStartMs)
             : null;
+        // pi 记录的这条消息耗时（模型调用开始到落盘）：历史会话里思考行只能用它显示耗时。
+        const recordedMs = entry.message.durationMs;
+        const thinkingDurationMs =
+          typeof recordedMs === "number" && Number.isFinite(recordedMs) && recordedMs > 0
+            ? recordedMs
+            : null;
         messages.push({
           id: entry.id,
           role: "assistant",
@@ -441,6 +447,7 @@ function buildMessagesFromEntries(
           ...(currentThinkingLevel ? { thinkingLevel: currentThinkingLevel } : {}),
           ...(usage ? { usage } : {}),
           ...(durationMs != null && durationMs > 0 ? { durationMs } : {}),
+          ...(thinkingDurationMs != null ? { thinkingDurationMs } : {}),
         });
       }
       // stop 落在工具执行中时磁盘上没有 tool_result，补一张已取消卡片，
