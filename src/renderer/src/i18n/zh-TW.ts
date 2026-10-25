@@ -951,7 +951,7 @@ export const zhTW = {
 	appearanceSurfaceInput: "輸入框透明度",
 	appearanceSurfaceCard: "卡片透明度",
 	appearanceSurfaceCardTip: "同時控制介面底色的半透明程度，卡片會在此基礎上稍實一階。",
-	appearanceSurfaceSettings: "設定頁透明度",
+	appearanceSurfaceSettings: "彈窗透明度",
 	appearanceSurfaceTool: "工具卡片透明度",
 	appearanceSurfaceToolTip: "控制對話中工具呼叫卡片的命令與輸出區塊底色透明度。",
 	appearanceMessageWidth: "訊息區寬度",

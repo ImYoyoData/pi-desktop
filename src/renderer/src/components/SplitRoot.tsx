@@ -8,6 +8,7 @@ const SessionSidebar = lazy(() => import("@renderer/components/SessionSidebar"))
 const ChatPanel = lazy(() => import("@renderer/components/ChatPanel"));
 const RightPane = lazy(() => import("@renderer/components/RightPane"));
 const PullRequestsView = lazy(() => import("@renderer/components/PullRequestsView"));
+const CustomizeView = lazy(() => import("@renderer/components/CustomizeView"));
 const BottomPanel = lazy(() => import("@renderer/components/BottomPanel"));
 
 /** Nested splits: outer left↔main, inner chat↔right, chat area chat↔bottom panel. */
@@ -110,9 +111,11 @@ export function SplitRoot(): React.ReactNode {
     layout.setBottomSize(bottomOfColumn);
   }
 
-  /** 拉取请求页是主区全屏视图，会话栏随视图一起收起。 */
+  /** 拉取请求页与设置页都是主区全屏视图，会话栏随视图一起收起。 */
   const prOpen = layout.centerView === "pull-requests";
-  const leftHidden = layout.leftCollapsed || prOpen;
+  const customizeOpen = layout.centerView === "customize" && Boolean(workspaceRoot);
+  const fullPageView = prOpen || customizeOpen;
+  const leftHidden = layout.leftCollapsed || fullPageView;
 
   return (
     <div className="split-root">
@@ -136,7 +139,7 @@ export function SplitRoot(): React.ReactNode {
           minSize={leftHidden ? 100 : 100 - PANE_MAX}
         >
           <SplitPanes
-            className={`panes inner${prOpen ? " pane-collapsed" : ""}`}
+            className={`panes inner${fullPageView ? " pane-collapsed" : ""}`}
             onResized={onInnerResized}
           >
             <SplitPane
@@ -205,6 +208,13 @@ export function SplitRoot(): React.ReactNode {
             <Capsule overlay>
               <Suspense fallback={null}>
                 <PullRequestsView />
+              </Suspense>
+            </Capsule>
+          ) : null}
+          {customizeOpen ? (
+            <Capsule overlay>
+              <Suspense fallback={null}>
+                <CustomizeView />
               </Suspense>
             </Capsule>
           ) : null}

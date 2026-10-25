@@ -951,7 +951,7 @@ export const ja = {
 	appearanceSurfaceInput: "入力欄の透明度",
 	appearanceSurfaceCard: "カードの透明度",
 	appearanceSurfaceCardTip: "画面の下地の半透明具合も同時に制御します。カードはその上で少し濃くなります。",
-	appearanceSurfaceSettings: "設定画面の透明度",
+	appearanceSurfaceSettings: "ダイアログの透明度",
 	appearanceSurfaceTool: "ツールカードの透明度",
 	appearanceSurfaceToolTip: "チャット内のツール呼び出しカードにあるコマンドと出力ブロックの背景の透明度。",
 	appearanceMessageWidth: "メッセージ領域の幅",
