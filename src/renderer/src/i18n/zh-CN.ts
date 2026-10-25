@@ -486,6 +486,9 @@ export const zh = {
 	deleteConfirm: (label: string) =>
 		`确定删除会话「${label}」？将永久删除会话文件。`,
 	stuckBanner: "该会话的 Worker 无响应。可终止或仅重启此会话。",
+	turnCancelled: "已取消",
+	workerExitedUnexpected: (code: number) =>
+		`会话 Worker 异常退出（code ${code}）。可终止或重启此会话。`,
 	todoProgress: (done: number, total: number) => `待办 ${done}/${total}`,
 	todoAllDone: (total: number) => `待办已完成（${total}）`,
 	todoRemaining: (n: number) => `剩余 ${n} 项`,

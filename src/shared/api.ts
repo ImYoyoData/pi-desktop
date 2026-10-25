@@ -14,6 +14,7 @@ import type {
 import { IpcChannels } from "./protocol";
 import type { StateChange } from "./state-sync";
 import type { EditContextMenuAction, EditContextMenuPayload } from "./context-menu";
+import type { EditMenuLocale } from "./edit-menu-i18n";
 import type {
 	GitHubImageResult,
 	GitHubResponse,
@@ -191,7 +192,7 @@ export function createApi(
 			) as Promise<void>,
 		setChromeTheme: (mode: "light" | "dark") =>
 			ipcRenderer.invoke(IpcChannels.window.setChromeTheme, mode) as Promise<void>,
-		setUiLocale: (locale: "zh-CN" | "en") =>
+		setUiLocale: (locale: EditMenuLocale) =>
 			ipcRenderer.invoke(IpcChannels.window.setUiLocale, locale) as Promise<void>,
 		requestMediaAccess: (kind: "microphone" | "camera") =>
 			ipcRenderer.invoke(

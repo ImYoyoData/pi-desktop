@@ -501,6 +501,9 @@ export const en = {
 		`Delete session “${label}”? Session files will be permanently removed.`,
 	stuckBanner:
 		"This session’s Worker is unresponsive. Terminate or restart this session only.",
+	turnCancelled: "Cancelled",
+	workerExitedUnexpected: (code: number) =>
+		`Session worker exited unexpectedly (code ${code}). Terminate or restart this session.`,
 	todoProgress: (done: number, total: number) => `Todos ${done}/${total}`,
 	todoAllDone: (total: number) => `Todos complete (${total})`,
 	todoRemaining: (n: number) => `${n} remaining`,

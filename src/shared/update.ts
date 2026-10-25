@@ -83,7 +83,8 @@ const ASSET_SUFFIXES: Record<string, string[]> = {
 	"win32-arm64": ["-win-arm64-setup.exe"],
 	"darwin-arm64": ["-mac-arm64.dmg"],
 	"darwin-x64": ["-mac-x64.dmg"],
-	"linux-x64": ["-linux-x64.AppImage"],
+	// AppImage 的 ${arch} 宏渲染为 x86_64（builder-util getArtifactArchName），arm64 不变。
+	"linux-x64": ["-linux-x86_64.AppImage"],
 	"linux-arm64": ["-linux-arm64.AppImage"],
 };
 

@@ -1,13 +1,21 @@
 import { app, BrowserWindow, Notification, ipcMain } from "electron";
 import { IpcChannels } from "../shared/protocol";
 import { getUiLocale } from "./ui-locale";
+import type { EditMenuLocale } from "../shared/edit-menu-i18n";
 import type { SessionBroker } from "./session-broker";
 
 /** Keep Notification instances alive until click/close — otherwise GC drops the click handler. */
 const liveNotifications = new Set<Notification>();
 
+const TURN_COMPLETE_BODY: Record<EditMenuLocale, string> = {
+  "zh-CN": "回答已完成",
+  "zh-TW": "回答已完成",
+  ja: "応答が完了しました",
+  en: "Turn complete",
+};
+
 function defaultTurnCompleteBody(): string {
-  return getUiLocale() === "zh-CN" ? "回答已完成" : "Turn complete";
+  return TURN_COMPLETE_BODY[getUiLocale()];
 }
 
 function isMainWindowFocused(): boolean {
