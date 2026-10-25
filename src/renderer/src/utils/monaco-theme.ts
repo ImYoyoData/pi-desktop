@@ -50,7 +50,7 @@ export function defineMonacoThemes(monaco: typeof Monaco): void {
     inherit: true,
     rules: [],
     colors: {
-      "editor.background": "#121314",
+      "editor.background": "#191a1b",
       "editor.foreground": "#f5f6f7",
       "editorLineNumber.foreground": "#adb2b8",
       "editorLineNumber.activeForeground": "#f5f6f7",
@@ -63,8 +63,8 @@ export function defineMonacoThemes(monaco: typeof Monaco): void {
       "editorWidget.background": "#202122",
       "editorWidget.border": "#2a2b2c",
       /* 吸顶条覆盖在代码上：半透明底（壁纸模式下透出背景，又不与代码重叠） */
-      "editorStickyScroll.background": "#1213146b",
-      "editorStickyScrollHover.background": "#1213148c",
+      "editorStickyScroll.background": "#191a1b6b",
+      "editorStickyScrollHover.background": "#191a1b8c",
       "editorStickyScroll.border": "#ffffff12",
       "editorStickyScroll.shadow": "#00000000",
       "editorSuggestWidget.background": "#202122",

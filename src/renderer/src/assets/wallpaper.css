@@ -8,7 +8,7 @@
 
 html[data-theme][data-wallpaper="on"] {
   /* 深色玻璃：基色固定为 VS Code 2026 Dark 的中性灰，不随主题切换 */
-  --w-solid-bg: #121314;
+  --w-solid-bg: #191a1b;
   --w-solid-elevated: #202122;
   --w-solid-input: #202122;
 
