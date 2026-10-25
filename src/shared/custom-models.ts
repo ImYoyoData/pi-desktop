@@ -48,13 +48,18 @@ export type CustomProviderDraft = {
   id: string;
   name: string;
   baseUrl: string;
-  api: CustomModelApi;
+  /** providers.<id>.api；未知取值原样保留（如分类器的 system-one api）。 */
+  api: string;
   /**
    * UI field for the API key. Written to `providers.<id>.apiKey` in models.json.
    */
   apiKey: string;
   supportsDeveloperRole: boolean;
   supportsReasoningEffort: boolean;
+  /** classifier 图像输入方式（pi compat.imageInput）；auto 表示不写该键。 */
+  imageInput: CustomImageInput;
+  /** classifier 是否带 TypeSafe 图像 opt-in 头；true 表示不写该键（走 pi 默认）。 */
+  imageOptInHeader: boolean;
   models: CustomModelEntry[];
 };
 
@@ -77,6 +82,8 @@ export function emptyCustomProvider(partial?: Partial<CustomProviderDraft>): Cus
     apiKey: "",
     supportsDeveloperRole: false,
     supportsReasoningEffort: false,
+    imageInput: "auto",
+    imageOptInHeader: true,
     models: [newModelEntry()],
     ...partial,
   };
@@ -107,11 +114,25 @@ export function stringifyModelsConfig(doc: ModelsConfigDoc): string {
   return `${JSON.stringify({ ...doc.rest, providers: doc.providers }, null, 2)}\n`;
 }
 
-function parseApi(v: unknown): CustomModelApi {
-  if (typeof v === "string" && (CUSTOM_MODEL_APIS as readonly string[]).includes(v)) {
-    return v as CustomModelApi;
-  }
-  return "openai-completions";
+/** 保留 models.json 里的 api 原值，只给缺失值兜底，避免改写分类器等非对话 api。 */
+function parseApi(v: unknown): string {
+  return typeof v === "string" && v.trim() ? v.trim() : "openai-completions";
+}
+
+/** pi compat.imageInput 的已支持取值；auto 表示不写该键。 */
+export const CUSTOM_IMAGE_INPUTS = [
+  "auto",
+  "assets",
+  "images",
+  "state-image-urls",
+] as const;
+
+export type CustomImageInput = (typeof CUSTOM_IMAGE_INPUTS)[number];
+
+function parseImageInput(v: unknown): CustomImageInput {
+  return typeof v === "string" && (CUSTOM_IMAGE_INPUTS as readonly string[]).includes(v)
+    ? (v as CustomImageInput)
+    : "auto";
 }
 
 function parsePositiveInt(v: unknown): number | undefined {
@@ -195,6 +216,8 @@ export function providerToDraft(id: string, raw: unknown): CustomProviderDraft {
       typeof compat.supportsReasoningEffort === "boolean"
         ? compat.supportsReasoningEffort
         : !localOff,
+    imageInput: parseImageInput(compat.imageInput),
+    imageOptInHeader: compat.sendImageOptInHeader !== false,
     models,
   };
 }
@@ -316,6 +339,10 @@ export function draftToProviderJson(
   else compat.supportsDeveloperRole = false;
   if (draft.supportsReasoningEffort) delete compat.supportsReasoningEffort;
   else compat.supportsReasoningEffort = false;
+  if (draft.imageInput === "auto") delete compat.imageInput;
+  else compat.imageInput = draft.imageInput;
+  if (draft.imageOptInHeader) delete compat.sendImageOptInHeader;
+  else compat.sendImageOptInHeader = false;
   if (Object.keys(compat).length) out.compat = compat;
   else delete out.compat;
 
@@ -359,8 +386,8 @@ export function validateCustomProvider(
   } catch {
     return "Base URL is invalid";
   }
-  if (!(CUSTOM_MODEL_APIS as readonly string[]).includes(draft.api)) {
-    return "API type is invalid";
+  if (!draft.api.trim()) {
+    return "API type is required";
   }
   const modelIds = draft.models.map((m) => m.id.trim()).filter(Boolean);
   if (!modelIds.length) return "Add at least one model id";

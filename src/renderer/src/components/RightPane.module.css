@@ -40,14 +40,9 @@
   z-index: 5;
 }
 
+/* 卡片式布局里不再画分隔线：胶囊之间只留间隙，拖拽热区保留 */
 .dockDivider::after {
-  content: "";
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  left: 2px;
-  width: 1px;
-  background: var(--border);
+  display: none;
 }
 
 .dockCol {
@@ -55,7 +50,11 @@
   min-width: 0;
   display: flex;
   flex-direction: column;
+  margin: 3px 3px 3px 0;
+  border: 1px solid var(--border);
+  border-radius: 12px;
   background: var(--bg);
+  overflow: hidden;
 }
 
 .dockColHead {

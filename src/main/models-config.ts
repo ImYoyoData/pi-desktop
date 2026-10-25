@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { agentDir } from "./agent-dir";
+import { readJsonText } from "./json-text";
 import { COMMON_API_KEY_PROVIDERS } from "../shared/models-settings";
 
 export type ModelsConfig = {
@@ -63,8 +64,7 @@ function writeJsonAtomic(filePath: string, data: unknown): void {
 
 function readJsonFile<T>(filePath: string, fallback: T): T {
   try {
-    const raw = fs.readFileSync(filePath, "utf8");
-    return JSON.parse(raw) as T;
+    return JSON.parse(readJsonText(filePath)) as T;
   } catch {
     return fallback;
   }
@@ -90,7 +90,7 @@ export function createModelsConfig(paths: ModelsConfigPaths) {
 
   async function readModelsConfigText(): Promise<string> {
     try {
-      return fs.readFileSync(paths.modelsPath, "utf8");
+      return readJsonText(paths.modelsPath);
     } catch {
       return `${JSON.stringify({ providers: {} }, null, 2)}\n`;
     }

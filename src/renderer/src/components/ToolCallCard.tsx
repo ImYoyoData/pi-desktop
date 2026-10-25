@@ -236,10 +236,11 @@ export function ToolCallCard({
       if (statusType === "error") {
         const line = firstLine(card.preview);
         if (line) parts.push(line);
-      } else if (card.linesRead != null && card.totalLines != null) {
-        parts.push(t.toolResultReadOf(card.linesRead, card.totalLines));
       } else if (card.linesRead != null) {
-        parts.push(t.toolResultRead(card.linesRead));
+        const start = card.startLine ?? 1;
+        parts.push(
+          t.toolResultReadRange(start, start + card.linesRead - 1, card.totalLines),
+        );
       }
     } else if (card.kind === "bash") {
       if (statusType === "error") {

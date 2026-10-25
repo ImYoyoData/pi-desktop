@@ -29,7 +29,8 @@
 .body {
   flex: 1;
   min-height: 0;
-  overflow: auto;
+  overflow-y: auto;
+  overflow-x: hidden;
   padding: 2px 4px;
 }
 
@@ -42,6 +43,7 @@
 .body :global(.ant-tree .ant-tree-node-content-wrapper) {
   font-size: 0.9231rem;
   min-height: 22px;
+  min-width: 0;
   border-radius: 6px;
   transition: background 120ms ease;
 }
@@ -60,22 +62,36 @@
   padding: 0;
 }
 
+/* antd Tree 给每个节点渲染的拖拽把手图标：节点本身就能直接拖动，不需要这列竖点 */
+.body :global(.ant-tree .ant-tree-draggable-icon) {
+  display: none;
+}
+
 .treeNode {
-  display: inline-flex;
+  display: flex;
   align-items: center;
   gap: 0;
+  min-width: 0;
+  max-width: 100%;
 }
 
 .treeNodeCut {
-  display: inline-flex;
+  display: flex;
   align-items: center;
   gap: 0;
+  min-width: 0;
+  max-width: 100%;
   opacity: 0.45;
 }
 
+/* 面板变窄时文件名保持单行，末尾省略，不折行 */
 .treeLabel {
   font-size: 0.9231rem;
   color: var(--fg, #1f2328);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .gitBadge {
@@ -84,6 +100,7 @@
   font-family: var(--font-mono);
   margin-left: 4px;
   opacity: 0.95;
+  flex-shrink: 0;
 }
 
 .gitDot {
@@ -93,6 +110,7 @@
   background: var(--git-m);
   display: inline-block;
   margin-left: 6px;
+  flex-shrink: 0;
 }
 
 .treeLabel.ignored {

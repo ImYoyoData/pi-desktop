@@ -1,5 +1,35 @@
 # Changelog
 
+## v0.3.6-rc.5 (2026-10-26)
+
+本版把主界面改成卡片式布局：左侧图标导航、会话栏、聊天列、右侧面板与底栏统一为浮动胶囊卡片，拉取请求页与设置页改为主区独立页面，下拉菜单统一胶囊外观；同时修复中断轮次留下孤儿工具结果导致后续发送失败、文件树右键菜单贴边被裁、窄面板文件名折行与编辑器吸顶条透明底等问题。
+
+### 新功能 Features
+
+- **卡片式主界面与左侧图标导航**：会话栏、聊天列、右侧面板与底栏统一为 12px 圆角 + 1px 描边的浮动卡片，分栏线不再绘制也不占位（保留 6px 拖拽热区）；最左侧新增 46px 图标导航（会话 / 拉取请求 / 设置），折叠会话栏时依然常驻。
+- **下拉菜单统一胶囊样式**：antd Dropdown / Menu / Select 与自绘的编辑区右键菜单、斜杠菜单、@ 文件菜单统一为 12px 容器圆角、8px 条目圆角与一致的内边距。
+- **拉取请求页 / 设置页改为主区独立页面**：两者铺满主内容区并收起会话栏（保留图标导航），设置页不再是可拖动浮窗，透明度跟随普通界面档位，「设置页透明度」相应改名为「弹窗透明度」，只作用于设置类弹窗。
+- **文件树与编辑器细节**：文件树去掉每行的拖拽把手与「过滤此文件」菜单项，面板变窄时文件名单行省略；编辑器吸顶条在壁纸模式下改为跟随卡片透明度的半透明玻璃并加模糊。
+
+- **Card-based main layout with a left icon rail**: the session list, chat column, right pane and bottom panel are now floating cards (12px radius, 1px stroke) with no drawn or reserved splitter lines (6px drag areas kept); a new 46px icon rail on the far left hosts sessions / pull requests / settings and stays visible when the session list is collapsed.
+- **Unified capsule dropdowns**: antd Dropdown / Menu / Select plus the custom editor context menu, slash menu and @ file menu now share a 12px container radius, 8px item radius and matching padding.
+- **Pull requests and Settings became full main-area pages**: both fill the main content area and collapse the session list (the icon rail stays), Settings is no longer a draggable floating window, follows the normal surface alpha, and "Settings opacity" is renamed to "Dialog opacity" since it now only affects settings dialogs.
+- **Files tree and editor polish**: the file tree drops per-row drag handles and the "filter this file" item, file names ellipsize on one line in narrow panes, and the editor sticky scroll becomes a translucent blurred glass that follows the card alpha under wallpapers.
+
+### 修复 Fixes
+
+- **修复中断轮次的孤儿工具结果导致后续发送失败**：pi 组装请求时会整条丢弃 `stopReason` 为 `error`/`aborted` 的 assistant 消息，但它的工具结果仍留在历史里，上游把这条无主 tool 消息当成非法请求，之后每次发送都失败。现在发送、引导、回滚与中止之后都会用 `context_edit` 把这些孤儿结果置空（界面显示不受影响）。
+- **修复文件树右键菜单贴边被裁**：菜单渲染后测量实际尺寸并夹回窗口可视区，窗口缩放时立即关闭菜单。
+- **修复分栏线移除后无法拖拽调整大小**：改为只清零分栏线「厚度」方向，另一方向保持拉伸，6px 拖拽热区继续沿着整条分界线可用。
+- **修复窄面板下文件名折行与滚动条白点**：文件名保持单行并省略，列表禁用横向滚动，去掉滚动条交角的白点。
+- **修复编辑器吸顶条的黑色投影**：壁纸模式下去掉原生投影并改用主题描边，避免半透明底上出现一道黑条。
+
+- **Fixed orphan tool results from interrupted turns breaking later sends**: pi drops assistant messages whose `stopReason` is `error`/`aborted` when assembling a request, but their tool results stay in history and the upstream rejects the ownerless tool message, so every later send fails. Sending, steering, rollback and abort now blank those results via `context_edit` (the UI is unchanged).
+- **Fixed the file tree context menu being clipped at window edges**: the menu is measured after render and clamped into the window, and it closes on window resize.
+- **Fixed splitter dragging after removing the divider lines**: only the thickness axis is zeroed and the other axis keeps stretching, so the 6px drag area still works along the whole divider.
+- **Fixed wrapping file names and the scrollbar corner dot in narrow panes**: names stay on one line and ellipsize, horizontal scrolling is disabled, and the scrollbar corner no longer paints a light dot.
+- **Fixed the sticky scroll's black shadow**: under wallpapers the native shadow is gone and a themed border is used instead, so the translucent header no longer shows a dark band.
+
 ## v0.3.6-rc.4 (2026-10-25)
 
 本版重点重做过程区可视化：工具结果按语义分型渲染（文件视图 / 词级 diff / 终端卡 / JSON 树），工作区块展开即为过程时间线，思考行支持 Markdown、字数与实时耗时；同时新增浏览器直连 dev 页面的开发预览桥、内置工具使用偏好引导与流式渲染 0ms 实时档，并修复上一轮过程内容被裁掉、思考过程中停止自动滚动、JSON 树与结构化输出交互、安装器目录修正后快捷方式未同步与运行中会话抢位等问题。
@@ -11,12 +41,14 @@
 - **浏览器直连 dev 页面预览**：新增开发桥（主进程 HTTP + SSE），外部浏览器打开 Vite dev 页面即可作为桌面端操作同一份状态——文件、Git、会话、终端都可用。桌面 API 抽成与传输无关的 `src/shared/api.ts`，preload 与预览共用一份接口定义；共享状态统一走 `state:changed` 通道（偏好、工作区与当前会话、模型与流式渲染、思考语言、重试、运行时、代理设置）；桥端口由 Vite 端口派生（+10000），页面启动校验实例标识，连到别的实例时直接提示；桥提供 `/media` 端点（支持 Range、仅本机来源）显示本地壁纸。
 - **流式渲染新增 0ms 实时档**：节流档位加入 0（不节流、逐帧渲染），文案显示「实时」/「Realtime」。
 - **内置工具使用偏好**：新增内置扩展 `tool-preference`，在 `before_agent_start` 给 grep / find / ls / read / bash 补 prompt guidelines，把内容搜索、读文件与列目录推回内置工具，bash 留给管道、构建、测试与 git。
+- **跟进 pi 1.4.0 的新能力**：codemode 设置新增「并发 worker 上限」（对应 `PI_CODEMODE_MAX_WORKERS`，默认 2，存桌面偏好、会话启动时注入，超出的脚本排队最多等 60 秒而不是直接失败）；自定义提供商表单补上分类器图像兼容项（`compat.imageInput` 三选与 `compat.sendImageOptInHeader` 开关）；读取卡片状态行改为显示行范围（如「第 10-20 行，共 100 行」）；设置 → 工具在 codemode 区块显示当前会话加载的工具数与命名空间数，以及其中多少工具可触达其它工具（会话启动后上报）。
 
 - **Process area rebuilt**: tool rows now use an "action + target / status + result" two-line layout, collecting line counts, durations, diff stats and image counts on the status line; expanding a work section turns it into a process timeline and the section header counts thinking passes. Tool results render by kind: reads use a file view (line numbers + highlighting), edits use diffs (word-level marks), commands use a terminal card (exit code / truncation notice / full log path), and everything else falls back to a JSON tree, a path list or a script report; expanded bodies stay attached to their step instead of dropping to the bottom of the block. Nested calls (tools issued inside a codemode script) are listed with indentation, and each one expands to its arguments, result and failure reason.
 - **Thinking rows render Markdown and show size and duration**: thinking text is rendered as Markdown and can be collapsed; the row shows character count and duration, refreshing live once per second while thinking and settling on pi's recorded value afterwards, with history and snapshot messages (where the UI missed the thinking pass) falling back to pi's recorded duration.
 - **Browser preview wired straight to the dev page**: a new dev bridge (main-process HTTP + SSE) lets an external browser open the Vite dev page and drive the same state as the desktop — files, Git, sessions and terminals all work. The desktop API is now transport-agnostic (`src/shared/api.ts`) and shared by the preload and the preview, shared state flows through a single `state:changed` channel (preferences, workspace and active session, models and streaming render, thinking language, retry, runtime, proxy settings), the bridge port derives from the Vite port (+10000) with an instance id checked on page load so a page connected to another instance is told instead of silently drifting, and a `/media` endpoint (Range-capable, local origin only) serves local wallpapers.
 - **0 ms realtime streaming option**: the render throttle choices now include 0 (no throttling, per-frame rendering), shown as "实时" / "Realtime".
 - **Built-in tool usage preferences**: a new built-in `tool-preference` extension adds prompt guidelines to grep / find / ls / read / bash from `before_agent_start`, steering content search, file reads and directory listings to the built-in tools and leaving bash for pipelines, builds, tests and git.
+- **pi 1.4.0 follow-ups**: codemode settings gain a concurrent-worker cap (`PI_CODEMODE_MAX_WORKERS`, default 2) stored in desktop prefs and injected into the agent worker at session start, so scripts beyond the cap queue for up to 60s instead of failing; the custom-provider form exposes the classifier image compat (`compat.imageInput` with assets / images / state-image-urls, and the `compat.sendImageOptInHeader` switch); read cards show the line range (`lines 10-20 of 100`) instead of only a count; and Settings → Tools shows how many tools and namespaces the current session loaded, plus how many tools can reach other tools (reported once a session starts).
 
 ### 修复 Fixes
 
@@ -27,6 +59,8 @@
 - **修复安装目录修正后快捷方式仍指向旧路径**：`$appExe` 按修正前的目录赋值，快捷方式目标、`DisplayIcon` 与 keepShortcuts 判断都取自它，现于目录修正后重新同步。
 - **修复会话排序**：固定（pinned）顺序先于最近顺序；折叠状态下拖拽只重排可见行，其余保持相对顺序；运行中的会话不因活动抢位，状态落回 idle 时再按最近活动归位。
 - **修复浏览器预览页误响应关闭事件、连带关掉桌面端窗口**。
+- **修复自定义提供商的 api 被改写**：`models.json` 里手写的非对话 api（如分类器的 `typesafe-system-one`）读进表单后被当成 `openai-completions` 并写回去，提供商直接失效；现在原值原样保留，API 下拉也会补上当前值。
+- **修复配置 JSON 带 BOM 时读取失败**：`settings.json`、`models.json`、`mcp.json` 与提供商 id 迁移的读取都直接 `JSON.parse`，Windows 编辑器写入 UTF-8 BOM 后整份文件解析失败（MCP 列表为空、设置像被重置）；现在统一经 `readJsonText` 去掉 BOM。
 
 - **Fixed tool and thinking rows of the previous turn being dropped**: MessageList deleted tool rows and thinking-only rows that preceded the newest user message, so sending a message made the previous turn stop being the newest one and its tool cards, thinking blocks and summary row vanished. All process rows are now kept and grouped/collapsed into an expandable history summary.
 - **Fixed auto-scroll stopping during thinking**: follow mode now keys off the wheel, the scroller's own scrollbar and middle-click only, no longer mistaking content growth for user intent (a single jump past 48px used to stop following for good); the 120px bottom threshold is gone, wheel events inside nested scrollers such as thinking blocks no longer count as browsing history, and text selection plus middle-click auto-scroll take precedence.
@@ -35,15 +69,19 @@
 - **Fixed shortcuts pointing at the old path after the install directory is corrected**: `$appExe` was assigned from the pre-correction directory and drives shortcut targets, `DisplayIcon` and the keepShortcuts check, so it is re-synced after the directory is fixed.
 - **Fixed session ordering**: pinned sessions sort before recent ones; dragging while collapsed reorders only the visible rows and keeps the rest in order; a running session no longer jumps position on activity and returns to its recent-activity slot once its status falls back to idle.
 - **Fixed the browser preview responding to close events and closing the desktop window with it**.
+- **Fixed the custom provider api being rewritten**: a non-chat api in `models.json` (such as a classifier's `typesafe-system-one`) was read as `openai-completions` and written back, breaking the provider; the original value is kept and the API select offers it.
+- **Fixed config JSON failing to load with a BOM**: `settings.json`, `models.json`, `mcp.json` and the provider-id migration parsed the file directly, so a UTF-8 BOM (Windows editors) broke the whole file (empty MCP list, settings looking reset); they now go through `readJsonText`, which strips it.
 
 ### 变更 Changes
 
+- **升级 pi SDK 到 1.4.0**：`@earendil-works/pi-coding-agent`、`@earendil-works/pi-agent-core`、`@earendil-works/pi-ai`、`@earendil-works/pi-durable` 从 1.2.0 升到 1.4.0（pi-codemode / pi-mcp / pi-tui / pi-telemetry / chord 同步）。1.3.0 与 1.4.0 没删减顶层导出，桌面端源码无需改动：构建期的扩展加载器补丁（alias 换成 virtualModules）与 OAuth 动态 import 静态化仍匹配上游 dist，按文件路径引入的 `mcp/oauth.js`、`resolve-config-value.js` 与 codemode / 图片缩放 worker 入口都没变，`compaction` / `branchSummary` 设置结构也未变；扩展加载器新增了 `@earendil-works/pi-ai/models` 子路径，扩展可直接 import。
 - **工具步骤行**：度量（行数、耗时等）紧跟目标显示，展开箭头仍贴行尾；去掉重复的待办进度与重复耗时（耗时只在步骤行展示），步骤标题不可选中。
 - **diff 统一为 unified**：pi 的 display diff 在解析时归一化成 unified，渲染层只认一种格式——原先优先取 display diff 会让整张卡片退化成纯文本预览；diff 底色改走主题变量，词级改动加深。
 - **codemode 卡片标题改用调用概况**：显示「N 个调用」，不再拿脚本首行代码当标题。
 
 ### 变更 Changes (English)
 
+- **Upgraded pi SDK to 1.4.0**: `@earendil-works/pi-coding-agent`, `@earendil-works/pi-agent-core`, `@earendil-works/pi-ai` and `@earendil-works/pi-durable` moved from 1.2.0 to 1.4.0 (pi-codemode / pi-mcp / pi-tui / pi-telemetry / chord follow). 1.3.0 and 1.4.0 removed no top-level exports, so no desktop sources changed: the build-time extension-loader patch (aliases replaced with virtual modules) and the OAuth dynamic-import static rewrite still match upstream's dist, the by-path imports of `mcp/oauth.js` and `resolve-config-value.js` plus the codemode / image-resize worker entries are unchanged, as are the `compaction` / `branchSummary` settings shapes; the extension loader now also exposes `@earendil-works/pi-ai/models` to extensions.
 - **Tool step rows**: metrics (line counts, durations) now sit right after the target while the expand chevron stays at the row end; the duplicated todo progress and duration are gone (duration shows on the step row only), and step titles are no longer selectable.
 - **Diffs normalized to unified**: pi's display diff is parsed into unified form so the renderer knows one shape only — preferring the display diff used to degrade the whole card into a plain-text preview. Diff backgrounds moved to theme variables and word-level changes are darker.
 - **codemode card titles use the call summary**: the title shows "N calls" instead of the script's first code line.
