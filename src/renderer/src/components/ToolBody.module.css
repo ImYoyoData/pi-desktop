@@ -263,6 +263,112 @@
 .todoItem.done .todoMark { color: var(--success, #587c0c); }
 .todoText { min-width: 0; word-break: break-word; }
 
+/* --- 路径清单 --- */
+.pathList {
+  padding: 4px 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.pathItem {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 2px 12px;
+  font-family: var(--font-mono);
+  font-size: 0.8462rem;
+  line-height: 1.6;
+  color: var(--fg);
+}
+
+.pathItem:hover {
+  background: color-mix(in srgb, var(--fg) 3%, transparent);
+}
+
+.pathIcon {
+  flex-shrink: 0;
+  font-family: "seti";
+  font-size: 1.0769rem;
+  line-height: 1;
+  transform: translateY(1px);
+}
+
+.pathName {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pathDir .pathName { color: var(--fg-muted); }
+
+/* --- codemode 脚本报告 --- */
+.scriptSection + .scriptSection {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+}
+
+.scriptSectionTitle {
+  padding: 2px 12px 6px;
+  font-family: var(--font-mono);
+  font-size: 0.7692rem;
+  color: var(--chat-desc-fg, var(--fg-muted));
+}
+
+.scriptCode {
+  margin: 0 0 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+
+.scriptCodeHead {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 10px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-title);
+}
+
+.scriptCodePath {
+  flex: 1;
+  min-width: 0;
+  font-family: var(--font-mono);
+  font-size: var(--chat-font-xs, 11px);
+  color: var(--fg);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.scriptConsole {
+  margin: 0 0 8px;
+  padding: 7px 12px;
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--fg) 3.5%, transparent);
+  font-family: var(--font-mono);
+  font-size: 0.8462rem;
+  line-height: 1.55;
+  color: var(--fg-muted);
+}
+
+.scriptConsoleLine { white-space: pre-wrap; word-break: break-word; }
+
+.scriptError {
+  margin: 8px 12px;
+  padding: 8px 12px;
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--error, #ad0707) 12%, transparent);
+  color: var(--error, #ad0707);
+  font-family: var(--font-mono);
+  font-size: 0.8462rem;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
 /* --- JSON 树 --- */
 .jsonTree {
   padding: 6px 0;

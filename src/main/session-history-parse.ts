@@ -81,6 +81,8 @@ function nestedCallsFromMessage(
   | {
       toolCallId: string;
       toolName: string;
+      /** pi 记录的调用参数：渲染层据此说明「这个工具干了啥」。 */
+      args?: unknown;
       isError?: boolean;
       durationMs?: number;
     }[]
@@ -92,16 +94,24 @@ function nestedCallsFromMessage(
   const out: {
     toolCallId: string;
     toolName: string;
+    args?: unknown;
     isError?: boolean;
     durationMs?: number;
   }[] = [];
   for (const call of calls) {
     if (!call || typeof call !== "object") continue;
-    const row = call as { id?: unknown; name?: unknown; status?: unknown; durationMs?: unknown };
+    const row = call as {
+      id?: unknown;
+      name?: unknown;
+      status?: unknown;
+      durationMs?: unknown;
+      arguments?: unknown;
+    };
     if (typeof row.id !== "string" || !row.id) continue;
     out.push({
       toolCallId: row.id,
       toolName: typeof row.name === "string" && row.name ? row.name : "tool",
+      ...(row.arguments !== undefined ? { args: row.arguments } : {}),
       ...(row.status === "error" ? { isError: true } : {}),
       ...(typeof row.durationMs === "number" && Number.isFinite(row.durationMs)
         ? { durationMs: row.durationMs }

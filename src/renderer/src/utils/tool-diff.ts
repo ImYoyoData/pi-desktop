@@ -36,6 +36,7 @@ function fallbackToolCard(msg: ToolMessage): ToolCard {
     preview: rendered ? rendered.slice(0, 20_000) : null,
     images: [],
     structured: null,
+    args: null,
   };
 }
 
@@ -122,6 +123,8 @@ export type GenericToolCard = {
   images: string[];
   /** structuredContent：MCP / pi 工具的结构化结果，可直接渲染成 JSON 树。 */
   structured: unknown | null;
+  /** 原始调用参数：渲染层据此说明「这个工具操作了哪个路径」。 */
+  args: unknown;
   /** Execution duration stamped by the reducer (live turns only). */
   durationMs?: number | null;
 };
@@ -225,15 +228,46 @@ export function toolCommandFromArgs(args: unknown): string | null {
   return commandFromArgs(args);
 }
 
-/** 通用工具摘要：优先取代码首行，避免把整段 JSON 塞进标题。 */
+/** 通用工具的参数里最能说明「干了什么」的字段，按优先级排列。 */
+const GENERIC_TARGET_KEYS = [
+  "path",
+  "file_path",
+  "filePath",
+  "command",
+  "cmd",
+  "pattern",
+  "query",
+  "url",
+  "prompt",
+  "description",
+];
+
+/** 摘要截断：压掉换行、在词边界断开，避免出现半截 token。 */
+function truncateSummary(text: string, max = 64): string {
+  const flat = text.replace(/\s+/g, " ").trim();
+  if (flat.length <= max) return flat;
+  const cut = flat.slice(0, max);
+  const space = cut.lastIndexOf(" ");
+  const head = space > max * 0.6 ? cut.slice(0, space) : cut;
+  return `${head.trimEnd()}…`;
+}
+
+/**
+ * 通用工具摘要：优先取能说明「干了什么」的参数；
+ * 都没有时退回脚本首行或参数 JSON，而不是甩一坨原始参数。
+ */
 function genericSummary(args: unknown): string | null {
   if (!isRecord(args)) return null;
+  for (const key of GENERIC_TARGET_KEYS) {
+    const value = args[key];
+    if (typeof value === "string" && value.trim()) return truncateSummary(value.trim());
+  }
   const code = args.code;
   if (typeof code === "string" && code.trim()) {
     const first = code.split("\n").find((line) => line.trim()) ?? "";
-    return first.trim().slice(0, 120);
+    if (first.trim()) return truncateSummary(first.trim());
   }
-  return safeStringify(args).slice(0, 120);
+  return truncateSummary(safeStringify(args));
 }
 
 function truncationFromDetails(details: Record<string, unknown> | null): {
@@ -618,6 +652,7 @@ export function parseToolCard(
     preview: text.trim() ? text : (args != null ? safeStringify(args, 2) : null),
     images,
     structured,
+    args: args ?? null,
     durationMs: opts?.durationMs ?? null,
   };
 }
@@ -626,6 +661,30 @@ export function parseToolCard(
 export function toolCardDurationMs(card: ToolCard): number | null {
   if (card.kind === "todo") return null;
   return card.durationMs ?? null;
+}
+
+/**
+ * 嵌套调用（codemode 脚本里发出的工具调用）没有独立的 ToolMessage，
+ * 按同样的规则解析出一张卡片，渲染层才能给它同样的分型视图。
+ */
+const nestedCardMemo = new WeakMap<object, ToolCard>();
+
+export function toolCardForNested(call: {
+  toolName: string;
+  args?: unknown;
+  result?: unknown;
+  isError?: boolean;
+  durationMs?: number;
+}): ToolCard {
+  const key = call as unknown as object;
+  const cached = nestedCardMemo.get(key);
+  if (cached) return cached;
+  const card = parseToolCard(call.toolName, call.args ?? {}, call.result ?? null, {
+    isError: call.isError,
+    durationMs: call.durationMs,
+  });
+  nestedCardMemo.set(key, card);
+  return card;
 }
 
 /** 卡片是否有可展开的内容：没有内容的行不显示展开箭头。 */

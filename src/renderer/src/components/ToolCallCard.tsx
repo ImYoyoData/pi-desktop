@@ -7,33 +7,35 @@ import {
 } from "react";
 import { Button } from "antd";
 import {
-  CheckmarkCircleOutline,
   ChevronForwardOutline,
   CloseCircleOutline,
   CreateOutline,
   DocumentTextOutline,
-  EllipseOutline,
   EyeOutline,
+  FolderOutline,
   ListOutline,
   SquareTerminalOutline,
   type IoniconProps,
 } from "@renderer/components/icons/ionicons";
 import type { ToolCard } from "@renderer/utils/tool-diff";
-import {
-  toolCardDurationMs,
-  toolCardHasBody,
-  toolCommandFromArgs,
-  toolPathFromArgs,
-} from "@renderer/utils/tool-diff";
+import { toolCardDurationMs, toolCardHasBody } from "@renderer/utils/tool-diff";
 import type { ChatToolNestedCall } from "@renderer/stores/chat-reducer";
 import { isToolCardOpen } from "@renderer/utils/tool-card-open";
+import {
+  directoryListTarget,
+  genericStepPreview,
+  genericStepTarget,
+  isDirectoryListTool,
+} from "@renderer/utils/structured-text";
 import FileChip from "@renderer/components/FileChip";
 import ToolBody from "@renderer/components/ToolBody";
+import ToolNestedCalls from "@renderer/components/ToolNestedCalls";
 import { useI18n } from "@renderer/i18n/use-i18n";
 import { formatDuration } from "@renderer/utils/format-duration";
 import { useAgentRunsStore } from "@renderer/stores/agent-runs";
 import { useAppearanceStore } from "@renderer/stores/appearance";
 import { useSessionsStore } from "@renderer/stores/sessions";
+import { useWorkspaceStore } from "@renderer/stores/workspace";
 import { useMessage } from "@renderer/services/feedback";
 import { ASK_USER_TOOL_NAME } from "../../../shared/ask-user";
 import { CODEMODE_TOOL_NAME } from "../../../shared/codemode-tool";
@@ -42,7 +44,6 @@ import styles from "./ToolCallCard.module.css";
 type Props = {
   card: ToolCard;
   toolName: string;
-  order?: number;
   statusLabel: string;
   statusType: "default" | "success" | "error" | "info";
   streaming?: boolean;
@@ -97,22 +98,10 @@ function firstLine(text: string | null | undefined): string | null {
   return null;
 }
 
-/** 子调用的一行目标：命令 > 路径 > 常用文本参数。 */
-function nestedTarget(args: unknown): string {
-  const command = toolCommandFromArgs(args);
-  if (command) return command.length > 64 ? `${command.slice(0, 63)}…` : command;
-  const path = toolPathFromArgs(args);
-  if (path) return path;
-  if (args && typeof args === "object") {
-    for (const key of ["pattern", "query", "url", "prompt", "description"]) {
-      const value = (args as Record<string, unknown>)[key];
-      if (typeof value === "string" && value.trim()) {
-        const text = value.trim();
-        return text.length > 64 ? `${text.slice(0, 63)}…` : text;
-      }
-    }
-  }
-  return "";
+/** 工具名过长时截断：mcp__server__tool 这类名字在时间线里会占掉一整列。 */
+function shortToolName(name: string, max = 26): string {
+  if (name.length <= max) return name;
+  return `${name.slice(0, max - 1)}…`;
 }
 
 export function ToolCallCard({
@@ -132,6 +121,7 @@ export function ToolCallCard({
   const appearance = useAppearanceStore();
   const agentRuns = useAgentRunsStore();
   const sessions = useSessionsStore();
+  const workspaceRoot = useWorkspaceStore((state) => state.root);
 
   /** Explicit user toggle; null = follow the automatic rule. */
   const [manuallyOpen, setManuallyOpen] = useState<boolean | null>(null);
@@ -166,12 +156,6 @@ export function ToolCallCard({
     // Reset manual override while streaming so it tracks live state.
     setManuallyOpen(null);
   }, [streaming]);
-
-  // Fold everything as soon as the round finishes; users can re-expand manually.
-  useEffect(() => {
-    if (!autoCollapse) return;
-    setManuallyOpen(false);
-  }, [autoCollapse]);
 
   const isAskUserTool = toolName === ASK_USER_TOOL_NAME;
   const sessionId = sessions.activeId;
@@ -333,6 +317,19 @@ export function ToolCallCard({
     return fileName || toolName;
   }, [card, fileName, isAskUserTool, t, todoAction, toolName]);
 
+  /** 可预览的文件路径（read / edit / write / other 卡才有）。 */
+  const previewPath = useMemo<string | null>(() => {
+    if (
+      card.kind === "read" ||
+      card.kind === "edit" ||
+      card.kind === "write" ||
+      card.kind === "other"
+    ) {
+      return card.path ?? null;
+    }
+    return null;
+  }, [card]);
+
   /** 标题目标：调用概况 / 文件 / 命令胶囊 / 摘要。 */
   function renderTarget(): ReactNode {
     if (showCallCount) {
@@ -367,25 +364,21 @@ export function ToolCallCard({
 
   /** Rows with nothing to reveal drop the disclosure affordance (VS Code setExpandable). */
   const expandable = toolCardHasBody(card) || cardImages.length > 0;
-  /** 可预览的文件路径（read / edit / write / other 卡才有）。 */
-  const previewPath = useMemo<string | null>(() => {
-    if (
-      card.kind === "read" ||
-      card.kind === "edit" ||
-      card.kind === "write" ||
-      card.kind === "other"
-    ) {
-      return card.path ?? null;
-    }
-    return null;
-  }, [card]);
 
   function toggleOpen(): void {
     setManuallyOpen(!open);
   }
 
-  /** 时间线步骤的动词：按工具语义给一个短标签。 */
+  /** 目录列举工具（ls 等）：动词用「读取」，目标用文件夹 chip。 */
+  const isDirList = card.kind === "generic" && isDirectoryListTool(toolName);
+
+  /** 时间线步骤的图标：目录列举用文件夹，失败仍用叉。 */
+  const StepIcon =
+    statusType === "error" ? CloseCircleOutline : isDirList ? FolderOutline : KindIcon;
+
+  /** 时间线步骤的动词：按工具语义给一个短标签；通用工具直接用工具名。 */
   const stepVerb = useMemo(() => {
+    if (isDirList) return t.wsStepRead;
     switch (card.kind) {
       case "read":
         return t.wsStepRead;
@@ -398,18 +391,58 @@ export function ToolCallCard({
       case "todo":
         return t.wsStepTodo;
       default:
-        return t.wsStepTool;
+        return shortToolName(toolName);
     }
-  }, [card.kind, t]);
+  }, [card.kind, isDirList, t, toolName]);
 
-  /** 时间线步骤的目标：文件可点开、命令用等宽字体、其余用摘要。 */
+  /**
+   * generic 工具要分开说两件事：
+   * 目标 = 它读/写/查的是哪个路径（行里必须显示这个）；
+   * 摘要 = 它产出了多少（次要位，不顶替目标）。
+   */
+  const genericSummary = useMemo(() => {
+    if (card.kind !== "generic") return { target: null, preview: null };
+    const dirTarget = isDirectoryListTool(toolName)
+      ? directoryListTarget(card.args, workspaceRoot)
+      : null;
+    const target = dirTarget ?? genericStepTarget(card.args);
+    const preview = genericStepPreview(card, toolName);
+    return { target, preview, isDir: Boolean(dirTarget) };
+  }, [card, toolName, workspaceRoot]);
+
+  /** 结果摘要：只说「产出了多少 / 什么结构」，文案按当前语言格式化。 */
+  const previewText = useMemo(() => {
+    const preview = genericSummary.preview;
+    if (!preview) return null;
+    if (preview.kind === "count") return t.toolBodyPathCount(preview.count);
+    if (preview.kind === "sections") {
+      const sections = t.toolBodyScriptSections(preview.count);
+      return preview.wallTime ? `${preview.wallTime} · ${sections}` : sections;
+    }
+    const head = preview.keys.slice(0, 3).join(", ");
+    return `{ ${head}${preview.keys.length > 3 ? ", …" : ""} }`;
+  }, [genericSummary.preview, t]);
+
+  /** 时间线步骤的目标：文件/目录用 chip、命令用等宽字体、其余用参数里的路径。 */
   const stepTarget = useMemo<ReactNode>(() => {
     if (previewPath) return <FileChip path={previewPath} onOpen={onOpen} />;
     if (card.kind === "bash" && card.command) {
       return <code className={styles.stepCmd}>{card.command}</code>;
     }
+    if (genericSummary.target) {
+      if (genericSummary.isDir) {
+        return <FileChip path={genericSummary.target} label={genericSummary.target} dir />;
+      }
+      return <span className={styles.stepText}>{genericSummary.target}</span>;
+    }
+    if (previewText) {
+      return <span className={styles.stepText}>{previewText}</span>;
+    }
     return <span className={styles.stepText}>{headline || toolName}</span>;
-  }, [card, headline, onOpen, previewPath, toolName]);
+  }, [card, genericSummary, headline, onOpen, previewPath, previewText, toolName]);
+
+  /** 摘要只做次要位；目标已经用它兜底时不再重复。 */
+  const stepPreview = genericSummary.target ? previewText : null;
 
   /** 时间线步骤右侧的度量：行数 / 改动数 / 退出码 / 耗时。 */
   const stepMeta = useMemo<ReactNode>(() => {
@@ -450,49 +483,13 @@ export function ToolCallCard({
 
   /** 内部调用列表：独立工具行挂在标题下方，时间线步骤挂在展开体里。 */
   const nestedCallsBlock = nestedCalls?.length ? (
-    <div className={styles.subCalls}>
-      {nestedCalls.slice(0, 8).map((call) => {
-        const NestedIcon = call.streaming
-          ? EllipseOutline
-          : call.isError
-            ? CloseCircleOutline
-            : CheckmarkCircleOutline;
-        const target = nestedTarget(call.args);
-        return (
-          <div
-            key={call.toolCallId}
-            className={`${styles.subCall}${call.isError ? ` ${styles.error}` : ""}${call.streaming ? ` ${styles.running}` : ""}`}
-          >
-            <NestedIcon size={11} className={styles.subMark} />
-            <span className={styles.subName}>{call.toolName}</span>
-            {target ? <span className={styles.subTarget}>{target}</span> : null}
-            <span className={styles.subMeta}>
-              {call.streaming
-                ? t.toolRunning
-                : call.isError
-                  ? t.toolError
-                  : call.durationMs != null
-                    ? formatDuration(call.durationMs)
-                    : ""}
-            </span>
-          </div>
-        );
-      })}
-      {nestedCalls.length > 8 ? (
-        <div className={styles.subCall}>
-          <span className={styles.subMore}>
-            {t.toolResultMoreCalls(nestedCalls.length - 8)}
-          </span>
-        </div>
-      ) : null}
-    </div>
+    <ToolNestedCalls calls={nestedCalls} />
   ) : null;
 
   return (
     <div
       className={[
         styles.toolCall,
-        statusType === "error" ? styles.error : "",
         !expandable ? styles.notExpandable : "",
         isAskUserTool ? styles.askUserMuted : "",
       ]
@@ -508,10 +505,11 @@ export function ToolCallCard({
           }}
         >
           <span className={`${styles.stepDot} ${statusClass}`} aria-hidden="true">
-            <StatusIcon size={11} />
+            <StepIcon size={11} />
           </span>
           <span className={styles.stepVerb}>{stepVerb}</span>
           <span className={styles.stepTarget}>{stepTarget}</span>
+          {stepPreview ? <span className={styles.stepPreview}>{stepPreview}</span> : null}
           <span className={styles.stepMeta}>{stepMeta}</span>
           {expandable ? (
             <ChevronForwardOutline
@@ -577,7 +575,12 @@ export function ToolCallCard({
       )}
       {open ? (
         <div className={variant === "step" ? styles.stepBody : styles.rowBody}>
-          <ToolBody card={card} streaming={streaming} onOpen={onOpen} />
+          <ToolBody
+            card={card}
+            streaming={streaming}
+            toolName={toolName}
+            onOpen={onOpen}
+          />
           {variant === "step" ? nestedCallsBlock : null}
           {cardImages.length ? (
             <div className={styles.toolImages}>

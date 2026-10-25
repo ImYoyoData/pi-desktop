@@ -360,13 +360,13 @@ export function WorkSectionGroup({ items, autoCollapse, onOpen }: Props): ReactN
                     <ToolCallCard
                       card={toolCard(msg)}
                       toolName={msg.toolName}
-                      order={msg.order}
                       statusLabel={status.label}
                       statusType={status.type}
                       streaming={msg.streaming}
                       autoCollapse={autoCollapse}
                       nestedCalls={msg.nestedCalls}
                       variant="step"
+                      detailCollapsed
                       onOpen={onOpen}
                     />
                   </div>

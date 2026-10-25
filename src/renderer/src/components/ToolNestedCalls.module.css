@@ -1,0 +1,80 @@
+/* 工具内部调用（codemode 脚本里发出的调用）：每条可展开，参数走 JSON 树。 */
+
+.nestedList {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  margin: 4px 0 6px;
+}
+
+.nestedItem { position: relative; }
+
+.nestedHead {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  width: 100%;
+  min-width: 0;
+  padding: 3px 6px 3px 0;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: var(--chat-font-xs, 11px);
+  text-align: left;
+  cursor: pointer;
+}
+
+.nestedHead:hover { background: var(--chat-hover-bg, color-mix(in srgb, var(--fg) 5%, transparent)); }
+
+.nestedMark {
+  flex-shrink: 0;
+  color: var(--chat-icon-fg, var(--fg-muted));
+}
+
+.nestedName {
+  flex-shrink: 0;
+  color: var(--chat-desc-fg, var(--fg-muted));
+}
+
+.nestedTarget {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  color: var(--fg);
+}
+
+.nestedMeta {
+  flex-shrink: 0;
+  color: var(--fg-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.nestedChev {
+  flex-shrink: 0;
+  color: var(--chat-icon-fg, var(--fg-muted));
+  transition: rotate 120ms ease;
+}
+
+.nestedChevOpen { rotate: 90deg; }
+
+.nestedBody {
+  margin: 2px 0 6px 18px;
+  padding-left: 10px;
+  border-left: 1px solid var(--chat-line, var(--border));
+}
+
+.nestedSectionTitle {
+  padding: 2px 0 4px;
+  font-size: var(--chat-font-xs, 11px);
+  color: var(--fg-muted);
+}
+
+.nestedArgs,
+.nestedResult {
+  margin-bottom: 6px;
+}

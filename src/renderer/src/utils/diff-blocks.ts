@@ -4,7 +4,7 @@
 
 import {
   tokenizeForDiff,
-  wordDiff,
+  wordDiffTokens,
   WORD_DIFF_MAX_TOKENS,
   type DiffToken,
 } from "./word-diff";
@@ -42,16 +42,18 @@ function pairLines(dels: string[], adds: string[], budget: { pairs: number }): D
   for (let k = 0; k < pairs; k++) {
     const oldText = dels[k]!;
     const newText = adds[k]!;
+    // 分词只做一次：长度判断与后续比对共用同一份 token。
+    const oldTokens = tokenizeForDiff(oldText);
+    const newTokens = tokenizeForDiff(newText);
     const tooLong =
-      tokenizeForDiff(oldText).length > WORD_DIFF_MAX_TOKENS ||
-      tokenizeForDiff(newText).length > WORD_DIFF_MAX_TOKENS;
+      oldTokens.length > WORD_DIFF_MAX_TOKENS || newTokens.length > WORD_DIFF_MAX_TOKENS;
     if (tooLong || budget.pairs >= WORD_DIFF_MAX_PAIRS) {
       out.push({ kind: "del", text: oldText });
       out.push({ kind: "add", text: newText });
       continue;
     }
     budget.pairs += 1;
-    const diff = wordDiff(oldText, newText);
+    const diff = wordDiffTokens(oldTokens, newTokens);
     out.push({ kind: "del", text: oldText, oldParts: diff.old });
     out.push({ kind: "add", text: newText, newParts: diff.new });
   }
@@ -70,25 +72,45 @@ export function parseUnifiedDiff(raw: string): ParsedDiff {
   const hunks: DiffHunk[] = [];
   let current: DiffHunk | null = null;
   const budget = { pairs: 0 };
-  const lines = raw.split("\n");
+  const lines = raw.replace(/\r\n/g, "\n").split("\n");
   let i = 0;
+  /** 是否在某个 hunk 正文里：正文里的 "--- " 是被删除的行，不是文件头。 */
+  let inHunk = false;
   while (i < lines.length) {
     const line = lines[i]!;
     if (line.startsWith("@@")) {
+      inHunk = true;
       current = { header: line, lines: [] };
       hunks.push(current);
       i++;
       continue;
     }
-    if (line.startsWith("--- ") || line.startsWith("+++ ")) {
+    if (line.startsWith("diff --git ")) {
+      // 新文件：回到文件头模式，后面紧跟的 --- / +++ 是文件头。
+      inHunk = false;
+      current = { header: "", lines: [{ kind: "ctx", text: line }] };
+      hunks.push(current);
+      i++;
+      continue;
+    }
+    /**
+     * `--- ` / `+++ ` 是文件头，但只在 hunk 正文之外。
+     * hunk 内部以这三个字符开头的行是「删除了一行以 --- 开头的文本」，
+     * 当成文件头丢掉就会少显示一行。
+     */
+    if (!inHunk && (line.startsWith("--- ") || line.startsWith("+++ "))) {
       i++;
       continue;
     }
     if (line.startsWith("-") || line.startsWith("+")) {
       const dels: string[] = [];
       const adds: string[] = [];
-      while (i < lines.length && lines[i]!.startsWith("-")) dels.push(lines[i++]!.slice(1));
-      while (i < lines.length && lines[i]!.startsWith("+")) adds.push(lines[i++]!.slice(1));
+      while (i < lines.length) {
+        const marker = lines[i]!.charAt(0);
+        if (marker === "-") dels.push(lines[i++]!.slice(1));
+        else if (marker === "+") adds.push(lines[i++]!.slice(1));
+        else break;
+      }
       if (!current) {
         current = { header: "", lines: [] };
         hunks.push(current);
@@ -100,17 +122,4 @@ export function parseUnifiedDiff(raw: string): ParsedDiff {
     i++;
   }
   return { hunks, plain: hunks.length === 0 || hunks.every((hunk) => !hunk.header) };
-}
-
-/** 补丁里的增删行数，用于卡片头部的 +N/−N。 */
-export function countDiffLines(hunks: DiffHunk[]): { added: number; removed: number } {
-  let added = 0;
-  let removed = 0;
-  for (const hunk of hunks) {
-    for (const line of hunk.lines) {
-      if (line.kind === "add") added++;
-      else if (line.kind === "del") removed++;
-    }
-  }
-  return { added, removed };
 }
