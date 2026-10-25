@@ -1,5 +1,53 @@
 # Changelog
 
+## v0.3.6-rc.4 (2026-10-25)
+
+本版重点重做过程区可视化：工具结果按语义分型渲染（文件视图 / 词级 diff / 终端卡 / JSON 树），工作区块展开即为过程时间线，思考行支持 Markdown、字数与实时耗时；同时新增浏览器直连 dev 页面的开发预览桥、内置工具使用偏好引导与流式渲染 0ms 实时档，并修复上一轮过程内容被裁掉、思考过程中停止自动滚动、JSON 树与结构化输出交互、安装器目录修正后快捷方式未同步与运行中会话抢位等问题。
+
+### 新功能 Features
+
+- **过程区可视化重做**：工具行改为「动作+目标 / 状态+结果」两行结构，状态行汇总行数、耗时、改动与图片数；展开工作区块即为过程时间线，小节表头统计思考次数。工具结果按语义分型渲染——读取走文件视图（行号 + 高亮），编辑走 diff（词级标记），命令走终端卡（退出码 / 截断提示 / 完整日志路径），其余走 JSON 树、路径清单或脚本报告；展开体紧跟所属步骤，不再掉到整块底部。嵌套调用（codemode 脚本里发出的工具）缩进列出，每条可展开看参数、结果与失败原因。
+- **思考行支持 Markdown、字数与耗时**：思考内容按 Markdown 渲染且可折叠；行尾显示字数与耗时，思考中每秒刷新实时耗时，结束后落回 pi 记录的精确值，历史与快照消息（UI 没赶上思考过程）用 pi 记录的耗时兜底。
+- **浏览器直连 dev 页面预览**：新增开发桥（主进程 HTTP + SSE），外部浏览器打开 Vite dev 页面即可作为桌面端操作同一份状态——文件、Git、会话、终端都可用。桌面 API 抽成与传输无关的 `src/shared/api.ts`，preload 与预览共用一份接口定义；共享状态统一走 `state:changed` 通道（偏好、工作区与当前会话、模型与流式渲染、思考语言、重试、运行时、代理设置）；桥端口由 Vite 端口派生（+10000），页面启动校验实例标识，连到别的实例时直接提示；桥提供 `/media` 端点（支持 Range、仅本机来源）显示本地壁纸。
+- **流式渲染新增 0ms 实时档**：节流档位加入 0（不节流、逐帧渲染），文案显示「实时」/「Realtime」。
+- **内置工具使用偏好**：新增内置扩展 `tool-preference`，在 `before_agent_start` 给 grep / find / ls / read / bash 补 prompt guidelines，把内容搜索、读文件与列目录推回内置工具，bash 留给管道、构建、测试与 git。
+
+- **Process area rebuilt**: tool rows now use an "action + target / status + result" two-line layout, collecting line counts, durations, diff stats and image counts on the status line; expanding a work section turns it into a process timeline and the section header counts thinking passes. Tool results render by kind: reads use a file view (line numbers + highlighting), edits use diffs (word-level marks), commands use a terminal card (exit code / truncation notice / full log path), and everything else falls back to a JSON tree, a path list or a script report; expanded bodies stay attached to their step instead of dropping to the bottom of the block. Nested calls (tools issued inside a codemode script) are listed with indentation, and each one expands to its arguments, result and failure reason.
+- **Thinking rows render Markdown and show size and duration**: thinking text is rendered as Markdown and can be collapsed; the row shows character count and duration, refreshing live once per second while thinking and settling on pi's recorded value afterwards, with history and snapshot messages (where the UI missed the thinking pass) falling back to pi's recorded duration.
+- **Browser preview wired straight to the dev page**: a new dev bridge (main-process HTTP + SSE) lets an external browser open the Vite dev page and drive the same state as the desktop — files, Git, sessions and terminals all work. The desktop API is now transport-agnostic (`src/shared/api.ts`) and shared by the preload and the preview, shared state flows through a single `state:changed` channel (preferences, workspace and active session, models and streaming render, thinking language, retry, runtime, proxy settings), the bridge port derives from the Vite port (+10000) with an instance id checked on page load so a page connected to another instance is told instead of silently drifting, and a `/media` endpoint (Range-capable, local origin only) serves local wallpapers.
+- **0 ms realtime streaming option**: the render throttle choices now include 0 (no throttling, per-frame rendering), shown as "实时" / "Realtime".
+- **Built-in tool usage preferences**: a new built-in `tool-preference` extension adds prompt guidelines to grep / find / ls / read / bash from `before_agent_start`, steering content search, file reads and directory listings to the built-in tools and leaving bash for pipelines, builds, tests and git.
+
+### 修复 Fixes
+
+- **修复发送下一句后上一轮工具与思考内容被裁掉**：MessageList 原先把最新 user 之前的工具行与纯思考行直接从渲染序列删除，新消息一发出上一轮就不再是最新一轮，工具卡、思考块与小结条整块消失。现在保留全部过程行，由既有分组/折叠逻辑收成可展开的历史小结条。
+- **修复思考过程中有时不再自动滚动**：跟随判定只认滚轮、自身滚动条与中键，不再拿内容长高后的滚动距离当用户意图（原先一次超过 48px 就永久停止跟随）；去掉消息区 120px 贴底门限，滚轮落在思考块等内部滚动区不算浏览历史，拖选文本与中键自动滚动期间先让位。
+- **修复 JSON 树与结构化输出交互**：JSON 树折叠失效（改为递归渲染 + 路径派生 id）；没有 `diff --git` 的多文件补丁不再把第二个文件头算成增删行；空 diff 不再渲染出空白；目录列表目标去掉末尾斜杠；失败输出与参数兜底文本不再被误判成路径清单。
+- **嵌套调用补上失败原因**：嵌套调用展开可看错误原文；工具卡片标签统一为工具名与耗时本地化，不再显示「已读取 / 已编辑」这类动作标签。
+- **修复安装目录修正后快捷方式仍指向旧路径**：`$appExe` 按修正前的目录赋值，快捷方式目标、`DisplayIcon` 与 keepShortcuts 判断都取自它，现于目录修正后重新同步。
+- **修复会话排序**：固定（pinned）顺序先于最近顺序；折叠状态下拖拽只重排可见行，其余保持相对顺序；运行中的会话不因活动抢位，状态落回 idle 时再按最近活动归位。
+- **修复浏览器预览页误响应关闭事件、连带关掉桌面端窗口**。
+
+- **Fixed tool and thinking rows of the previous turn being dropped**: MessageList deleted tool rows and thinking-only rows that preceded the newest user message, so sending a message made the previous turn stop being the newest one and its tool cards, thinking blocks and summary row vanished. All process rows are now kept and grouped/collapsed into an expandable history summary.
+- **Fixed auto-scroll stopping during thinking**: follow mode now keys off the wheel, the scroller's own scrollbar and middle-click only, no longer mistaking content growth for user intent (a single jump past 48px used to stop following for good); the 120px bottom threshold is gone, wheel events inside nested scrollers such as thinking blocks no longer count as browsing history, and text selection plus middle-click auto-scroll take precedence.
+- **Fixed JSON tree and structured output interactions**: the JSON tree collapses again (recursive rendering with path-derived ids); a multi-file patch without `diff --git` no longer counts the second file header as added/removed lines; an empty diff no longer renders a blank body; directory targets no longer keep a trailing slash; and failure output or argument fallback text is no longer mistaken for a path list.
+- **Nested calls show their failure reason**: expanding a nested call shows the raw error, and card labels are now the tool name with localized durations instead of "read / edited" action labels.
+- **Fixed shortcuts pointing at the old path after the install directory is corrected**: `$appExe` was assigned from the pre-correction directory and drives shortcut targets, `DisplayIcon` and the keepShortcuts check, so it is re-synced after the directory is fixed.
+- **Fixed session ordering**: pinned sessions sort before recent ones; dragging while collapsed reorders only the visible rows and keeps the rest in order; a running session no longer jumps position on activity and returns to its recent-activity slot once its status falls back to idle.
+- **Fixed the browser preview responding to close events and closing the desktop window with it**.
+
+### 变更 Changes
+
+- **工具步骤行**：度量（行数、耗时等）紧跟目标显示，展开箭头仍贴行尾；去掉重复的待办进度与重复耗时（耗时只在步骤行展示），步骤标题不可选中。
+- **diff 统一为 unified**：pi 的 display diff 在解析时归一化成 unified，渲染层只认一种格式——原先优先取 display diff 会让整张卡片退化成纯文本预览；diff 底色改走主题变量，词级改动加深。
+- **codemode 卡片标题改用调用概况**：显示「N 个调用」，不再拿脚本首行代码当标题。
+
+### 变更 Changes (English)
+
+- **Tool step rows**: metrics (line counts, durations) now sit right after the target while the expand chevron stays at the row end; the duplicated todo progress and duration are gone (duration shows on the step row only), and step titles are no longer selectable.
+- **Diffs normalized to unified**: pi's display diff is parsed into unified form so the renderer knows one shape only — preferring the display diff used to degrade the whole card into a plain-text preview. Diff backgrounds moved to theme variables and word-level changes are darker.
+- **codemode card titles use the call summary**: the title shows "N calls" instead of the script's first code line.
+
 ## v0.3.6-rc.2 (2026-10-14)
 
 本版重点：升级 pi SDK 到 1.2.0，适配 `before_agent_start` 新签名，并把按密钥的 OpenRouter 模型列表接进模型页（打开时联网刷新目录）；同时带来 OpenRouter 负价格、MCP 带资源服务器工具注册延迟、上下文压缩可能失败等一批上游修复。另新增联网搜索服务器配置面板、扩展 Hook 事件列表与思考语言设置，会话历史改为分页加载，并修复会话事件流随组件卸载永久中断、桌面端安装包/dev 偏好分家与粘贴文本被改写；移除权限确认网关与命令输出临时文件清理。
