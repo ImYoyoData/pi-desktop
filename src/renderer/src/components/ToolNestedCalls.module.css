@@ -33,6 +33,10 @@
   color: var(--chat-icon-fg, var(--fg-muted));
 }
 
+.nestedMarkError { color: var(--error, #d03050); }
+
+.nestedMarkRunning { color: var(--accent, #4f8cff); }
+
 .nestedName {
   flex-shrink: 0;
   color: var(--chat-desc-fg, var(--fg-muted));

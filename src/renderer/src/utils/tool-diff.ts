@@ -37,6 +37,7 @@ function fallbackToolCard(msg: ToolMessage): ToolCard {
     images: [],
     structured: null,
     args: null,
+    previewFromArgs: msg.result == null && msg.args != null,
   };
 }
 
@@ -125,6 +126,8 @@ export type GenericToolCard = {
   structured: unknown | null;
   /** 原始调用参数：渲染层据此说明「这个工具操作了哪个路径」。 */
   args: unknown;
+  /** 结果为空时 preview 退回了参数 JSON，不能当工具输出做结构化解析。 */
+  previewFromArgs: boolean;
   /** Execution duration stamped by the reducer (live turns only). */
   durationMs?: number | null;
 };
@@ -653,6 +656,7 @@ export function parseToolCard(
     images,
     structured,
     args: args ?? null,
+    previewFromArgs: !text.trim() && args != null,
     durationMs: opts?.durationMs ?? null,
   };
 }

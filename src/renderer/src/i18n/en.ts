@@ -1293,7 +1293,6 @@ export const en = {
 	toolResultReadOf: (read: number, total: number) => `read ${read}/${total} lines`,
 	toolResultImages: (n: number) => `${n} images`,
 	toolResultNoOutput: "No output",
-	toolResultMoreCalls: (n: number) => `${n} more calls`,
 	toolCallCount: (n: number) => (n === 1 ? "1 call" : `${n} calls`),
 	toolCommand: "Command",
 	toolTruncated: "Truncated",

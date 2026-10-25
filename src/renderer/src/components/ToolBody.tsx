@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   CheckmarkCircleOutline,
   EllipseOutline,
+  FolderOutline,
 } from "@renderer/components/icons/ionicons";
 import FileChip from "@renderer/components/FileChip";
 import {
@@ -24,10 +25,8 @@ import {
   type JsonTreeNode,
 } from "@renderer/utils/json-tree";
 import {
-  isPathListTool,
-  parsePathList,
   parseScriptReport,
-  pathListEntries,
+  pathListFromOutput,
   type ScriptReport,
   type StructuredBlock,
 } from "@renderer/utils/structured-text";
@@ -43,6 +42,8 @@ type Props = {
   streaming?: boolean;
   /** 工具名：generic 结果要靠它判断是不是路径清单类工具。 */
   toolName: string;
+  /** 失败输出不按路径清单解释，避免把报错信息拆成条目。 */
+  isError?: boolean;
   onOpen?: (path: string) => void;
 };
 
@@ -51,6 +52,7 @@ export function ToolBody({
   card,
   streaming,
   toolName,
+  isError,
   onOpen,
 }: Props): ReactNode {
   switch (card.kind) {
@@ -65,7 +67,14 @@ export function ToolBody({
     case "todo":
       return <TodoBody card={card} />;
     case "generic":
-      return <JsonBody card={card} streaming={streaming} toolName={toolName} />;
+      return (
+        <JsonBody
+          card={card}
+          streaming={streaming}
+          toolName={toolName}
+          isError={isError}
+        />
+      );
     default:
       return null;
   }
@@ -402,18 +411,29 @@ function JsonTree({ tree }: { tree: JsonTreeNode }): ReactNode {
 function PathList({ entries }: { entries: string[] }): ReactNode {
   return (
     <ul className={styles.pathList}>
-      {entries.map((entry) => {
+      {entries.map((entry, index) => {
         const isDir = entry.endsWith("/");
-        const icon = fileIcon(isDir ? "index/" : entry);
+        const icon = isDir ? null : fileIcon(entry);
         return (
-          <li key={entry} className={`${styles.pathItem}${isDir ? ` ${styles.pathDir}` : ""}`}>
-            <span
-              className={styles.pathIcon}
-              style={icon.color ? { color: icon.color } : undefined}
-              aria-hidden="true"
-            >
-              {icon.glyph}
-            </span>
+          <li
+            key={`${index}-${entry}`}
+            className={`${styles.pathItem}${isDir ? ` ${styles.pathDir}` : ""}`}
+          >
+            {isDir ? (
+              <FolderOutline
+                size={13}
+                className={styles.pathIcon}
+                aria-hidden="true"
+              />
+            ) : (
+              <span
+                className={styles.pathIcon}
+                style={icon?.color ? { color: icon.color } : undefined}
+                aria-hidden="true"
+              >
+                {icon?.glyph}
+              </span>
+            )}
             <span className={styles.pathName}>{entry}</span>
           </li>
         );
@@ -501,18 +521,25 @@ export function ToolJsonTree({ value }: { value: unknown }): ReactNode {
     if (value == null || typeof value !== "object") return null;
     return buildJsonTree(value);
   }, [value]);
-  if (!tree) return null;
-  return <JsonTree tree={tree} />;
+  if (tree) return <JsonTree tree={tree} />;
+  if (value == null) return null;
+  return (
+    <pre className={styles.plain}>
+      {typeof value === "string" ? value : String(value)}
+    </pre>
+  );
 }
 
 function JsonBody({
   card,
   streaming,
   toolName,
+  isError,
 }: {
   card: GenericToolCard;
   streaming?: boolean;
   toolName: string;
+  isError?: boolean;
 }): ReactNode {
   const t = useI18n();
   /**
@@ -522,9 +549,9 @@ function JsonBody({
    */
   const data = useMemo(() => {
     if (card.structured != null) return card.structured;
-    if (streaming) return null;
+    if (streaming || card.previewFromArgs) return null;
     return parseJsonPayload(card.preview ?? "");
-  }, [card.structured, card.preview, streaming]);
+  }, [card.previewFromArgs, card.structured, card.preview, streaming]);
   const tree = useMemo(() => {
     if (data == null || typeof data !== "object") return null;
     return buildJsonTree(data);
@@ -540,10 +567,9 @@ function JsonBody({
     return parseScriptReport(text);
   }, [tree, streaming, text]);
   const paths = useMemo(() => {
-    if (tree || report || streaming) return null;
-    if (isPathListTool(toolName)) return pathListEntries(text);
-    return parsePathList(text);
-  }, [tree, report, streaming, text, toolName]);
+    if (tree || report || streaming || isError || card.previewFromArgs) return null;
+    return pathListFromOutput(text, toolName);
+  }, [card.previewFromArgs, isError, report, streaming, text, toolName, tree]);
 
   if (tree) {
     return (

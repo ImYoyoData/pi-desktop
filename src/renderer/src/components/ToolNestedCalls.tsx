@@ -18,6 +18,7 @@ import styles from "./ToolNestedCalls.module.css";
 
 type Props = {
   calls: ChatToolNestedCall[];
+  onOpen?: (path: string) => void;
 };
 
 /** 子调用的一行目标：命令 > 路径 > 常用文本参数。 */
@@ -43,33 +44,47 @@ function nestedTarget(args: unknown): string {
  *
  * 每条都能点开：参数按 JSON 树呈现，有结果时再附上分型后的结果视图。
  */
-export function ToolNestedCalls({ calls }: Props): ReactNode {
+export function ToolNestedCalls({ calls, onOpen }: Props): ReactNode {
   const t = useI18n();
   const [openId, setOpenId] = useState<string | null>(null);
 
   if (!calls.length) return null;
 
   return (
-    <div className={styles.nestedList}>
+    <div
+      className={styles.nestedList}
+      onClick={(event) => event.stopPropagation()}
+    >
       {calls.map((call) => {
         const target = nestedTarget(call.args);
         const hasArgs = call.args != null;
         const hasResult = call.result != null;
+        const canOpen = hasArgs || hasResult;
         const open = openId === call.toolCallId;
         const Icon = call.streaming
           ? EllipseOutline
           : call.isError
             ? CloseCircleOutline
             : CheckmarkCircleOutline;
+        const markClass = call.streaming
+          ? styles.nestedMarkRunning
+          : call.isError
+            ? styles.nestedMarkError
+            : "";
         return (
           <div key={call.toolCallId} className={styles.nestedItem}>
             <button
               type="button"
               className={styles.nestedHead}
               aria-expanded={open}
-              onClick={() => setOpenId(open ? null : call.toolCallId)}
+              onClick={() => {
+                if (canOpen) setOpenId(open ? null : call.toolCallId);
+              }}
             >
-              <Icon size={11} className={styles.nestedMark} />
+              <Icon
+                size={11}
+                className={`${styles.nestedMark}${markClass ? ` ${markClass}` : ""}`}
+              />
               <span className={styles.nestedName}>{call.toolName}</span>
               {target ? <span className={styles.nestedTarget}>{target}</span> : null}
               <span className={styles.nestedMeta}>
@@ -81,7 +96,7 @@ export function ToolNestedCalls({ calls }: Props): ReactNode {
                       ? formatDuration(call.durationMs)
                       : ""}
               </span>
-              {hasArgs || hasResult ? (
+              {canOpen ? (
                 <ChevronForwardOutline
                   size={11}
                   className={`${styles.nestedChev}${open ? ` ${styles.nestedChevOpen}` : ""}`}
@@ -103,6 +118,8 @@ export function ToolNestedCalls({ calls }: Props): ReactNode {
                       card={toolCardForNested(call)}
                       toolName={call.toolName}
                       streaming={call.streaming}
+                      isError={call.isError}
+                      onOpen={onOpen}
                     />
                   </div>
                 ) : null}
