@@ -14,6 +14,7 @@ import {
   SettingsRow,
   SettingsSwitch,
 } from "@renderer/components/customize/SettingsGroup";
+import { isUiLocale } from "@renderer/i18n";
 import { useI18n } from "@renderer/i18n/use-i18n";
 import styles from "./AppearancePanel.module.css";
 
@@ -30,7 +31,7 @@ export function AppearancePanel(): ReactNode {
 
   /** 切换语言：原地替换界面文案，不刷页、不显示加载页。 */
   function onLocaleUpdate(value: string | number | null): void {
-    if (value !== "system" && value !== "zh-CN" && value !== "en") return;
+    if (value !== "system" && !isUiLocale(value)) return;
     if (value === appearance.localePreference) return;
     appearance.setLocalePreference(value as LocalePreference);
   }
@@ -70,7 +71,9 @@ export function AppearancePanel(): ReactNode {
 
   const localeOptions = [
     { label: t.themeSystem, value: "system" },
-    { label: "中文", value: "zh-CN" },
+    { label: "中文（简体）", value: "zh-CN" },
+    { label: "中文（繁體）", value: "zh-TW" },
+    { label: "日本語", value: "ja" },
     { label: "English", value: "en" },
   ];
 

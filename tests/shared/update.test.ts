@@ -35,7 +35,8 @@ describe("update helpers", () => {
     expect(matchUpdateAsset("Pi Desktop-1.0.0-win-arm64-setup.exe", "win32", "arm64")).toBe(true);
     expect(matchUpdateAsset("Pi Desktop-1.0.0-mac-arm64.dmg", "darwin", "arm64")).toBe(true);
     expect(matchUpdateAsset("Pi Desktop-1.0.0-mac-x64.dmg", "darwin", "x64")).toBe(true);
-    expect(matchUpdateAsset("Pi Desktop-1.0.0-linux-x64.AppImage", "linux", "x64")).toBe(true);
+    expect(matchUpdateAsset("Pi Desktop-1.0.0-linux-x86_64.AppImage", "linux", "x64")).toBe(true);
+    expect(matchUpdateAsset("Pi Desktop-1.0.0-linux-arm64.AppImage", "linux", "arm64")).toBe(true);
   });
 
   it("rejects assets of other platforms or arches", () => {

@@ -1,14 +1,25 @@
 import { en } from "./en";
+import { ja } from "./ja";
 import { zh } from "./zh-CN";
-import { detectSystemLanguage, resolveUiLocale, type UiLocale } from "./locale";
+import { zhTW } from "./zh-TW";
+import { detectSystemLanguage, isUiLocale, resolveUiLocale, type UiLocale } from "./locale";
 import * as prefs from "@renderer/utils/prefs";
 
-export type Messages = typeof zh;
+/** 去掉 `as const` 的字面量类型：各语言文案值必然不同，只有键与函数签名要保持一致。 */
+type WidenStrings<T> = T extends string ? string : T;
+export type Messages = { [K in keyof typeof zh]: WidenStrings<(typeof zh)[K]> };
 
-function readStoredLocalePreference(): "system" | "zh-CN" | "en" {
+const MESSAGES: Record<UiLocale, Messages> = {
+  "zh-CN": zh,
+  "zh-TW": zhTW,
+  ja,
+  en,
+};
+
+function readStoredLocalePreference(): "system" | UiLocale {
   try {
     const raw = prefs.getItem("pi-desktop:locale-preference");
-    if (raw === "zh-CN" || raw === "en" || raw === "system") return raw;
+    if (raw === "system" || isUiLocale(raw)) return raw;
   } catch {
     // ignore
   }
@@ -17,12 +28,12 @@ function readStoredLocalePreference(): "system" | "zh-CN" | "en" {
 
 function resolveActiveLocale(): UiLocale {
   const pref = readStoredLocalePreference();
-  if (pref === "zh-CN" || pref === "en") return pref;
+  if (pref !== "system") return pref;
   return resolveUiLocale(detectSystemLanguage());
 }
 
 function messagesFor(next: UiLocale): Messages {
-  return (next === "zh-CN" ? zh : en) as Messages;
+  return MESSAGES[next];
 }
 
 let currentLocale: UiLocale = resolveActiveLocale();
@@ -56,18 +67,23 @@ export function applyUiLocale(next: UiLocale): void {
   for (const listener of listeners) listener();
 }
 
-/** Compile-time guard: en must stay key-compatible with zh. */
+/** Compile-time guard: every locale must stay key-compatible with zh. */
 type _AssertSameKeys<A, B> = [keyof A] extends [keyof B]
   ? [keyof B] extends [keyof A]
     ? true
     : never
   : never;
 const _enCompat: _AssertSameKeys<typeof zh, typeof en> = true;
+const _zhTWCompat: _AssertSameKeys<typeof zh, typeof zhTW> = true;
+const _jaCompat: _AssertSameKeys<typeof zh, typeof ja> = true;
 void _enCompat;
+void _zhTWCompat;
+void _jaCompat;
 
-export { zh, en, resolveUiLocale };
+export { zh, zhTW, ja, en, resolveUiLocale };
 export {
   detectSystemLanguage,
+  isUiLocale,
   resolveMonacoNls,
   type MonacoNlsId,
   type UiLocale,

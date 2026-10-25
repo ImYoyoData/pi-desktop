@@ -2,7 +2,7 @@ import { BrowserWindow, clipboard, ipcMain, nativeTheme, systemPreferences } fro
 import { ClipboardItem, nativeImage } from "electron";
 import { IpcChannels } from "../shared/protocol";
 import type { EditContextMenuAction } from "../shared/context-menu";
-import type { EditMenuLocale } from "../shared/edit-menu-i18n";
+import { isEditMenuLocale, type EditMenuLocale } from "../shared/edit-menu-i18n";
 import { allowWindowClose, setUiLocale } from "./window";
 import type { SessionBroker } from "./session-broker";
 
@@ -71,7 +71,7 @@ export function registerWindowIpc(broker?: SessionBroker): void {
   });
 
   ipcMain.handle(IpcChannels.window.setUiLocale, (_event, next: EditMenuLocale) => {
-    if (next === "zh-CN" || next === "en") {
+    if (isEditMenuLocale(next)) {
       setUiLocale(next);
       void broker?.notifyWorkersReloadLocale(next);
     }
