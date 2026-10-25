@@ -378,6 +378,7 @@ export function WorkSectionGroup({ items, autoCollapse, onOpen }: Props): ReactN
                         streaming={Boolean(msg.streaming)}
                         autoCollapse={Boolean(autoCollapse)}
                         durationMs={msg.thinkingDurationMs}
+                        startedAt={msg.thinkingStartedAt}
                       />
                     </div>
                   </div>

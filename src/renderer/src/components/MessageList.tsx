@@ -184,6 +184,8 @@ export function MessageList({
   const liveEdgeCheckRaf = useRef(0);
   /** 抓着滚动条：此时视口由用户手动导航，任何贴底都要让位。 */
   const scrollbarGrab = useRef(false);
+  /** 在内容区按住不放：可能是拖选文本，贴底会把选区顶回去。 */
+  const selectDrag = useRef(false);
 
   /**
    * 完整消息序列（含 streaming）。历史轮的过程行必须保留：它们会按 work section
@@ -346,7 +348,8 @@ export function MessageList({
       // 行高变化会顶长内容，贴底状态下重新贴回底部；已经离开底部则不打扰阅读。
       const sc = scrollerRef.current;
       if (!sc || !followBottom.current) return;
-      if (isNearBottom(sc)) scrollToBottom();
+      if (selectDrag.current) return;
+      scrollToBottom();
     });
   }
 
@@ -602,6 +605,21 @@ export function MessageList({
   }
 
   /**
+   * 滚轮落在可滚动子区域（思考块等）且该区域还能朝这个方向滚：事件属于子区域，
+   * 不能当成“用户在翻历史”，否则滚一下思考内容整列就停止跟随。
+   */
+  function innerScrollOwnsWheel(event: WheelEvent): boolean {
+    const target = event.target instanceof Element ? event.target : null;
+    const inner = target?.closest<HTMLElement>("[data-inner-scroll]") ?? null;
+    if (!inner) return false;
+    if (event.deltaY < 0) return inner.scrollTop > 0;
+    if (event.deltaY > 0) {
+      return inner.scrollHeight - inner.scrollTop - inner.clientHeight > 1;
+    }
+    return false;
+  }
+
+  /**
    * Wheel events only fire for real user input (programmatic scrollTop writes do
    * not). One upward tick disengages follow immediately — even inside the
    * near-bottom threshold, where stream snaps would otherwise keep resetting the
@@ -611,6 +629,7 @@ export function MessageList({
     if (event.deltaY === 0) return;
     // ctrl+wheel 是触控板捏合缩放，不是滚动意图。
     if (event.ctrlKey) return;
+    if (innerScrollOwnsWheel(event)) return;
     if (event.deltaY < 0) {
       applyFollowIntent("up");
       return;
@@ -657,12 +676,28 @@ export function MessageList({
   function onScrollerPointerDown(event: PointerEvent): void {
     const sc = scrollerRef.current;
     if (!sc) return;
-    if (event.clientX < sc.getBoundingClientRect().left + sc.clientWidth) return;
+    // 中键自动滚动不产生滚轮事件，视口得先交给用户。
+    if (event.button === 1) {
+      applyFollowIntent("up");
+      return;
+    }
+    if (event.clientX < sc.getBoundingClientRect().left + sc.clientWidth) {
+      // 内容区按下：拖选文本时浏览器会自动滚动视口，先让位。
+      selectDrag.current = true;
+      return;
+    }
     scrollbarGrab.current = true;
     applyFollowIntent("up");
   }
 
   function onScrollerPointerUp(): void {
+    if (selectDrag.current) {
+      selectDrag.current = false;
+      // 拖选可能已经把视口带上去了：交还用户，别再贴回底部。
+      const sc = scrollerRef.current;
+      if (sc && !isNearBottom(sc)) engageHistoryReading();
+      return;
+    }
     if (!scrollbarGrab.current) return;
     scrollbarGrab.current = false;
     applyFollowIntent("down");
@@ -673,7 +708,8 @@ export function MessageList({
     const sc = scrollerRef.current;
     if (!sc || settlingSession.current) return;
     if (!followBottom.current) return;
-    if (isNearBottom(sc)) scrollToBottom();
+    if (selectDrag.current) return;
+    scrollToBottom();
   }
 
   /**
@@ -1522,6 +1558,7 @@ export function MessageList({
                     autoCollapse={turnDone || !(msg.streaming && !msg.text)}
                     leadingIcon={<BrainOutline size={12} aria-hidden="true" />}
                     durationMs={msg.thinkingDurationMs}
+                    startedAt={msg.thinkingStartedAt}
                   />
                 ) : null}
                 {msg.text ? (
