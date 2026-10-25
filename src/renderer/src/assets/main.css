@@ -48,6 +48,9 @@
   --border-subtle: #f0f1f2;
   --diff-added: #587c0c;
   --diff-removed: #ad0707;
+  /* diff 行底色：与编辑器一致的“整行改动”底色。 */
+  --diff-added-surface: #587c0c26;
+  --diff-removed-surface: #ad070726;
   --ctx-system: #606060;
   --ctx-tools: #652d90;
   --ctx-summarized: #d18616;
@@ -145,6 +148,9 @@ html[data-theme="dark"] {
   --border-subtle: #2a2b2c;
   --diff-added: #73c991;
   --diff-removed: #f48771;
+  /* diff 行底色：与编辑器一致的“整行改动”底色。 */
+  --diff-added-surface: #57ab5a4d;
+  --diff-removed-surface: #f470674d;
   --ctx-system: #8c8c8c;
   --ctx-tools: #ad80d7;
   --ctx-summarized: #cd861a;

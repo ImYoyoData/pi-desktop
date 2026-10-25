@@ -33,7 +33,6 @@ import {
 import { highlightToSafeHtml } from "@renderer/utils/markdown";
 import { languageFromPath } from "@renderer/utils/editor-lang";
 import { fileIcon } from "@renderer/utils/file-icon";
-import { formatDuration } from "@renderer/utils/format-duration";
 import { useI18n } from "@renderer/i18n/use-i18n";
 import styles from "./ToolBody.module.css";
 
@@ -139,9 +138,6 @@ function FileBody({
         {card.path ? <FileChip path={card.path} onOpen={onOpen} /> : null}
         <span className={styles.langBadge}>{card.lang}</span>
         <span className={styles.meta}>{range}</span>
-        {card.durationMs ? (
-          <span className={styles.meta}>{formatDuration(card.durationMs)}</span>
-        ) : null}
       </div>
       <div className={styles.body}>
         {lineCount ? (
@@ -233,12 +229,6 @@ function TerminalBody({
   const t = useI18n();
   const output = useMemo(() => stripExitNotice(card.preview ?? ""), [card.preview]);
   const failed = card.exitCode != null && card.exitCode !== 0;
-  // 墙钟耗时与工具耗时通常只差几十毫秒，重复显示没有意义。
-  const sameAsWallTime =
-    card.durationMs != null &&
-    card.wallTimeSeconds != null &&
-    Math.abs(card.durationMs - card.wallTimeSeconds * 1000) < 50;
-  const duration = card.durationMs && !sameAsWallTime ? formatDuration(card.durationMs) : null;
   const scrollRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
@@ -250,18 +240,16 @@ function TerminalBody({
 
   return (
     <>
-      <div className={styles.head}>
-        {card.exitCode != null ? (
-          <span className={failed ? styles.exitFail : styles.exitOk}>
-            {t.toolBodyExitCode(card.exitCode)}
-          </span>
-        ) : null}
-        {card.wallTimeSeconds != null ? (
-          <span className={styles.meta}>{card.wallTimeSeconds.toFixed(1)}s</span>
-        ) : null}
-        {duration ? <span className={styles.meta}>{duration}</span> : null}
-        {card.truncated ? <span className={styles.meta}>{t.toolTruncated}</span> : null}
-      </div>
+      {card.exitCode != null || card.truncated ? (
+        <div className={styles.head}>
+          {card.exitCode != null ? (
+            <span className={failed ? styles.exitFail : styles.exitOk}>
+              {t.toolBodyExitCode(card.exitCode)}
+            </span>
+          ) : null}
+          {card.truncated ? <span className={styles.meta}>{t.toolTruncated}</span> : null}
+        </div>
+      ) : null}
       <div className={`${styles.term} ${failed ? styles.termFailed : ""}`}>
         <div className={styles.termScroll} ref={scrollRef}>
           {card.command ? (

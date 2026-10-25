@@ -14,7 +14,7 @@ import {
   EyeOutline,
   FolderOutline,
   ListOutline,
-  SquareTerminalOutline,
+  TerminalOutline,
   type IoniconProps,
 } from "@renderer/components/icons/ionicons";
 import type { ToolCard } from "@renderer/utils/tool-diff";
@@ -76,7 +76,7 @@ function kindIconFor(kind: ToolCard["kind"]): KindIconComponent {
     case "edit":
       return CreateOutline;
     case "bash":
-      return SquareTerminalOutline;
+      return TerminalOutline;
     case "todo":
       return ListOutline;
     case "generic":
