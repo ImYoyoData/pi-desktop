@@ -185,6 +185,12 @@ export const zh = {
 	modelsCustomDevRoleHint: "Ollama / vLLM 等通常关闭",
 	modelsCustomReasoningEffort: "支持 reasoning_effort",
 	modelsCustomReasoningEffortHint: "服务端不支持时请关闭",
+	modelsCustomImageInput: "图像输入方式",
+	modelsCustomImageInputHint:
+		"分类器模型如何接收图片（compat.imageInput），auto 表示由 pi 自动判断",
+	modelsCustomImageOptIn: "图像 opt-in 头",
+	modelsCustomImageOptInHint:
+		"分类器请求是否带 TypeSafe 的图片 opt-in 头（compat.sendImageOptInHeader），默认开启",
 	modelsCustomAddModel: "添加模型",
 	modelsCustomDiscover: "拉取模型",
 	modelsCustomDiscovering: "拉取中…",
@@ -468,6 +474,13 @@ export const zh = {
 	customizeCodemodeInlineBudget: "说明预算",
 	customizeCodemodeInlineBudgetHint:
 		"codemode 说明可用的 token 预算（默认 3000，留空使用默认值）。",
+	customizeCodemodeMaxWorkers: "并发 worker 上限",
+	customizeCodemodeMaxWorkersHint:
+		"codemode 同时运行的沙箱进程数（默认 2）；超出时脚本排队最多等 60 秒。新会话或重启会话后生效。",
+	customizeCodemodeRuntimeTools: "会话内工具",
+	customizeCodemodeRuntimeToolsHint: (tools: number, namespaces: number, reaches: number) =>
+		`当前会话 ${tools} 个工具、${namespaces} 个命名空间，其中 ${reaches} 个可触达其它工具`,
+	customizeCodemodeRuntimeToolsEmpty: "还没有会话上报工具信息，打开一个会话后再看",
 	customizeAboutDesc: "版本信息、更新与开源许可。",
 	terminal: "终端",
 	preview: "预览",
@@ -1241,6 +1254,8 @@ export const zh = {
 	toolResultLines: (n: number) => `${n} 行输出`,
 	toolResultRead: (n: number) => `读取 ${n} 行`,
 	toolResultReadOf: (read: number, total: number) => `读取 ${read}/${total} 行`,
+	toolResultReadRange: (start: number, end: number, total?: number | null) =>
+		total != null ? `第 ${start}-${end} 行，共 ${total} 行` : `第 ${start}-${end} 行`,
 	toolResultImages: (n: number) => `${n} 张图片`,
 	toolResultNoOutput: "无输出",
 	toolCallCount: (n: number) => `${n} 个调用`,

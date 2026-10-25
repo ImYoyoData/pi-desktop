@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { agentDir } from "./agent-dir";
+import { readJsonText } from "./json-text";
 
 /** pi 1.0.3 的 provider 更名，配置里残留的旧 id 一次性改成新 id。 */
 const LEGACY_PROVIDER_IDS: Record<string, string> = {
@@ -30,7 +31,7 @@ function renameKeys(record: Record<string, unknown>): boolean {
 
 function readJson(file: string): Record<string, unknown> | null {
   try {
-    const parsed: unknown = JSON.parse(fs.readFileSync(file, "utf8"));
+    const parsed: unknown = JSON.parse(readJsonText(file));
     return parsed && typeof parsed === "object" && !Array.isArray(parsed)
       ? (parsed as Record<string, unknown>)
       : null;

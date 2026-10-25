@@ -185,6 +185,12 @@ export const ja = {
 	modelsCustomDevRoleHint: "Ollama / vLLM などでは通常オフ",
 	modelsCustomReasoningEffort: "reasoning_effort に対応",
 	modelsCustomReasoningEffortHint: "サーバーが対応していない場合はオフにしてください",
+	modelsCustomImageInput: "画像入力方式",
+	modelsCustomImageInputHint:
+		"分類器モデルが画像を受け取る方式（compat.imageInput）。auto は pi の自動判定",
+	modelsCustomImageOptIn: "画像 opt-in ヘッダー",
+	modelsCustomImageOptInHint:
+		"分類器リクエストに TypeSafe の画像 opt-in ヘッダーを付けるか（compat.sendImageOptInHeader）。既定は有効",
 	modelsCustomAddModel: "モデルを追加",
 	modelsCustomDiscover: "モデルを取得",
 	modelsCustomDiscovering: "取得中…",
@@ -467,6 +473,13 @@ export const ja = {
 	customizeCodemodeInlineBudget: "説明の予算",
 	customizeCodemodeInlineBudgetHint:
 		"codemode の説明に使えるトークン予算（既定 3000、空欄なら既定値）。",
+	customizeCodemodeMaxWorkers: "並行ワーカー上限",
+	customizeCodemodeMaxWorkersHint:
+		"codemode が同時に実行するサンドボックス数（既定 2）。超過分は最大 60 秒待機します。新しいセッションまたは再起動後に反映されます。",
+	customizeCodemodeRuntimeTools: "セッション内ツール",
+	customizeCodemodeRuntimeToolsHint: (tools: number, namespaces: number, reaches: number) =>
+		`現在のセッションは ${tools} ツール・${namespaces} ネームスペース、うち ${reaches} が他のツールに到達可能`,
+	customizeCodemodeRuntimeToolsEmpty: "まだツール情報を報告したセッションがありません。セッションを開いてから確認してください",
 	customizeAboutDesc: "バージョン情報、更新、オープンソースライセンス。",
 	terminal: "ターミナル",
 	preview: "プレビュー",
@@ -1240,6 +1253,8 @@ export const ja = {
 	toolResultLines: (n: number) => `${n} 行の出力`,
 	toolResultRead: (n: number) => `${n} 行を読み取り`,
 	toolResultReadOf: (read: number, total: number) => `${read}/${total} 行を読み取り`,
+	toolResultReadRange: (start: number, end: number, total?: number | null) =>
+		total != null ? `第 ${start}-${end} 行（全 ${total} 行）` : `第 ${start}-${end} 行`,
 	toolResultImages: (n: number) => `${n} 枚の画像`,
 	toolResultNoOutput: "出力なし",
 	toolCallCount: (n: number) => `${n} 件の呼び出し`,

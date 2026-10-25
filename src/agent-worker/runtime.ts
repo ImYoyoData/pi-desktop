@@ -708,7 +708,7 @@ async function initSession(
 		services,
 		extensionsResult,
 		created.getActiveToolNames(),
-		created.getAllTools() as { name: string; description?: string }[],
+		created.getAllTools(),
 	);
 	if (extensionBindErrors.length) {
 		resources.diagnostics.push(
