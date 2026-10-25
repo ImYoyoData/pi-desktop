@@ -9,6 +9,7 @@ import {
 } from "react";
 import { ChevronForwardOutline } from "@renderer/components/icons/ionicons";
 import { useI18n } from "@renderer/i18n/use-i18n";
+import { formatDuration } from "@renderer/utils/format-duration";
 import styles from "./ThinkingBlock.module.css";
 
 const MarkdownView = lazy(() => import("@renderer/components/MarkdownView"));
@@ -21,8 +22,8 @@ type Props = {
   autoCollapse?: boolean;
   /** 行首图标（工作区小节内与工具行对齐）。 */
   leadingIcon?: ReactNode;
-  /** 行尾附加信息，例如思考耗时。 */
-  meta?: string;
+  /** 思考耗时（毫秒）；历史会话没有记录，不传就不显示。 */
+  durationMs?: number;
 };
 
 /**
@@ -35,7 +36,7 @@ export function ThinkingBlock({
   streaming,
   autoCollapse,
   leadingIcon,
-  meta,
+  durationMs,
 }: Props): ReactNode {
   const t = useI18n();
   const [manuallyOpen, setManuallyOpen] = useState<boolean | null>(null);
@@ -52,6 +53,14 @@ export function ThinkingBlock({
   }, [autoCollapse, manuallyOpen, streaming]);
 
   const headLabel = streaming ? t.thinkingStreaming : t.thinking;
+
+  /** 行尾信息：字数 + 耗时，有多少说多少。 */
+  const meta = useMemo(() => {
+    const parts: string[] = [];
+    if (thinking) parts.push(t.thinkingChars(thinking.length));
+    if (durationMs != null) parts.push(formatDuration(durationMs));
+    return parts.length ? parts.join(" · ") : null;
+  }, [durationMs, t, thinking]);
 
   /** 流式长思考只挂载尾部窗口，防止整段文本常驻 DOM、每 tick 全量布局。 */
   const THINK_LIVE_MAX_CHARS = 16_000;

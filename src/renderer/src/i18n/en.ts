@@ -753,6 +753,7 @@ export const en = {
 	thinkingLevel: "Thinking level",
 	thinking: "Thought process",
 	thinkingStreaming: "Thinking",
+	thinkingChars: (n: number) => (n === 1 ? "1 char" : `${n} chars`),
 	composerSettingsLocked: "Thinking level is locked while Pi is responding (the model can be switched anytime)",
 	imageTooLarge: "Images must be under 8MB",
 	pasteImageOk: "Image attached",

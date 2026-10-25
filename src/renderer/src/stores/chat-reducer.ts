@@ -722,13 +722,19 @@ function assistantFromPartial(
 		prev?.role === "assistant" ? prev.thinkingDurationMs : undefined;
 	const text = coalesceGrowingText(snapshot, prevText);
 	const thinking = coalesceGrowingText(thinkingSnap, prevThinking);
+	// pi 记录的这条消息耗时：UI 没赶上思考过程（首帧就是完整快照）时用它兜底。
+	const recordedMs =
+		typeof msg.durationMs === "number" && Number.isFinite(msg.durationMs) && msg.durationMs > 0
+			? msg.durationMs
+			: undefined;
+	const thinkingMs = prevDuration ?? (prevStarted == null ? recordedMs : undefined);
 	return stampThinkingClock({
 		id,
 		role: "assistant",
 		text,
 		...(thinking ? { thinking } : {}),
 		...(prevStarted != null ? { thinkingStartedAt: prevStarted } : {}),
-		...(prevDuration != null ? { thinkingDurationMs: prevDuration } : {}),
+		...(thinkingMs != null ? { thinkingDurationMs: thinkingMs } : {}),
 		streaming: true,
 	});
 }
@@ -744,8 +750,10 @@ export function stampThinkingClock(
 	let thinkingStartedAt = msg.thinkingStartedAt;
 	let thinkingDurationMs = msg.thinkingDurationMs;
 
+	// 首见即结束（快照首帧、thinking_end 直落）没有起点可测：此刻启动计时只会得到 0ms。
 	if (
-		(hasThinkingText || thinkingInFlight) &&
+		thinkingInFlight &&
+		!opts.finalize &&
 		thinkingStartedAt == null &&
 		thinkingDurationMs == null
 	) {
@@ -1159,8 +1167,16 @@ function reduceAgentPayload(
 					stream?.role === "assistant" ? stream.thinkingStartedAt : undefined;
 				const duration =
 					stream?.role === "assistant" ? stream.thinkingDurationMs : undefined;
+				// pi 记录的这条消息耗时：UI 没赶上思考过程时用它兜底。
+				const recordedMs =
+					typeof msg.durationMs === "number" &&
+					Number.isFinite(msg.durationMs) &&
+					msg.durationMs > 0
+						? msg.durationMs
+						: undefined;
+				const thinkingMs = duration ?? (started == null ? recordedMs : undefined);
 				const usage = parseMessageUsage(msg);
-				const dur = usageDurationMs(state, duration);
+				const dur = usageDurationMs(state, thinkingMs);
 				const model = messageModel(msg);
 				const thinkingLevel =
 					typeof msg.thinkingLevel === "string" ? msg.thinkingLevel : undefined;
@@ -1170,7 +1186,7 @@ function reduceAgentPayload(
 					text,
 					...(thinking ? { thinking } : {}),
 					...(started != null ? { thinkingStartedAt: started } : {}),
-					...(duration != null ? { thinkingDurationMs: duration } : {}),
+					...(thinkingMs != null ? { thinkingDurationMs: thinkingMs } : {}),
 					...(usage ? { usage } : {}),
 					...(dur != null ? { durationMs: dur } : {}),
 					...(model ? { model } : {}),

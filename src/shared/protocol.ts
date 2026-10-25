@@ -596,6 +596,8 @@ export type SessionHistoryMessage =
 			usage?: { input?: number; output?: number; totalTokens?: number } | null;
 			/** 本轮耗时毫秒（恢复历史时从时间戳还原）。 */
 			durationMs?: number;
+			/** 这条消息的耗时毫秒（pi 记录），思考行据此显示耗时。 */
+			thinkingDurationMs?: number;
 	  }
 	| {
 			id: string;

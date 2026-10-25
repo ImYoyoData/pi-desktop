@@ -50,7 +50,6 @@ import {
   type UserMessage,
 } from "@renderer/utils/message-rows";
 import { agentOutputSilenceMs } from "@renderer/utils/agent-wait";
-import { formatDuration } from "@renderer/utils/format-duration";
 import type { ChatState } from "@renderer/stores/chat-reducer";
 import { usePreviewStore } from "@renderer/stores/preview";
 import { useRightTabsStore } from "@renderer/stores/right-tabs";
@@ -1522,11 +1521,7 @@ export function MessageList({
                     streaming={Boolean(msg.streaming && !msg.text)}
                     autoCollapse={turnDone || !(msg.streaming && !msg.text)}
                     leadingIcon={<BrainOutline size={12} aria-hidden="true" />}
-                    meta={
-                      msg.thinkingDurationMs != null
-                        ? formatDuration(msg.thinkingDurationMs)
-                        : undefined
-                    }
+                    durationMs={msg.thinkingDurationMs}
                   />
                 ) : null}
                 {msg.text ? (
