@@ -53,6 +53,7 @@ import type { BashNoticeLocale } from "../shared/bash-notice-i18n";
 import { createAskUserToolDefinition } from "./ask-user-tool";
 import { createTodoWriteToolDefinition, clearLatestTodoWriteRows } from "./todo-tool";
 import { createTodoReminderExtension } from "./todo-reminder";
+import { createToolPreferenceExtension } from "./tool-preference";
 import { commandShouldStartBackground } from "../shared/bash-background";
 import { createTrackedBashOperations } from "./bash-run-tracker";
 import {
@@ -583,6 +584,8 @@ async function initSession(
 				{ name: "mcp", factory: createMcpExtension(), replaceable: true, builtin: true },
 				// 模型不回写待办时把清单拉回正轨：上下文进度注入 + 回合末兜底提醒。
 				{ name: "todo-reminder", factory: createTodoReminderExtension(), builtin: true, hidden: true },
+				// 内置工具本身不带使用偏好，模型默认手感是 shell：用 guidelines 把搜索/读文件推回 grep、find、read。
+				{ name: "tool-preference", factory: createToolPreferenceExtension(), builtin: true, hidden: true },
 			],
 			appendSystemPrompt: [
 				DESKTOP_ASK_USER_PROMPT,
