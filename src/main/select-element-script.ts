@@ -11,6 +11,14 @@ const SELECT_ELEMENT_COPY: Record<
     tipAction: "点击选择，拖拽框选",
     regionPrefix: "区域",
   },
+  "zh-TW": {
+    tipAction: "點擊選取，拖曳框選",
+    regionPrefix: "區域",
+  },
+  ja: {
+    tipAction: "クリックで選択、ドラッグで範囲指定",
+    regionPrefix: "範囲",
+  },
   en: {
     tipAction: "Click to select, drag to draw",
     regionPrefix: "Region",

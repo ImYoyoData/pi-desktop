@@ -1,5 +1,7 @@
 import { theme, type MappingAlgorithm, type ThemeConfig } from "antd";
 import zhCN from "antd/locale/zh_CN";
+import zhTW from "antd/locale/zh_TW";
+import jaJP from "antd/locale/ja_JP";
 import enUS from "antd/locale/en_US";
 import type { Locale } from "antd/es/locale";
 import type { UiLocale } from "@renderer/i18n";
@@ -106,6 +108,13 @@ export function themeConfigFor(mode: ResolvedTheme, fontSize: number): ThemeConf
   return config;
 }
 
+const ANTD_LOCALES: Record<UiLocale, Locale> = {
+  "zh-CN": zhCN,
+  "zh-TW": zhTW,
+  ja: jaJP,
+  en: enUS,
+};
+
 export function antdLocaleFor(locale: UiLocale): Locale {
-  return locale === "zh-CN" ? zhCN : enUS;
+  return ANTD_LOCALES[locale];
 }

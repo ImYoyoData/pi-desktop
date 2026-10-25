@@ -3,6 +3,7 @@ import * as prefs from "@renderer/utils/prefs";
 import {
   applyUiLocale,
   detectSystemLanguage,
+  isUiLocale,
   resolveUiLocale,
   type UiLocale,
 } from "@renderer/i18n";
@@ -24,7 +25,7 @@ import {
 
 export type ThemePreference = "system" | "light" | "dark";
 export type ResolvedTheme = "light" | "dark";
-export type LocalePreference = "system" | "zh-CN" | "en";
+export type LocalePreference = "system" | UiLocale;
 export type SurfaceAlphaKey = keyof SurfaceAlphaSettings;
 
 const THEME_KEY = "pi-desktop:theme-preference";
@@ -147,7 +148,7 @@ function readThemePreference(): ThemePreference {
 function readLocalePreference(): LocalePreference {
   try {
     const raw = prefs.getItem(LOCALE_KEY);
-    if (raw === "zh-CN" || raw === "en" || raw === "system") return raw;
+    if (raw === "system" || isUiLocale(raw)) return raw;
   } catch {
     // ignore
   }

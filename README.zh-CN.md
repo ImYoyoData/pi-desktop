@@ -35,7 +35,7 @@
   <img alt="react" src="https://img.shields.io/badge/React-19-087EA4?style=for-the-badge&labelColor=1a1a1a&logo=react&logoColor=61DAFB" />
 </a>
 <a href="https://github.com/ImYoyoData/pi-desktop">
-  <img alt="platform" src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS-6B7280?style=for-the-badge&labelColor=1a1a1a" />
+  <img alt="platform" src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-6B7280?style=for-the-badge&labelColor=1a1a1a" />
 </a>
 
 <br /><br />

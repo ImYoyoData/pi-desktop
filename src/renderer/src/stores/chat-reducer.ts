@@ -2,14 +2,14 @@ import type { AgentEvent } from "../../../shared/protocol";
 import type { AskUserPrompt } from "../../../shared/ask-user";
 import type { ExtensionUiPending } from "../../../shared/extension-ui";
 import { formatLlmError } from "../utils/llm-error";
-import { getLocale, t } from "../i18n";
+import { getLocale, t, type UiLocale } from "../i18n";
 import {
 	isLegacyModeTagKind,
 	stripInjectedBlocks,
 	type LegacyModeTagKind,
 } from "../../../shared/injected-blocks";
 
-function uiLocale(): "zh-CN" | "en" {
+function uiLocale(): UiLocale {
 	return getLocale();
 }
 
@@ -1482,11 +1482,9 @@ function reduceAgentPayload(
 		if (payload.aborted === true) {
 			const last = settled.messages.at(-1);
 			if (!(last?.role === "error" && last.variant === "cancelled")) {
-				return appendError(
-					settled,
-					uiLocale() === "zh-CN" ? "已取消" : "Cancelled",
-					{ variant: "cancelled" },
-				);
+				return appendError(settled, t.turnCancelled, {
+					variant: "cancelled",
+				});
 			}
 		}
 		return settled;
@@ -1590,9 +1588,7 @@ export function reduceChatEvent(
 				return withRunClock(
 					appendError(
 						state,
-						uiLocale() === "zh-CN"
-							? `会话 Worker 异常退出（code ${event.code}）。可终止或重启此会话。`
-							: `Session worker exited unexpectedly (code ${event.code}). Terminate or restart this session.`,
+						t.workerExitedUnexpected(event.code),
 					),
 				);
 			}
