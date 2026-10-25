@@ -1,5 +1,6 @@
 import { lazy, Suspense, useEffect } from "react";
 import { SplitPane, SplitPanes } from "@renderer/components/SplitPanes";
+import NavRail from "@renderer/components/NavRail";
 import { useLayoutStore } from "@renderer/stores/layout";
 import { useWorkspaceStore } from "@renderer/stores/workspace";
 
@@ -17,6 +18,11 @@ const PANE_MAX = 70;
 const CHAT_TOP_MIN = 25;
 const PANEL_MIN = 18;
 const PANEL_MAX = 75;
+
+/** 胶囊卡片：面板内容与分栏边界之间留出浮动间隙。 */
+function Capsule({ children }: { children: React.ReactNode }): React.ReactNode {
+  return <div className="pane-capsule">{children}</div>;
+}
 
 export function SplitRoot(): React.ReactNode {
   const layout = useLayoutStore();
@@ -96,6 +102,7 @@ export function SplitRoot(): React.ReactNode {
 
   return (
     <div className="split-root">
+      <NavRail />
       <SplitPanes className="panes outer" onResized={onOuterResized}>
         <SplitPane
           size={layout.leftCollapsed ? 0 : outerLeftSize}
@@ -103,9 +110,11 @@ export function SplitRoot(): React.ReactNode {
           maxSize={layout.leftCollapsed ? 0 : PANE_MAX}
           className={layout.leftCollapsed ? "pane-collapsed" : undefined}
         >
-          <Suspense fallback={null}>
-            <SessionSidebar />
-          </Suspense>
+          <Capsule>
+            <Suspense fallback={null}>
+              <SessionSidebar />
+            </Suspense>
+          </Capsule>
         </SplitPane>
 
         <SplitPane
@@ -136,15 +145,17 @@ export function SplitRoot(): React.ReactNode {
                   }
                   className={layout.editorMaximized ? "pane-collapsed" : undefined}
                 >
-                  {layout.centerView === "pull-requests" ? (
-                    <Suspense fallback={null}>
-                      <PullRequestsView />
-                    </Suspense>
-                  ) : (
-                    <Suspense fallback={null}>
-                      <ChatPanel visible={chatVisible} />
-                    </Suspense>
-                  )}
+                  <Capsule>
+                    {layout.centerView === "pull-requests" ? (
+                      <Suspense fallback={null}>
+                        <PullRequestsView />
+                      </Suspense>
+                    ) : (
+                      <Suspense fallback={null}>
+                        <ChatPanel visible={chatVisible} />
+                      </Suspense>
+                    )}
+                  </Capsule>
                 </SplitPane>
                 <SplitPane
                   size={bottomPanelSize}
@@ -172,9 +183,11 @@ export function SplitRoot(): React.ReactNode {
                 layout.rightCollapsed && !layout.editorMaximized ? "pane-collapsed" : undefined
               }
             >
-              <Suspense fallback={null}>
-                <RightPane />
-              </Suspense>
+              <Capsule>
+                <Suspense fallback={null}>
+                  <RightPane />
+                </Suspense>
+              </Capsule>
             </SplitPane>
           </SplitPanes>
         </SplitPane>

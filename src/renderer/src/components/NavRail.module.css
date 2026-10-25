@@ -1,0 +1,51 @@
+.rail {
+  flex: 0 0 46px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  margin: 6px 0 6px 6px;
+  padding: 6px 0 8px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--bg-sidebar);
+  box-shadow: var(--shadow-sm);
+  overflow: hidden;
+  min-height: 0;
+}
+
+.spacer {
+  flex: 1;
+  min-height: 8px;
+}
+
+.btn {
+  width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: none;
+  border-radius: 9px;
+  background: transparent;
+  color: var(--fg-muted);
+  cursor: pointer;
+  transition:
+    background var(--duration-fast, 140ms) var(--ease-out, ease),
+    color var(--duration-fast, 140ms) var(--ease-out, ease);
+}
+
+.btn:hover {
+  background: var(--bg-hover);
+  color: var(--fg-strong);
+}
+
+.btn:focus-visible {
+  outline: 1px solid var(--border-strong);
+  outline-offset: -1px;
+}
+
+.btnActive {
+  background: var(--bg-active);
+  color: var(--fg-strong);
+}

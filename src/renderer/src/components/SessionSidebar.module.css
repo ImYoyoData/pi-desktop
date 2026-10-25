@@ -133,13 +133,8 @@
 
 /* 点击后不再保留 focus 底色，只留悬停高亮 */
 .wsPanelToggle:focus-visible,
-.topBtn:not(.topBtnActive):focus-visible {
+.topBtn:focus-visible {
   background: transparent !important;
-}
-
-.topBtnActive {
-  background: rgba(127, 127, 127, 0.14) !important;
-  color: var(--fg-strong) !important;
 }
 
 .btnContent {
@@ -627,51 +622,6 @@
 .sessionExpandBtn:hover {
   background: var(--bg-hover);
   color: var(--fg);
-}
-
-:global(.customize-bar) {
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-  flex-shrink: 0;
-  padding: 4px 6px 6px;
-  border-top: 1px solid var(--border, rgba(128, 128, 128, 0.15));
-}
-
-.customizeBtn {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  width: 100%;
-  margin: 0;
-  padding: 4px 8px;
-  border: none;
-  border-radius: 6px;
-  background: transparent;
-  color: var(--fg-muted, #888);
-  font: inherit;
-  font-size: 0.9231rem;
-  text-align: left;
-  cursor: pointer;
-  transition:
-    background var(--duration-fast, 140ms) var(--ease-out, ease),
-    color var(--duration-fast, 140ms) var(--ease-out, ease);
-}
-
-.customizeBtn:hover {
-  background: var(--bg-hover, rgba(127, 127, 127, 0.07));
-  color: var(--fg);
-}
-
-.customizeBtn:focus-visible {
-  outline: 1px solid var(--border-strong, rgba(128, 128, 128, 0.4));
-  outline-offset: -1px;
-}
-
-.customizeLabel {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .sessionCheck {
