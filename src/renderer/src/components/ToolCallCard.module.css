@@ -287,6 +287,8 @@
   padding: 4px 6px 4px 26px;
   border-radius: 7px;
   cursor: pointer;
+  user-select: none;
+  -webkit-user-select: none;
 }
 
 .stepHead:hover {
@@ -357,16 +359,19 @@
   flex-shrink: 0;
   font-family: var(--font-mono, ui-monospace, monospace);
   font-size: var(--chat-font-xs, 11px);
-  color: var(--fg-muted, #606060);
+  color: var(--chat-desc-fg, var(--fg-muted));
+  opacity: 0.65;
 }
 
+/* 次要信息与思考行的小字同一套观感：灰一档、整体再淡一点。 */
 .stepMeta {
   flex-shrink: 0;
   display: inline-flex;
   align-items: baseline;
   gap: 8px;
   font-size: var(--chat-font-xs, 11px);
-  color: var(--fg-muted, #606060);
+  color: var(--chat-desc-fg, var(--fg-muted));
+  opacity: 0.65;
   font-variant-numeric: tabular-nums;
 }
 

@@ -66,11 +66,8 @@ export type FileToolCard = {
   kind: "edit" | "write" | "other";
   path: string | null;
   stats: ToolDiffStats | null;
-  /** Display-oriented diff from EditToolDetails, or synthesized preview. */
+  /** 统一的 unified diff：pi 的 display 格式在解析时就归一化掉。 */
   diff: string | null;
-  /** Unified patch when available. */
-  patch: string | null;
-  firstChangedLine?: number;
   /** Execution duration stamped by the reducer (live turns only). */
   durationMs?: number | null;
 };
@@ -360,6 +357,24 @@ function contentFromWriteArgs(args: unknown): string {
   return "";
 }
 
+/**
+ * pi 的 display diff（`+198 text` / ` 197 text`）归一化成 unified。
+ *
+ * 渲染层只认 unified 一种格式：display diff 会让整张卡片退化成纯文本预览。
+ */
+function normalizeDiff(raw: string, path: string | null): string {
+  if (raw.includes("@@")) return raw;
+  const label = (path ?? "file").replace(/\\/g, "/");
+  const body = raw
+    .replace(/\r\n/g, "\n")
+    .split("\n")
+    .map((line) => {
+      const match = /^([+\- ])\s*\d*\s(.*)$/.exec(line);
+      return match ? `${match[1]}${match[2]}` : line;
+    });
+  return [`--- a/${label}`, `+++ b/${label}`, "@@", ...body].join("\n");
+}
+
 function previewEditFromArgs(args: unknown, path: string | null): string | null {
   if (!isRecord(args)) return null;
   // Single edit shape
@@ -444,40 +459,36 @@ export function parseFileToolCard(
       path,
       stats: null,
       diff: text.trim() ? text : null,
-      patch: null,
     };
   }
 
   if (name === "edit" || name === "str_replace" || name === "search_replace") {
-    const diff = typeof details?.diff === "string" ? details.diff : null;
-    const patch = typeof details?.patch === "string" ? details.patch : null;
-    const source = diff || patch || previewEditFromArgs(args, path) || "";
-    const stats = source ? countDiffStats(source) : null;
-    const firstChangedLine =
-      typeof details?.firstChangedLine === "number" ? details.firstChangedLine : undefined;
+    // pi 同时给 display diff 与 unified patch：统一成 unified，渲染层只认一种格式。
+    const raw =
+      (typeof details?.patch === "string" ? details.patch : null) ||
+      (typeof details?.diff === "string" ? details.diff : null) ||
+      previewEditFromArgs(args, path);
+    const diff = raw ? normalizeDiff(raw, path) : null;
     return {
       kind: "edit",
       path,
-      stats,
-      diff: diff || patch || previewEditFromArgs(args, path),
-      patch,
-      firstChangedLine,
+      stats: diff ? countDiffStats(diff) : null,
+      diff,
       durationMs: opts?.durationMs ?? null,
     };
   }
 
   if (name === "write" || name === "write_file" || name === "create_file") {
-    // Prefer an explicit diff from the tool when present (overwrite with real +/-).
     const detailsDiff = typeof details?.diff === "string" ? details.diff : null;
     const detailsPatch = typeof details?.patch === "string" ? details.patch : null;
-    if (detailsDiff || detailsPatch) {
-      const source = detailsDiff || detailsPatch || "";
+    const raw = detailsPatch || detailsDiff;
+    if (raw) {
+      const diff = normalizeDiff(raw, path);
       return {
         kind: "write",
         path,
-        stats: source ? countDiffStats(source) : null,
-        diff: detailsDiff || detailsPatch,
-        patch: detailsPatch,
+        stats: countDiffStats(diff),
+        diff,
         durationMs: opts?.durationMs ?? null,
       };
     }
@@ -489,7 +500,6 @@ export function parseFileToolCard(
       stats: content ? { additions: lineCount, deletions: 0 } : null,
       // New / full rewrite: present every line as an addition.
       diff: content ? previewWriteContent(content, path) : null,
-      patch: null,
       durationMs: opts?.durationMs ?? null,
     };
   }
@@ -499,7 +509,6 @@ export function parseFileToolCard(
     path,
     stats: null,
     diff: text.trim() ? text : null,
-    patch: null,
     durationMs: opts?.durationMs ?? null,
   };
 }

@@ -6,7 +6,7 @@ import {
   DocumentTextOutline,
   EyeOutline,
   ListOutline,
-  SquareTerminalOutline,
+  TerminalOutline,
 } from "@renderer/components/icons/ionicons";
 import type { ChatMessage } from "@renderer/stores/chat";
 import ThinkingBlock from "@renderer/components/ThinkingBlock";
@@ -283,7 +283,7 @@ export function WorkSectionGroup({ items, autoCollapse, onOpen }: Props): ReactN
     if (kinds.has("edit")) return CreateOutline;
     if (thinkingCount > 0) return BrainOutline;
     if (kinds.has("read")) return EyeOutline;
-    if (kinds.has("bash")) return SquareTerminalOutline;
+    if (kinds.has("bash")) return TerminalOutline;
     if (kinds.has("todo")) return ListOutline;
     return DocumentTextOutline;
   }, [categorized, thinkingCount]);
@@ -369,9 +369,6 @@ export function WorkSectionGroup({ items, autoCollapse, onOpen }: Props): ReactN
                     key={msg.id}
                     className={`${styles.tlItem} ${styles.thinkingItem}`}
                   >
-                    <span className={styles.thinkingBadge} aria-hidden="true">
-                      <BrainOutline size={13} />
-                    </span>
                     <div className={styles.thinkingContent}>
                       <ThinkingBlock
                         thinking={msg.thinking}
@@ -379,6 +376,11 @@ export function WorkSectionGroup({ items, autoCollapse, onOpen }: Props): ReactN
                         autoCollapse={Boolean(autoCollapse)}
                         durationMs={msg.thinkingDurationMs}
                         startedAt={msg.thinkingStartedAt}
+                        leadingIcon={
+                          <span className={styles.thinkingBadge} aria-hidden="true">
+                            <BrainOutline size={11} />
+                          </span>
+                        }
                       />
                     </div>
                   </div>

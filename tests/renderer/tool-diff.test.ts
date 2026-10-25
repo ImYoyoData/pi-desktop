@@ -39,8 +39,20 @@ describe("parseFileToolCard", () => {
     expect(card.kind).toBe("edit");
     expect(card.path).toBe("src/a.ts");
     expect(card.stats).toEqual({ additions: 1, deletions: 1 });
-    expect(card.firstChangedLine).toBe(1);
-    expect(card.diff).toContain("+1 b");
+    expect(card.diff).toContain("@@");
+  });
+
+  it("normalizes a numbered display diff to unified", () => {
+    const card = parseFileToolCard("edit", { path: "a.ts" }, {
+      content: [{ type: "text", text: "ok" }],
+      details: { diff: " 1 const a = 1;\n+2 const b = 2;\n-3 const c = 3;" },
+    });
+    expect(card.kind).toBe("edit");
+    expect(card.diff).toContain("@@");
+    expect(card.diff).toContain(" const a = 1;");
+    expect(card.diff).toContain("+const b = 2;");
+    expect(card.diff).toContain("-const c = 3;");
+    expect(card.stats).toEqual({ additions: 1, deletions: 1 });
   });
 
   it("summarizes write from args.content", () => {

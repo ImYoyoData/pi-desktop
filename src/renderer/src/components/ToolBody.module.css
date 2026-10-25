@@ -142,24 +142,24 @@
 .diffCtx .txt { color: var(--fg-muted); }
 
 .diffAdd {
-  background: color-mix(in srgb, var(--diff-added, #587c0c) 12%, transparent);
+  background: var(--diff-added-surface, #587c0c26);
 }
 
 .diffAdd .sign { color: var(--diff-added, #587c0c); }
 
 .diffDel {
-  background: color-mix(in srgb, var(--diff-removed, #ad0707) 12%, transparent);
+  background: var(--diff-removed-surface, #ad070726);
 }
 
 .diffDel .sign { color: var(--diff-removed, #ad0707); }
 
 .wordAdd {
-  background: color-mix(in srgb, var(--diff-added, #587c0c) 30%, transparent);
+  background: color-mix(in srgb, var(--diff-added, #587c0c) 45%, transparent);
   border-radius: 2px;
 }
 
 .wordDel {
-  background: color-mix(in srgb, var(--diff-removed, #ad0707) 30%, transparent);
+  background: color-mix(in srgb, var(--diff-removed, #ad0707) 45%, transparent);
   border-radius: 2px;
   text-decoration: line-through;
   text-decoration-color: color-mix(in srgb, var(--diff-removed, #ad0707) 70%, transparent);
