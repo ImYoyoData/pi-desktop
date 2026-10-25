@@ -293,6 +293,11 @@
   background: var(--chat-hover-bg, color-mix(in srgb, var(--fg) 5%, transparent));
 }
 
+/* 度量紧随目标显示，展开箭头仍贴在行尾。 */
+.stepHead .hoverChev {
+  margin-left: auto;
+}
+
 .stepDot {
   position: absolute;
   left: 3px;
@@ -329,7 +334,7 @@
 }
 
 .stepTarget {
-  flex: 1;
+  flex: 0 1 auto;
   min-width: 0;
   display: flex;
   align-items: center;
