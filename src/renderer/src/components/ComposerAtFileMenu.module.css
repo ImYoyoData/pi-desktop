@@ -7,10 +7,10 @@
   max-height: min(360px, 42vh);
   overflow: auto;
   border: 1px solid var(--border, #ddd);
-  border-radius: 6px;
+  border-radius: 12px;
   background: var(--bg-elevated, #fff);
   box-shadow: 0 8px 28px rgba(0, 0, 0, 0.12);
-  padding: 4px;
+  padding: 6px;
 }
 
 .empty {
@@ -28,7 +28,7 @@
   margin: 0;
   padding: 6px 8px;
   border: none;
-  border-radius: 6px;
+  border-radius: 8px;
   background: transparent;
   color: inherit;
   text-align: left;

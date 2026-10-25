@@ -55,7 +55,11 @@
   min-width: 0;
   display: flex;
   flex-direction: column;
+  margin: 6px 6px 6px 0;
+  border: 1px solid var(--border);
+  border-radius: 12px;
   background: var(--bg);
+  overflow: hidden;
 }
 
 .dockColHead {

@@ -399,6 +399,28 @@ button {
 }
 
 /*
+ * 弹出菜单统一胶囊外观：文件树右键等直接渲染的 Menu、Dropdown 下拉、Select 下拉面板。
+ * 组件 token 已在 theme/antd.ts 里配过一份（圆角、间距），这里用样式兜底，
+ * 保证不经过 Dropdown 包裹的独立 Menu 也拿到同一套外形。
+ */
+.ant-menu,
+.ant-dropdown-menu,
+.ant-select-dropdown {
+  border: 1px solid var(--border) !important;
+  border-radius: 12px !important;
+  padding: 4px !important;
+  box-shadow: var(--shadow-md);
+}
+
+.ant-menu-item,
+.ant-menu-submenu-title,
+.ant-dropdown-menu-item,
+.ant-dropdown-menu-submenu-title,
+.ant-select-item {
+  border-radius: 8px !important;
+}
+
+/*
  * Refined scrollbars
  *
  * 标准 scrollbar-width / scrollbar-color 与 ::-webkit-scrollbar 互斥：元素一旦设置标准
@@ -453,6 +475,11 @@ button {
 }
 
 *::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* 滚动条交角默认是浏览器绘制的浅色小三角，会露出一个白点 */
+*::-webkit-scrollbar-corner {
   background: transparent;
 }
 

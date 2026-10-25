@@ -211,10 +211,21 @@ html[data-theme][data-wallpaper="on"] .monaco-diff-editor .diffOverview {
   background-color: transparent !important;
 }
 
-/* Monaco 吸顶条属于编辑区内容，跟随编辑区透出界面 */
+/* Monaco 吸顶条（当前作用域预览）覆盖在代码上方：
+   跟随卡片透明档位铺一层玻璃，代码透过时由模糊隔开，不会叠在一起。 */
+html[data-theme][data-wallpaper="on"] .monaco-editor .sticky-widget {
+  background-color: var(--w-elevated-surface) !important;
+  backdrop-filter: blur(14px) saturate(1.15);
+  /* 原生黑色投影与描边在玻璃上就是一遭黑条，换成主题描边 */
+  box-shadow: none !important;
+  border-bottom: 1px solid var(--border) !important;
+}
+
 html[data-theme][data-wallpaper="on"] .monaco-editor .sticky-widget .sticky-widget-line-numbers,
+html[data-theme][data-wallpaper="on"] .monaco-editor .sticky-widget .sticky-widget-lines,
 html[data-theme][data-wallpaper="on"] .monaco-editor .sticky-widget .sticky-widget-lines-scrollable {
-  background-color: transparent !important;
+  background-color: var(--w-elevated-surface) !important;
+  backdrop-filter: blur(14px) saturate(1.15);
 }
 
 /* Monaco 浮层（补全、悬浮提示、参数提示）半透明 */

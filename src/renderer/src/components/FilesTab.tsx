@@ -1,5 +1,6 @@
 import {
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -12,10 +13,7 @@ import { Button, Empty, Input, Menu, Modal, Space, Spin, Typography, Tree } from
 import type { MenuProps } from "antd";
 import type { DataNode, EventDataNode } from "antd/es/tree";
 import {
-  ChatbubbleEllipsesOutline,
   DocumentAttachOutline,
-  EyeOffOutline,
-  EyeOutline,
   FolderOpenOutline,
   FolderOutline,
   RefreshOutline,
@@ -53,6 +51,9 @@ type Props = {
 };
 
 type CtxKind = "file" | "dir" | "blank";
+
+/** 右键菜单距窗口边缘的最小留白。 */
+const CTX_MARGIN = 8;
 
 type CtxState = {
   show: boolean;
@@ -293,25 +294,6 @@ export function FilesTab({ embedded = false }: Props): ReactNode {
     }
   }
 
-  async function toggleIgnore(
-    relativePath: string,
-    currentlyIgnored: boolean,
-  ): Promise<void> {
-    try {
-      if (currentlyIgnored) {
-        await window.api.git.unignore(relativePath);
-        message.success(t.changesUnignored);
-      } else {
-        await window.api.git.ignore([relativePath]);
-        message.success(t.changesIgnored);
-      }
-      await refreshIgnored();
-      await refreshRoot();
-    } catch (err) {
-      message.error(err instanceof Error ? err.message : String(err));
-    }
-  }
-
   async function refreshGit(): Promise<void> {
     try {
       const status = await window.api.git.status();
@@ -527,6 +509,18 @@ export function FilesTab({ embedded = false }: Props): ReactNode {
     setCtx((current) => ({ ...current, show: false }));
   }
 
+  /** 右键菜单贴近窗口边缘时夹回可视区，避免被裁掉。 */
+  useLayoutEffect(() => {
+    if (!ctx.show) return;
+    const el = ctxMenuRef.current;
+    if (!el) return;
+    const { width, height } = el.getBoundingClientRect();
+    const x = Math.max(CTX_MARGIN, Math.min(ctx.x, window.innerWidth - width - CTX_MARGIN));
+    const y = Math.max(CTX_MARGIN, Math.min(ctx.y, window.innerHeight - height - CTX_MARGIN));
+    if (x === ctx.x && y === ctx.y) return;
+    setCtx((current) => ({ ...current, x, y }));
+  }, [ctx.show, ctx.x, ctx.y]);
+
   function openCtx(
     event: { clientX: number; clientY: number; preventDefault?: () => void; stopPropagation?: () => void },
     path: string,
@@ -630,22 +624,12 @@ export function FilesTab({ embedded = false }: Props): ReactNode {
     const pasteDest =
       kind === "dir" ? ctx.path : kind === "file" ? parentDirOf(ctx.path) : "";
     const canPaste = Boolean(cutPath) && canMoveInto(cutPath!, pasteDest);
-    const ignored = matchesGitIgnorePatterns(ctx.path, ignoredPatterns);
 
     if (kind === "file") {
       items.push(
         { label: t.open, key: "open" },
-        {
-          label: t.filesAddToChat,
-          key: "cite",
-          icon: <ChatbubbleEllipsesOutline />,
-        },
+        { label: t.filesAddToChat, key: "cite" },
         { label: t.filesReveal, key: "reveal" },
-        {
-          label: ignored ? t.changesUnignore : t.changesIgnore,
-          key: "ignore",
-          icon: ignored ? <EyeOutline /> : <EyeOffOutline />,
-        },
         { type: "divider", key: "d0" },
         { label: t.filesCopyRelativePath, key: "copy-rel" },
         { label: t.filesCopyAbsolutePath, key: "copy-abs" },
@@ -660,11 +644,7 @@ export function FilesTab({ embedded = false }: Props): ReactNode {
       items.push(
         { label: t.filesNewFile, key: "new-file" },
         { label: t.filesNewFolder, key: "new-dir" },
-        {
-          label: t.filesAddToChat,
-          key: "cite",
-          icon: <ChatbubbleEllipsesOutline />,
-        },
+        { label: t.filesAddToChat, key: "cite" },
         { label: t.filesReveal, key: "reveal" },
         { type: "divider", key: "d0" },
         { label: t.filesCopyRelativePath, key: "copy-rel" },
@@ -685,7 +665,7 @@ export function FilesTab({ embedded = false }: Props): ReactNode {
       );
     }
     return items;
-  }, [ctx.kind, ctx.path, cutPath, ignoredPatterns, t]);
+  }, [ctx.kind, ctx.path, cutPath, t]);
 
   function openPrompt(
     mode: "file" | "dir" | "rename",
@@ -752,12 +732,6 @@ export function FilesTab({ embedded = false }: Props): ReactNode {
         }
         case "rename":
           openPrompt("rename", parentDirOf(target), target);
-          break;
-        case "ignore":
-          await toggleIgnore(
-            ctx.path,
-            matchesGitIgnorePatterns(ctx.path, ignoredPatterns),
-          );
           break;
         case "cut":
           if (!target) break;
@@ -895,11 +869,15 @@ export function FilesTab({ embedded = false }: Props): ReactNode {
     const onKeyDown = (event: KeyboardEvent): void => {
       if (event.key === "Escape") closeCtx();
     };
+    // 窗口尺寸变化后鼠标坐标已失效，菜单留在原位会错位，直接关掉。
+    const onResize = (): void => closeCtx();
     document.addEventListener("mousedown", onPointerDown, true);
     document.addEventListener("keydown", onKeyDown, true);
+    window.addEventListener("resize", onResize);
     return () => {
       document.removeEventListener("mousedown", onPointerDown, true);
       document.removeEventListener("keydown", onKeyDown, true);
+      window.removeEventListener("resize", onResize);
     };
   }, [ctx.show]);
 
