@@ -24,6 +24,8 @@ type ExtensionsResultLike = {
 export type ToolInfoLike = {
 	name: string;
 	description?: string;
+	namespace?: { name: string; aliases?: readonly string[] };
+	reachesTools?: unknown;
 };
 
 /**
@@ -63,6 +65,7 @@ export function summarizeSessionResources(
 	const toolBrief = new Map(
 		toolInfos.map((t) => [t.name, briefOf(t.description)]),
 	);
+	const toolInfoByName = new Map(toolInfos.map((t) => [t.name, t]));
 
 	return {
 		extensionCount: extensionsResult.extensions.length,
@@ -74,10 +77,22 @@ export function summarizeSessionResources(
 			brief: skillBrief.get(s.name) ?? "",
 		})),
 		agentsFilePaths,
-		activeTools: [...activeTools].map((name) => ({
-			name,
-			brief: toolBrief.get(name) ?? "",
-		})),
+		activeTools: [...activeTools].map((name) => {
+			const info = toolInfoByName.get(name);
+			return {
+				name,
+				brief: toolBrief.get(name) ?? "",
+				...(info?.namespace
+					? {
+							namespace: {
+								name: info.namespace.name,
+								aliases: [...(info.namespace.aliases ?? [])],
+							},
+						}
+					: {}),
+				...(info?.reachesTools ? { reaches: true } : {}),
+			};
+		}),
 		diagnostics,
 	};
 }

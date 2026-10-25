@@ -193,6 +193,12 @@ export const en = {
 	modelsCustomDevRoleHint: "Ollama / vLLM usually disable this",
 	modelsCustomReasoningEffort: "Supports reasoning_effort",
 	modelsCustomReasoningEffortHint: "Disable when the server does not support it",
+	modelsCustomImageInput: "Image input",
+	modelsCustomImageInputHint:
+		"How classifier models take images (compat.imageInput); auto lets pi detect it",
+	modelsCustomImageOptIn: "Image opt-in header",
+	modelsCustomImageOptInHint:
+		"Whether classifier requests send TypeSafe's image opt-in header (compat.sendImageOptInHeader); on by default",
 	modelsCustomAddModel: "Add Model",
 	modelsCustomDiscover: "Fetch Models",
 	modelsCustomDiscovering: "Fetching…",
@@ -482,6 +488,13 @@ export const en = {
 	customizeCodemodeInlineBudget: "Description budget",
 	customizeCodemodeInlineBudgetHint:
 		"Token budget for the codemode description (default 3000; empty uses the default).",
+	customizeCodemodeMaxWorkers: "Concurrent workers",
+	customizeCodemodeMaxWorkersHint:
+		"Sandbox processes codemode runs at once (default 2); extra scripts queue for up to 60s. Applies to new or restarted sessions.",
+	customizeCodemodeRuntimeTools: "Session tools",
+	customizeCodemodeRuntimeToolsHint: (tools: number, namespaces: number, reaches: number) =>
+		`${tools} tools across ${namespaces} namespaces this session, ${reaches} of them can reach other tools`,
+	customizeCodemodeRuntimeToolsEmpty: "No session has reported its tools yet; open a session first",
 	customizeAboutDesc: "Version, updates and open-source licenses.",
 	terminal: "Terminal",
 	preview: "Preview",
@@ -1282,6 +1295,8 @@ export const en = {
 	toolResultLines: (n: number) => `${n} lines`,
 	toolResultRead: (n: number) => `${n} lines read`,
 	toolResultReadOf: (read: number, total: number) => `read ${read}/${total} lines`,
+	toolResultReadRange: (start: number, end: number, total?: number | null) =>
+		total != null ? `lines ${start}-${end} of ${total}` : `lines ${start}-${end}`,
 	toolResultImages: (n: number) => `${n} images`,
 	toolResultNoOutput: "No output",
 	toolCallCount: (n: number) => (n === 1 ? "1 call" : `${n} calls`),

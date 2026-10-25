@@ -192,7 +192,11 @@ export function registerCustomizationsIpc(broker?: {
 
 	ipcMain.handle(
 		IpcChannels.customizations.setCodemodeSettings,
-		async (_event, patch: { mode?: unknown; inlineBudget?: unknown }, cwd?: string) => {
+		async (
+			_event,
+			patch: { mode?: unknown; inlineBudget?: unknown; maxWorkers?: unknown },
+			cwd?: string,
+		) => {
 			const root = cwd || getWorkspace();
 			const state = await setCodemodeSettings(patch ?? {}, root ?? undefined);
 			if (root) await broker?.notifyWorkersReloadResources(root);

@@ -53,6 +53,20 @@ export type CustomizationHook = {
 /** 可新建的定制项类型。 */
 export type CustomizationCreateKind = "skills" | "instructions";
 
+/** 当前会话 worker 上报的工具运行时信息（命名空间别名、可触达标记）。 */
+export type CustomizationRuntimeTool = {
+	name: string;
+	namespace: string;
+	aliases: string[];
+	reaches: boolean;
+};
+
+export type CustomizationRuntimeTools = {
+	sessionId: string;
+	updatedAt: number;
+	tools: CustomizationRuntimeTool[];
+};
+
 export type CustomizationsSnapshot = {
 	root: string | null;
 	skills: CustomizationItem[];
@@ -65,6 +79,8 @@ export type CustomizationsSnapshot = {
 	/** 需要 defaultTools 才启用的内置工具开关（codemode / tool_search）。 */
 	toolToggles: BuiltinToolItem[];
 	codemode: CodemodeSettingsState;
+	/** 当前会话 worker 上报的工具运行时信息（最近一次 ready）。 */
+	runtimeTools?: CustomizationRuntimeTools | null;
 	diagnostics: string[];
 };
 
@@ -101,12 +117,17 @@ export type BuiltinToolItem = {
 	overridden: boolean;
 };
 
+/** codemode 并发 worker 上限的桌面端偏好键（pi 只认 PI_CODEMODE_MAX_WORKERS）。 */
+export const CODEMODE_MAX_WORKERS_PREF = "pi-desktop:codemode-max-workers";
+
 /** codemode 工具的呈现设置（settings.json 的 codemode 段）。 */
 export type CodemodeSettingsState = {
 	/** on：直接声明的工具同时写进 codemode 说明；only：只写 codemode 说明。 */
-	mode: "on" | "only";
+mode: "on" | "only";
 	/** codemode 说明可用的 token 预算（字符数 / 4）；undefined 用 pi 默认值。 */
 	inlineBudget?: number;
+	/** 并发 worker 上限；undefined 用 pi 默认值（2）。 */
+	maxWorkers?: number;
 };
 
 export type McpTestResult = McpTestTarget & {

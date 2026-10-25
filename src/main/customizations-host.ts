@@ -7,6 +7,8 @@ import { listPlugins } from "./plugins-host";
 import { builtinToolItems, codemodeSettingsState } from "./builtin-tools-host";
 import { scanUnloadedSkills, type LocalSkillScope } from "./skill-scan";
 import { skillWarningOf } from "./skill-validate";
+import { readWorkerToolRuntime } from "./worker-tool-runtime";
+import { readJsonText } from "./json-text";
 import type {
 	BuiltinExtensionItem,
 	CustomizationCreateKind,
@@ -130,7 +132,7 @@ function readMcpFile(file: string, scope: CustomizationScope): CustomizationItem
 	if (!fs.existsSync(file)) return [];
 	let parsed: { mcpServers?: Record<string, unknown> };
 	try {
-		parsed = JSON.parse(fs.readFileSync(file, "utf8")) as typeof parsed;
+		parsed = JSON.parse(readJsonText(file)) as typeof parsed;
 	} catch {
 		return [];
 	}
@@ -175,7 +177,7 @@ function mcpConfigPath(scope: "user" | "project", root?: string): string {
 function readMcpRaw(file: string): Record<string, unknown> {
 	if (!fs.existsSync(file)) return {};
 	try {
-		return JSON.parse(fs.readFileSync(file, "utf8")) as Record<string, unknown>;
+		return JSON.parse(readJsonText(file)) as Record<string, unknown>;
 	} catch {
 		throw new Error(`Cannot read MCP config ${file}`);
 	}
@@ -627,6 +629,7 @@ export async function listCustomizations(
 		),
 		toolToggles: builtinToolItems(settingsManager),
 		codemode: codemodeSettingsState(settingsManager),
+		runtimeTools: readWorkerToolRuntime(root),
 		diagnostics: [
 			...skills.diagnostics.map((entry) => entry.message),
 			...extensions.errors.map((entry) => `${path.basename(entry.path)}: ${entry.error}`),
