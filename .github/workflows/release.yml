@@ -112,6 +112,14 @@ jobs:
             dugite_arch: x64
             build_cmd: npm run dist:mac:x64
             artifact_glob: release/*.dmg
+          - name: linux-x64
+            # AppImage only (electron-builder.yml → linux.target).
+            # node-pty linux-x64 prebuild comes from `npm ci`'s postinstall
+            # (electron-builder install-app-deps) on the runner itself.
+            os: ubuntu-latest
+            dugite_arch: x64
+            build_cmd: npm run dist:linux:x64
+            artifact_glob: release/*.AppImage
 
     steps:
       - name: Checkout
@@ -280,6 +288,7 @@ jobs:
             - **Windows ARM64**: `Pi-Desktop-*-win-arm64-setup.exe`
             - **macOS Apple Silicon**: `Pi-Desktop-*-mac-arm64.dmg`
             - **macOS Intel**: `Pi-Desktop-*-mac-x64.dmg`
+            - **Linux x64**: `Pi-Desktop-*-linux-x86_64.AppImage`
 
           files: upload/*
           fail_on_unmatched_files: false

@@ -195,6 +195,15 @@ linux:
   category: Development
   artifactName: Pi-Desktop-${version}-linux-${arch}.${ext}
 
+# 静态 runtime（appimage@1.0.3）内置 libfuse，目标机器无需安装 libfuse2（Ubuntu 22.04+ 默认不带）。
+toolsets:
+  appimage: "1.0.3"
+# 静态 runtime 下 electron-builder 不再自动补 --no-sandbox，显式保留与 legacy FUSE2 默认行为一致：
+# Ubuntu 24.04+ 限制非特权 userns，沙箱起不来会导致启动失败。
+appImage:
+  executableArgs:
+    - --no-sandbox
+
 publish:
   provider: github
   releaseType: release

@@ -3,12 +3,23 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { en } from "../../src/renderer/src/i18n/en";
+import { ja } from "../../src/renderer/src/i18n/ja";
 import { zh } from "../../src/renderer/src/i18n/zh-CN";
+import { zhTW } from "../../src/renderer/src/i18n/zh-TW";
 
 const dir = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
   "../../src/renderer/src/i18n",
 );
+
+const LOCALE_FILES = ["zh-CN.ts", "zh-TW.ts", "ja.ts", "en.ts"] as const;
+
+const LOCALES = [
+  ["zh", zh],
+  ["zhTW", zhTW],
+  ["ja", ja],
+  ["en", en],
+] as const;
 
 /**
  * Top-level keys of a locale file, in source order.
@@ -39,7 +50,7 @@ function topLevelKeys(file: string): string[] {
 
 describe("i18n locale files", () => {
   it("declares no duplicate top-level keys", () => {
-    for (const file of ["zh-CN.ts", "en.ts"]) {
+    for (const file of LOCALE_FILES) {
       const keys = topLevelKeys(file);
       const seen = new Set<string>();
       const dupes = keys.filter((key) => (seen.has(key) ? true : (seen.add(key), false)));
@@ -48,11 +59,8 @@ describe("i18n locale files", () => {
     }
   });
 
-  it("keeps every key non-empty in both locales", () => {
-    for (const [name, dict] of [
-      ["zh", zh],
-      ["en", en],
-    ] as const) {
+  it("keeps every key non-empty in every locale", () => {
+    for (const [name, dict] of LOCALES) {
       const empty = Object.entries(dict)
         .filter(([, value]) => typeof value === "string" && !value.trim())
         .map(([key]) => key);
@@ -60,12 +68,14 @@ describe("i18n locale files", () => {
     }
   });
 
-  it("keeps the two locales key-for-key aligned", () => {
+  it("keeps every locale key-for-key aligned with zh-CN", () => {
     const zhKeys = new Set(Object.keys(zh));
-    const enKeys = new Set(Object.keys(en));
-    const missingInEn = [...zhKeys].filter((k) => !enKeys.has(k));
-    const missingInZh = [...enKeys].filter((k) => !zhKeys.has(k));
-    expect(missingInEn, "keys present in zh-CN but missing in en").toEqual([]);
-    expect(missingInZh, "keys present in en but missing in zh-CN").toEqual([]);
+    for (const [name, dict] of LOCALES) {
+      const keys = new Set(Object.keys(dict));
+      const missing = [...zhKeys].filter((k) => !keys.has(k));
+      const extra = [...keys].filter((k) => !zhKeys.has(k));
+      expect(missing, `keys present in zh-CN but missing in ${name}`).toEqual([]);
+      expect(extra, `keys present in ${name} but missing in zh-CN`).toEqual([]);
+    }
   });
 });

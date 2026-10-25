@@ -28,5 +28,24 @@ const EN: BashNoticeLabels = {
 };
 
 export function bashNoticeLabels(locale: BashNoticeLocale): BashNoticeLabels {
-	return locale === "zh-CN" ? ZH : EN;
+	return LABELS[locale];
 }
+
+const ZH_TW: BashNoticeLabels = {
+	detached: (reason) =>
+		`\n[pi-desktop] ${reason === "auto" ? "自動截斷" : "使用者截斷"}：命令已轉入背景執行，對話繼續；輸出見執行頁。\n`,
+	shellSurvivors: (count) => `\n[pi-desktop] shell 已結束，仍在追蹤 ${count} 個背景程序…\n`,
+};
+
+const JA: BashNoticeLabels = {
+	detached: (reason) =>
+		`\n[pi-desktop] ${reason === "auto" ? "自動切り詰め" : "ユーザーによる切り詰め"}: コマンドはバックグラウンドで実行を続けます。会話は続行され、出力は実行ページで確認できます。\n`,
+	shellSurvivors: (count) => `\n[pi-desktop] shell は終了しました。${count} 個のバックグラウンドプロセスを追跡中…\n`,
+};
+
+const LABELS: Record<BashNoticeLocale, BashNoticeLabels> = {
+	"zh-CN": ZH,
+	"zh-TW": ZH_TW,
+	ja: JA,
+	en: EN,
+};
