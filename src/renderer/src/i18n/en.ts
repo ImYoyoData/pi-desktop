@@ -807,7 +807,8 @@ export const en = {
 	switchOff: "Off",
 	streamRender: "Streaming render",
 	streamRenderThrottle: "Render throttle",
-	streamRenderThrottleValue: (ms: number) => `${ms} ms`,
+	streamRenderThrottleValue: (ms: number) =>
+		ms === 0 ? "Realtime" : `${ms} ms`,
 	retryAutoSection: "Auto Retry",
 	retryAutoSectionHint: "Pi SDK retries failed requests automatically.",
 	retryEnabled: "Enable auto retry",

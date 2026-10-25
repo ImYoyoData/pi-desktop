@@ -11,7 +11,8 @@ export const DEFAULT_STREAM_RENDER_SETTINGS: StreamRenderSettings = {
   throttleMs: 90,
 };
 
-export const STREAM_RENDER_THROTTLE_CHOICES = [40, 60, 90, 120, 200] as const;
+/** 0 表示不节流，逐帧实时渲染。 */
+export const STREAM_RENDER_THROTTLE_CHOICES = [0, 40, 60, 90, 120, 200] as const;
 
 export function parseStreamRenderSettings(raw: unknown): StreamRenderSettings {
   const source =
