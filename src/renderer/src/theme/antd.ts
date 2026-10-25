@@ -26,9 +26,9 @@ const sharedToken = {
 /** 开启 CSS 变量模式：壁纸玻璃态靠覆盖 `--ant-color-*` 变量实现。 */
 const cssVar = { prefix: "ant" };
 
-/** 应用主色：与 main.css 里的 `--accent` 保持同色。 */
-const LIGHT_PRIMARY = "#0069cc";
-const DARK_PRIMARY = "#297aa0";
+/** 应用主色：中性强调，深色主题为白、浅色主题为近黑；与 main.css 里的 `--accent` 保持同色。 */
+const LIGHT_PRIMARY = "#202020";
+const DARK_PRIMARY = "#f5f6f7";
 
 /**
  * antd 的算法会改写 colorPrimary（暗色下压成 #266b8b），
@@ -93,11 +93,18 @@ export const lightThemeConfig: ThemeConfig = {
   },
 };
 
+/** 深色主题下强调色是白，实心强调上的文字必须反过来用深色。 */
+const darkSolidComponents: NonNullable<ThemeConfig["components"]> = {
+  ...sharedComponents,
+  Button: { primaryColor: "#121314" },
+  Radio: { buttonSolidCheckedColor: "#121314" },
+};
+
 /** 深色主题 — VS Code "2026 Dark"。 */
 export const darkThemeConfig: ThemeConfig = {
   algorithm: darkAlgorithm,
   cssVar,
-  components: sharedComponents,
+  components: darkSolidComponents,
   token: {
     ...sharedToken,
     colorPrimary: DARK_PRIMARY,

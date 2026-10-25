@@ -16,8 +16,8 @@
   --bg-hover: #00000014;
   --bg-active: #dadada99;
   --bg-selected: #00000025;
-  --bg-user-bubble: #0069cc12;
-  --user-bg: #0069cc12;
+  --bg-user-bubble: #0000000f;
+  --user-bg: #0000000f;
   --assistant-bg: #ffffff;
   --tool-bg: #fafafd;
   --border: #f0f1f2;
@@ -29,14 +29,13 @@
   --text: #202020;
   --text-muted: #606060;
   --text-dim: #606060;
-  --accent: #0069cc;
-  --accent-hover: #0063c1;
+  --accent: #202020;
+  --accent-hover: #000000;
   --accent-fg: #ffffff;
-  --accent-soft: rgba(0, 105, 204, 0.12);
-  --accent-soft-hover: rgba(0, 105, 204, 0.2);
-  --accent-border: rgba(0, 105, 204, 0.5);
+  --accent-soft: rgba(32, 32, 32, 0.08);
+  --accent-soft-hover: rgba(32, 32, 32, 0.14);
+  --accent-border: rgba(32, 32, 32, 0.35);
   --primary: var(--accent);
-  --blue: #0069cc;
   --green: #587c0c;
   --red: #ad0707;
   --success: #587c0c;
@@ -129,13 +128,12 @@ html[data-theme="dark"] {
   --text: #f5f6f7;
   --text-muted: #cfd3d6;
   --text-dim: #adb2b8;
-  --accent: #297aa0;
-  --accent-hover: #2b7da3;
-  --accent-fg: #ffffff;
-  --accent-soft: rgba(57, 148, 188, 0.16);
-  --accent-soft-hover: rgba(57, 148, 188, 0.24);
-  --accent-border: rgba(57, 148, 188, 0.7);
-  --blue: #297aa0;
+  --accent: #f5f6f7;
+  --accent-hover: #ffffff;
+  --accent-fg: #121314;
+  --accent-soft: rgba(245, 246, 247, 0.14);
+  --accent-soft-hover: rgba(245, 246, 247, 0.22);
+  --accent-border: rgba(245, 246, 247, 0.55);
   --green: #72c892;
   --red: #f48771;
   --primary: var(--accent);
@@ -419,6 +417,14 @@ button {
 .ant-dropdown-menu-submenu-title,
 .ant-select-item {
   border-radius: 8px !important;
+}
+
+/*
+ * 强调色是中性色：勾选标记默认用 antd 的固定白（colorWhite），
+ * 深色主题下白底白勾会看不见，改为跟随 --accent-fg 反相。
+ */
+.ant-checkbox-checked .ant-checkbox-inner::after {
+  border-color: var(--accent-fg) !important;
 }
 
 /*

@@ -178,6 +178,20 @@ function parseModelEntry(raw: unknown): CustomModelEntry | null {
   };
 }
 
+/**
+ * compat 里这两个开关缺键时 pi 按地址自动判断：本地服务当作不支持。
+ * 写入必须与这个默认值同源，否则「打开开关 = 删键」读回来又变回关闭。
+ */
+function writeCompatFlag(
+  compat: Record<string, unknown>,
+  key: "supportsDeveloperRole" | "supportsReasoningEffort",
+  value: boolean,
+  defaultValue: boolean,
+): void {
+  if (value === defaultValue) delete compat[key];
+  else compat[key] = value;
+}
+
 function defaultLocalCompatOff(baseUrl: string): boolean {
   try {
     const host = new URL(normalizeProviderBaseUrl(baseUrl) || baseUrl).hostname.toLowerCase();
@@ -335,10 +349,14 @@ export function draftToProviderJson(
 
   const prevCompat = asRecord(prev.compat) ?? {};
   const compat: Record<string, unknown> = { ...prevCompat };
-  if (draft.supportsDeveloperRole) delete compat.supportsDeveloperRole;
-  else compat.supportsDeveloperRole = false;
-  if (draft.supportsReasoningEffort) delete compat.supportsReasoningEffort;
-  else compat.supportsReasoningEffort = false;
+  const compatDefault = !defaultLocalCompatOff(draft.baseUrl);
+  writeCompatFlag(compat, "supportsDeveloperRole", draft.supportsDeveloperRole, compatDefault);
+  writeCompatFlag(
+    compat,
+    "supportsReasoningEffort",
+    draft.supportsReasoningEffort,
+    compatDefault,
+  );
   if (draft.imageInput === "auto") delete compat.imageInput;
   else compat.imageInput = draft.imageInput;
   if (draft.imageOptInHeader) delete compat.sendImageOptInHeader;
