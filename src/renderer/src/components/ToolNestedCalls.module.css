@@ -79,6 +79,19 @@
 }
 
 .nestedArgs,
-.nestedResult {
+.nestedResult,
+.nestedError {
   margin-bottom: 6px;
+}
+
+.nestedErrorText {
+  margin: 0;
+  padding: 6px 8px;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--error, #d03050) 8%, transparent);
+  color: var(--error, #d03050);
+  font-family: var(--font-mono);
+  font-size: var(--chat-font-xs, 11px);
+  white-space: pre-wrap;
+  word-break: break-word;
 }

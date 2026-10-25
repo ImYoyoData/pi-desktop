@@ -36,6 +36,10 @@ export type ParsedDiff = {
  */
 const WORD_DIFF_MAX_PAIRS = 200;
 
+/** `diff --git` 与第一个 hunk 之间的文件级元信息，审阅时没有价值。 */
+const FILE_META_RE =
+  /^(?:index |old mode |new mode |similarity index |dissimilarity index |rename from |rename to |copy from |copy to |new file mode |deleted file mode )/;
+
 function pairLines(dels: string[], adds: string[], budget: { pairs: number }): DiffLine[] {
   const out: DiffLine[] = [];
   const pairs = Math.min(dels.length, adds.length);
@@ -76,10 +80,13 @@ export function parseUnifiedDiff(raw: string): ParsedDiff {
   let i = 0;
   /** 是否在某个 hunk 正文里：正文里的 "--- " 是被删除的行，不是文件头。 */
   let inHunk = false;
+  /** 是否还没走到第一个 hunk：期间只有文件级元信息。 */
+  let inFileHeader = false;
   while (i < lines.length) {
     const line = lines[i]!;
     if (line.startsWith("@@")) {
       inHunk = true;
+      inFileHeader = false;
       current = { header: line, lines: [] };
       hunks.push(current);
       i++;
@@ -88,6 +95,7 @@ export function parseUnifiedDiff(raw: string): ParsedDiff {
     if (line.startsWith("diff --git ")) {
       // 新文件：回到文件头模式，后面紧跟的 --- / +++ 是文件头。
       inHunk = false;
+      inFileHeader = true;
       current = { header: "", lines: [{ kind: "ctx", text: line }] };
       hunks.push(current);
       i++;
@@ -111,6 +119,10 @@ export function parseUnifiedDiff(raw: string): ParsedDiff {
       current = null;
     }
     if (!inHunk && (line.startsWith("--- ") || line.startsWith("+++ "))) {
+      i++;
+      continue;
+    }
+    if (!inHunk && inFileHeader && FILE_META_RE.test(line)) {
       i++;
       continue;
     }

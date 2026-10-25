@@ -202,11 +202,6 @@
   min-width: 0;
 }
 
-/* diff 头部 / 文件信息行。 */
-.meta {
-  color: var(--fg-muted);
-}
-
 .add {
   color: var(--git-u, #1a7f37);
 }

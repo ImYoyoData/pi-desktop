@@ -245,6 +245,11 @@ const GENERIC_TARGET_KEYS = [
   "description",
 ];
 
+/** 单行摘要截断：超长就截断加省略号，不给半截 token 之外的额外处理。 */
+export function clipText(text: string, max = 64): string {
+  return text.length > max ? `${text.slice(0, max - 1)}…` : text;
+}
+
 /** 摘要截断：压掉换行、在词边界断开，避免出现半截 token。 */
 function truncateSummary(text: string, max = 64): string {
   const flat = text.replace(/\s+/g, " ").trim();
@@ -670,24 +675,51 @@ export function toolCardDurationMs(card: ToolCard): number | null {
 /**
  * 嵌套调用（codemode 脚本里发出的工具调用）没有独立的 ToolMessage，
  * 按同样的规则解析出一张卡片，渲染层才能给它同样的分型视图。
+ *
+ * 流式期间 reducer 每次更新都重建 call 对象，因此缓存按 toolCallId 命中，
+ * 再用参数/结果的引用判断内容是否真的变了。
  */
-const nestedCardMemo = new WeakMap<object, ToolCard>();
+type NestedCardEntry = {
+  args: unknown;
+  result: unknown;
+  isError: boolean | undefined;
+  durationMs: number | undefined;
+  card: ToolCard;
+};
+
+const nestedCardCache = new Map<string, NestedCardEntry>();
+const NESTED_CARD_CACHE_MAX = 512;
 
 export function toolCardForNested(call: {
+  toolCallId: string;
   toolName: string;
   args?: unknown;
   result?: unknown;
   isError?: boolean;
   durationMs?: number;
 }): ToolCard {
-  const key = call as unknown as object;
-  const cached = nestedCardMemo.get(key);
-  if (cached) return cached;
+  const cached = nestedCardCache.get(call.toolCallId);
+  if (
+    cached &&
+    cached.args === call.args &&
+    cached.result === call.result &&
+    cached.isError === call.isError &&
+    cached.durationMs === call.durationMs
+  ) {
+    return cached.card;
+  }
   const card = parseToolCard(call.toolName, call.args ?? {}, call.result ?? null, {
     isError: call.isError,
     durationMs: call.durationMs,
   });
-  nestedCardMemo.set(key, card);
+  if (nestedCardCache.size >= NESTED_CARD_CACHE_MAX) nestedCardCache.clear();
+  nestedCardCache.set(call.toolCallId, {
+    args: call.args,
+    result: call.result,
+    isError: call.isError,
+    durationMs: call.durationMs,
+    card,
+  });
   return card;
 }
 

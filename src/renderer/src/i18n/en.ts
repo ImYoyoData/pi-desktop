@@ -649,8 +649,6 @@ export const en = {
 	toolRunning: "Running",
 	toolDone: "Succeeded",
 	toolError: "Failed",
-	toolEdit: "Edited",
-	toolWrite: "Wrote",
 	toolNoDiff: "No diff available",
 	toolNoOutput: "No command output",
 	toolMoveToBackground: "Background",
@@ -1249,20 +1247,8 @@ export const en = {
 	securityOpenDevToolsHint:
 		"Open this app window’s developer tools (for troubleshooting)",
 
-	// Tool cards / market (forward-looking)
-	toolRead: "Read",
-	toolBash: "Ran",
 	// Work section (Copilot-style collapsible process group)
-	wsLiveEdit: (f: string) => `Editing ${f}`,
-	wsLiveRead: (f: string) => `Reading ${f}`,
-	wsLiveBash: (c: string) => `Running ${c}`,
-	wsLiveTodo: "Updating todos",
-	wsLiveTool: (name: string) => `Using ${name}`,
 	wsLiveThinking: "Thinking",
-	wsStepRead: "Read",
-	wsStepEdit: "Edit",
-	wsStepBash: "Command",
-	wsStepTodo: "Todo",
 	wsSummaryThinkingCount: (n: number) => (n === 1 ? "Thought once" : `Thought ${n} times`),
 	wsSummarySeparator: ", ",
 	wsSummaryEditOne: (f: string) => `Updated ${f}`,
@@ -1294,7 +1280,6 @@ export const en = {
 	toolResultImages: (n: number) => `${n} images`,
 	toolResultNoOutput: "No output",
 	toolCallCount: (n: number) => (n === 1 ? "1 call" : `${n} calls`),
-	toolCommand: "Command",
 	toolTruncated: "Truncated",
 	toolBodyLineRange: (from: number, to: number, total: number) => `Lines ${from}-${to} of ${total}`,
 	toolBodyLines: (n: number) => `${n} lines`,
@@ -1307,8 +1292,10 @@ export const en = {
 	toolBodyScriptCompleted: "Script completed",
 	toolBodyScriptFailed: "Script failed",
 	toolBodyScriptSections: (n: number) => (n === 1 ? "1 section" : `${n} sections`),
+	toolBodyWallTime: (seconds: number) => `Wall time ${seconds}s`,
 	toolNestedArgs: "Arguments",
 	toolNestedResult: "Result",
+	toolNestedError: "Error",
 	marketTitle: "Extension market",
 	marketHint:
 		"Browse extensions, skills, themes, and prompts from pi.dev/packages. Install runs `pi install npm:<name>`.",

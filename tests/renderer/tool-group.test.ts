@@ -293,29 +293,23 @@ describe("summarizeWorkSection", () => {
 });
 
 describe("workSectionLiveTitle", () => {
-  const live = {
-    edit: (f: string) => `Editing ${f}`,
-    read: (f: string) => `Reading ${f}`,
-    bash: (c: string) => `Running ${c}`,
-    todo: "Updating todos",
-    tool: (name: string) => `Using ${name}`,
-    thinking: "Thinking",
-  };
-
-  it("labels the latest step in present tense", () => {
-    expect(workSectionLiveTitle(tools({ kind: "edit", target: "App.vue" }), live)).toBe(
-      "Editing App.vue",
+  it("shows the tool name with its target", () => {
+    expect(workSectionLiveTitle("edit", { kind: "edit", target: "App.vue" })).toBe(
+      "edit App.vue",
     );
-    expect(
-      workSectionLiveTitle(
-        tools({ kind: "read", target: "a.ts" }, { kind: "bash", target: "pnpm test" }),
-        live,
-      ),
-    ).toBe("Running pnpm test");
+    expect(workSectionLiveTitle("bash", { kind: "bash", target: "pnpm test" })).toBe(
+      "bash pnpm test",
+    );
   });
 
-  it("falls back to the thinking label without tool calls", () => {
-    expect(workSectionLiveTitle(tools(), live)).toBe("Thinking");
+  it("does not repeat the name when the target is the tool itself", () => {
+    expect(workSectionLiveTitle("grep", { kind: "tool", target: "grep" })).toBe("grep");
+  });
+
+  it("shows the bare name for steps without a target", () => {
+    expect(workSectionLiveTitle("todo_write", { kind: "todo", target: "" })).toBe(
+      "todo_write",
+    );
   });
 });
 

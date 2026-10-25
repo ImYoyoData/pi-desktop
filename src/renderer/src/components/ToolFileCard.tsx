@@ -55,12 +55,6 @@ export function ToolFileCard({
     return parts[parts.length - 1] || p;
   }, [card.path, toolName]);
 
-  const actionLabel = useMemo(() => {
-    if (card.kind === "write") return t.toolWrite;
-    if (card.kind === "edit") return t.toolEdit;
-    return toolName;
-  }, [card.kind, t, toolName]);
-
   const fileGlyph = useMemo(() => (card.path ? fileIcon(card.path) : null), [card.path]);
 
   const diffLines = useMemo(() => (card.diff ? card.diff.split("\n") : []), [card.diff]);
@@ -74,7 +68,7 @@ export function ToolFileCard({
           <ChevronForwardOutline size={12} className={styles.chev} />
         )}
         <Typography.Text code className={styles.toolName}>
-          {actionLabel}
+          {toolName}
         </Typography.Text>
         <span className={styles.path} title={card.path ?? undefined}>
           {fileName}

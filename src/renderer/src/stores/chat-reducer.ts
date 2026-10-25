@@ -27,6 +27,8 @@ export type ChatToolNestedCall = {
 	args?: unknown;
 	result?: unknown;
 	isError?: boolean;
+	/** 失败原因；历史会话里 pi 不记录调用结果，只有这个字段能看到错误。 */
+	error?: string;
 	streaming?: boolean;
 	startedAt?: number;
 	durationMs?: number;
