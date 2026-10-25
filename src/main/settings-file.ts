@@ -6,6 +6,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { agentDir } from "./agent-dir";
+import { readJsonText } from "./json-text";
 
 /** pi 1.2.0 发布的配置 schema；写进文件后编辑器可校验与补全。 */
 const SETTINGS_SCHEMA_URL = "https://pi.dev/schemas/settings.schema.json";
@@ -23,7 +24,7 @@ function withSchema(root: Record<string, unknown>): Record<string, unknown> {
 
 export function readSettingsRoot(filePath: string): Record<string, unknown> {
   try {
-    const parsed: unknown = JSON.parse(fs.readFileSync(filePath, "utf8"));
+    const parsed: unknown = JSON.parse(readJsonText(filePath));
     if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
       return parsed as Record<string, unknown>;
     }

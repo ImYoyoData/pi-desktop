@@ -3,7 +3,7 @@ import { lazy, Suspense, useEffect, useState } from "react";
 import TitleBar from "@renderer/components/TitleBar";
 import AppWallpaper from "@renderer/components/AppWallpaper";
 import AppContextMenu from "@renderer/components/AppContextMenu";
-import AppHoverTip from "@renderer/components/AppHoverTip";
+import SuppressHoverTips from "@renderer/components/SuppressHoverTips";
 import PiCliSetup from "@renderer/components/PiCliSetup";
 import CloseGuard from "@renderer/components/CloseGuard";
 import { useWorkspaceStore } from "@renderer/stores/workspace";
@@ -30,9 +30,6 @@ const SplitRoot = lazy(async () => {
   markRendererStartup("renderer:splitroot-load-done");
   return module;
 });
-const AiCustomizationModal = lazy(
-  () => import("@renderer/components/AiCustomizationModal"),
-);
 
 /** 等同编辑器区的「打开文件…」按钮：系统对话框选文件，打开到编辑器区。 */
 async function pickAndOpenFile(): Promise<void> {
@@ -71,7 +68,6 @@ function onDialogEnterKeydown(event: KeyboardEvent): void {
 
 export function App(): React.ReactNode {
   const appearance = useAppearanceStore();
-  const workspace = useWorkspaceStore();
   const locale = useUiLocale();
   const [bootInitDone, setBootInitDone] = useState(false);
 
@@ -170,14 +166,9 @@ export function App(): React.ReactNode {
               ) : null}
             </main>
             <PiCliSetup />
-            {workspace.root ? (
-              <Suspense fallback={null}>
-                <AiCustomizationModal />
-              </Suspense>
-            ) : null}
           </div>
           <AppContextMenu />
-          <AppHoverTip />
+          <SuppressHoverTips />
         </FeedbackProvider>
       </AntApp>
     </ConfigProvider>

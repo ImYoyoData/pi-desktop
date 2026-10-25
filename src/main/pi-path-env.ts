@@ -2,6 +2,8 @@ import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import path from "node:path";
+import { CODEMODE_MAX_WORKERS_PREF } from "../shared/customizations";
+import { prefsPath, readPrefs } from "./prefs-store";
 import {
   PI_DESKTOP_NODE_PATH_ENV,
   PI_DESKTOP_PI_CLI_PATH_ENV,
@@ -435,6 +437,14 @@ export function buildAgentWorkerEnv(
   // Respect an explicit user override (e.g. "short" to opt back out).
   if (!next.PI_CACHE_RETENTION || !next.PI_CACHE_RETENTION.trim()) {
     next.PI_CACHE_RETENTION = "long";
+  }
+
+  // codemode 并发 worker 上限：pi 只从环境变量读，桌面端设置存在 prefs 里。
+  const codemodeMaxWorkers = Number(
+    readPrefs(prefsPath())[CODEMODE_MAX_WORKERS_PREF],
+  );
+  if (Number.isInteger(codemodeMaxWorkers) && codemodeMaxWorkers > 0) {
+    next.PI_CODEMODE_MAX_WORKERS = String(codemodeMaxWorkers);
   }
 
   return next;

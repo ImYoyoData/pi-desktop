@@ -274,18 +274,20 @@ button {
   transition: background var(--duration-fast) var(--ease-out);
 }
 
+/* 卡片式布局：分栏线不绘制、不占位。
+   注意只能清零“厚度”方向，另一方向要保持拉伸，否则 ::before 热区会失效。 */
 .splitpanes--vertical > .splitpanes__splitter {
-  width: 0.5px !important;
-  min-width: 0.5px !important;
+  width: 0 !important;
+  min-width: 0 !important;
   margin: 0 !important;
-  background: var(--border) !important;
+  background: transparent !important;
 }
 
 .splitpanes--horizontal > .splitpanes__splitter {
-  height: 0.5px !important;
-  min-height: 0.5px !important;
+  height: 0 !important;
+  min-height: 0 !important;
   margin: 0 !important;
-  background: var(--border) !important;
+  background: transparent !important;
 }
 
 .splitpanes__splitter:hover,
@@ -300,12 +302,54 @@ button {
   inset: -3px;
 }
 
-/* 分栏外壳：左侧栏 + 主区，主区内部再分聊天列与右侧面板 */
+/* 分栏外壳：左侧导航栏 + 左侧栏 + 主区，主区内部再分聊天列与右侧面板 */
 .split-root {
   position: relative;
   flex: 1;
   min-height: 0;
   min-width: 0;
+  display: flex;
+}
+
+.split-root > .splitpanes {
+  flex: 1 1 auto;
+  width: auto;
+  min-width: 0;
+}
+
+/* 胶囊卡片外壳：面板内容与分栏边界之间留出浮动间隙 */
+.pane-capsule {
+  padding: 3px;
+  min-width: 0;
+}
+
+.pane-capsule > * {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+/* 拉取请求页铺满主内容区：脱离分栏流，不受右侧面板与底部面板影响 */
+.pane-capsule--overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  background: var(--bg);
+}
+
+/* 设置页同样作为主区独立页面铺满覆盖层，内部分区导航自己排布 */
+.customize-page {
+  display: flex;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.customize-page > * {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
 }
 
 .split-root .panes,
@@ -353,6 +397,28 @@ button {
 .ant-empty .ant-empty-image svg {
   height: 100% !important;
   width: auto !important;
+}
+
+/*
+ * 弹出菜单统一胶囊外观：文件树右键等直接渲染的 Menu、Dropdown 下拉、Select 下拉面板。
+ * 组件 token 已在 theme/antd.ts 里配过一份（圆角、间距），这里用样式兜底，
+ * 保证不经过 Dropdown 包裹的独立 Menu 也拿到同一套外形。
+ */
+.ant-menu,
+.ant-dropdown-menu,
+.ant-select-dropdown {
+  border: 1px solid var(--border) !important;
+  border-radius: 12px !important;
+  padding: 4px !important;
+  box-shadow: var(--shadow-md);
+}
+
+.ant-menu-item,
+.ant-menu-submenu-title,
+.ant-dropdown-menu-item,
+.ant-dropdown-menu-submenu-title,
+.ant-select-item {
+  border-radius: 8px !important;
 }
 
 /*
@@ -410,6 +476,11 @@ button {
 }
 
 *::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* 滚动条交角默认是浏览器绘制的浅色小三角，会露出一个白点 */
+*::-webkit-scrollbar-corner {
   background: transparent;
 }
 
@@ -561,7 +632,7 @@ button {
  * 过于突兀（点击按钮后的 Esc 等键盘操作会触发 :focus-visible）。
  */
 .pi-settings-modal button:not(.ant-btn):focus-visible,
-.modal-editor-panel button:not(.ant-btn):focus-visible {
+.customize-page button:not(.ant-btn):focus-visible {
   outline: 1px solid var(--accent);
   outline-offset: -1px;
 }
@@ -616,10 +687,10 @@ button {
 .pi-settings-modal .ant-input-affix-wrapper,
 .pi-settings-modal .ant-input-number,
 .pi-settings-modal .ant-select,
-.modal-editor-panel .ant-input,
-.modal-editor-panel .ant-input-affix-wrapper,
-.modal-editor-panel .ant-input-number,
-.modal-editor-panel .ant-select {
+.customize-page .ant-input,
+.customize-page .ant-input-affix-wrapper,
+.customize-page .ant-input-number,
+.customize-page .ant-select {
   border-color: var(--border) !important;
 }
 
@@ -633,24 +704,24 @@ button {
 .pi-settings-modal .ant-input-number,
 .pi-settings-modal .ant-input-number-input,
 .pi-settings-modal .ant-select,
-.modal-editor-panel .ant-input,
-.modal-editor-panel .ant-input-affix-wrapper,
-.modal-editor-panel .ant-input-number,
-.modal-editor-panel .ant-input-number-input,
-.modal-editor-panel .ant-select {
+.customize-page .ant-input,
+.customize-page .ant-input-affix-wrapper,
+.customize-page .ant-input-number,
+.customize-page .ant-input-number-input,
+.customize-page .ant-select {
   background-color: var(--bg-input) !important;
 }
 
 /* 次级按钮跟随卡片表面，避免实色块与玻璃面板脱节 */
 .pi-settings-modal .ant-btn:not(.ant-btn-primary):not(.ant-btn-text):not(.ant-btn-link),
-.modal-editor-panel .ant-btn:not(.ant-btn-primary):not(.ant-btn-text):not(.ant-btn-link) {
+.customize-page .ant-btn:not(.ant-btn-primary):not(.ant-btn-text):not(.ant-btn-link) {
   background-color: var(--bg-elevated) !important;
   border-color: var(--border) !important;
 }
 
 .pi-settings-modal
   .ant-btn:not(.ant-btn-primary):not(.ant-btn-text):not(.ant-btn-link):hover:not(:disabled),
-.modal-editor-panel
+.customize-page
   .ant-btn:not(.ant-btn-primary):not(.ant-btn-text):not(.ant-btn-link):hover:not(:disabled) {
   background-color: var(--bg-active) !important;
   border-color: var(--accent-border) !important;
@@ -672,12 +743,12 @@ button {
 }
 
 .pi-settings-modal .ant-checkbox-inner,
-.modal-editor-panel .ant-checkbox-inner {
+.customize-page .ant-checkbox-inner {
   border-color: var(--border) !important;
 }
 
 .pi-settings-modal .ant-divider,
-.modal-editor-panel .ant-divider {
+.customize-page .ant-divider {
   border-color: var(--border) !important;
 }
 

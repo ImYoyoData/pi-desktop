@@ -16,7 +16,6 @@ import {
   Input,
   Modal,
   Space,
-  Tooltip,
   Typography,
 } from "antd";
 import type { MenuProps } from "antd";
@@ -32,16 +31,12 @@ import {
   EllipsisHorizontalOutline,
   FolderOpenOutline,
   FolderOutline,
-  GitPullRequestOutline,
   ListOutline,
   OptionsOutline,
   PinOutline,
   RefreshOutline,
   TrashOutline,
 } from "@renderer/components/icons/ionicons";
-import CodiconIcon, {
-  type CodiconName,
-} from "@renderer/components/icons/CodiconIcon";
 import Sortable from "sortablejs";
 import type { SessionStatus, SessionSummary } from "../../../shared/protocol";
 import { SESSION_HISTORY_INITIAL_LIMIT } from "../../../shared/protocol";
@@ -266,7 +261,6 @@ export function SessionSidebar(): ReactNode {
 
   const sessionsStore = useSessionsStore();
   const workspace = useWorkspaceStore();
-  const layout = useLayoutStore();
 
   /** 主进程给出的最新状态（按会话 id，与工作区无关）。 */
   const statusBySession = sessionsStore.statusBySession;
@@ -385,18 +379,6 @@ export function SessionSidebar(): ReactNode {
   const workspaceSortable = useRef<Sortable | null>(null);
   const prevStatuses = useRef(new Map<string, SessionStatus>());
   const skipAutoSelectRoot = useRef<string | null>(null);
-
-  const customizeEntries = useMemo(
-    () =>
-      [
-        {
-          name: "settings" as CodiconName,
-          section: "appearance",
-          label: t.customizeSettings,
-        },
-      ],
-    [t],
-  );
 
   function sessionLabel(session: {
     name?: string;
@@ -1249,10 +1231,6 @@ export function SessionSidebar(): ReactNode {
         })();
       },
     });
-  }
-
-  function openCustomize(section: string): void {
-    useLayoutStore.getState().openCustomize(section);
   }
 
   /** Purge Pi config + sessions for a workspace (keeps project folder). */
@@ -2153,37 +2131,6 @@ export function SessionSidebar(): ReactNode {
             <span className={styles.btnLabel}>{t.newSessionAction}</span>
           </span>
         </Button>
-        <Button
-          type="text"
-          size="small"
-          className={`pi-interactive ${styles.topBtn}`}
-          styles={{ root: { justifyContent: "flex-start" } }}
-          onClick={() => void onAddWorkspace()}
-        >
-          <span className={styles.btnContent}>
-            <FolderOpenOutline size={15} />
-            <span className={styles.btnLabel}>{t.openWorkspace}</span>
-          </span>
-        </Button>
-        {!selectMode ? (
-          <Button
-            type="text"
-            size="small"
-            className={`pi-interactive ${styles.topBtn} ${
-              layout.centerView === "pull-requests" ? styles.topBtnActive : ""
-            }`}
-            styles={{ root: { justifyContent: "flex-start" } }}
-            aria-current={
-              layout.centerView === "pull-requests" ? "page" : undefined
-            }
-            onClick={() => useLayoutStore.getState().showPullRequests()}
-          >
-            <span className={styles.btnContent}>
-              <GitPullRequestOutline size={15} />
-              <span className={styles.btnLabel}>{t.pullRequests}</span>
-            </span>
-          </Button>
-        ) : null}
       </div>
 
       {showStuckRecovery ? (
@@ -2313,37 +2260,33 @@ export function SessionSidebar(): ReactNode {
                           <ChevronForwardOutline size={14} />
                         </span>
                         <Typography.Text
-                          ellipsis={{ tooltip: workspaceName(root) }}
+                          ellipsis
                           style={{ fontWeight: 600, flex: 1, minWidth: 0 }}
                         >
                           {workspaceName(root)}
                         </Typography.Text>
                       </button>
-                      <Tooltip title={t.newSessionAction}>
-                        <Button
-                          className={styles.wsAction}
-                          type="text"
-                          shape="circle"
-                          size="small"
-                          data-no-ws-drag
-                          onClick={(e) => void onNewAgentForWorkspace(root, e)}
-                        >
-                          <ChatboxOutline size={14} />
-                        </Button>
-                      </Tooltip>
-                      <Tooltip title={t.moreActions}>
-                        <Button
-                          className={styles.wsAction}
-                          type="text"
-                          shape="circle"
-                          size="small"
-                          data-no-ws-drag
-                          data-ws-more-trigger
-                          onClick={(e) => onWorkspaceMore(e, root)}
-                        >
-                          <EllipsisHorizontalOutline size={14} />
-                        </Button>
-                      </Tooltip>
+                      <Button
+                        className={styles.wsAction}
+                        type="text"
+                        shape="circle"
+                        size="small"
+                        data-no-ws-drag
+                        onClick={(e) => void onNewAgentForWorkspace(root, e)}
+                      >
+                        <ChatboxOutline size={14} />
+                      </Button>
+                      <Button
+                        className={styles.wsAction}
+                        type="text"
+                        shape="circle"
+                        size="small"
+                        data-no-ws-drag
+                        data-ws-more-trigger
+                        onClick={(e) => onWorkspaceMore(e, root)}
+                      >
+                        <EllipsisHorizontalOutline size={14} />
+                      </Button>
                     </div>
 
                     <ul
@@ -2440,21 +2383,6 @@ export function SessionSidebar(): ReactNode {
           </Button>
         </div>
       ) : null}
-
-      <div className="customize-bar">
-        {customizeEntries.map((entry) => (
-          <button
-            key={entry.name}
-            type="button"
-            className={styles.customizeBtn}
-            title={entry.label}
-            onClick={() => openCustomize(entry.section)}
-          >
-            <CodiconIcon name={entry.name} size={16} />
-            <span className={styles.customizeLabel}>{entry.label}</span>
-          </button>
-        ))}
-      </div>
 
       <Modal
         open={renameOpen}

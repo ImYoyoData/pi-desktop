@@ -41,13 +41,20 @@ export function CustomizeTools({ tools, builtinExtensions }: Props): ReactNode {
   const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set());
   const [codemodeMode, setCodemodeMode] = useState<"on" | "only">("on");
   const [inlineBudget, setInlineBudget] = useState<number | null>(null);
+  const [maxWorkers, setMaxWorkers] = useState<number | null>(null);
 
   const toolToggles = store.snapshot.toolToggles ?? [];
   const codemodeState = store.snapshot.codemode ?? { mode: "on" as const };
+  const runtimeTools = store.snapshot.runtimeTools?.tools ?? [];
+  const runtimeNamespaceCount = new Set(
+    runtimeTools.map((tool) => tool.namespace).filter(Boolean),
+  ).size;
+  const runtimeReachCount = runtimeTools.filter((tool) => tool.reaches).length;
 
   useEffect(() => {
     setCodemodeMode(codemodeState.mode);
     setInlineBudget(codemodeState.inlineBudget ?? null);
+    setMaxWorkers(codemodeState.maxWorkers ?? null);
   }, [codemodeState]);
 
   function builtinDescription(name: string): string {
@@ -118,6 +125,21 @@ export function CustomizeTools({ tools, builtinExtensions }: Props): ReactNode {
       store.setCodemode(
         await window.api.customizations.setCodemodeSettings(
           { inlineBudget: value == null || Number.isNaN(value) ? null : value },
+          workspace.root ?? undefined,
+        ),
+      );
+    } catch (err) {
+      message.error(err instanceof Error ? err.message : String(err));
+    }
+  }
+
+  /** 并发上限存在桌面端偏好里，pi 只认 PI_CODEMODE_MAX_WORKERS。 */
+  async function saveMaxWorkers(): Promise<void> {
+    try {
+      const value = maxWorkers;
+      store.setCodemode(
+        await window.api.customizations.setCodemodeSettings(
+          { maxWorkers: value == null || Number.isNaN(value) ? null : value },
           workspace.root ?? undefined,
         ),
       );
@@ -330,6 +352,35 @@ export function CustomizeTools({ tools, builtinExtensions }: Props): ReactNode {
                           onBlur={() => void saveInlineBudget()}
                         />
                       </SettingsRow>
+
+                      <SettingsRow
+                        label={t.customizeCodemodeMaxWorkers}
+                        description={t.customizeCodemodeMaxWorkersHint}
+                      >
+                        <InputNumber
+                          className={styles.fieldControl}
+                          size="small"
+                          value={maxWorkers}
+                          min={1}
+                          controls={false}
+                          placeholder="2"
+                          onChange={(value: number | null) => setMaxWorkers(value)}
+                          onBlur={() => void saveMaxWorkers()}
+                        />
+                      </SettingsRow>
+
+                      <SettingsRow
+                        label={t.customizeCodemodeRuntimeTools}
+                        description={
+                          runtimeTools.length
+                            ? t.customizeCodemodeRuntimeToolsHint(
+                                runtimeTools.length,
+                                runtimeNamespaceCount,
+                                runtimeReachCount,
+                              )
+                            : t.customizeCodemodeRuntimeToolsEmpty
+                        }
+                      />
                     </>
                   ) : null}
                 </div>

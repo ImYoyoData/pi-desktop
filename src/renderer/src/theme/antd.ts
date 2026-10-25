@@ -49,10 +49,34 @@ function withPrimaryColor(
 const lightAlgorithm = withPrimaryColor(theme.defaultAlgorithm, LIGHT_PRIMARY);
 const darkAlgorithm = withPrimaryColor(theme.darkAlgorithm, DARK_PRIMARY);
 
+/**
+ * 下拉与右键菜单统一胶囊外观：容器大圆角 + 条目圆角并留出内边距。
+ * Dropdown 的容器圆角与内边距走 Dropdown token，条目走 Menu token。
+ */
+const sharedComponents: NonNullable<ThemeConfig["components"]> = {
+  Dropdown: {
+    borderRadiusLG: 12,
+    paddingBlock: 4,
+    controlPaddingHorizontal: 4,
+  },
+  Menu: {
+    itemBorderRadius: 8,
+    subMenuItemBorderRadius: 8,
+    itemHeight: 30,
+    itemMarginBlock: 1,
+    itemMarginInline: 2,
+    itemPaddingInline: 8,
+  },
+  Select: {
+    borderRadiusLG: 12,
+  },
+};
+
 /** 浅色主题 — VS Code "2026 Light"。 */
 export const lightThemeConfig: ThemeConfig = {
   algorithm: lightAlgorithm,
   cssVar,
+  components: sharedComponents,
   token: {
     ...sharedToken,
     colorPrimary: LIGHT_PRIMARY,
@@ -73,6 +97,7 @@ export const lightThemeConfig: ThemeConfig = {
 export const darkThemeConfig: ThemeConfig = {
   algorithm: darkAlgorithm,
   cssVar,
+  components: sharedComponents,
   token: {
     ...sharedToken,
     colorPrimary: DARK_PRIMARY,

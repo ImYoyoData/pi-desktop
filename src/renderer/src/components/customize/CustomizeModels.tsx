@@ -11,6 +11,7 @@ import type {
   ModelsProviderAuth,
 } from "../../../../shared/models-settings";
 import {
+  CUSTOM_IMAGE_INPUTS,
   CUSTOM_MODEL_APIS,
   emptyCustomProvider,
   listEditableProviders,
@@ -22,6 +23,7 @@ import {
   stringifyModelsConfig,
   upsertCustomProvider,
   validateCustomProvider,
+  type CustomImageInput,
   type CustomModelEntry,
   type CustomProviderDraft,
 } from "../../../../shared/custom-models";
@@ -89,6 +91,12 @@ export function CustomizeModels(): ReactNode {
   const selectedOAuthIdRef = useRef<string | null>(null);
 
   const apiOptions = CUSTOM_MODEL_APIS.map((api) => ({ label: api, value: api }));
+  /** models.json 里手写的非对话 api（如分类器 system-one）也要能显示。 */
+  const apiSelectOptions = (api: string) =>
+    !api || (CUSTOM_MODEL_APIS as readonly string[]).includes(api)
+      ? apiOptions
+      : [...apiOptions, { label: api, value: api }];
+  const imageInputOptions = CUSTOM_IMAGE_INPUTS.map((value) => ({ label: value, value }));
 
   function setSelectedId(next: string | null): void {
     selectedIdRef.current = next;
@@ -458,10 +466,17 @@ export function CustomizeModels(): ReactNode {
   }
 
   function setCompat(
-    key: "supportsDeveloperRole" | "supportsReasoningEffort",
+    key:
+      | "supportsDeveloperRole"
+      | "supportsReasoningEffort"
+      | "imageOptInHeader",
     value: boolean,
   ): void {
     updateDraft({ [key]: value });
+  }
+
+  function setImageInput(value: CustomImageInput): void {
+    updateDraft({ imageInput: value });
   }
 
   /** 开关桌面端的提供商禁用状态（只影响本应用，不写 models.json）。 */
@@ -975,7 +990,7 @@ export function CustomizeModels(): ReactNode {
                         <Select
                           value={draft.api}
                           size="small"
-                          options={apiOptions}
+                          options={apiSelectOptions(draft.api)}
                           onChange={(value: CustomProviderDraft["api"]) =>
                             updateDraft({ api: value })
                           }
@@ -1026,6 +1041,26 @@ export function CustomizeModels(): ReactNode {
                         onValueChange={(value) => setCompat("supportsReasoningEffort", value)}
                       />
                       <span className={styles.toggleHint}>{t.modelsCustomReasoningEffortHint}</span>
+                    </div>
+
+                    <div className={styles.toggleRow}>
+                      <span className={styles.toggleHint}>{t.modelsCustomImageInput}</span>
+                      <Select
+                        size="small"
+                        value={draft.imageInput}
+                        options={imageInputOptions}
+                        onChange={(value: CustomImageInput) => setImageInput(value)}
+                      />
+                      <span className={styles.toggleHint}>{t.modelsCustomImageInputHint}</span>
+                    </div>
+
+                    <div className={styles.toggleRow}>
+                      <ToggleButton
+                        label={t.modelsCustomImageOptIn}
+                        value={draft.imageOptInHeader}
+                        onValueChange={(value) => setCompat("imageOptInHeader", value)}
+                      />
+                      <span className={styles.toggleHint}>{t.modelsCustomImageOptInHint}</span>
                     </div>
                   </div>
 

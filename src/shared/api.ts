@@ -828,7 +828,11 @@ export function createApi(
 				cwd,
 			) as Promise<BuiltinToolItem[]>,
 		setCodemodeSettings: (
-			patch: { mode?: "on" | "only"; inlineBudget?: number | null },
+			patch: {
+				mode?: "on" | "only";
+				inlineBudget?: number | null;
+				maxWorkers?: number | null;
+			},
 			cwd?: string,
 		) =>
 			ipcRenderer.invoke(

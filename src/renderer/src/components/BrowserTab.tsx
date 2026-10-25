@@ -4,7 +4,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { Button, Input, Tooltip } from "antd";
+import { Button, Input } from "antd";
 import {
   ArrowBackOutline,
   ArrowForwardOutline,
@@ -704,34 +704,28 @@ export function BrowserTab({ tabId, visible, initialUrl }: Props): ReactNode {
     >
       <div className={styles.toolbar}>
         <div className={styles.toolbarNav}>
-          <Tooltip title={t.back}>
-            <Button
-              type="text"
-              shape="circle"
-              size="small"
-              onClick={goBack}
-              icon={<ArrowBackOutline />}
-            />
-          </Tooltip>
-          <Tooltip title={t.forward}>
-            <Button
-              type="text"
-              shape="circle"
-              size="small"
-              onClick={goForward}
-              icon={<ArrowForwardOutline />}
-            />
-          </Tooltip>
-          <Tooltip title={t.reload}>
-            <Button
-              type="text"
-              shape="circle"
-              size="small"
-              loading={loading}
-              onClick={reload}
-              icon={<RefreshOutline />}
-            />
-          </Tooltip>
+          <Button
+            type="text"
+            shape="circle"
+            size="small"
+            onClick={goBack}
+            icon={<ArrowBackOutline />}
+          />
+          <Button
+            type="text"
+            shape="circle"
+            size="small"
+            onClick={goForward}
+            icon={<ArrowForwardOutline />}
+          />
+          <Button
+            type="text"
+            shape="circle"
+            size="small"
+            loading={loading}
+            onClick={reload}
+            icon={<RefreshOutline />}
+          />
         </div>
 
         <Input
@@ -744,69 +738,58 @@ export function BrowserTab({ tabId, visible, initialUrl }: Props): ReactNode {
         />
 
         <div className={styles.toolbarActions}>
-          <Tooltip title={bookmarked ? t.unbookmark : t.bookmarkPage}>
-            <Button
-              type="text"
-              shape="circle"
-              size="small"
-              color={bookmarked ? "gold" : undefined}
-              onClick={onToggleBookmark}
-              icon={bookmarked ? <Star /> : <StarOutline />}
-            />
-          </Tooltip>
+          <Button
+            type="text"
+            shape="circle"
+            size="small"
+            color={bookmarked ? "gold" : undefined}
+            onClick={onToggleBookmark}
+            icon={bookmarked ? <Star /> : <StarOutline />}
+          />
 
           <Button
             size="small"
             type={selectMode ? "primary" : "default"}
             variant={selectMode ? "filled" : "outlined"}
             className={styles.selectElBtn}
-            title={t.selectElement}
             aria-label={t.selectElement}
             onClick={() => void applySelectMode(!selectMode)}
             icon={<PenNibIcon size={15} />}
           />
 
-          <Tooltip title={t.historyAndBookmarks}>
-            <Button
-              type="text"
-              shape="circle"
-              size="small"
-              color={libraryOpen ? "primary" : undefined}
-              onClick={toggleLibrary}
-              icon={<LibraryOutline />}
-            />
-          </Tooltip>
+          <Button
+            type="text"
+            shape="circle"
+            size="small"
+            color={libraryOpen ? "primary" : undefined}
+            onClick={toggleLibrary}
+            icon={<LibraryOutline />}
+          />
 
-          <Tooltip title={t.devtools}>
-            <Button
-              type="text"
-              shape="circle"
-              size="small"
-              color={devtoolsOpen ? "primary" : undefined}
-              onClick={() => void toggleDevTools()}
-              icon={<CodeSlashOutline />}
-            />
-          </Tooltip>
+          <Button
+            type="text"
+            shape="circle"
+            size="small"
+            color={devtoolsOpen ? "primary" : undefined}
+            onClick={() => void toggleDevTools()}
+            icon={<CodeSlashOutline />}
+          />
 
-          <Tooltip title={isFullscreen ? t.browserExitFullscreen : t.browserFullscreen}>
-            <Button
-              type="text"
-              shape="circle"
-              size="small"
-              onClick={() => void toggleFullscreen()}
-              icon={isFullscreen ? <ContractOutline /> : <ExpandOutline />}
-            />
-          </Tooltip>
+          <Button
+            type="text"
+            shape="circle"
+            size="small"
+            onClick={() => void toggleFullscreen()}
+            icon={isFullscreen ? <ContractOutline /> : <ExpandOutline />}
+          />
 
-          <Tooltip title={t.openInSystemBrowser}>
-            <Button
-              type="text"
-              shape="circle"
-              size="small"
-              onClick={() => void openExternal()}
-              icon={<OpenOutline />}
-            />
-          </Tooltip>
+          <Button
+            type="text"
+            shape="circle"
+            size="small"
+            onClick={() => void openExternal()}
+            icon={<OpenOutline />}
+          />
         </div>
       </div>
 

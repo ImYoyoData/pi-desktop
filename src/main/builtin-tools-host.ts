@@ -6,7 +6,12 @@
  * mergeDefaultTools / resolveDefaultTools 保持一致。
  */
 
-import type { BuiltinToolItem, CodemodeSettingsState } from "../shared/customizations";
+import {
+	CODEMODE_MAX_WORKERS_PREF,
+	type BuiltinToolItem,
+	type CodemodeSettingsState,
+} from "../shared/customizations";
+import { prefsPath, readPrefs, removePrefs, updatePrefs } from "./prefs-store";
 import { readSettingsRoot, settingsPath, updateSettingsRoot } from "./settings-file";
 
 type SettingsLike = {
@@ -88,17 +93,25 @@ function readCodemode(value: unknown): { mode?: unknown; inlineBudget?: unknown 
 		: {};
 }
 
+/** 桌面端保存的并发上限；未设置或非法时返回 undefined。 */
+export function readCodemodeMaxWorkers(): number | undefined {
+	const value = Number(readPrefs(prefsPath())[CODEMODE_MAX_WORKERS_PREF]);
+	return Number.isInteger(value) && value > 0 ? value : undefined;
+}
+
 /** 全局与项目层字段级合并后的 codemode 设置。 */
 export function codemodeSettingsState(settings: SettingsLike): CodemodeSettingsState {
 	const global = readCodemode(settings.getGlobalSettings().codemode);
 	const project = readCodemode(settings.getProjectSettings().codemode);
 	const mode = project.mode ?? global.mode;
 	const budget = project.inlineBudget ?? global.inlineBudget;
+	const maxWorkers = readCodemodeMaxWorkers();
 	return {
 		mode: mode === "only" ? "only" : "on",
 		...(typeof budget === "number" && Number.isFinite(budget) && budget >= 0
 			? { inlineBudget: budget }
 			: {}),
+		...(maxWorkers !== undefined ? { maxWorkers } : {}),
 	};
 }
 
@@ -129,7 +142,7 @@ export async function setBuiltinToolEnabled(
 
 /** 写 codemode 段；`inlineBudget: null` 清除该键，回到 pi 默认值。 */
 export async function setCodemodeSettings(
-	patch: { mode?: unknown; inlineBudget?: unknown },
+	patch: { mode?: unknown; inlineBudget?: unknown; maxWorkers?: unknown },
 	cwd?: string,
 ): Promise<CodemodeSettingsState> {
 	const filePath = settingsPath();
@@ -158,5 +171,18 @@ export async function setCodemodeSettings(
 	await updateSettingsRoot({
 		codemode: Object.keys(next).length > 0 ? next : undefined,
 	});
+	if (patch.maxWorkers !== undefined) {
+		if (patch.maxWorkers === null) {
+			await removePrefs([CODEMODE_MAX_WORKERS_PREF]);
+		} else if (
+			typeof patch.maxWorkers !== "number" ||
+			!Number.isInteger(patch.maxWorkers) ||
+			patch.maxWorkers < 1
+		) {
+			throw new Error("codemode.maxWorkers must be a positive integer");
+		} else {
+			await updatePrefs({ [CODEMODE_MAX_WORKERS_PREF]: String(patch.maxWorkers) });
+		}
+	}
 	return codemodeSettingsState(await settingsManagerFor(cwd));
 }

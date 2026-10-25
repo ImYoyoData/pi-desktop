@@ -185,6 +185,12 @@ export const zhTW = {
 	modelsCustomDevRoleHint: "Ollama / vLLM 等通常關閉",
 	modelsCustomReasoningEffort: "支援 reasoning_effort",
 	modelsCustomReasoningEffortHint: "伺服器不支援時請關閉",
+	modelsCustomImageInput: "影像輸入方式",
+	modelsCustomImageInputHint:
+		"分類器模型如何接收圖片（compat.imageInput），auto 表示由 pi 自動判斷",
+	modelsCustomImageOptIn: "影像 opt-in 標頭",
+	modelsCustomImageOptInHint:
+		"分類器請求是否帶 TypeSafe 的圖片 opt-in 標頭（compat.sendImageOptInHeader），預設開啟",
 	modelsCustomAddModel: "新增模型",
 	modelsCustomDiscover: "取得模型",
 	modelsCustomDiscovering: "取得中…",
@@ -467,6 +473,13 @@ export const zhTW = {
 	customizeCodemodeInlineBudget: "說明預算",
 	customizeCodemodeInlineBudgetHint:
 		"codemode 說明可用的 token 預算（預設 3000，留空使用預設值）。",
+	customizeCodemodeMaxWorkers: "並行 worker 上限",
+	customizeCodemodeMaxWorkersHint:
+		"codemode 同時執行的沙箱行程數（預設 2）；超出時指令碼排隊最多等 60 秒。新工作階段或重新啟動後生效。",
+	customizeCodemodeRuntimeTools: "工作階段內工具",
+	customizeCodemodeRuntimeToolsHint: (tools: number, namespaces: number, reaches: number) =>
+		`目前工作階段 ${tools} 個工具、${namespaces} 個命名空間，其中 ${reaches} 個可觸達其他工具`,
+	customizeCodemodeRuntimeToolsEmpty: "還沒有工作階段回報工具資訊，開啟一個工作階段後再看",
 	customizeAboutDesc: "版本資訊、更新與開源授權。",
 	terminal: "終端機",
 	preview: "預覽",
@@ -824,14 +837,6 @@ export const zhTW = {
 	runtimeCompactionReserveHint: "為回覆保留的上下文視窗，越小越早觸發壓縮。",
 	runtimeCompactionKeepRecent: "保留最近 token",
 	runtimeCompactionKeepRecentHint: "壓縮後保留的最近對話量。",
-	runtimeCompactionOverrides: "依模型覆寫",
-	runtimeCompactionOverridesHint:
-		"為大視窗模型單獨設定壓縮預算，越大越早觸發；未設定的欄位沿用上面的全域值。",
-	runtimeCompactionOverrideModel: "新增模型覆寫",
-	runtimeCompactionOverrideAdd: "新增",
-	runtimeCompactionOverrideRemove: "刪除",
-	runtimeCompactionOverridesEmpty: "尚無依模型覆寫",
-	runtimeCompactionOverrideGlobal: "跟隨全域",
 	runtimeCacheSection: "提示快取",
 	runtimeCacheSectionHint: "長時間工具執行或閒置時保持提示快取，減少重複計費。",
 	runtimeCacheWarming: "快取保溫",
@@ -946,7 +951,7 @@ export const zhTW = {
 	appearanceSurfaceInput: "輸入框透明度",
 	appearanceSurfaceCard: "卡片透明度",
 	appearanceSurfaceCardTip: "同時控制介面底色的半透明程度，卡片會在此基礎上稍實一階。",
-	appearanceSurfaceSettings: "設定頁透明度",
+	appearanceSurfaceSettings: "彈窗透明度",
 	appearanceSurfaceTool: "工具卡片透明度",
 	appearanceSurfaceToolTip: "控制對話中工具呼叫卡片的命令與輸出區塊底色透明度。",
 	appearanceMessageWidth: "訊息區寬度",
@@ -1240,6 +1245,8 @@ export const zhTW = {
 	toolResultLines: (n: number) => `${n} 行輸出`,
 	toolResultRead: (n: number) => `讀取 ${n} 行`,
 	toolResultReadOf: (read: number, total: number) => `讀取 ${read}/${total} 行`,
+	toolResultReadRange: (start: number, end: number, total?: number | null) =>
+		total != null ? `第 ${start}-${end} 行，共 ${total} 行` : `第 ${start}-${end} 行`,
 	toolResultImages: (n: number) => `${n} 張圖片`,
 	toolResultNoOutput: "無輸出",
 	toolCallCount: (n: number) => `${n} 個呼叫`,
