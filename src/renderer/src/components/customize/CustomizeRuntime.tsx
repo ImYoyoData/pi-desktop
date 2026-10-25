@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from "react";
-import { Button, Input, InputNumber, Select } from "antd";
+import { Input, InputNumber, Select } from "antd";
 import {
   BRANCH_SUMMARY_RESERVE_CHOICES,
   CACHE_WARMING_MODES,
@@ -9,7 +9,6 @@ import {
   TRANSPORT_MODES,
   WEBSOCKET_TIMEOUT_CHOICES,
   type CacheWarmingMode,
-  type CompactionModelOverride,
   type DeliveryMode,
   type RuntimeSettings,
   type RuntimeThinkingBudgets,
@@ -27,13 +26,8 @@ import styles from "./CustomizeRuntime.module.css";
 
 type Option = { label: string; value: number | string };
 
-type ModelChoice = { label: string; value: string; name: string };
-
 /** NSelect 不能用 null 当值：-1 代表「不写该键」（用 pi 默认）。 */
 const WS_TIMEOUT_DEFAULT = -1;
-
-/** 按模型覆盖里的 -1：该字段不写，跟随上面的全局值。 */
-const OVERRIDE_UNSET = -1;
 
 function tokenOptions(values: readonly number[]): Option[] {
   return values.map((value) => ({ label: value.toLocaleString(), value }));
@@ -127,74 +121,6 @@ export function CustomizeRuntime(): ReactNode {
     value: mode,
   }));
 
-  const [modelChoices, setModelChoices] = useState<ModelChoice[]>([]);
-  const [overrideModelToAdd, setOverrideModelToAdd] = useState<string | null>(null);
-
-  useEffect(() => {
-    void (async () => {
-      try {
-        const data = await window.api.models.get();
-        setModelChoices(
-          data.available
-            .map((model) => {
-              const name = model.name?.trim() || model.id;
-              return {
-                label: `${name} · ${model.provider}/${model.id}`,
-                value: `${model.provider}/${model.id}`,
-                name,
-              };
-            })
-            .sort((a, b) => a.value.localeCompare(b.value)),
-        );
-      } catch {
-        // 拉取失败时仍可编辑/删除已存在的覆盖
-      }
-    })();
-  }, []);
-
-  const overrideRows = Object.entries(runtime.settings.compaction.modelOverrides)
-    .map(([key, override]) => {
-      const choice = modelChoices.find((model) => model.value === key);
-      return {
-        key,
-        label: choice?.name ?? key,
-        reserveTokens: override.reserveTokens ?? OVERRIDE_UNSET,
-        keepRecentTokens: override.keepRecentTokens ?? OVERRIDE_UNSET,
-      };
-    })
-    .sort((a, b) => a.key.localeCompare(b.key));
-
-  /** 下拉选项：-1 = 不设置（跟随全局），并把已写入的非档位值并进来回显。 */
-  function overrideTokenOptions(
-    values: readonly number[],
-    field: keyof CompactionModelOverride,
-  ): Option[] {
-    const current = Object.values(runtime.settings.compaction.modelOverrides)
-      .map((override) => override[field])
-      .filter((value): value is number => typeof value === "number");
-    const nums = [...new Set([...values, ...current])].sort((a, b) => a - b);
-    const global =
-      field === "reserveTokens"
-        ? runtime.settings.compaction.reserveTokens
-        : runtime.settings.compaction.keepRecentTokens;
-    return [
-      {
-        label: `${t.runtimeCompactionOverrideGlobal} (${global.toLocaleString()})`,
-        value: OVERRIDE_UNSET,
-      },
-      ...nums.map((value) => ({ label: value.toLocaleString(), value })),
-    ];
-  }
-
-  const reserveOverrideOptions = overrideTokenOptions(
-    COMPACTION_RESERVE_CHOICES,
-    "reserveTokens",
-  );
-  const keepRecentOverrideOptions = overrideTokenOptions(
-    COMPACTION_KEEP_RECENT_CHOICES,
-    "keepRecentTokens",
-  );
-
   function parseLevelMapText(text: string): Record<string, string> {
     const out: Record<string, string> = {};
     for (const line of text.split(/\r?\n/)) {
@@ -286,34 +212,6 @@ export function CustomizeRuntime(): ReactNode {
     if (typeof value === "string") save({ cacheWarming: value as CacheWarmingMode });
   }
 
-  function addOverride(): void {
-    const key = overrideModelToAdd;
-    if (!key) return;
-    if (!runtime.settings.compaction.modelOverrides[key]) {
-      saveCompaction({ modelOverrides: { ...runtime.settings.compaction.modelOverrides, [key]: {} } });
-    }
-    setOverrideModelToAdd(null);
-  }
-
-  function removeOverride(key: string): void {
-    const next = { ...runtime.settings.compaction.modelOverrides };
-    delete next[key];
-    saveCompaction({ modelOverrides: next });
-  }
-
-  function setOverrideField(
-    key: string,
-    field: keyof CompactionModelOverride,
-    value: string | number,
-  ): void {
-    if (typeof value !== "number") return;
-    const current = runtime.settings.compaction.modelOverrides;
-    const entry: CompactionModelOverride = { ...current[key] };
-    if (value === OVERRIDE_UNSET) delete entry[field];
-    else entry[field] = value;
-    saveCompaction({ modelOverrides: { ...current, [key]: entry } });
-  }
-
   return (
     <div className={styles.runtimeSettings}>
       <SettingsGroup title={t.runtimeCompactionSection} hint={t.runtimeCompactionSectionHint}>
@@ -352,74 +250,6 @@ export function CustomizeRuntime(): ReactNode {
             onChange={onKeepRecent}
           />
         </SettingsRow>
-      </SettingsGroup>
-
-      <SettingsGroup
-        title={t.runtimeCompactionOverrides}
-        hint={t.runtimeCompactionOverridesHint}
-      >
-        <SettingsRow label={t.runtimeCompactionOverrideModel}>
-          <div className={styles.overrideAdd}>
-            <Select
-              value={overrideModelToAdd ?? undefined}
-              options={modelChoices}
-              disabled={!runtime.settings.compaction.enabled}
-              showSearch
-              allowClear
-              size="small"
-              className={styles.overrideModelSelect}
-              placeholder={t.runtimeCompactionOverrideModel}
-              onChange={(value: string) => setOverrideModelToAdd(value ?? null)}
-            />
-            <Button
-              size="small"
-              disabled={!runtime.settings.compaction.enabled || !overrideModelToAdd}
-              onClick={addOverride}
-            >
-              {t.runtimeCompactionOverrideAdd}
-            </Button>
-          </div>
-        </SettingsRow>
-
-        {overrideRows.length === 0 ? (
-          <div className={styles.overrideEmpty}>{t.runtimeCompactionOverridesEmpty}</div>
-        ) : null}
-
-        {overrideRows.map((row) => (
-          <SettingsRow key={row.key} label={row.label} description={row.key}>
-            <div className={styles.overrideControls}>
-              <span className={styles.overrideFieldLabel}>
-                {t.runtimeCompactionReserve}
-              </span>
-              <Select
-                value={row.reserveTokens}
-                options={reserveOverrideOptions}
-                disabled={!runtime.settings.compaction.enabled}
-                size="small"
-                className={styles.overrideSelect}
-                onChange={(value: string | number) =>
-                  setOverrideField(row.key, "reserveTokens", value)
-                }
-              />
-              <span className={styles.overrideFieldLabel}>
-                {t.runtimeCompactionKeepRecent}
-              </span>
-              <Select
-                value={row.keepRecentTokens}
-                options={keepRecentOverrideOptions}
-                disabled={!runtime.settings.compaction.enabled}
-                size="small"
-                className={styles.overrideSelect}
-                onChange={(value: string | number) =>
-                  setOverrideField(row.key, "keepRecentTokens", value)
-                }
-              />
-              <Button size="small" type="text" onClick={() => removeOverride(row.key)}>
-                {t.runtimeCompactionOverrideRemove}
-              </Button>
-            </div>
-          </SettingsRow>
-        ))}
       </SettingsGroup>
 
       <SettingsGroup title={t.runtimeCacheSection} hint={t.runtimeCacheSectionHint}>

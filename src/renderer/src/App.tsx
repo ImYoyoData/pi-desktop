@@ -3,7 +3,7 @@ import { lazy, Suspense, useEffect, useState } from "react";
 import TitleBar from "@renderer/components/TitleBar";
 import AppWallpaper from "@renderer/components/AppWallpaper";
 import AppContextMenu from "@renderer/components/AppContextMenu";
-import AppHoverTip from "@renderer/components/AppHoverTip";
+import SuppressHoverTips from "@renderer/components/SuppressHoverTips";
 import PiCliSetup from "@renderer/components/PiCliSetup";
 import CloseGuard from "@renderer/components/CloseGuard";
 import { useWorkspaceStore } from "@renderer/stores/workspace";
@@ -177,7 +177,7 @@ export function App(): React.ReactNode {
             ) : null}
           </div>
           <AppContextMenu />
-          <AppHoverTip />
+          <SuppressHoverTips />
         </FeedbackProvider>
       </AntApp>
     </ConfigProvider>

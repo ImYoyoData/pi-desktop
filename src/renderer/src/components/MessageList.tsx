@@ -14,7 +14,7 @@ import {
   type CustomContainerComponentProps,
   type VirtualizerHandle,
 } from "virtua";
-import { Button, Tag, Tooltip, Typography } from "antd";
+import { Button, Tag, Typography } from "antd";
 import { fontSizeRem } from "../../../shared/appearance";
 import {
   ArrowDownOutline,
@@ -1471,23 +1471,18 @@ export function MessageList({
               ) : null}
               {canRevertUser(msg) || isRevertedUser(msg) ? (
                 <div className={styles.userBubbleFooter}>
-                  <Tooltip
-                    title={isRevertedUser(msg) ? t.reverted : t.revertTurn}
-                    placement="top"
+                  <button
+                    type="button"
+                    className={styles.bubbleRevert}
+                    disabled={running || isRevertedUser(msg)}
+                    aria-label={isRevertedUser(msg) ? t.reverted : t.revertTurn}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      onRevertUser(msg);
+                    }}
                   >
-                    <button
-                      type="button"
-                      className={styles.bubbleRevert}
-                      disabled={running || isRevertedUser(msg)}
-                      aria-label={isRevertedUser(msg) ? t.reverted : t.revertTurn}
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        onRevertUser(msg);
-                      }}
-                    >
-                      <ArrowUndoOutline size={15} />
-                    </button>
-                  </Tooltip>
+                    <ArrowUndoOutline size={15} />
+                  </button>
                 </div>
               ) : null}
               {view.needsToggle ? (
@@ -1511,24 +1506,20 @@ export function MessageList({
             </div>
             {!running ? (
               <div className={`${styles.actions} ${styles.userActions}`}>
-                <Tooltip title={t.copy}>
-                  <Button
-                    type="text"
-                    shape="circle"
-                    size="small"
-                    icon={<CopyOutline />}
-                    onClick={() => copyText(view.text)}
-                  />
-                </Tooltip>
-                <Tooltip title={t.reEdit}>
-                  <Button
-                    type="text"
-                    shape="circle"
-                    size="small"
-                    icon={<CreateOutline />}
-                    onClick={() => onEditUser(msg)}
-                  />
-                </Tooltip>
+                <Button
+                  type="text"
+                  shape="circle"
+                  size="small"
+                  icon={<CopyOutline />}
+                  onClick={() => copyText(view.text)}
+                />
+                <Button
+                  type="text"
+                  shape="circle"
+                  size="small"
+                  icon={<CreateOutline />}
+                  onClick={() => onEditUser(msg)}
+                />
               </div>
             ) : null}
           </div>
@@ -1577,46 +1568,38 @@ export function MessageList({
               </div>
               {canShowAssistantActions(msg) ? (
                 <div className={styles.actions}>
-                  <Tooltip title={t.copy}>
-                    <Button
-                      type="text"
-                      shape="circle"
-                      size="small"
-                      icon={<CopyOutline />}
-                      onClick={() => copyText(msg.text)}
-                    />
-                  </Tooltip>
-                  <Tooltip title={t.regenerate}>
-                    <Button
-                      type="text"
-                      shape="circle"
-                      size="small"
-                      icon={<RefreshOutline />}
-                      onClick={() => void onRegenerate(msg)}
-                    />
-                  </Tooltip>
+                  <Button
+                    type="text"
+                    shape="circle"
+                    size="small"
+                    icon={<CopyOutline />}
+                    onClick={() => copyText(msg.text)}
+                  />
+                  <Button
+                    type="text"
+                    shape="circle"
+                    size="small"
+                    icon={<RefreshOutline />}
+                    onClick={() => void onRegenerate(msg)}
+                  />
                   {roundUser ? (
                     <>
                       {!isLatestRound(msg) ? (
-                        <Tooltip title={t.restoreCheckpoint}>
-                          <Button
-                            type="text"
-                            shape="circle"
-                            size="small"
-                            icon={<ArrowUndoOutline />}
-                            onClick={() => onRestoreCheckpoint(roundUser)}
-                          />
-                        </Tooltip>
-                      ) : null}
-                      <Tooltip title={t.forkConversation}>
                         <Button
                           type="text"
                           shape="circle"
                           size="small"
-                          icon={<GitBranchOutline />}
-                          onClick={() => void onForkConversation(roundUser)}
+                          icon={<ArrowUndoOutline />}
+                          onClick={() => onRestoreCheckpoint(roundUser)}
                         />
-                      </Tooltip>
+                      ) : null}
+                      <Button
+                        type="text"
+                        shape="circle"
+                        size="small"
+                        icon={<GitBranchOutline />}
+                        onClick={() => void onForkConversation(roundUser)}
+                      />
                     </>
                   ) : null}
                   {stats ? (

@@ -300,12 +300,32 @@ button {
   inset: -3px;
 }
 
-/* 分栏外壳：左侧栏 + 主区，主区内部再分聊天列与右侧面板 */
+/* 分栏外壳：左侧导航栏 + 左侧栏 + 主区，主区内部再分聊天列与右侧面板 */
 .split-root {
   position: relative;
   flex: 1;
   min-height: 0;
   min-width: 0;
+  display: flex;
+}
+
+.split-root > .splitpanes {
+  flex: 1 1 auto;
+  width: auto;
+  min-width: 0;
+}
+
+/* 胶囊卡片外壳：面板内容与分栏边界之间留出浮动间隙 */
+.pane-capsule {
+  padding: 6px;
+  min-width: 0;
+}
+
+.pane-capsule > * {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  overflow: hidden;
+  box-shadow: var(--shadow-sm);
 }
 
 .split-root .panes,
