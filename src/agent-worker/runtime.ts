@@ -1,4 +1,3 @@
-import type { ImageContent } from "@earendil-works/pi-ai/compat";
 import { readFileSync, writeFileSync } from "node:fs";
 import { type ThinkingLevel } from "../shared/thinking-level";
 import {
@@ -15,6 +14,7 @@ import {
 	SettingsManager,
 	type AgentSession,
 	type ExtensionError,
+	type PromptOptions,
 } from "@earendil-works/pi-coding-agent";
 import type { AgentCommand, ElementCitation } from "../shared/protocol";
 import { toPromptImages } from "../shared/protocol";
@@ -81,6 +81,8 @@ import {
 	logResourceSummary,
 	summarizeSessionResources,
 } from "./resource-summary";
+
+type ImageContent = NonNullable<PromptOptions["images"]>[number];
 
 function post(msg: WorkerOutbound): void {
 	process.parentPort?.postMessage(msg);

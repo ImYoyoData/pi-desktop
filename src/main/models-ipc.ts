@@ -30,8 +30,11 @@ import { readModelSelection, writeModelSelection } from "./models-selection";
 import { broadcastStateChange } from "./ui-sync";
 import type { ModelSelection } from "../shared/model-selection";
 import { isOfflineMode } from "../shared/offline";
-import type { AuthEvent, AuthInteraction, AuthPrompt } from "@earendil-works/pi-ai";
 import type { ModelRuntime } from "@earendil-works/pi-coding-agent";
+
+type AuthInteraction = Parameters<ModelRuntime["login"]>[2];
+type AuthPrompt = Parameters<AuthInteraction["prompt"]>[0];
+type AuthEvent = Parameters<AuthInteraction["notify"]>[0];
 
 async function createRuntime(): Promise<import("@earendil-works/pi-coding-agent").ModelRuntime> {
   const { ModelRuntime } = await import("@earendil-works/pi-coding-agent");
