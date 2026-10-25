@@ -328,6 +328,14 @@ button {
   box-shadow: var(--shadow-sm);
 }
 
+/* 拉取请求页铺满主内容区：脱离分栏流，不受右侧面板与底部面板影响 */
+.pane-capsule--overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  background: var(--bg);
+}
+
 .split-root .panes,
 .split-root .splitpanes {
   height: 100%;
