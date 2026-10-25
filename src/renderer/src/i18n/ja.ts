@@ -912,6 +912,8 @@ export const ja = {
 	appearanceMessageWidth: "メッセージ領域の幅",
 	appearanceMessageWidthValue: (percent: number) =>
 		percent >= 100 ? "全幅" : `${percent}%`,
+	appearanceInputWidth: "入力欄の幅",
+	appearanceInputWidthTip: "初期値はメッセージ領域と同じ幅です。個別に調整できます。",
 	appearanceFontSize: "文字サイズ",
 	appearanceFontSizeTip: "画面の文字だけを調整します。アイコンと間隔は変わりません。",
 	appearanceFontSizeValue: (px: number) => `${px}px`,

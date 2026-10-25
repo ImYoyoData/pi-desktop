@@ -45,6 +45,7 @@
   position: relative;
   width: 100%;
   max-width: none;
+  /* 聚焦不换强调色：输入框与上方吸附卡片始终同一圈描边。 */
   border: 1px solid var(--border-strong);
   border-radius: var(--radius-lg, 8px);
   background: var(--bg-input);
@@ -104,11 +105,6 @@
 .composerExpandBtn:hover {
   color: var(--fg-strong, #222);
   background: color-mix(in srgb, var(--fg-muted, #888) 12%, transparent);
-}
-
-.card:focus-within {
-  border-color: var(--accent-border);
-  box-shadow: 0 0 0 3px var(--accent-soft);
 }
 
 .richEditor {

@@ -913,6 +913,8 @@ export const zh = {
 	appearanceMessageWidth: "消息区宽度",
 	appearanceMessageWidthValue: (percent: number) =>
 		percent >= 100 ? "全宽" : `${percent}%`,
+	appearanceInputWidth: "输入框宽度",
+	appearanceInputWidthTip: "默认与消息区宽度一致，可单独调整。",
 	appearanceFontSize: "字体大小",
 	appearanceFontSizeTip: "只调整界面文字大小，图标与间距保持不变。",
 	appearanceFontSizeValue: (px: number) => `${px}px`,
