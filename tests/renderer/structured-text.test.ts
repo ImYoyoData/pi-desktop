@@ -8,6 +8,7 @@ import {
   parsePathList,
   parseScriptReport,
   pathListEntries,
+  pathListFromOutput,
 } from "../../src/renderer/src/utils/structured-text";
 
 const LS_OUTPUT = `_ui-preview/
@@ -104,6 +105,14 @@ describe("directoryListTarget", () => {
   it("treats a missing path argument as the workspace root", () => {
     expect(directoryListTarget({}, "F:\\Code\\Work\\pi-desktop")).toBe("pi-desktop");
   });
+
+  it("trims trailing slashes from explicit subdirectories", () => {
+    expect(directoryListTarget({ path: "src/" }, "F:\\Code\\Work\\pi-desktop")).toBe("src");
+  });
+
+  it("keeps the filesystem root distinct from the workspace root", () => {
+    expect(directoryListTarget({ path: "/" }, "F:\\Code\\Work\\pi-desktop")).toBe("/");
+  });
 });
 
 describe("genericStepTarget", () => {
@@ -152,8 +161,38 @@ describe("genericStepPreview", () => {
     expect(genericStepPreview({ preview: "just text", structured: null }, "x")).toBeNull();
   });
 
+  it("does not turn a failed listing into an entry count", () => {
+    const card = { preview: "ENOENT: no such file or directory", structured: null };
+    expect(genericStepPreview(card, "ls", { isError: true })).toBeNull();
+  });
+
+  it("ignores argument JSON used as empty output", () => {
+    const card = {
+      preview: '{\n  "path": "."\n}',
+      structured: null,
+      previewFromArgs: true,
+    };
+    expect(genericStepPreview(card, "ls")).toBeNull();
+  });
+
   it("ignores the empty-directory placeholder", () => {
     expect(parsePathList("(empty directory)")).toBeNull();
+  });
+});
+
+describe("pathListFromOutput", () => {
+  it("accepts a plain listing for a known tool", () => {
+    expect(pathListFromOutput(LS_OUTPUT, "ls")).toHaveLength(8);
+  });
+
+  it("rejects output that is not one path per line", () => {
+    expect(
+      pathListFromOutput("ENOENT: no such file\nat src/renderer/app.ts", "ls"),
+    ).toBeNull();
+  });
+
+  it("keeps heuristic parsing for unknown tools", () => {
+    expect(pathListFromOutput(LS_OUTPUT, "custom")).toHaveLength(8);
   });
 });
 

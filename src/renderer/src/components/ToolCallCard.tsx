@@ -401,14 +401,16 @@ export function ToolCallCard({
    * 摘要 = 它产出了多少（次要位，不顶替目标）。
    */
   const genericSummary = useMemo(() => {
-    if (card.kind !== "generic") return { target: null, preview: null };
+    if (card.kind !== "generic") return { target: null, preview: null, isDir: false };
     const dirTarget = isDirectoryListTool(toolName)
       ? directoryListTarget(card.args, workspaceRoot)
       : null;
     const target = dirTarget ?? genericStepTarget(card.args);
-    const preview = genericStepPreview(card, toolName);
+    const preview = genericStepPreview(card, toolName, {
+      isError: statusType === "error",
+    });
     return { target, preview, isDir: Boolean(dirTarget) };
-  }, [card, toolName, workspaceRoot]);
+  }, [card, statusType, toolName, workspaceRoot]);
 
   /** 结果摘要：只说「产出了多少 / 什么结构」，文案按当前语言格式化。 */
   const previewText = useMemo(() => {
@@ -438,8 +440,8 @@ export function ToolCallCard({
     if (previewText) {
       return <span className={styles.stepText}>{previewText}</span>;
     }
-    return <span className={styles.stepText}>{headline || toolName}</span>;
-  }, [card, genericSummary, headline, onOpen, previewPath, previewText, toolName]);
+    return headline ? <span className={styles.stepText}>{headline}</span> : null;
+  }, [card, genericSummary, headline, onOpen, previewPath, previewText]);
 
   /** 摘要只做次要位；目标已经用它兜底时不再重复。 */
   const stepPreview = genericSummary.target ? previewText : null;
@@ -483,7 +485,7 @@ export function ToolCallCard({
 
   /** 内部调用列表：独立工具行挂在标题下方，时间线步骤挂在展开体里。 */
   const nestedCallsBlock = nestedCalls?.length ? (
-    <ToolNestedCalls calls={nestedCalls} />
+    <ToolNestedCalls calls={nestedCalls} onOpen={onOpen} />
   ) : null;
 
   return (
@@ -579,6 +581,7 @@ export function ToolCallCard({
             card={card}
             streaming={streaming}
             toolName={toolName}
+            isError={statusType === "error"}
             onOpen={onOpen}
           />
           {variant === "step" ? nestedCallsBlock : null}

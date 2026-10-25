@@ -111,7 +111,9 @@ function nestedCallsFromMessage(
     out.push({
       toolCallId: row.id,
       toolName: typeof row.name === "string" && row.name ? row.name : "tool",
-      ...(row.arguments !== undefined ? { args: row.arguments } : {}),
+      ...(row.arguments !== undefined
+        ? { args: truncateArgsForUi(row.arguments) }
+        : {}),
       ...(row.status === "error" ? { isError: true } : {}),
       ...(typeof row.durationMs === "number" && Number.isFinite(row.durationMs)
         ? { durationMs: row.durationMs }

@@ -70,4 +70,24 @@ describe("parseUnifiedDiff", () => {
     const parsed = parseUnifiedDiff(PATCH.replace(/\n/g, "\r\n"));
     expect(parsed.hunks[0]!.lines[0]!.text).toBe(" keep");
   });
+
+  it("starts a new hunk for a second file without a diff --git header", () => {
+    const patch = [
+      "--- a/a.ts",
+      "+++ b/a.ts",
+      "@@ -1 +1 @@",
+      "-a",
+      "+b",
+      "--- a/c.ts",
+      "+++ b/c.ts",
+      "@@ -1 +1 @@",
+      "-c",
+      "+d",
+    ].join("\n");
+    const parsed = parseUnifiedDiff(patch);
+    expect(parsed.hunks).toHaveLength(2);
+    expect(parsed.hunks[1]!.header).toBe("@@ -1 +1 @@");
+    expect(parsed.hunks[1]!.lines.map((line) => line.kind)).toEqual(["del", "add"]);
+    expect(parsed.hunks[0]!.lines).toHaveLength(2);
+  });
 });

@@ -179,7 +179,7 @@ function baseName(path: string): string {
 
 /**
  * 目录列举工具的目标：工作区根目录显示文件夹名（"." 对人没意义），
- * 其余路径原样显示。
+ * 其余路径去掉末尾斜杠后显示。
  *
  * 目录工具的 path 参数是可选的（pi 的 ls 默认取 "."），缺省时按 "." 处理。
  */
@@ -189,7 +189,8 @@ export function directoryListTarget(
 ): string | null {
   const path = directoryPathFromArgs(args) ?? ".";
   const normalized = path.replace(/\\/g, "/").replace(/\/+$/, "");
-  if (normalized && normalized !== ".") return path;
+  if (!normalized) return "/";
+  if (normalized !== ".") return normalized;
   const name = workspaceRoot ? baseName(workspaceRoot) : null;
   return name || path;
 }
@@ -235,18 +236,36 @@ export type GenericPreview =
   | { kind: "sections"; count: number; wallTime: string | null }
   | { kind: "keys"; keys: string[] };
 
+/**
+ * 路径清单的最终判定：已知清单工具仍要求每行是单个路径，
+ * 失败输出和参数兜底文本不能混成清单。
+ */
+export function pathListFromOutput(text: string, toolName: string): string[] | null {
+  if (isPathListTool(toolName)) {
+    const entries = pathListEntries(text);
+    if (!entries.length) return null;
+    return entries.every((entry) => !/\s/.test(entry)) ? entries : null;
+  }
+  return parsePathList(text);
+}
+
 export function genericStepPreview(
-  card: { preview: string | null; structured: unknown | null },
+  card: { preview: string | null; structured: unknown | null; previewFromArgs?: boolean },
   toolName: string,
+  opts?: { isError?: boolean },
 ): GenericPreview | null {
   const text = card.preview ?? "";
-  const entries = isPathListTool(toolName) ? pathListEntries(text) : parsePathList(text);
+  const entries =
+    opts?.isError || card.previewFromArgs
+      ? null
+      : pathListFromOutput(text, toolName);
   if (entries?.length) return { kind: "count", count: entries.length };
   const report = parseScriptReport(text);
   if (report) {
     return { kind: "sections", count: report.sections.length, wallTime: report.wallTime };
   }
-  const parsed = card.structured ?? parseJsonPayload(text);
+  const parsed =
+    card.structured ?? (card.previewFromArgs ? null : parseJsonPayload(text));
   if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
     const keys = Object.keys(parsed);
     if (keys.length) return { kind: "keys", keys };

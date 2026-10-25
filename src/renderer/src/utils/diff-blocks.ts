@@ -97,7 +97,19 @@ export function parseUnifiedDiff(raw: string): ParsedDiff {
      * `--- ` / `+++ ` 是文件头，但只在 hunk 正文之外。
      * hunk 内部以这三个字符开头的行是「删除了一行以 --- 开头的文本」，
      * 当成文件头丢掉就会少显示一行。
+     *
+     * 没有 `diff --git` 的多文件补丁，第二个文件头后面紧跟 `+++` 与 `@@`，
+     * 据此退出 hunk 正文，避免把文件头算成增删行。
      */
+    if (
+      inHunk &&
+      line.startsWith("--- ") &&
+      lines[i + 1]?.startsWith("+++ ") &&
+      lines[i + 2]?.startsWith("@@")
+    ) {
+      inHunk = false;
+      current = null;
+    }
     if (!inHunk && (line.startsWith("--- ") || line.startsWith("+++ "))) {
       i++;
       continue;
@@ -106,7 +118,15 @@ export function parseUnifiedDiff(raw: string): ParsedDiff {
       const dels: string[] = [];
       const adds: string[] = [];
       while (i < lines.length) {
-        const marker = lines[i]!.charAt(0);
+        const next = lines[i]!;
+        if (
+          next.startsWith("--- ") &&
+          lines[i + 1]?.startsWith("+++ ") &&
+          lines[i + 2]?.startsWith("@@")
+        ) {
+          break;
+        }
+        const marker = next.charAt(0);
         if (marker === "-") dels.push(lines[i++]!.slice(1));
         else if (marker === "+") adds.push(lines[i++]!.slice(1));
         else break;
