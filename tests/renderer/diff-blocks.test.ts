@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { countDiffLines, parseUnifiedDiff } from "../../src/renderer/src/utils/diff-blocks";
+import { parseUnifiedDiff } from "../../src/renderer/src/utils/diff-blocks";
 
 const PATCH = [
   "--- a/src/x.ts",
@@ -50,13 +50,24 @@ describe("parseUnifiedDiff", () => {
     expect(parsed.hunks).toHaveLength(2);
     expect(parsed.hunks[1]!.header).toBe("@@ -20,2 +20,2 @@");
   });
-});
 
-describe("countDiffLines", () => {
-  it("counts additions and removals", () => {
-    expect(countDiffLines(parseUnifiedDiff(PATCH).hunks)).toEqual({
-      added: 2,
-      removed: 1,
-    });
+  it("keeps deleted lines whose text starts with three dashes", () => {
+    const patch = [
+      "--- a/x.ts",
+      "+++ b/x.ts",
+      "@@ -1,2 +1,3 @@",
+      " keep",
+      "--- 这行原文以三个横线开头",
+      "+--- 替换后",
+    ].join("\n");
+    const parsed = parseUnifiedDiff(patch);
+    expect(parsed.hunks[0]!.lines.map((line) => line.kind)).toEqual(["ctx", "del", "add"]);
+    expect(parsed.hunks[0]!.lines[1]!.text).toBe("-- 这行原文以三个横线开头");
+    expect(parsed.hunks[0]!.lines[2]!.text).toBe("--- 替换后");
+  });
+
+  it("normalizes CRLF line endings", () => {
+    const parsed = parseUnifiedDiff(PATCH.replace(/\n/g, "\r\n"));
+    expect(parsed.hunks[0]!.lines[0]!.text).toBe(" keep");
   });
 });

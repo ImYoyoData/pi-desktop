@@ -7,10 +7,6 @@
   color: var(--chat-desc-fg, var(--fg-muted));
 }
 
-.toolCall.error {
-  color: var(--error, #d03050);
-}
-
 .toolCall.askUserMuted {
   opacity: 0.82;
 }
@@ -184,64 +180,6 @@
   font-family: var(--font-mono, monospace);
 }
 
-/* 子调用：工具 + 目标 + 状态/耗时，展开后横向排成一行。 */
-.subCalls {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 2px 10px;
-  min-width: 0;
-  margin-top: 3px;
-}
-
-.subCall {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  min-width: 0;
-  font-size: var(--chat-font-xs, 11px);
-  line-height: 16px;
-  color: var(--chat-desc-fg, var(--fg-muted));
-}
-
-.subMark {
-  flex-shrink: 0;
-  color: var(--success, #3d9a6a);
-}
-
-.subCall.error,
-.subCall.error .subMark {
-  color: var(--error, #d03050);
-}
-
-.subCall.running .subMark {
-  color: var(--accent, #4f8cff);
-}
-
-.subName {
-  flex-shrink: 0;
-  font-family: var(--font-mono, monospace);
-  opacity: 0.85;
-}
-
-.subTarget {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  opacity: 0.75;
-}
-
-.subMeta {
-  flex-shrink: 0;
-  opacity: 0.65;
-  font-variant-numeric: tabular-nums;
-}
-
-.subMore {
-  opacity: 0.6;
-}
-
 /* bash command / glob pattern pill — VS Code [data-code] inside progress text */
 .cmdPill {
   display: inline-block;
@@ -374,9 +312,20 @@
   color: var(--chat-icon-fg, var(--fg-muted));
 }
 
-.stepDot.success { border-color: color-mix(in srgb, var(--success, #3d9a6a) 55%, transparent); }
-.stepDot.error { border-color: color-mix(in srgb, var(--error, #d03050) 55%, transparent); }
-.stepDot.running { border-color: var(--accent, #4f8cff); }
+.stepDot.success {
+  border-color: color-mix(in srgb, var(--success, #3d9a6a) 55%, transparent);
+  color: var(--success, #3d9a6a);
+}
+
+.stepDot.error {
+  border-color: color-mix(in srgb, var(--error, #d03050) 55%, transparent);
+  color: var(--error, #d03050);
+}
+
+.stepDot.running {
+  border-color: var(--accent, #4f8cff);
+  color: var(--accent, #4f8cff);
+}
 
 .stepVerb {
   flex-shrink: 0;
@@ -402,6 +351,13 @@
   font-family: var(--font-mono, monospace);
   font-size: var(--chat-font-xs, 11px);
   color: var(--fg, inherit);
+}
+
+.stepPreview {
+  flex-shrink: 0;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: var(--chat-font-xs, 11px);
+  color: var(--fg-muted, #606060);
 }
 
 .stepMeta {

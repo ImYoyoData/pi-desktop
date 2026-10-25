@@ -31,8 +31,22 @@ export function tokenizeForDiff(text: string): string[] {
  * 没有公共 token 时整行都会被标成改动，这是正确的退化行为。
  */
 export function wordDiff(oldText: string, newText: string): WordDiffResult {
-  const a = tokenizeForDiff(oldText);
-  const b = tokenizeForDiff(newText);
+  return wordDiffTokens(tokenizeForDiff(oldText), tokenizeForDiff(newText));
+}
+
+/**
+ * 已分词的文本做词级比对。
+ *
+ * 调用方若已经分过词就直接用这个版本，省掉一次 split。
+ * 超长行在这里统一退化成整行标记 —— 不管谁调用都不会被 O(n·m) 的 DP 卡住。
+ */
+export function wordDiffTokens(a: string[], b: string[]): WordDiffResult {
+  if (a.length > WORD_DIFF_MAX_TOKENS || b.length > WORD_DIFF_MAX_TOKENS) {
+    return {
+      old: a.map((text) => ({ text, changed: true })),
+      new: b.map((text) => ({ text, changed: true })),
+    };
+  }
   const n = a.length;
   const m = b.length;
   const dp: Uint16Array[] = [];

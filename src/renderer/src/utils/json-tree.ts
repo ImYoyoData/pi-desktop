@@ -39,16 +39,15 @@ export function jsonValueType(value: unknown): JsonValueType {
   return "object";
 }
 
-let nodeSeq = 0;
-
 function buildNode(
   value: unknown,
   key: string | null,
   depth: number,
+  path: string,
   budget: { count: number },
 ): JsonTreeNode {
   const type = jsonValueType(value);
-  const id = `jt${nodeSeq++}`;
+  const id = path;
   budget.count += 1;
   if (type === "object" || type === "array") {
     const entries: Array<[string, unknown]> =
@@ -57,21 +56,41 @@ function buildNode(
         : Object.entries(value as Record<string, unknown>);
     const children: JsonTreeNode[] = [];
     let truncated = false;
-    for (const [childKey, childValue] of entries) {
+    for (let index = 0; index < entries.length; index++) {
       if (budget.count >= JSON_TREE_MAX_NODES) {
         truncated = true;
         break;
       }
-      children.push(buildNode(childValue, childKey, depth + 1, budget));
+      const [childKey, childValue] = entries[index]!;
+      children.push(
+        buildNode(childValue, childKey, depth + 1, `${path}/${index}`, budget),
+      );
     }
     return { id, key, type, depth, children, value: null, truncated };
   }
   return { id, key, type, depth, children: null, value: value as string | number | boolean | null };
 }
 
-/** 构建一棵 JSON 树。根节点没有 key。 */
+/**
+ * 构建一棵 JSON 树。根节点没有 key。
+ *
+ * 节点 id 来自树里的路径（root/0/2），不是全局计数器：
+ * 计数器每次重建都会变，折叠状态就再也对不上。
+ */
 export function buildJsonTree(value: unknown): JsonTreeNode {
-  return buildNode(value, null, 0, { count: 0 });
+  return buildNode(value, null, 0, "root", { count: 0 });
+}
+
+/** 默认收起深度过深的容器，避免大结果一打开就是几千行。 */
+export function defaultClosedNodeIds(tree: JsonTreeNode, maxOpenDepth = 2): Set<string> {
+  const out = new Set<string>();
+  const walk = (node: JsonTreeNode): void => {
+    if (!node.children?.length) return;
+    if (node.depth >= maxOpenDepth) out.add(node.id);
+    node.children.forEach(walk);
+  };
+  walk(tree);
+  return out;
 }
 
 /**

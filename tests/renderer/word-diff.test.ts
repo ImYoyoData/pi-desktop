@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { tokenizeForDiff, wordDiff } from "../../src/renderer/src/utils/word-diff";
+import {
+  tokenizeForDiff,
+  wordDiff,
+  WORD_DIFF_MAX_TOKENS,
+} from "../../src/renderer/src/utils/word-diff";
 
 describe("tokenizeForDiff", () => {
   it("keeps whitespace as its own token", () => {
@@ -45,6 +49,13 @@ describe("wordDiff", () => {
 
   it("marks everything when the two lines share nothing", () => {
     const result = wordDiff("alpha", "beta");
+    expect(result.old.every((part) => part.changed)).toBe(true);
+    expect(result.new.every((part) => part.changed)).toBe(true);
+  });
+
+  it("degrades to whole-line marking when a side is over the token limit", () => {
+    const long = Array.from({ length: WORD_DIFF_MAX_TOKENS + 1 }, (_, i) => `t${i}`).join(" ");
+    const result = wordDiff(long, "short");
     expect(result.old.every((part) => part.changed)).toBe(true);
     expect(result.new.every((part) => part.changed)).toBe(true);
   });

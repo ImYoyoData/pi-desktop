@@ -612,6 +612,8 @@ export type SessionHistoryMessage =
 			nestedCalls?: {
 				toolCallId: string;
 				toolName: string;
+				/** 调用参数：渲染层据此说明「这个工具干了啥」。 */
+				args?: unknown;
 				isError?: boolean;
 				durationMs?: number;
 			}[];

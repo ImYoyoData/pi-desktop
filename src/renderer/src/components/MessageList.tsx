@@ -1621,7 +1621,6 @@ export function MessageList({
             <ToolCallCard
               card={toolCard(msg)}
               toolName={msg.toolName}
-              order={msg.order}
               statusLabel={status.label}
               statusType={status.type}
               streaming={msg.streaming}

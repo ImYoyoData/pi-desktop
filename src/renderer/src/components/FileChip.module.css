@@ -52,3 +52,20 @@
   line-height: 1;
   transform: translateY(1px);
 }
+
+/* 目录用 ionicon 的文件夹（Seti 只有文件图标）。 */
+.dirGlyph {
+  flex-shrink: 0;
+  margin-right: 3px;
+  color: var(--chat-icon-fg, var(--fg-muted));
+}
+
+/* 不可点的 chip（目录没有可预览的内容）：连 hover 反馈一起去掉，
+   否则看起来像能点。 */
+.static {
+  cursor: default;
+}
+
+.static:hover {
+  background-color: transparent;
+}
