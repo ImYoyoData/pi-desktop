@@ -9,6 +9,7 @@ import {
   newModelEntry,
   parseBulkModelTokens,
   parseModelsConfigText,
+  providerToDraft,
   stringifyModelsConfig,
   upsertCustomProvider,
   validateCustomProvider,
@@ -101,6 +102,47 @@ describe("custom-models helpers", () => {
       }),
     );
     expect(json.apiKey).toBe("sk-live");
+  });
+
+  it("keeps a compat toggle readable after a save round-trip", () => {
+    const draft = emptyCustomProvider({
+      id: "local",
+      baseUrl: "http://127.0.0.1:3425/v1",
+      supportsDeveloperRole: true,
+      supportsReasoningEffort: true,
+      models: [{ id: "m", name: "", reasoning: false }],
+    });
+    const json = draftToProviderJson(draft);
+    const compat = json.compat as Record<string, unknown>;
+    // 本地地址缺键等于关闭，打开后必须显式写入，否则读回又变回关闭。
+    expect(compat.supportsDeveloperRole).toBe(true);
+    expect(compat.supportsReasoningEffort).toBe(true);
+    const back = providerToDraft("local", json);
+    expect(back.supportsDeveloperRole).toBe(true);
+    expect(back.supportsReasoningEffort).toBe(true);
+  });
+
+  it("omits the compat flag when it matches the auto-detected default", () => {
+    const remote = draftToProviderJson(
+      emptyCustomProvider({
+        id: "remote",
+        baseUrl: "https://api.example.com/v1",
+        supportsDeveloperRole: true,
+        supportsReasoningEffort: true,
+        models: [{ id: "m", name: "", reasoning: false }],
+      }),
+    );
+    expect(remote.compat).toBeUndefined();
+    const local = draftToProviderJson(
+      emptyCustomProvider({
+        id: "local",
+        baseUrl: "http://127.0.0.1:3425/v1",
+        supportsDeveloperRole: false,
+        supportsReasoningEffort: false,
+        models: [{ id: "m", name: "", reasoning: false }],
+      }),
+    );
+    expect(local.compat).toBeUndefined();
   });
 
   it("validates required fields", () => {

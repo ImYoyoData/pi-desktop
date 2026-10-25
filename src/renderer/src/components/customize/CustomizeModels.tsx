@@ -1046,6 +1046,7 @@ export function CustomizeModels(): ReactNode {
                     <div className={styles.toggleRow}>
                       <span className={styles.toggleHint}>{t.modelsCustomImageInput}</span>
                       <Select
+                        className={styles.toggleSelect}
                         size="small"
                         value={draft.imageInput}
                         options={imageInputOptions}

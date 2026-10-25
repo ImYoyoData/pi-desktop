@@ -428,6 +428,12 @@
   font-size: 0.8462rem;
 }
 
+/* flex 行里的 antd Select 默认按内容自适应，会被后面的长提示文字挤到只剩几个字符 */
+.toggleSelect {
+  flex: none;
+  width: 168px;
+}
+
 .modelList {
   display: flex;
   flex-direction: column;
