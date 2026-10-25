@@ -274,18 +274,20 @@ button {
   transition: background var(--duration-fast) var(--ease-out);
 }
 
+/* 卡片式布局：分栏线不绘制、不占位。
+   注意只能清零“厚度”方向，另一方向要保持拉伸，否则 ::before 热区会失效。 */
 .splitpanes--vertical > .splitpanes__splitter {
-  width: 0.5px !important;
-  min-width: 0.5px !important;
+  width: 0 !important;
+  min-width: 0 !important;
   margin: 0 !important;
-  background: var(--border) !important;
+  background: transparent !important;
 }
 
 .splitpanes--horizontal > .splitpanes__splitter {
-  height: 0.5px !important;
-  min-height: 0.5px !important;
+  height: 0 !important;
+  min-height: 0 !important;
   margin: 0 !important;
-  background: var(--border) !important;
+  background: transparent !important;
 }
 
 .splitpanes__splitter:hover,
@@ -317,7 +319,7 @@ button {
 
 /* 胶囊卡片外壳：面板内容与分栏边界之间留出浮动间隙 */
 .pane-capsule {
-  padding: 6px;
+  padding: 3px;
   min-width: 0;
 }
 
@@ -325,7 +327,6 @@ button {
   border: 1px solid var(--border);
   border-radius: 12px;
   overflow: hidden;
-  box-shadow: var(--shadow-sm);
 }
 
 /* 拉取请求页铺满主内容区：脱离分栏流，不受右侧面板与底部面板影响 */
