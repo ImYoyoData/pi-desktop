@@ -29,10 +29,10 @@
   <img alt="language" src="https://img.shields.io/badge/language-TypeScript-3178C6?style=for-the-badge&labelColor=1a1a1a&logo=typescript&logoColor=white" />
 </a>
 <a href="https://www.electronjs.org/">
-  <img alt="electron" src="https://img.shields.io/badge/Electron-39-47848F?style=for-the-badge&labelColor=1a1a1a&logo=electron&logoColor=white" />
+  <img alt="electron" src="https://img.shields.io/badge/Electron-44-47848F?style=for-the-badge&labelColor=1a1a1a&logo=electron&logoColor=white" />
 </a>
-<a href="https://vuejs.org/">
-  <img alt="vue" src="https://img.shields.io/badge/Vue-3.5-42B883?style=for-the-badge&labelColor=1a1a1a&logo=vuedotjs&logoColor=white" />
+<a href="https://react.dev/">
+  <img alt="react" src="https://img.shields.io/badge/React-19-087EA4?style=for-the-badge&labelColor=1a1a1a&logo=react&logoColor=61DAFB" />
 </a>
 <a href="https://github.com/ImYoyoData/pi-desktop">
   <img alt="platform" src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS-6B7280?style=for-the-badge&labelColor=1a1a1a" />
@@ -54,9 +54,9 @@
 
 ## 截图
 
-**对话 + Git 工作台** — 下达任务，观看 Agent 思考与调用工具，然后直接在右侧面板审阅并提交改动：
+**对话工作台** — 下达任务，实时观看 Agent 思考、调用工具与流式产出：
 
-<img src="docs/screenshots/chat-git-panel.png" alt="Pi Desktop 对话与 Git 面板" width="760" />
+<img src="docs/screenshots/chat-git-panel.png" alt="Pi Desktop 对话工作台" width="760" />
 
 **内置浏览器打开项目仓库** — 浏览任意网页并拾取元素作为 Agent 上下文：
 
@@ -90,8 +90,8 @@ Pi 本身很强。Pi Desktop 把它装进**产品级工作台**：多会话并�
 
 ## 技术栈
 
-- **运行时**：Electron 39 · Node 22
-- **UI**：Vue 3.5 · TypeScript · Naive UI · Vite (electron-vite)
+- **运行时**：Electron 44 · Node 24
+- **UI**：React 19 · TypeScript · antd 6 · Vite (electron-vite)
 - **编辑器**：Monaco Editor · highlight.js · marked · KaTeX · Mermaid · @viz-js/viz
 - **Agent**：[@earendil-works/pi-coding-agent](https://pi.dev) 运行时，运行在 utilityProcess worker 中
 - **终端**：node-pty · xterm.js
