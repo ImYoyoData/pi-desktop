@@ -29,10 +29,10 @@
   <img alt="language" src="https://img.shields.io/badge/language-TypeScript-3178C6?style=for-the-badge&labelColor=1a1a1a&logo=typescript&logoColor=white" />
 </a>
 <a href="https://www.electronjs.org/">
-  <img alt="electron" src="https://img.shields.io/badge/Electron-39-47848F?style=for-the-badge&labelColor=1a1a1a&logo=electron&logoColor=white" />
+  <img alt="electron" src="https://img.shields.io/badge/Electron-44-47848F?style=for-the-badge&labelColor=1a1a1a&logo=electron&logoColor=white" />
 </a>
-<a href="https://vuejs.org/">
-  <img alt="vue" src="https://img.shields.io/badge/Vue-3.5-42B883?style=for-the-badge&labelColor=1a1a1a&logo=vuedotjs&logoColor=white" />
+<a href="https://react.dev/">
+  <img alt="react" src="https://img.shields.io/badge/React-19-087EA4?style=for-the-badge&labelColor=1a1a1a&logo=react&logoColor=61DAFB" />
 </a>
 <a href="https://github.com/ImYoyoData/pi-desktop">
   <img alt="platform" src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS-6B7280?style=for-the-badge&labelColor=1a1a1a" />
@@ -42,9 +42,9 @@
 
 ## Screenshots
 
-**Chat + Git workbench** — run a task, watch the agent think and call tools, then review and commit the changes without leaving the window:
+**Chat workbench** — run a task and watch the agent think, call tools and stream results in real time:
 
-<img width="1729" height="1083" alt="image" src="https://github.com/user-attachments/assets/a302ce2f-364d-4edc-baa2-33d03cd6e735" />
+<img src="docs/screenshots/chat-git-panel.png" alt="Pi Desktop chat workbench with streaming tool calls" width="1801" height="1082" />
 
 
 
