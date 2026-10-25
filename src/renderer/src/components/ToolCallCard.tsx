@@ -428,9 +428,6 @@ export function ToolCallCard({
         </span>,
       );
     }
-    if (card.kind === "todo" && card.items.length) {
-      parts.push(t.todoProgress(card.items.filter((i) => i.done).length, card.items.length));
-    }
     const durationMs = toolCardDurationMs(card);
     if (durationMs) parts.push(formatDuration(durationMs));
     if (!parts.length) return null;
