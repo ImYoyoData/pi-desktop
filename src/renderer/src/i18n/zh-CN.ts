@@ -784,7 +784,8 @@ export const zh = {
 	switchOff: "关闭",
 	streamRender: "流式渲染",
 	streamRenderThrottle: "渲染节流间隔",
-	streamRenderThrottleValue: (ms: number) => `${ms} 毫秒`,
+	streamRenderThrottleValue: (ms: number) =>
+		ms === 0 ? "实时" : `${ms} 毫秒`,
 	retryAutoSection: "自动重试",
 	retryAutoSectionHint: "请求失败时由 Pi SDK 自动重试。",
 	retryEnabled: "启用自动重试",
