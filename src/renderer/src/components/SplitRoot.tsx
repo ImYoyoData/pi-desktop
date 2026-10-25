@@ -177,9 +177,11 @@ export function SplitRoot(): React.ReactNode {
                   maxSize={layout.editorMaximized ? 100 : layout.bottomCollapsed ? 0 : PANEL_MAX}
                   className={layout.bottomCollapsed ? "pane-collapsed" : undefined}
                 >
-                  <Suspense fallback={null}>
-                    <BottomPanel />
-                  </Suspense>
+                  <Capsule>
+                    <Suspense fallback={null}>
+                      <BottomPanel />
+                    </Suspense>
+                  </Capsule>
                 </SplitPane>
               </SplitPanes>
             </SplitPane>
