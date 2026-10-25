@@ -6,11 +6,8 @@ import {
   EllipseOutline,
 } from "@renderer/components/icons/ionicons";
 import type { ChatToolNestedCall } from "@renderer/stores/chat-reducer";
-import {
-  toolCardForNested,
-  toolCommandFromArgs,
-  toolPathFromArgs,
-} from "@renderer/utils/tool-diff";
+import { toolCardForNested } from "@renderer/utils/tool-diff";
+import { genericStepTarget } from "@renderer/utils/structured-text";
 import { formatDuration } from "@renderer/utils/format-duration";
 import { useI18n } from "@renderer/i18n/use-i18n";
 import ToolBody, { ToolJsonTree } from "@renderer/components/ToolBody";
@@ -20,24 +17,6 @@ type Props = {
   calls: ChatToolNestedCall[];
   onOpen?: (path: string) => void;
 };
-
-/** 子调用的一行目标：命令 > 路径 > 常用文本参数。 */
-function nestedTarget(args: unknown): string {
-  const command = toolCommandFromArgs(args);
-  if (command) return command.length > 64 ? `${command.slice(0, 63)}…` : command;
-  const path = toolPathFromArgs(args);
-  if (path) return path;
-  if (args && typeof args === "object") {
-    for (const key of ["pattern", "query", "url", "prompt", "description"]) {
-      const value = (args as Record<string, unknown>)[key];
-      if (typeof value === "string" && value.trim()) {
-        const text = value.trim();
-        return text.length > 64 ? `${text.slice(0, 63)}…` : text;
-      }
-    }
-  }
-  return "";
-}
 
 /**
  * 工具内部调用（codemode 脚本里发出的调用）。
@@ -56,10 +35,11 @@ export function ToolNestedCalls({ calls, onOpen }: Props): ReactNode {
       onClick={(event) => event.stopPropagation()}
     >
       {calls.map((call) => {
-        const target = nestedTarget(call.args);
+        const target = genericStepTarget(call.args);
         const hasArgs = call.args != null;
         const hasResult = call.result != null;
-        const canOpen = hasArgs || hasResult;
+        const hasError = Boolean(call.error);
+        const canOpen = hasArgs || hasResult || hasError;
         const open = openId === call.toolCallId;
         const Icon = call.streaming
           ? EllipseOutline
@@ -121,6 +101,12 @@ export function ToolNestedCalls({ calls, onOpen }: Props): ReactNode {
                       isError={call.isError}
                       onOpen={onOpen}
                     />
+                  </div>
+                ) : null}
+                {hasError ? (
+                  <div className={styles.nestedError}>
+                    <div className={styles.nestedSectionTitle}>{t.toolNestedError}</div>
+                    <pre className={styles.nestedErrorText}>{call.error}</pre>
                   </div>
                 ) : null}
               </div>

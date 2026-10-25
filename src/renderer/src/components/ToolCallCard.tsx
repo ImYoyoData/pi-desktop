@@ -18,7 +18,7 @@ import {
   type IoniconProps,
 } from "@renderer/components/icons/ionicons";
 import type { ToolCard } from "@renderer/utils/tool-diff";
-import { toolCardDurationMs, toolCardHasBody } from "@renderer/utils/tool-diff";
+import { clipText, toolCardDurationMs, toolCardHasBody } from "@renderer/utils/tool-diff";
 import type { ChatToolNestedCall } from "@renderer/stores/chat-reducer";
 import { isToolCardOpen } from "@renderer/utils/tool-card-open";
 import {
@@ -93,15 +93,14 @@ function firstLine(text: string | null | undefined): string | null {
   for (const line of text.split("\n")) {
     const trimmed = line.trim();
     if (!trimmed) continue;
-    return trimmed.length > 96 ? `${trimmed.slice(0, 95)}…` : trimmed;
+    return clipText(trimmed, 96);
   }
   return null;
 }
 
 /** 工具名过长时截断：mcp__server__tool 这类名字在时间线里会占掉一整列。 */
 function shortToolName(name: string, max = 26): string {
-  if (name.length <= max) return name;
-  return `${name.slice(0, max - 1)}…`;
+  return clipText(name, max);
 }
 
 export function ToolCallCard({
@@ -128,20 +127,15 @@ export function ToolCallCard({
   const [backgroundBusy, setBackgroundBusy] = useState(false);
 
   /**
-   * Whether a tool card opens by itself. The rule lives in
-   * `utils/tool-card-open.ts` (pure + unit-tested); this component only supplies
-   * state. Default is folded for every kind — a long turn can hold dozens of cards,
-   * and auto-expanding them buries the answer under diffs and file dumps.
-   */
-  /**
-   * 时间线步骤默认折叠，用户点开才展开；正在流式输出的那一步自动展开，
-   * 结果落地后自动收起，答案不被淹没。独立工具行沿用原有的自动展开规则。
+   * 独立工具行的展开规则在 `utils/tool-card-open.ts`（纯函数 + 单测），这里只提供状态。
+   * 时间线步骤默认折叠，正在流式输出的那一步自动展开；工作区块内的行传
+   * `detailCollapsed`，关掉这个自动展开，免得压住整块摘要。
    */
   const open =
     variant === "step"
       ? manuallyOpen !== null
         ? manuallyOpen
-        : Boolean(streaming)
+        : Boolean(streaming) && !detailCollapsed
       : isToolCardOpen({
           kind: card.kind,
           expandToolCalls: appearance.expandToolCalls,
@@ -201,28 +195,7 @@ export function ToolCallCard({
     return parts[parts.length - 1] || p;
   }, [card]);
 
-  const actionLabel = useMemo(() => {
-    switch (card.kind) {
-      case "write":
-        return t.toolWrite;
-      case "edit":
-        return t.toolEdit;
-      case "read":
-        return t.toolRead;
-      case "bash":
-        return t.toolBash;
-      case "todo":
-        return t.toolTodo;
-      case "generic":
-        return isAskUserTool ? t.askUserToolLabel : `${t.toolBash} ${toolName}`;
-      case "other":
-        return isAskUserTool ? t.askUserToolLabel : `${t.toolBash} ${toolName}`;
-      default: {
-        const _never: never = card;
-        return String(_never);
-      }
-    }
-  }, [card, isAskUserTool, t, toolName]);
+  const actionLabel = shortToolName(toolName);
 
   const KindIcon = kindIconFor(card.kind);
   const StatusIcon = statusType === "error" ? CloseCircleOutline : KindIcon;
@@ -376,24 +349,7 @@ export function ToolCallCard({
   const StepIcon =
     statusType === "error" ? CloseCircleOutline : isDirList ? FolderOutline : KindIcon;
 
-  /** 时间线步骤的动词：按工具语义给一个短标签；通用工具直接用工具名。 */
-  const stepVerb = useMemo(() => {
-    if (isDirList) return t.wsStepRead;
-    switch (card.kind) {
-      case "read":
-        return t.wsStepRead;
-      case "edit":
-      case "write":
-      case "other":
-        return t.wsStepEdit;
-      case "bash":
-        return t.wsStepBash;
-      case "todo":
-        return t.wsStepTodo;
-      default:
-        return shortToolName(toolName);
-    }
-  }, [card.kind, isDirList, t, toolName]);
+  const stepVerb = shortToolName(toolName);
 
   /**
    * generic 工具要分开说两件事：
@@ -419,7 +375,9 @@ export function ToolCallCard({
     if (preview.kind === "count") return t.toolBodyPathCount(preview.count);
     if (preview.kind === "sections") {
       const sections = t.toolBodyScriptSections(preview.count);
-      return preview.wallTime ? `${preview.wallTime} · ${sections}` : sections;
+      return preview.wallTime != null
+        ? `${t.toolBodyWallTime(preview.wallTime)} · ${sections}`
+        : sections;
     }
     const head = preview.keys.slice(0, 3).join(", ");
     return `{ ${head}${preview.keys.length > 3 ? ", …" : ""} }`;
@@ -521,59 +479,59 @@ export function ToolCallCard({
           ) : null}
         </div>
       ) : (
-      <div
-        className={styles.toolCallHead}
-        title={pathTitle}
-        onClick={() => {
-          if (expandable) toggleOpen();
-        }}
-      >
-        <span className={`${styles.kindIcon} ${statusClass}`} aria-hidden="true">
-          <StatusIcon size={13} />
-        </span>
-        <div className={styles.headText}>
-          <div className={styles.titleRow}>
-            <span className={`${styles.action}${streaming ? " copilot-shimmer" : ""}`}>
-              {actionLabel}
-            </span>
-            {renderTarget()}
-            <span className={styles.resultGroup}>
-              <span className={styles.sep}>·</span>
-              <span className={`${styles.resultStatus} ${statusClass}`}>{statusLabel}</span>
-              {resultParts.length ? (
-                <span className={styles.resultText}>{resultParts.join(" · ")}</span>
-              ) : null}
-              {(card.kind === "edit" || card.kind === "write") && card.stats ? (
-                <span className={styles.resultStats}>
-                  <span className={styles.add}>+{card.stats.additions}</span>
-                  <span className={styles.del}>−{card.stats.deletions}</span>
-                </span>
-              ) : null}
-            </span>
+        <div
+          className={styles.toolCallHead}
+          title={pathTitle}
+          onClick={() => {
+            if (expandable) toggleOpen();
+          }}
+        >
+          <span className={`${styles.kindIcon} ${statusClass}`} aria-hidden="true">
+            <StatusIcon size={13} />
+          </span>
+          <div className={styles.headText}>
+            <div className={styles.titleRow}>
+              <span className={`${styles.action}${streaming ? " copilot-shimmer" : ""}`}>
+                {actionLabel}
+              </span>
+              {renderTarget()}
+              <span className={styles.resultGroup}>
+                <span className={styles.sep}>·</span>
+                <span className={`${styles.resultStatus} ${statusClass}`}>{statusLabel}</span>
+                {resultParts.length ? (
+                  <span className={styles.resultText}>{resultParts.join(" · ")}</span>
+                ) : null}
+                {(card.kind === "edit" || card.kind === "write") && card.stats ? (
+                  <span className={styles.resultStats}>
+                    <span className={styles.add}>+{card.stats.additions}</span>
+                    <span className={styles.del}>−{card.stats.deletions}</span>
+                  </span>
+                ) : null}
+              </span>
+            </div>
+            {nestedCallsBlock}
           </div>
-          {nestedCallsBlock}
+          {canBackground ? (
+            <Button
+              size="small"
+              className={styles.bgBtn}
+              loading={backgroundBusy}
+              title={t.toolMoveToBackground}
+              onClick={(event) => {
+                event.stopPropagation();
+                void onBackground();
+              }}
+            >
+              {t.toolMoveToBackground}
+            </Button>
+          ) : null}
+          {expandable ? (
+            <ChevronForwardOutline
+              size={12}
+              className={`${styles.hoverChev}${open ? ` ${styles.expanded}` : ""}`}
+            />
+          ) : null}
         </div>
-        {canBackground ? (
-          <Button
-            size="small"
-            className={styles.bgBtn}
-            loading={backgroundBusy}
-            title={t.toolMoveToBackground}
-            onClick={(event) => {
-              event.stopPropagation();
-              void onBackground();
-            }}
-          >
-            {t.toolMoveToBackground}
-          </Button>
-        ) : null}
-        {expandable ? (
-          <ChevronForwardOutline
-            size={12}
-            className={`${styles.hoverChev}${open ? ` ${styles.expanded}` : ""}`}
-          />
-        ) : null}
-      </div>
       )}
       {open ? (
         <div className={variant === "step" ? styles.stepBody : styles.rowBody}>

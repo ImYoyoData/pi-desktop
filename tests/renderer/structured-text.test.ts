@@ -153,7 +153,7 @@ describe("genericStepPreview", () => {
     expect(genericStepPreview(card, "codemode")).toEqual({
       kind: "sections",
       count: 2,
-      wallTime: "Wall time 0.5 seconds",
+      wallTime: 0.5,
     });
   });
 
@@ -194,13 +194,17 @@ describe("pathListFromOutput", () => {
   it("keeps heuristic parsing for unknown tools", () => {
     expect(pathListFromOutput(LS_OUTPUT, "custom")).toHaveLength(8);
   });
+
+  it("keeps entries whose file name contains a space", () => {
+    expect(pathListFromOutput("src/\nMy File.txt", "ls")).toEqual(["src/", "My File.txt"]);
+  });
 });
 
 describe("parseScriptReport", () => {
   it("parses status, wall time and sections", () => {
     const report = parseScriptReport(REPORT);
     expect(report?.status).toBe("completed");
-    expect(report?.wallTime).toBe("Wall time 0.5 seconds");
+    expect(report?.wallTime).toBe(0.5);
     expect(report?.sections).toHaveLength(2);
     expect(report?.sections[0]?.title).toBe("text 1/6");
     expect(report?.sections[1]?.title).toBe("text 2/6");

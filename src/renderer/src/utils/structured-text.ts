@@ -6,7 +6,7 @@
  */
 
 import { parseJsonPayload } from "./json-tree";
-import { toolCommandFromArgs, toolPathFromArgs } from "./tool-diff";
+import { clipText, toolCommandFromArgs, toolPathFromArgs } from "./tool-diff";
 
 /** "===== src/foo.ts =====" 形式的小节标题。 */
 const FILE_SECTION_RE = /^={3,}\s*(.+?)\s*={3,}\s*$/;
@@ -26,7 +26,8 @@ export type ScriptSection = {
 
 export type ScriptReport = {
   status: "completed" | "failed";
-  wallTime: string | null;
+  /** 脚本耗时（秒）；文案由渲染层按当前语言格式化。 */
+  wallTime: number | null;
   error: string | null;
   sections: ScriptSection[];
 };
@@ -205,21 +206,18 @@ export function genericStepTarget(args: unknown): string | null {
   const path = toolPathFromArgs(args);
   if (path) return path;
   const command = toolCommandFromArgs(args);
-  if (command) return command.length > 64 ? `${command.slice(0, 63)}…` : command;
+  if (command) return clipText(command);
   if (args && typeof args === "object") {
     for (const key of ["pattern", "query", "url", "prompt", "description"]) {
       const value = (args as Record<string, unknown>)[key];
-      if (typeof value === "string" && value.trim()) {
-        const text = value.trim();
-        return text.length > 64 ? `${text.slice(0, 63)}…` : text;
-      }
+      if (typeof value === "string" && value.trim()) return clipText(value.trim());
     }
     // codemode 传的是脚本源码：取第一行有内容的代码当作「干了什么」。
     const code = (args as Record<string, unknown>).code;
     if (typeof code === "string" && code.trim()) {
       const first = code.split("\n").find((line) => line.trim()) ?? "";
       const text = first.trim();
-      if (text) return text.length > 64 ? `${text.slice(0, 63)}…` : text;
+      if (text) return clipText(text);
     }
   }
   return null;
@@ -233,18 +231,18 @@ export function genericStepTarget(args: unknown): string | null {
  */
 export type GenericPreview =
   | { kind: "count"; count: number }
-  | { kind: "sections"; count: number; wallTime: string | null }
+  | { kind: "sections"; count: number; wallTime: number | null }
   | { kind: "keys"; keys: string[] };
 
 /**
- * 路径清单的最终判定：已知清单工具仍要求每行是单个路径，
- * 失败输出和参数兜底文本不能混成清单。
+ * 路径清单的最终判定：已知清单工具要求至少有一行是「不带空格的一行路径」，
+ * 否则更像报错或散文。带空格的文件名本身要保留，不能因为一行就整份退化成纯文本。
  */
 export function pathListFromOutput(text: string, toolName: string): string[] | null {
   if (isPathListTool(toolName)) {
     const entries = pathListEntries(text);
     if (!entries.length) return null;
-    return entries.every((entry) => !/\s/.test(entry)) ? entries : null;
+    return entries.some((entry) => !/\s/.test(entry)) ? entries : null;
   }
   return parsePathList(text);
 }
@@ -292,10 +290,10 @@ export function parseScriptReport(text: string): ScriptReport | null {
   const status: ScriptReport["status"] = first === "Script completed" ? "completed" : "failed";
 
   let cursor = 1;
-  let wallTime: string | null = null;
-  const wall = (lines[cursor] ?? "").trim();
-  if (/^Wall time\b/i.test(wall)) {
-    wallTime = wall;
+  let wallTime: number | null = null;
+  const wall = /^Wall time ([\d.]+) seconds$/i.exec((lines[cursor] ?? "").trim());
+  if (wall) {
+    wallTime = Number(wall[1]);
     cursor += 1;
   }
   if (/^Output:$/i.test((lines[cursor] ?? "").trim())) cursor += 1;

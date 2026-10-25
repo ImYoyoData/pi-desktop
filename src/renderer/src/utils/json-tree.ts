@@ -30,6 +30,12 @@ export type JsonTreeNode = {
  */
 export const JSON_TREE_MAX_NODES = 2000;
 
+/**
+ * 深度上限：JSON.parse 能造出上万层嵌套，递归建树再加递归渲染会直接爆栈。
+ * 超限的容器保留节点但不再下钻。
+ */
+export const JSON_TREE_MAX_DEPTH = 32;
+
 export function jsonValueType(value: unknown): JsonValueType {
   if (value === null) return "null";
   if (Array.isArray(value)) return "array";
@@ -50,6 +56,9 @@ function buildNode(
   const id = path;
   budget.count += 1;
   if (type === "object" || type === "array") {
+    if (depth >= JSON_TREE_MAX_DEPTH) {
+      return { id, key, type, depth, children: [], value: null, truncated: true };
+    }
     const entries: Array<[string, unknown]> =
       type === "array"
         ? (value as unknown[]).map((item, index) => [String(index), item])

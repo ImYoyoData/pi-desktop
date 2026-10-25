@@ -227,32 +227,8 @@ export function workSectionCountSummary(
 }
 
 /** i18n strings for the live (present-tense) section title while streaming. */
-export type WorkSectionLiveStrings = {
-  edit: (file: string) => string;
-  read: (file: string) => string;
-  bash: (command: string) => string;
-  todo: string;
-  tool: (name: string) => string;
-  thinking: string;
-};
-
-/** Present-tense label of the latest step, shown as the title mid-stream. */
-export function workSectionLiveTitle(
-  tools: WorkSectionTool[],
-  s: WorkSectionLiveStrings,
-): string {
-  const last = tools[tools.length - 1];
-  if (!last) return s.thinking;
-  switch (last.kind) {
-    case "edit":
-      return s.edit(last.target);
-    case "read":
-      return s.read(last.target);
-    case "bash":
-      return s.bash(last.target);
-    case "todo":
-      return s.todo;
-    default:
-      return s.tool(last.target);
-  }
+/** 进行中标题的一个分段：工具原名 + 目标（文件 / 命令），不翻译动词。 */
+export function workSectionLiveTitle(name: string, tool: WorkSectionTool): string {
+  if (!tool.target || tool.target === name) return name;
+  return `${name} ${tool.target}`;
 }

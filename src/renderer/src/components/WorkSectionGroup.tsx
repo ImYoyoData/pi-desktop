@@ -157,18 +157,6 @@ export function WorkSectionGroup({ items, autoCollapse, onOpen }: Props): ReactN
     return tools;
   }, [toolItems]);
 
-  /** Present-tense label of ONE tool call (copilot streaming header, per step). */
-  function liveLabelFor(tool: WorkSectionTool): string {
-    return workSectionLiveTitle([tool], {
-      edit: t.wsLiveEdit,
-      read: t.wsLiveRead,
-      bash: t.wsLiveBash,
-      todo: t.wsLiveTodo,
-      tool: t.wsLiveTool,
-      thinking: t.wsLiveThinking,
-    });
-  }
-
   /** Cap so a wide fan-out cannot push the header past its single line. */
   const MAX_LIVE_LABELS = 4;
 
@@ -180,12 +168,16 @@ export function WorkSectionGroup({ items, autoCollapse, onOpen }: Props): ReactN
    * once (each one gets its own segment, capped at MAX_LIVE_LABELS).
    */
   const liveTitle = useMemo(() => {
-    const active: WorkSectionTool[] = [];
+    const active: { name: string; tool: WorkSectionTool }[] = [];
     for (const msg of items) {
       if (msg.role !== "tool") continue;
-      if (msg.streaming) active.push(categorizeToolCall(msg.toolName, msg.args));
+      if (msg.streaming) {
+        active.push({ name: msg.toolName, tool: categorizeToolCall(msg.toolName, msg.args) });
+      }
       for (const call of msg.nestedCalls ?? []) {
-        if (call.streaming) active.push(categorizeToolCall(call.toolName, call.args));
+        if (call.streaming) {
+          active.push({ name: call.toolName, tool: categorizeToolCall(call.toolName, call.args) });
+        }
       }
     }
     // Nothing marked streaming yet (between steps / thinking only): same fallback.
@@ -193,8 +185,8 @@ export function WorkSectionGroup({ items, autoCollapse, onOpen }: Props): ReactN
 
     const labels: string[] = [];
     const seen = new Set<string>();
-    for (const tool of active) {
-      const label = liveLabelFor(tool);
+    for (const step of active) {
+      const label = workSectionLiveTitle(step.name, step.tool);
       // Two identical operations (e.g. three reads of the same file) collapse to
       // one segment rather than "读取 a.ts · 读取 a.ts".
       if (seen.has(label)) continue;

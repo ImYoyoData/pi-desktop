@@ -320,7 +320,7 @@ function jsonScalarText(value: string | number | boolean | null, type: string): 
 }
 
 /** 树节点：容器可折叠，标量直接显示。 */
-function JsonTreeNode({
+function JsonNodeRow({
   node,
   closed,
   onToggle,
@@ -374,7 +374,7 @@ function JsonTreeNode({
       </button>
       {open && node.children?.length
         ? node.children.map((child, index) => (
-            <JsonTreeNode
+            <JsonNodeRow
               key={child.id}
               node={child}
               closed={closed}
@@ -402,7 +402,7 @@ function JsonTree({ tree }: { tree: JsonTreeNode }): ReactNode {
 
   return (
     <div className={styles.jsonTree}>
-      <JsonTreeNode node={tree} closed={closed} onToggle={toggle} guide="" isLast />
+      <JsonNodeRow node={tree} closed={closed} onToggle={toggle} guide="" isLast />
     </div>
   );
 }
@@ -495,7 +495,9 @@ function ScriptReportBody({ report }: { report: ScriptReport }): ReactNode {
         <span className={report.status === "completed" ? styles.exitOk : styles.exitFail}>
           {report.status === "completed" ? t.toolBodyScriptCompleted : t.toolBodyScriptFailed}
         </span>
-        {report.wallTime ? <span className={styles.meta}>{report.wallTime}</span> : null}
+        {report.wallTime != null ? (
+          <span className={styles.meta}>{t.toolBodyWallTime(report.wallTime)}</span>
+        ) : null}
         <span className={styles.meta}>{t.toolBodyScriptSections(report.sections.length)}</span>
       </div>
       <div className={styles.body}>

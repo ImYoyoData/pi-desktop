@@ -615,6 +615,8 @@ export type SessionHistoryMessage =
 				/** 调用参数：渲染层据此说明「这个工具干了啥」。 */
 				args?: unknown;
 				isError?: boolean;
+				/** 失败原因（pi 记录里已截断）；历史会话没有调用结果，只有这里能看到错误。 */
+				error?: string;
 				durationMs?: number;
 			}[];
 	  }

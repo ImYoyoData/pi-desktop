@@ -90,4 +90,21 @@ describe("parseUnifiedDiff", () => {
     expect(parsed.hunks[1]!.lines.map((line) => line.kind)).toEqual(["del", "add"]);
     expect(parsed.hunks[0]!.lines).toHaveLength(2);
   });
+
+  it("drops file metadata between diff --git and the first hunk", () => {
+    const patch = [
+      "diff --git a/x.ts b/x.ts",
+      "index 1234567..89abcde 100644",
+      "--- a/x.ts",
+      "+++ b/x.ts",
+      "@@ -1 +1 @@",
+      "-a",
+      "+b",
+    ].join("\n");
+    const parsed = parseUnifiedDiff(patch);
+    const texts = parsed.hunks.flatMap((hunk) => hunk.lines.map((line) => line.text));
+    expect(texts).toContain("diff --git a/x.ts b/x.ts");
+    expect(texts).not.toContain("index 1234567..89abcde 100644");
+    expect(parsed.plain).toBe(false);
+  });
 });
