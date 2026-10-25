@@ -2007,6 +2007,10 @@ export function Composer({ docked = false }: ComposerProps): ReactNode {
                   src={img.previewUrl}
                   alt=""
                   preview={{ src: img.previewUrl }}
+                  styles={{
+                    root: { width: "100%", height: "100%" },
+                    image: { width: "100%", height: "100%", objectFit: "cover" },
+                  }}
                 />
                 <button
                   type="button"
