@@ -12,6 +12,7 @@ import {
 import { ChevronForwardOutline } from "@renderer/components/icons/ionicons";
 import { useI18n } from "@renderer/i18n/use-i18n";
 import { formatDuration } from "@renderer/utils/format-duration";
+import { createCharCounter } from "@renderer/utils/text-count";
 import styles from "./ThinkingBlock.module.css";
 
 const MarkdownView = lazy(() => import("@renderer/components/MarkdownView"));
@@ -72,13 +73,19 @@ export function ThinkingBlock({
   const liveMs = streaming && startedAt != null ? Math.max(0, now - startedAt) : null;
   const elapsedMs = liveMs != null && liveMs >= 1000 ? liveMs : durationMs;
 
+  const [countThinkingChars] = useState(createCharCounter);
+  const thinkingChars = useMemo(
+    () => countThinkingChars(thinking),
+    [countThinkingChars, thinking],
+  );
+
   /** 行尾信息：字数 + 耗时，有多少说多少。 */
   const meta = useMemo(() => {
     const parts: string[] = [];
-    if (thinking) parts.push(t.thinkingChars(thinking.length));
+    if (thinkingChars > 0) parts.push(t.thinkingChars(thinkingChars));
     if (elapsedMs != null) parts.push(formatDuration(elapsedMs));
     return parts.length ? parts.join(" · ") : null;
-  }, [elapsedMs, t, thinking]);
+  }, [elapsedMs, t, thinkingChars]);
 
   /** 流式长思考只挂载尾部窗口，防止整段文本常驻 DOM、每 tick 全量布局。 */
   const THINK_LIVE_MAX_CHARS = 16_000;

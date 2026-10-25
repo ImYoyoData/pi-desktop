@@ -210,54 +210,70 @@ jobs:
 
             ## 主要更新
 
-            本版重构桌面端界面与分发链路：渲染层从 Vue 迁移到 React，控件与设置页
-            统一为 antd v6 的胶囊卡片风格；重写自动更新与安装包流程；补齐 Markdown
-            相对路径图片解析；并修复多处渲染与交互问题。
+            本版重做过程区可视化：工具结果按语义分型渲染（文件视图 / 词级 diff /
+            终端卡 / JSON 树），工作区块展开即为过程时间线，思考行支持 Markdown、
+            字数与实时耗时；同时新增浏览器直连 dev 页面的开发预览桥、内置工具
+            使用偏好引导与流式渲染 0ms 实时档。
 
             ### 新功能 Features
 
-            - **自动更新**：版本检测、分片下载与安装后重启，标题栏与关于页展示下载进度。
-            - **自定义安装器**：NSIS 脚本统一安装目录、检测新旧目录占用，安装包命名
-              统一为 `Pi-Desktop-*`。
-            - **Markdown 图片**：相对路径图片按文档所在目录解析。
-            - **React 界面**：渲染层由 Vue 迁移到 React + antd v6，设置项统一为胶囊
-              卡片风格，标题栏显示 Pi 图标。
+            - **过程区可视化重做**：工具行改为「动作+目标 / 状态+结果」两行结构，
+              展开工作区块即为过程时间线。工具结果分型渲染——读取走文件视图，
+              编辑走词级 diff，命令走终端卡，其余走 JSON 树、路径清单或脚本报告；
+              嵌套调用缩进列出，可展开看参数、结果与失败原因。
+            - **思考行**：思考内容支持 Markdown 与折叠，行尾显示字数与耗时，
+              思考中每秒刷新实时耗时。
+            - **浏览器直连 dev 页面预览**：外部浏览器打开 Vite dev 页面即可操作
+              同一份桌面状态，文件、Git、会话、终端都可用。
+            - **流式渲染 0ms 实时档**：不节流、逐帧渲染。
+            - **内置工具使用偏好**：把内容搜索、读文件与列目录推回内置工具。
 
-            - **Auto update**: version check, chunked download and restart after
-              install, with progress shown in the title bar and About panel.
-            - **Custom installer**: the NSIS script normalizes the install
-              directory, detects occupancy of old and new directories, and
-              unifies package names as `Pi-Desktop-*`.
-            - **Markdown images**: relative image paths resolve against the
-              document directory.
-            - **React UI**: renderer migrated from Vue to React + antd v6, with
-              capsule-card settings and a Pi icon in the title bar.
+            - **Process area rebuilt**: tool rows use an "action + target / status +
+              result" layout and expanding a work section turns it into a process
+              timeline; results render by kind (file view, word-level diff, terminal
+              card, JSON tree, path list or script report), and nested calls are
+              listed with their arguments, results and failure reasons.
+            - **Thinking rows**: Markdown rendering and collapsing, with character
+              count and a live duration while thinking.
+            - **Browser preview**: an external browser can open the Vite dev page and
+              drive the same desktop state (files, Git, sessions, terminals).
+            - **0 ms realtime streaming option**: no throttling, per-frame rendering.
+            - **Built-in tool usage preferences**: content search, file reads and
+              directory listings go back to the built-in tools.
 
             ### 变更 Changes
 
-            - **精简入口**：移除欢迎页与空会话引导、会话分类、会话信息弹窗、
-              消息预览、界面分隔线与工具输出截断开关、模式与提示定制项。
-            - **视觉细节**：终端视口底色改透明，壁纸模式下修正浮层与控件表面。
+            - **工具步骤行**：度量紧跟内容显示，去掉重复的待办进度与耗时。
+            - **diff 统一为 unified**：底层格式归一化，底色走主题变量、词级改动加深。
+            - **codemode 卡片**：标题改用调用概况（「N 个调用」）。
 
-            - **Simplified entry points**: removed the welcome page and empty-state
-              guide, session categories, session info dialog, message previews,
-              the divider and tool-output truncation switches, and the mode/tip
-              customization items.
-            - **Visual details**: transparent terminal viewport background, plus
-              overlay and control surfaces fixed in wallpaper mode.
+            - **Tool step rows**: metrics sit right after the content, duplicated todo
+              progress and durations are gone.
+            - **Diffs normalized to unified** with theme-variable backgrounds and
+              darker word-level changes.
+            - **codemode cards**: the title uses the call summary ("N calls").
 
             ### 修复 Fixes
 
-            - **消息区 Markdown 渲染失效**：容器 class 粘连导致聊天样式整块失效。
-            - **分栏线拖不动**：拖拽监听被重渲染摘除、拖拽比例算错。
-            - **虚拟滚动渲染问题**；后台截断来源可区分并接入 i18n。
+            - **上一轮工具与思考内容被裁掉**：不再删除最新 user 之前的过程行。
+            - **思考过程中停止自动滚动**：跟随判定只认滚轮、自身滚动条与中键。
+            - **JSON 树与结构化输出**：折叠失效、多文件补丁行数、空 diff、路径清单误判。
+            - **嵌套调用**：展开可看失败原因，标签统一为工具名。
+            - **会话排序**：固定会话优先，运行中的会话不因活动抢位。
+            - **安装器**：安装目录修正后同步 `$appExe`，快捷方式不再指向旧路径。
 
-            - **Message markdown rendering**: glued container classes broke the
-              whole chat stylesheet.
-            - **Split-pane divider**: the drag listener was removed on re-render
-              and the ratio was computed incorrectly.
-            - **Virtual scrolling** rendering issues; background truncation now
-              reports its source and is localized.
+            - **Previous-turn tool and thinking rows were dropped**: process rows before
+              the newest user message are no longer deleted.
+            - **Auto-scroll stopped during thinking**: follow mode now keys off the wheel,
+              the scroller's own scrollbar and middle-click only.
+            - **JSON tree and structured output**: collapsing, multi-file patch counts,
+              empty diffs and path-list misdetection.
+            - **Nested calls**: failure reasons are shown on expand and labels use the
+              tool name.
+            - **Session ordering**: pinned sessions come first and running sessions no
+              longer jump position on activity.
+            - **Installer**: `$appExe` is re-synced after the install directory is
+              corrected, so shortcuts no longer point at the old path.
 
             ## 下载 / Downloads
             - **Windows x64**: `Pi-Desktop-*-win-x64-setup.exe`
