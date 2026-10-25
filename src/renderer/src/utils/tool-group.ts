@@ -155,12 +155,16 @@ export type WorkSectionSummaryStrings = {
   /** Same file read and edited, e.g. "Reviewed and updated foo.ts". */
   readAndEdited: (file: string) => string;
   steps: (count: number) => string;
+  /** Thinking events in the section, e.g. "思考 2 次". */
+  thinkingCount: (count: number) => string;
   /** Per-category counts, shown in the collapsed header (e.g. "更新了 3 个文件"). */
   editCount: (count: number) => string;
   readCount: (count: number) => string;
   bashCount: (count: number) => string;
   todoCount: (count: number) => string;
   toolCount: (count: number) => string;
+  /** 段间分隔符（中文用逗号，英文用 ", "）。 */
+  separator: string;
 };
 
 /**
@@ -212,42 +216,19 @@ export function workSectionCountSummary(
 
   const parts: string[] = [];
   if (counts.edit) parts.push(s.editCount(counts.edit));
+  if (thinkingCount) parts.push(s.thinkingCount(thinkingCount));
   if (counts.read) parts.push(s.readCount(counts.read));
   if (counts.bash) parts.push(s.bashCount(counts.bash));
   if (counts.todo) parts.push(s.todoCount(counts.todo));
   if (counts.tool) parts.push(s.toolCount(counts.tool));
 
   if (!parts.length) return s.steps(thinkingCount);
-  return parts.join(" · ");
+  return parts.join(s.separator);
 }
 
 /** i18n strings for the live (present-tense) section title while streaming. */
-export type WorkSectionLiveStrings = {
-  edit: (file: string) => string;
-  read: (file: string) => string;
-  bash: (command: string) => string;
-  todo: string;
-  tool: (name: string) => string;
-  thinking: string;
-};
-
-/** Present-tense label of the latest step, shown as the title mid-stream. */
-export function workSectionLiveTitle(
-  tools: WorkSectionTool[],
-  s: WorkSectionLiveStrings,
-): string {
-  const last = tools[tools.length - 1];
-  if (!last) return s.thinking;
-  switch (last.kind) {
-    case "edit":
-      return s.edit(last.target);
-    case "read":
-      return s.read(last.target);
-    case "bash":
-      return s.bash(last.target);
-    case "todo":
-      return s.todo;
-    default:
-      return s.tool(last.target);
-  }
+/** 进行中标题的一个分段：工具原名 + 目标（文件 / 命令），不翻译动词。 */
+export function workSectionLiveTitle(name: string, tool: WorkSectionTool): string {
+  if (!tool.target || tool.target === name) return name;
+  return `${name} ${tool.target}`;
 }

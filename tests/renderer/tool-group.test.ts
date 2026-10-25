@@ -159,11 +159,13 @@ const summaryStrings: WorkSectionSummaryStrings = {
   readMany: (n) => `Reviewed ${n} files`,
   readAndEdited: (f) => `Reviewed and updated ${f}`,
   steps: (n) => `Finished with ${n} steps`,
+  thinkingCount: (n) => `Thought ${n} times`,
   editCount: (n) => `Updated ${n} files`,
   readCount: (n) => `Reviewed ${n} files`,
   bashCount: (n) => `Ran ${n} commands`,
   todoCount: (n) => `Updated todos ${n} times`,
   toolCount: (n) => `Used ${n} tools`,
+  separator: ", ",
 };
 
 function tools(...list: WorkSectionTool[]): WorkSectionTool[] {
@@ -187,7 +189,7 @@ describe("workSectionCountSummary", () => {
         summaryStrings,
       ),
     ).toBe(
-      "Updated 1 files · Reviewed 2 files · Ran 2 commands · Updated todos 1 times · Used 1 tools",
+      "Updated 1 files, Reviewed 2 files, Ran 2 commands, Updated todos 1 times, Used 1 tools",
     );
   });
 
@@ -204,8 +206,18 @@ describe("workSectionCountSummary", () => {
     ).toBe("Reviewed 2 files");
   });
 
+  it("prepends the thinking count", () => {
+    expect(
+      workSectionCountSummary(
+        tools({ kind: "bash", target: "ls" }),
+        2,
+        summaryStrings,
+      ),
+    ).toBe("Thought 2 times, Ran 1 commands");
+  });
+
   it("falls back to a step count when the section has no tools", () => {
-    expect(workSectionCountSummary([], 3, summaryStrings)).toBe("Finished with 3 steps");
+    expect(workSectionCountSummary([], 3, summaryStrings)).toBe("Thought 3 times");
     expect(workSectionCountSummary([], 0, summaryStrings)).toBe("Finished with 0 steps");
   });
 });
@@ -281,29 +293,23 @@ describe("summarizeWorkSection", () => {
 });
 
 describe("workSectionLiveTitle", () => {
-  const live = {
-    edit: (f: string) => `Editing ${f}`,
-    read: (f: string) => `Reading ${f}`,
-    bash: (c: string) => `Running ${c}`,
-    todo: "Updating todos",
-    tool: (name: string) => `Using ${name}`,
-    thinking: "Thinking",
-  };
-
-  it("labels the latest step in present tense", () => {
-    expect(workSectionLiveTitle(tools({ kind: "edit", target: "App.vue" }), live)).toBe(
-      "Editing App.vue",
+  it("shows the tool name with its target", () => {
+    expect(workSectionLiveTitle("edit", { kind: "edit", target: "App.vue" })).toBe(
+      "edit App.vue",
     );
-    expect(
-      workSectionLiveTitle(
-        tools({ kind: "read", target: "a.ts" }, { kind: "bash", target: "pnpm test" }),
-        live,
-      ),
-    ).toBe("Running pnpm test");
+    expect(workSectionLiveTitle("bash", { kind: "bash", target: "pnpm test" })).toBe(
+      "bash pnpm test",
+    );
   });
 
-  it("falls back to the thinking label without tool calls", () => {
-    expect(workSectionLiveTitle(tools(), live)).toBe("Thinking");
+  it("does not repeat the name when the target is the tool itself", () => {
+    expect(workSectionLiveTitle("grep", { kind: "tool", target: "grep" })).toBe("grep");
+  });
+
+  it("shows the bare name for steps without a target", () => {
+    expect(workSectionLiveTitle("todo_write", { kind: "todo", target: "" })).toBe(
+      "todo_write",
+    );
   });
 });
 

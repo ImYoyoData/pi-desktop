@@ -26,6 +26,7 @@ import {
   CreateOutline,
   GitBranchOutline,
   RefreshOutline,
+  BrainOutline,
 } from "@renderer/components/icons/ionicons";
 import type { ChatMessage, ChatRetryHint } from "@renderer/stores/chat";
 import { useChatStore } from "@renderer/stores/chat";
@@ -45,9 +46,7 @@ import {
   buildRoundUserByRow,
   buildSettledRowIds,
   buildWorkSectionMembership,
-  displayMessageRows,
   lastIdPerRound,
-  latestTurnStartIndex,
   type UserMessage,
 } from "@renderer/utils/message-rows";
 import { agentOutputSilenceMs } from "@renderer/utils/agent-wait";
@@ -185,32 +184,22 @@ export function MessageList({
   const liveEdgeCheckRaf = useRef(0);
   /** 抓着滚动条：此时视口由用户手动导航，任何贴底都要让位。 */
   const scrollbarGrab = useRef(false);
+  /** 在内容区按住不放：可能是拖选文本，贴底会把选区顶回去。 */
+  const selectDrag = useRef(false);
 
   /**
-   * VS Code Copilot design (chatThinkingContentPart): the latest turn's process
-   * — every tool call and thinking row between answer texts — stays in the
-   * stream, folded per work section (see WorkSectionGroup). Older turns drop
-   * their process rows so history reads as prompts + final answers only.
+   * 完整消息序列（含 streaming）。历史轮的过程行必须保留：它们会按 work section
+   * 折叠成小结条，展开后仍能看到工具调用与思考；直接裁掉等于丢数据。
    */
-  /** 完整消息序列（含 streaming）：改动统计需要历史轮被裁剪掉的工具行。 */
   const allMessages = useMemo<ChatMessage[]>(() => {
     const list = [...messages];
     if (streaming) list.push(streaming);
     return list;
   }, [messages, streaming]);
 
-  /**
-   * 渲染行序列。最新一轮之前的工具 / 纯思考行不渲染，历史只留用户提问与最终回答
-   * （Codex 风格）；行整形、分组、折叠判定的规则在 utils/message-rows.ts。
-   */
-  const displayMessages = useMemo(
-    () => displayMessageRows(allMessages, latestTurnStartIndex(messages)),
-    [allMessages, messages],
-  );
-
   const workSectionMembership = useMemo(
-    () => buildWorkSectionMembership(displayMessages),
-    [displayMessages],
+    () => buildWorkSectionMembership(allMessages),
+    [allMessages],
   );
 
   /**
@@ -218,30 +207,30 @@ export function MessageList({
    * 若从属行独立成行，首行被裁出窗口时会留下一整段空白。
    */
   const renderRows = useMemo(
-    () => displayMessages.filter((m) => workSectionMembership.get(m.id)?.isLead !== false),
-    [displayMessages, workSectionMembership],
+    () => allMessages.filter((m) => workSectionMembership.get(m.id)?.isLead !== false),
+    [allMessages, workSectionMembership],
   );
 
   const settledRowIds = useMemo(
-    () => buildSettledRowIds(displayMessages, workSectionMembership),
-    [displayMessages, workSectionMembership],
+    () => buildSettledRowIds(allMessages, workSectionMembership),
+    [allMessages, workSectionMembership],
   );
 
   const finalAnswerIds = useMemo(
-    () => buildFinalAnswerIds(displayMessages),
-    [displayMessages],
+    () => buildFinalAnswerIds(allMessages),
+    [allMessages],
   );
 
   const latestUserMessageId = useMemo(() => {
-    for (let i = displayMessages.length - 1; i >= 0; i--) {
-      const m = displayMessages[i];
+    for (let i = allMessages.length - 1; i >= 0; i--) {
+      const m = allMessages[i];
       if (m?.role === "user") return m.id;
     }
     return null;
-  }, [displayMessages]);
+  }, [allMessages]);
 
   const rowsRef = useRef({
-    displayMessages,
+    allMessages,
     renderRows,
     workSectionMembership,
     settledRowIds,
@@ -249,7 +238,7 @@ export function MessageList({
     latestUserMessageId,
   });
   rowsRef.current = {
-    displayMessages,
+    allMessages,
     renderRows,
     workSectionMembership,
     settledRowIds,
@@ -277,7 +266,7 @@ export function MessageList({
    * 前插后视口内容不跳动。
    *
    * shift 是一次性的：virtua 只在“行数变化的那一次渲染”消费它。
-   * 前插的行可能全被 displayMessageRows 裁掉（历史轮的工具/纯思考行不渲染），
+   * 前插的行可能全是分组从属行（work section 只在首行渲染），
    * 行数不变 → shift 无人消费，会一直挂着，
    * 下一次行数变化（比如流式输出的新行）就会被当成“前插”而按尾部对齐，
    * 视口直接被拖到内容末尾。所以这里用 pendingShift 记账，落地后立即核销。
@@ -359,7 +348,8 @@ export function MessageList({
       // 行高变化会顶长内容，贴底状态下重新贴回底部；已经离开底部则不打扰阅读。
       const sc = scrollerRef.current;
       if (!sc || !followBottom.current) return;
-      if (isNearBottom(sc)) scrollToBottom();
+      if (selectDrag.current) return;
+      scrollToBottom();
     });
   }
 
@@ -385,7 +375,7 @@ export function MessageList({
 
   /**
    * shift 只在行数变化的那一次渲染生效，用完立刻复位。
-   * 前插的行全被裁掉时行数不变，shift 没人消费就会一直挂着，
+   * 前插的行全是分组从属行时行数不变，shift 没人消费就会一直挂着，
    * 等下一次行数变化（流式新行）时被误当成“前插”而按尾部对齐，视口直接被拖到内容末尾。
    * 所以这里盯住“消息数 + 行数”：前插落地后（无论有没有产生新行）立刻核销。
    */
@@ -520,11 +510,11 @@ export function MessageList({
 
     // An empty list after the hydrate frame is final (brand-new session) — don't
     // burn the old 400ms empty-poll on every fresh chat.
-    if (rowsRef.current.displayMessages.length === 0) {
+    if (rowsRef.current.allMessages.length === 0) {
       const emptyDeadline = Date.now() + 120;
       while (
         token === sessionJumpToken.current &&
-        rowsRef.current.displayMessages.length === 0 &&
+        rowsRef.current.allMessages.length === 0 &&
         Date.now() < emptyDeadline
       ) {
         await new Promise<void>((r) => setTimeout(r, 40));
@@ -615,6 +605,21 @@ export function MessageList({
   }
 
   /**
+   * 滚轮落在可滚动子区域（思考块等）且该区域还能朝这个方向滚：事件属于子区域，
+   * 不能当成“用户在翻历史”，否则滚一下思考内容整列就停止跟随。
+   */
+  function innerScrollOwnsWheel(event: WheelEvent): boolean {
+    const target = event.target instanceof Element ? event.target : null;
+    const inner = target?.closest<HTMLElement>("[data-inner-scroll]") ?? null;
+    if (!inner) return false;
+    if (event.deltaY < 0) return inner.scrollTop > 0;
+    if (event.deltaY > 0) {
+      return inner.scrollHeight - inner.scrollTop - inner.clientHeight > 1;
+    }
+    return false;
+  }
+
+  /**
    * Wheel events only fire for real user input (programmatic scrollTop writes do
    * not). One upward tick disengages follow immediately — even inside the
    * near-bottom threshold, where stream snaps would otherwise keep resetting the
@@ -624,6 +629,7 @@ export function MessageList({
     if (event.deltaY === 0) return;
     // ctrl+wheel 是触控板捏合缩放，不是滚动意图。
     if (event.ctrlKey) return;
+    if (innerScrollOwnsWheel(event)) return;
     if (event.deltaY < 0) {
       applyFollowIntent("up");
       return;
@@ -670,12 +676,28 @@ export function MessageList({
   function onScrollerPointerDown(event: PointerEvent): void {
     const sc = scrollerRef.current;
     if (!sc) return;
-    if (event.clientX < sc.getBoundingClientRect().left + sc.clientWidth) return;
+    // 中键自动滚动不产生滚轮事件，视口得先交给用户。
+    if (event.button === 1) {
+      applyFollowIntent("up");
+      return;
+    }
+    if (event.clientX < sc.getBoundingClientRect().left + sc.clientWidth) {
+      // 内容区按下：拖选文本时浏览器会自动滚动视口，先让位。
+      selectDrag.current = true;
+      return;
+    }
     scrollbarGrab.current = true;
     applyFollowIntent("up");
   }
 
   function onScrollerPointerUp(): void {
+    if (selectDrag.current) {
+      selectDrag.current = false;
+      // 拖选可能已经把视口带上去了：交还用户，别再贴回底部。
+      const sc = scrollerRef.current;
+      if (sc && !isNearBottom(sc)) engageHistoryReading();
+      return;
+    }
     if (!scrollbarGrab.current) return;
     scrollbarGrab.current = false;
     applyFollowIntent("down");
@@ -686,7 +708,8 @@ export function MessageList({
     const sc = scrollerRef.current;
     if (!sc || settlingSession.current) return;
     if (!followBottom.current) return;
-    if (isNearBottom(sc)) scrollToBottom();
+    if (selectDrag.current) return;
+    scrollToBottom();
   }
 
   /**
@@ -705,7 +728,7 @@ export function MessageList({
 
   function engageHistoryReading(): void {
     followBottom.current = false;
-    setShowJumpLatest(rowsRef.current.displayMessages.length > 0);
+    setShowJumpLatest(rowsRef.current.allMessages.length > 0);
   }
 
   function disengageHistoryReading(): void {
@@ -811,11 +834,11 @@ export function MessageList({
     }
   }, [historyLoading]);
 
-  const prevDisplayLength = useRef<number | undefined>(undefined);
+  const prevMessageLength = useRef<number | undefined>(undefined);
   useEffect(() => {
-    const len = rowsRef.current.displayMessages.length;
-    const prevLen = prevDisplayLength.current;
-    prevDisplayLength.current = len;
+    const len = rowsRef.current.allMessages.length;
+    const prevLen = prevMessageLength.current;
+    prevMessageLength.current = len;
     const hydratedFromEmpty = (prevLen === 0 || prevLen == null) && len > 0;
     // Critical: hydrate often lands AFTER settle timeouts. Always snap when
     // following bottom / first populate, otherwise the list stays at the top.
@@ -833,7 +856,7 @@ export function MessageList({
         jumpToBottomInstant();
       });
     }
-  }, [displayMessages.length]);
+  }, [allMessages.length]);
 
   /** Hydrate can replace history with the same length — still need a bottom snap. */
   const prevLastMessageId = useRef<string | null | undefined>(undefined);
@@ -988,7 +1011,7 @@ export function MessageList({
 
   /**
    * opencode DiffSummary：每轮（user 行分隔）的文件改动汇总，挂在轮末最终回答
-   * 下方。统计用完整消息 — 历史轮的工具行在渲染时被裁剪，计数仍要算上它们。
+   * 下方。统计用完整消息 — 工具行折叠在 work section 里，计数仍要算上它们。
    */
   const turnDiffsByRow = useMemo(() => {
     const out = new Map<string, TurnFileChanges>();
@@ -996,7 +1019,7 @@ export function MessageList({
     if (!stats.size) return out;
     const sourceIds = lastIdPerRound(allMessages, (msg) => msg.role !== "user");
     const answerIds = lastIdPerRound(
-      displayMessages,
+      allMessages,
       (msg) => msg.role === "assistant" && Boolean(msg.text),
     );
     for (let i = 0; i < sourceIds.length; i++) {
@@ -1006,7 +1029,7 @@ export function MessageList({
       if (changes && rowId) out.set(rowId, changes);
     }
     return out;
-  }, [allMessages, displayMessages, turnDone]);
+  }, [allMessages, turnDone]);
 
   function turnDiffFor(msg: ChatMessage): TurnFileChanges | null {
     return turnDiffsByRow.get(msg.id) ?? null;
@@ -1045,11 +1068,11 @@ export function MessageList({
   /** 用户行的展示态预计算：模板查表，避免每行重复跑前言剥离 / 标签过滤。 */
   const userViewByRow = useMemo(() => {
     const out = new Map<string, UserRowView>();
-    for (const msg of displayMessages) {
+    for (const msg of allMessages) {
       if (msg.role === "user") out.set(msg.id, buildUserRowView(msg));
     }
     return out;
-  }, [displayMessages]);
+  }, [allMessages]);
 
   function userRow(msg: ChatMessage): UserRowView {
     const view = userViewByRow.get(msg.id);
@@ -1089,24 +1112,24 @@ export function MessageList({
    */
   const statsByRow = useMemo(() => {
     const out = new Map<string, CompactDetail | null>();
-    for (const msg of displayMessages) {
+    for (const msg of allMessages) {
       if (msg.role === "assistant" && finalAnswerIds.has(msg.id)) {
         out.set(msg.id, assistantStatsOf(msg));
       }
     }
     return out;
-  }, [displayMessages, finalAnswerIds]);
+  }, [allMessages, finalAnswerIds]);
 
   const modelDetailByRow = useMemo(() => {
     const out = new Map<string, CompactDetail | null>();
     const usage = sessions.activeContextUsage;
-    for (const msg of displayMessages) {
+    for (const msg of allMessages) {
       if (msg.role === "assistant" && finalAnswerIds.has(msg.id)) {
         out.set(msg.id, assistantModelDetailOf(msg, usage, modelNames));
       }
     }
     return out;
-  }, [displayMessages, finalAnswerIds, modelNames, sessions.activeContextUsage]);
+  }, [allMessages, finalAnswerIds, modelNames, sessions.activeContextUsage]);
 
   async function copyText(text: string): Promise<void> {
     await navigator.clipboard.writeText(text);
@@ -1533,6 +1556,9 @@ export function MessageList({
                     thinking={msg.thinking ?? ""}
                     streaming={Boolean(msg.streaming && !msg.text)}
                     autoCollapse={turnDone || !(msg.streaming && !msg.text)}
+                    leadingIcon={<BrainOutline size={12} aria-hidden="true" />}
+                    durationMs={msg.thinkingDurationMs}
+                    startedAt={msg.thinkingStartedAt}
                   />
                 ) : null}
                 {msg.text ? (
@@ -1627,7 +1653,6 @@ export function MessageList({
             <ToolCallCard
               card={toolCard(msg)}
               toolName={msg.toolName}
-              order={msg.order}
               statusLabel={status.label}
               statusType={status.type}
               streaming={msg.streaming}

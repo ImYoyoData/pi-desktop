@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { countDiffStats, parseBashToolCard, parseFileToolCard } from "../../src/renderer/src/utils/tool-diff";
+import {
+  countDiffStats,
+  parseBashToolCard,
+  parseFileToolCard,
+  parseToolCard,
+  toolCardForNested,
+} from "../../src/renderer/src/utils/tool-diff";
 
 describe("countDiffStats", () => {
   it("counts unified diff additions and deletions", () => {
@@ -33,8 +39,20 @@ describe("parseFileToolCard", () => {
     expect(card.kind).toBe("edit");
     expect(card.path).toBe("src/a.ts");
     expect(card.stats).toEqual({ additions: 1, deletions: 1 });
-    expect(card.firstChangedLine).toBe(1);
-    expect(card.diff).toContain("+1 b");
+    expect(card.diff).toContain("@@");
+  });
+
+  it("normalizes a numbered display diff to unified", () => {
+    const card = parseFileToolCard("edit", { path: "a.ts" }, {
+      content: [{ type: "text", text: "ok" }],
+      details: { diff: " 1 const a = 1;\n+2 const b = 2;\n-3 const c = 3;" },
+    });
+    expect(card.kind).toBe("edit");
+    expect(card.diff).toContain("@@");
+    expect(card.diff).toContain(" const a = 1;");
+    expect(card.diff).toContain("+const b = 2;");
+    expect(card.diff).toContain("-const c = 3;");
+    expect(card.stats).toEqual({ additions: 1, deletions: 1 });
   });
 
   it("summarizes write from args.content", () => {
@@ -71,5 +89,47 @@ describe("parseBashToolCard", () => {
     expect(card.kind).toBe("bash");
     expect(card.command).toBe("npm test");
     expect(card.preview).toContain("passed");
+  });
+});
+
+describe("generic tool summary", () => {
+  it("prefers the path the tool operated on", () => {
+    const card = parseToolCard("custom", { path: "src/a.ts", limit: 10 }, "ok");
+    expect(card.kind).toBe("generic");
+    if (card.kind !== "generic") return;
+    expect(card.summary).toBe("src/a.ts");
+  });
+
+  it("falls back to the first line of a script", () => {
+    const card = parseToolCard("codemode", { code: "\nconst a = 1;\n" }, "done");
+    if (card.kind !== "generic") throw new Error("expected generic card");
+    expect(card.summary).toBe("const a = 1;");
+  });
+
+  it("flags a preview that came from args instead of output", () => {
+    const card = parseToolCard("custom", { path: "a.ts" }, undefined);
+    if (card.kind !== "generic") throw new Error("expected generic card");
+    expect(card.previewFromArgs).toBe(true);
+  });
+});
+
+describe("toolCardForNested", () => {
+  const call = {
+    toolCallId: "nested-1",
+    toolName: "read",
+    args: { path: "a.ts" },
+    result: "hello",
+  };
+
+  it("reuses the parsed card while the call content is unchanged", () => {
+    const first = toolCardForNested(call);
+    expect(toolCardForNested({ ...call })).toBe(first);
+  });
+
+  it("reparses when the result changes", () => {
+    const first = toolCardForNested(call);
+    const second = toolCardForNested({ ...call, result: "hello\nworld" });
+    expect(second).not.toBe(first);
+    expect(second.kind).toBe("read");
   });
 });

@@ -684,6 +684,15 @@ export function BrowserTab({ tabId, visible, initialUrl }: Props): ReactNode {
   const pageStyle = { width: devtoolsOpen ? `${100 - devtoolsPercent}%` : "100%" };
   const devtoolsStyle = { width: `${devtoolsPercent}%` };
 
+  // 外部浏览器预览模式没有 Electron 的 webview 标签，内置浏览器无法渲染。
+  if (window.__piBrowserPreview) {
+    return (
+      <div className={styles.browserTab} style={{ padding: 24 }}>
+        {t.browserPreviewUnavailable}
+      </div>
+    );
+  }
+
   return (
     <div
       ref={browserRootRef}

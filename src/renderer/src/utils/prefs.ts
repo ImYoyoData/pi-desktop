@@ -38,6 +38,27 @@ const pendingSet = new Set<string>();
 const pendingRemove = new Set<string>();
 let flushTimer: ReturnType<typeof setTimeout> | null = null;
 
+/** 远端改动落到本地缓存。 */
+export function applyRemoteChange(payload: {
+	patch: Record<string, string>;
+	removed: string[];
+}): string[] {
+	const changed: string[] = [];
+	for (const [key, value] of Object.entries(payload.patch ?? {})) {
+		if (cache[key] === value) continue;
+		cache[key] = value;
+		writeLocal(key, value);
+		changed.push(key);
+	}
+	for (const key of payload.removed ?? []) {
+		if (!(key in cache)) continue;
+		delete cache[key];
+		writeLocal(key, null);
+		changed.push(key);
+	}
+	return changed;
+}
+
 function takePatch(): { patch: PrefsMap; removed: string[] } {
 	const patch: PrefsMap = {};
 	for (const key of pendingSet) patch[key] = cache[key];

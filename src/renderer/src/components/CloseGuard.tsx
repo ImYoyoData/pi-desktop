@@ -101,6 +101,8 @@ export function CloseGuard(): ReactNode {
   });
 
   useEffect(() => {
+    // 浏览器预览页不是应用窗口：不能替主窗口确认关闭，否则会直接关掉桌面端。
+    if (window.__piBrowserPreview) return;
     const offCloseRequest = window.api.window.onCloseRequest(() => {
       void handleRef.current();
     });

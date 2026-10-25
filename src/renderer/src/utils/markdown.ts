@@ -190,7 +190,7 @@ const highlightCache = new Map<string, string>();
 const HIGHLIGHT_CACHE_MAX_ENTRIES = 48;
 const HIGHLIGHT_CACHE_MAX_CHARS = 24_000;
 
-function highlightCode(text: string, language: string): string {
+export function highlightCode(text: string, language: string): string {
   if (text.length > HIGHLIGHT_LANG_MAX_CHARS) return escapeHtml(text);
   const key =
     text.length <= HIGHLIGHT_CACHE_MAX_CHARS ? `${language}\u0000${text}` : "";
@@ -217,6 +217,39 @@ function highlightCode(text: string, language: string): string {
     }
   }
   return highlighted;
+}
+
+/**
+ * 代码高亮 → 可直接注入的 HTML。
+ *
+ * hljs 的输出只含固定 class 的 span、源文本已被转义；这里再过一遍净化器，
+ * 让文件视图不必依赖外层 markdown 的净化流程。
+ *
+ * 净化后的结果和 highlightCode 一样进 LRU：虚拟滚动重挂载时不必重跑 sanitize。
+ */
+const safeHtmlCache = new Map<string, string>();
+
+export function highlightToSafeHtml(text: string, language: string): string {
+  const key =
+    text.length <= HIGHLIGHT_CACHE_MAX_CHARS ? `${language}\u0000${text}` : "";
+  const hit = key ? safeHtmlCache.get(key) : undefined;
+  if (hit !== undefined) {
+    safeHtmlCache.delete(key);
+    safeHtmlCache.set(key, hit);
+    return hit;
+  }
+  const html = DOMPurify.sanitize(highlightCode(text, language), {
+    ALLOWED_TAGS: ["span", "br"],
+    ALLOWED_ATTR: ["class"],
+  });
+  if (key) {
+    safeHtmlCache.set(key, html);
+    if (safeHtmlCache.size > HIGHLIGHT_CACHE_MAX_ENTRIES) {
+      const oldest = safeHtmlCache.keys().next().value;
+      if (oldest !== undefined) safeHtmlCache.delete(oldest);
+    }
+  }
+  return html;
 }
 
 function wrapTables(html: string): string {

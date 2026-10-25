@@ -70,7 +70,7 @@ type PersistedTabs = {
   activeIndex: number;
 };
 
-const TABS_STORAGE_PREFIX = "pi-desktop:right-tabs:v2:";
+export const TABS_STORAGE_PREFIX = "pi-desktop:right-tabs:v2:";
 
 function storageKey(root: string): string {
   return `${TABS_STORAGE_PREFIX}${root.replace(/\\/g, "/").toLowerCase()}`;
@@ -152,6 +152,8 @@ type RightTabsBase = {
   tabs: RightTab[];
   activeId: string;
   panelActiveId: string;
+  /** 当前标签页所属工作区：持久化与跨窗口同步都按它取键。 */
+  root: string | null;
   /** Right-pane Changes dock view asks the Changes tab to open this file's diff. */
   changesRevealPath: string;
   changesRevealTick: number;
@@ -527,7 +529,7 @@ export const useRightTabsStore = create<RightTabsState>()((set, get) => {
   function restoreTabs(root: string | null): void {
     persistReady = false;
     if (!root) {
-      commit({ tabs: defaultTabs(), activeId: "", panelActiveId: "" });
+      commit({ tabs: defaultTabs(), activeId: "", panelActiveId: "", root: null });
       persistReady = true;
       return;
     }
@@ -542,7 +544,7 @@ export const useRightTabsStore = create<RightTabsState>()((set, get) => {
       restored = null;
     }
     if (!restored?.tabs?.length) {
-      commit({ tabs: defaultTabs(), activeId: "", panelActiveId: "" });
+      commit({ tabs: defaultTabs(), activeId: "", panelActiveId: "", root });
       persistReady = true;
       return;
     }
@@ -587,7 +589,7 @@ export const useRightTabsStore = create<RightTabsState>()((set, get) => {
         : (dock[0]?.id ?? "");
     const restoredPanel = tabs.filter(isPanelTab);
     const panelActiveId = restoredPanel[restoredPanel.length - 1]?.id ?? "";
-    commit({ tabs, activeId, panelActiveId });
+    commit({ tabs, activeId, panelActiveId, root });
     persistReady = true;
   }
 
@@ -608,7 +610,7 @@ export const useRightTabsStore = create<RightTabsState>()((set, get) => {
 
     persistReady = false;
     if (!next) {
-      commit({ tabs: defaultTabs(), activeId: "", panelActiveId: "" });
+      commit({ tabs: defaultTabs(), activeId: "", panelActiveId: "", root: null });
       persistReady = true;
       return;
     }
@@ -641,9 +643,11 @@ export const useRightTabsStore = create<RightTabsState>()((set, get) => {
     tabs: defaultTabs(),
     activeId: "changes-0",
     panelActiveId: "",
+    root: null,
     changesRevealPath: "",
     changesRevealTick: 0,
   };
+
 
   return {
     ...base,

@@ -9,6 +9,7 @@ import {
 	workspacePathsEqual,
 } from "./session-list";
 import { workspaceEntryKind } from "./workspace-fs";
+import { broadcastStateChange } from "./ui-sync";
 
 let store: WorkspaceStore | null = null;
 
@@ -71,6 +72,7 @@ export async function openWorkspacePath(root: string): Promise<string | null> {
 	getStore().addRecent(root);
 	const next = getStore().getRoot();
 	syncWorkspaceWatch(next);
+	broadcastStateChange({ scope: "workspace", payload: next });
 	return next;
 }
 
@@ -98,6 +100,7 @@ export async function openWorkspace(): Promise<string | null> {
 export async function clearWorkspace(): Promise<null> {
 	getStore().setRoot(null);
 	syncWorkspaceWatch(null);
+	broadcastStateChange({ scope: "workspace", payload: null });
 	return null;
 }
 
