@@ -34,6 +34,9 @@
 !else
   !insertmacro piPrepare
   Call piFixInstallDirectory
+  # $appExe 由 installSection 按修正前的目录赋值，快捷方式目标、DisplayIcon、
+  # keepShortcuts 判断都取自它，目录改动后必须重新同步。
+  StrCpy $appExe "$INSTDIR\${APP_EXECUTABLE_FILENAME}"
   Call piEnsureAppClosed
 !endif
 !macroend
