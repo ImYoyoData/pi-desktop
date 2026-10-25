@@ -3,16 +3,15 @@
  * 压缩 / 缓存保温 / 隐私统计都由 pi 读 settings.json，worker reload 即生效。
  */
 
-import { BrowserWindow, ipcMain } from "electron";
+import { ipcMain } from "electron";
 import { IpcChannels } from "../shared/protocol";
 import type { RuntimeSettings } from "../shared/runtime-settings";
 import { getRuntimeSettings, setRuntimeSettings } from "./runtime-settings-host";
 import type { SessionBroker } from "./session-broker";
+import { broadcastStateChange } from "./ui-sync";
 
 function broadcastRuntimeSettings(settings: RuntimeSettings): void {
-  for (const win of BrowserWindow.getAllWindows()) {
-    win.webContents.send(IpcChannels.runtime.changed, settings);
-  }
+  broadcastStateChange({ scope: "runtime", payload: settings });
 }
 
 export function registerRuntimeSettingsIpc(broker?: SessionBroker): void {

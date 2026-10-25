@@ -57,6 +57,7 @@ import { isTextEntryTarget } from "@renderer/utils/keyboard-target";
 import { buildSessionTree, type SessionTreeItem } from "@renderer/utils/session-tree";
 import { markRendererStartup } from "@renderer/utils/startup-timing";
 import * as prefs from "@renderer/utils/prefs";
+import { registerStateApplier } from "@renderer/utils/state-sync";
 import { useI18n } from "@renderer/i18n/use-i18n";
 import { useDialog, useMessage, type DialogHandle } from "@renderer/services/feedback";
 import styles from "./SessionSidebar.module.css";
@@ -210,19 +211,18 @@ function compareSessionsOf(
 ): (a: SessionSummary, b: SessionSummary) => number {
   const order = sort === "recent" ? sessionOrders[root] : undefined;
   const orderMap = order?.length ? new Map(order.map((id, i) => [id, i])) : null;
-  const pinned = new Set(pins[root] ?? []);
+  const pinMap = new Map((pins[root] ?? []).map((id, i) => [id, i]));
+  const pinRank = (session: SessionSummary): number =>
+    pinMap.get(session.id) ?? Number.MAX_SAFE_INTEGER;
   return (a, b) => {
+    const ap = pinRank(a);
+    const bp = pinRank(b);
+    if (ap !== bp) return ap - bp;
     if (orderMap) {
       const ai = orderMap.get(a.id) ?? Number.MAX_SAFE_INTEGER;
       const bi = orderMap.get(b.id) ?? Number.MAX_SAFE_INTEGER;
       if (ai !== bi) return ai - bi;
-      const aKey = sessionSortKey(a, sort);
-      const bKey = sessionSortKey(b, sort);
-      return bKey.localeCompare(aKey);
     }
-    const ap = pinned.has(a.id) ? 0 : 1;
-    const bp = pinned.has(b.id) ? 0 : 1;
-    if (ap !== bp) return ap - bp;
     const aKey = sessionSortKey(a, sort);
     const bKey = sessionSortKey(b, sort);
     return bKey.localeCompare(aKey);
@@ -1340,7 +1340,11 @@ export function SessionSidebar(): ReactNode {
         },
       })),
     );
+    const pinnedIds = new Set(Object.values(pins).flat());
     return rows.sort((a, b) => {
+      const ap = pinnedIds.has(a.item.session.id) ? 0 : 1;
+      const bp = pinnedIds.has(b.item.session.id) ? 0 : 1;
+      if (ap !== bp) return ap - bp;
       const aKey = sessionSortKey(a.item.session, view.sort);
       const bKey = sessionSortKey(b.item.session, view.sort);
       return bKey.localeCompare(aKey);
@@ -1522,9 +1526,15 @@ export function SessionSidebar(): ReactNode {
           .map((n) => n.dataset.id)
           .filter((id): id is string => Boolean(id));
         if (!ids.length) return;
+        // 折叠状态下只拖到部分行，其余保持原相对顺序
+        const seen = new Set(ids);
+        const rest = (localRef.current.sessionOrders[root] ?? []).filter(
+          (id) => !seen.has(id),
+        );
+        const ordered = [...ids, ...rest];
         const nextOrders = {
           ...localRef.current.sessionOrders,
-          [root]: ids,
+          [root]: ordered,
         };
         setSessionOrders(nextOrders);
         persistSessionOrders(nextOrders);
@@ -1533,7 +1543,7 @@ export function SessionSidebar(): ReactNode {
         if (pinned.size) {
           const nextPins = {
             ...localRef.current.pins,
-            [root]: ids.filter((id) => pinned.has(id)),
+            [root]: ordered.filter((id) => pinned.has(id)),
           };
           setPins(nextPins);
           persistPins(nextPins);
@@ -1934,6 +1944,14 @@ export function SessionSidebar(): ReactNode {
     );
     loadPins();
     loadSessionOrders();
+    // 另一窗口改了排序/置顶/分组时跟着变，桌面端与浏览器预览页保持一致。
+    const offPrefs = registerStateApplier((change) => {
+      if (change.scope !== "prefs") return;
+      const keys = change.keys ?? [];
+      if (keys.includes(PIN_KEY)) loadPins();
+      if (keys.includes(SESSION_ORDER_KEY)) loadSessionOrders();
+      if (keys.includes(SESSION_VIEW_KEY)) setView(loadSessionView());
+    });
     // 派生会话等由其他组件新建的会话：排到最前，避免被折叠到「展开其余 N 个」之下。
     window.addEventListener("pi-session-created", onSessionCreated);
     window.addEventListener("keydown", onSelectModeKeydown, true);
@@ -1967,6 +1985,7 @@ export function SessionSidebar(): ReactNode {
       useKeybindingsStore.getState().unregister("new-session");
       useKeybindingsStore.getState().unregister("select-sessions");
       offNotifyOpen();
+      offPrefs();
       window.removeEventListener("pi-session-created", onSessionCreated);
       window.removeEventListener("keydown", onSelectModeKeydown, true);
       workspaceSortable.current?.destroy();
@@ -2043,25 +2062,41 @@ export function SessionSidebar(): ReactNode {
       if (!next.some((r) => r.id === live.id)) next.push({ ...live });
     }
     setSessionsByRoot((prev) => ({ ...prev, [root]: next }));
-    if (touched.length) moveSessionsToFront(root, touched);
+    if (touched.length) {
+      // 运行中的会话不因活动抢位，结束（下面的状态转换）后再归位
+      const moved = touched.filter(
+        (id) => !isRunning(byId.get(id)?.status ?? "idle"),
+      );
+      if (moved.length) moveSessionsToFront(root, moved);
+    }
   }, [sessionsStore.sessions]);
 
   useEffect(() => {
     const rows = sessionsStore.sessions;
     const ended: string[] = [];
+    // 运行结束的会话按最近活动时间归位，状态镜像覆盖所有工作区
+    const settledByRoot = new Map<string, string[]>();
+    for (const [id, status] of Object.entries(statusBySession)) {
+      const was = prevStatuses.current.get(id);
+      if (!was || !isRunning(was) || isRunning(status)) continue;
+      const root = rootOfSession(id);
+      if (!root) continue;
+      settledByRoot.set(root, [...(settledByRoot.get(root) ?? []), id]);
+    }
     for (const row of rows) {
       const was = prevStatuses.current.get(row.id);
       if (!was || was === "idle" || row.status !== "idle") continue;
       if (row.id !== useSessionsStore.getState().activeId) ended.push(row.id);
     }
-    prevStatuses.current = new Map(rows.map((row) => [row.id, row.status]));
+    prevStatuses.current = new Map(Object.entries(statusBySession));
+    for (const [root, ids] of settledByRoot) moveSessionsToFront(root, ids);
     if (!ended.length) return;
     setJustEnded((prev) => {
       const next = new Set(prev);
       for (const id of ended) next.add(id);
       return next;
     });
-  }, [sessionsStore.sessions]);
+  }, [sessionsStore.sessions, statusBySession]);
 
   useEffect(() => {
     const id = sessionsStore.activeId;

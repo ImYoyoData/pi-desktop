@@ -119,6 +119,11 @@ export function syncUpdateToast(state: AppUpdateState): void {
 	showTimer = setTimeout(() => revealToast(win), 800);
 }
 
+/** 更新悬浮窗不参与界面状态同步（它只关心更新进度）。 */
+export function isUpdateToastWindow(win: BrowserWindow): boolean {
+	return toastWindow === win;
+}
+
 /** 主窗口关闭时一起销毁，避免只剩悬浮窗把进程留在后台。 */
 export function closeUpdateToast(): void {
 	pendingShow = false;

@@ -3,12 +3,13 @@
  * turn 层 / provider 层的参数由 pi SDK 直接读 settings.json 的 retry 段，worker reload 即生效。
  */
 
-import { BrowserWindow, ipcMain } from "electron";
+import { ipcMain } from "electron";
 import { IpcChannels } from "../shared/protocol";
 import type { RetrySettings } from "../shared/retry-settings";
 import { getRetrySettings, setRetrySettings } from "./retry-host";
 import { setStallEmitMs } from "./session-broker";
 import type { SessionBroker } from "./session-broker";
+import { broadcastStateChange } from "./ui-sync";
 
 /** 主进程内生效的部分：卡死判定阈值。 */
 export function applyRetrySettings(settings: RetrySettings): void {
@@ -21,9 +22,7 @@ export function initRetrySettings(): void {
 }
 
 function broadcastRetrySettings(settings: RetrySettings): void {
-  for (const win of BrowserWindow.getAllWindows()) {
-    win.webContents.send(IpcChannels.retry.changed, settings);
-  }
+  broadcastStateChange({ scope: "retry", payload: settings });
 }
 
 export function registerRetryIpc(broker?: SessionBroker): void {

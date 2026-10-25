@@ -1,48 +1,59 @@
 import {
   useEffect,
   useMemo,
-  useRef,
   useState,
   type ComponentType,
   type ReactNode,
 } from "react";
 import { Button } from "antd";
 import {
-  CheckmarkCircleOutline,
   ChevronForwardOutline,
   CloseCircleOutline,
   CreateOutline,
   DocumentTextOutline,
-  EllipseOutline,
   EyeOutline,
+  FolderOutline,
   ListOutline,
   TerminalOutline,
   type IoniconProps,
 } from "@renderer/components/icons/ionicons";
 import type { ToolCard } from "@renderer/utils/tool-diff";
+import { clipText, toolCardDurationMs, toolCardHasBody } from "@renderer/utils/tool-diff";
 import type { ChatToolNestedCall } from "@renderer/stores/chat-reducer";
 import { isToolCardOpen } from "@renderer/utils/tool-card-open";
+import {
+  directoryListTarget,
+  genericStepPreview,
+  genericStepTarget,
+  isDirectoryListTool,
+} from "@renderer/utils/structured-text";
 import FileChip from "@renderer/components/FileChip";
+import ToolBody from "@renderer/components/ToolBody";
+import ToolNestedCalls from "@renderer/components/ToolNestedCalls";
 import { useI18n } from "@renderer/i18n/use-i18n";
-import { formatElapsedShort } from "@renderer/utils/agent-wait";
+import { formatDuration } from "@renderer/utils/format-duration";
 import { useAgentRunsStore } from "@renderer/stores/agent-runs";
 import { useAppearanceStore } from "@renderer/stores/appearance";
 import { useSessionsStore } from "@renderer/stores/sessions";
+import { useWorkspaceStore } from "@renderer/stores/workspace";
 import { useMessage } from "@renderer/services/feedback";
 import { ASK_USER_TOOL_NAME } from "../../../shared/ask-user";
+import { CODEMODE_TOOL_NAME } from "../../../shared/codemode-tool";
 import styles from "./ToolCallCard.module.css";
 
 type Props = {
   card: ToolCard;
   toolName: string;
-  order?: number;
   statusLabel: string;
   statusType: "default" | "success" | "error" | "info";
   streaming?: boolean;
   /** True once the whole turn finished: fold finished process rows (Codex-like). */
   autoCollapse?: boolean;
-  /** Rendered as a child of a Copilot tool group: indented under the tree line. */
-  treeItem?: boolean;
+  /**
+   * "row"：独立工具行（两行式布局）。
+   * "step"：工作区块时间线里的一步（单行式，展开体紧跟在本行下方）。
+   */
+  variant?: "row" | "step";
   /**
    * Never auto-expand while streaming — the row stays folded until the user opens
    * it. Used for the detail rows inside a work-section, whose group header already
@@ -76,19 +87,30 @@ function kindIconFor(kind: ToolCard["kind"]): KindIconComponent {
   }
 }
 
-/** Sub-second precision for quick commands, coarse units beyond that. */
-function formatDuration(ms: number): string {
-  if (ms < 10_000) return `${(ms / 1000).toFixed(1)}s`;
-  return formatElapsedShort(ms);
+/** 输出里的第一行有效文本，用于失败时的简短反馈。 */
+function firstLine(text: string | null | undefined): string | null {
+  if (!text) return null;
+  for (const line of text.split("\n")) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    return clipText(trimmed, 96);
+  }
+  return null;
+}
+
+/** 工具名过长时截断：mcp__server__tool 这类名字在时间线里会占掉一整列。 */
+function shortToolName(name: string, max = 26): string {
+  return clipText(name, max);
 }
 
 export function ToolCallCard({
   card,
   toolName,
+  statusLabel,
   statusType,
   streaming,
   autoCollapse,
-  treeItem,
+  variant = "row",
   detailCollapsed,
   nestedCalls,
   onOpen,
@@ -98,45 +120,45 @@ export function ToolCallCard({
   const appearance = useAppearanceStore();
   const agentRuns = useAgentRunsStore();
   const sessions = useSessionsStore();
+  const workspaceRoot = useWorkspaceStore((state) => state.root);
 
   /** Explicit user toggle; null = follow the automatic rule. */
   const [manuallyOpen, setManuallyOpen] = useState<boolean | null>(null);
-  const bodyRef = useRef<HTMLPreElement | null>(null);
-  /** Follow newest lines unless the user scrolls up inside the card. */
-  const stickToBottom = useRef(true);
-  const NEAR_BOTTOM_PX = 48;
   const [backgroundBusy, setBackgroundBusy] = useState(false);
 
   /**
-   * Whether a tool card opens by itself. The rule lives in
-   * `utils/tool-card-open.ts` (pure + unit-tested); this component only supplies
-   * state. Default is folded for every kind — a long turn can hold dozens of cards,
-   * and auto-expanding them buries the answer under diffs and file dumps.
+   * 独立工具行的展开规则在 `utils/tool-card-open.ts`（纯函数 + 单测），这里只提供状态。
+   * 时间线步骤默认折叠，正在流式输出的那一步自动展开；工作区块内的行传
+   * `detailCollapsed`，关掉这个自动展开，免得压住整块摘要。
    */
-  const open = isToolCardOpen({
-    kind: card.kind,
-    expandToolCalls: appearance.expandToolCalls,
-    detailCollapsed: Boolean(detailCollapsed),
-    autoCollapse: Boolean(autoCollapse),
-    streaming: Boolean(streaming),
-    manuallyOpen,
-  });
+  const open =
+    variant === "step"
+      ? manuallyOpen !== null
+        ? manuallyOpen
+        : Boolean(streaming) && !detailCollapsed
+      : isToolCardOpen({
+          kind: card.kind,
+          expandToolCalls: appearance.expandToolCalls,
+          detailCollapsed: Boolean(detailCollapsed),
+          autoCollapse: Boolean(autoCollapse),
+          streaming: Boolean(streaming),
+          manuallyOpen,
+        });
 
   useEffect(() => {
     if (!streaming) return;
     // Reset manual override while streaming so it tracks live state.
     setManuallyOpen(null);
-    stickToBottom.current = true;
   }, [streaming]);
-
-  // Fold everything as soon as the round finishes; users can re-expand manually.
-  useEffect(() => {
-    if (!autoCollapse) return;
-    setManuallyOpen(false);
-  }, [autoCollapse]);
 
   const isAskUserTool = toolName === ASK_USER_TOOL_NAME;
   const sessionId = sessions.activeId;
+
+  /** 内部调用数量（codemode 脚本里发出的工具调用）。 */
+  const callCount = nestedCalls?.length ?? 0;
+  /** codemode 用调用概况当标题，脚本首行代码不作标题。 */
+  const showCallCount =
+    card.kind === "generic" && (toolName === CODEMODE_TOOL_NAME || callCount > 0);
 
   const blockingRunId = useMemo(() => {
     const current = card;
@@ -173,74 +195,91 @@ export function ToolCallCard({
     return parts[parts.length - 1] || p;
   }, [card]);
 
-  const actionLabel = useMemo(() => {
-    switch (card.kind) {
-      case "write":
-        return t.toolWrite;
-      case "edit":
-        return t.toolEdit;
-      case "read":
-        return t.toolRead;
-      case "bash":
-        return t.toolBash;
-      case "todo":
-        return t.toolTodo;
-      case "generic":
-        return isAskUserTool ? t.askUserToolLabel : `${t.toolBash} ${toolName}`;
-      case "other":
-        return isAskUserTool ? t.askUserToolLabel : `${t.toolBash} ${toolName}`;
-      default: {
-        const _never: never = card;
-        return String(_never);
-      }
-    }
-  }, [card, isAskUserTool, t, toolName]);
+  const actionLabel = shortToolName(toolName);
 
   const KindIcon = kindIconFor(card.kind);
   const StatusIcon = statusType === "error" ? CloseCircleOutline : KindIcon;
+  const statusClass =
+    statusType === "error"
+      ? styles.error
+      : streaming
+        ? styles.running
+        : styles.success;
 
-  const metaLine = useMemo(() => {
+  /** 待办卡的固定动作文案；没有固定动作时返回 null，进度改由标题承担。 */
+  const todoAction = useMemo(() => {
+    if (card.kind !== "todo") return null;
+    switch (card.action) {
+      case "add":
+        return t.toolTodoAdd;
+      case "toggle":
+        return t.toolTodoToggle;
+      case "clear":
+        return t.toolTodoClear;
+      case "list":
+        return t.toolTodoList;
+      default:
+        return null;
+    }
+  }, [card, t]);
+
+  /** 处理后的结果反馈：只保留对用户有意义的结果（行数、改动、耗时、图片数）。 */
+  const resultParts = useMemo(() => {
+    const parts: string[] = [];
     const dur =
       (card.kind === "read" || card.kind === "bash") &&
       card.durationMs != null &&
       card.durationMs > 0
         ? formatDuration(card.durationMs)
         : null;
-    const appendDuration = (base: string | null): string | null => {
-      if (!base) return dur ? t.toolDuration(dur) : null;
-      return dur ? `${base} · ${dur}` : base;
-    };
     if (card.kind === "read") {
-      if (card.linesRead != null && card.totalLines != null) {
-        return t.toolLinesRange(card.linesRead, card.totalLines);
+      if (statusType === "error") {
+        const line = firstLine(card.preview);
+        if (line) parts.push(line);
+      } else if (card.linesRead != null && card.totalLines != null) {
+        parts.push(t.toolResultReadOf(card.linesRead, card.totalLines));
+      } else if (card.linesRead != null) {
+        parts.push(t.toolResultRead(card.linesRead));
       }
-      if (card.linesRead != null) {
-        return t.toolLinesCount(card.linesRead);
+    } else if (card.kind === "bash") {
+      if (statusType === "error") {
+        const line = firstLine(card.preview);
+        if (line) parts.push(line);
+      } else {
+        const lines =
+          card.linesRead ?? (card.preview ? card.preview.split("\n").length : null);
+        parts.push(lines != null ? t.toolResultLines(lines) : t.toolResultNoOutput);
       }
-      return null;
+    } else if (card.kind === "todo") {
+      if (card.items.length && todoAction) {
+        parts.push(
+          t.todoProgress(card.items.filter((item) => item.done).length, card.items.length),
+        );
+      }
+    } else if (card.kind === "generic") {
+      if (statusType === "error") {
+        const line = firstLine(card.preview);
+        if (line) parts.push(line);
+      } else if (card.images.length) {
+        parts.push(t.toolResultImages(card.images.length));
+      } else {
+        const out = card.preview?.trim() ?? "";
+        parts.push(out ? t.toolResultLines(out.split("\n").length) : t.toolResultNoOutput);
+      }
     }
-    if (card.kind === "bash") {
-      if (card.linesRead != null && card.totalLines != null) {
-        return appendDuration(t.toolLinesRange(card.linesRead, card.totalLines));
-      }
-      if (card.linesRead != null) {
-        return appendDuration(t.toolLinesCount(card.linesRead));
-      }
-      return appendDuration(null);
+    if (dur) parts.push(dur);
+    if ((card.kind === "read" || card.kind === "bash") && card.truncated) {
+      parts.push(t.toolTruncated);
     }
-    if (card.kind === "todo" && card.summary) return card.summary;
-    return null;
-  }, [card, t]);
+    return parts;
+  }, [card, statusType, t, todoAction]);
 
   const headline = useMemo(() => {
     if (isAskUserTool) return "";
     if (card.kind === "bash") return card.command || toolName;
     if (card.kind === "generic") return card.summary || "";
     if (card.kind === "todo") {
-      if (card.action === "add") return t.toolTodoAdd;
-      if (card.action === "toggle") return t.toolTodoToggle;
-      if (card.action === "clear") return t.toolTodoClear;
-      if (card.action === "list") return t.toolTodoList;
+      if (todoAction) return todoAction;
       return card.items.length
         ? t.todoProgress(
             card.items.filter((i) => i.done).length,
@@ -249,64 +288,7 @@ export function ToolCallCard({
         : toolName;
     }
     return fileName || toolName;
-  }, [card, fileName, isAskUserTool, t, toolName]);
-
-  const body = useMemo(() => {
-    if (card.kind === "todo") return null;
-    if (card.kind === "bash") {
-      const cmd = card.command?.trim() || "";
-      const out = card.preview;
-      if (cmd && out) return `$ ${cmd}\n\n${out}`;
-      if (out) return out;
-      if (cmd) return `$ ${cmd}`;
-      return null;
-    }
-    if (card.kind === "edit" || card.kind === "write") {
-      return card.diff;
-    }
-    if (card.kind === "other") return card.diff;
-    return card.kind === "read" || card.kind === "generic" ? card.preview : null;
-  }, [card]);
-
-  const stickKinds = card.kind === "write" || card.kind === "edit" || card.kind === "bash";
-
-  useEffect(() => {
-    if (!stickKinds) return;
-    // Write/edit: always stick while open (args/result land progressively).
-    // Bash: stick while streaming live output.
-    if (card.kind === "bash" && !streaming) return;
-    if (!open || !stickToBottom.current) return;
-    const el = bodyRef.current;
-    if (!el) return;
-    el.scrollTop = el.scrollHeight;
-  }, [body, streaming, open, stickKinds, card.kind]);
-
-  const cardImages = useMemo<string[]>(
-    () => (card.kind === "generic" ? card.images : []),
-    [card],
-  );
-
-  const emptyBodyText = useMemo(() => {
-    if (card.kind === "bash") return t.toolNoOutput;
-    if (card.kind === "todo") return t.toolTodoEmpty;
-    if (card.kind === "read" || card.kind === "generic") return t.toolNoOutput;
-    return t.toolNoDiff;
-  }, [card.kind, t]);
-
-  const isDiffBody = card.kind === "edit" || card.kind === "write";
-
-  const pathTitle =
-    card.kind === "bash" || card.kind === "generic" || card.kind === "todo"
-      ? undefined
-      : (card.path ?? undefined);
-
-  const todoItems = useMemo(() => (card.kind === "todo" ? card.items : []), [card]);
-
-  /** Rows with nothing to reveal drop the disclosure affordance (VS Code setExpandable). */
-  const expandable =
-    card.kind === "todo"
-      ? todoItems.length > 0
-      : Boolean(nestedCalls?.length) || Boolean(body) || cardImages.length > 0;
+  }, [card, fileName, isAskUserTool, t, todoAction, toolName]);
 
   /** 可预览的文件路径（read / edit / write / other 卡才有）。 */
   const previewPath = useMemo<string | null>(() => {
@@ -321,170 +303,250 @@ export function ToolCallCard({
     return null;
   }, [card]);
 
+  /** 标题目标：调用概况 / 文件 / 命令胶囊 / 摘要。 */
+  function renderTarget(): ReactNode {
+    if (showCallCount) {
+      if (!callCount) return null;
+      return (
+        <span className={styles.callCount}>
+          <span className={styles.sep}>·</span>
+          {t.toolCallCount(callCount)}
+        </span>
+      );
+    }
+    if (previewPath) return <FileChip path={previewPath} onOpen={onOpen} />;
+    if (card.kind === "bash" && card.command) {
+      return <code className={styles.cmdPill}>{card.command}</code>;
+    }
+    return (
+      <span className={`${styles.headline}${streaming ? " copilot-shimmer" : ""}`}>
+        {headline}
+      </span>
+    );
+  }
+
+  const cardImages = useMemo<string[]>(
+    () => (card.kind === "generic" ? card.images : []),
+    [card],
+  );
+
+  const pathTitle =
+    card.kind === "bash" || card.kind === "generic" || card.kind === "todo"
+      ? undefined
+      : (card.path ?? undefined);
+
+  /** Rows with nothing to reveal drop the disclosure affordance (VS Code setExpandable). */
+  const expandable = toolCardHasBody(card) || cardImages.length > 0;
+
   function toggleOpen(): void {
-    const next = !open;
-    setManuallyOpen(next);
-    if (!next) return;
-    stickToBottom.current = true;
+    setManuallyOpen(!open);
   }
 
-  function onBodyScroll(): void {
-    const el = bodyRef.current;
-    if (!el) return;
-    stickToBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < NEAR_BOTTOM_PX;
-  }
+  /** 目录列举工具（ls 等）：动词用「读取」，目标用文件夹 chip。 */
+  const isDirList = card.kind === "generic" && isDirectoryListTool(toolName);
 
-  const bodyLines = useMemo(() => (body ? body.split("\n") : []), [body]);
+  /** 时间线步骤的图标：目录列举用文件夹，失败仍用叉。 */
+  const StepIcon =
+    statusType === "error" ? CloseCircleOutline : isDirList ? FolderOutline : KindIcon;
+
+  const stepVerb = shortToolName(toolName);
+
+  /**
+   * generic 工具要分开说两件事：
+   * 目标 = 它读/写/查的是哪个路径（行里必须显示这个）；
+   * 摘要 = 它产出了多少（次要位，不顶替目标）。
+   */
+  const genericSummary = useMemo(() => {
+    if (card.kind !== "generic") return { target: null, preview: null, isDir: false };
+    const dirTarget = isDirectoryListTool(toolName)
+      ? directoryListTarget(card.args, workspaceRoot)
+      : null;
+    const target = dirTarget ?? genericStepTarget(card.args);
+    const preview = genericStepPreview(card, toolName, {
+      isError: statusType === "error",
+    });
+    return { target, preview, isDir: Boolean(dirTarget) };
+  }, [card, statusType, toolName, workspaceRoot]);
+
+  /** 结果摘要：只说「产出了多少 / 什么结构」，文案按当前语言格式化。 */
+  const previewText = useMemo(() => {
+    const preview = genericSummary.preview;
+    if (!preview) return null;
+    if (preview.kind === "count") return t.toolBodyPathCount(preview.count);
+    if (preview.kind === "sections") {
+      const sections = t.toolBodyScriptSections(preview.count);
+      return preview.wallTime != null
+        ? `${t.toolBodyWallTime(preview.wallTime)} · ${sections}`
+        : sections;
+    }
+    const head = preview.keys.slice(0, 3).join(", ");
+    return `{ ${head}${preview.keys.length > 3 ? ", …" : ""} }`;
+  }, [genericSummary.preview, t]);
+
+  /** 时间线步骤的目标：文件/目录用 chip、命令用等宽字体、其余用参数里的路径。 */
+  const stepTarget = useMemo<ReactNode>(() => {
+    if (previewPath) return <FileChip path={previewPath} onOpen={onOpen} />;
+    if (card.kind === "bash" && card.command) {
+      return <code className={styles.stepCmd}>{card.command}</code>;
+    }
+    if (genericSummary.target) {
+      if (genericSummary.isDir) {
+        return <FileChip path={genericSummary.target} label={genericSummary.target} dir />;
+      }
+      return <span className={styles.stepText}>{genericSummary.target}</span>;
+    }
+    if (previewText) {
+      return <span className={styles.stepText}>{previewText}</span>;
+    }
+    return headline ? <span className={styles.stepText}>{headline}</span> : null;
+  }, [card, genericSummary, headline, onOpen, previewPath, previewText]);
+
+  /** 摘要只做次要位；目标已经用它兜底时不再重复。 */
+  const stepPreview = genericSummary.target ? previewText : null;
+
+  /** 时间线步骤右侧的度量：行数 / 改动数 / 退出码 / 耗时。 */
+  const stepMeta = useMemo<ReactNode>(() => {
+    const parts: ReactNode[] = [];
+    if (card.kind === "read" && card.linesRead != null) {
+      parts.push(t.toolBodyLines(card.linesRead));
+    }
+    if ((card.kind === "edit" || card.kind === "write") && card.stats) {
+      parts.push(
+        <span key="stats" className={styles.stepStats}>
+          <span className={styles.add}>+{card.stats.additions}</span>{" "}
+          <span className={styles.del}>−{card.stats.deletions}</span>
+        </span>,
+      );
+    }
+    if (card.kind === "bash" && card.exitCode != null) {
+      parts.push(
+        <span
+          key="exit"
+          className={card.exitCode === 0 ? styles.stepOk : styles.stepErr}
+        >
+          {t.toolBodyExitCode(card.exitCode)}
+        </span>,
+      );
+    }
+    const durationMs = toolCardDurationMs(card);
+    if (durationMs) parts.push(formatDuration(durationMs));
+    if (!parts.length) return null;
+    return parts.map((part, index) => (
+      <span key={index} className={styles.stepMetaItem}>
+        {part}
+      </span>
+    ));
+  }, [card, t]);
+
+  /** 内部调用列表：独立工具行挂在标题下方，时间线步骤挂在展开体里。 */
+  const nestedCallsBlock = nestedCalls?.length ? (
+    <ToolNestedCalls calls={nestedCalls} onOpen={onOpen} />
+  ) : null;
 
   return (
     <div
       className={[
         styles.toolCall,
-        statusType === "error" ? styles.error : "",
-        treeItem ? styles.treeItem : "",
         !expandable ? styles.notExpandable : "",
         isAskUserTool ? styles.askUserMuted : "",
       ]
         .filter(Boolean)
         .join(" ")}
     >
-      <div
-        className={styles.toolCallHead}
-        title={pathTitle}
-        onClick={() => {
-          if (expandable) toggleOpen();
-        }}
-      >
-        <span
-          className={`${styles.kindIcon}${statusType === "error" ? ` ${styles.error}` : ""}`}
-          aria-hidden="true"
+      {variant === "step" ? (
+        <div
+          className={styles.stepHead}
+          title={pathTitle}
+          onClick={() => {
+            if (expandable) toggleOpen();
+          }}
         >
-          <StatusIcon size={12} />
-        </span>
-        <span className={styles.headText}>
-          <span className={`${styles.action}${streaming ? " copilot-shimmer" : ""}`}>
-            {actionLabel}
+          <span className={`${styles.stepDot} ${statusClass}`} aria-hidden="true">
+            <StepIcon size={11} />
           </span>
-          {previewPath ? (
-            <FileChip path={previewPath} onOpen={onOpen} />
-          ) : card.kind === "bash" && card.command ? (
-            <code className={styles.cmdPill}>{card.command}</code>
-          ) : (
-            <span className={`${styles.headline}${streaming ? " copilot-shimmer" : ""}`}>
-              {headline}
-            </span>
-          )}
-          {metaLine ? <span className={styles.meta}>{metaLine}</span> : null}
-          {(card.kind === "edit" || card.kind === "write") && card.stats ? (
-            <span className={`${styles.meta} ${styles.stats}`}>
-              <span className={styles.add}>+{card.stats.additions}</span>
-              <span className={styles.del}>-{card.stats.deletions}</span>
-            </span>
+          <span className={styles.stepVerb}>{stepVerb}</span>
+          <span className={styles.stepTarget}>{stepTarget}</span>
+          {stepPreview ? <span className={styles.stepPreview}>{stepPreview}</span> : null}
+          <span className={styles.stepMeta}>{stepMeta}</span>
+          {expandable ? (
+            <ChevronForwardOutline
+              size={12}
+              className={`${styles.hoverChev}${open ? ` ${styles.expanded}` : ""}`}
+            />
           ) : null}
-          {(card.kind === "read" || card.kind === "bash") && card.truncated ? (
-            <span className={styles.trunc}>{t.toolTruncated}</span>
-          ) : null}
-        </span>
-        {canBackground ? (
-          <Button
-            size="small"
-            className={styles.bgBtn}
-            loading={backgroundBusy}
-            title={t.toolMoveToBackground}
-            onClick={(event) => {
-              event.stopPropagation();
-              void onBackground();
-            }}
-          >
-            {t.toolMoveToBackground}
-          </Button>
-        ) : null}
-        {expandable ? (
-          <ChevronForwardOutline
-            size={12}
-            className={`${styles.hoverChev}${open ? ` ${styles.expanded}` : ""}`}
-          />
-        ) : null}
-      </div>
-      {open && card.kind === "todo" && todoItems.length ? (
-        <ul className={styles.todoBody}>
-          {todoItems.map((item) => (
-            <li
-              key={item.id}
-              className={`${styles.todoRow}${item.done ? ` ${styles.done}` : ""}`}
-            >
-              {item.done ? (
-                <CheckmarkCircleOutline size={14} className={styles.todoMark} />
-              ) : (
-                <EllipseOutline size={14} className={styles.todoMark} />
-              )}
-              <span className={styles.todoText}>{item.text}</span>
-            </li>
-          ))}
-        </ul>
-      ) : null}
-      {open && nestedCalls?.length ? (
-        <div className={styles.nestedBody}>
-          {nestedCalls.map((call) => {
-            const NestedIcon = call.streaming
-              ? EllipseOutline
-              : call.isError
-                ? CloseCircleOutline
-                : CheckmarkCircleOutline;
-            return (
-              <div
-                key={call.toolCallId}
-                className={`${styles.nestedRow}${call.isError ? ` ${styles.error}` : ""}`}
-              >
-                <NestedIcon size={12} className={styles.nestedMark} />
-                <span className={styles.nestedName}>{call.toolName}</span>
-                {call.durationMs != null && !call.streaming ? (
-                  <span className={styles.nestedMeta}>{formatDuration(call.durationMs)}</span>
-                ) : null}
-              </div>
-            );
-          })}
         </div>
-      ) : null}
-      {open && body ? (
-        <pre
-          ref={bodyRef}
-          className={`${styles.toolBody}${card.kind === "bash" ? ` ${styles.toolBodyBash}` : ""}`}
-          onScroll={onBodyScroll}
+      ) : (
+        <div
+          className={styles.toolCallHead}
+          title={pathTitle}
+          onClick={() => {
+            if (expandable) toggleOpen();
+          }}
         >
-          <code>
-            {bodyLines.map((line, i) => (
-              <span
-                key={i}
-                className={`${styles.dline}${
-                  isDiffBody && line.startsWith("+") && !line.startsWith("+++")
-                    ? ` ${styles.add}`
-                    : isDiffBody && line.startsWith("-") && !line.startsWith("---")
-                      ? ` ${styles.del}`
-                      : isDiffBody &&
-                          (line.startsWith("@@") ||
-                            line.startsWith("diff ") ||
-                            line.startsWith("index ") ||
-                            line.startsWith("+++") ||
-                            line.startsWith("---"))
-                        ? ` ${styles.meta}`
-                        : ""
-                }`}
-              >
-                {line || " "}
+          <span className={`${styles.kindIcon} ${statusClass}`} aria-hidden="true">
+            <StatusIcon size={13} />
+          </span>
+          <div className={styles.headText}>
+            <div className={styles.titleRow}>
+              <span className={`${styles.action}${streaming ? " copilot-shimmer" : ""}`}>
+                {actionLabel}
               </span>
-            ))}
-          </code>
-        </pre>
-      ) : null}
-      {open && !body && !cardImages.length ? (
-        <pre className={`${styles.toolBody} ${styles.empty}`}>{emptyBodyText}</pre>
-      ) : null}
-      {open && cardImages.length ? (
-        <div className={styles.toolImages}>
-          {cardImages.map((src, i) => (
-            <img key={i} src={src} className={styles.toolImage} alt="" />
-          ))}
+              {renderTarget()}
+              <span className={styles.resultGroup}>
+                <span className={styles.sep}>·</span>
+                <span className={`${styles.resultStatus} ${statusClass}`}>{statusLabel}</span>
+                {resultParts.length ? (
+                  <span className={styles.resultText}>{resultParts.join(" · ")}</span>
+                ) : null}
+                {(card.kind === "edit" || card.kind === "write") && card.stats ? (
+                  <span className={styles.resultStats}>
+                    <span className={styles.add}>+{card.stats.additions}</span>
+                    <span className={styles.del}>−{card.stats.deletions}</span>
+                  </span>
+                ) : null}
+              </span>
+            </div>
+            {nestedCallsBlock}
+          </div>
+          {canBackground ? (
+            <Button
+              size="small"
+              className={styles.bgBtn}
+              loading={backgroundBusy}
+              title={t.toolMoveToBackground}
+              onClick={(event) => {
+                event.stopPropagation();
+                void onBackground();
+              }}
+            >
+              {t.toolMoveToBackground}
+            </Button>
+          ) : null}
+          {expandable ? (
+            <ChevronForwardOutline
+              size={12}
+              className={`${styles.hoverChev}${open ? ` ${styles.expanded}` : ""}`}
+            />
+          ) : null}
+        </div>
+      )}
+      {open ? (
+        <div className={variant === "step" ? styles.stepBody : styles.rowBody}>
+          <ToolBody
+            card={card}
+            streaming={streaming}
+            toolName={toolName}
+            isError={statusType === "error"}
+            onOpen={onOpen}
+          />
+          {variant === "step" ? nestedCallsBlock : null}
+          {cardImages.length ? (
+            <div className={styles.toolImages}>
+              {cardImages.map((src, i) => (
+                <img key={i} src={src} className={styles.toolImage} alt="" />
+              ))}
+            </div>
+          ) : null}
         </div>
       ) : null}
     </div>

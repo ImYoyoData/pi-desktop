@@ -1,19 +1,19 @@
 /* 1:1 VS Code Copilot work section — chatThinkingContentPart + chatCollapsibleContentPart */
 .workSection {
-  margin: 0 0 2px;
+  margin: 2px 0 6px;
 }
 
 .workSectionHead {
   position: relative;
   display: inline-flex;
   align-items: center;
-  gap: 5px;
+  gap: 8px;
   width: fit-content;
   max-width: 100%;
-  margin: 0 0 0 -2px;
-  padding: 2px 6px 2px 2px;
+  margin: 0;
+  padding: 3px 8px 3px 0;
   border: 0;
-  border-radius: 5px;
+  border-radius: 6px;
   background: transparent;
   color: var(--chat-desc-fg, var(--fg-muted));
   font: inherit;
@@ -33,37 +33,17 @@
   color: var(--fg, inherit);
 }
 
-/* Streaming state icon — circle-filled like chatThinkingContentPart */
-.liveDot {
+/* 小节首图标：与行内徽标同尺寸，左缘对齐。 */
+.sectionBadge {
   flex-shrink: 0;
-  width: 6px;
-  height: 6px;
-  margin: 0 3px;
-  border-radius: 50%;
-  background: currentColor;
-  animation: ws-pulse 1.6s ease-in-out infinite;
-}
-
-.doneIcon {
-  flex-shrink: 0;
-  margin: 0 3px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--fg) 6%, transparent);
   color: var(--chat-icon-fg, var(--fg-muted));
-}
-
-@keyframes ws-pulse {
-  0%,
-  100% {
-    opacity: 0.45;
-  }
-  50% {
-    opacity: 1;
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .liveDot {
-    animation: none;
-  }
 }
 
 .summary {
@@ -96,7 +76,7 @@
 /* Trailing disclosure chevron — .chat-collapsible-hover-chevron (1:1) */
 .hoverChev {
   flex-shrink: 0;
-  opacity: 0;
+  opacity: 0.65;
   transform: rotate(0deg);
   transform-origin: center;
   transition:
@@ -120,25 +100,48 @@
   }
 }
 
-/* Curved connector from the header to the first tree item (.chat-used-context-label::after) */
-.workSection.open > .workSectionHead::after {
-  content: "";
-  position: absolute;
-  left: 3px;
-  top: 100%;
-  height: 16px;
-  width: 5px;
-  border-left: 1px solid var(--chat-line, var(--border));
-  border-bottom: 1px solid var(--chat-line, var(--border));
-  border-bottom-left-radius: 5px;
-  pointer-events: none;
-}
-
-.workSectionBody {
+/* 过程时间线：每一步一行，展开体紧跟在所属步骤下方。 */
+.timeline {
+  position: relative;
   display: flex;
   flex-direction: column;
-  margin-left: 5px;
+  gap: 1px;
+  padding-top: 2px;
 }
+
+.timeline::before {
+  content: "";
+  position: absolute;
+  left: 11px;
+  top: 12px;
+  bottom: 12px;
+  width: 1px;
+  background: var(--chat-line, #e2e2e5);
+}
+
+.tlItem {
+  position: relative;
+}
+
+/* 折叠态的读/改/命令比例条。 */
+.ratioBar {
+  display: flex;
+  gap: 2px;
+  height: 3px;
+  margin: 2px 4px 0 26px;
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.ratioBar i {
+  display: block;
+  height: 100%;
+  border-radius: 2px;
+}
+
+.ratioEdit { background: var(--accent, #0069cc); }
+.ratioRead { background: color-mix(in srgb, var(--fg) 34%, transparent); }
+.ratioBash { background: color-mix(in srgb, var(--success, #587c0c) 60%, transparent); }
 
 /* Copilot collapsible content animation (chatCollapsibleContentPart.css 1:1):
    keeps the section's DOM mounted and animates height via grid rows, so the
@@ -191,64 +194,33 @@
   }
 }
 
-/* Chain-of-thought tree line per child item (chatThinkingContent.css 1:1) */
-.cotItem {
-  position: relative;
-}
-
-.cotItem::before {
-  content: "";
-  position: absolute;
-  left: 10.5px;
-  top: 0;
-  bottom: 0;
-  width: 1px;
-  border-radius: 0;
-  background-color: var(--chat-line, var(--border));
-  mask-image: linear-gradient(to bottom, #000 0 5px, transparent 5px 25px, #000 24px 100%);
-}
-
-.cotItem:first-child::before {
-  mask-image: linear-gradient(to bottom, transparent 0 25px, #000 25px 100%);
-}
-
-.cotItem:last-child::before {
-  mask-image: linear-gradient(to bottom, #000 0 5px, transparent 5px 100%);
-}
-
-.cotItem:only-child::before {
-  background: none;
-  mask-image: none;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .cotItem::before {
-    mask-image: none;
-  }
-}
-
-/* Thinking row inside the section — plain bullet row (chat-thinking-item) */
+/* 小节内的思考行：与工具行同构的徽标 + 内容。 */
+/* 图标与工具步骤行的圆点对齐：同一 x（left 3px / 16px 宽）与同一垂直中心，
+   时间线竖线（left: 11px）才能穿过两者。 */
 .thinkingItem {
-  padding: 4px 12px 4px 24px;
-  font-size: var(--chat-font-s, 12px);
-  line-height: 1.5em;
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 1px 6px 1px 3px;
   color: var(--chat-desc-fg, var(--fg-muted));
 }
 
-.thinkingDot {
-  position: absolute;
-  left: 7.5px;
-  top: 10px;
-  width: 5px;
-  height: 5px;
+/* 与工具步骤行的圆点同形：图标在按钮内，hover 高亮才能盖住它。 */
+.thinkingBadge {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  margin-right: 5px;
   border-radius: 50%;
-  background: currentColor;
-  opacity: 0.6;
+  border: 1px solid var(--chat-line, #e2e2e5);
+  background: var(--bg, #ffffff);
+  color: var(--chat-icon-fg, var(--fg-muted));
 }
 
-.thinkingText {
-  white-space: pre-wrap;
-  word-break: break-word;
-  max-height: 200px;
-  overflow-y: auto;
+.thinkingContent {
+  flex: 1;
+  min-width: 0;
 }

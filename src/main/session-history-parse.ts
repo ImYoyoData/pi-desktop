@@ -81,7 +81,11 @@ function nestedCallsFromMessage(
   | {
       toolCallId: string;
       toolName: string;
+      /** pi 记录的调用参数：渲染层据此说明「这个工具干了啥」。 */
+      args?: unknown;
       isError?: boolean;
+      /** pi 只记录错误文本，不记录调用结果。 */
+      error?: string;
       durationMs?: number;
     }[]
   | undefined {
@@ -92,17 +96,30 @@ function nestedCallsFromMessage(
   const out: {
     toolCallId: string;
     toolName: string;
+    args?: unknown;
     isError?: boolean;
+    error?: string;
     durationMs?: number;
   }[] = [];
   for (const call of calls) {
     if (!call || typeof call !== "object") continue;
-    const row = call as { id?: unknown; name?: unknown; status?: unknown; durationMs?: unknown };
+    const row = call as {
+      id?: unknown;
+      name?: unknown;
+      status?: unknown;
+      durationMs?: unknown;
+      arguments?: unknown;
+      error?: unknown;
+    };
     if (typeof row.id !== "string" || !row.id) continue;
     out.push({
       toolCallId: row.id,
       toolName: typeof row.name === "string" && row.name ? row.name : "tool",
+      ...(row.arguments !== undefined
+        ? { args: truncateArgsForUi(row.arguments) }
+        : {}),
       ...(row.status === "error" ? { isError: true } : {}),
+      ...(typeof row.error === "string" && row.error ? { error: row.error } : {}),
       ...(typeof row.durationMs === "number" && Number.isFinite(row.durationMs)
         ? { durationMs: row.durationMs }
         : {}),
@@ -415,6 +432,12 @@ function buildMessagesFromEntries(
           turnStartMs != null && Number.isFinite(doneMs)
             ? Math.max(0, doneMs - turnStartMs)
             : null;
+        // pi 记录的这条消息耗时（模型调用开始到落盘）：历史会话里思考行只能用它显示耗时。
+        const recordedMs = entry.message.durationMs;
+        const thinkingDurationMs =
+          typeof recordedMs === "number" && Number.isFinite(recordedMs) && recordedMs > 0
+            ? recordedMs
+            : null;
         messages.push({
           id: entry.id,
           role: "assistant",
@@ -424,6 +447,7 @@ function buildMessagesFromEntries(
           ...(currentThinkingLevel ? { thinkingLevel: currentThinkingLevel } : {}),
           ...(usage ? { usage } : {}),
           ...(durationMs != null && durationMs > 0 ? { durationMs } : {}),
+          ...(thinkingDurationMs != null ? { thinkingDurationMs } : {}),
         });
       }
       // stop 落在工具执行中时磁盘上没有 tool_result，补一张已取消卡片，

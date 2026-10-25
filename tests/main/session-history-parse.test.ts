@@ -316,3 +316,41 @@ describe("parseSessionHistoryJsonl 断链与摘要还原", () => {
     expect(parseSessionHistoryJsonl(raw)).toEqual([]);
   });
 });
+
+describe("assistant thinking duration", () => {
+  it("keeps the pi-recorded message duration for history thinking rows", () => {
+    const raw = jsonl([
+      {
+        type: "session",
+        version: 3,
+        id: "session-t",
+        timestamp: "2026-01-15T12:00:00.000Z",
+        cwd: "/tmp",
+      },
+      {
+        type: "message",
+        id: "u1",
+        parentId: null,
+        timestamp: "2026-01-15T12:00:00.000Z",
+        message: { role: "user", content: "hi" },
+      },
+      {
+        type: "message",
+        id: "a1",
+        parentId: "u1",
+        timestamp: "2026-01-15T12:00:05.000Z",
+        message: {
+          role: "assistant",
+          content: [
+            { type: "thinking", thinking: "thinking text" },
+            { type: "text", text: "answer" },
+          ],
+          durationMs: 4_200,
+        },
+      },
+    ]);
+    const messages = parseSessionHistoryJsonl(raw);
+    const assistant = messages.find((m) => m.id === "a1");
+    expect(assistant).toMatchObject({ thinking: "thinking text", thinkingDurationMs: 4_200 });
+  });
+});

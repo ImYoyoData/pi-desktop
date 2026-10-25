@@ -4,9 +4,7 @@ import {
   buildRoundUserByRow,
   buildSettledRowIds,
   buildWorkSectionMembership,
-  displayMessageRows,
   lastIdPerRound,
-  latestTurnStartIndex,
 } from "../../src/renderer/src/utils/message-rows";
 import type { ChatMessage } from "../../src/renderer/src/stores/chat-reducer";
 
@@ -23,42 +21,6 @@ const tool = (id: string, toolName = "bash"): ChatMessage => ({
   role: "tool",
   toolCallId: id,
   toolName,
-});
-
-describe("latestTurnStartIndex", () => {
-  it("returns the last user row index", () => {
-    expect(latestTurnStartIndex([user("u1"), tool("t1"), user("u2")])).toBe(2);
-  });
-
-  it("returns -1 when there is no user row", () => {
-    expect(latestTurnStartIndex([tool("t1"), answer("a1")])).toBe(-1);
-  });
-});
-
-describe("displayMessageRows", () => {
-  it("drops tool and thinking-only rows from finished turns", () => {
-    const all = [user("u1"), tool("t1"), thinking("h1"), answer("a1"), user("u2")];
-    const out = displayMessageRows(all, latestTurnStartIndex(all));
-    expect(out.map((m) => m.id)).toEqual(["u1", "a1", "u2"]);
-  });
-
-  it("keeps process rows of the latest turn", () => {
-    const all = [user("u1"), answer("a1"), user("u2"), tool("t2")];
-    const out = displayMessageRows(all, latestTurnStartIndex(all));
-    expect(out.map((m) => m.id)).toEqual(["u1", "a1", "u2", "t2"]);
-  });
-
-  it("keeps interactive ask_user rows visible in history", () => {
-    const all = [user("u1"), tool("t1", "ask_user"), user("u2")];
-    const out = displayMessageRows(all, latestTurnStartIndex(all));
-    expect(out.map((m) => m.id)).toEqual(["u1", "t1", "u2"]);
-  });
-
-  it("treats every row as the latest turn when there is no user row", () => {
-    const all = [tool("t1"), thinking("h1"), answer("a1")];
-    const out = displayMessageRows(all, latestTurnStartIndex(all));
-    expect(out.map((m) => m.id)).toEqual(["t1", "h1", "a1"]);
-  });
 });
 
 describe("buildWorkSectionMembership", () => {
@@ -104,10 +66,18 @@ describe("buildSettledRowIds", () => {
     expect(settled.size).toBe(0);
   });
 
-  it("does not fold process rows before the latest turn start", () => {
-    // displayMessageRows 已经裁掉历史过程行，这里保证剩余集合里不会误折叠 user 行。
-    const displayed = [user("u1"), answer("a1")];
-    expect(buildSettledRowIds(displayed, buildWorkSectionMembership(displayed)).size).toBe(0);
+  it("folds process rows in every finished turn, including history", () => {
+    const displayed = [
+      user("u1"),
+      tool("t1"),
+      tool("t2"),
+      answer("a1"),
+      user("u2"),
+      tool("t3"),
+      answer("a2"),
+    ];
+    const settled = buildSettledRowIds(displayed, buildWorkSectionMembership(displayed));
+    expect([...settled].sort()).toEqual(["t1", "t2", "t3"]);
   });
 });
 

@@ -7,49 +7,6 @@
   color: var(--chat-desc-fg, var(--fg-muted));
 }
 
-.toolCall.error {
-  color: var(--error, #d03050);
-}
-
-.nestedBody {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  margin: 2px 0 4px;
-  padding-left: 20px;
-}
-
-.nestedRow {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  min-width: 0;
-  color: var(--fg-muted);
-  font-size: 0.8462rem;
-  line-height: 16px;
-}
-
-.nestedRow.error {
-  color: var(--error, #d03050);
-}
-
-.nestedMark {
-  flex-shrink: 0;
-  opacity: 0.7;
-}
-
-.nestedName {
-  font-family: var(--font-mono, monospace);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.nestedMeta {
-  flex-shrink: 0;
-  opacity: 0.7;
-}
-
 .toolCall.askUserMuted {
   opacity: 0.82;
 }
@@ -60,15 +17,15 @@
 
 .toolCallHead {
   position: relative;
-  width: fit-content;
+  width: 100%;
   max-width: 100%;
   display: flex;
-  align-items: center;
-  gap: 4px;
+  align-items: flex-start;
+  gap: 8px;
   margin: 0;
-  padding: 2px 6px 2px 2px;
+  padding: 5px 8px 5px 4px;
   border: none;
-  border-radius: 5px;
+  border-radius: 8px;
   background: transparent;
   color: inherit;
   text-align: left;
@@ -86,56 +43,141 @@
   color: var(--fg, inherit);
 }
 
-/* Tree mode (inside WorkSectionGroup): icon hangs on the chain-of-thought line. */
-.treeItem .toolCallHead {
-  width: 100%;
-  padding: 4px 12px 4px 24px;
-}
-
+/* 左侧状态徽标：底色与图标颜色跟随运行状态。 */
 .kindIcon {
   flex-shrink: 0;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 12px;
-  height: 12px;
+  width: 22px;
+  height: 22px;
+  margin-top: 1px;
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--fg) 6%, transparent);
   color: var(--chat-icon-fg, var(--fg-muted));
 }
 
+.kindIcon.success {
+  background: color-mix(in srgb, var(--success, #3d9a6a) 14%, transparent);
+  color: var(--success, #3d9a6a);
+}
+
 .kindIcon.error {
+  background: color-mix(in srgb, var(--error, #d03050) 14%, transparent);
   color: var(--error, #d03050);
 }
 
-.treeItem .kindIcon {
-  position: absolute;
-  left: 5px;
-  top: 8px;
+.kindIcon.running {
+  background: color-mix(in srgb, var(--accent, #4f8cff) 16%, transparent);
+  color: var(--accent, #4f8cff);
+  animation: tool-pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes tool-pulse {
+  0%,
+  100% {
+    opacity: 0.6;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .kindIcon.running {
+    animation: none;
+  }
 }
 
 .headText {
   flex: 1;
   min-width: 0;
   display: flex;
-  align-items: baseline;
-  gap: 4px;
+  flex-direction: column;
+  gap: 1px;
   overflow: hidden;
+}
+
+.titleRow {
+  display: flex;
+  align-items: baseline;
+  gap: 5px;
+  min-width: 0;
   white-space: nowrap;
-  font-variant-numeric: tabular-nums;
-  font-feature-settings: "tnum";
 }
 
 .action {
   font: inherit;
-  color: inherit;
+  color: var(--chat-desc-fg, var(--fg-muted));
   flex-shrink: 0;
 }
 
 .headline {
   font: inherit;
-  color: inherit;
+  color: var(--fg, inherit);
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 调用概况：codemode 等内部调用工具的标题目标。 */
+.callCount {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+  flex-shrink: 0;
+  color: var(--fg, inherit);
+}
+
+/* 结果段：状态 + 处理后的结果（行数 / 改动 / 耗时 / 图片数），与标题同行。 */
+.resultGroup {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+  min-width: 0;
+  font-size: var(--chat-font-xs, 11px);
+  line-height: 1.45;
+  color: var(--chat-desc-fg, var(--fg-muted));
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum";
+}
+
+/* 段之间的间隔点。 */
+.sep {
+  flex-shrink: 0;
+  opacity: 0.55;
+}
+
+.resultStatus {
+  flex-shrink: 0;
+  font-weight: 600;
+}
+
+.resultStatus.success {
+  color: var(--success, #3d9a6a);
+}
+
+.resultStatus.error {
+  color: var(--error, #d03050);
+}
+
+.resultStatus.running {
+  color: var(--accent, #4f8cff);
+}
+
+.resultText {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.resultStats {
+  display: inline-flex;
+  gap: 5px;
+  flex-shrink: 0;
+  font-family: var(--font-mono, monospace);
 }
 
 /* bash command / glob pattern pill — VS Code [data-code] inside progress text */
@@ -156,23 +198,6 @@
   white-space: nowrap;
 }
 
-/* Long commands/headlines shrink themselves; the line-count meta always stays visible. */
-.meta {
-  font: inherit;
-  color: inherit;
-  opacity: 0.85;
-  flex-shrink: 0;
-}
-
-.meta.stats {
-  display: inline-flex;
-  gap: 5px;
-  margin-left: 0;
-  font-family: var(--font-mono, ui-monospace, monospace);
-  opacity: 1;
-  flex-shrink: 0;
-}
-
 .headText :global(.file-chip) {
   min-width: 0;
 }
@@ -183,13 +208,6 @@
 
 .del {
   color: var(--git-d, #cf222e);
-}
-
-.trunc {
-  margin-left: 0;
-  flex-shrink: 0;
-  font-size: var(--chat-font-xs, 11px);
-  color: var(--warning, #9a6700);
 }
 
 /* Trailing disclosure chevron — .chat-collapsible-hover-chevron (1:1) */
@@ -243,38 +261,144 @@
   opacity: 0.55;
 }
 
-.toolBody {
-  margin: 2px 0 4px;
-  padding: 5px 8px;
-  max-height: 160px;
-  overflow: auto;
+/* 状态色：成功 / 失败 / 运行中。
+   这些类名由 statusClass 统一挂到徽标、结果状态与卡片根节点上，
+   必须独立存在，否则 styles.success 取到 undefined，状态色完全不生效。 */
+.success {
+  color: var(--success, #3d9a6a);
+}
+
+.error {
+  color: var(--error, #d03050);
+}
+
+.running {
+  color: var(--accent, #4f8cff);
+}
+
+/* --- 时间线步骤（工作区块内的一步） --- */
+.stepHead {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-width: 0;
+  padding: 4px 6px 4px 26px;
+  border-radius: 7px;
+  cursor: pointer;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.stepHead:hover {
+  background: var(--chat-hover-bg, color-mix(in srgb, var(--fg) 5%, transparent));
+}
+
+/* 度量紧随目标显示，展开箭头仍贴在行尾。 */
+.stepHead .hoverChev {
+  margin-left: auto;
+}
+
+.stepDot {
+  position: absolute;
+  left: 3px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  border: 1px solid var(--chat-line, #e2e2e5);
+  background: var(--bg, #ffffff);
+  color: var(--chat-icon-fg, var(--fg-muted));
+}
+
+.stepDot.success {
+  border-color: color-mix(in srgb, var(--success, #3d9a6a) 55%, transparent);
+  color: var(--success, #3d9a6a);
+}
+
+.stepDot.error {
+  border-color: color-mix(in srgb, var(--error, #d03050) 55%, transparent);
+  color: var(--error, #d03050);
+}
+
+.stepDot.running {
+  border-color: var(--accent, #4f8cff);
+  color: var(--accent, #4f8cff);
+}
+
+.stepVerb {
+  flex-shrink: 0;
+  font-size: var(--chat-font-s, 12px);
+  color: var(--chat-desc-fg, var(--fg-muted));
+}
+
+.stepTarget {
+  flex: 0 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  overflow: hidden;
+}
+
+.stepText,
+.stepCmd {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-mono, monospace);
   font-size: var(--chat-font-xs, 11px);
-  line-height: 1.5;
-  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
-  border: 1px solid var(--chat-line, var(--border));
-  border-radius: 6px;
-  background: var(--w-tool-surface, var(--pre-bg, var(--code-bg)));
   color: var(--fg, inherit);
 }
 
-.treeItem .toolBody {
-  margin-left: 24px;
+.stepPreview {
+  flex-shrink: 0;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: var(--chat-font-xs, 11px);
+  color: var(--chat-desc-fg, var(--fg-muted));
+  opacity: 0.65;
 }
 
-.toolBody.empty {
-  padding: 8px 10px;
+/* 次要信息与思考行的小字同一套观感：灰一档、整体再淡一点。 */
+.stepMeta {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: var(--chat-font-xs, 11px);
   color: var(--chat-desc-fg, var(--fg-muted));
+  opacity: 0.65;
+  font-variant-numeric: tabular-nums;
+}
+
+.stepMetaItem { white-space: nowrap; }
+
+.stepStats {
+  font-family: var(--font-mono, monospace);
+}
+
+.stepOk { color: var(--success, #3d9a6a); }
+.stepErr { color: var(--error, #d03050); }
+
+/* 展开体紧跟在所属步骤下方，与步骤文本对齐。 */
+.stepBody {
+  padding-left: 26px;
+}
+
+/* 独立工具行的展开体：与标题左缘对齐地缩进一级。 */
+.rowBody {
+  margin: 2px 0 4px 30px;
 }
 
 .toolImages {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
-  margin: 2px 0 4px;
-}
-
-.treeItem .toolImages {
-  margin-left: 24px;
+  margin: 4px 0 0;
 }
 
 .toolImage {
@@ -282,78 +406,4 @@
   max-height: 260px;
   border: 1px solid var(--chat-line, var(--border));
   border-radius: 6px;
-}
-
-.toolBodyBash .dline {
-  color: var(--fg-strong, inherit);
-}
-
-.dline {
-  display: block;
-  padding: 0 4px;
-  white-space: pre-wrap;
-  word-break: break-all;
-}
-
-.dline.add {
-  background: rgba(46, 160, 67, 0.12);
-}
-
-.dline.del {
-  background: rgba(248, 81, 73, 0.12);
-}
-
-.dline.meta {
-  color: var(--fg-muted);
-}
-
-.todoBody {
-  list-style: none;
-  margin: 2px 0 4px;
-  padding: 6px 8px;
-  border: 1px solid var(--chat-line, var(--border));
-  border-radius: 6px;
-  background: var(--w-tool-surface, var(--pre-bg, var(--code-bg)));
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  max-height: 180px;
-  overflow: auto;
-}
-
-.treeItem .todoBody {
-  margin-left: 24px;
-}
-
-.todoRow {
-  display: flex;
-  align-items: flex-start;
-  gap: 8px;
-  font-size: var(--chat-font-s, 12px);
-  line-height: 1.35;
-  color: var(--fg);
-}
-
-.todoRow.done {
-  color: var(--fg-muted);
-}
-
-.todoRow.done .todoText {
-  text-decoration: line-through;
-  text-decoration-color: color-mix(in srgb, var(--fg-muted) 55%, transparent);
-}
-
-.todoMark {
-  flex-shrink: 0;
-  margin-top: 1px;
-  color: var(--fg-muted);
-}
-
-.todoRow.done .todoMark {
-  color: var(--success, #3d9a6a);
-}
-
-.todoText {
-  min-width: 0;
-  word-break: break-word;
 }

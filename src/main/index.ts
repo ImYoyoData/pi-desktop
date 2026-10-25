@@ -74,6 +74,8 @@ import { migrateLegacyProviderIds } from "./provider-id-migration";
 import { initProxy, registerProxyIpc, restoreStartupProxyEnv } from "./proxy-host";
 import { installApplicationMenu } from "./app-menu";
 import { enableHardwareAcceleration } from "./gpu-flags";
+import { enableRemoteDebugging } from "./remote-debugging";
+import { installDevBridge } from "./dev-bridge";
 import {
 	installLocalFileProtocol,
 	registerLocalFileScheme,
@@ -82,6 +84,10 @@ import { guardChromiumCacheDirs } from "./cache-guard";
 
 /** GPU raster / compositing before ready (no-op if only software GL). */
 enableHardwareAcceleration();
+enableRemoteDebugging();
+// 只有 electron-vite dev（渲染层由 Vite 开发服务器提供）才开预览桥；
+// preview / 打包版都没有桥脚本，开了也只是白占端口。
+if (process.env.NODE_ENV_ELECTRON_VITE === "development") installDevBridge();
 markStartup("main:module-loaded");
 installIpcTiming();
 registerLocalFileScheme();

@@ -53,16 +53,17 @@ export const IpcChannels = {
 		get: "retry:get",
 		/** Renderer → main: 保存「重试」设置（并热重载给活跃 worker）。 */
 		set: "retry:set",
-		/** Main → renderer: 重试设置变更（多窗口同步）。 */
-		changed: "retry:changed",
 	},
 	runtime: {
 		/** Renderer → main: 读取「运行」设置（压缩 / 缓存 / 隐私）。 */
 		get: "runtime:get",
 		/** Renderer → main: 保存「运行」设置（并热重载给活跃 worker）。 */
 		set: "runtime:set",
-		/** Main → renderer: 运行设置变更（多窗口同步）。 */
-		changed: "runtime:changed",
+	},
+	/** 共享状态统一通道：桌面端与浏览器预览页据此同步。 */
+	state: {
+		/** Main → renderer: 共享状态变化（按范围，见 shared/state-sync.ts）。 */
+		changed: "state:changed",
 	},
 	appearance: {
 		/** Renderer → main: 选择壁纸文件（图片/动图/视频）。 */
@@ -363,7 +364,6 @@ export const IpcChannels = {
 	proxy: {
 		get: "proxy:get",
 		set: "proxy:set",
-		changed: "proxy:changed",
 	},
 } as const;
 
@@ -596,6 +596,8 @@ export type SessionHistoryMessage =
 			usage?: { input?: number; output?: number; totalTokens?: number } | null;
 			/** 本轮耗时毫秒（恢复历史时从时间戳还原）。 */
 			durationMs?: number;
+			/** 这条消息的耗时毫秒（pi 记录），思考行据此显示耗时。 */
+			thinkingDurationMs?: number;
 	  }
 	| {
 			id: string;
@@ -612,7 +614,11 @@ export type SessionHistoryMessage =
 			nestedCalls?: {
 				toolCallId: string;
 				toolName: string;
+				/** 调用参数：渲染层据此说明「这个工具干了啥」。 */
+				args?: unknown;
 				isError?: boolean;
+				/** 失败原因（pi 记录里已截断）；历史会话没有调用结果，只有这里能看到错误。 */
+				error?: string;
 				durationMs?: number;
 			}[];
 	  }

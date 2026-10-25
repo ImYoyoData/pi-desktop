@@ -19,6 +19,15 @@ export function ThinkingLanguageSetting(): ReactNode {
     void load();
   }, []);
 
+  // 另一窗口改了思考语言时跟着变。
+  useEffect(() => {
+    const onChanged = (): void => {
+      void load();
+    };
+    window.addEventListener("pi-thinking-language-changed", onChanged);
+    return () => window.removeEventListener("pi-thinking-language-changed", onChanged);
+  }, []);
+
   async function load(): Promise<void> {
     try {
       setLanguage((await window.api.thinkingLanguage.get()).language);

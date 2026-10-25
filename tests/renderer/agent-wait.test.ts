@@ -217,4 +217,20 @@ describe("stampThinkingClock", () => {
     expect(mid.thinkingDurationMs).toBe(1_200);
     expect(mid.thinkingStartedAt).toBeUndefined();
   });
+
+  it("leaves an already-finished message without a duration instead of 0ms", async () => {
+    const { stampThinkingClock } = await import("../../src/renderer/src/stores/chat-reducer");
+    const done = stampThinkingClock(
+      {
+        id: "a1",
+        role: "assistant",
+        text: "answer",
+        thinking: "thought",
+        streaming: false,
+      },
+      { now: 5_000, finalize: true },
+    );
+    expect(done.thinkingStartedAt).toBeUndefined();
+    expect(done.thinkingDurationMs).toBeUndefined();
+  });
 });

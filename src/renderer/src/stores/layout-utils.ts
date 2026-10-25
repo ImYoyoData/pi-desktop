@@ -16,6 +16,16 @@ export function clampPanelHeight(value: number, min = 18, max = 75): number {
   return Math.min(max, Math.max(min, value));
 }
 
+/** 最大化编辑器区之前的面板状态：退出最大化时还原。 */
+export interface PreMaximizeState {
+  leftCollapsed: boolean;
+  rightCollapsed: boolean;
+  bottomCollapsed: boolean;
+  leftSize: number;
+  centerSize: number;
+  rightSize: number;
+}
+
 export interface PersistedLayout {
   leftSize: number;
   centerSize: number;
@@ -29,6 +39,10 @@ export interface PersistedLayout {
   centerView: CenterView;
   /** 智能体设置当前分类。 */
   customizeSection: string;
+  /** 编辑器区最大化：右栏独占整个窗口。 */
+  editorMaximized: boolean;
+  /** 最大化前的面板状态。 */
+  preMaximize: PreMaximizeState | null;
 }
 
 /** 中央区域视图：聊天 / 拉取请求 / 智能体设置整页。 */
@@ -49,7 +63,27 @@ export const DEFAULT_LAYOUT: PersistedLayout = {
   bottomCollapsed: true,
   centerView: "chat",
   customizeSection: "appearance",
+  editorMaximized: false,
+  preMaximize: null,
 };
+
+function normalizePreMaximize(raw: unknown): PreMaximizeState | null {
+	if (!raw || typeof raw !== "object") return null;
+	const source = raw as Partial<PreMaximizeState>;
+	if (typeof source.leftSize !== "number" || !Number.isFinite(source.leftSize)) {
+		return null;
+	}
+	return {
+		leftCollapsed: source.leftCollapsed === true,
+		rightCollapsed: source.rightCollapsed === true,
+		bottomCollapsed: source.bottomCollapsed === true,
+		leftSize: clampPanePercent(source.leftSize),
+		centerSize: clampPanePercent(source.centerSize ?? source.leftSize),
+		rightSize: clampPanePercent(source.rightSize ?? source.leftSize),
+	};
+}
+
+export const LAYOUT_SYNC_PREFIX = "layout:";
 
 export function layoutStorageKey(workspaceRoot: string): string {
   return `layout:v4:${workspaceRoot}`;
@@ -123,6 +157,8 @@ function normalizeSizes(partial: Partial<PersistedLayout>): PersistedLayout {
       typeof partial.customizeSection === "string" && partial.customizeSection
         ? partial.customizeSection
         : DEFAULT_LAYOUT.customizeSection,
+    editorMaximized: partial.editorMaximized === true,
+    preMaximize: normalizePreMaximize(partial.preMaximize),
   };
 }
 

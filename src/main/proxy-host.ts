@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { app, BrowserWindow, ipcMain, session } from "electron";
+import { app, ipcMain, session } from "electron";
 import { IpcChannels } from "../shared/protocol";
 import {
 	DEFAULT_PROXY_SETTINGS,
@@ -14,6 +14,7 @@ import {
 	type ProxySettings,
 } from "../shared/proxy";
 import { syncWebSearchProxy } from "./web-search-proxy";
+import { broadcastStateChange } from "./ui-sync";
 
 const SYSTEM_PROXY_PROBE_URL = "https://api.openai.com";
 
@@ -84,9 +85,7 @@ async function refreshSystemProxyEnv(): Promise<void> {
 }
 
 function broadcastChanged(settings: ProxySettings): void {
-	for (const win of BrowserWindow.getAllWindows()) {
-		win.webContents.send(IpcChannels.proxy.changed, settings);
-	}
+	broadcastStateChange({ scope: "proxy", payload: settings });
 }
 
 /** 上次生效的代理 env 快照；NODE_USE_ENV_PROXY 只在进程启动时生效，OAuth 等

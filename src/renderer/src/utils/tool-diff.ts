@@ -2,6 +2,7 @@
 
 import type { ChatMessage } from "../stores/chat-reducer";
 import { safeStringify } from "./safe-json";
+import { languageFromPath } from "./editor-lang";
 import {
   isTodoToolName,
   normalizeTodoRows,
@@ -34,6 +35,9 @@ function fallbackToolCard(msg: ToolMessage): ToolCard {
     summary: msg.toolName,
     preview: rendered ? rendered.slice(0, 20_000) : null,
     images: [],
+    structured: null,
+    args: null,
+    previewFromArgs: msg.result == null && msg.args != null,
   };
 }
 
@@ -62,11 +66,10 @@ export type FileToolCard = {
   kind: "edit" | "write" | "other";
   path: string | null;
   stats: ToolDiffStats | null;
-  /** Display-oriented diff from EditToolDetails, or synthesized preview. */
+  /** 统一的 unified diff：pi 的 display 格式在解析时就归一化掉。 */
   diff: string | null;
-  /** Unified patch when available. */
-  patch: string | null;
-  firstChangedLine?: number;
+  /** Execution duration stamped by the reducer (live turns only). */
+  durationMs?: number | null;
 };
 
 export type ReadToolCard = {
@@ -80,6 +83,8 @@ export type ReadToolCard = {
   startLine: number | null;
   truncated: boolean;
   preview: string | null;
+  /** 语言 id（按扩展名推断），用于语法高亮。 */
+  lang: string;
   /** Execution duration stamped by the reducer (live turns only). */
   durationMs?: number | null;
 };
@@ -91,6 +96,12 @@ export type BashToolCard = {
   totalLines: number | null;
   truncated: boolean;
   preview: string | null;
+  /** structuredContent.exit_code；历史回合缺失时从输出尾部解析。 */
+  exitCode: number | null;
+  /** structuredContent.wall_time_seconds。 */
+  wallTimeSeconds: number | null;
+  /** 输出被截断时的完整日志路径。 */
+  fullOutputPath: string | null;
   /** Execution duration stamped by the reducer (live turns only). */
   durationMs?: number | null;
 };
@@ -108,6 +119,14 @@ export type GenericToolCard = {
   preview: string | null;
   /** 工具结果里的图片块（codemode 生成图等），已转成 data URL。 */
   images: string[];
+  /** structuredContent：MCP / pi 工具的结构化结果，可直接渲染成 JSON 树。 */
+  structured: unknown | null;
+  /** 原始调用参数：渲染层据此说明「这个工具操作了哪个路径」。 */
+  args: unknown;
+  /** 结果为空时 preview 退回了参数 JSON，不能当工具输出做结构化解析。 */
+  previewFromArgs: boolean;
+  /** Execution duration stamped by the reducer (live turns only). */
+  durationMs?: number | null;
 };
 
 export type ToolCard =
@@ -163,9 +182,11 @@ export function extractToolResult(result: unknown): {
   details: Record<string, unknown> | null;
   text: string;
   images: string[];
+  /** structuredContent：pi / MCP 工具的结构化结果。 */
+  structured: unknown | null;
 } {
   if (!isRecord(result)) {
-    return { details: null, text: result == null ? "" : String(result), images: [] };
+    return { details: null, text: result == null ? "" : String(result), images: [], structured: null };
   }
   const details = isRecord(result.details) ? result.details : null;
   let text = "";
@@ -180,10 +201,11 @@ export function extractToolResult(result: unknown): {
     text = result.text;
   }
   const images = imageDataUrls(result.content);
+  const structured = result.structuredContent ?? null;
   if (!details && (typeof result.diff === "string" || typeof result.patch === "string")) {
-    return { details: result, text, images };
+    return { details: result, text, images, structured };
   }
-  return { details, text, images };
+  return { details, text, images, structured };
 }
 
 function pathFromArgs(args: unknown): string | null {
@@ -204,6 +226,53 @@ function commandFromArgs(args: unknown): string | null {
 
 export function toolCommandFromArgs(args: unknown): string | null {
   return commandFromArgs(args);
+}
+
+/** 通用工具的参数里最能说明「干了什么」的字段，按优先级排列。 */
+const GENERIC_TARGET_KEYS = [
+  "path",
+  "file_path",
+  "filePath",
+  "command",
+  "cmd",
+  "pattern",
+  "query",
+  "url",
+  "prompt",
+  "description",
+];
+
+/** 单行摘要截断：超长就截断加省略号，不给半截 token 之外的额外处理。 */
+export function clipText(text: string, max = 64): string {
+  return text.length > max ? `${text.slice(0, max - 1)}…` : text;
+}
+
+/** 摘要截断：压掉换行、在词边界断开，避免出现半截 token。 */
+function truncateSummary(text: string, max = 64): string {
+  const flat = text.replace(/\s+/g, " ").trim();
+  if (flat.length <= max) return flat;
+  const cut = flat.slice(0, max);
+  const space = cut.lastIndexOf(" ");
+  const head = space > max * 0.6 ? cut.slice(0, space) : cut;
+  return `${head.trimEnd()}…`;
+}
+
+/**
+ * 通用工具摘要：优先取能说明「干了什么」的参数；
+ * 都没有时退回脚本首行或参数 JSON，而不是甩一坨原始参数。
+ */
+function genericSummary(args: unknown): string | null {
+  if (!isRecord(args)) return null;
+  for (const key of GENERIC_TARGET_KEYS) {
+    const value = args[key];
+    if (typeof value === "string" && value.trim()) return truncateSummary(value.trim());
+  }
+  const code = args.code;
+  if (typeof code === "string" && code.trim()) {
+    const first = code.split("\n").find((line) => line.trim()) ?? "";
+    if (first.trim()) return truncateSummary(first.trim());
+  }
+  return truncateSummary(safeStringify(args));
 }
 
 function truncationFromDetails(details: Record<string, unknown> | null): {
@@ -288,6 +357,24 @@ function contentFromWriteArgs(args: unknown): string {
   return "";
 }
 
+/**
+ * pi 的 display diff（`+198 text` / ` 197 text`）归一化成 unified。
+ *
+ * 渲染层只认 unified 一种格式：display diff 会让整张卡片退化成纯文本预览。
+ */
+function normalizeDiff(raw: string, path: string | null): string {
+  if (raw.includes("@@")) return raw;
+  const label = (path ?? "file").replace(/\\/g, "/");
+  const body = raw
+    .replace(/\r\n/g, "\n")
+    .split("\n")
+    .map((line) => {
+      const match = /^([+\- ])\s*\d*\s(.*)$/.exec(line);
+      return match ? `${match[1]}${match[2]}` : line;
+    });
+  return [`--- a/${label}`, `+++ b/${label}`, "@@", ...body].join("\n");
+}
+
 function previewEditFromArgs(args: unknown, path: string | null): string | null {
   if (!isRecord(args)) return null;
   // Single edit shape
@@ -353,7 +440,7 @@ export function parseFileToolCard(
   toolName: string,
   args: unknown,
   result: unknown,
-  opts?: { isError?: boolean },
+  opts?: { isError?: boolean; durationMs?: number },
 ): FileToolCard {
   const name = toolName.toLowerCase();
   const path = pathFromArgs(args);
@@ -372,39 +459,37 @@ export function parseFileToolCard(
       path,
       stats: null,
       diff: text.trim() ? text : null,
-      patch: null,
     };
   }
 
   if (name === "edit" || name === "str_replace" || name === "search_replace") {
-    const diff = typeof details?.diff === "string" ? details.diff : null;
-    const patch = typeof details?.patch === "string" ? details.patch : null;
-    const source = diff || patch || previewEditFromArgs(args, path) || "";
-    const stats = source ? countDiffStats(source) : null;
-    const firstChangedLine =
-      typeof details?.firstChangedLine === "number" ? details.firstChangedLine : undefined;
+    // pi 同时给 display diff 与 unified patch：统一成 unified，渲染层只认一种格式。
+    const raw =
+      (typeof details?.patch === "string" ? details.patch : null) ||
+      (typeof details?.diff === "string" ? details.diff : null) ||
+      previewEditFromArgs(args, path);
+    const diff = raw ? normalizeDiff(raw, path) : null;
     return {
       kind: "edit",
       path,
-      stats,
-      diff: diff || patch || previewEditFromArgs(args, path),
-      patch,
-      firstChangedLine,
+      stats: diff ? countDiffStats(diff) : null,
+      diff,
+      durationMs: opts?.durationMs ?? null,
     };
   }
 
   if (name === "write" || name === "write_file" || name === "create_file") {
-    // Prefer an explicit diff from the tool when present (overwrite with real +/-).
     const detailsDiff = typeof details?.diff === "string" ? details.diff : null;
     const detailsPatch = typeof details?.patch === "string" ? details.patch : null;
-    if (detailsDiff || detailsPatch) {
-      const source = detailsDiff || detailsPatch || "";
+    const raw = detailsPatch || detailsDiff;
+    if (raw) {
+      const diff = normalizeDiff(raw, path);
       return {
         kind: "write",
         path,
-        stats: source ? countDiffStats(source) : null,
-        diff: detailsDiff || detailsPatch,
-        patch: detailsPatch,
+        stats: countDiffStats(diff),
+        diff,
+        durationMs: opts?.durationMs ?? null,
       };
     }
     const content = contentFromWriteArgs(args);
@@ -415,7 +500,7 @@ export function parseFileToolCard(
       stats: content ? { additions: lineCount, deletions: 0 } : null,
       // New / full rewrite: present every line as an addition.
       diff: content ? previewWriteContent(content, path) : null,
-      patch: null,
+      durationMs: opts?.durationMs ?? null,
     };
   }
 
@@ -424,7 +509,7 @@ export function parseFileToolCard(
     path,
     stats: null,
     diff: text.trim() ? text : null,
-    patch: null,
+    durationMs: opts?.durationMs ?? null,
   };
 }
 
@@ -464,8 +549,33 @@ export function parseReadToolCard(
     startLine: notice.startLine ?? offset,
     truncated: trunc.truncated,
     preview: text.trim() ? text : null,
+    lang: path ? languageFromPath(path) : "plaintext",
     durationMs: opts?.durationMs ?? null,
   };
+}
+
+/** read 工具结果尾部会跟一句「显示第几行 / 共几行」的提示，文件视图里要剥掉。 */
+export function readPreviewText(text: string): string {
+  return text
+    .replace(/\n\n\[Showing lines[\s\S]*$/i, "")
+    .replace(/\n\n\[\d+ more lines[\s\S]*$/i, "")
+    .replace(/\n\n\[output truncated[^\n]*\]$/i, "")
+    .replace(/\s+$/, "");
+}
+
+/** structuredContent 里的数值字段。 */
+function structuredNumber(structured: unknown, key: string): number | null {
+  if (!isRecord(structured)) return null;
+  const value = structured[key];
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+/** 失败时 pi 会在输出尾部追加 "Command exited with code N"，旧回合没有 structuredContent 时兜底用。 */
+const EXIT_CODE_RE = /Command exited with code (\d+)/;
+
+function parseExitCode(text: string): number | null {
+  const match = EXIT_CODE_RE.exec(text);
+  return match ? Number(match[1]) : null;
 }
 
 export function parseBashToolCard(
@@ -473,13 +583,14 @@ export function parseBashToolCard(
   result: unknown,
   opts?: { durationMs?: number },
 ): BashToolCard {
-  const { details, text } = extractToolResult(result);
+  const { details, text, structured } = extractToolResult(result);
   const trunc = truncationFromDetails(details);
   const notice = parseLineRangeNotice(text);
   const capLines = parseOutputCapMarker(text);
   let linesRead = trunc.linesRead ?? notice.linesRead;
   if (linesRead == null && capLines != null) linesRead = capLines;
   if (linesRead == null && text) linesRead = countTextLines(text);
+  const exitCode = structuredNumber(structured, "exit_code") ?? parseExitCode(text);
   return {
     kind: "bash",
     command: commandFromArgs(args),
@@ -487,6 +598,10 @@ export function parseBashToolCard(
     totalLines: trunc.totalLines ?? notice.totalLines,
     truncated: trunc.truncated,
     preview: text.trim() ? text : null,
+    exitCode,
+    wallTimeSeconds: structuredNumber(structured, "wall_time_seconds"),
+    fullOutputPath:
+      details && typeof details.fullOutputPath === "string" ? details.fullOutputPath : null,
     durationMs: opts?.durationMs ?? null,
   };
 }
@@ -543,17 +658,100 @@ export function parseToolCard(
   if (isTodoToolName(toolName)) {
     return parseTodoToolCard(args, result);
   }
-  const { text, images } = extractToolResult(result);
+  const { text, images, structured } = extractToolResult(result);
   const summary =
     commandFromArgs(args) ??
     pathFromArgs(args) ??
-    (isRecord(args) ? safeStringify(args).slice(0, 120) : null);
+    genericSummary(args);
   return {
     kind: "generic",
     summary,
     preview: text.trim() ? text : (args != null ? safeStringify(args, 2) : null),
     images,
+    structured,
+    args: args ?? null,
+    previewFromArgs: !text.trim() && args != null,
+    durationMs: opts?.durationMs ?? null,
   };
+}
+
+/** 工具耗时：只有带执行计时的卡片才有值。 */
+export function toolCardDurationMs(card: ToolCard): number | null {
+  if (card.kind === "todo") return null;
+  return card.durationMs ?? null;
+}
+
+/**
+ * 嵌套调用（codemode 脚本里发出的工具调用）没有独立的 ToolMessage，
+ * 按同样的规则解析出一张卡片，渲染层才能给它同样的分型视图。
+ *
+ * 流式期间 reducer 每次更新都重建 call 对象，因此缓存按 toolCallId 命中，
+ * 再用参数/结果的引用判断内容是否真的变了。
+ */
+type NestedCardEntry = {
+  args: unknown;
+  result: unknown;
+  isError: boolean | undefined;
+  durationMs: number | undefined;
+  card: ToolCard;
+};
+
+const nestedCardCache = new Map<string, NestedCardEntry>();
+const NESTED_CARD_CACHE_MAX = 512;
+
+export function toolCardForNested(call: {
+  toolCallId: string;
+  toolName: string;
+  args?: unknown;
+  result?: unknown;
+  isError?: boolean;
+  durationMs?: number;
+}): ToolCard {
+  const cached = nestedCardCache.get(call.toolCallId);
+  if (
+    cached &&
+    cached.args === call.args &&
+    cached.result === call.result &&
+    cached.isError === call.isError &&
+    cached.durationMs === call.durationMs
+  ) {
+    return cached.card;
+  }
+  const card = parseToolCard(call.toolName, call.args ?? {}, call.result ?? null, {
+    isError: call.isError,
+    durationMs: call.durationMs,
+  });
+  if (nestedCardCache.size >= NESTED_CARD_CACHE_MAX) nestedCardCache.clear();
+  nestedCardCache.set(call.toolCallId, {
+    args: call.args,
+    result: call.result,
+    isError: call.isError,
+    durationMs: call.durationMs,
+    card,
+  });
+  return card;
+}
+
+/** 卡片是否有可展开的内容：没有内容的行不显示展开箭头。 */
+export function toolCardHasBody(card: ToolCard): boolean {
+  switch (card.kind) {
+    case "read":
+      return Boolean(card.preview);
+    case "bash":
+      return Boolean(card.preview || card.command);
+    case "edit":
+    case "write":
+    case "other":
+      return Boolean(card.diff);
+    case "generic":
+      return Boolean(card.preview || card.structured);
+    case "todo":
+      return card.items.length > 0;
+    default: {
+      const _never: never = card;
+      return Boolean(_never);
+    }
+  }
 }
 
 export function isFileMutationTool(toolName: string): boolean {

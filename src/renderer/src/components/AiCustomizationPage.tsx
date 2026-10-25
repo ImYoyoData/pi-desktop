@@ -33,6 +33,7 @@ import { useDialog, useMessage } from "@renderer/services/feedback";
 import { useI18n } from "@renderer/i18n/use-i18n";
 import { useScopedWorkspaces } from "@renderer/utils/scoped-workspaces";
 import * as prefs from "@renderer/utils/prefs";
+import { registerStateApplier } from "@renderer/utils/state-sync";
 import type { McpEditTarget, SkillIssueCode } from "../../../shared/customizations";
 import styles from "./AiCustomizationPage.module.css";
 
@@ -285,6 +286,15 @@ export function AiCustomizationPage({ section, visible }: Props): ReactNode {
     if (visible) void store.load();
     else setModal(null);
   }, [visible, workspace.root]);
+
+  // 另一窗口改了设置页宽度时跟着变。
+  useEffect(() => {
+    return registerStateApplier((change) => {
+      if (change.scope !== "prefs") return;
+      if (!(change.keys ?? []).includes(WIDTH_KEY)) return;
+      setWidth(readWidth());
+    });
+  }, []);
 
   useEffect(() => {
     if (!editing || editing.kind !== "draft" || editing.draftKind === "instructions") return;

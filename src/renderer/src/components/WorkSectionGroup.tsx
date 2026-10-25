@@ -1,6 +1,15 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { CheckmarkOutline, ChevronForwardOutline } from "@renderer/components/icons/ionicons";
+import {
+  BrainOutline,
+  ChevronForwardOutline,
+  CreateOutline,
+  DocumentTextOutline,
+  EyeOutline,
+  ListOutline,
+  TerminalOutline,
+} from "@renderer/components/icons/ionicons";
 import type { ChatMessage } from "@renderer/stores/chat";
+import ThinkingBlock from "@renderer/components/ThinkingBlock";
 import ToolCallCard from "@renderer/components/ToolCallCard";
 import { toolCardFor, type ToolCard } from "@renderer/utils/tool-diff";
 import {
@@ -32,7 +41,7 @@ export function WorkSectionGroup({ items, autoCollapse, onOpen }: Props): ReactN
   /** Animate folds only after first paint — matches Copilot (transition after mount). */
   const [animated, setAnimated] = useState(false);
   const animationRaf = useRef(0);
-  const collapseTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const collapseTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
   /**
    * Fold/unfold animates grid-rows, which re-layouts the whole expanded subtree
@@ -83,13 +92,13 @@ export function WorkSectionGroup({ items, autoCollapse, onOpen }: Props): ReactN
     prevAutoCollapse.current = autoCollapse;
     if (!autoCollapse || prev) return;
     collapseTimer.current = setTimeout(() => {
-      collapseTimer.current = null;
+      collapseTimer.current = undefined;
       setManuallyOpen(false);
     }, 350);
     return () => {
       if (collapseTimer.current) {
         clearTimeout(collapseTimer.current);
-        collapseTimer.current = null;
+        collapseTimer.current = undefined;
       }
     };
   }, [autoCollapse]);
@@ -102,7 +111,7 @@ export function WorkSectionGroup({ items, autoCollapse, onOpen }: Props): ReactN
     // A new step arrived while we were about to auto-fold — abort the fold.
     if (collapseTimer.current) {
       clearTimeout(collapseTimer.current);
-      collapseTimer.current = null;
+      collapseTimer.current = undefined;
     }
     setManuallyOpen(null);
   }, [items.length, autoCollapse, manuallyOpen]);
@@ -126,79 +135,12 @@ export function WorkSectionGroup({ items, autoCollapse, onOpen }: Props): ReactN
     setManuallyOpen(!open);
   }
 
-  /** Follow newest thinking unless the user scrolls up inside the box (ThinkingBlock rule). */
-  const liveThinkingEls = useRef(new Map<string, HTMLElement>());
-  const thinkingStick = useRef(true);
-  const THINKING_NEAR_BOTTOM_PX = 48;
-  const thinkingRefCallbacks = useRef(
-    new Map<string, (el: HTMLDivElement | null) => void>(),
-  );
-
-  /** The live thinking row inside this section (streams into its 200px box). */
-  const liveThinkingId = useMemo<string | null>(() => {
-    for (let i = items.length - 1; i >= 0; i--) {
-      const m = items[i]!;
-      if (m.role === "assistant" && m.streaming && m.thinking) return m.id;
-    }
-    return null;
-  }, [items]);
-
   useEffect(() => {
     return () => {
-      if (animationRaf.current) cancelAnimationFrame(animationRaf.current);
-      if (collapseTimer.current) clearTimeout(collapseTimer.current);
-      liveThinkingEls.current.clear();
+      cancelAnimationFrame(animationRaf.current);
+      clearTimeout(collapseTimer.current);
     };
   }, []);
-
-  function thinkingRef(id: string): (el: HTMLDivElement | null) => void {
-    let callback = thinkingRefCallbacks.current.get(id);
-    if (!callback) {
-      callback = (el: HTMLDivElement | null) => {
-        if (el) liveThinkingEls.current.set(id, el);
-        else liveThinkingEls.current.delete(id);
-      };
-      thinkingRefCallbacks.current.set(id, callback);
-    }
-    return callback;
-  }
-
-  function onThinkingScroll(id: string): void {
-    const el = liveThinkingEls.current.get(id);
-    if (!el) return;
-    thinkingStick.current =
-      el.scrollHeight - el.scrollTop - el.clientHeight < THINKING_NEAR_BOTTOM_PX;
-  }
-
-  function followLiveThinking(): void {
-    const id = liveThinkingId;
-    if (!id || !thinkingStick.current || !open) return;
-    const el = liveThinkingEls.current.get(id);
-    if (!el) return;
-    el.scrollTop = el.scrollHeight;
-  }
-
-  useEffect(() => {
-    thinkingStick.current = true;
-    followLiveThinking();
-  }, [liveThinkingId]);
-
-  const liveThinkingLength = useMemo(() => {
-    const id = liveThinkingId;
-    if (!id) return 0;
-    for (const m of items) {
-      if (m.id === id && m.role === "assistant") return m.thinking?.length ?? 0;
-    }
-    return 0;
-  }, [items, liveThinkingId]);
-
-  useEffect(() => {
-    followLiveThinking();
-  }, [liveThinkingLength]);
-
-  useEffect(() => {
-    followLiveThinking();
-  }, [open, items.length]);
 
   const thinkingCount = items.length - toolItems.length;
 
@@ -214,18 +156,6 @@ export function WorkSectionGroup({ items, autoCollapse, onOpen }: Props): ReactN
     return tools;
   }, [toolItems]);
 
-  /** Present-tense label of ONE tool call (copilot streaming header, per step). */
-  function liveLabelFor(tool: WorkSectionTool): string {
-    return workSectionLiveTitle([tool], {
-      edit: t.wsLiveEdit,
-      read: t.wsLiveRead,
-      bash: t.wsLiveBash,
-      todo: t.wsLiveTodo,
-      tool: t.wsLiveTool,
-      thinking: t.wsLiveThinking,
-    });
-  }
-
   /** Cap so a wide fan-out cannot push the header past its single line. */
   const MAX_LIVE_LABELS = 4;
 
@@ -237,12 +167,16 @@ export function WorkSectionGroup({ items, autoCollapse, onOpen }: Props): ReactN
    * once (each one gets its own segment, capped at MAX_LIVE_LABELS).
    */
   const liveTitle = useMemo(() => {
-    const active: WorkSectionTool[] = [];
+    const active: { name: string; tool: WorkSectionTool }[] = [];
     for (const msg of items) {
       if (msg.role !== "tool") continue;
-      if (msg.streaming) active.push(categorizeToolCall(msg.toolName, msg.args));
+      if (msg.streaming) {
+        active.push({ name: msg.toolName, tool: categorizeToolCall(msg.toolName, msg.args) });
+      }
       for (const call of msg.nestedCalls ?? []) {
-        if (call.streaming) active.push(categorizeToolCall(call.toolName, call.args));
+        if (call.streaming) {
+          active.push({ name: call.toolName, tool: categorizeToolCall(call.toolName, call.args) });
+        }
       }
     }
     // Nothing marked streaming yet (between steps / thinking only): same fallback.
@@ -250,8 +184,8 @@ export function WorkSectionGroup({ items, autoCollapse, onOpen }: Props): ReactN
 
     const labels: string[] = [];
     const seen = new Set<string>();
-    for (const tool of active) {
-      const label = liveLabelFor(tool);
+    for (const step of active) {
+      const label = workSectionLiveTitle(step.name, step.tool);
       // Two identical operations (e.g. three reads of the same file) collapse to
       // one segment rather than "读取 a.ts · 读取 a.ts".
       if (seen.has(label)) continue;
@@ -274,11 +208,13 @@ export function WorkSectionGroup({ items, autoCollapse, onOpen }: Props): ReactN
         readMany: t.wsSummaryReadMany,
         readAndEdited: t.wsSummaryReadEdited,
         steps: t.wsSummarySteps,
+        thinkingCount: t.wsSummaryThinkingCount,
         editCount: t.wsSummaryEditCount,
         readCount: t.wsSummaryReadCount,
         bashCount: t.wsSummaryBashCount,
         todoCount: t.wsSummaryTodoCount,
         toolCount: t.wsSummaryToolCount,
+        separator: t.wsSummarySeparator,
       }),
     [categorized, thinkingCount, t],
   );
@@ -300,8 +236,57 @@ export function WorkSectionGroup({ items, autoCollapse, onOpen }: Props): ReactN
   }, [toolItems]);
   const hasDiff = diffTotals.added > 0 || diffTotals.removed > 0;
 
+  /**
+   * 折叠态的读/改/命令比例条：一眼看出这一轮主要在做什么。
+   * 宽度按各类步骤数占比分配，没有这三类步骤时不显示。
+   */
+  const ratioParts = useMemo(() => {
+    const counts = { edit: 0, read: 0, bash: 0 };
+    for (const tool of categorized) {
+      if (tool.kind === "edit") counts.edit += 1;
+      else if (tool.kind === "read") counts.read += 1;
+      else if (tool.kind === "bash") counts.bash += 1;
+    }
+    const total = counts.edit + counts.read + counts.bash;
+    if (!total) return [];
+    const parts: Array<{ key: string; className: string; percent: number }> = [];
+    if (counts.edit) {
+      parts.push({
+        key: "edit",
+        className: styles.ratioEdit,
+        percent: (counts.edit / total) * 100,
+      });
+    }
+    if (counts.read) {
+      parts.push({
+        key: "read",
+        className: styles.ratioRead,
+        percent: (counts.read / total) * 100,
+      });
+    }
+    if (counts.bash) {
+      parts.push({
+        key: "bash",
+        className: styles.ratioBash,
+        percent: (counts.bash / total) * 100,
+      });
+    }
+    return parts;
+  }, [categorized]);
+
   const settled = Boolean(autoCollapse) || !anyStreaming;
   const title = settled ? summaryTitle : liveTitle;
+
+  /** 小节首图标跟随标题第一个统计段。 */
+  const HeaderIcon = useMemo(() => {
+    const kinds = new Set(categorized.map((tool) => tool.kind));
+    if (kinds.has("edit")) return CreateOutline;
+    if (thinkingCount > 0) return BrainOutline;
+    if (kinds.has("read")) return EyeOutline;
+    if (kinds.has("bash")) return TerminalOutline;
+    if (kinds.has("todo")) return ListOutline;
+    return DocumentTextOutline;
+  }, [categorized, thinkingCount]);
 
   /** Shared memoized card parsing per message object (tool-diff.ts). */
   function toolCard(msg: ToolMessage): ToolCard {
@@ -325,10 +310,9 @@ export function WorkSectionGroup({ items, autoCollapse, onOpen }: Props): ReactN
         aria-expanded={open}
         onClick={toggle}
       >
-        {!settled ? <span className={styles.liveDot} aria-hidden="true" /> : null}
-        {settled ? (
-          <CheckmarkOutline size={12} className={styles.doneIcon} aria-hidden="true" />
-        ) : null}
+        <span className={styles.sectionBadge} aria-hidden="true">
+          <HeaderIcon size={13} />
+        </span>
         <span className={`${styles.summary}${!settled ? " copilot-shimmer" : ""}`}>{title}</span>
         {settled && hasDiff ? (
           <span className={styles.diffPill} title={t.wsViewChanges}>
@@ -343,6 +327,14 @@ export function WorkSectionGroup({ items, autoCollapse, onOpen }: Props): ReactN
         />
       </button>
 
+      {ratioParts.length ? (
+        <div className={styles.ratioBar} aria-hidden="true">
+          {ratioParts.map((part) => (
+            <i key={part.key} className={part.className} style={{ width: `${part.percent}%` }} />
+          ))}
+        </div>
+      ) : null}
+
       <div
         className={`${styles.workSectionAnimation}${!open ? ` ${styles.collapsed}` : ""}${animated ? ` ${styles.animated}` : ""}`}
         aria-hidden={open ? undefined : "true"}
@@ -350,22 +342,21 @@ export function WorkSectionGroup({ items, autoCollapse, onOpen }: Props): ReactN
         <div
           className={`${styles.workSectionAnimationInner}${heavySection && !open ? ` ${styles.forceHidden}` : ""}`}
         >
-          <div className={styles.workSectionBody}>
+          <div className={styles.timeline}>
             {items.map((msg) => {
               if (isToolMessage(msg)) {
                 const status = toolStatus(msg);
                 return (
-                  <div key={msg.id} className={styles.cotItem}>
+                  <div key={msg.toolCallId} className={styles.tlItem}>
                     <ToolCallCard
                       card={toolCard(msg)}
                       toolName={msg.toolName}
-                      order={msg.order}
                       statusLabel={status.label}
                       statusType={status.type}
                       streaming={msg.streaming}
                       autoCollapse={autoCollapse}
                       nestedCalls={msg.nestedCalls}
-                      treeItem
+                      variant="step"
                       detailCollapsed
                       onOpen={onOpen}
                     />
@@ -376,15 +367,21 @@ export function WorkSectionGroup({ items, autoCollapse, onOpen }: Props): ReactN
                 return (
                   <div
                     key={msg.id}
-                    className={`${styles.cotItem} ${styles.thinkingItem}`}
+                    className={`${styles.tlItem} ${styles.thinkingItem}`}
                   >
-                    <span className={styles.thinkingDot} aria-hidden="true" />
-                    <div
-                      ref={thinkingRef(msg.id)}
-                      className={styles.thinkingText}
-                      onScroll={() => onThinkingScroll(msg.id)}
-                    >
-                      {msg.thinking}
+                    <div className={styles.thinkingContent}>
+                      <ThinkingBlock
+                        thinking={msg.thinking}
+                        streaming={Boolean(msg.streaming)}
+                        autoCollapse={Boolean(autoCollapse)}
+                        durationMs={msg.thinkingDurationMs}
+                        startedAt={msg.thinkingStartedAt}
+                        leadingIcon={
+                          <span className={styles.thinkingBadge} aria-hidden="true">
+                            <BrainOutline size={11} />
+                          </span>
+                        }
+                      />
                     </div>
                   </div>
                 );

@@ -11,7 +11,7 @@ import { useWorkspaceStore } from "@renderer/stores/workspace";
 import { plainIpcArgs } from "@renderer/utils/ipc-plain";
 import * as prefs from "@renderer/utils/prefs";
 
-const SELECTION_KEY = "pi-desktop:pull-request-selection:v1";
+export const SELECTION_KEY = "pi-desktop:pull-request-selection:v1";
 const MAX_LIST_PAGES = 10;
 const STATE_CACHE_LIMIT = 30;
 
@@ -175,6 +175,8 @@ export type PullRequestsState = PullRequestsBase &
 			value: PullRequestFilters[keyof PullRequestFilters] | undefined,
 		) => void;
 		clearFilters: () => void;
+		/** 另一端改了筛选后重新读取并应用。 */
+		refreshFromPrefs: () => void;
 	};
 
 export const usePullRequestsStore = create<PullRequestsState>()((set, get) => {
@@ -385,6 +387,7 @@ export const usePullRequestsStore = create<PullRequestsState>()((set, get) => {
 		resetForWorkspace(state.root);
 	});
 
+
 	return {
 		...base,
 		...derive(base),
@@ -394,5 +397,9 @@ export const usePullRequestsStore = create<PullRequestsState>()((set, get) => {
 		setSelection,
 		setFilter,
 		clearFilters,
+		/** 另一端改了筛选后重新读取并应用。 */
+		refreshFromPrefs: () => {
+			commit({ selection: readPullRequestSelection() });
+		},
 	};
 });

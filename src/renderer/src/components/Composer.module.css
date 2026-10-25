@@ -440,7 +440,22 @@
   margin-top: 10px;
 }
 
-.ctxCompactBtn.ctxCompactUrgent {
+/* antd 的 outlined 按钮用 colorBgContainer 画底，壁纸主题下盖掉玻璃表面，
+   这里改回应用自己的主色系，与其它次级强调按钮一致。 */
+.ctxCompactBtn:not(:disabled) {
+  background: var(--accent-soft) !important;
+  border-color: var(--accent-border) !important;
+  color: var(--accent) !important;
+}
+
+.ctxCompactBtn:not(:disabled):hover {
+  background: var(--accent-soft-hover) !important;
+  border-color: var(--accent) !important;
+  color: var(--accent-hover) !important;
+}
+
+.ctxCompactBtn.ctxCompactUrgent:not(:disabled) {
+  background: color-mix(in srgb, var(--error, #d03050) 14%, transparent) !important;
   border-color: var(--error, #d03050) !important;
   color: var(--error, #d03050) !important;
   animation: ctx-pulse 1.6s ease-in-out infinite;
