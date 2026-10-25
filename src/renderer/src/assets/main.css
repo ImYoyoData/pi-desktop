@@ -335,6 +335,12 @@ button {
   background: var(--bg);
 }
 
+/* 设置页内部已是独立胶囊卡片，外层 overlay 只提供主区底色，不再套一层边框 */
+.pane-capsule--overlay > .customize-page {
+  border: 0;
+  border-radius: 0;
+}
+
 /* 设置页同样作为主区独立页面铺满覆盖层，内部分区导航自己排布 */
 .customize-page {
   display: flex;
@@ -417,6 +423,17 @@ button {
 .ant-dropdown-menu-submenu-title,
 .ant-select-item {
   border-radius: 8px !important;
+}
+
+/*
+ * 下拉选中项跟随侧栏那套浅灰高亮，而不是 antd 按主色算出的实色块：
+ * 主色在中性配色里是黑白反相，叠出来的底色偏重，和下拉开着的玻璃面板脱节。
+ */
+.ant-select-item-option-selected,
+.ant-select-item-option-selected:hover {
+  background-color: var(--bg-active) !important;
+  color: var(--fg) !important;
+  font-weight: 400 !important;
 }
 
 /*

@@ -941,6 +941,8 @@ export const en = {
 	appearanceMessageWidth: "Message width",
 	appearanceMessageWidthValue: (percent: number) =>
 		percent >= 100 ? "Full width" : `${percent}%`,
+	appearanceInputWidth: "Input width",
+	appearanceInputWidthTip: "Follows the message width by default; adjust it separately.",
 	appearanceFontSize: "Font size",
 	appearanceFontSizeTip: "Adjusts interface text size only; icons and spacing stay unchanged.",
 	appearanceFontSizeValue: (px: number) => `${px}px`,

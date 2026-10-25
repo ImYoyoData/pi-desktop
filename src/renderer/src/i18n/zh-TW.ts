@@ -912,6 +912,8 @@ export const zhTW = {
 	appearanceMessageWidth: "訊息區寬度",
 	appearanceMessageWidthValue: (percent: number) =>
 		percent >= 100 ? "全寬" : `${percent}%`,
+	appearanceInputWidth: "輸入框寬度",
+	appearanceInputWidthTip: "預設與訊息區寬度相同，可單獨調整。",
 	appearanceFontSize: "字型大小",
 	appearanceFontSizeTip: "只調整介面文字大小，圖示與間距保持不變。",
 	appearanceFontSizeValue: (px: number) => `${px}px`,
