@@ -9,8 +9,8 @@
 }
 
 html[data-theme="dark"] .root {
-  --pi-wallpaper-veil-color: #121314;
-  --pi-wallpaper-ui-color: #121314;
+  --pi-wallpaper-veil-color: #191a1b;
+  --pi-wallpaper-ui-color: #191a1b;
 }
 
 .media {

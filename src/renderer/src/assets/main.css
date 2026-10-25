@@ -106,7 +106,7 @@
  */
 html[data-theme="dark"] {
   --pi-editor-line-highlight: rgba(255, 255, 255, 0.08);
-  --bg: #121314;
+  --bg: #191a1b;
   --bg-title: #191a1b;
   --bg-sidebar: #191a1b;
   --bg-panel: #191a1b;
