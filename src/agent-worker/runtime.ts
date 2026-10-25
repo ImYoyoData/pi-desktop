@@ -22,6 +22,7 @@ import { messageContentText, turnTextMatches } from "../shared/turn-match";
 import {
 	formatNoVisionModelError,
 	isImageSchemaPromptError,
+	orphanToolResultEntryIds,
 } from "../shared/session-tree";
 import { truncateHtmlSnippet } from "../shared/html-snippet";
 import type {
@@ -262,7 +263,15 @@ function fillCancelledToolResults(active: AgentSession): void {
 	}
 	for (const entry of branch) {
 		if (entry.type !== "message" || entry.message.role !== "assistant") continue;
-		const content = (entry.message as { content?: unknown }).content;
+		const assistant = entry.message as {
+			stopReason?: unknown;
+			content?: unknown;
+		};
+		// 中断/失败的 assistant 在发请求时被 pi 整条丢弃：补结果只会造出孤儿 tool 消息。
+		if (assistant.stopReason === "aborted" || assistant.stopReason === "error") {
+			continue;
+		}
+		const content = assistant.content;
 		if (!Array.isArray(content)) continue;
 		for (const part of content) {
 			const call = part as { type?: unknown; id?: unknown; name?: unknown };
@@ -277,6 +286,25 @@ function fillCancelledToolResults(active: AgentSession): void {
 				isError: true,
 				timestamp: Date.now(),
 			});
+		}
+	}
+}
+
+/**
+ * 把中断轮留下的孤儿工具结果从模型上下文里摘掉（界面照旧显示）。
+ *
+ * pi 丢弃 stopReason 为 error/aborted 的 assistant 消息，但它的工具结果仍在历史里，
+ * 上游会把这条无主 tool 消息当非法请求，之后每次发送都失败。历史只能追加，
+ * 用 context_edit 置空是唯一不丢用户内容的修法。
+ */
+function dropOrphanToolResults(active: AgentSession): void {
+	for (const entryId of orphanToolResultEntryIds(
+		active.sessionManager.getBranch(),
+	)) {
+		try {
+			active.sessionManager.appendContextEdit(entryId, null);
+		} catch {
+			// 标记失败不阻塞发送
 		}
 	}
 }
@@ -969,6 +997,7 @@ async function runCommand(id: string, command: AgentCommand): Promise<void> {
 				message = formatCitationsBlock(command.citations) + message;
 			}
 			applyBuiltinBrowserToolGate(active, message, command.citations);
+			dropOrphanToolResults(active);
 			const images = normalizePromptImages(command.images);
 			if (images?.length && !modelAcceptsImages(active)) {
 				post({ kind: "result", id, error: formatNoVisionModelError() });
@@ -995,6 +1024,7 @@ async function runCommand(id: string, command: AgentCommand): Promise<void> {
 		case "steer": {
 			const active = requireSession();
 			applyBuiltinBrowserToolGate(active, command.message);
+			dropOrphanToolResults(active);
 			const images = normalizePromptImages(command.images);
 			if (images?.length && !modelAcceptsImages(active)) {
 				post({ kind: "result", id, error: formatNoVisionModelError() });
@@ -1024,7 +1054,10 @@ async function runCommand(id: string, command: AgentCommand): Promise<void> {
 			}
 			const ok = await rollbackTurnEnd(active, command.userIndex, command.expectText);
 			// 停在一半的工具调用仍留在保留的链上，就地补齐。
-			if (ok) fillCancelledToolResults(active);
+			if (ok) {
+				fillCancelledToolResults(active);
+				dropOrphanToolResults(active);
+			}
 			post({ kind: "result", id, data: { ok } });
 			return;
 		}
@@ -1039,6 +1072,7 @@ async function runCommand(id: string, command: AgentCommand): Promise<void> {
 			const active = requireSession();
 			await active.abort();
 			fillCancelledToolResults(active);
+			dropOrphanToolResults(active);
 			post({ kind: "result", id, data: { ok: true } });
 			return;
 		}

@@ -1,5 +1,35 @@
 # Changelog
 
+## v0.3.6-rc.5 (2026-10-26)
+
+本版把主界面改成卡片式布局：左侧图标导航、会话栏、聊天列、右侧面板与底栏统一为浮动胶囊卡片，拉取请求页与设置页改为主区独立页面，下拉菜单统一胶囊外观；同时修复中断轮次留下孤儿工具结果导致后续发送失败、文件树右键菜单贴边被裁、窄面板文件名折行与编辑器吸顶条透明底等问题。
+
+### 新功能 Features
+
+- **卡片式主界面与左侧图标导航**：会话栏、聊天列、右侧面板与底栏统一为 12px 圆角 + 1px 描边的浮动卡片，分栏线不再绘制也不占位（保留 6px 拖拽热区）；最左侧新增 46px 图标导航（会话 / 拉取请求 / 设置），折叠会话栏时依然常驻。
+- **下拉菜单统一胶囊样式**：antd Dropdown / Menu / Select 与自绘的编辑区右键菜单、斜杠菜单、@ 文件菜单统一为 12px 容器圆角、8px 条目圆角与一致的内边距。
+- **拉取请求页 / 设置页改为主区独立页面**：两者铺满主内容区并收起会话栏（保留图标导航），设置页不再是可拖动浮窗，透明度跟随普通界面档位，「设置页透明度」相应改名为「弹窗透明度」，只作用于设置类弹窗。
+- **文件树与编辑器细节**：文件树去掉每行的拖拽把手与「过滤此文件」菜单项，面板变窄时文件名单行省略；编辑器吸顶条在壁纸模式下改为跟随卡片透明度的半透明玻璃并加模糊。
+
+- **Card-based main layout with a left icon rail**: the session list, chat column, right pane and bottom panel are now floating cards (12px radius, 1px stroke) with no drawn or reserved splitter lines (6px drag areas kept); a new 46px icon rail on the far left hosts sessions / pull requests / settings and stays visible when the session list is collapsed.
+- **Unified capsule dropdowns**: antd Dropdown / Menu / Select plus the custom editor context menu, slash menu and @ file menu now share a 12px container radius, 8px item radius and matching padding.
+- **Pull requests and Settings became full main-area pages**: both fill the main content area and collapse the session list (the icon rail stays), Settings is no longer a draggable floating window, follows the normal surface alpha, and "Settings opacity" is renamed to "Dialog opacity" since it now only affects settings dialogs.
+- **Files tree and editor polish**: the file tree drops per-row drag handles and the "filter this file" item, file names ellipsize on one line in narrow panes, and the editor sticky scroll becomes a translucent blurred glass that follows the card alpha under wallpapers.
+
+### 修复 Fixes
+
+- **修复中断轮次的孤儿工具结果导致后续发送失败**：pi 组装请求时会整条丢弃 `stopReason` 为 `error`/`aborted` 的 assistant 消息，但它的工具结果仍留在历史里，上游把这条无主 tool 消息当成非法请求，之后每次发送都失败。现在发送、引导、回滚与中止之后都会用 `context_edit` 把这些孤儿结果置空（界面显示不受影响）。
+- **修复文件树右键菜单贴边被裁**：菜单渲染后测量实际尺寸并夹回窗口可视区，窗口缩放时立即关闭菜单。
+- **修复分栏线移除后无法拖拽调整大小**：改为只清零分栏线「厚度」方向，另一方向保持拉伸，6px 拖拽热区继续沿着整条分界线可用。
+- **修复窄面板下文件名折行与滚动条白点**：文件名保持单行并省略，列表禁用横向滚动，去掉滚动条交角的白点。
+- **修复编辑器吸顶条的黑色投影**：壁纸模式下去掉原生投影并改用主题描边，避免半透明底上出现一道黑条。
+
+- **Fixed orphan tool results from interrupted turns breaking later sends**: pi drops assistant messages whose `stopReason` is `error`/`aborted` when assembling a request, but their tool results stay in history and the upstream rejects the ownerless tool message, so every later send fails. Sending, steering, rollback and abort now blank those results via `context_edit` (the UI is unchanged).
+- **Fixed the file tree context menu being clipped at window edges**: the menu is measured after render and clamped into the window, and it closes on window resize.
+- **Fixed splitter dragging after removing the divider lines**: only the thickness axis is zeroed and the other axis keeps stretching, so the 6px drag area still works along the whole divider.
+- **Fixed wrapping file names and the scrollbar corner dot in narrow panes**: names stay on one line and ellipsize, horizontal scrolling is disabled, and the scrollbar corner no longer paints a light dot.
+- **Fixed the sticky scroll's black shadow**: under wallpapers the native shadow is gone and a themed border is used instead, so the translucent header no longer shows a dark band.
+
 ## v0.3.6-rc.4 (2026-10-25)
 
 本版重点重做过程区可视化：工具结果按语义分型渲染（文件视图 / 词级 diff / 终端卡 / JSON 树），工作区块展开即为过程时间线，思考行支持 Markdown、字数与实时耗时；同时新增浏览器直连 dev 页面的开发预览桥、内置工具使用偏好引导与流式渲染 0ms 实时档，并修复上一轮过程内容被裁掉、思考过程中停止自动滚动、JSON 树与结构化输出交互、安装器目录修正后快捷方式未同步与运行中会话抢位等问题。
