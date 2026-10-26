@@ -1,5 +1,43 @@
 # Changelog
 
+## v0.3.6-rc.6 (2026-10-26)
+
+本版重整设置页：新增「常用」与「浏览器」分区，代理设置拆成桌面与 Agent 两份，外观新增输入框宽度并把强调色统一为中性色；自定义模型页把采样参数 JSON 换成思考档位勾选，供应商支持拖动排序；侧栏会话排序改为权重制，可以直接把会话拖到最前。
+
+### 新功能 Features
+
+- **设置页新增「常用」分区**：发送快捷键可选 Enter / Shift+Enter / Ctrl+⌘+Enter，内置快捷键表的发送与换行两项跟随该设置显示；统计条的 TPS 可选流式或端到端口径。
+- **设置页新增「浏览器」分区**：选择内置 `browser_*` 工具何时交给模型（自动 / 总是 / 关闭），会话 worker 在每回合前读取同一份偏好。
+- **代理设置拆成桌面与 Agent 两份 scope**：窗口与主进程请求走「桌面」，会话 worker 与 Agent 请求走「Agent」，各自独立配置模式与地址。
+- **外观新增「输入框宽度」**：可固定输入框宽度，未设置时跟随消息区宽度；设置页左右两片改为独立胶囊卡片，输入框聚焦不再更换强调色描边。
+- **强调色改为中性色，深色底色统一为 #191a1b**：主题主色由蓝改为浅色近黑 / 深色白，同步 antd token、勾选框、Monaco 与 xterm 选区；深色主题的 `--bg` 与侧栏、面板统一，去掉主区与侧栏并排时的色阶；模型下拉选中项改为侧栏同款浅灰底。
+- **自定义模型页改用思考档位勾选**：模型行内直接勾选可用思考档位（写回 `thinkingLevelMap`，未勾选记 `null`），移除采样参数与分档采样参数 JSON 输入；输入框的思考档位菜单只列当前模型可用的档位，循环切换跳过不可用档位。
+- **供应商与模型条目整理**：供应商列表支持拖动排序（顺序即 models.json 中的键序），重命名保留原位置；模型条目收进折叠的「模型设置」，去掉旧版的图片输入与图片 opt-in 兼容项。
+- **侧栏会话排序改为权重制**：手动顺序存为每个工作区里的权重表，支持把会话拖到最前，多个会话按拖入顺序自上而下；「最近」排序下运行中的会话整体压在已结束会话之上。
+- **其它**：侧栏会话入口改用房子图标，拉取请求图标统一、外观图标改细线版、浏览器图标线宽对齐；运行时设置精简为压缩与缓存项，移除思考档与模型、Provider 传输方式、npm 命令、思考预算、环境与命令、WebSocket 连接超时等高级项；模型页移除 OAuth 登录；Electron 44 升到 45，开发者页拆成独立组件并由主进程补上 pi SDK 版本探测。
+
+- **New Common section in Settings**: the send shortcut can be Enter / Shift+Enter / Ctrl+⌘+Enter and the built-in shortcuts table's send and newline rows follow it; the stats strip now counts TPS either streaming or end-to-end.
+- **New Browser section in Settings**: pick when the built-in `browser_*` tools are handed to the model (auto / always / off); the session worker reads the same preference before every turn.
+- **Proxy settings split into desktop and agent scopes**: windows and main-process requests use the desktop scope, session workers and agent requests use the agent scope, each with its own mode and address.
+- **Appearance gains an input width option**: the composer width can be pinned instead of following the message column; the settings page's two panes became separate capsule cards and focusing the composer no longer paints an accent outline.
+- **Accent color moved to neutrals, dark base unified at #191a1b**: the primary color goes from blue to near-black in light and white in dark, carried through antd tokens, checkboxes, Monaco and xterm selections; the dark `--bg` now matches the sidebar and panes so the column no longer shows a step, and model dropdown selections use the sidebar's light-gray fill.
+- **Custom model page picks thinking levels instead of writing JSON**: each model row ticks its available thinking levels (written back as `thinkingLevelMap`, unticked levels as `null`) and the sampling-params and per-level sampling JSON inputs are gone; the composer's thinking menu lists only the current model's levels and cycling skips the unavailable ones.
+- **Provider and model row cleanup**: providers can be dragged into order (the order is the key order in models.json) and renaming keeps a provider's position; model rows fold into a「Model settings」section and the old image-input and image opt-in compat fields are gone.
+- **Session sidebar ordering is now weight based**: manual order is stored as per-workspace weights, sessions can be dragged to the top with multiple ids keeping their dragged order, and under「Recent」running sessions sit above finished ones.
+- **Also**: the session entry uses a house icon, pull request icons are unified, the appearance icon is redrawn as thin strokes and the browser icon stroke matches its siblings; runtime settings now keep only compaction and caching, dropping the thinking level and model section, provider transport, npm command, thinking budgets, environment and commands, and the WebSocket connect timeout; OAuth login is removed from the models page; Electron moves from 44 to 45 and the developer page becomes its own component with a main-process pi SDK version probe.
+
+### 修复 Fixes
+
+- **修复输入框图片附件缩略图未铺满**：antd Image 的 `className` 落在 `img` 上，改用 `styles` 内联裁剪，缩略图重新铺满整个方格。
+- **修复自定义供应商 compat 开关回读**：开关按自动判断的默认值写入，重新打开表单时显示的状态与实际生效配置一致。
+- **修复多选下拉相邻选中项圆角粘连**：antd v6 会把连续选中的选项拼成一整块（用 `:has` 压平相邻圆角），多选下拉各项尺寸与间距因此错位，现统一恢复每项独立圆角。
+- **修复拖拽排序后未列入的会话跳到最前**：整列重新编号时把未列入的会话按旧权重接在后面，不再被缺省时间戳顶到最前。
+
+- **Fixed image attachment thumbnails not filling the composer box**: antd Image puts `className` on the `img`, so the crop moved to inline `styles` and thumbnails fill the square again.
+- **Fixed compat switches reading back wrong on custom providers**: switches store the auto-detected default, so reopening the form shows the state that actually takes effect.
+- **Fixed adjacent selected options sticking together in multi-selects**: antd v6 flattens the radii of consecutive selected items with `:has`, which knocked multi-select item sizes and spacing out of line; each item now keeps its own radius.
+- **Fixed unlisted sessions jumping to the top after a drag reorder**: renumbering appends the unlisted sessions by their old weights instead of letting the missing timestamp put them first.
+
 ## v0.3.6-rc.5 (2026-10-26)
 
 本版把主界面改成卡片式布局：左侧图标导航、会话栏、聊天列、右侧面板与底栏统一为浮动胶囊卡片，拉取请求页与设置页改为主区独立页面，下拉菜单统一胶囊外观；同时修复中断轮次留下孤儿工具结果导致后续发送失败、文件树右键菜单贴边被裁、窄面板文件名折行与编辑器吸顶条透明底等问题。
