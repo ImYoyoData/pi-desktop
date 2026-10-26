@@ -9,11 +9,14 @@ import {
   newModelEntry,
   parseBulkModelTokens,
   parseModelsConfigText,
+  providerToDraft,
+  reorderProviders,
   stringifyModelsConfig,
   upsertCustomProvider,
   validateCustomProvider,
 } from "../../src/shared/custom-models";
 import { DEFAULT_MAX_TOKENS } from "../../src/shared/model-metadata";
+import { availableThinkingLevels } from "../../src/shared/thinking-level";
 import { findCustomPlatform } from "../../src/shared/provider-catalog";
 
 describe("custom-models helpers", () => {
@@ -101,6 +104,47 @@ describe("custom-models helpers", () => {
       }),
     );
     expect(json.apiKey).toBe("sk-live");
+  });
+
+  it("keeps a compat toggle readable after a save round-trip", () => {
+    const draft = emptyCustomProvider({
+      id: "local",
+      baseUrl: "http://127.0.0.1:3425/v1",
+      supportsDeveloperRole: true,
+      supportsReasoningEffort: true,
+      models: [{ id: "m", name: "", reasoning: false }],
+    });
+    const json = draftToProviderJson(draft);
+    const compat = json.compat as Record<string, unknown>;
+    // 本地地址缺键等于关闭，打开后必须显式写入，否则读回又变回关闭。
+    expect(compat.supportsDeveloperRole).toBe(true);
+    expect(compat.supportsReasoningEffort).toBe(true);
+    const back = providerToDraft("local", json);
+    expect(back.supportsDeveloperRole).toBe(true);
+    expect(back.supportsReasoningEffort).toBe(true);
+  });
+
+  it("omits the compat flag when it matches the auto-detected default", () => {
+    const remote = draftToProviderJson(
+      emptyCustomProvider({
+        id: "remote",
+        baseUrl: "https://api.example.com/v1",
+        supportsDeveloperRole: true,
+        supportsReasoningEffort: true,
+        models: [{ id: "m", name: "", reasoning: false }],
+      }),
+    );
+    expect(remote.compat).toBeUndefined();
+    const local = draftToProviderJson(
+      emptyCustomProvider({
+        id: "local",
+        baseUrl: "http://127.0.0.1:3425/v1",
+        supportsDeveloperRole: false,
+        supportsReasoningEffort: false,
+        models: [{ id: "m", name: "", reasoning: false }],
+      }),
+    );
+    expect(local.compat).toBeUndefined();
   });
 
   it("validates required fields", () => {
@@ -204,6 +248,113 @@ describe("provider model overrides", () => {
       "gpt-5.5": { maxTokens: 32_768 },
     });
     expect(listEditableProviders(doc)).toHaveLength(0);
+  });
+
+  it("parses available thinking levels from thinkingLevelMap", () => {
+    expect(availableThinkingLevels(undefined)).toBeUndefined();
+    expect(availableThinkingLevels({})).toBeUndefined();
+    expect(availableThinkingLevels({ low: null })).toEqual([
+      "off",
+      "minimal",
+      "medium",
+      "high",
+      "xhigh",
+      "max",
+    ]);
+    const doc = parseModelsConfigText(
+      JSON.stringify({
+        providers: {
+          p: {
+            baseUrl: "https://api.p/v1",
+            models: [
+              { id: "m1", reasoning: true, thinkingLevelMap: { low: null, high: "high" } },
+            ],
+          },
+        },
+      }),
+    );
+    expect(listEditableProviders(doc)[0]?.models[0]?.thinkingLevels).toEqual([
+      "off",
+      "minimal",
+      "medium",
+      "high",
+      "xhigh",
+      "max",
+    ]);
+  });
+
+  it("writes unchecked thinking levels back as null", () => {
+    const doc = parseModelsConfigText(
+      JSON.stringify({
+        providers: {
+          p: { baseUrl: "https://api.p/v1", models: [{ id: "m1", reasoning: true }] },
+        },
+      }),
+    );
+    const draft = listEditableProviders(doc)[0]!;
+    const json = draftToProviderJson(
+      {
+        ...draft,
+        models: [{ ...draft.models[0]!, thinkingLevels: ["low", "high"] }],
+      },
+      doc.providers.p,
+    );
+    expect((json.models as Record<string, unknown>[])[0]?.thinkingLevelMap).toEqual({
+      off: null,
+      minimal: null,
+      low: "low",
+      medium: null,
+      high: "high",
+      xhigh: null,
+      max: null,
+    });
+  });
+
+  it("keeps thinkingLevelMap out of the file when every level is enabled", () => {
+    const doc = parseModelsConfigText(
+      JSON.stringify({
+        providers: {
+          p: { baseUrl: "https://api.p/v1", models: [{ id: "m1", reasoning: true }] },
+        },
+      }),
+    );
+    const draft = listEditableProviders(doc)[0]!;
+    const all = ["off", "minimal", "low", "medium", "high", "xhigh", "max"] as const;
+    const json = draftToProviderJson(
+      { ...draft, models: [{ ...draft.models[0]!, thinkingLevels: [...all] }] },
+      doc.providers.p,
+    );
+    expect((json.models as Record<string, unknown>[])[0]).not.toHaveProperty(
+      "thinkingLevelMap",
+    );
+  });
+
+  it("keeps the models.json key order instead of sorting by id", () => {
+    const doc = parseModelsConfigText(
+      JSON.stringify({
+        providers: {
+          zeta: { baseUrl: "http://zeta/v1", models: [{ id: "m" }] },
+          alpha: { baseUrl: "http://alpha/v1", models: [{ id: "m" }] },
+        },
+      }),
+    );
+    expect(listEditableProviders(doc).map((p) => p.id)).toEqual(["zeta", "alpha"]);
+  });
+
+  it("reorders providers and appends unlisted entries in their original order", () => {
+    const doc = parseModelsConfigText(
+      JSON.stringify({
+        modelOverrides: { openai: { "gpt-x": { maxTokens: 1 } } },
+        providers: {
+          a: { baseUrl: "http://a/v1", models: [{ id: "m" }] },
+          b: { baseUrl: "http://b/v1", models: [{ id: "m" }] },
+          c: { baseUrl: "http://c/v1", models: [{ id: "m" }] },
+        },
+      }),
+    );
+    const next = reorderProviders(doc, ["c", "a"]);
+    expect(Object.keys(next.providers)).toEqual(["c", "a", "b"]);
+    expect(next.rest.modelOverrides).toEqual({ openai: { "gpt-x": { maxTokens: 1 } } });
   });
 });
 

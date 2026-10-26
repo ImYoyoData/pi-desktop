@@ -1071,6 +1071,29 @@ export function HardwareChipOutline({
   );
 }
 
+export function HomeOutline({
+  size,
+  color,
+  className,
+  style,
+}: IoniconProps): ReactNode {
+  return (
+    <svg
+      xmlns={"http://www.w3.org/2000/svg"}
+      viewBox={"0 0 512 512"}
+      width={size ?? "1em"}
+      height={size ?? "1em"}
+      className={className}
+      style={color ? { color, ...style } : style}
+      aria-hidden="true"
+    >
+      <path fill={"none"} stroke={"currentColor"} strokeLinejoin={"round"} strokeWidth={32} d={"M32 264L256 40l224 224"} />
+      <path fill={"none"} stroke={"currentColor"} strokeLinejoin={"round"} strokeWidth={32} d={"M88 208V420a52 52 0 0052 52h232a52 52 0 0052-52V208"} />
+      <path fill={"none"} stroke={"currentColor"} strokeLinejoin={"round"} strokeWidth={32} d={"M212 472v-62a44 44 0 0188 0v62"} />
+    </svg>
+  );
+}
+
 export function InformationCircleOutline({
   size,
   color,

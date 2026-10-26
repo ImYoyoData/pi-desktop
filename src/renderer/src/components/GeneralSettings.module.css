@@ -1,0 +1,10 @@
+.root {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.settingSelect {
+  flex-shrink: 0;
+  width: 240px;
+}

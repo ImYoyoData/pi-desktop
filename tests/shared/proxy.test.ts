@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
-  DEFAULT_PROXY_SETTINGS,
+  DEFAULT_PROXY_SCOPE,
   isProxyActive,
+  normalizeProxyScope,
   normalizeProxyUrl,
   PROXY_ENV_KEYS,
   proxyEnvFromPacResult,
@@ -100,11 +101,29 @@ describe("proxyEnvFromPacResult", () => {
 
 describe("isProxyActive", () => {
   it("reflects mode and URL validity", () => {
-    expect(isProxyActive(DEFAULT_PROXY_SETTINGS)).toBe(false);
+    expect(isProxyActive(DEFAULT_PROXY_SCOPE)).toBe(false);
     expect(isProxyActive({ mode: "system", url: "" })).toBe(true);
     expect(
       isProxyActive({ mode: "custom", url: "http://127.0.0.1:7890" }),
     ).toBe(true);
     expect(isProxyActive({ mode: "custom", url: "garbage :: :" })).toBe(false);
+  });
+});
+
+describe("normalizeProxyScope", () => {
+  it("falls back to off for unknown input", () => {
+    expect(normalizeProxyScope(null)).toBeNull();
+    expect(normalizeProxyScope({ mode: "weird", url: "x" })).toEqual({
+      mode: "off",
+      url: "x",
+    });
+  });
+
+  it("normalizes custom URLs and rejects invalid ones", () => {
+    expect(normalizeProxyScope({ mode: "custom", url: " 127.0.0.1:7890 " })).toEqual({
+      mode: "custom",
+      url: "http://127.0.0.1:7890",
+    });
+    expect(normalizeProxyScope({ mode: "custom", url: "garbage :: :" })).toBeNull();
   });
 });

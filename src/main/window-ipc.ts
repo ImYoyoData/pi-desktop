@@ -1,5 +1,6 @@
 import { BrowserWindow, clipboard, ipcMain, nativeTheme, systemPreferences } from "electron";
 import { ClipboardItem, nativeImage } from "electron";
+import { release as osRelease } from "node:os";
 import { IpcChannels } from "../shared/protocol";
 import type { EditContextMenuAction } from "../shared/context-menu";
 import { isEditMenuLocale, type EditMenuLocale } from "../shared/edit-menu-i18n";
@@ -33,6 +34,13 @@ function applyChrome(win: BrowserWindow, mode: ChromeTheme): void {
 
 export function registerWindowIpc(broker?: SessionBroker): void {
   ipcMain.handle(IpcChannels.window.platform, () => process.platform);
+
+  ipcMain.handle(IpcChannels.window.systemInfo, () => ({
+    platform: process.platform,
+    arch: process.arch,
+    version: process.getSystemVersion(),
+    release: osRelease(),
+  }));
 
   ipcMain.handle(IpcChannels.window.minimize, (event) => {
     BrowserWindow.fromWebContents(event.sender)?.minimize();

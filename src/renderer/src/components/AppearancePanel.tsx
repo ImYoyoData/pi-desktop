@@ -44,6 +44,10 @@ export function AppearancePanel(): ReactNode {
     if (typeof value === "number") appearance.setMessageWidth(value);
   }
 
+  function onInputWidthChange(value: string | number | null): void {
+    if (typeof value === "number") appearance.setInputWidth(value);
+  }
+
   function onFontSizeChange(value: string | number | null): void {
     if (typeof value === "number") appearance.setFontSize(value);
   }
@@ -158,6 +162,16 @@ export function AppearancePanel(): ReactNode {
             size="small"
             className={styles.settingSelect}
             onChange={onMessageWidthChange}
+          />
+        </SettingsRow>
+
+        <SettingsRow label={t.appearanceInputWidth} description={t.appearanceInputWidthTip}>
+          <Select
+            value={appearance.inputWidth}
+            options={messageWidthOptions}
+            size="small"
+            className={styles.settingSelect}
+            onChange={onInputWidthChange}
           />
         </SettingsRow>
 

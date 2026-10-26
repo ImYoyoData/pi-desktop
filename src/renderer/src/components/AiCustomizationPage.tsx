@@ -9,7 +9,8 @@ import {
 } from "react";
 import { Button, Input, Modal, Space, Spin } from "antd";
 import type { InputRef } from "antd";
-import { RefreshOutline } from "@renderer/components/icons/ionicons";
+import { CodeSlashOutline, RefreshOutline } from "@renderer/components/icons/ionicons";
+import BrowserIcon from "@renderer/components/icons/BrowserIcon";
 import type { IoniconProps } from "@renderer/components/icons/ionicons";
 import CodiconIcon, { type CodiconName } from "@renderer/components/icons/CodiconIcon";
 import PreviewTab, { type PreviewTabHandle } from "@renderer/components/PreviewTab";
@@ -17,6 +18,7 @@ import AppearancePanel from "@renderer/components/AppearancePanel";
 import KeybindingsSettings from "@renderer/components/KeybindingsSettings";
 import AboutPanel from "@renderer/components/AboutPanel";
 import NotifySettings from "@renderer/components/NotifySettings";
+import GeneralSettings from "@renderer/components/GeneralSettings";
 import CustomizeNetwork from "@renderer/components/customize/CustomizeNetwork";
 import CustomizeSection from "@renderer/components/customize/CustomizeSection";
 import McpServerForm from "@renderer/components/customize/McpServerForm";
@@ -25,6 +27,8 @@ import CustomizeTools from "@renderer/components/customize/CustomizeTools";
 import CustomizeModels from "@renderer/components/customize/CustomizeModels";
 import CustomizeRuntime from "@renderer/components/customize/CustomizeRuntime";
 import CustomizeRetry from "@renderer/components/customize/CustomizeRetry";
+import CustomizeDeveloper from "@renderer/components/customize/CustomizeDeveloper";
+import CustomizeBrowser from "@renderer/components/customize/CustomizeBrowser";
 import MarketSettings from "@renderer/components/MarketSettings";
 import { useCustomizationsStore } from "@renderer/stores/customizations";
 import { useLayoutStore } from "@renderer/stores/layout";
@@ -59,7 +63,37 @@ function isCodiconName(icon: SectionIcon): icon is CodiconName {
   return typeof icon === "string";
 }
 
+/** 设置页分两组独立页：系统设置面向界面与运行环境，配置管理面向 pi 的配置与扩展。 */
+type SettingsGroup = "system" | "config";
+
+const GROUP_IDS: readonly SettingsGroup[] = ["system", "config"];
+
+const SECTION_GROUP: Record<string, SettingsGroup> = {
+  general: "system",
+  appearance: "system",
+  notifications: "system",
+  network: "system",
+  keys: "system",
+  about: "system",
+  developer: "system",
+  browser: "system",
+  models: "config",
+  retry: "config",
+  runtime: "config",
+  skills: "config",
+  instructions: "config",
+  hooks: "config",
+  mcp: "config",
+  plugins: "config",
+  tools: "config",
+};
+
+function groupOf(section: string): SettingsGroup {
+  return SECTION_GROUP[section] ?? "system";
+}
+
 const SECTION_IDS = [
+  "general",
   "appearance",
   "notifications",
   "network",
@@ -73,17 +107,19 @@ const SECTION_IDS = [
   "mcp",
   "plugins",
   "tools",
+  "developer",
+  "browser",
   "about",
 ] as const;
 
 const LIST_KINDS = ["skills", "instructions", "mcp", "plugins"] as const;
 type ListKind = (typeof LIST_KINDS)[number];
 
-/** VS Code 侧栏常量：默认 200px，可拖拽 150–350。 */
-const SIDEBAR_DEFAULT_WIDTH = 200;
-const SIDEBAR_MIN_WIDTH = 150;
-const SIDEBAR_MAX_WIDTH = 350;
-const WIDTH_KEY = "pi-desktop:customize-sidebar-width:v1";
+/** VS Code 侧栏常量：默认 224px，可拖拽 190–380。 */
+const SIDEBAR_DEFAULT_WIDTH = 224;
+const SIDEBAR_MIN_WIDTH = 190;
+const SIDEBAR_MAX_WIDTH = 380;
+const WIDTH_KEY = "pi-desktop:customize-sidebar-width:v2";
 
 /** 各类草稿的初始内容：指令是纯 markdown，技能带 frontmatter。 */
 const DRAFT_TEMPLATES: Record<DraftKind, string> = {
@@ -125,10 +161,18 @@ export function AiCustomizationPage({ section, visible }: Props): ReactNode {
   const activeRef = useRef(active);
   const widthRef = useRef(width);
   const leaveCallbackRef = useRef<(() => void) | null>(null);
+  const lastSectionRef = useRef<Partial<Record<SettingsGroup, string>>>({});
   activeRef.current = active;
   widthRef.current = width;
+  lastSectionRef.current[groupOf(active)] = active;
 
   const sections: { id: string; icon: SectionIcon; label: string; description: string }[] = [
+    {
+      id: "general",
+      icon: "settings",
+      label: t.customizeGeneral,
+      description: t.customizeGeneralDesc,
+    },
     {
       id: "appearance",
       icon: "appearance",
@@ -162,10 +206,24 @@ export function AiCustomizationPage({ section, visible }: Props): ReactNode {
     { id: "mcp", icon: "mcp", label: t.customizeMcp, description: t.customizeMcpDesc },
     { id: "plugins", icon: "plugins", label: t.customizePlugins, description: t.customizePluginsDesc },
     { id: "tools", icon: "tools", label: t.customizeTools, description: t.customizeToolsDesc },
+    {
+      id: "developer",
+      icon: CodeSlashOutline,
+      label: t.customizeDeveloper,
+      description: t.customizeDeveloperDesc,
+    },
+    {
+      id: "browser",
+      icon: BrowserIcon,
+      label: t.customizeBrowser,
+      description: t.customizeBrowserDesc,
+    },
     { id: "about", icon: "about", label: t.aboutTitle, description: t.customizeAboutDesc },
   ];
 
   const current = sections.find((entry) => entry.id === active) ?? sections[0];
+  const activeGroup = groupOf(current.id);
+  const groupSections = sections.filter((entry) => groupOf(entry.id) === activeGroup);
 
   const listKind: ListKind = (LIST_KINDS as readonly string[]).includes(active)
     ? (active as ListKind)
@@ -311,6 +369,18 @@ export function AiCustomizationPage({ section, visible }: Props): ReactNode {
       setActive(id);
       layout.setCustomizeSection(id);
     });
+  }
+
+  /** 切换分组页：回到该组上次停留的分区，没有则取该组首个分区。 */
+  function selectGroup(group: SettingsGroup): void {
+    if (group === activeGroup) return;
+    const remembered = lastSectionRef.current[group];
+    const next = remembered && groupOf(remembered) === group ? remembered : firstSectionOf(group);
+    selectSection(next);
+  }
+
+  function firstSectionOf(group: SettingsGroup): string {
+    return sections.find((entry) => groupOf(entry.id) === group)?.id ?? "appearance";
   }
 
   function openMcpAdd(): void {
@@ -604,6 +674,8 @@ export function AiCustomizationPage({ section, visible }: Props): ReactNode {
   }
 
   function renderSectionContent(): ReactNode {
+    if (active === "general") return <GeneralSettings />;
+    if (active === "browser") return <CustomizeBrowser />;
     if (store.loading) return <Spin size="small" className={styles.contentSpin} />;
     switch (active) {
       case "notifications":
@@ -616,6 +688,8 @@ export function AiCustomizationPage({ section, visible }: Props): ReactNode {
         return <KeybindingsSettings />;
       case "about":
         return <AboutPanel />;
+      case "developer":
+        return <CustomizeDeveloper />;
       case "models":
         return <CustomizeModels />;
       case "retry":
@@ -651,8 +725,26 @@ export function AiCustomizationPage({ section, visible }: Props): ReactNode {
     <div className={styles.aiCustomizationManagementEditor}>
       <aside className={styles.managementSidebar} style={{ width: `${width}px` }}>
         <div className={styles.sidebarContent}>
+          <div className={styles.sidebarGroupSwitcher} role="tablist">
+            {GROUP_IDS.map((id) => (
+              <button
+                key={id}
+                type="button"
+                role="tab"
+                aria-selected={id === activeGroup}
+                className={
+                  id === activeGroup
+                    ? `${styles.groupTab} ${styles.groupTabActive}`
+                    : styles.groupTab
+                }
+                onClick={() => selectGroup(id)}
+              >
+                {id === "system" ? t.customizeGroupSystem : t.customizeGroupConfig}
+              </button>
+            ))}
+          </div>
           <div className={styles.sidebarSectionsList} role="tablist">
-            {sections.map((entry) => (
+            {groupSections.map((entry) => (
               <button
                 key={entry.id}
                 type="button"
@@ -668,9 +760,9 @@ export function AiCustomizationPage({ section, visible }: Props): ReactNode {
               >
                 <span className={styles.sectionIcon}>
                   {isCodiconName(entry.icon) ? (
-                    <CodiconIcon name={entry.icon} size={16} />
+                    <CodiconIcon name={entry.icon} size={18} />
                   ) : (
-                    <entry.icon size={16} />
+                    <entry.icon size={18} />
                   )}
                 </span>
                 <span className={`section-label ${styles.sectionLabel}`}>{entry.label}</span>
@@ -778,11 +870,13 @@ export function AiCustomizationPage({ section, visible }: Props): ReactNode {
           </div>
         ) : (
           <div className={styles.contentInner}>
-            <div className={styles.sectionTitleHeader}>
-              <div className={styles.sectionTitleRow}>
-                <h2 className={styles.sectionTitle}>{current.label}</h2>
+            {active === "models" ? null : (
+              <div className={styles.sectionTitleHeader}>
+                <div className={styles.sectionTitleRow}>
+                  <h2 className={styles.sectionTitle}>{current.label}</h2>
+                </div>
               </div>
-            </div>
+            )}
 
             {store.error ? (
               <p className={styles.contentError}>

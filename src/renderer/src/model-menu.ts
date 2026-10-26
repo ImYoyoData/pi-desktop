@@ -23,15 +23,21 @@ export function flatModelOptions(groups: ModelSelectOption[]): ModelChoice[] {
   return groups.flatMap((g) => ("children" in g ? g.children : [g]));
 }
 
+/** 当前模型的强调样式：与侧栏选中态同一套浅灰底，不着重色。 */
+export const SELECTED_MODEL_STYLE: CSSProperties = {
+  background: "var(--bg-active)",
+  borderRadius: "var(--radius-sm, 4px)",
+};
+
 /**
- * Build the dropdown items, bolding the active model.
+ * Build the dropdown items, highlighting the active model.
  *
  * `selected` is the `provider/modelId` key the composer currently has selected.
  */
 export function buildModelMenu(
   groups: ModelSelectOption[],
   selected: string | null,
-  selectedStyle: CSSProperties = { fontWeight: 600, color: "var(--accent)" },
+  selectedStyle: CSSProperties = SELECTED_MODEL_STYLE,
 ): ModelMenuItem[] {
   return groups.map((group) => {
     if ("children" in group) {

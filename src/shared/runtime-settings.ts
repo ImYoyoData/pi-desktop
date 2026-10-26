@@ -112,11 +112,6 @@ export const BRANCH_SUMMARY_RESERVE_CHOICES = [
   4096, 8192, 12288, 16384, 24576, 32768, 65536,
 ] as const;
 
-/** websocketConnectTimeoutMs 的档位；0 在 pi 里表示禁用连接超时。 */
-export const WEBSOCKET_TIMEOUT_CHOICES = [
-  0, 10_000, 20_000, 30_000, 60_000, 120_000,
-] as const;
-
 export const DEFAULT_RUNTIME_SETTINGS: RuntimeSettings = {
   compaction: {
     enabled: true,

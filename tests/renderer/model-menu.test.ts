@@ -41,7 +41,7 @@ describe("buildModelMenu", () => {
     expect(menu[1]).toMatchObject({ label: "Local", key: "local/llama" });
   });
 
-  it("bolds only the currently selected model", () => {
+  it("highlights only the currently selected model", () => {
     const groups: ModelSelectOption[] = [
       {
         label: "P",
@@ -54,7 +54,7 @@ describe("buildModelMenu", () => {
     ];
     const menu = buildModelMenu(groups, "p/b");
     expect(groupChildren(menu[0])[0]?.style).toBeUndefined();
-    expect(groupChildren(menu[0])[1]?.style).toMatchObject({ fontWeight: 600 });
+    expect(groupChildren(menu[0])[1]?.style).toMatchObject({ background: "var(--bg-active)" });
   });
 
   it("emits a stable key for every entry so selects resolve", () => {

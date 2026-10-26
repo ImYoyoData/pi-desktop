@@ -25,6 +25,8 @@ export interface CustomAppearanceSettings {
   surfaces: SurfaceAlphaSettings;
   /** 消息区最大宽度：占聊天面板宽度的比例。 */
   messageWidth: number;
+  /** 输入框最大宽度；缺省表示跟随消息区宽度。 */
+  inputWidth?: number;
 }
 
 /** 自定义外观设置在 localStorage 的键；v2 起壁纸模式固定为深色玻璃。 */
@@ -77,6 +79,14 @@ export function normalizeMessageWidth(value: unknown): number {
   return MESSAGE_WIDTH_CHOICES.reduce((best, choice) =>
     Math.abs(choice - n) < Math.abs(best - n) ? choice : best,
   );
+}
+
+/** 输入框宽度：缺省或非法值返回 undefined，表示跟随消息区宽度。 */
+export function normalizeInputWidth(value: unknown): number | undefined {
+  if (value === undefined || value === null || value === "") return undefined;
+  const n = typeof value === "number" ? value : Number(value);
+  if (!Number.isFinite(n)) return undefined;
+  return normalizeMessageWidth(n);
 }
 
 export function normalizeFontSize(value: unknown): number {
@@ -154,5 +164,6 @@ export function normalizeCustomAppearance(raw: unknown): CustomAppearanceSetting
     wallpaper: normalizeWallpaper(input.wallpaper),
     surfaces: normalizeSurfaces(input.surfaces),
     messageWidth: normalizeMessageWidth(input.messageWidth),
+    inputWidth: normalizeInputWidth(input.inputWidth),
   };
 }

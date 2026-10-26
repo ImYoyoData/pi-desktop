@@ -6,12 +6,12 @@ import {
   CloseCircleOutline,
   GitCommitOutline,
   GitMerge,
-  GitPullRequestOutline,
   PersonAddOutline,
   PricetagOutline,
   RefreshOutline,
 } from "@renderer/components/icons/ionicons";
 import type { IoniconProps } from "@renderer/components/icons/ionicons";
+import { PullRequestIcon } from "@renderer/components/icons/PullRequestIcon";
 import type {
   PullRequestAction,
   PullRequestDetail,
@@ -62,7 +62,7 @@ function timelineIcon(event: PullRequestTimelineEvent): TimelineIconComponent {
     case "converted-to-draft":
       return BookmarkOutline;
     default:
-      return GitPullRequestOutline;
+      return PullRequestIcon;
   }
 }
 

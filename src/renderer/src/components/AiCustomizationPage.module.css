@@ -12,38 +12,81 @@
   flex-shrink: 0;
   min-width: 0;
   height: 100%;
+  box-sizing: border-box;
   overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--bg-sidebar);
 }
 
 .sidebarContent {
   height: 100%;
   box-sizing: border-box;
-  padding: 0 12px 4px 4px;
+  padding: 8px;
   display: flex;
   flex-direction: column;
-  background: var(--bg);
+  background: transparent;
+}
+
+.sidebarGroupSwitcher {
+  flex: 0 0 auto;
+  display: flex;
+  gap: 3px;
+  margin-bottom: 8px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border);
+}
+
+.groupTab {
+  flex: 1;
+  min-width: 0;
+  height: 28px;
+  padding: 0 6px;
+  border: none;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--fg-muted);
+  font: inherit;
+  font-size: 0.9615rem;
+  font-weight: 500;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background-color 0.1s ease, color 0.1s ease;
+}
+
+.groupTab:hover {
+  background: var(--bg-hover);
+  color: var(--fg);
+}
+
+.groupTabActive,
+.groupTabActive:hover {
+  background: var(--bg-active);
+  color: var(--fg);
 }
 
 .sidebarSectionsList {
   flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
   overflow: hidden;
-  padding-top: 4px;
 }
 
 .sectionListItem {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 11px;
   width: 100%;
-  height: 26px;
+  height: 32px;
   margin: 0;
-  padding: 4px 8px;
+  padding: 6px 9px;
   border: none;
-  border-radius: 4px;
+  border-radius: 8px;
   background: transparent;
   color: var(--fg);
   font: inherit;
-  font-size: 0.9231rem;
+  font-size: 0.9615rem;
   font-weight: 400;
   text-align: left;
   cursor: pointer;
@@ -63,8 +106,8 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 16px;
-  height: 16px;
+  width: 18px;
+  height: 18px;
   opacity: 0.85;
 }
 
@@ -82,9 +125,9 @@
 
 .sectionCount {
   flex-shrink: 0;
-  min-width: 14px;
+  min-width: 15px;
   color: var(--fg-muted);
-  font-size: 0.8462rem;
+  font-size: 0.8846rem;
   font-weight: 600;
   line-height: 16px;
   text-align: right;
@@ -94,16 +137,11 @@
   color: inherit;
 }
 
+/* 分隔条只是两片卡片之间的间隙与拖拽热区，不绘制任何视觉 */
 .managementSash {
   flex-shrink: 0;
-  width: 1px;
-  background: var(--border);
+  width: 6px;
   cursor: col-resize;
-  transition: background-color 0.1s ease;
-}
-
-.managementSash:hover {
-  background: var(--border-strong);
 }
 
 .managementContent {
@@ -111,6 +149,8 @@
   min-width: 0;
   min-height: 0;
   overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 12px;
   background: var(--bg);
 }
 
@@ -119,8 +159,7 @@
   height: 100%;
   box-sizing: border-box;
   min-width: 0;
-  padding-right: 16px;
-  padding-bottom: 16px;
+  padding: 0 16px 16px;
   display: flex;
   flex-direction: column;
   overflow-y: auto;
@@ -142,7 +181,7 @@
   grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
   gap: 10px;
-  padding: 14px 14px 14px 6px;
+  padding: 14px 14px 14px 12px;
   border-bottom: 1px solid var(--border);
 }
 

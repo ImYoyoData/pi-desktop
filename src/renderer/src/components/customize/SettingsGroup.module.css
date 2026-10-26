@@ -111,5 +111,5 @@
 
 .switchOn .switchThumb {
   transform: translateX(14px);
-  background: #ffffff;
+  background: var(--accent-fg);
 }

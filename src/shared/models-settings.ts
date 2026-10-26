@@ -1,4 +1,5 @@
 import type { ModelSelection } from "./model-selection";
+import type { ThinkingLevel } from "./thinking-level";
 
 export type ModelsAvailableEntry = {
   provider: string;
@@ -11,6 +12,8 @@ export type ModelsAvailableEntry = {
   /** 输入模态：text / image。 */
   input: ("text" | "image")[];
   reasoning: boolean;
+  /** 该模型可用的思考档位；缺省表示全部可用（桌面端会补齐未映射的档位）。 */
+  thinkingLevels?: ThinkingLevel[];
   /** 每百万 token 价格（美元）。免费模型为 0。 */
   cost: { input: number; output: number; cacheRead: number; cacheWrite: number };
 };

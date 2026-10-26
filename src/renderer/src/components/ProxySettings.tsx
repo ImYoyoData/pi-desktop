@@ -1,4 +1,5 @@
 import {
+  Fragment,
   useCallback,
   useEffect,
   useRef,
@@ -7,7 +8,13 @@ import {
 } from "react";
 import { Input, Select } from "antd";
 import { useMessage } from "@renderer/services/feedback";
-import { normalizeProxyUrl, type ProxyMode } from "../../../shared/proxy";
+import {
+  DEFAULT_PROXY_SETTINGS,
+  normalizeProxyUrl,
+  type ProxyKind,
+  type ProxyMode,
+  type ProxyScope,
+} from "../../../shared/proxy";
 import { useI18n } from "@renderer/i18n/use-i18n";
 import {
   SettingsGroup,
@@ -15,31 +22,28 @@ import {
 } from "@renderer/components/customize/SettingsGroup";
 import styles from "./ProxySettings.module.css";
 
+type Settings = Record<ProxyKind, ProxyScope>;
+
 export function ProxySettings(): ReactNode {
   const message = useMessage();
   const t = useI18n();
 
-  const [mode, setModeState] = useState<ProxyMode>("off");
-  const [url, setUrlState] = useState("");
+  const [settings, setSettingsState] = useState<Settings>(DEFAULT_PROXY_SETTINGS);
   const [loaded, setLoaded] = useState(false);
-  const modeRef = useRef<ProxyMode>("off");
-  const urlRef = useRef("");
-  const urlTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const settingsRef = useRef<Settings>(DEFAULT_PROXY_SETTINGS);
+  const timersRef = useRef<
+    Partial<Record<ProxyKind, ReturnType<typeof setTimeout>>>
+  >({});
   const applyChainRef = useRef<Promise<void>>(Promise.resolve());
 
-  const setMode = useCallback((next: ProxyMode): void => {
-    modeRef.current = next;
-    setModeState(next);
-  }, []);
-
-  const setUrl = useCallback((next: string): void => {
-    urlRef.current = next;
-    setUrlState(next);
+  const setSettings = useCallback((next: Settings): void => {
+    settingsRef.current = next;
+    setSettingsState(next);
   }, []);
 
   useEffect(() => {
     return () => {
-      clearTimeout(urlTimerRef.current);
+      for (const timer of Object.values(timersRef.current)) clearTimeout(timer);
     };
   }, []);
 
@@ -49,8 +53,7 @@ export function ProxySettings(): ReactNode {
       try {
         const current = await window.api.proxy.get();
         if (!active) return;
-        setMode(current.mode);
-        setUrl(current.url);
+        setSettings(current);
       } catch {
       } finally {
         if (active) setLoaded(true);
@@ -59,53 +62,61 @@ export function ProxySettings(): ReactNode {
     return () => {
       active = false;
     };
-  }, [setMode, setUrl]);
+  }, [setSettings]);
 
   const apply = useCallback(
     (showSuccess = false): void => {
       applyChainRef.current = applyChainRef.current.then(async () => {
         try {
-          const applied = await window.api.proxy.set({
-            mode: modeRef.current,
-            url: urlRef.current.trim(),
-          });
-          setMode(applied.mode);
-          setUrl(applied.url);
+          const applied = await window.api.proxy.set(settingsRef.current);
+          setSettings(applied);
           if (showSuccess) message.success(t.proxyApplied);
         } catch {
           message.error(t.proxyInvalidUrl);
         }
       });
     },
-    [message, setMode, setUrl, t],
+    [message, setSettings, t],
+  );
+
+  const patchScope = useCallback(
+    (kind: ProxyKind, patch: { mode?: ProxyMode; url?: string }) => {
+      const current = settingsRef.current;
+      return { ...current, [kind]: { ...current[kind], ...patch } };
+    },
+    [],
   );
 
   const onMode = useCallback(
-    (next: ProxyMode): void => {
-      if (!loaded || next === modeRef.current) return;
-      setMode(next);
-      if (next === "custom" && !normalizeProxyUrl(urlRef.current)) return;
+    (kind: ProxyKind, next: ProxyMode): void => {
+      if (!loaded || next === settingsRef.current[kind].mode) return;
+      const nextSettings = patchScope(kind, { mode: next });
+      setSettings(nextSettings);
+      if (next === "custom" && !normalizeProxyUrl(nextSettings[kind].url)) {
+        return;
+      }
       apply(true);
     },
-    [apply, loaded, setMode],
+    [apply, loaded, patchScope, setSettings],
   );
 
   const onUrl = useCallback(
-    (next: string): void => {
-      setUrl(next);
-      if (!loaded || modeRef.current !== "custom") return;
-      clearTimeout(urlTimerRef.current);
-      urlTimerRef.current = setTimeout(() => {
-        if (normalizeProxyUrl(urlRef.current)) apply();
+    (kind: ProxyKind, url: string): void => {
+      const nextSettings = patchScope(kind, { url });
+      setSettings(nextSettings);
+      if (!loaded || nextSettings[kind].mode !== "custom") return;
+      clearTimeout(timersRef.current[kind]);
+      timersRef.current[kind] = setTimeout(() => {
+        if (normalizeProxyUrl(settingsRef.current[kind].url)) apply();
       }, 600);
     },
-    [apply, loaded, setUrl],
+    [apply, loaded, patchScope, setSettings],
   );
 
-  const urlInvalid =
-    mode === "custom" &&
-    url.trim().length > 0 &&
-    normalizeProxyUrl(url) === null;
+  const scopes: { kind: ProxyKind; label: string; hint: string }[] = [
+    { kind: "desktop", label: t.proxyDesktopLabel, hint: t.proxyDesktopHint },
+    { kind: "agent", label: t.proxyAgentLabel, hint: t.proxyAgentHint },
+  ];
 
   const modeOptions = [
     { label: t.proxyModeOff, value: "off" },
@@ -115,32 +126,43 @@ export function ProxySettings(): ReactNode {
 
   return (
     <SettingsGroup>
-      <SettingsRow label={t.proxyTitle}>
-        {loaded ? (
-          <Select
-            className={styles.modeSelect}
-            size="small"
-            value={mode}
-            options={modeOptions}
-            onChange={(value) => onMode(value as ProxyMode)}
-          />
-        ) : (
-          <div className={styles.modePlaceholder} />
-        )}
-      </SettingsRow>
+      {scopes.map(({ kind, label, hint }) => {
+        const scope = settings[kind];
+        const urlInvalid =
+          scope.mode === "custom" &&
+          scope.url.trim().length > 0 &&
+          normalizeProxyUrl(scope.url) === null;
+        return (
+          <Fragment key={kind}>
+            <SettingsRow label={label} description={hint}>
+              {loaded ? (
+                <Select
+                  className={styles.modeSelect}
+                  size="small"
+                  value={scope.mode}
+                  options={modeOptions}
+                  onChange={(value) => onMode(kind, value as ProxyMode)}
+                />
+              ) : (
+                <div className={styles.modePlaceholder} />
+              )}
+            </SettingsRow>
 
-      {mode === "custom" ? (
-        <SettingsRow label={t.proxyUrlLabel}>
-          <Input
-            className={styles.urlInput}
-            value={url}
-            size="small"
-            status={urlInvalid ? "error" : undefined}
-            placeholder={t.proxyUrlPlaceholder}
-            onChange={(event) => onUrl(event.target.value)}
-          />
-        </SettingsRow>
-      ) : null}
+            {scope.mode === "custom" ? (
+              <SettingsRow label={t.proxyUrlLabel}>
+                <Input
+                  className={styles.urlInput}
+                  value={scope.url}
+                  size="small"
+                  status={urlInvalid ? "error" : undefined}
+                  placeholder={t.proxyUrlPlaceholder}
+                  onChange={(event) => onUrl(kind, event.target.value)}
+                />
+              </SettingsRow>
+            ) : null}
+          </Fragment>
+        );
+      })}
     </SettingsGroup>
   );
 }

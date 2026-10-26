@@ -16,8 +16,8 @@
   --bg-hover: #00000014;
   --bg-active: #dadada99;
   --bg-selected: #00000025;
-  --bg-user-bubble: #0069cc12;
-  --user-bg: #0069cc12;
+  --bg-user-bubble: #0000000f;
+  --user-bg: #0000000f;
   --assistant-bg: #ffffff;
   --tool-bg: #fafafd;
   --border: #f0f1f2;
@@ -29,14 +29,13 @@
   --text: #202020;
   --text-muted: #606060;
   --text-dim: #606060;
-  --accent: #0069cc;
-  --accent-hover: #0063c1;
+  --accent: #202020;
+  --accent-hover: #000000;
   --accent-fg: #ffffff;
-  --accent-soft: rgba(0, 105, 204, 0.12);
-  --accent-soft-hover: rgba(0, 105, 204, 0.2);
-  --accent-border: rgba(0, 105, 204, 0.5);
+  --accent-soft: rgba(32, 32, 32, 0.08);
+  --accent-soft-hover: rgba(32, 32, 32, 0.14);
+  --accent-border: rgba(32, 32, 32, 0.35);
   --primary: var(--accent);
-  --blue: #0069cc;
   --green: #587c0c;
   --red: #ad0707;
   --success: #587c0c;
@@ -107,7 +106,7 @@
  */
 html[data-theme="dark"] {
   --pi-editor-line-highlight: rgba(255, 255, 255, 0.08);
-  --bg: #121314;
+  --bg: #191a1b;
   --bg-title: #191a1b;
   --bg-sidebar: #191a1b;
   --bg-panel: #191a1b;
@@ -129,13 +128,12 @@ html[data-theme="dark"] {
   --text: #f5f6f7;
   --text-muted: #cfd3d6;
   --text-dim: #adb2b8;
-  --accent: #297aa0;
-  --accent-hover: #2b7da3;
-  --accent-fg: #ffffff;
-  --accent-soft: rgba(57, 148, 188, 0.16);
-  --accent-soft-hover: rgba(57, 148, 188, 0.24);
-  --accent-border: rgba(57, 148, 188, 0.7);
-  --blue: #297aa0;
+  --accent: #f5f6f7;
+  --accent-hover: #ffffff;
+  --accent-fg: #121314;
+  --accent-soft: rgba(245, 246, 247, 0.14);
+  --accent-soft-hover: rgba(245, 246, 247, 0.22);
+  --accent-border: rgba(245, 246, 247, 0.55);
   --green: #72c892;
   --red: #f48771;
   --primary: var(--accent);
@@ -337,6 +335,12 @@ button {
   background: var(--bg);
 }
 
+/* 设置页内部已是独立胶囊卡片，外层 overlay 只提供主区底色，不再套一层边框 */
+.pane-capsule--overlay > .customize-page {
+  border: 0;
+  border-radius: 0;
+}
+
 /* 设置页同样作为主区独立页面铺满覆盖层，内部分区导航自己排布 */
 .customize-page {
   display: flex;
@@ -419,6 +423,43 @@ button {
 .ant-dropdown-menu-submenu-title,
 .ant-select-item {
   border-radius: 8px !important;
+}
+
+/*
+ * antd v6 会把连续选中的选项拼成一整块（用 :has 压平相邻圆角），
+ * 多选下拉里各项尺寸、间距就会对不齐；这里统一恢复每项独立圆角。
+ * 双类提高特异性，盖过 antd 运行时注入的规则。
+ */
+.ant-select-dropdown
+  .ant-select-item.ant-select-item-option-selected:has(+ .ant-select-item-option-selected) {
+  border-end-start-radius: 8px !important;
+  border-end-end-radius: 8px !important;
+}
+
+.ant-select-dropdown
+  .ant-select-item.ant-select-item-option-selected:has(+ .ant-select-item-option-selected)
+  + .ant-select-item-option-selected {
+  border-start-start-radius: 8px !important;
+  border-start-end-radius: 8px !important;
+}
+
+/*
+ * 下拉选中项跟随侧栏那套浅灰高亮，而不是 antd 按主色算出的实色块：
+ * 主色在中性配色里是黑白反相，叠出来的底色偏重，和下拉开着的玻璃面板脱节。
+ */
+.ant-select-item-option-selected,
+.ant-select-item-option-selected:hover {
+  background-color: var(--bg-active) !important;
+  color: var(--fg) !important;
+  font-weight: 400 !important;
+}
+
+/*
+ * 强调色是中性色：勾选标记默认用 antd 的固定白（colorWhite），
+ * 深色主题下白底白勾会看不见，改为跟随 --accent-fg 反相。
+ */
+.ant-checkbox-checked .ant-checkbox-inner::after {
+  border-color: var(--accent-fg) !important;
 }
 
 /*

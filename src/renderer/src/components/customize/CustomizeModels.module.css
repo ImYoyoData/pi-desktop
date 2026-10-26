@@ -2,9 +2,12 @@
   display: flex;
   flex-direction: column;
   flex: 1;
+  /* 设置页内容区默认居中限宽 880px；模型页要铺满，用 !important 盖过共享规则 */
+  width: 100% !important;
+  margin-inline: 0 !important;
   min-width: 0;
   min-height: 0;
-  padding-top: 8px;
+  padding-top: 18px;
 }
 
 .modelsLayout {
@@ -12,46 +15,29 @@
   flex: 1;
   min-width: 0;
   min-height: 0;
-  gap: 12px;
+  gap: 14px;
 }
 
+/* 左栏整体是一张胶囊卡片：标题、列表都在卡片内滚动 */
 .modelsSidebar {
   display: flex;
   flex-direction: column;
   flex-shrink: 0;
-  width: 190px;
+  width: 210px;
   min-height: 0;
-  border-right: 1px solid var(--border);
-  padding-right: 8px;
-}
-
-.listToolbar {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  flex-shrink: 0;
-  margin-bottom: 8px;
-}
-
-/* min-width:0 —— flex item 默认 min-width:auto，两个按钮的内容最小宽度会把
-   它们顶出侧栏（190px）；文字不够时省略而不是撑破边框。 */
-.listToolbar :global(.ant-btn) {
-  flex: 1;
-  min-width: 0;
-  padding: 0 8px;
-}
-
-.listToolbar :global(.ant-btn > span) {
+  padding: 10px 8px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--bg-elevated);
   overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .sidebarEmpty {
   display: flex;
+  flex: 1;
   flex-direction: column;
   gap: 6px;
-  padding: 12px 4px;
+  padding: 8px;
 }
 
 .sidebarEmptyTitle {
@@ -67,149 +53,51 @@
 }
 
 .providerList {
+  display: flex;
+  flex-direction: column;
   flex: 1;
+  gap: 2px;
   min-height: 0;
   overflow-y: auto;
 }
 
-.oauthQuota {
-  display: flex;
+/* 添加按钮固定在卡片底部，标题和加号合并成一个胶囊按钮 */
+.sidebarAdd {
+  display: inline-flex;
   align-items: center;
-  gap: 8px;
-  padding: 8px 10px;
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  font-size: 0.9231rem;
-}
-
-.oauthQuotaLabel {
-  color: var(--fg-muted);
-}
-
-.oauthQuotaValue {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
+  justify-content: center;
+  flex-shrink: 0;
   gap: 6px;
-  color: var(--fg);
-  word-break: break-all;
-}
-
-.oauthQuotaPlan {
-  padding: 1px 6px;
+  width: 100%;
+  height: 28px;
+  margin-top: 10px;
+  padding: 0 12px;
   border: 1px solid var(--border);
-  border-radius: 4px;
-  font-size: 0.8462rem;
-  line-height: 16px;
+  border-radius: 6px;
+  background: transparent;
   color: var(--fg-muted);
-}
-
-.oauthQuotaLine {
+  font: inherit;
   font-size: 0.9231rem;
-  line-height: 18px;
+  cursor: pointer;
 }
 
-.oauthQuotaValue.muted {
-  color: var(--fg-muted);
-  opacity: 0.8;
-}
-
-.oauthDetail {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  min-height: 0;
-  overflow-y: auto;
-  padding: 16px;
-}
-
-.oauthDetailHint {
-  margin: 0;
-  font-size: 0.9231rem;
-  line-height: 18px;
-  color: var(--fg-muted);
-}
-
-.oauthDetailEmpty {
-  font-size: 0.9231rem;
-  color: var(--fg-muted);
-  opacity: 0.7;
-}
-
-.oauthModelList {
-  display: flex;
-  flex-direction: column;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-
-.oauthModelItem {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  padding: 8px 0;
-  border-bottom: 1px solid var(--border);
-}
-
-.oauthModelItem:last-child {
-  border-bottom: none;
-}
-
-.oauthModelHead {
-  display: flex;
-  align-items: baseline;
-  gap: 10px;
-  min-width: 0;
-}
-
-.oauthModelName {
-  flex: 1;
-  min-width: 0;
-  font-size: 0.9231rem;
+.sidebarAdd:hover {
+  border-color: var(--accent-border);
+  background: var(--bg-hover);
   color: var(--fg);
 }
 
-.oauthModelId {
-  font-size: 0.8462rem;
-  color: var(--fg-muted);
-  opacity: 0.8;
-  word-break: break-all;
-}
-
-.oauthModelMeta {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-}
-
-.oauthModelChip {
-  padding: 1px 6px;
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  font-size: 0.8462rem;
-  line-height: 16px;
-  color: var(--fg-muted);
-}
-
-.oauthGroupLabel {
-  margin: 10px 0 2px;
-  font-size: 0.8462rem;
-  font-weight: 600;
-  color: var(--fg-muted);
-}
-
+/* 提供商项：名称与地址两行，选中时铺一层 bg-active，与设置页左导航一致 */
 .providerItem {
   display: flex;
   flex-direction: column;
+  flex-shrink: 0;
   gap: 2px;
   width: 100%;
   margin: 0;
-  padding: 6px 8px;
-  border: none;
-  border-radius: 4px;
+  padding: 6px 10px;
+  border: 1px solid transparent;
+  border-radius: 7px;
   background: transparent;
   color: inherit;
   font: inherit;
@@ -219,6 +107,16 @@
 
 .providerItem:hover {
   background-color: var(--bg-hover);
+}
+
+.providerItem.dragging {
+  opacity: 0.4;
+}
+
+/* 拖动经过的目标项高亮：松手后插入到该位置 */
+.providerItem.dropTarget {
+  background-color: var(--bg-hover);
+  box-shadow: inset 0 0 0 1px var(--accent-border);
 }
 
 .providerItem.selected {
@@ -243,8 +141,8 @@
 
 .providerBadge {
   flex-shrink: 0;
-  padding: 0 5px;
-  border-radius: 3px;
+  padding: 0 7px;
+  border-radius: 4px;
   background: var(--bg-active);
   color: var(--fg-muted);
   font-size: 0.7692rem;
@@ -265,12 +163,28 @@
   white-space: nowrap;
 }
 
+/* 右栏同样是一张胶囊卡片：标题、表单、模型列表与底部操作都在卡片内 */
 .modelsDetail {
   display: flex;
   flex-direction: column;
   flex: 1;
   min-width: 0;
   min-height: 0;
+  padding: 12px 14px 10px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--bg-elevated);
+  overflow: hidden;
+}
+
+.detailScroll {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  gap: 16px;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 2px 4px 12px 0;
 }
 
 .detailEmpty {
@@ -290,39 +204,31 @@
   display: flex;
   align-items: center;
   flex-shrink: 0;
-  gap: 8px;
-  padding-bottom: 8px;
-  border-bottom: 1px solid var(--border);
+  gap: 10px;
 }
 
-.detailRemove {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-  height: 24px;
-  padding: 0 10px;
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  background: transparent;
-  color: var(--fg-muted);
-  font-size: 0.8846rem;
-  line-height: 1;
-  white-space: nowrap;
-  cursor: pointer;
-}
-
-.detailRemove:hover {
-  background: color-mix(in srgb, var(--error) 14%, transparent);
-  color: var(--fg);
+.detailHeading {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
 }
 
 .detailTitle {
   margin: 0;
   overflow: hidden;
   color: var(--fg);
-  font-size: 1.0769rem;
+  font-size: 1.1538rem;
   font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.detailSubtitle {
+  overflow: hidden;
+  color: var(--fg-muted);
+  font-size: 0.8462rem;
+  line-height: 15px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -334,7 +240,7 @@
 
 .inlineBadge {
   flex-shrink: 0;
-  padding: 0 6px;
+  padding: 0 9px;
   border-radius: 4px;
   background: var(--bg-active);
   color: var(--fg-muted);
@@ -342,59 +248,45 @@
   line-height: 16px;
 }
 
-.detailScroll {
-  flex: 1;
-  min-height: 0;
-  overflow-y: auto;
-  padding: 12px 4px 12px 0;
+.detailRemove {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--fg-muted);
+  cursor: pointer;
+}
+
+.detailRemove:hover {
+  background: color-mix(in srgb, var(--error) 14%, transparent);
+  color: var(--error);
 }
 
 .formError {
-  margin: 0 0 12px;
+  margin: 0;
   color: var(--error);
   font-size: 0.9231rem;
 }
 
-.formSection {
-  margin-bottom: 18px;
+.settingInput {
+  width: 280px;
+  max-width: 100%;
 }
 
-.formSectionTitle {
-  margin-bottom: 8px;
-  color: var(--fg);
-  font-size: 0.9231rem;
-  font-weight: 600;
+/* Base URL 与 API Key 需要看到完整值，控件比普通字段宽 */
+.settingInputWide {
+  width: min(380px, 44vw);
+  max-width: 100%;
 }
 
-.formSectionTitleRow {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-bottom: 8px;
-}
-
-.formSectionTitleRow .formSectionTitle {
-  margin-bottom: 0;
-}
-
-.field {
-  display: grid;
-  grid-template-columns: 110px minmax(0, 1fr);
-  align-items: center;
-  gap: 8px;
-  margin-bottom: 8px;
-}
-
-.fieldLabel {
-  overflow: hidden;
-  color: var(--fg-muted);
-  font-size: 0.9231rem;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.fieldControl {
-  min-width: 0;
+.settingSelect {
+  width: 168px;
 }
 
 .keyEye {
@@ -405,7 +297,7 @@
   height: 20px;
   padding: 0;
   border: none;
-  border-radius: 3px;
+  border-radius: 4px;
   background: transparent;
   color: var(--fg-muted);
   cursor: pointer;
@@ -416,47 +308,152 @@
   color: var(--fg);
 }
 
-.toggleRow {
+.modelSection {
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+  gap: 8px;
+}
+
+.modelSectionHead {
   display: flex;
   align-items: center;
   gap: 8px;
-  margin-bottom: 8px;
 }
 
-.toggleHint {
+.modelSectionTitle {
+  color: var(--fg-strong);
+  font-size: 0.9615rem;
+  font-weight: 600;
+}
+
+.modelCount {
   color: var(--fg-muted);
   font-size: 0.8462rem;
 }
 
-.modelList {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
+/* 模型行：折叠时只有 ID、名称与能力开关，展开后才出现低频参数 */
 .modelRow {
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  padding: 8px;
-  border: 1px solid var(--border);
-  border-radius: 4px;
+  gap: 10px;
+  padding: 10px 14px;
 }
 
 .modelRowMain {
   display: flex;
   align-items: center;
   gap: 8px;
-}
-
-.modelRowMain > :first-child {
-  flex: 1.2;
   min-width: 0;
 }
 
 .modelRowMain > :nth-child(2) {
+  flex: 1.3;
+  min-width: 0;
+}
+
+.modelRowMain > :nth-child(3) {
   flex: 1;
   min-width: 0;
+}
+
+.modelExpander {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--fg-muted);
+  cursor: pointer;
+}
+
+.modelExpander:hover {
+  background: var(--bg-active);
+  color: var(--fg);
+}
+
+.modelExpanderOpen {
+  color: var(--fg);
+}
+
+.modelRowBody {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px 14px;
+  padding-left: 30px;
+}
+
+.modelToggle {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+  gap: 5px;
+}
+
+.modelToggleLabel {
+  color: var(--fg-muted);
+  font-size: 0.8462rem;
+}
+
+.modelField {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.modelFieldLabel {
+  color: var(--fg-muted);
+  font-size: 0.8462rem;
+  line-height: 15px;
+}
+
+.modelField :global(.ant-input-number) {
+  width: 100%;
+}
+
+/* 主行里的档位多选：固定宽度，不挤掉 ID / 名称输入 */
+.levelSelect {
+  flex: 0 0 170px;
+  min-width: 0;
+}
+
+/* 行内控件使用透明底，只留描边，与卡片背景一致 */
+.levelSelect :global(.ant-select-selector) {
+  border-color: var(--border) !important;
+  background: transparent !important;
+}
+
+/* 多选下拉的面板外壳与设置页其它下拉一致 */
+.levelPopup {
+  padding: 4px !important;
+  border: 1px solid var(--border) !important;
+  border-radius: 12px !important;
+  box-shadow: var(--shadow-md);
+}
+
+.levelTag {
+  display: inline-flex;
+  align-items: center;
+  margin-inline-end: 2px;
+  padding: 0 6px;
+  border-radius: 4px;
+  background: var(--bg-active);
+  color: var(--fg);
+  font-size: 0.8462rem;
+  line-height: 18px;
+}
+
+/* 超出部分的 "+N" 沿用弱强调底色 */
+.levelSelect :global(.ant-select-selection-item) {
+  background: var(--bg-active) !important;
+  border-color: transparent !important;
+  color: var(--fg-muted) !important;
 }
 
 .modelAction {
@@ -464,8 +461,8 @@
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
-  width: 24px;
-  height: 24px;
+  width: 22px;
+  height: 22px;
   padding: 0;
   border: none;
   border-radius: 4px;
@@ -503,58 +500,19 @@
   }
 }
 
-.modelRowMeta {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 10px;
-}
-
-.samplingToggle {
-  display: inline-flex;
-  align-items: center;
-  align-self: flex-start;
-  gap: 4px;
-  padding: 0;
-  border: none;
-  background: transparent;
-  color: var(--fg-muted);
-  font-size: 0.9231rem;
-  cursor: pointer;
-}
-
-.samplingToggle:hover {
-  color: var(--fg);
-}
-
-.samplingFields {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.samplingField {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.samplingLabel {
-  color: var(--fg-muted);
-  font-size: 0.9231rem;
-}
-
-.modelNumber {
-  width: 118px;
-}
-
 .detailFooter {
   display: flex;
   align-items: center;
   flex-shrink: 0;
   gap: 8px;
-  padding-top: 10px;
+  padding-top: 12px;
   border-top: 1px solid var(--border);
+}
+
+.footerActions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .contentError {
@@ -567,4 +525,10 @@
   display: flex;
   justify-content: center;
   padding: 48px 0;
+}
+
+@media (max-width: 760px) {
+  .modelRowBody {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }

@@ -20,6 +20,8 @@ export const IpcChannels = {
 		/** Main → renderer: window just unmaximized/restored (for title-bar button state). */
 		onUnmaximized: "window:onUnmaximized",
 		platform: "window:platform",
+		/** Renderer → main: 宿主系统名称、架构与版本信息。 */
+		systemInfo: "window:systemInfo",
 		setThemeSource: "window:setThemeSource",
 		setChromeTheme: "window:setChromeTheme",
 		requestMediaAccess: "window:requestMediaAccess",
@@ -326,6 +328,8 @@ export const IpcChannels = {
 	},
 	piCli: {
 		status: "piCli:status",
+		/** Renderer → main: 应用内置 pi SDK 的版本。 */
+		sdkVersion: "piCli:sdkVersion",
 		shouldPrompt: "piCli:shouldPrompt",
 		install: "piCli:install",
 		skip: "piCli:skip",
