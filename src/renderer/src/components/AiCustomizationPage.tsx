@@ -72,7 +72,6 @@ const SECTION_GROUP: Record<string, SettingsGroup> = {
   notifications: "system",
   network: "system",
   keys: "system",
-  environment: "system",
   about: "system",
   developer: "system",
   models: "config",
@@ -96,7 +95,6 @@ const SECTION_IDS = [
   "notifications",
   "network",
   "keys",
-  "environment",
   "models",
   "retry",
   "runtime",
@@ -190,12 +188,6 @@ export function AiCustomizationPage({ section, visible }: Props): ReactNode {
       description: t.customizeNetworkDesc,
     },
     { id: "keys", icon: "keyboard", label: t.customizeKeys, description: t.customizeKeysDesc },
-    {
-      id: "environment",
-      icon: "run",
-      label: t.customizeEnvironment,
-      description: t.customizeEnvironmentDesc,
-    },
     { id: "models", icon: "models", label: t.customizeModels, description: t.customizeModelsDesc },
     { id: "retry", icon: RefreshOutline, label: t.customizeRetry, description: t.customizeRetryDesc },
     { id: "runtime", icon: "run", label: t.customizeRuntime, description: t.customizeRuntimeDesc },
@@ -673,7 +665,6 @@ export function AiCustomizationPage({ section, visible }: Props): ReactNode {
 
   function renderSectionContent(): ReactNode {
     if (active === "general") return <GeneralSettings />;
-    if (active === "environment") return null;
     if (store.loading) return <Spin size="small" className={styles.contentSpin} />;
     switch (active) {
       case "notifications":

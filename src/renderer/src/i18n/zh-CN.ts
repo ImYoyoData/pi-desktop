@@ -157,8 +157,6 @@ export const zh = {
 	developerReloadAction: "重载",
 	customizeGeneral: "常用",
 	customizeGeneralDesc: "最常用的设置集中在这里。",
-	customizeEnvironment: "环境",
-	customizeEnvironmentDesc: "应用运行时的环境信息。",
 	commonSendShortcut: "发送快捷键",
 	commonSendShortcutHint: "选中的组合键发送消息，其余组合键换行。",
 	commonSendShortcutEnter: "Enter 发送",

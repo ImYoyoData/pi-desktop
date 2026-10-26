@@ -162,8 +162,6 @@ export const en = {
 	developerReloadAction: "Reload",
 	customizeGeneral: "Common",
 	customizeGeneralDesc: "The settings you reach for most.",
-	customizeEnvironment: "Environment",
-	customizeEnvironmentDesc: "Environment details of the running app.",
 	commonSendShortcut: "Send shortcut",
 	commonSendShortcutHint: "The chosen combination sends; the others add a newline.",
 	commonSendShortcutEnter: "Enter to send",
