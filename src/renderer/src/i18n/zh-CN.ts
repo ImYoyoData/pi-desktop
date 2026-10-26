@@ -171,6 +171,8 @@ export const zh = {
 	commonTpsModeHint: "决定会话统计里的 token/s 按哪种方式算。",
 	commonTpsModeStreaming: "流式 TPS（不含首字延迟）",
 	commonTpsModeEndToEnd: "端到端 TPS（含首字延迟）",
+	commonTabFocus: "Tab 键切换焦点",
+	commonTabFocusHint: "关闭后 Tab 不再在界面控件之间移动焦点，输入框与菜单里的 Tab 不受影响。",
 	customizeAppearance: "外观",
 	customizeAppearanceDesc: "主题与界面语言。",
 	customizeModels: "模型",

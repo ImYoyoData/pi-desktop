@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { startTransition, useEffect, useMemo, useState, type ReactNode } from "react";
 import { Button, Input, Spin } from "antd";
 import { ChatbubbleOutline, ChevronDownOutline, SearchOutline } from "@renderer/components/icons/ionicons";
 import { DiffModeEnum, DiffView, SplitSide } from "@git-diff-view/react";
@@ -32,6 +32,17 @@ const DEFAULT_EXPAND_COUNT = 3;
 type ThreadGroup = { root: PullRequestComment; replies: PullRequestComment[]; thread: PullRequestThread | null };
 
 type WidgetTarget = { path: string; line: number; side: "LEFT" | "RIGHT" };
+
+type DiffViewData = {
+  oldFile: { fileName: string };
+  newFile: { fileName: string };
+  hunks: string[];
+};
+
+type DiffViewExtend = {
+  oldFile: Record<string, { data: ThreadGroup }>;
+  newFile: Record<string, { data: ThreadGroup }>;
+};
 
 function defaultExpanded(detail: PullRequestDetail): Set<string> {
   const commented = new Set(
@@ -96,6 +107,36 @@ export function PullRequestFiles({ patch, loading, error, detail, pending, onRun
     [reviewComments, detail.threads],
   );
 
+  /** 按文件缓存 diff 输入：过滤框/评论框每次按键不再让所有文件重算 diff。 */
+  const diffDataByPath = useMemo(() => {
+    const out = new Map<string, DiffViewData>();
+    for (const file of files) {
+      out.set(file.path, {
+        oldFile: { fileName: file.previousPath ?? file.path },
+        newFile: { fileName: file.path },
+        hunks: [file.rawSection],
+      });
+    }
+    return out;
+  }, [files]);
+
+  const extendDataByPath = useMemo(() => {
+    const out = new Map<string, DiffViewExtend>();
+    for (const file of files) {
+      const oldFile: Record<string, { data: ThreadGroup }> = {};
+      const newFile: Record<string, { data: ThreadGroup }> = {};
+      for (const group of groups) {
+        if (group.root.path !== file.path) continue;
+        const line = group.root.line;
+        if (line === undefined || group.root.outdated) continue;
+        if (group.root.side === "LEFT") oldFile[String(line)] = { data: group };
+        else newFile[String(line)] = { data: group };
+      }
+      out.set(file.path, { oldFile, newFile });
+    }
+    return out;
+  }, [files, groups]);
+
   const allOpen = shownFiles.length > 0 && shownFiles.every((file) => expanded.has(file.path));
 
   function isOpen(path: string): boolean {
@@ -103,23 +144,27 @@ export function PullRequestFiles({ patch, loading, error, detail, pending, onRun
   }
 
   function toggleFile(path: string): void {
-    setExpanded((current) => {
-      const next = new Set(current);
-      if (next.has(path)) next.delete(path);
-      else next.add(path);
-      return next;
+    startTransition(() => {
+      setExpanded((current) => {
+        const next = new Set(current);
+        if (next.has(path)) next.delete(path);
+        else next.add(path);
+        return next;
+      });
     });
   }
 
   function toggleAll(): void {
-    setExpanded((current) => {
-      const next = new Set(current);
-      const open = allOpen;
-      for (const file of shownFiles) {
-        if (open) next.delete(file.path);
-        else next.add(file.path);
-      }
-      return next;
+    startTransition(() => {
+      setExpanded((current) => {
+        const next = new Set(current);
+        const open = allOpen;
+        for (const file of shownFiles) {
+          if (open) next.delete(file.path);
+          else next.add(file.path);
+        }
+        return next;
+      });
     });
   }
 
@@ -133,34 +178,6 @@ export function PullRequestFiles({ patch, loading, error, detail, pending, onRun
 
   function fileGlyphColor(path: string): string {
     return fileIcon(path).color ?? "currentColor";
-  }
-
-  function diffDataOf(file: DiffFile): {
-    oldFile: { fileName: string };
-    newFile: { fileName: string };
-    hunks: string[];
-  } {
-    return {
-      oldFile: { fileName: file.previousPath ?? file.path },
-      newFile: { fileName: file.path },
-      hunks: [file.rawSection],
-    };
-  }
-
-  function extendDataOf(file: DiffFile): {
-    oldFile: Record<string, { data: ThreadGroup }>;
-    newFile: Record<string, { data: ThreadGroup }>;
-  } {
-    const oldFile: Record<string, { data: ThreadGroup }> = {};
-    const newFile: Record<string, { data: ThreadGroup }> = {};
-    for (const group of groups) {
-      if (group.root.path !== file.path) continue;
-      const line = group.root.line;
-      if (line === undefined || group.root.outdated) continue;
-      if (group.root.side === "LEFT") oldFile[String(line)] = { data: group };
-      else newFile[String(line)] = { data: group };
-    }
-    return { oldFile, newFile };
   }
 
   function orphanGroups(file: DiffFile): ThreadGroup[] {
@@ -311,83 +328,86 @@ export function PullRequestFiles({ patch, loading, error, detail, pending, onRun
                   </span>
                 </button>
 
-                <div className={styles.fileBody} style={isOpen(file.path) ? undefined : { display: "none" }}>
-                  {file.hunks.length === 0 ? <p className={styles.fileNote}>{t.prNoTextChanges}</p> : null}
-                  {file.hunks.length !== 0 ? (
-                    <DiffView<ThreadGroup>
-                      data={diffDataOf(file)}
-                      diffViewMode={diffMode}
-                      diffViewTheme={diffTheme}
-                      diffViewHighlight={false}
-                      diffViewWrap={false}
-                      diffViewFontSize={12}
-                      diffViewAddWidget={canComment}
-                      extendData={extendDataOf(file)}
-                      onAddWidgetClick={(lineNumber, side) => onAddWidgetClick(file, lineNumber, side)}
-                      renderWidgetLine={({ lineNumber, side, onClose }) =>
-                        isWidgetOpen(file.path, lineNumber, side) ? (
-                          <div className={styles.widgetEditor}>
-                            <Input.TextArea
-                              value={widgetDraft}
-                              onChange={(event) => setWidgetDraft(event.target.value)}
-                              placeholder={t.prLineCommentPlaceholder}
-                              autoSize={{ minRows: 2, maxRows: 8 }}
-                            />
-                            <div className={styles.widgetActions}>
-                              <Button size="small" type="text" onClick={() => closeWidget(onClose)}>
-                                {t.cancel}
-                              </Button>
-                              <Button
-                                size="small"
-                                type="primary"
-                                disabled={!widgetDraft.trim()}
-                                onClick={() => submitWidget(file, lineNumber, side, onClose)}
-                              >
-                                {t.prComment}
-                              </Button>
+                {isOpen(file.path) ? (
+                  <div className={styles.fileBody}>
+                    {file.hasHunks ? (
+                      <DiffView<ThreadGroup>
+                        data={diffDataByPath.get(file.path)!}
+                        diffViewMode={diffMode}
+                        diffViewTheme={diffTheme}
+                        diffViewHighlight={false}
+                        diffViewWrap={false}
+                        diffViewFontSize={12}
+                        diffViewAddWidget={canComment}
+                        extendData={extendDataByPath.get(file.path)!}
+                        onAddWidgetClick={(lineNumber, side) => onAddWidgetClick(file, lineNumber, side)}
+                        renderWidgetLine={({ lineNumber, side, onClose }) =>
+                          isWidgetOpen(file.path, lineNumber, side) ? (
+                            <div className={styles.widgetEditor}>
+                              <Input.TextArea
+                                value={widgetDraft}
+                                onChange={(event) => setWidgetDraft(event.target.value)}
+                                placeholder={t.prLineCommentPlaceholder}
+                                autoSize={{ minRows: 2, maxRows: 8 }}
+                              />
+                              <div className={styles.widgetActions}>
+                                <Button size="small" type="text" onClick={() => closeWidget(onClose)}>
+                                  {t.cancel}
+                                </Button>
+                                <Button
+                                  size="small"
+                                  type="primary"
+                                  disabled={!widgetDraft.trim()}
+                                  onClick={() => submitWidget(file, lineNumber, side, onClose)}
+                                >
+                                  {t.prComment}
+                                </Button>
+                              </div>
                             </div>
+                          ) : null
+                        }
+                        renderExtendLine={({ data }) => (
+                          <div className={styles.extendThread}>
+                            <PullRequestCommentCard
+                              comment={data.root}
+                              thread={data.thread}
+                              replies={data.replies}
+                              avatars={detail.avatars}
+                              images={detail.images}
+                              pending={pending}
+                              pendingKey={`resolve-thread:${data.thread?.id ?? ""}`}
+                              replyKey={`reply:${data.root.id}`}
+                              canComment
+                              onRun={forward}
+                            />
                           </div>
-                        ) : null
-                      }
-                      renderExtendLine={({ data }) => (
-                        <div className={styles.extendThread}>
-                          <PullRequestCommentCard
-                            comment={data.root}
-                            thread={data.thread}
-                            replies={data.replies}
-                            avatars={detail.avatars}
-                            images={detail.images}
-                            pending={pending}
-                            pendingKey={`resolve-thread:${data.thread?.id ?? ""}`}
-                            replyKey={`reply:${data.root.id}`}
-                            canComment
-                            onRun={forward}
-                          />
-                        </div>
-                      )}
-                    />
-                  ) : null}
+                        )}
+                      />
+                    ) : (
+                      <p className={styles.fileNote}>{t.prNoTextChanges}</p>
+                    )}
 
-                  {orphans.length ? (
-                    <div className={styles.orphans}>
-                      {orphans.map((group) => (
-                        <div key={group.root.id} className={styles.extendThread}>
-                          <PullRequestCommentCard
-                            comment={group.root}
-                            thread={group.thread}
-                            replies={group.replies}
-                            avatars={detail.avatars}
-                            images={detail.images}
-                            pending={pending}
-                            replyKey={`reply:${group.root.id}`}
-                            canComment
-                            onRun={forward}
-                          />
-                        </div>
-                      ))}
-                    </div>
-                  ) : null}
-                </div>
+                    {orphans.length ? (
+                      <div className={styles.orphans}>
+                        {orphans.map((group) => (
+                          <div key={group.root.id} className={styles.extendThread}>
+                            <PullRequestCommentCard
+                              comment={group.root}
+                              thread={group.thread}
+                              replies={group.replies}
+                              avatars={detail.avatars}
+                              images={detail.images}
+                              pending={pending}
+                              replyKey={`reply:${group.root.id}`}
+                              canComment
+                              onRun={forward}
+                            />
+                          </div>
+                        ))}
+                      </div>
+                    ) : null}
+                  </div>
+                ) : null}
               </section>
             );
           })}

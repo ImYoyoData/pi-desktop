@@ -121,7 +121,7 @@ marked.use({
         `<div class="code-block" data-code-block>`,
         `<div class="code-head"><span class="lang">${escapeHtml(label)}</span>`,
         `<button type="button" class="copy-btn" data-copy>${escapeHtml(copyButtonLabel)}</button></div>`,
-        `<div class="code-body"><div class="line-nos" aria-hidden="true">${nos}</div>`,
+        `<div class="code-body" data-inner-scroll><div class="line-nos" aria-hidden="true">${nos}</div>`,
         `<pre><code class="hljs language-${escapeHtml(language)}">${highlighted}</code></pre>`,
         `</div></div>`,
       ].join("");
@@ -469,6 +469,7 @@ export function renderMarkdown(
     ADD_ATTR: [
       "data-copy",
       "data-code-block",
+      "data-inner-scroll",
       "data-mermaid",
       "data-diagram",
       "data-diagram-action",

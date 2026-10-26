@@ -69,6 +69,7 @@ export function mountDiagramChrome(
 
   const viewport = document.createElement("div");
   viewport.className = "md-diagram-viewport";
+  viewport.setAttribute("data-inner-scroll", "");
   const canvas = document.createElement("div");
   canvas.className = "md-diagram-canvas";
   canvas.innerHTML = svg;

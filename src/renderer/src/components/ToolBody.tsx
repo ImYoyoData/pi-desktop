@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { memo, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   CheckmarkCircleOutline,
   EllipseOutline,
@@ -139,7 +139,7 @@ function FileBody({
         <span className={styles.langBadge}>{card.lang}</span>
         <span className={styles.meta}>{range}</span>
       </div>
-      <div className={styles.body}>
+      <div className={styles.body} data-inner-scroll="">
         {lineCount ? (
           <CodePreview code={text} lang={card.lang} startLine={start} />
         ) : (
@@ -150,7 +150,7 @@ function FileBody({
   );
 }
 
-function DiffLineRow({ line }: { line: DiffLine }): ReactNode {
+const DiffLineRow = memo(function DiffLineRow({ line }: { line: DiffLine }): ReactNode {
   const parts = line.kind === "add" ? line.newParts : line.oldParts;
   const sign = line.kind === "add" ? "+" : line.kind === "del" ? "−" : " ";
   const kindClass =
@@ -174,12 +174,25 @@ function DiffLineRow({ line }: { line: DiffLine }): ReactNode {
       </span>
     </div>
   );
-}
+});
 
 function DiffBody({ card }: { card: FileToolCard }): ReactNode {
   const t = useI18n();
   const parsed = useMemo(() => parseUnifiedDiff(card.diff ?? ""), [card.diff]);
   const lang = card.path ? languageFromPath(card.path) : "plaintext";
+  /** 行元素树只在解析结果变化时重建：流式以外的重渲染不再扫一遍所有行。 */
+  const hunkViews = useMemo(
+    () =>
+      parsed.hunks.map((hunk, index) => (
+        <div key={index} className={styles.hunk}>
+          {hunk.header ? <div className={styles.hunkHead}>{hunk.header}</div> : null}
+          {hunk.lines.map((line, lineIndex) => (
+            <DiffLineRow key={lineIndex} line={line} />
+          ))}
+        </div>
+      )),
+    [parsed],
+  );
 
   return (
     <>
@@ -193,21 +206,14 @@ function DiffBody({ card }: { card: FileToolCard }): ReactNode {
           </span>
         ) : null}
       </div>
-      <div className={styles.body}>
+      <div className={styles.body} data-inner-scroll="">
         {parsed.plain ? (
           // 空字符串也是「没有补丁」，`??` 接不住空串。
           <pre className={styles.plain}>
             {card.diff?.trim() ? card.diff : t.toolResultNoOutput}
           </pre>
         ) : (
-          parsed.hunks.map((hunk, index) => (
-            <div key={index} className={styles.hunk}>
-              {hunk.header ? <div className={styles.hunkHead}>{hunk.header}</div> : null}
-              {hunk.lines.map((line, lineIndex) => (
-                <DiffLineRow key={lineIndex} line={line} />
-              ))}
-            </div>
-          ))
+          hunkViews
         )}
       </div>
     </>
@@ -251,7 +257,7 @@ function TerminalBody({
         </div>
       ) : null}
       <div className={`${styles.term} ${failed ? styles.termFailed : ""}`}>
-        <div className={styles.termScroll} ref={scrollRef}>
+        <div className={styles.termScroll} ref={scrollRef} data-inner-scroll="">
           {card.command ? (
             <div className={styles.termCmd}>
               <span className={styles.prompt}>$</span>
@@ -438,7 +444,7 @@ function PathListBody({ entries }: { entries: string[] }): ReactNode {
         <span className={styles.langBadge}>{t.toolBodyPathList}</span>
         <span className={styles.meta}>{t.toolBodyPathCount(entries.length)}</span>
       </div>
-      <div className={styles.body}>
+      <div className={styles.body} data-inner-scroll="">
         <PathList entries={entries} />
       </div>
     </>
@@ -488,7 +494,7 @@ function ScriptReportBody({ report }: { report: ScriptReport }): ReactNode {
         ) : null}
         <span className={styles.meta}>{t.toolBodyScriptSections(report.sections.length)}</span>
       </div>
-      <div className={styles.body}>
+      <div className={styles.body} data-inner-scroll="">
         {report.sections.map((section, index) => (
           <section key={index} className={styles.scriptSection}>
             {section.title ? (
@@ -568,7 +574,7 @@ function JsonBody({
           <span className={styles.langBadge}>json</span>
           <span className={styles.meta}>{t.toolBodyStructured}</span>
         </div>
-        <div className={styles.body}>
+        <div className={styles.body} data-inner-scroll="">
           <JsonTree tree={tree} />
         </div>
       </>
@@ -581,7 +587,7 @@ function JsonBody({
     return <PathListBody entries={paths} />;
   }
   return (
-    <div className={styles.body}>
+    <div className={styles.body} data-inner-scroll="">
       <pre className={styles.plain}>
         {card.preview?.trim() ? card.preview : t.toolResultNoOutput}
       </pre>

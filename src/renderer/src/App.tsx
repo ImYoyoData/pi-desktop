@@ -12,6 +12,7 @@ import { useCustomizationsStore } from "@renderer/stores/customizations";
 import { useKeybindingsStore } from "@renderer/stores/keybindings";
 import { useLayoutStore } from "@renderer/stores/layout";
 import { usePreviewStore } from "@renderer/stores/preview";
+import { useTabFocusStore } from "@renderer/stores/tab-focus";
 import { FeedbackProvider } from "@renderer/services/feedback";
 import { antdLocaleFor, themeConfigFor } from "@renderer/theme/antd";
 import { useUiLocale } from "@renderer/i18n/use-i18n";
@@ -66,6 +67,12 @@ function onDialogEnterKeydown(event: KeyboardEvent): void {
   confirm.click();
 }
 
+/** 关闭 Tab 焦点切换后拦下默认的焦点移动；输入框与菜单自己的 Tab 处理不被阻止。 */
+function onTabFocusKeydown(event: KeyboardEvent): void {
+  if (event.key !== "Tab" || useTabFocusStore.getState().enabled) return;
+  event.preventDefault();
+}
+
 export function App(): React.ReactNode {
   const appearance = useAppearanceStore();
   const locale = useUiLocale();
@@ -80,6 +87,7 @@ export function App(): React.ReactNode {
   useEffect(() => {
     startStateSync();
     window.addEventListener("keydown", onDialogEnterKeydown, true);
+    window.addEventListener("keydown", onTabFocusKeydown, true);
     const offMenuCommand = window.api.window.onMenuCommand((command) => {
       if (command === "open-pull-requests") useLayoutStore.getState().showPullRequests();
       else if (command === "zoom-in") useAppearanceStore.getState().stepFontSize(1);
@@ -137,6 +145,7 @@ export function App(): React.ReactNode {
 
     return () => {
       window.removeEventListener("keydown", onDialogEnterKeydown, true);
+      window.removeEventListener("keydown", onTabFocusKeydown, true);
       window.clearTimeout(bootTimer);
       keybindings.uninstall();
       offMenuCommand?.();
