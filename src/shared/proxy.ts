@@ -1,13 +1,23 @@
 export type ProxyMode = "off" | "system" | "custom";
 
-export type ProxySettings = {
+export type ProxyKind = "desktop" | "agent";
+
+/** 一组代理设置：桌面（窗口/主进程）与 Agent（会话 worker）各一份。 */
+export type ProxyScope = {
 	mode: ProxyMode;
 	url: string;
 };
 
-export const DEFAULT_PROXY_SETTINGS: ProxySettings = {
+export type ProxySettings = Record<ProxyKind, ProxyScope>;
+
+export const DEFAULT_PROXY_SCOPE: ProxyScope = {
 	mode: "off",
 	url: "",
+};
+
+export const DEFAULT_PROXY_SETTINGS: ProxySettings = {
+	desktop: { ...DEFAULT_PROXY_SCOPE },
+	agent: { ...DEFAULT_PROXY_SCOPE },
 };
 
 export const PROXY_MODES: readonly ProxyMode[] = ["off", "system", "custom"];
@@ -99,11 +109,23 @@ export function proxyEnvFromPacResult(
 	return {};
 }
 
-export function isProxyActive(settings: ProxySettings): boolean {
-	if (settings.mode === "system") return true;
-	if (settings.mode === "custom")
-		return normalizeProxyUrl(settings.url) !== null;
+export function isProxyActive(scope: ProxyScope): boolean {
+	if (scope.mode === "system") return true;
+	if (scope.mode === "custom") return normalizeProxyUrl(scope.url) !== null;
 	return false;
+}
+
+/** 磁盘/IPC 来的未知值转成合法 scope；custom 地址非法时返回 null。 */
+export function normalizeProxyScope(raw: unknown): ProxyScope | null {
+	if (!raw || typeof raw !== "object") return null;
+	const value = raw as Partial<ProxyScope>;
+	const mode = PROXY_MODES.includes(value.mode as ProxyMode)
+		? (value.mode as ProxyMode)
+		: DEFAULT_PROXY_SCOPE.mode;
+	const url = typeof value.url === "string" ? value.url.trim() : "";
+	if (mode !== "custom") return { mode, url };
+	const normalized = normalizeProxyUrl(url);
+	return normalized ? { mode, url: normalized } : null;
 }
 
 export type NodeProxyMode =
@@ -112,13 +134,13 @@ export type NodeProxyMode =
 	| { kind: "socks" };
 
 /** 主进程 Node fetch（undici）的代理形态：socks 无法走 undici，调用方需回退 Chromium。 */
-export function resolveNodeProxyMode(settings: ProxySettings, systemProxyEnv: Record<string, string>): NodeProxyMode {
-	if (settings.mode === "custom") {
-		const url = normalizeProxyUrl(settings.url);
+export function resolveNodeProxyMode(scope: ProxyScope, systemProxyEnv: Record<string, string>): NodeProxyMode {
+	if (scope.mode === "custom") {
+		const url = normalizeProxyUrl(scope.url);
 		if (!url) return { kind: "direct" };
 		return NODE_PROXY_PROTOCOLS.test(url) ? { kind: "http", url } : { kind: "socks" };
 	}
-	if (settings.mode === "system") {
+	if (scope.mode === "system") {
 		const url = systemProxyEnv.HTTP_PROXY ?? systemProxyEnv.ALL_PROXY;
 		return url ? { kind: "http", url } : { kind: "direct" };
 	}

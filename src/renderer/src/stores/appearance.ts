@@ -120,6 +120,10 @@ function applyCustomAppearance(settings: CustomAppearanceSettings, broken: boole
   root.style.setProperty("--pi-alpha-settings", `${percent(surfaces.settings)}%`);
   root.style.setProperty("--pi-alpha-tool", `${percent(surfaces.tool)}%`);
   root.style.setProperty("--pi-message-max", `${percent(settings.messageWidth)}%`);
+  root.style.setProperty(
+    "--pi-input-max",
+    `${percent(settings.inputWidth ?? settings.messageWidth)}%`,
+  );
   root.style.setProperty("--pi-veil-opacity", `${percent(wallpaper.veilOpacity)}%`);
   root.style.setProperty(
     "--pi-veil-blur",
@@ -234,6 +238,8 @@ type AppearanceDerived = {
   wallpaper: WallpaperSettings;
   surfaces: SurfaceAlphaSettings;
   messageWidth: number;
+  /** 输入框实际生效宽度（未单独设置时与消息区一致）。 */
+  inputWidth: number;
   glassSurface: boolean;
   resolvedTheme: ResolvedTheme;
   resolvedUiLocale: UiLocale;
@@ -256,6 +262,7 @@ export type AppearanceState = AppearanceBase &
     setVeilBlur: (value: number) => void;
     setSurfaceAlpha: (key: SurfaceAlphaKey, value: number) => void;
     setMessageWidth: (value: number) => void;
+    setInputWidth: (value: number | null) => void;
     setWallpaperBroken: (broken: boolean) => void;
     init: () => () => void;
     /** 重新读取偏好并应用（另一窗口改了外观时调用）。 */
@@ -267,6 +274,7 @@ function derive(base: AppearanceBase): AppearanceDerived {
   const wallpaper = base.customAppearance.wallpaper;
   const surfaces = base.customAppearance.surfaces;
   const messageWidth = base.customAppearance.messageWidth;
+  const inputWidth = base.customAppearance.inputWidth ?? messageWidth;
   /** 壁纸生效时界面固定为深色玻璃：底色、文字、组件库与编辑器一起走暗色。 */
   const glassSurface = wallpaper.kind !== "none" && !base.wallpaperBroken;
   const resolvedTheme: ResolvedTheme = glassSurface
@@ -281,6 +289,7 @@ function derive(base: AppearanceBase): AppearanceDerived {
     wallpaper,
     surfaces,
     messageWidth,
+    inputWidth,
     glassSurface,
     resolvedTheme,
     resolvedUiLocale,
@@ -464,6 +473,16 @@ export const useAppearanceStore = create<AppearanceState>()((set, get) => {
       persistCustom({
         ...state.customAppearance,
         messageWidth: normalizeMessageWidth(value),
+      });
+    },
+    setInputWidth: (value) => {
+      const state = get();
+      const { messageWidth } = state.customAppearance;
+      const width = value === null ? undefined : normalizeMessageWidth(value);
+      // 与消息区同宽即回到跟随，省得存储里多一个冗余档位。
+      persistCustom({
+        ...state.customAppearance,
+        inputWidth: width === messageWidth ? undefined : width,
       });
     },
     setWallpaperBroken: (broken) => {

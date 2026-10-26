@@ -33,9 +33,10 @@
 /*
  * Chat input stack — docked todo / changed-files share the composer surface.
  *
- * Shares the message column's exact box: same `--pi-message-max` cap (Settings →
- * 外观 → 消息宽度) and the same horizontal padding as MessageList's `.inner`, so
- * the input box sits precisely under the message content.
+ * Shares the message column's box: same horizontal padding as MessageList's
+ * `.inner`, so the input box sits precisely under the message content. Its own
+ * cap comes from `--pi-input-max` (Settings → 外观 → 输入框宽度), which defaults
+ * to the message column width (`--pi-message-max`).
  *
  * `scrollbar-gutter: stable both-edges` mirrors the gutter the message list
  * reserves for its classic (non-overlay) scrollbar — without it the scroller's
@@ -45,7 +46,7 @@
 .chatInputStack {
   flex-shrink: 0;
   width: 100%;
-  max-width: var(--pi-message-max, 75%);
+  max-width: var(--pi-input-max, var(--pi-message-max, 75%));
   margin: 0 auto;
   padding: 0 var(--chat-column-pad-x, 16px) 10px;
   box-sizing: border-box;

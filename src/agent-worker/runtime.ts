@@ -1,4 +1,5 @@
-import { readFileSync, writeFileSync } from "node:fs";
+import { readFileSync, statSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { type ThinkingLevel } from "../shared/thinking-level";
 import {
 	createAgentSessionFromServices,
@@ -39,6 +40,12 @@ import {
 	resolveBuiltinBrowserSkillDir,
 	shouldEnableBuiltinBrowserTools,
 } from "../shared/builtin-browser";
+import {
+	DEFAULT_BROWSER_SETTINGS,
+	DESKTOP_PREFS_FILENAME,
+	parseBrowserSettings,
+	type BrowserSettings,
+} from "../shared/browser-settings";
 
 import {
 	DEFAULT_STREAM_RENDER_SETTINGS,
@@ -182,6 +189,27 @@ let streamRenderSettings: StreamRenderSettings = { ...DEFAULT_STREAM_RENDER_SETT
 let uiLocale: BashNoticeLocale = "zh-CN";
 /** Once unlocked this session, keep browser_* available for follow-up clicks/fills. */
 let browserToolsUnlocked = false;
+let browserPrefsCache: { mtimeMs: number; settings: BrowserSettings } | null = null;
+
+/** 内置浏览器设置来自 desktop-prefs.json，按 mtime 缓存，改完下一回合生效。 */
+function readBrowserSettings(): BrowserSettings {
+	try {
+		const file = join(getAgentDir(), DESKTOP_PREFS_FILENAME);
+		const { mtimeMs } = statSync(file);
+		if (browserPrefsCache && browserPrefsCache.mtimeMs === mtimeMs) {
+			return browserPrefsCache.settings;
+		}
+		const raw: unknown = JSON.parse(readFileSync(file, "utf8"));
+		const map = raw && typeof raw === "object" && !Array.isArray(raw)
+			? (raw as Record<string, string>)
+			: {};
+		const settings = parseBrowserSettings(map);
+		browserPrefsCache = { mtimeMs, settings };
+		return settings;
+	} catch {
+		return DEFAULT_BROWSER_SETTINGS;
+	}
+}
 
 function workerDirname(): string {
 	// electron-vite bundles the worker as CJS; __dirname points at out/agent-worker.
@@ -214,7 +242,14 @@ function applyBuiltinBrowserToolGate(
 	message: string,
 	citations?: ElementCitation[] | null,
 ): void {
-	if (
+	const { toolMode } = readBrowserSettings();
+	if (toolMode === "off") {
+		syncBuiltinBrowserTools(active, false);
+		return;
+	}
+	if (toolMode === "always") {
+		browserToolsUnlocked = true;
+	} else if (
 		!browserToolsUnlocked &&
 		shouldEnableBuiltinBrowserTools(message, citations)
 	) {

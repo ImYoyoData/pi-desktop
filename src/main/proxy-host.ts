@@ -3,14 +3,15 @@ import { dirname, join } from "node:path";
 import { app, ipcMain, session } from "electron";
 import { IpcChannels } from "../shared/protocol";
 import {
-	DEFAULT_PROXY_SETTINGS,
+	DEFAULT_PROXY_SCOPE,
+	normalizeProxyScope,
 	normalizeProxyUrl,
 	PROXY_ENV_KEYS,
 	proxyEnvFromPacResult,
 	proxyEnvFromUrl,
-	PROXY_MODES,
 	resolveNodeProxyMode,
 	type NodeProxyMode,
+	type ProxyScope,
 	type ProxySettings,
 } from "../shared/proxy";
 import { syncWebSearchProxy } from "./web-search-proxy";
@@ -18,27 +19,36 @@ import { broadcastStateChange } from "./ui-sync";
 
 const SYSTEM_PROXY_PROBE_URL = "https://api.openai.com";
 
-let currentSettings: ProxySettings = { ...DEFAULT_PROXY_SETTINGS };
+let currentSettings: ProxySettings = cloneDefaults();
 let systemProxyEnv: Record<string, string> = {};
+
+function cloneDefaults(): ProxySettings {
+	return {
+		desktop: { ...DEFAULT_PROXY_SCOPE },
+		agent: { ...DEFAULT_PROXY_SCOPE },
+	};
+}
 
 function settingsPath(): string {
 	return join(app.getPath("userData"), "proxy.json");
 }
 
+/** 旧版只存一层 { mode, url }（桌面与 Agent 共用），读入时继承到两侧。 */
 function readSettingsFromDisk(): ProxySettings {
 	try {
 		const raw = JSON.parse(
 			readFileSync(settingsPath(), "utf8"),
-		) as Partial<ProxySettings>;
-		const mode = PROXY_MODES.includes(raw.mode as ProxySettings["mode"])
-			? (raw.mode as ProxySettings["mode"])
-			: DEFAULT_PROXY_SETTINGS.mode;
+		) as Record<string, unknown>;
+		const flat =
+			"mode" in raw || "url" in raw ? normalizeProxyScope(raw) : null;
 		return {
-			mode,
-			url: typeof raw.url === "string" ? raw.url : "",
+			desktop:
+				normalizeProxyScope(raw.desktop) ?? flat ?? { ...DEFAULT_PROXY_SCOPE },
+			agent:
+				normalizeProxyScope(raw.agent) ?? flat ?? { ...DEFAULT_PROXY_SCOPE },
 		};
 	} catch {
-		return { ...DEFAULT_PROXY_SETTINGS };
+		return cloneDefaults();
 	}
 }
 
@@ -51,10 +61,10 @@ function writeSettingsToDisk(settings: ProxySettings): void {
 	});
 }
 
-async function applyProxySettings(settings: ProxySettings): Promise<void> {
+async function applyDesktopProxy(scope: ProxyScope): Promise<void> {
 	const ses = session.defaultSession;
-	if (settings.mode === "custom") {
-		const url = normalizeProxyUrl(settings.url);
+	if (scope.mode === "custom") {
+		const url = normalizeProxyUrl(scope.url);
 		if (url) {
 			await ses.setProxy({ proxyRules: url });
 			return;
@@ -62,15 +72,22 @@ async function applyProxySettings(settings: ProxySettings): Promise<void> {
 		await ses.setProxy({ mode: "direct" });
 		return;
 	}
-	if (settings.mode === "system") {
+	if (scope.mode === "system") {
 		await ses.setProxy({ mode: "system" });
 		return;
 	}
 	await ses.setProxy({ mode: "direct" });
 }
 
+function needsSystemProxyEnv(): boolean {
+	return (
+		currentSettings.desktop.mode === "system" ||
+		currentSettings.agent.mode === "system"
+	);
+}
+
 async function refreshSystemProxyEnv(): Promise<void> {
-	if (currentSettings.mode !== "system") {
+	if (!needsSystemProxyEnv()) {
 		systemProxyEnv = {};
 		return;
 	}
@@ -130,31 +147,43 @@ export function restoreStartupProxyEnv(): void {
 }
 
 export function getProxySettings(): ProxySettings {
-	return { ...currentSettings };
+	return {
+		desktop: { ...currentSettings.desktop },
+		agent: { ...currentSettings.agent },
+	};
 }
 
 /** 主进程 Node fetch（undici）当前应使用的代理形态。 */
 export function getNodeProxyMode(): NodeProxyMode {
-	return resolveNodeProxyMode(currentSettings, systemProxyEnv);
+	return resolveNodeProxyMode(currentSettings.desktop, systemProxyEnv);
+}
+
+function scopeProxyEnv(scope: ProxyScope): Record<string, string> {
+	if (scope.mode === "custom") return proxyEnvFromUrl(scope.url);
+	if (scope.mode === "system") return systemProxyEnv;
+	return {};
 }
 
 /** 应用设置优先：先清除继承的代理变量，再按模式注入。
- *  NODE_USE_ENV_PROXY 让 Node 内置 fetch（undici）遵循这些变量。 */
-export function withProxyEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+ *  NODE_USE_ENV_PROXY 让 Node 内置 fetch（undici）遵循这些变量。
+ *  默认用桌面代理；Agent worker 用 withAgentProxyEnv。 */
+export function withProxyEnv(
+	env: NodeJS.ProcessEnv,
+	scope: ProxyScope = currentSettings.desktop,
+): NodeJS.ProcessEnv {
 	const next = { ...env };
 	for (const key of PROXY_ENV_KEYS) delete next[key];
 	delete next.NODE_USE_ENV_PROXY;
-	let proxyEnv: Record<string, string> = {};
-	if (currentSettings.mode === "custom") {
-		proxyEnv = proxyEnvFromUrl(currentSettings.url);
-	} else if (currentSettings.mode === "system") {
-		proxyEnv = systemProxyEnv;
-	}
+	const proxyEnv = scopeProxyEnv(scope);
 	if (Object.keys(proxyEnv).length > 0) {
 		Object.assign(next, proxyEnv);
 		next.NODE_USE_ENV_PROXY = "1";
 	}
 	return next;
+}
+
+export function withAgentProxyEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+	return withProxyEnv(env, currentSettings.agent);
 }
 
 /** 同步到主进程 env：主进程及其 spawn 的子进程（npm / git / pi CLI / SDK）都继承它。
@@ -169,7 +198,7 @@ function applyHostProxyEnv(): void {
 function applyWebSearchProxy(): void {
 	try {
 		syncWebSearchProxy(
-			currentSettings,
+			currentSettings.agent,
 			systemProxyEnv.HTTP_PROXY ?? systemProxyEnv.ALL_PROXY,
 		);
 	} catch (err) {
@@ -189,7 +218,11 @@ export async function initProxy(): Promise<void> {
 			);
 			const detected = proxyEnvFromPacResult(result);
 			if (Object.keys(detected).length > 0) {
-				currentSettings = { mode: "system", url: "" };
+				const system = { mode: "system", url: "" } as const;
+				currentSettings = {
+					desktop: { ...system },
+					agent: { ...system },
+				};
 				writeSettingsToDisk(currentSettings);
 			}
 		} catch {
@@ -197,7 +230,7 @@ export async function initProxy(): Promise<void> {
 		}
 	}
 	try {
-		await applyProxySettings(currentSettings);
+		await applyDesktopProxy(currentSettings.desktop);
 		await refreshSystemProxyEnv();
 	} catch (err) {
 		console.warn("[proxy] failed to apply settings on startup", err);
@@ -210,7 +243,7 @@ export async function initProxy(): Promise<void> {
 
 /** 启动依赖环境的进程前重新探测系统代理。 */
 export async function refreshSystemProxy(): Promise<void> {
-	if (currentSettings.mode !== "system") return;
+	if (!needsSystemProxyEnv()) return;
 	await refreshSystemProxyEnv();
 }
 
@@ -222,24 +255,17 @@ export function registerProxyIpc(opts?: {
 	ipcMain.handle(
 		IpcChannels.proxy.set,
 		async (_event, payload: Partial<ProxySettings> | null | undefined) => {
-			const mode = PROXY_MODES.includes(payload?.mode as ProxySettings["mode"])
-				? (payload?.mode as ProxySettings["mode"])
-				: DEFAULT_PROXY_SETTINGS.mode;
-			const url = typeof payload?.url === "string" ? payload.url.trim() : "";
-			if (mode === "custom" && !normalizeProxyUrl(url)) {
-				throw new Error("Invalid proxy URL");
-			}
-			const next: ProxySettings = {
-				mode,
-				url: mode === "custom" ? (normalizeProxyUrl(url) ?? "") : url,
-			};
+			const desktop = normalizeProxyScope(payload?.desktop);
+			const agent = normalizeProxyScope(payload?.agent);
+			if (!desktop || !agent) throw new Error("Invalid proxy URL");
+			const next: ProxySettings = { desktop, agent };
 			currentSettings = next;
 			try {
 				writeSettingsToDisk(next);
 			} catch (err) {
 				console.warn("[proxy] failed to persist settings", err);
 			}
-			await applyProxySettings(next);
+			await applyDesktopProxy(next.desktop);
 			await refreshSystemProxyEnv();
 			applyHostProxyEnv();
 			persistProxyEnvSnapshot();

@@ -50,6 +50,14 @@ import { useKeybindingsStore } from "@renderer/stores/keybindings";
 import { isUnstartedSession } from "@renderer/utils/session-started";
 import { isTextEntryTarget } from "@renderer/utils/keyboard-target";
 import { buildSessionTree, type SessionTreeItem } from "@renderer/utils/session-tree";
+import {
+  bumpSessionRanks,
+  compareSessionsOf,
+  renumberSessionRanks,
+  sessionRankOf,
+  type SessionRanks,
+  type SessionSort,
+} from "@renderer/utils/session-order";
 import { markRendererStartup } from "@renderer/utils/startup-timing";
 import * as prefs from "@renderer/utils/prefs";
 import { registerStateApplier } from "@renderer/utils/state-sync";
@@ -58,14 +66,14 @@ import { useDialog, useMessage, type DialogHandle } from "@renderer/services/fee
 import styles from "./SessionSidebar.module.css";
 
 const PIN_KEY = "session-pins:v1";
-const SESSION_ORDER_KEY = "pi-desktop:session-order:v2";
+const SESSION_RANK_KEY = "pi-desktop:session-rank:v1";
 const SESSION_VIEW_KEY = "pi-desktop:session-view:v1";
 const SESSION_VISIBLE_LIMIT = 5;
 
 /** 侧栏视图：分组 / 时间范围 / 排序。 */
 type SessionViewGroup = "project" | "task";
 type SessionViewTime = "all" | "1d" | "3d" | "7d";
-type SessionViewSort = "created" | "recent";
+type SessionViewSort = SessionSort;
 
 type SessionView = {
   group: SessionViewGroup;
@@ -136,7 +144,7 @@ type VisibleSessionItem = SessionTreeItem & {
 
 type SidebarLocal = {
   sessionsByRoot: Record<string, SessionSummary[]>;
-  sessionOrders: Record<string, string[]>;
+  sessionRanks: SessionRanks;
   pins: Record<string, string[]>;
   sessionListExpanded: Record<string, boolean>;
   selectMode: boolean;
@@ -198,37 +206,6 @@ function visibleSessionsOfList(
   return list.filter((s) => !isArchived(s));
 }
 
-function compareSessionsOf(
-  sessionOrders: Record<string, string[]>,
-  pins: Record<string, string[]>,
-  root: string,
-  sort: SessionViewSort,
-): (a: SessionSummary, b: SessionSummary) => number {
-  const order = sort === "recent" ? sessionOrders[root] : undefined;
-  const orderMap = order?.length ? new Map(order.map((id, i) => [id, i])) : null;
-  const pinMap = new Map((pins[root] ?? []).map((id, i) => [id, i]));
-  const pinRank = (session: SessionSummary): number =>
-    pinMap.get(session.id) ?? Number.MAX_SAFE_INTEGER;
-  return (a, b) => {
-    const ap = pinRank(a);
-    const bp = pinRank(b);
-    if (ap !== bp) return ap - bp;
-    if (orderMap) {
-      const ai = orderMap.get(a.id) ?? Number.MAX_SAFE_INTEGER;
-      const bi = orderMap.get(b.id) ?? Number.MAX_SAFE_INTEGER;
-      if (ai !== bi) return ai - bi;
-    }
-    const aKey = sessionSortKey(a, sort);
-    const bKey = sessionSortKey(b, sort);
-    return bKey.localeCompare(aKey);
-  };
-}
-
-/** 排序键：创建时间取 header 时间戳，缺失时回退最近活动时间。 */
-function sessionSortKey(session: SessionSummary, sort: SessionViewSort): string {
-  return sort === "created" ? (session.created ?? session.modified) : session.modified;
-}
-
 /** 时间过滤：按最近活动时间（modified）取窗口，全部时不过滤。 */
 function withinSessionViewTime(item: SessionSummary, time: SessionViewTime): boolean {
   if (time === "all") return true;
@@ -288,9 +265,7 @@ export function SessionSidebar(): ReactNode {
   >({});
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const [pins, setPins] = useState<Record<string, string[]>>({});
-  const [sessionOrders, setSessionOrders] = useState<Record<string, string[]>>(
-    {},
-  );
+  const [sessionRanks, setSessionRanks] = useState<SessionRanks>({});
   const [sessionListExpanded, setSessionListExpanded] = useState<
     Record<string, boolean>
   >({});
@@ -348,7 +323,7 @@ export function SessionSidebar(): ReactNode {
 
   const localRef = useRef<SidebarLocal>({
     sessionsByRoot,
-    sessionOrders,
+    sessionRanks,
     pins,
     sessionListExpanded,
     selectMode,
@@ -360,7 +335,7 @@ export function SessionSidebar(): ReactNode {
   useEffect(() => {
     localRef.current = {
       sessionsByRoot,
-      sessionOrders,
+      sessionRanks,
       pins,
       sessionListExpanded,
       selectMode,
@@ -378,6 +353,7 @@ export function SessionSidebar(): ReactNode {
   const workspaceTreeEl = useRef<HTMLDivElement | null>(null);
   const workspaceSortable = useRef<Sortable | null>(null);
   const prevStatuses = useRef(new Map<string, SessionStatus>());
+  const draggingRoot = useRef<string | null>(null);
   const skipAutoSelectRoot = useRef<string | null>(null);
 
   function sessionLabel(session: {
@@ -402,10 +378,6 @@ export function SessionSidebar(): ReactNode {
     prefs.setItem(PIN_KEY, JSON.stringify(next));
   }
 
-  function persistSessionOrders(next: Record<string, string[]>): void {
-    prefs.setItem(SESSION_ORDER_KEY, JSON.stringify(next));
-  }
-
   function loadPins(): void {
     try {
       const raw = prefs.getItem(PIN_KEY);
@@ -421,19 +393,38 @@ export function SessionSidebar(): ReactNode {
     }
   }
 
-  function loadSessionOrders(): void {
+  function persistSessionRanks(next: SessionRanks): void {
+    prefs.setItem(SESSION_RANK_KEY, JSON.stringify(next));
+  }
+
+  function loadSessionRanks(): void {
     try {
-      const raw = prefs.getItem(SESSION_ORDER_KEY);
+      const raw = prefs.getItem(SESSION_RANK_KEY);
       if (!raw) return;
-      const parsed = JSON.parse(raw) as Record<string, string[]>;
-      const next: Record<string, string[]> = {};
-      for (const [k, v] of Object.entries(parsed)) {
-        next[k] = Array.isArray(v) ? v : [];
+      const parsed = JSON.parse(raw) as Record<string, unknown>;
+      const next: SessionRanks = {};
+      for (const [root, value] of Object.entries(parsed)) {
+        if (!value || typeof value !== "object") continue;
+        const map: Record<string, number> = {};
+        for (const [id, rank] of Object.entries(value as Record<string, unknown>)) {
+          if (typeof rank === "number" && Number.isFinite(rank)) map[id] = rank;
+        }
+        next[root] = map;
       }
-      setSessionOrders(next);
+      setSessionRanks(next);
     } catch {
       // ignore
     }
+  }
+
+  /** 把会话抬到所在工作区最前，多个 id 按传入顺序自上而下。 */
+  function bumpSessionsToFront(root: string, sessionIds: string[]): void {
+    if (!sessionIds.length || draggingRoot.current === root) return;
+    setSessionRanks((prev) => {
+      const next = bumpSessionRanks(prev, root, sessionIds);
+      if (next !== prev) persistSessionRanks(next);
+      return next;
+    });
   }
 
   function isPinned(root: string, id: string): boolean {
@@ -453,7 +444,7 @@ export function SessionSidebar(): ReactNode {
   function compareSessions(
     root: string,
   ): (a: SessionSummary, b: SessionSummary) => number {
-    return compareSessionsOf(sessionOrders, pins, root, view.sort);
+    return compareSessionsOf(sessionRanks, pins, root, view.sort);
   }
 
   /**
@@ -464,13 +455,18 @@ export function SessionSidebar(): ReactNode {
     return statusBySession[row.id] ?? row.status;
   }
 
+  /** 缓存行统一套上实时状态，排序与渲染才会跟运行状态一致。 */
+  function rowsOf(root: string): SessionSummary[] {
+    return (sessionsByRoot[root] ?? []).map((row) => ({
+      ...row,
+      status: liveStatusOf(row),
+    }));
+  }
+
   function visibleSessions(root: string): SessionSummary[] {
-    return visibleSessionsOfList(
-      [...(sessionsByRoot[root] ?? [])],
-      archivedIds,
-    )
-      .filter((row) => withinSessionViewTime(row, view.time))
-      .map((row) => ({ ...row, status: liveStatusOf(row) }));
+    return visibleSessionsOfList(rowsOf(root), archivedIds).filter((row) =>
+      withinSessionViewTime(row, view.time),
+    );
   }
 
   function visibleTreeItemsFor(root: string): VisibleSessionItem[] {
@@ -522,11 +518,7 @@ export function SessionSidebar(): ReactNode {
   }
 
   function sessionsFor(root: string): SessionSummary[] {
-    return topSessionsOf(
-      [...(sessionsByRoot[root] ?? [])],
-      archivedIds,
-      compareSessions(root),
-    );
+    return topSessionsOf(rowsOf(root), archivedIds, compareSessions(root));
   }
 
   /** 侧栏可见会话的渲染顺序，Shift 范围选择按它取区间。 */
@@ -592,10 +584,26 @@ export function SessionSidebar(): ReactNode {
     return collapsibleSessionCount(root);
   }
 
+  /** 丢弃会话已不存在的排序权重，避免权重表随删除无限制增长。 */
+  function pruneSessionRanks(root: string, alive: Set<string>): void {
+    const current = localRef.current.sessionRanks[root];
+    if (!current) return;
+    const ids = Object.keys(current);
+    if (ids.every((id) => alive.has(id))) return;
+    const map = { ...current };
+    for (const id of ids) {
+      if (!alive.has(id)) delete map[id];
+    }
+    const next = { ...localRef.current.sessionRanks, [root]: map };
+    setSessionRanks(next);
+    persistSessionRanks(next);
+  }
+
   async function loadSessions(root: string): Promise<SessionSummary[]> {
     markRendererStartup("renderer:sessions-request");
     const list = await window.api.sessions.list(root);
     setSessionsByRoot((prev) => ({ ...prev, [root]: list }));
+    pruneSessionRanks(root, new Set(list.map((s) => s.id)));
     useSessionsStore.getState().replaceList(root, list);
     useSessionWidgetsStore
       .getState()
@@ -631,7 +639,7 @@ export function SessionSidebar(): ReactNode {
       [...list],
       new Set(useWorkspaceStore.getState().archivedSessions),
       compareSessionsOf(
-        localRef.current.sessionOrders,
+        localRef.current.sessionRanks,
         localRef.current.pins,
         root,
         localRef.current.view.sort,
@@ -743,14 +751,14 @@ export function SessionSidebar(): ReactNode {
       };
       setPins(nextPins);
       persistPins(nextPins);
-      const nextOrders = {
-        ...localRef.current.sessionOrders,
-        [root]: (localRef.current.sessionOrders[root] ?? []).filter(
-          (id) => id !== sessionId,
-        ),
-      };
-      setSessionOrders(nextOrders);
-      persistSessionOrders(nextOrders);
+      const currentRanks = localRef.current.sessionRanks[root];
+      if (currentRanks?.[sessionId] !== undefined) {
+        const map = { ...currentRanks };
+        delete map[sessionId];
+        const next = { ...localRef.current.sessionRanks, [root]: map };
+        setSessionRanks(next);
+        persistSessionRanks(next);
+      }
       setSessionsByRoot((prev) => ({
         ...prev,
         [root]: (prev[root] ?? []).filter((s) => s.id !== sessionId),
@@ -1318,14 +1326,30 @@ export function SessionSidebar(): ReactNode {
         },
       })),
     );
-    const pinnedIds = new Set(Object.values(pins).flat());
+    const pinIndex = (row: { root: string; item: VisibleSessionItem }): number =>
+      (pins[row.root] ?? []).indexOf(row.item.session.id);
     return rows.sort((a, b) => {
-      const ap = pinnedIds.has(a.item.session.id) ? 0 : 1;
-      const bp = pinnedIds.has(b.item.session.id) ? 0 : 1;
-      if (ap !== bp) return ap - bp;
-      const aKey = sessionSortKey(a.item.session, view.sort);
-      const bKey = sessionSortKey(b.item.session, view.sort);
-      return bKey.localeCompare(aKey);
+      const ap = pinIndex(a);
+      const bp = pinIndex(b);
+      if ((ap >= 0) !== (bp >= 0)) return ap >= 0 ? -1 : 1;
+      if (ap >= 0 && ap !== bp) return ap - bp;
+      if (view.sort === "recent") {
+        const ar = isRunning(a.item.session.status) ? 0 : 1;
+        const br = isRunning(b.item.session.status) ? 0 : 1;
+        if (ar !== br) return ar - br;
+      }
+      const aRank = sessionRankOf(
+        a.item.session,
+        sessionRanks[a.root],
+        view.sort,
+      );
+      const bRank = sessionRankOf(
+        b.item.session,
+        sessionRanks[b.root],
+        view.sort,
+      );
+      if (aRank !== bRank) return bRank - aRank;
+      return a.item.session.id.localeCompare(b.item.session.id);
     });
   }
 
@@ -1484,6 +1508,40 @@ export function SessionSidebar(): ReactNode {
     );
   }
 
+  /** 折叠或非「最近时间」视图下不给拖：拖出的顺序会被自动置顶覆盖。 */
+  function isSessionDragDisabled(root: string): boolean {
+    const local = localRef.current;
+    return (
+      local.view.sort !== "recent" ||
+      (!local.sessionListExpanded[root] &&
+        (local.sessionsByRoot[root]?.length ?? 0) > SESSION_VISIBLE_LIMIT)
+    );
+  }
+
+  /** 拖动结束：可见行按新顺序排在前面，剩余行保持原相对顺序，整列重新编号。 */
+  function reorderSessionsFromDrag(root: string, visibleIds: string[]): void {
+    const local = localRef.current;
+    const visible = new Set(visibleIds);
+    const hidden = (local.sessionsByRoot[root] ?? [])
+      .filter((row) => !visible.has(row.id))
+      .map((row) => ({ ...row, status: liveStatusOf(row) }))
+      .sort(compareSessionsOf(local.sessionRanks, local.pins, root, "recent"))
+      .map((row) => row.id);
+    const ordered = [...visibleIds, ...hidden];
+    const next = renumberSessionRanks(local.sessionRanks, root, ordered);
+    setSessionRanks(next);
+    persistSessionRanks(next);
+    const pinned = new Set(local.pins[root] ?? []);
+    if (pinned.size) {
+      const nextPins = {
+        ...local.pins,
+        [root]: ordered.filter((id) => pinned.has(id)),
+      };
+      setPins(nextPins);
+      persistPins(nextPins);
+    }
+  }
+
   function bindSessionSortable(root: string): void {
     const el = sessionListEls.current.get(root);
     if (!el) return;
@@ -1492,40 +1550,18 @@ export function SessionSidebar(): ReactNode {
       animation: 150,
       draggable: "[data-session-row]",
       filter: "[data-no-session-drag]",
-      disabled:
-        localRef.current.view.sort !== "recent" ||
-        (!localRef.current.sessionListExpanded[root] &&
-          (localRef.current.sessionsByRoot[root]?.length ?? 0) >
-            SESSION_VISIBLE_LIMIT),
+      disabled: isSessionDragDisabled(root),
+      onStart: () => {
+        draggingRoot.current = root;
+      },
       onEnd: () => {
+        draggingRoot.current = null;
         const ids = [
           ...el.querySelectorAll<HTMLElement>("[data-session-row][data-id]"),
         ]
           .map((n) => n.dataset.id)
           .filter((id): id is string => Boolean(id));
-        if (!ids.length) return;
-        // 折叠状态下只拖到部分行，其余保持原相对顺序
-        const seen = new Set(ids);
-        const rest = (localRef.current.sessionOrders[root] ?? []).filter(
-          (id) => !seen.has(id),
-        );
-        const ordered = [...ids, ...rest];
-        const nextOrders = {
-          ...localRef.current.sessionOrders,
-          [root]: ordered,
-        };
-        setSessionOrders(nextOrders);
-        persistSessionOrders(nextOrders);
-        // Keep pinned ids order in sync with visual order
-        const pinned = new Set(localRef.current.pins[root] ?? []);
-        if (pinned.size) {
-          const nextPins = {
-            ...localRef.current.pins,
-            [root]: ordered.filter((id) => pinned.has(id)),
-          };
-          setPins(nextPins);
-          persistPins(nextPins);
-        }
+        if (ids.length) reorderSessionsFromDrag(root, ids);
       },
     });
     sessionSortables.current.set(root, sortable);
@@ -1537,6 +1573,7 @@ export function SessionSidebar(): ReactNode {
       cb = (el: Element | null): void => {
         if (el instanceof HTMLElement) {
           sessionListEls.current.set(root, el);
+          bindSessionSortable(root);
           return;
         }
         sessionSortables.current.get(root)?.destroy();
@@ -1579,31 +1616,6 @@ export function SessionSidebar(): ReactNode {
     setSessionListExpanded((prev) => ({ ...prev, [root]: !prev[root] }));
   }
 
-  /** Freeze current visual order and prepend a new session id at the front. */
-  function appendSessionToOrder(root: string, sessionId: string): void {
-    const local = localRef.current;
-    const base = topSessionsOf(
-      [...(local.sessionsByRoot[root] ?? [])],
-      new Set(useWorkspaceStore.getState().archivedSessions),
-      compareSessionsOf(local.sessionOrders, local.pins, root, local.view.sort),
-    )
-      .map((s) => s.id)
-      .filter((id) => id !== sessionId);
-    const next = { ...local.sessionOrders, [root]: [sessionId, ...base] };
-    setSessionOrders(next);
-    persistSessionOrders(next);
-  }
-
-  /** 新活动把会话顶到最前，与「最近时间」排序保持一致。 */
-  function moveSessionsToFront(root: string, sessionIds: string[]): void {
-    setSessionOrders((prev) => {
-      const base = (prev[root] ?? []).filter((id) => !sessionIds.includes(id));
-      const next = { ...prev, [root]: [...sessionIds, ...base] };
-      persistSessionOrders(next);
-      return next;
-    });
-  }
-
   /** 其他组件（如派生对话）建出的会话：置顶显示，折叠状态下也能看到。 */
   function onSessionCreated(event: Event): void {
     const detail = (
@@ -1612,7 +1624,7 @@ export function SessionSidebar(): ReactNode {
     const root = typeof detail?.root === "string" ? detail.root : "";
     const sessionId = typeof detail?.sessionId === "string" ? detail.sessionId : "";
     if (!root || !sessionId) return;
-    appendSessionToOrder(root, sessionId);
+    bumpSessionsToFront(root, [sessionId]);
   }
 
   function moreMenuItems(): MenuItem[] {
@@ -1921,13 +1933,13 @@ export function SessionSidebar(): ReactNode {
       },
     );
     loadPins();
-    loadSessionOrders();
+    loadSessionRanks();
     // 另一窗口改了排序/置顶/分组时跟着变，桌面端与浏览器预览页保持一致。
     const offPrefs = registerStateApplier((change) => {
       if (change.scope !== "prefs") return;
       const keys = change.keys ?? [];
       if (keys.includes(PIN_KEY)) loadPins();
-      if (keys.includes(SESSION_ORDER_KEY)) loadSessionOrders();
+      if (keys.includes(SESSION_RANK_KEY)) loadSessionRanks();
       if (keys.includes(SESSION_VIEW_KEY)) setView(loadSessionView());
     });
     // 派生会话等由其他组件新建的会话：排到最前，避免被折叠到「展开其余 N 个」之下。
@@ -1979,7 +1991,11 @@ export function SessionSidebar(): ReactNode {
   }, [workspacePathsKey, view.group]);
 
   useEffect(() => {
-    for (const root of workspacePaths) bindSessionSortable(root);
+    for (const root of workspacePaths) {
+      sessionSortables.current
+        .get(root)
+        ?.option("disabled", isSessionDragDisabled(root));
+    }
   }, [workspacePathsKey, sessionsByRoot, sessionListExpanded, view.group, view.sort]);
 
   useEffect(() => {
@@ -2041,25 +2057,31 @@ export function SessionSidebar(): ReactNode {
     }
     setSessionsByRoot((prev) => ({ ...prev, [root]: next }));
     if (touched.length) {
-      // 运行中的会话不因活动抢位，结束（下面的状态转换）后再归位
-      const moved = touched.filter(
-        (id) => !isRunning(byId.get(id)?.status ?? "idle"),
-      );
-      if (moved.length) moveSessionsToFront(root, moved);
+      // 运行中的会话开始时已经置顶，运行期间的活动不再改顺序
+      const moved = touched
+        .filter((id) => !isRunning(byId.get(id)?.status ?? "idle"))
+        .sort((a, b) =>
+          (byId.get(b)?.modified ?? "").localeCompare(
+            byId.get(a)?.modified ?? "",
+          ),
+        );
+      if (moved.length) bumpSessionsToFront(root, moved);
     }
   }, [sessionsStore.sessions]);
 
   useEffect(() => {
     const rows = sessionsStore.sessions;
     const ended: string[] = [];
-    // 运行结束的会话按最近活动时间归位，状态镜像覆盖所有工作区
-    const settledByRoot = new Map<string, string[]>();
+    // 开始运行与运行结束都算一次「把会话抬到最前」，同一批按最近活动时间排序，
+    // 否则两个同时运行的任务会按遍历顺序互相抢位。
+    const bumpedByRoot = new Map<string, string[]>();
     for (const [id, status] of Object.entries(statusBySession)) {
       const was = prevStatuses.current.get(id);
-      if (!was || !isRunning(was) || isRunning(status)) continue;
+      if (!was || was === status) continue;
+      if (isRunning(was) === isRunning(status)) continue;
       const root = rootOfSession(id);
       if (!root) continue;
-      settledByRoot.set(root, [...(settledByRoot.get(root) ?? []), id]);
+      bumpedByRoot.set(root, [...(bumpedByRoot.get(root) ?? []), id]);
     }
     for (const row of rows) {
       const was = prevStatuses.current.get(row.id);
@@ -2067,7 +2089,19 @@ export function SessionSidebar(): ReactNode {
       if (row.id !== useSessionsStore.getState().activeId) ended.push(row.id);
     }
     prevStatuses.current = new Map(Object.entries(statusBySession));
-    for (const [root, ids] of settledByRoot) moveSessionsToFront(root, ids);
+    const modifiedOf = (id: string): string => {
+      for (const list of Object.values(localRef.current.sessionsByRoot)) {
+        const row = list.find((item) => item.id === id);
+        if (row) return row.modified;
+      }
+      return "";
+    };
+    for (const [root, ids] of bumpedByRoot) {
+      bumpSessionsToFront(
+        root,
+        ids.sort((a, b) => modifiedOf(b).localeCompare(modifiedOf(a))),
+      );
+    }
     if (!ended.length) return;
     setJustEnded((prev) => {
       const next = new Set(prev);
@@ -2209,7 +2243,7 @@ export function SessionSidebar(): ReactNode {
               className={styles.wsToolBtn}
               onClick={() => void onAddWorkspace()}
             >
-              <AddOutline size={18} />
+              <AddOutline size={16} />
             </Button>
           </div>
         </div>

@@ -29,3 +29,16 @@ export function isThinkingLevel(value: unknown): value is ThinkingLevel {
 export function thinkingLevelLabel(value: unknown): string | null {
   return isThinkingLevel(value) ? (LABELS.get(value) ?? null) : null;
 }
+
+/**
+ * 从模型定义的 thinkingLevelMap 读可用档位：显式 null 表示不可用，缺失键按可用处理
+ * （桌面端会为缺失的档位补齐映射）。没有映射时返回 undefined，表示全档位可用。
+ */
+export function availableThinkingLevels(map: unknown): ThinkingLevel[] | undefined {
+  if (!map || typeof map !== "object" || Array.isArray(map)) return undefined;
+  const record = map as Record<string, unknown>;
+  if (!THINKING_LEVELS.some((level) => level.value in record)) return undefined;
+  return THINKING_LEVELS.filter((level) => record[level.value] !== null).map(
+    (level) => level.value,
+  );
+}

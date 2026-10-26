@@ -11,9 +11,10 @@
 import fs from "node:fs";
 import path from "node:path";
 import { agentDir } from "./agent-dir";
+import { DESKTOP_PREFS_FILENAME } from "../shared/browser-settings";
 
 export function prefsPath(agentDirOverride?: string): string {
-	return path.join(path.resolve(agentDirOverride ?? agentDir()), "desktop-prefs.json");
+	return path.join(path.resolve(agentDirOverride ?? agentDir()), DESKTOP_PREFS_FILENAME);
 }
 
 function isStringMap(value: unknown): value is Record<string, string> {

@@ -41,6 +41,8 @@ import {
   type QueuedSendItem,
 } from "@renderer/stores/send-queue";
 import { useSessionsStore } from "@renderer/stores/sessions";
+import { useSessionStatsStore } from "@renderer/stores/session-stats";
+import { useSendShortcutStore } from "@renderer/stores/send-shortcut";
 import { useWorkspaceStore } from "@renderer/stores/workspace";
 import { useAppearanceStore } from "@renderer/stores/appearance";
 import { useRightTabsStore } from "@renderer/stores/right-tabs";
@@ -195,6 +197,8 @@ export function Composer({ docked = false }: ComposerProps): ReactNode {
   const sessionId = useSessionsStore((s) => s.activeId);
   const draftRoot = useSessionsStore((s) => s.draftRoot);
   const contextUsage = useSessionsStore((s) => s.activeContextUsage);
+  const tpsMode = useSessionStatsStore((s) => s.tpsMode);
+  const sendShortcut = useSendShortcutStore((s) => s.mode);
   const activeSessionStatus = useSessionsStore((s) => {
     const id = s.activeId;
     if (!id) return null;
@@ -207,6 +211,8 @@ export function Composer({ docked = false }: ComposerProps): ReactNode {
   const queueEditingId = useSendQueueStore((s) => s.editingId);
 
   const availableModels = useLatest<ModelSelectOption[]>([]);
+  /** 模型 → 可用思考档位；缺省表示全部可用。 */
+  const modelThinkingLevels = useLatest<Record<string, ThinkingLevel[] | undefined>>({});
   const selectedModel = useLatest<string | null>(null);
   const thinking = useLatest<ThinkingLevel>("medium");
   const prefs = useLatest<SessionPrefs>(
@@ -319,7 +325,7 @@ export function Composer({ docked = false }: ComposerProps): ReactNode {
     updatePrefs(next);
   }
 
-  const thinkingMenu: MenuProps["items"] = THINKING_LEVELS.map((o) => ({
+  const thinkingMenu: MenuProps["items"] = thinkingLevelsFor(selectedModel.value).map((o) => ({
     label: o.label,
     key: o.value,
     style:
@@ -1107,8 +1113,12 @@ export function Composer({ docked = false }: ComposerProps): ReactNode {
 
     if (event.key !== "Enter" || event.isComposing) return;
 
-    // DeepSeek-style: Enter sends; Shift+Enter inserts a newline (both modes).
-    if (event.shiftKey) return;
+    // 选中的组合键发送，其余组合键换行；Enter 一直是换行候选项。
+    if (sendShortcut === "ctrl-enter") {
+      if (!event.ctrlKey && !event.metaKey) return;
+    } else if (sendShortcut === "shift-enter") {
+      if (!event.shiftKey) return;
+    } else if (event.shiftKey) return;
 
     event.preventDefault();
     if (useSendQueueStore.getState().editingId) {
@@ -1400,7 +1410,7 @@ export function Composer({ docked = false }: ComposerProps): ReactNode {
    * Only items that actually have data are rendered — a stat with no sample
    * is omitted instead of showing "label —".
    */
-  const sessionStats = buildSessionStats(contextUsage);
+  const sessionStats = buildSessionStats(contextUsage, tpsMode);
 
   async function onCompactContext(): Promise<void> {
     const idSession = currentSessionId();
@@ -1469,11 +1479,13 @@ export function Composer({ docked = false }: ComposerProps): ReactNode {
       }
       const selected = filterAvailableModels(available, selection);
       const byProvider = new Map<string, { label: string; value: string }[]>();
+      const levelsByModel: Record<string, ThinkingLevel[] | undefined> = {};
       for (const m of selected) {
         const list = byProvider.get(m.provider) ?? [];
         const label = (m.name && m.name.trim()) || m.id;
         list.push({ label, value: `${m.provider}/${m.id}` });
         byProvider.set(m.provider, list);
+        levelsByModel[`${m.provider}/${m.id}`] = m.thinkingLevels;
       }
       const groups: ModelSelectOption[] = [...byProvider.entries()].map(
         ([provider, children]) => ({
@@ -1484,6 +1496,7 @@ export function Composer({ docked = false }: ComposerProps): ReactNode {
         }),
       );
       availableModels.set(groups);
+      modelThinkingLevels.set(levelsByModel);
       await syncSessionModelAndThinking();
     } catch (err) {
       // Keep whatever list we already had: blanking it turns a transient failure
@@ -1667,11 +1680,19 @@ export function Composer({ docked = false }: ComposerProps): ReactNode {
     if (next) void onModelChange(next.value);
   }, [availableModels, selectedModel]);
 
+  /** 思考档位菜单只列当前模型可用的档位；未配置映射时保持全档位。 */
+  function thinkingLevelsFor(model: string | null): { value: ThinkingLevel; label: string }[] {
+    const allowed = model ? modelThinkingLevels.ref.current[model] : undefined;
+    if (!allowed?.length) return THINKING_LEVELS;
+    return THINKING_LEVELS.filter((level) => allowed.includes(level.value));
+  }
+
   const cycleThinking = useCallback((): void => {
-    const index = THINKING_LEVELS.findIndex((o) => o.value === thinking.ref.current);
-    const next = THINKING_LEVELS[(index + 1) % THINKING_LEVELS.length];
+    const levels = thinkingLevelsFor(selectedModel.ref.current);
+    const index = levels.findIndex((o) => o.value === thinking.ref.current);
+    const next = levels[(index + 1) % levels.length];
     if (next) void onThinkingChange(next.value);
-  }, [thinking]);
+  }, [thinking, selectedModel]);
 
   /**
    * Paste into the composer: only image bitmaps are attached. http(s) URLs,
@@ -2007,6 +2028,10 @@ export function Composer({ docked = false }: ComposerProps): ReactNode {
                   src={img.previewUrl}
                   alt=""
                   preview={{ src: img.previewUrl }}
+                  styles={{
+                    root: { width: "100%", height: "100%" },
+                    image: { width: "100%", height: "100%", objectFit: "cover" },
+                  }}
                 />
                 <button
                   type="button"
