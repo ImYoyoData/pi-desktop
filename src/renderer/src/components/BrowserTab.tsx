@@ -19,11 +19,6 @@ import {
 } from "@renderer/components/icons/ionicons";
 import PenNibIcon from "@renderer/components/icons/PenNibIcon";
 import * as prefs from "@renderer/utils/prefs";
-import {
-  BROWSER_NEW_TAB_URL_PREF,
-  BROWSER_RECORD_HISTORY_PREF,
-  normalizeNewTabUrl,
-} from "../../../shared/browser-settings";
 import type { ElementCitation } from "../../../shared/protocol";
 import { isRegionCitation } from "../../../shared/protocol";
 import { useComposerStore } from "@renderer/stores/composer";
@@ -446,9 +441,7 @@ export function BrowserTab({ tabId, visible, initialUrl }: Props): ReactNode {
     const title = webviewRef.current?.getTitle?.() || pageTitle || url;
     setPageTitle(title);
     syncTabTitle(title);
-    if (prefs.getItem(BROWSER_RECORD_HISTORY_PREF) !== "false") {
-      recordHistory(tabIdRef.current, { url, title });
-    }
+    recordHistory(tabIdRef.current, { url, title });
     setBookmarked(isBookmarked(useWorkspaceStore.getState().root, url));
     useRightTabsStore.getState().patchTab(tabIdRef.current, { url });
     reportTabToMain();
@@ -628,9 +621,7 @@ export function BrowserTab({ tabId, visible, initialUrl }: Props): ReactNode {
     }
     bindDevtoolsHost();
     applyPendingNavigate();
-    const restored =
-      (initialUrl || "").trim() ||
-      normalizeNewTabUrl(prefs.getItem(BROWSER_NEW_TAB_URL_PREF));
+    const restored = (initialUrl || "").trim();
     if (
       restored &&
       restored !== "about:blank" &&
