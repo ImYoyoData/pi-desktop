@@ -1,11 +1,16 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type DragEvent, type ReactNode } from "react";
 import { Button, Input, InputNumber, Select, Spin } from "antd";
-import { EyeOffOutline, EyeOutline } from "@renderer/components/icons/ionicons";
+import { AddOutline, EyeOffOutline, EyeOutline, TrashOutline } from "@renderer/components/icons/ionicons";
 import CodiconIcon from "@renderer/components/icons/CodiconIcon";
 import ToggleButton from "@renderer/components/ToggleButton";
 import ModelPickModal from "@renderer/components/customize/ModelPickModal";
 import {
-  CUSTOM_IMAGE_INPUTS,
+  SettingsGroup,
+  SettingsRow,
+  SettingsSwitch,
+} from "@renderer/components/customize/SettingsGroup";
+import groupStyles from "@renderer/components/customize/SettingsGroup.module.css";
+import {
   CUSTOM_MODEL_APIS,
   emptyCustomProvider,
   listEditableProviders,
@@ -14,10 +19,10 @@ import {
   parseModelsConfigText,
   removeCustomProvider,
   renameCustomProvider,
+  reorderProviders,
   stringifyModelsConfig,
   upsertCustomProvider,
   validateCustomProvider,
-  type CustomImageInput,
   type CustomModelEntry,
   type CustomProviderDraft,
 } from "../../../../shared/custom-models";
@@ -31,6 +36,7 @@ import {
   withProviderDisabled,
   type ModelSelection,
 } from "../../../../shared/model-selection";
+import { THINKING_LEVELS, type ThinkingLevel } from "../../../../shared/thinking-level";
 import { useDialog, useMessage } from "@renderer/services/feedback";
 import { useI18n } from "@renderer/i18n/use-i18n";
 import styles from "./CustomizeModels.module.css";
@@ -70,6 +76,10 @@ export function CustomizeModels(): ReactNode {
 
   const [samplingOpen, setSamplingOpen] = useState<Record<string, boolean>>({});
 
+  /** 拖动排序：dragId 是被拖条目，dropTargetId 是指针当前悬停的目标条目。 */
+  const [dragId, setDragId] = useState<string | null>(null);
+  const [dropTargetId, setDropTargetId] = useState<string | null>(null);
+
   const modelsText = useRef("");
   const selectedIdRef = useRef<string | null>(null);
 
@@ -79,7 +89,6 @@ export function CustomizeModels(): ReactNode {
     !api || (CUSTOM_MODEL_APIS as readonly string[]).includes(api)
       ? apiOptions
       : [...apiOptions, { label: api, value: api }];
-  const imageInputOptions = CUSTOM_IMAGE_INPUTS.map((value) => ({ label: value, value }));
 
   function setSelectedId(next: string | null): void {
     selectedIdRef.current = next;
@@ -282,6 +291,11 @@ export function CustomizeModels(): ReactNode {
     return modelRowKeys[index] ?? String(index);
   }
 
+  /** 未配置过 thinkingLevelMap 的模型按全档位可用处理。 */
+  function modelThinkingLevels(model: CustomModelEntry): ThinkingLevel[] {
+    return model.thinkingLevels ?? THINKING_LEVELS.map((level) => level.value);
+  }
+
   function toggleSampling(index: number): void {
     const key = samplingRowKey(index);
     setSamplingOpen((prev) => ({ ...prev, [key]: !prev[key] }));
@@ -299,10 +313,6 @@ export function CustomizeModels(): ReactNode {
     value: boolean,
   ): void {
     updateDraft({ [key]: value });
-  }
-
-  function setImageInput(value: CustomImageInput): void {
-    updateDraft({ imageInput: value });
   }
 
   /** 开关桌面端的提供商禁用状态（只影响本应用，不写 models.json）。 */
@@ -486,6 +496,59 @@ export function CustomizeModels(): ReactNode {
     window.dispatchEvent(new CustomEvent("pi-models-changed"));
   }
 
+  /** 拖动排序直接改写 models.json 中的 providers 键序，失败时重载回滚。 */
+  async function persistProviderOrder(list: CustomProviderDraft[]): Promise<void> {
+    try {
+      const doc = parseModelsConfigText(modelsText.current);
+      const text = stringifyModelsConfig(reorderProviders(doc, list.map((item) => item.id)));
+      await window.api.models.set({ modelsText: text });
+      modelsText.current = text;
+      notifyModelsChanged();
+    } catch (err) {
+      message.error(err instanceof Error ? err.message : String(err));
+      await load(selectedIdRef.current);
+    }
+  }
+
+  function onProviderDragStart(event: DragEvent<HTMLButtonElement>, id: string): void {
+    setDragId(id);
+    event.dataTransfer.effectAllowed = "move";
+    event.dataTransfer.setData("text/plain", id);
+  }
+
+  function onProviderDragOver(event: DragEvent<HTMLButtonElement>, id: string): void {
+    if (!dragId || dragId === id) return;
+    event.preventDefault();
+    event.dataTransfer.dropEffect = "move";
+    if (dropTargetId !== id) setDropTargetId(id);
+  }
+
+  function onProviderDragLeave(event: DragEvent<HTMLButtonElement>, id: string): void {
+    if (event.currentTarget.contains(event.relatedTarget as Node | null)) return;
+    setDropTargetId((prev) => (prev === id ? null : prev));
+  }
+
+  function onProviderDrop(event: DragEvent<HTMLButtonElement>, id: string): void {
+    event.preventDefault();
+    const from = dragId;
+    setDragId(null);
+    setDropTargetId(null);
+    if (!from || from === id) return;
+    const fromIndex = providers.findIndex((item) => item.id === from);
+    const toIndex = providers.findIndex((item) => item.id === id);
+    if (fromIndex < 0 || toIndex < 0 || fromIndex === toIndex) return;
+    const next = [...providers];
+    const [moved] = next.splice(fromIndex, 1);
+    next.splice(toIndex, 0, moved);
+    setProviders(next);
+    void persistProviderOrder(next);
+  }
+
+  function onProviderDragEnd(): void {
+    setDragId(null);
+    setDropTargetId(null);
+  }
+
   async function testBaseUrl(): Promise<void> {
     const current = normalizedDraft();
     if (!current || testingBaseUrl) return;
@@ -549,6 +612,8 @@ export function CustomizeModels(): ReactNode {
     const classes = [styles.providerItem];
     if (id === selectedId && !isNew) classes.push(styles.selected);
     if (isProviderDisabled(modelSelection, id)) classes.push(styles.disabled);
+    if (id === dragId) classes.push(styles.dragging);
+    if (id === dropTargetId) classes.push(styles.dropTarget);
     return classes.join(" ");
   }
 
@@ -565,12 +630,6 @@ export function CustomizeModels(): ReactNode {
       {!loading && !loadError ? (
         <div className={styles.modelsLayout}>
           <aside className={styles.modelsSidebar}>
-            <div className={styles.listToolbar}>
-              <Button size="small" onClick={onAddProvider}>
-                {t.modelsAuthApiLogin}
-              </Button>
-            </div>
-
             {!providers.length ? (
               <div className={styles.sidebarEmpty}>
                 <span className={styles.sidebarEmptyTitle}>{t.modelsCustomEmpty}</span>
@@ -583,6 +642,13 @@ export function CustomizeModels(): ReactNode {
                     key={provider.id}
                     type="button"
                     className={providerItemClass(provider.id)}
+                    draggable
+                    title={t.modelsCustomReorderHint}
+                    onDragStart={(event) => onProviderDragStart(event, provider.id)}
+                    onDragOver={(event) => onProviderDragOver(event, provider.id)}
+                    onDragLeave={(event) => onProviderDragLeave(event, provider.id)}
+                    onDrop={(event) => onProviderDrop(event, provider.id)}
+                    onDragEnd={onProviderDragEnd}
                     onClick={() => onSelectProvider(provider.id)}
                   >
                     <span className={styles.providerHead}>
@@ -601,183 +667,195 @@ export function CustomizeModels(): ReactNode {
                 ))}
               </div>
             )}
+
+            <button
+              type="button"
+              className={styles.sidebarAdd}
+              title={t.modelsCustomAdd}
+              onClick={onAddProvider}
+            >
+              <AddOutline size={14} />
+              <span>{t.modelsCustomAdd}</span>
+            </button>
           </aside>
 
           <section className={styles.modelsDetail}>
-            {!draft ? (
-              <div className={styles.detailEmpty}>
-                <span className={styles.detailEmptyTitle}>{t.modelsCustomSelectHint}</span>
-              </div>
-            ) : (
-              <>
-                <header className={styles.detailHeader}>
-                  <h3 className={styles.detailTitle}>
-                    {isNew ? t.modelsCustomNew : draft.name || draft.id}
-                  </h3>
-                  {dirty ? <span className={styles.inlineBadge}>{t.modelsCustomDirty}</span> : null}
-                  <span className={styles.detailSpacer} />
-                  <ToggleButton
-                    label={t.modelsCustomDisable}
-                    value={providerDisabled}
-                    disabled={!draft.id.trim()}
-                    title={t.modelsCustomDisabledHint}
-                    onValueChange={(value) => void setProviderDisabled(value)}
-                  />
-                  {!isNew ? (
-                    <button
-                      type="button"
-                      className={styles.detailRemove}
-                      title={t.modelsCustomDelete}
-                      onClick={confirmDelete}
-                    >
-                      {t.customizeDelete}
-                    </button>
-                  ) : null}
-                </header>
+            <div className={styles.detailScroll}>
+              {!draft ? (
+                <div className={styles.detailEmpty}>
+                  <span className={styles.detailEmptyTitle}>{t.modelsCustomSelectHint}</span>
+                </div>
+              ) : (
+                <>
+                  <header className={styles.detailHeader}>
+                    <div className={styles.detailHeading}>
+                      <h3 className={styles.detailTitle}>
+                        {isNew ? t.modelsCustomNew : draft.name || draft.id}
+                      </h3>
+                      <span className={styles.detailSubtitle}>{providerHint(draft)}</span>
+                    </div>
+                    {dirty ? (
+                      <span className={styles.inlineBadge}>{t.modelsCustomDirty}</span>
+                    ) : null}
+                    <span className={styles.detailSpacer} />
+                    <ToggleButton
+                      label={t.modelsCustomDisable}
+                      value={providerDisabled}
+                      disabled={!draft.id.trim()}
+                      title={t.modelsCustomDisabledHint}
+                      onValueChange={(value) => void setProviderDisabled(value)}
+                    />
+                    {!isNew ? (
+                      <button
+                        type="button"
+                        className={styles.detailRemove}
+                        title={t.modelsCustomDelete}
+                        aria-label={t.modelsCustomDelete}
+                        onClick={confirmDelete}
+                      >
+                        <TrashOutline size={14} />
+                      </button>
+                    ) : null}
+                  </header>
 
-                <div className={styles.detailScroll}>
                   {formError ? <p className={styles.formError}>{formError}</p> : null}
 
-                  <div className={styles.formSection}>
-                    <div className={styles.formSectionTitle}>{t.modelsCustomSectionBasic}</div>
-
-                    <div className={styles.field}>
-                      <label className={styles.fieldLabel} title={t.modelsCustomIdHint}>
-                        {t.modelsCustomId}
-                      </label>
-                      <div className={styles.fieldControl}>
-                        <Input
-                          value={draft.id}
-                          size="small"
-                          placeholder={t.modelsCustomId}
-                          onChange={(event) => updateDraft({ id: event.target.value })}
-                        />
-                      </div>
-                    </div>
-
-                    <div className={styles.field}>
-                      <label className={styles.fieldLabel}>{t.modelsCustomName}</label>
-                      <div className={styles.fieldControl}>
-                        <Input
-                          value={draft.name}
-                          size="small"
-                          placeholder={t.modelsCustomNamePlaceholder}
-                          onChange={(event) => updateDraft({ name: event.target.value })}
-                        />
-                      </div>
-                    </div>
-
-                    <div className={styles.field}>
-                      <label className={styles.fieldLabel}>{t.modelsCustomBaseUrl}</label>
-                      <div className={styles.fieldControl}>
-                        <Input
-                          value={draft.baseUrl}
-                          size="small"
-                          placeholder={t.modelsCustomBaseUrlHint}
-                          onChange={(event) => updateDraft({ baseUrl: event.target.value })}
-                        />
-                      </div>
-                    </div>
-
-                    <div className={styles.field}>
-                      <label className={styles.fieldLabel}>{t.modelsCustomApi}</label>
-                      <div className={styles.fieldControl}>
-                        <Select
-                          value={draft.api}
-                          size="small"
-                          options={apiSelectOptions(draft.api)}
-                          onChange={(value: CustomProviderDraft["api"]) =>
-                            updateDraft({ api: value })
-                          }
-                        />
-                      </div>
-                    </div>
-
-                    <div className={styles.field}>
-                      <label className={styles.fieldLabel}>{t.modelsCustomApiKey}</label>
-                      <div className={styles.fieldControl}>
-                        <Input
-                          value={keyVisible ? draft.apiKey : keyMasked}
-                          size="small"
-                          placeholder={t.modelsCustomApiKeyPlaceholder}
-                          onFocus={() => setKeyVisible(true)}
-                          onChange={(event) => onApiKeyInput(event.target.value)}
-                          suffix={
-                            <button
-                              type="button"
-                              className={styles.keyEye}
-                              title={keyVisible ? t.modelsCustomKeyHide : t.modelsCustomKeyShow}
-                              onClick={() => setKeyVisible((value) => !value)}
-                            >
-                              {keyVisible ? <EyeOffOutline size={14} /> : <EyeOutline size={14} />}
-                            </button>
-                          }
-                        />
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className={styles.formSection}>
-                    <div className={styles.formSectionTitle}>{t.modelsCustomSectionCompat}</div>
-
-                    <div className={styles.toggleRow}>
-                      <ToggleButton
-                        label={t.modelsCustomDevRole}
-                        value={draft.supportsDeveloperRole}
-                        onValueChange={(value) => setCompat("supportsDeveloperRole", value)}
-                      />
-                      <span className={styles.toggleHint}>{t.modelsCustomDevRoleHint}</span>
-                    </div>
-
-                    <div className={styles.toggleRow}>
-                      <ToggleButton
-                        label={t.modelsCustomReasoningEffort}
-                        value={draft.supportsReasoningEffort}
-                        onValueChange={(value) => setCompat("supportsReasoningEffort", value)}
-                      />
-                      <span className={styles.toggleHint}>{t.modelsCustomReasoningEffortHint}</span>
-                    </div>
-
-                    <div className={styles.toggleRow}>
-                      <span className={styles.toggleHint}>{t.modelsCustomImageInput}</span>
-                      <Select
-                        className={styles.toggleSelect}
+                  <SettingsGroup title={t.modelsCustomSectionBasic}>
+                    <SettingsRow label={t.modelsCustomId}>
+                      <Input
+                        className={styles.settingInput}
+                        value={draft.id}
                         size="small"
-                        value={draft.imageInput}
-                        options={imageInputOptions}
-                        onChange={(value: CustomImageInput) => setImageInput(value)}
+                        placeholder={t.modelsCustomId}
+                        onChange={(event) => updateDraft({ id: event.target.value })}
                       />
-                      <span className={styles.toggleHint}>{t.modelsCustomImageInputHint}</span>
-                    </div>
+                    </SettingsRow>
 
-                    <div className={styles.toggleRow}>
-                      <ToggleButton
-                        label={t.modelsCustomImageOptIn}
-                        value={draft.imageOptInHeader}
-                        onValueChange={(value) => setCompat("imageOptInHeader", value)}
+                    <SettingsRow label={t.modelsCustomName}>
+                      <Input
+                        className={styles.settingInput}
+                        value={draft.name}
+                        size="small"
+                        placeholder={t.modelsCustomNamePlaceholder}
+                        onChange={(event) => updateDraft({ name: event.target.value })}
                       />
-                      <span className={styles.toggleHint}>{t.modelsCustomImageOptInHint}</span>
-                    </div>
-                  </div>
+                    </SettingsRow>
 
-                  <div className={styles.formSection}>
-                    <div className={styles.formSectionTitleRow}>
-                      <span className={styles.formSectionTitle}>{t.modelsCustomSectionModels}</span>
+                    <SettingsRow label={t.modelsCustomBaseUrl}>
+                      <Input
+                        className={styles.settingInputWide}
+                        value={draft.baseUrl}
+                        size="small"
+                        placeholder={t.modelsCustomBaseUrlHint}
+                        onChange={(event) => updateDraft({ baseUrl: event.target.value })}
+                      />
+                    </SettingsRow>
+
+                    <SettingsRow label={t.modelsCustomApi}>
+                      <Select
+                        className={styles.settingSelect}
+                        value={draft.api}
+                        size="small"
+                        options={apiSelectOptions(draft.api)}
+                        onChange={(value: CustomProviderDraft["api"]) =>
+                          updateDraft({ api: value })
+                        }
+                      />
+                    </SettingsRow>
+
+                    <SettingsRow label={t.modelsCustomApiKey}>
+                      <Input
+                        className={styles.settingInputWide}
+                        value={keyVisible ? draft.apiKey : keyMasked}
+                        size="small"
+                        placeholder={t.modelsCustomApiKeyPlaceholder}
+                        onFocus={() => setKeyVisible(true)}
+                        onChange={(event) => onApiKeyInput(event.target.value)}
+                        suffix={
+                          <button
+                            type="button"
+                            className={styles.keyEye}
+                            title={keyVisible ? t.modelsCustomKeyHide : t.modelsCustomKeyShow}
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              setKeyVisible((value) => !value);
+                            }}
+                          >
+                            {keyVisible ? <EyeOffOutline size={14} /> : <EyeOutline size={14} />}
+                          </button>
+                        }
+                      />
+                    </SettingsRow>
+                  </SettingsGroup>
+
+                  <SettingsGroup title={t.modelsCustomSectionCompat}>
+                    <SettingsRow
+                      label={t.modelsCustomDevRole}
+                      description={t.modelsCustomDevRoleHint}
+                    >
+                      <SettingsSwitch
+                        checked={draft.supportsDeveloperRole}
+                        label={t.modelsCustomDevRole}
+                        onChange={(value) => setCompat("supportsDeveloperRole", value)}
+                      />
+                    </SettingsRow>
+
+                    <SettingsRow
+                      label={t.modelsCustomReasoningEffort}
+                      description={t.modelsCustomReasoningEffortHint}
+                    >
+                      <SettingsSwitch
+                        checked={draft.supportsReasoningEffort}
+                        label={t.modelsCustomReasoningEffort}
+                        onChange={(value) => setCompat("supportsReasoningEffort", value)}
+                      />
+                    </SettingsRow>
+                  </SettingsGroup>
+
+                  <div className={styles.modelSection}>
+                    <div className={styles.modelSectionHead}>
+                      <span className={styles.modelSectionTitle}>
+                        {t.modelsCustomSectionModels}
+                      </span>
+                      <span className={styles.modelCount}>
+                        {t.modelsCustomCount(
+                          draft.models.filter((model) => model.id.trim()).length,
+                        )}
+                      </span>
                       <span className={styles.detailSpacer} />
-                      <Button size="small" type="default" onClick={addModelRow}>
+                      <Button size="small" onClick={addModelRow}>
                         {t.modelsCustomAddModel}
                       </Button>
                     </div>
 
-                    <div className={styles.modelList}>
+                    <div className={groupStyles.card}>
                       {draft.models.map((model, index) => {
                         const rowKey = modelRowKeys[index] ?? String(index);
+                        const expanded = Boolean(samplingOpen[samplingRowKey(index)]);
                         return (
                           <div key={rowKey} className={styles.modelRow}>
                             <div className={styles.modelRowMain}>
+                              <button
+                                type="button"
+                                className={
+                                  expanded
+                                    ? `${styles.modelExpander} ${styles.modelExpanderOpen}`
+                                    : styles.modelExpander
+                                }
+                                title={t.modelsCustomModelSettings}
+                                aria-label={t.modelsCustomModelSettings}
+                                aria-expanded={expanded}
+                                onClick={() => toggleSampling(index)}
+                              >
+                                <CodiconIcon
+                                  name={expanded ? "chevronDown" : "chevronRight"}
+                                  size={14}
+                                />
+                              </button>
                               <Input
                                 value={model.id}
                                 size="small"
+                                aria-label={t.modelsCustomModelId}
                                 placeholder={t.modelsCustomModelId}
                                 onChange={(event) =>
                                   updateModel(index, { id: event.target.value })
@@ -786,9 +864,58 @@ export function CustomizeModels(): ReactNode {
                               <Input
                                 value={model.name}
                                 size="small"
+                                aria-label={t.modelsCustomModelName}
                                 placeholder={t.modelsCustomModelName}
                                 onChange={(event) =>
                                   updateModel(index, { name: event.target.value })
+                                }
+                              />
+                              <span className={styles.modelToggle}>
+                                <span className={styles.modelToggleLabel}>
+                                  {t.modelsCustomReasoning}
+                                </span>
+                                <SettingsSwitch
+                                  checked={model.reasoning === true}
+                                  label={t.modelsCustomReasoning}
+                                  onChange={(value) => updateModel(index, { reasoning: value })}
+                                />
+                              </span>
+                              <span className={styles.modelToggle}>
+                                <span className={styles.modelToggleLabel}>
+                                  {t.modelsCustomVision}
+                                </span>
+                                <SettingsSwitch
+                                  checked={model.vision === true}
+                                  label={t.modelsCustomVision}
+                                  onChange={(value) => updateModel(index, { vision: value })}
+                                />
+                              </span>
+                              <Select
+                                className={styles.levelSelect}
+                                mode="multiple"
+                                size="small"
+                                disabled={!model.reasoning}
+                                showSearch={false}
+                                defaultActiveFirstOption={false}
+                                maxTagCount="responsive"
+                                maxTagPlaceholder={(omitted) => `+${omitted.length}`}
+                                classNames={{ popup: { root: styles.levelPopup } }}
+                                title={t.modelsCustomThinkingLevels}
+                                aria-label={t.modelsCustomThinkingLevels}
+                                value={modelThinkingLevels(model)}
+                                options={THINKING_LEVELS.map((level) => ({
+                                  label: level.label.toLowerCase(),
+                                  value: level.value,
+                                }))}
+                                tagRender={(props) => (
+                                  <span className={styles.levelTag}>{props.label}</span>
+                                )}
+                                onChange={(values: ThinkingLevel[]) =>
+                                  updateModel(index, {
+                                    thinkingLevels: THINKING_LEVELS.map(
+                                      (level) => level.value,
+                                    ).filter((value) => values.includes(value)),
+                                  })
                                 }
                               />
                               <button
@@ -800,7 +927,9 @@ export function CustomizeModels(): ReactNode {
                                 }
                                 disabled={testingRow !== null}
                                 title={
-                                  testingRow === rowKey ? t.modelsCustomTesting : t.modelsCustomTest
+                                  testingRow === rowKey
+                                    ? t.modelsCustomTesting
+                                    : t.modelsCustomTest
                                 }
                                 onClick={() => void testModel(rowKey, model.id)}
                               >
@@ -810,98 +939,45 @@ export function CustomizeModels(): ReactNode {
                                 type="button"
                                 className={`${styles.modelAction} ${styles.modelRemove}`}
                                 title={t.customizeDelete}
+                                aria-label={t.customizeDelete}
                                 onClick={() => removeModelRow(index)}
                               >
                                 <CodiconIcon name="remove" size={14} />
                               </button>
                             </div>
 
-                            <div className={styles.modelRowMeta}>
-                              <InputNumber
-                                size="small"
-                                className={styles.modelNumber}
-                                title={t.modelsCustomContextWindow}
-                                value={model.contextWindow ?? null}
-                                min={1}
-                                controls={false}
-                                placeholder={t.modelsCustomContextWindow}
-                                onChange={(value: number | null) =>
-                                  setModelNumber(index, "contextWindow", value)
-                                }
-                              />
-                              <InputNumber
-                                size="small"
-                                className={styles.modelNumber}
-                                title={t.modelsCustomMaxTokens}
-                                value={model.maxTokens ?? null}
-                                min={1}
-                                controls={false}
-                                placeholder={t.modelsCustomMaxTokens}
-                                onChange={(value: number | null) =>
-                                  setModelNumber(index, "maxTokens", value)
-                                }
-                              />
-                              <ToggleButton
-                                label={t.modelsCustomReasoning}
-                                value={model.reasoning === true}
-                                onValueChange={(value) => updateModel(index, { reasoning: value })}
-                              />
-                              <ToggleButton
-                                label={t.modelsCustomVision}
-                                value={model.vision === true}
-                                onValueChange={(value) => updateModel(index, { vision: value })}
-                              />
-                            </div>
-
-                            <button
-                              type="button"
-                              className={styles.samplingToggle}
-                              onClick={() => toggleSampling(index)}
-                            >
-                              <CodiconIcon
-                                name={
-                                  samplingOpen[samplingRowKey(index)]
-                                    ? "chevronDown"
-                                    : "chevronRight"
-                                }
-                                size={14}
-                              />
-                              <span>{t.modelsCustomSampling}</span>
-                            </button>
-                            {samplingOpen[samplingRowKey(index)] ? (
-                              <div className={styles.samplingFields}>
-                                <div className={styles.samplingField}>
-                                  <span className={styles.samplingLabel}>
-                                    {t.modelsCustomSamplingParams}
+                            {expanded ? (
+                              <div className={styles.modelRowBody}>
+                                <label className={styles.modelField}>
+                                  <span className={styles.modelFieldLabel}>
+                                    {t.modelsCustomContextWindow}
                                   </span>
-                                  <Input.TextArea
-                                    value={model.samplingParamsJson ?? ""}
+                                  <InputNumber
                                     size="small"
-                                    rows={3}
-                                    placeholder={t.modelsCustomSamplingParamsHint}
-                                    onChange={(event) =>
-                                      updateModel(index, {
-                                        samplingParamsJson: event.target.value,
-                                      })
+                                    value={model.contextWindow ?? null}
+                                    min={1}
+                                    controls={false}
+                                    placeholder={t.modelsCustomContextWindow}
+                                    onChange={(value: number | null) =>
+                                      setModelNumber(index, "contextWindow", value)
                                     }
                                   />
-                                </div>
-                                <div className={styles.samplingField}>
-                                  <span className={styles.samplingLabel}>
-                                    {t.modelsCustomSamplingParamsLevels}
+                                </label>
+                                <label className={styles.modelField}>
+                                  <span className={styles.modelFieldLabel}>
+                                    {t.modelsCustomMaxTokens}
                                   </span>
-                                  <Input.TextArea
-                                    value={model.samplingParamsByThinkingLevelJson ?? ""}
+                                  <InputNumber
                                     size="small"
-                                    rows={4}
-                                    placeholder={t.modelsCustomSamplingParamsLevelsHint}
-                                    onChange={(event) =>
-                                      updateModel(index, {
-                                        samplingParamsByThinkingLevelJson: event.target.value,
-                                      })
+                                    value={model.maxTokens ?? null}
+                                    min={1}
+                                    controls={false}
+                                    placeholder={t.modelsCustomMaxTokens}
+                                    onChange={(value: number | null) =>
+                                      setModelNumber(index, "maxTokens", value)
                                     }
                                   />
-                                </div>
+                                </label>
                               </div>
                             ) : null}
                           </div>
@@ -909,9 +985,13 @@ export function CustomizeModels(): ReactNode {
                       })}
                     </div>
                   </div>
-                </div>
+                </>
+              )}
+            </div>
 
-                <footer className={styles.detailFooter}>
+            {draft ? (
+              <footer className={styles.detailFooter}>
+                <div className={styles.footerActions}>
                   <Button size="small" loading={discovering} onClick={() => void discover()}>
                     {discovering ? t.modelsCustomDiscovering : t.modelsCustomDiscover}
                   </Button>
@@ -922,7 +1002,9 @@ export function CustomizeModels(): ReactNode {
                   >
                     {testingBaseUrl ? t.modelsCustomBaseUrlTesting : t.modelsCustomBaseUrlTest}
                   </Button>
-                  <span className={styles.detailSpacer} />
+                </div>
+                <span className={styles.detailSpacer} />
+                <div className={styles.footerActions}>
                   <Button size="small" disabled={!dirty} onClick={resetDraft}>
                     {t.modelsCustomReset}
                   </Button>
@@ -935,9 +1017,9 @@ export function CustomizeModels(): ReactNode {
                   >
                     {t.modelsCustomSave}
                   </Button>
-                </footer>
-              </>
-            )}
+                </div>
+              </footer>
+            ) : null}
           </section>
         </div>
       ) : null}

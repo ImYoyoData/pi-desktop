@@ -202,13 +202,12 @@ export const en = {
 	modelsCustomEmptyHint:
 		"Click “Add Provider” to fill in a Base URL, API type and models manually.",
 	modelsCustomSelectHint: "Select a provider on the left, or add a new one.",
+	modelsCustomReorderHint: "Drag to reorder",
 	modelsCustomCount: (n: number) => `${n} model${n === 1 ? "" : "s"}`,
 	modelsCustomSectionBasic: "Connection",
 	modelsCustomSectionCompat: "Compatibility",
 	modelsCustomSectionModels: "Models",
 	modelsCustomId: "Provider ID",
-	modelsCustomIdHint:
-		"Key in models.json: starts with a letter, only letters, digits, _ and -",
 	modelsCustomName: "Display Name",
 	modelsCustomNamePlaceholder: "Optional, defaults to the ID",
 	modelsCustomBaseUrl: "Base URL",
@@ -223,12 +222,6 @@ export const en = {
 	modelsCustomDevRoleHint: "Ollama / vLLM usually disable this",
 	modelsCustomReasoningEffort: "Supports reasoning_effort",
 	modelsCustomReasoningEffortHint: "Disable when the server does not support it",
-	modelsCustomImageInput: "Image input",
-	modelsCustomImageInputHint:
-		"How classifier models take images (compat.imageInput); auto lets pi detect it",
-	modelsCustomImageOptIn: "Image opt-in header",
-	modelsCustomImageOptInHint:
-		"Whether classifier requests send TypeSafe's image opt-in header (compat.sendImageOptInHeader); on by default",
 	modelsCustomAddModel: "Add Model",
 	modelsCustomDiscover: "Fetch Models",
 	modelsCustomDiscovering: "Fetching…",
@@ -282,12 +275,8 @@ export const en = {
 	modelsCustomMaxTokens: "Max Output",
 	modelsCustomReasoning: "Reasoning",
 	modelsCustomVision: "Images",
-	modelsCustomSampling: "Sampling params",
-	modelsCustomSamplingParams: "Sampling params",
-	modelsCustomSamplingParamsHint: 'JSON object, e.g. {"temperature": 1.0, "top_p": 0.95}',
-	modelsCustomSamplingParamsLevels: "Sampling params by thinking level",
-	modelsCustomSamplingParamsLevelsHint:
-		'Per level (off / minimal / low / medium / high / xhigh / max), e.g. {"high": {"top_k": 20}}',
+	modelsCustomThinkingLevels: "Available thinking levels",
+	modelsCustomModelSettings: "Model settings",
 	modelsCustomSave: "Save",
 	modelsCustomSaving: "Saving…",
 	modelsCustomSaved: "Saved",

@@ -26,6 +26,7 @@ import type { SessionBroker } from "./session-broker";
 import { getModelsConfigService } from "./models-config";
 import { netFetch } from "./net-fetch";
 import { buildCatalogIndex, enrichDiscoveredModels, resolveDiscoveredModels } from "./model-catalog";
+import { availableThinkingLevels } from "../shared/thinking-level";
 import { readModelSelection, writeModelSelection } from "./models-selection";
 import { broadcastStateChange } from "./ui-sync";
 import type { ModelSelection } from "../shared/model-selection";
@@ -155,6 +156,7 @@ export async function listAvailableModels(runtime: ModelRuntime): Promise<Models
       maxTokens: m.maxTokens,
       input: m.input,
       reasoning: m.reasoning,
+      thinkingLevels: availableThinkingLevels(m.thinkingLevelMap),
       cost: m.cost,
     }))
     .sort((a, b) => {

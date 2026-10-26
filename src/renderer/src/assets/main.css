@@ -426,6 +426,24 @@ button {
 }
 
 /*
+ * antd v6 会把连续选中的选项拼成一整块（用 :has 压平相邻圆角），
+ * 多选下拉里各项尺寸、间距就会对不齐；这里统一恢复每项独立圆角。
+ * 双类提高特异性，盖过 antd 运行时注入的规则。
+ */
+.ant-select-dropdown
+  .ant-select-item.ant-select-item-option-selected:has(+ .ant-select-item-option-selected) {
+  border-end-start-radius: 8px !important;
+  border-end-end-radius: 8px !important;
+}
+
+.ant-select-dropdown
+  .ant-select-item.ant-select-item-option-selected:has(+ .ant-select-item-option-selected)
+  + .ant-select-item-option-selected {
+  border-start-start-radius: 8px !important;
+  border-start-end-radius: 8px !important;
+}
+
+/*
  * 下拉选中项跟随侧栏那套浅灰高亮，而不是 antd 按主色算出的实色块：
  * 主色在中性配色里是黑白反相，叠出来的底色偏重，和下拉开着的玻璃面板脱节。
  */

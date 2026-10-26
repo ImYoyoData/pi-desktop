@@ -75,8 +75,37 @@ const PATHS: Record<CodiconName, string> = {
   keyboard: "M14 3H3a1 1 0 0 0-1 1v7a1 1 0 0 0 1 1h11a1 1 0 0 0 1-1V4a1 1 0 0 0-1-1zm0 8H3V4h11v7zm-3-6h-1v1h1V5zm-1 2H9v1h1V7zm2-2h1v1h-1V5zm1 4h-1v1h1V9zM6 9h5v1H6V9zm7-2h-2v1h2V7zM8 5h1v1H8V5zm0 2H7v1h1V7zM4 9h1v1H4V9zm0-4h1v1H4V5zm3 0H6v1h1V5zM4 7h2v1H4V7z",
 };
 
+/** appearance 原图是「外边界 + 内边界」围出的 1px 粗环，比同级图标重一档。 */
+const APPEARANCE_PARTS = PATHS.appearance.match(/M[^M]+/g) ?? [];
+/** 细线版只描外边界，子路径 #1 是内边界、#2 起是颜料点。 */
+const APPEARANCE_OUTLINE = APPEARANCE_PARTS[0] ?? PATHS.appearance;
+const APPEARANCE_DOTS = APPEARANCE_PARTS.slice(2);
+const APPEARANCE_STROKE = 1;
+
 export function CodiconIcon({ name, size = 16 }: Props): ReactNode {
   const d = PATHS[name];
+  if (name === "appearance") {
+    return (
+      <svg
+        xmlns="http://www.w3.org/2000/svg"
+        width={size}
+        height={size}
+        viewBox="0 0 16 16"
+        fill="none"
+        aria-hidden="true"
+      >
+        <path
+          d={APPEARANCE_OUTLINE}
+          stroke="currentColor"
+          strokeWidth={APPEARANCE_STROKE}
+          strokeLinejoin="round"
+        />
+        {APPEARANCE_DOTS.map((dot) => (
+          <path key={dot} d={dot} fill="currentColor" />
+        ))}
+      </svg>
+    );
+  }
   return (
     <svg
       xmlns="http://www.w3.org/2000/svg"

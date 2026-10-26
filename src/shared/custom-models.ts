@@ -6,6 +6,7 @@ import {
   inferModelCapabilities,
   resolveContextWindow,
 } from "./model-metadata";
+import { THINKING_LEVELS, availableThinkingLevels, type ThinkingLevel } from "./thinking-level";
 
 export const CUSTOM_MODEL_APIS = [
   "openai-completions",
@@ -26,10 +27,11 @@ export type CustomModelEntry = {
   maxTokens?: number;
   /** When true, model accepts images (`input: ["text","image"]`). */
   vision?: boolean;
-  /** 采样参数默认值的表单 JSON 文本（保存时解析，如 {"temperature":1.0}）。 */
-  samplingParamsJson?: string;
-  /** 按思考档位覆盖采样参数的表单 JSON 文本，键为 pi 档位名。 */
-  samplingParamsByThinkingLevelJson?: string;
+  /**
+   * 可用思考档位（写回 models.json 的 thinkingLevelMap，未勾选记 null）。
+   * undefined 表示文件里没配过，UI 视为全档位可用。
+   */
+  thinkingLevels?: ThinkingLevel[];
 };
 
 /** A fresh, blank model row. Max output defaults to the GUI budget. */
@@ -148,6 +150,11 @@ function modelHasVision(input: unknown): boolean {
   return Array.isArray(input) && input.includes("image");
 }
 
+/** thinkingLevelMap 里显式 null 的档位不可用；缺失键保持桌面端全档位开放的行为。 */
+function parseThinkingLevels(map: unknown): ThinkingLevel[] | undefined {
+  return availableThinkingLevels(map);
+}
+
 function parseModelEntry(raw: unknown): CustomModelEntry | null {
   const o = asRecord(raw);
   if (!o) return null;
@@ -155,13 +162,7 @@ function parseModelEntry(raw: unknown): CustomModelEntry | null {
   if (!id) return null;
   const contextWindow = parsePositiveInt(o.contextWindow);
   const maxTokens = parsePositiveInt(o.maxTokens);
-  const samplingParams = asRecord(o.samplingParams);
-  const levelsRaw = asRecord(o.samplingParamsByThinkingLevel);
-  const levels: Record<string, Record<string, unknown>> = {};
-  for (const [level, value] of Object.entries(levelsRaw ?? {})) {
-    const params = asRecord(value);
-    if (params) levels[level] = params;
-  }
+  const thinkingLevels = parseThinkingLevels(o.thinkingLevelMap);
   return {
     id,
     name: typeof o.name === "string" ? o.name : "",
@@ -169,12 +170,7 @@ function parseModelEntry(raw: unknown): CustomModelEntry | null {
     ...(contextWindow ? { contextWindow } : {}),
     ...(maxTokens ? { maxTokens } : {}),
     ...(modelHasVision(o.input) ? { vision: true } : {}),
-    ...(samplingParams && Object.keys(samplingParams).length
-      ? { samplingParamsJson: JSON.stringify(samplingParams, null, 2) }
-      : {}),
-    ...(Object.keys(levels).length
-      ? { samplingParamsByThinkingLevelJson: JSON.stringify(levels, null, 2) }
-      : {}),
+    ...(thinkingLevels ? { thinkingLevels } : {}),
   };
 }
 
@@ -236,7 +232,7 @@ export function providerToDraft(id: string, raw: unknown): CustomProviderDraft {
   };
 }
 
-/** Providers that look like custom / editable entries in models.json. */
+/** Providers that look like custom / editable entries in models.json，顺序即文件中的键序。 */
 export function listEditableProviders(doc: ModelsConfigDoc): CustomProviderDraft[] {
   const out: CustomProviderDraft[] = [];
   for (const [id, raw] of Object.entries(doc.providers)) {
@@ -247,7 +243,22 @@ export function listEditableProviders(doc: ModelsConfigDoc): CustomProviderDraft
     if (!hasModels && !hasBaseUrl) continue;
     out.push(providerToDraft(id, o));
   }
-  return out.sort((a, b) => a.id.localeCompare(b.id));
+  return out;
+}
+
+/** 按给定 id 顺序重写 providers；未列在 orderedIds 里的条目保持原相对顺序，追加在尾部。 */
+export function reorderProviders(
+  doc: ModelsConfigDoc,
+  orderedIds: string[],
+): ModelsConfigDoc {
+  const providers: Record<string, unknown> = {};
+  for (const id of orderedIds) {
+    if (id in doc.providers) providers[id] = doc.providers[id];
+  }
+  for (const [id, value] of Object.entries(doc.providers)) {
+    if (!(id in providers)) providers[id] = value;
+  }
+  return { providers, rest: { ...doc.rest } };
 }
 
 function mergeModelJson(
@@ -282,33 +293,35 @@ function mergeModelJson(
     base.input = next.length ? next : ["text"];
   }
 
-  mergeJsonParam(base, "samplingParams", draft.samplingParamsJson);
-  mergeJsonParam(base, "samplingParamsByThinkingLevel", draft.samplingParamsByThinkingLevelJson);
+  mergeThinkingLevels(base, draft, existing);
 
   return base;
 }
 
-/** 表单 JSON 文本写回模型条目；空文本或非法内容删掉该字段（保存前已校验）。 */
-function mergeJsonParam(
+/**
+ * 把勾选的档位写成 thinkingLevelMap：未勾选记 null（pi 视为不可用），已勾选保留原有映射值。
+ * 未配置或「全选且原本没有映射」时不动该键，避免给默认配置写上冗余字段。
+ */
+function mergeThinkingLevels(
   base: Record<string, unknown>,
-  key: "samplingParams" | "samplingParamsByThinkingLevel",
-  text: string | undefined,
+  draft: CustomModelEntry,
+  existing: Record<string, unknown> | null,
 ): void {
-  const trimmed = text?.trim();
-  if (!trimmed) {
-    delete base[key];
-    return;
-  }
-  try {
-    const parsed: unknown = JSON.parse(trimmed);
-    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-      base[key] = parsed;
-      return;
+  const selected = draft.thinkingLevels;
+  if (!selected) return;
+  const prevMap = asRecord(existing?.thinkingLevelMap);
+  const allSelected = selected.length === THINKING_LEVELS.length;
+  if (allSelected && !prevMap) return;
+  const map: Record<string, string | null> = {};
+  for (const { value: level } of THINKING_LEVELS) {
+    if (!selected.includes(level)) {
+      map[level] = null;
+      continue;
     }
-  } catch {
-    // 校验已拦截；这里保持删除，避免写回半编辑状态
+    const prevValue = prevMap?.[level];
+    map[level] = typeof prevValue === "string" ? prevValue : level;
   }
-  delete base[key];
+  base.thinkingLevelMap = map;
 }
 
 /**
@@ -367,27 +380,6 @@ export function draftToProviderJson(
   return out;
 }
 
-function samplingJsonError(entry: CustomModelEntry): string | null {
-  const fields = [
-    ["samplingParams", entry.samplingParamsJson],
-    ["samplingParamsByThinkingLevel", entry.samplingParamsByThinkingLevelJson],
-  ] as const;
-  for (const [label, text] of fields) {
-    const trimmed = text?.trim();
-    if (!trimmed) continue;
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(trimmed);
-    } catch {
-      return `${label} must be valid JSON`;
-    }
-    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-      return `${label} must be a JSON object`;
-    }
-  }
-  return null;
-}
-
 export function validateCustomProvider(
   draft: CustomProviderDraft,
   opts?: { editingId?: string | null; existingIds?: string[] },
@@ -410,10 +402,6 @@ export function validateCustomProvider(
   const modelIds = draft.models.map((m) => m.id.trim()).filter(Boolean);
   if (!modelIds.length) return "Add at least one model id";
   if (new Set(modelIds).size !== modelIds.length) return "Duplicate model ids";
-  for (const model of draft.models) {
-    const samplingError = samplingJsonError(model);
-    if (samplingError) return samplingError;
-  }
 
   const existing = opts?.existingIds ?? [];
   const editing = opts?.editingId?.trim() || null;
@@ -441,13 +429,17 @@ export function renameCustomProvider(
   fromId: string,
   draft: CustomProviderDraft,
 ): ModelsConfigDoc {
-  const next = { providers: { ...doc.providers }, rest: { ...doc.rest } };
-  const existing = fromId ? next.providers[fromId] : next.providers[draft.id.trim()];
-  if (fromId && fromId !== draft.id.trim()) {
-    delete next.providers[fromId];
+  const targetId = draft.id.trim();
+  const existing = fromId ? doc.providers[fromId] : doc.providers[targetId];
+  const json = draftToProviderJson(draft, existing);
+  // 重建对象以保留重命名前的排序位置，避免条目被挤到末尾。
+  const providers: Record<string, unknown> = {};
+  for (const [id, value] of Object.entries(doc.providers)) {
+    if (id === fromId) providers[targetId] = json;
+    else if (id !== targetId) providers[id] = value;
   }
-  next.providers[draft.id.trim()] = draftToProviderJson(draft, existing);
-  return next;
+  if (!(targetId in providers)) providers[targetId] = json;
+  return { providers, rest: { ...doc.rest } };
 }
 
 /** A model row parsed from pasted text. */
