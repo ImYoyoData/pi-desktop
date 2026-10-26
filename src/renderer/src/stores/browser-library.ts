@@ -187,6 +187,36 @@ export function removeBookmark(
   }
 }
 
+/** 设置页「清除浏览历史」：所有标签页与旧版全局历史一并删除。 */
+export function clearAllHistory(): void {
+  for (const key of prefs.keys()) {
+    if (!key.startsWith(HISTORY_KEY_PREFIX)) continue;
+    try {
+      prefs.removeItem(key);
+    } catch {
+      // ignore
+    }
+  }
+  dropLegacyGlobalHistory();
+}
+
+/** 设置页「清除书签」：所有工作区与旧版全局书签一并删除。 */
+export function clearAllBookmarks(): void {
+  for (const key of prefs.keys()) {
+    if (!key.startsWith(BOOKMARKS_KEY_PREFIX)) continue;
+    try {
+      prefs.removeItem(key);
+    } catch {
+      // ignore
+    }
+  }
+  try {
+    prefs.removeItem(LEGACY_BOOKMARKS_KEY);
+  } catch {
+    // ignore
+  }
+}
+
 export function filterEntries<T extends { title: string; url: string }>(
   entries: T[],
   query: string,
