@@ -870,11 +870,13 @@ export function AiCustomizationPage({ section, visible }: Props): ReactNode {
           </div>
         ) : (
           <div className={styles.contentInner}>
-            <div className={styles.sectionTitleHeader}>
-              <div className={styles.sectionTitleRow}>
-                <h2 className={styles.sectionTitle}>{current.label}</h2>
+            {active === "models" ? null : (
+              <div className={styles.sectionTitleHeader}>
+                <div className={styles.sectionTitleRow}>
+                  <h2 className={styles.sectionTitle}>{current.label}</h2>
+                </div>
               </div>
-            </div>
+            )}
 
             {store.error ? (
               <p className={styles.contentError}>

@@ -12,7 +12,7 @@ export function BrowserIcon({ size = 16, className }: IoniconProps): ReactNode {
       viewBox="0 0 16 16"
       fill="none"
       stroke="currentColor"
-      strokeWidth={1.3}
+      strokeWidth={1}
       strokeLinejoin="round"
       aria-hidden="true"
     >

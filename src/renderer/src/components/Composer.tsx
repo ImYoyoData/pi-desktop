@@ -211,6 +211,8 @@ export function Composer({ docked = false }: ComposerProps): ReactNode {
   const queueEditingId = useSendQueueStore((s) => s.editingId);
 
   const availableModels = useLatest<ModelSelectOption[]>([]);
+  /** 模型 → 可用思考档位；缺省表示全部可用。 */
+  const modelThinkingLevels = useLatest<Record<string, ThinkingLevel[] | undefined>>({});
   const selectedModel = useLatest<string | null>(null);
   const thinking = useLatest<ThinkingLevel>("medium");
   const prefs = useLatest<SessionPrefs>(
@@ -323,7 +325,7 @@ export function Composer({ docked = false }: ComposerProps): ReactNode {
     updatePrefs(next);
   }
 
-  const thinkingMenu: MenuProps["items"] = THINKING_LEVELS.map((o) => ({
+  const thinkingMenu: MenuProps["items"] = thinkingLevelsFor(selectedModel.value).map((o) => ({
     label: o.label,
     key: o.value,
     style:
@@ -1477,11 +1479,13 @@ export function Composer({ docked = false }: ComposerProps): ReactNode {
       }
       const selected = filterAvailableModels(available, selection);
       const byProvider = new Map<string, { label: string; value: string }[]>();
+      const levelsByModel: Record<string, ThinkingLevel[] | undefined> = {};
       for (const m of selected) {
         const list = byProvider.get(m.provider) ?? [];
         const label = (m.name && m.name.trim()) || m.id;
         list.push({ label, value: `${m.provider}/${m.id}` });
         byProvider.set(m.provider, list);
+        levelsByModel[`${m.provider}/${m.id}`] = m.thinkingLevels;
       }
       const groups: ModelSelectOption[] = [...byProvider.entries()].map(
         ([provider, children]) => ({
@@ -1492,6 +1496,7 @@ export function Composer({ docked = false }: ComposerProps): ReactNode {
         }),
       );
       availableModels.set(groups);
+      modelThinkingLevels.set(levelsByModel);
       await syncSessionModelAndThinking();
     } catch (err) {
       // Keep whatever list we already had: blanking it turns a transient failure
@@ -1675,11 +1680,19 @@ export function Composer({ docked = false }: ComposerProps): ReactNode {
     if (next) void onModelChange(next.value);
   }, [availableModels, selectedModel]);
 
+  /** 思考档位菜单只列当前模型可用的档位；未配置映射时保持全档位。 */
+  function thinkingLevelsFor(model: string | null): { value: ThinkingLevel; label: string }[] {
+    const allowed = model ? modelThinkingLevels.ref.current[model] : undefined;
+    if (!allowed?.length) return THINKING_LEVELS;
+    return THINKING_LEVELS.filter((level) => allowed.includes(level.value));
+  }
+
   const cycleThinking = useCallback((): void => {
-    const index = THINKING_LEVELS.findIndex((o) => o.value === thinking.ref.current);
-    const next = THINKING_LEVELS[(index + 1) % THINKING_LEVELS.length];
+    const levels = thinkingLevelsFor(selectedModel.ref.current);
+    const index = levels.findIndex((o) => o.value === thinking.ref.current);
+    const next = levels[(index + 1) % levels.length];
     if (next) void onThinkingChange(next.value);
-  }, [thinking]);
+  }, [thinking, selectedModel]);
 
   /**
    * Paste into the composer: only image bitmaps are attached. http(s) URLs,

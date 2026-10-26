@@ -8,7 +8,6 @@ import {
   FlagOutline,
   GitCommitOutline,
   GitMerge,
-  GitPullRequestOutline,
   LinkOutline,
   OpenOutline,
   PeopleOutline,
@@ -18,6 +17,7 @@ import {
   PricetagOutline,
   RefreshOutline,
 } from "@renderer/components/icons/ionicons";
+import { PullRequestIcon } from "@renderer/components/icons/PullRequestIcon";
 import type {
   PullRequestAction,
   PullRequestCheck,
@@ -503,7 +503,7 @@ export const PullRequestDetailView = forwardRef<PullRequestDetailViewHandle, Pro
                   ) : pullRequest.state === "closed" ? (
                     <CloseCircleOutline size={20} />
                   ) : (
-                    <GitPullRequestOutline size={20} />
+                    <PullRequestIcon size={20} />
                   )}
                 </span>
                 {!editingTitle ? (

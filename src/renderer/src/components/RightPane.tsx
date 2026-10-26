@@ -18,7 +18,6 @@ import {
   DocumentTextOutline,
   ExpandOutline,
   GitCompareOutline,
-  GitPullRequestOutline,
   GlobeOutline,
   ListOutline,
   PlayCircleOutline,
@@ -27,6 +26,7 @@ import {
   ChevronBackOutline,
   ChevronForwardOutline,
 } from "@renderer/components/icons/ionicons";
+import { PullRequestIcon } from "@renderer/components/icons/PullRequestIcon";
 import DiffTab from "@renderer/components/DiffTab";
 import BrowserTab from "@renderer/components/BrowserTab";
 import RunningTab from "@renderer/components/RunningTab";
@@ -335,7 +335,7 @@ export function RightPane(): ReactNode {
   const addOptions: MenuProps["items"] = [
     { label: t.browser, key: "browser", icon: <GlobeOutline /> },
     { label: t.runningTab, key: "running", icon: <PlayCircleOutline /> },
-    { label: t.pullRequests, key: "pull-requests", icon: <GitPullRequestOutline /> },
+    { label: t.pullRequests, key: "pull-requests", icon: <PullRequestIcon size="1em" /> },
   ];
 
   function onAddSelect(key: string): void {
