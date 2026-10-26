@@ -176,6 +176,8 @@ export const en = {
 	commonTpsModeHint: "How token/s is measured in the session stats.",
 	commonTpsModeStreaming: "Streaming TPS (excludes first-token latency)",
 	commonTpsModeEndToEnd: "End-to-end TPS (includes first-token latency)",
+	commonTabFocus: "Tab key moves focus",
+	commonTabFocusHint: "When off, Tab no longer moves focus between controls; Tab in inputs and menus still works.",
 	customizeAppearance: "Appearance",
 	customizeAppearanceDesc: "Theme and interface language.",
 	customizeModels: "Models",

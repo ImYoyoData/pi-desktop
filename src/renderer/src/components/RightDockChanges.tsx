@@ -20,7 +20,13 @@ type Props = {
 
 type ChangeType = "added" | "modified" | "deleted";
 
-type GitRow = { relativePath: string; code: string; ignored?: boolean };
+type GitRow = {
+  relativePath: string;
+  code: string;
+  ignored?: boolean;
+  additions?: number | null;
+  deletions?: number | null;
+};
 
 type ChangeRow = {
   path: string;
@@ -64,43 +70,9 @@ export function RightDockChanges({ visible = true }: Props): ReactNode {
 
   const [gitLoading, setGitLoading] = useState(false);
   const [gitFiles, setGitFiles] = useState<GitRow[]>([]);
-  const [statsMap, setStatsMap] = useState<Map<string, { additions: number; deletions: number }>>(
-    new Map(),
-  );
-  const statsSeqRef = useRef(0);
   const fsTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const visibleRef = useRef(visible);
   visibleRef.current = visible;
-
-  function countPatch(patch: string): { additions: number; deletions: number } {
-    let additions = 0;
-    let deletions = 0;
-    for (const line of patch.split("\n")) {
-      if (line.startsWith("+") && !line.startsWith("+++")) additions += 1;
-      else if (line.startsWith("-") && !line.startsWith("---")) deletions += 1;
-    }
-    return { additions, deletions };
-  }
-
-  async function refreshStats(paths: string[]): Promise<void> {
-    const seq = ++statsSeqRef.current;
-    const next = new Map(statsMap);
-    const queue = [...paths];
-    const workers = Array.from({ length: 4 }, async () => {
-      while (queue.length) {
-        const path = queue.shift()!;
-        try {
-          const res = await window.api.git.diff(path);
-          if (seq !== statsSeqRef.current) return;
-          if (res.supported && res.patch) next.set(path, countPatch(res.patch));
-        } catch {
-          // Binary / large file — the row simply keeps no counts.
-        }
-      }
-    });
-    await Promise.all(workers);
-    if (seq === statsSeqRef.current) setStatsMap(next);
-  }
 
   async function refreshGit(): Promise<void> {
     if (!useWorkspaceStore.getState().root) {
@@ -114,7 +86,6 @@ export function RightDockChanges({ visible = true }: Props): ReactNode {
         ? (status.files as GitRow[]).filter((f) => !f.ignored)
         : [];
       setGitFiles(files);
-      void refreshStats(files.map((f) => f.relativePath));
     } catch {
       // Transient git hiccup (index.lock, …) — keep the last known list.
     } finally {
@@ -128,10 +99,10 @@ export function RightDockChanges({ visible = true }: Props): ReactNode {
         path: f.relativePath,
         changeType: changeTypeForCode(f.code),
         icon: fileIcon(f.relativePath),
-        additions: statsMap.get(f.relativePath)?.additions ?? null,
-        deletions: statsMap.get(f.relativePath)?.deletions ?? null,
+        additions: f.additions ?? null,
+        deletions: f.deletions ?? null,
       })),
-    [gitFiles, statsMap],
+    [gitFiles],
   );
 
   function openDiff(row: ChangeRow): void {
@@ -187,12 +158,10 @@ export function RightDockChanges({ visible = true }: Props): ReactNode {
       window.removeEventListener("pi-fs-changed", onFsChanged);
       if (fsTimerRef.current) clearTimeout(fsTimerRef.current);
       fsTimerRef.current = null;
-      statsSeqRef.current += 1;
     };
   }, []);
 
   useEffect(() => {
-    setStatsMap(new Map());
     void refreshGit();
   }, [workspace.root]);
 

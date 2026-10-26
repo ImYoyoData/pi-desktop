@@ -171,6 +171,8 @@ export const zhTW = {
 	commonTpsModeHint: "決定會談統計裡的 token/s 按哪種方式算。",
 	commonTpsModeStreaming: "流式 TPS（不含首字延遲）",
 	commonTpsModeEndToEnd: "端到端 TPS（含首字延遲）",
+	commonTabFocus: "Tab 鍵切換焦點",
+	commonTabFocusHint: "關閉後 Tab 不再在介面控件間移動焦點，輸入框與選單裡的 Tab 不受影響。",
 	customizeAppearance: "外觀",
 	customizeAppearanceDesc: "佈景主題與介面語言。",
 	customizeModels: "模型",

@@ -67,6 +67,10 @@ import {
 } from "@renderer/utils/turn-file-changes";
 import { decideFollowOnIntent, type FollowIntent } from "@renderer/utils/follow-bottom";
 import {
+  innerScrollCanSwallow,
+  type InnerScrollMetrics,
+} from "@renderer/utils/inner-scroll";
+import {
   assistantModelDetail as assistantModelDetailOf,
   assistantStats as assistantStatsOf,
   buildModelNameMap,
@@ -605,18 +609,21 @@ export function MessageList({
   }
 
   /**
-   * 滚轮落在可滚动子区域（思考块等）且该区域还能朝这个方向滚：事件属于子区域，
-   * 不能当成“用户在翻历史”，否则滚一下思考内容整列就停止跟随。
+   * 滚轮落在消息内部的纵向滚动区域（代码块、图表预览、思考块）且该区域还能朝这个
+   * 方向滚：事件属于子区域，不能当成“用户在翻历史”，否则在 markdown 预览里滚一下就
+   * 翻掉跟随状态，消息区还会被贴底拉回。
+   * 子区域滚到边界后交回消息区（浏览器的滚动链本就这么做），这里只识别“还能滚”。
    */
   function innerScrollOwnsWheel(event: WheelEvent): boolean {
     const target = event.target instanceof Element ? event.target : null;
     const inner = target?.closest<HTMLElement>("[data-inner-scroll]") ?? null;
     if (!inner) return false;
-    if (event.deltaY < 0) return inner.scrollTop > 0;
-    if (event.deltaY > 0) {
-      return inner.scrollHeight - inner.scrollTop - inner.clientHeight > 1;
-    }
-    return false;
+    const metrics: InnerScrollMetrics = {
+      scrollHeight: inner.scrollHeight,
+      clientHeight: inner.clientHeight,
+      scrollTop: inner.scrollTop,
+    };
+    return innerScrollCanSwallow(metrics, event.deltaY);
   }
 
   /**

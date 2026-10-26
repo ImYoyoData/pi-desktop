@@ -555,7 +555,14 @@ export function createApi(
 			ipcRenderer.invoke(IpcChannels.git.status) as Promise<{
 				isGitRepository: boolean;
 				branch: string | null;
-				files: { relativePath: string; status: string; code: string }[];
+				files: {
+					relativePath: string;
+					status: string;
+					code: string;
+					ignored?: boolean;
+					additions?: number | null;
+					deletions?: number | null;
+				}[];
 				errorCode?: string;
 				errorMessage?: string;
 			}>,

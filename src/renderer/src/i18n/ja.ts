@@ -171,6 +171,8 @@ export const ja = {
 	commonTpsModeHint: "セッション統計の token/s をどちらで算出するか。",
 	commonTpsModeStreaming: "ストリーミング TPS（初回トークン待ちを含まない）",
 	commonTpsModeEndToEnd: "エンドツーエンド TPS（初回トークン待ちを含む）",
+	commonTabFocus: "Tab キーでフォーカス移動",
+	commonTabFocusHint: "オフにすると Tab で画面のコントロール間を移動しなくなります（入力欄とメニュー内の Tab は影響を受けません）。",
 	customizeAppearance: "外観",
 	customizeAppearanceDesc: "テーマと表示言語。",
 	customizeModels: "モデル",
