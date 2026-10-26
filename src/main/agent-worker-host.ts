@@ -9,7 +9,7 @@ import { getStreamRenderSettings } from "./stream-render-host";
 import { getUiLocale } from "./ui-locale";
 import { buildAgentWorkerEnv } from "./pi-path-env";
 import { recordWorkerToolRuntime } from "./worker-tool-runtime";
-import { withProxyEnv, refreshSystemProxy } from "./proxy-host";
+import { withAgentProxyEnv, refreshSystemProxy } from "./proxy-host";
 import {
   PI_DESKTOP_NODE_PATH_ENV,
   PI_DESKTOP_PI_CLI_PATH_ENV,
@@ -78,7 +78,7 @@ function waitForReady(
 export function createUtilityProcessSpawnWorker(): SpawnWorker {
   return async (cwd, filePath) => {
     await refreshSystemProxy();
-    const workerEnv = withProxyEnv(
+    const workerEnv = withAgentProxyEnv(
       buildAgentWorkerEnv(
         { ...process.env },
         {

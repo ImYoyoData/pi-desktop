@@ -21,6 +21,8 @@ import { useRetryStore } from "@renderer/stores/retry";
 import { useRightTabsStore, TABS_STORAGE_PREFIX } from "@renderer/stores/right-tabs";
 import { useRuntimeSettingsStore } from "@renderer/stores/runtime-settings";
 import { useSessionsStore } from "@renderer/stores/sessions";
+import { useSessionStatsStore, TPS_MODE_KEY } from "@renderer/stores/session-stats";
+import { useSendShortcutStore, SEND_SHORTCUT_KEY } from "@renderer/stores/send-shortcut";
 import { useStreamRenderStore } from "@renderer/stores/stream-render";
 import { useWorkspaceStore } from "@renderer/stores/workspace";
 
@@ -68,6 +70,12 @@ function applyPrefsChange(keys: string[]): void {
 	}
 	if (matches([PREVIEW_SYNC_PREFIX], keys)) {
 		usePreviewStore.getState().refreshFromPrefs();
+	}
+	if (matches([TPS_MODE_KEY], keys)) {
+		useSessionStatsStore.getState().refreshFromPrefs();
+	}
+	if (matches([SEND_SHORTCUT_KEY], keys)) {
+		useSendShortcutStore.getState().refreshFromPrefs();
 	}
 }
 

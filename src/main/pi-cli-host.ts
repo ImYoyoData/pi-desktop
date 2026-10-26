@@ -178,6 +178,29 @@ async function runCapture(
 	});
 }
 
+/** 应用内置 pi SDK 的版本：dev 读项目 node_modules，打包读 asar 或 extraResources。 */
+export function getPiSdkVersion(): string | null {
+	const candidates = [
+		join(
+			app.getAppPath(),
+			"node_modules",
+			"@earendil-works",
+			"pi-coding-agent",
+			"package.json",
+		),
+		join(process.resourcesPath ?? "", "pi-package", "package.json"),
+	];
+	for (const file of candidates) {
+		try {
+			const raw = JSON.parse(readFileSync(file, "utf8")) as { version?: string };
+			if (raw.version) return raw.version;
+		} catch {
+			// 换下一个候选路径
+		}
+	}
+	return null;
+}
+
 async function probePiVersion(piPath: string): Promise<string | null> {
 	try {
 		const { stdout, stderr, code } = await runCapture(piPath, ["--version"], {
@@ -722,6 +745,7 @@ export async function shouldPromptPiCliInstall(): Promise<{
 
 export function registerPiCliIpc(): void {
 	ipcMain.handle(IpcChannels.piCli.status, async () => getPiCliStatus());
+	ipcMain.handle(IpcChannels.piCli.sdkVersion, () => getPiSdkVersion());
 	ipcMain.handle(IpcChannels.piCli.shouldPrompt, async () =>
 		shouldPromptPiCliInstall(),
 	);

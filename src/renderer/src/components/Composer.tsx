@@ -41,6 +41,8 @@ import {
   type QueuedSendItem,
 } from "@renderer/stores/send-queue";
 import { useSessionsStore } from "@renderer/stores/sessions";
+import { useSessionStatsStore } from "@renderer/stores/session-stats";
+import { useSendShortcutStore } from "@renderer/stores/send-shortcut";
 import { useWorkspaceStore } from "@renderer/stores/workspace";
 import { useAppearanceStore } from "@renderer/stores/appearance";
 import { useRightTabsStore } from "@renderer/stores/right-tabs";
@@ -195,6 +197,8 @@ export function Composer({ docked = false }: ComposerProps): ReactNode {
   const sessionId = useSessionsStore((s) => s.activeId);
   const draftRoot = useSessionsStore((s) => s.draftRoot);
   const contextUsage = useSessionsStore((s) => s.activeContextUsage);
+  const tpsMode = useSessionStatsStore((s) => s.tpsMode);
+  const sendShortcut = useSendShortcutStore((s) => s.mode);
   const activeSessionStatus = useSessionsStore((s) => {
     const id = s.activeId;
     if (!id) return null;
@@ -1107,8 +1111,12 @@ export function Composer({ docked = false }: ComposerProps): ReactNode {
 
     if (event.key !== "Enter" || event.isComposing) return;
 
-    // DeepSeek-style: Enter sends; Shift+Enter inserts a newline (both modes).
-    if (event.shiftKey) return;
+    // 选中的组合键发送，其余组合键换行；Enter 一直是换行候选项。
+    if (sendShortcut === "ctrl-enter") {
+      if (!event.ctrlKey && !event.metaKey) return;
+    } else if (sendShortcut === "shift-enter") {
+      if (!event.shiftKey) return;
+    } else if (event.shiftKey) return;
 
     event.preventDefault();
     if (useSendQueueStore.getState().editingId) {
@@ -1400,7 +1408,7 @@ export function Composer({ docked = false }: ComposerProps): ReactNode {
    * Only items that actually have data are rendered — a stat with no sample
    * is omitted instead of showing "label —".
    */
-  const sessionStats = buildSessionStats(contextUsage);
+  const sessionStats = buildSessionStats(contextUsage, tpsMode);
 
   async function onCompactContext(): Promise<void> {
     const idSession = currentSessionId();

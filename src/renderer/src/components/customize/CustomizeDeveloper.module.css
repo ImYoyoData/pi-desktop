@@ -1,0 +1,12 @@
+.customizeDeveloper {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.value {
+  color: var(--fg-muted);
+  font-size: 0.9231rem;
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
+  white-space: nowrap;
+}

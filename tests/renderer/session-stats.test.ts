@@ -9,6 +9,7 @@ import {
   formatSessionTokens,
   formatSessionTtft,
   isPositiveStat,
+  sessionTps,
 } from "../../src/renderer/src/utils/session-stats";
 import { t } from "../../src/renderer/src/i18n";
 import type { SessionContextUsage } from "../../src/shared/protocol";
@@ -116,6 +117,23 @@ describe("formatSessionCacheHit", () => {
   });
 });
 
+describe("sessionTps", () => {
+  const timing = usage({ tokensPerSecond: 90, outputTokens: 2_500, llmDurationMs: 50_000 });
+
+  it("keeps the worker streaming throughput for the streaming basis", () => {
+    expect(sessionTps(timing, "streaming")).toBe(90);
+  });
+
+  it("divides output tokens by total LLM time for the end-to-end basis", () => {
+    expect(sessionTps(timing, "end-to-end")).toBe(50);
+  });
+
+  it("needs both tokens and duration for the end-to-end basis", () => {
+    expect(sessionTps(usage({ outputTokens: 100 }), "end-to-end")).toBeNull();
+    expect(sessionTps(usage({ llmDurationMs: 1_000 }), "end-to-end")).toBeNull();
+  });
+});
+
 describe("buildSessionStats", () => {
   it("returns null without usage", () => {
     expect(buildSessionStats(null)).toBeNull();
@@ -166,6 +184,13 @@ describe("buildSessionStats", () => {
     ).toBe(false);
     const items = buildSessionStats(usage({ ttftMs: 500, ttftSteps: 2 }));
     expect(items?.find((i) => i.key === "ttft")?.value).toBe("500ms");
+  });
+
+  it("uses the selected TPS basis", () => {
+    const stats = usage({ tokensPerSecond: 90, outputTokens: 2_500, llmDurationMs: 50_000 });
+    expect(buildSessionStats(stats, "end-to-end")?.find((i) => i.key === "tps")?.value).toBe(
+      t.sessionStatsTpsFormat("50.0"),
+    );
   });
 
   it("caps the cache-hit ratio at 100 and needs a positive read", () => {
