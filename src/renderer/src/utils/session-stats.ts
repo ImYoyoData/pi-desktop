@@ -15,6 +15,9 @@ export type SessionStatItem = {
   title?: string;
 };
 
+/** TPS 口径：streaming 只算首字后的流式生成段，end-to-end 含首字延迟在内的整段请求。 */
+export type SessionTpsMode = "streaming" | "end-to-end";
+
 /** 统计项只渲染有数据的：null、非有限值与零值一律视为无数据。 */
 export function isPositiveStat(n: number | null | undefined): boolean {
   return n != null && Number.isFinite(n) && n > 0;
@@ -61,11 +64,22 @@ export function formatSessionTokens(n: number | null | undefined): string {
   return t.sessionStatsTokensFormat(n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n));
 }
 
+/** 按口径取 TPS：端到端用输出 token 除以 LLM 总时长，流式用 worker 直接给出的生成速度。 */
+export function sessionTps(u: SessionContextUsage, mode: SessionTpsMode): number | null {
+  if (mode !== "end-to-end") return u.tokensPerSecond ?? null;
+  const output = u.outputTokens ?? 0;
+  const totalMs = u.llmDurationMs ?? 0;
+  if (output <= 0 || totalMs <= 0) return null;
+  return output / (totalMs / 1000);
+}
+
 /** 统计项按固定顺序产出，跳过无数据的项；全部无数据时返回 null。 */
 export function buildSessionStats(
   u: SessionContextUsage | null,
+  tpsMode: SessionTpsMode = "streaming",
 ): SessionStatItem[] | null {
   if (!u) return null;
+  const tps = sessionTps(u, tpsMode);
   const items: SessionStatItem[] = [];
   const push = (item: SessionStatItem | null): void => {
     if (item) items.push(item);
@@ -100,11 +114,11 @@ export function buildSessionStats(
       : null,
   );
   push(
-    isPositiveStat(u.tokensPerSecond)
+    isPositiveStat(tps)
       ? {
           key: "tps",
           label: t.sessionStatsTps,
-          value: formatSessionTps(u.tokensPerSecond),
+          value: formatSessionTps(tps),
         }
       : null,
   );

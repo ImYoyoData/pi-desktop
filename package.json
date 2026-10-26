@@ -78,7 +78,7 @@
     "@types/sortablejs": "^1.15.9",
     "@vitejs/plugin-react": "^5.2.0",
     "antd": "^6.6.6",
-    "electron": "^44.7.0",
+    "electron": "^45.0.0",
     "electron-builder": "^26.15.3",
     "electron-vite": "^5.0.0",
     "jiti": "2.7.0",

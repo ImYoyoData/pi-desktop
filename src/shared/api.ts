@@ -84,6 +84,16 @@ export type AppInfo = {
 	email: string;
 };
 
+/** 当前运行环境的系统信息（宿主 OS，不是渲染进程）。 */
+export type SystemInfo = {
+	platform: string;
+	arch: string;
+	/** Windows/macOS 的系统版本，如 10.0.22621 / 14.5.0。 */
+	version: string;
+	/** 内核 release，Linux 上用来展示发行版内核对。 */
+	release: string;
+};
+
 export type {
 	AgentCommand,
 	AgentEvent,
@@ -176,6 +186,8 @@ export function createApi(
 	window: {
 		platform: () =>
 			ipcRenderer.invoke(IpcChannels.window.platform) as Promise<NodeJS.Platform>,
+		systemInfo: () =>
+			ipcRenderer.invoke(IpcChannels.window.systemInfo) as Promise<SystemInfo>,
 		minimize: () =>
 			ipcRenderer.invoke(IpcChannels.window.minimize) as Promise<void>,
 		maximize: () =>
@@ -1287,6 +1299,8 @@ export function createApi(
 	piCli: {
 		status: () =>
 			ipcRenderer.invoke(IpcChannels.piCli.status) as Promise<PiCliStatus>,
+		sdkVersion: () =>
+			ipcRenderer.invoke(IpcChannels.piCli.sdkVersion) as Promise<string | null>,
 		shouldPrompt: () =>
 			ipcRenderer.invoke(IpcChannels.piCli.shouldPrompt) as Promise<{
 				prompt: boolean;

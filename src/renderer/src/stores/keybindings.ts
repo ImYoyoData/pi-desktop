@@ -30,6 +30,8 @@ export interface BuiltinShortcut {
   group: BuiltinShortcutGroup;
   labelKey: keyof Messages;
   keys: string;
+  /** 键位跟随发送快捷键设置显示。 */
+  dynamicKeys?: "send" | "newline";
 }
 
 export const KEYBINDINGS: KeybindingDef[] = [
@@ -56,8 +58,8 @@ export const BUILTIN_SHORTCUTS: BuiltinShortcut[] = [
   { group: "app", labelKey: "hotkeyDialogConfirm", keys: "Enter" },
   { group: "app", labelKey: "hotkeySelectModeDelete", keys: "Del" },
   { group: "app", labelKey: "hotkeySelectModeCancel", keys: "Esc" },
-  { group: "composer", labelKey: "hotkeySend", keys: "Enter" },
-  { group: "composer", labelKey: "hotkeyNewline", keys: "Shift+Enter" },
+  { group: "composer", labelKey: "hotkeySend", keys: "Enter", dynamicKeys: "send" },
+  { group: "composer", labelKey: "hotkeyNewline", keys: "Shift+Enter", dynamicKeys: "newline" },
   { group: "composer", labelKey: "hotkeyMenuNavigate", keys: "↑ / ↓" },
   { group: "composer", labelKey: "hotkeyMenuConfirm", keys: "Tab" },
   { group: "composer", labelKey: "hotkeyDismiss", keys: "Esc" },

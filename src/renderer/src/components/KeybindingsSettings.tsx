@@ -4,9 +4,11 @@ import {
   BUILTIN_SHORTCUTS,
   KEYBINDINGS,
   useKeybindingsStore,
+  type BuiltinShortcut,
   type BuiltinShortcutGroup,
   type KeybindingId,
 } from "@renderer/stores/keybindings";
+import { useSendShortcutStore } from "@renderer/stores/send-shortcut";
 import { keyboardEventToAccelerator } from "../../../shared/hotkey";
 import {
   SettingsGroup,
@@ -25,6 +27,7 @@ const BUILTIN_GROUP_TITLE: Record<BuiltinShortcutGroup, keyof Messages> = {
 
 export function KeybindingsSettings(): ReactNode {
   const keybindings = useKeybindingsStore();
+  const sendShortcut = useSendShortcutStore((state) => state.mode);
   const t = useI18n();
   const [recording, setRecording] = useState<KeybindingId | null>(null);
   const recordingRef = useRef<KeybindingId | null>(null);
@@ -74,6 +77,19 @@ export function KeybindingsSettings(): ReactNode {
 
   function hintOf(id: KeybindingId): string {
     return useKeybindingsStore.getState().conflicts.has(id) ? t.keybindingsConflict : "";
+  }
+
+  /** 内置发送/换行键位跟随常用设置里的选择，不写死。 */
+  function keysOf(item: BuiltinShortcut): string {
+    if (!item.dynamicKeys) return item.keys;
+    const sendKeys =
+      sendShortcut === "ctrl-enter"
+        ? "Ctrl/⌘+Enter"
+        : sendShortcut === "shift-enter"
+          ? "Shift+Enter"
+          : "Enter";
+    if (item.dynamicKeys === "send") return sendKeys;
+    return sendKeys === "Enter" ? "Shift+Enter" : "Enter";
   }
 
   return (
@@ -142,7 +158,7 @@ export function KeybindingsSettings(): ReactNode {
               {section.items.map((item) => (
                 <div key={item.labelKey} className={styles.row}>
                   <span className={styles.label}>{t[item.labelKey] as string}</span>
-                  <span className={`${styles.keys} ${styles.plain}`}>{item.keys}</span>
+                  <span className={`${styles.keys} ${styles.plain}`}>{keysOf(item)}</span>
                 </div>
               ))}
             </div>

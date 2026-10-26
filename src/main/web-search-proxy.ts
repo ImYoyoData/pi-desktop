@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
-import { normalizeProxyUrl, type ProxySettings } from "../shared/proxy";
+import { normalizeProxyUrl, type ProxyScope } from "../shared/proxy";
 
 const CONFIG_FILE = "web-search.json";
 
@@ -51,20 +51,20 @@ function writeConfig(path: string, config: Record<string, unknown>): void {
 }
 
 function resolveProxyUrl(
-	settings: ProxySettings,
+	scope: ProxyScope,
 	systemProxyUrl: string | undefined,
 ): string | null {
-	if (settings.mode === "custom") return normalizeProxyUrl(settings.url);
-	if (settings.mode === "system") return normalizeProxyUrl(systemProxyUrl ?? "");
+	if (scope.mode === "custom") return normalizeProxyUrl(scope.url);
+	if (scope.mode === "system") return normalizeProxyUrl(systemProxyUrl ?? "");
 	return null;
 }
 
 export function syncWebSearchProxy(
-	settings: ProxySettings,
+	scope: ProxyScope,
 	systemProxyUrl: string | undefined,
 ): void {
 	const path = webSearchConfigPath();
-	const proxy = resolveProxyUrl(settings, systemProxyUrl);
+	const proxy = resolveProxyUrl(scope, systemProxyUrl);
 
 	const config = readConfig(path);
 	if (proxy === null) {
