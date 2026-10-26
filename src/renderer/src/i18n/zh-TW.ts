@@ -157,8 +157,6 @@ export const zhTW = {
 	developerReloadAction: "重載",
 	customizeGeneral: "常用",
 	customizeGeneralDesc: "最常用的設定集中在這裡。",
-	customizeEnvironment: "環境",
-	customizeEnvironmentDesc: "應用程式執行時的環境資訊。",
 	commonSendShortcut: "傳送快速鍵",
 	commonSendShortcutHint: "選擇的組合鍵傳送訊息，其餘組合鍵換行。",
 	commonSendShortcutEnter: "Enter 傳送",

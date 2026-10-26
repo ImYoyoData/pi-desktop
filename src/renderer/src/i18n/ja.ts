@@ -157,8 +157,6 @@ export const ja = {
 	developerReloadAction: "再読み込み",
 	customizeGeneral: "よく使う",
 	customizeGeneralDesc: "よく使う設定をここにまとめます。",
-	customizeEnvironment: "環境",
-	customizeEnvironmentDesc: "アプリの実行環境の情報。",
 	commonSendShortcut: "送信ショートカット",
 	commonSendShortcutHint: "選んだ組み合わせで送信し、それ以外は改行になります。",
 	commonSendShortcutEnter: "Enter で送信",
