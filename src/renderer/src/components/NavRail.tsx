@@ -1,9 +1,9 @@
 import type { ReactNode } from "react";
 import {
-  ChatboxOutline,
-  GitPullRequestOutline,
+  HomeOutline,
   SettingsOutline,
 } from "@renderer/components/icons/ionicons";
+import { PullRequestIcon } from "@renderer/components/icons/PullRequestIcon";
 import { useLayoutStore } from "@renderer/stores/layout";
 import { useI18n } from "@renderer/i18n/use-i18n";
 import styles from "./NavRail.module.css";
@@ -47,14 +47,14 @@ export function NavRail(): ReactNode {
     {
       key: "chat",
       label: t.sessions,
-      icon: <ChatboxOutline size={18} />,
+      icon: <HomeOutline size={18} />,
       active: centerView === "chat",
       onClick: showChatView,
     },
     {
       key: "pull-requests",
       label: t.pullRequests,
-      icon: <GitPullRequestOutline size={18} />,
+      icon: <PullRequestIcon size={18} />,
       active: centerView === "pull-requests",
       onClick: () => useLayoutStore.getState().showPullRequests(),
     },
