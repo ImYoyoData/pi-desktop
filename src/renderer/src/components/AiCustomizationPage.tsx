@@ -10,6 +10,7 @@ import {
 import { Button, Input, Modal, Space, Spin } from "antd";
 import type { InputRef } from "antd";
 import { CodeSlashOutline, RefreshOutline } from "@renderer/components/icons/ionicons";
+import BrowserIcon from "@renderer/components/icons/BrowserIcon";
 import type { IoniconProps } from "@renderer/components/icons/ionicons";
 import CodiconIcon, { type CodiconName } from "@renderer/components/icons/CodiconIcon";
 import PreviewTab, { type PreviewTabHandle } from "@renderer/components/PreviewTab";
@@ -27,6 +28,7 @@ import CustomizeModels from "@renderer/components/customize/CustomizeModels";
 import CustomizeRuntime from "@renderer/components/customize/CustomizeRuntime";
 import CustomizeRetry from "@renderer/components/customize/CustomizeRetry";
 import CustomizeDeveloper from "@renderer/components/customize/CustomizeDeveloper";
+import CustomizeBrowser from "@renderer/components/customize/CustomizeBrowser";
 import MarketSettings from "@renderer/components/MarketSettings";
 import { useCustomizationsStore } from "@renderer/stores/customizations";
 import { useLayoutStore } from "@renderer/stores/layout";
@@ -74,6 +76,7 @@ const SECTION_GROUP: Record<string, SettingsGroup> = {
   keys: "system",
   about: "system",
   developer: "system",
+  browser: "system",
   models: "config",
   retry: "config",
   runtime: "config",
@@ -105,6 +108,7 @@ const SECTION_IDS = [
   "plugins",
   "tools",
   "developer",
+  "browser",
   "about",
 ] as const;
 
@@ -207,6 +211,12 @@ export function AiCustomizationPage({ section, visible }: Props): ReactNode {
       icon: CodeSlashOutline,
       label: t.customizeDeveloper,
       description: t.customizeDeveloperDesc,
+    },
+    {
+      id: "browser",
+      icon: BrowserIcon,
+      label: t.customizeBrowser,
+      description: t.customizeBrowserDesc,
     },
     { id: "about", icon: "about", label: t.aboutTitle, description: t.customizeAboutDesc },
   ];
@@ -665,6 +675,7 @@ export function AiCustomizationPage({ section, visible }: Props): ReactNode {
 
   function renderSectionContent(): ReactNode {
     if (active === "general") return <GeneralSettings />;
+    if (active === "browser") return <CustomizeBrowser />;
     if (store.loading) return <Spin size="small" className={styles.contentSpin} />;
     switch (active) {
       case "notifications":

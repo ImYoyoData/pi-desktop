@@ -1,0 +1,15 @@
+.root {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.settingSelect {
+  flex-shrink: 0;
+  width: 140px;
+}
+
+.urlInput {
+  flex-shrink: 0;
+  width: 220px;
+}

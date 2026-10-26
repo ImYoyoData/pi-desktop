@@ -4,12 +4,6 @@ import { EyeOffOutline, EyeOutline } from "@renderer/components/icons/ionicons";
 import CodiconIcon from "@renderer/components/icons/CodiconIcon";
 import ToggleButton from "@renderer/components/ToggleButton";
 import ModelPickModal from "@renderer/components/customize/ModelPickModal";
-import ProviderLogin from "@renderer/components/customize/ProviderLogin";
-import type {
-  ModelsAvailableEntry,
-  ModelsQuotaResult,
-  ModelsProviderAuth,
-} from "../../../../shared/models-settings";
 import {
   CUSTOM_IMAGE_INPUTS,
   CUSTOM_MODEL_APIS,
@@ -48,14 +42,7 @@ export function CustomizeModels(): ReactNode {
 
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
-  const [oauthOpen, setOauthOpen] = useState(false);
   const [providers, setProviders] = useState<CustomProviderDraft[]>([]);
-  /** 通过 OAuth 登录的内置提供商（凭据在 auth.json，不在 models.json）。 */
-  const [oauthSignedIn, setOauthSignedIn] = useState<ModelsProviderAuth[]>([]);
-  /** 目录中当前可用的模型（含 OAuth 提供商），详情面板只读展示。 */
-  const [available, setAvailable] = useState<ModelsAvailableEntry[]>([]);
-  /** 当前在详情区展示的 OAuth 提供商。 */
-  const [selectedOAuthId, setSelectedOAuthIdState] = useState<string | null>(null);
   /** 桌面端策展状态：仅存于本地配置，不写 models.json。 */
   const [modelSelection, setModelSelection] = useState<ModelSelection>(EMPTY_MODEL_SELECTION);
 
@@ -83,12 +70,8 @@ export function CustomizeModels(): ReactNode {
 
   const [samplingOpen, setSamplingOpen] = useState<Record<string, boolean>>({});
 
-  const [quota, setQuota] = useState<ModelsQuotaResult | null>(null);
-  const [quotaLoading, setQuotaLoading] = useState(false);
-
   const modelsText = useRef("");
   const selectedIdRef = useRef<string | null>(null);
-  const selectedOAuthIdRef = useRef<string | null>(null);
 
   const apiOptions = CUSTOM_MODEL_APIS.map((api) => ({ label: api, value: api }));
   /** models.json 里手写的非对话 api（如分类器 system-one）也要能显示。 */
@@ -101,11 +84,6 @@ export function CustomizeModels(): ReactNode {
   function setSelectedId(next: string | null): void {
     selectedIdRef.current = next;
     setSelectedIdState(next);
-  }
-
-  function setSelectedOAuthId(next: string | null): void {
-    selectedOAuthIdRef.current = next;
-    setSelectedOAuthIdState(next);
   }
 
   const dirty = Boolean(
@@ -140,7 +118,7 @@ export function CustomizeModels(): ReactNode {
 
   /**
    * 加载模型页数据。仅进入页面时联网刷新目录（让 OpenRouter 等按当前密钥
-   * 列出模型与价格）；保存、删除、登出后的重载用已缓存目录，避免多余网络往返。
+   * 列出模型与价格）；保存、删除后的重载用已缓存目录，避免多余网络往返。
    */
   async function load(
     preferId?: string | null,
@@ -151,16 +129,9 @@ export function CustomizeModels(): ReactNode {
     try {
       const data = await window.api.models.get(options);
       const list = listEditableProviders(parseModelsConfigText(data.modelsText));
-      const signedIn = data.providers.filter((p) => p.oauth && p.configured);
       modelsText.current = data.modelsText;
       setModelSelection(data.modelSelection ?? EMPTY_MODEL_SELECTION);
       setProviders(list);
-      setAvailable(data.available);
-      setOauthSignedIn(signedIn);
-      const currentOauth = selectedOAuthIdRef.current;
-      if (currentOauth && !signedIn.some((p) => p.id === currentOauth)) {
-        setSelectedOAuthId(null);
-      }
       const currentId = selectedIdRef.current;
       const nextId =
         (preferId && list.some((p) => p.id === preferId) ? preferId : null) ??
@@ -237,153 +208,8 @@ export function CustomizeModels(): ReactNode {
   }
 
   function onSelectProvider(id: string): void {
-    if (id === selectedId && !isNew && !selectedOAuthId) return;
-    confirmDiscard(() => {
-      setSelectedOAuthId(null);
-      selectProvider(id);
-    });
-  }
-
-  /** OAuth 提供商在详情区只读展示，不进入草稿编辑流程。 */
-  function onSelectOauth(id: string): void {
-    if (id === selectedOAuthId) return;
-    confirmDiscard(() => {
-      setSelectedOAuthId(id);
-      clearDraft();
-      void loadQuota(false, id);
-    });
-  }
-
-  async function signOutOauth(id: string): Promise<void> {
-    try {
-      await window.api.models.oauthLogout(id);
-      message.success(t.providerAuthLoggedOut);
-      window.dispatchEvent(new Event("pi-models-changed"));
-      setSelectedOAuthId(null);
-      await load();
-    } catch (err) {
-      message.error(err instanceof Error ? err.message : String(err));
-    }
-  }
-
-  function oauthModelCount(id: string): number {
-    return available.filter((m) => m.provider === id).length;
-  }
-
-  const selectedOauth =
-    oauthSignedIn.find((p) => p.id === selectedOAuthId) ?? null;
-
-  const oauthProviderDisabled = selectedOauth
-    ? isProviderDisabled(modelSelection, selectedOauth.id)
-    : false;
-
-  /** OAuth 提供商同样走桌面端策展：关闭后其模型从选择器中隐藏，不动 auth.json。 */
-  async function setOauthProviderDisabled(value: boolean): Promise<void> {
-    const id = selectedOauth?.id ?? "";
-    if (!id) return;
-    const next = withProviderDisabled(modelSelection, id, value);
-    setModelSelection(next);
-    try {
-      await window.api.models.setSelection(next);
-      message.success(value ? t.modelsCustomDisabled : t.modelsCustomEnable);
-    } catch (err) {
-      setModelSelection((prev) => withProviderDisabled(prev, id, !value));
-      message.error(err instanceof Error ? err.message : String(err));
-    }
-  }
-
-  /** 每百万 token 价格；免费模型返回 null。 */
-  function priceLabel(rate: number): string | null {
-    if (!rate) return null;
-    return `$${rate}/M`;
-  }
-
-  function costLabel(entry: ModelsAvailableEntry): string | null {
-    const input = priceLabel(entry.cost.input);
-    const output = priceLabel(entry.cost.output);
-    if (!input && !output) return t.modelsAuthFree;
-    return [input ? `${t.modelsAuthIn} ${input}` : null, output ? `${t.modelsAuthOut} ${output}` : null]
-      .filter(Boolean)
-      .join(" · ");
-  }
-
-  function formatTokenCount(value: number): string {
-    return value.toLocaleString();
-  }
-
-  function modalLabel(entry: ModelsAvailableEntry): string {
-    const labels: string[] = [];
-    if (entry.input.includes("text")) labels.push(t.modelsAuthModalText);
-    if (entry.input.includes("image")) labels.push(t.modelsAuthModalImage);
-    return labels.join(" + ");
-  }
-
-  const oauthModels = selectedOauth
-    ? available.filter((m) => m.provider === selectedOauth.id)
-    : [];
-
-  function formatUsd(value: number): string {
-    return `$${value.toFixed(2)}`;
-  }
-
-  const QUOTA_WINDOW_LABELS = {
-    primary: () => t.modelsAuthQuotaPrimary,
-    secondary: () => t.modelsAuthQuotaSecondary,
-    total: () => t.modelsAuthQuotaTotal,
-    onDemand: () => t.modelsAuthQuotaOnDemand,
-    premium: () => t.modelsAuthQuotaPremium,
-    chat: () => t.modelsAuthQuotaChat,
-  } as const;
-
-  /** 余额型（OpenRouter credits）文案。 */
-  const balanceLine = (() => {
-    const q = quota;
-    if (!q?.supported) return "";
-    if (q.remaining !== undefined) {
-      return q.total !== undefined
-        ? t.modelsAuthQuotaRemaining(formatUsd(q.remaining), formatUsd(q.total))
-        : t.modelsAuthQuotaRemaining(formatUsd(q.remaining));
-    }
-    if (q.used !== undefined && !q.windows?.length) {
-      return t.modelsAuthQuotaSpent(formatUsd(q.used));
-    }
-    return "";
-  })();
-
-  /** 逐周期用量文案；主进程只给结构化数据，文案在此按当前语言生成。 */
-  const quotaLines = (quota?.windows ?? []).map((window) => {
-    const name = QUOTA_WINDOW_LABELS[window.kind]();
-    const reset = window.resetAt ? window.resetAt.slice(0, 10) : undefined;
-    if (window.limit === undefined) {
-      return t.modelsAuthQuotaUsedNoLimit(name, formatTokenCount(window.used), reset);
-    }
-    const percent = Math.max(0, Math.min(100, (window.used / window.limit) * 100));
-    return t.modelsAuthQuotaUsed(
-      name,
-      percent.toFixed(0),
-      formatTokenCount(window.used),
-      formatTokenCount(window.limit),
-      reset,
-    );
-  });
-
-  async function loadQuota(force = false, providerIdOverride?: string): Promise<void> {
-    const id = providerIdOverride ?? selectedOauth?.id ?? "";
-    if (!id) return;
-    if (quotaLoading) return;
-    if (!force && quota?.providerId === id) return;
-    setQuotaLoading(true);
-    try {
-      setQuota(await window.api.models.fetchQuota(id));
-    } catch (err) {
-      setQuota({
-        providerId: id,
-        supported: false,
-        error: err instanceof Error ? err.message : String(err),
-      });
-    } finally {
-      setQuotaLoading(false);
-    }
+    if (id === selectedId && !isNew) return;
+    confirmDiscard(() => selectProvider(id));
   }
 
   function onAddProvider(): void {
@@ -728,12 +554,6 @@ export function CustomizeModels(): ReactNode {
 
   return (
     <div className={styles.customizeModels}>
-      <ProviderLogin
-        show={oauthOpen}
-        onClose={() => setOauthOpen(false)}
-        onChanged={() => void load()}
-      />
-
       {loading ? <Spin size="small" className={styles.contentSpin} /> : null}
 
       {!loading && loadError ? (
@@ -749,12 +569,9 @@ export function CustomizeModels(): ReactNode {
               <Button size="small" onClick={onAddProvider}>
                 {t.modelsAuthApiLogin}
               </Button>
-              <Button size="small" onClick={() => setOauthOpen(true)}>
-                {t.modelsAuthOauthLogin}
-              </Button>
             </div>
 
-            {!providers.length && !oauthSignedIn.length ? (
+            {!providers.length ? (
               <div className={styles.sidebarEmpty}>
                 <span className={styles.sidebarEmptyTitle}>{t.modelsCustomEmpty}</span>
                 <span className={styles.sidebarEmptyHint}>{t.modelsCustomEmptyHint}</span>
@@ -782,134 +599,12 @@ export function CustomizeModels(): ReactNode {
                     </span>
                   </button>
                 ))}
-
-                {oauthSignedIn.length ? (
-                  <>
-                    <div className={styles.oauthGroupLabel}>{t.modelsAuthSignedInGroup}</div>
-                    {oauthSignedIn.map((p) => (
-                      <button
-                        key={`oauth:${p.id}`}
-                        type="button"
-                        className={
-                          p.id === selectedOAuthId
-                            ? `${styles.providerItem} ${styles.selected}`
-                            : styles.providerItem
-                        }
-                        onClick={() => onSelectOauth(p.id)}
-                      >
-                        <span className={styles.providerHead}>
-                          <span className={styles.providerName}>{p.displayName}</span>
-                          <span className={styles.providerBadge}>{t.modelsAuthOauthBadge}</span>
-                        </span>
-                        <span className={styles.providerSub}>
-                          {t.modelsCustomCount(oauthModelCount(p.id))}
-                        </span>
-                      </button>
-                    ))}
-                  </>
-                ) : null}
               </div>
             )}
           </aside>
 
           <section className={styles.modelsDetail}>
-            {selectedOauth ? (
-              <>
-                <header className={styles.detailHeader}>
-                  <h3 className={styles.detailTitle}>{selectedOauth.displayName}</h3>
-                  <span className={styles.inlineBadge}>{t.modelsAuthOauthBadge}</span>
-                  <span className={styles.detailSpacer} />
-                  <ToggleButton
-                    label={t.modelsCustomDisable}
-                    value={oauthProviderDisabled}
-                    title={t.modelsCustomDisabledHint}
-                    onValueChange={(value) => void setOauthProviderDisabled(value)}
-                  />
-                  <button
-                    type="button"
-                    className={styles.detailRemove}
-                    title={t.providerAuthSignOut}
-                    onClick={() => void signOutOauth(selectedOauth.id)}
-                  >
-                    {t.providerAuthSignOut}
-                  </button>
-                </header>
-
-                <div className={styles.oauthDetail}>
-                  <div className={styles.oauthQuota}>
-                    <span className={styles.oauthQuotaLabel}>{t.modelsAuthQuota}</span>
-                    {quotaLoading ? (
-                      <span className={styles.oauthQuotaValue}>
-                        {t.modelsAuthQuotaLoading}
-                      </span>
-                    ) : quota?.supported &&
-                      (quota.windows?.length ||
-                        quota.plan ||
-                        quota.remaining !== undefined ||
-                        quota.used !== undefined) ? (
-                      <span className={styles.oauthQuotaValue}>
-                        {quota.plan ? (
-                          <span className={styles.oauthQuotaPlan}>{quota.plan}</span>
-                        ) : null}
-                        {balanceLine ? (
-                          <span className={styles.oauthQuotaLine}>{balanceLine}</span>
-                        ) : null}
-                        {quotaLines.map((line, index) => (
-                          <span key={`${index}:${line}`} className={styles.oauthQuotaLine}>
-                            {line}
-                          </span>
-                        ))}
-                      </span>
-                    ) : (
-                      <span className={`${styles.oauthQuotaValue} ${styles.muted}`}>
-                        {quota?.error ? quota.error : t.modelsAuthQuotaEmpty}
-                      </span>
-                    )}
-                    <Button
-                      size="small"
-                      type="text"
-                      loading={quotaLoading}
-                      onClick={() => void loadQuota(true)}
-                    >
-                      {t.reload}
-                    </Button>
-                  </div>
-                  {!oauthModels.length ? (
-                    <div className={styles.oauthDetailEmpty}>{t.modelsCustomEmptyHint}</div>
-                  ) : (
-                    <ul className={styles.oauthModelList}>
-                      {oauthModels.map((m) => (
-                        <li key={m.id} className={styles.oauthModelItem}>
-                          <div className={styles.oauthModelHead}>
-                            <span className={styles.oauthModelName}>{m.name || m.id}</span>
-                            <span className={styles.oauthModelId}>{m.id}</span>
-                          </div>
-                          <div className={styles.oauthModelMeta}>
-                            <span className={styles.oauthModelChip}>
-                              {t.modelsCustomContextWindow} {formatTokenCount(m.contextWindow)}
-                            </span>
-                            <span className={styles.oauthModelChip}>
-                              {t.modelsCustomMaxTokens} {formatTokenCount(m.maxTokens)}
-                            </span>
-                            {modalLabel(m) ? (
-                              <span className={styles.oauthModelChip}>{modalLabel(m)}</span>
-                            ) : null}
-                            {m.reasoning ? (
-                              <span className={styles.oauthModelChip}>
-                                {t.modelsCustomReasoning}
-                              </span>
-                            ) : null}
-                            {costLabel(m) ? (
-                              <span className={styles.oauthModelChip}>{costLabel(m)}</span>
-                            ) : null}
-                          </div>
-                        </li>
-                      ))}
-                    </ul>
-                  )}
-                </div>
-              </>
-            ) : !draft ? (
+            {!draft ? (
               <div className={styles.detailEmpty}>
                 <span className={styles.detailEmptyTitle}>{t.modelsCustomSelectHint}</span>
               </div>
