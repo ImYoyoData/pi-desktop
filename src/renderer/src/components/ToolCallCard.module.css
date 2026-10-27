@@ -278,13 +278,12 @@
 
 /* --- 时间线步骤（工作区块内的一步） --- */
 .stepHead {
-  position: relative;
   display: flex;
   align-items: center;
   gap: 8px;
   width: 100%;
   min-width: 0;
-  padding: 4px 6px 4px 26px;
+  padding: 4px 6px 4px 3px;
   border-radius: 7px;
   cursor: pointer;
   user-select: none;
@@ -300,32 +299,21 @@
   margin-left: auto;
 }
 
-.stepDot {
-  position: absolute;
-  left: 3px;
+.stepIcon {
+  flex-shrink: 0;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   width: 16px;
   height: 16px;
-  border-radius: 50%;
-  border: 1px solid var(--chat-line, #e2e2e5);
-  background: var(--bg, #ffffff);
   color: var(--chat-icon-fg, var(--fg-muted));
 }
 
-.stepDot.success {
-  border-color: color-mix(in srgb, var(--success, #3d9a6a) 55%, transparent);
-  color: var(--success, #3d9a6a);
-}
-
-.stepDot.error {
-  border-color: color-mix(in srgb, var(--error, #d03050) 55%, transparent);
+.stepIcon.error {
   color: var(--error, #d03050);
 }
 
-.stepDot.running {
-  border-color: var(--accent, #4f8cff);
+.stepIcon.running {
   color: var(--accent, #4f8cff);
 }
 
@@ -386,7 +374,7 @@
 
 /* 展开体紧跟在所属步骤下方，与步骤文本对齐。 */
 .stepBody {
-  padding-left: 26px;
+  padding-left: 27px;
 }
 
 /* 独立工具行的展开体：与标题左缘对齐地缩进一级。 */

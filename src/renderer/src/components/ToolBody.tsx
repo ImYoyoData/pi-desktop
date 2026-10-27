@@ -62,7 +62,14 @@ export function ToolBody({
     case "other":
       return <DiffBody card={card} />;
     case "bash":
-      return <TerminalBody card={card} streaming={streaming} />;
+      return (
+        <TerminalBody
+          card={card}
+          streaming={streaming}
+          isError={isError}
+          toolName={toolName}
+        />
+      );
     case "todo":
       return <TodoBody card={card} />;
     case "generic":
@@ -220,21 +227,30 @@ function DiffBody({ card }: { card: FileToolCard }): ReactNode {
   );
 }
 
-/** 失败时 pi 会在输出尾部追加这句；退出码已经单独展示，这里剥掉。 */
+/** 去掉输出首尾的空白行，以及 pi 追加在尾部的 "Command exited with code N"（退出码已单独展示）。 */
 function stripExitNotice(text: string): string {
-  return text.replace(/\n\nCommand exited with code \d+\s*$/i, "").replace(/\s+$/, "");
+  return text
+    .replace(/\n\nCommand exited with code \d+\s*$/i, "")
+    .replace(/^[\r\n]+/, "")
+    .replace(/\s+$/, "");
 }
 
 function TerminalBody({
   card,
   streaming,
+  isError,
+  toolName,
 }: {
   card: BashToolCard;
   streaming?: boolean;
+  isError?: boolean;
+  toolName?: string;
 }): ReactNode {
   const t = useI18n();
   const output = useMemo(() => stripExitNotice(card.preview ?? ""), [card.preview]);
-  const failed = card.exitCode != null && card.exitCode !== 0;
+  const failed = Boolean(isError) || (card.exitCode != null && card.exitCode !== 0);
+  /** PowerShell 用 PS> 提示符，否则命令本身以 $ 开头时会显示成 "$ $p = …"。 */
+  const promptLabel = /^(powershell|pwsh)$/iu.test(toolName ?? "") ? "PS>" : "$";
   const scrollRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
@@ -260,7 +276,7 @@ function TerminalBody({
         <div className={styles.termScroll} ref={scrollRef} data-inner-scroll="">
           {card.command ? (
             <div className={styles.termCmd}>
-              <span className={styles.prompt}>$</span>
+              <span className={styles.prompt}>{promptLabel}</span>
               <span className={styles.cmd}>{card.command}</span>
             </div>
           ) : null}

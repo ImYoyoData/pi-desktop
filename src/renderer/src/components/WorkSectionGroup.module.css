@@ -11,7 +11,7 @@
   width: fit-content;
   max-width: 100%;
   margin: 0;
-  padding: 3px 8px 3px 0;
+  padding: 3px 8px 3px 3px;
   border: 0;
   border-radius: 6px;
   background: transparent;
@@ -29,20 +29,14 @@
   background: var(--chat-hover-bg, color-mix(in srgb, var(--fg) 5%, transparent));
 }
 
-.workSection.open > .workSectionHead {
-  color: var(--fg, inherit);
-}
-
-/* 小节首图标：与行内徽标同尺寸，左缘对齐。 */
-.sectionBadge {
+/* 小节首图标：与步骤行图标同形——16px 纯线条，不带底色块。 */
+.sectionIcon {
   flex-shrink: 0;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 22px;
-  height: 22px;
-  border-radius: 7px;
-  background: color-mix(in srgb, var(--fg) 6%, transparent);
+  width: 16px;
+  height: 16px;
   color: var(--chat-icon-fg, var(--fg-muted));
 }
 
@@ -102,25 +96,10 @@
 
 /* 过程时间线：每一步一行，展开体紧跟在所属步骤下方。 */
 .timeline {
-  position: relative;
   display: flex;
   flex-direction: column;
   gap: 1px;
   padding-top: 2px;
-}
-
-.timeline::before {
-  content: "";
-  position: absolute;
-  left: 11px;
-  top: 12px;
-  bottom: 12px;
-  width: 1px;
-  background: var(--chat-line, #e2e2e5);
-}
-
-.tlItem {
-  position: relative;
 }
 
 /* 折叠态的读/改/命令比例条。 */
@@ -128,7 +107,7 @@
   display: flex;
   gap: 2px;
   height: 3px;
-  margin: 2px 4px 0 26px;
+  margin: 2px 4px 0 27px;
   border-radius: 2px;
   overflow: hidden;
 }
@@ -194,9 +173,7 @@
   }
 }
 
-/* 小节内的思考行：与工具行同构的徽标 + 内容。 */
-/* 图标与工具步骤行的圆点对齐：同一 x（left 3px / 16px 宽）与同一垂直中心，
-   时间线竖线（left: 11px）才能穿过两者。 */
+/* 小节内的思考行：行首图标 + 内容，图标位置与工具步骤行一致。 */
 .thinkingItem {
   display: flex;
   align-items: flex-start;
@@ -205,8 +182,7 @@
   color: var(--chat-desc-fg, var(--fg-muted));
 }
 
-/* 与工具步骤行的圆点同形：图标在按钮内，hover 高亮才能盖住它。 */
-.thinkingBadge {
+.thinkingIcon {
   flex-shrink: 0;
   display: inline-flex;
   align-items: center;
@@ -214,9 +190,6 @@
   width: 16px;
   height: 16px;
   margin-right: 5px;
-  border-radius: 50%;
-  border: 1px solid var(--chat-line, #e2e2e5);
-  background: var(--bg, #ffffff);
   color: var(--chat-icon-fg, var(--fg-muted));
 }
 
