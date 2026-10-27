@@ -15,6 +15,7 @@
 - **供应商与模型条目整理**：供应商列表支持拖动排序（顺序即 models.json 中的键序），重命名保留原位置；模型条目收进折叠的「模型设置」，去掉旧版的图片输入与图片 opt-in 兼容项。
 - **侧栏会话排序改为权重制**：手动顺序存为每个工作区里的权重表，支持把会话拖到最前，多个会话按拖入顺序自上而下；「最近」排序下运行中的会话整体压在已结束会话之上。
 - **其它**：侧栏会话入口改用房子图标，拉取请求图标统一、外观图标改细线版、浏览器图标线宽对齐；运行时设置精简为压缩与缓存项，移除思考档与模型、Provider 传输方式、npm 命令、思考预算、环境与命令、WebSocket 连接超时等高级项；模型页移除 OAuth 登录；Electron 44 升到 45，开发者页拆成独立组件并由主进程补上 pi SDK 版本探测。
+- **界面切换加入平滑动效**：会话 / 拉取请求 / 设置三个主区页面交叉淡入淡出，右侧文档标签、底栏终端标签与设置页分区切换同样带进场动画；动画只改透明度和位移，内容区不参与逐帧重排。
 
 - **New Common section in Settings**: the send shortcut can be Enter / Shift+Enter / Ctrl+⌘+Enter and the built-in shortcuts table's send and newline rows follow it; the stats strip now counts TPS either streaming or end-to-end.
 - **New Browser section in Settings**: pick when the built-in `browser_*` tools are handed to the model (auto / always / off); the session worker reads the same preference before every turn.
@@ -25,6 +26,7 @@
 - **Provider and model row cleanup**: providers can be dragged into order (the order is the key order in models.json) and renaming keeps a provider's position; model rows fold into a「Model settings」section and the old image-input and image opt-in compat fields are gone.
 - **Session sidebar ordering is now weight based**: manual order is stored as per-workspace weights, sessions can be dragged to the top with multiple ids keeping their dragged order, and under「Recent」running sessions sit above finished ones.
 - **Also**: the session entry uses a house icon, pull request icons are unified, the appearance icon is redrawn as thin strokes and the browser icon stroke matches its siblings; runtime settings now keep only compaction and caching, dropping the thinking level and model section, provider transport, npm command, thinking budgets, environment and commands, and the WebSocket connect timeout; OAuth login is removed from the models page; Electron moves from 44 to 45 and the developer page becomes its own component with a main-process pi SDK version probe.
+- **Smooth view switching**: Sessions / Pull requests / Settings cross-fade in the main area, and right-pane document tabs, bottom-panel terminal tabs and Settings sections animate in as well; the motion only touches opacity and transforms, so the content area never relayouts per frame.
 
 ### 修复 Fixes
 

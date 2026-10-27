@@ -79,6 +79,7 @@
   --shadow-md: 0 0 8px 2px rgba(0, 0, 0, 0.12);
   --shadow-lg: 0 0 8px 2px rgba(0, 0, 0, 0.16);
   --ease-out: cubic-bezier(0.4, 0, 0.2, 1);
+  --ease-out-soft: cubic-bezier(0.22, 1, 0.36, 1);
   --duration-fast: 100ms;
   --duration: 200ms;
   --code-bg: #eaeaea;
@@ -333,6 +334,39 @@ button {
   inset: 0;
   z-index: 2;
   background: var(--bg);
+}
+
+/*
+ * 视图切换动效：只改透明度和位移，走合成层，不触发内容区逐帧布局。
+ * 进场 220ms 落定，离场 140ms 快速让位；离场层不接收指针事件。
+ */
+.view-layer-enter {
+  animation: view-layer-enter 220ms var(--ease-out-soft) both;
+}
+
+.view-layer-leave {
+  animation: view-layer-leave 140ms var(--ease-out) both;
+  pointer-events: none;
+}
+
+@keyframes view-layer-enter {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes view-layer-leave {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
 }
 
 /* 设置页内部已是独立胶囊卡片，外层 overlay 只提供主区底色，不再套一层边框 */

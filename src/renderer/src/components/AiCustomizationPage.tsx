@@ -784,7 +784,7 @@ export function AiCustomizationPage({ section, visible }: Props): ReactNode {
 
       <section className={styles.managementContent}>
         {mcpForm && active === "mcp" ? (
-          <div className={styles.contentInner}>
+          <div key="mcp-form" className={`${styles.contentInner} view-layer-enter`}>
             <McpServerForm
               workspaces={scopedWorkspaces.paths}
               edit={mcpForm.edit}
@@ -793,7 +793,10 @@ export function AiCustomizationPage({ section, visible }: Props): ReactNode {
             />
           </div>
         ) : editing ? (
-          <div className={`${styles.contentInner} ${styles.editorInner}`}>
+          <div
+            key="editor"
+            className={`${styles.contentInner} ${styles.editorInner} view-layer-enter`}
+          >
             <header className={styles.editorPageHeader}>
               <button
                 type="button"
@@ -869,7 +872,7 @@ export function AiCustomizationPage({ section, visible }: Props): ReactNode {
             </div>
           </div>
         ) : (
-          <div className={styles.contentInner}>
+          <div key={active} className={`${styles.contentInner} view-layer-enter`}>
             {active === "models" ? null : (
               <div className={styles.sectionTitleHeader}>
                 <div className={styles.sectionTitleRow}>
