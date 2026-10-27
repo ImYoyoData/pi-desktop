@@ -1,5 +1,6 @@
 import {
   useCallback,
+  useDeferredValue,
   useEffect,
   useMemo,
   useRef,
@@ -200,7 +201,10 @@ export function Composer({ docked = false }: ComposerProps): ReactNode {
   const sessionId = useSessionsStore((s) => s.activeId);
   const draftRoot = useSessionsStore((s) => s.draftRoot);
   const contextUsage = useSessionsStore((s) => s.activeContextUsage);
-  const chatStatsMessages = useChatStore((s) => s.activeMessages);
+  // 统计只影响底栏数字：切换会话时让它在后台算，别拖住输入区的首帧。
+  const chatStatsMessages = useDeferredValue(
+    useChatStore((s) => s.activeMessages),
+  );
   const tpsMode = useSessionStatsStore((s) => s.tpsMode);
   const sendShortcut = useSendShortcutStore((s) => s.mode);
   const activeSessionStatus = useSessionsStore((s) => {
