@@ -184,6 +184,9 @@ export default defineConfig({
         "@renderer": resolve("src/renderer/src"),
       },
     },
+    // markstream 的 KaTeX / Mermaid worker 是 ESM（有动态 import），
+    // inline worker 的默认 iife 格式不支持代码分割。
+    worker: { format: "es" },
     // 浏览器预览桥的端口：dev 时注入，env 可换端口避开多实例抢占。
     plugins: [
       react(),

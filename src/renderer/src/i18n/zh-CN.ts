@@ -820,8 +820,8 @@ export const zh = {
 	showCompactButtonOff: "隐藏",
 	switchOn: "开启",
 	switchOff: "关闭",
-	streamRender: "流式渲染",
-	streamRenderThrottle: "渲染节流间隔",
+	streamRender: "平滑流式渲染",
+	streamRenderThrottle: "流式刷新间隔",
 	streamRenderThrottleValue: (ms: number) =>
 		ms === 0 ? "实时" : `${ms} 毫秒`,
 	retryAutoSection: "自动重试",

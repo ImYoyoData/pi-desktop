@@ -842,8 +842,8 @@ export const en = {
 	showCompactButtonOff: "Hide",
 	switchOn: "On",
 	switchOff: "Off",
-	streamRender: "Streaming render",
-	streamRenderThrottle: "Render throttle",
+	streamRender: "Smooth streaming",
+	streamRenderThrottle: "Stream refresh interval",
 	streamRenderThrottleValue: (ms: number) =>
 		ms === 0 ? "Realtime" : `${ms} ms`,
 	retryAutoSection: "Auto Retry",
