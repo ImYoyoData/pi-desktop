@@ -1,6 +1,6 @@
 /* 1:1 VS Code Copilot thinking row — chatThinkingContent.css / chatCollapsibleContentPart */
 .thinking {
-  margin: 0 0 2px;
+  margin: 0;
   overflow: hidden;
   color: var(--chat-desc-fg, var(--fg-muted));
 }

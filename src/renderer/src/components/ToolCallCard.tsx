@@ -8,10 +8,10 @@ import {
 import { Button } from "antd";
 import {
   ChevronForwardOutline,
-  CloseCircleOutline,
   CloseOutline,
   CreateOutline,
   DocumentTextOutline,
+  EditPencilOutline,
   EyeOutline,
   FolderOutline,
   ListOutline,
@@ -74,8 +74,9 @@ function kindIconFor(kind: ToolCard["kind"]): KindIconComponent {
     case "read":
       return EyeOutline;
     case "write":
-    case "edit":
       return CreateOutline;
+    case "edit":
+      return EditPencilOutline;
     case "bash":
       return SquareTerminalOutline;
     case "todo":
@@ -199,7 +200,6 @@ export function ToolCallCard({
   const actionLabel = shortToolName(toolName);
 
   const KindIcon = kindIconFor(card.kind);
-  const StatusIcon = statusType === "error" ? CloseCircleOutline : KindIcon;
   const statusClass =
     statusType === "error"
       ? styles.error
@@ -207,8 +207,8 @@ export function ToolCallCard({
         ? styles.running
         : styles.success;
 
-  /** 时间线图标只保留失败/进行中的语义色，正常步骤用中性图标色。 */
-  const stepTone =
+  /** 工具图标只保留失败/进行中的语义色，正常状态用中性图标色。 */
+  const iconTone =
     statusType === "error" ? styles.error : streaming ? styles.running : "";
 
   /** 待办卡的固定动作文案；没有固定动作时返回 null，进度改由标题承担。 */
@@ -351,8 +351,8 @@ export function ToolCallCard({
   /** 目录列举工具（ls 等）：动词用「读取」，目标用文件夹 chip。 */
   const isDirList = card.kind === "generic" && isDirectoryListTool(toolName);
 
-  /** 时间线步骤的图标：目录列举用文件夹，失败用叉（不带圆环）。 */
-  const StepIcon =
+  /** 工具图标：目录列举用文件夹，失败用叉（不带圆环）。 */
+  const ToolIcon =
     statusType === "error" ? CloseOutline : isDirList ? FolderOutline : KindIcon;
 
   const stepVerb = shortToolName(toolName);
@@ -449,6 +449,22 @@ export function ToolCallCard({
     <ToolNestedCalls calls={nestedCalls} onOpen={onOpen} />
   ) : null;
 
+  /** 阻塞中的命令可以甩到后台：挂在展开体下方，不挤占标题行。 */
+  const backgroundBtn = canBackground ? (
+    <Button
+      size="small"
+      className={styles.bgBtn}
+      loading={backgroundBusy}
+      title={t.toolMoveToBackground}
+      onClick={(event) => {
+        event.stopPropagation();
+        void onBackground();
+      }}
+    >
+      {t.toolMoveToBackground}
+    </Button>
+  ) : null;
+
   return (
     <div
       className={[
@@ -467,8 +483,8 @@ export function ToolCallCard({
             if (expandable) toggleOpen();
           }}
         >
-          <span className={`${styles.stepIcon} ${stepTone}`} aria-hidden="true">
-            <StepIcon size={13} />
+          <span className={`${styles.stepIcon} ${iconTone}`} aria-hidden="true">
+            <ToolIcon size={13} />
           </span>
           <span className={styles.stepVerb}>{stepVerb}</span>
           <span className={styles.stepTarget}>{stepTarget}</span>
@@ -489,8 +505,8 @@ export function ToolCallCard({
             if (expandable) toggleOpen();
           }}
         >
-          <span className={`${styles.kindIcon} ${statusClass}`} aria-hidden="true">
-            <StatusIcon size={13} />
+          <span className={`${styles.kindIcon} ${iconTone}`} aria-hidden="true">
+            <ToolIcon size={13} />
           </span>
           <div className={styles.headText}>
             <div className={styles.titleRow}>
@@ -514,20 +530,6 @@ export function ToolCallCard({
             </div>
             {nestedCallsBlock}
           </div>
-          {canBackground ? (
-            <Button
-              size="small"
-              className={styles.bgBtn}
-              loading={backgroundBusy}
-              title={t.toolMoveToBackground}
-              onClick={(event) => {
-                event.stopPropagation();
-                void onBackground();
-              }}
-            >
-              {t.toolMoveToBackground}
-            </Button>
-          ) : null}
           {expandable ? (
             <ChevronForwardOutline
               size={12}
@@ -555,6 +557,7 @@ export function ToolCallCard({
           ) : null}
         </div>
       ) : null}
+      {backgroundBtn ? <div className={styles.bgRow}>{backgroundBtn}</div> : null}
     </div>
   );
 }

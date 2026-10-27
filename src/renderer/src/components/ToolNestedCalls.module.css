@@ -42,6 +42,7 @@
   color: var(--chat-desc-fg, var(--fg-muted));
 }
 
+/* 目标与工具名同一档灰：不强调参数，避免像被高亮的代码块。 */
 .nestedTarget {
   flex: 1;
   min-width: 0;
@@ -49,7 +50,7 @@
   text-overflow: ellipsis;
   white-space: nowrap;
   font-family: var(--font-mono, ui-monospace, monospace);
-  color: var(--fg);
+  color: var(--chat-desc-fg, var(--fg-muted));
 }
 
 .nestedMeta {
