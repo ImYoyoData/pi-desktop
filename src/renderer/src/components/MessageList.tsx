@@ -117,7 +117,7 @@ const NEAR_BOTTOM_PX = 120;
 /** virtua 的行高估值：接近真实行高，锚定补偿的位移才不会被放大成剧烈跳动。 */
 const EST_ROW_HEIGHT = 120;
 
-type Props = {
+export type MessageListProps = {
   messages: ChatMessage[];
   streaming: ChatMessage | null;
   running: boolean;
@@ -126,6 +126,8 @@ type Props = {
   /** 面板被折叠/让位给编辑器区域时为 false。 */
   visible?: boolean;
 };
+
+type Props = MessageListProps;
 
 type ImagePreview = { dataUrl: string; mimeType: string };
 
