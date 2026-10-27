@@ -19,11 +19,8 @@ import {
   type MarkdownAssetBase,
 } from "@renderer/utils/markdown-assets";
 import { DotDiagramNode } from "./DotDiagramNode";
-import { installMarkstreamWorkers } from "./markstream-workers";
 
 export const MARKDOWN_CUSTOM_ID = "pi-markdown";
-
-installMarkstreamWorkers();
 
 const AssetsContext = createContext<MarkdownAssetBase | null>(null);
 
