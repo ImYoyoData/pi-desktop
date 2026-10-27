@@ -75,7 +75,10 @@ import {
   steerTextWithCitations,
   titleSeedFor,
 } from "@renderer/utils/composer-payload";
-import { buildSessionStats } from "@renderer/utils/session-stats";
+import {
+  buildSessionStats,
+  sessionUsageFromMessages,
+} from "@renderer/utils/session-stats";
 import {
   contextCostLabelOf,
   contextFreePctOf,
@@ -197,6 +200,7 @@ export function Composer({ docked = false }: ComposerProps): ReactNode {
   const sessionId = useSessionsStore((s) => s.activeId);
   const draftRoot = useSessionsStore((s) => s.draftRoot);
   const contextUsage = useSessionsStore((s) => s.activeContextUsage);
+  const chatStatsMessages = useChatStore((s) => s.activeMessages);
   const tpsMode = useSessionStatsStore((s) => s.tpsMode);
   const sendShortcut = useSendShortcutStore((s) => s.mode);
   const activeSessionStatus = useSessionsStore((s) => {
@@ -1409,8 +1413,14 @@ export function Composer({ docked = false }: ComposerProps): ReactNode {
    *
    * Only items that actually have data are rendered — a stat with no sample
    * is omitted instead of showing "label —".
+   *
+   * worker 冷启动期间没有 context_usage，先用已加载历史聚合出可算的项。
    */
-  const sessionStats = buildSessionStats(contextUsage, tpsMode);
+  const fallbackUsage = useMemo(
+    () => sessionUsageFromMessages(chatStatsMessages),
+    [chatStatsMessages],
+  );
+  const sessionStats = buildSessionStats(contextUsage ?? fallbackUsage, tpsMode);
 
   async function onCompactContext(): Promise<void> {
     const idSession = currentSessionId();

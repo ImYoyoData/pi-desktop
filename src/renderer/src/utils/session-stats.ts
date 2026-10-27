@@ -73,6 +73,42 @@ export function sessionTps(u: SessionContextUsage, mode: SessionTpsMode): number
   return output / (totalMs / 1000);
 }
 
+/**
+ * worker 尚未推送 context_usage 时（切换会话必有一段冷启动），用已加载的历史
+ * 消息先给出能算的统计，避免「会话详细显示」整块空白等到 worker 起来。
+ */
+export function sessionUsageFromMessages(
+  rows: readonly {
+    role: string;
+    usage?: { input?: number; output?: number } | null;
+  }[],
+): SessionContextUsage | null {
+  if (!rows.length) return null;
+  let turns = 0;
+  let steps = 0;
+  let toolCalls = 0;
+  let input = 0;
+  let output = 0;
+  for (const row of rows) {
+    if (row.role === "user") turns++;
+    else if (row.role === "assistant") steps++;
+    else if (row.role === "tool") toolCalls++;
+    input += row.usage?.input ?? 0;
+    output += row.usage?.output ?? 0;
+  }
+  return {
+    tokens: null,
+    contextWindow: 0,
+    percent: null,
+    turns,
+    steps,
+    toolCalls,
+    messageCount: rows.length,
+    inputTokens: input || null,
+    outputTokens: output || null,
+  };
+}
+
 /** 统计项按固定顺序产出，跳过无数据的项；全部无数据时返回 null。 */
 export function buildSessionStats(
   u: SessionContextUsage | null,

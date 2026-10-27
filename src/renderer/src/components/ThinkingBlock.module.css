@@ -113,3 +113,17 @@
 .muted {
   opacity: 0.75;
 }
+
+/* 折叠后仍保留已渲染正文，只是不占高度。 */
+.collapsedBody {
+  display: none;
+}
+
+/* 正文渲染器还没就绪时先显示纯文本，点击展开零延迟有内容。 */
+.plainPreview {
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font: inherit;
+  color: inherit;
+}

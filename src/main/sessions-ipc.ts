@@ -98,11 +98,14 @@ export function registerSessionsIpc(broker: SessionBroker): void {
     return list.find((s) => s.id === sessionId)?.status ?? null;
   });
 
-  ipcMain.handle(IpcChannels.sessions.open, async (_event, sessionId: string, cwd: string) => {
-    const opened = await broker.openSession(sessionId, cwd);
-    if (opened) notifyActiveSession(sessionId, cwd);
-    return opened;
-  });
+  ipcMain.handle(
+    IpcChannels.sessions.open,
+    async (_event, sessionId: string, cwd: string, filePath?: string) => {
+      const opened = await broker.openSession(sessionId, cwd, filePath);
+      if (opened) notifyActiveSession(sessionId, cwd);
+      return opened;
+    },
+  );
 
   ipcMain.handle(IpcChannels.sessions.delete, (_event, sessionId: string, cwd: string) => {
     const id = String(sessionId ?? "");
