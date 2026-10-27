@@ -44,6 +44,17 @@ let currentLocale: UiLocale = resolveActiveLocale();
  */
 export const t: Messages = { ...messagesFor(currentLocale) };
 
+/**
+ * useI18n 的快照：每个组件渲染都拷贝整张文案表（几百个键）太贵，
+ * 这里只在语言切换时重建一次，组件之间共享同一个引用。
+ */
+let currentSnapshot: Messages = t;
+
+/** 当前文案快照（useSyncExternalStore 的 getSnapshot，引用稳定）。 */
+export function getMessages(): Messages {
+  return currentSnapshot;
+}
+
 const listeners = new Set<() => void>();
 
 /** 当前生效的界面语言。 */
@@ -64,6 +75,7 @@ export function applyUiLocale(next: UiLocale): void {
   if (next === currentLocale) return;
   currentLocale = next;
   Object.assign(t, messagesFor(next));
+  currentSnapshot = { ...t };
   for (const listener of listeners) listener();
 }
 

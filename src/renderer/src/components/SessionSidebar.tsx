@@ -1,4 +1,5 @@
 import {
+  startTransition,
   useEffect,
   useMemo,
   useRef,
@@ -803,7 +804,10 @@ export function SessionSidebar(): ReactNode {
     if (discardLeaving && useWorkspaceStore.getState().root !== root) {
       await discardUnstartedSession(leavingRoot, leaving!.id);
     }
-    useChatStore.getState().beginHistoryLoad(sessionId);
+    // 消息区整体换内容是一次大渲染：标成 transition，点击先响，渲染可被打断。
+    startTransition(() => {
+      useChatStore.getState().beginHistoryLoad(sessionId);
+    });
     try {
       if (useWorkspaceStore.getState().root !== root) {
         await useWorkspaceStore.getState().openWorkspacePath(root);
@@ -823,9 +827,11 @@ export function SessionSidebar(): ReactNode {
         historyPromise,
         useSessionsStore.getState().selectSession(sessionId, root),
       ]);
-      useChatStore
-        .getState()
-        .hydrateFromHistory(sessionId, page.messages, page.hasMore);
+      startTransition(() => {
+        useChatStore
+          .getState()
+          .hydrateFromHistory(sessionId, page.messages, page.hasMore);
+      });
       if (discardLeaving && useWorkspaceStore.getState().root === root) {
         await discardUnstartedSession(leavingRoot, leaving!.id);
       }
