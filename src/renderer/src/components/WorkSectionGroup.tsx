@@ -6,7 +6,7 @@ import {
   DocumentTextOutline,
   EyeOutline,
   ListOutline,
-  TerminalOutline,
+  SquareTerminalOutline,
 } from "@renderer/components/icons/ionicons";
 import type { ChatMessage } from "@renderer/stores/chat";
 import ThinkingBlock from "@renderer/components/ThinkingBlock";
@@ -283,7 +283,7 @@ export function WorkSectionGroup({ items, autoCollapse, onOpen }: Props): ReactN
     if (kinds.has("edit")) return CreateOutline;
     if (thinkingCount > 0) return BrainOutline;
     if (kinds.has("read")) return EyeOutline;
-    if (kinds.has("bash")) return TerminalOutline;
+    if (kinds.has("bash")) return SquareTerminalOutline;
     if (kinds.has("todo")) return ListOutline;
     return DocumentTextOutline;
   }, [categorized, thinkingCount]);
@@ -310,7 +310,7 @@ export function WorkSectionGroup({ items, autoCollapse, onOpen }: Props): ReactN
         aria-expanded={open}
         onClick={toggle}
       >
-        <span className={styles.sectionBadge} aria-hidden="true">
+        <span className={styles.sectionIcon} aria-hidden="true">
           <HeaderIcon size={13} />
         </span>
         <span className={`${styles.summary}${!settled ? " copilot-shimmer" : ""}`}>{title}</span>
@@ -347,7 +347,7 @@ export function WorkSectionGroup({ items, autoCollapse, onOpen }: Props): ReactN
               if (isToolMessage(msg)) {
                 const status = toolStatus(msg);
                 return (
-                  <div key={msg.toolCallId} className={styles.tlItem}>
+                  <div key={msg.toolCallId}>
                     <ToolCallCard
                       card={toolCard(msg)}
                       toolName={msg.toolName}
@@ -367,7 +367,7 @@ export function WorkSectionGroup({ items, autoCollapse, onOpen }: Props): ReactN
                 return (
                   <div
                     key={msg.id}
-                    className={`${styles.tlItem} ${styles.thinkingItem}`}
+                    className={styles.thinkingItem}
                   >
                     <div className={styles.thinkingContent}>
                       <ThinkingBlock
@@ -377,8 +377,8 @@ export function WorkSectionGroup({ items, autoCollapse, onOpen }: Props): ReactN
                         durationMs={msg.thinkingDurationMs}
                         startedAt={msg.thinkingStartedAt}
                         leadingIcon={
-                          <span className={styles.thinkingBadge} aria-hidden="true">
-                            <BrainOutline size={11} />
+                          <span className={styles.thinkingIcon} aria-hidden="true">
+                            <BrainOutline size={12} />
                           </span>
                         }
                       />
