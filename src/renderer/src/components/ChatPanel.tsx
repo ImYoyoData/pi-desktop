@@ -1,6 +1,5 @@
 import {
   lazy,
-  memo,
   Suspense,
   useEffect,
   useRef,
@@ -14,7 +13,6 @@ import SessionTodoPanel from "@renderer/components/SessionTodoPanel";
 import SessionChangedFiles from "@renderer/components/SessionChangedFiles";
 import { useAppearanceStore } from "@renderer/stores/appearance";
 import { useChatStore } from "@renderer/stores/chat";
-import type { MessageListProps } from "@renderer/components/MessageList";
 import { useSessionsStore } from "@renderer/stores/sessions";
 import { useSessionWidgetsStore } from "@renderer/stores/session-widgets";
 import { hasAnyFileChange } from "@renderer/utils/session-file-changes";
@@ -29,33 +27,6 @@ import styles from "./ChatPanel.module.css";
  */
 const Composer = lazy(() => import("@renderer/components/Composer"));
 const MessageList = lazy(() => import("@renderer/components/MessageList"));
-
-/** 会话消息区的快照：切走的会话保留最后一次渲染的 props，切回来不再重建。 */
-type PaneSnapshot = Omit<MessageListProps, "visible">;
-
-/** 同时保留的消息区数量。再多，后台重渲染的收益就抵消了内存开销。 */
-const MAX_CACHED_PANES = 3;
-
-const SessionPane = memo(function SessionPane({
-  snapshot,
-  visible,
-}: {
-  snapshot: PaneSnapshot;
-  visible: boolean;
-}): ReactNode {
-  return (
-    <Suspense fallback={null}>
-      <MessageList
-        messages={snapshot.messages}
-        streaming={snapshot.streaming}
-        running={snapshot.running}
-        retryHint={snapshot.retryHint}
-        historyLoading={snapshot.historyLoading}
-        visible={visible}
-      />
-    </Suspense>
-  );
-});
 
 type Props = {
   /** 面板被折叠/让位给编辑器区域时不参与可见性：消息区据此暂停测量与贴底。 */
@@ -145,37 +116,6 @@ export function ChatPanel({ visible }: Props): ReactNode {
     return t.newSession;
   })();
 
-  const liveSnapshot: PaneSnapshot = {
-    messages: chat.activeMessages,
-    streaming: chat.activeStreaming,
-    running,
-    retryHint: chat.activeRetryHint,
-    historyLoading: chat.historyLoading,
-  };
-  const paneCache = useRef(new Map<string, PaneSnapshot>());
-  const paneIdsRef = useRef<string[]>([]);
-
-  /**
-   * 切走时把当前快照留在缓存里：旧会话的消息区继续挂载、只把 visibility 关掉，
-   * 切回来不再重建 markdown 树（实测重建一次要 100ms 以上）。
-   */
-  if (sessions.activeId) {
-    paneCache.current.set(sessions.activeId, liveSnapshot);
-    const ids = paneIdsRef.current;
-    if (ids[ids.length - 1] !== sessions.activeId) {
-      const next = [
-        ...ids.filter((id) => id !== sessions.activeId),
-        sessions.activeId,
-      ];
-      paneIdsRef.current = next.slice(-MAX_CACHED_PANES);
-      const keep = new Set(paneIdsRef.current);
-      for (const id of [...paneCache.current.keys()]) {
-        if (!keep.has(id)) paneCache.current.delete(id);
-      }
-    }
-  }
-  const paneIds = paneIdsRef.current;
-
   return (
     <section className={`chat-panel ${styles.chatPanel}`}>
       {hasSession ? (
@@ -202,29 +142,16 @@ export function ChatPanel({ visible }: Props): ReactNode {
             </header>
           ) : null}
           <div className={styles.messageSlot}>
-            {paneIds.length > 0 ? (
-              paneIds.map((id) => {
-                const active = id === sessions.activeId;
-                return (
-                  <div
-                    key={id}
-                    className={styles.sessionPane}
-                    style={
-                      active
-                        ? { zIndex: 1 }
-                        : { visibility: "hidden", opacity: 0, pointerEvents: "none" }
-                    }
-                  >
-                    <SessionPane
-                      snapshot={paneCache.current.get(id) ?? liveSnapshot}
-                      visible={active && visible !== false}
-                    />
-                  </div>
-                );
-              })
-            ) : (
-              <SessionPane snapshot={liveSnapshot} visible={visible !== false} />
-            )}
+            <Suspense fallback={null}>
+              <MessageList
+                messages={chat.activeMessages}
+                streaming={chat.activeStreaming}
+                running={running}
+                retryHint={chat.activeRetryHint}
+                historyLoading={chat.historyLoading}
+                visible={visible !== false}
+              />
+            </Suspense>
           </div>
           <ExtensionUiStrip />
           {!chat.activePendingExtensionUi ? <AskUserStrip /> : null}

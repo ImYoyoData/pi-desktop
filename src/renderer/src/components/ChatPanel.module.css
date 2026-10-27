@@ -11,22 +11,10 @@
  * 不会等消息列表挂载后才从上往下落。
  */
 .messageSlot {
-  position: relative;
   flex: 1;
   min-height: 0;
   display: flex;
   flex-direction: column;
-}
-
-/* 每个会话一个消息区：非活动的继续挂载，只关掉可见性，切回来不重建。
-   隐藏状态走内联样式（visibility + opacity），不依赖样式表的类名映射。 */
-.sessionPane {
-  position: absolute;
-  inset: 0;
-  display: flex;
-  flex-direction: column;
-  min-height: 0;
-  background: var(--bg);
 }
 
 .chatPanelHead {
