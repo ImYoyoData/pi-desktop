@@ -13,6 +13,7 @@ import { useKeybindingsStore } from "@renderer/stores/keybindings";
 import { useRightTabsStore } from "@renderer/stores/right-tabs";
 import { useWorkspaceStore } from "@renderer/stores/workspace";
 import { localizedTabLabel } from "@renderer/utils/right-tab-labels";
+import { useLeavingValue } from "@renderer/utils/use-leaving-value";
 import { terminalShellLabel } from "@renderer/utils/terminal-shell-labels";
 import { useI18n } from "@renderer/i18n/use-i18n";
 import styles from "./BottomPanel.module.css";
@@ -25,6 +26,7 @@ export function BottomPanel(): ReactNode {
   const [shells, setShells] = useState<TerminalShellOption[]>([]);
 
   const active = rightTabs.activePanelTab;
+  const leavingTabId = useLeavingValue(active?.id ?? null, 150);
 
   const shellOptions = useMemo(
     () =>
@@ -156,21 +158,31 @@ export function BottomPanel(): ReactNode {
       </header>
 
       <div className={styles.panelBody}>
-        {rightTabs.panelTabs.map((tab) => (
-          <div
-            key={tab.id}
-            className={styles.panelTerm}
-            style={{ display: tab.id === active?.id ? undefined : "none" }}
-          >
-            <TerminalTab
-              instanceId={tab.id}
-              ptyId={tab.ptyId ?? null}
-              cwd={tab.cwd ?? null}
-              shellId={tab.shellId ?? null}
-              visible={tab.id === active?.id && !layout.bottomCollapsed}
-            />
-          </div>
-        ))}
+        {rightTabs.panelTabs.map((tab) => {
+          const isActive = tab.id === active?.id;
+          const isLeaving = !isActive && tab.id === leavingTabId;
+          return (
+            <div
+              key={tab.id}
+              className={
+                isLeaving
+                  ? `${styles.panelTerm} view-layer-leave`
+                  : isActive
+                    ? `${styles.panelTerm} view-layer-enter`
+                    : styles.panelTerm
+              }
+              style={{ display: isActive || isLeaving ? undefined : "none" }}
+            >
+              <TerminalTab
+                instanceId={tab.id}
+                ptyId={tab.ptyId ?? null}
+                cwd={tab.cwd ?? null}
+                shellId={tab.shellId ?? null}
+                visible={isActive && !layout.bottomCollapsed}
+              />
+            </div>
+          );
+        })}
       </div>
     </section>
   );

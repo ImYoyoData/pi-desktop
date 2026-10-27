@@ -43,6 +43,7 @@ import { useWorkspaceStore } from "@renderer/stores/workspace";
 import { gitCodeColor } from "@renderer/utils/editor-lang";
 import { fileIcon, type FileIcon } from "@renderer/utils/file-icon";
 import { localizedTabLabel } from "@renderer/utils/right-tab-labels";
+import { useLeavingValue } from "@renderer/utils/use-leaving-value";
 import * as prefs from "@renderer/utils/prefs";
 import { registerStateApplier } from "@renderer/utils/state-sync";
 import type {
@@ -127,6 +128,7 @@ export function RightPane(): ReactNode {
   const openSignalRef = useRef(previewStore.openSignal);
 
   const active = rightTabs.activeTab;
+  const leavingTabId = useLeavingValue(active?.id ?? null, 150);
   const runningCount = agentRuns.runs.length;
   const dockIdsKey = rightTabs.dockTabs.map((tab) => tab.id).join("|");
 
@@ -752,17 +754,27 @@ export function RightPane(): ReactNode {
         <div className={styles.tabPanels}>
           {rightTabs.dockTabs.map((tab) => {
             const isActive = active?.id === tab.id;
-            const panelStyle = isActive ? undefined : { display: "none" };
+            const isLeaving = !isActive && tab.id === leavingTabId;
+            const shown = isActive || isLeaving;
+            const panelStyle = shown ? undefined : { display: "none" };
+            const panelClass =
+              tab.kind === "browser"
+                ? styles.tabPanel
+                : isLeaving
+                  ? `${styles.tabPanel} view-layer-leave`
+                  : isActive
+                    ? `${styles.tabPanel} view-layer-enter`
+                    : styles.tabPanel;
             if (tab.kind === "running") {
               return (
-                <div key={tab.id} className={styles.tabPanel} style={panelStyle}>
+                <div key={tab.id} className={panelClass} style={panelStyle}>
                   <RunningTab visible={isActive && !layout.rightCollapsed} />
                 </div>
               );
             }
             if (tab.kind === "changes") {
               return (
-                <div key={tab.id} className={styles.tabPanel} style={panelStyle}>
+                <div key={tab.id} className={panelClass} style={panelStyle}>
                   <DiffTab
                     filePath={tab.filePath ?? null}
                     visible={isActive && !layout.rightCollapsed}
@@ -772,7 +784,7 @@ export function RightPane(): ReactNode {
             }
             if (tab.kind === "browser") {
               return (
-                <div key={tab.id} className={styles.tabPanel} style={panelStyle}>
+                <div key={tab.id} className={panelClass} style={panelStyle}>
                   <BrowserTab
                     tabId={tab.id}
                     initialUrl={tab.url ?? null}
@@ -783,7 +795,7 @@ export function RightPane(): ReactNode {
             }
             if (tab.kind === "preview") {
               return (
-                <div key={tab.id} className={styles.tabPanel} style={panelStyle}>
+                <div key={tab.id} className={panelClass} style={panelStyle}>
                   <PreviewTab tabId={tab.id} filePath={tab.filePath ?? null} active={isActive} />
                 </div>
               );
@@ -832,11 +844,13 @@ export function RightPane(): ReactNode {
             </button>
           </div>
           <div className={styles.dockColBody}>
-            {dockView === "files" ? (
-              <FilesTab embedded />
-            ) : (
-              <RightDockChanges visible={!layout.rightCollapsed && detailsVisible} />
-            )}
+            <div key={dockView} className={`${styles.dockPane} view-layer-enter`}>
+              {dockView === "files" ? (
+                <FilesTab embedded />
+              ) : (
+                <RightDockChanges visible={!layout.rightCollapsed && detailsVisible} />
+              )}
+            </div>
           </div>
         </div>
       </div>
