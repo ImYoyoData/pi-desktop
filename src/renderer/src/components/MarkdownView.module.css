@@ -183,28 +183,6 @@
   font-weight: 600;
 }
 
-/* 代码块交给 markstream 内置渲染：容器、头部、操作按钮统一走项目的中性色。 */
-.root:global(.md) :global(.code-block-container) {
-  margin: 0.75em 0;
-  border-radius: 4px;
-  border-color: var(--border-subtle, rgba(127, 127, 127, 0.25));
-  box-shadow: none;
-}
-
-.root:global(.md) :global(.code-block-container:last-child) {
-  margin-bottom: 0;
-}
-
-.root:global(.md) :global(.code-block-header) {
-  min-height: 0;
-  padding: 2px 6px;
-}
-
-.root:global(.md) :global(.code-header-title) {
-  font-size: 0.8462rem;
-}
-
-
 .root:global(.md) :not(pre) > code {
   font-family: var(--font-mono);
   font-size: 0.9em;
