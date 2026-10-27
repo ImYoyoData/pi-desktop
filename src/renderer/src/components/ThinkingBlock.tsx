@@ -93,7 +93,17 @@ export function ThinkingBlock({
   const THINK_LIVE_MAX_CHARS = 16_000;
   const displayThinking = useMemo(() => {
     if (!streaming || thinking.length <= THINK_LIVE_MAX_CHARS) return thinking;
-    return `…\n${thinking.slice(-THINK_LIVE_MAX_CHARS)}`;
+    const tail = thinking.slice(-THINK_LIVE_MAX_CHARS);
+    // 截断点落在块中间（尤其是代码围栏里）会让 markdown 解析出未闭合结构，
+    // 流式时看起来就是内容卡住不显示：先退到最近的块边界，再丢掉半截围栏。
+    const boundary = tail.indexOf("\n\n");
+    const body = boundary >= 0 ? tail.slice(boundary + 2) : tail;
+    const fences = [...body.matchAll(/^`{3,}/gm)];
+    const safe =
+      fences.length % 2 === 1
+        ? body.slice(0, fences[fences.length - 1]?.index ?? body.length)
+        : body;
+    return `…\n${safe}`;
   }, [streaming, thinking]);
 
   useEffect(() => {

@@ -41,21 +41,6 @@ const STREAM_MARKDOWN_MAX_CHARS = 24_000;
 /** 已完成消息的解析上限：极端长回答直接纯文本，保证界面可用。 */
 const MESSAGE_MARKDOWN_MAX_CHARS = 120_000;
 
-/**
- * markstream 平滑器的基准参数：目标是「跟着模型输出走」，不是打字机回放。
- * 目标延迟压到 240ms、追赶阈值压到 240 字符，长回答也能在流结束后立刻收敛。
- */
-const SMOOTH_BASE = {
-  minCharsPerSecond: 200,
-  maxCharsPerSecond: 2400,
-  targetLatencyMs: 240,
-  catchUpLatencyMs: 120,
-  catchUpThreshold: 240,
-  maxCharsPerCommit: 400,
-  startDelayMs: 0,
-  flushOnFinish: true,
-} as const;
-
 const MERMAID_PROPS = {
   isStrict: false,
   enableMermaidInteractions: true,
@@ -94,16 +79,6 @@ function MarkdownViewView({
   useEffect(() => {
     void streamRender.load();
   }, [streamRender]);
-
-  /** 刷新间隔在这里换算成提交帧率，0（不节流）按浏览器刷新率上限算。 */
-  const smoothOptions = useMemo(
-    () => ({
-      ...SMOOTH_BASE,
-      maxCommitFps:
-        streamRender.throttleMs > 0 ? Math.round(1000 / streamRender.throttleMs) : 60,
-    }),
-    [streamRender.throttleMs],
-  );
 
   const [artifact, setArtifact] = useState<{
     type: string;
@@ -156,9 +131,9 @@ function MarkdownViewView({
             final={!streaming}
             isDark={appearance.resolvedTheme === "dark"}
             fade={false}
-            smoothStreaming={streamRender.smooth ? "auto" : false}
-            smoothStreamingOptions={smoothOptions}
+            smoothStreaming={false}
             maxLiveNodes={0}
+            deferNodesUntilVisible={false}
             viewportPriority
             parseOptions={MARKDOWN_PARSE_OPTIONS}
             htmlPolicy="trusted"
