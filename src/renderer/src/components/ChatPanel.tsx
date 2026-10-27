@@ -141,16 +141,18 @@ export function ChatPanel({ visible }: Props): ReactNode {
               ) : null}
             </header>
           ) : null}
-          <Suspense fallback={null}>
-            <MessageList
-              messages={chat.activeMessages}
-              streaming={chat.activeStreaming}
-              running={running}
-              retryHint={chat.activeRetryHint}
-              historyLoading={chat.historyLoading}
-              visible={visible !== false}
-            />
-          </Suspense>
+          <div className={styles.messageSlot}>
+            <Suspense fallback={null}>
+              <MessageList
+                messages={chat.activeMessages}
+                streaming={chat.activeStreaming}
+                running={running}
+                retryHint={chat.activeRetryHint}
+                historyLoading={chat.historyLoading}
+                visible={visible !== false}
+              />
+            </Suspense>
+          </div>
           <ExtensionUiStrip />
           {!chat.activePendingExtensionUi ? <AskUserStrip /> : null}
           {/* Docked widgets share one surface with the composer (chat-input-stack). */}

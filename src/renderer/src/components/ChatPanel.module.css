@@ -6,6 +6,17 @@
   background: var(--bg);
 }
 
+/*
+ * 消息区占位：懒加载完成前也撑满剩余高度，输入框从第一帧就贴住底部，
+ * 不会等消息列表挂载后才从上往下落。
+ */
+.messageSlot {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
 .chatPanelHead {
   display: flex;
   align-items: center;
