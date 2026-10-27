@@ -11,12 +11,10 @@
    * 标题栏不加遮罩：背景全透、未启用壁纸时透出窗口底色，启用壁纸时直接透出壁纸，
    * 不做压暗也不做磨砂模糊。
    */
-  border-bottom: 1px solid var(--border);
   color: var(--fg-muted);
   font-size: 0.9231rem;
   user-select: none;
   flex-shrink: 0;
-  box-shadow: 0 1px 0 color-mix(in srgb, var(--bg-elevated) 40%, transparent);
   /* Whole bar is draggable; interactive children use .no-drag. */
   -webkit-app-region: drag;
 }
