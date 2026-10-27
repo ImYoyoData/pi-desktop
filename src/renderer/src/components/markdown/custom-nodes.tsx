@@ -10,11 +10,8 @@ import {
   type Key,
   type ReactNode,
 } from "react";
-import {
-  CodeBlockNode as StreamCodeBlockNode,
-  MermaidBlockNode,
-  setCustomComponents,
-} from "markstream-react";
+import { MermaidBlockNode, setCustomComponents } from "markstream-react";
+import { DiffLines } from "@renderer/components/DiffLines";
 import { useI18n } from "@renderer/i18n/use-i18n";
 import { highlightCode } from "@renderer/utils/markdown";
 import {
@@ -24,21 +21,6 @@ import {
 import { DotDiagramNode } from "./DotDiagramNode";
 
 export const MARKDOWN_CUSTOM_ID = "pi-markdown";
-
-/** diff 首次渲染要加载 stream-diffs（shiki + @pierre/diffs），空闲时先取好，
-    打开思考过程 / edit 卡时不再等 chunk。 */
-function prefetchStreamDiffs(): void {
-  const run = (): void => {
-    void import("stream-diffs/markstream");
-  };
-  if (typeof window.requestIdleCallback === "function") {
-    window.requestIdleCallback(run, { timeout: 4_000 });
-    return;
-  }
-  window.setTimeout(run, 1_200);
-}
-
-prefetchStreamDiffs();
 
 const AssetsContext = createContext<MarkdownAssetBase | null>(null);
 
@@ -94,19 +76,6 @@ type FenceNode = {
   raw?: string;
 };
 
-/**
- * diff 块交给 markstream 内置的代码块（stream-diffs）：unified 单列更贴合聊天气泡，
- * 行内 word 级差异保留，未改动行不折叠。
- */
-const DIFF_CODE_OPTIONS = {
-  diffStyle: "unified",
-  diffIndicators: "classic",
-  hunkSeparators: "line-info",
-  lineDiffType: "word-alt",
-  expandUnchanged: true,
-  overflow: "scroll",
-} as const;
-
 type CodeBlockProps = {
   node: FenceNode;
   isDark?: boolean;
@@ -116,11 +85,7 @@ function fenceLanguage(node: FenceNode): string {
   return (node.language ?? "").trim().split(/\s+/)[0] ?? "";
 }
 
-/**
- * 普通代码块用 hljs 同步渲染（带 LRU）：内置 CodeBlockNode 每个实例都要建一套
- * stream-diffs runtime，打开思考过程时几个代码块一起初始化要等一两秒。
- * 只有 diff 块才走内置渲染（unified、行内词级差异）。
- */
+/** 代码块：hljs 同步高亮（带 LRU）+ 行号 + 复制；diff 块走同步的 DiffLines。 */
 function CodeBlockNode({ node, isDark }: CodeBlockProps): ReactNode {
   const t = useI18n();
   const code = node.code ?? "";
@@ -138,20 +103,8 @@ function CodeBlockNode({ node, isDark }: CodeBlockProps): ReactNode {
   );
 
   if (node.diff) {
-    return (
-      <StreamCodeBlockNode
-        node={
-          { ...node, code, type: "code_block" } as ComponentProps<
-            typeof StreamCodeBlockNode
-          >["node"]
-        }
-        isDark={isDark}
-        loading={Boolean(node.loading)}
-        showLineNumbers
-        showTooltips={false}
-        codeBlockOptions={DIFF_CODE_OPTIONS}
-      />
-    );
+    // 原始补丁在 raw 里（code 只剩新文件内容），交给同步 diff 渲染。
+    return <DiffLines text={String(node.raw ?? "")} fallback={<pre>{code}</pre>} />;
   }
 
   if (MERMAID_LANGS.has(langKey) || (!langKey && looksLikeMermaidSource(code))) {
