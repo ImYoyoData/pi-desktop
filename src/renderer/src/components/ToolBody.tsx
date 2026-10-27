@@ -1,4 +1,12 @@
-import { memo, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ComponentProps,
+  type ReactNode,
+} from "react";
+import { CodeBlockNode as StreamCodeBlockNode } from "markstream-react";
 import {
   CheckmarkCircleOutline,
   EllipseOutline,
@@ -16,7 +24,7 @@ import {
 } from "@renderer/utils/tool-diff";
 import {
   parseUnifiedDiff,
-  type DiffLine,
+  type ParsedDiff,
 } from "@renderer/utils/diff-blocks";
 import {
   buildJsonTree,
@@ -34,6 +42,7 @@ import { highlightToSafeHtml } from "@renderer/utils/markdown";
 import { languageFromPath } from "@renderer/utils/editor-lang";
 import { fileIcon } from "@renderer/utils/file-icon";
 import { useI18n } from "@renderer/i18n/use-i18n";
+import { useAppearanceStore } from "@renderer/stores/appearance";
 import styles from "./ToolBody.module.css";
 
 type Props = {
@@ -157,49 +166,47 @@ function FileBody({
   );
 }
 
-const DiffLineRow = memo(function DiffLineRow({ line }: { line: DiffLine }): ReactNode {
-  const parts = line.kind === "add" ? line.newParts : line.oldParts;
-  const sign = line.kind === "add" ? "+" : line.kind === "del" ? "−" : " ";
-  const kindClass =
-    line.kind === "add" ? styles.diffAdd : line.kind === "del" ? styles.diffDel : styles.diffCtx;
-  const markClass = line.kind === "add" ? styles.wordAdd : styles.wordDel;
-  return (
-    <div className={`${styles.diffLine} ${kindClass}`}>
-      <span className={styles.sign}>{sign}</span>
-      <span className={styles.txt}>
-        {parts
-          ? parts.map((part, i) =>
-              part.changed ? (
-                <span key={i} className={markClass}>
-                  {part.text}
-                </span>
-              ) : (
-                <span key={i}>{part.text}</span>
-              ),
-            )
-          : line.text}
-      </span>
-    </div>
-  );
-});
+/** 工具卡里的 diff 交给 markstream 的代码块渲染，与聊天里的 ```diff 保持一致。 */
+const TOOL_DIFF_OPTIONS = {
+  diffStyle: "unified",
+  diffIndicators: "classic",
+  hunkSeparators: "line-info",
+  lineDiffType: "word-alt",
+  expandUnchanged: true,
+  overflow: "scroll",
+  fontSize: 12,
+} as const;
+
+/** 补丁只有 hunk 区间：按行聚合出两侧文本，行内差异交给 stream-diffs。 */
+function buildDiffSides(parsed: ParsedDiff): { original: string; updated: string } {
+  const original: string[] = [];
+  const updated: string[] = [];
+  for (const hunk of parsed.hunks) {
+    for (const line of hunk.lines) {
+      if (line.kind !== "add") original.push(line.text);
+      if (line.kind !== "del") updated.push(line.text);
+    }
+  }
+  return { original: original.join("\n"), updated: updated.join("\n") };
+}
 
 function DiffBody({ card }: { card: FileToolCard }): ReactNode {
   const t = useI18n();
+  const isDark = useAppearanceStore((s) => s.resolvedTheme === "dark");
   const parsed = useMemo(() => parseUnifiedDiff(card.diff ?? ""), [card.diff]);
   const lang = card.path ? languageFromPath(card.path) : "plaintext";
-  /** 行元素树只在解析结果变化时重建：流式以外的重渲染不再扫一遍所有行。 */
-  const hunkViews = useMemo(
-    () =>
-      parsed.hunks.map((hunk, index) => (
-        <div key={index} className={styles.hunk}>
-          {hunk.header ? <div className={styles.hunkHead}>{hunk.header}</div> : null}
-          {hunk.lines.map((line, lineIndex) => (
-            <DiffLineRow key={lineIndex} line={line} />
-          ))}
-        </div>
-      )),
-    [parsed],
-  );
+  const diffNode = useMemo(() => {
+    const sides = buildDiffSides(parsed);
+    return {
+      type: "code_block",
+      language: lang,
+      code: sides.updated,
+      originalCode: sides.original,
+      updatedCode: sides.updated,
+      diff: true,
+      raw: card.diff ?? "",
+    };
+  }, [parsed, lang, card.diff]);
 
   return (
     <>
@@ -220,7 +227,16 @@ function DiffBody({ card }: { card: FileToolCard }): ReactNode {
             {card.diff?.trim() ? card.diff : t.toolResultNoOutput}
           </pre>
         ) : (
-          hunkViews
+          <StreamCodeBlockNode
+            node={
+              diffNode as ComponentProps<typeof StreamCodeBlockNode>["node"]
+            }
+            isDark={isDark}
+            showHeader={false}
+            showLineNumbers
+            showTooltips={false}
+            codeBlockOptions={TOOL_DIFF_OPTIONS}
+          />
         )}
       </div>
     </>

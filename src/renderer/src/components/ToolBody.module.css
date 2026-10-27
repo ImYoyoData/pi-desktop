@@ -421,3 +421,11 @@ button.jsonRow:hover { background: color-mix(in srgb, var(--fg) 3%, transparent)
 .jsonType { color: var(--fg-muted); font-size: 0.7692rem; }
 .jsonTruncated { color: var(--warning, #bf8803); font-size: 0.7692rem; }
 .jsonValue { overflow: hidden; text-overflow: ellipsis; }
+
+/* diff 由 markstream 的代码块渲染：去掉它自带的容器留白，贴合工具卡。 */
+.body :global(.code-block-container) {
+  margin: 0;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
