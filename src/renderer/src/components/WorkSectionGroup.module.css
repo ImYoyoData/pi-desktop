@@ -11,7 +11,7 @@
   width: fit-content;
   max-width: 100%;
   margin: 0;
-  padding: 3px 8px 3px 3px;
+  padding: 3px 8px 3px 0;
   border: 0;
   border-radius: 6px;
   background: transparent;
@@ -27,17 +27,6 @@
 .workSectionHead:hover {
   color: var(--fg, inherit);
   background: var(--chat-hover-bg, color-mix(in srgb, var(--fg) 5%, transparent));
-}
-
-/* 小节首图标：与步骤行图标同形——16px 纯线条，不带底色块。 */
-.sectionIcon {
-  flex-shrink: 0;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 16px;
-  height: 16px;
-  color: var(--chat-icon-fg, var(--fg-muted));
 }
 
 .summary {
@@ -107,7 +96,7 @@
   display: flex;
   gap: 2px;
   height: 3px;
-  margin: 2px 4px 0 27px;
+  margin: 2px 4px 0 0;
   border-radius: 2px;
   overflow: hidden;
 }

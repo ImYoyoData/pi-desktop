@@ -2,11 +2,6 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   BrainOutline,
   ChevronForwardOutline,
-  CreateOutline,
-  DocumentTextOutline,
-  EyeOutline,
-  ListOutline,
-  SquareTerminalOutline,
 } from "@renderer/components/icons/ionicons";
 import type { ChatMessage } from "@renderer/stores/chat";
 import ThinkingBlock from "@renderer/components/ThinkingBlock";
@@ -277,17 +272,6 @@ export function WorkSectionGroup({ items, autoCollapse, onOpen }: Props): ReactN
   const settled = Boolean(autoCollapse) || !anyStreaming;
   const title = settled ? summaryTitle : liveTitle;
 
-  /** 小节首图标跟随标题第一个统计段。 */
-  const HeaderIcon = useMemo(() => {
-    const kinds = new Set(categorized.map((tool) => tool.kind));
-    if (kinds.has("edit")) return CreateOutline;
-    if (thinkingCount > 0) return BrainOutline;
-    if (kinds.has("read")) return EyeOutline;
-    if (kinds.has("bash")) return SquareTerminalOutline;
-    if (kinds.has("todo")) return ListOutline;
-    return DocumentTextOutline;
-  }, [categorized, thinkingCount]);
-
   /** Shared memoized card parsing per message object (tool-diff.ts). */
   function toolCard(msg: ToolMessage): ToolCard {
     return toolCardFor(msg);
@@ -310,9 +294,6 @@ export function WorkSectionGroup({ items, autoCollapse, onOpen }: Props): ReactN
         aria-expanded={open}
         onClick={toggle}
       >
-        <span className={styles.sectionIcon} aria-hidden="true">
-          <HeaderIcon size={13} />
-        </span>
         <span className={`${styles.summary}${!settled ? " copilot-shimmer" : ""}`}>{title}</span>
         {settled && hasDiff ? (
           <span className={styles.diffPill} title={t.wsViewChanges}>
