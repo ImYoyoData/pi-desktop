@@ -23,9 +23,9 @@
   align-items: flex-start;
   gap: 8px;
   margin: 0;
-  padding: 5px 8px 5px 4px;
+  padding: 3px 6px 3px 3px;
   border: none;
-  border-radius: 8px;
+  border-radius: 7px;
   background: transparent;
   color: inherit;
   text-align: left;
@@ -43,33 +43,34 @@
   color: var(--fg, inherit);
 }
 
-/* 左侧状态徽标：底色与图标颜色跟随运行状态。 */
-.kindIcon {
+/* 工具图标与时间线步骤同一套规格：中性线条小图标，底色不另加抹。 */
+.kindIcon,
+.stepIcon {
   flex-shrink: 0;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 22px;
-  height: 22px;
-  margin-top: 1px;
-  border-radius: 7px;
-  background: color-mix(in srgb, var(--fg) 6%, transparent);
+  width: 16px;
+  height: 16px;
   color: var(--chat-icon-fg, var(--fg-muted));
 }
 
-.kindIcon.success {
-  background: color-mix(in srgb, var(--success, #3d9a6a) 14%, transparent);
-  color: var(--success, #3d9a6a);
+/* 独立工具行首行与 16px 图标垂直居中对齐。 */
+.kindIcon {
+  margin-top: 1px;
 }
 
-.kindIcon.error {
-  background: color-mix(in srgb, var(--error, #d03050) 14%, transparent);
+.kindIcon.error,
+.stepIcon.error {
   color: var(--error, #d03050);
 }
 
-.kindIcon.running {
-  background: color-mix(in srgb, var(--accent, #4f8cff) 16%, transparent);
+.kindIcon.running,
+.stepIcon.running {
   color: var(--accent, #4f8cff);
+}
+
+.kindIcon.running {
   animation: tool-pulse 1.5s ease-in-out infinite;
 }
 
@@ -188,12 +189,13 @@
   text-overflow: ellipsis;
   max-width: 100%;
   margin: 0;
-  padding: 1px 3px;
+  padding: 0 3px;
   border: 1px solid var(--chat-line, var(--border));
-  border-radius: 4px;
+  border-radius: 3px;
   background: var(--w-tool-surface, var(--md-inline-code-bg, var(--code-bg)));
   font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
   font-size: var(--chat-font-xs, 11px);
+  line-height: 1.45;
   color: inherit;
   white-space: nowrap;
 }
@@ -237,23 +239,31 @@
   }
 }
 
-/* 转到后台：跟随聊天区 chip 体系（描边 + 半透明表面 + chat 色板），
-   不用 antd 默认的实心块，否则在壁纸/聊天表面上像贴了个外来控件。 */
+/* 转到后台：展开体下方右对齐的次要动作，描边 + 透明底跟随聊天区色板，
+   免得在深色/玻璃主题里像贴了个外来实心控件。 */
+.bgRow {
+  display: flex;
+  justify-content: flex-end;
+  padding-left: 27px;
+  margin: 4px 0 2px;
+}
+
 .bgBtn:global(.ant-btn) {
   flex-shrink: 0;
   height: 20px;
-  padding: 0 6px;
-  border-radius: 4px;
+  padding: 0 8px;
+  border-radius: 6px;
   font-size: var(--chat-font-xs, 11px);
-  background: var(--w-tool-surface, var(--bg-elevated)) !important;
+  background: transparent !important;
   border-color: var(--chat-line, var(--border)) !important;
+  box-shadow: none !important;
   color: var(--chat-desc-fg, var(--fg-muted)) !important;
 }
 
 .bgBtn:global(.ant-btn):hover:not(:disabled) {
   background: var(--chat-hover-bg, var(--bg-hover)) !important;
-  border-color: var(--accent-border, var(--fg-faint)) !important;
-  color: var(--fg, inherit) !important;
+  border-color: var(--border-strong, var(--fg-faint)) !important;
+  color: var(--fg-strong, var(--fg, inherit)) !important;
 }
 
 .bgBtn:global(.ant-btn):disabled {
@@ -262,7 +272,7 @@
 }
 
 /* 状态色：成功 / 失败 / 运行中。
-   这些类名由 statusClass 统一挂到徽标、结果状态与卡片根节点上，
+   这些类名由 statusClass 统一挂到列表结果与卡片根节点上，
    必须独立存在，否则 styles.success 取到 undefined，状态色完全不生效。 */
 .success {
   color: var(--success, #3d9a6a);
@@ -283,7 +293,7 @@
   gap: 8px;
   width: 100%;
   min-width: 0;
-  padding: 4px 6px 4px 3px;
+  padding: 2px 6px 2px 3px;
   border-radius: 7px;
   cursor: pointer;
   user-select: none;
@@ -297,24 +307,6 @@
 /* 度量紧随目标显示，展开箭头仍贴在行尾。 */
 .stepHead .hoverChev {
   margin-left: auto;
-}
-
-.stepIcon {
-  flex-shrink: 0;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 16px;
-  height: 16px;
-  color: var(--chat-icon-fg, var(--fg-muted));
-}
-
-.stepIcon.error {
-  color: var(--error, #d03050);
-}
-
-.stepIcon.running {
-  color: var(--accent, #4f8cff);
 }
 
 .stepVerb {
@@ -332,6 +324,7 @@
   overflow: hidden;
 }
 
+/* 目标与动词同一档灰：命令/参数不作强调，避免像被高亮的代码块。 */
 .stepText,
 .stepCmd {
   min-width: 0;
@@ -340,7 +333,7 @@
   white-space: nowrap;
   font-family: var(--font-mono, monospace);
   font-size: var(--chat-font-xs, 11px);
-  color: var(--fg, inherit);
+  color: var(--chat-desc-fg, var(--fg-muted));
 }
 
 .stepPreview {
@@ -379,7 +372,7 @@
 
 /* 独立工具行的展开体：与标题左缘对齐地缩进一级。 */
 .rowBody {
-  margin: 2px 0 4px 30px;
+  margin: 2px 0 4px 27px;
 }
 
 .toolImages {

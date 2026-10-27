@@ -83,12 +83,10 @@
   }
 }
 
-/* 过程时间线：每一步一行，展开体紧跟在所属步骤下方。 */
+/* 过程时间线：每一步一行，行间不留空隙，展开体紧跟在所属步骤下方。 */
 .timeline {
   display: flex;
   flex-direction: column;
-  gap: 1px;
-  padding-top: 2px;
 }
 
 /* 折叠态的读/改/命令比例条。 */
@@ -162,12 +160,12 @@
   }
 }
 
-/* 小节内的思考行：行首图标 + 内容，图标位置与工具步骤行一致。 */
+/* 小节内的思考行：行首图标 + 内容，行高与工具步骤行齐平。 */
 .thinkingItem {
   display: flex;
   align-items: flex-start;
   gap: 8px;
-  padding: 1px 6px 1px 3px;
+  padding: 0 6px 0 3px;
   color: var(--chat-desc-fg, var(--fg-muted));
 }
 
