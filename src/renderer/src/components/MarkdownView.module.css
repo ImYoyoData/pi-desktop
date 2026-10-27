@@ -191,6 +191,14 @@
   box-shadow: none;
 }
 
+/* 代码块进视口前的占位：高度按行数估，避免挂载时整块跳动。 */
+.root:global(.md) :global(.md-code-placeholder) {
+  margin: 0.75em 0;
+  border-radius: 4px;
+  border: 1px solid var(--border-subtle, rgba(127, 127, 127, 0.25));
+  background: rgba(127, 127, 127, 0.06);
+}
+
 .root:global(.md) :global(.code-block-container:last-child) {
   margin-bottom: 0;
 }

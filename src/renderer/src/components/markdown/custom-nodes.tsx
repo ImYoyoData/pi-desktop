@@ -3,6 +3,7 @@ import {
   Fragment,
   useContext,
   useEffect,
+  useRef,
   useState,
   type ComponentProps,
   type Key,
@@ -107,6 +108,48 @@ function fenceLanguage(node: FenceNode): string {
   return (node.language ?? "").trim().split(/\s+/)[0] ?? "";
 }
 
+/**
+ * 代码块进视口附近才真正挂载：shiki 高亮是同步重活，切换会话时几十个代码块
+ * 一起初始化会把主线程占满。占位高度按行数估，600px 预渲染基本看不到占位。
+ */
+function useNearViewport(): { ref: (el: HTMLDivElement | null) => void; visible: boolean } {
+  const host = useRef<HTMLDivElement | null>(null);
+  const [visible, setVisible] = useState(false);
+
+  useEffect(() => {
+    const el = host.current;
+    if (!el || visible) return;
+    if (typeof IntersectionObserver !== "function") {
+      setVisible(true);
+      return;
+    }
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((entry) => entry.isIntersecting)) {
+          setVisible(true);
+          observer.disconnect();
+        }
+      },
+      { rootMargin: "600px 0px" },
+    );
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [visible]);
+
+  return {
+    ref: (el) => {
+      host.current = el;
+    },
+    visible,
+  };
+}
+
+function placeholderHeight(code: string): number {
+  if (!code) return 64;
+  const lines = code.replace(/\n$/, "").split("\n").length;
+  return Math.min(420, 36 + Math.min(lines, 18) * 20);
+}
+
 /** 代码块：交给 markstream 内置渲染（shiki 高亮、长代码折叠、字号与换行切换、diff 视图）。 */
 function CodeBlockNode({ node, isDark }: CodeBlockProps): ReactNode {
   const code = node.code ?? "";
@@ -126,6 +169,18 @@ function CodeBlockNode({ node, isDark }: CodeBlockProps): ReactNode {
         isStrict={false}
         enableMermaidInteractions
         showModeToggle={false}
+      />
+    );
+  }
+
+  const { ref, visible } = useNearViewport();
+
+  if (!visible) {
+    return (
+      <div
+        ref={ref}
+        className="md-code-placeholder"
+        style={{ height: `${placeholderHeight(code)}px` }}
       />
     );
   }

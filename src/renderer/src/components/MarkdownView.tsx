@@ -1,4 +1,5 @@
 import {
+  memo,
   useCallback,
   useEffect,
   useMemo,
@@ -64,7 +65,7 @@ const MERMAID_PROPS = {
 
 applyMarkstreamMessages(currentMessages);
 
-export function MarkdownView({
+function MarkdownViewView({
   content,
   variant,
   streaming,
@@ -158,8 +159,6 @@ export function MarkdownView({
             smoothStreaming={streamRender.smooth ? "auto" : false}
             smoothStreamingOptions={smoothOptions}
             maxLiveNodes={0}
-            batchRendering={false}
-            deferNodesUntilVisible={false}
             viewportPriority
             parseOptions={MARKDOWN_PARSE_OPTIONS}
             htmlPolicy="trusted"
@@ -199,5 +198,8 @@ export function MarkdownView({
     </div>
   );
 }
+
+/** 父级频繁重渲染（流式、滚动测量）时，正文内容没变就不必再进渲染器。 */
+export const MarkdownView = memo(MarkdownViewView);
 
 export default MarkdownView;
