@@ -819,8 +819,8 @@ export const ja = {
 	showCompactButtonOff: "非表示",
 	switchOn: "オン",
 	switchOff: "オフ",
-	streamRender: "ストリーミング表示",
-	streamRenderThrottle: "描画の間引き間隔",
+	streamRender: "スムーズストリーミング",
+	streamRenderThrottle: "ストリーミング更新間隔",
 	streamRenderThrottleValue: (ms: number) =>
 		ms === 0 ? "リアルタイム" : `${ms} ミリ秒`,
 	retryAutoSection: "自動再試行",

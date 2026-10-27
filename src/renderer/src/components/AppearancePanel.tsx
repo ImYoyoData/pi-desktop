@@ -138,9 +138,9 @@ export function AppearancePanel(): ReactNode {
 
         <SettingsRow label={t.streamRender}>
           <SettingsSwitch
-            checked={streamRender.enabled}
+            checked={streamRender.smooth}
             label={t.streamRender}
-            onChange={(value) => void streamRender.update({ enabled: value })}
+            onChange={(value) => void streamRender.update({ smooth: value })}
           />
         </SettingsRow>
 
@@ -150,7 +150,6 @@ export function AppearancePanel(): ReactNode {
             options={streamRenderThrottleOptions}
             size="small"
             className={styles.settingSelect}
-            disabled={!streamRender.enabled}
             onChange={onStreamRenderThrottleChange}
           />
         </SettingsRow>

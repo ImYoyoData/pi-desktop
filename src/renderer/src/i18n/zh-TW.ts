@@ -819,8 +819,8 @@ export const zhTW = {
 	showCompactButtonOff: "隱藏",
 	switchOn: "開啟",
 	switchOff: "關閉",
-	streamRender: "串流渲染",
-	streamRenderThrottle: "渲染節流間隔",
+	streamRender: "平滑串流渲染",
+	streamRenderThrottle: "串流刷新間隔",
 	streamRenderThrottleValue: (ms: number) =>
 		ms === 0 ? "即時" : `${ms} 毫秒`,
 	retryAutoSection: "自動重試",
