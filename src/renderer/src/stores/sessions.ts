@@ -198,8 +198,19 @@ export const useSessionsStore = create<SessionsState>()((set, get) => {
     };
     if (idx >= 0) {
       // Replace array so sidebar/header title computeds refresh reliably (#3).
+      // 打开会话不该改变列表排序与标题：主进程返回的 summary 可能缺字段或带"当前时间"。
       commit({
-        sessions: list.map((s, i) => (i === idx ? { ...summary } : s)),
+        sessions: list.map((s, i) =>
+          i === idx
+            ? {
+                ...s,
+                ...summary,
+                name: summary.name ?? s.name,
+                firstMessage: summary.firstMessage ?? s.firstMessage,
+                modified: s.modified,
+              }
+            : s,
+        ),
         statusBySession,
       });
     } else {
