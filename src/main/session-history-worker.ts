@@ -11,7 +11,15 @@
  * Reply:
  *   { ok: true, messages } | { ok: true, page } | { ok: false, error }
  */
-import { readdirSync, readFileSync, existsSync, statSync } from "node:fs";
+import {
+  closeSync,
+  existsSync,
+  fstatSync,
+  openSync,
+  readdirSync,
+  readFileSync,
+  statSync,
+} from "node:fs";
 import { join } from "node:path";
 import { parentPort } from "node:worker_threads";
 import {
@@ -26,7 +34,9 @@ import type {
 import {
   parseSessionHistoryJsonl,
   parseSessionHistoryPageFromJsonl,
+  parseSessionHistoryPageReverse,
 } from "./session-history-parse";
+import { readBackwardLines } from "./session-history-backward";
 
 type Job = {
   filePath?: string;
@@ -222,13 +232,30 @@ parentPort?.on("message", (job: Job) => {
     if (!job?.filePath || typeof job.filePath !== "string") {
       throw new Error("history worker: missing filePath");
     }
-    const raw = readFileSync(job.filePath, "utf8");
     const chatMeta = readChatMetaEntries(job.filePath);
     if (job.page) {
       const limit =
         typeof job.page.limit === "number" && Number.isFinite(job.page.limit)
           ? job.page.limit
           : 30;
+      const fd = openSync(job.filePath, "r");
+      try {
+        const page = parseSessionHistoryPageReverse({
+          size: fstatSync(fd).size,
+          readBackward: (from) => readBackwardLines(fd, from),
+          limit,
+          beforeId: job.page.beforeId,
+          chatMeta,
+        });
+        respond({ ok: true, page });
+        return;
+      } catch (err) {
+        // 行超大等异常：回退整文件解析
+        console.warn("[pi-desktop] reverse history read failed; falling back", err);
+      } finally {
+        closeSync(fd);
+      }
+      const raw = readFileSync(job.filePath, "utf8");
       const page = parseSessionHistoryPageFromJsonl(raw, {
         limit,
         beforeId: job.page.beforeId,
@@ -237,6 +264,7 @@ parentPort?.on("message", (job: Job) => {
       respond({ ok: true, page });
       return;
     }
+    const raw = readFileSync(job.filePath, "utf8");
     const messages = parseSessionHistoryJsonl(raw, chatMeta);
     respond({ ok: true, messages });
   } catch (err) {

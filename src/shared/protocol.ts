@@ -640,6 +640,7 @@ export type SessionHistoryMessage =
 export type SessionHistoryPage = {
 	messages: SessionHistoryMessage[];
 	hasMore: boolean;
+	/** 已解析到的消息总条数；反向分页只读尾部时是下界，UI 未使用此值。 */
 	total: number;
 };
 

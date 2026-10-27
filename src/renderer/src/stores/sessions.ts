@@ -459,9 +459,15 @@ export const useSessionsStore = create<SessionsState>()((set, get) => {
   async function selectSession(sessionId: string, cwd: string): Promise<void> {
     // 切到历史会话即放弃草稿，顺带释放预热出来的空会话。
     await releasePreparedDraft();
+    // 列表已知文件路径时直接用它打开，主进程不必再扫整个会话目录。
+    const knownFilePath = get().sessions.find((s) => s.id === sessionId)?.filePath;
     // Open/register in the broker BEFORE flipping activeId.
     // Otherwise Composer watches activeId and races sessions:command → unknown session.
-    const opened = await window.api.sessions.open(sessionId, cwd);
+    const opened = await window.api.sessions.open(
+      sessionId,
+      cwd,
+      knownFilePath || undefined,
+    );
     if (!opened) {
       throw new Error(`failed to open session: ${sessionId}`);
     }

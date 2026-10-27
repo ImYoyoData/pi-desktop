@@ -328,11 +328,12 @@ export function createApi(
 				IpcChannels.sessions.create,
 				cwd,
 			) as Promise<SessionSummary>,
-		open: (sessionId: string, cwd: string) =>
+		open: (sessionId: string, cwd: string, filePath?: string) =>
 			ipcRenderer.invoke(
 				IpcChannels.sessions.open,
 				sessionId,
 				cwd,
+				filePath,
 			) as Promise<SessionSummary | null>,
 		close: (sessionId: string) =>
 			ipcRenderer.invoke(IpcChannels.sessions.close, sessionId) as Promise<void>,
