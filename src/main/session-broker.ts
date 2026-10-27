@@ -1,5 +1,5 @@
 import path from "node:path";
-import { existsSync } from "node:fs";
+import { existsSync, statSync } from "node:fs";
 import type {
   WorkerInbound,
   WorkerOutbound,
@@ -733,23 +733,25 @@ export function createSessionBroker(deps: {
     filePath: string,
     meta?: Partial<Pick<SessionSummary, "name" | "firstMessage" | "modified" | "created">>,
   ): SessionSummary {
+    const existing = sessions.get(id);
+    const previous = existing?.summary;
+    // 打开已有会话不能伪造"刚刚有活动"：侧栏按 modified 排序，时间一变列表就跳。
+    const modified = meta?.modified ?? previous?.modified ?? new Date().toISOString();
     const summary: SessionSummary = {
       id,
       cwd,
       filePath,
-      name: meta?.name,
-      firstMessage: meta?.firstMessage,
-      modified: meta?.modified ?? new Date().toISOString(),
-      created: meta?.created ?? meta?.modified ?? new Date().toISOString(),
+      name: meta?.name ?? previous?.name,
+      firstMessage: meta?.firstMessage ?? previous?.firstMessage,
+      modified,
+      created: meta?.created ?? previous?.created ?? modified,
       status: "idle",
     };
-    const existing = sessions.get(id);
     if (existing) {
       existing.cwd = cwd;
       existing.summary = {
-        ...existing.summary,
         ...summary,
-        status: existing.worker ? existing.summary.status : "idle",
+        status: existing.worker ? (previous?.status ?? "idle") : "idle",
       };
       return { ...existing.summary };
     }
@@ -921,7 +923,14 @@ export function createSessionBroker(deps: {
     // 渲染端已知道文件路径时不再扫整个会话目录（目录项多时是秒级 IO）。
     const hinted = filePath?.trim();
     if (hinted && existsSync(hinted) && readSessionHeaderId(hinted) === sessionId) {
-      const summary = registerSessionShell(sessionId, cwd, hinted);
+      // 用文件修改时间当 modified，别把"打开"当成新活动。
+      let modified: string | undefined;
+      try {
+        modified = statSync(hinted).mtime.toISOString();
+      } catch {
+        modified = undefined;
+      }
+      const summary = registerSessionShell(sessionId, cwd, hinted, { modified });
       prewarmWorker(summary.id);
       return summary;
     }
