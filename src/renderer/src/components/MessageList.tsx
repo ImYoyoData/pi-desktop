@@ -112,7 +112,7 @@ function preloadMarkdownView(): () => void {
  * 虚拟滚动由 virtua 承担：视口外额外渲染的像素。太大会重复挂载 Markdown 行，
  * 拖动时整窗卡死；太小则快速滚动会露白。
  */
-const OVERSCAN_PX = 280;
+const OVERSCAN_PX = 200;
 const NEAR_BOTTOM_PX = 120;
 /** virtua 的行高估值：接近真实行高，锚定补偿的位移才不会被放大成剧烈跳动。 */
 const EST_ROW_HEIGHT = 120;

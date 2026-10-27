@@ -115,6 +115,11 @@ type SessionsBase = {
   /** cwd 当前 sessions 列表所属的工作区（null=未加载/已清空）。 */
   listRoot: string | null;
   activeId: string | null;
+  /**
+   * 点击会话时立即写入的"视觉选中态"：侧栏高亮跟随它，
+   * 真正切会话（IPC + 历史加载）在后台完成，点击不需要等待。
+   */
+  pendingActiveId: string | null;
   /** 未创建的新会话草稿所属工作区（null=不处于草稿态）。 */
   draftRoot: string | null;
   contextBySession: Record<string, SessionContextUsage>;
@@ -138,6 +143,7 @@ export type SessionsState = SessionsBase &
     refresh: (cwd: string | null) => Promise<void>;
     beginDraft: (cwd: string) => void;
     setDraftRoot: (cwd: string) => void;
+    setPendingActiveId: (sessionId: string | null) => void;
     commitDraft: () => Promise<SessionSummary | null>;
     selectSession: (sessionId: string, cwd: string) => Promise<void>;
     discardActiveIfUnstarted: () => Promise<boolean>;
@@ -173,6 +179,7 @@ export const useSessionsStore = create<SessionsState>()((set, get) => {
     sessions: [],
     listRoot: null,
     activeId: null,
+    pendingActiveId: null,
     draftRoot: null,
     contextBySession: {},
     statusBySession: {},
@@ -426,6 +433,11 @@ export const useSessionsStore = create<SessionsState>()((set, get) => {
   }
 
   /** 仅改变草稿归属的工作区，保留已输入的草稿内容。 */
+  function setPendingActiveId(sessionId: string | null): void {
+    if (get().pendingActiveId === sessionId) return;
+    commit({ pendingActiveId: sessionId });
+  }
+
   function setDraftRoot(cwd: string): void {
     if (preparedDraft && !sameWorkspacePath(preparedDraft.cwd, cwd)) {
       void releasePreparedDraft();
@@ -483,7 +495,7 @@ export const useSessionsStore = create<SessionsState>()((set, get) => {
       throw new Error(`failed to open session: ${sessionId}`);
     }
     upsert(opened);
-    commit({ draftRoot: null, activeId: sessionId });
+    commit({ draftRoot: null, activeId: sessionId, pendingActiveId: null });
   }
 
   /** Discard the active session on quit / session-switch when it was never used. */
@@ -630,6 +642,7 @@ export const useSessionsStore = create<SessionsState>()((set, get) => {
     refresh,
     beginDraft,
     setDraftRoot,
+    setPendingActiveId,
     commitDraft,
     selectSession,
     discardActiveIfUnstarted,
