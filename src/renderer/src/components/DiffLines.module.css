@@ -1,0 +1,75 @@
+/* diff 行渲染：工具卡与聊天里的 ```diff 共用。 */
+.hunk + .hunk {
+  margin-top: 2px;
+}
+
+.hunkHead {
+  padding: 3px 12px;
+  color: var(--chat-desc-fg, var(--fg-muted));
+  background: color-mix(in srgb, var(--accent, #0069cc) 7%, transparent);
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  font-family: var(--font-mono);
+  font-size: 0.7692rem;
+}
+
+.diffLine {
+  display: flex;
+  content-visibility: auto;
+  contain-intrinsic-size: auto 21px;
+  font-family: var(--font-mono);
+  font-size: 0.8462rem;
+  line-height: 1.55;
+}
+
+.sign {
+  flex-shrink: 0;
+  width: 18px;
+  text-align: center;
+  user-select: none;
+  color: var(--fg-muted);
+}
+
+.txt {
+  flex: 1;
+  min-width: 0;
+  padding-right: 12px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.diffCtx .txt {
+  color: var(--fg-muted);
+}
+
+.diffAdd {
+  background: var(--diff-added-surface, #587c0c26);
+}
+
+.diffAdd .sign {
+  color: var(--diff-added, #587c0c);
+}
+
+.diffDel {
+  background: var(--diff-removed-surface, #ad070726);
+}
+
+.diffDel .sign {
+  color: var(--diff-removed, #ad0707);
+}
+
+.wordAdd {
+  background: color-mix(in srgb, var(--diff-added, #587c0c) 45%, transparent);
+  border-radius: 2px;
+}
+
+.wordDel {
+  background: color-mix(in srgb, var(--diff-removed, #ad0707) 45%, transparent);
+  border-radius: 2px;
+  text-decoration: line-through;
+  text-decoration-color: color-mix(
+    in srgb,
+    var(--diff-removed, #ad0707) 70%,
+    transparent
+  );
+}

@@ -3,10 +3,9 @@ import {
   useMemo,
   useRef,
   useState,
-  type ComponentProps,
   type ReactNode,
 } from "react";
-import { CodeBlockNode as StreamCodeBlockNode } from "markstream-react";
+import { DiffLines } from "@renderer/components/DiffLines";
 import {
   CheckmarkCircleOutline,
   EllipseOutline,
@@ -22,10 +21,7 @@ import {
   type TodoToolCard,
   type ToolCard,
 } from "@renderer/utils/tool-diff";
-import {
-  parseUnifiedDiff,
-  type ParsedDiff,
-} from "@renderer/utils/diff-blocks";
+
 import {
   buildJsonTree,
   defaultClosedNodeIds,
@@ -42,7 +38,6 @@ import { highlightToSafeHtml } from "@renderer/utils/markdown";
 import { languageFromPath } from "@renderer/utils/editor-lang";
 import { fileIcon } from "@renderer/utils/file-icon";
 import { useI18n } from "@renderer/i18n/use-i18n";
-import { useAppearanceStore } from "@renderer/stores/appearance";
 import styles from "./ToolBody.module.css";
 
 type Props = {
@@ -166,47 +161,9 @@ function FileBody({
   );
 }
 
-/** 工具卡里的 diff 交给 markstream 的代码块渲染，与聊天里的 ```diff 保持一致。 */
-const TOOL_DIFF_OPTIONS = {
-  diffStyle: "unified",
-  diffIndicators: "classic",
-  hunkSeparators: "line-info",
-  lineDiffType: "word-alt",
-  expandUnchanged: true,
-  overflow: "scroll",
-  fontSize: 12,
-} as const;
-
-/** 补丁只有 hunk 区间：按行聚合出两侧文本，行内差异交给 stream-diffs。 */
-function buildDiffSides(parsed: ParsedDiff): { original: string; updated: string } {
-  const original: string[] = [];
-  const updated: string[] = [];
-  for (const hunk of parsed.hunks) {
-    for (const line of hunk.lines) {
-      if (line.kind !== "add") original.push(line.text);
-      if (line.kind !== "del") updated.push(line.text);
-    }
-  }
-  return { original: original.join("\n"), updated: updated.join("\n") };
-}
-
 function DiffBody({ card }: { card: FileToolCard }): ReactNode {
   const t = useI18n();
-  const isDark = useAppearanceStore((s) => s.resolvedTheme === "dark");
-  const parsed = useMemo(() => parseUnifiedDiff(card.diff ?? ""), [card.diff]);
   const lang = card.path ? languageFromPath(card.path) : "plaintext";
-  const diffNode = useMemo(() => {
-    const sides = buildDiffSides(parsed);
-    return {
-      type: "code_block",
-      language: lang,
-      code: sides.updated,
-      originalCode: sides.original,
-      updatedCode: sides.updated,
-      diff: true,
-      raw: card.diff ?? "",
-    };
-  }, [parsed, lang, card.diff]);
 
   return (
     <>
@@ -221,23 +178,15 @@ function DiffBody({ card }: { card: FileToolCard }): ReactNode {
         ) : null}
       </div>
       <div className={styles.body} data-inner-scroll="">
-        {parsed.plain ? (
-          // 空字符串也是「没有补丁」，`??` 接不住空串。
-          <pre className={styles.plain}>
-            {card.diff?.trim() ? card.diff : t.toolResultNoOutput}
-          </pre>
-        ) : (
-          <StreamCodeBlockNode
-            node={
-              diffNode as ComponentProps<typeof StreamCodeBlockNode>["node"]
-            }
-            isDark={isDark}
-            showHeader={false}
-            showLineNumbers
-            showTooltips={false}
-            codeBlockOptions={TOOL_DIFF_OPTIONS}
-          />
-        )}
+        <DiffLines
+          text={card.diff ?? ""}
+          fallback={
+            // 空字符串也是「没有补丁」，`??` 接不住空串。
+            <pre className={styles.plain}>
+              {card.diff?.trim() ? card.diff : t.toolResultNoOutput}
+            </pre>
+          }
+        />
       </div>
     </>
   );
