@@ -3,6 +3,7 @@ import {
   Fragment,
   useContext,
   useEffect,
+  useMemo,
   useRef,
   useState,
   type ComponentProps,
@@ -14,6 +15,8 @@ import {
   MermaidBlockNode,
   setCustomComponents,
 } from "markstream-react";
+import { useI18n } from "@renderer/i18n/use-i18n";
+import { highlightCode } from "@renderer/utils/markdown";
 import {
   resolveMarkdownImageSrc,
   type MarkdownAssetBase,
@@ -21,6 +24,21 @@ import {
 import { DotDiagramNode } from "./DotDiagramNode";
 
 export const MARKDOWN_CUSTOM_ID = "pi-markdown";
+
+/** diff 首次渲染要加载 stream-diffs（shiki + @pierre/diffs），空闲时先取好，
+    打开思考过程 / edit 卡时不再等 chunk。 */
+function prefetchStreamDiffs(): void {
+  const run = (): void => {
+    void import("stream-diffs/markstream");
+  };
+  if (typeof window.requestIdleCallback === "function") {
+    window.requestIdleCallback(run, { timeout: 4_000 });
+    return;
+  }
+  window.setTimeout(run, 1_200);
+}
+
+prefetchStreamDiffs();
 
 const AssetsContext = createContext<MarkdownAssetBase | null>(null);
 
@@ -76,13 +94,6 @@ type FenceNode = {
   raw?: string;
 };
 
-/** 普通代码块沿用旧实现的 420px 最高高度，超出在块内滚动。 */
-const CODE_OPTIONS = {
-  maxHeight: 420,
-  overflow: "scroll",
-  tabSize: 2,
-} as const;
-
 /**
  * diff 块交给 markstream 内置的代码块（stream-diffs）：unified 单列更贴合聊天气泡，
  * 行内 word 级差异保留，未改动行不折叠。
@@ -106,52 +117,42 @@ function fenceLanguage(node: FenceNode): string {
 }
 
 /**
- * 代码块进视口附近才真正挂载：shiki 高亮是同步重活，切换会话时几十个代码块
- * 一起初始化会把主线程占满。占位高度按行数估，600px 预渲染基本看不到占位。
+ * 普通代码块用 hljs 同步渲染（带 LRU）：内置 CodeBlockNode 每个实例都要建一套
+ * stream-diffs runtime，打开思考过程时几个代码块一起初始化要等一两秒。
+ * 只有 diff 块才走内置渲染（unified、行内词级差异）。
  */
-function useNearViewport(): { ref: (el: HTMLDivElement | null) => void; visible: boolean } {
-  const host = useRef<HTMLDivElement | null>(null);
-  const [visible, setVisible] = useState(false);
-
-  useEffect(() => {
-    const el = host.current;
-    if (!el || visible) return;
-    if (typeof IntersectionObserver !== "function") {
-      setVisible(true);
-      return;
-    }
-    const observer = new IntersectionObserver(
-      (entries) => {
-        if (entries.some((entry) => entry.isIntersecting)) {
-          setVisible(true);
-          observer.disconnect();
-        }
-      },
-      { rootMargin: "600px 0px" },
-    );
-    observer.observe(el);
-    return () => observer.disconnect();
-  }, [visible]);
-
-  return {
-    ref: (el) => {
-      host.current = el;
-    },
-    visible,
-  };
-}
-
-function placeholderHeight(code: string): number {
-  if (!code) return 64;
-  const lines = code.replace(/\n$/, "").split("\n").length;
-  return Math.min(420, 36 + Math.min(lines, 18) * 20);
-}
-
-/** 代码块：交给 markstream 内置渲染（shiki 高亮、长代码折叠、字号与换行切换、diff 视图）。 */
 function CodeBlockNode({ node, isDark }: CodeBlockProps): ReactNode {
+  const t = useI18n();
   const code = node.code ?? "";
   const language = fenceLanguage(node);
   const langKey = language.toLowerCase();
+  const [copied, setCopied] = useState(false);
+  const timer = useRef(0);
+
+  useEffect(() => () => window.clearTimeout(timer.current), []);
+
+  const highlighted = useMemo(() => highlightCode(code, language), [code, language]);
+  const lineCount = useMemo(
+    () => (code ? code.replace(/\n$/, "").split("\n").length : 0),
+    [code],
+  );
+
+  if (node.diff) {
+    return (
+      <StreamCodeBlockNode
+        node={
+          { ...node, code, type: "code_block" } as ComponentProps<
+            typeof StreamCodeBlockNode
+          >["node"]
+        }
+        isDark={isDark}
+        loading={Boolean(node.loading)}
+        showLineNumbers
+        showTooltips={false}
+        codeBlockOptions={DIFF_CODE_OPTIONS}
+      />
+    );
+  }
 
   if (MERMAID_LANGS.has(langKey) || (!langKey && looksLikeMermaidSource(code))) {
     return (
@@ -170,31 +171,36 @@ function CodeBlockNode({ node, isDark }: CodeBlockProps): ReactNode {
     );
   }
 
-  const { ref, visible } = useNearViewport();
-
-  if (!visible) {
-    return (
-      <div
-        ref={ref}
-        className="md-code-placeholder"
-        style={{ height: `${placeholderHeight(code)}px` }}
-      />
-    );
+  function copy(): void {
+    void navigator.clipboard.writeText(code).then(() => {
+      setCopied(true);
+      window.clearTimeout(timer.current);
+      timer.current = window.setTimeout(() => setCopied(false), 1200);
+    });
   }
 
   return (
-    <StreamCodeBlockNode
-      node={
-        { ...node, code, type: "code_block" } as ComponentProps<
-          typeof StreamCodeBlockNode
-        >["node"]
-      }
-      isDark={isDark}
-      loading={Boolean(node.loading)}
-      showLineNumbers
-      showTooltips={false}
-      codeBlockOptions={node.diff ? DIFF_CODE_OPTIONS : CODE_OPTIONS}
-    />
+    <div className="code-block" data-code-block="">
+      <div className="code-head">
+        <span className="lang">{language || "code"}</span>
+        <button type="button" className="copy-btn" onClick={copy}>
+          {copied ? t.copied : t.copy}
+        </button>
+      </div>
+      <div className="code-body" data-inner-scroll="">
+        <div className="line-nos" aria-hidden="true">
+          {Array.from({ length: lineCount }, (_, i) => (
+            <span key={i}>{i + 1}</span>
+          ))}
+        </div>
+        <pre>
+          <code
+            className={`hljs language-${language || "text"}`}
+            dangerouslySetInnerHTML={{ __html: highlighted }}
+          />
+        </pre>
+      </div>
+    </div>
   );
 }
 
