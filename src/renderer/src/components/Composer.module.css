@@ -58,6 +58,11 @@
     box-shadow var(--duration, 180ms) var(--ease-out, ease);
 }
 
+/* 输入框底边那条线贴着底部的会话统计条，多余：只保留上/左/右三边。 */
+.card {
+  border-bottom-color: transparent;
+}
+
 /* Chat-input-stack: docked widgets share the composer surface. */
 .card.docked {
   border-top: none;
