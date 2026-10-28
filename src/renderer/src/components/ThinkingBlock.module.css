@@ -5,9 +5,10 @@
   color: var(--chat-desc-fg, var(--fg-muted));
 }
 
+/* 标题与度量小字共用基线，图标与箭头单独垂直居中。 */
 .thinkingHead {
   display: flex;
-  align-items: center;
+  align-items: baseline;
   gap: 2px;
   width: 100%;
   margin: 0;
@@ -71,6 +72,7 @@
 /* 箭头贴行尾，与工具步骤行的展开入口同一位置。 */
 .thinkingHead .hoverChev {
   margin-left: auto;
+  align-self: center;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -111,6 +113,7 @@
 
 .leadingIcon {
   flex-shrink: 0;
+  align-self: center;
   display: inline-flex;
   align-items: center;
   justify-content: center;

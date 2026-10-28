@@ -67,9 +67,9 @@ export function createMainWindow(): BrowserWindow {
   const isMac = process.platform === "darwin";
   const iconPath = resolveWindowIcon();
   const { scaleFactor } = screen.getPrimaryDisplay();
-  // 初始窗口按屏幕像素 1500×950 换算成 DIP，避免显示器缩放把窗口放大。
-  const initialWidth = Math.round(1500 / scaleFactor);
-  const initialHeight = Math.round(950 / scaleFactor);
+  // 初始窗口按屏幕像素 1550×960 换算成 DIP，避免显示器缩放把窗口放大。
+  const initialWidth = Math.round(1550 / scaleFactor);
+  const initialHeight = Math.round(960 / scaleFactor);
 
   const mainWindow = new BrowserWindow({
     width: initialWidth,

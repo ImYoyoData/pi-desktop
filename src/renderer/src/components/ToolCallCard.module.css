@@ -70,22 +70,18 @@
   color: var(--accent, #4f8cff);
 }
 
-.kindIcon.running {
-  animation: tool-pulse 1.5s ease-in-out infinite;
+.spinIcon {
+  animation: tool-spin 0.9s linear infinite;
 }
 
-@keyframes tool-pulse {
-  0%,
-  100% {
-    opacity: 0.6;
-  }
-  50% {
-    opacity: 1;
+@keyframes tool-spin {
+  to {
+    transform: rotate(360deg);
   }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .kindIcon.running {
+  .spinIcon {
     animation: none;
   }
 }
@@ -239,17 +235,12 @@
   }
 }
 
-/* 转到后台：展开体下方右对齐的次要动作，描边 + 透明底跟随聊天区色板，
+/* 转到后台：标题行行尾的次要动作，描边 + 透明底跟随聊天区色板，
    免得在深色/玻璃主题里像贴了个外来实心控件。 */
-.bgRow {
-  display: flex;
-  justify-content: flex-end;
-  padding-left: 27px;
-  margin: 4px 0 2px;
-}
-
 .bgBtn:global(.ant-btn) {
   flex-shrink: 0;
+  margin-left: auto;
+  align-self: center;
   height: 20px;
   padding: 0 8px;
   border-radius: 6px;
@@ -289,7 +280,7 @@
 /* --- 时间线步骤（工作区块内的一步） --- */
 .stepHead {
   display: flex;
-  align-items: center;
+  align-items: baseline;
   gap: 8px;
   width: 100%;
   min-width: 0;
@@ -304,7 +295,12 @@
   background: var(--chat-hover-bg, color-mix(in srgb, var(--fg) 5%, transparent));
 }
 
-/* 度量紧随目标显示，展开箭头仍贴在行尾。 */
+/* 文字共基线（图标与箭头单独居中），度量紧随目标、箭头贴行尾。 */
+.stepHead .hoverChev,
+.stepHead .stepIcon {
+  align-self: center;
+}
+
 .stepHead .hoverChev {
   margin-left: auto;
 }
