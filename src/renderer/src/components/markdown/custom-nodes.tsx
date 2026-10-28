@@ -194,12 +194,16 @@ type TextNodeProps = {
 
 /**
  * 文本节点：解析器把软换行留在同一段文本里（content 里带换行符），而浏览器
- * 会把它折叠成空格。旧渲染器用 breaks:true 直接输出 <br>，这里保持一致。
+ * 会把它折叠成空格；旧渲染器用 breaks:true 输出 <br>，这里保持一致。
+ *
+ * 首尾的换行是块结构自己的边界（段落、列表项），转成 <br> 会多出空行，
+ * 所以先裁掉再处理行内的软换行。
  */
 function MarkdownTextNode({ node }: TextNodeProps): ReactNode {
   const content = node.content ?? "";
-  if (!content.includes("\n")) return content;
-  const lines = content.split("\n");
+  const trimmed = content.replace(/^\n+/, "").replace(/\n+$/, "");
+  if (!trimmed.includes("\n")) return trimmed;
+  const lines = trimmed.split("\n");
   return (
     <>
       {lines.map((line, index) => (
