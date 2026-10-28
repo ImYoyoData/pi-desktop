@@ -91,7 +91,11 @@ import {
   isSameModelSelection,
   pruneStaleModelSelection,
 } from "../../../shared/model-selection";
-import { MODEL_MENU_PROPS, buildModelMenu } from "@renderer/model-menu";
+import {
+  MODEL_MENU_PROPS,
+  SELECTED_MODEL_STYLE,
+  buildModelMenu,
+} from "@renderer/model-menu";
 import type { LegacyModeTagKind } from "../../../shared/injected-blocks";
 import {
   filterSlashItems,
@@ -324,10 +328,7 @@ export function Composer({ docked = false }: ComposerProps): ReactNode {
   const thinkingMenu: MenuProps["items"] = thinkingLevelsFor(selectedModel.value).map((o) => ({
     label: o.label,
     key: o.value,
-    style:
-      o.value === thinking.value
-        ? { fontWeight: 600, color: "var(--accent)" }
-        : undefined,
+    style: o.value === thinking.value ? SELECTED_MODEL_STYLE : undefined,
   }));
 
   const thinkingLabel = thinkingLevelLabel(thinking.value) ?? "Medium";
@@ -1937,8 +1938,6 @@ export function Composer({ docked = false }: ComposerProps): ReactNode {
       {showCompactButton ? (
         <Button
           size="small"
-          color="primary"
-          variant="outlined"
           block
           className={`${styles.ctxCompactBtn} ${
             contextNeedsCompact ? styles.ctxCompactUrgent : ""

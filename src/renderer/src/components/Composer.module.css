@@ -431,18 +431,17 @@
   margin-top: 10px;
 }
 
-/* antd 的 outlined 按钮用 colorBgContainer 画底，壁纸主题下盖掉玻璃表面，
-   这里改回应用自己的主色系，与其它次级强调按钮一致。 */
+/* 弹层里的维护动作：透明底 + 主题描边，hover 才上浅强调，不抢用量信息的层级。 */
 .ctxCompactBtn:not(:disabled) {
-  background: var(--accent-soft) !important;
-  border-color: var(--accent-border) !important;
-  color: var(--accent) !important;
+  background: transparent !important;
+  border-color: var(--chat-line, var(--border)) !important;
+  color: var(--fg) !important;
 }
 
 .ctxCompactBtn:not(:disabled):hover {
-  background: var(--accent-soft-hover) !important;
-  border-color: var(--accent) !important;
-  color: var(--accent-hover) !important;
+  background: var(--accent-soft) !important;
+  border-color: var(--accent-border) !important;
+  color: var(--fg) !important;
 }
 
 .ctxCompactBtn.ctxCompactUrgent:not(:disabled) {
