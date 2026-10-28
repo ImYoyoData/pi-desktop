@@ -707,7 +707,7 @@ export const zhTW = {
 	terminalLabel: (n: number) => `終端機 ${n}`,
 	enterToSend: "Enter 傳送",
 	enterToSendShiftNewline: "Enter 傳送 · Shift+Enter 換行",
-	compactContext: "點擊壓縮上下文",
+	compactContext: "壓縮上下文",
 	compactDone: "已壓縮上下文",
 	clearContext: "清除上下文",
 	clearContextDone: "已清除上下文與對話記錄",

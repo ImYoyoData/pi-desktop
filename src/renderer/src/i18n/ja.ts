@@ -707,7 +707,7 @@ export const ja = {
 	terminalLabel: (n: number) => `ターミナル ${n}`,
 	enterToSend: "Enter で送信",
 	enterToSendShiftNewline: "Enter で送信 · Shift+Enter で改行",
-	compactContext: "クリックでコンテキストを圧縮",
+	compactContext: "コンテキストを圧縮",
 	compactDone: "コンテキストを圧縮しました",
 	clearContext: "コンテキストを消去",
 	clearContextDone: "コンテキストと会話履歴を消去しました",

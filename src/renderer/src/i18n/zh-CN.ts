@@ -708,7 +708,7 @@ export const zh = {
 	terminalLabel: (n: number) => `终端 ${n}`,
 	enterToSend: "Enter 发送",
 	enterToSendShiftNewline: "Enter 发送 · Shift+Enter 换行",
-	compactContext: "点击压缩上下文",
+	compactContext: "压缩上下文",
 	compactDone: "已压缩上下文",
 	clearContext: "清除上下文",
 	clearContextDone: "已清除上下文与对话记录",
