@@ -5,7 +5,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { DiffLines } from "@renderer/components/DiffLines";
+import { ToolDiffView } from "@renderer/components/ToolDiffView";
 import {
   CheckmarkCircleOutline,
   EllipseOutline,
@@ -50,8 +50,15 @@ type Props = {
   onOpen?: (path: string) => void;
 };
 
-/** 工具结果按语义分型渲染：读取走文件视图，编辑走 diff，命令走终端，其余走 JSON 树。 */
-export function ToolBody({
+/** 工具结果按语义分型渲染：读取走文件视图，编辑走 diff，命令走终端，其余走 JSON 树。
+   整体包一层描边卡片：头部条与正文连成一块，不再散在聊天背景上。 */
+export function ToolBody(props: Props): ReactNode {
+  const content = renderToolBody(props);
+  if (!content) return null;
+  return <div className={styles.view}>{content}</div>;
+}
+
+function renderToolBody({
   card,
   streaming,
   toolName,
@@ -178,8 +185,9 @@ function DiffBody({ card }: { card: FileToolCard }): ReactNode {
         ) : null}
       </div>
       <div className={styles.body} data-inner-scroll="">
-        <DiffLines
+        <ToolDiffView
           text={card.diff ?? ""}
+          path={card.path}
           fallback={
             // 空字符串也是「没有补丁」，`??` 接不住空串。
             <pre className={styles.plain}>
