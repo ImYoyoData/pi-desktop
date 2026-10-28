@@ -14,14 +14,24 @@ export type WordDiffResult = {
 };
 
 /**
- * 单行 token 数上限。LCS 是 O(n·m)，超长行（压缩后的代码、minified 文件）
- * 会把渲染线程卡住，超限就退化成整行标记。
+ * 变化区间内单侧 token 数上限。LCS 是 O(n·m)，
+ * 超长行（压缩后的代码、minified 文件）会把渲染线程卡住。
  */
 export const WORD_DIFF_MAX_TOKENS = 300;
+
+/** 变化区间内的 DP 单元格上限；超过就退化成整行标记。 */
+const MAX_DIFF_CELLS = WORD_DIFF_MAX_TOKENS * WORD_DIFF_MAX_TOKENS;
 
 /** 拆成「词 + 空白」：空白参与比对，缩进变化也会被标出来。 */
 export function tokenizeForDiff(text: string): string[] {
   return text.split(/(\s+)/).filter((token) => token !== "");
+}
+
+/** 相邻同类片段合并：同样的高亮，更少的 DOM 节点。 */
+function push(out: DiffToken[], text: string, changed: boolean): void {
+  const last = out[out.length - 1];
+  if (last && last.changed === changed) last.text += text;
+  else out.push({ text, changed });
 }
 
 /**
@@ -37,45 +47,73 @@ export function wordDiff(oldText: string, newText: string): WordDiffResult {
 /**
  * 已分词的文本做词级比对。
  *
- * 调用方若已经分过词就直接用这个版本，省掉一次 split。
- * 超长行在这里统一退化成整行标记 —— 不管谁调用都不会被 O(n·m) 的 DP 卡住。
+ * 先裁掉公共前后缀，只对真正变化的中段跑 DP：真实编辑往往只有几个 token
+ * 不同，裁剪后 DP 规模接近常数，长篇补丁也能逐行给词级高亮。
  */
 export function wordDiffTokens(a: string[], b: string[]): WordDiffResult {
-  if (a.length > WORD_DIFF_MAX_TOKENS || b.length > WORD_DIFF_MAX_TOKENS) {
-    return {
-      old: a.map((text) => ({ text, changed: true })),
-      new: b.map((text) => ({ text, changed: true })),
-    };
-  }
-  const n = a.length;
-  const m = b.length;
-  const dp: Uint16Array[] = [];
-  for (let i = 0; i <= n; i++) dp.push(new Uint16Array(m + 1));
-  for (let i = n - 1; i >= 0; i--) {
-    for (let j = m - 1; j >= 0; j--) {
-      dp[i]![j] =
-        a[i] === b[j] ? dp[i + 1]![j + 1]! + 1 : Math.max(dp[i + 1]![j]!, dp[i]![j + 1]!);
-    }
-  }
   const oldOut: DiffToken[] = [];
   const newOut: DiffToken[] = [];
-  let i = 0;
-  let j = 0;
-  while (i < n && j < m) {
-    if (a[i] === b[j]) {
-      oldOut.push({ text: a[i]!, changed: false });
-      newOut.push({ text: b[j]!, changed: false });
-      i++;
-      j++;
-    } else if (dp[i + 1]![j]! >= dp[i]![j + 1]!) {
-      oldOut.push({ text: a[i]!, changed: true });
-      i++;
-    } else {
-      newOut.push({ text: b[j]!, changed: true });
-      j++;
-    }
+
+  let start = 0;
+  const limit = Math.min(a.length, b.length);
+  while (start < limit && a[start] === b[start]) start += 1;
+  let endA = a.length;
+  let endB = b.length;
+  while (endA > start && endB > start && a[endA - 1] === b[endB - 1]) {
+    endA -= 1;
+    endB -= 1;
   }
-  while (i < n) oldOut.push({ text: a[i++]!, changed: true });
-  while (j < m) newOut.push({ text: b[j++]!, changed: true });
+
+  for (let i = 0; i < start; i += 1) {
+    push(oldOut, a[i]!, false);
+    push(newOut, b[i]!, false);
+  }
+
+  const midA = a.slice(start, endA);
+  const midB = b.slice(start, endB);
+  if (midA.length * midB.length > MAX_DIFF_CELLS) {
+    for (const token of midA) push(oldOut, token, true);
+    for (const token of midB) push(newOut, token, true);
+  } else if (midA.length && midB.length) {
+    const n = midA.length;
+    const m = midB.length;
+    const width = m + 1;
+    const dp = new Uint16Array((n + 1) * width);
+    for (let i = n - 1; i >= 0; i -= 1) {
+      const row = i * width;
+      const nextRow = row + width;
+      for (let j = m - 1; j >= 0; j -= 1) {
+        dp[row + j] =
+          midA[i] === midB[j]
+            ? dp[nextRow + j + 1]! + 1
+            : Math.max(dp[nextRow + j]!, dp[row + j + 1]!);
+      }
+    }
+    let i = 0;
+    let j = 0;
+    while (i < n && j < m) {
+      if (midA[i] === midB[j]) {
+        push(oldOut, midA[i]!, false);
+        push(newOut, midB[j]!, false);
+        i += 1;
+        j += 1;
+      } else if (dp[(i + 1) * width + j]! >= dp[i * width + j + 1]!) {
+        push(oldOut, midA[i]!, true);
+        i += 1;
+      } else {
+        push(newOut, midB[j]!, true);
+        j += 1;
+      }
+    }
+    for (; i < n; i += 1) push(oldOut, midA[i]!, true);
+    for (; j < m; j += 1) push(newOut, midB[j]!, true);
+  } else {
+    for (const token of midA) push(oldOut, token, true);
+    for (const token of midB) push(newOut, token, true);
+  }
+
+  for (let i = endA; i < a.length; i += 1) push(oldOut, a[i]!, false);
+  for (let j = endB; j < b.length; j += 1) push(newOut, b[j]!, false);
+
   return { old: oldOut, new: newOut };
 }

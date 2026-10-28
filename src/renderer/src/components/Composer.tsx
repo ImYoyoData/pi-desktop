@@ -41,7 +41,6 @@ import {
   type QueuedSendItem,
 } from "@renderer/stores/send-queue";
 import { useSessionsStore } from "@renderer/stores/sessions";
-import { useSessionStatsStore } from "@renderer/stores/session-stats";
 import { useSendShortcutStore } from "@renderer/stores/send-shortcut";
 import { useWorkspaceStore } from "@renderer/stores/workspace";
 import { useAppearanceStore } from "@renderer/stores/appearance";
@@ -75,7 +74,6 @@ import {
   steerTextWithCitations,
   titleSeedFor,
 } from "@renderer/utils/composer-payload";
-import { buildSessionStats } from "@renderer/utils/session-stats";
 import {
   contextCostLabelOf,
   contextFreePctOf,
@@ -93,7 +91,11 @@ import {
   isSameModelSelection,
   pruneStaleModelSelection,
 } from "../../../shared/model-selection";
-import { MODEL_MENU_PROPS, buildModelMenu } from "@renderer/model-menu";
+import {
+  MODEL_MENU_PROPS,
+  SELECTED_MODEL_STYLE,
+  buildModelMenu,
+} from "@renderer/model-menu";
 import type { LegacyModeTagKind } from "../../../shared/injected-blocks";
 import {
   filterSlashItems,
@@ -197,7 +199,6 @@ export function Composer({ docked = false }: ComposerProps): ReactNode {
   const sessionId = useSessionsStore((s) => s.activeId);
   const draftRoot = useSessionsStore((s) => s.draftRoot);
   const contextUsage = useSessionsStore((s) => s.activeContextUsage);
-  const tpsMode = useSessionStatsStore((s) => s.tpsMode);
   const sendShortcut = useSendShortcutStore((s) => s.mode);
   const activeSessionStatus = useSessionsStore((s) => {
     const id = s.activeId;
@@ -206,7 +207,6 @@ export function Composer({ docked = false }: ComposerProps): ReactNode {
   });
   const workspaceRoot = useWorkspaceStore((s) => s.root);
   const showCompactButton = useAppearanceStore((s) => s.showCompactButton);
-  const showSessionDetails = useAppearanceStore((s) => s.showSessionDetails);
   const queueItems = useSendQueueStore((s) => s.activeItems);
   const queueEditingId = useSendQueueStore((s) => s.editingId);
 
@@ -328,10 +328,7 @@ export function Composer({ docked = false }: ComposerProps): ReactNode {
   const thinkingMenu: MenuProps["items"] = thinkingLevelsFor(selectedModel.value).map((o) => ({
     label: o.label,
     key: o.value,
-    style:
-      o.value === thinking.value
-        ? { fontWeight: 600, color: "var(--accent)" }
-        : undefined,
+    style: o.value === thinking.value ? SELECTED_MODEL_STYLE : undefined,
   }));
 
   const thinkingLabel = thinkingLevelLabel(thinking.value) ?? "Medium";
@@ -1409,8 +1406,9 @@ export function Composer({ docked = false }: ComposerProps): ReactNode {
    *
    * Only items that actually have data are rendered — a stat with no sample
    * is omitted instead of showing "label —".
+   *
+   * worker 冷启动期间没有 context_usage，先用已加载历史聚合出可算的项。
    */
-  const sessionStats = buildSessionStats(contextUsage, tpsMode);
 
   async function onCompactContext(): Promise<void> {
     const idSession = currentSessionId();
@@ -1940,8 +1938,6 @@ export function Composer({ docked = false }: ComposerProps): ReactNode {
       {showCompactButton ? (
         <Button
           size="small"
-          color="primary"
-          variant="outlined"
           block
           className={`${styles.ctxCompactBtn} ${
             contextNeedsCompact ? styles.ctxCompactUrgent : ""
@@ -2224,20 +2220,6 @@ export function Composer({ docked = false }: ComposerProps): ReactNode {
         </div>
       </div>
 
-      {showSessionDetails && sessionStats ? (
-        <div
-          className={styles.sessionStats}
-          role="status"
-          aria-label="session statistics"
-        >
-          {sessionStats.map((item) => (
-            <span key={item.key} className={styles.ssItem} title={item.title}>
-              <span className={styles.ssLabel}>{item.label}</span>
-              <strong>{item.value}</strong>
-            </span>
-          ))}
-        </div>
-      ) : null}
     </div>
   );
 }

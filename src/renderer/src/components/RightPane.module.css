@@ -74,6 +74,11 @@
   position: relative;
 }
 
+.dockPane {
+  height: 100%;
+  min-height: 0;
+}
+
 .dockTab {
   height: 22px;
   margin: 0;

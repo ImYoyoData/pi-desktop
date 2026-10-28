@@ -12,11 +12,13 @@ import {
 	appendUserMessage,
 	clearPendingAskUser,
 	clearPendingExtensionUi,
+	clearPendingPermission,
 	createChatState,
 	hasLiveTurnState,
 	reduceChatEvent,
 	setPendingAskUser,
 	setPendingExtensionUi,
+	setPendingPermission,
 	withRunClock,
 	type ChatMessage,
 	type ChatRetryHint,
@@ -67,6 +69,11 @@ import {
 	type ExtensionUiPending,
 	type ExtensionUiReply,
 } from "../../../shared/extension-ui";
+import {
+	isPermissionAskCancelled,
+	type PermissionAskPrompt,
+	type PermissionAskReply,
+} from "../../../shared/permissions";
 
 export type {
 	ChatMessage,
@@ -125,6 +132,7 @@ export type ChatWaitState = {
 	streamingMessage: ChatMessage | null;
 	retryHint: ChatRetryHint | null;
 	pendingAskUser: AskUserPrompt | null;
+	pendingPermission: PermissionAskPrompt | null;
 	pendingExtensionUi: ExtensionUiPending | null;
 	turnStartedAt: number | null;
 	phaseStartedAt: number | null;
@@ -143,6 +151,7 @@ type ChatDerived = {
 	activeWaitState: ChatWaitState | null;
 	activeRetryHint: ChatRetryHint | null;
 	activePendingAskUser: AskUserPrompt | null;
+	activePendingPermission: PermissionAskPrompt | null;
 	activePendingExtensionUi: ExtensionUiPending | null;
 };
 
@@ -158,6 +167,8 @@ export type ChatStoreState = ChatBase &
 	ChatDerived & {
 		bindEvents: () => () => void;
 		clearPendingAskUserFor: (sessionId: string) => void;
+		clearPendingPermissionFor: (sessionId: string) => void;
+		replyPermission: (reply: PermissionAskReply) => Promise<void>;
 		readAskDraft: (requestId: string) => AskUserAnswerDraft | null;
 		writeAskDraft: (requestId: string, draft: AskUserAnswerDraft) => void;
 		readAskStep: (requestId: string) => number | null;
@@ -241,6 +252,7 @@ function waitStateOf(state: ChatState | undefined): ChatWaitState | null {
 		streamingMessage: state.streamingMessage,
 		retryHint: state.retryHint,
 		pendingAskUser: state.pendingAskUser,
+		pendingPermission: state.pendingPermission,
 		pendingExtensionUi: state.pendingExtensionUi,
 		turnStartedAt: state.turnStartedAt,
 		phaseStartedAt: state.phaseStartedAt,
@@ -263,6 +275,7 @@ function derive(base: ChatBase): ChatDerived {
 		activeWaitState: waitStateOf(state),
 		activeRetryHint: state?.retryHint ?? null,
 		activePendingAskUser: state?.pendingAskUser ?? null,
+		activePendingPermission: state?.pendingPermission ?? null,
 		activePendingExtensionUi: state?.pendingExtensionUi ?? null,
 	};
 }
@@ -537,6 +550,28 @@ export const useChatStore = create<ChatStoreState>()((set, get) => {
 		);
 	}
 
+	function clearPendingPermissionFor(sessionId: string): void {
+		setSessionState(sessionId, clearPendingPermission(stateFor(sessionId)));
+	}
+
+	/** 审批条按 requestId 去重：重连后 main 会重发同一条询问。 */
+	function setPendingPermissionFor(prompt: PermissionAskPrompt): void {
+		if (!prompt.sessionId) return;
+		const cur = stateFor(prompt.sessionId).pendingPermission;
+		if (cur?.requestId === prompt.requestId) return;
+		setSessionState(
+			prompt.sessionId,
+			setPendingPermission(stateFor(prompt.sessionId), prompt),
+		);
+	}
+
+	async function replyPermission(reply: PermissionAskReply): Promise<void> {
+		const id = useSessionsStore.getState().activeId;
+		if (id) clearPendingPermissionFor(id);
+		const res = await window.api.sessions.permissionReply(reply);
+		if (!res?.ok) throw new Error(res?.reason ?? "permission reply rejected");
+	}
+
 	/**
 	 * Reload / language-switch wipes renderer memory while main keeps the
 	 * pending asks. Pull them back so strips reappear; replies reuse the
@@ -568,7 +603,15 @@ export const useChatStore = create<ChatStoreState>()((set, get) => {
 			if (stateFor(dialog.sessionId).pendingExtensionUi?.requestId === dialog.requestId) continue;
 			setPendingExtensionUiFor(dialog);
 		}
-		if (snapshot.asks?.length || snapshot.extensionDialogs?.length) {
+		for (const prompt of snapshot.permissions ?? []) {
+			if (!prompt || !prompt.requestId) continue;
+			setPendingPermissionFor(prompt);
+		}
+		if (
+			snapshot.asks?.length ||
+			snapshot.extensionDialogs?.length ||
+			snapshot.permissions?.length
+		) {
 			const notify = useNotifyStore.getState();
 			if (notify.soundEnabled) {
 				void notify.playChime();
@@ -787,7 +830,7 @@ export const useChatStore = create<ChatStoreState>()((set, get) => {
 	): Promise<boolean> {
 		if (recoveringIds.has(sessionId)) return false;
 		const state = stateFor(sessionId);
-		if (state.pendingAskUser || state.pendingExtensionUi) {
+		if (state.pendingAskUser || state.pendingExtensionUi || state.pendingPermission) {
 			return false;
 		}
 		if (!canAutoRecoverForReason(state.autoRecoverCount, reason)) {
@@ -914,7 +957,11 @@ export const useChatStore = create<ChatStoreState>()((set, get) => {
 			if (!state?.running || state.autoRecovering || recoveringIds.has(sessionId))
 				continue;
 			if (softHangReported.has(sessionId)) continue;
-			const waitingUser = Boolean(state.pendingAskUser || state.pendingExtensionUi);
+			const waitingUser = Boolean(
+				state.pendingAskUser ||
+					state.pendingExtensionUi ||
+					state.pendingPermission,
+			);
 			const outputSilenceMs = agentOutputSilenceMs(state, now);
 			const workerSilenceMs = agentWorkerSilenceMs(state, now);
 			// Event-loop stall (heartbeats AND output dead) — full restart + resend.
@@ -1044,6 +1091,7 @@ export const useChatStore = create<ChatStoreState>()((set, get) => {
 					retryHint: null,
 					nextToolOrder: 1,
 					pendingAskUser: null,
+					pendingPermission: null,
 					pendingExtensionUi: null,
 					turnStartedAt: null,
 					phaseStartedAt: null,
@@ -1263,6 +1311,20 @@ softHangReported.delete(sessionId);
 		const offExtensionUi = window.api.sessions.onExtensionUi((event) => {
 			handleExtensionUiEvent(event);
 		});
+		const offPermission = window.api.sessions.onPermission((req) => {
+			if (isPermissionAskCancelled(req)) {
+				const pending = stateFor(req.sessionId).pendingPermission;
+				if (pending?.requestId === req.requestId) {
+					clearPendingPermissionFor(req.sessionId);
+				}
+				return;
+			}
+			setPendingPermissionFor(req);
+			const notify = useNotifyStore.getState();
+			if (notify.soundEnabled) {
+				void notify.playChime();
+			}
+		});
 		void recoverPendingUi();
 		unbindEvents = () => {
 			unbindEvents = null;
@@ -1272,6 +1334,7 @@ softHangReported.delete(sessionId);
 			off();
 			offAskUser();
 			offExtensionUi();
+			offPermission();
 		};
 		return unbindEvents;
 	}
@@ -1800,11 +1863,13 @@ softHangReported.delete(sessionId);
 		...derive(base),
 		bindEvents,
 		clearPendingAskUserFor,
+		clearPendingPermissionFor,
 		readAskDraft,
 		writeAskDraft,
 		readAskStep,
 		writeAskStep,
 		replyAskUser,
+		replyPermission,
 		replyExtensionUi,
 		beginHistoryLoad,
 		endHistoryLoad,

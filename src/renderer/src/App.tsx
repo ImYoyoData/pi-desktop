@@ -1,4 +1,4 @@
-import { App as AntApp, ConfigProvider } from "antd";
+import { App as AntApp, ConfigProvider, Spin } from "antd";
 import { lazy, Suspense, useEffect, useState } from "react";
 import TitleBar from "@renderer/components/TitleBar";
 import AppWallpaper from "@renderer/components/AppWallpaper";
@@ -12,6 +12,7 @@ import { useCustomizationsStore } from "@renderer/stores/customizations";
 import { useKeybindingsStore } from "@renderer/stores/keybindings";
 import { useLayoutStore } from "@renderer/stores/layout";
 import { usePreviewStore } from "@renderer/stores/preview";
+import { useTabFocusStore } from "@renderer/stores/tab-focus";
 import { FeedbackProvider } from "@renderer/services/feedback";
 import { antdLocaleFor, themeConfigFor } from "@renderer/theme/antd";
 import { useUiLocale } from "@renderer/i18n/use-i18n";
@@ -30,6 +31,21 @@ const SplitRoot = lazy(async () => {
   markRendererStartup("renderer:splitroot-load-done");
   return module;
 });
+
+/** 预热主界面 chunk 的等待上限，超时后不再等，避免卡住启动。 */
+const PREWARM_MAX_MS = 2000;
+
+/** 预热主界面 chunk：splash 淡出时内容已经能画出来；超上限则放弃等待。 */
+async function prewarmSplitRoot(): Promise<void> {
+  let timer = 0;
+  await Promise.race([
+    import("@renderer/components/SplitRoot").catch(() => {}),
+    new Promise<void>((resolve) => {
+      timer = window.setTimeout(resolve, PREWARM_MAX_MS);
+    }),
+  ]);
+  window.clearTimeout(timer);
+}
 
 /** 等同编辑器区的「打开文件…」按钮：系统对话框选文件，打开到编辑器区。 */
 async function pickAndOpenFile(): Promise<void> {
@@ -66,6 +82,12 @@ function onDialogEnterKeydown(event: KeyboardEvent): void {
   confirm.click();
 }
 
+/** 关闭 Tab 焦点切换后拦下默认的焦点移动；输入框与菜单自己的 Tab 处理不被阻止。 */
+function onTabFocusKeydown(event: KeyboardEvent): void {
+  if (event.key !== "Tab" || useTabFocusStore.getState().enabled) return;
+  event.preventDefault();
+}
+
 export function App(): React.ReactNode {
   const appearance = useAppearanceStore();
   const locale = useUiLocale();
@@ -80,6 +102,7 @@ export function App(): React.ReactNode {
   useEffect(() => {
     startStateSync();
     window.addEventListener("keydown", onDialogEnterKeydown, true);
+    window.addEventListener("keydown", onTabFocusKeydown, true);
     const offMenuCommand = window.api.window.onMenuCommand((command) => {
       if (command === "open-pull-requests") useLayoutStore.getState().showPullRequests();
       else if (command === "zoom-in") useAppearanceStore.getState().stepFontSize(1);
@@ -104,12 +127,14 @@ export function App(): React.ReactNode {
     const stopAppearance = useAppearanceStore.getState().init();
     const stopCustomizations = useCustomizationsStore.getState().init();
     void window.api.window.setUiLocale(getLocale());
-    // Instant open: drop the full-screen splash right after first paint so the
-    // window feels instant; shell content mounts once workspace init finishes.
-    void dismissStartupSplash(true);
+    /** shell 挂载后由 effect 撤 splash，React 提交之后再撤，避免露出空白的主区。 */
+    const revealShell = (): void => {
+      setBootInitDone(true);
+    };
     // Hard cap: never block shell mounting if workspace IPC hangs.
     const bootTimer = window.setTimeout(() => {
-      setBootInitDone(true);
+      void prewarmSplitRoot();
+      revealShell();
     }, BOOT_MAX_MS);
     void (async () => {
       try {
@@ -123,7 +148,10 @@ export function App(): React.ReactNode {
           }),
         ]);
       } finally {
-        setBootInitDone(true);
+        window.clearTimeout(bootTimer);
+        // 预热主界面 chunk，splash 淡出时内容已经能画出来。
+        await prewarmSplitRoot();
+        revealShell();
         markRendererStartup("renderer:shell-ready");
         if (!useWorkspaceStore.getState().root) markRendererStartup("renderer:ready");
         // 后台预热设置页快照：冷启动首次扫描不挡首屏，之后打开设置页直接命中缓存。
@@ -137,6 +165,7 @@ export function App(): React.ReactNode {
 
     return () => {
       window.removeEventListener("keydown", onDialogEnterKeydown, true);
+      window.removeEventListener("keydown", onTabFocusKeydown, true);
       window.clearTimeout(bootTimer);
       keybindings.uninstall();
       offMenuCommand?.();
@@ -144,6 +173,11 @@ export function App(): React.ReactNode {
       stopCustomizations?.();
     };
   }, []);
+
+  /** shell 提交到 DOM 之后才撤 splash，避免主区空白时就被看见。 */
+  useEffect(() => {
+    if (bootInitDone) void dismissStartupSplash();
+  }, [bootInitDone]);
 
   return (
     <ConfigProvider
@@ -159,7 +193,13 @@ export function App(): React.ReactNode {
             <main className="app-main">
               {bootInitDone ? (
                 <div className="app-main-body">
-                  <Suspense fallback={null}>
+                  <Suspense
+                    fallback={
+                      <div className="app-boot-placeholder">
+                        <Spin size="small" />
+                      </div>
+                    }
+                  >
                     <SplitRoot />
                   </Suspense>
                 </div>

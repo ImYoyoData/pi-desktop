@@ -73,6 +73,11 @@ import type { ThinkingLanguageSettings } from "./thinking-language";
 import type { StreamRenderSettings } from "./stream-render";
 import type { RetrySettings } from "./retry-settings";
 import type { RuntimeSettings } from "./runtime-settings";
+import type {
+	PermissionAskReply,
+	PermissionAskRequest,
+	PermissionSettings,
+} from "./permissions";
 import type { AppUpdateState } from "./update";
 
 export type AppInfo = {
@@ -171,6 +176,15 @@ export function createApi(
 				IpcChannels.runtime.set,
 				settings,
 			) as Promise<RuntimeSettings>,
+	},
+	permissions: {
+		get: () =>
+			ipcRenderer.invoke(IpcChannels.permissions.get) as Promise<PermissionSettings>,
+		set: (settings: PermissionSettings) =>
+			ipcRenderer.invoke(
+				IpcChannels.permissions.set,
+				settings,
+			) as Promise<PermissionSettings>,
 	},
 	/** 共享状态统一订阅：任何一端改了共享状态，这里都会收到。 */
 	state: {
@@ -328,11 +342,12 @@ export function createApi(
 				IpcChannels.sessions.create,
 				cwd,
 			) as Promise<SessionSummary>,
-		open: (sessionId: string, cwd: string) =>
+		open: (sessionId: string, cwd: string, filePath?: string) =>
 			ipcRenderer.invoke(
 				IpcChannels.sessions.open,
 				sessionId,
 				cwd,
+				filePath,
 			) as Promise<SessionSummary | null>,
 		close: (sessionId: string) =>
 			ipcRenderer.invoke(IpcChannels.sessions.close, sessionId) as Promise<void>,
@@ -437,6 +452,21 @@ export function createApi(
 		},
 		askUserReply: (payload: AskUserAskReply) =>
 			ipcRenderer.invoke(IpcChannels.sessions.askUserReply, payload) as Promise<{
+				ok: boolean;
+				reason?: string;
+			}>,
+		onPermission: (callback: (payload: PermissionAskRequest) => void) => {
+			const listener = (
+				_event: Electron.IpcRendererEvent,
+				payload: PermissionAskRequest,
+			) => callback(payload);
+			ipcRenderer.on(IpcChannels.sessions.permission, listener);
+			return () => {
+				ipcRenderer.removeListener(IpcChannels.sessions.permission, listener);
+			};
+		},
+		permissionReply: (payload: PermissionAskReply) =>
+			ipcRenderer.invoke(IpcChannels.permissions.reply, payload) as Promise<{
 				ok: boolean;
 				reason?: string;
 			}>,
@@ -555,7 +585,14 @@ export function createApi(
 			ipcRenderer.invoke(IpcChannels.git.status) as Promise<{
 				isGitRepository: boolean;
 				branch: string | null;
-				files: { relativePath: string; status: string; code: string }[];
+				files: {
+					relativePath: string;
+					status: string;
+					code: string;
+					ignored?: boolean;
+					additions?: number | null;
+					deletions?: number | null;
+				}[];
 				errorCode?: string;
 				errorMessage?: string;
 			}>,

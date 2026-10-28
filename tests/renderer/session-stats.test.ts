@@ -10,6 +10,7 @@ import {
   formatSessionTtft,
   isPositiveStat,
   sessionTps,
+  sessionUsageFromMessages,
 } from "../../src/renderer/src/utils/session-stats";
 import { t } from "../../src/renderer/src/i18n";
 import type { SessionContextUsage } from "../../src/shared/protocol";
@@ -203,5 +204,35 @@ describe("buildSessionStats", () => {
     expect(
       buildSessionStats(usage({ inputTokens: 500 }))?.some((i) => i.key === "cacheHit"),
     ).toBe(false);
+  });
+});
+describe("sessionUsageFromMessages", () => {
+  it("returns null for an empty history", () => {
+    expect(sessionUsageFromMessages([])).toBeNull();
+  });
+
+  it("counts roles and sums billed tokens", () => {
+    const usage = sessionUsageFromMessages([
+      { role: "user" },
+      { role: "assistant", usage: { input: 100, output: 20 } },
+      { role: "tool" },
+      { role: "assistant", usage: { input: 50, output: 10 } },
+    ]);
+    expect(usage).toMatchObject({
+      turns: 1,
+      steps: 2,
+      toolCalls: 1,
+      messageCount: 4,
+      inputTokens: 150,
+      outputTokens: 30,
+      tokens: null,
+      contextWindow: 0,
+    });
+  });
+
+  it("leaves token totals null when the history carries no usage", () => {
+    const usage = sessionUsageFromMessages([{ role: "user" }]);
+    expect(usage?.inputTokens).toBeNull();
+    expect(usage?.outputTokens).toBeNull();
   });
 });

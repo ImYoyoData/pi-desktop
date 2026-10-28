@@ -1,25 +1,13 @@
-export type DiffLineKind = "context" | "added" | "removed" | "meta";
-
-export type DiffLine = {
-	kind: DiffLineKind;
-	text: string;
-	oldNumber: number | null;
-	newNumber: number | null;
-};
-
-export type DiffHunk = { header: string; lines: DiffLine[]; raw: string[] };
-
 export type DiffFile = {
 	path: string;
 	previousPath: string | null;
 	/** 完整 diff 段落（含 diff --git/---/+++ 头），@git-diff-view 解析器需要它。 */
 	rawSection: string;
-	hunks: DiffHunk[];
+	/** 该文件是否有可显示的文本改动。 */
+	hasHunks: boolean;
 	additions: number;
 	deletions: number;
 };
-
-const HUNK_HEADER = /^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/;
 
 function unquotePath(value: string): string {
 	const trimmed = value.replace(/\t$/, "");
@@ -60,53 +48,28 @@ function previousPathOf(section: string, path: string): string | null {
 	return null;
 }
 
+/**
+ * 只统计增删行与「有没有文本改动」——逐行明细交给 @git-diff-view 自己解析，
+ * 大 PR 因此少分配几万个行对象。
+ */
 function parseSection(section: string, path: string, previousPath: string | null): DiffFile {
-	const hunks: DiffHunk[] = [];
-	let current: DiffHunk | null = null;
-	let oldNumber = 0;
-	let newNumber = 0;
 	let additions = 0;
 	let deletions = 0;
+	let hasHunks = false;
+	let inHunk = false;
 	for (const line of section.split("\n")) {
-		const header = HUNK_HEADER.exec(line);
-		if (header) {
-			current = { header: line, lines: [], raw: [line] };
-			hunks.push(current);
-			oldNumber = Number(header[1]);
-			newNumber = Number(header[2]);
+		if (line.startsWith("@@")) {
+			hasHunks = true;
+			inHunk = true;
 			continue;
 		}
-		if (!current) continue;
+		if (!inHunk) continue;
 		if (line.startsWith("diff --git ")) break;
-		if (line.startsWith("\\")) {
-			current.raw.push(line);
-			current.lines.push({ kind: "meta", text: line, oldNumber: null, newNumber: null });
-			continue;
-		}
 		const marker = line[0] ?? " ";
-		const text = line.slice(1);
-		if (marker === "+") {
-			current.raw.push(line);
-			current.lines.push({ kind: "added", text, oldNumber: null, newNumber });
-			newNumber += 1;
-			additions += 1;
-			continue;
-		}
-		if (marker === "-") {
-			current.raw.push(line);
-			current.lines.push({ kind: "removed", text, oldNumber, newNumber: null });
-			oldNumber += 1;
-			deletions += 1;
-			continue;
-		}
-		if (marker === " " || line === "") {
-			current.raw.push(line);
-			current.lines.push({ kind: "context", text, oldNumber, newNumber });
-			oldNumber += 1;
-			newNumber += 1;
-		}
+		if (marker === "+") additions += 1;
+		else if (marker === "-") deletions += 1;
 	}
-	return { path, previousPath, rawSection: section, hunks, additions, deletions };
+	return { path, previousPath, rawSection: section, hasHunks, additions, deletions };
 }
 
 export function parseUnifiedDiff(patch: string): DiffFile[] {
@@ -120,4 +83,3 @@ export function parseUnifiedDiff(patch: string): DiffFile[] {
 			return [parseSection(section, path, previousPathOf(section, path))];
 		});
 }
-

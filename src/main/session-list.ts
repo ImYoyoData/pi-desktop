@@ -92,24 +92,25 @@ let piWorkspacesCache: {
   } catch {
     return null;
   }
-  const rows: string[] = [];
-  for (const entry of entries) {
-    if (!entry.isFile() || !entry.name.endsWith(".jsonl")) continue;
-    try {
-      const st = await fs.promises.stat(path.join(dir, entry.name));
-      rows.push(`${entry.name}:${st.size}:${Math.floor(st.mtimeMs)}`);
-    } catch {
-      // skip unreadable files
-    }
-  }
-  rows.sort();
-  return rows.join("|");
+  const rows = await Promise.all(
+    entries
+      .filter((entry) => entry.isFile() && entry.name.endsWith(".jsonl"))
+      .map(async (entry) => {
+        try {
+          const st = await fs.promises.stat(path.join(dir, entry.name));
+          return `${entry.name}:${st.size}:${Math.floor(st.mtimeMs)}`;
+        } catch {
+          return null;
+        }
+      }),
+  );
+  return rows.filter((row): row is string => row !== null).sort().join("|");
 }
 
 /** 从会话文件首行 header 读 id，用于解析派生会话的父级（按小写路径缓存）。 */
 const parentHeaderIdCache = new Map<string, string | undefined>();
 
-function readSessionHeaderId(filePath: string): string | undefined {
+export function readSessionHeaderId(filePath: string): string | undefined {
   const key = filePath.toLowerCase();
   if (parentHeaderIdCache.has(key)) return parentHeaderIdCache.get(key);
   let id: string | undefined;

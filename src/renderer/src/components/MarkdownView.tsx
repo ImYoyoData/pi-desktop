@@ -1,109 +1,68 @@
 import {
+  memo,
   useCallback,
   useEffect,
-  useLayoutEffect,
   useMemo,
-  useRef,
   useState,
+  type MouseEvent as ReactMouseEvent,
   type ReactNode,
 } from "react";
-import { Button, Modal, Space } from "antd";
-import {
-  createStreamBlockSplitter,
-  markdownRootClassName,
-  renderMarkdown,
-  renderMarkdownBlock,
-  renderMarkdownCached,
-  setMarkdownCopyLabel,
-  type StreamBlockSplitter,
-} from "@renderer/utils/markdown";
-import {
-  applyDiagramZoom,
-  clampDiagramZoom,
-  getDiagramSource,
-  getDiagramSvgMarkup,
-  handleDiagramToolClick,
-  readDiagramZoom,
-  type DiagramToolLabels,
-} from "@renderer/utils/diagram-chrome";
-import { mountDotIn } from "@renderer/utils/dot-render";
-import { mountMermaidIn, resetMermaidForTheme } from "@renderer/utils/mermaid-render";
-import { handleAppLinkClick, type LinkConfirmDialog } from "@renderer/utils/open-link";
-import { MarkdownHtml } from "@renderer/utils/html-patch";
+import { Modal } from "antd";
+import DOMPurify from "dompurify";
+import MarkdownRender, { type CodeBlockPreviewPayload } from "markstream-react";
+import "markstream-react/index.css";
+import { markdownRootClassName } from "@renderer/utils/markdown";
 import type { MarkdownAssetBase } from "@renderer/utils/markdown-assets";
+import { handleAppLinkClick, type LinkConfirmDialog } from "@renderer/utils/open-link";
+import { MARKDOWN_CUSTOM_ID, MarkdownAssetsProvider } from "./markdown/custom-nodes";
+import { MARKDOWN_PARSE_OPTIONS } from "./markdown/html-policy";
+import { applyMarkstreamMessages } from "./markdown/markstream-i18n";
+import { t as currentMessages } from "@renderer/i18n";
+import { useI18n } from "@renderer/i18n/use-i18n";
 import { useAppearanceStore } from "@renderer/stores/appearance";
 import { useStreamRenderStore } from "@renderer/stores/stream-render";
 import { useWorkspaceStore } from "@renderer/stores/workspace";
-import { useI18n, useUiLocale } from "@renderer/i18n/use-i18n";
-import { useDialog, useMessage } from "@renderer/services/feedback";
+import { useDialog } from "@renderer/services/feedback";
 import styles from "./MarkdownView.module.css";
-import "katex/dist/katex.min.css";
 
 type Props = {
   content: string;
   /** "chat" applies the Copilot (VS Code) chat markdown look to the model output area. */
   variant?: "default" | "chat";
-  /** Live stream bubble: growing content must not pollute the render cache. */
+  /** 流式气泡：内容仍在增长，渲染器保持 loading 语义。 */
   streaming?: boolean;
   className?: string;
   /** 相对路径图片的解析基准（markdown 所在目录）；缺省按工作区根目录解析。 */
   assets?: MarkdownAssetBase | null;
 };
 
-type RenderState = {
-  blocks: string[];
-  liveBlock: string;
-  liveTail: string;
-};
+/** 流式期间单次解析上限：超限按纯文本跟随，避免整段解析冻结界面。 */
+const STREAM_MARKDOWN_MAX_CHARS = 24_000;
+/** 已完成消息的解析上限：极端长回答直接纯文本，保证界面可用。 */
+const MESSAGE_MARKDOWN_MAX_CHARS = 120_000;
 
-/** 已定型的 HTML 块：流式只追加新块，历史消息始终只有一整块。 */
-const EMPTY_RENDER: RenderState = { blocks: [], liveBlock: "", liveTail: "" };
+const MERMAID_PROPS = {
+  isStrict: false,
+  enableMermaidInteractions: true,
+  showModeToggle: false,
+  showCollapseButton: false,
+} as const;
 
-/** 旧渲染点之后的未完成尾部（未完成段落按纯文本跟随）。 */
-const STREAM_TAIL_MAX_CHARS = 24_000;
-/**
- * 流式期间单个未定型块的解析上限：模型正在写长代码块时，未闭合围栏会让整个块
- * 一直落在 live 块里，每个 tick 全量解析 + 高亮 + 净化会占满渲染线程，界面直接卡死。
- * 超限就按纯文本尾部跟随，块定型或流结束后再完整渲染。
- */
-const STREAM_LIVE_BLOCK_MAX_CHARS = 12_000;
-/** 旧渲染路径（流式渲染开关关闭）在流式期间的整段解析上限。 */
-const STREAM_FULL_MAX_CHARS = 24_000;
+applyMarkstreamMessages(currentMessages);
 
-function tailText(content: string, from: number): string {
-  const tail = content.slice(from);
-  return tail.length > STREAM_TAIL_MAX_CHARS
-    ? `…${tail.slice(-STREAM_TAIL_MAX_CHARS)}`
-    : tail;
-}
-
-/**
- * 流式渲染点：围栏内的内容必须整段交给 markdown 解析。
- * 之前按“最后一个空行”切分，空行落在围栏内部时会把围栏原文（``` 语言标记）
- * 当纯文本甩到界面上；围栏闭合后若后面没有空行，整段代码也会一直以原文示人。
- */
-function renderPointOf(content: string, splitter: StreamBlockSplitter): number {
-  if (splitter.inFence) return content.length;
-  return Math.max(splitter.boundary, splitter.closedFenceEnd);
-}
-
-export function MarkdownView({
+function MarkdownViewView({
   content,
   variant,
   streaming,
   className,
   assets: assetsProp,
 }: Props): ReactNode {
-  const t = useI18n();
-  const locale = useUiLocale();
   const dialog = useDialog();
-  const message = useMessage();
+  const t = useI18n();
   const appearance = useAppearanceStore();
-
-  /** 流式渲染设置：开关决定走增量分块还是旧版全量重解析。 */
   const streamRender = useStreamRenderStore();
-
   const workspaceRoot = useWorkspaceStore((s) => s.root);
+
   const propDir = assetsProp?.dir ?? null;
   const propRoot = assetsProp?.root ?? null;
   /** 图片解析基准：优先用调用方给的文档目录，否则按工作区根目录。 */
@@ -113,36 +72,28 @@ export function MarkdownView({
     return { dir: workspaceRoot, root: workspaceRoot };
   }, [propDir, propRoot, workspaceRoot]);
 
-  const rootEl = useRef<HTMLDivElement | null>(null);
-  const previewViewportEl = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    applyMarkstreamMessages(t);
+  }, [t]);
 
-  const [renderState, setRenderState] = useState<RenderState>(EMPTY_RENDER);
-  const renderStateRef = useRef<RenderState>(EMPTY_RENDER);
-  const splitterRef = useRef<StreamBlockSplitter>(createStreamBlockSplitter());
-  const liveBlockTextRef = useRef("");
+  useEffect(() => {
+    void streamRender.load();
+  }, [streamRender]);
 
-  const [previewOpen, setPreviewOpen] = useState(false);
-  const [previewZoom, setPreviewZoom] = useState(1);
-  const [previewSvg, setPreviewSvg] = useState("");
-  const [previewSource, setPreviewSource] = useState("");
-  const [previewKind, setPreviewKind] = useState("diagram");
+  const [artifact, setArtifact] = useState<{
+    type: string;
+    title: string;
+    code: string;
+  } | null>(null);
 
-  const diagramTimer = useRef(0);
-  const renderTimer = useRef(0);
-  const pendingContent = useRef<string | null>(null);
-  const lastRenderAt = useRef(0);
-
-  const diagramLabels = useMemo<DiagramToolLabels>(
-    () => ({
-      zoomIn: t.mdDiagramZoomIn,
-      zoomOut: t.mdDiagramZoomOut,
-      zoomReset: t.mdDiagramZoomReset,
-      expand: t.mdDiagramExpand,
-      copySource: t.mdDiagramCopySource,
-      downloadSvg: t.mdDiagramDownloadSvg,
-    }),
-    [t],
-  );
+  /** 代码块里的 HTML/SVG 预览走项目自己的弹窗，脚本一律不执行。 */
+  const onArtifactClick = useCallback((payload: CodeBlockPreviewPayload): void => {
+    setArtifact({
+      type: payload.artifactType,
+      title: payload.artifactTitle,
+      code: String(payload.node?.code ?? ""),
+    });
+  }, []);
 
   const linkDialog = useMemo<LinkConfirmDialog>(
     () => ({
@@ -153,370 +104,76 @@ export function MarkdownView({
     [dialog],
   );
 
-  const applyRender = useCallback((next: RenderState): void => {
-    renderStateRef.current = next;
-    setRenderState(next);
-  }, []);
-
-  const refreshStream = useCallback(
-    (source: string): void => {
-      const splitter = splitterRef.current;
-      const added = splitter.take(source);
-      const blocks = renderStateRef.current.blocks.slice();
-      if (added) {
-        const block = renderMarkdownBlock(added, assets);
-        if (block) blocks.push(block);
-      }
-      const boundary = splitter.boundary;
-      const renderPoint = Math.max(renderPointOf(source, splitter), boundary);
-      const liveText = source.slice(boundary, renderPoint);
-      if (liveText.length > STREAM_LIVE_BLOCK_MAX_CHARS) {
-        liveBlockTextRef.current = "";
-        applyRender({ blocks, liveBlock: "", liveTail: tailText(source, boundary) });
-        return;
-      }
-      let liveBlock = renderStateRef.current.liveBlock;
-      if (liveText !== liveBlockTextRef.current) {
-        liveBlockTextRef.current = liveText;
-        liveBlock = liveText ? renderMarkdown(liveText, assets) : "";
-      }
-      applyRender({ blocks, liveBlock, liveTail: tailText(source, renderPoint) });
-    },
-    [applyRender, assets],
-  );
-
-  const renderFull = useCallback(
-    (source: string): void => {
-      splitterRef.current = createStreamBlockSplitter();
-      liveBlockTextRef.current = "";
-      if (streaming && source.length > STREAM_FULL_MAX_CHARS) {
-        applyRender({ blocks: [], liveBlock: "", liveTail: tailText(source, 0) });
-        return;
-      }
-      // 流式期间的内容不会被复用，写入 LRU 只会淘汰历史消息的缓存。
-      const render = streaming ? renderMarkdown : renderMarkdownCached;
-      applyRender({
-        blocks: source ? [render(source, assets)] : [],
-        liveBlock: "",
-        liveTail: "",
-      });
-    },
-    [applyRender, assets, streaming],
-  );
-
-  const resetStreamState = useCallback((): void => {
-    splitterRef.current = createStreamBlockSplitter();
-    liveBlockTextRef.current = "";
-    applyRender(EMPTY_RENDER);
-  }, [applyRender]);
-
-  const refreshHtml = useCallback(
-    (source: string): void => {
-      if (streaming && streamRender.enabled) refreshStream(source);
-      else renderFull(source);
-    },
-    [refreshStream, renderFull, streamRender.enabled, streaming],
-  );
-
-  const paintDiagrams = useCallback((): void => {
-    const root = rootEl.current;
-    if (!root) return;
-    const labels = diagramLabels;
-    void Promise.all([
-      mountMermaidIn(root, appearance.resolvedTheme === "dark", labels),
-      mountDotIn(root, labels),
-    ]);
-  }, [appearance.resolvedTheme, diagramLabels]);
-
-  const scheduleDiagrams = useCallback((): void => {
-    if (diagramTimer.current) window.clearTimeout(diagramTimer.current);
-    diagramTimer.current = window.setTimeout(() => {
-      diagramTimer.current = 0;
-      paintDiagrams();
-    }, 140);
-  }, [paintDiagrams]);
-
-  const renderNow = useCallback(
-    (source: string): void => {
-      lastRenderAt.current = Date.now();
-      refreshHtml(source);
-      scheduleDiagrams();
-    },
-    [refreshHtml, scheduleDiagrams],
-  );
-
-  /** 流式 tick 快于一次渲染所需的时间时就按设置间隔合并，并带一次尾随补齐。 */
-  const scheduleRender = useCallback(
-    (source: string): void => {
-      const throttleMs = streamRender.throttleMs;
-      const elapsed = Date.now() - lastRenderAt.current;
-      if (elapsed >= throttleMs) {
-        renderNow(source);
-        return;
-      }
-      pendingContent.current = source;
-      if (!renderTimer.current) {
-        renderTimer.current = window.setTimeout(() => {
-          renderTimer.current = 0;
-          const next = pendingContent.current;
-          if (next == null) return;
-          pendingContent.current = null;
-          renderNow(next);
-        }, throttleMs - elapsed);
-      }
-    },
-    [renderNow, streamRender.throttleMs],
-  );
-
-  function openPreview(block: HTMLElement): void {
-    const svg = getDiagramSvgMarkup(block);
-    setPreviewSvg(svg);
-    setPreviewSource(getDiagramSource(block));
-    setPreviewKind(
-      block.getAttribute("data-diagram") ||
-        block.querySelector(".md-diagram-kind")?.textContent?.trim() ||
-        "diagram",
-    );
-    setPreviewZoom(Math.max(1, readDiagramZoom(block)));
-    setPreviewOpen(Boolean(svg));
-  }
-
-  function nudgePreviewZoom(factor: number): void {
-    setPreviewZoom((current) => clampDiagramZoom(current * factor));
-  }
-
-  function resetPreviewZoom(): void {
-    setPreviewZoom(1);
-  }
-
-  function copyPreviewSource(): void {
-    if (!previewSource) return;
-    void navigator.clipboard.writeText(previewSource).then(() => {
-      message.success(t.copied);
-    });
-  }
-
-  function downloadPreviewSvg(): void {
-    if (!previewSvg) return;
-    const blob = new Blob([previewSvg], { type: "image/svg+xml;charset=utf-8" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `diagram-${Date.now()}.svg`;
-    a.click();
-    URL.revokeObjectURL(url);
-    message.success(t.mdDiagramDownloaded);
-  }
-
   const onRootClick = useCallback(
-    (event: MouseEvent): void => {
+    (event: ReactMouseEvent<HTMLDivElement>): void => {
       const target = event.target as HTMLElement | null;
-      if (!target) return;
-
-      const toolBtn = target.closest("[data-diagram-action]") as HTMLElement | null;
-      if (toolBtn) {
-        event.preventDefault();
-        event.stopPropagation();
-        const block = toolBtn.closest(".md-diagram") as HTMLElement | null;
-        if (!block) return;
-        const action = toolBtn.getAttribute("data-diagram-action") || "";
-        const result = handleDiagramToolClick(block, action);
-        if (result === "expand") openPreview(block);
-        if (result === "copied") message.success(t.copied);
-        if (result === "downloaded") message.success(t.mdDiagramDownloaded);
-        return;
-      }
-
-      const copyBtn = target.closest("[data-copy]") as HTMLElement | null;
-      if (copyBtn) {
-        event.preventDefault();
-        const block = copyBtn.closest("[data-code-block]");
-        const code = block?.querySelector("code")?.textContent ?? "";
-        void navigator.clipboard.writeText(code).then(() => {
-          copyBtn.textContent = t.copied;
-          setTimeout(() => {
-            copyBtn.textContent = t.copy;
-          }, 1200);
-        });
-        return;
-      }
-
-      const anchor = target.closest("a") as HTMLAnchorElement | null;
+      const anchor = target?.closest("a") as HTMLAnchorElement | null;
       if (!anchor || !anchor.href) return;
       event.preventDefault();
-      handleAppLinkClick(event, anchor.href, linkDialog);
+      handleAppLinkClick(event.nativeEvent, anchor.href, linkDialog);
     },
-    [linkDialog, message, t],
+    [linkDialog],
   );
 
-  const onRootWheel = useCallback((event: WheelEvent): void => {
-    if (!event.ctrlKey && !event.metaKey) return;
-    const target = event.target as HTMLElement | null;
-    const block = target?.closest?.(".md-diagram.md-diagram-ready") as HTMLElement | null;
-    if (!block) return;
-    event.preventDefault();
-    const factor = event.deltaY < 0 ? 1.1 : 1 / 1.1;
-    applyDiagramZoom(block, readDiagramZoom(block) * factor);
-  }, []);
-
-  const rootClickRef = useRef(onRootClick);
-  rootClickRef.current = onRootClick;
-  const rootWheelRef = useRef(onRootWheel);
-  rootWheelRef.current = onRootWheel;
-  const scheduleDiagramsRef = useRef(scheduleDiagrams);
-  scheduleDiagramsRef.current = scheduleDiagrams;
-
-  useEffect(() => {
-    void streamRender.load();
-  }, [streamRender]);
-
-  useLayoutEffect(() => {
-    setMarkdownCopyLabel(t.copy);
-    refreshHtml(content);
-    scheduleDiagramsRef.current();
-  }, []);
-
-  useEffect(() => {
-    const root = rootEl.current;
-    if (!root) return;
-    const onClick = (event: MouseEvent): void => rootClickRef.current(event);
-    const onWheel = (event: WheelEvent): void => rootWheelRef.current(event);
-    root.addEventListener("click", onClick);
-    root.addEventListener("wheel", onWheel, { passive: false });
-    return () => {
-      if (diagramTimer.current) window.clearTimeout(diagramTimer.current);
-      if (renderTimer.current) window.clearTimeout(renderTimer.current);
-      root.removeEventListener("click", onClick);
-      root.removeEventListener("wheel", onWheel);
-    };
-  }, []);
-
-  /** 图片解析基准变了也要重渲染：同一段内容在不同目录下的图片地址不同。 */
-  const assetsKey = `${assets?.dir ?? ""}\u0000${assets?.root ?? ""}`;
-  const prevRenderKey = useRef<string | null>(null);
-  useEffect(() => {
-    const key = `${content}\u0000${assetsKey}`;
-    if (prevRenderKey.current === null) {
-      prevRenderKey.current = key;
-      return;
-    }
-    if (prevRenderKey.current === key) return;
-    prevRenderKey.current = key;
-    scheduleRender(content);
-  }, [content, assetsKey, scheduleRender]);
-
-  const prevStreaming = useRef<boolean | undefined>(streaming);
-  useEffect(() => {
-    const wasStreaming = prevStreaming.current;
-    prevStreaming.current = streaming;
-    if (streaming && !wasStreaming) {
-      resetStreamState();
-      refreshStream(content);
-      scheduleDiagrams();
-      return;
-    }
-    if (wasStreaming && !streaming) renderNow(content);
-  }, [streaming]);
-
-  // 切换开关时按新模式重渲染当前回答，避免两套渲染结果叠加。
-  const prevStreamEnabled = useRef(streamRender.enabled);
-  useEffect(() => {
-    const prev = prevStreamEnabled.current;
-    prevStreamEnabled.current = streamRender.enabled;
-    if (prev === streamRender.enabled) return;
-    if (!streaming) return;
-    resetStreamState();
-    renderNow(content);
-  }, [streamRender.enabled]);
-
-  useEffect(() => {
-    // Theme only affects Mermaid — avoid full markdown re-parse of every message.
-    const root = rootEl.current;
-    if (root) resetMermaidForTheme(root);
-    scheduleDiagrams();
-  }, [appearance.resolvedTheme, scheduleDiagrams]);
-
-  const prevLocale = useRef(locale);
-  useEffect(() => {
-    const prev = prevLocale.current;
-    prevLocale.current = locale;
-    if (prev === locale) return;
-    // 复制按钮文案烘焙在 HTML 里，切语言后重渲染当前 markdown。
-    setMarkdownCopyLabel(t.copy);
-    renderNow(content);
-  }, [locale]);
-
-  useEffect(() => {
-    const el = previewViewportEl.current;
-    if (!el) return;
-    const onWheel = (event: WheelEvent): void => {
-      if (!event.ctrlKey && !event.metaKey) return;
-      event.preventDefault();
-      const factor = event.deltaY < 0 ? 1.12 : 1 / 1.12;
-      nudgePreviewZoom(factor);
-    };
-    el.addEventListener("wheel", onWheel, { passive: false });
-    return () => {
-      el.removeEventListener("wheel", onWheel);
-    };
-  }, [previewOpen]);
+  const tooLong =
+    content.length >
+    (streaming ? STREAM_MARKDOWN_MAX_CHARS : MESSAGE_MARKDOWN_MAX_CHARS);
 
   return (
-    <>
-      <div
-        ref={rootEl}
-        className={markdownRootClassName(variant, styles.root, className)}
-      >
-        {renderState.blocks.map((block, index) => (
-          <MarkdownHtml key={index} html={block} />
-        ))}
-        {renderState.liveBlock ? <MarkdownHtml html={renderState.liveBlock} /> : null}
-        {renderState.liveTail ? (
-          <div className="md-live-tail">{renderState.liveTail}</div>
-        ) : null}
-      </div>
+    <div className={markdownRootClassName(variant, styles.root, className)}>
+      {tooLong ? (
+        <pre className="md-plain-block">{content}</pre>
+      ) : (
+        <MarkdownAssetsProvider assets={assets}>
+          <MarkdownRender
+            customId={MARKDOWN_CUSTOM_ID}
+            content={content}
+            final={!streaming}
+            isDark={appearance.resolvedTheme === "dark"}
+            fade={false}
+            smoothStreaming={false}
+            deferNodesUntilVisible={false}
+            viewportPriority
+            parseOptions={MARKDOWN_PARSE_OPTIONS}
+            htmlPolicy="trusted"
+            showTooltips={false}
+            mermaidProps={MERMAID_PROPS}
+            onHandleArtifactClick={onArtifactClick}
+            onClick={onRootClick}
+          />
+        </MarkdownAssetsProvider>
+      )}
 
       <Modal
-        open={previewOpen}
-        className={`pi-settings-modal ${styles.diagramFullscreenModal}`}
-        style={{ width: "min(100vw, 100%)", maxWidth: "100vw" }}
-        title={t.mdDiagramPreviewTitle(previewKind)}
+        open={artifact !== null}
+        title={artifact?.title}
         footer={null}
-        onCancel={() => setPreviewOpen(false)}
+        width="min(100vw - 16px, 1200px)"
+        onCancel={() => setArtifact(null)}
       >
-        <div className={`modal-scroll ${styles.previewShell}`}>
-          <div className={styles.previewToolbar}>
-            <Space size={6} align="center">
-              <Button size="small" onClick={() => nudgePreviewZoom(1 / 1.2)}>
-                −
-              </Button>
-              <span className={styles.previewZoom}>{Math.round(previewZoom * 100)}%</span>
-              <Button size="small" onClick={() => nudgePreviewZoom(1.2)}>
-                +
-              </Button>
-              <Button size="small" onClick={resetPreviewZoom}>
-                1:1
-              </Button>
-              <Button size="small" onClick={copyPreviewSource}>
-                {t.mdDiagramCopySource}
-              </Button>
-              <Button size="small" onClick={downloadPreviewSvg}>
-                {t.mdDiagramDownloadSvg}
-              </Button>
-              <span className={styles.previewHint}>{t.mdDiagramFullscreenHint}</span>
-            </Space>
-          </div>
-          <div className={styles.previewViewport} ref={previewViewportEl}>
-            <div
-              className={styles.previewCanvas}
-              style={{ transform: `scale(${previewZoom})` }}
-              dangerouslySetInnerHTML={{ __html: previewSvg }}
-            />
-          </div>
-        </div>
+        {artifact?.type === "image/svg+xml" ? (
+          <div
+            className={styles.artifactViewport}
+            dangerouslySetInnerHTML={{
+              __html: DOMPurify.sanitize(artifact.code, {
+                USE_PROFILES: { svg: true, svgFilters: true },
+              }),
+            }}
+          />
+        ) : (
+          <iframe
+            className={styles.artifactFrame}
+            sandbox=""
+            title={artifact?.title}
+            srcDoc={artifact?.code ?? ""}
+          />
+        )}
       </Modal>
-    </>
+    </div>
   );
 }
+
+/** 父级频繁重渲染（流式、滚动测量）时，正文内容没变就不必再进渲染器。 */
+export const MarkdownView = memo(MarkdownViewView);
 
 export default MarkdownView;

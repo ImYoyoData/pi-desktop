@@ -1,6 +1,7 @@
 import { lazy, Suspense, useEffect } from "react";
 import { SplitPane, SplitPanes } from "@renderer/components/SplitPanes";
 import NavRail from "@renderer/components/NavRail";
+import ViewPresence from "@renderer/components/ViewPresence";
 import { useLayoutStore } from "@renderer/stores/layout";
 import { useWorkspaceStore } from "@renderer/stores/workspace";
 
@@ -21,18 +22,8 @@ const PANEL_MIN = 18;
 const PANEL_MAX = 75;
 
 /** 胶囊卡片：面板内容与分栏边界之间留出浮动间隙。 */
-function Capsule({
-  overlay,
-  children,
-}: {
-  overlay?: boolean;
-  children: React.ReactNode;
-}): React.ReactNode {
-  return (
-    <div className={`pane-capsule${overlay ? " pane-capsule--overlay" : ""}`}>
-      {children}
-    </div>
-  );
+function Capsule({ children }: { children: React.ReactNode }): React.ReactNode {
+  return <div className="pane-capsule">{children}</div>;
 }
 
 export function SplitRoot(): React.ReactNode {
@@ -206,20 +197,14 @@ export function SplitRoot(): React.ReactNode {
               </Capsule>
             </SplitPane>
           </SplitPanes>
-          {prOpen ? (
-            <Capsule overlay>
+          <ViewPresence
+            viewId={prOpen ? "pull-requests" : customizeOpen ? "customize" : null}
+            render={(id) => (
               <Suspense fallback={null}>
-                <PullRequestsView />
+                {id === "pull-requests" ? <PullRequestsView /> : <CustomizeView />}
               </Suspense>
-            </Capsule>
-          ) : null}
-          {customizeOpen ? (
-            <Capsule overlay>
-              <Suspense fallback={null}>
-                <CustomizeView />
-              </Suspense>
-            </Capsule>
-          ) : null}
+            )}
+          />
         </SplitPane>
       </SplitPanes>
     </div>

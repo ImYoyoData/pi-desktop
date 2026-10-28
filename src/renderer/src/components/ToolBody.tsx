@@ -1,4 +1,11 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
+import { ToolDiffView } from "@renderer/components/ToolDiffView";
 import {
   CheckmarkCircleOutline,
   EllipseOutline,
@@ -14,10 +21,7 @@ import {
   type TodoToolCard,
   type ToolCard,
 } from "@renderer/utils/tool-diff";
-import {
-  parseUnifiedDiff,
-  type DiffLine,
-} from "@renderer/utils/diff-blocks";
+
 import {
   buildJsonTree,
   defaultClosedNodeIds,
@@ -46,8 +50,15 @@ type Props = {
   onOpen?: (path: string) => void;
 };
 
-/** 工具结果按语义分型渲染：读取走文件视图，编辑走 diff，命令走终端，其余走 JSON 树。 */
-export function ToolBody({
+/** 工具结果按语义分型渲染：读取走文件视图，编辑走 diff，命令走终端，其余走 JSON 树。
+   整体包一层描边卡片：头部条与正文连成一块，不再散在聊天背景上。 */
+export function ToolBody(props: Props): ReactNode {
+  const content = renderToolBody(props);
+  if (!content) return null;
+  return <div className={styles.view}>{content}</div>;
+}
+
+function renderToolBody({
   card,
   streaming,
   toolName,
@@ -62,7 +73,14 @@ export function ToolBody({
     case "other":
       return <DiffBody card={card} />;
     case "bash":
-      return <TerminalBody card={card} streaming={streaming} />;
+      return (
+        <TerminalBody
+          card={card}
+          streaming={streaming}
+          isError={isError}
+          toolName={toolName}
+        />
+      );
     case "todo":
       return <TodoBody card={card} />;
     case "generic":
@@ -139,7 +157,7 @@ function FileBody({
         <span className={styles.langBadge}>{card.lang}</span>
         <span className={styles.meta}>{range}</span>
       </div>
-      <div className={styles.body}>
+      <div className={styles.body} data-inner-scroll="">
         {lineCount ? (
           <CodePreview code={text} lang={card.lang} startLine={start} />
         ) : (
@@ -150,35 +168,8 @@ function FileBody({
   );
 }
 
-function DiffLineRow({ line }: { line: DiffLine }): ReactNode {
-  const parts = line.kind === "add" ? line.newParts : line.oldParts;
-  const sign = line.kind === "add" ? "+" : line.kind === "del" ? "−" : " ";
-  const kindClass =
-    line.kind === "add" ? styles.diffAdd : line.kind === "del" ? styles.diffDel : styles.diffCtx;
-  const markClass = line.kind === "add" ? styles.wordAdd : styles.wordDel;
-  return (
-    <div className={`${styles.diffLine} ${kindClass}`}>
-      <span className={styles.sign}>{sign}</span>
-      <span className={styles.txt}>
-        {parts
-          ? parts.map((part, i) =>
-              part.changed ? (
-                <span key={i} className={markClass}>
-                  {part.text}
-                </span>
-              ) : (
-                <span key={i}>{part.text}</span>
-              ),
-            )
-          : line.text}
-      </span>
-    </div>
-  );
-}
-
 function DiffBody({ card }: { card: FileToolCard }): ReactNode {
   const t = useI18n();
-  const parsed = useMemo(() => parseUnifiedDiff(card.diff ?? ""), [card.diff]);
   const lang = card.path ? languageFromPath(card.path) : "plaintext";
 
   return (
@@ -193,42 +184,46 @@ function DiffBody({ card }: { card: FileToolCard }): ReactNode {
           </span>
         ) : null}
       </div>
-      <div className={styles.body}>
-        {parsed.plain ? (
-          // 空字符串也是「没有补丁」，`??` 接不住空串。
-          <pre className={styles.plain}>
-            {card.diff?.trim() ? card.diff : t.toolResultNoOutput}
-          </pre>
-        ) : (
-          parsed.hunks.map((hunk, index) => (
-            <div key={index} className={styles.hunk}>
-              {hunk.header ? <div className={styles.hunkHead}>{hunk.header}</div> : null}
-              {hunk.lines.map((line, lineIndex) => (
-                <DiffLineRow key={lineIndex} line={line} />
-              ))}
-            </div>
-          ))
-        )}
+      <div className={styles.body} data-inner-scroll="">
+        <ToolDiffView
+          text={card.diff ?? ""}
+          path={card.path}
+          fallback={
+            // 空字符串也是「没有补丁」，`??` 接不住空串。
+            <pre className={styles.plain}>
+              {card.diff?.trim() ? card.diff : t.toolResultNoOutput}
+            </pre>
+          }
+        />
       </div>
     </>
   );
 }
 
-/** 失败时 pi 会在输出尾部追加这句；退出码已经单独展示，这里剥掉。 */
+/** 去掉输出首尾的空白行，以及 pi 追加在尾部的 "Command exited with code N"（退出码已单独展示）。 */
 function stripExitNotice(text: string): string {
-  return text.replace(/\n\nCommand exited with code \d+\s*$/i, "").replace(/\s+$/, "");
+  return text
+    .replace(/\n\nCommand exited with code \d+\s*$/i, "")
+    .replace(/^[\r\n]+/, "")
+    .replace(/\s+$/, "");
 }
 
 function TerminalBody({
   card,
   streaming,
+  isError,
+  toolName,
 }: {
   card: BashToolCard;
   streaming?: boolean;
+  isError?: boolean;
+  toolName?: string;
 }): ReactNode {
   const t = useI18n();
   const output = useMemo(() => stripExitNotice(card.preview ?? ""), [card.preview]);
-  const failed = card.exitCode != null && card.exitCode !== 0;
+  const failed = Boolean(isError) || (card.exitCode != null && card.exitCode !== 0);
+  /** PowerShell 用 PS> 提示符，否则命令本身以 $ 开头时会显示成 "$ $p = …"。 */
+  const promptLabel = /^(powershell|pwsh)$/iu.test(toolName ?? "") ? "PS>" : "$";
   const scrollRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
@@ -251,10 +246,10 @@ function TerminalBody({
         </div>
       ) : null}
       <div className={`${styles.term} ${failed ? styles.termFailed : ""}`}>
-        <div className={styles.termScroll} ref={scrollRef}>
+        <div className={styles.termScroll} ref={scrollRef} data-inner-scroll="">
           {card.command ? (
             <div className={styles.termCmd}>
-              <span className={styles.prompt}>$</span>
+              <span className={styles.prompt}>{promptLabel}</span>
               <span className={styles.cmd}>{card.command}</span>
             </div>
           ) : null}
@@ -438,7 +433,7 @@ function PathListBody({ entries }: { entries: string[] }): ReactNode {
         <span className={styles.langBadge}>{t.toolBodyPathList}</span>
         <span className={styles.meta}>{t.toolBodyPathCount(entries.length)}</span>
       </div>
-      <div className={styles.body}>
+      <div className={styles.body} data-inner-scroll="">
         <PathList entries={entries} />
       </div>
     </>
@@ -488,7 +483,7 @@ function ScriptReportBody({ report }: { report: ScriptReport }): ReactNode {
         ) : null}
         <span className={styles.meta}>{t.toolBodyScriptSections(report.sections.length)}</span>
       </div>
-      <div className={styles.body}>
+      <div className={styles.body} data-inner-scroll="">
         {report.sections.map((section, index) => (
           <section key={index} className={styles.scriptSection}>
             {section.title ? (
@@ -568,7 +563,7 @@ function JsonBody({
           <span className={styles.langBadge}>json</span>
           <span className={styles.meta}>{t.toolBodyStructured}</span>
         </div>
-        <div className={styles.body}>
+        <div className={styles.body} data-inner-scroll="">
           <JsonTree tree={tree} />
         </div>
       </>
@@ -581,7 +576,7 @@ function JsonBody({
     return <PathListBody entries={paths} />;
   }
   return (
-    <div className={styles.body}>
+    <div className={styles.body} data-inner-scroll="">
       <pre className={styles.plain}>
         {card.preview?.trim() ? card.preview : t.toolResultNoOutput}
       </pre>

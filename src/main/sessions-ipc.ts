@@ -13,6 +13,11 @@ import {
   cancelExtensionUiAsksForSession,
   snapshotPendingExtensionUiDialogs,
 } from "./extension-ui-host";
+import {
+  cancelPermissionAsksForSession,
+  clearSessionPermissionAllows,
+  snapshotPendingPermissionAsks,
+} from "./permissions-host";
 import { renameSessionFile } from "./session-rename";
 import { forkSessionAtUserTurn } from "./session-fork";
 import { broadcastStateChange } from "./ui-sync";
@@ -51,6 +56,7 @@ function notifyActiveSession(sessionId: string, cwd: string): void {
 function cancelSessionUiAsks(sessionId: string): void {
   cancelAskUserAsksForSession(sessionId);
   cancelExtensionUiAsksForSession(sessionId);
+  cancelPermissionAsksForSession(sessionId);
 }
 
 export function registerSessionsIpc(broker: SessionBroker): void {
@@ -70,6 +76,7 @@ export function registerSessionsIpc(broker: SessionBroker): void {
   ipcMain.handle(IpcChannels.sessions.close, (_event, sessionId: string) => {
     const id = String(sessionId ?? "");
     cancelSessionUiAsks(id);
+    clearSessionPermissionAllows(id);
     return broker.closeSession(id);
   });
 
@@ -98,15 +105,19 @@ export function registerSessionsIpc(broker: SessionBroker): void {
     return list.find((s) => s.id === sessionId)?.status ?? null;
   });
 
-  ipcMain.handle(IpcChannels.sessions.open, async (_event, sessionId: string, cwd: string) => {
-    const opened = await broker.openSession(sessionId, cwd);
-    if (opened) notifyActiveSession(sessionId, cwd);
-    return opened;
-  });
+  ipcMain.handle(
+    IpcChannels.sessions.open,
+    async (_event, sessionId: string, cwd: string, filePath?: string) => {
+      const opened = await broker.openSession(sessionId, cwd, filePath);
+      if (opened) notifyActiveSession(sessionId, cwd);
+      return opened;
+    },
+  );
 
   ipcMain.handle(IpcChannels.sessions.delete, (_event, sessionId: string, cwd: string) => {
     const id = String(sessionId ?? "");
     cancelSessionUiAsks(id);
+    clearSessionPermissionAllows(id);
     return broker.deleteSession(id, cwd);
   });
 
@@ -144,6 +155,7 @@ export function registerSessionsIpc(broker: SessionBroker): void {
   ipcMain.handle(IpcChannels.sessions.pendingUi, () => ({
     asks: snapshotPendingAskUserAsks(),
     extensionDialogs: snapshotPendingExtensionUiDialogs(),
+    permissions: snapshotPendingPermissionAsks(),
   }));
 
   ipcMain.handle(

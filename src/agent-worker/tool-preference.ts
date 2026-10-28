@@ -7,6 +7,9 @@
  */
 import type { ExtensionFactory } from "@earendil-works/pi-coding-agent";
 
+const SHELL_WORKDIR_GUIDELINE =
+	"Every shell call already starts in the session working directory (the <cwd> value); changing directory inside one call does not carry to the next. Do not prefix commands with `cd <project path>`, `Set-Location <project path>`, or `git -C <project path>`; use relative paths.";
+
 const TOOL_PREFERENCE_GUIDELINES: Record<string, readonly string[]> = {
 	grep: [
 		"Search file contents with this tool instead of shelling out to grep/rg/git grep: it caps matches (100 per call) and skips .gitignore'd paths. Pass an explicit `path` to search inside node_modules, dist, or out.",
@@ -17,7 +20,9 @@ const TOOL_PREFERENCE_GUIDELINES: Record<string, readonly string[]> = {
 	read: ["Read file contents with this tool instead of shell cat/head/tail/sed/awk."],
 	bash: [
 		"Reserve bash for what the other tools cannot do: pipelines (sort/uniq/xargs), asymmetric context (-A2 -B6), builds, tests, git, and other CLIs. Plain content search, file reads, and directory listings belong to grep/find/ls/read.",
+		SHELL_WORKDIR_GUIDELINE,
 	],
+	powershell: [SHELL_WORKDIR_GUIDELINE],
 };
 
 export function createToolPreferenceExtension(): ExtensionFactory {

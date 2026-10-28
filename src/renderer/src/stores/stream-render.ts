@@ -5,7 +5,7 @@ import {
 } from "../../../shared/stream-render";
 
 type StreamRenderState = {
-  enabled: boolean;
+  smooth: boolean;
   throttleMs: number;
   load: () => Promise<void>;
   update: (next: Partial<StreamRenderSettings>) => Promise<void>;
@@ -21,7 +21,7 @@ export const useStreamRenderStore = create<StreamRenderState>()((set, get) => {
     loading ??= (async () => {
       try {
         const saved = await window.api.streamRender.get();
-        set({ enabled: saved.enabled, throttleMs: saved.throttleMs });
+        set({ smooth: saved.smooth, throttleMs: saved.throttleMs });
       } catch {
         // 读取失败时保持默认值
       }
@@ -31,24 +31,24 @@ export const useStreamRenderStore = create<StreamRenderState>()((set, get) => {
 
   async function update(next: Partial<StreamRenderSettings>): Promise<void> {
     const saved = await window.api.streamRender.set({
-      enabled: get().enabled,
+      smooth: get().smooth,
       throttleMs: get().throttleMs,
       ...next,
     });
-    set({ enabled: saved.enabled, throttleMs: saved.throttleMs });
+    set({ smooth: saved.smooth, throttleMs: saved.throttleMs });
   }
 
   async function refresh(): Promise<void> {
     try {
       const saved = await window.api.streamRender.get();
-      set({ enabled: saved.enabled, throttleMs: saved.throttleMs });
+      set({ smooth: saved.smooth, throttleMs: saved.throttleMs });
     } catch {
       // 读取失败时保持当前值
     }
   }
 
   return {
-    enabled: DEFAULT_STREAM_RENDER_SETTINGS.enabled,
+    smooth: DEFAULT_STREAM_RENDER_SETTINGS.smooth,
     throttleMs: DEFAULT_STREAM_RENDER_SETTINGS.throttleMs,
     load,
     update,

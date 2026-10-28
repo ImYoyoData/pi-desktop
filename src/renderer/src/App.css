@@ -34,6 +34,14 @@
   animation: shell-rise 280ms var(--ease-out, cubic-bezier(0.22, 1, 0.36, 1));
 }
 
+/* SplitRoot 还没加载完时的占位，避免主区整块空白。 */
+.app-boot-placeholder {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
 /*
  * 只做位移不做透明度：透明度小于 1 会让整棵子树另起一个 backdrop root，
  * 里面的玻璃层（输入框磨砂）便取不到壁纸，启动时会闪一下。

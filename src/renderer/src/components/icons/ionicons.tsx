@@ -1816,3 +1816,31 @@ export function SquareTerminalOutline({
     </svg>
   );
 }
+
+/** 编辑文件图标：斜置笔身（笔尖朝左下），与工具卡 edit 行匹配。 */
+export function EditPencilOutline({
+  size,
+  color,
+  className,
+  style,
+}: IoniconProps): ReactNode {
+  return (
+    <svg
+      xmlns={"http://www.w3.org/2000/svg"}
+      viewBox={"-1 -1 26 26"}
+      width={size ?? "1em"}
+      height={size ?? "1em"}
+      className={className}
+      style={color ? { color, ...style } : style}
+      aria-hidden="true"
+      fill={"none"}
+      stroke={"currentColor"}
+      strokeWidth={1.5}
+      strokeLinecap={"round"}
+      strokeLinejoin={"round"}
+    >
+      <path d={"M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z"} />
+      <path d={"m15 5 4 4"} />
+    </svg>
+  );
+}

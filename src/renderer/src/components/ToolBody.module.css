@@ -1,6 +1,13 @@
 /* 工具结果的高保真视图：文件 / diff / 终端 / JSON 树。
    全部使用现有 token，明暗两套主题都成立。 */
 
+/* 展开体外壳：头部条与正文由同一条描边框住，圆角裁切头部底色。 */
+.view {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+
 .head {
   display: flex;
   align-items: center;
@@ -118,6 +125,9 @@
 
 .diffLine {
   display: flex;
+  /* 视口外的行跳过布局与绘制：内容全在，只有渲染成本被摊到可见范围内。 */
+  content-visibility: auto;
+  contain-intrinsic-size: auto 21px;
   font-family: var(--font-mono);
   font-size: 0.8462rem;
   line-height: 1.55;

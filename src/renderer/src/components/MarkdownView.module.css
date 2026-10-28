@@ -10,6 +10,26 @@
   cursor: text;
 }
 
+/* markstream 默认给根节点开 content-visibility:auto + contain-intrinsic-size，
+   屏外消息会被当成固定 800x600 —— 与 virtua 的实测行高冲突，滚动会跳。 */
+.root:global(.md) :global(.markstream-react.markdown-renderer) {
+  content-visibility: visible;
+  contain-intrinsic-size: auto;
+}
+
+/* markstream 的配色变量定义在它自己的根节点上，这里按项目主题重写。 */
+.root:global(.md) :global(.markstream-react) {
+  --code-bg: var(--pre-bg);
+  --code-fg: inherit;
+  --code-border: var(--border-subtle, rgba(127, 127, 127, 0.25));
+  --code-header-bg: transparent;
+  --code-action-fg: var(--fg-muted);
+  --code-action-hover-bg: rgba(127, 127, 127, 0.14);
+  --code-action-hover-fg: var(--fg);
+  --code-line-number: var(--fg-faint);
+  --table-border: var(--border-subtle, rgba(127, 127, 127, 0.3));
+}
+
 .root:global(.md) p {
   margin: 0 0 0.65em;
 }
@@ -52,12 +72,10 @@
   margin-top: 0;
 }
 
-/* 流式纯文本尾部：保留原始换行，直到段落完成被 marked 接管。 */
-.root:global(.md) :global(.md-live-tail) {
-  white-space: pre-wrap;
-}
-
-.root:global(.md) pre.md-plain-block {
+/* 超长回答的纯文本降级：保留原始换行，不做解析。 */
+.root:global(.md) pre.md-plain-block,
+/* 兜底：katex 渲染失败的公式按原文显示。 */
+.root:global(.md) pre.md-math-fallback {
   margin: 0.5em 0;
   padding: 10px 12px;
   border-radius: 8px;
@@ -141,7 +159,7 @@
   cursor: pointer;
 }
 
-.root:global(.md) :global(.md-table-scroll) {
+.root:global(.md) :global(.table-node-wrapper) {
   overflow-x: auto;
   margin: 0.65em 0;
 }
@@ -163,6 +181,56 @@
 .root:global(.md) th {
   background: var(--bg-elevated, rgba(127, 127, 127, 0.08));
   font-weight: 600;
+}
+
+.root:global(.md) :not(pre) > code {
+  font-family: var(--font-mono);
+  font-size: 0.9em;
+  padding: 0.1em 0.35em;
+  border-radius: 4px;
+  background: var(--md-inline-code-bg, rgba(0, 0, 0, 0.06));
+}
+
+/* ============ Copilot (VS Code) chat variant — 1:1 ============
+   Sources: media/chat.css, chatContentParts/media/codeBlockPart.css,
+   chatContentParts/media/chatInlineAnchorWidget.css */
+.root:global(.md.md-chat) {
+  font-size: var(--chat-font-m, 13px);
+  line-height: 1.5em;
+}
+
+.root:global(.md.md-chat) p {
+  margin: 0 0 16px 0;
+}
+
+.root:global(.md.md-chat) h1,
+.root:global(.md.md-chat) h2,
+.root:global(.md.md-chat) h3,
+.root:global(.md.md-chat) h4,
+.root:global(.md.md-chat) h5,
+.root:global(.md.md-chat) h6 {
+  line-height: normal;
+}
+
+.root:global(.md.md-chat) ul {
+  padding-inline-start: 24px;
+}
+
+.root:global(.md.md-chat) ol {
+  padding-inline-start: 28px;
+}
+
+.root:global(.md.md-chat) li {
+  margin: 4px 0;
+}
+
+/* Inline code pill — [data-code] in progress/markdown text */
+.root:global(.md.md-chat) :not(pre) > code {
+  font-size: 0.9em;
+  padding: 1px 3px;
+  border-radius: 4px;
+  border: 1px solid var(--chat-line, var(--border));
+  background: var(--md-inline-code-bg, rgba(127, 127, 127, 0.1));
 }
 
 .root:global(.md) :global(.code-block) {
@@ -249,56 +317,6 @@
   white-space: pre;
 }
 
-.root:global(.md) :not(pre) > code {
-  font-family: var(--font-mono);
-  font-size: 0.9em;
-  padding: 0.1em 0.35em;
-  border-radius: 4px;
-  background: var(--md-inline-code-bg, rgba(0, 0, 0, 0.06));
-}
-
-/* ============ Copilot (VS Code) chat variant — 1:1 ============
-   Sources: media/chat.css, chatContentParts/media/codeBlockPart.css,
-   chatContentParts/media/chatInlineAnchorWidget.css */
-.root:global(.md.md-chat) {
-  font-size: var(--chat-font-m, 13px);
-  line-height: 1.5em;
-}
-
-.root:global(.md.md-chat) p {
-  margin: 0 0 16px 0;
-}
-
-.root:global(.md.md-chat) h1,
-.root:global(.md.md-chat) h2,
-.root:global(.md.md-chat) h3,
-.root:global(.md.md-chat) h4,
-.root:global(.md.md-chat) h5,
-.root:global(.md.md-chat) h6 {
-  line-height: normal;
-}
-
-.root:global(.md.md-chat) ul {
-  padding-inline-start: 24px;
-}
-
-.root:global(.md.md-chat) ol {
-  padding-inline-start: 28px;
-}
-
-.root:global(.md.md-chat) li {
-  margin: 4px 0;
-}
-
-/* Inline code pill — [data-code] in progress/markdown text */
-.root:global(.md.md-chat) :not(pre) > code {
-  font-size: 0.9em;
-  padding: 1px 3px;
-  border-radius: 4px;
-  border: 1px solid var(--chat-line, var(--border));
-  background: var(--md-inline-code-bg, rgba(127, 127, 127, 0.1));
-}
-
 /* Code block: headerless, floating copy toolbar on hover (codeBlockPart.css) */
 .root:global(.md.md-chat) :global(.code-block) {
   position: relative;
@@ -355,6 +373,49 @@
 .root:global(.md.md-chat) :global(code.hljs) {
   font-size: var(--chat-font-s, 12px);
   line-height: 1.45;
+}
+
+
+/* markstream 内置 Mermaid 块自带蓝调皮肤，这里换成项目的中性色。 */
+.root:global(.md) :global(.mermaid-block) {
+  margin: 0.75em 0;
+  border-radius: 4px;
+  border: 1px solid var(--border-subtle, rgba(127, 127, 127, 0.25));
+  background: var(--bg-elevated, transparent);
+  color: inherit;
+}
+
+.root:global(.md) :global(.mermaid-header) {
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--border-subtle, rgba(127, 127, 127, 0.2));
+  background: transparent;
+  font-size: 0.8462rem;
+  color: var(--fg-faint);
+}
+
+.root:global(.md) :global(.mermaid-body) {
+  padding: 12px;
+}
+
+.root:global(.md) :global(.mermaid-preview) {
+  min-height: 0;
+}
+
+.root:global(.md) :global(.mermaid-btn) {
+  border: none;
+  background: transparent;
+  color: var(--fg-muted);
+  font-size: 0.9231rem;
+  line-height: 1;
+  min-width: 24px;
+  height: 24px;
+  padding: 0 6px;
+  border-radius: 4px;
+}
+
+.root:global(.md) :global(.mermaid-btn:hover) {
+  background: rgba(127, 127, 127, 0.14);
+  color: var(--fg);
 }
 
 .root:global(.md) :global(.md-diagram) {
@@ -463,6 +524,30 @@
   margin: 0.5em 0;
 }
 
+.artifactViewport {
+  max-height: min(78vh, 820px);
+  overflow: auto;
+  padding: 16px;
+  border-radius: 4px;
+  border: 1px solid var(--border-subtle, rgba(127, 127, 127, 0.25));
+  background: var(--bg-elevated, transparent);
+}
+
+.artifactViewport :global(svg) {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  margin: 0 auto;
+}
+
+.artifactFrame {
+  width: 100%;
+  height: min(78vh, 820px);
+  border: 1px solid var(--border-subtle, rgba(127, 127, 127, 0.25));
+  border-radius: 4px;
+  background: #fff;
+}
+
 .previewShell {
   display: flex;
   flex-direction: column;
@@ -518,4 +603,12 @@
 :global(.ant-modal).diagramFullscreenModal {
   width: min(100vw - 16px, 1400px) !important;
   max-width: 100vw !important;
+}
+
+/* markstream 的列表项内部会包一层 <p>（原实现直接把文本放进 <li>），
+   chat 变体给 p 的 16px 下边距会叠到 li 上，列表项之间就多出一行。
+   这里的选择器优先级高于 .md.md-chat p，且放在文件最后。 */
+.root:global(.md.md-chat) :global(.list-item) > p,
+.root:global(.md) :global(.list-item) > p {
+  margin: 0;
 }

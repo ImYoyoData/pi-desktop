@@ -8,9 +8,11 @@ import {
 } from "react";
 import { Tag, Typography } from "antd";
 import AskUserStrip from "@renderer/components/AskUserStrip";
+import PermissionStrip from "@renderer/components/PermissionStrip";
 import ExtensionUiStrip from "@renderer/components/ExtensionUiStrip";
 import SessionTodoPanel from "@renderer/components/SessionTodoPanel";
 import SessionChangedFiles from "@renderer/components/SessionChangedFiles";
+import SessionStatsBar, { useSessionStats } from "@renderer/components/SessionStatsBar";
 import { useAppearanceStore } from "@renderer/stores/appearance";
 import { useChatStore } from "@renderer/stores/chat";
 import { useSessionsStore } from "@renderer/stores/sessions";
@@ -116,6 +118,8 @@ export function ChatPanel({ visible }: Props): ReactNode {
     return t.newSession;
   })();
 
+  const sessionStats = useSessionStats();
+
   return (
     <section className={`chat-panel ${styles.chatPanel}`}>
       {hasSession ? (
@@ -141,18 +145,21 @@ export function ChatPanel({ visible }: Props): ReactNode {
               ) : null}
             </header>
           ) : null}
-          <Suspense fallback={null}>
-            <MessageList
-              messages={chat.activeMessages}
-              streaming={chat.activeStreaming}
-              running={running}
-              retryHint={chat.activeRetryHint}
-              historyLoading={chat.historyLoading}
-              visible={visible !== false}
-            />
-          </Suspense>
+          <div className={styles.messageSlot}>
+            <Suspense fallback={null}>
+              <MessageList
+                messages={chat.activeMessages}
+                streaming={chat.activeStreaming}
+                running={running}
+                retryHint={chat.activeRetryHint}
+                historyLoading={chat.historyLoading}
+                visible={visible !== false}
+              />
+            </Suspense>
+          </div>
           <ExtensionUiStrip />
           {!chat.activePendingExtensionUi ? <AskUserStrip /> : null}
+          <PermissionStrip />
           {/* Docked widgets share one surface with the composer (chat-input-stack). */}
           <div className={styles.chatInputStack}>
             {hasDock ? (
@@ -165,6 +172,7 @@ export function ChatPanel({ visible }: Props): ReactNode {
               <Composer docked={hasDock} />
             </Suspense>
           </div>
+          <SessionStatsBar stats={sessionStats} />
         </>
       ) : null}
     </section>
