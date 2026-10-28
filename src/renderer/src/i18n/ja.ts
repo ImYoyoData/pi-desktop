@@ -1294,6 +1294,8 @@ export const ja = {
 		`「${name}」をアンインストールしますか？設定から削除し、ローカルのパッケージを削除します。`,
 	marketUninstalled: (name: string) => `${name} をアンインストールしました`,
 	marketUninstallFailed: "アンインストールに失敗しました",
+	git: "Git",
+	gitComingSoon: "Git 機能はまだ実装されていません。",
 	pullRequests: "プルリクエスト",
 	pullRequestTab: "プルリクエスト",
 	prSearchPlaceholder: "プルリクエストを検索…",

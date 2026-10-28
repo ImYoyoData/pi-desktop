@@ -45,11 +45,11 @@ export interface PersistedLayout {
   preMaximize: PreMaximizeState | null;
 }
 
-/** 中央区域视图：聊天 / 拉取请求 / 智能体设置整页。 */
-export type CenterView = "chat" | "pull-requests" | "customize";
+/** 中央区域视图：聊天 / Git / 拉取请求 / 智能体设置整页。 */
+export type CenterView = "chat" | "git" | "pull-requests" | "customize";
 
 function normalizeCenterView(value: unknown): CenterView {
-  if (value === "customize" || value === "pull-requests") return value;
+  if (value === "customize" || value === "pull-requests" || value === "git") return value;
   return "chat";
 }
 

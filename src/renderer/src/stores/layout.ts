@@ -54,6 +54,7 @@ export type LayoutState = LayoutBase & {
   toggleEditorMaximized: () => void;
   openCustomize: (section: string) => void;
   showChat: () => void;
+  showGit: () => void;
   showPullRequests: () => void;
   setCustomizeSection: (section: string) => void;
 };
@@ -151,6 +152,13 @@ export const useLayoutStore = create<LayoutState>()((set, get) => {
     persist();
   }
 
+  /** 在中央区域打开 Git 视图。 */
+  function showGit(): void {
+    if (get().editorMaximized) get().toggleEditorMaximized();
+    set({ centerView: "git" });
+    persist();
+  }
+
   /** 在中央区域打开拉取请求视图。 */
   function showPullRequests(): void {
     if (get().editorMaximized) get().toggleEditorMaximized();
@@ -238,6 +246,7 @@ export const useLayoutStore = create<LayoutState>()((set, get) => {
     toggleEditorMaximized,
     openCustomize,
     showChat,
+    showGit,
     showPullRequests,
     setCustomizeSection,
   };

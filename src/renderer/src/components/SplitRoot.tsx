@@ -9,6 +9,7 @@ const SessionSidebar = lazy(() => import("@renderer/components/SessionSidebar"))
 const ChatPanel = lazy(() => import("@renderer/components/ChatPanel"));
 const RightPane = lazy(() => import("@renderer/components/RightPane"));
 const PullRequestsView = lazy(() => import("@renderer/components/PullRequestsView"));
+const GitView = lazy(() => import("@renderer/components/GitView"));
 const CustomizeView = lazy(() => import("@renderer/components/CustomizeView"));
 const BottomPanel = lazy(() => import("@renderer/components/BottomPanel"));
 
@@ -102,10 +103,11 @@ export function SplitRoot(): React.ReactNode {
     layout.setBottomSize(bottomOfColumn);
   }
 
-  /** 拉取请求页与设置页都是主区全屏视图，会话栏随视图一起收起。 */
+  /** Git 页、拉取请求页与设置页都是主区全屏视图，会话栏随视图一起收起。 */
   const prOpen = layout.centerView === "pull-requests";
+  const gitOpen = layout.centerView === "git";
   const customizeOpen = layout.centerView === "customize" && Boolean(workspaceRoot);
-  const fullPageView = prOpen || customizeOpen;
+  const fullPageView = prOpen || gitOpen || customizeOpen;
   const leftHidden = layout.leftCollapsed || fullPageView;
 
   return (
@@ -198,10 +200,18 @@ export function SplitRoot(): React.ReactNode {
             </SplitPane>
           </SplitPanes>
           <ViewPresence
-            viewId={prOpen ? "pull-requests" : customizeOpen ? "customize" : null}
+            viewId={
+              gitOpen ? "git" : prOpen ? "pull-requests" : customizeOpen ? "customize" : null
+            }
             render={(id) => (
               <Suspense fallback={null}>
-                {id === "pull-requests" ? <PullRequestsView /> : <CustomizeView />}
+                {id === "git" ? (
+                  <GitView />
+                ) : id === "pull-requests" ? (
+                  <PullRequestsView />
+                ) : (
+                  <CustomizeView />
+                )}
               </Suspense>
             )}
           />

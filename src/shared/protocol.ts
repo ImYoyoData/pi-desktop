@@ -210,6 +210,7 @@ export const IpcChannels = {
 		pullRequestView: "github:pullRequestView",
 		pullRequestList: "github:pullRequestList",
 		pullRequestListCancel: "github:pullRequestListCancel",
+		pullRequestCounts: "github:pullRequestCounts",
 		pullRequestDetail: "github:pullRequestDetail",
 		pullRequestPatch: "github:pullRequestPatch",
 		pullRequestAction: "github:pullRequestAction",

@@ -1,7 +1,13 @@
 import { ipcMain } from "electron";
 import { z } from "zod";
 import { IpcChannels } from "../shared/protocol";
-import type { GitHubResponse, PullRequestPage, PullRequestPatchResult, PullRequestSummary } from "../shared/github-types";
+import type {
+	GitHubResponse,
+	PullRequestCounts,
+	PullRequestPage,
+	PullRequestPatchResult,
+	PullRequestSummary,
+} from "../shared/github-types";
 import { getWorkspace } from "./workspace-ipc";
 import { githubClient, isGitHubError, loadGitHubImage } from "./github-host";
 import { parsePullRequestAction } from "./github-detail";
@@ -12,6 +18,7 @@ const RequestIdSchema = z.string().regex(/^[\w-]{1,64}$/);
 const PullRequestTargetSchema = z.object({
 	cwd: z.string().min(1).optional(),
 	url: z.url({ protocol: /^https$/ }).max(2048),
+	fresh: z.boolean().optional(),
 });
 
 const PullRequestListSchema = z.object({
@@ -21,6 +28,7 @@ const PullRequestListSchema = z.object({
 	filters: PullRequestFiltersSchema.optional(),
 	cursor: z.string().min(1).max(2048).optional(),
 	requestId: RequestIdSchema.optional(),
+	fresh: z.boolean().optional(),
 });
 
 const PatchHeadSchema = z.object({
@@ -50,12 +58,12 @@ function isCancelledError(error: unknown): boolean {
 export function registerGitHubIpc(): void {
 	const listRequests = new Map<string, AbortController>();
 
-	const target = (options: unknown): { root: string; url: string } | { error: string } => {
+	const target = (options: unknown): { root: string; url: string; fresh: boolean } | { error: string } => {
 		const root = workspaceRoot();
 		if (!root) return { error: "Open a project folder first." };
 		const parsed = PullRequestTargetSchema.safeParse(options);
 		if (!parsed.success) return { error: "Choose a valid pull request." };
-		return { root, url: parsed.data.url };
+		return { root, url: parsed.data.url, fresh: parsed.data.fresh === true };
 	};
 
 	ipcMain.handle(
@@ -64,7 +72,7 @@ export function registerGitHubIpc(): void {
 			const resolved = target(options);
 			if ("error" in resolved) return { success: false, error: resolved.error };
 			try {
-				return { success: true, detail: await githubClient.pullRequestDetail(resolved.root, resolved.url) };
+				return { success: true, detail: await githubClient.pullRequestDetail(resolved.root, resolved.url, resolved.fresh) };
 			} catch (error) {
 				return failure(error, "Could not load this pull request. Try again.");
 			}
@@ -141,14 +149,14 @@ export function registerGitHubIpc(): void {
 		}
 		const root = workspaceRoot();
 		if (!root) return { success: false, error: "Open a project folder first." };
-		const { state, author, cursor, filters, requestId } = parsed.data;
+		const { state, author, cursor, filters, requestId, fresh } = parsed.data;
 		const controller = new AbortController();
 		if (requestId) {
 			listRequests.get(requestId)?.abort();
 			listRequests.set(requestId, controller);
 		}
 		try {
-			const page = await githubClient.listPullRequests(root, state, author, cursor, filters, controller.signal);
+			const page = await githubClient.listPullRequests(root, state, author, cursor, filters, controller.signal, fresh);
 			return { success: true, ...page };
 		} catch (error) {
 			if (controller.signal.aborted || isCancelledError(error)) {
@@ -166,6 +174,40 @@ export function registerGitHubIpc(): void {
 		listRequests.get(parsed.data)?.abort();
 		listRequests.delete(parsed.data);
 	});
+
+	ipcMain.handle(
+		IpcChannels.github.pullRequestCounts,
+		async (_event, options: unknown): Promise<GitHubResponse<{ counts?: PullRequestCounts }>> => {
+			const parsed = PullRequestListSchema.safeParse(options);
+			if (!parsed.success) return { success: false, error: "Choose a repository and valid pull request filters." };
+			const root = workspaceRoot();
+			if (!root) return { success: false, error: "Open a project folder first." };
+			const { state, author, filters, requestId, fresh } = parsed.data;
+			const controller = new AbortController();
+			if (requestId) {
+				listRequests.get(requestId)?.abort();
+				listRequests.set(requestId, controller);
+			}
+			try {
+				const counts = await githubClient.pullRequestCounts({
+					cwd: root,
+					state,
+					author,
+					filters,
+					signal: controller.signal,
+					fresh,
+				});
+				return counts ? { success: true, counts } : { success: true };
+			} catch (error) {
+				if (controller.signal.aborted || isCancelledError(error)) {
+					return { success: false, cancelled: true, error: "Cancelled." };
+				}
+				return failure(error, "Could not load pull request counts.");
+			} finally {
+				if (requestId && listRequests.get(requestId) === controller) listRequests.delete(requestId);
+			}
+		},
+	);
 
 	ipcMain.handle(
 		IpcChannels.github.pullRequest,

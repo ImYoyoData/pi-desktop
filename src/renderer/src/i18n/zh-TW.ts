@@ -1294,6 +1294,8 @@ export const zhTW = {
 		`確定解除安裝「${name}」？將從設定中移除並刪除本機套件。`,
 	marketUninstalled: (name: string) => `已解除安裝 ${name}`,
 	marketUninstallFailed: "解除安裝失敗",
+	git: "Git",
+	gitComingSoon: "Git 功能還在開發中。",
 	pullRequests: "拉取請求",
 	pullRequestTab: "拉取請求",
 	prSearchPlaceholder: "搜尋拉取請求…",
