@@ -365,14 +365,14 @@
 .stepOk { color: var(--success, #3d9a6a); }
 .stepErr { color: var(--error, #d03050); }
 
-/* 展开体紧跟在所属步骤下方，与步骤文本对齐。 */
+/* 展开体紧跟在所属步骤下方，与步骤图标左缘对齐。 */
 .stepBody {
-  padding-left: 27px;
+  padding-left: 3px;
 }
 
-/* 独立工具行的展开体：与标题左缘对齐地缩进一级。 */
+/* 独立工具行的展开体：与标题行图标左缘对齐，卡片占满整行宽度。 */
 .rowBody {
-  margin: 2px 0 4px 27px;
+  margin: 2px 0 4px 3px;
 }
 
 .toolImages {
