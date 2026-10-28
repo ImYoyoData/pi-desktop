@@ -246,7 +246,7 @@ export function SessionSidebar(): ReactNode {
   const pendingAskKey = useChatStore((s) => {
     const ids: string[] = [];
     for (const [id, state] of Object.entries(s.bySession)) {
-      if (state.pendingAskUser || state.pendingExtensionUi) ids.push(id);
+      if (state.pendingAskUser || state.pendingExtensionUi || state.pendingPermission) ids.push(id);
     }
     return ids.sort().join(",");
   });

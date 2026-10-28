@@ -62,6 +62,14 @@ export const IpcChannels = {
 		/** Renderer → main: 保存「运行」设置（并热重载给活跃 worker）。 */
 		set: "runtime:set",
 	},
+	permissions: {
+		/** Renderer → main: 读取工具审批档位。 */
+		get: "permissions:get",
+		/** Renderer → main: 保存工具审批档位。 */
+		set: "permissions:set",
+		/** Renderer → main: 审批条的选择结果。 */
+		reply: "permissions:reply",
+	},
 	/** 共享状态统一通道：桌面端与浏览器预览页据此同步。 */
 	state: {
 		/** Main → renderer: 共享状态变化（按范围，见 shared/state-sync.ts）。 */
@@ -131,6 +139,8 @@ export const IpcChannels = {
 		askUser: "sessions:askUser",
 		/** Renderer → main: ask_user answers */
 		askUserReply: "sessions:askUserReply",
+		/** Main → renderer: 工具调用审批条 */
+		permission: "sessions:permission",
 		/** Main → renderer: Pi extension UI (select/confirm/notify/…) */
 		extensionUi: "sessions:extensionUi",
 		/** Renderer → main: extension UI dialog reply */
@@ -686,6 +696,7 @@ export type SessionForkResult = {
 export type PendingUiSnapshotRequest = {
 	asks: import("./ask-user").AskUserAskPrompt[];
 	extensionDialogs: PendingUiExtensionSnapshot[];
+	permissions: import("./permissions").PermissionAskPrompt[];
 };
 
 export type PendingUiExtensionSnapshot = import("./extension-ui").ExtensionUiPending;
