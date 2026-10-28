@@ -59,7 +59,10 @@ const RULES: Rule[] = [
     en: "Model response timed out. Please retry.",
   },
   {
-    test: (t) => /no response from model|empty response|model.*(hang|stall|silent)/i.test(t),
+    test: (t) =>
+      /no response from model|empty response from (?:the )?model|model\b[^.]{0,40}\b(?:hung|stalled|silent)\b/i.test(
+        t,
+      ),
     "zh-CN": "模型未返回有效内容，请稍后重试或更换模型。",
     "zh-TW": "模型未回傳有效內容，請稍後重試或更換模型。",
     ja: "モデルから有効な応答がありません。再試行するかモデルを切り替えてください。",
@@ -111,7 +114,8 @@ const RULES: Rule[] = [
     en: "This session’s Worker is unresponsive. Terminate or restart this session only.",
   },
   {
-    test: (t) => /500|502|503|504|bad gateway|service unavailable|internal server/i.test(t),
+    test: (t) =>
+      /\b5(?:0[0-9]|2[0-7])\b|bad gateway|service unavailable|internal server/i.test(t),
     "zh-CN": "模型服务暂时不可用，请稍后重试。",
     "zh-TW": "模型服務暫時無法使用，請稍後重試。",
     ja: "モデルサービスを一時的に利用できません。しばらくして再試行してください。",
