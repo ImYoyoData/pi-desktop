@@ -6,6 +6,11 @@
   background: var(--bg);
 }
 
+/* 统计条存在时输入框底部与它连成一体，不再留空隙。 */
+.chatPanel:has(:global(.pi-session-stats)) .chatInputStack {
+  padding-bottom: 0;
+}
+
 /* 统计条铺到面板底部，胶囊描边的底边会横穿它下面，聊天面板去掉这一条。 */
 :global(.pane-capsule) > .chatPanel {
   border-bottom: 0;

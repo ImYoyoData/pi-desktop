@@ -11,7 +11,7 @@ import AskUserStrip from "@renderer/components/AskUserStrip";
 import ExtensionUiStrip from "@renderer/components/ExtensionUiStrip";
 import SessionTodoPanel from "@renderer/components/SessionTodoPanel";
 import SessionChangedFiles from "@renderer/components/SessionChangedFiles";
-import SessionStatsBar from "@renderer/components/SessionStatsBar";
+import SessionStatsBar, { useSessionStats } from "@renderer/components/SessionStatsBar";
 import { useAppearanceStore } from "@renderer/stores/appearance";
 import { useChatStore } from "@renderer/stores/chat";
 import { useSessionsStore } from "@renderer/stores/sessions";
@@ -117,6 +117,8 @@ export function ChatPanel({ visible }: Props): ReactNode {
     return t.newSession;
   })();
 
+  const sessionStats = useSessionStats();
+
   return (
     <section className={`chat-panel ${styles.chatPanel}`}>
       {hasSession ? (
@@ -165,10 +167,10 @@ export function ChatPanel({ visible }: Props): ReactNode {
               </div>
             ) : null}
             <Suspense fallback={null}>
-              <Composer docked={hasDock} />
+              <Composer docked={hasDock} statsBelow={sessionStats.length > 0} />
             </Suspense>
           </div>
-          <SessionStatsBar />
+          <SessionStatsBar stats={sessionStats} />
         </>
       ) : null}
     </section>

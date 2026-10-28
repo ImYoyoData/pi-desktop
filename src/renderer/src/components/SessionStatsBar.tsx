@@ -6,15 +6,12 @@ import { useSessionsStore } from "@renderer/stores/sessions";
 import {
   buildSessionStats,
   sessionUsageFromMessages,
+  type SessionStatItem,
 } from "@renderer/utils/session-stats";
 import styles from "./SessionStatsBar.module.css";
 
-/**
- * 会话统计条：铺在主区底部，不跟随输入框的列宽。
- *
- * worker 冷启动期间没有 context_usage，先用已加载历史聚合出能算的项。
- */
-export function SessionStatsBar(): ReactNode {
+/** 会话统计项；worker 冷启动期间用已加载历史聚合出能算的项。 */
+export function useSessionStats(): SessionStatItem[] {
   const enabled = useAppearanceStore((s) => s.showSessionDetails);
   const contextUsage = useSessionsStore((s) => s.activeContextUsage);
   const tpsMode = useSessionStatsStore((s) => s.tpsMode);
@@ -28,10 +25,22 @@ export function SessionStatsBar(): ReactNode {
     () => buildSessionStats(contextUsage ?? fallbackUsage, tpsMode),
     [contextUsage, fallbackUsage, tpsMode],
   );
+  return enabled && stats ? stats : EMPTY_STATS;
+}
 
-  if (!enabled || !stats) return null;
+const EMPTY_STATS: SessionStatItem[] = [];
+
+/**
+ * 会话统计条：铺在主区底部，不跟随输入框的列宽。
+ */
+export function SessionStatsBar({ stats }: { stats: SessionStatItem[] }): ReactNode {
+  if (!stats.length) return null;
   return (
-    <div className={styles.bar} role="status" aria-label="session statistics">
+    <div
+      className={`pi-session-stats ${styles.bar}`}
+      role="status"
+      aria-label="session statistics"
+    >
       {stats.map((item) => (
         <span key={item.key} className={styles.item} title={item.title}>
           <span className={styles.label}>{item.label}</span>
