@@ -28,7 +28,7 @@ describe("parseAskUserArgs", () => {
     ).toBe(true);
   });
 
-  it("does not duplicate custom when allowCustom already present", () => {
+  it("always appends the custom input row, even when an option allows custom text", () => {
     const prompt = parseAskUserArgs({
       questions: [
         {
@@ -42,16 +42,36 @@ describe("parseAskUserArgs", () => {
         },
       ],
     });
-    expect(prompt?.questions[0]?.options.filter((o) => o.allowCustom)).toHaveLength(1);
+    const options = prompt?.questions[0]?.options ?? [];
+    expect(options.filter((o) => o.id === ASK_USER_CUSTOM_OPTION_ID)).toHaveLength(1);
+    expect(options.map((o) => o.id)).toContain("other");
   });
 
   it("returns null for empty questions", () => {
     expect(parseAskUserArgs({ questions: [] })).toBeNull();
   });
+
+  it("keeps the tab title and option description", () => {
+    const prompt = parseAskUserArgs({
+      questions: [
+        {
+          id: "scope",
+          title: "改动范围",
+          prompt: "只改代码还是也改文档?",
+          type: "single",
+          options: [
+            { id: "code", label: "只改代码", description: "按 AGENTS.md 默认" },
+          ],
+        },
+      ],
+    });
+    expect(prompt?.questions[0]?.title).toBe("改动范围");
+    expect(prompt?.questions[0]?.options[0]?.description).toBe("按 AGENTS.md 默认");
+  });
 });
 
 describe("withEnsuredCustomOption", () => {
-  it("leaves buttons unchanged", () => {
+  it("adds the custom option to buttons too", () => {
     const q = withEnsuredCustomOption({
       id: "go",
       prompt: "Proceed?",
@@ -61,7 +81,8 @@ describe("withEnsuredCustomOption", () => {
         { id: "no", label: "No" },
       ],
     });
-    expect(q.options).toHaveLength(2);
+    expect(q.options).toHaveLength(3);
+    expect(q.options[2]?.id).toBe(ASK_USER_CUSTOM_OPTION_ID);
   });
 });
 
@@ -181,5 +202,17 @@ describe("validateAskUserAnswers + formatAskUserAnswers", () => {
     expect(text).toContain("(id=env)");
     expect(text).toContain("custom: canary 10%");
     expect(text).toContain("Reject");
+  });
+
+  it("accepts a free-text answer without picking an option", () => {
+    const draft: AskUserAnswerDraft = {
+      env: { optionIds: [], customText: "staging", skipped: false },
+      flags: { optionIds: [], customText: "only alpha", skipped: false },
+      go: { optionIds: [], customText: "ship it", skipped: false },
+    };
+    expect(validateAskUserAnswers(prompt, draft)).toBeNull();
+    const text = formatAskUserAnswers(prompt, draft);
+    expect(text).toContain("custom: staging");
+    expect(text).toContain("custom: ship it");
   });
 });
