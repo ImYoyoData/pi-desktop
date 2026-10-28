@@ -6,17 +6,6 @@
   background: var(--bg);
 }
 
-/* 统计条存在时输入框与它连成一体：输入框不再画底边、底角变直角，中间不留空隙。 */
-.chatPanel:has(:global(.pi-session-stats)) .chatInputStack {
-  padding-bottom: 0;
-}
-
-.chatPanel:has(:global(.pi-session-stats)) :global(.composer-card) {
-  border-bottom: none;
-  border-bottom-left-radius: 0;
-  border-bottom-right-radius: 0;
-}
-
 /* 统计条铺到面板底部，胶囊描边的底边会横穿它下面，聊天面板去掉这一条。 */
 :global(.pane-capsule) > .chatPanel {
   border-bottom: 0;
@@ -75,7 +64,8 @@
   width: 100%;
   max-width: var(--pi-input-max, var(--pi-message-max, 75%));
   margin: 0 auto;
-  padding: 0 var(--chat-column-pad-x, 16px) 10px;
+  /* 与底部统计条留出间距：输入框整体上移一点，不再和统计条黏在一起。 */
+  padding: 0 var(--chat-column-pad-x, 16px) 14px;
   box-sizing: border-box;
   scrollbar-gutter: stable both-edges;
   display: flex;
