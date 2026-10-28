@@ -308,7 +308,8 @@ export function WorkSectionGroup({ items, autoCollapse, onOpen }: Props): ReactN
         />
       </button>
 
-      {ratioParts.length ? (
+      {/* 只有命令执行时比例条是全绿的一条线，没有信息量，只在有文件改动时显示。 */}
+      {ratioParts.some((part) => part.key !== "bash") ? (
         <div className={styles.ratioBar} aria-hidden="true">
           {ratioParts.map((part) => (
             <i key={part.key} className={part.className} style={{ width: `${part.percent}%` }} />

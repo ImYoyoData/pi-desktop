@@ -107,7 +107,7 @@
 
 .ratioEdit { background: var(--accent, #0069cc); }
 .ratioRead { background: color-mix(in srgb, var(--fg) 34%, transparent); }
-.ratioBash { background: color-mix(in srgb, var(--success, #587c0c) 60%, transparent); }
+.ratioBash { background: color-mix(in srgb, var(--fg) 22%, transparent); }
 
 /* Copilot collapsible content animation (chatCollapsibleContentPart.css 1:1):
    keeps the section's DOM mounted and animates height via grid rows, so the
