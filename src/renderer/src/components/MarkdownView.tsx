@@ -132,7 +132,6 @@ function MarkdownViewView({
             isDark={appearance.resolvedTheme === "dark"}
             fade={false}
             smoothStreaming={false}
-            maxLiveNodes={0}
             deferNodesUntilVisible={false}
             viewportPriority
             parseOptions={MARKDOWN_PARSE_OPTIONS}
