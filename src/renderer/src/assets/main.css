@@ -424,6 +424,12 @@ button {
   display: none;
 }
 
+/* 折叠面板旁的分隔条拖不动，只剩一截命中区贴在窗口边上（会冒出 col-resize 光标）。 */
+.split-root .splitpanes__pane.pane-collapsed + .splitpanes__splitter,
+.split-root .splitpanes__splitter:has(+ .splitpanes__pane.pane-collapsed) {
+  display: none;
+}
+
 /*
  * 空态插图尺寸：antd 的 Empty 默认图按 token 渲染成 100px 高，
  * 原来 naive-ui 的 NEmpty 是 40px。这里统一压回原尺寸，保持空态观感。
