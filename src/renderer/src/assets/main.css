@@ -20,8 +20,8 @@
   --user-bg: #0000000f;
   --assistant-bg: #ffffff;
   --tool-bg: #fafafd;
-  --border: #f0f1f2;
-  --border-strong: #d8d8d8;
+  --border: #dcdee2;
+  --border-strong: #c2c4c9;
   --fg: #202020;
   --fg-strong: #202020;
   --fg-muted: #606060;
@@ -44,7 +44,7 @@
   --error: #ad0707;
   --muted: #606060;
   --fg-secondary: #202020;
-  --border-subtle: #f0f1f2;
+  --border-subtle: #e8e9ec;
   --diff-added: #587c0c;
   --diff-removed: #ad0707;
   /* diff 行底色：与编辑器一致的“整行改动”底色。 */
@@ -95,7 +95,7 @@
   --chat-font-s: 0.9231rem;
   --chat-font-xs: 0.8462rem;
   --chat-desc-fg: #606060;
-  --chat-line: #e2e2e5;
+  --chat-line: #d3d5da;
   --chat-hover-bg: #00000014;
   --chat-shimmer: #606060;
   --chat-icon-fg: #606060;
@@ -183,6 +183,12 @@ html[data-theme="dark"] {
 
 * {
   box-sizing: border-box;
+}
+
+/* 浅色底上 0.5px 描边会被压成半透明，文件 chip 的边界直接消失，按 1px 画。
+   壁纸主题有自己的一套白描边，不受这条影响。 */
+html[data-theme="light"]:not([data-wallpaper="on"]) .file-chip {
+  border-width: 1px;
 }
 
 html,
