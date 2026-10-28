@@ -1,5 +1,55 @@
 # Changelog
 
+## v0.3.6-rc.7 (2026-10-28)
+
+本版新增工具调用审批：终端命令与写文件按四档权限放行，拿不准时在会话里弹审批条；消息区的 Markdown 渲染整体换成 markstream，会话打开改为历史反向分页与点击即时选中，几十条消息的会话切换不再卡住；工具卡片与 PR 详情共用 git-diff-view 渲染 diff，变更行数改由主进程一次 numstat 得出。同时把会话统计条移到主区底部通栏，统一过程区图标与思考行排版，并修复流式渲染卡住、上游 5xx 被误判为模型空响应等问题。
+
+### 新功能 Features
+
+- **工具调用审批**：设置 → 权限新增四档——一律询问 / 仅编辑放行 / 自动放行 / 全部放行，只作用于终端（bash、powershell）与写文件（edit、write），其它工具始终放行。自动放行仍会拦下不可逆的破坏性命令（分区与格式化、关机重启、递归删除或改权限打到底层目录、fork 炸弹）并在审批条上单独提示。需要询问时输入框上方弹出审批条（仅允许一次 / 本会话允许此类操作 / 拒绝）：同会话的询问逐条排队，10 分钟无人回应、Stop、会话关闭或界面不可用一律按拒绝处理，渲染层重连后未处理的询问会重新出现；档位落在 `settings.json` 的 `desktopSecurity` 段，沿用旧键名，老配置仍能读出。
+- **Markdown 渲染换成 markstream**：删除自研的 marked / katex 解析管线、HTML 补丁与 Mermaid / DOT 挂载管线，改由 stream-markdown-parser 解析、markstream-react 渲染；HTML 走 trusted 策略并剔除 `style`、`iframe`、`object`、`embed`、`form`、`base`、`link`、`meta`、`template`，流式中途的半截标签同样清掉，未闭合的未知标签（如 `<thinking>`）还原成 HTML 块，而不是把原文顶到界面上。Mermaid 与 DOT 图表作为自定义节点保留。
+- **流式渲染设置改叫「平滑」**：开关直接映射 markstream 的平滑输出，默认开启；刷新间隔默认 40ms（可选 0 即逐帧），不再依赖开关，旧配置的 `enabled` 仍能读出。
+- **会话切换改为两段式**：点击立即更新选中态（侧栏高亮、标题、树联动），打开会话、拉取历史与消息渲染都在后台完成，连点只认最后一次；消息区换内容标成 transition，统计改用 `useDeferredValue`，点击不再等整棵树渲染完。
+- **会话历史反向分页读取**：主进程从会话文件尾部按块回读并逐块解析（从 64KB 起翻倍，单行超长则回退整文件解析），打开会话直接用侧栏已知的文件路径，不再扫整个会话目录；worker 冷启动期间先用已加载历史聚合出能算的统计，统计条不再整块空白。
+- **渲染性能细节**：代码块进入视口附近（600px 预渲染）才挂载 shiki 高亮，占位高度按行数估；正文渲染器空闲时预热；文案表在同一语言下引用恒定，不再为每个组件拷贝整张表。
+- **diff 与变更行数**：变更列表的增删行数改由主进程一次 `git diff --numstat` 给出（未跟踪文件直接数行，二进制与超限记空），不再逐文件拉 patch；词级 diff 先裁掉公共前后缀再跑 DP，长行退化成整行标记，相邻同类片段合并以减少节点；PR 文件列表按文件缓存 diff 输入，展开与全部展开走 transition，折叠时不再挂载 diff 视图。
+- **工具卡片与过程区排版**：工具卡的 diff 改用 `@git-diff-view/react` 渲染，与 PR 详情页同一套视觉，裸 `@@` hunk 头按前一块的行数补全行号；edit 图标改斜置笔形，powershell 走命令卡并剥掉 ANSI、提示符显示 `PS>`，输出首尾的空白行一并去掉；过程区图标换成无环灰线条，正常步骤用中性色、失败与进行中才带语义色，思考行铺满整行、展开箭头贴行尾，展开体与行首图标左缘对齐；摘要行去掉行首图标，比例条只在有文件改动时显示。
+- **会话统计条移到主区底部通栏**：不再跟随输入框列宽，背景与面板一致、直达窗口底边，聊天面板的胶囊底边与统计条的顶部分隔线一并去掉；输入框与统计条之间不留空隙，输入框保持完整边框。
+- **视图切换动效**：会话 / 拉取请求 / 设置三个主区页面交叉淡入（进场 220ms、离场 140ms），右侧文档标签、底栏终端标签与设置页分区切换同样带进场动画；只改透明度和位移，内容区不参与逐帧重排。
+- **启动与窗口**：主界面 chunk 先预热（上限 2 秒）再撤 splash，主区不再露出空白；splash 在主题落 DOM 前按系统深色偏好兜底，最短停留由 800ms 降到 300ms；初始窗口按屏幕缩放比把 1500×950 换算成 DIP，缩放的显示器上不再被放大。
+- **其它**：设置 → 常用新增 Tab 键焦点开关（关闭后 Tab 不再在界面控件之间移动焦点，输入框与菜单自己的 Tab 处理不受影响）；内置 `tool-preference` 扩展补上 shell 工作目录规则，禁止多余的 `cd`、`Set-Location` 与 `git -C`；浅色主题描边整体加深，文件 chip 描边改为 1px；标题栏去掉底边与 1px 高光；折叠面板旁拖不动的分隔条不再露出命中区；思考档位菜单补上选中高亮，上下文压缩按钮改回低调描边，文案精简为「压缩上下文」。
+
+- **Tool call approval**: Settings → Permissions gains four modes — ask every time, allow edits only, auto-allow and allow everything — applied to shell tools (bash, powershell) and file writes (edit, write) only; every other tool always passes. Auto-allow still stops irreversible destructive commands (partitioning and formatting, shutdown/reboot, recursive delete or chmod/chown against root-like targets, fork bombs) and flags them in the prompt. When an ask is needed, an approval strip appears above the composer (allow once / allow this kind for this session / deny): asks in one session queue up, and a 10-minute timeout, Stop, closing the session or having no UI all count as deny, with pending asks reappearing after the renderer reconnects. The mode lives in the `desktopSecurity` section of `settings.json`, keeping the old key so existing configs still read back.
+- **Markdown rendering moved to markstream**: the hand-rolled marked/katex parsing pipeline, HTML patch and Mermaid/DOT mount pipeline are gone; stream-markdown-parser parses and markstream-react renders. HTML uses the trusted policy but strips `style`, `iframe`, `object`, `embed`, `form`, `base`, `link`, `meta` and `template`, including half-written tags mid-stream, and an unclosed unknown tag such as `<thinking>` is restored as an HTML block instead of spilling its source into the view. Mermaid and DOT diagrams remain as custom nodes.
+- **The streaming render setting is now 「Smooth」**: the switch maps straight to markstream's smoothed output and defaults to on; the refresh interval defaults to 40 ms (0 renders every frame) and no longer depends on the switch, and the old `enabled` value still reads back.
+- **Session switching became two-stage**: the click updates the selection immediately (sidebar highlight, title, tree), while opening the session, loading history and rendering messages run in the background, and only the last click is honoured; the message area swap is a transition and stats use `useDeferredValue`, so a click no longer waits for the whole tree.
+- **Session history reads backwards in pages**: the main process reads the session file from the end in chunks (starting at 64 KB and doubling, falling back to a full parse when a single line is oversized) and opens a session from the file path the sidebar already knows instead of scanning the whole session directory; while a worker cold-starts, stats are aggregated from the loaded history so the stats bar is never blank.
+- **Rendering performance details**: code blocks mount shiki highlighting only near the viewport (600 px prefetch) with a placeholder height estimated from the line count, the markdown renderer is warmed up while idle, and the message table keeps one stable reference per locale instead of being copied for every component.
+- **Diffs and change counts**: the Changes list gets added/removed lines from a single `git diff --numstat` in the main process (untracked files are counted directly, binaries and oversized files stay blank) instead of pulling a patch per file; word diffs trim the common prefix and suffix before the DP, fall back to whole-line marks for long lines and merge adjacent runs to cut nodes; the PR file list caches per-file diff input, folds through a transition and no longer mounts a diff view while collapsed.
+- **Tool cards and process area**: tool diffs render through `@git-diff-view/react`, matching the PR detail page, with bare `@@` hunk headers completed from the previous block's line counts; the edit icon is a slanted pencil, powershell renders as a command card with ANSI stripped and a `PS>` prompt, and leading/trailing blank output lines are dropped; process icons are ring-free strokes, normal steps use the neutral icon colour and only failures and running steps carry a semantic tone, thinking rows fill the whole row with the chevron at the end and expanded bodies align to the leading icon; the summary row loses its leading icon and the ratio bar only shows when files changed.
+- **Session stats bar moved to a full-width strip at the bottom**: it no longer follows the composer width, matches the panel background and reaches the window edge, and both the panel's capsule bottom border and the strip's top divider are gone; the composer and the strip sit flush while the composer keeps its full border.
+- **View switching motion**: Sessions / Pull requests / Settings cross-fade in the main area (220 ms in, 140 ms out), and right-pane document tabs, bottom-panel terminal tabs and Settings sections animate in as well; only opacity and transforms animate, so the content area never relayouts per frame.
+- **Startup and window**: the main UI chunk is pre-warmed (capped at 2 s) before the splash leaves, so the main area is never blank; the splash falls back to the system's dark preference before the theme lands and its minimum hold drops from 800 ms to 300 ms; the initial window converts 1500×950 into DIP using the display scale so scaled monitors no longer inflate it.
+- **Also**: Settings → Common gains a Tab-focus switch (turning it off stops Tab from moving focus between controls, while the composer's and menus' own Tab handling still works); the built-in `tool-preference` extension adds a shell working-directory guideline so commands no longer need a redundant `cd`, `Set-Location` or `git -C`; light-theme borders are darker overall and file chips use a 1 px border; the title bar loses its bottom edge and 1 px highlight; a splitter next to a collapsed pane no longer exposes its dead hit area; the thinking-level menu highlights the selected entry and the compact-context button goes back to a quiet outline with the shorter 「压缩上下文」 label.
+
+### 修复 Fixes
+
+- **修复流式渲染卡住**：markstream 的平滑器在长回答上压住提交节奏，界面看起来像卡在半句话；现在关掉平滑器，思考块超过实时渲染上限时先退到最近的块边界再截断，不会把代码围栏截成未闭合。
+- **修复上游 5xx 被误判为模型空响应**：空响应规则里的 `model.*hang/stall/silent` 会先命中 “service unavailable” 这类日志文本；规则收紧到明确的空响应措辞，5xx 规则改为匹配 500-509、520-527 等具体状态码并归到服务不可用。
+- **修复切换会话后侧栏列表重排、位置跳动**：打开已有会话时不再把「当前时间」当成修改时间（改用文件 mtime），渲染层合并 summary 时保留原有名称、首条消息与修改时间，列表顺序不再被打开动作打乱。
+- **修复启动时输入框从面板顶部落到底部**：消息区懒加载期间用 flex 占位撑满剩余高度，输入框第一帧就贴住底部。
+- **修复在代码块 / 图表预览里滚动就停掉消息跟随**：内部滚动容器统一标记，滚轮落在还能朝该方向滚的子区域时不算浏览历史，滚到边界后交回消息区。
+- **修复列表与段落的空行、间距**：markdown 包裹层带来的额外段落间距被去掉，文本节点先裁掉块边界换行，列表项间距与原来一致。
+- **修复折叠面板旁的分隔条露出命中区**：折叠面板相邻的分隔条直接隐藏，窗口边上不再冒出 `col-resize` 光标。
+
+- **Fixed streaming renders stalling**: markstream's smoother throttled commits on long answers, so the view froze mid-sentence; the smoother is off, and thinking text beyond the live-render limit now truncates at the nearest block boundary instead of cutting a code fence open.
+- **Fixed upstream 5xx errors being read as an empty model response**: the empty-response rule's `model.*hang/stall/silent` matched log text such as “service unavailable”; the rule now requires explicit empty-response wording, and the 5xx rule matches concrete codes such as 500-509 and 520-527 and maps to service unavailable.
+- **Fixed the sidebar list reordering and jumping after switching sessions**: opening an existing session no longer uses “now” as its modified time (the file's mtime is used), and the renderer keeps the existing name, first message and modified time when merging the summary, so opening a session no longer disturbs the list order.
+- **Fixed the composer dropping from the top of the panel to the bottom on startup**: the lazily loaded message area now holds its space with flex, so the composer sits at the bottom from the first frame.
+- **Fixed scrolling inside a code block or diagram preview stopping message follow**: inner scrollers are tagged consistently, a wheel event over a child that can still scroll that way no longer counts as browsing history, and once it hits the edge the message area takes over.
+- **Fixed list and paragraph spacing**: the extra paragraph margins from the markdown wrapper are gone, text nodes trim block-boundary newlines first, and list item spacing matches the original.
+- **Fixed the collapsed-pane splitter exposing its hit area**: splitters next to a collapsed pane are hidden, so no `col-resize` cursor appears at the window edge.
+
 ## v0.3.6-rc.6 (2026-10-26)
 
 本版重整设置页：新增「常用」与「浏览器」分区，代理设置拆成桌面与 Agent 两份，外观新增输入框宽度并把强调色统一为中性色；自定义模型页把采样参数 JSON 换成思考档位勾选，供应商支持拖动排序；侧栏会话排序改为权重制，可以直接把会话拖到最前。
