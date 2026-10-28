@@ -11,6 +11,7 @@ import AskUserStrip from "@renderer/components/AskUserStrip";
 import ExtensionUiStrip from "@renderer/components/ExtensionUiStrip";
 import SessionTodoPanel from "@renderer/components/SessionTodoPanel";
 import SessionChangedFiles from "@renderer/components/SessionChangedFiles";
+import SessionStatsBar from "@renderer/components/SessionStatsBar";
 import { useAppearanceStore } from "@renderer/stores/appearance";
 import { useChatStore } from "@renderer/stores/chat";
 import { useSessionsStore } from "@renderer/stores/sessions";
@@ -167,6 +168,7 @@ export function ChatPanel({ visible }: Props): ReactNode {
               <Composer docked={hasDock} />
             </Suspense>
           </div>
+          <SessionStatsBar />
         </>
       ) : null}
     </section>
