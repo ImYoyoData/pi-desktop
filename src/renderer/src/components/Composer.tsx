@@ -124,8 +124,6 @@ import styles from "./Composer.module.css";
 
 export type ComposerProps = {
   docked?: boolean;
-  /** 底部有会话统计条：输入框不再画底边，两块连成一体。 */
-  statsBelow?: boolean;
 };
 
 type ModelSelectOption =
@@ -180,7 +178,7 @@ function nextFrame(): Promise<void> {
   });
 }
 
-export function Composer({ docked = false, statsBelow = false }: ComposerProps): ReactNode {
+export function Composer({ docked = false }: ComposerProps): ReactNode {
   const t = useI18n();
   const composer = useComposerStore();
   const messageApi = useMessage();
@@ -1992,7 +1990,7 @@ export function Composer({ docked = false, statsBelow = false }: ComposerProps):
         </div>
       ) : null}
       <div
-        className={`composer-card ${styles.card} ${statsBelow ? styles.noBottom : ""} ${
+        className={`composer-card ${styles.card} ${
           editorExpanded.value ? styles.isEditorExpanded : ""
         } ${fileDragOver.value ? styles.isFileDragOver : ""} ${
           docked ? styles.docked : ""

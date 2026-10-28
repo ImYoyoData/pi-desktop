@@ -167,7 +167,7 @@ export function ChatPanel({ visible }: Props): ReactNode {
               </div>
             ) : null}
             <Suspense fallback={null}>
-              <Composer docked={hasDock} statsBelow={sessionStats.length > 0} />
+              <Composer docked={hasDock} />
             </Suspense>
           </div>
           <SessionStatsBar stats={sessionStats} />
