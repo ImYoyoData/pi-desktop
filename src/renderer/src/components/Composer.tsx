@@ -1,6 +1,5 @@
 import {
   useCallback,
-  useDeferredValue,
   useEffect,
   useMemo,
   useRef,
@@ -42,7 +41,6 @@ import {
   type QueuedSendItem,
 } from "@renderer/stores/send-queue";
 import { useSessionsStore } from "@renderer/stores/sessions";
-import { useSessionStatsStore } from "@renderer/stores/session-stats";
 import { useSendShortcutStore } from "@renderer/stores/send-shortcut";
 import { useWorkspaceStore } from "@renderer/stores/workspace";
 import { useAppearanceStore } from "@renderer/stores/appearance";
@@ -76,10 +74,6 @@ import {
   steerTextWithCitations,
   titleSeedFor,
 } from "@renderer/utils/composer-payload";
-import {
-  buildSessionStats,
-  sessionUsageFromMessages,
-} from "@renderer/utils/session-stats";
 import {
   contextCostLabelOf,
   contextFreePctOf,
@@ -201,11 +195,6 @@ export function Composer({ docked = false }: ComposerProps): ReactNode {
   const sessionId = useSessionsStore((s) => s.activeId);
   const draftRoot = useSessionsStore((s) => s.draftRoot);
   const contextUsage = useSessionsStore((s) => s.activeContextUsage);
-  // 统计只影响底栏数字：切换会话时让它在后台算，别拖住输入区的首帧。
-  const chatStatsMessages = useDeferredValue(
-    useChatStore((s) => s.activeMessages),
-  );
-  const tpsMode = useSessionStatsStore((s) => s.tpsMode);
   const sendShortcut = useSendShortcutStore((s) => s.mode);
   const activeSessionStatus = useSessionsStore((s) => {
     const id = s.activeId;
@@ -214,7 +203,6 @@ export function Composer({ docked = false }: ComposerProps): ReactNode {
   });
   const workspaceRoot = useWorkspaceStore((s) => s.root);
   const showCompactButton = useAppearanceStore((s) => s.showCompactButton);
-  const showSessionDetails = useAppearanceStore((s) => s.showSessionDetails);
   const queueItems = useSendQueueStore((s) => s.activeItems);
   const queueEditingId = useSendQueueStore((s) => s.editingId);
 
@@ -1420,11 +1408,6 @@ export function Composer({ docked = false }: ComposerProps): ReactNode {
    *
    * worker 冷启动期间没有 context_usage，先用已加载历史聚合出可算的项。
    */
-  const fallbackUsage = useMemo(
-    () => sessionUsageFromMessages(chatStatsMessages),
-    [chatStatsMessages],
-  );
-  const sessionStats = buildSessionStats(contextUsage ?? fallbackUsage, tpsMode);
 
   async function onCompactContext(): Promise<void> {
     const idSession = currentSessionId();
@@ -2238,20 +2221,6 @@ export function Composer({ docked = false }: ComposerProps): ReactNode {
         </div>
       </div>
 
-      {showSessionDetails && sessionStats ? (
-        <div
-          className={styles.sessionStats}
-          role="status"
-          aria-label="session statistics"
-        >
-          {sessionStats.map((item) => (
-            <span key={item.key} className={styles.ssItem} title={item.title}>
-              <span className={styles.ssLabel}>{item.label}</span>
-              <strong>{item.value}</strong>
-            </span>
-          ))}
-        </div>
-      ) : null}
     </div>
   );
 }
