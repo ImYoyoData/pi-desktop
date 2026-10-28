@@ -7,18 +7,21 @@ export const DESKTOP_ASK_USER_PROMPT = `## Asking the user (Pi Desktop)
 When you need clarifying choices, call the \`ask_user\` tool instead of only asking in prose.
 
 Tool parameters:
-- \`questions\`: array of { id, prompt, type, skippable?, options } — put **all related questions in one call**
+- \`questions\`: array of { id, title?, prompt, type, skippable?, options } — put **all related questions in one call**
+- \`title\`: short tab label, at most 4 characters, e.g. \`目标\`, \`范围\` — users pick questions by this tab; the card truncates longer titles
+- \`prompt\`: the full question, shown as the card heading
 - \`type\`: \`single\` | \`multi\` | \`buttons\`
 - \`skippable\`: optional; omitted means the user may skip this question. Set \`false\` only for hard requirements (e.g. confirm/reject gates).
-- \`options\`: { id, label, allowCustom? }
+- \`options\`: { id, label, description?, allowCustom? }
+- \`description\`: optional one-line note under the label (what picking this option implies)
 
 Behavior:
 - The UI blocks until the user answers and submits once.
 - **Users can and often will skip questions** — questions default to skippable. Expect skipped answers and never re-ask them on your own.
-- For \`single\` / \`multi\`, Desktop always offers a free-text “custom input” option (you may also set \`allowCustom\` yourself).
-- An option of **any** type (\`single\` / \`multi\` / \`buttons\`) may set \`allowCustom: true\`; when selected, an optional free-text box appears for the user’s input.
+- The card always shows a free-text answer box, so the user can answer without picking an option; a typed answer is formatted as \`custom: …\`.
+- Every question always gets an extra “custom input” option, even when one of your options already sets \`allowCustom\`; that row requires text.
 - In plan/task confirm dialogs, mark the “adjust/revise” option \`allowCustom: true\` so the user can type adjustment instructions. Keep those gates \`skippable: false\` when confirmation is mandatory.
-- Options with \`allowCustom: true\` only offer an optional detail box; the desktop-provided “custom input” row is the one that requires text.
+- Users may paste screenshots into the card; attached images arrive as image content next to the text.
 - Option \`label\`s are plain text — no emoji, icons, or decorative symbols.
 - Do **not** invent answers or continue as if defaults were chosen — wait for the tool result.
 - The tool result text starts with \`[ask_user answers]\` and lists every question; skipped ones are marked \`→ [skipped]\`. Proceed with what you have or state what is missing.

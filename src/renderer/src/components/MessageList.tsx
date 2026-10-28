@@ -36,6 +36,8 @@ import { useSendQueueStore } from "@renderer/stores/send-queue";
 import { useSessionsStore } from "@renderer/stores/sessions";
 import ThinkingBlock from "@renderer/components/ThinkingBlock";
 import ToolCallCard from "@renderer/components/ToolCallCard";
+import AskUserStrip from "@renderer/components/AskUserStrip";
+import { ASK_USER_TOOL_NAME } from "../../../shared/ask-user";
 import TurnDiffSummary from "@renderer/components/TurnDiffSummary";
 import WorkSectionGroup from "@renderer/components/WorkSectionGroup";
 import AgentWaitIndicator from "@renderer/components/AgentWaitIndicator";
@@ -242,6 +244,17 @@ export function MessageList({
     () => buildSettledRowIds(allMessages, workSectionMembership),
     [allMessages, workSectionMembership],
   );
+
+  const pendingAskRowId = useMemo(() => {
+    if (!chat.activePendingAskUser) return null;
+    for (let i = allMessages.length - 1; i >= 0; i--) {
+      const m = allMessages[i]!;
+      if (m.role === "tool" && m.toolName === ASK_USER_TOOL_NAME) return m.id;
+    }
+    return null;
+  }, [allMessages, chat.activePendingAskUser]);
+
+  const dockAsk = Boolean(chat.activePendingAskUser) && !pendingAskRowId;
 
   const finalAnswerIds = useMemo(
     () => buildFinalAnswerIds(allMessages),
@@ -1659,6 +1672,15 @@ export function MessageList({
       );
     }
     if (msg.role === "tool") {
+      if (msg.id === pendingAskRowId) {
+        return (
+          <article key={msg.id} className={rowClass} data-msg-id={msg.id}>
+            <div className={styles.tool}>
+              <AskUserStrip />
+            </div>
+          </article>
+        );
+      }
       const status = toolStatus(msg);
       return (
         <article key={msg.id} className={rowClass} data-msg-id={msg.id}>
@@ -1758,6 +1780,8 @@ export function MessageList({
           >
             {(msg, index) => renderMessageRow(msg, index)}
           </Virtualizer>
+
+          {dockAsk ? <AskUserStrip /> : null}
 
           {showJumpLatest ? null : (
             <>

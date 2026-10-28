@@ -1,5 +1,6 @@
 import { BrowserWindow, ipcMain } from "electron";
 import {
+  imageDataFromDataUrl,
   parseAskUserArgs,
   type AskUserAskPrompt,
   type AskUserAskReply,
@@ -8,10 +9,16 @@ import {
 } from "../shared/ask-user";
 import { IpcChannels } from "../shared/protocol";
 
+/** 回到 worker 的答复：答案文本 + 用户随回答附上的图片。 */
+export type AskUserAskResult = {
+  text: string;
+  images: { data: string; mimeType: string }[];
+};
+
 type PendingAsk = {
   sessionId: string;
   questions: AskUserQuestion[];
-  resolve: (answersText: string) => void;
+  resolve: (result: AskUserAskResult) => void;
   reject: (err: Error) => void;
 };
 
@@ -52,7 +59,7 @@ export function askRendererAskUser(input: {
   sessionId: string;
   requestId: string;
   questions: AskUserQuestion[];
-}): Promise<string> {
+}): Promise<AskUserAskResult> {
   const { requestId, sessionId, questions } = input;
 
   return new Promise((resolve, reject) => {
@@ -130,7 +137,12 @@ export function registerAskUserIpc(): void {
         row.reject(new Error("ask_user: empty answers"));
         return { ok: false, reason: "empty_answers" as const };
       }
-      row.resolve(answersText);
+      const images = (Array.isArray(body.images) ? body.images : [])
+        .map((dataUrl) =>
+          typeof dataUrl === "string" ? imageDataFromDataUrl(dataUrl) : null,
+        )
+        .filter((img): img is { data: string; mimeType: string } => img != null);
+      row.resolve({ text: answersText, images });
       return { ok: true };
     },
   );

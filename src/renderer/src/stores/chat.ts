@@ -60,6 +60,7 @@ import {
 	isAskUserAskCancelled,
 	type AskUserAnswerDraft,
 	type AskUserAskReply,
+	type AskUserAttachment,
 	type AskUserPrompt,
 } from "../../../shared/ask-user";
 import {
@@ -173,6 +174,8 @@ export type ChatStoreState = ChatBase &
 		writeAskDraft: (requestId: string, draft: AskUserAnswerDraft) => void;
 		readAskStep: (requestId: string) => number | null;
 		writeAskStep: (requestId: string, step: number) => void;
+		readAskAttachments: (requestId: string) => AskUserAttachment[];
+		writeAskAttachments: (requestId: string, list: AskUserAttachment[]) => void;
 		replyAskUser: (payload: AskUserAskReply) => Promise<void>;
 		replyExtensionUi: (reply: ExtensionUiReply) => Promise<void>;
 		beginHistoryLoad: (sessionId: string) => void;
@@ -293,6 +296,8 @@ export const useChatStore = create<ChatStoreState>()((set, get) => {
 	const askUserDrafts = new Map<string, AskUserAnswerDraft>();
 	/** requestId → 当前题号，会话切换回来后仍停在原来那一题。 */
 	const askUserSteps = new Map<string, number>();
+	/** requestId → 本轮回答待提交的附件（图片 dataUrl 太大，不写 sessionStorage）。 */
+	const askUserAttachments = new Map<string, AskUserAttachment[]>();
 	let pendingUiRecovered = false;
 	const ASK_DRAFT_KEY = "pi-desktop:ask-user-drafts:v1";
 
@@ -333,9 +338,18 @@ export const useChatStore = create<ChatStoreState>()((set, get) => {
 		askUserSteps.set(requestId, step);
 	}
 
+	function readAskAttachments(requestId: string): AskUserAttachment[] {
+		return askUserAttachments.get(requestId) ?? [];
+	}
+
+	function writeAskAttachments(requestId: string, list: AskUserAttachment[]): void {
+		askUserAttachments.set(requestId, list);
+	}
+
 	function clearAskUserDraft(requestId: string): void {
 		askUserDrafts.delete(requestId);
 		askUserSteps.delete(requestId);
+		askUserAttachments.delete(requestId);
 		try {
 			const raw = sessionStorage.getItem(ASK_DRAFT_KEY);
 			if (!raw) return;
@@ -1868,6 +1882,8 @@ softHangReported.delete(sessionId);
 		writeAskDraft,
 		readAskStep,
 		writeAskStep,
+		readAskAttachments,
+		writeAskAttachments,
 		replyAskUser,
 		replyPermission,
 		replyExtensionUi,
