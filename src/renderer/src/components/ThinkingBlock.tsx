@@ -194,7 +194,7 @@ export function ThinkingBlock({
       className={`${styles.thinking}${open ? ` ${styles.open}` : ""}`}
     >
       <button type="button" className={styles.thinkingHead} onClick={toggleOpen}>
-        {leadingIcon}
+        {leadingIcon ? <span className={styles.leadingIcon}>{leadingIcon}</span> : null}
         <span
           className={`${styles.label}${streaming ? " copilot-shimmer" : ""}`}
         >

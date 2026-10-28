@@ -160,24 +160,13 @@
   }
 }
 
-/* 小节内的思考行：行首图标 + 内容，行高与工具步骤行齐平。 */
+/* 小节内的思考行：行首图标由 ThinkingBlock 统一排版，这里只管行内边距。 */
 .thinkingItem {
   display: flex;
   align-items: flex-start;
   gap: 8px;
-  padding: 0 6px 0 3px;
+  padding: 0 6px 0 0;
   color: var(--chat-desc-fg, var(--fg-muted));
-}
-
-.thinkingIcon {
-  flex-shrink: 0;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 16px;
-  height: 16px;
-  margin-right: 5px;
-  color: var(--chat-icon-fg, var(--fg-muted));
 }
 
 .thinkingContent {

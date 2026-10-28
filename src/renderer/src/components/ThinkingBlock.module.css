@@ -11,8 +11,8 @@
   gap: 2px;
   width: fit-content;
   max-width: 100%;
-  margin: 0 0 0 -2px;
-  padding: 2px 6px 2px 2px;
+  margin: 0;
+  padding: 2px 6px 2px 3px;
   border: none;
   border-radius: 5px;
   background: transparent;
@@ -105,9 +105,20 @@
   margin-bottom: 0;
 }
 
-/* 带行首图标时正文与标签对齐。 */
+.leadingIcon {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  margin-right: 6px;
+  color: var(--chat-icon-fg, var(--fg-muted));
+}
+
+/* 带行首图标时正文与标签对齐：3px 行首内边距 + 16px 图标 + 8px 间距。 */
 .iconIndent {
-  margin-left: 14px;
+  margin-left: 27px;
 }
 
 .muted {

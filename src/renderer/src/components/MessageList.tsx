@@ -1577,7 +1577,7 @@ export function MessageList({
                     thinking={msg.thinking ?? ""}
                     streaming={Boolean(msg.streaming && !msg.text)}
                     autoCollapse={turnDone || !(msg.streaming && !msg.text)}
-                    leadingIcon={<BrainOutline size={12} aria-hidden="true" />}
+                    leadingIcon={<BrainOutline size={13} aria-hidden="true" />}
                     durationMs={msg.thinkingDurationMs}
                     startedAt={msg.thinkingStartedAt}
                   />
