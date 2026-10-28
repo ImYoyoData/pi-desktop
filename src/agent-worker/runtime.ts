@@ -62,6 +62,7 @@ import { createAskUserToolDefinition } from "./ask-user-tool";
 import { createTodoWriteToolDefinition, clearLatestTodoWriteRows } from "./todo-tool";
 import { createTodoReminderExtension } from "./todo-reminder";
 import { createToolPreferenceExtension } from "./tool-preference";
+import { createPermissionGateExtension } from "./permission-gate";
 import { commandShouldStartBackground } from "../shared/bash-background";
 import { createTrackedBashOperations } from "./bash-run-tracker";
 import {
@@ -651,6 +652,8 @@ async function initSession(
 				{ name: "todo-reminder", factory: createTodoReminderExtension(), builtin: true, hidden: true },
 				// 内置工具本身不带使用偏好，模型默认手感是 shell：用 guidelines 把搜索/读文件推回 grep、find、read。
 				{ name: "tool-preference", factory: createToolPreferenceExtension(), builtin: true, hidden: true },
+				// 命令与写文件调用先经桌面端审批，档位在设置页里改。
+				{ name: "permission-gate", factory: createPermissionGateExtension(), builtin: true, hidden: true },
 			],
 			appendSystemPrompt: [
 				DESKTOP_ASK_USER_PROMPT,

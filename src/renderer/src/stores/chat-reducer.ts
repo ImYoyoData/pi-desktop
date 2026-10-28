@@ -1,6 +1,7 @@
 import type { AgentEvent } from "../../../shared/protocol";
 import type { AskUserPrompt } from "../../../shared/ask-user";
 import type { ExtensionUiPending } from "../../../shared/extension-ui";
+import type { PermissionAskPrompt } from "../../../shared/permissions";
 import { formatLlmError } from "../utils/llm-error";
 import { getLocale, t, type UiLocale } from "../i18n";
 import {
@@ -117,6 +118,8 @@ export type ChatState = {
 	nextToolOrder: number;
 	/** Interactive ask_user strip; null when none / discarded. */
 	pendingAskUser: AskUserPrompt | null;
+	/** Tool call approval strip (bash / write). */
+	pendingPermission: PermissionAskPrompt | null;
 	/** Pi extension UI dialog (select/confirm/input/editor). */
 	pendingExtensionUi: ExtensionUiPending | null;
 	/** Wall-clock when the current turn became running (ms). */
@@ -145,6 +148,7 @@ export function createChatState(): ChatState {
 		retryHint: null,
 		nextToolOrder: 1,
 		pendingAskUser: null,
+		pendingPermission: null,
 		pendingExtensionUi: null,
 		turnStartedAt: null,
 		phaseStartedAt: null,
@@ -246,6 +250,7 @@ export function hasLiveTurnState(state: ChatState): boolean {
 		state.autoRecovering ||
 		state.streamingMessage != null ||
 		state.pendingAskUser != null ||
+		state.pendingPermission != null ||
 		state.pendingExtensionUi != null
 	);
 }
@@ -260,6 +265,18 @@ export function setPendingAskUser(
 	pending: AskUserPrompt | null,
 ): ChatState {
 	return { ...state, pendingAskUser: pending };
+}
+
+export function clearPendingPermission(state: ChatState): ChatState {
+	if (!state.pendingPermission) return state;
+	return { ...state, pendingPermission: null };
+}
+
+export function setPendingPermission(
+	state: ChatState,
+	pending: PermissionAskPrompt | null,
+): ChatState {
+	return { ...state, pendingPermission: pending };
 }
 
 
