@@ -135,6 +135,12 @@
   margin: 0.2em 0;
 }
 
+/* markstream 的列表项内部会包一层 <p>（原实现直接把文本放进 <li>），
+   那层 p 的 margin 会叠加到 li 上，把这些 margin 归零只留 li 自己的间距。 */
+.root:global(.md) :global(.list-item) > p {
+  margin: 0;
+}
+
 .root:global(.md) li > p {
   margin: 0.2em 0;
 }
