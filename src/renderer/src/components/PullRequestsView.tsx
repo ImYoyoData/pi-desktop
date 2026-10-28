@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { memo, useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { Dropdown } from "antd";
 import {
   ChatbubbleOutline,
@@ -13,7 +13,6 @@ import {
 } from "@renderer/components/icons/ionicons";
 import { PullRequestIcon } from "@renderer/components/icons/PullRequestIcon";
 import type {
-  PullRequestDetail,
   PullRequestFilters,
   PullRequestLabel,
   PullRequestSummary,
@@ -24,6 +23,7 @@ import PullRequestFilterBar from "@renderer/components/PullRequestFilterBar";
 import { usePullRequestsStore } from "@renderer/stores/pull-requests";
 import { useWorkspaceStore } from "@renderer/stores/workspace";
 import { formatPullRequestRelative } from "@renderer/utils/pull-request-format";
+import type { Messages } from "@renderer/i18n";
 import { useI18n } from "@renderer/i18n/use-i18n";
 import { useMessage } from "@renderer/services/feedback";
 import styles from "./PullRequestsView.module.css";
@@ -33,6 +33,168 @@ type MenuItem = { key: string; label: string };
 type FilterChip = { key: keyof PullRequestFilters; label: string };
 
 const PREFETCH_DELAY_MS = 300;
+
+function stateIcon(row: PullRequestSummary): ReactNode {
+  if (row.state === "merged") return <GitMerge size={16} />;
+  if (row.state === "closed") return <CloseCircleOutline size={16} />;
+  return <PullRequestIcon size={16} />;
+}
+
+function stateClass(row: PullRequestSummary): string {
+  if (row.state === "merged") return "merged";
+  if (row.state === "closed") return "closed";
+  return row.isDraft ? "draft" : "open";
+}
+
+function checksInfo(row: PullRequestSummary, t: Messages): { text: string; tone: string } | null {
+  const checks = row.checks ?? [];
+  if (checks.length === 0) return null;
+  if (checks.some((check) => check.state === "failure")) return { text: t.prChecksFailing, tone: "danger" };
+  if (checks.some((check) => check.state === "pending")) return { text: t.prChecksRunning, tone: "warning" };
+  if (checks.every((check) => check.state === "none")) return { text: t.prNoChecks, tone: "muted" };
+  return { text: t.prChecksPassing, tone: "success" };
+}
+
+function reviewInfo(row: PullRequestSummary, t: Messages): { text: string; tone: string } | null {
+  if (row.reviewDecision === "approved") return { text: t.prReviewApproved, tone: "success" };
+  if (row.reviewDecision === "changes-requested") return { text: t.prReviewChangesRequested, tone: "danger" };
+  if (row.reviewDecision === "review-required") return { text: t.prReviewRequired, tone: "warning" };
+  return null;
+}
+
+function labelStyle(label: PullRequestLabel): Record<string, string> {
+  return { borderColor: `#${label.color}`, color: `#${label.color}` };
+}
+
+type PrRowProps = {
+  row: PullRequestSummary;
+  active: boolean;
+  t: Messages;
+  onOpen: (row: PullRequestSummary) => void;
+  onPrefetch: (row: PullRequestSummary) => void;
+  onCopy: (row: PullRequestSummary) => void;
+  onExternal: (row: PullRequestSummary) => void;
+};
+
+const PrRow = memo(function PrRow({ row, active, t, onOpen, onPrefetch, onCopy, onExternal }: PrRowProps): ReactNode {
+  const checks = checksInfo(row, t);
+  const review = reviewInfo(row, t);
+  return (
+    <li
+      className={`${styles.prRow} ${active ? styles.highlighted : ""}`}
+      onClick={() => onOpen(row)}
+      onPointerEnter={() => onPrefetch(row)}
+    >
+      <span className={`${styles.stateIcon} ${styles[stateClass(row)]}`}>{stateIcon(row)}</span>
+      <div className={styles.rowMain}>
+        <div className={styles.rowTitleLine}>
+          <span className={styles.rowTitle}>
+            {row.title}
+            <span className={styles.rowNumber}>#{row.number}</span>
+          </span>
+        </div>
+        <div className={styles.rowSub}>
+          {row.isDraft ? <span className={styles.draftTag}>{t.prDraft}</span> : null}
+          {row.headBranch ? (
+            <span className={styles.rowBranch}>
+              <span className={styles.branchPill}>{row.headBranch}</span>
+              {row.baseBranch ? <span>→</span> : null}
+              {row.baseBranch ? <span className={styles.branchPill}>{row.baseBranch}</span> : null}
+            </span>
+          ) : null}
+          {row.commentCount ? (
+            <span className={styles.rowMetaItem}>
+              <ChatbubbleOutline size={13} />
+              {row.commentCount}
+            </span>
+          ) : null}
+          {row.assignees?.length ? (
+            <span className={styles.rowPeople}>
+              {row.assignees.map((person) => (
+                <GitHubAvatar key={person.login} login={person.login} src={person.avatarUrl} size="sm" />
+              ))}
+            </span>
+          ) : null}
+          <span className={styles.rowInline}>
+            {row.author ? <span>{row.author}</span> : null}
+            {checks ? <span className={`${styles.badge} ${styles[checks.tone]}`}>{checks.text}</span> : null}
+            {review ? <span className={`${styles.badge} ${styles[review.tone]}`}>{review.text}</span> : null}
+          </span>
+        </div>
+      </div>
+      <div className={styles.rowAuthor}>
+        {row.author ? (
+          <span className={styles.authorCell}>
+            <GitHubAvatar login={row.author} src={row.authorAvatarUrl} size="md" />
+            <span className={styles.ellipsis}>{row.author}</span>
+          </span>
+        ) : (
+          <span className={styles.muted}>—</span>
+        )}
+      </div>
+      <div className={styles.rowChecks}>
+        {checks ? (
+          <span className={`${styles.badge} ${styles[checks.tone]}`}>
+            <CheckmarkCircleOutline size={12} />
+            {checks.text}
+          </span>
+        ) : (
+          <span className={styles.muted}>—</span>
+        )}
+      </div>
+      <div className={styles.rowLabels}>
+        {row.labels?.length ? (
+          <span className={styles.labelChips}>
+            {row.labels.map((label) => (
+              <span key={label.name} className={styles.labelChip} style={labelStyle(label)}>
+                {label.name}
+              </span>
+            ))}
+          </span>
+        ) : (
+          <span className={styles.muted}>—</span>
+        )}
+      </div>
+      <div className={styles.rowDiff}>
+        {row.additions !== undefined && row.deletions !== undefined ? (
+          <span>
+            <span className={styles.added}>{t.prAdditionsCount(row.additions)}</span>
+            <span className={styles.removed}>{t.prDeletionsCount(row.deletions)}</span>
+          </span>
+        ) : (
+          <span className={styles.muted}>—</span>
+        )}
+      </div>
+      <div className={styles.rowTime}>
+        <span className={styles.timeText}>{formatPullRequestRelative(row.updatedAt ?? row.createdAt)}</span>
+        <span className={styles.rowActions}>
+          <button
+            type="button"
+            className={styles.rowAction}
+            title={t.prCopyLink}
+            onClick={(event) => {
+              event.stopPropagation();
+              onCopy(row);
+            }}
+          >
+            <CopyOutline size={13} />
+          </button>
+          <button
+            type="button"
+            className={styles.rowAction}
+            title={t.prOpenOnGithub}
+            onClick={(event) => {
+              event.stopPropagation();
+              onExternal(row);
+            }}
+          >
+            <OpenOutline size={13} />
+          </button>
+        </span>
+      </div>
+    </li>
+  );
+});
 
 export function PullRequestsView(): ReactNode {
   const t = useI18n();
@@ -162,47 +324,11 @@ export function PullRequestsView(): ReactNode {
     store.refresh();
   }
 
-  function relativeTime(iso: string | undefined): string {
-    return formatPullRequestRelative(iso);
-  }
-
-  function stateIcon(row: PullRequestSummary): ReactNode {
-    if (row.state === "merged") return <GitMerge size={16} />;
-    if (row.state === "closed") return <CloseCircleOutline size={16} />;
-    return <PullRequestIcon size={16} />;
-  }
-
-  function stateClass(row: PullRequestSummary): string {
-    if (row.state === "merged") return "merged";
-    if (row.state === "closed") return "closed";
-    return row.isDraft ? "draft" : "open";
-  }
-
-  function checksInfo(row: PullRequestSummary): { text: string; tone: string } | null {
-    const checks = row.checks ?? [];
-    if (checks.length === 0) return null;
-    if (checks.some((check) => check.state === "failure")) return { text: t.prChecksFailing, tone: "danger" };
-    if (checks.some((check) => check.state === "pending")) return { text: t.prChecksRunning, tone: "warning" };
-    if (checks.every((check) => check.state === "none")) return { text: t.prNoChecks, tone: "muted" };
-    return { text: t.prChecksPassing, tone: "success" };
-  }
-
-  function reviewInfo(row: PullRequestSummary): { text: string; tone: string } | null {
-    if (row.reviewDecision === "approved") return { text: t.prReviewApproved, tone: "success" };
-    if (row.reviewDecision === "changes-requested") return { text: t.prReviewChangesRequested, tone: "danger" };
-    if (row.reviewDecision === "review-required") return { text: t.prReviewRequired, tone: "warning" };
-    return null;
-  }
-
-  function labelStyle(label: PullRequestLabel): Record<string, string> {
-    return { borderColor: `#${label.color}`, color: `#${label.color}` };
-  }
-
-  function openDetail(row: PullRequestSummary): void {
+  const openDetail = useCallback((row: PullRequestSummary): void => {
     listScrollTop.current = listEl.current?.scrollTop ?? listScrollTop.current;
     setOpenUrl(row.url);
     setHighlighted(-1);
-  }
+  }, []);
 
   function closeDetail(): void {
     setOpenUrl(null);
@@ -211,30 +337,29 @@ export function PullRequestsView(): ReactNode {
     });
   }
 
-  function prefetch(row: PullRequestSummary): void {
+  const prefetch = useCallback((row: PullRequestSummary): void => {
     window.clearTimeout(prefetchTimer.current);
     prefetchTimer.current = window.setTimeout(() => {
       const at = detailPrefetch.current.get(row.url);
       if (at && Date.now() - at < 60_000) return;
       detailPrefetch.current.set(row.url, Date.now());
-      void window.api.github.pullRequestDetail({ url: row.url }).then((response) => {
-        if (!response.success) return;
-        const detail = response.detail as PullRequestDetail;
-        void detail;
-      });
+      void window.api.github.pullRequestDetail({ url: row.url });
     }, PREFETCH_DELAY_MS);
-  }
+  }, []);
 
-  function copyLink(row: PullRequestSummary): void {
-    void navigator.clipboard.writeText(row.url).then(
-      () => message.success(t.prCopiedLink),
-      () => message.error(t.prCouldNotLoadFiles),
-    );
-  }
+  const copyLink = useCallback(
+    (row: PullRequestSummary): void => {
+      void navigator.clipboard.writeText(row.url).then(
+        () => message.success(t.prCopiedLink),
+        () => message.error(t.prCouldNotLoadFiles),
+      );
+    },
+    [message, t],
+  );
 
-  function openOnGithub(row: PullRequestSummary): void {
+  const openOnGithub = useCallback((row: PullRequestSummary): void => {
     void window.api.browser.openExternal(row.url);
-  }
+  }, []);
 
   function moveHighlight(step: number): void {
     if (rowsRef.current.length === 0) return;
@@ -436,137 +561,18 @@ export function PullRequestsView(): ReactNode {
                       {list.nextCursor ? <span>{t.prShowingCount(rows.length, list.totalCount)}</span> : null}
                     </div>
                     <ul className={styles.prList} aria-label={t.pullRequests}>
-                      {rows.map((row, index) => {
-                        const checks = checksInfo(row);
-                        const review = reviewInfo(row);
-                        return (
-                          <li
-                            key={row.url}
-                            className={`${styles.prRow} ${index === highlighted ? styles.highlighted : ""}`}
-                            onClick={() => openDetail(row)}
-                            onPointerEnter={() => prefetch(row)}
-                          >
-                            <span className={`${styles.stateIcon} ${styles[stateClass(row)]}`}>
-                              {stateIcon(row)}
-                            </span>
-                            <div className={styles.rowMain}>
-                              <div className={styles.rowTitleLine}>
-                                <span className={styles.rowTitle}>
-                                  {row.title}
-                                  <span className={styles.rowNumber}>#{row.number}</span>
-                                </span>
-                              </div>
-                              <div className={styles.rowSub}>
-                                {row.isDraft ? <span className={styles.draftTag}>{t.prDraft}</span> : null}
-                                {row.headBranch ? (
-                                  <span className={styles.rowBranch}>
-                                    <span className={styles.branchPill}>{row.headBranch}</span>
-                                    {row.baseBranch ? <span>→</span> : null}
-                                    {row.baseBranch ? <span className={styles.branchPill}>{row.baseBranch}</span> : null}
-                                  </span>
-                                ) : null}
-                                {row.commentCount ? (
-                                  <span className={styles.rowMetaItem}>
-                                    <ChatbubbleOutline size={13} />
-                                    {row.commentCount}
-                                  </span>
-                                ) : null}
-                                {row.assignees?.length ? (
-                                  <span className={styles.rowPeople}>
-                                    {row.assignees.map((person) => (
-                                      <GitHubAvatar
-                                        key={person.login}
-                                        login={person.login}
-                                        src={person.avatarUrl}
-                                        size="sm"
-                                      />
-                                    ))}
-                                  </span>
-                                ) : null}
-                                <span className={styles.rowInline}>
-                                  {row.author ? <span>{row.author}</span> : null}
-                                  {checks ? (
-                                    <span className={`${styles.badge} ${styles[checks.tone]}`}>{checks.text}</span>
-                                  ) : null}
-                                  {review ? (
-                                    <span className={`${styles.badge} ${styles[review.tone]}`}>{review.text}</span>
-                                  ) : null}
-                                </span>
-                              </div>
-                            </div>
-                            <div className={styles.rowAuthor}>
-                              {row.author ? (
-                                <span className={styles.authorCell}>
-                                  <GitHubAvatar login={row.author} src={row.authorAvatarUrl} size="md" />
-                                  <span className={styles.ellipsis}>{row.author}</span>
-                                </span>
-                              ) : (
-                                <span className={styles.muted}>—</span>
-                              )}
-                            </div>
-                            <div className={styles.rowChecks}>
-                              {checks ? (
-                                <span className={`${styles.badge} ${styles[checks.tone]}`}>
-                                  <CheckmarkCircleOutline size={12} />
-                                  {checks.text}
-                                </span>
-                              ) : (
-                                <span className={styles.muted}>—</span>
-                              )}
-                            </div>
-                            <div className={styles.rowLabels}>
-                              {row.labels?.length ? (
-                                <span className={styles.labelChips}>
-                                  {row.labels.map((label) => (
-                                    <span key={label.name} className={styles.labelChip} style={labelStyle(label)}>
-                                      {label.name}
-                                    </span>
-                                  ))}
-                                </span>
-                              ) : (
-                                <span className={styles.muted}>—</span>
-                              )}
-                            </div>
-                            <div className={styles.rowDiff}>
-                              {row.additions !== undefined && row.deletions !== undefined ? (
-                                <span>
-                                  <span className={styles.added}>{t.prAdditionsCount(row.additions)}</span>
-                                  <span className={styles.removed}>{t.prDeletionsCount(row.deletions)}</span>
-                                </span>
-                              ) : (
-                                <span className={styles.muted}>—</span>
-                              )}
-                            </div>
-                            <div className={styles.rowTime}>
-                              <span className={styles.timeText}>{relativeTime(row.updatedAt ?? row.createdAt)}</span>
-                              <span className={styles.rowActions}>
-                                <button
-                                  type="button"
-                                  className={styles.rowAction}
-                                  title={t.prCopyLink}
-                                  onClick={(event) => {
-                                    event.stopPropagation();
-                                    copyLink(row);
-                                  }}
-                                >
-                                  <CopyOutline size={13} />
-                                </button>
-                                <button
-                                  type="button"
-                                  className={styles.rowAction}
-                                  title={t.prOpenOnGithub}
-                                  onClick={(event) => {
-                                    event.stopPropagation();
-                                    openOnGithub(row);
-                                  }}
-                                >
-                                  <OpenOutline size={13} />
-                                </button>
-                              </span>
-                            </div>
-                          </li>
-                        );
-                      })}
+                      {rows.map((row, index) => (
+                        <PrRow
+                          key={row.url}
+                          row={row}
+                          active={index === highlighted}
+                          t={t}
+                          onOpen={openDetail}
+                          onPrefetch={prefetch}
+                          onCopy={copyLink}
+                          onExternal={openOnGithub}
+                        />
+                      ))}
                     </ul>
                     <div className={styles.listFoot}>
                       {list.moreError ? <p className={styles.moreError}>{list.moreError}</p> : null}

@@ -1330,6 +1330,8 @@ export const en = {
 		`Uninstall “${name}”? It will be removed from config and deleted locally.`,
 	marketUninstalled: (name: string) => `Uninstalled ${name}`,
 	marketUninstallFailed: "Uninstall failed",
+	git: "Git",
+	gitComingSoon: "Git isn't built yet.",
 	pullRequests: "Pull requests",
 	pullRequestTab: "Pull request",
 	prSearchPlaceholder: "Search pull requests…",

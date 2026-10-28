@@ -182,6 +182,7 @@ export type PullRequestsState = PullRequestsBase &
 export const usePullRequestsStore = create<PullRequestsState>()((set, get) => {
 	const cache = new Map<string, Omit<ListState, "key">>();
 	const pending = new Set<string>();
+	let inflight: { key: string; run: number; promise: Promise<void> } | null = null;
 	let generation = 0;
 	let activeKey = "";
 
@@ -203,20 +204,49 @@ export const usePullRequestsStore = create<PullRequestsState>()((set, get) => {
 	function cancelPending(): void {
 		for (const requestId of pending) void window.api.github.pullRequestListCancel(requestId);
 		pending.clear();
+		inflight = null;
 	}
 
-	async function fetchPage(currentKey: string, cursor?: string) {
+	function filtersForRequest(): PullRequestFilters | undefined {
+		const { filtersJson } = get();
+		if (filtersJson === "{}") return undefined;
+		const filters = JSON.parse(filtersJson) as PullRequestFilters;
+		if (filters.updatedWithin) {
+			const days = filters.updatedWithin;
+			delete filters.updatedWithin;
+			filters.updatedAfter = new Date(Date.now() - days * 86_400_000).toISOString().slice(0, 10);
+		}
+		return filters;
+	}
+
+	async function refreshCounts(currentKey: string, run: number, fresh: boolean): Promise<void> {
+		const state = get();
+		if (state.key !== currentKey) return;
+		const filters = filtersForRequest();
+		try {
+			const response = await window.api.github.pullRequestCounts(
+				plainIpcArgs({
+					state: state.selection.state,
+					author: state.selection.author,
+					...(filters ? { filters } : {}),
+					...(fresh ? { fresh: true } : {}),
+				}),
+			);
+			if (run !== generation || !response.success || !response.counts) return;
+			const list = get().list;
+			if (list.key !== currentKey) return;
+			commit({ list: { ...list, counts: response.counts } });
+		} catch {
+			// 计数只是锦上添花，失败不影响列表
+		}
+	}
+
+	async function fetchPage(currentKey: string, cursor?: string, fresh?: boolean) {
 		const requestId = crypto.randomUUID();
 		const state = get();
 		pending.add(requestId);
 		try {
-			const filters =
-				state.filtersJson === "{}" ? undefined : (JSON.parse(state.filtersJson) as PullRequestFilters);
-			if (filters?.updatedWithin) {
-				const days = filters.updatedWithin;
-				delete filters.updatedWithin;
-				filters.updatedAfter = new Date(Date.now() - days * 86_400_000).toISOString().slice(0, 10);
-			}
+			const filters = filtersForRequest();
 			const response = await window.api.github
 				.pullRequestList(
 					plainIpcArgs({
@@ -224,6 +254,7 @@ export const usePullRequestsStore = create<PullRequestsState>()((set, get) => {
 						author: state.selection.author,
 						...(filters ? { filters } : {}),
 						...(cursor ? { cursor } : {}),
+						...(fresh ? { fresh: true } : {}),
 						requestId,
 					}),
 				)
@@ -246,47 +277,79 @@ export const usePullRequestsStore = create<PullRequestsState>()((set, get) => {
 		const state = get();
 		if (!state.workspaceRoot) return;
 		const currentKey = state.key;
-		const cached = cache.get(currentKey);
-		if (!force && state.list.key === currentKey) return;
+		if (!force && inflight && inflight.key === currentKey) return inflight.promise;
+		if (!force && state.list.key === currentKey && !state.list.error) return;
 		cancelPending();
 		const run = ++generation;
 		activeKey = currentKey;
-		const previous = cached ?? EMPTY_LIST;
+		const previous = cache.get(currentKey) ?? EMPTY_LIST;
 		const targetCount = previous.pullRequests.length;
 		commit({
 			list: {
 				...previous,
 				key: currentKey,
-				loading: !force,
+				loading: previous.pullRequests.length === 0,
 				loadingMore: force,
 				error: null,
 				moreError: null,
 			},
 		});
+		const promise = readList(currentKey, targetCount, force, run);
+		inflight = { key: currentKey, run, promise };
 		try {
-			const first = await fetchPage(currentKey);
+			await promise;
+		} finally {
+			if (inflight?.run === run) inflight = null;
+		}
+	}
+
+	function commitRows(
+		currentKey: string,
+		rows: PullRequestSummary[],
+		cursor: string | null,
+		meta: { totalCount: number; repository: string | null },
+		loadingMore: boolean,
+	): void {
+		const settled: Omit<ListState, "key"> = {
+			pullRequests: rows,
+			nextCursor: cursor,
+			totalCount: meta.totalCount,
+			counts: get().list.counts,
+			repository: meta.repository,
+			loading: false,
+			loadingMore,
+			error: null,
+			moreError: null,
+		};
+		cache.set(currentKey, settled);
+		trimCache();
+		commit({ list: { ...settled, key: currentKey } });
+	}
+
+	async function readList(currentKey: string, targetCount: number, fresh: boolean, run: number): Promise<void> {
+		try {
+			const first = await fetchPage(currentKey, undefined, fresh);
+			if (run !== generation) return;
+			const meta = {
+				totalCount: first.totalCount ?? 0,
+				repository: first.repository ?? null,
+			};
 			let rows = first.pullRequests ?? [];
 			let cursor = first.nextCursor ?? null;
+			const stale = Boolean(first.stale) && !fresh;
+			commitRows(currentKey, rows, cursor, meta, !stale && Boolean(cursor && rows.length < targetCount));
+			void refreshCounts(currentKey, run, fresh);
+			if (stale) {
+				await readList(currentKey, targetCount, true, run);
+				return;
+			}
 			for (let page = 1; page < MAX_LIST_PAGES && cursor && rows.length < targetCount; page += 1) {
-				const next = await fetchPage(currentKey, cursor);
+				const next = await fetchPage(currentKey, cursor, fresh);
 				rows = mergeByUrl(rows, next.pullRequests ?? []);
 				cursor = next.nextCursor ?? null;
+				if (run !== generation) return;
+				commitRows(currentKey, rows, cursor, meta, Boolean(cursor && rows.length < targetCount));
 			}
-			if (run !== generation) return;
-			const settled: Omit<ListState, "key"> = {
-				pullRequests: rows,
-				nextCursor: cursor,
-				totalCount: first.totalCount ?? 0,
-				counts: first.counts ?? null,
-				repository: first.repository ?? null,
-				loading: false,
-				loadingMore: false,
-				error: null,
-				moreError: null,
-			};
-			cache.set(currentKey, settled);
-			trimCache();
-			commit({ list: { ...settled, key: currentKey } });
 		} catch (error) {
 			if (error === SUPERSEDED || run !== generation) return;
 			const message = error instanceof Error ? error.message : String(error);

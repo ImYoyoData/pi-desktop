@@ -21,6 +21,7 @@ import type {
 	PullRequestAction,
 	PullRequestChoices,
 	PullRequestChoiceKind,
+	PullRequestCounts,
 	PullRequestDetail,
 	PullRequestFilters,
 	PullRequestListAuthor,
@@ -789,13 +790,24 @@ export function createApi(
 			cursor?: string;
 			filters?: PullRequestFilters;
 			requestId?: string;
+			fresh?: boolean;
 		}) =>
 			ipcRenderer.invoke(IpcChannels.github.pullRequestList, plainArgs(payload)) as Promise<
 				GitHubResponse<PullRequestPage>
 			>,
 		pullRequestListCancel: (requestId: string) =>
 			ipcRenderer.invoke(IpcChannels.github.pullRequestListCancel, requestId) as Promise<void>,
-		pullRequestDetail: (payload: { url: string }) =>
+		pullRequestCounts: (payload: {
+			state: PullRequestListState;
+			author: PullRequestListAuthor;
+			filters?: PullRequestFilters;
+			requestId?: string;
+			fresh?: boolean;
+		}) =>
+			ipcRenderer.invoke(IpcChannels.github.pullRequestCounts, plainArgs(payload)) as Promise<
+				GitHubResponse<{ counts?: PullRequestCounts }>
+			>,
+		pullRequestDetail: (payload: { url: string; fresh?: boolean }) =>
 			ipcRenderer.invoke(IpcChannels.github.pullRequestDetail, plainArgs(payload)) as Promise<
 				GitHubResponse<{ detail: PullRequestDetail }>
 			>,

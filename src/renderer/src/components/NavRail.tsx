@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import {
+  GitBranchOutline,
   HomeOutline,
   SettingsOutline,
 } from "@renderer/components/icons/ionicons";
@@ -50,6 +51,13 @@ export function NavRail(): ReactNode {
       icon: <HomeOutline size={18} />,
       active: centerView === "chat",
       onClick: showChatView,
+    },
+    {
+      key: "git",
+      label: t.git,
+      icon: <GitBranchOutline size={18} />,
+      active: centerView === "git",
+      onClick: () => useLayoutStore.getState().showGit(),
     },
     {
       key: "pull-requests",

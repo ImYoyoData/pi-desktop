@@ -1295,6 +1295,8 @@ export const zh = {
 		`确定卸载「${name}」？将从配置中移除并删除本地包。`,
 	marketUninstalled: (name: string) => `已卸载 ${name}`,
 	marketUninstallFailed: "卸载失败",
+	git: "Git",
+	gitComingSoon: "Git 功能还在开发中。",
 	pullRequests: "拉取请求",
 	pullRequestTab: "拉取请求",
 	prSearchPlaceholder: "搜索拉取请求…",

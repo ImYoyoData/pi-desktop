@@ -1,3 +1,4 @@
+import { exec } from "dugite";
 import {
 	CONVERSATION_COMMENTS_JQ,
 	createGhRunner,
@@ -20,6 +21,7 @@ import {
 import type { PullRequestAddress } from "./github-core";
 import type {
 	PullRequestChoices,
+	PullRequestCounts,
 	PullRequestDetail,
 	PullRequestListAuthor,
 	PullRequestListState,
@@ -32,12 +34,22 @@ import type {
 import { fetchPullRequestDetail, fetchPullRequestPatch, runPullRequestAction } from "./github-detail";
 import {
 	cachedRepositoryIdentity,
+	countsKeyPrefix,
 	createTtlCache,
 	fetchPullRequestChoices,
+	fetchPullRequestCounts,
 	fetchPullRequestPage,
 	fetchRepositoryChoices,
+	pageKeyPrefix,
+	type LocalIdentity,
 	type RepositoryIdentity,
 } from "./github-list";
+import {
+	DETAIL_CACHE_TTL_MS,
+	detailCacheOptions,
+	PULL_REQUEST_PAGE_TTL_MS,
+	pageCacheOptions,
+} from "./github-cache";
 
 const PULL_REQUEST_STACK_DEPTH = 2;
 const DEFAULT_CACHE_TTL_MS = 5 * 60 * 1000;
@@ -69,7 +81,7 @@ function isProjectRepository(project: RepositoryIdentity, address: PullRequestAd
 
 export type GitHubTransport = {
 	kind: string;
-	pullRequestDetail: (cwd: string, url: string) => Promise<PullRequestDetail>;
+	pullRequestDetail: (cwd: string, url: string, fresh?: boolean) => Promise<PullRequestDetail>;
 	pullRequestPatch: (cwd: string, url: string, headSha?: string) => Promise<PullRequestPatchResult>;
 	pullRequestAction: (cwd: string, url: string, action: unknown) => Promise<void>;
 	pullRequestChoices: (cwd: string, url: string, kind: string) => Promise<PullRequestChoices>;
@@ -81,7 +93,16 @@ export type GitHubTransport = {
 		cursor?: string;
 		filters?: PullRequestFilters;
 		signal?: AbortSignal;
+		fresh?: boolean;
 	}) => Promise<PullRequestPage>;
+	pullRequestCounts: (request: {
+		cwd: string;
+		state: PullRequestListState;
+		author: PullRequestListAuthor;
+		filters?: PullRequestFilters;
+		signal?: AbortSignal;
+		fresh?: boolean;
+	}) => Promise<PullRequestCounts | undefined>;
 	pullRequestForBranch: (cwd: string, branch: string) => Promise<PullRequestSummary | null>;
 	pullRequestByUrl: (cwd: string, url: string) => Promise<PullRequestSummary>;
 	listPullRequests: (
@@ -99,16 +120,45 @@ export type GitHubTransportOptions = {
 	run?: RunGh;
 };
 
+const REMOTE_URL_PATTERN =
+	/^(?:https?:\/\/|ssh:\/\/git@|git@)([^/:]+)(?::\d+)?[/:]([^/]+)\/([^/]+?)(?:\.git)?\/?$/;
+
+function identityFromRemote(url: string): RepositoryIdentity | null {
+	const match = REMOTE_URL_PATTERN.exec(url.trim());
+	if (!match?.[1] || !match[2] || !match[3]) return null;
+	// ssh alias（常见为无点主机名）交给 gh repo view 解析，避免把别名当 GitHub 主机
+	if (!match[1].includes(".")) return null;
+	return { hostname: match[1], repository: `${match[2]}/${match[3]}` };
+}
+
+/** 用本地 git remote 解析仓库，省掉一次 gh 进程；失败由调用方回退 gh repo view。 */
+const localIdentity: LocalIdentity = async (cwd) => {
+	try {
+		const result = await exec(["remote", "get-url", "origin"], cwd, {
+			maxBuffer: 64 * 1024,
+			signal: AbortSignal.timeout(5000),
+		});
+		if (result.exitCode !== 0) return null;
+		return identityFromRemote(String(result.stdout));
+	} catch {
+		return null;
+	}
+};
+
 export function createGhCliTransport(options: GitHubTransportOptions = {}): GitHubTransport {
 	const { gh, slow } = createGhRunner({ timeoutMs: options.timeoutMs, run: options.run as never });
 	const listTimeout = options.timeoutMs ?? LIST_TIMEOUT_MS;
 	const repositories = createTtlCache<RepositoryIdentity>();
 	const choices = createTtlCache<PullRequestChoices>();
+	const pages = createTtlCache<PullRequestPage>(PULL_REQUEST_PAGE_TTL_MS, pageCacheOptions());
+	const counts = createTtlCache<PullRequestCounts>();
+	const details = createTtlCache<PullRequestDetail>(DETAIL_CACHE_TTL_MS, detailCacheOptions());
+	const patches = createTtlCache<PullRequestPatchResult>(DETAIL_CACHE_TTL_MS, { limit: 4 });
 
-	const inProject = async (cwd: string, url: string): Promise<void> => {
+	const inProject = async (cwd: string, url: string): Promise<RepositoryIdentity> => {
 		const address = pullRequestAddress(url);
-		const project = await cachedRepositoryIdentity(cwd, slow, repositories);
-		if (isProjectRepository(project, address)) return;
+		const project = await cachedRepositoryIdentity(cwd, slow, repositories, localIdentity);
+		if (isProjectRepository(project, address)) return project;
 		repositories.forget(cwd);
 		throw githubError(FOREIGN_PULL_REQUEST);
 	};
@@ -130,23 +180,39 @@ export function createGhCliTransport(options: GitHubTransportOptions = {}): GitH
 
 	return {
 		kind: "gh-cli",
-		pullRequestDetail: async (cwd, url) => {
+		pullRequestDetail: async (cwd, url, fresh) => {
 			await inProject(cwd, url);
-			return fetchPullRequestDetail(cwd, url, slow);
+			if (fresh) details.forget(url);
+			const hit = details.get(url);
+			if (hit) return hit;
+			const stale = details.entry(url);
+			if (stale) return { ...stale.value, stale: true };
+			return details.run(url, () => fetchPullRequestDetail(cwd, url, slow));
 		},
 		pullRequestPatch: async (cwd, url, headSha) => {
 			await inProject(cwd, url);
-			return fetchPullRequestPatch(cwd, url, slow, headSha);
+			if (!headSha) return fetchPullRequestPatch(cwd, url, slow, headSha);
+			const key = `${url}|${headSha}`;
+			const result = await patches.run(key, () => fetchPullRequestPatch(cwd, url, slow, headSha));
+			if (result.stale) patches.forget(key);
+			return result;
 		},
 		pullRequestAction: async (cwd, url, action) => {
-			await inProject(cwd, url);
-			return runPullRequestAction(cwd, url, action, slow);
+			const project = await inProject(cwd, url);
+			try {
+				await runPullRequestAction(cwd, url, action, slow);
+			} finally {
+				details.forget(url);
+				patches.forgetPrefix(url);
+				pages.forgetPrefix(pageKeyPrefix(project));
+				counts.forgetPrefix(countsKeyPrefix(project));
+			}
 		},
 		pullRequestChoices: async (cwd, url, kind) => {
 			await inProject(cwd, url);
 			return fetchPullRequestChoices(cwd, url, kind, slow, { choices });
 		},
-		repositoryChoices: (cwd, kind) => fetchRepositoryChoices(cwd, kind, slow, { repositories, choices }),
+		repositoryChoices: (cwd, kind) => fetchRepositoryChoices(cwd, kind, slow, { repositories, choices, local: localIdentity }),
 		pullRequestPage: (request) =>
 			fetchPullRequestPage({
 				cwd: request.cwd,
@@ -155,8 +221,23 @@ export function createGhCliTransport(options: GitHubTransportOptions = {}): GitH
 				cursor: request.cursor,
 				filters: request.filters,
 				repositories,
+				pages,
+				local: localIdentity,
+				fresh: request.fresh,
 				run: (cwd, args) => gh(cwd, args, listTimeout, request.signal),
 			}),
+			pullRequestCounts: (request) =>
+				fetchPullRequestCounts({
+					cwd: request.cwd,
+					state: request.state,
+					author: request.author,
+					filters: request.filters,
+					repositories,
+					counts,
+					local: localIdentity,
+					fresh: request.fresh,
+					run: (cwd, args) => gh(cwd, args, listTimeout, request.signal),
+				}),
 		pullRequestForBranch: async (cwd, branch) => {
 			const stdout = await gh(cwd, [
 				"pr",
@@ -256,8 +337,17 @@ export type GitHubClient = {
 		cursor?: string,
 		filters?: PullRequestFilters,
 		signal?: AbortSignal,
+		fresh?: boolean,
 	) => Promise<PullRequestPage>;
-	pullRequestDetail: (cwd: string, url: string) => Promise<PullRequestDetail>;
+	pullRequestCounts: (request: {
+		cwd: string;
+		state: PullRequestListState;
+		author: PullRequestListAuthor;
+		filters?: PullRequestFilters;
+		signal?: AbortSignal;
+		fresh?: boolean;
+	}) => Promise<PullRequestCounts | undefined>;
+	pullRequestDetail: (cwd: string, url: string, fresh?: boolean) => Promise<PullRequestDetail>;
 	pullRequestPatch: (cwd: string, url: string, headSha?: string) => Promise<PullRequestPatchResult>;
 	pullRequestAction: (cwd: string, url: string, action: unknown) => Promise<void>;
 	pullRequestChoices: (cwd: string, url: string, kind: string) => Promise<PullRequestChoices>;
@@ -357,9 +447,10 @@ export function createGitHubClient(
 			}
 			cache.delete(cwd);
 		},
-		listPullRequests: (cwd, state, author, cursor, filters, signal) =>
-			transport.pullRequestPage({ cwd, state, author, cursor, filters, signal }),
-		pullRequestDetail: (cwd, url) => transport.pullRequestDetail(cwd, url),
+		listPullRequests: (cwd, state, author, cursor, filters, signal, fresh) =>
+			transport.pullRequestPage({ cwd, state, author, cursor, filters, signal, fresh }),
+		pullRequestCounts: (request) => transport.pullRequestCounts(request),
+		pullRequestDetail: (cwd, url, fresh) => transport.pullRequestDetail(cwd, url, fresh),
 		pullRequestPatch: (cwd, url, headSha) => transport.pullRequestPatch(cwd, url, headSha),
 		pullRequestAction: (cwd, url, action) => transport.pullRequestAction(cwd, url, action),
 		pullRequestChoices: (cwd, url, kind) => transport.pullRequestChoices(cwd, url, kind),
