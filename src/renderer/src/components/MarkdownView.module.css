@@ -135,12 +135,6 @@
   margin: 0.2em 0;
 }
 
-/* markstream 的列表项内部会包一层 <p>（原实现直接把文本放进 <li>），
-   那层 p 的 margin 会叠加到 li 上，把这些 margin 归零只留 li 自己的间距。 */
-.root:global(.md) :global(.list-item) > p {
-  margin: 0;
-}
-
 .root:global(.md) li > p {
   margin: 0.2em 0;
 }
@@ -609,4 +603,12 @@
 :global(.ant-modal).diagramFullscreenModal {
   width: min(100vw - 16px, 1400px) !important;
   max-width: 100vw !important;
+}
+
+/* markstream 的列表项内部会包一层 <p>（原实现直接把文本放进 <li>），
+   chat 变体给 p 的 16px 下边距会叠到 li 上，列表项之间就多出一行。
+   这里的选择器优先级高于 .md.md-chat p，且放在文件最后。 */
+.root:global(.md.md-chat) :global(.list-item) > p,
+.root:global(.md) :global(.list-item) > p {
+  margin: 0;
 }
