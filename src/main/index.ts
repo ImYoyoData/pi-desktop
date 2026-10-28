@@ -62,6 +62,11 @@ import {
 	registerAskUserIpc,
 } from "./ask-user-host";
 import {
+	cancelPermissionAsk,
+	handlePermissionCheck,
+	registerPermissionsIpc,
+} from "./permissions-host";
+import {
 	handleExtensionUiRpc,
 	registerExtensionUiIpc,
 } from "./extension-ui-host";
@@ -236,6 +241,8 @@ function boot(): void {
 							requestId: msg.id,
 							questions,
 						});
+					} else if (msg.method === "desktop.permissionCheck") {
+						result = await handlePermissionCheck(sessionId, msg.id, msg.params ?? {});
 					} else if (msg.method === "desktop.rpcCancel") {
 						// Worker aborted the turn (Stop) while blocked on a UI ask —
 						// tear it down and broadcast a cancel so the strip closes.
@@ -244,6 +251,7 @@ function boot(): void {
 							typeof params.requestId === "string" ? params.requestId : "";
 						if (requestId) {
 							cancelAskUserAsk(requestId);
+							cancelPermissionAsk(requestId);
 						}
 						result = { ok: true };
 					} else if (msg.method === "desktop.extensionUi") {
@@ -362,6 +370,7 @@ function boot(): void {
 		registerAgentRunsIpc(registryHolder.current!);
 		registerModelsIpc(broker);
 		registerAskUserIpc();
+		registerPermissionsIpc();
 		registerExtensionUiIpc();
 		registerThinkingLanguageIpc();
 		registerStreamRenderIpc(broker);

@@ -87,8 +87,8 @@ export const lightThemeConfig: ThemeConfig = {
     colorBgLayout: "#ffffff",
     colorBgContainer: "#fafafd",
     colorBgElevated: "#fafafd",
-    colorBorder: "#f0f1f2",
-    colorBorderSecondary: "#f0f1f2",
+    colorBorder: "#dcdee2",
+    colorBorderSecondary: "#e8e9ec",
     colorFillSecondary: "#f7f7fa",
   },
 };

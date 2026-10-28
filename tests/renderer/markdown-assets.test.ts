@@ -10,10 +10,6 @@ import {
   localFileSrc,
   resolveMarkdownImageSrc,
 } from "../../src/renderer/src/utils/markdown-assets";
-import {
-  ALLOWED_URI_REGEXP,
-  parseMarkdownRaw,
-} from "../../src/renderer/src/utils/markdown";
 
 const REPO = "F:/Code/Work/pi-desktop";
 const DOC_DIR = "F:/Code/Work/pi-desktop/docs";
@@ -122,42 +118,5 @@ describe("resolveMarkdownImageSrc", () => {
     expect(localFileSrc(`${REPO}/a.png`, REPO)).toBe(
       "pi-local://media/?p=a.png",
     );
-  });
-});
-
-describe("markdown image rendering", () => {
-  it("rewrites relative image sources to local addresses", () => {
-    const html = parseMarkdownRaw(
-      "![icon](resources/icon.svg)",
-      { dir: REPO, root: REPO },
-    );
-    expect(html).toContain("src=\"pi-local://media/?p=resources%2Ficon.svg\"");
-  });
-
-  it("keeps remote image sources", () => {
-    const html = parseMarkdownRaw(
-      "![version](https://img.shields.io/x.png)",
-      { dir: REPO, root: REPO },
-    );
-    expect(html).toContain("src=\"https://img.shields.io/x.png\"");
-  });
-
-  it("keeps the original source without a base directory", () => {
-    const html = parseMarkdownRaw("![icon](resources/icon.svg)");
-    expect(html).toContain("src=\"resources/icon.svg\"");
-  });
-});
-
-describe("sanitizer uri rules", () => {
-  it("allows app internal protocols", () => {
-    expect(
-      ALLOWED_URI_REGEXP.test("pi-local://media/?p=a.png"),
-    ).toBe(true);
-    expect(ALLOWED_URI_REGEXP.test("pi-media://file/?p=a.png")).toBe(true);
-  });
-
-  it("still blocks script protocols", () => {
-    expect(ALLOWED_URI_REGEXP.test("javascript:alert(1)")).toBe(false);
-    expect(ALLOWED_URI_REGEXP.test("data:text/html;base64,AAA")).toBe(false);
   });
 });

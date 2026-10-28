@@ -26,6 +26,7 @@ import CustomizeHooks from "@renderer/components/customize/CustomizeHooks";
 import CustomizeTools from "@renderer/components/customize/CustomizeTools";
 import CustomizeModels from "@renderer/components/customize/CustomizeModels";
 import CustomizeRuntime from "@renderer/components/customize/CustomizeRuntime";
+import CustomizePermissions from "@renderer/components/customize/CustomizePermissions";
 import CustomizeRetry from "@renderer/components/customize/CustomizeRetry";
 import CustomizeDeveloper from "@renderer/components/customize/CustomizeDeveloper";
 import CustomizeBrowser from "@renderer/components/customize/CustomizeBrowser";
@@ -80,6 +81,7 @@ const SECTION_GROUP: Record<string, SettingsGroup> = {
   models: "config",
   retry: "config",
   runtime: "config",
+  permissions: "config",
   skills: "config",
   instructions: "config",
   hooks: "config",
@@ -101,6 +103,7 @@ const SECTION_IDS = [
   "models",
   "retry",
   "runtime",
+  "permissions",
   "skills",
   "instructions",
   "hooks",
@@ -195,6 +198,12 @@ export function AiCustomizationPage({ section, visible }: Props): ReactNode {
     { id: "models", icon: "models", label: t.customizeModels, description: t.customizeModelsDesc },
     { id: "retry", icon: RefreshOutline, label: t.customizeRetry, description: t.customizeRetryDesc },
     { id: "runtime", icon: "run", label: t.customizeRuntime, description: t.customizeRuntimeDesc },
+    {
+      id: "permissions",
+      icon: "security",
+      label: t.customizePermissions,
+      description: t.customizePermissionsDesc,
+    },
     { id: "skills", icon: "skills", label: t.customizeSkills, description: t.customizeSkillsDesc },
     {
       id: "instructions",
@@ -696,6 +705,8 @@ export function AiCustomizationPage({ section, visible }: Props): ReactNode {
         return <CustomizeRetry />;
       case "runtime":
         return <CustomizeRuntime />;
+      case "permissions":
+        return <CustomizePermissions />;
       case "hooks":
         return <CustomizeHooks hooks={snapshot.hooks} />;
       case "tools":
@@ -784,7 +795,7 @@ export function AiCustomizationPage({ section, visible }: Props): ReactNode {
 
       <section className={styles.managementContent}>
         {mcpForm && active === "mcp" ? (
-          <div className={styles.contentInner}>
+          <div key="mcp-form" className={`${styles.contentInner} view-layer-enter`}>
             <McpServerForm
               workspaces={scopedWorkspaces.paths}
               edit={mcpForm.edit}
@@ -793,7 +804,10 @@ export function AiCustomizationPage({ section, visible }: Props): ReactNode {
             />
           </div>
         ) : editing ? (
-          <div className={`${styles.contentInner} ${styles.editorInner}`}>
+          <div
+            key="editor"
+            className={`${styles.contentInner} ${styles.editorInner} view-layer-enter`}
+          >
             <header className={styles.editorPageHeader}>
               <button
                 type="button"
@@ -869,7 +883,7 @@ export function AiCustomizationPage({ section, visible }: Props): ReactNode {
             </div>
           </div>
         ) : (
-          <div className={styles.contentInner}>
+          <div key={active} className={`${styles.contentInner} view-layer-enter`}>
             {active === "models" ? null : (
               <div className={styles.sectionTitleHeader}>
                 <div className={styles.sectionTitleRow}>

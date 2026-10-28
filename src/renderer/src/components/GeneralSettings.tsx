@@ -2,10 +2,12 @@ import type { ReactNode } from "react";
 import { Select } from "antd";
 import { useSessionStatsStore } from "@renderer/stores/session-stats";
 import { useSendShortcutStore, type SendShortcutMode } from "@renderer/stores/send-shortcut";
+import { useTabFocusStore } from "@renderer/stores/tab-focus";
 import type { SessionTpsMode } from "@renderer/utils/session-stats";
 import {
   SettingsGroup,
   SettingsRow,
+  SettingsSwitch,
 } from "@renderer/components/customize/SettingsGroup";
 import { useI18n } from "@renderer/i18n/use-i18n";
 import styles from "./GeneralSettings.module.css";
@@ -16,6 +18,8 @@ export function GeneralSettings(): ReactNode {
   const setTpsMode = useSessionStatsStore((state) => state.setTpsMode);
   const sendShortcut = useSendShortcutStore((state) => state.mode);
   const setSendShortcut = useSendShortcutStore((state) => state.setMode);
+  const tabFocus = useTabFocusStore((state) => state.enabled);
+  const setTabFocus = useTabFocusStore((state) => state.setEnabled);
 
   const tpsModeOptions: { label: string; value: SessionTpsMode }[] = [
     { label: t.commonTpsModeStreaming, value: "streaming" },
@@ -48,6 +52,13 @@ export function GeneralSettings(): ReactNode {
             size="small"
             className={styles.settingSelect}
             onChange={(value: SessionTpsMode) => setTpsMode(value)}
+          />
+        </SettingsRow>
+        <SettingsRow label={t.commonTabFocus} description={t.commonTabFocusHint}>
+          <SettingsSwitch
+            checked={tabFocus}
+            label={t.commonTabFocus}
+            onChange={setTabFocus}
           />
         </SettingsRow>
       </SettingsGroup>

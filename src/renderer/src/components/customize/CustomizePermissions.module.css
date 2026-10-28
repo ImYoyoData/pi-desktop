@@ -1,0 +1,41 @@
+.root {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.profileGroup {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+}
+
+.profileRow {
+  display: flex;
+  align-items: flex-start;
+  gap: 2px;
+  margin: 0;
+  padding: 10px 14px;
+}
+
+.profileRow + .profileRow {
+  border-top: 1px solid var(--border);
+}
+
+.profileRow :global(.ant-radio) {
+  top: 1px;
+}
+
+.profileName {
+  display: block;
+  color: var(--fg);
+  font-size: 1rem;
+  line-height: 18px;
+}
+
+.profileHint {
+  display: block;
+  color: var(--fg-muted);
+  font-size: 0.9231rem;
+  line-height: 17px;
+}

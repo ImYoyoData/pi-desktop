@@ -283,6 +283,44 @@ function findLeafId(entries: ParsedEntry[]): string | null {
   return leaves[0]?.id ?? null;
 }
 
+function parseEntryLine(
+  line: string,
+  pendingImages: Map<string, HistoryImage[]>,
+): ParsedEntry | null {
+  const trimmed = line.trim();
+  if (!trimmed) return null;
+  let parsed: Record<string, unknown>;
+  try {
+    parsed = JSON.parse(trimmed) as Record<string, unknown>;
+  } catch {
+    return null;
+  }
+  if (typeof parsed.type !== "string" || typeof parsed.id !== "string") {
+    return null;
+  }
+  const message =
+    parsed.message && typeof parsed.message === "object"
+      ? (parsed.message as Record<string, unknown>)
+      : undefined;
+  if (message) extractImagesToPending(parsed.id, message, pendingImages);
+  return {
+    id: parsed.id,
+    parentId: typeof parsed.parentId === "string" ? parsed.parentId : null,
+    timestamp: typeof parsed.timestamp === "string" ? parsed.timestamp : "",
+    type: parsed.type,
+    message,
+    ...(typeof parsed.provider === "string" ? { provider: parsed.provider } : {}),
+    ...(typeof parsed.modelId === "string" ? { modelId: parsed.modelId } : {}),
+    ...(typeof parsed.thinkingLevel === "string"
+      ? { thinkingLevel: parsed.thinkingLevel }
+      : {}),
+    ...(typeof parsed.summary === "string" ? { summary: parsed.summary } : {}),
+    ...(typeof parsed.tokensBefore === "number" && Number.isFinite(parsed.tokensBefore)
+      ? { tokensBefore: parsed.tokensBefore }
+      : {}),
+  };
+}
+
 function collectEntries(raw: string): {
   entries: ParsedEntry[];
   pendingImages: Map<string, HistoryImage[]>;
@@ -290,38 +328,8 @@ function collectEntries(raw: string): {
   const entries: ParsedEntry[] = [];
   const pendingImages = new Map<string, HistoryImage[]>();
   for (const line of raw.split("\n")) {
-    const trimmed = line.trim();
-    if (!trimmed) continue;
-    let parsed: Record<string, unknown>;
-    try {
-      parsed = JSON.parse(trimmed) as Record<string, unknown>;
-    } catch {
-      continue;
-    }
-    if (typeof parsed.type !== "string" || typeof parsed.id !== "string") {
-      continue;
-    }
-    const message =
-      parsed.message && typeof parsed.message === "object"
-        ? (parsed.message as Record<string, unknown>)
-        : undefined;
-    if (message) extractImagesToPending(parsed.id, message, pendingImages);
-    entries.push({
-      id: parsed.id,
-      parentId: typeof parsed.parentId === "string" ? parsed.parentId : null,
-      timestamp: typeof parsed.timestamp === "string" ? parsed.timestamp : "",
-      type: parsed.type,
-      message,
-      ...(typeof parsed.provider === "string" ? { provider: parsed.provider } : {}),
-      ...(typeof parsed.modelId === "string" ? { modelId: parsed.modelId } : {}),
-      ...(typeof parsed.thinkingLevel === "string"
-        ? { thinkingLevel: parsed.thinkingLevel }
-        : {}),
-      ...(typeof parsed.summary === "string" ? { summary: parsed.summary } : {}),
-      ...(typeof parsed.tokensBefore === "number" && Number.isFinite(parsed.tokensBefore)
-        ? { tokensBefore: parsed.tokensBefore }
-        : {}),
-    });
+    const entry = parseEntryLine(line, pendingImages);
+    if (entry) entries.push(entry);
   }
   return { entries, pendingImages };
 }
@@ -603,4 +611,123 @@ export function parseSessionHistoryJsonl(
   );
   pendingImages.clear();
   return messages;
+}
+
+export type BackwardChunk = {
+  /** 本块起始字节（行边界或 0）。 */
+  start: number;
+  /** 本块覆盖的完整行，按文件顺序。 */
+  lines: string[];
+};
+
+export type ParseSessionHistoryReverseOpts = {
+  /** 文件字节数。 */
+  size: number;
+  /** 读 `fromByte` 之前的完整行；返回 null 表示已到文件头。 */
+  readBackward: (fromByte: number) => BackwardChunk | null;
+  limit: number;
+  beforeId?: string | null;
+  chatMeta?: { text: string; tags: ChatMessageTag[] }[];
+  /** Override for tests — production uses the default 24MB budget. */
+  imageBudgetBytes?: number;
+};
+
+/** 尾部至少累积这么多路径条目，保证一页内的耗时只在尾部区间。 */
+const REVERSE_MIN_PATH_ENTRIES = 40;
+
+/** 从尾部条目里沿 parentId 回溯出文件末尾那条 leaf 路径（文件顺序）。 */
+function tailLeafPath(entries: ParsedEntry[]): ParsedEntry[] {
+  const last = entries[entries.length - 1];
+  if (!last) return [];
+  const byId = new Map(entries.map((entry) => [entry.id, entry]));
+  const path: ParsedEntry[] = [];
+  let cursor: string | null = last.id;
+  while (cursor) {
+    const entry = byId.get(cursor);
+    if (!entry) break;
+    path.push(entry);
+    cursor = entry.parentId;
+  }
+  path.reverse();
+  return path;
+}
+
+/**
+ * 反向分页：从文件尾按块往回读，只解析最后一页需要的区间。
+ * 大会话（几十 MB）不再整文件 JSON.parse，切换会话首帧只付尾部那几 MB 的成本。
+ */
+export function parseSessionHistoryPageReverse(
+  opts: ParseSessionHistoryReverseOpts,
+): SessionHistoryPage {
+  const limit = Math.max(1, Math.min(1_000_000, opts.limit));
+  const beforeId = opts.beforeId?.trim() || null;
+  const imageBudgetBytes =
+    typeof opts.imageBudgetBytes === "number" && opts.imageBudgetBytes > 0
+      ? opts.imageBudgetBytes
+      : MAX_HISTORY_IMAGE_BYTES;
+
+  const pendingImages = new Map<string, HistoryImage[]>();
+  let tail: ParsedEntry[] = [];
+  let cursor = opts.size;
+  let reachedStart = opts.size <= 0;
+  let needed = Math.max(REVERSE_MIN_PATH_ENTRIES, limit * 2 + 8);
+
+  for (;;) {
+    if (!reachedStart) {
+      const chunk = opts.readBackward(cursor);
+      if (!chunk) {
+        reachedStart = true;
+      } else {
+        if (chunk.start >= cursor) {
+          throw new Error("backward read made no progress");
+        }
+        cursor = chunk.start;
+        if (chunk.start <= 0) reachedStart = true;
+        const parsed: ParsedEntry[] = [];
+        for (const line of chunk.lines) {
+          const entry = parseEntryLine(line, pendingImages);
+          if (entry) parsed.push(entry);
+        }
+        if (parsed.length) tail = parsed.concat(tail);
+      }
+    }
+
+    const path = tailLeafPath(tail);
+    if (!reachedStart && path.length < needed) continue;
+
+    // 只构建尾部区间：chatMeta 从头部顺序匹配，重复文本的附件 chips 极少错位。
+    const all = buildMessagesFromEntries(path, pendingImages, opts.chatMeta);
+    const total = all.length;
+    if (total === 0) {
+      if (reachedStart) return { messages: [], hasMore: false, total: 0 };
+      continue;
+    }
+
+    let end = total;
+    if (beforeId) {
+      const idx = all.findIndex((m) => m.id === beforeId);
+      // 尾部区间还没覆盖到 beforeId：继续往回读。
+      if (idx < 0 && !reachedStart) {
+        needed = path.length + limit;
+        continue;
+      }
+      if (idx <= 0) return { messages: [], hasMore: false, total };
+      end = idx;
+    }
+
+    const start = Math.max(0, end - limit);
+    const messages = materializePageImages(
+      all,
+      pendingImages,
+      start,
+      end,
+      imageBudgetBytes,
+    );
+    return {
+      messages,
+      // 未读到文件头就说明还有更早的内容。
+      hasMore: start > 0 || !reachedStart,
+      total,
+    };
+  }
 }

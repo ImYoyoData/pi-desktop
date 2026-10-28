@@ -48,6 +48,9 @@ export type GitFileStatus = {
   staged: boolean;
   /** True when the file matches the workspace ignore/filter list. */
   ignored: boolean;
+  /** Lines added vs HEAD; null when unknown (binary / oversized / no HEAD). */
+  additions: number | null;
+  deletions: number | null;
 };
 
 export type GitStatusResult = {
@@ -301,6 +304,70 @@ async function readStatusEntries(
   return parsePorcelainV1(output);
 }
 
+type LineStat = { additions: number; deletions: number };
+
+/**
+ * `git diff --numstat -z` 输出：`additions\tdeletions\tpath\0`；
+ * 重命名/复制条目的 path 段为空，后面跟 old、new 两段。
+ */
+function parseNumStat(output: string): Map<string, LineStat> {
+  const out = new Map<string, LineStat>();
+  const parts = output.split("\0");
+  for (let i = 0; i < parts.length; i++) {
+    const record = parts[i];
+    if (!record) continue;
+    const firstTab = record.indexOf("\t");
+    const secondTab = record.indexOf("\t", firstTab + 1);
+    if (firstTab < 0 || secondTab < 0) continue;
+    const additions = Number(record.slice(0, firstTab));
+    const deletions = Number(record.slice(firstTab + 1, secondTab));
+    let file = record.slice(secondTab + 1);
+    if (!file) {
+      i += 2;
+      file = parts[i] ?? "";
+    }
+    if (!file || Number.isNaN(additions) || Number.isNaN(deletions)) continue;
+    out.set(file, { additions, deletions });
+  }
+  return out;
+}
+
+/** 工作区相对 HEAD 的行数统计；空仓库（无 HEAD）或 git 失败时为空表。 */
+async function readNumStat(
+  repositoryRoot: string,
+): Promise<Map<string, LineStat>> {
+  try {
+    const output = await git(repositoryRoot, [
+      "diff",
+      "--numstat",
+      "-z",
+      "--no-color",
+      "HEAD",
+    ]);
+    return parseNumStat(output);
+  } catch {
+    return new Map();
+  }
+}
+
+/** 未跟踪文件不在 numstat 里，直接数行；二进制 / 超限返回 null。 */
+function countUntrackedLines(absPath: string): LineStat | null {
+  try {
+    const stat = withoutAsar(() => fs.lstatSync(absPath));
+    if (!stat.isFile() || stat.size > TEXT_PREVIEW_MAX_BYTES) return null;
+    const buf = withoutAsar(() => fs.readFileSync(absPath));
+    if (hasNullByte(buf)) return null;
+    const text = buf.toString("utf8");
+    if (!text) return { additions: 0, deletions: 0 };
+    return {
+      additions: text.replace(/\n$/, "").split("\n").length,
+      deletions: 0,
+    };
+  } catch {
+    return null;
+  }
+}
+
 export async function getWorkspaceGitStatus(
   cwd: string,
 ): Promise<GitStatusResult> {
@@ -346,6 +413,7 @@ export async function getWorkspaceGitStatus(
     return { isGitRepository: true, branch, files: [] };
   }
 
+  const numStat = await readNumStat(repositoryRoot);
   const files: GitFileStatus[] = [];
   for (const entry of entries) {
     const abs = path.resolve(repositoryRoot, entry.path);
@@ -355,11 +423,16 @@ export async function getWorkspaceGitStatus(
     const ignored = isGitIgnoredPath(cwd, relativePath);
     // Filtered files are hidden from the Changes list entirely.
     if (ignored) continue;
+    const stat =
+      numStat.get(entry.path) ??
+      (entry.worktreeStatus === "?" ? countUntrackedLines(abs) : null);
     files.push({
       relativePath,
       ...classify(entry),
       staged: entry.indexStatus !== " " && entry.indexStatus !== "?",
       ignored: false,
+      additions: stat ? stat.additions : null,
+      deletions: stat ? stat.deletions : null,
     });
   }
   return { isGitRepository: true, branch, files };

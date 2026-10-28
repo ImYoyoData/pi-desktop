@@ -19,6 +19,7 @@ type Props = {
     | "streamingMessage"
     | "retryHint"
     | "pendingAskUser"
+    | "pendingPermission"
     | "pendingExtensionUi"
     | "turnStartedAt"
     | "phaseStartedAt"

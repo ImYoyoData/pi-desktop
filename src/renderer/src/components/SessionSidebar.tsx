@@ -1,4 +1,5 @@
 import {
+  startTransition,
   useEffect,
   useMemo,
   useRef,
@@ -245,18 +246,22 @@ export function SessionSidebar(): ReactNode {
   const pendingAskKey = useChatStore((s) => {
     const ids: string[] = [];
     for (const [id, state] of Object.entries(s.bySession)) {
-      if (state.pendingAskUser || state.pendingExtensionUi) ids.push(id);
+      if (state.pendingAskUser || state.pendingExtensionUi || state.pendingPermission) ids.push(id);
     }
     return ids.sort().join(",");
   });
 
+  /** 点击即生效的选中态：高亮/标题/树联动先跟随它，真正的会话切换在后台完成。 */
+  const selectedSessionId =
+    sessionsStore.pendingActiveId ?? sessionsStore.activeId;
+
   const activeSession = useMemo(
     () =>
-      sessionsStore.activeId
-        ? (sessionsStore.sessions.find((s) => s.id === sessionsStore.activeId) ??
+      selectedSessionId
+        ? (sessionsStore.sessions.find((s) => s.id === selectedSessionId) ??
           null)
         : null,
-    [sessionsStore.activeId, sessionsStore.sessions],
+    [selectedSessionId, sessionsStore.sessions],
   );
   const showStuckRecovery = activeSession?.status === "stuck";
 
@@ -571,7 +576,7 @@ export function SessionSidebar(): ReactNode {
     if (!item.topId) return false;
     return (
       hoverGuides[root] === item.topId ||
-      topIdOfSession(root, sessionsStore.activeId) === item.topId
+      topIdOfSession(root, selectedSessionId) === item.topId
     );
   }
 
@@ -768,12 +773,18 @@ export function SessionSidebar(): ReactNode {
     }
   }
 
+  const selectToken = useRef(0);
+
   async function onSelectSession(
     root: string,
     sessionId: string,
     loaded?: SessionSummary[],
   ): Promise<void> {
+    // 连点只认最后一次：旧请求回来时不再改 activeId / 消息区，避免多余的整树渲染。
+    const token = ++selectToken.current;
     useLayoutStore.getState().showChat();
+    // 高亮立刻切，切换会话本身在后台继续。
+    useSessionsStore.getState().setPendingActiveId(sessionId);
     const sessions = useSessionsStore.getState();
     // An active 新会话 the user never chatted with is dropped when they leave it
     // (click another session / switch workspace) instead of lingering on disk.
@@ -803,7 +814,10 @@ export function SessionSidebar(): ReactNode {
     if (discardLeaving && useWorkspaceStore.getState().root !== root) {
       await discardUnstartedSession(leavingRoot, leaving!.id);
     }
-    useChatStore.getState().beginHistoryLoad(sessionId);
+    // 消息区整体换内容是一次大渲染：标成 transition，点击先响，渲染可被打断。
+    startTransition(() => {
+      useChatStore.getState().beginHistoryLoad(sessionId);
+    });
     try {
       if (useWorkspaceStore.getState().root !== root) {
         await useWorkspaceStore.getState().openWorkspacePath(root);
@@ -823,17 +837,25 @@ export function SessionSidebar(): ReactNode {
         historyPromise,
         useSessionsStore.getState().selectSession(sessionId, root),
       ]);
-      useChatStore
-        .getState()
-        .hydrateFromHistory(sessionId, page.messages, page.hasMore);
+      if (token !== selectToken.current) return;
+      startTransition(() => {
+        useChatStore
+          .getState()
+          .hydrateFromHistory(sessionId, page.messages, page.hasMore);
+      });
       if (discardLeaving && useWorkspaceStore.getState().root === root) {
         await discardUnstartedSession(leavingRoot, leaving!.id);
       }
     } catch (err) {
+      if (token === selectToken.current) {
+        useSessionsStore.getState().setPendingActiveId(null);
+      }
       console.error("select session failed", err);
       message.error(err instanceof Error ? err.message : String(err));
     } finally {
-      useChatStore.getState().endHistoryLoad(sessionId);
+      if (token === selectToken.current) {
+        useChatStore.getState().endHistoryLoad(sessionId);
+      }
     }
   }
 
@@ -1365,7 +1387,7 @@ export function SessionSidebar(): ReactNode {
       <li
         key={sessionId}
         className={`${styles.sessionRow} ${
-          sessionsStore.activeId === sessionId ? styles.sessionRowActive : ""
+          selectedSessionId === sessionId ? styles.sessionRowActive : ""
         } ${
           guidesVisibleFor(root, item) ? styles.sessionRowGuidesVisible : ""
         } ${

@@ -1,0 +1,31 @@
+/* 会话统计条：主区底部通栏，宽度不跟输入框走。 */
+.bar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 2px 6px;
+  width: 100%;
+  flex-shrink: 0;
+  padding: 5px 16px;
+  background: var(--bg);
+  color: var(--fg-muted, #71717a);
+  font-size: 0.8462rem;
+  line-height: 1.4;
+}
+
+.item {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+}
+
+.item strong {
+  color: var(--fg);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.label {
+  white-space: nowrap;
+}

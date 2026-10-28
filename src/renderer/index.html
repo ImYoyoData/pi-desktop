@@ -46,6 +46,13 @@
         background: #121417;
         color: #e8eaed;
       }
+      /* 主题落 DOM 前按系统偏好兜底，避开启动时的亮/暗闪。 */
+      @media (prefers-color-scheme: dark) {
+        html:not([data-theme="light"]) #pi-startup-splash {
+          background: #121417;
+          color: #e8eaed;
+        }
+      }
       #pi-startup-splash.is-leaving {
         opacity: 0;
         visibility: hidden;

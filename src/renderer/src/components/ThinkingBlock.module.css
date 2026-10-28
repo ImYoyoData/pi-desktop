@@ -1,18 +1,17 @@
 /* 1:1 VS Code Copilot thinking row — chatThinkingContent.css / chatCollapsibleContentPart */
 .thinking {
-  margin: 0 0 2px;
+  margin: 0;
   overflow: hidden;
   color: var(--chat-desc-fg, var(--fg-muted));
 }
 
 .thinkingHead {
-  display: inline-flex;
+  display: flex;
   align-items: center;
   gap: 2px;
-  width: fit-content;
-  max-width: 100%;
-  margin: 0 0 0 -2px;
-  padding: 2px 6px 2px 2px;
+  width: 100%;
+  margin: 0;
+  padding: 2px 6px 2px 3px;
   border: none;
   border-radius: 5px;
   background: transparent;
@@ -69,6 +68,11 @@
   opacity: 1;
 }
 
+/* 箭头贴行尾，与工具步骤行的展开入口同一位置。 */
+.thinkingHead .hoverChev {
+  margin-left: auto;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .hoverChev {
     transition: none;
@@ -105,11 +109,36 @@
   margin-bottom: 0;
 }
 
-/* 带行首图标时正文与标签对齐。 */
+.leadingIcon {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  margin-right: 6px;
+  color: var(--chat-icon-fg, var(--fg-muted));
+}
+
+/* 带行首图标时正文卡片与图标左缘对齐，不再缩进到标签文字下方。 */
 .iconIndent {
-  margin-left: 14px;
+  margin-left: 3px;
 }
 
 .muted {
   opacity: 0.75;
+}
+
+/* 折叠后仍保留已渲染正文，只是不占高度。 */
+.collapsedBody {
+  display: none;
+}
+
+/* 正文渲染器还没就绪时先显示纯文本，点击展开零延迟有内容。 */
+.plainPreview {
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font: inherit;
+  color: inherit;
 }

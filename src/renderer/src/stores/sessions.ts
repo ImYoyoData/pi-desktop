@@ -115,6 +115,11 @@ type SessionsBase = {
   /** cwd 当前 sessions 列表所属的工作区（null=未加载/已清空）。 */
   listRoot: string | null;
   activeId: string | null;
+  /**
+   * 点击会话时立即写入的"视觉选中态"：侧栏高亮跟随它，
+   * 真正切会话（IPC + 历史加载）在后台完成，点击不需要等待。
+   */
+  pendingActiveId: string | null;
   /** 未创建的新会话草稿所属工作区（null=不处于草稿态）。 */
   draftRoot: string | null;
   contextBySession: Record<string, SessionContextUsage>;
@@ -138,6 +143,7 @@ export type SessionsState = SessionsBase &
     refresh: (cwd: string | null) => Promise<void>;
     beginDraft: (cwd: string) => void;
     setDraftRoot: (cwd: string) => void;
+    setPendingActiveId: (sessionId: string | null) => void;
     commitDraft: () => Promise<SessionSummary | null>;
     selectSession: (sessionId: string, cwd: string) => Promise<void>;
     discardActiveIfUnstarted: () => Promise<boolean>;
@@ -173,6 +179,7 @@ export const useSessionsStore = create<SessionsState>()((set, get) => {
     sessions: [],
     listRoot: null,
     activeId: null,
+    pendingActiveId: null,
     draftRoot: null,
     contextBySession: {},
     statusBySession: {},
@@ -198,8 +205,19 @@ export const useSessionsStore = create<SessionsState>()((set, get) => {
     };
     if (idx >= 0) {
       // Replace array so sidebar/header title computeds refresh reliably (#3).
+      // 打开会话不该改变列表排序与标题：主进程返回的 summary 可能缺字段或带"当前时间"。
       commit({
-        sessions: list.map((s, i) => (i === idx ? { ...summary } : s)),
+        sessions: list.map((s, i) =>
+          i === idx
+            ? {
+                ...s,
+                ...summary,
+                name: summary.name ?? s.name,
+                firstMessage: summary.firstMessage ?? s.firstMessage,
+                modified: s.modified,
+              }
+            : s,
+        ),
         statusBySession,
       });
     } else {
@@ -415,6 +433,11 @@ export const useSessionsStore = create<SessionsState>()((set, get) => {
   }
 
   /** 仅改变草稿归属的工作区，保留已输入的草稿内容。 */
+  function setPendingActiveId(sessionId: string | null): void {
+    if (get().pendingActiveId === sessionId) return;
+    commit({ pendingActiveId: sessionId });
+  }
+
   function setDraftRoot(cwd: string): void {
     if (preparedDraft && !sameWorkspacePath(preparedDraft.cwd, cwd)) {
       void releasePreparedDraft();
@@ -459,14 +482,20 @@ export const useSessionsStore = create<SessionsState>()((set, get) => {
   async function selectSession(sessionId: string, cwd: string): Promise<void> {
     // 切到历史会话即放弃草稿，顺带释放预热出来的空会话。
     await releasePreparedDraft();
+    // 列表已知文件路径时直接用它打开，主进程不必再扫整个会话目录。
+    const knownFilePath = get().sessions.find((s) => s.id === sessionId)?.filePath;
     // Open/register in the broker BEFORE flipping activeId.
     // Otherwise Composer watches activeId and races sessions:command → unknown session.
-    const opened = await window.api.sessions.open(sessionId, cwd);
+    const opened = await window.api.sessions.open(
+      sessionId,
+      cwd,
+      knownFilePath || undefined,
+    );
     if (!opened) {
       throw new Error(`failed to open session: ${sessionId}`);
     }
     upsert(opened);
-    commit({ draftRoot: null, activeId: sessionId });
+    commit({ draftRoot: null, activeId: sessionId, pendingActiveId: null });
   }
 
   /** Discard the active session on quit / session-switch when it was never used. */
@@ -613,6 +642,7 @@ export const useSessionsStore = create<SessionsState>()((set, get) => {
     refresh,
     beginDraft,
     setDraftRoot,
+    setPendingActiveId,
     commitDraft,
     selectSession,
     discardActiveIfUnstarted,

@@ -1,4 +1,4 @@
-import { BrowserWindow, nativeImage, shell } from "electron";
+import { BrowserWindow, nativeImage, screen, shell } from "electron";
 import { join } from "path";
 import { existsSync } from "fs";
 import { is } from "@electron-toolkit/utils";
@@ -66,10 +66,14 @@ export function createMainWindow(): BrowserWindow {
   forceClosing = false;
   const isMac = process.platform === "darwin";
   const iconPath = resolveWindowIcon();
+  const { scaleFactor } = screen.getPrimaryDisplay();
+  // 初始窗口按屏幕像素 1500×950 换算成 DIP，避免显示器缩放把窗口放大。
+  const initialWidth = Math.round(1500 / scaleFactor);
+  const initialHeight = Math.round(950 / scaleFactor);
 
   const mainWindow = new BrowserWindow({
-    width: 1500,
-    height: 900,
+    width: initialWidth,
+    height: initialHeight,
     minWidth: 960,
     minHeight: 640,
     show: false,

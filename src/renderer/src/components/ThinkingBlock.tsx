@@ -46,6 +46,8 @@ export function ThinkingBlock({
 }: Props): ReactNode {
   const t = useI18n();
   const [manuallyOpen, setManuallyOpen] = useState<boolean | null>(null);
+  /** 展开过一次就保留正文（折叠时 display:none）：再展开不用重新解析整段思考。 */
+  const [hasOpened, setHasOpened] = useState(false);
   const bodyRef = useRef<HTMLDivElement | null>(null);
   const contentRef = useRef<HTMLDivElement | null>(null);
   /** Follow newest text unless the user scrolls up inside the card. */
@@ -91,7 +93,17 @@ export function ThinkingBlock({
   const THINK_LIVE_MAX_CHARS = 16_000;
   const displayThinking = useMemo(() => {
     if (!streaming || thinking.length <= THINK_LIVE_MAX_CHARS) return thinking;
-    return `…\n${thinking.slice(-THINK_LIVE_MAX_CHARS)}`;
+    const tail = thinking.slice(-THINK_LIVE_MAX_CHARS);
+    // 截断点落在块中间（尤其是代码围栏里）会让 markdown 解析出未闭合结构，
+    // 流式时看起来就是内容卡住不显示：先退到最近的块边界，再丢掉半截围栏。
+    const boundary = tail.indexOf("\n\n");
+    const body = boundary >= 0 ? tail.slice(boundary + 2) : tail;
+    const fences = [...body.matchAll(/^`{3,}/gm)];
+    const safe =
+      fences.length % 2 === 1
+        ? body.slice(0, fences[fences.length - 1]?.index ?? body.length)
+        : body;
+    return `…\n${safe}`;
   }, [streaming, thinking]);
 
   useEffect(() => {
@@ -107,6 +119,7 @@ export function ThinkingBlock({
   }, [autoCollapse]);
 
   function toggleOpen(): void {
+    if (!open) setHasOpened(true);
     setManuallyOpen(!open);
   }
 
@@ -161,8 +174,8 @@ export function ThinkingBlock({
   }, [streaming, open]);
 
   /**
-   * 内容由 MarkdownView 分两轮提交（先 setState、下一轮才进 DOM），贴底动作总是
-   * 早于内容长高。所以跟随不能只靠“数据变化”，要在内容真正长高时再贴一次。
+   * 渲染器内部再分帧挂载（节点批渲染、重节点延迟），贴底动作总是早于内容长高。
+   * 所以跟随不能只靠“数据变化”，要在内容真正长高时再贴一次。
    */
   useEffect(() => {
     const content = contentRef.current;
@@ -181,7 +194,7 @@ export function ThinkingBlock({
       className={`${styles.thinking}${open ? ` ${styles.open}` : ""}`}
     >
       <button type="button" className={styles.thinkingHead} onClick={toggleOpen}>
-        {leadingIcon}
+        {leadingIcon ? <span className={styles.leadingIcon}>{leadingIcon}</span> : null}
         <span
           className={`${styles.label}${streaming ? " copilot-shimmer" : ""}`}
         >
@@ -193,17 +206,18 @@ export function ThinkingBlock({
           className={`${styles.hoverChev}${open ? ` ${styles.expanded}` : ""}`}
         />
       </button>
-      {open && thinking ? (
+      {(open || hasOpened) && thinking ? (
         <div
           ref={bodyRef}
-          className={`${styles.thinkingBody}${leadingIcon ? ` ${styles.iconIndent}` : ""}`}
+          className={`${styles.thinkingBody}${leadingIcon ? ` ${styles.iconIndent}` : ""}${open ? "" : ` ${styles.collapsedBody}`}`}
+          aria-hidden={open ? undefined : "true"}
           onScroll={onBodyScroll}
           onWheel={onBodyWheel}
           onPointerDown={onBodyPointerDown}
           data-inner-scroll=""
         >
           <div ref={contentRef}>
-            <Suspense fallback={null}>
+            <Suspense fallback={<div className={styles.plainPreview}>{displayThinking}</div>}>
               <MarkdownView
                 content={displayThinking}
                 variant="chat"

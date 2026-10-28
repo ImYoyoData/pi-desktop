@@ -50,8 +50,9 @@ function setupEnv(): void {
           return () => undefined;
         },
         onAskUser: () => () => undefined,
+        onPermission: () => () => undefined,
         onExtensionUi: () => () => undefined,
-        pendingUi: async () => ({ asks: [], extensionDialogs: [] }),
+        pendingUi: async () => ({ asks: [], extensionDialogs: [], permissions: [] }),
         status: async () => null,
         history: async () => ({ messages: [] }),
       },

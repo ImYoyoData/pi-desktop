@@ -67,6 +67,10 @@ import {
 } from "@renderer/utils/turn-file-changes";
 import { decideFollowOnIntent, type FollowIntent } from "@renderer/utils/follow-bottom";
 import {
+  innerScrollCanSwallow,
+  type InnerScrollMetrics,
+} from "@renderer/utils/inner-scroll";
+import {
   assistantModelDetail as assistantModelDetailOf,
   assistantStats as assistantStatsOf,
   buildModelNameMap,
@@ -81,13 +85,34 @@ import styles from "./MessageList.module.css";
  * Markdown rendering pulls katex / marked / highlight.js — load it lazily
  * so opening a session with many messages stays responsive on slow CPUs.
  */
-const MarkdownView = lazy(() => import("@renderer/components/MarkdownView"));
+const loadMarkdownView = () => import("@renderer/components/MarkdownView");
+const MarkdownView = lazy(loadMarkdownView);
+
+/** 空闲时先拉正文渲染器，首次展开思考 / 首条消息不再等 chunk 编译。 */
+function preloadMarkdownView(): () => void {
+  let cancelled = false;
+  const run = (): void => {
+    if (!cancelled) void loadMarkdownView();
+  };
+  if (typeof window.requestIdleCallback === "function") {
+    const handle = window.requestIdleCallback(run, { timeout: 2_000 });
+    return () => {
+      cancelled = true;
+      window.cancelIdleCallback(handle);
+    };
+  }
+  const timer = window.setTimeout(run, 600);
+  return () => {
+    cancelled = true;
+    window.clearTimeout(timer);
+  };
+}
 
 /**
  * 虚拟滚动由 virtua 承担：视口外额外渲染的像素。太大会重复挂载 Markdown 行，
  * 拖动时整窗卡死；太小则快速滚动会露白。
  */
-const OVERSCAN_PX = 280;
+const OVERSCAN_PX = 200;
 const NEAR_BOTTOM_PX = 120;
 /** virtua 的行高估值：接近真实行高，锚定补偿的位移才不会被放大成剧烈跳动。 */
 const EST_ROW_HEIGHT = 120;
@@ -141,6 +166,8 @@ export function MessageList({
   /** 面板不可见时内容会被跳过渲染，任何读量高都会强制布局，必须停掉追踪。 */
   const visibleRef = useRef(visible);
   visibleRef.current = visible;
+
+  useEffect(() => preloadMarkdownView(), []);
 
   function paneHidden(): boolean {
     return visibleRef.current === false;
@@ -496,15 +523,15 @@ export function MessageList({
     disengageHistoryReading();
 
     // History load is async after activeId flips — wait for messages / load end before revealing.
+    // 逐帧轮询：history 现在毫秒级落地，固定的 40ms 轮询反而把空窗拉长。
     const deadline = Date.now() + 8_000;
     while (token === sessionJumpToken.current && Date.now() < deadline) {
-      const stillLoading = Boolean(historyLoadingRef.current);
-      if (!stillLoading) {
-        // Allow one frame for hydrate to land after loading clears.
-        await new Promise<void>((r) => setTimeout(r, 16));
+      if (!historyLoadingRef.current) {
+        // 等一帧让 hydrate 的渲染提交，行高与贴底才有真实数据。
+        await new Promise<void>((r) => requestAnimationFrame(() => r()));
         break;
       }
-      await new Promise<void>((r) => setTimeout(r, 40));
+      await new Promise<void>((r) => requestAnimationFrame(() => r()));
     }
     if (token !== sessionJumpToken.current) return;
 
@@ -517,7 +544,7 @@ export function MessageList({
         rowsRef.current.allMessages.length === 0 &&
         Date.now() < emptyDeadline
       ) {
-        await new Promise<void>((r) => setTimeout(r, 40));
+        await new Promise<void>((r) => requestAnimationFrame(() => r()));
       }
     }
     if (token !== sessionJumpToken.current) return;
@@ -605,18 +632,21 @@ export function MessageList({
   }
 
   /**
-   * 滚轮落在可滚动子区域（思考块等）且该区域还能朝这个方向滚：事件属于子区域，
-   * 不能当成“用户在翻历史”，否则滚一下思考内容整列就停止跟随。
+   * 滚轮落在消息内部的纵向滚动区域（代码块、图表预览、思考块）且该区域还能朝这个
+   * 方向滚：事件属于子区域，不能当成“用户在翻历史”，否则在 markdown 预览里滚一下就
+   * 翻掉跟随状态，消息区还会被贴底拉回。
+   * 子区域滚到边界后交回消息区（浏览器的滚动链本就这么做），这里只识别“还能滚”。
    */
   function innerScrollOwnsWheel(event: WheelEvent): boolean {
     const target = event.target instanceof Element ? event.target : null;
     const inner = target?.closest<HTMLElement>("[data-inner-scroll]") ?? null;
     if (!inner) return false;
-    if (event.deltaY < 0) return inner.scrollTop > 0;
-    if (event.deltaY > 0) {
-      return inner.scrollHeight - inner.scrollTop - inner.clientHeight > 1;
-    }
-    return false;
+    const metrics: InnerScrollMetrics = {
+      scrollHeight: inner.scrollHeight,
+      clientHeight: inner.clientHeight,
+      scrollTop: inner.scrollTop,
+    };
+    return innerScrollCanSwallow(metrics, event.deltaY);
   }
 
   /**
@@ -1547,7 +1577,7 @@ export function MessageList({
                     thinking={msg.thinking ?? ""}
                     streaming={Boolean(msg.streaming && !msg.text)}
                     autoCollapse={turnDone || !(msg.streaming && !msg.text)}
-                    leadingIcon={<BrainOutline size={12} aria-hidden="true" />}
+                    leadingIcon={<BrainOutline size={13} aria-hidden="true" />}
                     durationMs={msg.thinkingDurationMs}
                     startedAt={msg.thinkingStartedAt}
                   />

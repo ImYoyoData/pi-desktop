@@ -136,21 +136,12 @@ export function AppearancePanel(): ReactNode {
           />
         </SettingsRow>
 
-        <SettingsRow label={t.streamRender}>
-          <SettingsSwitch
-            checked={streamRender.enabled}
-            label={t.streamRender}
-            onChange={(value) => void streamRender.update({ enabled: value })}
-          />
-        </SettingsRow>
-
         <SettingsRow label={t.streamRenderThrottle}>
           <Select
             value={streamRender.throttleMs}
             options={streamRenderThrottleOptions}
             size="small"
             className={styles.settingSelect}
-            disabled={!streamRender.enabled}
             onChange={onStreamRenderThrottleChange}
           />
         </SettingsRow>

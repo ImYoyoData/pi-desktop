@@ -573,6 +573,9 @@ function structuredNumber(structured: unknown, key: string): number | null {
 /** 失败时 pi 会在输出尾部追加 "Command exited with code N"，旧回合没有 structuredContent 时兜底用。 */
 const EXIT_CODE_RE = /Command exited with code (\d+)/;
 
+/** 终端输出里的 ANSI 转义（PowerShell 默认带颜色），终端卡是纯文本渲染，解析时先剥掉。 */
+const ANSI_ESCAPE_RE = /\u001B(?:\[[0-?]*[ -/]*[@-~]|\][^\u0007]*(?:\u0007|\u001B\\))/g;
+
 function parseExitCode(text: string): number | null {
   const match = EXIT_CODE_RE.exec(text);
   return match ? Number(match[1]) : null;
@@ -583,7 +586,8 @@ export function parseBashToolCard(
   result: unknown,
   opts?: { durationMs?: number },
 ): BashToolCard {
-  const { details, text, structured } = extractToolResult(result);
+  const { details, text: rawText, structured } = extractToolResult(result);
+  const text = rawText.replace(ANSI_ESCAPE_RE, "");
   const trunc = truncationFromDetails(details);
   const notice = parseLineRangeNotice(text);
   const capLines = parseOutputCapMarker(text);
@@ -775,6 +779,8 @@ export function isBashTool(toolName: string): boolean {
   const n = toolName.toLowerCase();
   return (
     n === "bash" ||
+    n === "powershell" ||
+    n === "pwsh" ||
     n === "shell" ||
     n === "execute" ||
     n === "run" ||
