@@ -58,9 +58,11 @@
     box-shadow var(--duration, 180ms) var(--ease-out, ease);
 }
 
-/* 输入框底边那条线贴着底部的会话统计条，多余：只保留上/左/右三边。 */
-.card {
-  border-bottom-color: transparent;
+/* 底部有会话统计条时，输入框的底边去掉、底角变直角，两块连成一体。 */
+.card.noBottom {
+  border-bottom: none;
+  border-bottom-left-radius: 0;
+  border-bottom-right-radius: 0;
 }
 
 /* Chat-input-stack: docked widgets share the composer surface. */
