@@ -358,11 +358,7 @@ export function WorkSectionGroup({ items, autoCollapse, onOpen }: Props): ReactN
                         autoCollapse={Boolean(autoCollapse)}
                         durationMs={msg.thinkingDurationMs}
                         startedAt={msg.thinkingStartedAt}
-                        leadingIcon={
-                          <span className={styles.thinkingIcon} aria-hidden="true">
-                            <BrainOutline size={12} />
-                          </span>
-                        }
+                        leadingIcon={<BrainOutline size={13} aria-hidden="true" />}
                       />
                     </div>
                   </div>
