@@ -64,8 +64,8 @@
   width: 100%;
   max-width: var(--pi-input-max, var(--pi-message-max, 75%));
   margin: 0 auto;
-  /* 与底部统计条留出间距：输入框整体上移一点，不再和统计条黏在一起。 */
-  padding: 0 var(--chat-column-pad-x, 16px) 14px;
+  /* 统计条紧贴输入框底部：不再留空隙。 */
+  padding: 0 var(--chat-column-pad-x, 16px) 0;
   box-sizing: border-box;
   scrollbar-gutter: stable both-edges;
   display: flex;
