@@ -6,11 +6,10 @@
 }
 
 .thinkingHead {
-  display: inline-flex;
+  display: flex;
   align-items: center;
   gap: 2px;
-  width: fit-content;
-  max-width: 100%;
+  width: 100%;
   margin: 0;
   padding: 2px 6px 2px 3px;
   border: none;
@@ -69,6 +68,11 @@
   opacity: 1;
 }
 
+/* 箭头贴行尾，与工具步骤行的展开入口同一位置。 */
+.thinkingHead .hoverChev {
+  margin-left: auto;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .hoverChev {
     transition: none;
@@ -116,9 +120,9 @@
   color: var(--chat-icon-fg, var(--fg-muted));
 }
 
-/* 带行首图标时正文与标签对齐：3px 行首内边距 + 16px 图标 + 8px 间距。 */
+/* 带行首图标时正文卡片与图标左缘对齐，不再缩进到标签文字下方。 */
 .iconIndent {
-  margin-left: 27px;
+  margin-left: 3px;
 }
 
 .muted {
