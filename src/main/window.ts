@@ -67,7 +67,7 @@ export function createMainWindow(): BrowserWindow {
   forceClosing = false;
   const isMac = process.platform === "darwin";
   const iconPath = resolveWindowIcon();
-  // 记住窗口大小开着就用上次的大小，否则按屏幕像素 1550×960 换算成 DIP。
+  // 记住窗口大小开着就用上次的大小，否则用默认尺寸 1500×950（逻辑像素）。
   const { width: initialWidth, height: initialHeight } = resolveWindowSize();
 
   const mainWindow = new BrowserWindow({
