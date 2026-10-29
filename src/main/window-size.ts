@@ -12,9 +12,9 @@ import {
   type WindowSize,
 } from "../shared/window-size";
 
-/** 默认窗口尺寸（屏幕像素），按缩放比换算成 DIP。 */
-const DEFAULT_WIDTH_PX = 1550;
-const DEFAULT_HEIGHT_PX = 960;
+/** 默认窗口尺寸（DIP，逻辑像素），显示缩放后物理大小自动等比放大。 */
+const DEFAULT_WIDTH = 1500;
+const DEFAULT_HEIGHT = 950;
 
 /** 拖拽窗口时 resize 事件很密集，攒一会儿再落盘。 */
 const SAVE_DEBOUNCE_MS = 400;
@@ -39,11 +39,7 @@ export function resolveWindowSize(): WindowSize {
     const saved = parseWindowSize(prefs[WINDOW_SIZE_PREF]);
     if (saved) return clampToDisplay(saved);
   }
-  const { scaleFactor } = screen.getPrimaryDisplay();
-  return {
-    width: Math.round(DEFAULT_WIDTH_PX / scaleFactor),
-    height: Math.round(DEFAULT_HEIGHT_PX / scaleFactor),
-  };
+  return clampToDisplay({ width: DEFAULT_WIDTH, height: DEFAULT_HEIGHT });
 }
 
 /** 窗口尺寸变化后把新尺寸写回偏好，下次启动按它开窗。 */

@@ -5,7 +5,6 @@ import path from "node:path";
 
 const display = {
   workArea: { width: 1920, height: 1040 },
-  scaleFactor: 1,
 };
 
 vi.mock("electron", () => ({
@@ -76,14 +75,14 @@ describe("window-size", () => {
     });
     const { resolveWindowSize } = await import("../../src/main/window-size");
 
-    expect(resolveWindowSize()).toEqual({ width: 1550, height: 960 });
+    expect(resolveWindowSize()).toEqual({ width: 1500, height: 950 });
   });
 
   it("没有记录时用默认尺寸", async () => {
     writePrefs({});
     const { resolveWindowSize } = await import("../../src/main/window-size");
 
-    expect(resolveWindowSize()).toEqual({ width: 1550, height: 960 });
+    expect(resolveWindowSize()).toEqual({ width: 1500, height: 950 });
   });
 
   it("记住的尺寸超过屏幕时裁剪", async () => {
@@ -91,6 +90,19 @@ describe("window-size", () => {
     const { resolveWindowSize } = await import("../../src/main/window-size");
 
     expect(resolveWindowSize()).toEqual({ width: 1920, height: 1040 });
+  });
+
+  it("默认尺寸超过屏幕时裁剪", async () => {
+    const original = { ...display.workArea };
+    display.workArea = { width: 1200, height: 800 };
+    try {
+      writePrefs({});
+      const { resolveWindowSize } = await import("../../src/main/window-size");
+
+      expect(resolveWindowSize()).toEqual({ width: 1200, height: 800 });
+    } finally {
+      display.workArea = original;
+    }
   });
 
   it("窗口尺寸变化后写回偏好", async () => {
