@@ -178,6 +178,8 @@ export const en = {
 	commonTpsModeEndToEnd: "End-to-end TPS (includes first-token latency)",
 	commonTabFocus: "Tab key moves focus",
 	commonTabFocusHint: "When off, Tab no longer moves focus between controls; Tab in inputs and menus still works.",
+	commonRememberWindowSize: "Remember window size",
+	commonRememberWindowSizeHint: "The next launch opens the window at the size it was left.",
 	customizeAppearance: "Appearance",
 	customizeAppearanceDesc: "Theme and interface language.",
 	customizeModels: "Models",

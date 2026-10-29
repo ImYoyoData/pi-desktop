@@ -9,6 +9,7 @@
  */
 
 import type { StateChange } from "../../../shared/state-sync";
+import { REMEMBER_WINDOW_SIZE_PREF } from "../../../shared/window-size";
 import * as prefs from "@renderer/utils/prefs";
 import { useAppearanceStore, APPEARANCE_KEYS } from "@renderer/stores/appearance";
 import { useKeybindingsStore, STORAGE_KEY as KEYBINDINGS_KEY } from "@renderer/stores/keybindings";
@@ -25,6 +26,7 @@ import { useSessionStatsStore, TPS_MODE_KEY } from "@renderer/stores/session-sta
 import { useSendShortcutStore, SEND_SHORTCUT_KEY } from "@renderer/stores/send-shortcut";
 import { useStreamRenderStore } from "@renderer/stores/stream-render";
 import { useWorkspaceStore } from "@renderer/stores/workspace";
+import { useWindowSizeStore } from "@renderer/stores/window-size";
 
 type Applier = (change: StateChange) => void;
 
@@ -76,6 +78,9 @@ function applyPrefsChange(keys: string[]): void {
 	}
 	if (matches([SEND_SHORTCUT_KEY], keys)) {
 		useSendShortcutStore.getState().refreshFromPrefs();
+	}
+	if (matches([REMEMBER_WINDOW_SIZE_PREF], keys)) {
+		useWindowSizeStore.getState().refreshFromPrefs();
 	}
 }
 

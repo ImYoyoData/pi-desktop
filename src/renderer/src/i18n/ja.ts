@@ -173,6 +173,8 @@ export const ja = {
 	commonTpsModeEndToEnd: "エンドツーエンド TPS（初回トークン待ちを含む）",
 	commonTabFocus: "Tab キーでフォーカス移動",
 	commonTabFocusHint: "オフにすると Tab で画面のコントロール間を移動しなくなります（入力欄とメニュー内の Tab は影響を受けません）。",
+	commonRememberWindowSize: "ウィンドウサイズを記憶",
+	commonRememberWindowSizeHint: "次回の起動時に前回のサイズでウィンドウを開きます。",
 	customizeAppearance: "外観",
 	customizeAppearanceDesc: "テーマと表示言語。",
 	customizeModels: "モデル",
