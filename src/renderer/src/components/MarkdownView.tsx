@@ -34,6 +34,8 @@ type Props = {
   className?: string;
   /** 相对路径图片的解析基准（markdown 所在目录）；缺省按工作区根目录解析。 */
   assets?: MarkdownAssetBase | null;
+  /** 单次解析的字符上限；文件预览传大值，避免长 JSON 退化成纯文本。 */
+  maxChars?: number;
 };
 
 /** 流式期间单次解析上限：超限按纯文本跟随，避免整段解析冻结界面。 */
@@ -56,6 +58,7 @@ function MarkdownViewView({
   streaming,
   className,
   assets: assetsProp,
+  maxChars,
 }: Props): ReactNode {
   const dialog = useDialog();
   const t = useI18n();
@@ -117,7 +120,7 @@ function MarkdownViewView({
 
   const tooLong =
     content.length >
-    (streaming ? STREAM_MARKDOWN_MAX_CHARS : MESSAGE_MARKDOWN_MAX_CHARS);
+    (maxChars ?? (streaming ? STREAM_MARKDOWN_MAX_CHARS : MESSAGE_MARKDOWN_MAX_CHARS));
 
   return (
     <div className={markdownRootClassName(variant, styles.root, className)}>
