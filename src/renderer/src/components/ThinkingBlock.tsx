@@ -23,6 +23,8 @@ type Props = {
   streaming?: boolean;
   /** True once the whole turn finished: fold finished thinking (Codex-like). */
   autoCollapse?: boolean;
+  /** 流式时是否自动展开；false 时默认折叠，只在用户手动展开后显示正文。 */
+  autoExpand?: boolean;
   /** 行首图标（工作区小节内与工具行对齐）。 */
   leadingIcon?: ReactNode;
   /** 思考耗时（毫秒）；历史会话没有记录，不传就不显示。 */
@@ -40,6 +42,7 @@ export function ThinkingBlock({
   thinking,
   streaming,
   autoCollapse,
+  autoExpand = true,
   leadingIcon,
   durationMs,
   startedAt,
@@ -58,8 +61,8 @@ export function ThinkingBlock({
     // Turn finished: only a user-expanded block stays open; history stays folded.
     if (autoCollapse) return manuallyOpen === true;
     if (manuallyOpen !== null) return manuallyOpen;
-    return Boolean(streaming);
-  }, [autoCollapse, manuallyOpen, streaming]);
+    return autoExpand && Boolean(streaming);
+  }, [autoCollapse, manuallyOpen, streaming, autoExpand]);
 
   const headLabel = streaming ? t.thinkingStreaming : t.thinking;
 

@@ -1552,6 +1552,10 @@ export function createApi(
 			ipcRenderer.invoke(IpcChannels.appearance.pickWallpaper) as Promise<
 				string | null
 			>,
+		pickFontFile: () =>
+			ipcRenderer.invoke(IpcChannels.appearance.pickFontFile) as Promise<
+				string | null
+			>,
 	},
 	prefs: {
 		readSync: () =>

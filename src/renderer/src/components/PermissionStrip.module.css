@@ -90,7 +90,7 @@
   border-radius: 6px;
   background: var(--chat-hover-bg, rgba(127, 127, 127, 0.1));
   color: var(--fg);
-  font-family: var(--pi-mono-font, ui-monospace, monospace);
+  font-family: var(--font-mono, ui-monospace, monospace);
   font-size: var(--chat-font-s, 12px);
   line-height: 1.45;
   white-space: pre-wrap;

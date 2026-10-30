@@ -21,6 +21,7 @@ import {
 } from "antd";
 import type { MenuProps } from "antd";
 import { NO_OVERLAY_MOTION } from "@renderer/components/overlay-motion";
+import { PullRequestIcon } from "@renderer/components/icons/PullRequestIcon";
 import {
   AddOutline,
   ChatboxOutline,
@@ -36,6 +37,7 @@ import {
   OptionsOutline,
   PinOutline,
   RefreshOutline,
+  SettingsOutline,
   TrashOutline,
 } from "@renderer/components/icons/ionicons";
 import Sortable from "sortablejs";
@@ -2187,6 +2189,19 @@ export function SessionSidebar(): ReactNode {
             <span className={styles.btnLabel}>{t.newSessionAction}</span>
           </span>
         </Button>
+        <Button
+          type="text"
+          size="small"
+          className={`pi-interactive ${styles.topBtn}`}
+          styles={{ root: { justifyContent: "flex-start" } }}
+          title={t.pullRequests}
+          onClick={() => useLayoutStore.getState().showPullRequests()}
+        >
+          <span className={styles.btnContent}>
+            <PullRequestIcon size={15} />
+            <span className={styles.btnLabel}>{t.pullRequests}</span>
+          </span>
+        </Button>
       </div>
 
       {showStuckRecovery ? (
@@ -2407,6 +2422,25 @@ export function SessionSidebar(): ReactNode {
             {workspacePaths.length ? t.emptySessions : t.emptyWorkspaces}
           </div>
         ) : null}
+      </div>
+
+      <div className={styles.bottomActions}>
+        <Button
+          type="text"
+          size="small"
+          className={`pi-interactive ${styles.topBtn}`}
+          styles={{ root: { justifyContent: "flex-start" } }}
+          title={t.customizeSettings}
+          onClick={() => {
+            const layout = useLayoutStore.getState();
+            layout.openCustomize(layout.customizeSection);
+          }}
+        >
+          <span className={styles.btnContent}>
+            <SettingsOutline size={15} />
+            <span className={styles.btnLabel}>{t.customizeSettings}</span>
+          </span>
+        </Button>
       </div>
 
       {selectMode ? (

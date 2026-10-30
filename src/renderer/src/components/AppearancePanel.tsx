@@ -7,7 +7,7 @@ import {
 } from "@renderer/stores/appearance";
 import { useStreamRenderStore } from "@renderer/stores/stream-render";
 import { STREAM_RENDER_THROTTLE_CHOICES } from "../../../shared/stream-render";
-import { FONT_SIZE_CHOICES, MESSAGE_WIDTH_CHOICES } from "../../../shared/appearance";
+import { FONT_SIZE_CHOICES, MESSAGE_WIDTH_CHOICES, BUILTIN_FONTS } from "../../../shared/appearance";
 import AppearanceWallpaperCard from "@renderer/components/customize/AppearanceWallpaperCard";
 import {
   SettingsGroup,
@@ -51,6 +51,22 @@ export function AppearancePanel(): ReactNode {
   function onFontSizeChange(value: string | number | null): void {
     if (typeof value === "number") appearance.setFontSize(value);
   }
+
+  /** 选择本地字体文件后直接套用到对应的字体设置。 */
+  async function addLocalFont(apply: (id: string) => void): Promise<void> {
+    const path = await window.api.appearance.pickFontFile();
+    if (!path) return;
+    const entry = appearance.addLocalFont(path);
+    if (entry) apply(entry.id);
+  }
+
+  const fontOptions = [
+    { value: "", label: t.appearanceFontDefault },
+    ...BUILTIN_FONTS.map((font) => ({ value: font.id, label: font.label })),
+    ...appearance.fonts.local.map((font) => ({ value: font.id, label: font.name })),
+  ];
+
+  const isLocalFont = (id: string): boolean => id.startsWith("local:");
 
   const messageWidthOptions: Option[] = MESSAGE_WIDTH_CHOICES.map((value) => ({
     label: t.appearanceMessageWidthValue(Math.round(value * 100)),
@@ -117,6 +133,68 @@ export function AppearancePanel(): ReactNode {
             onChange={(value) => onFontSizeChange(value)}
           />
         </SettingsRow>
+
+        <SettingsRow label={t.appearanceUiFont}>
+          <div className={styles.fontControl}>
+            <Select
+              value={appearance.fonts.ui}
+              options={fontOptions}
+              size="small"
+              className={styles.fontSelect}
+              popupMatchSelectWidth={false}
+              onChange={(value) => appearance.setUiFont(value)}
+            />
+            <button
+              type="button"
+              className={styles.fontAction}
+              title={t.appearanceFontAdd}
+              onClick={() => void addLocalFont(appearance.setUiFont)}
+            >
+              +
+            </button>
+            {isLocalFont(appearance.fonts.ui) ? (
+              <button
+                type="button"
+                className={styles.fontAction}
+                title={t.appearanceFontRemove}
+                onClick={() => appearance.removeLocalFont(appearance.fonts.ui)}
+              >
+                ×
+              </button>
+            ) : null}
+          </div>
+        </SettingsRow>
+
+        <SettingsRow label={t.appearanceMonoFont}>
+          <div className={styles.fontControl}>
+            <Select
+              value={appearance.fonts.mono}
+              options={fontOptions}
+              size="small"
+              className={styles.fontSelect}
+              popupMatchSelectWidth={false}
+              onChange={(value) => appearance.setMonoFont(value)}
+            />
+            <button
+              type="button"
+              className={styles.fontAction}
+              title={t.appearanceFontAdd}
+              onClick={() => void addLocalFont(appearance.setMonoFont)}
+            >
+              +
+            </button>
+            {isLocalFont(appearance.fonts.mono) ? (
+              <button
+                type="button"
+                className={styles.fontAction}
+                title={t.appearanceFontRemove}
+                onClick={() => appearance.removeLocalFont(appearance.fonts.mono)}
+              >
+                ×
+              </button>
+            ) : null}
+          </div>
+        </SettingsRow>
       </SettingsGroup>
 
       <SettingsGroup title={t.appearanceInterface}>
@@ -179,6 +257,14 @@ export function AppearancePanel(): ReactNode {
             checked={appearance.expandToolCalls}
             label={t.expandToolCalls}
             onChange={(value) => appearance.setExpandToolCalls(value)}
+          />
+        </SettingsRow>
+
+        <SettingsRow label={t.autoExpandSummary}>
+          <SettingsSwitch
+            checked={appearance.autoExpandSummary}
+            label={t.autoExpandSummary}
+            onChange={(value) => appearance.setAutoExpandSummary(value)}
           />
         </SettingsRow>
       </SettingsGroup>

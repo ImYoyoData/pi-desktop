@@ -116,9 +116,14 @@ const PrRow = memo(function PrRow({ row, active, t, onOpen, onPrefetch, onCopy, 
             </span>
           ) : null}
           <span className={styles.rowInline}>
-            {row.author ? <span>{row.author}</span> : null}
             {checks ? <span className={`${styles.badge} ${styles[checks.tone]}`}>{checks.text}</span> : null}
             {review ? <span className={`${styles.badge} ${styles[review.tone]}`}>{review.text}</span> : null}
+            {row.additions !== undefined && row.deletions !== undefined ? (
+              <span className={styles.inlineDiff}>
+                <span className={styles.added}>{t.prAdditionsCount(row.additions)}</span>
+                <span className={styles.removed}>{t.prDeletionsCount(row.deletions)}</span>
+              </span>
+            ) : null}
           </span>
         </div>
       </div>
