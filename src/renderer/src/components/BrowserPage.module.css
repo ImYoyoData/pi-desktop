@@ -1,0 +1,23 @@
+.root {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+
+.panels {
+  flex: 1;
+  min-height: 0;
+  position: relative;
+}
+
+.panel {
+  position: absolute;
+  inset: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.empty {
+  margin-top: 64px;
+}
