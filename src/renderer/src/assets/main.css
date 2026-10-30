@@ -405,27 +405,6 @@ button {
   }
 }
 
-/* 设置页内部已是独立胶囊卡片，外层 overlay 只提供主区底色，不再套一层边框 */
-.pane-capsule--overlay > .customize-page {
-  border: 0;
-  border-radius: 0;
-}
-
-/* 设置页同样作为主区独立页面铺满覆盖层，内部分区导航自己排布 */
-.customize-page {
-  display: flex;
-  height: 100%;
-  min-width: 0;
-  min-height: 0;
-  overflow: hidden;
-}
-
-.customize-page > * {
-  flex: 1;
-  min-width: 0;
-  min-height: 0;
-}
-
 .split-root .panes,
 .split-root .splitpanes {
   height: 100%;
@@ -750,7 +729,7 @@ button {
  * 过于突兀（点击按钮后的 Esc 等键盘操作会触发 :focus-visible）。
  */
 .pi-settings-modal button:not(.ant-btn):focus-visible,
-.customize-page button:not(.ant-btn):focus-visible {
+.modal-editor-panel button:not(.ant-btn):focus-visible {
   outline: 1px solid var(--accent);
   outline-offset: -1px;
 }
@@ -805,10 +784,10 @@ button {
 .pi-settings-modal .ant-input-affix-wrapper,
 .pi-settings-modal .ant-input-number,
 .pi-settings-modal .ant-select,
-.customize-page .ant-input,
-.customize-page .ant-input-affix-wrapper,
-.customize-page .ant-input-number,
-.customize-page .ant-select {
+.modal-editor-panel .ant-input,
+.modal-editor-panel .ant-input-affix-wrapper,
+.modal-editor-panel .ant-input-number,
+.modal-editor-panel .ant-select {
   border-color: var(--border) !important;
 }
 
@@ -822,24 +801,24 @@ button {
 .pi-settings-modal .ant-input-number,
 .pi-settings-modal .ant-input-number-input,
 .pi-settings-modal .ant-select,
-.customize-page .ant-input,
-.customize-page .ant-input-affix-wrapper,
-.customize-page .ant-input-number,
-.customize-page .ant-input-number-input,
-.customize-page .ant-select {
+.modal-editor-panel .ant-input,
+.modal-editor-panel .ant-input-affix-wrapper,
+.modal-editor-panel .ant-input-number,
+.modal-editor-panel .ant-input-number-input,
+.modal-editor-panel .ant-select {
   background-color: var(--bg-input) !important;
 }
 
 /* 次级按钮跟随卡片表面，避免实色块与玻璃面板脱节 */
 .pi-settings-modal .ant-btn:not(.ant-btn-primary):not(.ant-btn-text):not(.ant-btn-link),
-.customize-page .ant-btn:not(.ant-btn-primary):not(.ant-btn-text):not(.ant-btn-link) {
+.modal-editor-panel .ant-btn:not(.ant-btn-primary):not(.ant-btn-text):not(.ant-btn-link) {
   background-color: var(--bg-elevated) !important;
   border-color: var(--border) !important;
 }
 
 .pi-settings-modal
   .ant-btn:not(.ant-btn-primary):not(.ant-btn-text):not(.ant-btn-link):hover:not(:disabled),
-.customize-page
+.modal-editor-panel
   .ant-btn:not(.ant-btn-primary):not(.ant-btn-text):not(.ant-btn-link):hover:not(:disabled) {
   background-color: var(--bg-active) !important;
   border-color: var(--accent-border) !important;
@@ -861,12 +840,12 @@ button {
 }
 
 .pi-settings-modal .ant-checkbox-inner,
-.customize-page .ant-checkbox-inner {
+.modal-editor-panel .ant-checkbox-inner {
   border-color: var(--border) !important;
 }
 
 .pi-settings-modal .ant-divider,
-.customize-page .ant-divider {
+.modal-editor-panel .ant-divider {
   border-color: var(--border) !important;
 }
 

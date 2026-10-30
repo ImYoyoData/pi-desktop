@@ -32,6 +32,8 @@ const SplitRoot = lazy(async () => {
   return module;
 });
 
+const AiCustomizationModal = lazy(() => import("@renderer/components/AiCustomizationModal"));
+
 /** 预热主界面 chunk 的等待上限，超时后不再等，避免卡住启动。 */
 const PREWARM_MAX_MS = 2000;
 
@@ -90,6 +92,7 @@ function onTabFocusKeydown(event: KeyboardEvent): void {
 
 export function App(): React.ReactNode {
   const appearance = useAppearanceStore();
+  const workspaceRoot = useWorkspaceStore((s) => s.root);
   const locale = useUiLocale();
   const [bootInitDone, setBootInitDone] = useState(false);
 
@@ -206,6 +209,11 @@ export function App(): React.ReactNode {
               ) : null}
             </main>
             <PiCliSetup />
+            {workspaceRoot ? (
+              <Suspense fallback={null}>
+                <AiCustomizationModal />
+              </Suspense>
+            ) : null}
           </div>
           <AppContextMenu />
           <SuppressHoverTips />
