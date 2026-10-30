@@ -13,10 +13,11 @@ import { Button, Empty, Input, Menu, Modal, Space, Spin, Typography, Tree } from
 import type { MenuProps } from "antd";
 import type { DataNode, EventDataNode } from "antd/es/tree";
 import {
+  ChevronDownOutline,
   DocumentAttachOutline,
   FolderOpenOutline,
-  FolderOutline,
   RefreshOutline,
+  SearchOutline,
 } from "@renderer/components/icons/ionicons";
 import { useWorkspaceStore } from "@renderer/stores/workspace";
 import { usePreviewStore } from "@renderer/stores/preview";
@@ -120,6 +121,35 @@ function toFileUrl(absPath: string): string {
   return `file:///${normalized}`;
 }
 
+/** 按文件名过滤：命中节点连同其祖先保留。 */
+function filterTree(nodes: FileNode[], query: string): FileNode[] {
+  if (!query) return nodes;
+  const needle = query.toLowerCase();
+  const walk = (list: FileNode[]): FileNode[] => {
+    const out: FileNode[] = [];
+    for (const node of list) {
+      const children = node.children ? walk(node.children) : undefined;
+      const hit = String(node.title ?? "").toLowerCase().includes(needle);
+      if (hit) out.push(node);
+      else if (children?.length) out.push({ ...node, children });
+    }
+    return out;
+  };
+  return walk(nodes);
+}
+
+/** 过滤结果需要把命中的目录都展开。 */
+function dirKeysWithChildren(nodes: FileNode[]): string[] {
+  const keys: string[] = [];
+  for (const node of nodes) {
+    if (node.isLeaf === false) {
+      keys.push(String(node.key));
+      if (node.children) keys.push(...dirKeysWithChildren(node.children));
+    }
+  }
+  return keys;
+}
+
 export function FilesTab({ embedded = false }: Props): ReactNode {
   const t = useI18n();
   const workspace = useWorkspaceStore();
@@ -141,6 +171,7 @@ export function FilesTab({ embedded = false }: Props): ReactNode {
   const [gitCodes, setGitCodes] = useState<Record<string, string>>({});
   const [gitDirtyDirs, setGitDirtyDirs] = useState<Set<string>>(new Set());
   const [ignoredPatterns, setIgnoredPatterns] = useState<string[]>([]);
+  const [filter, setFilter] = useState("");
 
   const [ctx, setCtx] = useState<CtxState>({
     show: false,
@@ -233,12 +264,13 @@ export function FilesTab({ embedded = false }: Props): ReactNode {
         data-kind={isDir ? "dir" : "file"}
       >
         {isDir ? (
-          <span
-            className="seti-tree-icon"
-            style={{ color: labelColor(path, true) }}
-          >
-            <FolderOutline size={13} />
-          </span>
+          <ChevronDownOutline
+            size={10}
+            className={styles.dirArrow}
+            style={{
+              transform: expandedKeysRef.current.includes(path) ? undefined : "rotate(-90deg)",
+            }}
+          />
         ) : (
           <span
             className="seti-tree-icon seti-file-glyph"
@@ -881,6 +913,9 @@ export function FilesTab({ embedded = false }: Props): ReactNode {
     };
   }, [ctx.show]);
 
+  const visibleTree = useMemo(() => filterTree(treeData, filter), [treeData, filter]);
+  const visibleExpanded = filter ? dirKeysWithChildren(visibleTree) : expandedKeys;
+
   return (
     <div className={styles.filesTab}>
       {embedded ? null : (
@@ -920,6 +955,21 @@ export function FilesTab({ embedded = false }: Props): ReactNode {
         </div>
       )}
 
+      <div className={styles.searchBar}>
+        <SearchOutline size={14} className={styles.searchIcon} />
+        <input
+          className={styles.searchInput}
+          value={filter}
+          type="search"
+          placeholder={t.filesFilterPlaceholder}
+          aria-label={t.filesFilterPlaceholder}
+          onChange={(event) => setFilter(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === "Escape") setFilter("");
+          }}
+        />
+      </div>
+
       <div
         className={dropTargetPath === "" ? `${styles.body} ${styles.dropRoot}` : styles.body}
         onContextMenu={(event) => openCtx(event, "", "blank")}
@@ -934,15 +984,15 @@ export function FilesTab({ embedded = false }: Props): ReactNode {
           />
         ) : (
           <Spin spinning={loading} size="small">
-            {treeData.length ? (
+            {visibleTree.length ? (
               <Tree<FileNode>
                 blockNode
                 expandAction="click"
                 showIcon={false}
-                draggable
+                draggable={{ icon: false, nodeDraggable: () => true }}
                 allowDrop={allowTreeDrop}
-                treeData={treeData}
-                expandedKeys={expandedKeys}
+                treeData={visibleTree}
+                expandedKeys={visibleExpanded}
                 selectedKeys={selectedKeys}
                 loadedKeys={loadedKeys}
                 loadData={loadData}

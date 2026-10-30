@@ -1,6 +1,7 @@
 import { type ReactNode } from "react";
 import { Empty } from "antd";
 import BrowserTab from "@renderer/components/BrowserTab";
+import PageHeader from "@renderer/components/PageHeader";
 import TabStrip from "@renderer/components/TabStrip";
 import { useRightTabsStore } from "@renderer/stores/right-tabs";
 import { useI18n } from "@renderer/i18n/use-i18n";
@@ -23,6 +24,7 @@ export function BrowserPage({ visible }: Props): ReactNode {
 
   return (
     <div className={styles.root}>
+      <PageHeader title={t.browser} />
       <TabStrip
         tabs={browserTabs}
         activeId={activeId}

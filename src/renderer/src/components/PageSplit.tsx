@@ -9,6 +9,8 @@ type Props = {
   maxWidth: number;
   /** 侧栏位置，默认在左。 */
   sidePosition?: "start" | "end";
+  /** 隐藏侧栏，只保留主区。 */
+  sideHidden?: boolean;
   side: ReactNode;
   children: ReactNode;
 };
@@ -20,6 +22,7 @@ export function PageSplit({
   minWidth,
   maxWidth,
   sidePosition = "start",
+  sideHidden = false,
   side,
   children,
 }: Props): ReactNode {
@@ -42,10 +45,14 @@ export function PageSplit({
 
   return (
     <div className={sidePosition === "end" ? `${styles.root} ${styles.rootEnd}` : styles.root}>
-      <div className={styles.side} style={{ width: `${width}px` }}>
-        {side}
-      </div>
-      <div className={styles.divider} aria-hidden="true" onMouseDown={onDividerDown} />
+      {sideHidden ? null : (
+        <>
+          <div className={styles.side} style={{ width: `${width}px` }}>
+            {side}
+          </div>
+          <div className={styles.divider} aria-hidden="true" onMouseDown={onDividerDown} />
+        </>
+      )}
       <div className={styles.main}>{children}</div>
     </div>
   );
