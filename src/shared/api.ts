@@ -785,6 +785,7 @@ export function createApi(
 				GitHubResponse<{ pullRequest: PullRequestSummary }>
 			>,
 		pullRequestList: (payload: {
+			cwd?: string;
 			state: PullRequestListState;
 			author: PullRequestListAuthor;
 			cursor?: string;
@@ -798,6 +799,7 @@ export function createApi(
 		pullRequestListCancel: (requestId: string) =>
 			ipcRenderer.invoke(IpcChannels.github.pullRequestListCancel, requestId) as Promise<void>,
 		pullRequestCounts: (payload: {
+			cwd?: string;
 			state: PullRequestListState;
 			author: PullRequestListAuthor;
 			filters?: PullRequestFilters;
@@ -807,23 +809,23 @@ export function createApi(
 			ipcRenderer.invoke(IpcChannels.github.pullRequestCounts, plainArgs(payload)) as Promise<
 				GitHubResponse<{ counts?: PullRequestCounts }>
 			>,
-		pullRequestDetail: (payload: { url: string; fresh?: boolean }) =>
+		pullRequestDetail: (payload: { cwd?: string; url: string; fresh?: boolean }) =>
 			ipcRenderer.invoke(IpcChannels.github.pullRequestDetail, plainArgs(payload)) as Promise<
 				GitHubResponse<{ detail: PullRequestDetail }>
 			>,
-		pullRequestPatch: (payload: { url: string; headSha?: string }) =>
+		pullRequestPatch: (payload: { cwd?: string; url: string; headSha?: string }) =>
 			ipcRenderer.invoke(IpcChannels.github.pullRequestPatch, plainArgs(payload)) as Promise<
 				GitHubResponse<PullRequestPatchResult>
 			>,
-		pullRequestAction: (payload: { url: string; action: PullRequestAction }) =>
+		pullRequestAction: (payload: { cwd?: string; url: string; action: PullRequestAction }) =>
 			ipcRenderer.invoke(IpcChannels.github.pullRequestAction, plainArgs(payload)) as Promise<
 				GitHubResponse<object>
 			>,
-		pullRequestChoices: (payload: { url: string; kind: PullRequestChoiceKind }) =>
+		pullRequestChoices: (payload: { cwd?: string; url: string; kind: PullRequestChoiceKind }) =>
 			ipcRenderer.invoke(IpcChannels.github.pullRequestChoices, plainArgs(payload)) as Promise<
 				GitHubResponse<PullRequestChoices>
 			>,
-		repositoryChoices: (payload: { kind: PullRequestChoiceKind }) =>
+		repositoryChoices: (payload: { cwd?: string; kind: PullRequestChoiceKind }) =>
 			ipcRenderer.invoke(IpcChannels.github.repositoryChoices, plainArgs(payload)) as Promise<
 				GitHubResponse<PullRequestChoices>
 			>,

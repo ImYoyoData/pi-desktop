@@ -1,4 +1,5 @@
 import { ipcMain } from "electron";
+import path from "node:path";
 import { z } from "zod";
 import { IpcChannels } from "../shared/protocol";
 import type {
@@ -8,7 +9,8 @@ import type {
 	PullRequestPatchResult,
 	PullRequestSummary,
 } from "../shared/github-types";
-import { getWorkspace } from "./workspace-ipc";
+import { getWorkspace, listRecent } from "./workspace-ipc";
+import { workspacePathsEqual } from "./session-list";
 import { githubClient, isGitHubError, loadGitHubImage } from "./github-host";
 import { parsePullRequestAction } from "./github-detail";
 import { PullRequestFiltersSchema } from "./github-list";
@@ -39,12 +41,37 @@ const PatchHeadSchema = z.object({
 		.catch(undefined),
 });
 
-const ChoiceKindSchema = z.object({ kind: z.enum(["labels", "people", "milestones", "branches"]) });
+const ChoiceKindSchema = z.object({
+	kind: z.enum(["labels", "people", "milestones", "branches"]),
+	cwd: z.string().min(1).optional(),
+});
 
 const BRANCH_SCHEMA = z.object({ branch: z.string().min(1).max(200) });
 
 function workspaceRoot(): string | null {
 	return getWorkspace();
+}
+
+const KNOWN_WORKSPACE_TTL_MS = 30_000;
+let knownWorkspaces: { paths: string[]; at: number } | null = null;
+
+/** 已知工作区列表（Desktop 最近 + Pi 发现），短缓存避免每次请求都扫盘。 */
+async function knownWorkspacePaths(): Promise<string[]> {
+	const now = Date.now();
+	if (knownWorkspaces && now - knownWorkspaces.at < KNOWN_WORKSPACE_TTL_MS) return knownWorkspaces.paths;
+	const paths = await listRecent();
+	knownWorkspaces = { paths, at: now };
+	return paths;
+}
+
+/** 渲染端可指定别的已知工作区目录查看其仓库，未知路径回落到当前工作区。 */
+async function resolveCwd(requested: unknown): Promise<string | null> {
+	const root = workspaceRoot();
+	if (typeof requested !== "string" || !requested.trim()) return root;
+	const target = path.resolve(requested.trim());
+	if (root && workspacePathsEqual(root, target)) return target;
+	const known = await knownWorkspacePaths();
+	return known.some((entry) => workspacePathsEqual(entry, target)) ? target : root;
 }
 
 function failure(error: unknown, fallback: string): { success: false; error: string } {
@@ -58,18 +85,20 @@ function isCancelledError(error: unknown): boolean {
 export function registerGitHubIpc(): void {
 	const listRequests = new Map<string, AbortController>();
 
-	const target = (options: unknown): { root: string; url: string; fresh: boolean } | { error: string } => {
-		const root = workspaceRoot();
-		if (!root) return { error: "Open a project folder first." };
+	const target = async (
+		options: unknown,
+	): Promise<{ root: string; url: string; fresh: boolean } | { error: string }> => {
 		const parsed = PullRequestTargetSchema.safeParse(options);
 		if (!parsed.success) return { error: "Choose a valid pull request." };
+		const root = await resolveCwd(parsed.data.cwd);
+		if (!root) return { error: "Open a project folder first." };
 		return { root, url: parsed.data.url, fresh: parsed.data.fresh === true };
 	};
 
 	ipcMain.handle(
 		IpcChannels.github.pullRequestDetail,
 		async (_event, options: unknown): Promise<GitHubResponse<{ detail: Awaited<ReturnType<typeof githubClient.pullRequestDetail>> }>> => {
-			const resolved = target(options);
+			const resolved = await target(options);
 			if ("error" in resolved) return { success: false, error: resolved.error };
 			try {
 				return { success: true, detail: await githubClient.pullRequestDetail(resolved.root, resolved.url, resolved.fresh) };
@@ -82,7 +111,7 @@ export function registerGitHubIpc(): void {
 	ipcMain.handle(
 		IpcChannels.github.pullRequestPatch,
 		async (_event, options: unknown): Promise<GitHubResponse<PullRequestPatchResult>> => {
-			const resolved = target(options);
+			const resolved = await target(options);
 			if ("error" in resolved) return { success: false, error: resolved.error };
 			const head = PatchHeadSchema.safeParse(options);
 			try {
@@ -99,7 +128,7 @@ export function registerGitHubIpc(): void {
 	);
 
 	ipcMain.handle(IpcChannels.github.pullRequestAction, async (_event, options: unknown): Promise<GitHubResponse<object>> => {
-		const resolved = target(options);
+		const resolved = await target(options);
 		if ("error" in resolved) return { success: false, error: resolved.error };
 		try {
 			const action = parsePullRequestAction((options as { action?: unknown } | null)?.action);
@@ -115,7 +144,7 @@ export function registerGitHubIpc(): void {
 	});
 
 	ipcMain.handle(IpcChannels.github.pullRequestChoices, async (_event, options: unknown) => {
-		const resolved = target(options);
+		const resolved = await target(options);
 		if ("error" in resolved) return { success: false, error: resolved.error };
 		const parsed = ChoiceKindSchema.safeParse(options);
 		if (!parsed.success) return { success: false, error: "Choose labels, people, milestones or branches." };
@@ -127,10 +156,10 @@ export function registerGitHubIpc(): void {
 	});
 
 	ipcMain.handle(IpcChannels.github.repositoryChoices, async (_event, options: unknown) => {
-		const root = workspaceRoot();
-		if (!root) return { success: false, error: "Open a project folder first." };
 		const parsed = ChoiceKindSchema.safeParse(options);
 		if (!parsed.success) return { success: false, error: "Choose labels, people, milestones or branches." };
+		const root = await resolveCwd(parsed.data.cwd);
+		if (!root) return { success: false, error: "Open a project folder first." };
 		try {
 			return { success: true, ...(await githubClient.repositoryChoices(root, parsed.data.kind)) };
 		} catch (error) {
@@ -147,7 +176,7 @@ export function registerGitHubIpc(): void {
 		if (!parsed.success) {
 			return { success: false, error: "Choose a repository and valid pull request filters." };
 		}
-		const root = workspaceRoot();
+		const root = await resolveCwd(parsed.data.cwd);
 		if (!root) return { success: false, error: "Open a project folder first." };
 		const { state, author, cursor, filters, requestId, fresh } = parsed.data;
 		const controller = new AbortController();
@@ -180,7 +209,7 @@ export function registerGitHubIpc(): void {
 		async (_event, options: unknown): Promise<GitHubResponse<{ counts?: PullRequestCounts }>> => {
 			const parsed = PullRequestListSchema.safeParse(options);
 			if (!parsed.success) return { success: false, error: "Choose a repository and valid pull request filters." };
-			const root = workspaceRoot();
+			const root = await resolveCwd(parsed.data.cwd);
 			if (!root) return { success: false, error: "Open a project folder first." };
 			const { state, author, filters, requestId, fresh } = parsed.data;
 			const controller = new AbortController();

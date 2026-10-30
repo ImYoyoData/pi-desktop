@@ -138,6 +138,12 @@ const EMPTY_LIST: Omit<ListState, "key"> = {
 
 const SUPERSEDED = Symbol("superseded");
 
+/** 工作区路径比较（分隔符与大小写无关）。 */
+function sameWorkspacePath(a: string, b: string): boolean {
+	const norm = (p: string) => p.replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
+	return norm(a) === norm(b);
+}
+
 function mergeByUrl(current: PullRequestSummary[], incoming: PullRequestSummary[]): PullRequestSummary[] {
 	return [...new Map([...current, ...incoming].map((entry) => [entry.url, entry])).values()];
 }
@@ -146,22 +152,28 @@ type PullRequestsBase = {
 	selection: PullRequestSelection;
 	list: ListState;
 	workspaceRoot: string | null;
+	/** 选中的仓库目录；null 表示跟随当前工作区。 */
+	repoRoot: string | null;
+	/** 仓库目录 → GitHub 仓库名（owner/repo）。 */
+	repositoryNames: Record<string, string>;
 };
 
 type PullRequestsDerived = {
 	filtersJson: string;
 	key: string;
+	cwd: string | null;
 };
 
 function derive(base: PullRequestsBase): PullRequestsDerived {
 	const filtersJson = serializeFilters(base.selection.filters);
+	const cwd = base.repoRoot ?? base.workspaceRoot;
 	const key = JSON.stringify([
-		base.workspaceRoot ?? "",
+		cwd ?? "",
 		base.selection.state,
 		base.selection.author,
 		filtersJson,
 	]);
-	return { filtersJson, key };
+	return { filtersJson, key, cwd };
 }
 
 export type PullRequestsState = PullRequestsBase &
@@ -175,6 +187,8 @@ export type PullRequestsState = PullRequestsBase &
 			value: PullRequestFilters[keyof PullRequestFilters] | undefined,
 		) => void;
 		clearFilters: () => void;
+		/** 切换拉取请求页查看的仓库目录。 */
+		setRepoRoot: (root: string | null) => void;
 		/** 另一端改了筛选后重新读取并应用。 */
 		refreshFromPrefs: () => void;
 	};
@@ -226,6 +240,7 @@ export const usePullRequestsStore = create<PullRequestsState>()((set, get) => {
 		try {
 			const response = await window.api.github.pullRequestCounts(
 				plainIpcArgs({
+					...(state.cwd ? { cwd: state.cwd } : {}),
 					state: state.selection.state,
 					author: state.selection.author,
 					...(filters ? { filters } : {}),
@@ -250,6 +265,7 @@ export const usePullRequestsStore = create<PullRequestsState>()((set, get) => {
 			const response = await window.api.github
 				.pullRequestList(
 					plainIpcArgs({
+						...(state.cwd ? { cwd: state.cwd } : {}),
 						state: state.selection.state,
 						author: state.selection.author,
 						...(filters ? { filters } : {}),
@@ -275,7 +291,7 @@ export const usePullRequestsStore = create<PullRequestsState>()((set, get) => {
 
 	async function load(force = false): Promise<void> {
 		const state = get();
-		if (!state.workspaceRoot) return;
+		if (!state.cwd) return;
 		const currentKey = state.key;
 		if (!force && inflight && inflight.key === currentKey) return inflight.promise;
 		if (!force && state.list.key === currentKey && !state.list.error) return;
@@ -323,7 +339,11 @@ export const usePullRequestsStore = create<PullRequestsState>()((set, get) => {
 		};
 		cache.set(currentKey, settled);
 		trimCache();
-		commit({ list: { ...settled, key: currentKey } });
+		const cwd = get().cwd;
+		const names = cwd && meta.repository
+			? { ...get().repositoryNames, [cwd]: meta.repository }
+			: get().repositoryNames;
+		commit({ list: { ...settled, key: currentKey }, repositoryNames: names });
 	}
 
 	async function readList(currentKey: string, targetCount: number, fresh: boolean, run: number): Promise<void> {
@@ -363,7 +383,7 @@ export const usePullRequestsStore = create<PullRequestsState>()((set, get) => {
 	async function loadMore(): Promise<void> {
 		const state = get();
 		const currentKey = state.list.key;
-		if (!state.workspaceRoot || state.list.key !== state.key || !state.list.nextCursor) return;
+		if (!state.cwd || state.list.key !== state.key || !state.list.nextCursor) return;
 		if (state.list.loadingMore) return;
 		const run = generation;
 		const cursor = state.list.nextCursor;
@@ -431,11 +451,26 @@ export const usePullRequestsStore = create<PullRequestsState>()((set, get) => {
 		void load(true);
 	}
 
+	/** 切换拉取请求页查看的仓库目录；null 表示回到当前工作区。 */
+	function setRepoRoot(root: string | null): void {
+		const current = get();
+		const next = root && current.workspaceRoot && sameWorkspacePath(root, current.workspaceRoot) ? null : root;
+		if (next === current.repoRoot) return;
+		commit({ repoRoot: next });
+		void load();
+	}
+
 	function resetForWorkspace(root: string | null): void {
 		generation += 1;
 		cancelPending();
-		cache.clear();
-		commit({ workspaceRoot: root, list: { key: "", ...EMPTY_LIST } });
+		const previousCwd = get().cwd;
+		const nextCwd = get().repoRoot ?? root;
+		if (previousCwd === nextCwd) {
+			commit({ workspaceRoot: root });
+		} else {
+			cache.clear();
+			commit({ workspaceRoot: root, list: { key: "", ...EMPTY_LIST } });
+		}
 		void load();
 	}
 
@@ -443,6 +478,8 @@ export const usePullRequestsStore = create<PullRequestsState>()((set, get) => {
 		selection: readPullRequestSelection(),
 		list: { key: "", ...EMPTY_LIST },
 		workspaceRoot: useWorkspaceStore.getState().root,
+		repoRoot: null,
+		repositoryNames: {},
 	};
 
 	useWorkspaceStore.subscribe((state, prev) => {
@@ -460,6 +497,7 @@ export const usePullRequestsStore = create<PullRequestsState>()((set, get) => {
 		setSelection,
 		setFilter,
 		clearFilters,
+		setRepoRoot,
 		/** 另一端改了筛选后重新读取并应用。 */
 		refreshFromPrefs: () => {
 			commit({ selection: readPullRequestSelection() });

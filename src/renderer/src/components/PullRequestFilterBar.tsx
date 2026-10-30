@@ -1,4 +1,4 @@
-import { Fragment, useRef, useState, type ReactNode } from "react";
+import { Fragment, useEffect, useRef, useState, type ReactNode } from "react";
 import { Popover, Spin } from "antd";
 import { CheckmarkOutline, ChevronDownOutline, SearchOutline } from "@renderer/components/icons/ionicons";
 import type {
@@ -54,6 +54,13 @@ export function PullRequestFilterBar(): ReactNode {
   const loadingKindsRef = useRef<Set<string>>(new Set());
 
   const filters = store.selection.filters;
+  const cwd = store.cwd;
+
+  /** 切换仓库后旧的可选项失效。 */
+  useEffect(() => {
+    setChoices({});
+    setErrors({});
+  }, [cwd]);
 
   async function ensure(kind: "people" | "labels" | "milestones" | "branches"): Promise<void> {
     const loaded =
@@ -67,7 +74,8 @@ export function PullRequestFilterBar(): ReactNode {
     loadingKindsRef.current = next;
     setLoadingKinds(next);
     try {
-      const response = await window.api.github.repositoryChoices({ kind });
+      const response = await window.api.github.repositoryChoices({ kind, ...(cwd ? { cwd } : {}) });
+      if (usePullRequestsStore.getState().cwd !== cwd) return;
       if (!response.success) {
         setErrors((current) => ({ ...current, [kind]: response.error }));
         return;

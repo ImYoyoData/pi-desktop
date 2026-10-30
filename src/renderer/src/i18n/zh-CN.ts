@@ -1307,6 +1307,8 @@ export const zh = {
 	pullRequests: "拉取请求",
 	pullRequestTab: "拉取请求",
 	prSearchPlaceholder: "搜索拉取请求…",
+	prRepository: "仓库",
+	prSelectRepository: (label: string) => `选择仓库：${label}`,
 	prFilters: "筛选",
 	prFilterState: "状态",
 	prStateOpen: "打开",

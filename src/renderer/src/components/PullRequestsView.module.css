@@ -30,6 +30,21 @@
   white-space: nowrap;
 }
 
+.repoBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 260px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+}
+
+.repoBtn:hover .repoName {
+  color: var(--fg);
+}
+
 .repoName {
   color: var(--fg-muted);
   font-family: var(--font-mono);
@@ -37,6 +52,28 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.repoChev {
+  flex-shrink: 0;
+  color: var(--fg-muted);
+}
+
+.repoOption {
+  display: inline-flex;
+  flex-direction: column;
+  gap: 1px;
+  line-height: 1.3;
+}
+
+.repoOptionName {
+  color: var(--fg);
+}
+
+.repoOptionRepo {
+  color: var(--fg-muted);
+  font-family: var(--font-mono);
+  font-size: 0.8462rem;
 }
 
 .headTools {

@@ -1306,6 +1306,8 @@ export const ja = {
 	pullRequests: "プルリクエスト",
 	pullRequestTab: "プルリクエスト",
 	prSearchPlaceholder: "プルリクエストを検索…",
+	prRepository: "リポジトリ",
+	prSelectRepository: (label: string) => `リポジトリを選択: ${label}`,
 	prFilters: "フィルター",
 	prFilterState: "状態",
 	prStateOpen: "オープン",

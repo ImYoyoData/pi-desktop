@@ -44,6 +44,7 @@ import {
 } from "@renderer/utils/pull-request-format";
 import { useI18n } from "@renderer/i18n/use-i18n";
 import { useMessage } from "@renderer/services/feedback";
+import { usePullRequestsStore } from "@renderer/stores/pull-requests";
 import { plainIpcArgs } from "@renderer/utils/ipc-plain";
 import styles from "./PullRequestDetailView.module.css";
 
@@ -79,6 +80,7 @@ export const PullRequestDetailView = forwardRef<PullRequestDetailViewHandle, Pro
   function PullRequestDetailView({ url, onBack }, ref) {
     const t = useI18n();
     const message = useMessage();
+    const cwd = usePullRequestsStore((state) => state.cwd);
 
     const [detail, setDetailState] = useState<PullRequestDetail | null>(null);
     const [loading, setLoading] = useState(false);
@@ -199,7 +201,7 @@ export const PullRequestDetailView = forwardRef<PullRequestDetailViewHandle, Pro
       setError(null);
       try {
         const response = await window.api.github.pullRequestDetail(
-          plainIpcArgs({ url: target, ...(force ? { fresh: true } : {}) }),
+          plainIpcArgs({ url: target, ...(cwd ? { cwd } : {}), ...(force ? { fresh: true } : {}) }),
         );
         if (!response.success) {
           setError(response.error || t.prCouldNotLoad);
@@ -230,6 +232,7 @@ export const PullRequestDetailView = forwardRef<PullRequestDetailViewHandle, Pro
         const response = await window.api.github.pullRequestPatch(
           plainIpcArgs({
             url,
+            ...(cwd ? { cwd } : {}),
             ...(/^[0-9a-f]{40}$/.test(head) ? { headSha: head } : {}),
           }),
         );
@@ -257,7 +260,9 @@ export const PullRequestDetailView = forwardRef<PullRequestDetailViewHandle, Pro
       const key = actionKey(action);
       setPending((current) => new Set(current).add(key));
       try {
-        const response = await window.api.github.pullRequestAction(plainIpcArgs({ url, action }));
+        const response = await window.api.github.pullRequestAction(
+          plainIpcArgs({ url, action, ...(cwd ? { cwd } : {}) }),
+        );
         if (!response.success) {
           message.error(response.error || t.prCouldNotUpdate);
           return false;
@@ -345,7 +350,9 @@ export const PullRequestDetailView = forwardRef<PullRequestDetailViewHandle, Pro
       setChoicesLoading(true);
       setChoicesError(null);
       try {
-        const response = await window.api.github.pullRequestChoices(plainIpcArgs({ url, kind }));
+        const response = await window.api.github.pullRequestChoices(
+          plainIpcArgs({ url, kind, ...(cwd ? { cwd } : {}) }),
+        );
         if (!response.success) {
           setChoicesError(response.error || t.prCouldNotLoadChoices);
           return;
