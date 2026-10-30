@@ -117,6 +117,7 @@ function CodeBlockNode({ node, isDark }: CodeBlockProps): ReactNode {
       isDark={isDark}
       loading={Boolean(node.loading)}
       showLineNumbers
+      showExpandButton={false}
       enableFontSizeControl={false}
       showCollapseButton={false}
       showFontSizeButtons={false}

@@ -10,6 +10,10 @@
   order: 2;
 }
 
+.rootEnd .divider {
+  order: 1;
+}
+
 .side {
   flex-shrink: 0;
   min-width: 0;
@@ -25,6 +29,23 @@
   cursor: col-resize;
   position: relative;
   z-index: 5;
+}
+
+/* 中间一条可见细分隔线，hover 时高亮提示可拖拽 */
+.divider::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  width: 1px;
+  transform: translateX(-50%);
+  background: rgba(127, 127, 127, 0.35);
+  transition: background 120ms ease;
+}
+
+.divider:hover::after {
+  background: var(--accent-border, #93c5fd);
 }
 
 .main {
