@@ -1,7 +1,7 @@
 export type DiffFile = {
 	path: string;
 	previousPath: string | null;
-	/** 完整 diff 段落（含 diff --git/---/+++ 头），@git-diff-view 解析器需要它。 */
+	/** 完整 diff 段落（含 diff --git/---/+++ 头），diffs 解析器需要它。 */
 	rawSection: string;
 	/** 该文件是否有可显示的文本改动。 */
 	hasHunks: boolean;
@@ -49,7 +49,7 @@ function previousPathOf(section: string, path: string): string | null {
 }
 
 /**
- * 只统计增删行与「有没有文本改动」——逐行明细交给 @git-diff-view 自己解析，
+ * 只统计增删行与「有没有文本改动」——逐行明细交给 diffs 自己解析，
  * 大 PR 因此少分配几万个行对象。
  */
 function parseSection(section: string, path: string, previousPath: string | null): DiffFile {

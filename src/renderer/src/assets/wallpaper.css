@@ -193,53 +193,6 @@ html[data-theme][data-wallpaper="on"] .app-context-menu {
   backdrop-filter: blur(14px) saturate(1.15);
 }
 
-/* Monaco 编辑器右键菜单与子菜单：背景内联在滚动元素上，需直接覆盖 background-color */
-html[data-theme][data-wallpaper="on"] .monaco-menu-container,
-html[data-theme][data-wallpaper="on"] .monaco-menu-container .monaco-scrollable-element,
-html[data-theme][data-wallpaper="on"] .monaco-menu,
-html[data-theme][data-wallpaper="on"] .context-view .monaco-scrollable-element,
-html[data-theme][data-wallpaper="on"] .context-view .monaco-menu {
-  background-color: var(--w-elevated-surface) !important;
-  --vscode-menu-background: var(--w-elevated-surface) !important;
-  backdrop-filter: blur(14px) saturate(1.15);
-}
-
-/* Monaco 编辑器跟随自定义外观：编辑区底色透出界面 */
-html[data-theme][data-wallpaper="on"] .monaco-editor,
-html[data-theme][data-wallpaper="on"] .monaco-editor .monaco-editor-background,
-html[data-theme][data-wallpaper="on"] .monaco-editor .margin,
-html[data-theme][data-wallpaper="on"] .monaco-editor .minimap,
-html[data-theme][data-wallpaper="on"] .monaco-editor .decorationsOverviewRuler,
-html[data-theme][data-wallpaper="on"] .monaco-diff-editor .diffOverview {
-  background-color: transparent !important;
-}
-
-/* Monaco 吸顶条（当前作用域预览）覆盖在代码上方：
-   跟随卡片透明档位铺一层玻璃，代码透过时由模糊隔开，不会叠在一起。 */
-html[data-theme][data-wallpaper="on"] .monaco-editor .sticky-widget {
-  background-color: var(--w-elevated-surface) !important;
-  backdrop-filter: blur(14px) saturate(1.15);
-  /* 原生黑色投影与描边在玻璃上就是一遭黑条，换成主题描边 */
-  box-shadow: none !important;
-  border-bottom: 1px solid var(--border) !important;
-}
-
-html[data-theme][data-wallpaper="on"] .monaco-editor .sticky-widget .sticky-widget-line-numbers,
-html[data-theme][data-wallpaper="on"] .monaco-editor .sticky-widget .sticky-widget-lines,
-html[data-theme][data-wallpaper="on"] .monaco-editor .sticky-widget .sticky-widget-lines-scrollable {
-  background-color: var(--w-elevated-surface) !important;
-  backdrop-filter: blur(14px) saturate(1.15);
-}
-
-/* Monaco 浮层（补全、悬浮提示、参数提示）半透明 */
-html[data-theme][data-wallpaper="on"] .monaco-editor .suggest-widget,
-html[data-theme][data-wallpaper="on"] .monaco-editor .parameter-hints-widget,
-html[data-theme][data-wallpaper="on"] .monaco-editor .find-widget,
-html[data-theme][data-wallpaper="on"] .monaco-hover {
-  background-color: var(--w-elevated-surface) !important;
-  backdrop-filter: blur(14px) saturate(1.15);
-}
-
 /* antd 输入控件跟随输入框透明度（hover 背景默认是实色，必须一并覆盖） */
 html[data-theme][data-wallpaper="on"] .ant-input,
 html[data-theme][data-wallpaper="on"] .ant-input-affix-wrapper,

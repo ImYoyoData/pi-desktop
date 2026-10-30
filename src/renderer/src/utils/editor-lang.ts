@@ -1,6 +1,6 @@
 export type GitStatusCode = "M" | "A" | "D" | "R" | "U" | "C";
 
-/** language id for monaco from file path */
+/** 文件路径 → 语法高亮语言 id。 */
 export function languageFromPath(filePath: string): string {
   const name = filePath.split(/[/\\]/).pop()?.toLowerCase() ?? "";
   // .env, .env.local, .env.development, foo.env

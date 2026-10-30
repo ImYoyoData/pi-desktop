@@ -3,17 +3,16 @@ import {
   Fragment,
   useContext,
   useEffect,
-  useMemo,
-  useRef,
   useState,
   type ComponentProps,
   type Key,
   type ReactNode,
 } from "react";
-import { MermaidBlockNode, setCustomComponents } from "markstream-react";
-import { DiffLines } from "@renderer/components/DiffLines";
-import { useI18n } from "@renderer/i18n/use-i18n";
-import { highlightCode } from "@renderer/utils/markdown";
+import {
+  CodeBlockNode as MarkstreamCodeBlockNode,
+  MermaidBlockNode,
+  setCustomComponents,
+} from "markstream-react";
 import {
   resolveMarkdownImageSrc,
   type MarkdownAssetBase,
@@ -85,27 +84,11 @@ function fenceLanguage(node: FenceNode): string {
   return (node.language ?? "").trim().split(/\s+/)[0] ?? "";
 }
 
-/** 代码块：hljs 同步高亮（带 LRU）+ 行号 + 复制；diff 块走同步的 DiffLines。 */
+/** 代码块与 ```diff 都交给 markstream 的代码块（stream-diffs 高亮），只有图表自己渲染。 */
 function CodeBlockNode({ node, isDark }: CodeBlockProps): ReactNode {
-  const t = useI18n();
   const code = node.code ?? "";
   const language = fenceLanguage(node);
   const langKey = language.toLowerCase();
-  const [copied, setCopied] = useState(false);
-  const timer = useRef(0);
-
-  useEffect(() => () => window.clearTimeout(timer.current), []);
-
-  const highlighted = useMemo(() => highlightCode(code, language), [code, language]);
-  const lineCount = useMemo(
-    () => (code ? code.replace(/\n$/, "").split("\n").length : 0),
-    [code],
-  );
-
-  if (node.diff) {
-    // 原始补丁在 raw 里（code 只剩新文件内容），交给同步 diff 渲染。
-    return <DiffLines text={String(node.raw ?? "")} fallback={<pre>{code}</pre>} />;
-  }
 
   if (MERMAID_LANGS.has(langKey) || (!langKey && looksLikeMermaidSource(code))) {
     return (
@@ -124,36 +107,20 @@ function CodeBlockNode({ node, isDark }: CodeBlockProps): ReactNode {
     );
   }
 
-  function copy(): void {
-    void navigator.clipboard.writeText(code).then(() => {
-      setCopied(true);
-      window.clearTimeout(timer.current);
-      timer.current = window.setTimeout(() => setCopied(false), 1200);
-    });
-  }
-
   return (
-    <div className="code-block" data-code-block="">
-      <div className="code-head">
-        <span className="lang">{language || "code"}</span>
-        <button type="button" className="copy-btn" onClick={copy}>
-          {copied ? t.copied : t.copy}
-        </button>
-      </div>
-      <div className="code-body" data-inner-scroll="">
-        <div className="line-nos" aria-hidden="true">
-          {Array.from({ length: lineCount }, (_, i) => (
-            <span key={i}>{i + 1}</span>
-          ))}
-        </div>
-        <pre>
-          <code
-            className={`hljs language-${language || "text"}`}
-            dangerouslySetInnerHTML={{ __html: highlighted }}
-          />
-        </pre>
-      </div>
-    </div>
+    <MarkstreamCodeBlockNode
+      node={
+        { ...node, type: "code_block", code, language } as ComponentProps<
+          typeof MarkstreamCodeBlockNode
+        >["node"]
+      }
+      isDark={isDark}
+      loading={Boolean(node.loading)}
+      showLineNumbers
+      enableFontSizeControl={false}
+      showCollapseButton={false}
+      showFontSizeButtons={false}
+    />
   );
 }
 

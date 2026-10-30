@@ -1,62 +1,61 @@
 /*
- * highlight.js tokens mapped to the VS Code "2026 Dark"/"2026 Light" themes.
- * Values come from extensions/theme-defaults/themes/2026-dark.json and
- * 2026-light.json tokenColors (unlisted scopes inherit Dark+/Light+).
+ * highlight.js tokens mapped to the shiki Vitesse themes that markstream code
+ * blocks use, so tool-card code matches chat code blocks and the editor.
  */
 :root {
-  --hl-fg: #202020;
-  --hl-comment: #6e7781;
-  --hl-keyword: #cf222e;
-  --hl-literal: #0550ae;
-  --hl-number: #0550ae;
-  --hl-string: #0a3069;
-  --hl-regexp: #0a3069;
-  --hl-builtin: #0550ae;
-  --hl-class: #0550ae;
-  --hl-function: #8250df;
-  --hl-variable: #953800;
-  --hl-parameter: #1f2328;
-  --hl-selector: #116329;
-  --hl-tag: #116329;
-  --hl-attr: #1f2328;
-  --hl-property: #0550ae;
-  --hl-bullet: #953800;
-  --hl-symbol: #0550ae;
-  --hl-meta: #0550ae;
-  --hl-section: #0550ae;
-  --hl-link: #0069cc;
-  --hl-ins: #116329;
-  --hl-del: #82071e;
-  --hl-operator: #1f2328;
-  --hl-escape: #116329;
+  --hl-fg: #393a34;
+  --hl-comment: #a0ada0;
+  --hl-keyword: #1e754f;
+  --hl-literal: #1e754f;
+  --hl-number: #2f798a;
+  --hl-string: #b56959;
+  --hl-regexp: #ab5e3f;
+  --hl-builtin: #2e8f82;
+  --hl-class: #5a6aa6;
+  --hl-function: #59873a;
+  --hl-variable: #b07d48;
+  --hl-parameter: #393a34;
+  --hl-selector: #1e754f;
+  --hl-tag: #1e754f;
+  --hl-attr: #998418;
+  --hl-property: #998418;
+  --hl-bullet: #a65e2b;
+  --hl-symbol: #a65e2b;
+  --hl-meta: #a65e2b;
+  --hl-section: #1c6b48;
+  --hl-link: #1c6b48;
+  --hl-ins: #22863a;
+  --hl-del: #b31d28;
+  --hl-operator: #ab5959;
+  --hl-escape: #bda437;
 }
 
 html[data-theme="dark"] {
-  --hl-fg: #f5f6f7;
-  --hl-comment: #8b949e;
-  --hl-keyword: #ff7b72;
-  --hl-literal: #79c0ff;
-  --hl-number: #79c0ff;
-  --hl-string: #a5d6ff;
-  --hl-regexp: #a5d6ff;
-  --hl-builtin: #79c0ff;
-  --hl-class: #79c0ff;
-  --hl-function: #d2a8ff;
-  --hl-variable: #ffa657;
-  --hl-parameter: #c9d1d9;
-  --hl-selector: #7ee787;
-  --hl-tag: #7ee787;
-  --hl-attr: #c9d1d9;
-  --hl-property: #79c0ff;
-  --hl-bullet: #ffa657;
-  --hl-symbol: #79c0ff;
-  --hl-meta: #79c0ff;
-  --hl-section: #79c0ff;
-  --hl-link: #48a0c7;
-  --hl-ins: #7ee787;
-  --hl-del: #ffa198;
-  --hl-operator: #d4d4d4;
-  --hl-escape: #7ee787;
+  --hl-fg: #dbd7ca;
+  --hl-comment: #758575;
+  --hl-keyword: #4d9375;
+  --hl-literal: #4d9375;
+  --hl-number: #4c9a91;
+  --hl-string: #c98a7d;
+  --hl-regexp: #c4704f;
+  --hl-builtin: #5da994;
+  --hl-class: #6872ab;
+  --hl-function: #80a665;
+  --hl-variable: #bd976a;
+  --hl-parameter: #dbd7ca;
+  --hl-selector: #4d9375;
+  --hl-tag: #4d9375;
+  --hl-attr: #b8a965;
+  --hl-property: #b8a965;
+  --hl-bullet: #c99076;
+  --hl-symbol: #c99076;
+  --hl-meta: #c99076;
+  --hl-section: #4d9375;
+  --hl-link: #4d9375;
+  --hl-ins: #85e89d;
+  --hl-del: #fdaeb7;
+  --hl-operator: #cb7676;
+  --hl-escape: #e6cc77;
 }
 
 .hljs {

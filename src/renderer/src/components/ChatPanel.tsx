@@ -21,7 +21,7 @@ import styles from "./ChatPanel.module.css";
 
 /**
  * Heaviest chat chrome — load lazily so first paint / session switch stays
- * responsive on slower CPUs (markdown + monaco parsing happens off the
+ * responsive on slower CPUs (markdown + syntax highlighting parsing happens off the
  * critical path).
  */
 const Composer = lazy(() => import("@renderer/components/Composer"));
