@@ -46,11 +46,9 @@ export function SplitRoot(): React.ReactNode {
   /** 聊天列（消息区）是否可见：最大化时整列让给编辑器区域。 */
   const chatVisible = !layout.editorMaximized;
 
-  /** 最大化时聊天列默认隐藏；底栏展开时仅用该列承载面板。 */
+  /** 最大化时整列让给编辑器区域，左侧会话列表保持原样。 */
   const chatPaneSize = layout.editorMaximized
-    ? layout.bottomCollapsed
-      ? 0
-      : innerPair.chat
+    ? 0
     : layout.rightCollapsed
       ? 100
       : innerPair.chat;

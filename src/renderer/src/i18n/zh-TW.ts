@@ -512,6 +512,9 @@ export const zhTW = {
 	collapseLeft: "收合輔助側欄",
 	expandLeft: "展開輔助側欄",
 	collapseRight: "收合面板",
+	collapseFileList: "收合檔案列表",
+	expandFileList: "顯示檔案列表",
+	maximizeEditor: "展開編輯器",
 	tabsScrollLeft: "向左滑動分頁",
 	tabsScrollRight: "向右滑動分頁",
 	expandRight: "展開面板",
@@ -1081,6 +1084,7 @@ export const zhTW = {
 
 	// Files / tabs
 	filesTab: "檔案",
+	filesFilterPlaceholder: "篩選，或輸入 ? 在檔案中搜尋",
 	changesTab: "變更",
 	toggleDetails: "切換詳細資訊",
 	maximizeEditorArea: "最大化編輯器區域",

@@ -31,7 +31,52 @@
   min-height: 0;
   overflow-y: auto;
   overflow-x: hidden;
-  padding: 2px 4px;
+  padding: 2px 2px;
+}
+
+.searchBar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+  height: 24px;
+  margin: 4px 4px 2px;
+  padding: 0 8px;
+  border-radius: 5px;
+  background: #262625;
+}
+
+.searchIcon {
+  flex-shrink: 0;
+  color: var(--fg-muted);
+}
+
+.searchInput {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  outline: none;
+  background: transparent;
+  color: var(--fg);
+  font-family: inherit;
+  font-size: 0.9231rem;
+}
+
+.searchInput::placeholder {
+  color: var(--fg-faint);
+}
+
+.searchInput::-webkit-search-cancel-button {
+  display: none;
+}
+
+.switcher {
+  color: var(--fg-faint);
+  transition: transform 120ms ease;
+}
+
+.switcherOpen {
+  transform: rotate(90deg);
 }
 
 .body.dropRoot {
@@ -42,13 +87,17 @@
 
 .body :global(.ant-tree) {
   background: transparent;
+  /* 与自定义行高/箭头宽度对齐，showLine 的缩进线才会落在缩进中线 */
+  --ant-tree-switcher-size: 14px;
+  --ant-tree-indent-size: 14px;
+  --ant-tree-title-height: 20px;
 }
 
 .body :global(.ant-tree .ant-tree-node-content-wrapper) {
   font-size: 0.9231rem;
-  min-height: 22px;
+  min-height: 20px;
   min-width: 0;
-  border-radius: 6px;
+  border-radius: 4px;
   transition: background 120ms ease;
 }
 
@@ -66,6 +115,38 @@
   padding: 0;
 }
 
+/* 箭头画在文件夹名前面，antd 的独立箭头列整列隐藏 */
+.body :global(.ant-tree .ant-tree-switcher) {
+  display: none;
+}
+
+.dirArrow {
+  flex-shrink: 0;
+  margin-right: 3px;
+  color: var(--fg-muted);
+}
+
+/* 缩进引导线：每级缩进中点一条竖线；上下各溢 4px 盖住行间缝隙，
+   用不透明色避免相邻行重叠处深浅不一 */
+.body :global(.ant-tree .ant-tree-indent) {
+  align-self: stretch;
+  margin-block: -4px;
+  padding-block: 4px;
+  pointer-events: none;
+  background-image: repeating-linear-gradient(
+    to right,
+    transparent 0 6px,
+    #2f2f2e 6px 7px,
+    transparent 7px 14px
+  );
+}
+
+/* 缩进单元：每级 14px，箭头就画在缩进后的标题里 */
+.body :global(.ant-tree .ant-tree-indent-unit) {
+  width: 14px;
+  min-width: 14px;
+}
+
 /* antd Tree 给每个节点渲染的拖拽把手图标：节点本身就能直接拖动，不需要这列竖点 */
 .body :global(.ant-tree .ant-tree-draggable-icon) {
   display: none;
@@ -77,6 +158,7 @@
   gap: 0;
   min-width: 0;
   max-width: 100%;
+  line-height: 20px;
 }
 
 .treeNodeCut {
@@ -85,6 +167,7 @@
   gap: 0;
   min-width: 0;
   max-width: 100%;
+  line-height: 20px;
   opacity: 0.45;
 }
 
@@ -133,15 +216,15 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 20px;
+  width: 18px;
   margin-right: 4px;
   flex-shrink: 0;
   font-family: "seti";
-  font-size: 150%;
+  font-size: 130%;
   line-height: 1;
 }
 
 /* Seti 字形居中于行盒，文字视觉中心偏下约 2px，下移对齐 */
 :global(.seti-file-glyph) {
-  transform: translateY(2px);
+  transform: translateY(0);
 }

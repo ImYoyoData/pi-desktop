@@ -1,5 +1,6 @@
 import {
   forwardRef,
+  useCallback,
   useEffect,
   useImperativeHandle,
   useMemo,
@@ -31,7 +32,7 @@ import { useMessage } from "@renderer/services/feedback";
 import { useI18n } from "@renderer/i18n/use-i18n";
 import styles from "./PreviewTab.module.css";
 
-type MdViewMode = "edit" | "preview" | "split";
+export type MdViewMode = "edit" | "preview" | "split";
 
 type Props = {
   filePath?: string | null;
@@ -45,6 +46,9 @@ type Props = {
   draftContent?: string | null;
   /** 自定义保存：提供后保存按钮与 Ctrl+S 都交给外部处理（内容由外部落盘）。 */
   saveHandler?: (content: string) => Promise<boolean> | boolean;
+  /** 受控的视图模式（文件页标题栏里的编辑/分栏/预览切换）。 */
+  viewMode?: MdViewMode;
+  onViewModeChange?: (mode: MdViewMode) => void;
 };
 
 export type PreviewTabHandle = {
@@ -69,6 +73,8 @@ export const PreviewTab = forwardRef<PreviewTabHandle, Props>(function PreviewTa
     hideToolbar = false,
     draftContent,
     saveHandler,
+    viewMode,
+    onViewModeChange,
   }: Props,
   ref,
 ): ReactNode {
@@ -83,7 +89,15 @@ export const PreviewTab = forwardRef<PreviewTabHandle, Props>(function PreviewTa
   const [saving, setSaving] = useState(false);
   const [missing, setMissing] = useState(false);
   const [liveContent, setLiveContent] = useState("");
-  const [mdViewMode, setMdViewMode] = useState<MdViewMode>("preview");
+  const [internalViewMode, setInternalViewMode] = useState<MdViewMode>("preview");
+  const mdViewMode = viewMode ?? internalViewMode;
+  const setMdViewMode = useCallback(
+    (mode: MdViewMode): void => {
+      if (onViewModeChange) onViewModeChange(mode);
+      else setInternalViewMode(mode);
+    },
+    [onViewModeChange],
+  );
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);

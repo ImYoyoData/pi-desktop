@@ -513,6 +513,9 @@ export const zh = {
 	collapseLeft: "收起辅助侧栏",
 	expandLeft: "展开辅助侧栏",
 	collapseRight: "收起面板",
+	collapseFileList: "收起文件列表",
+	expandFileList: "显示文件列表",
+	maximizeEditor: "展开编辑器",
 	tabsScrollLeft: "向左滑动标签",
 	tabsScrollRight: "向右滑动标签",
 	expandRight: "展开面板",
@@ -1082,6 +1085,7 @@ export const zh = {
 
 	// Files / tabs
 	filesTab: "文件",
+	filesFilterPlaceholder: "筛选，或输入 ? 在文件中搜索",
 	changesTab: "更改",
 	toggleDetails: "切换详细信息",
 	maximizeEditorArea: "最大化编辑器区域",

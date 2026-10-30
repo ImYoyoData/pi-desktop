@@ -4,6 +4,30 @@ type Props = {
   size?: number;
 };
 
+/** 列表图标：三行圆点 + 横线，用于展开/收起文件树。 */
+export function FileListIcon({ size = 16 }: Props): ReactNode {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      width={size}
+      height={size}
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.5}
+      strokeLinecap="round"
+      aria-hidden="true"
+    >
+      <circle cx="3" cy="4" r="1.1" fill="currentColor" stroke="none" />
+      <circle cx="3" cy="8" r="1.1" fill="currentColor" stroke="none" />
+      <circle cx="3" cy="12" r="1.1" fill="currentColor" stroke="none" />
+      <path d="M6 4h7" />
+      <path d="M6 8h7" />
+      <path d="M6 12h7" />
+    </svg>
+  );
+}
+
 /** 标题栏视图按钮图标，形状对齐示例图那排。 */
 
 export function ChangesViewIcon({ size = 16 }: Props): ReactNode {

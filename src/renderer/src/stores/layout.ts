@@ -174,41 +174,9 @@ export const useLayoutStore = create<LayoutState>()((set, get) => {
     persist();
   }
 
+  /** 右栏接管消息区（不折叠左右侧栏与底栏）。 */
   function toggleEditorMaximized(): void {
-    const state = get();
-    if (!state.editorMaximized) {
-      set({
-        preMaximize: {
-          leftCollapsed: state.leftCollapsed,
-          rightCollapsed: state.rightCollapsed,
-          bottomCollapsed: state.bottomCollapsed,
-          leftSize: state.leftSize,
-          centerSize: state.centerSize,
-          rightSize: state.rightSize,
-        },
-        leftCollapsed: true,
-        rightCollapsed: false,
-        bottomCollapsed: true,
-        editorMaximized: true,
-      });
-      persist();
-      return;
-    }
-    const pre = state.preMaximize;
-    set({
-      editorMaximized: false,
-      preMaximize: null,
-      ...(pre
-        ? {
-            leftCollapsed: pre.leftCollapsed,
-            rightCollapsed: pre.rightCollapsed,
-            bottomCollapsed: pre.bottomCollapsed,
-            leftSize: pre.leftSize,
-            centerSize: pre.centerSize,
-            rightSize: pre.rightSize,
-          }
-        : {}),
-    });
+    set({ editorMaximized: !get().editorMaximized, preMaximize: null });
     persist();
   }
 

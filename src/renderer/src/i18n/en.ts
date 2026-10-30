@@ -526,6 +526,9 @@ export const en = {
 	collapseLeft: "Hide auxiliary sidebar",
 	expandLeft: "Show auxiliary sidebar",
 	collapseRight: "Hide panel",
+	collapseFileList: "Hide file list",
+	expandFileList: "Show file list",
+	maximizeEditor: "Maximize editor",
 	tabsScrollLeft: "Scroll tabs left",
 	tabsScrollRight: "Scroll tabs right",
 	expandRight: "Show panel",
@@ -1113,6 +1116,7 @@ export const en = {
 
 	// Files / tabs
 	filesTab: "Files",
+	filesFilterPlaceholder: "Filter, or type ? to search in files",
 	changesTab: "Changes",
 	toggleDetails: "Toggle Details",
 	maximizeEditorArea: "Maximize Editor Area",

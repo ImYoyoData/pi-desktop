@@ -512,6 +512,9 @@ export const ja = {
 	collapseLeft: "補助サイドバーを折りたたむ",
 	expandLeft: "補助サイドバーを展開",
 	collapseRight: "パネルを折りたたむ",
+	collapseFileList: "ファイル一覧を折りたたむ",
+	expandFileList: "ファイル一覧を表示",
+	maximizeEditor: "エディタを最大化",
 	tabsScrollLeft: "タブを左へスクロール",
 	tabsScrollRight: "タブを右へスクロール",
 	expandRight: "パネルを展開",
@@ -1081,6 +1084,7 @@ export const ja = {
 
 	// Files / tabs
 	filesTab: "ファイル",
+	filesFilterPlaceholder: "絞り込み、または ? でファイル内を検索",
 	changesTab: "変更",
 	toggleDetails: "詳細の表示を切り替え",
 	maximizeEditorArea: "エディター領域を最大化",

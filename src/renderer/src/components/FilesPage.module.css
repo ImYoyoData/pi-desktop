@@ -1,3 +1,11 @@
+.root {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+}
+
 .fileHead {
   display: flex;
   align-items: center;
@@ -24,6 +32,35 @@
   white-space: nowrap;
   text-overflow: ellipsis;
   font-size: 0.9231rem;
+  color: var(--fg);
+}
+
+.viewModes {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
+.viewMode {
+  height: 22px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--fg-muted);
+  font-size: 0.8462rem;
+  cursor: pointer;
+}
+
+.viewMode:hover {
+  background: rgba(127, 127, 127, 0.12);
+  color: var(--fg);
+}
+
+.viewModeActive {
+  background: rgba(127, 127, 127, 0.16);
   color: var(--fg);
 }
 
