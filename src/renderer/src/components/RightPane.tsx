@@ -38,6 +38,7 @@ import { useBrowserNavStore } from "@renderer/stores/browser-nav";
 import { useLayoutStore } from "@renderer/stores/layout";
 import { useKeybindingsStore } from "@renderer/stores/keybindings";
 import { usePreviewStore } from "@renderer/stores/preview";
+import { DOCK_PREF_KEYS, useRightDockStore } from "@renderer/stores/right-dock";
 import { useRightTabsStore, type RightTab, type RightTabKind } from "@renderer/stores/right-tabs";
 import { useWorkspaceStore } from "@renderer/stores/workspace";
 import { gitCodeColor } from "@renderer/utils/editor-lang";
@@ -54,34 +55,9 @@ import { useDialog } from "@renderer/services/feedback";
 import { useI18n } from "@renderer/i18n/use-i18n";
 import styles from "./RightPane.module.css";
 
-const DOCK_VIEW_KEY = "pi-desktop:right-dock-view:v1";
-const DOCK_DETAILS_KEY = "pi-desktop:right-dock-details:v1";
 const DOCK_WIDTH_KEY = "pi-desktop:right-dock-width:v1";
 const DOCK_MIN_WIDTH = 110;
 const DOCK_MAX_WIDTH = 480;
-
-type DockView = "files" | "changes" | null;
-
-function readDockView(): DockView {
-  try {
-    const raw = prefs.getItem(DOCK_VIEW_KEY);
-    if (raw === "files" || raw === "changes") return raw;
-  } catch {
-    // ignore
-  }
-  return "changes";
-}
-
-function readFlag(key: string, fallback: boolean): boolean {
-  try {
-    const raw = prefs.getItem(key);
-    if (raw === "1") return true;
-    if (raw === "0") return false;
-  } catch {
-    // ignore
-  }
-  return fallback;
-}
 
 function readDockWidth(): number {
   try {
@@ -103,10 +79,6 @@ export function RightPane(): ReactNode {
   const agentRuns = useAgentRunsStore();
   const dialog = useDialog();
 
-  const [dockView, setDockView] = useState<DockView>(readDockView);
-  const [detailsVisible, setDetailsVisible] = useState(() =>
-    readFlag(DOCK_DETAILS_KEY, true),
-  );
   const [dockWidth, setDockWidth] = useState(readDockWidth);
   const [canScrollTabsLeft, setCanScrollTabsLeft] = useState(false);
   const [canScrollTabsRight, setCanScrollTabsRight] = useState(false);
@@ -127,6 +99,9 @@ export function RightPane(): ReactNode {
   const tabsResizeObsRef = useRef<ResizeObserver | null>(null);
   const openSignalRef = useRef(previewStore.openSignal);
 
+  const dock = useRightDockStore();
+  const dockView = dock.view;
+  const detailsVisible = dockView !== null;
   const active = rightTabs.activeTab;
   const leavingTabId = useLeavingValue(active?.id ?? null, 150);
   const runningCount = agentRuns.runs.length;
@@ -245,7 +220,7 @@ export function RightPane(): ReactNode {
   }
 
   function toggleDetails(): void {
-    setDetailsVisible((current) => !current);
+    useRightDockStore.getState().toggle();
   }
 
   function toggleMaximizeEditor(): void {
@@ -255,8 +230,7 @@ export function RightPane(): ReactNode {
   function showFilesPanel(): void {
     const layoutState = useLayoutStore.getState();
     if (layoutState.rightCollapsed) layoutState.toggleRightCollapsed();
-    setDetailsVisible(true);
-    setDockView("files");
+    useRightDockStore.getState().show("files");
   }
 
   function onLayoutKeydown(event: KeyboardEvent): void {
@@ -446,33 +420,17 @@ export function RightPane(): ReactNode {
     setRenameTargetId(null);
   }
 
-  useEffect(() => {
-    if (!dockView) return;
-    try {
-      prefs.setItem(DOCK_VIEW_KEY, dockView);
-    } catch {
-      // ignore
-    }
-  }, [dockView]);
-
   // 另一窗口改了右侧面板状态时跟着变，桌面端与浏览器预览页保持一致。
   useEffect(() => {
     return registerStateApplier((change) => {
       if (change.scope !== "prefs") return;
       const keys = change.keys ?? [];
-      if (keys.includes(DOCK_VIEW_KEY)) setDockView(readDockView());
-      if (keys.includes(DOCK_DETAILS_KEY)) setDetailsVisible(readFlag(DOCK_DETAILS_KEY, true));
+      if (keys.some((key) => DOCK_PREF_KEYS.includes(key))) {
+        useRightDockStore.getState().refreshFromPrefs();
+      }
       if (keys.includes(DOCK_WIDTH_KEY)) setDockWidth(readDockWidth());
     });
   }, []);
-
-  useEffect(() => {
-    try {
-      prefs.setItem(DOCK_DETAILS_KEY, detailsVisible ? "1" : "0");
-    } catch {
-      // ignore
-    }
-  }, [detailsVisible]);
 
   useEffect(() => {
     try {
@@ -825,7 +783,7 @@ export function RightPane(): ReactNode {
                   : styles.dockTab
               }
               aria-selected={dockView === "files"}
-              onClick={() => setDockView("files")}
+              onClick={() => useRightDockStore.getState().show("files")}
             >
               {t.filesTab}
             </button>
@@ -838,7 +796,7 @@ export function RightPane(): ReactNode {
                   : styles.dockTab
               }
               aria-selected={dockView === "changes"}
-              onClick={() => setDockView("changes")}
+              onClick={() => useRightDockStore.getState().show("changes")}
             >
               {t.changesTab}
             </button>

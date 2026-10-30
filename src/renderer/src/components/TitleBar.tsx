@@ -1,14 +1,20 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { DownloadOutline } from "@renderer/components/icons/ionicons";
-import PanelLeftIcon from "@renderer/components/icons/PanelLeftIcon";
-import PanelRightIcon from "@renderer/components/icons/PanelRightIcon";
-import PanelBottomIcon from "@renderer/components/icons/PanelBottomIcon";
+import {
+  BrowserViewIcon,
+  ChangesViewIcon,
+  FolderIcon,
+  MenuLinesIcon,
+  TerminalViewIcon,
+} from "@renderer/components/icons/TitleBarIcons";
 import PiLogoIcon from "@renderer/components/icons/PiLogoIcon";
 import { useWorkspaceStore } from "@renderer/stores/workspace";
 import { useLayoutStore } from "@renderer/stores/layout";
 import { useAppUpdateStore } from "@renderer/stores/app-update";
 import { useAppearanceStore } from "@renderer/stores/appearance";
 import { useSessionsStore } from "@renderer/stores/sessions";
+import { useRightDockStore } from "@renderer/stores/right-dock";
+import { useRightTabsStore } from "@renderer/stores/right-tabs";
 import { useSessionTitle } from "@renderer/utils/use-session-title";
 import { useI18n } from "@renderer/i18n/use-i18n";
 import styles from "./TitleBar.module.css";
@@ -58,6 +64,47 @@ export function TitleBar(): ReactNode {
 
   const [platform, setPlatform] = useState<NodeJS.Platform>("win32");
   const [isMaximized, setIsMaximized] = useState(false);
+
+  const dockView = useRightDockStore((s) => s.view);
+  const browserActive = useRightTabsStore((s) => s.activeTab?.kind === "browser");
+
+  /** 文件更改按钮：切到更改视图；已经在看更改时再点收起右栏。 */
+  function toggleChangesView(): void {
+    const dock = useRightDockStore.getState();
+    const layoutState = useLayoutStore.getState();
+    if (dock.view === "changes" && !layoutState.rightCollapsed) {
+      layoutState.toggleRightCollapsed();
+      return;
+    }
+    dock.show("changes");
+    if (layoutState.rightCollapsed) layoutState.toggleRightCollapsed();
+  }
+
+  /** 文件夹按钮：切到文件视图；已经在看文件时再点收起右栏。 */
+  function toggleFilesView(): void {
+    const dock = useRightDockStore.getState();
+    const layoutState = useLayoutStore.getState();
+    if (dock.view === "files" && !layoutState.rightCollapsed) {
+      layoutState.toggleRightCollapsed();
+      return;
+    }
+    dock.show("files");
+    if (layoutState.rightCollapsed) layoutState.toggleRightCollapsed();
+  }
+
+  /** 浏览器按钮：当前就在浏览器页时收起右栏，否则展开并聚焦（没有就新建）浏览器 tab。 */
+  function toggleBrowserView(): void {
+    const layoutState = useLayoutStore.getState();
+    const tabs = useRightTabsStore.getState();
+    if (!layoutState.rightCollapsed && tabs.activeTab?.kind === "browser") {
+      layoutState.toggleRightCollapsed();
+      return;
+    }
+    if (layoutState.rightCollapsed) layoutState.toggleRightCollapsed();
+    const existing = tabs.dockTabs.find((tab) => tab.kind === "browser");
+    if (existing) tabs.selectTab(existing.id);
+    else tabs.addTab("browser");
+  }
 
   const updateStatus = useAppUpdateStore((s) => s.state.status);
   const updatePercent = useAppUpdateStore((s) => s.state.progress?.percent ?? 0);
@@ -129,12 +176,40 @@ export function TitleBar(): ReactNode {
     window.api.update.showToast();
   }
 
+  /** 左侧栏上方的标题栏同色并补上分界线，与侧栏拼成一整列；侧栏收起时不画。 */
+  const edge = `${layout.leftSize}%`;
+  const sideBand = layout.leftCollapsed
+    ? undefined
+    : {
+        background: [
+          `linear-gradient(to right, transparent 0 calc(${edge} - 1px), var(--sidebar-line) calc(${edge} - 1px) ${edge}, transparent ${edge})`,
+          `linear-gradient(to right, var(--bg-sidebar) 0 ${edge}, transparent ${edge})`,
+        ].join(", "),
+      };
+
   return (
-    <header className={`title-bar ${platform === "darwin" ? styles.mac : ""}`}>
+    <header
+      className={`title-bar ${platform === "darwin" ? styles.mac : ""}`}
+      style={sideBand}
+    >
       <div className={`${styles.drag} ${styles.trafficSpace}`} aria-hidden="true" />
       <div className={styles.brand}>
-        <PiLogoIcon size={16} />
-        <span className={styles.name}>{t.appName}</span>
+        <button
+          type="button"
+          className={`${styles.layoutBtn} ${styles.noDrag}`}
+          title={layout.leftCollapsed ? t.expandLeft : t.collapseLeft}
+          aria-label={layout.leftCollapsed ? t.expandLeft : t.collapseLeft}
+          aria-pressed={!layout.leftCollapsed}
+          onClick={() => useLayoutStore.getState().toggleLeftCollapsed()}
+        >
+          <MenuLinesIcon size={16} />
+        </button>
+        {layout.leftCollapsed ? null : (
+          <>
+            <PiLogoIcon size={16} />
+            <span className={styles.name}>{t.appName}</span>
+          </>
+        )}
       </div>
       {showSessionTitle && sessionTitle ? (
         renaming ? (
@@ -185,34 +260,45 @@ export function TitleBar(): ReactNode {
           <div className={styles.layoutControls}>
             <button
               type="button"
-              className={`${styles.layoutBtn} ${layout.leftCollapsed ? "" : styles.checked}`}
-              title={layout.leftCollapsed ? t.expandLeft : t.collapseLeft}
-              aria-label={layout.leftCollapsed ? t.expandLeft : t.collapseLeft}
-              aria-pressed={!layout.leftCollapsed}
-              onClick={() => useLayoutStore.getState().toggleLeftCollapsed()}
-            >
-              <PanelLeftIcon size={16} off={layout.leftCollapsed} />
-            </button>
-            <button
-              type="button"
               className={`${styles.layoutBtn} ${layout.bottomCollapsed ? "" : styles.checked}`}
               title={layout.bottomCollapsed ? t.expandBottom : t.collapseBottom}
-              aria-label={layout.bottomCollapsed ? t.expandBottom : t.collapseBottom}
+              aria-label={t.terminal}
               aria-pressed={!layout.bottomCollapsed}
               onClick={() => useLayoutStore.getState().toggleBottomCollapsed()}
             >
-              <PanelBottomIcon size={16} off={layout.bottomCollapsed} />
+              <TerminalViewIcon size={16} />
             </button>
             <button
               type="button"
-              className={`${styles.layoutBtn} ${layout.rightCollapsed ? "" : styles.checked}`}
-              title={layout.rightCollapsed ? t.expandRight : t.collapseRight}
-              aria-label={layout.rightCollapsed ? t.expandRight : t.collapseRight}
-              aria-pressed={!layout.rightCollapsed}
-              onClick={() => useLayoutStore.getState().toggleRightCollapsed()}
+              className={`${styles.layoutBtn} ${dockView === "changes" && !layout.rightCollapsed ? styles.checked : ""}`}
+              title={t.changesTab}
+              aria-label={t.changesTab}
+              aria-pressed={dockView === "changes" && !layout.rightCollapsed}
+              onClick={toggleChangesView}
             >
-              <PanelRightIcon size={16} off={layout.rightCollapsed} />
+              <ChangesViewIcon size={16} />
             </button>
+            <button
+              type="button"
+              className={`${styles.layoutBtn} ${browserActive && !layout.rightCollapsed ? styles.checked : ""}`}
+              title={t.browser}
+              aria-label={t.browser}
+              aria-pressed={browserActive && !layout.rightCollapsed}
+              onClick={toggleBrowserView}
+            >
+              <BrowserViewIcon size={16} />
+            </button>
+            <button
+              type="button"
+              className={`${styles.layoutBtn} ${dockView === "files" && !layout.rightCollapsed ? styles.checked : ""}`}
+              title={t.filesTab}
+              aria-label={t.filesTab}
+              aria-pressed={dockView === "files" && !layout.rightCollapsed}
+              onClick={toggleFilesView}
+            >
+              <FolderIcon size={16} />
+            </button>
+            <span className={styles.controlsSep} aria-hidden="true" />
           </div>
         ) : null}
       </div>

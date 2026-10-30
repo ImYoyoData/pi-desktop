@@ -23,7 +23,7 @@
   flex-shrink: 0;
   border: 1px solid var(--border);
   border-radius: 10px;
-  background: var(--bg-elevated);
+  background: var(--w-elevated-surface, transparent);
   overflow: hidden;
 }
 
