@@ -811,7 +811,6 @@ export const en = {
 	branchCreated: "Branch created",
 	changesWelcomeTitle: "Changes",
 	changesWelcomeEmpty: "No changed files",
-	changesNoDiff: "Diff unavailable for this file",
 	changesRemoteAdd: "Add remote",
 	changesIgnore: "Filter this file",
 	changesUnignore: "Unfilter this file",

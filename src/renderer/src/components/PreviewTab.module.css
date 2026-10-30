@@ -3,7 +3,7 @@
   flex-direction: column;
   height: 100%;
   min-height: 0;
-  background: var(--bg);
+  background: #1a1a19;
 }
 
 .toolbar {
@@ -14,7 +14,7 @@
   min-height: 28px;
   padding: 0 8px;
   border-bottom: 1px solid var(--border);
-  background: var(--bg-panel);
+  background: #1a1a19;
   flex-shrink: 0;
 }
 
@@ -66,7 +66,7 @@
   padding: 1px;
   border: 1px solid var(--border);
   border-radius: 6px;
-  background: var(--bg);
+  background: #1a1a19;
 }
 
 .mdMode {
@@ -81,7 +81,7 @@
 }
 
 .mdMode.active {
-  background: var(--bg-elevated, var(--bg-panel));
+  background: var(--bg-hover, var(--bg-panel));
   color: var(--fg-strong);
   font-weight: 550;
 }
@@ -144,7 +144,7 @@
 .mdPreview {
   overflow: auto;
   padding: 16px 20px 24px;
-  background: var(--bg);
+  background: #1a1a19;
 }
 
 .img {
@@ -163,7 +163,7 @@
   justify-content: center;
   overflow: auto;
   padding: 12px;
-  background: var(--bg);
+  background: #1a1a19;
 }
 
 .mediaWrap.audioWrap {

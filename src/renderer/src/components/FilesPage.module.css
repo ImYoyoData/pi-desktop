@@ -1,7 +1,37 @@
+.fileHead {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+  min-width: 0;
+  padding: 6px 10px 4px;
+  background: #1a1a19;
+}
+
+.fileGlyph {
+  display: inline-flex;
+  align-items: center;
+  width: 18px;
+  flex-shrink: 0;
+  font-family: "seti";
+  font-size: 150%;
+  line-height: 1;
+}
+
+.fileName {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: 0.9231rem;
+  color: var(--fg);
+}
+
 .panels {
   flex: 1;
   min-height: 0;
   position: relative;
+  background: #1a1a19;
 }
 
 .panel {
@@ -9,8 +39,5 @@
   inset: 0;
   min-height: 0;
   overflow: hidden;
-}
-
-.empty {
-  margin-top: 64px;
+  background: #1a1a19;
 }

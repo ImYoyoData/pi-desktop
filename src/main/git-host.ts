@@ -66,10 +66,6 @@ export type GitFileDiffResult = {
   supported: boolean;
   status?: GitFileStatusKind;
   patch?: string;
-  /** File content at HEAD (empty for new/untracked). */
-  oldContent?: string | null;
-  /** Working-tree content (empty for deleted). */
-  newContent?: string | null;
 };
 
 export type GitBranchesResult = {
@@ -475,8 +471,9 @@ export async function getGitSyncStatus(cwd: string): Promise<GitSyncResult> {
   return { upstream, ahead, behind };
 }
 
+/** 与 git 一致：只在开头 8000 字节内检查 NUL，避免文件尾部零星的 NUL 被当成二进制。 */
 function hasNullByte(content: Buffer): boolean {
-  return content.includes(0);
+  return content.subarray(0, 8000).includes(0);
 }
 
 function stageTextRejectReason(text: string): "binary" | "too_large" | null {
@@ -591,9 +588,7 @@ export async function getGitFileDiff(
       ]);
       if (!patch.includes("\n@@ ") && !patch.startsWith("@@ "))
         return { supported: false };
-      const oldContent =
-        (await readHeadContent(repositoryRoot, headPath)) ?? "";
-      return { supported: true, status, patch, oldContent, newContent: "" };
+      return { supported: true, status, patch };
     } catch {
       return { supported: false };
     }
@@ -639,8 +634,6 @@ export async function getGitFileDiff(
       supported: true,
       status: "added",
       patch,
-      oldContent: "",
-      newContent: content,
     };
   }
 
@@ -657,7 +650,7 @@ export async function getGitFileDiff(
     const patch = createAddedFilePatch(repoRelative, newContent);
     if (!patch.includes("\n@@ ") && !patch.startsWith("@@ "))
       return { supported: false };
-    return { supported: true, status, patch, oldContent: "", newContent };
+    return { supported: true, status, patch };
   }
   const trackedPatch = await createTrackedFilePatch(
     repositoryRoot,
@@ -670,7 +663,7 @@ export async function getGitFileDiff(
   ) {
     return { supported: false };
   }
-  return { supported: true, status, patch: trackedPatch, oldContent, newContent };
+  return { supported: true, status, patch: trackedPatch };
 }
 
 export async function listBranches(cwd: string): Promise<GitBranchesResult> {
@@ -753,7 +746,7 @@ export async function restorePaths(
       ...gitPaths,
     ]);
     if (listing.ok) {
-      for (const item of listing.stdout.split(" ")) {
+      for (const item of listing.stdout.split("\0")) {
         if (item) trackedSet.add(item);
       }
     }

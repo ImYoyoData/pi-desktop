@@ -1,12 +1,11 @@
 import { useEffect, type ReactNode } from "react";
-import { Empty } from "antd";
 import FilesTab from "@renderer/components/FilesTab";
 import PageSplit from "@renderer/components/PageSplit";
 import PreviewTab from "@renderer/components/PreviewTab";
-import TabStrip from "@renderer/components/TabStrip";
 import { useRightTabsStore } from "@renderer/stores/right-tabs";
 import { useWorkspaceStore } from "@renderer/stores/workspace";
-import { useI18n } from "@renderer/i18n/use-i18n";
+import { gitCodeColor } from "@renderer/utils/editor-lang";
+import { fileIcon } from "@renderer/utils/file-icon";
 import styles from "./FilesPage.module.css";
 
 type Props = {
@@ -17,7 +16,7 @@ type Props = {
   onSideWidthChange: (width: number) => void;
 };
 
-/** 文件页：左侧文件树 + 右侧文件预览/编辑。 */
+/** 文件页：左侧文件预览/编辑 + 右侧文件树。 */
 export function FilesPage({
   visible,
   sideWidth,
@@ -25,9 +24,8 @@ export function FilesPage({
   sideMaxWidth,
   onSideWidthChange,
 }: Props): ReactNode {
-  const t = useI18n();
   const rightTabs = useRightTabsStore();
-  const workspace = useWorkspaceStore();
+  const workspaceRoot = useWorkspaceStore((s) => s.root);
 
   const previewTabs = rightTabs.dockTabs.filter((tab) => tab.kind === "preview");
   // 当前激活的是别的页面的标签时，文件页显示最后打开的那个预览。
@@ -37,7 +35,17 @@ export function FilesPage({
 
   useEffect(() => {
     void useRightTabsStore.getState().refreshPreviewGitMeta();
-  }, [workspace.root]);
+  }, [workspaceRoot]);
+
+  const activeTab = previewTabs.find((tab) => tab.id === activeId);
+  const activeIcon = activeTab?.filePath ? fileIcon(activeTab.filePath) : null;
+  const activeColor = activeTab?.missing
+    ? gitCodeColor("D")
+    : activeTab?.gitCode
+      ? gitCodeColor(activeTab.gitCode)
+      : activeTab?.dirty
+        ? gitCodeColor("M")
+        : undefined;
 
   return (
     <PageSplit
@@ -45,31 +53,43 @@ export function FilesPage({
       onWidthChange={onSideWidthChange}
       minWidth={sideMinWidth}
       maxWidth={sideMaxWidth}
+      sidePosition="end"
       side={<FilesTab embedded />}
     >
-      <TabStrip tabs={previewTabs} activeId={activeId} />
-      <div className={styles.panels}>
-        {previewTabs.length === 0 ? (
-          <Empty
-            className={styles.empty}
-            image={Empty.PRESENTED_IMAGE_SIMPLE}
-            description={t.previewHint}
-          />
-        ) : (
-          previewTabs.map((tab) => (
-            <div
-              key={tab.id}
-              className={styles.panel}
-              style={tab.id === activeId ? undefined : { display: "none" }}
+      {activeTab ? (
+        <div className={styles.fileHead} title={activeTab.filePath ?? undefined}>
+          {activeIcon ? (
+            <span
+              className={styles.fileGlyph}
+              style={activeIcon.color ? { color: activeIcon.color } : undefined}
+              aria-hidden="true"
             >
-              <PreviewTab
-                tabId={tab.id}
-                filePath={tab.filePath ?? null}
-                active={visible && tab.id === activeId}
-              />
-            </div>
-          ))
-        )}
+              {activeIcon.glyph}
+            </span>
+          ) : null}
+          <span
+            className={styles.fileName}
+            style={activeColor ? { color: activeColor } : undefined}
+          >
+            {activeTab.label}
+          </span>
+        </div>
+      ) : null}
+      <div className={styles.panels}>
+        {previewTabs.map((tab) => (
+          <div
+            key={tab.id}
+            className={styles.panel}
+            style={tab.id === activeId ? undefined : { display: "none" }}
+          >
+            <PreviewTab
+              tabId={tab.id}
+              filePath={tab.filePath ?? null}
+              active={visible && tab.id === activeId}
+              hideToolbar
+            />
+          </div>
+        ))}
       </div>
     </PageSplit>
   );

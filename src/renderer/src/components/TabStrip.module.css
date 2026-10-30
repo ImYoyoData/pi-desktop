@@ -6,7 +6,7 @@
   flex-shrink: 0;
   padding: 0 6px;
   border-bottom: 1px solid var(--border);
-  background: color-mix(in srgb, var(--bg-panel) 92%, var(--bg-elevated));
+  background: #1a1a19;
 }
 
 .scrollBtn {
@@ -84,7 +84,7 @@
 }
 
 .tabItem.active {
-  background: var(--bg-elevated);
+  background: var(--bg-hover);
   border-color: var(--border);
   color: var(--fg-strong);
   box-shadow: var(--shadow-sm);

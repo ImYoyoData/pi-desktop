@@ -792,7 +792,6 @@ export const zhTW = {
 	branchCreated: "已建立分支",
 	changesWelcomeTitle: "變更",
 	changesWelcomeEmpty: "沒有變更的檔案",
-	changesNoDiff: "無法顯示此檔案的 diff",
 	changesRemoteAdd: "新增遠端",
 	changesIgnore: "過濾此檔案",
 	changesUnignore: "取消過濾此檔案",

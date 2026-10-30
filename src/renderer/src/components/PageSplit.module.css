@@ -6,6 +6,10 @@
   min-width: 0;
 }
 
+.rootEnd .side {
+  order: 2;
+}
+
 .side {
   flex-shrink: 0;
   min-width: 0;
