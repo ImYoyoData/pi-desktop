@@ -5,7 +5,7 @@
   background: var(--bg-sidebar);
   min-width: 0;
   /* 侧栏贴边平铺（不套胶囊外壳），分栏线只能自己画：splitter 厚度已清零 */
-  border-right: 1px solid var(--border);
+  border-right: 1px solid var(--sidebar-line);
 }
 
 .sessionsPane {

@@ -3,11 +3,8 @@
   display: flex;
   align-items: center;
   height: 36px;
-  /*
-   * 右侧不留内边距：自绘窗口按钮要贴住窗口边缘，
-   * 否则关闭按钮悬停的红色块与窗口右缘之间会出现一条缝。
-   */
-  padding: 0 0 0 8px;
+  /* 左右都不留内边距：左段背景要按整宽百分比与侧栏对齐，缩进交给 .brand */
+  padding: 0;
   /*
    * 标题栏不加遮罩：背景全透、未启用壁纸时透出窗口底色，启用壁纸时直接透出壁纸，
    * 不做压暗也不做磨砂模糊。
@@ -47,7 +44,7 @@
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  padding-left: 4px;
+  padding-left: 12px;
   min-width: 0;
   color: var(--fg-strong);
 }
@@ -85,11 +82,12 @@
   -webkit-app-region: no-drag;
 }
 
-/* 重命名输入框：宽度随内容伸缩（field-sizing） */
+/* 重命名输入框：宽度随内容伸缩（field-sizing），只靠 left 定位，
+   同时给 left/right 时宽度会被两端拉伸规则接管而失效。 */
 .sessionTitleInput {
   position: absolute;
   top: 50%;
-  right: 200px;
+  right: auto;
   translate: 0 -50%;
   min-width: 48px;
   max-width: min(40vw, 320px);
@@ -148,6 +146,14 @@
 .layoutBtn.checked:hover {
   background: var(--bg-active);
   color: var(--fg-strong);
+}
+
+/* 分区分组：面板开关与视图按钮之间一道竖线。 */
+.controlsSep {
+  width: 1px;
+  height: 14px;
+  margin: 0 4px;
+  background: var(--sidebar-line);
 }
 
 .center {

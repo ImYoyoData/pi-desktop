@@ -42,6 +42,8 @@
   --bg: #ffffff;
   --bg-title: #fafafd;
   --bg-sidebar: #fafafd;
+  /* 侧栏分界线：标题栏与侧栏共用，低不透明度避免在深色底上跳出来 */
+  --sidebar-line: color-mix(in srgb, var(--border) 55%, transparent);
   --bg-panel: #fafafd;
   --bg-elevated: #fafafd;
   --bg-input: #f7f7fa;
@@ -135,12 +137,12 @@
  */
 html[data-theme="dark"] {
   --pi-editor-line-highlight: rgba(255, 255, 255, 0.08);
-  --bg: #191a1b;
-  --bg-title: #191a1b;
-  --bg-sidebar: #191a1b;
-  --bg-panel: #191a1b;
+  --bg: #151515;
+  --bg-title: #151515;
+  --bg-sidebar: #111111;
+  --bg-panel: #1a1a19;
   --bg-elevated: #202122;
-  --bg-input: #202122;
+  --bg-input: #1a1a19;
   --bg-hover: #ffffff14;
   --bg-active: #2c2d2e;
   --bg-selected: #ffffff22;

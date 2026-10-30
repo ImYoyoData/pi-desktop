@@ -86,7 +86,7 @@
   padding: 8px 10px;
   border: 1px solid var(--chat-line, var(--border));
   border-radius: 8px;
-  background: var(--w-tool-surface, var(--pre-bg, var(--code-bg)));
+  background: var(--w-tool-surface, transparent);
   max-height: 240px;
   overflow: auto;
   font-size: var(--chat-font-s, 12px);

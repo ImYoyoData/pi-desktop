@@ -5,7 +5,7 @@
   padding: 14px 16px;
   border: 1px solid var(--border);
   border-radius: 10px;
-  background: var(--bg-elevated, var(--bg));
+  background: var(--w-elevated-surface, transparent);
 }
 
 .cardHead {

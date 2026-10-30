@@ -1,4 +1,6 @@
 .root {
+  /* 右侧栏统一用面板色，内部组件里的 var(--bg) 一并跟随 */
+  --bg: var(--bg-panel);
   display: flex;
   flex-direction: column;
   height: 100%;
