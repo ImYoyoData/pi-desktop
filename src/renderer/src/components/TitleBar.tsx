@@ -66,41 +66,19 @@ export function TitleBar(): ReactNode {
   const [isMaximized, setIsMaximized] = useState(false);
 
   const dockView = useRightDockStore((s) => s.view);
-  const browserActive = useRightTabsStore((s) => s.activeTab?.kind === "browser");
 
-  /** 文件更改按钮：切到更改视图；已经在看更改时再点收起右栏。 */
-  function toggleChangesView(): void {
+  /** 按钮：切到对应页面；已经是当前页时再点收起右栏。 */
+  function toggleDockView(view: "files" | "changes" | "browser"): void {
     const dock = useRightDockStore.getState();
     const layoutState = useLayoutStore.getState();
-    if (dock.view === "changes" && !layoutState.rightCollapsed) {
+    if (dock.view === view && !layoutState.rightCollapsed) {
       layoutState.toggleRightCollapsed();
       return;
     }
-    dock.show("changes");
+    dock.show(view);
     if (layoutState.rightCollapsed) layoutState.toggleRightCollapsed();
-  }
-
-  /** 文件夹按钮：切到文件视图；已经在看文件时再点收起右栏。 */
-  function toggleFilesView(): void {
-    const dock = useRightDockStore.getState();
-    const layoutState = useLayoutStore.getState();
-    if (dock.view === "files" && !layoutState.rightCollapsed) {
-      layoutState.toggleRightCollapsed();
-      return;
-    }
-    dock.show("files");
-    if (layoutState.rightCollapsed) layoutState.toggleRightCollapsed();
-  }
-
-  /** 浏览器按钮：当前就在浏览器页时收起右栏，否则展开并聚焦（没有就新建）浏览器 tab。 */
-  function toggleBrowserView(): void {
-    const layoutState = useLayoutStore.getState();
+    if (view !== "browser") return;
     const tabs = useRightTabsStore.getState();
-    if (!layoutState.rightCollapsed && tabs.activeTab?.kind === "browser") {
-      layoutState.toggleRightCollapsed();
-      return;
-    }
-    if (layoutState.rightCollapsed) layoutState.toggleRightCollapsed();
     const existing = tabs.dockTabs.find((tab) => tab.kind === "browser");
     if (existing) tabs.selectTab(existing.id);
     else tabs.addTab("browser");
@@ -274,17 +252,17 @@ export function TitleBar(): ReactNode {
               title={t.changesTab}
               aria-label={t.changesTab}
               aria-pressed={dockView === "changes" && !layout.rightCollapsed}
-              onClick={toggleChangesView}
+              onClick={() => toggleDockView("changes")}
             >
               <ChangesViewIcon size={16} />
             </button>
             <button
               type="button"
-              className={`${styles.layoutBtn} ${browserActive && !layout.rightCollapsed ? styles.checked : ""}`}
+              className={`${styles.layoutBtn} ${dockView === "browser" && !layout.rightCollapsed ? styles.checked : ""}`}
               title={t.browser}
               aria-label={t.browser}
-              aria-pressed={browserActive && !layout.rightCollapsed}
-              onClick={toggleBrowserView}
+              aria-pressed={dockView === "browser" && !layout.rightCollapsed}
+              onClick={() => toggleDockView("browser")}
             >
               <BrowserViewIcon size={16} />
             </button>
@@ -294,7 +272,7 @@ export function TitleBar(): ReactNode {
               title={t.filesTab}
               aria-label={t.filesTab}
               aria-pressed={dockView === "files" && !layout.rightCollapsed}
-              onClick={toggleFilesView}
+              onClick={() => toggleDockView("files")}
             >
               <FolderIcon size={16} />
             </button>

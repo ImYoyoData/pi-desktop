@@ -94,6 +94,10 @@
   background: var(--bg-hover);
 }
 
+.row.selected {
+  background: var(--bg-active, var(--bg-hover));
+}
+
 /* VS Code Seti 主题图标 —— 主题字体声明的字号为 150% */
 .fileIcon {
   flex-shrink: 0;

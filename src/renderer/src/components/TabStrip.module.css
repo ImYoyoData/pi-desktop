@@ -1,0 +1,157 @@
+.strip {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  height: 34px;
+  flex-shrink: 0;
+  padding: 0 6px;
+  border-bottom: 1px solid var(--border);
+  background: color-mix(in srgb, var(--bg-panel) 92%, var(--bg-elevated));
+}
+
+.scrollBtn {
+  flex-shrink: 0;
+  color: var(--fg-muted);
+}
+
+.scrollBtn:disabled {
+  opacity: 0.28;
+  pointer-events: none;
+}
+
+.scrollBtn:active {
+  transform: none !important;
+}
+
+.bar {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  height: 100%;
+  scrollbar-width: none;
+  overscroll-behavior-x: contain;
+  mask-image: linear-gradient(
+    to right,
+    transparent 0,
+    #000 var(--tabs-fade-left, 0px),
+    #000 calc(100% - var(--tabs-fade-right, 0px)),
+    transparent 100%
+  );
+  --tabs-fade-left: 0px;
+  --tabs-fade-right: 0px;
+}
+
+.bar.canScrollLeft {
+  --tabs-fade-left: 10px;
+}
+
+.bar.canScrollRight {
+  --tabs-fade-right: 10px;
+}
+
+.bar::-webkit-scrollbar {
+  display: none;
+}
+
+.tabItem {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 140px;
+  height: 24px;
+  padding: 0 6px 0 8px;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--fg-muted);
+  font-size: 0.8846rem;
+  cursor: pointer;
+  flex-shrink: 0;
+  user-select: none;
+  transition:
+    background var(--duration-fast, 140ms) var(--ease-out, ease),
+    color var(--duration-fast, 140ms) var(--ease-out, ease);
+}
+
+.tabItem:hover {
+  background: var(--bg-hover);
+  color: var(--fg);
+}
+
+.tabItem.active {
+  background: var(--bg-elevated);
+  border-color: var(--border);
+  color: var(--fg-strong);
+  box-shadow: var(--shadow-sm);
+}
+
+.tabIcon {
+  display: inline-flex;
+  align-items: center;
+}
+
+.fileGlyph {
+  flex-shrink: 0;
+  width: 14px;
+  text-align: center;
+  font-family: "seti";
+  font-size: 1.1538rem;
+  line-height: 1;
+  /* Seti 字形居中于行盒，文字视觉中心偏下约 2px，下移对齐 */
+  transform: translateY(2px);
+}
+
+.tabClose {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--fg-faint);
+  cursor: pointer;
+  flex-shrink: 0;
+  opacity: 0.55;
+}
+
+.tabItem:hover .tabClose,
+.tabItem.active .tabClose {
+  opacity: 1;
+}
+
+.tabClose:hover {
+  background: var(--bg-active);
+  color: var(--fg);
+}
+
+.tabLabel {
+  max-width: 100px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 550;
+}
+
+.tabLabel.transient {
+  font-style: italic;
+  font-weight: 450;
+}
+
+.renameHint {
+  margin: 0 0 10px;
+  font-size: 1rem;
+  color: var(--text-muted, #71717a);
+}
+
+.ctxMenu {
+  position: fixed;
+  z-index: 100;
+}

@@ -2,66 +2,63 @@ import { create } from "zustand";
 import * as prefs from "@renderer/utils/prefs";
 
 const DOCK_VIEW_KEY = "pi-desktop:right-dock-view:v1";
-const DOCK_DETAILS_KEY = "pi-desktop:right-dock-details:v1";
 
-export const DOCK_PREF_KEYS = [DOCK_VIEW_KEY, DOCK_DETAILS_KEY];
+export const DOCK_PREF_KEYS = [DOCK_VIEW_KEY];
 
-export type RightDockView = "files" | "changes";
+/** 右侧栏三个独立页面，同一时刻只显示一个。 */
+export type RightDockView = "files" | "changes" | "browser";
+
+const VIEWS: RightDockView[] = ["files", "changes", "browser"];
+
+function isView(value: string | null): value is RightDockView {
+  return value !== null && (VIEWS as string[]).includes(value);
+}
 
 type RightDockState = {
-  /** null 表示侧栏收起后下方这块也隐藏。 */
-  view: RightDockView | null;
-  lastView: RightDockView;
+  view: RightDockView;
+  /** 更改页当前选中的文件（消息里点文件路径时定位过来）。 */
+  changesPath: string;
   show: (view: RightDockView) => void;
-  toggle: () => void;
+  showChanges: (path: string) => void;
   /** 另一窗口改了偏好后重新读取并应用。 */
   refreshFromPrefs: () => void;
 };
 
-function readPrefs(): { view: RightDockView; visible: boolean } {
-  let view: RightDockView = "changes";
-  let visible = true;
+function readPrefs(): RightDockView {
   try {
     const raw = prefs.getItem(DOCK_VIEW_KEY);
-    if (raw === "files" || raw === "changes") view = raw;
-    if (prefs.getItem(DOCK_DETAILS_KEY) === "0") visible = false;
+    if (isView(raw)) return raw;
   } catch {
     // ignore
   }
-  return { view, visible };
+  return "changes";
 }
 
-function writePrefs(view: RightDockView, visible: boolean): void {
+function writePrefs(view: RightDockView): void {
   try {
     prefs.setItem(DOCK_VIEW_KEY, view);
-    prefs.setItem(DOCK_DETAILS_KEY, visible ? "1" : "0");
   } catch {
     // ignore
   }
 }
 
-const initial = readPrefs();
-
 export const useRightDockStore = create<RightDockState>()((set, get) => ({
-  view: initial.visible ? initial.view : null,
-  lastView: initial.view,
+  view: readPrefs(),
+  changesPath: "",
 
   show(view: RightDockView): void {
-    writePrefs(view, true);
-    set({ view, lastView: view });
+    writePrefs(view);
+    set({ view });
   },
 
-  toggle(): void {
-    const { view, lastView } = get();
-    const next = view ? null : lastView;
-    writePrefs(view ?? lastView, next !== null);
-    set({ view: next, lastView: view ?? lastView });
+  showChanges(path: string): void {
+    writePrefs("changes");
+    set({ view: "changes", changesPath: path.replace(/\\/g, "/") });
   },
 
   refreshFromPrefs(): void {
-    const { view, visible } = readPrefs();
-    const next = visible ? view : null;
-    if (next === get().view && view === get().lastView) return;
-    set({ view: next, lastView: view });
+    const view = readPrefs();
+    if (view === get().view) return;
+    set({ view });
   },
 }));

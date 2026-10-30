@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { ArrowUndoOutline } from "@renderer/components/icons/ionicons";
 import { useLayoutStore } from "@renderer/stores/layout";
-import { useRightTabsStore } from "@renderer/stores/right-tabs";
 import { useWorkspaceStore } from "@renderer/stores/workspace";
 
 import { fileIcon, type FileIcon } from "@renderer/utils/file-icon";
@@ -14,8 +13,11 @@ import { useI18n } from "@renderer/i18n/use-i18n";
 import styles from "./RightDockChanges.module.css";
 
 type Props = {
-  /** False while the dock is hidden — defer git refreshes. */
+  /** False while the page is hidden — defer git refreshes. */
   visible?: boolean;
+  /** 当前在右侧 diff 区打开的文件。 */
+  selectedPath?: string;
+  onSelect: (path: string) => void;
 };
 
 type ChangeType = "added" | "modified" | "deleted";
@@ -62,7 +64,7 @@ function badgeLetter(changeType: ChangeType): string {
   return changeType === "added" ? "A" : changeType === "deleted" ? "D" : "M";
 }
 
-export function RightDockChanges({ visible = true }: Props): ReactNode {
+export function RightDockChanges({ visible = true, selectedPath, onSelect }: Props): ReactNode {
   const t = useI18n();
   const workspace = useWorkspaceStore();
   const message = useMessage();
@@ -106,7 +108,7 @@ export function RightDockChanges({ visible = true }: Props): ReactNode {
   );
 
   function openDiff(row: ChangeRow): void {
-    useRightTabsStore.getState().revealInChanges(row.path);
+    onSelect(row.path);
     if (useLayoutStore.getState().rightCollapsed) useLayoutStore.getState().toggleRightCollapsed();
   }
 
@@ -178,7 +180,9 @@ export function RightDockChanges({ visible = true }: Props): ReactNode {
           {rows.map((row) => (
             <li
               key={row.path}
-              className={styles.row}
+              className={
+                row.path === selectedPath ? `${styles.row} ${styles.selected}` : styles.row
+              }
               title={row.path}
               onClick={() => openDiff(row)}
             >
