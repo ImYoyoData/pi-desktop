@@ -1,15 +1,9 @@
 .diffTab {
   height: 100%;
   min-height: 0;
+  background: #1a1a19;
 }
 
 .diffTab :global(.ant-spin-container) {
   height: 100%;
-}
-
-.emptyWrap {
-  height: 100%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
 }

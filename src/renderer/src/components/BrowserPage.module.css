@@ -9,6 +9,7 @@
   flex: 1;
   min-height: 0;
   position: relative;
+  background: #1a1a19;
 }
 
 .panel {
@@ -16,6 +17,7 @@
   inset: 0;
   min-height: 0;
   overflow: hidden;
+  background: #1a1a19;
 }
 
 .empty {

@@ -793,7 +793,6 @@ export const zh = {
 	branchCreated: "已创建分支",
 	changesWelcomeTitle: "更改",
 	changesWelcomeEmpty: "没有更改的文件",
-	changesNoDiff: "无法显示此文件的 diff",
 	changesRemoteAdd: "添加远端",
 	changesIgnore: "过滤此文件",
 	changesUnignore: "取消过滤此文件",

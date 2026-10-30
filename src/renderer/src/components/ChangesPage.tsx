@@ -13,7 +13,7 @@ type Props = {
   onSideWidthChange: (width: number) => void;
 };
 
-/** 更改页：左侧改动列表 + 右侧该文件的 diff。 */
+/** 更改页：左侧该文件的 diff + 右侧改动列表。 */
 export function ChangesPage({
   visible,
   sideWidth,
@@ -29,6 +29,7 @@ export function ChangesPage({
       onWidthChange={onSideWidthChange}
       minWidth={sideMinWidth}
       maxWidth={sideMaxWidth}
+      sidePosition="end"
       side={
         <RightDockChanges
           visible={visible}

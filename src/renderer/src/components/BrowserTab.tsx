@@ -9,31 +9,15 @@ import {
   ArrowBackOutline,
   ArrowForwardOutline,
   CodeSlashOutline,
-  ContractOutline,
-  ExpandOutline,
-  LibraryOutline,
   OpenOutline,
   RefreshOutline,
-  Star,
-  StarOutline,
 } from "@renderer/components/icons/ionicons";
 import PenNibIcon from "@renderer/components/icons/PenNibIcon";
 import * as prefs from "@renderer/utils/prefs";
 import type { ElementCitation } from "../../../shared/protocol";
 import { isRegionCitation } from "../../../shared/protocol";
 import { useComposerStore } from "@renderer/stores/composer";
-import {
-  isBookmarked,
-  listBookmarks,
-  listHistory,
-  recordHistory,
-  removeBookmark,
-  removeHistory,
-  toggleBookmark,
-  type BookmarkEntry,
-  type BrowserLibraryEntry,
-} from "@renderer/stores/browser-library";
-import BrowserLibraryPanel from "@renderer/components/BrowserLibraryPanel";
+import { recordHistory } from "@renderer/stores/browser-library";
 import { useBrowserNavStore } from "@renderer/stores/browser-nav";
 import { useRightTabsStore } from "@renderer/stores/right-tabs";
 import { useWorkspaceStore } from "@renderer/stores/workspace";
@@ -75,20 +59,12 @@ export function BrowserTab({ tabId, visible, initialUrl }: Props): ReactNode {
   const [loading, setLoading] = useState(false);
   const [devtoolsOpen, setDevtoolsOpen] = useState(false);
   const [devtoolsReady, setDevtoolsReady] = useState(false);
-  const [bookmarked, setBookmarked] = useState(false);
-  const [libraryOpen, setLibraryOpen] = useState(false);
-  const [libraryTab, setLibraryTab] = useState<"history" | "bookmarks">("history");
-  const [historyRows, setHistoryRows] = useState<BrowserLibraryEntry[]>([]);
-  const [bookmarkRows, setBookmarkRows] = useState<BookmarkEntry[]>([]);
   const [devtoolsPercent, setDevtoolsPercent] = useState(40);
   const [isDraggingDevtools, setIsDraggingDevtools] = useState(false);
-  const [isFullscreen, setIsFullscreen] = useState(false);
 
   const tabIdRef = useRef(tabId);
   const visibleRef = useRef(visible);
   const selectModeRef = useRef(selectMode);
-  const libraryOpenRef = useRef(libraryOpen);
-  const libraryTabRef = useRef(libraryTab);
   const devtoolsOpenRef = useRef(devtoolsOpen);
   const awaitingScreenshotIpcRef = useRef(false);
   const draggingRef = useRef(false);
@@ -97,8 +73,6 @@ export function BrowserTab({ tabId, visible, initialUrl }: Props): ReactNode {
   tabIdRef.current = tabId;
   visibleRef.current = visible;
   selectModeRef.current = selectMode;
-  libraryOpenRef.current = libraryOpen;
-  libraryTabRef.current = libraryTab;
   devtoolsOpenRef.current = devtoolsOpen;
 
   function loadDevtoolsWidth(): void {
@@ -111,13 +85,6 @@ export function BrowserTab({ tabId, visible, initialUrl }: Props): ReactNode {
     } catch {
       // ignore
     }
-  }
-
-  function refreshLibrary(): void {
-    const root = useWorkspaceStore.getState().root;
-    setHistoryRows(listHistory(tabIdRef.current));
-    setBookmarkRows(listBookmarks(root));
-    setBookmarked(isBookmarked(root, urlInput));
   }
 
   function normalizeUrl(raw: string): string {
@@ -172,7 +139,6 @@ export function BrowserTab({ tabId, visible, initialUrl }: Props): ReactNode {
 
   function navigateTo(url: string): void {
     setUrlInput(url);
-    setLibraryOpen(false);
     navigate();
   }
 
@@ -195,30 +161,6 @@ export function BrowserTab({ tabId, visible, initialUrl }: Props): ReactNode {
 
   function reload(): void {
     webviewRef.current?.reload();
-  }
-
-  function onToggleBookmark(): void {
-    const url = normalizeUrl(urlInput);
-    if (!url || url === "about:blank") {
-      message.warning(t.cannotBookmark);
-      return;
-    }
-    const title = pageTitle || webviewRef.current?.getTitle?.() || url;
-    const result = toggleBookmark(useWorkspaceStore.getState().root, { url, title });
-    setBookmarked(result.bookmarked);
-    refreshLibrary();
-    message.success(result.bookmarked ? t.bookmarkAdded : t.bookmarkRemoved);
-  }
-
-  function toggleLibrary(): void {
-    const next = !libraryOpenRef.current;
-    setLibraryOpen(next);
-    if (next) refreshLibrary();
-  }
-
-  function selectLibraryTab(tab: "history" | "bookmarks"): void {
-    setLibraryTab(tab);
-    refreshLibrary();
   }
 
   function waitDevtoolsReady(timeoutMs = 3000): Promise<boolean> {
@@ -290,29 +232,6 @@ export function BrowserTab({ tabId, visible, initialUrl }: Props): ReactNode {
   async function openExternal(): Promise<void> {
     const url = webviewRef.current?.getURL?.() || urlInput;
     await window.api.browser.openExternal(normalizeUrl(url));
-  }
-
-  async function toggleFullscreen(): Promise<void> {
-    const el = browserRootRef.current;
-    if (!el) {
-      setIsFullscreen((value) => !value);
-      return;
-    }
-    try {
-      if (!document.fullscreenElement) {
-        await el.requestFullscreen();
-        setIsFullscreen(true);
-      } else {
-        await document.exitFullscreen();
-        setIsFullscreen(false);
-      }
-    } catch {
-      setIsFullscreen((value) => !value);
-    }
-  }
-
-  function onFullscreenChange(): void {
-    setIsFullscreen(document.fullscreenElement === browserRootRef.current);
   }
 
   async function applySelectMode(next: boolean): Promise<void> {
@@ -442,10 +361,8 @@ export function BrowserTab({ tabId, visible, initialUrl }: Props): ReactNode {
     setPageTitle(title);
     syncTabTitle(title);
     recordHistory(tabIdRef.current, { url, title });
-    setBookmarked(isBookmarked(useWorkspaceStore.getState().root, url));
     useRightTabsStore.getState().patchTab(tabIdRef.current, { url });
     reportTabToMain();
-    if (libraryOpenRef.current && libraryTabRef.current === "history") refreshLibrary();
   }
 
   function onDidNavigate(event: Event): void {
@@ -597,8 +514,6 @@ export function BrowserTab({ tabId, visible, initialUrl }: Props): ReactNode {
 
   useEffect(() => {
     loadDevtoolsWidth();
-    refreshLibrary();
-    document.addEventListener("fullscreenchange", onFullscreenChange);
     const offElementSelected = window.api.browser.onElementSelected(onCitation);
     const offElementScreenshot = window.api.browser.onElementScreenshot(onElementScreenshot);
     const offSelectCancelled = window.api.browser.onSelectCancelled(onSelectCancelled);
@@ -636,7 +551,6 @@ export function BrowserTab({ tabId, visible, initialUrl }: Props): ReactNode {
       offElementScreenshot();
       offSelectCancelled();
       offToggleHotkey();
-      document.removeEventListener("fullscreenchange", onFullscreenChange);
       window.removeEventListener("keydown", onKeydown, true);
       document.removeEventListener("mousemove", onDragMove);
       document.removeEventListener("mouseup", onDragEnd);
@@ -662,7 +576,6 @@ export function BrowserTab({ tabId, visible, initialUrl }: Props): ReactNode {
   useEffect(() => {
     if (workspaceRootRef.current === workspace.root) return;
     workspaceRootRef.current = workspace.root;
-    refreshLibrary();
   }, [tabId, workspace.root]);
 
   useEffect(() => {
@@ -694,14 +607,7 @@ export function BrowserTab({ tabId, visible, initialUrl }: Props): ReactNode {
   }
 
   return (
-    <div
-      ref={browserRootRef}
-      className={
-        isFullscreen
-          ? `browser-tab ${styles.browserTab} ${styles.isFullscreen}`
-          : `browser-tab ${styles.browserTab}`
-      }
-    >
+    <div ref={browserRootRef} className={`browser-tab ${styles.browserTab}`}>
       <div className={styles.toolbar}>
         <div className={styles.toolbarNav}>
           <Button
@@ -739,15 +645,6 @@ export function BrowserTab({ tabId, visible, initialUrl }: Props): ReactNode {
 
         <div className={styles.toolbarActions}>
           <Button
-            type="text"
-            shape="circle"
-            size="small"
-            color={bookmarked ? "gold" : undefined}
-            onClick={onToggleBookmark}
-            icon={bookmarked ? <Star /> : <StarOutline />}
-          />
-
-          <Button
             size="small"
             type={selectMode ? "primary" : "default"}
             variant={selectMode ? "filled" : "outlined"}
@@ -761,26 +658,9 @@ export function BrowserTab({ tabId, visible, initialUrl }: Props): ReactNode {
             type="text"
             shape="circle"
             size="small"
-            color={libraryOpen ? "primary" : undefined}
-            onClick={toggleLibrary}
-            icon={<LibraryOutline />}
-          />
-
-          <Button
-            type="text"
-            shape="circle"
-            size="small"
             color={devtoolsOpen ? "primary" : undefined}
             onClick={() => void toggleDevTools()}
             icon={<CodeSlashOutline />}
-          />
-
-          <Button
-            type="text"
-            shape="circle"
-            size="small"
-            onClick={() => void toggleFullscreen()}
-            icon={isFullscreen ? <ContractOutline /> : <ExpandOutline />}
           />
 
           <Button
@@ -841,57 +721,6 @@ export function BrowserTab({ tabId, visible, initialUrl }: Props): ReactNode {
         </div>
 
         <div ref={ghostElRef} className={styles.devtoolsGhost} />
-
-        {libraryOpen ? (
-          <aside className={styles.libraryDrawer}>
-            <div className={styles.drawerHead}>
-              <button
-                type="button"
-                className={
-                  libraryTab === "history"
-                    ? `${styles.tab} ${styles.active}`
-                    : styles.tab
-                }
-                onClick={() => selectLibraryTab("history")}
-              >
-                {t.history}
-              </button>
-              <button
-                type="button"
-                className={
-                  libraryTab === "bookmarks"
-                    ? `${styles.tab} ${styles.active}`
-                    : styles.tab
-                }
-                onClick={() => selectLibraryTab("bookmarks")}
-              >
-                {t.bookmarks}
-              </button>
-              <button
-                type="button"
-                className={styles.drawerClose}
-                title={t.close}
-                onClick={() => setLibraryOpen(false)}
-              >
-                ×
-              </button>
-            </div>
-            <BrowserLibraryPanel
-              mode={libraryTab}
-              history={historyRows}
-              bookmarks={bookmarkRows}
-              onNavigate={navigateTo}
-              onRemoveHistory={(id) => {
-                removeHistory(tabId, id);
-                refreshLibrary();
-              }}
-              onRemoveBookmark={(id) => {
-                removeBookmark(useWorkspaceStore.getState().root, id);
-                refreshLibrary();
-              }}
-            />
-          </aside>
-        ) : null}
       </div>
     </div>
   );

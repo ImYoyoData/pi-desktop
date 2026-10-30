@@ -7,6 +7,8 @@ type Props = {
   onWidthChange: (width: number) => void;
   minWidth: number;
   maxWidth: number;
+  /** 侧栏位置，默认在左。 */
+  sidePosition?: "start" | "end";
   side: ReactNode;
   children: ReactNode;
 };
@@ -17,6 +19,7 @@ export function PageSplit({
   onWidthChange,
   minWidth,
   maxWidth,
+  sidePosition = "start",
   side,
   children,
 }: Props): ReactNode {
@@ -25,7 +28,8 @@ export function PageSplit({
     const startX = event.clientX;
     const startWidth = width;
     const onMove = (moveEvent: MouseEvent): void => {
-      const next = startWidth + (moveEvent.clientX - startX);
+      const delta = moveEvent.clientX - startX;
+      const next = startWidth + (sidePosition === "end" ? -delta : delta);
       onWidthChange(Math.min(maxWidth, Math.max(minWidth, next)));
     };
     const onUp = (): void => {
@@ -37,7 +41,7 @@ export function PageSplit({
   }
 
   return (
-    <div className={styles.root}>
+    <div className={sidePosition === "end" ? `${styles.root} ${styles.rootEnd}` : styles.root}>
       <div className={styles.side} style={{ width: `${width}px` }}>
         {side}
       </div>

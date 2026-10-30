@@ -52,6 +52,8 @@ type Props = {
   active?: boolean;
   /** 智能体设置页内嵌：隐藏「打开文件」等非编辑器控件，markdown 直接以编辑器打开。 */
   embedded?: boolean;
+  /** 只隐藏顶部工具栏，不动 markdown 默认视图。 */
+  hideToolbar?: boolean;
   /** 未落盘的草稿内容（与 filePath 互斥）。 */
   draftContent?: string | null;
   /** 自定义保存：提供后保存按钮与 Ctrl+S 都交给外部处理（内容由外部落盘）。 */
@@ -77,6 +79,7 @@ export const PreviewTab = forwardRef<PreviewTabHandle, Props>(function PreviewTa
     tabId,
     active,
     embedded = false,
+    hideToolbar = false,
     draftContent,
     saveHandler,
   }: Props,
@@ -835,7 +838,7 @@ export const PreviewTab = forwardRef<PreviewTabHandle, Props>(function PreviewTa
 
   return (
     <div className={styles.previewTab}>
-      {embedded ? null : (
+      {hideToolbar || embedded ? null : (
         <div className={styles.toolbar}>
           <div className={styles.crumbs} title={currentPath ?? undefined}>
             {crumbs.length ? (

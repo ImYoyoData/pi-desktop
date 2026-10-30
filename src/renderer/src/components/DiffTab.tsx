@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { Empty, Spin } from "antd";
-import ChangesDiffEditor from "@renderer/components/ChangesDiffEditor";
-import { useI18n } from "@renderer/i18n/use-i18n";
+import { Spin } from "antd";
+import ChangesDiffView from "@renderer/components/ChangesDiffView";
 import styles from "./DiffTab.module.css";
 
 type Props = {
@@ -10,41 +9,34 @@ type Props = {
 };
 
 export function DiffTab({ filePath, visible }: Props): ReactNode {
-  const t = useI18n();
   const [loading, setLoading] = useState(false);
-  const [supported, setSupported] = useState(true);
-  const [errorText, setErrorText] = useState("");
-  const [oldContent, setOldContent] = useState("");
-  const [newContent, setNewContent] = useState("");
+  const [patch, setPatch] = useState("");
   const genRef = useRef(0);
+  const patchRef = useRef("");
   const fsTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const filePathRef = useRef<string | null | undefined>(filePath);
   const visibleRef = useRef(visible);
   filePathRef.current = filePath;
   visibleRef.current = visible;
+  patchRef.current = patch;
 
   async function load(path: string): Promise<void> {
     const gen = ++genRef.current;
-    setLoading(true);
-    setErrorText("");
+    if (!patchRef.current) setLoading(true);
     try {
       const result = await window.api.git.diff(path);
       if (gen !== genRef.current) return;
-      setSupported(result.supported);
-      if (result.supported) {
-        setOldContent(result.oldContent ?? "");
-        setNewContent(result.newContent ?? "");
-      }
-    } catch (err) {
+      setPatch(result.supported ? (result.patch ?? "") : "");
+    } catch {
       if (gen !== genRef.current) return;
-      setSupported(false);
-      setErrorText(err instanceof Error ? err.message : String(err));
+      setPatch("");
     } finally {
       if (gen === genRef.current) setLoading(false);
     }
   }
 
   useEffect(() => {
+    setPatch("");
     if (filePath) void load(filePath);
   }, [filePath]);
 
@@ -68,20 +60,7 @@ export function DiffTab({ filePath, visible }: Props): ReactNode {
 
   return (
     <Spin spinning={loading} size="small" className={styles.diffTab}>
-      {!filePath || !supported ? (
-        <div className={styles.emptyWrap}>
-          <Empty
-            image={Empty.PRESENTED_IMAGE_SIMPLE}
-            description={errorText || t.changesNoDiff}
-          />
-        </div>
-      ) : (
-        <ChangesDiffEditor
-          filePath={filePath}
-          oldContent={oldContent}
-          newContent={newContent}
-        />
-      )}
+      {patch ? <ChangesDiffView patch={patch} /> : null}
     </Spin>
   );
 }

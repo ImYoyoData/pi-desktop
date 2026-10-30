@@ -3,7 +3,7 @@
   flex-direction: column;
   height: 100%;
   min-height: 0;
-  background: var(--bg-panel);
+  background: #1a1a19;
 }
 
 .head {
@@ -38,6 +38,10 @@
   outline: 1px dashed var(--accent-border, #93c5fd);
   outline-offset: -2px;
   background: var(--accent-soft, rgba(37, 99, 235, 0.08));
+}
+
+.body :global(.ant-tree) {
+  background: transparent;
 }
 
 .body :global(.ant-tree .ant-tree-node-content-wrapper) {

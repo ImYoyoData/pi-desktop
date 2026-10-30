@@ -792,7 +792,6 @@ export const ja = {
 	branchCreated: "ブランチを作成しました",
 	changesWelcomeTitle: "変更",
 	changesWelcomeEmpty: "変更されたファイルはありません",
-	changesNoDiff: "このファイルの diff を表示できません",
 	changesRemoteAdd: "リモートを追加",
 	changesIgnore: "このファイルを除外",
 	changesUnignore: "このファイルの除外を解除",

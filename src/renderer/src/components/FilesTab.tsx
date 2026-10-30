@@ -883,44 +883,42 @@ export function FilesTab({ embedded = false }: Props): ReactNode {
 
   return (
     <div className={styles.filesTab}>
-      <div className={styles.head}>
-        {embedded ? (
-          <span className={styles.title} title={workspace.root ?? undefined} />
-        ) : (
+      {embedded ? null : (
+        <div className={styles.head}>
           <Typography.Text
             className={styles.title}
             title={workspace.root ?? undefined}
           >
             {t.filesTab}
           </Typography.Text>
-        )}
-        <Space size={2}>
-          <Button
-            type="text"
-            shape="circle"
-            size="small"
-            title={t.filesRefresh}
-            onClick={() => void refreshRoot()}
-            icon={<RefreshOutline size={14} />}
-          />
-          <Button
-            type="text"
-            shape="circle"
-            size="small"
-            title={t.filesNewFile}
-            onClick={toolbarNewFile}
-            icon={<DocumentAttachOutline size={14} />}
-          />
-          <Button
-            type="text"
-            shape="circle"
-            size="small"
-            title={t.filesNewFolder}
-            onClick={toolbarNewDir}
-            icon={<FolderOpenOutline size={14} />}
-          />
-        </Space>
-      </div>
+          <Space size={2}>
+            <Button
+              type="text"
+              shape="circle"
+              size="small"
+              title={t.filesRefresh}
+              onClick={() => void refreshRoot()}
+              icon={<RefreshOutline size={14} />}
+            />
+            <Button
+              type="text"
+              shape="circle"
+              size="small"
+              title={t.filesNewFile}
+              onClick={toolbarNewFile}
+              icon={<DocumentAttachOutline size={14} />}
+            />
+            <Button
+              type="text"
+              shape="circle"
+              size="small"
+              title={t.filesNewFolder}
+              onClick={toolbarNewDir}
+              icon={<FolderOpenOutline size={14} />}
+            />
+          </Space>
+        </div>
+      )}
 
       <div
         className={dropTargetPath === "" ? `${styles.body} ${styles.dropRoot}` : styles.body}

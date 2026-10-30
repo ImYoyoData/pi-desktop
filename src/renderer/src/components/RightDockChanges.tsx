@@ -1,14 +1,8 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { ArrowUndoOutline } from "@renderer/components/icons/ionicons";
 import { useLayoutStore } from "@renderer/stores/layout";
 import { useWorkspaceStore } from "@renderer/stores/workspace";
 
 import { fileIcon, type FileIcon } from "@renderer/utils/file-icon";
-import {
-  useDialog,
-  useMessage,
-  type DialogHandle,
-} from "@renderer/services/feedback";
 import { useI18n } from "@renderer/i18n/use-i18n";
 import styles from "./RightDockChanges.module.css";
 
@@ -60,15 +54,9 @@ function fileDir(p: string): string {
   return i > 0 ? p.slice(0, i) : "";
 }
 
-function badgeLetter(changeType: ChangeType): string {
-  return changeType === "added" ? "A" : changeType === "deleted" ? "D" : "M";
-}
-
 export function RightDockChanges({ visible = true, selectedPath, onSelect }: Props): ReactNode {
   const t = useI18n();
   const workspace = useWorkspaceStore();
-  const message = useMessage();
-  const dialog = useDialog();
 
   const [gitLoading, setGitLoading] = useState(false);
   const [gitFiles, setGitFiles] = useState<GitRow[]>([]);
@@ -110,39 +98,6 @@ export function RightDockChanges({ visible = true, selectedPath, onSelect }: Pro
   function openDiff(row: ChangeRow): void {
     onSelect(row.path);
     if (useLayoutStore.getState().rightCollapsed) useLayoutStore.getState().toggleRightCollapsed();
-  }
-
-  function formatGitError(result: { message: string; code?: string }): string {
-    const key = `gitErr_${result.code || "unknown"}` as keyof typeof t;
-    return typeof t[key] === "string" ? (t[key] as string) : t.gitErr_unknown;
-  }
-
-  function onDiscard(row: ChangeRow): void {
-    const d: DialogHandle = dialog.warning({
-      title: t.changesDiscardFile,
-      content: t.changesDiscardConfirmFile,
-      positiveText: t.confirm,
-      negativeText: t.cancel,
-      onPositiveClick: () => {
-        d.loading = true;
-        return (async () => {
-          try {
-            const result = await window.api.git.restore([row.path]);
-            if (!result.ok) {
-              message.error(formatGitError(result));
-              return false;
-            }
-            message.success(t.changesDiscarded);
-            await refreshGit();
-            return true;
-          } catch (err) {
-            message.error(err instanceof Error ? err.message : String(err));
-            d.loading = false;
-            return false;
-          }
-        })();
-      },
-    });
   }
 
   useEffect(() => {
@@ -213,30 +168,6 @@ export function RightDockChanges({ visible = true, selectedPath, onSelect }: Pro
                   <span className={styles.linesRemoved}>-{row.deletions}</span>
                 </span>
               ) : null}
-              <span className={styles.chatCollapsibleListActionBar}>
-                <button
-                  type="button"
-                  className={styles.action}
-                  title={t.changesDiscardFile}
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    onDiscard(row);
-                  }}
-                >
-                  <ArrowUndoOutline size={13} />
-                </button>
-              </span>
-              <span
-                className={`${styles.changesDecorationBadge} ${
-                  row.changeType === "added"
-                    ? styles.added
-                    : row.changeType === "deleted"
-                      ? styles.deleted
-                      : styles.modified
-                }`}
-              >
-                {badgeLetter(row.changeType)}
-              </span>
             </li>
           ))}
         </ul>

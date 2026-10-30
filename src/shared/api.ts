@@ -608,8 +608,6 @@ export function createApi(
 				supported: boolean;
 				status?: string;
 				patch?: string;
-				oldContent?: string | null;
-				newContent?: string | null;
 			}>,
 		branches: () =>
 			ipcRenderer.invoke(IpcChannels.git.branches) as Promise<{

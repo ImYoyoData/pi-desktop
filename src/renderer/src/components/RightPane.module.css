@@ -1,11 +1,17 @@
 .root {
-  /* 右侧栏统一用面板色，内部组件里的 var(--bg) 一并跟随 */
+  /* 右侧栏统一用固定面板色，内部组件里的 var(--bg) / var(--bg-panel) 一并跟随 */
+  --bg-panel: #1a1a19;
   --bg: var(--bg-panel);
+  /* 选中高亮改为同底色上的白色叠加，不再用不透明的 #2c2d2e */
+  --bg-active: #ffffff1f;
+  /* 文件树节点的 hover / 选中改成同底色上的白色叠加 */
+  --ant-tree-node-hover-bg: #ffffff14;
+  --ant-tree-node-selected-bg: #ffffff1f;
   display: flex;
   flex-direction: column;
   height: 100%;
   min-width: 0;
-  background: var(--bg);
+  background: #1a1a19;
   /* 左侧分栏线由 splitter 提供，再描边会叠成 2px */
 }
 
