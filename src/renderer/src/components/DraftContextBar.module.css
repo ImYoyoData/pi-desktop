@@ -82,12 +82,13 @@
 }
 
 .ctxItem.current {
+  background: var(--accent-soft);
   color: var(--accent, #3b82f6);
   font-weight: 600;
 }
 
-.ctxItem.remote .ctxItemName {
-  color: var(--fg-muted, #888);
+.ctxItem.current:hover:not(:disabled) {
+  background: var(--accent-soft-hover, var(--accent-soft));
 }
 
 .ctxItemMain {

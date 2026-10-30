@@ -1822,7 +1822,6 @@ export function SessionSidebar(): ReactNode {
       { label: t.filesRename, key: "rename" },
       { label: pinned ? t.unpin : t.pin, key: "pin" },
       { label: t.copySessionId, key: "copy-id" },
-      { label: t.clearContext, key: "clear-context" },
       { type: "divider", key: "d1" },
       { label: t.delete, key: "delete" },
     ];
@@ -1847,18 +1846,6 @@ export function SessionSidebar(): ReactNode {
       case "copy-id":
         await navigator.clipboard.writeText(session.id);
         message.success(t.sessionIdCopied);
-        break;
-      case "clear-context":
-        try {
-          await onSelectSession(root, session.id);
-          await window.api.sessions.clearContext(session.id, root);
-          useChatStore.getState().clearSession(session.id);
-          useChatStore.getState().hydrateFromHistory(session.id, []);
-          await loadSessions(root);
-          message.success(t.clearContextDone);
-        } catch (err) {
-          message.error(err instanceof Error ? err.message : String(err));
-        }
         break;
       case "delete":
         confirmDeleteSession(root, session.id);

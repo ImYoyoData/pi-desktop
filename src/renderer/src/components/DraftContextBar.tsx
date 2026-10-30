@@ -23,7 +23,6 @@ export function DraftContextBar(): ReactNode {
   const [isRepo, setIsRepo] = useState(false);
   const [currentBranch, setCurrentBranch] = useState<string | null>(null);
   const [localBranches, setLocalBranches] = useState<string[]>([]);
-  const [remoteBranches, setRemoteBranches] = useState<string[]>([]);
   const [newBranchName, setNewBranchName] = useState("");
   const [busy, setBusy] = useState(false);
   const didMountRef = useRef(false);
@@ -84,7 +83,6 @@ export function DraftContextBar(): ReactNode {
       setIsRepo(false);
       setCurrentBranch(null);
       setLocalBranches([]);
-      setRemoteBranches([]);
       return;
     }
     try {
@@ -93,14 +91,12 @@ export function DraftContextBar(): ReactNode {
       setCurrentBranch(status.branch);
       if (!status.isGitRepository) {
         setLocalBranches([]);
-        setRemoteBranches([]);
         setBranchPanelOpen(false);
         return;
       }
       const branches = await window.api.git.branches();
       setCurrentBranch(branches.current ?? status.branch);
       setLocalBranches(branches.local);
-      setRemoteBranches(branches.remote);
     } catch {
       setIsRepo(false);
     }
@@ -214,19 +210,6 @@ export function DraftContextBar(): ReactNode {
             key={`l:${name}`}
             type="button"
             className={`${styles.ctxItem} ${name === currentBranch ? styles.current : ""}`}
-            disabled={busy}
-            onClick={() => void onCheckout(name)}
-          >
-            <span className={styles.ctxItemMain}>
-              <span className={styles.ctxItemName}>{name}</span>
-            </span>
-          </button>
-        ))}
-        {remoteBranches.map((name) => (
-          <button
-            key={`r:${name}`}
-            type="button"
-            className={`${styles.ctxItem} ${styles.remote}`}
             disabled={busy}
             onClick={() => void onCheckout(name)}
           >
