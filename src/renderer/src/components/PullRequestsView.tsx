@@ -1,5 +1,6 @@
 import { memo, useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { Dropdown } from "antd";
+import type { MenuProps } from "antd";
 import {
   ChatbubbleOutline,
   CheckmarkCircleOutline,
@@ -21,7 +22,7 @@ import GitHubAvatar from "@renderer/components/GitHubAvatar";
 import PullRequestDetailView from "@renderer/components/PullRequestDetailView";
 import PullRequestFilterBar from "@renderer/components/PullRequestFilterBar";
 import { usePullRequestsStore } from "@renderer/stores/pull-requests";
-import { useWorkspaceStore } from "@renderer/stores/workspace";
+import { useScopedWorkspaces } from "@renderer/utils/scoped-workspaces";
 import { formatPullRequestRelative } from "@renderer/utils/pull-request-format";
 import type { Messages } from "@renderer/i18n";
 import { useI18n } from "@renderer/i18n/use-i18n";
@@ -30,6 +31,7 @@ import styles from "./PullRequestsView.module.css";
 
 type PrView = "all" | "mine" | "reviewing" | "assigned" | "mentioned";
 type MenuItem = { key: string; label: string };
+type RepoMenuItem = NonNullable<MenuProps["items"]>[number];
 type FilterChip = { key: keyof PullRequestFilters; label: string };
 
 const PREFETCH_DELAY_MS = 300;
@@ -203,9 +205,9 @@ const PrRow = memo(function PrRow({ row, active, t, onOpen, onPrefetch, onCopy, 
 
 export function PullRequestsView(): ReactNode {
   const t = useI18n();
-  const workspace = useWorkspaceStore();
   const store = usePullRequestsStore();
   const message = useMessage();
+  const scoped = useScopedWorkspaces();
 
   const [search, setSearch] = useState(store.selection.filters.text ?? "");
   const [openUrl, setOpenUrl] = useState<string | null>(null);
@@ -218,7 +220,7 @@ export function PullRequestsView(): ReactNode {
 
   const list = store.list;
   const rows = list.pullRequests;
-  const hasWorkspace = Boolean(workspace.root);
+  const hasWorkspace = Boolean(store.cwd);
 
   const rowsRef = useRef(rows);
   rowsRef.current = rows;
@@ -244,6 +246,22 @@ export function PullRequestsView(): ReactNode {
   ];
 
   const viewLabel = viewItems.find((item) => item.key === view)?.label ?? "";
+
+  const repositoryNames = store.repositoryNames;
+  const repoLabel = store.cwd
+    ? (repositoryNames[store.cwd] ?? scoped.label(store.cwd))
+    : t.prRepository;
+  const repoItems: RepoMenuItem[] = scoped.paths.map((target) => ({
+    key: target,
+    label: (
+      <span className={styles.repoOption}>
+        <span className={styles.repoOptionName}>{scoped.label(target)}</span>
+        {repositoryNames[target] ? (
+          <span className={styles.repoOptionRepo}>{repositoryNames[target]}</span>
+        ) : null}
+      </span>
+    ),
+  }));
 
   const stateTabs = [
     { key: "open" as const, label: t.prStateOpen, count: list.counts?.open },
@@ -348,7 +366,8 @@ export function PullRequestsView(): ReactNode {
       const at = detailPrefetch.current.get(row.url);
       if (at && Date.now() - at < 60_000) return;
       detailPrefetch.current.set(row.url, Date.now());
-      void window.api.github.pullRequestDetail({ url: row.url });
+      const cwd = usePullRequestsStore.getState().cwd;
+      void window.api.github.pullRequestDetail({ url: row.url, ...(cwd ? { cwd } : {}) });
     }, PREFETCH_DELAY_MS);
   }, []);
 
@@ -420,7 +439,21 @@ export function PullRequestsView(): ReactNode {
         <>
           <header className={styles.pageHead}>
             <h1 className={styles.pageTitle}>{t.pullRequests}</h1>
-            {list.repository ? <span className={styles.repoName}>{list.repository}</span> : null}
+            {scoped.paths.length ? (
+              <Dropdown
+                trigger={["click"]}
+                menu={{
+                  items: repoItems,
+                  selectedKeys: store.cwd ? [store.cwd] : [],
+                  onClick: ({ key }) => store.setRepoRoot(key),
+                }}
+              >
+                <button type="button" className={styles.repoBtn} aria-label={t.prSelectRepository(repoLabel)}>
+                  <span className={styles.repoName}>{repoLabel}</span>
+                  <ChevronDownOutline size={13} className={styles.repoChev} />
+                </button>
+              </Dropdown>
+            ) : null}
             <div className={styles.headTools}>
               <Dropdown
                 trigger={["click"]}

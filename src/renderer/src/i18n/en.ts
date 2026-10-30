@@ -1342,6 +1342,8 @@ export const en = {
 	pullRequests: "Pull requests",
 	pullRequestTab: "Pull request",
 	prSearchPlaceholder: "Search pull requests…",
+	prRepository: "Repository",
+	prSelectRepository: (label: string) => `Select repository: ${label}`,
 	prFilters: "Filters",
 	prFilterState: "State",
 	prStateOpen: "Open",

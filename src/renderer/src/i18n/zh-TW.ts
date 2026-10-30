@@ -1306,6 +1306,8 @@ export const zhTW = {
 	pullRequests: "拉取請求",
 	pullRequestTab: "拉取請求",
 	prSearchPlaceholder: "搜尋拉取請求…",
+	prRepository: "儲存庫",
+	prSelectRepository: (label: string) => `選擇儲存庫：${label}`,
 	prFilters: "篩選",
 	prFilterState: "狀態",
 	prStateOpen: "開啟",
