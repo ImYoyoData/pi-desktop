@@ -1,6 +1,5 @@
-import { useEffect, useState, type ReactNode } from "react";
-import { Button, Space } from "antd";
-import { DownloadOutline, LogoGithub } from "@renderer/components/icons/ionicons";
+import { useEffect, useRef, useState, type ReactNode } from "react";
+import { DownloadOutline } from "@renderer/components/icons/ionicons";
 import PanelLeftIcon from "@renderer/components/icons/PanelLeftIcon";
 import PanelRightIcon from "@renderer/components/icons/PanelRightIcon";
 import PanelBottomIcon from "@renderer/components/icons/PanelBottomIcon";
@@ -8,6 +7,9 @@ import PiLogoIcon from "@renderer/components/icons/PiLogoIcon";
 import { useWorkspaceStore } from "@renderer/stores/workspace";
 import { useLayoutStore } from "@renderer/stores/layout";
 import { useAppUpdateStore } from "@renderer/stores/app-update";
+import { useAppearanceStore } from "@renderer/stores/appearance";
+import { useSessionsStore } from "@renderer/stores/sessions";
+import { useSessionTitle } from "@renderer/utils/use-session-title";
 import { useI18n } from "@renderer/i18n/use-i18n";
 import styles from "./TitleBar.module.css";
 
@@ -15,6 +17,44 @@ export function TitleBar(): ReactNode {
   const t = useI18n();
   const workspace = useWorkspaceStore();
   const layout = useLayoutStore();
+  const showSessionTitle = useAppearanceStore((s) => s.showSessionTitle);
+  const sessionTitle = useSessionTitle();
+  const activeId = useSessionsStore((s) => s.activeId);
+
+  const [renaming, setRenaming] = useState(false);
+  const [titleDraft, setTitleDraft] = useState("");
+  const renameSettled = useRef(false);
+
+  /** 展开时对齐主区左端；侧栏收起后回落到品牌之后，避免重叠。 */
+  const titleStyle = layout.leftCollapsed
+    ? undefined
+    : { left: `calc(${layout.leftSize}% + 16px)` };
+  const titleFlow = layout.leftCollapsed ? styles.titleInFlow : "";
+
+  function beginRename(): void {
+    if (!activeId || !sessionTitle) return;
+    renameSettled.current = false;
+    setTitleDraft(sessionTitle);
+    setRenaming(true);
+  }
+
+  /** Enter 与失焦都会走到这里，用 ref 保证只提交一次。 */
+  function commitRename(): void {
+    if (renameSettled.current) return;
+    renameSettled.current = true;
+    setRenaming(false);
+    const name = titleDraft.trim();
+    const row = useSessionsStore
+      .getState()
+      .sessions.find((s) => s.id === activeId);
+    if (!activeId || !row || !name || name === sessionTitle) return;
+    void useSessionsStore.getState().renameSession(activeId, row.cwd, name);
+  }
+
+  function cancelRename(): void {
+    renameSettled.current = true;
+    setRenaming(false);
+  }
 
   const [platform, setPlatform] = useState<NodeJS.Platform>("win32");
   const [isMaximized, setIsMaximized] = useState(false);
@@ -80,10 +120,6 @@ export function TitleBar(): ReactNode {
     await window.api.window.close();
   }
 
-  async function openGithub(): Promise<void> {
-    await window.api.update.openGithub();
-  }
-
   /** 新版本未下载时直接开始下载；已在下载或待安装时重新展开桌面右下角的悬浮卡片。 */
   async function onUpdateClick(): Promise<void> {
     if (updateStatus === "available") {
@@ -100,29 +136,51 @@ export function TitleBar(): ReactNode {
         <PiLogoIcon size={16} />
         <span className={styles.name}>{t.appName}</span>
       </div>
+      {showSessionTitle && sessionTitle ? (
+        renaming ? (
+          <input
+            className={`${styles.sessionTitleInput} ${titleFlow}`}
+            style={titleStyle}
+            value={titleDraft}
+            autoFocus
+            onFocus={(e) => e.currentTarget.select()}
+            onChange={(e) => setTitleDraft(e.target.value)}
+            onBlur={commitRename}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && !e.nativeEvent.isComposing) {
+                e.preventDefault();
+                commitRename();
+              } else if (e.key === "Escape") {
+                e.preventDefault();
+                cancelRename();
+              }
+            }}
+          />
+        ) : (
+          <span
+            className={`${styles.sessionTitle} ${titleFlow}`}
+            style={titleStyle}
+            title={sessionTitle}
+            onDoubleClick={beginRename}
+          >
+            {sessionTitle}
+          </span>
+        )
+      ) : null}
       <div className={`${styles.center} ${styles.drag}`} />
       <div className={`${styles.actions} ${styles.noDrag}`}>
-        <Space size={4}>
-          {updateBadge ? (
-            <button
-              type="button"
-              className={styles.updateBtn}
-              title={updateTip}
-              aria-label={updateTip}
-              onClick={() => void onUpdateClick()}
-            >
-              <DownloadOutline size={13} />
-              <span>{updateBadge}</span>
-            </button>
-          ) : null}
-          <Button
-            type="text"
-            shape="circle"
-            size="small"
-            onClick={() => void openGithub()}
-            icon={<LogoGithub />}
-          />
-        </Space>
+        {updateBadge ? (
+          <button
+            type="button"
+            className={styles.updateBtn}
+            title={updateTip}
+            aria-label={updateTip}
+            onClick={() => void onUpdateClick()}
+          >
+            <DownloadOutline size={13} />
+            <span>{updateBadge}</span>
+          </button>
+        ) : null}
         {workspace.root ? (
           <div className={styles.layoutControls}>
             <button

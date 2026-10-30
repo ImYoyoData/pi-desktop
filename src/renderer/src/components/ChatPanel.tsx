@@ -6,18 +6,16 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { Tag, Typography } from "antd";
+import { Tag } from "antd";
 import PermissionStrip from "@renderer/components/PermissionStrip";
 import ExtensionUiStrip from "@renderer/components/ExtensionUiStrip";
 import SessionTodoPanel from "@renderer/components/SessionTodoPanel";
 import SessionChangedFiles from "@renderer/components/SessionChangedFiles";
 import SessionStatsBar, { useSessionStats } from "@renderer/components/SessionStatsBar";
-import { useAppearanceStore } from "@renderer/stores/appearance";
 import { useChatStore } from "@renderer/stores/chat";
 import { useSessionsStore } from "@renderer/stores/sessions";
 import { useSessionWidgetsStore } from "@renderer/stores/session-widgets";
 import { hasAnyFileChange } from "@renderer/utils/session-file-changes";
-import { heuristicSessionTitle } from "@renderer/utils/session-title";
 import { useI18n } from "@renderer/i18n/use-i18n";
 import styles from "./ChatPanel.module.css";
 
@@ -37,7 +35,6 @@ type Props = {
 export function ChatPanel({ visible }: Props): ReactNode {
   const t = useI18n();
   const chat = useChatStore();
-  const appearance = useAppearanceStore();
   const sessions = useSessionsStore();
 
   useEffect(() => {
@@ -93,55 +90,21 @@ export function ChatPanel({ visible }: Props): ReactNode {
     void useChatStore.getState().resyncActiveSession();
   }, []);
 
-  /** 头部没有标题与状态标签时不渲染，避免留下一条空白分隔栏。 */
-  const showHeader =
-    appearance.showSessionTitle || Boolean(chat.activeRetryHint);
-
-  const title = (() => {
-    if (isDraft) return t.newSession;
-    if (!sessions.activeId) return "";
-    const row = sessions.sessions.find((s) => s.id === sessions.activeId);
-    if (row?.name?.trim()) return row.name.trim();
-    if (row?.firstMessage?.trim() && row.firstMessage !== "(no messages)") {
-      const text = row.firstMessage.trim();
-      return text.length > 56 ? `${text.slice(0, 53)}…` : text;
-    }
-    // 会话行不在当前工作区列表里（侧栏折叠/切换后保留旧会话）时用首条消息兜底。
-    const firstUser = chat.activeMessages.find(
-      (m) => m.role === "user" && m.text.trim(),
-    );
-    if (firstUser?.role === "user") {
-      const text = heuristicSessionTitle(firstUser.text, 56);
-      if (text) return text;
-    }
-    return t.newSession;
-  })();
-
   const sessionStats = useSessionStats();
 
   return (
     <section className={`chat-panel ${styles.chatPanel}`}>
       {hasSession ? (
         <>
-          {showHeader ? (
+          {/* 标题在窗口标题栏，消息区只留重试提示。 */}
+          {chat.activeRetryHint ? (
             <header className={`chat-panel-head ${styles.chatPanelHead}`}>
-              {appearance.showSessionTitle ? (
-                <Typography.Text
-                  strong
-                  style={{ flex: 1, minWidth: 0 }}
-                  className={styles.title}
-                >
-                  {title}
-                </Typography.Text>
-              ) : null}
-              {chat.activeRetryHint ? (
-                <Tag color="warning" variant="filled" className={styles.tag}>
-                  {t.retrying(
-                    chat.activeRetryHint.attempt,
-                    chat.activeRetryHint.maxAttempts,
-                  )}
-                </Tag>
-              ) : null}
+              <Tag color="warning" variant="filled" className={styles.tag}>
+                {t.retrying(
+                  chat.activeRetryHint.attempt,
+                  chat.activeRetryHint.maxAttempts,
+                )}
+              </Tag>
             </header>
           ) : null}
           <div className={styles.messageSlot}>

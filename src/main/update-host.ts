@@ -132,10 +132,6 @@ export function registerUpdateIpc(): void {
 		email: APP_AUTHOR_EMAIL,
 	}));
 
-	ipcMain.handle(IpcChannels.update.openGithub, async () => {
-		await shell.openExternal(APP_GITHUB_URL);
-	});
-
 	ipcMain.handle(IpcChannels.update.openReleases, async () => {
 		await shell.openExternal(APP_RELEASES_URL);
 	});

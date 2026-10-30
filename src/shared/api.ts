@@ -1317,8 +1317,6 @@ export function createApi(
 	update: {
 		getAppInfo: () =>
 			ipcRenderer.invoke(IpcChannels.update.getAppInfo) as Promise<AppInfo>,
-		openGithub: () =>
-			ipcRenderer.invoke(IpcChannels.update.openGithub) as Promise<void>,
 		openReleases: () =>
 			ipcRenderer.invoke(IpcChannels.update.openReleases) as Promise<void>,
 		openAuthorEmail: () =>
