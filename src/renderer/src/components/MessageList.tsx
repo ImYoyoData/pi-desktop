@@ -34,6 +34,7 @@ import { useCheckpointStore } from "@renderer/stores/checkpoint";
 import { useComposerStore } from "@renderer/stores/composer";
 import { useSendQueueStore } from "@renderer/stores/send-queue";
 import { useSessionsStore } from "@renderer/stores/sessions";
+import { useAppearanceStore } from "@renderer/stores/appearance";
 import ThinkingBlock from "@renderer/components/ThinkingBlock";
 import ToolCallCard from "@renderer/components/ToolCallCard";
 import AskUserStrip from "@renderer/components/AskUserStrip";
@@ -155,6 +156,7 @@ export function MessageList({
   visible,
 }: Props): ReactNode {
   const t = useI18n();
+  const autoExpandSummary = useAppearanceStore((s) => s.autoExpandSummary);
   const chat = useChatStore();
   const checkpoints = useCheckpointStore();
   const composer = useComposerStore();
@@ -1460,6 +1462,7 @@ export function MessageList({
             <WorkSectionGroup
               items={membership.items}
               autoCollapse={rowSettled(msg)}
+              autoExpand={autoExpandSummary}
               onOpen={openPreview}
             />
           </div>
@@ -1590,6 +1593,7 @@ export function MessageList({
                     thinking={msg.thinking ?? ""}
                     streaming={Boolean(msg.streaming && !msg.text)}
                     autoCollapse={turnDone || !(msg.streaming && !msg.text)}
+                    autoExpand={autoExpandSummary}
                     leadingIcon={<BrainOutline size={13} aria-hidden="true" />}
                     durationMs={msg.thinkingDurationMs}
                     startedAt={msg.thinkingStartedAt}

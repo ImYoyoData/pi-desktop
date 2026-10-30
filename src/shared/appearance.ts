@@ -20,6 +20,42 @@ export interface SurfaceAlphaSettings {
   tool: number;
 }
 
+/** 内置字体：界面与代码字体都从这些字体里选。 */
+export interface BuiltinFont {
+  id: string;
+  label: string;
+  family: string;
+}
+
+/** Codex 用 Geist，GitHub 用 Mona Sans / Monaspace，均为 OFL 授权。 */
+export const BUILTIN_FONTS: readonly BuiltinFont[] = [
+  { id: "builtin:geist", label: "Codex · Geist", family: "Geist" },
+  { id: "builtin:geist-mono", label: "Codex · Geist Mono", family: "Geist Mono" },
+  { id: "builtin:mona-sans", label: "GitHub · Mona Sans", family: "Mona Sans" },
+  { id: "builtin:monaspace", label: "GitHub · Monaspace Neon", family: "Monaspace Neon" },
+];
+
+/** 用户添加的本地字体文件；family 是注入 @font-face 时用的内部族名。 */
+export interface LocalFont {
+  id: string;
+  name: string;
+  path: string;
+  family: string;
+}
+
+export interface FontSettings {
+  /** 界面字体标识；空串表示跟随系统默认。 */
+  ui: string;
+  /** 代码字体标识；空串表示跟随系统默认。 */
+  mono: string;
+  local: LocalFont[];
+}
+
+export const FONT_FILE_EXTENSIONS = ["ttf", "otf", "woff", "woff2"] as const;
+
+const DEFAULT_UI_FONT_STACK = `-apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Helvetica Neue", Helvetica, Arial, sans-serif`;
+const DEFAULT_MONO_FONT_STACK = `"SF Mono", "JetBrains Mono", "Fira Code", Consolas, "Liberation Mono", Menlo, Courier, "PingFang SC", "Microsoft YaHei"`;
+
 export interface CustomAppearanceSettings {
   wallpaper: WallpaperSettings;
   surfaces: SurfaceAlphaSettings;
@@ -27,6 +63,7 @@ export interface CustomAppearanceSettings {
   messageWidth: number;
   /** 输入框最大宽度；缺省表示跟随消息区宽度。 */
   inputWidth?: number;
+  fonts: FontSettings;
 }
 
 /** 自定义外观设置在 localStorage 的键；v2 起壁纸模式固定为深色玻璃。 */
@@ -65,11 +102,16 @@ export function createDefaultSurfaces(): SurfaceAlphaSettings {
   return { input: 0, card: 0, settings: 0, tool: 0 };
 }
 
+export function createDefaultFontSettings(): FontSettings {
+  return { ui: "", mono: "", local: [] };
+}
+
 export function createDefaultCustomAppearance(): CustomAppearanceSettings {
   return {
     wallpaper: createDefaultWallpaper(),
     surfaces: createDefaultSurfaces(),
     messageWidth: MESSAGE_WIDTH_DEFAULT,
+    fonts: createDefaultFontSettings(),
   };
 }
 
@@ -124,9 +166,42 @@ export function wallpaperKindForPath(filePath: string): "image" | "video" | null
   return null;
 }
 
-/** 渲染进程可直接喂给 <img>/<video> 的本地媒体地址。 */
-export function wallpaperMediaSrc(filePath: string): string {
+export function isFontFilePath(filePath: string): boolean {
+  const dot = filePath.lastIndexOf(".");
+  if (dot < 0) return false;
+  return (FONT_FILE_EXTENSIONS as readonly string[]).includes(
+    filePath.slice(dot + 1).toLowerCase(),
+  );
+}
+
+/** 渲染进程可直接喂给 <img>/<video>/@font-face 的本地媒体地址。 */
+export function localMediaSrc(filePath: string): string {
   return `pi-media://file/?p=${encodeURIComponent(filePath)}`;
+}
+
+export function wallpaperMediaSrc(filePath: string): string {
+  return localMediaSrc(filePath);
+}
+
+function familyForFontId(id: string, local: LocalFont[]): string | null {
+  const builtin = BUILTIN_FONTS.find((font) => font.id === id);
+  if (builtin) return builtin.family;
+  return local.find((font) => font.id === id)?.family ?? null;
+}
+
+function composeFontStack(id: string, local: LocalFont[], fallback: string): string {
+  const family = familyForFontId(id, local);
+  return family ? `"${family}", ${fallback}` : fallback;
+}
+
+/** 界面字体栈：自定义字体排在最前，后面接系统与中文回退。 */
+export function resolveUiFontStack(fonts: FontSettings): string {
+  return composeFontStack(fonts.ui, fonts.local, DEFAULT_UI_FONT_STACK);
+}
+
+/** 代码字体栈：Markdown 代码块、Monaco 与终端共用。 */
+export function resolveMonoFontStack(fonts: FontSettings): string {
+  return composeFontStack(fonts.mono, fonts.local, DEFAULT_MONO_FONT_STACK);
 }
 
 function normalizeWallpaper(raw: unknown): WallpaperSettings {
@@ -157,6 +232,42 @@ function normalizeSurfaces(raw: unknown): SurfaceAlphaSettings {
   };
 }
 
+function normalizeLocalFonts(raw: unknown): LocalFont[] {
+  if (!Array.isArray(raw)) return [];
+  const fields = ["id", "name", "path", "family"] as const;
+  return raw.flatMap((item) => {
+    if (!item || typeof item !== "object") return [];
+    const entry = item as Record<string, unknown>;
+    if (!fields.every((key) => typeof entry[key] === "string" && entry[key])) return [];
+    return [
+      {
+        id: entry.id as string,
+        name: entry.name as string,
+        path: entry.path as string,
+        family: entry.family as string,
+      },
+    ];
+  });
+}
+
+function normalizeFontSelection(value: unknown, local: LocalFont[]): string {
+  if (typeof value !== "string" || !value) return "";
+  const known =
+    BUILTIN_FONTS.some((font) => font.id === value) ||
+    local.some((font) => font.id === value);
+  return known ? value : "";
+}
+
+export function normalizeFontSettings(raw: unknown): FontSettings {
+  const input = raw && typeof raw === "object" ? (raw as Record<string, unknown>) : {};
+  const local = normalizeLocalFonts(input.local);
+  return {
+    ui: normalizeFontSelection(input.ui, local),
+    mono: normalizeFontSelection(input.mono, local),
+    local,
+  };
+}
+
 export function normalizeCustomAppearance(raw: unknown): CustomAppearanceSettings {
   if (!raw || typeof raw !== "object") return createDefaultCustomAppearance();
   const input = raw as Record<string, unknown>;
@@ -165,5 +276,6 @@ export function normalizeCustomAppearance(raw: unknown): CustomAppearanceSetting
     surfaces: normalizeSurfaces(input.surfaces),
     messageWidth: normalizeMessageWidth(input.messageWidth),
     inputWidth: normalizeInputWidth(input.inputWidth),
+    fonts: normalizeFontSettings(input.fonts),
   };
 }

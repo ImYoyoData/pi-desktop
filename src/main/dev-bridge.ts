@@ -291,6 +291,10 @@ function mediaContentType(filePath: string): string {
 		".mp4": "video/mp4",
 		".webm": "video/webm",
 		".mov": "video/quicktime",
+		".ttf": "font/ttf",
+		".otf": "font/otf",
+		".woff": "font/woff",
+		".woff2": "font/woff2",
 	};
 	return types[ext] ?? "application/octet-stream";
 }

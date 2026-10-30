@@ -8,7 +8,7 @@ import {
   monacoThemeName,
 } from "@renderer/utils/monaco-theme";
 import { useAppearanceStore } from "@renderer/stores/appearance";
-import { fontSizePx } from "../../../shared/appearance";
+import { fontSizePx, resolveMonoFontStack } from "../../../shared/appearance";
 import styles from "./ChangesDiffEditor.module.css";
 
 type Props = {
@@ -97,7 +97,7 @@ export function ChangesDiffEditor({
         renderOverviewRuler: true,
         originalEditable: false,
         fontSize: fontPx,
-        fontFamily: 'var(--font-mono), "Cascadia Code", Consolas, monospace',
+        fontFamily: resolveMonoFontStack(useAppearanceStore.getState().fonts),
         lineHeight: Math.round(fontPx * 1.6),
         minimap: { enabled: false },
         scrollBeyondLastLine: false,
@@ -165,6 +165,7 @@ export function ChangesDiffEditor({
     diffEditorRef.current?.updateOptions({
       fontSize: editorFontPx,
       lineHeight: Math.round(editorFontPx * 1.6),
+      fontFamily: resolveMonoFontStack(useAppearanceStore.getState().fonts),
     });
   }, [editorFontPx]);
 

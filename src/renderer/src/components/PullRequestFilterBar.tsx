@@ -34,7 +34,13 @@ const NO_LABEL = "\u0000none";
 const NO_MILESTONE = "none";
 
 const FILTER_POPOVER_STYLES = {
-  container: { padding: 0 },
+  container: {
+    padding: 0,
+    background: "transparent",
+    border: "none",
+    borderRadius: 12,
+    boxShadow: "none",
+  },
   content: { padding: 0, width: "288px" },
 };
 

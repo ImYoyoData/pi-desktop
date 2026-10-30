@@ -116,6 +116,13 @@
   background: var(--bg-sidebar);
 }
 
+.bottomActions {
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+  padding: 6px 8px 8px;
+}
+
 .topBtn {
   width: 100%;
   min-width: 0;

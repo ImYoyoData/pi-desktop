@@ -8,10 +8,9 @@ import type { UiLocale } from "@renderer/i18n";
 
 export type ResolvedTheme = "light" | "dark";
 
-const fontFamily =
-  '-apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Helvetica Neue", Helvetica, Arial, sans-serif';
-const fontFamilyMono =
-  'Consolas, "Courier New", Menlo, Monaco, "SF Mono", "JetBrains Mono", "Fira Code", "PingFang SC", "Microsoft YaHei", monospace';
+// 字体栈由 appearance store 写到根变量，antd 组件跟随同一份设置。
+const fontFamily = "var(--font-ui)";
+const fontFamilyMono = "var(--font-mono)";
 
 const sharedToken = {
   borderRadius: 4,

@@ -9,7 +9,7 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 import { Alert, Button, Empty, Spin, Typography } from "antd";
-import { fontSizePx, fontSizeRem } from "../../../shared/appearance";
+import { fontSizePx, fontSizeRem, resolveMonoFontStack } from "../../../shared/appearance";
 import {
   ChatbubbleEllipsesOutline,
   FolderOpenOutline,
@@ -379,7 +379,7 @@ export const PreviewTab = forwardRef<PreviewTabHandle, Props>(function PreviewTa
         useShadowDOM: false,
         automaticLayout: true,
         fontSize: fontPx,
-        fontFamily: 'var(--font-mono), "Cascadia Code", Consolas, monospace',
+        fontFamily: resolveMonoFontStack(useAppearanceStore.getState().fonts),
         lineHeight: Math.round(fontPx * 1.6),
         minimap: { enabled: false },
         scrollBeyondLastLine: false,
@@ -759,8 +759,9 @@ export const PreviewTab = forwardRef<PreviewTabHandle, Props>(function PreviewTa
     editorRef.current?.updateOptions({
       fontSize: fontPx,
       lineHeight: Math.round(fontPx * 1.6),
+      fontFamily: resolveMonoFontStack(useAppearanceStore.getState().fonts),
     });
-  }, [appearance.fontSize]);
+  }, [appearance.fontSize, appearance.fonts]);
 
   useEffect(() => {
     if (active && currentPathRef.current) {
