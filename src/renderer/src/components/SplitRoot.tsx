@@ -116,11 +116,9 @@ export function SplitRoot(): React.ReactNode {
           maxSize={leftHidden ? 0 : PANE_MAX}
           className={leftHidden ? "pane-collapsed" : undefined}
         >
-          <Capsule>
-            <Suspense fallback={null}>
-              <SessionSidebar />
-            </Suspense>
-          </Capsule>
+          <Suspense fallback={null}>
+            <SessionSidebar />
+          </Suspense>
         </SplitPane>
 
         <SplitPane
@@ -154,11 +152,9 @@ export function SplitRoot(): React.ReactNode {
                   }
                   className={layout.editorMaximized ? "pane-collapsed" : undefined}
                 >
-                  <Capsule>
-                    <Suspense fallback={null}>
-                      <ChatPanel visible={chatVisible} />
-                    </Suspense>
-                  </Capsule>
+                  <Suspense fallback={null}>
+                    <ChatPanel visible={chatVisible} />
+                  </Suspense>
                 </SplitPane>
                 <SplitPane
                   size={bottomPanelSize}

@@ -1,4 +1,5 @@
 :global(.title-bar) {
+  position: relative;
   display: flex;
   align-items: center;
   height: 36px;
@@ -47,6 +48,7 @@
   align-items: center;
   gap: 6px;
   padding-left: 4px;
+  min-width: 0;
   color: var(--fg-strong);
 }
 
@@ -59,6 +61,59 @@
   font-weight: 600;
   font-size: 0.9615rem;
   letter-spacing: -0.01em;
+  white-space: nowrap;
+}
+
+/* 会话标题对齐到主区左端（侧栏右边界 + 16px） */
+.sessionTitle {
+  position: absolute;
+  top: 50%;
+  right: 200px;
+  translate: 0 -50%;
+  min-width: 0;
+  max-width: min(40vw, 320px);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--fg-strong);
+  font-size: 0.9615rem;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  /* 双击进入重命名，不能放在 drag 区域里，否则鼠标事件被窗口抢走 */
+  pointer-events: auto;
+  cursor: default;
+  -webkit-app-region: no-drag;
+}
+
+/* 重命名输入框：宽度随内容伸缩（field-sizing） */
+.sessionTitleInput {
+  position: absolute;
+  top: 50%;
+  right: 200px;
+  translate: 0 -50%;
+  min-width: 48px;
+  max-width: min(40vw, 320px);
+  padding: 2px 5px;
+  border: 1px solid var(--accent);
+  border-radius: 4px;
+  background: var(--bg-input);
+  color: var(--fg-strong);
+  font-family: inherit;
+  font-size: 0.9615rem;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  outline: none;
+  field-sizing: content;
+  -webkit-app-region: no-drag;
+}
+
+/* 侧栏收起时标题回落到品牌与面板按钮之后，不用绝对定位避免重叠 */
+.titleInFlow {
+  position: static;
+  right: auto;
+  top: auto;
+  translate: none;
+  margin-left: 10px;
 }
 
 .layoutControls {
@@ -104,6 +159,7 @@
   display: flex;
   align-items: center;
   gap: 2px;
+  flex-shrink: 0;
 }
 
 /* 有新版本时的标题栏入口：胶囊小按钮，鼠标悬停才显出底色。 */

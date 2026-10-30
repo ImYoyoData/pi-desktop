@@ -6,11 +6,6 @@
   background: var(--bg);
 }
 
-/* 统计条铺到面板底部，胶囊描边的底边会横穿它下面，聊天面板去掉这一条。 */
-:global(.pane-capsule) > .chatPanel {
-  border-bottom: 0;
-}
-
 /*
  * 消息区占位：懒加载完成前也撑满剩余高度，输入框从第一帧就贴住底部，
  * 不会等消息列表挂载后才从上往下落。
@@ -22,21 +17,13 @@
   flex-direction: column;
 }
 
+/* 重试提示条：标题已在窗口标题栏，这里只在重试时占一行。 */
 .chatPanelHead {
   display: flex;
   align-items: center;
-  justify-content: flex-end;
   gap: 8px;
-  height: 36px;
-  padding: 0 var(--chat-pad-x, 10px);
+  padding: 12px 16px 0;
   flex-shrink: 0;
-  border-bottom: 1px solid var(--border);
-}
-
-.title {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .tag {

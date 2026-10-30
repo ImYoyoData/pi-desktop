@@ -312,7 +312,6 @@ export const IpcChannels = {
 	},
 	update: {
 		getAppInfo: "update:getAppInfo",
-		openGithub: "update:openGithub",
 		openReleases: "update:openReleases",
 		openAuthorEmail: "update:openAuthorEmail",
 		/** Renderer → main: 读取当前更新状态。 */
